@@ -17,7 +17,9 @@
   UI.lockerTeamId = null;   // viewed locker
   UI._aiRead = null;        // {key, at, busy, error, mults:{name:{mult,why,proj,adj}}} — S5's AI read
   let schedule = null;
-  const REACTS = ["🔥", "💀", "😂", "🐐"];
+  // Item 10 (2026-08-08, no emoji in app chrome): reactions are text chips, not emoji glyphs —
+  // FIRE/DEAD/LOL/GOAT reads the same as the original  set without a single pictograph.
+  const REACTS = ["FIRE", "DEAD", "LOL", "GOAT"];
   const IMG_CAP = 80000; // ~80KB dataURL chars (design cap for chat images/logos)
 
   // ---------------- auto-checks throttle (perf) ----------------
@@ -125,7 +127,7 @@
     location.hash = "#locker=" + UI.lockerTeamId;
     UI.show("locker");
   };
-  // Reachable from the league home's 🏆 Playoffs card (S7) — same no-nav-entry-needed
+  // Reachable from the league home's  Playoffs card (S7) — same no-nav-entry-needed
   // posture as lockers.
   UI.openBracket = function () {
     location.hash = "#bracket";
@@ -154,7 +156,7 @@
     const h = D().S.health;
     const el = $("#healthChip");
     if (!el) return;
-    el.textContent = h.mode === "dual" ? "● live" : "⚠ " + h.note;
+    el.textContent = h.mode === "dual" ? "● live" : " " + h.note;
     el.className = "health " + (h.mode === "dual" ? "ok" : h.mode === "none" ? "bad" : "warn");
     el.hidden = false;
   }
@@ -179,7 +181,7 @@
   // ---------------- gate + claim ----------------
   function renderGate() {
     main().innerHTML = `<div class="card center">
-      <div class="logo">🐐</div><h1>The GFFL</h1>
+      <div class="logo"></div><h1>The GFFL</h1>
       <p class="mut">The Goat Fantasy Football League</p>
       <input id="gatePass" type="password" placeholder="league passphrase" autocomplete="off">
       <button id="gateGo" class="primary">Enter the league</button>
@@ -196,7 +198,7 @@
       <h2>Who are you?</h2><p class="mut">Claim your team — this device remembers.</p>
       <div id="claimList">${LG.teams.map((t) => `
         <button class="teamrow" data-tid="${t.id}">
-          ${t.logo ? `<img src="${esc(t.logo)}" alt="">` : "🏈"}
+          ${t.logo ? `<img src="${esc(t.logo)}" alt="">` : `<span class="logoph">${esc(initials(t.name))}</span>`}
           <span><b>${esc(t.name)}</b><br><small class="mut">${esc(t.owner || "")}${t.claimedBy ? " · claimed by " + esc(t.claimedBy) : ""}</small></span>
         </button>`).join("")}</div></div>`;
     document.querySelectorAll(".teamrow").forEach((b) => b.addEventListener("click", async () => {
@@ -213,6 +215,11 @@
   // ---------------- league home ----------------
   function teamStarters(teamId) {
     return (UI._rosters && UI._rosters[teamId] || []).filter((p) => p.slot !== "BENCH" && p.slot !== "IR");
+  }
+  // Item 3's matchup-page bench section — BENCH only (not IR, which doesn't score and isn't
+  // part of either team's week).
+  function teamBench(teamId) {
+    return (UI._rosters && UI._rosters[teamId] || []).filter((p) => p.slot === "BENCH");
   }
   function liveTotal(teamId) {
     const d = D();
@@ -232,10 +239,10 @@
   function renderFirstRun(repaint) {
     if (repaint && $("#firstImport")) return; // never churn the button under a tap
     main().innerHTML = `<div class="card center">
-      <div class="logo">🐐</div><h2>Welcome to the GFFL</h2>
+      <div class="logo"></div><h2>Welcome to the GFFL</h2>
       <p class="mut">The league isn't set up yet — the teams, rules and scoring
         all come in from the family's ESPN league in one step.</p>
-      <button id="firstImport" class="primary">⬇ Import the league from ESPN</button>
+      <button id="firstImport" class="primary">Import the league from ESPN</button>
       <p class="mut"><small>Commissioner PIN required. Everyone claims their team right after.</small></p></div>`;
     $("#firstImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
@@ -243,7 +250,7 @@
       await importFromEspn();
     });
   }
-  // 🏆 Power rankings card (plan §4.9): the LATEST finalized week's snapshot, ordered by rank,
+  //  Power rankings card (plan §4.9): the LATEST finalized week's snapshot, ordered by rank,
   // with a movement arrow against the PRIOR finalized week's own snapshot for the same team
   // (blank on week 1 — nothing to move against). Renders nothing at all until at least one week
   // is official — a ranking of an unplayed season would be meaningless.
@@ -262,26 +269,26 @@
       return `<div class="rowline"><span>#${r.rank} <span class="teamlink" data-locker="${r.teamId}">${logoTd(T)}${esc(T ? T.name : "?")}</span></span>
         <span>${move} <span class="mut small">${r.score}</span></span></div>`;
     }).join("");
-    return `<div class="card"><h2>🏆 Power rankings <span class="mut">— through week ${latest.week}</span></h2>${rows}</div>`;
+    return `<div class="card"><h2>Power rankings <span class="mut">— through week ${latest.week}</span></h2>${rows}</div>`;
   }
-  // 📈 Projection accuracy card (plan §5's scoreboard): our own running miss vs OUR pre-game
+  //  Projection accuracy card (plan §5's scoreboard): our own running miss vs OUR pre-game
   // snapshots. Never rendered as a comparison to ESPN — that data isn't logged (see the S5 plan
   // entry) — and never rendered at all until there's at least one real player-week to report,
   // so the card can never make an unbacked claim.
   function accuracyHtml(acc) {
     if (!acc) return "";
-    return `<div class="card"><h2>📈 Projection accuracy</h2>
+    return `<div class="card"><h2>Projection accuracy</h2>
       <p class="mut small">Our projections: avg miss ${acc.avg} pts/player over ${acc.n} player-week${acc.n === 1 ? "" : "s"}.</p></div>`;
   }
-  // 📜 Record book card (plan §4.8): collapsed by default so it doesn't crowd the home page —
+  //  Record book card (plan §4.8): collapsed by default so it doesn't crowd the home page —
   // champions, the biggest single-week score/blowout ever, best season PF, and the all-time
   // standings, all combined from imported ESPN history + this season's own finalized weeks.
   // Empty state (nothing imported, nothing finalized yet) points the commissioner at Rules.
   function recordBookHtml(rb) {
     if (!rb) return "";
     if (!rb.hasData) {
-      return `<div class="card"><details class="recordbook"><summary>📜 Record book</summary>
-        <p class="mut">No history imported yet.${isCommish() ? " Import it from the Rules page." : ""}</p></details></div>`;
+      return `<div class="card"><details class="recordbook"><summary>Record book</summary>
+        <p class="mut">No history imported yet.${isCommish() ? "Import it from the Rules page." : ""}</p></details></div>`;
     }
     const champRows = rb.champs.length
       ? rb.champs.map((c) => `<div class="fline">${c.season}: <span class="teamlink" data-locker="${c.teamId}">${esc(c.name)}</span></div>`).join("")
@@ -301,63 +308,63 @@
           ${LG.fmtPts(rb.bestSeasonPF.pf)} <span class="mut">(${rb.bestSeasonPF.season})</span></div>`
       : '<p class="mut small">—</p>';
     return `<div class="card"><details class="recordbook">
-      <summary>📜 Record book</summary>
-      <h2 class="small mut">🏆 Champions</h2>${champRows}
-      <h2 class="small mut">🔥 Highest single-week score ever</h2>${hwRow}
-      <h2 class="small mut">💥 Biggest blowout</h2>${bbRow}
-      <h2 class="small mut">📈 Best season, points for</h2>${pfRow}
-      <h2 class="small mut">🐐 All-time standings</h2>
+      <summary>Record book</summary>
+      <h2 class="small mut">Champions</h2>${champRows}
+      <h2 class="small mut">Highest single-week score ever</h2>${hwRow}
+      <h2 class="small mut">Biggest blowout</h2>${bbRow}
+      <h2 class="small mut">Best season, points for</h2>${pfRow}
+      <h2 class="small mut">All-time standings</h2>
       <div class="panner"><table class="tbl">
-        <thead><tr><th></th><th>Team</th><th class="num">W</th><th class="num">L</th><th class="num">PF</th><th class="num">🏆</th></tr></thead>
+        <thead><tr><th></th><th>Team</th><th class="num">W</th><th class="num">L</th><th class="num">PF</th><th class="num">Titles</th></tr></thead>
         <tbody>${rb.standings.map((s, i) => `<tr><td class="mut">${i + 1}</td>
             <td><span class="teamlink" data-locker="${s.teamId}">${esc(s.name)}</span></td>
             <td class="num">${s.w}</td><td class="num">${s.l}</td><td class="num">${s.pf.toFixed(1)}</td><td class="num">${s.titles}</td></tr>`).join("")}
         </tbody></table></div>
     </details></div>`;
   }
-  // 🔁 Recent moves card — the last 8 transactions-log sentences on the league home, so the
+  //  Recent moves card — the last 8 transactions-log sentences on the league home, so the
   // drama is visible without a dedicated trip to Moves. Reuses txSentence (defined further
   // down, in the Moves section) — same wording as the full log.
   function recentMovesHtml(tx) {
     const recent = (tx || []).slice(0, 8);
     return `<div class="card"><details class="collapsecard">
-      <summary>🔁 Recent moves</summary>
+      <summary>Recent moves</summary>
       ${recent.length ? recent.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${esc(txSentence(t))}</div>`).join("")
         : '<p class="mut">No moves yet.</p>'}
       <button id="recentMovesAll" class="mut">View all →</button>
     </details></div>`;
   }
-  // 💬 League chat card — the last 6 main-channel messages (sys posts included, since those
+  //  League chat card — the last 6 main-channel messages (sys posts included, since those
   // ARE the league's own timeline), collapsed the same way the record book is.
   function recentChatHtml(chat) {
     const recent = (chat || []).slice(-6);
     const line = (m) => {
-      if (m.sys) return `<div class="fline sys">📣 ${esc(m.text || "")}</div>`;
+      if (m.sys) return `<div class="fline sys">${esc(m.text || "")}</div>`;
       const who = (LG.teamById(m.teamId) || {}).name || m.who || "?";
       const body = m.text || (m.img ? "[photo]" : m.gif ? "[gif]" : "");
       return `<div class="fline"><b>${esc(who)}:</b> ${esc(body.slice(0, 120))}</div>`;
     };
     return `<div class="card"><details class="collapsecard">
-      <summary>💬 League chat</summary>
+      <summary>League chat</summary>
       ${recent.length ? recent.map(line).join("") : '<p class="mut">No messages yet — say hi!</p>'}
       <button id="recentChatOpen" class="mut">Open chat →</button>
     </details></div>`;
   }
-  // 🏆 Playoffs card (plan §4.10, S7): once the regular season has moved past week
+  //  Playoffs card (plan §4.10, S7): once the regular season has moved past week
   // seasonWeeks and there's no bracket yet, a prominent build prompt (commissioner-only
   // button, everyone else just sees it's coming); once a bracket exists, a quiet link
   // through to the bracket page — becomes the champion banner once one's crowned.
   function playoffsCardHtml(bracket, week, seasonWeeks, commish) {
     if (!bracket) {
       if (week <= seasonWeeks) return "";
-      return `<div class="card"><h2>🏆 Playoffs</h2>
+      return `<div class="card"><h2>Playoffs</h2>
         <p class="mut">The playoff bracket hasn't been built yet.</p>
-        ${commish ? '<button id="buildBracketBtn" class="primary">🏆 Build bracket</button>' : ""}</div>`;
+        ${commish ? '<button id="buildBracketBtn" class="primary">Build bracket</button>' : ""}</div>`;
     }
     const champTeam = bracket.champion != null ? LG.teamById(bracket.champion) : null;
-    return `<div class="card"><h2>🏆 Playoffs</h2>
-      ${champTeam ? `<p>🏆 <b>${esc(champTeam.name)}</b> are the ${bracket.season} GFFL Champions!</p>` : '<p class="mut">The bracket is set — best of luck.</p>'}
-      <button id="openBracketBtn">${champTeam ? "🏆 View the bracket" : "View the bracket →"}</button></div>`;
+    return `<div class="card"><h2>Playoffs</h2>
+      ${champTeam ? `<p> <b>${esc(champTeam.name)}</b> are the ${bracket.season} GFFL Champions!</p>` : '<p class="mut">The bracket is set — best of luck.</p>'}
+      <button id="openBracketBtn">${champTeam ? "View the bracket" : "View the bracket →"}</button></div>`;
   }
   async function renderLeague(repaint) {
     if (!LG.teams.length) { renderFirstRun(repaint); return; }
@@ -383,7 +390,7 @@
       return (B.w - A.w) || (B.pf - A.pf);
     });
     const finalizeBtn = (wkGames.length && isCommish() && !UI._weeklyDoc)
-      ? `<div class="rowline"><button id="finalizeBtn">✅ Finalize week ${UI.week}</button></div>` : "";
+      ? `<div class="rowline"><button id="finalizeBtn">Finalize week ${UI.week}</button></div>` : "";
     const noGamesMsg = !schedule ? `No schedule yet${isCommish() ? " — generate one in Rules" : ""}.`
       : UI.week > seasonWeeks ? "See the Playoffs card below." : "No games this week.";
     main().innerHTML = `
@@ -487,7 +494,7 @@
       ${isMine ? matchupHeroExtra(h, a) : ""}</button>`;
   }
 
-  // ---------------- 🏆 playoff bracket (plan §4.10, S7) ----------------
+  // ----------------  playoff bracket (plan §4.10, S7) ----------------
   // #bracket — 3 columns (mobile: stacked, via league.html's .bracketrounds media query),
   // one per playoff week: play-in + a bye list + consolation game A, semis + consolation game
   // B, championship + 3rd place + the Toilet Bowl's consolation game C. Every resolved game is
@@ -541,9 +548,9 @@
     const consR3 = bracket.rounds.r3.filter((g) => g.kind === "consolation");
 
     main().innerHTML = `
-      ${champTeam ? `<div class="champbanner">🏆 ${esc(champTeam.name)} — ${bracket.season} GFFL CHAMPIONS!</div>` : ""}
-      ${toiletTeam ? `<div class="toiletbanner">🚽 Toilet Bowl: ${esc(toiletTeam.name)}</div>` : ""}
-      <div class="card"><h2>🏆 Playoff bracket</h2>
+      ${champTeam ? `<div class="champbanner">${esc(champTeam.name)} — ${bracket.season} GFFL CHAMPIONS!</div>` : ""}
+      ${toiletTeam ? `<div class="toiletbanner">Toilet Bowl: ${esc(toiletTeam.name)}</div>` : ""}
+      <div class="card"><h2>Playoff bracket</h2>
         <div class="bracketrounds">
           <div class="bracketcol">
             <h2 class="small mut">Week ${sw + 1} — play-in</h2>
@@ -563,7 +570,7 @@
             ${champG ? gameHtml(champG) : ""}
             <h2 class="small mut">3rd place</h2>
             ${thirdG ? gameHtml(thirdG) : ""}
-            <h2 class="small mut">🚽 Toilet Bowl</h2>
+            <h2 class="small mut">Toilet Bowl</h2>
             ${consR3.map(gameHtml).join("") || '<p class="mut small">—</p>'}
           </div>
         </div>
@@ -577,7 +584,7 @@
     paintHealth();
   }
 
-  // ---------------- 🏈 Scores tab (item 5, 2026-08-08) ----------------
+  // ----------------  Scores tab (item 5, 2026-08-08) ----------------
   // Real-NFL + family-ESPN-fantasy scoreboard, Gridiron-style — the same idea as the standalone
   // Bucky sports app's score strip, folded into the league so nobody needs a second tab open.
   // NFL half: D.S.nflEvents (lg-data.js's pollScoreboard, extended) — the SAME public no-key
@@ -601,14 +608,39 @@
     if (!iso) return "";
     return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   }
-  function scoreRowHtml(e) {
+  // Item 2 (2026-08-08) — "MINE: N players · OPP: N players": how many of MY current-matchup
+  // starters, and how many of my OPPONENT's, play for either team in a given real NFL game.
+  // Computed off the SAME week-rosters cache every other view already loads (UI._rosters) — no
+  // extra network call. Returns null (renders nothing) when there's no logged-in team or no
+  // matchup this week; {mine,opp} otherwise, even when one side reads 0 — "your side has nobody
+  // in this game, but your opponent has 4" is exactly the useful case to still show.
+  UI._scoresMine = null; UI._scoresOpp = null; // team ids, set once per renderScores() mount
+  function gameMineOppCounts(e) {
+    if (UI._scoresMine == null && UI._scoresOpp == null) return null;
+    const d = D();
+    const ab1 = d.slpTeam((e.away && e.away.abbrev) || ""), ab2 = d.slpTeam((e.home && e.home.abbrev) || "");
+    if (!ab1 && !ab2) return null;
+    const inGame = (p) => { const t = d.slpTeam(p.team); return t === ab1 || t === ab2; };
+    const mine = UI._scoresMine != null ? teamStarters(UI._scoresMine).filter(inGame).length : 0;
+    const opp = UI._scoresOpp != null ? teamStarters(UI._scoresOpp).filter(inGame).length : 0;
+    return (mine || opp) ? { mine, opp } : null;
+  }
+  function scoreCardHtml(e) {
     const live = e.state === "in", done = e.state === "post";
-    const teamHtml = (t) => `<span class="gmteam"><b>${esc((t && t.abbrev) || "?")}</b>
-      ${live || done ? `<span class="gmpts">${esc((t && t.score) || "0")}</span>` : ""}</span>`;
-    const stateHtml = live ? `<span class="gmstate live">${esc(e.detail || ("Q" + e.period + " " + e.clock))}</span>`
-      : done ? '<span class="gmstate mut">Final</span>'
-      : `<span class="gmstate mut">${esc(kickTimeStr(e.date))}</span>`;
-    return `<div class="gmrow ${live ? "live" : ""}">${teamHtml(e.away)}<span class="mut small">@</span>${teamHtml(e.home)}${stateHtml}</div>`;
+    const teamHtml = (t) => `<span class="scteam"><b>${esc((t && t.abbrev) || "?")}</b>
+      ${live || done ? `<span class="scpts">${esc((t && t.score) || "0")}</span>` : ""}</span>`;
+    const stateHtml = live ? `<span class="scstate live">${esc(e.detail || ("Q" + e.period + " " + e.clock))}</span>`
+      : done ? '<span class="scstate mut">Final</span>'
+      : `<span class="scstate mut">${esc(kickTimeStr(e.date))}</span>`;
+    const net = e.broadcast ? `<span class="scnet">${esc(e.broadcast)}</span>` : "";
+    const spread = e.spread ? `<div class="scspread mut small">${esc(e.spread)}</div>` : "";
+    const mo = gameMineOppCounts(e);
+    const moLine = mo ? `<div class="scmine mut small">MINE: ${mo.mine} player${mo.mine === 1 ? "" : "s"} · OPP: ${mo.opp} player${mo.opp === 1 ? "" : "s"}</div>` : "";
+    return `<div class="sccard ${live ? "live" : ""}">
+      <div class="rowline">${net}${stateHtml}</div>
+      <div class="scteams">${teamHtml(e.away)}<span class="mut small">at</span>${teamHtml(e.home)}</div>
+      ${spread}${moLine}
+    </div>`;
   }
   function nflScoresHtml(events) {
     if (!events || !events.length) return '<p class="mut">No games this week.</p>';
@@ -620,7 +652,7 @@
       byDay.get(day).push(e);
     }
     return [...byDay.entries()].map(([day, list]) =>
-      `<div class="scoreday"><h2 class="small mut">${esc(day)}</h2>${list.map(scoreRowHtml).join("")}</div>`).join("");
+      `<div class="scoreday"><h2 class="small mut">${esc(day)}</h2><div class="scgrid">${list.map(scoreCardHtml).join("")}</div></div>`).join("");
   }
   // Degrades to hiding the card entirely on any failure (unconfigured league, expired cookie,
   // network hiccup) — the brief's spec, and matches how every other AI/fantasy card here degrades.
@@ -636,6 +668,20 @@
   UI.renderScores = renderScores;
   async function renderScores() {
     main().innerHTML = `<div class="card mut">Loading scores…</div>`;
+    // Item 2's "mine/opp" line needs this week's rosters — load once per mount (cheap, cached),
+    // never on every poll repaint (paintScores stays a pure re-render off what's already loaded).
+    if (!UI._rosters) await loadWeekRosters();
+    const myGame = await (async () => {
+      const mine = LG.myTeamId();
+      if (!mine) return null;
+      const wk = await LG.gamesForWeek(UI.week);
+      return wk.find(([h, a]) => h === mine || a === mine) || null;
+    })();
+    if (myGame) {
+      const mine = LG.myTeamId();
+      const [h, a] = myGame;
+      UI._scoresMine = mine; UI._scoresOpp = h === mine ? a : h;
+    } else { UI._scoresMine = null; UI._scoresOpp = null; }
     await loadFfScoreboard();
     paintScores();
     startScoresPoll();
@@ -647,7 +693,7 @@
   function paintScores() {
     const d = D();
     main().innerHTML = `
-      <div class="card"><div class="rowline"><h2>🏈 NFL this week</h2><span id="healthChip" class="health" hidden></span></div>
+      <div class="card"><div class="rowline"><h2>NFL this week</h2><span id="healthChip" class="health" hidden></span></div>
         ${nflScoresHtml(d.S && d.S.nflEvents)}
       </div>
       ${ffScoresHtml(UI._ffSb)}`;
@@ -700,6 +746,11 @@
     const liveIndicator = anyLive ? '<div class="mulive"><span class="dot"></span>Live</div>'
       : allDone ? '<div class="mulive done">Final</div>' : "";
     const rows = pairBySlots(as_, hs);
+    // Item 3 (2026-08-08): bench, in the same symmetric two-sided layout as the starters —
+    // paired by roster order (bench has no fixed slot names to line up by), padded to whichever
+    // side has more bench players so both columns stay the same length.
+    const aBench = teamBench(aId), hBench = teamBench(hId);
+    const benchRows = pairByIndex(aBench, hBench);
     const feed = d.S.events.filter((e) => e.msg || hKeys.includes(e.key) || aKeys.includes(e.key)).slice(0, 60);
     const threadKey = `w${UI.week}_${hId}-${aId}`;
     main().innerHTML = `
@@ -721,20 +772,31 @@
         ${h2hLine(UI._h2h, H, A)}
         <div class="rowline"><span id="healthChip" class="health" hidden></span></div>
       </div>
-      <div class="card"><div class="panner"><table class="tbl mutable"><tbody>
-        ${rows.map(([pa, slot, ph]) => `<tr>
-          <td class="pcell">${playerCell(pa, "left")}</td>
+      <div class="card"><div class="panner"><table class="tbl slottable mutable">
+        <tbody>${rows.map(([pa, slot, ph]) => `<tr>
+          <td class="pcell">${halfCell(pa, "left")}</td>
           <td class="slotcell">${esc(slot)}</td>
-          <td class="pcell right">${playerCell(ph, "right")}</td></tr>`).join("")}
-      </tbody></table></div></div>
+          <td class="pcell right">${halfCell(ph, "right")}</td></tr>`).join("")}</tbody>
+        <tfoot><tr class="totalrow">
+          <td class="pcell">${totalHalfCell(aTot, "left")}</td>
+          <td class="slotcell">TOT</td>
+          <td class="pcell right">${totalHalfCell(hTot, "right")}</td>
+        </tr></tfoot>
+      </table></div></div>
+      ${(aBench.length || hBench.length) ? `<div class="card"><h2>Bench</h2><div class="panner"><table class="tbl slottable benchtable"><tbody>
+        ${benchRows.map(([pa, ph]) => `<tr>
+          <td class="pcell">${halfCell(pa, "left")}</td>
+          <td class="slotcell">BENCH</td>
+          <td class="pcell right">${halfCell(ph, "right")}</td></tr>`).join("")}
+      </tbody></table></div></div>` : ""}
       <div class="card"><h2>The feed</h2><div id="mufeed">
         ${feed.length ? feed.map(feedLine).join("") : '<p class="mut">Quiet so far — events land here the moment a starter does anything.</p>'}
       </div></div>
-      <div class="card" id="aiReadCard"><h2>✨ AI read</h2>
-        <button id="aiReadBtn" ${UI._aiRead && UI._aiRead.busy ? "disabled" : ""}>${UI._aiRead && UI._aiRead.busy ? "Reading the game…" : "✨ Get an AI read"}</button>
+      <div class="card" id="aiReadCard"><h2>AI read</h2>
+        <button id="aiReadBtn" ${UI._aiRead && UI._aiRead.busy ? "disabled" : ""}>${UI._aiRead && UI._aiRead.busy ? "Reading the game…" : "Get an AI read"}</button>
         <div id="aiReadOut">${aiReadHtml()}</div>
       </div>
-      <div class="card"><h2>🗑️💬 Trash talk</h2>${chatWidgetHtml("muThread")}</div>`;
+      <div class="card"><h2>Trash talk</h2>${chatWidgetHtml("muThread")}</div>`;
     $("#aiReadBtn") && $("#aiReadBtn").addEventListener("click", () => askAiRead(hId, aId, hs, as_));
     wireLockerTaps();
     wireChat("muThread", threadKey);
@@ -743,7 +805,7 @@
     paintHealth();
   }
 
-  // ---------------- ✨ AI read (S5, plan §4.6's AI adjustment layer) ----------------
+  // ----------------  AI read (S5, plan §4.6's AI adjustment layer) ----------------
   // Button-triggered only — deliberately NOT auto-polling in v1 (preseason has no live data to
   // adjust against, and a matchup page that fires a Grok call every poll tick would spend real
   // money for nothing most of the season). One result is cached 5 minutes per matchup so a
@@ -762,7 +824,7 @@
     return entries.map(([name, m]) => {
       const projTxt = m.proj != null ? LG.fmtPts(m.proj) : "—";
       const adjTxt = m.adj != null ? LG.fmtPts(m.adj) : "—";
-      return `<div class="fline">✨ <b>${esc(name)}</b> proj ${projTxt} → <b>${adjTxt}</b>
+      return `<div class="fline"> <b>${esc(name)}</b> proj ${projTxt} → <b>${adjTxt}</b>
         <span class="delta ${m.mult >= 1 ? "up" : "down"}">×${m.mult.toFixed(2)}</span><br>
         <small class="mut">${esc(m.why)}</small></div>`;
     }).join("");
@@ -820,7 +882,7 @@
       UI._aiRead = { key, at: LG.now(), busy: false, error: null, mults };
     } catch (e) {
       UI._aiRead = { key, at: 0, busy: false, error: "AI read isn't available right now.", mults: null };
-      toast("✨ AI read isn't available right now.");
+      toast("AI read isn't available right now.");
     }
     if (UI.view === "matchup") renderMatchup(true);
   }
@@ -843,20 +905,53 @@
     const ta = new Set(), th = new Set();
     return slots.map((s) => [take(aList, s, ta), s, take(hList, s, th)]);
   }
-  function playerCell(p, side) {
-    if (!p) return '<span class="mut">—</span>';
-    const d = D();
-    const row = d.S.players.get(p.key);
-    const g = d.S.games.get(d.slpTeam(p.team));
-    const pts = row && row.pts != null ? row.pts : 0;
-    const proj = d.liveProj(p.key);
-    const state = !g ? "" : g.state === "in" ? `<span class="live">Q${g.period} ${esc(g.clock)}</span>` : g.state === "post" ? "Final" : esc(shortKick(g));
-    // Red zone marks the OFFENSE in the red zone — a D/ST row isn't on the field.
-    const rz = g && g.rz && g.state === "in" && p.pos !== "DST" ? " 🔴" : "";
-    const conflict = row && row.conflict ? " ⚠" : "";
-    const inner = `<b>${esc(p.name)}</b>${rz}${conflict}<br><small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${state}</small>`;
-    const nums = `<span class="pts">${LG.fmtPts(pts)}</span><small class="mut">proj ${LG.fmtPts(proj)}</small>`;
-    return side === "right" ? `<span class="pwrap right">${nums}<span>${inner}</span></span>` : `<span class="pwrap">${inner}${nums}</span>`;
+  // Item 3's bench section — bench has no fixed, enumerable slot names to line up by (unlike
+  // starterSlotList's roster.QB/RB/WR/... counts), so it's paired by roster ORDER instead, out
+  // to whichever side has more bench players — the shorter side's remaining rows render as
+  // "Empty" so both columns still stay the same length and line up row-for-row.
+  function pairByIndex(aList, hList) {
+    const n = Math.max(aList.length, hList.length);
+    const out = [];
+    for (let i = 0; i < n; i++) out.push([aList[i] || null, hList[i] || null]);
+    return out;
+  }
+  // Item 3 (2026-08-08) rebuild — a strict, symmetric slot-paired lineup grid (the ESPN
+  // head-to-head reference): name+meta on the OUTER edge of each half, points in a fixed-width
+  // column on the INNER edge (touching the slot badge) so both teams' point columns line up
+  // down the middle of the row regardless of name length on either side. An empty half (no
+  // player in that slot/bench row) renders the SAME two-line shape with a muted "Empty" — never
+  // a bare "—" — so the row's own height, and the two halves' alignment against each other,
+  // never depends on which side happens to be filled.
+  function halfCell(p, side) {
+    let infoHtml, ptsHtml;
+    if (!p) {
+      infoHtml = '<b class="mut">Empty</b><br><small class="mut">&nbsp;</small>';
+      ptsHtml = '<span class="pts mut">—</span><small class="mut">&nbsp;</small>';
+    } else {
+      const d = D();
+      const row = d.S.players.get(p.key);
+      const g = d.S.games.get(d.slpTeam(p.team));
+      const pts = row && row.pts != null ? row.pts : 0;
+      const proj = d.liveProj(p.key);
+      const state = !g ? "" : g.state === "in" ? `<span class="live">Q${g.period} ${esc(g.clock)}</span>` : g.state === "post" ? "Final" : esc(shortKick(g));
+      // Item 10 (no emoji in app chrome): red zone was " " — now a small CSS-drawn dot, not a
+      // pictograph. Conflict was " " — now a plain text badge.
+      // Red zone marks the OFFENSE in the red zone — a D/ST row isn't on the field.
+      const rz = g && g.rz && g.state === "in" && p.pos !== "DST" ? '<span class="rzdot" title="Red zone"></span>' : "";
+      const conflict = row && row.conflict ? '<span class="conflictflag" title="Sources disagree">CONFLICT</span>' : "";
+      infoHtml = `<b>${esc(p.name)}</b>${rz}${conflict}<br><small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${state}</small>`;
+      ptsHtml = `<span class="pts">${LG.fmtPts(pts)}</span><small class="mut">proj ${LG.fmtPts(proj)}</small>`;
+    }
+    const infoDiv = `<div class="pinfo">${infoHtml}</div>`, ptsDiv = `<div class="ppts">${ptsHtml}</div>`;
+    return `<div class="pcellgrid ${side}">${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
+  }
+  // The TOTAL row's own half-cell — deliberately NOT halfCell(), which resolves live points by
+  // looking a player up by KEY; a plain number has no key to look up.
+  function totalHalfCell(total, side) {
+    const infoHtml = '<b class="mut">TOTAL</b><br><small class="mut">&nbsp;</small>';
+    const ptsHtml = `<span class="pts">${LG.fmtPts(total)}</span><small class="mut">&nbsp;</small>`;
+    const infoDiv = `<div class="pinfo">${infoHtml}</div>`, ptsDiv = `<div class="ppts">${ptsHtml}</div>`;
+    return `<div class="pcellgrid ${side}">${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
   }
   function shortKick(g) {
     if (!g.kickoff) return "";
@@ -919,11 +1014,11 @@
         <div class="chatReplyPreview" id="${idPfx}ReplyPreview" hidden></div>
         <div class="chatPending" id="${idPfx}Pending" hidden></div>
         <div class="chatRow">
-          <button class="chaticon" id="${idPfx}ImgBtn" type="button" title="Add a photo">📷</button>
+          <button class="chaticon" id="${idPfx}ImgBtn" type="button" title="Add a photo">Photo</button>
           <input type="file" accept="image/*" class="chatFileInput" id="${idPfx}FileInput" hidden>
-          <button class="chaticon" id="${idPfx}MemeBtn" type="button" title="Recent images">🖼</button>
+          <button class="chaticon" id="${idPfx}MemeBtn" type="button" title="Recent images">Images</button>
           <button class="chaticon" id="${idPfx}GifBtn" type="button" title="Search GIFs">GIF</button>
-          <input class="chatText" id="${idPfx}Text" maxlength="500" placeholder="Say something…" autocomplete="off">
+          <textarea class="chatText" id="${idPfx}Text" maxlength="500" rows="1" placeholder="Say something…"></textarea>
           <button class="chatSend primary" id="${idPfx}Send" type="button">Send</button>
         </div>
       </div>`;
@@ -983,7 +1078,7 @@
     const el = $("#" + idPfx + "ReplyPreview");
     if (!el) return;
     el.hidden = false;
-    el.innerHTML = `<span class="mut small">↩ replying to <b>${esc(who)}</b>: ${esc(snippet.slice(0, 60))}</span> <button class="chatReplyX" type="button">✕</button>`;
+    el.innerHTML = `<span class="mut small">Replying to <b>${esc(who)}</b>: ${esc(snippet.slice(0, 60))}</span> <button class="chatReplyX" type="button">✕</button>`;
     el.querySelector(".chatReplyX").addEventListener("click", () => clearReplyPreview(idPfx));
   }
   function clearReplyPreview(idPfx) {
@@ -1014,7 +1109,16 @@
     let r;
     try { r = await lgFn("lg_gif_search", { q }); } catch (e) { r = null; }
     if (!$("#" + idPfx + "GifGrid")) return; // widget torn down mid-search
-    if (!r || !r.ok) { grid.innerHTML = '<p class="mut small">GIF search isn\'t available right now.</p>'; return; }
+    // Item 4 (2026-08-08): a transient failure (network blip, a non-2xx from Tenor) is never
+    // silent — a friendly inline message with a real retry affordance, re-running the exact
+    // same search. "gif-not-configured" is handled entirely by ensureGifAvailability (hides the
+    // button before this ever runs), so any {ok:false} reaching here IS a transient one.
+    if (!r || !r.ok) {
+      grid.innerHTML = '<p class="mut small">GIF search hiccuped — try again. <button type="button" class="gifRetry">Retry</button></p>';
+      const retryBtn = grid.querySelector(".gifRetry");
+      if (retryBtn) retryBtn.addEventListener("click", () => runGifSearch(idPfx));
+      return;
+    }
     const gifs = r.gifs || [];
     grid.innerHTML = gifs.length
       ? gifs.map((g, i) => `<button class="gifThumb" type="button" data-gi="${i}"><img src="${esc(g.preview)}" loading="lazy" alt=""></button>`).join("")
@@ -1056,7 +1160,7 @@
   function chatMsgHtml(m, byId, tid) {
     if (m.sys) {
       const when = new Date(m.t).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
-      return `<div class="chatRowMsg" data-mid="${esc(m.id || "")}"><div class="chatSys">📣 ${esc(m.text || "")} <span class="mut small">${when}</span></div></div>`;
+      return `<div class="chatRowMsg" data-mid="${esc(m.id || "")}"><div class="chatSys">${esc(m.text || "")} <span class="mut small">${when}</span></div></div>`;
     }
     const mine = m.teamId === tid;
     const team = LG.teamById(m.teamId);
@@ -1064,7 +1168,7 @@
     const when = new Date(m.t).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
     const replied = m.replyTo && byId && byId.get && byId.get(m.replyTo);
     const replyBlock = replied
-      ? `<div class="chatQuote">↩ ${esc((LG.teamById(replied.teamId) || {}).name || replied.who || "?")}: ${esc((replied.text || (replied.img ? "[photo]" : replied.gif ? "[gif]" : "")).slice(0, 80))}</div>`
+      ? `<div class="chatQuote">${esc((LG.teamById(replied.teamId) || {}).name || replied.who || "?")}: ${esc((replied.text || (replied.img ? "[photo]" : replied.gif ? "[gif]" : "")).slice(0, 80))}</div>`
       : "";
     const imgSrc = m.img ? m.img : (m.gif ? (m.gif.preview || m.gif.url) : "");
     const imgFull = m.img ? m.img : (m.gif ? m.gif.url : "");
@@ -1077,8 +1181,8 @@
         ${imgSrc ? `<img class="chatImg" src="${esc(imgSrc)}" data-full="${esc(imgFull)}" loading="lazy" alt="">` : ""}
         <div class="chatActions">
           ${REACTS.map((e) => `<button class="chatReact" type="button" data-mid="${esc(m.id)}" data-e="${e}">${e}${((m.reactions || {})[e] || []).length ? " " + (m.reactions[e] || []).length : ""}</button>`).join("")}
-          <button class="chatReply" type="button" data-mid="${esc(m.id)}" title="Reply">↩</button>
-          ${canDelete ? `<button class="chatDel" type="button" data-mid="${esc(m.id)}" title="Delete">🗑</button>` : ""}
+          <button class="chatReply" type="button" data-mid="${esc(m.id)}" title="Reply">Reply</button>
+          ${canDelete ? `<button class="chatDel" type="button" data-mid="${esc(m.id)}" title="Delete">Delete</button>` : ""}
         </div>
       </div></div>`;
   }
@@ -1113,6 +1217,15 @@
     if (wasNearBottom) listEl.scrollTop = listEl.scrollHeight;
   }
   UI.refreshChatList = refreshChatList;
+  // Item 5 (2026-08-08): the composer is a <textarea> now — 1 row min, auto-grows to ~5 lines,
+  // then scrolls internally rather than pushing the page around. CHAT_TEXTAREA_MAX_PX is
+  // measured to ~5 lines at the composer's own font-size/line-height.
+  const CHAT_TEXTAREA_MAX_PX = 118;
+  function autoGrowChatText(el) {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, CHAT_TEXTAREA_MAX_PX) + "px";
+  }
   function wireChat(idPfx, thread) {
     const st = chatState(idPfx);
     st.replyTo = null; st.pendingImg = null; st.pendingGif = null;
@@ -1130,12 +1243,18 @@
       const r = await LG.postChat(payload);
       if (!r || !r.ok) { toast("Couldn't send that."); return; }
       textEl.value = "";
+      autoGrowChatText(textEl);
       clearPendingPreview(idPfx);
       clearReplyPreview(idPfx);
       await refreshChatList(idPfx, thread);
     };
     sendBtn.addEventListener("click", send);
-    textEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } });
+    // Enter sends (matches the old <input> behavior); Shift+Enter inserts a real newline —
+    // the textarea's own default keydown handling already does that, so Shift+Enter just
+    // needs to NOT be intercepted here.
+    textEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+    textEl.addEventListener("input", () => autoGrowChatText(textEl));
+    autoGrowChatText(textEl);
     const imgBtn = $("#" + idPfx + "ImgBtn"), fileInput = $("#" + idPfx + "FileInput");
     if (imgBtn && fileInput) {
       imgBtn.addEventListener("click", () => fileInput.click());
@@ -1302,7 +1421,7 @@
     const myTrades = (UI._trades || []).filter((tr) => (tr.from === tid || tr.to === tid) && (tr.status === "offered" || tr.status === "accepted"));
     const reviewTrades = (UI._trades || []).filter((tr) => tr.status === "accepted" && tr.from !== tid && tr.to !== tid);
 
-    const claimRow = (c) => `<div class="rowline"><span>🎯 ${esc(c.addName)} <span class="mut">(${esc(c.addPos)}·${esc(c.addTeam)})</span> ← drop ${esc(c.dropName || c.dropKey)} · $${c.bid}</span>
+    const claimRow = (c) => `<div class="rowline"><span>${esc(c.addName)} <span class="mut">(${esc(c.addPos)}·${esc(c.addTeam)})</span> ← drop ${esc(c.dropName || c.dropKey)} · $${c.bid}</span>
       <button class="mvcancel" data-cid="${esc(c.id)}">Cancel</button></div>`;
     const tradeRow = (tr) => {
       const mine = tr.from === tid;
@@ -1316,13 +1435,13 @@
       } else if (tr.status === "accepted") {
         actions = `<span class="mut small">reviews until ${new Date(tr.reviewEndsAt).toLocaleString()}</span>`;
       }
-      return `<div class="rowline"><span>🔁 You give ${esc(give)} → get ${esc(get)} <span class="mut">(${esc((LG.teamById(otherId) || {}).name || "?")}) · ${esc(tr.status)}</span></span>${actions}</div>`;
+      return `<div class="rowline"><span>You give ${esc(give)} → get ${esc(get)} <span class="mut">(${esc((LG.teamById(otherId) || {}).name || "?")}) · ${esc(tr.status)}</span></span>${actions}</div>`;
     };
     const reviewRow = (tr) => {
       const already = (tr.vetoes || []).includes(tid);
-      return `<div class="rowline"><span>⚖ ${esc((LG.teamById(tr.from) || {}).name)} ↔ ${esc((LG.teamById(tr.to) || {}).name)}
+      return `<div class="rowline"><span>${esc((LG.teamById(tr.from) || {}).name)} vs ${esc((LG.teamById(tr.to) || {}).name)}
         <span class="mut">· ${(tr.vetoes || []).length}/${LG.rules.trades.vetoVotes} vetoes</span></span>
-        ${already ? '<span class="mut small">voted</span>' : `<button class="mvveto" data-tid="${tr.id}">🚫 Veto</button>`}</div>`;
+        ${already ? '<span class="mut small">voted</span>' : `<button class="mvveto" data-tid="${tr.id}">Veto</button>`}</div>`;
     };
     const myResultsHtml = (() => {
       if (!UI._claims.processed) return "";
@@ -1331,7 +1450,7 @@
       if (!mine.length) return "";
       return `<h2 class="small mut">Your results — week ${UI._claims.week}</h2><div id="mvResults">` + mine.map((r) => {
         const c = claimsById.get(r.id);
-        return `<div class="fline">${r.ok ? "✅ Won " + esc(c.addName) + "!" : "❌ " + esc(c.addName) + ": " + esc(reasonLabel(r.reason))}</div>`;
+        return `<div class="fline">${r.ok ? "Won " + esc(c.addName) + "!" : "Missed " + esc(c.addName) + ": " + esc(reasonLabel(r.reason))}</div>`;
       }).join("") + "</div>";
     })();
 
@@ -1353,11 +1472,12 @@
         ${myResultsHtml}
       </div>
       <div class="card"><h2>Waivers</h2>
-        <div class="rowline"><span class="mut small">💰 $<span id="mvFaab">${LG.teamFaab(T)}</span> FAAB remaining</span>
-          ${isCommish() ? '<button id="mvProcessNow">⚙ Process now</button>' : ""}</div>
+        <div class="rowline"><span class="mut small">$<span id="mvFaab">${LG.teamFaab(T)}</span> FAAB remaining</span>
+          ${isCommish() ? '<button id="mvProcessNow">Process now</button>' : ""}</div>
         <p class="mut small">${past ? "Free agency is open — first come, first served." : "Claims process Wed 8:00 AM (" + new Date(LG.waiverDeadline(UI.week)).toLocaleString() + ")."}</p>
         <p class="mut small">Adding/dropping a player isn't locked by kickoff — only your starting lineup is.</p>
-        <input id="faSearch" placeholder="Search free agents…" autocomplete="off">
+        <div class="poschips" id="faPosChips">${["ALL", "QB", "RB", "WR", "TE", "K", "DST"].map((p) => `<button type="button" class="poschip" data-pos="${p}">${p}</button>`).join("")}</div>
+        <input id="faSearch" placeholder="Search free agents… (optional — browse below)" autocomplete="off">
         <div id="faResults"></div>
       </div>
       <div class="card"><h2>Propose a trade</h2>
@@ -1404,22 +1524,52 @@
       renderMoves();
     });
 
+    // ---------------- item 1: a real, browsable free-agent table ----------------
+    // Position chips + an now-OPTIONAL name search filter both feed the same table,
+    // sorted by Sleeper's own search_rank (best players first) — with NO query and
+    // NO position picked, this is a top-N BROWSE of the whole player pool, not just
+    // a search box that stays empty until someone types. faState lives in this
+    // renderMoves() closure (like UI._tradeGive/_tradeCp) — a chip tap or "show
+    // more" only ever rebuilds #faArea's own subtree, never a full renderMoves(),
+    // so the search box's focus/caret and the rest of the Moves page are untouched.
+    const faState = { q: "", pos: UI._faPos || "ALL", limit: 40 };
     const faInput = $("#faSearch");
-    faInput.addEventListener("input", () => {
-      const q = faInput.value.trim();
-      const el = $("#faResults");
-      if (q.length < 3) { el.innerHTML = ""; return; }
-      const list = D().searchFA(q, allOwnedKeys(), 20);
-      renderFaResults(list);
-    });
-    function renderFaResults(list) {
-      const el = $("#faResults");
-      if (list == null) { el.innerHTML = '<p class="mut">Player search is warming up — try again in a moment.</p>'; return; }
-      if (!list.length) { el.innerHTML = '<p class="mut">No matches.</p>'; return; }
-      el.innerHTML = list.map((p, i) => `<button class="swaprow" data-fi="${i}">
-          <b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${p.injury ? ' <span class="inj">' + esc(p.injury) + "</span>" : ""}</small></button>`).join("");
-      el.querySelectorAll("[data-fi]").forEach((b) => b.addEventListener("click", () => openClaimSheet(list[Number(b.dataset.fi)])));
+    function faResultsHtml(list) {
+      if (list == null) return '<p class="mut">Player search is warming up — try again in a moment.</p>';
+      if (!list.length) return '<p class="mut">No matches.</p>';
+      const rows = list.map((p, i) => {
+        const proj = D().projFor(p.key);
+        return `<tr data-fi="${i}">
+          <td class="faname"><b>${esc(p.name)}</b><br><small class="mut">${esc(p.team)}</small></td>
+          <td class="fapos"><span class="posbadge" data-pos="${esc(p.pos)}">${esc(p.pos)}</span>${p.injury ? ' <span class="inj">' + esc(p.injury) + "</span>" : ""}</td>
+          <td class="faproj num">${proj != null ? LG.fmtPts(proj) : "—"}</td>
+          <td class="faadd"><button type="button" class="faAddBtn">${past ? "Add" : "Claim"}</button></td>
+        </tr>`;
+      }).join("");
+      const more = list.length >= faState.limit ? '<button id="faMore" type="button" class="mut">Show more ↓</button>' : "";
+      return `<div class="panner"><table class="tbl faTable"><tbody>${rows}</tbody></table></div>${more}`;
     }
+    function refreshFa() {
+      const posChips = $("#faPosChips"), resEl = $("#faResults");
+      if (!posChips || !resEl) return;
+      const list = D().searchFA(faState.q, allOwnedKeys(), { limit: faState.limit, pos: faState.pos });
+      posChips.querySelectorAll(".poschip").forEach((b) => b.classList.toggle("on", b.dataset.pos === faState.pos));
+      resEl.innerHTML = faResultsHtml(list);
+      resEl.querySelectorAll("[data-fi]").forEach((tr) => tr.addEventListener("click", () => openClaimSheet(list[Number(tr.dataset.fi)])));
+      $("#faMore") && $("#faMore").addEventListener("click", () => { faState.limit += 40; refreshFa(); });
+    }
+    $("#faPosChips").querySelectorAll(".poschip").forEach((b) => b.addEventListener("click", () => {
+      faState.pos = b.dataset.pos; UI._faPos = faState.pos; faState.limit = 40; refreshFa();
+    }));
+    faInput.addEventListener("input", () => {
+      faState.q = faInput.value.trim(); faState.limit = 40; refreshFa();
+    });
+    refreshFa();
+    // The Sleeper directory (D.searchFA's backing data) often isn't warm yet at the
+    // moment Moves first mounts — searchFA returns null ("warming up") until it is.
+    // Since browsing is now the DEFAULT state (not something the family has to type
+    // into), repaint once it lands, but only if we're still looking at this page.
+    D().initSleeper().then(() => { if (UI.view === "moves") refreshFa(); }).catch(() => {});
     function openClaimSheet(fa) {
       const sheet = $("#claimSheet");
       const ros = myRoster;
@@ -1484,54 +1634,157 @@
     });
   }
 
-  // ---------------- rules ----------------
+  // ---------------- rules (item 7, 2026-08-08: reads like ESPN's settings page — grouped, plain
+  // English, no raw underscore rule codes anywhere in view mode) ----------------
   function isCommish() { return LG.commishUnlocked(); }
+  // RULE_LABELS is the ONE source of truth for every key in LG.DEFAULT_RULES — covers every
+  // group (scoring/roster/waivers/trades/keepers/playoffs), keyed exactly the way `data-k`
+  // already is ("<group>.<key>"), so the SAME map drives both the grouped view-mode headings
+  // and every edit-mode input's label.
+  const RULE_LABELS = {
+    "scoring.pass_yd": "Passing yards", "scoring.pass_td": "Passing TD", "scoring.pass_int": "Interception thrown",
+    "scoring.pass_2pt": "2-pt conversion (pass)", "scoring.bonus_pass_300": "300-399 yd passing game bonus",
+    "scoring.bonus_pass_400": "400+ yd passing game bonus",
+    "scoring.rush_yd": "Rushing yards", "scoring.rush_td": "Rushing TD", "scoring.rush_2pt": "2-pt conversion (rush)",
+    "scoring.bonus_rush_100": "100-199 yd rushing game bonus", "scoring.bonus_rush_200": "200+ yd rushing game bonus",
+    "scoring.rec": "Reception", "scoring.rec_yd": "Receiving yards", "scoring.rec_td": "Receiving TD",
+    "scoring.rec_2pt": "2-pt conversion (catch)", "scoring.bonus_rec_100": "100-199 yd receiving game bonus",
+    "scoring.bonus_rec_200": "200+ yd receiving game bonus",
+    "scoring.fg_0_39": "Field goal made, 0-39 yds", "scoring.fg_40_49": "Field goal made, 40-49 yds",
+    "scoring.fg_50": "Field goal made, 50+ yds", "scoring.fg_made_yd": "Field goal made (per yard)",
+    "scoring.fg_miss": "Field goal missed", "scoring.xp_made": "Extra point made", "scoring.xp_miss": "Extra point missed",
+    "scoring.dst_sack": "Sack", "scoring.dst_int": "Interception", "scoring.dst_fum_rec": "Fumble recovery",
+    "scoring.dst_td": "Defensive/return TD", "scoring.dst_safety": "Safety", "scoring.dst_blk": "Blocked kick",
+    "scoring.dst_2pt_ret": "2-pt return", "scoring.dst_pa_0": "0 points allowed", "scoring.dst_pa_1_6": "1-6 points allowed",
+    "scoring.dst_pa_7_13": "7-13 points allowed", "scoring.dst_pa_14_17": "14-17 points allowed",
+    "scoring.dst_pa_18_27": "18-27 points allowed", "scoring.dst_pa_28_34": "28-34 points allowed",
+    "scoring.dst_pa_35_45": "35-45 points allowed", "scoring.dst_pa_46": "46+ points allowed",
+    "scoring.fum_lost": "Fumble lost", "scoring.off_fum_td": "Offensive fumble return TD",
+    "scoring.one_pt_safety": "1-pt safety",
+    "roster.QB": "Starting QBs", "roster.RB": "Starting RBs", "roster.WR": "Starting WRs", "roster.TE": "Starting TEs",
+    "roster.FLEX": "Starting FLEX spots", "roster.DST": "Starting D/ST", "roster.K": "Starting kickers",
+    "roster.BENCH": "Bench spots", "roster.IR": "IR spots",
+    "waivers.type": "Waiver type", "waivers.budget": "FAAB budget ($)",
+    "waivers.processDow": "Claims process on (0=Sun...6=Sat)", "waivers.processHour": "Claims process at (hour, 24h)",
+    "trades.reviewHours": "Trade review window (hours)", "trades.veto": "Veto method",
+    "trades.vetoVotes": "Votes needed to veto", "trades.deadlineWeek": "Trade deadline (week)",
+    "keepers.max": "Max keepers", "keepers.costRoundsEarlier": "Keeper cost — rounds earlier than drafted",
+    "keepers.costFloor": "Keeper cost — floor round", "keepers.maxYears": "Max consecutive years kept",
+    "keepers.waiverCost": "Waiver-pickup keeper cost", "keepers.mustBeOnFinalRoster": "Must be on final roster",
+    "playoffs.teams": "Playoff teams", "playoffs.startWeek": "Playoffs start (week)", "playoffs.byes": "First-round byes",
+  };
+  const SCORING_GROUPS = [
+    { title: "Passing", keys: ["pass_yd", "pass_td", "pass_int", "pass_2pt", "bonus_pass_300", "bonus_pass_400"] },
+    { title: "Rushing", keys: ["rush_yd", "rush_td", "rush_2pt", "bonus_rush_100", "bonus_rush_200"] },
+    { title: "Receiving", keys: ["rec", "rec_yd", "rec_td", "rec_2pt", "bonus_rec_100", "bonus_rec_200"] },
+    { title: "Kicking", keys: ["fg_0_39", "fg_40_49", "fg_50", "fg_made_yd", "fg_miss", "xp_made", "xp_miss"] },
+    { title: "Defense / Special Teams", keys: ["dst_sack", "dst_int", "dst_fum_rec", "dst_td", "dst_safety", "dst_blk", "dst_2pt_ret"] },
+    { title: "Misc", keys: ["fum_lost", "off_fum_td", "one_pt_safety"] },
+  ];
+  // Points-allowed brackets are a structured VALUE TABLE, not a list of optional bonuses — a
+  // bracket sitting at 0 ("18-27 points allowed → 0") is a real, meaningful breakpoint, so
+  // unlike the rest of Scoring these are NEVER hidden at zero (the "noise" rule below is
+  // deliberately scoped to SCORING_GROUPS only).
+  const PA_BRACKETS = ["dst_pa_0", "dst_pa_1_6", "dst_pa_7_13", "dst_pa_14_17", "dst_pa_18_27", "dst_pa_28_34", "dst_pa_35_45", "dst_pa_46"];
+  const DOW_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const hour12 = (h) => (((h % 12) || 12) + (h < 12 ? " AM" : " PM"));
+  function rosterSummaryLine(r) {
+    const ro = r.roster || {};
+    const starters = ["QB", "RB", "WR", "TE", "FLEX"].map((k) => `${ro[k] || 0} ${k}`).concat([`${ro.DST || 0} D/ST`, `${ro.K || 0} K`]).join(", ");
+    return `${starters} · ${ro.BENCH || 0} bench · ${ro.IR || 0} IR`;
+  }
+  function waiversSummaryLine(r) {
+    const w = r.waivers || {};
+    return `FAAB $${w.budget}, claims process ${DOW_NAMES[w.processDow] || "?"} ${hour12(w.processHour)}, ties go to the worse record.`;
+  }
+  function tradesSummaryLine(r) {
+    const t = r.trades || {};
+    return `${t.reviewHours}h review, ${t.vetoVotes} votes veto, deadline week ${t.deadlineWeek}.`;
+  }
+  // Kept as the app's original plain-English keeper sentence, verbatim (item 7's own spec).
+  function keepersSummaryLine(r) {
+    const k = r.keepers || {};
+    return `keepers: max ${k.max}, cost = last round −${k.costRoundsEarlier} (floor R${k.costFloor}), ${k.maxYears} straight years max, waiver pickups cost your last pick`;
+  }
+  function playoffsSummaryLine(r) {
+    const p = r.playoffs || {};
+    const playIn = p.teams - p.byes;
+    const playInTxt = playIn === 2 ? `, ${p.byes + 1}v${p.byes + 2} play-in` : "";
+    return `${p.teams}-team playoffs (top ${p.byes} get byes${playInTxt}) · starts week ${p.startWeek}, week-by-week single elimination.`;
+  }
+  function scheduleSummaryLine(r) { return `${r.seasonWeeks}-week regular season, double round robin.`; }
   UI.renderRules = renderRules;
-  async function renderRules() {
+  async function renderRules(editing) {
     const r = LG.rules;
     const doc = LG.rulesDoc || { v: 0, log: [] };
-    const sec = (title, obj, pfx) => `<div class="card"><h2>${title}</h2><div class="panner"><table class="tbl">
-      <tbody>${Object.keys(obj).map((k) => `<tr><td>${esc(k)}</td>
-        <td class="num"><span class="rv" data-k="${pfx}.${k}">${esc(String(obj[k]))}</span></td></tr>`).join("")}
-      </tbody></table></div></div>`;
+    // View-mode row: label + value only, never the raw key. Edit-mode row: label + a `.redit`
+    // input carrying the SAME data-k the save handler has always parsed — every key renders
+    // here, zero or not (item 7's "still present in edit mode").
+    const rowV = (group, key, obj) => `<tr><td>${esc(RULE_LABELS[group + "." + key] || key)}</td>
+      <td class="num">${esc(String(obj[key]))}</td></tr>`;
+    const rowE = (group, key, obj) => `<tr><td>${esc(RULE_LABELS[group + "." + key] || key)}</td>
+      <td class="num"><input class="redit" data-k="${group}.${key}" value="${esc(String(obj[key]))}"></td></tr>`;
+    const row = (group, key, obj) => (editing ? rowE : rowV)(group, key, obj);
+    const scoringGroupsHtml = SCORING_GROUPS.map((g) => {
+      const keys = editing ? g.keys : g.keys.filter((k) => Number(r.scoring[k]) !== 0);
+      if (!keys.length) return ""; // a fully-zero group (view mode only) contributes nothing, not an empty heading
+      return `<h2 class="small mut">${esc(g.title)}</h2><div class="panner"><table class="tbl">
+        <tbody>${keys.map((k) => row("scoring", k, r.scoring)).join("")}</tbody></table></div>`;
+    }).join("");
+    const paHtml = `<h2 class="small mut">Points allowed</h2><div class="panner"><table class="tbl">
+      <tbody>${PA_BRACKETS.map((k) => row("scoring", k, r.scoring)).join("")}</tbody></table></div>`;
+    const simpleSection = (title, summaryLine, group, obj) => `<div class="card"><h2>${esc(title)}</h2>
+      <p class="mut small">${esc(summaryLine)}</p>
+      ${editing ? `<div class="panner"><table class="tbl"><tbody>${Object.keys(obj).map((k) => row(group, k, obj)).join("")}</tbody></table></div>` : ""}</div>`;
     main().innerHTML = `
       <div class="card rowline"><h2>League rules <span class="mut">v${doc.v}</span></h2>
         <span>
-          <button id="rulesEdit">${isCommish() ? "✏️ Edit" : "🔒 Commissioner"}</button>
-          <button id="rulesImport" ${isCommish() ? "" : "hidden"}>⬇ Import from ESPN</button>
-          <button id="schedGen" ${isCommish() ? "" : "hidden"}>📅 ${schedule ? "Regenerate" : "Generate"} schedule</button>
-          <button id="rostersImport" ${isCommish() ? "" : "hidden"}>👥 Import ESPN rosters</button>
-          <button id="testRostersImport" ${isCommish() ? "" : "hidden"}>🧪 Import 2025 rosters (test run)</button>
-          <button id="historyImport" ${isCommish() ? "" : "hidden"}>📜 Import history</button>
+          <button id="rulesEdit">${isCommish() ? (editing ? "Save" : "Edit") : "Commissioner"}</button>
+          ${editing ? '<button id="rulesCancel">Cancel</button>' : ""}
+          <button id="rulesImport" ${isCommish() && !editing ? "" : "hidden"}>Import from ESPN</button>
+          <button id="schedGen" ${isCommish() && !editing ? "" : "hidden"}>${schedule ? "Regenerate" : "Generate"} schedule</button>
+          <button id="rostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import ESPN rosters</button>
+          <button id="testRostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import 2025 rosters (test run)</button>
+          <button id="historyImport" ${isCommish() && !editing ? "" : "hidden"}>Import history</button>
         </span></div>
-      ${isCommish() ? `<div class="card mut small">
-        <b>⬇ Import from ESPN</b> — rules, scoring, and the 8 teams, from the real live league.<br>
-        <b>👥 Import ESPN rosters</b> — this week's rosters, from the real live (${r.season}) league.<br>
-        <b>🧪 Import 2025 rosters (test run)</b> — the ${r.season} league is pre-draft (every roster
+      ${isCommish() && !editing ? `<div class="card mut small">
+        <b>Import from ESPN</b> — rules, scoring, and the 8 teams, from the real live league.<br>
+        <b>Import ESPN rosters</b> — this week's rosters, from the real live (${r.season}) league.<br>
+        <b>Import 2025 rosters (test run)</b> — the ${r.season} league is pre-draft (every roster
         empty) until the season starts; this seeds this week's rosters from the real, FINAL 2025
         season instead, so lineups/waivers/trades/scoring can be exercised against real players.
         Re-import real rosters once the ${r.season} draft has happened.<br>
-        <b>📜 Import history</b> — past seasons' standings/champions/scores, for the record book.
+        <b>Import history</b> — past seasons' standings/champions/scores, for the record book.
       </div>` : ""}
-      <div class="card mut small">${esc(r.name)} · season ${r.season} · ${r.seasonWeeks}-week regular season ·
-        FAAB $${r.waivers.budget} · ${r.playoffs.teams}-team playoffs (top ${r.playoffs.byes} get byes, 4v5 play-in) ·
-        keepers: max ${r.keepers.max}, cost = last round −${r.keepers.costRoundsEarlier} (floor R${r.keepers.costFloor}),
-        ${r.keepers.maxYears} straight years max, waiver pickups cost your last pick ·
-        trades: ${r.trades.reviewHours}h review, ${r.trades.vetoVotes} votes veto, deadline wk ${r.trades.deadlineWeek}</div>
-      ${sec("Scoring", r.scoring, "scoring")}
-      ${sec("Roster", r.roster, "roster")}
-      ${sec("Waivers", r.waivers, "waivers")}
-      ${sec("Trades", r.trades, "trades")}
-      ${sec("Keepers", r.keepers, "keepers")}
-      ${sec("Playoffs", r.playoffs, "playoffs")}
+      <div class="card mut small">${esc(r.name)} · season ${r.season} · ${scheduleSummaryLine(r)}</div>
+      <div class="card"><h2>Scoring</h2>${scoringGroupsHtml}${paHtml}</div>
+      ${simpleSection("Roster", rosterSummaryLine(r), "roster", r.roster)}
+      ${simpleSection("Waivers", waiversSummaryLine(r), "waivers", r.waivers)}
+      ${simpleSection("Trades", tradesSummaryLine(r), "trades", r.trades)}
+      ${simpleSection("Keepers", keepersSummaryLine(r), "keepers", r.keepers)}
+      ${simpleSection("Playoffs", playoffsSummaryLine(r), "playoffs", r.playoffs)}
       <div class="card"><h2>Change log</h2>${(doc.log || []).slice(-15).reverse().map((e) =>
         `<div class="fline sys"><span class="mut">${new Date(e.t).toLocaleString()}</span> <b>${esc(e.who)}</b><br>
          <small>${e.changes.map(esc).join("<br>")}</small></div>`).join("") || '<p class="mut">No changes yet.</p>'}</div>
       <div id="importOut"></div>`;
     $("#rulesEdit").addEventListener("click", async () => {
+      if (editing) {
+        const next = JSON.parse(JSON.stringify(LG.rules));
+        document.querySelectorAll(".redit").forEach((inp) => {
+          const [g, k] = inp.dataset.k.split(".");
+          const raw = inp.value.trim();
+          const num = Number(raw);
+          next[g][k] = raw !== "" && !isNaN(num) ? num : raw;
+        });
+        const changes = await LG.saveRules(next, LG.who());
+        toast(changes.length ? changes.length + " rule change(s) saved + logged." : "No changes.");
+        renderRules(false);
+        return;
+      }
       if (!(await LG.gateCommish())) return;
-      enterEdit();
+      renderRules(true);
     });
+    $("#rulesCancel") && $("#rulesCancel").addEventListener("click", () => renderRules(false));
     $("#rulesImport") && $("#rulesImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       await importFromEspn();
@@ -1556,26 +1809,6 @@
       if (!(await LG.gateCommish())) return;
       await importHistory();
     });
-    function enterEdit() {
-      document.querySelectorAll(".rv").forEach((el) => {
-        const v = el.textContent;
-        el.innerHTML = `<input class="redit" data-k="${el.dataset.k}" value="${esc(v)}">`;
-      });
-      $("#rulesEdit").textContent = "💾 Save";
-      $("#rulesEdit").replaceWith($("#rulesEdit").cloneNode(true));
-      $("#rulesEdit").addEventListener("click", async () => {
-        const next = JSON.parse(JSON.stringify(LG.rules));
-        document.querySelectorAll(".redit").forEach((inp) => {
-          const [g, k] = inp.dataset.k.split(".");
-          const raw = inp.value.trim();
-          const num = Number(raw);
-          next[g][k] = raw !== "" && !isNaN(num) ? num : raw;
-        });
-        const changes = await LG.saveRules(next, LG.who());
-        toast(changes.length ? changes.length + " rule change(s) saved + logged." : "No changes.");
-        renderRules();
-      });
-    }
   }
 
   // ---------------- lockers (plan §4.7) ----------------
@@ -1771,11 +2004,11 @@
           <span class="slotchip">${slot}</span>
           ${p ? `<span class="lname"><b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${injChip(d, p)}</small></span>
                  <span class="lpts">${LG.fmtPts((d.S.players.get(p.key) || {}).pts ?? 0)}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
-                 ${playerLocked(p) ? '<span class="lock">🔒</span>' : ""}`
+                 ${playerLocked(p) ? '<span class="lock">LOCKED</span>' : ""}`
               : '<span class="mut">empty</span>'}
         </button>`;
       rosterHtml = `
-        <div class="card"><h2>Lineup — week ${UI.week}</h2><p class="mut small">Tap a slot to swap. 🔒 = game started.</p>
+        <div class="card"><h2>Lineup — week ${UI.week}</h2><p class="mut small">Tap a slot to swap. LOCKED = game started.</p>
           <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i)).join("")}</div></div>
         <div class="card"><h2>Bench</h2><div id="lockerBench">${bench.length ? bench.map((p, i) => rowHtml("BENCH", p, i)).join("") : '<p class="mut">Empty bench.</p>'}</div></div>
         <div class="card"><h2>IR <span class="mut">(${ir.length}/${irMax})</span></h2>
@@ -1790,7 +2023,7 @@
     main().innerHTML = `
       <div class="lockerhead" style="${primary ? `background:${esc(primary)};` : ""}">
         <div class="lockerhead-inner">
-          ${logoSrc ? `<img class="lockerlogo" src="${esc(logoSrc)}" alt="">` : `<div class="lockerlogo lockerlogo-ph">🏈</div>`}
+          ${logoSrc ? `<img class="lockerlogo" src="${esc(logoSrc)}" alt="">` : `<div class="lockerlogo lockerlogo-ph">${esc(initials(T.name))}</div>`}
           <div class="lockerid">
             <h1 class="lockername">${esc(T.name)}</h1>
             <p class="lockermotto">${T.motto ? esc(T.motto) : (isOwner ? '<span class="mut">Add a motto →</span>' : "")}</p>
@@ -1798,9 +2031,9 @@
           </div>
         </div>
         ${isOwner ? `<div class="lockeredit">
-          <button id="lockerEditName">✏️ Name</button>
-          <button id="lockerEditMotto">✏️ Motto</button>
-          <button id="lockerEditLogo">🖼 Logo</button>
+          <button id="lockerEditName">Name</button>
+          <button id="lockerEditMotto">Motto</button>
+          <button id="lockerEditLogo">Logo</button>
           <input type="file" accept="image/*" id="lockerLogoInput" hidden></div>` : ""}
       </div>
       ${rosterHtml}
@@ -1808,7 +2041,7 @@
         <thead><tr><th>Wk</th><th>Opp</th><th class="num">Result</th></tr></thead>
         <tbody>${scheduleRows}</tbody></table></div></div>
       <div class="card"><h2>Transactions</h2>${teamTx.length ? teamTx.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${esc(txSentence(t))}</div>`).join("") : '<p class="mut">No moves yet.</p>'}</div>
-      ${banners.length ? `<div class="card"><h2>🏆 Championships</h2>${banners.map((c) => `<div class="fline">🏆 ${c.season}</div>`).join("")}</div>` : ""}
+      ${banners.length ? `<div class="card"><h2>Championships</h2>${banners.map((c) => `<div class="fline trophyline">${c.season}</div>`).join("")}</div>` : ""}
       <div class="card"><h2>Rivalries</h2>${rivalries.length ? `<div class="panner"><table class="tbl">
           <thead><tr><th>Opponent</th><th class="num">W</th><th class="num">L</th><th class="num">T</th></tr></thead>
           <tbody>${rivalries.map((r) => `<tr><td><span class="teamlink" data-locker="${r.id}">${esc(r.name)}</span></td>
@@ -1841,7 +2074,7 @@
       if (slot === "BENCH") cur = bench[idx];
       else if (slot === "IR") cur = ir[idx];
       else cur = (starters[idx] || {}).p || null;
-      if (cur && playerLocked(cur)) { toast("🔒 " + cur.name + "'s game already started."); return; }
+      if (cur && playerLocked(cur)) { toast(cur.name + "'s game already started."); return; }
       let cands;
       if (slot === "IR") cands = ros.filter((p) => p.slot !== "IR" && LG.irEligible((d.S.players.get(p.key) || {}).injury || p.injury) && !playerLocked(p));
       else if (slot === "BENCH") cands = []; // bench taps: move the player somewhere else via their target slot instead
@@ -1881,7 +2114,7 @@
         const room = (LG.rules.roster[toSlot] || 0) - occ.length;
         if (room <= 0) {
           const bumped = occ[occ.length - 1];
-          if (playerLocked(bumped)) { toast("🔒 " + bumped.name + " is locked in."); return; }
+          if (playerLocked(bumped)) { toast(bumped.name + " is locked in."); return; }
           bumped.slot = "BENCH";
         }
       }
@@ -1928,7 +2161,7 @@
     const changes = LG.diffRules(LG.rules, next);
     out.innerHTML = `<div class="card"><h2>ESPN import — ${esc(j.leagueName || "")} (${j.season})</h2>
       ${changes.length ? `<small>${changes.map(esc).join("<br>")}</small>` : '<p class="mut">Everything already matches.</p>'}
-      ${j.unmapped && j.unmapped.length ? `<p class="warn">⚠ Unmapped scoring items (review): ${esc(JSON.stringify(j.unmapped))}</p>` : '<p class="mut">Every ESPN scoring item mapped cleanly.</p>'}
+      ${j.unmapped && j.unmapped.length ? `<p class="warn">Unmapped scoring items (review): ${esc(JSON.stringify(j.unmapped))}</p>` : '<p class="mut">Every ESPN scoring item mapped cleanly.</p>'}
       <button id="importApply" class="primary">Apply</button></div>`;
     $("#importApply").addEventListener("click", async () => {
       await LG.saveRules(next, LG.who() + " (ESPN import)");
@@ -1975,7 +2208,7 @@
     const n = await applyImportedRosters(j);
     out.innerHTML = `<div class="card ok">Rosters imported for ${n} teams (week ${UI.week}).</div>`;
   }
-  // 🧪 Test-run rosters (2026-08-08): the real ${LG.rules.season} ESPN league is pre-draft
+  //  Test-run rosters (2026-08-08): the real ${LG.rules.season} ESPN league is pre-draft
   // (every roster empty) until the season starts, so there's nothing real to exercise lineups/
   // waivers/trades/scoring against yet. This seeds this week's GFFL rosters from the real,
   // FINAL 2025 season instead — same slotting logic, same wire shape, a completely separate
@@ -1987,7 +2220,7 @@
     try { j = await lgFn("lg_espn_rosters_season", { season: 2025 }); } catch (e) { j = { ok: false, reason: String(e) }; }
     if (!j.ok) { out.innerHTML = `<div class="card bad">Test import failed: ${esc(j.reason || "?")}</div>`; return; }
     const n = await applyImportedRosters(j);
-    out.innerHTML = `<div class="card ok">🧪 Test rosters imported from the real 2025 season for ${n} teams
+    out.innerHTML = `<div class="card ok">Test rosters imported from the real 2025 season for ${n} teams
       (week ${UI.week}). These are for testing — re-import real ${LG.rules.season} rosters once the
       season starts.</div>`;
   }

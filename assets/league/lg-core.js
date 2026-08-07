@@ -292,7 +292,7 @@
     try {
       if (changes.length) {
         const preview = changes.slice(0, 4).join("; ") + (changes.length > 4 ? "…" : "");
-        await LG.postSys(`📜 ${who || LG.who() || "The commissioner"} updated the rules (${changes.length}): ${preview}`);
+        await LG.postSys(`${who || LG.who() || "The commissioner"} updated the rules (${changes.length}): ${preview}`);
       }
     } catch (e) { /* chat is never load-bearing */ }
     return changes;
@@ -575,7 +575,7 @@
       if (txs.length) {
         const nm = (id) => (LG.teamById(id) || {}).name || ("Team " + id);
         const winners = txs.map((tx) => `${nm(tx.teamId)} added ${tx.detail.addName}`).join("; ");
-        await LG.postSys(`🎯 Waivers processed for week ${week}: ${txs.length} claim(s) won — ${winners}.`);
+        await LG.postSys(`Waivers processed for week ${week}: ${txs.length} claim(s) won — ${winners}.`);
       }
     } catch (e) { /* chat is never load-bearing */ }
 
@@ -650,7 +650,7 @@
       // Event post (plan §4.5).
       try {
         const nm = (tid) => (LG.teamById(tid) || {}).name || ("Team " + tid);
-        await LG.postSys(`🚫 Trade between ${nm(doc.from)} and ${nm(doc.to)} was vetoed by the league.`);
+        await LG.postSys(`Trade between ${nm(doc.from)} and ${nm(doc.to)} was vetoed by the league.`);
       } catch (e) { /* chat is never load-bearing */ }
     }
     return next;
@@ -690,7 +690,7 @@
     // Event post (plan §4.5) — same names the transactions log shows.
     try {
       const nm = (tid) => (LG.teamById(tid) || {}).name || ("Team " + tid);
-      await LG.postSys(`🔁 Trade: ${nm(fresh.from)} sent ${movedFrom.map((p) => (p ? p.name : "?")).join(", ")} to ${nm(fresh.to)} for ${movedTo.map((p) => (p ? p.name : "?")).join(", ")}.`);
+      await LG.postSys(`Trade: ${nm(fresh.from)} sent ${movedFrom.map((p) => (p ? p.name : "?")).join(", ")} to ${nm(fresh.to)} for ${movedTo.map((p) => (p ? p.name : "?")).join(", ")}.`);
     } catch (e) { /* chat is never load-bearing */ }
     return executed;
   };
@@ -1019,10 +1019,10 @@
 
     try {
       const lines = matchups.map((m) => `${fzTeamName(m.away)} ${LG.fmtPts(m.awayPts)} — ${LG.fmtPts(m.homePts)} ${fzTeamName(m.home)}`);
-      let msg = `📊 Week ${week} is official: ` + lines.join(" · ") + ".";
-      if (awards.topScore) msg += ` 🏅 Top score: ${fzTeamName(awards.topScore.teamId)} (${LG.fmtPts(awards.topScore.pts)}).`;
-      if (awards.bust) msg += ` 💀 Bust of the week: ${awards.bust.name} (${fzTeamName(awards.bust.teamId)}) — projected ${LG.fmtPts(awards.bust.proj)}, scored ${LG.fmtPts(awards.bust.actual)}.`;
-      if (awards.benchBlunder) msg += ` 🪑 Bench blunder: ${fzTeamName(awards.benchBlunder.teamId)} left ${LG.fmtPts(awards.benchBlunder.diff)} points on the bench.`;
+      let msg = `Week ${week} is official: ` + lines.join(" · ") + ".";
+      if (awards.topScore) msg += ` Top score: ${fzTeamName(awards.topScore.teamId)} (${LG.fmtPts(awards.topScore.pts)}).`;
+      if (awards.bust) msg += ` Bust of the week: ${awards.bust.name} (${fzTeamName(awards.bust.teamId)}) — projected ${LG.fmtPts(awards.bust.proj)}, scored ${LG.fmtPts(awards.bust.actual)}.`;
+      if (awards.benchBlunder) msg += ` Bench blunder: ${fzTeamName(awards.benchBlunder.teamId)} left ${LG.fmtPts(awards.benchBlunder.diff)} points on the bench.`;
       await LG.postSys(msg);
     } catch (e) { /* chat is never load-bearing */ }
 
@@ -1174,7 +1174,7 @@
       const byeLine = byeSeeds.length ? `Byes: ${byeSeeds.map(nm).join(", ")}. ` : "";
       const playInLine = playInGames.length
         ? playInGames.map((g) => `#${g.seedHome} ${nm(g.home)} vs #${g.seedAway} ${nm(g.away)}`).join(", ") + "." : "";
-      await LG.postSys(`🏆 The playoff bracket is set! ${byeLine}Play-in: ${playInLine}`);
+      await LG.postSys(`The playoff bracket is set! ${byeLine}Play-in: ${playInLine}`);
     } catch (e) { /* chat is never load-bearing */ }
     return { ok: true, ...doc };
   };
@@ -1267,8 +1267,8 @@
             await LG.loadTeams(); // refresh the in-memory cache so the trophy shows immediately (same posture as processWaivers' FAAB refresh)
           }
           try {
-            await LG.postSys(`🏆 ${nm(bracket.champion)} are the ${LG.SEASON} GFFL CHAMPIONS!`);
-            if (bracket.toilet != null) await LG.postSys(`🚽 ${nm(bracket.toilet)} finish the season in the Toilet Bowl basement. Wear it proudly.`);
+            await LG.postSys(`${nm(bracket.champion)} are the ${LG.SEASON} GFFL CHAMPIONS!`);
+            if (bracket.toilet != null) await LG.postSys(`${nm(bracket.toilet)} finish the season in the Toilet Bowl basement. Wear it proudly.`);
           } catch (e) { /* chat is never load-bearing */ }
         }
       }

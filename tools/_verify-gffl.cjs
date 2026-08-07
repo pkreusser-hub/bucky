@@ -38,7 +38,7 @@ function section(name) { console.log("\n== " + name + " =="); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------- fixtures ----------------
-const fixture = { phase: 1, sleeperDown: false, espnDown: false };
+const fixture = { phase: 1, sleeperDown: false, espnDown: false, tenorDown: false };
 
 // -- fake ESPN fantasy upstream (league.mjs import source) --
 function ffSettingsDoc() {
@@ -201,14 +201,33 @@ function startSportsFfUpstream() {
   return new Promise((r) => srv.listen(SPORTS_FF_PORT, "127.0.0.1", () => r(srv)));
 }
 
-// -- fake Tenor (S4 chat GIF search) — 2 fixture results, any query --
+// -- fake Tenor (S4/item 4 chat GIF search) — mirrors Tenor's REAL documented v2 /search
+// response shape (developers.google.com/tenor/guides/response-objects-and-errors), not just
+// the two fields the server happens to read: id/title/content_description/itemurl/url/tags/
+// flags/hasaudio/created + every OTHER media_formats size (gif/mediumgif/nanogif/tinygif/mp4/
+// webp/…), plus a top-level "next" pagination cursor. The point is a fixture that could only
+// pass if the server maps real Tenor fields correctly — a fixture shaped to match whatever the
+// server happens to read (and nothing else) proves nothing about the real integration.
+// fixture.tenorDown flips it to a transient 500 (item 4's "GIF search hiccuped" retry path).
 function startTenorUpstream() {
   const srv = http.createServer((req, res) => {
+    if (fixture.tenorDown) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "upstream unavailable" })); return; }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ results: [
-      { media_formats: { tinygif: { url: "http://tenor.test/goat1.gif" }, nanogif: { url: "http://tenor.test/goat1n.gif" } } },
-      { media_formats: { tinygif: { url: "http://tenor.test/goat2.gif" }, nanogif: { url: "http://tenor.test/goat2n.gif" } } },
-    ] }));
+    const gifResult = (n) => ({
+      id: "tid_" + n, title: "goat gif " + n, content_description: "a goat GIF, number " + n,
+      itemurl: "https://tenor.com/view/goat-" + n, url: "https://tenor.com/view/goat-" + n,
+      tags: ["goat", "gffl"], flags: [], hasaudio: false, created: 1700000000 + n,
+      media_formats: {
+        gif: { url: "http://tenor.test/goat" + n + ".gif", dims: [498, 372], size: 900000, duration: 0 },
+        mediumgif: { url: "http://tenor.test/goat" + n + "m.gif", dims: [300, 224], size: 400000, duration: 0 },
+        tinygif: { url: "http://tenor.test/goat" + n + ".gif", dims: [220, 164], size: 90000, duration: 0 },
+        nanogif: { url: "http://tenor.test/goat" + n + "n.gif", dims: [120, 90], size: 25000, duration: 0 },
+        mp4: { url: "http://tenor.test/goat" + n + ".mp4", dims: [498, 372], size: 300000, duration: 3.1 },
+        tinymp4: { url: "http://tenor.test/goat" + n + "t.mp4", dims: [220, 164], size: 60000, duration: 3.1 },
+        webp: { url: "http://tenor.test/goat" + n + ".webp", dims: [498, 372], size: 200000, duration: 0 },
+      },
+    });
+    res.end(JSON.stringify({ results: [gifResult(1), gifResult(2)], next: "0" }));
   });
   return new Promise((r) => srv.listen(TENOR_PORT, "127.0.0.1", () => r(srv)));
 }
@@ -253,10 +272,16 @@ function startXaiUpstream() {
 //   Team 1 total (dual OR either-source-alone) = 41.0 → p2 (espn leads) 48.2
 const KICK_FUTURE = "2027-01-01T01:00Z";
 function sbFix() {
+  // Item 2 (2026-08-08): broadcasts[0].names[0] + odds[0].details, the SAME real ESPN
+  // scoreboard fields netlify/functions/sports.mjs already reads for the standalone app's
+  // score strip — the live game carries a network only (odds markets are commonly gone once
+  // a game is underway), the upcoming one carries both a network and a spread.
   const mk = (id, awayAb, homeAb, state, extra) => ({
     id, shortName: awayAb + " @ " + homeAb, date: extra.date,
     competitions: [{
       status: { type: { state, shortDetail: extra.detail || "" }, period: extra.period || 0, displayClock: extra.clock || "" },
+      broadcasts: extra.net ? [{ names: [extra.net] }] : [],
+      odds: extra.spread ? [{ details: extra.spread }] : [],
       competitors: [
         { homeAway: "home", team: { abbreviation: homeAb }, score: extra.hs },
         { homeAway: "away", team: { abbreviation: awayAb }, score: extra.as },
@@ -264,8 +289,8 @@ function sbFix() {
     }],
   });
   return { events: [
-    mk("401900001", "DAL", "PHI", "in", { date: "2026-08-07T00:15Z", detail: "Q2 5:00", period: 2, clock: "5:00", hs: "14", as: "10" }),
-    mk("401900002", "KC", "DEN", "pre", { date: KICK_FUTURE, detail: "Sun 12:00 PM" }),
+    mk("401900001", "DAL", "PHI", "in", { date: "2026-08-07T00:15Z", detail: "Q2 5:00", period: 2, clock: "5:00", hs: "14", as: "10", net: "FOX" }),
+    mk("401900002", "KC", "DEN", "pre", { date: KICK_FUTURE, detail: "Sun 12:00 PM", net: "CBS", spread: "DEN -3.5" }),
   ] };
 }
 function ath(id, name, pos, stats) {
@@ -328,6 +353,13 @@ const slpPlayersFix = {
   "9007": { full_name: "S. Second", team: "DEN", position: "RB", espn_id: 111888 },
   "9101": { full_name: "Q. Rival", team: "DAL", position: "QB", espn_id: 222111 },
   "9102": { full_name: "X. Wideout", team: "PHI", position: "WR", espn_id: 222333 },
+  // Item 1 (2026-08-08): two genuinely UNROSTERED, non-D/ST free agents (no espn_id — proves
+  // the slp_<pid> key fallback still round-trips through the browse table) so the position-chip
+  // filter has more than one position to actually narrow between — without these, every free
+  // agent in this fixture happens to be a D/ST and the chips would only ever prove "empty vs.
+  // the same 2 rows".
+  "9201": { full_name: "F. Agent", team: "KC", position: "WR" },
+  "9202": { full_name: "A. Vail", team: "DEN", position: "K" },
   PHI: { first_name: "Philadelphia", last_name: "Eagles", team: "PHI", position: "DEF" },
   DAL: { first_name: "Dallas", last_name: "Cowboys", team: "DAL", position: "DEF" },
   KC: { first_name: "Kansas City", last_name: "Chiefs", team: "KC", position: "DEF" },
@@ -783,12 +815,39 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     ok(!!fgy && fgy.yd >= fgy.lo && fgy.yd <= fgy.hi,
       "ESPN scoring plays accumulate FG made YARDS within the distance-bucket bounds (" + JSON.stringify(fgy) + ")");
     ok(/Q2 5:00/.test(passerCell), "Passer cell carries the live clock");
-    ok(/🔴/.test(passerCell), "red-zone flag on the PHI starter (drive inside the 20)");
-    ok(!/⚠/.test(passerCell), "no conflict flag during ordinary live source lag");
+    // Restaged (item 3/10): red zone is a CSS-drawn dot now, not a 🔴 pictograph; conflict is a
+    // plain-text ".conflictflag" badge, not an ⚠ pictograph — same underlying signals, no emoji.
+    const passerHtml = await page.evaluate(() => {
+      const tr = [...document.querySelectorAll(".mutable tbody tr")].find((r) => r.textContent.includes("P. Passer"));
+      return tr ? tr.innerHTML : "";
+    });
+    ok(/class="rzdot"/.test(passerHtml), "red-zone flag on the PHI starter (drive inside the 20) — a CSS dot, not an emoji");
+    ok(!/class="conflictflag"/.test(passerHtml), "no conflict flag during ordinary live source lag");
     const remain = await page.evaluate(() => [...document.querySelectorAll(".muhteam")].map((e) => e.textContent).join("|"));
     ok(/4 to play · 5 live/.test(remain), "players-remaining clock: 4 to play · 5 live");
     const wp = await page.$eval(".wpfill", (e) => parseFloat(e.style.width));
     ok(wp >= 1 && wp < 40, "win-prob bar: away side trailing 4.0-41.0 reads a low chance (" + wp + "%)");
+    // Item 3 (2026-08-08): a strict, symmetric slot-paired grid — a TOTAL row at the bottom of
+    // the starters table (matching the header's own totals), and a Bench section paired by
+    // roster order. Team2 (away, "Rival") has NO bench players on file at all — that's the real
+    // test of the "Empty" placeholder: 3 bench rows exist (team1/home has 3), every one of them
+    // shows "Empty" on the away half and a real name on the home half, so both sides stay the
+    // SAME LENGTH and row-aligned even though one team has nobody on the bench.
+    const totalRow = await page.$eval(".totalrow", (el) => el.textContent.replace(/\s+/g, " ").trim());
+    ok(/4\.0/.test(totalRow) && /41\.0/.test(totalRow) && /TOTAL/.test(totalRow),
+      "a TOTAL row at the bottom of the lineup table carries both teams' totals (" + totalRow + ")");
+    const benchRows = await page.$$eval(".benchtable tbody tr", (els) => els.map((tr) => tr.textContent.replace(/\s+/g, " ").trim()));
+    ok(benchRows.length === 3, "bench section has exactly 3 rows — paired to the LONGER side (home's 3 bench players; away has none) (" + benchRows.length + ")");
+    ok(benchRows.every((t) => /Empty/.test(t)), "…every bench row's away half reads \"Empty\" (away has zero bench players) — never a bare dash (" + JSON.stringify(benchRows) + ")");
+    ok(/B\. Backup/.test(benchRows.join("|")) && /I\. Injured/.test(benchRows.join("|")) && /H\. Healthy/.test(benchRows.join("|")),
+      "…while the home half of each row shows the real bench player");
+    const benchHalfHeights = await page.evaluate(() => [...document.querySelectorAll(".benchtable tbody tr")].map((tr) => {
+      const cells = tr.querySelectorAll(".pcellgrid");
+      return Math.abs(cells[0].getBoundingClientRect().height - cells[1].getBoundingClientRect().height) <= 1;
+    }));
+    ok(benchHalfHeights.every(Boolean), "…and both halves of every bench row render the SAME height (Empty vs a real player) — equal-height, aligned rows");
+    const muScroll390 = await page.evaluate(() => ({ b: document.body.scrollWidth, w: window.innerWidth }));
+    ok(muScroll390.b <= muScroll390.w + 1, "the symmetric lineup grid fits 390px with no sideways scroll (" + muScroll390.b + "/" + muScroll390.w + ")");
     // Phase 2: ESPN reports new stats.
     fixture.phase = 2;
     await poll(page);
@@ -825,8 +884,9 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
       "the bottom-nav \"My Team\" button still lights up as active, even though the underlying view is \"locker\"");
     const starters = await page.$$eval("#lockerStarters .lrow", (els) => els.length);
     ok(starters === 9, "9 starter slots rendered");
+    // Restaged (item 10, no emoji in app chrome): the lock marker is plain text ("LOCKED") now.
     const locked = await page.$$eval(".lrow.locked", (els) => els.map((e) => e.textContent));
-    ok(locked.length === 5 && locked.every((t) => t.includes("🔒")), "5 starters locked (their game is live) with 🔒");
+    ok(locked.length === 5 && locked.every((t) => t.includes("LOCKED")), "5 starters locked (their game is live) with a LOCKED marker");
     ok(/0\/3/.test(await page.evaluate(() => document.body.textContent)), "IR shows 0/3 — the league's 3 IR spots");
     const tightRow = await page.evaluate(() => {
       const el = [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("T. Tight"));
@@ -835,7 +895,7 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     ok(/proj 8\.5/.test(tightRow), "projection column league-scored from Sleeper proj stats (TE 8.5)");
     // Locked tap refuses.
     await page.evaluate(() => { [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("P. Passer")).click(); });
-    ok(/🔒/.test(await text(page, "#toast")), "tapping a locked starter toasts instead of opening the sheet");
+    ok(/already started/.test(await text(page, "#toast")), "tapping a locked starter toasts instead of opening the sheet");
     // Injured bench player -> IR.
     await page.evaluate(() => { [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("I. Injured")).click(); });
     await page.waitForSelector(".swaprow", { timeout: 5000 });
@@ -888,9 +948,38 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     ok(/5-team playoffs \(top 3 get byes, 4v5 play-in\)/.test(summary), "summary: the decided 5-team playoff format");
     ok(/max 3, cost = last round −1/.test(summary), "summary: the family keeper rule from the draft app");
     ok(/48h review, 4 votes veto/.test(summary), "summary: ESPN-standard trade rules");
+    // Item 7 (2026-08-08): the whole page reads like ESPN's settings page — grouped, plain
+    // English, no raw underscore rule codes anywhere in view mode.
+    const RAW_KEYS = ["bonus_pass_300", "bonus_pass_400", "bonus_rush_100", "bonus_rec_200", "dst_pa_0", "dst_pa_18_27",
+      "pass_yd", "rush_yd", "rec_yd", "fg_0_39", "dst_sack", "off_fum_td", "one_pt_safety", "fg_made_yd", "processDow"];
+    ok(RAW_KEYS.every((k) => !summary.includes(k)), "no raw underscore/camelCase rule key is visible in view mode (" + RAW_KEYS.filter((k) => summary.includes(k)).join(",") + ")");
+    ok(/Passing yards/.test(summary) && /Passing TD/.test(summary) && /Interception thrown/.test(summary),
+      "Scoring → Passing subgroup renders plain-English labels");
+    ok(/Reception/.test(summary), "Scoring → Receiving subgroup renders (\"Reception\", not \"rec\")");
+    ok(/Field goal made, 0-39 yds/.test(summary), "Scoring → Kicking subgroup renders plain-English labels");
+    ok(/0 points allowed/.test(summary) && /1-6 points allowed/.test(summary), "Scoring → the points-allowed bracket table renders as readable ranges");
+    ok(/300-399 yd passing game bonus/.test(summary) === false, "a ZERO-valued scoring key (the 300-yd passing bonus, off by default) is hidden in view mode — noise");
+    ok(/Passing/.test(summary) && /Rushing/.test(summary) && /Receiving/.test(summary) && /Kicking/.test(summary) && /Defense \/ Special Teams/.test(summary),
+      "all the expected Scoring subgroup headings are present");
+    // Mirrors lg-ui.js's rosterSummaryLine() against DEFAULT_RULES.roster (QB1/RB2/WR2/TE1/
+    // FLEX1/DST1/K1/BENCH7/IR3) — a plain substring check (no regex metachars in this string).
+    ok(summary.replace(/\s+/g, " ").includes("1 QB, 2 RB, 2 WR, 1 TE, 1 FLEX, 1 D/ST, 1 K · 7 bench · 3 IR"),
+      "Roster renders as a derived plain-English lineup summary, not a key/value table");
+    ok(/claims process Wednesday 8 AM, ties go to the worse record/.test(summary), "Waivers renders in plain English (day name + 12h clock + tie rule)");
+    ok(/starts week 15, week-by-week single elimination/.test(summary), "Playoffs summary describes the week-by-week format");
+    ok(/14-week regular season, double round robin/.test(summary), "a Schedule section renders its own plain-English summary");
     // Edit (commissioner PIN prompt -> stub "1234" creates + unlocks).
     await clickIn(page, "#rulesEdit");
     await page.waitForSelector(".redit", { timeout: 5000 });
+    // Item 7: a ZERO-valued scoring key — hidden in view mode above — is still present and
+    // editable now that we're in edit mode, with the same friendly label (not the raw key).
+    const zeroKeyEdit = await page.evaluate(() => {
+      const inp = document.querySelector('.redit[data-k="scoring.bonus_pass_300"]');
+      return inp ? { present: true, value: inp.value, label: inp.closest("tr").firstElementChild.textContent } : { present: false };
+    });
+    ok(zeroKeyEdit.present && zeroKeyEdit.value === "0" && /300-399 yd passing game bonus/.test(zeroKeyEdit.label),
+      "the zero-valued 300-yd passing bonus IS editable once in edit mode, with its plain-English label (" + JSON.stringify(zeroKeyEdit) + ")");
+    ok(await page.evaluate(() => document.getElementById("rulesCancel") != null), "edit mode offers a Cancel button back to view");
     await page.evaluate(() => {
       const inp = [...document.querySelectorAll(".redit")].find((i) => i.dataset.k === "scoring.rec");
       inp.value = "0.5";
@@ -1177,6 +1266,76 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
 
   // ---- I: waivers (FAAB) — blind claims, tie-break, FAAB math, auto-process ----
   section("I · waivers — blind claims, FAAB bids, deadline, idempotency");
+  {
+    // I0 (item 1, 2026-08-08): a real, browsable free-agent table — position chips + an
+    // OPTIONAL search box, sorted by search_rank, both feeding one panner'd table. This
+    // fixture's whole unowned pool is exactly 4 players: KC D/ST, DEN D/ST (DST), F. Agent
+    // (WR, KC), A. Vail (K, DEN) — every other slpPlayersFix entry is already on team1's or
+    // team2's roster.
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faPosChips", { timeout: 9000 });
+    // Browse mode: no query typed at all — the table is populated by DEFAULT, not empty until
+    // someone types (the old behavior: nothing shown under 3 characters).
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
+    const browseNames = await page.$$eval("#faResults [data-fi]", (els) => els.map((e) => e.textContent));
+    ok(browseNames.length === 4, "browse mode (no query) lists all 4 unowned free agents by default (" + browseNames.length + ")");
+    ok(browseNames.some((t) => /KC D\/ST/.test(t)) && browseNames.some((t) => /DEN D\/ST/.test(t)) &&
+       browseNames.some((t) => /F\. Agent/.test(t)) && browseNames.some((t) => /A\. Vail/.test(t)),
+      "…and it's genuinely all four (both D/STs, the free WR, the free K)");
+    // Position chips narrow the SAME table without typing anything.
+    await clickIn(page, ".poschip", "WR");
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length === 1, { timeout: 5000 });
+    const wrOnly = await page.$$eval("#faResults [data-fi]", (els) => els.map((e) => e.textContent).join("|"));
+    ok(/F\. Agent/.test(wrOnly) && !/D\/ST/.test(wrOnly) && !/A\. Vail/.test(wrOnly), "WR chip narrows to exactly the one free WR (" + wrOnly + ")");
+    await clickIn(page, ".poschip", "K");
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length === 1, { timeout: 5000 });
+    ok(/A\. Vail/.test(await page.$eval("#faResults", (e) => e.textContent)), "K chip narrows to exactly the one free kicker");
+    await clickIn(page, ".poschip", "DST");
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length === 2, { timeout: 5000 });
+    const dstOnly = await page.$eval("#faResults", (e) => e.textContent);
+    ok(/KC D\/ST/.test(dstOnly) && /DEN D\/ST/.test(dstOnly) && !/F\. Agent/.test(dstOnly), "DST chip narrows to exactly the two free D/STs");
+    ok(await page.$eval('.poschip[data-pos="DST"]', (e) => e.classList.contains("on")), "the active chip carries the visual \"on\" state");
+    await clickIn(page, ".poschip", "ALL");
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length === 4, { timeout: 5000 });
+    ok(true, "ALL chip resets back to the full browse list");
+    // Every row shows a projection (or the honest "—" — none of this fixture's free agents has
+    // a Sleeper projection on file, so "—" IS the correct, exercised path here).
+    const projTexts = await page.$$eval("#faResults .faproj", (els) => els.map((e) => e.textContent.trim()));
+    ok(projTexts.length === 4 && projTexts.every((t) => t === "—"), "every browsed row renders a PROJ column (all \"—\" here — no projections on file for these four)");
+    // ADD works from browse mode too (not just after typing a search) — pre-deadline = a queued
+    // claim with a bid, exactly the same claim-sheet flow as a typed search.
+    await clickIn(page, "#faResults [data-fi]", "A. Vail");
+    await page.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
+    ok(/Claim A\. Vail/.test(await page.$eval("#claimSheet", (e) => e.textContent)), "tapping a browsed row (no search typed) opens the claim sheet for that player");
+    await clickIn(page, "#claimSheet [data-di]", "B. Backup");
+    await clickIn(page, "#claimGo");
+    await page.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent && document.querySelector("#mvMyClaims").textContent.includes("A. Vail"), { timeout: 5000 });
+    ok(true, "claiming straight from the browse table (pre-deadline) queues a claim exactly like a searched one");
+    // Post-deadline: ADD (not Claim) instant-adds, same as the old search-driven flow — proven
+    // once already for the search path in I1 below; here proven from browse mode specifically.
+    await page.evaluate((ts) => { window.__GFFL__.LG.nowOverride = ts; }, Date.now() + 365 * 24 * 3600 * 1000);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faPosChips", { timeout: 9000 });
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
+    const addBtnTxt = await page.$eval("#faResults .faAddBtn", (e) => e.textContent.trim());
+    ok(addBtnTxt === "Add", "past the waiver deadline the row button reads \"Add\", not \"Claim\"");
+    await clickIn(page, "#faResults [data-fi]", "F. Agent");
+    await page.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
+    await clickIn(page, "#claimSheet [data-di]", "H. Healthy");
+    await clickIn(page, "#claimGo");
+    await sleep(300);
+    const rosterAfterAdd = await page.evaluate(() => window.__GFFL__.LG.loadRoster(1, 1));
+    ok(rosterAfterAdd.some((p) => p.name === "F. Agent"), "instant ADD from browse mode (post-deadline) lands on the roster immediately");
+    await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
+    ok(errors.length === 0, "0 page errors through the browse/chip/ADD-and-CLAIM flow");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_moves_fa_390.png"), fullPage: true }); console.log("  📸 shots/gffl_moves_fa_390.png"); }
+    await ctx.close();
+  }
   {
     // I1: claim → MY PENDING on the claiming device; the other team's own
     // device (same underlying claims doc, seeded independently) never shows
@@ -1543,13 +1702,13 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
 
     // K3: reactions toggle on/off and render counts.
     const mid = await page1.evaluate(() => window.__GFFL__.LG.loadChat(null).then((m) => m.find((x) => x.text === "Hello league!").id));
-    await page1.evaluate((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="🔥"]`).click(), mid);
-    await page1.waitForFunction((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="🔥"]`).textContent.includes("1"), { timeout: 5000 }, mid);
+    await page1.evaluate((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="FIRE"]`).click(), mid);
+    await page1.waitForFunction((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="FIRE"]`).textContent.includes("1"), { timeout: 5000 }, mid);
     ok(true, "tapping a reaction toggles it on and the count renders");
-    const after1 = await page1.evaluate((id) => window.__GFFL__.LG.loadChat(null).then((m) => m.find((x) => x.id === id).reactions["🔥"]), mid);
+    const after1 = await page1.evaluate((id) => window.__GFFL__.LG.loadChat(null).then((m) => m.find((x) => x.id === id).reactions["FIRE"]), mid);
     ok(Array.isArray(after1) && after1.includes(1), "reaction doc carries the reacting team's id");
-    await page1.evaluate((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="🔥"]`).click(), mid);
-    await page1.waitForFunction((id) => !document.querySelector(`.chatReact[data-mid="${id}"][data-e="🔥"]`).textContent.includes("1"), { timeout: 5000 }, mid);
+    await page1.evaluate((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="FIRE"]`).click(), mid);
+    await page1.waitForFunction((id) => !document.querySelector(`.chatReact[data-mid="${id}"][data-e="FIRE"]`).textContent.includes("1"), { timeout: 5000 }, mid);
     ok(true, "tapping the same reaction again toggles it back off");
 
     // K4: reply renders a quote of the original.
@@ -1692,7 +1851,7 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     });
     ok(r.some((t) => /updated the rules/.test(t) && /scoring\.rec/.test(t)), "a rules save posts an event with the change summary (" + JSON.stringify(r) + ")");
     ok(r.some((t) => /Waivers processed/.test(t) && /KC D\/ST/.test(t)), "waiver processing posts a summary naming the winner");
-    ok(r.some((t) => /^🔁 Trade:/.test(t) && /W\. Receiver/.test(t)), "an executed trade posts the trade sentence with the real player names");
+    ok(r.some((t) => /^Trade:/.test(t) && /W\. Receiver/.test(t)), "an executed trade posts the trade sentence with the real player names");
     ok(r.some((t) => /vetoed by the league/.test(t)), "a vetoed trade posts its own event too");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
@@ -2257,8 +2416,11 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
     await page.waitForSelector(".lockerhead", { timeout: 9000 });
     const lockerText = await page.evaluate(() => document.body.textContent);
-    ok(/🏆 Championships/.test(lockerText) && /🏆 2023/.test(lockerText) && !/🏆 2024/.test(lockerText),
-      "Battle Kreussers' locker shows their 2023 title banner, and only that one");
+    // Restaged (item 10): the trophy banner rows carry a dedicated ".trophyline" class now (no
+    // leading emoji to anchor a regex on) — read those rows directly instead.
+    const trophyLines = await page.evaluate(() => [...document.querySelectorAll(".trophyline")].map((e) => e.textContent.trim()));
+    ok(/Championships/.test(lockerText) && trophyLines.includes("2023") && !trophyLines.includes("2024"),
+      "Battle Kreussers' locker shows their 2023 title banner, and only that one (" + JSON.stringify(trophyLines) + ")");
     const rivRows = await page.evaluate(() => {
       const h2 = [...document.querySelectorAll("h2")].find((h) => h.textContent === "Rivalries");
       return h2 ? [...h2.closest(".card").querySelectorAll("tbody tr")].map((r) => [...r.querySelectorAll("td")].map((td) => td.textContent.trim())) : null;
@@ -2291,7 +2453,7 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
     await page.waitForSelector(".lockerhead", { timeout: 9000 });
     const lockerEmptyText = await page.evaluate(() => document.body.textContent);
-    ok(!/🏆 Championships/.test(lockerEmptyText), "no championships card renders when nobody's won anything yet");
+    ok(!/Championships/.test(lockerEmptyText), "no championships card renders when nobody's won anything yet");
     ok(/No history against current opponents yet/.test(lockerEmptyText), "rivalries card shows the empty-history message");
     ok(errors.length === 0, "0 page errors on the empty-history state");
     await ctx.close();
@@ -2458,8 +2620,8 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
 
     const chatFinal = await page.evaluate(() => window.__GFFL__.LG.loadAllChat());
     ok(chatFinal.length === chatBeforeChamp + 2, "exactly 2 new chat messages posted (champion + Toilet Bowl)");
-    ok(chatFinal.some((m) => m.sys && /🏆 Battle Kreussers are the 2026 GFFL CHAMPIONS!/.test(m.text)), "…the champion announcement, by name");
-    ok(chatFinal.some((m) => m.sys && /🚽 End Zone Goats finish the season in the Toilet Bowl/.test(m.text)), "…and the Toilet Bowl announcement, by name");
+    ok(chatFinal.some((m) => m.sys && /^Battle Kreussers are the 2026 GFFL CHAMPIONS!/.test(m.text)), "…the champion announcement, by name");
+    ok(chatFinal.some((m) => m.sys && /^End Zone Goats finish the season in the Toilet Bowl/.test(m.text)), "…and the Toilet Bowl announcement, by name");
 
     // Idempotent: re-calling advanceBracket after the champion's crowned is a pure no-op —
     // no more chat, no re-write.
@@ -2498,7 +2660,8 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
     await page.waitForSelector(".lockerhead", { timeout: 9000 });
     const lockerTxt = await page.evaluate(() => document.body.textContent);
-    ok(/🏆 Championships/.test(lockerTxt) && /🏆 2026/.test(lockerTxt), "Battle Kreussers' locker shows the 2026 trophy right away");
+    const trophyLines2 = await page.evaluate(() => [...document.querySelectorAll(".trophyline")].map((e) => e.textContent.trim()));
+    ok(/Championships/.test(lockerTxt) && trophyLines2.includes("2026"), "Battle Kreussers' locker shows the 2026 trophy right away (" + JSON.stringify(trophyLines2) + ")");
 
     ok(errors.length === 0, "0 page errors through the full three-round advance + trophy + bracket-page flow");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_bracket_final_390.png"), fullPage: true }); console.log("  📸 shots/gffl_bracket_final_390.png"); }
@@ -2528,7 +2691,7 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await page.evaluate(() => window.__GFFL__.LG.gateCommish()); // create-on-first-use, consumes the stub prompt
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
     await page.waitForSelector("#buildBracketBtn", { timeout: 5000 });
-    ok(true, "once commissioner-unlocked, the 🏆 Playoffs card shows the 'Build bracket' button");
+    ok(true, "once commissioner-unlocked, the Playoffs card shows the 'Build bracket' button");
     await clickIn(page, "#buildBracketBtn");
     await page.waitForFunction(() => document.body.textContent.includes("View the bracket"), { timeout: 9000 });
     const built = await page.evaluate(() => window.__GFFL__.LG.loadBracket());
@@ -2748,9 +2911,9 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     ok(before === 12, "before import: the seeded week-1 roster has its usual 12 players");
     await page.evaluate(() => window.__GFFL__.UI.show("rules"));
     await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
-    ok(/👥 Import ESPN rosters/.test(await page.evaluate(() => document.body.textContent))
-      && /🧪 Import 2025 rosters \(test run\)/.test(await page.evaluate(() => document.body.textContent))
-      && /📜 Import history/.test(await page.evaluate(() => document.body.textContent)),
+    ok(/Import ESPN rosters/.test(await page.evaluate(() => document.body.textContent))
+      && /Import 2025 rosters \(test run\)/.test(await page.evaluate(() => document.body.textContent))
+      && /Import history/.test(await page.evaluate(() => document.body.textContent)),
       "Rules page presents all THREE importer buttons even before commissioner unlock (rendered `hidden`, not absent)");
     // Unlock commissioner status (stub prompt "1234" creates + unlocks, same as every other
     // commissioner action in this suite) — the explanatory paragraph below is itself gated on
@@ -2853,7 +3016,7 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     // Sys posts (e.g. an automatic announcement) are included, not filtered out — they ARE the
     // league's own timeline. finalizeWeek/advanceBracket post sys chat messages via LG.postSys;
     // trigger one cheaply here through that same real path.
-    await page.evaluate(() => window.__GFFL__.LG.postSys("🏆 A sys announcement"));
+    await page.evaluate(() => window.__GFFL__.LG.postSys("A sys announcement"));
     await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
     ok((await page.evaluate(() => document.body.textContent)).includes("A sys announcement"),
@@ -2887,17 +3050,33 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     ok((await page.evaluate(() => document.querySelector('.bnav button[data-v="scores"]').classList.contains("on"))),
       "the Scores nav button highlights as active");
     // NFL half: sbFix() has one LIVE game (DAL @ PHI) and one PRE game (KC @ DEN, next year) —
-    // grouped by day, since they fall on different calendar dates.
+    // grouped into day-CARDS (item 2's redesign — restaged from .gmrow "plain rows" to .sccard,
+    // the class/markup genuinely changed shape, the behaviors this section checks persist).
     const body = await page.evaluate(() => document.body.textContent);
-    const liveRowTxt = await page.$eval(".gmrow.live", (el) => el.textContent);
+    const liveRowTxt = await page.$eval(".sccard.live", (el) => el.textContent);
     ok(/DAL/.test(liveRowTxt) && /PHI/.test(liveRowTxt) && /10/.test(liveRowTxt) && /14/.test(liveRowTxt),
-      "live game (DAL @ PHI, 10-14) renders with both teams + both scores, scoped to its own row");
+      "live game (DAL @ PHI, 10-14) renders as a card with both teams + both scores, scoped to its own card");
     ok(/Q2 5:00/.test(liveRowTxt), "live game shows its in-progress clock/period, not a kickoff time");
-    ok((await page.$$eval(".gmrow.live", (els) => els.length)) === 1, "exactly one row is marked live (red-state CSS hook)");
+    ok((await page.$$eval(".sccard.live", (els) => els.length)) === 1, "exactly one card is marked live (red-state CSS hook)");
     ok(/KC/.test(body) && /DEN/.test(body), "upcoming game (KC @ DEN) renders too, not just the live one");
     const dayHeaders = await page.$$eval(".scoreday h2", (els) => els.map((e) => e.textContent));
     ok(dayHeaders.length === 2, "games group into 2 separate day headers — the live game and the future game fall on different calendar dates");
-    ok(!/Final/.test(await page.$eval(".gmrow.live", (el) => el.textContent)), "the live row itself doesn't say Final");
+    ok(!/Final/.test(await page.$eval(".sccard.live", (el) => el.textContent)), "the live card itself doesn't say Final");
+    // Item 2: TV network (broadcasts[0].names[0]) and betting line (odds[0].details) — both are
+    // real ESPN scoreboard fields (the SAME ones netlify/functions/sports.mjs already reads for
+    // the standalone app), display strings only.
+    ok(/FOX/.test(liveRowTxt), "live game shows its TV network (FOX)");
+    const upcomingTxt = await page.evaluate(() => [...document.querySelectorAll(".sccard")].find((c) => c.textContent.includes("KC")).textContent);
+    ok(/CBS/.test(upcomingTxt), "upcoming game shows its TV network (CBS)");
+    ok(/DEN -3\.5/.test(upcomingTxt), "upcoming game shows its betting line (DEN -3.5)");
+    ok(!/-3\.5/.test(liveRowTxt), "the live game (no odds in its fixture) shows no spread line of its own");
+    // Item 2: "MINE: N players · OPP: N players" — logged-in team is 1 (Battle Kreussers), this
+    // week's opponent is team 2 (from seedSchedule [[1,2],...]). DAL@PHI: team1 has 5 starters on
+    // DAL/PHI (Passer-PHI, Rusher-DAL, Receiver-PHI, PHI D/ST, Kicker-DAL), team2 has 3 (Rival-DAL,
+    // Wideout-PHI, DAL D/ST). KC@DEN: team1 has 4 (Tight-KC, Second/Two/Flexman-DEN), team2 has 0
+    // — still shown (a real "your opponent has nobody in this one" fact, not hidden as 0/0).
+    ok(/MINE: 5 players · OPP: 3 players/.test(liveRowTxt), "DAL@PHI mine/opp starter counts (5 vs 3) — " + liveRowTxt.replace(/\s+/g, " "));
+    ok(/MINE: 4 players · OPP: 0 players/.test(upcomingTxt), "KC@DEN mine/opp starter counts (4 vs 0), including a real zero — " + upcomingTxt.replace(/\s+/g, " "));
     // Fantasy half: the real deployed sports function's ff_scoreboard action, fixtured — 2
     // matchups, the family's own team (Battle Kreussers) among them.
     ok(/ESPN league \(live\)/.test(body), "ESPN fantasy scoreboard card is present, labeled per spec");
@@ -2933,6 +3112,231 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     ok(errors.length === 0, "0 page errors through the whole Scores tab flow");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_scores_390.png"), fullPage: true }); console.log("  📸 shots/gffl_scores_390.png"); }
     await ctx.close();
+  }
+  {
+    // Item 2: desktop (≥1024px) lays the day's games out as a genuine two-column card grid,
+    // not a single stacked column.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await clickIn(page, '.bnav button[data-v="scores"]');
+    await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+    const cols = await page.evaluate(() => {
+      const g = document.querySelector(".scgrid");
+      return g ? getComputedStyle(g).gridTemplateColumns.split(" ").length : 0;
+    });
+    ok(cols === 2, "desktop scgrid lays out in a real 2-column grid (gridTemplateColumns reports " + cols + " track(s))");
+    const scroll = await page.evaluate(() => ({ b: document.body.scrollWidth, w: window.innerWidth }));
+    ok(scroll.b <= scroll.w + 1, "no sideways scroll at 1440px (" + scroll.b + "/" + scroll.w + ")");
+    ok(errors.length === 0, "0 page errors on desktop scores");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_scores_desktop.png"), fullPage: true }); console.log("  📸 shots/gffl_scores_desktop.png"); }
+    await ctx.close();
+  }
+
+  section("T · nav — active-tab indicator centering (item 6) + Draft link (item 8)");
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    // Item 8: a Draft tab exists in the SAME bar, points at ffdraft.html, styled like the other
+    // tabs (never carries .on — it navigates away, it's never "the current view").
+    const draftLink = await page.evaluate(() => {
+      const a = document.querySelector(".bnav .bnavlink");
+      return a ? { href: a.getAttribute("href"), text: a.textContent.trim(), tag: a.tagName, hasOn: a.classList.contains("on") } : null;
+    });
+    ok(!!draftLink && draftLink.tag === "A" && draftLink.href === "ffdraft.html" && draftLink.text === "Draft" && !draftLink.hasOn,
+      "a Draft tab links straight to ffdraft.html, styled as a tab, never active (" + JSON.stringify(draftLink) + ")");
+    // Item 6: for two DIFFERENT tabs (different label widths — "League" vs "My Team"), the
+    // active-tab underline's own bounding box is centered under its label at 390px. The
+    // underline is a border-bottom on the button's OWN box, so its rendered rect === the
+    // button's rect; centering is proven by asserting the button's box is centered on the
+    // label's ACTUAL rendered text (measured via a Range, not just "the button looks centered").
+    async function indicatorCenterOffset(sel) {
+      return page.evaluate((sel) => {
+        const btn = document.querySelector(sel);
+        btn.click();
+        const bRect = btn.getBoundingClientRect();
+        const textNode = [...btn.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+        const range = document.createRange();
+        range.selectNodeContents(textNode);
+        const tRect = range.getBoundingClientRect();
+        return Math.abs((bRect.left + bRect.right) / 2 - (tRect.left + tRect.right) / 2);
+      }, sel);
+    }
+    const offLeague390 = await indicatorCenterOffset('.bnav button[data-v="league"]');
+    const offTeam390 = await indicatorCenterOffset('.bnav button[data-v="team"]');
+    ok(offLeague390 <= 2, "mobile: League tab's indicator is centered under its label (Δ" + offLeague390.toFixed(1) + "px)");
+    ok(offTeam390 <= 2, "mobile: My Team tab's indicator is centered under its label — a DIFFERENT label width (Δ" + offTeam390.toFixed(1) + "px)");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1280, height: 900 } });
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    async function indicatorCenterOffset(sel) {
+      return page.evaluate((sel) => {
+        const btn = document.querySelector(sel);
+        btn.click();
+        const bRect = btn.getBoundingClientRect();
+        const textNode = [...btn.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+        const range = document.createRange();
+        range.selectNodeContents(textNode);
+        const tRect = range.getBoundingClientRect();
+        return Math.abs((bRect.left + bRect.right) / 2 - (tRect.left + tRect.right) / 2);
+      }, sel);
+    }
+    const offLeagueDesk = await indicatorCenterOffset('.bnav button[data-v="league"]');
+    const offTeamDesk = await indicatorCenterOffset('.bnav button[data-v="team"]');
+    ok(offLeagueDesk <= 2, "desktop: League tab's indicator is centered under its label (Δ" + offLeagueDesk.toFixed(1) + "px)");
+    ok(offTeamDesk <= 2, "desktop: My Team tab's indicator is centered under its label (Δ" + offTeamDesk.toFixed(1) + "px)");
+    // Item 8: no clipped labels at 390px is desktop-irrelevant (the Draft tab is auto-width
+    // here), but confirm it's still present and reachable on desktop too.
+    ok(!!(await page.$(".bnav .bnavlink")), "Draft tab present on desktop too");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    // Item 8: the 8th tab must not clip any label at 390px (the mobile bar's tightest case).
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const clipped = await page.evaluate(() => [...document.querySelectorAll(".bnav button, .bnav .bnavlink")]
+      .filter((el) => el.scrollWidth > el.clientWidth + 1)
+      .map((el) => el.textContent.trim()));
+    ok(clipped.length === 0, "no clipped nav labels at 390px with the 8th (Draft) tab added (" + JSON.stringify(clipped) + ")");
+    const targets = await page.$$eval(".bnav button, .bnav .bnavlink", (els) => els.map((el) => el.getBoundingClientRect().height));
+    ok(targets.every((h) => h >= 44), "every nav tab (incl. Draft) keeps a ≥44px touch target (" + targets.join(",") + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  section("U · app-chrome emoji sweep (item 10) — every view, both rules modes, zero Extended_Pictographic characters in app-authored text");
+  {
+    // Renders each real view against a populated fixture and scans the rendered DOM text for
+    // ANY Unicode Extended_Pictographic character (the same property class \p{Extended_
+    // Pictographic} that the manual item-10 stripping pass hunted with, this time automated
+    // as a standing regression guard). Per the brief's own two suggested strategies, this
+    // combines both: (a) it strips the small, fixed set of containers that hold literal
+    // USER-TYPED free text (a chat message body, a quoted reply, an owner's motto, the poster's
+    // own identity name) — these are exempt by spec ("USER-TYPED chat content ... theirs") and
+    // can never be enumerated/guaranteed emoji-free by this suite; and (b) it strips every
+    // CURRENT team name at the TEXT level (not by selector) before scanning — team names
+    // recur in dozens of places (mucard, teamrow, lockername, standings, bracket rows,
+    // rivalries, and the sys-post/tx-log sentences that splice one into an otherwise fully
+    // app-authored sentence), so stripping by content rather than trying to enumerate every
+    // container is both more complete and more robust to future markup changes. sys chat
+    // posts, transaction-log sentences, banners, and award names are DELIBERATELY LEFT IN
+    // SCOPE (not stripped) — item 10 explicitly lists "sys chat posts" and "award names" among
+    // the strings that must be emoji-free; they only read clean here because the app-authored
+    // template TEXT around a spliced-in team name has already been hand-verified emoji-free
+    // (sections K/M/N/O's own assertions) and the fixture's own team names are plain ASCII.
+    async function sweep(page, label) {
+      const r = await page.evaluate(() => {
+        const clone = document.body.cloneNode(true);
+        clone.querySelectorAll(".chatText2, .chatQuote, .lockermotto, .chatMeta b, input, textarea, option").forEach((el) => el.remove());
+        let txt = clone.textContent || "";
+        const names = (window.__GFFL__.LG.teams || []).map((t) => t.name).filter(Boolean);
+        for (const n of names) txt = txt.split(n).join(" ");
+        const re = /\p{Extended_Pictographic}/gu;
+        const m = txt.match(re) || [];
+        let sample = "";
+        if (m.length) { const i = txt.indexOf(m[0]); sample = txt.slice(Math.max(0, i - 40), i + 40); }
+        return { chars: m, sample };
+      });
+      ok(r.chars.length === 0, label + ": 0 pictographic characters in app chrome" +
+        (r.chars.length ? " — found " + JSON.stringify(r.chars) + ' near "' + r.sample + '"' : ""));
+    }
+
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    // -------- page 1: league / matchup / moves (incl. the item-1 FA browse table + position
+    // chips) / chat (a real waiver-processed sys post) / rules (view AND edit mode) / both
+    // lockers (owner + non-owner) / scores / the bracket's default "not built yet" card. --------
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await sweep(page, "league home");
+
+      await clickIn(page, '.bnav button[data-v="matchup"]');
+      await page.waitForSelector(".muhrow", { timeout: 9000 }).catch(() => {});
+      await sweep(page, "matchup");
+
+      await clickIn(page, '.bnav button[data-v="moves"]');
+      await page.waitForSelector("#faPosChips", { timeout: 9000 });
+      await sweep(page, "moves (free agents, waivers, propose-a-trade, tx log)");
+
+      // A real claim + a real waiver process — exercises a genuine sys-chat announcement AND
+      // a real transaction-log sentence, not just the empty-state copy.
+      await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+        await LG.addClaim(UI.week, { id: "claim_sweep_1", teamId: 1, addKey: "slp_9201", addName: "F. Agent", addPos: "WR", addTeam: "KC", dropKey: "111333", dropName: "B. Backup", bid: 5, t: Date.now() });
+        await LG.processWaivers(UI.week);
+      });
+      await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+      await page.waitForSelector("#mvLog", { timeout: 9000 });
+      await sweep(page, "moves (after a real processed waiver — real tx log sentence)");
+
+      await clickIn(page, '.bnav button[data-v="chat"]');
+      await page.waitForSelector(".chatlist", { timeout: 9000 });
+      await sweep(page, "chat (incl. a real sys-posted waiver announcement)");
+
+      await clickIn(page, '.bnav button[data-v="rules"]');
+      await page.waitForSelector(".card", { timeout: 9000 });
+      await sweep(page, "rules (view mode — item 7's grouped plain-English summary)");
+      await clickIn(page, "#rulesEdit"); // commissioner PIN prompt -> stub "1234" creates + unlocks
+      await page.waitForSelector(".redit", { timeout: 9000 });
+      await sweep(page, "rules (EDIT mode — item 7's friendly labels on every input row)");
+      await clickIn(page, "#rulesCancel");
+      await page.waitForFunction(() => !document.querySelector(".redit"), { timeout: 5000 });
+
+      await page.evaluate(() => { window.__GFFL__.UI.lockerTeamId = window.__GFFL__.LG.myTeamId(); window.__GFFL__.UI.show("locker"); });
+      await page.waitForSelector(".lockerhead", { timeout: 9000 });
+      await sweep(page, "locker (own team — owner edit affordances + lineup)");
+
+      await page.evaluate(() => { window.__GFFL__.UI.lockerTeamId = 2; window.__GFFL__.UI.show("locker"); });
+      await page.waitForSelector(".lockerhead", { timeout: 9000 });
+      await sweep(page, "locker (someone else's team — read-only view)");
+
+      await clickIn(page, '.bnav button[data-v="scores"]');
+      await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+      await sweep(page, "scores (NFL slate + fantasy scoreboard/fallback card)");
+
+      await page.evaluate(() => window.__GFFL__.UI.show("bracket"));
+      await page.waitForSelector(".card", { timeout: 9000 });
+      await sweep(page, "bracket (default pre-season — \"hasn't been built yet\" card)");
+
+      ok(errors.length === 0, "0 page errors sweeping the whole general-fixture flow");
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_theme_league_390.png"), fullPage: true }); console.log("  📸 shots/gffl_theme_league_390.png"); }
+      await ctx.close();
+    }
+
+    // -------- page 2: a FULLY BUILT playoff bracket (byes/play-in/consolation labels,
+    // "Winner of #.../..." placeholders) — the champion/Toilet-Bowl banner strings themselves
+    // are already separately hand-verified emoji-free by section O's own assertions. --------
+    {
+      const { ctx, page, errors } = await newTestPage(browser, seedFor7Playoffs());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+        LG.nowOverride = start + 14 * 7 * 24 * 3600 * 1000 + 3600000; // 1h into week 15
+        window.__GFFL__.UI.week = LG.currentWeek();
+      });
+      await page.evaluate(() => window.__GFFL__.LG.buildBracket());
+      await page.evaluate(() => window.__GFFL__.UI.show("bracket"));
+      await page.waitForSelector(".bracketrounds", { timeout: 9000 });
+      await sweep(page, "bracket (fully built — byes, play-in, semis, consolation rounds)");
+      ok(errors.length === 0, "0 page errors sweeping the built bracket");
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_theme_bracket_390.png"), fullPage: true }); console.log("  📸 shots/gffl_theme_bracket_390.png"); }
+      await ctx.close();
+    }
   }
 
   await browser.close();
