@@ -1,7 +1,9 @@
-# 🐐 THE GOAT LEAGUE — plan of record for our own fantasy football app
+# 🐐 THE GOAT FANTASY FOOTBALL LEAGUE (GFFL) — plan of record
 
-Working title: **The GOAT League** (the family mascot is literally a goat; rename freely).
-Replaces the ESPN app for the 8-team "Nerd Fantasy Football League" (keeper, PPR).
+Name: **The Goat Fantasy Football League — the GFFL** (DECIDED 2026-08-07).
+Replaces the ESPN app for the 8-team league (keeper, PPR). This is the MAIN league,
+not a shadow (user call 2026-08-07; the shadow-season option in §8 stays on the table
+as a safety valve, but we build to run the real thing).
 This document is the plan of record; build entries get appended per stage like every
 other Bucky project.
 
@@ -96,8 +98,8 @@ changes apply from the NEXT unfinalized week so history never silently rewrites.
 The scoring engine reads this doc — nothing is hardcoded.
 
 ### 4.3 Weekly waivers
-- **Recommendation: FAAB** ($100 budget, blind bids, ties by reverse standings) — more
-  strategic and more fun than rolling priority; the rules doc supports both.
+- **DECIDED: FAAB, $100 budget** (blind bids, ties by reverse standings). The rules doc
+  still supports rolling priority as a knob, but FAAB is the league's system.
 - Claims open at kickoff lock, process **Wednesday 8 AM Central** (scheduled function,
   chorereminders pattern), results pushed + posted to chat. Free agency (first-come)
   after clears until Sunday lock.
@@ -166,10 +168,15 @@ dependency is over** — the cookie can die and the record book survives. Feeds:
 - Published Tuesday after finalization; lands in chat.
 
 ### 4.10 Playoffs & championship
-Rules-doc driven: default **4 teams, weeks 15–17** (semis + championship + 3rd place),
-options for 6-team with byes; seeding record → points-for. Consolation bracket for the
-rest, and a **Toilet Bowl** for last place (see 5). Bracket page with live matchup
-links; champion gets the banner, the trophy room entry, and a chat takeover.
+**DECIDED: 5 playoff teams** of 8, weeks 15–17, seeding by record → points-for:
+- **Week 15**: #4 vs #5 play-in; seeds 1–3 earn byes (a real reward for the regular
+  season — and the bye race stays alive to the last week).
+- **Week 16 semis**: #1 vs the play-in winner · #2 vs #3.
+- **Week 17**: Championship + 3rd-place game.
+- The other three teams play a consolation round robin, with the **Toilet Bowl**
+  crowning (dishonoring) last place in week 17.
+Bracket page with live matchup links; champion gets the banner, the trophy-room entry,
+and a chat takeover. All of it rules-doc driven so a future season can change format.
 
 ## 5 · Suggested additions (the "what am I missing")
 
@@ -208,28 +215,84 @@ scrimmage, season starts ~Sep 10)
 - **S7 — Playoffs, bracket, trophies** (needed by ~week 12, built earlier).
 - Draft room: already exists; wire its output into S1 rosters.
 
-## 7 · Costs & risks
+## 7 · Resilience — dual-source live stats with automatic pivot (USER PRIORITY)
+
+The one catastrophic in-season failure is a data source dying on a Sunday. The design
+makes EITHER source alone sufficient, and the pivot automatic:
+
+- **One normalized stat schema, two independent feeders.** Proven in fftest: the ESPN
+  box parser and the Sleeper normalizer already emit identical stat lines, and the
+  scoring engine never knows which source fed it. That property is load-bearing and
+  suite-enforced forever: any stat the rules doc can score MUST be derivable from BOTH
+  sources.
+- **Closing ESPN-only gaps AT BUILD TIME, not in an emergency** (S2 requirements):
+  D/ST scoring derived from ESPN's team box + scoring plays; 2-pt conversions and FG
+  distances parsed from ESPN's `scoringPlays` (both absent from its box score — the
+  fftest checklist finding). After that, ESPN-only mode scores everything.
+  Sleeper-only mode already scores everything; it just loses clock/possession/red-zone
+  chrome, which degrades the feed's flavor, never its numbers.
+- **Source-health state machine** (fftest's endpoint tracking, promoted): a source is
+  UNHEALTHY on consecutive HTTP failures, on parse-to-zero-players during a live game,
+  or on staleness (no stat movement for N minutes while the other source moves).
+  Modes: `dual` (normal — Sleeper authoritative for stats, ESPN for freshness + game
+  state) → `espn-only` / `sleeper-only` (automatic, banner shown: "running on ESPN
+  only — Sleeper unreachable since 3:42") → back to `dual` when health returns. No
+  human in the loop on a Sunday.
+- **Tertiary source**: ESPN's fantasy API (`lm-api-reads`, a different host and edge
+  than the site API) serves live actuals per player — already read by `ff_matchup`.
+  Third independent path if both primaries misbehave.
+- **Last resort**: last-known state clearly labeled STALE + commissioner manual score
+  entry (needed anyway for corrections). The league never shows silently-wrong numbers
+  — every degraded mode announces itself.
+- **Finalization stores BOTH raw snapshots** in the weekly doc and reports any
+  discrepancy > 0.5 pts to the commissioner before making the week official.
+- **Ops**: Sleeper + ESPN site API get rows in status.html's registry so Dad sees
+  provider health on the ops page, not just in-app.
+
+## 8 · Backups — league data can never be lost (USER PRIORITY)
+
+Layered, because the failure modes differ (bad write, accidental deletion, Firestore
+outage, a kid with devtools — the rules are public-with-a-secret like the rest of
+Bucky):
+
+- **The data model resists corruption first**: `lg_transactions` is APPEND-ONLY,
+  weekly finalized docs are WRITE-ONCE, the rules doc is versioned. Standings and
+  records are always re-derivable from the transaction log + weekly docs — there is
+  no single mutable doc whose loss loses the season.
+- **Nightly automated export**: a scheduled GitHub Action pulls every `lg_*`
+  collection via the Firestore REST API and stores the JSON as a workflow ARTIFACT
+  (90-day retention, free, private to the repo's Actions) — point-in-time restore
+  for the whole league, no server needed.
+- **Season archives in the repo**: monthly and at season's end, a slimmed export
+  (history, standings, transactions, weekly results — **never chat**: the repo is
+  public) is committed under `assets/league/archive/`. Championship history becomes
+  as durable as the code.
+- **One-tap commissioner backup**: "⬇ Download league backup" in commissioner tools
+  (the fftest export pattern) — Dad keeps local copies whenever he likes.
+- **Restore path built, not improvised**: `lg_restore` function action (commissioner
+  PIN, server-verified) loads any backup JSON back into Firestore. A backup you've
+  never restored from is a hope, not a backup — restoring into a `?fam=` test key is
+  part of the S1 verify suite.
+- **Test discipline**: every league suite runs against `?fam=` test keys with
+  Firebase blocked by default — the herd-duplication incidents are the house scar
+  tissue here; league data gets the same protections from day one.
+
+## 9 · Costs & other risks
 
 - **Running cost ≈ $0 + AI pennies**: Sleeper/ESPN keyless, Firestore free tier,
   Netlify existing, Grok/Sonnet on existing keys (~cents/week at family volume;
   usage lands in the existing dashboard buckets).
-- **Sleeper API is unofficial**: stable for years, but if it ever shuts, the ESPN box
-  parser (proven in fftest) is the fallback for stats, and scoring is ours either way.
 - **ESPN cookie expiry** touches only history import — refresh yearly or don't.
 - **Preseason ≠ regular season**: fftest ran on one game; S2's gate is a full Sunday
   slate test in preseason weeks 2–3.
-- **Two sources disagreeing**: display rule — Sleeper is authoritative for stats,
-  ESPN for game state; discrepancies > 0.5 pts get a ⚠ and resolve at finalization.
 
-## 8 · Open questions for the family
+## 10 · Open questions (decided items struck)
 
-1. FAAB vs rolling waiver priority? (Plan recommends FAAB $100.)
-2. Playoff size — 4 or 6 of 8? (Plan defaults 4; 6-of-8 makes the regular season
-   nearly meaningless.)
+1. ~~FAAB vs rolling priority~~ — **DECIDED: FAAB, $100.**
+2. ~~Playoff size~~ — **DECIDED: 5 teams** (1–3 byes, 4v5 play-in week 15).
 3. Trade veto: commissioner-only (default) or league vote?
 4. Keeper rules to encode: how many keepers, round cost, years allowed?
-5. App name: The GOAT League? (The draft room and Nerd Report brands already exist.)
-6. Do we run it PARALLEL with ESPN for season 1 (shadow mode — same league mirrored,
-   switch when trust is earned) or cut over cold? **Plan recommends shadow season**:
-   run the ESPN league as normal, our app reads the same reality, and by December we
-   know exactly what's missing with zero risk to the season.
+5. ~~App name~~ — **DECIDED: The Goat Fantasy Football League (GFFL).**
+6. ~~Shadow vs main~~ — **DECIDED: build as the MAIN league.** Shadow season remains
+   available as a fallback posture if season prep runs tight; the resilience section
+   (§7) is what makes running it for real defensible.
