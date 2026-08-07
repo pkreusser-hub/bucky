@@ -92,6 +92,11 @@ function summaryFix() {
               athletes: [espnAthlete("4241457", "R. Rusher", "RB", ["6", "28", "4.7", "0", "9"])] },
             { name: "kicking", labels: ["FG", "PCT", "LONG", "XP", "PTS"],
               athletes: [espnAthlete("2473037", "K. Kicker", "K", ["1/1", "100.0", "27", "1/1", "4"])] },
+            // The HOF-game finding: recent players often have NO espn_id in
+            // Sleeper's directory — this one must merge by name+team.
+            { name: "receiving", labels: ["REC", "YDS", "AVG", "TD", "LONG", "TGTS"],
+              athletes: [espnAthlete("777001", "M. Merge", "WR",
+                p2 ? ["3", "30", "10.0", "0", "15", "4"] : ["2", "22", "11.0", "0", "15", "3"])] },
           ],
         },
       ],
@@ -107,6 +112,7 @@ const slpPlayersFix = {
   "4866": { full_name: "R. Rusher", team: "DAL", position: "RB", espn_id: 4241457 },
   "1266": { full_name: "K. Kicker", team: "DAL", position: "K", espn_id: 2473037 },
   "9999": { full_name: "N. Noid", team: "PHI", position: "TE" }, // no espn_id -> slp_ key
+  "8888": { full_name: "M. Merge", team: "DAL", position: "WR" }, // no espn_id but IS in the ESPN box
   PHI: { first_name: "Philadelphia", last_name: "Eagles", team: "PHI", position: "DEF" },
   "5555": { full_name: "Other Guy", team: "KC", position: "WR", espn_id: 111 }, // not in this game
 };
@@ -122,6 +128,9 @@ function slpStatsFix() {
     "4866": { rush_yd: 28, rush_att: 6, pts_ppr: 2.8 },
     "1266": { fgm: 1, fga: 1, xpm: 1, xpa: 1, fgm_20_29: 1, pts_ppr: 4 },
     "9999": { rec: 2, rec_yd: 15, rec_2pt: 1, pts_ppr: 5.5 },
+    "8888": p3
+      ? { rec: 3, rec_yd: 30, rec_tgt: 4, pts_ppr: 6.0 }
+      : { rec: 2, rec_yd: 22, rec_tgt: 3, pts_ppr: 4.2 },
     PHI: { pts_allow: 3, sack: 1, pts_ppr: 5 },
     "5555": { rec: 9, rec_yd: 120, pts_ppr: 21 }, // other game — must be filtered out
   };
@@ -132,6 +141,7 @@ const slpProjFix = { "7564": { pts_ppr: 12.4 }, "6904": { pts_ppr: 17.8 } };
 //   QB p1: 112*.04 + 4 = 8.48        QB p2/3: 131*.04 + 4 = 9.24
 //   WR p1: 3 + 41*.1 = 7.1           WR p2/3: 4 + 52*.1 + 6 = 15.2
 //   RB: 28*.1 = 2.8    K: 1*3 + 1*1 = 4    TE(no espn id): 2 + 1.5 + 2 = 5.5
+//   Merge p1: 2 + 22*.1 = 4.2            Merge p2/3: 3 + 30*.1 = 6.0
 
 // ---------------- servers / browser ----------------
 function startStatic() {
@@ -259,7 +269,11 @@ const rowByName = async (page, name) => page.evaluate((nm) => {
     ok(!(await rowByName(page, "Other Guy")), "player from another game is filtered out of the table");
 
     const match = await page.$eval("#matchline", (el) => el.textContent);
-    ok(/4\/4/.test(match), "id match line: 4/4 ESPN box players found via Sleeper espn_id (" + match + ")");
+    ok(/5\/5/.test(match), "id match line: 5/5 incl. the espn_id-less player matched by name (" + match + ")");
+    const mergeRows = await page.evaluate(() => [...document.querySelectorAll("#pTable tbody tr")].filter((r) => r.cells[0].textContent === "M. Merge").length);
+    ok(mergeRows === 1, "player with no espn_id in Sleeper's directory lands in ONE merged row, not two");
+    const mg = await rowByName(page, "M. Merge");
+    ok(mg && mg[3] === "4.2" && mg[4] === "4.2" && mg[7] === "✓", "merged row carries both sides (4.2/4.2) and engine ✓");
     const score = await page.$eval("#scorehdr", (el) => el.textContent);
     ok(/DAL 3 — 7 PHI/.test(score), "score header away-first (" + score + ")");
     ok(/Q1 · 4:30 · LIVE/.test(await page.$eval("#clockline", (el) => el.textContent)), "clock line shows quarter + clock");
@@ -304,6 +318,7 @@ const rowByName = async (page, name) => page.evaluate((nm) => {
     ok(samples.length >= 3, "latency samples formed once both sources agree (" + samples.length + ")");
     ok(samples.every((s) => s.d >= 0.5), "every sample shows Sleeper trailing by the real wall-clock gap");
     ok(samples.some((s) => s.stat === "rec_td" && s.val === 1), "the WR touchdown is one of the paired samples");
+    ok(samples.some((s) => s.name === "M. Merge" && s.stat === "rec" && s.val === 3), "latency pairs form for the name-matched player too (the HOF-game bug)");
     const lat = await page.$eval("#latSummary", (el) => el.textContent);
     ok(/median Sleeper lag \+/.test(lat) && /ESPN first \d+×/.test(lat), "latency summary: median + first-counts (" + lat + ")");
     const qb3 = await rowByName(page, "P. Passer");
