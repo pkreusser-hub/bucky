@@ -10,3 +10,18 @@
 # Central-band guard. See netlify/functions/chorereminders.mjs. Activates only after deploy.
 [functions."chorereminders"]
   schedule = "0,30 1,13,18 * * *"
+
+# ---- GFFL custom domain (activate once the domain is purchased) ----
+# 1) Buy the domain at any registrar (e.g. thegffl.com / gffl.football).
+# 2) Netlify -> Domain management -> "Add domain alias" -> enter the domain,
+#    then create the DNS records Netlify shows at the registrar (usually one
+#    CNAME for www + one A/ALIAS for the apex). HTTPS is automatic.
+# 3) Replace thegffl.com below with the real domain and uncomment. The league
+#    then answers at the domain ROOT while the rest of Bucky stays on
+#    amenfarms.netlify.app (force=false: real files/assets/functions still
+#    resolve normally; only the bare root rewrites to the league app).
+# [[redirects]]
+#   from = "https://thegffl.com/*"
+#   to = "/league.html"
+#   status = 200
+#   force = false

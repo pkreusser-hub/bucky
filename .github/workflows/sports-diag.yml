@@ -267,3 +267,65 @@ jobs:
           print('header status:', st.get('type', {}).get('state'), '| clock', st.get('displayClock'), '| period', st.get('period'))
           PY
           fi
+  gffl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: live lg_espn_settings
+        run: |
+          code=$(curl -sS -o /tmp/lgs.json -w "%{http_code}" -X POST \
+            "https://amenfarms.netlify.app/.netlify/functions/league" \
+            -H "Content-Type: application/json" \
+            --data '{"secret":"amenfarms","action":"lg_espn_settings"}' || echo FAIL)
+          echo "lg_espn_settings HTTP $code, $(wc -c < /tmp/lgs.json) bytes"
+          python3 <<'PY'
+          import json
+          try:
+              d = json.load(open('/tmp/lgs.json'))
+          except Exception as e:
+              print('parse fail:', e)
+              print(open('/tmp/lgs.json', 'rb').read(400))
+              raise SystemExit
+          print('ok', d.get('ok'), '| reason', d.get('reason'))
+          print('leagueName', d.get('leagueName'), '| season', d.get('season'))
+          print('--- scoring ---')
+          scoring = d.get('scoring') or {}
+          for k in sorted(scoring.keys()):
+              print(f'  {k} = {scoring[k]}')
+          print('--- unmapped (CRITICAL — ESPN scoring rules our importer did not recognize) ---')
+          for u in (d.get('unmapped') or []):
+              print(' ', u)
+          print('--- slots ---', d.get('slots'))
+          print('regularSeasonWeeks', d.get('regularSeasonWeeks'), '| playoffTeams', d.get('playoffTeams'))
+          print('--- trade ---', d.get('trade'))
+          print('--- acquisition ---', d.get('acquisition'))
+          print('--- teams ---')
+          for t in (d.get('teams') or []):
+              print(' ', (t.get('id'), t.get('name'), t.get('owner')))
+          PY
+      - name: live lg_espn_rosters
+        run: |
+          code=$(curl -sS -o /tmp/lgr.json -w "%{http_code}" -X POST \
+            "https://amenfarms.netlify.app/.netlify/functions/league" \
+            -H "Content-Type: application/json" \
+            --data '{"secret":"amenfarms","action":"lg_espn_rosters"}' || echo FAIL)
+          echo "lg_espn_rosters HTTP $code, $(wc -c < /tmp/lgr.json) bytes"
+          python3 <<'PY'
+          import json
+          try:
+              d = json.load(open('/tmp/lgr.json'))
+          except Exception as e:
+              print('parse fail:', e)
+              print(open('/tmp/lgr.json', 'rb').read(400))
+              raise SystemExit
+          print('ok', d.get('ok'), '| reason', d.get('reason'))
+          teams = d.get('teams') or []
+          print('teams:', len(teams))
+          if teams:
+              t0 = teams[0]
+              print('first team:', t0.get('name'))
+              for p in (t0.get('players') or [])[:5]:
+                  print('  ', (p.get('espnId'), p.get('name'), p.get('pos'), p.get('proTeam'), p.get('lineupSlot'), p.get('injury')))
+          print('--- player counts per team ---')
+          for t in teams:
+              print(' ', (t.get('name'), len(t.get('players') or [])))
+          PY
