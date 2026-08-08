@@ -341,6 +341,47 @@ jobs:
           curl -sS "https://amenfarms.netlify.app/assets/league/lg-ui.js" -o /tmp/lgui.js
           grep -q "firstImport" /tmp/lgui.js && echo "lg-ui.js: first-run setup card PRESENT" || echo "lg-ui.js: first-run setup card MISSING (stale deploy)"
 
+      - name: 2025 replay upstream probes (historical slate + archived projections)
+        run: |
+          # The GFFL 2025 week-1 replay (2026-08-08) leans on two upstream facts the sandbox
+          # cannot verify (both hosts egress-blocked there): (1) ESPN's site scoreboard serves
+          # a HISTORICAL week via ?dates=<year>&seasontype=2&week=1, and (2) whether Sleeper
+          # still serves archived 2025 wk1 PROJECTIONS (if empty, the app derives projections
+          # from the real week-1 finals instead — either is correct, this says which fired).
+          code=$(curl -sS -o /tmp/sb25.json -w "%{http_code}" "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=2025&seasontype=2&week=1" || echo FAIL)
+          echo "espn 2025 wk1 scoreboard HTTP $code, $(wc -c < /tmp/sb25.json) bytes"
+          python3 <<'PY'
+          import json
+          try:
+              d = json.load(open('/tmp/sb25.json'))
+          except Exception as e:
+              print('parse fail:', e); print(open('/tmp/sb25.json','rb').read(300)); raise SystemExit
+          evs = d.get('events') or []
+          print('events:', len(evs), '| week:', (d.get('week') or {}).get('number'))
+          for e in evs[:4]:
+              c = (e.get('competitions') or [{}])[0]
+              teams = [x.get('team', {}).get('abbreviation') for x in (c.get('competitors') or [])]
+              bc = (c.get('broadcasts') or [{}])
+              print(' ', e.get('date'), teams, bc[0].get('names') if bc else None)
+          PY
+          code=$(curl -sS -o /tmp/pr25.json -w "%{http_code}" "https://api.sleeper.app/v1/projections/nfl/regular/2025/1" || echo FAIL)
+          echo "sleeper 2025 wk1 projections HTTP $code, $(wc -c < /tmp/pr25.json) bytes"
+          python3 <<'PY'
+          import json
+          try:
+              d = json.load(open('/tmp/pr25.json'))
+          except Exception as e:
+              print('parse fail:', e); print(open('/tmp/pr25.json','rb').read(300)); raise SystemExit
+          if isinstance(d, dict):
+              ks = list(d.keys())
+              print('players:', len(ks))
+              if ks:
+                  row = d[ks[0]] or {}
+                  print('sample:', ks[0], dict(list(row.items())[:6]))
+          else:
+              print('shape:', type(d).__name__, 'len', len(d) if hasattr(d, '__len__') else '?')
+          PY
+
       - name: live kicker scoring audit (206/209/214)
         run: |
           code=$(curl -sS -o /tmp/ka.json -w "%{http_code}" -X POST \

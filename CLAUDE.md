@@ -9427,3 +9427,221 @@ Files: `league.html` (CSS) + `assets/league/lg-ui.js` (statSummary) + suite (818
   slot label computed text-align center, and the Passer statline exact. The old shots sweep's
   "zero teams on the local backend → first-run card" scenario is superseded by the
   server-confirmed-emptiness fix (first-run needs a CONFIRMED empty read now).
+
+## 🏈 GFFL — THE SANDBOX IS GONE; THE APP *IS* WEEK 1 OF 2025 (2026-08-08, UNCOMMITTED)
+
+User: *"the sandbox isn't working, I want to ditch that and I just want you to load into the app
+all the data we need to completely simulate week 1 of the 2025 season, prior to any games
+starting… see all the rosters as though we just finished the 2025 draft, see all the nfl matchups
+coming up that weekend and all the projections (if those dont exist anymore just make some up)."*
+Files: `league.html` + `assets/league/lg-{core,data,ui}.js` + `tools/_verify-gffl.cjs`.
+**`netlify/functions/league.mjs` was NOT touched — the existing `lg_espn_rosters_season` action
+already had everything the auto-setup needed, including its past-season `scoringPeriodId=0` retry
+ladder.** `node --check` clean on all four JS files. No commits, no push.
+
+### The whole sandbox is deleted, not disabled
+Gone from the shipping files: the `_t25` collection-suffix switching (`applyTestModeVars`,
+`LG.REAL_COLL/REAL_SEASON/REAL_SEASON_START`, `enterTestMode`/`exitTestMode`/`resetTestMode`,
+`LG.testMode()`), the switchable clock (`TEST_PHASES`/`testPhase`/`setTestPhase`/`TEST_NOW`), the
+per-mode identity keys (`gffl_team_t25`/`gffl_who_t25` — the suffixing is gone, so a claim is one
+key again), the localStorage flags (`gffl_test2025`, `gffl_test2025_phase`, now dead keys on
+family devices, which is harmless), the persistent test banner, the Rules-page Enter/Exit/Reset
+buttons and the "Test-season clock" card, the Moves-page "Testing week" switch, the guided wizard
+(`testSeasonNeedsSetup`/`runTestSeasonSetup`), the whole live-replay layer in lg-data
+(`testLiveSync`/`testTeamBucket`/`testPlayerScale`/`testEnsureProj`/`testProjCache`), the outage
+card's test-mode exemption and Exit escape, and the Scores tab's test-mode ESPN-card branch.
+**GREP EVIDENCE, and the suite asserts it too (section X6):**
+`grep -n "testMode|TEST_PHASES|_t25|test2025|testLive|testProj|testWk|testSeason|testTeamBucket|
+testPlayerScale" league.html assets/league/lg-*.js` → **zero hits**. Four historical mentions of
+the word "sandbox" survive, all inside the new flag's own header comment explaining what it
+replaced; they name no removed identifier. `ffdraft.html`, `sports.html`, `index.html` and
+`netlify/functions/sports.mjs` were not opened. Net **−273 lines** across the three app files.
+
+### ONE switch, and the arithmetic behind the pin
+```js
+const SIM_2025_DEFAULT = true;   // ⭐ set to false for the real 2026 season — and nothing else
+LG.SIM_2025 = qs.get("sim") === "0" ? false : qs.get("sim") === "1" ? true : SIM_2025_DEFAULT;
+```
+When on: `LG.SEASON = 2025`, `LG.SEASON_START = "2025-09-02"` (the Tuesday before the real Sept-4
+opener), and `LG.now()` returns a **fixed** `LG.SIM_NOW` = Thursday **2025-09-04 09:00
+America/Chicago**. No localStorage, no per-device state — a code-side constant, so every family
+device is looking at the same moment. `?sim=0` / `?sim=1` is a QA/preview override with the same
+posture as `?fam=`: never persisted (asserted — nothing matching `/sim/i` lands in localStorage),
+and it survives `location.reload()` because it lives in the query string.
+**The instant is chosen so two things are true at once, both asserted rather than eyeballed:**
+`LG.currentWeek() === 1` (it sits inside week 1's own Tue-05:00→Tue window, and the night's opener
+has not kicked off), AND week 1's default Wed-8am waiver deadline has already passed, so **free
+agency is OPEN** — `LG.faAdd` is exercisable the moment the app loads, and the Moves page really
+renders "Free agency is open" rather than the pre-deadline claims-process line.
+
+### It runs in the REAL collection, and that is safe by construction
+Not a second collection — **every per-season doc id this app mints is already season-scoped**
+(`roster_<season>_*`, `weekly_<season>_*`, `claims_<season>_*`, `sched_<season>`,
+`bracket_<season>`, `projsnap_<season>_*`), so the family's existing 2026 docs simply become
+invisible. Nothing is deleted; flipping the flag back brings them all straight back (the suite
+asserts no 2026 doc is written during a replay boot). Season-NEUTRAL docs (`team_<id>`, `settings`,
+`chat`, `tx`) are deliberately SHARED: **the 8 real teams already in Firestore are the replay's
+teams**, so a claim carries across and nobody re-picks.
+
+### Auto-setup: zero taps, any device, deterministic
+On boot, if the week-1 2025 rosters are absent, `runSimSetup()` runs itself: `lg_espn_rosters_
+season {season: 2025}` → `saveTeam` per team (MERGE — they already exist, so this only refreshes
+names) → `applyImportedRosters(j, 1)` (post-draft rosters at WEEK 1 — starters slotted, an OUT
+player on IR; `LG.ensureRoster` copies forward lazily from there) → generate + save the season
+schedule → repaint. A visible progress card carries it; a failure paints a real error card naming
+the reason with a working **Try again**.
+- **NOT commissioner-gated, on purpose** — the user wants the season to just be there, and gating
+  it would leave a kid staring at an empty league until Dad opened the app. Two devices racing it
+  is harmless because every write is deterministic: the rosters come from one ESPN import, and
+  the schedule is generated from the team ids **sorted** (`LG.teams`' own order comes off a
+  backend `list()` and is not stable between devices; the circle method is order-sensitive, so
+  feeding it an unsorted list would let two devices generate two different seasons).
+- **The confirmed-emptiness fix is NOT weakened.** The setup check sits *after* the
+  `!teams.length && !teamsConfirmed → renderOffline()` guard, so an unreachable backend still gets
+  the honest outage card and never a setup run that could only fail. A CONFIRMED-empty backend
+  gets the setup (it imports the teams too) instead of the first-run import card.
+- **`UI._simSetupDone` is a LOOP GUARD, not a cache.** `renderSimSetup()` ends by calling
+  `UI.boot()`; if a run finished while `simNeedsSetup()` were still true — the ESPN import
+  legitimately returning fewer teams than the league carries, say — the two would bounce off each
+  other forever with the setup card on screen. One successful run per page load; a genuinely
+  partial seed resumes on the NEXT boot, which is the contract the function documents.
+- `simNeedsSetup()` reads rosters via `loadRoster`, never `ensureRoster` — ensureRoster copies a
+  previous week forward and WRITES, which is exactly wrong for a question that must not have side
+  effects.
+
+### The NFL slate: real week-1 2025 games, presented as upcoming
+`pollScoreboard`'s bare endpoint means "the current week", so the replay asks for an explicit
+slate instead: `/scoreboard?dates=2025&seasontype=2&week=1`. Every event is presented **state
+"pre", score 0-0**, with its REAL kickoff datetime and TV network intact — not a fiction: those
+games genuinely were upcoming at the pinned instant. Fetched **once per session and cached** (it
+is static history; the poll loop must not hammer it), and Sleeper live-stat polling is off
+entirely — before kickoff there are no stats to have.
+- **`D.S.espnWeek`/`D.S.slpWeek` are deliberately never set** (the latter needed a guard inside
+  `initSleeper`, which otherwise records the REAL current week from `/state/nfl`). So
+  `D.engineWeek()` stays null and the week-provenance guards from the adversarial review keep
+  `maybeAutoFinalizeWeeks` and the stale-week alarm silent for the whole replay. `finalizeWeek`
+  also carries an explicit belt-and-suspenders refusal (`reason: "sim-replay"`) on the LIVE path —
+  nothing has been played, so it could only ever write a week of zeroes into a write-once doc. The
+  archived-stats BACKFILL stays available: that is a deliberate commissioner action against real
+  numbers.
+- **Health reads "dual"/nominal, not an outage** — `failN`/`lastOk` are never touched and
+  `anyLive()` is false, so `bad()` short-circuits on both sides. Nothing is failing; there is
+  simply nothing to poll.
+- `D.oppForWeek` special-cases week 1 under the replay (it keys on `engineWeek`, which is now
+  null by design), so the players table's OPP column works.
+- The Scores tab shows the GFFL week-1 card, then the real slate grouped by day with kickoff
+  times and networks and the MINE/OPP starter counts; the live **ESPN fantasy card is hidden**
+  (`LG.SIM_2025`) — a live fantasy scoreboard inside a 2025 replay is meaningless.
+
+### Projections: real if they exist, an honest derivation if not
+`D.simEnsureProj()` fills one session cache: **try** Sleeper's forward-projections endpoint for
+2025 week 1; if it comes back empty — the expected reality for a season this far gone — **derive**
+each player's projection from their REAL week-1 2025 final line, scored through the league's own
+`D.score`. Same raw pid→stat-row shape either way, so `D.projFor` needed no branching; only the
+SOURCE differs, and a real final is the most plausible possible estimate *and* deterministic.
+Rounded to 1dp — an estimate should not wear two decimals of false precision. It reaches the
+matchup header totals + per-row proj, the win-probability bar, the locker's lineup rows, and the
+players table's PROJ column and its sorting.
+
+### TWO REAL BUGS the replay exposed, both fixed
+1. **`D.liveProj` returned 0 for every player with no live row.** It resolved a player's NFL team
+   from `D.S.players` — which is only ever populated by polling stats. The replay polls none, so
+   the `D.S.games` lookup missed, the "hasn't kicked off → use the projection" branch never ran,
+   and the matchup page showed **proj 0.0 for everybody** while the locker (which calls
+   `D.projFor` directly) showed the right number. It now falls back to `D.metaForKey(key).team`,
+   which resolves from the roster or the Sleeper directory. **Not sim-specific**: that is the
+   state of any board before the first stat of the week lands.
+2. **The projection repaint could bounce a brand-new owner off the claim screen.**
+   `simProjEnsureAndRepaint` fired `UI.show(UI.view)` when projections landed — and `UI.view`
+   defaults to `"league"` at module load and is only ever written by `UI.show`, so on the gate,
+   the claim screen, the setup card or the outage card it still read "league". The moment
+   projections resolved, the LEAGUE HOME was painted over them: a device with no claimed team
+   landed in a league it hadn't picked a team in, and a setup-FAILURE card was wiped before
+   anyone could read it (both symptoms, one line). It now keys on `main().dataset.view` — what is
+   actually painted, stamped by every one of those screens — checked at call time AND again on
+   landing. Found by instrumenting `UI.show` with a stack capture, not by reading.
+
+### One more honesty fix, found by LOOKING at the plates
+The league home's `#healthChip` read **"● live"** next to a week that has not kicked off. It is
+the DATA-SOURCE health chip, not "a game is live" — but under the replay there is nothing live to
+be healthy about (one static historical slate, no stat polling at all), so beside the replay
+banner it was a small lie. Same chip, same ok/warn/bad states, honest word: **"● replay"**.
+
+### The banner
+One sticky line under the header, always on while the replay is: **"2025 SEASON REPLAY — Week 1,
+before kickoff. Projections are estimates."** No emoji (the app-chrome rule). `#simBanner` reuses
+the old test banner's slot/styling, including the `[hidden]{display:none}` restatement the house
+lesson requires. Asserted present, correctly worded and non-overlapping at 390px and 1440px.
+
+### Suite: 822 → ****837/837****, 0 page errors
+- **SECTIONS X AND X2 DELETED OUTRIGHT** (449 lines) — they tested the sandbox's collection
+  isolation, guided wizard and clock phases, none of which exist. **Z7 deleted** for the same
+  reason (it was 100% `_t25` namespace round-tripping; there is no second collection to isolate
+  any more). The dead `snapshotRealDocs`/`snapshotTestDocs` helpers went with them.
+- **NEW section X** ("the 2025 week-1 replay", 99 checks) is the ONLY section that boots
+  WITHOUT `?sim=0` — i.e. exactly as a family device will. It covers: the flag driving
+  season/start/`now()`/`currentWeek()===1`/waivers-open (and `?sim=0` reverting all of it, and
+  persisting nothing); auto-setup on a teams-present-rosters-absent backend running to completion
+  and writing week-1 2025 rosters + a 14-week schedule + nothing under 2026; a second boot costing
+  **zero** roster/schedule/team writes (counted at the backend, not the UI); a partial seed
+  resuming; a setup failure being VISIBLE with a working retry; a confirmed-empty backend getting
+  the setup rather than the first-run card while an UNCONFIRMED one still gets the outage card;
+  the historical-slate request carrying `dates=2025&seasontype=2&week=1` and rendering as upcoming
+  games with kickoffs and networks; `engineWeek` staying null with no auto-finalize and no
+  stale-week card; both projection paths hand-computed exactly (derived **10.0** for P. Passer
+  from 150yd·1TD·1INT·1×2pt, **6.0** for an unrostered free agent, and **18.0** on the
+  real-projection path so the two can never be confused) on the matchup, locker and FA table; the
+  banner at both widths; and the sandbox's absence from the shipping files.
+- **RESTAGED, each with its reason recorded in place:** every pre-existing section's boot now
+  carries `?sim=0` via a `SIMOFF` constant (they were all written against the real 2026 league —
+  2026 seeds, 2026 hand-computed expectations); section Q's Rules-copy check (the old sentence
+  explained the test-run importer as "2026 is pre-draft, so seed from 2025" — the replay now does
+  that automatically, so the copy, and the check, describe what the button is actually for now);
+  section S's ESPN-card-hidden-in-the-sandbox block (deleted — the same rule keys on `LG.SIM_2025`
+  and the check moved into section X, where it boots the replay the way a device really will);
+  W2's narration of what else shipped in that commit.
+- **Fixture changes, all inert for the sections that existed:** `fixture.test2025Rich` →
+  `rich2025` (same 2-team past-season roster doc); new `fixture.simProjReal` (default FALSE = the
+  expected reality, which is what makes the DERIVED path the default under test); the 2025
+  forward-projections fixture; a historical `sbSim2025Fix()` slate (5 real week-1 games across
+  three days, every competitor carrying a real FINAL score in the document — which is what makes
+  "the replay presents them all as 0-0 upcoming" a real assertion rather than a tautology) served
+  only to a URL carrying `dates=`, with every such URL recorded so the params can be asserted; a
+  **season-2025-only** week-1 stats overlay giving one unrostered player a real line (added as an
+  overlay precisely so section I2's own sorting expectations, which run at season 2026, cannot
+  move); and a `__fakeCloudFailWrites` switch on the shared fake cloud (reads fine, writes reject
+  — the exact shape a degraded backend presents to a setup run).
+
+### TEST GOTCHAS worth keeping
+- **The setup card is genuinely fleeting on an instant backend** — it can be gone before a
+  post-navigation query runs, so "did the user see a progress card?" is answered by a
+  MutationObserver installed at document-start that records whether it was EVER in the DOM. That
+  is the real question and it is immune to how fast the run happens to be.
+- **The local backend is a DEGRADED fallback by definition** (`markDegraded` on the Firebase
+  import failure → `teamsConfirmed` false), so an empty read there is correctly an outage, not a
+  new league. Any check about a CONFIRMED-empty league must arm a fake cloud, exactly as section
+  B2 already does.
+- **A day-grouping assertion cannot be an exact count**: the label comes from
+  `toLocaleDateString` in the BROWSER's timezone, and a Thursday-night/Sunday-night kickoff lands
+  on a different calendar day under UTC than under Central. Assert that grouping happened and
+  that two same-window games share a group.
+- A boot helper that waits on `LG.rules` cannot boot a DEGRADED page at all (rules are never set
+  — boot catches and renders the outage card). Wait on the hook, then on each check's own outcome.
+
+### KNOWN / DEFERRED, and the LIVE checks this sandbox could not do
+**ESPN and Sleeper are egress-blocked from this environment, so the fixtures carry the whole
+burden.** Two things must be spot-checked on the real host after deploy:
+1. **The historical scoreboard params.** `GET https://site.api.espn.com/apis/site/v2/sports/
+   football/nfl/scoreboard?dates=2025&seasontype=2&week=1` must return the real week-1 2025 slate.
+   In the app: open the Scores tab and confirm the games are the real ones (DAL@PHI Thursday, the
+   Friday game, the Sunday slate) with sane kickoff times and networks. If ESPN wants
+   `dates=20250904-20250909` instead of a bare year, that is the ONE line to change
+   (`D.simScoreboardUrl`).
+2. **Whether Sleeper still serves 2025 week-1 projections.** `/projections/nfl/regular/2025/1` —
+   if it does, projections read `source: "projection"` and are real; if it is empty, the derived
+   path fires. Either is correct; check `LG.data.S.simProj.source` in the console, and sanity-check
+   a couple of numbers against what those players actually did in week 1.
+Also deferred: the auto-setup imports whatever teams ESPN returns, so if the real import ever
+returns fewer teams than the league carries, that boot's `simNeedsSetup()` stays true and the
+setup re-runs once per page load (bounded by the loop guard, never a loop); and the replay's
+Scores tab shows the GFFL card for week 1 only, since that is the only week with a slate.

@@ -76,18 +76,20 @@
     // the claim screen or the first-run import off an unconfirmed read (live bug 2026-08-08;
     // see lg-core.js's SERVER-CONFIRMED EMPTINESS note). Checked here, before those branches,
     // so no hash (#moves, #rules, …) can slip past it either.
-    // EXEMPT: the 2025 test sandbox. Its whole premise is a throwaway namespace that STARTS
-    // empty and is built by its own idempotent, resumable wizard, so "empty" there is the
-    // expected state rather than a claim about the family's league — and being wrong about it
-    // costs nothing (Reset + re-run is the normal flow). The guard exists to stop the REAL
-    // league being told it doesn't exist.
-    if (!LG.teams.length && !LG.teamsConfirmed && !LG.testMode()) { renderOffline(); return; }
-    // 2025 TEST SEASON: a fresh (or partially set-up) test collection routes into the guided
-    // one-tap setup wizard instead of the ordinary claim/league flow. testSeasonNeedsSetup()
-    // checks for exactly the artifacts runTestSeasonSetup() itself writes, so a run that stops
-    // partway (a flaky ESPN read, a closed tab mid-import) resumes right here on the very next
-    // boot rather than re-doing finished work or erroring out.
-    if (LG.testMode() && await testSeasonNeedsSetup()) { renderTestSeasonSetup(); return; }
+    if (!LG.teams.length && !LG.teamsConfirmed) { renderOffline(); return; }
+    // 2025 SEASON REPLAY: the app loads its own data. Checked AFTER the confirmed-emptiness
+    // guard above, deliberately — an unreachable backend still gets the honest outage card
+    // rather than a setup run that could only fail, so nothing about that fix is weakened.
+    // simNeedsSetup() looks for exactly the artifacts runSimSetup() itself writes, so a run
+    // that stops partway (a flaky ESPN read, a closed tab mid-import) resumes right here on the
+    // very next boot instead of duplicating finished work.
+    // UI._simSetupDone is a LOOP GUARD, not a cache: renderSimSetup() ends by calling
+    // UI.boot() again, so if a run finished but simNeedsSetup() were still true (the ESPN
+    // import legitimately returning fewer teams than the league carries, say) the two would
+    // bounce off each other forever with the setup card on screen. One successful run per page
+    // load is enough; a genuinely partial seed resumes on the NEXT boot, which is exactly the
+    // contract the function's own comment states.
+    if (LG.SIM_2025 && !UI._simSetupDone && await simNeedsSetup()) { renderSimSetup(); return; }
     if (!LG.myTeamId() && LG.teams.length) {
       // No claimed team yet — nothing to paint early (renderClaim needs only the teams we
       // just loaded, which is instant), and there's no live view for auto-checks to catch
@@ -121,85 +123,87 @@
     UI.show(h === "#team" ? "team" : h === "#rules" ? "rules" : h === "#matchup" ? "matchup" : h === "#moves" ? "moves" : h === "#chat" ? "chat" : h === "#bracket" ? "bracket" : h === "#scores" ? "scores" : "league");
   }
 
-  // ---------------- 2025 TEST SEASON — guided one-tap setup (2026-08-08) ----------------
-  // Runs against the ISOLATED test collection — LG.testMode() is already true and LG.COLL/
-  // LG.SEASON/LG.SEASON_START already point at the "_t25" sandbox by the time this ever runs
-  // (LG.enterTestMode() switches them, then reloads the page — see lg-core.js). Every check
-  // here mirrors exactly what runTestSeasonSetup() itself writes, so a run that stops partway
-  // (a flaky ESPN read, a closed tab mid-import) resumes cleanly on the very next boot instead
-  // of duplicating finished work or erroring out.
-  async function testSeasonNeedsSetup() {
+  // ---------------- 2025 SEASON REPLAY — the app loads its own data (2026-08-08) ----------------
+  // Zero taps. Any device may run this: every write it makes is DETERMINISTIC (the rosters come
+  // from one ESPN import, and the schedule is generated from the team ids in SORTED order), so
+  // two devices racing the setup produce byte-identical documents and neither can corrupt the
+  // other. That is why it is not commissioner-gated — the user wants the season to just be
+  // there, and gating it would leave a kid staring at an empty league until Dad opened the app.
+  //
+  // Every step re-checks what already exists before writing, so re-running after a partial
+  // failure resumes rather than repeating. Returns {ok:false, reason} on the FIRST thing that
+  // didn't work — never a half-applied state reported as success.
+  async function simNeedsSetup() {
     if (!LG.teams.length) return true;
     if (!(await LG.loadSchedule())) return true;
-    for (let w = 1; w <= 3; w++) {
-      const wk = await LG.loadWeekly(w);
-      if (!wk || wk.kind !== "weekly") return true;
+    // The real tell: week-1 rosters for THIS season (LG.rosterId is season-scoped). Read via
+    // loadRoster, NOT ensureRoster — ensureRoster copies a previous week forward and WRITES,
+    // which is exactly the wrong thing for a question that must not have side effects.
+    for (const t of LG.teams) {
+      const ros = await LG.loadRoster(1, t.id);
+      if (!ros || !ros.length) return true;
     }
     return false;
   }
-  UI.testSeasonNeedsSetup = testSeasonNeedsSetup; // test hook
-  function renderTestSeasonSetup() {
+  UI.simNeedsSetup = simNeedsSetup; // test hook
+  function renderSimSetup() {
     hideBnav();
-    syncTestBanner();
-    if (main()) main().dataset.view = "testsetup";
+    syncSimBanner();
+    if (main()) main().dataset.view = "simsetup";
     main().innerHTML = `<div class="card center">
-      <div class="logo">🧪</div><h2>Setting up the 2025 test season</h2>
-      <p class="mut" id="testSetupMsg">Starting…</p></div>`;
-    runTestSeasonSetup((msg) => { const el = $("#testSetupMsg"); if (el) el.textContent = msg; })
-      // A THROW anywhere in the wizard (a rejected write, a backend that went away mid-run)
-      // used to leave the "Starting…" card up forever with nothing said — same silent-failure
-      // family as the import bug (2026-08-08). Turn it into the wizard's own failure card.
+      <h2>Loading the 2025 season</h2>
+      <p class="mut" id="simSetupMsg">Starting…</p></div>`;
+    runSimSetup((msg) => { const el = $("#simSetupMsg"); if (el) el.textContent = msg; })
+      // A THROW anywhere (a rejected write, a backend that went away mid-run) must never leave
+      // the "Starting…" card up forever with nothing said — same silent-failure family as the
+      // import bug this file already carries a whole section about.
       .catch((e) => ({ ok: false, reason: String((e && e.message) || e) }))
       .then((r) => {
         if (!r.ok) {
-          main().innerHTML = `<div class="card center"><h2>Test-season setup didn't finish</h2>
-            <p class="mut">${esc(r.reason || "?")}${r.week ? " (week " + r.week + ")" : ""}</p>
-            <p class="mut small">Nothing here touched the real league — safe to try again, or come back later; the parts that already finished won't repeat.</p>
-            <button id="testSetupRetry" class="primary">Try again</button>
-            <button id="testSetupExit">Exit test season</button></div>`;
-          $("#testSetupRetry").addEventListener("click", () => UI.boot());
-          $("#testSetupExit").addEventListener("click", async () => { LG.exitTestMode(); location.reload(); });
+          main().innerHTML = `<div class="card center"><h2>Couldn't load the 2025 season</h2>
+            <p class="mut">${esc(r.reason || "?")}</p>
+            <p class="mut small">Nothing was half-applied that a re-run won't fix — the parts that
+            already finished won't repeat.</p>
+            <button id="simSetupRetry" class="primary">Try again</button></div>`;
+          $("#simSetupRetry").addEventListener("click", () => UI.boot());
           return;
         }
-        UI.boot(); // teams + weeks 1-3 now exist -> the normal claim/league flow takes over
+        UI._simSetupDone = true;
+        UI.boot(); // teams + week-1 rosters + a schedule now exist -> the ordinary flow takes over
       });
   }
-  UI.renderTestSeasonSetup = renderTestSeasonSetup; // test hook
-  // Every step re-checks what's already there before writing, so calling this again after a
-  // partial failure (or just re-opening the app before it's finished) resumes rather than
-  // re-doing or duplicating work. Returns {ok:false, reason, week?} on the FIRST thing that
-  // didn't work — never a half-applied state silently reported as success.
-  async function runTestSeasonSetup(onProgress) {
+  UI.renderSimSetup = renderSimSetup; // test hook
+  async function runSimSetup(onProgress) {
     const report = (msg) => { if (onProgress) onProgress(msg); };
-    report("Importing 2025 rosters from ESPN…");
+    report("Importing the 2025 rosters from ESPN…");
     let j;
-    try { j = await lgFn("lg_espn_rosters_season", { season: LG.TEST_SEASON }); } catch (e) { j = { ok: false, reason: String(e) }; }
+    try { j = await lgFn("lg_espn_rosters_season", { season: LG.SEASON }); } catch (e) { j = { ok: false, reason: String(e) }; }
     if (!j.ok) return { ok: false, reason: j.reason || "import-failed" };
     if (!(j.teams || []).length) return { ok: false, reason: "no-teams" };
+    // MERGE, never replace: the family's 8 real teams already exist (team docs are season-
+    // neutral and shared with the live league), so this only refreshes their names.
     for (const t of j.teams) await LG.saveTeam({ teamId: t.id, name: t.name });
     await LG.loadTeams();
     if (LG.teams.length < 2) return { ok: false, reason: "not-enough-teams" };
-    report("Seeding week-1 rosters from the real 2025 lineups…");
+    report("Seeding the post-draft rosters…");
     await applyImportedRosters(j, 1);
     report("Building the season schedule…");
     let sched = await LG.loadSchedule();
     if (!sched) {
-      sched = LG.generateSchedule(LG.teams.map((t) => t.id), LG.rules.seasonWeeks);
+      // SORTED team ids. LG.teams' own order comes off a backend list() and is not guaranteed
+      // stable between devices; the circle method is order-sensitive, so two devices racing
+      // this must feed it the same sequence or they'd generate two different seasons.
+      const ids = LG.teams.map((t) => t.id).slice().sort((a, b) => a - b);
+      sched = LG.generateSchedule(ids, LG.rules.seasonWeeks);
       await LG.saveSchedule(sched);
     }
     schedule = sched;
-    for (let w = 1; w <= 3; w++) {
-      report(`Finalizing week ${w} of 3 from real 2025 stats…`);
-      const existing = await LG.loadWeekly(w);
-      if (existing && existing.kind === "weekly") continue;
-      const r = await LG.finalizeWeek(w, { backfill: true });
-      if (!r.ok) return { ok: false, reason: r.reason || "finalize-failed", week: w };
-    }
-    report("Ready — week 4 is up next.");
+    report("Ready — week 1 is up next.");
     UI.week = LG.currentWeek();
     return { ok: true };
   }
-  UI.runTestSeasonSetup = runTestSeasonSetup; // test hook
+  UI.runSimSetup = runSimSetup; // test hook
+
 
   async function startData() {
     const d = D();
@@ -211,19 +215,14 @@
       for (const p of ros) if (p.team) abs.add(d.slpTeam(p.team));
     }
     d.trackTeams([...abs]);
-    if (LG.testMode()) {
-      // 2025 TEST SEASON: projections are REQUIRED here, not optional (coordinator addition,
-      // 2026-08-08). The real live-poll path's projections fetch resolves off Sleeper's CURRENT
-      // /state/nfl reading (the real, current NFL week) — meaningless for a past-season sandbox,
-      // and disabled outright in test mode anyway (D.pollOnce's own test-mode branch never runs
-      // it). d.testEnsureProj(week) is the replacement, warmed here for THIS phase's own
-      // canonical week (LG.currentWeek() — 4 for phases 1-2, 5 once "Tuesday after week 4" makes
-      // that current); the individual pages (renderMatchup/renderMoves/renderLocker, via
-      // testProjEnsureAndRepaint below) separately warm whichever week THEY happen to be
-      // showing (the Moves page's own week-4/week-5 test switch can differ from
-      // LG.currentWeek()). Snapshotting waits on the SAME promise so it never runs against a
-      // still-cold cache and silently captures nothing.
-      d.testEnsureProj(LG.currentWeek()).then(() => { LG.snapshotProjections(UI.week).catch(() => {}); }).catch(() => {});
+    if (LG.SIM_2025) {
+      // 2025 SEASON REPLAY: projections are REQUIRED, not optional — a week-1-before-kickoff
+      // board with no projections is a board of dashes. The live path's own projections fetch
+      // resolves off Sleeper's CURRENT /state/nfl reading (the real current week), which is
+      // both the wrong week and the wrong season here, and is skipped outright under the
+      // replay; d.simEnsureProj() is the replacement. Snapshotting waits on the SAME promise so
+      // it never runs against a still-cold cache and silently captures nothing.
+      d.simEnsureProj().then(() => { LG.snapshotProjections(UI.week).catch(() => {}); }).catch(() => {});
     } else {
       // Pre-game projection snapshot (S5): chained off the SAME initSleeper() promise
       // (memoized — this never triggers a second directory fetch), so it fires once the
@@ -239,19 +238,28 @@
     LG.db.onChange = () => { if (UI.view) UI.show(UI.view); };
     d.start();
   }
-  // 2025 TEST SEASON only — the "repaint once it lands" idiom the real league already uses for
-  // the Sleeper directory (see renderMoves' own D().initSleeper().then(...) below), generalized
-  // to per-week projections: a page calls this with the week IT is currently showing, and gets
-  // repainted (once) the moment that week's projections land, without ever re-fetching a week
-  // that's already warm. The cache-existence check BEFORE calling d.testEnsureProj is what makes
-  // this loop-safe — the repaint it triggers re-renders the SAME view, which calls this again,
-  // but by then the cache is populated so the second call returns immediately with no new fetch
-  // and no further repaint.
-  function testProjEnsureAndRepaint(week, viewName) {
-    if (!LG.testMode()) return;
+  // 2025 SEASON REPLAY only — the "repaint once it lands" idiom the real league already uses
+  // for the Sleeper directory (see renderMoves' own D().initSleeper().then(...) below), applied
+  // to the replay's projections: a page that shows a projection calls this, and gets repainted
+  // (once) the moment they land. The cache-existence check BEFORE calling d.simEnsureProj is
+  // what makes it loop-safe — the repaint re-renders the SAME view, which calls this again, but
+  // by then the cache is populated so the second call returns immediately with no new fetch and
+  // no further repaint.
+  function simProjEnsureAndRepaint(viewName) {
+    if (!LG.SIM_2025 || !viewName) return;
+    // WHAT IS ACTUALLY PAINTED, not UI.view. UI.view defaults to "league" at module load and
+    // is only ever written by UI.show — so on the gate, the claim screen, the setup card or
+    // the outage card (none of which go through UI.show) it still reads "league", and
+    // syncSimBanner()'s own warm call would repaint the LEAGUE HOME over them the moment
+    // projections landed: a brand-new owner was bounced off the claim screen into a league
+    // they hadn't picked a team in, and a setup-failure card was wiped before it could be
+    // read. main().dataset.view is stamped by every one of those screens, so it is the honest
+    // answer to "which screen is the user looking at" — checked now AND again on landing.
+    const painted = () => (main() && main().dataset ? main().dataset.view : "");
+    if (painted() !== viewName) return;
     const d = D();
-    if (d.S.testProjCache[week]) return;
-    d.testEnsureProj(week).then(() => { if (UI.view === viewName) UI.show(viewName); }).catch(() => {});
+    if (d.S.simProj) return;
+    d.simEnsureProj().then(() => { if (UI.view === viewName && painted() === viewName) UI.show(viewName); }).catch(() => {});
   }
 
   // Polish pass (2026-08-08): #bnav is static markup, always in the DOM regardless of auth
@@ -425,7 +433,11 @@
     const h = D().S.health;
     const el = $("#healthChip");
     if (!el) return;
-    el.textContent = h.mode === "dual" ? "● live" : " " + h.note;
+    // "● live" is the DATA-SOURCE health chip, not "a game is live" — but under the 2025 replay
+    // there is nothing live to be healthy ABOUT (one static historical slate, no stat polling at
+    // all), so saying "live" next to a week that has not kicked off is a small lie sitting right
+    // beside the replay banner. Same chip, same ok/warn/bad states, honest word.
+    el.textContent = h.mode === "dual" ? (LG.SIM_2025 ? "● replay" : "● live") : " " + h.note;
     el.className = "health " + (h.mode === "dual" ? "ok" : h.mode === "none" ? "bad" : "warn");
     el.hidden = false;
   }
@@ -433,7 +445,7 @@
   // hidden by CSS below 1024px, so this is pure decoration on mobile. Reads
   // UI.week/LG.rules/LG.myTeamId, none of which this function ever writes.
   function paintHeader() {
-    syncTestBanner();
+    syncSimBanner();
     const meta = $("#hMeta");
     if (!meta || !LG.rules) return;
     meta.hidden = false;
@@ -447,33 +459,19 @@
     av.innerHTML = T.logo ? `<img src="${esc(T.logo)}" alt="">` : esc(initials(T.name));
     av.title = T.name || "";
   }
-  // 2025 TEST SEASON banner — persistent, so nobody mistakes the sandbox for the real league.
-  // Called from paintHeader() (runs on every UI.show(), i.e. every real view + the gate/claim/
-  // first-run/test-setup screens that call it directly), so it's always in sync with whichever
-  // collection is actually live, including mid-setup before UI.week is meaningful.
-  function syncTestBanner() {
-    const el = $("#testBanner");
+  // 2025 SEASON REPLAY banner — persistent, so nobody mistakes the replay for the live 2026
+  // season. Called from paintHeader() (which runs on every UI.show(), i.e. every real view plus
+  // the gate/claim/setup screens that call it directly), so it is always in sync, including
+  // mid-setup before UI.week is meaningful.
+  function syncSimBanner() {
+    const el = $("#simBanner");
     if (!el) return;
-    if (!LG.testMode()) { el.hidden = true; return; }
+    if (!LG.SIM_2025) { el.hidden = true; return; }
     el.hidden = false;
-    const phaseLabel = LG.TEST_PHASES[LG.testPhase()].label;
-    // Projections honesty (coordinator addition, 2026-08-08): once D.S.testProjCache for the
-    // WEEK the sandbox's own clock currently reads has resolved, say plainly whether the figures
-    // on screen are a real Sleeper forward projection or a proxy computed from that week's real
-    // final stats (the expected case — forward projections aren't retained for a season that's
-    // already over). Silent (empty string) until the cache warms, or if genuinely nothing exists
-    // for that week either — never claims a source it can't back up. testProjEnsureAndRepaint
-    // warms it (idempotent, loop-safe) right here so the banner is self-sufficient — it reads
-    // correctly on its own even before any matchup/moves/locker page has been visited.
-    testProjEnsureAndRepaint(LG.currentWeek(), UI.view);
-    const projEntry = D().S.testProjCache[LG.currentWeek()];
-    const projNote = projEntry
-      ? (projEntry.source === "actual"
-        ? " · projections are a proxy from week " + LG.currentWeek() + "'s real final stats (no forward projection exists for a completed season)"
-        : " · projections are real Sleeper forward projections for week " + LG.currentWeek())
-      : "";
-    el.textContent = "🧪 2025 TEST SEASON — " + phaseLabel + (UI.week != null ? " — Week " + UI.week : "")
-      + " · real 2025 rosters + stats, a separate sandbox · the live league is untouched" + projNote;
+    // Projections honesty: warmed here (idempotent, loop-safe) so the banner is self-sufficient
+    // — it reads correctly on its own even before any matchup/moves/locker page is visited.
+    simProjEnsureAndRepaint(UI.view);
+    el.textContent = "2025 SEASON REPLAY — Week 1, before kickoff. Projections are estimates.";
   }
 
   // ---------------- gate + claim ----------------
@@ -553,20 +551,15 @@
   // and offer the only useful action.
   function renderOffline() {
     hideBnav();
-    syncTestBanner();
+    syncSimBanner();
     const why = LG.backendError ? `<p class="mut small">Reason: ${esc(LG.backendError)}</p>` : "";
-    // A degraded 2025 sandbox would otherwise be a dead end — the Exit button lives on the
-    // Rules page, and there is no nav on this screen.
-    const exitTest = LG.testMode() ? '<button id="offlineExitTest">Exit the 2025 test season</button>' : "";
     main().innerHTML = `<div class="card center">
       <h2>Couldn't reach the league</h2>
       <p class="mut">Your teams, rosters and results are all still there — this device just
         can't get to them right now. Check the connection and try again.</p>
       ${why}
       <button id="offlineRetry" class="primary">Try again</button>
-      ${exitTest}
       <p class="mut"><small>Nothing has been changed or lost.</small></p></div>`;
-    $("#offlineExitTest") && $("#offlineExitTest").addEventListener("click", () => { LG.exitTestMode(); location.reload(); });
     $("#offlineRetry").addEventListener("click", async () => {
       const b = $("#offlineRetry");
       b.disabled = true; b.textContent = "Trying…";
@@ -584,9 +577,8 @@
   function renderFirstRun(repaint) {
     // FIRST-RUN IS ONLY EVER SHOWN ON SERVER-CONFIRMED EMPTINESS. LG.teamsConfirmed records,
     // at the moment LG.loadTeams() read them, whether that read came from the real league
-    // store; an unconfirmed empty read is an outage, not a new league. (The 2025 sandbox is
-    // exempt for the reason spelled out in UI.boot — it is MEANT to start empty.)
-    if (!LG.teamsConfirmed && !LG.testMode()) { renderOffline(); return; }
+    // store; an unconfirmed empty read is an outage, not a new league.
+    if (!LG.teamsConfirmed) { renderOffline(); return; }
     hideBnav(); // even on the early-return repaint path below — UI.show() may have just re-shown it
     if (repaint && $("#firstImport")) return; // never churn the button under a tap
     main().innerHTML = `<div class="card center">
@@ -1163,8 +1155,8 @@
   }
   // "Every matchup reads 0-0 with 0.0 points" — the exact preseason/pre-draft shape the
   // coordinator flagged from a live screenshot: nothing has been played yet, so the card has
-  // no real signal to show. Meaningless in the 2025 test sandbox for the same reason (it's a
-  // family ESPN league that was never drafted for that past season) — hidden there always.
+  // no real signal to show. Meaningless inside the 2025 replay for the same reason (the family
+  // ESPN league was never drafted for that past season) — hidden there always.
   function ffAllZero(matchups) {
     const zeroSide = (t) => !t || ((t.points == null || t.points === 0) && (!t.record || t.record === "0-0"));
     return matchups.every((m) => zeroSide(m.home) && zeroSide(m.away));
@@ -1172,7 +1164,7 @@
   // Degrades to hiding the card entirely on any failure (unconfigured league, expired cookie,
   // network hiccup) — the brief's spec, and matches how every other AI/fantasy card here degrades.
   function ffScoresHtml(sb) {
-    if (LG.testMode()) return ""; // a real ESPN scoreboard for a past-season sandbox is meaningless — always hidden
+    if (LG.SIM_2025) return ""; // a live ESPN fantasy scoreboard inside a 2025 replay is meaningless — always hidden
     if (!sb || !sb.ok || !Array.isArray(sb.matchups) || !sb.matchups.length) return "";
     if (ffAllZero(sb.matchups)) return ""; // preseason/pre-draft — no signal, not a broken card
     const side = (t) => t
@@ -1250,7 +1242,7 @@
     if (!UI.matchup) { main().innerHTML = `<div class="card"><p class="mut">No matchup — schedule missing.</p></div>`; return; }
     if (!repaint) await loadWeekRosters();
     const d = D();
-    testProjEnsureAndRepaint(UI.week, "matchup"); // 2025 test season — see startData()
+    simProjEnsureAndRepaint("matchup"); // 2025 season replay — see startData()
     const [hId, aId] = UI.matchup;
     const muKey = hId + "-" + aId;
     if (!repaint || UI._h2hKey !== muKey) { UI._h2h = await LG.headToHead(hId, aId); UI._h2hKey = muKey; }
@@ -1991,7 +1983,7 @@
   async function renderMoves() {
     const tid = LG.myTeamId();
     const T = LG.teamById(tid);
-    testProjEnsureAndRepaint(UI.week, "moves"); // 2025 test season — see startData(); covers
+    simProjEnsureAndRepaint("moves"); // 2025 season replay — see startData(); covers
                                                  // the FA table's PROJ column below AND the
                                                  // Testing-week switch's own week-5 view
     await loadWeekRosters();
@@ -2062,21 +2054,7 @@
         <button type="button" class="pcpick" data-gk="${esc(p.key)}">${set.has(p.key) ? "Picked" : "Pick"}</button>
       </div>`;
 
-    // 2025 TEST SEASON only: the deadline-driven waiver UI below (claims form vs. immediate
-    // free-agency) is entirely a function of UI.week + the pinned test clock, and the test
-    // season's default landing week (4) has its own Wednesday deadline already behind it —
-    // meaning the ordinary blind-bid CLAIM form (as opposed to instant FA) is otherwise
-    // unreachable through normal navigation, since nothing else in the app lets a tester
-    // change which week Moves is looking at. This switch is the one small addition that makes
-    // BOTH flows reachable from the UI itself: week 4 stays free-agency-open (its deadline has
-    // passed at the pinned clock), week 5's hasn't, so it shows the real bid-a-claim form.
-    const testWeekSwitchHtml = LG.testMode() ? `<div class="card mut small">
-      <b>Testing week:</b>
-      <button class="testWkBtn" data-w="4" ${UI.week === 4 ? "disabled" : ""}>Week 4 (free agency open)</button>
-      <button class="testWkBtn" data-w="5" ${UI.week === 5 ? "disabled" : ""}>Week 5 (submit a blind-bid claim)</button>
-    </div>` : "";
     main().innerHTML = `
-      ${testWeekSwitchHtml}
       <div class="card"><h2>My pending</h2>
         <h2 class="small mut">Your waiver claims</h2>
         <div id="mvMyClaims">${myClaims.length ? myClaims.map(claimRow).join("") : '<p class="mut">No pending claims.</p>'}</div>
@@ -2143,11 +2121,6 @@
       toast("Waivers processed.");
       renderMoves();
     });
-    document.querySelectorAll(".testWkBtn").forEach((b) => b.addEventListener("click", () => {
-      UI.week = Number(b.dataset.w);
-      renderMoves();
-    }));
-
     // ---------------- item 1 -> ESPN-style sortable stats table (2026-08-08 rework) ----------
     // Position chips + an OPTIONAL name search + an Available/All ownership filter all feed
     // ONE stats table — sorted, by whichever COLUMN was last clicked, across the WHOLE fetched
@@ -2524,31 +2497,14 @@
           <button id="rostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import ESPN rosters</button>
           <button id="testRostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import 2025 rosters (test run)</button>
           <button id="historyImport" ${isCommish() && !editing ? "" : "hidden"}>Import history</button>
-          ${isCommish() && !editing ? (LG.testMode()
-            ? `<button id="testExit">Exit test season</button><button id="testReset" class="bad">Reset test season</button>`
-            : `<button id="testEnter">🧪 Enter 2025 test season</button>`) : ""}
         </span></div>
       ${isCommish() && !editing ? `<div class="card mut small">
         <b>Import from ESPN</b> — rules, scoring, and the 8 teams, from the real live league.<br>
         <b>Import ESPN rosters</b> — this week's rosters, from the real live (${r.season}) league.<br>
-        <b>Import 2025 rosters (test run)</b> — the ${r.season} league is pre-draft (every roster
-        empty) until the season starts; this seeds this week's rosters from the real, FINAL 2025
-        season instead, so lineups/waivers/trades/scoring can be exercised against real players.
-        Re-import real rosters once the ${r.season} draft has happened.<br>
-        <b>Import history</b> — past seasons' standings/champions/scores, for the record book.<br>
-        <b>🧪 2025 test season</b> — a COMPLETELY SEPARATE sandbox (own collection, own storage
-        — nothing here ever touches this real league): opens as week 4 of the real 2025 season,
-        before any week-4 kickoff, with weeks 1-3 already finalized from real 2025 stats, so
-        waivers/free agency/trades/lineups can all be exercised against real rosters. Exit any
-        time to come straight back here untouched; Reset wipes only the sandbox and starts over.
-      </div>` : ""}
-      ${isCommish() && !editing && LG.testMode() ? `<div class="card mut small">
-        <b>Test-season clock:</b>
-        ${[1, 2, 3].map((p) => `<button class="testPhaseBtn" data-p="${p}" ${LG.testPhase() === p ? "disabled" : ""}>${esc(LG.TEST_PHASES[p].label)}</button>`).join(" ")}
-        <p class="mut small">Switching hard-reloads, exactly like Enter/Exit — "before games" and
-        "games LIVE" are both week 4 (currentWeek()===4); "Tuesday after week 4" is week 5
-        (currentWeek()===5) and finalizes week 4 from its real archived stats the moment you land
-        on it (idempotent — switching back and forth never re-finalizes or corrupts the record).</p>
+        <b>Import 2025 rosters (test run)</b> — re-seeds THIS week's rosters from the real,
+        FINAL 2025 season. The 2025 replay already does this at week 1 automatically; this is
+        the manual button for re-running it against whichever week is open.<br>
+        <b>Import history</b> — past seasons' standings/champions/scores, for the record book.
       </div>` : ""}
       <div class="card mut small">${esc(r.name)} · season ${r.season} · ${scheduleSummaryLine(r)}</div>
       <div class="card"><h2>Scoring</h2>${scoringGroupsHtml}${paHtml}</div>
@@ -2603,28 +2559,6 @@
       if (!(await LG.gateCommish())) return;
       await importHistory();
     });
-    $("#testEnter") && $("#testEnter").addEventListener("click", async () => {
-      if (!(await LG.gateCommish())) return;
-      if (!window.confirm("Enter the 2025 test season? This opens a completely separate sandbox — nothing here touches the real league, and you can exit any time.")) return;
-      await LG.enterTestMode();
-      location.reload();
-    });
-    $("#testExit") && $("#testExit").addEventListener("click", async () => {
-      if (!(await LG.gateCommish())) return;
-      LG.exitTestMode();
-      location.reload();
-    });
-    $("#testReset") && $("#testReset").addEventListener("click", async () => {
-      if (!(await LG.gateCommish())) return;
-      if (!window.confirm("Wipe the whole 2025 test season and start over? This can't be undone.")) return;
-      await LG.resetTestMode();
-      location.reload();
-    });
-    document.querySelectorAll(".testPhaseBtn").forEach((b) => b.addEventListener("click", async () => {
-      if (!(await LG.gateCommish())) return;
-      await LG.setTestPhase(Number(b.dataset.p));
-      location.reload();
-    }));
   }
 
   // ---------------- lockers (plan §4.7) ----------------
@@ -2781,7 +2715,7 @@
     if (!T) { main().innerHTML = `<div class="card"><p class="mut">Team not found.</p></div>`; return; }
     main().innerHTML = `<div class="card mut">Loading locker…</div>`;
     const d = D();
-    testProjEnsureAndRepaint(UI.week, "locker"); // 2025 test season — see startData(); covers
+    simProjEnsureAndRepaint("locker"); // 2025 season replay — see startData(); covers
                                                   // the lineup rows' "proj" figures below
     const isOwner = LG.myTeamId() === teamId;
     const [standings, tx, wall, scheduleRows, roster, rivalries, recordBook] = await Promise.all([
@@ -3068,9 +3002,9 @@
   }
   // Shared by importRosters()/importTestRosters()/runTestSeasonSetup() — same shape from
   // lg_espn_rosters and lg_espn_rosters_season, same slotting rule. `week` defaults to
-  // UI.week (every existing caller's behavior, byte-for-byte); the 2025 test-season setup
-  // wizard passes an explicit 1 — it seeds WEEK 1 regardless of whichever week UI.week
-  // happens to be showing at that moment (LG.ensureRoster copies forward lazily from there).
+  // UI.week (every existing caller's behavior, byte-for-byte); the 2025 replay's own setup
+  // passes an explicit 1 — it seeds WEEK 1 regardless of whichever week UI.week happens to be
+  // showing at that moment (LG.ensureRoster copies forward lazily from there).
   async function applyImportedRosters(j, week) {
     const wk = week != null ? week : UI.week;
     const slots = starterSlotList();
