@@ -121,15 +121,6 @@
       }
       return out;
     },
-    watch(id, cb) { // local mode: poll — good enough for tests + offline
-      let last = localStorage.getItem(this.key(id));
-      cb(last ? JSON.parse(last) : null);
-      const t = setInterval(() => {
-        const cur = localStorage.getItem(this.key(id));
-        if (cur !== last) { last = cur; cb(cur ? JSON.parse(cur) : null); }
-      }, 1200);
-      return () => clearInterval(t);
-    },
   };
 
   let cloud = null;
@@ -138,23 +129,179 @@
   // The live site showed the first-run "Import the league from ESPN" card against a Firestore
   // collection that demonstrably HAS 8 teams. Root cause: NOTHING in this file distinguished
   // "the league really is empty" from "we never actually heard back from the league store".
-  // Two ways to land on a silent, unexplained empty read, both of which end in
-  // `LG.teams.length === 0` and therefore in the first-run card:
-  //   1. the Firebase ESM import / initializeFirestore / the reachability probe throws (a
-  //      blocked gstatic, an ad-blocker, an offline first paint, a cold IndexedDB failure) —
-  //      the catch below silently drops to the LOCAL backend, and localStorage on a cold
-  //      device holds no league docs at all;
-  //   2. cloud mode, but Firestore served the QUERY from an empty offline cache. getDocs()
-  //      with the default source tries the server and FALLS BACK TO THE CACHE — and unlike
-  //      getDoc(), a query never rejects for a cache miss: a cold cache legitimately looks
-  //      exactly like "a query with zero results" (snap.empty === true, metadata.fromCache
-  //      === true). So even a working cloud path could report an empty league.
   // This is the same lesson index.html learned twice with the goat herd (see CLAUDE.md's
   // `serverConfirmed` rule): EMPTINESS MUST BE SERVER-CONFIRMED before any destructive or
   // "let's set it up from scratch" UI is offered. LG.backendDegraded is that signal — true
   // whenever this session is NOT provably reading the real league store — and lg-ui.js shows
   // an honest "couldn't reach the league" card with a Retry instead of the first-run card
   // whenever an empty read is unconfirmed.
+  //
+  // ⭐ THE REST TRANSPORT (2026-08-08, third live desktop incident in one day). The Firebase
+  // JS SDK is GONE from this app. It caused three outages in a single day, all of them in
+  // machinery this league never asked for:
+  //   1. its gstatic ESM import failing silently -> the silent local fallback -> an empty
+  //      read -> the first-run card offered to a league with eight teams in it;
+  //   2. its persistent IndexedDB cache corrupting -> "FIRESTORE (10.12.2) INTERNAL ASSERTION
+  //      FAILED: Unexpected state" on every read, on one desktop profile only;
+  //   3. the SAME corrupted-cache bug arriving as a HANG rather than a throw (an SDK deadlock,
+  //      or clearIndexedDbPersistence blocking while another tab holds the database) — and a
+  //      hung promise sails straight past every try/catch, which is why the outage card came
+  //      up with no reason line and its Retry button stuck on "TRYING…" forever.
+  // Every one of those is a property of the SDK's offline-cache layer, not of the network and
+  // not of this league. So the five operations this app actually uses (get/set/del/list, and
+  // watch — which had zero callers and is gone) are now plain `fetch` against the Firestore
+  // REST API. No ESM import, no IndexedDB, no offline cache, no background sync thread.
+  //
+  // Structural consequences, both of them upgrades rather than trade-offs:
+  //   · A 404 IS SERVER-CONFIRMED ABSENCE. The entire "cache-served empty" ambiguity class —
+  //     the thing incident (1) turned on, and the reason getDocsFromServer re-asks had to be
+  //     bolted onto every read — simply ceases to exist. There is no cache to be served from.
+  //   · NOTHING CAN HANG. Every request goes through one wrapper with an AbortController
+  //     timeout, so boot and Retry both complete in bounded time BY CONSTRUCTION. Incident
+  //     (3)'s stuck-"TRYING…" state is not fixed, it is unreachable.
+  // CORS is proven live from a browser's perspective (GitHub-runner diag run 31276897340,
+  // 2026-08-08): a GET with an Origin header answers 200 + access-control-allow-origin, the
+  // OPTIONS preflight for a JSON POST answers 200 with POST + content-type allowed, and a real
+  // :runQuery POST answers 200 + ACAO with the league's 8 team docs. Auth is the public web
+  // API key already in this page; the rules are public — the same posture the SDK had.
+  const FS_KEY = "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU";
+  const FS_BASE = "https://firestore.googleapis.com/v1/projects/amen-farms-app/databases/(default)/documents";
+  const FS_TIMEOUT_MS = 12000;
+  LG.FS_TIMEOUT_MS = FS_TIMEOUT_MS; // test hook — the suite measures the bound, it doesn't assume it
+
+  // ---- the value codec (JSON <-> Firestore `fields`) ----
+  // Firestore's REST representation is typed, so both directions are explicit. Two rules here
+  // are load-bearing rather than stylistic:
+  //   · an integer MUST go out as integerValue (a STRING, per the API) and a non-integer as
+  //     doubleValue — and BOTH come back as a JS Number. This house has been burned by the
+  //     other choice before: writing a whole number as a double made `rounds === 2` silently
+  //     false after a round trip (the fitness per-kid plan incident).
+  //   · an array directly inside an array THROWS, loudly. Firestore forbids it outright; our
+  //     data shapes already comply (the schedule doc's {g:[{h,a}]} encoding exists precisely
+  //     for this), and silently mangling one would be far worse than a crash.
+  function fsEnc(v) {
+    if (v === null || v === undefined) return { nullValue: null };
+    const t = typeof v;
+    if (t === "boolean") return { booleanValue: v };
+    if (t === "number") return Number.isFinite(v)
+      ? (Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v })
+      : { nullValue: null }; // NaN/Infinity have no Firestore representation
+    if (t === "string") return { stringValue: v };
+    if (Array.isArray(v)) {
+      return { arrayValue: { values: v.map((x) => {
+        if (Array.isArray(x)) throw new Error("Firestore forbids an array directly inside an array — wrap it in an object first");
+        return fsEnc(x);
+      }) } };
+    }
+    if (t === "object") return { mapValue: { fields: fsEncFields(v) } };
+    return { nullValue: null }; // functions/symbols never appear in league docs
+  }
+  function fsEncFields(obj) {
+    const out = {};
+    for (const k of Object.keys(obj || {})) { if (obj[k] !== undefined) out[k] = fsEnc(obj[k]); }
+    return out;
+  }
+  function fsDec(v) {
+    if (!v || typeof v !== "object") return null;
+    if ("nullValue" in v) return null;
+    if ("booleanValue" in v) return !!v.booleanValue;
+    if ("integerValue" in v) return Number(v.integerValue);
+    if ("doubleValue" in v) return Number(v.doubleValue);
+    if ("stringValue" in v) return v.stringValue;
+    if ("timestampValue" in v) return String(v.timestampValue);
+    if ("arrayValue" in v) return (v.arrayValue.values || []).map(fsDec);
+    if ("mapValue" in v) return fsDecFields(v.mapValue.fields);
+    // An unknown value kind must never throw MID-DECODE — that would lose the whole doc over
+    // one field. Drop the field to null and say so once in the console.
+    console.warn("GFFL: unknown Firestore value kind", Object.keys(v).join(","));
+    return null;
+  }
+  function fsDecFields(fields) {
+    const out = {};
+    for (const k of Object.keys(fields || {})) out[k] = fsDec(fields[k]);
+    return out;
+  }
+  LG._fsEnc = fsEncFields; LG._fsDec = fsDecFields; // test hooks (codec unit tests)
+
+  // Backtick-quote EVERY field path. Firestore's field-path grammar only accepts a bare
+  // segment matching ([a-zA-Z_][a-zA-Z_0-9]*); anything else must be backtick-quoted. This
+  // house has already been burned by field-path grammar once (activity.mjs's `03_news_v`
+  // fields, which Firestore 400'd for twelve silent hours), so no key is ever trusted to be
+  // a bare identifier — they all get quoted.
+  const fsPath = (k) => "`" + String(k).replace(/\\/g, "\\\\").replace(/`/g, "\\`") + "`";
+
+  // ---- one fetch wrapper: bounded, typed, readable ----
+  // The ONLY door to the network. An AbortController timeout is what makes "nothing can hang"
+  // a structural property rather than a hope: boot and Retry are both a bounded number of
+  // these, so both always complete.
+  async function fsFetch(url, init, what) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), FS_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(url, { ...(init || {}), signal: ac.signal });
+    } catch (e) {
+      // A DOMException named AbortError is our own timeout; anything else is the network.
+      if (e && (e.name === "AbortError" || ac.signal.aborted)) {
+        throw new Error(what + " timed out after " + Math.round(FS_TIMEOUT_MS / 1000) + "s");
+      }
+      throw new Error(what + " — network error: " + String((e && e.message) || e));
+    } finally { clearTimeout(timer); }
+    return res;
+  }
+
+  // ---- THE SNAPSHOT MIRROR ----
+  // Every successful server read writes through into the LOCAL backend's own localStorage keys
+  // (the same lg_<COLL>_<id> shape local.get/list already read), plus one stamp saying "this
+  // device's local store is a mirror of the cloud, freshened at T". That stamp is the whole
+  // distinction the offline UI turns on:
+  //   · a store WITH the stamp is a mirror -> when the cloud can't be reached, render the
+  //     league from it (read-only, with a chip saying so and an auto-retry running);
+  //   · a store WITHOUT the stamp is a genuine local-backend store — which is exactly what
+  //     every suite page seeds — so it stays fully read-write, no chip, unchanged behaviour.
+  // The user's directive, verbatim: "we have to design the site so no user could ever get this
+  // sort of caching issue, they always need to be able to reach the site and see all the data."
+  const SNAPSTAMP_KEY = "lg_snapstamp_" + LG.famKey;
+  function mirrorStampAt() {
+    try { return Number(localStorage.getItem(SNAPSTAMP_KEY) || 0) || 0; } catch (e) { return 0; }
+  }
+  function mirrorPut(id, doc) {
+    try {
+      if (doc) localStorage.setItem(local.key(id), JSON.stringify(doc));
+      else localStorage.removeItem(local.key(id));
+      localStorage.setItem(SNAPSTAMP_KEY, String(Date.now()));
+    } catch (e) { /* private mode / quota — the mirror is a bonus, never a requirement */ }
+  }
+  // Does this device hold a mirror with an actual league in it? Stamp AND at least one team
+  // doc: a stamped-but-teamless store has nothing to show, so that case correctly falls
+  // through to the honest outage card instead of an empty league behind an offline chip.
+  function mirrorHasLeague() {
+    if (!mirrorStampAt()) return false;
+    try {
+      const pfx = local.key("team_");
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(pfx)) return true;
+      }
+    } catch (e) { /* private mode */ }
+    return false;
+  }
+  LG.mirrorOffline = false;     // true = reading this device's saved copy, writes refused
+  LG.mirrorStampAt = mirrorStampAt;
+  LG.onOfflineWrite = null;     // lg-ui registers the toast
+  // A mirror is a READ-ONLY copy of the cloud. Writing into it would be worse than refusing:
+  // the next successful cloud read overwrites the mirror wholesale, so the write would appear
+  // to work and then silently vanish. Refused at the LG.db seam so no call site can miss it;
+  // the thrown error carries a flag lg-ui recognises, so the reader gets one clear toast
+  // instead of an unhandled rejection.
+  function refuseMirrorWrite() {
+    if (!LG.mirrorOffline) return;
+    try { if (LG.onOfflineWrite) LG.onOfflineWrite(); } catch (e) { /* never let the toast break the refusal */ }
+    const err = new Error("offline-readonly");
+    err.offlineReadOnly = true;
+    throw err;
+  }
+
   LG.backendDegraded = true;   // until a real backend read proves otherwise
   LG.backendError = "";        // the reason, verbatim, shown on that card so the next report identifies itself
   LG.dataConfirmed = () => !LG.backendDegraded;
@@ -162,183 +309,122 @@
     LG.backendDegraded = true;
     LG.backendError = String((e && e.message) || e || "unknown");
   }
-  // A read that provably reached the SERVER (not the offline cache) clears the flag — a single
-  // blip must not leave a session marked unconfirmed for the rest of its life.
+  // A read that provably reached the SERVER clears the flag — a single blip must not leave a
+  // session marked unconfirmed for the rest of its life.
   function markHealthy() { LG.backendDegraded = false; LG.backendError = ""; }
   LG._markDegraded = markDegraded; // test hook
 
-  // ---------- the Firestore IndexedDB assertion bug (live, desktop, 2026-08-08) ----------
-  // "FIRESTORE (10.12.2) INTERNAL ASSERTION FAILED: Unexpected state" — a long-standing SDK bug
-  // in the PERSISTENT (IndexedDB) cache layer. It is a property of the browser profile's stored
-  // database, not of the network or of this league: the same account works fine on a phone whose
-  // IndexedDB is clean, and dead-ends on a desktop whose IndexedDB is not. Since the read throws,
-  // the server-confirmed-emptiness rule (correctly) refuses to call the league empty and the
-  // honest outage card comes up — but "couldn't reach the league" is the wrong ANSWER here,
-  // because the league is perfectly reachable; only the local cache is poisoned.
-  // SO: heal instead of dead-ending. On this specific failure the session drops to an in-memory
-  // cache (a different Firebase app name, because initializeFirestore can only be called once per
-  // app), retries the failed read once, and best-effort deletes the corrupted database so a later
-  // load can have persistence back. The suppression stamp EXPIRES so we retry persistence in a
-  // week rather than punishing the device forever.
-  const NOPERSIST_KEY = "gffl_nopersist";
-  const NOPERSIST_TTL = 7 * 24 * 3600 * 1000;
-  function persistenceSuppressed() {
-    try {
-      const t = Number(localStorage.getItem(NOPERSIST_KEY) || 0);
-      return !!t && (Date.now() - t) < NOPERSIST_TTL;
-    } catch (e) { return false; }
-  }
-  function isAssertionBug(e) {
-    return /INTERNAL ASSERTION FAILED|Unexpected state/i.test(String((e && e.message) || e || ""));
-  }
-  LG._isAssertionBug = isAssertionBug;               // test hooks
-  LG._persistenceSuppressed = persistenceSuppressed;
-  // The ESM import is a seam so the suites can drive a fake Firestore (gstatic is blocked in
-  // every suite page, and this bug is only reachable through a real module boundary).
-  // `||` so a pre-seeded window.LG._fbLoad (set before this script evaluates) WINS — that is
-  // the whole seam: lg-core must not clobber an override the page installed for it.
-  LG._fbLoad = LG._fbLoad || (async () => ({
-    appMod: await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"),
-    fs: await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"),
-  }));
-  let healed = false, healing = null, lastFs = null, lastDb = null;
-  async function healPersistence() {
-    if (healing) return healing;
-    healed = true;                                    // at most once per session — never a loop
-    try { localStorage.setItem(NOPERSIST_KEY, String(Date.now())); } catch (e) { /* private mode */ }
-    healing = (async () => {
-      // Best-effort: drop the poisoned database so the NEXT load can use persistence again.
-      // Both calls legitimately fail in plenty of states (other tabs open, already terminated) —
-      // none of that should stop the memory-cache re-init that actually unblocks the reader.
-      try {
-        if (lastFs && lastDb && lastFs.terminate) await lastFs.terminate(lastDb);
-        if (lastFs && lastDb && lastFs.clearIndexedDbPersistence) await lastFs.clearIndexedDbPersistence(lastDb);
-      } catch (e) { /* best effort */ }
-      await initCloud({ noPersistence: true });
-    })();
-    return healing;
-  }
-  async function initCloud(opts) {
-    opts = opts || {};
-    const wantPersist = !opts.noPersistence && !persistenceSuppressed();
-    const { appMod, fs } = await LG._fbLoad();
-    const cfg = {
-      apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
-      authDomain: "amen-farms-app.firebaseapp.com",
-      projectId: "amen-farms-app",
-      storageBucket: "amen-farms-app.firebasestorage.app",
-      messagingSenderId: "321230755979",
-      appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e",
-    };
-    // A DIFFERENT app name for the memory-cache handle: initializeFirestore may only be called
-    // once per app, so healing in place would throw "Firestore has already been started".
-    const appName = wantPersist ? "gffl" : "gffl-mem";
-    let app;
-    try { app = appMod.getApp ? appMod.getApp(appName) : appMod.initializeApp(cfg, appName); }
-    catch (e) { app = appMod.initializeApp(cfg, appName); }
-    let db;
-    try {
-      db = wantPersist
-        ? fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) })
-        : fs.initializeFirestore(app, { localCache: fs.memoryLocalCache() });
-    } catch (e) { db = fs.getFirestore(app); }
-    lastFs = fs; lastDb = db;
-    const raw = {
-      async get(id) {
-        const ref = fs.doc(db, LG.COLL, id);
-        let snap = await fs.getDoc(ref);
-        // An "it isn't there" answer served from an EMPTY offline cache is not an answer.
-        // Confirm it against the server before anyone treats it as absence (see the header
-        // note above); if the server can't be reached, say so rather than reporting absence.
-        if (!snap.exists() && snap.metadata && snap.metadata.fromCache && fs.getDocFromServer) {
-          try { snap = await fs.getDocFromServer(ref); markHealthy(); } catch (e) { markDegraded(e); }
-        }
-        return snap.exists() ? snap.data() : null;
-      },
-      async set(id, data) { await fs.setDoc(fs.doc(db, LG.COLL, id), data, { merge: true }); },
-      async del(id) { await fs.deleteDoc(fs.doc(db, LG.COLL, id)); },
-      async list(kind) {
-        const q = kind
-          ? fs.query(fs.collection(db, LG.COLL), fs.where("kind", "==", kind))
-          : fs.collection(db, LG.COLL);
-        let snap = await fs.getDocs(q);
-        // THE bug from the header note: an EMPTY query result that came out of the cache is
-        // indistinguishable from a real empty league. Re-ask the server once; if that fails we
-        // are genuinely offline, so mark the session degraded rather than reporting "empty".
-        if (snap.empty && snap.metadata && snap.metadata.fromCache && fs.getDocsFromServer) {
-          try { snap = await fs.getDocsFromServer(q); markHealthy(); } catch (e) { markDegraded(e); }
-        }
-        const out = []; snap.forEach((d) => out.push({ ...d.data(), id: d.id })); // id LAST — see local.list()'s note
-        return out;
-      },
-      watch(id, cb) {
-        return fs.onSnapshot(fs.doc(db, LG.COLL, id), { includeMetadataChanges: true },
-          (snap) => cb(snap.exists() ? snap.data() : null));
-      },
-    };
-    // Every read/write goes out through the heal wrapper: an IndexedDB assertion swaps this
-    // session onto a memory-cache handle and re-runs the SAME call once, so the reader never
-    // sees it. `cloud` is re-pointed by that re-init, which is why the retry dispatches through
-    // the module-level handle rather than the captured `raw` (and why `healed` makes it
-    // impossible to loop). Anything that is not this bug propagates untouched.
-    const viaHeal = (name) => async (...args) => {
-      try { return await raw[name](...args); }
-      catch (e) {
-        if (!isAssertionBug(e) || healed) throw e;
-        await healPersistence();
-        return cloud[name](...args);
+  // ---- the five operations ----
+  const rest = {
+    async get(id) {
+      const url = FS_BASE + "/" + encodeURIComponent(LG.COLL) + "/" + encodeURIComponent(id) + "?key=" + FS_KEY;
+      const r = await fsFetch(url, { method: "GET" }, "Firestore read");
+      // 404 is a real answer from a real server: this doc does not exist. That is what makes
+      // server-confirmed absence free here — there is no cache that could have invented it.
+      if (r.status === 404) { markHealthy(); return null; }
+      if (!r.ok) throw new Error("Firestore read failed (" + r.status + ")");
+      const j = await r.json();
+      const doc = fsDecFields(j && j.fields);
+      markHealthy();
+      mirrorPut(id, doc);
+      return doc;
+    },
+    async set(id, data) {
+      const keys = Object.keys(data || {}).filter((k) => data[k] !== undefined);
+      // An empty updateMask means "replace the whole document" to Firestore, which is the
+      // opposite of what a zero-field merge means here. Nothing to merge -> nothing to send.
+      if (!keys.length) return;
+      const mask = keys.map((k) => "updateMask.fieldPaths=" + encodeURIComponent(fsPath(k))).join("&");
+      const url = FS_BASE + "/" + encodeURIComponent(LG.COLL) + "/" + encodeURIComponent(id) + "?key=" + FS_KEY + "&" + mask;
+      // PATCH + an updateMask naming exactly the top-level keys we are writing IS setDoc's
+      // merge:true: listed fields are replaced, unlisted fields on the server are left alone.
+      const r = await fsFetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fields: fsEncFields(data) }),
+      }, "Firestore write");
+      if (!r.ok) throw new Error("Firestore write failed (" + r.status + ")");
+      markHealthy();
+      const j = await r.json().catch(() => null);
+      // Keep the mirror tracking our own writes: the response carries the merged document.
+      if (j && j.fields) mirrorPut(id, fsDecFields(j.fields));
+    },
+    async del(id) {
+      const url = FS_BASE + "/" + encodeURIComponent(LG.COLL) + "/" + encodeURIComponent(id) + "?key=" + FS_KEY;
+      const r = await fsFetch(url, { method: "DELETE" }, "Firestore delete");
+      if (!r.ok && r.status !== 404) throw new Error("Firestore delete failed (" + r.status + ")"); // 404 = already gone
+      markHealthy();
+      mirrorPut(id, null);
+    },
+    async list(kind) {
+      const q = { from: [{ collectionId: LG.COLL }] };
+      if (kind) q.where = { fieldFilter: { field: { fieldPath: "kind" }, op: "EQUAL", value: { stringValue: kind } } };
+      const r = await fsFetch(FS_BASE + ":runQuery?key=" + FS_KEY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ structuredQuery: q }),
+      }, "Firestore query");
+      if (!r.ok) throw new Error("Firestore query failed (" + r.status + ")");
+      const rows = await r.json();
+      const out = [];
+      for (const row of (Array.isArray(rows) ? rows : [])) {
+        // A runQuery stream legitimately contains rows with no `document` (a readTime-only
+        // heartbeat, or the single {} a zero-result query answers with).
+        if (!row || !row.document || !row.document.name) continue;
+        const id = String(row.document.name).split("/").pop();
+        const doc = fsDecFields(row.document.fields);
+        mirrorPut(id, doc);
+        out.push({ ...doc, id }); // id LAST — a doc's own stray `id` field must never clobber its doc-id
       }
-    };
-    cloud = { get: viaHeal("get"), set: viaHeal("set"), del: viaHeal("del"), list: viaHeal("list"), watch: raw.watch };
-    // Prove reachability with one read before claiming cloud mode. getDoc REJECTS (rather
-    // than answering from an empty cache) when the client is offline with nothing cached, so
-    // this really is a reachability probe — but only for the doc path; the query path needs
-    // its own guard, above.
+      markHealthy();
+      return out;
+    },
+  };
+
+  async function initCloud() {
+    cloud = rest;
+    // Prove reachability with one read before claiming cloud mode. Under REST a 404 is a
+    // perfectly good proof of reachability (a fresh league has no settings doc yet) — only a
+    // network failure, a timeout or a non-404 error status throws.
     await cloud.get("settings");
     LG.backendMode = "cloud";
-    LG.backendDegraded = false;
-    LG.backendError = "";
-  }
-  // Belt-and-braces for the same bug arriving ASYNCHRONOUSLY (the SDK can throw it from its own
-  // internals, off any promise we awaited). We can't retry a call we never made — but we CAN
-  // make sure the next load of this browser skips the poisoned database instead of repeating it.
-  if (typeof window !== "undefined" && window.addEventListener) {
-    const stamp = (e) => {
-      const msg = (e && (e.reason || e.error || e.message)) || "";
-      if (!isAssertionBug(msg && msg.message ? msg.message : msg)) return;
-      try { localStorage.setItem(NOPERSIST_KEY, String(Date.now())); } catch (_) { /* private mode */ }
-    };
-    window.addEventListener("unhandledrejection", stamp);
-    window.addEventListener("error", stamp);
+    LG.mirrorOffline = false;
+    markHealthy();
   }
   LG.backendReady = (async () => {
     try { await initCloud(); }
     catch (e) {
-      // A test harness may have swapped a working fake cloud in underneath us while the real
-      // Firebase import was failing (_installFakeCloud — gstatic is blocked in every suite
-      // page). Only a genuinely un-swapped session drops to local: initCloud() leaves
-      // backendMode at "local" on every one of its own failure paths, so "already cloud" can
-      // only mean somebody else installed a reachable backend.
+      // A test harness may have swapped a working fake cloud in underneath us
+      // (_installFakeCloud). Only a genuinely un-swapped session drops to local: initCloud()
+      // leaves backendMode at "local" on its own failure path, so "already cloud" can only
+      // mean somebody else installed a reachable backend.
       if (LG.backendMode === "cloud") return;
-      LG.backendMode = "local"; markDegraded(e);
+      LG.backendMode = "local";
+      markDegraded(e);
+      // If this device holds a mirror of the league, we can still SHOW everything — read-only,
+      // with a chip and an auto-retry. A store with no stamp is a genuine local backend and
+      // behaves exactly as it always has.
+      LG.mirrorOffline = mirrorHasLeague();
     }
   })();
-  // The Retry the "couldn't reach the league" card offers. Re-runs the whole cloud init (the
-  // failure may have been the ESM import itself, so retrying only the probe wouldn't help) and
-  // drops every cached read on success — a cache filled while degraded is a cache of answers
-  // nobody could confirm.
+  // The Retry the "couldn't reach the league" card offers, and the auto-retry the offline chip
+  // runs. Bounded by construction: it is one fsFetch, and every fsFetch has a timeout — the
+  // stuck-"TRYING…" state that started this rework cannot occur.
   LG.retryBackend = async function () {
     try {
-      // If the cloud object was built and only the NETWORK was down, re-probing it is the whole
-      // retry — re-importing the ESM modules would be wasted work. Only a session that never
-      // got that far (a blocked/failed import) needs the full init.
-      if (cloud) { await cloud.get("settings"); LG.backendMode = "cloud"; markHealthy(); }
+      // Re-probe the handle we already have rather than rebuilding one. initCloud() assigns
+      // `cloud` BEFORE its probe, so a boot that failed at the probe still left the transport
+      // in place — and, more importantly, a test harness may have installed a DIFFERENT
+      // reachable backend underneath us (_installFakeCloud); rebuilding would throw it away.
+      if (cloud) { await cloud.get("settings"); LG.backendMode = "cloud"; LG.mirrorOffline = false; markHealthy(); }
       else await initCloud();
-      LG.db.clearCache();
+      LG.db.clearCache(); // a cache filled while degraded is a cache of answers nobody could confirm
       return true;
     } catch (e) {
-      try { await initCloud(); LG.db.clearCache(); return true; } // the probe failed — maybe the whole handle is stale
-      catch (e2) { LG.backendMode = "local"; markDegraded(e2 || e); return false; }
+      LG.backendMode = "local";
+      markDegraded(e);
+      LG.mirrorOffline = mirrorHasLeague();
+      return false;
     }
   };
   // ---------------- doc-level cache (perf — playtest: "not snappy moving between tabs") ----------------
@@ -487,12 +573,14 @@
       return docs;
     },
     async set(id, data) {
+      refuseMirrorWrite(); // BEFORE the optimistic cache update — never show a phantom change
       LG.db.stats.sets++;
       const cur = docCache.get(id) || {};
       cacheUpsert(id, { ...cur, ...data }); // optimistic — instantly visible to this page's own next read
       await backend().set(id, data);
     },
     async del(id) {
+      refuseMirrorWrite();
       LG.db.stats.dels++;
       cacheUpsert(id, null);
       await backend().del(id);
@@ -527,13 +615,12 @@
       for (const d of docs) { docCache.set(d.id, d); docAt.set(d.id, { at: LG.now(), refreshing: false }); }
       return docs;
     },
-    watch: (id, cb) => backend().watch(id, cb),
     // Test-only: swaps the underlying "cloud" implementation + forces cloud mode, so the perf
     // suite can exercise the background-refresh/quiet-repaint path without a real Firestore.
     // Never called by production code.
     // A fake cloud IS a reachable backend — clear the degraded flag with it, or every test
     // that installs one would look like an offline session.
-    _installFakeCloud(impl) { cloud = impl; LG.backendMode = "cloud"; LG.backendDegraded = false; LG.backendError = ""; docCache.clear(); docAt.clear(); listCache.clear(); },
+    _installFakeCloud(impl) { cloud = impl; LG.backendMode = "cloud"; LG.backendDegraded = false; LG.backendError = ""; LG.mirrorOffline = false; docCache.clear(); docAt.clear(); listCache.clear(); },
     // Drop every cached read. Idempotent and safe to call at any time; used by the offline
     // card's Retry (a cache filled while degraded is a cache of answers nobody could confirm).
     clearCache() { docCache.clear(); docAt.clear(); listCache.clear(); },
@@ -727,8 +814,9 @@
   // another array value (verified live against the real project: setDoc throws "Nested
   // arrays are not allowed"), so saving `weeks` raw silently threw inside the #schedGen
   // click handler on the deployed (cloud-backend) site — no toast, no saved schedule, the
-  // button just "didn't work." Every suite run stays in LOCAL mode (gstatic/firebase
-  // requests are aborted), so localStorage's plain JSON.stringify never caught this.
+  // button just "didn't work." Every suite run stays in LOCAL mode (firestore.googleapis.com
+  // is aborted), so localStorage's plain JSON.stringify never caught this. The REST codec
+  // (fsEnc, above) now THROWS on a nested array rather than letting one reach the wire.
   // Fix at the boundary only: encode each week as {g:[{h,a},...]} for storage (array of
   // MAPS, never array-of-array) and decode back to the raw [[h,a],...] shape every reader
   // in this file already expects — old/seeded docs still holding the raw array shape are
@@ -764,7 +852,10 @@
     let p = await LG.loadRoster(week, teamId, opts);
     if (p) return p;
     for (let w = week - 1; w >= 1 && !p; w--) p = await LG.loadRoster(w, teamId, opts);
-    if (p) await LG.saveRoster(week, teamId, p);
+    // Copying a previous week forward is a CONVENIENCE write, not the answer itself — on a
+    // read-only mirror the roster still resolves in memory, it just isn't persisted (and
+    // must not raise the "you're offline" toast, which is for what a PERSON tried to do).
+    if (p && !LG.mirrorOffline) await LG.saveRoster(week, teamId, p);
     return p || [];
   };
 
@@ -1292,6 +1383,10 @@
   // there's nothing worth snapshotting yet (e.g. the live engine's projections aren't warm),
   // so a too-early attempt can never lock in a garbage/empty snapshot that blocks a real one.
   LG.snapshotProjections = async function (week) {
+    // A read-only mirror can't persist one, and it is a background convenience the first
+    // genuinely-connected client will write anyway — never a reason to raise the offline
+    // toast at a reader who has only opened the app.
+    if (LG.mirrorOffline) return null;
     const id = LG.projSnapId(LG.SEASON, week);
     const existing = await LG.db.get(id);
     if (existing && existing.kind === "projsnap") return existing;

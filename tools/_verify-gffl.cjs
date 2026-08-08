@@ -791,6 +791,10 @@ async function newTestPage(browser, seed, opts) {
       if (seed.pass) localStorage.setItem("gffl_pass", seed.pass);
       if (seed.team) localStorage.setItem("gffl_team", String(seed.team));
       if (seed.who) localStorage.setItem("gffl_who", seed.who);
+      // seed.stamp marks this local store as a MIRROR of the cloud (lg-core's SNAPSHOT MIRROR
+      // note). Absent by default, which is what keeps every pre-existing section a genuine,
+      // fully-writable local-backend store.
+      if (seed.stamp) localStorage.setItem("lg_snapstamp_" + pfx.slice("lg_gffl_".length, -1), String(seed.stamp));
       for (const id of Object.keys(seed.docs || {})) localStorage.setItem(pfx + id, JSON.stringify(seed.docs[id]));
     } catch (e) {}
   }, seed || { docs: {} }, LSPFX);
@@ -820,6 +824,13 @@ async function newTestPage(browser, seed, opts) {
           return req.respond({ status: r.status, contentType: "application/json", headers: cors, body: await r.text() });
         }
         if (u.startsWith(BASE)) return req.continue();
+        // The Firestore REST transport. A page that armed a wire fixture (opts.rest) gets it;
+        // every other page aborts firestore.googleapis.com exactly as before, which is what
+        // keeps every pre-existing section in LOCAL mode.
+        if (/firestore\.googleapis\.com/.test(u)) {
+          if (!opts.rest) return req.abort();
+          return restRespond(req, u, opts.rest);
+        }
         if (/gstatic|googleapis|firebase/.test(u)) return req.abort();
         if (u.includes("site.api.espn.com")) {
           if (fixture.espnDown) return req.respond({ status: 503, headers: cors, body: "{}" });
@@ -934,6 +945,91 @@ async function waitOr(page, sel, ms) {
 //   docs    — the collection the cloud starts with ({} = a genuinely empty league)
 //   delayMs — per-call latency (0 = instant); use a real delay to exercise cold-boot paint
 //   fail    — every read REJECTS (a reachable-then-broken backend)
+// ---------------- the Firestore REST fixture (2026-08-08, the REST transport) ----------------
+// lg-core no longer loads the Firebase SDK: get/set/del/list are plain fetch against the
+// Firestore REST API (see its own header note for why — three live SDK outages in one day).
+// So the suite's cloud fixture is a WIRE fixture now: real REST URLs, real Firestore `fields`
+// encoding, real status codes. The encoder below is deliberately an INDEPENDENT implementation
+// of the same rules lg-core's fsEnc follows — that is what makes the round-trip checks real
+// rather than a function agreeing with itself.
+const FS_DOC_ROOT = "projects/amen-farms-app/databases/(default)/documents";
+function fsWireEnc(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === "boolean") return { booleanValue: v };
+  if (typeof v === "number") return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (typeof v === "string") return { stringValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(fsWireEnc) } };
+  if (typeof v === "object") { const f = {}; for (const k of Object.keys(v)) f[k] = fsWireEnc(v[k]); return { mapValue: { fields: f } }; }
+  return { nullValue: null };
+}
+function fsWireDec(v) {
+  if (!v || typeof v !== "object") return null;
+  if ("nullValue" in v) return null;
+  if ("booleanValue" in v) return !!v.booleanValue;
+  if ("integerValue" in v) return Number(v.integerValue);
+  if ("doubleValue" in v) return Number(v.doubleValue);
+  if ("stringValue" in v) return v.stringValue;
+  if ("arrayValue" in v) return (v.arrayValue.values || []).map(fsWireDec);
+  if ("mapValue" in v) { const o = {}; const f = v.mapValue.fields || {}; for (const k of Object.keys(f)) o[k] = fsWireDec(f[k]); return o; }
+  return null;
+}
+function fsWireDoc(id, doc) {
+  const fields = {};
+  for (const k of Object.keys(doc || {})) fields[k] = fsWireEnc(doc[k]);
+  return { name: FS_DOC_ROOT + "/gffl_" + FAM + "/" + id, fields };
+}
+// A live REST fixture. `docs` is a plain id->doc map the responder mutates, so a PATCH really
+// is visible to the next GET. Every flag is flippable MID-TEST (the auto-retry recovery check
+// turns `fail` off while the page is running).
+function restFixture(docs) {
+  return { docs: JSON.parse(JSON.stringify(docs || {})), calls: [], fail: false, hang: false };
+}
+function restRespond(req, u, R) {
+  const method = req.method();
+  const cors = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "content-type",
+  };
+  // A request that is never answered — the shape of live incident (3), and the ONLY thing the
+  // AbortController timeout can be measured against.
+  if (R.hang) { R.calls.push({ method, url: u, hung: true }); return; }
+  if (method === "OPTIONS") return req.respond({ status: 200, headers: cors, body: "" });
+  if (R.fail) { R.calls.push({ method, url: u, failed: true }); return req.abort(); }
+  const json = (obj, status) => req.respond({ status: status || 200, contentType: "application/json", headers: cors, body: JSON.stringify(obj) });
+  if (u.includes(":runQuery")) {
+    let q = {};
+    try { q = (JSON.parse(req.postData() || "{}").structuredQuery) || {}; } catch (e) { /* malformed */ }
+    const kind = q.where && q.where.fieldFilter ? q.where.fieldFilter.value.stringValue : null;
+    R.calls.push({ method, op: "runQuery", kind, coll: ((q.from || [])[0] || {}).collectionId, url: u });
+    const rows = Object.entries(R.docs)
+      .filter(([, d]) => !kind || d.kind === kind)
+      .map(([id, d]) => ({ document: fsWireDoc(id, d), readTime: "2026-01-01T00:00:00Z" }));
+    // A zero-result runQuery really does answer with one document-LESS row, not an empty array.
+    return json(rows.length ? rows : [{ readTime: "2026-01-01T00:00:00Z" }]);
+  }
+  const m = /\/documents\/([^/?]+)\/([^/?]+)/.exec(u);
+  const coll = m ? decodeURIComponent(m[1]) : null;
+  const id = m ? decodeURIComponent(m[2]) : null;
+  const body = req.postData() || "";
+  R.calls.push({ method, op: "doc", id, coll, url: u, body });
+  if (method === "GET") {
+    const d = R.docs[id];
+    if (!d) return json({ error: { code: 404, status: "NOT_FOUND", message: "Document not found." } }, 404);
+    return json(fsWireDoc(id, d));
+  }
+  if (method === "PATCH") {
+    let payload = {};
+    try { payload = JSON.parse(body); } catch (e) { /* malformed */ }
+    const patch = {};
+    for (const k of Object.keys(payload.fields || {})) patch[k] = fsWireDec(payload.fields[k]);
+    R.docs[id] = { ...(R.docs[id] || {}), ...patch }; // updateMask semantics: listed fields replaced, others kept
+    return json(fsWireDoc(id, R.docs[id]));
+  }
+  if (method === "DELETE") { delete R.docs[id]; return json({}); }
+  return json({});
+}
+
 async function armFakeCloud(page, docs, opts) {
   opts = opts || {};
   await page.evaluateOnNewDocument((docs, delayMs, fail) => {
@@ -5817,155 +5913,383 @@ async function openDetails(page, id) {
   // The bug is only reachable through a real module boundary, and gstatic is blocked in every
   // suite page — so this drives it through LG._fbLoad, the import seam, with a fake Firestore
   // whose PERSISTENT handle throws the real assertion and whose MEMORY handle works.
-  section("AB: the IndexedDB assertion bug heals instead of dead-ending");
+  section("AB · the Firestore REST transport + the snapshot mirror (the SDK is gone)");
   {
-    const fakeFb = (opts) => `(() => {
-      const OPTS = ${JSON.stringify(opts || {})};
-      window.__FB__ = { inits: [], caches: [], terminated: 0, cleared: 0, reads: 0 };
-      const DOCS = ${JSON.stringify({
-        settings: { kind: "settings", season: 2026 },
-        team_1: { kind: "team", id: 1, name: "Battle Kreussers", abbrev: "BK" },
-        team_2: { kind: "team", id: 2, name: "End Zone Goats", abbrev: "EZ" },
-      })};
-      const snapOf = (d) => ({ exists: () => !!d, data: () => d, metadata: { fromCache: false } });
-      window.LG_FB_FAKE = {
-        appMod: {
-          getApp: (n) => { const a = window.__FB__.inits.find((x) => x === n); if (!a) throw new Error("no-app"); return { name: n }; },
-          initializeApp: (cfg, n) => { window.__FB__.inits.push(n); return { name: n }; },
-        },
-        fs: {
-          persistentLocalCache: () => ({ kind: "persistent" }),
-          persistentMultipleTabManager: () => ({}),
-          memoryLocalCache: () => ({ kind: "memory" }),
-          initializeFirestore: (app, o) => { const k = o.localCache.kind; window.__FB__.caches.push(k); return { app, cache: k }; },
-          getFirestore: (app) => ({ app, cache: "default" }),
-          terminate: async () => { window.__FB__.terminated++; },
-          clearIndexedDbPersistence: async () => { window.__FB__.cleared++; },
-          doc: (db, coll, id) => ({ db, id }),
-          collection: (db, coll) => ({ db }),
-          // honor the kind filter — otherwise a list("team") also returns the settings doc
-          query: (c, filt) => ({ db: c.db, filt }), where: (f, op, v) => ({ f, op, v }),
-          getDoc: async (ref) => {
-            window.__FB__.reads++;
-            if (ref.db.cache === "persistent") throw new Error("FIRESTORE (10.12.2) INTERNAL ASSERTION FAILED: Unexpected state");
-            if (OPTS.memoryAlsoBroken) throw new Error("boom");
-            return snapOf(DOCS[ref.id] || null);
-          },
-          getDocFromServer: async (ref) => snapOf(DOCS[ref.id] || null),
-          getDocs: async (q) => {
-            if (q.db.cache === "persistent") throw new Error("FIRESTORE (10.12.2) INTERNAL ASSERTION FAILED: Unexpected state");
-            const rows = Object.entries(DOCS)
-              .filter(([, d]) => !q.filt || d[q.filt.f] === q.filt.v)
-              .map(([id, d]) => ({ id, data: () => d }));
-            return { empty: !rows.length, metadata: { fromCache: false }, forEach: (f) => rows.forEach(f) };
-          },
-          getDocsFromServer: async (q) => ({ empty: false, metadata: { fromCache: false }, forEach: () => {} }),
-          setDoc: async () => {}, deleteDoc: async () => {}, onSnapshot: () => () => {},
-        },
-      };
-    })()`;
-    // The seam has to be replaced BEFORE lg-core evaluates, so this rides in as an init script.
-    const bootFake = async (page, opts) => {
-      await page.evaluateOnNewDocument(new Function(fakeFb(opts)));
-      // lg-core does `window.LG = window.LG || {}` and sets its seam with `||`, so a pre-seeded
-      // object with _fbLoad on it is adopted whole and the override survives.
-      await page.evaluateOnNewDocument(() => {
-        window.LG = { _fbLoad: async () => window.LG_FB_FAKE };
-      });
+    const STAMP = "lg_snapstamp_" + FAM;
+    const leagueDocs = () => fullSeed().docs;
+    // A seed whose LOCAL store already holds the league — i.e. a device that has been online
+    // before. `stamp` is what makes it a MIRROR rather than a genuine local-backend store;
+    // that one key is the whole distinction the offline UI turns on (and the reason every
+    // pre-existing suite section, which seeds no stamp, is completely unaffected).
+    const mirrorSeed = (opts) => {
+      opts = opts || {};
+      const s = fullSeed();
+      return { ...s, stamp: opts.stamp === false ? null : (opts.stampAt || Date.now()) };
     };
+
+    // ---- AB1: a real REST boot — wire shape, decode, and the mirror written through.
     {
-      const ctx = await browser.createBrowserContext();
-      const page = await ctx.newPage();
-      await page.setViewport({ width: 1440, height: 900 });
-      const errors = []; page.on("pageerror", (e) => errors.push(String(e)));
-      await bootFake(page, {});
-      await page.evaluateOnNewDocument((pfx) => {
-        localStorage.setItem("gffl_pass", "amenfarms");
-        localStorage.setItem("gffl_team", "1"); localStorage.setItem("gffl_who", "Peter");
-      }, LSPFX);
-      await page.setRequestInterception(true);
-      page.on("request", (r) => (r.url().startsWith(BASE) ? r.continue() : r.abort()));
-      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "load" });
-      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.backendMode, { timeout: 15000 });
+      const R = restFixture(leagueDocs());
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter" }, { rest: R });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, ".mucard", 15000), "a REST boot renders the real league home");
       const st = await page.evaluate(() => ({
-        mode: window.__GFFL__.LG.backendMode,
-        degraded: window.__GFFL__.LG.backendDegraded,
-        caches: window.__FB__.caches,
-        terminated: window.__FB__.terminated,
-        cleared: window.__FB__.cleared,
-        stamp: !!localStorage.getItem("gffl_nopersist"),
-        body: document.body.textContent,
+        mode: window.__GFFL__.LG.backendMode, deg: window.__GFFL__.LG.backendDegraded,
+        conf: window.__GFFL__.LG.teamsConfirmed, n: window.__GFFL__.LG.teams.length,
+        mirror: window.__GFFL__.LG.mirrorOffline,
       }));
-      ok(st.caches[0] === "persistent", "a first, unpoisoned-looking boot DOES try the persistent cache (" + JSON.stringify(st.caches) + ")");
-      ok(st.caches.includes("memory"), "…and when it throws the assertion the session re-inits on an in-memory cache");
-      ok(st.mode === "cloud" && st.degraded === false, "…the session ends in confirmed CLOUD mode, not degraded (" + st.mode + "/" + st.degraded + ")");
-      ok(!/Couldn't reach the league/i.test(st.body), "…so the reader NEVER sees the outage card — the league was always reachable");
-      ok(st.terminated === 1 && st.cleared === 1, "…and the poisoned database is terminated + cleared so a later load can have persistence back");
-      ok(st.stamp, "…a suppression stamp is written so the very next load skips the poisoned cache outright");
-      ok(errors.length === 0, "0 page errors");
-      // The league really renders — healing is worth nothing if the data doesn't arrive.
-      await page.waitForSelector(".mucard, .teamrow, .card", { timeout: 9000 });
-      const teams = await page.evaluate(() => window.__GFFL__.LG.teams.length);
-      ok(teams === 2, "…the real league data loads through the healed handle (" + teams + " teams)");
-      await ctx.close();
-    }
-    {
-      // SECOND load on that same device: the stamp is honored, so persistence is never touched
-      // — no assertion, no heal, no terminate. And the stamp EXPIRES (7 days) rather than
-      // punishing the device forever.
-      const ctx = await browser.createBrowserContext();
-      const page = await ctx.newPage();
-      const errors = []; page.on("pageerror", (e) => errors.push(String(e)));
-      await bootFake(page, {});
-      await page.evaluateOnNewDocument(() => {
-        localStorage.setItem("gffl_pass", "amenfarms");
-        localStorage.setItem("gffl_team", "1"); localStorage.setItem("gffl_who", "Peter");
-        localStorage.setItem("gffl_nopersist", String(Date.now()));
-      });
-      await page.setRequestInterception(true);
-      page.on("request", (r) => (r.url().startsWith(BASE) ? r.continue() : r.abort()));
-      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "load" });
-      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.backendMode === "cloud", { timeout: 15000 });
-      const st = await page.evaluate(() => ({
-        caches: window.__FB__.caches, terminated: window.__FB__.terminated,
-        expired: window.__GFFL__.LG._persistenceSuppressed(),
-        expiredOld: (() => { localStorage.setItem("gffl_nopersist", String(Date.now() - 8 * 24 * 3600 * 1000));
-                             return window.__GFFL__.LG._persistenceSuppressed(); })(),
-      }));
-      ok(!st.caches.includes("persistent") && st.caches.includes("memory"),
-        "a device that has already hit the bug goes STRAIGHT to memory — the poisoned cache is never opened again (" + JSON.stringify(st.caches) + ")");
-      ok(st.terminated === 0, "…and nothing needs healing, because nothing threw");
-      ok(st.expired === true && st.expiredOld === false, "…the suppression stamp expires after a week, so persistence gets another chance");
+      ok(st.mode === "cloud" && st.deg === false, "…in confirmed CLOUD mode over plain fetch — no SDK, no IndexedDB (" + st.mode + "/" + st.deg + ")");
+      ok(st.n === 8 && st.conf === true, "…all 8 teams read and the read marked server-confirmed");
+      ok(st.mirror === false, "…and not in mirror-offline mode, because the cloud answered");
+      // THE WIRE, not the wrapper: the probe is a real GET, the team list is a real runQuery
+      // carrying the kind filter and this league's own collection id.
+      const probe = R.calls.find((c) => c.op === "doc" && c.method === "GET" && c.id === "settings");
+      ok(!!probe && /firestore\.googleapis\.com\/v1\/projects\/amen-farms-app\/databases\/\(default\)\/documents\/gffl_test1\/settings\?key=/.test(probe.url),
+        "the reachability probe is a real REST GET on this league's own collection");
+      const q = R.calls.find((c) => c.op === "runQuery" && c.kind === "team");
+      ok(!!q, "…the team list is a runQuery with a kind=team fieldFilter ON THE WIRE");
+      ok(!!q && q.coll === "gffl_" + FAM, "…scoped to this league's collection (" + (q && q.coll) + ")");
+      // The codec really decoded: a number stayed a Number, a string a string.
+      const t1 = await page.evaluate(() => { const t = window.__GFFL__.LG.teamById(1); return { id: typeof t.teamId, name: t.name }; });
+      ok(t1.id === "number" && typeof t1.name === "string", "…and the value codec decoded typed Firestore fields back into plain JS (" + t1.id + ")");
+      // THE MIRROR: every successful read wrote through to this device's own local store.
+      const mir = await page.evaluate((pfx, stampKey) => ({
+        team: JSON.parse(localStorage.getItem(pfx + "team_1") || "null"),
+        stamp: Number(localStorage.getItem(stampKey) || 0),
+      }), LSPFX, STAMP);
+      ok(mir.team && mir.team.name === "Battle Kreussers", "every cloud read writes through into this device's local store — the snapshot mirror");
+      ok(mir.stamp > 0 && Date.now() - mir.stamp < 120000, "…stamped, so a later offline boot knows the local store is a mirror and how fresh it is");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
+
+    // ---- AB2: a 404 IS server-confirmed absence. The whole "cache-served empty" ambiguity
+    // class that caused the empty-league bug cannot exist over REST — there is no cache.
     {
-      // The classifier must be narrow: an ORDINARY failure (a real outage) must still produce
-      // the honest outage card, not a pointless cache dance.
-      const ctx = await browser.createBrowserContext();
-      const page = await ctx.newPage();
-      const errors = []; page.on("pageerror", (e) => errors.push(String(e)));
-      await bootFake(page, { memoryAlsoBroken: true });
-      await page.evaluateOnNewDocument(() => {
-        localStorage.setItem("gffl_pass", "amenfarms");
-        localStorage.setItem("gffl_nopersist", String(Date.now())); // memory path, and it throws "boom"
-      });
-      await page.setRequestInterception(true);
-      page.on("request", (r) => (r.url().startsWith(BASE) ? r.continue() : r.abort()));
-      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "load" });
-      await page.waitForFunction(() => /Couldn't reach the league/i.test(document.body.textContent), { timeout: 15000 });
-      const cls = await page.evaluate(() => ({
-        real: window.__GFFL__.LG._isAssertionBug(new Error("FIRESTORE (10.12.2) INTERNAL ASSERTION FAILED: Unexpected state")),
-        alsoReal: window.__GFFL__.LG._isAssertionBug("INTERNAL ASSERTION FAILED"),
-        ordinary: window.__GFFL__.LG._isAssertionBug(new Error("Failed to fetch")),
-        blank: window.__GFFL__.LG._isAssertionBug(null),
-        why: window.__GFFL__.LG.backendError,
-      }));
-      ok(cls.real && cls.alsoReal, "the classifier recognises the assertion bug in both shapes it arrives in");
-      ok(!cls.ordinary && !cls.blank, "…and does NOT swallow an ordinary failure (a real outage still reads as one)");
-      ok(/boom/.test(cls.why), "…a genuine backend failure still reaches the honest outage card with its own reason (" + cls.why + ")");
+      const R = restFixture({});
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: null, who: null }, { rest: R });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, "#firstImport"), "a REST backend that answers 404/empty still offers the first-run setup card");
+      ok(!(await page.$("#offlineRetry")), "…and not the outage card — a 404 is a real answer from a real server");
+      const st = await page.evaluate(() => ({ conf: window.__GFFL__.LG.teamsConfirmed, deg: window.__GFFL__.LG.backendDegraded }));
+      ok(st.conf === true && st.deg === false, "…the empty read is SERVER-CONFIRMED (a 404 on the probe still proves reachability)");
+      const got404 = R.calls.some((c) => c.op === "doc" && c.id === "settings" && c.method === "GET");
+      ok(got404, "…and the probe really was a GET for the missing settings doc");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
+    }
+
+    // ---- AB3: set() — updateMask + the integer/double distinction, hand-checked ON THE WIRE.
+    {
+      const R = restFixture(leagueDocs());
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter" }, { rest: R });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".mucard", 15000);
+      R.calls.length = 0;
+      await page.evaluate(() => window.__GFFL__.LG.db.set("tx_codec", {
+        kind: "tx", whole: 7, frac: 1.25, flag: true, label: "hi", nada: null,
+        nested: { a: 1, b: "two" }, rows: [{ h: 1, a: 2 }, { h: 3, a: 4 }],
+      }));
+      const patch = R.calls.find((c) => c.method === "PATCH" && c.id === "tx_codec");
+      ok(!!patch, "LG.db.set() goes out as a PATCH on the doc's own REST path");
+      const body = patch ? JSON.parse(patch.body) : { fields: {} };
+      const f = body.fields || {};
+      ok(f.whole && f.whole.integerValue === "7", "…an integer is encoded as integerValue, and as a STRING per the API (" + JSON.stringify(f.whole) + ")");
+      ok(f.frac && f.frac.doubleValue === 1.25, "…a non-integer as doubleValue, as a number (" + JSON.stringify(f.frac) + ")");
+      ok(f.flag && f.flag.booleanValue === true && f.label && f.label.stringValue === "hi" && f.nada && "nullValue" in f.nada,
+        "…boolean/string/null carry their own typed shapes");
+      ok(f.nested && f.nested.mapValue && f.nested.mapValue.fields.a.integerValue === "1" && f.nested.mapValue.fields.b.stringValue === "two",
+        "…a nested object is a mapValue with its own typed fields");
+      ok(f.rows && f.rows.arrayValue && f.rows.arrayValue.values.length === 2 && f.rows.arrayValue.values[0].mapValue.fields.h.integerValue === "1",
+        "…an array of objects is an arrayValue of mapValues");
+      // The mask is what makes this setDoc(merge:true) rather than a full overwrite.
+      const mask = [...(patch.url.matchAll(/updateMask\.fieldPaths=([^&]+)/g))].map((m) => decodeURIComponent(m[1]));
+      const want = ["kind", "whole", "frac", "flag", "label", "nada", "nested", "rows"].map((k) => "`" + k + "`");
+      ok(mask.length === want.length && want.every((w) => mask.includes(w)),
+        "…the updateMask names EXACTLY the top-level keys being written (merge semantics) — " + mask.length + " paths");
+      ok(mask.every((p) => /^`.*`$/.test(p)), "…every field path backtick-quoted, so a field name can never break the mask grammar");
+      // Round trip: the types survive the wire in BOTH directions.
+      const back = await page.evaluate(() => window.__GFFL__.LG.db.getFresh("tx_codec"));
+      ok(back && back.whole === 7 && back.frac === 1.25 && back.flag === true && back.label === "hi" && back.nada === null,
+        "…and a full round trip returns the same JS values, integers included (" + JSON.stringify(back && back.whole) + ")");
+      ok(back && back.nested.a === 1 && back.nested.b === "two" && back.rows.length === 2 && back.rows[1].a === 4,
+        "…nested maps and arrays-of-maps survive intact");
+      // A merge really merges: a second set() touching one field leaves the rest alone.
+      await page.evaluate(() => window.__GFFL__.LG.db.set("tx_codec", { label: "changed" }));
+      const merged = await page.evaluate(() => window.__GFFL__.LG.db.getFresh("tx_codec"));
+      ok(merged && merged.label === "changed" && merged.whole === 7, "…and a later one-field write MERGES (the mask leaves every unlisted field on the server)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AB4: del() is a real DELETE.
+    {
+      const R = restFixture(leagueDocs());
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter" }, { rest: R });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".mucard", 15000);
+      R.calls.length = 0;
+      await page.evaluate(() => window.__GFFL__.LG.db.del("team_8"));
+      const d = R.calls.find((c) => c.method === "DELETE" && c.id === "team_8");
+      ok(!!d, "LG.db.del() goes out as a real DELETE on the doc's REST path");
+      ok(!R.docs.team_8, "…and the document is gone from the store");
+      const gone = await page.evaluate(() => window.__GFFL__.LG.db.getFresh("team_8"));
+      ok(gone === null, "…a subsequent read gets a 404, decoded as a confirmed null");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AB5: NOTHING CAN HANG. The live incident that started this rework was an outage
+    // card with no reason and a Retry stuck on "TRYING…" forever, because the SDK's failure
+    // arrived as a HUNG PROMISE and a hung promise sails past every try/catch. Every request
+    // now carries an AbortController timeout, so boot AND retry are bounded by construction.
+    {
+      const R = restFixture(leagueDocs());
+      R.hang = true; // answered never — exactly the shape of the live incident
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter" }, { rest: R });
+      const t0 = Date.now();
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "domcontentloaded" });
+      const shown = await waitOr(page, "#offlineRetry", 30000);
+      const bootMs = Date.now() - t0;
+      const budget = await page.evaluate(() => window.__GFFL__.LG.FS_TIMEOUT_MS);
+      ok(shown, "a backend that NEVER answers still reaches a screen a person can act on");
+      ok(bootMs < budget + 8000, "…within the timeout budget, not forever (" + bootMs + "ms, budget " + budget + "ms)");
+      ok(bootMs > budget * 0.5, "…and it really did wait for the timeout rather than failing instantly for some other reason (" + bootMs + "ms)");
+      const why = await page.evaluate(() => window.__GFFL__.LG.backendError);
+      ok(/timed out/i.test(why), "…and the reason on screen SAYS it timed out — the live card had no reason line at all (" + why + ")");
+      // THE REGRESSION: the Retry button must come back, every time, even when the retry
+      // itself hangs.
+      const t1 = Date.now();
+      await page.evaluate(() => document.querySelector("#offlineRetry").click());
+      await page.waitForFunction(() => {
+        const b = document.querySelector("#offlineRetry");
+        return b && !b.disabled && /Try again/i.test(b.textContent);
+      }, { timeout: 30000 }).catch(() => {});
+      const retryMs = Date.now() - t1;
+      const bst = await page.evaluate(() => {
+        const b = document.querySelector("#offlineRetry");
+        return { on: !!b, disabled: b ? b.disabled : null, label: b ? b.textContent.trim() : null };
+      });
+      ok(bst.on && bst.disabled === false && /Try again/i.test(bst.label),
+        "…a Retry against a hung backend returns to a TAPPABLE button (the stuck-\"TRYING…\" regression) — \"" + bst.label + "\"");
+      ok(retryMs < budget + 8000, "…in bounded time (" + retryMs + "ms)");
+      ok(errors.length === 0, "0 page errors");
+      R.hang = false; // let the pending request drain before the context closes
+      await ctx.close();
+    }
+
+    // ---- AB6: codec unit tests, both directions, against lg-core's own encoder/decoder.
+    {
+      const R = restFixture(leagueDocs());
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter" }, { rest: R });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".mucard", 15000);
+      const c = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG, enc = LG._fsEnc, dec = LG._fsDec;
+        const src = { i: 3, z: 0, neg: -2, d: 0.5, s: "x", b: false, n: null, m: { q: 1 }, arr: [1, "a", { k: 2 }] };
+        const wire = enc(src);
+        let threw = "";
+        try { enc({ bad: [[1, 2]] }); } catch (e) { threw = String(e.message || e); }
+        return {
+          wire, back: dec(wire), threw,
+          zeroIsInt: wire.z.integerValue === "0",
+          negIsInt: wire.neg.integerValue === "-2",
+          unknown: dec({ mystery: { fooValue: 1 } }),
+          empty: dec({}),
+        };
+      });
+      ok(c.back.i === 3 && c.back.d === 0.5 && c.back.s === "x" && c.back.b === false && c.back.n === null,
+        "codec round trip: every scalar returns as the same JS value and type");
+      ok(c.zeroIsInt && c.negIsInt, "…0 and a negative integer are integerValue too, not doubles");
+      ok(typeof c.back.i === "number" && typeof c.back.d === "number", "…and BOTH integerValue and doubleValue decode to Number");
+      ok(c.back.m.q === 1 && c.back.arr.length === 3 && c.back.arr[2].k === 2, "…nested maps and arrays-of-maps round trip");
+      ok(/array directly inside an array/i.test(c.threw), "…a nested array THROWS loudly rather than silently mangling (" + c.threw + ")");
+      ok(c.unknown && c.unknown.mystery === null, "…an unknown value kind decodes to null instead of throwing mid-doc, so one odd field can't lose a whole document");
+      ok(JSON.stringify(c.empty) === "{}", "…and an empty fields map decodes to an empty object");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AB7: THE MIRROR. Offline, but this device has been online before: the league
+    // renders NORMALLY from the saved copy. "They always need to be able to see all the data."
+    {
+      // No rest fixture at all -> firestore.googleapis.com is aborted, exactly like a real
+      // offline device.
+      const { ctx, page, errors } = await newTestPage(browser, mirrorSeed({ stampAt: Date.now() - 9 * 60000 }));
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, ".mucard", 15000), "offline WITH a mirror renders the league normally — not an outage card");
+      ok(!(await page.$("#offlineRetry")), "…no outage card");
+      ok(!(await page.$("#firstImport")), "…and never the first-run card (the empty-league rule is untouched)");
+      const st = await page.evaluate(() => ({
+        mirror: window.__GFFL__.LG.mirrorOffline, mode: window.__GFFL__.LG.backendMode,
+        conf: window.__GFFL__.LG.teamsConfirmed, n: window.__GFFL__.LG.teams.length,
+      }));
+      ok(st.mirror === true && st.mode === "local", "…LG.mirrorOffline is set (reading this device's saved copy)");
+      ok(st.n === 8 && st.conf === false, "…all 8 teams are on screen, and the read is honestly marked UNCONFIRMED");
+      const chip = await page.evaluate(() => {
+        const el = document.querySelector("#offlineChip");
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { hidden: el.hidden, text: el.textContent, w: r.width, h: r.height };
+      });
+      ok(chip && chip.hidden === false && chip.w > 100 && chip.h > 5, "…and a visible chip says which copy this is");
+      ok(chip && /offline/i.test(chip.text) && /saved copy/i.test(chip.text), "…naming it as this device's saved copy (\"" + (chip && chip.text) + "\")");
+      ok(chip && /9 minutes ago/.test(chip.text), "…with how old it is, from the mirror's own stamp");
+      ok(chip && /reconnecting/i.test(chip.text), "…and that we're still trying");
+      // Viewport (not fullPage): the chip is position:sticky, and this repo has already been
+      // bitten by fullPage capture disagreeing with a sticky element's real placement.
+      if (SHOTS) {
+        fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true });
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_rest_offline_390.png") });
+        console.log("  📸 shots/gffl_rest_offline_390.png");
+      }
+      // BOOTING IS NOT A MUTATION. Caught by LOOKING at the desktop plate, which showed the
+      // offline toast up with nobody having touched anything: the boot chain's own internal
+      // writes (auto-checks carrying the league forward, ensureRoster copying a week forward)
+      // were being refused and toasting for it. Those are now skipped on a mirror — the toast
+      // is for what a PERSON tried to do.
+      const bootToast = await page.evaluate(() => {
+        const t = document.querySelector("#toast");
+        return { on: t && !t.hidden, text: (t && t.textContent) || "" };
+      });
+      ok(!bootToast.on, "simply OPENING the app on a mirror raises no toast — internal housekeeping writes are skipped, not refused (\"" + bootToast.text.trim() + "\")");
+      // A MUTATION IS REFUSED — a write into a mirror would be overwritten by the next cloud
+      // read, so it would appear to work and then vanish.
+      await clickIn(page, ".bnav button", "Chat");
+      await waitOr(page, "#chatText", 9000);
+      const before = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.includes("_chat_")).length);
+      await page.evaluate(() => {
+        const t = document.querySelector("#chatText"); t.value = "offline post";
+        document.querySelector("#chatSend").click();
+      });
+      await sleep(500);
+      const after = await page.evaluate(() => ({
+        chats: Object.keys(localStorage).filter((k) => k.includes("_chat_")).length,
+        toast: (document.querySelector("#toast") || {}).textContent || "",
+        toastOn: !(document.querySelector("#toast") || {}).hidden,
+      }));
+      ok(after.chats === before, "a mutation in mirror-offline mode writes NOTHING (" + before + " -> " + after.chats + ")");
+      ok(after.toastOn && /offline/i.test(after.toast), "…and says so plainly instead of failing silently (\"" + after.toast.trim() + "\")");
+      ok(errors.length === 0, "0 page errors — the refusal is reported, never thrown at the console");
+      await ctx.close();
+    }
+
+    // ---- AB7b: the same state on a desktop, where the chip shares the sticky band with the
+    // replay banner (its top offset is MEASURED off that banner, not hard-coded).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, mirrorSeed({ stampAt: Date.now() - 2 * 3600000 }), { vw: { width: 1440, height: 900 } });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, ".mucard", 20000), "desktop: offline with a mirror still renders the league");
+      // The chip's own top offset is MEASURED off the replay banner rather than hard-coded, so
+      // the two sticky strips can never pin to the same top and overlap. Exercised by showing
+      // the banner and re-syncing — the whole replay season isn't needed to test one offset.
+      const geo = await page.evaluate(() => {
+        const b = document.querySelector("#simBanner");
+        b.hidden = false; b.textContent = "2025 SEASON REPLAY — Week 1, before kickoff.";
+        window.__GFFL__.UI._syncOfflineChip();
+        const c = document.querySelector("#offlineChip");
+        const cr = c.getBoundingClientRect(), br = b.getBoundingClientRect();
+        return { hidden: c.hidden, text: c.textContent, cTop: cr.top, cBot: cr.bottom, bBot: br.bottom, w: cr.width };
+      });
+      ok(geo.hidden === false && geo.w > 400, "…the chip spans the page");
+      ok(!(await page.evaluate(() => { const t = document.querySelector("#toast"); return t && !t.hidden; })),
+        "…and no toast: opening the app is not a mutation");
+      ok(/2 hours ago/.test(geo.text), "…and reads the mirror's age in hours once it's hours old (\"" + geo.text.trim() + "\")");
+      ok(geo.bBot === null || geo.cTop >= geo.bBot - 1, "…sitting BELOW the replay banner, not on top of it (chip " + Math.round(geo.cTop) + " vs banner bottom " + Math.round(geo.bBot) + ")");
+      if (SHOTS) {
+        await page.evaluate(() => { document.querySelector("#simBanner").hidden = true; window.__GFFL__.UI._syncOfflineChip(); });
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_rest_offline_desktop.png") });
+        console.log("  📸 shots/gffl_rest_offline_desktop.png");
+      }
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AB8: THE STAMP IS THE WHOLE DISTINCTION. The same store WITHOUT it is a genuine
+    // local-backend store — no chip, fully writable, exactly today's behaviour. This is the
+    // check that keeps every other section in this suite (which all seed exactly that) valid.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, mirrorSeed({ stamp: false }));
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, ".mucard", 15000), "an UNSTAMPED local store still renders the league");
+      const st = await page.evaluate(() => ({
+        mirror: window.__GFFL__.LG.mirrorOffline,
+        chip: (document.querySelector("#offlineChip") || {}).hidden,
+      }));
+      ok(st.mirror === false, "…but it is NOT a mirror — it's a genuine local backend");
+      ok(st.chip === true, "…so no offline chip is shown");
+      const wrote = await page.evaluate(async () => {
+        await window.__GFFL__.LG.db.set("tx_localwrite", { kind: "tx", t: 1, text: "ok" });
+        return JSON.parse(localStorage.getItem("lg_gffl_test1_tx_localwrite") || "null");
+      });
+      ok(wrote && wrote.text === "ok", "…and writes work exactly as they always have (this is what keeps every other section in this suite valid)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AB9: the auto-retry recovers in place, on its own, with no tap.
+    {
+      const R = restFixture(leagueDocs());
+      R.fail = true; // reachable host, refusing every request — a dropped connection
+      const { ctx, page, errors } = await newTestPage(browser, mirrorSeed(), { rest: R });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, ".mucard", 15000), "a mirror + a refusing backend still renders the league");
+      ok((await page.evaluate(() => window.__GFFL__.LG.mirrorOffline)) === true, "…in mirror-offline mode");
+      ok((await page.evaluate(() => window.__GFFL__.UI._mirrorTimerOn())) === true, "…with the auto-retry loop armed — no tap required");
+      // Re-arm the same loop on a short period so the REAL setInterval is what recovers here,
+      // then let the connection come back.
+      await page.evaluate(() => window.__GFFL__.UI._startMirrorRetry(400));
+      R.fail = false;
+      const back = await page.waitForFunction(() => window.__GFFL__.LG.mirrorOffline === false, { timeout: 15000 }).then(() => true).catch(() => false);
+      ok(back, "…and when the connection comes back the loop reconnects on its own");
+      await sleep(400);
+      const st = await page.evaluate(() => ({
+        mode: window.__GFFL__.LG.backendMode, deg: window.__GFFL__.LG.backendDegraded,
+        conf: window.__GFFL__.LG.teamsConfirmed, n: window.__GFFL__.LG.teams.length,
+        chip: (document.querySelector("#offlineChip") || {}).hidden,
+        timer: window.__GFFL__.UI._mirrorTimerOn(),
+        mu: document.querySelectorAll(".mucard").length,
+      }));
+      ok(st.mode === "cloud" && st.deg === false && st.conf === true, "…back to confirmed cloud mode");
+      ok(st.chip === true && st.timer === false, "…the chip disappears and the loop stops");
+      ok(st.n === 8 && st.mu === 4, "…and the screen repaints with the real league (" + st.mu + " matchups)");
+      const wrote = await page.evaluate(async () => {
+        try { await window.__GFFL__.LG.db.set("tx_afterheal", { kind: "tx", t: 2, text: "yes" }); return true; }
+        catch (e) { return false; }
+      });
+      ok(wrote, "…and mutations are allowed again");
+      ok(errors.length === 0, "0 page errors through the whole offline->online cycle");
+      await ctx.close();
+    }
+
+    // ---- AB10: a COLD device with no network has genuinely nothing to show — the honest
+    // outage card, exactly as before. Including the stamped-but-teamless case.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter", stamp: Date.now() });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, "#offlineRetry"), "a stamped-but-EMPTY mirror + no network still gets the honest outage card");
+      ok(!(await page.$("#firstImport")), "…never the first-run card");
+      ok((await page.evaluate(() => window.__GFFL__.LG.mirrorOffline)) === false, "…and is not treated as a mirror, because there is no league in it to show");
+      ok((await page.evaluate(() => (document.querySelector("#offlineChip") || {}).hidden)) === true, "…so no chip either");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AB11: the SDK really is gone from the shipped files.
+    {
+      const raw = ["assets/league/lg-core.js", "assets/league/lg-ui.js", "assets/league/lg-data.js"]
+        .map((f) => fs.readFileSync(path.join(ROOT, f), "utf8")).join("\n");
+      const html = fs.readFileSync(path.join(ROOT, "league.html"), "utf8");
+      // Comments are stripped before the ban is applied: the code's own header note NARRATES
+      // the three SDK outages and names the machinery that caused them, which is exactly the
+      // history a future reader needs. What must be gone is the CODE. (A `//` preceded by `:`
+      // is a URL, not a comment — stripping those would delete the REST endpoint itself.)
+      const code = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+      const banned = /gstatic\.com\/firebasejs|initializeFirestore|persistentLocalCache|memoryLocalCache|clearIndexedDbPersistence|_fbLoad|healPersistence|gffl_nopersist/;
+      ok(!banned.test(code), "no Firebase SDK or IndexedDB-heal machinery survives in the league's code");
+      ok(!banned.test(html), "…nor in league.html");
+      ok(/firestore\.googleapis\.com\/v1\/projects/.test(code), "…the transport really is the Firestore REST API");
+      ok(!/\bwatch\s*\(/.test(code), "…and LG.db.watch (zero callers) is gone with it");
     }
   }
 
