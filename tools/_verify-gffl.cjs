@@ -82,6 +82,7 @@ const fixture = {
   // false = the expected reality (a season that far gone keeps none), which is what forces
   // D.simEnsureProj's derive-from-real-final-stats fallback — the shipped default path.
   simProjReal: false,
+  simProjAdpOnly: false, // the live-probe ADP-husk trap (2026-08-08)
   // Coordinator addendum (2026-08-08) — the Scores tab's ff_scoreboard fixture (fake sports.mjs
   // fantasy upstream). Default false = the existing scored 2-matchup fixture; true = an
   // all-zero preseason/pre-draft shape (see ffScoreboardFix's own comment).
@@ -565,9 +566,19 @@ const WEEK_STATS_FIX = {
 //     150 pass yd (·0.04) + 1 TD (4) - 1 INT (2) + 1 2pt (2) = 10.0.
 //   · fixture.simProjReal TRUE -> a genuine forward projection, deliberately a DIFFERENT number
 //     so the two paths can never be confused: P. Passer 250 yd / 2 TD = 10 + 8 = 18.0.
-const SIM_PROJ_FIX = { 1: { "6904": { pass_yd: 250, pass_td: 2 } } };
+// The map carries the ONE hand-checked row plus 30 synthetic stat-bearing filler rows whose ids
+// match no roster key: simProjUsable (2026-08-08 live-probe hardening) requires ≥25 rows with
+// REAL stat fields before it trusts an archived projections map — the live 2025 archive answers
+// 200 with 9,409 rows of which some carry ONLY ADP fields, and a one-row fixture would now
+// (correctly) be rejected as an ADP-husk-sized map.
+const SIM_PROJ_FIX = { 1: Object.fromEntries([["6904", { pass_yd: 250, pass_td: 2 }]]
+  .concat(Array.from({ length: 30 }, (_, i) => ["fill" + i, { rush_yd: 20 + i }]))) };
+// The trap the hardening exists for: a big map where every row is ADP-only (what Sleeper's
+// archived projections bucket can degrade to) must be treated as ABSENT, not as zeros.
+const SIM_PROJ_ADP_ONLY = Object.fromEntries(Array.from({ length: 200 }, (_, i) => ["adp" + i, { adp_dd_ppr: 100 + i }]));
 function slpSimProjFix(season, week) {
   if (String(season) !== "2025") return null; // not a replay request — the generic slpProjFix serves it
+  if (fixture.simProjAdpOnly) return SIM_PROJ_ADP_ONLY;
   if (!fixture.simProjReal) return {};        // the shipped default: nothing retained -> fallback
   return SIM_PROJ_FIX[Number(week)] || {};
 }
@@ -5588,6 +5599,32 @@ async function openDetails(page, id) {
       ok(pj.passer === 18.0, "…hand-checked: P. Passer 250yd·2TD = 18.0, provably NOT the 10.0 derived figure (" + pj.passer + ")");
       fixture.simProjReal = false;
       ok(errors.length === 0, "0 page errors on the real-projection path");
+      await ctx.close();
+    }
+    {
+      // The LIVE-PROBE trap (2026-08-08): Sleeper's archived 2025 projections endpoint answers
+      // 200 with thousands of rows, but rows can be ADP-ONLY husks (adp_dd_ppr and friends,
+      // every stat projection stripped). A "non-empty means usable" test scores every player's
+      // projection to 0.0 — worse than the fallback. simProjUsable must reject a 200-row
+      // ADP-only map and the fallback (derived from real week-1 finals) must fire instead.
+      fixture.simProjAdpOnly = true;
+      const { ctx, page, errors } = await newTestPage(browser, { docs: simDocsAfterSetup, pass: "amenfarms", team: 1, who: "Peter" });
+      await bootSim(page);
+      await page.waitForSelector(".mucard", { timeout: 20000 });
+      await page.waitForFunction(() => window.__GFFL__.D.S.simProj, { timeout: 15000 });
+      const pj = await page.evaluate(() => ({
+        source: window.__GFFL__.D.S.simProj.source,
+        passer: window.__GFFL__.D.projFor("3915511"),
+        unitBig: window.__GFFL__.D.simProjUsable(Object.fromEntries(Array.from({ length: 30 }, (_, i) => ["k" + i, { rec: 3 + i }]))),
+        unitAdp: window.__GFFL__.D.simProjUsable(Object.fromEntries(Array.from({ length: 500 }, (_, i) => ["k" + i, { adp_dd_ppr: i }]))),
+        unitFew: window.__GFFL__.D.simProjUsable({ a: { pass_yd: 300 } }),
+      }));
+      ok(pj.source === "actual", "a 200-row ADP-only 'projections' map is treated as ABSENT — the derived-from-finals fallback fires (source=" + pj.source + ")");
+      ok(pj.passer === 10.0, "…and P. Passer's projection is the derived 10.0, never a 0.0 husk (" + pj.passer + ")");
+      ok(pj.unitBig === true && pj.unitAdp === false && pj.unitFew === false,
+        "simProjUsable unit: 30 stat rows pass, 500 ADP-only rows fail, a lone stat row fails the ≥25 bar (" + JSON.stringify([pj.unitBig, pj.unitAdp, pj.unitFew]) + ")");
+      fixture.simProjAdpOnly = false;
+      ok(errors.length === 0, "0 page errors on the ADP-husk path");
       await ctx.close();
     }
 
