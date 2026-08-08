@@ -388,6 +388,26 @@ jobs:
               print('shape:', type(d).__name__, 'len', len(d) if hasattr(d, '__len__') else '?')
           PY
 
+      - name: firestore REST CORS probe (SDK-free transport feasibility)
+        run: |
+          # Decides the GFFL storage-transport design (2026-08-08): can a BROWSER call the
+          # Firestore REST API directly (GET doc + POST :runQuery), or does it need a proxy?
+          # A browser will send these with an Origin header and (for the JSON POST) a
+          # preflight — so what matters is access-control-allow-origin on the responses.
+          KEY="AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU"
+          BASE="https://firestore.googleapis.com/v1/projects/amen-farms-app/databases/(default)/documents"
+          echo "--- GET doc with Origin header ---"
+          curl -sS -D - -o /tmp/doc.json -H "Origin: https://amenfarms.netlify.app"             "$BASE/gffl_fam2jan2g/settings?key=$KEY" | tr -d '\r' | grep -iE "^HTTP|access-control" || true
+          echo "doc body bytes: $(wc -c < /tmp/doc.json)"
+          head -c 200 /tmp/doc.json; echo
+          echo "--- OPTIONS preflight for the runQuery POST ---"
+          curl -sS -D - -o /dev/null -X OPTIONS             -H "Origin: https://amenfarms.netlify.app"             -H "Access-Control-Request-Method: POST"             -H "Access-Control-Request-Headers: content-type"             "$BASE:runQuery?key=$KEY" | tr -d '\r' | grep -iE "^HTTP|access-control" || true
+          echo "--- actual runQuery POST with Origin (kind==team) ---"
+          curl -sS -D /tmp/h.txt -o /tmp/q.json -X POST             -H "Origin: https://amenfarms.netlify.app" -H "Content-Type: application/json"             --data '{"structuredQuery":{"from":[{"collectionId":"gffl_fam2jan2g"}],"where":{"fieldFilter":{"field":{"fieldPath":"kind"},"op":"EQUAL","value":{"stringValue":"team"}}}}}'             "$BASE:runQuery?key=$KEY"
+          tr -d '\r' < /tmp/h.txt | grep -iE "^HTTP|access-control" || true
+          echo "runQuery body bytes: $(wc -c < /tmp/q.json)"
+          python3 -c "import json; d=json.load(open('/tmp/q.json')); rows=[r for r in d if 'document' in r]; print('team docs:', len(rows))"
+
       - name: live kicker scoring audit (206/209/214)
         run: |
           code=$(curl -sS -o /tmp/ka.json -w "%{http_code}" -X POST \
