@@ -1197,6 +1197,46 @@ async function openDetails(page, id) {
       return Math.abs(cells[0].getBoundingClientRect().height - cells[1].getBoundingClientRect().height) <= 1;
     }));
     ok(benchHalfHeights.every(Boolean), "…and both halves of every bench row render the SAME height (Empty vs a real player) — equal-height, aligned rows");
+    // ESPN-row GEOMETRY regression (2026-08-08 playtest: "the left team's players don't line
+    // up with the right team's"). .pcellgrid shipped with NO layout rule at all (the .scgrid
+    // family of bug), so its two inner divs stacked in raw DOM order — the left half read
+    // name→points top-to-bottom while the right half read points→name. Assert the RENDERED
+    // geometry, never the markup: name and points sit BESIDE each other on one horizontal
+    // band, and the points column hugs the INNER edge of both halves (adjacent to the slot
+    // badge), mirrored, per the ESPN head-to-head reference.
+    const rowGeo = await page.evaluate(() => {
+      const tr = [...document.querySelectorAll(".mutable tbody tr")].find((r) => r.textContent.includes("P. Passer"));
+      if (!tr) return null;
+      const cells = [...tr.querySelectorAll(".pcellgrid")];
+      const g = (cell) => ({
+        cell: cell.getBoundingClientRect(),
+        info: cell.querySelector(".pinfo").getBoundingClientRect(),
+        pts: cell.querySelector(".ppts").getBoundingClientRect(),
+      });
+      const l = g(cells[0]), r = g(cells[1]);
+      const beside = (a, b) => a.top < b.bottom && b.top < a.bottom;
+      return {
+        leftBeside: beside(l.info, l.pts), rightBeside: beside(r.info, r.pts),
+        leftPtsInner: (l.cell.right - l.pts.right) < 24 && l.pts.left > l.info.left,
+        rightPtsInner: (r.pts.left - r.cell.left) < 24 && r.info.right > r.pts.right,
+        slotAlign: getComputedStyle(tr.querySelector(".slotcell")).textAlign,
+      };
+    });
+    ok(!!rowGeo && rowGeo.leftBeside && rowGeo.rightBeside,
+      "matchup row: name and points render BESIDE each other on both halves — never stacked in DOM order (" + JSON.stringify(rowGeo) + ")");
+    ok(!!rowGeo && rowGeo.leftPtsInner && rowGeo.rightPtsInner,
+      "…and the points column hugs the INNER edge of each half (adjacent to the slot badge), mirrored per the ESPN reference");
+    ok(!!rowGeo && rowGeo.slotAlign === "center",
+      "…slot badge label is horizontally centered (td.slotcell — .tbl td's text-align:left used to outweigh it)");
+    // The ESPN stat summary line under the meta line, built from the SAME picked-source stats
+    // the row's points were scored from (statSummary reads row[row.src].stats).
+    const passerStatline = await page.evaluate(() => {
+      const tr = [...document.querySelectorAll(".mutable tbody tr")].find((r) => r.textContent.includes("P. Passer"));
+      const el = tr && tr.querySelector(".pstatline");
+      return el ? el.textContent.trim() : null;
+    });
+    ok(passerStatline === "150 pass yds, 1 TD, 1 INT",
+      "ESPN-style stat summary line under the player's meta line (" + JSON.stringify(passerStatline) + ")");
     const muScroll390 = await page.evaluate(() => ({ b: document.body.scrollWidth, w: window.innerWidth }));
     ok(muScroll390.b <= muScroll390.w + 1, "the symmetric lineup grid fits 390px with no sideways scroll (" + muScroll390.b + "/" + muScroll390.w + ")");
     // Phase 2: ESPN reports new stats.

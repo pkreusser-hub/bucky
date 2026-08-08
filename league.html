@@ -216,12 +216,46 @@
      badge + opposing player off the right edge of a 390px phone. Locking the layout AND
      letting this table's own cells wrap keeps every row inside the card at any width. */
   table.mutable { table-layout:fixed; }
-  table.mutable td { vertical-align:top; white-space:normal; }
-  .slotcell { color:var(--mut); font:600 11px var(--font-display); letter-spacing:.5px; text-align:center; width:14%;
+  table.mutable td { vertical-align:middle; white-space:normal; }
+  /* td.slotcell, not .slotcell — .tbl td's text-align:left otherwise outweighs it and the
+     slot badge has rendered left-of-center since the day it shipped. */
+  td.slotcell { color:var(--mut); font:600 11px var(--font-display); letter-spacing:.5px; text-align:center; width:12%;
               background:var(--nested); border-radius:var(--radius-badge); padding:3px 0; }
-  .pcell { width:43%; } .pcell.right { text-align:right; }
-  .pwrap { display:flex; flex-wrap:wrap; justify-content:space-between; gap:2px 8px; }
-  .pwrap.right { flex-direction:row-reverse; }
+  .pcell { width:44%; } .pcell.right { text-align:right; }
+  /* THE ESPN HEAD-TO-HEAD ROW (2026-08-08 playtest: "the left team's players don't line up
+     with the right team's"). The .pcellgrid markup was built as a mirrored two-part cell —
+     name+meta on the OUTER edge, a fixed-width points column on the INNER edge hugging the
+     slot badge — but shipped with NO layout rule at all (the .scgrid family of bug), so both
+     halves stacked their two divs in raw DOM order: the left half read name→points top to
+     bottom while the right half read points→name, and nothing across the row lined up.
+     Flex row restores the design: .pinfo takes the slack, .ppts is a fixed column whose
+     numbers align toward the slot badge on BOTH sides (mirrored, per the ESPN reference). */
+  .pcellgrid { display:flex; align-items:center; gap:10px; }
+  .pcellgrid .pinfo { flex:1 1 auto; min-width:0; }
+  .pcellgrid .pinfo b { font:600 13.5px/1.3 var(--font-body); }
+  .pcellgrid .pinfo small { font-size:11px; line-height:1.35; }
+  .pcellgrid .pinfo .pstatline { display:block; }
+  .pcellgrid .ppts { flex:0 0 56px; font-variant-numeric:tabular-nums; text-align:right; }
+  /* Per the ESPN reference only the column ORDER mirrors (points always on the inner edge):
+     text stays left-aligned on BOTH sides, so the right team's names all start at one
+     consistent x right after their points column — not ragged-right. */
+  .pcellgrid.right .pinfo { text-align:left; }
+  .pcellgrid.right .ppts { text-align:left; }
+  .pcell.right { text-align:left; }
+  .pcellgrid .ppts .pts { font:700 15px var(--font-display); }
+  .pcellgrid .ppts small { display:block; font-size:10.5px; line-height:1.3; }
+  .totalrow .ppts .pts { font-size:17px; }
+  /* Phone: the fixed points column + slot badge leave ~90px per name at 390px — tighten the
+     row's fixed costs so names/stat lines keep a readable share instead of wrapping 4-deep. */
+  @media (max-width:560px) {
+    .pcellgrid { gap:6px; }
+    .pcellgrid .ppts { flex-basis:42px; }
+    .pcellgrid .pinfo b { font-size:12.5px; }
+    .pcellgrid .pinfo small { font-size:10px; }
+    .pcellgrid .ppts .pts { font-size:14px; }
+    .pcellgrid .ppts small { font-size:9.5px; }
+    td.slotcell { font-size:10px; }
+  }
   .pts { font:700 14px var(--font-display); display:block; }
   .live { color:var(--accent); font-weight:700; }
   .fline { padding:6px 0; border-bottom:1px dotted var(--divider2); font-size:13.5px; }
