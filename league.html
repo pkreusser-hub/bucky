@@ -121,13 +121,23 @@
              border-radius:var(--radius-xs); padding:5px 12px; font:600 12.5px var(--font-display);
              letter-spacing:.8px; }
   .poschip.on { background:var(--blue); border-color:var(--blue); color:#fff; }
+  /* ESPN-style sortable stats table (2026-08-08 rework) — PLAYER · TYPE · OPP · STATUS · PROJ
+     · SCORE · FPTS · AVG · LAST, every header a sort control (.thsort), + a trailing
+     unlabeled MOVE-button column. .faname is sticky-left so it stays in view while the rest
+     of the row pans inside .panner on a phone — cheap since the table already lives in an
+     overflow-x:auto container. */
   table.faTable tbody tr { cursor:pointer; }
-  table.faTable .faname { width:38%; }
+  table.faTable .faname { width:150px; min-width:150px; position:sticky; left:0; background:var(--card); z-index:1; }
   table.faTable .faname b { font-family:var(--font-body); font-weight:600; }
-  table.faTable .fapos { width:26%; }
-  table.faTable .faproj { width:16%; }
-  table.faTable .faadd { width:20%; text-align:right; }
+  table.faTable .fatype, table.faTable .faopp, table.faTable .fastatus { min-width:64px; }
+  table.faTable .faproj, table.faTable .fascore, table.faTable .fafpts, table.faTable .faavg, table.faTable .falast { min-width:56px; }
+  table.faTable .faadd { text-align:right; min-width:64px; }
+  table.faTable thead th:first-child { position:sticky; left:0; background:var(--card); z-index:2; }
   .faAddBtn { padding:6px 12px; font-size:11.5px; }
+  .tbl th.thsort { cursor:pointer; user-select:none; }
+  .tbl th.thsort:hover { color:var(--ink2); }
+  .tbl th.thsort.active { color:var(--accent); }
+  .tbl th .sortarrow { font-size:9px; margin-left:2px; }
   .posbadge { display:inline-block; min-width:30px; text-align:center; border-radius:var(--radius-badge);
               color:#fff; font:700 10.5px var(--font-display); letter-spacing:.5px; padding:2px 6px; }
   .posbadge[data-pos="QB"] { background:var(--pos-QB); }

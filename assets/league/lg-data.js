@@ -266,6 +266,7 @@
     },
     tracked: new Set(),        // slpTeam abbrevs whose games we fetch summaries for
     running: false, timer: null, pollMs: 20000,
+    loopStarts: 0,              // test hook (2026-08-08 perf fix) — see D.start()'s own comment
   };
   D.EP = {}; // endpoint bookkeeping (fftest pattern) — feeds the health page
 
@@ -351,6 +352,27 @@
   // clearly-labelled fallback backfills the REAL week's numbers instead of stamping whatever
   // happens to be on the board today. Returns a Map keyed EXACTLY as the live poll keys rows
   // (dst_<pid> / espn_id / slp_<pid>) -> league-scored points, or null when unavailable.
+  //
+  // WEEK-LEVEL CACHE + IN-FLIGHT DEDUPE (2026-08-08 perf regression fix). D.gameLog (the
+  // player stats card) calls this ONCE PER FINALIZED WEEK, and it used to hit the real network
+  // every single time — with zero reuse between calls. Each response is a WHOLE-LEAGUE payload
+  // (every NFL player's stat line for that week), so a season with N finalized weeks fired N
+  // fresh multi-hundred-KB fetches on EVERY stats-card open, with no caching across opens: a
+  // curious user tapping through 3-4 players re-downloaded the ENTIRE season's archive 3-4
+  // times over, saturating the browser's connection pool to api.sleeper.app and starving the
+  // live-poll's own ESPN/Sleeper requests in the process — this is what "taking a long time to
+  // load anything" actually was; it wasn't isolated to the stats card, it was the whole page
+  // fighting the same connection pool. A finalized week's archived stats never change once
+  // Sleeper has published them, so caching the resolved Map indefinitely (per season+week) is
+  // safe: `D._weekStatsCache` holds it for the rest of the session and every later caller — a
+  // second player's card, a third, LG.finalizeWeek's own backfill path, the FA table's season
+  // columns — gets it for free, no network at all. Concurrent callers for the SAME
+  // not-yet-cached week (two cards opened back to back before the first resolves) share ONE
+  // in-flight fetch via `D._weekStatsInFlight` rather than firing duplicate parallel requests.
+  // Only a REAL (non-null) result is cached — a genuine outage/empty response is never stuck
+  // permanently, so it can still retry on the next call.
+  D._weekStatsCache = new Map();     // "season|seasonType|week" -> Map
+  D._weekStatsInFlight = new Map();  // same key -> in-flight Promise<Map|null>, cleared on settle
   D.weekStats = async function (week, opts) {
     await D.initSleeper();
     if (!D.S.slpPlayers) return null;
@@ -361,21 +383,31 @@
     // original priority (st.season, then LG.SEASON) for every existing caller.
     const seasonType = (opts && opts.seasonType) || st.season_type || "regular";
     const season = (opts && opts.season) || st.season || String(LG.SEASON);
-    let j;
-    try { j = await fx("sleeper week stats " + week, `${SLP}/stats/nfl/${seasonType}/${season}/${week}`); }
-    catch (e) { return null; }
-    if (!j || typeof j !== "object") return null;
-    const out = new Map();
-    for (const pid in j) {
-      const row = j[pid]; if (!row || typeof row !== "object") continue;
-      const meta = D.S.slpPlayers.get(pid);
-      if (!meta) continue;
-      const pts = D.score(normSlp(row));
-      out.set(meta.pos === "DEF" ? "dst_" + pid : (meta.espn_id || "slp_" + pid), pts);
-      // A DST rostered by ESPN abbrev (the roster importer's own key shape) must resolve too.
-      if (meta.pos === "DEF" && meta.team) out.set("dst_" + slpTeam(meta.team), pts);
-    }
-    return out.size ? out : null;
+    const cacheKey = season + "|" + seasonType + "|" + week;
+    if (D._weekStatsCache.has(cacheKey)) return D._weekStatsCache.get(cacheKey);
+    if (D._weekStatsInFlight.has(cacheKey)) return D._weekStatsInFlight.get(cacheKey);
+    const p = (async () => {
+      let j;
+      try { j = await fx("sleeper week stats " + week, `${SLP}/stats/nfl/${seasonType}/${season}/${week}`); }
+      catch (e) { return null; }
+      if (!j || typeof j !== "object") return null;
+      const out = new Map();
+      for (const pid in j) {
+        const row = j[pid]; if (!row || typeof row !== "object") continue;
+        const meta = D.S.slpPlayers.get(pid);
+        if (!meta) continue;
+        const pts = D.score(normSlp(row));
+        out.set(meta.pos === "DEF" ? "dst_" + pid : (meta.espn_id || "slp_" + pid), pts);
+        // A DST rostered by ESPN abbrev (the roster importer's own key shape) must resolve too.
+        if (meta.pos === "DEF" && meta.team) out.set("dst_" + slpTeam(meta.team), pts);
+      }
+      return out.size ? out : null;
+    })();
+    D._weekStatsInFlight.set(cacheKey, p);
+    let result;
+    try { result = await p; } finally { D._weekStatsInFlight.delete(cacheKey); }
+    if (result) D._weekStatsCache.set(cacheKey, result);
+    return result;
   };
 
   // Weekly projection (league-scored, not pts_ppr) for a roster player. 2025 TEST SEASON: reads
@@ -954,6 +986,10 @@
     D.S.pollMs = ms || (anyLive() ? 15000 : 60000);
     if (D.S.running) return;
     D.S.running = true;
+    D.S.loopStarts++; // test hook (2026-08-08 perf fix) — proves the poll loop is armed at
+                       // most once even across a second full UI.boot() (e.g. re-claiming a
+                       // team) or repeated tab navigation; a stacked second loop would show
+                       // this go to 2 without D.S.running ever having gone false in between.
     const loop = async () => {
       if (!D.S.running) return;
       await D.pollOnce().catch(() => {});
