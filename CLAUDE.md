@@ -8860,3 +8860,239 @@ exercised indirectly, via the reset→reload→fresh-guided-setup-reappears path
 that piece" test would be a reasonable follow-up but wasn't built here; and tapping the league
 home's "Finalize week 4" button (see above) is a real, working, deliberately-unsuppressed way to
 short-circuit the "before kickoff" scenario — noted, not prevented.
+
+## 🏈 GFFL — "2025 TEST SEASON" mode grows a switchable CLOCK (2026-08-08, UNCOMMITTED)
+
+The single-instant sandbox above is now three commissioner-selectable PHASES of the same
+Sunday, so waivers, a live in-progress slate, AND the Tuesday morning after can all be exercised
+without leaving the sandbox. `assets/league/lg-{core,data,ui}.js` only — `netlify/functions/
+league.mjs` untouched. Suite: `tools/_verify-gffl.cjs` **639 → 677** (new section X2, 38
+checks), 0 page errors, `node --check` clean on all three files.
+
+**THE THREE PHASES** (`LG.TEST_PHASES`, `LG.testPhase()`/`LG.setTestPhase(n)`, persisted in
+`localStorage["gffl_test2025_phase"]`, default 1 when absent/invalid — an old sandbox, or a
+brand-new one, always opens on the ORIGINAL pinned instant, byte-identical to before this
+batch): **1** "Week 4 · before games" (the existing pin, untouched) · **2** "Week 4 · games LIVE
+(replay)" — Sunday 2025-09-28 13:30 CT, still inside week 4's Tue→Mon window
+(`currentWeek()===4`, verified against `LG.currentWeek()`'s own math, not eyeballed) · **3**
+"Tuesday after week 4" — 2025-09-30 10:00 CT, one tick into week 5's window
+(`currentWeek()===5`, well before its own Wednesday waiver deadline). `LG.now()` now reads
+`LG.TEST_PHASES[LG.testPhase()].now` instead of the old fixed `LG.TEST_NOW` constant (kept as a
+plain alias to phase 1's own value — nothing else reads it directly any more). Switching is
+commissioner-gated (`LG.gateCommish()`), a new "Test-season clock" card on the Rules page (3
+buttons, the current phase's own button disabled), and hard-reloads exactly like Enter/Exit/
+Reset — no in-memory hot-swap of `D.S`/`UI._rosters`/etc. is attempted, same cold-boot posture
+as every other test-mode transition in this file.
+
+**PHASE 2 IS A TEST-MODE-ONLY DATA-LAYER BRANCH, not a UI overlay.** `D.pollOnce` now checks
+`LG.testMode()` FIRST: phase 2 routes to a new `D.testLiveSync()`; phases 1 and 3 poll NOTHING
+at all (a past-season sandbox has no business hitting the real, current-NFL-week endpoints —
+real 2026 data could otherwise leak onto a 2025 board for any player id that happens to recur).
+`testLiveSync()` makes ZERO live ESPN/Sleeper requests — it fetches the SAME archived-per-week
+endpoint `D.weekStats`/`LG.finalizeWeek`'s backfill already trust (Sleeper's own `/stats/nfl/
+<type>/<season>/<week>`, which serves ANY completed week, real 2025 included) and synthesizes an
+in-progress Sunday out of it:
+- **Bucket is per NFL TEAM**, not per player — `D.testTeamBucket(ab)`, the standard 32
+  abbreviations alphabetical, split into even thirds (ARI..DET="post"/early-final, GB..NE="in"/
+  live, NO..WAS="pre"/night). Fully deterministic, no real schedule/kickoff data needed (a
+  replay is a synthesized snapshot, not a live-time-accurate simulation — a hard reload on any
+  phase change resets `D.S` fresh regardless). Exposed as a test hook (`D.testTeamBucket`) so
+  the suite hand-checks against the real function rather than re-deriving a hash independently.
+- **EARLY bucket**: the real archived line in FULL, "post"/Final.
+- **LIVE ("3:25 window") bucket**: the archived line scaled to a deterministic 55-65% baseline
+  (`D.testPlayerScale(pid, tickN)`, an FNV-1a-ish hash of the Sleeper pid — also exposed as a
+  hook), creeping **+1%/poll** up to a 0.95 cap that never reaches "final" — the stretch goal
+  ("a slow tick so the feed moves") landed clean: every changed stat routes through the SAME
+  `applySide()` the real live poll uses, so a tick that actually changes a rounded value emits a
+  REAL feed event, hand-verified against the real API (1 → 7 events over 6 explicit ticks).
+- **NIGHT bucket**: zero stats, "pre" — hasn't kicked off in the replay.
+- **Auto-finalize does NOT fire mid-replay**, and it's guarded TWICE: `testLiveSync()`
+  deliberately never touches `D.S.espnWeek`/`D.S.slpWeek` (they stay at their null default),
+  which already makes `fzEngineWeek()` return null and the live-path gate in `LG.finalizeWeek`
+  refuse naturally (the adversarial-review finding 1/3/7 guard, reused rather than duplicated) —
+  PLUS an explicit belt-and-suspenders line (`if (LG.testMode() && LG.testPhase()===2) return
+  {ok:false, reason:"test-live-replay"}`) right at the top of the live (non-backfill) branch, so
+  the guard holds even if the synthesis code ever changes to set those fields for some other
+  reason. Verified both ways: `UI.maybeAutoFinalizeWeeks()` leaves week 4 unfinalized, and a
+  direct `LG.finalizeWeek(4)` call returns the explicit refusal reason.
+- **Health reads "dual"/normal throughout** — `testLiveSync()` never touches `failN`/`lastOk`,
+  which is exactly what makes `updateHealth()`'s `bad()` check short-circuit false on both
+  sides; called anyway at the end of every sync for hygiene.
+
+**PHASE 3 finalizes week 4 the moment you land on it.** `LG.setTestPhase(3)` calls
+`LG.finalizeWeek(4, {backfill:true})` — the SAME archived-stats path the guided setup already
+uses for weeks 1-3 — before returning, so the commissioner never has to remember a separate
+step. Idempotent by `finalizeWeek`'s own write-once guard (an existing doc returns untouched,
+never recomputed) — re-entering phase 3 twice in a row is a no-op the second time, verified via
+a direct byte-for-byte re-read. Reverting to phase 1 or 2 afterward does NOT "un-finalize" week
+4 — that record is append-only by design (plan §8: no single mutable doc whose loss loses the
+season), so the board may then show week 4 as already-decided even while the clock reads
+"before games"; a documented, accepted quirk of testing phase transitions out of order, not a
+bug guarded against. Waivers: at the Tuesday clock, week 5's own Wednesday deadline hasn't
+passed, so a submitted claim genuinely QUEUES rather than instant-processing — and the existing
+commissioner "Process now" affordance (item 1's `#mvProcessNow`, PIN-gated, deadline-independent
+by design) is exactly the "jump past Wednesday 8AM" lever the task asked for; nothing new was
+built for it, it was already there.
+
+**REQUIRED PROJECTIONS — the source that actually worked, measured not assumed.** The real
+live-poll projections fetch resolves off Sleeper's CURRENT `/state/nfl` reading (the real,
+current NFL week), meaningless for a 2025 sandbox and disabled outright anyway (phase 1/3 poll
+nothing, phase 2 routes elsewhere). `D.testEnsureProj(week)` is the replacement: (1) try
+Sleeper's real forward-projections endpoint for THIS season+week explicitly; (2) if that comes
+back genuinely empty — the expected case, and the one this batch actually hit, since forward
+projections aren't retained for a week two seasons gone — FALL BACK to that week's own real
+ARCHIVED ACTUAL stats (the identical `/stats/nfl/<season>/<week>` endpoint the live replay and
+the backfill both already trust); same raw pid→stat-row shape either way, so `D.projFor`'s
+existing `D.score(normSlp(st))` scoring path needed no branching at all — only the `source`
+field differs (`"projection"` vs `"actual"`), cached per week (`D.S.testProjCache`, de-duped
+in-flight requests) and surfaced HONESTLY rather than silently presented as a real forward
+projection: the persistent test banner reads it and says so plainly ("projections are a proxy
+from week 4's real final stats (no forward projection exists for a completed season)"). Verified
+BOTH paths for real: week 4 (empty fixture) → `source:"actual"`; week 5 (a real fixture entry) →
+`source:"projection"`. `D.projFor` itself is now test-mode-aware, resolving the CURRENTLY
+DISPLAYED week (`LG.ui.week`, read at call time — no load-order dependency on lg-ui.js) rather
+than a single module-global map, since the sandbox has TWO real weeks in play at once (4 via the
+phase clock, 5 via the Moves page's own testWkBtn switch). Every page that shows a projection
+(matchup's proj column, the FA table's PROJ column, the locker's own lineup rows) warms its OWN
+week via a shared, loop-safe `testProjEnsureAndRepaint(week, viewName)` helper — cache-miss
+kicks off the fetch and repaints once (`UI.show(viewName)`) if still on that view; cache-hit is
+an instant no-op, which is what keeps the repaint from looping on itself. `syncTestBanner()`
+warms it too (so the banner's own honesty note is self-sufficient, correct even before any
+matchup/moves/locker page has been visited), and `startData()` warms the phase's own canonical
+week at boot before running the pre-game projection snapshot (S5), so that snapshot never runs
+against a still-cold cache and silently captures nothing.
+
+**Two real bugs, both in the TEST, not the product** — worth keeping as house lessons:
+1. `UI.openLocker(teamId)` sets `location.hash = "#locker=" + teamId` (`UI.show()` alone never
+   touches the hash). A later JS-only `UI.show("rules")` doesn't clear it, so the NEXT hard
+   reload's `routeInitial()` read the STALE hash and landed back on the locker view instead of
+   the league home every subsequent `.mucard` wait in the test expected — `.mucard` is a
+   league-home-specific matchup-row class, absent on the locker page, so the wait turned a
+   9-second timeout into a full `SUITE CRASH` rather than a clean assertion failure. Fixed by
+   clearing `location.hash` in the test right after the locker check, before triggering the next
+   phase-switch reload.
+2. Comparing two `LG.loadWeekly(4)` reads with a raw `JSON.stringify()` failed even though the
+   STORED content was byte-identical: a doc answered through a list-cache path carries a
+   runtime-attached `{...doc, id}` (the id-LAST convention from the earlier adversarial-review
+   batch, findings 2/4/5/12) while a doc answered through a plain `get()` never does — a genuine,
+   benign artifact of WHICH cache path answered the read, not a difference in the record's own
+   persisted content. Fixed with the file's own `stableStr()` (canon-sorted) PLUS an explicit
+   `.id`-stripping helper before comparing.
+
+**Suite**: section X2, 38 checks — phase persistence across a real reload (all three, both
+directions, plus a second live↔before cycle to prove order-independence beyond the tuesday↔
+before pair already exercised); bucket assignment for the three rostered NFL teams landing in
+all three buckets from ONE roster (PHI=night, DAL=early/final, KC=live); the early/final and
+night players hand-checked exact (Q. Rival 400yd/3TD=28.0 Final; P. Passer zero/upcoming); the
+live-window player hand-checked against the EXPOSED `D.testPlayerScale` itself across 6 explicit
+ticks (creeps up, never regresses, lands real feed events); health stays "dual"; the matchup
+page's live totals/win-prob/players-remaining/feed/yet-to-play-proj; auto-finalize's silence
+during phase 2 plus the explicit guard's reason string; the FA table's PROJ column for a
+genuinely unrostered free agent (via the actual-stats fallback); the locker's own lineup proj
+(unscaled — projections don't vary with the live replay's bucket); phase 3's unprompted
+week-4 backfill hand-checked exact (10.0–28.0, team 2 wins — the SAME "opposite result" fixture
+shape the original adversarial-review finding used) plus the resulting standings; idempotent
+re-entry; queued-vs-processed waivers at the Tuesday clock; and the full round trip back to
+phase 1 leaving the already-finalized week 4 record untouched (the documented quirk, not a bug).
+Its own fresh page/context, deliberately not chained onto section X's flow (which consumes F.
+Agent/A. Vail for ITS OWN checks — reusing that running state here would leave neither free
+agent for this section to find in the FA table). `WEEK_STATS_FIX[4]` gained two entries for
+this batch (T. Tight/KC — the live-window hand-check subject; F. Agent/KC — the FA-table
+subject) — confirmed inert for every pre-existing assertion (grep: nothing else in the file read
+`WEEK_STATS_FIX[4]`/`D.weekStats(4)`/`finalizeWeek(4)` before this batch, and the two sections
+that DO poll a week-4 fixture for the real 2026 league use a week-3-only-QB roster that never
+touches KC).
+
+**KNOWN / DEFERRED**: phase 2's bucket assignment is a fixed alphabetical split, not a real NFL
+schedule — a team's "kickoff window" in the replay has no relationship to when that team
+actually plays in the real 2025 slate (deliberate — the replay is a snapshot for testing, not a
+time-accurate simulation, and the task's own phrasing treats the three windows as flavor rather
+than a scheduling contract); the +1%/poll creep has no natural stopping point beyond its 0.95
+cap (a very long-lived phase-2 session would eventually look almost final without ever quite
+getting there — harmless, since nothing auto-finalizes from it); and `D.testEnsureProj`'s
+fallback-to-actual-stats source is a genuine approximation (a player's "projection" during
+phase 2 can read HIGHER than what the live replay currently shows them scoring, since the
+fallback is always the FULL final line regardless of the replay's own scaled-down bucket) —
+flagged in the banner's own honesty note, not hidden.
+
+## 🏈 GFFL — the player stats card + Moves MOVE-button split (2026-08-08, UNCOMMITTED)
+
+Clicking a player ANYWHERE now opens a full-screen stats overlay instead of silently doing
+double duty as an action trigger. `assets/league/lg-{data,ui}.js` + `league.html` only —
+`netlify/functions/league.mjs` untouched. Suite: `tools/_verify-gffl.cjs` **677 → 706** (new
+section Y, 29 checks), 0 page errors, `node --check` clean on all three JS files.
+
+**THE CARD** (`UI.openPlayerCard(key)`/`UI.closePlayerCard()`, `#playerCard` overlay — a
+persistent sibling of `#main`, wired ONCE at boot like `#imgOverlay`): name/pos-badge/team/
+injury header, a "This week" line (live/final points + projection + game state, the exact
+`d.S.players`/`d.projFor`/`d.S.games` reads `halfCell`/`lrow` already use elsewhere), three stat
+tiles (season total / avg per week / best week), and a per-week game-log table, newest first.
+Closes on Escape, on a backdrop tap (`e.target === e.currentTarget` — a tap on the card's own
+content never closes it), or its own ✕ button.
+
+**DATA — two new `lg-data.js` helpers, no new state.** `D.metaForKey(key)` resolves name/pos/
+team/injury for ANY key (rostered, benched, a rival's, or a genuine unrostered free agent) —
+roster data first (authoritative, same precedence `askAiRead`'s `buildSide()` already uses),
+then the Sleeper directory (`D.S.slpPlayers`/`slpByEspn` — what makes a free agent's card work
+at all), then the live-poll row as a last resort. `D.gameLog(key)` is the one honest source for
+the table: weekly docs only ever store TEAM totals (`LG.finalizeWeek`'s `matchups`), never a
+per-player breakdown, so the log re-queries Sleeper's ARCHIVED per-week stats endpoint (the same
+one `finalizeWeek`'s `backfill` path and the 2025 test season already trust) once per finalized
+week, with the league's own explicit `{season: LG.SEASON, seasonType:"regular"}` — the same
+override `finalizeWeek`'s backfill passes, so a 2025-test-season week and a real-league week
+both resolve against the correct year. A week the archived endpoint has no entry for that key is
+**OMITTED, not zeroed** — this app tracks no historical roster membership, so "no stat line"
+honestly could mean bye/inactive/not-yet-in-the-league, and fabricating a 0 would be a guess
+nothing else here makes. `D.oppForWeek(week, teamAbbrev)` is "opponent-if-known" taken
+literally: this app tracks no historical NFL schedule at all, so it only ever answers for the
+live engine's OWN current week (`D.engineWeek()`), reading the same `D.S.nflEvents` the Scores
+tab already polls — every other week honestly reads "—", never a guess.
+
+**THE SPLIT — a row that used to both inform and act now does exactly one or the other, on two
+different elements.** Matchup lineup rows (`halfCell`, both sides, starters + bench — never had
+a click action to begin with, so this was pure addition): the `.pcellgrid` carries `data-pk`
+when it holds a real player. Locker: the owner's own `.lrow` split into `.linfo` (stats) +
+`.lswap` (the swap sheet, unchanged behavior — including the "already started" lock toast);
+an EMPTY slot has no player to show a card for, so it's still one tap-to-fill `.lswap.lswapfill`
+button, exactly as before. A non-owner's read-only roster table has no action to preserve, so
+the whole `<tr data-pk>` opens the card. Moves free-agent table: the row (`data-pk`) opens the
+card, an explicit accent-outlined `.faMoveBtn` (kept its `.faAddBtn` class + "Add"/"Claim"
+wording — the spec's "MOVE button" describes the split, not new copy) does the add/claim; its
+own index attribute is `data-mi`, deliberately NOT `data-fi` — the generic `#faResults [data-fi]`
+selector several existing tests already used to count/list ROWS would otherwise match twice per
+row (caught live: browse mode reported "8" free agents instead of 4 on the first run). Trade
+builder pick chips (`chip()`): `.pcinfo` (stats) + `.pcpick` (the give/get toggle, now its own
+button — flips the OUTER `.pickchip`'s `picked` class same as before). "My pending" claims/
+trades rows: player names became `.pcinline` text-buttons (Cancel/Accept/Decline/Veto stay the
+buttons they always were). One idempotent `wirePlayerCardTaps(root)` (a `data-pk-wired` dataset
+guard) wires every `[data-pk]` anywhere — safe to call more than once over overlapping DOM,
+which `renderMoves()` genuinely does (once scoped to the FA table inside `refreshFa()`, once
+unscoped at the end for the claims/trade-builder rows rendered alongside it).
+
+**Suite** hand-seeds 4 weeks of finalized history directly as `weekly_2026_wN` docs (the
+section M4/S7 technique — bypasses `finalizeWeek`'s live-data gate entirely, since the game log
+only cares that a week is finalized, not its `matchups` content) paired with the existing
+`slpStatsFix` fixture's own per-week shape, giving P. Passer a hand-computable 4-week history:
+weeks 1-2 generic (150yd/1TD/1INT/1-2pt = 10.0), week 3's override (300yd/2TD = 20.0), week 4's
+(25yd = 1.0) → total 41.0, avg 10.25 (renders "10.3" — `LG.fmtPts` rounds to 1dp), best 20.0 —
+all individually asserted against the rendered table, newest week first. Also caught, live, that
+week 1 genuinely IS the fixture's own current engine week (no `espnWeekNum` override + Sleeper's
+default `state.week:1`), so PHI's opponent is honestly knowable there ("vs DAL") while weeks
+2-4 correctly read "—" — a real exercise of the honesty design, not a contrived case. Restaged 8
+existing click sites (all pre-existing tests that used to click the row itself to trigger an
+action) via a new `clickChildIn(page, containerSel, childSel, filterText)` helper (finds the
+CONTAINER by its text, then clicks a specific child inside it — `clickIn`'s filter can't reach a
+nested button whose own text, e.g. "Add"/"Pick"/"Swap", is identical across every row): 4 FA-row
+claim-sheet opens (`.faMoveBtn`), 2 trade-builder pick-chip toggles (`.pcpick`), and the
+locker's 4 lineup-swap taps across sections E and V4 (`.lswap`) — each restage documented in
+place with the reason (item 3/1's row/action split), never silently bent. Every pre-existing
+check in the 677-check baseline still passes unchanged.
+
+**KNOWN / DEFERRED**: the card doesn't live-refresh while open (a live game's points can move
+underneath a still-open card — no spec requirement to do otherwise, and closing/reopening always
+shows the current number); the claim sheet's own drop-picker rows and the swap sheet's own
+candidate-list rows were deliberately left as plain selection buttons (not split) — they're a
+"pick one of my own roster to drop/bench," not a "browse and act on any player" surface, and
+splitting them would add a stats-card detour to an already-committed selection flow; and
+`D.oppForWeek`'s abbreviation match is a straight `slpTeam()` normalization (handles the one
+documented ESPN/Sleeper divergence, Washington) rather than a full alias table.

@@ -186,10 +186,25 @@
       for (const p of ros) if (p.team) abs.add(d.slpTeam(p.team));
     }
     d.trackTeams([...abs]);
-    // Pre-game projection snapshot (S5): chained off the SAME initSleeper() promise
-    // (memoized — this never triggers a second directory fetch), so it fires once the
-    // engine's projections are actually warm rather than racing them.
-    d.initSleeper().then(() => { LG.snapshotProjections(UI.week).catch(() => {}); });
+    if (LG.testMode()) {
+      // 2025 TEST SEASON: projections are REQUIRED here, not optional (coordinator addition,
+      // 2026-08-08). The real live-poll path's projections fetch resolves off Sleeper's CURRENT
+      // /state/nfl reading (the real, current NFL week) — meaningless for a past-season sandbox,
+      // and disabled outright in test mode anyway (D.pollOnce's own test-mode branch never runs
+      // it). d.testEnsureProj(week) is the replacement, warmed here for THIS phase's own
+      // canonical week (LG.currentWeek() — 4 for phases 1-2, 5 once "Tuesday after week 4" makes
+      // that current); the individual pages (renderMatchup/renderMoves/renderLocker, via
+      // testProjEnsureAndRepaint below) separately warm whichever week THEY happen to be
+      // showing (the Moves page's own week-4/week-5 test switch can differ from
+      // LG.currentWeek()). Snapshotting waits on the SAME promise so it never runs against a
+      // still-cold cache and silently captures nothing.
+      d.testEnsureProj(LG.currentWeek()).then(() => { LG.snapshotProjections(UI.week).catch(() => {}); }).catch(() => {});
+    } else {
+      // Pre-game projection snapshot (S5): chained off the SAME initSleeper() promise
+      // (memoized — this never triggers a second directory fetch), so it fires once the
+      // engine's projections are actually warm rather than racing them.
+      d.initSleeper().then(() => { LG.snapshotProjections(UI.week).catch(() => {}); });
+    }
     // The real trigger for auto-finalization (+ S7's bracket build/advance): once live data
     // exists. Throttled (see runAutoChecks above) — this fires on every poll tick, not just
     // once a minute apart.
@@ -198,6 +213,20 @@
     // the current view's own full render, which now paints from the just-updated cache.
     LG.db.onChange = () => { if (UI.view) UI.show(UI.view); };
     d.start();
+  }
+  // 2025 TEST SEASON only — the "repaint once it lands" idiom the real league already uses for
+  // the Sleeper directory (see renderMoves' own D().initSleeper().then(...) below), generalized
+  // to per-week projections: a page calls this with the week IT is currently showing, and gets
+  // repainted (once) the moment that week's projections land, without ever re-fetching a week
+  // that's already warm. The cache-existence check BEFORE calling d.testEnsureProj is what makes
+  // this loop-safe — the repaint it triggers re-renders the SAME view, which calls this again,
+  // but by then the cache is populated so the second call returns immediately with no new fetch
+  // and no further repaint.
+  function testProjEnsureAndRepaint(week, viewName) {
+    if (!LG.testMode()) return;
+    const d = D();
+    if (d.S.testProjCache[week]) return;
+    d.testEnsureProj(week).then(() => { if (UI.view === viewName) UI.show(viewName); }).catch(() => {});
   }
 
   // Polish pass (2026-08-08): #bnav is static markup, always in the DOM regardless of auth
@@ -260,6 +289,100 @@
       UI.openLocker(Number(el.dataset.locker));
     }));
   }
+
+  // ---------------- player stats card (2026-08-08) ----------------
+  // ONE full-screen overlay, reachable from anywhere a player is shown — matchup lineup rows
+  // (both sides), locker rosters (the owner's own editable lineup + every other team's
+  // read-only roster), the Moves free-agent table, the trade builder's roster pickers, and
+  // the claims/trades lists. Every caller goes through UI.openPlayerCard(key);
+  // wirePlayerCardTaps() is the one place that wires the click — any element bearing
+  // `data-pk="<key>"`, anywhere in `document` (or a narrower `root`, for a render that only
+  // rebuilt a subtree — see refreshFa() in Moves). Every render function that shows players
+  // calls this once at the end of its own wiring, the same convention wireLockerTaps() above
+  // already established for `[data-locker]`.
+  // Idempotent (a dataset flag guards re-binding) — some render functions call this more than
+  // once against overlapping DOM in one pass (e.g. renderMoves wires the FA table's own rows
+  // via refreshFa(), then calls this again, unscoped, for the claims/trade-builder rows that
+  // render alongside it) and must never double-fire a single tap.
+  function wirePlayerCardTaps(root) {
+    (root || document).querySelectorAll("[data-pk]").forEach((el) => {
+      if (el.dataset.pcWired) return;
+      el.dataset.pcWired = "1";
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        UI.openPlayerCard(el.dataset.pk);
+      });
+    });
+  }
+  async function playerCardHtml(key) {
+    const d = D();
+    const meta = d.metaForKey(key);
+    const row = d.S.players.get(key);
+    const g = d.S.games.get(d.slpTeam(meta.team));
+    const pts = row && row.pts != null ? row.pts : null;
+    const proj = d.projFor(key);
+    const state = !g ? ""
+      : g.state === "in" ? "Live — Q" + g.period + " " + g.clock
+      : g.state === "post" ? "Final"
+      : (g.kickoff ? "Kickoff " + shortKick(g) : "");
+    const log = await d.gameLog(key);
+    const tile = (label, v) => `<div class="pctile"><div class="pctileval">${v}</div><div class="pctilelabel mut small">${esc(label)}</div></div>`;
+    // Newest week first — the same "most recent first" convention the feed/tx-log/chat lists
+    // already use everywhere else in this app.
+    const logRows = log.rows.slice().reverse().map((r) => {
+      const opp = d.oppForWeek(r.week, meta.team); // "if-known" — see D.oppForWeek's own comment
+      return `<tr><td>Wk ${r.week}</td><td class="mut">${esc(opp || "—")}</td><td class="num">${LG.fmtPts(r.pts)}</td></tr>`;
+    }).join("");
+    return `<div class="pccard">
+      <button type="button" class="pcclose" id="pcClose" aria-label="Close">✕</button>
+      <div class="pchead">
+        <h2 class="pcname">${esc(meta.name)}</h2>
+        <div class="pcmeta"><span class="posbadge" data-pos="${esc(meta.pos)}">${esc(meta.pos || "?")}</span>
+          <span class="mut">${esc(meta.team || "")}</span>${meta.injury ? ` <span class="inj">${esc(meta.injury)}</span>` : ""}</div>
+      </div>
+      <div class="pcweek">
+        <div class="mut small">This week${UI.week != null ? " · Week " + UI.week : ""}</div>
+        <div class="pcweekrow">
+          <span class="pts">${pts != null ? LG.fmtPts(pts) : "—"}</span>
+          <span class="mut small">proj ${proj != null ? LG.fmtPts(proj) : "—"}</span>
+          ${state ? `<span class="mut small">${esc(state)}</span>` : ""}
+        </div>
+      </div>
+      <div class="pctiles">
+        ${tile("Season total", log.total != null ? LG.fmtPts(log.total) : "—")}
+        ${tile("Avg / week", log.avg != null ? LG.fmtPts(log.avg) : "—")}
+        ${tile("Best week", log.best != null ? LG.fmtPts(log.best) : "—")}
+      </div>
+      <div class="pclog"><h2 class="small mut">Game log</h2>
+        ${log.rows.length ? `<div class="panner"><table class="tbl"><thead><tr><th>Wk</th><th>Opp</th><th class="num">Pts</th></tr></thead><tbody>${logRows}</tbody></table></div>`
+          : '<p class="mut">No games yet.</p>'}
+      </div>
+    </div>`;
+  }
+  UI.closePlayerCard = function () {
+    const ov = $("#playerCard");
+    if (ov) { ov.hidden = true; ov.innerHTML = ""; delete ov.dataset.pk; }
+  };
+  // The game log is a real fetch (Sleeper's archived per-week stats, one request per finalized
+  // week) — a "Loading…" placeholder paints INSTANTLY so a tap never feels dead, and the real
+  // content replaces it once the log resolves. Guarded against the overlay having been closed,
+  // or reopened for a DIFFERENT player, while the fetch was in flight — a slow response for
+  // player A must never paint over player B's card, or over a closed one.
+  UI.openPlayerCard = async function (key) {
+    const ov = $("#playerCard");
+    if (!ov) return;
+    ov.dataset.pk = key;
+    ov.innerHTML = '<div class="pccard center mut">Loading…</div>';
+    ov.hidden = false;
+    let html;
+    try { html = await playerCardHtml(key); }
+    catch (e) { html = '<div class="pccard center mut">Couldn’t load that player.</div>'; }
+    if (ov.hidden || ov.dataset.pk !== key) return; // closed, or a different player opened meanwhile
+    ov.innerHTML = html;
+    const closeBtn = $("#pcClose");
+    if (closeBtn) closeBtn.addEventListener("click", UI.closePlayerCard);
+  };
+
   function main() { return $("#main"); }
   function paintLive() {
     if (UI.view === "matchup") renderMatchup(true);
@@ -308,8 +431,24 @@
     if (!el) return;
     if (!LG.testMode()) { el.hidden = true; return; }
     el.hidden = false;
-    el.textContent = "🧪 2025 TEST SEASON" + (UI.week != null ? " — Week " + UI.week : "")
-      + " · real 2025 rosters + stats, a separate sandbox · the live league is untouched";
+    const phaseLabel = LG.TEST_PHASES[LG.testPhase()].label;
+    // Projections honesty (coordinator addition, 2026-08-08): once D.S.testProjCache for the
+    // WEEK the sandbox's own clock currently reads has resolved, say plainly whether the figures
+    // on screen are a real Sleeper forward projection or a proxy computed from that week's real
+    // final stats (the expected case — forward projections aren't retained for a season that's
+    // already over). Silent (empty string) until the cache warms, or if genuinely nothing exists
+    // for that week either — never claims a source it can't back up. testProjEnsureAndRepaint
+    // warms it (idempotent, loop-safe) right here so the banner is self-sufficient — it reads
+    // correctly on its own even before any matchup/moves/locker page has been visited.
+    testProjEnsureAndRepaint(LG.currentWeek(), UI.view);
+    const projEntry = D().S.testProjCache[LG.currentWeek()];
+    const projNote = projEntry
+      ? (projEntry.source === "actual"
+        ? " · projections are a proxy from week " + LG.currentWeek() + "'s real final stats (no forward projection exists for a completed season)"
+        : " · projections are real Sleeper forward projections for week " + LG.currentWeek())
+      : "";
+    el.textContent = "🧪 2025 TEST SEASON — " + phaseLabel + (UI.week != null ? " — Week " + UI.week : "")
+      + " · real 2025 rosters + stats, a separate sandbox · the live league is untouched" + projNote;
   }
 
   // ---------------- gate + claim ----------------
@@ -1020,6 +1159,7 @@
     if (!UI.matchup) { main().innerHTML = `<div class="card"><p class="mut">No matchup — schedule missing.</p></div>`; return; }
     if (!repaint) await loadWeekRosters();
     const d = D();
+    testProjEnsureAndRepaint(UI.week, "matchup"); // 2025 test season — see startData()
     const [hId, aId] = UI.matchup;
     const muKey = hId + "-" + aId;
     if (!repaint || UI._h2hKey !== muKey) { UI._h2h = await LG.headToHead(hId, aId); UI._h2hKey = muKey; }
@@ -1090,6 +1230,7 @@
       <div class="card"><h2>Trash talk</h2>${chatWidgetHtml("muThread")}</div>`;
     $("#aiReadBtn") && $("#aiReadBtn").addEventListener("click", () => askAiRead(hId, aId, hs, as_));
     wireLockerTaps();
+    wirePlayerCardTaps(); // every starter + bench half-cell that carries a real player (item 1)
     wireChat("muThread", threadKey);
     refreshChatList("muThread", threadKey);
     startChatPoll("muThread", threadKey);
@@ -1234,7 +1375,10 @@
       ptsHtml = `<span class="pts">${LG.fmtPts(pts)}</span><small class="mut">proj ${LG.fmtPts(proj)}</small>`;
     }
     const infoDiv = `<div class="pinfo">${infoHtml}</div>`, ptsDiv = `<div class="ppts">${ptsHtml}</div>`;
-    return `<div class="pcellgrid ${side}">${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
+    // data-pk only when there's a real player (never on an "Empty" half) — that's what
+    // wirePlayerCardTaps() keys the click on, and it's also the whole "row-click" affordance
+    // for the matchup lineup + bench tables (item 1's "matchup lineup rows both sides").
+    return `<div class="pcellgrid ${side}"${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
   }
   // The TOTAL row's own half-cell — deliberately NOT halfCell(), which resolves live points by
   // looking a player up by KEY; a plain number has no key to look up.
@@ -1719,6 +1863,9 @@
   async function renderMoves() {
     const tid = LG.myTeamId();
     const T = LG.teamById(tid);
+    testProjEnsureAndRepaint(UI.week, "moves"); // 2025 test season — see startData(); covers
+                                                 // the FA table's PROJ column below AND the
+                                                 // Testing-week switch's own week-5 view
     await loadWeekRosters();
     await runAutoChecks(false).catch(() => {}); // throttled — see runAutoChecks' own note
     UI._trades = await LG.loadTrades();
@@ -1731,13 +1878,18 @@
     const myTrades = (UI._trades || []).filter((tr) => (tr.from === tid || tr.to === tid) && (tr.status === "offered" || tr.status === "accepted"));
     const reviewTrades = (UI._trades || []).filter((tr) => tr.status === "accepted" && tr.from !== tid && tr.to !== tid);
 
-    const claimRow = (c) => `<div class="rowline"><span>${esc(c.addName)} <span class="mut">(${esc(c.addPos)}·${esc(c.addTeam)})</span> ← drop ${esc(c.dropName || c.dropKey)} · $${c.bid}</span>
+    // Item 1's "claims list" — the player names in "My pending" are their own tappable stats
+    // links (.pcinline, wired generically by wirePlayerCardTaps below) while Cancel/Accept/
+    // Decline/Veto stay exactly the buttons they always were.
+    const pcName = (key, label) => `<button type="button" class="pcinline" data-pk="${esc(key)}">${esc(label)}</button>`;
+    const claimRow = (c) => `<div class="rowline"><span>${pcName(c.addKey, c.addName)} <span class="mut">(${esc(c.addPos)}·${esc(c.addTeam)})</span> ← drop ${pcName(c.dropKey, c.dropName || c.dropKey)} · $${c.bid}</span>
       <button class="mvcancel" data-cid="${esc(c.id)}">Cancel</button></div>`;
     const tradeRow = (tr) => {
       const mine = tr.from === tid;
       const otherId = mine ? tr.to : tr.from;
-      const give = (mine ? tr.give : tr.get).map(nameOfKey).join(", ");
-      const get = (mine ? tr.get : tr.give).map(nameOfKey).join(", ");
+      const nameBtns = (keys) => keys.map((k) => pcName(k, nameOfKey(k))).join(", ");
+      const give = nameBtns(mine ? tr.give : tr.get);
+      const get = nameBtns(mine ? tr.get : tr.give);
       let actions = "";
       if (tr.status === "offered") {
         if (tr.to === tid) actions = `<button class="mvaccept" data-tid="${tr.id}">Accept</button> <button class="mvdecline" data-tid="${tr.id}">Decline</button>`;
@@ -1745,7 +1897,7 @@
       } else if (tr.status === "accepted") {
         actions = `<span class="mut small">reviews until ${new Date(tr.reviewEndsAt).toLocaleString()}</span>`;
       }
-      return `<div class="rowline"><span>You give ${esc(give)} → get ${esc(get)} <span class="mut">(${esc((LG.teamById(otherId) || {}).name || "?")}) · ${esc(tr.status)}</span></span>${actions}</div>`;
+      return `<div class="rowline"><span>You give ${give} → get ${get} <span class="mut">(${esc((LG.teamById(otherId) || {}).name || "?")}) · ${esc(tr.status)}</span></span>${actions}</div>`;
     };
     const reviewRow = (tr) => {
       const already = (tr.vetoes || []).includes(tid);
@@ -1769,8 +1921,18 @@
     UI._tradeCp = cpId;
     const myRoster = (UI._rosters && UI._rosters[tid]) || [];
     const cpRoster = (UI._rosters && UI._rosters[cpId]) || [];
-    const chip = (p, set) => `<button class="swaprow pickchip ${set.has(p.key) ? "picked" : ""}" data-gk="${esc(p.key)}">
-        <b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${esc(p.slot)}</small></button>`;
+    // Split (2026-08-08): the pick chip used to BE the whole toggle button — tapping a player
+    // to inspect them and tapping to add them to the trade were the same action. Now .pcinfo
+    // (wired generically by wirePlayerCardTaps, item 1's "trade builder roster pickers") opens
+    // the stats card, and .pcpick — a small, its-own button — carries the give/get toggle that
+    // used to be the whole row's job. The outer .pickchip div keeps the same "picked" class +
+    // border/background treatment it always had.
+    const chip = (p, set) => `<div class="swaprow pickchip ${set.has(p.key) ? "picked" : ""}" data-gk="${esc(p.key)}">
+        <button type="button" class="pcinfo" data-pk="${esc(p.key)}">
+          <b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${esc(p.slot)}</small>
+        </button>
+        <button type="button" class="pcpick" data-gk="${esc(p.key)}">${set.has(p.key) ? "Picked" : "Pick"}</button>
+      </div>`;
 
     // 2025 TEST SEASON only: the deadline-driven waiver UI below (claims form vs. immediate
     // free-agency) is entirely a function of UI.week + the pinned test clock, and the test
@@ -1865,13 +2027,20 @@
     function faResultsHtml(list) {
       if (list == null) return '<p class="mut">Player search is warming up — try again in a moment.</p>';
       if (!list.length) return '<p class="mut">No matches.</p>';
+      // Item 2 (2026-08-08): the row itself (data-pk) opens the stats card — tapping the NAME
+      // or anywhere else on the row no longer starts an add/claim. .faAddBtn is the one
+      // explicit, accent-outlined MOVE affordance that still does; its own click handler
+      // (wired below) stops the click from also bubbling into the row's stats-card handler.
+      // The button's own index carries a DIFFERENT attribute (data-mi, not data-fi) — the
+      // generic `#faResults [data-fi]` selector several call sites already use to count/list
+      // ROWS must keep matching exactly one element per row, not two.
       const rows = list.map((p, i) => {
         const proj = D().projFor(p.key);
-        return `<tr data-fi="${i}">
+        return `<tr data-fi="${i}" data-pk="${esc(p.key)}">
           <td class="faname"><b>${esc(p.name)}</b><br><small class="mut">${esc(p.team)}</small></td>
           <td class="fapos"><span class="posbadge" data-pos="${esc(p.pos)}">${esc(p.pos)}</span>${p.injury ? ' <span class="inj">' + esc(p.injury) + "</span>" : ""}</td>
           <td class="faproj num">${proj != null ? LG.fmtPts(proj) : "—"}</td>
-          <td class="faadd"><button type="button" class="faAddBtn">${past ? "Add" : "Claim"}</button></td>
+          <td class="faadd"><button type="button" class="faAddBtn faMoveBtn" data-mi="${i}">${past ? "Add" : "Claim"}</button></td>
         </tr>`;
       }).join("");
       const more = list.length >= faState.limit ? '<button id="faMore" type="button" class="mut">Show more ↓</button>' : "";
@@ -1883,7 +2052,11 @@
       const list = D().searchFA(faState.q, allOwnedKeys(), { limit: faState.limit, pos: faState.pos });
       posChips.querySelectorAll(".poschip").forEach((b) => b.classList.toggle("on", b.dataset.pos === faState.pos));
       resEl.innerHTML = faResultsHtml(list);
-      resEl.querySelectorAll("[data-fi]").forEach((tr) => tr.addEventListener("click", () => openClaimSheet(list[Number(tr.dataset.fi)])));
+      resEl.querySelectorAll(".faMoveBtn").forEach((btn) => btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openClaimSheet(list[Number(btn.dataset.mi)]);
+      }));
+      wirePlayerCardTaps(resEl); // the row itself (data-pk) — see faResultsHtml's own comment
       $("#faMore") && $("#faMore").addEventListener("click", () => { faState.limit += 40; refreshFa(); });
     }
     $("#faPosChips").querySelectorAll(".poschip").forEach((b) => b.addEventListener("click", () => {
@@ -1944,22 +2117,32 @@
       UI._tradeGet = new Set();
       renderMoves();
     });
-    document.querySelectorAll("#mvGive .pickchip").forEach((b) => b.addEventListener("click", () => {
-      const k = b.dataset.gk;
-      if (UI._tradeGive.has(k)) { UI._tradeGive.delete(k); b.classList.remove("picked"); }
-      else { if (UI._tradeGive.size >= 3) { toast("Up to 3 players."); return; } UI._tradeGive.add(k); b.classList.add("picked"); }
-    }));
-    document.querySelectorAll("#mvGet .pickchip").forEach((b) => b.addEventListener("click", () => {
-      const k = b.dataset.gk;
-      if (UI._tradeGet.has(k)) { UI._tradeGet.delete(k); b.classList.remove("picked"); }
-      else { if (UI._tradeGet.size >= 3) { toast("Up to 3 players."); return; } UI._tradeGet.add(k); b.classList.add("picked"); }
-    }));
+    // Split (2026-08-08) — see chip()'s own comment: .pcpick carries the give/get toggle now,
+    // .pcinfo (wired by wirePlayerCardTaps below) opens the stats card. The toggle still
+    // flips the OUTER .pickchip's "picked" class (that's what carries the border/background
+    // treatment), plus its own label.
+    function wireTradePicker(containerSel, set) {
+      document.querySelectorAll(containerSel + " .pcpick").forEach((b) => b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const k = b.dataset.gk;
+        const chipEl = b.closest(".pickchip");
+        if (set.has(k)) { set.delete(k); if (chipEl) chipEl.classList.remove("picked"); b.textContent = "Pick"; }
+        else {
+          if (set.size >= 3) { toast("Up to 3 players."); return; }
+          set.add(k); if (chipEl) chipEl.classList.add("picked"); b.textContent = "Picked";
+        }
+      }));
+    }
+    wireTradePicker("#mvGive", UI._tradeGive);
+    wireTradePicker("#mvGet", UI._tradeGet);
     $("#mvTradeSend").addEventListener("click", async () => {
       if (!UI._tradeGive.size || !UI._tradeGet.size) { toast("Pick at least one player on each side."); return; }
       const r = await LG.offerTrade(tid, UI._tradeCp, [...UI._tradeGive], [...UI._tradeGet], $("#mvTradeNote").value.trim());
       if (r.ok) { toast("Trade offer sent."); UI._tradeGive = new Set(); UI._tradeGet = new Set(); renderMoves(); }
       else toast("Couldn't send offer: " + reasonLabel(r.reason));
     });
+    wirePlayerCardTaps(); // FA table already covered by refreshFa() above; this catches the
+                           // claim/trade "My pending" .pcinline names + the trade-builder chips
   }
 
   // ---------------- rules (item 7, 2026-08-08: reads like ESPN's settings page — grouped, plain
@@ -2092,6 +2275,14 @@
         waivers/free agency/trades/lineups can all be exercised against real rosters. Exit any
         time to come straight back here untouched; Reset wipes only the sandbox and starts over.
       </div>` : ""}
+      ${isCommish() && !editing && LG.testMode() ? `<div class="card mut small">
+        <b>Test-season clock:</b>
+        ${[1, 2, 3].map((p) => `<button class="testPhaseBtn" data-p="${p}" ${LG.testPhase() === p ? "disabled" : ""}>${esc(LG.TEST_PHASES[p].label)}</button>`).join(" ")}
+        <p class="mut small">Switching hard-reloads, exactly like Enter/Exit — "before games" and
+        "games LIVE" are both week 4 (currentWeek()===4); "Tuesday after week 4" is week 5
+        (currentWeek()===5) and finalizes week 4 from its real archived stats the moment you land
+        on it (idempotent — switching back and forth never re-finalizes or corrupts the record).</p>
+      </div>` : ""}
       <div class="card mut small">${esc(r.name)} · season ${r.season} · ${scheduleSummaryLine(r)}</div>
       <div class="card"><h2>Scoring</h2>${scoringGroupsHtml}${paHtml}</div>
       ${simpleSection("Roster", rosterSummaryLine(r), "roster", r.roster)}
@@ -2162,6 +2353,11 @@
       await LG.resetTestMode();
       location.reload();
     });
+    document.querySelectorAll(".testPhaseBtn").forEach((b) => b.addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      await LG.setTestPhase(Number(b.dataset.p));
+      location.reload();
+    }));
   }
 
   // ---------------- lockers (plan §4.7) ----------------
@@ -2318,6 +2514,8 @@
     if (!T) { main().innerHTML = `<div class="card"><p class="mut">Team not found.</p></div>`; return; }
     main().innerHTML = `<div class="card mut">Loading locker…</div>`;
     const d = D();
+    testProjEnsureAndRepaint(UI.week, "locker"); // 2025 test season — see startData(); covers
+                                                  // the lineup rows' "proj" figures below
     const isOwner = LG.myTeamId() === teamId;
     const [standings, tx, wall, scheduleRows, roster, rivalries, recordBook] = await Promise.all([
       LG.loadStandings(), LG.loadTx(), lockerWallMessages(T), lockerScheduleRows(teamId), LG.ensureRoster(UI.week, teamId),
@@ -2352,24 +2550,37 @@
       const bench = roster.filter((p) => p.slot === "BENCH");
       const ir = roster.filter((p) => p.slot === "IR");
       const irMax = (LG.rules.roster && LG.rules.roster.IR) || 0;
-      const rowHtml = (slot, p, idx) => `
-        <button class="lrow ${p && playerLocked(p) ? "locked" : ""}" data-slot="${slot}" data-idx="${idx}">
-          <span class="slotchip">${slot}</span>
-          ${p ? `<span class="lname"><b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${injChip(d, p)}</small></span>
-                 <span class="lpts">${LG.fmtPts((d.S.players.get(p.key) || {}).pts ?? 0)}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
-                 ${playerLocked(p) ? '<span class="lock">LOCKED</span>' : ""}`
-              : '<span class="mut">empty</span>'}
-        </button>`;
+      // Split row (2026-08-08): tapping a FILLED slot used to open the swap sheet directly — a
+      // row that both informs and acts. Now the row's player-info area (.linfo) opens the
+      // stats card and a distinct .lswap button carries the swap affordance, so viewing a
+      // player never requires committing to changing the lineup. An EMPTY slot has no player
+      // to show a card for, so it stays a single tap-to-fill button, unchanged.
+      const rowHtml = (slot, p, idx) => p
+        ? `<div class="lrow ${playerLocked(p) ? "locked" : ""}" data-slot="${slot}" data-idx="${idx}">
+            <span class="slotchip">${slot}</span>
+            <button type="button" class="linfo" data-pk="${esc(p.key)}">
+              <span class="lname"><b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${injChip(d, p)}</small></span>
+              <span class="lpts">${LG.fmtPts((d.S.players.get(p.key) || {}).pts ?? 0)}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
+            </button>
+            ${playerLocked(p) ? '<span class="lock">LOCKED</span>' : ""}
+            <button type="button" class="lswap" data-slot="${slot}" data-idx="${idx}">Swap</button>
+          </div>`
+        : `<div class="lrow" data-slot="${slot}" data-idx="${idx}">
+            <span class="slotchip">${slot}</span>
+            <button type="button" class="lswap lswapfill" data-slot="${slot}" data-idx="${idx}"><span class="mut">Empty — tap to fill</span></button>
+          </div>`;
       rosterHtml = `
-        <div class="card"><h2>Lineup — week ${UI.week}</h2><p class="mut small">Tap a slot to swap. LOCKED = game started.</p>
+        <div class="card"><h2>Lineup — week ${UI.week}</h2><p class="mut small">Tap a player for their stats, or Swap to change the lineup. LOCKED = game started.</p>
           <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i)).join("")}</div></div>
         <div class="card"><h2>Bench</h2><div id="lockerBench">${bench.length ? bench.map((p, i) => rowHtml("BENCH", p, i)).join("") : '<p class="mut">Empty bench.</p>'}</div></div>
         <div class="card"><h2>IR <span class="mut">(${ir.length}/${irMax})</span></h2>
           <div id="lockerIR">${ir.length ? ir.map((p, i) => rowHtml("IR", p, i)).join("") : '<p class="mut">Nobody stashed.</p>'}</div></div>
         <div id="swapSheet" class="sheet" hidden></div>`;
     } else {
+      // Read-only — no swap affordance to split out, so the whole row (data-pk) opens the
+      // stats card (item 1's "locker/My-Team roster rows").
       rosterHtml = `<div class="card"><h2>Roster — week ${UI.week}</h2>${roster.length ? `<div class="panner"><table class="tbl"><tbody>
-        ${roster.map((p) => `<tr><td>${esc(p.slot)}</td><td>${esc(p.name)}</td><td class="mut">${esc(p.pos)} · ${esc(p.team)}</td></tr>`).join("")}
+        ${roster.map((p) => `<tr data-pk="${esc(p.key)}"><td>${esc(p.slot)}</td><td>${esc(p.name)}</td><td class="mut">${esc(p.pos)} · ${esc(p.team)}</td></tr>`).join("")}
       </tbody></table></div>` : '<p class="mut">No roster yet.</p>'}</div>`;
     }
 
@@ -2403,6 +2614,7 @@
       <div class="card"><h2>The wall</h2>${wall.length ? wall.map((m) => chatMsgHtml(m, new Map(), LG.myTeamId())).join("") : "<p class=\"mut\">Nobody's mentioned them yet.</p>"}</div>`;
     document.querySelectorAll(".chatImg").forEach((img) => img.addEventListener("click", () => openImageOverlay(img.dataset.full)));
     wireLockerTaps();
+    wirePlayerCardTaps(); // owner's .linfo buttons + every other team's read-only roster rows
     if (isOwner) { wireLockerEdit(T); wireLockerLineup(teamId, roster); }
     paintHealth();
   }
@@ -2411,7 +2623,15 @@
   // stays readable.
   function wireLockerLineup(tid, ros) {
     const d = D();
-    document.querySelectorAll(".lrow").forEach((b) => b.addEventListener("click", () => openSwap(b.dataset.slot, Number(b.dataset.idx))));
+    // Split (2026-08-08): .lswap (a filled row's own swap button, or the whole button for an
+    // empty slot) opens the swap sheet; .linfo (wired separately by wirePlayerCardTaps, above)
+    // opens the stats card. Both live inside the same .lrow now, so each needs its own
+    // stopPropagation — not that .lrow itself listens for anything any more, but a future
+    // wrapper listener should never have to guess which of the two this bubbled from.
+    document.querySelectorAll(".lswap").forEach((b) => b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openSwap(b.dataset.slot, Number(b.dataset.idx));
+    }));
     const slots = starterSlotList();
     const taken = new Set();
     const starters = slots.map((s) => {
