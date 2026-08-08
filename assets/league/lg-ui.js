@@ -7,6 +7,11 @@
   const UI = (LG.ui = {});
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // Every PLAYER name on screen renders through this (2026-08-08, user: "player names should
+  // always be first initial and then last name"). Team names, owner names and chat text use
+  // plain esc() — this one is only ever for a person on a roster. See LG.shortName's own note
+  // for why the shortening is display-only and never touches stored or wire data.
+  const escn = (s) => esc(LG.shortName(s));
   // Up to 2-letter initials for a team-avatar fallback (design system §"Team avatars are
   // initials on colored circles") — used only where a team has no logo on file.
   const initials = (name) => (String(name || "?").trim().split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?");
@@ -369,7 +374,7 @@
     return `<div class="pccard">
       <button type="button" class="pcclose" id="pcClose" aria-label="Close">✕</button>
       <div class="pchead">
-        <h2 class="pcname">${esc(meta.name)}</h2>
+        <h2 class="pcname">${escn(meta.name)}</h2>
         <div class="pcmeta"><span class="posbadge" data-pos="${esc(meta.pos)}">${esc(meta.pos || "?")}</span>
           <span class="mut">${esc(meta.team || "")}</span>${meta.injury ? ` <span class="inj">${esc(meta.injury)}</span>` : ""}</div>
       </div>
@@ -1339,7 +1344,7 @@
     return entries.map(([name, m]) => {
       const projTxt = m.proj != null ? LG.fmtPts(m.proj) : "—";
       const adjTxt = m.adj != null ? LG.fmtPts(m.adj) : "—";
-      return `<div class="fline"> <b>${esc(name)}</b> proj ${projTxt} → <b>${adjTxt}</b>
+      return `<div class="fline"> <b>${escn(name)}</b> proj ${projTxt} → <b>${adjTxt}</b>
         <span class="delta ${m.mult >= 1 ? "up" : "down"}">×${m.mult.toFixed(2)}</span><br>
         <small class="mut">${esc(m.why)}</small></div>`;
     }).join("");
@@ -1457,7 +1462,7 @@
       // ESPN-style stat summary line ("312 pass yds, 2 TD" / "6 rec, 84 yds") under the meta
       // line, from whichever source mergeRow picked — absent entirely until any stat lands.
       const sline = statSummary(p, row);
-      infoHtml = `<b>${esc(p.name)}</b>${rz}${conflict}<br><small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${state}</small>${sline ? `<small class="mut pstatline">${esc(sline)}</small>` : ""}`;
+      infoHtml = `<b>${escn(p.name)}</b>${rz}${conflict}<br><small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${state}</small>${sline ? `<small class="mut pstatline">${esc(sline)}</small>` : ""}`;
       ptsHtml = `<span class="pts">${LG.fmtPts(pts)}</span><small class="mut">proj ${LG.fmtPts(proj)}</small>`;
     }
     const infoDiv = `<div class="pinfo">${infoHtml}</div>`, ptsDiv = `<div class="ppts">${ptsHtml}</div>`;
@@ -1526,7 +1531,7 @@
     if (e.msg) return `<div class="fline sys"><span class="mut">${t}</span> ${esc(e.msg)}</div>`;
     const sign = e.dPts > 0 ? "+" : "";
     const cls = e.dPts > 0 ? "up" : e.dPts < 0 ? "down" : "flat";
-    return `<div class="fline"><span class="mut">${t}</span> <b>${esc(e.name)}</b>
+    return `<div class="fline"><span class="mut">${t}</span> <b>${escn(e.name)}</b>
       ${esc(STAT_LABEL[e.stat] || e.stat)} ${e.from ?? 0}→${e.to ?? 0}
       <span class="delta ${cls}">${e.dPts ? sign + e.dPts.toFixed(1) : ""}</span></div>`;
   }
@@ -1970,11 +1975,11 @@
   function reasonLabel(r) { return REASON_LABEL[r] || r; }
   function txSentence(tx) {
     const nm = (id) => (LG.teamById(id) || {}).name || ("Team " + id);
-    if (tx.type === "waiver") return `${nm(tx.teamId)} won a waiver claim: added ${tx.detail.addName} ($${tx.detail.bid}), dropped ${tx.detail.dropName || tx.detail.dropKey}.`;
-    if (tx.type === "fa_add") return `${nm(tx.teamId)} added ${tx.detail.addName} (free agency).`;
-    if (tx.type === "drop") return `${nm(tx.teamId)} dropped ${tx.detail.dropName || tx.detail.dropKey}.`;
+    if (tx.type === "waiver") return `${nm(tx.teamId)} won a waiver claim: added ${LG.shortName(tx.detail.addName)} ($${tx.detail.bid}), dropped ${LG.shortName(tx.detail.dropName || tx.detail.dropKey)}.`;
+    if (tx.type === "fa_add") return `${nm(tx.teamId)} added ${LG.shortName(tx.detail.addName)} (free agency).`;
+    if (tx.type === "drop") return `${nm(tx.teamId)} dropped ${LG.shortName(tx.detail.dropName || tx.detail.dropKey)}.`;
     if (tx.type === "trade" && tx.detail.result === "executed")
-      return `Trade: ${nm(tx.detail.from)} sent ${(tx.detail.giveNames || tx.detail.give || []).join(", ")} to ${nm(tx.detail.to)} for ${(tx.detail.getNames || tx.detail.get || []).join(", ")}.`;
+      return `Trade: ${nm(tx.detail.from)} sent ${(tx.detail.giveNames || tx.detail.give || []).map(LG.shortName).join(", ")} to ${nm(tx.detail.to)} for ${(tx.detail.getNames || tx.detail.get || []).map(LG.shortName).join(", ")}.`;
     if (tx.type === "trade" && tx.detail.result === "vetoed")
       return `Trade between ${nm(tx.detail.from)} and ${nm(tx.detail.to)} was vetoed by the league.`;
     return "Transaction.";
@@ -2001,7 +2006,7 @@
     // Item 1's "claims list" — the player names in "My pending" are their own tappable stats
     // links (.pcinline, wired generically by wirePlayerCardTaps below) while Cancel/Accept/
     // Decline/Veto stay exactly the buttons they always were.
-    const pcName = (key, label) => `<button type="button" class="pcinline" data-pk="${esc(key)}">${esc(label)}</button>`;
+    const pcName = (key, label) => `<button type="button" class="pcinline" data-pk="${esc(key)}">${escn(label)}</button>`;
     const claimRow = (c) => `<div class="rowline"><span>${pcName(c.addKey, c.addName)} <span class="mut">(${esc(c.addPos)}·${esc(c.addTeam)})</span> ← drop ${pcName(c.dropKey, c.dropName || c.dropKey)} · $${c.bid}</span>
       <button class="mvcancel" data-cid="${esc(c.id)}">Cancel</button></div>`;
     const tradeRow = (tr) => {
@@ -2032,7 +2037,7 @@
       if (!mine.length) return "";
       return `<h2 class="small mut">Your results — week ${UI._claims.week}</h2><div id="mvResults">` + mine.map((r) => {
         const c = claimsById.get(r.id);
-        return `<div class="fline">${r.ok ? "Won " + esc(c.addName) + "!" : "Missed " + esc(c.addName) + ": " + esc(reasonLabel(r.reason))}</div>`;
+        return `<div class="fline">${r.ok ? "Won " + escn(c.addName) + "!" : "Missed " + escn(c.addName) + ": " + esc(reasonLabel(r.reason))}</div>`;
       }).join("") + "</div>";
     })();
 
@@ -2049,7 +2054,7 @@
     // border/background treatment it always had.
     const chip = (p, set) => `<div class="swaprow pickchip ${set.has(p.key) ? "picked" : ""}" data-gk="${esc(p.key)}">
         <button type="button" class="pcinfo" data-pk="${esc(p.key)}">
-          <b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${esc(p.slot)}</small>
+          <b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${esc(p.slot)}</small>
         </button>
         <button type="button" class="pcpick" data-gk="${esc(p.key)}">${set.has(p.key) ? "Picked" : "Pick"}</button>
       </div>`;
@@ -2194,7 +2199,7 @@
     // numeric ones) the rendered cell text, so display and sort order can never disagree.
     function faSortValue(p, colId, ownerMap) {
       const d = D();
-      if (colId === "player") return p.name || "";
+      if (colId === "player") return LG.shortName(p.name || "");
       if (colId === "type") return faTypeText(p, ownerMap);
       if (colId === "opp") return d.oppForWeek(UI.week, p.team) || "";
       if (colId === "status") return faGameStatus(p.team);
@@ -2244,7 +2249,7 @@
       const moveBtn = type === "FA" ? `<button type="button" class="faAddBtn faMoveBtn">${past ? "Add" : "Claim"}</button>` : "";
       return `<tr data-fi="${i}" data-pk="${esc(p.key)}">
         <td class="faname"><span class="posbadge" data-pos="${esc(p.pos)}">${esc(p.pos)}</span>
-          <b>${esc(p.name)}</b>${p.injury ? ' <span class="inj">' + esc(p.injury) + "</span>" : ""}
+          <b>${escn(p.name)}</b>${p.injury ? ' <span class="inj">' + esc(p.injury) + "</span>" : ""}
           <br><small class="mut">${esc(p.team)}</small></td>
         <td class="fatype">${esc(type)}</td>
         <td class="faopp mut">${esc(opp || "—")}</td>
@@ -2315,10 +2320,10 @@
       const sheet = $("#claimSheet");
       const ros = myRoster;
       let chosen = null;
-      sheet.innerHTML = `<div class="card"><h2>${past ? "Add" : "Claim"} ${esc(fa.name)}</h2>
+      sheet.innerHTML = `<div class="card"><h2>${past ? "Add" : "Claim"} ${escn(fa.name)}</h2>
         <p class="mut">${esc(fa.pos)} · ${esc(fa.team)}</p>
         <h2 class="small mut">Drop</h2>
-        ${ros.map((p, i) => `<button class="swaprow" data-di="${i}"><b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${esc(p.slot)}</small></button>`).join("")}
+        ${ros.map((p, i) => `<button class="swaprow" data-di="${i}"><b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${esc(p.slot)}</small></button>`).join("")}
         ${!past ? `<input id="claimBid" type="number" min="0" max="${LG.teamFaab(T)}" value="0" placeholder="FAAB bid ($)">` : ""}
         <button id="claimGo" class="primary" disabled>${past ? "Add" : "Submit claim"}</button>
         <button class="swaprow mut" id="claimCancel">Cancel</button></div>`;
@@ -2760,7 +2765,7 @@
         ? `<div class="lrow ${playerLocked(p) ? "locked" : ""}" data-slot="${slot}" data-idx="${idx}">
             <span class="slotchip">${slot}</span>
             <button type="button" class="linfo" data-pk="${esc(p.key)}">
-              <span class="lname"><b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${injChip(d, p)}</small></span>
+              <span class="lname"><b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${injChip(d, p)}</small></span>
               <span class="lpts">${LG.fmtPts((d.S.players.get(p.key) || {}).pts ?? 0)}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
             </button>
             ${playerLocked(p) ? '<span class="lock">LOCKED</span>' : ""}
@@ -2781,7 +2786,7 @@
       // Read-only — no swap affordance to split out, so the whole row (data-pk) opens the
       // stats card (item 1's "locker/My-Team roster rows").
       rosterHtml = `<div class="card"><h2>Roster — week ${UI.week}</h2>${roster.length ? `<div class="panner"><table class="tbl"><tbody>
-        ${roster.map((p) => `<tr data-pk="${esc(p.key)}"><td>${esc(p.slot)}</td><td>${esc(p.name)}</td><td class="mut">${esc(p.pos)} · ${esc(p.team)}</td></tr>`).join("")}
+        ${roster.map((p) => `<tr data-pk="${esc(p.key)}"><td>${esc(p.slot)}</td><td>${escn(p.name)}</td><td class="mut">${esc(p.pos)} · ${esc(p.team)}</td></tr>`).join("")}
       </tbody></table></div>` : '<p class="mut">No roster yet.</p>'}</div>`;
     }
 
@@ -2856,7 +2861,7 @@
       if (slot === "BENCH" && cur) {
         const opts = starterSlotList().filter((s) => LG.slotEligible(cur.pos, s));
         const irOk = ir.length < irMax && LG.irEligible((d.S.players.get(cur.key) || {}).injury || cur.injury);
-        sheet.innerHTML = `<div class="card"><h2>Move ${esc(cur.name)}</h2>
+        sheet.innerHTML = `<div class="card"><h2>Move ${escn(cur.name)}</h2>
           ${[...new Set(opts)].map((s) => `<button class="swaprow" data-to="${s}">→ ${s}</button>`).join("")}
           ${irOk ? `<button class="swaprow" data-to="IR">→ IR</button>` : ""}
           <button class="swaprow mut" data-to="">Cancel</button></div>`;
@@ -2867,9 +2872,9 @@
         }));
         return;
       }
-      sheet.innerHTML = `<div class="card"><h2>${slot}: ${cur ? "swap out " + esc(cur.name) : "fill the slot"}</h2>
+      sheet.innerHTML = `<div class="card"><h2>${slot}: ${cur ? "swap out " + escn(cur.name) : "fill the slot"}</h2>
         ${cands.length ? cands.map((p, i) => `<button class="swaprow" data-ci="${i}">
-            <b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${p.slot}${injChip(d, p)}</small>
+            <b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${p.slot}${injChip(d, p)}</small>
             <span class="lpts">proj ${LG.fmtPts(d.projFor(p.key))}</span></button>`).join("")
           : '<p class="mut">Nobody eligible and unlocked.</p>'}
         <button class="swaprow mut" data-ci="">Cancel</button></div>`;

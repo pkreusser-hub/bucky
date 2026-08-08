@@ -9645,3 +9645,42 @@ Also deferred: the auto-setup imports whatever teams ESPN returns, so if the rea
 returns fewer teams than the league carries, that boot's `simNeedsSetup()` stays true and the
 setup re-runs once per page load (bounded by the loop guard, never a loop); and the replay's
 Scores tab shows the GFFL card for week 1 only, since that is the only week with a slate.
+
+## 🏈 GFFL — player names are ALWAYS "J. Surname" (2026-08-08)
+
+User: *"player names should always be first initial and then last name."* Files:
+`assets/league/lg-{core,ui}.js` + suite (841 → **859**). `league.mjs`/`lg-data.js` untouched.
+
+**A DISPLAY formatter, deliberately not a data rewrite.** `LG.shortName(name)` (lg-core, beside
+`fmtPts`) is applied at every render site through `escn()` in lg-ui. Stored rosters, the tx log's
+own `addName`/`dropName` records, every already-written history doc, and the AI-read wire payload
+all keep FULL names — so nothing that MATCHES on a name breaks (`askAiRead` keys the model's reply
+off the names it sent), and history written before today shortens on screen too.
+**Rules, each one asserted:** a D/ST is a TEAM not a person (`Bills D/ST` whole) · idempotent
+(`J. Allen` untouched) · suffixes ride along (`Kenneth Walker III` → `K. Walker III`,
+`Marvin Harrison Jr.` → `M. Harrison Jr.`) · surname PARTICLES stay with the surname
+(`Amon-Ra St. Brown` → **`A. St. Brown`**, not the wrong `A. Brown`) · the surname is otherwise the
+LAST token, which is what makes a double first name (`Ray Ray McCloud`) come out `R. McCloud`
+rather than `R. Ray McCloud` · single tokens / empty / null are safe.
+**Sites**: matchup starters + bench, the feed, the player stats card heading, the FA table (and
+its PLAYER **sort key** — sort by what you see, so an alpha sort groups by surname), claim sheet +
+its drop picker, trade-builder chips, claims/trade inline name buttons (one choke point:
+`pcName`), waiver result lines, locker lineup rows + a rival's read-only roster table, the lineup
+swap sheet, the AI read's rendered lines, and `txSentence`. Two SYS-POST sentences in lg-core
+(waivers processed, trade executed) bake the short form in at WRITE time — a stored sentence
+cannot be shortened later, and it is prose, not a record anything matches on.
+**THE SUITE COULD HAVE PASSED WITH THE FORMATTER DOING NOTHING**: every pre-existing fixture
+player is already written short (`P. Passer`, `Q. Rival`). New **section N** therefore seeds its
+own roster of FULL names and asserts the rendered DOM — `J. Passer` present *and* `Joshua Passer`
+absent, plus the suffix/particle cases in a real row, the D/ST row still whole, the player card
+heading, a tx sentence, and that `UI._rosters` still holds the full name (display-only proven, not
+asserted in prose). Plus 10 unit checks on the formatter itself.
+**Restaged, each with its reason in place:** the locker tx check (`Someone New` → `S. New`), and
+the recent-moves trimming fixture — `"Add Number <i>"` was never a plausible player name and reads
+as `A. 10` once shortened, so it became ten real-shaped names with distinct surnames (`J. Jones`
+present, `A. Ashby`/`B. Baker` trimmed), which keeps the ordering assertion legible AND exercises
+the shipped format. A third reference to the old fixture string in a `waitForFunction` came with
+it — a stale literal there fails as a 5s TIMEOUT + suite crash, not as a readable assertion.
+**KNOWN**: the player stats card follows "always" literally (ESPN shows the full name there) — one
+line if the family wants the card full; and `sports.html`'s ESPN-fantasy viewer is a separate app
+surface, deliberately not touched.
