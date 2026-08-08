@@ -2566,7 +2566,7 @@ async function openDetails(page, id) {
     ok(/#1/.test(body1) && /41\.0/.test(body1), "locker header shows place + record derived from the weekly doc");
     ok(/P\. Passer/.test(body1), "locker roster lists the current week's players");
     ok(/End Zone Goats/.test(body1) && /W 41\.0-4\.0/.test(body1), "locker schedule shows the week-1 opponent and the finalized result");
-    ok(/Someone New/.test(body1), "locker transactions list shows the team's own tx history");
+    ok(/S\. New/.test(body1), "locker transactions list shows the team's own tx history (rendered short: \"Someone New\" -> \"S. New\")");
     ok((await page1.$$eval(".chatRowMsg", (els) => els.length)) >= 1 && /going all the way/.test(body1),
       "the wall picks up a chat message that mentions the team by name");
     ok(/Add a motto/.test(body1), "no motto set yet — the owner-only placeholder invites them to add one");
@@ -3678,7 +3678,9 @@ async function openDetails(page, id) {
       const realNow = Date.now;
       let fakeT = Date.now() - 1000000;
       Date.now = () => (fakeT += 1000);
-      for (let i = 1; i <= 10; i++) await LG.logTx("fa_add", 1, 1, { addKey: "k" + i, addName: "Add Number " + i });
+      const TXNAMES = ["Aaron Ashby", "Blake Baker", "Colin Carter", "Dean Dixon", "Evan Ellis",
+        "Frank Foster", "Gabe Grant", "Hank Hughes", "Ian Irwin", "Jack Jones"];
+      for (let i = 1; i <= 10; i++) await LG.logTx("fa_add", 1, 1, { addKey: "k" + i, addName: TXNAMES[i - 1] });
       for (let i = 1; i <= 8; i++) await LG.postChat({ text: "chat message " + i });
       Date.now = realNow;
     });
@@ -3695,8 +3697,8 @@ async function openDetails(page, id) {
     });
     ok(!!movesCard, "🔁 Recent moves card is present on the league home");
     ok(movesCard.rows === 8, "…shows exactly the last 8 tx-log sentences (capped, not all 10)");
-    ok(/Add Number 10\b/.test(movesCard.html) && !/Add Number 1\b/.test(movesCard.html) && !/Add Number 2\b/.test(movesCard.html),
-      "…the MOST RECENT moves are shown (10 present, the oldest — #1 and #2 — trimmed off)");
+    ok(/J\. Jones/.test(movesCard.html) && !/A\. Ashby/.test(movesCard.html) && !/B\. Baker/.test(movesCard.html),
+      "…the MOST RECENT moves are shown (10 present, the oldest — Ashby and Baker — trimmed off)");
     ok(movesCard.hasBtn, "…and a 'View all →' link through to the full Moves log");
     const chatCard = await page.evaluate(() => {
       const d = [...document.querySelectorAll(".collapsecard")].find((el) => el.textContent.includes("League chat"));
@@ -3720,7 +3722,7 @@ async function openDetails(page, id) {
       "sys-posted chat messages appear on the league-home preview too, once opened");
     // "View all" / "Open chat" actually navigate.
     await clickIn(page, "#recentMovesAll");
-    await page.waitForFunction(() => document.body.textContent.includes("Add Number 10"), { timeout: 5000 });
+    await page.waitForFunction(() => document.body.textContent.includes("J. Jones"), { timeout: 5000 });
     ok((await page.evaluate(() => window.__GFFL__.UI.view)) === "moves", "'View all →' opens the full Moves log");
     await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
@@ -5697,6 +5699,110 @@ async function openDetails(page, id) {
     }
 
     fixture.rich2025 = false; fixture.simProjReal = false;
+  }
+
+
+  // ==================== SECTION N: player names are ALWAYS "J. Surname" ====================
+  // 2026-08-08, user: "player names should always be first initial and then last name."
+  // LG.shortName is a DISPLAY formatter (see its own header note) — stored rosters, tx records
+  // and the AI-read wire payload all keep FULL names, so nothing that matches on a name breaks
+  // and history written before today shortens on screen too.
+  // WHY THIS SECTION HAD TO SEED ITS OWN ROSTER: every pre-existing fixture player is ALREADY
+  // written short ("P. Passer", "Q. Rival"), so the whole suite could pass with the formatter
+  // doing nothing at all. These players carry FULL names, so the rendered short form is a real
+  // assertion rather than a tautology.
+  section("N: player names render as first initial + last name");
+  {
+    const NAMED_T1 = { kind: "roster", week: 1, teamId: 1, players: [
+      { key: "3915511", name: "Joshua Passer", pos: "QB", team: "PHI", slot: "QB" },
+      { key: "4241457", name: "Kenneth Walker III", pos: "RB", team: "DAL", slot: "RB" },
+      { key: "111888", name: "Amon-Ra St. Brown", pos: "WR", team: "DEN", slot: "RB" },
+      { key: "4361741", name: "Marvin Harrison Jr.", pos: "WR", team: "PHI", slot: "WR" },
+      { key: "111555", name: "Ray Ray McCloud", pos: "WR", team: "DEN", slot: "WR" },
+      { key: "111222", name: "T. Tight", pos: "TE", team: "KC", slot: "TE" },
+      { key: "111444", name: "Flex Man", pos: "RB", team: "DEN", slot: "FLEX" },
+      { key: "dst_PHI", name: "PHI D/ST", pos: "DST", team: "PHI", slot: "DST" },
+      { key: "2473037", name: "Kick Kicker", pos: "K", team: "DAL", slot: "K" },
+      { key: "111333", name: "Bench Backup", pos: "RB", team: "KC", slot: "BENCH" },
+    ] };
+    const seed = fullSeed();
+    seed.docs = { ...seed.docs, ["roster_2026_w1_t1"]: NAMED_T1 };
+    const { ctx, page, errors } = await newTestPage(browser, seed, {});
+    await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+    await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+
+    // -- the formatter itself, every rule it claims --
+    const u = await page.evaluate(() => {
+      const f = window.__GFFL__.LG.shortName;
+      return {
+        plain: f("Josh Allen"),
+        threeToken: f("Ray Ray McCloud"),
+        suffixRoman: f("Kenneth Walker III"),
+        suffixJr: f("Marvin Harrison Jr."),
+        particle: f("Amon-Ra St. Brown"),
+        dstTeam: f("Bills D/ST"),
+        dstAbbrev: f("PHI D/ST"),
+        already: f("J. Allen"),
+        idempotent: f(f("Josh Allen")),
+        oneToken: f("Chargers"),
+        empty: f(""),
+        nul: f(null),
+        spaces: f("  Josh   Allen  "),
+      };
+    });
+    ok(u.plain === "J. Allen", 'shortName("Josh Allen") -> "J. Allen" (' + u.plain + ")");
+    ok(u.threeToken === "R. McCloud", '…a double first name keeps only the SURNAME: "Ray Ray McCloud" -> "R. McCloud" (' + u.threeToken + ")");
+    ok(u.suffixRoman === "K. Walker III", '…a roman-numeral suffix rides along (' + u.suffixRoman + ")");
+    ok(u.suffixJr === "M. Harrison Jr.", '…so does Jr. (' + u.suffixJr + ")");
+    ok(u.particle === "A. St. Brown", '…a surname PARTICLE stays with the surname — never the wrong "A. Brown" (' + u.particle + ")");
+    ok(u.dstTeam === "Bills D/ST" && u.dstAbbrev === "PHI D/ST", "…a D/ST is a TEAM, not a person — left whole (" + u.dstTeam + " / " + u.dstAbbrev + ")");
+    ok(u.already === "J. Allen" && u.idempotent === "J. Allen", "…idempotent: an already-short name is returned untouched (" + u.idempotent + ")");
+    ok(u.oneToken === "Chargers", "…a single token is returned as-is");
+    ok(u.empty === "" && u.nul === "", "…empty/null are safe");
+    ok(u.spaces === "J. Allen", "…runs of whitespace don't produce a broken initial (" + JSON.stringify(u.spaces) + ")");
+
+    // -- the MATCHUP lineup: what the user was actually looking at --
+    await page.evaluate(() => { window.__GFFL__.UI.matchup = [1, 2]; window.__GFFL__.UI.show("matchup"); });
+    await page.waitForSelector(".mutable", { timeout: 9000 });
+    const mu = await page.evaluate(() => document.querySelector(".mutable").textContent);
+    ok(/J\. Passer/.test(mu) && !/Joshua Passer/.test(mu), "matchup lineup renders the short form, and the full name appears NOWHERE on the row");
+    ok(/K\. Walker III/.test(mu) && /A\. St\. Brown/.test(mu) && /M\. Harrison Jr\./.test(mu),
+      "…suffixes and particles survive in the real rendered row");
+    ok(/PHI D\/ST/.test(mu), "…the D/ST row still reads as its team");
+    // The DATA is untouched — only the render is short (the whole point of a display formatter).
+    const stored = await page.evaluate(() => (window.__GFFL__.UI._rosters[1].find((p) => p.key === "3915511") || {}).name);
+    ok(stored === "Joshua Passer", "the stored roster keeps the FULL name — shortening is display-only (" + stored + ")");
+
+    // -- the locker (own team, with the lineup editor) --
+    await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+    await page.waitForSelector(".lockerhead", { timeout: 9000 });
+    const lk = await page.evaluate(() => document.body.textContent);
+    ok(/J\. Passer/.test(lk) && !/Joshua Passer/.test(lk), "the locker's own lineup rows render short");
+
+    // -- the player card, opened from a real row --
+    await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511"));
+    await page.waitForSelector(".pcname", { timeout: 9000 });
+    const pc = await page.evaluate(() => document.querySelector(".pcname").textContent.trim());
+    ok(pc === "J. Passer", "the player stats card's own heading is short too (" + pc + ")");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+
+    // -- a transaction sentence written with a FULL name renders short (old history included) --
+    await page.evaluate(async () => {
+      await window.__GFFL__.LG.logTx("fa_add", 1, 1, { addKey: "zz9", addName: "Christian McCaffrey" });
+      window.__GFFL__.UI._tx = undefined;
+      window.__GFFL__.UI.show("league");
+    });
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await openDetails(page, "txDetails");
+    const tx = await page.evaluate(() => {
+      const d = [...document.querySelectorAll(".collapsecard")].find((el) => el.textContent.includes("Recent moves"));
+      return d ? d.textContent : "";
+    });
+    ok(/C\. McCaffrey/.test(tx) && !/Christian McCaffrey/.test(tx),
+      "a tx-log sentence renders short — including records written before today, since the shortening is at render time");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
   }
 
   await browser.close();

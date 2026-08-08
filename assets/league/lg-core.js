@@ -857,7 +857,7 @@
     try {
       if (txs.length) {
         const nm = (id) => (LG.teamById(id) || {}).name || ("Team " + id);
-        const winners = txs.map((tx) => `${nm(tx.teamId)} added ${tx.detail.addName}`).join("; ");
+        const winners = txs.map((tx) => `${nm(tx.teamId)} added ${LG.shortName(tx.detail.addName)}`).join("; ");
         await LG.postSys(`Waivers processed for week ${week}: ${txs.length} claim(s) won — ${winners}.`);
       }
     } catch (e) { /* chat is never load-bearing */ }
@@ -979,7 +979,7 @@
     // Event post (plan §4.5) — same names the transactions log shows.
     try {
       const nm = (tid) => (LG.teamById(tid) || {}).name || ("Team " + tid);
-      await LG.postSys(`Trade: ${nm(fresh.from)} sent ${movedFrom.map((p) => (p ? p.name : "?")).join(", ")} to ${nm(fresh.to)} for ${movedTo.map((p) => (p ? p.name : "?")).join(", ")}.`);
+      await LG.postSys(`Trade: ${nm(fresh.from)} sent ${movedFrom.map((p) => (p ? LG.shortName(p.name) : "?")).join(", ")} to ${nm(fresh.to)} for ${movedTo.map((p) => (p ? LG.shortName(p.name) : "?")).join(", ")}.`);
     } catch (e) { /* chat is never load-bearing */ }
     return executed;
   };
@@ -1089,6 +1089,38 @@
     return wkStart + dowOffsetDays * 24 * 3600 * 1000 + hourOffset * 3600 * 1000;
   };
   LG.fmtPts = (n) => (n == null ? "—" : (Math.round(n * 100) / 100).toFixed(1));
+
+  // ---------------- player names: ALWAYS "J. Allen" (2026-08-08, user) ----------------
+  // A DISPLAY-layer formatter, deliberately not a data-layer rewrite: stored rosters, the
+  // transaction log's own addName/dropName records, the wire payload the AI read matches its
+  // reply against, and every already-written history doc all keep their FULL names. Formatting
+  // at the render site means old records shorten too, and nothing that matches on a name breaks.
+  //   · D/ST rows are TEAM names, not people — "Bills D/ST" stays whole (ESPN does the same).
+  //   · Idempotent: an already-short "J. Allen" is returned untouched.
+  //   · Suffixes ride along: "Kenneth Walker III" -> "K. Walker III".
+  //   · Surname PARTICLES are kept with the surname, so "Amon-Ra St. Brown" -> "A. St. Brown"
+  //     rather than the wrong "A. Brown"; the surname is otherwise the LAST token, which is what
+  //     makes a double first name ("Ray Ray McCloud") come out "R. McCloud" and not "R. Ray McCloud".
+  const NAME_SUFFIXES = new Set(["jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "v"]);
+  const NAME_PARTICLES = new Set(["st", "st.", "van", "von", "de", "del", "della", "di", "du", "da", "dos", "la", "le", "den", "der", "ter"]);
+  LG.shortName = function (name) {
+    const raw = String(name == null ? "" : name).trim();
+    if (!raw || raw.indexOf(" ") < 0) return raw;          // one token — a surname-only or a team
+    if (/\bD\/ST\b|\bDST\b/i.test(raw)) return raw;         // a team defense, not a person
+    let toks = raw.split(/\s+/);
+    const suffix = [];
+    while (toks.length > 2 && NAME_SUFFIXES.has(toks[toks.length - 1].toLowerCase().replace(/,$/, ""))) {
+      suffix.unshift(toks.pop().replace(/,$/, ""));
+    }
+    if (toks.length < 2) return raw;
+    if (/^[A-Za-z]\.?$/.test(toks[0]) && toks[0].length <= 2) return raw; // already "J. Allen"
+    let surname = toks[toks.length - 1];
+    if (toks.length > 2 && NAME_PARTICLES.has(toks[toks.length - 2].toLowerCase())) {
+      surname = toks[toks.length - 2] + " " + surname;
+    }
+    const initial = toks[0].charAt(0).toUpperCase();
+    return initial + ". " + surname + (suffix.length ? " " + suffix.join(" ") : "");
+  };
 
   // ---------------- weekly finalization + projections + power rankings + awards (S5) ----------------
   // The server-side truth of a completed week (plan §3/§4.6/§4.9/§5): once every one of THAT
