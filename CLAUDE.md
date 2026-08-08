@@ -8721,3 +8721,142 @@ is a plain localStorage read) needs no backend at all.
 **KNOWN / DEFERRED**: the first-run screen's header meta briefly shows "Week 1 · 2026" before
 any team exists — noticed while reviewing screenshots, judged too low-severity to chase (a
 one-time first-boot state, not a returning-user path) and left as-is.
+
+## 🏈 GFFL — "2025 TEST SEASON" mode (2026-08-08, UNCOMMITTED)
+
+A commissioner-gated sandbox: open the app as if it's week 4 of the REAL 2025 NFL season,
+before any week-4 kickoff, with weeks 1-3 already finalized from Sleeper's real ARCHIVED
+stats — so waivers/FA/trades/lineups can all be exercised against real rosters and real
+scoring, without touching a single byte of the live league. `assets/league/lg-{core,data,
+ui}.js` + `league.html` only — `netlify/functions/league.mjs` needed NO changes at all (the
+existing `lg_espn_rosters_season` action, built for the pre-existing "Import 2025 rosters
+(test run)" button, already does everything the guided setup needs). Suite:
+`tools/_verify-gffl.cjs` **605 → 639** (34 new checks, section X), 0 page errors.
+
+**TOTAL ISOLATION, and it's a COLLECTION switch, not a season-number switch.** `LG.TEST_FLAG`
+(`localStorage["gffl_test2025"]`) gates `applyTestModeVars()`, which derives `LG.COLL` (a
+"_t25" suffix on the real collection name), `LG.SEASON` (2025) and `LG.SEASON_START`
+("2025-09-02", the Tuesday before the real Sept-4 opener) PURELY from the flag — called once
+at module load (a returning visitor's flag applies from the very first read) and again inside
+`LG.enterTestMode()`/`LG.exitTestMode()`. Every doc id this app mints threads through `LG.COLL`
+at call time (not captured in a closure), so the switch reaches every backend call with zero
+other code changes. `LG.db.clearCache()` (new — the doc/list caches are keyed by id/kind alone,
+with NO collection component, so switching `LG.COLL` without clearing them would let a real-
+collection doc answer a test-collection read straight out of cache) is called on every
+enter/exit/reset. TEAM IDENTITY is isolated too: `LG.myTeamId()`/`LG.setMyTeamId()`/`LG.who()`/
+`LG.setWho()` read/write `gffl_team`/`gffl_who` with the SAME "_t25" suffix while
+`LG.testMode()` — the real 2026 rosters and the real 2025 rosters are different teams, so a
+real-season claim must never silently apply in the sandbox (and a fresh test collection
+therefore always starts with NO claimed team, which is exactly what makes the guided setup's
+"land on the claim screen once ready" handoff work with zero extra code).
+
+**NO IN-MEMORY HOT-SWAP — enter/exit/reset all end in a hard `location.reload()`.** Matches
+the house precedent (P6 layout-hash reloads, the family-lobby room-adoption reload) rather than
+trying to patch `LG.teams`/`UI._rosters`/`schedule`/etc. in place, which would be a much larger
+surface to get right for a rare, deliberate, commissioner-gated action. `LG.resetTestMode()`
+wipes every doc in the CURRENT collection (`LG.db.list()` with no kind filter — refuses outright
+if `!LG.testMode()`, so it can never accidentally target the real collection) and returns
+`{ok, wiped}`; the caller (a Rules-page button) reloads after. **BUG CAUGHT BY THE SUITE, not by
+review**: the first cut iterated `LG.db.list()`'s return value directly while deleting from it —
+`LG.db.del()`'s `cacheUpsert()` splices the just-deleted doc straight out of that SAME array (the
+list-cache's own `.docs`, returned BY REFERENCE, not a copy), so a live `for...of` over it skips
+every other element as the array shifts underneath the loop (measured: 29 docs on the board, only
+14 actually deleted). Fixed with a `[...docs]` copy before the loop.
+
+**THE PINNED CLOCK, and the ambiguity the task handed me to resolve.** `LG.now()` = `LG.
+nowOverride` (the pre-existing test hook, unchanged priority) else, while `LG.testMode()`, a
+FIXED constant `LG.TEST_NOW` — 2025-09-24T09:00 CDT, one hour past week 4's default Wednesday-
+8am waiver deadline, two days before the first week-4 kickoff. This is a "persisted override"
+with zero storage: it's just a constant gated on the same flag `LG.testMode()` already reads, so
+it survives every reload for free and reads identically on every device. THE CHOICE: pinning
+AFTER the deadline (rather than before) means week 4's Moves page shows free agency OPEN the
+moment setup finishes — `LG.faAdd` testable with zero extra clicks, the more immediately
+discoverable of the app's two waiver UX modes. Blind-bid CLAIM queueing doesn't lose anything
+for it: `LG.addClaim`/`cancelClaim`/`processWaivers` all take an explicit week and never consult
+the clock themselves, and a small **test-mode-only "Testing week" switch** on the Moves page
+(two buttons, `UI.week = 4 | 5`) makes the ordinary bid-a-claim form reachable too — week 5's own
+Wednesday deadline is still six days away at the pinned instant. Both paths are therefore
+reachable from the real UI, not just from test code, which is what the task's own note ("make
+whichever choice lets BOTH be exercised, and document it") was asking for.
+
+**THE ONE-TAP GUIDED SETUP, and why it needed a real fix in `D.weekStats` to work at all.**
+`UI.boot()` gained one check: `if (LG.testMode() && await testSeasonNeedsSetup())
+{ renderTestSeasonSetup(); return; }` — `testSeasonNeedsSetup()` looks for exactly the
+artifacts the wizard itself writes (teams, a schedule, weekly docs for 1-3), so a run that stops
+partway (a flaky ESPN read, a closed tab) resumes on the very next boot rather than duplicating
+or erroring. `runTestSeasonSetup()`: (1) `lg_espn_rosters_season({season:2025})` — the SAME
+server action the pre-existing manual "test run" button already calls; (2) seeds every returned
+team via `LG.saveTeam`; (3) `applyImportedRosters(j, week)` — gained an explicit `week` param
+(defaults to `UI.week`, so every EXISTING caller is byte-for-byte unaffected) so the wizard can
+seed WEEK 1 regardless of whatever `UI.week` happens to be showing (`LG.ensureRoster` copies
+forward lazily from there, so nothing else needs to write weeks 2-4 explicitly); (4) generates +
+saves the season schedule if absent; (5) `LG.finalizeWeek(w, {backfill:true})` for w=1..3.
+Step 5 is where the REAL bug lived: `LG.finalizeWeek`'s backfill path called `LG.data.
+weekStats(week)` with no season argument, and `D.weekStats` defaulted its season from **Sleeper's
+own live `/state/nfl` reading** — i.e. always the REAL CURRENT NFL season, regardless of which
+season this league doc claims to be. In the real (non-test) case that's harmless (the live
+season and `LG.SEASON` already agree), but for the 2025 sandbox it would have silently queried
+`/stats/nfl/regular/<current-real-year>/<week>` instead of 2025's — the wrong year's archived
+stats, or none at all. Fixed narrowly: `D.weekStats(week, opts)` now takes an optional
+`{season, seasonType}` override (no `opts` = byte-identical to the old priority for every
+existing caller), and `LG.finalizeWeek`'s backfill branch passes `{season: LG.SEASON,
+seasonType:"regular"}` explicitly — `LG.SEASON` is this league's own single source of truth
+already, for the real league AND the sandbox alike. A SECOND small fix rode along:
+`LG.loadRules()`'s no-settings-doc-yet fallback used to stamp the rules object's `.season` field
+from the `LG.DEFAULT_RULES` literal (frozen at whatever `LG.SEASON` read at MODULE-EVAL time —
+always 2026), so a fresh test collection with no settings doc would have displayed "season 2026"
+everywhere the rules doc's own field is shown, inside a 2025 sandbox. Now stamps `LG.SEASON` at
+READ time instead.
+
+**WEEK 4 STAYS HONESTLY UPCOMING, no special-casing needed.** The live (non-backfill)
+`LG.finalizeWeek` path is gated on the live engine's OWN reported week matching the week being
+finalized (`fzEngineWeek() === week`, the adversarial-review provenance fix from the same day) —
+since the live engine only ever reports the REAL current NFL week (there is no way to make ESPN's
+public API serve "live" data for a week that happened a year ago), it can never equal 4 by
+coincidence, so `maybeAutoFinalizeWeeks` (which runs on every boot/render) always correctly
+refuses week 4 with "stale-week" and writes nothing. No test-mode branch was needed in that code
+path at all — it already does the right thing by construction. The league home's existing
+"these weeks can't be settled from what's on the board" card DOES surface week 4 there with a
+commissioner-only "Finalize week 4 from archived stats" button (the same affordance that offers
+the archived-stats fallback for a REAL missed week) — deliberately left un-suppressed: it's a
+genuine, correct action (Sleeper really does have week 4's real 2025 numbers on file) and a
+commissioner exploring the sandbox may well want to finalize further weeks, not just the
+first three. Tapping it early defeats the "before kickoff" scenario but doesn't break anything.
+
+**MEASURED, hand-checked** (the fixture's `ffRosterDoc2025Rich()`, armed only behind a NEW
+`fixture.test2025Rich` flag so the pre-existing section Q's own 1-team roster fixture is
+completely untouched): a 2-team, real-player-id fixture (all ids already present in the
+suite's `slpPlayersFix`, so Sleeper's archived-stats endpoint scores them for real) — team 1
+(Battle Kreussers) wins all three weeks, **4.0–41.0 / 41.0–4.0 / 20.0–2.0** (home/away flips
+between week 1 and weeks 2-3, per `LG.generateSchedule`'s own circle method for a 2-team
+league), landing standings at **3-0/102 PF vs 0-3/10 PF**. Verified end-to-end against the real
+`LG.faAdd`/`LG.addClaim`+`processWaivers`/`offerTrade`→`acceptTrade`→`executeTrade` calls (a
+trade needed the review window fast-forwarded via a temporary `LG.nowOverride`, cleared right
+after) — every roster mutation checked by re-reading the actual saved roster doc, not just the
+function's return value.
+
+**Suite gotchas, both cost a full run to find**: (1) the FIRST "real docs untouched" comparison
+failed with an EMPTY diff (`added=[] removed=[] changed=[]`) — a plain `JSON.stringify()`
+comparison of two localStorage snapshots is sensitive to key INSERTION ORDER, which isn't a
+content guarantee across two separate reads even when nothing actually changed; fixed with a
+`canon()`/`stableStr()` helper that recursively sorts every object's keys before stringifying,
+used for all three "byte-identical" comparisons in the section. Also folded into the SAME
+snapshot: `D.initSleeper()`'s background fetch chain (kicked off during the real league's own
+FIRST boot, well before test mode is ever entered) and the `snapshotProjections()` it triggers
+can still be in flight at the moment a naive "before" snapshot is taken — the fix explicitly
+awaits `D.slpReady` + re-calls `snapshotProjections()` (idempotent — a no-op if it already ran)
++ calls `D.stop()` before snapshotting, so the "before" picture is genuinely settled and nothing
+can write to the real collection in the background for the rest of the section. (2) a
+`page.waitForNavigation()` raced against a `clickIn()` for a button that wasn't actually on
+screen (the section had navigated to Moves in between and never returned to Rules before trying
+to click "Exit") — `clickIn()` fails SILENTLY (`if (!el) return false`), so the click never
+fired and `waitForNavigation()` timed out after 30s with an uncaught rejection that crashed the
+whole suite process. Fixed by re-navigating to Rules immediately before the exit click, same as
+every other commissioner-button test in this file already does.
+
+**KNOWN / DEFERRED**: a partial-setup RESUME (e.g. weeks 1-2 finalized, week 3 failed) is only
+exercised indirectly, via the reset→reload→fresh-guided-setup-reappears path — a targeted
+"delete just one artifact from an otherwise-complete sandbox and confirm the wizard repairs only
+that piece" test would be a reasonable follow-up but wasn't built here; and tapping the league
+home's "Finalize week 4" button (see above) is a real, working, deliberately-unsuppressed way to
+short-circuit the "before kickoff" scenario — noted, not prevented.

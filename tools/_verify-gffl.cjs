@@ -36,6 +36,23 @@ function ok(cond, msg) {
 }
 function section(name) { console.log("\n== " + name + " =="); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Section X — a plain JSON.stringify comparison of two doc-collection snapshots is sensitive
+// to key INSERTION ORDER (localStorage iteration order can legitimately differ between two
+// reads of the identical content — e.g. a doc re-set to the SAME value doesn't move, but which
+// order the browser enumerates keys in isn't a content guarantee), so it's the wrong tool for
+// "are these two collections byte-identical". canon() recursively sorts every object's keys
+// (top-level doc ids AND each doc's own fields) before stringifying, so the comparison is
+// robust to ordering and only fails on a REAL content difference.
+function canon(v) {
+  if (Array.isArray(v)) return v.map(canon);
+  if (v && typeof v === "object") {
+    const out = {};
+    for (const k of Object.keys(v).sort()) out[k] = canon(v[k]);
+    return out;
+  }
+  return v;
+}
+const stableStr = (v) => JSON.stringify(canon(v));
 
 // ---------------- fixtures ----------------
 const fixture = {
@@ -49,6 +66,11 @@ const fixture = {
   bigSlate: false,        // >8 concurrent games, so the summary cap actually bites (finding 13)
   pregame: false,         // adds a not-yet-kicked-off game to the slate (finding 14)
   pregameState: "pre",
+  // Section X (2025 test-season mode) — OFF by default, so section Q's own lg_espn_rosters_
+  // season(2025) fixture (1 team, 2 players) is completely untouched. When true, the season-
+  // 2025 mRoster retry branch serves ffRosterDoc2025Rich() (2 teams, enough real 2025-labeled
+  // players to fill starters + a trade partner) instead of the generic 1-team ffRosterDoc().
+  test2025Rich: false,
 };
 
 // -- fake ESPN fantasy upstream (league.mjs import source) --
@@ -114,6 +136,41 @@ function ffRosterDoc() {
     ],
   };
 }
+// Section X (2025 test-season mode, 2026-08-08) — a RICHER 2-team past-season roster, served
+// only when fixture.test2025Rich is true (never touches section Q's own 1-team fixture above).
+// Every player id here is one already in slpPlayersFix (below), so Sleeper's real archived-
+// stats endpoint (D.weekStats, keyed purely off the URL's WEEK — season-agnostic in this fixture
+// server, same as the real Sleeper API) scores them meaningfully — the exact same fixture data
+// section V's WEEK_STATS_FIX/slpStatsFix already serve, reused rather than duplicated.
+function ffRosterDoc2025Rich() {
+  const e = (slot, id, name, pos, team, injury) => ({
+    lineupSlotId: slot,
+    playerPoolEntry: { player: { id, fullName: name, defaultPositionId: pos, proTeamId: team, injuryStatus: injury || "ACTIVE" } },
+  });
+  return {
+    teams: [
+      { id: 1, name: "Battle Kreussers", roster: { entries: [
+        e(0, 3915511, "P. Passer", 1, 21),    // QB PHI
+        e(2, 4241457, "R. Rusher", 2, 6),     // RB DAL
+        e(4, 4361741, "W. Receiver", 3, 21),  // WR PHI
+        e(6, 111222, "T. Tight", 4, 12),      // TE KC
+        e(17, 2473037, "K. Kicker", 5, 6),    // K DAL
+        e(16, 0, "PHI D/ST", 16, 21),         // DST PHI
+        e(20, 111333, "B. Backup", 2, 12),    // RB KC (bench-tagged; slotting is re-derived)
+        e(21, 111666, "I. Injured", 3, 12, "OUT"), // WR KC -> IR
+      ] } },
+      { id: 2, name: "End Zone Goats", roster: { entries: [
+        e(0, 222111, "Q. Rival", 1, 6),       // QB DAL
+        e(4, 222333, "X. Wideout", 3, 21),    // WR PHI
+        e(2, 111444, "F. Flexman", 2, 7),     // RB DEN
+        e(4, 111555, "W. Two", 3, 7),         // WR DEN
+        e(20, 111777, "H. Healthy", 3, 7),    // WR DEN
+        e(20, 111888, "S. Second", 2, 7),     // RB DEN
+        e(16, 0, "DAL D/ST", 16, 6),          // DST DAL
+      ] } },
+    ],
+  };
+}
 // -- history fixtures (S6) — two hand-built past seasons + one empty one.
 // Every fixture team carries record.overall + rankCalculatedFinal (the
 // action's "place"/champion source); numbers below are chosen so every
@@ -168,6 +225,13 @@ function startFfUpstream() {
       const seasonRosterM = /\/seasons\/(\d+)\//.exec(u);
       if (seasonRosterM && Number(seasonRosterM[1]) === 2025 && !u.includes("scoringPeriodId=0")) {
         res.end(JSON.stringify({ teams: [{ id: 1, roster: { entries: [] } }] }));
+        return;
+      }
+      // Section X: the season-2025 retry (scoringPeriodId=0) serves the RICHER 2-team fixture
+      // when explicitly armed — section Q's own 1-team happy-path test never sets this flag, so
+      // it (and every other caller of this action) sees exactly ffRosterDoc() as always.
+      if (seasonRosterM && Number(seasonRosterM[1]) === 2025 && fixture.test2025Rich) {
+        res.end(JSON.stringify(ffRosterDoc2025Rich()));
         return;
       }
       res.end(JSON.stringify(ffRosterDoc()));
@@ -693,6 +757,26 @@ const replaceAllDocs = (page, docs) => page.evaluate((docs, pfx) => {
   }
   for (const id of Object.keys(docs)) localStorage.setItem(pfx + id, JSON.stringify(docs[id]));
 }, docs, LSPFX);
+// Section X (2025 test-season mode) — LSPFX ("lg_gffl_test1_") is a PREFIX of the test
+// collection's own keys too ("lg_gffl_test1_t25_..."), so a plain startsWith(LSPFX) snapshot
+// (snapshotAllDocs above) can't tell the two apart. These two split them: real-collection docs
+// are everything under LSPFX that ISN'T also under the "_t25_" sub-prefix, and vice versa.
+const snapshotRealDocs = (page) => page.evaluate((pfx) => {
+  const out = {}, tpfx = pfx + "t25_";
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(pfx) && !k.startsWith(tpfx)) out[k.slice(pfx.length)] = JSON.parse(localStorage.getItem(k));
+  }
+  return out;
+}, LSPFX);
+const snapshotTestDocs = (page) => page.evaluate((pfx) => {
+  const out = {}, tpfx = pfx + "t25_";
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(tpfx)) out[k.slice(tpfx.length)] = JSON.parse(localStorage.getItem(k));
+  }
+  return out;
+}, LSPFX);
 const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
   const els = [...document.querySelectorAll(sel)];
   const el = ft ? els.find((e) => e.textContent.includes(ft)) : els[0];
@@ -4096,6 +4180,205 @@ async function openDetails(page, id) {
     ok(ms < BUDGET_MS, "cold nav-to-league-home-painted under a " + SLOW_MS + "ms/call fake cloud stays under the " + BUDGET_MS + "ms budget (" + ms + "ms — a 12-call serial chain would need " + (12 * SLOW_MS) + "ms+)");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
+  }
+
+  // ---- X: 2025 TEST SEASON MODE (2026-08-08) ----
+  section("X · 2025 test season mode — isolation, guided setup, real 2025 stats, exit/reset");
+  {
+    const seed = fullSeed();
+    const { ctx, page, errors } = await newTestPage(browser, seed);
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    // Establish commissioner status once, via the test hook (same idiom section Q already
+    // uses) — the prompt() queue's one seeded value ("Peter") is free to be consumed by
+    // whichever prompt happens first; gateCommish()'s own first-run branch self-unlocks on
+    // ANY value, so what it returns doesn't matter here.
+    await page.evaluate(() => window.__GFFL__.LG.gateCommish());
+    // Let the real league's own background work (D.initSleeper()'s fetch chain + the
+    // snapshotProjections() it kicks off, both started during the initial bootPage() above)
+    // fully settle BEFORE snapshotting "before" — otherwise a projsnap doc landing a few
+    // milliseconds later (this app's normal, pre-existing behavior, unrelated to test-season
+    // mode) reads as a false "test mode touched the real collection" failure. Stopping the
+    // poller afterward also guarantees nothing further can write to the real collection in the
+    // background while the rest of this section runs.
+    await page.evaluate(async () => {
+      const G = window.__GFFL__;
+      await G.D.slpReady;
+      await G.LG.snapshotProjections(G.UI.week).catch(() => {});
+      G.D.stop();
+    });
+    const beforeReal = await snapshotRealDocs(page);
+    ok(Object.keys(beforeReal).length > 0, "sanity: the REAL collection actually has docs to protect before entering test mode (" + Object.keys(beforeReal).length + ")");
+
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
+    ok(!!(await page.$("#testEnter")) && !(await page.$("#testExit")),
+      "as a commissioner, NOT yet in test mode: the 'Enter 2025 test season' button is present, exit/reset are not");
+    ok(await page.evaluate(() => document.getElementById("testBanner").hidden), "the persistent test banner is hidden while in the real league");
+
+    // Arm the richer 2-team 2025 roster fixture, then enter through the REAL button + confirm
+    // dialog (stubbed true) — proves the actual UI wiring, not just the underlying LG calls.
+    fixture.test2025Rich = true;
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "load" }),
+      clickIn(page, "#testEnter"),
+    ]);
+    // The guided one-tap setup wizard runs automatically (no second tap) — wait for it to
+    // finish (it lands on the claim screen once teams + weeks 1-3 exist) rather than polling a
+    // fixed sleep, since the whole point is that this can take a real network round trip.
+    await page.waitForSelector(".teamrow", { timeout: 15000 });
+    const collInTest = await page.evaluate(() => window.__GFFL__.LG.COLL);
+    ok(collInTest === "gffl_" + FAM + "_t25", "LG.COLL really did switch to the isolated '_t25' collection (" + collInTest + ")");
+    const teamsAfterSetup = await page.evaluate(() => window.__GFFL__.LG.teams.map((t) => t.name));
+    ok(teamsAfterSetup.length === 2 && teamsAfterSetup.includes("Battle Kreussers") && teamsAfterSetup.includes("End Zone Goats"),
+      "the guided setup imported both real 2025 teams from the ESPN fixture (" + JSON.stringify(teamsAfterSetup) + ")");
+    const seasonAfterSetup = await page.evaluate(() => window.__GFFL__.LG.SEASON);
+    ok(seasonAfterSetup === 2025, "LG.SEASON reads 2025 inside the sandbox");
+
+    // Claim team 1 (Battle Kreussers) — the SAME identity flow as the real league, just on the
+    // test-mode-namespaced localStorage keys.
+    await clickIn(page, ".teamrow");
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const weekAfterClaim = await page.evaluate(() => window.__GFFL__.LG.currentWeek());
+    ok(weekAfterClaim === 4, "the pinned test clock reads week 4 (" + weekAfterClaim + ")");
+    const bannerTxt = await page.evaluate(() => document.getElementById("testBanner").textContent);
+    ok(!(await page.evaluate(() => document.getElementById("testBanner").hidden))
+      && /2025 TEST SEASON/.test(bannerTxt) && /Week 4/.test(bannerTxt),
+      "the persistent banner is now visible and names the sandbox + the current week (" + JSON.stringify(bannerTxt) + ")");
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
+    ok(!(await page.$("#testEnter")) && !!(await page.$("#testExit")) && !!(await page.$("#testReset")),
+      "Rules now shows Exit/Reset instead of Enter, while inside the sandbox");
+
+    // Weeks 1-3 finalized from REAL archived 2025 stats — hand-checked totals (the fixture's
+    // own DEFAULT stat bucket for weeks 1-2, WEEK_STATS_FIX[3] for week 3 — see the comment by
+    // ffRosterDoc2025Rich for the full hand computation): team1 (Battle Kreussers) wins all
+    // three, 41.0-4.0 / 41.0-4.0 / 20.0-2.0, home/away per LG.generateSchedule's own circle
+    // method for 2 teams (week1 flips home/away vs weeks 2-3).
+    const wk1 = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(1));
+    const wk2 = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(2));
+    const wk3 = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(3));
+    const wk4 = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(4));
+    ok(wk1 && wk1.kind === "weekly" && wk1.source === "archived" && wk1.matchups[0].homePts === 4 && wk1.matchups[0].awayPts === 41,
+      "week 1 finalized from real archived 2025 stats: 4.0 — 41.0 (" + JSON.stringify(wk1 && wk1.matchups) + ")");
+    ok(wk2 && wk2.matchups[0].homePts === 41 && wk2.matchups[0].awayPts === 4,
+      "week 2 finalized: 41.0 — 4.0 (" + JSON.stringify(wk2 && wk2.matchups) + ")");
+    ok(wk3 && wk3.matchups[0].homePts === 20 && wk3.matchups[0].awayPts === 2,
+      "week 3 finalized (P. Passer's real 300yd/2TD week): 20.0 — 2.0 (" + JSON.stringify(wk3 && wk3.matchups) + ")");
+    ok(wk4 == null, "week 4 stays UNFINALIZED — upcoming, before its kickoff, exactly as designed");
+    const standings = await page.evaluate(() => window.__GFFL__.LG.loadStandings());
+    ok(standings[1].w === 3 && standings[1].l === 0 && standings[1].pf === 102
+      && standings[2].w === 0 && standings[2].l === 3 && standings[2].pf === 10,
+      "standings are populated correctly from the three finalized weeks (" + JSON.stringify(standings) + ")");
+
+    // ---- moves: FA add (week 4, deadline already passed) + a blind-bid claim (week 5, via
+    // the test-mode-only "Testing week" switch) + a trade — all against REAL rosters. ----
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForFunction(() => document.body.textContent.includes("Waivers"), { timeout: 5000 });
+    let movesTxt = await page.evaluate(() => document.body.textContent);
+    ok(/Free agency is open/.test(movesTxt), "at the pinned clock, week 4's Moves page shows free agency OPEN (its Wednesday deadline already passed)");
+    ok(/Testing week/.test(movesTxt) && !!(await page.$('.testWkBtn[data-w="5"]')),
+      "the test-mode-only 'Testing week' switch is present, so BOTH the FA and blind-bid-claim flows are reachable from the UI at this one pinned clock");
+    await clickIn(page, '.testWkBtn[data-w="5"]');
+    await page.waitForFunction(() => document.body.textContent.includes("Claims process"), { timeout: 5000 });
+    movesTxt = await page.evaluate(() => document.body.textContent);
+    ok(/Claims process Wed/.test(movesTxt), "…switching to week 5 (its own deadline hasn't passed yet) shows the ordinary blind-bid claim form instead of instant FA");
+    await clickIn(page, '.testWkBtn[data-w="4"]');
+    await page.waitForFunction(() => document.body.textContent.includes("Free agency is open"), { timeout: 5000 });
+
+    // FA add (week 4): F. Agent (slp_9201, an unrostered slpPlayersFix entry) for team1's bench RB.
+    const faResult = await page.evaluate(() => window.__GFFL__.LG.faAdd(
+      4, 1, { key: "slp_9201", name: "F. Agent", pos: "WR", team: "KC" }, "111333"));
+    ok(faResult.ok, "LG.faAdd succeeds against the isolated test collection (" + JSON.stringify(faResult) + ")");
+    const rosAfterFa = await page.evaluate(() => window.__GFFL__.LG.loadRoster(4, 1));
+    ok(rosAfterFa.some((p) => p.key === "slp_9201") && !rosAfterFa.some((p) => p.key === "111333"),
+      "…team1's week-4 roster genuinely gained F. Agent and lost B. Backup, on the real 2025-imported roster");
+
+    // Blind-bid claim (week 5): team2 bids on A. Vail (slp_9202, also unrostered), commissioner
+    // processes it — proves the FULL FAAB claim/process/win path, not just addClaim() alone.
+    const claimResult = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.addClaim(5, { id: "tclaim1", teamId: 2, addKey: "slp_9202", addName: "A. Vail", addPos: "K", addTeam: "DEN", dropKey: "111888", dropName: "S. Second", bid: 10, t: Date.now() });
+      return LG.processWaivers(5);
+    });
+    ok(claimResult.processed && (claimResult.results || []).some((r) => r.id === "tclaim1" && r.ok),
+      "a blind-bid claim submitted for week 5 processes and wins (" + JSON.stringify(claimResult.results) + ")");
+    const rosAfterClaim = await page.evaluate(() => window.__GFFL__.LG.loadRoster(5, 2));
+    ok(rosAfterClaim.some((p) => p.key === "slp_9202"), "…team2's week-5 roster gained the won player");
+
+    // Trade: team1 sends R. Rusher for team2's F. Flexman, offer -> accept -> (fast-forward
+    // past the 48h review window) -> execute.
+    const tradeResult = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      const offer = await LG.offerTrade(1, 2, ["4241457"], ["111444"]);
+      await LG.acceptTrade(offer.trade.id, 2);
+      LG.nowOverride = LG.now() + 49 * 3600e3; // past the review window, still inside test week 4
+      const executed = await LG.executeTrade(offer.trade.id);
+      LG.nowOverride = null;
+      return executed;
+    });
+    ok(tradeResult && tradeResult.status === "executed", "a trade between the two test-season teams offers, accepts, and executes (" + (tradeResult && tradeResult.status) + ")");
+    const rosT1 = await page.evaluate(() => window.__GFFL__.LG.loadRoster(4, 1));
+    const rosT2 = await page.evaluate(() => window.__GFFL__.LG.loadRoster(4, 2));
+    ok(rosT1.some((p) => p.key === "111444") && !rosT1.some((p) => p.key === "4241457"), "…team1 gained F. Flexman and gave up R. Rusher");
+    ok(rosT2.some((p) => p.key === "4241457") && !rosT2.some((p) => p.key === "111444"), "…team2 gained R. Rusher and gave up F. Flexman");
+
+    // ---- isolation, both directions, after all of the above activity ----
+    const midReal = await snapshotRealDocs(page);
+    const realIdentical = stableStr(midReal) === stableStr(beforeReal);
+    let diffMsg = "";
+    if (!realIdentical) {
+      const beforeKeys = new Set(Object.keys(beforeReal)), midKeys = new Set(Object.keys(midReal));
+      const added = [...midKeys].filter((k) => !beforeKeys.has(k));
+      const removed = [...beforeKeys].filter((k) => !midKeys.has(k));
+      const changed = [...midKeys].filter((k) => beforeKeys.has(k) && stableStr(midReal[k]) !== stableStr(beforeReal[k]));
+      diffMsg = " DIFF added=" + JSON.stringify(added) + " removed=" + JSON.stringify(removed) + " changed=" + JSON.stringify(changed)
+        + (changed.length ? " changedDetail=" + JSON.stringify(changed.map((k) => ({ k, before: beforeReal[k], after: midReal[k] }))) : "");
+    }
+    ok(realIdentical, "the REAL collection is BYTE-IDENTICAL to before test mode was entered — every waiver/claim/trade/finalize above landed only in the '_t25' sandbox" + diffMsg);
+
+    // ---- exit restores the real league exactly ----
+    await page.evaluate(() => window.__GFFL__.UI.show("rules")); // moves/claim navigation above left main() elsewhere
+    await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "load" }),
+      clickIn(page, "#testExit"),
+    ]);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const afterExit = await page.evaluate(() => ({
+      coll: window.__GFFL__.LG.COLL, season: window.__GFFL__.LG.SEASON,
+      myTeam: window.__GFFL__.LG.myTeamId(), testMode: window.__GFFL__.LG.testMode(),
+      bannerHidden: document.getElementById("testBanner").hidden,
+    }));
+    ok(!afterExit.testMode && afterExit.coll === "gffl_" + FAM && afterExit.season === 2026 && afterExit.myTeam === 1,
+      "exiting restores the real collection/season and the ORIGINAL claimed team, exactly as before (" + JSON.stringify(afterExit) + ")");
+    ok(afterExit.bannerHidden, "the test banner is hidden again back in the real league");
+    const afterExitReal = await snapshotRealDocs(page);
+    ok(stableStr(afterExitReal) === stableStr(beforeReal), "…and the real collection is STILL byte-identical after the exit round-trip itself");
+
+    // ---- reset wipes ONLY the test collection (direct hook — race-free: a real reload
+    // immediately re-triggers the guided setup, which starts writing again on its own clock,
+    // so this is the one honest place to catch the collection actually empty) ----
+    await page.evaluate(() => window.__GFFL__.LG.enterTestMode()); // back in, no reload needed for this check
+    const beforeReset = await snapshotTestDocs(page);
+    ok(Object.keys(beforeReset).length > 0, "sanity: the test collection still holds its setup + moves docs before reset (" + Object.keys(beforeReset).length + ")");
+    const resetResult = await page.evaluate(() => window.__GFFL__.LG.resetTestMode());
+    ok(resetResult.ok && resetResult.wiped === Object.keys(beforeReset).length, "LG.resetTestMode() wipes every test-collection doc (" + JSON.stringify(resetResult) + ")");
+    const afterResetTest = await snapshotTestDocs(page);
+    ok(Object.keys(afterResetTest).length === 0, "…the test collection is now genuinely empty");
+    const afterResetReal = await snapshotRealDocs(page);
+    ok(stableStr(afterResetReal) === stableStr(beforeReal), "…and resetting the SANDBOX never touched a single real-collection doc");
+
+    // A real reload from this wiped-but-still-in-test-mode state re-triggers the guided setup
+    // automatically — the resumable/idempotent path, exercised from a real boot rather than a
+    // direct function call.
+    await page.reload({ waitUntil: "load" });
+    await page.waitForFunction(() => document.body.textContent.includes("Setting up the 2025 test season"), { timeout: 9000 });
+    ok(true, "a reload against a wiped-but-still-in-test-mode collection re-shows the guided setup screen on its own, with no user action needed");
+
+    ok(errors.length === 0, "0 page errors through the entire test-season flow (enter, setup, moves, isolation, exit, reset, resume)");
+    await ctx.close();
+    fixture.test2025Rich = false; // reset for any suite section that might run after this one
   }
 
   await browser.close();

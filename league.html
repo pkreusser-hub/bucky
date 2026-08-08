@@ -438,6 +438,20 @@
   @media (min-width:1360px) {
     main[data-view="league"] { column-count:3; }
   }
+
+  /* ---------------- 2025 test season (2026-08-08) ---------------- */
+  /* Persistent banner — always visible while LG.testMode() is true, on every screen
+     (gate/claim/test-setup included), so the sandbox can never read as the live league. Sits
+     BELOW header, ABOVE main, as its own sticky band — never inside header (same
+     backdrop-filter-containing-block trap #bnav's own comment documents: nest a position:fixed
+     descendant inside a filter/backdrop-filter ancestor and it stops being fixed to the
+     viewport). [hidden] restated per the house lesson — a styled block/flex/sticky rule always
+     beats the UA [hidden]{display:none} one. */
+  #testBanner { position:sticky; top:52px; z-index:19; background:var(--gold); color:var(--bg);
+                font:700 12px var(--font-display); letter-spacing:.5px; text-transform:uppercase;
+                text-align:center; padding:7px 10px; }
+  #testBanner[hidden] { display:none; }
+  @media (min-width:1024px) { #testBanner { top:46px; } }
 </style>
 </head>
 <body>
@@ -449,6 +463,7 @@
       <span id="hAvatar" hidden></span>
     </span>
   </header>
+  <div id="testBanner" hidden></div>
   <!-- #bnav stays a SIBLING of <header>, never a descendant: header sets backdrop-filter,
        and a backdrop-filter/filter/transform ancestor becomes the containing block for any
        position:fixed descendant in Chromium — nesting nav inside header would silently break
