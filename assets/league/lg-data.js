@@ -299,12 +299,19 @@
         const st = await fx("sleeper state", `${SLP}/state/nfl`);
         D.S.slpState = st || {};
         const wk = Number(st && (st.week != null ? st.week : st.leg));
+        // Under the 2025 replay the live state is about the REAL current NFL week — the wrong
+        // week AND the wrong season. Recording it would (a) give D.engineWeek() a non-null
+        // answer, re-arming the auto-finalize/stale-week machinery the replay must keep silent,
+        // and (b) point the live stats bucket at a completely unrelated week. So the directory
+        // is still loaded (the whole app's player metadata + free-agent search depend on it)
+        // and the WEEK is deliberately not.
+        if (LG.SIM_2025) { D.S.slpWeek = null; D.S.slpBucket.cands = []; }
         // ONE candidate — the week Sleeper itself says we're in. Never a "1" fallback:
         // week 1's bucket is the one bucket that is ALWAYS full, so a fallback rotation
         // reliably locked onto it and served completed week-1 lines as live scoring
         // (finding 9). No week -> no stats at all, which reads honestly as a degraded
         // source (health flips to espn-only) instead of as wrong numbers.
-        if (wk >= 1 && wk <= 22) { D.S.slpWeek = wk; D.S.slpBucket.cands = [String(wk)]; }
+        else if (wk >= 1 && wk <= 22) { D.S.slpWeek = wk; D.S.slpBucket.cands = [String(wk)]; }
         else { D.S.slpWeek = null; D.S.slpBucket.cands = []; }
       } catch (e) { D.S.slpWeek = null; D.S.slpBucket.cands = []; }
       try {
@@ -377,12 +384,15 @@
     await D.initSleeper();
     if (!D.S.slpPlayers) return null;
     const st = D.S.slpState || {};
-    // opts.season/opts.seasonType (2025 test season) OVERRIDE Sleeper's own live /state/nfl
-    // reading — that state is always the REAL CURRENT NFL season, which is the wrong season to
-    // ask for archived stats about a past/test league year. No opts -> byte-identical to the
-    // original priority (st.season, then LG.SEASON) for every existing caller.
+    // opts.season/opts.seasonType OVERRIDE Sleeper's own live /state/nfl reading — that state
+    // is always the REAL CURRENT NFL season, which is the wrong season to ask for archived
+    // stats about a past league year. No opts -> byte-identical to the original priority
+    // (st.season, then LG.SEASON) for every existing caller.
     const seasonType = (opts && opts.seasonType) || st.season_type || "regular";
-    const season = (opts && opts.season) || st.season || String(LG.SEASON);
+    // Under the 2025 replay Sleeper's live /state/nfl season is the REAL current one, which is
+    // the wrong year to ask an archived-stats question about — this league's own LG.SEASON wins
+    // there. Every caller that already passes an explicit season is unaffected either way.
+    const season = (opts && opts.season) || (LG.SIM_2025 ? String(LG.SEASON) : st.season) || String(LG.SEASON);
     const cacheKey = season + "|" + seasonType + "|" + week;
     if (D._weekStatsCache.has(cacheKey)) return D._weekStatsCache.get(cacheKey);
     if (D._weekStatsInFlight.has(cacheKey)) return D._weekStatsInFlight.get(cacheKey);
@@ -410,21 +420,13 @@
     return result;
   };
 
-  // Weekly projection (league-scored, not pts_ppr) for a roster player. 2025 TEST SEASON: reads
-  // D.S.testProjCache keyed by whichever week is CURRENTLY DISPLAYED (LG.ui.week — resolved at
-  // call time, not at module load, so no load-order dependency on lg-ui.js) rather than a single
-  // module-global map, since the sandbox has TWO real weeks in play (4 via the pinned phase
-  // clock, 5 via the Moves page's own test-week switch) and both need their own projections.
-  // D.testEnsureProj(week) is what warms that cache — see lg-ui.js's callers.
+  // Weekly projection (league-scored, not pts_ppr) for a roster player. Under the 2025 replay
+  // the source is D.S.simProj (see D.simEnsureProj below) — there is exactly ONE week in play,
+  // so one map, warmed once. Rounded to 1dp there because a derived-from-actuals projection is
+  // an estimate and shouldn't wear two decimal places of false precision.
   D.projFor = function (key) {
-    let projMap;
-    if (LG.testMode()) {
-      const wk = (LG.ui && LG.ui.week != null) ? LG.ui.week : LG.currentWeek();
-      const entry = D.S.testProjCache[wk];
-      projMap = entry ? entry.map : null;
-    } else {
-      projMap = D.S.slpProj;
-    }
+    const sim = LG.SIM_2025;
+    const projMap = sim ? (D.S.simProj ? D.S.simProj.map : null) : D.S.slpProj;
     if (!projMap || !D.S.slpPlayers) return null;
     let pid = null;
     if (String(key).startsWith("slp_")) pid = String(key).slice(4);
@@ -438,7 +440,8 @@
     }
     const st = pid != null ? projMap[pid] : null;
     if (!st) return null;
-    return D.score(normSlp(st));
+    const pts = D.score(normSlp(st));
+    return sim ? Math.round(pts * 10) / 10 : pts;
   };
 
   // ---------------- free agent search (S3 waivers; item 1's browsable table) ----------------
@@ -509,8 +512,8 @@
   // per-week stats endpoint (the same one LG.finalizeWeek's `backfill` path and the 2025 test
   // season already trust) is re-queried, ONE finalized week at a time, with the league's own
   // explicit season/seasonType (LG.SEASON/"regular" — same override finalizeWeek's backfill
-  // passes, so a 2025-test-season week and a real-league week both resolve against the
-  // correct year rather than Sleeper's live /state/nfl reading). A week the archived endpoint
+  // passes, so a 2025-replay week and a live-season week both resolve against the correct
+  // year rather than Sleeper's live /state/nfl reading). A week the archived endpoint
   // has no entry for that key is OMITTED, not zeroed — the app doesn't track historical roster
   // membership, so "no stat line" honestly could mean bye/inactive/not-yet-in-the-league, and
   // fabricating a 0 would be a guess this app doesn't make anywhere else. Returns
@@ -536,7 +539,11 @@
   // abbreviation, which occasionally differs from a roster/Sleeper abbrev — Washington).
   D.oppForWeek = function (week, teamAbbrev) {
     if (!teamAbbrev) return null;
-    const ew = D.engineWeek ? D.engineWeek() : null;
+    // Under the 2025 replay the engine's week is deliberately UNKNOWN (nothing may auto-
+    // finalize off a slate nobody has played), but the slate in memory IS week 1's own — so
+    // week 1 is answerable and every other week honestly isn't, same rule, different source
+    // of truth for "which week are these events".
+    const ew = LG.SIM_2025 ? 1 : (D.engineWeek ? D.engineWeek() : null);
     if (ew == null || Number(week) !== ew) return null;
     const mine = slpTeam(teamAbbrev);
     const ev = (D.S.nflEvents || []).find((e) => (e.home && slpTeam(e.home.abbrev) === mine) || (e.away && slpTeam(e.away.abbrev) === mine));
@@ -774,167 +781,123 @@
   }
   D.updateHealth = updateHealth;
 
-  // ---------------- 2025 TEST SEASON — phase-driven synthetic data (2026-08-08) ----------------
-  // D.pollOnce's own test-mode branch (below) routes here instead of the real live-polling
-  // chain whenever LG.testMode() && LG.testPhase()===2 ("Week 4 · games LIVE (replay)").
-  // Deliberately makes ZERO live ESPN/Sleeper requests — the real bare /scoreboard and
-  // current-week stats-bucket endpoints always mean "the CURRENT real NFL week", which for a
-  // 2025 sandbox would be the wrong season/week entirely (real-2026-current data leaking into a
-  // 2025 test board). Instead this fetches the SAME archived-per-week endpoint D.weekStats /
-  // LG.finalizeWeek's own backfill already trust (Sleeper's /stats/nfl/<type>/<season>/<week>,
-  // which serves any COMPLETED week, real 2025 included) and synthesizes an in-progress Sunday
-  // slate out of it:
-  //   · EARLY bucket (kickoff <= noon CT, deterministic per NFL team): the real archived line in
-  //     FULL — "post"/Final.
-  //   · LATE ("3:25 window") bucket: the archived line SCALED to a deterministic 55-65%
-  //     baseline (hash of the Sleeper pid — testPlayerScale), creeping +1%/poll up to a cap that
-  //     never reaches "final" (the stretch goal — "a slow tick... so the feed moves": every
-  //     changed stat routes through the SAME applySide() the real live poll uses, which is what
-  //     makes it emit a real feed event on every tick past the first).
-  //   · NIGHT bucket: zero stats — hasn't kicked off in the replay yet.
-  // Bucket is per NFL TEAM (testTeamBucket), not per player, and fully deterministic — no real
-  // schedule/kickoff data is needed since a replay is a synthesized snapshot, not a live-time-
-  // accurate simulation (a hard reload on any phase change resets D.S fresh regardless).
-  // DELIBERATELY never touches D.S.espnWeek/D.S.slpWeek — those stay at their null default,
-  // which is what keeps maybeAutoFinalizeWeeks' fzEngineWeek() gate refusing week 4 for the
-  // WHOLE of this phase (the adversarial-review finding 1/3/7 guard, reused rather than
-  // duplicated): a replay must never let the real auto-finalize chain stamp week 4's permanent
-  // record off synthetic numbers. LG.finalizeWeek also carries its OWN explicit belt-and-
-  // suspenders refusal for this exact phase (see lg-core.js), so the guard holds even if this
-  // synthesis code changes in the future.
-  const TEST_LIVE_TICK_STEP = 0.01, TEST_LIVE_TICK_CAP = 0.95;
-  // Standard 32 NFL abbreviations, alphabetical, split into three even-ish thirds. An abbrev
-  // outside this list (a fixture's own made-up code, say) never fabricates a "final" line — it
-  // degrades to "pre" (night/upcoming).
-  const TEST_LIVE_TEAM_ORDER = ["ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE", "DAL", "DEN", "DET",
-    "GB", "HOU", "IND", "JAX", "KC", "LAC", "LAR", "LV", "MIA", "MIN", "NE",
-    "NO", "NYG", "NYJ", "PHI", "PIT", "SEA", "SF", "TB", "TEN", "WAS"];
-  function testHash01(s) { // stable string -> [0,1); no Math.random ANYWHERE in this replay path
-    let h = 2166136261;
-    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-    return ((h >>> 0) % 100000) / 100000;
-  }
-  function testTeamBucket(teamAb) {
-    const idx = TEST_LIVE_TEAM_ORDER.indexOf(slpTeam(teamAb));
-    if (idx < 0) return "pre";
-    if (idx < 11) return "post"; // ARI..DET  — early games, replay treats as already final
-    if (idx < 22) return "in";   // GB..NE    — the 3:25 window, in progress
-    return "pre";                 // NO..WAS   — night games, hasn't kicked off
-  }
-  function testPlayerScale(pid, tickN) {
-    const base = 0.55 + testHash01("gffl-t25-scale|" + pid) * 0.10; // deterministic 0.55..0.65
-    return Math.min(TEST_LIVE_TICK_CAP, base + (tickN || 0) * TEST_LIVE_TICK_STEP);
-  }
-  D.testTeamBucket = testTeamBucket;   // test hooks — the suite hand-checks against these directly
-  D.testPlayerScale = testPlayerScale; // rather than re-deriving the hash independently
-  D.S.testLive = { tickN: 0 };
-  D.testLiveSync = async function () {
-    await D.initSleeper();
-    if (!D.S.slpPlayers) return;
-    const week = LG.currentWeek(); // 4, derived from the pinned phase-2 clock — never hardcoded
-    let raw;
-    try { raw = await fx("test-live archived stats " + week, `${SLP}/stats/nfl/regular/${LG.SEASON}/${week}`); }
-    catch (e) { return; } // fail open — a replay with nothing to show is an empty board, never an error
-    if (!raw || typeof raw !== "object") return;
-    const tickN = D.S.testLive.tickN;
-    D.S.testLive.tickN++;
+  // ---------------- 2025 SEASON REPLAY — the historical week-1 slate (2026-08-08) ----------------
+  // The bare /scoreboard endpoint always means "the CURRENT real NFL week", which is the wrong
+  // week AND the wrong season for the replay. ESPN's own public scoreboard takes explicit
+  // dates/seasontype/week params, so the replay asks for exactly the slate it wants — the real
+  // week 1 of the real 2025 season — and presents every game as UPCOMING: state "pre", 0-0, its
+  // REAL kickoff datetime and TV network intact. That is not a fiction: those games really were
+  // upcoming at the pinned instant (Thursday morning, before the opener).
+  //
+  // Fetched ONCE per session and cached. It is static history — re-polling it on the live
+  // cadence would be pure waste, and this is the one thing that could otherwise hammer ESPN
+  // from a page that is left open all day.
+  //
+  // DELIBERATELY never sets D.S.espnWeek. The engine's week must stay UNKNOWN so the week-
+  // provenance guards (adversarial review, findings 1/3/7) keep maybeAutoFinalizeWeeks and the
+  // stale-week alarm silent for the whole replay — nothing has been played, so there is
+  // nothing any of them could honestly do.
+  D.S.simSlateLoaded = false;
+  D.simScoreboardUrl = () => `${ESPN}/scoreboard?dates=${LG.SEASON}&seasontype=2&week=1`;
+  async function pollSimSlate() {
+    if (D.S.simSlateLoaded) return;
+    const j = await fx("espn 2025 week-1 slate", D.simScoreboardUrl());
     const games = new Map();
-    let any = false;
-    for (const pid in raw) {
-      const st = raw[pid]; if (!st || typeof st !== "object") continue;
-      const meta = D.S.slpPlayers.get(pid); if (!meta || !meta.team) continue;
-      const teamKey = slpTeam(meta.team);
-      if (D.S.tracked.size && !D.S.tracked.has(teamKey)) continue;
-      any = true;
-      const bucket = testTeamBucket(teamKey);
-      if (!games.has(teamKey)) {
-        games.set(teamKey, {
-          eventId: "t25_" + teamKey, state: bucket,
-          detail: bucket === "post" ? "Final" : bucket === "in" ? "In progress" : "",
-          period: bucket === "in" ? 3 : bucket === "post" ? 4 : 0,
-          clock: bucket === "in" ? Math.max(0, 9 - tickN) + ":00" : bucket === "post" ? "0:00" : "",
-          kickoff: bucket === "post" ? "2025-09-28T11:00:00-05:00" : bucket === "in" ? "2025-09-28T13:00:00-05:00" : "2025-09-28T19:20:00-05:00",
-          oppAb: "", rz: false, score: "", oppScore: "",
+    const events = [];
+    for (const ev of (j?.events || [])) {
+      const c = ev.competitions && ev.competitions[0]; if (!c) continue;
+      const comps = c.competitors || [];
+      const side = (comp) => comp ? { abbrev: comp.team?.abbreviation || "", name: comp.team?.shortDisplayName || comp.team?.abbreviation || "", score: "0" } : null;
+      events.push({
+        id: String(ev.id || ""), date: ev.date || "",
+        // Every game reads UPCOMING regardless of what the historical document says about how
+        // it finished — the whole point of the pin is that none of them have kicked off yet.
+        state: "pre", detail: "", period: 0, clock: "",
+        broadcast: c.broadcasts?.[0]?.names?.[0] || "",
+        spread: (typeof c.odds?.[0]?.details === "string" ? c.odds[0].details : "").slice(0, 24),
+        away: side(comps.find((x) => x.homeAway === "away")),
+        home: side(comps.find((x) => x.homeAway === "home")),
+      });
+      for (const comp of comps) {
+        const ab = comp?.team?.abbreviation; if (!ab) continue;
+        const opp = comps.find((x) => x !== comp);
+        games.set(slpTeam(ab), {
+          eventId: String(ev.id), state: "pre", detail: "", period: 0, clock: "",
+          kickoff: ev.date || "", oppAb: opp?.team?.abbreviation || "",
+          rz: false, score: "0", oppScore: "0",
         });
       }
-      const scale = bucket === "post" ? 1 : bucket === "in" ? testPlayerScale(pid, tickN) : 0;
-      const n = normSlp(st);
-      const scaled = empty();
-      for (const k of KEYS) scaled[k] = Math.round((n[k] || 0) * scale);
-      if (n.dst_pa != null) scaled.dst_pa = bucket === "pre" ? null : Math.round(n.dst_pa * scale);
-      let key;
-      if (meta.pos === "DEF") key = "dst_" + pid;
-      else key = meta.espn_id || ("slp_" + pid);
-      applySide("espn", key, { name: meta.name, pos: meta.pos === "DEF" ? "DST" : meta.pos, team: meta.team }, scaled);
     }
     D.S.games = games;
-    if (any) D.S.espnSeeded = true;
-    updateHealth(); // failN/lastOk are never touched by this path, so bad() short-circuits false
-                     // on both sides — this reads "dual"/healthy exactly as the spec asks for.
-    for (const row of D.S.players.values()) mergeRow(row);
-  };
+    D.S.nflEvents = events;
+    D.S.simSlateLoaded = true;
+  }
+  D.pollSimSlate = pollSimSlate;
 
-  // ---------------- 2025 TEST SEASON — required projections (2026-08-08) ----------------
-  // The real live-poll projections fetch (D.initSleeper's own third step) resolves off Sleeper's
-  // CURRENT /state/nfl reading — the real, current NFL season/week, always — which is exactly
-  // the wrong week for a 2025 sandbox (and is disabled outright in test mode anyway, see
-  // D.pollOnce below). D.testEnsureProj(week) is the test-mode replacement: fetches THIS
-  // league's own season (LG.SEASON, 2025) + an EXPLICIT week (never inferred from live state) —
-  // week 4 for phases 1-2, week 5 once the Tuesday-after-week-4 phase makes that the current
-  // week — and caches per week so repeat calls (a render re-checking, the Moves page's own
-  // week-4/week-5 test switch) never re-fetch.
-  //   1. TRY Sleeper's real forward projections endpoint first (same shape/URL family the live
-  //      path already uses) — if a real season ever DOES carry projections for an already-
-  //      played week, that's the authoritative source and is used as-is (source: "projection").
-  //   2. If that comes back genuinely empty (the expected case for a season two years gone —
-  //      forward projections aren't retained for completed weeks), FALL BACK to that week's own
-  //      ARCHIVED ACTUAL stats (the exact same /stats/nfl/<season>/<week> endpoint the live
-  //      replay and LG.finalizeWeek's backfill both already trust) — same raw pid->stat-row
-  //      shape a real projection would be, so D.projFor's existing D.score(normSlp(st)) scoring
-  //      path needs no branching at all; only the SOURCE differs (source: "actual"), and that
-  //      source is surfaced honestly rather than silently presented as a real projection — see
-  //      syncTestBanner() in lg-ui.js, which reads D.S.testProjCache[UI.week].source and says so.
-  //   3. If genuinely NOTHING exists for that week either, the cache still gets a (harmless,
-  //      empty) entry — D.projFor degrades to "—" exactly like the real-league "not ready yet"
-  //      case, never a crash.
-  D.S.testProjCache = {};    // week -> {map, source:"projection"|"actual"}
-  D.S.testProjInFlight = {}; // week -> in-flight Promise (de-dupes concurrent callers)
-  D.testEnsureProj = function (week) {
-    if (D.S.testProjCache[week]) return Promise.resolve(D.S.testProjCache[week]);
-    if (D.S.testProjInFlight[week]) return D.S.testProjInFlight[week];
+  // ---------------- 2025 SEASON REPLAY — week-1 projections (2026-08-08) ----------------
+  // The live projections fetch (D.initSleeper's own third step) resolves off Sleeper's CURRENT
+  // /state/nfl reading — the real, current NFL week — which is meaningless here, and is skipped
+  // outright under the replay. This is its replacement, for THIS league's own season/week:
+  //   1. TRY Sleeper's real forward-projections endpoint for 2025 week 1. If a real projection
+  //      set is still retained for that week, that IS the authoritative source (source
+  //      "projection") and it is used as-is.
+  //   2. Otherwise — the expected case for a season this far gone; forward projections are not
+  //      retained for completed weeks — DERIVE each player's projection from their REAL week-1
+  //      2025 FINAL line (the same archived /stats/nfl/<season>/<week> endpoint D.weekStats and
+  //      LG.finalizeWeek's backfill already trust). Identical raw pid->stat-row shape, so
+  //      D.projFor's own D.score(normSlp(st)) path needs no branching; only the SOURCE differs
+  //      (source "actual"), and that source is stated honestly on the replay banner rather than
+  //      passed off as a real forecast. A real final is the most plausible possible estimate
+  //      and it is deterministic — every device sees the same number.
+  //   3. If genuinely nothing exists for that week either, the cache still gets a harmless empty
+  //      entry and D.projFor degrades to "—", exactly like the real league's "not warm yet".
+  D.S.simProj = null;       // {map, source:"projection"|"actual"}
+  D.S.simProjInFlight = null;
+  D.simEnsureProj = function () {
+    if (D.S.simProj) return Promise.resolve(D.S.simProj);
+    if (D.S.simProjInFlight) return D.S.simProjInFlight;
     const p = (async () => {
       await D.initSleeper();
+      const week = LG.currentWeek();
       let map = null, source = "projection";
       try {
-        const j = await fx("test-proj " + week, `${SLP}/projections/nfl/regular/${LG.SEASON}/${week}`);
+        const j = await fx("sim projections", `${SLP}/projections/nfl/regular/${LG.SEASON}/${week}`);
         if (j && typeof j === "object" && Object.keys(j).length) map = j;
-      } catch (e) { /* fall through to the actual-stats proxy */ }
+      } catch (e) { /* fall through to the archived-actuals proxy */ }
       if (!map) {
         try {
-          const j2 = await fx("test-proj-fallback " + week, `${SLP}/stats/nfl/regular/${LG.SEASON}/${week}`);
+          const j2 = await fx("sim proj fallback", `${SLP}/stats/nfl/regular/${LG.SEASON}/${week}`);
           if (j2 && typeof j2 === "object" && Object.keys(j2).length) { map = j2; source = "actual"; }
-        } catch (e) { /* still nothing — this week's projections legitimately stay blank */ }
+        } catch (e) { /* nothing for this week — projections legitimately stay blank */ }
       }
-      const entry = { map: map || {}, source };
-      D.S.testProjCache[week] = entry;
-      delete D.S.testProjInFlight[week];
+      const entry = { map: map || {}, source, week };
+      D.S.simProj = entry;
+      D.S.simProjInFlight = null;
       return entry;
     })();
-    D.S.testProjInFlight[week] = p;
+    D.S.simProjInFlight = p;
     return p;
   };
+
 
   // ---------------- orchestration ----------------
   D.trackTeams = function (abbrevs) { D.S.tracked = new Set(abbrevs.map(slpTeam)); };
   D.pollOnce = async function () {
     // 2025 TEST SEASON: the live-polling chain below always means "the real, current NFL
-    // week" — never meaningful for a past-season sandbox, and actively wrong (real 2026 data
-    // could otherwise leak onto a 2025 test board for any player id that happens to recur).
+    // week" — never meaningful for a past-season replay, and actively wrong (real current-
+    // season data could otherwise leak onto a 2025 board for any player id that recurs).
     // Phase 2 ("Week 4 · games LIVE") routes to the synthetic replay above instead; phases 1
     // and 3 have nothing to poll at all (before kickoff / the week is over) — D.onUpdate still
     // fires either way, so paintLive()'s repaint cadence is unaffected.
-    if (LG.testMode()) {
-      if (LG.testPhase() === 2) { await D.testLiveSync().catch(() => {}); }
+    if (LG.SIM_2025) {
+      // ONE fetch, cached for the session (pollSimSlate no-ops once loaded), and NO Sleeper
+      // stat polling at all — the replay is pinned before kickoff, so there are no stats to
+      // have. Health is left untouched on purpose: failN/lastOk never move, anyLive() is
+      // false because every game reads "pre", so bad() short-circuits false on both sides and
+      // the mode stays "dual"/nominal. That is honest — nothing is failing, there is simply
+      // nothing to poll yet — rather than painting an outage chip over a healthy replay.
+      await pollSimSlate().catch(() => {});
+      for (const row of D.S.players.values()) mergeRow(row);
       if (D.onUpdate) D.onUpdate();
       return;
     }
@@ -1005,7 +968,14 @@
   D.liveProj = function (key) {
     const row = D.S.players.get(key);
     const pts = row && row.pts != null ? row.pts : 0;
-    const team = slpTeam(row ? row.team : "");
+    // A key with NO live row yet still knows which NFL team it plays for — from the roster it
+    // sits on, or from the Sleeper directory (D.metaForKey resolves both). Without that
+    // fallback the D.S.games lookup missed, the "game hasn't kicked off -> use the projection"
+    // branch never ran, and every projected total silently read 0. That is the normal state of
+    // any board before the first stat lands, and it is the PERMANENT state of the 2025 replay,
+    // which polls no stats at all — the matchup page showed "proj 0.0" for every player while
+    // the locker (which calls D.projFor directly) showed the right number.
+    const team = slpTeam((row && row.team) || (D.metaForKey ? D.metaForKey(key).team : ""));
     const g = D.S.games.get(team);
     const proj = D.projFor(key);
     if (!g || g.state === "post") return pts;

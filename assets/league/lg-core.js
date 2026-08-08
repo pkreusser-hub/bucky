@@ -21,147 +21,48 @@
     return "fam" + Math.abs(h).toString(36);
   }
 
-  // ---------------- 2025 TEST SEASON MODE (2026-08-08) ----------------
-  // A commissioner-gated sandbox: play the app as if it were week 4 of the REAL 2025 NFL
-  // season, before any week-4 kickoff, with weeks 1-3 already finalized from Sleeper's real
-  // ARCHIVED stats — so waivers/FA/trades/lineups can be exercised against real rosters and
-  // real scoring, without touching a single byte of the live 2026 league.
+  // ---------------- ⭐ 2025 SEASON REPLAY (2026-08-08) ----------------
+  // The whole app runs as WEEK 1 of the real 2025 NFL season, pinned to the Thursday morning
+  // BEFORE any game kicks off: real post-draft rosters, the real week-1 NFL slate presented as
+  // upcoming, real projections. This replaced the old commissioner-gated 2025 sandbox (its own
+  // separate doc collection, its own switchable clock) outright — the family found the sandbox
+  // unusable, and the thing they actually wanted was for the APP ITSELF to be a complete,
+  // explorable week 1.
   //
-  // TOTAL ISOLATION: a separate Firestore/localStorage COLLECTION (LG.COLL gets a "_t25"
-  // suffix) — not just a different season number under the same collection — so every doc id
-  // this file mints (team_<id>, roster_<season>_w<week>_t<id>, weekly_<season>_w<week>,
-  // claims_<season>_w<week>, trade_<t>_<rand>, sched_<season>, bracket_<season>, settings, tx,
-  // chat…) lives somewhere the real league can never read or overwrite, even though many of
-  // those ids don't carry the season at all (chat/tx/trade docs mint on Date.now(), not season).
-  // applyTestModeVars() is idempotent and safe to call at ANY point (boot, or after a toggle):
-  // it derives LG.COLL/LG.SEASON/LG.SEASON_START purely from the localStorage flag, so a stale
-  // in-memory value can never survive a reload.
-  LG.TEST_FLAG = "gffl_test2025";
-  LG.TEST_SUFFIX = "_t25";
-  LG.TEST_SEASON = 2025;
-  // Tuesday before the real 2025 season's Thursday-Sept-4 opener.
-  LG.TEST_SEASON_START = "2025-09-02";
-  // Pinned clock: 2025 week 4, Wednesday 9:00 AM — one hour PAST that week's default 8:00 AM
-  // waiver deadline (LG.waiverDeadline(4) with DEFAULT_RULES.waivers = Wed/8am), and two days
-  // before the first week-4 kickoff (Thursday). DESIGN CHOICE, documented (the task's own
-  // ambiguity, resolved here): pinning AFTER the deadline means the Moves page shows free
-  // agency OPEN for week 4 (LG.faAdd testable with zero extra clicks the moment setup
-  // finishes) — the more immediately discoverable of the two options. Blind-bid CLAIM
-  // queueing is still fully exercisable: LG.addClaim/cancelClaim/processWaivers take an
-  // explicit week and don't check the clock themselves, and the Moves page's own "Testing
-  // week" switch (test-mode only, lg-ui.js) flips UI.week to 5 — whose Wednesday deadline is
-  // still a week away at this pinned instant — so the ordinary "Submit claim" bid form shows.
+  // It runs in the REAL collection. That is safe by construction because every per-season doc
+  // id this file mints is already season-scoped (roster_<season>_*, weekly_<season>_*,
+  // claims_<season>_*, sched_<season>, bracket_<season>, projsnap_<season>_*), so the existing
+  // 2026 docs simply become invisible rather than being touched — nothing is deleted, and
+  // flipping the flag back brings them all straight back. Season-NEUTRAL docs (team_<id>,
+  // settings, chat, tx) are deliberately SHARED: the 8 real teams are the replay's teams.
   //
-  // ---- SWITCHABLE CLOCK PHASES (2026-08-08) ----
-  // Three commissioner-selectable instants within the same sandbox, so the whole "before
-  // kickoff -> mid-game -> the morning after" arc of a Sunday can be exercised, not just one
-  // frozen moment. Persisted (LG.TEST_PHASE_KEY, defaulting to phase 1 whenever unset/invalid —
-  // a brand-new sandbox, or one from before this feature shipped, always opens on the original
-  // pinned instant) and gated/committed exactly like enter/exit/reset: LG.setTestPhase() is
-  // called from a commissioner-gated UI button (lg-ui.js), then the caller hard-reloads — no
-  // in-memory hot-swap of D.S/UI._rosters/etc. is attempted, same "cold boot against the new
-  // state" posture as every other test-mode transition in this file.
-  //   1. "Week 4 · before games"      — the ORIGINAL pinned instant, unchanged.
-  //   2. "Week 4 · games LIVE (replay)" — Sunday ~1:30 PM CT, still within week 4's Tue->Mon
-  //      window (currentWeek()===4). D.pollOnce's own test-mode branch (lg-data.js) routes to a
-  //      synthetic in-progress slate here instead of the real live-poll chain.
-  //   3. "Tuesday after week 4"       — Tuesday 10:00 AM CT, one tick into week 5's own window
-  //      (currentWeek()===5, well before its Wednesday waiver deadline). Entering this phase
-  //      finalizes week 4 via the existing archived backfill (see LG.setTestPhase below).
-  // All three timestamps land inside their DOCUMENTED week's Tue(05:00)->next-Tue(05:00) window
-  // — verified against LG.currentWeek()'s own math, not just eyeballed.
-  LG.TEST_PHASE_KEY = "gffl_test2025_phase";
-  LG.TEST_PHASES = {
-    1: { id: 1, label: "Week 4 · before games", now: new Date("2025-09-24T09:00:00-05:00").getTime() },
-    2: { id: 2, label: "Week 4 · games LIVE (replay)", now: new Date("2025-09-28T13:30:00-05:00").getTime() },
-    3: { id: 3, label: "Tuesday after week 4", now: new Date("2025-09-30T10:00:00-05:00").getTime() },
-  };
-  LG.testPhase = function () {
-    const v = parseInt(localStorage.getItem(LG.TEST_PHASE_KEY) || "1", 10);
-    return LG.TEST_PHASES[v] ? v : 1;
-  };
-  // Kept as a plain alias (phase 1's own "now") — nothing else in this codebase reads
-  // LG.TEST_NOW directly any more (LG.now() below reads LG.TEST_PHASES[LG.testPhase()].now
-  // instead), but it's cheap to keep pointing somewhere sane rather than deleting it outright.
-  LG.TEST_NOW = LG.TEST_PHASES[1].now;
-  // Idempotent + safe in any order (live -> before -> tuesday -> live, repeated, all fine):
-  // setting the SAME phase again just re-runs the (already-idempotent) phase-3 finalize, if
-  // applicable, and changes nothing else. Does NOT itself reload — the caller (lg-ui.js) does,
-  // matching enterTestMode/exitTestMode's own contract.
-  LG.setTestPhase = async function (phase) {
-    if (!LG.TEST_PHASES[phase]) return false;
-    localStorage.setItem(LG.TEST_PHASE_KEY, String(phase));
-    // Entering "Tuesday after week 4" finalizes week 4 from the SAME archived-stats backfill
-    // path the guided setup already uses for weeks 1-3 — LG.finalizeWeek is itself write-once
-    // (an existing doc is returned untouched, never recomputed), so switching to/away from
-    // phase 3 repeatedly can never double-finalize or corrupt the record. Reverting to phase 1
-    // or 2 afterward does NOT "un-finalize" week 4 — that permanent record is append-only by
-    // design (plan §8: no single mutable doc whose loss loses the season), so the board may then
-    // show week 4 as already-decided even while the clock reads "before games"; that is a known,
-    // accepted quirk of testing phase transitions out of order, not a bug this guards against.
-    if (phase === 3 && LG.testMode()) {
-      await LG.finalizeWeek(4, { backfill: true }).catch(() => {});
-    }
-    LG.db.clearCache();
-    return true;
-  };
-  LG.REAL_COLL = LG.COLL;
-  LG.REAL_SEASON = LG.SEASON;
-  LG.REAL_SEASON_START = LG.SEASON_START;
-  LG.testMode = () => localStorage.getItem(LG.TEST_FLAG) === "1";
-  function applyTestModeVars() {
-    if (LG.testMode()) {
-      LG.COLL = LG.REAL_COLL + LG.TEST_SUFFIX;
-      LG.SEASON = LG.TEST_SEASON;
-      LG.SEASON_START = LG.TEST_SEASON_START;
-    } else {
-      LG.COLL = LG.REAL_COLL;
-      LG.SEASON = LG.REAL_SEASON;
-      LG.SEASON_START = LG.REAL_SEASON_START;
-    }
+  // ⭐ WHEN THE FAMILY IS READY FOR THE REAL 2026 SEASON: set SIM_2025_DEFAULT to false — and
+  // nothing else. LG.SEASON / LG.SEASON_START / LG.now() all revert together, the replay
+  // banner disappears, live polling comes back, and the 2026 docs are visible again.
+  const SIM_2025_DEFAULT = true;
+  // ?sim=0 / ?sim=1 is a QA + preview override ONLY (same posture as ?fam=): it is never
+  // persisted anywhere, so it can't leave a device stuck in the wrong season, and it survives
+  // location.reload() the same way ?fam= does. The family never needs it.
+  LG.SIM_2025 = qs.get("sim") === "0" ? false : qs.get("sim") === "1" ? true : SIM_2025_DEFAULT;
+  if (LG.SIM_2025) {
+    LG.SEASON = 2025;
+    LG.SEASON_START = "2025-09-02"; // the Tuesday before the real Sept-4 2025 opener
   }
-  LG._applyTestModeVars = applyTestModeVars; // test hook
-  applyTestModeVars(); // a returning visitor's flag (or lack of one) applies from the FIRST read
-  // Enter/exit both do the full "flip the flag, apply, clear every cache, hard-reload" dance —
-  // no in-memory hot-swap of LG.teams/LG.rules/UI._rosters/etc. is attempted; a cold boot
-  // against the (now-different) collection is what every OTHER doc-collection switch in this
-  // app already does (the P6/family-lobby precedent: reload, never patch state in place), and
-  // it's the only way to be certain nothing from one namespace leaks into the other.
-  LG.enterTestMode = async function () {
-    localStorage.setItem(LG.TEST_FLAG, "1");
-    applyTestModeVars();
-    LG.db.clearCache();
-    return true;
-  };
-  LG.exitTestMode = function () {
-    localStorage.removeItem(LG.TEST_FLAG);
-    applyTestModeVars();
-    LG.db.clearCache();
-  };
-  // Wipes every doc in the CURRENT test collection (a no-op safety check refuses to run
-  // against the real one). Caller (lg-ui.js) reloads afterward — this only clears storage.
-  LG.resetTestMode = async function () {
-    if (!LG.testMode()) return { ok: false, reason: "not-in-test-mode" };
-    // A COPY, not the live cached array: LG.db.del() -> cacheUpsert() splices the deleted doc
-    // straight out of THIS SAME array (it's the "" list-cache entry's own .docs, returned by
-    // reference) — iterating that live reference while deleting from it shifts elements under
-    // the in-progress for-of loop and silently skips every other doc (found live: 29 docs on
-    // the board, only 14 actually deleted).
-    const docs = [...(await LG.db.list())]; // every doc, no kind filter — scoped to LG.COLL, the test collection
-    for (const d of docs) await LG.db.del(d.id);
-    LG.db.clearCache();
-    return { ok: true, wiped: docs.length };
-  };
+  // The pinned instant: Thursday 2025-09-04, 9:00 AM America/Chicago. Deliberately chosen so
+  // BOTH of these are true at once (asserted in the suite, not eyeballed):
+  //   · LG.currentWeek() === 1 — it sits inside week 1's own Tue(05:00)->next-Tue window, and
+  //     the night's opener has NOT kicked off yet, so every NFL game reads as upcoming.
+  //   · week 1's waiver deadline (default Wed 8:00 AM) has already PASSED, so free agency is
+  //     OPEN — LG.faAdd is exercisable with zero extra clicks the moment the app loads.
+  // A fixed constant, not a stored one: no localStorage flag, no per-device state, so every
+  // family device is looking at the exact same moment of the exact same week.
+  LG.SIM_NOW = new Date("2025-09-04T09:00:00-05:00").getTime();
 
   // ---------------- identity ----------------
-  // "Which team did I claim" is namespaced per mode (a "_t25" suffix while LG.testMode() is
-  // true) — the 2025 test season's rosters are a completely different set of teams, so a real-
-  // season team claim must never silently apply there (and vice versa on the way back out). A
-  // fresh test collection therefore always starts with NO claimed team, even for a returning
-  // real-league owner, so boot()'s existing claim gate does the right thing automatically.
-  // LG.who()'s choreUser fallback is deliberately UNCHANGED across modes — same person testing.
-  const teamKey = () => (LG.testMode() ? "gffl_team" + LG.TEST_SUFFIX : "gffl_team");
-  const whoKey = () => (LG.testMode() ? "gffl_who" + LG.TEST_SUFFIX : "gffl_who");
+  // One key each, no per-mode namespacing (the old per-sandbox key suffixing died with the
+  // sandbox — the 2025 replay uses the family's OWN 8 teams, so a claim genuinely carries across).
+  const teamKey = () => "gffl_team";
+  const whoKey = () => "gffl_who";
   LG.who = () => localStorage.getItem(whoKey()) || localStorage.getItem("choreUser") || "";
   LG.setWho = (n) => localStorage.setItem(whoKey(), n);
   LG.myTeamId = () => { const v = parseInt(localStorage.getItem(teamKey()) || "", 10); return v >= 1 ? v : null; };
@@ -545,10 +446,8 @@
     // A fake cloud IS a reachable backend — clear the degraded flag with it, or every test
     // that installs one would look like an offline session.
     _installFakeCloud(impl) { cloud = impl; LG.backendMode = "cloud"; LG.backendDegraded = false; LG.backendError = ""; docCache.clear(); docAt.clear(); listCache.clear(); },
-    // 2025 test-season mode: every cache is keyed by doc-id/kind alone, with NO collection
-    // component — so switching LG.COLL (real <-> "_t25") without clearing these would let a
-    // real-collection doc answer a test-collection read straight out of cache. Called by
-    // LG.enterTestMode/exitTestMode/resetTestMode; safe to call any time.
+    // Drop every cached read. Idempotent and safe to call at any time; used by the offline
+    // card's Retry (a cache filled while degraded is a cache of answers nobody could confirm).
     clearCache() { docCache.clear(); docAt.clear(); listCache.clear(); },
   };
 
@@ -585,11 +484,10 @@
     const doc = await LG.db.get("settings");
     if (doc && doc.rules) { LG.rulesDoc = doc; LG.rules = doc.rules; }
     else {
-      // season: LG.SEASON (not the DEFAULT_RULES literal, which is frozen at whatever LG.SEASON
-      // read at module-eval time — 2026) so a fresh TEST-SEASON collection with no settings doc
-      // yet reads "season 2025" everywhere the rules object's own .season field is displayed,
-      // with zero other behavior change for the real (2026) collection, where the two already
-      // agree.
+      // season: LG.SEASON at READ time, not the DEFAULT_RULES literal (frozen at whatever
+      // LG.SEASON read at module-eval time), so a league with no settings doc yet reads the
+      // season it is actually running — the 2025 replay included — everywhere the rules
+      // object's own .season field is displayed.
       const rules = { ...LG.DEFAULT_RULES, season: LG.SEASON };
       LG.rulesDoc = { kind: "settings", v: 0, rules, log: [] }; LG.rules = rules;
     }
@@ -1165,12 +1063,12 @@
   };
 
   // ---------------- time ----------------
-  LG.nowOverride = null; // test hook — always wins, test-season pin included
-  // The 2025 test season's PERSISTED clock pin: not a separate storage key beyond the phase
-  // number itself (LG.TEST_PHASE_KEY, read via LG.testPhase()) — so a returning tester always
-  // lands back on the exact same pinned instant for whichever phase they last picked, every
-  // device, forever, until they switch phases or exit.
-  LG.now = () => LG.nowOverride != null ? LG.nowOverride : (LG.testMode() ? LG.TEST_PHASES[LG.testPhase()].now : Date.now());
+  LG.nowOverride = null; // test hook — always wins, the 2025 replay's own pin included
+  // Under the 2025 replay the clock is PINNED (LG.SIM_NOW, see the flag block at the top of
+  // this file) — a fixed constant, identical on every device, so "week 1, before kickoff" is a
+  // property of the app rather than of when you happened to open it. Off the replay this is
+  // the real wall clock, exactly as it always was.
+  LG.now = () => LG.nowOverride != null ? LG.nowOverride : (LG.SIM_2025 ? LG.SIM_NOW : Date.now());
   LG.currentWeek = function () {
     const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
     const w = 1 + Math.floor((LG.now() - start) / (7 * 24 * 3600 * 1000));
@@ -1416,23 +1314,22 @@
       // Explicit season (not left to D.weekStats' own st.season fallback, which reads
       // Sleeper's LIVE /state/nfl — the REAL current NFL season, always, regardless of which
       // season this league doc claims to be). LG.SEASON is this league's own source of truth
-      // (2025 test season, or the running real season) — passing it explicitly is what lets
-      // the 2025 test season's week 1-3 backfill pull 2025's own archived stats instead of
-      // silently querying the wrong year. For the real (non-test) league LG.SEASON already
-      // equals the live season in every normal case, so this changes nothing there.
+      // (the 2025 replay, or the running real season) — passing it explicitly is what lets a
+      // past-season backfill pull that season's own archived stats instead of silently querying
+      // the wrong year. When the league IS the running live season the two already agree, so
+      // this changes nothing there.
       const map = LG.data && LG.data.weekStats ? await LG.data.weekStats(week, { season: LG.SEASON, seasonType: "regular" }) : null;
       if (!map) return { ok: false, reason: "no-archived-stats" };
       ptsOf = (key) => (map.has(key) ? map.get(key) : 0);
     } else {
-      // Explicit belt-and-suspenders (2026-08-08 phase switch): the live replay's own D.S never
-      // sets D.S.espnWeek/D.S.slpWeek, which already makes fzEngineWeek() return null and the
-      // check below refuse naturally — this is a SECOND, independent refusal so the guard holds
-      // even if the synthesis code ever changes to set those fields for some other reason. A
-      // replay must never let the live (non-backfill) path stamp week 4's permanent record off
-      // synthetic numbers; the ONLY legal way to finalize week 4 during test mode is the
-      // archived-stats backfill (LG.setTestPhase's own call, or the commissioner triggering it
-      // by hand) — never this branch.
-      if (LG.testMode() && LG.testPhase() === 2) return { ok: false, reason: "test-live-replay" };
+      // Explicit belt-and-suspenders for the 2025 replay: its own poll path never sets
+      // D.S.espnWeek/D.S.slpWeek, which already makes fzEngineWeek() return null and the check
+      // below refuse naturally — this is a SECOND, independent refusal so the guard holds even
+      // if that path ever changes. Nothing has been PLAYED in the replay (it is pinned before
+      // kickoff), so a live-path finalize could only ever write a week of zeroes into a
+      // write-once doc. The archived-stats backfill above stays available — that's a
+      // deliberate commissioner action against real numbers, not a guess off the board.
+      if (LG.SIM_2025) return { ok: false, reason: "sim-replay" };
       const ew = fzEngineWeek();
       if (ew == null) return { ok: false, reason: "no-live-data" };
       if (ew !== week) return { ok: false, reason: "stale-week", engineWeek: ew };
