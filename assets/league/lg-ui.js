@@ -1462,7 +1462,10 @@
       // Red zone marks the OFFENSE in the red zone — a D/ST row isn't on the field.
       const rz = g && g.rz && g.state === "in" && p.pos !== "DST" ? '<span class="rzdot" title="Red zone"></span>' : "";
       const conflict = row && row.conflict ? '<span class="conflictflag" title="Sources disagree">CONFLICT</span>' : "";
-      infoHtml = `<b>${esc(p.name)}</b>${rz}${conflict}<br><small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${state}</small>`;
+      // ESPN-style stat summary line ("312 pass yds, 2 TD" / "6 rec, 84 yds") under the meta
+      // line, from whichever source mergeRow picked — absent entirely until any stat lands.
+      const sline = statSummary(p, row);
+      infoHtml = `<b>${esc(p.name)}</b>${rz}${conflict}<br><small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${state}</small>${sline ? `<small class="mut pstatline">${esc(sline)}</small>` : ""}`;
       ptsHtml = `<span class="pts">${LG.fmtPts(pts)}</span><small class="mut">proj ${LG.fmtPts(proj)}</small>`;
     }
     const infoDiv = `<div class="pinfo">${infoHtml}</div>`, ptsDiv = `<div class="ppts">${ptsHtml}</div>`;
@@ -1470,6 +1473,40 @@
     // wirePlayerCardTaps() keys the click on, and it's also the whole "row-click" affordance
     // for the matchup lineup + bench tables (item 1's "matchup lineup rows both sides").
     return `<div class="pcellgrid ${side}"${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
+  }
+  // The ESPN-reference stat summary for a matchup row: a compact position-aware line built
+  // from the stats of whichever source mergeRow() picked for display (row.src — the same
+  // stats row.pts was scored from, so the line can never disagree with the points beside it).
+  // Returns "" until any stat has landed, so pre-game rows stay two lines tall.
+  function statSummary(p, row) {
+    if (!row || !row.src) return "";
+    const side = row[row.src];
+    const st = side && side.stats;
+    if (!st) return "";
+    const n = (k) => Number(st[k]) || 0;
+    const parts = [];
+    if (p.pos === "QB") {
+      if (n("pass_yd")) parts.push(Math.round(n("pass_yd")) + " pass yds");
+      const td = n("pass_td") + n("rush_td");
+      if (td) parts.push(td + " TD");
+      if (n("pass_int")) parts.push(n("pass_int") + " INT");
+      if (n("rush_yd") >= 15) parts.push(Math.round(n("rush_yd")) + " rush yds");
+    } else if (p.pos === "K") {
+      if (n("fg_made_yd")) parts.push(Math.round(n("fg_made_yd")) + " FG yds");
+      if (n("xp_made")) parts.push(n("xp_made") + " XP");
+      if (n("fg_miss")) parts.push(n("fg_miss") + " FG miss");
+    } else if (p.pos === "DST") {
+      if (st.dst_pa != null) parts.push(st.dst_pa + " PA");
+      if (n("dst_sack")) parts.push(n("dst_sack") + (n("dst_sack") === 1 ? " sack" : " sacks"));
+      if (n("dst_int")) parts.push(n("dst_int") + " INT");
+    } else { // RB / WR / TE / FLEX bodies
+      if (n("rec")) parts.push(n("rec") + " rec");
+      const yds = n("rush_yd") + n("rec_yd");
+      if (yds) parts.push(Math.round(yds) + " yds");
+      const td = n("rush_td") + n("rec_td");
+      if (td) parts.push(td + " TD");
+    }
+    return parts.slice(0, 3).join(", ");
   }
   // The TOTAL row's own half-cell — deliberately NOT halfCell(), which resolves live points by
   // looking a player up by KEY; a plain number has no key to look up.

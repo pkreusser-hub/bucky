@@ -9400,3 +9400,30 @@ confirmed; `LG.backendDegraded` starts `true` and is only cleared by a real answ
 reading `dataConfirmed()` before `backendReady` settles sees false by design; and the deployed
 site is not observable from here, so which of the two unconfirmed-read shapes the user actually
 hit is still unknown — the card now prints `LG.backendError`, which will say so the next time.
+
+## 🏈 GFFL — the matchup row finally lays out (2026-08-08, ESPN-reference alignment fix)
+
+User screenshot: the left team's players didn't line up with the right team's — left half read
+name→points top-to-bottom, right half read points→name. ROOT CAUSE: `.pcellgrid`/`.pinfo`/`.ppts`
+(the item-3 "mirrored 3-column grid" markup) shipped with **no layout CSS at all** — the same
+unstyled-new-markup family as `.scgrid` — so both halves stacked their two divs in raw DOM order.
+Files: `league.html` (CSS) + `assets/league/lg-ui.js` (statSummary) + suite (818 → **822**).
+- **Flex row restores the design**: `.pinfo` takes the slack, `.ppts` is a fixed 56px column
+  (42px ≤560px) whose numbers sit on the INNER edge of both halves, hugging the slot badge.
+  Per the ESPN reference only the column ORDER mirrors — text stays LEFT-aligned on both sides,
+  so the right team's names all start at one consistent x. `table.mutable td` vertical-align
+  top → middle; `.totalrow` points 17px. Dead `.pwrap` rules removed (grep: zero users).
+- **`td.slotcell`, not `.slotcell`** — `.tbl td`'s `text-align:left` (0,1,1) outweighed the
+  class selector (0,1,0), so the slot badge label had rendered left-of-center since the day it
+  shipped. Same lesson as `[hidden]`: a rule that LOOKS applied can be losing the cascade —
+  the suite asserts the COMPUTED style now.
+- **ESPN stat summary line** (`statSummary` in lg-ui.js): a compact position-aware line under
+  the meta line ("150 pass yds, 1 TD, 1 INT" / "6 rec, 84 yds" / "14 PA, 1 sack" / "80 FG yds,
+  1 XP"), built from `row[row.src].stats` — the SAME picked-source stats `row.pts` was scored
+  from, so the line can never disagree with the points beside it. Returns "" until any stat
+  lands, so pre-game rows stay two lines.
+- Suite: 4 new checks in the matchup section, all GEOMETRY not markup — name/points render
+  BESIDE each other on both halves (vertical-band overlap), points hug the inner edge mirrored,
+  slot label computed text-align center, and the Passer statline exact. The old shots sweep's
+  "zero teams on the local backend → first-run card" scenario is superseded by the
+  server-confirmed-emptiness fix (first-run needs a CONFIRMED empty read now).
