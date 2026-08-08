@@ -478,10 +478,33 @@ const slpPlayersFix = {
 //   week 4: P. Passer 25yd = 1.0             · Q. Rival 400yd 3TD = 16 + 12 = 28.0
 // i.e. team1 wins week 3 and team2 wins week 4 — the exact "opposite result" shape the
 // finding's own repro uses to prove a week was scored from the wrong week's board.
+// Week 4's "9001" (T. Tight, KC — team1's TE starter) and "9201" (F. Agent, KC — a genuinely
+// UNROSTERED free agent) are the phase-switch tests' own addition (2026-08-08): both land in
+// testTeamBucket's "in"/live-window group for KC, so they're what proves the 3:25-window
+// SCALED-partial behavior (T.Tight, a real starter — the matchup page) and the FA table's PROJ
+// column (F.Agent, via the actual-stats fallback — nobody claims her). Neither is read by
+// section V's own week-3-only-roster checks (T.Tight/F.Agent aren't week-3 starters there), so
+// this addition is inert for every pre-existing assertion — confirmed by grep: nothing else in
+// this file reads WEEK_STATS_FIX[4]/D.weekStats(4)/finalizeWeek(4) before this batch.
+//   T. Tight  4 rec / 50 yd -> full 4.0 + 5.0 = 9.0 (phase 3's week-4 backfill, unscaled)
+//   F. Agent  3 rec / 30 yd -> full 3.0 + 3.0 = 6.0 (the FA table's actual-stats-proxy PROJ)
 const WEEK_STATS_FIX = {
   3: { "6904": { pass_yd: 300, pass_td: 2 }, "9101": { pass_yd: 50 } },
-  4: { "6904": { pass_yd: 25 }, "9101": { pass_yd: 400, pass_td: 3 } },
+  4: { "6904": { pass_yd: 25 }, "9101": { pass_yd: 400, pass_td: 3 },
+       "9001": { rec: 4, rec_yd: 50 }, "9201": { rec: 3, rec_yd: 30 } },
 };
+// Test-season phase-2/phase-3 required PROJECTIONS (coordinator addition, 2026-08-08). Sleeper's
+// real forward-projections endpoint is expected to serve NOTHING for week 4, 2025 — a season
+// already two years gone by the time anyone runs this — so week 4 is deliberately ABSENT here,
+// which forces D.testEnsureProj's fallback to that week's own real archived actual stats
+// (WEEK_STATS_FIX[4] above, already fixtured). Week 5 DOES carry a real projection, proving the
+// primary (non-fallback) path also works when data genuinely exists: Q. Rival 40yd/1TD =
+// 1.6 + 4 = 5.6.
+const TEST_PROJ_FIX = { 5: { "9101": { pass_yd: 40, pass_td: 1 } } };
+function slpTestProjFix(season, week) {
+  if (String(season) !== "2025") return null; // not a test-season request — the generic slpProjFix serves it
+  return TEST_PROJ_FIX[Number(week)] || {}; // week 4: deliberately empty -> the actual-stats fallback fires
+}
 function slpStatsFix(week) {
   const w = Number(week);
   if (WEEK_STATS_FIX[w]) return WEEK_STATS_FIX[w];
@@ -562,6 +585,24 @@ function fullSeed(opts) {
     docs, pass: opts.gate ? null : "amenfarms",
     team: opts.claim ? null : 1, who: opts.claim ? null : "Peter",
   };
+}
+
+// ---------------- player-stats-card fixture (2026-08-08) ----------------
+// Weeks 1-4 written directly as "weekly" docs (the section M4/S7 technique — bypasses
+// LG.finalizeWeek's live-data gate entirely; the game log only needs to know a week is
+// FINALIZED, its own `matchups` content is irrelevant to D.gameLog). Paired with
+// slpStatsFix's own per-week shape (see that function's header comment) this gives P. Passer
+// (key "3915511", team PHI) a hand-computable 4-week history: weeks 1-2 use the GENERIC
+// default (150 pass yd + 1 TD + 1 INT + 1 2pt = 6+4-2+2 = 10.0/wk), week 3's override is
+// 300yd/2TD = 12+8 = 20.0, week 4's is 25yd = 1.0. Season total 41.0, avg 10.25 (renders
+// "10.3" — LG.fmtPts rounds to 1dp), best 20.0.
+function seedWithWeeklyHistory() {
+  const base = fullSeed();
+  const docs = { ...base.docs };
+  for (let w = 1; w <= 4; w++) {
+    docs["weekly_2026_w" + w] = { kind: "weekly", week: w, matchups: [{ home: 1, away: 2, homePts: 0, awayPts: 0 }], awards: {}, power: [], accuracy: null, finalizedAt: 1000 + w };
+  }
+  return { ...base, docs };
 }
 
 // ---------------- S7 fixtures — a hand-designed 14-week regular season ----------------
@@ -693,7 +734,13 @@ async function newTestPage(browser, seed, opts) {
           if (u.endsWith("/state/nfl")) return json(fixture.sleeperWeek != null ? { ...slpStateFix, week: fixture.sleeperWeek } : slpStateFix);
           if (u.endsWith("/players/nfl")) return json(slpPlayersFix);
           if (u.includes("/stats/nfl/")) return json(slpStatsFix(u.split("/").pop()));
-          if (u.includes("/projections/nfl/")) return json(slpProjFix);
+          if (u.includes("/projections/nfl/")) {
+            // 2025 test-season requests are season/week-aware (TEST_PROJ_FIX above); every
+            // other caller (the real 2026 league) is untouched — same generic slpProjFix always.
+            const m = /\/projections\/nfl\/[^/]+\/(\d+)\/(\d+)/.exec(u);
+            const testFix = m ? slpTestProjFix(m[1], m[2]) : null;
+            return json(testFix != null ? testFix : slpProjFix);
+          }
           return json({});
         }
         return req.abort();
@@ -783,6 +830,20 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
   if (!el) return false;
   el.click(); return true;
 }, sel, filterText || null);
+// Player-stats-card split (2026-08-08): a row that used to BE the whole clickable surface
+// (the FA table row, a trade-builder pick chip, a lineup slot) now only opens the stats card —
+// the action it used to perform (add/claim, pick, swap) moved onto its OWN explicit child
+// button inside that row. clickIn can't reach a nested button by the ROW's own text (the
+// button's own textContent, e.g. "Add"/"Pick"/"Swap", is the same for every row), so this
+// finds the CONTAINER by text first, then clicks a specific child inside it.
+const clickChildIn = (page, containerSel, childSel, filterText) => page.evaluate((cs, chs, ft) => {
+  const els = [...document.querySelectorAll(cs)];
+  const el = ft ? els.find((e) => e.textContent.includes(ft)) : els[0];
+  if (!el) return false;
+  const child = el.querySelector(chs);
+  if (!child) return false;
+  child.click(); return true;
+}, containerSel, childSel, filterText || null);
 // Boot-speed pass (2026-08-08): record book / recent moves / league chat now load their real
 // data lazily, only once opened (see wireLazyLeagueDetails in lg-ui.js) — this opens the given
 // <details id="..."> (firing its "toggle" listener) and waits for its placeholder text ("Tap
@@ -1080,11 +1141,13 @@ async function openDetails(page, id) {
       return el ? el.textContent : "";
     });
     ok(/proj 8\.5/.test(tightRow), "projection column league-scored from Sleeper proj stats (TE 8.5)");
-    // Locked tap refuses.
-    await page.evaluate(() => { [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("P. Passer")).click(); });
-    ok(/already started/.test(await text(page, "#toast")), "tapping a locked starter toasts instead of opening the sheet");
+    // Locked tap refuses. RESTAGED (2026-08-08, player-card split): a filled .lrow's own
+    // click now opens the stats card, not the swap sheet — the swap affordance is its own
+    // .lswap button (item 3's "keep the existing swap affordance as its own button").
+    await clickChildIn(page, ".lrow", ".lswap", "P. Passer");
+    ok(/already started/.test(await text(page, "#toast")), "tapping a locked starter's Swap button toasts instead of opening the sheet");
     // Injured bench player -> IR.
-    await page.evaluate(() => { [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("I. Injured")).click(); });
+    await clickChildIn(page, ".lrow", ".lswap", "I. Injured");
     await page.waitForSelector(".swaprow", { timeout: 5000 });
     const opts1 = await page.$$eval(".swaprow", (els) => els.map((e) => e.textContent));
     ok(opts1.some((t) => t.includes("→ IR")), "OUT player's move sheet offers IR");
@@ -1094,14 +1157,14 @@ async function openDetails(page, id) {
     const irDoc = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)), LSPFX + "roster_2026_w1_t1");
     ok(irDoc.players.find((p) => p.name === "I. Injured").slot === "IR", "IR move persisted to the roster doc");
     // Healthy bench player gets no IR option.
-    await page.evaluate(() => { [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("H. Healthy")).click(); });
+    await clickChildIn(page, ".lrow", ".lswap", "H. Healthy");
     await page.waitForSelector(".swaprow", { timeout: 5000 });
     const opts2 = await page.$$eval(".swaprow", (els) => els.map((e) => e.textContent));
     ok(!opts2.some((t) => t.includes("→ IR")), "healthy player is NOT IR-eligible");
     ok(opts2.some((t) => t.includes("→ WR")), "…but can move into a WR slot");
     await page.evaluate(() => { [...document.querySelectorAll(".swaprow")].find((r) => r.textContent.includes("Cancel")).click(); });
     // FLEX swap: unlocked starter <-> eligible bench.
-    await page.evaluate(() => { [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("F. Flexman")).click(); });
+    await clickChildIn(page, ".lrow", ".lswap", "F. Flexman");
     await page.waitForSelector(".swaprow", { timeout: 5000 });
     const cands = await page.$$eval(".swaprow", (els) => els.map((e) => e.textContent));
     ok(cands.some((t) => t.includes("B. Backup")), "FLEX swap sheet offers the RB on the bench");
@@ -1495,10 +1558,13 @@ async function openDetails(page, id) {
     const projTexts = await page.$$eval("#faResults .faproj", (els) => els.map((e) => e.textContent.trim()));
     ok(projTexts.length === 4 && projTexts.every((t) => t === "—"), "every browsed row renders a PROJ column (all \"—\" here — no projections on file for these four)");
     // ADD works from browse mode too (not just after typing a search) — pre-deadline = a queued
-    // claim with a bid, exactly the same claim-sheet flow as a typed search.
-    await clickIn(page, "#faResults [data-fi]", "A. Vail");
+    // claim with a bid, exactly the same claim-sheet flow as a typed search. RESTAGED
+    // (2026-08-08, item 2's row/button split): the ROW itself now opens the player stats card
+    // (proven separately below), so the claim flow starts from the row's own explicit
+    // accent-outlined MOVE button (.faMoveBtn) instead.
+    await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "A. Vail");
     await page.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
-    ok(/Claim A\. Vail/.test(await page.$eval("#claimSheet", (e) => e.textContent)), "tapping a browsed row (no search typed) opens the claim sheet for that player");
+    ok(/Claim A\. Vail/.test(await page.$eval("#claimSheet", (e) => e.textContent)), "tapping the MOVE button on a browsed row (no search typed) opens the claim sheet for that player");
     await clickIn(page, "#claimSheet [data-di]", "B. Backup");
     await clickIn(page, "#claimGo");
     await page.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent && document.querySelector("#mvMyClaims").textContent.includes("A. Vail"), { timeout: 5000 });
@@ -1511,7 +1577,7 @@ async function openDetails(page, id) {
     await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
     const addBtnTxt = await page.$eval("#faResults .faAddBtn", (e) => e.textContent.trim());
     ok(addBtnTxt === "Add", "past the waiver deadline the row button reads \"Add\", not \"Claim\"");
-    await clickIn(page, "#faResults [data-fi]", "F. Agent");
+    await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "F. Agent"); // RESTAGED — see the note above
     await page.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
     await clickIn(page, "#claimSheet [data-di]", "H. Healthy");
     await clickIn(page, "#claimGo");
@@ -1536,7 +1602,7 @@ async function openDetails(page, id) {
     await page1.waitForSelector("#faSearch", { timeout: 9000 });
     await page1.type("#faSearch", "dst");
     await page1.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
-    await clickIn(page1, "#faResults [data-fi]", "KC D/ST");
+    await clickChildIn(page1, "#faResults [data-fi]", ".faMoveBtn", "KC D/ST"); // RESTAGED — see I0's note
     await page1.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
     await clickIn(page1, "#claimSheet [data-di]", "B. Backup");
     await page1.$eval("#claimBid", (el) => { el.value = "25"; });
@@ -1706,7 +1772,7 @@ async function openDetails(page, id) {
     await page.waitForSelector("#faSearch", { timeout: 9000 });
     await page.type("#faSearch", "dst");
     await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
-    await clickIn(page, "#faResults [data-fi]", "KC D/ST");
+    await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "KC D/ST"); // RESTAGED — see I0's note
     await page.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
     await clickIn(page, "#claimSheet [data-di]", "B. Backup");
     await clickIn(page, "#claimGo");
@@ -1737,8 +1803,10 @@ async function openDetails(page, id) {
     await page1.waitForSelector("#mvTradeTeam", { timeout: 9000 });
     await page1.select("#mvTradeTeam", "2");
     await page1.waitForFunction(() => document.querySelectorAll("#mvGet .pickchip").length > 0, { timeout: 5000 });
-    await clickIn(page1, "#mvGive .pickchip", "B. Backup");
-    await clickIn(page1, "#mvGet .pickchip", "X. Wideout");
+    // RESTAGED (2026-08-08, item 1's "trade builder roster pickers" split): the chip itself
+    // now opens the stats card — the give/get toggle moved onto its own .pcpick button.
+    await clickChildIn(page1, "#mvGive .pickchip", ".pcpick", "B. Backup");
+    await clickChildIn(page1, "#mvGet .pickchip", ".pcpick", "X. Wideout");
     await clickIn(page1, "#mvTradeSend");
     await page1.waitForFunction(() => (document.querySelector("#mvMyTrades") || {}).textContent && document.querySelector("#mvMyTrades").textContent.includes("X. Wideout"), { timeout: 5000 });
     ok(true, "trade offer sent from the UI form and shows in MY PENDING");
@@ -3799,7 +3867,7 @@ async function openDetails(page, id) {
       { kind: "roster", week: 1, teamId: 1, players: wonRos });
     // The owner, whose tab has been open the whole time, taps an unrelated lineup change:
     // move the OUT player to IR (section E's own flow).
-    await clickIn(page, ".lrow", "I. Injured");
+    await clickChildIn(page, ".lrow", ".lswap", "I. Injured"); // RESTAGED (2026-08-08) — see section E's own note
     await page.waitForSelector("#swapSheet .swaprow", { timeout: 5000 });
     await clickIn(page, "#swapSheet .swaprow", "IR");
     await page.waitForFunction(() => {
@@ -4379,6 +4447,396 @@ async function openDetails(page, id) {
     ok(errors.length === 0, "0 page errors through the entire test-season flow (enter, setup, moves, isolation, exit, reset, resume)");
     await ctx.close();
     fixture.test2025Rich = false; // reset for any suite section that might run after this one
+  }
+
+  // ---- X2: 2025 TEST SEASON — switchable clock phases + required projections (2026-08-08) ----
+  // Its OWN fresh page/context, deliberately not chained onto section X's flow above (which
+  // already consumes F. Agent/A. Vail via faAdd/addClaim for ITS OWN checks — re-using that same
+  // running state here would make F. Agent no longer a free agent by the time this section wants
+  // to browse for her in the FA table).
+  section("X2 · 2025 test season — switchable clock phases (before/live/tuesday) + required projections");
+  {
+    fixture.test2025Rich = true;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(() => window.__GFFL__.LG.gateCommish());
+
+    // Enter + guided setup, through the REAL #testEnter button (same proven path section X's
+    // own flow uses) — lands on the claim screen once teams + weeks 1-3 exist.
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "load" }),
+      clickIn(page, "#testEnter"),
+    ]);
+    await page.waitForSelector(".teamrow", { timeout: 15000 });
+    await clickIn(page, ".teamrow", "Battle Kreussers");
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+
+    const phaseDefault = await page.evaluate(() => window.__GFFL__.LG.testPhase());
+    ok(phaseDefault === 1, "a fresh sandbox defaults to phase 1 ('before games'), matching the original single-phase behavior exactly (" + phaseDefault + ")");
+    const weekPhase1 = await page.evaluate(() => window.__GFFL__.LG.currentWeek());
+    ok(weekPhase1 === 4, "phase 1's pinned clock still reads week 4, unchanged (" + weekPhase1 + ")");
+
+    // ---- the phase switch on the Rules page ----
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("Test-season clock"), { timeout: 5000 });
+    const phaseBtnLabels = await page.$$eval(".testPhaseBtn", (els) => els.map((e) => e.textContent));
+    ok(phaseBtnLabels.length === 3 && phaseBtnLabels.some((t) => /before games/.test(t))
+      && phaseBtnLabels.some((t) => /games LIVE/.test(t)) && phaseBtnLabels.some((t) => /Tuesday/.test(t)),
+      "all three phase buttons are present, correctly labeled (" + JSON.stringify(phaseBtnLabels) + ")");
+    ok(!!(await page.$('.testPhaseBtn[data-p="1"][disabled]')), "the CURRENT phase's own button is disabled");
+
+    // ---- switch to phase 2 ("games LIVE") through the real button, commissioner-gated ----
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "load" }),
+      clickIn(page, '.testPhaseBtn[data-p="2"]'),
+    ]);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const phase2 = await page.evaluate(() => window.__GFFL__.LG.testPhase());
+    const week2 = await page.evaluate(() => window.__GFFL__.LG.currentWeek());
+    ok(phase2 === 2 && week2 === 4, "phase 2 persists across the hard reload and still reads week 4 (phase=" + phase2 + " week=" + week2 + ")");
+    const banner2 = await page.evaluate(() => document.getElementById("testBanner").textContent);
+    ok(/games LIVE/.test(banner2), "the persistent banner names the live-replay phase (" + banner2 + ")");
+
+    // ---- bucket assignment is deterministic per NFL team (exposed hooks, hand-checked) ----
+    const buckets = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      return { PHI: D.testTeamBucket("PHI"), DAL: D.testTeamBucket("DAL"), KC: D.testTeamBucket("KC") };
+    });
+    ok(buckets.PHI === "pre" && buckets.DAL === "post" && buckets.KC === "in",
+      "the three rostered NFL teams land in all three buckets — PHI=night(pre), DAL=early(post/final), KC=live-window(in) (" + JSON.stringify(buckets) + ")");
+
+    // ---- required projections, warmed explicitly (removes any timing race with the pages below) ----
+    const projEntryLive = await page.evaluate(() => window.__GFFL__.D.testEnsureProj(4));
+    ok(projEntryLive.source === "actual", "week 4's projections fell back to the actual-stats proxy — the real forward-projections endpoint genuinely serves nothing for a season two years gone (source=" + projEntryLive.source + ")");
+    const bannerProj = await page.evaluate(() => document.getElementById("testBanner").textContent);
+    ok(/proxy from week 4's real final stats/.test(bannerProj), "…and the banner labels that source HONESTLY — never presented as a real forward projection (" + bannerProj + ")");
+
+    // ---- one sync lands, then the early/final and night players are checked ----
+    await page.evaluate(() => window.__GFFL__.D.pollOnce());
+    const qRival = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const r = D.S.players.get("222111"), g = D.S.games.get("DAL");
+      return r && g && { passYd: r.espn.stats.pass_yd, passTd: r.espn.stats.pass_td, pts: r.pts, gameState: g.state };
+    });
+    ok(qRival && qRival.gameState === "post" && qRival.passYd === 400 && qRival.passTd === 3 && qRival.pts === 28,
+      "the EARLY/final bucket player shows the real archived line in FULL — Q. Rival 400yd/3TD = 28.0, game Final (" + JSON.stringify(qRival) + ")");
+    const pPasser = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const r = D.S.players.get("3915511"), g = D.S.games.get("PHI");
+      return r && g && { passYd: r.espn.stats.pass_yd, pts: r.pts, gameState: g.state };
+    });
+    ok(pPasser && pPasser.gameState === "pre" && pPasser.passYd === 0 && pPasser.pts === 0,
+      "the NIGHT bucket player shows zero stats, upcoming (" + JSON.stringify(pPasser) + ")");
+
+    // ---- the 3:25/live player: scaled partial, creeping up over ticks, feed moves ----
+    await page.evaluate(() => window.__GFFL__.D.stop()); // freeze the auto-loop so we control tick sequencing exactly
+    const before = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const r = D.S.players.get("111222");
+      return { recYd: r ? r.espn.stats.rec_yd : null, eventsLen: D.S.events.length, tick: D.S.testLive.tickN };
+    });
+    for (let i = 0; i < 6; i++) await page.evaluate(() => window.__GFFL__.D.pollOnce());
+    const after = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const r = D.S.players.get("111222");
+      return { rec: r.espn.stats.rec, recYd: r.espn.stats.rec_yd, eventsLen: D.S.events.length, tick: D.S.testLive.tickN };
+    });
+    ok(after.tick === before.tick + 6, "6 explicit syncs advanced the tick counter by exactly 6 (" + before.tick + " -> " + after.tick + ")");
+    const finalScale = await page.evaluate((t) => window.__GFFL__.D.testPlayerScale("9001", t), after.tick - 1);
+    const expRec = Math.round(4 * finalScale), expRecYd = Math.round(50 * finalScale);
+    ok(after.rec === expRec && after.recYd === expRecYd,
+      "hand-checked against the exposed D.testPlayerScale itself: the live-window player's archived line (4 rec / 50 yd) is scaled to "
+      + finalScale.toFixed(4) + " and rounded sanely (rec " + after.rec + " vs " + expRec + ", rec_yd " + after.recYd + " vs " + expRecYd + ")");
+    ok(after.recYd > before.recYd, "…and it only ever creeps UP over the ticks, never regresses (" + before.recYd + " -> " + after.recYd + ")");
+    ok(after.eventsLen > before.eventsLen, "…which lands real feed events through the same applySide() the live poll uses — the feed moves (" + before.eventsLen + " -> " + after.eventsLen + ")");
+
+    // ---- health reads normal, not degraded, throughout ----
+    const health = await page.evaluate(() => window.__GFFL__.D.S.health.mode);
+    ok(health === "dual", "health reads normal ('dual'), not degraded, throughout the replay (" + health + ")");
+
+    // ---- the matchup page: live totals, win prob, players-remaining, feed, and a real proj for the yet-to-play player ----
+    await page.evaluate(() => window.__GFFL__.UI.show("matchup"));
+    await page.waitForFunction(() => document.body.textContent.includes("Week 4"), { timeout: 5000 });
+    const muInfo = await page.evaluate(() => {
+      const wp = document.querySelector(".wpfill");
+      const bigpts = [...document.querySelectorAll(".bigpts")].map((e) => e.textContent);
+      const passerRow = [...document.querySelectorAll(".pcellgrid")].find((el) => el.textContent.includes("P. Passer"));
+      return {
+        wpWidth: wp ? wp.style.width : null, bigpts,
+        feedHtml: document.getElementById("mufeed").textContent,
+        remainText: document.body.textContent.match(/\d+ to play · \d+ live/g),
+        passerCellText: passerRow ? passerRow.textContent : "",
+      };
+    });
+    ok(muInfo.wpWidth && /%$/.test(muInfo.wpWidth), "a live win-probability bar renders (" + muInfo.wpWidth + ")");
+    ok(muInfo.bigpts.length === 2 && muInfo.bigpts.some((t) => Number(t) > 0), "live matchup totals render — someone is on the board mid-replay (" + JSON.stringify(muInfo.bigpts) + ")");
+    ok(!/Quiet so far/.test(muInfo.feedHtml), "the feed card shows real events, not the empty state (" + muInfo.feedHtml.slice(0, 60) + ")");
+    ok(Array.isArray(muInfo.remainText) && muInfo.remainText.length === 2, "players-remaining ('N to play · N live') renders for both teams (" + JSON.stringify(muInfo.remainText) + ")");
+    ok(/proj 1\.0/.test(muInfo.passerCellText), "the matchup page shows a real (non-blank) projection for the yet-to-play player — P. Passer proj 1.0, from his real archived 25-yard week (" + muInfo.passerCellText + ")");
+
+    // ---- auto-finalize does NOT fire mid-replay ----
+    await page.evaluate(() => window.__GFFL__.UI.maybeAutoFinalizeWeeks());
+    const wk4duringLive = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(4));
+    ok(wk4duringLive == null, "auto-finalize does NOT stamp week 4's permanent record mid-replay, even after an explicit check");
+    const guardResult = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(4));
+    ok(guardResult.ok === false && guardResult.reason === "test-live-replay",
+      "…and the belt-and-suspenders guard explicitly refuses the live (non-backfill) path during phase 2 (" + JSON.stringify(guardResult) + ")");
+
+    // ---- the FA table's PROJ column, for a genuinely unrostered free agent ----
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForFunction(() => document.body.textContent.includes("Waivers"), { timeout: 5000 });
+    await page.evaluate(() => { const inp = document.getElementById("faSearch"); inp.value = "F. Agent"; inp.dispatchEvent(new Event("input")); });
+    await page.waitForFunction(() => document.body.textContent.includes("F. Agent"), { timeout: 5000 });
+    const faProjTxt = await page.evaluate(() => {
+      const row = [...document.querySelectorAll("tr[data-fi]")].find((r) => r.textContent.includes("F. Agent"));
+      return row ? row.textContent : "";
+    });
+    ok(/6\.0/.test(faProjTxt), "the FA table's PROJ column renders a real figure for an unrostered free agent — F. Agent 6.0, via the same actual-stats proxy (" + faProjTxt + ")");
+
+    // ---- lineup rows (the owner's own locker) ----
+    await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+    await page.waitForFunction(() => document.body.textContent.includes("Lineup"), { timeout: 5000 });
+    const lineupProj = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".lrow")].filter((el) => el.textContent.includes("T. Tight"));
+      return rows.length ? rows[0].textContent : "";
+    });
+    ok(/proj 9\.0/.test(lineupProj), "the owner's own lineup rows show a real projection too — T. Tight proj 9.0, UNSCALED (projections are the same regardless of the live replay's bucket) (" + lineupProj + ")");
+    // UI.openLocker() sets location.hash="#locker=1" (UI.show() alone never touches the hash) —
+    // clear it, or the NEXT reload's routeInitial() lands back on the locker (no .mucard there)
+    // instead of the league home every subsequent ".mucard" wait below expects.
+    await page.evaluate(() => { location.hash = ""; });
+
+    // ---- switch to phase 3 ("Tuesday after week 4") ----
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("Test-season clock"), { timeout: 5000 });
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "load" }),
+      clickIn(page, '.testPhaseBtn[data-p="3"]'),
+    ]);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const phase3 = await page.evaluate(() => window.__GFFL__.LG.testPhase());
+    const week3clock = await page.evaluate(() => window.__GFFL__.LG.currentWeek());
+    ok(phase3 === 3 && week3clock === 5, "phase 3 persists across the hard reload and reads week 5 as current (phase=" + phase3 + " week=" + week3clock + ")");
+
+    // ---- week 4 finalized from real archived stats the moment the phase was entered ----
+    const wk4 = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(4));
+    ok(wk4 && wk4.kind === "weekly" && wk4.source === "archived", "week 4 finalized from its own real archived stats on entering phase 3, unprompted (source=" + (wk4 && wk4.source) + ")");
+    const m4 = wk4 && wk4.matchups.find((x) => x.home === 1 || x.away === 1);
+    const t1pts = m4 ? (m4.home === 1 ? m4.homePts : m4.awayPts) : null;
+    const t2pts = m4 ? (m4.home === 2 ? m4.homePts : m4.awayPts) : null;
+    ok(t1pts === 10 && t2pts === 28,
+      "hand-checked week-4 total: team1 (P. Passer 1.0 + T. Tight 9.0, BOTH unscaled — backfill reads the real archived line, not the replay's scaled one) = 10.0, team2 (Q. Rival) = 28.0 — team2 wins week 4 (" + JSON.stringify(m4) + ")");
+    const standingsAfter = await page.evaluate(() => window.__GFFL__.LG.loadStandings());
+    ok(standingsAfter[1].w === 3 && standingsAfter[1].l === 1 && standingsAfter[1].pf === 112
+      && standingsAfter[2].w === 1 && standingsAfter[2].l === 3 && standingsAfter[2].pf === 38,
+      "standings now include week 4 (" + JSON.stringify({ t1: standingsAfter[1], t2: standingsAfter[2] }) + ")");
+
+    // ---- re-entering the SAME phase is idempotent — no double-finalize, no corruption ----
+    const setAgain = await page.evaluate(() => window.__GFFL__.LG.setTestPhase(3));
+    ok(setAgain === true, "re-setting the same phase succeeds without error");
+    const wk4Again = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(4));
+    // stableStr (canon-sorted), NOT a raw JSON.stringify — sensitive to key INSERTION ORDER,
+    // which the cache layer doesn't guarantee across two reads of identical content (the same
+    // lesson this file already learned once for the real-collection isolation checks above).
+    // ALSO strip `.id` before comparing: a doc answered through a LIST-cache path carries a
+    // runtime-attached `{...doc, id}` (the id-LAST convention, findings 2/4/5/12) while a doc
+    // answered through a plain get() never does (the stored content itself never included one)
+    // — a genuine, benign artifact of WHICH cache path answered the read, not a difference in
+    // the record's own persisted content, so it must not count against the write-once guard.
+    const stripId = (o) => { if (!o) return o; const c = { ...o }; delete c.id; return c; };
+    ok(stableStr(stripId(wk4Again)) === stableStr(stripId(wk4)), "…and week 4's record is byte-identical (content, not key order or the id-vs-no-id cache artifact) afterward — finalizeWeek's own write-once guard holds ("
+      + stableStr(stripId(wk4Again)) + " vs " + stableStr(stripId(wk4)) + ")");
+
+    // ---- waivers: claims queue for week 5's Wednesday deadline, and the commissioner's existing
+    // deadline-independent "Process now" affordance is what carries a claim forward from here
+    // (item 1's #mvProcessNow — the task's own "jump past Wednesday 8AM" ask, already built) ----
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForFunction(() => document.body.textContent.includes("Waivers"), { timeout: 5000 });
+    const past5 = await page.evaluate(() => window.__GFFL__.LG.now() >= window.__GFFL__.LG.waiverDeadline(5));
+    ok(past5 === false, "week 5's Wednesday deadline hasn't passed yet at the Tuesday-after-week-4 clock");
+    const claim5 = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.addClaim(5, { id: "t25claim", teamId: 1, addKey: "slp_9202", addName: "A. Vail", addPos: "K", addTeam: "DEN", dropKey: "2473037", dropName: "K. Kicker", bid: 5, t: Date.now() });
+      return LG.loadClaims(5);
+    });
+    ok(!claim5.processed && (claim5.claims || []).some((c) => c.id === "t25claim"),
+      "the claim QUEUES for week 5 — not auto-processed at the Tuesday-after-week-4 clock (" + JSON.stringify(claim5) + ")");
+    const processed5 = await page.evaluate(() => window.__GFFL__.LG.processWaivers(5));
+    ok(processed5.processed && (processed5.results || []).some((r) => r.id === "t25claim" && r.ok),
+      "…and the commissioner's deadline-independent 'Process now' path carries it through and it wins (" + JSON.stringify(processed5.results) + ")");
+
+    // ---- returning to phase 1 leaves everything sane (idempotent + safe in any order) ----
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("Test-season clock"), { timeout: 5000 });
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "load" }),
+      clickIn(page, '.testPhaseBtn[data-p="1"]'),
+    ]);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const backTo1 = await page.evaluate(() => ({ phase: window.__GFFL__.LG.testPhase(), week: window.__GFFL__.LG.currentWeek() }));
+    ok(backTo1.phase === 1 && backTo1.week === 4, "back to phase 1, week 4 again (" + JSON.stringify(backTo1) + ")");
+    const wk4stillThere = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(4));
+    ok(wk4stillThere && wk4stillThere.source === "archived",
+      "week 4's already-finalized record survives the round trip untouched — a known, documented quirk (finalize is permanent/append-only; reverting the clock never un-finalizes it) (" + JSON.stringify(wk4stillThere && wk4stillThere.matchups) + ")");
+
+    // Cycle once more (live -> before, already proven tuesday->before above) to prove order-independence a second way.
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("Test-season clock"), { timeout: 5000 });
+    await Promise.all([page.waitForNavigation({ waitUntil: "load" }), clickIn(page, '.testPhaseBtn[data-p="2"]')]);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const cycleOk1 = await page.evaluate(() => window.__GFFL__.LG.testPhase() === 2);
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("Test-season clock"), { timeout: 5000 });
+    await Promise.all([page.waitForNavigation({ waitUntil: "load" }), clickIn(page, '.testPhaseBtn[data-p="1"]')]);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const cycleOk2 = await page.evaluate(() => window.__GFFL__.LG.testPhase() === 1);
+    ok(cycleOk1 && cycleOk2, "cycling live -> before is safe too, no errors, no corruption — combined with tuesday->before above, every documented transition has been exercised in both directions");
+
+    ok(errors.length === 0, "0 page errors through the entire phase-switch + required-projections flow");
+    await ctx.close();
+    fixture.test2025Rich = false;
+  }
+
+  // ---------------- Y: player stats card + Moves MOVE-button split (2026-08-08) ----------------
+  section("Y · player stats card — matchup/locker/FA/trade-builder/claims, MOVE button, swap, Escape/backdrop");
+  {
+    const { ctx, page, errors } = await newTestPage(browser, seedWithWeeklyHistory());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+
+    // ---- Y1: opens from a MATCHUP lineup row, HOME side, with hand-checked numbers ----
+    await clickIn(page, ".mucard.mine");
+    await page.waitForSelector(".muhead", { timeout: 9000 });
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("P. Passer"));
+      el.click();
+    });
+    await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
+    const y1 = await page.evaluate(() => ({
+      name: document.querySelector(".pcname").textContent,
+      pos: document.querySelector(".posbadge").textContent,
+      team: document.querySelector(".pcmeta .mut").textContent,
+      weekPts: document.querySelector(".pcweekrow .pts").textContent,
+      weekMuts: [...document.querySelectorAll(".pcweekrow .mut")].map((e) => e.textContent),
+      tiles: [...document.querySelectorAll(".pctileval")].map((e) => e.textContent),
+      rows: [...document.querySelectorAll(".pclog tbody tr")].map((tr) => tr.textContent.replace(/\s+/g, " ").trim()),
+    }));
+    ok(y1.name === "P. Passer", "matchup lineup row opens the stats card for the tapped player (" + y1.name + ")");
+    ok(y1.pos === "QB" && y1.team === "PHI", "position + team render (" + y1.pos + "/" + y1.team + ")");
+    ok(y1.weekPts === "10.0", "this-week points match the live ESPN feed — section D's own hand-check (" + y1.weekPts + ")");
+    ok(/proj —/.test(y1.weekMuts[0]), "no Sleeper projection on file for this player -> an honest —, never a fabricated number (" + y1.weekMuts[0] + ")");
+    ok(/Live — Q2 5:00/.test(y1.weekMuts[1] || ""), "…and the live game clock renders too (" + JSON.stringify(y1.weekMuts) + ")");
+    ok(y1.tiles.join("|") === "41.0|10.3|20.0", "season total/avg/best, hand-computed from the 4 seeded finalized weeks (10+10+20+1=41, /4=10.25→\"10.3\", best 20) (" + y1.tiles.join("|") + ")");
+    ok(y1.rows.length === 4, "4 finalized weeks in the game log (" + y1.rows.length + ")");
+    ok(/Wk 4.*1\.0/.test(y1.rows[0]) && /Wk 3.*20\.0/.test(y1.rows[1]) && /Wk 2.*10\.0/.test(y1.rows[2]) && /Wk 1.*10\.0/.test(y1.rows[3]),
+      "newest week first, every figure matching the seeded per-week Sleeper fixture exactly (wk4=25yd=1.0, wk3=300yd/2TD=20.0, wk1-2 generic=10.0) (" + JSON.stringify(y1.rows) + ")");
+    ok(/Wk 1.*vs DAL/.test(y1.rows[3]), "week 1 is genuinely the live engine's own current week here, so PHI's real opponent IS known (\"vs DAL\") (" + y1.rows[3] + ")");
+    ok(/Wk 2.*—/.test(y1.rows[2]) && /Wk 3.*—/.test(y1.rows[1]) && /Wk 4.*—/.test(y1.rows[0]),
+      "every OTHER week honestly reads — for opponent — this app tracks no historical NFL schedule, so nothing is fabricated (" + JSON.stringify(y1.rows) + ")");
+
+    // Escape closes it.
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.getElementById("playerCard").hidden, { timeout: 3000 });
+    ok(true, "Escape closes the card");
+
+    // Backdrop click closes it; a tap on the card's own content does not.
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("P. Passer"));
+      el.click();
+    });
+    await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
+    await page.evaluate(() => document.querySelector(".pcweek").click());
+    ok((await page.evaluate(() => !document.getElementById("playerCard").hidden)), "a tap on the card's own content does not close it");
+    await page.evaluate(() => document.getElementById("playerCard").click());
+    ok((await page.evaluate(() => document.getElementById("playerCard").hidden)), "a tap on the backdrop itself closes it");
+
+    // ---- AWAY side too (item 1's "matchup lineup rows both sides") ----
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("Q. Rival"));
+      el.click();
+    });
+    await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
+    ok((await text(page, ".pcname")) === "Q. Rival", "the AWAY side's own half-cells open the card too");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+
+    // ---- Y2: LOCKER — owner's own editable lineup (.linfo = stats, .lswap = swap, unchanged) ----
+    await page.evaluate(() => window.__GFFL__.UI.show("team"));
+    await page.waitForSelector(".lrow", { timeout: 9000 });
+    await clickChildIn(page, ".lrow", ".linfo", "T. Tight");
+    await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
+    ok((await text(page, ".pcname")) === "T. Tight", "the owner's own lineup row opens the stats card via its .linfo area");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+    // A tap on the bare row (its slot-chip, neither child button) opens nothing at all — the
+    // row itself carries no click behavior any more, only its two real buttons do.
+    await page.evaluate(() => {
+      const row = [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("T. Tight"));
+      row.querySelector(".slotchip").click();
+    });
+    const nothingOpened = await page.evaluate(() => document.getElementById("playerCard").hidden && document.getElementById("swapSheet").hidden);
+    ok(nothingOpened, "row-click no longer triggers anything — only .linfo (stats) and .lswap (swap) do");
+    // Swap still works — the affordance moved to its own button, it didn't disappear.
+    await clickChildIn(page, ".lrow", ".lswap", "F. Flexman");
+    await page.waitForSelector("#swapSheet .swaprow", { timeout: 5000 });
+    ok((await page.$$eval("#swapSheet .swaprow", (els) => els.length)) > 0, "the .lswap button still opens the swap sheet, unchanged");
+    await page.evaluate(() => { document.getElementById("swapSheet").hidden = true; });
+
+    // ---- non-owner locker (read-only roster table — item 1's "locker/My-Team roster rows") ----
+    await page.evaluate(() => window.__GFFL__.UI.openLocker(2));
+    await page.waitForSelector("tr[data-pk]", { timeout: 9000 });
+    ok((await page.$$eval("tr[data-pk]", (els) => els.length)) === 3, "every roster row on a non-owner's read-only locker carries data-pk (3 players)");
+    await clickIn(page, "tr[data-pk]", "Q. Rival");
+    await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
+    ok((await text(page, ".pcname")) === "Q. Rival", "a non-owner's read-only roster row opens the stats card too");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+
+    // ---- Y3: Moves FA table — row = stats, an explicit accent-outlined MOVE button = add/claim ----
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faPosChips", { timeout: 9000 });
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
+    await clickIn(page, "#faResults [data-fi]", "F. Agent"); // the WHOLE row, deliberately not the button
+    await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
+    ok((await text(page, ".pcname")) === "F. Agent", "tapping an FA row (not its MOVE button) opens the stats card");
+    ok((await page.evaluate(() => document.getElementById("claimSheet").hidden)), "…and row-click no longer triggers the add/claim flow");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+    const moveBtnStyle = await page.$eval(".faMoveBtn", (b) => getComputedStyle(b).borderColor);
+    ok(moveBtnStyle === "rgb(213, 10, 10)", "the MOVE button is accent-outlined (--accent #d50a0a), distinct from an ordinary button's --border-card outline (" + moveBtnStyle + ")");
+    await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "F. Agent");
+    await page.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
+    ok(/Claim F\. Agent/.test(await page.$eval("#claimSheet", (e) => e.textContent)), "the MOVE button still opens the claim/add flow, exactly as before");
+    await clickIn(page, "#claimCancel");
+
+    // ---- Y4: trade builder — a pick chip's own row opens stats; .pcpick still does the picking ----
+    await page.waitForSelector("#mvGive .pickchip", { timeout: 9000 });
+    await clickChildIn(page, "#mvGive .pickchip", ".pcinfo", "B. Backup");
+    await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
+    ok((await text(page, ".pcname")) === "B. Backup", "a trade-builder pick chip's .pcinfo opens the stats card (item 1's \"roster pickers\")");
+    ok(!(await page.evaluate(() => document.querySelector('.pickchip[data-gk="111333"]').classList.contains("picked"))),
+      "…and merely viewing it did NOT also pick it for the trade");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+    await clickChildIn(page, "#mvGive .pickchip", ".pcpick", "B. Backup");
+    ok(await page.evaluate(() => document.querySelector('.pickchip[data-gk="111333"]').classList.contains("picked")),
+      "…while its own .pcpick button still does the picking, unchanged");
+
+    // ---- Y5: "My pending" claims list — the player name is its own tappable stats link ----
+    await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.addClaim(1, { id: "yclaim", teamId: 1, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "111777", dropName: "H. Healthy", bid: 5, t: 1 });
+    });
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent.includes("KC D/ST"), { timeout: 5000 });
+    await clickIn(page, "#mvMyClaims .pcinline", "KC D/ST");
+    await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
+    ok((await text(page, ".pcname")) === "KC D/ST", "a pending claim's player name (.pcinline) opens the stats card (item 1's \"claims list\")");
+    ok(!!(await page.$("#mvMyClaims .mvcancel")), "…and its Cancel button is still the same untouched button");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+
+    ok(errors.length === 0, "0 page errors through the whole player-card + MOVE-button + swap + trade-picker + claims flow");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_playercard_390.png"), fullPage: true }); console.log("  📸 shots/gffl_playercard_390.png"); }
+    await ctx.close();
   }
 
   await browser.close();

@@ -378,9 +378,22 @@
     return out.size ? out : null;
   };
 
-  // Weekly projection (league-scored, not pts_ppr) for a roster player.
+  // Weekly projection (league-scored, not pts_ppr) for a roster player. 2025 TEST SEASON: reads
+  // D.S.testProjCache keyed by whichever week is CURRENTLY DISPLAYED (LG.ui.week — resolved at
+  // call time, not at module load, so no load-order dependency on lg-ui.js) rather than a single
+  // module-global map, since the sandbox has TWO real weeks in play (4 via the pinned phase
+  // clock, 5 via the Moves page's own test-week switch) and both need their own projections.
+  // D.testEnsureProj(week) is what warms that cache — see lg-ui.js's callers.
   D.projFor = function (key) {
-    if (!D.S.slpProj || !D.S.slpPlayers) return null;
+    let projMap;
+    if (LG.testMode()) {
+      const wk = (LG.ui && LG.ui.week != null) ? LG.ui.week : LG.currentWeek();
+      const entry = D.S.testProjCache[wk];
+      projMap = entry ? entry.map : null;
+    } else {
+      projMap = D.S.slpProj;
+    }
+    if (!projMap || !D.S.slpPlayers) return null;
     let pid = null;
     if (String(key).startsWith("slp_")) pid = String(key).slice(4);
     else if (String(key).startsWith("dst_")) pid = String(key).slice(4);
@@ -391,7 +404,7 @@
         if (row) { const m = D.S.slpByName && D.S.slpByName.get(nameKey(row.name, row.team)); if (m) pid = m.pid; }
       }
     }
-    const st = pid != null ? D.S.slpProj[pid] : null;
+    const st = pid != null ? projMap[pid] : null;
     if (!st) return null;
     return D.score(normSlp(st));
   };
@@ -429,6 +442,76 @@
     }
     out.sort((a, b) => (a.searchRank ?? 1e9) - (b.searchRank ?? 1e9) || a.name.localeCompare(b.name));
     return out.slice(0, limit);
+  };
+
+  // ---------------- player stats card (2026-08-08) ----------------
+  // Resolve name/pos/team/injury for ANY key — rostered, benched, on a rival's team, or a
+  // genuine free agent nobody's ever rostered. Roster data is authoritative when available
+  // (same precedence lg-ui.js's askAiRead/buildSide already uses — an imported name/pos/team
+  // is trustworthy even before the live poll has ever touched that player); the Sleeper
+  // directory (D.S.slpPlayers/slpByEspn — the same maps D.projFor already resolves keys
+  // through) is what makes an UNROSTERED free agent's card work at all; the live-poll row
+  // (D.S.players) is the last resort, for a key that's somehow in neither.
+  D.metaForKey = function (key) {
+    const k = String(key);
+    if (LG.ui && LG.ui._rosters) {
+      for (const tid in LG.ui._rosters) {
+        const p = (LG.ui._rosters[tid] || []).find((x) => x.key === k);
+        if (p) return { name: p.name, pos: p.pos, team: p.team, injury: p.injury || "" };
+      }
+    }
+    let m = null;
+    if (D.S.slpPlayers) {
+      if (k.startsWith("dst_") || k.startsWith("slp_")) m = D.S.slpPlayers.get(k.slice(4));
+      else if (D.S.slpByEspn) m = D.S.slpByEspn.get(k);
+    }
+    if (m) return { name: m.name, pos: m.pos === "DEF" ? "DST" : m.pos, team: m.team, injury: m.injury || "" };
+    const row = D.S.players.get(k);
+    if (row) return { name: row.name, pos: row.pos, team: row.team, injury: row.injury || "" };
+    return { name: k, pos: "", team: "", injury: "" };
+  };
+
+  // A player's per-week scoring history, computed from finalized ("weekly") docs' own
+  // underlying data — NOT from the weekly doc itself, which only ever stores TEAM totals
+  // (LG.finalizeWeek's `matchups`), never a per-player breakdown. Sleeper's archived
+  // per-week stats endpoint (the same one LG.finalizeWeek's `backfill` path and the 2025 test
+  // season already trust) is re-queried, ONE finalized week at a time, with the league's own
+  // explicit season/seasonType (LG.SEASON/"regular" — same override finalizeWeek's backfill
+  // passes, so a 2025-test-season week and a real-league week both resolve against the
+  // correct year rather than Sleeper's live /state/nfl reading). A week the archived endpoint
+  // has no entry for that key is OMITTED, not zeroed — the app doesn't track historical roster
+  // membership, so "no stat line" honestly could mean bye/inactive/not-yet-in-the-league, and
+  // fabricating a 0 would be a guess this app doesn't make anywhere else. Returns
+  // {rows:[{week,pts}], total, avg, best} — all three null when rows is empty (the card's
+  // own "No games yet" empty state).
+  D.gameLog = async function (key) {
+    const weekly = (await LG.db.list("weekly")).filter((w) => w && w.kind === "weekly").sort((a, b) => (a.week || 0) - (b.week || 0));
+    if (!weekly.length) return { rows: [], total: null, avg: null, best: null };
+    const maps = await Promise.all(weekly.map((w) => D.weekStats(w.week, { season: LG.SEASON, seasonType: "regular" })));
+    const rows = [];
+    weekly.forEach((w, i) => { const map = maps[i]; if (map && map.has(key)) rows.push({ week: w.week, pts: map.get(key) }); });
+    if (!rows.length) return { rows: [], total: null, avg: null, best: null };
+    const total = Math.round(rows.reduce((s, r) => s + r.pts, 0) * 100) / 100;
+    const avg = Math.round((total / rows.length) * 100) / 100;
+    const best = Math.max(...rows.map((r) => r.pts));
+    return { rows, total, avg, best };
+  };
+
+  // Real NFL opponent for a player's week — "if-known" is the whole point here: this app
+  // tracks no historical NFL schedule at all, so the honest answer for any week but the one
+  // the live engine currently holds is simply "not known", never a guess. Both abbrevs are
+  // normalized through slpTeam() before comparing (D.S.nflEvents carries ESPN's own
+  // abbreviation, which occasionally differs from a roster/Sleeper abbrev — Washington).
+  D.oppForWeek = function (week, teamAbbrev) {
+    if (!teamAbbrev) return null;
+    const ew = D.engineWeek ? D.engineWeek() : null;
+    if (ew == null || Number(week) !== ew) return null;
+    const mine = slpTeam(teamAbbrev);
+    const ev = (D.S.nflEvents || []).find((e) => (e.home && slpTeam(e.home.abbrev) === mine) || (e.away && slpTeam(e.away.abbrev) === mine));
+    if (!ev) return null;
+    const isHome = ev.home && slpTeam(ev.home.abbrev) === mine;
+    const oppAb = isHome ? (ev.away && ev.away.abbrev) : (ev.home && ev.home.abbrev);
+    return oppAb ? (isHome ? "vs " + oppAb : "@ " + oppAb) : null;
   };
 
   // ---------------- diff engine ----------------
@@ -659,9 +742,170 @@
   }
   D.updateHealth = updateHealth;
 
+  // ---------------- 2025 TEST SEASON — phase-driven synthetic data (2026-08-08) ----------------
+  // D.pollOnce's own test-mode branch (below) routes here instead of the real live-polling
+  // chain whenever LG.testMode() && LG.testPhase()===2 ("Week 4 · games LIVE (replay)").
+  // Deliberately makes ZERO live ESPN/Sleeper requests — the real bare /scoreboard and
+  // current-week stats-bucket endpoints always mean "the CURRENT real NFL week", which for a
+  // 2025 sandbox would be the wrong season/week entirely (real-2026-current data leaking into a
+  // 2025 test board). Instead this fetches the SAME archived-per-week endpoint D.weekStats /
+  // LG.finalizeWeek's own backfill already trust (Sleeper's /stats/nfl/<type>/<season>/<week>,
+  // which serves any COMPLETED week, real 2025 included) and synthesizes an in-progress Sunday
+  // slate out of it:
+  //   · EARLY bucket (kickoff <= noon CT, deterministic per NFL team): the real archived line in
+  //     FULL — "post"/Final.
+  //   · LATE ("3:25 window") bucket: the archived line SCALED to a deterministic 55-65%
+  //     baseline (hash of the Sleeper pid — testPlayerScale), creeping +1%/poll up to a cap that
+  //     never reaches "final" (the stretch goal — "a slow tick... so the feed moves": every
+  //     changed stat routes through the SAME applySide() the real live poll uses, which is what
+  //     makes it emit a real feed event on every tick past the first).
+  //   · NIGHT bucket: zero stats — hasn't kicked off in the replay yet.
+  // Bucket is per NFL TEAM (testTeamBucket), not per player, and fully deterministic — no real
+  // schedule/kickoff data is needed since a replay is a synthesized snapshot, not a live-time-
+  // accurate simulation (a hard reload on any phase change resets D.S fresh regardless).
+  // DELIBERATELY never touches D.S.espnWeek/D.S.slpWeek — those stay at their null default,
+  // which is what keeps maybeAutoFinalizeWeeks' fzEngineWeek() gate refusing week 4 for the
+  // WHOLE of this phase (the adversarial-review finding 1/3/7 guard, reused rather than
+  // duplicated): a replay must never let the real auto-finalize chain stamp week 4's permanent
+  // record off synthetic numbers. LG.finalizeWeek also carries its OWN explicit belt-and-
+  // suspenders refusal for this exact phase (see lg-core.js), so the guard holds even if this
+  // synthesis code changes in the future.
+  const TEST_LIVE_TICK_STEP = 0.01, TEST_LIVE_TICK_CAP = 0.95;
+  // Standard 32 NFL abbreviations, alphabetical, split into three even-ish thirds. An abbrev
+  // outside this list (a fixture's own made-up code, say) never fabricates a "final" line — it
+  // degrades to "pre" (night/upcoming).
+  const TEST_LIVE_TEAM_ORDER = ["ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE", "DAL", "DEN", "DET",
+    "GB", "HOU", "IND", "JAX", "KC", "LAC", "LAR", "LV", "MIA", "MIN", "NE",
+    "NO", "NYG", "NYJ", "PHI", "PIT", "SEA", "SF", "TB", "TEN", "WAS"];
+  function testHash01(s) { // stable string -> [0,1); no Math.random ANYWHERE in this replay path
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return ((h >>> 0) % 100000) / 100000;
+  }
+  function testTeamBucket(teamAb) {
+    const idx = TEST_LIVE_TEAM_ORDER.indexOf(slpTeam(teamAb));
+    if (idx < 0) return "pre";
+    if (idx < 11) return "post"; // ARI..DET  — early games, replay treats as already final
+    if (idx < 22) return "in";   // GB..NE    — the 3:25 window, in progress
+    return "pre";                 // NO..WAS   — night games, hasn't kicked off
+  }
+  function testPlayerScale(pid, tickN) {
+    const base = 0.55 + testHash01("gffl-t25-scale|" + pid) * 0.10; // deterministic 0.55..0.65
+    return Math.min(TEST_LIVE_TICK_CAP, base + (tickN || 0) * TEST_LIVE_TICK_STEP);
+  }
+  D.testTeamBucket = testTeamBucket;   // test hooks — the suite hand-checks against these directly
+  D.testPlayerScale = testPlayerScale; // rather than re-deriving the hash independently
+  D.S.testLive = { tickN: 0 };
+  D.testLiveSync = async function () {
+    await D.initSleeper();
+    if (!D.S.slpPlayers) return;
+    const week = LG.currentWeek(); // 4, derived from the pinned phase-2 clock — never hardcoded
+    let raw;
+    try { raw = await fx("test-live archived stats " + week, `${SLP}/stats/nfl/regular/${LG.SEASON}/${week}`); }
+    catch (e) { return; } // fail open — a replay with nothing to show is an empty board, never an error
+    if (!raw || typeof raw !== "object") return;
+    const tickN = D.S.testLive.tickN;
+    D.S.testLive.tickN++;
+    const games = new Map();
+    let any = false;
+    for (const pid in raw) {
+      const st = raw[pid]; if (!st || typeof st !== "object") continue;
+      const meta = D.S.slpPlayers.get(pid); if (!meta || !meta.team) continue;
+      const teamKey = slpTeam(meta.team);
+      if (D.S.tracked.size && !D.S.tracked.has(teamKey)) continue;
+      any = true;
+      const bucket = testTeamBucket(teamKey);
+      if (!games.has(teamKey)) {
+        games.set(teamKey, {
+          eventId: "t25_" + teamKey, state: bucket,
+          detail: bucket === "post" ? "Final" : bucket === "in" ? "In progress" : "",
+          period: bucket === "in" ? 3 : bucket === "post" ? 4 : 0,
+          clock: bucket === "in" ? Math.max(0, 9 - tickN) + ":00" : bucket === "post" ? "0:00" : "",
+          kickoff: bucket === "post" ? "2025-09-28T11:00:00-05:00" : bucket === "in" ? "2025-09-28T13:00:00-05:00" : "2025-09-28T19:20:00-05:00",
+          oppAb: "", rz: false, score: "", oppScore: "",
+        });
+      }
+      const scale = bucket === "post" ? 1 : bucket === "in" ? testPlayerScale(pid, tickN) : 0;
+      const n = normSlp(st);
+      const scaled = empty();
+      for (const k of KEYS) scaled[k] = Math.round((n[k] || 0) * scale);
+      if (n.dst_pa != null) scaled.dst_pa = bucket === "pre" ? null : Math.round(n.dst_pa * scale);
+      let key;
+      if (meta.pos === "DEF") key = "dst_" + pid;
+      else key = meta.espn_id || ("slp_" + pid);
+      applySide("espn", key, { name: meta.name, pos: meta.pos === "DEF" ? "DST" : meta.pos, team: meta.team }, scaled);
+    }
+    D.S.games = games;
+    if (any) D.S.espnSeeded = true;
+    updateHealth(); // failN/lastOk are never touched by this path, so bad() short-circuits false
+                     // on both sides — this reads "dual"/healthy exactly as the spec asks for.
+    for (const row of D.S.players.values()) mergeRow(row);
+  };
+
+  // ---------------- 2025 TEST SEASON — required projections (2026-08-08) ----------------
+  // The real live-poll projections fetch (D.initSleeper's own third step) resolves off Sleeper's
+  // CURRENT /state/nfl reading — the real, current NFL season/week, always — which is exactly
+  // the wrong week for a 2025 sandbox (and is disabled outright in test mode anyway, see
+  // D.pollOnce below). D.testEnsureProj(week) is the test-mode replacement: fetches THIS
+  // league's own season (LG.SEASON, 2025) + an EXPLICIT week (never inferred from live state) —
+  // week 4 for phases 1-2, week 5 once the Tuesday-after-week-4 phase makes that the current
+  // week — and caches per week so repeat calls (a render re-checking, the Moves page's own
+  // week-4/week-5 test switch) never re-fetch.
+  //   1. TRY Sleeper's real forward projections endpoint first (same shape/URL family the live
+  //      path already uses) — if a real season ever DOES carry projections for an already-
+  //      played week, that's the authoritative source and is used as-is (source: "projection").
+  //   2. If that comes back genuinely empty (the expected case for a season two years gone —
+  //      forward projections aren't retained for completed weeks), FALL BACK to that week's own
+  //      ARCHIVED ACTUAL stats (the exact same /stats/nfl/<season>/<week> endpoint the live
+  //      replay and LG.finalizeWeek's backfill both already trust) — same raw pid->stat-row
+  //      shape a real projection would be, so D.projFor's existing D.score(normSlp(st)) scoring
+  //      path needs no branching at all; only the SOURCE differs (source: "actual"), and that
+  //      source is surfaced honestly rather than silently presented as a real projection — see
+  //      syncTestBanner() in lg-ui.js, which reads D.S.testProjCache[UI.week].source and says so.
+  //   3. If genuinely NOTHING exists for that week either, the cache still gets a (harmless,
+  //      empty) entry — D.projFor degrades to "—" exactly like the real-league "not ready yet"
+  //      case, never a crash.
+  D.S.testProjCache = {};    // week -> {map, source:"projection"|"actual"}
+  D.S.testProjInFlight = {}; // week -> in-flight Promise (de-dupes concurrent callers)
+  D.testEnsureProj = function (week) {
+    if (D.S.testProjCache[week]) return Promise.resolve(D.S.testProjCache[week]);
+    if (D.S.testProjInFlight[week]) return D.S.testProjInFlight[week];
+    const p = (async () => {
+      await D.initSleeper();
+      let map = null, source = "projection";
+      try {
+        const j = await fx("test-proj " + week, `${SLP}/projections/nfl/regular/${LG.SEASON}/${week}`);
+        if (j && typeof j === "object" && Object.keys(j).length) map = j;
+      } catch (e) { /* fall through to the actual-stats proxy */ }
+      if (!map) {
+        try {
+          const j2 = await fx("test-proj-fallback " + week, `${SLP}/stats/nfl/regular/${LG.SEASON}/${week}`);
+          if (j2 && typeof j2 === "object" && Object.keys(j2).length) { map = j2; source = "actual"; }
+        } catch (e) { /* still nothing — this week's projections legitimately stay blank */ }
+      }
+      const entry = { map: map || {}, source };
+      D.S.testProjCache[week] = entry;
+      delete D.S.testProjInFlight[week];
+      return entry;
+    })();
+    D.S.testProjInFlight[week] = p;
+    return p;
+  };
+
   // ---------------- orchestration ----------------
   D.trackTeams = function (abbrevs) { D.S.tracked = new Set(abbrevs.map(slpTeam)); };
   D.pollOnce = async function () {
+    // 2025 TEST SEASON: the live-polling chain below always means "the real, current NFL
+    // week" — never meaningful for a past-season sandbox, and actively wrong (real 2026 data
+    // could otherwise leak onto a 2025 test board for any player id that happens to recur).
+    // Phase 2 ("Week 4 · games LIVE") routes to the synthetic replay above instead; phases 1
+    // and 3 have nothing to poll at all (before kickoff / the week is over) — D.onUpdate still
+    // fires either way, so paintLive()'s repaint cadence is unaffected.
+    if (LG.testMode()) {
+      if (LG.testPhase() === 2) { await D.testLiveSync().catch(() => {}); }
+      if (D.onUpdate) D.onUpdate();
+      return;
+    }
     const jobs = [];
     jobs.push(pollScoreboard().then(() => { D.S.health.espn.lastOk = Date.now(); D.S.health.espn.failN = 0; })
       .catch(() => { D.S.health.espn.failN++; }));

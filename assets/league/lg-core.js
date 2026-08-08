@@ -51,7 +51,60 @@
   // explicit week and don't check the clock themselves, and the Moves page's own "Testing
   // week" switch (test-mode only, lg-ui.js) flips UI.week to 5 — whose Wednesday deadline is
   // still a week away at this pinned instant — so the ordinary "Submit claim" bid form shows.
-  LG.TEST_NOW = new Date("2025-09-24T09:00:00-05:00").getTime();
+  //
+  // ---- SWITCHABLE CLOCK PHASES (2026-08-08) ----
+  // Three commissioner-selectable instants within the same sandbox, so the whole "before
+  // kickoff -> mid-game -> the morning after" arc of a Sunday can be exercised, not just one
+  // frozen moment. Persisted (LG.TEST_PHASE_KEY, defaulting to phase 1 whenever unset/invalid —
+  // a brand-new sandbox, or one from before this feature shipped, always opens on the original
+  // pinned instant) and gated/committed exactly like enter/exit/reset: LG.setTestPhase() is
+  // called from a commissioner-gated UI button (lg-ui.js), then the caller hard-reloads — no
+  // in-memory hot-swap of D.S/UI._rosters/etc. is attempted, same "cold boot against the new
+  // state" posture as every other test-mode transition in this file.
+  //   1. "Week 4 · before games"      — the ORIGINAL pinned instant, unchanged.
+  //   2. "Week 4 · games LIVE (replay)" — Sunday ~1:30 PM CT, still within week 4's Tue->Mon
+  //      window (currentWeek()===4). D.pollOnce's own test-mode branch (lg-data.js) routes to a
+  //      synthetic in-progress slate here instead of the real live-poll chain.
+  //   3. "Tuesday after week 4"       — Tuesday 10:00 AM CT, one tick into week 5's own window
+  //      (currentWeek()===5, well before its Wednesday waiver deadline). Entering this phase
+  //      finalizes week 4 via the existing archived backfill (see LG.setTestPhase below).
+  // All three timestamps land inside their DOCUMENTED week's Tue(05:00)->next-Tue(05:00) window
+  // — verified against LG.currentWeek()'s own math, not just eyeballed.
+  LG.TEST_PHASE_KEY = "gffl_test2025_phase";
+  LG.TEST_PHASES = {
+    1: { id: 1, label: "Week 4 · before games", now: new Date("2025-09-24T09:00:00-05:00").getTime() },
+    2: { id: 2, label: "Week 4 · games LIVE (replay)", now: new Date("2025-09-28T13:30:00-05:00").getTime() },
+    3: { id: 3, label: "Tuesday after week 4", now: new Date("2025-09-30T10:00:00-05:00").getTime() },
+  };
+  LG.testPhase = function () {
+    const v = parseInt(localStorage.getItem(LG.TEST_PHASE_KEY) || "1", 10);
+    return LG.TEST_PHASES[v] ? v : 1;
+  };
+  // Kept as a plain alias (phase 1's own "now") — nothing else in this codebase reads
+  // LG.TEST_NOW directly any more (LG.now() below reads LG.TEST_PHASES[LG.testPhase()].now
+  // instead), but it's cheap to keep pointing somewhere sane rather than deleting it outright.
+  LG.TEST_NOW = LG.TEST_PHASES[1].now;
+  // Idempotent + safe in any order (live -> before -> tuesday -> live, repeated, all fine):
+  // setting the SAME phase again just re-runs the (already-idempotent) phase-3 finalize, if
+  // applicable, and changes nothing else. Does NOT itself reload — the caller (lg-ui.js) does,
+  // matching enterTestMode/exitTestMode's own contract.
+  LG.setTestPhase = async function (phase) {
+    if (!LG.TEST_PHASES[phase]) return false;
+    localStorage.setItem(LG.TEST_PHASE_KEY, String(phase));
+    // Entering "Tuesday after week 4" finalizes week 4 from the SAME archived-stats backfill
+    // path the guided setup already uses for weeks 1-3 — LG.finalizeWeek is itself write-once
+    // (an existing doc is returned untouched, never recomputed), so switching to/away from
+    // phase 3 repeatedly can never double-finalize or corrupt the record. Reverting to phase 1
+    // or 2 afterward does NOT "un-finalize" week 4 — that permanent record is append-only by
+    // design (plan §8: no single mutable doc whose loss loses the season), so the board may then
+    // show week 4 as already-decided even while the clock reads "before games"; that is a known,
+    // accepted quirk of testing phase transitions out of order, not a bug this guards against.
+    if (phase === 3 && LG.testMode()) {
+      await LG.finalizeWeek(4, { backfill: true }).catch(() => {});
+    }
+    LG.db.clearCache();
+    return true;
+  };
   LG.REAL_COLL = LG.COLL;
   LG.REAL_SEASON = LG.SEASON;
   LG.REAL_SEASON_START = LG.SEASON_START;
@@ -1018,11 +1071,11 @@
 
   // ---------------- time ----------------
   LG.nowOverride = null; // test hook — always wins, test-season pin included
-  // The 2025 test season's PERSISTED clock pin: not a separate storage key, just a fixed
-  // constant gated on the same localStorage flag LG.testMode() reads — so it survives a
-  // reload with zero extra state (a returning tester always lands back on the exact same
-  // pinned instant, every device, forever, until they exit).
-  LG.now = () => LG.nowOverride != null ? LG.nowOverride : (LG.testMode() ? LG.TEST_NOW : Date.now());
+  // The 2025 test season's PERSISTED clock pin: not a separate storage key beyond the phase
+  // number itself (LG.TEST_PHASE_KEY, read via LG.testPhase()) — so a returning tester always
+  // lands back on the exact same pinned instant for whichever phase they last picked, every
+  // device, forever, until they switch phases or exit.
+  LG.now = () => LG.nowOverride != null ? LG.nowOverride : (LG.testMode() ? LG.TEST_PHASES[LG.testPhase()].now : Date.now());
   LG.currentWeek = function () {
     const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
     const w = 1 + Math.floor((LG.now() - start) / (7 * 24 * 3600 * 1000));
@@ -1276,6 +1329,15 @@
       if (!map) return { ok: false, reason: "no-archived-stats" };
       ptsOf = (key) => (map.has(key) ? map.get(key) : 0);
     } else {
+      // Explicit belt-and-suspenders (2026-08-08 phase switch): the live replay's own D.S never
+      // sets D.S.espnWeek/D.S.slpWeek, which already makes fzEngineWeek() return null and the
+      // check below refuse naturally — this is a SECOND, independent refusal so the guard holds
+      // even if the synthesis code ever changes to set those fields for some other reason. A
+      // replay must never let the live (non-backfill) path stamp week 4's permanent record off
+      // synthetic numbers; the ONLY legal way to finalize week 4 during test mode is the
+      // archived-stats backfill (LG.setTestPhase's own call, or the commissioner triggering it
+      // by hand) — never this branch.
+      if (LG.testMode() && LG.testPhase() === 2) return { ok: false, reason: "test-live-replay" };
       const ew = fzEngineWeek();
       if (ew == null) return { ok: false, reason: "no-live-data" };
       if (ew !== week) return { ok: false, reason: "stale-week", engineWeek: ew };

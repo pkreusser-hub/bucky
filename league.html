@@ -381,6 +381,59 @@
   .lockeredit { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
   .lockeredit button { background:rgba(0,0,0,.25); border-color:rgba(255,255,255,.35); color:#fff; }
 
+  /* ---------------- player stats card (2026-08-08) ----------------
+     A row that used to both "inform" (show a player) and "act" (open a sheet, add them to a
+     trade, claim them) is now split: the row's own info area opens the stats card below;
+     whatever it used to DO moves onto its own explicit button (.lswap in the lineup editor,
+     .pcpick in the trade builder, .faMoveBtn in the FA table). .linfo/.pcinfo/.pcinline are
+     three flavors of "reset a <button> back to plain content" for that info area — .linfo
+     keeps the lineup row's existing name-left/points-right layout, .pcinfo is a simple block
+     (trade-chip name + meta, one line), .pcinline is inline text (a name mid-sentence in the
+     claims/trades lists). */
+  .linfo { flex:1 1 auto; min-width:0; display:flex; align-items:center; justify-content:space-between; gap:8px;
+           background:none; border:none; padding:0; margin:0; color:inherit; font:inherit;
+           text-align:left; text-transform:none; letter-spacing:normal; cursor:pointer; }
+  .lswap { flex:0 0 auto; }
+  .lswapfill { flex:1 1 auto; text-align:left; text-transform:none; letter-spacing:normal; }
+  .pcinfo { flex:1 1 auto; min-width:0; text-align:left; background:none; border:none; padding:0; margin:0;
+            color:inherit; font:inherit; text-transform:none; letter-spacing:normal; cursor:pointer; }
+  .pickchip.picked .pcpick { border-color:var(--accent); color:var(--accent); }
+  .pcinline { background:none; border:none; padding:0; margin:0; font:inherit; color:inherit;
+              text-decoration:underline dotted; text-underline-offset:2px; text-transform:none;
+              letter-spacing:normal; cursor:pointer; }
+  .pcinline:hover { color:var(--accent); }
+  /* the row-level tap target itself (matchup half-cells, the read-only locker roster table) —
+     the FA table already carries its own `table.faTable tbody tr { cursor:pointer }` rule. */
+  .pcellgrid[data-pk] { cursor:pointer; }
+  tr[data-pk] { cursor:pointer; }
+  /* an "explicit, accent-outlined MOVE button" per the FA table row split — .faAddBtn keeps
+     its existing sizing rule above, this just adds the accent outline treatment. */
+  .faMoveBtn { background:transparent; border-color:var(--accent); color:var(--accent); font-weight:700; }
+  .faMoveBtn:hover { background:var(--accent); color:#fff; }
+
+  .pcoverlay { position:fixed; inset:0; z-index:68; background:rgba(6,7,8,.82); backdrop-filter:blur(3px);
+               display:flex; align-items:center; justify-content:center; padding:16px; }
+  .pcoverlay[hidden] { display:none; } /* the house [hidden]-override lesson, again */
+  .pccard { position:relative; width:100%; max-width:420px; max-height:86vh; overflow-y:auto;
+            background:var(--card); border:1px solid var(--border-card); border-radius:var(--radius-card);
+            padding:20px 18px 16px; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+  .pccard.center { text-align:center; padding:40px 18px; }
+  .pcclose { position:absolute; top:10px; right:10px; width:32px; height:32px; padding:0;
+             display:flex; align-items:center; justify-content:center; border-radius:50%; font-size:14px; }
+  .pchead { padding-right:34px; margin-bottom:14px; }
+  .pcname { margin:0 0 6px; font:700 22px var(--font-display); letter-spacing:.4px; text-transform:none; }
+  .pcmeta { display:flex; align-items:center; gap:8px; font-size:13px; }
+  .pcweek { background:var(--nested2); border:1px solid var(--border-card); border-radius:var(--radius-sm);
+            padding:10px 12px; margin-bottom:14px; }
+  .pcweekrow { display:flex; align-items:baseline; gap:12px; margin-top:4px; flex-wrap:wrap; }
+  .pcweekrow .pts { font:800 28px var(--font-display); }
+  .pctiles { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:16px; }
+  .pctile { text-align:center; background:var(--nested2); border:1px solid var(--border-card);
+            border-radius:var(--radius-sm); padding:10px 6px; }
+  .pctileval { font:700 18px var(--font-display); font-variant-numeric:tabular-nums; }
+  .pctilelabel { margin-top:2px; text-transform:uppercase; letter-spacing:.5px; }
+  .pclog table.tbl th, .pclog table.tbl td { padding:7px 8px; }
+
   /* ---------------- nav — mobile bottom bar / desktop top-nav row ---------------- */
   .bnav { position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex;
           background:var(--tabbar); backdrop-filter:blur(8px); border-top:1px solid var(--border-card);
@@ -486,6 +539,7 @@
   <main id="main"><div class="card mut">Loading the league…</div></main>
   <div id="toast" hidden></div>
   <div id="imgOverlay" class="imgoverlay" hidden><img id="imgOverlayImg" alt=""></div>
+  <div id="playerCard" class="pcoverlay" hidden></div>
 
   <script src="assets/league/lg-core.js"></script>
   <script src="assets/league/lg-data.js"></script>
@@ -495,6 +549,19 @@
     document.querySelectorAll(".bnav button").forEach((b) =>
       b.addEventListener("click", () => LG.ui.show(b.dataset.v)));
     document.getElementById("imgOverlay").addEventListener("click", () => { document.getElementById("imgOverlay").hidden = true; });
+    // Player stats card (2026-08-08): bound ONCE, same posture as #imgOverlay above — the
+    // overlay itself is persistent chrome (a sibling of #main, never destroyed by a render),
+    // so this doesn't need re-wiring per view. Backdrop tap closes ONLY when the click target
+    // IS the backdrop (e.pageX/e.target === the overlay itself, not a bubbled click from
+    // inside .pccard) — a tap anywhere on the card's own content must never close it.
+    document.getElementById("playerCard").addEventListener("click", (e) => {
+      if (e.target === e.currentTarget) LG.ui.closePlayerCard();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      const ov = document.getElementById("playerCard");
+      if (ov && !ov.hidden) LG.ui.closePlayerCard();
+    });
     // Bound ONCE — #hAvatar is persistent header chrome, never re-created by a
     // render (unlike main()'s innerHTML swaps), so wiring it through the
     // per-render wireLockerTaps() convention would stack a new listener on
