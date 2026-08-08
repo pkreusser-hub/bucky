@@ -166,22 +166,84 @@
   // blip must not leave a session marked unconfirmed for the rest of its life.
   function markHealthy() { LG.backendDegraded = false; LG.backendError = ""; }
   LG._markDegraded = markDegraded; // test hook
-  async function initCloud() {
-    const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
-    const fs = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
-    const app = appMod.initializeApp({
+
+  // ---------- the Firestore IndexedDB assertion bug (live, desktop, 2026-08-08) ----------
+  // "FIRESTORE (10.12.2) INTERNAL ASSERTION FAILED: Unexpected state" — a long-standing SDK bug
+  // in the PERSISTENT (IndexedDB) cache layer. It is a property of the browser profile's stored
+  // database, not of the network or of this league: the same account works fine on a phone whose
+  // IndexedDB is clean, and dead-ends on a desktop whose IndexedDB is not. Since the read throws,
+  // the server-confirmed-emptiness rule (correctly) refuses to call the league empty and the
+  // honest outage card comes up — but "couldn't reach the league" is the wrong ANSWER here,
+  // because the league is perfectly reachable; only the local cache is poisoned.
+  // SO: heal instead of dead-ending. On this specific failure the session drops to an in-memory
+  // cache (a different Firebase app name, because initializeFirestore can only be called once per
+  // app), retries the failed read once, and best-effort deletes the corrupted database so a later
+  // load can have persistence back. The suppression stamp EXPIRES so we retry persistence in a
+  // week rather than punishing the device forever.
+  const NOPERSIST_KEY = "gffl_nopersist";
+  const NOPERSIST_TTL = 7 * 24 * 3600 * 1000;
+  function persistenceSuppressed() {
+    try {
+      const t = Number(localStorage.getItem(NOPERSIST_KEY) || 0);
+      return !!t && (Date.now() - t) < NOPERSIST_TTL;
+    } catch (e) { return false; }
+  }
+  function isAssertionBug(e) {
+    return /INTERNAL ASSERTION FAILED|Unexpected state/i.test(String((e && e.message) || e || ""));
+  }
+  LG._isAssertionBug = isAssertionBug;               // test hooks
+  LG._persistenceSuppressed = persistenceSuppressed;
+  // The ESM import is a seam so the suites can drive a fake Firestore (gstatic is blocked in
+  // every suite page, and this bug is only reachable through a real module boundary).
+  // `||` so a pre-seeded window.LG._fbLoad (set before this script evaluates) WINS — that is
+  // the whole seam: lg-core must not clobber an override the page installed for it.
+  LG._fbLoad = LG._fbLoad || (async () => ({
+    appMod: await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"),
+    fs: await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"),
+  }));
+  let healed = false, healing = null, lastFs = null, lastDb = null;
+  async function healPersistence() {
+    if (healing) return healing;
+    healed = true;                                    // at most once per session — never a loop
+    try { localStorage.setItem(NOPERSIST_KEY, String(Date.now())); } catch (e) { /* private mode */ }
+    healing = (async () => {
+      // Best-effort: drop the poisoned database so the NEXT load can use persistence again.
+      // Both calls legitimately fail in plenty of states (other tabs open, already terminated) —
+      // none of that should stop the memory-cache re-init that actually unblocks the reader.
+      try {
+        if (lastFs && lastDb && lastFs.terminate) await lastFs.terminate(lastDb);
+        if (lastFs && lastDb && lastFs.clearIndexedDbPersistence) await lastFs.clearIndexedDbPersistence(lastDb);
+      } catch (e) { /* best effort */ }
+      await initCloud({ noPersistence: true });
+    })();
+    return healing;
+  }
+  async function initCloud(opts) {
+    opts = opts || {};
+    const wantPersist = !opts.noPersistence && !persistenceSuppressed();
+    const { appMod, fs } = await LG._fbLoad();
+    const cfg = {
       apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
       authDomain: "amen-farms-app.firebaseapp.com",
       projectId: "amen-farms-app",
       storageBucket: "amen-farms-app.firebasestorage.app",
       messagingSenderId: "321230755979",
       appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e",
-    }, "gffl");
+    };
+    // A DIFFERENT app name for the memory-cache handle: initializeFirestore may only be called
+    // once per app, so healing in place would throw "Firestore has already been started".
+    const appName = wantPersist ? "gffl" : "gffl-mem";
+    let app;
+    try { app = appMod.getApp ? appMod.getApp(appName) : appMod.initializeApp(cfg, appName); }
+    catch (e) { app = appMod.initializeApp(cfg, appName); }
     let db;
     try {
-      db = fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) });
+      db = wantPersist
+        ? fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) })
+        : fs.initializeFirestore(app, { localCache: fs.memoryLocalCache() });
     } catch (e) { db = fs.getFirestore(app); }
-    cloud = {
+    lastFs = fs; lastDb = db;
+    const raw = {
       async get(id) {
         const ref = fs.doc(db, LG.COLL, id);
         let snap = await fs.getDoc(ref);
@@ -214,6 +276,20 @@
           (snap) => cb(snap.exists() ? snap.data() : null));
       },
     };
+    // Every read/write goes out through the heal wrapper: an IndexedDB assertion swaps this
+    // session onto a memory-cache handle and re-runs the SAME call once, so the reader never
+    // sees it. `cloud` is re-pointed by that re-init, which is why the retry dispatches through
+    // the module-level handle rather than the captured `raw` (and why `healed` makes it
+    // impossible to loop). Anything that is not this bug propagates untouched.
+    const viaHeal = (name) => async (...args) => {
+      try { return await raw[name](...args); }
+      catch (e) {
+        if (!isAssertionBug(e) || healed) throw e;
+        await healPersistence();
+        return cloud[name](...args);
+      }
+    };
+    cloud = { get: viaHeal("get"), set: viaHeal("set"), del: viaHeal("del"), list: viaHeal("list"), watch: raw.watch };
     // Prove reachability with one read before claiming cloud mode. getDoc REJECTS (rather
     // than answering from an empty cache) when the client is offline with nothing cached, so
     // this really is a reachability probe — but only for the doc path; the query path needs
@@ -222,6 +298,18 @@
     LG.backendMode = "cloud";
     LG.backendDegraded = false;
     LG.backendError = "";
+  }
+  // Belt-and-braces for the same bug arriving ASYNCHRONOUSLY (the SDK can throw it from its own
+  // internals, off any promise we awaited). We can't retry a call we never made — but we CAN
+  // make sure the next load of this browser skips the poisoned database instead of repeating it.
+  if (typeof window !== "undefined" && window.addEventListener) {
+    const stamp = (e) => {
+      const msg = (e && (e.reason || e.error || e.message)) || "";
+      if (!isAssertionBug(msg && msg.message ? msg.message : msg)) return;
+      try { localStorage.setItem(NOPERSIST_KEY, String(Date.now())); } catch (_) { /* private mode */ }
+    };
+    window.addEventListener("unhandledrejection", stamp);
+    window.addEventListener("error", stamp);
   }
   LG.backendReady = (async () => {
     try { await initCloud(); }
