@@ -59,8 +59,29 @@
     await LG.backendReady;
     // Independent doc reads (a settings doc, a team list, a schedule doc) — no read depends
     // on another's result, so run them together instead of stacking three round trips.
-    await Promise.all([LG.loadRules(), LG.loadTeams(), LG.loadSchedule().then((s) => { schedule = s; })]);
+    // A REJECTION here used to escape UI.boot() entirely: league.html calls it without a
+    // catch, so a backend that throws mid-boot (a dropped connection, a Firestore error) left
+    // the page on "Loading the league…" forever with nothing but an unhandled rejection in the
+    // console. Caught here, it becomes the same honest outage card an unreachable backend gets.
+    try {
+      await Promise.all([LG.loadRules(), LG.loadTeams(), LG.loadSchedule().then((s) => { schedule = s; })]);
+    } catch (e) {
+      LG._markDegraded(e);
+      LG.teamsConfirmed = false;
+      renderOffline();
+      return;
+    }
     UI.week = LG.currentWeek() > (LG.rules.seasonWeeks + 3) ? LG.rules.seasonWeeks : LG.currentWeek();
+    // An empty league we could NOT confirm is an outage, not a new league — never route into
+    // the claim screen or the first-run import off an unconfirmed read (live bug 2026-08-08;
+    // see lg-core.js's SERVER-CONFIRMED EMPTINESS note). Checked here, before those branches,
+    // so no hash (#moves, #rules, …) can slip past it either.
+    // EXEMPT: the 2025 test sandbox. Its whole premise is a throwaway namespace that STARTS
+    // empty and is built by its own idempotent, resumable wizard, so "empty" there is the
+    // expected state rather than a claim about the family's league — and being wrong about it
+    // costs nothing (Reset + re-run is the normal flow). The guard exists to stop the REAL
+    // league being told it doesn't exist.
+    if (!LG.teams.length && !LG.teamsConfirmed && !LG.testMode()) { renderOffline(); return; }
     // 2025 TEST SEASON: a fresh (or partially set-up) test collection routes into the guided
     // one-tap setup wizard instead of the ordinary claim/league flow. testSeasonNeedsSetup()
     // checks for exactly the artifacts runTestSeasonSetup() itself writes, so a run that stops
@@ -125,6 +146,10 @@
       <div class="logo">🧪</div><h2>Setting up the 2025 test season</h2>
       <p class="mut" id="testSetupMsg">Starting…</p></div>`;
     runTestSeasonSetup((msg) => { const el = $("#testSetupMsg"); if (el) el.textContent = msg; })
+      // A THROW anywhere in the wizard (a rejected write, a backend that went away mid-run)
+      // used to leave the "Starting…" card up forever with nothing said — same silent-failure
+      // family as the import bug (2026-08-08). Turn it into the wizard's own failure card.
+      .catch((e) => ({ ok: false, reason: String((e && e.message) || e) }))
       .then((r) => {
         if (!r.ok) {
           main().innerHTML = `<div class="card center"><h2>Test-season setup didn't finish</h2>
@@ -518,10 +543,50 @@
     await Promise.all(LG.teams.map(async (t) => { UI._rosters[t.id] = await LG.ensureRoster(UI.week, t.id); }));
   }
   UI.renderLeague = renderLeague;
+  // ---------------- unconfirmed emptiness (live bug, 2026-08-08) ----------------
+  // The league is empty on screen and we CANNOT prove the league store said so — a blocked/
+  // failed Firebase load (silent local fallback), or a Firestore query answered out of an
+  // empty offline cache (see lg-core.js's SERVER-CONFIRMED EMPTINESS note). Offering "Import
+  // the league from ESPN" here is the worst possible answer: it tells an owner whose league
+  // has eight teams in Firestore that their league doesn't exist, and every write the import
+  // then makes lands in whatever degraded store we fell back to. Say what actually happened,
+  // and offer the only useful action.
+  function renderOffline() {
+    hideBnav();
+    syncTestBanner();
+    const why = LG.backendError ? `<p class="mut small">Reason: ${esc(LG.backendError)}</p>` : "";
+    // A degraded 2025 sandbox would otherwise be a dead end — the Exit button lives on the
+    // Rules page, and there is no nav on this screen.
+    const exitTest = LG.testMode() ? '<button id="offlineExitTest">Exit the 2025 test season</button>' : "";
+    main().innerHTML = `<div class="card center">
+      <h2>Couldn't reach the league</h2>
+      <p class="mut">Your teams, rosters and results are all still there — this device just
+        can't get to them right now. Check the connection and try again.</p>
+      ${why}
+      <button id="offlineRetry" class="primary">Try again</button>
+      ${exitTest}
+      <p class="mut"><small>Nothing has been changed or lost.</small></p></div>`;
+    $("#offlineExitTest") && $("#offlineExitTest").addEventListener("click", () => { LG.exitTestMode(); location.reload(); });
+    $("#offlineRetry").addEventListener("click", async () => {
+      const b = $("#offlineRetry");
+      b.disabled = true; b.textContent = "Trying…";
+      const reached = await LG.retryBackend();
+      // Re-render either way: on failure that restores a live button with the (possibly new)
+      // reason; on success UI.boot() paints the real league over the top.
+      if (!reached) { renderOffline(); toast("Still can't reach the league."); return; }
+      await UI.boot().catch((e) => { LG._markDegraded(e); renderOffline(); });
+    });
+  }
+  UI.renderOffline = renderOffline; // test hook
   // A brand-new league has no teams until the commissioner runs the one-time
   // ESPN import — without this card a fresh device landed on an EMPTY home
   // with nothing to claim and no path forward (live 2026-08-07).
   function renderFirstRun(repaint) {
+    // FIRST-RUN IS ONLY EVER SHOWN ON SERVER-CONFIRMED EMPTINESS. LG.teamsConfirmed records,
+    // at the moment LG.loadTeams() read them, whether that read came from the real league
+    // store; an unconfirmed empty read is an outage, not a new league. (The 2025 sandbox is
+    // exempt for the reason spelled out in UI.boot — it is MEANT to start empty.)
+    if (!LG.teamsConfirmed && !LG.testMode()) { renderOffline(); return; }
     hideBnav(); // even on the early-return repaint path below — UI.show() may have just re-shown it
     if (repaint && $("#firstImport")) return; // never churn the button under a tap
     main().innerHTML = `<div class="card center">
@@ -533,7 +598,10 @@
     $("#firstImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       UI.show("rules");
-      await importFromEspn();
+      // Never let this tap end in silence: a throw anywhere in the import chain used to be an
+      // unhandled rejection with nothing on screen — the whole "the import isn't working"
+      // report (live 2026-08-08).
+      try { await importFromEspn(); } catch (e) { importFail(importOut(), "Import failed", e); }
     });
   }
   //  Power rankings card (plan §4.9): the LATEST finalized week's snapshot, ordered by rank,
@@ -2476,7 +2544,7 @@
     $("#rulesCancel") && $("#rulesCancel").addEventListener("click", () => renderRules(false));
     $("#rulesImport") && $("#rulesImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
-      await importFromEspn();
+      try { await importFromEspn(); } catch (e) { importFail(importOut(), "Import failed", e); }
     });
     $("#schedGen") && $("#schedGen").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
@@ -2888,8 +2956,29 @@
     return r.json();
   }
   UI.lgFn = lgFn;
+  // ---------------- import failures must be VISIBLE (live bug, 2026-08-08) ----------------
+  // "The import isn't working" came with nothing on screen at all. Two silent-failure shapes
+  // were live: (a) every importer started with `$("#importOut").innerHTML = …`, which THROWS
+  // on a null element (the first-run card calls importFromEspn() straight after UI.show("rules")
+  // — one missing/renamed container and the tap does nothing, forever, with no error a user can
+  // see); and (b) the whole APPLY half (saveRules/saveTeam/saveRoster/db.set) had no catch at
+  // all, so a rejected write — exactly what a degraded backend produces — left the button dead.
+  // importOut() can never return null, and importFail() always paints something.
+  function importOut() {
+    let el = $("#importOut");
+    if (!el && main()) { el = document.createElement("div"); el.id = "importOut"; main().appendChild(el); }
+    return el || { set innerHTML(_v) {} }; // last resort: swallow rather than throw mid-import
+  }
+  function importFail(out, label, e) {
+    const why = String((e && e.message) || e || "?");
+    out.innerHTML = `<div class="card bad"><b>${esc(label)}</b><br>${esc(why)}
+      <p class="mut small">Nothing was half-applied that a re-run won't fix — try again once the
+      connection is back.</p></div>`;
+    toast(label);
+  }
+  UI._importFail = importFail; // test hook
   async function importFromEspn() {
-    const out = $("#importOut");
+    const out = importOut();
     out.innerHTML = '<div class="card mut">Importing the real league from ESPN…</div>';
     let j;
     try { j = await lgFn("lg_espn_settings"); } catch (e) { j = { ok: false, reason: String(e) }; }
@@ -2923,12 +3012,16 @@
       ${j.unmapped && j.unmapped.length ? `<p class="warn">Unmapped scoring items (review): ${esc(JSON.stringify(j.unmapped))}</p>` : '<p class="mut">Every ESPN scoring item mapped cleanly.</p>'}
       <button id="importApply" class="primary">Apply</button></div>`;
     $("#importApply").addEventListener("click", async () => {
-      await LG.saveRules(next, LG.who() + " (ESPN import)");
-      // Seed/refresh the 8 teams too.
-      for (const t of (j.teams || [])) {
-        await LG.saveTeam({ teamId: t.id, name: t.name, abbrev: t.abbrev, logo: t.logo, owner: t.owner });
-      }
-      await LG.loadTeams();
+      const btn = $("#importApply");
+      if (btn) { btn.disabled = true; btn.textContent = "Applying…"; }
+      try {
+        await LG.saveRules(next, LG.who() + " (ESPN import)");
+        // Seed/refresh the 8 teams too.
+        for (const t of (j.teams || [])) {
+          await LG.saveTeam({ teamId: t.id, name: t.name, abbrev: t.abbrev, logo: t.logo, owner: t.owner });
+        }
+        await LG.loadTeams();
+      } catch (e) { importFail(importOut(), "Couldn't save the imported league", e); return; }
       toast("Rules + teams imported.");
       // Fresh league: the importer hasn't claimed a team yet — go straight to
       // the claim screen instead of leaving them on the rules page.
@@ -2962,12 +3055,13 @@
     return (j.teams || []).length;
   }
   async function importRosters() {
-    const out = $("#importOut");
+    const out = importOut();
     out.innerHTML = '<div class="card mut">Importing current ESPN rosters…</div>';
     let j;
     try { j = await lgFn("lg_espn_rosters"); } catch (e) { j = { ok: false, reason: String(e) }; }
     if (!j.ok) { out.innerHTML = `<div class="card bad">Import failed: ${esc(j.reason || "?")}</div>`; return; }
-    const n = await applyImportedRosters(j);
+    let n;
+    try { n = await applyImportedRosters(j); } catch (e) { importFail(out, "Couldn't save the imported rosters", e); return; }
     out.innerHTML = `<div class="card ok">Rosters imported for ${n} teams (week ${UI.week}).</div>`;
   }
   //  Test-run rosters (2026-08-08): the real ${LG.rules.season} ESPN league is pre-draft
@@ -2976,12 +3070,13 @@
   // FINAL 2025 season instead — same slotting logic, same wire shape, a completely separate
   // server action (lg_espn_rosters_season) so the LIVE-season importer above stays untouched.
   async function importTestRosters() {
-    const out = $("#importOut");
+    const out = importOut();
     out.innerHTML = '<div class="card mut">Importing 2025 rosters for a test run…</div>';
     let j;
     try { j = await lgFn("lg_espn_rosters_season", { season: 2025 }); } catch (e) { j = { ok: false, reason: String(e) }; }
     if (!j.ok) { out.innerHTML = `<div class="card bad">Test import failed: ${esc(j.reason || "?")}</div>`; return; }
-    const n = await applyImportedRosters(j);
+    let n;
+    try { n = await applyImportedRosters(j); } catch (e) { importFail(out, "Couldn't save the imported test rosters", e); return; }
     out.innerHTML = `<div class="card ok">Test rosters imported from the real 2025 season for ${n} teams
       (week ${UI.week}). These are for testing — re-import real ${LG.rules.season} rosters once the
       season starts.</div>`;
@@ -2997,7 +3092,7 @@
   // the way to 2015 on every miss. Re-running always overwrites — the
   // January refresh case.
   async function importHistory() {
-    const out = $("#importOut");
+    const out = importOut();
     const startYear = ((LG.rules && LG.rules.season) || LG.SEASON) - 1;
     const imported = [];
     let consecFails = 0;
@@ -3006,10 +3101,12 @@
       let j;
       try { j = await lgFn("lg_espn_history", { season: y }); } catch (e) { j = { ok: false, reason: String(e) }; }
       if (j.ok) {
-        await LG.db.set("hist_" + y, {
-          kind: "hist", season: y, leagueName: j.leagueName || "",
-          teams: j.teams || [], champion: j.champion || null, matchups: j.matchups || [],
-        });
+        try {
+          await LG.db.set("hist_" + y, {
+            kind: "hist", season: y, leagueName: j.leagueName || "",
+            teams: j.teams || [], champion: j.champion || null, matchups: j.matchups || [],
+          });
+        } catch (e) { importFail(out, "Couldn't save the imported " + y + " season", e); return; }
         imported.push(y);
         consecFails = 0;
       } else {

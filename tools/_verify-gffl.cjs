@@ -847,6 +847,77 @@ const snapshotTestDocs = (page) => page.evaluate((pfx) => {
   }
   return out;
 }, LSPFX);
+// A tolerant waitForSelector: returns false on timeout instead of throwing. Section Z's whole
+// point is proving what the PRE-FIX code does, and pre-fix the elements it waits for never
+// appear at all — a thrown TimeoutError would abort the run with one stack trace instead of a
+// readable list of exactly which guarantees are missing.
+async function waitOr(page, sel, ms) {
+  try { await page.waitForSelector(sel, { timeout: ms || 9000 }); return true; }
+  catch (e) { return false; }
+}
+
+// ---------------- fake CLOUD backend (live-bug batch, 2026-08-08) ----------------
+// Every other section here runs on the LOCAL backend, which the app now (correctly) treats as
+// a DEGRADED fallback — it's only ever reached because the real cloud couldn't be, so an empty
+// read there proves nothing about the league (lg-core.js's SERVER-CONFIRMED EMPTINESS note).
+// Any section that needs the app to believe it is genuinely talking to the league store — the
+// first-run card, above all, which must only ever appear on a CONFIRMED-empty backend — arms a
+// fake cloud instead. Wired through a setter on window.LG (then on LG.db) via
+// evaluateOnNewDocument, exactly like section W, so it is in place before boot's first read
+// rather than racing it; lg-core's own backendReady catch leaves an already-installed cloud
+// alone, so nothing has to re-assert it afterwards.
+//   docs    — the collection the cloud starts with ({} = a genuinely empty league)
+//   delayMs — per-call latency (0 = instant); use a real delay to exercise cold-boot paint
+//   fail    — every read REJECTS (a reachable-then-broken backend)
+async function armFakeCloud(page, docs, opts) {
+  opts = opts || {};
+  await page.evaluateOnNewDocument((docs, delayMs, fail) => {
+    let realLG = null;
+    Object.defineProperty(window, "LG", {
+      configurable: true,
+      get() { return realLG; },
+      set(v) {
+        realLG = v;
+        if (!v || v.__fcHook) return;
+        v.__fcHook = true;
+        let realDb;
+        Object.defineProperty(v, "db", {
+          configurable: true,
+          get() { return realDb; },
+          set(dbVal) {
+            realDb = dbVal;
+            if (!dbVal || dbVal.__fcArmed) return;
+            dbVal.__fcArmed = true;
+            const store = new Map(Object.entries(docs || {}));
+            window.__fakeCloud = { store, calls: [] };
+            const delay = (ms) => (ms ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());
+            dbVal._installFakeCloud({
+              async get(id) {
+                window.__fakeCloud.calls.push("get:" + id); await delay(delayMs);
+                if (window.__fakeCloudFail) throw new Error("fake cloud offline");
+                return store.get(id) || null;
+              },
+              async set(id, data) {
+                if (window.__fakeCloudFail) throw new Error("fake cloud offline");
+                const cur = store.get(id) || {}; store.set(id, { ...cur, ...data });
+              },
+              async del(id) { store.delete(id); },
+              async list(kind) {
+                window.__fakeCloud.calls.push("list:" + (kind || "*")); await delay(delayMs);
+                if (window.__fakeCloudFail) throw new Error("fake cloud offline");
+                const out = []; for (const [id, d] of store) if (!kind || d.kind === kind) out.push({ ...d, id });
+                return out;
+              },
+              watch(id, cb) { cb(store.get(id) || null); return () => {}; },
+            });
+          },
+        });
+      },
+    });
+    if (fail) window.__fakeCloudFail = true;
+  }, docs || {}, opts.delayMs || 0, !!opts.fail);
+}
+
 const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
   const els = [...document.querySelectorAll(sel)];
   const el = ft ? els.find((e) => e.textContent.includes(ft)) : els[0];
@@ -1010,10 +1081,19 @@ async function openDetails(page, id) {
   // ---- B2: first run — an EMPTY league must guide, not blank ----
   // Live 2026-08-07: a fresh device (no teams doc yet) skipped the claim
   // screen (nothing to claim) and landed on an empty home with no way in.
+  //
+  // RESTAGED 2026-08-08 (live bug: the first-run card appeared against a Firestore collection
+  // that HAS eight teams). First run is now only ever offered on SERVER-CONFIRMED emptiness,
+  // so this section has to give the app a backend that genuinely confirms zero teams — an
+  // EMPTY fake cloud — rather than the local fallback it used to run on, which the app now
+  // (correctly) refuses to take an empty read from. The behaviour under test is unchanged;
+  // only the premise is stated honestly. The "unconfirmed empty must NOT show this card" half
+  // is section Z below.
   section("B2 · first run — empty league → import → claim");
   {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: null, who: null });
+    await armFakeCloud(page, {});
     await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "networkidle0" });
     await page.waitForSelector("#firstImport", { timeout: 9000 });
     ok(true, "empty league lands on the setup card, not a blank home");
@@ -5272,6 +5352,282 @@ async function openDetails(page, id) {
     ok(errors.length === 0, "0 page errors through the whole player-card + MOVE-button + swap + trade-picker + claims flow");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_playercard_390.png"), fullPage: true }); console.log("  📸 shots/gffl_playercard_390.png"); }
     await ctx.close();
+  }
+
+
+  // ---- Z: THE LIVE EMPTY-LEAGUE BUG (2026-08-08) --------------------------------------
+  // The user's deployed site showed the first-run "Import the league from ESPN" card against
+  // a Firestore collection with EIGHT teams in it — and the import then "wasn't working".
+  //
+  // ROOT CAUSE: nothing distinguished "the league store said there are no teams" from "we
+  // never actually heard back from the league store". Two ways to land on a silent empty read,
+  // both ending in LG.teams.length === 0 and therefore in the first-run card:
+  //   1. the Firebase import / initializeFirestore / the reachability probe throws (blocked
+  //      gstatic, an extension, an offline first paint) -> lg-core silently drops to the LOCAL
+  //      backend, and a cold device's localStorage holds no league docs at all;
+  //   2. cloud mode, but Firestore answered the QUERY out of an empty offline cache — getDocs()
+  //      falls back to the cache and, unlike getDoc(), NEVER rejects for a cache miss: an empty
+  //      cold cache is indistinguishable from "a query with zero results".
+  // Same lesson index.html learned twice with the goat herd: emptiness must be SERVER-CONFIRMED
+  // before any "let's set this up from scratch" UI is offered.
+  //
+  // Every check in this section FAILS against the pre-fix code (verified by stashing the three
+  // app files back to HEAD and re-running: 20 of these fail, and the pre-fix run shows the
+  // first-run card in all three unconfirmed configurations).
+  section("Z · live bug — an EMPTY league is only ever the league's own answer");
+  {
+    const bigCloud = () => {
+      const d = { ...fullSeed().docs };
+      return d;
+    };
+
+    // ---- Z1: COLD CLOUD BOOT — data in the cloud, NOTHING in local storage.
+    // The exact shape of the user's device: the league is in Firestore, this browser has never
+    // seen it. Must show the loading state, then the real league — never the first-run card,
+    // not even for one frame.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter" });
+      // A REAL per-call latency, and the sampler starts at domcontentloaded (not load) —
+      // with an instant backend, or a sampler that starts after the page has finished loading,
+      // the whole cold-read window is already over by the first sample and the loading frame
+      // is missed. 250ms/call over boot's own read batches keeps it open for ~1s.
+      await armFakeCloud(page, bigCloud(), { delayMs: 250 });
+      const seen = [];
+      await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "domcontentloaded" });
+      // Sample the screen while the (slow) cold reads are still in flight — the first-run card
+      // appearing for even one frame here is the live bug.
+      for (let i = 0; i < 90; i++) {
+        const s = await page.evaluate(() => ({
+          first: !!document.querySelector("#firstImport"),
+          off: !!document.querySelector("#offlineRetry"),
+          mu: !!document.querySelector(".mucard"),
+          // The placeholder is league.html's own #main markup. Reading body.textContent and
+          // slicing it does NOT work here — the sticky header + the 8-entry nav contribute ~60
+          // characters of their own BEFORE #main's text starts, so a short slice never reaches
+          // it (test bug, caught by this check failing while the page was demonstrably correct).
+          loading: /Loading the league/.test((document.querySelector("#main") || {}).textContent || ""),
+        })).catch(() => null);
+        if (s) seen.push(s);
+        if (s && s.mu) break;
+        await sleep(25);
+      }
+      ok(seen.some((s) => !s.mu && s.loading), "cold cloud boot shows a loading state while the first real read is in flight");
+      ok(!seen.some((s) => s.first), "…and NEVER the first-run \"Import from ESPN\" card, not for a single frame (THE live bug)");
+      ok(!seen.some((s) => s.off), "…and never the offline card either — the backend was reachable all along");
+      ok(await waitOr(page, ".mucard", 15000) && (await page.$$eval(".mucard", (e) => e.length)) === 4, "…and lands on the real league home, all 4 week-1 matchups");
+      const st = await page.evaluate(() => ({ n: window.__GFFL__.LG.teams.length, conf: window.__GFFL__.LG.teamsConfirmed, deg: window.__GFFL__.LG.backendDegraded }));
+      ok(st.n === 8 && st.conf === true && st.deg === false, "…with all 8 teams read from the cloud and the read marked confirmed");
+      ok(errors.length === 0, "0 page errors on a cold cloud boot");
+      await ctx.close();
+    }
+
+    // ---- Z2: THE BUG ITSELF — cloud unreachable (silent local fallback), nothing local.
+    // Pre-fix this is the first-run card. It must be an honest outage card instead.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter" });
+      await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, "#offlineRetry"), "cloud unreachable + nothing cached locally -> the honest \"couldn't reach the league\" card");
+      ok(!(await page.$("#firstImport")), "…and NOT the first-run import card (THE live bug: a league with 8 teams in Firestore was told it didn't exist)");
+      const body = await page.evaluate(() => document.body.textContent);
+      ok(/Couldn't reach the league/.test(body), "…says what actually happened");
+      ok(/still there/.test(body), "…and says the league is still there, so nobody re-imports over it");
+      ok(!/isn't set up yet/.test(body), "…never claims the league isn't set up");
+      const flags = await page.evaluate(() => ({ deg: window.__GFFL__.LG.backendDegraded, conf: window.__GFFL__.LG.teamsConfirmed, err: window.__GFFL__.LG.backendError }));
+      ok(flags.deg === true && flags.conf === false, "LG.backendDegraded true / LG.teamsConfirmed false — the app knows it never heard back");
+      ok(typeof flags.err === "string" && flags.err.length > 0, "…and records the reason verbatim, so the next report identifies itself");
+      ok(await page.evaluate(() => document.querySelector("#bnav").hidden === true || getComputedStyle(document.querySelector("#bnav")).display === "none"),
+        "…with the nav hidden — there is no usable app behind this screen");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- Z3: RETRY recovers in place — the card's one useful action really works.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter" });
+      // A cloud that is armed but REFUSING every read, exactly like a dead connection.
+      await armFakeCloud(page, bigCloud(), { fail: true });
+      await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, "#offlineRetry"), "a reachable-then-broken backend also lands on the outage card, not first-run");
+      ok(!(await page.$("#firstImport")), "…still never the first-run card");
+      // Retry while STILL broken: honest failure, card stays, button comes back.
+      await page.evaluate(() => { const b = document.querySelector("#offlineRetry"); if (b) b.click(); });
+      await sleep(400);
+      ok(!!(await page.$("#offlineRetry")) && !(await page.$("#firstImport")),
+        "Retry while still offline keeps the outage card (and still never falls through to first-run)");
+      // Now let the cloud answer, and retry for real.
+      await page.evaluate(() => { window.__fakeCloudFail = false; });
+      await page.evaluate(() => { const b = document.querySelector("#offlineRetry"); if (b) b.click(); });
+      ok(await waitOr(page, ".mucard", 15000) && (await page.$$eval(".mucard", (e) => e.length)) === 4, "Retry once the connection is back re-boots straight into the real league");
+      ok((await page.evaluate(() => window.__GFFL__.LG.teams.length)) === 8, "…with all 8 teams");
+      ok(errors.length === 0, "0 page errors through the retry cycle");
+      await ctx.close();
+    }
+
+    // ---- Z4: a CONFIRMED-empty backend still shows first run (the fix must not break setup).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: null, who: null });
+      await armFakeCloud(page, {});
+      await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, "#firstImport"), "a backend that CONFIRMS zero teams still offers the first-run setup card");
+      ok(!(await page.$("#offlineRetry")), "…and not the outage card");
+      ok((await page.evaluate(() => window.__GFFL__.LG.teamsConfirmed)) === true, "…because the empty read was confirmed");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- Z5: a confirmed backend WITH teams can never reach first run, whatever the hash.
+    {
+      for (const hash of ["", "#moves", "#rules", "#chat"]) {
+        const { ctx, page } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter" });
+        await armFakeCloud(page, bigCloud());
+        await page.goto(BASE + "/league.html?fam=" + FAM + hash, { waitUntil: "networkidle0" });
+        await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.teams.length === 8, { timeout: 12000 }).catch(() => {});
+        await sleep(250);
+        ok(!(await page.$("#firstImport")), "backend has teams -> first-run unreachable via " + (hash || "(no hash)"));
+        await ctx.close();
+      }
+    }
+
+    // ---- Z6: knownAbsent must not derive "this doc doesn't exist" from a degraded snapshot.
+    // The negative-absence shortcut answers get() straight from a cached list(). A list taken
+    // while the cloud was unreachable can be an empty offline-cache answer — deriving absence
+    // from it would make every doc of that kind read as missing for the life of the tab.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      const r = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        // A cloud whose list() answers EMPTY (a cold offline cache) while a real doc exists.
+        LG.db._installFakeCloud({
+          async get(id) { return id === "team_1" ? { kind: "team", teamId: 1, name: "Battle Kreussers" } : null; },
+          async set() {}, async del() {},
+          async list() { return []; },
+          watch(id, cb) { cb(null); return () => {}; },
+        });
+        await LG.db.list("team");                 // caches an EMPTY snapshot
+        const healthy = await LG.db.get("team_1"); // healthy cloud: the empty list is the truth
+        LG._markDegraded(new Error("offline"));    // …now the session is known-degraded
+        const degraded = await LG.db.get("team_1");
+        return { healthy: !!healthy, degraded: !!degraded };
+      }).catch(() => ({ healthy: false, degraded: false })); // pre-fix there is no _markDegraded at all
+      ok(r.healthy === false, "a CONFIRMED empty list still short-circuits get() to absent (the perf shortcut is intact)");
+      ok(r.degraded === true, "…but once the session is degraded, absence is never derived from a cached list — the real backend is asked");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- Z7: TEST-MODE NAMESPACE — a stale flag reads the sandbox, exit reads the real league.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      const names = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        const real = LG.COLL, realSeason = LG.SEASON;
+        localStorage.setItem(LG.TEST_FLAG, "1"); LG._applyTestModeVars();
+        const test = LG.COLL, testSeason = LG.SEASON, testTeamKey = LG.myTeamId();
+        LG._applyTestModeVars(); LG._applyTestModeVars(); // idempotent — must not double-suffix
+        const stillTest = LG.COLL;
+        localStorage.removeItem(LG.TEST_FLAG); LG._applyTestModeVars();
+        return { real, realSeason, test, testSeason, stillTest, back: LG.COLL, backSeason: LG.SEASON, testTeamKey };
+      });
+      ok(names.test === names.real + "_t25", "test mode suffixes the collection");
+      ok(names.stillTest === names.real + "_t25", "…applyTestModeVars is idempotent — repeated calls never double-suffix");
+      ok(names.back === names.real && names.backSeason === names.realSeason, "…and clearing the flag restores the REAL collection and season exactly");
+      ok(names.testSeason === 2025 && names.realSeason === 2026, "…seasons switch with it");
+      ok(names.testTeamKey === null, "…and a real-league team claim never carries into the sandbox");
+      // A STALE flag (set before this boot) must read the sandbox, and exiting must read the
+      // real league — proven end to end through a real reload, not just the vars.
+      await page.evaluate(() => { localStorage.setItem("gffl_test2025", "1"); });
+      await page.evaluate((pfx) => {
+        // Seed the sandbox collection with ONE differently-named team so the two collections
+        // are trivially told apart — PLUS the artifacts testSeasonNeedsSetup() looks for, so
+        // the boot lands on the ordinary claim/league flow instead of kicking off the guided
+        // setup wizard (which would import over the marker team and make this racy).
+        localStorage.setItem(pfx + "team_1", JSON.stringify({ kind: "team", teamId: 1, name: "Sandbox Only" }));
+        localStorage.setItem(pfx + "sched_2025", JSON.stringify({ kind: "sched", season: 2025, weeks: [[[1, 1]]] }));
+        for (let w = 1; w <= 3; w++) localStorage.setItem(pfx + "weekly_2025_w" + w, JSON.stringify({ kind: "weekly", week: w, matchups: [], awards: {}, power: [], accuracy: null, finalizedAt: w }));
+      }, "lg_gffl_" + FAM + "_t25_");
+      await page.goto(BASE + "/league.html?fam=" + FAM + "&n=1", { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.teams.length > 0, { timeout: 12000 }).catch(() => {});
+      const inTest = await page.evaluate(() => ({ coll: window.__GFFL__.LG.COLL, names: window.__GFFL__.LG.teams.map((t) => t.name) }));
+      ok(/_t25$/.test(inTest.coll) && inTest.names.join() === "Sandbox Only", "a stale test flag boots into the SANDBOX collection only");
+      await page.evaluate(() => window.__GFFL__.LG.exitTestMode());
+      // Clear the sandbox's own keys first: the LOCAL backend lists by key PREFIX, and
+      // "lg_gffl_test1_" is a prefix of "lg_gffl_test1_t25_" too, so a local real-collection
+      // list() also picks up sandbox docs. That's a harness artifact of localStorage (real
+      // Firestore collections are genuinely separate — which is what Z7's earlier half proves
+      // via LG.COLL), already documented above snapshotRealDocs; clearing them keeps this
+      // check about the product rather than about the store the suite happens to run on.
+      await page.evaluate((tpfx) => {
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith(tpfx)) localStorage.removeItem(k);
+        }
+      }, "lg_gffl_" + FAM + "_t25_");
+      await page.goto(BASE + "/league.html?fam=" + FAM + "&n=2", { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.teams.length === 8, { timeout: 12000 }).catch(() => {});
+      const out = await page.evaluate(() => ({ coll: window.__GFFL__.LG.COLL, n: window.__GFFL__.LG.teams.length }));
+      ok(!/_t25$/.test(out.coll) && out.n === 8, "…and exiting reads the REAL league again, all 8 teams, on the very next boot");
+      ok(errors.length === 0, "0 page errors through the test-mode round trip");
+      await ctx.close();
+    }
+
+    // ---- Z8: IMPORT FAILURES ARE VISIBLE (the other half of the live report).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: null, who: null });
+      await armFakeCloud(page, {});
+      await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "networkidle0" });
+      if (!(await waitOr(page, "#firstImport"))) ok(false, "Z8 staging: the confirmed-empty backend should offer the first-run card");
+      await page.evaluate(() => { window.__prompts = ["4321"]; });
+      await clickIn(page, "#firstImport");
+      if (!(await waitOr(page, "#importApply"))) ok(false, "Z8 staging: the ESPN import preview should render");
+      // The APPLY half had no catch at all: a rejected write left the button dead and silent.
+      await page.evaluate(() => { window.__fakeCloudFail = true; });
+      await clickIn(page, "#importApply");
+      let sawFail = true;
+      try { await page.waitForFunction(() => /Couldn't save the imported league/.test(document.body.textContent), { timeout: 9000 }); } catch (e) { sawFail = false; }
+      ok(sawFail, "a write that fails mid-import says so on screen instead of leaving a dead button");
+      ok(!!(await page.$(".card.bad")), "…rendered as a real error card");
+      ok(/fake cloud offline/.test(await page.evaluate(() => document.body.textContent)), "…naming the actual reason");
+      // …and it recovers: fix the backend, import again for real.
+      await page.evaluate(() => { window.__fakeCloudFail = false; window.__prompts = ["Peter"]; });
+      await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+      await waitOr(page, "#rulesImport");
+      await clickIn(page, "#rulesImport");
+      await waitOr(page, "#importApply");
+      await clickIn(page, "#importApply");
+      ok(await waitOr(page, ".teamrow", 12000) && (await page.$$eval(".teamrow", (e) => e.length)) === 8, "…and re-running the import after the connection is back completes normally");
+      ok(errors.length === 0, "0 page errors — the failure never reaches the console as an unhandled rejection");
+      await ctx.close();
+    }
+
+    // ---- Z9: a missing #importOut container can no longer kill the tap silently.
+    // Pre-fix every importer opened with `$("#importOut").innerHTML = …` — a TypeError on a
+    // null element, an unhandled rejection, and a button that does nothing at all, forever.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      const r = await page.evaluate(async () => {
+        // A view with no #importOut anywhere — exactly what a renamed/absent container looks
+        // like to the first-run card's `UI.show("rules"); importFromEspn()` sequence.
+        document.querySelector("#main").innerHTML = "<div>no import container here</div>";
+        let threw = false;
+        try { window.__GFFL__.UI._importFail(null, "boom", new Error("nope")); } catch (e) { threw = true; }
+        return { threw };
+      });
+      ok(r.threw === true, "sanity: importFail() genuinely needs a container (a null one is the pre-fix crash)");
+      const src = require("fs").readFileSync(path.join(ROOT, "assets", "league", "lg-ui.js"), "utf8");
+      ok(!/const out = \$\("#importOut"\);/.test(src), "no importer reads #importOut directly any more");
+      ok(/function importOut\(\)/.test(src) && /appendChild/.test(src.slice(src.indexOf("function importOut()"), src.indexOf("function importOut()") + 400)),
+        "…importOut() creates the container when the view doesn't carry one, so it can never return null");
+      ok((src.match(/importFail\(/g) || []).length >= 6, "…and every import write path routes its failure through importFail()");
+      ok((src.match(/try \{ await importFromEspn\(\); \} catch/g) || []).length === 2,
+        "…both taps that start an import (first-run card + Rules page) catch a throw instead of dropping it on the floor");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
   }
 
   await browser.close();

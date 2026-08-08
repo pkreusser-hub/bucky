@@ -233,49 +233,125 @@
 
   let cloud = null;
   LG.backendMode = "local";
-  LG.backendReady = (async () => {
+  // ---------------- SERVER-CONFIRMED EMPTINESS (live bug, 2026-08-08) ----------------
+  // The live site showed the first-run "Import the league from ESPN" card against a Firestore
+  // collection that demonstrably HAS 8 teams. Root cause: NOTHING in this file distinguished
+  // "the league really is empty" from "we never actually heard back from the league store".
+  // Two ways to land on a silent, unexplained empty read, both of which end in
+  // `LG.teams.length === 0` and therefore in the first-run card:
+  //   1. the Firebase ESM import / initializeFirestore / the reachability probe throws (a
+  //      blocked gstatic, an ad-blocker, an offline first paint, a cold IndexedDB failure) —
+  //      the catch below silently drops to the LOCAL backend, and localStorage on a cold
+  //      device holds no league docs at all;
+  //   2. cloud mode, but Firestore served the QUERY from an empty offline cache. getDocs()
+  //      with the default source tries the server and FALLS BACK TO THE CACHE — and unlike
+  //      getDoc(), a query never rejects for a cache miss: a cold cache legitimately looks
+  //      exactly like "a query with zero results" (snap.empty === true, metadata.fromCache
+  //      === true). So even a working cloud path could report an empty league.
+  // This is the same lesson index.html learned twice with the goat herd (see CLAUDE.md's
+  // `serverConfirmed` rule): EMPTINESS MUST BE SERVER-CONFIRMED before any destructive or
+  // "let's set it up from scratch" UI is offered. LG.backendDegraded is that signal — true
+  // whenever this session is NOT provably reading the real league store — and lg-ui.js shows
+  // an honest "couldn't reach the league" card with a Retry instead of the first-run card
+  // whenever an empty read is unconfirmed.
+  LG.backendDegraded = true;   // until a real backend read proves otherwise
+  LG.backendError = "";        // the reason, verbatim, shown on that card so the next report identifies itself
+  LG.dataConfirmed = () => !LG.backendDegraded;
+  function markDegraded(e) {
+    LG.backendDegraded = true;
+    LG.backendError = String((e && e.message) || e || "unknown");
+  }
+  // A read that provably reached the SERVER (not the offline cache) clears the flag — a single
+  // blip must not leave a session marked unconfirmed for the rest of its life.
+  function markHealthy() { LG.backendDegraded = false; LG.backendError = ""; }
+  LG._markDegraded = markDegraded; // test hook
+  async function initCloud() {
+    const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+    const fs = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const app = appMod.initializeApp({
+      apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
+      authDomain: "amen-farms-app.firebaseapp.com",
+      projectId: "amen-farms-app",
+      storageBucket: "amen-farms-app.firebasestorage.app",
+      messagingSenderId: "321230755979",
+      appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e",
+    }, "gffl");
+    let db;
     try {
-      const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
-      const fs = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
-      const app = appMod.initializeApp({
-        apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
-        authDomain: "amen-farms-app.firebaseapp.com",
-        projectId: "amen-farms-app",
-        storageBucket: "amen-farms-app.firebasestorage.app",
-        messagingSenderId: "321230755979",
-        appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e",
-      }, "gffl");
-      let db;
-      try {
-        db = fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) });
-      } catch (e) { db = fs.getFirestore(app); }
-      cloud = {
-        async get(id) {
-          const snap = await fs.getDoc(fs.doc(db, LG.COLL, id));
-          return snap.exists() ? snap.data() : null;
-        },
-        async set(id, data) { await fs.setDoc(fs.doc(db, LG.COLL, id), data, { merge: true }); },
-        async del(id) { await fs.deleteDoc(fs.doc(db, LG.COLL, id)); },
-        async list(kind) {
-          const q = kind
-            ? fs.query(fs.collection(db, LG.COLL), fs.where("kind", "==", kind))
-            : fs.collection(db, LG.COLL);
-          const snap = await fs.getDocs(q);
-          const out = []; snap.forEach((d) => out.push({ ...d.data(), id: d.id })); // id LAST — see local.list()'s note
-          return out;
-        },
-        watch(id, cb) {
-          return fs.onSnapshot(fs.doc(db, LG.COLL, id), { includeMetadataChanges: true },
-            (snap) => cb(snap.exists() ? snap.data() : null));
-        },
-      };
-      // Prove reachability with one read before claiming cloud mode.
-      await cloud.get("settings");
-      LG.backendMode = "cloud";
-    } catch (e) {
-      LG.backendMode = "local";
+      db = fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) });
+    } catch (e) { db = fs.getFirestore(app); }
+    cloud = {
+      async get(id) {
+        const ref = fs.doc(db, LG.COLL, id);
+        let snap = await fs.getDoc(ref);
+        // An "it isn't there" answer served from an EMPTY offline cache is not an answer.
+        // Confirm it against the server before anyone treats it as absence (see the header
+        // note above); if the server can't be reached, say so rather than reporting absence.
+        if (!snap.exists() && snap.metadata && snap.metadata.fromCache && fs.getDocFromServer) {
+          try { snap = await fs.getDocFromServer(ref); markHealthy(); } catch (e) { markDegraded(e); }
+        }
+        return snap.exists() ? snap.data() : null;
+      },
+      async set(id, data) { await fs.setDoc(fs.doc(db, LG.COLL, id), data, { merge: true }); },
+      async del(id) { await fs.deleteDoc(fs.doc(db, LG.COLL, id)); },
+      async list(kind) {
+        const q = kind
+          ? fs.query(fs.collection(db, LG.COLL), fs.where("kind", "==", kind))
+          : fs.collection(db, LG.COLL);
+        let snap = await fs.getDocs(q);
+        // THE bug from the header note: an EMPTY query result that came out of the cache is
+        // indistinguishable from a real empty league. Re-ask the server once; if that fails we
+        // are genuinely offline, so mark the session degraded rather than reporting "empty".
+        if (snap.empty && snap.metadata && snap.metadata.fromCache && fs.getDocsFromServer) {
+          try { snap = await fs.getDocsFromServer(q); markHealthy(); } catch (e) { markDegraded(e); }
+        }
+        const out = []; snap.forEach((d) => out.push({ ...d.data(), id: d.id })); // id LAST — see local.list()'s note
+        return out;
+      },
+      watch(id, cb) {
+        return fs.onSnapshot(fs.doc(db, LG.COLL, id), { includeMetadataChanges: true },
+          (snap) => cb(snap.exists() ? snap.data() : null));
+      },
+    };
+    // Prove reachability with one read before claiming cloud mode. getDoc REJECTS (rather
+    // than answering from an empty cache) when the client is offline with nothing cached, so
+    // this really is a reachability probe — but only for the doc path; the query path needs
+    // its own guard, above.
+    await cloud.get("settings");
+    LG.backendMode = "cloud";
+    LG.backendDegraded = false;
+    LG.backendError = "";
+  }
+  LG.backendReady = (async () => {
+    try { await initCloud(); }
+    catch (e) {
+      // A test harness may have swapped a working fake cloud in underneath us while the real
+      // Firebase import was failing (_installFakeCloud — gstatic is blocked in every suite
+      // page). Only a genuinely un-swapped session drops to local: initCloud() leaves
+      // backendMode at "local" on every one of its own failure paths, so "already cloud" can
+      // only mean somebody else installed a reachable backend.
+      if (LG.backendMode === "cloud") return;
+      LG.backendMode = "local"; markDegraded(e);
     }
   })();
+  // The Retry the "couldn't reach the league" card offers. Re-runs the whole cloud init (the
+  // failure may have been the ESM import itself, so retrying only the probe wouldn't help) and
+  // drops every cached read on success — a cache filled while degraded is a cache of answers
+  // nobody could confirm.
+  LG.retryBackend = async function () {
+    try {
+      // If the cloud object was built and only the NETWORK was down, re-probing it is the whole
+      // retry — re-importing the ESM modules would be wasted work. Only a session that never
+      // got that far (a blocked/failed import) needs the full init.
+      if (cloud) { await cloud.get("settings"); LG.backendMode = "cloud"; markHealthy(); }
+      else await initCloud();
+      LG.db.clearCache();
+      return true;
+    } catch (e) {
+      try { await initCloud(); LG.db.clearCache(); return true; } // the probe failed — maybe the whole handle is stale
+      catch (e2) { LG.backendMode = "local"; markDegraded(e2 || e); return false; }
+    }
+  };
   // ---------------- doc-level cache (perf — playtest: "not snappy moving between tabs") ----------------
   // Every view (league/matchup/locker/moves/chat/rules/bracket) re-reads teams/rosters/weekly/
   // tx/claims/trades through LG.db on EVERY tab switch — on the cloud backend each call is a
@@ -334,6 +410,11 @@
   }
   // true only when a cached list() for this doc's kind PROVES the doc isn't there.
   function knownAbsent(id) {
+    // NEVER derive absence from a list snapshot taken while the cloud was unreachable — that
+    // snapshot may be an empty offline-cache answer, not the league (see the SERVER-CONFIRMED
+    // EMPTINESS note above). The local backend is exempt: localStorage answers truthfully, so
+    // an empty local list really does mean "not on this device".
+    if (LG.backendMode === "cloud" && LG.backendDegraded) return false;
     const kind = kindOf(id);
     if (!kind) return false;
     const entry = listCache.get(kind) || listCache.get("");
@@ -435,8 +516,14 @@
         if (LG.backendMode === "cloud" && !entry.refreshing && LG.now() - entry.at > CACHE_STALE_MS) {
           entry.refreshing = true;
           LG.db.stats.lists++;
+          const wasOk = !LG.backendDegraded;
           backend().list(kind).then((fresh) => {
             entry.refreshing = false;
+            // Never let a quiet background refresh REPLACE real cached rows with an empty
+            // result that the read itself couldn't confirm (an offline-cache answer). Keeping
+            // the last known-good rows is strictly better than blanking the league behind the
+            // user's back (live bug 2026-08-08).
+            if (!fresh.length && entry.docs.length && wasOk && LG.backendDegraded) return;
             const changed = JSON.stringify(fresh) !== JSON.stringify(entry.docs);
             entry.docs = fresh; entry.at = LG.now();
             for (const d of fresh) { docCache.set(d.id, d); docAt.set(d.id, { at: LG.now(), refreshing: false }); }
@@ -455,7 +542,9 @@
     // Test-only: swaps the underlying "cloud" implementation + forces cloud mode, so the perf
     // suite can exercise the background-refresh/quiet-repaint path without a real Firestore.
     // Never called by production code.
-    _installFakeCloud(impl) { cloud = impl; LG.backendMode = "cloud"; docCache.clear(); docAt.clear(); listCache.clear(); },
+    // A fake cloud IS a reachable backend — clear the degraded flag with it, or every test
+    // that installs one would look like an offline session.
+    _installFakeCloud(impl) { cloud = impl; LG.backendMode = "cloud"; LG.backendDegraded = false; LG.backendError = ""; docCache.clear(); docAt.clear(); listCache.clear(); },
     // 2025 test-season mode: every cache is keyed by doc-id/kind alone, with NO collection
     // component — so switching LG.COLL (real <-> "_t25") without clearing these would let a
     // real-collection doc answer a test-collection read straight out of cache. Called by
@@ -548,9 +637,15 @@
 
   // ---------------- teams ----------------
   LG.teams = [];
+  // teamsConfirmed records, AT READ TIME, whether this team list came from the real league
+  // store — the one question the first-run card must never guess at (see the SERVER-CONFIRMED
+  // EMPTINESS note above). Captured here rather than re-read at render time so a later
+  // unrelated degradation can't retroactively change what an already-answered read meant.
+  LG.teamsConfirmed = false;
   LG.loadTeams = async function () {
     LG.teams = (await LG.db.list("team")).map((t) => ({ ...t, id: Number(t.teamId) }))
       .sort((a, b) => a.id - b.id);
+    LG.teamsConfirmed = LG.dataConfirmed();
     return LG.teams;
   };
   // A team doc is written from several places that each own a DIFFERENT field (a rename, a
