@@ -27,6 +27,83 @@
   const REACTS = ["FIRE", "DEAD", "LOL", "GOAT"];
   const IMG_CAP = 80000; // ~80KB dataURL chars (design cap for chat images/logos)
 
+  // ---------------- offline-with-a-mirror (2026-08-08, the REST transport) ----------------
+  // When the cloud can't be reached but this device holds a mirror of the league (see
+  // lg-core's SNAPSHOT MIRROR note), the league renders NORMALLY from that copy — the whole
+  // point of the rework is that a person can always see their data. Two things make that
+  // honest rather than misleading: a persistent chip saying which copy they're looking at and
+  // how old it is, and a hard refusal on every mutation (a write into a mirror would be
+  // overwritten by the next successful cloud read, so it would appear to work and then vanish).
+  // lg-core throws for the refusal; this is the toast that goes with it, throttled because one
+  // tap can legitimately reach LG.db.set more than once.
+  let lastOfflineToastAt = 0;
+  LG.onOfflineWrite = () => {
+    if (Date.now() - lastOfflineToastAt < 3000) return;
+    lastOfflineToastAt = Date.now();
+    toast("You're offline — try again when you're reconnected.");
+  };
+  // The refusal has already been reported by the toast above, so its error must not also
+  // surface as a page error. Deliberately NARROW: only the flag lg-core sets is swallowed —
+  // every other rejection still reaches the console exactly as before.
+  if (typeof window !== "undefined" && window.addEventListener) {
+    window.addEventListener("unhandledrejection", (e) => {
+      const r = e && e.reason;
+      if (r && r.offlineReadOnly) e.preventDefault();
+    });
+  }
+  function agoWords(ms) {
+    const m = Math.max(0, Math.round(ms / 60000));
+    if (m < 1) return "just now";
+    if (m < 60) return m + " minute" + (m === 1 ? "" : "s") + " ago";
+    const h = Math.round(m / 60);
+    if (h < 24) return h + " hour" + (h === 1 ? "" : "s") + " ago";
+    const d = Math.round(h / 24);
+    return d + " day" + (d === 1 ? "" : "s") + " ago";
+  }
+  function syncOfflineChip() {
+    const el = $("#offlineChip");
+    if (!el) return;
+    if (!LG.mirrorOffline) { el.hidden = true; return; }
+    const at = LG.mirrorStampAt();
+    el.hidden = false;
+    // Both strips are sticky under the header, so the chip's own offset is MEASURED off the
+    // replay banner rather than hard-coded — the two would otherwise pin to the same top and
+    // overlap the moment the page scrolls (the house's --fs-topbar-h / --subnav-top pattern).
+    const sb = $("#simBanner");
+    const base = window.innerWidth >= 1024 ? 46 : 52;
+    el.style.top = (base + (sb && !sb.hidden ? sb.offsetHeight : 0)) + "px";
+    el.textContent = "Offline — showing this device's saved copy" +
+      (at ? " (from " + agoWords(Date.now() - at) + ")" : "") + " · reconnecting…";
+  }
+  UI._syncOfflineChip = syncOfflineChip; // test hook
+  // The auto-retry. Each attempt is one bounded fsFetch (lg-core's timeout wrapper), so this
+  // loop can never pile up or hang; on success the caches full of unconfirmed answers are
+  // dropped, the chip goes, and the screen repaints with the real league.
+  const MIRROR_RETRY_MS = 20000;
+  let mirrorTimer = null;
+  function stopMirrorRetry() { if (mirrorTimer) { clearInterval(mirrorTimer); mirrorTimer = null; } }
+  async function mirrorRetryTick() {
+    if (!LG.mirrorOffline) { stopMirrorRetry(); return true; }
+    let reached = false;
+    try { reached = await LG.retryBackend(); } catch (e) { reached = false; }
+    if (!reached) { syncOfflineChip(); return false; } // also refreshes the "from N minutes ago" wording
+    stopMirrorRetry();
+    syncOfflineChip();
+    await UI.boot().catch(() => {});
+    return true;
+  }
+  // `ms` is a test seam only — production always uses MIRROR_RETRY_MS. Re-arming with a
+  // period clears any existing timer first, so the loop can never double up.
+  function startMirrorRetry(ms) {
+    if (ms) stopMirrorRetry();
+    if (mirrorTimer || !LG.mirrorOffline) return;
+    mirrorTimer = setInterval(mirrorRetryTick, ms || MIRROR_RETRY_MS);
+  }
+  UI._startMirrorRetry = startMirrorRetry;
+  UI._mirrorRetryTick = mirrorRetryTick;
+  UI._mirrorTimerOn = () => !!mirrorTimer;
+  UI._mirrorRetryMs = MIRROR_RETRY_MS;
+
   // ---------------- auto-checks throttle (perf) ----------------
   // maybeAutoProcessWaivers/maybeAutoExecuteTrades/maybeAdvanceLeague are each cheap ONCE a
   // deadline/review-window has genuinely passed and idempotent otherwise, but chaining them
@@ -42,6 +119,11 @@
   UI._autoCheckRuns = 0; // test hook — counts how many times the chain actually ran (past the throttle), not how many times it was CALLED
   async function runAutoChecks(force) {
     if (!LG.teams.length) return;
+    // A device reading a stale, read-only mirror has no business carrying the league forward:
+    // every one of these three WRITES (process waivers, execute trades, finalize/advance), and
+    // they would each be refused — raising a "you're offline" toast for something no person
+    // asked for. The first client that genuinely reconnects runs them.
+    if (LG.mirrorOffline) return;
     if (!force && LG.now() - lastAutoCheckAt < AUTO_CHECK_MS) return;
     lastAutoCheckAt = LG.now();
     UI._autoCheckRuns++;
@@ -82,6 +164,10 @@
     // see lg-core.js's SERVER-CONFIRMED EMPTINESS note). Checked here, before those branches,
     // so no hash (#moves, #rules, …) can slip past it either.
     if (!LG.teams.length && !LG.teamsConfirmed) { renderOffline(); return; }
+    // Offline, but this device holds a mirror WITH a league in it: render everything as
+    // normal and keep trying to reconnect in the background. (A mirror with no teams falls
+    // through the guard above to the honest outage card — the one case with nothing to show.)
+    if (LG.mirrorOffline) startMirrorRetry();
     // 2025 SEASON REPLAY: the app loads its own data. Checked AFTER the confirmed-emptiness
     // guard above, deliberately — an unreachable backend still gets the honest outage card
     // rather than a setup run that could only fail, so nothing about that fix is weakened.
@@ -94,7 +180,11 @@
     // bounce off each other forever with the setup card on screen. One successful run per page
     // load is enough; a genuinely partial seed resumes on the NEXT boot, which is exactly the
     // contract the function's own comment states.
-    if (LG.SIM_2025 && !UI._simSetupDone && await simNeedsSetup()) { renderSimSetup(); return; }
+    // …and never in mirror-offline mode: the setup is a write-heavy import into a store that
+    // is deliberately read-only, so it could only ever fail. A device that has been online
+    // already holds the seeded season in its mirror; one that hasn't will run the setup the
+    // moment it reconnects.
+    if (LG.SIM_2025 && !LG.mirrorOffline && !UI._simSetupDone && await simNeedsSetup()) { renderSimSetup(); return; }
     if (!LG.myTeamId() && LG.teams.length) {
       // No claimed team yet — nothing to paint early (renderClaim needs only the teams we
       // just loaded, which is instant), and there's no live view for auto-checks to catch
@@ -154,6 +244,7 @@
   function renderSimSetup() {
     hideBnav();
     syncSimBanner();
+    syncOfflineChip();
     if (main()) main().dataset.view = "simsetup";
     main().innerHTML = `<div class="card center">
       <h2>Loading the 2025 season</h2>
@@ -451,6 +542,7 @@
   // UI.week/LG.rules/LG.myTeamId, none of which this function ever writes.
   function paintHeader() {
     syncSimBanner();
+    syncOfflineChip();
     const meta = $("#hMeta");
     if (!meta || !LG.rules) return;
     meta.hidden = false;
@@ -557,18 +649,28 @@
   function renderOffline() {
     hideBnav();
     syncSimBanner();
+    syncOfflineChip();
     const why = LG.backendError ? `<p class="mut small">Reason: ${esc(LG.backendError)}</p>` : "";
     main().innerHTML = `<div class="card center">
       <h2>Couldn't reach the league</h2>
       <p class="mut">Your teams, rosters and results are all still there — this device just
-        can't get to them right now. Check the connection and try again.</p>
+        can't get to them right now, and hasn't saved a copy yet. Check the connection and
+        try again.</p>
       ${why}
       <button id="offlineRetry" class="primary">Try again</button>
       <p class="mut"><small>Nothing has been changed or lost.</small></p></div>`;
     $("#offlineRetry").addEventListener("click", async () => {
       const b = $("#offlineRetry");
       b.disabled = true; b.textContent = "Trying…";
-      const reached = await LG.retryBackend();
+      // BOUNDED BY CONSTRUCTION, and the button must prove it. LG.retryBackend() is one
+      // fsFetch and every fsFetch carries an AbortController timeout, so this can no longer
+      // hang — but the live incident that started this rework WAS a Retry stuck on "Trying…"
+      // forever, so the button is also restored in a finally: no failure shape, expected or
+      // not, may leave a dead control on screen.
+      let reached = false;
+      try { reached = await LG.retryBackend(); }
+      catch (e) { LG._markDegraded(e); reached = false; }
+      finally { if (b.isConnected) { b.disabled = false; b.textContent = "Try again"; } }
       // Re-render either way: on failure that restores a live button with the (possibly new)
       // reason; on success UI.boot() paints the real league over the top.
       if (!reached) { renderOffline(); toast("Still can't reach the league."); return; }

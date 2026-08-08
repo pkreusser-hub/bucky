@@ -549,6 +549,15 @@
                text-align:center; padding:7px 10px; }
   #simBanner[hidden] { display:none; }
   @media (min-width:1024px) { #simBanner { top:46px; } }
+  /* Offline-with-a-mirror chip (2026-08-08, the REST transport): the league renders normally
+     from this device's saved copy, so the chip is what keeps that honest — which copy, how
+     old, and that we're still trying. Clay rather than gold: this is a state to get out of,
+     not a mode to settle into. [hidden] restated because the rule above sets a display. */
+  #offlineChip { position:sticky; top:52px; z-index:19; background:var(--accent); color:#fff;
+                 font:700 11px var(--font-display); letter-spacing:.4px; text-transform:uppercase;
+                 text-align:center; padding:6px 10px; }
+  #offlineChip[hidden] { display:none; }
+  @media (min-width:1024px) { #offlineChip { top:46px; } }
 </style>
 </head>
 <body>
@@ -561,6 +570,7 @@
     </span>
   </header>
   <div id="simBanner" hidden></div>
+  <div id="offlineChip" hidden></div>
   <!-- #bnav stays a SIBLING of <header>, never a descendant: header sets backdrop-filter,
        and a backdrop-filter/filter/transform ancestor becomes the containing block for any
        position:fixed descendant in Chromium — nesting nav inside header would silently break

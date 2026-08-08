@@ -9738,3 +9738,167 @@ could hit the same bug on a poisoned profile — it is a DIFFERENT Firebase app 
 different IndexedDB, and nothing has been reported there, so it is untouched; the same heal is a
 straight port if it ever bites. A healed session runs without an offline cache (slightly slower
 cold paint, no offline reads) until the stamp expires — the accepted cost of working at all.
+
+## 🌐 GFFL — THE FIREBASE SDK IS OUT; THE TRANSPORT IS PLAIN REST (2026-08-08, UNCOMMITTED)
+
+The Firebase JS SDK caused **three live desktop incidents in one day**, every one of them in
+machinery this league never asked for. Files: `assets/league/lg-{core,ui}.js` · `league.html` ·
+`tools/_verify-gffl.cjs` (875 → **941**). `lg-data.js` and `netlify/functions/league.mjs`
+untouched. `node --check` clean on all four. No commits, no push.
+
+### The three incidents, and the one thing they have in common
+1. **The gstatic ESM import failing silently** → the catch dropped to the localStorage backend
+   without telling anyone → an empty read → the first-run "Import the league from ESPN" card
+   offered to a league with eight teams in Firestore.
+2. **The persistent IndexedDB cache corrupting** → `FIRESTORE (10.12.2) INTERNAL ASSERTION
+   FAILED: Unexpected state` on every read, on one desktop profile only. Same account, clean
+   IndexedDB on the phone → fine.
+3. **TODAY, right after that morning's heal shipped**: the outage card with **no reason line**
+   and a Retry stuck on **"TRYING…" forever**. The corrupted-cache bug can also manifest as a
+   HANG (an SDK deadlock, or `clearIndexedDbPersistence` blocking while another tab holds the
+   database) — **and a hung promise sails past every try/catch the heal wrapped around it.**
+
+None of the three is a network fault, a Firestore fault, or a fault in this league's data. All
+three live in the SDK's offline-cache layer. The user's directive, verbatim: *"we have to design
+the site so no user could ever get this sort of caching issue, they always need to be able to
+reach the site and see all the data."* So the layer came out.
+
+### The transport: five operations, plain `fetch`
+`get/set/del/list` are now the Firestore REST API. (`watch` had **zero callers** — grepped
+across all three JS files, `league.html` and the suite — so it is deleted rather than ported.)
+CORS is proven live from a browser's perspective (GitHub-runner **diag run 31276897340**,
+2026-08-08): a GET with an `Origin` answers 200 + `access-control-allow-origin`, the OPTIONS
+preflight for a JSON POST answers 200 with POST + content-type allowed, and a real `:runQuery`
+POST answers 200 + ACAO with the league's 8 team docs. Auth is the public web API key already
+in the page; the rules are public — the same posture the SDK had.
+- `get` → `GET …/documents/<COLL>/<id>?key=…`
+- `set` → `PATCH` with `updateMask.fieldPaths` naming **exactly** the top-level keys being
+  written. That IS `setDoc(merge:true)`: listed fields replaced, unlisted fields left alone.
+  An EMPTY mask means "replace the whole document" to Firestore — the opposite of a zero-field
+  merge — so a `set` with no fields is a no-op rather than a wire call.
+- `del` → `DELETE` (404 = already gone, not an error)
+- `list` → `POST …/documents:runQuery` with a `kind` `fieldFilter` (no composite index needed).
+  Rows without a `document` are skipped — a zero-result query really does answer with one
+  document-less row — and each id is attached **LAST** (the established clobber rule).
+
+**Two structural upgrades fall out, and they are the reason this is a rework rather than a port:**
+- **A 404 IS SERVER-CONFIRMED ABSENCE.** The entire "cache-served empty" ambiguity class — the
+  thing incident (1) turned on, and the reason `getDocsFromServer` re-asks had to be bolted onto
+  every read — *ceases to exist*. There is no cache that could invent an empty answer.
+- **NOTHING CAN HANG.** Every request goes through one wrapper with an **AbortController, 12s**.
+  Boot and Retry are each a bounded number of those, so both always complete. Incident (3)'s
+  stuck-"TRYING…" is not fixed, it is unreachable.
+
+### The codec, exactly
+Encode: `null`/`undefined`→`nullValue` · boolean→`booleanValue` · **`Number.isInteger`→
+`integerValue` (a STRING, per the API)**, other finite number→`doubleValue`, non-finite→
+`nullValue` · string→`stringValue` · array→`arrayValue.values` · plain object→`mapValue.fields`
+(keys with `undefined` skipped). **An array directly inside an array THROWS, loudly** —
+Firestore forbids it, our shapes already comply (the schedule doc's `{g:[{h,a}]}` encoding
+exists precisely for this), and a silent mangle would be far worse than a crash.
+Decode: the reverse; **both `integerValue` and `doubleValue` → `Number`** (this house has been
+burned by the other choice: a whole number written as a double made `rounds === 2` silently
+false after a round trip); `timestampValue`→ISO string; an **unknown value kind → `null` with
+one `console.warn`, never a throw mid-decode** — one odd field must not lose a whole document.
+Every field path is **backtick-quoted** (`` `name` ``, URL-encoded, backslash/backtick escaped).
+Firestore's grammar only accepts a bare `[a-zA-Z_][a-zA-Z_0-9]*` segment, and this house has
+already lost twelve silent hours to field-path grammar (activity.mjs's `03_news_v` 400s), so no
+key is trusted to be a bare identifier.
+
+### The snapshot mirror — data is always visible
+Every successful REST read writes through into the LOCAL backend's own `lg_<COLL>_<id>` keys,
+plus one stamp, `lg_snapstamp_<fam>`. **That stamp is the whole distinction**, and it is what
+keeps the entire existing suite architecture valid:
+- a store **WITH** the stamp is a MIRROR → when the cloud can't be reached, the league renders
+  **normally** from it, with a persistent clay chip ("Offline — showing this device's saved copy
+  (from 9 minutes ago) · reconnecting…") and a 20s auto-retry, and **every mutation is refused**;
+- a store **WITHOUT** the stamp is a genuine local-backend store — which is exactly what every
+  suite page seeds — so it stays fully read-write, no chip, behaviour unchanged.
+Refusals happen at the `LG.db.set/del` seam (before the optimistic cache update, so no phantom
+change is ever painted) by throwing an error carrying `offlineReadOnly`; lg-ui toasts from
+`LG.onOfflineWrite` and swallows **only that flag** in an `unhandledrejection` listener, so one
+tap gives one clear sentence instead of a console error, and every other rejection is untouched.
+A write into a mirror would be overwritten by the next successful cloud read — it would appear
+to work and then vanish, which is worse than being told no.
+**Mirror with no league in it** (stamped but teamless, or a cold device) → the honest outage
+card, exactly as before. Server-confirmed emptiness is **not weakened**: a 200-with-zero-rows is
+confirmed empty, a failed or timed-out call is not, and `LG.teamsConfirmed` still gates first-run.
+The chip's sticky top offset is **MEASURED** off the replay banner rather than hard-coded (the
+house's `--fs-topbar-h` / `--subnav-top` pattern) — the two strips would otherwise pin to the
+same top and overlap the moment the page scrolls.
+
+### THREE REAL DEFECTS the work found, none of them in the brief
+1. **`retryBackend` rebuilt the transport.** The first cut called `initCloud()` unconditionally,
+   which reassigns `cloud` — **throwing away a fake cloud a test had installed underneath it**,
+   and in production discarding a perfectly good handle to rebuild an identical one. Caught by
+   section Z3 failing ("Retry once the connection is back re-boots straight into the real
+   league"). It re-probes the existing handle and only builds one when there is none.
+2. **The 2025 replay's auto-setup would have run against a read-only mirror.** `UI.boot` reaches
+   `simNeedsSetup()` after the emptiness guard, so an offline device with a 2026-shaped mirror
+   would have launched a write-heavy ESPN import that could only fail — a setup card where the
+   league should be. Now gated on `!LG.mirrorOffline`: a device that has been online already
+   holds the seeded season, one that hasn't runs the setup the moment it reconnects.
+3. **The outage card's Retry could still be left dead by an unexpected throw.** Bounded time is
+   now structural, but the button is *also* restored in a `finally` — the live incident was a
+   dead control, and no failure shape, expected or not, may leave one on screen.
+4. **Opening the app on a mirror raised the offline toast with nobody having touched anything**
+   — found by LOOKING at the desktop plate, not by a test. The boot chain does its own internal
+   writes (`runAutoChecks` carrying the league forward; `ensureRoster` copying a previous week
+   forward), each of which was refused and toasted for. Both are now skipped on a mirror, which
+   is the correct behaviour anyway: a device reading a stale, read-only copy has no business
+   processing waivers or finalizing weeks, and a copied-forward roster still resolves in memory,
+   it just isn't persisted. `LG.snapshotProjections` was a third — found by instrumenting
+   `LG.db.set` with a stack capture on a real mirror boot rather than by guessing a fourth time
+   (the mirror boot now records **zero** writes, asserted). The toast is for what a PERSON did.
+
+### SUITE TALLY, and the numbers behind it
+875 (baseline, exit 0) → **948/948**. Section AB deleted (−18) → 857 with the app files swapped
+to HEAD, i.e. **every pre-existing check survives the transport swap**; new section AB adds 91.
+
+### MEASURED
+The never-responds test, against the real shipped 12s budget: **boot 12,046 ms** to a screen a
+person can act on (budget 12,000), reason on screen `Firestore read timed out after 12s`;
+**Retry 12,011 ms** and back to a tappable "Try again". Both asserted `> budget × 0.5` as well as
+`< budget + 8s`, so the test proves it really waited for the timeout rather than failing fast for
+some unrelated reason. Diff: lg-core **−452/+? net restructure**, lg-ui +103, league.html +10.
+
+### THE NEW SECTION AB
+Section **AB deleted outright** (the IndexedDB heal and its fake-Firestore-module fixtures — the
+bug class no longer exists), and a new **AB** written in its place (**84 checks**) driving the
+REST transport end to end through puppeteer request interception against real wire-shape
+fixtures. The fixture's encoder is deliberately an **INDEPENDENT** implementation of the same
+rules, which is what makes the round-trip checks real rather than a function agreeing with
+itself. Covered: a real REST boot (probe URL, runQuery kind-filter and collection id **on the
+wire**, decode, mirror write-through + stamp) · 404 as confirmed absence with first-run still
+reachable · `set()`'s updateMask (exactly the top-level keys, every path backtick-quoted) and
+integer-vs-double hand-checked in the PATCH body, plus a round trip and a real merge · `del()`
+as a DELETE with the follow-up read 404ing to null · the hang → bounded → tappable-Retry
+regression · codec unit tests (round trip, 0 and negatives as integers, nested maps,
+arrays-of-maps, the nested-array loud throw, an unknown kind → null) · the mirror rendering the
+league offline with the chip and refusing a real chat post with a toast and zero writes · the
+same store **without** the stamp behaving exactly as today (writes fine, no chip) · the auto-
+retry recovering on its own through the real `setInterval` when the connection returns · a cold
+store still getting the outage card · and a grep proving the SDK is gone.
+**Verified: with the new section absent the suite reads 857 pass / 2 fail — and the 2 were Z3's,
+from defect 1 above, now fixed. Every one of the 857 pre-existing checks survives the transport
+swap untouched.**
+**RESTAGED — one thing, with its reason in the file**: the "no SDK survives" grep strips
+comments before applying the ban (the header note deliberately NARRATES the three outages and
+names the machinery that caused them; a `//` preceded by `:` is a URL, not a comment, so
+stripping those naively would delete the REST endpoint the very next check looks for).
+Sections Z (server-confirmed emptiness) and every `armFakeCloud` section needed **no changes** —
+they operate above the transport, which is the point of `_installFakeCloud` living where it does.
+Shots: `shots/gffl_rest_offline_{390,desktop}.png` — viewport, not `fullPage`: the chip is
+`position:sticky` and this repo has already been bitten by `fullPage` disagreeing with a sticky
+element's real placement.
+
+### KNOWN / DEFERRED
+There is no offline cache at all now, so every read is a real round trip — the in-memory
+`LG.db` cache (15s background refresh) is the only thing between a warm view and the network,
+exactly as it was for the SDK's cloud path, and section P's zero-extra-reads budget still holds.
+A mirror is refreshed only by reads this app actually makes, so a doc never read on this device
+is not in it. The mirror is per-browser-profile `localStorage`, so quota/private mode degrade it
+silently (deliberately — the mirror is a bonus, never a requirement). And `index.html`'s own
+cloud backend still uses the SDK with `persistentLocalCache`; nothing has been reported there,
+and it is a different Firebase app and therefore a different IndexedDB, but this transport is a
+straight port if it ever bites.
