@@ -9258,3 +9258,145 @@ bigger `list`, re-sort the same way) is unchanged code shared with every other s
 a coverage gap in breadth rather than a known-risky path; and OPP/STATUS still only ever read
 "if-known" (this app tracks no historical NFL schedule), so a player whose NFL team isn't on the
 current week's slate at all (a bye, or simply not tracked) reads "—" in both columns, honestly.
+
+## 🚨 GFFL — THE EMPTY-LEAGUE BUG: emptiness must be the league's own answer (2026-08-08, UNCOMMITTED)
+
+The live site opened on the first-run **"Import the league from ESPN"** card against a Firestore
+collection that has eight teams in it, and the import then "wasn't working". Files:
+`assets/league/lg-{core,ui}.js` · `league.html` · `tools/_verify-gffl.cjs` (767 → **818**).
+`lg-data.js` and `netlify/functions/league.mjs` untouched. `node --check` clean on all three JS
+files. No commits, no push.
+
+**THE DATA WAS NEVER THE PROBLEM — I checked it first.** A Firestore REST read of
+`gffl_fam2jan2g` with nothing but the public web key returns **29 docs: 8 × `kind:"team"`,
+8 rosters, 8 history seasons, sched, settings, claims, projsnap, chat** — present, well-formed,
+and readable unauthenticated. (`gffl_fam2jan2g_t25`, the 2025 sandbox, holds another 56.) So the
+league store had the league; the app's read path failed to deliver it, and then **misread its own
+silence as an answer.**
+
+### Root cause: NOTHING distinguished "the league says there are no teams" from "we never heard back"
+`renderLeague()` branched on `LG.teams.length === 0` alone, and `LG.teams` is whatever
+`LG.db.list("team")` last returned. Two ways to get an empty list that means nothing at all, and
+BOTH end on the first-run card:
+1. **The silent local fallback.** `LG.backendReady`'s catch dropped to the localStorage backend
+   on ANY failure — a blocked/failed gstatic ESM import, an ad-blocker, an offline first paint, a
+   cold IndexedDB — and said so to nobody. A device that has never cached this league then reads
+   zero docs, truthfully, from the wrong store.
+2. **A cache-served empty QUERY.** `getDocs()` with the default source tries the server and falls
+   back to the cache, and — unlike `getDoc()` — **a query never rejects for a cache miss**: an
+   empty cold cache is byte-identical to "a query with zero results" (`snap.empty` true,
+   `metadata.fromCache` true). So even a working cloud path could report an empty league.
+
+This is the `serverConfirmed` lesson index.html learned twice with the goat herd, in a new place:
+**emptiness must be SERVER-CONFIRMED before any "let's set this up from scratch" UI appears.**
+Offering the import there is the worst possible answer — it tells an owner their league doesn't
+exist, and every write it then makes lands in whatever degraded store we fell back to.
+
+### The fix, in four parts
+- **`LG.backendDegraded` / `LG.backendError` / `LG.dataConfirmed()`** (lg-core): true until a real
+  backend read proves otherwise. `initCloud()` was extracted from the `backendReady` IIFE so the
+  same path can be re-run; it clears the flag only after the reachability probe genuinely
+  answers. The reason is kept verbatim and **printed on screen**, so the next report identifies
+  itself instead of needing this forensics pass again.
+- **The cloud reader confirms its own negatives.** An empty `getDocs` that came `fromCache` is
+  re-asked with `getDocsFromServer` (and a missing `getDoc` with `getDocFromServer`); if that
+  fails the session is marked degraded rather than reporting absence. A server-confirmed read
+  clears the flag again — one blip must not brand a whole session.
+- **`LG.teamsConfirmed`**, recorded inside `loadTeams()` **at read time** (not re-read at render
+  time, so a later unrelated degradation can't retroactively change what an already-answered read
+  meant). `UI.boot()` refuses to route into the claim screen or first-run on an unconfirmed empty
+  read — checked BEFORE those branches so no hash (`#moves`, `#rules`, …) slips past — and
+  `renderFirstRun()` carries the same guard as a second line.
+- **`renderOffline()`** — "Couldn't reach the league", the reason, "your teams, rosters and
+  results are all still there", a **Retry**, and no nav. Retry re-probes the existing cloud handle
+  first (if only the network was down, re-importing the ESM modules is wasted work) and falls back
+  to a full re-init, then drops every cached read — a cache filled while degraded is a cache of
+  answers nobody could confirm.
+
+**EXEMPT, deliberately: the 2025 test sandbox.** Its whole premise is a throwaway namespace that
+STARTS empty and is built by its own idempotent, resumable wizard, so "empty" there is the
+expected state rather than a claim about the family's league — and being wrong about it costs
+nothing (Reset + re-run is the normal flow). Without the exemption, entering the sandbox on a
+degraded backend showed the outage card and the wizard could never run. The outage card still
+carries an **Exit the 2025 test season** button when the flag is set, so a degraded sandbox is
+never a dead end (the Exit button otherwise lives on a Rules page you can't reach from there).
+
+### Two more real defects the work turned up
+- **A THROWING boot read left the page on "Loading the league…" forever.** `UI.boot()`'s
+  `Promise.all([loadRules, loadTeams, loadSchedule])` had no catch and `league.html` called
+  `LG.ui.boot()` without one either, so a backend that *rejects* mid-boot (a dropped connection, a
+  Firestore error) produced an unhandled rejection and a permanent placeholder. Both now end on
+  the same honest outage card. **Found by the new suite, not by reading** — Z3's
+  "reachable-then-broken backend" case.
+- **`knownAbsent()` could derive absence from an unconfirmed snapshot.** The negative-absence
+  shortcut answers `get()` straight out of a cached `list()`; a list taken while the cloud was
+  unreachable can be an empty offline-cache answer, which would make every doc of that kind read
+  as missing for the life of the tab. It now refuses to answer while a CLOUD session is degraded.
+  The local backend is exempt on purpose — localStorage answers truthfully, so an empty local list
+  really does mean "not on this device", and the perf shortcut every warm view depends on is
+  intact (section P still measures zero extra reads). The quiet background list-refresh also
+  refuses to REPLACE real cached rows with an empty result from a read that went degraded — better
+  the last known-good league than a blank one behind the user's back.
+
+### "The import isn't working" — it was failing silently, in two different ways
+- Every importer opened with `$("#importOut").innerHTML = …`, which **throws on a null element**.
+  The first-run card calls `importFromEspn()` straight after `UI.show("rules")`; one
+  missing/renamed container and the tap does nothing, forever, with no error a person can see.
+  There is now a single `importOut()` helper that creates the container if the view doesn't carry
+  one and can never return null.
+- **The APPLY half had no catch at all.** `saveRules`/`saveTeam`/`saveRoster`/`db.set` — exactly
+  the calls a degraded backend rejects — left the button dead and the screen unchanged. Every
+  import write path now routes failures through `importFail()` (a real error card naming the
+  reason + a toast), the Apply button disables itself while it runs, and both taps that START an
+  import catch a throw instead of dropping it on the floor. The test-season wizard got the same
+  treatment: a thrown write used to leave "Starting…" up forever.
+
+### Test-mode namespace audit (the second suspect) — clean, and now asserted
+Every `LG.COLL` / `LG.SEASON` consumer reads them AT CALL TIME (`local.key` is an arrow, every
+cloud method takes them per call, `rosterId`/`weeklyId`/`claimsId`/`bracketId` are all functions),
+so nothing captures a stale namespace. `applyTestModeVars()` always derives from `LG.REAL_COLL`,
+never from the current value, so it is idempotent and can't double-suffix; it runs at module eval
+**before `LG.db` exists**, so a returning visitor's flag applies from the very first read;
+enter/exit/reset each clear every cache and hard-reload. Nothing here explained the live bug, and
+section Z7 now pins all of it — including a genuine stale-flag boot into the sandbox and an exit
+that reads the real league on the very next boot.
+
+### Suite: 767 → **818/818, 0 page errors**
+New **section Z** (51 checks), one block per failure shape, plus a reusable `armFakeCloud()`
+harness (the section-W setter technique, generalized) and a tolerant `waitOr()`.
+- **Z1** cold cloud boot — data in the cloud, NOTHING in local storage, 250ms/call: a loading
+  state, then the real league, and the first-run card **never** appears, not for one sampled frame.
+- **Z2** THE BUG — cloud unreachable, nothing local: the outage card, never first-run, with the
+  flags and the recorded reason. **Z3** reachable-then-broken, plus a Retry that fails honestly
+  and then recovers in place. **Z4** a CONFIRMED-empty backend still offers first run (setup must
+  keep working). **Z5** a backend WITH teams can't reach first run via any hash. **Z6**
+  `knownAbsent` before/after degradation. **Z7** the test-mode round trip. **Z8/Z9** import
+  failures visible, `#importOut` never null, both taps caught.
+- **VERIFIED PRE-FIX by stashing `lg-core.js`/`lg-ui.js`/`league.html` back to HEAD and re-running
+  the same suite: 792 pass / 26 fail, and every one of the 26 is in section Z** — so the fix is
+  what closes them and the B2 restage isn't masking anything (all 767 pre-existing checks pass on
+  both sides). Among the 26: all three "…NOT the first-run import card" checks, "the honest
+  couldn't-reach card", the whole retry cycle, `knownAbsent`-while-degraded, and every
+  import-visibility check. Pre-fix, Z1's cold-cloud boot ALSO shows the first-run card — old
+  `backendReady` unconditionally stamps `backendMode = "local"` when the gstatic import fails,
+  even with a working backend installed underneath, which is the exact "silent local fallback →
+  empty → first-run" shape reproducing with the league's data sitting right there.
+- **RESTAGED, with the reason recorded in the file: B2 only.** "First run — empty league → import
+  → claim" used to run on the LOCAL backend, which the app now (correctly) refuses to take an
+  empty read from; it arms an EMPTY fake cloud instead, so the premise it always relied on —
+  *the backend says there are no teams* — is now stated honestly rather than assumed. The
+  behaviour under test is unchanged.
+
+**TEST GOTCHAS worth keeping** (both cost a run): `document.body.textContent.slice(0, 60)` never
+reaches `#main` — the sticky header and the 8-entry nav contribute ~60 characters of their own
+first, so a short slice silently tests nothing; read the element you mean. And the LOCAL backend
+lists by key PREFIX, where `lg_gffl_<fam>_` is itself a prefix of `lg_gffl_<fam>_t25_`, so a
+real-collection list also picks up sandbox docs — a harness artifact of localStorage (Firestore
+collections are genuinely separate), already documented above `snapshotRealDocs`.
+
+**KNOWN / DEFERRED**: the outage card is only reached when the league is EMPTY — a degraded
+session that still has cached rows renders them (stale data beats no data), it just can't be
+confirmed; `LG.backendDegraded` starts `true` and is only cleared by a real answer, so anything
+reading `dataConfirmed()` before `backendReady` settles sees false by design; and the deployed
+site is not observable from here, so which of the two unconfirmed-read shapes the user actually
+hit is still unknown — the card now prints `LG.backendError`, which will say so the next time.

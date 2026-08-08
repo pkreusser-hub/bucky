@@ -585,7 +585,10 @@
     // localStorage read) and used to sit blocked behind the Firebase ESM import + reachability
     // probe for nothing. UI.boot() itself awaits LG.backendReady right before its first real
     // LG.db read, once we actually know we're unlocked.
-    LG.ui.boot();
+    // Last-resort net: UI.boot() catches its own backend failures, but a throw anywhere else
+    // in the boot chain must still leave a screen a person can act on, never the permanent
+    // "Loading the league…" placeholder (live bug 2026-08-08).
+    LG.ui.boot().catch((e) => { try { LG.ui.renderOffline(); } catch (_) {} console.error("GFFL boot failed", e); });
     // Test hook — the suites drive and inspect through this.
     window.__GFFL__ = { LG, get D() { return LG.data; }, get UI() { return LG.ui; } };
   </script>
