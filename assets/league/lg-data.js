@@ -853,6 +853,21 @@
   //      entry and D.projFor degrades to "—", exactly like the real league's "not warm yet".
   D.S.simProj = null;       // {map, source:"projection"|"actual"}
   D.S.simProjInFlight = null;
+  // ≥25 rows carrying any real stat field (the Sleeper keys normSlp actually reads) = a genuine
+  // projections map; fewer = an ADP-only husk, treat as absent. 25 is far below a real week's
+  // hundreds of projected players and far above any plausible stray.
+  function simProjUsable(m) {
+    let n = 0;
+    for (const k in m) {
+      const r = m[k];
+      if (r && (Number(r.pass_yd) || Number(r.rush_yd) || Number(r.rec_yd) || Number(r.rec) ||
+                Number(r.pass_td) || Number(r.fgm_yds) || Number(r.xpm) || Number(r.def_sack) || Number(r.sack))) {
+        if (++n >= 25) return true;
+      }
+    }
+    return false;
+  }
+  D.simProjUsable = simProjUsable; // test hook
   D.simEnsureProj = function () {
     if (D.S.simProj) return Promise.resolve(D.S.simProj);
     if (D.S.simProjInFlight) return D.S.simProjInFlight;
@@ -862,7 +877,12 @@
       let map = null, source = "projection";
       try {
         const j = await fx("sim projections", `${SLP}/projections/nfl/regular/${LG.SEASON}/${week}`);
-        if (j && typeof j === "object" && Object.keys(j).length) map = j;
+        // "Non-empty" is NOT "usable" (live probe, 2026-08-08): Sleeper's ARCHIVED projections
+        // bucket for a completed season still answers 200 with thousands of rows, but rows can
+        // carry only ADP fields (adp_dd_ppr etc.) with every stat projection stripped — a map
+        // like that scores 0.0 through normSlp/D.score for every player, which is worse than
+        // the honest fallback. Usable = a healthy number of rows carrying REAL stat fields.
+        if (j && typeof j === "object" && simProjUsable(j)) map = j;
       } catch (e) { /* fall through to the archived-actuals proxy */ }
       if (!map) {
         try {

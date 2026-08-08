@@ -374,10 +374,16 @@ jobs:
               print('parse fail:', e); print(open('/tmp/pr25.json','rb').read(300)); raise SystemExit
           if isinstance(d, dict):
               ks = list(d.keys())
-              print('players:', len(ks))
-              if ks:
-                  row = d[ks[0]] or {}
-                  print('sample:', ks[0], dict(list(row.items())[:6]))
+              F = ('pass_yd','rush_yd','rec_yd','rec','pass_td','fgm_yds','xpm','def_sack','sack')
+              n = sum(1 for k in ks if isinstance(d.get(k), dict) and any((d[k] or {}).get(f) for f in F))
+              print('players:', len(ks), '| stat-bearing rows:', n)
+              print('verdict:', 'USABLE -> app uses these as projections' if n >= 25 else 'ADP HUSK -> app derives projections from real wk1 finals')
+              for k in ks:
+                  row = d.get(k) or {}
+                  if any(row.get(f) for f in F):
+                      print('stat sample:', k, dict(list(row.items())[:8])); break
+              else:
+                  if ks: print('adp-only sample:', ks[0], dict(list((d[ks[0]] or {}).items())[:6]))
           else:
               print('shape:', type(d).__name__, 'len', len(d) if hasattr(d, '__len__') else '?')
           PY
