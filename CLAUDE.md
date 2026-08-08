@@ -9684,3 +9684,57 @@ it — a stale literal there fails as a 5s TIMEOUT + suite crash, not as a reada
 **KNOWN**: the player stats card follows "always" literally (ESPN shows the full name there) — one
 line if the family wants the card full; and `sports.html`'s ESPN-fantasy viewer is a separate app
 surface, deliberately not touched.
+
+## 🩹 GFFL — the Firestore IndexedDB assertion bug heals itself (2026-08-08, live desktop report)
+
+User: the league worked on their phone and dead-ended on their desktop showing the outage card
+with **"FIRESTORE (10.12.2) INTERNAL ASSERTION FAILED: Unexpected state"**. Files:
+`assets/league/lg-core.js` + suite (859 → **875**).
+
+**THE OUTAGE CARD WAS RIGHT ABOUT THE FACTS AND WRONG ABOUT THE ANSWER** — and it named its own
+cause, which is exactly what the 2026-08-08 server-confirmed-emptiness fix built it to do. That
+assertion is a long-standing SDK bug in the PERSISTENT (IndexedDB) cache layer: a property of
+**that browser profile's stored database**, not of the network or the league. Same account, same
+code, clean IndexedDB on the phone → fine; poisoned IndexedDB on the desktop → every read throws.
+The read throwing is what (correctly) stopped the app calling the league empty, but "couldn't
+reach the league" is the wrong conclusion when the league is perfectly reachable and only the
+local cache is broken. **The device's only way out was clearing site data, which no family member
+should ever have to know about.**
+
+**HEAL, DON'T DEAD-END.** Every cloud read/write now goes out through a wrapper: on this specific
+failure the session re-inits on an **in-memory cache** and re-runs the same call once, so the
+reader never sees it. Details that make it safe rather than hopeful:
+- **A different Firebase app name** (`gffl-mem`) for the healed handle — `initializeFirestore` may
+  only be called once per app, so healing in place would throw "Firestore has already been started".
+- **`healed` latches once per session**, and the retry dispatches through the module-level `cloud`
+  (which the re-init repoints), so it cannot loop.
+- **The poisoned database is terminated + cleared** best-effort, so a later load can have
+  persistence back; both calls legitimately fail in plenty of states and neither is allowed to
+  stop the re-init that actually unblocks the reader.
+- **A suppression stamp** (`gffl_nopersist`) makes the very next load skip the poisoned cache
+  outright — and **expires after 7 days** rather than punishing the device forever.
+- **A global `unhandledrejection`/`error` listener** stamps too: the SDK can throw this from its
+  own internals, off any promise we awaited. We cannot retry a call we never made, but we can
+  make sure the next load doesn't repeat it.
+- **The classifier is narrow** (`/INTERNAL ASSERTION FAILED|Unexpected state/i`): an ordinary
+  failure still reaches the honest outage card with its own reason. Asserted both ways.
+
+**THE SEAM**: `LG._fbLoad` is now `LG._fbLoad || (real dynamic imports)` — a pre-seeded
+`window.LG = { _fbLoad }` wins, because lg-core does `window.LG = window.LG || {}`. That one `||`
+is what makes the bug testable at all: it only exists across a real module boundary, and gstatic
+is blocked in every suite page. (First attempt used an `Object.defineProperty` setter trick on
+`window.LG` and silently never engaged — the seam has to be cooperative, not ambushed.)
+
+**Suite section AB** drives the REAL failure through a fake Firestore whose persistent handle
+throws the genuine assertion string and whose memory handle works: a first boot tries persistent →
+heals to memory → ends in confirmed CLOUD mode → **never shows the outage card** → terminates and
+clears the poisoned db → stamps; a second boot goes STRAIGHT to memory and heals nothing; the
+stamp expires at 7 days; and an ordinary failure still produces the outage card. Its own fake
+initially ignored the `where` filter (so `LG.teams` counted the settings doc) — fixed in the
+fake, not by weakening the assertion.
+
+**KNOWN / DEFERRED**: `index.html`'s own cloud backend uses the same `persistentLocalCache` and
+could hit the same bug on a poisoned profile — it is a DIFFERENT Firebase app name and therefore a
+different IndexedDB, and nothing has been reported there, so it is untouched; the same heal is a
+straight port if it ever bites. A healed session runs without an offline cache (slightly slower
+cold paint, no offline reads) until the stamp expires — the accepted cost of working at all.

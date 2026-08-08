@@ -5805,6 +5805,170 @@ async function openDetails(page, id) {
     await ctx.close();
   }
 
+
+  // ============ SECTION AB: the Firestore IndexedDB assertion bug self-heals ============
+  // Live report (2026-08-08): the league worked on the user's phone and dead-ended on their
+  // desktop with 'FIRESTORE (10.12.2) INTERNAL ASSERTION FAILED: Unexpected state' printed on
+  // the outage card. That is a known SDK bug in the PERSISTENT (IndexedDB) cache — a property
+  // of that browser profile's stored database, not of the network: the league is perfectly
+  // reachable, only the local cache is poisoned. The honest outage card was the right answer to
+  // the wrong question, so the session now drops to an in-memory cache, retries the read, and
+  // best-effort deletes the corrupted database.
+  // The bug is only reachable through a real module boundary, and gstatic is blocked in every
+  // suite page — so this drives it through LG._fbLoad, the import seam, with a fake Firestore
+  // whose PERSISTENT handle throws the real assertion and whose MEMORY handle works.
+  section("AB: the IndexedDB assertion bug heals instead of dead-ending");
+  {
+    const fakeFb = (opts) => `(() => {
+      const OPTS = ${JSON.stringify(opts || {})};
+      window.__FB__ = { inits: [], caches: [], terminated: 0, cleared: 0, reads: 0 };
+      const DOCS = ${JSON.stringify({
+        settings: { kind: "settings", season: 2026 },
+        team_1: { kind: "team", id: 1, name: "Battle Kreussers", abbrev: "BK" },
+        team_2: { kind: "team", id: 2, name: "End Zone Goats", abbrev: "EZ" },
+      })};
+      const snapOf = (d) => ({ exists: () => !!d, data: () => d, metadata: { fromCache: false } });
+      window.LG_FB_FAKE = {
+        appMod: {
+          getApp: (n) => { const a = window.__FB__.inits.find((x) => x === n); if (!a) throw new Error("no-app"); return { name: n }; },
+          initializeApp: (cfg, n) => { window.__FB__.inits.push(n); return { name: n }; },
+        },
+        fs: {
+          persistentLocalCache: () => ({ kind: "persistent" }),
+          persistentMultipleTabManager: () => ({}),
+          memoryLocalCache: () => ({ kind: "memory" }),
+          initializeFirestore: (app, o) => { const k = o.localCache.kind; window.__FB__.caches.push(k); return { app, cache: k }; },
+          getFirestore: (app) => ({ app, cache: "default" }),
+          terminate: async () => { window.__FB__.terminated++; },
+          clearIndexedDbPersistence: async () => { window.__FB__.cleared++; },
+          doc: (db, coll, id) => ({ db, id }),
+          collection: (db, coll) => ({ db }),
+          // honor the kind filter — otherwise a list("team") also returns the settings doc
+          query: (c, filt) => ({ db: c.db, filt }), where: (f, op, v) => ({ f, op, v }),
+          getDoc: async (ref) => {
+            window.__FB__.reads++;
+            if (ref.db.cache === "persistent") throw new Error("FIRESTORE (10.12.2) INTERNAL ASSERTION FAILED: Unexpected state");
+            if (OPTS.memoryAlsoBroken) throw new Error("boom");
+            return snapOf(DOCS[ref.id] || null);
+          },
+          getDocFromServer: async (ref) => snapOf(DOCS[ref.id] || null),
+          getDocs: async (q) => {
+            if (q.db.cache === "persistent") throw new Error("FIRESTORE (10.12.2) INTERNAL ASSERTION FAILED: Unexpected state");
+            const rows = Object.entries(DOCS)
+              .filter(([, d]) => !q.filt || d[q.filt.f] === q.filt.v)
+              .map(([id, d]) => ({ id, data: () => d }));
+            return { empty: !rows.length, metadata: { fromCache: false }, forEach: (f) => rows.forEach(f) };
+          },
+          getDocsFromServer: async (q) => ({ empty: false, metadata: { fromCache: false }, forEach: () => {} }),
+          setDoc: async () => {}, deleteDoc: async () => {}, onSnapshot: () => () => {},
+        },
+      };
+    })()`;
+    // The seam has to be replaced BEFORE lg-core evaluates, so this rides in as an init script.
+    const bootFake = async (page, opts) => {
+      await page.evaluateOnNewDocument(new Function(fakeFb(opts)));
+      // lg-core does `window.LG = window.LG || {}` and sets its seam with `||`, so a pre-seeded
+      // object with _fbLoad on it is adopted whole and the override survives.
+      await page.evaluateOnNewDocument(() => {
+        window.LG = { _fbLoad: async () => window.LG_FB_FAKE };
+      });
+    };
+    {
+      const ctx = await browser.createBrowserContext();
+      const page = await ctx.newPage();
+      await page.setViewport({ width: 1440, height: 900 });
+      const errors = []; page.on("pageerror", (e) => errors.push(String(e)));
+      await bootFake(page, {});
+      await page.evaluateOnNewDocument((pfx) => {
+        localStorage.setItem("gffl_pass", "amenfarms");
+        localStorage.setItem("gffl_team", "1"); localStorage.setItem("gffl_who", "Peter");
+      }, LSPFX);
+      await page.setRequestInterception(true);
+      page.on("request", (r) => (r.url().startsWith(BASE) ? r.continue() : r.abort()));
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "load" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.backendMode, { timeout: 15000 });
+      const st = await page.evaluate(() => ({
+        mode: window.__GFFL__.LG.backendMode,
+        degraded: window.__GFFL__.LG.backendDegraded,
+        caches: window.__FB__.caches,
+        terminated: window.__FB__.terminated,
+        cleared: window.__FB__.cleared,
+        stamp: !!localStorage.getItem("gffl_nopersist"),
+        body: document.body.textContent,
+      }));
+      ok(st.caches[0] === "persistent", "a first, unpoisoned-looking boot DOES try the persistent cache (" + JSON.stringify(st.caches) + ")");
+      ok(st.caches.includes("memory"), "…and when it throws the assertion the session re-inits on an in-memory cache");
+      ok(st.mode === "cloud" && st.degraded === false, "…the session ends in confirmed CLOUD mode, not degraded (" + st.mode + "/" + st.degraded + ")");
+      ok(!/Couldn't reach the league/i.test(st.body), "…so the reader NEVER sees the outage card — the league was always reachable");
+      ok(st.terminated === 1 && st.cleared === 1, "…and the poisoned database is terminated + cleared so a later load can have persistence back");
+      ok(st.stamp, "…a suppression stamp is written so the very next load skips the poisoned cache outright");
+      ok(errors.length === 0, "0 page errors");
+      // The league really renders — healing is worth nothing if the data doesn't arrive.
+      await page.waitForSelector(".mucard, .teamrow, .card", { timeout: 9000 });
+      const teams = await page.evaluate(() => window.__GFFL__.LG.teams.length);
+      ok(teams === 2, "…the real league data loads through the healed handle (" + teams + " teams)");
+      await ctx.close();
+    }
+    {
+      // SECOND load on that same device: the stamp is honored, so persistence is never touched
+      // — no assertion, no heal, no terminate. And the stamp EXPIRES (7 days) rather than
+      // punishing the device forever.
+      const ctx = await browser.createBrowserContext();
+      const page = await ctx.newPage();
+      const errors = []; page.on("pageerror", (e) => errors.push(String(e)));
+      await bootFake(page, {});
+      await page.evaluateOnNewDocument(() => {
+        localStorage.setItem("gffl_pass", "amenfarms");
+        localStorage.setItem("gffl_team", "1"); localStorage.setItem("gffl_who", "Peter");
+        localStorage.setItem("gffl_nopersist", String(Date.now()));
+      });
+      await page.setRequestInterception(true);
+      page.on("request", (r) => (r.url().startsWith(BASE) ? r.continue() : r.abort()));
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "load" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.backendMode === "cloud", { timeout: 15000 });
+      const st = await page.evaluate(() => ({
+        caches: window.__FB__.caches, terminated: window.__FB__.terminated,
+        expired: window.__GFFL__.LG._persistenceSuppressed(),
+        expiredOld: (() => { localStorage.setItem("gffl_nopersist", String(Date.now() - 8 * 24 * 3600 * 1000));
+                             return window.__GFFL__.LG._persistenceSuppressed(); })(),
+      }));
+      ok(!st.caches.includes("persistent") && st.caches.includes("memory"),
+        "a device that has already hit the bug goes STRAIGHT to memory — the poisoned cache is never opened again (" + JSON.stringify(st.caches) + ")");
+      ok(st.terminated === 0, "…and nothing needs healing, because nothing threw");
+      ok(st.expired === true && st.expiredOld === false, "…the suppression stamp expires after a week, so persistence gets another chance");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // The classifier must be narrow: an ORDINARY failure (a real outage) must still produce
+      // the honest outage card, not a pointless cache dance.
+      const ctx = await browser.createBrowserContext();
+      const page = await ctx.newPage();
+      const errors = []; page.on("pageerror", (e) => errors.push(String(e)));
+      await bootFake(page, { memoryAlsoBroken: true });
+      await page.evaluateOnNewDocument(() => {
+        localStorage.setItem("gffl_pass", "amenfarms");
+        localStorage.setItem("gffl_nopersist", String(Date.now())); // memory path, and it throws "boom"
+      });
+      await page.setRequestInterception(true);
+      page.on("request", (r) => (r.url().startsWith(BASE) ? r.continue() : r.abort()));
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "load" });
+      await page.waitForFunction(() => /Couldn't reach the league/i.test(document.body.textContent), { timeout: 15000 });
+      const cls = await page.evaluate(() => ({
+        real: window.__GFFL__.LG._isAssertionBug(new Error("FIRESTORE (10.12.2) INTERNAL ASSERTION FAILED: Unexpected state")),
+        alsoReal: window.__GFFL__.LG._isAssertionBug("INTERNAL ASSERTION FAILED"),
+        ordinary: window.__GFFL__.LG._isAssertionBug(new Error("Failed to fetch")),
+        blank: window.__GFFL__.LG._isAssertionBug(null),
+        why: window.__GFFL__.LG.backendError,
+      }));
+      ok(cls.real && cls.alsoReal, "the classifier recognises the assertion bug in both shapes it arrives in");
+      ok(!cls.ordinary && !cls.blank, "…and does NOT swallow an ordinary failure (a real outage still reads as one)");
+      ok(/boom/.test(cls.why), "…a genuine backend failure still reaches the honest outage card with its own reason (" + cls.why + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close();
   console.log("\n================================");
