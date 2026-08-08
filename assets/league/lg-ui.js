@@ -1084,10 +1084,29 @@
     return [...byDay.entries()].map(([day, list]) =>
       `<div class="scoreday"><h2 class="small mut">${esc(day)}</h2><div class="scgrid">${list.map(scoreCardHtml).join("")}</div></div>`).join("");
   }
+  // Our OWN league's current-week matchups (coordinator addendum, 2026-08-08 — the Scores tab
+  // showed nothing but a blank ESPN-fantasy card, no GFFL scores at all). Reuses the EXACT same
+  // data path + card renderer the league home already uses (LG.gamesForWeek + matchupCard,
+  // both defined above) — the numbers here are provably the same numbers, not a second
+  // computation that could disagree. Rendered ABOVE both the NFL slate and the ESPN card.
+  function gfflScoresHtml(games) {
+    if (!games || !games.length) return "";
+    return `<div class="card"><h2>GFFL — Week ${UI.week}</h2><div class="mugrid">${games.map(([h, a]) => matchupCard(h, a)).join("")}</div></div>`;
+  }
+  // "Every matchup reads 0-0 with 0.0 points" — the exact preseason/pre-draft shape the
+  // coordinator flagged from a live screenshot: nothing has been played yet, so the card has
+  // no real signal to show. Meaningless in the 2025 test sandbox for the same reason (it's a
+  // family ESPN league that was never drafted for that past season) — hidden there always.
+  function ffAllZero(matchups) {
+    const zeroSide = (t) => !t || ((t.points == null || t.points === 0) && (!t.record || t.record === "0-0"));
+    return matchups.every((m) => zeroSide(m.home) && zeroSide(m.away));
+  }
   // Degrades to hiding the card entirely on any failure (unconfigured league, expired cookie,
   // network hiccup) — the brief's spec, and matches how every other AI/fantasy card here degrades.
   function ffScoresHtml(sb) {
+    if (LG.testMode()) return ""; // a real ESPN scoreboard for a past-season sandbox is meaningless — always hidden
     if (!sb || !sb.ok || !Array.isArray(sb.matchups) || !sb.matchups.length) return "";
+    if (ffAllZero(sb.matchups)) return ""; // preseason/pre-draft — no signal, not a broken card
     const side = (t) => t
       ? `<span class="ffside"><b>${esc(t.name)}</b> <span class="mut small">${esc(t.record || "")}</span>
           <span class="ffpts">${t.points != null ? LG.fmtPts(t.points) : "—"}</span></span>`
@@ -1101,14 +1120,13 @@
     // Item 2's "mine/opp" line needs this week's rosters — load once per mount (cheap, cached),
     // never on every poll repaint (paintScores stays a pure re-render off what's already loaded).
     if (!UI._rosters) await loadWeekRosters();
-    const myGame = await (async () => {
-      const mine = LG.myTeamId();
-      if (!mine) return null;
-      const wk = await LG.gamesForWeek(UI.week);
-      return wk.find(([h, a]) => h === mine || a === mine) || null;
-    })();
+    // ONE fetch of this week's games serves BOTH the "mine/opp" NFL-game counts below AND the
+    // new GFFL matchups card — same array, not two separate reads that could disagree.
+    const wk = await LG.gamesForWeek(UI.week);
+    UI._scoresGfflGames = wk;
+    const mine = LG.myTeamId();
+    const myGame = mine ? (wk.find(([h, a]) => h === mine || a === mine) || null) : null;
     if (myGame) {
-      const mine = LG.myTeamId();
       const [h, a] = myGame;
       UI._scoresMine = mine; UI._scoresOpp = h === mine ? a : h;
     } else { UI._scoresMine = null; UI._scoresOpp = null; }
@@ -1123,10 +1141,15 @@
   function paintScores() {
     const d = D();
     main().innerHTML = `
+      ${gfflScoresHtml(UI._scoresGfflGames)}
       <div class="card"><div class="rowline"><h2>NFL this week</h2><span id="healthChip" class="health" hidden></span></div>
         ${nflScoresHtml(d.S && d.S.nflEvents)}
       </div>
       ${ffScoresHtml(UI._ffSb)}`;
+    document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
+      UI.matchup = el.dataset.mu.split("-").map(Number);
+      UI.show("matchup");
+    }));
     paintHealth();
   }
   UI.paintScores = paintScores; // called from paintLive() when this tab is open — NFL half only
@@ -1962,8 +1985,14 @@
           ${isCommish() ? '<button id="mvProcessNow">Process now</button>' : ""}</div>
         <p class="mut small">${past ? "Free agency is open — first come, first served." : "Claims process Wed 8:00 AM (" + new Date(LG.waiverDeadline(UI.week)).toLocaleString() + ")."}</p>
         <p class="mut small">Adding/dropping a player isn't locked by kickoff — only your starting lineup is.</p>
+        <div class="rowline"><span class="mut small">Filter:</span>
+          <div class="poschips" id="faFilterChips">
+            <button type="button" class="poschip" data-filter="avail">Available</button>
+            <button type="button" class="poschip" data-filter="all">All</button>
+          </div>
+        </div>
         <div class="poschips" id="faPosChips">${["ALL", "QB", "RB", "WR", "TE", "K", "DST"].map((p) => `<button type="button" class="poschip" data-pos="${p}">${p}</button>`).join("")}</div>
-        <input id="faSearch" placeholder="Search free agents… (optional — browse below)" autocomplete="off">
+        <input id="faSearch" placeholder="Search players… (optional — browse below)" autocomplete="off">
         <div id="faResults"></div>
       </div>
       <div class="card"><h2>Propose a trade</h2>
@@ -2014,53 +2043,186 @@
       renderMoves();
     }));
 
-    // ---------------- item 1: a real, browsable free-agent table ----------------
-    // Position chips + an now-OPTIONAL name search filter both feed the same table,
-    // sorted by Sleeper's own search_rank (best players first) — with NO query and
-    // NO position picked, this is a top-N BROWSE of the whole player pool, not just
-    // a search box that stays empty until someone types. faState lives in this
-    // renderMoves() closure (like UI._tradeGive/_tradeCp) — a chip tap or "show
-    // more" only ever rebuilds #faArea's own subtree, never a full renderMoves(),
-    // so the search box's focus/caret and the rest of the Moves page are untouched.
-    const faState = { q: "", pos: UI._faPos || "ALL", limit: 40 };
+    // ---------------- item 1 -> ESPN-style sortable stats table (2026-08-08 rework) ----------
+    // Position chips + an OPTIONAL name search + an Available/All ownership filter all feed
+    // ONE stats table — sorted, by whichever COLUMN was last clicked, across the WHOLE fetched
+    // pool (not just what's on screen), defaulting to season FPTS desc. faState lives in this
+    // renderMoves() closure (like UI._tradeGive/_tradeCp) — a chip tap, a sort click, or "show
+    // more" only ever rebuilds #faResults' own subtree, never a full renderMoves(), so the
+    // search box's focus/caret and the rest of the Moves page are untouched.
+    const faState = {
+      q: "", pos: UI._faPos || "ALL", limit: 40,
+      filter: UI._faFilter || "avail",
+      sortKey: UI._faSortKey || "fpts", sortDir: UI._faSortDir || "desc",
+    };
     const faInput = $("#faSearch");
+    // Season stats (FPTS/AVG/LAST) come from D.gameLog — cached per-player here so a sort
+    // click, a chip tap or "show more" never re-fetches/re-derives a player already seen this
+    // session. undefined = not yet asked for (kicks off a fetch); null = fetched, genuinely no
+    // games; {total,avg,last} = real numbers. D.gameLog itself is cheap to call repeatedly —
+    // the archived per-week payload it reads is cached+deduped at the WEEK level inside
+    // D.weekStats (2026-08-08 perf fix), so this is purely to avoid redundant re-derivation
+    // and keep a re-sort of already-known players synchronous.
+    UI._faStats = UI._faStats || new Map();
+    function ensureFaStatsBatch(list) {
+      const need = list.filter((p) => !UI._faStats.has(p.key));
+      if (!need.length) return;
+      Promise.all(need.map((p) => D().gameLog(p.key).then((log) => {
+        UI._faStats.set(p.key, log.rows.length ? { total: log.total, avg: log.avg, last: log.rows[log.rows.length - 1].pts } : null);
+      }).catch(() => { UI._faStats.set(p.key, null); }))).then(() => {
+        if (UI.view === "moves" && $("#faResults")) refreshFa();
+      });
+    }
+    // TYPE column + the Available/All filter: "FA" for a genuine free agent, else the owning
+    // GFFL team's own abbrev (falling back to initials of its name, same convention the claim
+    // screen's logo-placeholder already uses). ownerMap is built once per refreshFa() call —
+    // shared by both the render pass and the sort comparator so they can never disagree.
+    function faOwnerMap() {
+      const m = new Map();
+      for (const t of LG.teams) for (const p of ((UI._rosters && UI._rosters[t.id]) || [])) m.set(p.key, t.id);
+      return m;
+    }
+    function faTypeText(p, ownerMap) {
+      const owningId = ownerMap.get(p.key);
+      if (owningId == null) return "FA";
+      const T = LG.teamById(owningId);
+      return (T && (T.abbrev || initials(T.name))) || "FA";
+    }
+    // STATUS column — same three-state read (live clock / Final / kickoff day+time) the
+    // player stats card computes for its own header, kept separate rather than shared: the
+    // card's version is baked into a single "Live — Q2 5:00"-style string for a header line,
+    // this one is used both for display AND as a sortable value.
+    function faGameStatus(team) {
+      const g = D().S.games.get(D().slpTeam(team));
+      if (!g) return "";
+      if (g.state === "in") return "Live — Q" + g.period + " " + g.clock;
+      if (g.state === "post") return "Final";
+      return g.kickoff ? shortKick(g) : "";
+    }
+    const FA_COLS = [
+      { id: "player", label: "PLAYER" },
+      { id: "type", label: "TYPE" },
+      { id: "opp", label: "OPP" },
+      { id: "status", label: "STATUS" },
+      { id: "proj", label: "PROJ", num: true },
+      { id: "score", label: "SCORE", num: true },
+      { id: "fpts", label: "FPTS", num: true },
+      { id: "avg", label: "AVG", num: true },
+      { id: "last", label: "LAST", num: true },
+    ];
+    // Every value a column can be SORTED by — numeric columns return a number (missing ->
+    // -Infinity, so it naturally sorts last on desc / first on asc with no special-casing);
+    // every other column returns a string. Used by both the comparator below and (for the
+    // numeric ones) the rendered cell text, so display and sort order can never disagree.
+    function faSortValue(p, colId, ownerMap) {
+      const d = D();
+      if (colId === "player") return p.name || "";
+      if (colId === "type") return faTypeText(p, ownerMap);
+      if (colId === "opp") return d.oppForWeek(UI.week, p.team) || "";
+      if (colId === "status") return faGameStatus(p.team);
+      if (colId === "proj") { const v = d.projFor(p.key); return v == null ? -Infinity : v; }
+      if (colId === "score") { const row = d.S.players.get(p.key); return row && row.pts != null ? row.pts : -Infinity; }
+      const s = UI._faStats.get(p.key);
+      if (colId === "fpts") return s && s.total != null ? s.total : -Infinity;
+      if (colId === "avg") return s && s.avg != null ? s.avg : -Infinity;
+      if (colId === "last") return s && s.last != null ? s.last : -Infinity;
+      return "";
+    }
+    // Default sort = season FPTS desc, "falling back to search_rank when no stats" (the
+    // spec's own words) — implemented as the GENERAL tie-break for every column, not just
+    // FPTS: two players reading identically on the active column (most commonly: neither has
+    // a stat yet) fall back to Sleeper's own best-players-first ranking rather than an
+    // arbitrary/unstable order.
+    function compareFA(a, b, colId, dir, ownerMap) {
+      const va = faSortValue(a, colId, ownerMap), vb = faSortValue(b, colId, ownerMap);
+      // Explicit less/greater/equal, NOT subtraction — two missing values are both -Infinity,
+      // and `-Infinity - (-Infinity)` is NaN, which silently breaks the tie-break below (NaN
+      // !== 0) and leaves Array.sort's comparator returning NaN, whose ordering behavior is
+      // unspecified. This is exactly the "no stats -> fall back to search_rank" case, which
+      // is the single most common comparison in the whole table (every free agent with no
+      // season stats yet), so it has to be exactly right.
+      let cmp = typeof va === "number" ? (va < vb ? -1 : va > vb ? 1 : 0) : String(va).localeCompare(String(vb));
+      if (cmp === 0) cmp = (a.searchRank ?? 1e9) - (b.searchRank ?? 1e9);
+      return dir === "asc" ? cmp : -cmp;
+    }
+    function faHeadHtml() {
+      const cells = FA_COLS.map((c) => {
+        const active = faState.sortKey === c.id;
+        const arrow = active ? (faState.sortDir === "desc" ? " ▼" : " ▲") : "";
+        return `<th class="thsort${c.num ? " num" : ""}${active ? " active" : ""}" data-sort="${c.id}">${c.label}${arrow ? `<span class="sortarrow">${arrow}</span>` : ""}</th>`;
+      }).join("");
+      return `<tr>${cells}<th></th></tr>`;
+    }
+    function faRowHtml(p, i, ownerMap) {
+      const d = D();
+      const type = faTypeText(p, ownerMap);
+      const opp = d.oppForWeek(UI.week, p.team);
+      const status = faGameStatus(p.team);
+      const proj = d.projFor(p.key);
+      const row = d.S.players.get(p.key);
+      const score = row && row.pts != null ? row.pts : null;
+      const stats = UI._faStats.get(p.key); // undefined = still loading | null = no games | {total,avg,last}
+      const seasonCell = (v) => stats === undefined ? "…" : (v != null ? LG.fmtPts(v) : "—");
+      const moveBtn = type === "FA" ? `<button type="button" class="faAddBtn faMoveBtn">${past ? "Add" : "Claim"}</button>` : "";
+      return `<tr data-fi="${i}" data-pk="${esc(p.key)}">
+        <td class="faname"><span class="posbadge" data-pos="${esc(p.pos)}">${esc(p.pos)}</span>
+          <b>${esc(p.name)}</b>${p.injury ? ' <span class="inj">' + esc(p.injury) + "</span>" : ""}
+          <br><small class="mut">${esc(p.team)}</small></td>
+        <td class="fatype">${esc(type)}</td>
+        <td class="faopp mut">${esc(opp || "—")}</td>
+        <td class="fastatus mut">${esc(status || "—")}</td>
+        <td class="faproj num">${proj != null ? LG.fmtPts(proj) : "—"}</td>
+        <td class="fascore num">${score != null ? LG.fmtPts(score) : "—"}</td>
+        <td class="fafpts num">${seasonCell(stats && stats.total)}</td>
+        <td class="faavg num">${seasonCell(stats && stats.avg)}</td>
+        <td class="falast num">${seasonCell(stats && stats.last)}</td>
+        <td class="faadd">${moveBtn}</td>
+      </tr>`;
+    }
     function faResultsHtml(list) {
       if (list == null) return '<p class="mut">Player search is warming up — try again in a moment.</p>';
       if (!list.length) return '<p class="mut">No matches.</p>';
-      // Item 2 (2026-08-08): the row itself (data-pk) opens the stats card — tapping the NAME
-      // or anywhere else on the row no longer starts an add/claim. .faAddBtn is the one
-      // explicit, accent-outlined MOVE affordance that still does; its own click handler
-      // (wired below) stops the click from also bubbling into the row's stats-card handler.
-      // The button's own index carries a DIFFERENT attribute (data-mi, not data-fi) — the
-      // generic `#faResults [data-fi]` selector several call sites already use to count/list
-      // ROWS must keep matching exactly one element per row, not two.
-      const rows = list.map((p, i) => {
-        const proj = D().projFor(p.key);
-        return `<tr data-fi="${i}" data-pk="${esc(p.key)}">
-          <td class="faname"><b>${esc(p.name)}</b><br><small class="mut">${esc(p.team)}</small></td>
-          <td class="fapos"><span class="posbadge" data-pos="${esc(p.pos)}">${esc(p.pos)}</span>${p.injury ? ' <span class="inj">' + esc(p.injury) + "</span>" : ""}</td>
-          <td class="faproj num">${proj != null ? LG.fmtPts(proj) : "—"}</td>
-          <td class="faadd"><button type="button" class="faAddBtn faMoveBtn" data-mi="${i}">${past ? "Add" : "Claim"}</button></td>
-        </tr>`;
-      }).join("");
+      const ownerMap = faOwnerMap();
+      // Sorted across the WHOLE fetched pool (bounded by faState.limit — the same pool "Show
+      // more" grows), never just whatever happens to be scrolled into view.
+      const sorted = list.slice().sort((a, b) => compareFA(a, b, faState.sortKey, faState.sortDir, ownerMap));
+      const rows = sorted.map((p, i) => faRowHtml(p, i, ownerMap)).join("");
       const more = list.length >= faState.limit ? '<button id="faMore" type="button" class="mut">Show more ↓</button>' : "";
-      return `<div class="panner"><table class="tbl faTable"><tbody>${rows}</tbody></table></div>${more}`;
+      return `<div class="panner"><table class="tbl faTable"><thead>${faHeadHtml()}</thead><tbody>${rows}</tbody></table></div>${more}`;
     }
     function refreshFa() {
-      const posChips = $("#faPosChips"), resEl = $("#faResults");
+      const posChips = $("#faPosChips"), filterChips = $("#faFilterChips"), resEl = $("#faResults");
       if (!posChips || !resEl) return;
-      const list = D().searchFA(faState.q, allOwnedKeys(), { limit: faState.limit, pos: faState.pos });
+      // Available (default) excludes every rostered key, same as the original behavior;
+      // All passes an EMPTY owned set so D.searchFA's own exclusion never fires — nothing
+      // else about the search needs to change for the toggle to work.
+      const owned = faState.filter === "all" ? new Set() : allOwnedKeys();
+      const list = D().searchFA(faState.q, owned, { limit: faState.limit, pos: faState.pos });
       posChips.querySelectorAll(".poschip").forEach((b) => b.classList.toggle("on", b.dataset.pos === faState.pos));
+      if (filterChips) filterChips.querySelectorAll(".poschip").forEach((b) => b.classList.toggle("on", b.dataset.filter === faState.filter));
       resEl.innerHTML = faResultsHtml(list);
+      resEl.querySelectorAll("th.thsort").forEach((th) => th.addEventListener("click", () => {
+        const col = th.dataset.sort;
+        if (faState.sortKey === col) faState.sortDir = faState.sortDir === "desc" ? "asc" : "desc";
+        else { faState.sortKey = col; faState.sortDir = "desc"; }
+        UI._faSortKey = faState.sortKey; UI._faSortDir = faState.sortDir;
+        refreshFa();
+      }));
       resEl.querySelectorAll(".faMoveBtn").forEach((btn) => btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        openClaimSheet(list[Number(btn.dataset.mi)]);
+        const key = btn.closest("tr").dataset.pk;
+        const fa = list.find((x) => x.key === key);
+        if (fa) openClaimSheet(fa);
       }));
-      wirePlayerCardTaps(resEl); // the row itself (data-pk) — see faResultsHtml's own comment
+      wirePlayerCardTaps(resEl); // the row itself (data-pk) — see faRowHtml's own comment
       $("#faMore") && $("#faMore").addEventListener("click", () => { faState.limit += 40; refreshFa(); });
+      if (list) ensureFaStatsBatch(list); // per-rendered-page, lazy — see ensureFaStatsBatch's own comment
     }
     $("#faPosChips").querySelectorAll(".poschip").forEach((b) => b.addEventListener("click", () => {
       faState.pos = b.dataset.pos; UI._faPos = faState.pos; faState.limit = 40; refreshFa();
+    }));
+    $("#faFilterChips").querySelectorAll(".poschip").forEach((b) => b.addEventListener("click", () => {
+      faState.filter = b.dataset.filter; UI._faFilter = faState.filter; faState.limit = 40; refreshFa();
     }));
     faInput.addEventListener("input", () => {
       faState.q = faInput.value.trim(); faState.limit = 40; refreshFa();

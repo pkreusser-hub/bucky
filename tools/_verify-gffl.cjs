@@ -71,6 +71,10 @@ const fixture = {
   // 2025 mRoster retry branch serves ffRosterDoc2025Rich() (2 teams, enough real 2025-labeled
   // players to fill starters + a trade partner) instead of the generic 1-team ffRosterDoc().
   test2025Rich: false,
+  // Coordinator addendum (2026-08-08) — the Scores tab's ff_scoreboard fixture (fake sports.mjs
+  // fantasy upstream). Default false = the existing scored 2-matchup fixture; true = an
+  // all-zero preseason/pre-draft shape (see ffScoreboardFix's own comment).
+  ffAllZero: false,
 };
 
 // -- fake ESPN fantasy upstream (league.mjs import source) --
@@ -258,6 +262,25 @@ function startFfUpstream() {
 // above (which fixture PAST-season history reads and deliberately returns empty without
 // scoringPeriodId=0 — colliding semantics if shared with a "this week, live" request).
 function ffScoreboardFix() {
+  // fixture.ffAllZero (coordinator addendum, 2026-08-08): a preseason/pre-draft shape — every
+  // team's record is 0-0 and every matchup's live points are 0.0 — proving the ESPN card hides
+  // itself rather than rendering a "0-0/0.0 everywhere" screen with no real signal.
+  if (fixture.ffAllZero) {
+    return {
+      settings: { name: "Nerd Fantasy Football League" },
+      status: { currentMatchupPeriod: 1 },
+      members: [],
+      teams: [
+        { id: 1, name: "Battle Kreussers", abbrev: "BK", record: { overall: { wins: 0, losses: 0 } } },
+        { id: 2, name: "End Zone Goats", abbrev: "EZG", record: { overall: { wins: 0, losses: 0 } } },
+      ],
+      schedule: [
+        { id: 101, matchupPeriodId: 1,
+          home: { teamId: 1, totalPointsLive: 0, totalProjectedPointsLive: 0 },
+          away: { teamId: 2, totalPointsLive: 0, totalProjectedPointsLive: 0 }, winner: "" },
+      ],
+    };
+  }
   return {
     settings: { name: "Nerd Fantasy Football League" },
     status: { currentMatchupPeriod: 1 },
@@ -1785,6 +1808,179 @@ async function openDetails(page, id) {
     ok(Object.keys(afterCancel).filter((k) => k.startsWith("claim_2026_w1_")).length === 0,
       "…and the claim's own doc is gone from storage");
     ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- I2: the players table rebuilt as an ESPN-style sortable stats table (2026-08-08) ----
+  section("I2 · players table — ESPN-style sortable stats (PLAYER/TYPE/OPP/STATUS/PROJ/SCORE/FPTS/AVG/LAST)");
+  {
+    // Column set + Available/All toggle. fullSeed() (real season, live-polled) — P. Passer
+    // (team1, PHI) is a real rostered starter with a real live line (10.0, hand-checked in
+    // section D) and a real known opponent (the DAL@PHI game IS this week's slate).
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faPosChips", { timeout: 9000 });
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
+    const headers = await page.$$eval("table.faTable thead th", (els) => els.map((e) => e.textContent.replace(/[▲▼]/g, "").trim()));
+    ok(JSON.stringify(headers) === JSON.stringify(["PLAYER", "TYPE", "OPP", "STATUS", "PROJ", "SCORE", "FPTS", "AVG", "LAST", ""]),
+      "the full ESPN-style column set renders, in order, incl. the trailing blank MOVE-button header (" + JSON.stringify(headers) + ")");
+    // Available (default): every visible row is a genuine free agent — TYPE reads "FA" for all
+    // of them, and every row still carries its own MOVE button (unchanged behavior).
+    const availTypes = await page.$$eval("#faResults .fatype", (els) => els.map((e) => e.textContent.trim()));
+    ok(availTypes.length > 0 && availTypes.every((t) => t === "FA"), "Available (default): every row's TYPE reads FA (" + JSON.stringify(availTypes) + ")");
+    ok((await page.$$eval("#faResults .faMoveBtn", (els) => els.length)) === availTypes.length, "…and every Available row still carries its own MOVE button");
+    // All: rostered players now appear too, TYPE reads the OWNING team's own abbrev
+    // (seedTeams() gives team1 abbrev "T1"), and a rostered row has NO move button at all
+    // (claiming/adding a player who's already on someone's roster isn't a supported flow).
+    await clickIn(page, "#faFilterChips .poschip", "All");
+    await page.waitForFunction(() => [...document.querySelectorAll("#faResults tr")].some((r) => r.textContent.includes("P. Passer")), { timeout: 5000 });
+    const passerRow = await page.evaluate(() => {
+      const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
+      return tr ? { type: tr.querySelector(".fatype").textContent.trim(), hasMove: !!tr.querySelector(".faMoveBtn") } : null;
+    });
+    ok(passerRow && passerRow.type === "T1", "All: a rostered player's TYPE reads the OWNING GFFL team's own abbrev, not FA (" + JSON.stringify(passerRow) + ")");
+    ok(passerRow && passerRow.hasMove === false, "…and a rostered row carries NO move button — claiming an owned player isn't offered");
+    ok(await page.evaluate(() => document.querySelector('.poschip[data-filter="all"]').classList.contains("on")), "the active filter chip carries the visual 'on' state");
+    // OPP + STATUS: hand-checked against sbFix()'s real slate — PHI (home) vs DAL (away),
+    // in progress; KC (away) at DEN, upcoming.
+    const passerOppStatus = await page.evaluate(() => {
+      const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
+      return { opp: tr.querySelector(".faopp").textContent.trim(), status: tr.querySelector(".fastatus").textContent.trim(), score: tr.querySelector(".fascore").textContent.trim() };
+    });
+    ok(passerOppStatus.opp === "vs DAL", "OPP renders '@'-prefixed correctly for the HOME side — P. Passer (PHI, home) reads 'vs DAL' (" + passerOppStatus.opp + ")");
+    ok(/^Live — Q2 5:00$/.test(passerOppStatus.status), "STATUS renders the live in-progress clock, not a kickoff time (" + passerOppStatus.status + ")");
+    ok(passerOppStatus.score === "10.0", "SCORE renders this week's live points, same hand-checked figure as section D (" + passerOppStatus.score + ")");
+    const tightRow = await page.evaluate(() => {
+      const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("T. Tight"));
+      return { opp: tr.querySelector(".faopp").textContent.trim(), status: tr.querySelector(".fastatus").textContent.trim() };
+    });
+    ok(tightRow.opp === "@ DEN", "OPP renders '@'-prefixed correctly for the AWAY side — T. Tight (KC, away) reads '@ DEN' (" + tightRow.opp + ")");
+    ok(tightRow.status !== "" && tightRow.status !== "Live — Q2 5:00" && !/Final/.test(tightRow.status),
+      "STATUS renders a real upcoming kickoff day+time for the not-yet-started KC@DEN game, distinct from the live game's status (" + tightRow.status + ")");
+    // PROJ sort: T. Tight is the fixture's only player with a real Sleeper projection (8.5 —
+    // same fixture value section M's own AI-read tests already hand-check). Sorting PROJ desc
+    // must put him FIRST (every FA-only row has no projection -> -Infinity, tied); asc must
+    // put him LAST.
+    await clickIn(page, 'th.thsort[data-sort="proj"]');
+    await page.waitForFunction(() => document.querySelector("#faResults tbody tr:first-child")?.textContent.includes("T. Tight"), { timeout: 5000 });
+    ok(await page.evaluate(() => document.querySelector('th.thsort[data-sort="proj"]').classList.contains("active")), "PROJ header shows the active-column state after being clicked");
+    ok(/▼/.test(await page.$eval('th.thsort[data-sort="proj"]', (e) => e.textContent)), "…and the FIRST click on a column sorts it DESC (▼ shown)");
+    ok((await page.$eval("#faResults tbody tr:first-child", (e) => e.textContent)).includes("T. Tight"), "PROJ desc: the only player with a real projection (8.5) sorts to the TOP of the whole pool");
+    await clickIn(page, 'th.thsort[data-sort="proj"]'); // second click on the SAME column -> asc
+    ok(/▲/.test(await page.$eval('th.thsort[data-sort="proj"]', (e) => e.textContent)), "clicking the SAME column again flips to ASC (▲ shown)");
+    ok((await page.$eval("#faResults tbody tr:last-child", (e) => e.textContent)).includes("T. Tight"), "PROJ asc: missing projections (-Infinity) sort first, so the only real value sorts to the very BOTTOM");
+    ok(errors.length === 0, "0 page errors through the column-set/filter/OPP/STATUS/PROJ-sort flow");
+    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_players_table_390.png"), fullPage: true }); console.log("  📸 shots/gffl_players_table_390.png"); }
+    await ctx.close();
+  }
+  {
+    // FPTS/AVG/LAST sorting — hand-computed with THREE distinct real season lines
+    // (seedWithWeeklyHistory(), All filter): P. Passer total 41.0/avg 10.3/last(wk4) 1.0 ·
+    // Q. Rival total 30.0/avg 15.0/last(wk4) 28.0 · T. Tight total 9.0/avg 9.0/last(wk4) 9.0
+    // (all three derived directly from WEEK_STATS_FIX/slpStatsFix — see seedWithWeeklyHistory's
+    // own header comment for Passer's, and WEEK_STATS_FIX's for Rival's/Tight's). The three
+    // columns produce THREE DIFFERENT top-of-pool orderings, which is the actual proof that
+    // clicking a different header genuinely re-sorts rather than just re-labeling the same order.
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, seedWithWeeklyHistory());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faPosChips", { timeout: 9000 });
+    await clickIn(page, "#faFilterChips .poschip", "All");
+    // Default landing sort (no header click yet) is season FPTS desc — wait for the real
+    // number to land (the season columns fetch lazily) before asserting on it.
+    await page.waitForFunction(() => {
+      const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
+      return tr && tr.querySelector(".fafpts").textContent.trim() === "41.0";
+    }, { timeout: 9000 });
+    ok(await page.evaluate(() => document.querySelector('th.thsort[data-sort="fpts"]').classList.contains("active")),
+      "default sort (before any header click) is already FPTS, per spec");
+    const rowSeason = async (name) => page.evaluate((n) => {
+      const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes(n));
+      return tr ? { fpts: tr.querySelector(".fafpts").textContent.trim(), avg: tr.querySelector(".faavg").textContent.trim(), last: tr.querySelector(".falast").textContent.trim() } : null;
+    }, name);
+    ok(JSON.stringify(await rowSeason("P. Passer")) === JSON.stringify({ fpts: "41.0", avg: "10.3", last: "1.0" }), "P. Passer's season line, hand-computed from the 4 seeded weeks");
+    ok(JSON.stringify(await rowSeason("Q. Rival")) === JSON.stringify({ fpts: "30.0", avg: "15.0", last: "28.0" }), "Q. Rival's season line (only weeks 3-4 have an entry for her — weeks 1-2 omitted, not zeroed)");
+    ok(JSON.stringify(await rowSeason("T. Tight")) === JSON.stringify({ fpts: "9.0", avg: "9.0", last: "9.0" }), "T. Tight's season line (only week 4 has an entry for him)");
+    const topName = async () => (await page.$eval("#faResults tbody tr:first-child", (e) => e.textContent)).match(/P\. Passer|Q\. Rival|T\. Tight/)?.[0];
+    ok((await topName()) === "P. Passer", "FPTS desc (default): P. Passer (41.0) leads the WHOLE pool");
+    // seedWithWeeklyHistory()'s default per-week bucket also gives W. Receiver/PHI D/ST/
+    // K. Kicker/R. Rusher real season lines of their own (not just the three named players) —
+    // so rather than predicting an exact WHOLE-POOL leaderboard position (which their numbers
+    // would also shift), these checks compare the RELATIVE order among just the three named
+    // players, which is fully determined by their own hand-computed lines regardless of what
+    // else is on the board.
+    const orderOf = async (names) => {
+      const all = await page.$$eval("#faResults tbody tr", (els) => els.map((e) => e.textContent));
+      return names.map((n) => all.findIndex((t) => t.includes(n)));
+    };
+    const isAscendingIdx = (idxs) => idxs.every((v, i) => i === 0 || idxs[i - 1] < v);
+    ok(isAscendingIdx(await orderOf(["P. Passer", "Q. Rival", "T. Tight"])),
+      "FPTS desc (default): among the three, P. Passer (41.0) > Q. Rival (30.0) > T. Tight (9.0), in that row order");
+    await clickIn(page, 'th.thsort[data-sort="avg"]');
+    await page.waitForFunction(() => document.querySelector("#faResults tbody tr:first-child")?.textContent.includes("Q. Rival"), { timeout: 5000 });
+    ok((await topName()) === "Q. Rival", "AVG desc: Q. Rival (15.0/gm) leads instead — a genuinely DIFFERENT top-of-pool than FPTS desc gave");
+    ok(isAscendingIdx(await orderOf(["Q. Rival", "P. Passer", "T. Tight"])),
+      "AVG desc: among the three, Q. Rival (15.0) > P. Passer (10.3) > T. Tight (9.0)");
+    await clickIn(page, 'th.thsort[data-sort="last"]');
+    await page.waitForFunction(() => document.querySelector("#faResults tbody tr:first-child")?.textContent.includes("Q. Rival"), { timeout: 5000 });
+    ok((await topName()) === "Q. Rival", "LAST desc: Q. Rival (28.0) leads");
+    ok(isAscendingIdx(await orderOf(["Q. Rival", "T. Tight", "P. Passer"])),
+      "LAST desc: among the three, Q. Rival (28.0) > T. Tight (9.0) > P. Passer (1.0) — T. Tight now beats P. Passer, a REVERSAL from FPTS/AVG where P. Passer was always ahead of him — proving this is a real independent sort, not a re-labeled repeat");
+    // asc: missing values (-Infinity) sort FIRST, so real values sort toward the bottom in
+    // the OPPOSITE relative order to desc.
+    await clickIn(page, 'th.thsort[data-sort="last"]');
+    ok(isAscendingIdx(await orderOf(["P. Passer", "T. Tight", "Q. Rival"])),
+      "LAST asc: the exact reverse relative order — P. Passer (1.0) < T. Tight (9.0) < Q. Rival (28.0)");
+    ok(errors.length === 0, "0 page errors through the FPTS/AVG/LAST hand-checked sort flow");
+    await ctx.close();
+  }
+  {
+    // Sorting acts on the WHOLE fetched pool, not just what's scrolled into view — grown by
+    // "Show more". Also: no page-level sideways scroll at 390px despite the wide table (it
+    // pans inside its own .panner), and the stats-card / MOVE-button behaviors this table
+    // relies on are untouched (Y and I0/I1 already prove those in full — this is a light
+    // spot-check specific to the new columns' own row shape).
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faPosChips", { timeout: 9000 });
+    await clickIn(page, "#faFilterChips .poschip", "All");
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
+    // Player names alpha-sort across the WHOLE pool, incl. after growing it with Show more —
+    // proves sorting isn't limited to the rows that happened to render before the click.
+    if (await page.$("#faMore")) await clickIn(page, "#faMore");
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
+    const poolSize = await page.$$eval("#faResults [data-fi]", (els) => els.length);
+    await clickIn(page, 'th.thsort[data-sort="player"]'); // first click on a fresh column -> DESC, per spec
+    const names = await page.$$eval("#faResults .faname b", (els) => els.map((e) => e.textContent));
+    ok(names.length === poolSize, "sorting by PLAYER re-orders the FULL rendered pool, not a subset (" + names.length + "/" + poolSize + ")");
+    const descCopy = [...names].sort((a, b) => b.localeCompare(a));
+    ok(JSON.stringify(names) === JSON.stringify(descCopy), "…and it's genuinely alphabetical (Z→A, first click = desc) across every row, first to last (" + JSON.stringify(names) + ")");
+    await clickIn(page, 'th.thsort[data-sort="player"]'); // second click on the SAME column -> asc
+    const namesAsc = await page.$$eval("#faResults .faname b", (els) => els.map((e) => e.textContent));
+    const ascCopy = [...names].sort((a, b) => a.localeCompare(b));
+    ok(JSON.stringify(namesAsc) === JSON.stringify(ascCopy), "…and clicking the SAME column again flips it to A→Z, still across the full pool (" + JSON.stringify(namesAsc) + ")");
+    ok(errors.length === 0, "0 page errors");
+    // 390px: no page-level sideways scroll despite the wide 10-column table — it pans inside
+    // its own .panner, same house convention every other wide table here already relies on.
+    const scroll = await page.evaluate(() => ({ b: document.body.scrollWidth, w: window.innerWidth }));
+    ok(scroll.b <= scroll.w + 1, "no page-level sideways scroll at 390px despite the wide players table (" + scroll.b + "/" + scroll.w + ")");
+    const pannerScrolls = await page.evaluate(() => {
+      const p = document.querySelector("#faResults .panner");
+      const t = p.querySelector("table");
+      return t.scrollWidth > p.clientWidth; // the TABLE itself is wider than its own panning viewport — confirms it's genuinely panning, not just fitting by luck
+    });
+    ok(pannerScrolls, "…because the table genuinely overflows its .panner (the panning container is doing real work, not just present unused)");
     await ctx.close();
   }
 
@@ -3355,6 +3551,22 @@ async function openDetails(page, id) {
     ok((await page.evaluate(() => window.__GFFL__.UI.view)) === "scores", "nav click routes to the scores view");
     ok((await page.evaluate(() => document.querySelector('.bnav button[data-v="scores"]').classList.contains("on"))),
       "the Scores nav button highlights as active");
+    // Coordinator addendum (2026-08-08): a "GFFL — Week N" card, ABOVE everything else,
+    // showing OUR OWN league's current-week matchups with live totals — reusing the exact
+    // same data path (LG.gamesForWeek + matchupCard) as the league home, so these are
+    // provably the SAME numbers section C already hand-checked for this identical fixture
+    // (team1/home 41.0, team2/away 4.0).
+    const gfflHeading = await page.$eval("main > .card:first-child h2", (h) => h.textContent);
+    ok(gfflHeading === "GFFL — Week 1", "the GFFL matchups card is the FIRST card on the Scores tab (" + gfflHeading + ")");
+    ok((await page.$$eval("main > .card:first-child .mucard", (els) => els.length)) === 4, "the GFFL card shows all 4 of this week's matchups");
+    const gfflScore = await page.$eval("main > .card:first-child .mucard.mine .muscore", (e) => e.textContent);
+    ok(gfflScore === "4.0 — 41.0", "my GFFL matchup's live total, hand-checked identically to the league home's own card (away 4.0 — home 41.0, " + gfflScore + ")");
+    await clickIn(page, "main > .card:first-child .mucard.mine");
+    await page.waitForSelector(".muhead", { timeout: 9000 });
+    ok((await page.$$eval(".bigpts", (els) => els.map((e) => e.textContent))).join("/") === "4.0/41.0",
+      "…and tapping the GFFL card's matchup opens the real matchup view with the same totals");
+    await page.evaluate(() => window.__GFFL__.UI.show("scores"));
+    await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
     // NFL half: sbFix() has one LIVE game (DAL @ PHI) and one PRE game (KC @ DEN, next year) —
     // grouped into day-CARDS (item 2's redesign — restaged from .gmrow "plain rows" to .sccard,
     // the class/markup genuinely changed shape, the behaviors this section checks persist).
@@ -3437,6 +3649,57 @@ async function openDetails(page, id) {
     ok(scroll.b <= scroll.w + 1, "no sideways scroll at 1440px (" + scroll.b + "/" + scroll.w + ")");
     ok(errors.length === 0, "0 page errors on desktop scores");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_scores_desktop.png"), fullPage: true }); console.log("  📸 shots/gffl_scores_desktop.png"); }
+    await ctx.close();
+  }
+  {
+    // Coordinator addendum: the ESPN card hides ENTIRELY when every matchup reads 0-0 with
+    // 0.0 points (preseason/pre-draft = no real signal) — while the GFFL card (our own live
+    // data, unrelated to the ESPN upstream) keeps rendering normally regardless.
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false; fixture.ffAllZero = true;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await clickIn(page, '.bnav button[data-v="scores"]');
+    await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+    const body = await page.evaluate(() => document.body.textContent);
+    ok(!/ESPN league \(live\)/.test(body), "the ESPN fantasy card is hidden entirely when every matchup reads 0-0/0.0 (preseason/pre-draft — no signal)");
+    ok(/GFFL — Week 1/.test(body), "…while the GFFL matchups card (our own data) keeps rendering — unrelated to the ESPN upstream");
+    ok(/NFL this week/.test(body), "…and the real NFL slate keeps rendering too");
+    fixture.ffAllZero = false; // restore the default scored fixture for every section after this one
+    ok(errors.length === 0, "0 page errors on the all-zero ESPN card path");
+    await ctx.close();
+  }
+  {
+    // Coordinator addendum: the ESPN card is ALWAYS hidden in the 2025 test sandbox — a real
+    // ESPN scoreboard for a past season that was never drafted is meaningless there, even
+    // though the fixture behind it is a perfectly normal SCORED (non-zero) fixture. Enters
+    // through the REAL #testEnter button + the guided one-tap setup wizard, the exact same
+    // proven path section X uses (fixture.test2025Rich=true is what makes the guided setup's
+    // ESPN import return a real 2-team roster instead of the generic 1-team default).
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false; fixture.ffAllZero = false;
+    fixture.test2025Rich = true;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(() => window.__GFFL__.LG.gateCommish());
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "load" }),
+      clickIn(page, "#testEnter"),
+    ]);
+    await page.waitForSelector(".teamrow", { timeout: 15000 }); // guided setup lands on the claim screen
+    await clickIn(page, ".teamrow");
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    ok(await page.evaluate(() => window.__GFFL__.LG.testMode()), "sanity: really inside the 2025 test sandbox now");
+    await clickIn(page, '.bnav button[data-v="scores"]');
+    await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+    const bodyTest = await page.evaluate(() => document.body.textContent);
+    ok(!/ESPN league \(live\)/.test(bodyTest), "the ESPN fantasy card is ALWAYS hidden in the 2025 test sandbox, even against a normal scored fixture");
+    ok(/NFL this week/.test(bodyTest), "…while the NFL slate and GFFL card keep working there, unaffected");
+    fixture.test2025Rich = false; // restore for every section after this one
+    ok(errors.length === 0, "0 page errors in the test-sandbox Scores tab");
     await ctx.close();
   }
 
@@ -4247,6 +4510,178 @@ async function openDetails(page, id) {
     const ms = Date.now() - t0;
     ok(ms < BUDGET_MS, "cold nav-to-league-home-painted under a " + SLOW_MS + "ms/call fake cloud stays under the " + BUDGET_MS + "ms budget (" + ms + "ms — a 12-call serial chain would need " + (12 * SLOW_MS) + "ms+)");
     ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- W2: PERF REGRESSION FIX (2026-08-08) — the live site went laggy right after the
+  // "test-mode phases + projections + stats card" merge. Root cause, found by tracing every
+  // new caller of D.weekStats (Sleeper's archived per-week endpoint, a WHOLE-LEAGUE payload):
+  // D.gameLog (the player stats card, reachable from any player row anywhere — matchup/
+  // locker/FA/trade picker/claims) called it ONCE PER FINALIZED WEEK with ZERO caching and
+  // ZERO in-flight dedupe. A season with N finalized weeks fired N fresh multi-hundred-KB
+  // fetches EVERY SINGLE TIME any stats card was opened — a curious user tapping through 3-4
+  // players re-downloaded the entire season's archive 3-4 times over, saturating the browser's
+  // connection pool to api.sleeper.app and starving the live-poll's own ESPN/Sleeper requests
+  // in the process. That's what "taking a long time to load anything" actually was — it read
+  // as a whole-page slowdown, not an isolated stats-card one, because the connection pool is
+  // shared. Everything ELSE in that commit (test-mode clock phases, always-on sandbox
+  // projections) is already gated behind LG.testMode() and provably makes zero real-league
+  // network calls — traced exhaustively, confirmed by the boot-hygiene check below.
+  // FIX (lg-data.js): D.weekStats now caches its resolved Map per (season,seasonType,week)
+  // indefinitely — a finalized week's archived stats never change once Sleeper publishes them
+  // — with an in-flight-promise dedupe for concurrent callers of the same not-yet-cached week.
+  // D.gameLog needed no changes at all: it already just calls D.weekStats per week, so it
+  // inherits the cache for free. A NEW D.S.loopStarts counter (incremented only where D.start()
+  // actually arms a fresh loop, past its own `if (D.S.running) return` guard) makes the poll
+  // loop's single-instance behavior provable rather than merely argued from reading the code —
+  // traced and found NOT to be stacking (D.start() is called from exactly one place, startData(),
+  // itself called exactly once per successful UI.boot()), but the coordinator asked for a suite
+  // counter and this is the direct, minimal one.
+  section("W2 · perf regression fix — archived week-stats caching/dedupe, boot hygiene, poll-loop non-stacking");
+  {
+    // Group 1: opening the SAME and then a DIFFERENT player's stats card reuses the cache —
+    // this is the exact shape of the reported regression. seedWithWeeklyHistory() finalizes
+    // weeks 1-4 (see its own header comment for the hand-computed P. Passer numbers), so
+    // D.gameLog has 4 real archived weeks to fetch.
+    const { ctx, page, errors } = await newTestPage(browser, seedWithWeeklyHistory());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const callCounts = () => page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const out = {};
+      for (let w = 1; w <= 4; w++) { const ep = D.EP["sleeper week stats " + w]; out[w] = ep ? ep.n : 0; }
+      return out;
+    });
+    await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511")); // P. Passer
+    await page.waitForSelector(".pccard .pclog", { timeout: 5000 });
+    const after1 = await callCounts();
+    ok(after1[1] === 1 && after1[2] === 1 && after1[3] === 1 && after1[4] === 1,
+      "opening one player's stats card fetches each finalized week's archived stats exactly ONCE (" + JSON.stringify(after1) + ")");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+    await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("222111")); // Q. Rival — a DIFFERENT player
+    await page.waitForSelector(".pccard .pclog", { timeout: 5000 });
+    const after2 = await callCounts();
+    ok(after2[1] === 1 && after2[2] === 1 && after2[3] === 1 && after2[4] === 1,
+      "…and opening a SECOND, DIFFERENT player's card reuses the cache — still exactly 1 fetch per week, not 2 (" + JSON.stringify(after2) + ")");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+    await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511")); // re-open the FIRST player again
+    await page.waitForSelector(".pccard .pclog", { timeout: 5000 });
+    const after3 = await callCounts();
+    ok(after3[3] === 1, "re-opening the first player's card a second time still fires zero new fetches (week 3's call count stays 1, " + after3[3] + ")");
+    ok(errors.length === 0, "0 page errors through the repeated stats-card-open flow");
+    await ctx.close();
+  }
+  {
+    // Group 2: TWO gameLog() calls fired at the exact same tick, before either's cache is
+    // warm — without in-flight dedupe each would fire its own parallel fetch per week.
+    const { ctx, page, errors } = await newTestPage(browser, seedWithWeeklyHistory());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const result = await page.evaluate(async () => {
+      const D = window.__GFFL__.D;
+      D._weekStatsCache.clear(); D._weekStatsInFlight.clear();
+      for (const k of Object.keys(D.EP)) if (k.startsWith("sleeper week stats ")) delete D.EP[k];
+      await Promise.all([D.gameLog("3915511"), D.gameLog("222111")]);
+      const out = {};
+      for (let w = 1; w <= 4; w++) { const ep = D.EP["sleeper week stats " + w]; out[w] = ep ? ep.n : 0; }
+      return out;
+    });
+    ok(result[1] === 1 && result[2] === 1 && result[3] === 1 && result[4] === 1,
+      "two CONCURRENT gameLog() calls (before either's cache is warm) share ONE in-flight fetch per week, not two (" + JSON.stringify(result) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    // Group 3: boot hygiene — an ordinary real-season session (no stats card ever opened, and
+    // never visiting Moves) makes ZERO archived per-week-stats fetches, across a spread of
+    // ordinary views. This is the "what does the existing boot-budget check NOT intercept" gap
+    // the coordinator flagged — section W's own budget test aborts every non-BASE request
+    // uniformly, so it can't tell "made 0 Sleeper archived calls" from "made 20"; this section
+    // actually counts them.
+    // RESTAGED (2026-08-08, same session, right after this section was written): the Moves
+    // page's FA/players table was reworked into the ESPN-style sortable stats table below —
+    // its FPTS/AVG/LAST columns are SEASON stats, so visiting Moves now legitimately fetches
+    // each finalized week's archived line ONCE (governed by the exact same D.weekStats cache
+    // Group 1/2 above already prove). That's intended, lazy, bounded behavior, not a
+    // regression — so Moves moved OUT of this "must stay at zero" check and into its own
+    // "fetches exactly once per week, and never again on a second visit" assertion right
+    // after it, keeping BOTH properties independently provable.
+    const { ctx, page, errors } = await newTestPage(browser, seedWithWeeklyHistory());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(() => window.__GFFL__.UI.show("scores"));
+    await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+    await page.evaluate(() => window.__GFFL__.UI.show("matchup"));
+    await page.waitForSelector(".muhead", { timeout: 9000 });
+    const archivedCalls = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      return Object.keys(D.EP).filter((k) => k.startsWith("sleeper week stats ")).map((k) => [k, D.EP[k].n]);
+    });
+    ok(archivedCalls.length === 0, "boot + League/Scores/Matchup navigation makes ZERO archived per-week-stats fetches without ever visiting Moves or opening a stats card (" + JSON.stringify(archivedCalls) + ")");
+    // NOW visit Moves — the sortable table's season columns fetch each finalized week ONCE
+    // (not once per row, not once per player), exactly as the FA-table's own lazy-batch
+    // design promises.
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForFunction(() => document.body.textContent.includes("Waivers"), { timeout: 9000 });
+    await page.waitForFunction(() => {
+      const D = window.__GFFL__.D;
+      return D.EP["sleeper week stats 4"] && D.EP["sleeper week stats 4"].n >= 1;
+    }, { timeout: 9000 });
+    const afterMoves = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const out = {};
+      for (let w = 1; w <= 4; w++) { const ep = D.EP["sleeper week stats " + w]; out[w] = ep ? ep.n : 0; }
+      return out;
+    });
+    ok(afterMoves[1] === 1 && afterMoves[2] === 1 && afterMoves[3] === 1 && afterMoves[4] === 1,
+      "…visiting Moves once fetches each finalized week's archived stats exactly once, for the FA table's own season columns (" + JSON.stringify(afterMoves) + ")");
+    // A SECOND visit to Moves must not re-fetch anything — same cache, same session.
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForFunction(() => document.body.textContent.includes("Waivers"), { timeout: 9000 });
+    await sleep(150); // let any (unwanted) re-fetch have a moment to fire before asserting its absence
+    const afterMoves2 = await page.evaluate(() => {
+      const D = window.__GFFL__.D; const ep = D.EP["sleeper week stats 2"]; return ep ? ep.n : 0;
+    });
+    ok(afterMoves2 === 1, "…and re-visiting Moves a second time fetches nothing new (week 2's call count stays 1, " + afterMoves2 + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    // Group 4: the main poll loop is armed AT MOST ONCE — D.S.loopStarts (see D.start()'s own
+    // comment) proves it directly rather than arguing it from reading D.start's guard clause.
+    // Deliberately does NOT call waitLive() here — that helper stops the real loop for test
+    // determinism, which would defeat the point of watching it stay single-instance.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const startsAfterBoot = await page.evaluate(() => window.__GFFL__.D.S.loopStarts);
+    ok(startsAfterBoot === 1, "the main poll loop is armed exactly once after boot (D.S.loopStarts=" + startsAfterBoot + ")");
+    for (let i = 0; i < 2; i++) {
+      await page.evaluate(() => window.__GFFL__.UI.show("scores"));
+      await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+      await page.evaluate(() => window.__GFFL__.UI.show("chat"));
+      await page.waitForSelector("#chatText", { timeout: 9000 });
+      await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+      await page.waitForFunction(() => document.body.textContent.includes("Waivers"), { timeout: 9000 });
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+    }
+    const startsAfterNav = await page.evaluate(() => window.__GFFL__.D.S.loopStarts);
+    ok(startsAfterNav === 1, "…and stays at exactly 1 after repeated navigation across Scores/Chat/Moves/League (" + startsAfterNav + ")");
+    // A second full UI.boot() (a real, if rare, path — e.g. re-entering the claim flow) must
+    // not stack a second loop either — D.start()'s own `if (D.S.running) return;` guard.
+    await page.evaluate(() => window.__GFFL__.UI.boot());
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const startsAfterReboot = await page.evaluate(() => window.__GFFL__.D.S.loopStarts);
+    ok(startsAfterReboot === 1, "…and a second full UI.boot() call doesn't stack a second poll loop either (" + startsAfterReboot + ")");
+    ok(errors.length === 0, "0 page errors through the navigation/reboot flow");
     await ctx.close();
   }
 

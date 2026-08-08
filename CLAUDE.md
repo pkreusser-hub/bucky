@@ -9096,3 +9096,165 @@ candidate-list rows were deliberately left as plain selection buttons (not split
 splitting them would add a stats-card detour to an already-committed selection flow; and
 `D.oppForWeek`'s abbreviation match is a straight `slpTeam()` normalization (handles the one
 documented ESPN/Sleeper divergence, Washington) rather than a full alias table.
+
+## PERF REGRESSION FIX + ESPN-style sortable players table + Scores-tab GFFL card (2026-08-08, same session, UNCOMMITTED)
+
+**PRIORITY DIAGNOSIS FIRST** (coordinator report: the live site went "super laggy" right after
+the "test-mode phases + projections + stats card" merge, commit `5c93b22`). Traced every new
+network caller that commit introduced. Everything about test-mode clock phases and always-on
+sandbox projections is gated behind `LG.testMode()` and provably makes zero real-league network
+calls (re-confirmed by the new boot-hygiene test below). The one genuinely real-league-affecting
+addition was the **player stats card**, reachable from any row anywhere (matchup/locker/FA/
+trade-builder/claims): `D.gameLog(key)` called `D.weekStats(week, opts)` — Sleeper's archived
+per-week endpoint, a **whole-league payload** — once per finalized week, with **zero caching and
+zero in-flight dedupe**. A season N weeks deep fires N fresh multi-hundred-KB fetches EVERY
+SINGLE TIME any card is opened; a curious user tapping through 3-4 players re-downloads the
+entire season's archive 3-4 times over, saturating the browser's connection pool to
+`api.sleeper.app` and starving the live-poll's own ESPN/Sleeper requests in the process. That
+reads as a whole-page slowdown (not an isolated stats-card one) because the pool is shared —
+exactly "taking a long time to load anything." **ROOT CAUSE, stated plainly: a missing cache.**
+**FIX** (`lg-data.js`): `D.weekStats` now caches its resolved `Map` per `(season,seasonType,
+week)` **indefinitely** — a finalized week's archived stats never change once Sleeper publishes
+them — with an **in-flight-promise dedupe** (`D._weekStatsInFlight`) for concurrent callers of
+the same not-yet-cached week. Only a REAL (non-null) result is cached, so a genuine outage can
+still retry. `D.gameLog` needed no changes at all — it just calls `D.weekStats` per week, so it
+inherits the cache for free, and so does `LG.finalizeWeek`'s backfill path and the new players
+table below. A new `D.S.loopStarts` counter (incremented only where `D.start()` actually arms a
+fresh loop, past its own `if (D.S.running) return` guard) makes the main poll loop's
+single-instance behavior provable rather than argued from reading the guard clause — traced and
+found NOT to be stacking (`D.start()` is called from exactly one place, `startData()`, itself
+called exactly once per successful `UI.boot()`), but the coordinator explicitly asked for a
+suite counter. **VERIFIED, before/after, via the suite itself**: opening one player's card
+fetches each finalized week exactly once; opening a SECOND, different player's card reuses the
+cache (0 new fetches); two gameLog() calls fired at the exact same tick share one in-flight
+fetch per week (0 duplicates); an ordinary boot + League/Scores/Matchup navigation (never
+opening a stats card, never visiting Moves) makes **zero** archived fetches; the main poll loop
+arms exactly once and stays at 1 across repeated tab navigation AND a second full `UI.boot()`
+call. This closes the exact "what does the existing boot-budget check NOT intercept" gap the
+coordinator flagged — Section W's own budget test aborts every non-`BASE` request uniformly, so
+it can't distinguish "0 Sleeper archived calls" from "20"; the new Section W2 actually counts
+them by name via the existing `D.EP[name].n` endpoint-bookkeeping map.
+
+**PLAYERS TABLE REBUILT — ESPN-style sortable stats** (the FA table from the prior playtest
+batch restructured, per spec, `league.html` + `lg-ui.js`'s `renderMoves`). Columns: **PLAYER**
+(pos badge + name + injury + NFL team, one cell) · **TYPE** (`FA`, or the owning GFFL team's own
+`abbrev`/initials-fallback for a rostered player) · **OPP** (`D.oppForWeek`, `@`-prefixed away /
+`vs`-prefixed home) · **STATUS** (live clock, `Final`, or a kickoff day+time — `D.S.games`, the
+FULL-SLATE map `pollScoreboard()` already builds, so this works for ANY NFL team regardless of
+fantasy-roster tracking) · **PROJ** (unchanged, `D.projFor`) · **SCORE** (this week's live
+points, `D.S.players`) · **FPTS/AVG/LAST** (season total / per-game average / most-recent-week
+points, derived from `D.gameLog` — cached client-side in `UI._faStats`, a persistent Map so a
+sort click or "Show more" never re-derives a player already seen this session). ESPN fields we
+can't source (%ST/%ROST/OPRK/+-) are omitted, not faked, matching the app's existing honesty
+posture. **Filter: Available/All** toggle (`#faFilterChips`, default Available — same behavior
+as before the rework: `D.searchFA`'s own `ownedKeys` exclusion, passed an EMPTY Set for "All" so
+nothing new had to be added to `D.searchFA` itself) — a rostered row shows the owner's abbrev and
+carries **no MOVE button** (claiming an already-owned player isn't a supported flow; that's a
+trade, a different part of the page).
+- **Every header is a real sort control** (`th.thsort[data-sort]`): first click on a column
+  sorts it **desc** (active-column `.active` + a `▼`/`▲` arrow), a second click on the SAME
+  column flips to **asc**. Numeric columns treat a missing value as `-Infinity` (sorts last on
+  desc / first on asc, no special-casing needed); a tie (most commonly: two players with no
+  season stats yet) falls back to Sleeper's own `search_rank` ascending — the spec's literal
+  words ("falling back to search_rank when no stats"), generalized as the tie-break for EVERY
+  column rather than just the default one. **Default landing sort = season FPTS desc.**
+  Sorting runs over the WHOLE fetched pool (bounded by `faState.limit`, the same pool "Show
+  more" grows — `D.searchFA` already slices to that limit before anything else touches it), not
+  just whatever's scrolled into view; re-sorting an already-cached pool is fully synchronous
+  (no re-fetch).
+- **BUG FOUND BY THE SUITE, not by review**: the first comparator wrote `cmp = va - vb` for
+  numeric columns. Two players who BOTH lack season stats both read `-Infinity`, and
+  `-Infinity - (-Infinity)` is `NaN` in JavaScript — which is `!== 0`, so the tie-break to
+  `search_rank` silently never fired for that (extremely common — every unstatted free agent)
+  case, and `Array.prototype.sort`'s behavior with a `NaN` comparator return is unspecified.
+  Fixed to an explicit `va < vb ? -1 : va > vb ? 1 : 0` (no subtraction at all) — the exact
+  "two missing values should tie, not NaN" case is now what the fix targets. Caught by a
+  three-real-value hand-check (`P. Passer`/`Q. Rival`/`T. Tight`'s season lines from
+  `seedWithWeeklyHistory()`) whose ASC ordering came out with a real player's name missing from
+  the expected tail-3 slot — a `null` where a name should have been, from the regex match
+  failing against a row that had silently drifted out of position.
+- **Sticky player column** (`position:sticky;left:0`, cheap since the table already lives in a
+  `.panner`) so the name stays in view while the rest of the row pans on a phone; the wide
+  10-column table (9 stat/info columns + a trailing blank MOVE-button one) never causes
+  page-level sideways scroll — it pans inside its own `overflow-x:auto` container, the same
+  house convention every other wide table here already relies on.
+- **Lazy, batched, cached season-stat fetching**: `ensureFaStatsBatch(list)` kicks off
+  `D.gameLog` only for keys not already in `UI._faStats`, in parallel, for the CURRENTLY
+  RENDERED page of rows — "compute lazily per rendered page of rows," per spec. Because
+  `D.weekStats` is now cached at the WEEK level (the perf fix above), a 40-row page with, say,
+  4 finalized weeks costs **4 real fetches total**, shared across every row that needs those
+  weeks, not 40×4. A `#faResults` still open when the batch resolves gets one repaint; nothing
+  fires if the reader has since navigated away.
+- **Stats-card, MOVE-button and claim-sheet behavior is UNCHANGED** — Section Y's whole
+  player-card battery (matchup/locker/FA/trade-builder/claims, MOVE button, swap, Escape/
+  backdrop) passed against the new table with no edits at all, which is the real proof: the row
+  still carries `data-pk` (opens the stats card), the MOVE button still stops its own click from
+  bubbling and still opens the claim/add flow — only its LOOKUP changed (from an index into the
+  unsorted fetch order, `data-mi`, to reading the row's own `data-pk` and finding that key in
+  the fetched `list` — since sorting reorders the DOM, an index-based lookup would silently grab
+  the wrong player after any sort).
+
+**Suite restaging, each with the reason recorded in place**: I0's browse-mode/PROJ-column
+checks needed no changes at all (Available stays the default, matching pre-rework behavior
+exactly); the phase-2 live-replay PROJ hand-check (Section X2, "F. Agent 6.0") targets `.faproj`
+specifically now rather than the whole row's text, since the row carries many more numbers than
+it used to. New Section **I2** (24 checks): column-set-in-order, Available/All toggle incl. "no
+MOVE button on a rostered row," OPP `@`/`vs` both directions hand-checked against `sbFix()`'s
+real slate, STATUS live-vs-upcoming, PROJ sort desc+asc (T. Tight is the fixture's only player
+with a real projection — sorts to the very top on desc, the very bottom on asc), FPTS/AVG/LAST
+sort desc+asc via THREE hand-computed real season lines compared by RELATIVE INDEX among the
+three named players (not an assumed absolute leaderboard position — `seedWithWeeklyHistory()`'s
+own default per-week bucket turns out to give several OTHER rostered players real season lines
+too, e.g. W. Receiver/PHI D/ST/K. Kicker, discovered live via a debug dump when a first,
+absolute-position version of this check failed for the wrong reason), PLAYER-name alpha sort
+both directions across the WHOLE pool, and 390px pan-not-page-scroll incl. an assertion that the
+`.panner` is doing REAL work (the table genuinely overflows it, not just present-but-unused).
+Section W2 (12 checks, perf) inserted right after the existing boot-speed section W. One of
+W2's OWN checks needed restaging in the same session it was written: "boot + League/Moves/
+Scores/Matchup navigation makes zero archived fetches" was written BEFORE the players-table
+rework existed, and the rework makes visiting Moves legitimately (and cheaply, thanks to the
+cache) fetch archived stats — split into "League/Scores/Matchup alone: zero fetches" +
+"visiting Moves: exactly one fetch per finalized week, and a second visit fetches nothing new."
+
+**Scores-tab addendum** (coordinator, from a live screenshot: "ESPN LEAGUE (LIVE)" showing every
+matchup 0-0/0.0, and no GFFL scores at all): (1) a **"GFFL — Week N" card, first on the tab**,
+showing the family's own current-week matchups with live totals — built by literally reusing
+`LG.gamesForWeek` + the league home's own `matchupCard()` function, so the numbers are provably
+the SAME numbers the league home shows, not a second computation that could disagree; tapping a
+card opens the real matchup view. `renderScores()` now fetches `LG.gamesForWeek(UI.week)` ONCE
+and shares it between the new card and the pre-existing "mine/opp" NFL-game counts (was two
+separate calls). (2) The **ESPN card now hides itself** when either (a) every matchup reads
+`0-0` record AND `0.0` points on both sides (`ffAllZero` — preseason/pre-draft has no real
+signal to show, not a broken card) or (b) `LG.testMode()` is true (a real ESPN scoreboard for a
+2025 sandbox that was never drafted is meaningless there, unconditionally, even against an
+otherwise normal scored fixture). Verified: the GFFL card renders with hand-checked totals
+(`4.0 — 41.0`, identical to Section C's own league-home hand-check) and taps through to the real
+matchup view; the ESPN card hides on an all-zero fixture (GFFL + NFL cards keep working); the
+ESPN card hides in the test sandbox entered through the REAL `#testEnter` button + guided setup
+(same proven path Section X uses), even fed a normal scored fixture, proving the hide is keyed
+on test-mode itself and not on the fixture's own shape.
+
+**Full battery**: `node tools/_verify-gffl.cjs` — **767/767, 0 page errors** (was 706 before this
+batch — 61 net new checks: 14 in the new Section W2 perf-regression suite, ~11 folded into/
+after Section S for the Scores-tab addendum, ~36 in the new Section I2 players-table suite;
+two intermediate
+runs during this session surfaced and fixed one real product bug — the NaN comparator above —
+and one test-authoring bug — a bare `#faResults tr` selector silently matching the `<thead>`
+row instead of the first body row, which produced a `waitForFunction` timeout rather than a
+wrong assertion; every OTHER `#faResults tr` usage in the suite already used `.find()`/`.some()`
+with a text filter, which is immune to the same trap since the header row's text never matches
+a player's name). `netlify/functions/league.mjs` untouched — everything in this batch is
+client-side (`lg-data.js`/`lg-ui.js`) plus the test file. No commits made.
+
+**KNOWN / DEFERRED**: `D.EP`'s per-call bookkeeping (`n`/`okN`/`status`/etc., the health-page
+data source) accumulates for the life of a tab exactly as it always has — the perf fix caches
+the underlying FETCH, it doesn't touch that bookkeeping map, so a long session's health page
+still shows an honest, ever-growing call count even though most of those calls after the first
+per-week one are now free; the "Show more" + re-sort interaction (growing the pool, then
+sorting the LARGER pool) is exercised functionally by the alpha-sort test but the suite's own
+`slpPlayersFix` pool (19 players) never actually exceeds the default 40-row limit, so "Show
+more" itself doesn't trigger in that specific check — the underlying mechanism (re-fetch a
+bigger `list`, re-sort the same way) is unchanged code shared with every other sort, so this is
+a coverage gap in breadth rather than a known-risky path; and OPP/STATUS still only ever read
+"if-known" (this app tracks no historical NFL schedule), so a player whose NFL team isn't on the
+current week's slate at all (a bye, or simply not tracked) reads "—" in both columns, honestly.
