@@ -49,24 +49,50 @@
   UI._runAutoChecks = runAutoChecks; // test hook
 
   // ---------------- boot ----------------
+  // Boot-speed pass (2026-08-08): league.html now calls UI.boot() immediately, WITHOUT
+  // waiting on LG.backendReady first — the gate screen (an unauthenticated visitor) needs
+  // no backend at all, and used to sit blocked behind the Firebase ESM import + reachability
+  // probe for no reason. Only once we know we're actually unlocked do we await backendReady,
+  // right before the first real LG.db read.
   UI.boot = async function () {
     if (!LG.unlocked()) { renderGate(); return; }
-    await LG.loadRules();
-    await LG.loadTeams();
-    schedule = await LG.loadSchedule();
+    await LG.backendReady;
+    // Independent doc reads (a settings doc, a team list, a schedule doc) — no read depends
+    // on another's result, so run them together instead of stacking three round trips.
+    await Promise.all([LG.loadRules(), LG.loadTeams(), LG.loadSchedule().then((s) => { schedule = s; })]);
     UI.week = LG.currentWeek() > (LG.rules.seasonWeeks + 3) ? LG.rules.seasonWeeks : LG.currentWeek();
-    // Any client past a deadline can carry the league forward — no scheduled
-    // function in v1 (plan §6 deviation). Forced (bypasses the throttle above) — this is the
-    // ONE guaranteed run per app open, so "open the app past a deadline" always carries the
-    // league forward on the spot rather than waiting up to a minute for the next poll tick.
-    await runAutoChecks(true).catch(() => {});
-    if (!LG.myTeamId() && LG.teams.length) { renderClaim(); return; }
+    if (!LG.myTeamId() && LG.teams.length) {
+      // No claimed team yet — nothing to paint early (renderClaim needs only the teams we
+      // just loaded, which is instant), and there's no live view for auto-checks to catch
+      // up before. Same forced-once-per-boot posture as the claimed path below.
+      await runAutoChecks(true).catch(() => {});
+      renderClaim();
+      return;
+    }
     startData();
+    routeInitial();
+    // Any client past a deadline can carry the league forward — no scheduled function in v1
+    // (plan §6 deviation). Forced (bypasses the throttle above) — this is the ONE guaranteed
+    // run per app open, so "open the app past a deadline" always carries the league forward
+    // on the spot. MOVED to run AFTER the first paint above (was: before it) — the render the
+    // user actually SEES no longer waits on however many backend calls the waiver/trade/
+    // finalize/bracket chain needs; UI.boot() still doesn't RESOLVE until this is done (a
+    // direct re-await of UI.boot() — e.g. simulating "reopen the app past a deadline" — must
+    // still guarantee the league is fully caught up by the time it returns). If it changed
+    // anything, repaint so the screen the user is already looking at reflects it — the exact
+    // same "quiet repaint after new data landed" pattern LG.db.onChange already uses.
+    await runAutoChecks(true).catch(() => {});
+    if (UI.view) UI.show(UI.view);
+  };
+  // Routes to whichever view the URL hash asks for (or the league home) — split out of
+  // UI.boot() so it's the one place both the normal boot path and any future fast/cached
+  // paint path can call to land on the same first screen.
+  function routeInitial() {
     const h = location.hash;
     const lockerM = /^#locker=(\d+)$/.exec(h);
     if (lockerM) { UI.lockerTeamId = Number(lockerM[1]); UI.show("locker"); return; }
     UI.show(h === "#team" ? "team" : h === "#rules" ? "rules" : h === "#matchup" ? "matchup" : h === "#moves" ? "moves" : h === "#chat" ? "chat" : h === "#bracket" ? "bracket" : h === "#scores" ? "scores" : "league");
-  };
+  }
 
   async function startData() {
     const d = D();
@@ -92,6 +118,18 @@
     d.start();
   }
 
+  // Polish pass (2026-08-08): #bnav is static markup, always in the DOM regardless of auth
+  // state — the gate/first-run/claim screens (none of which have a usable app behind them
+  // yet) were rendering it fully visible AND tappable, and every one of its buttons wires
+  // straight to UI.show() with no unlock/team-loaded check of its own — tapping "Matchup" (or
+  // any other tab) from the gate screen, before a passphrase is even entered, rendered an
+  // empty/broken view rather than doing nothing. hideBnav()/showBnav() are the one place that
+  // toggles it; UI.show() (the ONLY path into a real, usable view) is what restores it, so a
+  // successful unlock/import/claim always ends with the nav back — see UI.boot()'s claimed
+  // path (which calls UI.show/routeInitial next) and renderFirstRun's own import button
+  // (which calls UI.show("rules") before the import even finishes).
+  function hideBnav() { const el = $("#bnav"); if (el) el.hidden = true; }
+  function showBnav() { const el = $("#bnav"); if (el) el.hidden = false; }
   UI.show = function (name) {
     // "My Team" is now the owner's own locker (merged 2026-08-07) — kept as a distinct nav
     // entry/hash for muscle memory, but there is no separate team view any more.
@@ -99,6 +137,7 @@
       const mine = LG.myTeamId();
       if (mine != null) { UI.lockerTeamId = mine; location.hash = "#locker=" + mine; name = "locker"; }
     }
+    showBnav();
     UI.view = name;
     stopChatPoll(); // leaving whatever view had one open — chat/matchup-thread restart their own
     stopScoresPoll(); // ditto for the Scores tab's fantasy-scoreboard poll
@@ -180,6 +219,7 @@
 
   // ---------------- gate + claim ----------------
   function renderGate() {
+    hideBnav();
     main().innerHTML = `<div class="card center">
       <div class="logo"></div><h1>The GFFL</h1>
       <p class="mut">The Goat Fantasy Football League</p>
@@ -192,6 +232,7 @@
     });
   }
   function renderClaim() {
+    hideBnav();
     if (main()) main().dataset.view = "claim";
     paintHeader();
     main().innerHTML = `<div class="card">
@@ -206,8 +247,9 @@
       const nm = window.prompt("Your name:", LG.who() || LG.teamById(tid)?.owner || "");
       if (!nm) return;
       LG.setWho(nm); LG.setMyTeamId(tid);
-      const t = LG.teamById(tid);
-      await LG.saveTeam({ ...t, teamId: tid, claimedBy: nm });
+      // DELTA only (adversarial review 2026-08-08, findings 4/10) — spreading the whole
+      // in-memory team wrote this page's snapshot of every OTHER field back over good data.
+      await LG.saveTeam({ teamId: tid, claimedBy: nm });
       UI.boot();
     }));
   }
@@ -230,13 +272,23 @@
   }
   async function loadWeekRosters() {
     UI._rosters = UI._rosters || {};
-    for (const t of LG.teams) UI._rosters[t.id] = await LG.ensureRoster(UI.week, t.id);
+    // ONE list() up front instead of N per-doc reads. LG.db never caches a negative result
+    // any more (findings 2/4/5/12), so without this every render re-read a real backend miss
+    // for each team that has no roster doc for this week — on the cloud backend that's one
+    // round trip per team, per render. A cached list of the kind answers "absent" for free,
+    // and refreshes on its own 15s cadence rather than never.
+    await LG.db.list("roster");
+    // Boot-speed pass (2026-08-08): each team's roster is its own independent doc (own id,
+    // own kind) — nothing here reads or writes anything another team's iteration touches, so
+    // fetching them together (instead of one-at-a-time) turns N round trips into one.
+    await Promise.all(LG.teams.map(async (t) => { UI._rosters[t.id] = await LG.ensureRoster(UI.week, t.id); }));
   }
   UI.renderLeague = renderLeague;
   // A brand-new league has no teams until the commissioner runs the one-time
   // ESPN import — without this card a fresh device landed on an EMPTY home
   // with nothing to claim and no path forward (live 2026-08-07).
   function renderFirstRun(repaint) {
+    hideBnav(); // even on the early-return repaint path below — UI.show() may have just re-shown it
     if (repaint && $("#firstImport")) return; // never churn the button under a tap
     main().innerHTML = `<div class="card center">
       <div class="logo"></div><h2>Welcome to the GFFL</h2>
@@ -284,11 +336,21 @@
   // champions, the biggest single-week score/blowout ever, best season PF, and the all-time
   // standings, all combined from imported ESPN history + this season's own finalized weeks.
   // Empty state (nothing imported, nothing finalized yet) points the commissioner at Rules.
+  //
+  // Boot-speed pass (2026-08-08): the DATA behind this card (LG.recordBook() — it walks the
+  // whole imported history PLUS every finalized week) is no longer fetched as part of the
+  // league home's own render at all. `rb === undefined` means "not loaded yet" — a real
+  // sentinel distinct from "loaded, and there's genuinely nothing to show" (rb.hasData ===
+  // false), so the card still renders its collapsed shell instantly and only does the real
+  // work the moment someone actually opens it (wireLazyLeagueDetails below).
   function recordBookHtml(rb) {
-    if (!rb) return "";
-    if (!rb.hasData) {
-      return `<div class="card"><details class="recordbook"><summary>Record book</summary>
-        <p class="mut">No history imported yet.${isCommish() ? "Import it from the Rules page." : ""}</p></details></div>`;
+    if (rb === undefined) {
+      return `<div class="card"><details class="recordbook" id="rbDetails"><summary>Record book</summary>
+        <p class="mut small">Champions, records, all-time standings — tap to load.</p></details></div>`;
+    }
+    if (!rb || !rb.hasData) {
+      return `<div class="card"><details class="recordbook" id="rbDetails"><summary>Record book</summary>
+        <p class="mut">No history imported yet.${isCommish() ? " Import it from the Rules page." : ""}</p></details></div>`;
     }
     const champRows = rb.champs.length
       ? rb.champs.map((c) => `<div class="fline">${c.season}: <span class="teamlink" data-locker="${c.teamId}">${esc(c.name)}</span></div>`).join("")
@@ -307,7 +369,7 @@
       ? `<div class="fline"><span class="teamlink" data-locker="${rb.bestSeasonPF.teamId}">${esc(rb.bestSeasonPF.name)}</span> —
           ${LG.fmtPts(rb.bestSeasonPF.pf)} <span class="mut">(${rb.bestSeasonPF.season})</span></div>`
       : '<p class="mut small">—</p>';
-    return `<div class="card"><details class="recordbook">
+    return `<div class="card"><details class="recordbook" id="rbDetails">
       <summary>Record book</summary>
       <h2 class="small mut">Champions</h2>${champRows}
       <h2 class="small mut">Highest single-week score ever</h2>${hwRow}
@@ -325,9 +387,20 @@
   //  Recent moves card — the last 8 transactions-log sentences on the league home, so the
   // drama is visible without a dedicated trip to Moves. Reuses txSentence (defined further
   // down, in the Moves section) — same wording as the full log.
+  //
+  // Boot-speed pass (2026-08-08): LG.loadTx() (the whole transaction log) is no longer fetched
+  // up front — `tx === undefined` means "not loaded yet" (a real sentinel, distinct from
+  // "loaded, and there are genuinely no moves") so the card renders instantly and only does
+  // the real read once opened (wireLazyLeagueDetails). "View all →" needs no fetched data at
+  // all — it's a plain nav link into the full Moves log — so it's present either way.
   function recentMovesHtml(tx) {
-    const recent = (tx || []).slice(0, 8);
-    return `<div class="card"><details class="collapsecard">
+    if (tx === undefined) {
+      return `<div class="card"><details class="collapsecard" id="txDetails"><summary>Recent moves</summary>
+        <p class="mut small">Tap to load the latest waiver claims, drops and trades.</p>
+        <button id="recentMovesAll" class="mut">View all →</button></details></div>`;
+    }
+    const recent = tx.slice(0, 8);
+    return `<div class="card"><details class="collapsecard" id="txDetails">
       <summary>Recent moves</summary>
       ${recent.length ? recent.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${esc(txSentence(t))}</div>`).join("")
         : '<p class="mut">No moves yet.</p>'}
@@ -335,16 +408,22 @@
     </details></div>`;
   }
   //  League chat card — the last 6 main-channel messages (sys posts included, since those
-  // ARE the league's own timeline), collapsed the same way the record book is.
+  // ARE the league's own timeline), collapsed the same way the record book is. Same lazy
+  // sentinel as recentMovesHtml above — `chat === undefined` means "not loaded yet".
   function recentChatHtml(chat) {
-    const recent = (chat || []).slice(-6);
     const line = (m) => {
       if (m.sys) return `<div class="fline sys">${esc(m.text || "")}</div>`;
       const who = (LG.teamById(m.teamId) || {}).name || m.who || "?";
       const body = m.text || (m.img ? "[photo]" : m.gif ? "[gif]" : "");
       return `<div class="fline"><b>${esc(who)}:</b> ${esc(body.slice(0, 120))}</div>`;
     };
-    return `<div class="card"><details class="collapsecard">
+    if (chat === undefined) {
+      return `<div class="card"><details class="collapsecard" id="chatDetails"><summary>League chat</summary>
+        <p class="mut small">Tap to load the latest messages.</p>
+        <button id="recentChatOpen" class="mut">Open chat →</button></details></div>`;
+    }
+    const recent = chat.slice(-6);
+    return `<div class="card"><details class="collapsecard" id="chatDetails">
       <summary>League chat</summary>
       ${recent.length ? recent.map(line).join("") : '<p class="mut">No messages yet — say hi!</p>'}
       <button id="recentChatOpen" class="mut">Open chat →</button>
@@ -366,21 +445,80 @@
       ${champTeam ? `<p> <b>${esc(champTeam.name)}</b> are the ${bracket.season} GFFL Champions!</p>` : '<p class="mut">The bracket is set — best of luck.</p>'}
       <button id="openBracketBtn">${champTeam ? "View the bracket" : "View the bracket →"}</button></div>`;
   }
+  // Weeks that have games on the board, no official result, and that the live engine can no
+  // longer score because it has already rolled past them (adversarial review 2026-08-08,
+  // findings 1/3/7). These are stated plainly on the league home instead of being silently
+  // finalized from the wrong week's numbers — the commissioner finalizes them from Sleeper's
+  // archived per-week stats, which is the only source that still holds their real totals.
+  async function staleFinalizeWeeks() {
+    if (!LG.teams.length) return [];
+    const cw = LG.currentWeek();
+    const d = D();
+    const ew = d && d.engineWeek ? d.engineWeek() : null;
+    // UNKNOWN IS NOT STALE. Until the engine has actually reported which week it's holding
+    // (a cold boot, an outage, or the two providers disagreeing) we have no grounds to tell
+    // anyone a week can't be settled — silence is the honest state, not an alarm.
+    if (ew == null) return [];
+    const have = new Set((UI._allWeekly || []).filter((w) => w && w.kind === "weekly").map((w) => w.week));
+    const out = [];
+    for (let w = 1; w <= cw; w++) {
+      if (have.has(w) || ew === w) continue;
+      const games = await LG.gamesForWeek(w);
+      if (games.length) out.push(w);
+    }
+    return out;
+  }
+  function staleWeeksHtml(weeks, commish) {
+    if (!weeks || !weeks.length) return "";
+    const list = weeks.map((w) => `<div class="rowline"><span>Week ${w}</span>${commish
+      ? `<button class="staleFinBtn" data-w="${w}">Finalize week ${w} from archived stats</button>` : ""}</div>`).join("");
+    // `.warn` is a COLOUR utility (gold text) — on the card it would paint the body copy and
+    // every button label gold too. It marks the heading only.
+    return `<div class="card"><h2 class="warn">${weeks.length === 1 ? "A week needs" : weeks.length + " weeks need"} finalizing</h2>
+      <p class="mut small">Live scoring has already moved on, so these weeks can't be settled from
+        what's on the board right now. ${commish
+        ? "Finalizing pulls each week's own archived stat lines instead — the real numbers for that week."
+        : "The commissioner can settle them from each week's own archived stats."}</p>
+      ${list}</div>`;
+  }
   async function renderLeague(repaint) {
     if (!LG.teams.length) { renderFirstRun(repaint); return; }
     if (!repaint) {
-      await loadWeekRosters();
-      UI._standings = await LG.loadStandings();
-      UI._weeklyDoc = await LG.loadWeekly(UI.week);
-      UI._allWeekly = await LG.db.list("weekly");
-      UI._accuracy = await LG.seasonAccuracy();
-      UI._recordBook = await LG.recordBook();
-      UI._bracket = await LG.loadBracket();
-      UI._tx = await LG.loadTx();
-      UI._recentChat = await LG.loadChat(null);
-      // The one source of "what's on this week" — the regular schedule for weeks <=
-      // seasonWeeks, the bracket's currently-resolved pairings for a playoff week (S7).
-      UI._wkGames = await LG.gamesForWeek(UI.week);
+      // Boot-speed pass (2026-08-08): this used to be TWELVE serial awaits before the first
+      // pixel of the league home ever painted — on a real (non-instant) backend that's twelve
+      // stacked round trips. Restructured into two batches:
+      //   1) the two list()s everything else below reads from — "weekly"/"bracket" — run
+      //      FIRST and TOGETHER so their caches are warm before anything else asks for them
+      //      (same "list()s come first" guarantee as before, just no longer serial with
+      //      each other either — they don't depend on one another).
+      //   2) everything ABOVE THE FOLD (rosters/scores, standings, this week's finalize
+      //      state, the accuracy line, the resolved bracket, this week's games, the
+      //      stale-weeks banner) — none of these depend on each other's RESULT, only on the
+      //      warm list caches from step 1, so they run together too.
+      // Record book / recent moves / league chat are DELIBERATELY NOT fetched here any more —
+      // all three are collapsed-by-default <details> cards (see recordBookHtml/
+      // recentMovesHtml/recentChatHtml + wireLazyLeagueDetails below); their data now loads
+      // only the moment someone actually opens one, via LG.recordBook()/LG.loadTx()/
+      // LG.loadChat(null) — real reads (recordBook especially: it walks the whole imported
+      // history PLUS every finalized week) that most app-opens never needed at all. Reset to
+      // "not loaded" on every genuine (!repaint) visit — same freshness guarantee the old
+      // always-eager fetch gave (a real navigation back to League always shows what's
+      // CURRENTLY true, once opened), it just no longer costs anything until you look.
+      UI._recordBook = undefined; UI._tx = undefined; UI._recentChat = undefined;
+      [UI._allWeekly] = await Promise.all([LG.db.list("weekly"), LG.db.list("bracket")]);
+      const [, standings, weeklyDoc, accuracy, bracket, wkGames, staleWeeks] = await Promise.all([
+        loadWeekRosters(),
+        LG.loadStandings(),
+        LG.loadWeekly(UI.week),
+        LG.seasonAccuracy(),
+        LG.loadBracket(),
+        // The one source of "what's on this week" — the regular schedule for weeks <=
+        // seasonWeeks, the bracket's currently-resolved pairings for a playoff week (S7).
+        LG.gamesForWeek(UI.week),
+        staleFinalizeWeeks(),
+      ]);
+      UI._standings = standings; UI._weeklyDoc = weeklyDoc; UI._accuracy = accuracy;
+      UI._bracket = bracket; UI._wkGames = wkGames; UI._staleWeeks = staleWeeks;
     }
     const st = UI._standings || {};
     const wkGames = UI._wkGames || [];
@@ -399,6 +537,7 @@
         ${wkGames.length ? `<div class="mugrid">${wkGames.map(([h, a]) => matchupCard(h, a)).join("")}</div>` : `<p class="mut">${noGamesMsg}</p>`}
         ${finalizeBtn}
       </div>
+      ${staleWeeksHtml(UI._staleWeeks, isCommish())}
       ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
       ${powerRankingsHtml(UI._allWeekly)}
       ${accuracyHtml(UI._accuracy)}
@@ -428,6 +567,15 @@
         if (!window.confirm(msg)) return;
         r = await LG.finalizeWeek(UI.week, { force: true });
       }
+      // The live board is on a DIFFERENT week — force would only score this week from that
+      // week's numbers, so the only honest option is the archived-stats fallback
+      // (adversarial review 2026-08-08, findings 1/3/7).
+      if (!r.ok && (r.reason === "stale-week" || r.reason === "no-live-data")) {
+        const wkNote = r.engineWeek ? " (it's showing week " + r.engineWeek + ")" : "";
+        if (!window.confirm("Live scoring has already moved on from week " + UI.week + wkNote
+          + ". Finalize it from week " + UI.week + "'s own archived stats instead?")) return;
+        r = await LG.finalizeWeek(UI.week, { backfill: true });
+      }
       if (r.ok) {
         toast("Week " + UI.week + " finalized.");
         await LG.advanceBracket().catch(() => {}); // a playoff week just went final — walk the bracket forward right away
@@ -435,6 +583,21 @@
         renderLeague();
       } else toast("Couldn't finalize: " + reasonLabel(r.reason));
     });
+    document.querySelectorAll(".staleFinBtn").forEach((b) => b.addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      const w = Number(b.dataset.w);
+      if (!window.confirm("Finalize week " + w + " from its own archived stat lines? This is permanent.")) return;
+      b.disabled = true;
+      const r = await LG.finalizeWeek(w, { backfill: true });
+      if (r.ok) {
+        toast("Week " + w + " finalized from archived stats.");
+        // A playoff week must walk the bracket forward BEFORE the next week is finalized —
+        // see maybeAutoFinalizeWeeks' note (findings 6/8).
+        await LG.advanceBracket().catch(() => {});
+        UI._standings = null; UI._bracket = null; UI._allWeekly = null;
+        renderLeague();
+      } else { b.disabled = false; toast("Couldn't finalize week " + w + ": " + reasonLabel(r.reason)); }
+    }));
     $("#buildBracketBtn") && $("#buildBracketBtn").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       const r = await LG.buildBracket();
@@ -443,7 +606,40 @@
     });
     $("#openBracketBtn") && $("#openBracketBtn").addEventListener("click", () => UI.openBracket());
     wireLockerTaps();
+    wireLazyLeagueDetails();
     paintHealth();
+  }
+  // Boot-speed pass (2026-08-08): record book / recent moves / league chat each load their
+  // real data only the moment their <details> is actually opened for the first time — see
+  // recordBookHtml/recentMovesHtml/recentChatHtml above. Re-called after EVERY renderLeague()
+  // (repaint or not — same convention as wireLockerTaps), since each render replaces main()'s
+  // whole innerHTML and any listener bound to the old nodes goes with it.
+  function wireLazyLeagueDetails() {
+    const bind = (id, key, loader) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("toggle", async () => {
+        // Already loaded (a prior open — cached on UI, never re-fetched) or just closed:
+        // nothing to do. `UI[key] !== undefined` is the real "has this been fetched" test —
+        // every one of these loaders resolves to an array or a plain object, never undefined.
+        if (!el.open || UI[key] !== undefined) return;
+        UI[key] = await loader();
+        // A full repaint is the only way the new data reaches the page (renderLeague builds
+        // one HTML string from UI.* — there's no per-card patch path), which regenerates
+        // every <details> node from scratch (closed, per its own template). Capture whatever
+        // is open in the LIVE DOM right now (not just this one — the reader may have opened
+        // a second lazy card while this one's fetch was still in flight, and its own toggle
+        // handler may have already re-opened it once) and restore all of it after repainting,
+        // so two cards expanded in quick succession can never make one snap back shut.
+        const openIds = [...document.querySelectorAll("details[id]")].filter((d) => d.open).map((d) => d.id);
+        if (!openIds.includes(id)) openIds.push(id);
+        renderLeague(true);
+        openIds.forEach((oid) => { const fresh = document.getElementById(oid); if (fresh) fresh.open = true; });
+      });
+    };
+    bind("rbDetails", "_recordBook", LG.recordBook);
+    bind("txDetails", "_tx", LG.loadTx);
+    bind("chatDetails", "_recentChat", () => LG.loadChat(null));
   }
   function logoTd(t) { return t.logo ? `<img class="tlogo" src="${esc(t.logo)}" alt="">` : ""; }
   // 44px initial-circle avatar for the Matchup page header (design: "mine accent bg,
@@ -1334,21 +1530,37 @@
       if (tr.status === "accepted" && LG.now() >= (tr.reviewEndsAt || Infinity)) await LG.executeTrade(tr.id);
     }
   }
-  // S5: any past week (week < currentWeek()) with no weekly doc yet gets carried forward —
-  // idempotent (LG.finalizeWeek's own doc-exists check) and self-limiting (it naturally refuses
-  // — "not-final" — until the live engine actually confirms every relevant game is over), so
-  // calling this often and from several places (boot, every poll update, every Moves visit) is
-  // cheap and safe rather than something that needs its own scheduling. NEVER touches the
-  // CURRENT week (week === currentWeek()) — that's what the commissioner's explicit "Finalize"
-  // button on the league home is for.
+  // S5 + adversarial review 2026-08-08 (findings 1/3/6/7/8). Any week with no weekly doc yet
+  // gets carried forward, and LG.finalizeWeek's own gates make that safe rather than
+  // optimistic: it refuses unless the live engine's OWN week matches the week being written
+  // AND every one of that week's games reads final. Two consequences worth stating:
+  //   · the loop now includes the CURRENT week (w <= cw). It used to stop at cw-1 to avoid
+  //     finalizing a week mid-flight — but the engine rolls over on the same Tuesday
+  //     currentWeek() does, so "past week" and "the week the engine is holding" were almost
+  //     never the same week, which is exactly how week N ended up scored from week N+1. With
+  //     the provenance gate in place the correct moment is Monday night of week N itself.
+  //   · a playoff week is advanced through the bracket IMMEDIATELY after it finalizes, inside
+  //     the loop. Batching two playoff weeks and advancing afterwards wrote the second week's
+  //     WRITE-ONCE doc while its semifinal pairing was still unresolved, permanently deleting
+  //     that game and stranding the bracket with no champion (findings 6/8).
+  // Weeks it legitimately can't finalize (the engine has already rolled past them) are
+  // recorded for the league home to surface, never guessed at.
   async function maybeAutoFinalizeWeeks() {
     if (!LG.teams.length) return;
     const cw = LG.currentWeek();
-    for (let w = 1; w < cw; w++) {
+    const sw = (LG.rules || LG.DEFAULT_RULES).seasonWeeks;
+    const stale = [];
+    for (let w = 1; w <= cw; w++) {
       const doc = await LG.loadWeekly(w);
       if (doc && doc.kind === "weekly") continue;
-      await LG.finalizeWeek(w);
+      const r = await LG.finalizeWeek(w);
+      if (r && r.ok) { if (w > sw) await LG.advanceBracket().catch(() => {}); continue; }
+      if (r && r.reason === "stale-week") stale.push(w);
     }
+    // Same SHAPE staleFinalizeWeeks() produces (plain week numbers) — renderLeague repaints
+    // straight off this field without recomputing, so the two writers must agree or the card
+    // renders "[object Object]".
+    UI._staleWeeks = stale;
   }
   // S7: once the regular season has moved on past it (currentWeek() > seasonWeeks) and no
   // bracket exists yet, build it. LG.buildBracket() itself refuses (harmlessly) until every
@@ -1392,6 +1604,9 @@
     outbid: "outbid by a higher blind bid", "player-taken": "taken by another claim",
     "drop-gone": "your drop player was gone", "insufficient-faab": "not enough FAAB",
     "already-processed": "this week's claims already processed", "drop-not-found": "that player isn't on your roster",
+    "stale-week": "live scoring has moved on from that week", "no-live-data": "live scoring hasn't loaded yet",
+    "no-archived-stats": "that week's archived stats aren't available", "bracket-unresolved": "an earlier playoff round hasn't been settled yet",
+    "no-schedule": "there are no games on the board for that week",
   };
   function reasonLabel(r) { return REASON_LABEL[r] || r; }
   function txSentence(tx) {
@@ -1916,7 +2131,7 @@
       if (v == null) return;
       const name = v.trim().slice(0, 60);
       if (!name) return;
-      await LG.saveTeam({ ...T, teamId: T.id, name });
+      await LG.saveTeam({ teamId: T.id, name }); // delta only — see the claim handler's note
       await LG.loadTeams();
       UI.openLocker(T.id);
     });
@@ -1925,7 +2140,7 @@
       const v = window.prompt("Team motto (max 80 chars):", T.motto || "");
       if (v == null) return;
       const motto = v.trim().slice(0, 80);
-      await LG.saveTeam({ ...T, teamId: T.id, motto });
+      await LG.saveTeam({ teamId: T.id, motto });
       await LG.loadTeams();
       UI.openLocker(T.id);
     });
@@ -1941,7 +2156,7 @@
           if (dataUrl.length > IMG_CAP) { toast("That logo is too big — try a smaller image."); return; }
           let colors = T.colors;
           try { const p = await extractPalette(dataUrl); if (p && p.primary) colors = { primary: p.primary }; } catch (e2) { /* fall back to existing/no colour */ }
-          await LG.saveTeam({ ...T, teamId: T.id, logoData: dataUrl, colors });
+          await LG.saveTeam({ teamId: T.id, logoData: dataUrl, colors });
           await LG.loadTeams();
           toast("Logo updated.");
           UI.openLocker(T.id);
@@ -2107,6 +2322,18 @@
         await swap(cur, incoming, slot);
       }));
     }
+    // A lineup tap used to write this page's CACHED roster array back wholesale — so a tab
+    // left open across a processed waiver or an executed trade silently reverted it, with the
+    // FAAB still spent and the transaction log still narrating the move (adversarial review
+    // 2026-08-08, finding 4). Re-read the roster FRESH and carry only the SLOT ASSIGNMENTS
+    // across by player key: anyone added since keeps their own slot, anyone dropped since
+    // stays dropped, and this tap changes only what it meant to change.
+    async function persistLineup() {
+      const fresh = await LG.loadRoster(UI.week, tid, { fresh: true });
+      if (!fresh || !fresh.length) { await LG.saveRoster(UI.week, tid, ros); return; }
+      const slotBy = new Map(ros.map((p) => [p.key, p.slot]));
+      await LG.saveRoster(UI.week, tid, fresh.map((p) => (slotBy.has(p.key) ? { ...p, slot: slotBy.get(p.key) } : p)));
+    }
     async function doMove(p, toSlot) {
       if (toSlot === "IR" && ir.length >= irMax) { toast("IR is full (" + irMax + ")."); return; }
       if (toSlot !== "IR" && toSlot !== "BENCH") {
@@ -2119,7 +2346,7 @@
         }
       }
       p.slot = toSlot;
-      await LG.saveRoster(UI.week, tid, ros);
+      await persistLineup();
       await loadWeekRosters(); // keep the league-wide roster cache (trade builder, matchup, etc.) in sync
       renderLocker();
     }
@@ -2127,7 +2354,7 @@
       if (inP.slot === "IR" && outP == null) { /* leaving IR into a starter slot directly */ }
       inP.slot = slot;
       if (outP) outP.slot = "BENCH";
-      await LG.saveRoster(UI.week, tid, ros);
+      await persistLineup();
       await loadWeekRosters();
       renderLocker();
     }
@@ -2148,7 +2375,17 @@
     try { j = await lgFn("lg_espn_settings"); } catch (e) { j = { ok: false, reason: String(e) }; }
     if (!j.ok) { out.innerHTML = `<div class="card bad">Import failed: ${esc(j.reason || "?")}</div>`; return; }
     const next = JSON.parse(JSON.stringify(LG.rules));
-    Object.assign(next.scoring, j.scoring || {});
+    // REPLACE, don't merge (adversarial review 2026-08-08, finding 11). Object.assign left
+    // every scoring key the real ESPN league does NOT configure sitting at its GFFL DEFAULT —
+    // and the family league scores field goals ONLY by made-yards (statId 214), carrying no
+    // conventional FG-made ids at all, so fg_0_39/40_49/50 survived at 3/4/5 alongside the
+    // imported 0.1/yd and D.score() paid BOTH. That's ~+12 points on an ordinary kicker day,
+    // every kicker, every week, straight into the write-once weekly doc. A key the real
+    // league doesn't score is a key worth ZERO here; the import is the league's own rules,
+    // not a patch over ours.
+    const zeroed = {};
+    for (const k of new Set([...Object.keys(LG.DEFAULT_RULES.scoring), ...Object.keys(next.scoring || {})])) zeroed[k] = 0;
+    next.scoring = { ...zeroed, ...(j.scoring || {}) };
     // Roster slots from ESPN, but the GFFL decisions stay: 3 IR (user call).
     if (j.slots && Object.keys(j.slots).length) {
       next.roster = { ...j.slots };
@@ -2160,6 +2397,8 @@
     if (j.trade && j.trade.vetoVotesRequired != null) next.trades.vetoVotes = j.trade.vetoVotesRequired;
     const changes = LG.diffRules(LG.rules, next);
     out.innerHTML = `<div class="card"><h2>ESPN import — ${esc(j.leagueName || "")} (${j.season})</h2>
+      <p class="mut small">Scoring is REPLACED by the real league's own values — any rule ESPN
+        doesn't score drops to 0, and every one of those is listed below.</p>
       ${changes.length ? `<small>${changes.map(esc).join("<br>")}</small>` : '<p class="mut">Everything already matches.</p>'}
       ${j.unmapped && j.unmapped.length ? `<p class="warn">Unmapped scoring items (review): ${esc(JSON.stringify(j.unmapped))}</p>` : '<p class="mut">Every ESPN scoring item mapped cleanly.</p>'}
       <button id="importApply" class="primary">Apply</button></div>`;
@@ -2167,8 +2406,7 @@
       await LG.saveRules(next, LG.who() + " (ESPN import)");
       // Seed/refresh the 8 teams too.
       for (const t of (j.teams || [])) {
-        const cur = LG.teamById(t.id) || {};
-        await LG.saveTeam({ ...cur, teamId: t.id, name: t.name, abbrev: t.abbrev, logo: t.logo, owner: t.owner });
+        await LG.saveTeam({ teamId: t.id, name: t.name, abbrev: t.abbrev, logo: t.logo, owner: t.owner });
       }
       await LG.loadTeams();
       toast("Rules + teams imported.");
@@ -2263,6 +2501,10 @@
     imported.sort((a, b) => a - b);
     const range = imported.length > 1 ? `${imported[0]}–${imported[imported.length - 1]}` : `${imported[0]}`;
     out.innerHTML = `<div class="card ok">Imported ${imported.length} season${imported.length === 1 ? "" : "s"}: ${range}.</div>`;
-    UI._recordBook = null; // stale — reload next time the league home renders
+    // Boot-speed pass (2026-08-08): `undefined`, not `null` — recordBookHtml's own "not
+    // loaded yet" sentinel, so the card goes back to its lazy "tap to load" placeholder and
+    // genuinely re-fetches (via wireLazyLeagueDetails) next time it's opened, picking up the
+    // history that was just imported.
+    UI._recordBook = undefined;
   }
 })();

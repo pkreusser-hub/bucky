@@ -145,7 +145,15 @@
                   padding:1px 6px; margin-left:5px; }
 
   /* ---------------- matchup cards on league home ---------------- */
-  .mugrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:2px; }
+  /* Polish pass (2026-08-08): 140px let TWO cards land side by side at both 390px (main's
+     content width) and inside a desktop masonry column (~450px) — real team names ("Waffle
+     House Warriors") were truncating down to a single letter + ellipsis in that width, on
+     BOTH mobile and desktop. 260px is picked from the actual card contents at this font size
+     (name column + the auto score column + the other name column) rather than guessed —
+     it's the point past which .muteam stops needing to ellipsize the longest real team name
+     in a week-15-style compact card. Below it, cards stack one per row; a genuinely wide
+     container (≥560px of its own) still lets two sit side by side. */
+  .mugrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px; margin-bottom:2px; }
   .mucard { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px;
             width:100%; text-align:left; background:var(--card); border:1px solid var(--border-card);
             border-radius:var(--radius-sm); padding:10px 12px; cursor:pointer;
@@ -240,7 +248,12 @@
   .teamrow img { width:34px; height:34px; border-radius:50%; object-fit:cover; }
   /* item 9 cleanup: this rule used to be scoped ".rv input.redit" — .rv never existed in the
      markup, so it never actually applied. Fixed to target .redit directly. */
-  input.redit { width:76px; text-align:right; font-family:var(--font-display); font-weight:700; padding:4px 6px; }
+  /* Polish pass (2026-08-08): 76px fit every NUMERIC rule field, but a few carry short STRING
+     enums instead (keepers.waiverCost defaults to "last-round") — at 76px that value truncated
+     to "last-roun", silently hiding the last character of an editable setting. 112px is sized
+     off that actual longest value at this font, with a little headroom; every numeric field
+     (1-4 digits) sits comfortably inside it too. */
+  input.redit { width:112px; text-align:right; font-family:var(--font-display); font-weight:700; padding:4px 6px; }
   #toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(74px + env(safe-area-inset-bottom));
            background:var(--nested); border:1px solid var(--border-hover); border-left:3px solid var(--accent);
            border-radius:var(--radius-sm); padding:10px 16px; font:13px var(--font-body); z-index:60;
@@ -267,9 +280,23 @@
   .chatSys { color:var(--mut); font-size:13px; background:var(--nested2); border:1px dashed var(--border-card);
              border-radius:10px; padding:6px 10px; width:100%; }
   .chatcompose { border-top:1px solid var(--border-card); margin-top:8px; padding-top:10px; position:sticky; bottom:0; background:var(--card); }
-  .chatRow { display:flex; gap:6px; align-items:center; }
-  .chaticon { padding:8px 10px; flex:0 0 auto; }
-  .chatText { flex:1 1 auto; min-width:0; }
+  /* Boot-speed/polish pass (2026-08-08): PHOTO/IMAGES/GIF/SEND are all fixed-width text
+     buttons (flex:0 0 auto — they never shrink) sharing one row with the message box; at
+     390px their combined width (~260px incl. gaps) left the textarea only ~40px — three or
+     four characters — before any typing even started. flex-wrap + a real basis on the
+     textarea forces a clean two-line layout instead: the three icon buttons comfortably fit
+     line 1 on their own (~215px of 332px available), so a basis bigger than what's left on
+     that line (120px) pushes the textarea (and Send, right after it) onto their own full-
+     width line 2 — no HTML restructuring needed, just where the wrap naturally falls.
+     Also lifted .chatText out from the unstyled-by-default `<textarea>` gap: the base
+     `input, select { }` rule never touches textareas, so this box was relying on browser
+     defaults for everything but width. */
+  .chatRow { display:flex; gap:6px 8px; align-items:center; flex-wrap:wrap; row-gap:8px; }
+  .chaticon { padding:7px 9px; flex:0 0 auto; font-size:11.5px; }
+  .chatText { flex:1 1 200px; min-width:0; background:var(--nested2); color:var(--ink);
+              border:1px solid var(--border-card); border-radius:var(--radius-sm);
+              padding:9px 10px; font:15px var(--font-body); resize:none; }
+  .chatText:focus { outline:none; border-color:var(--border-hover); }
   .chatSend { flex:0 0 auto; }
   .chatgifbox, .chatmeme { background:var(--nested2); border:1px solid var(--border-card); border-radius:12px; padding:8px; margin-bottom:8px; }
   .chatGifQ { width:100%; margin-bottom:8px; }
@@ -358,6 +385,11 @@
   .bnav { position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex;
           background:var(--tabbar); backdrop-filter:blur(8px); border-top:1px solid var(--border-card);
           padding:6px 6px calc(6px + env(safe-area-inset-bottom)); }
+  /* Polish pass (2026-08-08): the house [hidden]-override lesson, again — .bnav's own
+     display:flex above beats the UA [hidden]{display:none} rule, so hideBnav()'s `hidden`
+     attribute (gate/first-run/claim screens — nothing usable behind the tabs yet) needs this
+     restated or the bar stays visible and tappable regardless of the attribute. */
+  .bnav[hidden] { display:none; }
   /* item 6 (2026-08-08 playtest): the active-tab indicator is a border-bottom that spans the
      button's own FULL border-box — so it's only ever horizontally centered under the label when
      that box's padding is itself symmetric (text-align:center centers the label within the same
@@ -456,7 +488,12 @@
       const id = LG.myTeamId();
       if (id) LG.ui.openLocker(id);
     });
-    LG.backendReady.then(() => LG.ui.boot());
+    // Boot-speed pass (2026-08-08): called immediately, not gated behind LG.backendReady — an
+    // unauthenticated visitor's gate screen needs no backend at all (LG.unlocked() is a plain
+    // localStorage read) and used to sit blocked behind the Firebase ESM import + reachability
+    // probe for nothing. UI.boot() itself awaits LG.backendReady right before its first real
+    // LG.db read, once we actually know we're unlocked.
+    LG.ui.boot();
     // Test hook — the suites drive and inspect through this.
     window.__GFFL__ = { LG, get D() { return LG.data; }, get UI() { return LG.ui; } };
   </script>

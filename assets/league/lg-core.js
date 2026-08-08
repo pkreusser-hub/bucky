@@ -70,7 +70,12 @@
         const k = localStorage.key(i);
         if (k && k.startsWith(this.key(""))) {
           const d = JSON.parse(localStorage.getItem(k));
-          if (!kind || d.kind === kind) out.push({ id: k.slice(this.key("").length), ...d });
+          // `id` LAST — a doc carrying its own stray `id` field must never clobber its real
+          // doc-id (same hazard cacheUpsert documents below; the fix was applied there and
+          // NOT here, so it survived one layer down — adversarial review 2026-08-08,
+          // finding 10: a cold list() returned rows keyed by a numeric team id, the next
+          // cacheUpsert couldn't find them, and LG.teams grew stale duplicates).
+          if (!kind || d.kind === kind) out.push({ ...d, id: k.slice(this.key("").length) });
         }
       }
       return out;
@@ -116,7 +121,7 @@
             ? fs.query(fs.collection(db, LG.COLL), fs.where("kind", "==", kind))
             : fs.collection(db, LG.COLL);
           const snap = await fs.getDocs(q);
-          const out = []; snap.forEach((d) => out.push({ id: d.id, ...d.data() }));
+          const out = []; snap.forEach((d) => out.push({ ...d.data(), id: d.id })); // id LAST — see local.list()'s note
           return out;
         },
         watch(id, cb) {
@@ -150,15 +155,59 @@
   // write, in case another device already processed it") must see the REAL current backend
   // state, not this page's own cache — LG.db.getFresh(id) bypasses the cache for exactly those
   // call sites (processWaivers/executeTrade/finalizeWeek/buildBracket/snapshotProjections).
-  const docCache = new Map();   // id -> doc | null
+  //
+  // ADVERSARIAL REVIEW 2026-08-08 (findings 2/4/5/12) — the cache used to store NEGATIVE
+  // results (`docCache.has(id)` is true for a cached null) with no TTL and no invalidation
+  // path, so the FIRST read of a not-yet-existing doc froze "it doesn't exist" for the whole
+  // page session. Combined with read-modify-write writers that rebuilt a shared array from
+  // that frozen base, a device could silently DELETE other owners' waiver claims and revert
+  // executed trades. Three structural changes:
+  //   1. a null is NEVER stored in docCache (`del` clears the entry rather than caching null);
+  //   2. absence is instead DERIVED from a cached list() snapshot of that doc's own kind —
+  //      list caches already carry a 15s cloud background refresh, so "this doc doesn't
+  //      exist" self-heals on the same cadence as every other read instead of never;
+  //   3. positive docs get that same background refresh (docAt below), so a doc read once at
+  //      boot can't stay frozen for hours either.
+  // The paint path is untouched: a warm view still resolves every read in the same microtask.
+  const docCache = new Map();   // id -> doc (NEVER null — see above)
+  const docAt = new Map();      // id -> { at, refreshing } — cloud background-refresh bookkeeping
   const listCache = new Map();  // kind ("" = every doc) -> { docs:[...], at, refreshing }
-  const CACHE_STALE_MS = 15000; // cloud-only: how old a cached list() may be before a quiet background refresh
+  const CACHE_STALE_MS = 15000; // cloud-only: how old a cached list()/doc may be before a quiet background refresh
   function backend() { return LG.backendMode === "cloud" ? cloud : local; }
+  // Every doc-id in this app is `<kind>_<...>` (or the bare "settings"), so a doc's kind is
+  // inferable from its id — which is what lets a cached list() answer "does this exist?"
+  // without a network read AND without ever caching a null.
+  const ID_KIND = {
+    team: "team", roster: "roster", weekly: "weekly", claims: "claims", claim: "claim",
+    trade: "trade", tx: "tx", hist: "hist", bracket: "bracket", sched: "sched",
+    projsnap: "projsnap", settings: "settings",
+  };
+  function kindOf(id) {
+    const s = String(id || "");
+    if (s === "settings") return "settings";
+    const u = s.indexOf("_");
+    if (u < 0) return null;
+    const k = ID_KIND[s.slice(0, u)];
+    // "chat" is deliberately absent: chat is the one kind exempted from list-caching (new
+    // messages are minted by any client at any time), so absence must never be derived for it.
+    return k || null;
+  }
+  // true only when a cached list() for this doc's kind PROVES the doc isn't there.
+  function knownAbsent(id) {
+    const kind = kindOf(id);
+    if (!kind) return false;
+    const entry = listCache.get(kind) || listCache.get("");
+    if (!entry) return false;
+    return !entry.docs.some((d) => d.id === id);
+  }
   // Keeps every list() cache entry that could plausibly contain `id` in sync with a set/del —
   // upserts (or removes) the {id,...doc} row so a subsequent list() call for that kind sees it
   // without a real fetch.
   function cacheUpsert(id, doc) {
-    docCache.set(id, doc);
+    // A deleted doc is REMOVED from the cache, never remembered as null — a cached null is
+    // the exact mechanism findings 2/4/5/12 turn on.
+    if (doc) { docCache.set(id, doc); docAt.set(id, { at: LG.now(), refreshing: false }); }
+    else { docCache.delete(id); docAt.delete(id); }
     for (const [kind, entry] of listCache) {
       if (kind && (!doc || doc.kind !== kind)) {
         const i = entry.docs.findIndex((d) => d.id === id);
@@ -181,13 +230,32 @@
     }
   }
   LG.db = {
-    stats: { gets: 0, lists: 0, sets: 0, dels: 0, fresh: 0 }, // real (non-cache) backend calls — perf test hook
+    stats: { gets: 0, lists: 0, sets: 0, dels: 0, fresh: 0, missGets: 0 }, // real (non-cache) backend calls — perf test hook
     onChange: null, // (kind) => void — lg-ui registers this to quietly repaint after a background refresh finds new data
     async get(id) {
-      if (docCache.has(id)) return docCache.get(id);
+      if (docCache.has(id)) {
+        // Same quiet background refresh list() has had all along — a positive doc read once
+        // at boot must not stay frozen for the life of the tab either (finding 4).
+        const meta = docAt.get(id);
+        if (LG.backendMode === "cloud" && meta && !meta.refreshing && LG.now() - meta.at > CACHE_STALE_MS) {
+          meta.refreshing = true;
+          LG.db.stats.gets++;
+          backend().get(id).then((fresh) => {
+            meta.refreshing = false; meta.at = LG.now();
+            const changed = JSON.stringify(fresh) !== JSON.stringify(docCache.get(id));
+            if (fresh) docCache.set(id, fresh); else docCache.delete(id);
+            if (changed && LG.db.onChange) LG.db.onChange(kindOf(id));
+          }).catch(() => { meta.refreshing = false; });
+        }
+        return docCache.get(id);
+      }
+      // Absence derived from a cached list() of this doc's own kind — no round trip, and
+      // (unlike a cached null) it expires with that list's own 15s background refresh.
+      if (knownAbsent(id)) return null;
       LG.db.stats.gets++;
       const v = await backend().get(id);
-      docCache.set(id, v);
+      if (v) { docCache.set(id, v); docAt.set(id, { at: LG.now(), refreshing: false }); }
+      else LG.db.stats.missGets++; // NEVER cached — a negative must not survive the read
       return v;
     },
     // Bypasses the cache entirely — for the handful of "someone else may have already done
@@ -195,8 +263,18 @@
     async getFresh(id) {
       LG.db.stats.fresh++;
       const v = await backend().get(id);
-      docCache.set(id, v);
+      cacheUpsert(id, v); // adopt the truth (and drop any stale row from every list cache)
       return v;
+    },
+    // Bypasses the list cache — every "did someone else already do this?" guard and every
+    // read-modify-write MUST see the real current backend state, not this page's snapshot.
+    async listFresh(kind) {
+      LG.db.stats.fresh++;
+      const docs = await backend().list(kind);
+      const key = kind || "";
+      listCache.set(key, { docs, at: LG.now(), refreshing: false });
+      for (const d of docs) { docCache.set(d.id, d); docAt.set(d.id, { at: LG.now(), refreshing: false }); }
+      return docs;
     },
     async set(id, data) {
       LG.db.stats.sets++;
@@ -221,7 +299,7 @@
             entry.refreshing = false;
             const changed = JSON.stringify(fresh) !== JSON.stringify(entry.docs);
             entry.docs = fresh; entry.at = LG.now();
-            for (const d of fresh) docCache.set(d.id, d);
+            for (const d of fresh) { docCache.set(d.id, d); docAt.set(d.id, { at: LG.now(), refreshing: false }); }
             if (changed && LG.db.onChange) LG.db.onChange(kind);
           }).catch(() => { entry.refreshing = false; });
         }
@@ -230,14 +308,14 @@
       LG.db.stats.lists++;
       const docs = await backend().list(kind);
       listCache.set(key, { docs, at: LG.now(), refreshing: false });
-      for (const d of docs) docCache.set(d.id, d);
+      for (const d of docs) { docCache.set(d.id, d); docAt.set(d.id, { at: LG.now(), refreshing: false }); }
       return docs;
     },
     watch: (id, cb) => backend().watch(id, cb),
     // Test-only: swaps the underlying "cloud" implementation + forces cloud mode, so the perf
     // suite can exercise the background-refresh/quiet-repaint path without a real Firestore.
     // Never called by production code.
-    _installFakeCloud(impl) { cloud = impl; LG.backendMode = "cloud"; docCache.clear(); listCache.clear(); },
+    _installFakeCloud(impl) { cloud = impl; LG.backendMode = "cloud"; docCache.clear(); docAt.clear(); listCache.clear(); },
   };
 
   // ---------------- the rules doc ----------------
@@ -322,7 +400,23 @@
       .sort((a, b) => a.id - b.id);
     return LG.teams;
   };
-  LG.saveTeam = (t) => LG.db.set("team_" + t.teamId, { kind: "team", ...t });
+  // A team doc is written from several places that each own a DIFFERENT field (a rename, a
+  // motto, a logo, a FAAB deduction, a trophy), and most callers used to spread a whole
+  // in-memory team object back in — so a page holding a stale copy silently reverted every
+  // other field (adversarial review 2026-08-08, findings 4/10). Two rules now:
+  //   · the stray numeric `id` LG.loadTeams() stamps on every in-memory team is stripped, so
+  //     it can never be persisted and can never clobber a doc-id downstream (finding 10);
+  //   · the write merges onto a FRESH read of the doc, so fields the caller isn't changing
+  //     come from the real current backend state rather than from this page's snapshot.
+  // Callers should still pass the DELTA (`{teamId, faab}`) rather than a whole spread team.
+  LG.saveTeam = async function (t) {
+    const { id: _stray, ...rest } = t || {};
+    const docId = "team_" + rest.teamId;
+    let cur = null;
+    try { cur = await LG.db.getFresh(docId); } catch (e) { /* offline: fall through to a plain write */ }
+    const { id: _stray2, ...curClean } = cur || {};
+    return LG.db.set(docId, { ...curClean, kind: "team", ...rest });
+  };
   LG.teamById = (id) => LG.teams.find((t) => t.id === Number(id)) || null;
 
   // Standings derived from finalized "weekly" docs (there are none yet pre-S2
@@ -419,14 +513,23 @@
   // One doc per team per week: { players: [{key,name,pos,team,slot}] }. `slot`
   // is a roster slot name (QB/RB/WR/TE/FLEX/DST/K/BENCH/IR). Week N+1 starts
   // as a copy of week N (done lazily by ensureRoster).
+  // opts.fresh bypasses LG.db's cache. EVERY read that precedes a roster WRITE takes it
+  // (adversarial review 2026-08-08, finding 4): saveRoster replaces the whole players array,
+  // so a lineup tap, a trade or a waiver run computed from a cached pre-transaction roster
+  // silently undoes whatever landed in between — with the FAAB still spent and the tx log
+  // still narrating the move.
   LG.rosterId = (week, teamId) => `roster_${LG.SEASON}_w${week}_t${teamId}`;
-  LG.loadRoster = async (week, teamId) => (await LG.db.get(LG.rosterId(week, teamId)))?.players || null;
+  LG.loadRoster = async function (week, teamId, opts) {
+    const id = LG.rosterId(week, teamId);
+    const doc = opts && opts.fresh ? await LG.db.getFresh(id) : await LG.db.get(id);
+    return doc?.players || null;
+  };
   LG.saveRoster = (week, teamId, players) =>
     LG.db.set(LG.rosterId(week, teamId), { kind: "roster", week, teamId, players });
-  LG.ensureRoster = async function (week, teamId) {
-    let p = await LG.loadRoster(week, teamId);
+  LG.ensureRoster = async function (week, teamId, opts) {
+    let p = await LG.loadRoster(week, teamId, opts);
     if (p) return p;
-    for (let w = week - 1; w >= 1 && !p; w--) p = await LG.loadRoster(w, teamId);
+    for (let w = week - 1; w >= 1 && !p; w--) p = await LG.loadRoster(w, teamId, opts);
     if (p) await LG.saveRoster(week, teamId, p);
     return p || [];
   };
@@ -460,36 +563,67 @@
   // One doc per week: claims:[{id,teamId,addKey,addName,addPos,addTeam,
   // dropKey,dropName,bid,t}]. Blind by UI convention only — the doc itself is
   // a normal shared read; lg-ui never shows another team's claim pre-process.
+  //
+  // ONE DOC PER CLAIM (adversarial review 2026-08-08, findings 2/5/12). Claims used to live
+  // as an ARRAY inside a single shared weekly doc, written read-modify-write — and BOTH
+  // backends replace an array field wholesale (local JSON.stringify; Firestore setDoc
+  // merge:true). Two owners submitting from two phones therefore erased each other, silently
+  // and permanently: no result row, no reason, no chat post, the FAAB bid simply never
+  // existed. A per-claim doc has no shared array to rebuild, so two devices writing at the
+  // same instant write two DIFFERENT documents and neither can destroy the other — the
+  // hazard is gone structurally rather than narrowed by careful reads.
+  //
+  // The weekly `claims_<season>_w<week>` doc survives as the PROCESSING RECORD only
+  // ({processed, results, claims: the snapshot processWaivers actually resolved}).
   LG.claimsId = (season, week) => `claims_${season}_w${week}`;
-  // opts.fresh bypasses LG.db's cache — used only by the idempotency race guards below, which
-  // must see the REAL current backend state ("did someone else already process this?"), not
-  // whatever this page happened to have cached.
+  LG.claimDocId = (season, week, claimId) => `claim_${season}_w${week}_${claimId}`;
+  // opts.fresh bypasses LG.db's caches — taken by every writer and every idempotency race
+  // guard, which must see the REAL current backend state, not this page's snapshot.
   LG.loadClaims = async function (week, opts) {
+    const fresh = !!(opts && opts.fresh);
     const id = LG.claimsId(LG.SEASON, week);
-    const doc = opts && opts.fresh ? await LG.db.getFresh(id) : await LG.db.get(id);
-    return doc || { kind: "claims", week, claims: [], processed: false, results: null };
+    const doc = fresh ? await LG.db.getFresh(id) : await LG.db.get(id);
+    if (doc && doc.processed) return doc; // settled: the doc's own snapshot is the record
+    const rows = fresh ? await LG.db.listFresh("claim") : await LG.db.list("claim");
+    // A claim's own `id` is stored as `claimId`, never as `id`: list() rows are shaped
+    // {...doc, id: <doc-id>}, so a doc field literally called `id` would be clobbered by the
+    // doc-id on every read (the same collision finding 10 is about, from the other side).
+    const claims = rows
+      .filter((c) => c.week === week && (c.season == null || c.season === LG.SEASON))
+      .map(({ id: _docId, kind: _k, season: _s, claimId, ...c }) => ({ id: claimId, ...c }));
+    // Legacy (pre-2026-08-08) weeks whose claims still live in the array — merged, never lost.
+    for (const c of ((doc && doc.claims) || [])) if (!claims.some((x) => x.id === c.id)) claims.push(c);
+    claims.sort((a, b) => (a.t || 0) - (b.t || 0));
+    return { kind: "claims", week, claims, processed: false, results: (doc && doc.results) || null };
   };
   LG.saveClaims = (week, doc) => LG.db.set(LG.claimsId(LG.SEASON, week), { kind: "claims", week, ...doc });
   LG.addClaim = async function (week, claim) {
-    const doc = await LG.loadClaims(week);
-    if (doc.processed) return { ok: false, reason: "already-processed" };
-    await LG.saveClaims(week, { claims: [...(doc.claims || []), claim], processed: false, results: null });
+    const wk = await LG.db.getFresh(LG.claimsId(LG.SEASON, week));
+    if (wk && wk.processed) return { ok: false, reason: "already-processed" };
+    const { id: claimId, ...rest } = claim || {};
+    await LG.db.set(LG.claimDocId(LG.SEASON, week, claimId), { kind: "claim", season: LG.SEASON, week, claimId, ...rest });
     return { ok: true };
   };
   LG.cancelClaim = async function (week, claimId, byTeamId) {
-    const doc = await LG.loadClaims(week);
-    if (doc.processed) return { ok: false, reason: "already-processed" };
-    const c = (doc.claims || []).find((x) => x.id === claimId);
-    if (!c || c.teamId !== byTeamId) return { ok: false, reason: "not-found" };
-    await LG.saveClaims(week, { claims: doc.claims.filter((x) => x.id !== claimId), processed: false, results: null });
+    const wk = await LG.db.getFresh(LG.claimsId(LG.SEASON, week));
+    if (wk && wk.processed) return { ok: false, reason: "already-processed" };
+    const id = LG.claimDocId(LG.SEASON, week, claimId);
+    const c = await LG.db.getFresh(id);
+    if (c && c.teamId === byTeamId) { await LG.db.del(id); return { ok: true }; }
+    // Legacy array-shaped week: fall back to rewriting it (single-doc, pre-split data only).
+    const legacy = ((wk && wk.claims) || []).find((x) => x.id === claimId);
+    if (!legacy || legacy.teamId !== byTeamId) return { ok: false, reason: "not-found" };
+    await LG.saveClaims(week, { claims: wk.claims.filter((x) => x.id !== claimId), processed: false, results: null });
     return { ok: true };
   };
 
   // Free agency (first-come, no bid) once claims have cleared for the week.
   LG.faAdd = async function (week, teamId, addPlayer, dropKey) {
-    const ros = await LG.ensureRoster(week, teamId);
+    // FRESH: this both writes a roster and decides "is he already owned?" — a cached roster
+    // makes it possible to add a player another team just won (finding 4).
+    const ros = await LG.ensureRoster(week, teamId, { fresh: true });
     for (const t of LG.teams) {
-      const r = t.id === teamId ? ros : await LG.ensureRoster(week, t.id);
+      const r = t.id === teamId ? ros : await LG.ensureRoster(week, t.id, { fresh: true });
       if (r.some((p) => p.key === addPlayer.key)) return { ok: false, reason: "player-taken" };
     }
     const idx = ros.findIndex((p) => p.key === dropKey);
@@ -513,7 +647,11 @@
   // deducted, one "waiver" tx logged. Losers get a reason, no tx (nothing
   // moved).
   LG.processWaivers = async function (week) {
-    const doc = await LG.loadClaims(week);
+    // FRESH from the first read: this run permanently settles the week, so it must resolve
+    // the claim set that actually EXISTS, not the one this page happened to cache hours ago
+    // (finding 2 — the cached read here is what let a stale page process a subset and stamp
+    // the week processed with everyone else's bids missing).
+    const doc = await LG.loadClaims(week, { fresh: true });
     if (doc.processed) return doc;
     await LG.loadTeams();
     const claims = doc.claims || [];
@@ -529,7 +667,7 @@
     const sorted = [...claims].sort((a, b) => (b.bid - a.bid) || ((rank.get(a.teamId) ?? 999) - (rank.get(b.teamId) ?? 999)));
 
     const rosterMap = new Map();
-    for (const t of LG.teams) rosterMap.set(t.id, (await LG.ensureRoster(week, t.id)).map((p) => ({ ...p })));
+    for (const t of LG.teams) rosterMap.set(t.id, (await LG.ensureRoster(week, t.id, { fresh: true })).map((p) => ({ ...p })));
     const faabMap = new Map();
     for (const t of LG.teams) faabMap.set(t.id, LG.teamFaab(t));
     const owned = new Set();
@@ -565,10 +703,9 @@
     }
 
     for (const tid of dirtyTeams) await LG.saveRoster(week, tid, rosterMap.get(tid));
-    for (const tid of dirtyTeams) {
-      const t = LG.teamById(tid);
-      await LG.saveTeam({ ...t, teamId: tid, faab: faabMap.get(tid) });
-    }
+    // DELTA only — spreading the whole in-memory team here wrote this page's (possibly
+    // stale) name/logo/trophies back over good data (finding 10's blast radius).
+    for (const tid of dirtyTeams) await LG.saveTeam({ teamId: tid, faab: faabMap.get(tid) });
     for (const tx of txs) await LG.logTx("waiver", week, tx.teamId, tx.detail);
     // Event post (plan §4.5) — waiver results in the league timeline.
     try {
@@ -610,22 +747,25 @@
     await LG.saveTrade(doc);
     return { ok: true, trade: doc };
   };
+  // Every status transition below is a read-modify-write on one shared trade doc, so each
+  // reads FRESH (adversarial review 2026-08-08): a cached copy let one device resurrect a
+  // status another device had already moved on from.
   LG.cancelTrade = async function (id, byTeamId) {
-    const doc = await LG.loadTrade(id);
+    const doc = await LG.loadTrade(id, { fresh: true });
     if (!doc || doc.status !== "offered" || doc.from !== byTeamId) return null;
     const next = { ...doc, status: "cancelled" };
     await LG.saveTrade(next);
     return next;
   };
   LG.declineTrade = async function (id, byTeamId) {
-    const doc = await LG.loadTrade(id);
+    const doc = await LG.loadTrade(id, { fresh: true });
     if (!doc || doc.status !== "offered" || doc.to !== byTeamId) return null;
     const next = { ...doc, status: "declined" };
     await LG.saveTrade(next);
     return next;
   };
   LG.acceptTrade = async function (id, byTeamId) {
-    const doc = await LG.loadTrade(id);
+    const doc = await LG.loadTrade(id, { fresh: true });
     if (!doc || doc.status !== "offered" || doc.to !== byTeamId) return null;
     const now = LG.now();
     const reviewMs = ((LG.rules && LG.rules.trades.reviewHours) || 24) * 3600e3;
@@ -636,7 +776,7 @@
   // Any owner NOT a party to the trade may add one veto vote; enough votes
   // (rules.trades.vetoVotes, default 4) kills it before it ever executes.
   LG.vetoTrade = async function (id, byTeamId) {
-    const doc = await LG.loadTrade(id);
+    const doc = await LG.loadTrade(id, { fresh: true }); // vetoes accumulate in an array — a stale read drops other owners' votes
     if (!doc || doc.status !== "accepted") return doc;
     if (byTeamId === doc.from || byTeamId === doc.to) return doc;
     if ((doc.vetoes || []).includes(byTeamId)) return doc;
@@ -660,14 +800,17 @@
   // (idempotency guard, same pattern as processWaivers) and fails SAFE to
   // "cancelled" (never a half-swap) if either side's listed player has moved.
   LG.executeTrade = async function (id) {
-    let doc = await LG.loadTrade(id);
+    let doc = await LG.loadTrade(id, { fresh: true });
     if (!doc || doc.status !== "accepted") return doc;
     if (LG.now() < (doc.reviewEndsAt ?? Infinity)) return doc;
     const fresh = await LG.loadTrade(id, { fresh: true });
     if (!fresh || fresh.status !== "accepted") return fresh;
     const week = LG.currentWeek();
-    const fromRoster = await LG.ensureRoster(week, fresh.from);
-    const toRoster = await LG.ensureRoster(week, fresh.to);
+    // FRESH: executeTrade's own "roster-changed -> cancel" fail-safe exists precisely to
+    // catch a player who has moved since the offer — reading it through the cache made that
+    // guard read the stale data it was written to detect (finding 4).
+    const fromRoster = await LG.ensureRoster(week, fresh.from, { fresh: true });
+    const toRoster = await LG.ensureRoster(week, fresh.to, { fresh: true });
     const giveOk = fresh.give.every((k) => fromRoster.some((p) => p.key === k));
     const getOk = fresh.get.every((k) => toRoster.some((p) => p.key === k));
     if (!giveOk || !getOk) {
@@ -754,7 +897,7 @@
     return out;
   };
   LG.toggleReaction = async function (id, emoji, teamId) {
-    const doc = await LG.db.get(id);
+    const doc = await LG.db.getFresh(id); // read-modify-write on a shared reactions map — must see other devices' taps
     if (!doc || doc.kind !== "chat") return null;
     const cur = new Set((doc.reactions && doc.reactions[emoji]) || []);
     if (cur.has(teamId)) cur.delete(teamId); else cur.add(teamId);
@@ -766,7 +909,7 @@
   // no infrastructure beyond these two). allowCommish is the CALLER'S PIN
   // check (LG.commishUnlocked()) — this fn doesn't gate the PIN itself.
   LG.deleteChat = async function (id, byTeamId, allowCommish) {
-    const doc = await LG.db.get(id);
+    const doc = await LG.db.getFresh(id);
     if (!doc || doc.kind !== "chat") return { ok: false, reason: "not-found" };
     if (!allowCommish && doc.teamId !== byTeamId) return { ok: false, reason: "not-yours" };
     await LG.db.del(id);
@@ -814,11 +957,19 @@
     return ros.filter((p) => p.slot !== "BENCH" && p.slot !== "IR");
   }
   // Reads whatever the live engine currently has for this player — at finalization time (every
-  // relevant game "post") that IS the final score, same as the matchup page's own display.
+  // relevant game "post" AND the engine's own week matching the week being finalized) that IS
+  // the final score, same as the matchup page's own display. `ptsOf` is threaded through every
+  // caller below so the commissioner's archived-stats backfill can substitute a REAL past
+  // week's numbers for the live snapshot (adversarial review 2026-08-08, findings 1/3/7).
   function fzPts(key) {
     const d = LG.data;
     const row = d && d.S && d.S.players.get(key);
     return row && row.pts != null ? row.pts : 0;
+  }
+  // The engine's own authoritative week, or null when unknown / the providers disagree.
+  function fzEngineWeek() {
+    const d = LG.data;
+    return d && d.engineWeek ? d.engineWeek() : null;
   }
   function fzGameState(team) {
     const d = LG.data;
@@ -826,9 +977,10 @@
     const g = d.S.games.get(d.slpTeam(team));
     return g ? g.state : null;
   }
-  async function fzTeamTotal(week, teamId) {
+  async function fzTeamTotal(week, teamId, ptsOf) {
+    const pts = ptsOf || fzPts;
     let total = 0;
-    for (const p of await fzStarters(week, teamId)) total += fzPts(p.key);
+    for (const p of await fzStarters(week, teamId)) total += pts(p.key);
     return Math.round(total * 100) / 100;
   }
   // The optimal LEGAL lineup's total — what LG.slotEligible would have allowed, at maximum —
@@ -838,11 +990,12 @@
   // optimal for this "one shared slot" roster shape (an exchange argument — swapping a worse
   // player into a dedicated slot to "free up" a better one for FLEX can never help, since the
   // vacated dedicated slot can only be re-filled by another player of that same position).
-  async function fzOptimalTotal(week, teamId) {
+  async function fzOptimalTotal(week, teamId, ptsOf) {
+    const fz = ptsOf || fzPts;
     const ros = (await LG.ensureRoster(week, teamId)).filter((p) => p.slot !== "IR");
     const r = (LG.rules || LG.DEFAULT_RULES).roster;
     const byPos = { QB: [], RB: [], WR: [], TE: [], DST: [], K: [] };
-    for (const p of ros) { if (byPos[p.pos]) byPos[p.pos].push({ key: p.key, pts: fzPts(p.key) }); }
+    for (const p of ros) { if (byPos[p.pos]) byPos[p.pos].push({ key: p.key, pts: fz(p.key) }); }
     for (const k of Object.keys(byPos)) byPos[k].sort((a, b) => b.pts - a.pts);
     const used = new Set();
     let total = 0;
@@ -894,7 +1047,13 @@
 
   // Bust of the Week (min proj 8 — plan §5) + Top Score + Bench Blunder, computed against
   // THIS week's just-settled matchups.
-  async function fzAwards(week, matchups) {
+  async function fzAwards(week, matchups, ptsOf, projOf) {
+    const fz = ptsOf || fzPts;
+    // Bust of the Week grades an actual against a PRE-GAME PROJECTION, and the engine only
+    // ever holds the CURRENT week's projections — so an archived-stats backfill of a past
+    // week has no honest projection to grade against and simply skips the award rather than
+    // inventing one from this week's numbers (adversarial review 2026-08-08).
+    const proj = projOf || ((key) => (LG.data && LG.data.projFor ? LG.data.projFor(key) : null));
     const teamPts = {};
     for (const m of matchups) { teamPts[m.home] = m.homePts; teamPts[m.away] = m.awayPts; }
     const teamIds = Object.keys(teamPts).map(Number);
@@ -903,17 +1062,17 @@
     let bust = null;
     for (const tid of teamIds) {
       for (const p of await fzStarters(week, tid)) {
-        const proj = LG.data && LG.data.projFor ? LG.data.projFor(p.key) : null;
-        if (proj == null || proj < 8) continue;
-        const shortfall = Math.round((proj - fzPts(p.key)) * 100) / 100;
+        const pj = proj(p.key);
+        if (pj == null || pj < 8) continue;
+        const shortfall = Math.round((pj - fz(p.key)) * 100) / 100;
         if (!bust || shortfall > bust.shortfall) {
-          bust = { key: p.key, name: p.name, teamId: tid, proj: Math.round(proj * 100) / 100, actual: fzPts(p.key), shortfall };
+          bust = { key: p.key, name: p.name, teamId: tid, proj: Math.round(pj * 100) / 100, actual: fz(p.key), shortfall };
         }
       }
     }
     let benchBlunder = null;
     for (const tid of teamIds) {
-      const optimal = await fzOptimalTotal(week, tid);
+      const optimal = await fzOptimalTotal(week, tid, fz);
       const actual = teamPts[tid];
       const diff = Math.round((optimal - actual) * 100) / 100;
       if (diff > 0.01 && (!benchBlunder || diff > benchBlunder.diff)) benchBlunder = { teamId: tid, optimal, actual, diff };
@@ -967,12 +1126,49 @@
   // commissioner override) — a missing/unknown game state counts as "not final": a week is never
   // guessed official from incomplete data. Posts ONE sys chat message with the scores + awards;
   // that must never break the save (try/catch, same posture as every other event post here).
+  //
+  // WEEK PROVENANCE (adversarial review 2026-08-08, findings 1/3/7). The live engine holds
+  // exactly ONE week's rows, and this function writes a WRITE-ONCE doc that standings,
+  // waiver priority, power rankings, playoff seeding, the record book and the champion are
+  // all derived from forever. It used to take `week` only for the ROSTER lookup and multiply
+  // it by whatever the engine happened to be polling — so the first unattended run after a
+  // missed Tuesday stamped week N's permanent record with week N+1's points, silently, with
+  // no repair path. Three gates now, in order:
+  //   · opts.backfill — the commissioner's clearly-labelled fallback: points come from
+  //     Sleeper's ARCHIVED per-week stats for THAT week, so a missed week finalizes with its
+  //     own real numbers rather than today's;
+  //   · otherwise the engine's own week MUST equal `week` ("stale-week" if it has rolled,
+  //     "no-live-data" if it can't say) — even under opts.force, which only ever meant
+  //     "some games aren't final yet", never "score it from a different week";
+  //   · a playoff week whose bracket still has an unresolved pairing is refused outright,
+  //     force included (findings 6/8) — the doc is write-once, so writing it a game short
+  //     permanently deletes a semifinal or the championship itself.
   LG.finalizeWeek = async function (week, opts) {
     opts = opts || {};
     const id = LG.weeklyId(LG.SEASON, week);
     const existing = await LG.db.get(id);
     if (existing && existing.kind === "weekly") return { ok: true, ...existing };
     await LG.loadTeams();
+    const sw = (LG.rules || LG.DEFAULT_RULES).seasonWeeks;
+    if (week > sw) {
+      const bracket = await LG.loadBracket();
+      const roundKey = week === sw + 1 ? "r1" : week === sw + 2 ? "r2" : week === sw + 3 ? "r3" : null;
+      const round = (bracket && roundKey && bracket.rounds[roundKey]) || [];
+      const unresolved = round.filter((g) => g.home == null || g.away == null);
+      if (unresolved.length) {
+        return { ok: false, reason: "bracket-unresolved", games: unresolved.map((g) => g.id) };
+      }
+    }
+    let ptsOf = null;
+    if (opts.backfill) {
+      const map = LG.data && LG.data.weekStats ? await LG.data.weekStats(week) : null;
+      if (!map) return { ok: false, reason: "no-archived-stats" };
+      ptsOf = (key) => (map.has(key) ? map.get(key) : 0);
+    } else {
+      const ew = fzEngineWeek();
+      if (ew == null) return { ok: false, reason: "no-live-data" };
+      if (ew !== week) return { ok: false, reason: "stale-week", engineWeek: ew };
+    }
     // gamesForWeek is the ONE source of what's actually being played this week — the regular
     // schedule for weeks <= seasonWeeks, or the bracket's resolved pairings for playoff weeks
     // (S7). A playoff week with no bracket yet, or a round still waiting on an earlier upset to
@@ -980,7 +1176,9 @@
     const wkGames = await LG.gamesForWeek(week);
     if (!wkGames || !wkGames.length) return { ok: false, reason: "no-schedule" };
 
-    if (!opts.force) {
+    // The archived-stats path is its own proof that the week is over (Sleeper only serves a
+    // completed week's box), so the live "is every game post?" gate applies to the live path.
+    if (!opts.force && !opts.backfill) {
       const pending = [];
       for (const [h, a] of wkGames) {
         for (const tid of [h, a]) {
@@ -992,18 +1190,19 @@
       if (pending.length) return { ok: false, reason: "not-final", pending };
     }
 
+    const pts = ptsOf || fzPts;
     const matchups = [];
     for (const [h, a] of wkGames) {
-      matchups.push({ home: h, away: a, homePts: await fzTeamTotal(week, h), awayPts: await fzTeamTotal(week, a) });
+      matchups.push({ home: h, away: a, homePts: await fzTeamTotal(week, h, pts), awayPts: await fzTeamTotal(week, a, pts) });
     }
-    const awards = await fzAwards(week, matchups);
+    const awards = await fzAwards(week, matchups, pts, opts.backfill ? () => null : null);
     const power = await LG.powerRankings(week, [{ week, matchups }]);
 
     const snap = await LG.loadProjSnap(week);
     let accuracy = null;
     if (snap && Array.isArray(snap.players) && snap.players.length) {
       let sum = 0;
-      for (const row of snap.players) sum += Math.abs(row.proj - fzPts(row.key));
+      for (const row of snap.players) sum += Math.abs(row.proj - pts(row.key));
       accuracy = { ours: Math.round((sum / snap.players.length) * 100) / 100, n: snap.players.length };
     }
 
@@ -1011,6 +1210,7 @@
       kind: "weekly", week, matchups, awards,
       power: power.map((r) => ({ teamId: r.teamId, score: r.score, rank: r.rank })),
       accuracy, finalizedAt: LG.now(),
+      source: opts.backfill ? "archived" : "live", // provenance, on the record
     };
 
     const fresh = await LG.db.getFresh(id); // idempotency race guard — bypasses LG.db's cache
@@ -1260,10 +1460,16 @@
           bracket.toilet = toiletId;
 
           const nm = (tid) => (LG.teamById(tid) || {}).name || ("Team " + tid);
-          const champTeam = LG.teamById(bracket.champion);
-          if (champTeam) {
-            const trophies = [...(champTeam.trophies || []), { year: LG.SEASON, kind: "champion" }];
-            await LG.saveTeam({ ...champTeam, teamId: bracket.champion, trophies });
+          // FRESH + DEDUPED + DELTA (adversarial review 2026-08-08, finding 10): this used to
+          // spread a possibly-stale in-memory team, rolling that team's FAAB and everything
+          // else back to whatever this page had cached, and could append a second trophy for
+          // the same season on a re-run.
+          const champDoc = await LG.db.getFresh("team_" + bracket.champion);
+          if (champDoc || LG.teamById(bracket.champion)) {
+            const have = (champDoc && champDoc.trophies) || [];
+            const trophies = have.some((t) => t.year === LG.SEASON && t.kind === "champion")
+              ? have : [...have, { year: LG.SEASON, kind: "champion" }];
+            await LG.saveTeam({ teamId: bracket.champion, trophies });
             await LG.loadTeams(); // refresh the in-memory cache so the trophy shows immediately (same posture as processWaivers' FAAB refresh)
           }
           try {

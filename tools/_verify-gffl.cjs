@@ -38,11 +38,22 @@ function section(name) { console.log("\n== " + name + " =="); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------- fixtures ----------------
-const fixture = { phase: 1, sleeperDown: false, espnDown: false, tenorDown: false };
+const fixture = {
+  phase: 1, sleeperDown: false, espnDown: false, tenorDown: false,
+  // Section V knobs (adversarial review 2026-08-08) — every one defaults OFF, so sections
+  // A-U see exactly the fixture they always did.
+  espnWeekNum: null,      // what /scoreboard says its own week is (finding 1/3/7's provenance)
+  sleeperWeek: null,      // what /state/nfl says the current week is (finding 9)
+  emptyWeekBucket: null,  // a stats week that legitimately has nothing in it yet (finding 9)
+  noFgBuckets: false,     // the real league's shape: FG scored ONLY by made-yards (finding 11)
+  bigSlate: false,        // >8 concurrent games, so the summary cap actually bites (finding 13)
+  pregame: false,         // adds a not-yet-kicked-off game to the slate (finding 14)
+  pregameState: "pre",
+};
 
 // -- fake ESPN fantasy upstream (league.mjs import source) --
 function ffSettingsDoc() {
-  return {
+  const doc = {
     settings: {
       name: "Nerd Fantasy Football League",
       scoringSettings: { scoringItems: [
@@ -82,6 +93,16 @@ function ffSettingsDoc() {
     ],
     members: [{ id: "o1", firstName: "Peter", lastName: "K" }],
   };
+  // The REAL family league's actual shape (recorded live 2026-08-07 by lgEspnKickerAudit):
+  // it carries NO conventional FG-made ids (74/77/80) at all — field goals are scored ONLY
+  // by made YARDS, statId 214 at 0.1/yd, and Badgley's season reconciled to the penny at
+  // that rate. Finding 11 is that the import MERGED over the GFFL defaults, so those three
+  // absent keys kept paying 3/4/5 alongside the 0.1/yd — every made FG scored roughly twice.
+  if (fixture.noFgBuckets) {
+    doc.settings.scoringSettings.scoringItems =
+      doc.settings.scoringSettings.scoringItems.filter((it) => ![74, 77, 80].includes(it.statId));
+  }
+  return doc;
 }
 function ffRosterDoc() {
   return {
@@ -288,10 +309,29 @@ function sbFix() {
       ],
     }],
   });
-  return { events: [
+  const events = [
     mk("401900001", "DAL", "PHI", "in", { date: "2026-08-07T00:15Z", detail: "Q2 5:00", period: 2, clock: "5:00", hs: "14", as: "10", net: "FOX" }),
     mk("401900002", "KC", "DEN", "pre", { date: KICK_FUTURE, detail: "Sun 12:00 PM", net: "CBS", spread: "DEN -3.5" }),
-  ] };
+  ];
+  if (fixture.pregame) {
+    events.push(mk("401900777", "SF", "SEA", fixture.pregameState,
+      { date: KICK_FUTURE, detail: "Sun 3:25 PM", hs: fixture.pregameState === "post" ? "10" : "0", as: fixture.pregameState === "post" ? "24" : "0" }));
+  }
+  if (fixture.bigSlate) {
+    // 12 concurrent live games — an 8-team league's starters routinely span this many on a
+    // Sunday, which is exactly when the ≤8-summaries-per-cycle cap starves the tail (finding 13).
+    const abs = ["ARI", "ATL", "BAL", "BUF", "CAR", "CHI", "CIN", "CLE", "GB", "HOU", "IND", "JAX",
+      "LAC", "LAR", "LV", "MIA", "MIN", "NE", "NO", "NYG", "NYJ", "PIT", "SEA", "SF"];
+    for (let i = 0; i < 12; i++) {
+      events.push(mk("40199" + (100 + i), abs[i * 2], abs[i * 2 + 1], "in",
+        { date: "2026-08-07T00:15Z", detail: "Q1 10:00", period: 1, clock: "10:00", hs: "3", as: "0" }));
+    }
+  }
+  // The bare /scoreboard endpoint always means "the current week" and says which one — the
+  // provenance finalizeWeek now refuses to guess at (findings 1/3/7).
+  const out = { events };
+  if (fixture.espnWeekNum != null) out.week = { number: fixture.espnWeekNum };
+  return out;
 }
 function ath(id, name, pos, stats) {
   return { athlete: { id, displayName: name, position: { abbreviation: pos } }, stats };
@@ -365,7 +405,23 @@ const slpPlayersFix = {
   KC: { first_name: "Kansas City", last_name: "Chiefs", team: "KC", position: "DEF" },
   DEN: { first_name: "Denver", last_name: "Broncos", team: "DEN", position: "DEF" },
 };
-function slpStatsFix() {
+// Section V (adversarial review 2026-08-08) needs Sleeper's stats endpoint to answer
+// DIFFERENTLY per week — the whole point of findings 1/3/7 is that week N and week N+1 hold
+// different numbers, and the pre-fix suite could not tell them apart because every week
+// returned the same fixture. Week 1 is byte-identical to what it always was, so every
+// hand-computed expectation in sections C-U is untouched.
+//   week 3: P. Passer (team1's QB) 300yd 2TD = 12 + 8 = 20.0 · Q. Rival (team2's QB) 50yd = 2.0
+//   week 4: P. Passer 25yd = 1.0             · Q. Rival 400yd 3TD = 16 + 12 = 28.0
+// i.e. team1 wins week 3 and team2 wins week 4 — the exact "opposite result" shape the
+// finding's own repro uses to prove a week was scored from the wrong week's board.
+const WEEK_STATS_FIX = {
+  3: { "6904": { pass_yd: 300, pass_td: 2 }, "9101": { pass_yd: 50 } },
+  4: { "6904": { pass_yd: 25 }, "9101": { pass_yd: 400, pass_td: 3 } },
+};
+function slpStatsFix(week) {
+  const w = Number(week);
+  if (WEEK_STATS_FIX[w]) return WEEK_STATS_FIX[w];
+  if (fixture.emptyWeekBucket && w === fixture.emptyWeekBucket) return {};
   return {
     "6904": { pass_yd: 150, pass_td: 1, pass_int: 1, pass_2pt: 1, pts_ppr: 12 },
     "7564": { rec: 4, rec_yd: 50, rec_2pt: 1, pts_ppr: 11 },
@@ -373,6 +429,26 @@ function slpStatsFix() {
     "1266": { fgm_20_29: 1, fgm_40_49: 1, fgmiss: 1, xpm: 1 },
     PHI: { pts_allow: 10, sack: 2, int: 1, fum_rec: 1 },
     DAL: { pts_allow: 14, sack: 1, int: 1 },
+  };
+}
+// A PRE-GAME summary that nonetheless carries a populated boxscore.teams block and a header
+// score of "0" — the shape finding 14 turns on. Before the fix this credited every starting
+// D/ST a 5-point shutout (dst_pa 0 -> dst_pa_0) and consumed the game's one "fetch the final
+// box" token, so its REAL final box was never read.
+function sumPreFix(state) {
+  const teamBlock = (ab) => ({ team: { abbreviation: ab }, statistics: [
+    { name: "sacksYardsLost", displayValue: state === "post" ? "3-21" : "0-0" },
+    { name: "interceptions", displayValue: state === "post" ? "2" : "0" },
+    { name: "fumblesLost", displayValue: "0" },
+  ] });
+  const score = (ab) => (state === "post" ? (ab === "SF" ? "24" : "10") : "0");
+  return {
+    header: { competitions: [{ status: { type: { state } }, competitors: [
+      { homeAway: "home", team: { abbreviation: "SEA" }, score: score("SEA") },
+      { homeAway: "away", team: { abbreviation: "SF" }, score: score("SF") },
+    ] }] },
+    boxscore: { teams: [teamBlock("SF"), teamBlock("SEA")], players: [] },
+    scoringPlays: [],
   };
 }
 const slpProjFix = { "9001": { rec: 4, rec_yd: 45 } }; // TE proj 4 + 4.5 = 8.5
@@ -454,6 +530,20 @@ function seedFor7Playoffs() {
   const base = fullSeed();
   return { ...base, docs: { ...base.docs, ...regularSeasonWeeklyDocs() } };
 }
+// Section V (findings 1/3/7): a 4-week schedule with a week-3 lineup of exactly ONE starter
+// per side, so each team's week-3 total IS that quarterback's score and the difference
+// between "scored from week 3" and "scored from week 4" is unmissable.
+function seedWeekProvenance() {
+  const base = fullSeed();
+  const wk = [[1, 2], [3, 4], [5, 6], [7, 8]];
+  return { ...base, docs: { ...base.docs,
+    sched_2026: { kind: "sched", season: 2026, weeks: [wk, wk, wk, wk] },
+    roster_2026_w3_t1: { kind: "roster", week: 3, teamId: 1, players: [
+      { key: "3915511", name: "P. Passer", pos: "QB", team: "PHI", slot: "QB" }] },
+    roster_2026_w3_t2: { kind: "roster", week: 3, teamId: 2, players: [
+      { key: "222111", name: "Q. Rival", pos: "QB", team: "DAL", slot: "QB" }] },
+  } };
+}
 
 // ---------------- plumbing ----------------
 function startStatic() {
@@ -531,13 +621,14 @@ async function newTestPage(browser, seed, opts) {
           if (u.includes("/scoreboard")) return json(sbFix());
           if (u.includes("event=401900001")) return json(sumAFix());
           if (u.includes("event=401900002")) return json(sumBFix());
+          if (u.includes("event=401900777")) return json(sumPreFix(fixture.pregameState));
           return json({});
         }
         if (u.includes("api.sleeper.app")) {
           if (fixture.sleeperDown) return req.respond({ status: 503, headers: cors, body: "{}" });
-          if (u.endsWith("/state/nfl")) return json(slpStateFix);
+          if (u.endsWith("/state/nfl")) return json(fixture.sleeperWeek != null ? { ...slpStateFix, week: fixture.sleeperWeek } : slpStateFix);
           if (u.endsWith("/players/nfl")) return json(slpPlayersFix);
-          if (u.includes("/stats/nfl/")) return json(slpStatsFix());
+          if (u.includes("/stats/nfl/")) return json(slpStatsFix(u.split("/").pop()));
           if (u.includes("/projections/nfl/")) return json(slpProjFix);
           return json({});
         }
@@ -608,6 +699,18 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
   if (!el) return false;
   el.click(); return true;
 }, sel, filterText || null);
+// Boot-speed pass (2026-08-08): record book / recent moves / league chat now load their real
+// data lazily, only once opened (see wireLazyLeagueDetails in lg-ui.js) — this opens the given
+// <details id="..."> (firing its "toggle" listener) and waits for its placeholder text ("Tap
+// to load…") to be gone before returning, instead of assuming the async fetch-then-repaint
+// already finished. Generic enough for all three lazy cards since they share that one tell.
+async function openDetails(page, id) {
+  await page.evaluate((id) => { const el = document.getElementById(id); if (el) el.open = true; }, id);
+  await page.waitForFunction((id) => {
+    const el = document.getElementById(id);
+    return !!el && !/Tap to load/.test(el.textContent);
+  }, { timeout: 9000 }, id);
+}
 
 // ---------------- main ----------------
 (async () => {
@@ -1361,13 +1464,22 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     // (pending claims + FAAB + free-agent search + trade builder + tx log all at
     // once) — a quick visual QA capture of the re-skin there too, cheap to keep.
     if (SHOTS) { await page1.screenshot({ path: path.join(ROOT, "shots", "gffl_moves_390.png"), fullPage: true }); console.log("  📸 shots/gffl_moves_390.png"); }
-    const claimsDoc = await readDoc(page1, "claims_2026_w1");
-    ok(claimsDoc && claimsDoc.claims.length === 1 && claimsDoc.claims[0].bid === 25 && claimsDoc.claims[0].teamId === 1,
-      "claims doc persisted (team 1, $25, unprocessed)");
+    // RESTAGED 2026-08-08 (adversarial review, findings 2/5/12): a claim is its OWN document
+    // now (`claim_<season>_w<week>_<claimId>`), not an entry in a shared array inside the
+    // weekly doc — a shared array is a read-modify-write, and both backends replace an array
+    // field wholesale, so two owners submitting from two phones erased each other's FAAB bids
+    // with no trace. Same assertion, at the doc the claim actually lives in now.
+    const allDocs1 = await snapshotAllDocs(page1);
+    const claimKeys = Object.keys(allDocs1).filter((k) => k.startsWith("claim_2026_w1_"));
+    const claimDoc = claimKeys.length === 1 ? allDocs1[claimKeys[0]] : null;
+    ok(claimDoc && claimDoc.kind === "claim" && claimDoc.week === 1 && claimDoc.bid === 25 && claimDoc.teamId === 1,
+      "the claim persisted as its OWN doc (team 1, $25, unprocessed) — " + JSON.stringify(claimKeys));
+    ok(!allDocs1.claims_2026_w1 || !(allDocs1.claims_2026_w1.claims || []).length,
+      "…and the shared weekly claims doc holds no claims array for anyone to overwrite");
 
     const base2 = fullSeed();
     const { ctx: ctx2, page: page2, errors: err2 } = await newTestPage(browser,
-      { docs: { ...base2.docs, claims_2026_w1: claimsDoc }, pass: "amenfarms", team: 2, who: "Rival" });
+      { docs: { ...base2.docs, ...Object.fromEntries(claimKeys.map((k) => [k, allDocs1[k]])) }, pass: "amenfarms", team: 2, who: "Rival" });
     await bootPage(page2);
     await page2.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page2);
@@ -1518,8 +1630,10 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await clickIn(page, ".mvcancel");
     await page.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent && document.querySelector("#mvMyClaims").textContent.includes("No pending claims"), { timeout: 5000 });
     ok(true, "cancelling a pending claim removes it from MY PENDING");
-    const doc = await readDoc(page, "claims_2026_w1");
-    ok(doc.claims.length === 0, "…and from the claims doc itself");
+    // RESTAGED 2026-08-08: a cancel DELETES that claim's own doc (see I1's note).
+    const afterCancel = await snapshotAllDocs(page);
+    ok(Object.keys(afterCancel).filter((k) => k.startsWith("claim_2026_w1_")).length === 0,
+      "…and the claim's own doc is gone from storage");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
@@ -2375,7 +2489,10 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     // N3: the record book — every superlative hand-computed against the two imported seasons.
     await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".recordbook", { timeout: 9000 });
+    // Boot-speed pass (2026-08-08): the record book's data now loads lazily, only once its
+    // <details> is actually opened — wait for the real table to land before reading text.
     await page.evaluate(() => { document.querySelector(".recordbook").open = true; });
+    await page.waitForFunction(() => !!document.querySelector(".recordbook table.tbl"), { timeout: 9000 });
     const rbText = await page.evaluate(() => document.querySelector(".recordbook").textContent.replace(/\s+/g, " ").trim());
     ok(/2023: Battle Kreussers/.test(rbText) && /2024: End Zone Goats/.test(rbText), "champions by year, both seasons (" + rbText.slice(0, 140) + ")");
     ok(/Battle Kreussers.*182\.4.*wk 1, 2024/.test(rbText), "highest single-week score ever: Battle Kreussers 182.4, wk1 2024");
@@ -2442,12 +2559,22 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await page.waitForSelector(".recordbook", { timeout: 5000 });
+    // Boot-speed pass (2026-08-08): the record book's data — even "there's genuinely nothing
+    // here yet" — now loads lazily, only once its <details> is actually opened. Open it and
+    // wait for the real (empty-state) content to land before reading it.
+    await page.evaluate(() => { document.querySelector(".recordbook").open = true; });
+    await page.waitForFunction(() => /No history imported yet/.test(document.querySelector(".recordbook").textContent), { timeout: 9000 });
     const rbEmptyBefore = await page.evaluate(() => document.querySelector(".recordbook").textContent);
     ok(/No history imported yet/.test(rbEmptyBefore), "record book empty state (no hist docs): 'No history imported yet'");
     ok(!(await page.$(".recordbook table.tbl")), "…and no standings table renders with nothing imported");
     ok(!/Import it from the Rules page/.test(rbEmptyBefore), "…no commissioner hint shown to a non-commissioner viewer");
     await page.evaluate(() => window.__GFFL__.LG.gateCommish()); // create-on-first-use, consumes the stub prompt
+    // renderLeague() called directly (not via UI.show) is still a genuine !repaint render —
+    // it re-arms the lazy record-book card too (boot-speed pass), so it must be opened again.
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
+    await page.waitForSelector(".recordbook", { timeout: 5000 });
+    await page.evaluate(() => { document.querySelector(".recordbook").open = true; });
+    await page.waitForFunction(() => /No history imported yet/.test(document.querySelector(".recordbook").textContent), { timeout: 9000 });
     const rbEmptyAfter = await page.evaluate(() => document.querySelector(".recordbook").textContent);
     ok(/Import it from the Rules page/.test(rbEmptyAfter), "…the commissioner DOES see a hint pointing at Rules");
     await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
@@ -2745,6 +2872,13 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
       setP("222333", "X. Wideout", "PHI", "WR", 12);
       setP("dst_DAL", "DAL D/ST", "DAL", "DST", 4);
       ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+      // RESTAGED 2026-08-08 (adversarial review, findings 1/3/7): finalizeWeek now refuses
+      // unless the LIVE ENGINE'S OWN WEEK is the week being written — it used to take `week`
+      // for the roster lookup only and multiply it by whatever the engine happened to be
+      // polling, which is how week N's permanent record got stamped with week N+1's points.
+      // The fixture's providers say week 1; this section is finalizing week 15, so it must
+      // say so. (Both providers are set: they must AGREE or the engine reports "unknown".)
+      D.S.espnWeek = 15; D.S.slpWeek = 15;
     });
     const r15 = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(15));
     ok(r15.ok === true, "finalizeWeek(15) succeeds on a REAL playoff week driven by the live engine");
@@ -2788,26 +2922,34 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     // LG.db.getFresh(id), used by processWaivers/executeTrade/finalizeWeek/buildBracket/
     // snapshotProjections. Proven against finalizeWeek (the cleanest of the five — it computes
     // entirely in memory and does its ONE write only after the guard, so there's nothing else
-    // in play): warm the cache on "no weekly doc yet" (a plain, cached negative lookup — LG.db
-    // caches nulls too), then have "another device" finalize the week via a RAW localStorage
-    // write that bypasses THIS page's LG.db entirely (the K-section's cross-device technique).
-    // A plain LG.db.get() is proven to still read the stale "doesn't exist" cache; finalizeWeek's
-    // own getFresh-backed guard is proven to see the real doc and skip recomputing/re-writing/
-    // re-announcing it.
+    // in play): warm the page's knowledge of "no weekly doc yet", then have "another device"
+    // finalize the week via a RAW localStorage write that bypasses THIS page's LG.db entirely
+    // (the K-section's cross-device technique). finalizeWeek's own getFresh-backed guard is
+    // proven to see the real doc and skip recomputing/re-writing/re-announcing it.
+    //
+    // RESTAGED 2026-08-08 (adversarial review, findings 2/4/5/12): this section used to say
+    // "LG.db caches nulls too" and assert that a plain get() keeps reading a stale "missing".
+    // A cached null is exactly the mechanism those findings turn on, so nulls are NEVER cached
+    // any more — absence is DERIVED from a cached list() of that doc's own kind instead, which
+    // carries its own 15s cloud background refresh. That derivation is still a SNAPSHOT, which
+    // is precisely why the five idempotency guards use getFresh, so the point this section
+    // makes is unchanged: below, the page's own list("weekly") snapshot still reports the doc
+    // as absent while getFresh sees the truth.
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     const warmMissing = await page.evaluate(async () => {
       const LG = window.__GFFL__.LG;
-      const warm = await LG.loadWeekly(1); // ordinary cached read — caches the negative (null) result too
+      await LG.db.list("weekly");          // the snapshot absence is derived from
+      const warm = await LG.loadWeekly(1);
       return warm == null;
     });
-    ok(warmMissing, "week 1's weekly doc is cached on this page as NOT YET existing");
+    ok(warmMissing, "week 1's weekly doc reads as NOT YET existing on this page");
     const chatBefore = (await page.evaluate(() => window.__GFFL__.LG.loadAllChat())).length;
     const finalDoc = { kind: "weekly", week: 1, matchups: [{ home: 1, away: 2, homePts: 55, awayPts: 30 }], awards: {}, power: [], accuracy: null, finalizedAt: 999000 };
     await page.evaluate((k, doc) => localStorage.setItem(k, JSON.stringify(doc)), LSPFX + "weekly_2026_w1", finalDoc);
     const staleMissing = await page.evaluate(() => window.__GFFL__.LG.db.get(window.__GFFL__.LG.weeklyId(2026, 1)).then((d) => d == null));
-    ok(staleMissing, "…and a PLAIN LG.db.get() (cache-aware) genuinely still reads that stale \"missing\" cache — proving there's something real for getFresh to fix");
+    ok(staleMissing, "…and a PLAIN LG.db.get() still reads that from the page's own list snapshot — proving there's something real for getFresh to fix");
     // force:true bypasses the (unrelated) "every game must read post" guard — this test is
     // about the get-vs-getFresh idempotency guard specifically, not about live-game state.
     const r1 = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
@@ -2826,6 +2968,11 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
+    // Boot-speed pass (2026-08-08): the forced auto-check chain now runs AFTER the first
+    // paint (.mucard existing no longer implies it's finished) — UI.boot() still doesn't
+    // RESOLVE until it's done, but nothing here awaits UI.boot() itself, so wait for the
+    // counter directly rather than assuming it settled by the time .mucard appeared.
+    await page.waitForFunction(() => window.__GFFL__.UI._autoCheckRuns >= 1, { timeout: 9000 });
     const afterBoot = await page.evaluate(() => window.__GFFL__.UI._autoCheckRuns);
     ok(afterBoot === 1, "boot runs the auto-check chain exactly once (forced, bypassing the throttle)");
     // Two more unforced calls, same wall-clock window (< AUTO_CHECK_MS since boot) — both throttled.
@@ -2995,6 +3142,10 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
     ok(!!(await page.$(".collapsecard")), "the league home renders at least one collapsible card in the new house style");
+    // Boot-speed pass (2026-08-08): both cards now load their real data lazily, only once
+    // opened — open each and wait for its placeholder to be replaced before reading it.
+    await openDetails(page, "txDetails");
+    await openDetails(page, "chatDetails");
     const movesCard = await page.evaluate(() => {
       const d = [...document.querySelectorAll(".collapsecard")].find((el) => el.textContent.includes("Recent moves"));
       return d ? { html: d.innerHTML, rows: d.querySelectorAll(".fline").length, hasBtn: !!d.querySelector("#recentMovesAll") } : null;
@@ -3019,8 +3170,11 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
     await page.evaluate(() => window.__GFFL__.LG.postSys("A sys announcement"));
     await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
+    // A genuine re-navigation to League re-arms both lazy cards (boot-speed pass) — the sys
+    // post is only visible once the chat card is opened again, same as any other content here.
+    await openDetails(page, "chatDetails");
     ok((await page.evaluate(() => document.body.textContent)).includes("A sys announcement"),
-      "sys-posted chat messages appear on the league-home preview too");
+      "sys-posted chat messages appear on the league-home preview too, once opened");
     // "View all" / "Open chat" actually navigate.
     await clickIn(page, "#recentMovesAll");
     await page.waitForFunction(() => document.body.textContent.includes("Add Number 10"), { timeout: 5000 });
@@ -3337,6 +3491,611 @@ const clickIn = (page, sel, filterText) => page.evaluate((sel, ft) => {
       if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_theme_bracket_390.png"), fullPage: true }); console.log("  📸 shots/gffl_theme_bracket_390.png"); }
       await ctx.close();
     }
+  }
+
+  // ---- V: the adversarial-review fix batch (2026-08-08) ----
+  // Every check below is built from a CONFIRMED finding's own reproduction steps. Where a
+  // check is a genuine pre-fix repro (it fails against the code as it stood before this
+  // batch), the comment says so — those were verified by stashing the three app files and
+  // re-running this section, not asserted from reasoning.
+  section("V · adversarial review 2026-08-08 — week provenance, cache lost-updates, playoff ordering, import scoring, poll fairness");
+
+  // V1: findings 1/3/7 — finalizeWeek used to take `week` for the ROSTER lookup only and
+  // multiply it by whatever the live engine happened to be holding, then write a WRITE-ONCE
+  // doc. The finding's repro verbatim: week-3 rosters, an engine sitting on week 4, and week
+  // 4's numbers being the OPPOSITE result to week 3's.
+  {
+    fixture.espnWeekNum = 4; fixture.sleeperWeek = 4;
+    const { ctx, page, errors } = await newTestPage(browser, seedWeekProvenance());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const ew = await page.evaluate(() => window.__GFFL__.D.engineWeek());
+    ok(ew === 4, "the engine reports its OWN authoritative week (4) — the provenance finalization now refuses to guess at (" + ew + ")");
+    // The board as it reads on the Tuesday of week 4: week 4's points, every game final.
+    await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const setP = (key, name, team, pos, pts) =>
+        D.S.players.set(key, { key, name, team, pos, pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0 });
+      setP("3915511", "P. Passer", "PHI", "QB", 1);    // week 4: 25 pass yds
+      setP("222111", "Q. Rival", "DAL", "QB", 28);     // week 4: 400 yds, 3 TD
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+    });
+    // PRE-FIX REPRO: this returned {ok:true} and permanently recorded week 3 as 1.0 — 28.0,
+    // charging team 1 a loss it actually won, with no warning and no way to undo it.
+    const stale = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(3));
+    ok(stale.ok === false && stale.reason === "stale-week" && stale.engineWeek === 4,
+      "finalizeWeek REFUSES week 3 while the live board is showing week 4 (" + JSON.stringify(stale) + ")");
+    ok(!(await readDoc(page, "weekly_2026_w3")), "…and nothing was written — no wrong numbers, silently or otherwise");
+    const forced = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(3, { force: true }));
+    ok(forced.ok === false && forced.reason === "stale-week",
+      "the commissioner's force override does NOT bypass it — force only ever meant \"some games aren't final\", never \"score it from a different week\"");
+    ok(!(await readDoc(page, "weekly_2026_w3")), "…still nothing written");
+    // The honest fallback: Sleeper's archived per-week stats, which still hold week 3's own
+    // numbers (P. Passer 300yd/2TD = 20.0 · Q. Rival 50yd = 2.0 — team 1 really won).
+    const back = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(3, { backfill: true }));
+    const m = back.ok && back.matchups.find((x) => x.home === 1 && x.away === 2);
+    ok(back.ok === true && !!m && m.homePts === 20 && m.awayPts === 2,
+      "the archived-stats backfill finalizes week 3 from WEEK 3's own stat lines: 20.0 — 2.0 (" + JSON.stringify(m) + ")");
+    ok(back.source === "archived", "…and the doc records that provenance on the record (source=" + back.source + ")");
+    const st = await page.evaluate(() => window.__GFFL__.LG.loadStandings());
+    ok(st[1].w === 1 && st[1].l === 0 && st[2].l === 1,
+      "…so the standings credit the team that actually won week 3 (" + JSON.stringify({ t1: st[1], t2: st[2] }) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.espnWeekNum = null; fixture.sleeperWeek = null;
+  }
+
+  // V1b: the other side of the same gate — when the engine IS on the week being finalized,
+  // the ordinary live path still works, and auto-finalization now reaches the CURRENT week
+  // (it used to stop at currentWeek()-1, which is precisely why week N was only ever
+  // finalizable after the engine had already rolled off it).
+  {
+    fixture.espnWeekNum = 3; fixture.sleeperWeek = 3;
+    const { ctx, page, errors } = await newTestPage(browser, seedWeekProvenance());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => {
+      const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
+      const setP = (key, name, team, pos, pts) =>
+        D.S.players.set(key, { key, name, team, pos, pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0 });
+      setP("3915511", "P. Passer", "PHI", "QB", 20);   // week 3's real line
+      setP("222111", "Q. Rival", "DAL", "QB", 2);
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+      const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+      LG.nowOverride = start + 2 * 7 * 24 * 3600 * 1000 + 3600000; // 1h into week 3 — the CURRENT week
+    });
+    const cw = await page.evaluate(() => window.__GFFL__.LG.currentWeek());
+    ok(cw === 3, "the clock reads week 3 — the week the engine is holding (" + cw + ")");
+    await page.evaluate(() => window.__GFFL__.UI.maybeAutoFinalizeWeeks());
+    const doc3 = await readDoc(page, "weekly_2026_w3");
+    const m3 = doc3 && doc3.matchups.find((x) => x.home === 1 && x.away === 2);
+    ok(!!m3 && m3.homePts === 20 && m3.awayPts === 2 && doc3.source === "live",
+      "auto-finalization settles the CURRENT week from the live board once every game is final: 20.0 — 2.0 (" + JSON.stringify(m3) + ")");
+    ok(!(await readDoc(page, "weekly_2026_w2")) && !(await readDoc(page, "weekly_2026_w1")),
+      "…and weeks 1-2, which the engine can no longer score, were left alone rather than stamped with week 3's points");
+    const staleList = await page.evaluate(() => window.__GFFL__.UI._staleWeeks);
+    ok(Array.isArray(staleList) && staleList.includes(1) && staleList.includes(2) && !staleList.includes(3),
+      "…they're recorded as needing attention instead (" + JSON.stringify(staleList) + ")");
+    // The auto path and the league home's own scan must produce the SAME shape — the card
+    // repaints straight off this field without recomputing.
+    const rendered = await page.evaluate(async () => {
+      await window.__GFFL__.UI.renderLeague();
+      const h = [...document.querySelectorAll("h2")].find((x) => /needs? finalizing/.test(x.textContent));
+      return h ? h.closest(".card").textContent.replace(/\s+/g, " ") : "";
+    });
+    ok(/Week 1/.test(rendered) && /Week 2/.test(rendered) && !/object Object/.test(rendered),
+      "…and the league home renders them as real week numbers (" + rendered.slice(0, 80) + ")");
+    await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.espnWeekNum = null; fixture.sleeperWeek = null;
+  }
+
+  // V1c: the league home SAYS SO — a week the engine can no longer score is stated plainly,
+  // and the commissioner settles it from that week's own archived stats, in the real UI.
+  {
+    fixture.espnWeekNum = 4; fixture.sleeperWeek = 4;
+    const { ctx, page, errors } = await newTestPage(browser, seedWeekProvenance());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => {
+      const LG = window.__GFFL__.LG;
+      const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+      LG.nowOverride = start + 3 * 7 * 24 * 3600 * 1000 + 3600000; // 1h into week 4
+      window.__GFFL__.UI.week = LG.currentWeek();
+    });
+    await page.evaluate(() => window.__GFFL__.LG.gateCommish()); // create-on-first-use, consumes the stub prompt
+    await page.evaluate(() => window.__GFFL__.UI.renderLeague());
+    await page.waitForFunction(() => /needs? finalizing/.test(document.body.textContent), { timeout: 9000 });
+    const cardTxt = await page.evaluate(() => {
+      const h = [...document.querySelectorAll("h2")].find((x) => /needs? finalizing/.test(x.textContent));
+      return h ? h.closest(".card").textContent.replace(/\s+/g, " ").trim() : "";
+    });
+    ok(/Live scoring has already moved on/.test(cardTxt), "the league home states plainly that live scoring can't settle these weeks (" + cardTxt.slice(0, 120) + ")");
+    ok(/Week 1/.test(cardTxt) && /Week 2/.test(cardTxt) && /Week 3/.test(cardTxt), "…naming each week that needs it");
+    const btns = await page.$$eval(".staleFinBtn", (els) => els.map((e) => e.dataset.w));
+    ok(btns.includes("3") && !btns.includes("4"), "…with a commissioner button per week, and NOT for week 4 — which the engine can still score live (" + JSON.stringify(btns) + ")");
+    await page.evaluate(() => [...document.querySelectorAll(".staleFinBtn")].find((b) => b.dataset.w === "3").click());
+    await page.waitForFunction(() => !!localStorage.getItem("lg_gffl_test1_weekly_2026_w3"), { timeout: 9000 });
+    const doc3 = await readDoc(page, "weekly_2026_w3");
+    const m3 = doc3.matchups.find((x) => x.home === 1 && x.away === 2);
+    ok(m3.homePts === 20 && m3.awayPts === 2 && doc3.source === "archived",
+      "tapping it finalizes week 3 from week 3's own archived stats, through the real UI (" + JSON.stringify(m3) + ")");
+    await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.espnWeekNum = null; fixture.sleeperWeek = null;
+  }
+
+  // V2: finding 1's widening note — pollScoreboard only ever .set() into D.S.games, so a tab
+  // left open across the Tuesday rollover kept LAST week's "post" entries forever, and the
+  // "is every game final?" guard passed for any past week, in any week, byes included.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const before = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      D.S.games.set("BUF", { eventId: "stale1", state: "post", period: 4, clock: "0:00" }); // last week's game
+      D.S.games.set("PHI", { eventId: "401900001", state: "post", period: 4, clock: "0:00" }); // wrongly stuck at post
+      return [...D.S.games.keys()].length;
+    });
+    await poll(page);
+    const after = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      return { has: [...D.S.games.keys()], phi: (D.S.games.get("PHI") || {}).state };
+    });
+    ok(!after.has.includes("BUF"), "a team no longer on this week's slate disappears from the game map — it is REBUILT each poll, never merged into (" + before + " -> " + after.has.length + ")");
+    ok(after.phi === "in", "…and a stale 'post' is overwritten by what the slate actually says now (" + after.phi + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // V3: findings 2/5/12 — two owners submitting waiver claims from two devices used to erase
+  // each other. LG.addClaim was a read-modify-write over a shared `claims` ARRAY (and both
+  // backends replace an array field wholesale), read through a doc cache that never expired.
+  // The finding's repro: this page renders Moves first (caching the claims doc as it stands),
+  // then another device writes a claim, then this page submits its own.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faSearch", { timeout: 9000 });
+    // Mom's device, on her own phone, submits a $40 bid — written straight into the shared
+    // store, bypassing THIS page's LG.db entirely (the suite's established cross-device
+    // technique). Written in the pre-split ARRAY shape, which is both what the old code wrote
+    // and what a week carried over from before this batch still looks like.
+    await page.evaluate((k, doc) => localStorage.setItem(k, JSON.stringify(doc)), LSPFX + "claims_2026_w1", {
+      kind: "claims", week: 1, processed: false, results: null, claims: [
+        { id: "m1", teamId: 2, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "dst_DAL", dropName: "DAL D/ST", bid: 40, t: 1 },
+      ],
+    });
+    // PRE-FIX REPRO: this rebuilt the whole array from the stale cached base and wrote back
+    // {claims:["d1"]} — m1 gone from storage, with no error and nothing on anyone's screen.
+    await page.evaluate(() => window.__GFFL__.LG.addClaim(1, {
+      id: "d1", teamId: 1, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "111333", dropName: "B. Backup", bid: 5, t: 2,
+    }));
+    const shared = await readDoc(page, "claims_2026_w1");
+    ok(shared && (shared.claims || []).some((c) => c.id === "m1"),
+      "the other owner's $40 claim is still in the shared store after this page submits its own (" + JSON.stringify((shared.claims || []).map((c) => c.id)) + ")");
+    const both = await page.evaluate(() => window.__GFFL__.LG.loadClaims(1, { fresh: true }));
+    const ids = (both.claims || []).map((c) => c.id).sort();
+    ok(ids.join(",") === "d1,m1", "…and BOTH claims are on the board for processing (" + JSON.stringify(ids) + ")");
+    const res = await page.evaluate(() => window.__GFFL__.LG.processWaivers(1));
+    const rm = (res.results || []).find((r) => r.id === "m1"), rd = (res.results || []).find((r) => r.id === "d1");
+    ok(rm && rm.ok === true && rd && rd.ok === false && rd.reason === "outbid",
+      "…so the $40 bid WINS the player and the $5 bid is honestly outbid, instead of the $5 bid winning by default (" + JSON.stringify({ rm, rd }) + ")");
+    const t2 = await page.evaluate(() => window.__GFFL__.LG.db.getFresh("team_2"));
+    ok(t2.faab === 60, "…and the winner's FAAB really moved (100 → 60)");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // V4: finding 4 — a page holding a cached roster wrote the WHOLE players array back on the
+  // next lineup tap, silently undoing a waiver win or an executed trade that had landed in
+  // between (with the FAAB still spent and the transaction log still narrating the move).
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => { window.__GFFL__.UI.lockerTeamId = 1; window.__GFFL__.UI.show("locker"); });
+    await page.waitForSelector(".lrow", { timeout: 9000 });
+    // Wednesday 8am: waivers process on the commissioner's device. Team 1 wins "fa9" and
+    // drops H. Healthy. Written straight into the shared store — this page never sees it.
+    const seedRos = await readDoc(page, "roster_2026_w1_t1");
+    const wonRos = seedRos.players.filter((p) => p.key !== "111777")
+      .concat([{ key: "fa9", name: "W. Winner", pos: "WR", team: "KC", slot: "BENCH" }]);
+    await page.evaluate((k, doc) => localStorage.setItem(k, JSON.stringify(doc)), LSPFX + "roster_2026_w1_t1",
+      { kind: "roster", week: 1, teamId: 1, players: wonRos });
+    // The owner, whose tab has been open the whole time, taps an unrelated lineup change:
+    // move the OUT player to IR (section E's own flow).
+    await clickIn(page, ".lrow", "I. Injured");
+    await page.waitForSelector("#swapSheet .swaprow", { timeout: 5000 });
+    await clickIn(page, "#swapSheet .swaprow", "IR");
+    await page.waitForFunction(() => {
+      const d = JSON.parse(localStorage.getItem("lg_gffl_test1_roster_2026_w1_t1") || "{}");
+      return (d.players || []).some((p) => p.key === "111666" && p.slot === "IR");
+    }, { timeout: 9000 });
+    const saved = await readDoc(page, "roster_2026_w1_t1");
+    const keys = saved.players.map((p) => p.key);
+    // PRE-FIX REPRO: both of these failed — the cached array came back, so fa9 vanished and
+    // the dropped player reappeared.
+    ok(keys.includes("fa9"), "the waiver-won player SURVIVES an unrelated lineup tap from a stale tab (" + JSON.stringify(keys) + ")");
+    ok(!keys.includes("111777"), "…and the dropped player stays dropped");
+    ok(saved.players.find((p) => p.key === "111666").slot === "IR", "…while the tap itself still did exactly what it meant to");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // V5a: findings 6/8 — a playoff week's weekly doc is WRITE-ONCE, and gamesForWeek omits a
+  // pairing that hasn't resolved yet. Finalizing a semifinal week before the play-in has been
+  // advanced therefore deleted that semifinal from the official record permanently, and no
+  // champion could ever be crowned.
+  {
+    fixture.espnWeekNum = 16; fixture.sleeperWeek = 16;
+    const { ctx, page, errors } = await newTestPage(browser, seedFor7Playoffs());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
+      const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+      LG.nowOverride = start + 15 * 7 * 24 * 3600 * 1000 + 3600000; // 1h into week 16
+      await LG.buildBracket();
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+    });
+    const semi1 = await page.evaluate(async () => (await window.__GFFL__.LG.loadBracket()).rounds.r2.find((g) => g.id === "semi1"));
+    ok(semi1.home != null && semi1.away == null, "semi1 is waiting on the play-in winner, exactly as built (" + JSON.stringify(semi1) + ")");
+    // PRE-FIX REPRO: this returned ok:true and wrote week 16 containing only semi2 + the
+    // consolation game — the #1 seed's semifinal simply absent from the record, forever.
+    const r = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(16));
+    ok(r.ok === false && r.reason === "bracket-unresolved" && (r.games || []).includes("semi1"),
+      "finalizeWeek REFUSES a playoff week with an unresolved pairing (" + JSON.stringify(r) + ")");
+    const rf = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(16, { force: true }));
+    ok(rf.ok === false && rf.reason === "bracket-unresolved", "…and force does not bypass it either — the doc is write-once, so a game short is a game lost");
+    ok(!(await readDoc(page, "weekly_2026_w16")), "…nothing written");
+    await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.espnWeekNum = null; fixture.sleeperWeek = null;
+  }
+
+  // V5b: the season-sim outcome the finding measured — play the postseason out on the
+  // ordinary cadence and a champion is ALWAYS crowned, with every bracket game on the record.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, seedFor7Playoffs());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    for (const w of [15, 16, 17]) {
+      await page.evaluate(async (w) => {
+        const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
+        const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+        LG.nowOverride = start + (w - 1) * 7 * 24 * 3600 * 1000 + 3600000;
+        D.S.espnWeek = w; D.S.slpWeek = w;                       // the live board IS this week
+        for (const ab of ["PHI", "DAL", "DEN", "KC"]) D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" });
+        await window.__GFFL__.UI.maybeAdvanceLeague();
+      }, w);
+    }
+    const counts = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      const n = async (w) => ((await LG.loadWeekly(w)) || { matchups: [] }).matchups.length;
+      const b = await LG.loadBracket();
+      return { w15: await n(15), w16: await n(16), w17: await n(17), champion: b && b.champion };
+    });
+    ok(counts.w15 === 2, "week 15 records both of its games — the play-in and consolation A (" + counts.w15 + ")");
+    ok(counts.w16 === 3, "week 16 records BOTH semifinals plus consolation B (" + counts.w16 + ") — pre-fix this was 2, the #1 seed's semi permanently missing");
+    ok(counts.w17 === 3, "week 17 records the championship, the 3rd-place game and consolation C (" + counts.w17 + ")");
+    ok(counts.champion != null, "a champion is crowned (team " + counts.champion + ")");
+    await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // V5c: the finding's actual trigger — nobody opens the app for the whole postseason. The
+  // engine has rolled past all three weeks, so nothing auto-finalizes; the commissioner
+  // settles them from archived stats, and the bracket still walks all the way to a champion
+  // because each week is advanced before the next one is written.
+  {
+    fixture.espnWeekNum = 18; fixture.sleeperWeek = 18;
+    const { ctx, page, errors } = await newTestPage(browser, seedFor7Playoffs());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const out = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+      LG.nowOverride = start + 17 * 7 * 24 * 3600 * 1000 + 3600000; // deep in week 18
+      await window.__GFFL__.UI.maybeAdvanceLeague();               // builds the bracket, finalizes nothing
+      const auto = { w15: !!(await LG.loadWeekly(15)), w16: !!(await LG.loadWeekly(16)) };
+      const reasons = [];
+      for (const w of [15, 16, 17]) {                              // the commissioner's own sequence
+        const r = await LG.finalizeWeek(w, { backfill: true });
+        reasons.push({ w, ok: r.ok, reason: r.reason });
+        if (r.ok) await LG.advanceBracket();
+      }
+      const b = await LG.loadBracket();
+      const n = async (w) => ((await LG.loadWeekly(w)) || { matchups: [] }).matchups.length;
+      return { auto, reasons, champion: b && b.champion, w15: await n(15), w16: await n(16), w17: await n(17) };
+    });
+    ok(out.auto.w15 === false && out.auto.w16 === false,
+      "nothing auto-finalizes once the engine has rolled past the whole postseason — it refuses rather than guessing");
+    ok(out.reasons.every((r) => r.ok), "each week backfills from its own archived stats (" + JSON.stringify(out.reasons) + ")");
+    ok(out.w16 === 3 && out.w17 === 3, "…with every bracket game recorded (w16 " + out.w16 + ", w17 " + out.w17 + ")");
+    ok(out.champion != null, "…and a champion is crowned from a cold catch-up (team " + out.champion + ")");
+    await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.espnWeekNum = null; fixture.sleeperWeek = null;
+  }
+
+  // V6: finding 9 — the Sleeper stats bucket rotated [week, week+1, "1"] and LOCKED on the
+  // first candidate that returned anything. Week 1's bucket is the one bucket that is always
+  // full, so between the Tuesday rollover and the week's first kickoff (all of Tue/Wed/Thu,
+  // every week) it locked onto week 1's completed lines and served them as live scoring.
+  {
+    fixture.sleeperWeek = 11; fixture.emptyWeekBucket = 11;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await poll(page); await poll(page); await poll(page); await poll(page);
+    const st = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const row = D.S.players.get("3915511");
+      return { cands: D.S.slpBucket.cands, locked: D.S.slpBucket.locked, week: D.S.slpWeek, engine: D.engineWeek(), slpSide: row ? row.slp : "no-row" };
+    });
+    ok(JSON.stringify(st.cands) === '["11"]', "the stats bucket is EXACTLY the authoritative week — no week-1 fallback candidate to fall onto (" + JSON.stringify(st.cands) + ")");
+    ok(st.locked === false, "…nothing locked, because there was nothing legitimate to lock onto");
+    ok(st.slpSide == null, "…and after four polls not one week-1 stat line has been served as this week's scoring (" + JSON.stringify(st.slpSide) + ")");
+    ok(st.week === 11 && st.engine === 11, "…while the engine still knows which week it's on (" + st.engine + ")");
+    ok(errors.length === 0, "0 page errors with an empty current-week bucket");
+    await ctx.close();
+    fixture.sleeperWeek = null; fixture.emptyWeekBucket = null;
+  }
+
+  // V7: finding 10 — both list() implementations built rows as {id, ...doc}, so a doc
+  // carrying its own stray numeric `id` clobbered its real doc-id on every COLD read. The
+  // next cacheUpsert then couldn't find the row it had just written, pushed a duplicate, and
+  // LG.teamById started returning the pre-edit copy. (cacheUpsert had this exact fix already;
+  // the two functions that FEED it did not.)
+  {
+    const base = fullSeed();
+    const poisoned = { ...base.docs };
+    poisoned.team_1 = { kind: "team", teamId: 1, name: "Battle Kreussers", abbrev: "T1", owner: "", faab: 90, id: 1 };
+    const { ctx, page, errors } = await newTestPage(browser, { ...base, docs: poisoned });
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    const cold = await page.evaluate(async () => (await window.__GFFL__.LG.db.list("team")).map((d) => d.id));
+    ok(cold.includes("team_1") && !cold.includes(1), "a cold list() row keeps its real doc-id even when the doc carries a numeric `id` field (" + JSON.stringify(cold.slice(0, 3)) + ")");
+    const after = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.saveTeam({ teamId: 1, motto: "Ready" });
+      await LG.saveTeam({ teamId: 2, motto: "Also ready" });
+      await LG.loadTeams();
+      const raw1 = await LG.db.getFresh("team_1"), raw2 = await LG.db.getFresh("team_2");
+      return { dupes: LG.teams.filter((t) => t.id === 1).length, faab: LG.teamById(1).faab, motto: raw1.motto, cleanId: raw2.id };
+    });
+    ok(after.dupes === 1, "…so a save on a cold cache updates in place instead of pushing a stale duplicate (" + after.dupes + " row(s) for team 1)");
+    ok(after.faab === 90, "…and LG.teamById reads the CURRENT team, not a pre-edit copy (faab " + after.faab + ")");
+    // HONEST SCOPE (the finding says so itself): a doc ALREADY carrying the stray field keeps
+    // it — both backends merge, so a write cannot delete a field. It is now inert, because
+    // list() attaches the real doc-id LAST and nothing reads `.id` off a get(). What matters
+    // is that no NEW stray is ever minted: saveTeam strips the numeric `id` LG.loadTeams()
+    // stamps on every in-memory team before writing.
+    ok(after.cleanId === undefined && after.motto === "Ready",
+      "…and a save never MINTS a stray `id` field — the round-trip that poisoned these docs in the first place is closed (" + JSON.stringify(after.cleanId) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // V8: finding 11 — the ESPN import MERGED over the GFFL defaults, so every scoring key the
+  // real league doesn't configure kept a default. The family league scores field goals ONLY
+  // by made YARDS (statId 214 at 0.1/yd, reconciled to the penny against a real season) and
+  // carries no conventional FG-made ids at all, so fg_0_39/40_49/50 survived at 3/4/5 and
+  // D.score() paid BOTH — roughly double for every made field goal, every week.
+  {
+    fixture.noFgBuckets = true;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+    await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
+    await clickIn(page, "#rulesImport");
+    await page.waitForSelector("#importApply", { timeout: 9000 });
+    await clickIn(page, "#importApply");
+    await page.waitForFunction(() => window.__GFFL__.LG.rules.scoring.fg_made_yd === 0.1, { timeout: 9000 });
+    const sc = await page.evaluate(() => window.__GFFL__.LG.rules.scoring);
+    ok(sc.fg_0_39 === 0 && sc.fg_40_49 === 0 && sc.fg_50 === 0,
+      "a scoring key the real league doesn't list drops to 0 — the import REPLACES scoring, it doesn't merge over ours (" + JSON.stringify({ a: sc.fg_0_39, b: sc.fg_40_49, c: sc.fg_50 }) + ")");
+    // A kicker's ordinary day: 25 / 45 / 52-yd field goals + 2 extra points.
+    const pts = await page.evaluate(() => window.__GFFL__.D.score({ fg_0_39: 1, fg_40_49: 1, fg_50: 1, fg_made_yd: 122, xp_made: 2 }));
+    ok(pts === 14.2, "…so a made field goal scores ONCE, via made-yards: 122 × 0.1 + 2 XP = 14.2 (" + pts + ") — pre-fix this read 26.2");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.noFgBuckets = false;
+  }
+
+  // V9: finding 13 — pollOnce fetched `[...wanted.keys()].slice(0, 8)`, and `wanted` is
+  // rebuilt from a Set with frozen insertion order every cycle, so the SAME eight games were
+  // refreshed forever and everything past the eighth was never fetched again. Silent, because
+  // health only counts fetches that FAILED, never fetches that were never attempted.
+  {
+    fixture.bigSlate = true;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await stopPolling(page);
+    const total = await page.evaluate(async () => {
+      const D = window.__GFFL__.D;
+      await D.pollOnce();
+      D.trackTeams([...D.S.games.keys()]);          // an 8-team league's starters span the slate
+      for (const k of Object.keys(D.EP)) if (k.startsWith("espn summary ")) delete D.EP[k];
+      return new Set([...D.S.games.values()].map((g) => g.eventId)).size;
+    });
+    ok(total >= 12, "the slate has more concurrent games than one poll cycle can fetch (" + total + " > 8)");
+    const oneCycle = await page.evaluate(async () => {
+      const D = window.__GFFL__.D;
+      await D.pollOnce();
+      return Object.keys(D.EP).filter((k) => k.startsWith("espn summary ")).length;
+    });
+    ok(oneCycle === 8, "one cycle still fetches at most 8 summaries — the cap itself is unchanged (" + oneCycle + ")");
+    const covered = await page.evaluate(async (n) => {
+      const D = window.__GFFL__.D;
+      for (let i = 0; i < Math.ceil(n / 8); i++) await D.pollOnce();
+      const seen = new Set(Object.keys(D.EP).filter((k) => k.startsWith("espn summary ")).map((k) => k.slice(13)));
+      const want = new Set([...D.S.games.values()].map((g) => g.eventId));
+      return { seen: seen.size, want: want.size, missing: [...want].filter((e) => !seen.has(e)) };
+    }, total);
+    ok(covered.missing.length === 0,
+      "…but the window ROTATES, so every tracked game is refreshed within a couple of cycles (" + covered.seen + "/" + covered.want + ", missing " + JSON.stringify(covered.missing) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.bigSlate = false;
+  }
+
+  // V10: finding 14 — two defects from one call. deriveEspnDst read the header score, which
+  // is "0" before kickoff, so every starting D/ST was credited a 5-point shutout all week;
+  // and the completion handler struck ANY non-live game off the fetch list, so a game polled
+  // while `pre` consumed its one "read the final box" token and its real final was never read.
+  {
+    fixture.pregame = true; fixture.pregameState = "pre";
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await stopPolling(page);
+    const pre = await page.evaluate(async () => {
+      const D = window.__GFFL__.D;
+      await D.pollOnce();
+      D.trackTeams(["SF", "SEA"]);
+      await D.pollOnce();
+      const row = D.S.players.get("dst_SF");
+      return { pts: row ? row.pts : null, espn: row ? !!row.espn : false, fetchedFinal: [...D.S.fetchedFinal] };
+    });
+    ok(pre.espn === false && (pre.pts == null || pre.pts === 0),
+      "a game that hasn't kicked off credits its D/ST NOTHING — no free 5-point shutout off a 0-0 header (" + JSON.stringify({ pts: pre.pts, espn: pre.espn }) + ")");
+    ok(!pre.fetchedFinal.includes("401900777"),
+      "…and a pre-game poll does NOT consume that game's one final-box read (" + JSON.stringify(pre.fetchedFinal) + ")");
+    fixture.pregameState = "post";
+    const post = await page.evaluate(async () => {
+      const D = window.__GFFL__.D;
+      await D.pollOnce();
+      const row = D.S.players.get("dst_SF");
+      return { pts: row ? row.pts : null, fetchedFinal: [...D.S.fetchedFinal] };
+    });
+    // SF's defense: 3 sacks (×1) + 2 INT (×2) + 10 points allowed (dst_pa_7_13 = 3) = 10.0
+    ok(post.pts === 10, "…so when the game IS final its real box is still read, and the D/ST scores it: 3 sacks + 2 INT + 10 PA = 10.0 (" + post.pts + ")");
+    ok(post.fetchedFinal.includes("401900777"), "…and only THEN is the final-box token consumed (" + JSON.stringify(post.fetchedFinal) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+    fixture.pregame = false; fixture.pregameState = "pre";
+  }
+
+  // ---- W: boot speed — nav-to-league-home-painted budget (2026-08-08 boot-speed pass) ----
+  // UI.boot()/renderLeague() used to be a chain of 12+ SERIAL awaited backend calls before the
+  // first pixel of the league home ever painted — fine against the instant local backend every
+  // other section here runs on, but on a real (non-instant) backend that's 12+ stacked round
+  // trips. This section proves the STRUCTURAL fix (parallel batches, not serial calls) rather
+  // than just timing the fast local path everything else already exercises: it arms a fake
+  // cloud with a real per-call delay (LG.db._installFakeCloud — same mechanism as the P4 perf
+  // test, just wired up BEFORE the page's own scripts run, via a setter on window.LG installed
+  // through evaluateOnNewDocument, so it's in place before boot's first real read rather than
+  // racing it) and asserts the COLD nav-to-".mucard" time stays under a budget that a serial
+  // chain could not possibly hit. Measured on this box: ~300-340ms cold under an 80ms/call fake
+  // cloud (2-3 real round trips: the Promise.all in UI.boot(), then renderLeague's two
+  // batches) vs ~1,760ms under the pre-boot-speed-pass serial chain (12+ round trips) — an
+  // ~82% reduction. The budget here (900ms) is deliberately generous over the measured ~300ms
+  // so the check isn't sensitive to this box's own noise, while still failing hard if the
+  // fetch chain ever regresses back to a dozen serial round trips (which would take 960ms+
+  // just from 12 × 80ms, before any fixed overhead).
+  section("W · boot speed — nav-to-league-home-painted budget (2026-08-08 boot-speed pass)");
+  {
+    const SLOW_MS = 80;
+    const BUDGET_MS = 900;
+    const ctx = await browser.createBrowserContext();
+    const page = await ctx.newPage();
+    await page.setViewport({ width: 390, height: 844 });
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    const seed = fullSeed();
+    await page.evaluateOnNewDocument((seed, pfx) => {
+      window.__prompts = ["Peter"];
+      window.prompt = () => (window.__prompts.length ? window.__prompts.shift() : "1234");
+      window.alert = () => {}; window.confirm = () => true;
+      try {
+        if (seed.pass) localStorage.setItem("gffl_pass", seed.pass);
+        if (seed.team) localStorage.setItem("gffl_team", String(seed.team));
+        if (seed.who) localStorage.setItem("gffl_who", seed.who);
+        for (const id of Object.keys(seed.docs || {})) localStorage.setItem(pfx + id, JSON.stringify(seed.docs[id]));
+      } catch (e) {}
+    }, seed, LSPFX);
+    // Arms LG.db._installFakeCloud the instant window.LG (and then LG.db) is first assigned —
+    // lg-core.js's `LG.db = {...}` mutates the SAME object window.LG's own setter received, so
+    // a nested setter on THAT object's "db" property catches it with zero race window, before
+    // LG.backendReady's async continuation or UI.boot() can possibly read anything for real.
+    await page.evaluateOnNewDocument((delayMs, pfx) => {
+      let realLG = null;
+      Object.defineProperty(window, "LG", {
+        configurable: true,
+        get() { return realLG; },
+        set(v) {
+          realLG = v;
+          if (!v || v.__dbHookInstalled) return;
+          v.__dbHookInstalled = true;
+          let realDb;
+          Object.defineProperty(v, "db", {
+            configurable: true,
+            get() { return realDb; },
+            set(dbVal) {
+              realDb = dbVal;
+              if (!dbVal || dbVal.__slowArmed) return;
+              dbVal.__slowArmed = true;
+              const store = new Map();
+              for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith(pfx)) { try { store.set(k.slice(pfx.length), JSON.parse(localStorage.getItem(k))); } catch (e) {} }
+              }
+              const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+              dbVal._installFakeCloud({
+                async get(id) { await delay(delayMs); return store.get(id) || null; },
+                async set(id, data) { const cur = store.get(id) || {}; store.set(id, { ...cur, ...data }); },
+                async del(id) { store.delete(id); },
+                async list(kind) {
+                  await delay(delayMs);
+                  const out = []; for (const [id, d] of store) if (!kind || d.kind === kind) out.push({ id, ...d });
+                  return out;
+                },
+                watch(id, cb) { cb(store.get(id) || null); return () => {}; },
+              });
+              // LG.backendReady's own catch unconditionally sets backendMode back to "local"
+              // once it settles (gstatic/firebase are aborted in every suite page) — reassert
+              // "cloud" right after, whichever way it resolved.
+              if (realLG.backendReady && realLG.backendReady.then) {
+                realLG.backendReady.then(() => { realLG.backendMode = "cloud"; }).catch(() => {});
+              }
+            },
+          });
+        },
+      });
+    }, SLOW_MS, LSPFX);
+    await page.setRequestInterception(true);
+    page.on("request", (req) => {
+      const u = req.url();
+      if (u.startsWith(BASE)) return req.continue();
+      return req.abort();
+    });
+    const t0 = Date.now();
+    await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "load" });
+    await page.waitForSelector(".mucard", { timeout: 20000 });
+    const ms = Date.now() - t0;
+    ok(ms < BUDGET_MS, "cold nav-to-league-home-painted under a " + SLOW_MS + "ms/call fake cloud stays under the " + BUDGET_MS + "ms budget (" + ms + "ms — a 12-call serial chain would need " + (12 * SLOW_MS) + "ms+)");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
   }
 
   await browser.close();

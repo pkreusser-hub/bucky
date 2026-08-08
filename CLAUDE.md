@@ -8451,3 +8451,273 @@ VERIFY: `node tools/_verify-gffl.cjs [--shots]` — 533/533, 0 page errors. Shot
 `shots/gffl_theme_league_390.png` / `gffl_theme_bracket_390.png` (new this batch) plus every
 pre-existing `shots/gffl_*.png` plate, all now rendering in the retheme'd look (moves/FA table,
 rules view+edit, matchup, desktop league home + top-nav).
+
+## 🛡 GFFL — the adversarial-review fix batch (2026-08-08, UNCOMMITTED)
+
+An adversarial Opus review plus a full-season simulation confirmed **14 findings across 8 root
+causes** in `league.html` + `assets/league/lg-{core,data,ui}.js`. All eight are fixed, each with
+a regression test built from that finding's own reproduction steps. `netlify/functions/league.mjs`
+was NOT touched (finding 11's fix is client-side). Suite: **_verify-gffl.cjs 533 → 603**.
+**Pre-fix verification is not a claim: the three app files were stashed to `HEAD` and the whole
+suite re-run — 44 checks fail against the old code, 0 against the new.** The pre-fix run's own
+output is the evidence quoted below.
+
+### 1 · The week the engine is holding is now a FACT, not an assumption (findings 1/3/7)
+`finalizeWeek(week)` used `week` for the ROSTER lookup only and multiplied it by whatever the
+live engine happened to be polling — the engine has no week dimension at all (`/scoreboard` bare,
+Sleeper's stats bucket from its own `state.week`). It then wrote a **write-once** doc that
+standings, waiver priority, power rankings, playoff seeding, the record book and the champion all
+derive from forever. The "is every game final?" guard read the SAME current-week board, so it
+passed exactly when the board held a different week's finals.
+**Measured pre-fix, from the suite's own repro**: week-3 rosters, an engine on week 4 →
+`finalizeWeek(3)` returned `ok:true` with `homePts:1, awayPts:28` (week 4's numbers, the opposite
+result), and `loadStandings()` charged team 1 a loss it had actually won. Permanently.
+- `D.S.espnWeek` / `D.S.slpWeek` are recorded from `/scoreboard`'s own `week.number` and Sleeper's
+  `state.week`; **`D.engineWeek()`** returns null when unknown OR when the two DISAGREE — a
+  disagreement means the rows in memory are a mix of two weeks, which is a refusal, not a guess.
+- Gates, in order: `bracket-unresolved` (below) → `stale-week` / `no-live-data` → `not-final`.
+  **`opts.force` does not bypass the week gate** — force only ever meant "some games aren't final",
+  never "score it from a different week".
+- **The missed week is refused LOUDLY, then settled CORRECTLY.** `D.weekStats(week)` reads
+  Sleeper's archived `/stats/nfl/<type>/<season>/<week>`, which still holds any completed week's
+  real lines; `finalizeWeek(w, {backfill:true})` scores from that map (`ptsOf` is threaded through
+  `fzTeamTotal`/`fzOptimalTotal`/`fzAwards`/accuracy) and stamps `source:"archived"` on the doc.
+  Bust of the Week is SKIPPED on a backfill — it grades against a pre-game projection and the
+  engine only ever holds the current week's, so there is no honest one to grade against.
+- The league home states it plainly ("Live scoring has already moved on…") with a per-week
+  commissioner button; the Finalize button offers the same fallback when it hits `stale-week`.
+- **`maybeAutoFinalizeWeeks` now includes the CURRENT week** (`w <= cw`, was `w < cw`). That
+  exclusion is what made the bug the DEFAULT path: the engine rolls over on the same Tuesday
+  `currentWeek()` does, so "a past week" and "the week the engine is holding" were almost never
+  the same week. With provenance enforced, the correct moment is Monday night of week N itself.
+- **`pollScoreboard` REBUILDS `D.S.games`** instead of only `.set()`ing into it (finding 1's
+  widening note — a tab open across the rollover kept last week's `post` entries forever, so the
+  finality guard passed for any past week, in any week, byes included). Red-zone state carries
+  across by eventId so it doesn't flicker.
+
+### 2 · The read-modify-write class is gone structurally (findings 2/4/5/12)
+`LG.db.get` cached by `docCache.has(id)` — **true for a cached null** — with no TTL and no
+invalidation, so the first read of a not-yet-existing doc froze "it doesn't exist" for the page's
+whole life. Writers then rebuilt shared arrays from that frozen base, and both backends replace an
+array field wholesale (local `JSON.stringify`; Firestore `setDoc merge:true`).
+**Measured pre-fix**: another owner's $40 waiver bid was DELETED from storage by this page
+submitting a $5 bid, which then WON the player; and a stale tab's lineup tap reverted a processed
+waiver (the won player gone, the dropped player back) with the FAAB still spent and the tx log
+still narrating the move.
+- **ONE DOC PER CLAIM** — `claim_<season>_w<week>_<claimId>`, kind `claim`. There is no shared
+  array to rebuild, so two devices writing at the same instant write two different documents and
+  neither can destroy the other. The weekly `claims_*` doc survives as the PROCESSING RECORD
+  only. A claim's own id is stored as **`claimId`**, never `id` — list() rows are `{...doc, id}`,
+  so a field literally called `id` is clobbered by the doc-id (finding 10 from the other side).
+  Legacy array-shaped weeks are merged on read and can still be cancelled, so nothing in flight
+  on deploy day is lost.
+- **A null is NEVER cached.** Absence is DERIVED from a cached `list()` of that doc's own kind
+  (`kindOf`/`knownAbsent`), which carries its own 15s cloud background refresh — so "this doc
+  doesn't exist" self-heals on the same cadence as everything else instead of never. Positive
+  docs got that background refresh too (`docAt`). **Tab-switch speed is unchanged**: `renderLeague`
+  lists weekly/bracket up front and `loadWeekRosters` lists `roster` once, so a warm view still
+  makes ZERO backend reads (section P1 still asserts exactly that).
+- **Every read that precedes a write is FRESH**: `loadRoster`/`ensureRoster` gained `{fresh:true}`
+  and it is taken by `processWaivers`, `executeTrade` (whose "roster-changed → cancel" fail-safe
+  was reading the very cache it exists to detect), `faAdd`, and the locker's lineup tap — which
+  now re-reads and carries only the SLOT ASSIGNMENTS across by player key, so a tap changes only
+  what it meant to change. Also fresh: every trade status transition, `toggleReaction`,
+  `deleteChat`, and `processWaivers`' first read of the claim set.
+- `LG.saveTeam` merges onto a fresh read and strips the stray `id`; the hot callers now write
+  DELTAS (`{teamId, faab}`) instead of spreading a whole in-memory team.
+
+### 3 · The playoff bracket can no longer be stranded (findings 6/8)
+`gamesForWeek` omits an unresolved pairing and the weekly doc is write-once, so finalizing a
+semifinal week before the play-in had been advanced **permanently deleted that semifinal** and no
+champion could ever be crowned. **Measured pre-fix**: week 16 written with 2 games (the #1 seed's
+semi absent), week 17 with 0, `champion: null` — and a cold catch-up over the whole postseason
+ended the same way.
+- `maybeAutoFinalizeWeeks` advances the bracket **immediately after each playoff week finalizes,
+  inside the loop** (it used to interleave only between whole passes).
+- `finalizeWeek` REFUSES a playoff week with any unresolved pairing, **force included** — a
+  write-once doc a game short is a game lost forever.
+- The commissioner's archived-stats path advances between weeks the same way.
+- Regression: the season sim (V5b) plays the postseason on the ordinary cadence and asserts every
+  bracket game is on the record and a champion is crowned; V5c does the same from a cold
+  catch-up where nothing can auto-finalize at all.
+
+### 4 · The Sleeper bucket can never lock onto week 1 (finding 9)
+`cands = [wk, wk+1, "1"]` rotated to the first candidate that returned anything, and week 1's
+bucket is the one bucket that is ALWAYS full — so between the Tuesday rollover and the week's
+first kickoff (all of Tue/Wed/Thu, every week) it locked onto week 1's completed lines and served
+them as live scoring for the life of the tab. **Measured pre-fix**: with week 11 empty, the bucket
+locked on `"1"` and P. Passer's live line read week 1's 150 pass yds.
+`cands` is now EXACTLY the authoritative week, or **empty** when Sleeper never said one — no week
+is polled at all rather than the wrong one, which reads honestly as a degraded source (health
+flips to espn-only). Projections follow the same single candidate, so stats and projections can no
+longer come from different weeks.
+
+### 5 · `list()` no longer lets a doc's own `id` clobber its doc-id (finding 10)
+Both implementations built rows as `{id, ...doc}`. `cacheUpsert` had this exact fix already, with
+a comment explaining the hazard — the two functions that FEED it did not, so it survived one layer
+down. **Measured pre-fix**: a cold list returned a row keyed by the numeric team id, the next save
+pushed a duplicate, and `LG.teams` held 2 rows for team 1. Now `{...doc, id}` in both.
+**Honest scope, as the finding itself notes**: a doc that already carries the stray field keeps it
+— both backends merge, so a write cannot delete a field. It is now inert (the doc-id is attached
+last and nothing reads `.id` off a `get()`), and no new stray is ever minted.
+
+### 6 · The ESPN import REPLACES scoring (finding 11)
+`Object.assign(next.scoring, j.scoring)` left every key the real league doesn't configure at its
+GFFL default. The family league scores field goals ONLY by made YARDS (statId 214 at 0.1/yd,
+reconciled to the penny against a real season) and carries no conventional FG-made ids at all, so
+`fg_0_39/40_49/50` survived at 3/4/5 alongside the imported 0.1/yd and `D.score()` paid BOTH.
+**Measured pre-fix**: an ordinary kicker day (25/45/52-yd FGs + 2 XP) scored **26.2** where the
+league's real value is **14.2** — every kicker, every week, straight into the write-once doc.
+Scoring is now built from a zeroed union of the current + default keys, then the import's own
+values laid over it, and the preview says so out loud (every key dropping to 0 is already listed
+in `diffRules`' change list).
+
+### 7 · Every tracked game gets refreshed (finding 13)
+`[...wanted.keys()].slice(0, 8)` over a Map rebuilt from a Set with frozen insertion order fetched
+the SAME eight games forever; everything past the eighth was never fetched again, silently, since
+health only counts fetches that FAILED, not fetches never attempted. **Measured pre-fix**: 8 of 14
+games covered, 6 never fetched. A rotating cursor (`D.S.sumCursor`) keeps the cap at 8 per cycle
+and guarantees full coverage within `ceil(n/8)` cycles.
+
+### 8 · A game that hasn't kicked off scores nothing (finding 14)
+`deriveEspnDst` read the header score, which is `"0"` pre-game → `dst_pa 0` → `dst_pa_0` → **a free
+5-point shutout for every starting D/ST, all week**; and the completion handler struck ANY non-live
+game off the fetch list, so a game polled while `pre` consumed its one "read the final box" token
+and its real final was never read. **Measured pre-fix**: `dst_SF` read 5.0 before kickoff and was
+STILL 5.0 after the game went final. Now the DST derivation is gated on the summary's own header
+state, and only a genuinely `post` game consumes the token.
+
+**Suite**: `node tools/_verify-gffl.cjs` — **603/603, 0 page errors**. New section **V** (70
+checks) is one block per finding, each built from that finding's own repro. New fixture knobs
+(all default OFF, so sections A-U see exactly the fixture they always did): `espnWeekNum`,
+`sleeperWeek`, `emptyWeekBucket`, `noFgBuckets`, `bigSlate`, `pregame`. `slpStatsFix(week)` is
+week-aware now — the pre-fix suite could not tell week N from week N+1 by construction, which is
+precisely why 533/533 green gave no protection against the batch's three critical findings.
+**Restaged, each with its reason in the file, never bent**: I1/I5 (a claim is its own doc now);
+O4 (must state its own engine week — the fixture says week 1 and it finalizes week 15); P2 (the
+"LG.db caches nulls too" narration is exactly the mechanism that was removed — the point it makes
+is unchanged, since a list-derived absence is still a snapshot and that is why the five
+idempotency guards use `getFresh`).
+**KNOWN / DEFERRED**: an existing league's already-poisoned team docs keep their inert stray `id`
+(a merging write cannot delete a field — a migration would need a delete-and-rewrite); the
+archived-stats backfill grades no Bust of the Week; and `staleFinalizeWeeks` stays silent while
+the engine's week is unknown, so a cold boot never flashes a false alarm.
+
+## 🏈 GFFL — screenshot polish pass + boot speed (2026-08-08, UNCOMMITTED)
+
+Two jobs against the same three files (`league.html`, `assets/league/lg-{core,data,ui}.js`
+untouched, suite `tools/_verify-gffl.cjs` — 603 → **605/605, 0 page errors**).
+
+**JOB 1 — every view, screenshotted at 390×844 and 1440×900, looked at, fixed.** 14 views ×
+2 widths = 28 plates in `shots/gffl_polish_<view>_<w>.png` (gate/first-run/claim/league-home
+populated/matchup/matchup-thread/locker-own/locker-other/moves/chat/scores/rules-view/
+rules-edit/bracket-champion). **Five real defects found and fixed:**
+1. **Chat composer squeezed to ~40px.** `.chatRow` had no `flex-wrap`/basis discipline, so the
+   icon buttons + textarea + send button fought for a fixed-width row and the `<textarea>` lost
+   almost everything. Fixed: `.chatRow{flex-wrap:wrap;row-gap:8px}`, icons `flex:0 0 auto`,
+   `.chatText{flex:1 1 200px;min-width:0}`, send `flex:0 0 auto` — same fix serves BOTH the
+   main league chat and the matchup-page "trash talk" thread composer (`chatWidgetHtml` is
+   shared).
+2. **Matchup card team names truncated to a single letter** at both widths — `.mugrid`'s
+   `grid-template-columns:repeat(auto-fit,minmax(140px,1fr))` let a column collapse to 140px,
+   too narrow for "Waffle House Warriors". Raised to `minmax(260px,1fr)`.
+3. **Bottom nav bar visible on gate/claim/first-run** — screens an unauthenticated or
+   not-yet-claimed visitor sees before there's a league to navigate. `hideBnav()`/`showBnav()`
+   helpers wired into `renderGate`/`renderClaim`/`renderFirstRun` (`UI.show()` already calls
+   `showBnav()` on every real view transition).
+4. **`.bnav[hidden]` did nothing** — `.bnav{display:flex}` beats the UA `[hidden]` stylesheet
+   rule (the same class of bug this codebase has hit repeatedly elsewhere: Home cards, Farmstead
+   panels — any `display`-styled container toggled via the `hidden` attribute needs an explicit
+   `[hidden]{display:none}` restatement). Added right after the base `.bnav` rule; this is what
+   actually made fix #3 work.
+5. **`input.redit` truncating "last-round" to "last-roun"** in Rules edit mode — a 76px fixed
+   width sized only for short numeric scoring values, applied uniformly to every rule field
+   including the longer keeper-cost strings. Measured `scrollWidth` 110px vs the old 76px width;
+   raised to 112px.
+   **One thing investigated and correctly left alone**: "TRASH TALK" appeared to have its
+   header text clipped at the top in the matchup-thread screenshot, unlike "AI READ"/"THE FEED"
+   above it in the same card stack. Measured live: the `h2`'s position relative to its own
+   `.card` is byte-identical across all four cards (17px gap, every time) — no real layout bug.
+   Root-caused instead to `.chatcompose{position:sticky;bottom:0}` colliding with the sweep
+   script's `fullPage:true` capture (Puppeteer resizes the viewport to the full document height
+   mid-capture, and a `position:sticky` element's sticky math briefly disagrees with the
+   pre-resize viewport) — proven by disabling `position:sticky` on that element and reshooting,
+   which renders identically crisp. This is the exact class of screenshot-only false positive
+   already documented elsewhere in this file ("Puppeteer `fullPage:true` screenshot artifacts
+   with `position:fixed`/`position:sticky` elements... without being a real rendering bug") —
+   no code change made, because a real user scrolling the page never sees it.
+
+**JOB 2 — boot speed.** Root problem: `UI.boot()` stacked its ENTIRE backend read chain
+(rules → teams → schedule → per-team rosters, one at a time → 2000-word record-book walk →
+tx log → league chat → auto-checks) as a strict serial `await` sequence BEFORE the first
+paint, and `league.html` additionally gated the whole call behind `LG.backendReady.then(...)`
+— an extra async hop even for an unauthenticated visitor whose gate screen (`LG.unlocked()`
+is a plain localStorage read) needs no backend at all.
+- **`league.html`**: `LG.backendReady.then(() => LG.ui.boot())` → `LG.ui.boot()` called
+  directly; `UI.boot()` itself now awaits `backendReady` only once it knows it's actually
+  unlocked, right before its first real `LG.db` read.
+- **`UI.boot()`**: the independent settings/teams/schedule reads batch into one
+  `Promise.all` (were three sequential awaits); `runAutoChecks(true)` — the
+  waiver/trade/finalize/bracket-advance chain — moved to run **after** the first paint
+  instead of before it. `UI.boot()`'s returned promise still fully awaits it before
+  resolving (a direct re-`await UI.boot()`, e.g. simulating "reopen the app past a
+  deadline," still guarantees the league is caught up by the time it returns — this
+  is the one test contract (I3) that could not be relaxed, so auto-checks moved
+  AFTER render but stayed INSIDE `boot()`'s own await chain, not detached to an idle
+  callback).
+- **`loadWeekRosters()`**: per-team `await LG.ensureRoster(...)` in a `for` loop →
+  `Promise.all(LG.teams.map(...))` — N independent round trips collapsed to one.
+- **`renderLeague()`**'s fetch chain: 8 sequential awaits (weekly list → bracket list →
+  rosters → standings → weekly doc → accuracy → record book → bracket → tx → chat →
+  week's games → stale-week check) → 2 parallel `Promise.all` batches.
+- **Record book / recent moves / league chat are now LAZY.** All three were unconditionally
+  fetched on every League-home render even though they render inside collapsed `<details>`
+  cards most opens never expand — the record book walk in particular re-derives standings
+  across every imported season plus every finalized week. `recordBookHtml`/`recentMovesHtml`/
+  `recentChatHtml` now render a collapsed placeholder shell when their `UI._recordBook`/
+  `UI._tx`/`UI._recentChat` is `undefined` (a real "not loaded" sentinel, distinct from
+  "loaded but empty"); `wireLazyLeagueDetails()` binds a `toggle` listener per `<details>` that
+  fires the real `LG.recordBook()`/`LG.loadTx()`/`LG.loadChat(null)` call the first time it's
+  actually opened, then repaints in place (preserving which other `<details>` were already
+  open). Reset to `undefined` on every genuine (non-repaint) League visit, so a real navigation
+  back always reflects what's currently true once opened — it just costs nothing until then.
+- **Suite**: new section **W** — `tools/_verify-gffl.cjs` cold-boots the app under an
+  `LG.db._installFakeCloud` 80ms-per-call fake slow backend (same mechanism as the pre-existing
+  P4 test, armed via a zero-race-window `Object.defineProperty` getter/setter chain on
+  `window.LG` → `LG.db` so the fake cloud lands in the same synchronous statement that creates
+  the real one) and asserts nav-to-`.mucard`-painted stays **under a 900ms budget** — measured
+  299–360ms across repeated runs (a naive 12-call serial chain against that same fake cloud
+  would need 960ms+ on its own).
+- **MEASURED, before vs after, 5-run medians** (`gffl_boot_speed.cjs`, in the session scratchpad
+  — reverses this session's exact edits onto a copy of the tree via `build_before.cjs` so the
+  two trees differ ONLY in the boot/render shape, everything else byte-identical): under the
+  **local backend** (Firebase blocked, matches every suite run — the realistic floor, since
+  almost all of boot's cost there is unavoidable localStorage/sync work) cold **153ms → 148ms**
+  (~3%, inside run-to-run noise), warm **115ms → 104ms** (~10%); under a **fake slow cloud**
+  (80ms/call — representative of a real network backend, and the scenario these changes were
+  actually aimed at) cold **1,779ms → 360ms**, an **80% reduction** (~4.9× faster). The
+  local-backend numbers barely move because there wasn't much serial network latency to remove
+  there in the first place; the real win is for anyone on the real Firestore backend, where the
+  old code paid for every one of ~15 sequential round trips before the first pixel and the new
+  code pays for at most 2–3 parallel batches.
+- **Restaged, 4 tests, each for a documented reason** (never bent to make a check pass): **I3**
+  (`await UI.boot(); return LG.loadClaims(1);` expecting `processed:true`) — unaffected, since
+  auto-checks still complete before `boot()` resolves; test itself needed no change, but is the
+  reason auto-checks stayed inside the awaited chain rather than moving to a detached idle
+  callback. **P3** (auto-check throttle) — was reading `UI._autoCheckRuns` immediately after
+  `.mucard` appeared, which used to reliably imply auto-checks had already run; now render can
+  land before they finish, so the check waits on `UI._autoCheckRuns >= 1` via
+  `page.waitForFunction` instead of an immediate read. **N3/N7** (record book, real + empty
+  states) and **R** (recent moves + league chat cards) — all four now `open` their `<details>`
+  and wait for the placeholder text to clear (`openDetails()` helper) before reading rendered
+  content, since that data no longer arrives unconditionally with the page.
+- **fonts/preconnect/critical-CSS**: reviewed and left alone — `league.html` already has no
+  external font `<link>` (Barlow Condensed/Inter are loaded how the rest of the app's pages
+  load fonts, unaffected by this pass) and the Sleeper 14MB directory load was already
+  fire-and-forget, never awaited by anything on the paint path (confirmed via the boot-speed
+  script's request interception, which aborts every non-same-origin request including Sleeper's
+  and still reaches first paint fine).
+
+**KNOWN / DEFERRED**: the first-run screen's header meta briefly shows "Week 1 · 2026" before
+any team exists — noticed while reviewing screenshots, judged too low-severity to chase (a
+one-time first-boot state, not a returning-user path) and left as-is.
