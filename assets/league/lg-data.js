@@ -246,7 +246,19 @@
     espnSeeded: false, slpSeeded: false,
     espnKeyByName: new Map(), slpRowKeyByName: new Map(),
     slpPlayers: null, slpByEspn: null, slpByName: null, slpProj: null,
-    slpBucket: { cands: ["1"], idx: 0, locked: false },
+    // The AUTHORITATIVE NFL week each provider says its live data belongs to (adversarial
+    // review 2026-08-08, findings 1/3/7/9). The engine has exactly ONE week's worth of rows
+    // in memory at a time; anything that writes a PERMANENT per-week record must be able to
+    // ask "which week is this?" and refuse rather than guess. null = unknown (not yet
+    // polled, or the provider didn't say) — also a refusal, never an assumption.
+    espnWeek: null, slpWeek: null,
+    // cands is the Sleeper stats bucket to poll. It is now ALWAYS exactly the authoritative
+    // week (or empty when Sleeper never told us one) — the old ["<wk>", "<wk+1>", "1"]
+    // rotation could, and did, LOCK onto week 1's completed stat lines any time the current
+    // week's bucket was still empty (Tue->Thu, every week of the season) and serve them as
+    // this week's live scoring, permanently, for the life of the tab (finding 9).
+    slpBucket: { cands: [], idx: 0, locked: false },
+    sumCursor: 0,             // rotating offset into the per-poll ESPN summary window (finding 13)
     health: {
       espn: { failN: 0, lastOk: 0, lastChange: 0 },
       slp: { failN: 0, lastOk: 0, lastChange: 0 },
@@ -285,9 +297,15 @@
       try {
         const st = await fx("sleeper state", `${SLP}/state/nfl`);
         D.S.slpState = st || {};
-        const wk = st && (st.week != null ? st.week : st.leg);
-        D.S.slpBucket.cands = [...new Set([String(wk ?? 1), String((wk ?? 1) + 1), "1"])];
-      } catch (e) { D.S.slpBucket.cands = ["1", "2"]; }
+        const wk = Number(st && (st.week != null ? st.week : st.leg));
+        // ONE candidate — the week Sleeper itself says we're in. Never a "1" fallback:
+        // week 1's bucket is the one bucket that is ALWAYS full, so a fallback rotation
+        // reliably locked onto it and served completed week-1 lines as live scoring
+        // (finding 9). No week -> no stats at all, which reads honestly as a degraded
+        // source (health flips to espn-only) instead of as wrong numbers.
+        if (wk >= 1 && wk <= 22) { D.S.slpWeek = wk; D.S.slpBucket.cands = [String(wk)]; }
+        else { D.S.slpWeek = null; D.S.slpBucket.cands = []; }
+      } catch (e) { D.S.slpWeek = null; D.S.slpBucket.cands = []; }
       try {
         const dump = await fx("sleeper players", `${SLP}/players/nfl`);
         const byEspn = new Map(), byName = new Map(), byId = new Map();
@@ -309,11 +327,51 @@
         const seasonType = D.S.slpState?.season_type || "regular";
         const season = D.S.slpState?.season || String(LG.SEASON);
         const wk = D.S.slpBucket.cands[0];
+        if (!wk) return; // no authoritative week -> no projections either (never week 1's)
         const proj = await fx("sleeper projections", `${SLP}/projections/nfl/${seasonType}/${season}/${wk}`);
         if (proj && typeof proj === "object") D.S.slpProj = proj;
       } catch (e) { /* optional */ }
     })();
     return D.slpReady;
+  };
+
+  // The ONE authoritative answer to "which NFL week is the data currently in memory?"
+  // (adversarial review 2026-08-08). null = unknown OR the two providers disagree — either
+  // way a caller writing a permanent per-week record must refuse rather than guess, because
+  // a disagreement means the rows in memory are a MIX of two weeks.
+  D.engineWeek = function () {
+    const e = D.S.espnWeek, s = D.S.slpWeek;
+    if (e != null && s != null) return e === s ? e : null;
+    return e != null ? e : (s != null ? s : null);
+  };
+
+  // Archived per-week stats — Sleeper's own /stats/nfl/<type>/<season>/<week> endpoint, which
+  // serves ANY completed week, not just the live one. This is the ONLY honest way to finalize
+  // a week the live engine has already rolled past (findings 1/3/7): the commissioner's
+  // clearly-labelled fallback backfills the REAL week's numbers instead of stamping whatever
+  // happens to be on the board today. Returns a Map keyed EXACTLY as the live poll keys rows
+  // (dst_<pid> / espn_id / slp_<pid>) -> league-scored points, or null when unavailable.
+  D.weekStats = async function (week) {
+    await D.initSleeper();
+    if (!D.S.slpPlayers) return null;
+    const st = D.S.slpState || {};
+    const seasonType = st.season_type || "regular";
+    const season = st.season || String(LG.SEASON);
+    let j;
+    try { j = await fx("sleeper week stats " + week, `${SLP}/stats/nfl/${seasonType}/${season}/${week}`); }
+    catch (e) { return null; }
+    if (!j || typeof j !== "object") return null;
+    const out = new Map();
+    for (const pid in j) {
+      const row = j[pid]; if (!row || typeof row !== "object") continue;
+      const meta = D.S.slpPlayers.get(pid);
+      if (!meta) continue;
+      const pts = D.score(normSlp(row));
+      out.set(meta.pos === "DEF" ? "dst_" + pid : (meta.espn_id || "slp_" + pid), pts);
+      // A DST rostered by ESPN abbrev (the roster importer's own key shape) must resolve too.
+      if (meta.pos === "DEF" && meta.team) out.set("dst_" + slpTeam(meta.team), pts);
+    }
+    return out.size ? out : null;
   };
 
   // Weekly projection (league-scored, not pts_ppr) for a roster player.
@@ -430,6 +488,19 @@
   // ---------------- pollers ----------------
   async function pollScoreboard() {
     const j = await fx("espn scoreboard", `${ESPN}/scoreboard`);
+    // Which NFL week this slate IS (adversarial review 2026-08-08). The bare /scoreboard
+    // endpoint always means "the current week" and says so in `week.number` — recording it
+    // is what lets finalizeWeek refuse to stamp week N's permanent record with week N+1's
+    // numbers (findings 1/3/7).
+    const wkNum = Number(j?.week?.number);
+    D.S.espnWeek = wkNum >= 1 && wkNum <= 22 ? wkNum : null;
+    // D.S.games is REBUILT, never merged into. It used to only ever .set(), so a tab left
+    // open across the Tuesday rollover kept last week's "post" entries forever — which made
+    // finalizeWeek's "is every game final?" guard pass for ANY past week, in any week, byes
+    // included (finding 1's widening note). Games that are no longer on the slate must
+    // disappear; live red-zone state is carried across by eventId so it doesn't flicker.
+    const prevGames = D.S.games;
+    const games = new Map();
     // The FULL slate this week, one entry per GAME (not per team) — the Scores tab's NFL half
     // (league.html) reads this directly; a light parallel read of the same public no-key
     // endpoint the per-team loop below already polls, so no new network cost.
@@ -457,15 +528,19 @@
       for (const comp of comps) {
         const ab = comp?.team?.abbreviation; if (!ab) continue;
         const opp = comps.find((x) => x !== comp);
-        D.S.games.set(slpTeam(ab), {
+        const key = slpTeam(ab);
+        const prev = prevGames.get(key);
+        games.set(key, {
           eventId: String(ev.id), state: st.state || "pre",
           detail: st.shortDetail || "", period: c.status?.period || 0,
           clock: c.status?.displayClock || "", kickoff: ev.date || "",
-          oppAb: opp?.team?.abbreviation || "", rz: false,
+          oppAb: opp?.team?.abbreviation || "",
+          rz: !!(prev && prev.eventId === String(ev.id) && prev.rz),
           score: comp?.score, oppScore: opp?.score,
         });
       }
     }
+    D.S.games = games;
     D.S.nflEvents = events;
   }
   D.pollScoreboard = pollScoreboard;
@@ -488,7 +563,13 @@
       }
       applySide("espn", id, rec.meta, rec.stats, rec.raw);
     }
-    for (const [key, rec] of deriveEspnDst(j)) applySide("espn", key, rec.meta, rec.stats);
+    // NEVER derive a D/ST line from a game that hasn't kicked off (finding 14). Before
+    // kickoff ESPN reports the header score as "0", so dst_pa reads 0 -> paPoints(0) ->
+    // dst_pa_0, a free 5-point shutout credited to every starting defense all week. The
+    // summary's own header is the authority here (the scoreboard map may not be warm yet).
+    const gState = String(j?.header?.competitions?.[0]?.status?.type?.state
+      || [...D.S.games.values()].find((g) => g.eventId === String(eventId))?.state || "");
+    if (gState !== "pre") { for (const [key, rec] of deriveEspnDst(j)) applySide("espn", key, rec.meta, rec.stats); }
     // Red-zone: current drive's last play inside the opponent 20.
     const cur = j?.drives?.current;
     const plays = cur?.plays || [];
@@ -507,6 +588,7 @@
     const seasonType = st.season_type || "regular";
     const season = st.season || String(LG.SEASON);
     const wk = D.S.slpBucket.cands[D.S.slpBucket.idx];
+    if (!wk) return null; // no authoritative week -> refuse to poll ANY bucket (finding 9)
     return `${SLP}/stats/nfl/${seasonType}/${season}/${wk}`;
   }
   async function pollSleeper() {
@@ -518,7 +600,9 @@
       D.slpReady = null; D.initSleeper();
       throw new Error("sleeper directory unavailable");
     }
-    const j = await fx("sleeper stats", slpStatsUrl());
+    const url = slpStatsUrl();
+    if (!url) throw new Error("sleeper week unknown");
+    const j = await fx("sleeper stats", url);
     if (!j || typeof j !== "object") return;
     let n = 0;
     for (const pid in j) {
@@ -537,7 +621,10 @@
       n++;
     }
     if (n) { D.S.slpSeeded = true; D.S.slpBucket.locked = true; }
-    else if (!D.S.slpBucket.locked) {
+    else if (!D.S.slpBucket.locked && D.S.slpBucket.cands.length > 1) {
+      // Kept only so a future multi-candidate policy still rotates; with the single
+      // authoritative candidate above this is unreachable by construction, which is the
+      // point — the bucket can never lock onto a week other than the current one.
       D.S.slpBucket.idx = (D.S.slpBucket.idx + 1) % D.S.slpBucket.cands.length;
     }
   }
@@ -577,18 +664,37 @@
     jobs.push(pollSleeper().then(() => { D.S.health.slp.lastOk = Date.now(); D.S.health.slp.failN = 0; })
       .catch(() => { D.S.health.slp.failN++; }));
     await Promise.allSettled(jobs);
-    // Summaries for tracked teams' games (live games always; pre/post once).
+    // Summaries for tracked teams' games (live games always; a FINAL box exactly once).
+    D.S.fetchedFinal = D.S.fetchedFinal || new Set();
     const wanted = new Map();
     for (const ab of D.S.tracked) {
       const g = D.S.games.get(ab);
-      if (g && (g.state === "in" || !D.S.fetchedFinal || !D.S.fetchedFinal.has(g.eventId))) wanted.set(g.eventId, g);
+      if (g && (g.state === "in" || !D.S.fetchedFinal.has(g.eventId))) wanted.set(g.eventId, g);
     }
-    D.S.fetchedFinal = D.S.fetchedFinal || new Set();
-    const sums = [...wanted.keys()].slice(0, 8).map((eid) =>
+    // ROTATE the ≤8-per-cycle window (finding 13). `wanted` is rebuilt from D.S.tracked (a
+    // Set with frozen insertion order) every cycle, so a plain .slice(0,8) fetched the SAME
+    // 8 games forever and every game past the eighth was never refreshed again — silently,
+    // since health only counts fetches that FAILED, not fetches never attempted. An 8-team
+    // league's starters routinely span 10-14 NFL games on a Sunday. A rotating cursor
+    // guarantees every tracked game is refreshed within ceil(n/8) cycles.
+    const eids = [...wanted.keys()];
+    const CAP = 8;
+    let take = eids;
+    if (eids.length > CAP) {
+      const start = D.S.sumCursor % eids.length;
+      take = [];
+      for (let i = 0; i < CAP; i++) take.push(eids[(start + i) % eids.length]);
+      D.S.sumCursor = (start + CAP) % eids.length;
+    } else { D.S.sumCursor = 0; }
+    const sums = take.map((eid) =>
       pollEspnGame(eid).then(() => {
         D.S.health.espn.lastOk = Date.now();
         const g = wanted.get(eid);
-        if (g && g.state !== "in") D.S.fetchedFinal.add(eid);
+        // ONLY a genuinely final box consumes the once-token. This used to fire on any
+        // non-live state, so a game polled while `pre` was struck off the list and its REAL
+        // final box was never read — the ESPN side of every 1pm game froze at whatever the
+        // last in-progress poll saw (finding 14).
+        if (g && g.state === "post") D.S.fetchedFinal.add(eid);
       }).catch(() => { D.S.health.espn.failN++; })
     );
     await Promise.allSettled(sums);
