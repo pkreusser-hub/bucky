@@ -2909,8 +2909,23 @@ function goTo(tab, push = true){
   if (tab === "calendar") calResetToToday();
   const g = groupForTab(tab);
   if (SECTION_BY_KEY[tab]) groupLast[g.id] = tab;
+  // Opening AI intentionally (nav tap / goTo("farmgpt")) always lands on FarmGPT's
+  // overall home — not a stale nested view left in the persistent iframe. History
+  // restore (push=false) must NOT soft-home: Back into AI should re-show usage/story.
+  // Merge every history write with history.state — farmgpt's iframe shares this stack
+  // and keeps farmgptView / farmgptDepth on the same entries.
+  // sameTab: re-tapping AI while already on farmgpt → collapse nested history.
+  // Cross-tab return → soft-home only (history.go would pop the entry we just pushed).
+  if (push && tab === "farmgpt") {
+    window.__farmgptGoHomePending = true;
+    window.__farmgptGoHomeSameTab = !changed;
+  }
   syncTabsUI(); renderSubnav(); render();
-  if (push && changed){ try { history.pushState({ buckyTab: tab }, ""); } catch {} }
+  if (push && changed){
+    try {
+      history.pushState(Object.assign({}, history.state || {}, { buckyTab: tab }), "");
+    } catch {}
+  }
 }
 
 // ---- Home helpers ----
@@ -3033,6 +3048,15 @@ function ensureEmbed(tab, hash){
   }
   return wrap;
 }
+function farmgptMaybeGoHome(){
+  if (!window.__farmgptGoHomePending) return;
+  const w = embedFrameWindow("farmgpt");
+  if (!w || typeof w.farmgptGoHome !== "function") return;
+  window.__farmgptGoHomePending = false;
+  const sameTab = !!window.__farmgptGoHomeSameTab;
+  window.__farmgptGoHomeSameTab = false;
+  try { w.farmgptGoHome({ sameTab }); } catch {}
+}
 function setEmbedShown(wrap, tab, shown){
   wrap.hidden = !shown;
   const w = embedFrameWindow(tab);
@@ -3040,6 +3064,19 @@ function setEmbedShown(wrap, tab, shown){
     if (w && w.__buckyEmbedVisible !== shown){
       w.__buckyEmbedVisible = shown;
       w.dispatchEvent(new Event("bucky-embed-visibility"));
+    }
+    // Soft-home after the iframe is visible again so farmgptGoHome's replaceState
+    // merges into the parent entry that just pushed buckyTab:farmgpt. The iframe
+    // may still be loading on first open — retry briefly until farmgptGoHome exists.
+    if (shown && tab === "farmgpt" && window.__farmgptGoHomePending){
+      farmgptMaybeGoHome();
+      if (window.__farmgptGoHomePending){
+        let n = 0;
+        const t = setInterval(() => {
+          farmgptMaybeGoHome();
+          if (!window.__farmgptGoHomePending || ++n > 40) clearInterval(t);
+        }, 50);
+      }
     }
   } catch {}
 }
@@ -12102,7 +12139,7 @@ try {
 } catch {}
 document.getElementById("homeBtn").onclick = () => goTo("dashboard");
 // Seed the history baseline so the first Back press returns to the initial tab (not straight out).
-try { history.replaceState({ buckyTab: currentTab }, ""); } catch {}
+try { history.replaceState(Object.assign({}, history.state || {}, { buckyTab: currentTab }), ""); } catch {}
 document.querySelectorAll("#freqSeg button").forEach(b=>{
   b.onclick = () => { sheetFreq = b.dataset.freq;
     document.querySelectorAll("#freqSeg button").forEach(x=>x.classList.toggle("sel", x===b));
