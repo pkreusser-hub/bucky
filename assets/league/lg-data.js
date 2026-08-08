@@ -351,12 +351,16 @@
   // clearly-labelled fallback backfills the REAL week's numbers instead of stamping whatever
   // happens to be on the board today. Returns a Map keyed EXACTLY as the live poll keys rows
   // (dst_<pid> / espn_id / slp_<pid>) -> league-scored points, or null when unavailable.
-  D.weekStats = async function (week) {
+  D.weekStats = async function (week, opts) {
     await D.initSleeper();
     if (!D.S.slpPlayers) return null;
     const st = D.S.slpState || {};
-    const seasonType = st.season_type || "regular";
-    const season = st.season || String(LG.SEASON);
+    // opts.season/opts.seasonType (2025 test season) OVERRIDE Sleeper's own live /state/nfl
+    // reading — that state is always the REAL CURRENT NFL season, which is the wrong season to
+    // ask for archived stats about a past/test league year. No opts -> byte-identical to the
+    // original priority (st.season, then LG.SEASON) for every existing caller.
+    const seasonType = (opts && opts.seasonType) || st.season_type || "regular";
+    const season = (opts && opts.season) || st.season || String(LG.SEASON);
     let j;
     try { j = await fx("sleeper week stats " + week, `${SLP}/stats/nfl/${seasonType}/${season}/${week}`); }
     catch (e) { return null; }

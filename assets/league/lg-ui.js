@@ -61,6 +61,12 @@
     // on another's result, so run them together instead of stacking three round trips.
     await Promise.all([LG.loadRules(), LG.loadTeams(), LG.loadSchedule().then((s) => { schedule = s; })]);
     UI.week = LG.currentWeek() > (LG.rules.seasonWeeks + 3) ? LG.rules.seasonWeeks : LG.currentWeek();
+    // 2025 TEST SEASON: a fresh (or partially set-up) test collection routes into the guided
+    // one-tap setup wizard instead of the ordinary claim/league flow. testSeasonNeedsSetup()
+    // checks for exactly the artifacts runTestSeasonSetup() itself writes, so a run that stops
+    // partway (a flaky ESPN read, a closed tab mid-import) resumes right here on the very next
+    // boot rather than re-doing finished work or erroring out.
+    if (LG.testMode() && await testSeasonNeedsSetup()) { renderTestSeasonSetup(); return; }
     if (!LG.myTeamId() && LG.teams.length) {
       // No claimed team yet — nothing to paint early (renderClaim needs only the teams we
       // just loaded, which is instant), and there's no live view for auto-checks to catch
@@ -93,6 +99,82 @@
     if (lockerM) { UI.lockerTeamId = Number(lockerM[1]); UI.show("locker"); return; }
     UI.show(h === "#team" ? "team" : h === "#rules" ? "rules" : h === "#matchup" ? "matchup" : h === "#moves" ? "moves" : h === "#chat" ? "chat" : h === "#bracket" ? "bracket" : h === "#scores" ? "scores" : "league");
   }
+
+  // ---------------- 2025 TEST SEASON — guided one-tap setup (2026-08-08) ----------------
+  // Runs against the ISOLATED test collection — LG.testMode() is already true and LG.COLL/
+  // LG.SEASON/LG.SEASON_START already point at the "_t25" sandbox by the time this ever runs
+  // (LG.enterTestMode() switches them, then reloads the page — see lg-core.js). Every check
+  // here mirrors exactly what runTestSeasonSetup() itself writes, so a run that stops partway
+  // (a flaky ESPN read, a closed tab mid-import) resumes cleanly on the very next boot instead
+  // of duplicating finished work or erroring out.
+  async function testSeasonNeedsSetup() {
+    if (!LG.teams.length) return true;
+    if (!(await LG.loadSchedule())) return true;
+    for (let w = 1; w <= 3; w++) {
+      const wk = await LG.loadWeekly(w);
+      if (!wk || wk.kind !== "weekly") return true;
+    }
+    return false;
+  }
+  UI.testSeasonNeedsSetup = testSeasonNeedsSetup; // test hook
+  function renderTestSeasonSetup() {
+    hideBnav();
+    syncTestBanner();
+    if (main()) main().dataset.view = "testsetup";
+    main().innerHTML = `<div class="card center">
+      <div class="logo">🧪</div><h2>Setting up the 2025 test season</h2>
+      <p class="mut" id="testSetupMsg">Starting…</p></div>`;
+    runTestSeasonSetup((msg) => { const el = $("#testSetupMsg"); if (el) el.textContent = msg; })
+      .then((r) => {
+        if (!r.ok) {
+          main().innerHTML = `<div class="card center"><h2>Test-season setup didn't finish</h2>
+            <p class="mut">${esc(r.reason || "?")}${r.week ? " (week " + r.week + ")" : ""}</p>
+            <p class="mut small">Nothing here touched the real league — safe to try again, or come back later; the parts that already finished won't repeat.</p>
+            <button id="testSetupRetry" class="primary">Try again</button>
+            <button id="testSetupExit">Exit test season</button></div>`;
+          $("#testSetupRetry").addEventListener("click", () => UI.boot());
+          $("#testSetupExit").addEventListener("click", async () => { LG.exitTestMode(); location.reload(); });
+          return;
+        }
+        UI.boot(); // teams + weeks 1-3 now exist -> the normal claim/league flow takes over
+      });
+  }
+  UI.renderTestSeasonSetup = renderTestSeasonSetup; // test hook
+  // Every step re-checks what's already there before writing, so calling this again after a
+  // partial failure (or just re-opening the app before it's finished) resumes rather than
+  // re-doing or duplicating work. Returns {ok:false, reason, week?} on the FIRST thing that
+  // didn't work — never a half-applied state silently reported as success.
+  async function runTestSeasonSetup(onProgress) {
+    const report = (msg) => { if (onProgress) onProgress(msg); };
+    report("Importing 2025 rosters from ESPN…");
+    let j;
+    try { j = await lgFn("lg_espn_rosters_season", { season: LG.TEST_SEASON }); } catch (e) { j = { ok: false, reason: String(e) }; }
+    if (!j.ok) return { ok: false, reason: j.reason || "import-failed" };
+    if (!(j.teams || []).length) return { ok: false, reason: "no-teams" };
+    for (const t of j.teams) await LG.saveTeam({ teamId: t.id, name: t.name });
+    await LG.loadTeams();
+    if (LG.teams.length < 2) return { ok: false, reason: "not-enough-teams" };
+    report("Seeding week-1 rosters from the real 2025 lineups…");
+    await applyImportedRosters(j, 1);
+    report("Building the season schedule…");
+    let sched = await LG.loadSchedule();
+    if (!sched) {
+      sched = LG.generateSchedule(LG.teams.map((t) => t.id), LG.rules.seasonWeeks);
+      await LG.saveSchedule(sched);
+    }
+    schedule = sched;
+    for (let w = 1; w <= 3; w++) {
+      report(`Finalizing week ${w} of 3 from real 2025 stats…`);
+      const existing = await LG.loadWeekly(w);
+      if (existing && existing.kind === "weekly") continue;
+      const r = await LG.finalizeWeek(w, { backfill: true });
+      if (!r.ok) return { ok: false, reason: r.reason || "finalize-failed", week: w };
+    }
+    report("Ready — week 4 is up next.");
+    UI.week = LG.currentWeek();
+    return { ok: true };
+  }
+  UI.runTestSeasonSetup = runTestSeasonSetup; // test hook
 
   async function startData() {
     const d = D();
@@ -203,6 +285,7 @@
   // hidden by CSS below 1024px, so this is pure decoration on mobile. Reads
   // UI.week/LG.rules/LG.myTeamId, none of which this function ever writes.
   function paintHeader() {
+    syncTestBanner();
     const meta = $("#hMeta");
     if (!meta || !LG.rules) return;
     meta.hidden = false;
@@ -215,6 +298,18 @@
     av.hidden = false;
     av.innerHTML = T.logo ? `<img src="${esc(T.logo)}" alt="">` : esc(initials(T.name));
     av.title = T.name || "";
+  }
+  // 2025 TEST SEASON banner — persistent, so nobody mistakes the sandbox for the real league.
+  // Called from paintHeader() (runs on every UI.show(), i.e. every real view + the gate/claim/
+  // first-run/test-setup screens that call it directly), so it's always in sync with whichever
+  // collection is actually live, including mid-setup before UI.week is meaningful.
+  function syncTestBanner() {
+    const el = $("#testBanner");
+    if (!el) return;
+    if (!LG.testMode()) { el.hidden = true; return; }
+    el.hidden = false;
+    el.textContent = "🧪 2025 TEST SEASON" + (UI.week != null ? " — Week " + UI.week : "")
+      + " · real 2025 rosters + stats, a separate sandbox · the live league is untouched";
   }
 
   // ---------------- gate + claim ----------------
@@ -1677,7 +1772,21 @@
     const chip = (p, set) => `<button class="swaprow pickchip ${set.has(p.key) ? "picked" : ""}" data-gk="${esc(p.key)}">
         <b>${esc(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${esc(p.slot)}</small></button>`;
 
+    // 2025 TEST SEASON only: the deadline-driven waiver UI below (claims form vs. immediate
+    // free-agency) is entirely a function of UI.week + the pinned test clock, and the test
+    // season's default landing week (4) has its own Wednesday deadline already behind it —
+    // meaning the ordinary blind-bid CLAIM form (as opposed to instant FA) is otherwise
+    // unreachable through normal navigation, since nothing else in the app lets a tester
+    // change which week Moves is looking at. This switch is the one small addition that makes
+    // BOTH flows reachable from the UI itself: week 4 stays free-agency-open (its deadline has
+    // passed at the pinned clock), week 5's hasn't, so it shows the real bid-a-claim form.
+    const testWeekSwitchHtml = LG.testMode() ? `<div class="card mut small">
+      <b>Testing week:</b>
+      <button class="testWkBtn" data-w="4" ${UI.week === 4 ? "disabled" : ""}>Week 4 (free agency open)</button>
+      <button class="testWkBtn" data-w="5" ${UI.week === 5 ? "disabled" : ""}>Week 5 (submit a blind-bid claim)</button>
+    </div>` : "";
     main().innerHTML = `
+      ${testWeekSwitchHtml}
       <div class="card"><h2>My pending</h2>
         <h2 class="small mut">Your waiver claims</h2>
         <div id="mvMyClaims">${myClaims.length ? myClaims.map(claimRow).join("") : '<p class="mut">No pending claims.</p>'}</div>
@@ -1738,6 +1847,10 @@
       toast("Waivers processed.");
       renderMoves();
     });
+    document.querySelectorAll(".testWkBtn").forEach((b) => b.addEventListener("click", () => {
+      UI.week = Number(b.dataset.w);
+      renderMoves();
+    }));
 
     // ---------------- item 1: a real, browsable free-agent table ----------------
     // Position chips + an now-OPTIONAL name search filter both feed the same table,
@@ -1961,6 +2074,9 @@
           <button id="rostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import ESPN rosters</button>
           <button id="testRostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import 2025 rosters (test run)</button>
           <button id="historyImport" ${isCommish() && !editing ? "" : "hidden"}>Import history</button>
+          ${isCommish() && !editing ? (LG.testMode()
+            ? `<button id="testExit">Exit test season</button><button id="testReset" class="bad">Reset test season</button>`
+            : `<button id="testEnter">🧪 Enter 2025 test season</button>`) : ""}
         </span></div>
       ${isCommish() && !editing ? `<div class="card mut small">
         <b>Import from ESPN</b> — rules, scoring, and the 8 teams, from the real live league.<br>
@@ -1969,7 +2085,12 @@
         empty) until the season starts; this seeds this week's rosters from the real, FINAL 2025
         season instead, so lineups/waivers/trades/scoring can be exercised against real players.
         Re-import real rosters once the ${r.season} draft has happened.<br>
-        <b>Import history</b> — past seasons' standings/champions/scores, for the record book.
+        <b>Import history</b> — past seasons' standings/champions/scores, for the record book.<br>
+        <b>🧪 2025 test season</b> — a COMPLETELY SEPARATE sandbox (own collection, own storage
+        — nothing here ever touches this real league): opens as week 4 of the real 2025 season,
+        before any week-4 kickoff, with weeks 1-3 already finalized from real 2025 stats, so
+        waivers/free agency/trades/lineups can all be exercised against real rosters. Exit any
+        time to come straight back here untouched; Reset wipes only the sandbox and starts over.
       </div>` : ""}
       <div class="card mut small">${esc(r.name)} · season ${r.season} · ${scheduleSummaryLine(r)}</div>
       <div class="card"><h2>Scoring</h2>${scoringGroupsHtml}${paHtml}</div>
@@ -2023,6 +2144,23 @@
     $("#historyImport") && $("#historyImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       await importHistory();
+    });
+    $("#testEnter") && $("#testEnter").addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      if (!window.confirm("Enter the 2025 test season? This opens a completely separate sandbox — nothing here touches the real league, and you can exit any time.")) return;
+      await LG.enterTestMode();
+      location.reload();
+    });
+    $("#testExit") && $("#testExit").addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      LG.exitTestMode();
+      location.reload();
+    });
+    $("#testReset") && $("#testReset").addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      if (!window.confirm("Wipe the whole 2025 test season and start over? This can't be undone.")) return;
+      await LG.resetTestMode();
+      location.reload();
     });
   }
 
@@ -2416,9 +2554,13 @@
       renderRules();
     });
   }
-  // Shared by importRosters() and importTestRosters() below — same shape from
-  // lg_espn_rosters and lg_espn_rosters_season, same slotting rule.
-  async function applyImportedRosters(j) {
+  // Shared by importRosters()/importTestRosters()/runTestSeasonSetup() — same shape from
+  // lg_espn_rosters and lg_espn_rosters_season, same slotting rule. `week` defaults to
+  // UI.week (every existing caller's behavior, byte-for-byte); the 2025 test-season setup
+  // wizard passes an explicit 1 — it seeds WEEK 1 regardless of whichever week UI.week
+  // happens to be showing at that moment (LG.ensureRoster copies forward lazily from there).
+  async function applyImportedRosters(j, week) {
+    const wk = week != null ? week : UI.week;
     const slots = starterSlotList();
     for (const t of (j.teams || [])) {
       const taken = {};
@@ -2432,7 +2574,7 @@
           name: p.name, pos: p.pos, team: p.proTeam, slot, injury: p.injury || "",
         };
       });
-      await LG.saveRoster(UI.week, t.id, players);
+      await LG.saveRoster(wk, t.id, players);
     }
     UI._rosters = null;
     return (j.teams || []).length;
