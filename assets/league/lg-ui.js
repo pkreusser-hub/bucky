@@ -15,6 +15,57 @@
   // Up to 2-letter initials for a team-avatar fallback (design system §"Team avatars are
   // initials on colored circles") — used only where a team has no logo on file.
   const initials = (name) => (String(name || "?").trim().split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?");
+  // A GFFL team's short tag — its own abbrev, else initials of its name. The same convention
+  // the FA table's TYPE column and the claim screen's logo placeholder already use; hoisted
+  // here because the matchup feed's per-event team chips (2026-08-09) need it too.
+  const teamTag = (t) => (t && (t.abbrev || initials(t.name))) || "?";
+  // ---------------- injury designations (2026-08-09 playtest) ----------------
+  // "never label a healthy player, and abbreviate the rest to Q / D / OUT." ONE function, four
+  // callers (the locker lineup + swap sheet via injChip, the players table row, the player
+  // stats card header) — the mapping must never be duplicated, or two surfaces will disagree
+  // about what a status means.
+  //   · ACTIVE / "" / null and friends -> "" (no chip, no span, no stray whitespace)
+  //   · Questionable -> Q · Doubtful -> D · Out -> OUT
+  //   · anything else that is a REAL designation still shows something. A status we did not
+  //     anticipate must never be silently swallowed: a player who is genuinely unavailable
+  //     rendering as healthy is the one failure mode that actually costs a family a week.
+  // Case-insensitive, and tolerant of both the full words Sleeper sends (injury_status:
+  // "Questionable") and the already-abbreviated forms ESPN sometimes does ("Q") — so it is
+  // idempotent: injLabel("Q") === "Q".
+  // NOTE this is DISPLAY only. LG.irEligible reads the RAW upstream value (it matches on
+  // "Out"/"Doubtful"/"IR"/"PUP"/…), so every caller of it must keep passing the raw string.
+  const INJ_HEALTHY = new Set(["", "active", "act", "a", "healthy", "ok", "none", "null", "undefined"]);
+  const INJ_ABBR = {
+    questionable: "Q", q: "Q",
+    doubtful: "D", d: "D",
+    out: "OUT", o: "OUT",
+    probable: "P", p: "P",
+    ir: "IR", injuredreserve: "IR", irr: "IR-R",
+    pup: "PUP", nfi: "NFI",
+    sus: "SUS", suspended: "SUS", suspension: "SUS",
+    na: "NA", dnr: "DNR", cov: "COV", covid: "COV",
+  };
+  function injLabel(raw) {
+    const s = String(raw ?? "").trim();
+    if (!s) return "";
+    const k = s.toLowerCase().replace(/[^a-z]/g, "");
+    if (INJ_HEALTHY.has(k)) return "";
+    if (INJ_ABBR[k]) return INJ_ABBR[k];
+    // Unanticipated but real — keep a short uppercase form rather than dropping it.
+    return s.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
+  }
+  LG.injLabel = injLabel; // test hook — the suite asserts the mapping directly as well as rendered
+  // "Is this player's NFL team currently on offense?" (2026-08-09 playtest: "we need to
+  // highlight players when their team has the ball and is on offense"). A D/ST is deliberately
+  // never highlighted — its side has the ball, which means the defense is off the field, the
+  // same reasoning the red-zone flag already uses. `poss` is only ever set by the per-game
+  // summary poll, so under the 2025 replay (no drive data at all) this is false for everybody.
+  function hasBall(p) {
+    if (!p || p.pos === "DST") return false;
+    const d = D();
+    const g = d.S.games.get(d.slpTeam(p.team));
+    return !!(g && g.state === "in" && g.poss);
+  }
 
   UI.view = "league";
   UI.week = null;           // viewed league week
@@ -416,6 +467,17 @@
     location.hash = "#locker=" + UI.lockerTeamId;
     UI.show("locker");
   };
+  // ---------------- the bottom-nav gesture (2026-08-09) ----------------
+  // "the matchup tab should always show the matchup for that users team." UI.matchup is
+  // STICKY by design — tapping any matchup card (league home, Scores tab, bracket) sets it and
+  // the page keeps showing THAT game, including across every live repaint, because
+  // renderMatchup(true) must never yank a reader out of a game they deliberately opened. So
+  // the reset belongs on the NAV ENTRY specifically: pressing the Matchup tab is the one
+  // gesture that means "take me to MY game", and it is the only thing that clears it.
+  UI.navTo = function (name) {
+    if (name === "matchup") UI.matchup = null;
+    UI.show(name);
+  };
   // Reachable from the league home's  Playoffs card (S7) — same no-nav-entry-needed
   // posture as lockers.
   UI.openBracket = function () {
@@ -477,7 +539,7 @@
       <div class="pchead">
         <h2 class="pcname">${escn(meta.name)}</h2>
         <div class="pcmeta"><span class="posbadge" data-pos="${esc(meta.pos)}">${esc(meta.pos || "?")}</span>
-          <span class="mut">${esc(meta.team || "")}</span>${meta.injury ? ` <span class="inj">${esc(meta.injury)}</span>` : ""}</div>
+          <span class="mut">${esc(meta.team || "")}</span>${injLabel(meta.injury) ? ` <span class="inj">${esc(injLabel(meta.injury))}</span>` : ""}</div>
       </div>
       <div class="pcweek">
         <div class="mut small">This week${UI.week != null ? " · Week " + UI.week : ""}</div>
@@ -1239,7 +1301,15 @@
   }
   function scoreCardHtml(e) {
     const live = e.state === "in", done = e.state === "post";
-    const teamHtml = (t) => `<span class="scteam"><b>${esc((t && t.abbrev) || "?")}</b>
+    // Team crests (2026-08-09 playtest: "the nfl scoreboard should show team logos"). The <img>
+    // is only rendered when the slate actually carried a URL, so a logo-less game shows the
+    // abbrev alone rather than a broken image; the fixed width/height (and visibility:hidden on
+    // an error, never display:none) mean a missing or failed crest can never change the row's
+    // height or shift the score beside it.
+    const logoHtml = (t) => (t && t.logo)
+      ? `<img class="sclogo" src="${esc(t.logo)}" alt="" width="22" height="22" loading="lazy" onerror="this.style.visibility='hidden'">`
+      : "";
+    const teamHtml = (t) => `<span class="scteam">${logoHtml(t)}<b>${esc((t && t.abbrev) || "?")}</b>
       ${live || done ? `<span class="scpts">${esc((t && t.score) || "0")}</span>` : ""}</span>`;
     const stateHtml = live ? `<span class="scstate live">${esc(e.detail || ("Q" + e.period + " " + e.clock))}</span>`
       : done ? '<span class="scstate mut">Final</span>'
@@ -1387,23 +1457,41 @@
     // side has more bench players so both columns stay the same length.
     const aBench = teamBench(aId), hBench = teamBench(hId);
     const benchRows = pairByIndex(aBench, hBench);
-    const feed = d.S.events.filter((e) => e.msg || hKeys.includes(e.key) || aKeys.includes(e.key)).slice(0, 60);
+    // The feed (2026-08-09 playtest: "the feed needs to be a scrollable box and has to
+    // indicate which team each feed item is from, maybe the ability to pick the team"). Each
+    // event is ATTRIBUTED here, once, off the same starter-key sets the rest of the page is
+    // built from — a "msg" (system) event belongs to neither side. The annotated array is
+    // stashed so the Both/away/home filter is a pure re-render of what is already in memory:
+    // picking a side must never refetch or recompute anything.
+    const aSet = new Set(aKeys), hSet = new Set(hKeys);
+    UI._feedAll = d.S.events
+      .filter((e) => e.msg || hSet.has(e.key) || aSet.has(e.key))
+      .slice(0, 60)
+      .map((e) => ({ e, side: e.msg ? null : (aSet.has(e.key) ? "a" : "h") }));
+    UI._feedTeams = { a: teamTag(A), h: teamTag(H) };
+    // The filter is a per-matchup view control, persisted nowhere — opening a DIFFERENT
+    // matchup starts on Both again rather than silently inheriting the last one's side.
+    if (UI._feedKey !== muKey) { UI._feedKey = muKey; UI._feedSide = "both"; }
+    const fside = UI._feedSide || "both";
+    const fchip = (v, label) => `<button type="button" class="poschip ${fside === v ? "on" : ""}" data-fside="${v}">${esc(label)}</button>`;
     const threadKey = `w${UI.week}_${hId}-${aId}`;
     main().innerHTML = `
       <div class="card muhead">
         <div class="muhrow">
-          <div class="muhteam">${avatarHtml(A, aId === mine)}<b class="teamlink" data-locker="${aId}">${esc(A?.name || "?")}</b><div class="bigpts">${LG.fmtPts(aTot)}</div>
-            <div class="mut small">Proj ${LG.fmtPts(aProj)}</div>
-            <div class="mut small">${aRem.left} to play · ${aRem.playing} live</div></div>
+          <div class="muhteam">
+            <div class="muhtop">${avatarHtml(A, aId === mine)}<b class="teamlink" data-locker="${aId}" title="${esc(A?.name || "?")}">${esc(A?.name || "?")}</b></div>
+            <div class="muhscore"><span class="bigpts">${LG.fmtPts(aTot)}</span><span class="mut muhproj">proj ${LG.fmtPts(aProj)}</span></div>
+            <div class="mut muhsub">${aRem.left} to play · ${aRem.playing} live</div></div>
           <div class="muhmid">
             ${liveIndicator}
             <div class="mut small">Week ${UI.week}</div>
             <div class="wpbar"><div class="wpfill" style="width:${Math.round(wp * 100)}%"></div></div>
             <div class="mut small">${Math.round(wp * 100)}% — ${Math.round((1 - wp) * 100)}%</div>
           </div>
-          <div class="muhteam right">${avatarHtml(H, hId === mine)}<b class="teamlink" data-locker="${hId}">${esc(H?.name || "?")}</b><div class="bigpts">${LG.fmtPts(hTot)}</div>
-            <div class="mut small">Proj ${LG.fmtPts(hProj)}</div>
-            <div class="mut small">${hRem.left} to play · ${hRem.playing} live</div></div>
+          <div class="muhteam right">
+            <div class="muhtop">${avatarHtml(H, hId === mine)}<b class="teamlink" data-locker="${hId}" title="${esc(H?.name || "?")}">${esc(H?.name || "?")}</b></div>
+            <div class="muhscore"><span class="bigpts">${LG.fmtPts(hTot)}</span><span class="mut muhproj">proj ${LG.fmtPts(hProj)}</span></div>
+            <div class="mut muhsub">${hRem.left} to play · ${hRem.playing} live</div></div>
         </div>
         ${h2hLine(UI._h2h, H, A)}
         <div class="rowline"><span id="healthChip" class="health" hidden></span></div>
@@ -1411,28 +1499,36 @@
       <div class="card"><div class="panner"><table class="tbl slottable mutable">
         <tbody>${rows.map(([pa, slot, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
-          <td class="slotcell">${esc(slot)}</td>
+          <td class="slotcell" data-pos="${slotPos(slot)}"><span class="slotbadge">${esc(slot)}</span></td>
           <td class="pcell right">${halfCell(ph, "right")}</td></tr>`).join("")}</tbody>
         <tfoot><tr class="totalrow">
           <td class="pcell">${totalHalfCell(aTot, "left")}</td>
-          <td class="slotcell">TOT</td>
+          <td class="slotcell" data-pos="X"><span class="slotbadge">TOT</span></td>
           <td class="pcell right">${totalHalfCell(hTot, "right")}</td>
         </tr></tfoot>
       </table></div></div>
-      ${(aBench.length || hBench.length) ? `<div class="card"><h2>Bench</h2><div class="panner"><table class="tbl slottable benchtable"><tbody>
+      ${(aBench.length || hBench.length) ? `<div class="card"><h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
         ${benchRows.map(([pa, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
-          <td class="slotcell">BENCH</td>
+          <td class="slotcell" data-pos="X"><span class="slotbadge">BENCH</span></td>
           <td class="pcell right">${halfCell(ph, "right")}</td></tr>`).join("")}
       </tbody></table></div></div>` : ""}
-      <div class="card"><h2>The feed</h2><div id="mufeed">
-        ${feed.length ? feed.map(feedLine).join("") : '<p class="mut">Quiet so far — events land here the moment a starter does anything.</p>'}
-      </div></div>
+      <div class="card"><h2>The feed</h2>
+        <div class="poschips feedfilter" id="mufeedFilter">
+          ${fchip("both", "Both")}${fchip("a", UI._feedTeams.a)}${fchip("h", UI._feedTeams.h)}
+        </div>
+        <div id="mufeed"></div></div>
       <div class="card" id="aiReadCard"><h2>AI read</h2>
         <button id="aiReadBtn" ${UI._aiRead && UI._aiRead.busy ? "disabled" : ""}>${UI._aiRead && UI._aiRead.busy ? "Reading the game…" : "Get an AI read"}</button>
         <div id="aiReadOut">${aiReadHtml()}</div>
       </div>
       <div class="card"><h2>Trash talk</h2>${chatWidgetHtml("muThread")}</div>`;
+    paintFeed();
+    document.querySelectorAll("#mufeedFilter .poschip").forEach((b) => b.addEventListener("click", () => {
+      UI._feedSide = b.dataset.fside;
+      document.querySelectorAll("#mufeedFilter .poschip").forEach((x) => x.classList.toggle("on", x.dataset.fside === UI._feedSide));
+      paintFeed(); // a pure re-render of UI._feedAll — never a refetch
+    }));
     $("#aiReadBtn") && $("#aiReadBtn").addEventListener("click", () => askAiRead(hId, aId, hs, as_));
     wireLockerTaps();
     wirePlayerCardTaps(); // every starter + bench half-cell that carries a real player (item 1)
@@ -1560,7 +1656,7 @@
   // a bare "—" — so the row's own height, and the two halves' alignment against each other,
   // never depends on which side happens to be filled.
   function halfCell(p, side) {
-    let infoHtml, ptsHtml;
+    let infoHtml, ptsHtml, ball = false;
     if (!p) {
       infoHtml = '<b class="mut">Empty</b><br><small class="mut">&nbsp;</small>';
       ptsHtml = '<span class="pts mut">—</span><small class="mut">&nbsp;</small>';
@@ -1578,18 +1674,22 @@
       // pictograph. Conflict was " " — now a plain text badge.
       // Red zone marks the OFFENSE in the red zone — a D/ST row isn't on the field.
       const rz = g && g.rz && g.state === "in" && p.pos !== "DST" ? '<span class="rzdot" title="Red zone"></span>' : "";
+      // Possession (2026-08-09): a gold pip + a faint row tint, deliberately NOT red — red is
+      // already spoken for by the live clock and the red-zone dot, and this must not fight it.
+      ball = hasBall(p);
+      const possPip = ball ? '<span class="possdot" title="Has the ball"></span>' : "";
       const conflict = row && row.conflict ? '<span class="conflictflag" title="Sources disagree">CONFLICT</span>' : "";
       // ESPN-style stat summary line ("312 pass yds, 2 TD" / "6 rec, 84 yds") under the meta
       // line, from whichever source mergeRow picked — absent entirely until any stat lands.
       const sline = statSummary(p, row);
-      infoHtml = `<b>${escn(p.name)}</b>${rz}${conflict}<br><small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${state}</small>${sline ? `<small class="mut pstatline">${esc(sline)}</small>` : ""}`;
+      infoHtml = `<b>${escn(p.name)}</b>${possPip}${rz}${conflict}<br><small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${state}</small>${sline ? `<small class="mut pstatline">${esc(sline)}</small>` : ""}`;
       ptsHtml = `<span class="pts">${LG.fmtPts(pts)}</span><small class="mut">proj ${LG.fmtPts(proj)}</small>`;
     }
     const infoDiv = `<div class="pinfo">${infoHtml}</div>`, ptsDiv = `<div class="ppts">${ptsHtml}</div>`;
     // data-pk only when there's a real player (never on an "Empty" half) — that's what
     // wirePlayerCardTaps() keys the click on, and it's also the whole "row-click" affordance
     // for the matchup lineup + bench tables (item 1's "matchup lineup rows both sides").
-    return `<div class="pcellgrid ${side}"${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
+    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}"${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
   }
   // The ESPN-reference stat summary for a matchup row: a compact position-aware line built
   // from the stats of whichever source mergeRow() picked for display (row.src — the same
@@ -1646,17 +1746,44 @@
     xp_made: "XP", xp_miss: "XP miss", dst_sack: "sack", dst_int: "INT", dst_fum_rec: "fumble rec",
     dst_td: "defensive TD", dst_safety: "safety", dst_blk: "block", dst_pa: "pts allowed",
   };
-  function feedLine(e) {
+  // side is "a" (away) / "h" (home) / null (a system message, which belongs to neither team);
+  // tags is {a,h} — the two teams' short tags, resolved once per render by the caller.
+  function feedLine(e, side, tags) {
     // e.t is stamped in LEAGUE time at the source (see applySide) — off the replay that IS
     // wall time, and under it a Sunday-afternoon board's feed reads as a Sunday afternoon.
     const t = new Date(e.t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     if (e.msg) return `<div class="fline sys"><span class="mut">${t}</span> ${esc(e.msg)}</div>`;
     const sign = e.dPts > 0 ? "+" : "";
     const cls = e.dPts > 0 ? "up" : e.dPts < 0 ? "down" : "flat";
-    return `<div class="fline"><span class="mut">${t}</span> <b>${escn(e.name)}</b>
+    // The team chip is what "indicate which team each feed item is from" asks for — a colored
+    // left accent alone would only ever say "one of the two", not which.
+    const sideCls = side === "a" ? "away" : side === "h" ? "home" : "";
+    const chip = side && tags ? `<span class="fteam ${sideCls}">${esc(side === "a" ? tags.a : tags.h)}</span>` : "";
+    return `<div class="fline ${sideCls}"><span class="mut">${t}</span> ${chip}<b>${escn(e.name)}</b>
       ${esc(STAT_LABEL[e.stat] || e.stat)} ${e.from ?? 0}→${e.to ?? 0}
       <span class="delta ${cls}">${e.dPts ? sign + LG.fmtNum(e.dPts) : ""}</span></div>`;
   }
+  // Repaints #mufeed alone from the already-annotated UI._feedAll. Called once per matchup
+  // render and again on every filter tap — no network, no recomputation, nothing else on the
+  // page touched (so an open trash-talk composer or a mid-stream AI read survives a filter tap).
+  function paintFeed() {
+    const box = $("#mufeed");
+    if (!box) return;
+    const side = UI._feedSide || "both";
+    const tags = UI._feedTeams || { a: "?", h: "?" };
+    const all = UI._feedAll || [];
+    const rows = side === "both" ? all : all.filter((r) => r.side === side);
+    if (rows.length) { box.innerHTML = rows.map((r) => feedLine(r.e, r.side, tags)).join(""); return; }
+    box.innerHTML = side === "both"
+      ? '<p class="mut">Quiet so far — events land here the moment a starter does anything.</p>'
+      : `<p class="mut">Nothing from ${esc(side === "a" ? tags.a : tags.h)} yet.</p>`;
+  }
+  // The slot badge between the two teams takes the draft board's own position colors
+  // (2026-08-09 playtest). A slot that is not a single position — FLEX, BENCH, TOT, IR, OP —
+  // has no position color to take, so it falls back to the neutral --pos-X the players table's
+  // own badge already uses for exactly the same case.
+  const POS_SLOTS = ["QB", "RB", "WR", "TE", "K", "DST"];
+  function slotPos(slot) { return POS_SLOTS.includes(String(slot)) ? String(slot) : "X"; }
 
   // ---------------- team / lineup ----------------
   function playerLocked(p) {
@@ -2181,15 +2308,28 @@
         <button type="button" class="pcpick" data-gk="${esc(p.key)}">${set.has(p.key) ? "Picked" : "Pick"}</button>
       </div>`;
 
+    // "My pending" (2026-08-09 playtest: "shrink My pending substantially"). Most of the time
+    // it holds nothing at all, and it was still spending a whole card on THREE stacked
+    // headings and three full paragraphs to say so. Nothing pending anywhere -> one short
+    // quiet line. Something pending -> only the sub-lists that have content get a heading,
+    // and an empty sibling shrinks to a single muted line instead of a paragraph.
+    // The #mvMyClaims / #mvMyTrades ids and their "No pending …" wording survive BOTH shapes:
+    // they are how a second device proves a blind claim really is invisible to it.
+    const pendEmpty = !myClaims.length && !myTrades.length && !reviewTrades.length && !myResultsHtml;
+    const pendHtml = pendEmpty
+      ? `<div class="card pendcard"><h2>My pending</h2>
+          <p class="pendnone mut small"><span id="mvMyClaims">No pending claims.</span> <span id="mvMyTrades">No pending trades.</span></p>
+        </div>`
+      : `<div class="card pendcard"><h2>My pending</h2>
+          ${myClaims.length ? '<h2 class="small mut">Your waiver claims</h2>' : ""}
+          <div id="mvMyClaims">${myClaims.length ? myClaims.map(claimRow).join("") : '<p class="pendnone mut small">No pending claims.</p>'}</div>
+          ${myTrades.length ? '<h2 class="small mut">Your trades</h2>' : ""}
+          <div id="mvMyTrades">${myTrades.length ? myTrades.map(tradeRow).join("") : '<p class="pendnone mut small">No pending trades.</p>'}</div>
+          ${reviewTrades.length ? `<h2 class="small mut">Trades under review — league vote</h2><div id="mvReviewTrades">${reviewTrades.map(reviewRow).join("")}</div>` : ""}
+          ${myResultsHtml}
+        </div>`;
     main().innerHTML = `
-      <div class="card"><h2>My pending</h2>
-        <h2 class="small mut">Your waiver claims</h2>
-        <div id="mvMyClaims">${myClaims.length ? myClaims.map(claimRow).join("") : '<p class="mut">No pending claims.</p>'}</div>
-        <h2 class="small mut">Your trades</h2>
-        <div id="mvMyTrades">${myTrades.length ? myTrades.map(tradeRow).join("") : '<p class="mut">No pending trades.</p>'}</div>
-        ${reviewTrades.length ? `<h2 class="small mut">Trades under review — league vote</h2><div id="mvReviewTrades">${reviewTrades.map(reviewRow).join("")}</div>` : ""}
-        ${myResultsHtml}
-      </div>
+      ${pendHtml}
       <div class="card"><h2>Waivers</h2>
         <div class="rowline"><span class="mut small">$<span id="mvFaab">${LG.teamFaab(T)}</span> FAAB remaining</span>
           ${isCommish() ? '<button id="mvProcessNow">Process now</button>' : ""}</div>
@@ -2370,7 +2510,7 @@
       const moveBtn = type === "FA" ? `<button type="button" class="faAddBtn faMoveBtn">${past ? "Add" : "Claim"}</button>` : "";
       return `<tr data-fi="${i}" data-pk="${esc(p.key)}">
         <td class="faname"><span class="posbadge" data-pos="${esc(p.pos)}">${esc(p.pos)}</span>
-          <b>${escn(p.name)}</b>${p.injury ? ' <span class="inj">' + esc(p.injury) + "</span>" : ""}
+          <b>${escn(p.name)}</b>${injLabel(p.injury) ? ' <span class="inj">' + esc(injLabel(p.injury)) + "</span>" : ""}
           <br><small class="mut">${esc(p.team)}</small></td>
         <td class="fatype">${esc(type)}</td>
         <td class="faopp mut">${esc(opp || "—")}</td>
@@ -2873,10 +3013,12 @@
   // (tap-to-swap starters/bench/IR, kickoff locks — exactly what the old separate "team" page
   // did) as its roster section; every other team's locker keeps the plain read-only roster
   // table it always had. There is no more standalone renderTeam.
+  // The locker lineup + the swap sheet. Routed through injLabel like every other site — an
+  // ACTIVE player gets nothing at all here, not an "Active" chip.
   function injChip(d, p) {
     const row = d.S.players.get(p.key);
-    const inj = (row && row.injury) || p.injury || "";
-    return inj ? ` <span class="inj">${esc(inj)}</span>` : "";
+    const lab = injLabel((row && row.injury) || p.injury || "");
+    return lab ? ` <span class="inj">${esc(lab)}</span>` : "";
   }
   UI.renderLocker = renderLocker;
   async function renderLocker() {
@@ -2926,22 +3068,28 @@
       // stats card and a distinct .lswap button carries the swap affordance, so viewing a
       // player never requires committing to changing the lineup. An EMPTY slot has no player
       // to show a card for, so it stays a single tap-to-fill button, unchanged.
+      // Item 9 (2026-08-09 playtest: "we dont need the word locked we just need to gray out
+      // the swap button"). The LOCKED word is gone — a disabled Swap button says the same
+      // thing in the place the reader would have acted, and it gives the row's ~60px back to
+      // the player's name (item 8). .lrow.locked keeps dimming the row; openSwap keeps its own
+      // lock guard as defence for every other path into it (an empty slot's candidate list, a
+      // bumped starter), which a disabled button can no longer reach.
       const rowHtml = (slot, p, idx) => p
-        ? `<div class="lrow ${playerLocked(p) ? "locked" : ""}" data-slot="${slot}" data-idx="${idx}">
+        ? `<div class="lrow ${playerLocked(p) ? "locked" : ""}${hasBall(p) ? " hasball" : ""}" data-slot="${slot}" data-idx="${idx}">
             <span class="slotchip">${slot}</span>
             <button type="button" class="linfo" data-pk="${esc(p.key)}">
               <span class="lname"><b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${injChip(d, p)}</small></span>
               <span class="lpts">${LG.fmtPts(d.livePts(p.key))}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
             </button>
-            ${playerLocked(p) ? '<span class="lock">LOCKED</span>' : ""}
-            <button type="button" class="lswap" data-slot="${slot}" data-idx="${idx}">Swap</button>
+            <button type="button" class="lswap" data-slot="${slot}" data-idx="${idx}"${playerLocked(p)
+              ? ' disabled title="Game started — this slot is locked" aria-label="Swap unavailable — this game has started"' : ""}>Swap</button>
           </div>`
         : `<div class="lrow" data-slot="${slot}" data-idx="${idx}">
             <span class="slotchip">${slot}</span>
             <button type="button" class="lswap lswapfill" data-slot="${slot}" data-idx="${idx}"><span class="mut">Empty — tap to fill</span></button>
           </div>`;
       rosterHtml = `
-        <div class="card"><h2>Lineup — week ${UI.week}</h2><p class="mut small">Tap a player for their stats, or Swap to change the lineup. LOCKED = game started.</p>
+        <div class="card"><h2>Lineup — week ${UI.week}</h2><p class="mut small">Tap a player for their stats, or Swap to change the lineup. A greyed-out Swap means that game has started.</p>
           <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i)).join("")}</div></div>
         <div class="card"><h2>Bench</h2><div id="lockerBench">${bench.length ? bench.map((p, i) => rowHtml("BENCH", p, i)).join("") : '<p class="mut">Empty bench.</p>'}</div></div>
         <div class="card"><h2>IR <span class="mut">(${ir.length}/${irMax})</span></h2>

@@ -10035,7 +10035,7 @@ three states the fixture predicts, (b) real archived week-1 lines scale sensibly
 producing absurd partials, and (c) the clamp lands on the real Monday-night finale — the constant
 is `2025-09-09T00:15:00Z` and lg-data raises it from whatever the real slate says.
 
-## 🚨 GFFL — "the scores say NaN and the projections are 0" (2026-08-09, UNCOMMITTED)
+## 🚨 GFFL — "the scores say NaN and the projections are 0" (2026-08-09)
 
 User report, verbatim: *"none of the scores for players are showing up they are saying 'nan' and
 all the projections are 0"*. TWO independent defects, both fixed, both with a reproduction.
@@ -10184,3 +10184,84 @@ the family actually hit needs one look at the live rules doc.
 AND a real projection — the rookies especially; (2) `window.__GFFL__.D.idCoverage()` in the
 console should report `unresolved: 0` (anything listed under `missing` is a real gap worth a
 name-spelling look); (3) confirm the Rules scoring table holds only numbers.
+
+## 🏈 GFFL — matchup + my-team + moves playtest batch, thirteen items (2026-08-09)
+
+One playtest pass over the Matchup, My Team and Moves tabs. Files: `league.html` +
+`assets/league/lg-{ui,data}.js` + `tools/_verify-gffl.cjs` (1084 → **1190**).
+`lg-core.js` and `netlify/functions/league.mjs` untouched.
+
+**MATCHUP.** The feed is a bounded scroll box, every event attributed to the team it came from
+(the team's own `abbrev` via the existing `teamTag`), with a Both/away/home filter that
+re-renders the already-annotated `UI._feedAll` — no refetch, and `paintFeed()` repaints `#mufeed`
+alone so the AI-read card and trash-talk composer survive. Filter resets to Both when the matchup
+changes. Slot badges take the draft's own `--pos-*` palette; **the first cut tinted the whole
+12%-wide cell and the screenshot killed it** (a ~75px slab of saturated colour per row on
+desktop), so the colour moved onto a compact centred `.slotbadge`. Header **220px → 111px** with
+nothing dropped (crest beside the name, projection beside the score); cost is that long team
+names ellipsize to one line, `title` added. **Pressing the Matchup TAB always returns to the
+user's own game** — new `UI.navTo`, wired to the nav buttons; only a tab press clears
+`UI.matchup`, so card taps and live repaints never yank you out of a game you opened.
+
+**THE BENCH KNOCK-ON, worth keeping.** Giving the bench the starters' `mutable` formatting
+(fixed layout + wrapping cells) exposed that the old nowrap bench was making both halves of a row
+two lines BY ACCIDENT — so a wrapping name beside an "Empty" produced two different-height boxes.
+Fixed with `.pcell{height:1px}` + `.pcellgrid{height:100%}`: **`height:100%` alone silently does
+nothing**, a percentage needs a definite height to resolve against (39 vs 59 before, 59/59 after).
+
+**TWO ITEMS NEEDED THE DATA LAYER FIRST.** Crests: the logo URL was never captured — added to
+`pollScoreboard`'s `side()` **and** to `fetchSimSlate`'s (the replay uses a different parser),
+rendered at a fixed 22×22 with `onerror` → `visibility:hidden` so a missing crest can't shift the
+score; a team with no logo renders no `<img>` at all. Possession: `possAb` was already computed in
+`pollEspnGame` for the red-zone flag and thrown away — now stored as `g.poss` and carried across
+`pollScoreboard`'s rebuild by `eventId` exactly like `rz` (the scoreboard carries no drive, so
+without that it flickers off between summary polls). **A D/ST is never highlighted** — its side has
+the ball, so the defence is off the field. The replay sets `poss:false`, nobody highlighted, no
+errors.
+
+**MY TEAM.** Names were clipped: a 52px slot chip + ~72px Swap + a nowrap points column left the
+name **94px**, wrapping three deep with one case overflowing. Now **163px**, 0 clipped; `.linfo`
+stacks ≤700px and `.lname small` wraps as a unit so "QB · PHI" can't split. LOCKED span gone —
+Swap is `disabled` + title/aria + greyed; `openSwap` keeps its own guard for the paths a disabled
+button can't reach. Locker header **182px → 97px**.
+
+**INJURIES.** One `injLabel()` (exported as `LG.injLabel`), four callers (`injChip` for the locker
++ swap sheet, the players table, the stats card). Active/""/ACT/Healthy → **nothing at all**;
+Questionable→Q, Doubtful→D, Out→OUT; an unanticipated status (PUP/SUS/IR) still shows a short form
+rather than reading as healthy. Case-insensitive, idempotent. **`LG.irEligible` still gets the RAW
+value** — asserted.
+
+**MOVES.** The list cap goes on the existing `.panner`, **not a wrapper**: a sticky cell only
+sticks to the scrollport it lives in, so wrapping it would have pinned the PLAYER column to the
+wrong box. Header row gained `top:0`, top-left cell z-index 3. Measured: 0px column drift after a
+220px horizontal scroll, 0px header drift after 90px vertical, Show more grows 40→64 rows with the
+box height unchanged. "My pending" **190px → 57px empty, 359px → 268px populated**, and its
+actions went **32px → 44px** (under the tap floor). A latent trap: `.pendcard .rowline button`
+gave every inline player-name link a 44px box and pushed the card to 424px — scoped to `> button`.
+
+**VERIFIED**: **1190/1190, 0 page errors**. Proven real — with the app files stashed back to HEAD
+the run is **1127 pass / 63 fail**, every failure on-point across all thirteen items, and the
+before-numbers above (220/182/94px, 190/359px, 32px) are what the OLD code actually measured.
+43 of the new section AD's 104 checks pass either way and are deliberate regression invariants
+(0 page errors, no sideways scroll, "tapping another card still opens THAT matchup", IR
+eligibility, the sticky column). Restaged with reasons in place: the `.mutable tbody tr` selector
+(two such tables now), section E's two LOCKED checks, and X8e's `.lrow .lock` count (now counts
+disabled Swaps — the old form would be a vacuous 0 forever).
+
+**A CHECK THAT WAS A RACE, NOT AN ASSERTION** (found on the independent re-run — it passed for the
+agent and failed for me, which is the signature): the crest test sampled `img.complete` the instant
+the card appeared and read `loaded:false / visibility:visible` — **`onerror` had not fired either**,
+i.e. the intercepted image was simply still in flight. It now waits for every crest to SETTLE, so a
+genuinely broken one still fails, just deterministically. General rule: a real (even intercepted)
+network image cannot be sampled at first paint.
+
+**A FIXTURE ARTIFACT THAT ALMOST BECAME A REGRESSION**: the feed review plate shows team chips
+reading `T1`/`T2`, which looks exactly like the abstract labels the user asked NOT to ship. It is
+`seedTeams()` — it literally assigns `abbrev: "T" + (i+1)`. The code renders each team's own
+abbrev, so the real league shows BK/EZG. Checking before editing is the only reason working code
+wasn't "fixed".
+
+Plates: `shots/gffl_pt_{matchup_390,matchup_desktop,myteam_390,scores_390,moves_390,moves_desktop,
+feed_390}.png`.
+**KNOWN, PRE-EXISTING, UNTOUCHED**: the bottom nav clips DRAFT to "DR" at 390px (8 tabs, one row).
+Nav markup/labels are unchanged by this batch — only the click handler moved — so it predates it.
