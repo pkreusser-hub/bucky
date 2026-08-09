@@ -861,6 +861,16 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .cal-customnote { font-size: 12.5px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
   .cal-delrow { display: flex; gap: 10px; margin-top: 20px; }
   .cal-delrow .btn { flex: 1 1 0; padding: 12px 6px; font-size: 13.5px; white-space: nowrap; }
+  /* Event-sheet "Notify" section (2026-08-09) — one checkbox row per family member. flex-wrap
+     + the note's flex-basis:100% forces the no-email note onto its own indented line instead
+     of risking overflow on a 390px sheet when a name + note would otherwise share one row. */
+  #calNotifyList { display: flex; flex-direction: column; }
+  .cal-notify-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; cursor: pointer; flex-wrap: wrap; }
+  .cal-notify-row input[type=checkbox] { flex: 0 0 auto; width: 18px; height: 18px; }
+  .cal-notify-row span { font-size: 14px; font-weight: 600; color: var(--ink); }
+  .cal-notify-row small { flex-basis: 100%; margin-left: 28px; font-size: 11.5px; color: var(--muted); font-weight: 500; }
+  .cal-notify-empty { font-size: 13px; color: var(--muted); padding: 6px 2px; }
+  .cal-notified-line { font-size: 12px; color: var(--muted); margin-top: 8px; padding: 0 2px; line-height: 1.4; }
   /* Read-only event preview card (opens on tapping an event; ✏️ Edit → the full editor) */
   .cal-pv-title { font-size: 20px; font-weight: 800; line-height: 1.25; margin: 2px 0 14px; word-break: break-word; }
   .cal-pv-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line-2); }
@@ -1261,6 +1271,74 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .newsadd input { flex: 1 1 auto; min-width: 0; }
   .newshint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
   .newshint.err { color: var(--red, #ba303e); }
+
+  /* ===== Finance (markets snapshot + a per-person watchlist) — scoped under .finwrap.
+     Shares the up/down/flat colour language with the Home stock card (.stchg). ===== */
+  .finwrap { }
+  .finhead { display: flex; align-items: center; gap: 8px; margin: 0 2px 12px; }
+  .finhead h3 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.2px; }
+
+  .finmkts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .finmkt { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 10px; min-width: 0; }
+  .finmkt-n { font-size: 10.5px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .finmkt-p { font-size: 15px; font-weight: 800; color: var(--ink); margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .finmkt-c { font-size: 12px; font-weight: 800; margin-top: 1px; font-variant-numeric: tabular-nums; }
+  .finmkt-c.up { color: #1a8a4f; }
+  .finmkt-c.down { color: var(--red, #ba303e); }
+  .finmkt-c.flat { color: var(--muted); }
+  .finmkt-miss { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .fincard { background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; padding-bottom: 4px; }
+  .finwatch-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 14px 6px; }
+  .finwatch-h h2 { margin: 0; font-size: 15px; font-weight: 800; letter-spacing: -.1px; color: var(--ink); }
+  .finadd { color: var(--green); font-weight: 800; text-transform: none; letter-spacing: 0; font-size: 13px; border: 0; background: transparent; cursor: pointer; padding: 2px 4px; }
+
+  .finaddrow { display: flex; gap: 8px; padding: 0 14px 12px; }
+  .finaddrow input { flex: 1 1 auto; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 15px; text-transform: uppercase; color: var(--ink); background: var(--bg); }
+  .finaddrow input::placeholder { text-transform: none; color: var(--muted); }
+  .finaddrow button { flex: 0 0 auto; border: 0; border-radius: 10px; background: var(--green); color: #fff; font: inherit; font-weight: 800; font-size: 14px; padding: 0 16px; cursor: pointer; }
+  .finaddrow button:disabled { opacity: .6; }
+  .finaddhint { font-size: 12px; color: var(--muted); padding: 0 14px 10px; line-height: 1.4; }
+  .finaddhint.err { color: var(--red, #ba303e); }
+
+  .finrows { display: flex; flex-direction: column; }
+  .finrow { display: flex; align-items: stretch; gap: 2px; border-top: 1px solid var(--line-2); }
+  .finrow:first-of-type { border-top: 0; }
+  .finrow-open { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; text-align: left; background: none; border: 0; cursor: pointer; font: inherit; color: inherit; padding: 11px 6px 11px 14px; }
+  .finsym { font-weight: 800; font-size: 15px; color: var(--ink); flex: 0 0 auto; min-width: 50px; }
+  .finname { font-size: 11.5px; color: var(--muted); flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; order: 3; }
+  .finprice { font-size: 14px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; flex: 0 0 auto; margin-left: auto; }
+  .finmiss { font-size: 11.5px; color: var(--muted); flex: 1 1 auto; }
+  .finperf { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .finrow-open .finperf { flex: 1 1 100%; order: 4; }
+  .finperf-i { display: flex; flex-direction: column; gap: 1px; }
+  .finperf-l { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .2px; }
+  .finperf-v { font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .finperf-v.up { color: #1a8a4f; }
+  .finperf-v.down { color: var(--red, #ba303e); }
+  .finperf-v.flat { color: var(--muted); }
+  .finspark { flex: 0 0 auto; order: 5; display: block; }
+  .finrm { flex: 0 0 auto; align-self: flex-start; margin: 9px 10px 0 0; border: 1px solid var(--line); background: var(--card); color: var(--red, #ba303e); border-radius: 10px; width: 30px; height: 30px; font-size: 13px; cursor: pointer; }
+
+  .finempty { padding: 18px 14px; color: var(--muted); font-size: 13px; font-weight: 600; text-align: center; }
+  .finerr { padding: 16px 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+  .finerr > div { color: var(--muted); font-size: 13px; font-weight: 600; }
+
+  /* Detail sheet */
+  .finsheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 2px; }
+  .finsheet-x { flex: 0 0 auto; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; width: 32px; height: 32px; font-size: 14px; cursor: pointer; }
+  .finsheet-name { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .finsheet-price { font-size: 32px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; margin: 8px 0 12px; }
+  .finsheet-perf { gap: 12px 24px; margin-bottom: 14px; }
+  .finsheet-perf .finperf-l { font-size: 11px; }
+  .finsheet-perf .finperf-v { font-size: 16px; }
+  .finsheet-spark { display: block; width: 100%; height: 56px; margin: 2px 0 16px; }
+  .finai { margin-top: 4px; border-top: 1px solid var(--line-2); padding-top: 14px; }
+  .finai-h { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; margin-bottom: 8px; }
+  .finai-body { font-size: 14px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; }
+  .finai-body.finai-loading { color: var(--muted); font-style: italic; }
+  .finai-body.finai-fail { color: var(--muted); }
+  .findisclaimer { font-size: 11px; color: var(--muted); line-height: 1.5; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line-2); }
 
   /* ==========================================================================
      🖥 DESKTOP (2026-08-03) — a website, not a stretched phone.
@@ -1851,6 +1929,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     </div>
     <label for="calEvNotes">Notes</label>
     <textarea id="calEvNotes" placeholder="Anything to remember (optional)"></textarea>
+    <label>🔔 Notify</label>
+    <div id="calNotifyList"></div>
+    <div class="cal-notified-line" id="calNotifiedLine" style="display:none"></div>
     <div class="cal-delrow" id="calDelSeriesRow" style="display:none">
       <button class="btn danger" id="calDelOneBtn">🗑 Delete this day</button>
       <button class="btn danger" id="calDelAllBtn">🗑 Delete whole series</button>
@@ -1918,6 +1999,12 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   <div class="sheet" id="newsSheetInner"></div>
 </div>
 
+<!-- Finance: stock detail sheet — price, day/week/month, sparkline, AI analysis + disclaimer
+     (contents built in JS, see finPaintDetail) -->
+<div class="overlay" id="finSheetOverlay">
+  <div class="sheet" id="finSheetInner"></div>
+</div>
+
 <script type="module">
 /* ============================================================
    1) PASTE YOUR FIREBASE SETTINGS HERE  (see the setup guide)
@@ -1953,11 +2040,19 @@ const BANK_KIDS = ["Isaac", "Eleanor"];
 // Dad/Mom/guests. Declared here (not in the notification block) so the __BANK__ test hook, which
 // runs at module-eval time, can read it without a temporal-dead-zone error.
 const BANK_NOTIFY_KIDS = BANK_KIDS;   // ["Isaac", "Eleanor"]
-// Farm Bank is family-only (kids + parents) — grandparents/guests don't see it. Gates the
-// Home bank stat, the Bank bottom-nav area, and the farmbank section. Chores are visible to
-// EVERYONE (2026-07-09 user decision, reversing the earlier chores gate). Must match profile names.
-const BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
+// Farm Bank is the KIDS' side of the shared Bank/Finance nav area — their own savings
+// accounts, plus Dad who manages them. Gates the farmbank section + its bottom-nav chip.
+// Chores are visible to EVERYONE (2026-07-09 user decision, reversing the earlier chores
+// gate). Mom REMOVED 2026-08-xx (user ruling): kids get Bank, everyone else gets Finance
+// (see seesFinance() right below), Dad gets both. Must match profile names.
+const BANK_USERS = ["Eleanor", "Isaac", "Dad"];
 function seesBank(){ return BANK_USERS.includes(myName()); }
+// Finance — a markets snapshot + a personal watchlist — is the "grown-up" side of the same
+// shared area: everyone EXCEPT the two kids (Dad, Mom, grandparents, any guest). Unlike
+// every other *_USERS gate in this file, this one is defined by EXCLUSION (off BANK_KIDS,
+// not a membership list) on purpose — a newly added family member sees Finance with no
+// code change, the same way a new publication doesn't need a News code change either.
+function seesFinance(){ return !BANK_KIDS.includes(myName()); }
 // Chore tracking on the HOME page (hero ring + "Today's chores" card) is only for the kids
 // who have chores — everyone else gets a chore-free dashboard. The Chores TAB is unchanged.
 const CHORE_USERS = ["Isaac", "Eleanor"];
@@ -2077,6 +2172,7 @@ const SECTIONS = [
   { key:"print3d",    ico:"🖨️",  name:"3D Prints",       desc:"Ask Dad to print something" },
   { key:"shopping",   ico:"🛒",  name:"Shopping",        desc:"Store lists" },
   { key:"farmbank",   ico:"💰",  name:"Farm Bank",       desc:"Kid savings accounts" },
+  { key:"finance",    ico:"📈",  name:"Finance",         desc:"Markets & your watchlist" },
   { key:"goathooves", ico:"🐐",  name:"Goats",           desc:"Herd & records" },
   { key:"goatcare",   ico:"🩺",  name:"Goat Care",       desc:"Log care quickly" },
   { key:"calendar",   ico:"📅",  name:"Calendar",        desc:"Family shared calendar" },
@@ -2093,7 +2189,7 @@ const SECTIONS = [
 // workorders/farmbank are here too so email "View in BUCKY" buttons can land on the right tab.
 // Every tab is deep-linkable via index.html#<key> so the persistent icon nav on the
 // FarmGPT/Games pages can land you directly on any section here.
-const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "fitness", "news", "sports", "farmgpt", "game", "catgame", "play"];
+const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "finance", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "fitness", "news", "sports", "farmgpt", "game", "catgame", "play"];
 const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard";
 let currentTab = initialHashTab;
 
@@ -2115,7 +2211,7 @@ const NAV_GROUPS = [
   { id:"sports",ico:"🏈",  name:"Sports", def:"sports",     members:["sports"] },
   { id:"wo",    ico:"🛠️",  name:"Jobs",   def:"workorders", members:["workorders","print3d"] },
   { id:"shop",  ico:"🛒",  name:"Shop",   def:"shopping",   members:["shopping"] },
-  { id:"bank",  ico:"💰",  name:"Bank",   def:"farmbank",   members:["farmbank"] },
+  { id:"bank",  ico:"💰",  name:"Bank",   def:"finance",    members:["farmbank","finance"] },
   { id:"farm",  ico:"🐐",  name:"Farm",   def:"goathooves", members:["goathooves","goatcare"] },
   { id:"gpt",   ico:"🌾",  name:"AI",     def:"farmgpt",    members:["farmgpt"] },
   { id:"play",  ico:"🎮",  name:"Play",   def:"play",       members:["play","game","catgame"] },
@@ -2132,6 +2228,7 @@ const NAV_PATHS = {
   wo:    "M4 9 H20 V19 H4 Z M9 9 V7 A3 3 0 0 1 15 7 V9 M4 13 H20",
   shop:  "M6 8 H18 L17 20 H7 Z M9 8 V6 A3 3 0 0 1 15 6 V8",
   bank:  "M12 4 V20 M16 7 H10 A2.5 2.5 0 0 0 10 12 H14 A2.5 2.5 0 0 1 14 17 H8",
+  finance: "M23 6 L13.5 15.5 L8.5 10.5 L1 18 M17 6 L23 6 L23 12",
   farm:  "M4 11 L12 4 L20 11 V20 H4 Z M10 20 V14 H14 V20",
   gpt:   "M12 3 L14 10 L21 12 L14 14 L12 21 L10 14 L3 12 L10 10 Z",
   play:  "M8 6 L18 12 L8 18 Z",
@@ -2139,23 +2236,29 @@ const NAV_PATHS = {
 const SECTION_BY_KEY = Object.fromEntries(SECTIONS.map(s => [s.key, s]));
 // Short chip labels for the segmented sub-nav (the full section names like
 // "Work Orders" / "3D Prints" would truncate in a 3-up segmented control).
-const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", goathooves:"Goats", goatcare:"Care", print3d:"Prints", calendar:"Calendar", animalcare:"Care", mealplan:"Meals", fitness:"Fitness", news:"News" };
+const SUBNAV_LABEL = { chores:"Chores", workorders:"Jobs", shopping:"Shopping", goathooves:"Goats", goatcare:"Care", print3d:"Prints", calendar:"Calendar", animalcare:"Care", mealplan:"Meals", fitness:"Fitness", news:"News", farmbank:"Bank", finance:"Finance" };
 // Remembers the last section visited within a multi-section area so tapping the
 // bottom tab returns you where you were (only tracked for Tasks/Farm sub-nav).
 const groupLast = {};
 function groupForTab(tab){
   return NAV_GROUPS.find(g => (g.members || []).includes(tab)) || NAV_GROUPS[0];
 }
-// Farm Bank is hidden from the nav for non-family users; Meals is Mom/Dad only; everything
-// else is visible to all. (Precedent: the farmbank chip gate.)
+// Farm Bank is hidden from the nav for the non-kid side of the family; Finance is hidden
+// from the two kids (Bank is their side of the same shared area — see seesFinance()); Meals
+// is Mom/Dad only; everything else is visible to all. (Precedent: the farmbank chip gate.)
 function navKeyVisible(key){
   if (key === "farmbank") return seesBank();
+  if (key === "finance") return seesFinance();
   if (key === "mealplan") return seesMeals();
   if (key === "fitness") return seesFitness();   // Isaac, Eleanor and Dad — nobody else runs it
   return true;
 }
 function navGroupVisible(gid){
-  if (gid === "bank") return seesBank();
+  // Everyone lands on one side or the other of the shared Bank/Finance area (a kid on
+  // Bank, everyone else on Finance, Dad on both) — spelled out as an OR rather than assumed
+  // "always true", so a future audience change here can't silently hide the whole area for
+  // someone who no longer qualifies for either half.
+  if (gid === "bank") return seesBank() || seesFinance();
   if (gid === "fit") return seesFitness();
   if (gid === "meals") return seesMeals();
   return true;
@@ -2440,6 +2543,7 @@ function goToPrint3D(){
 function goToFarmBank(){
   currentTab = "farmbank"; syncTabsUI(); render();
 }
+function goToCalendar(){ goTo("calendar"); }   // event-notification taps land on the Plan calendar
 function renderNotifList(){
   const user = myName();
   const wrap = document.getElementById("notifList");
@@ -2528,6 +2632,7 @@ function showToast(text, onClick){
 function notifDestination(n){
   if (n.type === "print_request" || n.type === "print_done") return goToPrint3D;
   if (n.type === "payout_confirmed" || n.type === "bank_credit") return goToFarmBank;   // bank_credit = money-added alerts
+  if (n.type === "cal_event") return goToCalendar;
   return goToWorkOrders;   // assigned, closed, progress, payout_pending, payout_notyet
 }
 function liveNotify(n){
@@ -2628,6 +2733,9 @@ function render(){
   // Farm Bank is hidden for non-family users; bounce them to Home if they somehow land on it
   // (stale tab after a profile switch, an old deep-link, etc.).
   if (!seesBank() && currentTab === "farmbank") currentTab = "dashboard";
+  // Finance is hidden from the two kids (Bank is their side of this shared area) — same
+  // stale-tab/deep-link bounce.
+  if (!seesFinance() && currentTab === "finance") currentTab = "dashboard";
   // Meals is Mom-only — bounce a non-Mom user who lands on it via a stale tab / deep-link.
   if (!seesMeals() && currentTab === "mealplan") currentTab = "dashboard";
   // Same for Fitness, which only Isaac, Eleanor and Dad use.
@@ -2637,7 +2745,7 @@ function render(){
   document.body.classList.toggle("cal-fixed", currentTab === "calendar" && calView === "month");
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
-  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan" || currentTab === "fitness" || currentTab === "news" || currentTab === "sports" || currentTab === "farmgpt") ? "none" : "";
+  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "finance" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan" || currentTab === "fitness" || currentTab === "news" || currentTab === "sports" || currentTab === "farmgpt") ? "none" : "";
   document.getElementById("progress").classList.remove("greet");   // greeting styling is dashboard-only
   document.getElementById("progress").style.display = "";          // restored here; Home hides it (greeting is in the hero)
   syncEmbedTabs();   // hide the Sports/AI frames whenever another tab takes over
@@ -2652,6 +2760,7 @@ function render(){
   if (currentTab === "play") return renderPlay();
   if (currentTab === "catgame") return renderCatGame();
   if (currentTab === "farmbank") return renderFarmBank();
+  if (currentTab === "finance") return renderFinance();
   if (currentTab === "goathooves") return renderGoats();
   if (currentTab === "goatcare") return renderGoatCare();
   if (currentTab === "workorders") return renderWorkOrders();
@@ -3075,11 +3184,22 @@ function renderSportsCards(nflEl, ffEl){
   sportsHomeRefresh();
 }
 
-// ---- Stock watchlist (dashboard, 2026-07-23) ----
-// Per-device list (localStorage bucky_stocks = ["AAPL",...]) + a quote cache for instant
-// paint, refreshed in the background through the stocks Netlify function (Yahoo can't be
-// fetched from the browser directly — CORS — so it's proxied server-side; same secret gate
-// as the other functions). Paint-from-cache-then-refresh mirrors the weather card.
+// ---- Stock watchlist (dashboard, 2026-07-23; moved to a per-ACCOUNT list 2026-08-xx) ----
+// Quotes (price/change/name) stay a per-device cache — refreshed in the background through
+// the stocks Netlify function (Yahoo can't be fetched from the browser directly — CORS —
+// so it's proxied server-side; same secret gate as the other functions). Paint-from-cache-
+// then-refresh mirrors the weather card.
+//
+// The SYMBOL LIST itself, though, is now per-PERSON and cloud-synced — same shape as
+// fitPlan_<Name>: a settings doc stockWatch_<Name> holds {symbols,updatedAt}, and
+// localStorage bucky_stocks_<Name> is the per-person instant-paint cache. This is what lets
+// the Finance section (below) and the Home card — which always shows the LOGGED-IN
+// person's own picks — share one list per account.
+//
+// MIGRATION: a person with no saved list yet, but a legacy per-DEVICE list at
+// localStorage["bucky_stocks"] (the original 2026-07-23 shape), is seeded from it once —
+// the legacy key is never deleted, since another profile on this device might still want
+// it the first time THEY open the app.
 const STOCKS_FN_URL = "/.netlify/functions/stocks";
 const STOCK_TTL = 60 * 1000;             // background-refresh quotes older than this
 let stockQuotes = {};                    // { SYM: {price,change,changePct,currency,name,ok} }
@@ -3087,11 +3207,95 @@ let stockQuotesTs = 0;
 let stockFetching = false;
 let stockAddOpen = false;                // is the add-a-ticker row showing?
 try { const c = JSON.parse(localStorage.getItem("bucky_stocks_cache")); if (c && c.q){ stockQuotes = c.q; stockQuotesTs = c.ts || 0; } } catch {}
-function stockSymbols(){
+
+const stockLists = {};          // { name: [symbols,...] } — per person, once loaded this session
+const stockListsLoaded = {};    // { name: true } once reconciled with the cloud (or migrated)
+const stockListPromises = {};   // { name: Promise } while a load is in flight — de-dupes concurrent calls
+function stockCacheKey(who){ return "bucky_stocks_" + who; }
+function stockDocId(who){ return "stockWatch_" + who; }
+function stockLegacySymbols(){
   try { const a = JSON.parse(localStorage.getItem("bucky_stocks")); if (Array.isArray(a)) return a.filter(s => typeof s === "string"); } catch {}
   return [];
 }
-function stockSaveSymbols(arr){ try { localStorage.setItem("bucky_stocks", JSON.stringify(arr)); } catch {} }
+// Synchronous read for painting: the reconciled list once loaded, else this person's own
+// instant-paint cache. Defaults to the logged-in person, so every existing call site
+// (paintStocks, stocksFetch, stocksRefresh) keeps working unchanged.
+function stockSymbols(who){
+  who = who || myName();
+  if (!who) return [];
+  if (stockListsLoaded[who]) return stockLists[who].slice();
+  try {
+    const c = JSON.parse(localStorage.getItem(stockCacheKey(who)));
+    if (Array.isArray(c)) return c.filter(s => typeof s === "string");
+  } catch {}
+  return [];
+}
+function stockSaveList(who){
+  if (!who) return;
+  try { localStorage.setItem(stockCacheKey(who), JSON.stringify(stockLists[who] || [])); } catch {}
+  try { backend?.setSetting?.(stockDocId(who), { symbols: stockLists[who] || [], updatedAt: Date.now() }); } catch {}
+}
+// Loads (and migrates, once) this person's list from the cloud. Safe to call repeatedly —
+// a no-op once loaded, and concurrent callers share one in-flight promise so the migration
+// write can never race itself.
+async function stockEnsureList(who){
+  if (!who) return [];
+  if (stockListsLoaded[who]) return stockLists[who];
+  if (stockListPromises[who]) return stockListPromises[who];
+  stockListPromises[who] = (async () => {
+    let saved = null;
+    try { saved = await backend?.getSetting?.(stockDocId(who)); } catch {}
+    if (saved && Array.isArray(saved.symbols)){
+      stockLists[who] = saved.symbols.filter(s => typeof s === "string");
+    } else {
+      const legacy = stockLegacySymbols();
+      stockLists[who] = legacy.slice();
+      if (legacy.length) stockSaveList(who);   // persist so the migration only ever happens once
+    }
+    try { localStorage.setItem(stockCacheKey(who), JSON.stringify(stockLists[who])); } catch {}
+    stockListsLoaded[who] = true;
+    return stockLists[who];
+  })();
+  try { return await stockListPromises[who]; } finally { delete stockListPromises[who]; }
+}
+function stockAddSymbol(who, sym){
+  who = who || myName();
+  if (!who || !sym) return;
+  const cur = stockLists[who] || (stockLists[who] = []);
+  if (!cur.includes(sym)) cur.push(sym);
+  stockListsLoaded[who] = true;
+  stockSaveList(who);
+}
+function stockRemoveSymbol(who, sym){
+  who = who || myName();
+  if (!who) return;
+  stockLists[who] = (stockLists[who] || []).filter(s => s !== sym);
+  stockListsLoaded[who] = true;
+  stockSaveList(who);
+}
+// Home-card convenience: replace the LOGGED-IN person's whole list at once (the dashboard
+// card's add/remove handlers already build the full array before calling this).
+function stockSaveSymbols(arr){
+  const who = myName();
+  if (!who) return;
+  stockLists[who] = (arr || []).slice();
+  stockListsLoaded[who] = true;
+  stockSaveList(who);
+}
+// Paint-then-reconcile for the per-account list (calwidget/carewidget/wxcard pattern): the
+// Home card's own paintStocks() call already drew from the instant per-person cache; this
+// loads/migrates the real list in the background and repaints — then refreshes quotes —
+// only if still on the dashboard.
+function stocksEnsureAndRefresh(){
+  const who = myName();
+  if (!who) return;
+  stockEnsureList(who).then(() => {
+    if (currentTab !== "dashboard") return;
+    const cur = document.querySelector(".home2 .stockcard");
+    if (cur) paintStocks(cur);
+    stocksRefresh();
+  });
+}
 function stockFmtPrice(v, cur){
   const p = (cur === "USD" || !cur) ? "$" : "";
   return p + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -3190,6 +3394,467 @@ function stocksRefresh(force){
     .catch(() => {})
     .finally(() => { stockFetching = false; });
 }
+
+/* ============================================================================
+   📈 FINANCE — markets snapshot + a per-person watchlist
+   ============================================================================
+   The "grown-up" side of the shared Bank/Finance nav area (seesFinance() / navAreaLabel,
+   above) — Dad, Mom, grandparents, any guest; the two kids get Bank instead. Everyone who
+   sees it shares the SAME per-account watchlist storage as the Home dashboard card
+   (stockSymbols/stockEnsureList/stockAddSymbol/stockRemoveSymbol, defined above) — adding
+   a ticker here shows up on the Home card too, same account, and vice versa.
+
+   Markets (S&P 500 / Dow / Crude oil) are always fetched regardless of the person's own
+   picks. Both the markets strip and the watchlist ride ONE request to the "series" action
+   (day/week/month % + a closes[] series for the sparkline) — the Home card's simpler
+   "quote" action is untouched; this is a separate, richer fetch.
+
+   AI analysis is per-symbol, requested only when its detail sheet opens, and cached in
+   localStorage per symbol PER DAY (bucky_fin_ai_<SYM>) so re-opening the same stock the
+   same day costs nothing. A disclaimer sits under the analysis in EVERY state (loading /
+   success / failure) — this explains numbers, it never recommends a trade.
+   ============================================================================ */
+
+const FIN_MARKETS = [
+  { symbol: "^GSPC", label: "S&P 500" },
+  { symbol: "^DJI",  label: "Dow" },
+  { symbol: "CL=F",  label: "Crude oil (WTI)" },
+];
+const FIN_SERIES_TTL = 5 * 60 * 1000;    // background-refresh series data older than this
+const FIN_RETRY_MS = 60 * 1000;          // don't hammer a failing fetch more than once a minute
+
+let finSeries = {};          // { symbol: {ok,name,currency,price,prevClose,day,week,month,closes,asOf} }
+let finSeriesTs = 0;
+let finFetching = false;
+let finLastFail = 0;         // when the series fetch last FAILED (retry floor, news.mjs pattern)
+let finError = "";
+let finAddOpen = false;
+let finAddHint = "";
+let finAddHintErr = false;
+let finAddBusy = false;
+let finDetailSym = null;
+let finNowOverride = null;         // deterministic-clock test hook (ms) or null
+const finAnalyzing = {};           // { sym: true } while an analysis call is in flight
+const finAnalysisFailed = {};      // { sym: true } if the last attempt failed (never cached)
+try {
+  const c = JSON.parse(localStorage.getItem("bucky_fin_series_cache"));
+  if (c && c.q){ finSeries = c.q; finSeriesTs = c.ts || 0; }
+} catch {}
+
+function finNow(){ return finNowOverride ? new Date(finNowOverride) : new Date(); }
+function finToday(){ return finNow().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }); }
+
+function finFmtPrice(v, cur){
+  if (typeof v !== "number" || !isFinite(v)) return "—";
+  const p = (cur === "USD" || !cur) ? "$" : "";
+  return p + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function finFmtPct(pct){
+  if (typeof pct !== "number" || !isFinite(pct)) return "—";
+  const sign = pct > 0 ? "+" : "";
+  return sign + pct.toFixed(2) + "%";
+}
+function finPctClass(pct){
+  if (typeof pct !== "number" || !isFinite(pct)) return "flat";
+  return pct > 0.0001 ? "up" : pct < -0.0001 ? "down" : "flat";
+}
+// closes[].t may arrive as an ISO string or an epoch (seconds or ms) — used only to word a
+// partial week/month window honestly ("Month (since Jul 2)"), so this degrades to "" rather
+// than throwing on a shape it doesn't recognize.
+function finFmtSince(t){
+  let d = null;
+  if (typeof t === "number") d = new Date(t < 2e10 ? t * 1000 : t);
+  else if (typeof t === "string") d = new Date(t);
+  if (!d || isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+async function finCall(action, extra){
+  const r = await fetch(STOCKS_FN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: FAMILY_PASSWORD, action, ...(extra || {}) }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.error) || ("HTTP " + r.status));
+  return j || {};
+}
+
+function finSymbolSet(){
+  const set = new Set(FIN_MARKETS.map(m => m.symbol));
+  for (const s of stockSymbols(myName())) set.add(s);
+  return [...set];
+}
+function finStale(force){
+  return !!force || (Date.now() - finSeriesTs) > FIN_SERIES_TTL || finSymbolSet().some(s => !finSeries[s]);
+}
+async function finRefresh(force){
+  if (finFetching) return;
+  if (!finStale(force)) return;
+  if (!force && finLastFail && (Date.now() - finLastFail) < FIN_RETRY_MS) return;
+  finFetching = true;
+  if (currentTab === "finance") renderFinance();
+  try {
+    const res = await finCall("series", { symbols: finSymbolSet() });
+    const map = {};
+    for (const item of (res.series || [])) if (item && item.symbol) map[item.symbol] = item;
+    finSeries = Object.assign({}, finSeries, map);
+    finSeriesTs = Date.now();
+    finError = "";
+    finLastFail = 0;
+    try { localStorage.setItem("bucky_fin_series_cache", JSON.stringify({ ts: finSeriesTs, q: finSeries })); } catch {}
+  } catch (e){
+    finError = "Couldn't load market data just now.";
+    finLastFail = Date.now();
+  } finally {
+    finFetching = false;
+    if (currentTab === "finance") renderFinance();
+  }
+}
+
+/* ---- AI analysis: one call per symbol per day, cached in localStorage ---- */
+function finAnalysisCacheKey(sym){ return "bucky_fin_ai_" + sym; }
+function finAnalysisCache(sym){
+  try {
+    const c = JSON.parse(localStorage.getItem(finAnalysisCacheKey(sym)));
+    if (c && c.day === finToday() && c.text) return c;
+  } catch {}
+  return null;
+}
+async function finEnsureAnalysis(sym){
+  const cached = finAnalysisCache(sym);
+  if (cached) return cached;
+  if (finAnalyzing[sym]) return null;   // already in flight — the original opener's own await resolves it
+  finAnalyzing[sym] = true;
+  finAnalysisFailed[sym] = false;
+  if (finDetailSym === sym) finPaintDetail();
+  try {
+    const it = finSeries[sym] || {};
+    const res = await finCall("analyze", {
+      symbol: sym, name: it.name || sym,
+      day: it.day || null, week: it.week || null, month: it.month || null,
+      price: it.price,
+    });
+    if (res && res.ok && res.text){
+      const rec = { day: finToday(), text: res.text };
+      try { localStorage.setItem(finAnalysisCacheKey(sym), JSON.stringify(rec)); } catch {}
+      return rec;
+    }
+    finAnalysisFailed[sym] = true;
+    return null;
+  } catch (e){
+    finAnalysisFailed[sym] = true;
+    return null;
+  } finally {
+    finAnalyzing[sym] = false;
+  }
+}
+
+/* ---- Add a ticker: unlike the Home card's optimistic add, Finance CHECKS first — a bad
+   ticker is refused with a message rather than sitting in the list forever as "Not found". ---- */
+async function finAddTicker(raw){
+  const sym = String(raw || "").trim().toUpperCase();
+  if (!sym) return;
+  if (!/^[A-Z0-9.\-^=]{1,12}$/.test(sym)){ finAddHint = "That doesn't look like a ticker."; finAddHintErr = true; renderFinance(); return; }
+  const who = myName();
+  if (stockSymbols(who).includes(sym)){ finAddHint = "Already on your watchlist."; finAddHintErr = true; renderFinance(); return; }
+  finAddBusy = true; finAddHint = "Checking…"; finAddHintErr = false; renderFinance();
+  try {
+    const res = await finCall("series", { symbols: [sym] });
+    const item = (res.series || [])[0];
+    if (!item || !item.ok){
+      finAddHint = `Couldn't find "${sym}".`; finAddHintErr = true;
+      return;
+    }
+    stockAddSymbol(who, sym);
+    finSeries = Object.assign({}, finSeries, { [sym]: item });
+    finSeriesTs = Date.now();
+    try { localStorage.setItem("bucky_fin_series_cache", JSON.stringify({ ts: finSeriesTs, q: finSeries })); } catch {}
+    finAddHint = ""; finAddHintErr = false; finAddOpen = false;
+  } catch (e){
+    finAddHint = "Couldn't check that ticker just now."; finAddHintErr = true;
+  } finally {
+    finAddBusy = false;
+    renderFinance();
+  }
+}
+
+/* ---- Detail sheet ---- */
+function finCloseDetail(){ finDetailSym = null; document.getElementById("finSheetOverlay").classList.remove("open"); }
+async function finOpenDetail(sym){
+  finDetailSym = sym;
+  finPaintDetail();
+  document.getElementById("finSheetOverlay").classList.add("open");
+  await finEnsureAnalysis(sym);
+  if (finDetailSym === sym) finPaintDetail();   // guard: the sheet may have moved on by the time this resolves
+}
+function finPerfChip(label, perf, closes){
+  const c = document.createElement("div"); c.className = "finperf-i";
+  const l = document.createElement("div"); l.className = "finperf-l";
+  let text = label;
+  if (perf && perf.partial){
+    const since = finFmtSince(closes && closes.length ? closes[0].t : null);
+    text = since ? `${label} (since ${since})` : `${label} (partial)`;
+  }
+  l.textContent = text;
+  const v = document.createElement("div");
+  const pct = perf ? perf.pct : null;
+  v.className = "finperf-v " + finPctClass(pct);
+  v.textContent = finFmtPct(pct);
+  c.append(l, v);
+  return c;
+}
+// Plain inline SVG, no libraries — degrades to nothing (returns null) when there isn't
+// enough of a closes[] series to draw a line.
+function finSparkline(closes, big){
+  const vals = (closes || []).map(c => c && c.c).filter(v => typeof v === "number" && isFinite(v));
+  if (vals.length < 2) return null;
+  const w = big ? 300 : 64, h = big ? 56 : 22;
+  const min = Math.min(...vals), max = Math.max(...vals), span = (max - min) || 1;
+  const pts = vals.map((v, i) => {
+    const x = (i / (vals.length - 1)) * w;
+    const y = h - ((v - min) / span) * h;
+    return x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+  const up = vals[vals.length - 1] >= vals[0];
+  const svgns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.setAttribute("width", w); svg.setAttribute("height", h);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.classList.add("finspark");
+  const poly = document.createElementNS(svgns, "polyline");
+  poly.setAttribute("points", pts);
+  poly.setAttribute("fill", "none");
+  poly.setAttribute("stroke", up ? "#1a8a4f" : "#ba303e");
+  poly.setAttribute("stroke-width", "2");
+  poly.setAttribute("stroke-linecap", "round");
+  poly.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(poly);
+  return svg;
+}
+function finPaintDetail(){
+  const el = document.getElementById("finSheetInner");
+  if (!el) return;
+  el.innerHTML = "";
+  const sym = finDetailSym;
+  if (!sym) return;
+  const it = finSeries[sym] || {};
+
+  const head = document.createElement("div"); head.className = "finsheet-head";
+  const h = document.createElement("h2"); h.textContent = sym; h.style.margin = "0";
+  const x = document.createElement("button"); x.type = "button"; x.className = "finsheet-x";
+  x.textContent = "✕"; x.setAttribute("aria-label", "Close");
+  x.onclick = finCloseDetail;
+  head.append(h, x);
+  el.appendChild(head);
+
+  if (it.name){ const nm = document.createElement("div"); nm.className = "finsheet-name"; nm.textContent = it.name; el.appendChild(nm); }
+
+  const pr = document.createElement("div"); pr.className = "finsheet-price";
+  pr.textContent = it.ok ? finFmtPrice(it.price, it.currency) : "—";
+  el.appendChild(pr);
+
+  const perf = document.createElement("div"); perf.className = "finperf finsheet-perf";
+  perf.appendChild(finPerfChip("Day", it.day, it.closes));
+  perf.appendChild(finPerfChip("Week", it.week, it.closes));
+  perf.appendChild(finPerfChip("Month", it.month, it.closes));
+  el.appendChild(perf);
+
+  const spark = finSparkline(it.closes, true);
+  if (spark){ spark.classList.add("finsheet-spark"); el.appendChild(spark); }
+
+  // AI analysis — the disclaimer renders in EVERY state (loading/success/failure), never
+  // just alongside a successful answer.
+  const ai = document.createElement("div"); ai.className = "finai";
+  const aih = document.createElement("div"); aih.className = "finai-h"; aih.textContent = "🤖 What the numbers show";
+  ai.appendChild(aih);
+  const body = document.createElement("div"); body.className = "finai-body";
+  const cached = finAnalysisCache(sym);
+  if (cached){ body.textContent = cached.text; }
+  else if (finAnalysisFailed[sym]){ body.textContent = "Couldn't write an analysis just now."; body.classList.add("finai-fail"); }
+  else { body.textContent = "Reading the numbers…"; body.classList.add("finai-loading"); }
+  ai.appendChild(body);
+  const disc = document.createElement("div"); disc.className = "findisclaimer";
+  disc.textContent = "Bucky explains what the numbers show. This is not investment advice.";
+  ai.appendChild(disc);
+  el.appendChild(ai);
+}
+document.getElementById("finSheetOverlay").onclick = (e) => { if (e.target.id === "finSheetOverlay") finCloseDetail(); };
+
+/* ---- Markets strip (always shown, independent of the person's picks) ---- */
+function finBuildMarkets(){
+  const wrap = document.createElement("div"); wrap.className = "finmkts";
+  for (const m of FIN_MARKETS){
+    const it = finSeries[m.symbol];
+    const t = document.createElement("div"); t.className = "finmkt"; t.dataset.sym = m.symbol;
+    const nm = document.createElement("div"); nm.className = "finmkt-n"; nm.textContent = m.label;
+    t.appendChild(nm);
+    if (it && it.ok){
+      const pr = document.createElement("div"); pr.className = "finmkt-p"; pr.textContent = finFmtPrice(it.price, it.currency);
+      const dpct = it.day ? it.day.pct : null;
+      const ch = document.createElement("div"); ch.className = "finmkt-c " + finPctClass(dpct); ch.textContent = finFmtPct(dpct);
+      t.append(pr, ch);
+    } else if (it && !it.ok){
+      const m2 = document.createElement("div"); m2.className = "finmkt-miss"; m2.textContent = "Unavailable";
+      t.appendChild(m2);
+    } else {
+      const m2 = document.createElement("div"); m2.className = "finmkt-miss"; m2.textContent = "Loading…";
+      t.appendChild(m2);
+    }
+    wrap.appendChild(t);
+  }
+  return wrap;
+}
+
+/* ---- One watchlist row: an inner "open" button (tap → detail sheet) beside a sibling
+   remove button — never a button nested inside a button (invalid HTML, and unreachable by
+   keyboard; the same lesson the Fitness picker's .fitpick-row learned). ---- */
+function finBuildRow(sym){
+  const it = finSeries[sym];
+  const row = document.createElement("div"); row.className = "finrow"; row.dataset.sym = sym;
+
+  const open = document.createElement("button"); open.type = "button"; open.className = "finrow-open";
+  open.setAttribute("aria-label", "Open " + sym + " details");
+  const s = document.createElement("div"); s.className = "finsym"; s.textContent = sym;
+  open.appendChild(s);
+  if (it && it.name){ const n = document.createElement("div"); n.className = "finname"; n.textContent = it.name; open.appendChild(n); }
+  if (it && it.ok){
+    const pr = document.createElement("div"); pr.className = "finprice"; pr.textContent = finFmtPrice(it.price, it.currency);
+    open.appendChild(pr);
+    const perf = document.createElement("div"); perf.className = "finperf";
+    perf.appendChild(finPerfChip("Day", it.day, it.closes));
+    perf.appendChild(finPerfChip("Week", it.week, it.closes));
+    perf.appendChild(finPerfChip("Month", it.month, it.closes));
+    open.appendChild(perf);
+    const spark = finSparkline(it.closes, false);
+    if (spark) open.appendChild(spark);
+  } else if (it && !it.ok){
+    const m = document.createElement("div"); m.className = "finmiss"; m.textContent = "Not found";
+    open.appendChild(m);
+  } else {
+    const m = document.createElement("div"); m.className = "finmiss"; m.textContent = "Loading…";
+    open.appendChild(m);
+  }
+  open.onclick = () => finOpenDetail(sym);
+  row.appendChild(open);
+
+  const rm = document.createElement("button"); rm.type = "button"; rm.className = "finrm";
+  rm.textContent = "✕"; rm.title = "Remove " + sym; rm.setAttribute("aria-label", "Remove " + sym);
+  rm.onclick = () => { stockRemoveSymbol(myName(), sym); delete finSeries[sym]; renderFinance(); };
+  row.appendChild(rm);
+
+  return row;
+}
+
+/* ---- Watchlist card: add row + rows + loading/empty/error states ---- */
+function finBuildWatchlist(){
+  const card = document.createElement("div"); card.className = "fincard";
+  const h = document.createElement("div"); h.className = "finwatch-h";
+  const h2 = document.createElement("h2"); h2.textContent = "Watchlist";
+  const addBtn = document.createElement("button"); addBtn.type = "button"; addBtn.className = "finadd"; addBtn.textContent = "＋ Add";
+  addBtn.onclick = () => {
+    finAddOpen = !finAddOpen; finAddHint = ""; finAddHintErr = false;
+    renderFinance();
+    if (finAddOpen){ const i = document.querySelector(".finaddrow input"); if (i) i.focus(); }
+  };
+  h.append(h2, addBtn);
+  card.appendChild(h);
+
+  if (finAddOpen){
+    const add = document.createElement("div"); add.className = "finaddrow";
+    const inp = document.createElement("input"); inp.type = "text"; inp.placeholder = "Ticker (e.g. AAPL)";
+    inp.maxLength = 12; inp.autocapitalize = "characters"; inp.autocomplete = "off"; inp.enterKeyHint = "done";
+    inp.disabled = finAddBusy;
+    const go = document.createElement("button"); go.type = "button"; go.textContent = finAddBusy ? "…" : "Add"; go.disabled = finAddBusy;
+    const submit = () => finAddTicker(inp.value);
+    go.onclick = submit;
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter"){ e.preventDefault(); submit(); } });
+    add.append(inp, go);
+    card.appendChild(add);
+    if (finAddHint){
+      const hint = document.createElement("div"); hint.className = "finaddhint" + (finAddHintErr ? " err" : "");
+      hint.textContent = finAddHint;
+      card.appendChild(hint);
+    }
+  }
+
+  const who = myName();
+  if (!who){
+    const e = document.createElement("div"); e.className = "finempty";
+    e.textContent = "Choose a profile to save a watchlist.";
+    card.appendChild(e);
+    return card;
+  }
+  if (!stockListsLoaded[who]){
+    const l = document.createElement("div"); l.className = "finempty"; l.textContent = "Loading your watchlist…";
+    card.appendChild(l);
+    stockEnsureList(who).then(() => { if (currentTab === "finance") renderFinance(); });
+    return card;
+  }
+
+  const syms = stockSymbols(who);
+  if (finError){
+    const err = document.createElement("div"); err.className = "finerr";
+    const p = document.createElement("div"); p.textContent = finError;
+    const r = document.createElement("button"); r.type = "button"; r.className = "btn"; r.textContent = "Retry";
+    r.style.cssText = "width:auto;";
+    r.onclick = () => finRefresh(true);
+    err.append(p, r);
+    card.appendChild(err);
+    if (!syms.length) return card;   // nothing to show underneath — the retry IS the state
+  }
+
+  if (!syms.length){
+    const e = document.createElement("div"); e.className = "finempty";
+    e.textContent = "Add a stock to start tracking.";
+    card.appendChild(e);
+    return card;
+  }
+
+  const rows = document.createElement("div"); rows.className = "finrows";
+  for (const sym of syms) rows.appendChild(finBuildRow(sym));
+  card.appendChild(rows);
+  return card;
+}
+
+function renderFinance(){
+  document.querySelector(".bar").style.display = "none";
+  document.getElementById("empty").style.display = "none";
+  document.getElementById("progress").style.display = "none";
+
+  const list = document.getElementById("list"); list.innerHTML = "";
+  const wrap = document.createElement("li"); wrap.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
+  const root = document.createElement("div"); root.className = "finwrap";
+  wrap.appendChild(root); list.appendChild(wrap);
+
+  const head = document.createElement("div"); head.className = "finhead";
+  const h3 = document.createElement("h3"); h3.textContent = "Finance";
+  head.appendChild(h3);
+  root.appendChild(head);
+
+  root.appendChild(finBuildMarkets());
+  root.appendChild(finBuildWatchlist());
+
+  if (finStale(false)) finRefresh(false);
+}
+
+window.__FIN__ = {
+  setNow: (ts) => { finNowOverride = ts || null; },
+  markets: () => FIN_MARKETS.map(m => m.symbol),
+  series: () => finSeries,
+  refresh: (force) => finRefresh(force),
+  stale: (force) => finStale(force),
+  error: () => finError,
+  addTicker: (sym) => finAddTicker(sym),
+  openAdd: () => { finAddOpen = true; if (currentTab === "finance") renderFinance(); },
+  openDetail: (sym) => finOpenDetail(sym),
+  closeDetail: () => finCloseDetail(),
+  detailSym: () => finDetailSym,
+  analysisCache: (sym) => finAnalysisCache(sym),
+  analyzing: (sym) => !!finAnalyzing[sym],
+  analyzeFailed: (sym) => !!finAnalysisFailed[sym],
+};
 
 function renderDashboard(){
   document.querySelector(".bar").style.display = "none";
@@ -3419,8 +4084,8 @@ function renderDashboard(){
   // ---- stock watchlist (bottom of the dashboard) ----
   const stocks = document.createElement("div"); stocks.className = "stockcard";
   railCol.appendChild(stocks);
-  paintStocks(stocks);
-  stocksRefresh();
+  paintStocks(stocks);         // instant paint from this person's own cache
+  stocksEnsureAndRefresh();    // background: reconcile/migrate their list, then refresh quotes
 
   const foot = document.createElement("div"); foot.className = "hfoot";
   foot.textContent = "Bucky · Family Farm Hub";
@@ -6170,6 +6835,11 @@ function openCalEventSheet(ev, opts){
   }
   syncCalAllDayUI();
   syncCalScopeUI();
+  // The Notify checkboxes are an ACTION, not stored state — always rebuilt unchecked (the
+  // roster itself can also have changed since this event was last opened). The "Told…" line
+  // reads a separate local record so re-opening never looks like it forgot who already knows.
+  renderCalNotifyList();
+  syncCalNotifiedLine(ev);
   document.getElementById("calOverlay").classList.add("open");
   setTimeout(()=>titleI.focus(), 100);
 }
@@ -6283,12 +6953,23 @@ async function saveCalEvent(){
     // "This day" on a series: fields only, no repeat — Google exceptions just that instance
   }
   const editing = !!payload.id;
+  // Captured BEFORE the sheet closes / the save goes out: who was ticked at the moment Save
+  // was pressed, and whether this save is (still) establishing a repeat rule — both read
+  // straight off the payload we just built so they can never disagree with what was actually
+  // sent to Google.
+  const notifyNames = getCheckedNotifyNames();
+  const repeatInfo = (payload.repeat && payload.repeat.freq && payload.repeat.freq !== "NONE") ? payload.repeat : null;
   closeCalSheet();
   showToast(editing ? "Saving change…" : "Adding event…");
   try {
     const r = await calPost(editing ? "update" : "create", { event: payload });
     if (r.error) showToast(calErrText(r.error));
-    else showToast(editing ? "Event updated ✅" : "Event added ✅");
+    else {
+      showToast(editing ? "Event updated ✅" : "Event added ✅");
+      // The event is already saved — from here on, notifying people is best-effort and must
+      // never be able to make the save itself look like it failed.
+      if (r.event) notifyCalEvent(r.event, notifyNames, editing, repeatInfo);
+    }
   } catch (e){ showToast("⚠️ Couldn't save — check your connection"); }
   ensureCalData(true);
 }
@@ -6332,6 +7013,133 @@ document.getElementById("calDelOneBtn").onclick = ()=>{ if (editingCalId) doCalD
 document.getElementById("calDelAllBtn").onclick = ()=>{ if (calSheetSeriesId) doCalDelete(calSheetSeriesId); };
 document.getElementById("calOverlay").onclick = (e)=>{ if (e.target.id === "calOverlay") closeCalSheet(); };
 document.getElementById("calEvTitle").addEventListener("keydown", e=>{ if (e.key === "Enter") saveCalEvent(); });
+
+// ---- Event-sheet "Notify" (2026-08-09): in-app + push + email to whoever is ticked at Save.
+// The checkboxes are an ACTION, not stored state (see openCalEventSheet, which always rebuilds
+// them unchecked) — only a per-device local record of WHO/WHEN survives, purely so the sheet
+// can show a "Told…" line and never so the app has to guess whether re-ticking is a repeat.
+function calNotifiedMap(){
+  try { return JSON.parse(localStorage.getItem("bucky_cal_notified") || "{}") || {}; } catch { return {}; }
+}
+function calNotifiedSave(map){
+  try { localStorage.setItem("bucky_cal_notified", JSON.stringify(map)); } catch {}
+}
+// Exact id first (a targeted "this day" notify), else the series id — a fresh recurring
+// event's create response IS the master (normalizeEvent gives it no seriesId of its own),
+// and Google gives every later-listed OCCURRENCE that same id back as its own .seriesId, so
+// a record written under the master's id is found again from any occurrence.
+function calNotifiedFor(ev){
+  if (!ev) return null;
+  const map = calNotifiedMap();
+  return map[ev.id] || (ev.seriesId && map[ev.seriesId]) || null;
+}
+function calNotifiedDateText(at){
+  const d = new Date(at);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function syncCalNotifiedLine(ev){
+  const row = document.getElementById("calNotifiedLine");
+  const rec = calNotifiedFor(ev);
+  if (rec && Array.isArray(rec.names) && rec.names.length){
+    row.style.display = "";
+    row.textContent = "Told " + rec.names.join(", ") + (rec.at ? (" on " + calNotifiedDateText(rec.at)) : "");
+  } else {
+    row.style.display = "none";
+    row.textContent = "";
+  }
+}
+// Accumulates (never overwrites) so "Told Mom" then later "Told Isaac" reads as "Told Mom, Isaac".
+function recordCalNotified(id, names){
+  if (!id || !names || !names.length) return;
+  const map = calNotifiedMap();
+  const prev = (map[id] && Array.isArray(map[id].names)) ? map[id].names : [];
+  const merged = prev.slice();
+  for (const n of names) if (!merged.includes(n)) merged.push(n);
+  map[id] = { names: merged, at: Date.now() };
+  calNotifiedSave(map);
+}
+// One row per family member, rebuilt every time the sheet opens (Exclude nobody — even the
+// creator gets a row; notifyCalEvent silently skips self at send time regardless). A member
+// with no email on file is labeled so ticking them never silently over-promises an email.
+function renderCalNotifyList(){
+  const wrap = document.getElementById("calNotifyList");
+  wrap.innerHTML = "";
+  const members = familyMembers();
+  if (!members.length){
+    wrap.innerHTML = '<div class="cal-notify-empty">No family members yet — add one under 👤 in Settings.</div>';
+    return;
+  }
+  for (const m of members){
+    const row = document.createElement("label");
+    row.className = "cal-notify-row";
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.dataset.name = m.name;
+    const span = document.createElement("span");
+    span.textContent = m.name;
+    row.append(cb, span);
+    if (!m.email){
+      const note = document.createElement("small");
+      note.textContent = "in-app only — no email on file";
+      row.appendChild(note);
+    }
+    wrap.appendChild(row);
+  }
+}
+function getCheckedNotifyNames(){
+  return [...document.querySelectorAll("#calNotifyList input[type=checkbox]:checked")].map(cb => cb.dataset.name);
+}
+// Fires in-app + push + email for every ticked name (creator excluded, silently, even if
+// their own box is somehow ticked). Runs AFTER the event is already saved — everything here
+// is best-effort; a failure anywhere in this function can never turn a successful save into
+// an error, and one bad email can never stop the others.
+function notifyCalEvent(ev, names, isUpdate, repeatInfo){
+  if (!ev || !names || !names.length) return;
+  const me = myName();
+  const targets = names.filter(n => n && n !== me);
+  if (!targets.length) return;
+  const verb = isUpdate ? "Event updated" : "New event";
+  const title = ev.title || "(untitled)";
+  // Reuses the SAME date/time formatters the read-only preview shows (calPreviewDateText /
+  // calPreviewTimeText) so a notification never describes an event differently than the app
+  // itself does, and calRepeatDescribe for the cadence line ("Repeats weekly on Monday").
+  const dateText = calPreviewDateText(ev);
+  const timeText = calPreviewTimeText(ev);
+  const cadence = repeatInfo ? calRepeatDescribe(repeatInfo, ev) : "";
+  const whenText = [dateText, timeText].filter(Boolean).join(" · ") + (cadence ? " · " + cadence : "");
+  const notifText = `📅 ${verb}: ${title}` + (whenText ? " — " + whenText : "");
+  const url = "index.html#calendar";
+  const stamp = Date.now();   // one save action = one moment, even across several recipients
+  for (const name of targets){
+    try {
+      addNotif(name, "cal_event", notifText, "cal:" + ev.id + ":" + stamp + ":" + name);
+    } catch {}
+    try {
+      if (window.BuckyPush && familyKey){
+        BuckyPush.notify(FAMILY_PASSWORD, familyKey, name, "📅 " + verb, title + (whenText ? " — " + whenText : ""), url);
+      }
+    } catch {}
+  }
+  (async () => {
+    for (const name of targets){
+      try {
+        await sendEmail(name, {
+          subject: `📅 ${verb}: ${title}`,
+          message: `${me || "Someone"} ${isUpdate ? "updated" : "added"} an event on the family calendar: "${title}".`,
+          details_block: buildDetailsBlock([
+            { label: "Event", value: title },
+            { label: "Date", value: dateText },
+            { label: "Time", value: timeText },
+            { label: "Repeats", value: cadence },
+            { label: "Notes", value: ev.notes || "" },
+          ]),
+          cta_block: buildCtaBlock("Open the calendar", "calendar"),
+        });
+      } catch {}   // sendEmail already self-catches; this is defense in depth, not the real guard
+    }
+  })();
+  recordCalNotified(ev.id, targets);
+}
 
 // ==================== ANIMAL CARE coverage (Plan area) ====================
 // Who covers morning/night animal chores. A weekly default schedule + sparse per-day overrides,
@@ -9060,7 +9868,10 @@ window.__CAL__ = {
   preview: ()=>({ open: document.getElementById("calPreviewOverlay").classList.contains("open"), ev: calPreviewEv }),
   sheet: ()=>({ scope: calSheetScope, seriesId: calSheetSeriesId, masterLoaded: !!calSheetMaster,
                 repeat: document.getElementById("calRepeatSel").value, ends: calSheetEnds,
-                repeatTouched: calRepeatTouched }),
+                repeatTouched: calRepeatTouched,
+                notifyChecked: getCheckedNotifyNames(),
+                notifyAll: familyMembers().map(m=>m.name) }),
+  notifiedMap: ()=>calNotifiedMap(),
   // Home-widget hooks (deterministic "now" for the dashboard calendar card)
   setHomeNow: (ts)=>{ calHomeNowOverride = ts || null; if (currentTab === "dashboard") render(); },
   home: ()=>({ cacheTs: calCacheTs, fetching: calHomeFetching }),
@@ -10671,6 +11482,16 @@ window.__NEWS__ = {
   togglePub: (id) => newsTogglePub(id),
 };
 
+// The shared Bank/Finance nav area reads differently depending on who's looking: the two
+// kids with real bank accounts (BANK_KIDS) see "Bank" 💰 — their own savings; everyone else
+// (Dad, Mom, guests) sees "Finance" 📈 — a markets snapshot + a personal watchlist. Dad sees
+// BOTH members and gets the existing segmented sub-nav to switch between them (SUBNAV_LABEL:
+// farmbank->"Bank", finance->"Finance"). Centralized here — used by buildBottomNav AND
+// buildSideNav — so the branching is never duplicated between the two nav renderers.
+function navAreaLabel(g){ return g.id === "bank" ? (BANK_KIDS.includes(myName()) ? "Bank" : "Finance") : g.name; }
+function navAreaEmoji(g){ return g.id === "bank" ? (BANK_KIDS.includes(myName()) ? "💰" : "📈") : g.ico; }
+function navAreaIconPath(g){ return g.id === "bank" ? (BANK_KIDS.includes(myName()) ? NAV_PATHS.bank : NAV_PATHS.finance) : NAV_PATHS[g.id]; }
+
 // Build the fixed 5-area bottom bar from NAV_GROUPS.
 function buildBottomNav(){
   const nav = document.getElementById("bnav");
@@ -10688,11 +11509,13 @@ function buildBottomNav(){
     const b = document.createElement("button");
     b.className = "bnav-btn";
     b.dataset.gid = g.id;
-    b.setAttribute("aria-label", g.name);
+    const label = navAreaLabel(g);
+    b.setAttribute("aria-label", label);
     const ico = document.createElement("span"); ico.className = "bico";
-    if (NAV_PATHS[g.id]) ico.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + NAV_PATHS[g.id] + '"/></svg>';
-    else ico.textContent = g.ico;
-    const lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = g.name;
+    const iconPath = navAreaIconPath(g);
+    if (iconPath) ico.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + iconPath + '"/></svg>';
+    else ico.textContent = navAreaEmoji(g);
+    const lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = label;
     b.append(ico, lbl);
     // A group with a `.url` (FarmGPT) is an out-of-app link — it navigates the page
     // straight there instead of switching tabs, and is therefore never "active".
@@ -10729,13 +11552,15 @@ function buildSideNav(){
     b.className = "sn-item" + (isActive ? " active" : "");
     b.type = "button";
     b.dataset.gid = g.id;
-    b.setAttribute("aria-label", g.name);
+    const label = navAreaLabel(g);
+    b.setAttribute("aria-label", label);
     // Same line icons as the bottom bar and as the other pages' rails — otherwise the
     // desktop rail is the one place in the app still showing emoji.
     const ico = document.createElement("span"); ico.className = "sn-ico";
-    if (NAV_PATHS[g.id]) ico.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + NAV_PATHS[g.id] + '"/></svg>';
-    else ico.textContent = g.ico;
-    const lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = g.name;
+    const iconPath = navAreaIconPath(g);
+    if (iconPath) ico.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + iconPath + '"/></svg>';
+    else ico.textContent = navAreaEmoji(g);
+    const lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = label;
     b.append(ico, lbl);
     b.onclick = g.url ? (() => { location.href = g.url; }) : (() => navGroup(g.id));
     listEl.appendChild(b);

@@ -818,10 +818,25 @@ async function sectionUiLayout(browser) {
     railShown: getComputedStyle(document.getElementById("sidenav")).display !== "none",
     active: document.querySelectorAll("#buckyNav a.active").length,
     links: document.querySelectorAll("#buckyNav a").length,
+    // The rail's <a class="sn-item"> nodes are built by the SAME gated `shown` array as the
+    // bottom bar, in the same page load — CSS just hides #sidenav below 1024px, it doesn't
+    // stop the script from populating it. Comparing the two surfaces to EACH OTHER (instead
+    // of to a hardcoded area count) is what makes this check survive the nav gaining or
+    // losing areas over time — see 2026-08-09's fix below.
+    railItemsHiddenHere: document.querySelectorAll("#sidenav .sn-item").length,
+    clippedLabels: Array.from(document.querySelectorAll("#buckyNav .blabel"))
+      .filter((el) => el.scrollWidth > el.clientWidth + 1).length,
   }));
   ok(m.scrollW <= m.clientW + 1, `no horizontal page scroll at 390px (${m.scrollW} <= ${m.clientW})`);
   ok(!m.railShown, "the desktop rail is hidden on a phone");
-  ok(m.links === 12, "the bottom nav carries all 12 areas Dad can see");
+  // 2026-08-09: PROPERTY-BASED, not a magic "12" — the nav's area count isn't a fixed
+  // constant (it grew from 12 to 13 when Sports shipped, and Bank/Finance's per-profile
+  // relabeling touches this same array again; both will keep moving). What must actually
+  // hold: the bottom bar renders every single area THIS PROFILE'S OWN gated array produced
+  // (the rail is the oracle — same page load, same `shown` array, just display:none at this
+  // width instead of absent), and none of those labels got clipped doing it.
+  ok(m.links === m.railItemsHiddenHere && m.links > 0 && m.clippedLabels === 0,
+    `the bottom nav carries every area Dad's own gated array produced, none clipped (bnav ${m.links} vs rail ${m.railItemsHiddenHere}, ${m.clippedLabels} clipped)`);
   ok(m.active === 0, "no nav area is marked active — this is a Dad tool, not a family section");
 
   const desk = await openStatus(browser, mock, { user: "Dad", unlocked: true, viewport: { width: 1280, height: 800, deviceScaleFactor: 1 } });
@@ -835,12 +850,19 @@ async function sectionUiLayout(browser) {
       navShown: getComputedStyle(document.getElementById("buckyNav")).display !== "none",
       scrollW: document.documentElement.scrollWidth,
       clientW: document.documentElement.clientWidth,
+      // Same cross-surface oracle as the phone check above, read from the desktop load: the
+      // bottom bar's <a> nodes exist in the DOM even though CSS hides #buckyNav at this width.
+      bnavItemsHiddenHere: document.querySelectorAll("#buckyNav a").length,
+      clippedLabels: Array.from(rail.querySelectorAll(".sn-label"))
+        .filter((el) => el.scrollWidth > el.clientWidth + 1).length,
     };
   });
   // Description only, not a check: the rail recolored navy → pine green in the 2026-08-05
   // Farmstead re-skin (see status.html's farmstead-theme-page block) — the assertion itself
   // was always about item count/visibility, never color, so it's unchanged.
-  ok(d.railShown && d.railItems === 12, "the rail is present with all 12 areas at 1280px");
+  // 2026-08-09: PROPERTY-BASED, not a magic "12" (see the phone check above for why).
+  ok(d.railShown && d.railItems === d.bnavItemsHiddenHere && d.railItems > 0 && d.clippedLabels === 0,
+    `the rail is present with every area Dad's own gated array produced, none clipped (rail ${d.railItems} vs bnav ${d.bnavItemsHiddenHere}, ${d.clippedLabels} clipped) at 1280px`);
   ok(d.railActive === 0, "no rail item is marked active on this page either");
   ok(!d.navShown, "the bottom bar is hidden when the rail is up");
   ok(d.scrollW <= d.clientW + 1, "no horizontal page scroll at 1280px");
