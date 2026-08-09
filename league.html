@@ -201,29 +201,33 @@
      the avatar drops 44->28px, the score 30->22px, and the card takes 10px of padding instead of
      16. Everything the header carried is still on it — including the win-probability bar and the
      live/Final indicator, which are the two things that must not go. */
-  .card.muhead { padding:10px 12px; }
+  .card.muhead { padding:8px 12px; }
   .muhrow { display:grid; grid-template-columns:1fr auto 1fr; gap:8px; align-items:start; }
-  .muhteam { min-width:0; display:flex; flex-direction:column; gap:1px; }
+  .muhteam { min-width:0; display:flex; flex-direction:column; gap:0; }
   .muhteam.right { text-align:right; align-items:flex-end; }
-  .muavatar { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  .muavatar { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center;
               font:700 11px var(--font-display); background:var(--border-card); color:var(--mut); overflow:hidden;
-              margin-bottom:1px; }
+              flex:0 0 auto; }
   .muavatar.mine { background:var(--accent); color:#fff; }
   .muavatar img { width:100%; height:100%; object-fit:cover; display:block; }
-  .bigpts { font:800 22px/1.1 var(--font-display); font-variant-numeric:tabular-nums; }
-  /* The three vertical rows the header used to spend on each side (avatar / name / score /
-     Proj / to-play) are folded into three: crest BESIDE the name, projection BESIDE the score,
-     and the to-play·live count on its own short line. Nothing is dropped — it costs half the
-     height because it stops stacking things that fit side by side. */
-  .muhtop { display:flex; align-items:center; gap:6px; min-width:0; width:100%; }
+  .bigpts { font:800 19px/1.05 var(--font-display); font-variant-numeric:tabular-nums; }
+  /* THE ESPN HEADER (2026-08-09, from the user's own screenshot of the real app): crest on the
+     OUTER edge, score block on the INNER — mirrored, so the two big numbers face each other
+     across the centre column — with the projection directly BENEATH the score as a bare muted
+     number, then the team name, then owner · record.
+     The 2026-08-08 batch's height budget still binds: this arrangement adds a line (owner ·
+     record) and must NOT grow past the 111px it measured at, so the type is tightened to pay
+     for it rather than the card being allowed to creep back toward its original 220px. */
+  .muhtop { display:flex; align-items:center; gap:8px; min-width:0; width:100%; }
   .muhteam.right .muhtop { flex-direction:row-reverse; }
-  .muhscore { display:flex; align-items:baseline; gap:6px; min-width:0; }
-  .muhteam.right .muhscore { flex-direction:row-reverse; }
-  .muhead .muhteam b { flex:1 1 auto; min-width:0; font-size:13px; line-height:1.2;
-                       white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .muhead .muhproj { font:600 10.5px var(--font-display); letter-spacing:.3px; white-space:nowrap; }
-  .muhead .muhsub { font-size:10.5px; line-height:1.3; white-space:nowrap; }
-  .muhead .h2hline { margin-top:3px; }
+  .muhscore { display:flex; flex-direction:column; align-items:flex-end; min-width:0; line-height:1; }
+  .muhteam.right .muhscore { align-items:flex-start; }
+  .muhead .muhname { display:block; max-width:100%; min-width:0; font-size:12px; line-height:1.2;
+                     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .muhead .muhproj { font:600 10px/1.2 var(--font-display); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .muhead .muhowner { font-size:9.5px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  .muhead .muhsub { font-size:9.5px; line-height:1.2; white-space:nowrap; }
+  .muhead .h2hline { margin-top:2px; }
   .muhmid { text-align:center; min-width:84px; padding-top:2px; display:flex; flex-direction:column; align-items:center; gap:3px; }
   .mulive { display:flex; align-items:center; gap:6px; font:600 12px var(--font-display); letter-spacing:1px; color:var(--accent); text-transform:uppercase; }
   .mulive .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); }
@@ -240,14 +244,19 @@
   table.mutable td { vertical-align:middle; white-space:normal; }
   /* td.slotcell, not .slotcell — .tbl td's text-align:left otherwise outweighs it and the
      slot badge has rendered left-of-center since the day it shipped. */
-  /* The colour lives on a compact centred BADGE, not on the cell. Painting the whole cell
-     (the first cut) turns a 12%-wide column into a full-row-height block of saturated colour —
-     on desktop that is a ~75px slab per row, which shouts over the players either side of it.
-     A badge reads the same information at a glance and matches the .posbadge language the
-     players table already uses. */
+  /* THE CENTRE BAND (2026-08-09). In the real app the middle of the table is ONE continuous
+     darker vertical strip running the full height, with the slot label centred in each row —
+     not a pill floating in space per row. So the CELL carries the band (--nested2, a shade
+     darker than the card, with its row divider suppressed so consecutive cells read as one
+     unbroken strip) and the compact coloured BADGE sits inside it.
+     That keeps BOTH things the user has asked for: the continuous band from this screenshot,
+     and the draft position palette they asked for in the previous batch. Painting the whole
+     cell in the position colour instead — the first cut of that earlier item — turns a 12%
+     column into a ~75px slab of saturated colour per row on desktop and shouts over the
+     players either side of it, which is why the badge stays compact. */
   td.slotcell { color:var(--mut); font:600 11px var(--font-display); letter-spacing:.5px; text-align:center; width:12%;
-              background:none; padding:3px 4px; }
-  td.slotcell .slotbadge { display:block; background:var(--nested); border-radius:var(--radius-badge); padding:5px 0; }
+              background:var(--nested2); border-bottom-color:transparent; padding:0 4px; }
+  td.slotcell .slotbadge { display:inline-block; min-width:76%; background:var(--nested); border-radius:var(--radius-badge); padding:4px 6px; }
   /* Item 2 (2026-08-09 playtest: "the player position indicator between the two teams should be
      color coded the same as the way positions are colored in the draft"). Same --pos-* tokens
      the players table's .posbadge already tints with — lifted from ffdraft's board palette, so
@@ -266,45 +275,72 @@
      grows to its own content, but declaring a height gives the percentage below something
      definite to resolve against (with auto height it resolves to auto and silently does
      nothing, which is exactly what happened on the first attempt). */
-  .pcell { width:44%; height:1px; } .pcell.right { text-align:right; }
-  /* THE ESPN HEAD-TO-HEAD ROW (2026-08-08 playtest: "the left team's players don't line up
-     with the right team's"). The .pcellgrid markup was built as a mirrored two-part cell —
-     name+meta on the OUTER edge, a fixed-width points column on the INNER edge hugging the
-     slot badge — but shipped with NO layout rule at all (the .scgrid family of bug), so both
-     halves stacked their two divs in raw DOM order: the left half read name→points top to
-     bottom while the right half read points→name, and nothing across the row lined up.
-     Flex row restores the design: .pinfo takes the slack, .ppts is a fixed column whose
-     numbers align toward the slot badge on BOTH sides (mirrored, per the ESPN reference). */
-  /* height:100% keeps the two halves of a row the SAME height even when one wraps further
-     than the other. It mattered the moment the bench table joined table-layout:fixed +
-     white-space:normal (item 3): under the old nowrap bench both halves were always exactly
-     two lines by accident, and a wrapping player name beside an "Empty" placeholder would
-     otherwise render two visibly different boxes inside one aligned row. */
+  /* td.pcell, not .pcell — .tbl td's own padding (0,1,1) outranks a bare class (0,1,0). */
+  td.pcell { width:44%; height:1px; padding:5px 8px; }
+  /* THE ESPN HEAD-TO-HEAD ROW. Rebuilt 2026-08-09 from the user's own screenshot of the real
+     app; the 2026-08-08 pass had inferred it from a lower-resolution one and got the text
+     alignment backwards.
+     Mirrored two-part cell: name/meta on the OUTER edge, a fixed-width points column on the
+     INNER edge hugging the slot band, so both teams' point columns line up down the middle of
+     the row regardless of name length on either side. (Before 2026-08-08 the .pcellgrid markup
+     shipped with NO layout rule at all — the .scgrid family of bug — so both halves stacked
+     their two divs in raw DOM order and nothing across the row lined up.)
+
+     ⚠ THE TEXT ALIGNMENT MIRRORS TOO — CORRECTED 2026-08-09.
+     This block used to carry the opposite rule, with a comment asserting that "only the column
+     ORDER mirrors; text stays left-aligned on BOTH sides". That was inferred from an earlier,
+     lower-resolution screenshot and it is WRONG. In the real app team A's text hugs the LEFT
+     edge and team B's hugs the RIGHT — names and meta both — which is exactly what the user
+     asked for ("team a is formatted to hug left, team b hug right"). */
   .pcellgrid { display:flex; align-items:center; gap:10px; height:100%; }
   .pcellgrid .pinfo { flex:1 1 auto; min-width:0; }
-  .pcellgrid .pinfo b { font:600 13.5px/1.3 var(--font-body); }
-  .pcellgrid .pinfo small { font-size:11px; line-height:1.35; }
-  .pcellgrid .pinfo .pstatline { display:block; }
-  .pcellgrid .ppts { flex:0 0 56px; font-variant-numeric:tabular-nums; text-align:right; }
-  /* Per the ESPN reference only the column ORDER mirrors (points always on the inner edge):
-     text stays left-aligned on BOTH sides, so the right team's names all start at one
-     consistent x right after their points column — not ragged-right. */
-  .pcellgrid.right .pinfo { text-align:left; }
-  .pcellgrid.right .ppts { text-align:left; }
-  .pcell.right { text-align:left; }
-  .pcellgrid .ppts .pts { font:700 15px var(--font-display); }
-  .pcellgrid .ppts small { display:block; font-size:10.5px; line-height:1.3; }
+  .pcellgrid .ppts { flex:0 0 52px; font-variant-numeric:tabular-nums; text-align:right; }
+  .pcellgrid.right .pinfo, .pcellgrid.right .ppts, td.pcell.right { text-align:right; }
+  .pcellgrid.right .pname { flex-direction:row-reverse; }
+
+  /* EXACTLY THREE LINES, EXACTLY THIS TALL — the "exactly even height for every player" the
+     user asked for. Every line of both halves is a fixed-height, single-line, ellipsised
+     block, so a row's height is a CONSTANT (3 lines + the cell's padding) and cannot depend on
+     what the row happens to hold: a 20-character name, an "Empty" placeholder, a live stat
+     line and a pre-game blank all render the same box.
+     Line 3 is present even when the stat summary is empty — reserving it is what stops a
+     pre-game row being shorter than a live one, and it is why .pstatline is rendered
+     unconditionally rather than only when there are stats. */
+  .pcellgrid .pline { height:17px; line-height:17px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .pcellgrid .pmeta, .pcellgrid .pstatline, .pcellgrid .pproj, .pcellgrid .pstatpad { height:14px; line-height:14px; font-size:10.5px; }
+  /* The crest is the OUTERMOST thing on the line, mirrored with the rest of the row — which
+     row-reverse alone already achieves: in a reversed row main-start IS the right edge, so the
+     default flex-start packing puts the crest hard against it. (justify-content:flex-end here
+     would pack toward main-END, i.e. the LEFT — the opposite of what it reads as.) */
+  .pcellgrid .pname { display:flex; align-items:center; gap:5px; }
+  /* The name is the only thing in the row allowed to be long, so it — not its line box — is
+     what ellipsises. It must NOT wrap: a two-line name would make its row taller than every
+     other row in the table, which is the whole property this layout exists to guarantee. */
+  .pcellgrid .pname b { font:600 13px/17px var(--font-body); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pcellgrid .pname .plogo { flex:0 0 auto; width:14px; height:14px; object-fit:contain; }
+  .pcellgrid .pname .plogoph { display:block; }
+  .pcellgrid .pname .possdot, .pcellgrid .pname .rzdot, .pcellgrid .pname .conflictflag { flex:0 0 auto; }
+  .pcellgrid .ppts .pts { font:700 15px/17px var(--font-display); display:block; }
   .totalrow .ppts .pts { font-size:17px; }
-  /* Phone: the fixed points column + slot badge leave ~90px per name at 390px — tighten the
-     row's fixed costs so names/stat lines keep a readable share instead of wrapping 4-deep. */
+  /* Phone: the fixed points column + centre band leave ~110px per name at 390px — tighten the
+     row's fixed costs so the name and the opponent line keep a readable share. */
+  /* Every fixed cost in the row is trimmed here, because at 390px they add up to more than the
+     name gets: cell padding, the gap, the points column, the crest and the centre band between
+     them were leaving ~84px for a name (about twelve characters — "A. St. Brown" only just
+     fits, and "M. Harrison Jr." came out as "M. ..."). These take it back to ~100px. A phone
+     still truncates the longest names, as the reference app does — that is what the title
+     attribute is for — but it truncates far fewer of them. */
   @media (max-width:560px) {
-    .pcellgrid { gap:6px; }
-    .pcellgrid .ppts { flex-basis:42px; }
-    .pcellgrid .pinfo b { font-size:12.5px; }
-    .pcellgrid .pinfo small { font-size:10px; }
+    .pcellgrid { gap:4px; }
+    td.pcell { width:44.5%; padding:5px 4px; }
+    .pcellgrid .ppts { flex-basis:36px; }
+    .pcellgrid .pname { gap:4px; }
+    .pcellgrid .pname b { font-size:11.5px; }
+    .pcellgrid .pname .plogo { width:12px; height:12px; }
+    .pcellgrid .pmeta, .pcellgrid .pstatline, .pcellgrid .pproj, .pcellgrid .pstatpad { font-size:9.5px; }
     .pcellgrid .ppts .pts { font-size:14px; }
-    .pcellgrid .ppts small { font-size:9.5px; }
-    td.slotcell { font-size:10px; }
+    td.slotcell { width:11%; font-size:9.5px; }
+    td.slotcell .slotbadge { padding:4px 1px; min-width:0; }
   }
   .pts { font:700 14px var(--font-display); display:block; }
   .live { color:var(--accent); font-weight:700; }
@@ -415,9 +451,41 @@
   .teamlink { cursor:pointer; text-decoration:none; }
   .teamlink:hover, .teamlink:focus { text-decoration:underline; color:var(--accent); }
 
+  /* Item 16 (2026-08-09): the Rules / Draft pair that replaced their bottom-nav tabs. Two
+     equal columns on one row (they stack under 380px, which no phone in this family has, but
+     flex-wrap makes that safe anyway); every target is ≥44px. Styled as one language even
+     though one is a <button> and the other an <a> — the difference is in how they behave, not
+     in how they look. */
+  .leaguelinks { display:flex; flex-wrap:wrap; gap:10px; }
+  .navlinkbtn { flex:1 1 150px; min-height:52px; display:flex; flex-direction:column; justify-content:center;
+                gap:2px; text-align:left; padding:9px 12px; background:var(--nested); color:var(--ink);
+                border:1px solid var(--border-card); border-radius:var(--radius-sm); text-decoration:none;
+                font:600 13px var(--font-display); letter-spacing:.6px; text-transform:uppercase; }
+  .navlinkbtn:hover { border-color:var(--border-hover); color:var(--ink); }
+  .navlinkbtn .small { font:400 11px var(--font-body); letter-spacing:0; text-transform:none; }
+
   /* ---------------- chat ---------------- */
   .chatcard { padding-bottom:0; }
   .chatlist { max-height:52vh; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:2px 2px 8px; }
+  /* Item 14 (2026-08-09, user: "on mobile the new message appears on the bottom of the screen
+     as it should, but on desktop it appears at the top"). MEASURED: the list box HUGS its
+     content (max-height only, no height), so on a phone — where 52vh is most of the screen and
+     a real history overflows it immediately — the newest message lands near the bottom of the
+     SCREEN, while on a desktop the same card is a short block floating at the top of a 900px
+     page. Same code, different relationship to the viewport.
+     Two parts, and both are needed:
+       · the dedicated Chat tab is a chat PANE — a definite 52vh box at every width, so the
+         composer sits low and the newest message sits just above it however few messages
+         there are. The matchup page's trash-talk thread deliberately does NOT get this: it is
+         one card among many on that page, and a half-empty 52vh box mid-page would be worse
+         than a short one.
+       · content is BOTTOM-ANCHORED with an auto top margin on the first message.
+     ⚠ NOT justify-content:flex-end on the scroller — the obvious fix and a trap: on an
+     OVERFLOWING flex column several engines make the overflowed content at the top
+     unreachable, so scrolling up clips the earliest messages away. An auto margin resolves to
+     zero once free space is negative, so a full history stays completely scrollable. */
+  .chatcard .chatlist { height:52vh; }
+  .chatlist > :first-child { margin-top:auto; }
   .chatRowMsg { display:flex; }
   .chatBubble { background:var(--nested2); border:1px solid var(--border-card); border-radius:12px; padding:8px 10px; max-width:88%; }
   .chatBubble.mine { background:var(--card); border-color:var(--accent); margin-left:auto; }
@@ -724,12 +792,14 @@
     <button data-v="moves">Moves</button>
     <button data-v="chat">Chat</button>
     <button data-v="scores">Scores</button>
-    <button data-v="rules">Rules</button>
-    <!-- Item 8 (2026-08-08): Draft leaves league.html entirely — it's ffdraft.html, the
-         family's separate keeper-draft-room page — so it's a plain link styled as a tab,
-         never toggles .on (that class only ever means "the current league.html view"),
-         and carries no data-v (nothing in lg-ui.js's nav-highlight loop should touch it). -->
-    <a class="bnavlink" href="ffdraft.html">Draft</a>
+    <!-- Item 16 (2026-08-09, user: "lets remove the tabs for rules and draft, put a link to
+         each in the league page instead"). Rules and Draft used to live here — eight entries
+         in one row, which is why DRAFT clipped to "DR" at 390px. Both now live on the League
+         page (see leagueLinksHtml in lg-ui.js): Rules routes through UI.navTo like any other
+         in-app view, Draft stays a real <a href> because it genuinely navigates away to
+         ffdraft.html. Nothing in the highlight loop needed changing — it toggles .on by
+         `b.dataset.v === name`, so a view with no tab (rules, bracket) simply leaves every
+         tab off, which is now the Rules view's normal state. -->
   </nav>
   <main id="main"><div class="card mut">Loading the league…</div></main>
   <div id="toast" hidden></div>

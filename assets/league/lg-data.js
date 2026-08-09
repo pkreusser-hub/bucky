@@ -678,6 +678,28 @@
     return oppAb ? (isHome ? "vs " + oppAb : "@ " + oppAb) : null;
   };
 
+  // An NFL team's own crest, from the slate ALREADY IN MEMORY — never a new network call.
+  // pollScoreboard and fetchSimSlate both record `logo` per competitor (2026-08-09), so the
+  // whole map is derivable from D.S.nflEvents; it is rebuilt only when that array is REPLACED
+  // (both parsers assign a fresh array wholesale, so an identity check is a sound generation
+  // counter). "" for a team the payload carried no crest for — the renderer draws no <img> at
+  // all in that case rather than a broken one. Lookups normalise through slpTeam() because
+  // ESPN's and Sleeper's abbreviations diverge (Washington is the documented case).
+  let logoSrcArr = null, logoMap = new Map();
+  D.teamLogo = function (abbrev) {
+    const ab = slpTeam(abbrev);
+    if (!ab) return "";
+    const evs = D.S.nflEvents || [];
+    if (logoSrcArr !== evs) {
+      logoMap = new Map();
+      for (const e of evs) for (const s of [e.away, e.home]) {
+        if (s && s.abbrev && s.logo) logoMap.set(slpTeam(s.abbrev), s.logo);
+      }
+      logoSrcArr = evs;
+    }
+    return logoMap.get(ab) || "";
+  };
+
   // ---------------- diff engine ----------------
   function rowFor(key, meta) {
     let row = D.S.players.get(key);
@@ -800,6 +822,12 @@
           detail: st.shortDetail || "", period: c.status?.period || 0,
           clock: c.status?.displayClock || "", kickoff: ev.date || "",
           oppAb: opp?.team?.abbreviation || "",
+          // HOME/AWAY (2026-08-09, the ESPN matchup layout): the lineup row's second line
+          // reads "@DET Sun 12:00 PM" away / "TB Sun 12:00 PM" home, and nothing in
+          // D.S.games recorded which side of that a player's own team is on. Recorded in
+          // BOTH slate parsers — this one and applySimSlate's — or the 2025 replay would
+          // silently render every player as away.
+          home: comp.homeAway === "home",
           rz: !!(prev && prev.eventId === String(ev.id) && prev.rz),
           // Possession (2026-08-09 playtest: "highlight players when their team has the ball
           // and is on offense") is only ever known from the per-game SUMMARY's current drive
@@ -1059,12 +1087,15 @@
         id: ev.id, date: ev.date, state: g.state, detail: g.detail, period: g.period, clock: g.clock,
         broadcast: ev.broadcast, spread: ev.spread, away, home,
       });
-      const sides = [[away, home], [home, away]];
-      for (const [me, opp] of sides) {
+      const sides = [[away, home, false], [home, away, true]];
+      for (const [me, opp, isHome] of sides) {
         if (!me || !me.abbrev) continue;
         games.set(slpTeam(me.abbrev), {
           eventId: ev.id, state: g.state, detail: g.detail, period: g.period, clock: g.clock,
           kickoff: ev.date, oppAb: (opp && opp.abbrev) || "",
+          // See pollScoreboard's own note — the replay is the OTHER slate parser, and a
+          // flag added to only one of them is the easy mistake here.
+          home: isHome,
           // The replay has no drive data at all (nothing calls pollEspnGame under it), so
           // there is no honest possession to report — nobody is ever highlighted, which is
           // what "degrades to nobody" means here. Same posture as rz.

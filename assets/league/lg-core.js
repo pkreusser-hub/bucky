@@ -760,14 +760,16 @@
     };
     await LG.db.set("settings", doc);
     LG.rulesDoc = doc; LG.rules = next;
-    // Event post (plan §4.5) — the transparency rule from §4.2 lands in chat
-    // too, never just the change log. Must never break a rules save.
-    try {
-      if (changes.length) {
-        const preview = changes.slice(0, 4).join("; ") + (changes.length > 4 ? "…" : "");
-        await LG.postSys(`${who || LG.who() || "The commissioner"} updated the rules (${changes.length}): ${preview}`);
-      }
-    } catch (e) { /* chat is never load-bearing */ }
+    // Item 15 (2026-08-09, user: "dont put rules changes in the chat or any other system
+    // message, just users chats"). The sys chat post that used to go here is GONE. Every
+    // postSys site was checked for whether its event would lose its ONLY record by not being
+    // written, and none of the seven would: `doc.log` two lines above records who changed
+    // what and when for THIS one (the Rules view renders it as its own Change log card), the
+    // transaction log covers waivers and trades and vetoes, the weekly doc covers a finalized
+    // week and all three of its awards, and the bracket doc covers the bracket, the champion
+    // and the Toilet Bowl. So the writes could all go, not just the rendering.
+    // LG.postSys itself stays — it is still the API, and it is what the suite seeds a sys
+    // message with to prove the chat surfaces filter one out.
     return changes;
   };
   function flat(obj, pfx) {
@@ -1124,15 +1126,9 @@
     // DELTA only — spreading the whole in-memory team here wrote this page's (possibly
     // stale) name/logo/trophies back over good data (finding 10's blast radius).
     for (const tid of dirtyTeams) await LG.saveTeam({ teamId: tid, faab: faabMap.get(tid) });
+    // Item 15 (2026-08-09): the sys chat post that used to go here is GONE — the logTx above
+    // is this event's real record, and it renders in Recent moves + each team's Transactions.
     for (const tx of txs) await LG.logTx("waiver", week, tx.teamId, tx.detail);
-    // Event post (plan §4.5) — waiver results in the league timeline.
-    try {
-      if (txs.length) {
-        const nm = (id) => (LG.teamById(id) || {}).name || ("Team " + id);
-        const winners = txs.map((tx) => `${nm(tx.teamId)} added ${LG.shortName(tx.detail.addName)}`).join("; ");
-        await LG.postSys(`Waivers processed for week ${week}: ${txs.length} claim(s) won — ${winners}.`);
-      }
-    } catch (e) { /* chat is never load-bearing */ }
 
     const fresh = await LG.loadClaims(week, { fresh: true }); // guard: someone else may have processed while we worked
     if (fresh.processed) return fresh;
@@ -1204,12 +1200,8 @@
     const next = { ...doc, vetoes, status };
     await LG.saveTrade(next);
     if (status === "vetoed") {
+      // Item 15 (2026-08-09): sys chat post removed — this logTx IS the veto's record.
       await LG.logTx("trade", LG.currentWeek(), doc.from, { tradeId: id, from: doc.from, to: doc.to, give: doc.give, get: doc.get, result: "vetoed" });
-      // Event post (plan §4.5).
-      try {
-        const nm = (tid) => (LG.teamById(tid) || {}).name || ("Team " + tid);
-        await LG.postSys(`Trade between ${nm(doc.from)} and ${nm(doc.to)} was vetoed by the league.`);
-      } catch (e) { /* chat is never load-bearing */ }
     }
     return next;
   };
@@ -1248,11 +1240,7 @@
       tradeId: id, from: fresh.from, to: fresh.to, give: fresh.give, get: fresh.get,
       giveNames: movedFrom.map((p) => (p ? p.name : "?")), getNames: movedTo.map((p) => (p ? p.name : "?")), result: "executed",
     });
-    // Event post (plan §4.5) — same names the transactions log shows.
-    try {
-      const nm = (tid) => (LG.teamById(tid) || {}).name || ("Team " + tid);
-      await LG.postSys(`Trade: ${nm(fresh.from)} sent ${movedFrom.map((p) => (p ? LG.shortName(p.name) : "?")).join(", ")} to ${nm(fresh.to)} for ${movedTo.map((p) => (p ? LG.shortName(p.name) : "?")).join(", ")}.`);
-    } catch (e) { /* chat is never load-bearing */ }
+    // Item 15 (2026-08-09): sys chat post removed — the logTx above carries the same names.
     return executed;
   };
 
@@ -1711,14 +1699,9 @@
     if (fresh && fresh.kind === "weekly") return { ok: true, ...fresh };
     await LG.db.set(id, doc);
 
-    try {
-      const lines = matchups.map((m) => `${fzTeamName(m.away)} ${LG.fmtPts(m.awayPts)} — ${LG.fmtPts(m.homePts)} ${fzTeamName(m.home)}`);
-      let msg = `Week ${week} is official: ` + lines.join(" · ") + ".";
-      if (awards.topScore) msg += ` Top score: ${fzTeamName(awards.topScore.teamId)} (${LG.fmtPts(awards.topScore.pts)}).`;
-      if (awards.bust) msg += ` Bust of the week: ${awards.bust.name} (${fzTeamName(awards.bust.teamId)}) — projected ${LG.fmtPts(awards.bust.proj)}, scored ${LG.fmtPts(awards.bust.actual)}.`;
-      if (awards.benchBlunder) msg += ` Bench blunder: ${fzTeamName(awards.benchBlunder.teamId)} left ${LG.fmtPts(awards.benchBlunder.diff)} points on the bench.`;
-      await LG.postSys(msg);
-    } catch (e) { /* chat is never load-bearing */ }
+    // Item 15 (2026-08-09): the "week N is official" sys chat post is GONE. The weekly doc
+    // this function just wrote IS the record — the league home renders its scores and all
+    // three awards straight off it, and the record book reads every one of them.
 
     return { ok: true, ...doc };
   };
@@ -1863,13 +1846,8 @@
     const fresh = await LG.db.getFresh(id); // idempotency race guard — bypasses LG.db's cache
     if (fresh && fresh.kind === "bracket" && !opts.force) return { ok: true, ...fresh };
     await LG.db.set(id, doc);
-    try {
-      const nm = (tid) => (LG.teamById(tid) || {}).name || ("Team " + tid);
-      const byeLine = byeSeeds.length ? `Byes: ${byeSeeds.map(nm).join(", ")}. ` : "";
-      const playInLine = playInGames.length
-        ? playInGames.map((g) => `#${g.seedHome} ${nm(g.home)} vs #${g.seedAway} ${nm(g.away)}`).join(", ") + "." : "";
-      await LG.postSys(`The playoff bracket is set! ${byeLine}Play-in: ${playInLine}`);
-    } catch (e) { /* chat is never load-bearing */ }
+    // Item 15 (2026-08-09): sys chat post removed — the bracket doc just written is the
+    // record, and the Bracket tab renders every bye and every play-in pairing from it.
     return { ok: true, ...doc };
   };
   // The ONE source of "what's being played this week" — the regular schedule for
@@ -1953,7 +1931,6 @@
           }
           bracket.toilet = toiletId;
 
-          const nm = (tid) => (LG.teamById(tid) || {}).name || ("Team " + tid);
           // FRESH + DEDUPED + DELTA (adversarial review 2026-08-08, finding 10): this used to
           // spread a possibly-stale in-memory team, rolling that team's FAAB and everything
           // else back to whatever this page had cached, and could append a second trophy for
@@ -1966,10 +1943,9 @@
             await LG.saveTeam({ teamId: bracket.champion, trophies });
             await LG.loadTeams(); // refresh the in-memory cache so the trophy shows immediately (same posture as processWaivers' FAAB refresh)
           }
-          try {
-            await LG.postSys(`${nm(bracket.champion)} are the ${LG.SEASON} GFFL CHAMPIONS!`);
-            if (bracket.toilet != null) await LG.postSys(`${nm(bracket.toilet)} finish the season in the Toilet Bowl basement. Wear it proudly.`);
-          } catch (e) { /* chat is never load-bearing */ }
+          // Item 15 (2026-08-09): sys chat posts removed — bracket.champion (plus the
+          // trophy just saved onto the team) and bracket.toilet are both stored here and
+          // both render as banners on the Bracket tab.
         }
       }
     }
