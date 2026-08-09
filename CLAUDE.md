@@ -10034,3 +10034,153 @@ open the app on a Sunday-shaped board and confirm (a) the real slate's kickoffs 
 three states the fixture predicts, (b) real archived week-1 lines scale sensibly rather than
 producing absurd partials, and (c) the clamp lands on the real Monday-night finale — the constant
 is `2025-09-09T00:15:00Z` and lg-data raises it from whatever the real slate says.
+
+## 🚨 GFFL — "the scores say NaN and the projections are 0" (2026-08-09, UNCOMMITTED)
+
+User report, verbatim: *"none of the scores for players are showing up they are saying 'nan' and
+all the projections are 0"*. TWO independent defects, both fixed, both with a reproduction.
+Files: `assets/league/lg-{core,data,ui}.js` + `tools/_verify-gffl.cjs` (1028 → **1084**).
+`netlify/functions/league.mjs` untouched. `node --check` clean on all four. No commits, no push.
+GROUND TRUTH throughout is GitHub diag run **31287998467** against the family's own league —
+ESPN/Sleeper/Firestore are egress-blocked from the sandbox, so the fixtures MODEL those numbers
+rather than re-deriving them.
+
+### #1 · IDENTITY — half the league was invisible, and it is not replay-specific
+A GFFL roster keys its players by **ESPN id** (`roster_2025_w1_t1` holds `"4430807"` for Bijan
+Robinson — that is what `applyImportedRosters` writes). Sleeper's directory is the only whole-NFL
+player list this app has, and **only 6,727 of its 12,217 entries carry an `espn_id`**. Every
+lookup in both directions went through that field alone, so it lost the other half:
+- `D.projFor` found no pid → **no projection**, and the matchup page's `liveProj` then fell back
+  to the live score, which is literally where "all the projections are 0" came from;
+- `pollSleeper`/`pollSimStats` had nowhere to put the stats, so they landed under a synthetic
+  `slp_<pid>` key **no roster row ever reads** — an orphan row.
+
+MEASURED on the first 12 players of the real roster: **4 resolved, 8 lost.** Reproduced in the
+harness (scratchpad `nanprobe.cjs`, production-shaped): of team 1's 11 rows, **2 had a live stat
+row and 6 had a projection; 6 rostered players were orphaned into `slp_` rows.** After the fix:
+**11 of 11 projections, 0 orphans.** This would silently zero **every rookie in the real 2026
+season** for the same reason — a rookie is exactly the player Sleeper has not yet given an
+espn_id — so it is fixed as a product bug, not a sim patch.
+
+**`D.pidForKey(key)` is now the ONE answer**, used by `projFor`, both pollers and `weekStats`.
+Three methods, cheapest and most certain first: (1) an explicit `dst_`/`slp_` **prefix**;
+(2) the **`slpByEspn` INDEX**, O(1) — `projFor` used to walk all 12,217 entries looking for a
+matching espn_id, per player, per render; (3) **NAME + TEAM from what the ROSTER already knows**.
+That third method is the half that had to be new: the pre-existing name fallback only worked once
+a LIVE ROW for that key existed, which is the exact chicken-and-egg that kept those players dark
+(no pid → no stats → no row → no name to match on → no pid). Names normalise through the existing
+`normName` (apostrophes, suffixes, punctuation, case), which is what makes the two real-world
+spelling splits work — ESPN's "De'Von Achane" vs a roster spelling it "DeVon", and a roster's
+"Marvin Harrison Jr." vs Sleeper's "Marvin Harrison".
+- **Positives memoize, negatives do not.** The directory and the rosters both arrive
+  asynchronously, so a "no" cached before either landed would be permanent; `_pidGen` invalidates
+  the memo when either source changes. Measured: 20 lookups of one key cost **exactly one** index
+  read; 60 uncached calls iterate the directory **0** times.
+- **SYMMETRICALLY**, `D.S.keyByName` (registered from `LG.loadRoster`/`saveRoster` — the one
+  choke point every caller funnels through) lets a stat row land on the **roster's own key**
+  instead of an orphan. When the roster keys a player by his espn_id — the ordinary case — the
+  registry returns that same string, so it is a no-op for everyone who already worked.
+- `D.weekStats` keys the same way, so a season history / FPTS column resolves too. Its cache now
+  holds the **RAW payload** and re-derives the keyed Map on a `_pidGen` change — the registry can
+  legitimately land after the first derivation, and re-deriving costs no network, so the
+  2026-08-08 perf fix is intact.
+- **`D.idCoverage()`** reports the split honestly (`{total, resolved, unresolved, byMethod,
+  missing}`); a key that still resolves to nothing is NAMED, not swallowed. On the suite fixture:
+  **before 7/17 (prefix 2 + espn 5), after 16/17** — the 17th is a deliberately unknowable player.
+
+### #2 · THE NaN — found empirically, and `|| 0` is what looked like a guard
+```js
+for (const k of KEYS) p += (st[k] || 0) * (sc[k] || 0);   // D.score, the poisoning expression
+```
+`x || 0` DOES catch a NaN (NaN is falsy) — and passes a **truthy non-number** straight through.
+`0 * "x"` is NaN, and the multiply runs for all 28 keys on every row, so **ONE bad value anywhere
+in the scoring table makes every player NaN, including players who have none of that stat.** That
+is the shape of "none of the scores for players are showing up".
+```js
+if (pa <= 27) return sc.dst_pa_18_27 ?? 0;                 // paPoints, the second hole
+```
+`??` catches null/undefined but **not NaN** — and passes `""` through, which turns the running
+total into a STRING and every later `+=` into concatenation. Measured pre-fix: a blank
+`dst_pa_18_27` scored a D/ST **5000** instead of 5.0. Silently, catastrophically wrong, and not
+even NaN.
+```js
+LG.fmtPts = (n) => (n == null ? "—" : (Math.round(n * 100) / 100).toFixed(1));   // the render
+```
+`NaN == null` is false, so a non-finite number reached the family as the literal text **"NaN"**.
+
+**THE WRITER that arms it** — reproduced end to end, and the reason production could get there:
+```js
+next[g][k] = raw !== "" && !isNaN(num) ? num : raw;        // the rules editor's Save
+```
+A blank or fat-fingered scoring box **persisted the RAW STRING into the rules doc**, and it
+survives everything (Firestore stores a `stringValue`; `JSON.stringify` keeps it). Pre-fix, the
+suite drives Rules → Edit → blank `scoring.rec`, type `"4 pts"` into `pass_td`, `"abc"` into
+`dst_pa_0` → Save, and the very next `D.score(5 rec + 50 yd)` returns **NaN**. From that one save
+every player in the league reads NaN, forever, on every device.
+
+**FIXES, defence in depth** — the brief's rule is that a displayed "NaN" is never acceptable, so
+the boundary is closed as well as the causes:
+- `D.num()` coerces **every** factor in `D.score`/`paPoints`/the yardage bonuses to a finite
+  number, and the return is finite-guarded. A clean line still scores exactly what it always did
+  (21.64 on the suite's own QB, asserted).
+- **`LG.fmtPts` renders "—" for NaN / Infinity / a non-numeric string.** ONE funnel covering ~30
+  render sites (every score, projection, total, PF/PA, record-book superlative, bracket cell).
+  New `LG.fmtNum` does the same for the 5 raw `.toFixed()` sites (all-time PF, standings PF/PA,
+  the AI-read multiplier, feed deltas, the locker record) — there are now **zero** raw `toFixed`
+  calls in `lg-ui.js`.
+- **`LG.n()` at every accumulation**: `st[h].pf += m.homePts` (standings), the power-rankings
+  tally, `headToHead`, and the record book's all-time PF. A matchup written without points — a
+  bye row, a half-imported history season — used to turn a whole team's points-for into NaN for
+  the rest of the table. The family has 8 imported history seasons feeding exactly those.
+- **The rules editor decides by the CURRENT value's type**: a field that is a number today must
+  stay one; an unparseable box keeps its old value and toasts which ones. The raw-string branch
+  survives for the fields that are legitimately text (`keepers.waiverCost` "last-round",
+  `waivers.type`, `trades.veto`) — that is why it existed at all.
+- `D.winProb` returns 0.5 rather than a non-finite (the bar's width goes straight into a `style`
+  attribute — `width:NaN%`), and `liveProj`'s clock arithmetic is coerced.
+- **`D.livePts`/`D.liveProj` return null → "—" for a key that resolves to NOBODY.** "0.0" is a
+  claim we cannot back; a player we cannot identify has no score, he has no answer.
+
+### Suite: 1028 → **1084/1084, 0 page errors** — and 35 of the new ones FAIL pre-fix
+New **section AC** (56 checks) drives production-shaped data behind `fixture.prod2025`: 14 real
+players under their real names, **only 4 carrying an espn_id in the directory**, roster keys that
+are real ESPN ids, archived stat rows and forward projections carrying the real non-fantasy noise
+(`gp`, `off_snp`, `rec_drop`, `pos_rank_std`, `bonus_fd_wr`, `adp_dd_ppr`, `fum`…), a slate that
+puts some games final / some live / some not yet kicked at the replay's own live instant, and one
+**deliberately unknowable** player. Hand-computed exactly: Bijan Robinson (no espn_id, game
+final) **21.7** and his separate forward projection **15.5**; Chase McLaughlin (no espn_id)
+**10.0**. Plus: every roster player gets a projection and none reads 0; the espn_id control is
+unchanged; a whole-DOM text scan finds **no "NaN"** on the league home / matchup / players table
+/ Scores tab / locker; both team totals finite; the unknowable player's cell reads `—proj —`;
+the NaN mechanics as unit checks on the real functions; the rules-editor writer; the directory is
+never iterated; and the orphan-key half.
+**VERIFIED PRE-FIX** by stashing the three app files back to HEAD: **1049 pass / 35 fail, and all
+35 are in section AC** — every pre-existing check survives the change untouched. Among the 35:
+Bijan `{pts:null, proj:null, live:0}` (the reported symptom exactly), 4 of team 1 with no
+projection, 6 rostered players orphaned into `slp_` rows, 50 directory iterations for 60 calls,
+standings PF `null`→NaN, the blank PA bracket scoring **5000**, and the rules-editor save leaving
+`{rec:"", pass_td:"4 pts", dst_pa_0:"abc"}` followed by a score of **NaN**.
+Section AC is deliberately **pre-fix tolerant** (section Z's own lesson): every hook it exercises
+is new, and a bare call to a missing one aborts the whole run with one stack trace instead of the
+readable list a pre-fix verification exists to produce.
+
+**TEST GOTCHAS** (both cost a run): the two spans in a lineup cell are adjacent in the markup, so
+`textContent` runs them together — the empty cell reads `"—proj —"`, not `"— proj —"`. And
+`LG.fmtPts` rounds to 2dp and then prints 1dp, so `fmtPts(12.345)` is `"12.3"`, not `"12.35"`.
+**HARNESS NOTE**: the suite's own fixture players are all named "P. Passer"-style and all carry an
+espn_id, so it could have passed with the resolver doing nothing — the production-shaped fixture
+is what makes these assertions real.
+
+**KNOWN / DEFERRED**: while the Sleeper directory is still loading (or if it fails outright) an
+unresolved key reads "—" rather than "0.0" — honest, and it self-corrects on the next poll, but it
+is a visible difference from before. **A LEAGUE ALREADY POISONED STAYS POISONED**: a string sitting
+in the family's live `settings` doc is now rendered harmless (it scores 0 instead of NaN) but is
+still the wrong VALUE — post-deploy, open Rules and check the scoring table for anything that
+isn't a number, and re-import from ESPN if so. And the exact production trigger could not be
+confirmed from here (no egress): the mechanisms above are all reproduced, but **which** of them
+the family actually hit needs one look at the live rules doc.
+
+**POST-DEPLOY EYEBALL**: (1) open the matchup page and confirm every player carries a real score
+AND a real projection — the rookies especially; (2) `window.__GFFL__.D.idCoverage()` in the
+console should report `unresolved: 0` (anything listed under `missing` is a real gap worth a
+name-spelling look); (3) confirm the Rules scoring table holds only numbers.

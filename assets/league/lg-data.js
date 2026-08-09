@@ -46,31 +46,49 @@
   D.KEYS = KEYS;
   const empty = () => { const o = {}; for (const k of KEYS) o[k] = 0; o.dst_pa = null; return o; };
 
+  // EVERY factor that enters a score goes through this first (the "NaN" production report,
+  // 2026-08-09). `x || 0` looks like it guards, and for a NaN it does (NaN is falsy) — but it
+  // passes a TRUTHY non-number straight through, and `0 * "x"` is NaN. That is the whole
+  // mechanism behind "none of the scores for players are showing up, they are saying nan":
+  // ONE bad value anywhere in the scoring table poisons EVERY player, including players who
+  // have zero of that stat, because the multiply happens for all 28 keys on every row. A
+  // scoring table is persisted data (typed by a commissioner, imported from ESPN, round-tripped
+  // through the Firestore codec), so it is untrusted input and is treated as such.
+  const num = (v) => { const n = typeof v === "number" ? v : Number(v); return Number.isFinite(n) ? n : 0; };
+  D.num = num; // test hook
   // dst_pa scores through brackets; everything else is value × points.
+  // `?? 0` was the ONE unguarded read left in D.score: it catches null/undefined but NOT NaN
+  // (NaN ?? 0 is NaN) and not a string ("" ?? 0 is "", which turns the running total into a
+  // STRING and every later += into concatenation). num() closes both.
   function paPoints(pa, sc) {
     if (pa == null) return 0;
-    if (pa === 0) return sc.dst_pa_0 ?? 0;
-    if (pa <= 6) return sc.dst_pa_1_6 ?? 0;
-    if (pa <= 13) return sc.dst_pa_7_13 ?? 0;
-    if (pa <= 17) return sc.dst_pa_14_17 ?? 0;
-    if (pa <= 27) return sc.dst_pa_18_27 ?? 0;
-    if (pa <= 34) return sc.dst_pa_28_34 ?? 0;
-    if (pa <= 45) return sc.dst_pa_35_45 ?? 0;
-    return sc.dst_pa_46 ?? 0;
+    const p = num(pa);
+    if (p === 0) return num(sc.dst_pa_0);
+    if (p <= 6) return num(sc.dst_pa_1_6);
+    if (p <= 13) return num(sc.dst_pa_7_13);
+    if (p <= 17) return num(sc.dst_pa_14_17);
+    if (p <= 27) return num(sc.dst_pa_18_27);
+    if (p <= 34) return num(sc.dst_pa_28_34);
+    if (p <= 45) return num(sc.dst_pa_35_45);
+    return num(sc.dst_pa_46);
   }
   D.score = function (st, scoring) {
     const sc = scoring || (LG.rules && LG.rules.scoring) || {};
     let p = 0;
-    for (const k of KEYS) p += (st[k] || 0) * (sc[k] || 0);
+    for (const k of KEYS) p += num(st[k]) * num(sc[k]);
     p += paPoints(st.dst_pa, sc);
     // Yardage GAME BONUSES (live-league review): derived from the stat line,
     // mutually-exclusive brackets exactly as ESPN applies them.
     const bonus = (yd, lo, hi, kLo, kHi) =>
-      yd >= hi ? (sc[kHi] || 0) : yd >= lo ? (sc[kLo] || 0) : 0;
-    p += bonus(st.pass_yd || 0, 300, 400, "bonus_pass_300", "bonus_pass_400");
-    p += bonus(st.rush_yd || 0, 100, 200, "bonus_rush_100", "bonus_rush_200");
-    p += bonus(st.rec_yd || 0, 100, 200, "bonus_rec_100", "bonus_rec_200");
-    return Math.round(p * 100) / 100;
+      yd >= hi ? num(sc[kHi]) : yd >= lo ? num(sc[kLo]) : 0;
+    p += bonus(num(st.pass_yd), 300, 400, "bonus_pass_300", "bonus_pass_400");
+    p += bonus(num(st.rush_yd), 100, 200, "bonus_rush_100", "bonus_rush_200");
+    p += bonus(num(st.rec_yd), 100, 200, "bonus_rec_100", "bonus_rec_200");
+    // Every term above is finite by construction, so this is too — but the guard is kept as a
+    // hard boundary: nothing downstream (a total, a projection, a feed delta, a weekly doc that
+    // is written ONCE and can never be corrected) may ever receive a non-finite score.
+    const out = Math.round(p * 100) / 100;
+    return Number.isFinite(out) ? out : 0;
   };
 
   // ---------------- sleeper normalization ----------------
@@ -330,6 +348,7 @@
           byId.set(pid, meta);
         }
         D.S.slpPlayers = byId; D.S.slpByEspn = byEspn; D.S.slpByName = byName;
+        D.bumpPidGen(); // the directory is one of the two sources pidForKey resolves through
       } catch (e) { /* health carries it */ }
       try {
         const seasonType = D.S.slpState?.season_type || "regular";
@@ -341,6 +360,99 @@
       } catch (e) { /* optional */ }
     })();
     return D.slpReady;
+  };
+
+  // ---------------- ⭐ ONE ID RESOLVER (2026-08-09, the "everything reads 0" production bug) --
+  // A GFFL roster keys its players by ESPN id (that is what the ESPN importer writes, and what
+  // every roster doc in the family league holds). Sleeper's directory is the only whole-NFL
+  // player list this app has, and — measured live against the real directory, 2026-08-09 —
+  // only 6,727 of its 12,217 entries carry an `espn_id` at all. So an espn_id lookup, in EITHER
+  // direction, silently loses roughly HALF the league:
+  //   · D.projFor found no pid  -> no projection, and the matchup page fell back to the live
+  //     score, which is why every one of those players read "proj 0.0";
+  //   · the pollers had nowhere to put the stats, so they landed under a synthetic "slp_<pid>"
+  //     key that no roster row uses — an orphan row nothing ever reads.
+  // Measured on the first 12 players of the real roster_2025_w1_t1: 4 resolved, 8 lost.
+  // This is NOT replay-specific — it would silently zero every rookie in the real 2026 season
+  // for exactly the same reason (a rookie is precisely the player Sleeper has not yet given an
+  // espn_id).
+  //
+  // pidForKey is the single answer to "which Sleeper player is this roster key?", used by every
+  // consumer. Three methods, cheapest and most certain first:
+  //   1. an explicit prefix — dst_<id> / slp_<pid> carry the pid outright;
+  //   2. the espn_id INDEX (D.S.slpByEspn) — O(1). D.projFor used to walk all 12,217 directory
+  //      entries looking for a matching espn_id, per player, per render;
+  //   3. NAME + TEAM, from what the ROSTER itself already knows. This is the half that had to be
+  //      new: the pre-existing name fallback only worked once a LIVE ROW for that key already
+  //      existed, which is the exact chicken-and-egg that left every espn_id-less player dark
+  //      (no pid -> no stats -> no row -> no name to match on -> no pid).
+  // Positive answers are memoized; negatives are not, because the directory and the rosters both
+  // arrive asynchronously and a "no" cached before either landed would be permanent. `_pidGen`
+  // invalidates the memo whenever either source changes.
+  D._pidCache = new Map();
+  D._pidGen = 0;
+  D.bumpPidGen = function () { D._pidGen++; D._pidCache.clear(); };
+  // (name, team) -> the key the ROSTER uses for that player. Registered as rosters load, which
+  // is what lets the pollers key a stat row onto the roster's OWN key instead of orphaning it.
+  D.S.keyByName = new Map();
+  D.S.rosterMetaByKey = new Map();
+  D.registerRosterPlayers = function (players) {
+    let added = 0;
+    for (const p of (players || [])) {
+      if (!p || !p.key) continue;
+      const k = String(p.key);
+      if (!D.S.rosterMetaByKey.has(k)) { D.S.rosterMetaByKey.set(k, { name: p.name, team: p.team, pos: p.pos }); added++; }
+      if (p.name && p.team) {
+        const nk = nameKey(p.name, p.team);
+        if (D.S.keyByName.get(nk) !== k) { D.S.keyByName.set(nk, k); added++; }
+      }
+    }
+    if (added) D.bumpPidGen();
+    return added;
+  };
+  // How a key resolved, for D.idCoverage's honest report.
+  function resolvePid(k) {
+    if (k.startsWith("dst_") || k.startsWith("slp_")) return { pid: k.slice(4), via: "prefix" };
+    if (D.S.slpByEspn) { const m = D.S.slpByEspn.get(k); if (m) return { pid: m.pid, via: "espn" }; }
+    if (D.S.slpByName) {
+      // Whatever we know about this key's identity: the roster registry first (it knows the
+      // name and NFL team before a single stat has landed), then a live row, then the generic
+      // metaForKey walk.
+      const meta = D.S.rosterMetaByKey.get(k) || D.S.players.get(k) || (D.metaForKey ? D.metaForKey(k) : null);
+      if (meta && meta.name && meta.team) {
+        const m = D.S.slpByName.get(nameKey(meta.name, meta.team));
+        if (m) return { pid: m.pid, via: "name" };
+      }
+    }
+    return { pid: null, via: "none" };
+  }
+  D.pidForKey = function (key) {
+    const k = String(key == null ? "" : key);
+    if (!k) return null;
+    const hit = D._pidCache.get(k);
+    if (hit && hit.gen === D._pidGen) return hit.pid;
+    const r = resolvePid(k);
+    if (r.pid != null) D._pidCache.set(k, { pid: r.pid, gen: D._pidGen });
+    return r.pid;
+  };
+  D.pidMethodForKey = function (key) { return resolvePid(String(key == null ? "" : key)).via; };
+  // Honest coverage report over every key the league's rosters actually hold. A key that still
+  // resolves to nothing after all three methods is a REAL gap — the suite asserts on this rather
+  // than on a hope, and it is what makes "half the league is invisible" a number instead of a
+  // hunch.
+  D.idCoverage = function (rosters) {
+    const src = rosters || (LG.ui && LG.ui._rosters) || {};
+    const seen = new Set(), byMethod = { prefix: 0, espn: 0, name: 0 }, missing = [];
+    for (const tid in src) {
+      for (const p of (src[tid] || [])) {
+        if (!p || !p.key || seen.has(String(p.key))) continue;
+        seen.add(String(p.key));
+        const r = resolvePid(String(p.key));
+        if (r.pid != null) byMethod[r.via]++;
+        else missing.push({ key: String(p.key), name: p.name || "", team: p.team || "" });
+      }
+    }
+    return { total: seen.size, resolved: seen.size - missing.length, unresolved: missing.length, byMethod, missing };
   };
 
   // The ONE authoritative answer to "which NFL week is the data currently in memory?"
@@ -394,31 +506,50 @@
     // there. Every caller that already passes an explicit season is unaffected either way.
     const season = (opts && opts.season) || (LG.SIM_2025 ? String(LG.SEASON) : st.season) || String(LG.SEASON);
     const cacheKey = season + "|" + seasonType + "|" + week;
-    if (D._weekStatsCache.has(cacheKey)) return D._weekStatsCache.get(cacheKey);
+    // The RAW payload is what is cached (never re-fetched — a finalized week's archived stats
+    // never change); the keyed Map is DERIVED from it and re-derived whenever the id resolver's
+    // generation moves, because the roster registry it keys through can legitimately land after
+    // the first derivation. Re-deriving costs no network at all, which is what keeps the
+    // 2026-08-08 perf fix intact.
+    const cached = D._weekStatsCache.get(cacheKey);
+    if (cached) return weekStatsMap(cached);
     if (D._weekStatsInFlight.has(cacheKey)) return D._weekStatsInFlight.get(cacheKey);
     const p = (async () => {
       let j;
       try { j = await fx("sleeper week stats " + week, `${SLP}/stats/nfl/${seasonType}/${season}/${week}`); }
       catch (e) { return null; }
       if (!j || typeof j !== "object") return null;
-      const out = new Map();
-      for (const pid in j) {
-        const row = j[pid]; if (!row || typeof row !== "object") continue;
-        const meta = D.S.slpPlayers.get(pid);
-        if (!meta) continue;
-        const pts = D.score(normSlp(row));
-        out.set(meta.pos === "DEF" ? "dst_" + pid : (meta.espn_id || "slp_" + pid), pts);
-        // A DST rostered by ESPN abbrev (the roster importer's own key shape) must resolve too.
-        if (meta.pos === "DEF" && meta.team) out.set("dst_" + slpTeam(meta.team), pts);
-      }
-      return out.size ? out : null;
+      const entry = { raw: j, map: null, gen: -1 };
+      const m = weekStatsMap(entry);
+      if (!m) return null;
+      D._weekStatsCache.set(cacheKey, entry);
+      return m;
     })();
     D._weekStatsInFlight.set(cacheKey, p);
     let result;
     try { result = await p; } finally { D._weekStatsInFlight.delete(cacheKey); }
-    if (result) D._weekStatsCache.set(cacheKey, result);
     return result;
   };
+  function weekStatsMap(entry) {
+    if (entry.map && entry.gen === D._pidGen) return entry.map;
+    const out = new Map();
+    for (const pid in entry.raw) {
+      const row = entry.raw[pid]; if (!row || typeof row !== "object") continue;
+      const meta = D.S.slpPlayers && D.S.slpPlayers.get(pid);
+      if (!meta) continue;
+      const pts = D.score(normSlp(row));
+      // Same keying rule as the live pollers (2026-08-09): the ROSTER's own key wins, so a
+      // player Sleeper carries no espn_id for still shows a season history / FPTS column.
+      const nk = nameKey(meta.name, meta.team);
+      out.set(meta.pos === "DEF" ? "dst_" + pid
+        : (D.S.keyByName.get(nk) || meta.espn_id || "slp_" + pid), pts);
+      // A DST rostered by ESPN abbrev (the roster importer's own key shape) must resolve too.
+      if (meta.pos === "DEF" && meta.team) out.set("dst_" + slpTeam(meta.team), pts);
+    }
+    if (!out.size) return null;
+    entry.map = out; entry.gen = D._pidGen;
+    return out;
+  }
 
   // Weekly projection (league-scored, not pts_ppr) for a roster player. Under the 2025 replay
   // the source is D.S.simProj (see D.simEnsureProj below) — there is exactly ONE week in play,
@@ -428,16 +559,10 @@
     const sim = LG.SIM_2025;
     const projMap = sim ? (D.S.simProj ? D.S.simProj.map : null) : D.S.slpProj;
     if (!projMap || !D.S.slpPlayers) return null;
-    let pid = null;
-    if (String(key).startsWith("slp_")) pid = String(key).slice(4);
-    else if (String(key).startsWith("dst_")) pid = String(key).slice(4);
-    else {
-      for (const [id, m] of D.S.slpPlayers) { if (m.espn_id === String(key)) { pid = id; break; } }
-      if (!pid) {
-        const row = D.S.players.get(key);
-        if (row) { const m = D.S.slpByName && D.S.slpByName.get(nameKey(row.name, row.team)); if (m) pid = m.pid; }
-      }
-    }
+    // ONE resolver (D.pidForKey) — was a LINEAR SCAN of all 12,217 directory entries per call,
+    // per player, per render, that could only ever match an espn_id and therefore missed ~half
+    // the league outright.
+    const pid = D.pidForKey(key);
     const st = pid != null ? projMap[pid] : null;
     if (!st) return null;
     const pts = D.score(normSlp(st));
@@ -743,7 +868,14 @@
       if (D.S.tracked.size && !D.S.tracked.has(meta.team)) continue;
       let key;
       if (meta.pos === "DEF") key = "dst_" + pid;
-      else key = meta.espn_id || D.S.espnKeyByName.get(nameKey(meta.name, meta.team)) || ("slp_" + pid);
+      // THE ROSTER'S OWN KEY WINS (2026-08-09). Symmetric to D.pidForKey: a stat row whose
+      // player carries no espn_id must still land on the key the roster uses, or it is an
+      // orphan nothing ever reads. D.S.keyByName is registered as rosters load, so a rookie
+      // (exactly the player Sleeper hasn't given an espn_id) scores like everyone else. When
+      // the roster keys a player BY his espn_id — the ordinary case — the registry returns that
+      // same string, so this is a no-op for every player who already worked.
+      else key = D.S.keyByName.get(nameKey(meta.name, meta.team)) || meta.espn_id
+        || D.S.espnKeyByName.get(nameKey(meta.name, meta.team)) || ("slp_" + pid);
       if (key === "slp_" + pid) D.S.slpRowKeyByName.set(nameKey(meta.name, meta.team), key);
       const row = rowFor(key, { name: meta.name, pos: meta.pos === "DEF" ? "DST" : meta.pos, team: meta.team });
       row.injury = meta.injury || row.injury;
@@ -991,7 +1123,14 @@
         : scaleStatRow(st, Math.min(SIM_SCALE_CAP, (g.progress || 0) * D.simPlayerScale(pid)));
       let key;
       if (meta.pos === "DEF") key = "dst_" + pid;
-      else key = meta.espn_id || D.S.espnKeyByName.get(nameKey(meta.name, meta.team)) || ("slp_" + pid);
+      // THE ROSTER'S OWN KEY WINS (2026-08-09). Symmetric to D.pidForKey: a stat row whose
+      // player carries no espn_id must still land on the key the roster uses, or it is an
+      // orphan nothing ever reads. D.S.keyByName is registered as rosters load, so a rookie
+      // (exactly the player Sleeper hasn't given an espn_id) scores like everyone else. When
+      // the roster keys a player BY his espn_id — the ordinary case — the registry returns that
+      // same string, so this is a no-op for every player who already worked.
+      else key = D.S.keyByName.get(nameKey(meta.name, meta.team)) || meta.espn_id
+        || D.S.espnKeyByName.get(nameKey(meta.name, meta.team)) || ("slp_" + pid);
       if (key === "slp_" + pid) D.S.slpRowKeyByName.set(nameKey(meta.name, meta.team), key);
       const row = rowFor(key, { name: meta.name, pos: meta.pos === "DEF" ? "DST" : meta.pos, team: meta.team });
       row.injury = meta.injury || row.injury;
@@ -1176,13 +1315,27 @@
     const team = slpTeam((row && row.team) || (D.metaForKey ? D.metaForKey(key).team : ""));
     const g = D.S.games.get(team);
     const proj = D.projFor(key);
+    // NOTHING KNOWN about this player — no stat row, no projection, and his key resolves to no
+    // Sleeper player at all. "0.0" would be a claim we can't back ("he has scored nothing");
+    // null renders as "—", which is the truth (see LG.fmtPts's own note). D.livePts applies the
+    // same rule to the score column.
+    if (!row && proj == null && D.pidForKey(key) == null) return null;
     if (!g || g.state === "post") return pts;
     if (g.state === "pre") return proj != null ? proj : pts;
-    const period = g.period || 1;
+    const period = num(g.period) || 1;
     const [mm, ss] = String(g.clock || "0:00").split(":").map(Number);
-    const minLeft = Math.max(0, (4 - Math.min(period, 4)) * 15 + (mm || 0) + (ss || 0) / 60);
+    const minLeft = Math.max(0, (4 - Math.min(period, 4)) * 15 + num(mm) + num(ss) / 60);
     const frac = Math.min(1, minLeft / 60);
-    return pts + (proj != null ? proj * frac : 0);
+    return num(pts) + (proj != null ? num(proj) * frac : 0);
+  };
+  // The SCORE column's value: a real number when we have one (or a real zero when we know who
+  // he is and simply nothing has landed), null when the key resolves to nobody — "—" beats a
+  // fabricated 0.0. Always finite; never NaN.
+  D.livePts = function (key) {
+    const row = D.S.players.get(key);
+    if (row && row.pts != null) return num(row.pts);
+    if (!row && D.pidForKey(key) == null) return null;
+    return 0;
   };
   // {played, playing, left} for a set of starters.
   D.remaining = function (keys) {
@@ -1196,8 +1349,11 @@
     return { played, playing, left };
   };
   D.winProb = function (keysA, keysB) {
-    const tot = (keys) => keys.reduce((s, k) => s + (D.liveProj(k) || 0), 0);
+    const tot = (keys) => keys.reduce((s, k) => s + num(D.liveProj(k)), 0);
     const diff = tot(keysA) - tot(keysB);
-    return 1 / (1 + Math.exp((-1.702 * diff) / 25));
+    const p = 1 / (1 + Math.exp((-1.702 * diff) / 25));
+    // The bar's width is Math.round(wp*100) straight into a style attribute — a non-finite p
+    // would paint "width:NaN%" (an even-money 50% is the honest fallback).
+    return Number.isFinite(p) ? p : 0.5;
   };
 })();

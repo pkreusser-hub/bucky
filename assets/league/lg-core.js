@@ -840,8 +840,10 @@
       for (const m of (wd.matchups || [])) {
         const [h, a] = [m.home, m.away];
         if (!st[h] || !st[a]) continue;
-        st[h].pf += m.homePts; st[h].pa += m.awayPts;
-        st[a].pf += m.awayPts; st[a].pa += m.homePts;
+        // LG.n() at every accumulation (2026-08-09): a matchup written without points would
+        // otherwise turn this team's PF into NaN for the rest of the season's table.
+        st[h].pf += LG.n(m.homePts); st[h].pa += LG.n(m.awayPts);
+        st[a].pf += LG.n(m.awayPts); st[a].pa += LG.n(m.homePts);
         if (m.homePts > m.awayPts) { st[h].w++; st[a].l++; }
         else if (m.awayPts > m.homePts) { st[a].w++; st[h].l++; }
         else { st[h].t++; st[a].t++; }
@@ -921,13 +923,24 @@
   // silently undoes whatever landed in between — with the FAAB still spent and the tx log
   // still narrating the move.
   LG.rosterId = (week, teamId) => `roster_${LG.SEASON}_w${week}_t${teamId}`;
+  // Every roster read and write funnels its player list through the data layer's id registry
+  // (2026-08-09, the "everything reads 0" bug): the pollers key a Sleeper stat row onto the
+  // ROSTER's own key by (name, team), and D.pidForKey resolves the other direction the same
+  // way — both need to know who is rostered, and this is the one place that is true for every
+  // caller (loadWeekRosters, ensureRoster's copy-forward, the ESPN import, a waiver add).
+  function registerRoster(players) {
+    try { if (players && LG.data && LG.data.registerRosterPlayers) LG.data.registerRosterPlayers(players); } catch (e) {}
+    return players;
+  }
   LG.loadRoster = async function (week, teamId, opts) {
     const id = LG.rosterId(week, teamId);
     const doc = opts && opts.fresh ? await LG.db.getFresh(id) : await LG.db.get(id);
-    return doc?.players || null;
+    return registerRoster(doc?.players || null);
   };
-  LG.saveRoster = (week, teamId, players) =>
-    LG.db.set(LG.rosterId(week, teamId), { kind: "roster", week, teamId, players });
+  LG.saveRoster = (week, teamId, players) => {
+    registerRoster(players);
+    return LG.db.set(LG.rosterId(week, teamId), { kind: "roster", week, teamId, players });
+  };
   LG.ensureRoster = async function (week, teamId, opts) {
     let p = await LG.loadRoster(week, teamId, opts);
     if (p) return p;
@@ -1347,7 +1360,28 @@
     const hourOffset = (w.processHour ?? 8) - 5; // wkStart's own clock reads 05:00
     return wkStart + dowOffsetDays * 24 * 3600 * 1000 + hourOffset * 3600 * 1000;
   };
-  LG.fmtPts = (n) => (n == null ? "—" : (Math.round(n * 100) / 100).toFixed(1));
+  // ⭐ THE DISPLAY BOUNDARY (2026-08-09). A family member must never be shown the string
+  // "NaN" — if a number cannot be computed, the honest answer on screen is "—", the same thing
+  // every "not known yet" already reads as. This one funnel covers ~30 render sites at once
+  // (every score, projection, total, PF/PA, record-book superlative and bracket cell), so no
+  // upstream oddity — a hand-typed rule, a half-written history doc, a provider field that
+  // arrives as a string — can ever paint NaN again. It guards the VALUE, not the cause: the
+  // causes are fixed at their own sources too (D.score's num(), the accumulators below, the
+  // rules editor's numeric fields).
+  LG.fmtPts = (n) => {
+    if (n == null) return "—";
+    const v = typeof n === "number" ? n : Number(n);
+    return Number.isFinite(v) ? (Math.round(v * 100) / 100).toFixed(1) : "—";
+  };
+  // The same rule for anything formatted with a raw toFixed: a finite number, or a dash.
+  LG.fmtNum = (n, dp) => {
+    const v = typeof n === "number" ? n : Number(n);
+    return Number.isFinite(v) ? v.toFixed(dp == null ? 1 : dp) : "—";
+  };
+  // Coerce persisted/untrusted numerics at the point of ACCUMULATION. `pf += m.homePts` on a
+  // matchup written without points (a bye row, a half-imported history season) turns a whole
+  // team's points-for into NaN for the rest of the table — one missing field, a column of "NaN".
+  LG.n = (v) => { const x = typeof v === "number" ? v : Number(v); return Number.isFinite(x) ? x : 0; };
 
   // ---------------- player names: ALWAYS "J. Allen" (2026-08-08, user) ----------------
   // A DISPLAY-layer formatter, deliberately not a data-layer rewrite: stored rosters, the
@@ -1539,7 +1573,7 @@
       for (const m of (wd.matchups || [])) {
         const h = m.home, a = m.away;
         if (!st[h] || !st[a]) continue;
-        st[h].pf += m.homePts; st[a].pf += m.awayPts;
+        st[h].pf += LG.n(m.homePts); st[a].pf += LG.n(m.awayPts);
         if (m.homePts > m.awayPts) { st[h].w++; st[h].results.push(1); st[a].results.push(0); }
         else if (m.awayPts > m.homePts) { st[a].w++; st[a].results.push(1); st[h].results.push(0); }
         else { st[h].results.push(0); st[a].results.push(0); }
@@ -1968,7 +2002,7 @@
         if (m.home === teamA && m.away === teamB) { a = m.homePts; b = m.awayPts; }
         else if (m.home === teamB && m.away === teamA) { a = m.awayPts; b = m.homePts; }
         else continue;
-        out.aPts += a; out.bPts += b;
+        out.aPts += LG.n(a); out.bPts += LG.n(b);
         if (a > b) out.aWins++; else if (b > a) out.bWins++; else out.ties++;
       }
     };
@@ -2032,7 +2066,7 @@
     for (const w of weekly) {
       for (const m of (w.matchups || [])) {
         const hRec = touch(m.home, null), aRec = touch(m.away, null);
-        hRec.pf += m.homePts; aRec.pf += m.awayPts;
+        hRec.pf += LG.n(m.homePts); aRec.pf += LG.n(m.awayPts);
         if (m.homePts > m.awayPts) { hRec.w++; aRec.l++; }
         else if (m.awayPts > m.homePts) { aRec.w++; hRec.l++; }
         else { hRec.t++; aRec.t++; }

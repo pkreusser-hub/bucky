@@ -636,7 +636,7 @@
     const d = D();
     return teamStarters(teamId).reduce((s, p) => {
       const row = d.S.players.get(p.key);
-      return s + (row && row.pts != null ? row.pts : 0);
+      return s + LG.n(row && row.pts != null ? row.pts : 0);
     }, 0);
   }
   async function loadWeekRosters() {
@@ -796,7 +796,7 @@
         <thead><tr><th></th><th>Team</th><th class="num">W</th><th class="num">L</th><th class="num">PF</th><th class="num">Titles</th></tr></thead>
         <tbody>${rb.standings.map((s, i) => `<tr><td class="mut">${i + 1}</td>
             <td><span class="teamlink" data-locker="${s.teamId}">${esc(s.name)}</span></td>
-            <td class="num">${s.w}</td><td class="num">${s.l}</td><td class="num">${s.pf.toFixed(1)}</td><td class="num">${s.titles}</td></tr>`).join("")}
+            <td class="num">${s.w}</td><td class="num">${s.l}</td><td class="num">${LG.fmtNum(s.pf)}</td><td class="num">${s.titles}</td></tr>`).join("")}
         </tbody></table></div>
     </details></div>`;
   }
@@ -963,7 +963,7 @@
           const s = st[t.id] || { w: 0, l: 0, pf: 0, pa: 0 };
           return `<tr><td class="mut">${i + 1}</td><td><span class="teamlink" data-locker="${t.id}">${logoTd(t)}${esc(t.name)}</span></td>
             <td class="num">${s.w}</td><td class="num">${s.l}</td>
-            <td class="num">${s.pf.toFixed(1)}</td><td class="num">${s.pa.toFixed(1)}</td></tr>`;
+            <td class="num">${LG.fmtNum(s.pf)}</td><td class="num">${LG.fmtNum(s.pa)}</td></tr>`;
         }).join("")}</tbody></table></div></div>
       ${recentMovesHtml(UI._tx)}
       ${recentChatHtml(UI._recentChat)}
@@ -1462,7 +1462,7 @@
       const projTxt = m.proj != null ? LG.fmtPts(m.proj) : "—";
       const adjTxt = m.adj != null ? LG.fmtPts(m.adj) : "—";
       return `<div class="fline"> <b>${escn(name)}</b> proj ${projTxt} → <b>${adjTxt}</b>
-        <span class="delta ${m.mult >= 1 ? "up" : "down"}">×${m.mult.toFixed(2)}</span><br>
+        <span class="delta ${m.mult >= 1 ? "up" : "down"}">×${LG.fmtNum(m.mult, 2)}</span><br>
         <small class="mut">${esc(m.why)}</small></div>`;
     }).join("");
   }
@@ -1568,7 +1568,10 @@
       const d = D();
       const row = d.S.players.get(p.key);
       const g = d.S.games.get(d.slpTeam(p.team));
-      const pts = row && row.pts != null ? row.pts : 0;
+      // d.livePts / d.liveProj return null — rendered "—" — for a key that resolves to no
+      // player at all, rather than the fabricated "0.0" an unresolvable roster row used to
+      // claim (2026-08-09). Both are guaranteed finite-or-null; fmtPts can never print NaN.
+      const pts = d.livePts(p.key);
       const proj = d.liveProj(p.key);
       const state = !g ? "" : g.state === "in" ? `<span class="live">Q${g.period} ${esc(g.clock)}</span>` : g.state === "post" ? "Final" : esc(shortKick(g));
       // Item 10 (no emoji in app chrome): red zone was " " — now a small CSS-drawn dot, not a
@@ -1652,7 +1655,7 @@
     const cls = e.dPts > 0 ? "up" : e.dPts < 0 ? "down" : "flat";
     return `<div class="fline"><span class="mut">${t}</span> <b>${escn(e.name)}</b>
       ${esc(STAT_LABEL[e.stat] || e.stat)} ${e.from ?? 0}→${e.to ?? 0}
-      <span class="delta ${cls}">${e.dPts ? sign + e.dPts.toFixed(1) : ""}</span></div>`;
+      <span class="delta ${cls}">${e.dPts ? sign + LG.fmtNum(e.dPts) : ""}</span></div>`;
   }
 
   // ---------------- team / lineup ----------------
@@ -2361,8 +2364,7 @@
       const opp = d.oppForWeek(UI.week, p.team);
       const status = faGameStatus(p.team);
       const proj = d.projFor(p.key);
-      const row = d.S.players.get(p.key);
-      const score = row && row.pts != null ? row.pts : null;
+      const score = d.livePts(p.key);
       const stats = UI._faStats.get(p.key); // undefined = still loading | null = no games | {total,avg,last}
       const seasonCell = (v) => stats === undefined ? "…" : (v != null ? LG.fmtPts(v) : "—");
       const moveBtn = type === "FA" ? `<button type="button" class="faAddBtn faMoveBtn">${past ? "Add" : "Claim"}</button>` : "";
@@ -2645,12 +2647,28 @@
     $("#rulesEdit").addEventListener("click", async () => {
       if (editing) {
         const next = JSON.parse(JSON.stringify(LG.rules));
+        // A field that is a NUMBER today must stay a number (2026-08-09). This handler used to
+        // fall back to the RAW STRING for anything unparseable — so one blank or fat-fingered
+        // scoring box persisted a string into the rules doc, and a truthy non-number in the
+        // scoring table makes D.score return NaN for EVERY player (the multiply runs for all 28
+        // keys on every row, so `0 * "x"` poisons players who have none of that stat). The
+        // string branch exists for the fields that are legitimately text — keepers.waiverCost
+        // "last-round", waivers.type, trades.veto — so the CURRENT value's type decides, and an
+        // unparseable numeric box keeps its old value and says so rather than corrupting scoring.
+        const rejected = [];
         document.querySelectorAll(".redit").forEach((inp) => {
           const [g, k] = inp.dataset.k.split(".");
+          if (!next[g] || !(k in next[g])) return;
           const raw = inp.value.trim();
-          const num = Number(raw);
-          next[g][k] = raw !== "" && !isNaN(num) ? num : raw;
+          const n = Number(raw);
+          if (typeof next[g][k] === "number") {
+            if (raw !== "" && Number.isFinite(n)) next[g][k] = n;
+            else rejected.push(RULE_LABELS[g + "." + k] || k);
+          } else {
+            next[g][k] = raw !== "" && Number.isFinite(n) ? n : raw;
+          }
         });
+        if (rejected.length) toast("Left unchanged (needs a number): " + rejected.slice(0, 3).join(", "));
         const changes = await LG.saveRules(next, LG.who());
         toast(changes.length ? changes.length + " rule change(s) saved + logged." : "No changes.");
         renderRules(false);
@@ -2913,7 +2931,7 @@
             <span class="slotchip">${slot}</span>
             <button type="button" class="linfo" data-pk="${esc(p.key)}">
               <span class="lname"><b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${injChip(d, p)}</small></span>
-              <span class="lpts">${LG.fmtPts((d.S.players.get(p.key) || {}).pts ?? 0)}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
+              <span class="lpts">${LG.fmtPts(d.livePts(p.key))}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
             </button>
             ${playerLocked(p) ? '<span class="lock">LOCKED</span>' : ""}
             <button type="button" class="lswap" data-slot="${slot}" data-idx="${idx}">Swap</button>
@@ -2944,7 +2962,7 @@
           <div class="lockerid">
             <h1 class="lockername">${esc(T.name)}</h1>
             <p class="lockermotto">${T.motto ? esc(T.motto) : (isOwner ? '<span class="mut">Add a motto →</span>' : "")}</p>
-            <p class="lockerrec">#${place} · ${st.w}-${st.l}${st.t ? "-" + st.t : ""} · ${st.pf.toFixed(1)} PF</p>
+            <p class="lockerrec">#${place} · ${st.w}-${st.l}${st.t ? "-" + st.t : ""} · ${LG.fmtNum(st.pf)} PF</p>
           </div>
         </div>
         ${isOwner ? `<div class="lockeredit">
