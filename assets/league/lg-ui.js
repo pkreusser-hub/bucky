@@ -275,6 +275,10 @@
     const h = location.hash;
     const lockerM = /^#locker=(\d+)$/.exec(h);
     if (lockerM) { UI.lockerTeamId = Number(lockerM[1]); UI.show("locker"); return; }
+    // Item 28 (2026-08-09): the NFL game view. Same "a sub-view carries its subject in the
+    // hash" shape as #locker=<id> above, so a shared/reloaded link lands on the same game.
+    const gameM = /^#nflgame=(\d+)$/.exec(h);
+    if (gameM) { UI.nflGameId = gameM[1]; UI.show("nflgame"); return; }
     UI.show(h === "#team" ? "team" : h === "#rules" ? "rules" : h === "#matchup" ? "matchup" : h === "#moves" ? "moves" : h === "#chat" ? "chat" : h === "#bracket" ? "bracket" : h === "#scores" ? "scores" : "league");
   }
 
@@ -441,9 +445,14 @@
     UI.view = name;
     stopChatPoll(); // leaving whatever view had one open — chat/matchup-thread restart their own
     stopScoresPoll(); // ditto for the Scores tab's fantasy-scoreboard poll
+    stopNflGamePoll(); // …and item 28's NFL game view — a poll must never outlive its view
     const myLocker = name === "locker" && UI.lockerTeamId === LG.myTeamId();
+    // The NFL game view (item 28) is a SUB-VIEW of Scores — it has no nav entry of its own, so
+    // the Scores tab stays lit while you're inside a game, the same way the own-locker case
+    // keeps "My team" lit above.
+    const navName = name === "nflgame" ? "scores" : name;
     document.querySelectorAll(".bnav button").forEach((b) =>
-      b.classList.toggle("on", myLocker ? b.dataset.v === "team" : b.dataset.v === name));
+      b.classList.toggle("on", myLocker ? b.dataset.v === "team" : b.dataset.v === navName));
     // Marks which screen main() holds so CSS alone can special-case a view's
     // layout (the desktop multi-column league-home treatment) without any
     // further JS — league.html's own stylesheet reads this attribute.
@@ -457,6 +466,7 @@
     else if (name === "locker") renderLocker();
     else if (name === "bracket") renderBracket();
     else if (name === "scores") renderScores();
+    else if (name === "nflgame") renderNflGame();
   };
   // Reachable from anywhere a team name is tapped (standings, matchup header,
   // "My locker" on the team page) — plan §4.7 says lockers need no nav entry
@@ -1176,20 +1186,51 @@
     const lead = Math.max(h2h.aWins, h2h.bWins), trail = Math.min(h2h.aWins, h2h.bWins);
     return `<div class="mut small h2hline">All-time series: ${esc(leaderName)} leads ${lead}–${trail}${tieSuffix}</div>`;
   }
-  // Home-hero extras (design's "MY MATCHUP" card: LIVE badge + win-probability bar) —
-  // rendered ONLY for the .mine card, reusing the same d.remaining/d.winProb math the
-  // Matchup page already relies on (nothing new computed, just invoked from a second
-  // spot) so the hero never disagrees with what the dedicated Matchup page shows.
+  // The state badge (Live/Final/Upcoming) + win-probability bar, reusing the same
+  // d.remaining/d.winProb math the Matchup page already relies on (nothing new computed,
+  // just invoked from a second spot) so a card never disagrees with what the dedicated
+  // Matchup page shows.
+  //
+  // ITEM 27 (2026-08-09, user: "every single game in the league should have the same score
+  // card that's like the one that you have now for the current user"). This used to render
+  // ONLY on the viewer's own card, which left every other game as a bare row that said
+  // nothing about whether it was live, done or hours away. Now every card carries it, on the
+  // Scores tab and the league home alike (both go through matchupCard). The `.mine` class and
+  // its bigger hero layout STAY — "this is your game" is still worth signalling; what changes
+  // is that the others stop being second-class.
+  //
+  // COST: three in-memory reads per game instead of one — teamStarters() filters an array
+  // already in UI._rosters, and d.remaining/d.winProb walk D.S.players/D.S.games, both Maps
+  // already in memory. No backend read, no fetch, nothing hoistable (each call is against a
+  // different team's starters). Section P's zero-extra-reads budget is unaffected and asserts
+  // so directly.
   function matchupHeroExtra(h, a) {
     const d = D();
     const hKeys = teamStarters(h).map((p) => p.key), aKeys = teamStarters(a).map((p) => p.key);
     const wp = d.winProb(aKeys, hKeys); // away perspective, same convention as the matchup page
     const hRem = d.remaining(hKeys), aRem = d.remaining(aKeys);
     const anyLive = hRem.playing > 0 || aRem.playing > 0;
-    const allDone = !anyLive && hRem.left === 0 && aRem.left === 0;
+    // "Nobody left to play" is only FINAL if anybody was ever counted. On the viewer's own card
+    // that was always true, so it never mattered; once EVERY card carries the strip (item 27) a
+    // matchup whose rosters aren't set — or that hasn't loaded yet — has zero starters on both
+    // sides and would announce itself as Final, which is a claim about a game nobody has played.
+    // Caught on the review plate: four 0.0-0.0 games, all reading FINAL.
+    // (The Matchup page's own header carries the same expression; it is left alone deliberately —
+    // a different surface, reached one game at a time, and not this batch's to restage.)
+    const counted = hRem.played + hRem.playing + hRem.left + aRem.played + aRem.playing + aRem.left;
+    const allDone = counted > 0 && !anyLive && hRem.left === 0 && aRem.left === 0;
     const badge = anyLive ? '<span class="herobadge live"><span class="dot"></span>Live</span>'
       : allDone ? '<span class="herobadge">Final</span>' : '<span class="herobadge">Upcoming</span>';
-    return `<span class="herorow">${badge}<span class="wpbar mini"><span class="wpfillmini" style="width:${Math.round(wp * 100)}%"></span></span></span>`;
+    // With nobody counted on either side, winProb has nothing to weigh and returns an
+    // even-money 0.5 — and four stacked cards each painting a bold accent half-bar reads as a
+    // claim about four games. An empty track says "we can't separate these two yet", which is
+    // the truth. Once rosters exist the bar is meaningful again even before kickoff, because
+    // it is computed off projections.
+    const fill = counted > 0
+      ? `<span class="wpfillmini" style="width:${Math.round(wp * 100)}%"></span>`
+      : "";
+    const title = counted > 0 ? "" : ' title="No lineup data for this matchup yet"';
+    return `<span class="herorow">${badge}<span class="wpbar mini${counted > 0 ? "" : " unknown"}"${title}>${fill}</span></span>`;
   }
   function matchupCard(h, a) {
     const H = LG.teamById(h), A = LG.teamById(a);
@@ -1199,7 +1240,7 @@
       <span class="muteam">${logoTd(A)}${esc(A?.name || "?")}</span>
       <span class="muscore">${LG.fmtPts(liveTotal(a))} — ${LG.fmtPts(liveTotal(h))}</span>
       <span class="muteam right">${esc(H?.name || "?")}${logoTd(H)}</span>
-      ${isMine ? matchupHeroExtra(h, a) : ""}</button>`;
+      ${matchupHeroExtra(h, a)}</button>`;
   }
 
   // ----------------  playoff bracket (plan §4.10, S7) ----------------
@@ -1352,11 +1393,16 @@
     const spread = e.spread ? `<div class="scspread mut small">${esc(e.spread)}</div>` : "";
     const mo = gameMineOppCounts(e);
     const moLine = mo ? `<div class="scmine mut small">MINE: ${mo.mine} player${mo.mine === 1 ? "" : "s"} · OPP: ${mo.opp} player${mo.opp === 1 ? "" : "s"}</div>` : "";
-    return `<div class="sccard ${live ? "live" : ""}">
+    // Item 28 (2026-08-09): the card is a real <button> — tapping it opens the game view.
+    // A <div> with a click handler is unreachable by keyboard and announces nothing; the
+    // button's own uppercase/letter-spacing is cancelled in league.html the same way .mucard
+    // already cancels it, so the team abbrevs and times read exactly as they did.
+    return `<button type="button" class="sccard ${live ? "live" : ""}" data-eid="${esc(e.id || "")}"
+        aria-label="Open the ${esc((e.away && e.away.abbrev) || "?")} at ${esc((e.home && e.home.abbrev) || "?")} game">
       <div class="rowline">${net}${stateHtml}</div>
       <div class="scteams">${teamHtml(e.away)}<span class="mut small">at</span>${teamHtml(e.home)}</div>
       ${spread}${moLine}
-    </div>`;
+    </button>`;
   }
   function nflScoresHtml(events) {
     if (!events || !events.length) return '<p class="mut">No games this week.</p>';
@@ -1436,6 +1482,13 @@
       UI.matchup = el.dataset.mu.split("-").map(Number);
       UI.show("matchup");
     }));
+    // Item 28: tapping an NFL card opens that game. An event with no id (a slate row the
+    // upstream gave us nothing to open) simply doesn't wire — better an inert card than a tap
+    // that lands on a "bad-event-id" error.
+    document.querySelectorAll(".sccard[data-eid]").forEach((el) => {
+      if (!el.dataset.eid) { el.disabled = true; return; }
+      el.addEventListener("click", () => UI.openNflGame(el.dataset.eid));
+    });
     paintHealth();
   }
   UI.paintScores = paintScores; // called from paintLive() when this tab is open — NFL half only
@@ -1450,6 +1503,374 @@
   }
   function stopScoresPoll() {
     if (UI._scoresPoll) { clearTimeout(UI._scoresPoll); UI._scoresPoll = null; }
+  }
+
+  // ================ ITEM 28 — the NFL game view (2026-08-09) ================
+  // User: "clicking an NFL game should take you to a scoreboard style thing that we used in
+  // Bucky where you can see all the box scores, the play by play, and the field."
+  //
+  // DATA: the EXISTING deployed sports function, action "nfl_game" — netlify/functions/
+  // sports.mjs, which the standalone sports.html already consumes. No new backend, and
+  // sports.mjs is not touched: it gates on BUCKY_NOTIFY_SECRET, which IS LG.PASS, so
+  // sportsFn() reaches it exactly the way the Scores tab's ff_scoreboard already does. Every
+  // field read below comes from that function's own slimGame() — the shape is its contract,
+  // not a guess.
+  //
+  // RENDERING IS OURS, and that is a deliberate, stated cost. sports.html paints this same
+  // payload, but it lives in the main Bucky shell (cream re-skin, its own tokens/classes);
+  // the GFFL is a broadcast-dark app with its own. So the STRUCTURE AND MATHS are ported —
+  // above all the field geometry, whose conventions are documented and were not re-derived —
+  // and dressed in this app's tokens. The price: if ESPN's payload drifts, two renderers need
+  // updating. What is genuinely SHARED rather than duplicated is everything below the render:
+  // one server, one slimmer, one field-coordinate convention, one secret.
+  UI.nflGameId = null;   // the event currently open (also what the #nflgame=<id> hash carries)
+  UI._nflGame = null;    // last payload from nfl_game — {ok:true,...} or {ok:false,reason}
+  UI._nflGamePoll = null;
+
+  UI.openNflGame = function (eventId) {
+    UI.nflGameId = String(eventId);
+    UI._nflGame = null; // never show the PREVIOUS game's field while this one loads
+    location.hash = "#nflgame=" + UI.nflGameId;
+    UI.show("nflgame");
+  };
+
+  // ---- field geometry. PORTED VERBATIM from sports.html (which is where it was worked out
+  // and unit-tested); re-deriving it would be re-earning a subtlety that is already written
+  // down. Field coordinate: 0..100 = yards from the LEFT goal line, away's end zone drawn
+  // LEFT and home's RIGHT. ESPN's `yardsToEndzone` is the distance to the end zone the OFFENSE
+  // is driving TOWARD, so:
+  //   away possesses -> drives right (toward home's EZ) -> pos = 100 - yTE
+  //   home possesses -> drives left  (toward away's EZ) -> pos = yTE
+  const FLD = { EZ: 83.33, PER_YD: 8.3334, W: 1000, H: 300 };
+  function fieldPos(possHomeAway, yTE) {
+    const y = Math.max(0, Math.min(100, Number(yTE)));
+    return possHomeAway === "home" ? y : 100 - y;
+  }
+  function firstDownPos(possHomeAway, ballPos, distance) {
+    const d = Math.max(0, Number(distance) || 0);
+    return Math.max(0, Math.min(100, possHomeAway === "home" ? ballPos - d : ballPos + d));
+  }
+  function fieldX(pos) { return FLD.EZ + pos * FLD.PER_YD; }
+  UI._fieldX = fieldX; UI._fieldPos = fieldPos; UI._firstDownPos = firstDownPos; // test hooks
+
+  // ESPN ships team colours as bare 6-hex with no "#". A junk/empty value must never reach a
+  // style attribute as-is.
+  function hexColor(c) {
+    const v = String(c || "").replace(/[^0-9a-fA-F]/g, "").slice(0, 6);
+    return v.length === 6 ? "#" + v : "#4a5468";
+  }
+  function kickFullStr(iso) {
+    if (!iso) return "";
+    try {
+      return new Date(iso).toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
+    } catch (e) { return ""; }
+  }
+  const gSide = (g, ha) => (g.teams || []).find((t) => t.homeAway === ha) || (g.teams || [])[ha === "away" ? 0 : 1] || {};
+
+  function nflFieldSvg(g) {
+    const away = gSide(g, "away"), home = gSide(g, "home");
+    const s = g.situation;
+    const poss = s && s.possessionId ? (String(s.possessionId) === String(home.id) ? "home" : "away") : null;
+    const awayC = hexColor(away.color), homeC = hexColor(home.color);
+    let svg = `<svg class="nfldiag" viewBox="0 0 ${FLD.W} ${FLD.H}" role="img" aria-label="Field view">`;
+    svg += `<rect x="0" y="0" width="1000" height="300" fill="var(--turf)"/>`;
+    for (let i = 1; i < 10; i += 2) {
+      svg += `<rect x="${(FLD.EZ + i * 10 * FLD.PER_YD).toFixed(1)}" y="0" width="${(10 * FLD.PER_YD).toFixed(1)}" height="300" fill="var(--turf-2)"/>`;
+    }
+    svg += `<rect x="0" y="0" width="83.3" height="300" fill="${awayC}" opacity="0.85"/>`;
+    svg += `<rect x="916.7" y="0" width="83.3" height="300" fill="${homeC}" opacity="0.85"/>`;
+    svg += `<text x="41" y="150" fill="#fff" font-size="24" font-weight="800" text-anchor="middle" transform="rotate(-90 41 150)" letter-spacing="3">${esc(String(away.abbrev || "").toUpperCase())}</text>`;
+    svg += `<text x="958" y="150" fill="#fff" font-size="24" font-weight="800" text-anchor="middle" transform="rotate(90 958 150)" letter-spacing="3">${esc(String(home.abbrev || "").toUpperCase())}</text>`;
+    // The drive band — from where this drive started to where the ball is now.
+    let ballPos = null;
+    if (poss && s && s.yardsToEndzone != null) {
+      ballPos = fieldPos(poss, s.yardsToEndzone);
+      const dr = g.drives && g.drives.current;
+      if (dr && dr.startYardsToEndzone != null) {
+        const startPos = fieldPos(poss, dr.startYardsToEndzone);
+        const x0 = fieldX(Math.min(startPos, ballPos)), x1 = fieldX(Math.max(startPos, ballPos));
+        if (x1 - x0 > 1) svg += `<rect x="${x0.toFixed(1)}" y="0" width="${(x1 - x0).toFixed(1)}" height="300" fill="${poss === "home" ? homeC : awayC}" opacity="0.18"/>`;
+      }
+    }
+    svg += `<g stroke="var(--chalk)" stroke-width="1.4" opacity="0.7">`;
+    for (let y = 10; y <= 90; y += 10) svg += `<line x1="${fieldX(y).toFixed(1)}" y1="0" x2="${fieldX(y).toFixed(1)}" y2="300"/>`;
+    svg += `</g><g stroke="var(--chalk)" stroke-width="3" opacity="0.9"><line x1="83.3" y1="0" x2="83.3" y2="300"/><line x1="916.7" y1="0" x2="916.7" y2="300"/></g>`;
+    svg += `<g fill="var(--chalk)" font-size="15" font-weight="700" text-anchor="middle" opacity="0.75">`;
+    [10, 20, 30, 40, 50, 40, 30, 20, 10].forEach((n, i) => {
+      svg += `<text x="${fieldX((i + 1) * 10).toFixed(1)}" y="282">${n}</text>`;
+    });
+    svg += `</g><g stroke="var(--chalk)" stroke-width="1" opacity="0.35">`
+      + `<line x1="83.3" y1="105" x2="916.7" y2="105" stroke-dasharray="1 15.6"/>`
+      + `<line x1="83.3" y1="195" x2="916.7" y2="195" stroke-dasharray="1 15.6"/></g>`;
+    if (ballPos != null) {
+      const bx = fieldX(ballPos);
+      if (s.distance) {
+        const fdx = fieldX(firstDownPos(poss, ballPos, s.distance)).toFixed(1);
+        svg += `<line class="nflfd" x1="${fdx}" y1="0" x2="${fdx}" y2="300" stroke="var(--gold)" stroke-width="3.5"/>`;
+      }
+      svg += `<line class="nfllos" x1="${bx.toFixed(1)}" y1="0" x2="${bx.toFixed(1)}" y2="300" stroke="#eaf2ff" stroke-width="3" opacity="0.95"/>`;
+      svg += poss === "away"
+        ? `<g fill="#fff" opacity="0.9"><rect x="600" y="41" width="40" height="5" rx="2"/><path d="M 640 33 l 15 10.5 l -15 10.5 z"/></g>`
+        : `<g fill="#fff" opacity="0.9"><rect x="360" y="41" width="40" height="5" rx="2"/><path d="M 360 33 l -15 10.5 l 15 10.5 z"/></g>`;
+      svg += `<g class="nflball" data-x="${bx.toFixed(1)}" transform="translate(${bx.toFixed(1)},150)">`
+        + `<ellipse rx="14" ry="9" fill="#6b3f23" stroke="#fff" stroke-width="1.5"/>`
+        + `<line x1="-6" y1="0" x2="6" y2="0" stroke="#fff" stroke-width="1.4"/></g>`;
+    }
+    return svg + "</svg>";
+  }
+
+  function nflCrest(t) {
+    return (t && t.logo) ? `<img class="nflcrest" src="${esc(t.logo)}" alt="" width="26" height="26" loading="lazy" onerror="this.style.visibility='hidden'">` : "";
+  }
+  function nflHeadHtml(g) {
+    const away = gSide(g, "away"), home = gSide(g, "home");
+    const st = g.status || {};
+    const live = st.state === "in", done = st.state === "post", pre = st.state === "pre";
+    const possId = live && g.situation ? String(g.situation.possessionId) : "";
+    const sideHtml = (t) => `<span class="nflside">${nflCrest(t)}
+      <b class="nflab">${esc(t.abbrev || "?")}${possId && String(t.id) === possId ? '<span class="nflposs" title="possession"></span>' : ""}</b>
+      ${t.record ? `<span class="mut small">${esc(t.record)}</span>` : ""}</span>`;
+    // A pre-game game reads "0" from ESPN for both sides. Painting two big zeroes is a lie
+    // about a game that hasn't started (reviewed on the plate) — a dash says "no score yet".
+    const score = (t) => (pre || t.score === "" || t.score == null) ? "–" : t.score;
+    const losing = (t, o) => (live || done) && Number(t.score) < Number(o.score);
+    // .nflq is the accent-red LIVE colour; a kickoff time in red reads as in-progress.
+    let mid = pre ? `<span class="nflq done">${esc(kickTimeStr(g.date))}</span>`
+      : `<span class="nflq${done ? " done" : ""}">${esc(st.detail || "")}</span>`;
+    if (live && g.situation && g.situation.downDistanceText) mid += `<span class="mut small">${esc(g.situation.downDistanceText)}</span>`;
+    let html = `<div class="nflhead">${sideHtml(away)}
+      <span class="nflscores">
+        <span class="nflbig${losing(away, home) ? " losing" : ""}">${esc(score(away))}</span>
+        <span class="nflmid">${mid}</span>
+        <span class="nflbig${losing(home, away) ? " losing" : ""}">${esc(score(home))}</span>
+      </span>${sideHtml(home)}</div>`;
+    // Linescore, once anything has actually been played.
+    const aL = away.linescores || [], hL = home.linescores || [];
+    if ((live || done) && (aL.length || hL.length)) {
+      const n = Math.max(aL.length, hL.length, 4);
+      let head = "<tr><th></th>";
+      for (let i = 0; i < n; i++) head += `<th>${i < 4 ? i + 1 : "OT"}</th>`;
+      head += "<th>T</th></tr>";
+      const row = (t, L) => {
+        let r = `<tr><td>${esc(t.abbrev || "?")}</td>`;
+        for (let i = 0; i < n; i++) r += `<td>${esc(L[i] != null && L[i] !== "" ? L[i] : "–")}</td>`;
+        return r + `<td class="nfltot">${esc(t.score || "0")}</td></tr>`;
+      };
+      html += `<div class="panner"><table class="tbl nflline">${head}${row(away, aL)}${row(home, hL)}</table></div>`;
+    }
+    return `<div class="card">${html}</div>`;
+  }
+
+  function nflGameHtml(g) {
+    const st = g.status || {};
+    const live = st.state === "in", pre = st.state === "pre";
+    const away = gSide(g, "away"), home = gSide(g, "home");
+    const abColor = (id) => hexColor(((g.teams || []).find((t) => String(t.id) === String(id)) || {}).color);
+    let html = nflHeadHtml(g);
+
+    // PRE-GAME: kickoff/venue/spread — deliberately NOT three empty cards. A game that hasn't
+    // started has no field, no drives and no box score, and rendering their shells anyway is
+    // how a view ends up only looking right during a live game.
+    if (pre) {
+      html += `<div class="card"><div class="seclabel"><b>Kickoff</b></div>
+        <div class="nflkick"><div><span class="mut">When</span> ${esc(kickFullStr(g.date)) || "TBD"}</div>
+        ${g.venue ? `<div><span class="mut">Where</span> ${esc(g.venue)}</div>` : ""}
+        ${g.spread ? `<div><span class="mut">Line</span> ${esc(g.spread)}</div>` : ""}</div></div>`;
+    }
+
+    // THE FIELD — live only. Its whole content (ball, line of scrimmage, first-down line,
+    // drive band, direction arrow) comes from `situation`, which slimGame only builds while
+    // the game is in progress; drawing an empty gridiron after the final whistle says nothing.
+    if (live) {
+      html += `<div class="card nflfield">${nflFieldSvg(g)}`;
+      const s = g.situation;
+      if (s && s.downDistanceText) {
+        html += `<div class="nflsitu"><b>${esc(s.downDistanceText)}</b>
+          <span class="mut">${esc(s.possessionAbbrev || "")} ball · driving ${String(s.possessionId) === String(away.id) ? "→" : "←"}</span></div>`;
+      } else {
+        html += `<div class="nflsitu"><span class="mut">${esc(st.detail || "")}</span></div>`;
+      }
+      if (s && s.lastPlay) html += `<div class="nfllast"><span class="mut small">LAST PLAY</span> ${esc(s.lastPlay)}</div>`;
+      html += `</div>`;
+    }
+
+    // PLAY-BY-PLAY — the current drive NEWEST FIRST (the freshest action needs no scroll),
+    // then the previous drives. Rendered off what the payload actually carries rather than off
+    // the game's state, so a just-finished game still shows its last drive.
+    const cur = g.drives && g.drives.current;
+    const curPlays = (cur && Array.isArray(cur.plays) ? cur.plays : []).filter((p) => p && p.text);
+    if (curPlays.length) {
+      html += `<div class="card"><div class="seclabel">
+        <span class="nfltag" style="background:${abColor(cur.teamId)}">${esc(cur.teamAbbrev || "")}</span>
+        <b>${live ? "This drive" : "Last drive"}</b>
+        ${cur.description ? `<span class="mut small">${esc(cur.description)}</span>` : ""}</div>
+        <div class="nflplays">`;
+      curPlays.slice().reverse().forEach((p) => {
+        html += `<div class="nflplay${p.scoring ? " score" : ""}"><span class="nfldd">${esc(p.downDistanceText || "—")}</span>
+          <span class="nfltext">${esc(p.text)}</span><span class="nflck mut small">${esc(p.clock || "")}</span></div>`;
+      });
+      html += `</div></div>`;
+    }
+    const prev = (g.drives && Array.isArray(g.drives.previous) ? g.drives.previous : []);
+    if (prev.length) {
+      html += `<div class="card"><div class="seclabel"><b>${curPlays.length ? "Previous drives" : "Drives"}</b></div>`;
+      prev.slice(0, 14).forEach((d) => {
+        html += `<div class="nfldrv"><span class="nfltag" style="background:${abColor(d.teamId)}">${esc(d.teamAbbrev || "")}</span>
+          <span class="nflres${d.scoring ? " scored" : ""}">${esc(d.result || "Drive")}</span>
+          <span class="mut small">${esc(d.description || "")}</span></div>`;
+      });
+      html += `</div>`;
+    }
+
+    // Win probability + team stat bars — one card, both optional.
+    let wp = "";
+    if (Array.isArray(g.winprob) && g.winprob.length > 1 && !pre) {
+      const pts = g.winprob;
+      const poly = pts.map((p, i) => `${((i / (pts.length - 1)) * 220).toFixed(1)},${(52 - Math.max(0, Math.min(1, p)) * 48).toFixed(1)}`).join(" ");
+      const last = pts[pts.length - 1], leadHome = last >= 0.5;
+      const lead = leadHome ? home : away;
+      wp = `<div class="nflwp"><svg viewBox="0 0 220 56" preserveAspectRatio="none" role="img" aria-label="Win probability">
+          <line x1="0" y1="28" x2="220" y2="28" stroke="var(--divider)" stroke-width="1"/>
+          <polyline points="${poly}" fill="none" stroke="var(--accent)" stroke-width="2"/></svg>
+        <div class="nflwpv"><b>${esc(lead.abbrev || "?")} ${Math.round((leadHome ? last : 1 - last) * 100)}%</b><span class="mut small">win probability</span></div></div>`;
+    }
+    let bars = "";
+    const bt = g.boxscore && Array.isArray(g.boxscore.teams) ? g.boxscore.teams : [];
+    if (bt.length === 2) {
+      const WANT = ["totalYards", "netPassingYards", "rushingYards", "turnovers", "possessionTime", "thirdDownEff"];
+      const a = bt.find((t) => t.abbrev === away.abbrev) || bt[0], h = bt.find((t) => t.abbrev === home.abbrev) || bt[1];
+      const statOf = (t, name) => (t.stats || []).find((x) => x.name === name) || null;
+      let rows = "";
+      WANT.forEach((name) => {
+        const sa = statOf(a, name), sh = statOf(h, name);
+        if (!sa || !sh) return;
+        const na = parseFloat(String(sa.value).replace(/[^\d.]/g, "")) || 0;
+        const nh = parseFloat(String(sh.value).replace(/[^\d.]/g, "")) || 0;
+        const tot = na + nh || 1;
+        rows += `<div class="nflsb"><div class="nflsbl"><b>${esc(sa.value)}</b><span class="mut small">${esc(sa.label)}</span><b>${esc(sh.value)}</b></div>
+          <div class="nflsbt"><i style="width:${Math.round((na / tot) * 100)}%;background:${hexColor(away.color)}"></i><em style="width:${Math.round((nh / tot) * 100)}%;background:${hexColor(home.color)}"></em></div></div>`;
+      });
+      if (rows) bars = `<div class="nflbars">${rows}</div>`;
+    }
+    if (wp || bars) html += `<div class="card">${wp}${wp && bars ? '<div class="nflsplit"></div>' : ""}${bars}</div>`;
+
+    // BOX SCORES — both teams. Wide, so each table pans inside its own .panner (the house
+    // convention) and the page itself never scrolls sideways.
+    const bp = g.boxscore && Array.isArray(g.boxscore.players) ? g.boxscore.players : [];
+    if (bp.length && !pre) {
+      const GROUPS = ["passing", "rushing", "receiving"];
+      let box = "";
+      bp.forEach((t) => {
+        (t.groups || []).forEach((grp) => {
+          if (GROUPS.indexOf(grp.name) < 0 || !grp.athletes || !grp.athletes.length) return;
+          box += `<div class="nflboxt">${esc((t.abbrev + " " + grp.name).toUpperCase())}</div>
+            <div class="panner"><table class="tbl nflbox"><tr><th></th>${(grp.labels || []).slice(0, 5).map((l) => `<th>${esc(l)}</th>`).join("")}</tr>`;
+          grp.athletes.forEach((a2) => {
+            box += `<tr><td>${escn(a2.name)}</td>${(a2.stats || []).slice(0, 5).map((s2) => `<td>${esc(s2)}</td>`).join("")}</tr>`;
+          });
+          box += `</table></div>`;
+        });
+      });
+      if (box) html += `<div class="card nflboxcard"><div class="seclabel"><b>Box score</b></div>${box}</div>`;
+    }
+
+    if (Array.isArray(g.scoringPlays) && g.scoringPlays.length) {
+      html += `<div class="card"><div class="seclabel"><b>Scoring plays</b></div>`;
+      g.scoringPlays.forEach((s) => {
+        html += `<div class="nflsc"><span class="nflqk mut small">Q${esc(s.period)} ${esc(s.clock || "")}</span>
+          <span><b>${esc(s.team || "")}${s.type ? " " + esc(String(s.type).toUpperCase()) : ""}</b> — ${esc(s.text || "")}</span>
+          <span class="nflafter mut small">${esc(s.away)}-${esc(s.home)}</span></div>`;
+      });
+      html += `</div>`;
+    }
+    return html;
+  }
+
+  function nflReasonLine(reason) {
+    return reason === "bad-event-id" ? "That game id didn't look right."
+      : reason === "unreachable" ? "We couldn't reach the scoreboard service."
+      : reason === "bad-shape" || reason === "bad-json" || reason === "bad-payload" ? "The scoreboard sent something we couldn't read."
+      : /^http-/.test(String(reason || "")) ? "The scoreboard service answered with an error (" + esc(reason) + ")."
+      : "We couldn't load this game right now.";
+  }
+
+  UI.renderNflGame = renderNflGame;
+  async function renderNflGame() {
+    if (!UI.nflGameId) { UI.show("scores"); return; }
+    main().innerHTML = `<div class="rowline nflbar">
+        <button type="button" id="nflBack" class="nflback">&lsaquo; Scores</button>
+        <span id="nflChip" class="mut small"></span></div>
+      <div id="nflBody"><div class="card mut">Loading the game…</div></div>`;
+    $("#nflBack").addEventListener("click", nflBack);
+    const id = UI.nflGameId;
+    await loadNflGame();
+    // The reader may have gone somewhere else (or opened a different game) while that was in
+    // flight — repainting then would drop a stale game over whatever they're now looking at.
+    if (UI.view !== "nflgame" || UI.nflGameId !== id) return;
+    paintNflGame();
+    startNflGamePoll();
+  }
+  function nflBack() {
+    // Set the hash as well as the view: a reload after backing out must land on Scores, not
+    // back inside the game the reader just left.
+    location.hash = "#scores";
+    UI.show("scores");
+  }
+  async function loadNflGame() {
+    const id = UI.nflGameId;
+    let j = null;
+    try { j = await sportsFn("nfl_game", { eventId: String(id) }); } catch (e) { j = null; }
+    if (UI.nflGameId !== id) return; // a different game was opened mid-flight — its own load owns the state
+    UI._nflGame = (j && j.ok) ? j : { ok: false, reason: (j && j.reason) || "fetch-failed" };
+  }
+  function paintNflGame() {
+    const body = $("#nflBody"), chip = $("#nflChip");
+    if (!body) return;
+    const g = UI._nflGame;
+    if (!g || !g.ok) {
+      // Honest and recoverable — never a blank card, never a thrown error.
+      if (chip) chip.textContent = "";
+      body.innerHTML = `<div class="card"><h2>Game unavailable</h2>
+        <p class="mut">${nflReasonLine(g && g.reason)}</p>
+        <p><button type="button" id="nflRetry" class="primary">Try again</button></p></div>`;
+      const r = $("#nflRetry");
+      if (r) r.addEventListener("click", async () => {
+        r.disabled = true; r.textContent = "Trying…";
+        await loadNflGame();
+        if (UI.view === "nflgame") { paintNflGame(); startNflGamePoll(); }
+      });
+      return;
+    }
+    const st = g.status || {};
+    // LIVE/FINAL only. The venue used to ride here too and simply repeated the kickoff card's
+    // own "Where" line one row above it (caught on the review plate).
+    if (chip) chip.textContent = st.state === "in" ? "LIVE" : st.state === "post" ? "FINAL" : "";
+    if (chip) chip.className = st.state === "in" ? "nfllivechip" : "mut small";
+    body.innerHTML = nflGameHtml(g);
+  }
+  UI.paintNflGame = paintNflGame;
+  function nflGameLive() { const g = UI._nflGame; return !!(g && g.ok && g.status && g.status.state === "in"); }
+  function nflGamePre() { const g = UI._nflGame; return !!(g && g.ok && g.status && g.status.state === "pre"); }
+  // Cadence follows the Scores tab's own discipline (25s while anything is live, else slow) —
+  // with one honest addition: a FINAL game is never polled at all, because its payload cannot
+  // change again. A pre-game one is polled slowly so the view notices kickoff on its own
+  // rather than sitting frozen until the reader backs out and comes in again.
+  function startNflGamePoll() {
+    stopNflGamePoll();
+    const iv = nflGameLive() ? 25000 : nflGamePre() ? 120000 : 0;
+    if (!iv) return;
+    const tick = async () => {
+      UI._nflGamePoll = null;
+      if (UI.view !== "nflgame") return; // the view closed between the arm and the fire
+      await loadNflGame();
+      if (UI.view !== "nflgame") return;
+      paintNflGame();
+      startNflGamePoll(); // re-arms at the new state's cadence, or stops once the game is final
+    };
+    UI._nflGamePoll = setTimeout(tick, iv);
+  }
+  function stopNflGamePoll() {
+    if (UI._nflGamePoll) { clearTimeout(UI._nflGamePoll); UI._nflGamePoll = null; }
   }
 
   // ---------------- matchup (the heart) ----------------

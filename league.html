@@ -261,12 +261,23 @@
   .mucard.mine .muteam { grid-row:1; font-size:14px; }
   .muscore { font:700 16px var(--font-display); font-variant-numeric:tabular-nums; }
   .mucard.mine .muscore { grid-row:2; grid-column:1 / -1; text-align:center; font-size:32px; }
-  .herorow { grid-column:1 / -1; grid-row:3; display:flex; align-items:center; gap:12px; margin-top:2px; }
+  /* ITEM 27 (2026-08-09): the badge + win-prob bar now renders on EVERY matchup card, not just
+     .mine. The explicit `grid-row:3` was written for the hero card's 3-row grid and had to move
+     under .mine — on the compact card (a single implicit row) it would have forced an EMPTY row 2
+     and dropped the strip to row 3. Full-width placement (grid-column:1/-1) is right for both. */
+  .herorow { grid-column:1 / -1; display:flex; align-items:center; gap:12px; margin-top:2px; }
+  .mucard.mine .herorow { grid-row:3; }
+  /* The compact card's strip is quieter than the hero's — it sits under a 13px name row, so a
+     full-size badge would out-shout the score it belongs to. */
+  .mucard:not(.mine) .herobadge { font-size:10px; }
+  .mucard:not(.mine) .wpbar.mini { height:4px; }
   .herobadge { display:inline-flex; align-items:center; gap:6px; font:600 11px var(--font-display); letter-spacing:1px;
                text-transform:uppercase; color:var(--faint); flex:0 0 auto; }
   .herobadge.live { color:var(--accent); }
   .herobadge .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); }
   .wpbar.mini { flex:1 1 auto; height:5px; }
+  /* An empty track — no lineup data on either side, so nothing to claim (see matchupHeroExtra). */
+  .wpbar.mini.unknown { background:var(--divider2); }
   .wpfillmini { height:100%; background:var(--accent); display:block; }
 
   /* ---------------- matchup page ---------------- */
@@ -740,6 +751,112 @@
   .ffside.mut { flex-direction:row; }
   .ffpts { font:700 15px var(--font-display); font-variant-numeric:tabular-nums; }
   @media (min-width:1024px) { .scgrid { grid-template-columns:1fr 1fr; } }
+  /* Item 28 (2026-08-09): the score card is a <button> now (it opens the game view). The base
+     `button` rule's uppercase + letter-spacing must be cancelled exactly the way .mucard
+     cancels them, or the kickoff times and "at" separator come out shouty and mis-spaced. */
+  .sccard { width:100%; text-align:left; cursor:pointer; font:inherit;
+            text-transform:none; letter-spacing:normal;
+            /* PRE-EXISTING, found by reading the review plate's pixels (measured: the live
+               card's abbrevs and scores rendered rgb(213,10,10), the upcoming card's the
+               correct rgb(233,237,244)). The generic `.live { color:var(--accent) }` rule far
+               above matches `.sccard.live` and cascades red into every descendant that sets no
+               colour of its own — so a live game's team abbrevs and scores have been red since
+               the card shipped, which contradicts the batch-AG rule that red means live-clock
+               and injury and nothing else. `.scstate.live` (two classes) still wins for the
+               state chip, which is the one thing that SHOULD be red. */
+            color:var(--ink); }
+  .sccard:hover, .sccard:focus-visible { border-color:var(--border-hover); background:var(--row-hover2); }
+  .sccard.live:hover, .sccard.live:focus-visible { border-color:var(--accent); }
+  .sccard:disabled { cursor:default; }
+
+  /* ---------------- item 28 — the NFL game view (field · play-by-play · box scores) ----------------
+     The STRUCTURE is ported from sports.html (same payload, same field maths); the DRESS is
+     this app's own tokens, because sports.html lives in the cream main-Bucky shell and the
+     GFFL is broadcast-dark. --turf/--turf-2/--chalk are scoped to the field container rather
+     than :root — nothing else in the league is a football pitch. */
+  .nflbar { margin-bottom:10px; }
+  .nflback { background:var(--nested); }
+  .nfllivechip { font:700 11px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--accent); }
+  .seclabel { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;
+              font:700 12px var(--font-display); letter-spacing:1px; text-transform:uppercase; }
+  .seclabel .mut { text-transform:none; letter-spacing:normal; font-family:var(--font-body); }
+  /* Header: crest+abbrev on the outer edges, the two scores facing each other across the
+     status column — the same arrangement the matchup header uses, so the two read as one app. */
+  .nflhead { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .nflside { display:flex; align-items:center; gap:7px; min-width:0; }
+  .nflcrest { width:26px; height:26px; flex:0 0 auto; object-fit:contain; }
+  .nflab { font:700 15px var(--font-display); letter-spacing:.5px; display:inline-flex; align-items:center; gap:5px; }
+  .nflposs { width:7px; height:7px; border-radius:50%; background:var(--gold); display:inline-block; }
+  .nflscores { display:flex; align-items:center; gap:10px; flex:0 0 auto; }
+  .nflbig { font:800 26px/1 var(--font-display); font-variant-numeric:tabular-nums; }
+  .nflbig.losing { color:var(--mut); }
+  .nflmid { display:flex; flex-direction:column; align-items:center; gap:1px; min-width:66px; }
+  .nflq { font:700 11.5px var(--font-display); letter-spacing:.6px; text-transform:uppercase; color:var(--accent); }
+  .nflq.done { color:var(--mut); }
+  table.nflline { margin-top:10px; font-size:12.5px; text-align:center; }
+  table.nflline td, table.nflline th { text-align:center; padding:3px 6px; }
+  /* The team column is a label, not a number — centring it left it floating in the middle of a
+     wide desktop row (seen on the plate). */
+  table.nflline td:first-child, table.nflline th:first-child { text-align:left; width:22%; }
+  table.nflline .nfltot { font-weight:800; }
+  .nflkick > div { padding:2px 0; }
+  .nflkick .mut { display:inline-block; min-width:56px; font-size:12px; }
+  /* The field. A 1000x300 viewBox scaled to the card's width — at 390px that is ~106px tall,
+     which is enough for the ball, the two lines and the yard numbers to all read. */
+  .nflfield { --turf:#1c3b28; --turf-2:#21462f; --chalk:#dfe7f2; padding:10px 12px 12px; }
+  .nfldiag { display:block; width:100%; height:auto; border-radius:var(--radius-xs); }
+  .nflsitu { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .nflsitu b { font:700 14px var(--font-display); letter-spacing:.5px; color:var(--gold); }
+  .nfllast { margin-top:6px; padding-top:6px; border-top:1px solid var(--divider2); font-size:13px; }
+  .nfltag { display:inline-block; min-width:34px; text-align:center; padding:1px 5px; border-radius:var(--radius-badge);
+            font:700 10.5px var(--font-display); letter-spacing:.5px; color:#fff; }
+  /* Play-by-play. The current drive is capped and scrolls inside its own box so a long drive
+     can't push the box score off the bottom of the page. */
+  .nflplays { max-height:280px; overflow-y:auto; overscroll-behavior:contain; }
+  .nflplay { display:grid; grid-template-columns:52px 1fr auto; gap:8px; align-items:baseline;
+             padding:6px 0; border-top:1px solid var(--divider2); font-size:13px; }
+  .nflplay:first-child { border-top:none; }
+  .nflplay.score { background:rgba(255,182,18,.07); }
+  .nfldd { font:700 10.5px var(--font-display); letter-spacing:.4px; color:var(--mut); text-transform:uppercase; }
+  .nfltext { min-width:0; }
+  .nfldrv { display:grid; grid-template-columns:auto auto 1fr; gap:8px; align-items:baseline;
+            padding:6px 0; border-top:1px solid var(--divider2); font-size:13px; }
+  .nfldrv:first-of-type { border-top:none; }
+  .nflres { font:700 11.5px var(--font-display); letter-spacing:.5px; text-transform:uppercase; color:var(--ink2); }
+  .nflres.scored { color:var(--gold); }
+  .nflwp { display:flex; align-items:center; gap:12px; }
+  .nflwp svg { flex:1 1 auto; height:56px; min-width:0; }
+  .nflwpv { flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; }
+  .nflwpv b { font:700 15px var(--font-display); }
+  .nflsplit { border-top:1px solid var(--divider); margin:12px 0; }
+  .nflsb { margin:8px 0; }
+  .nflsbl { display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:12.5px; }
+  .nflsbl b { font-variant-numeric:tabular-nums; }
+  .nflsbt { display:flex; height:6px; border-radius:var(--radius-pill); overflow:hidden; background:var(--border-card); margin-top:3px; }
+  .nflsbt i, .nflsbt em { display:block; height:100%; }
+  .nflboxt { font:700 11px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--mut); margin:10px 0 4px; }
+  table.nflbox { font-size:12.5px; min-width:340px; }
+  table.nflbox th, table.nflbox td { padding:4px 8px; white-space:nowrap; }
+  .nflsc { display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:baseline;
+           padding:6px 0; border-top:1px solid var(--divider2); font-size:13px; }
+  .nflsc:first-of-type { border-top:none; }
+  .nflafter { font-variant-numeric:tabular-nums; }
+  @media (max-width:420px) {
+    .nflbig { font-size:22px; }
+    .nflcrest { width:22px; height:22px; }
+    .nflscores { gap:6px; }
+    .nflmid { min-width:56px; }
+  }
+  /* Desktop: the game view is a READING COLUMN, not a full-bleed page. Reviewed at 1440px and
+     fixed — unconstrained, the 1000x300 field scaled to 1126px wide and stood 338px tall (it
+     ate the screen), the header's two scores sat marooned in the middle of a 1150px row with
+     the team names pinned to the far edges, and the linescore's four quarters were spaced a
+     handspan apart. One max-width on the body fixes all three at once, and the field's own
+     aspect ratio then caps its height at ~216px. */
+  @media (min-width:1024px) {
+    .nflbar, #nflBody { max-width:720px; margin-left:auto; margin-right:auto; }
+    .nflplay { grid-template-columns:66px 1fr auto; }
+  }
 
   /* ---------------- lockers ---------------- */
   /* Item 10 (2026-08-09 playtest: "need to shrink the team name card in half"). MEASURED at
