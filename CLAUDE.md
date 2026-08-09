@@ -10369,6 +10369,101 @@ legitimately, because `.pname b` carries its own `overflow:hidden`.
 
 Plates: `shots/gffl_espn_matchup_{390,desktop}.png`, `gffl_chat_{390,desktop}.png`,
 `gffl_league_links_390.png`.
+
+## 🕐 GFFL — THE REPLAY CLOCK WAS PER-DEVICE, AND IT CORRUPTED CHAT ORDER (2026-08-09)
+
+User: *"I did a total hard refresh on desktop and deleted all messages and then did 4 messages in
+a row and they came in correct, then I went to mobile and added a message and it went on TOP of
+those, so we clearly aren't sorting by time received."* Files: `assets/league/lg-{core,ui}.js` +
+`league.html` + `tools/_verify-gffl.cjs` (1287 → **1313**).
+
+**TWO WRONG DIAGNOSES BEFORE THE RIGHT ONE, and the user's test is what settled it.** First I
+read it as the chat-anchoring bug from the previous batch; then, when the harness proved that
+case green at 1440×900, as a stale deploy. Both were wrong. "Four in order from one device, then
+a fifth from a SECOND device on top" cannot be anchoring or caching — it is the timestamp.
+
+**ROOT CAUSE — mine, from the replay batch.** `LG.SIM_LOADED_AT = Date.now()` is set **at module
+load, per page load**, and `LG.simNow()` returns `SIM_NOW + (Date.now() − SIM_LOADED_AT) × 8`. So
+the replay clock **restarts at the phase instant every time a device opens the page** and then
+runs at 8× only for as long as that tab has been open. A desktop open 20 minutes reads phase +
+160 sim-minutes; a freshly-loaded phone reads ≈ phase. `postChat` stamped `t = LG.now()` and
+`loadChat` sorts on it, so the phone's message was genuinely stamped 160 sim-minutes EARLIER and
+sorted to the top. The sort was always right; the clock lied.
+
+**IT WAS NEVER ONLY CHAT.** Anything persisted and then ordered or compared across devices
+inherited a per-device clock. The audit found one site beyond the ones I listed:
+`maybeAutoExecuteTrades` in **lg-ui** makes the same expiry comparison as `executeTrade` in
+lg-core — leaving it would have had the UI and the core disagree about whether a review window
+had closed. **Pre-fix the suite reproduces the trade bug for real**: a long-open device EXECUTED
+a trade the accepting device had started seconds earlier.
+
+**THE RULE, now written at `LG.SIM_LOADED_AT` itself:**
+> `LG.now()` answers *"where are we in the league's SEASON?"* — current week, waiver and trade
+> deadlines, lineup locks, game state. It is the replay clock and it is per-device BY DESIGN.
+> `Date.now()` answers *"when did this actually happen?"* — and is the ONLY acceptable stamp for
+> anything persisted and then ordered or compared across devices.
+
+Moved to `Date.now()`: `postChat.t`, `postSys.t`, `offerTrade.t` (it also seeds the doc id),
+`acceptTrade.acceptedAt`/`reviewEndsAt`, the expiry compares in BOTH `executeTrade` and
+`maybeAutoExecuteTrades`, `snapshotProjections.at`, `finalizeWeek.finalizedAt`. Already correct
+and untouched: `logTx.t`, `addClaim.t`, the rules change-log, `LG.db` cache freshness. **Left on
+`LG.now()` deliberately** (league-calendar or game-state, none persisted-and-cross-device):
+`currentWeek`, `tradeDeadlinePassed`, waiver-deadline compares, lineup locking, the whole slate
+layer, in-memory feed stamps, the auto-check throttle. One judgement call named rather than
+fixed: `UI._aiRead.at` is an in-memory 5-min TTL that under 8× expires in ~37 real seconds —
+neither persisted nor cross-device, costs at worst a repeated AI call.
+
+**MIGRATION: NONE NEEDED, and it is proven rather than assumed.** A sim stamp is a FIXED 2025
+instant (~1.757e12); a wall stamp is now (~1.786e12) and only grows — so legacy always sorts
+before new, which IS the true chronology. Verified with a seeded mixed history, and the check is
+not vacuous: pre-fix the same fixture reads `legacy one > legacy two > posted right now >
+already migrated`, because the new message got a 2025 stamp. **Nothing of the family's was
+normalised or rewritten.**
+
+**WHY THE SUITE COULD NOT HAVE CAUGHT THIS.** Every section boots `?sim=0`, where `LG.now()` IS
+`Date.now()` — and everything runs in ONE page, where a per-page-load clock never varies. The
+bug was structurally invisible. New section **AF** runs with the **replay ON at 8×** and
+simulates a second device by rewriting `SIM_LOADED_AT` mid-run, in both directions, plus a guard
+asserting a stored chat stamp is within seconds of real `Date.now()` and nowhere near `SIM_NOW`.
+
+**THE BANNER IS GONE (user: "I know we are in a test environment")** — `#simBanner`, its CSS,
+`syncSimBanner()` and the now-dead `banner` field on both phase entries. The
+projections-are-estimates note goes with it and was NOT reinvented elsewhere. **Both hazards I
+flagged were real**: the paint function was also warming the replay's projection cache on every
+view change (survives as `simWarmProjections()`, same three call sites — without it projections
+silently stop resolving on a screen reached before any matchup/moves/locker page), and the
+offline chip measured its own sticky `top` off the banner's height (now 46px desktop / 52px
+mobile, asserted at both widths).
+
+**VERIFIED**: **1313/1313, 0 page errors** (1315 with `--shots`). Pre-fix, app files stashed to
+HEAD: **1292 / 21**, and two of the failures are the user's report verbatim — *"the phone's
+message is stamped AFTER the desktop's, though the phone's replay clock reads far earlier
+(−9600000ms apart)"* and *"…and it renders BELOW it, not on top — the reported symptom (DOM rows
+1 then 0)"*.
+
+**A LONG-STANDING VACUOUS CHECK SURFACED**: `ok(/Proj/.test(mu.head), "the header carries a
+projected total")` had been matching the BANNER's "**Proj**ections are estimates." — never the
+header, whose label is lowercase. Removing the banner is what exposed it. It now reads
+`.muhproj` and asserts both sides are bare numbers. Restaged with reasons: sections J and K aged
+a trade's review with `LG.nowOverride`, which only moves the LEAGUE clock — they now age the
+wall-time deadline, and J additionally has to drive `maybeAutoExecuteTrades()` because the old
+staging defeated the auto-check throttle as a side effect. Section X's phase assertions read the
+banner's copy; they read the phase itself now. AB7b's chip-below-banner geometry became
+chip-under-header.
+
+Plates: `shots/gffl_replay_nobanner_{390,desktop}.png`, `gffl_rest_offline_desktop.png` (re-taken
+— the chip no longer needs the banner hidden first).
+
+**THE HEALTH CHIP IS A WARNING, NOT A BADGE** (2026-08-09, same day, user: *"get rid of it"* —
+the `● REPLAY` pill left on the League page after the banner went). `paintHealth` now returns
+early and HIDES `#healthChip` whenever `h.mode === "dual"`, so a healthy board says nothing at
+all; the ok/warn/bad classification is otherwise untouched and the chip still appears — and
+still names the surviving source — the moment a source degrades. Rationale written at the
+function: under the replay the "healthy" state was also a standing test-environment reminder,
+the same one the banner was removed for. **Three suite checks restaged with the reason in
+place** (league home, and the two replay sections that asserted it read "replay"); the three
+DEGRADED checks — `ESPN only` / `Sleeper only` / `STALE out loud` — are unchanged and are what
+still prove it speaks up when it matters. Suite **1313/1313** (a straight swap, no net change).
 ---
 
 # 📈 FINANCE TAB + 🔔 EVENT NOTIFICATIONS (2026-08-09)

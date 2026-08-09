@@ -769,19 +769,10 @@
     main[data-view="league"] { column-count:3; }
   }
 
-  /* ---------------- 2025 season replay (2026-08-08) ---------------- */
-  /* Persistent banner — always visible while LG.SIM_2025 is true, on every screen (gate/claim/
-     setup included), so the replay can never be mistaken for the live 2026 season. Sits BELOW
-     header, ABOVE main, as its own sticky band — never inside header (same
-     backdrop-filter-containing-block trap #bnav's own comment documents: nest a position:fixed
-     descendant inside a filter/backdrop-filter ancestor and it stops being fixed to the
-     viewport). [hidden] restated per the house lesson — a styled block/flex/sticky rule always
-     beats the UA [hidden]{display:none} one. */
-  #simBanner { position:sticky; top:52px; z-index:19; background:var(--gold); color:var(--bg);
-               font:700 12px var(--font-display); letter-spacing:.5px; text-transform:uppercase;
-               text-align:center; padding:7px 10px; }
-  #simBanner[hidden] { display:none; }
-  @media (min-width:1024px) { #simBanner { top:46px; } }
+  /* ITEM 18 (2026-08-09): the "2025 SEASON REPLAY" banner (#simBanner) that used to live here
+     is GONE at the user's request — they know which environment they are in. Its CSS went with
+     it, and nothing is positioned off it any more (the offline chip below used to add its
+     measured height to its own sticky top). */
   /* Offline-with-a-mirror chip (2026-08-08, the REST transport): the league renders normally
      from this device's saved copy, so the chip is what keeps that honest — which copy, how
      old, and that we're still trying. Clay rather than gold: this is a state to get out of,
@@ -802,7 +793,6 @@
       <span id="hAvatar" hidden></span>
     </span>
   </header>
-  <div id="simBanner" hidden></div>
   <div id="offlineChip" hidden></div>
   <!-- #bnav stays a SIBLING of <header>, never a descendant: header sets backdrop-filter,
        and a backdrop-filter/filter/transform ancestor becomes the containing block for any
