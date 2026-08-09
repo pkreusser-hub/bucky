@@ -366,8 +366,12 @@
      grows to its own content, but declaring a height gives the percentage below something
      definite to resolve against (with auto height it resolves to auto and silently does
      nothing, which is exactly what happened on the first attempt). */
-  /* td.pcell, not .pcell — .tbl td's own padding (0,1,1) outranks a bare class (0,1,0). */
-  td.pcell { width:44%; height:1px; padding:5px 8px; }
+  /* td.pcell, not .pcell — .tbl td's own padding (0,1,1) outranks a bare class (0,1,0).
+     ITEM 25 moved 2px of the cell's own padding INSIDE .pcellgrid so the gold possession ring
+     has something to sit in; the cell gives back exactly that much (5px -> 3px) so the ROW is
+     the height it always was. The half-cell BOX reads 4px taller than before for the same
+     reason — the padding did not appear, it moved. */
+  td.pcell { width:44%; height:1px; padding:3px 8px; }
   /* THE ESPN HEAD-TO-HEAD ROW. Rebuilt 2026-08-09 from the user's own screenshot of the real
      app; the 2026-08-08 pass had inferred it from a lower-resolution one and got the text
      alignment backwards.
@@ -445,7 +449,7 @@
        hands it straight back: 1px of cell padding + 2px of grid padding is the same 3px a
        side the row had before, only now the ring is drawn inside it. Measured: the name
        budget is 103px either way. */
-    td.pcell { width:44.5%; padding:5px 1px; }
+    td.pcell { width:44.5%; padding:3px 1px; }
     .pcellgrid .ppts { flex-basis:30px; }
     /* A player never scores 141; a TEAM does. The TOTAL row is its own row and its columns do
        not have to line up with the players' — both halves still match each other. */
@@ -472,6 +476,11 @@
      opponent and kickoff it replaces. Red now means exactly one thing on a lineup row: this
      player might not play. */
   .gclock { font-weight:700; }
+  /* ITEM 26: the designation leads line 2, so it needs its gap on the RIGHT. Nothing about its
+     own box may grow the line — .pmeta is a fixed 14px with a matching line-height and .inj is
+     10.5px, so this cannot move a row's height; the suite measures that rather than trusting
+     it. vertical-align keeps the small caps sitting on the clock's own baseline. */
+  .pcellgrid .pmeta .inj { margin-right:3px; vertical-align:baseline; font-size:inherit; }
   /* ITEM 25 (2026-08-09, user: "we need players where there offense has the ball to be
      highlighted, you can put a gold border around that player"). Replaces the pip + faint
      row tint the previous batch shipped.

@@ -8603,9 +8603,13 @@ async function openDetails(page, id) {
 
       // -- line 2: @AWAY vs bare HOME, and the live/final forms.
       const line2 = await page.evaluate(() => {
+        // RESTAGED 2026-08-09 (ITEM 26): the injury designation shares line 2 now, so the
+        // GAME half of it is read from its own .gline rather than from the whole line — a
+        // Doubtful home player otherwise reads "DKC Fri 1:00 AM" and the "^KC" test below
+        // would be asserting against the designation, not the opponent.
         const meta = (nm) => {
           const c = [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => e.textContent.includes(nm));
-          const m = c && c.querySelector(".pmeta");
+          const m = c && c.querySelector(".pmeta .gline");
           return m ? m.textContent.trim() : null;
         };
         return { tight: meta("T. McBride"), second: meta("C. McCaffrey"), passer: meta("M. Harrison Jr.") };
@@ -9618,7 +9622,8 @@ async function openDetails(page, id) {
         ok(!!v && v.text <= v.cell, "…so does " + k + ", the label that has to step down to fit (" + (v ? v.text + "/" + v.cell : "missing") + "px)");
       }
       ok(type.bench.size < type.qb.size, "…because a >3-character label takes the .sbwide step-down rather than clipping (" + type.bench.size + " vs " + type.qb.size + "px)");
-      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_matchup_390.png") }); console.log("  📸 shots/gffl_matchup_390.png"); }
+      // The matchup plate is taken by AG8, on this same page and fixture — one writer per
+      // path, and AG8's is the one that also has to show the injury designations.
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -9713,6 +9718,172 @@ async function openDetails(page, id) {
       const agreed = Object.entries(surfaces).filter(([, v]) => v === true).map(([k]) => k);
       ok(agreed.length >= 3 && Object.values(surfaces).every((v) => v !== false),
         "…on every surface that renders one — they share a single rule, so they cannot disagree (" + JSON.stringify(surfaces) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+
+    // ---- AG8 (ITEM 26): Q / D / OUT is ON THE MATCHUP, on line 2, in red, beside a clock
+    // that is not. Item 24 took red off the clock; the half of the same sentence that says
+    // what red is FOR had nothing to attach to on this page, so red was removed and nothing
+    // given back. This is the other half.
+    //
+    // PRE-FIX (app files stashed back to the items-19-25 commit): 13 of these 24 fail, plus
+    // the 3 restaged AE line-2 reads that the .gline wrapper is part of. The 11 that pass
+    // either way are regression invariants and nothing else — "Active" never appearing, the
+    // half-cell staying one height, line 2 keeping its fixed 14px box, the four name-clipping
+    // checks (whose whole job is that nothing may START clipping), line 2 not overflowing
+    // (its own worst-case number moves 87px -> 116px, so it is measuring something real), and
+    // the page-error counts.
+    //
+    // seedLongNames() is the fixture on purpose: it already carries AD_INJ, which puts a
+    // QUESTIONABLE starter (A. St. Brown, DAL — a LIVE game, so his clock is right beside his
+    // designation), a healthy one marked "Active" (M. Harrison Jr., PHI — must show NOTHING),
+    // a DOUBTFUL one on a pre-game row (C. McCaffrey, DEN) and a PUP player on the BENCH
+    // (L. McConkey, KC — "@DEN Fri 1:00 AM", the longest line 2 in the fixture) on the same
+    // board. A check written against an all-healthy roster would pass because nobody was
+    // injured, which is the "passes for the wrong reason" family this batch already caught
+    // six of.
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, seedLongNames());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await waitOr(page, "td.slotcell");
+      const inj = (await evalOr(page, () => {
+        const hex = (h) => { const n = parseInt(h.replace("#", ""), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+        const root = getComputedStyle(document.documentElement);
+        const cellFor = (nm) => [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => e.textContent.includes(nm));
+        const read = (nm) => {
+          const c = cellFor(nm);
+          if (!c) return null;
+          const chip = c.querySelector(".pmeta .inj");
+          const gl = c.querySelector(".pmeta .gline");
+          const clock = c.querySelector(".pmeta .gclock");
+          return { txt: chip ? chip.textContent.trim() : null,
+            col: chip ? getComputedStyle(chip).color : null,
+            // Line 2 is the ONE place this may live — never line 1, which is the width-
+            // constrained one two rounds of work went into fitting a real name into.
+            onLine2: !!(chip && chip.closest(".pmeta")),
+            onLine1: !!c.querySelector(".pname .inj"),
+            // …and it LEADS the line: nowrap + ellipsis means whatever is last is what gets
+            // cut, and this is the one thing on the row that must never be cut.
+            leads: !!(chip && gl && (chip.compareDocumentPosition(gl) & Node.DOCUMENT_POSITION_FOLLOWING)),
+            clock: clock ? getComputedStyle(clock).color : null,
+            clockTxt: clock ? clock.textContent.trim() : null,
+            gline: gl ? gl.textContent.trim() : null,
+            spans: c.querySelectorAll(".pmeta .inj").length,
+          };
+        };
+        const benchCell = [...document.querySelectorAll(".benchtable .pcellgrid")].find((e) => e.textContent.includes("L. McConkey"));
+        return { accent: hex(root.getPropertyValue("--accent").trim()),
+          q: read("A. St. Brown"), healthy: read("M. Harrison Jr."), d: read("C. McCaffrey"),
+          bench: benchCell ? { txt: (benchCell.querySelector(".pmeta .inj") || {}).textContent,
+            col: benchCell.querySelector(".pmeta .inj") ? getComputedStyle(benchCell.querySelector(".pmeta .inj")).color : null } : null,
+          // A healthy row must carry no empty span and no stray separator either — count the
+          // designation spans across the WHOLE board against the four the fixture designates.
+          totalChips: document.querySelectorAll(".mutable .pmeta .inj").length,
+          activeWord: /\bActive\b/.test(document.querySelector(".lineupcard").textContent) };
+      })) || { q: {}, healthy: {}, d: {}, bench: {} };
+      ok(inj.q && inj.q.txt === "Q", "a Questionable STARTER carries a Q on the matchup itself (" + (inj.q || {}).txt + ")");
+      ok(inj.q && inj.q.col === inj.accent, "…and it is the accent red — the one alarm on the row (" + (inj.q || {}).col + ")");
+      ok(inj.q && inj.q.onLine2 && !inj.q.onLine1, "…on LINE 2, never beside the name on line 1");
+      ok(inj.q && inj.q.leads, "…leading that line, so the ellipsis can only ever eat the kickoff time, never the designation");
+      // THE POINT OF THE WHOLE CHANGE: the two must be visibly different on the SAME line.
+      // Paired with the chip on purpose: on a page with no designation at all, "the clock is
+      // not red" is free — and the claim being made is that the TWO are different on the SAME
+      // line, which needs both of them to be there.
+      ok(inj.q && inj.q.txt === "Q" && /^Q\d /.test(inj.q.clockTxt || "") && inj.q.clock && inj.q.clock !== inj.accent,
+        "…beside a live clock on the same line that is NOT red (" + (inj.q || {}).clockTxt + " " + (inj.q || {}).clock + ")");
+      // Paired for the same reason: "nobody has one" would otherwise satisfy this.
+      ok(inj.healthy && inj.healthy.txt === null && inj.healthy.spans === 0 && inj.q && inj.q.txt === "Q",
+        "a healthy team-mate in the SAME table carries no designation at all — not an empty span, not a separator");
+      ok(inj.activeWord === false, "…and the word Active appears nowhere in the lineup");
+      ok(inj.d && inj.d.txt === "D" && /^KC /.test(inj.d.gline || ""),
+        "a Doubtful player on a PRE-GAME row reads 'D' ahead of his own opponent and kickoff (" + (inj.d || {}).txt + " / " + (inj.d || {}).gline + ")");
+      ok(inj.bench && (inj.bench.txt || "").trim() === "PUP" && inj.bench.col === inj.accent,
+        "…and the bench gets it too, same half-cell, same rule (" + JSON.stringify(inj.bench) + ")");
+      // FOUR, not three: the fixture designates two starters (Q, D) and two bench players
+      // (OUT, PUP), and .mutable matches the bench table too. 4 of 20 half-cells.
+      ok(inj.totalChips === 4, "exactly the four designated players carry one — nothing is sprayed across the board (" + inj.totalChips + " of 20 half-cells)");
+      // ROW HEIGHTS ARE UNTOUCHED. .pmeta is a fixed 14px with a matching line-height and .inj
+      // is 10.5px, so the designation cannot grow a line — measured, not trusted.
+      const geo = (await evalOr(page, () => {
+        const cells = (sel) => [...document.querySelectorAll(sel + " .pcellgrid")].map((c) => Math.round(c.getBoundingClientRect().height));
+        const metas = [...document.querySelectorAll(".mutable .pmeta")].map((m) => Math.round(m.getBoundingClientRect().height));
+        const withChip = [...document.querySelectorAll(".mutable .pcellgrid")].filter((c) => c.querySelector(".pmeta .inj"))
+          .map((c) => Math.round(c.getBoundingClientRect().height));
+        const without = [...document.querySelectorAll(".mutable:not(.benchtable) .pcellgrid")].filter((c) => !c.querySelector(".pmeta .inj"))
+          .map((c) => Math.round(c.getBoundingClientRect().height));
+        const rows = [...document.querySelectorAll(".mutable tbody tr")].map((r) => Math.round(r.getBoundingClientRect().height));
+        return { starters: cells(".mutable:not(.benchtable) tbody"), bench: cells(".benchtable tbody"),
+          rows: [...new Set(rows)],
+          metas: [...new Set(metas)], withChip: [...new Set(withChip)], without: [...new Set(without)] };
+      })) || {};
+      const allH = new Set((geo.starters || []).concat(geo.bench || []));
+      ok(allH.size === 1, "every half-cell on the board is STILL exactly one height — designated or not, starter or bench (" + [...allH].join("/") + "px)");
+      // MEASURED against HEAD, not reasoned: the row was 56px before this whole batch and is
+      // 56px now. (The half-cell BOX reads 45 -> 49 because item 25's ring padding moved into
+      // it out of the cell; the cell gave the same 2px back, so the row never moved.)
+      ok((geo.rows || []).length === 1 && geo.rows[0] === 56,
+        "…and every ROW is the 56px it measured before this whole batch (" + (geo.rows || []).join("/") + "px)");
+      ok((geo.withChip || []).length === 1 && (geo.without || []).length === 1 && geo.withChip[0] === geo.without[0],
+        "…a row that carries a designation measures exactly the same as one that does not (" + (geo.withChip || []).join() + " vs " + (geo.without || []).join() + ")");
+      ok((geo.metas || []).length === 1 && geo.metas[0] === 14, "…because line 2 keeps its own fixed 14px box (" + (geo.metas || []).join("/") + "px)");
+      // NO NAME MAY START TRUNCATING AGAIN — line 1 is untouched by this, and the measurement
+      // says so rather than the reasoning.
+      const names = (await evalOr(page, () => {
+        const b = [...document.querySelectorAll(".mutable .pname b")].map((e) => ({
+          t: e.textContent.trim(), need: Math.ceil(e.scrollWidth), have: Math.floor(e.clientWidth),
+          clipped: e.scrollWidth > e.clientWidth + 1 }));
+        return { all: b, worst: b.reduce((a, x) => (x.need > a.need ? x : a), { need: 0 }) };
+      })) || { all: [], worst: {} };
+      const clipped = (names.all || []).filter((n) => n.clipped);
+      ok(names.all.length >= 9 && clipped.length === 0,
+        "NOT ONE name is clipped at 390px with the designations in (" + clipped.length + " of " + names.all.length + ", worst \"" +
+        (names.worst.t || "") + "\" needs " + names.worst.need + " of " + names.worst.have + "px)");
+      for (const want of ["J. Smith-Njigba", "M. Harrison Jr.", "C. McLaughlin"]) {
+        const n = (names.all || []).find((x) => x.t === want);
+        ok(!!n && !n.clipped, "…including \"" + want + "\", the name the last two batches fought for (" + (n ? n.need + "/" + n.have + "px" : "missing") + ")");
+      }
+      // LINE 2's OWN BUDGET at 390px, worst case in the fixture: "PUP" + "@DEN Fri 1:00 AM",
+      // the longest opponent line on the board carrying the longest designation.
+      const l2 = (await evalOr(page, () => {
+        const rows = [...document.querySelectorAll(".pcellgrid")].filter((c) => c.querySelector(".pmeta"));
+        // A RANGE over the line's own contents, not scrollWidth: .pmeta is a BLOCK, so its
+        // scrollWidth is floored at its clientWidth and reports 116/116 for everything that
+        // fits — a number that cannot tell you how much headroom is left. (scrollWidth is
+        // still the right OVERFLOW test, and `over` below keeps using it.)
+        const worst = rows.map((c) => {
+          const m = c.querySelector(".pmeta");
+          const r = document.createRange(); r.selectNodeContents(m);
+          const chip = m.querySelector(".inj");
+          // getBoundingClientRect (the union), NOT the sum of getClientRects — a Range over
+          // mixed inline content returns overlapping rects and summing them double-counts.
+          const inkW = Math.ceil(r.getBoundingClientRect().width) + (chip ? 3 : 0); // +3 = the chip's own margin
+          return { txt: m.textContent.replace(/\s+/g, " ").trim(), ink: inkW,
+            need: Math.ceil(m.scrollWidth), have: Math.floor(m.clientWidth),
+            chip: !!chip, chipW: chip ? Math.ceil(chip.getBoundingClientRect().width) : 0 };
+        }).filter((x) => x.txt);
+        return { rows: worst, over: worst.filter((x) => x.need > x.have + 1) };
+      })) || { rows: [], over: [] };
+      const worst2 = (l2.rows || []).reduce((a, x) => (x.ink > a.ink ? x : a), { ink: 0, have: 0, txt: "" });
+      ok((l2.over || []).length === 0,
+        "…and no line 2 overflows its own box either — worst is \"" + worst2.txt + "\", " + worst2.ink + "px of ink in a " + worst2.have + "px line (" + (l2.over || []).length + " over)");
+      const chipRows = (l2.rows || []).filter((x) => x.chip);
+      ok(chipRows.length > 0 && chipRows.every((x) => x.need <= x.have + 1),
+        "…including every row that carries a designation, which costs it " + (chipRows[0] || {}).chipW + "px of the line (" + chipRows.length + " rows)");
+      // The tightest of them is a BENCH row: the longest designation (OUT) on the longest
+      // opponent line (@DEN Fri 1:00 AM). Called out on its own because it is the case that
+      // would break first, and because the designation LEADING the line means that even if it
+      // ever did, the ellipsis would eat the kickoff time and never the designation itself.
+      const benchTight = (l2.rows || []).find((x) => x.chip && /OUT/.test(x.txt));
+      ok(!!benchTight && benchTight.need <= benchTight.have + 1,
+        "…and the tightest case in the fixture — OUT on the longest opponent line — still fits (\"" +
+        (benchTight || {}).txt + "\", " + (benchTight || {}).ink + "px of ink in " + (benchTight || {}).have + "px)");
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_matchup_390.png") }); console.log("  📸 shots/gffl_matchup_390.png"); }
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }

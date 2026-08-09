@@ -1710,11 +1710,18 @@
     // and the kickoff it replaces on this same line, and red is a WARNING colour this app
     // spends on genuine alarms (the injury designation, an overdue deadline). .gclock keeps
     // the bold weight that made the clock scannable and inherits .pmeta's muted colour.
-    if (g.state === "in") return `<span class="gclock">Q${g.period} ${esc(g.clock)}</span>`;
-    if (g.state === "post") return "Final";
-    const opp = g.oppAb ? (g.home ? esc(g.oppAb) : "@" + esc(g.oppAb)) : "";
-    const kick = esc(shortKick(g));
-    return opp && kick ? opp + " " + kick : (opp || kick);
+    // Wrapped in .gline (ITEM 26): the injury designation now shares this line, and without
+    // its own element the two run together in textContent ("D" + "KC Fri 1:00 AM" reads
+    // "DKC…"). The gap between them is a CSS margin, so only the markup can separate them for
+    // anything that reads the line — a test, or a screen reader walking it.
+    const inner = g.state === "in" ? `<span class="gclock">Q${g.period} ${esc(g.clock)}</span>`
+      : g.state === "post" ? "Final"
+      : (() => {
+        const opp = g.oppAb ? (g.home ? esc(g.oppAb) : "@" + esc(g.oppAb)) : "";
+        const kick = esc(shortKick(g));
+        return opp && kick ? opp + " " + kick : (opp || kick);
+      })();
+    return inner ? `<span class="gline">${inner}</span>` : "";
   }
   // THE ESPN MATCHUP ROW (2026-08-09, rebuilt from the user's own screenshot of the real app).
   // EXACTLY THREE LINES per half, always the same three, so every row in the table is the same
@@ -1777,7 +1784,21 @@
       // so they cost nothing there. (The possession pip that used to ride here with them is
       // gone — item 25 replaced it with the half-cell's own gold ring, which costs no width
       // at all, so the longest names gained that space back too.)
-      metaHtml = gameLineHtml(g) + rz + conflict;
+      //
+      // ITEM 26 (2026-08-09): Q / D / OUT joins them, and LINE 2 is the only place it can go.
+      // Item 24 took red off the clock on this row; the half of the same sentence that says
+      // what red is FOR ("What should be red is Q, D, our OUT status for players") had nothing
+      // to attach to, because this row carries a name and nothing else on line 1 — and line 1
+      // is the width-constrained one that two rounds of work went into. Line 2 is short.
+      // It leads the line rather than trailing it: line 2 is nowrap + ellipsis, so whatever
+      // sits last is what gets cut, and the one thing on this row that must never be cut is
+      // "this man might not play". Same injLabel() every other surface reads, and the same
+      // live-row-then-roster precedence the locker's injChip uses, so a status can never
+      // render one way here and another way on My Team. A healthy player yields "" and gets
+      // no span at all — not an empty one, and not a stray separator.
+      const injTxt = injLabel((row && row.injury) || p.injury || "");
+      const injHtml = injTxt ? `<span class="inj">${esc(injTxt)}</span>` : "";
+      metaHtml = injHtml + gameLineHtml(g) + rz + conflict;
       statHtml = sline ? esc(sline) : "";
       ptsHtml = `<span class="pts">${LG.fmtPts(pts)}</span>`;
       projHtml = LG.fmtPts(proj);
