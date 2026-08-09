@@ -132,7 +132,7 @@
   table.faTable .fatype, table.faTable .faopp, table.faTable .fastatus { min-width:64px; }
   table.faTable .faproj, table.faTable .fascore, table.faTable .fafpts, table.faTable .faavg, table.faTable .falast { min-width:56px; }
   table.faTable .faadd { text-align:right; min-width:64px; }
-  table.faTable thead th:first-child { position:sticky; left:0; background:var(--card); z-index:2; }
+  table.faTable thead th:first-child { position:sticky; left:0; background:var(--card); z-index:3; }
   .faAddBtn { padding:6px 12px; font-size:11.5px; }
   .tbl th.thsort { cursor:pointer; user-select:none; }
   .tbl th.thsort:hover { color:var(--ink2); }
@@ -194,16 +194,37 @@
   .wpfillmini { height:100%; background:var(--accent); display:block; }
 
   /* ---------------- matchup page ---------------- */
-  .muhrow { display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:start; }
-  .muhteam { min-width:0; display:flex; flex-direction:column; gap:2px; }
+  /* Item 6 (2026-08-09 playtest: "slim down the matchup card at the top by half so you can see
+     more players below"). MEASURED at 390px: the header card was 220px tall — a third of the
+     phone's viewport spent on two team names before a single lineup row. Halved by consolidating
+     rather than deleting: Proj and the to-play/live counts now share ONE line (they were two),
+     the avatar drops 44->28px, the score 30->22px, and the card takes 10px of padding instead of
+     16. Everything the header carried is still on it — including the win-probability bar and the
+     live/Final indicator, which are the two things that must not go. */
+  .card.muhead { padding:10px 12px; }
+  .muhrow { display:grid; grid-template-columns:1fr auto 1fr; gap:8px; align-items:start; }
+  .muhteam { min-width:0; display:flex; flex-direction:column; gap:1px; }
   .muhteam.right { text-align:right; align-items:flex-end; }
-  .muavatar { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center;
-              font:700 16px var(--font-display); background:var(--border-card); color:var(--mut); overflow:hidden;
-              margin-bottom:2px; }
+  .muavatar { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+              font:700 11px var(--font-display); background:var(--border-card); color:var(--mut); overflow:hidden;
+              margin-bottom:1px; }
   .muavatar.mine { background:var(--accent); color:#fff; }
   .muavatar img { width:100%; height:100%; object-fit:cover; display:block; }
-  .bigpts { font:800 30px var(--font-display); font-variant-numeric:tabular-nums; }
-  .muhmid { text-align:center; min-width:96px; padding-top:6px; display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .bigpts { font:800 22px/1.1 var(--font-display); font-variant-numeric:tabular-nums; }
+  /* The three vertical rows the header used to spend on each side (avatar / name / score /
+     Proj / to-play) are folded into three: crest BESIDE the name, projection BESIDE the score,
+     and the to-play·live count on its own short line. Nothing is dropped — it costs half the
+     height because it stops stacking things that fit side by side. */
+  .muhtop { display:flex; align-items:center; gap:6px; min-width:0; width:100%; }
+  .muhteam.right .muhtop { flex-direction:row-reverse; }
+  .muhscore { display:flex; align-items:baseline; gap:6px; min-width:0; }
+  .muhteam.right .muhscore { flex-direction:row-reverse; }
+  .muhead .muhteam b { flex:1 1 auto; min-width:0; font-size:13px; line-height:1.2;
+                       white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .muhead .muhproj { font:600 10.5px var(--font-display); letter-spacing:.3px; white-space:nowrap; }
+  .muhead .muhsub { font-size:10.5px; line-height:1.3; white-space:nowrap; }
+  .muhead .h2hline { margin-top:3px; }
+  .muhmid { text-align:center; min-width:84px; padding-top:2px; display:flex; flex-direction:column; align-items:center; gap:3px; }
   .mulive { display:flex; align-items:center; gap:6px; font:600 12px var(--font-display); letter-spacing:1px; color:var(--accent); text-transform:uppercase; }
   .mulive .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); }
   .mulive.done { color:var(--mut); }
@@ -219,9 +240,33 @@
   table.mutable td { vertical-align:middle; white-space:normal; }
   /* td.slotcell, not .slotcell — .tbl td's text-align:left otherwise outweighs it and the
      slot badge has rendered left-of-center since the day it shipped. */
+  /* The colour lives on a compact centred BADGE, not on the cell. Painting the whole cell
+     (the first cut) turns a 12%-wide column into a full-row-height block of saturated colour —
+     on desktop that is a ~75px slab per row, which shouts over the players either side of it.
+     A badge reads the same information at a glance and matches the .posbadge language the
+     players table already uses. */
   td.slotcell { color:var(--mut); font:600 11px var(--font-display); letter-spacing:.5px; text-align:center; width:12%;
-              background:var(--nested); border-radius:var(--radius-badge); padding:3px 0; }
-  .pcell { width:44%; } .pcell.right { text-align:right; }
+              background:none; padding:3px 4px; }
+  td.slotcell .slotbadge { display:block; background:var(--nested); border-radius:var(--radius-badge); padding:5px 0; }
+  /* Item 2 (2026-08-09 playtest: "the player position indicator between the two teams should be
+     color coded the same as the way positions are colored in the draft"). Same --pos-* tokens
+     the players table's .posbadge already tints with — lifted from ffdraft's board palette, so
+     a QB reads the same colour in the draft room and in the matchup. td.slotcell[data-pos]
+     (0,2,1) outranks the plain td.slotcell rule above (0,1,1), which is what lets it replace
+     the neutral --nested background. FLEX/BENCH/TOT/IR carry data-pos="X" — they are not a
+     single position, and --pos-X is the neutral the badge already uses for that same case. */
+  td.slotcell[data-pos="QB"] .slotbadge { background:var(--pos-QB); color:#fff; }
+  td.slotcell[data-pos="RB"] .slotbadge { background:var(--pos-RB); color:#fff; }
+  td.slotcell[data-pos="WR"] .slotbadge { background:var(--pos-WR); color:#fff; }
+  td.slotcell[data-pos="TE"] .slotbadge { background:var(--pos-TE); color:#fff; }
+  td.slotcell[data-pos="K"]  .slotbadge { background:var(--pos-K);  color:#fff; }
+  td.slotcell[data-pos="DST"] .slotbadge { background:var(--pos-DST);color:#fff; }
+  td.slotcell[data-pos="X"]  .slotbadge { background:var(--pos-X);  color:var(--ink2); }
+  /* height:1px is the standard "let a child use height:100%" cell trick — a table cell always
+     grows to its own content, but declaring a height gives the percentage below something
+     definite to resolve against (with auto height it resolves to auto and silently does
+     nothing, which is exactly what happened on the first attempt). */
+  .pcell { width:44%; height:1px; } .pcell.right { text-align:right; }
   /* THE ESPN HEAD-TO-HEAD ROW (2026-08-08 playtest: "the left team's players don't line up
      with the right team's"). The .pcellgrid markup was built as a mirrored two-part cell —
      name+meta on the OUTER edge, a fixed-width points column on the INNER edge hugging the
@@ -230,7 +275,12 @@
      bottom while the right half read points→name, and nothing across the row lined up.
      Flex row restores the design: .pinfo takes the slack, .ppts is a fixed column whose
      numbers align toward the slot badge on BOTH sides (mirrored, per the ESPN reference). */
-  .pcellgrid { display:flex; align-items:center; gap:10px; }
+  /* height:100% keeps the two halves of a row the SAME height even when one wraps further
+     than the other. It mattered the moment the bench table joined table-layout:fixed +
+     white-space:normal (item 3): under the old nowrap bench both halves were always exactly
+     two lines by accident, and a wrapping player name beside an "Empty" placeholder would
+     otherwise render two visibly different boxes inside one aligned row. */
+  .pcellgrid { display:flex; align-items:center; gap:10px; height:100%; }
   .pcellgrid .pinfo { flex:1 1 auto; min-width:0; }
   .pcellgrid .pinfo b { font:600 13.5px/1.3 var(--font-body); }
   .pcellgrid .pinfo small { font-size:11px; line-height:1.35; }
@@ -258,10 +308,35 @@
   }
   .pts { font:700 14px var(--font-display); display:block; }
   .live { color:var(--accent); font-weight:700; }
+  /* Item 5 (2026-08-09 playtest: "highlight players when their team has the ball and is on
+     offense"). GOLD, not red: --accent is already spoken for by the live clock and the
+     red-zone dot, and a second red marker beside them would fight both. A pip plus a very
+     faint row tint — enough to sweep the lineup and see who is on the field with the ball,
+     never enough to shout over a score. */
+  .possdot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--gold);
+             margin-left:5px; vertical-align:1px; box-shadow:0 0 0 2px rgba(255,182,18,.16); }
+  .pcellgrid.hasball { background:rgba(255,182,18,.09); border-radius:var(--radius-badge); }
+  .lrow.hasball { background:rgba(255,182,18,.07); border-color:rgba(255,182,18,.45); }
   .fline { padding:6px 0; border-bottom:1px dotted var(--divider2); font-size:13.5px; }
   .fline.sys { color:var(--mut); }
   .delta { font:700 13px var(--font-display); font-variant-numeric:tabular-nums; }
   .delta.up { color:var(--green); } .delta.down { color:var(--accent); }
+  /* ---- the matchup feed (item 1, 2026-08-09) ----
+     A bounded scroll box so the feed can't push the AI read and the trash-talk thread miles
+     down the page, with overscroll-behavior:contain so a rubber-band drag at its own edge
+     stops there instead of chaining to the document (the house convention). Each line carries
+     its team's short tag AND a matching left accent — the tag is what actually answers "which
+     team is this from"; the accent alone would only say "one of the two". */
+  #mufeed { max-height:300px; overflow-y:auto; overscroll-behavior:contain; }
+  @media (min-width:1024px) { #mufeed { max-height:420px; } }
+  .feedfilter { margin-bottom:8px; }
+  .fteam { display:inline-block; min-width:30px; text-align:center; border:1px solid var(--border-card);
+           border-radius:var(--radius-badge); background:var(--nested); color:var(--ink2);
+           font:700 10px var(--font-display); letter-spacing:.5px; padding:1px 5px; margin-right:6px; }
+  .fteam.away { border-color:#2a4f80; background:rgba(1,51,105,.55); color:#cfe0ff; }
+  .fteam.home { border-color:#7a2020; background:rgba(213,10,10,.20); color:#ffd2d2; }
+  .fline.away { border-left:3px solid #2a4f80; padding-left:7px; }
+  .fline.home { border-left:3px solid #7a2020; padding-left:7px; }
 
   /* ---------------- team / roster page ---------------- */
   .lrow { display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:var(--card);
@@ -273,7 +348,6 @@
               background:var(--nested); border:1px solid var(--border-card); border-radius:var(--radius-badge); padding:4px 0; }
   .lname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-family:var(--font-body); }
   .lpts { font:700 14px var(--font-display); white-space:nowrap; }
-  .lock { flex:0 0 auto; }
   .inj { color:#ef6a4d; font-weight:700; font-size:10.5px; letter-spacing:.3px; text-transform:uppercase; } /* ffdraft's own literal injury coral — distinct from --accent and --gold */
   .sheet { position:fixed; inset:auto 0 0 0; z-index:40; padding:10px; background:rgba(6,7,8,.7); backdrop-filter:blur(3px); }
   .sheet .card { max-height:60vh; overflow-y:auto; box-shadow:0 -8px 30px rgba(0,0,0,.55); }
@@ -282,7 +356,42 @@
              text-transform:none; letter-spacing:normal; }
   .swaprow:hover { border-color:var(--border-hover); background:var(--row-hover2); }
   .swaprow.picked { border-color:var(--accent); background:var(--nested); }
+  /* ---- item 12 (2026-08-09): the Moves player list is a bounded box, not the whole page ----
+     The table already pans HORIZONTALLY inside .panner with its PLAYER column sticky-left; the
+     vertical cap is added to that SAME container rather than a wrapper around it, because a
+     position:sticky cell only sticks to the scrollport it actually lives in — wrapping the
+     panner in a second scroller would leave the sticky column pinned to the wrong box and it
+     would drift out of view on a horizontal pan. The header row gets top:0 for the same
+     reason (it is now scrolling within its own container, so it needs to stick to it), and
+     the top-left cell needs both axes plus the highest z-index of the three.
+     "Show more ↓" is rendered AFTER the .panner, so it stays below the box and growing the
+     pool can never blow the box's own height out. */
+  #faResults .panner { max-height:340px; overflow:auto; overscroll-behavior:contain; }
+  @media (min-width:1024px) { #faResults .panner { max-height:560px; } }
+  table.faTable thead th { position:sticky; top:0; background:var(--card); z-index:1; }
   #mvGive, #mvGet { max-height:220px; overflow-y:auto; }
+  /* ---- item 13 (2026-08-09): "My pending", compact ----
+     Same information, roughly a third of the room: the card's own padding comes in, the
+     sub-headings stop reserving a full text block each, rows tighten, and an empty state is
+     one quiet line rather than a paragraph. The action buttons deliberately keep a 44px
+     minimum — this is the one card where shrinking must not shrink a tap target. */
+  .pendcard { padding:10px 12px; }
+  .pendcard h2 { margin-bottom:4px; }
+  .pendcard h2.small { margin:8px 0 2px; }
+  /* The row's text and its action button share ONE line. .rowline wraps by default, and with
+     a 44px button that meant every pending row cost two full lines (measured 76-94px each)
+     for one sentence. nowrap + a shrinkable text column lets the sentence wrap INSIDE its own
+     share instead, so the row is only ever as tall as the taller of the two. */
+  .pendcard .rowline { padding:3px 0; font-size:12.5px; gap:8px; flex-wrap:nowrap; align-items:center; }
+  .pendcard .rowline > span:first-child { flex:1 1 auto; min-width:0; }
+  .pendcard .rowline > button { flex:0 0 auto; }
+  /* DIRECT children only — the ACTION buttons (Cancel/Accept/Decline/Veto) are children of
+     .rowline, while the player-name links (.pcinline) are inline text nested inside its
+     <span>. A bare descendant selector here gives every name link a 44px box and triples the
+     card's height, which is the opposite of the point. */
+  .pendcard .rowline > button { min-height:44px; }
+  .pendcard .fline { padding:4px 0; font-size:12.5px; }
+  .pendcard .pendnone { margin:0; }
   #mvTradeTeam { width:100%; margin-bottom:8px; }
   #faSearch, #mvTradeNote { width:100%; margin:6px 0; }
   .teamrow { display:flex; align-items:center; gap:12px; width:100%; text-align:left; background:var(--card);
@@ -406,6 +515,10 @@
   .scstate.live { color:var(--accent); }
   .scteams { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:4px; font:600 15px var(--font-display); }
   .scteam { display:flex; align-items:center; gap:8px; }
+  /* Item 4 (2026-08-09): the NFL crest beside each abbrev. FIXED width/height (matching the
+     img element's own width/height attributes) so the row's height is decided before the image
+     arrives — a slow, missing or failed logo can never shift the score beside it. */
+  .sclogo { width:22px; height:22px; flex:0 0 auto; object-fit:contain; }
   .scpts { font-weight:800; font-variant-numeric:tabular-nums; }
   .scspread, .scmine { margin-top:4px; }
   .ffrow { display:flex; align-items:center; justify-content:space-between; gap:10px; }
@@ -415,14 +528,21 @@
   @media (min-width:1024px) { .scgrid { grid-template-columns:1fr 1fr; } }
 
   /* ---------------- lockers ---------------- */
-  .lockerhead { border-radius:var(--radius-card); padding:16px; margin-bottom:12px; background:var(--accent); color:#fff; }
-  .lockerhead-inner { display:flex; align-items:center; gap:14px; }
-  .lockerlogo { width:64px; height:64px; border-radius:16px; object-fit:cover; flex:0 0 auto; background:rgba(255,255,255,.15); }
-  .lockerlogo-ph { display:flex; align-items:center; justify-content:center; font-size:30px; }
-  .lockername { margin:0; font:700 24px var(--font-display); letter-spacing:.5px; text-transform:uppercase; }
-  .lockermotto { margin:2px 0; opacity:.92; font-style:italic; }
-  .lockerrec { margin:2px 0; font-family:var(--font-display); font-weight:600; opacity:.92; }
-  .lockeredit { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  /* Item 10 (2026-08-09 playtest: "need to shrink the team name card in half"). MEASURED at
+     390px: 182px tall for a logo, a name, a motto and a record. Everything it carried stays —
+     colour, crest, name, record, motto — at about half the scale: 8px padding instead of 16,
+     a 38px logo instead of 64, a 17px name instead of 24, and the owner's edit buttons on a
+     tighter row. */
+  .lockerhead { border-radius:var(--radius-card); padding:8px 12px; margin-bottom:10px; background:var(--accent); color:#fff; }
+  .lockerhead-inner { display:flex; align-items:center; gap:10px; }
+  .lockerlogo { width:38px; height:38px; border-radius:10px; object-fit:cover; flex:0 0 auto; background:rgba(255,255,255,.15); }
+  .lockerlogo-ph { display:flex; align-items:center; justify-content:center; font-size:17px; }
+  .lockerid { min-width:0; }
+  .lockername { margin:0; font:700 17px/1.15 var(--font-display); letter-spacing:.5px; text-transform:uppercase; }
+  .lockermotto { margin:0; opacity:.92; font-style:italic; font-size:12px; line-height:1.3; }
+  .lockerrec { margin:0; font:600 12px/1.3 var(--font-display); opacity:.92; }
+  .lockeredit { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  .lockeredit button { padding:5px 10px; font-size:11.5px; }
   .lockeredit button { background:rgba(0,0,0,.25); border-color:rgba(255,255,255,.35); color:#fff; }
 
   /* ---------------- player stats card (2026-08-08) ----------------
@@ -437,7 +557,28 @@
   .linfo { flex:1 1 auto; min-width:0; display:flex; align-items:center; justify-content:space-between; gap:8px;
            background:none; border:none; padding:0; margin:0; color:inherit; font:inherit;
            text-align:left; text-transform:none; letter-spacing:normal; cursor:pointer; }
+  /* Item 8 (2026-08-09 playtest: "on the my team tab the formatting totally cuts off player
+     names"). MEASURED at 390px before the fix: .lname was 94px wide, every name wrapped to
+     THREE lines, and a longer one ("C. McLaughlin K · TB") overflowed its 94px box outright
+     and was clipped by the overflow:hidden above. The row's fixed costs are a 52px slot chip,
+     a ~72px Swap button and a nowrap points column that will not shrink below its own text —
+     which between them left the name about a quarter of the row. Stacking .linfo on a phone
+     gives the name the WHOLE remaining width and puts the points on their own line beneath it,
+     which is also the natural reading order for a lineup row. */
+  @media (max-width:700px) {
+    .linfo { flex-direction:column; align-items:stretch; justify-content:center; gap:1px; }
+    .lname { white-space:normal; overflow:visible; text-overflow:clip; }
+    /* the meta wraps as a UNIT — otherwise a long name breaks the line right after
+       "QB ·" and leaves the team abbreviation stranded on its own */
+    .lname small { white-space:nowrap; }
+    .lpts { font-size:13px; }
+  }
   .lswap { flex:0 0 auto; }
+  /* Item 9: the LOCKED word is gone — a greyed-out Swap is the whole signal. It must READ as
+     unavailable (not merely be inert), and it must not brighten on hover the way a live button
+     does. Kept at the same size, so the row's geometry doesn't change when a game kicks off. */
+  .lswap[disabled] { opacity:.42; cursor:default; }
+  .lswap[disabled]:hover { border-color:var(--border-card); }
   .lswapfill { flex:1 1 auto; text-align:left; text-transform:none; letter-spacing:normal; }
   .pcinfo { flex:1 1 auto; min-width:0; text-align:left; background:none; border:none; padding:0; margin:0;
             color:inherit; font:inherit; text-transform:none; letter-spacing:normal; cursor:pointer; }
@@ -600,8 +741,11 @@
   <script src="assets/league/lg-ui.js"></script>
   <script>
     "use strict";
+    // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing
+    // (a matchup card, a locker), and the Matchup tab in particular must always land on the
+    // logged-in user's OWN game — see UI.navTo's note in lg-ui.js.
     document.querySelectorAll(".bnav button").forEach((b) =>
-      b.addEventListener("click", () => LG.ui.show(b.dataset.v)));
+      b.addEventListener("click", () => LG.ui.navTo(b.dataset.v)));
     document.getElementById("imgOverlay").addEventListener("click", () => { document.getElementById("imgOverlay").hidden = true; });
     // Player stats card (2026-08-08): bound ONCE, same posture as #imgOverlay above — the
     // overlay itself is persistent chrome (a sibling of #main, never destroyed by a render),

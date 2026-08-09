@@ -87,6 +87,11 @@ const fixture = {
   // fantasy upstream). Default false = the existing scored 2-matchup fixture; true = an
   // all-zero preseason/pre-draft shape (see ffScoreboardFix's own comment).
   ffAllZero: false,
+  // Section AD (2026-08-09 playtest batch). All default OFF, so every pre-existing section
+  // sees exactly the fixture it always did.
+  injMix: false,   // a spread of injury designations in the Sleeper directory (item 11)
+  manyFa: false,   // 60 extra free agents, so the FA table's own 40-row limit is really hit
+                   // and "Show more ↓" actually renders (item 12)
   // Section AC (2026-08-09, the "everything reads 0 / NaN" production bug). When true the
   // Sleeper directory, the archived week-1 stats, the forward projections and the historical
   // slate are all swapped for PRODUCTION-SHAPED ones: real player names, roster keys that are
@@ -560,6 +565,14 @@ function startXaiUpstream() {
 //   DAL DST sack1·int1·pa14           = 1+2+1           = 4.0
 //   Team 1 total (dual OR either-source-alone) = 41.0 → p2 (espn leads) 48.2
 const KICK_FUTURE = "2027-01-01T01:00Z";
+// Item 4's crest URLs. DEN is absent on purpose (see mk() below).
+const NFL_LOGO = {
+  PHI: "https://a.espncdn.com/i/teamlogos/nfl/500/phi.png",
+  DAL: "https://a.espncdn.com/i/teamlogos/nfl/500/dal.png",
+  KC: "https://a.espncdn.com/i/teamlogos/nfl/500/kc.png",
+  SF: "https://a.espncdn.com/i/teamlogos/nfl/500/sf.png",
+  SEA: "https://a.espncdn.com/i/teamlogos/nfl/500/sea.png",
+};
 function sbFix() {
   // Item 2 (2026-08-08): broadcasts[0].names[0] + odds[0].details, the SAME real ESPN
   // scoreboard fields netlify/functions/sports.mjs already reads for the standalone app's
@@ -571,9 +584,12 @@ function sbFix() {
       status: { type: { state, shortDetail: extra.detail || "" }, period: extra.period || 0, displayClock: extra.clock || "" },
       broadcasts: extra.net ? [{ names: [extra.net] }] : [],
       odds: extra.spread ? [{ details: extra.spread }] : [],
+      // Item 4 (2026-08-09): ESPN's own competitor.team.logo. DEN deliberately has NONE, so
+      // the "a game whose crest is missing still renders cleanly" case is a real one in the
+      // fixture rather than a hypothetical.
       competitors: [
-        { homeAway: "home", team: { abbreviation: homeAb }, score: extra.hs },
-        { homeAway: "away", team: { abbreviation: awayAb }, score: extra.as },
+        { homeAway: "home", team: { abbreviation: homeAb, logo: NFL_LOGO[homeAb] || "" }, score: extra.hs },
+        { homeAway: "away", team: { abbreviation: awayAb, logo: NFL_LOGO[awayAb] || "" }, score: extra.as },
       ],
     }],
   });
@@ -620,8 +636,8 @@ function sbSim2025Fix() {
       broadcasts: net ? [{ names: [net] }] : [],
       odds: (extra && extra.spread) ? [{ details: extra.spread }] : [],
       competitors: [
-        { homeAway: "home", team: { abbreviation: home }, score: (extra && extra.hs) || "20" },
-        { homeAway: "away", team: { abbreviation: away }, score: (extra && extra.as) || "17" },
+        { homeAway: "home", team: { abbreviation: home, logo: "https://a.espncdn.com/i/teamlogos/nfl/500/" + home.toLowerCase() + ".png" }, score: (extra && extra.hs) || "20" },
+        { homeAway: "away", team: { abbreviation: away, logo: "https://a.espncdn.com/i/teamlogos/nfl/500/" + away.toLowerCase() + ".png" }, score: (extra && extra.as) || "17" },
       ],
     }],
   });
@@ -724,6 +740,33 @@ const slpPlayersFix = {
   KC: { first_name: "Kansas City", last_name: "Chiefs", team: "KC", position: "DEF" },
   DEN: { first_name: "Denver", last_name: "Broncos", team: "DEN", position: "DEF" },
 };
+// Item 11 (2026-08-09): a spread of REAL upstream designations, layered over the base
+// directory only when fixture.injMix is on. P. Passer is deliberately "Active" — the whole
+// point of the change is that a healthy player renders nothing at all — and "PUP" is the
+// unanticipated-but-real case that must still show something. (I. Injured already carries
+// "Out" in the base fixture, so OUT is covered without a flag.)
+// Item 12: manyFa pads the directory with 60 more genuinely unrostered free agents so the
+// players table's own 40-row limit is really hit and "Show more ↓" renders.
+function slpDirectoryFix() {
+  let dir = slpPlayersFix;
+  if (fixture.injMix) {
+    dir = { ...dir,
+      "6904": { ...dir["6904"], injury_status: "Active" },
+      "4866": { ...dir["4866"], injury_status: "Questionable" },
+      "9007": { ...dir["9007"], injury_status: "Doubtful" },
+      "9002": { ...dir["9002"], injury_status: "PUP" },
+      "9201": { ...dir["9201"], injury_status: "Questionable" },
+    };
+  }
+  if (fixture.manyFa) {
+    dir = { ...dir };
+    const pos = ["WR", "RB", "TE", "QB", "K"];
+    for (let i = 0; i < 60; i++) {
+      dir["95" + (100 + i)] = { full_name: "Filler " + String.fromCharCode(65 + (i % 26)) + i, team: "KC", position: pos[i % 5], search_rank: 500 + i };
+    }
+  }
+  return dir;
+}
 // Section V (adversarial review 2026-08-08) needs Sleeper's stats endpoint to answer
 // DIFFERENTLY per week — the whole point of findings 1/3/7 is that week N and week N+1 hold
 // different numbers, and the pre-fix suite could not tell them apart because every week
@@ -872,6 +915,58 @@ function fullSeed(opts) {
   };
 }
 
+// ---------------- section AD fixtures (2026-08-09 playtest batch) ----------------
+// Item 8's check needs REALISTIC name lengths. The base fixture's players are all "P. Passer"
+// shaped, and a check written against those would pass whether or not the name column is wide
+// enough — the pre-fix column was 94px, which "P. Passer QB · PHI" happens to survive by
+// wrapping. These are real NFL names of real length (rendered short-form by LG.shortName, so
+// "Christian McCaffrey" reaches the row as "C. McCaffrey"); keys/pos/team/slots are UNCHANGED
+// from seedRosterT1 so everything else on the page still resolves exactly as it did.
+const LONG_NAMES = {
+  "3915511": "Marvin Harrison Jr.", "4241457": "Amon-Ra St. Brown", "111888": "Christian McCaffrey",
+  "4361741": "Jaxon Smith-Njigba", "111555": "Bijan Robinson", "111222": "Trey McBride",
+  "111444": "Kenneth Walker III", "2473037": "Chase McLaughlin", "111333": "Ladd McConkey",
+  "111666": "Rome Odunze", "111777": "Puka Nacua",
+};
+// Item 11's designations, as an ESPN import would really write them onto the roster doc.
+// "Active" on the QB is the point of the whole change (a healthy player must render NOTHING);
+// PUP is the unanticipated-but-real status that must still show something. I. Injured already
+// carries "Out" in the base fixture.
+const AD_INJ = {
+  "3915511": "Active",       // M. Harrison Jr.  -> no chip at all
+  "4241457": "Questionable",  // A. St. Brown     -> Q
+  "111888": "Doubtful",       // C. McCaffrey     -> D
+  "111333": "PUP",            // L. McConkey      -> PUP
+};
+function seedLongNames() {
+  const base = fullSeed();
+  const r1 = seedRosterT1();
+  return { ...base, docs: { ...base.docs,
+    roster_2026_w1_t1: { ...r1, players: r1.players.map((p) => ({
+      ...p,
+      ...(LONG_NAMES[p.key] ? { name: LONG_NAMES[p.key] } : {}),
+      ...(AD_INJ[p.key] ? { injury: AD_INJ[p.key] } : {}),
+    })) },
+  } };
+}
+// Item 13's populated state: one waiver claim of mine, one trade offered TO me (so Accept /
+// Decline both render), and one trade between two OTHER teams sitting in the league-veto
+// window (so a Veto button renders too). reviewEndsAt is a week out, so runAutoChecks can
+// never execute it out from under the measurement.
+function seedPending() {
+  const base = fullSeed();
+  const future = Date.now() + 7 * 86400000;
+  return { ...base, docs: { ...base.docs,
+    claim_2026_w1_adc1: { kind: "claim", season: 2026, week: 1, claimId: "adc1", teamId: 1,
+      addKey: "9201", addName: "F. Agent", addPos: "WR", addTeam: "KC",
+      dropKey: "111333", dropName: "B. Backup", bid: 25, t: 1 },
+    trade_ad_a: { kind: "trade", id: "trade_ad_a", from: 2, to: 1, give: ["222333"], get: ["3915511"],
+      note: "", status: "offered", t: 1, acceptedAt: null, reviewEndsAt: null, vetoes: [] },
+    trade_ad_b: { kind: "trade", id: "trade_ad_b", from: 3, to: 4, give: [], get: [],
+      note: "", status: "accepted", t: 2, acceptedAt: 2, reviewEndsAt: future, vetoes: [] },
+  } };
+}
+
 // ---------------- player-stats-card fixture (2026-08-08) ----------------
 // Weeks 1-4 written directly as "weekly" docs (the section M4/S7 technique — bypasses
 // LG.finalizeWeek's live-data gate entirely; the game log only needs to know a week is
@@ -1017,6 +1112,15 @@ async function newTestPage(browser, seed, opts) {
           return restRespond(req, u, opts.rest);
         }
         if (/gstatic|googleapis|firebase/.test(u)) return req.abort();
+        // ESPN's crest CDN (item 4). Answered with a tiny SVG so the image genuinely LOADS —
+        // an aborted request would leave every <img> broken, the review plates would show no
+        // crests at all, and "the logo renders" could only ever be asserted as "the element
+        // exists", which is not the same thing.
+        if (/a\.espncdn\.com\/i\/teamlogos/.test(u)) {
+          const ab = ((/\/([a-z0-9]+)\.png$/i.exec(u) || [])[1] || "nfl").toUpperCase();
+          return req.respond({ status: 200, contentType: "image/svg+xml", headers: cors,
+            body: `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="32" cy="32" r="31" fill="#2a4f80"/><text x="32" y="40" font-size="21" fill="#fff" text-anchor="middle" font-family="sans-serif">${ab.slice(0, 3)}</text></svg>` });
+        }
         if (u.includes("site.api.espn.com")) {
           if (fixture.espnDown) return req.respond({ status: 503, headers: cors, body: "{}" });
           if (u.includes("/scoreboard")) {
@@ -1033,7 +1137,7 @@ async function newTestPage(browser, seed, opts) {
         if (u.includes("api.sleeper.app")) {
           if (fixture.sleeperDown) return req.respond({ status: 503, headers: cors, body: "{}" });
           if (u.endsWith("/state/nfl")) return json(fixture.sleeperWeek != null ? { ...slpStateFix, week: fixture.sleeperWeek } : slpStateFix);
-          if (u.endsWith("/players/nfl")) return json(fixture.prod2025 ? prodSlpDirectory() : slpPlayersFix);
+          if (u.endsWith("/players/nfl")) return json(fixture.prod2025 ? prodSlpDirectory() : slpDirectoryFix());
           if (u.includes("/stats/nfl/")) {
             const sm = /\/stats\/nfl\/[^/]+\/(\d+)\/(\d+)/.exec(u);
             if (fixture.prod2025) return json(PROD_WEEK1);
@@ -1498,7 +1602,12 @@ async function openDetails(page, id) {
     await page.waitForSelector(".muhead", { timeout: 9000 });
     const pts = await page.$$eval(".bigpts", (els) => els.map((e) => e.textContent));
     ok(pts[0] === "4.0" && pts[1] === "41.0", "header totals away 4.0 / home 41.0 (" + pts.join("/") + ")");
-    ok((await page.$$eval(".mutable tbody tr", (els) => els.length)) === 9, "9 slot rows (QB RB RB WR WR TE FLEX DST K)");
+    // RESTAGED 2026-08-09 (playtest item 3: "the bench player section should match the
+    // formatting of the non bench"). The bench table now carries the SAME .mutable class as
+    // the starters — that is the fix — so ".mutable tbody tr" is no longer "the starters"; it
+    // is both tables. Scoped to the one that isn't the bench. The property under test (nine
+    // starter slots) is unchanged.
+    ok((await page.$$eval(".mutable:not(.benchtable) tbody tr", (els) => els.length)) === 9, "9 slot rows (QB RB RB WR WR TE FLEX DST K)");
     const passerCell = await page.evaluate(() => {
       const tr = [...document.querySelectorAll(".mutable tbody tr")].find((r) => r.textContent.includes("P. Passer"));
       return tr ? tr.textContent : "";
@@ -1627,9 +1736,27 @@ async function openDetails(page, id) {
       "the bottom-nav \"My Team\" button still lights up as active, even though the underlying view is \"locker\"");
     const starters = await page.$$eval("#lockerStarters .lrow", (els) => els.length);
     ok(starters === 9, "9 starter slots rendered");
-    // Restaged (item 10, no emoji in app chrome): the lock marker is plain text ("LOCKED") now.
-    const locked = await page.$$eval(".lrow.locked", (els) => els.map((e) => e.textContent));
-    ok(locked.length === 5 && locked.every((t) => t.includes("LOCKED")), "5 starters locked (their game is live) with a LOCKED marker");
+    // RESTAGED 2026-08-09 (playtest item 9: "we dont need the word locked we just need to gray
+    // out the swap button"). The LOCKED word is gone — the marker IS the disabled Swap button
+    // now, so the check reads the property that actually exists: five locked rows, every one
+    // of them with a genuinely disabled Swap, and no ".lock" element left anywhere.
+    const locked = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".lrow.locked")];
+      return {
+        n: rows.length,
+        allDisabled: rows.every((r) => { const b = r.querySelector(".lswap"); return !!b && b.disabled; }),
+        anyLockWord: /LOCKED/.test(document.body.textContent),
+        lockEls: document.querySelectorAll(".lrow .lock").length,
+      };
+    });
+    ok(locked.n === 5 && locked.allDisabled, "5 starters locked (their game is live), each with a DISABLED Swap button (" + JSON.stringify(locked) + ")");
+    ok(!locked.anyLockWord && locked.lockEls === 0, "…and the word LOCKED appears nowhere on the page any more");
+    const unlockedSwap = await page.evaluate(() => {
+      const r = [...document.querySelectorAll(".lrow")].find((x) => !x.classList.contains("locked") && x.querySelector(".lswap") && x.textContent.includes("F. Flexman"));
+      const b = r && r.querySelector(".lswap");
+      return b ? { disabled: b.disabled, h: Math.round(b.getBoundingClientRect().height) } : null;
+    });
+    ok(!!unlockedSwap && unlockedSwap.disabled === false, "…while an UNLOCKED starter's Swap button is still enabled (" + JSON.stringify(unlockedSwap) + ")");
     ok(/0\/3/.test(await page.evaluate(() => document.body.textContent)), "IR shows 0/3 — the league's 3 IR spots");
     const tightRow = await page.evaluate(() => {
       const el = [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("T. Tight"));
@@ -1639,8 +1766,14 @@ async function openDetails(page, id) {
     // Locked tap refuses. RESTAGED (2026-08-08, player-card split): a filled .lrow's own
     // click now opens the stats card, not the swap sheet — the swap affordance is its own
     // .lswap button (item 3's "keep the existing swap affordance as its own button").
+    // RESTAGED 2026-08-09 (item 9): a locked row's Swap button is DISABLED, so clicking it
+    // fires no event at all — there is no toast to assert any more, and that is the point:
+    // the refusal happens before the tap instead of after it. What must still hold is that no
+    // swap sheet opens. (openSwap keeps its own lock guard for the paths a disabled button
+    // can't reach — an empty slot's candidate list, a bumped starter — exercised below.)
     await clickChildIn(page, ".lrow", ".lswap", "P. Passer");
-    ok(/already started/.test(await text(page, "#toast")), "tapping a locked starter's Swap button toasts instead of opening the sheet");
+    await sleep(150);
+    ok(!(await page.$(".swaprow")), "clicking a locked starter's greyed-out Swap does nothing — no sheet opens");
     // Injured bench player -> IR.
     await clickChildIn(page, ".lrow", ".lswap", "I. Injured");
     await page.waitForSelector(".swaprow", { timeout: 5000 });
@@ -6321,12 +6454,15 @@ async function openDetails(page, id) {
       await driveTo(page, Date.parse("2025-09-04T14:00:00Z"), 1);
       await clickIn(page, '.bnav button[data-v="team"]');
       await page.waitForFunction(() => document.querySelector(".lrow"), { timeout: 15000 });
+      // RESTAGED 2026-08-09 (item 9): ".lrow .lock" no longer exists at all, so counting it
+      // would be a vacuous 0 forever. The live signal is the Swap button's own disabled state,
+      // which is what a player actually sees — counted here instead.
       const early = await page.evaluate(() => ({
         locked: document.querySelectorAll(".lrow.locked").length,
-        labels: document.querySelectorAll(".lrow .lock").length,
+        disabledSwaps: [...document.querySelectorAll(".lrow .lswap")].filter((b) => b.disabled).length,
       }));
-      ok(early.locked === 0 && early.labels === 0,
-        "before any kickoff every lineup slot is editable — nothing is locked (" + early.locked + ")");
+      ok(early.locked === 0 && early.disabledSwaps === 0,
+        "before any kickoff every lineup slot is editable — nothing is locked, every Swap enabled (" + JSON.stringify(early) + ")");
       await driveTo(page, LIVE_AT, 1);
       await page.evaluate(() => window.__GFFL__.UI.show("team"));
       await page.waitForFunction(() => document.querySelector(".lrow"), { timeout: 15000 });
@@ -7287,6 +7423,612 @@ async function openDetails(page, id) {
       await page.screenshot({ path: path.join(ROOT, "shots", "gffl_nanfix_matchup_desktop.png") });
       await ctx.close();
       fixture.prod2025 = false;
+    }
+  }
+
+  // ================================================================================
+  //  AD · the 2026-08-09 playtest batch (thirteen items from one session at the wheel)
+  // ================================================================================
+  // Every check here is behaviour or GEOMETRY, never "the markup contains a class name" —
+  // three of these items are layout complaints ("cuts off player names", "slim it down by
+  // half"), and a markup assertion cannot tell you whether a name fits.
+  // The before-numbers quoted in the budgets are MEASURED, at 390x844, against the pre-batch
+  // code (scratchpad probe, then re-confirmed by stashing the three app files back to HEAD).
+  section("AD · playtest batch 2026-08-09 — feed, slot colours, bench, logos, possession, headers, nav, locks, injuries, Moves");
+  {
+    // ---- AD1: the matchup feed is a bounded scroll box, attributed per team, filterable.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+      fixture.phase = 2;
+      await poll(page);
+      // Enough events to make the box genuinely overflow. Pushed straight into the live
+      // engine's own event list (the same shape applySide produces) and re-rendered — the
+      // feature under test is the BOX, not how many stats a fixture happens to move.
+      await page.evaluate(async () => {
+        const { D, UI } = window.__GFFL__;
+        for (let i = 0; i < 40; i++) {
+          D.S.events.unshift({ t: Date.now(), key: i % 2 ? "3915511" : "222111",
+            name: i % 2 ? "P. Passer" : "Q. Rival", stat: "rec_yd", from: i, to: i + 1, dPts: 0.1 });
+        }
+        await UI.renderMatchup(true);
+      });
+      const box = await page.evaluate(() => {
+        const el = document.querySelector("#mufeed");
+        const cs = getComputedStyle(el);
+        return { h: Math.round(el.clientHeight), sh: el.scrollHeight, oy: cs.overflowY,
+                 maxH: cs.maxHeight, ob: cs.overscrollBehaviorY, lines: el.querySelectorAll(".fline").length };
+      });
+      ok(box.oy === "auto" && box.maxH !== "none", "the feed is a bounded box (overflow-y " + box.oy + ", max-height " + box.maxH + ")");
+      ok(box.h > 0 && box.h <= 320, "…capped at roughly a third of a phone screen, not the whole page (" + box.h + "px)");
+      ok(box.sh > box.h + 20, "…and it really SCROLLS with a busy feed (" + box.sh + " of content in " + box.h + "px)");
+      ok(box.ob === "contain", "…with overscroll-behavior:contain, so a rubber-band drag stops at its own edge");
+      // Attribution: every non-system line names the team it came from.
+      const attr = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll("#mufeed .fline")].filter((r) => !r.classList.contains("sys"));
+        const chips = rows.map((r) => { const c = r.querySelector(".fteam"); return c ? c.textContent.trim() : null; });
+        const passer = rows.find((r) => r.textContent.includes("P. Passer"));
+        const rival = rows.find((r) => r.textContent.includes("Q. Rival"));
+        const tag = (r) => { const c = r && r.querySelector(".fteam"); return c ? c.textContent.trim() : null; };
+        return {
+          total: rows.length, missing: chips.filter((c) => !c).length,
+          tags: [...new Set(chips)].sort(),
+          passerTag: tag(passer), passerSide: passer && passer.className,
+          rivalTag: tag(rival), rivalSide: rival && rival.className,
+        };
+      });
+      ok(attr.total > 0 && attr.missing === 0, "every feed event carries a team chip (" + attr.total + " lines, " + attr.missing + " unattributed)");
+      ok(attr.passerTag === "T1" && /home/.test(attr.passerSide), "…a home starter's line is tagged with the HOME team (" + attr.passerTag + ")");
+      ok(attr.rivalTag === "T2" && /away/.test(attr.rivalSide), "…and an away starter's with the away team (" + attr.rivalTag + ")");
+      // The filter: three chips, Both selected, and picking a side is a pure re-render.
+      const chips0 = await page.$$eval("#mufeedFilter .poschip", (els) => els.map((e) => e.textContent.trim() + (e.classList.contains("on") ? "*" : "")));
+      ok(chips0.join("|") === "Both*|T2|T1", "the feed carries a Both / away / home filter, defaulting to Both (" + chips0.join("|") + ")");
+      const before = await page.evaluate(() => {
+        window.__GFFL__.UI.__adMark = document.querySelector("#aiReadOut");
+        window.__GFFL__.UI.__adMark.dataset.adMarker = "1";
+        return { calls: Object.values(window.__GFFL__.D.EP).reduce((s, e) => s + e.n, 0), all: (window.__GFFL__.UI._feedAll || []).length };
+      });
+      await clickIn(page, "#mufeedFilter .poschip", "T2");
+      await sleep(120);
+      const after = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll("#mufeed .fline")];
+        return {
+          calls: Object.values(window.__GFFL__.D.EP).reduce((s, e) => s + e.n, 0),
+          all: (window.__GFFL__.UI._feedAll || []).length,
+          shown: rows.length,
+          onlyAway: rows.every((r) => r.classList.contains("away")),
+          markerAlive: !!document.querySelector('[data-ad-marker="1"]'),
+          side: window.__GFFL__.UI._feedSide,
+        };
+      });
+      ok(after.side === "a" && after.shown > 0 && after.onlyAway, "picking the away team leaves only that team's events (" + after.shown + " lines)");
+      ok(after.shown < attr.total, "…strictly fewer than Both showed (" + after.shown + " of " + attr.total + ")");
+      ok(after.calls === before.calls && after.all === before.all, "…and it re-filters what is already in memory — zero new upstream calls (" + before.calls + "->" + after.calls + ")");
+      ok(after.markerAlive, "…repainting the feed alone, never the whole page (the AI-read card survived untouched)");
+      // A side with nothing says so rather than looking broken.
+      await page.evaluate(() => {
+        const { D, UI } = window.__GFFL__;
+        D.S.events.length = 0;
+        D.S.events.push({ t: Date.now(), key: "3915511", name: "P. Passer", stat: "rec_yd", from: 0, to: 1, dPts: 0.1 });
+        return UI.renderMatchup(true);
+      });
+      await clickIn(page, "#mufeedFilter .poschip", "T2");
+      await sleep(120);
+      ok(/Nothing from T2 yet/.test(await text(page, "#mufeed") || ""), "a side with no events yet says so plainly");
+      // Opening a DIFFERENT matchup starts on Both again — the filter is per-matchup.
+      await clickIn(page, '.bnav button[data-v="league"]');
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await clickIn(page, ".mucard:not(.mine)");
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+      ok((await page.evaluate(() => window.__GFFL__.UI._feedSide)) === "both", "…and a different matchup starts on Both, never inheriting the last one's side");
+      if (SHOTS) {
+        // The feed is item 1 and lives well below the fold — a top-of-page plate would never
+        // show it, so this one is framed on the feed card itself. Back on the USER'S OWN
+        // matchup first: the check just above deliberately left us on another league game,
+        // whose starters have no events at all, so a plate taken there would be an empty box.
+        fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true });
+        await clickIn(page, '.bnav button[data-v="matchup"]');
+        await page.waitForSelector(".muhead", { timeout: 9000 });
+        await page.evaluate(async () => {
+          const { D, UI } = window.__GFFL__;
+          for (let i = 0; i < 24; i++) {
+            D.S.events.unshift({ t: Date.now(), key: i % 2 ? "3915511" : "222111",
+              name: i % 2 ? "P. Passer" : "Q. Rival", stat: i % 3 ? "rec_yd" : "rush_td", from: i, to: i + 1, dPts: i % 3 ? 0.4 : 6 });
+          }
+          await UI.renderMatchup(true);
+          const c = document.querySelector("#mufeed").closest(".card");
+          window.scrollTo(0, c.getBoundingClientRect().top + window.scrollY - 60);
+        });
+        await sleep(300);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_feed_390.png") });
+        console.log("  📸 shots/gffl_pt_feed_390.png");
+      }
+      ok(errors.length === 0, "0 page errors");
+      fixture.phase = 1;
+      await ctx.close();
+    }
+
+    // ---- AD2/AD3/AD5/AD6: the matchup page — slot colours, the bench, possession, the header.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+
+      // AD2 — the slot badge between the two teams takes the DRAFT's position palette.
+      const slots = await page.evaluate(() => {
+        const hex = (h) => { const n = parseInt(h.replace("#", ""), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+        const root = getComputedStyle(document.documentElement);
+        const want = {};
+        for (const p of ["QB", "RB", "WR", "TE", "K", "DST", "X"]) want[p] = hex(root.getPropertyValue("--pos-" + p).trim());
+        // The colour lives on the badge INSIDE the cell, so read the badge (a full-cell tint
+        // was the first cut and reads as a slab of colour — see the CSS note in league.html).
+        const paint = (td) => { const b = td && (td.querySelector(".slotbadge") || td); return b && { pos: td.dataset.pos, bg: getComputedStyle(b).backgroundColor, h: Math.round(b.getBoundingClientRect().height) }; };
+        const cells = [...document.querySelectorAll(".mutable:not(.benchtable) tbody td.slotcell")].map((td) => ({
+          slot: td.textContent.trim(), ...paint(td), cellH: Math.round(td.getBoundingClientRect().height),
+        }));
+        return { want, cells,
+          bench: paint(document.querySelector(".benchtable td.slotcell")),
+          tot: paint(document.querySelector(".totalrow td.slotcell")) };
+      });
+      const matched = slots.cells.filter((c) => slots.want[c.pos] === c.bg);
+      ok(matched.length === slots.cells.length,
+        "every slot badge is painted with its own --pos-* draft colour (" + matched.length + "/" + slots.cells.length + ")");
+      const distinct = new Set(slots.cells.map((c) => c.bg));
+      ok(distinct.size >= 6, "…and the positions are genuinely different colours, not one tint (" + distinct.size + " distinct)");
+      const tall = slots.cells.filter((c) => c.h > c.cellH - 6);
+      ok(tall.length === 0, "…as a compact badge, not a full-row-height slab of colour (" + slots.cells.map((c) => c.h + "/" + c.cellH).join(" ") + ")");
+      const flex = slots.cells.find((c) => c.slot === "FLEX");
+      ok(!!flex && flex.pos === "X" && flex.bg === slots.want.X, "FLEX is not a single position, so it takes the neutral --pos-X");
+      ok(slots.bench && slots.bench.pos === "X" && slots.bench.bg === slots.want.X, "…as do BENCH");
+      ok(slots.tot && slots.tot.pos === "X" && slots.tot.bg === slots.want.X, "…and the TOT row");
+
+      // AD3 — the bench renders exactly like the starters, and never pans sideways.
+      const bench = await page.evaluate(() => {
+        const st = document.querySelector(".mutable:not(.benchtable)");
+        const bn = document.querySelector(".benchtable");
+        const cell = (t) => t.querySelector("tbody td.slotcell");
+        const pan = bn.closest(".panner");
+        return {
+          benchIsMutable: bn.classList.contains("mutable"),
+          layout: [getComputedStyle(st).tableLayout, getComputedStyle(bn).tableLayout],
+          ws: [getComputedStyle(st.querySelector("tbody td")).whiteSpace, getComputedStyle(bn.querySelector("tbody td")).whiteSpace],
+          slotW: [Math.round(cell(st).getBoundingClientRect().width), Math.round(cell(bn).getBoundingClientRect().width)],
+          panOverflow: pan.scrollWidth - pan.clientWidth,
+          body: document.body.scrollWidth, win: window.innerWidth,
+        };
+      });
+      ok(bench.benchIsMutable, "the bench table carries the same .mutable formatting as the starters");
+      ok(bench.layout[0] === "fixed" && bench.layout[1] === "fixed", "…the same fixed table layout (" + bench.layout.join("/") + ")");
+      ok(bench.ws[0] === "normal" && bench.ws[1] === "normal", "…the same wrapping cells (" + bench.ws.join("/") + ")");
+      ok(bench.slotW[0] === bench.slotW[1], "…and identical column widths (" + bench.slotW.join(" vs ") + ")");
+      ok(bench.panOverflow <= 1, "…so the bench needs NO horizontal scrolling at 390px (overflow " + bench.panOverflow + "px)");
+      ok(bench.body <= bench.win + 1, "…and the page itself still never scrolls sideways");
+
+      // AD5 — possession: only the offence, never the defence, never a finished/pre game.
+      const poss = await page.evaluate(() => {
+        const d = window.__GFFL__.D;
+        const cellFor = (nm) => {
+          const tr = [...document.querySelectorAll(".mutable tbody tr")].find((r) => r.textContent.includes(nm));
+          const g = tr && [...tr.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
+          return g && { ball: g.classList.contains("hasball"), pip: !!g.querySelector(".possdot") };
+        };
+        return {
+          phi: d.S.games.get("PHI") && d.S.games.get("PHI").poss,
+          dal: d.S.games.get("DAL") && d.S.games.get("DAL").poss,
+          passer: cellFor("P. Passer"), receiver: cellFor("W. Receiver"),
+          phiDst: cellFor("PHI D/ST"), rusher: cellFor("R. Rusher"),
+        };
+      });
+      ok(poss.phi === true && poss.dal === false, "the drive's own team is recorded as having the ball, its opponent is not (PHI " + poss.phi + " / DAL " + poss.dal + ")");
+      ok(poss.passer && poss.passer.ball && poss.passer.pip, "a PHI starter is highlighted with a possession pip");
+      ok(poss.receiver && poss.receiver.ball, "…so is his team-mate");
+      ok(poss.phiDst && !poss.phiDst.ball && !poss.phiDst.pip, "…but PHI's D/ST is NOT — its side has the ball, so the defence is off the field");
+      ok(poss.rusher && !poss.rusher.ball, "…and nobody on the other team is highlighted");
+      // It survives a bare scoreboard tick — the scoreboard carries no drive at all, so a
+      // rebuild that forgot to carry it would blank the highlight between summary polls.
+      const kept = await page.evaluate(async () => {
+        await window.__GFFL__.D.pollScoreboard();
+        return window.__GFFL__.D.S.games.get("PHI").poss;
+      });
+      ok(kept === true, "…and it survives a scoreboard-only refresh instead of flickering off (" + kept + ")");
+
+      // AD6 — the header card, halved.
+      const head = await page.evaluate(() => {
+        const h = document.querySelector(".muhead");
+        const txt = h.textContent.replace(/\s+/g, " ");
+        return {
+          height: Math.round(h.getBoundingClientRect().height),
+          wp: !!h.querySelector(".wpfill"), live: !!h.querySelector(".mulive"),
+          avatars: h.querySelectorAll(".muavatar").length,
+          pts: [...h.querySelectorAll(".bigpts")].map((e) => e.textContent.trim()),
+          proj: /proj/i.test(txt), toPlay: /to play/.test(txt), live2: /live/.test(txt),
+          names: /Battle Kreussers/.test(txt) && /End Zone Goats/.test(txt),
+        };
+      });
+      // MEASURED before this batch, same fixture, same viewport: 220px.
+      ok(head.height <= 120, "the matchup header is halved — 220px before this batch, " + head.height + "px now");
+      ok(head.wp && head.live, "…with the win-probability bar and the live/Final indicator both still on it");
+      ok(head.avatars === 2 && head.names && head.pts.join("/") === "4.0/41.0", "…both crests, both names, both scores");
+      ok(head.proj && head.toPlay && head.live2, "…and Proj + the to-play/live counts, consolidated rather than dropped");
+      if (SHOTS) {
+        fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true });
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_matchup_390.png") });
+        await page.setViewport({ width: 1440, height: 900 });
+        await sleep(350);
+        await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
+        await sleep(250);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_matchup_desktop.png") });
+        console.log("  📸 shots/gffl_pt_matchup_{390,desktop}.png");
+      }
+      ok(errors.length === 0, "0 page errors on the matchup page");
+      await ctx.close();
+    }
+
+    // ---- AD7: the Matchup TAB always lands on the logged-in user's own game.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await clickIn(page, ".mucard:not(.mine)");
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+      const other = await page.evaluate(() => window.__GFFL__.UI.matchup);
+      ok(other && other[0] !== 1 && other[1] !== 1, "tapping another league game opens THAT matchup (" + JSON.stringify(other) + ")");
+      // A live repaint must NEVER yank a reader out of a game they deliberately opened.
+      await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
+      await sleep(150);
+      ok(JSON.stringify(await page.evaluate(() => window.__GFFL__.UI.matchup)) === JSON.stringify(other),
+        "…and a live repaint leaves them in it");
+      await clickIn(page, '.bnav button[data-v="league"]');
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await clickIn(page, '.bnav button[data-v="matchup"]');
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+      const mineNow = await page.evaluate(() => window.__GFFL__.UI.matchup);
+      ok(JSON.stringify(mineNow) === "[1,2]", "…but pressing the Matchup TAB always returns to the user's own game (" + JSON.stringify(mineNow) + ")");
+      const shown = await page.evaluate(() => document.querySelector(".muhead").textContent);
+      ok(/Battle Kreussers/.test(shown), "…and that is the game on screen, not merely the state variable");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AD4: NFL crests on the Scores tab, live board AND the 2025 replay.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("scores"));
+      await page.waitForSelector(".sccard", { timeout: 9000 });
+      // The crest is a real (intercepted) network image, so "did it load?" cannot be SAMPLED
+      // the instant the card appears — under load the request is still in flight and the read
+      // comes back neither loaded nor errored (complete:false, visibility:visible, because
+      // onerror hasn't fired either). Wait for every crest to SETTLE one way or the other, then
+      // assert which way it went; a genuinely broken image still fails this, it just fails
+      // deterministically instead of racing.
+      await page.waitForFunction(
+        () => [...document.querySelectorAll("img.sclogo")].every((i) => i.complete),
+        { timeout: 9000 },
+      );
+      const logos = await page.evaluate(() => {
+        const cards = [...document.querySelectorAll(".sccard")];
+        // Per TEAM span, never per card: a card holds two teams and only one of them is the
+        // one under test (DEN is the fixture's deliberately crest-less team, and it shares a
+        // card with KC, which has one).
+        const spanFor = (ab) => {
+          for (const c of cards) for (const s of c.querySelectorAll(".scteam")) {
+            const b = s.querySelector("b");
+            if (b && b.textContent.trim() === ab) return s;
+          }
+          return null;
+        };
+        const phi = spanFor("PHI"), den = spanFor("DEN");
+        const img = phi && phi.querySelector("img.sclogo");
+        const r = img && img.getBoundingClientRect();
+        return {
+          total: document.querySelectorAll("img.sclogo").length,
+          src: img && img.getAttribute("src"),
+          size: r && [Math.round(r.width), Math.round(r.height)],
+          loaded: !!(img && img.complete && img.naturalWidth > 0),
+          vis: img && getComputedStyle(img).visibility,
+          denImgs: den ? den.querySelectorAll("img.sclogo").length : -1,
+          kcImgs: (spanFor("KC") || { querySelectorAll: () => [] }).querySelectorAll("img.sclogo").length,
+          heights: cards.map((c) => Math.round(c.querySelector(".scteams").getBoundingClientRect().height)),
+          abbrevs: cards.map((c) => [...c.querySelectorAll(".scteam b")].map((b) => b.textContent.trim()).join("@")),
+        };
+      });
+      ok(logos.total >= 3, "the NFL scoreboard renders team crests (" + logos.total + " on the board)");
+      ok(/teamlogos\/nfl\/500\/phi\.png$/.test(logos.src || ""), "…from the slate's own team.logo URL (" + logos.src + ")");
+      ok(logos.size && logos.size[0] === 22 && logos.size[1] === 22, "…at a fixed 22x22, so a slow crest can't shift the score (" + JSON.stringify(logos.size) + ")");
+      ok(logos.loaded === true && logos.vis === "visible", "…and the image genuinely LOADED and is on screen, not a hidden broken box (" + logos.loaded + "/" + logos.vis + ")");
+      ok(logos.denImgs === 0 && logos.kcImgs === 1, "a team with NO crest in the payload renders no image at all — never a broken one (DEN " + logos.denImgs + ", its opponent KC " + logos.kcImgs + ")");
+      ok(new Set(logos.heights).size === 1, "…and the crest-less row is exactly as tall as the others (" + logos.heights.join("/") + ")");
+      ok(logos.abbrevs.every((a) => a.length >= 3), "…with the abbreviations still there beside them (" + logos.abbrevs.join(" ") + ")");
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_scores_390.png") }); console.log("  📸 shots/gffl_pt_scores_390.png"); }
+      ok(errors.length === 0, "0 page errors on the Scores tab");
+      await ctx.close();
+    }
+
+    // ---- AD4b/AD5b: the 2025 REPLAY — crests come through its own (different) slate parser,
+    // and with no drive data at all nobody is ever highlighted.
+    {
+      fixture.rich2025 = true;
+      const { ctx, page, errors } = await newTestPage(browser, { docs: { ...seedTeams() }, pass: "amenfarms", team: 1, who: "Peter" });
+      await page.goto(BASE + "/league.html?fam=" + FAM + "&simspeed=0", { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => !!window.__GFFL__, { timeout: 12000 });
+      ok(await waitOr(page, ".mucard", 25000), "the 2025 replay boots (its own historical-slate parser, not pollScoreboard)");
+      await page.waitForFunction(() => window.__GFFL__.D.S.nflEvents.length > 0, { timeout: 15000 });
+      await page.evaluate(() => window.__GFFL__.UI.show("scores"));
+      await page.waitForSelector(".sccard", { timeout: 15000 });
+      const rep = await page.evaluate(() => ({
+        logos: document.querySelectorAll("img.sclogo").length,
+        poss: [...window.__GFFL__.D.S.games.values()].filter((g) => g.poss).length,
+      }));
+      ok(rep.logos >= 4, "…and its crests reach the board too (" + rep.logos + ")");
+      await page.evaluate(() => window.__GFFL__.UI.show("matchup"));
+      await page.waitForSelector(".muhead", { timeout: 15000 });
+      const noBall = await page.evaluate(() => document.querySelectorAll(".pcellgrid.hasball, .possdot").length);
+      ok(rep.poss === 0 && noBall === 0, "the replay has no drive data, so nobody is highlighted — it degrades to silence, not to noise");
+      ok(errors.length === 0, "0 page errors under the replay");
+      await ctx.close();
+      fixture.rich2025 = false;
+    }
+
+    // ---- AD8/AD9/AD10/AD11: My Team — names that fit, a greyed Swap, a half-height header,
+    // and injury designations that never label a healthy player.
+    {
+      fixture.injMix = true;
+      const { ctx, page, errors } = await newTestPage(browser, seedLongNames());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="team"]');
+      await page.waitForSelector(".lrow", { timeout: 9000 });
+
+      // AD8 — the name column. MEASURED before this batch at 390px: 94px wide on a plain
+      // roster (every name wrapping to THREE lines, and "C. McLaughlin K · TB" overflowing its
+      // box outright at scrollWidth 97 > clientWidth 94) and collapsing to as little as 10px
+      // here, where a real-length name shares the row with an injury chip — this same block
+      // reports 5 of 12 names clipped and one wrapping SEVEN lines against the pre-batch code.
+      const names = await page.evaluate(() => [...document.querySelectorAll(".lname")].map((el) => {
+        const lh = parseFloat(getComputedStyle(el).lineHeight) || 20;
+        return { t: el.textContent.replace(/\s+/g, " ").trim(), w: Math.round(el.clientWidth),
+                 clipped: el.scrollWidth > el.clientWidth + 1, lines: Math.round(el.getBoundingClientRect().height / lh) };
+      }));
+      const clipped = names.filter((n) => n.clipped);
+      ok(names.length >= 9 && clipped.length === 0, "no player name is clipped at 390px (" + clipped.length + " of " + names.length + " clipped)");
+      ok(names.every((n) => n.w >= 140), "…because the name column is a real share of the row now — 94px on a plain roster and as little as 10px here before, " + Math.min(...names.map((n) => n.w)) + "px+ now");
+      ok(names.every((n) => n.lines <= 2), "…and no name wraps past two lines (worst " + Math.max(...names.map((n) => n.lines)) + ")");
+      ok(names.some((n) => /McLaughlin/.test(n.t)), "…including the one that used to overflow outright");
+
+      // AD10 — the team-name card, halved. Measured before this batch: 182px.
+      const lh = await page.evaluate(() => {
+        const h = document.querySelector(".lockerhead");
+        return { height: Math.round(h.getBoundingClientRect().height),
+                 logo: !!h.querySelector(".lockerlogo"), name: (h.querySelector(".lockername") || {}).textContent,
+                 rec: /PF/.test(h.textContent), edit: h.querySelectorAll(".lockeredit button").length };
+      });
+      ok(lh.height <= 110, "the team-name card is halved — 182px before this batch, " + lh.height + "px now");
+      ok(lh.logo && /Battle Kreussers/.test(lh.name || "") && lh.rec, "…keeping the crest, the name and the record");
+      ok(lh.edit === 3, "…and the owner's Name / Motto / Logo controls");
+
+      // AD11 — injury designations.
+      const inj = await page.evaluate(() => {
+        const rowFor = (nm) => [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes(nm));
+        const chip = (nm) => { const r = rowFor(nm); const c = r && r.querySelector(".inj"); return c ? c.textContent.trim() : null; };
+        return {
+          activeQb: chip("M. Harrison Jr."),   // directory says "Active"
+          questionable: chip("A. St. Brown"),  // "Questionable"
+          doubtful: chip("C. McCaffrey"),      // "Doubtful"
+          out: chip("R. Odunze"),              // "Out"
+          pup: chip("L. McConkey"),            // "PUP" — unanticipated, must still show
+          anyActiveWord: /\bActive\b/.test(document.body.textContent),
+        };
+      });
+      ok(inj.activeQb === null, "an ACTIVE player carries no injury chip at all — not an \"Active\" label");
+      ok(!inj.anyActiveWord, "…and the word Active appears nowhere on the page");
+      ok(inj.questionable === "Q", "Questionable renders as Q (" + inj.questionable + ")");
+      ok(inj.doubtful === "D", "Doubtful renders as D (" + inj.doubtful + ")");
+      ok(inj.out === "OUT", "Out renders as OUT (" + inj.out + ")");
+      ok(inj.pup === "PUP", "…and an unanticipated-but-real designation still shows something (" + inj.pup + ")");
+      // The mapping itself, directly.
+      const map = await page.evaluate(() => {
+        const f = window.__GFFL__.LG.injLabel;
+        if (typeof f !== "function") return ["no injLabel hook"];
+        return ["", "Active", "ACT", "Healthy", "Questionable", "q", "Q", "Doubtful", "D", "Out", "O", "OUT", "IR", "PUP", "Suspended", "Day-To-Day"].map((v) => v + "=>" + f(v));
+      });
+      ok(map.join("|") === "=>|Active=>|ACT=>|Healthy=>|Questionable=>Q|q=>Q|Q=>Q|Doubtful=>D|D=>D|Out=>OUT|O=>OUT|OUT=>OUT|IR=>IR|PUP=>PUP|Suspended=>SUS|Day-To-Day=>DAY",
+        "…and the mapping is case-insensitive, idempotent and never silently swallows a status (" + map.join(" ") + ")");
+      // IR eligibility still reads the RAW value, not the abbreviation.
+      const ir = await page.evaluate(() => ({
+        raw: window.__GFFL__.LG.irEligible("Out"), abbr: window.__GFFL__.LG.irEligible("OUT"),
+      }));
+      ok(ir.raw === true, "IR eligibility still reads the RAW upstream value (\"Out\" is IR-eligible)");
+      await clickChildIn(page, ".lrow", ".lswap", "R. Odunze");
+      await page.waitForSelector(".swaprow", { timeout: 5000 });
+      const sheetIr = await page.$$eval(".swaprow", (els) => els.map((r) => r.textContent.replace(/\s+/g, " ").trim()));
+      ok(sheetIr.some((t) => /→ IR/.test(t)), "…so the OUT player is still offered IR from the swap sheet");
+      await page.evaluate(() => { const c = [...document.querySelectorAll(".swaprow")].find((r) => /Cancel/.test(r.textContent)); if (c) c.click(); });
+      // The swap sheet's own candidate rows go through the same injChip — a non-vacuous check
+      // needs a candidate who actually HAS a designation, so this opens the FLEX slot, whose
+      // bench candidates include the PUP running back.
+      await clickChildIn(page, ".lrow", ".lswap", "K. Walker III");
+      await page.waitForSelector(".swaprow", { timeout: 5000 });
+      const sheet = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".swaprow")];
+        const mc = rows.find((r) => r.textContent.includes("L. McConkey"));
+        return { chip: mc && (mc.querySelector(".inj") || {}).textContent,
+                 chips: [...new Set(rows.map((r) => (r.querySelector(".inj") || {}).textContent).filter(Boolean))],
+                 longWord: rows.some((r) => /Questionable|Doubtful|\bActive\b/.test(r.textContent)) };
+      });
+      ok(sheet.chip === "PUP", "…and the sheet's own candidate rows abbreviate the same way (" + sheet.chip + ")");
+      ok(!sheet.longWord && sheet.chips.length >= 1, "…never printing the long upstream word (" + JSON.stringify(sheet.chips) + ")");
+      await page.evaluate(() => { const c = [...document.querySelectorAll(".swaprow")].find((r) => /Cancel/.test(r.textContent)); if (c) c.click(); });
+
+      // AD9 — the greyed Swap says what the LOCKED word used to.
+      const swap = await page.evaluate(() => {
+        const locked = [...document.querySelectorAll(".lrow.locked")];
+        const b = locked[0] && locked[0].querySelector(".lswap");
+        return {
+          n: locked.length, disabled: b && b.disabled, title: b && b.title,
+          aria: b && b.getAttribute("aria-label"),
+          opacity: b && Number(getComputedStyle(b).opacity),
+          h: b && Math.round(b.getBoundingClientRect().height),
+          copy: /greyed-out Swap/.test(document.body.textContent), lockWord: /LOCKED/.test(document.body.textContent),
+        };
+      });
+      ok(swap.n > 0 && swap.disabled === true, "a locked slot's Swap button is genuinely disabled (" + swap.n + " locked)");
+      ok(/started/.test(swap.title || "") && /started/.test(swap.aria || ""), "…and says why, for a pointer and for a screen reader");
+      ok(swap.opacity < 0.6, "…rendering as greyed out, not merely inert (opacity " + swap.opacity + ")");
+      ok(swap.h >= 30, "…at the same size it always was, so a kickoff never reflows the row (" + swap.h + "px)");
+      ok(swap.copy && !swap.lockWord, "…and the help line explains the greying instead of a LOCKED word");
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_myteam_390.png") }); console.log("  📸 shots/gffl_pt_myteam_390.png"); }
+
+      // AD11b — the same rule at the players table and the player stats card.
+      await clickIn(page, '.bnav button[data-v="moves"]');
+      await page.waitForSelector("#faResults .faTable", { timeout: 12000 });
+      const faInj = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll("#faResults tbody tr")];
+        const agent = rows.find((r) => r.textContent.includes("F. Agent"));
+        return { agent: agent && (agent.querySelector(".inj") || {}).textContent,
+                 anyLongWord: rows.some((r) => /Questionable|Doubtful|Active/.test(r.textContent)) };
+      });
+      ok(faInj.agent === "Q", "the players table abbreviates a designation too (" + faInj.agent + ")");
+      ok(!faInj.anyLongWord, "…and never prints the long upstream word");
+      await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("111666"));
+      await page.waitForFunction(() => { const c = document.querySelector(".pccard .pcname"); return c && !/Loading/.test(c.textContent); }, { timeout: 9000 });
+      const card = await page.evaluate(() => {
+        const el = document.querySelector(".pccard .inj");
+        return { chip: el && el.textContent.trim(), head: document.querySelector(".pchead").textContent.replace(/\s+/g, " ") };
+      });
+      ok(card.chip === "OUT", "the player stats card abbreviates it as well (" + card.chip + ")");
+      ok(!/\bOut\b/.test(card.head), "…with the long form nowhere beside it (" + card.head.trim() + ")");
+      await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+      ok(errors.length === 0, "0 page errors on My Team");
+      await ctx.close();
+      fixture.injMix = false;
+    }
+
+    // ---- AD12: the Moves player list is a bounded box with a working "Show more".
+    {
+      fixture.manyFa = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="moves"]');
+      await page.waitForSelector("#faResults .faTable", { timeout: 12000 });
+      const fa = await page.evaluate(() => {
+        const pan = document.querySelector("#faResults .panner");
+        const cs = getComputedStyle(pan);
+        return { h: Math.round(pan.clientHeight), sh: pan.scrollHeight, oy: cs.overflowY, ox: cs.overflowX,
+                 ob: cs.overscrollBehaviorY, rows: document.querySelectorAll("#faResults tbody tr").length,
+                 body: document.body.scrollWidth, win: window.innerWidth, more: !!document.querySelector("#faMore") };
+      });
+      ok(fa.oy === "auto" && fa.h > 0 && fa.h <= 345, "the players list is a bounded box, not the whole page (" + fa.h + "px)");
+      ok(fa.sh > fa.h + 40, "…and it really scrolls (" + fa.sh + " of rows in " + fa.h + "px)");
+      ok(fa.ob === "contain", "…with overscroll-behavior:contain at its own edge");
+      ok(fa.ox === "auto", "…while still panning horizontally, as the wide stats table needs");
+      ok(fa.body <= fa.win + 1, "…and the PAGE never scrolls sideways because of it");
+      // The sticky PLAYER column and the header must both survive a doubly-scrolling box.
+      const sticky = await page.evaluate(() => {
+        const pan = document.querySelector("#faResults .panner");
+        pan.scrollLeft = 220; pan.scrollTop = 90;
+        const pr = pan.getBoundingClientRect();
+        const cell = pan.querySelector("tbody tr td.faname");
+        const th = pan.querySelector("thead th");
+        return { dx: Math.round(cell.getBoundingClientRect().left - pr.left),
+                 dy: Math.round(th.getBoundingClientRect().top - pr.top), scrolled: pan.scrollLeft };
+      });
+      ok(sticky.scrolled > 100 && Math.abs(sticky.dx) <= 2, "the PLAYER column stays pinned to the box's left edge while the rest pans (" + sticky.dx + "px)");
+      ok(Math.abs(sticky.dy) <= 2, "…and the header row sticks to the box's top while the rows scroll under it (" + sticky.dy + "px)");
+      // "Show more" grows the pool without growing the box.
+      ok(fa.more, "\"Show more\" is offered once the pool hits its limit");
+      await clickIn(page, "#faMore");
+      await page.waitForFunction((n) => document.querySelectorAll("#faResults tbody tr").length > n, { timeout: 9000 }, fa.rows);
+      const after = await page.evaluate(() => {
+        const pan = document.querySelector("#faResults .panner");
+        return { h: Math.round(pan.clientHeight), rows: document.querySelectorAll("#faResults tbody tr").length, body: document.body.scrollWidth, win: window.innerWidth };
+      });
+      ok(after.rows > fa.rows, "…and it really adds rows (" + fa.rows + " -> " + after.rows + ")");
+      ok(after.h === fa.h, "…without blowing the box back out to full-page height (" + after.h + "px)");
+      ok(after.body <= after.win + 1, "…still no sideways page scroll");
+      // The 390 Moves plate is taken HERE, on the page with a real player list — the bounded
+      // box and the collapsed "My pending" line are both only judgeable with content in them.
+      if (SHOTS) {
+        await page.evaluate(() => { const p = document.querySelector("#faResults .panner"); if (p) { p.scrollTop = 0; p.scrollLeft = 0; } window.scrollTo(0, 0); });
+        await sleep(200);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_moves_390.png") });
+        console.log("  📸 shots/gffl_pt_moves_390.png");
+      }
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.manyFa = false;
+    }
+
+    // ---- AD13: "My pending" — one quiet line when there's nothing, compact when there is.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="moves"]');
+      await waitOr(page, ".pendcard", 12000);
+      const empty = await page.evaluate(() => {
+        const c = document.querySelector(".pendcard") || [...document.querySelectorAll(".card")].find((x) => /My pending/.test(x.textContent));
+        if (!c) return { h: -1, lines: -1, claims: null, trades: null };
+        return { h: Math.round(c.getBoundingClientRect().height), lines: c.querySelectorAll("h2").length,
+                 claims: (document.querySelector("#mvMyClaims") || {}).textContent,
+                 trades: (document.querySelector("#mvMyTrades") || {}).textContent };
+      });
+      // MEASURED before this batch, same viewport: 190px for three empty sections stacked.
+      ok(empty.h <= 80, "with nothing pending the card collapses to one short line — 190px before, " + empty.h + "px now");
+      ok(empty.lines === 1, "…one heading, not four (" + empty.lines + ")");
+      ok(/No pending claims/.test(empty.claims || "") && /No pending trades/.test(empty.trades || ""),
+        "…and it still says, in the same containers, that both lists are empty");
+      ok(errors.length === 0, "0 page errors (empty state)");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, seedPending());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="moves"]');
+      await waitOr(page, ".pendcard .rowline", 12000);
+      const full = await page.evaluate(() => {
+        const c = document.querySelector(".pendcard") || [...document.querySelectorAll(".card")].find((x) => /My pending/.test(x.textContent));
+        if (!c) return { h: -1, btns: [], rows: -1, txt: "" };
+        const list = [...c.querySelectorAll(".rowline > button")].map((b) => ({ t: b.textContent.trim(), h: Math.round(b.getBoundingClientRect().height) }));
+        return { h: Math.round(c.getBoundingClientRect().height), btns: list,
+                 rows: c.querySelectorAll(".rowline").length, txt: c.textContent.replace(/\s+/g, " ") };
+      });
+      // MEASURED before this batch, same three pending items and same fixture: 359px — and its
+      // action buttons were only 32px tall, under the 44px tap floor. Smaller AND more
+      // tappable. (A probe with longer player names measured the old card at 381px; 359 is
+      // what THIS fixture reports, which is the number the budget below is set against.)
+      ok(full.h <= 300, "a populated card is substantially smaller — 359px before, " + full.h + "px now");
+      ok(full.rows === 3, "…still carrying the claim, the trade and the league-veto row (" + full.rows + ")");
+      const want = ["Cancel", "Accept", "Decline", "Veto"];
+      ok(want.every((w) => full.btns.some((b) => b.t === w)), "…every action still reachable (" + full.btns.map((b) => b.t).join(",") + ")");
+      ok(full.btns.every((b) => b.h >= 44), "…and every one of them at least 44px tall — 32px before (" + full.btns.map((b) => b.h).join("/") + ")");
+      if (SHOTS) {
+        await page.setViewport({ width: 1440, height: 900 });
+        await sleep(300);
+        await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+        await page.waitForSelector(".pendcard", { timeout: 9000 });
+        await sleep(400);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_moves_desktop.png") });
+        console.log("  📸 shots/gffl_pt_moves_desktop.png");
+      }
+      ok(errors.length === 0, "0 page errors (populated state)");
+      await ctx.close();
     }
   }
 

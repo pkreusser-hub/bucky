@@ -765,7 +765,16 @@
       const c = ev.competitions && ev.competitions[0]; if (!c) continue;
       const st = (c.status && c.status.type) || {};
       const comps = c.competitors || [];
-      const side = (comp) => comp ? { abbrev: comp.team?.abbreviation || "", name: comp.team?.shortDisplayName || comp.team?.abbreviation || "", score: comp.score != null ? String(comp.score) : "" } : null;
+      // `logo` (2026-08-09 playtest: "the nfl scoreboard should show team logos") — ESPN's
+      // scoreboard payload carries the team's own crest at competitor.team.logo, with
+      // team.logos[0].href as the older/alternate shape. "" when neither is present, which
+      // the Scores card renders as no image at all rather than a broken one.
+      const side = (comp) => comp ? {
+        abbrev: comp.team?.abbreviation || "",
+        name: comp.team?.shortDisplayName || comp.team?.abbreviation || "",
+        score: comp.score != null ? String(comp.score) : "",
+        logo: comp.team?.logo || comp.team?.logos?.[0]?.href || "",
+      } : null;
       // TV network + betting line (item 2's Scores tab cards) — same fields/paths
       // netlify/functions/sports.mjs already reads off this same public ESPN
       // scoreboard shape: broadcasts[0].names[0] for the network, odds[0].details
@@ -792,6 +801,13 @@
           clock: c.status?.displayClock || "", kickoff: ev.date || "",
           oppAb: opp?.team?.abbreviation || "",
           rz: !!(prev && prev.eventId === String(ev.id) && prev.rz),
+          // Possession (2026-08-09 playtest: "highlight players when their team has the ball
+          // and is on offense") is only ever known from the per-game SUMMARY's current drive
+          // (pollEspnGame below) — the scoreboard payload carries no drive at all. Carried
+          // ACROSS this rebuild exactly the way rz is, keyed on the same eventId, or every
+          // scoreboard tick (which runs far more often than the summary poll) would blank it
+          // and the highlight would flicker on and off all afternoon.
+          poss: !!(prev && prev.eventId === String(ev.id) && prev.poss),
           score: comp?.score, oppScore: opp?.score,
         });
       }
@@ -833,7 +849,15 @@
     const inRz = !!(cur && lastPlay && (lastPlay.end?.yardsToEndzone ?? 99) <= 20);
     const possAb = slpTeam(cur?.team?.abbreviation || "");
     for (const [ab, g] of D.S.games) {
-      if (g.eventId === String(eventId)) { g.rz = inRz && ab === possAb; }
+      if (g.eventId === String(eventId)) {
+        // `poss` is the offense flag the matchup/lineup highlight reads (2026-08-09). It was
+        // already computed here for the red-zone flag and thrown away; storing it is all the
+        // "who has the ball" feature needs from the data layer. A drive with no team (between
+        // possessions, or a summary with no drives block at all) leaves BOTH sides false —
+        // nobody is highlighted, which is the honest answer.
+        g.poss = !!possAb && ab === possAb;
+        g.rz = inRz && g.poss;
+      }
     }
     if (box.size) D.S.espnSeeded = true;
   }
@@ -991,6 +1015,7 @@
         abbrev: comp.team?.abbreviation || "",
         name: comp.team?.shortDisplayName || comp.team?.abbreviation || "",
         final: Number(comp.score) || 0,
+        logo: comp.team?.logo || comp.team?.logos?.[0]?.href || "",
       } : null;
       const kick = Date.parse(ev.date || "");
       if (isFinite(kick) && kick > last) last = kick;
@@ -1028,8 +1053,8 @@
         : g.state === "pre" ? "0"
         : g.state === "post" ? String(side.final)
         : String(Math.round(side.final * g.progress));
-      const away = ev.away ? { abbrev: ev.away.abbrev, name: ev.away.name, score: shown(ev.away) } : null;
-      const home = ev.home ? { abbrev: ev.home.abbrev, name: ev.home.name, score: shown(ev.home) } : null;
+      const away = ev.away ? { abbrev: ev.away.abbrev, name: ev.away.name, score: shown(ev.away), logo: ev.away.logo || "" } : null;
+      const home = ev.home ? { abbrev: ev.home.abbrev, name: ev.home.name, score: shown(ev.home), logo: ev.home.logo || "" } : null;
       events.push({
         id: ev.id, date: ev.date, state: g.state, detail: g.detail, period: g.period, clock: g.clock,
         broadcast: ev.broadcast, spread: ev.spread, away, home,
@@ -1040,7 +1065,10 @@
         games.set(slpTeam(me.abbrev), {
           eventId: ev.id, state: g.state, detail: g.detail, period: g.period, clock: g.clock,
           kickoff: ev.date, oppAb: (opp && opp.abbrev) || "",
-          rz: false, score: me.score, oppScore: (opp && opp.score) || "0",
+          // The replay has no drive data at all (nothing calls pollEspnGame under it), so
+          // there is no honest possession to report — nobody is ever highlighted, which is
+          // what "degrades to nobody" means here. Same posture as rz.
+          rz: false, poss: false, score: me.score, oppScore: (opp && opp.score) || "0",
           progress: g.progress,
         });
       }
