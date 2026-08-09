@@ -48,15 +48,90 @@
     LG.SEASON = 2025;
     LG.SEASON_START = "2025-09-02"; // the Tuesday before the real Sept-4 2025 opener
   }
-  // The pinned instant: Thursday 2025-09-04, 9:00 AM America/Chicago. Deliberately chosen so
-  // BOTH of these are true at once (asserted in the suite, not eyeballed):
-  //   · LG.currentWeek() === 1 — it sits inside week 1's own Tue(05:00)->next-Tue window, and
-  //     the night's opener has NOT kicked off yet, so every NFL game reads as upcoming.
-  //   · week 1's waiver deadline (default Wed 8:00 AM) has already PASSED, so free agency is
-  //     OPEN — LG.faAdd is exercisable with zero extra clicks the moment the app loads.
-  // A fixed constant, not a stored one: no localStorage flag, no per-device state, so every
-  // family device is looking at the exact same moment of the exact same week.
-  LG.SIM_NOW = new Date("2025-09-04T09:00:00-05:00").getTime();
+  // ---------------- ⭐ WHICH MOMENT OF WEEK 1, and a clock that RUNS (2026-08-08) ----------
+  // Two named phases of the SAME week. `live` is the default — the family asked to advance to
+  // the middle of week 1, with games actually in progress.
+  //   · pre  — Thursday 2025-09-04, 9:00 AM America/Chicago. Nothing has kicked off. Chosen so
+  //            BOTH of these hold at once (asserted, not eyeballed): currentWeek() === 1, and
+  //            week 1's Wed-8am waiver deadline has already PASSED so free agency is OPEN.
+  //   · live — Sunday 2025-09-07, 19:00:00Z (2:00 PM ET / 1:00 PM CT). Chosen against the REAL
+  //            slate: the Thursday opener (Sep 5 00:20Z) and the Friday game (Sep 6 00:00Z) are
+  //            FINAL; the Sunday early window (17:00Z) is ~2 hours in, i.e. late 3rd / early 4th
+  //            quarter and LIVE; the late-afternoon window (~20:05/20:25Z) and Sunday night
+  //            (Mon 00:20Z) have not kicked. That mix — some final, several live, some upcoming
+  //            — is the entire point.
+  // ⭐ THE ONE CONSTANT TO EDIT to change which moment the app opens on:
+  const SIM_PHASE_DEFAULT = "live";
+  LG.SIM_PHASES = {
+    pre: {
+      id: "pre", at: Date.parse("2025-09-04T14:00:00Z"),
+      label: "Thursday morning · before kickoff",
+      banner: "Week 1, before kickoff",
+    },
+    live: {
+      id: "live", at: Date.parse("2025-09-07T19:00:00Z"),
+      label: "Sunday afternoon · games in progress",
+      banner: "Week 1, Sunday afternoon · games in progress",
+    },
+  };
+  // ?simphase=pre|live is a QA + preview override ONLY — never persisted, same posture as ?sim=
+  // and ?fam=. The commissioner's own Rules-page switch DOES persist (per device), so a chosen
+  // phase sticks across reloads; the URL param must not, or a shared link could strand a device.
+  const SIM_PHASE_KEY = "gffl_simphase";
+  LG.simPhase = function () {
+    const q = (qs.get("simphase") || "").toLowerCase();
+    if (LG.SIM_PHASES[q]) return q;
+    let s = "";
+    try { s = (localStorage.getItem(SIM_PHASE_KEY) || "").toLowerCase(); } catch (e) { /* private mode */ }
+    if (LG.SIM_PHASES[s]) return s;
+    return SIM_PHASE_DEFAULT;
+  };
+  LG.setSimPhase = function (p) {
+    if (!LG.SIM_PHASES[p]) return false;
+    try { localStorage.setItem(SIM_PHASE_KEY, p); } catch (e) { /* private mode — the URL param still works */ }
+    return true;
+  };
+  LG.SIM_PHASE = LG.simPhase();
+  // The phase's own starting instant. Kept under the historical name SIM_NOW because that is
+  // what it still is: where the replay's clock STARTS.
+  LG.SIM_NOW = LG.SIM_PHASES[LG.SIM_PHASE].at;
+  // …and the clock RUNS from there. A pinned instant cannot demonstrate "live": every game would
+  // sit at one frozen quarter forever. SIM_SPEED 8 means a quarter passes in ~2 real minutes and
+  // the whole Sunday slate completes in ~25, which is fast enough to watch and slow enough to
+  // read. ONE clock: game state, lineup locking and live stats all derive from LG.now(), so they
+  // can never disagree with each other.
+  //   · SIM_SPEED 0 = frozen at the phase instant — both a legitimate setting and the
+  //     deterministic mode for screenshots.
+  //   · ?simspeed=N is the same non-persisted QA override family as ?sim= / ?simphase=.
+  const SIM_SPEED_DEFAULT = 8;
+  LG.SIM_SPEED = qs.has("simspeed") ? Math.max(0, Number(qs.get("simspeed")) || 0) : SIM_SPEED_DEFAULT;
+  LG.SIM_LOADED_AT = Date.now();
+  // THE CLAMP. Leave a tab open all day and week 1 simply COMPLETES and sits there — it must
+  // never roll into week 2, because every per-week doc id, the waiver deadline and the whole
+  // UI would silently follow it. Two ceilings, whichever is lower:
+  //   · the last kickoff + 4h (the real 2025 week-1 finale was Monday-night 2025-09-09T00:15Z;
+  //     lg-data RAISES this from the slate it actually loads, never lowers it, so the clock can
+  //     never jump backwards when the slate lands),
+  //   · one hour before week 2 begins, which is what makes currentWeek() === 1 unconditional.
+  LG.SIM_LAST_KICKOFF = Date.parse("2025-09-09T00:15:00Z");
+  LG.SIM_CLAMP_PAD_MS = 4 * 3600 * 1000;
+  LG.simNoteLastKickoff = function (ms) {
+    if (isFinite(ms) && ms > LG.SIM_LAST_KICKOFF) LG.SIM_LAST_KICKOFF = ms;
+  };
+  LG.simClampAt = function () {
+    const weekEnd = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime() + 7 * 24 * 3600 * 1000;
+    return Math.min(LG.SIM_LAST_KICKOFF + LG.SIM_CLAMP_PAD_MS, weekEnd - 3600 * 1000);
+  };
+  // The replay clock itself: where the phase started, plus real elapsed time × SIM_SPEED,
+  // never past the clamp. Monotonic by construction (Date.now() is, the speed is positive, and
+  // the clamp only ever rises), which is what the live feed's diffing depends on.
+  LG.simNow = function () {
+    const sp = Number(LG.SIM_SPEED) || 0;
+    if (sp <= 0) return LG.SIM_NOW;
+    const t = LG.SIM_NOW + (Date.now() - LG.SIM_LOADED_AT) * sp;
+    const cap = LG.simClampAt();
+    return t > cap ? cap : t;
+  };
 
   // ---------------- identity ----------------
   // One key each, no per-mode namespacing (the old per-sandbox key suffixing died with the
@@ -463,7 +538,12 @@
   const docCache = new Map();   // id -> doc (NEVER null — see above)
   const docAt = new Map();      // id -> { at, refreshing } — cloud background-refresh bookkeeping
   const listCache = new Map();  // kind ("" = every doc) -> { docs:[...], at, refreshing }
-  const CACHE_STALE_MS = 15000; // cloud-only: how old a cached list()/doc may be before a quiet background refresh
+  // Cloud-only: how old a cached list()/doc may be before a quiet background refresh.
+  // MEASURED IN WALL TIME (Date.now()), deliberately NOT LG.now(). Cache freshness is a fact
+  // about the NETWORK, not about the league's calendar — and under the 2025 replay LG.now()
+  // runs at SIM_SPEED (8× by default), which would have fired every background refresh eight
+  // times as often for the whole session. Same reasoning as runAutoChecks' own throttle.
+  const CACHE_STALE_MS = 15000;
   function backend() { return LG.backendMode === "cloud" ? cloud : local; }
   // Every doc-id in this app is `<kind>_<...>` (or the bare "settings"), so a doc's kind is
   // inferable from its id — which is what lets a cached list() answer "does this exist?"
@@ -502,7 +582,7 @@
   function cacheUpsert(id, doc) {
     // A deleted doc is REMOVED from the cache, never remembered as null — a cached null is
     // the exact mechanism findings 2/4/5/12 turn on.
-    if (doc) { docCache.set(id, doc); docAt.set(id, { at: LG.now(), refreshing: false }); }
+    if (doc) { docCache.set(id, doc); docAt.set(id, { at: Date.now(), refreshing: false }); }
     else { docCache.delete(id); docAt.delete(id); }
     for (const [kind, entry] of listCache) {
       if (kind && (!doc || doc.kind !== kind)) {
@@ -533,11 +613,11 @@
         // Same quiet background refresh list() has had all along — a positive doc read once
         // at boot must not stay frozen for the life of the tab either (finding 4).
         const meta = docAt.get(id);
-        if (LG.backendMode === "cloud" && meta && !meta.refreshing && LG.now() - meta.at > CACHE_STALE_MS) {
+        if (LG.backendMode === "cloud" && meta && !meta.refreshing && Date.now() - meta.at > CACHE_STALE_MS) {
           meta.refreshing = true;
           LG.db.stats.gets++;
           backend().get(id).then((fresh) => {
-            meta.refreshing = false; meta.at = LG.now();
+            meta.refreshing = false; meta.at = Date.now();
             const changed = JSON.stringify(fresh) !== JSON.stringify(docCache.get(id));
             if (fresh) docCache.set(id, fresh); else docCache.delete(id);
             if (changed && LG.db.onChange) LG.db.onChange(kindOf(id));
@@ -550,7 +630,7 @@
       if (knownAbsent(id)) return null;
       LG.db.stats.gets++;
       const v = await backend().get(id);
-      if (v) { docCache.set(id, v); docAt.set(id, { at: LG.now(), refreshing: false }); }
+      if (v) { docCache.set(id, v); docAt.set(id, { at: Date.now(), refreshing: false }); }
       else LG.db.stats.missGets++; // NEVER cached — a negative must not survive the read
       return v;
     },
@@ -568,8 +648,8 @@
       LG.db.stats.fresh++;
       const docs = await backend().list(kind);
       const key = kind || "";
-      listCache.set(key, { docs, at: LG.now(), refreshing: false });
-      for (const d of docs) { docCache.set(d.id, d); docAt.set(d.id, { at: LG.now(), refreshing: false }); }
+      listCache.set(key, { docs, at: Date.now(), refreshing: false });
+      for (const d of docs) { docCache.set(d.id, d); docAt.set(d.id, { at: Date.now(), refreshing: false }); }
       return docs;
     },
     async set(id, data) {
@@ -590,7 +670,7 @@
       const key = kind || "";
       const entry = listCache.get(key);
       if (entry) {
-        if (LG.backendMode === "cloud" && !entry.refreshing && LG.now() - entry.at > CACHE_STALE_MS) {
+        if (LG.backendMode === "cloud" && !entry.refreshing && Date.now() - entry.at > CACHE_STALE_MS) {
           entry.refreshing = true;
           LG.db.stats.lists++;
           const wasOk = !LG.backendDegraded;
@@ -602,8 +682,8 @@
             // user's back (live bug 2026-08-08).
             if (!fresh.length && entry.docs.length && wasOk && LG.backendDegraded) return;
             const changed = JSON.stringify(fresh) !== JSON.stringify(entry.docs);
-            entry.docs = fresh; entry.at = LG.now();
-            for (const d of fresh) { docCache.set(d.id, d); docAt.set(d.id, { at: LG.now(), refreshing: false }); }
+            entry.docs = fresh; entry.at = Date.now();
+            for (const d of fresh) { docCache.set(d.id, d); docAt.set(d.id, { at: Date.now(), refreshing: false }); }
             if (changed && LG.db.onChange) LG.db.onChange(kind);
           }).catch(() => { entry.refreshing = false; });
         }
@@ -611,8 +691,8 @@
       }
       LG.db.stats.lists++;
       const docs = await backend().list(kind);
-      listCache.set(key, { docs, at: LG.now(), refreshing: false });
-      for (const d of docs) { docCache.set(d.id, d); docAt.set(d.id, { at: LG.now(), refreshing: false }); }
+      listCache.set(key, { docs, at: Date.now(), refreshing: false });
+      for (const d of docs) { docCache.set(d.id, d); docAt.set(d.id, { at: Date.now(), refreshing: false }); }
       return docs;
     },
     // Test-only: swaps the underlying "cloud" implementation + forces cloud mode, so the perf
@@ -1242,12 +1322,12 @@
   };
 
   // ---------------- time ----------------
-  LG.nowOverride = null; // test hook — always wins, the 2025 replay's own pin included
-  // Under the 2025 replay the clock is PINNED (LG.SIM_NOW, see the flag block at the top of
-  // this file) — a fixed constant, identical on every device, so "week 1, before kickoff" is a
-  // property of the app rather than of when you happened to open it. Off the replay this is
-  // the real wall clock, exactly as it always was.
-  LG.now = () => LG.nowOverride != null ? LG.nowOverride : (LG.SIM_2025 ? LG.SIM_NOW : Date.now());
+  LG.nowOverride = null; // test hook — always wins, the 2025 replay's own clock included
+  // Under the 2025 replay this is the replay's own accelerated clock, started at the chosen
+  // phase's instant and clamped inside week 1 (see the phase block at the top of this file).
+  // Off the replay it is the real wall clock, exactly as it always was. Precedence, highest
+  // first: the test override, then the replay clock, then Date.now().
+  LG.now = () => LG.nowOverride != null ? LG.nowOverride : (LG.SIM_2025 ? LG.simNow() : Date.now());
   LG.currentWeek = function () {
     const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
     const w = 1 + Math.floor((LG.now() - start) / (7 * 24 * 3600 * 1000));

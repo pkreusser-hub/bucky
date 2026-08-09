@@ -9902,3 +9902,135 @@ silently (deliberately — the mirror is a bonus, never a requirement). And `ind
 cloud backend still uses the SDK with `persistentLocalCache`; nothing has been reported there,
 and it is a different Firebase app and therefore a different IndexedDB, but this transport is a
 straight port if it ever bites.
+
+## 🏈 GFFL — THE REPLAY'S CLOCK RUNS: mid-week-1, games in progress (2026-08-08, UNCOMMITTED)
+
+User: *"now let's advance to the middle of week 1 with live stats and live games, you can generate
+fake stats if that is easier"*. `league.html` untouched; `assets/league/lg-{core,data,ui}.js` +
+`tools/_verify-gffl.cjs` (948 → **1028**). `netlify/functions/league.mjs` untouched. `node --check`
+clean on all three JS files. No commits, no push.
+
+### Two named phases, and `live` is the default
+`LG.SIM_2025` is unchanged (the master switch; `?sim=0` still reverts to the real 2026 season).
+Beneath it, `LG.SIM_PHASES`:
+- **`pre`** — Thursday 2025-09-04 14:00Z. The old pinned instant, unchanged: week 1, nothing kicked
+  off, and week 1's Wed-8am waiver deadline already past so free agency is open.
+- **`live`** — Sunday **2025-09-07 19:00:00Z** (1:00 PM CT), and it is now the **DEFAULT**
+  (`SIM_PHASE_DEFAULT`, one commented literal beside `SIM_2025_DEFAULT`). Chosen against the REAL
+  slate: Thursday (Sep 5 00:20Z) and Friday (Sep 6 00:00Z) are FINAL, the Sunday early window
+  (17:00Z) is ~2 hours in and LIVE, the late window (~20:25Z) and the Monday-night finale
+  (2025-09-09T00:15Z) have not kicked. That mix is the whole point.
+
+`?simphase=pre|live` is a non-persisted QA override (same posture as `?sim=`/`?fam=`); the
+commissioner's **Replay clock** card on the Rules page persists the choice per device
+(`gffl_simphase`) and hard-reloads into it — the same posture every other reload-y action here
+uses, because a phase change moves `LG.now()` and every cached roster/game/stat in memory was
+derived against it. A non-commissioner sees the card and no switch.
+
+### ONE clock, and it is clamped inside week 1
+`LG.now()` precedence is unchanged at the top (`nowOverride` still always wins) and underneath it
+is now `LG.simNow()` = `phaseStart + (Date.now() − SIM_LOADED_AT) × SIM_SPEED`, **SIM_SPEED 8** by
+default (a quarter in ~2 real minutes, the slate done in ~25). `SIM_SPEED = 0` freezes on the phase
+instant — a real setting AND the deterministic mode for plates; `?simspeed=N` is the same
+non-persisted override family. Game state, `playerLocked` and every stat line derive from this one
+clock, so they cannot disagree.
+**THE CLAMP** is `min(last kickoff + 4h, week 2 − 1h)`. The second term is what makes
+`currentWeek() === 1` unconditional — asserted at the phase instant AND at the ceiling. The first
+starts as a constant (the real 2025 MNF, 2025-09-09T00:15Z) and lg-data **RAISES** it from the
+slate it actually loads, **never lowers it**, so the clock can never jump backwards when the slate
+lands mid-session. Leave a tab open all day and week 1 completes and sits there.
+
+### Game state from real kickoffs — no bucketing
+The slate already carries every kickoff, so the deleted sandbox's alphabetical team-bucketing has
+no reason to exist and none was rebuilt. `D.simGameState(kickoff, now)` returns
+`{state, period, clock, detail, progress}`: 60 game-minutes over **185 wall minutes** with a
+**13-minute halftime**, so 172 wall minutes carry 60 game minutes (1 game-min ≈ 2.867 wall-min).
+Halftime is a real state ("Half"). The period is `min(4, …)` so it can never read Q5+, and the last
+tick of regulation is Q4 0:00. Hand-verified in the suite at nine instants (kickoff, Q1 4:32 at 30
+min, Half at 86 and 95, Q3 15:00 at 99, Q4 12:12 at 150, still Q4 at 184, Final at 185, still Q4
+hours later). `pollSimSlate` splits into a **fetch-once** (static history) and an
+**apply-every-tick**, which is what makes the board move.
+**Scoreboard scores are SYNTHETIC** and deterministic: the historical document's REAL final scaled
+by `progress` while a game runs, then the exact real final once it is over, 0 before kickoff. No
+play-by-play is invented — only the number on the scoreboard.
+
+### Live stats are the REAL finals, scaled — and monotonicity is load-bearing
+Not invented: each line is that player's real week-1 2025 final from the same archived Sleeper
+endpoint `D.weekStats` and `finalizeWeek`'s backfill already trust (`D.simEnsureFinals`, fetched
+once — `simEnsureProj`'s own fallback now reuses it rather than fetching the identical payload
+twice).
+- game **pre** → **no stat line at all** (absent, not a row of zeros)
+- game **in** → `scale = min(0.98, progress × f(pid))`, `f` a stable per-player draw in [0.75, 1.35]
+  from an FNV hash of the id, so some players front-load and others finish strong
+- game **post** → the exact real final, unscaled
+Counting stats and yardage are **integers at every scale** (`Math.round`).
+**WHY MONOTONICITY MATTERS**: `applySide` builds the feed by DIFFING consecutive polls, so a value
+that ticks down emits a negative delta and a nonsense line. Every term is non-decreasing in
+`progress` alone — `f` is drawn once and never re-rolled per poll, `min()` with a constant preserves
+it, `Math.round` preserves it. Asserted over a 12-poll walk: every counting stat non-decreasing,
+never above the final, landing EXACTLY on the final once the game ends, **0 events with `to < from`
+and 0 negative deltas**. The one legitimate exception, stated rather than hidden: a DEFENSE's
+POINTS fall as the points it has allowed climb — real football, and the live engine already does it;
+the stat itself still only rises.
+Feed entries are stamped in **LEAGUE time** (`t: LG.now()`, display-only — off the replay that IS
+wall time), so a Sunday-afternoon board's feed reads as a Sunday afternoon. Freshness fields
+(`side.last`, `health.lastChange`) deliberately stay on `Date.now()`.
+
+### One real fix the 8× clock forced, and one deliberately NOT taken
+- **`LG.db`'s cache staleness moved to wall time.** Cache freshness is a fact about the NETWORK,
+  not the league calendar; on `LG.now()` an 8× clock fired every background refresh eight times as
+  often, for the whole session, on a real cloud backend.
+- **`runAutoChecks`' throttle STAYS on league time** — tried the other way and reverted. Everything
+  that chain does is keyed to a LEAGUE deadline (waiver deadline passed, trade review window
+  elapsed), and sections J and P drive exactly that with `nowOverride`; switching it to `Date.now()`
+  broke five checks. Cost is 60 league seconds ≈ 7.5 wall seconds at 8×, against a chain of cached
+  reads plus a finalize that refuses outright under the replay.
+
+### What must NOT change, and is asserted still true
+`D.S.espnWeek`/`slpWeek` are still never set, so `engineWeek()` stays null and the provenance
+guards stay silent — re-asserted **with the whole slate final**: `maybeAutoFinalizeWeeks` writes
+nothing, no week is reported stale, `finalizeWeek`'s live path still refuses with `sim-replay`, and
+the archived-stats backfill remains the only way to settle the week. Health stays `dual`/nominal
+(`updateHealth` is deliberately not called under the replay) and the chip still reads "replay".
+The REST transport, the offline mirror, server-confirmed emptiness, the auto-setup and both
+projection paths are untouched.
+
+### Suite: 948 → **1028/1028, 0 page errors**
+New **section X8** (80 checks): phase default/override/persistence + the commissioner card and its
+gate; the clock measurably running at ~8×, frozen at speed 0, and clamped (a tab "open a fortnight"
+stops dead on the ceiling, week 1 at both ends); game state at the live instant across all six
+games — **the two live games differ by exactly their 15-minute kickoff stagger, Q3 12:54 vs
+Q3 7:40, which is what proves the clock is per-game**; the nine hand-computed clock instants; the
+scaler hand-checked at 50% (6 rec/62 yds/1 TD → 3/31/1); a pre-game player with NO line; a finished
+player at his exact hand-computed final (P. Passer 150 yds ×0.04 + 4 − 2 + 2 = **10.0**); a live
+player cross-checked against `62 × min(0.98, progress×f)` multiplied **in the test**; the 12-poll
+monotonicity walk; lineup locks agreeing with game state before and after kickoff; the matchup
+page's live clocks and per-side "0 to play · 2 live" / "4 to play · 0 live"; and the guards above.
+**RESTAGED, each with its reason recorded in place**: `sbSim2025Fix` reshaped to 6 games so the four
+NFL teams the roster fixture uses land in three different states at the live instant (KC@LAC moved
+from its real Friday slot into the Sunday early window on purpose, so the VIEWER's own team has a
+player mid-game rather than a board of finals) — X3's counts follow (5→6 games/networks, the
+day-group check becomes "the Sunday games share a group", the date regex reaches Sep 9); X1/X3/X4
+pinned to `&simphase=pre&simspeed=0` (they encode the before-kickoff contract, and under `live`
+P. Passer's derived projection and his live score are the SAME number, so "the row shows the
+projection" would stop being a real assertion); X1's "now === the pinned instant" became a
+frozen-clock check plus a new phase check; X5's banner copy now names the phase and the speed.
+**Plates**: `shots/gffl_live_{league,matchup,scores}_390.png` + `gffl_live_matchup_desktop.png`,
+taken at `simspeed=0` (hence "The clock is paused" in the banner — that is the deterministic mode
+being honest).
+
+**TWO GOTCHAS worth keeping.** (1) **A feed cannot be screenshotted without a walk, and the walk
+must never rewind.** The first cut of the plate stepped the clock BACK 40 minutes to fill the feed
+— against a page that had already polled at the live instant — and produced exactly the negative
+deltas the whole monotonicity rule exists to prevent (`T. Tight rec TD 1→0 −6.0`). Caught by LOOKING
+at the plate, not by a test. The fix re-baselines (`players.clear()` + `slpSeeded = false`) at the
+earlier instant so the catch-up poll is a silent baseline again, then walks forward. (2) A template
+literal that wraps across lines puts its own newline + indentation into `textContent`, so a copy
+assertion has to normalise whitespace first.
+
+**⚠ NOT LIVE-VERIFIED HERE — ESPN and Sleeper are egress-blocked from this sandbox**, so the
+fixtures carry the whole burden, exactly as the original replay entry warns. Post-deploy eyeballs:
+open the app on a Sunday-shaped board and confirm (a) the real slate's kickoffs put games into the
+three states the fixture predicts, (b) real archived week-1 lines scale sensibly rather than
+producing absurd partials, and (c) the clamp lands on the real Monday-night finale — the constant
+is `2025-09-09T00:15:00Z` and lg-data raises it from whatever the real slate says.

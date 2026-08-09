@@ -580,7 +580,12 @@
           const dPts = k === "dst_pa"
             ? Math.round((paPoints(nv, scoring) - paPoints(ov, scoring)) * 10) / 10
             : Math.round(((nv || 0) - (ov || 0)) * (scoring[k] || 0) * 10) / 10;
-          D.S.events.unshift({ t: Date.now(), src, key, name: row.name, stat: k, from: ov, to: nv, dPts });
+          // LEAGUE time, not wall time. `t` is display-only (feedLine is its sole consumer),
+          // and under the 2025 replay a feed entry on a Sunday-afternoon board has to read as a
+          // Sunday afternoon rather than as whenever this device happened to poll. Off the
+          // replay LG.now() IS Date.now(), so the real league is unchanged. Everything that
+          // compares FRESHNESS (side.last, health.lastChange) deliberately stays on Date.now().
+          D.S.events.unshift({ t: LG.now(), src, key, name: row.name, stat: k, from: ov, to: nv, dPts });
           if (D.S.events.length > 600) D.S.events.length = 600;
         }
       }
@@ -760,6 +765,8 @@
   function anyLive() { for (const g of D.S.games.values()) if (g.state === "in") return true; return false; }
   D.anyLive = anyLive;
   function updateHealth() {
+    // `now` compares against lastOk/lastChange, which are WALL-clock stamps — this must stay
+    // Date.now(). Only the feed entries below get league time (see applySide's own note).
     const H = D.S.health, now = Date.now();
     const bad = (h, other) =>
       h.failN >= 3 ||
@@ -773,10 +780,10 @@
       H.mode === "sleeper-only" ? "Running on Sleeper only — ESPN unreachable" :
       "Both data sources unreachable — scores are STALE";
     if (H.mode !== prev && H.mode !== "dual") {
-      D.S.events.unshift({ t: now, src: "sys", msg: H.note });
+      D.S.events.unshift({ t: LG.now(), src: "sys", msg: H.note });
     }
     if (H.mode !== prev && H.mode === "dual" && prev !== "dual") {
-      D.S.events.unshift({ t: now, src: "sys", msg: "Both data sources healthy again — back to dual mode" });
+      D.S.events.unshift({ t: LG.now(), src: "sys", msg: "Both data sources healthy again — back to dual mode" });
     }
   }
   D.updateHealth = updateHealth;
@@ -798,41 +805,206 @@
   // stale-week alarm silent for the whole replay — nothing has been played, so there is
   // nothing any of them could honestly do.
   D.S.simSlateLoaded = false;
+  D.S.simSlateRaw = null; // the fetched slate, kickoffs + real final scores, state-free
   D.simScoreboardUrl = () => `${ESPN}/scoreboard?dates=${LG.SEASON}&seasontype=2&week=1`;
-  async function pollSimSlate() {
-    if (D.S.simSlateLoaded) return;
+
+  // ---- the replay's GAME CLOCK ----------------------------------------------------------
+  // Every game's state comes from LG.now() vs its OWN REAL KICKOFF — the slate carries them, so
+  // there is nothing to invent and no need for the crude alphabetical team-bucketing the old
+  // (deleted) sandbox used when it had no kickoff data. A 60-minute regulation game spans about
+  // 3h05m of wall clock; take ~13 of those minutes out for halftime and the remaining 172 wall
+  // minutes carry 60 game minutes, i.e. one game-minute costs ~2.87 wall minutes.
+  const SIM_REG_MIN = 60;                                            // game minutes in regulation
+  const SIM_HALFTIME_MIN = 13;                                       // wall minutes
+  const SIM_GAME_WALL_MIN = 185;                                     // a real NFL game, kickoff to final
+  const SIM_INFLATE = (SIM_GAME_WALL_MIN - SIM_HALFTIME_MIN) / SIM_REG_MIN;
+  const SIM_H1_WALL_MIN = (SIM_REG_MIN / 2) * SIM_INFLATE;           // when halftime starts
+  D.SIM_GAME_WALL_MIN = SIM_GAME_WALL_MIN; // test hook
+  // {state, period, clock, detail, progress}. `progress` (0..1 of regulation elapsed) is the
+  // ONE number the score model and the live stat lines both scale by, which is what keeps the
+  // clock on screen and the numbers beside it from ever disagreeing.
+  D.simGameState = function (kickoffIso, nowMs) {
+    const ko = Date.parse(kickoffIso || "");
+    if (!isFinite(ko)) return { state: "pre", period: 0, clock: "", detail: "", progress: 0 };
+    const el = (nowMs - ko) / 60000; // wall minutes since kickoff
+    if (el < 0) return { state: "pre", period: 0, clock: "", detail: "", progress: 0 };
+    if (el >= SIM_GAME_WALL_MIN) return { state: "post", period: 4, clock: "0:00", detail: "Final", progress: 1 };
+    if (el >= SIM_H1_WALL_MIN && el < SIM_H1_WALL_MIN + SIM_HALFTIME_MIN) {
+      return { state: "in", period: 2, clock: "0:00", detail: "Half", progress: 0.5 };
+    }
+    let gm = el < SIM_H1_WALL_MIN
+      ? el / SIM_INFLATE
+      : SIM_REG_MIN / 2 + (el - SIM_H1_WALL_MIN - SIM_HALFTIME_MIN) / SIM_INFLATE;
+    gm = Math.max(0, Math.min(SIM_REG_MIN, gm));
+    // Clamped to 4 so the period can never read Q5+, and the last tick of regulation reads
+    // "Q4 0:00" rather than rolling over.
+    const period = Math.min(4, Math.floor(gm / 15) + 1);
+    const left = Math.max(0, 15 - (gm - (period - 1) * 15));
+    const mm = Math.floor(left), ss = Math.floor((left - mm) * 60 + 1e-6);
+    const clock = mm + ":" + String(ss).padStart(2, "0");
+    return { state: "in", period, clock, detail: "Q" + period + " " + clock, progress: gm / SIM_REG_MIN };
+  };
+
+  async function fetchSimSlate() {
+    if (D.S.simSlateRaw) return D.S.simSlateRaw;
     const j = await fx("espn 2025 week-1 slate", D.simScoreboardUrl());
-    const games = new Map();
-    const events = [];
+    const raw = [];
+    let last = 0;
     for (const ev of (j?.events || [])) {
       const c = ev.competitions && ev.competitions[0]; if (!c) continue;
       const comps = c.competitors || [];
-      const side = (comp) => comp ? { abbrev: comp.team?.abbreviation || "", name: comp.team?.shortDisplayName || comp.team?.abbreviation || "", score: "0" } : null;
-      events.push({
+      // The historical document's REAL final score is kept: it is what the in-progress score
+      // model scales toward and what a finished game shows outright.
+      const side = (comp) => comp ? {
+        abbrev: comp.team?.abbreviation || "",
+        name: comp.team?.shortDisplayName || comp.team?.abbreviation || "",
+        final: Number(comp.score) || 0,
+      } : null;
+      const kick = Date.parse(ev.date || "");
+      if (isFinite(kick) && kick > last) last = kick;
+      raw.push({
         id: String(ev.id || ""), date: ev.date || "",
-        // Every game reads UPCOMING regardless of what the historical document says about how
-        // it finished — the whole point of the pin is that none of them have kicked off yet.
-        state: "pre", detail: "", period: 0, clock: "",
         broadcast: c.broadcasts?.[0]?.names?.[0] || "",
         spread: (typeof c.odds?.[0]?.details === "string" ? c.odds[0].details : "").slice(0, 24),
         away: side(comps.find((x) => x.homeAway === "away")),
         home: side(comps.find((x) => x.homeAway === "home")),
+        abbrevs: comps.map((comp) => comp?.team?.abbreviation || "").filter(Boolean),
       });
-      for (const comp of comps) {
-        const ab = comp?.team?.abbreviation; if (!ab) continue;
-        const opp = comps.find((x) => x !== comp);
-        games.set(slpTeam(ab), {
-          eventId: String(ev.id), state: "pre", detail: "", period: 0, clock: "",
-          kickoff: ev.date || "", oppAb: opp?.team?.abbreviation || "",
-          rz: false, score: "0", oppScore: "0",
+    }
+    // The clock's ceiling follows the slate we actually loaded — RAISED only, never lowered, so
+    // a slate landing mid-session can never drag the clock backwards.
+    if (last) LG.simNoteLastKickoff(last);
+    D.S.simSlateRaw = raw;
+    D.S.simSlateLoaded = true;
+    return raw;
+  }
+  D.fetchSimSlate = fetchSimSlate;
+
+  // Rebuild D.S.games / D.S.nflEvents from the cached slate at the CURRENT replay clock. The
+  // slate itself is fetched once (static history — re-polling it would be pure waste); the
+  // STATE is re-derived on every tick, which is what makes the board move.
+  function applySimSlate(nowMs) {
+    const raw = D.S.simSlateRaw || [];
+    const games = new Map();
+    const events = [];
+    for (const ev of raw) {
+      const g = D.simGameState(ev.date, nowMs);
+      // The scoreboard's own score. SYNTHETIC and deterministic: the real final scaled by how
+      // far the game has got, then the exact real final once it is over. No play-by-play is
+      // invented — only the number on the scoreboard.
+      const shown = (side) => !side ? "0"
+        : g.state === "pre" ? "0"
+        : g.state === "post" ? String(side.final)
+        : String(Math.round(side.final * g.progress));
+      const away = ev.away ? { abbrev: ev.away.abbrev, name: ev.away.name, score: shown(ev.away) } : null;
+      const home = ev.home ? { abbrev: ev.home.abbrev, name: ev.home.name, score: shown(ev.home) } : null;
+      events.push({
+        id: ev.id, date: ev.date, state: g.state, detail: g.detail, period: g.period, clock: g.clock,
+        broadcast: ev.broadcast, spread: ev.spread, away, home,
+      });
+      const sides = [[away, home], [home, away]];
+      for (const [me, opp] of sides) {
+        if (!me || !me.abbrev) continue;
+        games.set(slpTeam(me.abbrev), {
+          eventId: ev.id, state: g.state, detail: g.detail, period: g.period, clock: g.clock,
+          kickoff: ev.date, oppAb: (opp && opp.abbrev) || "",
+          rz: false, score: me.score, oppScore: (opp && opp.score) || "0",
+          progress: g.progress,
         });
       }
     }
     D.S.games = games;
     D.S.nflEvents = events;
-    D.S.simSlateLoaded = true;
+  }
+  D.applySimSlate = applySimSlate;
+  async function pollSimSlate() {
+    await fetchSimSlate();
+    applySimSlate(LG.now());
   }
   D.pollSimSlate = pollSimSlate;
+
+  // ---- the replay's LIVE PLAYER STATS ----------------------------------------------------
+  // NOT invented: every line is that player's REAL week-1 2025 final, from the same archived
+  // Sleeper endpoint D.weekStats and LG.finalizeWeek's backfill already trust, SCALED by how far
+  // his own game has got.
+  //   · his game hasn't kicked off  -> NO stat line at all (absent, not a row of zeros)
+  //   · his game is in progress     -> scale = min(0.98, progress × f(pid))
+  //   · his game is over            -> the exact real final, unscaled
+  // f(pid) is a fixed per-player multiplier in [0.75, 1.35] from a hash of his id, so some
+  // players front-load their day and others finish strong.
+  //
+  // MONOTONICITY IS LOAD-BEARING. applySide() builds the live feed by DIFFING consecutive polls,
+  // so a value that ticks DOWN emits a negative delta and a nonsense feed line. Every term here
+  // is a non-decreasing function of `progress` ALONE — f is drawn once per player and never
+  // re-rolled per poll, `progress` never decreases while a game runs, min() with a constant
+  // preserves that, and Math.round is non-decreasing — so no counting stat can ever regress.
+  // (The one legitimate exception is a DEFENSE's fantasy POINTS, which fall as the points it has
+  // allowed climb. That is real football and the live engine does exactly the same; the stat
+  // itself still only ever rises.)
+  const SIM_SCALE_LO = 0.75, SIM_SCALE_HI = 1.35, SIM_SCALE_CAP = 0.98;
+  function hash01(s) {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return (h >>> 8) / 16777216; // [0,1)
+  }
+  D.simPlayerScale = (pid) => SIM_SCALE_LO + (SIM_SCALE_HI - SIM_SCALE_LO) * hash01("gffl:" + pid);
+  // Counting stats (TDs, receptions, sacks, XP/FG makes) and yardage are all INTEGERS at every
+  // scale — a half-caught pass is not a thing.
+  function scaleStatRow(row, s) {
+    const out = {};
+    for (const k in row) { const v = row[k]; out[k] = typeof v === "number" ? Math.round(v * s) : v; }
+    return out;
+  }
+  D.scaleStatRow = scaleStatRow; // test hook
+  D.S.simFinals = null;
+  D.S.simFinalsInFlight = null;
+  D.simEnsureFinals = function () {
+    if (D.S.simFinals) return Promise.resolve(D.S.simFinals);
+    if (D.S.simFinalsInFlight) return D.S.simFinalsInFlight;
+    const p = (async () => {
+      await D.initSleeper();
+      let map = {};
+      try {
+        const j = await fx("sim week finals", `${SLP}/stats/nfl/regular/${LG.SEASON}/${LG.currentWeek()}`);
+        if (j && typeof j === "object") map = j;
+      } catch (e) { /* no archived line for that week — every game simply shows nothing */ }
+      D.S.simFinals = map;
+      D.S.simFinalsInFlight = null;
+      return map;
+    })();
+    D.S.simFinalsInFlight = p;
+    return p;
+  };
+  async function pollSimStats() {
+    const finals = await D.simEnsureFinals();
+    if (!finals || !D.S.slpPlayers) return;
+    let n = 0;
+    for (const pid in finals) {
+      const st = finals[pid]; if (!st || typeof st !== "object") continue;
+      const meta = D.S.slpPlayers.get(pid); if (!meta) continue;
+      // Same scope the live poller uses: the NFL teams this week's league rosters actually touch.
+      if (D.S.tracked.size && !D.S.tracked.has(meta.team)) continue;
+      const g = D.S.games.get(slpTeam(meta.team || ""));
+      if (!g || g.state === "pre") continue; // hasn't kicked off -> no stat line exists yet
+      const scaled = g.state === "post"
+        ? st
+        : scaleStatRow(st, Math.min(SIM_SCALE_CAP, (g.progress || 0) * D.simPlayerScale(pid)));
+      let key;
+      if (meta.pos === "DEF") key = "dst_" + pid;
+      else key = meta.espn_id || D.S.espnKeyByName.get(nameKey(meta.name, meta.team)) || ("slp_" + pid);
+      if (key === "slp_" + pid) D.S.slpRowKeyByName.set(nameKey(meta.name, meta.team), key);
+      const row = rowFor(key, { name: meta.name, pos: meta.pos === "DEF" ? "DST" : meta.pos, team: meta.team });
+      row.injury = meta.injury || row.injury;
+      if (scaled.pts_ppr != null) row.official = scaled.pts_ppr;
+      applySide("slp", key, {}, normSlp(scaled), scaled);
+      n++;
+    }
+    // Seeded AFTER the first pass, exactly like the live poller: the first poll establishes the
+    // baseline silently (no feed entries for stats that were already on the board when the page
+    // opened), every poll after it diffs against that baseline and fills the feed.
+    if (n) D.S.slpSeeded = true;
+  }
+  D.pollSimStats = pollSimStats;
 
   // ---------------- 2025 SEASON REPLAY — week-1 projections (2026-08-08) ----------------
   // The live projections fetch (D.initSleeper's own third step) resolves off Sleeper's CURRENT
@@ -885,8 +1057,10 @@
         if (j && typeof j === "object" && simProjUsable(j)) map = j;
       } catch (e) { /* fall through to the archived-actuals proxy */ }
       if (!map) {
+        // The SAME archived map the live replay scales its in-progress stat lines from
+        // (D.simEnsureFinals), so this costs no second fetch of an identical payload.
         try {
-          const j2 = await fx("sim proj fallback", `${SLP}/stats/nfl/regular/${LG.SEASON}/${week}`);
+          const j2 = await D.simEnsureFinals();
           if (j2 && typeof j2 === "object" && Object.keys(j2).length) { map = j2; source = "actual"; }
         } catch (e) { /* nothing for this week — projections legitimately stay blank */ }
       }
@@ -910,13 +1084,17 @@
     // and 3 have nothing to poll at all (before kickoff / the week is over) — D.onUpdate still
     // fires either way, so paintLive()'s repaint cadence is unaffected.
     if (LG.SIM_2025) {
-      // ONE fetch, cached for the session (pollSimSlate no-ops once loaded), and NO Sleeper
-      // stat polling at all — the replay is pinned before kickoff, so there are no stats to
-      // have. Health is left untouched on purpose: failN/lastOk never move, anyLive() is
-      // false because every game reads "pre", so bad() short-circuits false on both sides and
-      // the mode stays "dual"/nominal. That is honest — nothing is failing, there is simply
-      // nothing to poll yet — rather than painting an outage chip over a healthy replay.
+      // TWO fetches for the whole session (the slate, and that week's real final stat lines);
+      // every tick after that is pure re-derivation from the replay clock — no live polling at
+      // all, because there is nothing live to poll for a season two years gone. The board still
+      // MOVES: game states come from LG.now() vs each game's real kickoff, and each player's
+      // line is his real final scaled by how far his own game has got.
+      //
+      // Health is left untouched on purpose (updateHealth is deliberately not called): failN and
+      // lastOk never move, so the mode stays "dual"/nominal. That is honest — nothing is failing
+      // — rather than painting an outage chip over a perfectly healthy replay.
       await pollSimSlate().catch(() => {});
+      await pollSimStats().catch(() => {});
       for (const row of D.S.players.values()) mergeRow(row);
       if (D.onUpdate) D.onUpdate();
       return;
