@@ -10265,3 +10265,107 @@ Plates: `shots/gffl_pt_{matchup_390,matchup_desktop,myteam_390,scores_390,moves_
 feed_390}.png`.
 **KNOWN, PRE-EXISTING, UNTOUCHED**: the bottom nav clips DRAFT to "DR" at 390px (8 tabs, one row).
 Nav markup/labels are unchanged by this batch — only the click handler moved — so it predates it.
+
+## 🏈 GFFL — the ESPN matchup layout, chat, and six tabs (2026-08-09)
+
+User sent a screenshot of the REAL ESPN fantasy app's matchup tab: *"I want to mimic this
+matchup layout… team a hugs left, team b hug right, exactly even height for every player, all
+fits on 3 total rows… we need the little team logos, need the clean scores at the top."* Plus
+three follow-ups (chat anchoring, no system messages, drop two tabs) and one defect found by
+reviewing the plates. Files: `league.html` + `assets/league/lg-{core,ui,data}.js` +
+`tools/_verify-gffl.cjs` (1190 → **1287**). `netlify/functions/league.mjs` untouched.
+
+**THE MIRROR REVERSES A CALL MADE THE DAY BEFORE.** The previous batch shipped a comment
+asserting *"only the column ORDER mirrors — text stays LEFT-aligned on BOTH sides, not
+ragged-right"*, inferred from a lower-resolution screenshot. The real app hugs: team A's text
+left, team B's **right**. Flipped, and the comment REWRITTEN to record the correction — a
+comment asserting the opposite of the code is worse than no comment. Measured at 390px: every
+left name starts at x=49, every right name ends at x=341.
+
+**THREE FIXED LINES, AND EVEN ROWS COST THE WRAP.** Each half is exactly three nowrap
+`.pline` blocks — name + NFL crest / opponent + kickoff / stat summary — with line 3 rendered
+unconditionally so its height is RESERVED even when empty. Every starter half-cell is 45px
+across all 18 cells, with an empty slot, a live stat line and a pre-game blank in the same
+asserted set. **Even height and wrapping are mutually exclusive**, so a long name ellipsises
+here where the My Team rows (a different surface, a different fix) still wrap to two lines.
+Empty halves render the same three lines or the columns stop aligning, which is the whole point.
+
+**THE CENTRE BAND KEEPS THE DRAFT COLOURS.** ESPN's own band is plain grey; the user's earlier
+request for `--pos-*` position colours wins. The CELL is painted `--nested2` with a transparent
+bottom border — measured 0px gap between consecutive cells, so it reads as one continuous strip
+— with the coloured badge inside it. Both worked; no compromise was needed.
+
+**CRESTS COST NO FETCH.** `D.teamLogo()` builds an abbrev→URL map from `D.S.nflEvents` already
+in memory (the per-competitor `logo` landed in the previous batch), `slpTeam()`-normalised. A
+crest-less team renders **no `<img>` but keeps a 14px placeholder span** — without it that row's
+name starts 19px off every other row's, so the consistent-edge property would hold only for
+teams that happen to have a crest. home/away is recorded in **both** parsers (`pollScoreboard`
+AND the replay's `applySimSlate`) so line 2 reads `@DEN` away, bare `KC` home.
+
+**HEADER 111px → 107px** (220px two batches ago): crest outer, big score inner with a bare
+smaller projection beneath (no "Proj" label), name, `owner · record`. Paid for by tightening
+type, not by dropping the to-play/live line.
+
+**ITEM 17 — THE MOBILE TRUNCATION, AND WHY THE FIRST ANSWER WAS WRONG.** The first cut shipped
+names reading **"M. Ha…", "J. Smi…", "C. McLaug…"** with the note *"ESPN does the same; the
+title covers it."* Neither half was true: the user's own reference fits `T. Etienne Jr.` and
+`C. Williams` in full at the same 390px, and **a `title` is unreachable on a phone** — there is
+no hover. Caught by LOOKING at the plate, not by a test. The fix was measured, not guessed —
+at 390px, name budget **83.8px → 102.7px** (and **51px → 102.7px** on the rows carrying pips):
++20px from the lineup card's own 16px side padding (by far the largest slack, and it costs no
+text — the reference's rows are near full-bleed), +12px from a points column holding 28px of
+text in 36px, +8px from cell padding and gaps. **Nothing came from the name's font, the crest,
+the band, the colours or either point value.** `J. Smith-Njigba` needs 97px and now has 103.
+Ceiling ~15-16 chars; a name like `A. Rodriguez-Williams` would need 143px and still truncates.
+**The pips were a SECOND, independent cause** — the possession + red-zone dots cost ~31px on
+exactly the rows whose names are longest-pressed. They moved to **line 2**, where they belong:
+all three markers are facts about the GAME's state, and a live row's line 2 is the short
+`Q2 5:00`, so they cost nothing there.
+
+**CHAT — THE DESKTOP BUG WAS NEVER ORDERING.** `.chatlist` is `max-height:52vh` and scrolls to
+the newest. On a phone 52vh is short, the list overflows, the scroll pins the newest to the
+bottom — correct. On a desktop a few messages **do not fill the box**, there is nothing to
+scroll, and the flex column top-aligns them with dead space beneath. Same code, different box
+height. Fixed by bottom-anchoring with an `auto` top margin — **deliberately NOT
+`justify-content:flex-end`**, which on an overflowing flex column makes the earliest messages
+unreachable when you scroll up. Both halves asserted: newest 8px off the bottom with 3 messages,
+and with 30 messages the FIRST is still fully visible at scrollTop 0; a reader scrolled up is
+not yanked down when a message lands.
+
+**CHAT IS USER MESSAGES ONLY.** Filtered at RENDER on all three surfaces (Chat tab, matchup
+thread, league-home preview) with `byId` built from the filtered set, so a reply quoting a sys
+post degrades to no quote. Then **all seven `postSys` writes removed** — each was checked
+against "would this lose its ONLY record", and none does: rules changes persist in
+`settings.log` and render as the Rules page's own **Change log** card, the champion is written
+as a team trophy AND onto the bracket doc, waivers/trades/vetoes are in the transaction log.
+`LG.postSys` itself stays as the API and as what the suite seeds. The matchup feed's own sys
+lines (`.fline.sys`, from `e.msg`) are a different surface and untouched.
+
+**SIX TABS.** Rules and Draft left the nav for the League page — Rules through `UI.navTo`,
+Draft as a real `<a href>` so middle-click and open-in-new-tab still work. Per-tab width at
+390px **62/68/62/62/62/62**, against 39-68px for seven buttons plus a link. **The DRAFT→"DR"
+clipping never reproduced headless** (eight entries measured 0 clipped labels — a real-device
+font difference), so that check is a regression invariant and the WIDTH is the honest measure,
+not a proof the clipping is fixed.
+
+**TWO CLIPPING BUGS FOUND ON THE WAY**: `BENCH` had been spilling 10px out of the centre band
+since the band shipped (39px of text in a 29px box; now 35 into 37), and the TOTAL row would
+have been clipped by narrowing the players' column, so it keeps its own 44px basis.
+
+**VERIFIED**: **1287/1287, 0 page errors** (1289 with `--shots`). Pre-fix on the main batch,
+app files stashed to HEAD: **1218 pass / 63 fail**, every failure on-point across all sixteen
+items; item 17's own three checks fail pre-fix at the recorded widths (`97>51`, budget 84 vs 97).
+
+**THREE TEST BUGS FIXED, all of the same family — a check that passes for the wrong reason:**
+(1) the `#rules` deep-link check used a hash-only `goto`, which is a **same-document
+navigation**, so it had been passing because the page was already on Rules (now carries a `?n=`
+nonce — the same lesson the farmgpt nav suite learned). (2) Two hard `waitForSelector`s turned a
+missing element into a whole-run crash instead of a readable failure. (3) `scrollWidth` reports
+**no overflow on an `overflow:visible` element**, so the first TOTAL/BENCH checks read as
+comfortable fits while genuinely overflowing — they now measure a `Range` around the text node,
+and the BENCH one compares against the CELL that constrains the badge, not the inline-block
+badge itself (which always looks like a perfect fit). The name check keeps `scrollWidth`
+legitimately, because `.pname b` carries its own `overflow:hidden`.
+
+Plates: `shots/gffl_espn_matchup_{390,desktop}.png`, `gffl_chat_{390,desktop}.png`,
+`gffl_league_links_390.png`.

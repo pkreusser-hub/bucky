@@ -885,12 +885,30 @@
       <button id="recentMovesAll" class="mut">View all →</button>
     </details></div>`;
   }
-  //  League chat card — the last 6 main-channel messages (sys posts included, since those
-  // ARE the league's own timeline), collapsed the same way the record book is. Same lazy
-  // sentinel as recentMovesHtml above — `chat === undefined` means "not loaded yet".
+  // Item 16 (2026-08-09): Rules and Draft came out of the bottom nav and live here, high on
+  // the League page so neither needs hunting for. They are DELIBERATELY different elements
+  // because they are different kinds of destination and should behave like it:
+  //   · Rules is an in-app view — a <button> through UI.navTo, the same navigation the tab
+  //     used, so nothing about how the view is entered changes.
+  //   · Draft leaves league.html entirely for ffdraft.html — a real <a href>, so middle-click,
+  //     long-press and open-in-new-tab all still work, which a JS handler would take away.
+  function leagueLinksHtml() {
+    return `<div class="card leaguelinks">
+      <button type="button" class="navlinkbtn" id="lnkRules">Rules &amp; settings
+        <span class="mut small">Scoring, roster, waivers, keepers</span></button>
+      <a class="navlinkbtn" id="lnkDraft" href="ffdraft.html">Draft room
+        <span class="mut small">Opens the keeper draft board</span></a>
+    </div>`;
+  }
+  //  League chat card — the last 6 main-channel messages, collapsed the same way the record
+  // book is. Same lazy sentinel as recentMovesHtml above — `chat === undefined` means "not
+  // loaded yet".
+  // RESTAGED 2026-08-09 (item 15): sys posts used to be INCLUDED here on the grounds that they
+  // "ARE the league's own timeline". The user's answer to that is the transactions card right
+  // above this one — chat is for what people say. This is the third chat surface, so it
+  // filters exactly like the other two.
   function recentChatHtml(chat) {
     const line = (m) => {
-      if (m.sys) return `<div class="fline sys">${esc(m.text || "")}</div>`;
       const who = (LG.teamById(m.teamId) || {}).name || m.who || "?";
       const body = m.text || (m.img ? "[photo]" : m.gif ? "[gif]" : "");
       return `<div class="fline"><b>${esc(who)}:</b> ${esc(body.slice(0, 120))}</div>`;
@@ -900,7 +918,7 @@
         <p class="mut small">Tap to load the latest messages.</p>
         <button id="recentChatOpen" class="mut">Open chat →</button></details></div>`;
     }
-    const recent = chat.slice(-6);
+    const recent = userChats(chat).slice(-6);
     return `<div class="card"><details class="collapsecard" id="chatDetails">
       <summary>League chat</summary>
       ${recent.length ? recent.map(line).join("") : '<p class="mut">No messages yet — say hi!</p>'}
@@ -1015,6 +1033,7 @@
         ${wkGames.length ? `<div class="mugrid">${wkGames.map(([h, a]) => matchupCard(h, a)).join("")}</div>` : `<p class="mut">${noGamesMsg}</p>`}
         ${finalizeBtn}
       </div>
+      ${leagueLinksHtml()}
       ${staleWeeksHtml(UI._staleWeeks, isCommish())}
       ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
       ${powerRankingsHtml(UI._allWeekly)}
@@ -1034,6 +1053,9 @@
       UI.matchup = el.dataset.mu.split("-").map(Number);
       UI.show("matchup");
     }));
+    // Item 16: the Rules link routes exactly like the tab did (UI.navTo), which also means it
+    // does NOT clear UI.matchup — navTo only does that for the Matchup tab itself.
+    $("#lnkRules") && $("#lnkRules").addEventListener("click", () => UI.navTo("rules"));
     $("#recentMovesAll") && $("#recentMovesAll").addEventListener("click", () => UI.show("moves"));
     $("#recentChatOpen") && $("#recentChatOpen").addEventListener("click", () => UI.show("chat"));
     $("#finalizeBtn") && $("#finalizeBtn").addEventListener("click", async () => {
@@ -1128,6 +1150,23 @@
     const cls = "muavatar" + (mine ? " mine" : "");
     if (t && t.logo) return `<span class="${cls}"><img src="${esc(t.logo)}" alt=""></span>`;
     return `<span class="${cls}">${esc(initials(t && t.name))}</span>`;
+  }
+  // One side of the matchup header, in the ESPN reference's arrangement (2026-08-09): the
+  // crest on the OUTER edge with the score block on the INNER (mirrored, so the two big
+  // numbers face each other across the centre column), the current score LARGE with the
+  // projection directly beneath it as a BARE muted number — no "proj" label; the reference
+  // does not carry one and at this size the label costs more than it explains — then the team
+  // name, then owner · record.
+  // A team with no owner on file shows the record alone rather than a stray separator.
+  function muTeamHead(T, id, mine, tot, proj, rem, sideCls, recTxt) {
+    const owner = (T && T.owner || "").trim();
+    const sub = [owner, recTxt].filter(Boolean).join(" · ");
+    return `<div class="muhteam${sideCls}">
+      <div class="muhtop">${avatarHtml(T, id === mine)}
+        <div class="muhscore"><span class="bigpts">${LG.fmtPts(tot)}</span><span class="mut muhproj">${LG.fmtPts(proj)}</span></div></div>
+      <b class="teamlink muhname" data-locker="${id}" title="${esc(T?.name || "?")}">${esc(T?.name || "?")}</b>
+      <div class="mut muhowner">${esc(sub)}</div>
+      <div class="mut muhsub">${rem.left} to play · ${rem.playing} live</div></div>`;
   }
   // "All-time series" line (plan §4.8's rivalries) — h2h is from the HOME
   // team's perspective (LG.headToHead(hId, aId)), so aWins is H's wins.
@@ -1447,6 +1486,16 @@
     const projSum = (keys) => keys.reduce((s, k) => s + (d.projFor(k) || 0), 0);
     const hProj = projSum(hKeys), aProj = projSum(aKeys);
     const mine = LG.myTeamId();
+    // The header's own "owner · record" line (2026-08-09, the ESPN reference). loadStandings()
+    // is the SAME derivation the standings table uses — a second, disagreeing notion of a
+    // team's record would be worse than none — and it reads list("weekly"), which renderLeague
+    // has already warmed, so a warm matchup render still costs no backend call.
+    const standings = await LG.loadStandings();
+    const recOf = (id) => {
+      const s = standings && standings[id];
+      if (!s) return "";
+      return s.t ? `${s.w}-${s.l}-${s.t}` : `${s.w}-${s.l}`;
+    };
     const anyLive = hRem.playing > 0 || aRem.playing > 0;
     const allDone = !anyLive && hRem.left === 0 && aRem.left === 0;
     const liveIndicator = anyLive ? '<div class="mulive"><span class="dot"></span>Live</div>'
@@ -1478,25 +1527,19 @@
     main().innerHTML = `
       <div class="card muhead">
         <div class="muhrow">
-          <div class="muhteam">
-            <div class="muhtop">${avatarHtml(A, aId === mine)}<b class="teamlink" data-locker="${aId}" title="${esc(A?.name || "?")}">${esc(A?.name || "?")}</b></div>
-            <div class="muhscore"><span class="bigpts">${LG.fmtPts(aTot)}</span><span class="mut muhproj">proj ${LG.fmtPts(aProj)}</span></div>
-            <div class="mut muhsub">${aRem.left} to play · ${aRem.playing} live</div></div>
+          ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "", recOf(aId))}
           <div class="muhmid">
             ${liveIndicator}
             <div class="mut small">Week ${UI.week}</div>
             <div class="wpbar"><div class="wpfill" style="width:${Math.round(wp * 100)}%"></div></div>
             <div class="mut small">${Math.round(wp * 100)}% — ${Math.round((1 - wp) * 100)}%</div>
           </div>
-          <div class="muhteam right">
-            <div class="muhtop">${avatarHtml(H, hId === mine)}<b class="teamlink" data-locker="${hId}" title="${esc(H?.name || "?")}">${esc(H?.name || "?")}</b></div>
-            <div class="muhscore"><span class="bigpts">${LG.fmtPts(hTot)}</span><span class="mut muhproj">proj ${LG.fmtPts(hProj)}</span></div>
-            <div class="mut muhsub">${hRem.left} to play · ${hRem.playing} live</div></div>
+          ${muTeamHead(H, hId, mine, hTot, hProj, hRem, " right", recOf(hId))}
         </div>
         ${h2hLine(UI._h2h, H, A)}
         <div class="rowline"><span id="healthChip" class="health" hidden></span></div>
       </div>
-      <div class="card"><div class="panner"><table class="tbl slottable mutable">
+      <div class="card lineupcard"><div class="panner"><table class="tbl slottable mutable">
         <tbody>${rows.map(([pa, slot, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
           <td class="slotcell" data-pos="${slotPos(slot)}"><span class="slotbadge">${esc(slot)}</span></td>
@@ -1507,7 +1550,7 @@
           <td class="pcell right">${totalHalfCell(hTot, "right")}</td>
         </tr></tfoot>
       </table></div></div>
-      ${(aBench.length || hBench.length) ? `<div class="card"><h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
+      ${(aBench.length || hBench.length) ? `<div class="card lineupcard"><h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
         ${benchRows.map(([pa, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
           <td class="slotcell" data-pos="X"><span class="slotbadge">BENCH</span></td>
@@ -1648,18 +1691,55 @@
     for (let i = 0; i < n; i++) out.push([aList[i] || null, hList[i] || null]);
     return out;
   }
-  // Item 3 (2026-08-08) rebuild — a strict, symmetric slot-paired lineup grid (the ESPN
-  // head-to-head reference): name+meta on the OUTER edge of each half, points in a fixed-width
-  // column on the INNER edge (touching the slot badge) so both teams' point columns line up
-  // down the middle of the row regardless of name length on either side. An empty half (no
-  // player in that slot/bench row) renders the SAME two-line shape with a muted "Empty" — never
-  // a bare "—" — so the row's own height, and the two halves' alignment against each other,
-  // never depends on which side happens to be filled.
+  // The little NFL crest beside a player's name (2026-08-09). Comes off D.teamLogo, which is
+  // derived from the slate ALREADY in memory — no new network call. Fixed dimensions and an
+  // onerror handler for the same reason the Scores tab's crests carry them: a slow or dead
+  // image must never shift a row. A team the payload carried no crest for renders NO <img> at
+  // all rather than a broken box.
+  function plogoHtml(team) {
+    const src = D().teamLogo(team);
+    // A crest-less team renders NO <img> — never a broken one. It DOES keep the 14px box:
+    // without it, the row's name would start (left side) or end (right side) 19px further in
+    // than every other row's, and "team B's names all end at one consistent x" would hold only
+    // for whichever teams happen to have a crest on file. An empty span is not an image.
+    if (!src) return '<span class="plogo plogoph" aria-hidden="true"></span>';
+    return `<img class="plogo" src="${esc(src)}" alt="" width="14" height="14" loading="lazy" onerror="this.style.visibility='hidden'">`;
+  }
+  // Line 2 of a lineup row: the opponent and kickoff before the game, the live clock while it
+  // is on, "Final" once it is done — exactly the ESPN reference's second line. "@DET" away,
+  // bare "TB" at home (g.home, recorded by BOTH slate parsers).
+  function gameLineHtml(g) {
+    if (!g) return "";
+    if (g.state === "in") return `<span class="live">Q${g.period} ${esc(g.clock)}</span>`;
+    if (g.state === "post") return "Final";
+    const opp = g.oppAb ? (g.home ? esc(g.oppAb) : "@" + esc(g.oppAb)) : "";
+    const kick = esc(shortKick(g));
+    return opp && kick ? opp + " " + kick : (opp || kick);
+  }
+  // THE ESPN MATCHUP ROW (2026-08-09, rebuilt from the user's own screenshot of the real app).
+  // EXACTLY THREE LINES per half, always the same three, so every row in the table is the same
+  // height whatever it holds:
+  //     1  the player's name, with his NFL team's little crest
+  //     2  opponent + kickoff  ("@DET Sun 12:00 PM" / "TB Sun 12:00 PM"), or the live clock,
+  //        or "Final"
+  //     3  the game-stat summary — EMPTY before kickoff, but its height is RESERVED, which is
+  //        what stops a pre-game row being shorter than a live one
+  // Each line is a fixed-height, nowrap, ellipsised block (see .pline in league.html), so a
+  // long name truncates on ONE line instead of wrapping and making its row taller than its
+  // neighbours' — the "exactly even height for every player" the user asked for is structural,
+  // not something that happens to hold for the names we tried.
+  // The points column mirrors the same three lines (score / projection / reserved), which is
+  // what keeps the big number on the name's own baseline.
+  // An empty half renders the SAME three-line shape with a muted "Empty" — never a bare "—" —
+  // so both columns stay aligned however the two rosters differ.
   function halfCell(p, side) {
-    let infoHtml, ptsHtml, ball = false;
+    let nameHtml, metaHtml, statHtml, ptsHtml, projHtml, ball = false, titleAttr = "";
     if (!p) {
-      infoHtml = '<b class="mut">Empty</b><br><small class="mut">&nbsp;</small>';
-      ptsHtml = '<span class="pts mut">—</span><small class="mut">&nbsp;</small>';
+      // The empty half carries the crest's 14px slot too, so its "Empty" label starts at the
+      // same x as every real name in the column — the point of the whole even-row rule.
+      nameHtml = '<span class="plogo plogoph" aria-hidden="true"></span><b class="mut">Empty</b>';
+      metaHtml = ""; statHtml = "";
+      ptsHtml = '<span class="pts mut">—</span>'; projHtml = "";
     } else {
       const d = D();
       const row = d.S.players.get(p.key);
@@ -1669,7 +1749,6 @@
       // claim (2026-08-09). Both are guaranteed finite-or-null; fmtPts can never print NaN.
       const pts = d.livePts(p.key);
       const proj = d.liveProj(p.key);
-      const state = !g ? "" : g.state === "in" ? `<span class="live">Q${g.period} ${esc(g.clock)}</span>` : g.state === "post" ? "Final" : esc(shortKick(g));
       // Item 10 (no emoji in app chrome): red zone was " " — now a small CSS-drawn dot, not a
       // pictograph. Conflict was " " — now a plain text badge.
       // Red zone marks the OFFENSE in the red zone — a D/ST row isn't on the field.
@@ -1679,13 +1758,33 @@
       ball = hasBall(p);
       const possPip = ball ? '<span class="possdot" title="Has the ball"></span>' : "";
       const conflict = row && row.conflict ? '<span class="conflictflag" title="Sources disagree">CONFLICT</span>' : "";
-      // ESPN-style stat summary line ("312 pass yds, 2 TD" / "6 rec, 84 yds") under the meta
-      // line, from whichever source mergeRow picked — absent entirely until any stat lands.
+      // ESPN-style stat summary line ("312 pass yds, 2 TD" / "6 rec, 84 yds"), from whichever
+      // source mergeRow picked. "" before any stat lands — the LINE still reserves its height.
       const sline = statSummary(p, row);
-      infoHtml = `<b>${escn(p.name)}</b>${possPip}${rz}${conflict}<br><small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${state}</small>${sline ? `<small class="mut pstatline">${esc(sline)}</small>` : ""}`;
-      ptsHtml = `<span class="pts">${LG.fmtPts(pts)}</span><small class="mut">proj ${LG.fmtPts(proj)}</small>`;
+      // The row can no longer spell out "QB · PHI" (line 2 belongs to the opponent now), so the
+      // position and team ride on the name's own tooltip. The crest carries the team visually,
+      // and the centre band carries the slot.
+      titleAttr = ` title="${esc(LG.shortName(p.name) + " · " + p.pos + " · " + p.team)}"`;
+      nameHtml = `${plogoHtml(p.team)}<b${titleAttr}>${escn(p.name)}</b>`;
+      // ITEM 17 (2026-08-09): the possession pip, the red-zone dot and the conflict flag ride
+      // on LINE 2, not beside the name. Two of them cost ~31px, and they appear on exactly the
+      // rows whose names are longest-pressed — at 390px that was the difference between
+      // "J. Smith-Njigba" and "J. Smi…". Line 2 is also where they belong: all three are facts
+      // about the GAME's state, which is what that line says, and a live row's line 2 is the
+      // short form ("Q2 5:00"), so they cost nothing there.
+      metaHtml = gameLineHtml(g) + possPip + rz + conflict;
+      statHtml = sline ? esc(sline) : "";
+      ptsHtml = `<span class="pts">${LG.fmtPts(pts)}</span>`;
+      projHtml = LG.fmtPts(proj);
     }
-    const infoDiv = `<div class="pinfo">${infoHtml}</div>`, ptsDiv = `<div class="ppts">${ptsHtml}</div>`;
+    const infoDiv = `<div class="pinfo">`
+      + `<div class="pline pname">${nameHtml}</div>`
+      + `<div class="pline pmeta mut">${metaHtml}</div>`
+      + `<div class="pline pstatline mut">${statHtml}</div></div>`;
+    const ptsDiv = `<div class="ppts">`
+      + `<div class="pline pscore">${ptsHtml}</div>`
+      + `<div class="pline pproj mut">${projHtml}</div>`
+      + `<div class="pline pstatpad"></div></div>`;
     // data-pk only when there's a real player (never on an "Empty" half) — that's what
     // wirePlayerCardTaps() keys the click on, and it's also the whole "row-click" affordance
     // for the matchup lineup + bench tables (item 1's "matchup lineup rows both sides").
@@ -1728,9 +1827,10 @@
   // The TOTAL row's own half-cell — deliberately NOT halfCell(), which resolves live points by
   // looking a player up by KEY; a plain number has no key to look up.
   function totalHalfCell(total, side) {
-    const infoHtml = '<b class="mut">TOTAL</b><br><small class="mut">&nbsp;</small>';
-    const ptsHtml = `<span class="pts">${LG.fmtPts(total)}</span><small class="mut">&nbsp;</small>`;
-    const infoDiv = `<div class="pinfo">${infoHtml}</div>`, ptsDiv = `<div class="ppts">${ptsHtml}</div>`;
+    const infoDiv = '<div class="pinfo"><div class="pline pname"><b class="mut">TOTAL</b></div>'
+      + '<div class="pline pmeta mut"></div><div class="pline pstatline mut"></div></div>';
+    const ptsDiv = `<div class="ppts"><div class="pline pscore"><span class="pts">${LG.fmtPts(total)}</span></div>`
+      + '<div class="pline pproj mut"></div><div class="pline pstatpad"></div></div>';
     return `<div class="pcellgrid ${side}">${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
   }
   function shortKick(g) {
@@ -2011,10 +2111,16 @@
     }));
     listEl.querySelectorAll(".chatImg").forEach((img) => img.addEventListener("click", () => openImageOverlay(img.dataset.full)));
   }
+  // Item 15 (2026-08-09, user: "dont put rules changes in the chat or any other system
+  // message, just users chats"). The GUARANTEE is here, at RENDER, not at the write: every
+  // sys post the family already has vanishes from the list immediately without a single doc
+  // being deleted. byId is built from the SAME filtered set, so a user message that quotes an
+  // old sys post degrades to no quote block rather than a dangling one.
+  const userChats = (msgs) => (msgs || []).filter((m) => !m.sys);
   async function refreshChatList(idPfx, thread) {
     const listEl = $("#" + idPfx + "List");
     if (!listEl) return;
-    const msgs = await LG.loadChat(thread || null);
+    const msgs = userChats(await LG.loadChat(thread || null));
     if (!$("#" + idPfx + "List")) return; // torn down mid-fetch (view switched)
     const wasNearBottom = !listEl.dataset.rendered || (listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight) < 80;
     const last = msgs.slice(-80);

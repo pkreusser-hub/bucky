@@ -967,6 +967,27 @@ function seedPending() {
   } };
 }
 
+// ---------------- section AE chat fixtures (2026-08-09) ----------------
+// n user messages in one thread, oldest first, plus (optionally) a sys post and a user message
+// that REPLIES to it. Chat doc IDS are the message ids — lg-core stores no id inside the doc
+// and list() attaches it from the key — so replyTo has to name the KEY, not an invented id.
+// The bubbles are deliberately one short line each: item 14 is about how a SHORT conversation
+// sits in a TALL box, and a wall of text would fill the pane and hide the very thing under test.
+function seedChat(n, opts) {
+  opts = opts || {};
+  const base = fullSeed();
+  const docs = { ...base.docs };
+  const thread = opts.thread || null;
+  for (let i = 0; i < n; i++) {
+    docs["chat_u" + i] = { kind: "chat", teamId: 1, who: "Peter", text: "message number " + i, t: 1000 + i, thread, reactions: {} };
+  }
+  if (opts.sys) docs.chat_sys1 = { kind: "chat", who: "GFFL", sys: true, text: "League rules updated by Peter (1): scoring.rec 0.5 -> 1", t: 1000 + n, thread };
+  if (opts.replyToSys) {
+    docs.chat_reply = { kind: "chat", teamId: 2, who: "Sam", text: "quoting the robot", t: 1000 + n + 1, thread, replyTo: "chat_sys1", reactions: {} };
+  }
+  return { ...base, docs };
+}
+
 // ---------------- player-stats-card fixture (2026-08-08) ----------------
 // Weeks 1-4 written directly as "weekly" docs (the section M4/S7 technique — bypasses
 // LG.finalizeWeek's live-data gate entirely; the game log only needs to know a week is
@@ -1691,10 +1712,14 @@ async function openDetails(page, id) {
       "…slot badge label is horizontally centered (td.slotcell — .tbl td's text-align:left used to outweigh it)");
     // The ESPN stat summary line under the meta line, built from the SAME picked-source stats
     // the row's points were scored from (statSummary reads row[row.src].stats).
+    // RESTAGED 2026-08-09 (the ESPN matchup rebuild): line 3 is now rendered on EVERY half,
+    // populated or not — reserving its height is what makes every row the same height — so a
+    // row's FIRST .pstatline is the away half's (empty here), not the one under P. Passer.
+    // Read the half that actually holds him.
     const passerStatline = await page.evaluate(() => {
-      const tr = [...document.querySelectorAll(".mutable tbody tr")].find((r) => r.textContent.includes("P. Passer"));
-      const el = tr && tr.querySelector(".pstatline");
-      return el ? el.textContent.trim() : null;
+      const el = [...document.querySelectorAll(".mutable .pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
+      const line = el && el.querySelector(".pstatline");
+      return line ? line.textContent.trim() : null;
     });
     ok(passerStatline === "150 pass yds, 1 TD, 1 INT",
       "ESPN-style stat summary line under the player's meta line (" + JSON.stringify(passerStatline) + ")");
@@ -2916,10 +2941,24 @@ async function openDetails(page, id) {
       const chat = await LG.loadChat(null);
       return chat.filter((m) => m.sys).map((m) => m.text);
     });
-    ok(r.some((t) => /updated the rules/.test(t) && /scoring\.rec/.test(t)), "a rules save posts an event with the change summary (" + JSON.stringify(r) + ")");
-    ok(r.some((t) => /Waivers processed/.test(t) && /KC D\/ST/.test(t)), "waiver processing posts a summary naming the winner");
-    ok(r.some((t) => /^Trade:/.test(t) && /W\. Receiver/.test(t)), "an executed trade posts the trade sentence with the real player names");
-    ok(r.some((t) => /vetoed by the league/.test(t)), "a vetoed trade posts its own event too");
+    // RESTAGED 2026-08-09 (item 15, user: "dont put rules changes in the chat or any other
+    // system message, just users chats"). Every one of the seven sys-post sites is GONE at the
+    // WRITE, not just filtered at render — each was checked for whether its event would lose
+    // its ONLY record, and none would: the settings doc's own change log covers a rules save
+    // (and the Rules view renders it), the transaction log covers waivers/trades/vetoes, the
+    // weekly doc covers a finalized week, the bracket doc covers the bracket and the champion.
+    ok(r.length === 0, "none of these events writes a sys chat post any more (" + JSON.stringify(r) + ")");
+    // …and every one of them really is recorded somewhere else, so nothing was lost to tidy a list.
+    const elsewhere = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      const tx = await LG.loadTx();
+      return { tx: tx.map((t) => t.type + ":" + ((t.detail && t.detail.result) || (t.detail && t.detail.addName) || "")),
+               ruleLog: (LG.rulesDoc.log || []).map((e) => e.who + ":" + e.changes.join(",")) };
+    });
+    ok(elsewhere.ruleLog.some((l) => /Peter/.test(l) && /scoring\.rec/.test(l)),
+      "a rules save is recorded in the settings doc's own change log (" + JSON.stringify(elsewhere.ruleLog) + ")");
+    ok(elsewhere.tx.some((k) => /^waiver:KC D\/ST/.test(k)) && elsewhere.tx.some((k) => k === "trade:executed") && elsewhere.tx.some((k) => k === "trade:vetoed"),
+      "…and the waiver, the executed trade and the veto are all in the transaction log (" + JSON.stringify(elsewhere.tx) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
@@ -3069,7 +3108,8 @@ async function openDetails(page, id) {
   section("M · finalization — official scores, accuracy, power rankings, awards, AI read");
 
   // M1: the whole finalize flow, hand-computed end to end — guard, force, real numbers,
-  // awards, accuracy, power snapshot, standings, the sys chat post, and idempotency.
+  // awards, accuracy, power snapshot, standings, and idempotency (the sys chat post it used
+  // to write is gone — item 15).
   {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -3092,14 +3132,11 @@ async function openDetails(page, id) {
     // force:true bypasses the guard (still computes from whatever's currently on the board).
     const forced = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
     ok(forced.ok === true && forced.kind === "weekly", "force:true bypasses the guard and finalizes anyway");
-    // Undo the force-finalize (doc AND its own sys chat post) so the rest of this test
-    // exercises the real, un-forced numbers against a clean slate.
+    // Undo the force-finalize so the rest of this test exercises the real, un-forced numbers
+    // against a clean slate. RESTAGED 2026-08-09 (item 15): there is no sys chat post to clean
+    // up any more — finalizeWeek writes the weekly doc and nothing else.
     await page.evaluate(async () => {
-      const LG = window.__GFFL__.LG;
-      await LG.db.del("weekly_2026_w1");
-      const chats = await LG.loadAllChat();
-      const forceMsg = chats.find((m) => m.sys && /Week 1 is official/.test(m.text || ""));
-      if (forceMsg) await LG.db.del(forceMsg.id);
+      await window.__GFFL__.LG.db.del("weekly_2026_w1");
     });
     ok(!(await page.evaluate(() => window.__GFFL__.LG.loadWeekly(1))), "…the doc is gone again, ready for the real run");
 
@@ -3169,20 +3206,24 @@ async function openDetails(page, id) {
     ok(stAfter[1].w === 1 && stAfter[1].pf === 87 && stAfter[2].l === 1 && stAfter[2].pf === 36,
       "LG.loadStandings() reflects the finalized week — nothing else needed to change");
 
+    // RESTAGED 2026-08-09 (item 15): finalizing a week used to announce itself in chat with
+    // all three awards in the sentence. It writes NOTHING to chat now — the weekly doc it just
+    // wrote is the record, and the same three awards are read straight off it (asserted
+    // immediately above, and rendered by the league home and the record book). So the check
+    // flips: no chat message, and the awards still exactly where they need to be.
     const chat1 = await page.evaluate(() => window.__GFFL__.LG.loadAllChat());
-    ok(chat1.length === chatBefore + 1, "exactly one new chat message was posted");
-    const sys = chat1.filter((m) => m.sys && /Week 1 is official/.test(m.text || ""));
-    ok(sys.length === 1, "…and it's the sys announcement");
-    ok(/Top score: Battle Kreussers \(87\.0\)/.test(sys[0].text) && /Bust of the week: F\. Flexman/.test(sys[0].text)
-      && /Bench blunder: Battle Kreussers left 48\.0/.test(sys[0].text),
-      "…naming the top score, the bust, and the bench blunder (" + sys[0].text + ")");
+    ok(chat1.length === chatBefore, "finalizing a week writes NO chat message at all (" + chat1.length + " vs " + chatBefore + ")");
+    const wkDoc = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(1));
+    ok(wkDoc.awards.topScore.teamId === 1 && wkDoc.awards.topScore.pts === 87
+      && /F\. Flexman/.test(wkDoc.awards.bust.name) && wkDoc.awards.benchBlunder.diff === 48,
+      "…and the top score, the bust and the bench blunder all live on the weekly doc instead (" + JSON.stringify(wkDoc.awards) + ")");
 
     // Idempotent: a second call returns the SAME doc, untouched — no recomputation, no
     // duplicate chat post.
     const r2 = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1));
     ok(r2.ok === true && r2.finalizedAt === r1.finalizedAt, "re-calling finalizeWeek returns the SAME doc untouched (idempotent)");
     const chat2 = await page.evaluate(() => window.__GFFL__.LG.loadAllChat());
-    ok(chat2.length === chat1.length, "…and posts no duplicate chat message");
+    ok(chat2.length === chat1.length, "…and still writes nothing to chat");
 
     ok(errors.length === 0, "0 page errors through the finalize flow");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_league_390.png"), fullPage: true }); console.log("  📸 shots/gffl_league_390.png"); }
@@ -3633,19 +3674,23 @@ async function openDetails(page, id) {
     ok(stAfter[5].w === 12 && stAfter[5].pf === 1620, "standings are exactly as before — building the bracket doesn't touch them");
 
     // Idempotent: calling buildBracket again (still no playoff weeks final) returns the SAME
-    // doc and posts no second announcement.
+    // doc. RESTAGED 2026-08-09 (item 15): the "bracket is set" sys chat post is gone at the
+    // write, so "no DUPLICATE post" would now be vacuous — the assertion is that building it,
+    // twice, writes nothing to chat at all, while the bracket doc (rendered above, byes and
+    // play-in pairings and all) carries the whole announcement's content.
     const chatBefore = (await page.evaluate(() => window.__GFFL__.LG.loadAllChat())).length;
     const rebuild = await page.evaluate(() => window.__GFFL__.LG.buildBracket());
     ok(rebuild.ok === true, "re-calling buildBracket succeeds");
     ok(JSON.stringify(rebuild.seeds) === JSON.stringify(bracket.seeds), "…and returns the SAME bracket, untouched");
     const chatAfter = (await page.evaluate(() => window.__GFFL__.LG.loadAllChat())).length;
-    ok(chatAfter === chatBefore, "…with no duplicate 'bracket is set' chat post (idempotent)");
+    ok(chatAfter === chatBefore && chatBefore === 0, "…and building a bracket writes nothing to chat, first time or second (" + chatAfter + ")");
 
     ok(errors.length === 0, "0 page errors through the build + week-15/16 display flow");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_bracket_390.png"), fullPage: true }); console.log("  📸 shots/gffl_bracket_390.png"); }
 
     // O2 continues in the SAME context/state — seed wk15 -> advance -> wk16 -> advance ->
-    // wk17 -> advance, hand-verifying every resolution, the trophy, and both sys posts.
+    // wk17 -> advance, hand-verifying every resolution and the trophy (the two sys posts it
+    // used to write are gone — item 15).
     // Team names, for reference: 1 Battle Kreussers · 2 End Zone Goats · 3 Wyoming Cowboys ·
     // 4 Waffle House Warriors · 5 Nails  For Breakfast · 6 Team Six · 7 Team Seven · 8 The Goat Kids.
 
@@ -3698,10 +3743,13 @@ async function openDetails(page, id) {
     ok(!!champTeamDoc.trophies && champTeamDoc.trophies.length === 1 && champTeamDoc.trophies[0].year === 2026 && champTeamDoc.trophies[0].kind === "champion",
       "the champion's TEAM doc records the trophy: {year:2026, kind:'champion'} (" + JSON.stringify(champTeamDoc.trophies) + ")");
 
+    // RESTAGED 2026-08-09 (item 15): crowning a champion used to post two sys chat messages.
+    // Both are gone at the write — bracket.champion, the trophy just asserted on the team doc,
+    // and bracket.toilet are the records, and the Bracket tab renders both as banners (which
+    // this section already asserts, by name, a few checks below).
     const chatFinal = await page.evaluate(() => window.__GFFL__.LG.loadAllChat());
-    ok(chatFinal.length === chatBeforeChamp + 2, "exactly 2 new chat messages posted (champion + Toilet Bowl)");
-    ok(chatFinal.some((m) => m.sys && /^Battle Kreussers are the 2026 GFFL CHAMPIONS!/.test(m.text)), "…the champion announcement, by name");
-    ok(chatFinal.some((m) => m.sys && /^End Zone Goats finish the season in the Toilet Bowl/.test(m.text)), "…and the Toilet Bowl announcement, by name");
+    ok(chatFinal.length === chatBeforeChamp, "crowning a champion writes NO chat message (" + chatFinal.length + " vs " + chatBeforeChamp + ")");
+    ok(adv3.champion === 1 && adv3.toilet === 2, "…the champion and the Toilet Bowl live on the bracket doc instead");
 
     // Idempotent: re-calling advanceBracket after the champion's crowned is a pure no-op —
     // no more chat, no re-write.
@@ -4125,17 +4173,22 @@ async function openDetails(page, id) {
     ok(/chat message 8\b/.test(chatCard.html) && !/chat message 1\b/.test(chatCard.html) && !/chat message 2\b/.test(chatCard.html),
       "…the MOST RECENT messages are shown (8 posted, the oldest — #1 and #2 — trimmed off)");
     ok(chatCard.hasBtn, "…and an 'Open chat →' link through to the full Chat tab");
-    // Sys posts (e.g. an automatic announcement) are included, not filtered out — they ARE the
-    // league's own timeline. finalizeWeek/advanceBracket post sys chat messages via LG.postSys;
-    // trigger one cheaply here through that same real path.
+    // RESTAGED 2026-08-09 (item 15, user: "just users chats"). Sys posts used to be INCLUDED
+    // here on the grounds that they "ARE the league's own timeline" — the user's answer to
+    // that is the Recent moves card sitting right above this one. This is the third chat
+    // surface and it filters exactly like the other two: the doc is still written (rules
+    // changes are), it simply never reaches a reader.
     await page.evaluate(() => window.__GFFL__.LG.postSys("A sys announcement"));
     await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
-    // A genuine re-navigation to League re-arms both lazy cards (boot-speed pass) — the sys
-    // post is only visible once the chat card is opened again, same as any other content here.
     await openDetails(page, "chatDetails");
-    ok((await page.evaluate(() => document.body.textContent)).includes("A sys announcement"),
-      "sys-posted chat messages appear on the league-home preview too, once opened");
+    const previewAfterSys = await page.evaluate(() => {
+      const d = [...document.querySelectorAll(".collapsecard")].find((el) => el.textContent.includes("League chat"));
+      return { txt: document.body.textContent, rows: d ? d.querySelectorAll(".fline").length : -1 };
+    });
+    ok(!previewAfterSys.txt.includes("A sys announcement"),
+      "a sys post never reaches the league-home chat preview — user messages only");
+    ok(previewAfterSys.rows === 6, "…and it still shows the last 6 USER messages, undisturbed (" + previewAfterSys.rows + ")");
     // "View all" / "Open chat" actually navigate.
     await clickIn(page, "#recentMovesAll");
     await page.waitForFunction(() => document.body.textContent.includes("J. Jones"), { timeout: 5000 });
@@ -4288,20 +4341,24 @@ async function openDetails(page, id) {
   // there. The sandbox is gone; the same rule now keys on LG.SIM_2025, and the check moved to
   // the new section X, which boots the replay the way a family device actually will.
 
-  section("T · nav — active-tab indicator centering (item 6) + Draft link (item 8)");
+  section("T · nav — active-tab indicator centering (item 6) + the six-tab bar (item 16)");
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
-    // Item 8: a Draft tab exists in the SAME bar, points at ffdraft.html, styled like the other
-    // tabs (never carries .on — it navigates away, it's never "the current view").
-    const draftLink = await page.evaluate(() => {
-      const a = document.querySelector(".bnav .bnavlink");
-      return a ? { href: a.getAttribute("href"), text: a.textContent.trim(), tag: a.tagName, hasOn: a.classList.contains("on") } : null;
-    });
-    ok(!!draftLink && draftLink.tag === "A" && draftLink.href === "ffdraft.html" && draftLink.text === "Draft" && !draftLink.hasOn,
-      "a Draft tab links straight to ffdraft.html, styled as a tab, never active (" + JSON.stringify(draftLink) + ")");
+    // RESTAGED 2026-08-09 (item 16, user: "lets remove the tabs for rules and draft, put a
+    // link to each in the league page instead"). Item 8's Draft TAB is gone from the bar
+    // entirely — where it now lives, and that it still works, is section AE's business. What
+    // this section keeps asserting is the bar itself: six tabs, exactly these six, and no
+    // stray link left behind in it.
+    const bar = await page.evaluate(() => ({
+      labels: [...document.querySelectorAll(".bnav button")].map((b) => b.textContent.trim()),
+      links: document.querySelectorAll(".bnav a, .bnav .bnavlink").length,
+    }));
+    ok(bar.labels.join("|") === "League|Matchup|My Team|Moves|Chat|Scores",
+      "the bottom nav is six tabs — Rules and Draft have left it (" + bar.labels.join("|") + ")");
+    ok(bar.links === 0, "…and no link is left behind in the bar (" + bar.links + ")");
     // Item 6: for two DIFFERENT tabs (different label widths — "League" vs "My Team"), the
     // active-tab underline's own bounding box is centered under its label at 390px. The
     // underline is a border-bottom on the button's OWN box, so its rendered rect === the
@@ -4347,14 +4404,20 @@ async function openDetails(page, id) {
     const offTeamDesk = await indicatorCenterOffset('.bnav button[data-v="team"]');
     ok(offLeagueDesk <= 2, "desktop: League tab's indicator is centered under its label (Δ" + offLeagueDesk.toFixed(1) + "px)");
     ok(offTeamDesk <= 2, "desktop: My Team tab's indicator is centered under its label (Δ" + offTeamDesk.toFixed(1) + "px)");
-    // Item 8: no clipped labels at 390px is desktop-irrelevant (the Draft tab is auto-width
-    // here), but confirm it's still present and reachable on desktop too.
-    ok(!!(await page.$(".bnav .bnavlink")), "Draft tab present on desktop too");
+    // RESTAGED 2026-08-09 (item 16): there is no Draft tab to find on desktop any more. The
+    // desktop bar is the same six buttons, and nothing else.
+    const deskBar = await page.evaluate(() => ({
+      n: document.querySelectorAll(".bnav button").length, links: document.querySelectorAll(".bnav a").length,
+    }));
+    ok(deskBar.n === 6 && deskBar.links === 0, "desktop carries the same six tabs and no stray link (" + JSON.stringify(deskBar) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
   {
-    // Item 8: the 8th tab must not clip any label at 390px (the mobile bar's tightest case).
+    // RESTAGED 2026-08-09 (item 16): this used to be "the 8th tab must not clip any label",
+    // and it was the known pre-existing failure — eight entries in one 390px row clipped DRAFT
+    // to "DR". Dropping Rules and Draft is what fixes it, so the same measurement is kept and
+    // the budget it defends is now genuinely met rather than tolerated.
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
@@ -4362,9 +4425,15 @@ async function openDetails(page, id) {
     const clipped = await page.evaluate(() => [...document.querySelectorAll(".bnav button, .bnav .bnavlink")]
       .filter((el) => el.scrollWidth > el.clientWidth + 1)
       .map((el) => el.textContent.trim()));
-    ok(clipped.length === 0, "no clipped nav labels at 390px with the 8th (Draft) tab added (" + JSON.stringify(clipped) + ")");
+    // NOTE: this passes at eight tabs in the harness too — the DRAFT -> "DR" clipping the user
+    // reported is a real-device rendering difference this headless font does not reproduce. So
+    // it is a regression invariant, not evidence that item 16 fixed anything; the width figure
+    // printed below is the honest measure of how much room six tabs bought.
+    ok(clipped.length === 0, "no clipped nav labels at 390px with six tabs (" + JSON.stringify(clipped) + ")");
     const targets = await page.$$eval(".bnav button, .bnav .bnavlink", (els) => els.map((el) => el.getBoundingClientRect().height));
-    ok(targets.every((h) => h >= 44), "every nav tab (incl. Draft) keeps a ≥44px touch target (" + targets.join(",") + ")");
+    ok(targets.every((h) => h >= 44), "every nav tab keeps a ≥44px touch target (" + targets.join(",") + ")");
+    const widths = await page.$$eval(".bnav button", (els) => els.map((el) => Math.round(el.getBoundingClientRect().width)));
+    console.log("    · measured per-tab width at 390px: " + widths.join("/") + "px");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
@@ -4408,7 +4477,8 @@ async function openDetails(page, id) {
 
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     // -------- page 1: league / matchup / moves (incl. the item-1 FA browse table + position
-    // chips) / chat (a real waiver-processed sys post) / rules (view AND edit mode) / both
+    // chips) / chat (real user messages — sys posts are filtered out since item 15) / rules
+    // (view AND edit mode) / both
     // lockers (owner + non-owner) / scores / the bracket's default "not built yet" card. --------
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -4425,7 +4495,7 @@ async function openDetails(page, id) {
       await page.waitForSelector("#faPosChips", { timeout: 9000 });
       await sweep(page, "moves (free agents, waivers, propose-a-trade, tx log)");
 
-      // A real claim + a real waiver process — exercises a genuine sys-chat announcement AND
+      // A real claim + a real waiver process — exercises the genuine tx-log sentence AND
       // a real transaction-log sentence, not just the empty-state copy.
       await page.evaluate(async () => {
         const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
@@ -4438,9 +4508,20 @@ async function openDetails(page, id) {
 
       await clickIn(page, '.bnav button[data-v="chat"]');
       await page.waitForSelector(".chatlist", { timeout: 9000 });
-      await sweep(page, "chat (incl. a real sys-posted waiver announcement)");
+      // RESTAGED 2026-08-09 (item 15): chat renders USER messages only now, so the sys-posted
+      // waiver announcement this sweep used to cover is deliberately not on screen. The
+      // app-authored sentence it was covering for — the waiver tx-log line — is swept on the
+      // Moves page immediately above, which is where that text now lives.
+      await sweep(page, "chat (user messages only — sys posts are filtered out)");
 
-      await clickIn(page, '.bnav button[data-v="rules"]');
+      // RESTAGED 2026-08-09 (item 16): Rules has no tab any more; it is reached from the
+      // League page, through the REAL affordance rather than by calling UI.show directly.
+      await clickIn(page, '.bnav button[data-v="league"]');
+      // waitOr, not waitForSelector: whether the link EXISTS is section AE's assertion, and a
+      // navigation helper in an unrelated sweep must report rather than abort the whole run
+      // (which is exactly what a pre-fix verification needs it not to do).
+      await waitOr(page, "#lnkRules", 9000);
+      await clickIn(page, "#lnkRules");
       await page.waitForSelector(".card", { timeout: 9000 });
       await sweep(page, "rules (view mode — item 7's grouped plain-English summary)");
       await clickIn(page, "#rulesEdit"); // commissioner PIN prompt -> stub "1234" creates + unlocks
@@ -6206,8 +6287,11 @@ async function openDetails(page, id) {
       ok(locked.n === 0 && /Replay clock/.test(locked.txt) && /Commissioner only/.test(locked.txt),
         "a non-commissioner sees the Replay-clock card but no switch (" + locked.n + " buttons)");
       await page.evaluate(() => window.__GFFL__.LG.gateCommish());
-      await clickIn(page, '.bnav button[data-v="rules"]');
-      await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 12000 });
+      // RESTAGED 2026-08-09 (item 16): Rules is reached from the League page now, not a tab.
+      await clickIn(page, '.bnav button[data-v="league"]');
+      await waitOr(page, "#lnkRules", 12000); // see section U's note — report, don't abort
+      await clickIn(page, "#lnkRules");
+      await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 12000 }).catch(() => {});
       const card = await page.evaluate(() => {
         const btns = [...document.querySelectorAll(".simPhaseBtn")];
         return {
@@ -7218,13 +7302,17 @@ async function openDetails(page, id) {
       // The ghost row really is on screen, reading "—" rather than a fabricated 0.0.
       await page.evaluate(() => window.__GFFL__.LG.ui.show("matchup"));
       await sleep(700);
+      // RESTAGED 2026-08-09 (the ESPN matchup rebuild): the projection under the score is a
+      // BARE number now — the reference carries no "proj" label and at that size the word cost
+      // more than it explained — so the two are read as their own elements rather than as one
+      // run-together "—proj —" string. The property under test is unchanged: BOTH read "—".
       const ghostCell = await page.evaluate(() => {
         const el = document.querySelector('.pcellgrid[data-pk="9999999"]');
-        return el ? el.querySelector(".ppts").textContent.replace(/\s+/g, " ").trim() : null;
+        if (!el) return null;
+        const t = (sel) => { const e = el.querySelector(sel); return e ? e.textContent.trim() : null; };
+        return { pts: t(".pts"), proj: t(".pproj") };
       });
-      // The two spans are adjacent in the markup (`<span class="pts">` + `<small>proj …`), so
-      // textContent runs them together — the cell reads "—proj —".
-      ok(ghostCell === "—proj —", "the unresolvable player's cell reads '—' for both score and proj, not '0.0' and not 'NaN' (" + JSON.stringify(ghostCell) + ")");
+      ok(!!ghostCell && ghostCell.pts === "—" && ghostCell.proj === "—", "the unresolvable player's cell reads '—' for both score and proj, not '0.0' and not 'NaN' (" + JSON.stringify(ghostCell) + ")");
       // Team totals are real, finite numbers.
       const tot = await page.evaluate(() => [...document.querySelectorAll(".muhead .bigpts")].map((e) => e.textContent.trim()));
       ok(tot.length === 2 && tot.every((t) => /^\d+(\.\d)?$/.test(t)), "both team totals are finite numbers (" + JSON.stringify(tot) + ")");
@@ -7648,7 +7736,8 @@ async function openDetails(page, id) {
           wp: !!h.querySelector(".wpfill"), live: !!h.querySelector(".mulive"),
           avatars: h.querySelectorAll(".muavatar").length,
           pts: [...h.querySelectorAll(".bigpts")].map((e) => e.textContent.trim()),
-          proj: /proj/i.test(txt), toPlay: /to play/.test(txt), live2: /live/.test(txt),
+          proj: [...h.querySelectorAll(".muhproj")].map((e) => e.textContent.trim()),
+          toPlay: /to play/.test(txt), live2: /live/.test(txt),
           names: /Battle Kreussers/.test(txt) && /End Zone Goats/.test(txt),
         };
       });
@@ -7656,7 +7745,12 @@ async function openDetails(page, id) {
       ok(head.height <= 120, "the matchup header is halved — 220px before this batch, " + head.height + "px now");
       ok(head.wp && head.live, "…with the win-probability bar and the live/Final indicator both still on it");
       ok(head.avatars === 2 && head.names && head.pts.join("/") === "4.0/41.0", "…both crests, both names, both scores");
-      ok(head.proj && head.toPlay && head.live2, "…and Proj + the to-play/live counts, consolidated rather than dropped");
+      // RESTAGED 2026-08-09 (the ESPN header rebuild): the projection is still there, on both
+      // sides, but as a BARE muted number under the score — the reference carries no "Proj"
+      // label, so /proj/i is no longer the right way to ask whether it survived.
+      ok(head.proj.length === 2 && head.proj.every((t) => /^\d+(\.\d)?$/.test(t)),
+        "…and both projections survive, as bare numbers rather than a labelled 'proj N' (" + JSON.stringify(head.proj) + ")");
+      ok(head.toPlay && head.live2, "…as do the to-play/live counts");
       if (SHOTS) {
         fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true });
         await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_matchup_390.png") });
@@ -8029,6 +8123,592 @@ async function openDetails(page, id) {
       }
       ok(errors.length === 0, "0 page errors (populated state)");
       await ctx.close();
+    }
+  }
+
+
+  // ================================================================================
+  //  AE · the ESPN matchup layout, the chat pane, and the six-tab bar (2026-08-09)
+  // ================================================================================
+  // From a screenshot of the real ESPN app plus three chat/nav asks in the same session.
+  // Every check here is GEOMETRY or behaviour: "exactly even height for every player" and
+  // "team a hugs left, team b hugs right" are claims about pixels, and a markup assertion
+  // cannot tell you whether they hold.
+  section("AE · ESPN matchup layout (mirrored, three even lines, crests, centre band, header) + chat pane + six-tab nav");
+  {
+    // ---- AE1: the lineup table — mirrored alignment, identical row heights, three lines.
+    {
+      // seedLongNames() puts REAL NFL name lengths on the roster ("Amon-Ra St. Brown",
+      // "Christian McCaffrey"), which is what makes "a long name truncates on one line
+      // instead of making its row taller" a real test rather than a lucky one.
+      const { ctx, page, errors } = await newTestPage(browser, seedLongNames());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+      // Every crest is a real (intercepted) network image, so wait for them to SETTLE before
+      // asking whether they loaded — the previous batch shipped a check that sampled one at
+      // first paint and read it neither loaded nor errored, which failed intermittently.
+      await page.waitForFunction(() => [...document.querySelectorAll("img.plogo")].every((i) => i.complete), { timeout: 9000 });
+
+      // -- mirrored alignment. Computed style AND measured x, because text-align:right on a
+      // block that happens to be full-width proves nothing on its own.
+      const align = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".mutable:not(.benchtable) tbody tr")];
+        const g = (tr, cls) => tr.querySelector(".pcellgrid." + cls);
+        const named = (c) => { const b = c && c.querySelector(".pname b"); return b && b.textContent.trim() ? b : null; };
+        const L = rows.map((tr) => named(g(tr, "left"))).filter(Boolean);
+        const R = rows.map((tr) => named(g(tr, "right"))).filter(Boolean);
+        const box = (el) => el.getBoundingClientRect();
+        // Every read here is null-guarded: a pre-fix verification has to produce a readable
+        // list of failures, not one stack trace from the first missing element (section AC's
+        // own lesson).
+        const ta = (sel) => { const e = document.querySelector(sel); return e ? getComputedStyle(e).textAlign : null; };
+        return {
+          leftAlign: ta(".pcellgrid.left .pinfo"),
+          rightAlign: ta(".pcellgrid.right .pinfo"),
+          rightMetaAlign: ta(".pcellgrid.right .pmeta"),
+          nL: L.length, nR: R.length,
+          leftEdges: L.map((e) => Math.round(box(e).left)),
+          rightEdges: R.map((e) => Math.round(box(e).right)),
+        };
+      });
+      ok(align.leftAlign === "left" && align.rightAlign === "right",
+        "team A's text is left-aligned and team B's is RIGHT-aligned — the mirror, corrected from the previous batch's left/left (" + align.leftAlign + "/" + align.rightAlign + ")");
+      ok(align.rightMetaAlign === "right", "…the meta line mirrors too, not just the name");
+      ok(align.nL >= 1 && new Set(align.leftEdges).size === 1,
+        "…every LEFT name starts at one consistent x (" + JSON.stringify(align.leftEdges) + ")");
+      ok(align.nR >= 2 && new Set(align.rightEdges).size === 1,
+        "…and every RIGHT name ENDS at one consistent x — hugging the right edge, not ragged (" + JSON.stringify(align.rightEdges) + ")");
+
+      // -- exactly even height, and the row set really does contain the hard cases.
+      const heights = await page.evaluate(() => {
+        const cells = (sel) => [...document.querySelectorAll(sel + " .pcellgrid")].map((c) => ({
+          h: Math.round(c.getBoundingClientRect().height),
+          txt: c.textContent.replace(/\s+/g, " ").trim(),
+          lines: c.querySelectorAll(".pinfo .pline").length,
+          statTxt: (c.querySelector(".pstatline") || {}).textContent || "",
+          hasStat: !!c.querySelector(".pstatline"),
+          statH: c.querySelector(".pstatline") ? Math.round(c.querySelector(".pstatline").getBoundingClientRect().height) : -1,
+        }));
+        const starters = cells(".mutable:not(.benchtable) tbody");
+        const bench = cells(".benchtable tbody");
+        const rowH = [...document.querySelectorAll(".mutable:not(.benchtable) tbody tr")].map((r) => Math.round(r.getBoundingClientRect().height));
+        return { starters, bench, rowH,
+          longest: Math.max(...starters.map((c) => c.txt.length)),
+          hasEmpty: starters.some((c) => /Empty/.test(c.txt)),
+          hasLive: starters.some((c) => c.statTxt.trim().length > 0),
+          hasBlankStat: starters.some((c) => c.statTxt.trim().length === 0 && !/Empty/.test(c.txt)) };
+      });
+      const sH = new Set(heights.starters.map((c) => c.h));
+      ok(sH.size === 1, "every starter half-cell is EXACTLY the same height (" + [...sH].join("/") + "px across " + heights.starters.length + " cells)");
+      const rH = new Set(heights.rowH);
+      ok(rH.size === 1, "…so every starter ROW is the same height too (" + [...rH].join("/") + "px)");
+      const bH = new Set(heights.bench.map((c) => c.h));
+      ok(bH.size === 1 && [...bH][0] === [...sH][0], "…and every bench row matches them exactly (" + [...bH].join("/") + "px)");
+      ok(heights.hasEmpty && heights.hasLive && heights.hasBlankStat,
+        "…and that set really contains the hard cases together: an Empty slot, a row with a live stat line, and a pre-game row with none");
+      ok(heights.starters.every((c) => c.lines === 3), "each half is EXACTLY three lines (" + [...new Set(heights.starters.map((c) => c.lines))].join("/") + ")");
+      ok(heights.starters.every((c) => c.hasStat && c.statH > 0),
+        "…and line 3 keeps its height even when it has nothing to say — that reservation is what makes a pre-game row as tall as a live one (" + [...new Set(heights.starters.map((c) => c.statH))].join("/") + "px)");
+
+      // -- no name wraps; a too-long one is ellipsised and keeps a title.
+      const names = await page.evaluate(() => {
+        const grab = (sel) => [...document.querySelectorAll(sel + " .pname b")].map((b) => ({
+          txt: b.textContent.trim(), rects: b.getClientRects().length,
+          need: b.scrollWidth, have: b.clientWidth,
+          clipped: b.scrollWidth > b.clientWidth + 1, title: b.getAttribute("title") || "",
+          ellipsis: getComputedStyle(b).textOverflow, ws: getComputedStyle(b).whiteSpace,
+          side: b.closest(".pcellgrid").classList.contains("right") ? "R" : "L",
+        }));
+        const info = document.querySelector(".mutable .pcellgrid .pinfo");
+        const logo = document.querySelector(".mutable .pname .plogo");
+        const nameLine = document.querySelector(".mutable .pname");
+        const avail = Math.round(info.getBoundingClientRect().width
+          - logo.getBoundingClientRect().width - parseFloat(getComputedStyle(nameLine).gap || 0));
+        return { starters: grab(".mutable:not(.benchtable)"), bench: grab(".benchtable"), avail };
+      });
+      const allNames = names.starters.concat(names.bench);
+      ok(allNames.every((n) => n.rects <= 1), "no player name wraps to a second line (" + allNames.filter((n) => n.rects > 1).map((n) => n.txt).join(",") + ")");
+      ok(allNames.every((n) => n.ws === "nowrap" && n.ellipsis === "ellipsis"), "…because each is nowrap + ellipsis, by construction");
+      // ITEM 17 (2026-08-09) — THE BAR. This check used to assert the OPPOSITE: that a long
+      // name "genuinely does truncate", written when four names a row were coming out as
+      // "M. Ha…" and that was mistaken for a limitation of the width. It is not — the
+      // reference app fits these same names whole at 390px, and so does this now: the name's
+      // budget went from 83.8px to 102.7px, all of it found by measuring where the row's width
+      // was actually going (see the media-query note in league.html). Both sides, and the
+      // bench table too, because they share the widths and a regression could land in either.
+      const clippedS = names.starters.filter((n) => n.clipped);
+      const clippedB = names.bench.filter((n) => n.clipped);
+      console.log("    · 390px name budget: " + names.avail + "px; longest rendered name needs "
+        + Math.max(...allNames.map((n) => n.need)) + "px");
+      ok(clippedS.length === 0,
+        "NOT ONE starter name is ellipsised at 390px, either side — " + names.starters.length + " rows, longest \""
+        + allNames.slice().sort((a, b) => b.need - a.need)[0].txt + "\" (" + JSON.stringify(clippedS.map((n) => n.side + ":" + n.txt + " " + n.need + ">" + n.have)) + ")");
+      ok(clippedB.length === 0, "…nor one bench name (" + JSON.stringify(clippedB.map((n) => n.txt + " " + n.need + ">" + n.have)) + ")");
+      // The fixture's own longest REAL names are the ones that were failing — name them, so a
+      // future regression can't quietly pass by the fixture getting shorter names.
+      const hardest = ["J. Smith-Njigba", "M. Harrison Jr.", "C. McLaughlin"];
+      const found = hardest.filter((h) => allNames.some((n) => n.txt === h && !n.clipped));
+      ok(found.length === hardest.length,
+        "…including the three that used to read \"J. Smi…\" / \"M. Ha…\" / \"C. McLaug…\" (" + JSON.stringify(found) + ")");
+      const real = allNames.filter((n) => n.txt && n.txt !== "Empty" && n.txt !== "TOTAL");
+      ok(real.length > 0 && real.every((n) => /·/.test(n.title)),
+        "…and every real player's name still carries a title with his position and team (" + real.length + " rows)");
+      // Two things the width pass paid for, both of which WERE being clipped at 390px before it:
+      // a three-digit team total, and the word BENCH in the centre band.
+      // RANGE, not scrollWidth. The name check above can use scrollWidth because .pname b
+      // carries its OWN overflow:hidden; these two do not (the hidden overflow is on their
+      // PARENT .pline / cell), and an overflow:visible element reports scrollWidth === its own
+      // clientWidth however far its text spills. Measured that way both of these read as a
+      // comfortable fit while genuinely overflowing — a vacuous check. A Range around the text
+      // node measures what is actually rendered, which is the house lesson already recorded
+      // for the override-dot check in the care widget.
+      const clips = await page.evaluate(() => {
+        const textW = (el) => {
+          const n = [...el.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim());
+          if (!n) return 0;
+          const r = document.createRange(); r.selectNodeContents(n);
+          return Math.ceil(r.getBoundingClientRect().width);
+        };
+        const tot = document.querySelector(".totalrow .ppts .pts");
+        const before = tot.textContent;
+        tot.textContent = "141.0";
+        const totNeed = textW(tot), totHave = Math.floor(tot.closest(".ppts").clientWidth);
+        tot.textContent = before;
+        // Against the CELL, not the badge: .slotbadge is inline-block, so it sizes to its own
+        // text and would always look like a perfect fit. What constrains it — and what it was
+        // spilling over — is the slot cell's content box.
+        const bench = document.querySelector(".benchtable td.slotcell .slotbadge");
+        const cell = bench.closest("td");
+        const cs2 = getComputedStyle(cell), bs = getComputedStyle(bench);
+        const pad = parseFloat(bs.paddingLeft) + parseFloat(bs.paddingRight);
+        return { totNeed, totHave, benchTxt: bench.textContent.trim(), benchNeed: textW(bench) + pad,
+          benchHave: Math.floor(cell.clientWidth - parseFloat(cs2.paddingLeft) - parseFloat(cs2.paddingRight)) };
+      });
+      // Honest scope: this one PASSES pre-fix too, at exactly 36 into 36px — the mobile
+      // media query's 14px already outranked .totalrow's own 17px, so it fitted by nothing.
+      // Narrowing the players' column to 30px would have broken it, which is why the TOTAL row
+      // got its own 44px basis; this is the invariant guarding that, not a fix being claimed.
+      ok(clips.totNeed <= clips.totHave,
+        "a three-digit TEAM total fits its column, with real margin now the players' column is narrower (" + clips.totNeed + " into " + clips.totHave + "px)");
+      ok(clips.benchTxt === "BENCH" && clips.benchNeed <= clips.benchHave + 1,
+        "…and the word BENCH fits the centre band, which it also did not (" + clips.benchNeed + " into " + clips.benchHave + "px)");
+
+      // -- the points column: score on line 1, projection on line 2, both on the inner edge.
+      const pts = await page.evaluate(() => {
+        const c = [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => /A\. St\. Brown/.test(e.textContent));
+        if (!c) return null;
+        const s = c.querySelector(".pts"), p = c.querySelector(".pproj");
+        const name = c.querySelector(".pname b") || c.querySelector("b");
+        if (!s || !p || !name) return { score: null, proj: null };
+        const r = (e) => e.getBoundingClientRect();
+        const w = (sel) => { const e = document.querySelector(sel); return e ? e.getBoundingClientRect().width : -1; };
+        const wL = w(".pcellgrid.left .ppts"), wR = w(".pcellgrid.right .ppts");
+        return { score: s.textContent.trim(), proj: p.textContent.trim(),
+          sameLineAsName: Math.abs(r(s).top - r(name).top) < 6, projBelow: r(p).top >= r(s).bottom - 1,
+          tabular: getComputedStyle(c.querySelector(".ppts")).fontVariantNumeric,
+          wL: Math.round(wL), wR: Math.round(wR) };
+      });
+      ok(!!pts && /^\d/.test(pts.score) && /^\d/.test(pts.proj), "the points column carries a score and a bare projection, both numeric (" + JSON.stringify([pts.score, pts.proj]) + ")");
+      ok(!!pts && pts.sameLineAsName && pts.projBelow, "…score on the name's own line, projection directly beneath it");
+      ok(!!pts && /tabular-nums/.test(pts.tabular || ""), "…in tabular numerals so the columns line up (" + pts.tabular + ")");
+      ok(!!pts && pts.wL > 0 && pts.wL === pts.wR, "…and the two points columns are the same fixed width on both sides (" + pts.wL + "/" + pts.wR + ")");
+
+      // -- the centre band: continuous, darker than the card, position colours intact.
+      const band = await page.evaluate(() => {
+        const hex = (h) => { const n = parseInt(h.replace("#", ""), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+        const root = getComputedStyle(document.documentElement);
+        const cells = [...document.querySelectorAll(".mutable:not(.benchtable) td.slotcell")];
+        const rects = cells.map((td) => td.getBoundingClientRect());
+        let maxGap = 0;
+        for (let i = 1; i < rects.length; i++) maxGap = Math.max(maxGap, Math.abs(rects[i].top - rects[i - 1].bottom));
+        const badges = cells.map((td) => { const b = td.querySelector(".slotbadge");
+          return { pos: td.dataset.pos, bg: b ? getComputedStyle(b).backgroundColor : null,
+            bh: b ? Math.round(b.getBoundingClientRect().height) : -1, ch: Math.round(td.getBoundingClientRect().height) }; });
+        const want = {}; for (const p of ["QB", "RB", "WR", "TE", "K", "DST", "X"]) want[p] = hex(root.getPropertyValue("--pos-" + p).trim());
+        return { cellBg: cells.length ? getComputedStyle(cells[0]).backgroundColor : null, cardBg: null,
+          nested2: hex(root.getPropertyValue("--nested2").trim()), maxGap: Math.round(maxGap),
+          badges, want, matched: badges.filter((b) => want[b.pos] === b.bg).length };
+      });
+      ok(band.cellBg === band.nested2, "the centre column is a BAND — the cell itself is painted a shade darker than the card (" + band.cellBg + ")");
+      ok(band.maxGap === 0, "…and consecutive cells are contiguous, so it reads as one continuous strip, not a stack of pills (max gap " + band.maxGap + "px)");
+      ok(band.matched === band.badges.length, "…with the draft position colours KEPT, on a compact badge inside it (" + band.matched + "/" + band.badges.length + ")");
+      ok(band.badges.every((b) => b.bh < b.ch - 2), "…compact, not a full-cell slab (" + band.badges.map((b) => b.bh + "/" + b.ch).join(" ") + ")");
+
+      // -- the header.
+      const head = await page.evaluate(() => {
+        const h = document.querySelector(".muhead");
+        const side = (sel) => {
+          const t = h.querySelector(sel);
+          if (!t) return {};
+          const av = t.querySelector(".muavatar"), sc = t.querySelector(".muhscore");
+          const big = t.querySelector(".bigpts"), pj = t.querySelector(".muhproj");
+          if (!av || !sc || !big || !pj) return { proj: null, name: (t.querySelector(".muhname") || {}).textContent, owner: (t.querySelector(".muhowner") || {}).textContent };
+          const r = (e) => e.getBoundingClientRect();
+          return { avLeft: Math.round(r(av).left), scLeft: Math.round(r(sc).left),
+            big: big.textContent.trim(), proj: pj.textContent.trim(),
+            bigPx: parseFloat(getComputedStyle(big).fontSize), projPx: parseFloat(getComputedStyle(pj).fontSize),
+            projBelowBig: r(pj).top >= r(big).bottom - 2,
+            name: (t.querySelector(".muhname") || {}).textContent, owner: (t.querySelector(".muhowner") || {}).textContent };
+        };
+        return { height: Math.round(h.getBoundingClientRect().height), a: side(".muhteam:not(.right)"), b: side(".muhteam.right"),
+          wp: !!h.querySelector(".wpfill"), live: !!h.querySelector(".mulive"), week: /Week 1/.test(h.textContent) };
+      });
+      // MEASURED at 390px: 220px before the 2026-08-08 batch, 111px after it. This rebuild adds
+      // a line (owner · record) and must NOT give that back.
+      ok(head.height <= 111, "the matchup header does not regress past the 111px it measured at (" + head.height + "px)");
+      ok(head.a.avLeft < head.a.scLeft, "team A's crest sits on the OUTER (left) edge with the score inner");
+      ok(head.b.avLeft > head.b.scLeft, "…and team B's is mirrored — crest outer (right), score inner");
+      ok(head.a.projBelowBig && head.b.projBelowBig, "the projection sits directly BENEATH the big score, both sides");
+      ok(head.a.projPx < head.a.bigPx, "…smaller than it (" + head.a.projPx + "px vs " + head.a.bigPx + "px)");
+      ok(/^\d+(\.\d)?$/.test(head.a.proj || "") && /^\d+(\.\d)?$/.test(head.b.proj || ""),
+        "…and a BARE number — the reference carries no 'Proj' label (" + JSON.stringify([head.a.proj, head.b.proj]) + ")");
+      ok(/Battle Kreussers/.test(head.b.name || "") && /End Zone Goats/.test(head.a.name || ""), "team names below the scores, both sides");
+      // seedTeams() gives every team owner:"" — the deliberate no-owner case, which must read
+      // as the record alone rather than a stray separator.
+      ok(head.a.owner === "0-0" && head.b.owner === "0-0",
+        "…and owner · record below that, with no stray bullet when a team has no owner on file (" + JSON.stringify([head.a.owner, head.b.owner]) + ")");
+      ok(head.wp && head.live && head.week, "…while the centre column keeps the live indicator, the week and the win-probability bar");
+
+      // -- the little crests.
+      const crests = await page.evaluate(() => {
+        const cellFor = (nm) => [...document.querySelectorAll(".mutable .pcellgrid")].find((c) => c.textContent.includes(nm));
+        const info = (nm) => {
+          const c = cellFor(nm); if (!c) return null;
+          const img = c.querySelector("img.plogo");
+          if (!img) {
+            const ph = c.querySelector(".plogoph");
+            return { has: false, ph: !!ph, phW: ph ? Math.round(ph.getBoundingClientRect().width) : 0 };
+          }
+          const r = img.getBoundingClientRect();
+          return { has: true, src: img.getAttribute("src"), w: Math.round(r.width), h: Math.round(r.height),
+            loaded: img.complete && img.naturalWidth > 0, vis: getComputedStyle(img).visibility };
+        };
+        return { total: document.querySelectorAll(".mutable img.plogo").length,
+          phi: info("M. Harrison Jr."), den: info("C. McCaffrey") };
+      });
+      ok(crests.total >= 4, "the lineup carries little NFL crests beside the names (" + crests.total + ")");
+      ok(crests.phi && crests.phi.has && /teamlogos\/nfl\/500\/phi\.png$/.test(crests.phi.src),
+        "…from the slate's own team.logo, no new fetch (" + (crests.phi || {}).src + ")");
+      ok(crests.phi.w === crests.phi.h && crests.phi.w >= 12,
+        "…at a fixed square size so a slow crest can't shift a row (" + crests.phi.w + "x" + crests.phi.h + " at this width)");
+      ok(crests.phi.loaded === true && crests.phi.vis === "visible", "…and it genuinely LOADED, not a hidden broken box");
+      ok(crests.den && crests.den.has === false, "a team with NO crest in the payload renders no <img> at all — never a broken one (DEN)");
+      ok(crests.den.ph && crests.den.phW === crests.phi.w,
+        "…but it keeps a box of exactly the same width, or that row's name would start further in than every other row's (" + JSON.stringify([crests.den.ph, crests.den.phW, crests.phi.w]) + ")");
+
+      // -- line 2: @AWAY vs bare HOME, and the live/final forms.
+      const line2 = await page.evaluate(() => {
+        const meta = (nm) => {
+          const c = [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => e.textContent.includes(nm));
+          const m = c && c.querySelector(".pmeta");
+          return m ? m.textContent.trim() : null;
+        };
+        return { tight: meta("T. McBride"), second: meta("C. McCaffrey"), passer: meta("M. Harrison Jr.") };
+      });
+      // sbFix: KC @ DEN, not yet kicked off. T. McBride is KC (AWAY, so he visits DEN);
+      // C. McCaffrey is DEN (HOME, so he hosts KC) — the line names the OPPONENT either way,
+      // and the "@" is the only thing that differs.
+      ok(/^@DEN\s/.test(line2.tight || ""), "line 2 reads '@OPP kickoff' for an AWAY player (" + line2.tight + ")");
+      ok(/^KC\s/.test(line2.second || ""), "…and a bare 'OPP kickoff' with no @ for a HOME one (" + line2.second + ")");
+      ok(/Q2 5:00/.test(line2.passer || ""), "…and the live clock instead, once a game is on (" + line2.passer + ")");
+
+      if (SHOTS) {
+        fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true });
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_espn_matchup_390.png") });
+        await page.setViewport({ width: 1440, height: 900 });
+        await sleep(350);
+        await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
+        await sleep(300);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_espn_matchup_desktop.png") });
+        console.log("  📸 shots/gffl_espn_matchup_{390,desktop}.png");
+        // The desktop mirror is worth its own assertion — a 1440px row has far more slack, so
+        // "hugs right" could silently stop holding there while passing at 390.
+        const deskEdges = await page.evaluate(() => {
+          const R = [...document.querySelectorAll(".mutable:not(.benchtable) tbody tr")]
+            .map((tr) => tr.querySelector(".pcellgrid.right .pname b"))
+            .filter((b) => b && b.textContent.trim());
+          return R.map((e) => Math.round(e.getBoundingClientRect().right));
+        });
+        ok(new Set(deskEdges).size === 1, "desktop: team B's names still end at one consistent right edge (" + JSON.stringify(deskEdges) + ")");
+        const deskClip = await page.evaluate(() => [...document.querySelectorAll(".mutable .pname b")]
+          .filter((b) => b.scrollWidth > b.clientWidth + 1).map((b) => b.textContent.trim()));
+        ok(deskClip.length === 0, "desktop: and not one name is ellipsised there either (" + JSON.stringify(deskClip) + ")");
+      }
+      ok(errors.length === 0, "0 page errors on the rebuilt matchup page");
+      await ctx.close();
+    }
+
+    // ---- AE2: the home/away flag lands in BOTH slate parsers — the live board and the 2025
+    // replay are separate code, and a flag added to only one of them is the easy mistake.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      const live = await page.evaluate(() => {
+        const g = window.__GFFL__.D.S.games;
+        return { phi: g.get("PHI").home, dal: g.get("DAL").home, den: g.get("DEN").home, kc: g.get("KC").home };
+      });
+      ok(live.phi === true && live.dal === false && live.den === true && live.kc === false,
+        "pollScoreboard records home/away for every team on the slate (" + JSON.stringify(live) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      fixture.rich2025 = true;
+      const { ctx, page, errors } = await newTestPage(browser, { docs: { ...seedTeams() }, pass: "amenfarms", team: 1, who: "Peter" });
+      await page.goto(BASE + "/league.html?fam=" + FAM + "&simspeed=0", { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => !!window.__GFFL__, { timeout: 12000 });
+      ok(await waitOr(page, ".mucard", 25000), "the 2025 replay boots");
+      await page.waitForFunction(() => window.__GFFL__.D.S.games.size > 0, { timeout: 15000 });
+      const rep = await page.evaluate(() => {
+        const g = window.__GFFL__.D.S.games;
+        return { den: g.get("DEN").home, ten: g.get("TEN").home, phi: g.get("PHI").home, dal: g.get("DAL").home };
+      });
+      ok(rep.den === false && rep.ten === true && rep.phi === true && rep.dal === false,
+        "…and so does the replay's own, separate slate parser (" + JSON.stringify(rep) + ")");
+      // The DEN players in the replay's imported rosters are all on TEAM 2, and the replay
+      // GENERATES its own schedule (there is no seeded [[1,2],…] here), so team 1's week-1
+      // opponent is not team 2 — open that pairing explicitly rather than assuming it.
+      await page.evaluate(() => { window.__GFFL__.UI.matchup = [1, 2]; return window.__GFFL__.UI.renderMatchup(); });
+      await page.waitForSelector(".mutable", { timeout: 15000 });
+      const flexOk = await page.waitForFunction(
+        () => [...document.querySelectorAll(".mutable .pcellgrid")].some((e) => e.textContent.includes("F. Flexman")),
+        { timeout: 20000 },
+      ).then(() => true).catch(() => false);
+      const flexMeta = await page.evaluate((found) => {
+        const c = [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => e.textContent.includes("F. Flexman"));
+        const m = c && c.querySelector(".pmeta");
+        if (m) return m.textContent.trim();
+        if (c) return "NO .pmeta LINE on his row";
+        return "NOT ON SCREEN — rows were: " + [...document.querySelectorAll(".mutable .pname")].map((e) => e.textContent.trim()).join("|");
+      }, flexOk);
+      ok(/^@TEN\s/.test(flexMeta || ""), "…so a replay row reads '@TEN kickoff' for a DEN player, not a bare opponent (" + flexMeta + ")");
+      ok(errors.length === 0, "0 page errors under the replay");
+      await ctx.close();
+      fixture.rich2025 = false;
+    }
+
+    // ---- AE3: the chat pane — content bottom-anchored at every width, on BOTH surfaces,
+    // WITHOUT making a full history unreachable at the top.
+    for (const vw of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+      const tag = vw.width + "px";
+      // (a) few messages in a tall box — the reported symptom.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, seedChat(3), { vw });
+        await bootPage(page);
+        await page.waitForSelector(".mucard", { timeout: 9000 });
+        await clickIn(page, '.bnav button[data-v="chat"]');
+        await page.waitForSelector("#chatList .chatRowMsg", { timeout: 9000 });
+        const m = await page.evaluate(() => {
+          const l = document.querySelector("#chatList");
+          const rows = [...l.querySelectorAll(".chatRowMsg")];
+          const lb = l.getBoundingClientRect();
+          return { boxH: Math.round(lb.height), rows: rows.length,
+            firstTop: Math.round(rows[0].getBoundingClientRect().top - lb.top),
+            lastGap: Math.round(lb.bottom - rows[rows.length - 1].getBoundingClientRect().bottom),
+            contentH: Math.round(l.scrollHeight) };
+        });
+        ok(m.rows === 3 && m.boxH > m.contentH - 2 && m.boxH >= 300,
+          tag + ": with only 3 messages the Chat tab is still a tall pane, not a short block (" + m.boxH + "px box)");
+        ok(m.lastGap <= 12, "…and the NEWEST message sits at the BOTTOM of it (" + m.lastGap + "px from the bottom edge)");
+        ok(m.firstTop > 20, "…with the empty space above, not below (first message " + m.firstTop + "px down)");
+        ok(errors.length === 0, "0 page errors");
+        await ctx.close();
+      }
+      // (b) a full history — the trap. justify-content:flex-end would make the top unreachable.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, seedChat(30), { vw });
+        await bootPage(page);
+        await page.waitForSelector(".mucard", { timeout: 9000 });
+        await clickIn(page, '.bnav button[data-v="chat"]');
+        await page.waitForSelector("#chatList .chatRowMsg", { timeout: 9000 });
+        const m = await page.evaluate(() => {
+          const l = document.querySelector("#chatList");
+          const lb = l.getBoundingClientRect();
+          const rows = [...l.querySelectorAll(".chatRowMsg")];
+          const pinned = Math.round(lb.bottom - rows[rows.length - 1].getBoundingClientRect().bottom);
+          l.scrollTop = 0;
+          const first = rows[0].getBoundingClientRect();
+          return { overflow: l.scrollHeight > l.clientHeight + 10, pinned,
+            firstTopAtScrollZero: Math.round(first.top - lb.top),
+            firstText: rows[0].textContent.replace(/\s+/g, " ").trim().slice(0, 60) };
+        });
+        ok(m.overflow, tag + ": 30 messages genuinely overflow the pane");
+        ok(m.pinned <= 12, "…and it still opens pinned to the newest (" + m.pinned + "px from the bottom)");
+        ok(m.firstTopAtScrollZero >= -1 && /message number 0\b/.test(m.firstText),
+          "…yet scrolling to the very top reveals the FIRST message IN FULL — nothing clipped away (top " + m.firstTopAtScrollZero + "px, \"" + m.firstText + "\")");
+        // The reader who has scrolled up to read history must not be yanked back down when a
+        // new message lands (the wasNearBottom rule).
+        const kept = await page.evaluate(async () => {
+          const l = document.querySelector("#chatList");
+          l.scrollTop = 0;
+          const before = l.scrollTop;
+          await window.__GFFL__.LG.postChat({ text: "a brand new message" });
+          await window.__GFFL__.UI.refreshChatList("chat", null);
+          return { before, after: document.querySelector("#chatList").scrollTop,
+            landed: document.querySelector("#chatList").textContent.includes("a brand new message") };
+        });
+        ok(kept.landed && kept.after === kept.before,
+          "…and a reader who has scrolled up to read history is NOT yanked back down when a new message lands (" + kept.before + " -> " + kept.after + ")");
+        ok(errors.length === 0, "0 page errors");
+        await ctx.close();
+      }
+      // (c) the matchup page's trash-talk thread shares the same widget.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, seedChat(3, { thread: "w1_1-2" }), { vw });
+        await bootPage(page);
+        await page.waitForSelector(".mucard", { timeout: 9000 });
+        await waitLive(page);
+        await clickIn(page, ".mucard.mine");
+        await page.waitForSelector("#muThreadList .chatRowMsg", { timeout: 9000 });
+        const m = await page.evaluate(() => {
+          const l = document.querySelector("#muThreadList");
+          const rows = [...l.querySelectorAll(".chatRowMsg")];
+          const lb = l.getBoundingClientRect();
+          return { rows: rows.length, lastGap: Math.round(lb.bottom - rows[rows.length - 1].getBoundingClientRect().bottom),
+            boxH: Math.round(lb.height), contentH: Math.round(l.scrollHeight) };
+        });
+        ok(m.rows === 3 && m.lastGap <= 12,
+          tag + ": the matchup thread is bottom-anchored too (" + m.lastGap + "px from the bottom)");
+        ok(m.boxH <= m.contentH + 2,
+          "…but it is NOT given a fixed 52vh pane — it is one card among many on that page (" + m.boxH + "px box, " + m.contentH + "px of content)");
+        ok(errors.length === 0, "0 page errors");
+        await ctx.close();
+      }
+    }
+
+    // ---- AE4: chat shows USER messages only.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, seedChat(3, { sys: true, replyToSys: true }));
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await clickIn(page, '.bnav button[data-v="chat"]');
+      await page.waitForSelector("#chatList .chatRowMsg", { timeout: 9000 });
+      const c = await page.evaluate(() => {
+        const l = document.querySelector("#chatList");
+        return { txt: l.textContent, rows: l.querySelectorAll(".chatRowMsg").length,
+          sysBlocks: l.querySelectorAll(".chatSys").length, quotes: l.querySelectorAll(".chatQuote").length };
+      });
+      ok(!/League rules updated/.test(c.txt), "a sys message is not rendered in the Chat tab at all");
+      ok(c.sysBlocks === 0, "…no sys block of any kind (" + c.sysBlocks + ")");
+      ok(/message number 0/.test(c.txt) && /message number 2/.test(c.txt), "…while every USER message in the same thread still renders");
+      ok(c.rows === 4, "…exactly the four user messages, sys excluded (" + c.rows + ")");
+      ok(c.quotes === 0, "…and the user message that REPLIES to the sys post degrades to no quote block rather than a dangling one (" + c.quotes + ")");
+      // The doc itself was never deleted — the guarantee is at render.
+      const still = await page.evaluate(async () => (await window.__GFFL__.LG.loadAllChat()).filter((m) => m.sys).length);
+      ok(still === 1, "…and the sys doc is still in the store, untouched — nothing was deleted to achieve this (" + still + ")");
+      // Same on the matchup thread and the league-home preview.
+      await clickIn(page, '.bnav button[data-v="league"]');
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await openDetails(page, "chatDetails");
+      ok(!/League rules updated/.test(await page.evaluate(() => document.body.textContent)),
+        "…nor on the league home's own chat preview");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AE5: the six-tab bar, and Rules/Draft reached from the League page.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      const nav = await page.evaluate(() => ({
+        labels: [...document.querySelectorAll(".bnav button")].map((b) => b.textContent.trim()),
+        rules: !!document.querySelector('.bnav [data-v="rules"]'),
+        draft: !!document.querySelector('.bnav a, .bnav .bnavlink'),
+        clipped: [...document.querySelectorAll(".bnav button")].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent.trim()),
+        widths: [...document.querySelectorAll(".bnav button")].map((el) => Math.round(el.getBoundingClientRect().width)),
+      }));
+      ok(!nav.rules && !nav.draft, "the Rules tab and the Draft link are both gone from the nav");
+      ok(nav.labels.length === 6, "…six tabs remain (" + nav.labels.join("|") + ")");
+      ok(nav.clipped.length === 0, "…and at 390px not one label clips — eight used to cut DRAFT to \"DR\" (" + JSON.stringify(nav.widths) + "px)");
+
+      // Both links are on the League page, findable and tappable.
+      const links = await page.evaluate(() => {
+        const r = document.querySelector("#lnkRules"), d = document.querySelector("#lnkDraft");
+        const box = (e) => e.getBoundingClientRect();
+        return { rTag: r && r.tagName, dTag: d && d.tagName, dHref: d && d.getAttribute("href"),
+          rH: r ? Math.round(box(r).height) : -1, dH: d ? Math.round(box(d).height) : -1,
+          rTop: r ? Math.round(box(r).top + window.scrollY) : 1e6 };
+      });
+      ok(links.rTag === "BUTTON" && links.dTag === "A" && links.dHref === "ffdraft.html",
+        "Rules is an in-app button; Draft is a real <a href> to ffdraft.html, so middle-click/open-in-new-tab still work (" + JSON.stringify(links) + ")");
+      ok(links.rH >= 44 && links.dH >= 44, "…both ≥44px tappable (" + links.rH + "/" + links.dH + ")");
+      ok(links.rTop < 900, "…and high enough on the League page to be found without scrolling it all (" + links.rTop + "px down)");
+
+      // Tapping Rules really opens the commissioner's control panel — and leaves no stale
+      // tab highlight behind, since no tab corresponds to that view any more.
+      await clickIn(page, ".mucard:not(.mine)"); // open a DIFFERENT matchup first…
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+      const openMu = await page.evaluate(() => window.__GFFL__.UI.matchup);
+      await clickIn(page, '.bnav button[data-v="league"]');
+      await waitOr(page, "#lnkRules", 9000);
+      await clickIn(page, "#lnkRules");
+      // waitOr + .catch: if the link is missing the assertions below must SAY so, not abort.
+      await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 9000 }).catch(() => {});
+      const onRules = await page.evaluate(() => ({
+        view: window.__GFFL__.UI.view, dataView: document.querySelector("main").dataset.view,
+        on: [...document.querySelectorAll(".bnav button.on")].map((b) => b.dataset.v),
+        importer: !!document.querySelector("#importBtn") || /Import/.test(document.body.textContent),
+        scoring: /Scoring/.test(document.body.textContent),
+        matchup: JSON.stringify(window.__GFFL__.UI.matchup),
+      }));
+      ok(onRules.view === "rules" && onRules.dataView === "rules", "the League page's Rules link opens the Rules view");
+      ok(onRules.importer && onRules.scoring, "…with the commissioner's controls on it — the importer and the scoring table");
+      ok(onRules.on.length === 0, "…and NO tab is left highlighted, since none corresponds to this view (" + JSON.stringify(onRules.on) + ")");
+      ok(onRules.matchup === JSON.stringify(openMu), "…and it does not disturb the matchup the reader had open (" + onRules.matchup + ")");
+
+      // The #rules deep link still routes — someone may have it bookmarked.
+      // The ?n= nonce is load-bearing: puppeteer's goto to a URL that differs from the current
+      // one ONLY by its hash is a SAME-DOCUMENT navigation, so routeInitial() never re-runs and
+      // this would pass simply because the page was already on Rules from the step above.
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "&n=" + Date.now() + "#rules", { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
+      await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 9000 });
+      ok(await page.evaluate(() => window.__GFFL__.UI.view) === "rules", "the #rules deep link still routes");
+      // …and so does the in-code caller that opens it programmatically with no tap behind it.
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      // …and a PROGRAMMATIC open with no tab press behind it still renders the view with the
+      // container importFromEspn() writes into (the first-run card's own path: UI.show("rules")
+      // and then straight into #importOut).
+      await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+      await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 9000 });
+      const prog = await page.evaluate(() => ({ view: window.__GFFL__.UI.view,
+        out: !!document.querySelector("#importOut"), btn: !!document.querySelector("#rulesImport") }));
+      ok(prog.view === "rules" && prog.out && prog.btn,
+        "…a programmatic UI.show(\"rules\") renders the view with the importer and its output container (" + JSON.stringify(prog) + ")");
+      await clickIn(page, "#rulesImport");
+      await page.waitForFunction(() => (document.querySelector("#importOut") || {}).textContent.trim().length > 0, { timeout: 12000 });
+      ok(true, "…and the importer really writes into it");
+      if (SHOTS) {
+        await page.evaluate(() => window.__GFFL__.UI.show("league"));
+        await waitOr(page, "#lnkRules", 9000);
+        await sleep(250);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_league_links_390.png") });
+        console.log("  📸 shots/gffl_league_links_390.png");
+      }
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    if (SHOTS) {
+      // The chat plates — the whole point of item 14 is a SHORT conversation in a TALL box.
+      for (const [vw, name] of [[{ width: 1440, height: 900 }, "gffl_chat_desktop"], [{ width: 390, height: 844 }, "gffl_chat_390"]]) {
+        const { ctx, page } = await newTestPage(browser, seedChat(3, { sys: true }), { vw });
+        await bootPage(page);
+        await page.waitForSelector(".mucard", { timeout: 9000 });
+        await clickIn(page, '.bnav button[data-v="chat"]');
+        await page.waitForSelector("#chatList .chatRowMsg", { timeout: 9000 });
+        await sleep(300);
+        await page.screenshot({ path: path.join(ROOT, "shots", name + ".png") });
+        console.log("  📸 shots/" + name + ".png");
+        await ctx.close();
+      }
     }
   }
 
