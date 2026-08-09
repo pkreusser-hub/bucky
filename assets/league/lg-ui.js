@@ -124,6 +124,16 @@
     // they would each be refused — raising a "you're offline" toast for something no person
     // asked for. The first client that genuinely reconnects runs them.
     if (LG.mirrorOffline) return;
+    // LEAGUE time, deliberately — and this was tried the other way round during the 2025-replay
+    // clock work. Everything this chain does is keyed to a LEAGUE DEADLINE (has the waiver
+    // deadline passed, has a trade's review window elapsed, is a week final), so the throttle has
+    // to advance with the same clock those deadlines are measured against: a trade whose review
+    // window has run out in league time must execute the moment the app next looks, which is
+    // exactly what sections J and P assert by driving LG.nowOverride forward. Switching this to
+    // Date.now() broke both. The cost under the replay is that the chain runs every 60 LEAGUE
+    // seconds (7.5 wall seconds at the default 8x) instead of every 60 wall seconds; the chain is
+    // cached reads plus a finalize that refuses outright under the replay, so that is affordable.
+    // (LG.db's OWN cache staleness is the opposite case and is on wall time — see its note.)
     if (!force && LG.now() - lastAutoCheckAt < AUTO_CHECK_MS) return;
     lastAutoCheckAt = LG.now();
     UI._autoCheckRuns++;
@@ -568,7 +578,12 @@
     // Projections honesty: warmed here (idempotent, loop-safe) so the banner is self-sufficient
     // — it reads correctly on its own even before any matchup/moves/locker page is visited.
     simProjEnsureAndRepaint(UI.view);
-    el.textContent = "2025 SEASON REPLAY — Week 1, before kickoff. Projections are estimates.";
+    // Honest about all three things a reader could otherwise get wrong: which season this is,
+    // which moment of week 1 they opened on, and that the clock is running faster than theirs.
+    const ph = LG.SIM_PHASES[LG.SIM_PHASE] || LG.SIM_PHASES.pre;
+    const sp = Number(LG.SIM_SPEED) || 0;
+    const clock = sp <= 0 ? "The clock is paused." : "The clock runs " + sp + "x real time.";
+    el.textContent = "2025 SEASON REPLAY — " + ph.banner + ". " + clock + " Projections are estimates.";
   }
 
   // ---------------- gate + claim ----------------
@@ -1629,6 +1644,8 @@
     dst_td: "defensive TD", dst_safety: "safety", dst_blk: "block", dst_pa: "pts allowed",
   };
   function feedLine(e) {
+    // e.t is stamped in LEAGUE time at the source (see applySide) — off the replay that IS
+    // wall time, and under it a Sunday-afternoon board's feed reads as a Sunday afternoon.
     const t = new Date(e.t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     if (e.msg) return `<div class="fline sys"><span class="mut">${t}</span> ${esc(e.msg)}</div>`;
     const sign = e.dPts > 0 ? "+" : "";
@@ -2613,6 +2630,7 @@
         the manual button for re-running it against whichever week is open.<br>
         <b>Import history</b> — past seasons' standings/champions/scores, for the record book.
       </div>` : ""}
+      ${simPhaseCardHtml()}
       <div class="card mut small">${esc(r.name)} · season ${r.season} · ${scheduleSummaryLine(r)}</div>
       <div class="card"><h2>Scoring</h2>${scoringGroupsHtml}${paHtml}</div>
       ${simpleSection("Roster", rosterSummaryLine(r), "roster", r.roster)}
@@ -2666,6 +2684,33 @@
       if (!(await LG.gateCommish())) return;
       await importHistory();
     });
+    wireSimPhaseCard();
+  }
+  // ---------------- 2025 replay: which moment of week 1 (2026-08-08) ----------------
+  // Commissioner-gated, Rules page, hard reload on switch — the same posture every other
+  // reload-y action here already uses (a phase change moves LG.now(), which every cached
+  // roster/game/stat in memory was derived against; rebuilding from a clean boot is far
+  // smaller a surface than trying to hot-swap all of it).
+  function simPhaseCardHtml() {
+    if (!LG.SIM_2025) return "";
+    const cur = LG.SIM_PHASE;
+    const btns = Object.keys(LG.SIM_PHASES).map((id) => {
+      const p = LG.SIM_PHASES[id];
+      return `<button class="simPhaseBtn${id === cur ? " primary" : ""}" data-phase="${id}"
+        ${id === cur ? "disabled" : ""}>${esc(p.label)}</button>`;
+    }).join(" ");
+    return `<div class="card"><h2>Replay clock</h2>
+      <p class="mut small">Which moment of week 1 the app opens on. The clock then runs
+      ${Number(LG.SIM_SPEED) > 0 ? esc(String(LG.SIM_SPEED)) + "x real time" : "paused"} from there,
+      and stops once week 1 is over.</p>
+      <div class="rowline" id="simPhaseRow">${isCommish() ? btns : '<span class="mut small">Commissioner only.</span>'}</div></div>`;
+  }
+  function wireSimPhaseCard() {
+    document.querySelectorAll(".simPhaseBtn").forEach((b) => b.addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      if (!LG.setSimPhase(b.dataset.phase)) return;
+      location.reload();
+    }));
   }
 
   // ---------------- lockers (plan §4.7) ----------------

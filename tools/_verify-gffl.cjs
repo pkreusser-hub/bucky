@@ -456,14 +456,30 @@ function sbSim2025Fix() {
       ],
     }],
   });
+  // RESTAGED 2026-08-08 (the live replay phase). The kickoffs are what the whole feature derives
+  // game state from, so this slate is shaped to put the four NFL teams the roster fixture
+  // actually uses (PHI/DAL via the Thursday opener, KC early Sunday, DEN late Sunday) into
+  // THREE DIFFERENT STATES at the `live` instant (2025-09-07T19:00Z) — final, in progress, and
+  // not yet kicked off — which is exactly the mix the phase exists to show:
+  //   DAL@PHI  Thu 00:20Z  -> FINAL         (P. Passer, R. Rusher, W. Receiver, K. Kicker, both D/STs, X. Wideout, Q. Rival)
+  //   NYG@WSH  Sun 17:00Z  -> Q3 7:40 LIVE  (no rostered players — it is the second live game, and its clock…)
+  //   KC@LAC   Sun 17:15Z  -> Q3 12:54 LIVE (…differs from NYG@WSH's by exactly its 15-minute kickoff stagger:
+  //                                          T. Tight, B. Backup, I. Injured)
+  //   DEN@TEN  Sun 20:25Z  -> PRE           (F. Flexman, W. Two, H. Healthy, S. Second)
+  //   BAL@BUF  Sun 00:20Z  -> PRE           (Sunday night)
+  //   MIN@CHI  Mon 00:15Z  -> PRE           (Monday night — the REAL 2025 week-1 finale, which is
+  //                                          also what lg-core's clamp constant is anchored to)
+  // KC@LAC really was a Friday game in São Paulo; it is moved into the Sunday early window here
+  // on purpose, so the viewer's OWN team has a player mid-game rather than a board of finals.
   return {
     week: { number: 1 },
     events: [
-      ev("401772510", "DAL", "PHI", "2025-09-05T00:20Z", "NBC", { spread: "PHI -8.5", hs: "24", as: "20" }), // Thu night opener
-      ev("401772728", "KC", "LAC", "2025-09-06T00:00Z", "YouTube", { hs: "21", as: "27" }),                  // Fri
-      ev("401772831", "DEN", "TEN", "2025-09-07T20:05Z", "CBS", { hs: "12", as: "20" }),                     // Sun early
-      ev("401772832", "NYG", "WSH", "2025-09-07T20:00Z", "FOX", { hs: "21", as: "6" }),                      // Sun early
-      ev("401772833", "BAL", "BUF", "2025-09-08T00:20Z", "NBC", { hs: "41", as: "40" }),                     // Sun night
+      ev("401772510", "DAL", "PHI", "2025-09-05T00:20Z", "NBC", { spread: "PHI -8.5", hs: "24", as: "20" }),
+      ev("401772832", "NYG", "WSH", "2025-09-07T17:00Z", "FOX", { hs: "21", as: "6" }),
+      ev("401772728", "KC", "LAC", "2025-09-07T17:15Z", "CBS", { hs: "21", as: "27" }),
+      ev("401772831", "DEN", "TEN", "2025-09-07T20:25Z", "FOX", { hs: "12", as: "20" }),
+      ev("401772833", "BAL", "BUF", "2025-09-08T00:20Z", "NBC", { hs: "41", as: "40" }),
+      ev("401772834", "MIN", "CHI", "2025-09-09T00:15Z", "ESPN", { hs: "24", as: "27" }),
     ],
   };
 }
@@ -5353,23 +5369,34 @@ async function openDetails(page, id) {
     // Deliberately waits only for the hook, NOT for LG.rules: a degraded backend never gets
     // rules at all (boot catches and renders the outage card), and that is a state this section
     // has to be able to boot INTO rather than time out on.
-    const bootSim = async (page) => {
-      await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "networkidle0" });
+    // RESTAGED 2026-08-08 (the live replay phase): `live` is the shipping DEFAULT now, and its
+    // clock RUNS. `q` lets a check pin the phase and/or freeze the clock when what it is really
+    // testing is the pre-kickoff presentation or a fixed instant — every such pin is annotated
+    // at its own call site with the reason. A bare bootSim() boots exactly as a family device
+    // will (live, 8x).
+    const bootSim = async (page, q) => {
+      await page.goto(BASE + "/league.html?fam=" + FAM + (q || ""), { waitUntil: "networkidle0" });
       await page.waitForFunction(() => !!window.__GFFL__, { timeout: 12000 });
     };
+    // The pre-kickoff pin, frozen: what section X was written against before the clock existed.
+    const PREPIN = "&simphase=pre&simspeed=0";
 
     // ---- X1: the flag drives the whole calendar.
     {
+      // RESTAGED 2026-08-08: pinned to the `pre` phase with a frozen clock. This block is the
+      // "week 1 before kickoff" calendar contract — the exact instant, and free agency already
+      // open — which is now one of TWO phases rather than the only one. That the DEFAULT phase
+      // is `live`, and that the clock runs, are new checks in section X8 below.
       fixture.rich2025 = true; fixture.simProjReal = false;
       const { ctx, page, errors } = await newTestPage(browser, simSeed());
-      await bootSim(page);
+      await bootSim(page, PREPIN);
       await page.waitForSelector(".mucard", { timeout: 20000 });
       const cal = await page.evaluate(() => {
         const LG = window.__GFFL__.LG;
         const now = LG.now();
         return {
           sim: LG.SIM_2025, season: LG.SEASON, start: LG.SEASON_START,
-          now, simNow: LG.SIM_NOW, week: LG.currentWeek(),
+          now, simNow: LG.SIM_NOW, week: LG.currentWeek(), phase: LG.SIM_PHASE,
           deadline1: LG.waiverDeadline(1),
           iso: new Date(now).toISOString(),
           uiWeek: window.__GFFL__.UI.week,
@@ -5378,7 +5405,8 @@ async function openDetails(page, id) {
       ok(cal.sim === true, "LG.SIM_2025 is ON by default — no flag, no URL param, nothing to switch on");
       ok(cal.season === 2025, "…LG.SEASON is 2025 (" + cal.season + ")");
       ok(cal.start === "2025-09-02", "…LG.SEASON_START is the Tuesday before the real Sept-4 opener (" + cal.start + ")");
-      ok(cal.now === cal.simNow, "…LG.now() returns the pinned instant, not the wall clock");
+      ok(cal.phase === "pre", "…?simphase=pre selects the before-kickoff phase (" + cal.phase + ")");
+      ok(cal.now === cal.simNow, "…and at SIM_SPEED 0 the clock is frozen on that phase's own instant");
       ok(cal.iso === "2025-09-04T14:00:00.000Z", "…which is Thursday 2025-09-04, 09:00 America/Chicago (" + cal.iso + ")");
       ok(cal.week === 1, "…LG.currentWeek() === 1 (" + cal.week + ")");
       ok(cal.uiWeek === 1, "…and the app opens on week 1 (" + cal.uiWeek + ")");
@@ -5565,10 +5593,13 @@ async function openDetails(page, id) {
     }
 
     // ---- X3: the NFL slate — real week-1 2025 games, presented as upcoming.
+    // RESTAGED 2026-08-08: pinned to `pre`, frozen. "Every game reads upcoming" is the
+    // BEFORE-KICKOFF phase's contract by definition; under the shipping `live` default the
+    // whole point is that they DON'T (section X8 asserts that side).
     {
       simSbUrls.length = 0;
       const { ctx, page, errors } = await newTestPage(browser, { docs: simDocsAfterSetup, pass: "amenfarms", team: 1, who: "Peter" });
-      await bootSim(page);
+      await bootSim(page, PREPIN);
       await page.waitForSelector(".mucard", { timeout: 20000 });
       await page.waitForFunction(() => window.__GFFL__.D.S.nflEvents && window.__GFFL__.D.S.nflEvents.length > 0, { timeout: 15000 });
       ok(simSbUrls.length >= 1, "the replay asks ESPN for an explicit historical slate");
@@ -5590,13 +5621,13 @@ async function openDetails(page, id) {
           anyLive: D.anyLive(), health: D.S.health.mode,
         };
       });
-      ok(slate.n === 5, "…and gets the whole week-1 slate (" + slate.n + " games)");
+      ok(slate.n === 6, "…and gets the whole week-1 slate (" + slate.n + " games)");
       ok(slate.states.length === 1 && slate.states[0] === "pre",
         "EVERY game reads as upcoming, even though the historical document says they all finished (" + slate.states.join() + ")");
       ok(slate.scores.length === 1 && slate.scores[0] === "0", "…every score reads 0 (" + slate.scores.join() + ")");
       ok(slate.gameStates.length === 1 && slate.gameStates[0] === "pre", "…and the per-team game map agrees");
-      ok(slate.dates.every((d) => /^2025-09-0[4-8]/.test(d)), "…each game keeps its REAL kickoff datetime");
-      ok(slate.nets.length === 5, "…and its real TV network (" + slate.nets.join("/") + ")");
+      ok(slate.dates.every((d) => /^2025-09-0[4-9]/.test(d)), "…each game keeps its REAL kickoff datetime");
+      ok(slate.nets.length === 6, "…and its real TV network (" + slate.nets.join("/") + ")");
       ok(slate.anyLive === false, "nothing is live — the pin is before kickoff");
       ok(slate.health === "dual", "…and health reads nominal, not an outage, because nothing is failing (" + slate.health + ")");
       const chip = await page.evaluate(() => { const e = document.getElementById("healthChip"); return e && !e.hidden ? { t: e.textContent.trim(), cls: e.className } : null; });
@@ -5624,13 +5655,13 @@ async function openDetails(page, id) {
         body: document.body.textContent,
         gffl: !!document.querySelector(".mugrid"),
       }));
-      ok(sc.cards === 5, "the Scores tab renders all five games (" + sc.cards + ")");
+      ok(sc.cards === 6, "the Scores tab renders all six games (" + sc.cards + ")");
       // A RANGE, not an exact count: the grouping label comes from toLocaleDateString in the
       // BROWSER's own timezone, and a Thursday-night/Sunday-night kickoff lands on a different
       // calendar day under UTC than under Central. What must hold is that the slate really is
-      // grouped (more than one day) and that the two same-window Sunday games share a group.
-      ok(sc.days.length >= 3 && sc.days.length <= 5, "…grouped by gameday (" + sc.days.join(" | ") + ")");
-      ok(sc.perDay.includes(2), "…with the two same-window Sunday games in one group (" + sc.perDay.join() + ")");
+      // grouped (more than one day) and that the same-window Sunday games share a group.
+      ok(sc.days.length >= 3 && sc.days.length <= 6, "…grouped by gameday (" + sc.days.join(" | ") + ")");
+      ok(Math.max(...sc.perDay) >= 3, "…with the same-day Sunday games in one group (" + sc.perDay.join() + ")");
       ok(sc.times.every((t) => /(AM|PM)/.test(t)) && !sc.times.some((t) => /Final/.test(t)),
         "…each showing a kickoff time, never a final score (" + sc.times.join() + ")");
       ok(sc.gffl && /GFFL — Week 1/.test(sc.body), "…above the GFFL's own week-1 card");
@@ -5640,10 +5671,14 @@ async function openDetails(page, id) {
     }
 
     // ---- X4: projections — derived from the real final line, and the real-projection path.
+    // RESTAGED 2026-08-08: pinned to `pre`, frozen. Under the shipping `live` default P. Passer's
+    // PHI game is already FINAL, so his row would carry a live SCORE as well as a projection —
+    // and because the derived projection IS that same final line, the two read as the identical
+    // number and "the matchup row shows the projection" would stop being a real assertion.
     {
       fixture.simProjReal = false;
       const { ctx, page, errors } = await newTestPage(browser, { docs: simDocsAfterSetup, pass: "amenfarms", team: 1, who: "Peter" });
-      await bootSim(page);
+      await bootSim(page, PREPIN);
       await page.waitForSelector(".mucard", { timeout: 20000 });
       await page.waitForFunction(() => window.__GFFL__.D.S.simProj, { timeout: 15000 });
       const pj = await page.evaluate(() => {
@@ -5689,7 +5724,7 @@ async function openDetails(page, id) {
       // The OTHER path: a real forward projection genuinely exists for the week.
       fixture.simProjReal = true;
       const { ctx, page, errors } = await newTestPage(browser, { docs: simDocsAfterSetup, pass: "amenfarms", team: 1, who: "Peter" });
-      await bootSim(page);
+      await bootSim(page, PREPIN); // same reason as X4 above: a projection must be the only number on the row
       await page.waitForSelector(".mucard", { timeout: 20000 });
       await page.waitForFunction(() => window.__GFFL__.D.S.simProj, { timeout: 15000 });
       const pj = await page.evaluate(() => ({ source: window.__GFFL__.D.S.simProj.source, passer: window.__GFFL__.D.projFor("3915511") }));
@@ -5707,7 +5742,7 @@ async function openDetails(page, id) {
       // ADP-only map and the fallback (derived from real week-1 finals) must fire instead.
       fixture.simProjAdpOnly = true;
       const { ctx, page, errors } = await newTestPage(browser, { docs: simDocsAfterSetup, pass: "amenfarms", team: 1, who: "Peter" });
-      await bootSim(page);
+      await bootSim(page, PREPIN); // same reason as X4 above
       await page.waitForSelector(".mucard", { timeout: 20000 });
       await page.waitForFunction(() => window.__GFFL__.D.S.simProj, { timeout: 15000 });
       const pj = await page.evaluate(() => ({
@@ -5727,6 +5762,10 @@ async function openDetails(page, id) {
     }
 
     // ---- X5: the banner, both widths, no overlap.
+    // RESTAGED 2026-08-08: the copy now names the PHASE and states that the clock is running,
+    // so a reader can never mistake the replay for the live season OR wonder why the clock is
+    // moving faster than theirs. Booted on the shipping default (live, 8x) — the `pre` wording
+    // and the paused wording are both covered in X8.
     for (const vw of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
       const { ctx, page, errors } = await newTestPage(browser, { docs: simDocsAfterSetup, pass: "amenfarms", team: 1, who: "Peter" }, { vw });
       await bootSim(page);
@@ -5744,8 +5783,9 @@ async function openDetails(page, id) {
         };
       });
       ok(!!b, "the replay banner is present at " + vw.width + "px");
-      ok(b && /2025 SEASON REPLAY/.test(b.text) && /Week 1, before kickoff/.test(b.text) && /Projections are estimates/.test(b.text),
-        "…with the agreed copy (" + (b ? b.text : "") + ")");
+      ok(b && /2025 SEASON REPLAY/.test(b.text) && /Week 1, Sunday afternoon · games in progress/.test(b.text)
+        && /Projections are estimates/.test(b.text), "…with the agreed copy (" + (b ? b.text : "") + ")");
+      ok(b && /clock runs 8x real time/.test(b.text), "…saying plainly that the clock is accelerated");
       ok(b && !/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(b.text), "…and no emoji, per the app-chrome rule");
       ok(b && !b.overHeader, "…it clears the header at " + vw.width + "px");
       ok(b && !b.overNav, "…and never collides with the nav at " + vw.width + "px");
@@ -5768,11 +5808,454 @@ async function openDetails(page, id) {
       ok(/const SIM_2025_DEFAULT = true;/.test(core), "…and the ONE switch to flip is a single documented literal");
     }
 
+    // ================= X8 · THE LIVE PHASE — a clock that runs, games mid-play =============
+    // 2026-08-08, user: "now let's advance to the middle of week 1 with live stats and live
+    // games". The replay is no longer one frozen instant: `live` is the default phase, the clock
+    // runs at SIM_SPEED, every game's state comes from LG.now() vs its OWN real kickoff, and
+    // every player's line is his REAL week-1 final scaled by how far his own game has got.
+    // Determinism throughout comes from LG.nowOverride (and ?simspeed=0), never from sleeping.
+    //
+    // The live instant is 2025-09-07T19:00:00Z, and against the fixture slate (see
+    // sbSim2025Fix's own restage note) it gives — hand-computed from the game-clock model,
+    // 60 game-minutes over 185 wall minutes with a 13-minute halftime:
+    //   DAL@PHI (Thu 00:20Z)  FINAL      · NYG@WSH (17:00Z)  Q3 7:40
+    //   KC@LAC  (17:15Z)      Q3 12:54   · DEN@TEN (20:25Z), BAL@BUF, MIN@CHI  PRE
+    const LIVE_AT = Date.parse("2025-09-07T19:00:00Z");
+    const simLive = { docs: simDocsAfterSetup, pass: "amenfarms", team: 1, who: "Peter" };
+    // Drive the engine to an exact instant. Deliberately steps FORWARD through intermediate
+    // polls when asked: the live feed is built by DIFFING consecutive polls, so a walk is the
+    // only honest way to produce one — and a walk must never go backwards (rewinding the clock
+    // is what manufactures a negative delta, which is precisely the nonsense the monotonicity
+    // rule exists to prevent).
+    const driveTo = (page, at, steps) => page.evaluate(async (at, steps) => {
+      const { LG, D } = window.__GFFL__;
+      const n = Math.max(1, steps || 1);
+      const from = LG.nowOverride != null ? LG.nowOverride : at;
+      for (let i = 1; i <= n; i++) {
+        LG.nowOverride = Math.round(from + ((at - from) * i) / n);
+        await D.pollOnce();
+      }
+      LG.nowOverride = at;
+    }, at, steps);
+    const gamesAt = (page) => page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const out = {};
+      for (const [ab, g] of D.S.games) out[ab] = { state: g.state, detail: g.detail, period: g.period, clock: g.clock, score: g.score, opp: g.oppScore };
+      return out;
+    });
+
+    // ---- X8a: the phase is a real switch, and `live` is the default.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, simLive);
+      await bootSim(page); // no params at all — exactly how a family device opens the app
+      await page.waitForSelector(".mucard", { timeout: 20000 });
+      const st = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        return {
+          phase: LG.SIM_PHASE, at: LG.SIM_NOW, iso: new Date(LG.SIM_NOW).toISOString(),
+          speed: LG.SIM_SPEED, week: LG.currentWeek(),
+          ids: Object.keys(LG.SIM_PHASES),
+          stored: Object.keys(localStorage).filter((k) => /sim|phase/i.test(k)),
+        };
+      });
+      ok(st.phase === "live", "the replay opens on the LIVE phase by default — no param, nothing stored (" + st.phase + ")");
+      ok(st.iso === "2025-09-07T19:00:00.000Z", "…Sunday 2025-09-07 19:00Z, mid-afternoon (" + st.iso + ")");
+      ok(st.speed === 8, "…with the clock running at 8x real time (" + st.speed + ")");
+      ok(st.week === 1, "…still week 1 (" + st.week + ")");
+      ok(st.ids.length === 2 && st.ids.includes("pre") && st.ids.includes("live"),
+        "…and there are exactly two named phases (" + st.ids.join() + ")");
+      ok(st.stored.length === 0, "…a default boot persists NO phase — the default stays the default (" + JSON.stringify(st.stored) + ")");
+      ok(errors.length === 0, "0 page errors on the default live boot");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, simLive);
+      await bootSim(page, "&simphase=pre");
+      await page.waitForSelector(".mucard", { timeout: 20000 });
+      const st = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        return {
+          phase: LG.SIM_PHASE, iso: new Date(LG.SIM_NOW).toISOString(), week: LG.currentWeek(),
+          banner: (document.getElementById("simBanner") || {}).textContent || "",
+          stored: Object.keys(localStorage).filter((k) => /simphase/i.test(k)),
+        };
+      });
+      ok(st.phase === "pre" && st.iso === "2025-09-04T14:00:00.000Z",
+        "?simphase=pre reverts to the Thursday-morning instant (" + st.iso + ")");
+      ok(st.week === 1, "…still week 1 (" + st.week + ")");
+      ok(/Week 1, before kickoff/.test(st.banner), "…and the banner says so (" + st.banner + ")");
+      ok(st.stored.length === 0, "…the URL override persists NOTHING — a shared link can't strand a device");
+      ok(errors.length === 0, "0 page errors on the pre-phase override");
+      await ctx.close();
+    }
+    // The commissioner's own switch: persists, and survives a reload.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, simLive);
+      await bootSim(page);
+      await page.waitForSelector(".mucard", { timeout: 20000 });
+      // The card is commissioner-gated, so become one first — same create-on-first-use idiom
+      // (stubbed prompt) every other commissioner check in this suite uses.
+      const locked = await page.evaluate(async () => {
+        await window.__GFFL__.UI.show("rules");
+        return { n: document.querySelectorAll(".simPhaseBtn").length, txt: document.body.textContent };
+      });
+      ok(locked.n === 0 && /Replay clock/.test(locked.txt) && /Commissioner only/.test(locked.txt),
+        "a non-commissioner sees the Replay-clock card but no switch (" + locked.n + " buttons)");
+      await page.evaluate(() => window.__GFFL__.LG.gateCommish());
+      await clickIn(page, '.bnav button[data-v="rules"]');
+      await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 12000 });
+      const card = await page.evaluate(() => {
+        const btns = [...document.querySelectorAll(".simPhaseBtn")];
+        return {
+          has: !!document.body.textContent.match(/Replay clock/),
+          n: btns.length,
+          labels: btns.map((b) => b.textContent.trim()),
+          disabled: btns.filter((b) => b.disabled).map((b) => b.dataset.phase),
+          // Whitespace-normalized: the card's copy wraps across lines in its template literal,
+          // so the rendered textContent carries the source's own newline + indentation.
+          says8x: /clock then runs 8x real time/.test(document.body.textContent.replace(/\s+/g, " ")),
+        };
+      });
+      ok(card.has && card.n === 2, "the Rules page carries a commissioner Replay-clock card with both phases (" + card.n + ")");
+      ok(card.labels.some((l) => /Sunday afternoon/.test(l)) && card.labels.some((l) => /before kickoff/.test(l)),
+        "…named in plain words (" + card.labels.join(" | ") + ")");
+      ok(card.disabled.length === 1 && card.disabled[0] === "live", "…with the CURRENT phase's own button disabled (" + card.disabled.join() + ")");
+      ok(card.says8x, "…and it states the speed the clock will run at");
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: "networkidle0", timeout: 20000 }).catch(() => {}),
+        clickIn(page, '.simPhaseBtn[data-phase="pre"]'),
+      ]);
+      await page.waitForFunction(() => !!window.__GFFL__, { timeout: 12000 });
+      const after = await page.evaluate(() => ({
+        phase: window.__GFFL__.LG.SIM_PHASE,
+        stored: localStorage.getItem("gffl_simphase"),
+      }));
+      ok(after.phase === "pre" && after.stored === "pre",
+        "…switching phase reloads into it, and it STICKS on this device (" + after.phase + "/" + after.stored + ")");
+      ok(errors.length === 0, "0 page errors through the phase switch");
+      await ctx.close();
+    }
+
+    // ---- X8b: the clock RUNS, and it is clamped inside week 1.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, simLive);
+      await bootSim(page);
+      await page.waitForSelector(".mucard", { timeout: 20000 });
+      const run = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        LG.SIM_LOADED_AT = Date.now();
+        const a = LG.simNow();
+        await new Promise((r) => setTimeout(r, 700));
+        const b = LG.simNow();
+        return { a, b, wall: 700, moved: b - a };
+      });
+      ok(run.moved > 700 * 5 && run.moved < 700 * 12,
+        "the replay clock genuinely RUNS, ~8x real time (" + run.moved + "ms of league time in ~700ms of wall time)");
+      const clamp = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        const cap = LG.simClampAt();
+        // Pretend the tab has been open for a fortnight of real time.
+        const saved = LG.SIM_LOADED_AT;
+        LG.SIM_LOADED_AT = Date.now() - 14 * 24 * 3600 * 1000;
+        const far = LG.simNow();
+        const farWeek = (LG.nowOverride = far, LG.currentWeek());
+        LG.nowOverride = null;
+        LG.SIM_LOADED_AT = saved;
+        return {
+          cap, capIso: new Date(cap).toISOString(), far, farIso: new Date(far).toISOString(), farWeek,
+          lastKick: new Date(LG.SIM_LAST_KICKOFF).toISOString(),
+          startWeek: (LG.nowOverride = LG.SIM_NOW, LG.currentWeek()),
+        };
+      });
+      await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
+      ok(clamp.lastKick === "2025-09-09T00:15:00.000Z",
+        "the clamp follows the slate's OWN last kickoff — Monday night (" + clamp.lastKick + ")");
+      ok(clamp.capIso === "2025-09-09T04:15:00.000Z", "…+4 hours (" + clamp.capIso + ")");
+      ok(clamp.far === clamp.cap, "…and a tab left open for two weeks stops dead on it, never running past (" + clamp.farIso + ")");
+      ok(clamp.startWeek === 1 && clamp.farWeek === 1,
+        "…week 1 at the phase instant AND at the clamp ceiling — the replay can never roll into week 2 (" + clamp.startWeek + "/" + clamp.farWeek + ")");
+      ok(errors.length === 0, "0 page errors exercising the clock");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, simLive);
+      await bootSim(page, "&simspeed=0");
+      await page.waitForSelector(".mucard", { timeout: 20000 });
+      const frozen = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const a = LG.now();
+        await new Promise((r) => setTimeout(r, 600));
+        return { a, b: LG.now(), at: LG.SIM_NOW, speed: LG.SIM_SPEED, banner: (document.getElementById("simBanner") || {}).textContent || "" };
+      });
+      ok(frozen.speed === 0 && frozen.a === frozen.at && frozen.b === frozen.at,
+        "SIM_SPEED 0 freezes the clock dead on the phase instant — the deterministic mode");
+      ok(/clock is paused/.test(frozen.banner), "…and the banner says paused rather than claiming a speed (" + frozen.banner + ")");
+      ok(errors.length === 0, "0 page errors with the clock frozen");
+      await ctx.close();
+    }
+
+    // ---- X8c: every game's state comes from its OWN real kickoff.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, simLive);
+      await bootSim(page, "&simspeed=0");
+      await page.waitForSelector(".mucard", { timeout: 20000 });
+      await page.waitForFunction(() => window.__GFFL__.D.S.nflEvents.length > 0, { timeout: 15000 });
+      await driveTo(page, LIVE_AT, 1);
+      const g = await gamesAt(page);
+      ok(g.PHI && g.PHI.state === "post" && g.DAL.state === "post",
+        "at Sunday 2:00pm ET the Thursday opener is FINAL (" + (g.PHI || {}).state + ")");
+      ok(g.PHI && g.PHI.score === "24" && g.PHI.opp === "20",
+        "…showing its exact real final score, unscaled (" + (g.PHI || {}).score + "-" + (g.PHI || {}).opp + ")");
+      ok(g.KC && g.KC.state === "in" && g.KC.detail === "Q3 12:54",
+        "…the 17:15Z game is mid-third-quarter (" + (g.KC || {}).detail + ")");
+      ok(g.WAS && g.WAS.state === "in" && g.WAS.detail === "Q3 7:40",
+        "…the 17:00Z game is FIFTEEN MINUTES further along — the clock is per-game, not one shared number (" + (g.WAS || {}).detail + ")");
+      ok(g.DEN && g.DEN.state === "pre" && g.DEN.score === "0",
+        "…the late-afternoon window has not kicked off, and reads 0 (" + (g.DEN || {}).state + ")");
+      ok(g.MIN && g.MIN.state === "pre", "…nor has Monday night (" + (g.MIN || {}).state + ")");
+      ok(g.KC && Number(g.KC.score) > 0 && Number(g.KC.score) < 21,
+        "…and a game in progress shows a partial score, between nothing and its real final (" + (g.KC || {}).score + " of 21)");
+      // The clock model itself, at instants chosen so the answer is hand-computable. 60 game
+      // minutes are spread over 185 wall minutes with a 13-minute halftime, so 172 wall minutes
+      // carry 60 game minutes: one game minute costs 172/60 = 2.86667 wall minutes.
+      const model = await page.evaluate(() => {
+        const D = window.__GFFL__.D;
+        const ko = "2025-09-07T17:00:00Z", k = Date.parse(ko);
+        const at = (min) => D.simGameState(ko, k + min * 60000);
+        return {
+          m0: at(0), m30: at(30), m86: at(86), m95: at(95), m99: at(99),
+          m150: at(150), m184: at(184), m185: at(185), m400: at(400), before: at(-5),
+        };
+      });
+      ok(model.before.state === "pre" && model.m0.state === "in" && model.m0.detail === "Q1 15:00",
+        "the game clock: pre before kickoff, Q1 15:00 at kickoff (" + model.m0.detail + ")");
+      ok(model.m30.detail === "Q1 4:32", "…30 wall minutes in = Q1 4:32 (" + model.m30.detail + ")");
+      ok(model.m86.detail === "Half" && model.m95.detail === "Half" && model.m86.progress === 0.5,
+        "…halftime is a real state, held for 13 wall minutes at exactly half the game (" + model.m95.detail + ")");
+      ok(model.m99.detail === "Q3 15:00", "…and the second half opens on Q3 15:00 (" + model.m99.detail + ")");
+      ok(model.m150.detail === "Q4 12:12", "…Q4 arrives on schedule (" + model.m150.detail + ")");
+      ok(model.m184.period === 4 && model.m184.state === "in", "…the last minute of regulation is still Q4 (" + model.m184.detail + ")");
+      ok(model.m185.state === "post" && model.m185.period === 4 && model.m185.clock === "0:00",
+        "…then Final, clamped at Q4 0:00 (" + model.m185.period + "/" + model.m185.clock + ")");
+      ok(model.m400.period === 4 && model.m400.state === "post",
+        "…and hours later it is STILL Q4 — the period can never read Q5+ (" + model.m400.period + ")");
+      ok(model.m0.progress === 0 && model.m185.progress === 1 && model.m150.progress > model.m30.progress,
+        "…progress runs 0 -> 1 and only ever forwards");
+      ok(errors.length === 0, "0 page errors deriving game state");
+      await ctx.close();
+    }
+
+    // ---- X8d: live player stats, derived from the real finals.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, simLive);
+      await bootSim(page, "&simspeed=0");
+      await page.waitForSelector(".mucard", { timeout: 20000 });
+      await page.waitForFunction(() => window.__GFFL__.D.S.nflEvents.length > 0, { timeout: 15000 });
+      // A pure, genuinely hand-computed check of the scaler: counting stats and yardage are
+      // INTEGERS at every scale (a half-caught pass is not a thing).
+      const unit = await page.evaluate(() => {
+        const D = window.__GFFL__.D;
+        return {
+          half: D.scaleStatRow({ rec: 6, rec_yd: 62, rec_td: 1, pts_ppr: 18.2 }, 0.5),
+          zero: D.scaleStatRow({ rec: 6, rec_yd: 62, rec_td: 1 }, 0),
+          full: D.scaleStatRow({ rec: 6, rec_yd: 62, rec_td: 1 }, 1),
+          fLo: Math.min(...["1", "2", "3", "9001", "6904", "abc"].map((p) => D.simPlayerScale(p))),
+          fHi: Math.max(...["1", "2", "3", "9001", "6904", "abc"].map((p) => D.simPlayerScale(p))),
+          stable: D.simPlayerScale("9001") === D.simPlayerScale("9001"),
+        };
+      });
+      ok(unit.half.rec === 3 && unit.half.rec_yd === 31 && unit.half.rec_td === 1,
+        "scaleStatRow at 50%: 6 rec/62 yds/1 TD -> 3/31/1, every one an integer (" + JSON.stringify(unit.half) + ")");
+      ok(unit.zero.rec === 0 && unit.zero.rec_yd === 0 && unit.full.rec_yd === 62,
+        "…0 at the start, the untouched real line at 100%");
+      ok(unit.fLo >= 0.75 && unit.fHi <= 1.35 && unit.stable,
+        "…and each player's own multiplier is a stable draw inside [0.75, 1.35] (" + unit.fLo.toFixed(3) + ".." + unit.fHi.toFixed(3) + ")");
+      // A player whose game has NOT kicked off has no line at all — absent, not zeros.
+      await driveTo(page, LIVE_AT, 1);
+      const rows = await page.evaluate(() => {
+        const D = window.__GFFL__.D;
+        const grab = (k) => { const r = D.S.players.get(k); return r ? { pts: r.pts, slp: !!r.slp, yd: r.slp ? r.slp.stats.rec_yd : null } : null; };
+        return { flex: grab("111444"), passer: grab("3915511"), tight: grab("111222"),
+          f: D.simPlayerScale("9001"), prog: (D.S.games.get("KC") || {}).progress };
+      });
+      ok(rows.flex === null,
+        "a player whose game has not kicked off has NO stat line at all — absent, never a row of zeros");
+      ok(rows.passer && rows.passer.pts === 10.0,
+        "a player whose game is OVER reads his exact real final, hand-computed through the league's own scoring: "
+        + "P. Passer 150 pass yds (x0.04) + 1 TD (4) - 1 INT (2) + 1 two-pointer (2) = 10.0 (" + (rows.passer || {}).pts + ")");
+      // …and the live one, computed independently here (the expected yardage is multiplied and
+      // rounded by the TEST, not by scaleStatRow, so this is a genuine cross-check).
+      const s = Math.min(0.98, rows.prog * rows.f);
+      const wantYd = Math.round(62 * s);
+      ok(rows.tight && rows.tight.slp && rows.tight.yd === wantYd,
+        "a player mid-game reads his real final SCALED by how far his own game has got: T. Tight 62 rec yds x "
+        + s.toFixed(3) + " = " + wantYd + " (" + (rows.tight || {}).yd + ")");
+      ok(rows.tight && rows.tight.pts < 18.2 && rows.tight.pts > 0,
+        "…so his points are a real partial of his 18.2 final (" + (rows.tight || {}).pts + ")");
+      // Monotonic over a long walk, and never past the final.
+      const walk = await page.evaluate(async () => {
+        const { LG, D } = window.__GFFL__;
+        const ko = Date.parse("2025-09-07T17:15:00Z");
+        const out = [];
+        // FORWARD from where the page already is (the live instant = kickoff + 105 wall minutes)
+        // to the last minute of regulation. Deliberately never rewinds: this page has already
+        // polled, so stepping BACK would diff a big line against a small one and manufacture the
+        // exact negative delta the checks below exist to rule out.
+        for (let i = 0; i <= 11; i++) {
+          LG.nowOverride = ko + (105 + i * 7) * 60000; // 105 -> 182 wall minutes
+          await D.pollOnce();
+          const r = D.S.players.get("111222");
+          const g = D.S.games.get("KC");
+          out.push({ i, state: g.state, detail: g.detail, pts: r && r.pts != null ? r.pts : null,
+            yd: r && r.slp ? r.slp.stats.rec_yd : null, rec: r && r.slp ? r.slp.stats.rec : null,
+            td: r && r.slp ? r.slp.stats.rec_td : null });
+        }
+        LG.nowOverride = ko + 200 * 60000;
+        await D.pollOnce();
+        const fin = D.S.players.get("111222");
+        const evs = D.S.events.filter((e) => !e.msg);
+        LG.nowOverride = null;
+        return { out, final: fin ? fin.pts : null, finalYd: fin && fin.slp ? fin.slp.stats.rec_yd : null,
+          nEv: evs.length,
+          backwards: evs.filter((e) => e.to != null && e.from != null && Number(e.to) < Number(e.from)).length,
+          negDelta: evs.filter((e) => e.stat !== "dst_pa" && e.dPts < 0).length,
+          sample: evs.slice(0, 3).map((e) => e.name + " " + e.stat + " " + e.from + "->" + e.to + " " + e.dPts) };
+      });
+      const seq = walk.out.filter((r) => r.yd != null);
+      ok(seq.length >= 8, "…walked across " + seq.length + " successive polls of the same live game");
+      let mono = true, capped = true;
+      for (let i = 1; i < seq.length; i++) {
+        if (seq[i].yd < seq[i - 1].yd || seq[i].rec < seq[i - 1].rec || seq[i].td < seq[i - 1].td) mono = false;
+        if (seq[i].yd > 62 || seq[i].pts > 18.2) capped = false;
+      }
+      ok(mono, "…and every counting stat is NON-DECREASING the whole way — the feed diffs consecutive polls, so a value that ticked down would emit a nonsense negative line ("
+        + seq.map((r) => r.yd).join(",") + ")");
+      ok(capped, "…and never exceeds his real final at any point before it (max " + Math.max(...seq.map((r) => r.yd)) + " of 62)");
+      ok(walk.final === 18.2 && walk.finalYd === 62,
+        "…then lands EXACTLY on the real final once the game is over (" + walk.final + " / " + walk.finalYd + " yds)");
+      ok(walk.nEv >= 8, "the feed fills as the game runs (" + walk.nEv + " entries: " + walk.sample.join(" | ") + ")");
+      ok(walk.backwards === 0, "…with not one stat ever going backwards (" + walk.backwards + ")");
+      ok(walk.negDelta === 0, "…and no negative point deltas (" + walk.negDelta + ")");
+      ok(errors.length === 0, "0 page errors across the whole walk");
+      await ctx.close();
+    }
+
+    // ---- X8e: locks, the matchup page, and the guards that must STAY silent.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, simLive);
+      await bootSim(page, "&simspeed=0");
+      await page.waitForSelector(".mucard", { timeout: 20000 });
+      await page.waitForFunction(() => window.__GFFL__.D.S.nflEvents.length > 0, { timeout: 15000 });
+      // Lineup locking is derived from the SAME clock, so it can never disagree with the board.
+      await driveTo(page, Date.parse("2025-09-04T14:00:00Z"), 1);
+      await clickIn(page, '.bnav button[data-v="team"]');
+      await page.waitForFunction(() => document.querySelector(".lrow"), { timeout: 15000 });
+      const early = await page.evaluate(() => ({
+        locked: document.querySelectorAll(".lrow.locked").length,
+        labels: document.querySelectorAll(".lrow .lock").length,
+      }));
+      ok(early.locked === 0 && early.labels === 0,
+        "before any kickoff every lineup slot is editable — nothing is locked (" + early.locked + ")");
+      await driveTo(page, LIVE_AT, 1);
+      await page.evaluate(() => window.__GFFL__.UI.show("team"));
+      await page.waitForFunction(() => document.querySelector(".lrow"), { timeout: 15000 });
+      const late = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".lrow")];
+        const find = (nm) => rows.find((r) => r.textContent.includes(nm));
+        const t = find("T. Tight"), p = find("P. Passer");
+        return {
+          locked: rows.filter((r) => r.classList.contains("locked")).length,
+          tight: !!(t && t.classList.contains("locked")),
+          passer: !!(p && p.classList.contains("locked")),
+        };
+      });
+      ok(late.tight, "…and once his game has kicked off a starter is LOCKED (T. Tight, mid-third-quarter)");
+      ok(late.passer, "…as is one whose game already finished (P. Passer)");
+      ok(late.locked >= 2, "…the lock follows the game state, slot by slot (" + late.locked + " locked)");
+      // The matchup page reads like a real Sunday.
+      await page.evaluate(() => window.__GFFL__.UI.show("matchup"));
+      await page.waitForFunction(() => document.querySelector(".mutable"), { timeout: 15000 });
+      const mu = await page.evaluate(() => {
+        const txt = document.body.textContent.replace(/\s+/g, " ");
+        const row = (nm) => { const e = [...document.querySelectorAll(".pcellgrid")].find((x) => x.textContent.includes(nm)); return e ? e.textContent.replace(/\s+/g, " ").trim() : null; };
+        return { txt, tight: row("T. Tight"), passer: row("P. Passer"), flex: row("F. Flexman") };
+      });
+      ok(mu.tight && /Q3/.test(mu.tight), "the matchup row for a player mid-game carries his live game clock (" + mu.tight + ")");
+      ok(mu.passer && /Final/.test(mu.passer), "…a finished game reads Final (" + mu.passer + ")");
+      ok(mu.flex && !/Q[1-4]/.test(mu.flex), "…and one still to come shows its kickoff, not a clock (" + mu.flex + ")");
+      // Hand-checkable from the fixture: at the live instant team 1's two KC starters are
+      // mid-game and everyone else on that side is done, while team 2's four DEN players have
+      // not kicked off — so one side reads "0 to play · 2 live" and the other "4 to play · 0 live".
+      const counts = (mu.txt.match(/\d+ to play · \d+ live/g) || []);
+      ok(counts.includes("0 to play · 2 live") && counts.includes("4 to play · 0 live"),
+        "…and the header counts who is still playing, per side (" + counts.join(" | ") + ")");
+      // The provenance guards must stay silent EVEN with the whole slate final — nothing may
+      // auto-stamp week 1's permanent record from a slate nobody actually played.
+      await driveTo(page, Date.parse("2025-09-09T03:30:00Z"), 2);
+      const fin = await page.evaluate(async () => {
+        const { LG, D, UI } = window.__GFFL__;
+        const states = [...new Set([...D.S.games.values()].map((g) => g.state))];
+        const r = await LG.finalizeWeek(1);
+        await UI.maybeAutoFinalizeWeeks();
+        return { states, r, weekly: localStorage.getItem("lg_gffl_test1_weekly_2025_w1"),
+          stale: UI._staleWeeks, espnWeek: D.S.espnWeek, slpWeek: D.S.slpWeek, engineWeek: D.engineWeek(),
+          health: D.S.health.mode, week: LG.currentWeek() };
+      });
+      ok(fin.states.length === 1 && fin.states[0] === "post", "with the WHOLE slate now final… (" + fin.states.join() + ")");
+      ok(fin.week === 1, "…it is still week 1 (" + fin.week + ")");
+      ok(fin.espnWeek === null && fin.slpWeek === null && fin.engineWeek === null,
+        "…the engine's week is STILL unknown — the replay never claims to be the live board");
+      ok(fin.r && fin.r.ok === false && fin.r.reason === "sim-replay", "…a live-path finalize still refuses outright (" + (fin.r || {}).reason + ")");
+      ok(fin.weekly === null, "…no weekly doc is written; the commissioner's archived-stats backfill stays the only way to settle the week");
+      ok(!fin.stale || fin.stale.length === 0, "…and no week is reported stale (" + JSON.stringify(fin.stale) + ")");
+      ok(fin.health === "dual", "…health still reads nominal — nothing is failing, there is simply nothing to poll (" + fin.health + ")");
+      const chip = await page.evaluate(() => { const e = document.getElementById("healthChip"); return e && !e.hidden ? e.textContent.trim() : null; });
+      ok(chip && /replay/.test(chip), "…and the chip still says \"replay\" (" + chip + ")");
+      await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
+      ok(errors.length === 0, "0 page errors through locks, the matchup page and the guards");
+      await ctx.close();
+    }
+
     // ---- X7: review plates (--shots). Every one is taken against the SHIPPING replay path.
     if (SHOTS) {
       fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true });
+      // The LIVE phase's own plates. SIM_SPEED 0 for a deterministic clock; the feed is filled
+      // by walking LG.nowOverride FORWARD to the live instant (a feed is built by diffing
+      // consecutive polls, so it cannot exist without a walk — and the walk must never rewind).
+      {
+        const { ctx, page } = await newTestPage(browser, simLive);
+        await bootSim(page, "&simspeed=0");
+        await page.waitForSelector(".mucard", { timeout: 20000 });
+        await page.waitForFunction(() => window.__GFFL__.D.S.simProj && window.__GFFL__.D.S.nflEvents.length, { timeout: 15000 });
+        // Re-baseline the engine 40 league-minutes EARLIER, then walk forward to the live
+        // instant. Booting already polled at LIVE_AT, so simply setting the clock back would
+        // diff a big line against a small one and fill the plate with negative deltas — the
+        // exact nonsense monotonicity exists to prevent, and it is what the first cut of this
+        // plate actually showed. Dropping the rows + the seeded flag makes the earlier poll a
+        // silent baseline again, so every entry after it is a genuine forward tick.
+        await page.evaluate((t) => {
+          const { LG, D } = window.__GFFL__;
+          D.S.players.clear(); D.S.events.length = 0; D.S.slpSeeded = false;
+          LG.nowOverride = t;
+        }, LIVE_AT - 40 * 60000);
+        await driveTo(page, LIVE_AT - 40 * 60000, 1);
+        await driveTo(page, LIVE_AT, 9);
+        const liveShot = async (view, name) => {
+          await page.evaluate((v) => window.__GFFL__.UI.show(v), view);
+          await sleep(700);
+          await page.screenshot({ path: path.join(ROOT, "shots", name), fullPage: true });
+          console.log("  📸 shots/" + name);
+        };
+        await liveShot("league", "gffl_live_league_390.png");
+        await liveShot("matchup", "gffl_live_matchup_390.png");
+        await liveShot("scores", "gffl_live_scores_390.png");
+        await page.setViewport({ width: 1440, height: 900 });
+        await liveShot("matchup", "gffl_live_matchup_desktop.png");
+        await ctx.close();
+      }
       const { ctx, page } = await newTestPage(browser, { docs: simDocsAfterSetup, pass: "amenfarms", team: 1, who: "Peter" });
-      await bootSim(page);
+      await bootSim(page, PREPIN); // the pre-kickoff plates keep their own (frozen) phase
+
       await page.waitForSelector(".mucard", { timeout: 20000 });
       await page.waitForFunction(() => window.__GFFL__.D.S.simProj && window.__GFFL__.D.S.nflEvents.length, { timeout: 15000 });
       const shot = async (view, name) => {
