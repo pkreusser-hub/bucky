@@ -40,10 +40,27 @@ const ALLOWED_URL_ORIGIN = "https://amenfarms.netlify.app";
 // Validates the optional deep-link `url`: must start with the allowlisted origin, or be a
 // relative path (in which case we prefix the origin ourselves). Anything else falls back
 // to DEFAULT_URL so a bad/absolute non-allowlisted url can never smuggle in an open redirect.
+// Turns a caller-supplied deep link into an absolute same-origin URL, or falls back to the site
+// root. This is an ALLOWLIST guarding against an open redirect — a push notification's tap target
+// must never be able to leave amenfarms.netlify.app. Widen it only with an equally strict pattern.
+//
+// The bare-relative branch exists because EVERY call site in index.html passes a path like
+// "index.html#calendar" (bank credits, calendar events, work orders). Those matched no branch and
+// silently fell through to DEFAULT_URL, so tapping any push notification opened the home page
+// instead of the section it was about — the deep link was being thrown away at the last step.
 function resolveUrl(url) {
   if (typeof url !== "string" || !url) return DEFAULT_URL;
-  if (url.startsWith(ALLOWED_URL_ORIGIN)) return url;
+  // Compare the PARSED ORIGIN, never a string prefix. "https://amenfarms.netlify.app.evil.com/x"
+  // passes a startsWith() check — an attacker registers that subdomain and the allowlist waves the
+  // redirect through. (This endpoint is gated only by the family password, which ships in
+  // client-side JS, so the caller is not meaningfully trusted.)
+  try { if (new URL(url).origin === ALLOWED_URL_ORIGIN) return url; } catch { /* not absolute — fall through */ }
+  // "//host" is protocol-relative (leaves the site); backslashes are a known normalisation trick.
+  if (url.startsWith("//") || url.includes("\\")) return DEFAULT_URL;
   if (url.startsWith("/")) return ALLOWED_URL_ORIGIN + url;
+  // A bare page path, optionally with ?query / #hash. Anything carrying a scheme (https:, data:,
+  // javascript:) fails this pattern, so a relative link can never become an off-site redirect.
+  if (/^[A-Za-z0-9][A-Za-z0-9._-]*\.html(?:[?#][^\s]*)?$/.test(url)) return ALLOWED_URL_ORIGIN + "/" + url;
   return DEFAULT_URL;
 }
 

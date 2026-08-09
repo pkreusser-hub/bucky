@@ -414,11 +414,16 @@
   // areas, so NO entry is marked active — every one of them links away from here, and
   // lighting one up would claim this page belongs to a section it doesn't.
   // Gate lists duplicated from index.html — keep in sync with index.html.
-  var BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
+  var BANK_KIDS = ["Isaac", "Eleanor"];
+  var BANK_USERS = ["Eleanor", "Isaac", "Dad"];
   var MEAL_USERS = ["Mom", "Dad"];
   var FITNESS_USERS = ["Isaac", "Eleanor", "Dad"];
   var me = localStorage.getItem("choreUser") || "";
   function seesBank(){ return BANK_USERS.indexOf(me) >= 0; }
+  // Finance is the "grown-up" side of the same shared Bank/Finance area — everyone EXCEPT
+  // the two kids (Dad, Mom, grandparents, any guest). Exclusion-based, like index.html's
+  // own seesFinance(), not a membership list, so a new family member sees Finance for free.
+  function seesFinance(){ return BANK_KIDS.indexOf(me) < 0; }
   function seesMeals(){ return MEAL_USERS.indexOf(me) >= 0; }
   function seesFitness(){ return FITNESS_USERS.indexOf(me) >= 0; }
 
@@ -435,13 +440,23 @@
     wo:    "M4 9 H20 V19 H4 Z M9 9 V7 A3 3 0 0 1 15 7 V9 M4 13 H20",
     shop:  "M6 8 H18 L17 20 H7 Z M9 8 V6 A3 3 0 0 1 15 6 V8",
     bank:  "M12 4 V20 M16 7 H10 A2.5 2.5 0 0 0 10 12 H14 A2.5 2.5 0 0 1 14 17 H8",
+    finance: "M23 6 L13.5 15.5 L8.5 10.5 L1 18 M17 6 L23 6 L23 12",
     farm:  "M4 11 L12 4 L20 11 V20 H4 Z M10 20 V14 H14 V20",
     gpt:   "M12 3 L14 10 L21 12 L14 14 L12 21 L10 14 L3 12 L10 10 Z",
     play:  "M8 6 L18 12 L8 18 Z",
   };
-  function svgIcon(gid){
-    return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + NAV_PATHS[gid] + '"/></svg>';
+  function svgIcon(path){
+    return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + path + '"/></svg>';
   }
+  // The shared Bank/Finance area reads differently depending on who's looking — same
+  // resolver shape as index.html's navAreaLabel/navAreaIconPath. The two kids with real
+  // accounts (BANK_KIDS) see "Bank" 💰; everyone else (Dad, Mom, guests) sees "Finance" 📈.
+  // Dad is in BANK_USERS (he can open Farm Bank) but still reads as Finance here, exactly
+  // like index.html's own bottom bar/rail — the Bank/Finance sub-nav lives inside
+  // index.html, not on this page.
+  function navAreaLabel(g){ return g.gid === "bank" ? (BANK_KIDS.indexOf(me) >= 0 ? "Bank" : "Finance") : g.name; }
+  function navAreaIconPath(g){ return g.gid === "bank" ? (BANK_KIDS.indexOf(me) >= 0 ? NAV_PATHS.bank : NAV_PATHS.finance) : NAV_PATHS[g.gid]; }
+  function navAreaHref(g){ return g.gid === "bank" ? (BANK_KIDS.indexOf(me) >= 0 ? "index.html#farmbank" : "index.html#finance") : g.href; }
 
   var NAV_GROUPS = [
     { gid:"home",  ico:"🏠", name:"Home",  href:"index.html#dashboard" },
@@ -453,7 +468,7 @@
     { gid:"sports",ico:"🏈", name:"Sports",href:"index.html#sports" },
     { gid:"wo",    ico:"🛠️", name:"Jobs",  href:"index.html#workorders" },
     { gid:"shop",  ico:"🛒", name:"Shop",  href:"index.html#shopping" },
-    { gid:"bank",  ico:"💰", name:"Bank",  href:"index.html#farmbank", gate:seesBank },
+    { gid:"bank",  ico:"💰", name:"Bank",  href:"index.html#farmbank", gate:function(){ return seesBank() || seesFinance(); } },
     { gid:"farm",  ico:"🐐", name:"Farm",  href:"index.html#goathooves" },
     { gid:"gpt",   ico:"🌾", name:"AI",    href:"index.html#farmgpt" },
     { gid:"play",  ico:"🎮", name:"Play",  href:"games.html" },
@@ -467,12 +482,13 @@
   bnav.style.setProperty("--bnav-all", shown.length);
   shown.forEach(function (g) {
     var a = document.createElement("a");
-    a.href = g.href;
-    var ico = document.createElement("span"); ico.className = "bico"; ico.innerHTML = svgIcon(g.gid);
-    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = g.name;
+    a.href = navAreaHref(g);
+    var label = navAreaLabel(g);
+    var ico = document.createElement("span"); ico.className = "bico"; ico.innerHTML = svgIcon(navAreaIconPath(g));
+    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = label;
     a.append(ico, lbl);
-    a.title = g.name;
-    a.setAttribute("aria-label", g.name);
+    a.title = label;
+    a.setAttribute("aria-label", label);
     bnav.appendChild(a);
   });
 
@@ -488,10 +504,11 @@
   shown.forEach(function (g) {
     var a = document.createElement("a");
     a.className = "sn-item";
-    a.href = g.href;
-    a.setAttribute("aria-label", g.name);
-    var ico = document.createElement("span"); ico.className = "sn-ico"; ico.innerHTML = svgIcon(g.gid);
-    var lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = g.name;
+    a.href = navAreaHref(g);
+    var label = navAreaLabel(g);
+    a.setAttribute("aria-label", label);
+    var ico = document.createElement("span"); ico.className = "sn-ico"; ico.innerHTML = svgIcon(navAreaIconPath(g));
+    var lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = label;
     a.append(ico, lbl);
     list.appendChild(a);
   });

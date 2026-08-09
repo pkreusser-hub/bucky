@@ -10464,3 +10464,64 @@ the same one the banner was removed for. **Three suite checks restaged with the 
 place** (league home, and the two replay sections that asserted it read "replay"); the three
 DEGRADED checks — `ESPN only` / `Sleeper only` / `STALE out loud` — are unchanged and are what
 still prove it speaks up when it matters. Suite **1313/1313** (a straight swap, no net change).
+---
+
+# 📈 FINANCE TAB + 🔔 EVENT NOTIFICATIONS (2026-08-09)
+
+## Finance — one nav area, three faces
+The money area now holds TWO sections and resolves per viewer, so nobody sees a tab they
+can't use:
+- **Kids (Isaac, Eleanor)** → 💰 **Bank** (Farm Bank only, as before).
+- **Everyone else** (Mom, guests) → 📈 **Finance**.
+- **Dad** → both, via the existing segmented sub-nav.
+`BANK_USERS` dropped **Mom** — the user's explicit ruling ("kids get Bank, everyone else
+Finance, Dad both"), flagged at the time as a real removal rather than a guess.
+`seesFinance()` is EXCLUSION-based (everyone not in `BANK_KIDS`) so a new family member gets
+Finance without editing a list. The per-viewer label/icon/href lives in
+`navAreaLabel`/`navAreaEmoji`/`navAreaIconPath`, used by BOTH `buildBottomNav` and
+`buildSideNav` — and duplicated into the five mirrored navs (farmgpt/games/weather/activity/
+status), which would otherwise have left Mom tapping a Bank link that bounces her.
+
+## Watchlists are PER ACCOUNT (user's call, better than either option offered)
+`stockWatch_<Name>` settings doc + `bucky_stocks_<Name>` instant-paint cache — the
+`fitPlan_<Name>` precedent exactly. One-time non-destructive migration seeds a person's list
+from the legacy per-device `bucky_stocks` (never deleted). The Home card shows the LOGGED-IN
+person's list, so switching profiles switches the card.
+
+## stocks.mjs gained two actions (quote is byte-identical — the Home card depends on it)
+- `series` — `range=3mo&interval=1d` per symbol in parallel; day/week/month derived from the
+  closes (1/5/21 back). Yahoo embeds NULLs in `close[]`: pair timestamps to closes BY INDEX
+  before filtering, never filter-then-zip. A series too short for the window is flagged
+  `partial:true` and labelled "since <date>" rather than presenting a fake month.
+  Markets strip = ^GSPC, ^DJI, CL=F (the existing `cleanSymbol` already permits ^ and =).
+- `analyze` — one Haiku call, 15-min warm cache.
+  **THE SYSTEM PROMPT IS A SAFETY SURFACE.** Descriptive and educational ONLY: what the
+  company is, what the numbers show, general context. Explicitly forbids buy/sell/hold,
+  price targets, forecasts, and "good/bad investment", with a fallback line telling the
+  reader Bucky doesn't give investment advice; it is given only the numbers and has no news
+  access, so it must not invent events. The suite GREPS THE CAPTURED REQUEST BODY for that
+  language — a real check, not a cosmetic one. The UI renders a permanent disclaimer under
+  every analysis state (loading, success, failure).
+
+## Plan → event notifications
+A 🔔 **Notify** section in the event sheet: a checkbox per roster member; ticked people get
+an in-app bell notif, a push, AND an email — reusing `addNotif`/`liveNotify`,
+`BuckyPush.notify`, and the EmailJS `sendEmail()` that already existed. Members with no
+address show "in-app only — no email on file" so the sender isn't misled.
+**The checkboxes are an ACTION, not stored state** — they reset unchecked every time the
+sheet opens, so editing an event can never silently re-spam anyone; telling someone later is
+a deliberate re-tick. The creator is never self-notified. Sends are individually wrapped and
+happen AFTER the save: a failing email can never cost you the event (asserted by making one
+recipient's send reject and checking the event and the other sends survived).
+Recurring events notify ONCE at creation and name the cadence.
+KNOWN: the "Told Mom, Isaac on Aug 6" record is per-device localStorage, because the record
+would otherwise need a field on the Google Calendar event that `calendar.mjs` doesn't carry.
+
+## Verify — 1,111 checks, nine suites
+finance 87 · calnotify 85 · stocks-server 89 · chore-care 50 · news 200 · fitness 249 ·
+activity 147 · health 208 · beacon-safety 96.
+**FITNESS COUNT VARIES BY WEEKDAY** (249 today, 253 on a Monday) — conditional checks, not
+missing assertions; confirm with `grep -c "  ok("` against HEAD before chasing it.
+Also fixed a stale, PRE-EXISTING `_verify-health.cjs` failure (hardcoded "12 areas" vs the
+13 the array now holds) — now property-based.
+Shots: `shots/fin_*.png`, `shots/cal_notify.png`.
