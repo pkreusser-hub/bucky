@@ -87,7 +87,176 @@ const fixture = {
   // fantasy upstream). Default false = the existing scored 2-matchup fixture; true = an
   // all-zero preseason/pre-draft shape (see ffScoreboardFix's own comment).
   ffAllZero: false,
+  // Section AC (2026-08-09, the "everything reads 0 / NaN" production bug). When true the
+  // Sleeper directory, the archived week-1 stats, the forward projections and the historical
+  // slate are all swapped for PRODUCTION-SHAPED ones: real player names, roster keys that are
+  // real ESPN ids, and — the thing the whole bug turns on — a directory in which only a
+  // MINORITY of players carry an espn_id (measured live: 6,727 of 12,217). Default false, so
+  // every other section sees exactly the fixture it always did.
+  prod2025: false,
 };
+
+// ---------------- section AC: production-shaped identity data (2026-08-09) ----------------
+// Straight from GitHub diag run 31287998467 against the family's own league. The names are kept
+// verbatim so the next person reading this section sees what the bug was about.
+//   · roster_2025_w1_t1 keys its players by ESPN id ("4430807" = Bijan Robinson)
+//   · of the first 12, only FOUR resolved through Sleeper's espn_id index — 8 were invisible to
+//     both the stats poll and the projections, which is why the family saw a column of 0.0
+// `espnInSlp:false` is a player Sleeper genuinely carries NO espn_id for (rookies, mostly).
+// Two deliberate spelling traps, both real-world: the roster spells Achane without the
+// apostrophe ESPN and Sleeper both use, and Sleeper drops the "Jr." the roster carries — the
+// name match has to normalise both away or those two stay dark.
+const PROD_PLAYERS = [
+  { espn: "4430807", pid: "8155", name: "Bijan Robinson", team: "ATL", pos: "RB", espnInSlp: false },
+  { espn: "4429160", pid: "9226", name: "De'Von Achane", rosterName: "DeVon Achane", team: "MIA", pos: "RB", espnInSlp: false },
+  { espn: "4239993", pid: "6801", name: "Tee Higgins", team: "CIN", pos: "WR", espnInSlp: true },
+  { espn: "4432708", pid: "9493", name: "Marvin Harrison", rosterName: "Marvin Harrison Jr.", team: "ARI", pos: "WR", espnInSlp: false },
+  { espn: "3121422", pid: "5927", name: "Terry McLaurin", team: "WAS", pos: "WR", espnInSlp: true },
+  { espn: "4259545", pid: "6790", name: "D'Andre Swift", team: "CHI", pos: "RB", espnInSlp: true },
+  { espn: "4241478", pid: "7526", name: "DeVonta Smith", team: "PHI", pos: "WR", espnInSlp: false },
+  { espn: "15847", pid: "1466", name: "Travis Kelce", team: "KC", pos: "TE", espnInSlp: true },
+  { espn: "4428331", pid: "9224", name: "Rashee Rice", team: "KC", pos: "WR", espnInSlp: false },
+  { espn: "4429205", pid: "9500", name: "Jordan Addison", team: "MIN", pos: "WR", espnInSlp: false },
+  { espn: "4426385", pid: "9756", name: "Zach Charbonnet", team: "SEA", pos: "RB", espnInSlp: false },
+  { espn: "4575131", pid: "12507", name: "Jacory Croskey-Merritt", team: "WAS", pos: "RB", espnInSlp: false },
+  { espn: "3139477", pid: "4034", name: "Patrick Mahomes", team: "KC", pos: "QB", espnInSlp: true },
+  { espn: "4362628", pid: "7839", name: "Chase McLaughlin", team: "TB", pos: "K", espnInSlp: false },
+];
+// The one roster row that genuinely CANNOT be resolved by any method — no espn_id, and a name
+// and NFL team the directory has never heard of. It must render "—", not a fabricated 0.0 and
+// certainly not NaN.
+const PROD_GHOST = { key: "9999999", name: "Ghost Player", team: "NYJ", pos: "WR" };
+const PROD_TEAMS = ["ATL", "MIA", "CIN", "ARI", "WAS", "CHI", "PHI", "KC", "MIN", "SEA", "TB", "DAL"];
+function prodSlpDirectory() {
+  const out = {};
+  for (const p of PROD_PLAYERS) {
+    const [first, ...rest] = p.name.split(" ");
+    out[p.pid] = { full_name: p.name, first_name: first, last_name: rest.join(" "), team: p.team, position: p.pos };
+    if (p.espnInSlp) out[p.pid].espn_id = Number(p.espn);
+  }
+  for (const ab of PROD_TEAMS) out[ab] = { first_name: ab, last_name: "Defense", team: ab, position: "DEF" };
+  // Bulk, so the directory is a real haystack (and so simProjUsable's >=25-stat-row bar is
+  // reachable from the projections map below).
+  for (let i = 0; i < 60; i++) out["pf" + i] = { full_name: "Filler " + i, team: "DAL", position: "WR" };
+  return out;
+}
+// Real archived rows carry a pile of NON-FANTASY fields alongside the scoring ones (gp, gs,
+// off_snp, rec_drop, pos_rank_std, bonus_* …) — exactly as the diag captured them.
+const PROD_NOISE = { gms_active: 1, gp: 1, gs: 1, off_snp: 41, tm_off_snp: 63, rec_drop: 1, pos_rank_std: 30, rush_lng: 13, rec_0_4: 2 };
+// Hand-computable through DEFAULT_RULES scoring (pass .04/4/-2 · rush .1/6 · rec 1/.1/6):
+//   Bijan Robinson  84 rush + 1 rush TD + 4 rec + 33 rec yd = 8.4 + 6 + 4 + 3.3 = 21.7
+//   Chase McLaughlin  80 FG yds (fg_made_yd is 0 by default) + 1 FG 20-29 (3) + 1 FG 50+ (5)
+//                     + 2 XP (1 each) = 3 + 5 + 2 = 10.0
+const PROD_WEEK1 = {
+  "8155": { ...PROD_NOISE, rush_yd: 84, rush_td: 1, rec: 4, rec_yd: 33, pts_ppr: 21.7 },
+  "9226": { ...PROD_NOISE, rush_yd: 55, rec: 6, rec_yd: 40 },
+  "6801": { ...PROD_NOISE, bonus_fd_wr: 2, bonus_rec_wr: 3, rec: 6, rec_yd: 78, rec_td: 1 },
+  "9493": { ...PROD_NOISE, rec: 5, rec_yd: 71 },
+  "5927": { ...PROD_NOISE, rec: 4, rec_yd: 52 },
+  "6790": { ...PROD_NOISE, rush_yd: 62, rec: 3, rec_yd: 21 },
+  "7526": { ...PROD_NOISE, rec: 7, rec_yd: 96, rec_td: 1 },
+  "1466": { ...PROD_NOISE, rec: 8, rec_yd: 84 },
+  "9224": { ...PROD_NOISE, rec: 5, rec_yd: 60 },
+  "9500": { ...PROD_NOISE, rec: 3, rec_yd: 44 },
+  "9756": { ...PROD_NOISE, rush_yd: 30 },
+  "12507": { ...PROD_NOISE, rush_yd: 82, rush_td: 1 },
+  "4034": { ...PROD_NOISE, pass_yd: 291, pass_td: 3, pass_int: 1 },
+  "7839": { ...PROD_NOISE, fgm_yds: 80, xpm: 2, fgm_20_29: 1, fgm_50p: 1 },
+  KC: { ...PROD_NOISE, pts_allow: 21, sack: 3, int: 1 },
+  DAL: { ...PROD_NOISE, pts_allow: 7, sack: 4, int: 2 },
+};
+// Real forward projections DO exist for 2025 week 1 (the diag counted 9,411 rows), and they
+// carry their own non-fantasy noise (adp_dd_ppr, fum 0.07 …). Bijan's projection is a
+// DIFFERENT number from his final so the two can never be confused in an assertion.
+//   Bijan proj: 70 rush + 0.5 rush TD + 3 rec + 25 rec yd = 7 + 3 + 3 + 2.5 = 15.5
+const PROD_PROJ = (() => {
+  // Real projection noise, minus fum_lost — that one IS a scoring key (normSlp reads it), and
+  // a fractional 0.03 in every row would put a rounding tail on every hand-computed number
+  // below for no extra coverage. The rest genuinely are not read by the scorer.
+  const noise = { adp_dd_ppr: 40, fum: 0.07, gp: 1, pos_rank_std: 30, tm_def_snp: 56 };
+  const out = {
+    "8155": { ...noise, rush_yd: 70, rush_td: 0.5, rec: 3, rec_yd: 25 },
+    "9226": { ...noise, rush_yd: 60, rec: 4, rec_yd: 30 },
+    "6801": { ...noise, rec: 6, rec_yd: 70, rec_td: 0.5 },
+    "9493": { ...noise, rec: 5, rec_yd: 60 },
+    "5927": { ...noise, rec: 5, rec_yd: 55 },
+    "6790": { ...noise, rush_yd: 55, rec: 3, rec_yd: 20 },
+    "7526": { ...noise, rec: 6, rec_yd: 75 },
+    "1466": { ...noise, rec: 6, rec_yd: 65 },
+    "9224": { ...noise, rec: 5, rec_yd: 55 },
+    "9500": { ...noise, rec: 4, rec_yd: 50 },
+    "9756": { ...noise, rush_yd: 40 },
+    "12507": { ...noise, rush_yd: 45 },
+    "4034": { ...noise, pass_yd: 280, pass_td: 2 },
+    "7839": { ...noise, fgm_yds: 70, xpm: 2 },
+    KC: { ...noise, pts_allow: 20, sack: 2 },
+    DAL: { ...noise, pts_allow: 18, sack: 2 },
+  };
+  for (let i = 0; i < 40; i++) out["pf" + i] = { ...noise, rec_yd: 20 + i, rec: 2 };
+  return out;
+})();
+// The live phase instant is Sunday 2025-09-07T19:00:00Z. Thursday's game is FINAL (so a
+// hand-computed final score is exact and scale-free), the 17:00Z window is LIVE, the 20:25Z
+// window has not kicked off.
+function prodSlate() {
+  const mk = (id, away, home, date, af, hf) => ({
+    id, date, competitions: [{
+      competitors: [
+        { homeAway: "away", team: { abbreviation: away, shortDisplayName: away }, score: String(af) },
+        { homeAway: "home", team: { abbreviation: home, shortDisplayName: home }, score: String(hf) },
+      ],
+      status: { type: { state: "post", shortDetail: "Final" }, period: 4 },
+      broadcasts: [{ names: ["NBC"] }],
+    }],
+  });
+  return { week: { number: 1 }, events: [
+    mk("p1", "ATL", "TB", "2025-09-05T00:20:00Z", 20, 23),   // FINAL at the live instant
+    mk("p2", "CIN", "CLE", "2025-09-07T17:00:00Z", 17, 16),  // LIVE
+    mk("p3", "ARI", "NO", "2025-09-07T17:00:00Z", 20, 13),   // LIVE
+    mk("p4", "MIA", "IND", "2025-09-07T17:00:00Z", 8, 33),   // LIVE
+    mk("p5", "WAS", "NYG", "2025-09-07T17:00:00Z", 21, 6),   // LIVE
+    mk("p6", "PHI", "DAL", "2025-09-07T17:00:00Z", 24, 20),  // LIVE
+    mk("p7", "KC", "LAC", "2025-09-07T20:25:00Z", 21, 27),   // not yet kicked off
+    mk("p8", "CHI", "MIN", "2025-09-08T00:20:00Z", 24, 27),  // not yet kicked off
+    mk("p9", "SEA", "SF", "2025-09-07T20:25:00Z", 17, 13),   // not yet kicked off
+  ] };
+}
+// Two teams, rosters keyed by ESPN id exactly as the family's own docs are.
+function prodSeedDocs() {
+  const byName = {};
+  for (const p of PROD_PLAYERS) byName[p.name] = p;
+  const row = (name, slot, posOverride) => {
+    const p = byName[name];
+    return { key: p.espn, name: p.rosterName || p.name, pos: posOverride || p.pos, team: p.team, slot };
+  };
+  const docs = {
+    team_1: { kind: "team", teamId: 1, name: "Battle Kreussers", abbrev: "BK", owner: "" },
+    team_2: { kind: "team", teamId: 2, name: "End Zone Goats", abbrev: "EZG", owner: "" },
+    sched_2025: { kind: "sched", season: 2025, weeks: [[[1, 2]]] },
+    roster_2025_w1_t1: { kind: "roster", week: 1, teamId: 1, players: [
+      row("Patrick Mahomes", "QB"),
+      row("Bijan Robinson", "RB"),          // no espn_id — FINAL game, exact 21.7
+      row("De'Von Achane", "RB"),           // no espn_id + an apostrophe spelling difference
+      row("Tee Higgins", "WR"),             // HAS an espn_id — the control
+      row("Marvin Harrison", "WR"),         // no espn_id + a "Jr." suffix difference
+      row("Travis Kelce", "TE"),
+      row("Terry McLaurin", "FLEX"),
+      row("Chase McLaughlin", "K"),         // no espn_id — FINAL game, exact 10.0
+      { key: "dst_KC", name: "KC D/ST", pos: "DST", team: "KC", slot: "DST" },
+      { ...PROD_GHOST, slot: "BENCH" },     // resolves to nobody, by any method
+      row("D'Andre Swift", "BENCH"),
+    ] },
+    roster_2025_w1_t2: { kind: "roster", week: 1, teamId: 2, players: [
+      row("DeVonta Smith", "WR"),
+      row("Rashee Rice", "WR"),
+      row("Jordan Addison", "FLEX"),
+      row("Zach Charbonnet", "RB"),
+      row("Jacory Croskey-Merritt", "RB"),
+      { key: "dst_DAL", name: "DAL D/ST", pos: "DST", team: "DAL", slot: "DST" },
+    ] },
+  };
+  return docs;
+}
 
 // -- fake ESPN fantasy upstream (league.mjs import source) --
 function ffSettingsDoc() {
@@ -853,7 +1022,7 @@ async function newTestPage(browser, seed, opts) {
           if (u.includes("/scoreboard")) {
             // The 2025 replay asks for an EXPLICIT historical slate; everything else gets the
             // bare "current week" fixture exactly as before.
-            if (u.includes("dates=")) { simSbUrls.push(u); return json(sbSim2025Fix()); }
+            if (u.includes("dates=")) { simSbUrls.push(u); return json(fixture.prod2025 ? prodSlate() : sbSim2025Fix()); }
             return json(sbFix());
           }
           if (u.includes("event=401900001")) return json(sumAFix());
@@ -864,12 +1033,14 @@ async function newTestPage(browser, seed, opts) {
         if (u.includes("api.sleeper.app")) {
           if (fixture.sleeperDown) return req.respond({ status: 503, headers: cors, body: "{}" });
           if (u.endsWith("/state/nfl")) return json(fixture.sleeperWeek != null ? { ...slpStateFix, week: fixture.sleeperWeek } : slpStateFix);
-          if (u.endsWith("/players/nfl")) return json(slpPlayersFix);
+          if (u.endsWith("/players/nfl")) return json(fixture.prod2025 ? prodSlpDirectory() : slpPlayersFix);
           if (u.includes("/stats/nfl/")) {
             const sm = /\/stats\/nfl\/[^/]+\/(\d+)\/(\d+)/.exec(u);
+            if (fixture.prod2025) return json(PROD_WEEK1);
             return json(slpStatsFix(sm ? sm[2] : u.split("/").pop(), sm ? sm[1] : null));
           }
           if (u.includes("/projections/nfl/")) {
+            if (fixture.prod2025) return json(PROD_PROJ);
             // 2025 replay requests are season/week-aware (SIM_PROJ_FIX above); every other
             // caller (the real 2026 league) is untouched — same generic slpProjFix always.
             const m = /\/projections\/nfl\/[^/]+\/(\d+)\/(\d+)/.exec(u);
@@ -6773,6 +6944,349 @@ async function openDetails(page, id) {
       ok(!banned.test(html), "…nor in league.html");
       ok(/firestore\.googleapis\.com\/v1\/projects/.test(code), "…the transport really is the Firestore REST API");
       ok(!/\bwatch\s*\(/.test(code), "…and LG.db.watch (zero callers) is gone with it");
+    }
+  }
+
+  // ================================================================================
+  // AC · THE PRODUCTION "everything reads 0 / the scores say NaN" BUG (2026-08-09)
+  // ================================================================================
+  // User report, verbatim: "none of the scores for players are showing up they are saying
+  // 'nan' and all the projections are 0". Two independent defects, both reproduced here
+  // against PRODUCTION-SHAPED data (fixture.prod2025 — real names, roster keys that are real
+  // ESPN ids, and a Sleeper directory in which only a minority of players carry an espn_id):
+  //
+  //   #1 IDENTITY. Roster keys are ESPN ids; only 6,727 of Sleeper's 12,217 players carry an
+  //      espn_id. Both directions of the old espn_id-only lookup therefore lost ~half the
+  //      league — no projection (so the matchup page fell back to the score and printed
+  //      "proj 0.0") and stats landing under an orphan "slp_<pid>" key no roster row reads.
+  //      Measured on the first 12 players of the real roster_2025_w1_t1: 4 resolved, 8 lost.
+  //
+  //   #2 NaN. `p += (st[k] || 0) * (sc[k] || 0)` in D.score guards a NaN (NaN is falsy) but
+  //      passes a TRUTHY non-number straight through — and `0 * "x"` is NaN, so ONE bad value
+  //      in the scoring table poisons EVERY player, including ones who have none of that
+  //      stat. `paPoints`'s `sc.dst_pa_X ?? 0` was the second hole (?? does not catch NaN, and
+  //      passes "" through, which turns the running total into a string). LG.fmtPts printed
+  //      whatever it got, so a non-finite number reached the family as the literal text "NaN".
+  section("AC · production identity resolution + the NaN boundary");
+  {
+    const prodSeed = () => ({ docs: prodSeedDocs(), pass: "amenfarms", team: 1, who: "Peter" });
+    const bootProd = async (page, extra) => {
+      await page.goto(BASE + "/league.html?fam=" + FAM + "&simphase=live&simspeed=0" + (extra || ""), { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 15000 });
+      await page.evaluate(() => window.__GFFL__.D.pollOnce());
+      await page.evaluate(() => window.__GFFL__.D.pollOnce());
+      await page.evaluate(() => window.__GFFL__.D.stop());
+    };
+    // Every rendered text node, so a "NaN" anywhere on screen is caught — this scan is the
+    // regression guard for the whole report, not a proxy for it.
+    const nanText = (page) => page.evaluate(() => {
+      const hits = [];
+      const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let n;
+      while ((n = w.nextNode())) if (/NaN/.test(n.nodeValue)) hits.push((n.parentElement && n.parentElement.className) + ": " + n.nodeValue.trim().slice(0, 40));
+      return hits;
+    });
+
+    // ---- AC1: identity coverage — the headline number.
+    {
+      fixture.prod2025 = true;
+      const { ctx, page, errors } = await newTestPage(browser, prodSeed());
+      await bootProd(page);
+      // Pre-fix tolerance (section Z's own lesson): every hook this section exercises is NEW,
+      // and a bare call to a missing one throws and aborts the whole run with one stack trace
+      // instead of the readable list of missing guarantees a pre-fix verification needs.
+      const cov = await page.evaluate(() => (window.__GFFL__.D.idCoverage ? window.__GFFL__.D.idCoverage() : { total: -1, resolved: -1, unresolved: -1, byMethod: {}, missing: [] }));
+      ok(cov.total === 17, "every rostered key across both teams is counted (" + cov.total + ")");
+      ok(cov.resolved === 16 && cov.unresolved === 1,
+        "16 of 17 roster keys resolve to a Sleeper player; the 1 that can't is the deliberately-unknowable one (" + JSON.stringify({ r: cov.resolved, u: cov.unresolved }) + ")");
+      ok(cov.byMethod.espn === 5, "only 5 resolve through an espn_id — the espn_id-only lookup is what lost the rest (" + cov.byMethod.espn + ")");
+      ok(cov.byMethod.name === 9, "9 resolve by NAME + TEAM — the method that had to be new (" + cov.byMethod.name + ")");
+      ok(cov.byMethod.prefix === 2, "the 2 D/ST keys resolve by their own dst_ prefix");
+      ok(cov.missing.length === 1 && cov.missing[0].name === "Ghost Player",
+        "…and the one genuine gap is REPORTED by name, not silently swallowed (" + JSON.stringify(cov.missing) + ")");
+      // The two spelling traps, individually.
+      ok(await page.evaluate(() => !!window.__GFFL__.D.pidForKey && window.__GFFL__.D.pidForKey("4429160") === "9226"),
+        "an apostrophe difference ('DeVon Achane' on the roster vs \"De'Von Achane\" in the directory) still matches");
+      ok(await page.evaluate(() => !!window.__GFFL__.D.pidForKey && window.__GFFL__.D.pidForKey("4432708") === "9493"),
+        "a suffix difference ('Marvin Harrison Jr.' vs 'Marvin Harrison') still matches");
+      ok(await page.evaluate(() => !!window.__GFFL__.D.pidForKey && window.__GFFL__.D.pidForKey("9999999") === null),
+        "a player the directory has genuinely never heard of resolves to null — no false match");
+      ok(await page.evaluate(() => !!window.__GFFL__.D.pidMethodForKey && window.__GFFL__.D.pidMethodForKey("4239993") === "espn"),
+        "a player who DOES carry an espn_id still resolves the fast way (unchanged for everyone who already worked)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.prod2025 = false;
+    }
+
+    // ---- AC2: the players that were dark now score and project — hand-computed.
+    {
+      fixture.prod2025 = true;
+      const { ctx, page, errors } = await newTestPage(browser, prodSeed());
+      await bootProd(page);
+      const per = await page.evaluate(() => {
+        const d = window.__GFFL__.D;
+        const ros = window.__GFFL__.LG.ui._rosters[1] || [];
+        const out = {};
+        for (const p of ros) {
+          const row = d.S.players.get(p.key);
+          out[p.name] = { key: p.key, pts: row ? row.pts : null, proj: d.projFor(p.key), live: d.liveProj(p.key),
+            score: d.livePts ? d.livePts(p.key) : (row && row.pts != null ? row.pts : 0) };
+        }
+        return out;
+      });
+      // Bijan Robinson: NO espn_id, so before the fix he had no row and no projection at all.
+      // His game is FINAL at the live instant, so the score is his real line, unscaled:
+      // 84 rush (.1) + 1 rush TD (6) + 4 rec (1) + 33 rec yd (.1) = 8.4 + 6 + 4 + 3.3 = 21.7
+      ok(per["Bijan Robinson"] && per["Bijan Robinson"].pts === 21.7,
+        "Bijan Robinson — no espn_id, previously invisible — scores his real final EXACTLY: 21.7 (" + JSON.stringify(per["Bijan Robinson"]) + ")");
+      // …and his forward projection is a DIFFERENT number, so the two can't be confused:
+      // 70 rush (.1) + 0.5 rush TD (6) + 3 rec (1) + 25 rec yd (.1) = 7 + 3 + 3 + 2.5 = 15.5
+      ok(per["Bijan Robinson"] && per["Bijan Robinson"].proj === 15.5,
+        "…and his real forward projection is 15.5, not his final and not 0 (" + (per["Bijan Robinson"] || {}).proj + ")");
+      // Chase McLaughlin, K, also no espn_id, also FINAL:
+      // 1 FG 20-29 (3) + 1 FG 50+ (5) + 2 XP (1) = 10.0  (fg_made_yd pays 0 by default)
+      ok(per["Chase McLaughlin"] && per["Chase McLaughlin"].pts === 10,
+        "Chase McLaughlin — no espn_id — scores 10.0 exactly (" + (per["Chase McLaughlin"] || {}).pts + ")");
+      // Every rostered player who resolves has a projection; NONE reads null-and-therefore-0.
+      const noProj = Object.entries(per).filter(([n, v]) => v.proj == null && n !== "Ghost Player").map(([n]) => n);
+      ok(noProj.length === 0, "every resolvable starter and bench player has a real projection (" + JSON.stringify(noProj) + ")");
+      const zeroProj = Object.entries(per).filter(([n, v]) => n !== "Ghost Player" && (v.live === 0 || v.live == null)).map(([n]) => n);
+      ok(zeroProj.length === 0, "…so not one of them shows the reported 'proj 0' (" + JSON.stringify(zeroProj) + ")");
+      // A player who HAS an espn_id is unaffected — the control.
+      ok(per["Tee Higgins"] && per["Tee Higgins"].pts > 0 && per["Tee Higgins"].pts < 19.8,
+        "the espn_id control (Tee Higgins, mid-game) still scales mid-game and is unchanged (" + (per["Tee Higgins"] || {}).pts + ")");
+      // The unknowable player: "—", never 0.0, never NaN.
+      ok(per["Ghost Player"] && per["Ghost Player"].score === null && per["Ghost Player"].live === null,
+        "the unresolvable player yields null for both score and projection (" + JSON.stringify(per["Ghost Player"]) + ")");
+      ok(await page.evaluate(() => window.__GFFL__.LG.fmtPts(null) === "—"), "…which renders as '—'");
+      // (fmtPts has always dashed a null; what changed is that livePts/liveProj now GIVE it one.)
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.prod2025 = false;
+    }
+
+    // ---- AC3: NOT ONE "NaN" ON SCREEN, anywhere, on production-shaped data.
+    {
+      fixture.prod2025 = true;
+      const { ctx, page, errors } = await newTestPage(browser, prodSeed());
+      await bootProd(page);
+      for (const [view, label] of [["league", "the league home"], ["matchup", "the matchup page"], ["moves", "the players table"], ["scores", "the Scores tab"]]) {
+        await page.evaluate((v) => window.__GFFL__.LG.ui.show(v), view);
+        await sleep(700);
+        const hits = await nanText(page);
+        ok(hits.length === 0, "no 'NaN' anywhere on " + label + " (" + JSON.stringify(hits.slice(0, 3)) + ")");
+      }
+      await page.evaluate(() => window.__GFFL__.LG.ui.openLocker(1));
+      await sleep(700);
+      ok((await nanText(page)).length === 0, "no 'NaN' anywhere in the locker room");
+      // The ghost row really is on screen, reading "—" rather than a fabricated 0.0.
+      await page.evaluate(() => window.__GFFL__.LG.ui.show("matchup"));
+      await sleep(700);
+      const ghostCell = await page.evaluate(() => {
+        const el = document.querySelector('.pcellgrid[data-pk="9999999"]');
+        return el ? el.querySelector(".ppts").textContent.replace(/\s+/g, " ").trim() : null;
+      });
+      // The two spans are adjacent in the markup (`<span class="pts">` + `<small>proj …`), so
+      // textContent runs them together — the cell reads "—proj —".
+      ok(ghostCell === "—proj —", "the unresolvable player's cell reads '—' for both score and proj, not '0.0' and not 'NaN' (" + JSON.stringify(ghostCell) + ")");
+      // Team totals are real, finite numbers.
+      const tot = await page.evaluate(() => [...document.querySelectorAll(".muhead .bigpts")].map((e) => e.textContent.trim()));
+      ok(tot.length === 2 && tot.every((t) => /^\d+(\.\d)?$/.test(t)), "both team totals are finite numbers (" + JSON.stringify(tot) + ")");
+      ok(errors.length === 0, "0 page errors across every view");
+      await ctx.close();
+      fixture.prod2025 = false;
+    }
+
+    // ---- AC4: the NaN mechanics themselves, as unit checks on the real functions. Each of
+    // these returned NaN before the fix (verified by stashing the app files back to HEAD).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, { docs: fullSeed().docs, pass: "amenfarms", team: 1, who: "Peter" });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 12000 });
+      const u = await page.evaluate(() => {
+        const { D, LG } = window.__GFFL__;
+        const base = { ...LG.DEFAULT_RULES.scoring };
+        const qb = D.normSlp({ pass_yd: 291, pass_td: 3, pass_int: 1 });
+        const dst = D.normSlp({ pts_allow: 21, sack: 3, int: 1 });
+        return {
+          strScoring: D.score(qb, { ...base, pass_yd: "x" }),
+          // the poisoning case: a bad value on a key this player has NONE of
+          objUnusedKey: D.score(qb, { ...base, rec: {} }),
+          nanBracket: D.score(dst, { ...base, dst_pa_18_27: NaN }),
+          emptyBracket: D.score(dst, { ...base, dst_pa_18_27: "" }),
+          strStat: D.score(D.normSlp({ pass_yd: "x", pass_td: 3 }), base),
+          clean: D.score(qb, base),
+          fmtNaN: LG.fmtPts(NaN), fmtStr: LG.fmtPts("x"), fmtInf: LG.fmtPts(Infinity),
+          fmtNull: LG.fmtPts(null), fmtNum: LG.fmtPts(12.34), fmtNeg: LG.fmtPts(-3),
+          nUndef: LG.n ? LG.n(undefined) : "no LG.n", nStr: LG.n ? LG.n("3.5") : null, nGood: LG.n ? LG.n(-2) : null,
+          numNaN: LG.fmtNum ? LG.fmtNum(NaN) : "no LG.fmtNum", numOk: LG.fmtNum ? LG.fmtNum(3.14159, 2) : null,
+        };
+      });
+      ok(Number.isFinite(u.strScoring), "a non-numeric SCORING value no longer makes a score NaN (" + u.strScoring + ")");
+      ok(Number.isFinite(u.objUnusedKey) && u.objUnusedKey === u.clean,
+        "…and a bad value on a key this player has NONE of no longer poisons him — `0 * {}` was NaN for every player (" + u.objUnusedKey + ")");
+      ok(Number.isFinite(u.nanBracket), "a NaN points-allowed bracket no longer survives `?? 0` (" + u.nanBracket + ")");
+      ok(Number.isFinite(u.emptyBracket) && typeof u.emptyBracket === "number",
+        "…nor does a BLANK one, which used to turn the running total into a string (" + JSON.stringify(u.emptyBracket) + ")");
+      ok(Number.isFinite(u.strStat), "a non-numeric STAT value no longer makes a score NaN (" + u.strStat + ")");
+      ok(u.clean === 21.64, "…and a clean line still scores exactly what it always did (21.64)");
+      ok(u.fmtNaN === "—" && u.fmtStr === "—" && u.fmtInf === "—",
+        "LG.fmtPts renders '—' for NaN / a non-numeric string / Infinity — the display boundary");
+      ok(u.fmtNull === "—" && u.fmtNum === "12.3" && u.fmtNeg === "-3.0",
+        "…and is unchanged for null, for a real number and for a negative one (" + JSON.stringify([u.fmtNull, u.fmtNum, u.fmtNeg]) + ")");
+      ok(u.nUndef === 0 && u.nStr === 3.5 && u.nGood === -2, "LG.n coerces a missing value to 0 and leaves real numbers alone");
+      ok(u.numNaN === "—" && u.numOk === "3.14", "LG.fmtNum guards the raw toFixed sites the same way");
+      // A weekly doc with a matchup missing its points can no longer NaN a whole season's PF.
+      const pf = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        await LG.db.set("weekly_2026_w9", { kind: "weekly", week: 9, matchups: [{ home: 1, away: 2, homePts: 100 }] });
+        const st = await LG.loadStandings();
+        return { pf1: st[1].pf, pa1: st[1].pa, pf2: st[2].pf };
+      });
+      ok(Number.isFinite(pf.pf1) && Number.isFinite(pf.pa1) && Number.isFinite(pf.pf2),
+        "a half-written matchup (no awayPts) leaves every points-for FINITE, not a column of NaN (" + JSON.stringify(pf) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AC5: the WRITER that could arm #2 — the rules editor may not persist a string into
+    // a field that is a number. (keepers.waiverCost etc. are legitimately text and must still
+    // round-trip, which is why the old code had a raw-string fallback at all.)
+    {
+      const { ctx, page, errors } = await newTestPage(browser, { docs: fullSeed().docs, pass: "amenfarms", team: 1, who: "Peter" });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 12000 });
+      await page.evaluate(() => window.__GFFL__.LG.ui.show("rules"));
+      await sleep(400);
+      await clickIn(page, "#rulesEdit");
+      await page.waitForSelector(".redit", { timeout: 6000 });
+      await page.evaluate(() => {
+        const set = (k, v) => { const i = [...document.querySelectorAll(".redit")].find((x) => x.dataset.k === k); if (i) i.value = v; };
+        set("scoring.rec", "");            // blank — what a commissioner clearing a box leaves
+        set("scoring.pass_td", "4 pts");   // a fat-fingered unit
+        set("scoring.dst_pa_0", "abc");    // outright garbage, in the bracket `??` never guarded
+        set("scoring.rush_yd", "0.25");    // a legitimate edit, which must still land
+      });
+      await clickIn(page, "#rulesEdit"); // Save
+      await sleep(700);
+      const after = await page.evaluate(() => {
+        const s = window.__GFFL__.LG.rules.scoring;
+        return { rec: s.rec, pass_td: s.pass_td, dst_pa_0: s.dst_pa_0, rush_yd: s.rush_yd,
+          waiverCost: window.__GFFL__.LG.rules.keepers.waiverCost };
+      });
+      ok(typeof after.rec === "number" && typeof after.pass_td === "number" && typeof after.dst_pa_0 === "number",
+        "a blank / fat-fingered / garbage scoring box can never persist a STRING into the scoring table (" + JSON.stringify(after) + ")");
+      ok(after.rec === 1 && after.pass_td === 4 && after.dst_pa_0 === 5,
+        "…those three keep their previous values rather than being corrupted");
+      ok(after.rush_yd === 0.25, "…while a legitimate numeric edit still saves");
+      ok(after.waiverCost === "last-round", "…and a field that is legitimately TEXT still round-trips");
+      // …and with the rules doc intact, scoring still works.
+      const stillScores = await page.evaluate(() => {
+        const { D } = window.__GFFL__;
+        return D.score(D.normSlp({ rec: 5, rec_yd: 50 }));
+      });
+      ok(Number.isFinite(stillScores) && stillScores === 10,
+        "a player still scores a real number after that save (5 rec + 50 yd = 10.0, got " + stillScores + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AC6: D.projFor no longer WALKS the directory. It used to scan all 12,217 entries
+    // looking for a matching espn_id — per player, per render.
+    {
+      fixture.prod2025 = true;
+      const { ctx, page, errors } = await newTestPage(browser, prodSeed());
+      await bootProd(page);
+      const perf = await page.evaluate(() => {
+        const d = window.__GFFL__.D;
+        const map = d.S.slpPlayers;
+        let iters = 0, gets = 0;
+        const realIter = Map.prototype[Symbol.iterator].bind(map);
+        map[Symbol.iterator] = function () { iters++; return realIter(); };
+        const realGet = d.S.slpByEspn.get.bind(d.S.slpByEspn);
+        d.S.slpByEspn.get = function (k) { gets++; return realGet(k); };
+        const keys = ["4430807", "4239993", "4432708", "3121422", "9999999", "dst_KC"];
+        for (let i = 0; i < 10; i++) for (const k of keys) { if (d._pidCache) d._pidCache.clear(); d.projFor(k); }
+        map[Symbol.iterator] = Map.prototype[Symbol.iterator];
+        d.S.slpByEspn.get = realGet;
+        return { iters, gets, dirSize: map.size };
+      });
+      ok(perf.dirSize > 70, "the fixture directory is a real haystack, not a handful (" + perf.dirSize + " entries)");
+      ok(perf.iters === 0, "60 uncached projFor calls iterate the directory ZERO times (" + perf.iters + ")");
+      ok(perf.gets >= 40, "…they go through the O(1) espn_id INDEX instead (" + perf.gets + " index lookups)");
+      // Positive answers memoize, so the steady state is cheaper still.
+      const memo = await page.evaluate(() => {
+        const d = window.__GFFL__.D;
+        let gets = 0;
+        const realGet = d.S.slpByEspn.get.bind(d.S.slpByEspn);
+        d.S.slpByEspn.get = function (k) { gets++; return realGet(k); };
+        if (d._pidCache) d._pidCache.clear();
+        for (let i = 0; i < 20; i++) { if (d.pidForKey) d.pidForKey("4239993"); else realGet("4239993"); }
+        d.S.slpByEspn.get = realGet;
+        return gets;
+      });
+      ok(memo === 1, "…and a resolved key is memoized — 20 lookups cost exactly one index read (" + memo + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.prod2025 = false;
+    }
+
+    // ---- AC7: the SYMMETRIC half — a stat row for a player with no espn_id lands on the
+    // ROSTER's own key, not an orphan "slp_<pid>" nothing reads.
+    {
+      fixture.prod2025 = true;
+      const { ctx, page, errors } = await newTestPage(browser, prodSeed());
+      await bootProd(page);
+      const keys = await page.evaluate(() => {
+        const d = window.__GFFL__.D;
+        const rostered = new Set();
+        for (const tid in window.__GFFL__.LG.ui._rosters) for (const p of window.__GFFL__.LG.ui._rosters[tid]) rostered.add(String(p.key));
+        const rosteredWithRows = [...rostered].filter((k) => d.S.players.has(k));
+        // A "slp_" row is only legitimate for someone NOBODY rosters (the filler crowd) — for a
+        // rostered player it is the orphan this bug was made of.
+        const nameOf = (k) => { for (const tid in window.__GFFL__.LG.ui._rosters) { const p = (window.__GFFL__.LG.ui._rosters[tid] || []).find((x) => String(x.key) === k); if (p) return p.name; } return null; };
+        const orphanedRostered = [...rostered].filter((k) => !d.S.players.has(k)
+          && [...d.S.players.keys()].some((x) => x.startsWith("slp_") && d.S.players.get(x).pos !== "DST" && nameOf(k) && d.normName(d.S.players.get(x).name) === d.normName(nameOf(k))));
+        return { rosteredWithRows: rosteredWithRows.length, orphanedRostered };
+      });
+      // Bijan (ATL, final), Achane/Harrison/McLaurin/Croskey-Merritt/Higgins/DeVonta Smith
+      // (live), McLaughlin (final), dst_DAL (live) all have rows keyed by the ROSTER's key.
+      ok(keys.rosteredWithRows >= 9,
+        "at least 9 rostered players have a live row under their OWN roster key (" + keys.rosteredWithRows + ")");
+      ok(keys.orphanedRostered.length === 0,
+        "…and not one rostered player's stats sit in an orphan slp_<pid> row instead (" + JSON.stringify(keys.orphanedRostered) + ")");
+      const bijan = await page.evaluate(() => {
+        const d = window.__GFFL__.D;
+        return { onRosterKey: d.S.players.has("4430807"), orphaned: d.S.players.has("slp_8155") };
+      });
+      ok(bijan.onRosterKey && !bijan.orphaned,
+        "Bijan's stats land on the roster's key '4430807', NOT the orphan 'slp_8155' (" + JSON.stringify(bijan) + ")");
+      // The season columns (D.weekStats) key the same way, so his history resolves too.
+      const hist = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG, d = window.__GFFL__.D;
+        await LG.db.set("weekly_2025_w1", { kind: "weekly", week: 1, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 90 }] });
+        const log = await d.gameLog("4430807");
+        return { rows: log.rows.length, total: log.total };
+      });
+      ok(hist.rows === 1 && hist.total === 21.7,
+        "…and his archived season history resolves under the same key (21.7 for week 1, got " + JSON.stringify(hist) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.prod2025 = false;
+    }
+
+    if (SHOTS) {
+      fixture.prod2025 = true;
+      const { ctx, page } = await newTestPage(browser, prodSeed());
+      await bootProd(page);
+      await page.evaluate(() => window.__GFFL__.LG.ui.show("matchup"));
+      await sleep(900);
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_nanfix_matchup_390.png") });
+      await page.setViewport({ width: 1440, height: 900 });
+      await sleep(400);
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_nanfix_matchup_desktop.png") });
+      await ctx.close();
+      fixture.prod2025 = false;
     }
   }
 
