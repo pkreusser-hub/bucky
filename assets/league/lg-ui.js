@@ -600,12 +600,14 @@
     const h = D().S.health;
     const el = $("#healthChip");
     if (!el) return;
-    // "● live" is the DATA-SOURCE health chip, not "a game is live" — but under the 2025 replay
-    // there is nothing live to be healthy ABOUT (one static historical slate, no stat polling at
-    // all), so saying "live" next to a week that has not kicked off is a small lie sitting right
-    // beside the replay banner. Same chip, same ok/warn/bad states, honest word.
-    el.textContent = h.mode === "dual" ? (LG.SIM_2025 ? "● replay" : "● live") : " " + h.note;
-    el.className = "health " + (h.mode === "dual" ? "ok" : h.mode === "none" ? "bad" : "warn");
+    // 2026-08-09 (user: "get rid of it"): this is a WARNING, not a status badge. A healthy
+    // board has nothing to tell the reader, and under the replay the chip was also a standing
+    // "you are in a test environment" reminder — the same reminder the banner was removed for.
+    // So it is SILENT when the data is fine and appears only when a source is degraded or gone.
+    // The ok/warn/bad classification itself is unchanged; only the healthy case stops painting.
+    if (h.mode === "dual") { el.hidden = true; el.textContent = ""; el.className = "health"; return; }
+    el.textContent = " " + h.note;
+    el.className = "health " + (h.mode === "none" ? "bad" : "warn");
     el.hidden = false;
   }
   // Desktop-only header chrome (design's top-nav "WEEK 8 · 2026" + team avatar) —

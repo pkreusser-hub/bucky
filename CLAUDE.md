@@ -10453,3 +10453,14 @@ chip-under-header.
 
 Plates: `shots/gffl_replay_nobanner_{390,desktop}.png`, `gffl_rest_offline_desktop.png` (re-taken
 — the chip no longer needs the banner hidden first).
+
+**THE HEALTH CHIP IS A WARNING, NOT A BADGE** (2026-08-09, same day, user: *"get rid of it"* —
+the `● REPLAY` pill left on the League page after the banner went). `paintHealth` now returns
+early and HIDES `#healthChip` whenever `h.mode === "dual"`, so a healthy board says nothing at
+all; the ok/warn/bad classification is otherwise untouched and the chip still appears — and
+still names the surviving source — the moment a source degrades. Rationale written at the
+function: under the replay the "healthy" state was also a standing test-environment reminder,
+the same one the banner was removed for. **Three suite checks restaged with the reason in
+place** (league home, and the two replay sections that asserted it read "replay"); the three
+DEGRADED checks — `ESPN only` / `Sleeper only` / `STALE out loud` — are unchanged and are what
+still prove it speaks up when it matters. Suite **1313/1313** (a straight swap, no net change).

@@ -1630,8 +1630,15 @@ async function openDetails(page, id) {
     await sleep(60);
     const score = await text(page, ".mucard.mine .muscore");
     ok(score === "4.0 — 41.0", "my card totals hand-computed: away 4.0 — home 41.0 (" + score + ")");
-    const chip = await text(page, "#healthChip");
-    ok(/● live/.test(chip || ""), "health chip reads live in dual mode");
+    // RESTAGED 2026-08-09 (user: "get rid of it"). The chip is a WARNING now, not a status
+    // badge: silent when both sources are healthy, visible only when one is degraded or gone.
+    // The degraded-mode checks further down (ESPN only / Sleeper only / STALE) are unchanged
+    // and are what still prove it speaks up when it matters.
+    const chipHidden = await page.evaluate(() => {
+      const e = document.getElementById("healthChip");
+      return !e || e.hidden || !e.textContent.trim();
+    });
+    ok(chipHidden, "a healthy board says nothing — no health chip while both sources are fine");
     ok(errors.length === 0, "0 page errors on league home");
     await ctx.close();
   }
@@ -6052,9 +6059,12 @@ async function openDetails(page, id) {
       ok(slate.nets.length === 6, "…and its real TV network (" + slate.nets.join("/") + ")");
       ok(slate.anyLive === false, "nothing is live — the pin is before kickoff");
       ok(slate.health === "dual", "…and health reads nominal, not an outage, because nothing is failing (" + slate.health + ")");
+      // RESTAGED 2026-08-09: the chip used to read "replay" here, which was accurate but was
+      // also a standing test-environment reminder — the same one the banner was removed for.
+      // A healthy replay board is now silent; `slate.health === "dual"` just above is what
+      // still asserts the underlying state is nominal.
       const chip = await page.evaluate(() => { const e = document.getElementById("healthChip"); return e && !e.hidden ? { t: e.textContent.trim(), cls: e.className } : null; });
-      ok(chip && /replay/.test(chip.t) && /ok/.test(chip.cls) && !/live/.test(chip.t),
-        "…and the health chip says \"replay\", not \"live\" — there is nothing live to be healthy about (" + (chip ? chip.t : "hidden") + ")");
+      ok(chip === null, "…and it says so silently — no health chip, and no test-environment reminder (" + (chip ? chip.t : "hidden") + ")");
       // The provenance guards must stay silent for the whole replay.
       ok(slate.espnWeek === null && slate.slpWeek === null && slate.engineWeek === null,
         "the engine's week stays UNKNOWN — the historical slate never claims to be the live one");
@@ -6704,8 +6714,9 @@ async function openDetails(page, id) {
       ok(fin.weekly === null, "…no weekly doc is written; the commissioner's archived-stats backfill stays the only way to settle the week");
       ok(!fin.stale || fin.stale.length === 0, "…and no week is reported stale (" + JSON.stringify(fin.stale) + ")");
       ok(fin.health === "dual", "…health still reads nominal — nothing is failing, there is simply nothing to poll (" + fin.health + ")");
+      // RESTAGED 2026-08-09 with the check above — a healthy board paints no chip at all.
       const chip = await page.evaluate(() => { const e = document.getElementById("healthChip"); return e && !e.hidden ? e.textContent.trim() : null; });
-      ok(chip && /replay/.test(chip), "…and the chip still says \"replay\" (" + chip + ")");
+      ok(chip === null, "…and still paints no health chip, healthy being the silent case (" + chip + ")");
       await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
       ok(errors.length === 0, "0 page errors through locks, the matchup page and the guards");
       await ctx.close();
