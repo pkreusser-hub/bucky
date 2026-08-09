@@ -79,10 +79,15 @@ const FIXTURES = {
 
 function makeStocksMock(){
   const state = {
-    seriesCalls: 0, seriesCallLog: [], analyzeCalls: [],
-    seriesFail: false, analyzeFail: false, analyzeDelayMs: 0,
+    seriesCalls: 0, seriesCallLog: [], rangeCallLog: [], analyzeCalls: [],
+    seriesFail: false, analyzeFail: false, analyzeDelayMs: 0, rangeDelayMs: 0,
     badSymbols: new Set(["NOPE", "ZZZZ"]),
     analyzeText: "Shares moved with the broader market today, drifting inside a normal daily range with no single headline explaining the change.",
+    // Two sources sharing nothing but this mock — the client only ever needs {url,host}.
+    analyzeCitations: [
+      { url: "https://www.marketwatch.com/story/example", host: "marketwatch.com" },
+      { url: "https://www.reuters.com/markets/example", host: "reuters.com" },
+    ],
   };
   state.itemFor = (symRaw) => {
     const sym = String(symRaw || "").toUpperCase();
@@ -109,18 +114,51 @@ function makeStocksMock(){
       asOf: new Date().toISOString(),
     };
   };
+  // The detail-sheet chart's OWN range-specific fetch (action:"series" + range). Deliberately
+  // built from a DIFFERENT point-count/trend per range key (not a real Yahoo interval, this is
+  // a mock) so a test can prove a range switch genuinely redraws the chart with different data,
+  // not just relabels the same Month line. Honors `noCloses` the same way the default does.
+  state.rangedClosesFor = (symRaw, range) => {
+    const sym = String(symRaw || "").toUpperCase();
+    const f = FIXTURES[sym] || { price: 100, monthPct: 1.5 };
+    if (f.noCloses) return [];
+    const cfg = {
+      day:   { n: 8,  stepMin: 15 },
+      week:  { n: 10, stepMin: 60 * 6 },
+      month: { n: 12, stepMin: 60 * 24 },
+      year:  { n: 14, stepMin: 60 * 24 * 14 },
+    }[range] || { n: 24, stepMin: 60 * 24 };
+    const trendPct = ({ day: 0.4, week: 1.3, month: f.monthPct, year: -2.6 })[range];
+    const trend = typeof trendPct === "number" ? trendPct : f.monthPct;
+    const now = Date.now();
+    const closes = [];
+    for (let i = 0; i < cfg.n; i++){
+      const t = new Date(now - (cfg.n - 1 - i) * cfg.stepMin * 60000).toISOString();
+      const c = f.price * (1 - (trend / 100) * ((cfg.n - 1 - i) / (cfg.n - 1)));
+      closes.push({ t, c });
+    }
+    return closes;
+  };
   state.handle = (bodyRaw) => {
     let b = null; try { b = JSON.parse(bodyRaw || "{}"); } catch {}
     const action = b && b.action;
     if (action === "series"){
       state.seriesCalls++;
       state.seriesCallLog.push((b.symbols || []).slice());
+      if (b.range){
+        state.rangeCallLog.push({ symbols: (b.symbols || []).slice(), range: b.range });
+        return { series: (b.symbols || []).map((symRaw) => {
+          const base = state.itemFor(symRaw);
+          if (!base.ok) return base;
+          return Object.assign({}, base, { closes: state.rangedClosesFor(symRaw, b.range) });
+        }) };
+      }
       return { series: (b.symbols || []).map(state.itemFor) };
     }
     if (action === "analyze"){
       state.analyzeCalls.push(b.symbol);
       if (state.analyzeFail) return { ok: false, reason: "upstream-error" };
-      return { ok: true, symbol: b.symbol, text: state.analyzeText };
+      return { ok: true, symbol: b.symbol, text: state.analyzeText, citations: state.analyzeCitations };
     }
     if (action === "quote"){
       // The Home card's pre-existing action — untouched contract, exercised here too since
@@ -170,6 +208,7 @@ async function newPage(browser, mock, { user = "Dad", viewport = { width:390, he
         r.respond({ status: 200, contentType: "application/json", body: JSON.stringify(res) });
       };
       if (b && b.action === "analyze" && mock.analyzeDelayMs) setTimeout(respond, mock.analyzeDelayMs);
+      else if (b && b.action === "series" && b.range && mock.rangeDelayMs) setTimeout(respond, mock.rangeDelayMs);
       else respond();
       return;
     }
@@ -231,6 +270,13 @@ async function openStock(page, sym){
   await page.waitForFunction(() => {
     const b = document.querySelector(".finai-body");
     return b && !b.classList.contains("finai-loading");
+  }, { timeout: 10000 });
+  // The chart fetch runs in parallel with the analysis fetch (finOpenDetail) — wait for it to
+  // settle too, so a caller landing right after openStock() sees a fully-loaded sheet rather
+  // than racing the chart's own async repaint.
+  await page.waitForFunction(() => {
+    const box = document.querySelector(".finchartbox");
+    return !box || !box.querySelector(".finchartloading");
   }, { timeout: 10000 });
 }
 
@@ -500,6 +546,11 @@ async function sectionFinanceTab(browser, mock){
   ok(detail1.text.length > 20 && !/Reading the numbers/.test(detail1.text), "the analysis text renders");
   ok(/not investment advice/i.test(detail1.disc), `the disclaimer text is present and correct ("${detail1.disc}")`);
 
+  const sources1 = await page.evaluate(() => [...document.querySelectorAll(".finai-source")].map((a) => ({ text: a.textContent, href: a.href, target: a.target })));
+  ok(sources1.length === 2, `the two mocked citations render as source links (${sources1.length})`);
+  ok(sources1[0].text === "marketwatch.com" && sources1[1].text === "reuters.com", `sources show as plain hostnames, not full URLs (${sources1.map((s) => s.text).join(", ")})`);
+  ok(sources1.every((s) => s.target === "_blank"), "source links open in a new tab (target=_blank)");
+
   if (WANT_SHOTS){
     fs.mkdirSync(SHOTS, { recursive: true });
     await page.screenshot({ path: path.join(SHOTS, "fin_detail.png") });
@@ -527,6 +578,120 @@ async function sectionFinanceTab(browser, mock){
   ok(failDetail.text === "Couldn't write an analysis just now.", `analyze failure shows the exact fallback copy (got "${failDetail.text}")`);
   ok(failDetail.hasDisc, "…and the disclaimer is STILL present even on failure");
   await tap(page, ".finsheet-x");
+  await sleep(150);
+
+  /* -- chart: real x/y axes, Day/Week/Month/Year toggle actually redraws it -- */
+  section("B2b. Chart — real x/y axes, Day/Week/Month/Year toggle");
+
+  await openStock(page, "AAPL");
+  // A direct state check (via the __FIN__ hook), not a network-log check: AAPL's month chart
+  // may have been fetched fresh OR served from this session's own TTL cache (it was already
+  // opened earlier in B2's analyze tests) — either is correct, and the state hook is immune to
+  // that ambiguity where inspecting the LAST logged network call would not be. The mechanism
+  // that actually sends "range" over the wire is verified below by the Day/Week/Year taps,
+  // each of which is guaranteed fresh (never fetched earlier in this test run).
+  const chartState = await page.evaluate(() => {
+    const item = window.__FIN__.chartItem("AAPL", "month");
+    return { hasItem: !!item, closesLen: item && Array.isArray(item.closes) ? item.closes.length : 0, activeRange: window.__FIN__.chartRange() };
+  });
+  ok(chartState.hasItem && chartState.closesLen > 0, `opening the sheet auto-loads the chart's default range (Month) with real data (${chartState.closesLen} points)`);
+  ok(chartState.activeRange === "month", "…and Month is the active range");
+
+  const monthGeo = await page.evaluate(() => {
+    const svg = document.querySelector(".finaxischart");
+    const poly = svg && svg.querySelector("polyline");
+    return {
+      hasChart: !!svg,
+      yLabels: svg ? [...svg.querySelectorAll(".fin-axislabel-y")].map((t) => t.textContent) : [],
+      xLabels: svg ? [...svg.querySelectorAll(".fin-axislabel-x")].map((t) => t.textContent) : [],
+      axisLines: svg ? svg.querySelectorAll(".fin-axisline").length : 0,
+      gridlines: svg ? svg.querySelectorAll(".fin-gridline").length : 0,
+      points: poly ? poly.getAttribute("points") : null,
+      activeRange: (document.querySelector(".finrangepills button.sel") || {}).dataset && document.querySelector(".finrangepills button.sel").dataset.range,
+      pillLabels: [...document.querySelectorAll(".finrangepills button")].map((b) => b.textContent),
+    };
+  });
+  ok(monthGeo.hasChart, "the detail sheet draws a real chart (not the old bare sparkline)");
+  ok(monthGeo.pillLabels.join(",") === "Day,Week,Month,Year", `the range toggle shows exactly Day/Week/Month/Year, in order (got ${monthGeo.pillLabels.join(",")})`);
+  ok(monthGeo.activeRange === "month", `the sheet opens on the Month range by default (got "${monthGeo.activeRange}")`);
+  ok(monthGeo.yLabels.length >= 3, `chart has real Y-AXIS price labels (${monthGeo.yLabels.length}: ${monthGeo.yLabels.join(" | ")})`);
+  ok(monthGeo.yLabels.every((l) => /\$/.test(l)), "…formatted as prices, same style as the rest of the sheet");
+  ok(monthGeo.xLabels.length >= 3, `chart has real X-AXIS date labels (${monthGeo.xLabels.length}: ${monthGeo.xLabels.join(" | ")})`);
+  ok(new Set(monthGeo.xLabels).size > 1, "…and they are not all the same repeated label");
+  ok(monthGeo.axisLines === 2, "chart draws both axis lines (x and y)");
+  ok(monthGeo.gridlines >= 3, "chart draws horizontal gridlines tied to the Y labels");
+  ok(!!monthGeo.points, "chart draws the actual price line");
+
+  /* -- tapping Day: pill highlights immediately, a loading state shows, then a DIFFERENT
+        chart (different data, not just a relabeled Month line) replaces it -- */
+  mock.rangeDelayMs = 300;
+  await tap(page, '.finrangepills button[data-range="day"]');
+  await sleep(90);   // well inside the 300ms mock delay
+  const chartMidFlight = await page.evaluate(() => ({
+    activeRange: (document.querySelector(".finrangepills button.sel") || {}).dataset && document.querySelector(".finrangepills button.sel").dataset.range,
+    msg: (document.querySelector(".finchartmsg") || {}).textContent || "",
+    hasOldChart: !!document.querySelector(".finaxischart"),
+    hasDisc: !!document.querySelector(".findisclaimer"),
+  }));
+  ok(chartMidFlight.activeRange === "day", "the Day pill highlights the INSTANT it's tapped, before its own data has arrived");
+  ok(/Loading chart/.test(chartMidFlight.msg), `…and an honest loading message shows while Day's data is in flight ("${chartMidFlight.msg}")`);
+  ok(!chartMidFlight.hasOldChart, "…the stale Month chart is replaced by the loading message, not left showing under a wrong label");
+  ok(chartMidFlight.hasDisc, "…and — same rule as the AI section — the disclaimer survives the chart's loading state too");
+  mock.rangeDelayMs = 0;
+  await page.waitForFunction(() => document.querySelector(".finaxischart"), { timeout: 8000 });
+
+  const dayGeo = await page.evaluate(() => {
+    const svg = document.querySelector(".finaxischart");
+    return {
+      points: svg.querySelector("polyline").getAttribute("points"),
+      xLabels: [...svg.querySelectorAll(".fin-axislabel-x")].map((t) => t.textContent),
+    };
+  });
+  ok(dayGeo.points !== monthGeo.points, "switching to Day actually redraws the line with DIFFERENT data, not the same Month geometry relabeled");
+  ok(dayGeo.xLabels.join("|") !== monthGeo.xLabels.join("|"), `Day's x-axis labels read differently from Month's (Day: ${dayGeo.xLabels.join(" | ")})`);
+  ok(mock.rangeCallLog[mock.rangeCallLog.length - 1].range === "day", "tapping Day actually sent range:\"day\" to the server");
+
+  /* -- Week and Year: same mechanism, lighter check -- */
+  for (const key of ["week", "year"]){
+    await tap(page, `.finrangepills button[data-range="${key}"]`);
+    await page.waitForFunction((k) => {
+      const b = document.querySelector(".finrangepills button.sel");
+      return b && b.dataset.range === k;
+    }, {}, key);
+    await page.waitForFunction(() => document.querySelector(".finaxischart") || document.querySelector(".finchartmsg"), { timeout: 8000 });
+    ok(mock.rangeCallLog[mock.rangeCallLog.length - 1].range === key, `tapping ${key} sends range:"${key}" to the server`);
+    ok(await page.evaluate(() => !!document.querySelector(".finaxischart")), `${key}'s own data renders a real chart (not a "no data" message — the mock always supplies closes for AAPL)`);
+  }
+
+  /* -- switching between ranges within one open re-uses the cache: exactly one request per
+        range, not one per tap -- */
+  const monthReqs = mock.rangeCallLog.filter((r) => r.range === "month").length;
+  await tap(page, '.finrangepills button[data-range="month"]');
+  await sleep(150);
+  const monthReqsAfter = mock.rangeCallLog.filter((r) => r.range === "month").length;
+  ok(monthReqsAfter === monthReqs, "flipping back to a range already fetched THIS sheet-open session reuses the cache — no new request");
+  ok(await page.evaluate(() => (document.querySelector(".finrangepills button.sel") || {}).dataset.range === "month"), "…and the Month pill/chart are back instantly");
+
+  /* -- a symbol with genuinely no history says so honestly, never an empty box -- */
+  await tap(page, ".finsheet-x");
+  await sleep(150);
+  await openStock(page, "FLATCO");
+  const flatGeo = await page.evaluate(() => ({
+    hasChart: !!document.querySelector(".finaxischart"),
+    msg: (document.querySelector(".finchartmsg") || {}).textContent || "",
+  }));
+  ok(!flatGeo.hasChart, "FLATCO (no history in any range) never draws an empty/broken chart");
+  ok(/no chart data/i.test(flatGeo.msg), `…it says so honestly instead ("${flatGeo.msg}")`);
+  await tap(page, ".finsheet-x");
+  await sleep(150);
+
+  if (WANT_SHOTS){
+    fs.mkdirSync(SHOTS, { recursive: true });
+    await openStock(page, "AAPL");
+    await page.screenshot({ path: path.join(SHOTS, "fin_chart.png") });
+    await tap(page, ".finsheet-x");
+    await sleep(150);
+  }
 
   /* -- layout: no horizontal scroll, nav still balanced for Dad -- */
   section("B3. Layout — no horizontal scroll, nav still two balanced rows for Dad");

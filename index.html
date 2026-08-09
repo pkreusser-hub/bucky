@@ -1332,12 +1332,29 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .finsheet-perf { gap: 12px 24px; margin-bottom: 14px; }
   .finsheet-perf .finperf-l { font-size: 11px; }
   .finsheet-perf .finperf-v { font-size: 16px; }
-  .finsheet-spark { display: block; width: 100%; height: 56px; margin: 2px 0 16px; }
+  /* Detail-sheet CHART — Day/Week/Month/Year toggle + a real x/y-axis line chart, replacing
+     the old bare sparkline (finsheet-spark). Range pills reuse the mealpills visual language
+     (a pill nav already established elsewhere in the app) for a consistent feel. */
+  .finchartwrap { margin: 6px 0 14px; }
+  .finrangepills { display: flex; gap: 3px; background: var(--done); border: 1px solid var(--line); border-radius: 12px; padding: 3px; margin-bottom: 8px; }
+  .finrangepills button { flex: 1 1 0; min-width: 0; border: 0; background: transparent; cursor: pointer; color: var(--muted); font-size: 12.5px; font-weight: 800; padding: 7px 4px; border-radius: 9px; }
+  .finrangepills button.sel { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+  .finchartbox { min-height: 150px; display: flex; align-items: center; justify-content: center; }
+  .finaxischart { display: block; width: 100%; height: 150px; }
+  .fin-gridline { stroke: var(--line-2); stroke-width: 1; }
+  .fin-axisline { stroke: var(--line); stroke-width: 1; }
+  .fin-axislabel { font-size: 8.5px; fill: var(--muted); }
+  .finchartmsg { font-size: 12.5px; color: var(--muted); text-align: center; padding: 30px 10px; }
+  .finchartmsg.finchartloading { font-style: italic; }
   .finai { margin-top: 4px; border-top: 1px solid var(--line-2); padding-top: 14px; }
   .finai-h { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; margin-bottom: 8px; }
   .finai-body { font-size: 14px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; }
   .finai-body.finai-loading { color: var(--muted); font-style: italic; }
   .finai-body.finai-fail { color: var(--muted); }
+  .finai-sources { font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.7; }
+  .finai-sources-l { font-weight: 700; }
+  .finai-source { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+  .finai-source:hover { color: var(--ink); }
   .findisclaimer { font-size: 11px; color: var(--muted); line-height: 1.5; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line-2); }
 
   /* ==========================================================================
@@ -3423,6 +3440,22 @@ const FIN_MARKETS = [
 const FIN_SERIES_TTL = 5 * 60 * 1000;    // background-refresh series data older than this
 const FIN_RETRY_MS = 60 * 1000;          // don't hammer a failing fetch more than once a minute
 
+// Detail-sheet CHART — the Day/Week/Month/Year toggle. This is DELIBERATELY separate from
+// finSeries (below): finSeries stays the untouched default 3-month/daily fetch that feeds the
+// Day/Week/Month % chips, the row sparklines and the markets strip; the chart below fetches
+// its OWN range-specific data (via action:"series"'s new `range` param) and never overwrites
+// finSeries, so nothing that already depends on finSeries's shape/semantics moves.
+const FIN_CHART_RANGES = [
+  { key: "day",   label: "Day"   },
+  { key: "week",  label: "Week"  },
+  { key: "month", label: "Month" },
+  { key: "year",  label: "Year"  },
+];
+let finChartRange = "month";       // active range for whichever detail sheet is open
+const finChartCache = {};          // "SYM|range" -> { ts, item }
+const finChartLoading = {};        // "SYM|range" -> true while a fetch is in flight
+const finChartFailed = {};         // "SYM|range" -> true if the last attempt came back with no usable data
+
 let finSeries = {};          // { symbol: {ok,name,currency,price,prevClose,day,week,month,closes,asOf} }
 let finSeriesTs = 0;
 let finFetching = false;
@@ -3458,15 +3491,30 @@ function finPctClass(pct){
   if (typeof pct !== "number" || !isFinite(pct)) return "flat";
   return pct > 0.0001 ? "up" : pct < -0.0001 ? "down" : "flat";
 }
-// closes[].t may arrive as an ISO string or an epoch (seconds or ms) — used only to word a
-// partial week/month window honestly ("Month (since Jul 2)"), so this degrades to "" rather
-// than throwing on a shape it doesn't recognize.
-function finFmtSince(t){
+// closes[].t may arrive as an ISO string or an epoch (seconds or ms) — real Yahoo-backed
+// responses always send epoch ms, but the test mock sends ISO strings, so both are honored.
+// Degrades to null rather than throwing on a shape it doesn't recognize.
+function finParseT(t){
   let d = null;
   if (typeof t === "number") d = new Date(t < 2e10 ? t * 1000 : t);
   else if (typeof t === "string") d = new Date(t);
-  if (!d || isNaN(d.getTime())) return "";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return (d && !isNaN(d.getTime())) ? d : null;
+}
+// Used to word a partial week/month window honestly ("Month (since Jul 2)").
+function finFmtSince(t){
+  const d = finParseT(t);
+  return d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+}
+// The chart's own x-axis tick labels — the right granularity depends on the active range: an
+// intraday "day" view wants a time of day, a "year" view wants month+year, everything else
+// wants a plain month+day date.
+function finAxisDateLabel(t, range){
+  const d = finParseT(t);
+  if (!d) return "";
+  if (range === "day") return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (range === "week") return d.toLocaleDateString(undefined, { weekday: "short" });
+  if (range === "year") return d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });   // month (default)
 }
 
 async function finCall(action, extra){
@@ -3536,7 +3584,7 @@ async function finEnsureAnalysis(sym){
       price: it.price,
     });
     if (res && res.ok && res.text){
-      const rec = { day: finToday(), text: res.text };
+      const rec = { day: finToday(), text: res.text, citations: Array.isArray(res.citations) ? res.citations : [] };
       try { localStorage.setItem(finAnalysisCacheKey(sym), JSON.stringify(rec)); } catch {}
       return rec;
     }
@@ -3583,8 +3631,14 @@ async function finAddTicker(raw){
 function finCloseDetail(){ finDetailSym = null; document.getElementById("finSheetOverlay").classList.remove("open"); }
 async function finOpenDetail(sym){
   finDetailSym = sym;
+  finChartRange = "month";   // every fresh open starts on the same default range
   finPaintDetail();
   document.getElementById("finSheetOverlay").classList.add("open");
+  // Chart + analysis fire in parallel and each repaints independently once it resolves —
+  // neither awaits the other, so a slow analysis never delays the chart appearing (or the
+  // reverse). Both guard against the sheet having moved on to a different symbol/range by
+  // the time they resolve.
+  finEnsureChart(sym, finChartRange).then(() => { if (finDetailSym === sym && finChartRange === "month") finPaintDetail(); });
   await finEnsureAnalysis(sym);
   if (finDetailSym === sym) finPaintDetail();   // guard: the sheet may have moved on by the time this resolves
 }
@@ -3633,6 +3687,163 @@ function finSparkline(closes, big){
   svg.appendChild(poly);
   return svg;
 }
+
+/* ---- Detail-sheet CHART: a real x/y-axis line chart, no libraries. Degrades to null the
+   same way finSparkline does when there isn't enough of a closes[] series to draw. ---- */
+function finAxisChart(closes, opts){
+  opts = opts || {};
+  const range = opts.range || "month";
+  const pts = (closes || []).filter(c => c && typeof c.c === "number" && isFinite(c.c));
+  if (pts.length < 2) return null;
+  const vals = pts.map(p => p.c);
+
+  const W = 320, H = 168, padL = 46, padR = 8, padT = 10, padB = 22;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const min = Math.min(...vals), max = Math.max(...vals), span = (max - min) || 1;
+  const xFor = (i) => padL + (i / (pts.length - 1)) * plotW;
+  const yFor = (v) => padT + plotH - ((v - min) / span) * plotH;
+
+  const svgns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("width", W); svg.setAttribute("height", H);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.classList.add("finaxischart");
+
+  // Y gridlines + price labels — 4 evenly-spaced levels between the series' own min/max.
+  const yTicks = 3;
+  for (let i = 0; i <= yTicks; i++){
+    const v = min + (span * i / yTicks);
+    const y = yFor(v);
+    const line = document.createElementNS(svgns, "line");
+    line.setAttribute("x1", padL); line.setAttribute("x2", W - padR);
+    line.setAttribute("y1", y.toFixed(1)); line.setAttribute("y2", y.toFixed(1));
+    line.setAttribute("class", "fin-gridline");
+    svg.appendChild(line);
+    const label = document.createElementNS(svgns, "text");
+    label.setAttribute("x", padL - 5); label.setAttribute("y", (y + 3).toFixed(1));
+    label.setAttribute("text-anchor", "end");
+    label.setAttribute("class", "fin-axislabel fin-axislabel-y");
+    label.textContent = finFmtPrice(v, opts.currency);
+    svg.appendChild(label);
+  }
+  const axisY = document.createElementNS(svgns, "line");
+  axisY.setAttribute("x1", padL); axisY.setAttribute("x2", padL);
+  axisY.setAttribute("y1", padT); axisY.setAttribute("y2", H - padB);
+  axisY.setAttribute("class", "fin-axisline");
+  svg.appendChild(axisY);
+  const axisX = document.createElementNS(svgns, "line");
+  axisX.setAttribute("x1", padL); axisX.setAttribute("x2", W - padR);
+  axisX.setAttribute("y1", H - padB); axisX.setAttribute("y2", H - padB);
+  axisX.setAttribute("class", "fin-axisline");
+  svg.appendChild(axisX);
+
+  // X date/time labels — up to 4 evenly-spaced points across the series' own timestamps,
+  // formatted per the active range (finAxisDateLabel).
+  const xTicks = Math.min(4, pts.length - 1);
+  for (let i = 0; i <= xTicks; i++){
+    const idx = Math.round((i / xTicks) * (pts.length - 1));
+    const x = xFor(idx);
+    const label = document.createElementNS(svgns, "text");
+    label.setAttribute("x", x.toFixed(1)); label.setAttribute("y", H - 5);
+    label.setAttribute("text-anchor", i === 0 ? "start" : i === xTicks ? "end" : "middle");
+    label.setAttribute("class", "fin-axislabel fin-axislabel-x");
+    label.textContent = finAxisDateLabel(pts[idx].t, range);
+    svg.appendChild(label);
+  }
+
+  // the line itself
+  const linePts = vals.map((v, i) => xFor(i).toFixed(1) + "," + yFor(v).toFixed(1)).join(" ");
+  const up = vals[vals.length - 1] >= vals[0];
+  const poly = document.createElementNS(svgns, "polyline");
+  poly.setAttribute("points", linePts);
+  poly.setAttribute("fill", "none");
+  poly.setAttribute("stroke", up ? "#1a8a4f" : "#ba303e");
+  poly.setAttribute("stroke-width", "2");
+  poly.setAttribute("stroke-linecap", "round");
+  poly.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(poly);
+
+  return svg;
+}
+
+/* ---- Chart data: fetches its OWN range-specific series (action:"series" + range), fully
+   separate from finSeries (the default 3-month fetch behind the Day/Week/Month % chips, row
+   sparklines and markets strip — untouched). Cached per "SYM|range" for FIN_SERIES_TTL so
+   flipping between range pills within one sheet-open session doesn't re-fetch every tap. ---- */
+function finChartKey(sym, range){ return sym + "|" + range; }
+function finChartFresh(key){ const c = finChartCache[key]; return !!c && (Date.now() - c.ts) < FIN_SERIES_TTL; }
+async function finEnsureChart(sym, range){
+  const key = finChartKey(sym, range);
+  if (finChartFresh(key)) return finChartCache[key].item;
+  if (finChartLoading[key]) return null;   // an in-flight call for this exact key will resolve on its own
+  finChartLoading[key] = true;
+  finChartFailed[key] = false;
+  try {
+    const res = await finCall("series", { symbols: [sym], range });
+    const item = (res.series || [])[0];
+    if (item && item.ok && Array.isArray(item.closes) && item.closes.length){
+      finChartCache[key] = { ts: Date.now(), item };
+      return item;
+    }
+    finChartFailed[key] = true;
+    return null;
+  } catch (e){
+    finChartFailed[key] = true;
+    return null;
+  } finally {
+    finChartLoading[key] = false;
+  }
+}
+// The ONLY two places that ever kick off a chart fetch (finBuildChartSection below is a PURE
+// reader of state — it must never trigger one itself, or a paint-during-fetch call would
+// re-enter finPaintDetail while it's still building the DOM for the paint that triggered it).
+async function finSetChartRange(sym, range){
+  if (!FIN_CHART_RANGES.some(r => r.key === range)) return;
+  finChartRange = range;
+  finPaintDetail();
+  await finEnsureChart(sym, range);
+  if (finDetailSym === sym && finChartRange === range) finPaintDetail();
+}
+function finBuildRangePills(sym, active){
+  const wrap = document.createElement("div"); wrap.className = "finrangepills";
+  for (const r of FIN_CHART_RANGES){
+    const b = document.createElement("button"); b.type = "button";
+    b.textContent = r.label; b.dataset.range = r.key;
+    if (r.key === active) b.classList.add("sel");
+    b.onclick = () => finSetChartRange(sym, r.key);
+    wrap.appendChild(b);
+  }
+  return wrap;
+}
+function finBuildChartSection(sym){
+  const wrap = document.createElement("div"); wrap.className = "finchartwrap";
+  wrap.appendChild(finBuildRangePills(sym, finChartRange));
+
+  const box = document.createElement("div"); box.className = "finchartbox";
+  const key = finChartKey(sym, finChartRange);
+  const rec = finChartCache[key];
+  if (rec && rec.item){
+    const chart = finAxisChart(rec.item.closes, { range: finChartRange, currency: rec.item.currency });
+    if (chart){ box.appendChild(chart); }
+    else {
+      const m = document.createElement("div"); m.className = "finchartmsg";
+      m.textContent = "Not enough data to draw a chart for this range.";
+      box.appendChild(m);
+    }
+  } else if (finChartFailed[key] && !finChartLoading[key]){
+    const m = document.createElement("div"); m.className = "finchartmsg";
+    m.textContent = "No chart data available for this range.";
+    box.appendChild(m);
+  } else {
+    const m = document.createElement("div"); m.className = "finchartmsg finchartloading";
+    m.textContent = "Loading chart…";
+    box.appendChild(m);
+  }
+  wrap.appendChild(box);
+  return wrap;
+}
+
 function finPaintDetail(){
   const el = document.getElementById("finSheetInner");
   if (!el) return;
@@ -3661,8 +3872,7 @@ function finPaintDetail(){
   perf.appendChild(finPerfChip("Month", it.month, it.closes));
   el.appendChild(perf);
 
-  const spark = finSparkline(it.closes, true);
-  if (spark){ spark.classList.add("finsheet-spark"); el.appendChild(spark); }
+  el.appendChild(finBuildChartSection(sym));
 
   // AI analysis — the disclaimer renders in EVERY state (loading/success/failure), never
   // just alongside a successful answer.
@@ -3675,6 +3885,22 @@ function finPaintDetail(){
   else if (finAnalysisFailed[sym]){ body.textContent = "Couldn't write an analysis just now."; body.classList.add("finai-fail"); }
   else { body.textContent = "Reading the numbers…"; body.classList.add("finai-loading"); }
   ai.appendChild(body);
+  // Sources — subtle, only ever present alongside a successful (cached) analysis, since only
+  // the xAI path ever has any (the Anthropic fallback has no search access and returns none).
+  if (cached && Array.isArray(cached.citations) && cached.citations.length){
+    const src = document.createElement("div"); src.className = "finai-sources";
+    const lbl = document.createElement("span"); lbl.className = "finai-sources-l"; lbl.textContent = "Sources: ";
+    src.appendChild(lbl);
+    cached.citations.forEach((c, i) => {
+      if (!c || !c.url) return;
+      if (i > 0) src.appendChild(document.createTextNode(" · "));
+      const a = document.createElement("a"); a.className = "finai-source";
+      a.href = c.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+      a.textContent = c.host || c.url;
+      src.appendChild(a);
+    });
+    ai.appendChild(src);
+  }
   const disc = document.createElement("div"); disc.className = "findisclaimer";
   disc.textContent = "Bucky explains what the numbers show. This is not investment advice.";
   ai.appendChild(disc);
@@ -3854,6 +4080,11 @@ window.__FIN__ = {
   analysisCache: (sym) => finAnalysisCache(sym),
   analyzing: (sym) => !!finAnalyzing[sym],
   analyzeFailed: (sym) => !!finAnalysisFailed[sym],
+  chartRange: () => finChartRange,
+  setChartRange: (r, sym) => finSetChartRange(sym || finDetailSym, r),
+  chartItem: (sym, r) => { const c = finChartCache[finChartKey(sym || finDetailSym, r || finChartRange)]; return c ? c.item : null; },
+  chartLoading: (sym, r) => !!finChartLoading[finChartKey(sym || finDetailSym, r || finChartRange)],
+  chartFailed: (sym, r) => !!finChartFailed[finChartKey(sym || finDetailSym, r || finChartRange)],
 };
 
 function renderDashboard(){
