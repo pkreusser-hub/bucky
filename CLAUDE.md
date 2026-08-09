@@ -10619,3 +10619,66 @@ AE line-2 reads for `.gline`.
 carries a designation, so each is now paired with the `Q` actually being present.
 
 Plates: `shots/gffl_moves_{390,desktop}.png`, `gffl_trade_suggest.png`, `gffl_matchup_390.png`.
+
+## 🏈 GFFL — every game gets the full card, and an NFL game view inside the league (2026-08-09)
+
+User: *"every single game in the league should have the same score card that's like the one you
+have now for the current user"* + *"clicking an NFL game should take you to a scoreboard style
+thing … box scores, the play by play, and the field."* Files: `league.html` +
+`assets/league/lg-ui.js` + `tools/_verify-gffl.cjs` (1420 → **1514**). `lg-core.js`,
+`lg-data.js`, `sports.html` and `netlify/functions/sports.mjs` all byte-untouched.
+
+**ITEM 27 — the state strip is on every card.** `matchupCard` renders `matchupHeroExtra`
+unconditionally; `.mine` keeps its class and its bigger hero layout. **Two bugs it exposed, both
+found by LOOKING at the plate**: (1) the hero's explicit `grid-row:3` would have parked the
+strip in an empty third row on the compact card — scoped under `.mine`; (2) **a matchup with no
+roster data announced itself as FINAL** — `allDone` was `!anyLive && left===0` on both sides,
+which is TRUE when zero starters are known. On the viewer's own card that never happened;
+across every card it does. Now gated on `counted > 0`. And with nothing to weigh, `winProb`
+returns 0.5, so three stacked bold half-bars read as three real results — those render an empty
+`.wpbar.unknown` track instead. **KNOWN, deliberately not restaged**: the same `allDone`
+expression exists on the Matchup page header (a different surface); noted in the comment there.
+Cost: three in-memory reads per game instead of one, nothing hoistable (each call is a different
+team), asserted at **zero** extra backend reads against section P's budget.
+
+**ITEM 28 — `#nflgame=<id>`, a sub-view of Scores** (same hash-carries-its-subject shape as
+`#locker=`). Back sets `#scores` AND the view, so a reload after backing out stays on Scores.
+Score cards are real `<button>`s with aria-labels; a slate row with no id renders inert rather
+than opening a `bad-event-id`.
+**THE BACKEND IS REUSED, NOT REBUILT**: `sports.mjs`'s existing `nfl_game` action, reached with
+`LG.PASS` — which IS `BUCKY_NOTIFY_SECRET`, so the league can call it with no server work at
+all. Renders the field (drive band, LOS, gold first-down line, direction arrow, ball), the
+play-by-play (current drive newest-first then previous drives), per-team box scores, linescore,
+win-prob sparkline, team stat bars, scoring plays. Pre/live/final each get their OWN shape —
+pre-game is a kickoff card (when/where/line) with **no** field or drive shells, final drops the
+field and keeps the rest. Polling 25s live / 120s pre (so kickoff is noticed) / **never** for a
+final, cleared on view change. A failure gets a named reason and a working retry.
+**THE DUPLICATION COST, stated plainly**: the RENDERING now exists twice, here and in
+`sports.html`, so an ESPN payload drift needs two updates. Genuinely shared rather than
+duplicated: one server, one slimmer, one secret, and one field-coordinate convention — **ported
+verbatim, not re-derived** (`x = 83.33 + pos·8.3334`, possession flips the direction; the suite
+hand-computes ball 183.3 and first-down 150.0 IN THE TEST).
+
+**A PRE-EXISTING BUG FOUND OFF THE PLATE'S PIXELS**: the bare `.live { color:var(--accent) }`
+rule cascades into `.sccard.live`, so a live game's abbrevs and scores rendered
+`rgb(213,10,10)` while an upcoming card's rendered `rgb(233,237,244)` — the whole card went red,
+not just the clock. Fixed with an explicit `color` on `.sccard`; the live clock keeps the accent.
+Two more plate fixes: desktop was full-bleed (the field stood 338px tall, scores marooned in a
+1150px row — `#nflBody` is a 720px reading column now), and pre-game showed two big "0"s with
+the kickoff time in the LIVE red and the venue printed twice.
+
+**VERIFIED**: **1514/1514, 0 page errors** (1516 with `--shots`). Pre-fix with the app files at
+HEAD: **1457 / 57, every failure in the new section AH** — and 1457 = 1420 + 37, so all 1420
+pre-existing checks pass on BOTH sides and **no restaging was required**. The 37 invariants are
+the thirteen "0 page errors", the no-sideways-scroll pairs, the card/`.mine` counts and the
+`db.stats` budget.
+**FIXTURE NOTE**: the game fixture is a real RAW ESPN summary shaped to what `slimGame`
+consumes, served by a 5th fake upstream — the page's request interception cannot reach it,
+because `siteGame`'s fetch runs in Node, not the browser.
+**A SUITE STAGING BUG FIXED**: `gffl_scores_390.png` had been photographing the LEAGUE HOME
+since it was added — the poll-cleared check immediately above it navigates away. It navigates
+back before shooting now.
+**NOT LIVE-VERIFIED**: ESPN is egress-blocked here, so the fixture carries the whole burden.
+Post-deploy, open one real live game and confirm the ball lands where the situation says.
+
+Plates: `shots/gffl_scores_390.png`, `gffl_nflgame_{390,desktop}.png`, `gffl_nflgame_pre_390.png`.

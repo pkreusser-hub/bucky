@@ -26,6 +26,10 @@ const SPORTS_FF_PORT = 8847; // dedicated fantasy-upstream fixture for netlify/f
                               // league.mjs's own history importer already uses for a differently-
                               // shaped fixture (mMatchupScore there means "a past season", not
                               // "this week's live matchups" — sharing a port would collide).
+const SPORTS_NFL_PORT = 8848; // item 28's fake site.api.espn.com for netlify/functions/sports.mjs.
+                              // The page's own request interception can't answer this one: the
+                              // nfl_game call runs the REAL sports.mjs handler IN NODE, so its
+                              // upstream fetch never passes through the browser at all.
 const BASE = "http://127.0.0.1:" + SRV_PORT;
 // RESTAGED 2026-08-08 (the 2025 season replay): LG.SIM_2025 now ships ON by default, which
 // moves LG.SEASON to 2025 and pins the clock to week 1 of that season. Every section A-Z below
@@ -493,6 +497,136 @@ function startSportsFfUpstream() {
     res.end(JSON.stringify(ffScoreboardFix()));
   });
   return new Promise((r) => srv.listen(SPORTS_FF_PORT, "127.0.0.1", () => r(srv)));
+}
+
+// -- fake site.api.espn.com SUMMARY upstream (item 28, the NFL game view) ------------------
+// Shaped as the RAW ESPN summary that netlify/functions/sports.mjs's own slimGame() consumes —
+// every field path it reads, not the slim output it produces. That is the whole point: the view
+// is built against the shape the deployed function will really hand it, and a fixture shaped
+// like the wished-for output would prove nothing about the real integration.
+//
+// THE LIVE GAME'S FIELD NUMBERS ARE HAND-COMPUTABLE, which is what makes the field assertable
+// rather than merely present. PHI (home) has the ball 12 yards from the end zone with 4 to go:
+//   poss = home  ->  pos = yardsToEndzone       = 12   ->  x = 83.33 + 12*8.3334 = 183.3
+//   first down   ->  pos = ballPos - distance   = 8    ->  x = 83.33 +  8*8.3334 = 150.0
+const NFL_SUM_LOGO = (ab) => "https://a.espncdn.com/i/teamlogos/nfl/500/" + ab.toLowerCase() + ".png";
+function sumTeam(id, ab, name, color, homeAway, score, extra) {
+  return {
+    id, homeAway, score, winner: !!(extra && extra.winner),
+    team: { id, abbreviation: ab, shortDisplayName: name, displayName: "The " + name, color, alternateColor: "ffffff", logo: NFL_SUM_LOGO(ab) },
+    linescores: ((extra && extra.line) || []).map((v) => ({ displayValue: String(v) })),
+    record: [{ type: "total", summary: (extra && extra.record) || "1-0" }],
+  };
+}
+function nflPlay(id, text, clock, period, dd, endYTE, endDown, endDist, scoring) {
+  return {
+    id: String(id), text, clock: { displayValue: clock }, period: { number: period },
+    start: { shortDownDistanceText: dd },
+    end: { down: endDown, distance: endDist, yardsToEndzone: endYTE, shortDownDistanceText: dd },
+    scoringPlay: !!scoring,
+  };
+}
+// state: "in" | "pre" | "post". Everything but the header is deliberately absent for "pre" —
+// a game that hasn't kicked off genuinely has no drives, no box score and no win probability,
+// which is exactly the shape the view has to render sensibly.
+function nflSummaryFix(eventId, state) {
+  const live = state === "in", post = state === "post";
+  const header = {
+    id: eventId,
+    competitions: [{
+      id: eventId, date: live ? "2026-08-07T00:15Z" : post ? "2026-08-06T00:15Z" : KICK_FUTURE,
+      status: {
+        type: { state, shortDetail: live ? "Q2 5:00" : post ? "Final" : "Sun 12:00 PM", detail: live ? "2nd Quarter" : post ? "Final" : "Scheduled", completed: post },
+        period: live ? 2 : post ? 4 : 0, displayClock: live ? "5:00" : "0:00",
+      },
+      competitors: state === "pre"
+        ? [sumTeam("12", "KC", "Chiefs", "e31837", "away", "0", { record: "0-0" }),
+           sumTeam("7", "DEN", "Broncos", "fb4f14", "home", "0", { record: "0-0" })]
+        : [sumTeam("6", "DAL", "Cowboys", "041e42", "away", post ? "27" : "10", { line: post ? [7, 3, 10, 7] : [3, 7], record: "1-1", winner: post }),
+           sumTeam("21", "PHI", "Eagles", "004c54", "home", post ? "24" : "14", { line: post ? [7, 7, 3, 7] : [7, 7], record: "1-1" })],
+    }],
+  };
+  const g = { header, gameInfo: { venue: { fullName: "Lincoln Financial Field" } } };
+  if (state === "pre") {
+    g.gameInfo = { venue: { fullName: "Empower Field at Mile High" } };
+    g.pickcenter = [{ details: "DEN -3.5", provider: { name: "SHOULD NEVER RENDER" }, homeTeamOdds: { moneyLine: -180 } }];
+    g.drives = {}; g.scoringPlays = []; g.boxscore = { teams: [], players: [] }; g.winprobability = [];
+    return g;
+  }
+  g.drives = {
+    // Chronological, as ESPN sends it — the SLIMMER reverses `previous`, and the VIEW reverses
+    // the current drive's plays, so both orderings are genuinely under test.
+    current: {
+      team: { id: "21", abbreviation: "PHI" },
+      description: "8 plays, 61 yards, 4:12",
+      start: { yardsToEndzone: 73 },
+      plays: [
+        nflPlay(1, "P. Passer pass short right to W. Receiver for 9 yards", "8:11", 2, "1st & 10", 64, 2, 1),
+        nflPlay(2, "R. Rusher run up the middle for 3 yards", "7:36", 2, "2nd & 1", 61, 1, 10),
+        nflPlay(3, "P. Passer pass deep left to X. Wideout for 49 yards", "6:02", 2, "1st & 10", 12, 1, 4),
+      ],
+    },
+    previous: [
+      { team: { id: "6", abbreviation: "DAL" }, displayResult: "Punt", description: "3 plays, 4 yards, 1:38", isScore: false },
+      { team: { id: "21", abbreviation: "PHI" }, displayResult: "Touchdown", description: "9 plays, 75 yards, 5:04", isScore: true },
+      { team: { id: "6", abbreviation: "DAL" }, displayResult: "Field Goal", description: "7 plays, 40 yards, 3:22", isScore: true },
+    ],
+  };
+  g.scoringPlays = [
+    { period: { number: 1 }, clock: { displayValue: "9:12" }, text: "K. Kicker 47 Yd Field Goal", team: { abbreviation: "DAL" }, scoringType: { abbreviation: "fg" }, awayScore: 3, homeScore: 0 },
+    { period: { number: 1 }, clock: { displayValue: "2:40" }, text: "W. Receiver 12 Yd pass from P. Passer", team: { abbreviation: "PHI" }, scoringType: { abbreviation: "td" }, awayScore: 3, homeScore: 7 },
+  ];
+  g.boxscore = {
+    teams: [
+      { team: { abbreviation: "DAL" }, statistics: [
+        { name: "totalYards", label: "Total Yards", displayValue: "180" },
+        { name: "netPassingYards", label: "Passing", displayValue: "120" },
+        { name: "rushingYards", label: "Rushing", displayValue: "60" },
+        { name: "turnovers", label: "Turnovers", displayValue: "1" }] },
+      { team: { abbreviation: "PHI" }, statistics: [
+        { name: "totalYards", label: "Total Yards", displayValue: "220" },
+        { name: "netPassingYards", label: "Passing", displayValue: "175" },
+        { name: "rushingYards", label: "Rushing", displayValue: "45" },
+        { name: "turnovers", label: "Turnovers", displayValue: "0" }] },
+    ],
+    players: [
+      { team: { abbreviation: "PHI" }, statistics: [
+        { name: "passing", text: "Passing", labels: ["C/ATT", "YDS", "AVG", "TD", "INT"],
+          athletes: [{ athlete: { shortName: "P. Passer", displayName: "Peter Passer" }, stats: ["12/18", "175", "9.7", "1", "1"] }] },
+        { name: "receiving", text: "Receiving", labels: ["REC", "YDS", "AVG", "TD", "LONG"],
+          athletes: [
+            { athlete: { shortName: "W. Receiver", displayName: "Walt Receiver" }, stats: ["4", "50", "12.5", "1", "24"] },
+            { athlete: { shortName: "X. Wideout", displayName: "Xavier Wideout" }, stats: ["2", "61", "30.5", "0", "49"] }] },
+      ] },
+      { team: { abbreviation: "DAL" }, statistics: [
+        { name: "rushing", text: "Rushing", labels: ["CAR", "YDS", "AVG", "TD"],
+          athletes: [{ athlete: { shortName: "R. Rusher", displayName: "Roy Rusher" }, stats: ["9", "40", "4.4", "0"] }] },
+        // A group the view deliberately does NOT render (only passing/rushing/receiving) —
+        // present so "we render the three we said we would" is a real filter, not a tautology.
+        { name: "kicking", text: "Kicking", labels: ["FG", "PCT", "LONG", "XP", "PTS"],
+          athletes: [{ athlete: { shortName: "K. Kicker", displayName: "Kip Kicker" }, stats: ["1/1", "100.0", "47", "0/0", "3"] }] },
+      ] },
+    ],
+  };
+  g.winprobability = [0.5, 0.44, 0.52, 0.61, 0.58, 0.66].map((p) => ({ homeWinPercentage: p }));
+  g.pickcenter = [{ details: "PHI -2.5", provider: { name: "SHOULD NEVER RENDER" } }];
+  return g;
+}
+// Which event id maps to which state. 401900001/2 mirror the SCOREBOARD fixture's own two
+// games so a tap from the Scores tab lands on a coherent game; 401900003 is the FINAL one.
+const NFL_SUM_STATE = { 401900001: "in", 401900002: "pre", 401900003: "post" };
+const nflSumUrls = [];
+function startSportsNflUpstream() {
+  const srv = http.createServer((req, res) => {
+    nflSumUrls.push(req.url);
+    if (fixture.nflGameDown) { res.writeHead(503, { "Content-Type": "application/json" }); res.end("{}"); return; }
+    const id = (/[?&]event=(\d+)/.exec(req.url) || [])[1] || "";
+    const state = NFL_SUM_STATE[id];
+    if (!state) { res.writeHead(404, { "Content-Type": "application/json" }); res.end("{}"); return; }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(nflSummaryFix(id, state)));
+  });
+  return new Promise((r) => srv.listen(SPORTS_NFL_PORT, "127.0.0.1", () => r(srv)));
 }
 
 // -- fake Tenor (S4/item 4 chat GIF search) — mirrors Tenor's REAL documented v2 /search
@@ -1485,6 +1619,7 @@ async function openDetails(page, id) {
   const tenorSrv = await startTenorUpstream();
   const xaiSrv = await startXaiUpstream();
   const sportsFfSrv = await startSportsFfUpstream();
+  const sportsNflSrv = await startSportsNflUpstream();
   process.env.SPORTS_FF_BASE_URL = "http://127.0.0.1:" + FF_PORT;
   process.env.BUCKY_NOTIFY_SECRET = "amenfarms";
   process.env.ESPN_S2 = "s2test"; process.env.ESPN_SWID = "{SWID-TEST}";
@@ -1498,8 +1633,12 @@ async function openDetails(page, id) {
   // dedicated fixture above just for this one import, then restore SPORTS_FF_BASE_URL to
   // FF_PORT (league.mjs already captured its own copy of the env var at ITS import above, so
   // this never affects league.mjs — purely hygiene for anything imported later).
+  // Item 28: NFL_BASE is captured at import time in exactly the same way, so the summary
+  // upstream has to be pointed at the fixture here too — the page's own request interception
+  // can't reach it (siteGame's fetch runs in NODE, not the browser).
   const sportsFfBaseSaved = process.env.SPORTS_FF_BASE_URL;
   process.env.SPORTS_FF_BASE_URL = "http://127.0.0.1:" + SPORTS_FF_PORT;
+  process.env.SPORTS_NFL_BASE_URL = "http://127.0.0.1:" + SPORTS_NFL_PORT;
   const sportsMod = await import(pathToFileURL(path.join(ROOT, "netlify/functions/sports.mjs")).href);
   sportsFn = sportsMod.default;
   process.env.SPORTS_FF_BASE_URL = sportsFfBaseSaved;
@@ -4388,7 +4527,15 @@ async function openDetails(page, id) {
     const pollCleared = await page.evaluate(() => window.__GFFL__.UI._scoresPoll == null);
     ok(pollCleared, "…and cleared the instant the tab is switched away from");
     ok(errors.length === 0, "0 page errors through the whole Scores tab flow");
-    if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_scores_390.png"), fullPage: true }); console.log("  📸 shots/gffl_scores_390.png"); }
+    // RESTAGED 2026-08-09 (item 28's review pass): the poll-cleared check immediately above
+    // leaves the page on the LEAGUE HOME, so this plate — named for the Scores tab — had been
+    // photographing the league home ever since it was added. Navigate back before shooting.
+    if (SHOTS) {
+      await page.evaluate(() => window.__GFFL__.UI.show("scores"));
+      await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_scores_390.png"), fullPage: true });
+      console.log("  📸 shots/gffl_scores_390.png");
+    }
     await ctx.close();
   }
   {
@@ -9907,8 +10054,447 @@ async function openDetails(page, id) {
     }
   }
 
+
+  // ==================== SECTION AH ====================
+  // ITEM 27 — every league matchup card carries the full state strip, not just the viewer's own.
+  // ITEM 28 — clicking an NFL game opens a real game view inside the GFFL: the field, the
+  //           play-by-play and the box scores, fed by the DEPLOYED sports function's existing
+  //           nfl_game action (netlify/functions/sports.mjs, untouched by this batch).
+  //
+  // PRE-FIX TOLERANT (sections AC/AG's lesson): item 28's hooks are all new, so a bare wait or a
+  // bare evaluate against HEAD would abort the run with one stack trace instead of the readable
+  // list a pre-fix verification exists to produce — hence waitOr/waitFnOr/evalOr throughout.
+  section("AH · item 27 every card gets the state strip · item 28 the NFL game view (field, play-by-play, box scores)");
+  {
+    // ---- AH1: the state strip is on EVERY card, and the viewer's own is still marked.
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false; fixture.nflGameDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const home = (await evalOr(page, () => {
+        const cards = [...document.querySelectorAll(".mucard")];
+        return {
+          cards: cards.length,
+          mine: document.querySelectorAll(".mucard.mine").length,
+          strips: cards.filter((c) => c.querySelector(".herorow")).length,
+          badges: cards.filter((c) => c.querySelector(".herobadge")).length,
+          bars: cards.filter((c) => c.querySelector(".wpbar.mini")).length,
+          fills: cards.filter((c) => c.querySelector(".wpbar.mini .wpfillmini")).length,
+          unknown: cards.filter((c) => c.querySelector(".wpbar.mini.unknown")).length,
+          badgeText: cards.map((c) => (c.querySelector(".herobadge") || {}).textContent || ""),
+          // Every strip must be genuinely VISIBLE, not merely in the DOM — the compact card is a
+          // 3-column grid and the hero's explicit `grid-row:3` would have parked the strip in an
+          // empty third row there (it is scoped under .mine for exactly that reason).
+          minH: Math.min(...cards.map((c) => { const r = c.querySelector(".herorow"); return r ? Math.round(r.getBoundingClientRect().height) : 0; })),
+          inside: cards.every((c) => { const r = c.querySelector(".herorow"); if (!r) return false;
+            const cb = c.getBoundingClientRect(), rb = r.getBoundingClientRect();
+            return rb.top >= cb.top - 1 && rb.bottom <= cb.bottom + 1; }),
+          widths: cards.map((c) => { const f = c.querySelector(".wpfillmini"); return f ? f.style.width : ""; }),
+          mineWidth: (document.querySelector(".mucard.mine .wpfillmini") || {}).style?.width || "",
+        };
+      })) || {};
+      ok(home.cards === 4, "the league home shows this week's 4 matchups (" + home.cards + ")");
+      ok(home.strips === 4, "ITEM 27: EVERY matchup card carries the state strip, not just the viewer's own (" + home.strips + "/" + home.cards + ")");
+      ok(home.badges === 4 && home.bars === 4, "…each strip carries BOTH the Live/Final/Upcoming badge and the win-probability bar (" + home.badges + " badges, " + home.bars + " bars)");
+      ok(home.mine === 1, "…and the viewer's own card is still marked .mine — 'this is your game' survives (" + home.mine + ")");
+      ok((home.badgeText || []).every((t) => /^(Live|Final|Upcoming)$/.test(String(t).trim())),
+        "every badge reads a real state, never blank — " + JSON.stringify(home.badgeText));
+      // Only teams 1 and 2 have rosters in this fixture, so the other three matchups have ZERO
+      // starters on both sides. "Nobody left to play" must NOT be read as Final there — that
+      // would be announcing a result for a game nobody has played. Found on the review plate,
+      // where all three read FINAL before the guard went in.
+      ok((home.badgeText || []).filter((t) => /Final/.test(String(t))).length === 0,
+        "a matchup with no roster data reads Upcoming, never Final — nothing has been played — " + JSON.stringify(home.badgeText));
+      ok((home.badgeText || []).some((t) => /Live/.test(String(t))),
+        "…while the matchup that DOES have players mid-game still reads Live");
+      ok(home.minH > 0 && home.inside === true,
+        "every strip is genuinely visible and inside its own card (shortest " + home.minH + "px) — the hero's grid-row:3 does not leak onto the compact cards");
+      // The bar has to be COMPUTED per game, and it must not CLAIM anything about a matchup it
+      // knows nothing about. Only teams 1 and 2 carry rosters here, so the viewer's own game has
+      // a real 41.0-vs-4.0 reading and the other three have literally nothing to weigh — those
+      // render an empty track rather than an even-money half-bar (found on the review plate:
+      // three identical bold accent half-bars reading like three real results).
+      ok(home.fills === 1 && home.unknown === 3,
+        "the win-prob bar only fills where there is something to weigh — " + home.fills + " filled, " + home.unknown + " honest empty tracks");
+      ok(home.mineWidth && home.mineWidth !== "50%", "…the viewer's own 41.0-vs-4.0 matchup does not read as an even-money 50% (" + home.mineWidth + ")");
+      ok(errors.length === 0, "0 page errors on the league home with the strip on every card");
+      await ctx.close();
+    }
+    // ---- AH1b: item 27 costs no backend read. Section P's own budget, aimed at this change.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#faSearch");
+      const before = (await evalOr(page, () => ({ ...window.__GFFL__.LG.db.stats }))) || {};
+      await evalOr(page, () => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      const after = (await evalOr(page, () => ({ ...window.__GFFL__.LG.db.stats }))) || {};
+      ok(after.gets === before.gets,
+        "ITEM 27 costs NO extra backend read — a second League render with the strip on all 4 cards still makes zero .get() calls (" + JSON.stringify({ before, after }) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AH2: tapping an NFL card opens the game view; back returns to Scores.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="scores"]');
+      await waitFnOr(page, () => document.body.textContent.includes("NFL this week"));
+      const cardIsButton = await evalOr(page, () => {
+        const c = document.querySelector(".sccard");
+        return c && { tag: c.tagName, eid: c.dataset.eid || "", label: c.getAttribute("aria-label") || "" };
+      });
+      ok(cardIsButton && cardIsButton.tag === "BUTTON" && /^\d+$/.test(cardIsButton.eid),
+        "ITEM 28: an NFL score card is a real focusable <button> carrying its own event id (" + JSON.stringify(cardIsButton) + ")");
+      ok(/^Open the .+ at .+ game$/.test((cardIsButton || {}).label || ""),
+        "…and it announces what it opens (" + (cardIsButton || {}).label + ")");
+      // PRE-EXISTING, found by sampling the review plate's pixels rather than by a test: the
+      // generic `.live { color:var(--accent) }` rule cascades into .sccard.live, so the LIVE
+      // game's abbrevs and scores rendered accent-red (measured rgb(213,10,10)) while the
+      // upcoming card's rendered ink (rgb(233,237,244)). Red is supposed to mean the live clock
+      // and an injury, not a whole card.
+      const cardInk = (await evalOr(page, () => {
+        const live = document.querySelector(".sccard.live"), up = [...document.querySelectorAll(".sccard")].find((c) => !c.classList.contains("live"));
+        const col = (root, sel) => { const e = root && root.querySelector(sel); return e ? getComputedStyle(e).color : ""; };
+        return { liveAb: col(live, ".scteam b"), livePts: col(live, ".scpts"), upAb: col(up, ".scteam b"),
+          state: col(live, ".scstate.live"), buttonBox: live ? getComputedStyle(live).textTransform : "" };
+      })) || {};
+      ok(cardInk.liveAb === cardInk.upAb && !/213, 10, 10/.test(cardInk.liveAb || ""),
+        "a LIVE card's team abbrev reads the same ink as an upcoming one — the whole card is not red (" + cardInk.liveAb + " vs " + cardInk.upAb + ")");
+      ok(!/213, 10, 10/.test(cardInk.livePts || ""), "…nor is its score (" + cardInk.livePts + ")");
+      ok(/213, 10, 10/.test(cardInk.state || ""), "…while the live CLOCK keeps the accent, which is the one thing that should have it (" + cardInk.state + ")");
+      ok(cardInk.buttonBox === "none", "…and the card being a <button> did not inherit the base button rule's uppercase");
+      ok(await clickIn(page, ".sccard.live"), "the live game's card is tappable");
+      await waitFnOr(page, () => document.querySelector("#nflBody .nflhead"));
+      const opened = (await evalOr(page, () => ({
+        view: window.__GFFL__.UI.view, hash: location.hash, id: window.__GFFL__.UI.nflGameId,
+        scoresLit: !!document.querySelector('.bnav button[data-v="scores"].on'),
+        head: (document.querySelector(".nflhead") || {}).textContent || "",
+      }))) || {};
+      ok(opened.view === "nflgame", "…tapping it routes to the game view (" + opened.view + ")");
+      ok(opened.hash === "#nflgame=401900001" && opened.id === "401900001",
+        "…the game rides in the hash, so a reload/share lands on the same game (" + opened.hash + ")");
+      ok(opened.scoresLit === true, "…and the Scores tab stays lit — the game view is a SUB-view of Scores, not a nav entry of its own");
+      ok(/DAL/.test(opened.head) && /PHI/.test(opened.head) && /10/.test(opened.head) && /14/.test(opened.head),
+        "…the header carries both teams and both scores (" + String(opened.head).replace(/\s+/g, " ").trim() + ")");
+      // A hash-carried sub-view must survive a real reload.
+      await page.reload({ waitUntil: "networkidle0" });
+      await waitFnOr(page, () => document.querySelector("#nflBody .nflhead"));
+      ok((await evalOr(page, () => window.__GFFL__.UI.view)) === "nflgame", "…and a full reload on that hash lands back inside the same game");
+      ok(await clickIn(page, "#nflBack"), "the game view has a Back control");
+      await waitFnOr(page, () => document.body.textContent.includes("NFL this week"));
+      const back = (await evalOr(page, () => ({ view: window.__GFFL__.UI.view, hash: location.hash, cards: document.querySelectorAll(".sccard").length }))) || {};
+      ok(back.view === "scores" && back.cards > 0, "…and Back returns to the SCORES tab, not the league home (" + back.view + ", " + back.cards + " cards)");
+      ok(back.hash === "#scores", "…clearing the game out of the hash, so a reload after backing out stays on Scores (" + back.hash + ")");
+      ok(errors.length === 0, "0 page errors through open → reload → back");
+      await ctx.close();
+    }
+
+    // ---- AH3: THE FIELD, hand-computed against the documented formula.
+    // The fixture puts PHI (home) 12 yards out with 4 to go. Home possession drives LEFT, so:
+    //   ball  pos = yardsToEndzone          = 12  ->  x = 83.33 + 12*8.3334 = 183.33
+    //   first pos = ballPos - distance      =  8  ->  x = 83.33 +  8*8.3334 = 150.00
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
+      await waitFnOr(page, () => document.querySelector(".nfldiag .nflball"));
+      const f = (await evalOr(page, () => {
+        const svg = document.querySelector(".nfldiag");
+        if (!svg) return null;
+        return {
+          ball: (svg.querySelector(".nflball") || {}).dataset?.x || "",
+          los: (svg.querySelector(".nfllos") || {}).getAttribute?.("x1") || "",
+          fd: (svg.querySelector(".nflfd") || {}).getAttribute?.("x1") || "",
+          leftArrow: /M 360 33/.test(svg.innerHTML),
+          rightArrow: /M 640 33/.test(svg.innerHTML),
+          vb: svg.getAttribute("viewBox"),
+          wide: Math.round(svg.getBoundingClientRect().width) > 200,
+        };
+      })) || {};
+      const EXP_BALL = (83.33 + 12 * 8.3334).toFixed(1);   // 183.3 — computed HERE, not read off the page
+      const EXP_FD = (83.33 + 8 * 8.3334).toFixed(1);      // 150.0
+      ok(f.vb === "0 0 1000 300", "the field is drawn on the documented 1000x300 viewBox (" + f.vb + ")");
+      ok(f.ball === EXP_BALL, "the ball sits at the hand-computed x for a home possession 12 yards out: " + EXP_BALL + " (got " + f.ball + ")");
+      ok(f.los === EXP_BALL, "…the line of scrimmage is drawn at the same x as the ball (" + f.los + ")");
+      ok(f.fd === EXP_FD, "…and the first-down line at ballPos-distance = 8 yards out: " + EXP_FD + " (got " + f.fd + ")");
+      ok(f.leftArrow === true && f.rightArrow === false, "…with the drive arrow pointing LEFT — the home team drives toward the away end zone");
+      ok(f.wide === true, "the field actually renders at a usable width on a 390px phone");
+      // The same maths from the other side, straight off the exposed helpers — an away
+      // possession 12 yards out is at field position 88, mirrored.
+      const mirror = (await evalOr(page, () => {
+        const U = window.__GFFL__.UI;
+        return { away: U._fieldPos("away", 12), home: U._fieldPos("home", 12),
+          awayFd: U._firstDownPos("away", 88, 4), homeFd: U._firstDownPos("home", 12, 4),
+          x: Number(U._fieldX(88).toFixed(1)) };
+      })) || {};
+      ok(mirror.away === 88 && mirror.home === 12, "away possession mirrors: 12 yards out is field position 88, home's is 12 (" + JSON.stringify(mirror) + ")");
+      ok(mirror.awayFd === 92 && mirror.homeFd === 8, "…and the first-down marker moves the opposite way for each side (away 92, home 8)");
+      ok(mirror.x === Number((83.33 + 88 * 8.3334).toFixed(1)), "…fieldX is the documented EZ + pos*PER_YD (" + mirror.x + ")");
+      ok(errors.length === 0, "0 page errors rendering the field");
+      await ctx.close();
+    }
+
+    // ---- AH4: play-by-play — the current drive NEWEST FIRST, then previous drives.
+    // The fixture sends plays chronologically (9-yard pass, 3-yard run, 49-yard bomb) and drives
+    // chronologically (Punt, Touchdown, Field Goal); sports.mjs's slimmer reverses `previous`,
+    // and the view reverses the current drive — so BOTH orderings are genuinely exercised.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
+      await waitFnOr(page, () => document.querySelectorAll(".nflplay").length > 0);
+      const pbp = (await evalOr(page, () => ({
+        plays: [...document.querySelectorAll(".nflplay .nfltext")].map((e) => e.textContent.trim()),
+        dd: [...document.querySelectorAll(".nflplay .nfldd")].map((e) => e.textContent.trim()),
+        drives: [...document.querySelectorAll(".nfldrv .nflres")].map((e) => e.textContent.trim()),
+        scored: [...document.querySelectorAll(".nfldrv .nflres.scored")].map((e) => e.textContent.trim()),
+        tags: [...document.querySelectorAll(".nfldrv .nfltag")].map((e) => e.textContent.trim()),
+        capped: (() => { const b = document.querySelector(".nflplays"); return b ? getComputedStyle(b).maxHeight !== "none" : false; })(),
+      }))) || {};
+      ok((pbp.plays || []).length === 3, "the current drive renders all three of its plays (" + (pbp.plays || []).length + ")");
+      ok(/49 yards/.test(pbp.plays[0] || "") && /9 yards/.test(pbp.plays[2] || ""),
+        "…NEWEST FIRST — the 49-yard bomb (last snap) leads, the opening 9-yarder is last — " + JSON.stringify(pbp.plays));
+      ok((pbp.dd || [])[0] === "1st & 10", "…each play carries its own down and distance (" + (pbp.dd || [])[0] + ")");
+      // textContent, so the CSS `text-transform:uppercase` on .nflres is NOT applied here —
+      // the upstream's own casing is what comes back.
+      ok((pbp.drives || []).join("|") === "Field Goal|Touchdown|Punt",
+        "previous drives render newest-first, as the slimmer hands them over — " + JSON.stringify(pbp.drives));
+      ok((pbp.scored || []).length === 2, "…and the two scoring drives are marked as such (" + (pbp.scored || []).length + ")");
+      ok((pbp.tags || []).join(",") === "DAL,PHI,DAL", "…each drive is attributed to the team that ran it (" + (pbp.tags || []).join(",") + ")");
+      ok(pbp.capped === true, "the current drive scrolls inside its own capped box — a long drive can't push the box score off the page");
+      ok(errors.length === 0, "0 page errors rendering the play-by-play");
+      await ctx.close();
+    }
+
+    // ---- AH5: box scores, both teams.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
+      await waitFnOr(page, () => document.querySelectorAll(".nflboxt").length > 0);
+      const box = (await evalOr(page, () => ({
+        groups: [...document.querySelectorAll(".nflboxt")].map((e) => e.textContent.trim()),
+        tables: document.querySelectorAll("table.nflbox").length,
+        passerRow: (() => {
+          const tr = [...document.querySelectorAll("table.nflbox tr")].find((r) => /Passer/.test(r.textContent));
+          return tr ? [...tr.children].map((c) => c.textContent.trim()).join("|") : "";
+        })(),
+        headers: (() => { const t = document.querySelector("table.nflbox"); return t ? [...t.querySelectorAll("th")].map((h) => h.textContent.trim()).join("|") : ""; })(),
+        // Team stat bars + win probability, same card.
+        bars: [...document.querySelectorAll(".nflsb .nflsbl span")].map((e) => e.textContent.trim()),
+        wp: (document.querySelector(".nflwpv b") || {}).textContent || "",
+      }))) || {};
+      ok((box.groups || []).some((g) => /^PHI PASSING$/.test(g)) && (box.groups || []).some((g) => /^DAL RUSHING$/.test(g)),
+        "box scores render for BOTH teams (" + JSON.stringify(box.groups) + ")");
+      ok((box.groups || []).some((g) => /^PHI RECEIVING$/.test(g)), "…including a second group for the same team");
+      ok(!(box.groups || []).some((g) => /KICKING/.test(g)), "…and only passing/rushing/receiving — the fixture's kicking group is deliberately not rendered");
+      ok(box.tables >= 3, "each group gets its own table (" + box.tables + ")");
+      ok(/P\. Passer\|12\/18\|175\|9\.7\|1\|1/.test(box.passerRow || ""), "a real athlete row carries its real line (" + box.passerRow + ")");
+      ok(/C\/ATT\|YDS\|AVG\|TD\|INT/.test(box.headers || ""), "…under the upstream's own column labels (" + box.headers + ")");
+      ok((box.bars || []).includes("Total Yards"), "team stat bars render off boxscore.teams — " + JSON.stringify(box.bars));
+      ok(/PHI 66%/.test(box.wp || ""), "win probability reads off the thinned series' last point (0.66 home) — " + box.wp);
+      ok(errors.length === 0, "0 page errors rendering the box score");
+      await ctx.close();
+    }
+
+    // ---- AH6: pre-game, live and final each render their own shape. What is ABSENT matters as
+    // much as what is present — a view that only looks right during a live game is the failure
+    // this check exists to prevent.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const shapeOf = async (id, wait) => {
+        await evalOr(page, (i) => window.__GFFL__.UI.openNflGame(i), id);
+        await waitFnOr(page, (w) => !!document.querySelector(w), wait);
+        return (await evalOr(page, () => ({
+          field: document.querySelectorAll(".nflfield").length,
+          plays: document.querySelectorAll(".nflplay").length,
+          drives: document.querySelectorAll(".nfldrv").length,
+          box: document.querySelectorAll("table.nflbox").length,
+          kick: document.querySelectorAll(".nflkick").length,
+          line: document.querySelectorAll("table.nflline").length,
+          chip: (document.querySelector("#nflChip") || {}).textContent || "",
+          text: (document.querySelector("#nflBody") || {}).textContent || "",
+          cards: document.querySelectorAll("#nflBody .card").length,
+        }))) || {};
+      };
+      const live = await shapeOf("401900001", ".nflfield");
+      ok(live.field === 1 && live.plays === 3 && live.box >= 3, "LIVE: the field, the play-by-play and the box score are all there");
+      ok(live.kick === 0, "…and no kickoff card — the game has already started");
+      ok(live.chip === "LIVE", "…the header chip says LIVE (" + live.chip + ")");
+
+      const pre = await shapeOf("401900002", ".nflkick");
+      ok(pre.kick === 1 && /Empower Field/.test(pre.text) && /DEN -3\.5/.test(pre.text),
+        "PRE-GAME: a kickoff card with when/where/line instead — " + String(pre.text).replace(/\s+/g, " ").slice(0, 120));
+      ok(pre.field === 0 && pre.plays === 0 && pre.drives === 0 && pre.box === 0,
+        "…and NO empty field, drive or box-score cards for a game that hasn't kicked off (" + JSON.stringify({ f: pre.field, p: pre.plays, d: pre.drives, b: pre.box }) + ")");
+      ok(pre.line === 0, "…no linescore either — there are no quarters to show yet");
+      ok(!/SHOULD NEVER RENDER/.test(pre.text), "…and the odds PROVIDER never leaks — the line is a display string only");
+      ok(pre.cards <= 2, "…so a pre-game view is two cards, not a stack of empty shells (" + pre.cards + ")");
+      // Two things the REVIEW PLATE caught on the pre-game shape, not a test: ESPN sends "0"
+      // for both sides before kickoff (two big zeroes are a lie about a game nobody has
+      // played), and the kickoff time was painted in .nflq's accent RED, which is the LIVE
+      // colour. Plus the venue appeared twice — once as the header chip, once as the card's
+      // own "Where" line.
+      const preHead = (await evalOr(page, () => {
+        const big = [...document.querySelectorAll(".nflbig")].map((e) => e.textContent.trim());
+        const q = document.querySelector(".nflmid .nflq");
+        return { big, qCls: q ? q.className : "", qRed: q ? /rgb\(213, 10, 10\)/.test(getComputedStyle(q).color) : null,
+          chip: (document.querySelector("#nflChip") || {}).textContent || "",
+          venueCount: (((document.querySelector("main") || {}).textContent || "").match(/Empower Field/g) || []).length };
+      })) || {};
+      ok((preHead.big || []).join("/") === "–/–", "…both scores read as a dash before kickoff, not two big zeroes (" + JSON.stringify(preHead.big) + ")");
+      ok(preHead.qRed === false, "…and the kickoff time is NOT painted in the live-red — a scheduled game must not read as in progress");
+      ok(preHead.chip.trim() === "" && preHead.venueCount === 1,
+        "…the venue is stated once, in the kickoff card — the header chip is LIVE/FINAL only (chip \"" + preHead.chip + "\", venue x" + preHead.venueCount + ")");
+
+      const post = await shapeOf("401900003", "table.nflline");
+      ok(post.chip === "FINAL", "FINAL: the header chip says FINAL (" + post.chip + ")");
+      ok(post.field === 0, "…no field — a finished game carries no live situation to draw");
+      ok(post.line === 1 && /27/.test(post.text) && /24/.test(post.text), "…a linescore with the final score (DAL 27, PHI 24)");
+      ok(post.drives === 3 && post.box >= 3, "…and the drives and box score are still there to read (" + post.drives + " drives, " + post.box + " tables)");
+      ok(post.kick === 0, "…and no kickoff card");
+      ok(errors.length === 0, "0 page errors across all three game states");
+      await ctx.close();
+    }
+
+    // ---- AH7: a failed fetch is honest, and the retry works.
+    {
+      fixture.nflGameDown = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
+      await waitFnOr(page, () => document.querySelector("#nflRetry"));
+      const bad = (await evalOr(page, () => ({
+        text: (document.querySelector("#nflBody") || {}).textContent || "",
+        retry: !!document.querySelector("#nflRetry"),
+        blank: ((document.querySelector("#nflBody") || {}).textContent || "").trim().length,
+        payload: window.__GFFL__.UI._nflGame,
+        poll: window.__GFFL__.UI._nflGamePoll != null,
+      }))) || {};
+      ok(bad.retry === true && /Game unavailable/.test(bad.text), "a failed nfl_game fetch shows an honest message, never a blank card — " + String(bad.text).replace(/\s+/g, " ").slice(0, 90));
+      ok(bad.payload && bad.payload.ok === false && /http-503/.test(String(bad.payload.reason)),
+        "…and it is the REAL sports.mjs handler's own failure reason, round-tripped through the function (" + (bad.payload || {}).reason + ")");
+      ok(bad.poll === false, "…nothing is left polling a game that could not be loaded");
+      ok(errors.length === 0, "…with no page error thrown");
+      fixture.nflGameDown = false;
+      ok(await clickIn(page, "#nflRetry"), "the retry button is live");
+      await waitFnOr(page, () => document.querySelector(".nflhead"));
+      const fixed = (await evalOr(page, () => ({ head: (document.querySelector(".nflhead") || {}).textContent || "", err: document.querySelectorAll("#nflRetry").length }))) || {};
+      ok(fixed.err === 0 && /PHI/.test(fixed.head), "…and retrying once the upstream is back renders the real game in place (" + String(fixed.head).replace(/\s+/g, " ").trim() + ")");
+      ok(errors.length === 0, "0 page errors through the failure and the recovery");
+      await ctx.close();
+    }
+
+    // ---- AH8: 390px — the page never scrolls sideways; the box-score table pans in its own box.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
+      await waitFnOr(page, () => document.querySelector("table.nflbox"));
+      const m = (await evalOr(page, () => {
+        const p = [...document.querySelectorAll(".nflboxcard .panner")];
+        const wide = p.find((x) => x.scrollWidth > x.clientWidth + 1) || p[0];
+        return {
+          body: document.body.scrollWidth, win: window.innerWidth,
+          panners: p.length,
+          pans: !!(wide && wide.scrollWidth > wide.clientWidth + 1),
+          overflowX: wide ? getComputedStyle(wide).overflowX : "",
+          fits: !!(wide && wide.getBoundingClientRect().width <= window.innerWidth + 1),
+        };
+      })) || {};
+      ok(m.body <= m.win + 1, "no sideways page scroll at 390px (" + m.body + "/" + m.win + ")");
+      ok(m.panners >= 3, "every box-score table sits in its own .panner (" + m.panners + ")");
+      ok(m.pans === true && m.overflowX === "auto", "…and that container really is the one panning, not the page (scrollWidth > clientWidth, overflow-x " + m.overflowX + ")");
+      ok(m.fits === true, "…the panner itself stays inside the viewport");
+      if (SHOTS) {
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_nflgame_390.png") });
+        console.log("  📸 shots/gffl_nflgame_390.png");
+        // The lower half is its own review problem (stat bars, box-score tables, scoring plays)
+        // and a viewport plate of the top never shows it. Scrolled, deliberately not fullPage —
+        // this repo has been bitten by fullPage disagreeing with sticky/fixed placement.
+        await page.evaluate(() => { const t = document.querySelector(".nflboxcard"); if (t) t.scrollIntoView({ block: "start" }); });
+        await new Promise((r) => setTimeout(r, 250));
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_nflgame_box_390.png") });
+        console.log("  📸 shots/gffl_nflgame_box_390.png");
+        await page.evaluate(() => window.scrollTo(0, 0));
+      }
+      // The pre-game shape gets its own plate — it is the one most easily shipped broken.
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900002"));
+      await waitFnOr(page, () => document.querySelector(".nflkick"));
+      const preScroll = (await evalOr(page, () => ({ b: document.body.scrollWidth, w: window.innerWidth }))) || {};
+      ok(preScroll.b <= preScroll.w + 1, "…and no sideways scroll on the pre-game shape either (" + preScroll.b + "/" + preScroll.w + ")");
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_nflgame_pre_390.png") }); console.log("  📸 shots/gffl_nflgame_pre_390.png"); }
+      ok(errors.length === 0, "0 page errors at 390px");
+      await ctx.close();
+    }
+
+    // ---- AH9: polling — armed for a live game, never for a finished one, gone when the view closes.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
+      await waitFnOr(page, () => document.querySelector(".nflhead"));
+      ok((await evalOr(page, () => window.__GFFL__.UI._nflGamePoll != null)) === true, "a live game arms a refresh timer");
+      await evalOr(page, () => window.__GFFL__.UI.show("scores"));
+      await waitFnOr(page, () => document.body.textContent.includes("NFL this week"));
+      ok((await evalOr(page, () => window.__GFFL__.UI._nflGamePoll == null)) === true, "…and it is cleared the instant the view is closed — a poll never outlives its view");
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900003"));
+      await waitFnOr(page, () => document.querySelector("table.nflline"));
+      ok((await evalOr(page, () => window.__GFFL__.UI._nflGamePoll == null)) === true, "a FINAL game is never polled — its payload cannot change again");
+      await evalOr(page, () => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      ok((await evalOr(page, () => window.__GFFL__.UI._nflGamePoll == null)) === true, "…still nothing armed after leaving for another tab");
+      ok(errors.length === 0, "0 page errors through the polling checks");
+      await ctx.close();
+    }
+
+    // ---- AH10: desktop.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
+      await waitFnOr(page, () => document.querySelector("table.nflbox"));
+      const d = (await evalOr(page, () => ({
+        body: document.body.scrollWidth, win: window.innerWidth,
+        strips: [...document.querySelectorAll(".mucard")].length,
+        field: Math.round((document.querySelector(".nfldiag") || { getBoundingClientRect: () => ({ width: 0 }) }).getBoundingClientRect().width),
+      }))) || {};
+      ok(d.body <= d.win + 1, "no sideways scroll at 1440px (" + d.body + "/" + d.win + ")");
+      ok(d.field > 400, "the field scales up on a wide screen (" + d.field + "px)");
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_nflgame_desktop.png") }); console.log("  📸 shots/gffl_nflgame_desktop.png"); }
+      ok(errors.length === 0, "0 page errors on desktop");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
-  srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close();
+  srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");
   console.log(`PASS ${pass} · FAIL ${fail}`);
   if (fail) { console.log("Failures:"); failures.forEach((f) => console.log("  - " + f)); process.exit(1); }
