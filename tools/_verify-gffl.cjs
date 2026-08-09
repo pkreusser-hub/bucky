@@ -967,6 +967,30 @@ function seedPending() {
   } };
 }
 
+// ---------------- section AF fixtures (2026-08-09, the per-device clock) ----------------
+// A 2025-REPLAY-ready store. Section AF has to run with the replay ON at its real speed (every
+// other section boots ?sim=0, where LG.now() IS Date.now() and the bug cannot exist), and it
+// must not spend its time in the guided auto-setup — simNeedsSetup() demands a schedule AND a
+// week-1 roster for EVERY team, so all eight get one. t3-t8 carry a single player each: enough
+// to be non-empty, which is all that check asks.
+function seedSim2025(extra) {
+  const docs = { ...seedTeams() };
+  docs["sched_2025"] = { kind: "sched", season: 2025, weeks: [[[1, 2], [3, 4], [5, 6], [7, 8]]] };
+  docs["roster_2025_w1_t1"] = { ...seedRosterT1(), teamId: 1 };
+  docs["roster_2025_w1_t2"] = { ...seedRosterT2(), teamId: 2 };
+  for (let i = 3; i <= 8; i++) {
+    docs["roster_2025_w1_t" + i] = { kind: "roster", week: 1, teamId: i,
+      players: [{ key: "9" + i + "0001", name: "Filler " + i, pos: "QB", team: "KC", slot: "QB" }] };
+  }
+  return { docs: { ...docs, ...(extra || {}) }, pass: "amenfarms", team: 1, who: "Peter" };
+}
+// Deliberately NOT bootPage(): that appends SIMOFF. This boots the replay at its default 8x.
+async function bootSim(page) {
+  await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "networkidle0" });
+  await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 15000 });
+  await page.waitForSelector(".mucard", { timeout: 25000 });
+}
+
 // ---------------- section AE chat fixtures (2026-08-09) ----------------
 // n user messages in one thread, oldest first, plus (optionally) a sys post and a user message
 // that REPLIES to it. Chat doc IDS are the message ids — lg-core stores no id inside the doc
@@ -2659,8 +2683,20 @@ async function openDetails(page, id) {
     const stillAccepted = await page2.evaluate((id) => window.__GFFL__.LG.loadTrade(id), tradeId);
     ok(stillAccepted.status === "accepted", "review window holds — reopening Moves before it ends does NOT execute");
 
-    await page2.evaluate((ts) => { window.__GFFL__.LG.nowOverride = ts; }, accepted.reviewEndsAt + 1000);
-    await page2.evaluate(() => window.__GFFL__.UI.renderMoves());
+    // RESTAGED 2026-08-09 (section AF): a trade's review window is judged in WALL time now, so
+    // LG.nowOverride — which only moves the league/replay clock — can no longer expire it. Age
+    // the deadline instead, which is what the passing of a real day amounts to.
+    await page2.evaluate(async (id) => {
+      const LG = window.__GFFL__.LG;
+      const doc = await LG.loadTrade(id, { fresh: true });
+      await LG.saveTrade({ ...doc, reviewEndsAt: Date.now() - 1000 });
+    }, tradeId);
+    // …and drive the very check renderMoves runs. Jumping nowOverride used to defeat the
+    // auto-check THROTTLE for free as a side effect; ageing a wall-time deadline does not.
+    await page2.evaluate(async () => {
+      await window.__GFFL__.UI.maybeAutoExecuteTrades();
+      await window.__GFFL__.UI.renderMoves();
+    });
     const executed = await page2.evaluate((id) => window.__GFFL__.LG.loadTrade(id), tradeId);
     ok(executed.status === "executed", "past the review window, opening Moves auto-executes the trade");
     const ros1 = await page2.evaluate(() => window.__GFFL__.LG.loadRoster(1, 1));
@@ -2930,9 +2966,10 @@ async function openDetails(page, id) {
       // Executed trade.
       const off = await LG.offerTrade(1, 2, ["4361741"], ["222333"], "");
       const acc = await LG.acceptTrade(off.trade.id, 2);
-      LG.nowOverride = acc.reviewEndsAt + 1000;
+      // RESTAGED 2026-08-09 (section AF): the review window is wall time, so age the deadline
+      // rather than the league clock (nowOverride no longer reaches it).
+      await LG.saveTrade({ ...acc, reviewEndsAt: Date.now() - 1000 });
       await LG.executeTrade(off.trade.id);
-      LG.nowOverride = null;
       // Vetoed trade.
       const off2 = await LG.offerTrade(1, 2, ["111777"], ["dst_DAL"], "");
       await LG.acceptTrade(off2.trade.id, 2);
@@ -6079,10 +6116,16 @@ async function openDetails(page, id) {
       await page.waitForFunction(() => document.querySelector(".mutable"), { timeout: 15000 });
       const mu = await page.evaluate(() => {
         const row = [...document.querySelectorAll(".pcellgrid")].find((e) => /P\. Passer/.test(e.textContent));
-        return { row: row ? row.textContent.replace(/\s+/g, " ").trim() : null, head: document.body.textContent };
+        return { row: row ? row.textContent.replace(/\s+/g, " ").trim() : null,
+          headProj: [...document.querySelectorAll(".muhead .muhproj")].map((e) => e.textContent.trim()) };
       });
       ok(mu.row && /10\.0/.test(mu.row), "…the matchup row shows it (" + mu.row + ")");
-      ok(/Proj/.test(mu.head), "…and the header carries a projected total");
+      // RESTAGED 2026-08-09 (item 18). This read /Proj/ off document.body.textContent and had
+      // been passing on the replay BANNER's "Projections are estimates." — never on the header
+      // at all. The header's projection is a bare number in .muhproj (item E of the ESPN
+      // rebuild), so that is what it now reads.
+      ok(mu.headProj.length === 2 && mu.headProj.every((t) => /^\d+(\.\d)?$/.test(t)),
+        "…and the header carries a projected total for each side (" + JSON.stringify(mu.headProj) + ")");
       const wp = await page.evaluate(() => {
         const el = document.querySelector(".wpfill") || document.querySelector("[class*=wp]");
         return !!el;
@@ -6146,35 +6189,90 @@ async function openDetails(page, id) {
       await ctx.close();
     }
 
-    // ---- X5: the banner, both widths, no overlap.
-    // RESTAGED 2026-08-08: the copy now names the PHASE and states that the clock is running,
-    // so a reader can never mistake the replay for the live season OR wonder why the clock is
-    // moving faster than theirs. Booted on the shipping default (live, 8x) — the `pre` wording
-    // and the paused wording are both covered in X8.
+    // ---- X5: the banner is GONE, and nothing it was quietly doing went with it.
+    // RESTAGED 2026-08-09 (item 18, user: "lets also get rid of the yellow banner, I know we
+    // are in a test environment dont need that reminder"). This section used to assert the
+    // strip's presence, its exact copy at both widths and its non-overlap with the header and
+    // the nav. It is now the inverse — plus the two things that strip was carrying that its
+    // text never advertised:
+    //   · its paint function WARMED the replay's projection cache on every view change, which
+    //     is why projections resolved on a screen reached before any matchup/moves/locker page
+    //     had been opened. Deleting the function with the strip would have taken that with it.
+    //   · the offline chip MEASURED its own sticky top off the banner's height, so it must now
+    //     sit directly under the header with no stale gap where the strip used to be.
+    // The projections-are-estimates note is gone with it, deliberately and at the user's
+    // request — it must NOT have been reinvented anywhere else.
     for (const vw of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
       const { ctx, page, errors } = await newTestPage(browser, { docs: simDocsAfterSetup, pass: "amenfarms", team: 1, who: "Peter" }, { vw });
       await bootSim(page);
       await page.waitForSelector(".mucard", { timeout: 20000 });
       const b = await page.evaluate(() => {
-        const el = document.getElementById("simBanner");
-        if (!el || el.hidden) return null;
-        const r = el.getBoundingClientRect();
         const hr = document.querySelector("header").getBoundingClientRect();
-        const nv = document.getElementById("bnav").getBoundingClientRect();
-        return {
-          text: el.textContent.trim(), top: r.top, bottom: r.bottom, w: r.width,
-          overHeader: r.top < hr.bottom - 0.5, overNav: r.bottom > nv.top + 0.5 && r.top < nv.bottom,
-          vw: window.innerWidth,
-        };
+        const main = document.querySelector("main").getBoundingClientRect();
+        const navEl = document.getElementById("bnav");
+        const nv = navEl.getBoundingClientRect();
+        const txt = document.body.textContent;
+        // The nav is a sticky TOP strip on desktop and a fixed BOTTOM bar on mobile, so what
+        // sits directly above main differs by width — measure against whichever it is, or a
+        // desktop run reads the nav's own height as a stale gap.
+        const navTop = getComputedStyle(navEl).position === "sticky";
+        const stackBottom = navTop ? Math.max(hr.bottom, nv.bottom) : hr.bottom;
+        return { el: !!document.getElementById("simBanner"),
+          replayCopy: /2025 SEASON REPLAY/i.test(txt), estimates: /Projections are estimates/i.test(txt),
+          clockCopy: /clock runs \d+x/i.test(txt), navIsTopStrip: navTop,
+          belowNav: navTop ? main.top >= nv.bottom - 1 : main.top < nv.top,
+          gap: Math.round(main.top - stackBottom), vw: window.innerWidth };
       });
-      ok(!!b, "the replay banner is present at " + vw.width + "px");
-      ok(b && /2025 SEASON REPLAY/.test(b.text) && /Week 1, Sunday afternoon · games in progress/.test(b.text)
-        && /Projections are estimates/.test(b.text), "…with the agreed copy (" + (b ? b.text : "") + ")");
-      ok(b && /clock runs 8x real time/.test(b.text), "…saying plainly that the clock is accelerated");
-      ok(b && !/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(b.text), "…and no emoji, per the app-chrome rule");
-      ok(b && !b.overHeader, "…it clears the header at " + vw.width + "px");
-      ok(b && !b.overNav, "…and never collides with the nav at " + vw.width + "px");
+      ok(!b.el, "the replay banner element is gone from the page at " + vw.width + "px");
+      ok(!b.replayCopy && !b.clockCopy, "…and none of its copy survives anywhere on screen at " + vw.width + "px");
+      ok(!b.estimates, "…including the projections-are-estimates note, which the user accepted losing");
+      // No stale offset where it used to sit: content starts right under the header.
+      ok(b.gap >= 0 && b.gap <= 26,
+        "…and nothing is left holding its space — content starts " + b.gap + "px under the header at " + vw.width + "px");
+      ok(b.belowNav, "…and no overlap with the nav, whichever side of the page it is on at this width (top strip: " + b.navIsTopStrip + ")");
+      // The offline chip used to add the banner's height to its own sticky top.
+      const chip = await page.evaluate(() => {
+        window.__GFFL__.LG.mirrorOffline = true;
+        window.__GFFL__.UI._syncOfflineChip();
+        const el = document.getElementById("offlineChip");
+        const top = getComputedStyle(el).top;
+        window.__GFFL__.LG.mirrorOffline = false;
+        window.__GFFL__.UI._syncOfflineChip();
+        return { top, expected: (window.innerWidth >= 1024 ? 46 : 52) + "px" };
+      });
+      ok(chip.top === chip.expected,
+        "…and the offline chip sits directly under the header again, not offset by a strip that no longer exists (" + chip.top + " vs " + chip.expected + ")");
+      // THE REPLAY ITSELF IS UNCHANGED — only the strip went.
+      const still = await page.evaluate(() => {
+        const { LG, D } = window.__GFFL__;
+        return { sim: LG.SIM_2025, season: LG.SEASON, week: LG.currentWeek(), speed: LG.SIM_SPEED,
+          moving: LG.now() - LG.SIM_NOW, games: D.S.games.size, proj: !!D.S.simProj };
+      });
+      ok(still.sim === true && still.season === 2025 && still.week === 1,
+        "the replay still runs — season " + still.season + ", week " + still.week + " (" + vw.width + "px)");
+      ok(still.speed > 0 && still.moving >= 0 && still.games > 0,
+        "…its clock and its slate are untouched (" + still.games + " games on the board)");
+      if (SHOTS) {
+        fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true });
+        const nm = "gffl_replay_nobanner_" + (vw.width === 390 ? "390" : "desktop") + ".png";
+        await page.screenshot({ path: path.join(ROOT, "shots", nm) });
+        console.log("  📸 shots/" + nm);
+      }
       ok(errors.length === 0, "0 page errors at " + vw.width + "px");
+      await ctx.close();
+    }
+    // The projection warm the banner used to trigger must still happen on a view the reader
+    // reaches without ever opening matchup/moves/locker.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, { docs: simDocsAfterSetup, pass: "amenfarms", team: 1, who: "Peter" });
+      await bootSim(page);
+      await page.waitForSelector(".mucard", { timeout: 20000 });
+      const warmed = await page.waitForFunction(() => !!window.__GFFL__.D.S.simProj, { timeout: 20000 })
+        .then(() => true).catch(() => false);
+      ok(warmed, "the replay's projections still warm themselves with no banner to trigger it — the cache survived the strip");
+      const src = await page.evaluate(() => window.__GFFL__.D.S.simProj.source);
+      ok(src === "actual" || src === "projection", "…and resolve to a real source (" + src + ")");
+      ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
 
@@ -6261,14 +6359,18 @@ async function openDetails(page, id) {
         const LG = window.__GFFL__.LG;
         return {
           phase: LG.SIM_PHASE, iso: new Date(LG.SIM_NOW).toISOString(), week: LG.currentWeek(),
-          banner: (document.getElementById("simBanner") || {}).textContent || "",
+          bannerGone: !document.getElementById("simBanner"),
+          label: (LG.SIM_PHASES[LG.SIM_PHASE] || {}).label || "",
           stored: Object.keys(localStorage).filter((k) => /simphase/i.test(k)),
         };
       });
       ok(st.phase === "pre" && st.iso === "2025-09-04T14:00:00.000Z",
         "?simphase=pre reverts to the Thursday-morning instant (" + st.iso + ")");
       ok(st.week === 1, "…still week 1 (" + st.week + ")");
-      ok(/Week 1, before kickoff/.test(st.banner), "…and the banner says so (" + st.banner + ")");
+      // RESTAGED 2026-08-09 (item 18): the phase used to be asserted through the banner's copy.
+      // The banner is gone, so the phase is read where it actually lives.
+      ok(st.bannerGone && /before kickoff/.test(st.label),
+        "…and the phase's own label still says so, with no banner left to print it (" + st.label + ")");
       ok(st.stored.length === 0, "…the URL override persists NOTHING — a shared link can't strand a device");
       ok(errors.length === 0, "0 page errors on the pre-phase override");
       await ctx.close();
@@ -6373,11 +6475,13 @@ async function openDetails(page, id) {
         const LG = window.__GFFL__.LG;
         const a = LG.now();
         await new Promise((r) => setTimeout(r, 600));
-        return { a, b: LG.now(), at: LG.SIM_NOW, speed: LG.SIM_SPEED, banner: (document.getElementById("simBanner") || {}).textContent || "" };
+        return { a, b: LG.now(), at: LG.SIM_NOW, speed: LG.SIM_SPEED, bannerGone: !document.getElementById("simBanner") };
       });
       ok(frozen.speed === 0 && frozen.a === frozen.at && frozen.b === frozen.at,
         "SIM_SPEED 0 freezes the clock dead on the phase instant — the deterministic mode");
-      ok(/clock is paused/.test(frozen.banner), "…and the banner says paused rather than claiming a speed (" + frozen.banner + ")");
+      // RESTAGED 2026-08-09 (item 18): "the banner says paused" was the old way to see this;
+      // the clock being provably frozen above IS the property, and there is no strip to print it.
+      ok(frozen.bannerGone, "…with no banner left to claim a speed either way");
       ok(errors.length === 0, "0 page errors with the clock frozen");
       await ctx.close();
     }
@@ -7054,24 +7158,25 @@ async function openDetails(page, id) {
       const { ctx, page, errors } = await newTestPage(browser, mirrorSeed({ stampAt: Date.now() - 2 * 3600000 }), { vw: { width: 1440, height: 900 } });
       await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
       ok(await waitOr(page, ".mucard", 20000), "desktop: offline with a mirror still renders the league");
-      // The chip's own top offset is MEASURED off the replay banner rather than hard-coded, so
-      // the two sticky strips can never pin to the same top and overlap. Exercised by showing
-      // the banner and re-syncing — the whole replay season isn't needed to test one offset.
+      // RESTAGED 2026-08-09 (item 18): the chip's top used to be MEASURED off the replay
+      // banner, because the two sticky strips would otherwise pin to the same top and overlap.
+      // With the banner gone the chip sits directly under the header, which is what this now
+      // checks — including that nothing is holding the strip's old space.
       const geo = await page.evaluate(() => {
-        const b = document.querySelector("#simBanner");
-        b.hidden = false; b.textContent = "2025 SEASON REPLAY — Week 1, before kickoff.";
         window.__GFFL__.UI._syncOfflineChip();
         const c = document.querySelector("#offlineChip");
-        const cr = c.getBoundingClientRect(), br = b.getBoundingClientRect();
-        return { hidden: c.hidden, text: c.textContent, cTop: cr.top, cBot: cr.bottom, bBot: br.bottom, w: cr.width };
+        const cr = c.getBoundingClientRect();
+        const hr = document.querySelector("header").getBoundingClientRect();
+        return { hidden: c.hidden, text: c.textContent, cTop: cr.top, w: cr.width,
+          headerBottom: hr.bottom, cssTop: getComputedStyle(c).top, noBanner: !document.querySelector("#simBanner") };
       });
       ok(geo.hidden === false && geo.w > 400, "…the chip spans the page");
       ok(!(await page.evaluate(() => { const t = document.querySelector("#toast"); return t && !t.hidden; })),
         "…and no toast: opening the app is not a mutation");
       ok(/2 hours ago/.test(geo.text), "…and reads the mirror's age in hours once it's hours old (\"" + geo.text.trim() + "\")");
-      ok(geo.bBot === null || geo.cTop >= geo.bBot - 1, "…sitting BELOW the replay banner, not on top of it (chip " + Math.round(geo.cTop) + " vs banner bottom " + Math.round(geo.bBot) + ")");
+      ok(geo.noBanner && geo.cssTop === "46px",
+        "…sitting directly under the desktop header, with no gap left where the replay banner used to be (" + geo.cssTop + ")");
       if (SHOTS) {
-        await page.evaluate(() => { document.querySelector("#simBanner").hidden = true; window.__GFFL__.UI._syncOfflineChip(); });
         await page.screenshot({ path: path.join(ROOT, "shots", "gffl_rest_offline_desktop.png") });
         console.log("  📸 shots/gffl_rest_offline_desktop.png");
       }
@@ -8709,6 +8814,191 @@ async function openDetails(page, id) {
         console.log("  📸 shots/" + name + ".png");
         await ctx.close();
       }
+    }
+  }
+
+
+  // ================================================================================
+  //  AF · ONE CLOCK PER JOB — persisted stamps are WALL time (2026-08-09)
+  // ================================================================================
+  // User, verbatim: "I did a total hard refresh on desktop and deleted all messages and then
+  // did 4 messages in a row and they came in correct, then I went to mobile and added a
+  // message and it went on TOP of those, instead of the bottom, so we clearly aren't sorting
+  // by time received."
+  //
+  // LG.SIM_LOADED_AT is stamped when a TAB loads, so the replay clock restarts at the phase
+  // instant on every page load and then runs at 8x only for as long as that tab has been open.
+  // A desktop open 20 minutes is ~160 sim-minutes ahead of a phone that just opened the page —
+  // and postChat stamped its `t` with LG.now(), which loadChat SORTS on. The phone's newest
+  // message therefore carried the OLDEST timestamp on the board.
+  //
+  // WHY THE EXISTING SUITE COULD NOT CATCH THIS: every other section runs in ONE page, where a
+  // per-page-load clock never varies, so the bug is structurally invisible. Every check below
+  // therefore SIMULATES A SECOND DEVICE by rewriting LG.SIM_LOADED_AT — which is exactly what
+  // a fresh page load does — and runs with the REPLAY ON at its real speed (every other
+  // section boots ?sim=0, where LG.now() IS Date.now() and there is nothing to get wrong).
+  section("AF · the replay clock is per-device: persisted stamps must be wall time");
+  {
+    const MIN = 60000;
+    // A device that has had the page open for `openedMinsAgo` real minutes.
+    const asDevice = (page, openedMinsAgo) => page.evaluate((m) => {
+      window.__GFFL__.LG.SIM_LOADED_AT = Date.now() - m * 60000;
+      return { simNow: window.__GFFL__.LG.now(), simStart: window.__GFFL__.LG.SIM_NOW };
+    }, openedMinsAgo);
+
+    // ---- AF1: two devices, one conversation. The whole reported bug.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, seedSim2025());
+      await bootSim(page);
+      await clickIn(page, '.bnav button[data-v="chat"]');
+      await page.waitForSelector("#chatList", { timeout: 9000 });
+
+      // The replay really is on and really is moving — otherwise this whole section is testing
+      // the ?sim=0 path by accident and proves nothing.
+      const clock = await page.evaluate(() => ({ sim: window.__GFFL__.LG.SIM_2025, speed: window.__GFFL__.LG.SIM_SPEED }));
+      ok(clock.sim === true && clock.speed > 0, "this section runs with the 2025 replay ON at speed " + clock.speed + " — the only configuration the bug exists in");
+
+      const d1 = await asDevice(page, 20);   // "desktop, open 20 minutes" -> +160 sim-minutes
+      ok(d1.simNow - d1.simStart > 150 * MIN,
+        "a device open 20 minutes reads a league clock ~160 sim-minutes past the phase start (" + Math.round((d1.simNow - d1.simStart) / MIN) + " min)");
+      await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "first, from the desktop" }));
+      const d2 = await asDevice(page, 0);    // "phone, just opened" -> back at the phase start
+      ok(d2.simNow - d2.simStart < 5 * MIN,
+        "…while a freshly-loaded one is back at the phase start — the two devices disagree by " + Math.round((d1.simNow - d2.simNow) / MIN) + " sim-minutes");
+      await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "second, from the phone" }));
+      await page.evaluate(() => window.__GFFL__.UI.refreshChatList("chat", null));
+      await sleep(200);
+
+      const order = await page.evaluate(async () => {
+        const msgs = await window.__GFFL__.LG.loadChat(null);
+        const rows = [...document.querySelectorAll("#chatList .chatRowMsg")].map((r) => r.textContent);
+        const idx = (frag) => rows.findIndex((t) => t.includes(frag));
+        const at = (frag) => (msgs.find((m) => (m.text || "").includes(frag)) || {}).t;
+        return { stored: msgs.map((m) => m.text), first: at("desktop"), second: at("phone"),
+          domFirst: idx("desktop"), domSecond: idx("phone"), now: Date.now(),
+          simNow: window.__GFFL__.LG.SIM_NOW };
+      });
+      ok(order.second > order.first,
+        "the phone's message is stamped AFTER the desktop's, though the phone's replay clock reads far earlier (" + (order.second - order.first) + "ms apart)");
+      ok(order.domSecond > order.domFirst && order.domFirst >= 0,
+        "…and it renders BELOW it, not on top — the reported symptom (DOM rows " + order.domFirst + " then " + order.domSecond + ")");
+      // THE GUARD, so this class cannot come back: the stored stamp is real-world time, and is
+      // nowhere near the replay's own instant.
+      ok(Math.abs(order.first - order.now) < 10000 && Math.abs(order.second - order.now) < 10000,
+        "every stored chat stamp is within seconds of real Date.now() (" + (order.now - order.first) + "ms / " + (order.now - order.second) + "ms ago)");
+      ok(Math.abs(order.first - order.simNow) > 300 * 24 * 3600 * 1000,
+        "…and nowhere near LG.SIM_NOW, even with the replay running (" + Math.round((order.first - order.simNow) / 86400000) + " days apart)");
+
+      // The ordering must not merely happen to work in one direction. Now make the third
+      // "device" look like it has been open FAR LONGER than either — pre-fix that would push
+      // its stamp far into the future and it would sort last for the wrong reason; the point
+      // is that the direction of SIM_LOADED_AT no longer influences the order at all.
+      await asDevice(page, 90);
+      await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "third, from a long-open tab" }));
+      await asDevice(page, 0);
+      await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "fourth, from another fresh tab" }));
+      await page.evaluate(() => window.__GFFL__.UI.refreshChatList("chat", null));
+      await sleep(200);
+      const four = await page.evaluate(() => [...document.querySelectorAll("#chatList .chatRowMsg")]
+        .map((r) => (r.textContent.match(/(first|second|third|fourth)/) || [])[1]).filter(Boolean));
+      ok(four.join(">") === "first>second>third>fourth",
+        "four messages from devices with wildly different clocks read in true posting order, both directions (" + four.join(" > ") + ")");
+
+      // The matchup page's trash-talk thread is the same widget on a different surface.
+      await asDevice(page, 40);
+      await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "thread A", thread: "w1_1-2" }));
+      await asDevice(page, 0);
+      await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "thread B", thread: "w1_1-2" }));
+      await page.evaluate(() => { window.__GFFL__.UI.matchup = [1, 2]; return window.__GFFL__.UI.show("matchup"); });
+      await page.waitForSelector("#muThreadList .chatRowMsg", { timeout: 12000 });
+      const th = await page.evaluate(() => [...document.querySelectorAll("#muThreadList .chatRowMsg")]
+        .map((r) => (r.textContent.match(/thread (A|B)/) || [])[1]).filter(Boolean));
+      ok(th.join(">") === "A>B", "…and so does the matchup thread (" + th.join(" > ") + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AF2: MIGRATION. Messages already in the family's store carry sim stamps.
+    {
+      // The reasoning to confirm rather than trust: a sim stamp is a FIXED 2025 instant
+      // (~1.757e12) and a wall stamp is now (~1.786e12), so every legacy message sorts before
+      // every new one — which is the true chronology, so nothing needs normalising. Seeded
+      // here as a real mixed history rather than asserted in prose.
+      const legacyA = Date.parse("2025-09-07T19:02:00Z");
+      const legacyB = Date.parse("2025-09-07T21:40:00Z");
+      const { ctx, page, errors } = await newTestPage(browser, seedSim2025({
+        chat_legA: { kind: "chat", teamId: 1, who: "Peter", text: "legacy one", t: legacyA, thread: null, reactions: {} },
+        chat_legB: { kind: "chat", teamId: 1, who: "Peter", text: "legacy two", t: legacyB, thread: null, reactions: {} },
+        chat_newC: { kind: "chat", teamId: 2, who: "Sam", text: "already migrated", t: Date.now() - 60000, thread: null, reactions: {} },
+      }));
+      await bootSim(page);
+      await clickIn(page, '.bnav button[data-v="chat"]');
+      await page.waitForSelector("#chatList .chatRowMsg", { timeout: 9000 });
+      await asDevice(page, 25);
+      await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "posted right now" }));
+      await page.evaluate(() => window.__GFFL__.UI.refreshChatList("chat", null));
+      await sleep(200);
+      const mixed = await page.evaluate(() => [...document.querySelectorAll("#chatList .chatRowMsg")]
+        .map((r) => (r.textContent.match(/legacy one|legacy two|already migrated|posted right now/) || [])[0]).filter(Boolean));
+      ok(mixed.join(" > ") === "legacy one > legacy two > already migrated > posted right now",
+        "a MIXED history of sim-stamped and wall-stamped messages still reads in true chronological order — no migration needed (" + mixed.join(" > ") + ")");
+      const gap = await page.evaluate(() => Date.now() - Date.parse("2025-09-07T21:40:00Z"));
+      ok(gap > 0, "…because a replay stamp is a fixed 2025 instant and always sorts before real time (" + Math.round(gap / 86400000) + " days)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AF3: a trade's review window is judged the same on every device.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, seedSim2025());
+      await bootSim(page);
+      // Accept from a FRESHLY loaded device…
+      await asDevice(page, 0);
+      const acc = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        // A 12-hour review, because the replay clock is CLAMPED ~33 sim-hours past the phase
+        // start (it may never roll into week 2) — with the default 48 no device could out-run
+        // the window in season time and the pre-fix failure would be unreachable. 12h is a
+        // legal setting; what is under test is which CLOCK judges it, not its length.
+        LG.rules.trades.reviewHours = 12;
+        const off = await LG.offerTrade(2, 1, ["222333"], ["3915511"], "");
+        const a = await LG.acceptTrade(off.trade.id, 1);
+        return { id: off.trade.id, offeredAt: off.trade.t, acceptedAt: a.acceptedAt, endsAt: a.reviewEndsAt,
+          now: Date.now(), reviewH: LG.rules.trades.reviewHours };
+      });
+      ok(Math.abs(acc.acceptedAt - acc.now) < 10000 && Math.abs(acc.offeredAt - acc.now) < 10000,
+        "a trade's offered/accepted stamps are real-world time (" + (acc.now - acc.offeredAt) + "ms / " + (acc.now - acc.acceptedAt) + "ms ago)");
+      ok(acc.endsAt - acc.acceptedAt === acc.reviewH * 3600 * 1000,
+        "…and its review window is the league's own " + acc.reviewH + " REAL hours from acceptance (" + Math.round((acc.endsAt - acc.acceptedAt) / 3600000) + "h)");
+      // …then ask a device that has had the page open long enough for the REPLAY clock to have
+      // run past 24 SIM hours (24h / 8x = 3 real hours). Pre-fix that device executed the trade
+      // out from under the one that accepted it seconds earlier.
+      const longOpen = await page.evaluate(async (id) => {
+        const { LG, UI } = window.__GFFL__;
+        LG.SIM_LOADED_AT = Date.now() - 7 * 3600 * 1000; // 7 real hours x8 = 56 sim hours, past a 48h window
+        const simAhead = LG.now() - LG.SIM_NOW;
+        await UI.maybeAutoExecuteTrades();
+        const doc = await LG.db.getFresh("trade_" + id.split("_")[1] + "_" + id.split("_")[2]);
+        return { simAheadH: Math.round(simAhead / 3600000), status: (doc || {}).status };
+      }, acc.id);
+      ok(longOpen.simAheadH >= acc.reviewH,
+        "a long-open device's replay clock really is past the " + acc.reviewH + "-hour mark in SEASON time (" + longOpen.simAheadH + "h ahead)");
+      ok(longOpen.status === "accepted",
+        "…yet it does NOT execute the trade — the review window is a real-world day, judged identically on every device (" + longOpen.status + ")");
+      // And when the real day HAS passed, any device executes it, whatever its replay clock.
+      const expired = await page.evaluate(async (id) => {
+        const { LG, UI } = window.__GFFL__;
+        const doc = await LG.loadTrade(id, { fresh: true });
+        await LG.saveTrade({ ...doc, reviewEndsAt: Date.now() - 1000 });
+        LG.SIM_LOADED_AT = Date.now(); // a freshly-loaded device, replay clock at the phase start
+        await UI.maybeAutoExecuteTrades();
+        const after = await LG.loadTrade(id, { fresh: true });
+        return after.status;
+      }, acc.id);
+      ok(expired === "executed",
+        "…and once the real 24 hours are up, a freshly-loaded device executes it just the same (" + expired + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
     }
   }
 

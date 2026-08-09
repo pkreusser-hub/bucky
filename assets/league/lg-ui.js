@@ -117,12 +117,11 @@
     if (!LG.mirrorOffline) { el.hidden = true; return; }
     const at = LG.mirrorStampAt();
     el.hidden = false;
-    // Both strips are sticky under the header, so the chip's own offset is MEASURED off the
-    // replay banner rather than hard-coded — the two would otherwise pin to the same top and
-    // overlap the moment the page scrolls (the house's --fs-topbar-h / --subnav-top pattern).
-    const sb = $("#simBanner");
-    const base = window.innerWidth >= 1024 ? 46 : 52;
-    el.style.top = (base + (sb && !sb.hidden ? sb.offsetHeight : 0)) + "px";
+    // ITEM 18 (2026-08-09): this used to add the replay banner's measured height, because the
+    // two strips were both sticky under the header and would otherwise pin to the same top and
+    // overlap on scroll. The banner is gone, so the chip sits directly under the header again —
+    // no stale gap left where the strip used to be.
+    el.style.top = (window.innerWidth >= 1024 ? 46 : 52) + "px";
     el.textContent = "Offline — showing this device's saved copy" +
       (at ? " (from " + agoWords(Date.now() - at) + ")" : "") + " · reconnecting…";
   }
@@ -304,7 +303,7 @@
   UI.simNeedsSetup = simNeedsSetup; // test hook
   function renderSimSetup() {
     hideBnav();
-    syncSimBanner();
+    simWarmProjections();
     syncOfflineChip();
     if (main()) main().dataset.view = "simsetup";
     main().innerHTML = `<div class="card center">
@@ -407,7 +406,7 @@
     // WHAT IS ACTUALLY PAINTED, not UI.view. UI.view defaults to "league" at module load and
     // is only ever written by UI.show — so on the gate, the claim screen, the setup card or
     // the outage card (none of which go through UI.show) it still reads "league", and
-    // syncSimBanner()'s own warm call would repaint the LEAGUE HOME over them the moment
+    // simWarmProjections()'s own warm call would repaint the LEAGUE HOME over them the moment
     // projections landed: a brand-new owner was bounced off the claim screen into a league
     // they hadn't picked a team in, and a setup-failure card was wiped before it could be
     // read. main().dataset.view is stamped by every one of those screens, so it is the honest
@@ -613,7 +612,7 @@
   // hidden by CSS below 1024px, so this is pure decoration on mobile. Reads
   // UI.week/LG.rules/LG.myTeamId, none of which this function ever writes.
   function paintHeader() {
-    syncSimBanner();
+    simWarmProjections();
     syncOfflineChip();
     const meta = $("#hMeta");
     if (!meta || !LG.rules) return;
@@ -628,24 +627,18 @@
     av.innerHTML = T.logo ? `<img src="${esc(T.logo)}" alt="">` : esc(initials(T.name));
     av.title = T.name || "";
   }
-  // 2025 SEASON REPLAY banner — persistent, so nobody mistakes the replay for the live 2026
-  // season. Called from paintHeader() (which runs on every UI.show(), i.e. every real view plus
-  // the gate/claim/setup screens that call it directly), so it is always in sync, including
-  // mid-setup before UI.week is meaningful.
-  function syncSimBanner() {
-    const el = $("#simBanner");
-    if (!el) return;
-    if (!LG.SIM_2025) { el.hidden = true; return; }
-    el.hidden = false;
-    // Projections honesty: warmed here (idempotent, loop-safe) so the banner is self-sufficient
-    // — it reads correctly on its own even before any matchup/moves/locker page is visited.
-    simProjEnsureAndRepaint(UI.view);
-    // Honest about all three things a reader could otherwise get wrong: which season this is,
-    // which moment of week 1 they opened on, and that the clock is running faster than theirs.
-    const ph = LG.SIM_PHASES[LG.SIM_PHASE] || LG.SIM_PHASES.pre;
-    const sp = Number(LG.SIM_SPEED) || 0;
-    const clock = sp <= 0 ? "The clock is paused." : "The clock runs " + sp + "x real time.";
-    el.textContent = "2025 SEASON REPLAY — " + ph.banner + ". " + clock + " Projections are estimates.";
+  // ITEM 18 (2026-08-09, user: "lets also get rid of the yellow banner, I know we are in a
+  // test environment dont need that reminder"). The "2025 SEASON REPLAY" strip is gone, and so
+  // is its projections-are-estimates note — the user has explicitly accepted losing that
+  // disclosure, so it is NOT reinvented in a tooltip or anywhere else.
+  // WHAT SURVIVES IT: the strip's paint function also WARMED the replay's projection cache on
+  // every view change, which is the only reason projections resolved on a screen reached
+  // before any matchup/moves/locker page had been opened. Deleting the strip and its function
+  // together would have taken that with it, and projections would have silently stopped
+  // resolving on some views. It keeps its own name and its own three call sites.
+  function simWarmProjections() {
+    if (!LG.SIM_2025) return;
+    simProjEnsureAndRepaint(UI.view); // idempotent + loop-safe; see its own note
   }
 
   // ---------------- gate + claim ----------------
@@ -725,7 +718,7 @@
   // and offer the only useful action.
   function renderOffline() {
     hideBnav();
-    syncSimBanner();
+    simWarmProjections();
     syncOfflineChip();
     const why = LG.backendError ? `<p class="mut small">Reason: ${esc(LG.backendError)}</p>` : "";
     main().innerHTML = `<div class="card center">
@@ -2246,7 +2239,10 @@
     if (!LG.teams.length) return;
     const trades = await LG.loadTrades();
     for (const tr of trades) {
-      if (tr.status === "accepted" && LG.now() >= (tr.reviewEndsAt || Infinity)) await LG.executeTrade(tr.id);
+      // Date.now(), matching acceptTrade/executeTrade. reviewEndsAt is a REAL-WORLD deadline
+      // (see the note at LG.SIM_LOADED_AT); judging it on the per-device replay clock would
+      // have this device disagree with the one that accepted the trade.
+      if (tr.status === "accepted" && Date.now() >= (tr.reviewEndsAt || Infinity)) await LG.executeTrade(tr.id);
     }
   }
   // S5 + adversarial review 2026-08-08 (findings 1/3/6/7/8). Any week with no weekly doc yet

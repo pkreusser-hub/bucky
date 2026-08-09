@@ -62,16 +62,17 @@
   //            — is the entire point.
   // ⭐ THE ONE CONSTANT TO EDIT to change which moment the app opens on:
   const SIM_PHASE_DEFAULT = "live";
+  // ITEM 18 (2026-08-09): each phase used to carry a second `banner` string for the "2025
+  // SEASON REPLAY" strip. The strip is gone at the user's request, and nothing read that field
+  // any more, so it went with it — `label` is what the commissioner's Rules-page switch shows.
   LG.SIM_PHASES = {
     pre: {
       id: "pre", at: Date.parse("2025-09-04T14:00:00Z"),
       label: "Thursday morning · before kickoff",
-      banner: "Week 1, before kickoff",
     },
     live: {
       id: "live", at: Date.parse("2025-09-07T19:00:00Z"),
       label: "Sunday afternoon · games in progress",
-      banner: "Week 1, Sunday afternoon · games in progress",
     },
   };
   // ?simphase=pre|live is a QA + preview override ONLY — never persisted, same posture as ?sim=
@@ -105,6 +106,22 @@
   //   · ?simspeed=N is the same non-persisted QA override family as ?sim= / ?simphase=.
   const SIM_SPEED_DEFAULT = 8;
   LG.SIM_SPEED = qs.has("simspeed") ? Math.max(0, Number(qs.get("simspeed")) || 0) : SIM_SPEED_DEFAULT;
+  // ⚠ PER-DEVICE AND PER-PAGE-LOAD. This is stamped when THIS TAB loaded, so simNow() below
+  // restarts at the phase instant on every load and then runs at 8x only for as long as this
+  // tab has been open. Two devices are therefore reading two different "now"s — a desktop tab
+  // open 20 minutes is ~160 sim-minutes ahead of a phone that just opened the page.
+  //
+  //   LG.now()   answers "where are we in the league's SEASON?" — the current week, waiver
+  //              deadlines, the trade deadline, lineup locks, game state. It is the replay
+  //              clock, and being per-device is the whole point of it.
+  //   Date.now() answers "when did this actually happen in the real world?" — and is the ONLY
+  //              correct stamp for anything PERSISTED and then ORDERED OR COMPARED ACROSS
+  //              DEVICES.
+  //
+  // Getting that backwards shipped a real bug (2026-08-09): chat messages were stamped with
+  // LG.now(), so a message posted from a freshly-opened phone carried a timestamp ~160
+  // sim-minutes EARLIER than messages already on the board and sorted to the TOP of the
+  // conversation. Nothing persisted-and-cross-device-ordered may be stamped with this clock.
   LG.SIM_LOADED_AT = Date.now();
   // THE CLAMP. Leave a tab open all day and week 1 simply COMPLETES and sits there — it must
   // never roll into week 2, because every per-week doc id, the waiver deadline and the whole
@@ -1155,7 +1172,9 @@
     if (LG.tradeDeadlinePassed()) return { ok: false, reason: "deadline-passed" };
     give = give || []; get = get || [];
     if (!give.length || !get.length || give.length > 3 || get.length > 3) return { ok: false, reason: "invalid-players" };
-    const t = LG.now();
+    // Date.now(), not LG.now(): this stamp is persisted, sorted (loadTrades) and compared on
+    // OTHER devices. See the note at LG.SIM_LOADED_AT.
+    const t = Date.now();
     const id = LG.tradeId(t);
     const doc = { kind: "trade", id, from, to, give, get, note: note || "", status: "offered", t, acceptedAt: null, reviewEndsAt: null, vetoes: [] };
     await LG.saveTrade(doc);
@@ -1181,7 +1200,13 @@
   LG.acceptTrade = async function (id, byTeamId) {
     const doc = await LG.loadTrade(id, { fresh: true });
     if (!doc || doc.status !== "offered" || doc.to !== byTeamId) return null;
-    const now = LG.now();
+    // Date.now(), and the expiry check in executeTrade matches it. A "24 hour review" is a
+    // real-world day the family waits for someone to veto — not a season-time duration. On
+    // LG.now() an 8x replay clock would burn it in 3 real hours, and a freshly-loaded device
+    // would judge the same trade as having far more time left than a long-open one.
+    // (LG.tradeDeadlinePassed above is a DIFFERENT concept — the league-calendar trade
+    // deadline — and correctly stays on the season clock.)
+    const now = Date.now();
     const reviewMs = ((LG.rules && LG.rules.trades.reviewHours) || 24) * 3600e3;
     const next = { ...doc, status: "accepted", acceptedAt: now, reviewEndsAt: now + reviewMs };
     await LG.saveTrade(next);
@@ -1212,7 +1237,7 @@
   LG.executeTrade = async function (id) {
     let doc = await LG.loadTrade(id, { fresh: true });
     if (!doc || doc.status !== "accepted") return doc;
-    if (LG.now() < (doc.reviewEndsAt ?? Infinity)) return doc;
+    if (Date.now() < (doc.reviewEndsAt ?? Infinity)) return doc; // wall time — see acceptTrade
     const fresh = await LG.loadTrade(id, { fresh: true });
     if (!fresh || fresh.status !== "accepted") return fresh;
     const week = LG.currentWeek();
@@ -1258,7 +1283,10 @@
     opts = opts || {};
     const text = String(opts.text || "").slice(0, LG.CHAT_MAX_TEXT).trim();
     if (!text && !opts.img && !(opts.gif && opts.gif.url)) return { ok: false, reason: "empty" };
-    const t = LG.now();
+    // Date.now(). A chat message is a real-world event, and loadAllChat SORTS on this across
+    // every device in the family — stamping it with the per-device replay clock is what put a
+    // phone's new message at the TOP of the conversation (see the note at LG.SIM_LOADED_AT).
+    const t = Date.now();
     const doc = {
       kind: "chat", t, who: LG.who() || "?", teamId: LG.myTeamId(),
       thread: opts.thread || null, reactions: {},
@@ -1276,7 +1304,7 @@
   // their own call in try/catch as a second layer, this is the first.
   LG.postSys = async function (text) {
     try {
-      const t = LG.now();
+      const t = Date.now(); // same ordering rule as postChat
       const doc = { kind: "chat", t, who: "GFFL", teamId: null, text: String(text || "").slice(0, LG.CHAT_MAX_TEXT), sys: true, thread: null, reactions: {} };
       await LG.db.set(LG.chatId(t), doc);
       return doc;
@@ -1505,7 +1533,8 @@
       }
     }
     if (!rows.length) return null;
-    const doc = { kind: "projsnap", week, players: rows, at: LG.now() };
+    // Provenance: when this snapshot was really taken. Persisted, so wall time.
+    const doc = { kind: "projsnap", week, players: rows, at: Date.now() };
     const fresh = await LG.db.getFresh(id); // idempotency race guard — bypasses LG.db's cache
     if (fresh && fresh.kind === "projsnap") return fresh;
     await LG.db.set(id, doc);
@@ -1691,7 +1720,7 @@
     const doc = {
       kind: "weekly", week, matchups, awards,
       power: power.map((r) => ({ teamId: r.teamId, score: r.score, rank: r.rank })),
-      accuracy, finalizedAt: LG.now(),
+      accuracy, finalizedAt: Date.now(), // provenance — persisted, so wall time
       source: opts.backfill ? "archived" : "live", // provenance, on the record
     };
 
