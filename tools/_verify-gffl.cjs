@@ -8214,18 +8214,87 @@ async function openDetails(page, id) {
         "…and line 3 keeps its height even when it has nothing to say — that reservation is what makes a pre-game row as tall as a live one (" + [...new Set(heights.starters.map((c) => c.statH))].join("/") + "px)");
 
       // -- no name wraps; a too-long one is ellipsised and keeps a title.
-      const names = await page.evaluate(() => [...document.querySelectorAll(".mutable .pname b")].map((b) => ({
-        txt: b.textContent.trim(), rects: b.getClientRects().length,
-        clipped: b.scrollWidth > b.clientWidth + 1, title: b.getAttribute("title") || "",
-        ellipsis: getComputedStyle(b).textOverflow, ws: getComputedStyle(b).whiteSpace,
-      })));
-      ok(names.every((n) => n.rects <= 1), "no player name wraps to a second line (" + names.filter((n) => n.rects > 1).map((n) => n.txt).join(",") + ")");
-      ok(names.every((n) => n.ws === "nowrap" && n.ellipsis === "ellipsis"), "…because each is nowrap + ellipsis, by construction");
-      const truncated = names.filter((n) => n.clipped);
-      ok(truncated.length > 0, "…at 390px a real long name genuinely does truncate (" + truncated.map((n) => n.txt).join(", ") + ")");
-      const real = names.filter((n) => n.txt && n.txt !== "Empty" && n.txt !== "TOTAL");
+      const names = await page.evaluate(() => {
+        const grab = (sel) => [...document.querySelectorAll(sel + " .pname b")].map((b) => ({
+          txt: b.textContent.trim(), rects: b.getClientRects().length,
+          need: b.scrollWidth, have: b.clientWidth,
+          clipped: b.scrollWidth > b.clientWidth + 1, title: b.getAttribute("title") || "",
+          ellipsis: getComputedStyle(b).textOverflow, ws: getComputedStyle(b).whiteSpace,
+          side: b.closest(".pcellgrid").classList.contains("right") ? "R" : "L",
+        }));
+        const info = document.querySelector(".mutable .pcellgrid .pinfo");
+        const logo = document.querySelector(".mutable .pname .plogo");
+        const nameLine = document.querySelector(".mutable .pname");
+        const avail = Math.round(info.getBoundingClientRect().width
+          - logo.getBoundingClientRect().width - parseFloat(getComputedStyle(nameLine).gap || 0));
+        return { starters: grab(".mutable:not(.benchtable)"), bench: grab(".benchtable"), avail };
+      });
+      const allNames = names.starters.concat(names.bench);
+      ok(allNames.every((n) => n.rects <= 1), "no player name wraps to a second line (" + allNames.filter((n) => n.rects > 1).map((n) => n.txt).join(",") + ")");
+      ok(allNames.every((n) => n.ws === "nowrap" && n.ellipsis === "ellipsis"), "…because each is nowrap + ellipsis, by construction");
+      // ITEM 17 (2026-08-09) — THE BAR. This check used to assert the OPPOSITE: that a long
+      // name "genuinely does truncate", written when four names a row were coming out as
+      // "M. Ha…" and that was mistaken for a limitation of the width. It is not — the
+      // reference app fits these same names whole at 390px, and so does this now: the name's
+      // budget went from 83.8px to 102.7px, all of it found by measuring where the row's width
+      // was actually going (see the media-query note in league.html). Both sides, and the
+      // bench table too, because they share the widths and a regression could land in either.
+      const clippedS = names.starters.filter((n) => n.clipped);
+      const clippedB = names.bench.filter((n) => n.clipped);
+      console.log("    · 390px name budget: " + names.avail + "px; longest rendered name needs "
+        + Math.max(...allNames.map((n) => n.need)) + "px");
+      ok(clippedS.length === 0,
+        "NOT ONE starter name is ellipsised at 390px, either side — " + names.starters.length + " rows, longest \""
+        + allNames.slice().sort((a, b) => b.need - a.need)[0].txt + "\" (" + JSON.stringify(clippedS.map((n) => n.side + ":" + n.txt + " " + n.need + ">" + n.have)) + ")");
+      ok(clippedB.length === 0, "…nor one bench name (" + JSON.stringify(clippedB.map((n) => n.txt + " " + n.need + ">" + n.have)) + ")");
+      // The fixture's own longest REAL names are the ones that were failing — name them, so a
+      // future regression can't quietly pass by the fixture getting shorter names.
+      const hardest = ["J. Smith-Njigba", "M. Harrison Jr.", "C. McLaughlin"];
+      const found = hardest.filter((h) => allNames.some((n) => n.txt === h && !n.clipped));
+      ok(found.length === hardest.length,
+        "…including the three that used to read \"J. Smi…\" / \"M. Ha…\" / \"C. McLaug…\" (" + JSON.stringify(found) + ")");
+      const real = allNames.filter((n) => n.txt && n.txt !== "Empty" && n.txt !== "TOTAL");
       ok(real.length > 0 && real.every((n) => /·/.test(n.title)),
-        "…and every real player's name carries a title with his position and team, so nothing truncated is lost (" + real.length + " rows)");
+        "…and every real player's name still carries a title with his position and team (" + real.length + " rows)");
+      // Two things the width pass paid for, both of which WERE being clipped at 390px before it:
+      // a three-digit team total, and the word BENCH in the centre band.
+      // RANGE, not scrollWidth. The name check above can use scrollWidth because .pname b
+      // carries its OWN overflow:hidden; these two do not (the hidden overflow is on their
+      // PARENT .pline / cell), and an overflow:visible element reports scrollWidth === its own
+      // clientWidth however far its text spills. Measured that way both of these read as a
+      // comfortable fit while genuinely overflowing — a vacuous check. A Range around the text
+      // node measures what is actually rendered, which is the house lesson already recorded
+      // for the override-dot check in the care widget.
+      const clips = await page.evaluate(() => {
+        const textW = (el) => {
+          const n = [...el.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim());
+          if (!n) return 0;
+          const r = document.createRange(); r.selectNodeContents(n);
+          return Math.ceil(r.getBoundingClientRect().width);
+        };
+        const tot = document.querySelector(".totalrow .ppts .pts");
+        const before = tot.textContent;
+        tot.textContent = "141.0";
+        const totNeed = textW(tot), totHave = Math.floor(tot.closest(".ppts").clientWidth);
+        tot.textContent = before;
+        // Against the CELL, not the badge: .slotbadge is inline-block, so it sizes to its own
+        // text and would always look like a perfect fit. What constrains it — and what it was
+        // spilling over — is the slot cell's content box.
+        const bench = document.querySelector(".benchtable td.slotcell .slotbadge");
+        const cell = bench.closest("td");
+        const cs2 = getComputedStyle(cell), bs = getComputedStyle(bench);
+        const pad = parseFloat(bs.paddingLeft) + parseFloat(bs.paddingRight);
+        return { totNeed, totHave, benchTxt: bench.textContent.trim(), benchNeed: textW(bench) + pad,
+          benchHave: Math.floor(cell.clientWidth - parseFloat(cs2.paddingLeft) - parseFloat(cs2.paddingRight)) };
+      });
+      // Honest scope: this one PASSES pre-fix too, at exactly 36 into 36px — the mobile
+      // media query's 14px already outranked .totalrow's own 17px, so it fitted by nothing.
+      // Narrowing the players' column to 30px would have broken it, which is why the TOTAL row
+      // got its own 44px basis; this is the invariant guarding that, not a fix being claimed.
+      ok(clips.totNeed <= clips.totHave,
+        "a three-digit TEAM total fits its column, with real margin now the players' column is narrower (" + clips.totNeed + " into " + clips.totHave + "px)");
+      ok(clips.benchTxt === "BENCH" && clips.benchNeed <= clips.benchHave + 1,
+        "…and the word BENCH fits the centre band, which it also did not (" + clips.benchNeed + " into " + clips.benchHave + "px)");
 
       // -- the points column: score on line 1, projection on line 2, both on the inner edge.
       const pts = await page.evaluate(() => {
@@ -8364,6 +8433,9 @@ async function openDetails(page, id) {
           return R.map((e) => Math.round(e.getBoundingClientRect().right));
         });
         ok(new Set(deskEdges).size === 1, "desktop: team B's names still end at one consistent right edge (" + JSON.stringify(deskEdges) + ")");
+        const deskClip = await page.evaluate(() => [...document.querySelectorAll(".mutable .pname b")]
+          .filter((b) => b.scrollWidth > b.clientWidth + 1).map((b) => b.textContent.trim()));
+        ok(deskClip.length === 0, "desktop: and not one name is ellipsised there either (" + JSON.stringify(deskClip) + ")");
       }
       ok(errors.length === 0, "0 page errors on the rebuilt matchup page");
       await ctx.close();

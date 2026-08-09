@@ -1539,7 +1539,7 @@
         ${h2hLine(UI._h2h, H, A)}
         <div class="rowline"><span id="healthChip" class="health" hidden></span></div>
       </div>
-      <div class="card"><div class="panner"><table class="tbl slottable mutable">
+      <div class="card lineupcard"><div class="panner"><table class="tbl slottable mutable">
         <tbody>${rows.map(([pa, slot, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
           <td class="slotcell" data-pos="${slotPos(slot)}"><span class="slotbadge">${esc(slot)}</span></td>
@@ -1550,7 +1550,7 @@
           <td class="pcell right">${totalHalfCell(hTot, "right")}</td>
         </tr></tfoot>
       </table></div></div>
-      ${(aBench.length || hBench.length) ? `<div class="card"><h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
+      ${(aBench.length || hBench.length) ? `<div class="card lineupcard"><h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
         ${benchRows.map(([pa, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
           <td class="slotcell" data-pos="X"><span class="slotbadge">BENCH</span></td>
@@ -1765,8 +1765,14 @@
       // position and team ride on the name's own tooltip. The crest carries the team visually,
       // and the centre band carries the slot.
       titleAttr = ` title="${esc(LG.shortName(p.name) + " · " + p.pos + " · " + p.team)}"`;
-      nameHtml = `${plogoHtml(p.team)}<b${titleAttr}>${escn(p.name)}</b>${possPip}${rz}${conflict}`;
-      metaHtml = gameLineHtml(g);
+      nameHtml = `${plogoHtml(p.team)}<b${titleAttr}>${escn(p.name)}</b>`;
+      // ITEM 17 (2026-08-09): the possession pip, the red-zone dot and the conflict flag ride
+      // on LINE 2, not beside the name. Two of them cost ~31px, and they appear on exactly the
+      // rows whose names are longest-pressed — at 390px that was the difference between
+      // "J. Smith-Njigba" and "J. Smi…". Line 2 is also where they belong: all three are facts
+      // about the GAME's state, which is what that line says, and a live row's line 2 is the
+      // short form ("Q2 5:00"), so they cost nothing there.
+      metaHtml = gameLineHtml(g) + possPip + rz + conflict;
       statHtml = sline ? esc(sline) : "";
       ptsHtml = `<span class="pts">${LG.fmtPts(pts)}</span>`;
       projHtml = LG.fmtPts(proj);

@@ -319,7 +319,6 @@
   .pcellgrid .pname b { font:600 13px/17px var(--font-body); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .pcellgrid .pname .plogo { flex:0 0 auto; width:14px; height:14px; object-fit:contain; }
   .pcellgrid .pname .plogoph { display:block; }
-  .pcellgrid .pname .possdot, .pcellgrid .pname .rzdot, .pcellgrid .pname .conflictflag { flex:0 0 auto; }
   .pcellgrid .ppts .pts { font:700 15px/17px var(--font-display); display:block; }
   .totalrow .ppts .pts { font-size:17px; }
   /* Phone: the fixed points column + centre band leave ~110px per name at 390px — tighten the
@@ -331,15 +330,40 @@
      still truncates the longest names, as the reference app does — that is what the title
      attribute is for — but it truncates far fewer of them. */
   @media (max-width:560px) {
-    .pcellgrid { gap:4px; }
-    td.pcell { width:44.5%; padding:5px 4px; }
-    .pcellgrid .ppts { flex-basis:36px; }
-    .pcellgrid .pname { gap:4px; }
+    /* MEASURED at 390px, before this pass: the table was 332px wide and the name got 83.8px of
+       it, while the fixture's longest real name ("J. Smith-Njigba") needs 98 — so four names a
+       row were coming out as "M. Ha…" / "J. Smi…". Four characters does not identify a player,
+       and a title attribute is not reachable on a phone. The reference app fits these names
+       whole at this width, so this was ours to fix, not to document.
+       WHERE THE WIDTH CAME FROM, in the order it was cheapest:
+         +20px  the CARD's own 16px side padding — by far the largest slack in the row, and
+                spending it costs no text at all (the reference's rows are near full-bleed)
+         +12px  the points column, which was 36px holding a 28px "41.0" — 6px of pure slack
+                per side. The TOTAL row keeps its own wider basis below, because a team total
+                really is "141.0" (43px at 17px) and WAS being clipped here even at 36px.
+          +4px  cell padding 4 -> 3
+          +4px  the two 4px gaps -> 3px
+       Nothing was taken from the name's own font, the crest, the band, the colours or either
+       point value. Result: 106px for the name — "J. Smith-Njigba" fits with 8px to spare, and
+       the opponent line ("@DEN Fri 1:00 AM", 97px) stops truncating as well. */
+    .card.lineupcard { padding:12px 6px; }
+    .pcellgrid { gap:3px; }
+    td.pcell { width:44.5%; padding:5px 3px; }
+    .pcellgrid .ppts { flex-basis:30px; }
+    /* A player never scores 141; a TEAM does. The TOTAL row is its own row and its columns do
+       not have to line up with the players' — both halves still match each other. */
+    .totalrow .ppts { flex-basis:44px; }
+    .pcellgrid .pname { gap:3px; }
     .pcellgrid .pname b { font-size:11.5px; }
     .pcellgrid .pname .plogo { width:12px; height:12px; }
     .pcellgrid .pmeta, .pcellgrid .pstatline, .pcellgrid .pproj, .pcellgrid .pstatpad { font-size:9.5px; }
     .pcellgrid .ppts .pts { font-size:14px; }
-    td.slotcell { width:11%; font-size:9.5px; }
+    /* "BENCH" needs 37px at 9.5px + letter-spacing inside a 34.5px content box — it has been
+       clipped here since the band shipped. 9px with no tracking measures 33px and fits. */
+    /* 1px of cell padding, not 4: the badge is content-sized, so what actually constrains
+       "BENCH" is the CELL's content box (30.7px at 4px padding — it was spilling over its
+       neighbours by 2px). At 1px the box is 36.7 and the 33px word sits inside it. */
+    td.slotcell { width:11%; font-size:9px; letter-spacing:0; padding:0 1px; }
     td.slotcell .slotbadge { padding:4px 1px; min-width:0; }
   }
   .pts { font:700 14px var(--font-display); display:block; }
