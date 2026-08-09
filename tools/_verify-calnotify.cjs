@@ -18,6 +18,17 @@
  * hygiene: an unblocked headless run against index.html has twice duplicated the live family
  * herd, and blocking Firebase is also what forces the app onto its local backend — which is
  * exactly what this suite wants (deterministic, per-context, no network).
+ *
+ * Section G is the one that actually catches a cross-device regression: since Firestore stays
+ * blocked, it can't drive a real shared connection, so it uses window.__NOTIFY__ (a small
+ * production test hook — see index.html) to fake the "cloud connected" branch on TWO separate
+ * `browser.createBrowserContext()` pages (their own localStorage, standing in for two separate
+ * phones) and hand a doc captured off one device to the other through the exact same
+ * applyInviteDocs() code a live onSnapshot listener runs. Sections A-F, by contrast, all run a
+ * single shared context and only ever exercise the LOCAL-INBOX FALLBACK path (what
+ * writeCloudNotif() does when notifsCol/notifsFs aren't connected) — that fallback is real and
+ * worth covering, but it was never the cross-device mechanism, and passing there previously hid
+ * the fact that the cloud path didn't exist yet.
  */
 
 const fs = require("fs");
@@ -553,9 +564,12 @@ async function sectionEmailFailure(browser){
 }
 
 /* ============================================================================
-   F. The notified person's OWN bell: the notification renders and tapping it deep-links
-      to the calendar (same local-backend device — a real cross-device bell relies on the
-      cloud backend, which this suite deliberately never touches).
+   F. The notified person's OWN bell, exercising the LOCAL-INBOX FALLBACK path only: same
+      browser context/localStorage as the creator (identity switched in place, storage never
+      cleared). writeCloudNotif() falls back to this exact path whenever notifsCol/notifsFs
+      aren't connected (the local backend, or before a cloud listener attaches) — this section
+      proves that fallback still works. It does NOT exercise (and never did) the cross-device
+      cloud path — see section G for that, which is the actual fix this suite exists to catch.
    ============================================================================ */
 async function sectionBell(browser){
   section("F. The notified person sees it in their own bell and it deep-links to Calendar");
@@ -602,11 +616,166 @@ async function sectionBell(browser){
 }
 
 /* ============================================================================
-   G. Layout: the Notify section fits a 390x844 phone with no horizontal scroll, and the
+   G. CROSS-DEVICE DELIVERY — the notification travels through the notifs_<familyKey> CLOUD
+      collection, not local storage. This is the section that actually catches the bug: two
+      genuinely separate browser contexts (their own localStorage, standing in for two separate
+      phones) with Firestore itself still blocked (per the house rule) — window.__NOTIFY__ fakes
+      the cloud CONNECTION just far enough to prove writeCloudNotif() takes the cloud branch, and
+      that a doc captured off one device reproduces correctly on another through the SAME
+      applyInviteDocs() code a live onSnapshot listener runs. Also covers the render-branch
+      restructuring: cal_event/bank_credit/lobby-invite/unknown all render distinctly, and the
+      JOIN button is opt-in (lobby-invite only) rather than a catch-all default.
+   ============================================================================ */
+async function sectionCrossDevice(browser){
+  section("G. Cross-device delivery via the notifs_<familyKey> cloud collection");
+  const calMock = makeCalMock();
+
+  /* ---- Device A ("Mom"'s phone): creates the event, ticks Isaac, saves. ---- */
+  const a = await newPage(browser, calMock, { user: "Mom" });
+  await boot(a.page, { profiles: ROSTER });
+  await a.page.evaluate(() => window.__NOTIFY__.fakeCloudConnect());
+  await gotoCalendar(a.page);
+  await a.page.click("#addFab");
+  await settle(a.page, 300);
+  await fillEventForm(a.page, { title: "Cross-device check", date: "2026-08-19", start: "08:00", end: "08:30" });
+  await tickNotify(a.page, "Isaac");
+  await save(a.page);
+
+  const writesA = await a.page.evaluate(() => window.__NOTIFY__.cloudWrites());
+  const calWrite = writesA.find((w) => w.type === "cal_event");
+  ok(!!calWrite, "device A's writeCloudNotif call landed in the (faked) cloud collection");
+  ok(!!calWrite && calWrite.to === "Isaac", `…addressed to Isaac (got "${calWrite && calWrite.to}")`);
+  ok(!!calWrite && /^cal_/.test(calWrite.id), `…with a "cal_"-prefixed doc id (got "${calWrite && calWrite.id}")`);
+  ok(!!calWrite && /Cross-device check/.test(calWrite.text), "…the text names the event");
+  ok(!!calWrite && calWrite.url === "index.html#calendar", `…and carries the calendar deep-link url (got "${calWrite && calWrite.url}")`);
+
+  // The actual bug, proven fixed: once the cloud branch is taken, device A must NEVER fall back
+  // to writing under Isaac's key in ITS OWN localStorage. That was the original defect exactly —
+  // the SENDER's device held a notification addressed to someone else, and the someone else's
+  // own phone never got anything.
+  ok(calEntries(await inboxFor(a.page, "Isaac")).length === 0,
+    "device A's own localStorage got NO cal_event entry for Isaac — the write went to the cloud only, not local storage");
+
+  /* ---- Device B ("Isaac"'s own phone): a FRESH, separate browser context. Nothing shared
+     with device A — that separation is exactly what a real second device would give us. ---- */
+  const b = await newPage(browser, calMock, { user: "Isaac" });
+  await boot(b.page, { profiles: ROSTER });
+  ok(calEntries(await inboxFor(b.page, "Isaac")).length === 0,
+    "device B (Isaac's own device) starts with nothing for Isaac — a genuinely fresh context");
+
+  await b.page.evaluate(() => window.__NOTIFY__.fakeCloudConnect());
+  // Hand device A's captured cloud write to device B — the ONE thing a real Firestore
+  // onSnapshot would have done; everything downstream (applyInviteDocs -> renderBell ->
+  // renderNotifList) is the exact production code path, unmodified for this test.
+  await b.page.evaluate((docs) => window.__NOTIFY__.deliverCloudDocs(docs), writesA);
+
+  await b.page.click("#bellBtn");
+  await settle(b.page, 300);
+  ok(await b.page.evaluate(() => document.getElementById("notifOverlay").classList.contains("open")), "device B's bell panel opens");
+
+  const rowInfo = (label) => b.page.evaluate((needle) => {
+    const rows = [...document.querySelectorAll("#notifList .notif-row")];
+    const hit = rows.find((el) => el.textContent.includes(needle));
+    return hit ? { text: hit.textContent, cls: hit.className, hasJoin: !!hit.querySelector(".invite-join") } : null;
+  }, label);
+
+  let ri = await rowInfo("Cross-device check");
+  ok(!!ri, "device B's bell shows the calendar notification — delivered via the cloud, never via localStorage");
+  ok(!!ri && /New event/.test(ri.text), `…with the right wording (got "${ri && ri.text}")`);
+  ok(!!ri && !ri.hasJoin, "…rendered as a plain row — NO 'JOIN THE KITCHEN' button on a calendar notification");
+  ok(!!ri && !/\binvite\b/.test(ri.cls), `…and not styled as an invite row (class "${ri && ri.cls}")`);
+
+  await b.page.evaluate(() => {
+    const rows = [...document.querySelectorAll("#notifList .notif-row")];
+    const hit = rows.find((el) => el.textContent.includes("Cross-device check"));
+    if (hit) hit.click();
+  });
+  await settle(b.page, 300);
+  ok(await b.page.evaluate(() => window.__NAV__.tab() === "calendar"), "tapping it on device B deep-links into the Calendar tab");
+  ok(await b.page.evaluate(() => !document.getElementById("notifOverlay").classList.contains("open")), "…and the bell panel closes");
+
+  /* ---- An unrecognized future type never inherits the kitchen button (the JOIN branch is
+     opt-in, not a catch-all default). ---- */
+  await b.page.evaluate(() => window.__NOTIFY__.deliverCloudDocs([
+    { id: "mystery1", to: "Isaac", from: "BUCKY", type: "something_new_later",
+      text: "A future notification type nobody wrote a branch for yet", url: "", at: Date.now(), read: false },
+  ]));
+  await b.page.click("#bellBtn");
+  await settle(b.page, 300);
+  const mi = await rowInfo("future notification type");
+  ok(!!mi, "an unrecognized notification type still renders (never silently dropped)");
+  ok(!!mi && !mi.hasJoin, "…but never with a JOIN THE KITCHEN button");
+  ok(!!mi && !/\binvite\b/.test(mi.cls), `…and not styled as an invite (class "${mi && mi.cls}")`);
+
+  /* ---- bank_credit rendering is UNCHANGED by the restructuring: still a plain row that
+     routes to Farm Bank. ---- */
+  await b.page.evaluate(() => window.__NOTIFY__.deliverCloudDocs([
+    { id: "bank_test1", to: "Isaac", from: "BUCKY", type: "bank_credit",
+      text: "💰 $5.00 added to your bank!", url: "index.html#farmbank", at: Date.now(), read: false },
+  ]));
+  await b.page.click("#bellBtn");
+  await settle(b.page, 300);
+  const bi = await rowInfo("added to your bank");
+  ok(!!bi, "a bank_credit cloud doc still renders");
+  ok(!!bi && !bi.hasJoin, "…as a plain row, no JOIN button (unchanged)");
+  ok(!!bi && !/\binvite\b/.test(bi.cls), "…not styled as an invite (unchanged)");
+  await b.page.evaluate(() => {
+    const rows = [...document.querySelectorAll("#notifList .notif-row")];
+    const hit = rows.find((el) => el.textContent.includes("added to your bank"));
+    if (hit) hit.click();
+  });
+  await settle(b.page, 300);
+  ok(await b.page.evaluate(() => window.__NAV__.tab() === "farmbank"), "…and tapping it still routes to Farm Bank (unchanged)");
+
+  /* ---- A genuine lobby-invite doc must STILL render its JOIN button and still work. This is
+     LAST on device B because clicking JOIN navigates away for real. ---- */
+  await b.page.evaluate((url) => window.__NOTIFY__.deliverCloudDocs([
+    { id: "inv_test1", to: "Isaac", from: "Mom", type: "lobby-invite",
+      text: "Mom wants to cook with you in Barnyard Bistro! 🍅", url, at: Date.now(), read: false },
+  ]), "games.html?probe=xdevice");
+  await b.page.click("#bellBtn");
+  await settle(b.page, 300);
+  const ii = await rowInfo("cook with you");
+  ok(!!ii, "a genuine lobby-invite doc still shows up in the bell");
+  ok(!!ii && /\binvite\b/.test(ii.cls), `…styled as an invite row (class "${ii && ii.cls}")`);
+  const joinText = await b.page.evaluate(() => {
+    const rows = [...document.querySelectorAll("#notifList .notif-row")];
+    const hit = rows.find((el) => el.textContent.includes("cook with you"));
+    const join = hit ? hit.querySelector(".invite-join") : null;
+    return join ? join.textContent : null;
+  });
+  ok(joinText === "JOIN THE KITCHEN 🍳", `…with its JOIN button intact (got "${joinText}")`);
+
+  await b.page.evaluate(() => {
+    const rows = [...document.querySelectorAll("#notifList .notif-row")];
+    const hit = rows.find((el) => el.textContent.includes("cook with you"));
+    const join = hit ? hit.querySelector(".invite-join") : null;
+    if (join) join.click();
+  });
+  await b.page.waitForFunction(() => location.href.includes("games.html"), { timeout: 8000 }).catch(() => {});
+  ok(b.page.url().includes("games.html"), `…and tapping JOIN really navigates (landed on "${b.page.url()}")`);
+
+  /* ---- The bank_credit doc-id PREFIX is unchanged by the writeCloudNotif refactor: still
+     exactly "bank_" + idSlug(dedupeId), never "bank_credit_...". ---- */
+  await a.page.evaluate(() => { window.__BANK__.notifyCredit("Isaac", 5, "test", "xdevice-check"); });
+  await settle(a.page, 200);
+  const bankWrites = await a.page.evaluate(() => window.__NOTIFY__.cloudWrites().filter((w) => w.type === "bank_credit"));
+  ok(bankWrites.length === 1, `exactly one bank_credit cloud write from device A (${bankWrites.length})`);
+  ok(!!bankWrites[0] && bankWrites[0].id === "bank_xdevice-check",
+    `…and its id format is UNCHANGED — "bank_" + idSlug(dedupeId), not "bank_credit_..." (got "${bankWrites[0] && bankWrites[0].id}")`);
+
+  ok(a.errors.length === 0, "device A: no page errors" + (a.errors.length ? ": " + a.errors[0] : ""));
+  // device B intentionally ends this section on games.html (see the JOIN-navigation check just
+  // above), so its `errors` array only reflects index.html activity up to that navigation.
+  ok(b.errors.length === 0, "device B: no page errors before navigating away" + (b.errors.length ? ": " + b.errors[0] : ""));
+}
+
+/* ============================================================================
+   H. Layout: the Notify section fits a 390x844 phone with no horizontal scroll, and the
       sheet is generally usable there.
    ============================================================================ */
 async function sectionLayout(browser){
-  section("G. Layout at 390x844 (+ a quick desktop pass)");
+  section("H. Layout at 390x844 (+ a quick desktop pass)");
   const calMock = makeCalMock();
   const { page, errors } = await newPage(browser, calMock, { user: "Mom" });
   await boot(page, { profiles: ROSTER });
@@ -678,7 +847,7 @@ async function sectionLayout(browser){
 
   const sections = [
     sectionList, sectionLifecycle, sectionEditWording, sectionRecurring,
-    sectionEmailFailure, sectionBell, sectionLayout,
+    sectionEmailFailure, sectionBell, sectionCrossDevice, sectionLayout,
   ];
   try {
     for (const fn of sections){
