@@ -2489,22 +2489,31 @@ function unreadNotifCount(user){
 let lobbyInvites = [];      // raw docs {id, to, from, type, text, url, at, read} for myName()
 let notifsCol = null, notifsFs = null;   // set once the second onSnapshot listener connects
 const INVITE_STALE_MS = 24 * 60 * 60 * 1000;   // lazy-delete invite docs older than 24h
+// Given raw notifs_<familyKey> doc objects (id + whatever fields the doc carries), keep only
+// this device's own (to === myName()), newest-first, and repaint. Split out of the onSnapshot
+// callback below so a test can drive this device's bell through the EXACT SAME code a live
+// Firestore listener runs (see window.__NOTIFY__.deliverCloudDocs), instead of re-implementing
+// the filter/sort separately and risking drift.
+function applyInviteDocs(docs){
+  const mine = (docs || []).filter(d => d.to === myName());
+  mine.sort((a,b) => (b.at||0) - (a.at||0));
+  lobbyInvites = mine;
+  renderBell();
+  if (document.getElementById("notifOverlay").classList.contains("open")) renderNotifList();
+}
 function initInvitesListener(fs, db){
   if (notifsCol) return;   // already listening
   notifsFs = fs;
   notifsCol = fs.collection(db, "notifs_" + familyKey);
   fs.onSnapshot(notifsCol, (snap) => {
     const now = Date.now();
-    const mine = [];
+    const docs = [];
     for (const d of snap.docs){
       const data = d.data();
       if (now - (data.at || 0) >= INVITE_STALE_MS){ fs.deleteDoc(fs.doc(notifsCol, d.id)).catch(()=>{}); continue; }
-      if (data.to === myName()) mine.push({ id: d.id, ...data });
+      docs.push({ id: d.id, ...data });
     }
-    mine.sort((a,b) => (b.at||0) - (a.at||0));
-    lobbyInvites = mine;
-    renderBell();
-    if (document.getElementById("notifOverlay").classList.contains("open")) renderNotifList();
+    applyInviteDocs(docs);
   }, () => { /* offline/error: invites just don't show up, rest of the app is unaffected */ });
 }
 async function markInviteRead(inviteId){
@@ -2553,8 +2562,13 @@ function renderNotifList(){
     wrap.innerHTML = '<div class="empty" style="padding:24px 8px;">No news — all quiet on the farm 🐐</div>';
     return;
   }
-  // The notifs_<familyKey> collection is shared by lobby invites (a JOIN button) AND cross-device
-  // bank-deposit alerts (type "bank_credit" — a plain tappable row). Both sit above the work-order inbox.
+  // The notifs_<familyKey> collection is shared by several notification types: lobby invites
+  // (a JOIN button), cross-device bank-deposit alerts ("bank_credit"), and cross-device calendar
+  // alerts ("cal_event") — each gets its OWN explicit branch below. This is deliberately NOT a
+  // catch-all "else gets the JOIN button" — that used to be the default, so any future/unknown
+  // type would silently inherit Barnyard Bistro's kitchen-invite styling (which is exactly what
+  // happened to cal_event before it got its own branch here). Unrecognized types fall through to
+  // a safe plain row instead.
   for (const n of lobbyInvites){
     const row = document.createElement("div");
     const body = document.createElement("div"); body.className = "notif-body";
@@ -2565,11 +2579,21 @@ function renderNotifList(){
       row.className = "notif-row" + (n.read ? "" : " unread");
       row.append(body);
       row.onclick = () => { markInviteRead(n.id); closeNotifPanel(); goToFarmBank(); };
-    } else {
+    } else if (n.type === "cal_event"){
+      row.className = "notif-row" + (n.read ? "" : " unread");
+      row.append(body);
+      row.onclick = () => { markInviteRead(n.id); closeNotifPanel(); goToCalendar(); };
+    } else if (n.type === "lobby-invite" && n.url){
       row.className = "notif-row invite" + (n.read ? "" : " unread");
       const join = document.createElement("button"); join.className = "invite-join"; join.textContent = "JOIN THE KITCHEN 🍳";
       join.onclick = () => { markInviteRead(n.id); closeNotifPanel(); location.href = n.url; };
       row.append(body, join);
+    } else {
+      // Unrecognized type: a plain, safe tappable row — never the kitchen button. Opens its own
+      // url if it has one, else just marks read; degrades gracefully instead of guessing wrong.
+      row.className = "notif-row" + (n.read ? "" : " unread");
+      row.append(body);
+      row.onclick = () => { markInviteRead(n.id); closeNotifPanel(); if (n.url) location.href = n.url; };
     }
     wrap.appendChild(row);
   }
@@ -7112,7 +7136,10 @@ function notifyCalEvent(ev, names, isUpdate, repeatInfo){
   const stamp = Date.now();   // one save action = one moment, even across several recipients
   for (const name of targets){
     try {
-      addNotif(name, "cal_event", notifText, "cal:" + ev.id + ":" + stamp + ":" + name);
+      // Cross-device: writeCloudNotif posts into notifs_<familyKey> so the RECIPIENT'S OWN
+      // device sees it in their bell (falls back to this device's local inbox only when the
+      // cloud listener isn't connected — see writeCloudNotif's own doc comment above).
+      writeCloudNotif(name, "cal_event", notifText, "cal:" + ev.id + ":" + stamp + ":" + name, url);
     } catch {}
     try {
       if (window.BuckyPush && familyKey){
@@ -9959,6 +9986,30 @@ window.__BANK__ = {
   balance: (kid)=>kidBalance(kid),
   kids: BANK_NOTIFY_KIDS.slice(),
 };
+// Cross-device notification test hooks. Firebase is blocked in headless suites, so real
+// cross-device delivery can't be driven end-to-end against a live Firestore connection — these
+// let a suite simulate TWO separate devices/browser contexts sharing one notifs_<familyKey>
+// collection instead, through the SAME production code (writeCloudNotif / applyInviteDocs) real
+// devices use.
+window.__NOTIFY__ = {
+  // Force writeCloudNotif() onto its cloud-connected branch on THIS device/page, capturing every
+  // setDoc/updateDoc it makes into window.__CLOUD_WRITES__ (an id-keyed map — like one shared
+  // Firestore collection, from this device's point of view) instead of touching a real connection.
+  fakeCloudConnect: () => {
+    window.__CLOUD_WRITES__ = window.__CLOUD_WRITES__ || {};
+    notifsFs = {
+      doc: (col, id) => id,
+      setDoc: (id, data) => { window.__CLOUD_WRITES__[id] = Object.assign({ id }, data); return Promise.resolve(); },
+      updateDoc: (id, patch) => { if (window.__CLOUD_WRITES__[id]) Object.assign(window.__CLOUD_WRITES__[id], patch); return Promise.resolve(); },
+    };
+    notifsCol = {};
+  },
+  cloudWrites: () => Object.values(window.__CLOUD_WRITES__ || {}),
+  // Deliver `docs` (raw {id, to, from, type, text, url, at, read} objects — e.g. captured from
+  // another device's cloudWrites()) to THIS device's bell, exactly as a live onSnapshot callback
+  // would (this calls applyInviteDocs — the very function initInvitesListener itself calls).
+  deliverCloudDocs: (docs) => applyInviteDocs(docs || []),
+};
 
 // ==================== BUCKY JUMP (mini-game) ====================
 let game = null;
@@ -11981,24 +12032,36 @@ function notifyProgressIncrease(wo, milestone){
 // ONE place. Deducts/spends (amount ≤ 0) and non-kid balances (Dad/Mom/guests) never notify.
 // BANK_NOTIFY_KIDS (= Isaac/Eleanor) is declared up by BANK_KIDS.
 function money2(v){ return (Number(v) || 0).toFixed(2); }
-// Write the in-app bell notification. Cross-device via the notifs_<familyKey> Firestore collection
-// (the same mechanism the bell already merges in) when the cloud listener is connected — keyed to
-// the credit's DETERMINISTIC id so re-renders / the self-healing dupe sweeps can never double-post.
-// Falls back to the per-device localStorage inbox (idempotent by dedupeId+type) on the local backend
-// or before the listener connects.
-function writeBankNotif(kid, text, dedupeId, url){
+// Shared cross-device notification writer. Posts into the notifs_<familyKey> Firestore
+// collection (the same mechanism the bell already merges in via initInvitesListener /
+// applyInviteDocs) when the cloud listener is connected, so the RECIPIENT'S OWN DEVICE sees it —
+// not just the sender's. Keyed to a DETERMINISTIC id (type-prefixed via CLOUD_NOTIF_ID_PREFIX, so
+// different callers' ids can never collide) so re-renders / racing writers / self-healing sweeps
+// all converge on ONE doc instead of a duplicate bell entry. Falls back to the per-device
+// localStorage inbox (idempotent by dedupeId+type, via addNotif) on the local backend or before
+// the cloud listener has connected — best-effort throughout, never throws.
+// Bank-credit ids have always been "bank_" + idSlug(...) — kept as an explicit override (rather
+// than deriving from `type`, which would make it "bank_credit_...") so existing dedupe/idempotency
+// for bank credits is untouched. New types (e.g. "cal_" for cal_event) get their own short entry;
+// anything else falls back to "<type>_".
+const CLOUD_NOTIF_ID_PREFIX = { bank_credit: "bank_", cal_event: "cal_" };
+function writeCloudNotif(to, type, text, dedupeId, url){
   if (notifsCol && notifsFs){
     try {
-      const id = "bank_" + idSlug(dedupeId || (kid + "_" + Date.now()));
+      const prefix = CLOUD_NOTIF_ID_PREFIX[type] || (type + "_");
+      const id = prefix + idSlug(dedupeId || (to + "_" + Date.now()));
       // deterministic doc id => setDoc converges racing writers onto ONE doc (no dup bell entry)
       notifsFs.setDoc(notifsFs.doc(notifsCol, id), {
-        to: kid, from: "BUCKY", type: "bank_credit", text, url: url || "", at: Date.now(), read: false
+        to, from: "BUCKY", type, text, url: url || "", at: Date.now(), read: false
       }).catch(()=>{});
       return;
     } catch {}
   }
-  const n = addNotif(kid, "bank_credit", text, dedupeId || null);
-  if (n && kid === myName()) liveNotify(n);
+  const n = addNotif(to, type, text, dedupeId || null);
+  if (n && to === myName()) liveNotify(n);
+}
+function writeBankNotif(kid, text, dedupeId, url){
+  writeCloudNotif(kid, "bank_credit", text, dedupeId, url);
 }
 function notifyBankCredit(kid, amount, source, dedupeId){
   const amt = Number(amount) || 0;
