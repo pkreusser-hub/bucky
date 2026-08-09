@@ -658,7 +658,16 @@ async function sectionFinanceTab(browser, mock){
       const b = document.querySelector(".finrangepills button.sel");
       return b && b.dataset.range === k;
     }, {}, key);
-    await page.waitForFunction(() => document.querySelector(".finaxischart") || document.querySelector(".finchartmsg"), { timeout: 8000 });
+    // Wait for a SETTLED chart state. ".finchartmsg" also covers the in-flight "Loading chart…"
+    // message, so accepting it here resolved the wait instantly on the loading state and the
+    // assertion below then read the DOM mid-flight — the failure moved between week/year run to
+    // run, which is the signature of a race rather than a real defect. Settled = a drawn chart, or
+    // a message that is NOT the loading one.
+    await page.waitForFunction(() => {
+      if (document.querySelector(".finaxischart")) return true;
+      const m = document.querySelector(".finchartmsg");
+      return !!m && !/loading/i.test(m.textContent || "");
+    }, { timeout: 8000 });
     ok(mock.rangeCallLog[mock.rangeCallLog.length - 1].range === key, `tapping ${key} sends range:"${key}" to the server`);
     ok(await page.evaluate(() => !!document.querySelector(".finaxischart")), `${key}'s own data renders a real chart (not a "no data" message — the mock always supplies closes for AAPL)`);
   }
