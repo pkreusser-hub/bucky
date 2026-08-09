@@ -408,6 +408,69 @@ jobs:
           echo "runQuery body bytes: $(wc -c < /tmp/q.json)"
           python3 -c "import json; d=json.load(open('/tmp/q.json')); rows=[r for r in d if 'document' in r]; print('team docs:', len(rows))"
 
+      - name: GFFL live-data shapes (NaN scores / zero projections triage)
+        run: |
+          KEY="AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU"
+          BASE="https://firestore.googleapis.com/v1/projects/amen-farms-app/databases/(default)/documents"
+          echo "=== settings doc: raw scoring block as the app receives it ==="
+          curl -sS "$BASE/gffl_fam2jan2g/settings?key=$KEY" -o /tmp/set.json
+          python3 <<'PY'
+          import json
+          d=json.load(open('/tmp/set.json'))
+          f=d.get('fields',{})
+          print('top-level field kinds:', {k: list(v.keys())[0] for k,v in f.items()})
+          sc=f.get('scoring',{}).get('mapValue',{}).get('fields',{})
+          print('scoring entries:', len(sc))
+          for k in sorted(sc)[:8]:
+              print('  ', k, sc[k])
+          ros=f.get('roster',{}).get('mapValue',{}).get('fields',{})
+          print('roster entries:', {k: ros[k] for k in list(sorted(ros))[:4]})
+          PY
+          echo "=== a real 2025 wk1 roster doc: first 3 players as stored ==="
+          curl -sS "$BASE/gffl_fam2jan2g/roster_2025_w1_t1?key=$KEY" -o /tmp/ros.json
+          python3 <<'PY'
+          import json
+          d=json.load(open('/tmp/ros.json'))
+          if 'fields' not in d:
+              print('NO SUCH DOC ->', json.dumps(d)[:300]); raise SystemExit
+          pl=d['fields'].get('players',{}).get('arrayValue',{}).get('values',[])
+          print('players stored:', len(pl))
+          for v in pl[:3]:
+              print('  ', json.dumps(v.get('mapValue',{}).get('fields',{}))[:400])
+          PY
+          echo "=== do those roster keys exist in Sleeper's directory / wk1 archive? ==="
+          curl -sS "https://api.sleeper.app/v1/players/nfl" -o /tmp/pl.json
+          curl -sS "https://api.sleeper.app/v1/stats/nfl/regular/2025/1" -o /tmp/st.json
+          curl -sS "https://api.sleeper.app/v1/projections/nfl/regular/2025/1" -o /tmp/pj.json
+          python3 <<'PY'
+          import json
+          pl=json.load(open('/tmp/pl.json')); st=json.load(open('/tmp/st.json')); pj=json.load(open('/tmp/pj.json'))
+          try:
+              ros=json.load(open('/tmp/ros.json'))['fields']['players']['arrayValue']['values']
+          except Exception as e:
+              print('no roster to cross-check:', e); raise SystemExit
+          byespn={}
+          for pid,m in pl.items():
+              e=m.get('espn_id')
+              if e is not None: byespn[str(e)]=pid
+          print('sleeper directory size:', len(pl), '| with espn_id:', len(byespn))
+          print('archive rows:', len(st), '| projection rows:', len(pj))
+          hit=miss=0
+          for v in ros[:12]:
+              f=v.get('mapValue',{}).get('fields',{})
+              key=(f.get('key',{}) or {}).get('stringValue')
+              name=(f.get('name',{}) or {}).get('stringValue')
+              pid=byespn.get(str(key))
+              srow=st.get(pid) if pid else None
+              prow=pj.get(pid) if pid else None
+              if pid: hit+=1
+              else: miss+=1
+              print(f'  key={key!r:12} {name!r:24} sleeper_pid={pid} stats={"yes" if srow else "NO"} proj={"yes" if prow else "NO"}')
+              if srow: print('      stat row sample:', dict(list(srow.items())[:6]))
+              if prow: print('      proj row sample:', dict(list(prow.items())[:6]))
+          print('MATCHED', hit, 'MISSED', miss)
+          PY
+
       - name: live kicker scoring audit (206/209/214)
         run: |
           code=$(curl -sS -o /tmp/ka.json -w "%{http_code}" -X POST \
