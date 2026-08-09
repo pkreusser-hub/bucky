@@ -7379,9 +7379,11 @@ function notifyCalEvent(ev, names, isUpdate, repeatInfo){
     } catch {}
   }
   (async () => {
+    const failed = [], noAddress = [];
     for (const name of targets){
+      let r;
       try {
-        await sendEmail(name, {
+        r = await sendEmail(name, {
           subject: `📅 ${verb}: ${title}`,
           message: `${me || "Someone"} ${isUpdate ? "updated" : "added"} an event on the family calendar: "${title}".`,
           details_block: buildDetailsBlock([
@@ -7393,7 +7395,17 @@ function notifyCalEvent(ev, names, isUpdate, repeatInfo){
           ]),
           cta_block: buildCtaBlock("Open the calendar", "calendar"),
         });
-      } catch {}   // sendEmail already self-catches; this is defense in depth, not the real guard
+      } catch { r = { ok: false, reason: "send-failed" }; }   // sendEmail self-catches; belt and braces
+      if (!r || r.ok) continue;
+      if (r.reason === "no-address" || r.reason === "no-profile") noAddress.push(name);
+      else failed.push(name);
+    }
+    // The sheet already labels who has no address on file, so that case stays quiet. A REAL
+    // failure used to be console-only: the app told you it would email someone, silently didn't,
+    // and nothing on screen ever said so. Now it says so.
+    if (failed.length){
+      const why = lastEmailError && lastEmailError.detail ? ` (${lastEmailError.detail})` : "";
+      showToast(`✉️ Couldn't email ${failed.join(", ")}${why}`);
     }
   })();
   recordCalNotified(ev.id, targets);
@@ -10222,6 +10234,10 @@ window.__BANK__ = {
 // let a suite simulate TWO separate devices/browser contexts sharing one notifs_<familyKey>
 // collection instead, through the SAME production code (writeCloudNotif / applyInviteDocs) real
 // devices use.
+// Support hook: after a "the email never arrived" report, read this in the browser console on the
+// device that CREATED the event. It holds the upstream's own words (EmailJS returns {status,text},
+// e.g. a quota or template error), which is the one thing a screenshot of an empty inbox cannot say.
+Object.defineProperty(window, "__EMAIL_LAST_ERROR__", { get: () => lastEmailError });
 window.__NOTIFY__ = {
   // Force writeCloudNotif() onto its cloud-connected branch on THIS device/page, capturing every
   // setDoc/updateDoc it makes into window.__CLOUD_WRITES__ (an id-keyed map — like one shared
@@ -12157,11 +12173,19 @@ function buildCtaBlock(label, hash){
 }
 
 // Send an email via EmailJS to a family member by name (no-op until configured + that person has an email)
+// Returns {ok:true} | {ok:false, reason, detail?} — it never throws, so no caller needs a
+// try/catch, but a caller that PROMISED someone an email can now say what happened instead of
+// leaving it in the console. Reasons: "no-name" / "not-configured" / "no-profile" /
+// "no-address" (all expected and quiet) vs "send-failed" (a real failure worth surfacing).
+// Every layer above this was verified working — EmailJS key/service/template, the to_email
+// variable, and the real library loading in the browser — so when mail does not arrive the
+// answer is almost always in `detail` here, and it was previously thrown away.
 async function sendEmail(toName, params){
-  if (!toName) return;
-  if (!EMAILJS.publicKey || EMAILJS.publicKey === "PASTE_HERE") return;
+  if (!toName) return { ok: false, reason: "no-name" };
+  if (!EMAILJS.publicKey || EMAILJS.publicKey === "PASTE_HERE") return { ok: false, reason: "not-configured" };
   const prof = chores.find(c => c.frequency === "profile" && c.name === toName);
-  if (!prof || !prof.email) return;
+  if (!prof) return { ok: false, reason: "no-profile" };
+  if (!prof.email) return { ok: false, reason: "no-address" };
   try {
     const mod = await import("https://esm.sh/@emailjs/browser@4");
     const emailjs = mod.default || mod;
@@ -12171,8 +12195,18 @@ async function sendEmail(toName, params){
         progress_block: "", photo_block: "", details_block: "", cta_block: buildCtaBlock("Open BUCKY", "workorders")
       }, params),
       { publicKey: EMAILJS.publicKey });
-  } catch (e){ console.error("Email alert failed:", e); }
+    return { ok: true };
+  } catch (e){
+    // EmailJS rejects with {status, text}; a failed module import throws a plain Error.
+    const detail = (e && (e.text || e.message)) ? String(e.text || e.message).slice(0, 160) : String(e).slice(0, 160);
+    console.error("Email alert failed:", e);
+    lastEmailError = { at: Date.now(), to: toName, detail };
+    return { ok: false, reason: "send-failed", detail };
+  }
 }
+// Kept for support: the last real send failure, readable from the console via __EMAIL_LAST_ERROR__
+// (or the toast below) when someone reports "I never got the email".
+let lastEmailError = null;
 function notifyAssignee(name, wo){
   sendEmail(name, {
     subject: "New BUCKY job: " + wo.name,

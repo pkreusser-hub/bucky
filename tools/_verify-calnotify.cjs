@@ -556,6 +556,19 @@ async function sectionEmailFailure(browser){
   ok(pushesAfter.some((p) => p.targetUser === "Isaac"), "Isaac still got pushed");
   ok(pushesAfter.some((p) => p.targetUser === "Eleanor"), "…and so did Eleanor");
 
+  // A failed email used to be console-only: the sheet promised to notify Isaac, quietly did not,
+  // and NOTHING on screen ever said so — which is exactly how "no luck on the email" becomes
+  // undiagnosable. The failure must now reach the person who created the event.
+  const failToast = await page.evaluate(() =>
+    [...document.querySelectorAll("#toastWrap .toast")].map((t) => t.textContent).join(" ||| "));
+  ok(/Couldn't email/i.test(failToast) && /Isaac/.test(failToast),
+    `the creator is TOLD the email failed, naming who ("${failToast.slice(0, 90)}")`);
+  ok(!/Eleanor/.test(failToast),
+    "…and the toast names only who actually failed, not the recipient who succeeded");
+  const lastErr = await page.evaluate(() => window.__EMAIL_LAST_ERROR__ || null);
+  ok(!!lastErr && lastErr.to === "Isaac" && !!lastErr.detail,
+    "…and __EMAIL_LAST_ERROR__ carries the upstream's own words for support");
+
   // sendEmail() itself console.error()s a failed send (its own existing, unmodified try/catch
   // logging) — that is exactly what THIS section deliberately triggered, not a bug. Everything
   // else must still be silent.
