@@ -1537,18 +1537,18 @@
       <div class="card lineupcard"><div class="panner"><table class="tbl slottable mutable">
         <tbody>${rows.map(([pa, slot, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
-          <td class="slotcell" data-pos="${slotPos(slot)}"><span class="slotbadge">${esc(slot)}</span></td>
+          <td class="slotcell" data-pos="${slotPos(slot)}">${slotBadge(slot)}</td>
           <td class="pcell right">${halfCell(ph, "right")}</td></tr>`).join("")}</tbody>
         <tfoot><tr class="totalrow">
           <td class="pcell">${totalHalfCell(aTot, "left")}</td>
-          <td class="slotcell" data-pos="X"><span class="slotbadge">TOT</span></td>
+          <td class="slotcell" data-pos="X">${slotBadge("TOT")}</td>
           <td class="pcell right">${totalHalfCell(hTot, "right")}</td>
         </tr></tfoot>
       </table></div></div>
       ${(aBench.length || hBench.length) ? `<div class="card lineupcard"><h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
         ${benchRows.map(([pa, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
-          <td class="slotcell" data-pos="X"><span class="slotbadge">BENCH</span></td>
+          <td class="slotcell" data-pos="X">${slotBadge("BENCH")}</td>
           <td class="pcell right">${halfCell(ph, "right")}</td></tr>`).join("")}
       </tbody></table></div></div>` : ""}
       <div class="card"><h2>The feed</h2>
@@ -1705,11 +1705,23 @@
   // bare "TB" at home (g.home, recorded by BOTH slate parsers).
   function gameLineHtml(g) {
     if (!g) return "";
-    if (g.state === "in") return `<span class="live">Q${g.period} ${esc(g.clock)}</span>`;
-    if (g.state === "post") return "Final";
-    const opp = g.oppAb ? (g.home ? esc(g.oppAb) : "@" + esc(g.oppAb)) : "";
-    const kick = esc(shortKick(g));
-    return opp && kick ? opp + " " + kick : (opp || kick);
+    // ITEM 24 (2026-08-09): the live clock is NOT red. It used to carry .live, which paints
+    // --accent — but "Q2 5:00" is an ordinary fact about the game, exactly like the opponent
+    // and the kickoff it replaces on this same line, and red is a WARNING colour this app
+    // spends on genuine alarms (the injury designation, an overdue deadline). .gclock keeps
+    // the bold weight that made the clock scannable and inherits .pmeta's muted colour.
+    // Wrapped in .gline (ITEM 26): the injury designation now shares this line, and without
+    // its own element the two run together in textContent ("D" + "KC Fri 1:00 AM" reads
+    // "DKC…"). The gap between them is a CSS margin, so only the markup can separate them for
+    // anything that reads the line — a test, or a screen reader walking it.
+    const inner = g.state === "in" ? `<span class="gclock">Q${g.period} ${esc(g.clock)}</span>`
+      : g.state === "post" ? "Final"
+      : (() => {
+        const opp = g.oppAb ? (g.home ? esc(g.oppAb) : "@" + esc(g.oppAb)) : "";
+        const kick = esc(shortKick(g));
+        return opp && kick ? opp + " " + kick : (opp || kick);
+      })();
+    return inner ? `<span class="gline">${inner}</span>` : "";
   }
   // THE ESPN MATCHUP ROW (2026-08-09, rebuilt from the user's own screenshot of the real app).
   // EXACTLY THREE LINES per half, always the same three, so every row in the table is the same
@@ -1748,10 +1760,13 @@
       // pictograph. Conflict was " " — now a plain text badge.
       // Red zone marks the OFFENSE in the red zone — a D/ST row isn't on the field.
       const rz = g && g.rz && g.state === "in" && p.pos !== "DST" ? '<span class="rzdot" title="Red zone"></span>' : "";
-      // Possession (2026-08-09): a gold pip + a faint row tint, deliberately NOT red — red is
-      // already spoken for by the live clock and the red-zone dot, and this must not fight it.
+      // Possession (ITEM 25, 2026-08-09): a GOLD BORDER around the player's own half-cell.
+      // It used to be a gold pip plus a faint row tint; the user asked for the border instead.
+      // Still gold and not red — red is spoken for by the injury designation (item 24) — and
+      // still only while that player's NFL team has the ball on offense, never a D/ST (a
+      // defence is off the field), never under the replay (there is no drive data to read).
+      // Drawn as an INSET ring (see .pcellgrid.hasball) so it costs the row no height.
       ball = hasBall(p);
-      const possPip = ball ? '<span class="possdot" title="Has the ball"></span>' : "";
       const conflict = row && row.conflict ? '<span class="conflictflag" title="Sources disagree">CONFLICT</span>' : "";
       // ESPN-style stat summary line ("312 pass yds, 2 TD" / "6 rec, 84 yds"), from whichever
       // source mergeRow picked. "" before any stat lands — the LINE still reserves its height.
@@ -1761,13 +1776,29 @@
       // and the centre band carries the slot.
       titleAttr = ` title="${esc(LG.shortName(p.name) + " · " + p.pos + " · " + p.team)}"`;
       nameHtml = `${plogoHtml(p.team)}<b${titleAttr}>${escn(p.name)}</b>`;
-      // ITEM 17 (2026-08-09): the possession pip, the red-zone dot and the conflict flag ride
-      // on LINE 2, not beside the name. Two of them cost ~31px, and they appear on exactly the
-      // rows whose names are longest-pressed — at 390px that was the difference between
-      // "J. Smith-Njigba" and "J. Smi…". Line 2 is also where they belong: all three are facts
-      // about the GAME's state, which is what that line says, and a live row's line 2 is the
-      // short form ("Q2 5:00"), so they cost nothing there.
-      metaHtml = gameLineHtml(g) + possPip + rz + conflict;
+      // ITEM 17 (2026-08-09): the red-zone dot and the conflict flag ride on LINE 2, not beside
+      // the name. They cost ~31px, and they appear on exactly the rows whose names are
+      // longest-pressed — at 390px that was the difference between "J. Smith-Njigba" and
+      // "J. Smi…". Line 2 is also where they belong: both are facts about the GAME's state,
+      // which is what that line says, and a live row's line 2 is the short form ("Q2 5:00"),
+      // so they cost nothing there. (The possession pip that used to ride here with them is
+      // gone — item 25 replaced it with the half-cell's own gold ring, which costs no width
+      // at all, so the longest names gained that space back too.)
+      //
+      // ITEM 26 (2026-08-09): Q / D / OUT joins them, and LINE 2 is the only place it can go.
+      // Item 24 took red off the clock on this row; the half of the same sentence that says
+      // what red is FOR ("What should be red is Q, D, our OUT status for players") had nothing
+      // to attach to, because this row carries a name and nothing else on line 1 — and line 1
+      // is the width-constrained one that two rounds of work went into. Line 2 is short.
+      // It leads the line rather than trailing it: line 2 is nowrap + ellipsis, so whatever
+      // sits last is what gets cut, and the one thing on this row that must never be cut is
+      // "this man might not play". Same injLabel() every other surface reads, and the same
+      // live-row-then-roster precedence the locker's injChip uses, so a status can never
+      // render one way here and another way on My Team. A healthy player yields "" and gets
+      // no span at all — not an empty one, and not a stray separator.
+      const injTxt = injLabel((row && row.injury) || p.injury || "");
+      const injHtml = injTxt ? `<span class="inj">${esc(injTxt)}</span>` : "";
+      metaHtml = injHtml + gameLineHtml(g) + rz + conflict;
       statHtml = sline ? esc(sline) : "";
       ptsHtml = `<span class="pts">${LG.fmtPts(pts)}</span>`;
       projHtml = LG.fmtPts(proj);
@@ -1783,7 +1814,9 @@
     // data-pk only when there's a real player (never on an "Empty" half) — that's what
     // wirePlayerCardTaps() keys the click on, and it's also the whole "row-click" affordance
     // for the matchup lineup + bench tables (item 1's "matchup lineup rows both sides").
-    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}"${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
+    // The gold ring is the only thing that says "this man has the ball", so it carries the
+    // label the pip used to — a colour on its own is not an accessible statement.
+    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}"${ball ? ' title="Has the ball"' : ""}${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
   }
   // The ESPN-reference stat summary for a matchup row: a compact position-aware line built
   // from the stats of whichever source mergeRow() picked for display (row.src — the same
@@ -1881,6 +1914,162 @@
   function slotPos(slot) { return POS_SLOTS.includes(String(slot)) ? String(slot) : "X"; }
 
   // ---------------- team / lineup ----------------
+  // ITEM 23 (2026-08-09, user: "that font should be much larger and the color should take up
+  // the width and height of the column so there isn't blank space"). The badge now FILLS its
+  // cell (see td.slotcell in league.html), so the only thing left to decide per-label is the
+  // type size: at the column's width a 3-character position label ("QB", "FLEX" is four) can
+  // be set much larger than "BENCH" can. .sbwide is that one modifier — anything longer than
+  // three characters steps down, which is what keeps BENCH inside the cell at 390px while a
+  // QB reads at nearly half again the size it used to.
+  function slotBadge(slot) {
+    const s = String(slot || "");
+    return `<span class="slotbadge${s.length > 3 ? " sbwide" : ""}">${esc(s)}</span>`;
+  }
+  // ============ ITEM 21 (2026-08-09): "Suggest a trade" ============
+  // A LOCAL, DETERMINISTIC heuristic — deliberately NOT a model call. Three reasons, and none
+  // of them is cost alone: it has to be instant (this is a button in a trade builder, not a
+  // research query), it has to be TESTABLE (a suggestion nobody can predict cannot be
+  // asserted against a fixture), and "roughly equal value" is literally arithmetic. Nothing
+  // here fetches; it reads the projections and season logs the Moves page already has.
+  //
+  // It NEVER sends. It fills the give/get selections and says one line about why, and the
+  // user reviews, adjusts and presses Send themselves.
+  //
+  //   value(p)      0.65 x season average + 0.35 x this week's projection, or whichever of
+  //                 the two exists, or 0. Season average is the honest measure of a player
+  //                 (a trade is not about one week) but the projection is the only number a
+  //                 pre-season or freshly-added player has, so neither can be the sole input.
+  //   strength      per position, the summed value of the top N players, N = that position's
+  //                 STARTING requirement. "Weaker" is therefore relative and computable:
+  //                 edge(pos) = myStrength - theirStrength.
+  //   the trade     I send from a position where edge > 0 (my depth, their weakness) and
+  //                 receive at a position where edge < 0 (their depth, my weakness), so a
+  //                 legal, balanced pair helps both sides where they are weaker BY
+  //                 CONSTRUCTION rather than by hoping.
+  //   balanced      within TRADE_TOL_FLOOR points, or TRADE_TOL_FRAC of the larger side,
+  //                 whichever is more generous. Among the survivors it picks the lowest
+  //                 RELATIVE imbalance (balance / average value), so a meaningful swap of two
+  //                 real starters beats a trivially equal swap of two bench bodies.
+  //   legal         never a locked player, never an IR player, cap 3 a side, and both rosters
+  //                 must still satisfy every positional minimum (including the FLEX pool)
+  //                 after the swap.
+  const TRADE_TOL_FLOOR = 1.5;   // points — two players inside this are "the same player"
+  const TRADE_TOL_FRAC = 0.15;   // …or within 15% of the larger side, whichever is bigger
+  const TRADE_POS = ["QB", "RB", "WR", "TE", "K", "DST"];
+  function rosterReq() { return (LG.rules && LG.rules.roster) || LG.DEFAULT_RULES.roster; }
+  // The value of one player. Exposed so the suite can cross-check the arithmetic it asserts
+  // against rather than re-deriving it (and so a future tweak here fails loudly there).
+  function tradeValueOf(p) {
+    if (!p) return 0;
+    const s = UI._faStats && UI._faStats.get(p.key);
+    const avg = s && s.avg != null && isFinite(s.avg) ? Number(s.avg) : null;
+    const pj = D().projFor(p.key);
+    const proj = pj != null && isFinite(pj) ? Number(pj) : null;
+    if (avg != null && proj != null) return 0.65 * avg + 0.35 * proj;
+    if (avg != null) return avg;
+    if (proj != null) return proj;
+    return 0;
+  }
+  UI.tradeValueOf = tradeValueOf;
+  function valuesAt(roster, pos) {
+    return roster.filter((p) => p.pos === pos).map(tradeValueOf).sort((a, b) => b - a);
+  }
+  function posStrength(roster, pos) {
+    const need = rosterReq()[pos] || 0;
+    return valuesAt(roster, pos).slice(0, need).reduce((a, b) => a + b, 0);
+  }
+  // The value of the weakest man I currently START at this position — the bar a newcomer has
+  // to clear to actually improve my lineup rather than merely join my bench. 0 when the
+  // position isn't even filled, which is the strongest possible case for receiving one.
+  function worstStarterValue(roster, pos) {
+    const need = rosterReq()[pos] || 0;
+    if (!need) return 0;
+    const vs = valuesAt(roster, pos);
+    return vs.length >= need ? vs[need - 1] : 0;
+  }
+  // Would this roster still be legal after sending `out` and receiving `in`? Positional
+  // minimums INCLUDING the flex pool — a team that has to start RB2/WR2/TE1/FLEX1 needs six
+  // bodies across those three positions, not just the per-position counts.
+  function rosterStillLegal(roster, out, inn) {
+    const gone = new Set(out.map((p) => p.key));
+    const list = roster.filter((p) => !gone.has(p.key)).concat(inn);
+    const R = rosterReq();
+    const c = {};
+    for (const p of list) c[p.pos] = (c[p.pos] || 0) + 1;
+    for (const pos of TRADE_POS) if ((c[pos] || 0) < (R[pos] || 0)) return false;
+    const pool = (c.RB || 0) + (c.WR || 0) + (c.TE || 0);
+    return pool >= (R.RB || 0) + (R.WR || 0) + (R.TE || 0) + (R.FLEX || 0);
+  }
+  function tradeSendable(roster) {
+    return roster.filter((p) => p && p.slot !== "IR" && TRADE_POS.includes(p.pos) && !playerLocked(p));
+  }
+  function tolFor(a, b) { return Math.max(TRADE_TOL_FLOOR, TRADE_TOL_FRAC * Math.max(a, b)); }
+  function posPhrase(list) {
+    const seen = [...new Set(list.map((p) => p.pos))];
+    return seen.length === 1 ? seen[0] : seen.slice(0, 2).join(" and ");
+  }
+  // mine / theirs are roster arrays ([{key,name,pos,team,slot}]). Returns a suggestion or
+  // null — "no reasonable trade exists" is a real answer here, not a failure to try harder.
+  function suggestTradePair(mine, theirs) {
+    if (!mine || !theirs || !mine.length || !theirs.length) return null;
+    const edge = {};
+    for (const pos of TRADE_POS) edge[pos] = posStrength(mine, pos) - posStrength(theirs, pos);
+    const myDepth = TRADE_POS.filter((p) => edge[p] > 0);
+    const myNeed = TRADE_POS.filter((p) => edge[p] < 0);
+    if (!myDepth.length || !myNeed.length) return null;
+    const gAll = tradeSendable(mine).filter((p) => myDepth.includes(p.pos));
+    const rAll = tradeSendable(theirs).filter((p) => myNeed.includes(p.pos));
+    if (!gAll.length || !rAll.length) return null;
+    const V = new Map([...gAll, ...rAll].map((p) => [p.key, tradeValueOf(p)]));
+    const sum = (list) => list.reduce((a, p) => a + V.get(p.key), 0);
+    // A candidate survives only if it is balanced, legal for BOTH rosters, and (on the strict
+    // pass) upgrades each side's STARTING lineup at the position it is receiving.
+    function consider(give, get, strict, out) {
+      const vg = sum(give), vr = sum(get);
+      const bal = Math.abs(vg - vr);
+      if (bal > tolFor(vg, vr)) return;
+      if (!rosterStillLegal(mine, give, get) || !rosterStillLegal(theirs, get, give)) return;
+      if (strict) {
+        for (const p of get) if (V.get(p.key) <= worstStarterValue(mine, p.pos)) return;
+        for (const p of give) if (V.get(p.key) <= worstStarterValue(theirs, p.pos)) return;
+      }
+      // Lowest RELATIVE imbalance wins, so a 12.0-for-12.5 swap of two starters beats a
+      // 3.0-for-3.2 swap of two spare parts even though the raw gap is larger.
+      const rel = bal / Math.max(1, (vg + vr) / 2);
+      out.push({ give, get, giveVal: vg, getVal: vr, balance: bal, rel, strict });
+    }
+    const pick = (cands) => {
+      if (!cands.length) return null;
+      // Deterministic to the last tie: relative imbalance, then raw size (prefer the bigger
+      // trade), then the keys themselves, so the same two rosters always suggest the same swap.
+      cands.sort((a, b) => (a.rel - b.rel)
+        || ((b.giveVal + b.getVal) - (a.giveVal + a.getVal))
+        || (a.give.map((p) => p.key).join() + "|" + a.get.map((p) => p.key).join())
+             .localeCompare(b.give.map((p) => p.key).join() + "|" + b.get.map((p) => p.key).join()));
+      return cands[0];
+    };
+    const ones = [];
+    for (const g of gAll) for (const r of rAll) consider([g], [r], true, ones);
+    let best = pick(ones);
+    if (!best) {
+      // 2-for-2, when no single pair can balance. Bounded to the six most valuable candidates
+      // a side (15 pairs each, 225 combinations) — beyond that the extra options are all
+      // bench filler and the cost is quadratic.
+      const top = (list) => list.slice().sort((a, b) => V.get(b.key) - V.get(a.key)).slice(0, 6);
+      const gT = top(gAll), rT = top(rAll), twos = [];
+      for (let i = 0; i < gT.length; i++) for (let j = i + 1; j < gT.length; j++)
+        for (let a = 0; a < rT.length; a++) for (let b = a + 1; b < rT.length; b++)
+          consider([gT[i], gT[j]], [rT[a], rT[b]], true, twos);
+      best = pick(twos);
+    }
+    if (!best) { const relaxed = []; for (const g of gAll) for (const r of rAll) consider([g], [r], false, relaxed); best = pick(relaxed); }
+    if (!best) return null;
+    best.kind = best.give.length === 1 ? "1-for-1" : best.give.length + "-for-" + best.get.length;
+    best.why = "You're deep at " + posPhrase(best.give) + "; they're deep at " + posPhrase(best.get) + ".";
+    return best;
+  }
+  UI.suggestTradePair = suggestTradePair;
+
   function playerLocked(p) {
     const d = D();
     const g = d.S.games.get(d.slpTeam(p.team));
@@ -2405,6 +2594,9 @@
     // the stats card, and .pcpick — a small, its-own button — carries the give/get toggle that
     // used to be the whole row's job. The outer .pickchip div keeps the same "picked" class +
     // border/background treatment it always had.
+    // ITEM 20 (2026-08-09) puts these rows inside a collapsed picker: they are how you ADD a
+    // player, and the wall of them is only worth its room once you are actually working a
+    // trade. Everything else about them is unchanged.
     const chip = (p, set) => `<div class="swaprow pickchip ${set.has(p.key) ? "picked" : ""}" data-gk="${esc(p.key)}">
         <button type="button" class="pcinfo" data-pk="${esc(p.key)}">
           <b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${esc(p.slot)}</small>
@@ -2419,6 +2611,34 @@
     // and an empty sibling shrinks to a single muted line instead of a paragraph.
     // The #mvMyClaims / #mvMyTrades ids and their "No pending …" wording survive BOTH shapes:
     // they are how a second device proves a blind claim really is invisible to it.
+    // ---- ITEM 19 (2026-08-09, user: "remove all the text under 'waivers' and just have 3
+    // data blocks: FAAB budget, and FA vs WAIVER"). The card used to carry two full
+    // paragraphs of prose. It now carries three stat blocks, and the one that is IN FORCE
+    // right now is marked — which is what the prose was for. Nothing is lost but the
+    // sentences: the deadline moves INSIDE the waiver block as its own value (time on the
+    // value line, date under it), and "first come, first served" / "blind bids" survive as
+    // the blocks' own three-word sub-labels rather than as a paragraph each.
+    // (The one fact that genuinely goes: "adding/dropping isn't locked by kickoff — only your
+    // starting lineup is". It is a standing rule of the app rather than a fact about this
+    // week, and the locker already says so at the point it bites, by disabling a locked Swap.)
+    const wvDl = new Date(LG.waiverDeadline(UI.week));
+    const wvBlock = (id, on, label, value, sub) => `<div class="mvblk ${on ? "on" : "off"}" id="${id}">
+        <span class="mvblab">${esc(label)}</span>
+        <span class="mvbval">${esc(value)}</span>
+        <span class="mvbsub">${esc(sub)}</span>
+        ${on ? '<span class="mvbtag">Now</span>' : ""}
+      </div>`;
+    const wvBlocksHtml = `<div class="mvblocks">
+        <div class="mvblk" id="mvBlkFaab">
+          <span class="mvblab">FAAB budget</span>
+          <span class="mvbval">$<span id="mvFaab">${LG.teamFaab(T)}</span></span>
+          <span class="mvbsub">remaining</span>
+        </div>
+        ${wvBlock("mvBlkFa", past, "Free agency", past ? "Open" : "Closed", "first come, first served")}
+        ${wvBlock("mvBlkWaiver", !past, "Waivers", wvDl.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+          wvDl.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }))}
+      </div>`;
+
     const pendEmpty = !myClaims.length && !myTrades.length && !reviewTrades.length && !myResultsHtml;
     const pendHtml = pendEmpty
       ? `<div class="card pendcard"><h2>My pending</h2>
@@ -2435,10 +2655,8 @@
     main().innerHTML = `
       ${pendHtml}
       <div class="card"><h2>Waivers</h2>
-        <div class="rowline"><span class="mut small">$<span id="mvFaab">${LG.teamFaab(T)}</span> FAAB remaining</span>
-          ${isCommish() ? '<button id="mvProcessNow">Process now</button>' : ""}</div>
-        <p class="mut small">${past ? "Free agency is open — first come, first served." : "Claims process Wed 8:00 AM (" + new Date(LG.waiverDeadline(UI.week)).toLocaleString() + ")."}</p>
-        <p class="mut small">Adding/dropping a player isn't locked by kickoff — only your starting lineup is.</p>
+        ${wvBlocksHtml}
+        ${isCommish() ? '<div class="rowline mvprow"><button id="mvProcessNow">Process now</button></div>' : ""}
         <div class="rowline"><span class="mut small">Filter:</span>
           <div class="poschips" id="faFilterChips">
             <button type="button" class="poschip" data-filter="avail">Available</button>
@@ -2451,10 +2669,12 @@
       </div>
       <div class="card"><h2>Propose a trade</h2>
         <select id="mvTradeTeam">${others.map((t) => `<option value="${t.id}" ${t.id === cpId ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select>
+        <div class="rowline mvsugrow"><button id="mvSuggest" type="button">Suggest a trade</button>
+          <span id="mvSuggestWhy" class="mut small"></span></div>
         <h2 class="small mut">You give (up to 3)</h2>
-        <div id="mvGive">${myRoster.map((p) => chip(p, UI._tradeGive)).join("") || '<p class="mut">Empty roster.</p>'}</div>
+        <div id="mvGive" class="tradeside"></div>
         <h2 class="small mut">You get (up to 3)</h2>
-        <div id="mvGet">${cpRoster.map((p) => chip(p, UI._tradeGet)).join("") || '<p class="mut">Nobody on their roster.</p>'}</div>
+        <div id="mvGet" class="tradeside"></div>
         <input id="mvTradeNote" placeholder="Note (optional)">
         <button id="mvTradeSend" class="primary">Send offer</button>
       </div>
@@ -2499,10 +2719,15 @@
     // renderMoves() closure (like UI._tradeGive/_tradeCp) — a chip tap, a sort click, or "show
     // more" only ever rebuilds #faResults' own subtree, never a full renderMoves(), so the
     // search box's focus/caret and the rest of the Moves page are untouched.
+    // Default landing sort was season FPTS desc; FPTS is one of the three columns item 22
+    // dropped, so it is season AVG desc now — the same "best players first" idea, on the
+    // season column that survived. A remembered key from before the re-order (or from a
+    // future re-order) is discarded rather than silently sorting by a column that is no
+    // longer on the table.
     const faState = {
       q: "", pos: UI._faPos || "ALL", limit: 40,
       filter: UI._faFilter || "avail",
-      sortKey: UI._faSortKey || "fpts", sortDir: UI._faSortDir || "desc",
+      sortKey: "avg", sortDir: UI._faSortDir || "desc",
     };
     const faInput = $("#faSearch");
     // Season stats (FPTS/AVG/LAST) come from D.gameLog — cached per-player here so a sort
@@ -2513,12 +2738,21 @@
     // D.weekStats (2026-08-08 perf fix), so this is purely to avoid redundant re-derivation
     // and keep a re-sort of already-known players synchronous.
     UI._faStats = UI._faStats || new Map();
+    // Split out of ensureFaStatsBatch (2026-08-09) so "Suggest a trade" can await the SAME
+    // season figures the table paints — the suggestion values players by their season average
+    // and must never guess at one it could have had for free. The repaint stays in the
+    // table's own wrapper; a suggestion has no table to repaint.
+    function ensureStats(list) {
+      const need = list.filter((p) => !UI._faStats.has(p.key));
+      if (!need.length) return Promise.resolve();
+      return Promise.all(need.map((p) => D().gameLog(p.key).then((log) => {
+        UI._faStats.set(p.key, log.rows.length ? { total: log.total, avg: log.avg, last: log.rows[log.rows.length - 1].pts } : null);
+      }).catch(() => { UI._faStats.set(p.key, null); })));
+    }
     function ensureFaStatsBatch(list) {
       const need = list.filter((p) => !UI._faStats.has(p.key));
       if (!need.length) return;
-      Promise.all(need.map((p) => D().gameLog(p.key).then((log) => {
-        UI._faStats.set(p.key, log.rows.length ? { total: log.total, avg: log.avg, last: log.rows[log.rows.length - 1].pts } : null);
-      }).catch(() => { UI._faStats.set(p.key, null); }))).then(() => {
+      ensureStats(list).then(() => {
         if (UI.view === "moves" && $("#faResults")) refreshFa();
       });
     }
@@ -2537,28 +2771,39 @@
       const T = LG.teamById(owningId);
       return (T && (T.abbrev || initials(T.name))) || "FA";
     }
-    // STATUS column — same three-state read (live clock / Final / kickoff day+time) the
-    // player stats card computes for its own header, kept separate rather than shared: the
-    // card's version is baked into a single "Live — Q2 5:00"-style string for a header line,
-    // this one is used both for display AND as a sortable value.
-    function faGameStatus(team) {
-      const g = D().S.games.get(D().slpTeam(team));
-      if (!g) return "";
-      if (g.state === "in") return "Live — Q" + g.period + " " + g.clock;
-      if (g.state === "post") return "Final";
-      return g.kickoff ? shortKick(g) : "";
-    }
+    const myAbbrev = (T && (T.abbrev || initials(T.name))) || "";
+    // ---- ITEM 22 (2026-08-09, user: "the first column should be add, then type, then
+    // projection, then last, the opp, then avg"). PLAYER stays in front of all of it as the
+    // row's own label — the user's list is of the DATA columns, and a table of anonymous rows
+    // is useless — and the MOVE button comes out of its old trailing column into second place.
+    // ⚠ THREE COLUMNS ARE GONE, and they are a real loss, not a tidy-up: STATUS (the live
+    // clock / Final / kickoff time), SCORE (this week's live points) and FPTS (the season
+    // total). None of the three is in the user's list. AVG and LAST between them still carry
+    // the season; the STATUS read survives in full on the player's own stats card, which any
+    // row opens. Say so if it is ever missed rather than quietly putting them back.
+    // faGameStatus() went with the column — the stats card computes its own.
     const FA_COLS = [
       { id: "player", label: "PLAYER" },
+      // ADD is a real sort control like every other header, and sorting by it is genuinely
+      // useful ("show me who I can actually add"), so it earns its arrow rather than being
+      // the one dead header on the row.
+      { id: "add", label: "ADD" },
       { id: "type", label: "TYPE" },
-      { id: "opp", label: "OPP" },
-      { id: "status", label: "STATUS" },
       { id: "proj", label: "PROJ", num: true },
-      { id: "score", label: "SCORE", num: true },
-      { id: "fpts", label: "FPTS", num: true },
-      { id: "avg", label: "AVG", num: true },
       { id: "last", label: "LAST", num: true },
+      { id: "opp", label: "OPP" },
+      { id: "avg", label: "AVG", num: true },
     ];
+    if (UI._faSortKey && FA_COLS.some((c) => c.id === UI._faSortKey)) faState.sortKey = UI._faSortKey;
+    // Why a row's MOVE button is unavailable, or "" when it is available. A rostered player
+    // used to render an EMPTY cell, which says nothing at all; he now gets a real disabled
+    // button that names the owner. NOT a reason: an empty FAAB purse — a $0 blind bid is a
+    // legal claim and always has been.
+    function faAddBlocked(p, type) {
+      if (type !== "FA") return type === myAbbrev ? "Already on your team" : "Owned by " + type;
+      if (!myRoster.length) return "You have nobody to drop";
+      return "";
+    }
     // Every value a column can be SORTED by — numeric columns return a number (missing ->
     // -Infinity, so it naturally sorts last on desc / first on asc with no special-casing);
     // every other column returns a string. Used by both the comparator below and (for the
@@ -2567,12 +2812,11 @@
       const d = D();
       if (colId === "player") return LG.shortName(p.name || "");
       if (colId === "type") return faTypeText(p, ownerMap);
+      // Addable first on desc — "who can I actually add" is the whole reason to sort on it.
+      if (colId === "add") return faAddBlocked(p, faTypeText(p, ownerMap)) ? 0 : 1;
       if (colId === "opp") return d.oppForWeek(UI.week, p.team) || "";
-      if (colId === "status") return faGameStatus(p.team);
       if (colId === "proj") { const v = d.projFor(p.key); return v == null ? -Infinity : v; }
-      if (colId === "score") { const row = d.S.players.get(p.key); return row && row.pts != null ? row.pts : -Infinity; }
       const s = UI._faStats.get(p.key);
-      if (colId === "fpts") return s && s.total != null ? s.total : -Infinity;
       if (colId === "avg") return s && s.avg != null ? s.avg : -Infinity;
       if (colId === "last") return s && s.last != null ? s.last : -Infinity;
       return "";
@@ -2600,31 +2844,30 @@
         const arrow = active ? (faState.sortDir === "desc" ? " ▼" : " ▲") : "";
         return `<th class="thsort${c.num ? " num" : ""}${active ? " active" : ""}" data-sort="${c.id}">${c.label}${arrow ? `<span class="sortarrow">${arrow}</span>` : ""}</th>`;
       }).join("");
-      return `<tr>${cells}<th></th></tr>`;
+      // No trailing unlabelled column any more — the MOVE button moved into its own real,
+      // sortable ADD column in second place (item 22).
+      return `<tr>${cells}</tr>`;
     }
     function faRowHtml(p, i, ownerMap) {
       const d = D();
       const type = faTypeText(p, ownerMap);
       const opp = d.oppForWeek(UI.week, p.team);
-      const status = faGameStatus(p.team);
       const proj = d.projFor(p.key);
-      const score = d.livePts(p.key);
       const stats = UI._faStats.get(p.key); // undefined = still loading | null = no games | {total,avg,last}
       const seasonCell = (v) => stats === undefined ? "…" : (v != null ? LG.fmtPts(v) : "—");
-      const moveBtn = type === "FA" ? `<button type="button" class="faAddBtn faMoveBtn">${past ? "Add" : "Claim"}</button>` : "";
+      const blocked = faAddBlocked(p, type);
+      const moveBtn = `<button type="button" class="faAddBtn faMoveBtn"${blocked
+        ? ` disabled title="${esc(blocked)}" aria-label="${esc(blocked)}"` : ""}>${past ? "Add" : "Claim"}</button>`;
       return `<tr data-fi="${i}" data-pk="${esc(p.key)}">
         <td class="faname"><span class="posbadge" data-pos="${esc(p.pos)}">${esc(p.pos)}</span>
           <b>${escn(p.name)}</b>${injLabel(p.injury) ? ' <span class="inj">' + esc(injLabel(p.injury)) + "</span>" : ""}
           <br><small class="mut">${esc(p.team)}</small></td>
-        <td class="fatype">${esc(type)}</td>
-        <td class="faopp mut">${esc(opp || "—")}</td>
-        <td class="fastatus mut">${esc(status || "—")}</td>
-        <td class="faproj num">${proj != null ? LG.fmtPts(proj) : "—"}</td>
-        <td class="fascore num">${score != null ? LG.fmtPts(score) : "—"}</td>
-        <td class="fafpts num">${seasonCell(stats && stats.total)}</td>
-        <td class="faavg num">${seasonCell(stats && stats.avg)}</td>
-        <td class="falast num">${seasonCell(stats && stats.last)}</td>
         <td class="faadd">${moveBtn}</td>
+        <td class="fatype">${esc(type)}</td>
+        <td class="faproj num">${proj != null ? LG.fmtPts(proj) : "—"}</td>
+        <td class="falast num">${seasonCell(stats && stats.last)}</td>
+        <td class="faopp mut">${esc(opp || "—")}</td>
+        <td class="faavg num">${seasonCell(stats && stats.avg)}</td>
       </tr>`;
     }
     function faResultsHtml(list) {
@@ -2658,6 +2901,7 @@
       }));
       resEl.querySelectorAll(".faMoveBtn").forEach((btn) => btn.addEventListener("click", (e) => {
         e.stopPropagation();
+        if (btn.disabled) return; // belt and braces — a disabled button fires no click anyway
         const key = btn.closest("tr").dataset.pk;
         const fa = list.find((x) => x.key === key);
         if (fa) openClaimSheet(fa);
@@ -2727,24 +2971,86 @@
       UI._tradeGet = new Set();
       renderMoves();
     });
-    // Split (2026-08-08) — see chip()'s own comment: .pcpick carries the give/get toggle now,
-    // .pcinfo (wired by wirePlayerCardTaps below) opens the stats card. The toggle still
-    // flips the OUTER .pickchip's "picked" class (that's what carries the border/background
-    // treatment), plus its own label.
-    function wireTradePicker(containerSel, set) {
-      document.querySelectorAll(containerSel + " .pcpick").forEach((b) => b.addEventListener("click", (e) => {
+    // ---- ITEM 20 (2026-08-09, user: "the You give you get sections should start blank a plus
+    // sign so it only takes up a lot of space if someone is working a trade"). Both sides used
+    // to render EVERY player on both rosters the instant the tab mounted — two walls of chips
+    // most visits scroll straight past. Each side is now: the players already chosen (you have
+    // to be able to see what you are offering), then a "+" that expands the picker, and
+    // nothing else. Tapping "+" again collapses it, and a chosen player survives a collapse
+    // because the selection lives in UI._tradeGive/_tradeGet exactly as it always did — the
+    // send path below is untouched.
+    const tradeOpen = { give: false, get: false };
+    const sideOf = (side) => (side === "give" ? UI._tradeGive : UI._tradeGet);
+    const rosterOf = (side) => (side === "give" ? myRoster : cpRoster);
+    function selChipHtml(p, side) {
+      return `<span class="tradechip" data-gk="${esc(p.key)}">
+          <button type="button" class="pcinline" data-pk="${esc(p.key)}">${escn(p.name)}</button>
+          <small class="mut">${esc(p.pos)}</small>
+          <button type="button" class="tradedrop" data-side="${side}" data-gk="${esc(p.key)}" aria-label="Remove ${escn(p.name)} from this offer" title="Remove">&times;</button>
+        </span>`;
+    }
+    function renderTradeSide(side) {
+      const el = $(side === "give" ? "#mvGive" : "#mvGet");
+      if (!el) return;
+      const roster = rosterOf(side), set = sideOf(side);
+      if (!roster.length) { el.innerHTML = `<p class="mut small">${side === "give" ? "Empty roster." : "Nobody on their roster."}</p>`; return; }
+      const chosen = roster.filter((p) => set.has(p.key));
+      const rest = roster.filter((p) => !set.has(p.key));
+      const open = tradeOpen[side];
+      el.innerHTML = `<div class="tradesel">
+          ${chosen.map((p) => selChipHtml(p, side)).join("")}
+          ${set.size >= 3 ? '<span class="mut small">3 is the limit.</span>'
+            : `<button type="button" class="tradeadd${open ? " open" : ""}" data-side="${side}" aria-expanded="${open}"
+                 aria-label="${side === "give" ? "Add a player to give" : "Add a player to get"}">+</button>`}
+        </div>
+        ${open ? `<div class="tradepick">${rest.map((p) => chip(p, set)).join("") || '<p class="mut small">Nobody left to add.</p>'}</div>` : ""}`;
+      // The picker's rows are BUILT only while it is open, not merely hidden — a collapsed
+      // side costs no DOM at all, which is the difference between "you can't see the wall"
+      // and "there is no wall".
+      el.querySelectorAll(".tradeadd").forEach((b) => b.addEventListener("click", () => {
+        tradeOpen[side] = !tradeOpen[side]; renderTradeSide(side);
+      }));
+      el.querySelectorAll(".tradedrop").forEach((b) => b.addEventListener("click", () => {
+        set.delete(b.dataset.gk); renderTradeSide(side);
+      }));
+      // Split (2026-08-08) — see chip()'s own comment: .pcpick carries the give/get toggle,
+      // .pcinfo (wired by wirePlayerCardTaps) opens the stats card. Picking re-renders the
+      // side so the chosen player moves up into the selection strip; the picker stays open,
+      // because picking two players in a row is the common case.
+      el.querySelectorAll(".pcpick").forEach((b) => b.addEventListener("click", (e) => {
         e.stopPropagation();
         const k = b.dataset.gk;
-        const chipEl = b.closest(".pickchip");
-        if (set.has(k)) { set.delete(k); if (chipEl) chipEl.classList.remove("picked"); b.textContent = "Pick"; }
-        else {
-          if (set.size >= 3) { toast("Up to 3 players."); return; }
-          set.add(k); if (chipEl) chipEl.classList.add("picked"); b.textContent = "Picked";
-        }
+        if (set.has(k)) set.delete(k);
+        else { if (set.size >= 3) { toast("Up to 3 players."); return; } set.add(k); }
+        renderTradeSide(side);
       }));
+      wirePlayerCardTaps(el);
     }
-    wireTradePicker("#mvGive", UI._tradeGive);
-    wireTradePicker("#mvGet", UI._tradeGet);
+    UI._renderTradeSide = renderTradeSide; // test hook — the suite drives the real affordances
+    renderTradeSide("give");
+    renderTradeSide("get");
+
+    // ---- ITEM 21: Suggest a trade. See suggestTradePair() for the heuristic itself. This
+    // half only gathers the season averages it values players by (cached, usually already
+    // warm from the players table above), fills the two selections, and says why. It never
+    // sends — the user reviews and presses Send themselves.
+    $("#mvSuggest") && $("#mvSuggest").addEventListener("click", async () => {
+      const btn = $("#mvSuggest"), why = $("#mvSuggestWhy");
+      btn.disabled = true; if (why) why.textContent = "Looking…";
+      try {
+        await ensureStats(myRoster.concat(cpRoster));
+        const s = suggestTradePair(myRoster, cpRoster);
+        if (!s) {
+          if (why) why.textContent = "No even trade fits these two rosters right now — try another team.";
+          return;
+        }
+        UI._tradeGive = new Set(s.give.map((p) => p.key));
+        UI._tradeGet = new Set(s.get.map((p) => p.key));
+        tradeOpen.give = false; tradeOpen.get = false;
+        renderTradeSide("give"); renderTradeSide("get");
+        if (why) why.textContent = s.why + " " + LG.fmtPts(s.giveVal) + " for " + LG.fmtPts(s.getVal) + " — review it before you send.";
+      } finally { btn.disabled = false; }
+    });
     $("#mvTradeSend").addEventListener("click", async () => {
       if (!UI._tradeGive.size || !UI._tradeGet.size) { toast("Pick at least one player on each side."); return; }
       const r = await LG.offerTrade(tid, UI._tradeCp, [...UI._tradeGive], [...UI._tradeGet], $("#mvTradeNote").value.trim());

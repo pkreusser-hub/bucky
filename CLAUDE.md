@@ -10525,3 +10525,97 @@ missing assertions; confirm with `grep -c "  ok("` against HEAD before chasing i
 Also fixed a stale, PRE-EXISTING `_verify-health.cjs` failure (hardcoded "12 areas" vs the
 13 the array now holds) — now property-based.
 Shots: `shots/fin_*.png`, `shots/cal_notify.png`.
+
+## 🏈 GFFL — moves rework, Suggest a trade, and the matchup's colour language (2026-08-09)
+
+Eight items from one playtest pass. Files: `league.html` + `assets/league/lg-ui.js` +
+`tools/_verify-gffl.cjs` (1313 → **1420**). `lg-core.js`, `lg-data.js` and
+`netlify/functions/league.mjs` untouched.
+
+**MOVES — the Waivers card is three data blocks**, both prose paragraphs gone: FAAB budget ·
+Free agency · Waivers, with the regime in force outlined and tagged "Now", the other visibly
+stood down, and the deadline moved INSIDE the waiver block as its value. "Process now" survives
+for the commissioner. **One fact was genuinely dropped** — "adding/dropping isn't locked by
+kickoff, only your starting lineup is." It is a standing rule rather than a fact about this
+week, and the locker already says it at the point it bites, by disabling a locked Swap.
+
+**THE TRADE BUILDER STARTS COLLAPSED.** Each side is the players already chosen plus a `+`; the
+picker's rows are **built only while open**, so a collapsed side costs no DOM. Card height
+~1100px → **388px**. Chosen players survive a collapse; at the 3-cap the `+` becomes the limit
+line. `UI._tradeGive`/`_tradeGet` and the send path are untouched.
+
+**⭐ SUGGEST A TRADE — local and deterministic, deliberately NOT an AI call.** It has to be
+instant, and *a suggestion nobody can predict cannot be asserted*. A player is worth
+**0.65 × season average + 0.35 × this week's projection** (whichever exists). Per position,
+strength is the summed value of the top N where N is the starting requirement, so
+`edge(pos) = mine − theirs` makes "weaker" computable: it sends from a POSITIVE edge and
+receives at a NEGATIVE one, which makes "helps both sides where they are weaker" true by
+construction rather than by hope. **Tolerance: 1.5 points or 15% of the larger side, whichever
+is bigger**, then the lowest RELATIVE imbalance wins — so a real swap of starters beats a
+trivially equal swap of bench bodies. Locked and IR players excluded; both rosters must still
+meet every positional minimum (flex pool included) afterwards. Falls back 1-for-1 → 2-for-2 →
+relaxed → says plainly that nothing fits. **It never sends.** Suite asserts the arithmetic
+against hand-built rosters whose right answer is derived in the comments (20 for 19, gap 1.0,
+inside the stated tolerance), plus the locked-player fall-through and the 2-for-2 case.
+
+**PLAYERS TABLE re-ordered to PLAYER · ADD · TYPE · PROJ · LAST · OPP · AVG.** PLAYER stays in
+front as the row's label — the user's list was of the DATA columns, and anonymous rows are
+useless. **⚠ STATUS, SCORE and FPTS are DROPPED — a real loss, not a tidy-up**: SCORE was this
+week's live points, FPTS the season total. Both survive on the player's own stats card, which
+any row opens; AVG and LAST still carry the season. The ADD button is a real `disabled` control
+naming the reason ("Already on your team", the owning team, "You have nobody to drop") rather
+than an empty cell; **an empty FAAB purse is NOT a reason, because a $0 blind bid is legal**.
+Default sort FPTS → AVG desc. **Mobile at 390px**: PLAYER/ADD/TYPE/PROJ right edges at
+**116/174/210/252** in a 342px box — all four visible with no panning at all.
+
+**MATCHUP — the centre band's colour IS the column**: badge at full width and height, zero cell
+padding, consecutive cells still meeting with no seam. Type 11→**16px** desktop, 9→**13px**
+mobile, with 4+ character labels stepping to 0.72em so BENCH/FLEX stay inside an 11%-of-390px
+column (the previous batch found BENCH spilling 10px; asserted against a `Range`, not
+`scrollWidth`, which reports nothing on an `overflow:visible` element).
+
+**RED MEANS ONE THING NOW.** The live clock gave up `--accent` for the ordinary muted stat
+colour (keeping its bold weight); `.inj` took the accent, on the single shared rule all five
+surfaces read. **And the matchup had no injury designation at all** — the ESPN-layout batch cut
+the row to three fixed lines and it did not survive. Restored on **line 2**, not after the name:
+line 1 is the width-constrained one (item 17 fought to fit `J. Smith-Njigba`, and the possession
+ring had already taken 3px of its 6px slack). The designation **LEADS** line 2 — that ordering
+is load-bearing, because the line is `nowrap` + ellipsis, so whatever sits last is what gets
+cut, and "this man might not play" must never be the thing cut; the kickoff time loses its tail
+instead. Measured: line 2's box is 116px, the tightest real case (`OUT` + `@DEN Fri 1:00 AM`) is
+116px of ink in 116px, and the designation costs **9px** (it inherits line 2's own 9.5px type
+rather than the 10.5px first tried, which put that row 2px over).
+
+**POSSESSION IS AN INSET GOLD RING**, replacing the pip and row tint — painted, not laid out, so
+a highlighted row measures exactly its neighbours. Never a D/ST, never under the replay.
+Knock-on paid back: the ring wanted 3px a side, so the cell handed the same 3px back (1px cell +
+2px grid padding); name budget re-measured at **101px against a 97px need**, 0 of 26 clipped.
+
+**VERIFIED**: **1420/1420, 0 page errors**. Pre-fix with the app files reverted to `main`:
+**1335 / 85** — every new check across all eight items fails, each on-point (the old 9-column
+header, the prose still present, the band not filling, no gold ring, line 2 absent, the card not
+yet three blocks).
+
+**TWO MEASUREMENT LESSONS worth keeping.** (1) `.pmeta` is a BLOCK, so its `scrollWidth` is
+floored at `clientWidth` and reports "116 of 116" for anything that fits — a number that cannot
+tell you how much room is LEFT. Headroom must come from a `Range` over the line's contents using
+`getBoundingClientRect` (the union); **summing `getClientRects()` double-counts on mixed inline
+content** and produced a nonsense 224px. `scrollWidth` is still the right overflow assertion.
+(2) A designation and the game text sharing one line with only a CSS margin between them run
+together in `textContent` (`"D" + "KC Fri…"` reads `"DKC Fri…"`), which silently broke an
+existing `^KC` check — `gameLineHtml` now wraps in `.gline` so the game half can be read alone.
+
+**RESTAGED, each with its reason at the check**: I2's column-set/rostered-row/dropped-column
+block, J1 and Y4's trade-picker staging (sides must be expanded first), X's replay free-agency
+copy (now reads the two blocks' on/off state — a stronger check than the sentence), AD2 and AE's
+"compact badge" (superseded and INVERTED by item 23), AD5's possession pip, the players-table
+sticky-column pan (three fewer columns, so a hardcoded 220px scroll now clamps short), and three
+AE line-2 reads for `.gline`.
+
+**EIGHT self-caught false passes** across the two rounds — an element that does not exist is not
+"not red"; a missing `suggestTradePair` is not "returned null"; a `waitFnOr` followed by
+`ok(true, …)` asserts nothing; "out of the picker" is free when there is no picker; and both
+"the clock is not red" and "a healthy team-mate shows nothing" are free on a page where nobody
+carries a designation, so each is now paired with the `Q` actually being present.
+
+Plates: `shots/gffl_moves_{390,desktop}.png`, `gffl_trade_suggest.png`, `gffl_matchup_390.png`.

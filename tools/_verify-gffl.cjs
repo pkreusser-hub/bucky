@@ -1267,6 +1267,18 @@ async function waitOr(page, sel, ms) {
   try { await page.waitForSelector(sel, { timeout: ms || 9000 }); return true; }
   catch (e) { return false; }
 }
+// Tolerant siblings, for a section whose hooks are all NEW (section AC's own lesson, restated
+// by section AG): against the PRE-FIX app every one of these waits legitimately times out, and
+// a bare wait turns the whole pre-fix verification into one stack trace instead of the readable
+// list of failures it exists to produce. They report rather than abort; the real assertions
+// downstream are what fail.
+async function waitFnOr(page, fn, ...args) {
+  try { await page.waitForFunction(fn, { timeout: 9000 }, ...args); return true; }
+  catch (e) { return false; }
+}
+async function openTradeSideOr(page, side) { try { await openTradeSide(page, side); return true; } catch (e) { return false; } }
+// page.evaluate whose browser-side body may reference something that does not exist yet.
+async function evalOr(page, fn, ...args) { try { return await page.evaluate(fn, ...args); } catch (e) { return null; } }
 
 // ---------------- fake CLOUD backend (live-bug batch, 2026-08-08) ----------------
 // Every other section here runs on the LOCAL backend, which the app now (correctly) treats as
@@ -1439,6 +1451,19 @@ const clickChildIn = (page, containerSel, childSel, filterText) => page.evaluate
   if (!child) return false;
   child.click(); return true;
 }, containerSel, childSel, filterText || null);
+// ITEM 20 (2026-08-09): the trade builder's two sides start COLLAPSED — a side is the players
+// already chosen plus a "+", and the roster picker only exists once the "+" is tapped. Every
+// pre-existing test that reached straight for a .pickchip therefore has to open the side
+// first, exactly as a person now does. Waits for the picker's rows so the caller's own
+// click can never land before the expansion has painted.
+async function openTradeSide(page, side) {
+  await page.evaluate((sd) => {
+    const b = document.querySelector('#mv' + (sd === "give" ? "Give" : "Get") + ' .tradeadd');
+    if (b) b.click();
+  }, side);
+  await page.waitForFunction((sd) => document.querySelectorAll('#mv' + (sd === "give" ? "Give" : "Get") + ' .pickchip').length > 0,
+    { timeout: 9000 }, side);
+}
 // Boot-speed pass (2026-08-08): record book / recent moves / league chat now load their real
 // data lazily, only once opened (see wireLazyLeagueDetails in lg-ui.js) — this opens the given
 // <details id="..."> (firing its "toggle" listener) and waits for its placeholder text ("Tap
@@ -2486,9 +2511,14 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page.waitForSelector("#faPosChips", { timeout: 9000 });
     await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
+    // RESTAGED 2026-08-09 (ITEM 22): the user re-ordered these columns and dropped three of
+    // them — "the first column should be add, then type, then projection, then last, the opp,
+    // then avg". STATUS, SCORE and FPTS are gone (a real loss, deliberately taken), PLAYER
+    // stays in front as the row's own label, and the MOVE button's old trailing blank header
+    // is gone because the button moved into a real, sortable ADD column of its own.
     const headers = await page.$$eval("table.faTable thead th", (els) => els.map((e) => e.textContent.replace(/[▲▼]/g, "").trim()));
-    ok(JSON.stringify(headers) === JSON.stringify(["PLAYER", "TYPE", "OPP", "STATUS", "PROJ", "SCORE", "FPTS", "AVG", "LAST", ""]),
-      "the full ESPN-style column set renders, in order, incl. the trailing blank MOVE-button header (" + JSON.stringify(headers) + ")");
+    ok(JSON.stringify(headers) === JSON.stringify(["PLAYER", "ADD", "TYPE", "PROJ", "LAST", "OPP", "AVG"]),
+      "the column set renders in exactly the user's order, no trailing blank header (" + JSON.stringify(headers) + ")");
     // Available (default): every visible row is a genuine free agent — TYPE reads "FA" for all
     // of them, and every row still carries its own MOVE button (unchanged behavior).
     const availTypes = await page.$$eval("#faResults .fatype", (els) => els.map((e) => e.textContent.trim()));
@@ -2501,27 +2531,44 @@ async function openDetails(page, id) {
     await page.waitForFunction(() => [...document.querySelectorAll("#faResults tr")].some((r) => r.textContent.includes("P. Passer")), { timeout: 5000 });
     const passerRow = await page.evaluate(() => {
       const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
-      return tr ? { type: tr.querySelector(".fatype").textContent.trim(), hasMove: !!tr.querySelector(".faMoveBtn") } : null;
+      const b = tr && tr.querySelector(".faMoveBtn");
+      return tr ? { type: tr.querySelector(".fatype").textContent.trim(), hasMove: !!b, disabled: !!(b && b.disabled), title: b && b.title } : null;
     });
     ok(passerRow && passerRow.type === "T1", "All: a rostered player's TYPE reads the OWNING GFFL team's own abbrev, not FA (" + JSON.stringify(passerRow) + ")");
-    ok(passerRow && passerRow.hasMove === false, "…and a rostered row carries NO move button — claiming an owned player isn't offered");
+    // RESTAGED 2026-08-09 (ITEM 22, "Add should be greyed out if they can't be added"): a
+    // rostered row used to render an EMPTY cell, which says nothing at all. It now renders a
+    // real DISABLED button naming the owner — the information is the point, the absence was
+    // the bug. The behaviour under test is unchanged: an owned player still cannot be claimed.
+    ok(passerRow && passerRow.hasMove === true && passerRow.disabled === true,
+      "…and a rostered row's MOVE button is present but genuinely disabled — claiming an owned player still isn't offered");
+    ok(passerRow && passerRow.title === "Already on your team",
+      "…and it says WHY — P. Passer is on the VIEWER's own roster, so it names that rather than an abbrev (" + (passerRow || {}).title + ")");
+    // A player owned by SOMEONE ELSE names that team instead — the same disabled button, a
+    // different reason. (Q. Rival is on team 2, abbrev "T2", per seedTeams()/fullSeed().)
+    const rivalRow = await page.evaluate(() => {
+      const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("Q. Rival"));
+      const b = tr && tr.querySelector(".faMoveBtn");
+      return tr ? { type: tr.querySelector(".fatype").textContent.trim(), disabled: !!(b && b.disabled), title: b && b.title } : null;
+    });
+    ok(rivalRow && rivalRow.disabled === true && rivalRow.title === "Owned by " + rivalRow.type,
+      "…and a player owned by ANOTHER team is disabled naming that team (" + JSON.stringify(rivalRow) + ")");
     ok(await page.evaluate(() => document.querySelector('.poschip[data-filter="all"]').classList.contains("on")), "the active filter chip carries the visual 'on' state");
-    // OPP + STATUS: hand-checked against sbFix()'s real slate — PHI (home) vs DAL (away),
-    // in progress; KC (away) at DEN, upcoming.
+    // OPP: hand-checked against sbFix()'s real slate — PHI (home) vs DAL (away), in progress;
+    // KC (away) at DEN, upcoming.
+    // RESTAGED 2026-08-09 (ITEM 22): the STATUS and SCORE halves of this block are gone with
+    // their columns. The live clock and this week's points both survive in full on the
+    // player's own stats card, which section Y already asserts and which any row opens.
     const passerOppStatus = await page.evaluate(() => {
       const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
-      return { opp: tr.querySelector(".faopp").textContent.trim(), status: tr.querySelector(".fastatus").textContent.trim(), score: tr.querySelector(".fascore").textContent.trim() };
+      return { opp: tr.querySelector(".faopp").textContent.trim(), noStatus: !tr.querySelector(".fastatus"), noScore: !tr.querySelector(".fascore") };
     });
     ok(passerOppStatus.opp === "vs DAL", "OPP renders '@'-prefixed correctly for the HOME side — P. Passer (PHI, home) reads 'vs DAL' (" + passerOppStatus.opp + ")");
-    ok(/^Live — Q2 5:00$/.test(passerOppStatus.status), "STATUS renders the live in-progress clock, not a kickoff time (" + passerOppStatus.status + ")");
-    ok(passerOppStatus.score === "10.0", "SCORE renders this week's live points, same hand-checked figure as section D (" + passerOppStatus.score + ")");
+    ok(passerOppStatus.noStatus && passerOppStatus.noScore, "…and the dropped STATUS/SCORE cells really are gone from the row, not merely unlabelled");
     const tightRow = await page.evaluate(() => {
       const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("T. Tight"));
-      return { opp: tr.querySelector(".faopp").textContent.trim(), status: tr.querySelector(".fastatus").textContent.trim() };
+      return { opp: tr.querySelector(".faopp").textContent.trim() };
     });
     ok(tightRow.opp === "@ DEN", "OPP renders '@'-prefixed correctly for the AWAY side — T. Tight (KC, away) reads '@ DEN' (" + tightRow.opp + ")");
-    ok(tightRow.status !== "" && tightRow.status !== "Live — Q2 5:00" && !/Final/.test(tightRow.status),
-      "STATUS renders a real upcoming kickoff day+time for the not-yet-started KC@DEN game, distinct from the live game's status (" + tightRow.status + ")");
     // PROJ sort: T. Tight is the fixture's only player with a real Sleeper projection (8.5 —
     // same fixture value section M's own AI-read tests already hand-check). Sorting PROJ desc
     // must put him FIRST (every FA-only row has no projection -> -Infinity, tied); asc must
@@ -2534,18 +2581,21 @@ async function openDetails(page, id) {
     await clickIn(page, 'th.thsort[data-sort="proj"]'); // second click on the SAME column -> asc
     ok(/▲/.test(await page.$eval('th.thsort[data-sort="proj"]', (e) => e.textContent)), "clicking the SAME column again flips to ASC (▲ shown)");
     ok((await page.$eval("#faResults tbody tr:last-child", (e) => e.textContent)).includes("T. Tight"), "PROJ asc: missing projections (-Infinity) sort first, so the only real value sorts to the very BOTTOM");
-    ok(errors.length === 0, "0 page errors through the column-set/filter/OPP/STATUS/PROJ-sort flow");
+    ok(errors.length === 0, "0 page errors through the column-set/filter/OPP/PROJ-sort flow");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_players_table_390.png"), fullPage: true }); console.log("  📸 shots/gffl_players_table_390.png"); }
     await ctx.close();
   }
   {
-    // FPTS/AVG/LAST sorting — hand-computed with THREE distinct real season lines
+    // AVG/LAST sorting — hand-computed with THREE distinct real season lines
     // (seedWithWeeklyHistory(), All filter): P. Passer total 41.0/avg 10.3/last(wk4) 1.0 ·
     // Q. Rival total 30.0/avg 15.0/last(wk4) 28.0 · T. Tight total 9.0/avg 9.0/last(wk4) 9.0
     // (all three derived directly from WEEK_STATS_FIX/slpStatsFix — see seedWithWeeklyHistory's
-    // own header comment for Passer's, and WEEK_STATS_FIX's for Rival's/Tight's). The three
-    // columns produce THREE DIFFERENT top-of-pool orderings, which is the actual proof that
-    // clicking a different header genuinely re-sorts rather than just re-labeling the same order.
+    // own header comment for Passer's, and WEEK_STATS_FIX's for Rival's/Tight's).
+    // RESTAGED 2026-08-09 (ITEM 22): the FPTS column is one of the three the user dropped, so
+    // the season TOTAL is no longer displayed and the default landing sort is AVG desc, not
+    // FPTS desc. The two surviving season columns still produce DIFFERENT top-of-pool
+    // orderings from each other, which is the actual proof that clicking a different header
+    // genuinely re-sorts rather than just re-labeling the same order.
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     const { ctx, page, errors } = await newTestPage(browser, seedWithWeeklyHistory());
     await bootPage(page);
@@ -2554,23 +2604,22 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page.waitForSelector("#faPosChips", { timeout: 9000 });
     await clickIn(page, "#faFilterChips .poschip", "All");
-    // Default landing sort (no header click yet) is season FPTS desc — wait for the real
+    // Default landing sort (no header click yet) is season AVG desc — wait for the real
     // number to land (the season columns fetch lazily) before asserting on it.
     await page.waitForFunction(() => {
       const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
-      return tr && tr.querySelector(".fafpts").textContent.trim() === "41.0";
+      return tr && tr.querySelector(".faavg").textContent.trim() === "10.3";
     }, { timeout: 9000 });
-    ok(await page.evaluate(() => document.querySelector('th.thsort[data-sort="fpts"]').classList.contains("active")),
-      "default sort (before any header click) is already FPTS, per spec");
+    ok(await page.evaluate(() => document.querySelector('th.thsort[data-sort="avg"]').classList.contains("active")),
+      "default sort (before any header click) is already AVG — the season column that survived item 22");
     const rowSeason = async (name) => page.evaluate((n) => {
       const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes(n));
-      return tr ? { fpts: tr.querySelector(".fafpts").textContent.trim(), avg: tr.querySelector(".faavg").textContent.trim(), last: tr.querySelector(".falast").textContent.trim() } : null;
+      return tr ? { avg: tr.querySelector(".faavg").textContent.trim(), last: tr.querySelector(".falast").textContent.trim() } : null;
     }, name);
-    ok(JSON.stringify(await rowSeason("P. Passer")) === JSON.stringify({ fpts: "41.0", avg: "10.3", last: "1.0" }), "P. Passer's season line, hand-computed from the 4 seeded weeks");
-    ok(JSON.stringify(await rowSeason("Q. Rival")) === JSON.stringify({ fpts: "30.0", avg: "15.0", last: "28.0" }), "Q. Rival's season line (only weeks 3-4 have an entry for her — weeks 1-2 omitted, not zeroed)");
-    ok(JSON.stringify(await rowSeason("T. Tight")) === JSON.stringify({ fpts: "9.0", avg: "9.0", last: "9.0" }), "T. Tight's season line (only week 4 has an entry for him)");
+    ok(JSON.stringify(await rowSeason("P. Passer")) === JSON.stringify({ avg: "10.3", last: "1.0" }), "P. Passer's season line, hand-computed from the 4 seeded weeks");
+    ok(JSON.stringify(await rowSeason("Q. Rival")) === JSON.stringify({ avg: "15.0", last: "28.0" }), "Q. Rival's season line (only weeks 3-4 have an entry for her — weeks 1-2 omitted, not zeroed)");
+    ok(JSON.stringify(await rowSeason("T. Tight")) === JSON.stringify({ avg: "9.0", last: "9.0" }), "T. Tight's season line (only week 4 has an entry for him)");
     const topName = async () => (await page.$eval("#faResults tbody tr:first-child", (e) => e.textContent)).match(/P\. Passer|Q\. Rival|T\. Tight/)?.[0];
-    ok((await topName()) === "P. Passer", "FPTS desc (default): P. Passer (41.0) leads the WHOLE pool");
     // seedWithWeeklyHistory()'s default per-week bucket also gives W. Receiver/PHI D/ST/
     // K. Kicker/R. Rusher real season lines of their own (not just the three named players) —
     // so rather than predicting an exact WHOLE-POOL leaderboard position (which their numbers
@@ -2582,24 +2631,20 @@ async function openDetails(page, id) {
       return names.map((n) => all.findIndex((t) => t.includes(n)));
     };
     const isAscendingIdx = (idxs) => idxs.every((v, i) => i === 0 || idxs[i - 1] < v);
-    ok(isAscendingIdx(await orderOf(["P. Passer", "Q. Rival", "T. Tight"])),
-      "FPTS desc (default): among the three, P. Passer (41.0) > Q. Rival (30.0) > T. Tight (9.0), in that row order");
-    await clickIn(page, 'th.thsort[data-sort="avg"]');
-    await page.waitForFunction(() => document.querySelector("#faResults tbody tr:first-child")?.textContent.includes("Q. Rival"), { timeout: 5000 });
-    ok((await topName()) === "Q. Rival", "AVG desc: Q. Rival (15.0/gm) leads instead — a genuinely DIFFERENT top-of-pool than FPTS desc gave");
+    ok((await topName()) === "Q. Rival", "AVG desc (default): Q. Rival (15.0/gm) leads the WHOLE pool");
     ok(isAscendingIdx(await orderOf(["Q. Rival", "P. Passer", "T. Tight"])),
-      "AVG desc: among the three, Q. Rival (15.0) > P. Passer (10.3) > T. Tight (9.0)");
+      "AVG desc: among the three, Q. Rival (15.0) > P. Passer (10.3) > T. Tight (9.0), in that row order");
     await clickIn(page, 'th.thsort[data-sort="last"]');
     await page.waitForFunction(() => document.querySelector("#faResults tbody tr:first-child")?.textContent.includes("Q. Rival"), { timeout: 5000 });
     ok((await topName()) === "Q. Rival", "LAST desc: Q. Rival (28.0) leads");
     ok(isAscendingIdx(await orderOf(["Q. Rival", "T. Tight", "P. Passer"])),
-      "LAST desc: among the three, Q. Rival (28.0) > T. Tight (9.0) > P. Passer (1.0) — T. Tight now beats P. Passer, a REVERSAL from FPTS/AVG where P. Passer was always ahead of him — proving this is a real independent sort, not a re-labeled repeat");
+      "LAST desc: among the three, Q. Rival (28.0) > T. Tight (9.0) > P. Passer (1.0) — T. Tight now beats P. Passer, a REVERSAL from AVG where P. Passer was ahead of him — proving this is a real independent sort, not a re-labeled repeat");
     // asc: missing values (-Infinity) sort FIRST, so real values sort toward the bottom in
     // the OPPOSITE relative order to desc.
     await clickIn(page, 'th.thsort[data-sort="last"]');
     ok(isAscendingIdx(await orderOf(["P. Passer", "T. Tight", "Q. Rival"])),
       "LAST asc: the exact reverse relative order — P. Passer (1.0) < T. Tight (9.0) < Q. Rival (28.0)");
-    ok(errors.length === 0, "0 page errors through the FPTS/AVG/LAST hand-checked sort flow");
+    ok(errors.length === 0, "0 page errors through the AVG/LAST hand-checked sort flow");
     await ctx.close();
   }
   {
@@ -2659,10 +2704,15 @@ async function openDetails(page, id) {
     await page1.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page1.waitForSelector("#mvTradeTeam", { timeout: 9000 });
     await page1.select("#mvTradeTeam", "2");
-    await page1.waitForFunction(() => document.querySelectorAll("#mvGet .pickchip").length > 0, { timeout: 5000 });
+    await waitOr(page1, "#mvGet .tradeadd"); // tolerant: a restaged wait must report, not abort a pre-fix run
     // RESTAGED (2026-08-08, item 1's "trade builder roster pickers" split): the chip itself
     // now opens the stats card — the give/get toggle moved onto its own .pcpick button.
+    // RESTAGED AGAIN (2026-08-09, ITEM 20): both sides start collapsed, so each one has to be
+    // expanded via its own "+" before there is a chip to pick — which is what a person now
+    // does too. The picking itself, and everything downstream of it, is unchanged.
+    await openTradeSideOr(page1, "give");
     await clickChildIn(page1, "#mvGive .pickchip", ".pcpick", "B. Backup");
+    await openTradeSideOr(page1, "get");
     await clickChildIn(page1, "#mvGet .pickchip", ".pcpick", "X. Wideout");
     await clickIn(page1, "#mvTradeSend");
     await page1.waitForFunction(() => (document.querySelector("#mvMyTrades") || {}).textContent && document.querySelector("#mvMyTrades").textContent.includes("X. Wideout"), { timeout: 5000 });
@@ -5511,15 +5561,20 @@ async function openDetails(page, id) {
     await clickIn(page, "#claimCancel");
 
     // ---- Y4: trade builder — a pick chip's own row opens stats; .pcpick still does the picking ----
-    await page.waitForSelector("#mvGive .pickchip", { timeout: 9000 });
+    // RESTAGED (2026-08-09, ITEM 20): the side starts collapsed, so the picker has to be
+    // opened first; and a picked player LEAVES the picker for the selection strip above it,
+    // so "did picking work" is now read off .tradesel rather than off a class on a chip that
+    // has deliberately moved. The two behaviours under test are unchanged.
+    await waitOr(page, "#mvGive .tradeadd"); // tolerant, same reason as J1 above
+    await openTradeSideOr(page, "give");
     await clickChildIn(page, "#mvGive .pickchip", ".pcinfo", "B. Backup");
     await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
     ok((await text(page, ".pcname")) === "B. Backup", "a trade-builder pick chip's .pcinfo opens the stats card (item 1's \"roster pickers\")");
-    ok(!(await page.evaluate(() => document.querySelector('.pickchip[data-gk="111333"]').classList.contains("picked"))),
+    ok(!(await page.evaluate(() => !!document.querySelector('#mvGive .tradesel .tradechip[data-gk="111333"]'))),
       "…and merely viewing it did NOT also pick it for the trade");
     await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
     await clickChildIn(page, "#mvGive .pickchip", ".pcpick", "B. Backup");
-    ok(await page.evaluate(() => document.querySelector('.pickchip[data-gk="111333"]').classList.contains("picked")),
+    ok(await page.evaluate(() => !!document.querySelector('#mvGive .tradesel .tradechip[data-gk="111333"]')),
       "…while its own .pcpick button still does the picking, unchanged");
 
     // ---- Y5: "My pending" claims list — the player name is its own tappable stats link ----
@@ -5841,13 +5896,23 @@ async function openDetails(page, id) {
       ok(cal.uiWeek === 1, "…and the app opens on week 1 (" + cal.uiWeek + ")");
       ok(cal.deadline1 < cal.now,
         "…week 1's Wednesday-8am waiver deadline is already PAST at the pinned instant, so free agency is OPEN");
-      // …and that is what the Moves page actually renders — the FREE-AGENCY copy, not the
-      // blind-bid claim form (proving the deadline arithmetic reaches the UI, not just a hook).
+      // …and that is what the Moves page actually renders — free agency in force, not the
+      // blind-bid regime (proving the deadline arithmetic reaches the UI, not just a hook).
+      // RESTAGED 2026-08-09 (ITEM 19): the card's two paragraphs of prose are gone. Which
+      // regime is in force is now the "on"/"off" state of two data blocks, so that is what
+      // this reads — a stronger check than the sentence was, since it also proves the OTHER
+      // block is visibly stood down rather than merely absent.
       await clickIn(page, '.bnav button[data-v="moves"]');
-      await page.waitForFunction(() => document.body.textContent.includes("Waivers"), { timeout: 12000 });
-      const movesTxt = await page.evaluate(() => document.body.textContent);
-      ok(/Free agency is open/.test(movesTxt) && !/Claims process Wed/.test(movesTxt),
-        "…and the Moves page really renders it: \"Free agency is open\", not the pre-deadline claims-process line");
+      await waitOr(page, "#mvBlkFa", 12000); // tolerant, so a pre-fix run reports rather than aborts
+      const regime = (await evalOr(page, () => ({
+        fa: document.querySelector("#mvBlkFa").className,
+        faVal: document.querySelector("#mvBlkFa .mvbval").textContent.trim(),
+        wv: document.querySelector("#mvBlkWaiver").className,
+        prose: /Claims process Wed|first come, first served\./.test(document.body.textContent),
+      }))) || { fa: "", wv: "", prose: true };
+      ok(/\bon\b/.test(regime.fa) && regime.faVal === "Open" && /\boff\b/.test(regime.wv),
+        "…and the Moves page really renders it: the Free agency block is the one in force, Waivers is stood down (" + JSON.stringify(regime) + ")");
+      ok(!regime.prose, "…with neither of the old prose paragraphs anywhere on the page");
       ok(errors.length === 0, "0 page errors on the replay's own boot");
       await ctx.close();
     }
@@ -7786,8 +7851,12 @@ async function openDetails(page, id) {
         "every slot badge is painted with its own --pos-* draft colour (" + matched.length + "/" + slots.cells.length + ")");
       const distinct = new Set(slots.cells.map((c) => c.bg));
       ok(distinct.size >= 6, "…and the positions are genuinely different colours, not one tint (" + distinct.size + " distinct)");
-      const tall = slots.cells.filter((c) => c.h > c.cellH - 6);
-      ok(tall.length === 0, "…as a compact badge, not a full-row-height slab of colour (" + slots.cells.map((c) => c.h + "/" + c.cellH).join(" ") + ")");
+      // RESTAGED 2026-08-09 (ITEM 23) — SUPERSEDED, in the opposite direction. This used to
+      // assert the badge was a compact pill inside its cell; the user has since asked for the
+      // colour to "take up the width and height of the column so there isn't blank space", so
+      // filling the cell IS the requirement now. Same measurement, inverted expectation.
+      const short = slots.cells.filter((c) => c.h < c.cellH - 1);
+      ok(short.length === 0, "…and it FILLS its cell top to bottom, no blank band above or below (" + slots.cells.map((c) => c.h + "/" + c.cellH).join(" ") + ")");
       const flex = slots.cells.find((c) => c.slot === "FLEX");
       ok(!!flex && flex.pos === "X" && flex.bg === slots.want.X, "FLEX is not a single position, so it takes the neutral --pos-X");
       ok(slots.bench && slots.bench.pos === "X" && slots.bench.bg === slots.want.X, "…as do BENCH");
@@ -7821,7 +7890,10 @@ async function openDetails(page, id) {
         const cellFor = (nm) => {
           const tr = [...document.querySelectorAll(".mutable tbody tr")].find((r) => r.textContent.includes(nm));
           const g = tr && [...tr.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
-          return g && { ball: g.classList.contains("hasball"), pip: !!g.querySelector(".possdot") };
+          // RESTAGED 2026-08-09 (ITEM 25): the pip is gone — possession is a gold ring on the
+          // half-cell now. Read the painted shadow, not a marker element.
+          return g && { ball: g.classList.contains("hasball"), ring: /rgb\(255, 182, 18\)/.test(getComputedStyle(g).boxShadow || ""),
+                        h: Math.round(g.getBoundingClientRect().height) };
         };
         return {
           phi: d.S.games.get("PHI") && d.S.games.get("PHI").poss,
@@ -7831,9 +7903,14 @@ async function openDetails(page, id) {
         };
       });
       ok(poss.phi === true && poss.dal === false, "the drive's own team is recorded as having the ball, its opponent is not (PHI " + poss.phi + " / DAL " + poss.dal + ")");
-      ok(poss.passer && poss.passer.ball && poss.passer.pip, "a PHI starter is highlighted with a possession pip");
+      ok(poss.passer && poss.passer.ball && poss.passer.ring, "a PHI starter is highlighted with a gold possession ring");
       ok(poss.receiver && poss.receiver.ball, "…so is his team-mate");
-      ok(poss.phiDst && !poss.phiDst.ball && !poss.phiDst.pip, "…but PHI's D/ST is NOT — its side has the ball, so the defence is off the field");
+      ok(poss.phiDst && !poss.phiDst.ball && !poss.phiDst.ring, "…but PHI's D/ST is NOT — its side has the ball, so the defence is off the field");
+      // The ring is PAINTED, not laid out — a highlighted half-cell measures exactly the same
+      // height as an un-highlighted one, so item 23/AE's "every player the same height" rule
+      // survives possession appearing and disappearing mid-game.
+      ok(poss.passer && poss.rusher && poss.passer.h === poss.rusher.h,
+        "…and the ring costs the row no height at all (" + poss.passer.h + " vs " + poss.rusher.h + ")");
       ok(poss.rusher && !poss.rusher.ball, "…and nobody on the other team is highlighted");
       // It survives a bare scoreboard tick — the scoreboard carries no drive at all, so a
       // rebuild that forgot to carry it would blank the highlight between summary polls.
@@ -8147,16 +8224,21 @@ async function openDetails(page, id) {
       ok(fa.ox === "auto", "…while still panning horizontally, as the wide stats table needs");
       ok(fa.body <= fa.win + 1, "…and the PAGE never scrolls sideways because of it");
       // The sticky PLAYER column and the header must both survive a doubly-scrolling box.
+      // RESTAGED 2026-08-09 (ITEM 22): the table lost three columns and its phone widths were
+      // cut to fit ADD/TYPE/PROJ on screen, so it no longer overflows by a fixed 220px — a
+      // hardcoded scrollLeft now clamps well short of it and the check would be asserting
+      // against a pan that never happened. Pan to the container's OWN maximum instead, and
+      // demand it be a real pan (the narrower table still overflows by a good margin).
       const sticky = await page.evaluate(() => {
         const pan = document.querySelector("#faResults .panner");
-        pan.scrollLeft = 220; pan.scrollTop = 90;
+        pan.scrollLeft = pan.scrollWidth; pan.scrollTop = 90;
         const pr = pan.getBoundingClientRect();
         const cell = pan.querySelector("tbody tr td.faname");
         const th = pan.querySelector("thead th");
         return { dx: Math.round(cell.getBoundingClientRect().left - pr.left),
-                 dy: Math.round(th.getBoundingClientRect().top - pr.top), scrolled: pan.scrollLeft };
+                 dy: Math.round(th.getBoundingClientRect().top - pr.top), scrolled: Math.round(pan.scrollLeft) };
       });
-      ok(sticky.scrolled > 100 && Math.abs(sticky.dx) <= 2, "the PLAYER column stays pinned to the box's left edge while the rest pans (" + sticky.dx + "px)");
+      ok(sticky.scrolled > 60 && Math.abs(sticky.dx) <= 2, "the PLAYER column stays pinned to the box's left edge while the rest pans (" + sticky.scrolled + "px panned, " + sticky.dx + "px drift)");
       ok(Math.abs(sticky.dy) <= 2, "…and the header row sticks to the box's top while the rows scroll under it (" + sticky.dy + "px)");
       // "Show more" grows the pool without growing the box.
       ok(fa.more, "\"Show more\" is offered once the pool hits its limit");
@@ -8450,8 +8532,12 @@ async function openDetails(page, id) {
       });
       ok(band.cellBg === band.nested2, "the centre column is a BAND — the cell itself is painted a shade darker than the card (" + band.cellBg + ")");
       ok(band.maxGap === 0, "…and consecutive cells are contiguous, so it reads as one continuous strip, not a stack of pills (max gap " + band.maxGap + "px)");
-      ok(band.matched === band.badges.length, "…with the draft position colours KEPT, on a compact badge inside it (" + band.matched + "/" + band.badges.length + ")");
-      ok(band.badges.every((b) => b.bh < b.ch - 2), "…compact, not a full-cell slab (" + band.badges.map((b) => b.bh + "/" + b.ch).join(" ") + ")");
+      ok(band.matched === band.badges.length, "…with the draft position colours KEPT (" + band.matched + "/" + band.badges.length + ")");
+      // RESTAGED 2026-08-09 (ITEM 23) — SUPERSEDED, inverted: the user asked for the colour to
+      // fill the column rather than float in it, so a badge shorter than its cell is now the
+      // failure. The BAND itself (maxGap 0 above) is unaffected — it is simply the position
+      // colour now instead of a neutral strip behind a pill.
+      ok(band.badges.every((b) => b.bh >= b.ch - 1), "…filling the cell, no blank space around it (" + band.badges.map((b) => b.bh + "/" + b.ch).join(" ") + ")");
 
       // -- the header.
       const head = await page.evaluate(() => {
@@ -8517,9 +8603,13 @@ async function openDetails(page, id) {
 
       // -- line 2: @AWAY vs bare HOME, and the live/final forms.
       const line2 = await page.evaluate(() => {
+        // RESTAGED 2026-08-09 (ITEM 26): the injury designation shares line 2 now, so the
+        // GAME half of it is read from its own .gline rather than from the whole line — a
+        // Doubtful home player otherwise reads "DKC Fri 1:00 AM" and the "^KC" test below
+        // would be asserting against the designation, not the opponent.
         const meta = (nm) => {
           const c = [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => e.textContent.includes(nm));
-          const m = c && c.querySelector(".pmeta");
+          const m = c && c.querySelector(".pmeta .gline");
           return m ? m.textContent.trim() : null;
         };
         return { tight: meta("T. McBride"), second: meta("C. McCaffrey"), passer: meta("M. Harrison Jr.") };
@@ -9010,6 +9100,810 @@ async function openDetails(page, id) {
         "…and once the real 24 hours are up, a freshly-loaded device executes it just the same (" + expired + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
+    }
+  }
+
+  // ================================================================================
+  //  AG · the Moves rework + the matchup's colour language (2026-08-09, items 19-25)
+  // ================================================================================
+  // Seven asks from one session at the wheel. Five of them are claims about PIXELS ("the
+  // color should take up the width and height of the column", "we need to be able to see add,
+  // type and projection without horizontal scrolling", "a gold border around that player"), so
+  // almost everything here is a MEASUREMENT. The before-numbers quoted in the messages were
+  // measured against the pre-batch code by stashing the app files back to HEAD.
+  //
+  // PRE-FIX: 56 of these 85 checks FAIL against HEAD (plus 14 restaged pre-existing ones, all
+  // on-point). The 29 that pass either way are deliberate REGRESSION INVARIANTS and nothing
+  // else: ten "0 page errors"; the six surviving columns' sort controls (the ADD one, which is
+  // new, does fail); four "nothing is clipped" (the point of those is that the bigger type
+  // must not START clipping); the page never scrolling sideways and the panner still panning;
+  // the desktop table still fitting; a free agent's ADD button still being live (the enabled
+  // counterpart to the new disabled state); Process-now surviving the card rework; nobody
+  // being ringed under the replay; UI._tradeGive still carrying what the send path reads; and
+  // a half-dismantled suggestion still being refused by the existing guard.
+  //
+  // The whole section is deliberately PRE-FIX TOLERANT (section AC's lesson): every hook it
+  // exercises is new, and a bare wait or a bare evaluate against HEAD aborts the run with one
+  // stack trace instead of the readable list a pre-fix verification exists to produce — hence
+  // waitOr / waitFnOr / evalOr and a default for every result they can answer null with.
+  section("AG · Moves: waiver blocks, collapsed trade builder, Suggest a trade, re-ordered players table · matchup: filled slot band, clock/injury colours, possession ring");
+  {
+    // ---- AG1: the Waivers card is three data blocks and no prose, in BOTH regimes.
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.LG.gateCommish()); // create-on-first-use, consumes the stub prompt
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#mvBlkFaab");
+      // BEFORE this batch the card was: one FAAB line, then a "Claims process Wed 8:00 AM
+      // (<full timestamp>)." paragraph, then an "Adding/dropping a player isn't locked by
+      // kickoff" paragraph. Both paragraphs are gone; the deadline they carried moved INSIDE
+      // the waiver block as its own value.
+      const card = (await evalOr(page, () => {
+        const blocks = document.querySelector("#mvBlkFaab").closest(".card");
+        const blk = (id) => {
+          const e = document.getElementById(id);
+          return e && { cls: e.className, lab: e.querySelector(".mvblab").textContent.trim(),
+            val: e.querySelector(".mvbval").textContent.trim(), sub: e.querySelector(".mvbsub").textContent.trim(),
+            tag: (e.querySelector(".mvbtag") || {}).textContent || null };
+        };
+        return { n: document.querySelectorAll(".mvblocks .mvblk").length,
+          paras: blocks.querySelectorAll("p").length,
+          prose: /Claims process|isn't locked by kickoff|first come, first served\./.test(blocks.textContent),
+          faab: blk("mvBlkFaab"), fa: blk("mvBlkFa"), wv: blk("mvBlkWaiver"),
+          faabId: (document.getElementById("mvFaab") || {}).textContent };
+      })) || { faab: {}, fa: {}, wv: {} };
+      ok(card.n === 3, "the Waivers card is exactly three data blocks (" + card.n + ")");
+      ok(card.paras === 0 && !card.prose, "…and carries no prose paragraph at all — both of the old sentences are gone (" + card.paras + " <p>)");
+      ok(card.faab.lab === "FAAB budget" && card.faab.val === "$100" && card.faabId === "100",
+        "block 1 is the FAAB budget, and #mvFaab still carries the raw figure the claim flow reads (" + JSON.stringify(card.faab) + ")");
+      ok(card.fa.lab === "Free agency" && card.wv.lab === "Waivers", "blocks 2 and 3 are the two acquisition regimes, FA vs WAIVER");
+      // Before the deadline the blind-bid regime is the one in force.
+      ok(/\bon\b/.test(card.wv.cls) && card.wv.tag === "Now", "before the deadline, WAIVERS is the block marked as in force (" + card.wv.cls + "/" + card.wv.tag + ")");
+      ok(/\boff\b/.test(card.fa.cls) && card.fa.tag === null && card.fa.val === "Closed", "…and free agency is visibly stood down, not merely absent (" + JSON.stringify(card.fa) + ")");
+      // The deadline itself IS the waiver block's value: time on the value line, date under it,
+      // hand-checked against LG.waiverDeadline's own answer.
+      const dl = (await evalOr(page, () => {
+        const d = new Date(window.__GFFL__.LG.waiverDeadline(1));
+        return { t: d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+                 d: d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) };
+      })) || {};
+      ok(card.wv.val === dl.t && card.wv.sub === dl.d,
+        "…and the deadline is the waiver block's own value — time on the value line, date under it (" + card.wv.val + " / " + card.wv.sub + ")");
+      ok(!!(await page.$("#mvProcessNow")), "the commissioner's Process-now button survives the rework");
+      // Past the deadline the two blocks swap, with no other change to the card.
+      const after = (await evalOr(page, async (ts) => {
+        const { LG, UI } = window.__GFFL__;
+        LG.nowOverride = ts;
+        await UI.renderMoves();
+        const blk = (id) => { const e = document.getElementById(id); return { cls: e.className, val: e.querySelector(".mvbval").textContent.trim(), tag: !!e.querySelector(".mvbtag") }; };
+        const r = { fa: blk("mvBlkFa"), wv: blk("mvBlkWaiver"), n: document.querySelectorAll(".mvblocks .mvblk").length };
+        LG.nowOverride = null;
+        return r;
+      }, (await evalOr(page, () => window.__GFFL__.LG.waiverDeadline(1))) + 3600000)) || { fa: {}, wv: {} };
+      ok(/\bon\b/.test(after.fa.cls) && after.fa.val === "Open" && after.fa.tag,
+        "past the deadline the FREE AGENCY block takes over, and says so (" + JSON.stringify(after.fa) + ")");
+      ok(/\boff\b/.test(after.wv.cls) && !after.wv.tag && after.n === 3,
+        "…the waiver block stands down, and it is still three blocks either way (" + JSON.stringify(after.wv) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // A non-commissioner sees the blocks but not the Process-now button.
+      const seed = fullSeed();
+      const { ctx, page, errors } = await newTestPage(browser, seed);
+      await page.evaluateOnNewDocument(() => { try { sessionStorage.removeItem("gffl_commish"); } catch (e) {} });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await evalOr(page, () => { window.__GFFL__.LG.commishUnlocked = () => false; return window.__GFFL__.UI.renderMoves(); });
+      await waitOr(page, "#mvBlkFaab");
+      const nonc = (await evalOr(page, () => document.querySelectorAll(".mvblocks .mvblk").length)) || 0;
+      ok(nonc === 3 && !(await page.$("#mvProcessNow")), "a non-commissioner gets the three blocks and no Process-now button (" + nonc + " blocks)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AG2: the trade builder starts collapsed and expands on the plus.
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#mvGive .tradeadd");
+      // BEFORE: 12 pick chips on the give side and 3 on the get side, every one of them
+      // rendered the instant the tab mounted, ~1100px of trade builder nobody asked for.
+      const shut = (await evalOr(page, () => ({
+        give: document.querySelectorAll("#mvGive .pickchip").length,
+        get: document.querySelectorAll("#mvGet .pickchip").length,
+        plus: document.querySelectorAll(".tradeside .tradeadd").length,
+        expanded: document.querySelector("#mvGive .tradeadd").getAttribute("aria-expanded"),
+        noPicker: !document.querySelector("#mvGive .tradepick"),
+        cardH: Math.round(document.querySelector("#mvTradeTeam").closest(".card").getBoundingClientRect().height),
+      }))) || {};
+      ok(shut.give === 0 && shut.get === 0, "the trade builder renders NO roster chips on open — both sides start collapsed (" + shut.give + "/" + shut.get + ")");
+      ok(shut.plus === 2 && shut.expanded === "false", "…each side offers a plus instead, correctly marked collapsed");
+      ok(shut.noPicker, "…and the picker is not merely hidden — a collapsed side builds no picker DOM at all");
+      ok(shut.cardH < 420, "…so the whole card is a fraction of its old height (" + shut.cardH + "px, was ~1100 with both rosters spilled out)");
+      // The plus expands it, and the counterparty select is still right there above it.
+      await openTradeSideOr(page, "give");
+      const open = (await evalOr(page, () => ({
+        chips: document.querySelectorAll("#mvGive .pickchip").length,
+        expanded: document.querySelector("#mvGive .tradeadd").getAttribute("aria-expanded"),
+        other: document.querySelectorAll("#mvGet .pickchip").length,
+        sel: !!document.querySelector("#mvTradeTeam"),
+      }))) || {};
+      ok(open.chips === 12 && open.expanded === "true", "tapping the plus expands that side's picker (" + open.chips + " chips)");
+      ok(open.other === 0, "…and only that side — the other stays collapsed");
+      ok(open.sel, "…with the counterparty dropdown still visible above them both");
+      // Pick, collapse, and the chosen player survives.
+      await clickChildIn(page, "#mvGive .pickchip", ".pcpick", "B. Backup");
+      const picked = (await evalOr(page, () => ({
+        sel: [...document.querySelectorAll("#mvGive .tradesel .tradechip")].map((e) => e.textContent.replace(/\s+/g, " ").trim()),
+        stillInPicker: !!document.querySelector('#mvGive .tradepick .pickchip[data-gk="111333"]'),
+        set: [...window.__GFFL__.UI._tradeGive],
+      }))) || { sel: [], set: [] };
+      ok(picked.sel.length === 1 && /B\. Backup/.test(picked.sel[0]), "picking a player moves him up into the selection strip (" + JSON.stringify(picked.sel) + ")");
+      ok(picked.sel.length === 1 && !picked.stillInPicker, "…and out of the picker, so he can't be picked twice");
+      ok(picked.set.join() === "111333", "…and UI._tradeGive — what the send path reads — carries his key, unchanged");
+      await evalOr(page, () => document.querySelector("#mvGive .tradeadd").click()); // collapse again
+      const collapsed = (await evalOr(page, () => ({
+        chips: document.querySelectorAll("#mvGive .pickchip").length,
+        sel: document.querySelectorAll("#mvGive .tradesel .tradechip").length,
+        gone: !document.querySelector("#mvGive .tradepick"),
+      }))) || {};
+      ok(collapsed.gone && collapsed.chips === 0, "collapsing again puts the picker away");
+      ok(collapsed.sel === 1, "…and the chosen player is STILL on screen — you can always see what you are offering");
+      // The remove affordance takes him back off.
+      await evalOr(page, () => document.querySelector("#mvGive .tradechip .tradedrop").click());
+      const removed = (await evalOr(page, () => ({ sel: document.querySelectorAll("#mvGive .tradesel .tradechip").length, set: [...window.__GFFL__.UI._tradeGive].length }))) || {};
+      ok(removed.sel === 0 && removed.set === 0, "…and its remove button takes him back out of the offer entirely");
+      // The 3-player cap still holds, and past it the plus is replaced by the limit line.
+      const capped = (await evalOr(page, () => {
+        const { UI } = window.__GFFL__;
+        UI._tradeGive = new Set(["111333", "111666", "111777"]);
+        UI._renderTradeSide("give");
+        return { sel: document.querySelectorAll("#mvGive .tradesel .tradechip").length, plus: !!document.querySelector("#mvGive .tradeadd") };
+      })) || {};
+      ok(capped.sel === 3 && capped.plus === false, "at the 3-player cap the plus is gone — the limit is stated, not silently ignored");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AG3: Suggest a trade. THE ALGORITHM, against hand-built rosters whose right answer
+    // is arithmetic. Values come straight from D.projFor (stubbed here so the numbers under
+    // test are the ones written down below rather than a fixture's incidental projections);
+    // no season log exists for these keys, so tradeValueOf falls through to the projection
+    // alone and every figure in this block is the one in the roster tables.
+    //
+    //   MINE   QB 18 · RB 20/16/14/12 · WR 8/6 · TE 9 · K 7 · DST 6      deep at RB, thin at WR
+    //   THEIRS QB 17 · RB 9/7        · WR 19/17/15/13 · TE 8 · K 6 · DST 5   the mirror image
+    //
+    //   strength(pos) = the top N by value, N = that position's STARTING requirement
+    //   edge(RB) = (20+16) - (9+7)  = +20   -> my depth,  their weakness
+    //   edge(WR) = (8+6)   - (19+17)= -22   -> my weakness, their depth
+    //   Every other position is a singleton on both rosters, so sending one would leave a
+    //   hole — those are filtered by the legality rule, not by luck.
+    //   Survivors inside tolerance (max(1.5, 15% of the larger side)), best RELATIVE
+    //   imbalance first:  R1 20 <-> W1 19  (gap 1.0, rel .051)  <  R2 16 <-> W2 17 (rel .061)
+    //   so the suggestion is my best RB for their best WR.
+    {
+      const mkRoster = (teamId, rows) => ({ kind: "roster", week: 1, teamId,
+        players: rows.map(([key, name, pos, slot, team]) => ({ key, name, pos, team: team || "DEN", slot })) });
+      const MINE = [["m_qb", "My QB", "QB", "QB"], ["m_rb1", "My RB One", "RB", "RB"], ["m_rb2", "My RB Two", "RB", "RB"],
+        ["m_rb3", "My RB Three", "RB", "FLEX"], ["m_rb4", "My RB Four", "RB", "BENCH"],
+        ["m_wr1", "My WR One", "WR", "WR"], ["m_wr2", "My WR Two", "WR", "WR"],
+        ["m_te", "My TE", "TE", "TE"], ["m_k", "My K", "K", "K"], ["m_dst", "My DST", "DST", "DST"]];
+      const THEIRS = [["t_qb", "Their QB", "QB", "QB"], ["t_rb1", "Their RB One", "RB", "RB"], ["t_rb2", "Their RB Two", "RB", "RB"],
+        ["t_wr1", "Their WR One", "WR", "WR"], ["t_wr2", "Their WR Two", "WR", "WR"],
+        ["t_wr3", "Their WR Three", "WR", "FLEX"], ["t_wr4", "Their WR Four", "WR", "BENCH"],
+        ["t_te", "Their TE", "TE", "TE"], ["t_k", "Their K", "K", "K"], ["t_dst", "Their DST", "DST", "DST"]];
+      const VALS = { m_qb: 18, m_rb1: 20, m_rb2: 16, m_rb3: 14, m_rb4: 12, m_wr1: 8, m_wr2: 6, m_te: 9, m_k: 7, m_dst: 6,
+        t_qb: 17, t_rb1: 9, t_rb2: 7, t_wr1: 19, t_wr2: 17, t_wr3: 15, t_wr4: 13, t_te: 8, t_k: 6, t_dst: 5 };
+      const base = fullSeed();
+      const seed = { ...base, docs: { ...base.docs,
+        roster_2026_w1_t1: mkRoster(1, MINE), roster_2026_w1_t2: mkRoster(2, THEIRS) } };
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, seed);
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      // Deliberately NO waitLive(): these rosters are hand-built with keys the Sleeper fixture
+      // has never heard of, so no live row will ever land for them — and nothing here needs
+      // one, since every value under test comes from the stubbed projFor below.
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#mvSuggest");
+      await evalOr(page, (v) => { window.__GFFL__.D.projFor = (k) => (k in v ? v[k] : null); }, VALS);
+      const call = (mine, theirs) => evalOr(page, (m, t) => {
+        const s = window.__GFFL__.UI.suggestTradePair(m, t);
+        return s && { give: s.give.map((p) => p.key), get: s.get.map((p) => p.key),
+          giveVal: s.giveVal, getVal: s.getVal, balance: s.balance, kind: s.kind, why: s.why, strict: s.strict };
+      }, mine, theirs);
+      const rosters = (await evalOr(page, () => ({ mine: window.__GFFL__.UI._rosters[1], theirs: window.__GFFL__.UI._rosters[2] }))) || { mine: [], theirs: [] };
+      const s1 = await call(rosters.mine, rosters.theirs);
+      ok(!!s1 && s1.give.join() === "m_rb1" && s1.get.join() === "t_wr1",
+        "the suggestion is my best RB for their best WR — my surplus for my deficit, hand-computed (" + JSON.stringify(s1 && [s1.give, s1.get]) + ")");
+      ok(s1 && s1.giveVal === 20 && s1.getVal === 19 && Math.abs(s1.balance - 1) < 1e-9,
+        "…valued 20.0 for 19.0, a 1.0 gap (" + JSON.stringify(s1 && { g: s1.giveVal, r: s1.getVal, b: s1.balance }) + ")");
+      ok(!!s1 && s1.balance <= Math.max(1.5, 0.15 * Math.max(s1.giveVal, s1.getVal)),
+        "…inside the stated tolerance: 1.5 points, or 15% of the larger side, whichever is bigger (" + (s1 || {}).balance + " <= 3)");
+      ok(s1 && s1.kind === "1-for-1" && s1.strict === true, "…a straight one-for-one, and it cleared the STRICT filter (both sides' starting lineups improve)");
+      ok(s1 && s1.why === "You're deep at RB; they're deep at WR.", "…and it says why in one line, naming the two positions (" + (s1 || {}).why + ")");
+      // POSITIONAL LOGIC, stated as the numbers rather than trusted: I send from the position
+      // where my starters out-score theirs, and receive at the one where they out-score mine.
+      const edges = (await evalOr(page, (m, t) => {
+        const V = window.__GFFL__.UI.tradeValueOf;
+        const top = (r, pos, n) => r.filter((p) => p.pos === pos).map(V).sort((a, b) => b - a).slice(0, n).reduce((a, b) => a + b, 0);
+        return { rb: top(m, "RB", 2) - top(t, "RB", 2), wr: top(m, "WR", 2) - top(t, "WR", 2) };
+      }, rosters.mine, rosters.theirs)) || {};
+      ok(edges.rb === 20 && edges.wr === -22,
+        "…and those really are my strongest and weakest positions relative to theirs (RB " + edges.rb + ", WR " + edges.wr + ")");
+      // Legality: my only QB/TE/K/DST are never offered, because sending one leaves a hole.
+      const everSingleton = await evalOr(page, (m, t) => {
+        const s = window.__GFFL__.UI.suggestTradePair(m, t);
+        return s ? s.give.concat(s.get).some((k) => /_(qb|te|k|dst)$/.test(k)) : false;
+      }, rosters.mine, rosters.theirs);
+      ok(everSingleton === false, "…and neither side is ever asked to give up its only QB, TE, K or D/ST");
+      // A LOCKED player is never offered. m_rb1's team is switched to PHI, whose game is live
+      // in this fixture — so the suggestion has to fall to the next-best balanced pair,
+      // R2 16 <-> W2 17 (gap 1.0, rel .061), which is exactly what it does.
+      const s2 = await evalOr(page, (m, t) => {
+        const mine = m.map((p) => (p.key === "m_rb1" ? { ...p, team: "PHI" } : p));
+        const s = window.__GFFL__.UI.suggestTradePair(mine, t);
+        return s && { give: s.give.map((p) => p.key), get: s.get.map((p) => p.key), giveVal: s.giveVal, getVal: s.getVal };
+      }, rosters.mine, rosters.theirs);
+      ok(s2 && s2.give.join() === "m_rb2" && s2.get.join() === "t_wr2" && s2.giveVal === 16 && s2.getVal === 17,
+        "a player whose game has already kicked off is never offered — the suggestion falls to the next balanced pair (" + JSON.stringify(s2) + ")");
+      // Nothing sensible on the board -> a plain "no", not a silly trade. Two identical
+      // rosters have zero edge at every position, so there is no weakness to trade into.
+      // "missing" vs "null" matters: an app with no suggester at all would otherwise pass this
+      // for the wrong reason, which is exactly what a pre-fix verification is there to catch.
+      const none = await evalOr(page, (m) => {
+        const { UI } = window.__GFFL__;
+        if (typeof UI.suggestTradePair !== "function") return "missing";
+        return UI.suggestTradePair(m, m.map((p) => ({ ...p, key: "x_" + p.key }))) === null ? "null" : "some";
+      }, rosters.mine);
+      ok(none === "null", "two evenly-matched rosters produce NO suggestion rather than a pointless one (" + none + ")");
+      // …and the UI says so in plain words instead of doing nothing. The counterparty's real
+      // ROSTER DOC is rewritten as a clone of mine (mutating UI._rosters would achieve
+      // nothing — renderMoves reloads it from the backend on every pass), so the button runs
+      // against a genuinely evenly-matched opponent.
+      await evalOr(page, (v) => { window.__GFFL__.D.projFor = (k) => (k in v ? v[k] : (k.slice(0, 2) === "x_" && k.slice(2) in v ? v[k.slice(2)] : null)); }, VALS);
+      await evalOr(page, async () => {
+        const { LG, UI } = window.__GFFL__;
+        await LG.saveRoster(1, 2, UI._rosters[1].map((p) => ({ ...p, key: "x_" + p.key, name: "X " + p.name })));
+        UI._rosters = null;
+        await UI.renderMoves();
+      });
+      await waitOr(page, "#mvSuggest");
+      await evalOr(page, () => document.querySelector("#mvSuggest").click());
+      const saidSo = await waitFnOr(page, () => /No even trade fits/.test(document.querySelector("#mvSuggestWhy").textContent));
+      ok(saidSo, "…and when nothing fits the card says so in plain words rather than proposing something silly");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // AG3b: the BUTTON — it fills both sides for real, and it never sends.
+      const mkRoster = (teamId, rows) => ({ kind: "roster", week: 1, teamId,
+        players: rows.map(([key, name, pos, slot]) => ({ key, name, pos, team: "DEN", slot })) });
+      const MINE = [["m_qb", "My QB", "QB", "QB"], ["m_rb1", "My RB One", "RB", "RB"], ["m_rb2", "My RB Two", "RB", "RB"],
+        ["m_rb3", "My RB Three", "RB", "FLEX"], ["m_rb4", "My RB Four", "RB", "BENCH"],
+        ["m_wr1", "My WR One", "WR", "WR"], ["m_wr2", "My WR Two", "WR", "WR"],
+        ["m_te", "My TE", "TE", "TE"], ["m_k", "My K", "K", "K"], ["m_dst", "My DST", "DST", "DST"]];
+      const THEIRS = [["t_qb", "Their QB", "QB", "QB"], ["t_rb1", "Their RB One", "RB", "RB"], ["t_rb2", "Their RB Two", "RB", "RB"],
+        ["t_wr1", "Their WR One", "WR", "WR"], ["t_wr2", "Their WR Two", "WR", "WR"],
+        ["t_wr3", "Their WR Three", "WR", "FLEX"], ["t_wr4", "Their WR Four", "WR", "BENCH"],
+        ["t_te", "Their TE", "TE", "TE"], ["t_k", "Their K", "K", "K"], ["t_dst", "Their DST", "DST", "DST"]];
+      const VALS = { m_qb: 18, m_rb1: 20, m_rb2: 16, m_rb3: 14, m_rb4: 12, m_wr1: 8, m_wr2: 6, m_te: 9, m_k: 7, m_dst: 6,
+        t_qb: 17, t_rb1: 9, t_rb2: 7, t_wr1: 19, t_wr2: 17, t_wr3: 15, t_wr4: 13, t_te: 8, t_k: 6, t_dst: 5 };
+      const base = fullSeed();
+      const seed = { ...base, docs: { ...base.docs, roster_2026_w1_t1: mkRoster(1, MINE), roster_2026_w1_t2: mkRoster(2, THEIRS) } };
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, seed);
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      // Deliberately NO waitLive(): these rosters are hand-built with keys the Sleeper fixture
+      // has never heard of, so no live row will ever land for them — and nothing here needs
+      // one, since every value under test comes from the stubbed projFor below.
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#mvSuggest");
+      await evalOr(page, (v) => { window.__GFFL__.D.projFor = (k) => (k in v ? v[k] : null); }, VALS);
+      await evalOr(page, () => document.querySelector("#mvSuggest").click());
+      await waitFnOr(page, () => document.querySelectorAll("#mvGive .tradechip").length === 1);
+      const filled = (await evalOr(page, () => ({
+        give: [...document.querySelectorAll("#mvGive .tradesel .tradechip")].map((e) => e.textContent.replace(/\s+/g, " ").trim()),
+        get: [...document.querySelectorAll("#mvGet .tradesel .tradechip")].map((e) => e.textContent.replace(/\s+/g, " ").trim()),
+        why: document.querySelector("#mvSuggestWhy").textContent,
+        giveSet: [...window.__GFFL__.UI._tradeGive], getSet: [...window.__GFFL__.UI._tradeGet],
+      }))) || { give: [], get: [], giveSet: [], getSet: [], why: "" };
+      // Names render in the app's short form (LG.shortName): "My RB One" -> "M. One".
+      ok(/M\. One/.test(filled.give[0] || "") && /T\. One/.test(filled.get[0] || ""),
+        "the button fills BOTH sides of the real builder with the suggested pair (" + JSON.stringify([filled.give, filled.get]) + ")");
+      ok(filled.giveSet.join() === "m_rb1" && filled.getSet.join() === "t_wr1", "…into the same selections the Send button reads, so it is a normal editable offer");
+      ok(/deep at RB/.test(filled.why) && /20\.0 for 19\.0/.test(filled.why), "…and explains itself with the two values (" + filled.why + ")");
+      const sent = (await evalOr(page, () => window.__GFFL__.LG.loadTrades())) || [];
+      ok(sent.length === 0 && filled.giveSet.length > 0,
+        "…and having filled the builder it has still sent NOTHING — the user reviews and presses Send themselves (" + sent.length + " trades on the board)");
+      if (SHOTS) {
+        // Scroll the TRADE card into frame first — a viewport shot of the top of Moves shows
+        // the waiver blocks, which is a different plate's job. (Viewport, never fullPage:
+        // this page carries sticky chrome and fullPage has already been caught disagreeing
+        // with it in this repo.)
+        await evalOr(page, () => {
+          const c = document.querySelector("#mvTradeTeam").closest(".card");
+          window.scrollTo(0, c.getBoundingClientRect().top + window.scrollY - 60);
+        });
+        await sleep(250);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_trade_suggest.png") });
+        console.log("  📸 shots/gffl_trade_suggest.png");
+      }
+      // Editing the suggestion still works: drop one side and the Send path refuses, as ever.
+      await evalOr(page, () => document.querySelector("#mvGet .tradechip .tradedrop").click());
+      await evalOr(page, () => document.querySelector("#mvTradeSend").click());
+      const stillNone = (await evalOr(page, () => window.__GFFL__.LG.loadTrades())) || [];
+      ok(stillNone.length === 0, "…and a suggestion the user has half-dismantled can't be sent either — the existing guard is untouched");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // AG3c: the 2-for-2 fallback, when no single pair can balance.
+      //   MINE   RB 20/6/5/5 (four of them) · WR 4/3    THEIRS  WR 13/13/2/2 · RB 3/2
+      //   Every 1-for-1 is outside tolerance (20-13 = 7 against a 3.0 allowance; 6-13 = 7
+      //   against 1.95; 6-2 = 4 against 1.5; 5-2 = 3 against 1.5) — so the only balanced
+      //   trade on the board is (20 + 6) for (13 + 13), which is dead even at 26 apiece.
+      const mk = (teamId, rows) => ({ kind: "roster", week: 1, teamId,
+        players: rows.map(([key, name, pos, slot]) => ({ key, name, pos, team: "DEN", slot })) });
+      const MINE = [["m_qb", "My QB", "QB", "QB"], ["m_rb1", "My RB One", "RB", "RB"], ["m_rb2", "My RB Two", "RB", "RB"],
+        ["m_rb3", "My RB Three", "RB", "FLEX"], ["m_rb4", "My RB Four", "RB", "BENCH"],
+        ["m_wr1", "My WR One", "WR", "WR"], ["m_wr2", "My WR Two", "WR", "WR"],
+        ["m_te", "My TE", "TE", "TE"], ["m_k", "My K", "K", "K"], ["m_dst", "My DST", "DST", "DST"]];
+      const THEIRS = [["t_qb", "Their QB", "QB", "QB"], ["t_rb1", "Their RB One", "RB", "RB"], ["t_rb2", "Their RB Two", "RB", "RB"],
+        ["t_wr1", "Their WR One", "WR", "WR"], ["t_wr2", "Their WR Two", "WR", "WR"],
+        ["t_wr3", "Their WR Three", "WR", "FLEX"], ["t_wr4", "Their WR Four", "WR", "BENCH"],
+        ["t_te", "Their TE", "TE", "TE"], ["t_k", "Their K", "K", "K"], ["t_dst", "Their DST", "DST", "DST"]];
+      const VALS = { m_qb: 15, m_rb1: 20, m_rb2: 6, m_rb3: 5, m_rb4: 5, m_wr1: 4, m_wr2: 3, m_te: 5, m_k: 4, m_dst: 4,
+        t_qb: 14, t_rb1: 3, t_rb2: 2, t_wr1: 13, t_wr2: 13, t_wr3: 2, t_wr4: 2, t_te: 4, t_k: 3, t_dst: 3 };
+      const base = fullSeed();
+      const seed = { ...base, docs: { ...base.docs, roster_2026_w1_t1: mk(1, MINE), roster_2026_w1_t2: mk(2, THEIRS) } };
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, seed);
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      // Deliberately NO waitLive(): these rosters are hand-built with keys the Sleeper fixture
+      // has never heard of, so no live row will ever land for them — and nothing here needs
+      // one, since every value under test comes from the stubbed projFor below.
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#mvSuggest");
+      await evalOr(page, (v) => { window.__GFFL__.D.projFor = (k) => (k in v ? v[k] : null); }, VALS);
+      const s = await evalOr(page, () => {
+        const { UI } = window.__GFFL__;
+        const r = UI.suggestTradePair(UI._rosters[1], UI._rosters[2]);
+        return r && { give: r.give.map((p) => p.key).sort(), get: r.get.map((p) => p.key).sort(), giveVal: r.giveVal, getVal: r.getVal, kind: r.kind };
+      });
+      ok(!!s && s.kind === "2-for-2", "when no single pair can balance, it offers a 2-for-2 rather than giving up (" + (s || {}).kind + ")");
+      ok(s && s.give.join() === "m_rb1,m_rb2" && s.get.join() === "t_wr1,t_wr2",
+        "…the exact pair of pairs the arithmetic picks (" + JSON.stringify(s && [s.give, s.get]) + ")");
+      ok(s && s.giveVal === 26 && s.getVal === 26, "…dead even at 26 apiece (" + JSON.stringify(s && { g: s.giveVal, r: s.getVal }) + ")");
+      // …and it is still legal: both rosters keep two RBs, two WRs and a full flex pool.
+      const legal = (await evalOr(page, () => {
+        const { UI } = window.__GFFL__;
+        const r = UI.suggestTradePair(UI._rosters[1], UI._rosters[2]);
+        const after = (ros, out, inn) => { const g = new Set(out.map((p) => p.key)); const l = ros.filter((p) => !g.has(p.key)).concat(inn);
+          const c = {}; for (const p of l) c[p.pos] = (c[p.pos] || 0) + 1; return c; };
+        return { mine: after(UI._rosters[1], r.give, r.get), theirs: after(UI._rosters[2], r.get, r.give) };
+      })) || { mine: {}, theirs: {} };
+      ok(legal.mine.RB >= 2 && legal.mine.WR >= 2 && legal.theirs.RB >= 2 && legal.theirs.WR >= 2,
+        "…and neither roster is left short of a starting slot afterwards (" + JSON.stringify(legal) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AG4: the players table's new column order, its greying, and the phone budget.
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#faPosChips");
+      await waitFnOr(page, () => document.querySelectorAll("#faResults [data-fi]").length > 0);
+      // An available player's button is genuinely usable — the counterpart to I2's disabled
+      // cases, so "greyed out" is proved to be a real state and not the only state.
+      const avail = (await evalOr(page, () => {
+        const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("F. Agent"));
+        const b = tr && tr.querySelector(".faMoveBtn");
+        return { has: !!b, disabled: !!(b && b.disabled), title: (b && b.title) || "" };
+      })) || {};
+      ok(avail.has && avail.disabled === false && avail.title === "", "a genuine free agent's ADD button is live, with nothing to explain away");
+      // Every remaining column sorts, arrows and all — including ADD, which groups the rows
+      // you can actually act on to the top rather than being the one dead header on the row.
+      for (const col of ["player", "add", "type", "proj", "last", "opp", "avg"]) {
+        await clickIn(page, 'th.thsort[data-sort="' + col + '"]');
+        const st = (await evalOr(page, (c) => {
+          const th = document.querySelector('th.thsort[data-sort="' + c + '"]');
+          return { active: th.classList.contains("active"), arrow: /[▼▲]/.test(th.textContent) };
+        }, col)) || {};
+        ok(st.active && st.arrow, "the " + col.toUpperCase() + " header is a working sort control (active + arrow)");
+      }
+      await clickIn(page, "#faFilterChips .poschip", "All");
+      await waitFnOr(page, () => [...document.querySelectorAll("#faResults tr")].some((r) => r.textContent.includes("P. Passer")));
+      await clickIn(page, 'th.thsort[data-sort="add"]'); // desc = addable first
+      await waitFnOr(page, () => {
+        const th = document.querySelector('th.thsort[data-sort="add"]');
+        return th.classList.contains("active") && /▼/.test(th.textContent);
+      });
+      const grouped = (await evalOr(page, () => {
+        const rows = [...document.querySelectorAll("#faResults tbody tr")].map((r) => !r.querySelector(".faMoveBtn").disabled);
+        const firstBlocked = rows.indexOf(false);
+        return { rows: rows.length, firstBlocked, anyAfter: firstBlocked < 0 ? false : rows.slice(firstBlocked).some(Boolean) };
+      })) || {};
+      ok(grouped.rows > 2 && grouped.firstBlocked > 0 && !grouped.anyAfter,
+        "ADD desc really groups every addable row above every blocked one (" + JSON.stringify(grouped) + ")");
+      // THE PHONE BUDGET (390x844): "we need to be able to see add, type and projection
+      // without horizontal scrolling". Measured at scrollLeft 0 against the panning box's own
+      // visible width — the sticky PLAYER column plus those three must all land inside it.
+      const mob = (await evalOr(page, () => {
+        const pan = document.querySelector("#faResults .panner");
+        pan.scrollLeft = 0;
+        const pr = pan.getBoundingClientRect();
+        const tr = pan.querySelector("tbody tr");
+        const edge = (sel) => Math.round(tr.querySelector(sel).getBoundingClientRect().right - pr.left);
+        return { view: Math.round(pan.clientWidth), name: edge(".faname"), add: edge(".faadd"), type: edge(".fatype"), proj: edge(".faproj"),
+                 win: window.innerWidth, body: document.body.scrollWidth, pans: pan.scrollWidth > pan.clientWidth };
+      })) || {};
+      ok(mob.name <= mob.view && mob.add <= mob.view && mob.type <= mob.view && mob.proj <= mob.view,
+        "at 390px PLAYER, ADD, TYPE and PROJ all sit inside the visible box with no panning at all (right edges " +
+        [mob.name, mob.add, mob.type, mob.proj].join("/") + " within " + mob.view + "px)");
+      ok(mob.body <= mob.win + 1, "…and the PAGE still never scrolls sideways (" + mob.body + "/" + mob.win + ")");
+      ok(mob.pans, "…while the columns after PROJ genuinely do still pan, as before (the box is doing real work)");
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_moves_390.png") }); console.log("  📸 shots/gffl_moves_390.png"); }
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // Desktop keeps every column on screen at once.
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitFnOr(page, () => document.querySelectorAll("#faResults [data-fi]").length > 0);
+      const desk = (await evalOr(page, () => {
+        const pan = document.querySelector("#faResults .panner");
+        const tr = pan.querySelector("tbody tr");
+        const pr = pan.getBoundingClientRect();
+        return { last: Math.round(tr.querySelector(".faavg").getBoundingClientRect().right - pr.left), view: Math.round(pan.clientWidth) };
+      })) || {};
+      ok(desk.last <= desk.view, "on a desktop the whole re-ordered table fits with no pan at all (" + desk.last + "/" + desk.view + ")");
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_moves_desktop.png") }); console.log("  📸 shots/gffl_moves_desktop.png"); }
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AG5: the centre band's type, and nothing clipped. (AD2/AE already assert that the
+    // colour FILLS the cell and that consecutive cells are contiguous.)
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, seedLongNames());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await waitOr(page, "td.slotcell");
+      // A Range around the text node, NOT scrollWidth: the badge sets overflow:hidden, and on
+      // an element whose overflow is visible scrollWidth reports no overflow at all — the trap
+      // this suite has already been caught by once.
+      const type = (await evalOr(page, () => {
+        const read = (sel) => {
+          const b = document.querySelector(sel);
+          if (!b) return null;
+          const td = b.closest("td");
+          const r = document.createRange(); r.selectNodeContents(b);
+          return { txt: b.textContent.trim(), size: parseFloat(getComputedStyle(b).fontSize),
+            text: Math.ceil(r.getBoundingClientRect().width), cell: Math.floor(td.getBoundingClientRect().width) };
+        };
+        const qb = [...document.querySelectorAll(".mutable:not(.benchtable) td.slotcell")]
+          .find((td) => td.textContent.trim() === "QB");
+        const rQB = (() => { const b = qb.querySelector(".slotbadge"); const r = document.createRange(); r.selectNodeContents(b);
+          return { txt: "QB", size: parseFloat(getComputedStyle(b).fontSize), text: Math.ceil(r.getBoundingClientRect().width), cell: Math.floor(qb.getBoundingClientRect().width) }; })();
+        return { qb: rQB, bench: read(".benchtable td.slotcell .slotbadge"), tot: read(".totalrow td.slotcell .slotbadge"),
+          flex: (() => { const td = [...document.querySelectorAll("td.slotcell")].find((t) => t.textContent.trim() === "FLEX");
+            if (!td) return null; const b = td.querySelector(".slotbadge"); const r = document.createRange(); r.selectNodeContents(b);
+            return { txt: "FLEX", size: parseFloat(getComputedStyle(b).fontSize), text: Math.ceil(r.getBoundingClientRect().width), cell: Math.floor(td.getBoundingClientRect().width) }; })() };
+      })) || { qb: {}, bench: {}, tot: null, flex: null };
+      ok(type.qb.size >= 12, "at 390px a position label is set MUCH larger than before — 9px then, " + type.qb.size + "px now");
+      ok(type.qb.text <= type.qb.cell, "…and QB still sits inside its cell (" + type.qb.text + "/" + type.qb.cell + "px)");
+      for (const [k, v] of Object.entries({ BENCH: type.bench, TOT: type.tot, FLEX: type.flex })) {
+        ok(!!v && v.text <= v.cell, "…so does " + k + ", the label that has to step down to fit (" + (v ? v.text + "/" + v.cell : "missing") + "px)");
+      }
+      ok(type.bench.size < type.qb.size, "…because a >3-character label takes the .sbwide step-down rather than clipping (" + type.bench.size + " vs " + type.qb.size + "px)");
+      // The matchup plate is taken by AG8, on this same page and fixture — one writer per
+      // path, and AG8's is the one that also has to show the injury designations.
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // The same thing on a desktop, where the type steps up again.
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, seedLongNames(), { vw: { width: 1440, height: 900 } });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await waitOr(page, "td.slotcell");
+      const d = (await evalOr(page, () => {
+        const cells = [...document.querySelectorAll(".mutable:not(.benchtable) td.slotcell")];
+        const qb = cells.find((td) => td.textContent.trim() === "QB");
+        const b = qb.querySelector(".slotbadge");
+        const r = document.createRange(); r.selectNodeContents(b);
+        const bench = document.querySelector(".benchtable td.slotcell .slotbadge");
+        const br = document.createRange(); br.selectNodeContents(bench);
+        return { size: parseFloat(getComputedStyle(b).fontSize), text: Math.ceil(r.getBoundingClientRect().width),
+          cell: Math.floor(qb.getBoundingClientRect().width),
+          benchText: Math.ceil(br.getBoundingClientRect().width), benchCell: Math.floor(bench.closest("td").getBoundingClientRect().width) };
+      })) || {};
+      ok(d.size >= 15, "on a desktop a position label is 16px, half again what it was (11px) (" + d.size + "px)");
+      ok(d.text <= d.cell && d.benchText <= d.benchCell, "…and nothing is clipped at that size either (QB " + d.text + "/" + d.cell + ", BENCH " + d.benchText + "/" + d.benchCell + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AG6: red means one thing. The live clock gives it up; the injury takes it.
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, seedLongNames());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await waitOr(page, ".gclock");
+      const col = (await evalOr(page, () => {
+        const hex = (h) => { const n = parseInt(h.replace("#", ""), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+        const root = getComputedStyle(document.documentElement);
+        const clock = document.querySelector(".gclock");
+        // A CSS probe, not a live element: the matchup lineup row deliberately carries no
+        // injury designation of its own (the previous batch cut that row to three fixed
+        // lines and a name, and every pixel of its width was fought for) — .inj lives on the
+        // locker, the swap sheet, the players table and the stats card, all of which the
+        // surfaces block below reads for real. This proves the RULE the four of them share.
+        const probe = document.createElement("span");
+        probe.className = "inj"; probe.textContent = "OUT";
+        document.body.appendChild(probe);
+        const injCol = getComputedStyle(probe).color;
+        probe.remove();
+        return { accent: hex(root.getPropertyValue("--accent").trim()), mut: hex(root.getPropertyValue("--mut").trim()),
+          clock: clock && getComputedStyle(clock).color, clockTxt: clock && clock.textContent.trim(),
+          clockWeight: clock && getComputedStyle(clock).fontWeight,
+          inj: injCol, injTxt: "OUT",
+          anyLiveRed: [...document.querySelectorAll(".pcellgrid .pmeta .live")].length };
+      })) || {};
+      ok(/^Q\d /.test(col.clockTxt || ""), "the matchup row really is showing a live quarter and clock (" + col.clockTxt + ")");
+      ok(!!col.clock && col.clock !== col.accent, "…and it is NOT red any more (" + col.clock + " vs the accent " + col.accent + ")");
+      ok(col.clock === col.mut, "…it is the ordinary muted stat colour, same as the opponent and kickoff it replaces (" + col.clock + ")");
+      ok(col.clockWeight === "700", "…keeping only the bold weight that made it scannable");
+      ok(col.anyLiveRed === 0, "…with no .live-red clock left anywhere on a lineup row");
+      ok(col.inj === col.accent, "the Q/D/OUT designation IS red now — the one alarm on the row (" + col.injTxt + " " + col.inj + ")");
+      // …and every other surface that renders .inj agrees, because they share one rule.
+      const surfaces = (await evalOr(page, async () => {
+        const { UI } = window.__GFFL__;
+        const hex = (h) => { const n = parseInt(h.replace("#", ""), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+        const accent = hex(getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
+        const out = {};
+        UI.openLocker(1);
+        await new Promise((r) => setTimeout(r, 400));
+        const l = document.querySelector(".lrow .inj");
+        out.locker = l ? getComputedStyle(l).color === accent : null;
+        const sw = [...document.querySelectorAll(".lswap")].find((b) => !b.disabled);
+        if (sw) { sw.click(); await new Promise((r) => setTimeout(r, 300));
+          const s = document.querySelector("#swapSheet .inj"); out.swap = s ? getComputedStyle(s).color === accent : null;
+          const sh = document.getElementById("swapSheet"); if (sh) sh.hidden = true; }
+        UI.show("moves");
+        await new Promise((r) => setTimeout(r, 900));
+        const chips = document.querySelectorAll("#faFilterChips .poschip");
+        if (chips[1]) chips[1].click();
+        await new Promise((r) => setTimeout(r, 700));
+        const t = document.querySelector("#faResults .inj");
+        out.table = t ? getComputedStyle(t).color === accent : null;
+        const row = [...document.querySelectorAll("#faResults tr[data-pk]")].find((r) => r.querySelector(".inj"));
+        if (row) { row.click(); await new Promise((r) => setTimeout(r, 400));
+          const c = document.querySelector(".pccard .inj"); out.card = c ? getComputedStyle(c).color === accent : null;
+          UI.closePlayerCard(); }
+        return out;
+      })) || {};
+      const agreed = Object.entries(surfaces).filter(([, v]) => v === true).map(([k]) => k);
+      ok(agreed.length >= 3 && Object.values(surfaces).every((v) => v !== false),
+        "…on every surface that renders one — they share a single rule, so they cannot disagree (" + JSON.stringify(surfaces) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+
+    // ---- AG8 (ITEM 26): Q / D / OUT is ON THE MATCHUP, on line 2, in red, beside a clock
+    // that is not. Item 24 took red off the clock; the half of the same sentence that says
+    // what red is FOR had nothing to attach to on this page, so red was removed and nothing
+    // given back. This is the other half.
+    //
+    // PRE-FIX (app files stashed back to the items-19-25 commit): 13 of these 24 fail, plus
+    // the 3 restaged AE line-2 reads that the .gline wrapper is part of. The 11 that pass
+    // either way are regression invariants and nothing else — "Active" never appearing, the
+    // half-cell staying one height, line 2 keeping its fixed 14px box, the four name-clipping
+    // checks (whose whole job is that nothing may START clipping), line 2 not overflowing
+    // (its own worst-case number moves 87px -> 116px, so it is measuring something real), and
+    // the page-error counts.
+    //
+    // seedLongNames() is the fixture on purpose: it already carries AD_INJ, which puts a
+    // QUESTIONABLE starter (A. St. Brown, DAL — a LIVE game, so his clock is right beside his
+    // designation), a healthy one marked "Active" (M. Harrison Jr., PHI — must show NOTHING),
+    // a DOUBTFUL one on a pre-game row (C. McCaffrey, DEN) and a PUP player on the BENCH
+    // (L. McConkey, KC — "@DEN Fri 1:00 AM", the longest line 2 in the fixture) on the same
+    // board. A check written against an all-healthy roster would pass because nobody was
+    // injured, which is the "passes for the wrong reason" family this batch already caught
+    // six of.
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, seedLongNames());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await waitOr(page, "td.slotcell");
+      const inj = (await evalOr(page, () => {
+        const hex = (h) => { const n = parseInt(h.replace("#", ""), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+        const root = getComputedStyle(document.documentElement);
+        const cellFor = (nm) => [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => e.textContent.includes(nm));
+        const read = (nm) => {
+          const c = cellFor(nm);
+          if (!c) return null;
+          const chip = c.querySelector(".pmeta .inj");
+          const gl = c.querySelector(".pmeta .gline");
+          const clock = c.querySelector(".pmeta .gclock");
+          return { txt: chip ? chip.textContent.trim() : null,
+            col: chip ? getComputedStyle(chip).color : null,
+            // Line 2 is the ONE place this may live — never line 1, which is the width-
+            // constrained one two rounds of work went into fitting a real name into.
+            onLine2: !!(chip && chip.closest(".pmeta")),
+            onLine1: !!c.querySelector(".pname .inj"),
+            // …and it LEADS the line: nowrap + ellipsis means whatever is last is what gets
+            // cut, and this is the one thing on the row that must never be cut.
+            leads: !!(chip && gl && (chip.compareDocumentPosition(gl) & Node.DOCUMENT_POSITION_FOLLOWING)),
+            clock: clock ? getComputedStyle(clock).color : null,
+            clockTxt: clock ? clock.textContent.trim() : null,
+            gline: gl ? gl.textContent.trim() : null,
+            spans: c.querySelectorAll(".pmeta .inj").length,
+          };
+        };
+        const benchCell = [...document.querySelectorAll(".benchtable .pcellgrid")].find((e) => e.textContent.includes("L. McConkey"));
+        return { accent: hex(root.getPropertyValue("--accent").trim()),
+          q: read("A. St. Brown"), healthy: read("M. Harrison Jr."), d: read("C. McCaffrey"),
+          bench: benchCell ? { txt: (benchCell.querySelector(".pmeta .inj") || {}).textContent,
+            col: benchCell.querySelector(".pmeta .inj") ? getComputedStyle(benchCell.querySelector(".pmeta .inj")).color : null } : null,
+          // A healthy row must carry no empty span and no stray separator either — count the
+          // designation spans across the WHOLE board against the four the fixture designates.
+          totalChips: document.querySelectorAll(".mutable .pmeta .inj").length,
+          activeWord: /\bActive\b/.test(document.querySelector(".lineupcard").textContent) };
+      })) || { q: {}, healthy: {}, d: {}, bench: {} };
+      ok(inj.q && inj.q.txt === "Q", "a Questionable STARTER carries a Q on the matchup itself (" + (inj.q || {}).txt + ")");
+      ok(inj.q && inj.q.col === inj.accent, "…and it is the accent red — the one alarm on the row (" + (inj.q || {}).col + ")");
+      ok(inj.q && inj.q.onLine2 && !inj.q.onLine1, "…on LINE 2, never beside the name on line 1");
+      ok(inj.q && inj.q.leads, "…leading that line, so the ellipsis can only ever eat the kickoff time, never the designation");
+      // THE POINT OF THE WHOLE CHANGE: the two must be visibly different on the SAME line.
+      // Paired with the chip on purpose: on a page with no designation at all, "the clock is
+      // not red" is free — and the claim being made is that the TWO are different on the SAME
+      // line, which needs both of them to be there.
+      ok(inj.q && inj.q.txt === "Q" && /^Q\d /.test(inj.q.clockTxt || "") && inj.q.clock && inj.q.clock !== inj.accent,
+        "…beside a live clock on the same line that is NOT red (" + (inj.q || {}).clockTxt + " " + (inj.q || {}).clock + ")");
+      // Paired for the same reason: "nobody has one" would otherwise satisfy this.
+      ok(inj.healthy && inj.healthy.txt === null && inj.healthy.spans === 0 && inj.q && inj.q.txt === "Q",
+        "a healthy team-mate in the SAME table carries no designation at all — not an empty span, not a separator");
+      ok(inj.activeWord === false, "…and the word Active appears nowhere in the lineup");
+      ok(inj.d && inj.d.txt === "D" && /^KC /.test(inj.d.gline || ""),
+        "a Doubtful player on a PRE-GAME row reads 'D' ahead of his own opponent and kickoff (" + (inj.d || {}).txt + " / " + (inj.d || {}).gline + ")");
+      ok(inj.bench && (inj.bench.txt || "").trim() === "PUP" && inj.bench.col === inj.accent,
+        "…and the bench gets it too, same half-cell, same rule (" + JSON.stringify(inj.bench) + ")");
+      // FOUR, not three: the fixture designates two starters (Q, D) and two bench players
+      // (OUT, PUP), and .mutable matches the bench table too. 4 of 20 half-cells.
+      ok(inj.totalChips === 4, "exactly the four designated players carry one — nothing is sprayed across the board (" + inj.totalChips + " of 20 half-cells)");
+      // ROW HEIGHTS ARE UNTOUCHED. .pmeta is a fixed 14px with a matching line-height and .inj
+      // is 10.5px, so the designation cannot grow a line — measured, not trusted.
+      const geo = (await evalOr(page, () => {
+        const cells = (sel) => [...document.querySelectorAll(sel + " .pcellgrid")].map((c) => Math.round(c.getBoundingClientRect().height));
+        const metas = [...document.querySelectorAll(".mutable .pmeta")].map((m) => Math.round(m.getBoundingClientRect().height));
+        const withChip = [...document.querySelectorAll(".mutable .pcellgrid")].filter((c) => c.querySelector(".pmeta .inj"))
+          .map((c) => Math.round(c.getBoundingClientRect().height));
+        const without = [...document.querySelectorAll(".mutable:not(.benchtable) .pcellgrid")].filter((c) => !c.querySelector(".pmeta .inj"))
+          .map((c) => Math.round(c.getBoundingClientRect().height));
+        const rows = [...document.querySelectorAll(".mutable tbody tr")].map((r) => Math.round(r.getBoundingClientRect().height));
+        return { starters: cells(".mutable:not(.benchtable) tbody"), bench: cells(".benchtable tbody"),
+          rows: [...new Set(rows)],
+          metas: [...new Set(metas)], withChip: [...new Set(withChip)], without: [...new Set(without)] };
+      })) || {};
+      const allH = new Set((geo.starters || []).concat(geo.bench || []));
+      ok(allH.size === 1, "every half-cell on the board is STILL exactly one height — designated or not, starter or bench (" + [...allH].join("/") + "px)");
+      // MEASURED against HEAD, not reasoned: the row was 56px before this whole batch and is
+      // 56px now. (The half-cell BOX reads 45 -> 49 because item 25's ring padding moved into
+      // it out of the cell; the cell gave the same 2px back, so the row never moved.)
+      ok((geo.rows || []).length === 1 && geo.rows[0] === 56,
+        "…and every ROW is the 56px it measured before this whole batch (" + (geo.rows || []).join("/") + "px)");
+      ok((geo.withChip || []).length === 1 && (geo.without || []).length === 1 && geo.withChip[0] === geo.without[0],
+        "…a row that carries a designation measures exactly the same as one that does not (" + (geo.withChip || []).join() + " vs " + (geo.without || []).join() + ")");
+      ok((geo.metas || []).length === 1 && geo.metas[0] === 14, "…because line 2 keeps its own fixed 14px box (" + (geo.metas || []).join("/") + "px)");
+      // NO NAME MAY START TRUNCATING AGAIN — line 1 is untouched by this, and the measurement
+      // says so rather than the reasoning.
+      const names = (await evalOr(page, () => {
+        const b = [...document.querySelectorAll(".mutable .pname b")].map((e) => ({
+          t: e.textContent.trim(), need: Math.ceil(e.scrollWidth), have: Math.floor(e.clientWidth),
+          clipped: e.scrollWidth > e.clientWidth + 1 }));
+        return { all: b, worst: b.reduce((a, x) => (x.need > a.need ? x : a), { need: 0 }) };
+      })) || { all: [], worst: {} };
+      const clipped = (names.all || []).filter((n) => n.clipped);
+      ok(names.all.length >= 9 && clipped.length === 0,
+        "NOT ONE name is clipped at 390px with the designations in (" + clipped.length + " of " + names.all.length + ", worst \"" +
+        (names.worst.t || "") + "\" needs " + names.worst.need + " of " + names.worst.have + "px)");
+      for (const want of ["J. Smith-Njigba", "M. Harrison Jr.", "C. McLaughlin"]) {
+        const n = (names.all || []).find((x) => x.t === want);
+        ok(!!n && !n.clipped, "…including \"" + want + "\", the name the last two batches fought for (" + (n ? n.need + "/" + n.have + "px" : "missing") + ")");
+      }
+      // LINE 2's OWN BUDGET at 390px, worst case in the fixture: "PUP" + "@DEN Fri 1:00 AM",
+      // the longest opponent line on the board carrying the longest designation.
+      const l2 = (await evalOr(page, () => {
+        const rows = [...document.querySelectorAll(".pcellgrid")].filter((c) => c.querySelector(".pmeta"));
+        // A RANGE over the line's own contents, not scrollWidth: .pmeta is a BLOCK, so its
+        // scrollWidth is floored at its clientWidth and reports 116/116 for everything that
+        // fits — a number that cannot tell you how much headroom is left. (scrollWidth is
+        // still the right OVERFLOW test, and `over` below keeps using it.)
+        const worst = rows.map((c) => {
+          const m = c.querySelector(".pmeta");
+          const r = document.createRange(); r.selectNodeContents(m);
+          const chip = m.querySelector(".inj");
+          // getBoundingClientRect (the union), NOT the sum of getClientRects — a Range over
+          // mixed inline content returns overlapping rects and summing them double-counts.
+          const inkW = Math.ceil(r.getBoundingClientRect().width) + (chip ? 3 : 0); // +3 = the chip's own margin
+          return { txt: m.textContent.replace(/\s+/g, " ").trim(), ink: inkW,
+            need: Math.ceil(m.scrollWidth), have: Math.floor(m.clientWidth),
+            chip: !!chip, chipW: chip ? Math.ceil(chip.getBoundingClientRect().width) : 0 };
+        }).filter((x) => x.txt);
+        return { rows: worst, over: worst.filter((x) => x.need > x.have + 1) };
+      })) || { rows: [], over: [] };
+      const worst2 = (l2.rows || []).reduce((a, x) => (x.ink > a.ink ? x : a), { ink: 0, have: 0, txt: "" });
+      ok((l2.over || []).length === 0,
+        "…and no line 2 overflows its own box either — worst is \"" + worst2.txt + "\", " + worst2.ink + "px of ink in a " + worst2.have + "px line (" + (l2.over || []).length + " over)");
+      const chipRows = (l2.rows || []).filter((x) => x.chip);
+      ok(chipRows.length > 0 && chipRows.every((x) => x.need <= x.have + 1),
+        "…including every row that carries a designation, which costs it " + (chipRows[0] || {}).chipW + "px of the line (" + chipRows.length + " rows)");
+      // The tightest of them is a BENCH row: the longest designation (OUT) on the longest
+      // opponent line (@DEN Fri 1:00 AM). Called out on its own because it is the case that
+      // would break first, and because the designation LEADING the line means that even if it
+      // ever did, the ellipsis would eat the kickoff time and never the designation itself.
+      const benchTight = (l2.rows || []).find((x) => x.chip && /OUT/.test(x.txt));
+      ok(!!benchTight && benchTight.need <= benchTight.have + 1,
+        "…and the tightest case in the fixture — OUT on the longest opponent line — still fits (\"" +
+        (benchTight || {}).txt + "\", " + (benchTight || {}).ink + "px of ink in " + (benchTight || {}).have + "px)");
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_matchup_390.png") }); console.log("  📸 shots/gffl_matchup_390.png"); }
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AG7: possession is a gold ring, and it is absent where there is no drive to read.
+    {
+      // The 2025 replay carries a static historical slate with no drive data at all, so
+      // nothing may be highlighted there — the rule the previous batch shipped, re-asserted
+      // against the new treatment rather than the old pip.
+      fixture.phase = 2; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, seedSim2025());
+      await bootSim(page);
+      const none = (await evalOr(page, () => ({
+        ball: document.querySelectorAll(".pcellgrid.hasball").length,
+        rings: [...document.querySelectorAll(".pcellgrid")].filter((g) => /rgb\(255, 182, 18\)/.test(getComputedStyle(g).boxShadow || "")).length,
+      }))) || {};
+      ok(none.ball === 0 && none.rings === 0, "under the replay nobody is ringed — a historical slate carries no drive to read (" + JSON.stringify(none) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.phase = 1;
     }
   }
 

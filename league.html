@@ -121,19 +121,95 @@
              border-radius:var(--radius-xs); padding:5px 12px; font:600 12.5px var(--font-display);
              letter-spacing:.8px; }
   .poschip.on { background:var(--blue); border-color:var(--blue); color:#fff; }
-  /* ESPN-style sortable stats table (2026-08-08 rework) — PLAYER · TYPE · OPP · STATUS · PROJ
-     · SCORE · FPTS · AVG · LAST, every header a sort control (.thsort), + a trailing
-     unlabeled MOVE-button column. .faname is sticky-left so it stays in view while the rest
-     of the row pans inside .panner on a phone — cheap since the table already lives in an
-     overflow-x:auto container. */
+  /* ESPN-style sortable stats table (2026-08-08 rework, columns re-ordered 2026-08-09 by
+     ITEM 22) — PLAYER · ADD · TYPE · PROJ · LAST · OPP · AVG, every header a sort control
+     (.thsort). STATUS, SCORE and FPTS were dropped with the re-order; see faRowHtml's own
+     note, which spells out what that costs.
+     .faname is sticky-left so it stays in view while the rest of the row pans inside .panner
+     on a phone — cheap since the table already lives in an overflow-x:auto container. */
   table.faTable tbody tr { cursor:pointer; }
   table.faTable .faname { width:150px; min-width:150px; position:sticky; left:0; background:var(--card); z-index:1; }
   table.faTable .faname b { font-family:var(--font-body); font-weight:600; }
-  table.faTable .fatype, table.faTable .faopp, table.faTable .fastatus { min-width:64px; }
-  table.faTable .faproj, table.faTable .fascore, table.faTable .fafpts, table.faTable .faavg, table.faTable .falast { min-width:56px; }
-  table.faTable .faadd { text-align:right; min-width:64px; }
+  table.faTable .fatype, table.faTable .faopp { min-width:60px; }
+  table.faTable .faproj, table.faTable .faavg, table.faTable .falast { min-width:56px; }
+  table.faTable .faadd { text-align:left; min-width:70px; }
   table.faTable thead th:first-child { position:sticky; left:0; background:var(--card); z-index:3; }
   .faAddBtn { padding:6px 12px; font-size:11.5px; }
+  /* A row whose player is already owned gets a REAL disabled button naming the owner in its
+     title, not the empty cell it used to get — "you can't have him" is information, and a
+     blank space says nothing. */
+  .faAddBtn:disabled { opacity:.4; cursor:not-allowed; border-color:var(--divider2); color:var(--mut); }
+  .faAddBtn:disabled:hover { border-color:var(--divider2); }
+  /* ITEM 22's phone half: "on mobile view we need to be able to see add, type and projection
+     without horizontal scrolling". At 390px the card's own content box is ~342px, and the
+     four columns that have to fit inside it are PLAYER + ADD + TYPE + PROJ. Measured budget:
+       116  PLAYER (sticky; was 150 — a name wraps to its second line here rather than
+            stealing the room the three data columns need)
+        66  ADD    (a 58px button plus its cell)
+        44  TYPE   ("FA" or a 2-4 character abbrev)
+        50  PROJ
+        32  4 cells x 8px of horizontal padding (was 16px a cell)
+      = 308, inside 342 with room to spare. Everything after PROJ pans as it always did. */
+  @media (max-width:560px) {
+    table.faTable th, table.faTable td { padding:7px 4px; }
+    table.faTable .faname { width:116px; min-width:116px; }
+    table.faTable .faadd { min-width:58px; }
+    table.faTable .fatype { min-width:36px; }
+    table.faTable .faproj { min-width:42px; }
+    table.faTable .faopp, table.faTable .faavg, table.faTable .falast { min-width:48px; }
+    .faAddBtn { padding:5px 7px; font-size:10.5px; letter-spacing:.4px; }
+  }
+  /* ---- ITEM 19 (2026-08-09): the Waivers card is three data blocks, no prose ----
+     FAAB budget, then the two acquisition regimes side by side with the one in force marked
+     "Now" and the other muted, so which rule you are under is a glance rather than a
+     paragraph. The waiver block's VALUE is the deadline itself (time on the value line, date
+     under it) — that timestamp used to be parenthetical inside a sentence. */
+  /* Capped rather than stretched: three equal thirds of a 1130px card is a lot of empty
+     parchment around a five-character number. A phone gets the full width, a desktop gets
+     three tidy tiles at the left. */
+  .mvblocks { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:12px; max-width:660px; }
+  .mvblk { position:relative; background:var(--nested2); border:1px solid var(--border-card);
+           border-radius:var(--radius-sm); padding:10px 10px 9px; min-width:0; }
+  .mvblk .mvblab { display:block; font:600 10px var(--font-display); letter-spacing:1px;
+                   text-transform:uppercase; color:var(--faint); }
+  .mvblk .mvbval { display:block; font:700 20px/1.15 var(--font-display); color:var(--ink);
+                   margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* The sub-label WRAPS rather than ellipsing: it is the three words that used to be a whole
+     paragraph, and "first come, first ser…" would have thrown away the half of it that says
+     what the rule is. The grid stretches all three blocks to the tallest, so a second line
+     costs the row, not the block. */
+  .mvblk .mvbsub { display:block; font-size:10.5px; line-height:1.25; color:var(--mut); margin-top:2px; }
+  .mvblk.on { border-color:var(--gold); }
+  .mvblk.on .mvbval { color:var(--gold); }
+  .mvblk.off .mvbval, .mvblk.off .mvblab, .mvblk.off .mvbsub { opacity:.5; }
+  .mvblk .mvbtag { position:absolute; top:7px; right:7px; font:700 9px var(--font-display);
+                   letter-spacing:.8px; text-transform:uppercase; color:var(--bg);
+                   background:var(--gold); border-radius:var(--radius-badge); padding:1px 5px; }
+  .mvprow { margin-bottom:10px; }
+  @media (max-width:420px) {
+    .mvblk { padding:8px 7px; }
+    .mvblk .mvbval { font-size:17px; }
+    .mvblk .mvbsub { font-size:9.5px; }
+    .mvblk .mvbtag { top:5px; right:5px; }
+  }
+  /* ---- ITEM 20 (2026-08-09): the trade builder starts collapsed ----
+     A side is the players already chosen plus a "+"; the roster picker underneath only exists
+     while the "+" is open. .tradepick keeps the old #mvGive/#mvGet scroll cap so an open
+     picker still can't run away with the page. */
+  .tradesel { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:6px; }
+  .tradechip { display:inline-flex; align-items:center; gap:6px; background:var(--nested);
+               border:1px solid var(--accent); border-radius:var(--radius-pill); padding:3px 4px 3px 10px; }
+  .tradechip .pcinline { font-size:12.5px; }
+  .tradechip small { font:600 10px var(--font-display); letter-spacing:.5px; }
+  .tradechip .tradedrop { padding:0; width:22px; height:22px; min-height:0; line-height:1;
+                          border-radius:50%; font-size:14px; letter-spacing:0; color:var(--mut); }
+  .tradeadd { width:44px; height:44px; padding:0; font-size:20px; line-height:1; letter-spacing:0;
+              border-style:dashed; color:var(--mut); }
+  .tradeadd.open { border-style:solid; border-color:var(--accent); color:var(--accent); }
+  .tradepick { max-height:220px; overflow-y:auto; }
+  .tradepick[hidden] { display:none; } /* the house [hidden]-override lesson — an author display rule beats the UA one */
+  .mvsugrow { margin-bottom:10px; gap:10px; }
+  .mvsugrow #mvSuggestWhy { flex:1 1 160px; min-width:0; }
   .tbl th.thsort { cursor:pointer; user-select:none; }
   .tbl th.thsort:hover { color:var(--ink2); }
   .tbl th.thsort.active { color:var(--accent); }
@@ -250,13 +326,28 @@
      darker than the card, with its row divider suppressed so consecutive cells read as one
      unbroken strip) and the compact coloured BADGE sits inside it.
      That keeps BOTH things the user has asked for: the continuous band from this screenshot,
-     and the draft position palette they asked for in the previous batch. Painting the whole
-     cell in the position colour instead — the first cut of that earlier item — turns a 12%
-     column into a ~75px slab of saturated colour per row on desktop and shouts over the
-     players either side of it, which is why the badge stays compact. */
-  td.slotcell { color:var(--mut); font:600 11px var(--font-display); letter-spacing:.5px; text-align:center; width:12%;
-              background:var(--nested2); border-bottom-color:transparent; padding:0 4px; }
-  td.slotcell .slotbadge { display:inline-block; min-width:76%; background:var(--nested); border-radius:var(--radius-badge); padding:4px 6px; }
+     and the draft position palette they asked for in the previous batch.
+
+     ITEM 23 (2026-08-09): "that font should be much larger and the color should take up the
+     width and height of the column so there isn't blank space." The badge used to be a
+     compact pill floating in the middle of the cell with ~10px of dead band above and below
+     it and ~24% of the column unpainted either side. It now FILLS the cell — width:100%,
+     height:100%, square corners, no cell padding — so the position colour IS the column, and
+     because consecutive cells already suppress their row divider the colours meet with no
+     seam (the continuous band from the previous batch is preserved, it is simply the position
+     colour now instead of a neutral strip behind a pill).
+     height:100% needs something definite to resolve against, exactly like td.pcell below —
+     hence height:1px on the cell (the standard table trick; with auto height the percentage
+     resolves to auto and silently does nothing).
+     The type steps up hard, 11px -> 16px, which is the readable half of the ask. .sbwide is
+     the one modifier: a label longer than three characters (BENCH, FLEX) drops to 0.72em, or
+     "BENCH" cannot fit an 11%-of-390px column at the bigger size. */
+  td.slotcell { color:var(--mut); font:600 16px var(--font-display); letter-spacing:.5px; text-align:center; width:12%;
+              background:var(--nested2); border-bottom-color:transparent; padding:0; height:1px; }
+  td.slotcell .slotbadge { display:flex; align-items:center; justify-content:center;
+              width:100%; height:100%; min-height:34px; background:var(--nested);
+              border-radius:0; padding:2px 1px; overflow:hidden; }
+  td.slotcell .slotbadge.sbwide { font-size:.72em; letter-spacing:.3px; }
   /* Item 2 (2026-08-09 playtest: "the player position indicator between the two teams should be
      color coded the same as the way positions are colored in the draft"). Same --pos-* tokens
      the players table's .posbadge already tints with — lifted from ffdraft's board palette, so
@@ -275,8 +366,12 @@
      grows to its own content, but declaring a height gives the percentage below something
      definite to resolve against (with auto height it resolves to auto and silently does
      nothing, which is exactly what happened on the first attempt). */
-  /* td.pcell, not .pcell — .tbl td's own padding (0,1,1) outranks a bare class (0,1,0). */
-  td.pcell { width:44%; height:1px; padding:5px 8px; }
+  /* td.pcell, not .pcell — .tbl td's own padding (0,1,1) outranks a bare class (0,1,0).
+     ITEM 25 moved 2px of the cell's own padding INSIDE .pcellgrid so the gold possession ring
+     has something to sit in; the cell gives back exactly that much (5px -> 3px) so the ROW is
+     the height it always was. The half-cell BOX reads 4px taller than before for the same
+     reason — the padding did not appear, it moved. */
+  td.pcell { width:44%; height:1px; padding:3px 8px; }
   /* THE ESPN HEAD-TO-HEAD ROW. Rebuilt 2026-08-09 from the user's own screenshot of the real
      app; the 2026-08-08 pass had inferred it from a lower-resolution one and got the text
      alignment backwards.
@@ -347,8 +442,14 @@
        point value. Result: 106px for the name — "J. Smith-Njigba" fits with 8px to spare, and
        the opponent line ("@DEN Fri 1:00 AM", 97px) stops truncating as well. */
     .card.lineupcard { padding:12px 6px; }
-    .pcellgrid { gap:3px; }
-    td.pcell { width:44.5%; padding:5px 3px; }
+    .pcellgrid { gap:3px; padding:2px 2px; }
+    /* ITEM 25 gave .pcellgrid 3px of horizontal padding (the gold ring has to sit somewhere),
+       and item 17 had left the longest real name — "J. Smith-Njigba", 97px — fitting a 103px
+       budget with 6px to spare. Six is exactly what the ring would have cost, so the cell
+       hands it straight back: 1px of cell padding + 2px of grid padding is the same 3px a
+       side the row had before, only now the ring is drawn inside it. Measured: the name
+       budget is 103px either way. */
+    td.pcell { width:44.5%; padding:3px 1px; }
     .pcellgrid .ppts { flex-basis:30px; }
     /* A player never scores 141; a TEAM does. The TOTAL row is its own row and its columns do
        not have to line up with the players' — both halves still match each other. */
@@ -358,25 +459,39 @@
     .pcellgrid .pname .plogo { width:12px; height:12px; }
     .pcellgrid .pmeta, .pcellgrid .pstatline, .pcellgrid .pproj, .pcellgrid .pstatpad { font-size:9.5px; }
     .pcellgrid .ppts .pts { font-size:14px; }
-    /* "BENCH" needs 37px at 9.5px + letter-spacing inside a 34.5px content box — it has been
-       clipped here since the band shipped. 9px with no tracking measures 33px and fits. */
-    /* 1px of cell padding, not 4: the badge is content-sized, so what actually constrains
-       "BENCH" is the CELL's content box (30.7px at 4px padding — it was spilling over its
-       neighbours by 2px). At 1px the box is 36.7 and the 33px word sits inside it. */
-    td.slotcell { width:11%; font-size:9px; letter-spacing:0; padding:0 1px; }
-    td.slotcell .slotbadge { padding:4px 1px; min-width:0; }
+    /* ITEM 23's phone half. The badge fills the cell now, so the only variable left is the
+       type size: 13px for a position label (was 9px — the "much larger" the user asked for),
+       stepping to .72em = 9.4px for BENCH/FLEX, which is what still fits an 11%-of-390px
+       column. Padding is 0 horizontally: the badge is the cell, so every pixel of the column
+       is available to the word inside it. */
+    td.slotcell { width:11%; font-size:13px; letter-spacing:0; padding:0; }
+    td.slotcell .slotbadge { padding:2px 0; min-height:30px; }
   }
   .pts { font:700 14px var(--font-display); display:block; }
   .live { color:var(--accent); font-weight:700; }
-  /* Item 5 (2026-08-09 playtest: "highlight players when their team has the ball and is on
-     offense"). GOLD, not red: --accent is already spoken for by the live clock and the
-     red-zone dot, and a second red marker beside them would fight both. A pip plus a very
-     faint row tint — enough to sweep the lineup and see who is on the field with the ball,
-     never enough to shout over a score. */
-  .possdot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--gold);
-             margin-left:5px; vertical-align:1px; box-shadow:0 0 0 2px rgba(255,182,18,.16); }
-  .pcellgrid.hasball { background:rgba(255,182,18,.09); border-radius:var(--radius-badge); }
-  .lrow.hasball { background:rgba(255,182,18,.07); border-color:rgba(255,182,18,.45); }
+  /* ITEM 24 (2026-08-09, user: "the time and quarter of a game should not be in red text, just
+     same text as any other stat. What should be red is Q, D, our OUT status for players").
+     The clock keeps .live's bold weight — it still has to be findable at a glance on a line
+     of small muted type — and gives up the colour, inheriting .pmeta's own muted ink like the
+     opponent and kickoff it replaces. Red now means exactly one thing on a lineup row: this
+     player might not play. */
+  .gclock { font-weight:700; }
+  /* ITEM 26: the designation leads line 2, so it needs its gap on the RIGHT. Nothing about its
+     own box may grow the line — .pmeta is a fixed 14px with a matching line-height and .inj is
+     10.5px, so this cannot move a row's height; the suite measures that rather than trusting
+     it. vertical-align keeps the small caps sitting on the clock's own baseline. */
+  .pcellgrid .pmeta .inj { margin-right:3px; vertical-align:baseline; font-size:inherit; }
+  /* ITEM 25 (2026-08-09, user: "we need players where there offense has the ball to be
+     highlighted, you can put a gold border around that player"). Replaces the pip + faint
+     row tint the previous batch shipped.
+     An INSET ring, not a border: a real border would add 2px to the cell's box and break the
+     "exactly even height for every player" rule the whole row layout is built on. box-shadow
+     is painted, not laid out, so a highlighted row measures identically to its neighbours.
+     The 2px of padding is on EVERY .pcellgrid, not just the highlighted one, for the same
+     reason — so the ring has something to sit in without moving the text when it appears. */
+  .pcellgrid { padding:2px 3px; border-radius:var(--radius-badge); }
+  .pcellgrid.hasball { box-shadow:inset 0 0 0 2px var(--gold); background:rgba(255,182,18,.07); }
+  .lrow.hasball { box-shadow:inset 0 0 0 2px var(--gold); border-color:var(--gold); }
   .fline { padding:6px 0; border-bottom:1px dotted var(--divider2); font-size:13.5px; }
   .fline.sys { color:var(--mut); }
   .delta { font:700 13px var(--font-display); font-variant-numeric:tabular-nums; }
@@ -408,7 +523,13 @@
               background:var(--nested); border:1px solid var(--border-card); border-radius:var(--radius-badge); padding:4px 0; }
   .lname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-family:var(--font-body); }
   .lpts { font:700 14px var(--font-display); white-space:nowrap; }
-  .inj { color:#ef6a4d; font-weight:700; font-size:10.5px; letter-spacing:.3px; text-transform:uppercase; } /* ffdraft's own literal injury coral — distinct from --accent and --gold */
+  /* ITEM 24's other half: Q / D / OUT is the app's one genuine "this might not happen" flag,
+     so it takes --accent, the alarm colour the live clock just gave up. It used to be
+     ffdraft's own softer coral (#ef6a4d), which read as a third, weaker signal beside the
+     red clock rather than the strongest one on the row. Every surface that renders .inj —
+     the matchup rows, the locker, the swap sheet, the players table and the stats card —
+     shares this one rule, so they cannot disagree. */
+  .inj { color:var(--accent); font-weight:700; font-size:10.5px; letter-spacing:.3px; text-transform:uppercase; }
   .sheet { position:fixed; inset:auto 0 0 0; z-index:40; padding:10px; background:rgba(6,7,8,.7); backdrop-filter:blur(3px); }
   .sheet .card { max-height:60vh; overflow-y:auto; box-shadow:0 -8px 30px rgba(0,0,0,.55); }
   .swaprow { display:flex; justify-content:space-between; gap:10px; width:100%; text-align:left; background:var(--card);
@@ -429,7 +550,8 @@
   #faResults .panner { max-height:340px; overflow:auto; overscroll-behavior:contain; }
   @media (min-width:1024px) { #faResults .panner { max-height:560px; } }
   table.faTable thead th { position:sticky; top:0; background:var(--card); z-index:1; }
-  #mvGive, #mvGet { max-height:220px; overflow-y:auto; }
+  /* The scroll cap moved onto .tradepick (item 20) — the whole side no longer scrolls, only
+     the picker inside it, so a chosen player can never scroll out of sight. */
   /* ---- item 13 (2026-08-09): "My pending", compact ----
      Same information, roughly a third of the room: the card's own padding comes in, the
      sub-headings stop reserving a full text block each, rows tighten, and an empty state is
