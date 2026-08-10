@@ -365,16 +365,30 @@
   UI.runSimSetup = runSimSetup; // test hook
 
 
-  async function startData() {
+  // Which NFL teams the engine bothers to poll. pollSleeper FILTERS stat rows by this set, so a
+  // player on an untracked team scores nothing at all — which is correct while the set matches
+  // the rosters and a silent zero the moment it doesn't. Extracted from startData (ITEM 31,
+  // 2026-08-09) because the backup fill replaces EVERY roster in the league at once, and
+  // leaving the engine tracking the teams the OLD rosters used left half the new players
+  // reading 0.0 until the next page load. Found by looking at a review plate, not by a test.
+  // KNOWN, and deliberately not widened here: a waiver add or a trade that brings in a player
+  // from an untracked team has the same staleness until the next boot. That is pre-existing and
+  // belongs to those flows; this call site is the one that changes all eight rosters at once.
+  async function retrackTeams() {
     const d = D();
-    d.initSleeper();
-    // Track every team abbrev that appears in this week's league rosters.
     const abs = new Set();
     for (const t of LG.teams) {
       const ros = await LG.ensureRoster(UI.week, t.id);
       for (const p of ros) if (p.team) abs.add(d.slpTeam(p.team));
     }
     d.trackTeams([...abs]);
+  }
+  UI.retrackTeams = retrackTeams; // test hook
+  async function startData() {
+    const d = D();
+    d.initSleeper();
+    // Track every team abbrev that appears in this week's league rosters.
+    await retrackTeams();
     if (LG.SIM_2025) {
       // 2025 SEASON REPLAY: projections are REQUIRED, not optional — a week-1-before-kickoff
       // board with no projections is a board of dashes. The live path's own projections fetch
@@ -960,6 +974,12 @@
     // (a cold boot, an outage, or the two providers disagreeing) we have no grounds to tell
     // anyone a week can't be settled — silence is the honest state, not an alarm.
     if (ew == null) return [];
+    // ⭐ ITEM 30 (2026-08-09) — NEITHER IS PRESEASON. Once the engine rolls to preseason week
+    // 2 its week (2) stops matching the league's clamped week (1), so week 1 would be listed
+    // here as "needing finalizing" — and the button on that card backfills from
+    // /stats/nfl/regular/<season>/1, a regular-season week nobody has played. No regular-season
+    // week can be stale while the regular season hasn't started; the honest state is silence.
+    if (!(d && d.engineRegular && d.engineRegular())) return [];
     const have = new Set((UI._allWeekly || []).filter((w) => w && w.kind === "weekly").map((w) => w.week));
     const out = [];
     for (let w = 1; w <= cw; w++) {
@@ -2932,6 +2952,7 @@
     "drop-gone": "your drop player was gone", "insufficient-faab": "not enough FAAB",
     "already-processed": "this week's claims already processed", "drop-not-found": "that player isn't on your roster",
     "stale-week": "live scoring has moved on from that week", "no-live-data": "live scoring hasn't loaded yet",
+    preseason: "the NFL is still in preseason — nothing counts yet",
     "no-archived-stats": "that week's archived stats aren't available", "bracket-unresolved": "an earlier playoff round hasn't been settled yet",
     "no-schedule": "there are no games on the board for that week",
   };
@@ -3593,6 +3614,7 @@
           <button id="schedGen" ${isCommish() && !editing ? "" : "hidden"}>${schedule ? "Regenerate" : "Generate"} schedule</button>
           <button id="rostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import ESPN rosters</button>
           <button id="testRostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import 2025 rosters (test run)</button>
+          <button id="backupsFill" ${isCommish() && !editing ? "" : "hidden"}>Fill rosters with backups</button>
           <button id="historyImport" ${isCommish() && !editing ? "" : "hidden"}>Import history</button>
         </span></div>
       ${isCommish() && !editing ? `<div class="card mut small">
@@ -3601,6 +3623,10 @@
         <b>Import 2025 rosters (test run)</b> — re-seeds THIS week's rosters from the real,
         FINAL 2025 season. The 2025 replay already does this at week 1 automatically; this is
         the manual button for re-running it against whichever week is open.<br>
+        <b>Fill rosters with backups</b> — REPLACES this week's rosters with NFL second and
+        third stringers, spread evenly across all ${LG.teams.length} teams. Built for a
+        preseason shakedown: the 2s and 3s are the players who actually take the snaps in an
+        exhibition game, so the board shows real live scoring instead of a column of zeroes.<br>
         <b>Import history</b> — past seasons' standings/champions/scores, for the record book.
       </div>` : ""}
       ${simPhaseCardHtml()}
@@ -3668,6 +3694,10 @@
     $("#testRostersImport") && $("#testRostersImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       await importTestRosters();
+    });
+    $("#backupsFill") && $("#backupsFill").addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      try { await renderBackupFillConfirm(); } catch (e) { importFail(importOut(), "Couldn't read the current rosters", e); }
     });
     $("#historyImport") && $("#historyImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
@@ -4201,6 +4231,87 @@
       (week ${UI.week}). These are for testing — re-import real ${LG.rules.season} rosters once the
       season starts.</div>`;
   }
+  // ---------------- ⭐ ITEM 31: fill every roster from the backup pool (2026-08-09) ----------
+  // A real, re-runnable, commissioner-gated ACTION rather than a one-off script — it has to be
+  // auditable, repeatable and testable, and a pick that turns out badly has to be fixable by
+  // running it again. Two steps on purpose: the first tap only ever SHOWS what is about to be
+  // destroyed (which teams, which week, how many players each carries right now, and a sample
+  // of the names). A bare button that silently overwrote eight rosters would be the wrong
+  // shape for the most destructive action in the app.
+  async function backupFillState() {
+    const wk = UI.week;
+    const teams = LG.teams.slice().sort((a, b) => a.id - b.id);
+    const rows = [];
+    for (const t of teams) {
+      const ros = (await LG.loadRoster(wk, t.id)) || [];
+      rows.push({ id: t.id, name: t.name, n: ros.length, sample: ros.slice(0, 3).map((p) => LG.shortName(p.name)) });
+    }
+    return { week: wk, rows };
+  }
+  async function renderBackupFillConfirm() {
+    const out = importOut();
+    out.innerHTML = '<div class="card mut">Reading the current rosters…</div>';
+    const st = await backupFillState();
+    const have = st.rows.filter((r) => r.n > 0);
+    const list = st.rows.map((r) => `<div class="rowline"><span>${esc(r.name)}</span>
+      <span class="mut small">${r.n ? r.n + " player" + (r.n === 1 ? "" : "s") + (r.sample.length ? " · " + esc(r.sample.join(", ")) + "…" : "") : "empty"}</span></div>`).join("");
+    out.innerHTML = `<div class="card"><h2>Fill rosters with backups</h2>
+      <p>This REPLACES week ${st.week}'s rosters for all ${st.rows.length} teams with NFL second
+        and third stringers, drafted evenly in a snake so nobody gets a lopsided team.</p>
+      ${have.length ? `<p class="warn">The ${have.length} roster${have.length === 1 ? "" : "s"} below
+        will be overwritten. Every player currently on them is dropped.</p>` : '<p class="mut">No team has a roster for this week yet.</p>'}
+      ${list}
+      <p class="mut small">Nothing else is touched — the schedule, standings, chat, transactions
+        and every other week's rosters all stay exactly as they are. Run it again any time.</p>
+      <div class="rowline"><button id="backupsGo" class="primary">Replace rosters with backups</button>
+        <button id="backupsCancel">Cancel</button></div></div>`;
+    $("#backupsCancel").addEventListener("click", () => { importOut().innerHTML = ""; });
+    $("#backupsGo").addEventListener("click", async () => {
+      const btn = $("#backupsGo");
+      if (btn) { btn.disabled = true; btn.textContent = "Filling…"; }
+      try { await runBackupFill(); } catch (e) { importFail(importOut(), "Couldn't fill the rosters", e); }
+    });
+  }
+  UI.renderBackupFillConfirm = renderBackupFillConfirm; // test hook
+  async function runBackupFill() {
+    const out = importOut();
+    out.innerHTML = '<div class="card mut">Reading the NFL depth charts…</div>';
+    const d = D();
+    // The pool comes out of the Sleeper directory, which the app loads once per session — this
+    // waits on that SAME memoized promise rather than fetching anything of its own.
+    await d.initSleeper();
+    const pool = d.backupPool();
+    if (!pool) { out.innerHTML = '<div class="card bad">The NFL player directory hasn\'t loaded — nothing was changed. Try again once it has.</div>'; return; }
+    if (!pool.players.length) { out.innerHTML = '<div class="card bad">No second- or third-string players found in the directory — nothing was changed.</div>'; return; }
+    const built = LG.buildBackupRosters({
+      teamIds: LG.teams.map((t) => t.id), roster: (LG.rules || LG.DEFAULT_RULES).roster,
+      pool: pool.players, defenses: pool.defenses,
+    });
+    const wk = UI.week;
+    out.innerHTML = '<div class="card mut">Saving…</div>';
+    let saved = 0;
+    for (const id of built.teamIds) {
+      await LG.saveRoster(wk, id, built.rosters[id] || []);
+      saved++;
+    }
+    UI._rosters = null;
+    // Every roster in the league just changed, so the set of NFL teams worth polling almost
+    // certainly did too — without this the new players score nothing until the next page load
+    // (see retrackTeams' own note).
+    await retrackTeams().catch(() => {});
+    const counts = built.teamIds.map((id) => (built.rosters[id] || []).length);
+    const even = counts.every((n) => n === counts[0]);
+    out.innerHTML = `<div class="card ok"><b>Week ${wk} rosters filled from the depth charts.</b><br>
+      ${saved} teams · ${counts[0]} players each${even ? "" : " (uneven: " + counts.join("/") + ")"} ·
+      drafted from ${pool.players.length} backups and ${pool.defenses.length} team defenses.
+      ${built.short.length ? `<p class="warn">The pool ran out at: ${esc(built.short.join(", "))} — those
+        spots are short on some teams.</p>` : ""}
+      <p class="mut small">Running this again against the same depth charts produces exactly the
+        same rosters.</p></div>`;
+    toast("Rosters filled with backups.");
+  }
+  UI.runBackupFill = runBackupFill; // test hook
+
   // One-time (plus each January — plan §4.8) ESPN history import: walk
   // seasons backward from last year, one action call each, writing
   // `hist_<season>` docs as they land. Stops at the first miss ONCE at

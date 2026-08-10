@@ -10682,3 +10682,88 @@ back before shooting now.
 Post-deploy, open one real live game and confirm the ball lands where the situation says.
 
 Plates: `shots/gffl_scores_390.png`, `gffl_nflgame_{390,desktop}.png`, `gffl_nflgame_pre_390.png`.
+
+## 🏈 GFFL — THE 2026 FLIP, AND THE PRESEASON TRAP IT UNCOVERED (2026-08-09)
+
+User: *"lets clear out all the 2025 data and reset to 2026, lets fill each roster with 2nd and
+3rd stringers and run the app live on this upcoming week 1 of preseason"*, and separately chose
+**shakedown** over scoring it for real. Files: `assets/league/lg-{core,data,ui}.js` +
+`tools/_verify-gffl.cjs` (1514 → **1620**). `league.html` needed nothing.
+
+**"FLIP ONE LINE AND NOTHING ELSE" WAS TRUE ABOUT WHAT IT NAMED, AND DANGEROUSLY INCOMPLETE.**
+All fourteen `LG.SIM_2025` consumers were walked and the comment held exactly — `SEASON`/
+`SEASON_START`/`now()` revert together, the auto-setup, phase card and projection warmers all
+early-return, the historical-slate parser never fires, live polling returns, the doc ids address
+2026. **None needed touching**, asserted on the wire (zero `dates=` requests, `simProj` never
+built, no setup card, Sleeper's own week recorded). What the comment could not cover is that
+**nothing had ever run this code in August**.
+
+**⭐ THE TRAP: PRESEASON WEEK 1 AND REGULAR WEEK 1 ARE BOTH "1".** Before `SEASON_START` the
+league-week arithmetic goes negative and clamps to 1, so from the start of preseason until the
+real opener `LG.currentWeek()` and `D.engineWeek()` **agree exactly** while the board holds
+exhibition football. Every existing gate was therefore satisfied — the weeks match, and by
+Sunday night every starter's game reads Final — and `weekly_2026_w1` is **WRITE-ONCE**.
+Standings, waiver priority, power rankings, playoff seeding and the record book would have
+carried a preseason result all season with no way back. Flipping the flag alone would have
+permanently corrupted the season the first Sunday of preseason.
+**THE FIX is a second provenance dimension**, the same shape as the week one: `D.engineSeasonType()`
+/ `D.engineRegular()`, read from ESPN's `season.type` (numeric AND slug AND the nested legacy
+shape) and Sleeper's `season_type`, with the same disagreement-means-null rule. `finalizeWeek`'s
+live path requires **positively regular** — unknown fails CLOSED, and `force` does not bypass it
+(force only ever meant "some games aren't final"). Strict over permissive deliberately: a closed
+failure lands on the stale-weeks card the league already knows how to recover from; the
+permissive failure is a silently-wrong permanent document.
+**TWO MORE PRESEASON HOLES from the same audit, both of which would have written zeroes**: once
+the engine rolls to preseason week 2, week 1 was listed "stale" and the card's button would
+backfill `/stats/nfl/regular/2026/1`, a week nobody has played (`staleFinalizeWeeks` now returns
+nothing outside the regular season); and Sleeper answers **200 with `{}`** for an unplayed week,
+and an empty Map is truthy, so the backfill took it as real data (an empty payload is now "no
+archived stats").
+Everything else follows the NFL on its own, asserted on the wire: `/stats/nfl/pre/2026/1` and
+`/projections/nfl/pre/2026/1`, never the regular bucket. Hand-computed from the preseason box
+(P. Passer 7.0 not his regular 10.0; totals 13.2 / 3.0).
+
+**BACKUPS, BECAUSE STARTERS DO NOT PLAY IN PRESEASON.** `depth_chart_order` was already in the
+Sleeper payload and nothing read it — two field reads per entry, no new network. Pool = order 2
+or 3, real NFL team, fantasy position, not genuinely out — **Questionable is KEPT**, a dinged 2
+plays plenty of preseason. Ordered depth → search_rank → pid (a TOTAL order, so two runs cannot
+disagree). Team defenses have no depth chart and are drafted from their own list. Distribution
+is a **snake over sorted team ids** — a straight pass would hand team 1 the best player at every
+position. Same slot script for everyone, sized from `LG.rules.roster`. Exhaustion is reported,
+never silent. Commissioner-gated Rules-page action with a **two-step confirm** naming the week,
+the teams, each roster's current size and a sample of who is about to be dropped; re-running is
+byte-identical. **It REPLACES the existing 2026 rosters** (starters, from the earlier ESPN
+import) — backed up to the session scratchpad before the real run.
+
+**A GENUINE PRODUCT BUG FOUND BY THE PLATES**: `startData()` builds the tracked-team set once at
+boot and `pollSleeper` FILTERS stats by it, so after a wholesale roster replacement half the new
+players read 0.0 until a page reload. `retrackTeams()` extracted and called after the fill.
+(Waiver adds and trades have the same staleness — pre-existing, deliberately not widened into,
+noted in the code.) Two fixture/plate bugs with it: the ESPN fixture credited each defense from
+its own stat block, but those numbers are OFFENSIVE (sacks *allowed*, picks *thrown*), so the
+two D/STs came out swapped; and the confirm plate had photographed the button row rather than
+the card, which renders at the bottom of a long page.
+
+**VERIFIED**: **1620/1620, 0 page errors** (1624 with `--shots`). Pre-fix on the identical
+suite: **1551 / 69** — 68 in the new section AI, 1 a restaged literal. All 1514 pre-existing
+checks pass in both worlds. Restaging was mechanical `?sim=1` (section X, AC, two AD/AE replay
+blocks) plus two literal restages, each with its reason at the check. AI4 is the one to read: it
+stages the state so **every other gate would have passed** (engine week 1 = league week 1, every
+game Final) and asserts the season-type guard is the only thing refusing — the mechanism, not
+the outcome.
+
+**WHAT ONLY THE REAL FEEDS CAN SETTLE** (ESPN and Sleeper are egress-blocked here): that ESPN's
+bare `/scoreboard` really carries `season.type: 1` in preseason — the whole guard hangs on it,
+and if ESPN sends nothing readable the guard still refuses (safe) but the stale card also goes
+quiet, so check `__GFFL__.D.engineSeasonType()` reads `"pre"` on the live site; that Sleeper's
+`/state/nfl` says `pre`/week 1 and `/stats/nfl/pre/2026/1` has lines in it; whether Sleeper
+serves preseason PROJECTIONS at all (if not, the PROJ column reads "—" everywhere — bare, not
+broken); the real depth-chart pool's size (the success card reports `ran out at:` if a minimum
+cannot be met); and the roster size, which comes from the LIVE rules doc.
+`sched_2026` was checked and EXISTS (14 weeks, 4 week-1 pairings), so the league has matchups
+the moment the flag flips — no Generate-schedule step needed.
+Flagged rather than changed: the league home's FINALIZE WEEK 1 button stays visible in preseason
+and refuses with *"the NFL is still in preseason — nothing counts yet"* — a clear refusal beats
+a hidden control.
+
+Plates: `shots/gffl_2026_{league,matchup}_390.png`, `gffl_backups_confirm_390.png`.
