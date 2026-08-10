@@ -29,7 +29,7 @@ messaging.onBackgroundMessage((payload) => {
   // Messages are DATA-ONLY (see netlify/functions/notify.mjs) so the browser never
   // auto-displays a duplicate — this handler is the single source of tray notifications.
   const d = payload.data || {};
-  const title = d.title || (payload.notification && payload.notification.title) || "BUCKY";
+  const title = d.title || (payload.notification && payload.notification.title) || "Bucky";
   const body = d.body || (payload.notification && payload.notification.body) || "";
   const url = d.url || "/";
 

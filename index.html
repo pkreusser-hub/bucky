@@ -6,9 +6,9 @@
 <meta name="theme-color" content="#3f5c46" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<!-- BUCKY redesign (local build) -->
-<title>BUCKY</title>
-<!-- Add-to-home-screen icon: BUCKY (bucky.png + manifest.webmanifest live alongside this file) -->
+<!-- Bucky redesign (local build) -->
+<title>Bucky</title>
+<!-- Add-to-home-screen icon: Bucky (bucky.png + manifest.webmanifest live alongside this file) -->
 <link rel="icon" href="/bucky.png" />
 <!-- Roboto so desktop renders in the same face Android does (iOS keeps San Francisco via -apple-system) -->
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -2679,7 +2679,7 @@ function notifDestination(n){
 function liveNotify(n){
   showToast(n.text, notifDestination(n));
   if (desktopAlertsEnabled() && typeof Notification !== "undefined" && document.hidden){
-    try { new Notification("BUCKY", { body: n.text }); } catch {}
+    try { new Notification("Bucky", { body: n.text }); } catch {}
   }
 }
 
