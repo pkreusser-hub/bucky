@@ -11001,3 +11001,57 @@ origin**, and Chrome's private-network rules refuse a null-origin request to **l
 icon silently failed to load (`naturalWidth` 0) with only a console line to say why. Serve the
 plate from the same origin (a `/__tiles` route on the suite's own server) instead.
 Shots: `shots/bucky_logo_lock_390.png`, `shots/bucky_logo_tiles.png`.
+
+---
+
+## 📅 PLAN ALWAYS OPENS ON THE MONTH, ON TODAY (2026-08-10)
+
+User: *"when opening plan in bucky, it should always default to the month view with the current
+day selected. clicking week should always have the current day at the top of the screen."*
+Files: `index.html` + NEW `tools/_verify-calview.cjs` (**25/25**, 0 page errors).
+
+**THE VIEW IS NO LONGER PERSISTED.** `calView` used to initialise from
+`localStorage["bucky_cal_view"]` and `calSetView` wrote it back, so Plan reopened on whatever
+view you last used. The key is gone in both directions — with every entry forcing the month,
+persisting it could only ever have described state nothing reads. `calView` initialises to
+`"month"`, which also covers a cold page load / `#calendar` deep link with no extra code.
+
+**THE RESET LIVES IN `goTo()`, AND THAT SEAM IS THE WHOLE DESIGN.** The calendar is reached six
+ways — the bottom-nav button, the Home calendar widget, an event notification, the Plan sub-nav
+chip, a `#calendar` link, and Back — and `goTo` is the one seam all six share (the Meals
+precedent puts its equivalent in `navGroup`, which only the nav button runs through). **`render()`
+is deliberately NOT a seam**: it also runs on every calendar data refresh, so resetting there
+would yank a reader out of the month they were browsing the moment events arrived. `goTo` fires
+only on real navigation. Unconditional (not gated on the tab CHANGING), so tapping Plan while
+already on it means "back to today" — the same call the GFFL Matchup tab makes.
+New helpers: `calAimAtToday()` (point every view at today + arm each view's one-shot scroll) and
+`calResetToToday()` (month + aim), with `calGoToday()` rewritten onto the first.
+
+**THE WEEK CHIP ANCHORS TODAY'S OWN CARD, NOT THE WEEK.** The one-shot alignment used to scroll
+the week SEPARATOR under the sticky controls, which is only "today at the top" on a Sunday —
+measured on a Monday it left today **328px** down with Sunday's card in the way; it is now
+**216px**, directly under controls that end at 210. Today's card carries `data-today-anchor`;
+`calWeekAnchorToday` decides which anchor the one-shot uses, because **paging to another week has
+no today to show** and correctly keeps the separator.
+Month and Day chips deliberately KEEP the date you were browsing — only entering the tab, or
+Today, moves the anchor. Forcing today there would have broken the Day chip's existing behaviour
+of following `calFocus`, which is outside what was asked for.
+
+**VERIFIED PRE-FIX**, index.html stashed back to HEAD and the same suite re-run: **16/25**, and
+all 9 failures are on-point — *"coming back through the nav is the month again (got week)"* is
+the report verbatim. **A first cut of the week checks was weak evidence** and was rewritten: they
+selected today's card by this change's OWN `data-today-anchor`, so pre-fix they failed merely
+because the attribute did not exist. They now measure via `.cal-daycard.today` — the class the
+feed has always carried — so the pre-fix run reports the real old position (328px) instead of
+`NaN`. NOTE the "within 40% of the viewport" bound is DATE-DEPENDENT and passes pre-fix on a
+Monday; the date-independent assertion is *"today's card is the FIRST one below the controls"*,
+which fails pre-fix on any day.
+**TWO TEST GOTCHAS, both self-inflicted, both worth keeping**: index.html's script is
+`type="module"`, so `window.goToCalendar` is `undefined` and calling an app function off `window`
+reads as "the click did nothing" — drive the real controls (the suite clicks the Home widget and
+the sub-nav chip). And weeks start SUNDAY, so on a Monday the week label tucks *behind* the
+sticky controls rather than scrolling off the document — an assertion of `top < 0` encodes a
+wrong mental model; ask "is any other day's card above today's, in view?" instead.
+Regressions green: calnotify **117** · chore-care **50** · news **200** · activity **147** ·
+fitness **253** · finance **117**.
+Shots: `shots/cal_open_month_390.png`, `cal_week_today_390.png`, `cal_week_today_desktop.png`.
