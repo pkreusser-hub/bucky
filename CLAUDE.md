@@ -11055,3 +11055,80 @@ wrong mental model; ask "is any other day's card above today's, in view?" instea
 Regressions green: calnotify **117** · chore-care **50** · news **200** · activity **147** ·
 fitness **253** · finance **117**.
 Shots: `shots/cal_open_month_390.png`, `cal_week_today_390.png`, `cal_week_today_desktop.png`.
+
+## 🏈 GFFL — 2010-2015 LEAGUE HISTORY, AND FOLDED FRANCHISES GO QUIET (2026-08-10)
+
+Six seasons of the family's own pre-ESPN history loaded straight into the live league, then one
+code change so the record book only ever speaks about franchises that still exist. Files:
+`assets/league/lg-core.js` + `tools/_verify-gffl.cjs` (1716 → **1729**). `lg-ui.js`,
+`lg-data.js`, `league.html` and `netlify/functions/league.mjs` untouched.
+
+**THE DATA** (user-supplied: a 100-row W/L/PF/PA table, then a 752-row matchup spreadsheet).
+Written to `hist_2010` … `hist_2015` — 2013 and 2014 created fresh, the other four keeping their
+existing `champion` while their placeholder single-team `teams[]` was replaced. **736 games**
+(78/95/148/148/149/118) and 12/12/20/20/20/16 teams. Plus `hist_2017` (Elanikan Skywalkers,
+champion-only). All 13 pre-existing history docs backed up to
+`scratchpad/gffl_backup/hist_before_2010_2015.json` first. 16 seasons on file now, all 14
+champions counted.
+
+**FRANCHISE IDENTITY was the only hard part, and the league's own imported data settled it.**
+The 2010-15 league ran 12-20 teams under 47 different franchise names; the modern one has 8.
+Confirmed by the user after the 2018 import was checked against their first note:
+- **Dawn Treaders → 12**, the GOAT Kids lineage (Dawn Treaders → Space City Rockets → Little
+  Rocket Farmers → Great Lords of Football → The GOAT Kids). The user's first note put it on
+  Nails For Breakfast; the 2018 doc lists Dawn Treaders and ST Red Shirts as two separate
+  franchises that year, and they also both appear in 2012/2013/2014, so they cannot be one team.
+- **the Star-Trek shirt team → 5**, the Nails For Breakfast lineage (ST Red Shirts → The Scenic
+  → Nails For Breakfast). The 2010-15 sheet spells it "TNG Yellow Shirts".
+- **Kruz Control + Kruz Kontrol + Cruz Control → 11**, and *Krucial* / *Kruz Blues* are
+  DIFFERENT franchises. Those three Kruz names never share a season (2010-11 / 2012 / 2015), so
+  the merge is clean; team 11 went 68-68 → **83-82**.
+- Battle Kreussers 1 · Elanikan Skywalkers 2 · Wyoming Cowboys 3 · Chula Vista Jaguarrams 4 ·
+  Nerfherders 9. **The other 37 franchises are defunct and got synthetic ids in the 1000s** —
+  deliberately outside 1-12, because an id collision would attribute a dead team's record to a
+  living one.
+- **The load asserts no duplicate id inside a season**, which is the failure the overlaps would
+  have produced: `recordBook` aggregates by id, so two rows sharing one would double-count.
+
+**A DISCREPANCY IN THE SOURCE DATA, recorded rather than papered over.** 2010 and 2011 reconcile
+to the cent — every team's W-L-T *and* PF derived from the game log match the season table
+exactly. In **2012-2015 the W-L-T still matches every team exactly** and the per-team game COUNT
+equals W+L+T, but the game log totals **~88%** of the stated points-for (per team 79-97%). So the
+season table counts weeks that produced no win or loss — consolation-bracket scoring, most
+likely, given those years ran 20 teams with a bracket shrinking through week 17. It cannot
+contradict itself inside the app: standings and all-time PF come from `teams[]`, while
+`matchups[]` only feeds head-to-head, highest week and biggest blowout. The 2012-15 rivalry point
+totals therefore run slightly under those seasons' official PF, by design.
+
+**⭐ CURRENT FRANCHISES ONLY** (user: *"dont show any history for teams not currently active in
+the league"*). `LG.recordBook` gained ONE gate, `live(id) = !!LG.teamById(id)`, and it is the
+single choke point — `LG.headToHead`'s two callers already pass current ids only (the `LG.teams`
+rivalry loop and the matchup's own two teams), and nothing else in the UI reads `loadHistory`.
+A team the league does not currently roster contributes **nothing**: no standings row, no title,
+no superlative — and **no half of one either**. A blowout is dropped when EITHER side is gone
+(a margin against a stranger is not a league record), while the surviving team's own points still
+count toward highest-week, which is a fact about them alone. `hasData` now asks what SURVIVED the
+gate rather than what is on disk, so a league whose whole history belongs to folded teams shows
+the empty state instead of a table of zeroes. **Nothing is deleted** — all 47 franchises stay in
+Firestore, so re-admitting one (or widening the gate) brings its whole record back.
+
+**The result, all 8 current franchises and nothing else:** Elanikan Skywalkers 104-91 **5 titles**
+· Battle Kreussers 115-77 **4** · Nerfherders 113-72-1 **3** · Wyoming Cowboys 106-91 **1** ·
+Kruz Control 83-82 **1** · GOAT Kids 90-91 · Chula Vista 56-67 · Nails For Breakfast 54-98.
+Highest week Kruz Control **340.2** (2019 wk14) · biggest blowout GOAT Kids 234.5-103.8 Elanikan,
+**130.7** (2018 wk14) · best season PF Wyoming Cowboys **2340.3** (2014). Rivalries reach back:
+Battle Kreussers lead Elanikan **20-9**, 4256.8-3590.6 all-time.
+
+**VERIFIED**: **1729/1729, 0 page errors**. New section **N8** builds its fixture so that EVERY
+superlative would belong to a dead franchise if the gate were missing — the champion, the highest
+week (260.4 vs a live best of 120.5), the biggest blowout (220.3 vs 20.25) and the best season PF
+(1999.9 vs 1500.5) are all theirs by a clear margin — so a pass cannot be vacuous. **Pre-fix with
+`lg-core.js` reverted to HEAD: 1720 pass / 9 fail, all nine inside N8**, each on-point (standings
+listed 1099 and 1098, the folded champion was crowned, and all four superlatives were theirs).
+1720 = 1716 + N8's 4 regression invariants, so **all 1716 pre-existing checks pass in both worlds
+and no restaging was required**.
+
+**KNOWN**: `LG.headToHead` itself has no gate — it does not need one at its two call sites, but a
+future caller passing a folded id would get a real answer rather than an empty one. And the
+2012-15 seasons carry 20-team `teams[]` arrays of which only 6 render, which is the intended cost
+of keeping the raw record intact.

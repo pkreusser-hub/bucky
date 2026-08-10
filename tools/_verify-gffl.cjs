@@ -4031,6 +4031,70 @@ async function openDetails(page, id) {
     await ctx.close();
   }
 
+  // N8: FOLDED FRANCHISES ARE INVISIBLE (user, 2026-08-10). The real league's 2010-15 seasons
+  // ran 12-20 teams, so ~40 franchises on file no longer exist. A record book listing them is
+  // a wall of strangers, and one of them owning "biggest blowout" tells this league nothing.
+  // The fixture is built so EVERY superlative would belong to a dead franchise if the gate
+  // were missing — the season's champion, the highest week, the biggest blowout and the best
+  // season PF are all theirs, each by a clear margin over the best a live team managed. So a
+  // pass here cannot be vacuous: with the gate removed, every one of these checks fails.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await page.evaluate(() => window.__GFFL__.LG.db.set("hist_2015", {
+      kind: "hist", season: 2015, leagueName: "Old 20-team league",
+      teams: [
+        // live franchises
+        { id: 1, name: "Battle Kreussers", w: 9, l: 5, t: 0, pf: 1500.5, pa: 1400 },
+        { id: 2, name: "Elanikan Skywalkers", w: 7, l: 7, t: 0, pf: 1400.25, pa: 1450 },
+        // folded ones — note BOTH the title and the fattest season PF sit here
+        { id: 1099, name: "Terrorbears", w: 13, l: 1, t: 0, pf: 1999.9, pa: 1200 },
+        { id: 1098, name: "Honey Boo-Boos", w: 2, l: 12, t: 0, pf: 900.1, pa: 1800 },
+      ],
+      champion: { teamId: 1099, name: "Terrorbears" },
+      matchups: [
+        { week: 1, home: 1, away: 2, homePts: 120.5, awayPts: 100.25 },   // live vs live: the only one that may survive
+        { week: 2, home: 1099, away: 1098, homePts: 260.4, awayPts: 40.1 }, // dead vs dead: top score AND top margin (220.3)
+        { week: 3, home: 1099, away: 1, homePts: 240.7, awayPts: 110.0 },  // mixed: 130.7 margin, still bigger than 20.25
+      ],
+    }));
+    const rbF = await page.evaluate(() => window.__GFFL__.LG.recordBook());
+    const rbIds = rbF.standings.map((s) => s.teamId);
+    ok(!rbIds.includes(1099) && !rbIds.includes(1098), "all-time standings list no folded franchise (" + JSON.stringify(rbIds) + ")");
+    ok(rbIds.includes(1) && rbIds.includes(2), "…while both live franchises in that season are still there");
+    const bk = rbF.standings.find((s) => s.teamId === 1);
+    ok(!!bk && bk.w === 9 && bk.l === 5, "a live team keeps its own record from a season it shared with folded teams (" + JSON.stringify(bk) + ")");
+    ok(rbF.champs.every((c) => c.teamId !== 1099) && !/Terrorbears/.test(JSON.stringify(rbF.champs)),
+      "a folded franchise's title is not listed among the champions (" + JSON.stringify(rbF.champs) + ")");
+    ok(rbF.standings.every((s) => s.titles === 0), "…and it is not silently credited to anyone else either");
+    ok(!!rbF.highestWeek && rbF.highestWeek.teamId === 1 && rbF.highestWeek.pts === 120.5,
+      "highest week is the best score by a LIVE team (120.5), not the folded 260.4 (" + JSON.stringify(rbF.highestWeek) + ")");
+    ok(!!rbF.biggestBlowout && rbF.biggestBlowout.margin === 20.25,
+      "biggest blowout is the only live-vs-live game (20.25) — a game with a folded team on EITHER side is dropped whole (" + JSON.stringify(rbF.biggestBlowout) + ")");
+    ok(!!rbF.bestSeasonPF && rbF.bestSeasonPF.teamId === 1 && rbF.bestSeasonPF.pf === 1500.5,
+      "best season PF is the live 1500.5, not the folded 1999.9 (" + JSON.stringify(rbF.bestSeasonPF) + ")");
+    ok(!/Terrorbears|Honey Boo-Boos/.test(JSON.stringify(rbF)), "no folded franchise's NAME appears anywhere in the record book");
+    // …and none of it reaches the screen either.
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".recordbook", { timeout: 9000 });
+    await page.evaluate(() => { document.querySelector(".recordbook").open = true; });
+    await page.waitForFunction(() => !!document.querySelector(".recordbook table.tbl"), { timeout: 9000 });
+    const rbFText = await page.evaluate(() => document.querySelector(".recordbook").textContent);
+    ok(!/Terrorbears|Honey Boo-Boos/.test(rbFText), "the rendered record book names no folded franchise");
+    ok(/Battle Kreussers/.test(rbFText), "…and does still name the live ones");
+    // A history made ENTIRELY of folded franchises must read as empty, not as a table of zeroes.
+    await page.evaluate(() => window.__GFFL__.LG.db.set("hist_2015", {
+      kind: "hist", season: 2015, teams: [{ id: 1099, name: "Terrorbears", w: 13, l: 1, t: 0, pf: 1999.9, pa: 1200 }],
+      champion: { teamId: 1099, name: "Terrorbears" }, matchups: [],
+    }));
+    const rbGone = await page.evaluate(() => window.__GFFL__.LG.recordBook());
+    ok(rbGone.hasData === false && rbGone.standings.length === 0 && rbGone.champs.length === 0,
+      "a history belonging entirely to folded franchises reports hasData:false — the empty state, not a table of zeroes");
+    ok(errors.length === 0, "0 page errors through the folded-franchise gate");
+    await ctx.close();
+  }
+
   // ---- O: playoffs, bracket, trophies (S7) ----
   section("O · playoffs — bracket build/advance, champion, Toilet Bowl, trophies");
 

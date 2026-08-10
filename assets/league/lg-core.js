@@ -2218,9 +2218,20 @@
   // only when there's genuinely nothing on file yet (fresh league, no
   // import, no finalized week) — the UI's cue to show the empty state
   // instead of a table of zeroes.
+  //
+  // ⭐ CURRENT FRANCHISES ONLY (user, 2026-08-10). The 2010-15 seasons on file were a
+  // 12-to-20-team league, so the history carries ~40 franchises that folded long ago. A
+  // record book listing them is a wall of strangers, and one of them owning "biggest
+  // blowout" tells nobody in this league anything. `live(id)` is the single gate: a team
+  // the league does not currently roster contributes NOTHING — no standings row, no title,
+  // no superlative, and no half of a superlative either (a blowout is dropped when EITHER
+  // side is gone; the surviving team's own points still count toward highest-week, which
+  // is a fact about them alone). Their seasons stay on disk untouched, so re-admitting a
+  // franchise — or simply widening this gate — brings its whole record back with it.
   LG.recordBook = async function () {
     const hist = await LG.loadHistory();
     const weekly = await LG.db.list("weekly");
+    const live = (id) => !!LG.teamById(id);
     const nameOf = (id) => { const t = LG.teamById(id); return t ? t.name : null; };
     const histNameOf = (h, id) => { const t = (h.teams || []).find((x) => x.id === id); return t ? t.name : ("Team " + id); };
     const displayName = (id, h) => nameOf(id) || (h ? histNameOf(h, id) : ("Team " + id));
@@ -2235,11 +2246,13 @@
     const champs = [];
     let highestWeek = null, biggestBlowout = null, bestSeasonPF = null;
     const noteScore = (teamId, pts, week, season, fallbackName) => {
+      if (!live(teamId)) return;
       if (!highestWeek || pts > highestWeek.pts) {
         highestWeek = { teamId, name: nameOf(teamId) || fallbackName || ("Team " + teamId), pts, week, season };
       }
     };
     const noteBlowout = (home, away, homePts, awayPts, week, season, homeName, awayName) => {
+      if (!live(home) || !live(away)) return;
       const margin = Math.round(Math.abs(homePts - awayPts) * 100) / 100;
       if (!biggestBlowout || margin > biggestBlowout.margin) {
         biggestBlowout = { margin, week, season, homeId: home, awayId: away, homeName, awayName, homePts, awayPts };
@@ -2248,12 +2261,13 @@
 
     for (const h of hist) {
       for (const t of (h.teams || [])) {
+        if (!live(t.id)) continue;
         const rec = touch(t.id, t.name);
         rec.w += t.w || 0; rec.l += t.l || 0; rec.t += t.t || 0; rec.pf += t.pf || 0;
         const pf = t.pf || 0;
         if (!bestSeasonPF || pf > bestSeasonPF.pf) bestSeasonPF = { teamId: t.id, name: displayName(t.id, h), pf, season: h.season };
       }
-      if (h.champion) {
+      if (h.champion && live(h.champion.teamId)) {
         champs.push({ season: h.season, teamId: h.champion.teamId, name: displayName(h.champion.teamId, h) });
         const rec = agg.get(h.champion.teamId);
         if (rec) rec.titles++;
@@ -2266,6 +2280,7 @@
     }
     for (const w of weekly) {
       for (const m of (w.matchups || [])) {
+        if (!live(m.home) || !live(m.away)) continue;
         const hRec = touch(m.home, null), aRec = touch(m.away, null);
         hRec.pf += LG.n(m.homePts); aRec.pf += LG.n(m.awayPts);
         if (m.homePts > m.awayPts) { hRec.w++; aRec.l++; }
@@ -2281,6 +2296,8 @@
       w: rec.w, l: rec.l, t: rec.t, pf: Math.round(rec.pf * 100) / 100, titles: rec.titles,
     })).sort((a, b) => (b.titles - a.titles) || (b.w - a.w) || (b.pf - a.pf));
     champs.sort((a, b) => a.season - b.season);
-    return { champs, highestWeek, biggestBlowout, bestSeasonPF, standings, hasData: hist.length > 0 || weekly.length > 0 };
+    // hasData asks what SURVIVED the live() gate, not what is on disk — a league whose whole
+    // history belongs to folded franchises must show the empty state, not a table of zeroes.
+    return { champs, highestWeek, biggestBlowout, bestSeasonPF, standings, hasData: standings.length > 0 || champs.length > 0 };
   };
 })();
