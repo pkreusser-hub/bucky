@@ -179,21 +179,89 @@
   };
 
   // Commissioner = Dad's PIN, same hash scheme index.html/farmgpt.html sync
-  // (sha256(pin + ":" + PASS) in localStorage dadPinHash). Create-on-first-use
-  // mirrors index.html's gateDad. Session unlock flag scoped to this page.
+  // (sha256(pin + ":" + PASS)). Session unlock flag scoped to this page.
   async function sha256Hex(str) {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
     return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
   }
+  LG.sha256Hex = sha256Hex; // lg-ui hashes owner PINs with the identical formula
+
+  // ---------------- THE COMMISSIONER PIN LIVES IN THE CLOUD (S1, 2026-08-10) ----------------
+  // It used to live ONLY in this device's localStorage `dadPinHash`, created on first use.
+  // That was survivable on amenfarms.netlify.app, where Dad's devices already carried the hash
+  // the family app had written — but the league moved to its own origin, localStorage is
+  // per-origin, and on goatfantasyleague.com EVERY device starts blank. So the first kid to tap
+  // a commissioner control on their own phone was offered "Set a commissioner PIN (first time)"
+  // and became the commissioner. The authority has to be a fact about the LEAGUE, not about the
+  // device asking.
+  //
+  // It gets its OWN doc (`auth`, kind "auth") rather than a field on the settings doc,
+  // deliberately: the Rules editor renders the settings doc's `rules` object field-by-field and
+  // writes back whatever it rendered, so a hash parked anywhere near it is one refactor away
+  // from being displayed, edited, or wiped by a rules save. A separate doc cannot be reached by
+  // any of that.
+  //
+  // POSTURE, stated plainly (unchanged, and the same as the family app's dadAuth): Firestore's
+  // rules are public, so this is family-grade. It stops sibling mischief and honest mistakes,
+  // not devtools. Server enforcement would be a different product.
+  const AUTH_DOC = "auth";
+  LG.authDoc = null;
+  // Never throws. This is called from boot's Promise.all alongside rules/teams, and an auth
+  // read that rejected there would turn a readable league into the outage card — the PIN is not
+  // important enough to cost anyone the page. An unread auth doc simply falls back to the
+  // device-local hash below, which is exactly the pre-S1 behaviour.
+  LG.loadAuth = async function (fresh) {
+    try { LG.authDoc = (fresh ? await LG.db.getFresh(AUTH_DOC) : await LG.db.get(AUTH_DOC)) || null; }
+    catch (e) { /* leave whatever we last knew */ }
+    return LG.authDoc;
+  };
+  LG.commishPinHash = () => (LG.authDoc && LG.authDoc.commishPinHash) || "";
+  const legacyPinHash = () => { try { return localStorage.getItem("dadPinHash") || ""; } catch (e) { return ""; } };
+  // MIGRATION — free, because LG.PASS === "amenfarms" is the same salt index.html's dadAuth
+  // uses, so the hash Dad's device already carries IS the league's hash. The first time Dad
+  // opens the league on a device that has it, it goes up. No re-enrolment, same PIN everywhere.
+  // Runs at BOOT (not only on the first commissioner action) so the window in which a kid could
+  // still seed the empty cloud field closes the moment Dad opens the app, rather than the moment
+  // he happens to press a commissioner control.
+  LG.migrateCommishPin = async function () {
+    if (LG.commishPinHash()) return false;         // the league already has one — never overwrite
+    const legacy = legacyPinHash();
+    if (!legacy) return false;
+    if (LG.mirrorOffline) return false;            // a mirror is read-only; a write here would toast and fail
+    try {
+      await LG.db.set(AUTH_DOC, { kind: "auth", commishPinHash: legacy });
+      LG.authDoc = { ...(LG.authDoc || {}), kind: "auth", commishPinHash: legacy };
+      return true;
+    } catch (e) { return false; }
+  };
   LG.commishUnlocked = () => sessionStorage.getItem("gfflCommish") === "1";
   LG.gateCommish = async function () {
     if (LG.commishUnlocked()) return true;
-    const have = localStorage.getItem("dadPinHash") || "";
+    // FRESH, not cached: this is the security boundary, and a hash read once at boot and then
+    // held for the life of the tab is a hash a commissioner reset can't take away. One read.
+    await LG.loadAuth(true);
+    await LG.migrateCommishPin();
+    // The cloud value WINS whenever there is one. A device-local hash is only consulted when
+    // the league itself holds none — an offline session, or a genuine local backend (every
+    // suite page), where the pre-S1 behaviour is exactly right.
+    const have = LG.commishPinHash() || legacyPinHash();
     const pin = window.prompt(have ? "Commissioner PIN:" : "Set a commissioner PIN (first time):");
     if (!pin) return false;
     const h = await sha256Hex(pin + ":" + LG.PASS);
-    if (!have) { localStorage.setItem("dadPinHash", h); sessionStorage.setItem("gfflCommish", "1"); return true; }
-    if (h === have) { sessionStorage.setItem("gfflCommish", "1"); return true; }
+    if (!have) {
+      // First-time SET — legal only because neither the league nor this device holds a hash.
+      try { await LG.db.set(AUTH_DOC, { kind: "auth", commishPinHash: h }); LG.authDoc = { kind: "auth", commishPinHash: h }; } catch (e) { /* offline: the local copy below still works */ }
+      try { localStorage.setItem("dadPinHash", h); } catch (e) {}
+      sessionStorage.setItem("gfflCommish", "1");
+      return true;
+    }
+    if (h === have) {
+      // Mirror the verified hash onto this device so a later offline session still unlocks.
+      // It reveals nothing — a hash is not a PIN — and it is the same value the family app syncs.
+      try { localStorage.setItem("dadPinHash", h); } catch (e) {}
+      sessionStorage.setItem("gfflCommish", "1");
+      return true;
+    }
     window.alert("Wrong PIN.");
     return false;
   };
@@ -850,6 +918,43 @@
     return LG.db.set(docId, { ...curClean, kind: "team", ...rest });
   };
   LG.teamById = (id) => LG.teams.find((t) => t.id === Number(id)) || null;
+
+  // ---------------- OWNER PINs (S1, 2026-08-10) ----------------
+  // A claim used to be "tap your team, type a name" — so on a shared iPad, or on any sibling's
+  // phone, anyone could take anyone's team and then set its lineup. The team doc now carries a
+  // `pinHash` (the SAME sha256(pin + ":" + LG.PASS) the commissioner PIN and the family app's
+  // dadAuth both use), set by whoever claims the team first and demanded of every device that
+  // claims it afterwards. Family-grade, same posture as the commissioner PIN above.
+  //
+  // The hash is read FRESH at every check rather than off the in-memory team list: a
+  // commissioner may have reset it seconds ago on another device, and the whole point of the
+  // reset is that the next claim is not gated on a hash nobody knows any more.
+  LG.teamPinHash = async function (teamId) {
+    let doc = null;
+    try { doc = await LG.db.getFresh("team_" + Number(teamId)); } catch (e) { doc = null; }
+    if (doc) return doc.pinHash || "";
+    const t = LG.teamById(teamId); // offline: the last thing we read is better than nothing
+    return (t && t.pinHash) || "";
+  };
+  LG.verifyTeamPin = async function (teamId, pin) {
+    const have = await LG.teamPinHash(teamId);
+    if (!have) return true; // no PIN set — nothing to prove (the claim flow sets one instead)
+    return (await sha256Hex(String(pin) + ":" + LG.PASS)) === have;
+  };
+  // A PIN is at least 4 digits. Stated in the prompt, enforced here, so "1" can never become
+  // somebody's team lock.
+  LG.validPin = (pin) => /^\d{4,}$/.test(String(pin || "").trim());
+  LG.setTeamPin = async function (teamId, pin, extra) {
+    const pinHash = await sha256Hex(String(pin) + ":" + LG.PASS);
+    await LG.saveTeam({ teamId: Number(teamId), pinHash, ...(extra || {}) });
+    return pinHash;
+  };
+  // Commissioner reset. Written as "" rather than deleted: LG.db.set is a MERGE (a Firestore
+  // PATCH with an updateMask), so an absent key would leave the old hash standing on the
+  // server — the one shape this must never have.
+  LG.clearTeamPin = async function (teamId) {
+    await LG.saveTeam({ teamId: Number(teamId), pinHash: "" });
+  };
 
   // Standings derived from finalized "weekly" docs (there are none yet pre-S2
   // finalization — every team reads 0-0-0 until then). Moved here (was a

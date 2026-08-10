@@ -211,7 +211,10 @@
     // the page on "Loading the league…" forever with nothing but an unhandled rejection in the
     // console. Caught here, it becomes the same honest outage card an unreachable backend gets.
     try {
-      await Promise.all([LG.loadRules(), LG.loadTeams(), LG.loadSchedule().then((s) => { schedule = s; })]);
+      // LG.loadAuth() rides along here (S1's cloud commissioner PIN) — it is an independent
+      // doc read like the other three, and it deliberately swallows its own failures, so it
+      // can never be the reason this Promise.all rejects into the outage card.
+      await Promise.all([LG.loadRules(), LG.loadTeams(), LG.loadAuth(), LG.loadSchedule().then((s) => { schedule = s; })]);
     } catch (e) {
       LG._markDegraded(e);
       LG.teamsConfirmed = false;
@@ -219,6 +222,11 @@
       return;
     }
     UI.week = LG.currentWeek() > (LG.rules.seasonWeeks + 3) ? LG.rules.seasonWeeks : LG.currentWeek();
+    // S1: if the league holds no commissioner hash yet and THIS device carries Dad's family-app
+    // one, hand it up now — the sooner it lands, the smaller the window in which anyone else
+    // could be offered "set a commissioner PIN (first time)". Fire-and-forget: it is one small
+    // write, it no-ops on every boot after the first, and nothing on screen waits for it.
+    LG.migrateCommishPin().catch(() => {});
     // An empty league we could NOT confirm is an outage, not a new league — never route into
     // the claim screen or the first-run import off an unconfirmed read (live bug 2026-08-08;
     // see lg-core.js's SERVER-CONFIRMED EMPTINESS note). Checked here, before those branches,
@@ -908,16 +916,46 @@
           <span><b>${esc(t.name)}</b><br><small class="mut">${esc(t.owner || "")}${t.claimedBy ? " · claimed by " + esc(t.claimedBy) : ""}</small></span>
         </button>`).join("")}</div></div>`;
     document.querySelectorAll(".teamrow").forEach((b) => b.addEventListener("click", async () => {
-      const tid = Number(b.dataset.tid);
-      const nm = window.prompt("Your name:", LG.who() || LG.teamById(tid)?.owner || "");
-      if (!nm) return;
-      LG.setWho(nm); LG.setMyTeamId(tid);
-      // DELTA only (adversarial review 2026-08-08, findings 4/10) — spreading the whole
-      // in-memory team wrote this page's snapshot of every OTHER field back over good data.
-      await LG.saveTeam({ teamId: tid, claimedBy: nm });
-      UI.boot();
+      if (await claimTeam(Number(b.dataset.tid))) UI.boot();
     }));
   }
+  // ---------------- claiming a team (S1: owner PINs) ----------------
+  // Two flows, chosen by whether the TEAM DOC already carries a pinHash — never by whether this
+  // device happens to think the team is claimed:
+  //   · no hash  → this is the team's first claim. Take a name, then set the PIN that will
+  //                protect it. A cancelled or too-short PIN writes NOTHING at all: a claim that
+  //                banked the name and skipped the lock would be the hole, not the fix.
+  //   · a hash   → someone already owns this team. Prove it before the local claim is written,
+  //                so a refused attempt leaves this device exactly as it was.
+  // Returns true only when a claim was actually written.
+  async function claimTeam(tid) {
+    const T = LG.teamById(tid) || {};
+    const nameOf = T.name || ("team " + tid);
+    const have = await LG.teamPinHash(tid);
+    if (have) {
+      const pin = window.prompt("Enter " + nameOf + "'s PIN:");
+      if (!pin) return false;
+      if (!(await LG.verifyTeamPin(tid, pin))) { window.alert("Wrong PIN."); return false; }
+      const nm = window.prompt("Your name:", LG.who() || T.claimedBy || T.owner || "");
+      if (!nm) return false;
+      LG.setWho(nm); LG.setMyTeamId(tid);
+      // The name may legitimately differ (a new device, a nickname) — keep the doc honest, but
+      // don't write a doc just to store the value it already holds.
+      if (T.claimedBy !== nm) { try { await LG.saveTeam({ teamId: tid, claimedBy: nm }); } catch (e) { /* offline: the local claim stands */ } }
+      return true;
+    }
+    const nm = window.prompt("Your name:", LG.who() || T.owner || "");
+    if (!nm) return false;
+    const pin = window.prompt("Set a PIN for " + nameOf + " (numbers, 4+ digits):");
+    if (!pin) return false;
+    if (!LG.validPin(pin)) { window.alert("A PIN needs at least 4 numbers. Nothing was claimed — tap your team to try again."); return false; }
+    // DELTA only (adversarial review 2026-08-08, findings 4/10) — spreading the whole
+    // in-memory team wrote this page's snapshot of every OTHER field back over good data.
+    await LG.setTeamPin(tid, pin, { claimedBy: nm });
+    LG.setWho(nm); LG.setMyTeamId(tid);
+    return true;
+  }
+  UI._claimTeam = claimTeam; // test hook
 
   // ---------------- league home ----------------
   function teamStarters(teamId) {
@@ -4059,9 +4097,15 @@
     });
   }
   UI.extractPalette = extractPalette;
-  function wireLockerEdit(T) {
+  // S1: the identity edits render on the OWNER's locker as they always have, and additionally
+  // on EVERY locker for a commissioner. `isOwner` is what decides whether a press has to pass
+  // LG.gateCommish() first — an owner's own flow is byte-identical to what it was (no gate
+  // call, no prompt consumed, nothing awaited that wasn't before).
+  function wireLockerEdit(T, isOwner) {
+    const gate = async () => isOwner || await LG.gateCommish();
     const nameBtn = $("#lockerEditName");
     if (nameBtn) nameBtn.addEventListener("click", async () => {
+      if (!(await gate())) return;
       const v = window.prompt("Team name:", T.name || "");
       if (v == null) return;
       const name = v.trim().slice(0, 60);
@@ -4072,6 +4116,7 @@
     });
     const mottoBtn = $("#lockerEditMotto");
     if (mottoBtn) mottoBtn.addEventListener("click", async () => {
+      if (!(await gate())) return;
       const v = window.prompt("Team motto (max 80 chars):", T.motto || "");
       if (v == null) return;
       const motto = v.trim().slice(0, 80);
@@ -4081,7 +4126,9 @@
     });
     const logoBtn = $("#lockerEditLogo"), logoInput = $("#lockerLogoInput");
     if (logoBtn && logoInput) {
-      logoBtn.addEventListener("click", () => logoInput.click());
+      // Gated BEFORE the file picker opens — a commissioner who fails the PIN must never get
+      // as far as choosing an image only to be refused afterwards.
+      logoBtn.addEventListener("click", async () => { if (await gate()) logoInput.click(); });
       logoInput.addEventListener("change", async (e) => {
         const file = e.target.files && e.target.files[0];
         e.target.value = "";
@@ -4203,11 +4250,12 @@
             <p class="lockerrec">#${place} · ${st.w}-${st.l}${st.t ? "-" + st.t : ""} · ${LG.fmtNum(st.pf)} PF</p>
           </div>
         </div>
-        ${isOwner ? `<div class="lockeredit">
+        <div class="lockeredit"${isOwner || isCommish() ? "" : " hidden"}>
           <button id="lockerEditName">Name</button>
           <button id="lockerEditMotto">Motto</button>
           <button id="lockerEditLogo">Logo</button>
-          <input type="file" accept="image/*" id="lockerLogoInput" hidden></div>` : ""}
+          ${isOwner ? "" : `<button id="lockerPinReset" class="lockerpin">Reset owner PIN</button>`}
+          <input type="file" accept="image/*" id="lockerLogoInput" hidden></div>
       </div>
       ${rosterHtml}
       <div class="card"><h2>Schedule</h2><div class="panner"><table class="tbl">
@@ -4224,8 +4272,47 @@
     document.querySelectorAll(".chatImg").forEach((img) => img.addEventListener("click", () => openImageOverlay(img.dataset.full)));
     wireLockerTaps();
     wirePlayerCardTaps(); // owner's .linfo buttons + every other team's read-only roster rows
-    if (isOwner) { wireLockerEdit(T); wireLockerLineup(teamId, roster); }
+    // Wired on EVERY locker, commissioner or not (S1). A hidden button is still clickable from
+    // devtools, so the PIN — not the `hidden` attribute — is what actually refuses; leaving the
+    // non-commissioner's copy unwired would only hide the gate, not add one.
+    wireLockerEdit(T, isOwner);
+    if (!isOwner) wireLockerPinReset(T);
+    if (isOwner) { wireLockerLineup(teamId, roster); maybeOfferOwnerPin(T); }
     paintHealth();
+  }
+  // S1 GRANDFATHERING. Devices that claimed a team before owner PINs existed stay valid — the
+  // local claim is never revoked — but the team has no lock on it, so the next device to tap it
+  // could take it. The owner is offered one, once, on their own locker.
+  // Deliberately keyed on the team doc's own `claimedBy`: a team nobody has ever claimed has no
+  // owner to ask, and this must never fire for a device whose claim exists only in localStorage.
+  // The "asked" flag is set BEFORE the prompt, so declining is free and a repaint mid-prompt
+  // can't ask twice.
+  async function maybeOfferOwnerPin(T) {
+    if (!T || !T.claimedBy) return;
+    if (LG.mirrorOffline) return; // read-only session: the write could only fail
+    const k = "gffl_pinask_" + T.id;
+    try { if (sessionStorage.getItem(k) === "1") return; } catch (e) { return; }
+    let have = "";
+    try { have = await LG.teamPinHash(T.id); } catch (e) { return; }
+    if (have) return;
+    try { sessionStorage.setItem(k, "1"); } catch (e) {}
+    const pin = window.prompt("Protect your team — set a PIN (numbers, 4+ digits):");
+    if (!pin) return;
+    if (!LG.validPin(pin)) { window.alert("A PIN needs at least 4 numbers."); return; }
+    try { await LG.setTeamPin(T.id, pin); await LG.loadTeams(); toast("PIN set — another device needs it to claim " + T.name + "."); }
+    catch (e) { toast("Couldn't save that PIN."); }
+  }
+  // S1 COMMISSIONER RESET — the way back in when an owner forgets their PIN, or a team changes
+  // hands. Clears the hash; the next claim runs the first-claim flow and sets a fresh one.
+  function wireLockerPinReset(T) {
+    const b = $("#lockerPinReset");
+    if (!b) return;
+    b.addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      if (!window.confirm("Reset the owner PIN for " + (T.name || "this team") + "? Whoever claims it next will set a new one.")) return;
+      try { await LG.clearTeamPin(T.id); await LG.loadTeams(); toast((T.name || "That team") + "'s owner PIN was reset."); }
+      catch (e) { toast("Couldn't reset that PIN."); }
+    });
   }
   // The tap-to-swap sheet, operating on THIS locker's `roster` array — same mechanic the old
   // "team" page had, just scoped as its own wiring function so renderLocker's owner branch

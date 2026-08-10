@@ -3520,8 +3520,21 @@ async function openDetails(page, id) {
     await page2.evaluate(() => window.__GFFL__.UI.openLocker(1));
     await page2.waitForSelector(".lockerhead", { timeout: 9000 });
     ok(/Go Kreussers!/.test(await page2.evaluate(() => document.body.textContent)), "the non-owner sees the same saved motto");
-    ok(!(await page2.$("#lockerEditName")) && !(await page2.$("#lockerEditMotto")) && !(await page2.$("#lockerEditLogo")),
-      "…but NO edit affordances on someone else's locker");
+    // RESTAGED 2026-08-10 (S1, section AK): this asked for the edit buttons to be ABSENT from
+    // the DOM. S1 makes the commissioner able to edit ANY team's identity, so they are now
+    // always rendered and `hidden` for anyone who is neither the owner nor an unlocked
+    // commissioner — the same present-but-hidden shape #backupsFill has carried since ITEM 31,
+    // and for the same reason: a hidden element is still clickable from devtools, so the PIN has
+    // to be the gate rather than the markup. The GUARANTEE this check exists for is unchanged
+    // and still asserted — a rival owner is offered nothing on someone else's locker — it is
+    // just measured on what the reader can see instead of on what the DOM contains. AK7 covers
+    // the other half (clicking one anyway lands on the commissioner PIN, and renames nothing).
+    const rivalEdit = await page2.evaluate(() => {
+      const box = document.querySelector(".lockeredit");
+      return { box: !!box, hidden: !!(box && box.hidden), btns: ["#lockerEditName", "#lockerEditMotto", "#lockerEditLogo"].filter((s) => !!document.querySelector(s)).length };
+    });
+    ok(rivalEdit.btns === 3 && rivalEdit.hidden === true,
+      "…but NO edit affordances a non-commissioner can see on someone else's locker (present in the markup, rendered hidden — " + JSON.stringify(rivalEdit) + ")");
 
     // Tap-through from standings / "My Team" nav (item 3, 2026-08-07: "My Team" IS the locker
     // now, so there's no separate "My locker" button on a team page to click through any more —
@@ -11702,8 +11715,16 @@ async function openDetails(page, id) {
     {
       let fam = null;
       try { fam = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.webmanifest"), "utf8")); } catch (e) {}
-      ok(!!fam && fam.start_url === "/" && fam.name === "BUCKY",
-        "the family app's manifest.webmanifest is untouched — still BUCKY at \"/\" (" + JSON.stringify(fam && { n: fam.name, s: fam.start_url }) + ")");
+      // RESTAGED 2026-08-10: the literal was "BUCKY" and the file now reads "Bucky" — commit
+      // 9ea50e3 ("app label reads \"Bucky\", not \"BUCKY\"") deliberately retitled the family
+      // app, so the assertion, not the file, was the stale one. PRE-EXISTING failure, unrelated
+      // to S1 (nothing in this workstream touches manifest.webmanifest, and it is unmodified in
+      // the working tree). The guarantee this check exists for is "the league's own manifest
+      // work didn't clobber the family app's" — which is about the app it points at, not about
+      // the casing of its label, so the name is compared case-insensitively and start_url stays
+      // exact.
+      ok(!!fam && fam.start_url === "/" && String(fam.name).toLowerCase() === "bucky",
+        "the family app's manifest.webmanifest is untouched — still Bucky at \"/\" (" + JSON.stringify(fam && { n: fam.name, s: fam.start_url }) + ")");
     }
 
     // ---- AJ7 (ITEM 33): safe areas. Served with every env(safe-area-inset-*) resolved to the
@@ -11801,6 +11822,336 @@ async function openDetails(page, id) {
         await page.screenshot({ path: path.join(ROOT, "shots", "gffl_standalone_desktop.png") });
         console.log("  📸 shots/gffl_standalone_desktop.png");
       }
+      await ctx.close();
+    }
+  }
+
+
+  // ==================== SECTION AK ====================
+  // S1 — OWNER PINs + the commissioner-PIN hole.
+  //
+  // THE HOLE: LG.gateCommish seeded `dadPinHash` in THIS DEVICE'S localStorage on first use.
+  // localStorage is per-ORIGIN, and the league moved to goatfantasyleague.com, where every
+  // device starts blank — so the first kid to tap a commissioner control on their own phone was
+  // offered "Set a commissioner PIN (first time)" and became the commissioner. The authority is
+  // now a fact about the LEAGUE (an `auth` doc, kind "auth", field commishPinHash), and a
+  // device-local hash is only ever a fallback for a session with no league store to ask.
+  //
+  // THE OTHER HALF: claiming a team was "tap it, type a name". A team now carries its own
+  // pinHash, set by whoever claims it first, demanded of every device that claims it after.
+  //
+  // Everything here is driven through the REAL flows — real .teamrow taps, the real
+  // LG.gateCommish() prompt sequence, real locker buttons — never by calling a setter.
+  // The cloud halves run against the REST wire fixture, because "the cloud hash wins over the
+  // device's" is only a claim you can make about a session that genuinely has a cloud.
+  section("AK · S1 — the commissioner PIN lives in the league, and teams have owner PINs");
+  {
+    const crypto = require("crypto");
+    const H = (pin) => crypto.createHash("sha256").update(pin + ":amenfarms").digest("hex");
+    // The suite-wide stub answers every unqueued prompt with "1234" (see newTestPage), which is
+    // exactly wrong for a section about refusals — an exhausted queue would silently keep
+    // answering with a PIN. This one logs what it was ASKED (the prompt text is half of what is
+    // under test: "Enter X's PIN:" vs "Set a PIN for X") and returns null once the script runs
+    // out, which is what a reader pressing Cancel does.
+    const armPrompts = (page, answers) => page.evaluateOnNewDocument((ans) => {
+      window.__promptLog = []; window.__alerts = []; window.__answers = ans.slice();
+      window.prompt = (msg) => { window.__promptLog.push(String(msg)); return window.__answers.length ? window.__answers.shift() : null; };
+      window.alert = (m) => { window.__alerts.push(String(m)); };
+      window.confirm = () => true;
+    }, answers);
+    const promptLog = (page) => evalOr(page, () => window.__promptLog || []);
+    const alerts = (page) => evalOr(page, () => window.__alerts || []);
+    const teamDoc = (page, id) => evalOr(page, (k) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; }, LSPFX + "team_" + id);
+    const claimState = (page) => evalOr(page, () => ({
+      team: localStorage.getItem("gffl_team"), who: localStorage.getItem("gffl_who"),
+      view: window.__GFFL__ && window.__GFFL__.UI.view,
+    }));
+
+    // ---- AK1: a fresh-origin device CANNOT make itself commissioner. The league holds a hash;
+    // this device holds nothing. The old code asked "does THIS DEVICE have one?", got "no", and
+    // handed over the league.
+    {
+      const R = restFixture({ ...fullSeed().docs, auth: { kind: "auth", commishPinHash: H("9999") } });
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Kid" }, { rest: R });
+      await armPrompts(page, ["1234"]);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, ".mucard", 15000), "a REST boot with a commissioner hash already in the league renders normally");
+      const got = await evalOr(page, () => window.__GFFL__.LG.gateCommish());
+      ok(got === false, "a device with no local PIN is REFUSED, not invited to set one (" + got + ")");
+      const asked = (await promptLog(page)) || [];
+      ok(asked.length === 1 && /Commissioner PIN:/.test(asked[0]) && !/first time/.test(asked[0]),
+        "…and it is asked to ENTER the PIN, never offered the first-time-set prompt (" + JSON.stringify(asked) + ")");
+      ok(((await alerts(page)) || []).join("|") === "Wrong PIN.", "…the wrong PIN says so");
+      const after = await evalOr(page, () => ({
+        unlocked: sessionStorage.getItem("gfflCommish"), local: localStorage.getItem("dadPinHash"),
+      })) || {};
+      ok(after.unlocked === null, "…no commissioner session is granted");
+      ok(after.local === null, "…and nothing is written to this device's dadPinHash — a refusal leaves no trace to reuse");
+      ok(R.docs.auth && R.docs.auth.commishPinHash === H("9999"), "…the league's own hash is untouched");
+      // The same device WITH the real PIN gets in — the gate refuses the wrong PIN, not the device.
+      await evalOr(page, () => { window.__answers = ["9999"]; });
+      const good = await evalOr(page, () => window.__GFFL__.LG.gateCommish());
+      ok(good === true, "…while the league's REAL PIN unlocks the very same device (" + good + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AK2: MIGRATION. Dad's device carries the family app's dadPinHash, and LG.PASS is the
+    // same salt dadAuth uses, so that hash IS the league's hash. It goes up at BOOT — not only
+    // when he next presses a commissioner control — which is what closes the window.
+    {
+      const R = restFixture(fullSeed().docs); // no auth doc: a league that has never had one
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 1, who: "Peter" }, { rest: R });
+      await page.evaluateOnNewDocument((h) => localStorage.setItem("dadPinHash", h), H("4242"));
+      await armPrompts(page, []);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, ".mucard", 15000), "Dad's device boots the league");
+      await sleep(900); // the migration is deliberately fire-and-forget — nothing on screen waits for it
+      ok(!!R.docs.auth && R.docs.auth.commishPinHash === H("4242"),
+        "…and his existing family-app PIN hash is written up to the league at boot, with no re-enrolment (" + JSON.stringify(R.docs.auth) + ")");
+      ok(R.docs.auth && R.docs.auth.kind === "auth", "…as its OWN doc, kind \"auth\" — never a field on the rules doc the Rules editor renders");
+      // The reason it is its own doc: the Rules editor renders the settings doc field by field
+      // and writes back what it rendered. A hash must not be within reach of that.
+      const strays = Object.keys(R.docs).filter((k) => k !== "auth" && JSON.stringify(R.docs[k]).includes("PinHash"));
+      ok(strays.length === 0, "…and no other doc in the league carries a PIN hash (" + JSON.stringify(strays) + ")");
+      ok(((await promptLog(page)) || []).length === 0, "…silently: a migration is not something to interrupt a reader with");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+
+      // A SECOND device on the same league now inherits it — the migrated hash is the authority,
+      // and this device has never seen a PIN in its life.
+      const { ctx: c2, page: p2, errors: e2 } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: 2, who: "Kid" }, { rest: R });
+      await armPrompts(p2, ["1234", "4242"]);
+      await p2.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(p2, ".mucard", 15000);
+      const bad = await evalOr(p2, () => window.__GFFL__.LG.gateCommish());
+      ok(bad === false, "a second device is refused a PIN the league never had (" + bad + ")");
+      const good2 = await evalOr(p2, () => window.__GFFL__.LG.gateCommish());
+      ok(good2 === true, "…and accepts Dad's migrated one (" + good2 + ")");
+      ok(e2.length === 0, "0 page errors on the second device");
+      await c2.close();
+    }
+
+    // ---- AK3: the first claim of a team sets its PIN. Local backend, real .teamrow tap.
+    let claimedDocs = null;
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed({ claim: true }));
+      await armPrompts(page, ["Isaac", "4444"]);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, ".teamrow", 9000), "an unclaimed device lands on the claim screen");
+      await clickIn(page, ".teamrow", "Battle Kreussers");
+      ok(await waitOr(page, ".mucard", 9000), "…claiming an unclaimed team lands in the league");
+      const asked = (await promptLog(page)) || [];
+      ok(asked.length === 2 && /Your name:/.test(asked[0]) && /Set a PIN for Battle Kreussers/.test(asked[1]) && /4\+ digits/.test(asked[1]),
+        "…having asked for a name and then a PIN to protect the team (" + JSON.stringify(asked) + ")");
+      const doc = await teamDoc(page, 1);
+      ok(!!doc && doc.claimedBy === "Isaac", "…the claim is written to the team doc");
+      ok(!!doc && doc.pinHash === H("4444"), "…with the PIN stored as the SAME sha256(pin + \":\" + PASS) hash the commissioner PIN uses");
+      ok(!!doc && !JSON.stringify(doc).includes("4444"), "…and never the PIN itself");
+      claimedDocs = await snapshotAllDocs(page);
+      ok(errors.length === 0, "0 page errors through the first claim");
+      await ctx.close();
+    }
+
+    // ---- AK3b: a cancelled / too-short PIN claims NOTHING. A flow that banked the name and
+    // skipped the lock would be the hole restated, not the fix.
+    {
+      for (const [label, answers, expectAlert] of [
+        ["cancelled", ["Isaac"], false],   // name given, PIN prompt cancelled (queue exhausted -> null)
+        ["too short", ["Isaac", "12"], true],
+      ]) {
+        const { ctx, page } = await newTestPage(browser, fullSeed({ claim: true }));
+        await armPrompts(page, answers);
+        await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+        await waitOr(page, ".teamrow", 9000);
+        await clickIn(page, ".teamrow", "Battle Kreussers");
+        await sleep(500);
+        const st = (await claimState(page)) || {};
+        const doc = await teamDoc(page, 1);
+        ok(st.team === null && st.who === null, "a " + label + " PIN claims nothing on this device (" + JSON.stringify(st) + ")");
+        ok(!!doc && !doc.pinHash && !doc.claimedBy, "…and writes nothing to the team doc either");
+        ok(!!(await page.$(".teamrow")), "…leaving the reader on the claim screen to try again");
+        if (expectAlert) ok(/at least 4 numbers/.test(((await alerts(page)) || []).join("|")), "…and says why");
+        await ctx.close();
+      }
+    }
+
+    // ---- AK4: a SECOND device claiming the same team. The doc set from AK3 is handed to a
+    // fresh context, which is how this suite has always simulated another phone.
+    {
+      // Wrong PIN.
+      const { ctx, page, errors } = await newTestPage(browser, { docs: claimedDocs, pass: "amenfarms", team: null, who: null });
+      await armPrompts(page, ["0000"]);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".teamrow", 9000);
+      await clickIn(page, ".teamrow", "Battle Kreussers");
+      await sleep(500);
+      const asked = (await promptLog(page)) || [];
+      ok(asked.length === 1 && /Enter Battle Kreussers's PIN:/.test(asked[0]),
+        "a claimed team asks the new device for its PIN, and asks for that FIRST (" + JSON.stringify(asked) + ")");
+      ok(((await alerts(page)) || []).join("|") === "Wrong PIN.", "…a wrong PIN is refused out loud");
+      const st = (await claimState(page)) || {};
+      ok(st.team === null && st.who === null, "…and NO local claim is written (" + JSON.stringify(st) + ")");
+      const doc = await teamDoc(page, 1);
+      ok(!!doc && doc.claimedBy === "Isaac" && doc.pinHash === H("4444"), "…the team doc still belongs to its owner, unchanged");
+      ok(!!(await page.$(".teamrow")), "…and the device is still on the claim screen");
+      ok(errors.length === 0, "0 page errors on the refusal");
+      await ctx.close();
+    }
+    {
+      // Right PIN, and a different name — the owner on a new phone.
+      const { ctx, page, errors } = await newTestPage(browser, { docs: claimedDocs, pass: "amenfarms", team: null, who: null });
+      await armPrompts(page, ["4444", "Isaac's iPad"]);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".teamrow", 9000);
+      await clickIn(page, ".teamrow", "Battle Kreussers");
+      ok(await waitOr(page, ".mucard", 9000), "the right PIN claims the team on a second device");
+      const st = (await claimState(page)) || {};
+      ok(st.team === "1" && st.who === "Isaac's iPad", "…the local claim is written (" + JSON.stringify(st) + ")");
+      const doc = await teamDoc(page, 1);
+      ok(!!doc && doc.claimedBy === "Isaac's iPad", "…and claimedBy follows the name the owner gave");
+      ok(!!doc && doc.pinHash === H("4444"), "…while the PIN itself is untouched by a re-claim");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AK5: GRANDFATHERING. A device that claimed before PINs existed keeps its claim — it
+    // is never logged out — and is offered a PIN once, on its own locker.
+    {
+      const docs = fullSeed().docs;
+      docs.team_1 = { ...docs.team_1, claimedBy: "Peter" }; // claimed the old way: no pinHash
+      const { ctx, page, errors } = await newTestPage(browser, { docs, pass: "amenfarms", team: 1, who: "Peter" });
+      await armPrompts(page, ["5555"]);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, ".mucard", 12000), "a grandfathered device still boots straight into the league — no re-claim, no lockout");
+      ok(((await promptLog(page)) || []).length === 0, "…and is not interrupted on the way in");
+      await evalOr(page, () => window.__GFFL__.UI.openLocker(1));
+      ok(await waitOr(page, ".lockerhead", 12000), "…opening My Team paints the locker");
+      await sleep(600);
+      const asked = (await promptLog(page)) || [];
+      ok(asked.length === 1 && /Protect your team/.test(asked[0]), "…and offers a PIN there, once (" + JSON.stringify(asked) + ")");
+      const doc = await teamDoc(page, 1);
+      ok(!!doc && doc.pinHash === H("5555"), "…which is stored on the team doc when accepted");
+      // Re-render: the offer must not come back now that a PIN exists.
+      await evalOr(page, () => window.__GFFL__.UI.openLocker(1));
+      await sleep(600);
+      ok(((await promptLog(page)) || []).length === 1, "…and never asks again once the team is protected");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // Declining is allowed, and is not nagged — the whole reason the "asked" flag is set
+      // BEFORE the prompt rather than after a successful save.
+      const docs = fullSeed().docs;
+      docs.team_1 = { ...docs.team_1, claimedBy: "Peter" };
+      const { ctx, page, errors } = await newTestPage(browser, { docs, pass: "amenfarms", team: 1, who: "Peter" });
+      await armPrompts(page, []); // every prompt cancelled
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".mucard", 12000);
+      for (let i = 0; i < 3; i++) { await evalOr(page, () => window.__GFFL__.UI.openLocker(1)); await waitOr(page, ".lockerhead", 9000); await sleep(400); }
+      ok(((await promptLog(page)) || []).length === 1, "declining the offer is allowed, and it is not asked again this session (" + ((await promptLog(page)) || []).length + " prompt)");
+      const doc = await teamDoc(page, 1);
+      ok(!!doc && !doc.pinHash, "…and nothing is written");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AK6: the commissioner reset — the way back in when an owner forgets their PIN.
+    {
+      const docs = fullSeed().docs;
+      docs.team_2 = { ...docs.team_2, claimedBy: "Eleanor", pinHash: H("7777") };
+      const { ctx, page, errors } = await newTestPage(browser, { docs, pass: "amenfarms", team: 1, who: "Peter" });
+      await armPrompts(page, ["1234"]); // the commissioner PIN this device will create on first use
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".mucard", 12000);
+      await evalOr(page, () => window.__GFFL__.LG.gateCommish()); // local backend: create-on-first-use, unchanged
+      await evalOr(page, () => window.__GFFL__.UI.openLocker(2));
+      ok(await waitOr(page, ".lockerhead", 12000), "the commissioner opens another owner's locker");
+      const btn = await evalOr(page, () => {
+        const b = document.querySelector("#lockerPinReset");
+        return b ? { present: true, hidden: !!b.closest(".lockeredit").hidden, txt: b.textContent.trim() } : { present: false };
+      }) || {};
+      ok(btn.present && btn.hidden === false && /Reset owner PIN/.test(btn.txt), "…and sees a Reset owner PIN control (" + JSON.stringify(btn) + ")");
+      await clickIn(page, "#lockerPinReset");
+      await sleep(700);
+      const doc2 = await teamDoc(page, 2);
+      ok(!!doc2 && !doc2.pinHash, "…pressing it clears the team's PIN hash (" + JSON.stringify(doc2 && doc2.pinHash) + ")");
+      ok(!!doc2 && doc2.claimedBy === "Eleanor", "…without disturbing anything else on the doc");
+      const after = await snapshotAllDocs(page);
+      ok(errors.length === 0, "0 page errors on the reset");
+      await ctx.close();
+
+      // The next device to claim that team runs the FIRST-CLAIM flow again and sets a fresh PIN
+      // — which is the only thing that makes a reset useful.
+      const { ctx: c2, page: p2, errors: e2 } = await newTestPage(browser, { docs: after, pass: "amenfarms", team: null, who: null });
+      await armPrompts(p2, ["Eleanor", "8888"]);
+      await p2.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(p2, ".teamrow", 9000);
+      await clickIn(p2, ".teamrow", "End Zone Goats");
+      ok(await waitOr(p2, ".mucard", 9000), "a reset team can be claimed again");
+      const asked2 = (await promptLog(p2)) || [];
+      ok(asked2.length === 2 && /Set a PIN for End Zone Goats/.test(asked2[1]),
+        "…and the claim RE-PROMPTS for a new PIN rather than asking for the old one (" + JSON.stringify(asked2) + ")");
+      const d2 = await evalOr(p2, (k) => JSON.parse(localStorage.getItem(k) || "null"), LSPFX + "team_2");
+      ok(!!d2 && d2.pinHash === H("8888"), "…which is what the team is protected by from now on");
+      ok(e2.length === 0, "0 page errors");
+      await c2.close();
+    }
+
+    // ---- AK7: the commissioner can edit ANY team's identity; nobody else can.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await armPrompts(page, []);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".mucard", 12000);
+      // (a) NOT the commissioner, somebody else's locker: the edits are hidden.
+      await evalOr(page, () => window.__GFFL__.UI.openLocker(2));
+      await waitOr(page, ".lockerhead", 12000);
+      const vis = await evalOr(page, () => {
+        const box = document.querySelector(".lockeredit");
+        return { present: !!box, hidden: !!(box && box.hidden), n: document.querySelectorAll(".lockeredit button").length };
+      }) || {};
+      ok(vis.present && vis.hidden === true, "a non-commissioner sees no identity edits on another team's locker (" + JSON.stringify(vis) + ")");
+      // …and a hidden button is still clickable from devtools, so the PIN is the real gate.
+      await evalOr(page, () => { window.__answers = ["0000"]; }); // a wrong commissioner PIN
+      // This device is the one that holds the league's commissioner hash (local backend — see
+      // AK1/AK2 for the cloud half); set it directly so the gate has something to refuse.
+      await evalOr(page, (h) => localStorage.setItem("dadPinHash", h), H("1234"));
+      await clickIn(page, "#lockerEditName");
+      await sleep(500);
+      const askedA = (await promptLog(page)) || [];
+      ok(askedA.length === 1 && /Commissioner PIN:/.test(askedA[0]), "…clicking one anyway reaches the commissioner PIN, not the rename (" + JSON.stringify(askedA) + ")");
+      ok((await teamDoc(page, 2)).name === "End Zone Goats", "…and a wrong PIN renames nothing");
+      // (b) unlock, re-open: the edits are there, and they work on a team that is not yours.
+      await evalOr(page, () => { window.__answers = ["1234"]; });
+      const unlocked = await evalOr(page, () => window.__GFFL__.LG.gateCommish());
+      ok(unlocked === true, "the commissioner unlocks");
+      await evalOr(page, () => window.__GFFL__.UI.openLocker(2));
+      await waitOr(page, ".lockerhead", 12000);
+      const vis2 = await evalOr(page, () => !!document.querySelector(".lockeredit") && !document.querySelector(".lockeredit").hidden);
+      ok(vis2 === true, "…and now sees the Name / Motto / Logo edits on another team's locker");
+      await evalOr(page, () => { window.__answers = ["Eleanor's Goats"]; });
+      await clickIn(page, "#lockerEditName");
+      await sleep(800);
+      ok((await teamDoc(page, 2)).name === "Eleanor's Goats", "…renaming another team works, with the session already unlocked (no second PIN prompt)");
+      // (c) the OWNER's own locker is unchanged: edits visible, no reset control, and pressing
+      // Name asks for the name and NOTHING else — no gate, no PIN, byte-identical to before S1.
+      await evalOr(page, () => { sessionStorage.removeItem("gfflCommish"); window.__promptLog = []; window.__answers = ["Battle Goats"]; });
+      await evalOr(page, () => window.__GFFL__.UI.openLocker(1));
+      await waitOr(page, ".lockerhead", 12000);
+      await sleep(400);
+      const own = await evalOr(page, () => ({
+        edits: !!document.querySelector(".lockeredit") && !document.querySelector(".lockeredit").hidden,
+        reset: !!document.querySelector("#lockerPinReset"),
+      })) || {};
+      ok(own.edits === true, "the owner still sees their own identity edits");
+      ok(own.reset === false, "…and no Reset owner PIN on their own locker — there is nothing to reset for yourself");
+      await clickIn(page, "#lockerEditName");
+      await sleep(800);
+      const askedC = (await promptLog(page)) || [];
+      ok(askedC.length === 1 && /Team name:/.test(askedC[0]), "…and pressing Name asks only for the name, with no commissioner gate (" + JSON.stringify(askedC) + ")");
+      ok((await teamDoc(page, 1)).name === "Battle Goats", "…which saves exactly as it always did");
+      ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
   }

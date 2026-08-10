@@ -919,6 +919,9 @@
   .lockeredit { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
   .lockeredit button { padding:5px 10px; font-size:11.5px; }
   .lockeredit button { background:rgba(0,0,0,.25); border-color:rgba(255,255,255,.35); color:#fff; }
+  /* S1's commissioner-only "Reset owner PIN" — deliberately quieter than the identity edits
+     beside it: it is a rare administrative action, not something to invite a tap. */
+  .lockeredit button.lockerpin { background:transparent; border-color:rgba(255,255,255,.22); color:rgba(255,255,255,.72); font-size:11px; }
 
   /* ---------------- player stats card (2026-08-08) ----------------
      A row that used to both "inform" (show a player) and "act" (open a sheet, add them to a
