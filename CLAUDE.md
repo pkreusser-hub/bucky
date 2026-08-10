@@ -10921,3 +10921,28 @@ decorative rather than legible — correct for a crest at that size, but it is w
 beside it stays. The crest is `alt=""` on purpose (the wordmark already names the app; announcing
 it twice is noise). `ffdraft.html` gets the touch icon and favicon but deliberately NO manifest of
 its own — a second manifest would offer a second, competing install for one app.
+
+### ⚠ THE INSTALL COLLISION: one origin can only ever hold ONE installed app (2026-08-10)
+
+User, the same day the crest shipped: *"I am not able to install the app onto a phone that already
+has bucky installed, it thinks they are the same app."* Not an icon bug — **a PWA's install identity
+is its ORIGIN**, and both apps live on `amenfarms.netlify.app`.
+`manifest.webmanifest` declares no `scope` and `start_url:"/"` → Bucky is installed with scope `/`.
+`league.webmanifest` also declares no `scope`, so it defaults to the DIRECTORY of its `start_url`
+(`/league.html`) → also `/`. Chrome will not install a second app whose scope is already covered by
+an installed one; it offers *"open in Bucky"* instead. Whichever is installed first wins, forever.
+**THE TWO FIXES THAT LOOK RIGHT AND ARE NOT**: a distinct `id` (GFFL already has `"/league.html"`,
+Bucky's resolves to `/` — different, and it still collides; `id` governs identity, not the install
+decision) and moving the league into a subdirectory (web.dev's *"multiple PWAs on the same domain"*
+is explicit that an inner app gets NO install prompt while the outer app is installed, and that the
+inner app's notifications are misattributed to the outer one; the W3C nested-scope issue #1180 is
+still unresolved, so there is no spec-blessed same-origin escape).
+**THE FIX IS A SEPARATE ORIGIN**, and the cheap form is a **domain ALIAS on the existing Netlify
+site** — same functions, same env vars, one deploy, only the hostname differs, which is exactly
+what identity keys on. A second Netlify site would work too but duplicates every secret and builds
+twice. Activation steps, and the trap that `league.webmanifest` must NOT be edited (its `start_url`
+is served from both hostnames and resolves against whichever loaded it — `"/"` would open Bucky on
+the old one), are written out in `netlify.toml`'s GFFL custom-domain block. **Cost, stated up
+front**: a new origin starts with empty `localStorage`, so every device re-enters the family
+password and re-picks who it is (`gffl_pass`, `choreUser`, `choreUnlocked`, `dadPinHash`); league
+data is in Firestore and is untouched. **BLOCKED ON**: the user buying the domain.

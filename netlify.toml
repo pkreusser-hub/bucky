@@ -20,6 +20,28 @@
 #    then answers at the domain ROOT while the rest of Bucky stays on
 #    amenfarms.netlify.app (force=false: real files/assets/functions still
 #    resolve normally; only the bare root rewrites to the league app).
+#
+# WHY THIS EXISTS AT ALL (2026-08-10, user hit it): a PWA's install identity is its
+# ORIGIN. Bucky is installed with scope "/" — manifest.webmanifest declares no scope
+# and start_url "/" — and Chrome will not install a second app whose scope is already
+# covered by an installed one; it offers "open in Bucky" instead. So on
+# amenfarms.netlify.app only ONE of the two can ever be installed. A distinct manifest
+# id does not help (GFFL already has one), and neither does moving the league into a
+# subdirectory — web.dev's "multiple PWAs on the same domain" is explicit that an inner
+# app gets no install prompt while the outer app is installed, and that its notifications
+# are misattributed to the outer app. A separate origin is the documented fix, and a
+# domain ALIAS on THIS site is the cheap form of it: same functions, same env vars, one
+# deploy — only the hostname differs, which is exactly what PWA identity keys on.
+#
+# 4) DO NOT change league.webmanifest. start_url/id stay "/league.html": the same
+#    manifest file is served from BOTH hostnames and its URLs resolve against whichever
+#    one loaded it, so "/league.html" is correct on both. Setting start_url to "/" would
+#    open BUCKY on amenfarms.netlify.app. scope stays absent for the same reason it
+#    always was — it defaults to "/", which keeps ffdraft.html inside the window.
+# 5) Install the league FROM the new domain (the old hostname will still hand you Bucky).
+#    A new origin starts with empty localStorage, so each device re-enters the family
+#    password and re-picks who it is (gffl_pass, choreUser, choreUnlocked, dadPinHash).
+#    League data lives in Firestore and is untouched.
 # [[redirects]]
 #   from = "https://thegffl.com/*"
 #   to = "/league.html"
