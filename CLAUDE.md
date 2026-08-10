@@ -10767,3 +10767,97 @@ and refuses with *"the NFL is still in preseason — nothing counts yet"* — a 
 a hidden control.
 
 Plates: `shots/gffl_2026_{league,matchup}_390.png`, `gffl_backups_confirm_390.png`.
+
+## 📱 GFFL — BACK WALKS THE APP, AND IT INSTALLS AS ONE (2026-08-10)
+
+User: *"clicking back takes you to the previous page you were on in the app, not out of chrome
+entirely… we also need to hide the browser bar at the top so it truly behaves like an app."*
+Files: `league.html` + `assets/league/lg-ui.js` + NEW `league.webmanifest` +
+`tools/_verify-gffl.cjs` (1620 → **1716**). The family's own `manifest.webmanifest` and
+`index.html` are untouched.
+
+**THE TWO ARE CONNECTED, AND THE ORDER MATTERS.** In standalone there is no browser chrome, so
+on Android the SYSTEM back button is the only back there is — and it fires `popstate`. Shipping
+standalone without history would have made things WORSE: Back would close the whole app from
+any view. History is a prerequisite for standalone being pleasant, not an independent nicety.
+
+**THE CAUSE WAS NOT MISSING HISTORY — IT WAS TWO HALF-SYSTEMS.** Five views wrote
+`location.hash` (which pushes an entry for free, so Back stepped back a view) while the other
+five changed view through a bare `UI.show()` that touched history not at all. Sometimes one,
+sometimes the other. That inconsistency WAS the bug.
+
+**ONE MECHANISM: `history.pushState`, with the view's own hash written as that entry's URL.**
+Chosen over extending hash routing because it is the only one of the two that can carry a
+**non-URL** entry, which the overlay sentinels need — "the player card is open" is not a place
+you can link to and must not appear in the address bar; hash routing would have forced a second
+mechanism back in for overlays. Writing the hash as the entry's URL keeps every deep link and
+reload working, so the URL stays the source of truth for WHICH view. **Nothing listens for
+`hashchange`** — traversal between two entries differing only by fragment fires BOTH popstate
+and hashchange, so a listener would double-route every Back press.
+**THE ENABLING SPLIT: `UI.show()` is a pure render, `UI.go()` is the one navigator.** Repaints
+(the live poll, `LG.db.onChange`, the replay's projection repaint) keep calling `show` and
+correctly leave history alone; anything a PERSON did goes through `go`.
+
+**WHAT BACK DOES**: previous view in order, Forward re-walks it · from the root or a deep-linked
+entry it **leaves** (boot is a `replaceState`, so it adds zero entries — asserted) · an open
+overlay (player card, swap sheet, claim sheet, chat lightbox) closes with the **view not
+moving**, and the next Back is a real view change · closing an overlay by its own ✕/Cancel/
+backdrop/Escape steps off the entry it pushed, so the stack stays clean · the NFL game's
+"‹ Scores" steps BACK over the game rather than pushing a second Scores (an entry field
+distinguishes "tapped in from Scores" from "deep-linked straight here").
+
+**FOUR BUGS FOUND ON THE WAY, none in the brief**: (1) `UI.show` could leave the URL naming a
+different screen than the one painted — a locker mid-edit jumped to the league home when a swap
+sheet closed; fixed structurally (`syncUrlToView`) so the invariant holds whoever calls what.
+(2) `history.back()` inside a repaint RACES the URL write in the same turn — the traversal lands
+a beat later and undoes the navigation; replacing the sentinel is synchronous. (3) `resolveView`
+mutated `UI.lockerTeamId` before the "am I already here?" comparison, so a Back onto `#team`
+decided nothing had moved; made pure. (4) The same trap in `UI.go` — tapping "My Team" from
+another owner's locker replaced instead of pushed, costing that Back. Also hardened: popstate
+refuses to route unless a REAL view is painted (`UI.view` defaults to `"league"` at module load,
+so on the gate/claim/outage/setup screens it would have painted a league home over them).
+
+**STANDALONE**: `league.webmanifest` — `display: standalone`, `start_url: /league.html`
+(pointing it at `/` would install a goat that opens the FARM app), `id`, theme + background
+`#0c1017` (the league's own `--bg`, so nothing flashes cream). **No `scope` deliberately** — the
+default `/` keeps the Draft link (`ffdraft.html`) inside the installed window. Plus the four iOS
+metas, since iOS reads none of the manifest for display mode.
+**SAFE AREAS**: the header GROWS BY and pads by the top inset (a sticky `top:0` strip must still
+paint to the edge, or the page scrolling past shows through); the offline chip and the desktop
+sticky tab strip follow the header's new height; `.sheet` carries the bottom inset (its last row
+is Cancel, exactly where the home indicator sits); `main`, `.bnav`, `.pcoverlay` and
+`.imgoverlay` carry the side insets for landscape. Verified byte-identical at zero insets, so
+the tabbed-browser layout does not move.
+**TESTING SAFE AREAS NEEDED A REAL TECHNIQUE**: headless resolves every inset to 0, so a rule
+that FORGOT one measures identically to one that carries it. The harness serves `league.html`
+with its own stylesheet mechanically substituted — a rule that never asked for the inset is
+untouched by the substitution, which is what makes it a genuine detector. Pre-fix it catches the
+header under the notch (wordmark at 17px vs a 47px inset) and the sheet clearing by 22px not 34.
+
+**⚠ THE ICON GAP**: there is **no league-specific icon**. The manifest reuses `icons/icon-192/512`
+and the maskables — the family app's Bucky goat. An installed GFFL wears the goat until someone
+draws it a football. Deliberately not invented or generated.
+
+**VERIFIED**: **1716/1716, 0 page errors** (1720 with `--shots`). Pre-fix with the app files at
+`main` and the manifest removed: **1671 / 45**, every failure inside the new section AJ — so all
+1620 pre-existing checks pass in BOTH worlds and **no restaging was required at all**.
+**TEST GOTCHAS**: `history.length` does NOT shrink on `back()` (a traversal doesn't truncate),
+so three assertions were rewritten to check where the reader is STANDING, not a dead sentinel;
+and a deep-link check needs a NONCE, because `page.goto` to a URL differing only in fragment is
+a same-document navigation and would silently exercise popstate instead of the cold-boot path a
+tapped bookmark takes (both paths are covered now).
+
+**WHAT ONLY A REAL INSTALLED DEVICE CAN SETTLE**: whether Android/iOS actually OFFER the install
+(Chrome wants engagement heuristics; iOS is Share → Add to Home Screen and reads no manifest for
+it); whether the real notch/home-indicator values match the 47/34 modelled; whether Android's
+system back GESTURE drives popstate identically to a button press; and how the splash renders
+from the goat icon on `#0c1017`.
+**KNOWN, documented cost**: a background cloud repaint of the SAME view while a sheet is open
+leaves one dead history entry, so a single Back closes nothing visible before the next walks the
+app. Neither locker nor Moves is live-repainted, so this is cloud-only and rare — and strictly
+better than the race the alternative reintroduces.
+**PROCESS LESSON**: `league.webmanifest` was created untracked and was LOST in a worker-process
+restart mid-review; it survived only because its contents were already in context. Commit new
+untracked files promptly.
+
+Plates: `shots/gffl_standalone_safearea_390.png`, `gffl_standalone_desktop.png`.
