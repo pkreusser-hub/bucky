@@ -1264,3 +1264,198 @@ deliberately NOT touched — fixing a write-ordering race in the waiver-processi
 a different, larger piece of surgery than "add a doc cache," and redesigning it under this
 session's scope risked a regression in the one system this app can least afford to get wrong
 (real money — FAAB budgets). Worth a dedicated pass on its own.
+
+---
+
+# 🐐 GFFL SEPTEMBER PLAN — Sleeper-gap features + the season-readiness program (2026-08-10)
+
+Planned against the dated facts: **draft Sat Sep 6 3:00 PM CT · `LG.SEASON_START` 2026-09-08 ·
+NFL kickoff Thu Sep 10 · preseason weeks 2–3 (Aug 13–17, Aug 20–23) are the live proving
+windows** — which §6 of the original plan already designated as playtest windows. The user's
+framing: the biggest risk is not missing features, it is UNPROVEN systems — all 1716 suite
+checks run against FIXTURES; the real ESPN/Sleeper feeds have never been probed by our own
+tooling end to end. So this plan is ordered proof-first: anything scoring-critical lands and is
+drilled before Sep 1; a freeze holds Sep 3–10.
+
+## R0 · THE READINESS PROGRAM (the spine everything else hangs on)
+
+**What is actually unproven** (each with the check that would catch it):
+1. ESPN's bare `/scoreboard` carrying a readable `season.type` in preseason — the write-once
+   `finalizeWeek` guard hangs on it (`__GFFL__.D.engineSeasonType()` must read `"pre"` live).
+2. Sleeper's `/state/nfl` week/season_type agreement, and whether preseason PROJECTIONS exist
+   at all (if not: PROJ reads "—", bare-not-broken, but we should KNOW).
+3. **Id resolution on the real rosters** — the NaN/zero-proj class (#54) came from identity;
+   the backup-filled 2026 rosters have never scored a live game.
+4. The kicker FG-by-yards rule (statId 214) present in a REAL box score.
+5. `processWaivers` / trade execution / finalize running against PRODUCTION Firestore under
+   real timing (the suite runs them in-process against fakes).
+6. The whole new-origin surface: install from goatfantasyleague.com on every family phone,
+   push permission, SW registration there.
+
+**The program**:
+- **P1 · Live-feed probe tool** — `tools/_gffl_live_probe.mjs`, READ-ONLY against real ESPN +
+  Sleeper (no writes, no league docs): season.type parse, state week, projections presence in
+  both `pre` and `regular` buckets, id-resolution rate of all four real rosters against the
+  real Sleeper pool (report every miss BY NAME), statId 214 in a real final box, latency.
+  Run it cold any day; run it DURING a live game on a preseason night. Written report per run.
+- **P2 · Game-night drill, preseason week 2 (Aug 13–17)** — production app + real devices
+  during live games: scores tick, matchup totals move, finalize refuses with the preseason
+  message, zero NaN, zero console errors. Headless-drivable against production for the
+  mechanical parts; humans confirm feel.
+- **P3 · Full-season dress rehearsal** — the 2025 replay (`?sim=1`) is the harness we already
+  own: one sitting, accelerated clock, `?fam=` scratch key: waivers Wednesday → trade + veto →
+  finalize weeks → bracket → champion → record book → backup EXPORT AND RESTORE (a backup that
+  has never been restored is not a backup — §8).
+- **P4 · Game-night drill #2, preseason week 3 (Aug 20–23)** — same as P2 plus every feature
+  shipped by then (push arriving on real phones, waiver-cron reminder observed firing).
+- **P5 · Freeze Sep 3–10** — fixes only. Draft-day runbook (who unlocks commish, what if a
+  device dies mid-draft, ffdraft recovery posture) + week-1 Sunday runbook (what to glance at,
+  how the stale-weeks card recovers, who to call = nobody, it self-heals).
+- **P6 · Week-1 shadow verification** — Sun Sep 13 night: hand-check 3–4 players' computed
+  points against the ESPN box score, and the matchup totals against a calculator. One page of
+  arithmetic, the last word on the scoring engine.
+
+## S1 · OWNER PINs + the commish-PIN hole (security first — it protects the season's integrity)
+
+**A hole TODAY'S DOMAIN MOVE OPENED, found during this dive**: `LG.gateCommish` seeds
+`dadPinHash` in localStorage on FIRST USE per device ("Set a commissioner PIN (first time)").
+On amenfarms that hash was already present on Dad's devices; on the fresh goatfantasyleague.com
+origin EVERY device is blank — so the first kid to tap a commissioner control on their own
+phone sets themselves a commish PIN. Fix before anything else ships.
+- **Commish PIN moves to the cloud**: a league settings doc field `commishPinHash`, synced at
+  boot; `gateCommish` verifies against it and only allows first-time SET when the cloud field
+  is empty. **Migration is free**: `LG.PASS === "amenfarms"` is the same salt the family app's
+  `dadAuth.pinHash` uses (`sha256(pin + ":" + pass)`), so Dad's existing PIN hash can be copied
+  into the league doc verbatim — same PIN everywhere, no re-enrolment.
+- **Owner PINs, mirrored on the dadAuth pattern**: claiming a team prompts "set your PIN";
+  `pinHash = sha256(pin + ":" + LG.PASS)` stored ON THE TEAM DOC. A different device tapping a
+  claimed team prompts for the PIN and compares hashes; match → local claim written, mismatch →
+  refused. Session flag per device as today.
+- **Commish reset**: on any locker, commish-only "Reset owner PIN" (behind `gateCommish`) →
+  clears `pinHash` → next claim sets fresh.
+- **Posture stated plainly** (house rule, same as dadAuth): Firestore rules are public, so this
+  is family-grade — it stops sibling mischief and honest mistakes, not devtools. Consistent
+  with the app's entire identity posture; server enforcement would be a different product.
+- **Commissioner edits any team's name/logo/motto** (user request): the locker edit buttons
+  currently render only on your OWN locker; they additionally render on every locker when
+  `isCommish()`, gated through `gateCommish` per action. No server change — `saveTeam` is
+  already open to the family secret.
+
+## S2 · DRAFT COUNTDOWN (small, ships with S1)
+
+League-page card, first position until the draft: **"🏈 DRAFT DAY — Sat Sep 6 · 3:00 PM CT"**
+with a live D/H/M/S countdown and the Draft link. `rules.draftAt` (ISO with offset,
+`2026-09-06T15:00:00-05:00`), commish-editable in the rules editor so a reschedule is a field
+edit, not a deploy. Counts on the REAL clock (`Date.now()`), deliberately NOT `LG.now()` — the
+draft is a real-world appointment and must not follow a replay clock; the one place in the app
+that is exempt from the engine clock, commented as such. At zero → "Draft is LIVE — join ▶";
+once rosters carry draft results (or T+6h) → quiet "Drafted ✓" line, then gone.
+
+## S3 · LOGO IDENTITY MAXIMIZATION (the unique angle)
+
+Today: `logoData` dataURL capped ~80KB (shared with chat images), palette extraction returns
+ONE primary colour, and the logo renders at 20/22/38px. The asset is better than its billing.
+- **Bigger source**: logo resize target → 512px, own `LOGO_CAP` (~160KB chars) split from the
+  chat `IMG_CAP` (per-team docs; Firestore's 1MB per-doc budget laughs at this).
+- **Richer palette**: `extractPalette` returns `{primary, secondary, ink}` (dominant-bucket
+  quantize, as now, plus second bucket + a luminance-clamped text colour). CONTRAST GUARD:
+  every derived colour is clamped against its background (relative-luminance floor) so a
+  white-on-white logo can never produce invisible chrome — asserted in the suite, not eyeballed.
+- **Locker hero**: full-width banner — the logo blurred+darkened as the backdrop wash, the
+  crisp logo 96–128px over it, name/motto/record set in palette-derived colours; stat chips,
+  progress bars and buttons on the locker take the team's colours.
+- **Matchup**: crest-vs-crest at 44–56px, each side's score block tinted by ITS team's palette
+  (the existing win/loss colour language keeps the last word — palette colours the identity,
+  not the verdict).
+- **Sizes up everywhere**: standings 20→28px, scores card 22→28px, chat byline avatars take
+  the team logo.
+- Plates at 390/1440 for: photo logo, flat-art logo, AND the no-logo initials placeholder.
+
+## S4 · PUSH NOTIFICATIONS (the one structural Sleeper gap)
+
+The whole FCM stack already exists for the family app — `push-client.js` (VAPID + lazy SDK),
+`firebase-messaging-sw.js` (served on BOTH origins already, same repo), `notify.mjs`,
+`pushTokens` docs `{token, familyKey, user}`. This is wiring, not invention.
+- **notify.mjs allowlist**: `ALLOWED_URL_ORIGIN` (currently the single amenfarms origin — the
+  open-redirect fix's deliberate strictness) becomes a SET adding `https://goatfantasyleague.com`
+  (+ www), still compared by PARSED origin, never prefix. League deep links then open the
+  installed league app.
+- **Token identity**: league enable writes the pushTokens doc with `user: <claimedBy>` plus a
+  `gfflTeam: <id>` field. Owner-targeted sends filter on `gfflTeam`; league-wide sends filter
+  on `gfflTeam != null`. Family chore/bank targeting (filters on `.user` names) is untouched.
+- **Enable UX**: a "🔔 Get league alerts on this phone" card on My Team (and once, post-claim).
+  iOS honesty: web push requires the INSTALLED PWA (iOS 16.4+) — the card says so on iOS when
+  running in-browser.
+- **Producers, v1 — all from moments the app is already awake** (no new server watchers):
+  trade proposed → target owner · trade accepted/vetoed → both/proposer · waiver results →
+  each owner with a claim, sent by the client that ran `processWaivers` · week finalized →
+  league-wide recap ("Battle Kreussers 41.0 — …") · chat @mention → mentioned owner. Client
+  calls notify.mjs after the action commits (the lobby-invite precedent).
+- **Producers, v2 (post-week-1)**: close-game alert and game-start reminders need a server
+  watcher (cron), deliberately deferred past the freeze.
+- **Verify**: fixture suite for every producer (fake-FCM pattern from `notif_bank_test`), then
+  one REAL push to a REAL phone per device in the install matrix (P4 drill).
+
+## S5 · SCHEDULED WAIVER NUDGE (cron as reminder, client stays the engine)
+
+The tempting design — port `processWaivers` into a scheduled function — is the WRONG one
+before a season: it duplicates the exact engine the suite verifies client-side, creating drift
+risk in the FAAB/priority code we can least afford to get wrong, five weeks before kickoff.
+The engine is already idempotent and any-client-carries-the-league-forward (§6 deviation).
+- **v1**: `netlify/functions/leaguecron.mjs` on the `chorereminders` cron pattern (UTC
+  schedule, Central-band guard in the handler): Wednesday ~8:00 AM CT, push to every league
+  token — "⏰ Waivers have processed — open the app for results." First open runs
+  `processWaivers` (seconds later in practice); that client then sends the per-owner RESULT
+  pushes (S4's producer). Cron never touches league docs at all — zero new scoring-critical
+  code.
+- **v2 (post-season-start, if the lag ever annoys)**: server-side processing, as its own pass
+  with its own suite — explicitly out of scope for September. Also the right home for the
+  §"worth a dedicated pass" FAAB write-ordering note above.
+
+## S6 · PLAYERS TABLE: SEARCH + TRENDING
+
+- **Search + position chips**: debounced name filter + QB/RB/WR/TE/K/DEF chips over the
+  already-client-side player pool. Pure lg-ui; also reused by the Moves ADD flow.
+- **Trending**: Sleeper's keyless `/v1/players/nfl/trending/add|drop` (the app already talks
+  to Sleeper client-side) → 🔥/🧊 badge column + "hot pickups" strip on Moves. Cached 1h in
+  localStorage; endpoint dead → feature absent, never an error (bare-not-broken).
+
+## S7 · TRADE COUNTER-OFFER
+
+Receiving owner gets **Counter** beside accept/veto: opens the existing trade builder
+prefilled with the sides SWAPPED; submitting writes a NEW trade doc with `counterOf: <id>` and
+marks the original `status: "countered"` (terminal — the doc model stays append-ish, no
+in-place mutation of a live offer). Moves renders the chain as one thread. Deadline check,
+roster-legality on accept, and the idempotency guard are the existing paths untouched. Push
+hooks from S4 (offer → target, counter → proposer).
+
+## S8 · MATCHUP WIN PROBABILITY (est.)
+
+Team estimate = live points + Σ(starter remaining projection), where remaining = projection ×
+fraction-of-game-left from the clock the app already renders. Win% = normal approximation over
+the two estimates with variance ∝ remaining projection (k calibrated against the 2025 replay).
+Displayed as a thin palette-tinted bar under the matchup header, labeled "est." — honest, not
+oracular. VERIFY on the replay: probability is sane at kickoff (near the projection gap),
+monotone-ish, and pins to 100/0 at final; suite asserts those properties, not exact numbers.
+
+## S9 · INJURY-STATUS-CHANGE FEED (the "news" that is actually reachable)
+
+Sleeper's real news feed is licensed content with no free API — not buildable. What IS: the
+player meta we already poll carries injury designations. Keep a league-wide last-known map
+(one doc); on poll, diff designations FOR ROSTERED PLAYERS ONLY; changes append to a small
+feed ("K. Walker: Questionable → Out") rendered as a league-page card, and push the owning
+team (S4). Rostered-only + designation-only keeps it signal, not noise.
+
+## ORDER AND CALENDAR
+
+| Window | Ships | Proof |
+|---|---|---|
+| Aug 10–16 | S1 PINs + commish-cloud-PIN · S2 countdown · S3 logos · P1 probe tool | **P1 cold + live run during preseason W2 (Thu Aug 13+)** · P2 drill |
+| Aug 17–23 | S4 push · S5 waiver cron · S6 search/trending | **P4 drill during preseason W3** — push on real phones, cron observed |
+| Aug 24–31 | S7 counter · S8 win prob · S9 injury feed | **P3 full-season dress rehearsal** + backup restore |
+| Sep 1–2 | slack for fallout | re-run full battery |
+| **Sep 3–10** | **FREEZE** — fixes only | P5 runbooks · **Sep 6 DRAFT** · install matrix |
+| Sep 10–14 | — | **P6 week-1 shadow verification** |
+
+Every S-item lands with its own suite section per house rule; the full `_verify-gffl.cjs`
+battery is the regression gate on each. Nothing scoring-critical ships after Aug 31.
