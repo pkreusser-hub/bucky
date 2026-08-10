@@ -678,6 +678,7 @@
     stopChatPoll(); // leaving whatever view had one open — chat/matchup-thread restart their own
     stopScoresPoll(); // ditto for the Scores tab's fantasy-scoreboard poll
     stopNflGamePoll(); // …and item 28's NFL game view — a poll must never outlive its view
+    stopDraftCountdown(); // S2 — the league home's own ticking clock, same rule
     const myLocker = name === "locker" && UI.lockerTeamId === LG.myTeamId();
     // The NFL game view (item 28) is a SUB-VIEW of Scores — it has no nav entry of its own, so
     // the Scores tab stays lit while you're inside a game, the same way the own-locker case
@@ -1164,12 +1165,20 @@
   //     used, so nothing about how the view is entered changes.
   //   · Draft leaves league.html entirely for ffdraft.html — a real <a href>, so middle-click,
   //     long-press and open-in-new-tab all still work, which a JS handler would take away.
-  function leagueLinksHtml() {
+  // S2: once the draft is more than 6h behind us, the big countdown card (below) is gone
+  // entirely and all that's left is this one quiet line — inside the existing links card, and
+  // deliberately AFTER the two buttons (not first position), so it reads as a settled fact
+  // rather than something still asking for attention.
+  function leagueLinksHtml(rules) {
+    const ds = draftState(rules);
+    const draftedLine = ds && ds.phase === "drafted"
+      ? `<p class="mut small draftedline">Drafted ✓ <span class="mut">${esc(draftDateLabel(ds.target))}</span></p>` : "";
     return `<div class="card leaguelinks">
       <button type="button" class="navlinkbtn" id="lnkRules">Rules &amp; settings
         <span class="mut small">Scoring, roster, waivers, keepers</span></button>
       <a class="navlinkbtn" id="lnkDraft" href="ffdraft.html">Draft room
         <span class="mut small">Opens the keeper draft board</span></a>
+      ${draftedLine}
     </div>`;
   }
   //  League chat card — the last 6 main-channel messages, collapsed the same way the record
@@ -1255,6 +1264,88 @@
         : "The commissioner can settle them from each week's own archived stats."}</p>
       ${list}</div>`;
   }
+  // ---------------- S2: draft countdown ----------------
+  // CLOCK RULE (the one exemption in this app): everything else that reads "now" goes through
+  // LG.now(), which under the 2025 replay — or any test's LG.nowOverride — can read ANY moment
+  // at all, including one nowhere near the real calendar. The draft is a real-world appointment
+  // (a specific Saturday everyone actually shows up for), not a replay event, so it counts down
+  // on the REAL wall clock, Date.now(), on purpose. This is the ONE place in the app that is
+  // deliberately exempt from LG.now() — see LG.now()'s own comment in lg-core.js for the
+  // precedence (test override -> replay clock -> Date.now()) this ignores wholesale.
+  const DRAFT_LIVE_WINDOW_MS = 6 * 3600 * 1000;
+  function draftState(rules) {
+    const at = rules && rules.draftAt;
+    const t = at ? new Date(at).getTime() : NaN;
+    if (!Number.isFinite(t)) return null; // no draftAt set (or unparseable) — nothing to show anywhere
+    const diff = t - Date.now(); // Date.now(), NEVER LG.now() — see the CLOCK RULE above
+    if (diff > 0) return { phase: "future", target: t, diff };
+    if (-diff <= DRAFT_LIVE_WINDOW_MS) return { phase: "live", target: t };
+    return { phase: "drafted", target: t };
+  }
+  // "Sat, Sep 6 · 3:00 PM CT" — every part of this is DERIVED from the stored timestamp (never
+  // hardcoded), so a commissioner reschedule updates the text with no code change, and it's
+  // rendered in the READER's own device time zone (Intl's `timeZoneName:"short"` abbreviation,
+  // whatever that is for whoever is looking at the screen — never assumed to be Central).
+  function draftDateLabel(t) {
+    const d = new Date(t);
+    const wd = new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(d);
+    const md = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(d);
+    const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short" }).format(d);
+    return `${wd}, ${md} · ${time}`;
+  }
+  function fmtDraftCountdown(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const days = Math.floor(s / 86400), hrs = Math.floor((s % 86400) / 3600), mins = Math.floor((s % 3600) / 60), secs = s % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    return days > 0 ? `${days}d ${pad(hrs)}h ${pad(mins)}m ${pad(secs)}s` : `${pad(hrs)}h ${pad(mins)}m ${pad(secs)}s`;
+  }
+  // The FIRST card on the league home while the draft is still ahead of us (plan §S2) — future
+  // (a ticking D/H/M/S clock) or live (accent-styled "join" — the app's existing LIVE colour
+  // language, same var(--accent) as .mulive/.sccard.live/.scstate.live). Once more than
+  // DRAFT_LIVE_WINDOW_MS past, this card renders nothing at all — see leagueLinksHtml's quiet
+  // "Drafted ✓" line for what replaces it.
+  function draftCountdownCardHtml(rules) {
+    const ds = draftState(rules);
+    if (!ds || ds.phase === "drafted") return "";
+    const when = draftDateLabel(ds.target);
+    if (ds.phase === "live") {
+      return `<div class="card draftcard draftlive" data-draft-phase="live">
+        <h2>🏈 DRAFT DAY</h2>
+        <p class="draftwhen mut small">${esc(when)}</p>
+        <a class="navlinkbtn draftjoin" id="draftJoinBtn" href="ffdraft.html">Draft is LIVE — join ▶</a>
+      </div>`;
+    }
+    return `<div class="card draftcard" data-draft-phase="future">
+      <h2>🏈 DRAFT DAY</h2>
+      <p class="draftwhen mut small">${esc(when)}</p>
+      <div class="draftclock" id="draftClock">${esc(fmtDraftCountdown(ds.diff))}</div>
+      <a class="navlinkbtn" id="draftJoinBtn" href="ffdraft.html">Draft room →</a>
+    </div>`;
+  }
+  // Idempotent start/stop, the same shape as startChatPoll/stopChatPoll above — UI.show() stops
+  // this alongside the other polls on every view change, and renderLeague() (re)starts it on
+  // every render (repaint or not), always CLEARING any prior handle first so re-rendering the
+  // league home three times in a row leaves exactly one interval alive, never a stack of them.
+  UI._draftTimer = null;
+  function stopDraftCountdown() { if (UI._draftTimer) { clearInterval(UI._draftTimer); UI._draftTimer = null; } }
+  function startDraftCountdown() {
+    stopDraftCountdown();
+    const initial = draftState(LG.rules);
+    // Nothing to ever tick: no draftAt at all, or already settled — a settled state can only
+    // change via a commissioner reschedule, which is picked up fresh the next time this view
+    // is rendered (renderLeague always recomputes from the CURRENT LG.rules.draftAt).
+    if (!initial || initial.phase === "drafted") return;
+    UI._draftTimer = setInterval(() => {
+      const cur = draftState(LG.rules);
+      const card = document.querySelector(".draftcard");
+      const domPhase = card ? card.dataset.draftPhase : "drafted";
+      if (!cur || cur.phase !== domPhase) { renderLeague(true); return; } // crossed a phase boundary — the card's whole shape changes
+      if (cur.phase === "future") {
+        const clock = $("#draftClock");
+        if (clock) clock.textContent = fmtDraftCountdown(cur.diff);
+      }
+    }, 1000);
+  }
   async function renderLeague(repaint) {
     if (!LG.teams.length) { renderFirstRun(repaint); return; }
     if (!repaint) {
@@ -1306,12 +1397,13 @@
     const noGamesMsg = !schedule ? `No schedule yet${isCommish() ? " — generate one in Rules" : ""}.`
       : UI.week > seasonWeeks ? "See the Playoffs card below." : "No games this week.";
     main().innerHTML = `
+      ${draftCountdownCardHtml(LG.rules)}
       <div class="card">
         <div class="rowline"><h2>Week ${UI.week}</h2><span id="healthChip" class="health" hidden></span></div>
         ${wkGames.length ? `<div class="mugrid">${wkGames.map(([h, a]) => matchupCard(h, a)).join("")}</div>` : `<p class="mut">${noGamesMsg}</p>`}
         ${finalizeBtn}
       </div>
-      ${leagueLinksHtml()}
+      ${leagueLinksHtml(LG.rules)}
       ${staleWeeksHtml(UI._staleWeeks, isCommish())}
       ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
       ${powerRankingsHtml(UI._allWeekly)}
@@ -1386,6 +1478,7 @@
     wireLockerTaps();
     wireLazyLeagueDetails();
     paintHealth();
+    startDraftCountdown();
   }
   // Boot-speed pass (2026-08-08): record book / recent moves / league chat each load their
   // real data only the moment their <details> is actually opened for the first time — see
@@ -3776,8 +3869,10 @@
   // RULE_LABELS is the ONE source of truth for every key in LG.DEFAULT_RULES — covers every
   // group (scoring/roster/waivers/trades/keepers/playoffs), keyed exactly the way `data-k`
   // already is ("<group>.<key>"), so the SAME map drives both the grouped view-mode headings
-  // and every edit-mode input's label.
+  // and every edit-mode input's label. "draftAt" has no group — it's a flat top-level rules
+  // field (S2) — and is keyed by its bare name for the same reason (see rowTop below).
   const RULE_LABELS = {
+    draftAt: "Draft day (ISO date)",
     "scoring.pass_yd": "Passing yards", "scoring.pass_td": "Passing TD", "scoring.pass_int": "Interception thrown",
     "scoring.pass_2pt": "2-pt conversion (pass)", "scoring.bonus_pass_300": "300-399 yd passing game bonus",
     "scoring.bonus_pass_400": "400+ yd passing game bonus",
@@ -3849,6 +3944,12 @@
     return `${p.teams}-team playoffs (top ${p.byes} get byes${playInTxt}) · starts week ${p.startWeek}, week-by-week single elimination.`;
   }
   function scheduleSummaryLine(r) { return `${r.seasonWeeks}-week regular season, double round robin.`; }
+  // S2: draftAt has no group (it's a flat top-level rules field), so it gets the same plain-
+  // English treatment as the other summary lines above rather than a raw table row.
+  function draftAtSummaryLine(r) {
+    const ds = draftState(r);
+    return ds ? `Draft day: ${draftDateLabel(ds.target)}` : "No draft day set.";
+  }
   UI.renderRules = renderRules;
   async function renderRules(editing) {
     const r = LG.rules;
@@ -3861,6 +3962,14 @@
     const rowE = (group, key, obj) => `<tr><td>${esc(RULE_LABELS[group + "." + key] || key)}</td>
       <td class="num"><input class="redit" data-k="${group}.${key}" value="${esc(String(obj[key]))}"></td></tr>`;
     const row = (group, key, obj) => (editing ? rowE : rowV)(group, key, obj);
+    // S2's draftAt is TOP-LEVEL (no group to nest it under), so it gets its own tiny row pair
+    // with a bare `data-k` (no dot) — the save handler below treats a dot-less data-k as a key
+    // straight on `next` itself rather than on `next[group]`.
+    const rowVTop = (key, obj) => `<tr><td>${esc(RULE_LABELS[key] || key)}</td>
+      <td class="num">${esc(String(obj[key]))}</td></tr>`;
+    const rowETop = (key, obj) => `<tr><td>${esc(RULE_LABELS[key] || key)}</td>
+      <td class="num"><input class="redit" data-k="${key}" value="${esc(String(obj[key]))}"></td></tr>`;
+    const rowTop = (key, obj) => (editing ? rowETop : rowVTop)(key, obj);
     const scoringGroupsHtml = SCORING_GROUPS.map((g) => {
       const keys = editing ? g.keys : g.keys.filter((k) => Number(r.scoring[k]) !== 0);
       if (!keys.length) return ""; // a fully-zero group (view mode only) contributes nothing, not an empty heading
@@ -3898,6 +4007,9 @@
       </div>` : ""}
       ${simPhaseCardHtml()}
       <div class="card mut small">${esc(r.name)} · season ${r.season} · ${scheduleSummaryLine(r)}</div>
+      <div class="card"><h2>Draft</h2>
+        <p class="mut small">${esc(draftAtSummaryLine(r))}</p>
+        ${editing ? `<div class="panner"><table class="tbl"><tbody>${rowTop("draftAt", r)}</tbody></table></div>` : ""}</div>
       <div class="card"><h2>Scoring</h2>${scoringGroupsHtml}${paHtml}</div>
       ${simpleSection("Roster", rosterSummaryLine(r), "roster", r.roster)}
       ${simpleSection("Waivers", waiversSummaryLine(r), "waivers", r.waivers)}
@@ -3921,15 +4033,21 @@
         // unparseable numeric box keeps its old value and says so rather than corrupting scoring.
         const rejected = [];
         document.querySelectorAll(".redit").forEach((inp) => {
-          const [g, k] = inp.dataset.k.split(".");
-          if (!next[g] || !(k in next[g])) return;
+          // S2: draftAt's `data-k` carries no dot (it's top-level, not "group.key") — a
+          // dot-less key writes straight onto `next` itself instead of `next[group]`.
+          const parts = inp.dataset.k.split(".");
+          const g = parts.length > 1 ? parts[0] : null;
+          const k = parts.length > 1 ? parts[1] : parts[0];
+          const target = g ? next[g] : next;
+          if (!target || !(k in target)) return;
           const raw = inp.value.trim();
           const n = Number(raw);
-          if (typeof next[g][k] === "number") {
-            if (raw !== "" && Number.isFinite(n)) next[g][k] = n;
-            else rejected.push(RULE_LABELS[g + "." + k] || k);
+          const label = RULE_LABELS[(g ? g + "." : "") + k] || k;
+          if (typeof target[k] === "number") {
+            if (raw !== "" && Number.isFinite(n)) target[k] = n;
+            else rejected.push(label);
           } else {
-            next[g][k] = raw !== "" && Number.isFinite(n) ? n : raw;
+            target[k] = raw !== "" && Number.isFinite(n) ? n : raw;
           }
         });
         if (rejected.length) toast("Left unchanged (needs a number): " + rejected.slice(0, 3).join(", "));

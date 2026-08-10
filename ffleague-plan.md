@@ -1269,7 +1269,9 @@ session's scope risked a regression in the one system this app can least afford 
 
 # 🐐 GFFL SEPTEMBER PLAN — Sleeper-gap features + the season-readiness program (2026-08-10)
 
-Planned against the dated facts: **draft Sat Sep 6 3:00 PM CT · `LG.SEASON_START` 2026-09-08 ·
+Planned against the dated facts: **draft SUN Sep 6 3:00 PM CT (user-confirmed 2026-08-10; this
+plan first said "Sat" and the S2 build agent caught it — Sep 6 2026 is a Sunday) ·
+`LG.SEASON_START` 2026-09-08 ·
 NFL kickoff Thu Sep 10 · preseason weeks 2–3 (Aug 13–17, Aug 20–23) are the live proving
 windows** — which §6 of the original plan already designated as playtest windows. The user's
 framing: the biggest risk is not missing features, it is UNPROVEN systems — all 1716 suite
@@ -1343,7 +1345,7 @@ phone sets themselves a commish PIN. Fix before anything else ships.
 
 ## S2 · DRAFT COUNTDOWN (small, ships with S1)
 
-League-page card, first position until the draft: **"🏈 DRAFT DAY — Sat Sep 6 · 3:00 PM CT"**
+League-page card, first position until the draft: **"🏈 DRAFT DAY — Sun Sep 6 · 3:00 PM CT"**
 with a live D/H/M/S countdown and the Draft link. `rules.draftAt` (ISO with offset,
 `2026-09-06T15:00:00-05:00`), commish-editable in the rules editor so a reschedule is a field
 edit, not a deploy. Counts on the REAL clock (`Date.now()`), deliberately NOT `LG.now()` — the

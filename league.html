@@ -663,6 +663,20 @@
                 font:600 13px var(--font-display); letter-spacing:.6px; text-transform:uppercase; }
   .navlinkbtn:hover { border-color:var(--border-hover); color:var(--ink); }
   .navlinkbtn .small { font:400 11px var(--font-body); letter-spacing:0; text-transform:none; }
+  /* S2's quiet "Drafted ✓" line — appended AFTER the two buttons above, on its own row. */
+  .draftedline { flex:1 1 100%; margin:2px 0 0; }
+
+  /* S2: the draft-day card, first on the league home while the draft is still ahead. Centered,
+     a little larger than an ordinary card — this is the one thing on the page with a clock
+     running against it. LIVE reuses the app's existing LIVE colour language (var(--accent),
+     same as .mulive/.sccard.live/.scstate.live) rather than inventing a new one. */
+  .draftcard { text-align:center; }
+  .draftcard h2 { font-size:15px; letter-spacing:1px; }
+  .draftwhen { margin:2px 0 10px; }
+  .draftclock { font:700 30px var(--font-display); letter-spacing:.5px; margin-bottom:12px; }
+  .draftcard .navlinkbtn { display:inline-flex; flex:0 0 auto; text-align:center; min-width:180px; }
+  .draftlive { border-color:var(--accent); }
+  .draftlive .draftjoin { background:var(--accent); border-color:var(--accent); color:#fff; }
 
   /* ---------------- chat ---------------- */
   .chatcard { padding-bottom:0; }

@@ -812,6 +812,15 @@
     abbrev: "GFFL",
     season: LG.SEASON,
     seasonWeeks: 14,
+    // S2 (draft countdown): an ISO string WITH ITS OWN OFFSET, never a bare date/time — the
+    // league home's countdown card and the Rules editor both parse this directly with
+    // `new Date(...)`, and an offset-less string parses as local-to-the-READER's device,
+    // which would silently point every family member's countdown at a different real moment.
+    // Commissioner-editable in Rules → Draft, so a reschedule is a field edit, not a deploy.
+    // NOTE: 2026-09-06 is actually a SUNDAY (the plan's "Sat Sep 6" prose is off by a day) —
+    // the countdown card derives its weekday from THIS value at render time rather than
+    // hardcoding one, so it shows the correct "Sun, Sep 6" regardless of this comment.
+    draftAt: "2026-09-06T15:00:00-05:00", // 3:00 PM CT
     scoring: {
       pass_yd: 0.04, pass_td: 4, pass_int: -2, pass_2pt: 2,
       rush_yd: 0.1, rush_td: 6, rush_2pt: 2,

@@ -4984,7 +4984,12 @@ async function openDetails(page, id) {
     async function sweep(page, label) {
       const r = await page.evaluate(() => {
         const clone = document.body.cloneNode(true);
-        clone.querySelectorAll(".chatText2, .chatQuote, .lockermotto, .chatMeta b, input, textarea, option").forEach((el) => el.remove());
+        // RESTAGED 2026-08-1x (S2): the draft-day countdown card is a DELIBERATE, spec-required
+        // exception to item 10's zero-emoji rule — "🏈 DRAFT DAY" and "Draft is LIVE — join ▶"
+        // are the plan's own exact copy (§S2), not decoration that crept in. It's excluded here
+        // the same way chat/motto/free-text containers already are, rather than weakening the
+        // \p{Extended_Pictographic} check itself for every other view.
+        clone.querySelectorAll(".chatText2, .chatQuote, .lockermotto, .chatMeta b, input, textarea, option, .draftcard").forEach((el) => el.remove());
         let txt = clone.textContent || "";
         const names = (window.__GFFL__.LG.teams || []).map((t) => t.name).filter(Boolean);
         for (const n of names) txt = txt.split(n).join(" ");
@@ -12216,6 +12221,167 @@ async function openDetails(page, id) {
       ok(askedC.length === 1 && /Team name:/.test(askedC[0]), "…and pressing Name asks only for the name, with no commissioner gate (" + JSON.stringify(askedC) + ")");
       ok((await teamDoc(page, 1)).name === "Battle Goats", "…which saves exactly as it always did");
       ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+  }
+
+  // ---- AL: S2 — the draft countdown ----
+  // A league-home card that counts down to rules.draftAt, and the ONE clock exemption in the
+  // whole app: it reads the REAL wall clock (Date.now()), never LG.now() — see lg-ui.js's own
+  // CLOCK RULE comment. That means LG.nowOverride (every other section's test-clock hook) has
+  // no effect on it at all, so this section moves the REAL clock instead, by overriding
+  // Date.now() itself via evaluateOnNewDocument BEFORE the app's first script runs — a fixed
+  // OFFSET added to the real Date.now() reading, so the fake "now" still advances on genuine
+  // wall-clock ticks (proving the countdown actually ticks) while sitting wherever the test
+  // wants it relative to draftAt.
+  section("AL · S2 — the draft countdown");
+  {
+    // DEFAULT_RULES.draftAt, as an absolute instant — note 2026-09-06 is actually a SUNDAY (the
+    // plan's own "Sat Sep 6" prose is off by a day); the card derives its weekday from THIS
+    // value rather than any hardcoded word, so "Sun, Sep 6" is the CORRECT rendering, not a bug.
+    const DRAFT_AT_MS = new Date("2026-09-06T15:00:00-05:00").getTime();
+    const HOUR = 3600 * 1000, DAY = 24 * HOUR;
+    async function armFakeClock(page, fakeNowMs) {
+      const offset = fakeNowMs - Date.now();
+      await page.evaluateOnNewDocument((off) => {
+        const realNow = Date.now.bind(Date);
+        Date.now = () => realNow() + off; // a FIXED offset over the genuine wall clock — it ticks
+      }, offset);
+    }
+    // America/Chicago throughout: makes the rendered "…CT" text deterministic and checkable,
+    // independent of whatever zone the machine running this suite happens to be in — the app
+    // itself makes no such assumption (Intl reads the DEVICE zone; this just fixes what the
+    // device zone is for the test).
+    async function bootAtFakeNow(fakeNowMs) {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await page.emulateTimezone("America/Chicago");
+      await armFakeClock(page, fakeNowMs);
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      return { ctx, page, errors };
+    }
+    // ---- future: first card on the league home, date text derived from rules.draftAt, ticks ----
+    {
+      const { ctx, page, errors } = await bootAtFakeNow(DRAFT_AT_MS - 3 * DAY);
+      const first = await page.evaluate(() => {
+        const el = document.querySelector("main").firstElementChild;
+        return el ? { cls: el.className, html: el.outerHTML, phase: el.dataset.draftPhase } : null;
+      });
+      ok(!!first && first.cls.includes("draftcard"), "the draft-day card is the FIRST card on the league home while the draft is in the future");
+      ok(first.phase === "future", "…rendered in its future (ticking) phase");
+      ok(/DRAFT DAY/.test(first.html), "…titled DRAFT DAY");
+      // Derived FROM rules.draftAt, not hardcoded — weekday/month/day/time/zone all present and
+      // correct for the STORED instant (a real Sunday, 3:00 PM, Central time).
+      ok(/Sun, Sep 6/.test(first.html), "…date text reads the correct weekday+date derived from rules.draftAt (" + first.html.match(/<p class="draftwhen[^>]*>[^<]*/) + ")");
+      ok(/3:00\s*PM/.test(first.html) && /C[SD]T/.test(first.html), "…and the time + zone abbreviation, via Intl timeZoneName:\"short\" (device-local, never assumed Central)");
+      ok(/href="ffdraft\.html"/.test(first.html), "…and links straight to the draft room (ffdraft.html)");
+      // Ticks: two reads a real 1.5s apart must differ — a value frozen at render time would
+      // read identically both times.
+      const read1 = await page.evaluate(() => document.getElementById("draftClock").textContent);
+      await sleep(1500);
+      const read2 = await page.evaluate(() => document.getElementById("draftClock").textContent);
+      ok(read1 !== read2, "the D/H/M/S countdown genuinely ticks (\"" + read1 + "\" → \"" + read2 + "\" 1.5s later)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    // ---- live: at draftAt, and for 6h after ----
+    {
+      const { ctx, page, errors } = await bootAtFakeNow(DRAFT_AT_MS + 2 * HOUR);
+      const card = await page.evaluate(() => {
+        const el = document.querySelector(".draftcard");
+        const join = el && el.querySelector("#draftJoinBtn");
+        return el ? {
+          phase: el.dataset.draftPhase, cls: el.className, html: el.outerHTML,
+          joinText: join ? join.textContent.trim() : null, joinHref: join ? join.getAttribute("href") : null,
+          joinBg: join ? getComputedStyle(join).backgroundColor : null,
+        } : null;
+      });
+      ok(!!card && card.phase === "live", "a mocked now 2h past draftAt shows the LIVE state (" + JSON.stringify(card && card.phase) + ")");
+      ok(card.joinText === "Draft is LIVE — join ▶", "…exact copy: \"Draft is LIVE — join ▶\" (" + card.joinText + ")");
+      ok(card.joinHref === "ffdraft.html", "…still the same Draft link (ffdraft.html)");
+      ok(card.joinBg === "rgb(213, 10, 10)", "…styled in the app's own LIVE colour, var(--accent) (" + card.joinBg + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    // ---- drafted: more than 6h past — the big card is gone, a quiet line remains ----
+    {
+      const { ctx, page, errors } = await bootAtFakeNow(DRAFT_AT_MS + 8 * HOUR);
+      const info = await page.evaluate(() => {
+        const links = document.querySelector(".leaguelinks");
+        const line = links && links.querySelector(".draftedline");
+        return {
+          bigCard: !!document.querySelector(".draftcard"),
+          drafted: line ? line.textContent.trim() : null,
+          notFirst: line ? [...links.children].indexOf(line) > 0 : null,
+        };
+      });
+      ok(info.bigCard === false, "8h past draftAt: the big DRAFT DAY card is gone entirely");
+      ok(!!info.drafted && /^Drafted ✓/.test(info.drafted), "…and a quiet \"Drafted ✓\" line is present instead (" + info.drafted + ")");
+      ok(info.notFirst === true, "…living inside the existing Rules/Draft links card, NOT in first position");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    // ---- no interval leak: re-rendering the league home never stacks the ticking timer ----
+    {
+      const { ctx, page, errors } = await bootAtFakeNow(DRAFT_AT_MS - 3 * DAY);
+      const leak = await page.evaluate(async () => {
+        const UI = window.__GFFL__.UI;
+        const created = [], cleared = [];
+        const origSI = window.setInterval, origCI = window.clearInterval;
+        window.setInterval = function (fn, ms) { const id = origSI(fn, ms); created.push(id); return id; };
+        window.clearInterval = function (id) { cleared.push(id); return origCI(id); };
+        // AWAITED, one at a time — same-view repaints (wireLazyLeagueDetails, finalize, etc.)
+        // are always sequential real-world events, never fired concurrently with no await
+        // between them; racing three unawaited calls would test a scenario that can't happen.
+        await UI.renderLeague(true); await UI.renderLeague(true); await UI.renderLeague(true);
+        window.setInterval = origSI; window.clearInterval = origCI;
+        const stillAlive = created.filter((id) => !cleared.includes(id));
+        return { created: created.length, cleared: cleared.length, stillAlive, current: UI._draftTimer };
+      });
+      ok(leak.created === 3, "re-rendering the league home 3x starts a fresh countdown interval each time (" + leak.created + ")");
+      ok(leak.stillAlive.length === 1, "…but exactly ONE stays alive — every earlier one was cleared before the next started (" + JSON.stringify(leak) + ")");
+      ok(leak.stillAlive[0] === leak.current, "…and the survivor is exactly the timer renderLeague is currently tracking (UI._draftTimer)");
+      // Leaving the league view for good must stop it too — UI.show()'s own cleanup.
+      await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+      await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
+      const stoppedOnNav = await page.evaluate(() => window.__GFFL__.UI._draftTimer == null);
+      ok(stoppedOnNav, "…and navigating away from League stops it entirely (UI.show's stopDraftCountdown, same pattern as chat/scores/NFL-game polls)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    // ---- a commissioner rules-edit of draftAt persists and updates the rendered date ----
+    {
+      const { ctx, page, errors } = await bootAtFakeNow(DRAFT_AT_MS - 10 * DAY); // well before EITHER the old or new draftAt below
+      const before = await page.evaluate(() => document.querySelector(".draftwhen").textContent);
+      ok(/Sun, Sep 6/.test(before), "before the edit: the league home shows the default draft date (" + before + ")");
+      await page.evaluate(() => window.__GFFL__.UI.show("rules"));
+      await page.waitForFunction(() => document.body.textContent.includes("League rules"), { timeout: 5000 });
+      const viewSummary = await page.evaluate(() => document.body.textContent);
+      ok(/Draft day: Sun, Sep 6/.test(viewSummary), "Rules (view mode) shows a plain-English \"Draft day: …\" line, same derivation");
+      // Edit (commissioner PIN prompt -> the suite's stub answers "1234", same as section F).
+      await clickIn(page, "#rulesEdit");
+      await page.waitForSelector(".redit", { timeout: 5000 });
+      const draftInp = await page.evaluate(() => {
+        const inp = document.querySelector('.redit[data-k="draftAt"]');
+        return inp ? { present: true, value: inp.value, label: inp.closest("tr").firstElementChild.textContent } : { present: false };
+      });
+      ok(draftInp.present && draftInp.value === "2026-09-06T15:00:00-05:00", "the editor round-trips draftAt as its raw ISO STRING, unmodified (" + JSON.stringify(draftInp) + ")");
+      ok(draftInp.label === "Draft day (ISO date)", "…under the label added to the Rules editor's label map");
+      const NEW_DRAFT_AT = "2026-09-13T18:00:00-05:00"; // a week later, 6:00 PM CT
+      await page.evaluate((v) => { document.querySelector('.redit[data-k="draftAt"]').value = v; }, NEW_DRAFT_AT);
+      await clickIn(page, "#rulesEdit"); // now Save
+      await page.waitForFunction(() => (window.__GFFL__.LG.rulesDoc || {}).v >= 1, { timeout: 5000 });
+      const savedRules = await page.evaluate(() => window.__GFFL__.LG.rules);
+      ok(savedRules.draftAt === NEW_DRAFT_AT && typeof savedRules.draftAt === "string", "the commissioner edit PERSISTS to LG.rules.draftAt, still a string (" + JSON.stringify(savedRules.draftAt) + ")");
+      const rulesDoc = await page.evaluate(() => window.__GFFL__.LG.rulesDoc);
+      ok((rulesDoc.log[rulesDoc.log.length - 1].changes || []).some((c) => /draftAt: 2026-09-06T15:00:00-05:00 → 2026-09-13T18:00:00-05:00/.test(c)),
+        "…and the change is logged with before → after, same transparency rule as every other rules edit");
+      await page.evaluate(() => document.querySelector('.bnav button[data-v="league"]').click());
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      const after = await page.evaluate(() => document.querySelector(".draftwhen").textContent);
+      ok(/Sun, Sep 13/.test(after) && /6:00\s*PM/.test(after) && after !== before,
+        "…and the league home's countdown card reflects the RESCHEDULED date on the very next render — no hardcoded text anywhere (" + JSON.stringify({ before, after }) + ")");
+      ok(errors.length === 0, "0 page errors through the whole reschedule flow");
       await ctx.close();
     }
   }
