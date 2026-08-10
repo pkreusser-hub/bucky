@@ -36,10 +36,22 @@
   // flipping the flag back brings them all straight back. Season-NEUTRAL docs (team_<id>,
   // settings, chat, tx) are deliberately SHARED: the 8 real teams are the replay's teams.
   //
-  // ⭐ WHEN THE FAMILY IS READY FOR THE REAL 2026 SEASON: set SIM_2025_DEFAULT to false — and
-  // nothing else. LG.SEASON / LG.SEASON_START / LG.now() all revert together, the replay
-  // banner disappears, live polling comes back, and the 2026 docs are visible again.
-  const SIM_2025_DEFAULT = true;
+  // ⭐ SWITCHED OFF 2026-08-09 (ITEM 29) — THE APP IS THE REAL 2026 SEASON AGAIN.
+  // The claim this comment used to make ("set SIM_2025_DEFAULT to false — and nothing else")
+  // was AUDITED before it was trusted, and it held for exactly what it named: LG.SEASON,
+  // LG.SEASON_START and LG.now() do all revert together, live polling comes back, the replay's
+  // own auto-setup / phase card / projection warmers all early-return, and the 2026 docs are
+  // visible again. Every LG.SIM_2025 consumer was walked; none of them needed touching.
+  //
+  // What the claim did NOT cover, because nothing had ever run this code in AUGUST, is
+  // PRESEASON — see the season-type guard in LG.finalizeWeek and D.engineSeasonType(). Flipping
+  // this flag on its own would have let the app write week 1's WRITE-ONCE regular-season record
+  // from preseason box scores. That is a separate fix, in a separate place, and it is
+  // permanent-season code rather than replay code: it protects the real September rollover too.
+  //
+  // The replay itself is NOT deleted — ?sim=1 still restores the whole 2025 week-1 experience
+  // (its own season, clock, phases, historical slate and derived projections) for testing.
+  const SIM_2025_DEFAULT = false;
   // ?sim=0 / ?sim=1 is a QA + preview override ONLY (same posture as ?fam=): it is never
   // persisted anywhere, so it can't leave a device stuck in the wrong season, and it survives
   // location.reload() the same way ?fam= does. The family never needs it.
@@ -909,6 +921,70 @@
     }
     return out; // [week][game] = [homeId, awayId]
   };
+  // ---------------- ⭐ ITEM 31: fill every roster from the backup pool (2026-08-09) ----------
+  // A PURE function — no DOM, no network, no clock, no LG.db — so it can be asserted directly
+  // and so re-running it against the same directory produces byte-identical rosters on every
+  // device. lg-data's D.backupPool supplies the ordered pool; lg-ui wires the button and the
+  // confirm step. It lives here beside generateSchedule because it is the same kind of thing:
+  // a deterministic league-shaped builder.
+  //
+  // SNAKE ORDER is what makes the distribution even. The pool is strictly best-first, so a
+  // straight repeated pass would hand team 1 the best player at every single position; snaking
+  // (forward on even rounds, reversed on odd) means the team that picks last in one round picks
+  // first in the next. Team ids are SORTED for the same reason runSimSetup sorts them before
+  // generating a schedule — LG.teams' own order comes off a backend list() and is not stable
+  // between devices, and a snake is order-sensitive.
+  //
+  // Every team gets exactly the same slot script, so the rosters are identical in SHAPE as well
+  // as size. `short` names any slot the pool ran dry on rather than silently handing some teams
+  // fewer players — an honest partial, reported, never a silent one.
+  LG.buildBackupRosters = function (arg) {
+    const roster = (arg && arg.roster) || LG.DEFAULT_RULES.roster;
+    const pool = (arg && arg.pool) || [];
+    const defenses = ((arg && arg.defenses) || []).slice();
+    const ids = ((arg && arg.teamIds) || []).slice().sort((a, b) => a - b);
+    // The pick script: one entry per roster spot, in the order they are drafted. IR is
+    // deliberately absent — those three spots take genuinely-out players only (LG.irEligible),
+    // and this pool excludes them on purpose.
+    const script = [];
+    for (const s of ["QB", "RB", "WR", "TE", "FLEX", "DST", "K"]) {
+      for (let i = 0; i < (roster[s] || 0); i++) script.push(s);
+    }
+    for (let i = 0; i < (roster.BENCH || 0); i++) script.push("BENCH");
+
+    const q = { QB: [], RB: [], WR: [], TE: [], K: [] };
+    // _i falls back to the pool's own index, so a hand-built pool (or one that came through a
+    // JSON round trip, which drops nothing but is easy to forget) still orders correctly.
+    pool.forEach((p, i) => { if (q[p.pos]) q[p.pos].push({ ...p, _i: p._i != null ? p._i : i }); });
+    // "The best remaining across these positions" — every queue shares one global order, so
+    // comparing their heads by _i is the whole comparison. This is what FLEX and the bench need.
+    const take = (positions) => {
+      let best = null, bestPos = null;
+      for (const pos of positions) {
+        const head = q[pos] && q[pos][0];
+        if (head && (best === null || head._i < best._i)) { best = head; bestPos = pos; }
+      }
+      if (!best) return null;
+      q[bestPos].shift();
+      return best;
+    };
+    const out = {}; ids.forEach((id) => { out[id] = []; });
+    const short = [];
+    for (let r = 0; r < script.length; r++) {
+      const slot = script[r];
+      const order = r % 2 === 0 ? ids : ids.slice().reverse();
+      for (const id of order) {
+        const p = slot === "DST" ? defenses.shift()
+          : slot === "FLEX" ? take(["RB", "WR", "TE"])
+            : slot === "BENCH" ? take(["QB", "RB", "WR", "TE", "K"])
+              : take([slot]);
+        if (!p) { if (!short.includes(slot)) short.push(slot); continue; }
+        out[id].push({ key: p.key, name: p.name, pos: p.pos, team: p.team, slot, injury: p.injury || "" });
+      }
+    }
+    return { rosters: out, size: script.length, short, teamIds: ids };
+  };
+
   // generateSchedule's in-memory shape ([week][game] = [homeId, awayId]) is an array
   // DIRECTLY containing arrays two levels deep — weeks[i] is itself an array of [h,a]
   // pairs. Cloud Firestore's document model explicitly forbids an array value containing
@@ -1462,6 +1538,11 @@
     const d = LG.data;
     return d && d.engineWeek ? d.engineWeek() : null;
   }
+  // …and which part of the season those rows are from (ITEM 30). Same shape, same null rule.
+  function fzSeasonType() {
+    const d = LG.data;
+    return d && d.engineSeasonType ? d.engineSeasonType() : null;
+  }
   function fzGameState(team) {
     const d = LG.data;
     if (!d || !d.S || !d.slpTeam) return null;
@@ -1676,6 +1757,16 @@
       // write-once doc. The archived-stats backfill above stays available — that's a
       // deliberate commissioner action against real numbers, not a guess off the board.
       if (LG.SIM_2025) return { ok: false, reason: "sim-replay" };
+      // ⭐ ITEM 30 (2026-08-09) — PRESEASON. This is the guard the week check cannot be:
+      // preseason week 1 and regular-season week 1 are both "1", and LG.currentWeek() clamps
+      // to 1 before SEASON_START, so from the day preseason starts until the real opener the
+      // two agree exactly while the board holds exhibition football. Everything downstream
+      // would then have passed — every starter's game reads "post" by Sunday night — and
+      // weekly_<season>_w1 is WRITE-ONCE: standings, waiver priority, power rankings, playoff
+      // seeding and the record book would all have carried a preseason result permanently.
+      // Positively-regular only (D.engineRegular), so an unknown season type refuses too.
+      const est = fzSeasonType();
+      if (est !== "regular") return { ok: false, reason: est ? "preseason" : "no-live-data", seasonType: est };
       const ew = fzEngineWeek();
       if (ew == null) return { ok: false, reason: "no-live-data" };
       if (ew !== week) return { ok: false, reason: "stale-week", engineWeek: ew };

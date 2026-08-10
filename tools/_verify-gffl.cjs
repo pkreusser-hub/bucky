@@ -31,12 +31,13 @@ const SPORTS_NFL_PORT = 8848; // item 28's fake site.api.espn.com for netlify/fu
                               // nfl_game call runs the REAL sports.mjs handler IN NODE, so its
                               // upstream fetch never passes through the browser at all.
 const BASE = "http://127.0.0.1:" + SRV_PORT;
-// RESTAGED 2026-08-08 (the 2025 season replay): LG.SIM_2025 now ships ON by default, which
-// moves LG.SEASON to 2025 and pins the clock to week 1 of that season. Every section A-Z below
-// was written against the REAL 2026 league (its seeds are roster_2026_*/sched_2026, its
-// hand-computed expectations are 2026's), so they all boot with the documented ?sim=0 QA
-// override — the same posture ?fam= already has. Section X (the new one) is the only section
-// that boots WITHOUT it, i.e. as the family's own devices will.
+// RESTAGED 2026-08-09 (ITEM 29): the 2025 replay is switched OFF by default — the app ships as
+// the real 2026 season again — so ?sim=0 is now the same answer as no param at all. It is KEPT
+// on every boot anyway, deliberately: it states each section's premise out loud (these sections
+// were written against the 2026 league, with roster_2026_*/sched_2026 seeds and 2026's
+// hand-computed expectations), and it means flipping the default back for a future replay
+// cannot silently reinterpret 1500 checks. Section X opts INTO the replay with ?sim=1; section
+// AI is the one that boots with no sim param at all, exactly as a family device does.
 const SIMOFF = "&sim=0";
 const SHOTS = process.argv.includes("--shots");
 
@@ -103,6 +104,19 @@ const fixture = {
   // MINORITY of players carry an espn_id (measured live: 6,727 of 12,217). Default false, so
   // every other section sees exactly the fixture it always did.
   prod2025: false,
+  // ---- Section AI (2026-08-09, ITEMS 29-31). All default OFF.
+  // preseason: BOTH providers report the preseason — ESPN's scoreboard season.type 1, Sleeper's
+  // /state/nfl season_type "pre" — which is the state the app is actually in on 2026-08-09 and
+  // the state in which NOTHING may finalize. Flipping only one of them would test a provider
+  // disagreement, not preseason, so it moves both together on purpose.
+  preseason: false,
+  preseasonWeek: 1,
+  preseasonFinal: false, // every preseason game reads Final — see sbFix's own note
+  unplayedRegular: false, // Sleeper answers {} for a regular-season week nobody has played yet
+  // depthCharts: the Sleeper directory grows depth_chart_order / depth_chart_position, plus a
+  // realistically-sized pool of 2s and 3s (the base fixture's 19 players carry no depth data
+  // at all, so the backup fill would have nothing to draft and every check would be vacuous).
+  depthCharts: false,
 };
 
 // ---------------- section AC: production-shaped identity data (2026-08-09) ----------------
@@ -727,9 +741,16 @@ function sbFix() {
       ],
     }],
   });
+  // ITEM 30 (2026-08-09): preseasonFinal flips BOTH games to "post". That is the state in which
+  // finalizeWeek's every OTHER gate is satisfied — the engine's week matches the league's, and
+  // every starter's game reads final — so it is the only state in which the season-type guard
+  // is the one thing standing between the app and a permanently-wrong weekly doc. Default off.
+  const done = fixture.preseasonFinal;
   const events = [
-    mk("401900001", "DAL", "PHI", "in", { date: "2026-08-07T00:15Z", detail: "Q2 5:00", period: 2, clock: "5:00", hs: "14", as: "10", net: "FOX" }),
-    mk("401900002", "KC", "DEN", "pre", { date: KICK_FUTURE, detail: "Sun 12:00 PM", net: "CBS", spread: "DEN -3.5" }),
+    mk("401900001", "DAL", "PHI", done ? "post" : "in",
+      { date: "2026-08-07T00:15Z", detail: done ? "Final" : "Q2 5:00", period: done ? 4 : 2, clock: done ? "0:00" : "5:00", hs: done ? "13" : "14", as: done ? "20" : "10", net: "FOX" }),
+    mk("401900002", "KC", "DEN", done ? "post" : "pre",
+      { date: done ? "2026-08-07T00:15Z" : KICK_FUTURE, detail: done ? "Final" : "Sun 12:00 PM", hs: done ? "17" : undefined, as: done ? "14" : undefined, net: "CBS", spread: done ? "" : "DEN -3.5" }),
   ];
   if (fixture.pregame) {
     events.push(mk("401900777", "SF", "SEA", fixture.pregameState,
@@ -749,6 +770,12 @@ function sbFix() {
   // provenance finalizeWeek now refuses to guess at (findings 1/3/7).
   const out = { events };
   if (fixture.espnWeekNum != null) out.week = { number: fixture.espnWeekNum };
+  // …and WHICH PART of the season (ITEM 30, 2026-08-09). ADDED here rather than only in the
+  // preseason fixture: the real payload carries season.type on EVERY scoreboard response, and
+  // a fixture that omitted it left the suite unable to distinguish "the guard is satisfied" from
+  // "the guard has nothing to read". 2 = regular season, which is what every pre-existing
+  // section has always meant.
+  out.season = { type: fixture.preseason ? 1 : 2, year: 2026 };
   return out;
 }
 // -- the 2025 SEASON REPLAY's historical slate (2026-08-08). The replay asks ESPN's own public
@@ -762,6 +789,10 @@ function sbFix() {
 // which is what makes "the replay presents them all as 0-0 upcoming" a real assertion rather
 // than a tautology.
 const simSbUrls = [];
+// ITEM 30 (2026-08-09): every Sleeper stats/projections URL the page asks for, recorded so
+// section AI can assert the season-TYPE segment ("/stats/nfl/pre/2026/1") rather than trust it.
+const slpStatsUrls = [];
+const slpProjUrls = [];
 function sbSim2025Fix() {
   const ev = (id, away, home, date, net, extra) => ({
     id, shortName: away + " @ " + home, date,
@@ -805,7 +836,57 @@ function sbSim2025Fix() {
 function ath(id, name, pos, stats) {
   return { athlete: { id, displayName: name, position: { abbreviation: pos } }, stats };
 }
+// ITEM 30 (2026-08-09): the SAME game, as a preseason box. In real preseason both providers
+// report the same exhibition numbers, so the fixture does too — which is what makes the
+// matchup page's total a single hand-computable figure rather than "whichever source happened
+// to be freshest". Mirrors PRE_WEEK1 exactly:
+//   P. Passer   75 pass yd (·0.04 = 3) + 1 TD (4) + 0 INT          = 7.0
+//   W. Receiver 3 rec (1 ea) + 22 rec yd (·0.1)                    = 5.2
+//   R. Rusher / K. Kicker  nothing at all — starters barely play    = 0
+//   PHI D/ST    DAL scored 20 (dst_pa_18_27 = 0) + 1 sack (1)      = 1.0
+//   DAL D/ST    PHI scored 13 (dst_pa_7_13 = 3) + 0 sacks          = 3.0
+// ⚠ A DEFENSE'S CREDITS COME FROM THE OPPONENT'S OWN BLOCK. ESPN's per-team statistics are
+// OFFENSIVE: "sacksYardsLost" is sacks ALLOWED, "interceptions" is picks THROWN, "fumblesLost"
+// is fumbles lost. So PHI's defense is credited from the DAL block, and vice versa — the sack
+// below sits on DAL for PHI's D/ST to earn it. (Getting this backwards is what the first cut of
+// this fixture did, and the suite caught it as a swapped pair of D/ST scores.)
+function sumAPreFix() {
+  const state = fixture.preseasonFinal ? "post" : "in";
+  return {
+    header: { competitions: [{
+      competitors: [
+        { homeAway: "home", team: { abbreviation: "PHI" }, score: "13" },
+        { homeAway: "away", team: { abbreviation: "DAL" }, score: "20" },
+      ],
+      status: { period: 4, displayClock: "0:00", type: { state, shortDetail: state === "post" ? "Final" : "Q4 0:00" } },
+    }] },
+    boxscore: {
+      teams: [
+        { team: { abbreviation: "DAL" }, statistics: [
+          { name: "interceptions", displayValue: "0" }, { name: "sacksYardsLost", displayValue: "1-7" }, { name: "fumblesLost", displayValue: "0" }] },
+        { team: { abbreviation: "PHI" }, statistics: [
+          { name: "interceptions", displayValue: "0" }, { name: "sacksYardsLost", displayValue: "0-0" }, { name: "fumblesLost", displayValue: "0" }] },
+      ],
+      players: [
+        { team: { abbreviation: "PHI" }, statistics: [
+          { name: "passing", labels: ["C/ATT", "YDS", "AVG", "TD", "INT"],
+            athletes: [ath("3915511", "P. Passer", "QB", ["7/11", "75", "6.8", "1", "0"])] },
+          { name: "receiving", labels: ["REC", "YDS", "AVG", "TD", "LONG", "TGTS"],
+            athletes: [ath("4361741", "W. Receiver", "WR", ["3", "22", "7.3", "0", "11", "4"])] },
+        ] },
+        { team: { abbreviation: "DAL" }, statistics: [
+          { name: "rushing", labels: ["CAR", "YDS", "AVG", "TD"],
+            athletes: [ath("4241457", "R. Rusher", "RB", ["0", "0", "0.0", "0"])] },
+          { name: "kicking", labels: ["FG", "PCT", "LONG", "XP", "PTS"],
+            athletes: [ath("2473037", "K. Kicker", "K", ["0/0", "0.0", "0", "0/0", "0"])] },
+        ] },
+      ],
+    },
+    scoringPlays: [],
+  };
+}
 function sumAFix() {
+  if (fixture.preseason) return sumAPreFix();
   const p2 = fixture.phase >= 2;
   return {
     header: { competitions: [{
@@ -848,6 +929,12 @@ function sumBFix() {
   return { header: { competitions: [{ competitors: [], status: { type: { state: "pre" } } }] }, boxscore: { players: [], teams: [] }, scoringPlays: [] };
 }
 const slpStateFix = { season: "2026", season_type: "regular", week: 1 };
+// ITEM 30 (2026-08-09): what Sleeper actually says in August. season_type "pre" is the whole
+// point — the WEEK is still 1, which is exactly why a week number alone is not provenance.
+function slpStateNow() {
+  if (!fixture.preseason) return fixture.sleeperWeek != null ? { ...slpStateFix, week: fixture.sleeperWeek } : slpStateFix;
+  return { season: "2026", season_type: "pre", week: fixture.preseasonWeek, leg: fixture.preseasonWeek };
+}
 const slpPlayersFix = {
   "6904": { full_name: "P. Passer", team: "PHI", position: "QB", espn_id: 3915511 },
   "7564": { full_name: "W. Receiver", team: "PHI", position: "WR", espn_id: 4361741 },
@@ -899,7 +986,93 @@ function slpDirectoryFix() {
       dir["95" + (100 + i)] = { full_name: "Filler " + String.fromCharCode(65 + (i % 26)) + i, team: "KC", position: pos[i % 5], search_rank: 500 + i };
     }
   }
+  if (fixture.depthCharts) dir = { ...dir, ...depthDirectoryFix() };
   return dir;
+}
+// ---- ITEM 31 fixtures (2026-08-09): NFL depth charts.
+// The base directory carries no depth_chart_order at all, so a backup-fill check against it
+// would be vacuous — the pool would be empty and every assertion about "who got drafted" would
+// pass by drafting nobody. This is a realistically-sized pool: 140 depth-2/3 skill players, one
+// team defense per GFFL team, and — the part that makes the exclusions real — three players who
+// must NOT be drafted, each for a different reason.
+const DEPTH_FIRST = ["Alden", "Boyd", "Cass", "Deke", "Emory", "Ford", "Gray", "Hollis", "Ike", "Jarrod", "Knox", "Lane"];
+const DEPTH_SUR = ["Ames", "Barnes", "Cole", "Dane", "Ellis", "Frame", "Gates", "Hale", "Innis", "Joiner",
+  "Kerr", "Lowe", "Mabry", "Nye", "Ott", "Pyle", "Quill", "Rowe", "Sayers", "Tate"];
+const DEPTH_TEAMS = ["PHI", "DAL", "KC", "DEN", "SF", "SEA", "BUF", "GB"];
+// 20 QB / 40 RB / 45 WR / 20 TE / 15 K = 140. Every positional minimum an 8-team league needs
+// clears with room to spare: 8 starting QBs from 20, 16 RB from 40, 16 WR from 45, 8 TE from
+// 20, 8 K from 15, then 8 FLEX and 56 bench from what is left.
+const DEPTH_SPLIT = [["QB", 20], ["RB", 40], ["WR", 45], ["TE", 20], ["K", 15]];
+function depthDirectoryFix() {
+  const out = {};
+  let i = 0;
+  for (const [pos, n] of DEPTH_SPLIT) {
+    for (let k = 0; k < n; k++, i++) {
+      const pid = "dp" + String(i).padStart(4, "0");
+      out[pid] = {
+        full_name: DEPTH_FIRST[i % DEPTH_FIRST.length] + " " + DEPTH_SUR[Math.floor(i / DEPTH_FIRST.length) % DEPTH_SUR.length],
+        team: DEPTH_TEAMS[i % DEPTH_TEAMS.length], position: pos,
+        // INTERLEAVED 2/3, deliberately: the pool has to SORT every 2 ahead of every 3 rather
+        // than inherit the directory's own order, and interleaving is what makes that a real
+        // assertion instead of an accident.
+        depth_chart_order: i % 2 === 0 ? 2 : 3,
+        depth_chart_position: pos,
+        search_rank: 200 + i,
+        // Only every third one carries an espn_id — the production shape (measured live:
+        // 6,727 of 12,217), and what makes both key forms (espn_id and slp_<pid>) real here.
+        ...(i % 3 === 0 ? { espn_id: 700000 + i } : {}),
+      };
+    }
+  }
+  // The three that must NOT be drafted, one reason each.
+  out.dpStarter = { full_name: "Ace Starter", team: "PHI", position: "RB", depth_chart_order: 1, depth_chart_position: "RB", search_rank: 1 };
+  out.dpHurt = { full_name: "Sid Sidelined", team: "DAL", position: "WR", depth_chart_order: 2, depth_chart_position: "WR", search_rank: 2, injury_status: "Out" };
+  out.dpNoTeam = { full_name: "Free Agentson", team: "", position: "RB", depth_chart_order: 2, depth_chart_position: "RB", search_rank: 3 };
+  // …and a Questionable backup who MUST still be drafted: in preseason a dinged 2 plays plenty.
+  out.dpDinged = { full_name: "Query Maybe", team: "KC", position: "TE", depth_chart_order: 2, depth_chart_position: "TE", search_rank: 4, injury_status: "Questionable" };
+  // One team defense per GFFL team (the base fixture has 4; an 8-team league needs 8).
+  DEPTH_TEAMS.forEach((ab, n) => {
+    out[ab] = { first_name: ab, last_name: "Defense", team: ab, position: "DEF", search_rank: 300 + n };
+  });
+  return out;
+}
+// ---- ITEM 30 (2026-08-09): the PRESEASON stat bucket. Deliberately DIFFERENT numbers from the
+// regular-season week-1 fixture, so "the live board is showing preseason data" is a real
+// assertion rather than one that would pass either way.
+//   P. Passer   75 pass yd (·0.04) + 1 TD (4)      =  7.0   (regular week 1 is 10.0)
+//   W. Receiver 3 rec (1 ea) + 22 rec yd (·0.1)    =  5.2   (regular week 1 is 9.0)
+//   F. Agent    2 rec + 15 rec yd                  =  3.5   (unrostered — the players table)
+//   PHI D/ST    20 pts allowed (0) + 1 sack (1)    =  1.0
+const PRE_WEEK1_BASE = {
+  "6904": { pass_yd: 75, pass_td: 1 },
+  "7564": { rec: 3, rec_yd: 22 },
+  "9201": { rec: 2, rec_yd: 15 },
+  PHI: { pts_allow: 20, sack: 1 },
+};
+// …and, ONLY when the depth-chart directory is armed, preseason lines for the drafted backups
+// themselves. Nothing hand-computed depends on these — every exact-number check above runs with
+// fixture.depthCharts OFF — but the REVIEW PLATE does: a matchup page of 2s and 3s all reading
+// 0.0 would show the opposite of the thing item 31 exists to demonstrate, which is that the
+// backups are the players who actually score in an exhibition game. Position follows
+// DEPTH_SPLIT's own index ranges (0-19 QB, 20-59 RB, 60-104 WR, 105-124 TE, 125-139 K); every
+// third one plays, which is about the share of a depth chart that sees real snaps.
+function preDepthLines() {
+  const out = {};
+  for (let i = 0; i < 140; i += 3) {
+    const pid = "dp" + String(i).padStart(4, "0");
+    if (i < 20) out[pid] = { pass_yd: 60 + i * 7, pass_td: i % 2 };
+    else if (i < 60) out[pid] = { rush_yd: 12 + (i % 40), rush_td: i % 9 === 0 ? 1 : 0 };
+    else if (i < 105) out[pid] = { rec: 2 + (i % 4), rec_yd: 15 + (i % 45) };
+    else if (i < 125) out[pid] = { rec: 1 + (i % 3), rec_yd: 8 + (i % 20) };
+    else out[pid] = { fgm_20_29: 1, xpm: 1 + (i % 2) };
+  }
+  for (const ab of ["DAL", "KC", "DEN", "SF", "SEA", "BUF", "GB"]) {
+    out[ab] = { pts_allow: 10 + (ab.charCodeAt(0) % 14), sack: 1 + (ab.charCodeAt(1) % 3) };
+  }
+  return out;
+}
+function preWeek1() {
+  return fixture.depthCharts ? { ...PRE_WEEK1_BASE, ...preDepthLines() } : PRE_WEEK1_BASE;
 }
 // Section V (adversarial review 2026-08-08) needs Sleeper's stats endpoint to answer
 // DIFFERENTLY per week — the whole point of findings 1/3/7 is that week N and week N+1 hold
@@ -1119,8 +1292,10 @@ function seedSim2025(extra) {
   return { docs: { ...docs, ...(extra || {}) }, pass: "amenfarms", team: 1, who: "Peter" };
 }
 // Deliberately NOT bootPage(): that appends SIMOFF. This boots the replay at its default 8x.
+// RESTAGED 2026-08-09 (ITEM 29): the replay is no longer the default, so it is now opted into
+// explicitly with ?sim=1. Everything these sections assert about it is unchanged.
 async function bootSim(page) {
-  await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "networkidle0" });
+  await page.goto(BASE + "/league.html?fam=" + FAM + "&sim=1", { waitUntil: "networkidle0" });
   await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 15000 });
   await page.waitForSelector(".mucard", { timeout: 25000 });
 }
@@ -1315,14 +1490,21 @@ async function newTestPage(browser, seed, opts) {
         }
         if (u.includes("api.sleeper.app")) {
           if (fixture.sleeperDown) return req.respond({ status: 503, headers: cors, body: "{}" });
-          if (u.endsWith("/state/nfl")) return json(fixture.sleeperWeek != null ? { ...slpStateFix, week: fixture.sleeperWeek } : slpStateFix);
+          if (u.endsWith("/state/nfl")) return json(slpStateNow());
           if (u.endsWith("/players/nfl")) return json(fixture.prod2025 ? prodSlpDirectory() : slpDirectoryFix());
           if (u.includes("/stats/nfl/")) {
-            const sm = /\/stats\/nfl\/[^/]+\/(\d+)\/(\d+)/.exec(u);
+            const sm = /\/stats\/nfl\/([^/]+)\/(\d+)\/(\d+)/.exec(u);
+            slpStatsUrls.push(u); // ITEM 30 — the season-TYPE segment is what section AI asserts
+            if (sm && sm[1] === "pre") return json(preWeek1());
+            // A REGULAR-season week nobody has played yet. Sleeper answers 200 with {} — not an
+            // error, not a week of zeroes — and the app has to read that as "no archived stats"
+            // rather than backfilling a permanent weekly doc full of nothing (ITEM 30).
+            if (fixture.unplayedRegular && sm && sm[1] === "regular") return json({});
             if (fixture.prod2025) return json(PROD_WEEK1);
-            return json(slpStatsFix(sm ? sm[2] : u.split("/").pop(), sm ? sm[1] : null));
+            return json(slpStatsFix(sm ? sm[3] : u.split("/").pop(), sm ? sm[2] : null));
           }
           if (u.includes("/projections/nfl/")) {
+            slpProjUrls.push(u);
             if (fixture.prod2025) return json(PROD_PROJ);
             // 2025 replay requests are season/week-aware (SIM_PROJ_FIX above); every other
             // caller (the real 2026 league) is untouched — same generic slpProjFix always.
@@ -6005,8 +6187,13 @@ async function openDetails(page, id) {
     // testing is the pre-kickoff presentation or a fixed instant — every such pin is annotated
     // at its own call site with the reason. A bare bootSim() boots exactly as a family device
     // will (live, 8x).
+    // RESTAGED 2026-08-09 (ITEM 29): the replay is no longer the DEFAULT — the app ships as the
+    // real 2026 season now — so this section opts into it explicitly with ?sim=1, the documented
+    // QA override that still restores the whole 2025 week-1 experience. Everything the section
+    // asserts about the replay is unchanged; only how it is entered.
+    const SIMON = "&sim=1";
     const bootSim = async (page, q) => {
-      await page.goto(BASE + "/league.html?fam=" + FAM + (q || ""), { waitUntil: "networkidle0" });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMON + (q || ""), { waitUntil: "networkidle0" });
       await page.waitForFunction(() => !!window.__GFFL__, { timeout: 12000 });
     };
     // The pre-kickoff pin, frozen: what section X was written against before the clock existed.
@@ -6033,7 +6220,11 @@ async function openDetails(page, id) {
           uiWeek: window.__GFFL__.UI.week,
         };
       });
-      ok(cal.sim === true, "LG.SIM_2025 is ON by default — no flag, no URL param, nothing to switch on");
+      // RESTAGED 2026-08-09 (ITEM 29): this used to read "ON by default — nothing to switch on".
+      // The default is now the real 2026 season, so what has to hold is that ?sim=1 STILL
+      // restores the whole replay rather than that it arrives unasked. (The default itself is
+      // asserted in section AI, from a boot that carries no sim param at all.)
+      ok(cal.sim === true, "?sim=1 still restores the 2025 replay in full");
       ok(cal.season === 2025, "…LG.SEASON is 2025 (" + cal.season + ")");
       ok(cal.start === "2025-09-02", "…LG.SEASON_START is the Tuesday before the real Sept-4 opener (" + cal.start + ")");
       ok(cal.phase === "pre", "…?simphase=pre selects the before-kickoff phase (" + cal.phase + ")");
@@ -6065,6 +6256,10 @@ async function openDetails(page, id) {
     }
 
     // ---- X1b: ?sim=0 reverts everything, one param, nothing persisted.
+    // RESTAGED 2026-08-09 (ITEM 29): ?sim=0 is now the same answer as no param at all, so this
+    // reads as "the override can't strand a device" rather than "the override is how you get
+    // the real season". It is kept because that property still has to hold — a link carrying
+    // ?sim=0 must not persist anything either.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page); // bootPage carries SIMOFF
@@ -6510,7 +6705,10 @@ async function openDetails(page, id) {
       }
       ok(bad.length === 0, "no trace of the removed sandbox survives in the shipping files (" + bad.join(" | ") + ")");
       const core = fs.readFileSync(path.join(ROOT, "assets", "league", "lg-core.js"), "utf8");
-      ok(/const SIM_2025_DEFAULT = true;/.test(core), "…and the ONE switch to flip is a single documented literal");
+      // RESTAGED 2026-08-09 (ITEM 29): the literal is now `false` — the app ships as the real
+      // 2026 season. What this check is FOR is unchanged and still worth having: whichever way
+      // the replay is set, it must be one documented literal and not a scattering of conditions.
+      ok(/const SIM_2025_DEFAULT = false;/.test(core), "…and the ONE switch is a single documented literal, now reading false");
     }
 
     // ================= X8 · THE LIVE PHASE — a clock that runs, games mid-play =============
@@ -7519,7 +7717,10 @@ async function openDetails(page, id) {
   {
     const prodSeed = () => ({ docs: prodSeedDocs(), pass: "amenfarms", team: 1, who: "Peter" });
     const bootProd = async (page, extra) => {
-      await page.goto(BASE + "/league.html?fam=" + FAM + "&simphase=live&simspeed=0" + (extra || ""), { waitUntil: "networkidle0" });
+      // RESTAGED 2026-08-09 (ITEM 29): ?sim=1 — this section's seeds are roster_2025_* and its
+      // hand-computed expectations are the replay's, so it opts into the replay explicitly now
+      // that the app's default is the real 2026 season.
+      await page.goto(BASE + "/league.html?fam=" + FAM + "&sim=1&simphase=live&simspeed=0" + (extra || ""), { waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 15000 });
       await page.evaluate(() => window.__GFFL__.D.pollOnce());
       await page.evaluate(() => window.__GFFL__.D.pollOnce());
@@ -8194,7 +8395,8 @@ async function openDetails(page, id) {
     {
       fixture.rich2025 = true;
       const { ctx, page, errors } = await newTestPage(browser, { docs: { ...seedTeams() }, pass: "amenfarms", team: 1, who: "Peter" });
-      await page.goto(BASE + "/league.html?fam=" + FAM + "&simspeed=0", { waitUntil: "networkidle0" });
+      // RESTAGED 2026-08-09 (ITEM 29): ?sim=1 — the replay is opted into explicitly now.
+      await page.goto(BASE + "/league.html?fam=" + FAM + "&sim=1&simspeed=0", { waitUntil: "networkidle0" });
       await page.waitForFunction(() => !!window.__GFFL__, { timeout: 12000 });
       ok(await waitOr(page, ".mucard", 25000), "the 2025 replay boots (its own historical-slate parser, not pollScoreboard)");
       await page.waitForFunction(() => window.__GFFL__.D.S.nflEvents.length > 0, { timeout: 15000 });
@@ -8813,7 +9015,8 @@ async function openDetails(page, id) {
     {
       fixture.rich2025 = true;
       const { ctx, page, errors } = await newTestPage(browser, { docs: { ...seedTeams() }, pass: "amenfarms", team: 1, who: "Peter" });
-      await page.goto(BASE + "/league.html?fam=" + FAM + "&simspeed=0", { waitUntil: "networkidle0" });
+      // RESTAGED 2026-08-09 (ITEM 29): ?sim=1 — the replay is opted into explicitly now.
+      await page.goto(BASE + "/league.html?fam=" + FAM + "&sim=1&simspeed=0", { waitUntil: "networkidle0" });
       await page.waitForFunction(() => !!window.__GFFL__, { timeout: 12000 });
       ok(await waitOr(page, ".mucard", 25000), "the 2025 replay boots");
       await page.waitForFunction(() => window.__GFFL__.D.S.games.size > 0, { timeout: 15000 });
@@ -10490,6 +10693,603 @@ async function openDetails(page, id) {
       if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_nflgame_desktop.png") }); console.log("  📸 shots/gffl_nflgame_desktop.png"); }
       ok(errors.length === 0, "0 page errors on desktop");
       await ctx.close();
+    }
+  }
+
+  // ---------------- AI: 2026 for real · preseason · rosters of backups (2026-08-09) ---------
+  // ITEMS 29-31. The ONLY section that boots with NO sim param at all — exactly as a family
+  // device does — which is what makes "the app IS the 2026 season" a real assertion here rather
+  // than a restatement of a URL override.
+  section("AI · the real 2026 season, a preseason shakedown, and rosters filled from the depth charts");
+  {
+    // No ?sim= of any kind. bootPage() carries SIMOFF and bootSim() carries ?sim=1; both state
+    // an intent this section must NOT state, because the whole point is the default.
+    const bootReal = async (page) => {
+      await page.goto(BASE + "/league.html?fam=" + FAM, { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 12000 });
+    };
+    // Same MutationObserver trick section X uses: the replay's setup card is fleeting on an
+    // instant backend, so "it never appeared" has to be recorded from document-start rather
+    // than sampled after the fact.
+    const watchSetup = (page) => page.evaluateOnNewDocument(() => {
+      window.__sawSetupCard = false;
+      const check = () => { if (document.getElementById("simSetupMsg")) window.__sawSetupCard = true; };
+      const arm = () => { check(); new MutationObserver(check).observe(document.body, { childList: true, subtree: true }); };
+      if (document.body) arm(); else document.addEventListener("DOMContentLoaded", arm);
+    });
+    // A TOLERANT waitLive (sections AC/AG's own lesson, and this section needs it more than
+    // most). Pre-fix, the app boots into the 2025 REPLAY from a URL carrying no sim param at
+    // all, and the replay does no live polling whatever — so waitLive's hard wait never
+    // resolves and the whole pre-fix verification becomes one stack trace instead of the
+    // readable list of missing guarantees it exists to produce. Reports rather than aborts; the
+    // real assertions downstream are what fail.
+    const waitLiveOr = async (page) => { try { await waitLive(page); return true; } catch (e) { return false; } };
+    const RULES_ROSTER = { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, DST: 1, K: 1, BENCH: 7 };
+    const ROSTER_SIZE = Object.values(RULES_ROSTER).reduce((a, b) => a + b, 0); // 16
+
+    // ---- AI1 (ITEM 29): no flag, no URL param — the app is the real 2026 season.
+    {
+      fixture.preseason = false; fixture.preseasonFinal = false; fixture.depthCharts = false;
+      const simUrlsBefore = simSbUrls.length;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await watchSetup(page);
+      await bootReal(page);
+      ok(await waitOr(page, ".mucard", 12000), "the league home paints with no sim param of any kind");
+      const cal = await evalOr(page, () => {
+        const G = window.__GFFL__;
+        return {
+          sim: G.LG.SIM_2025, season: G.LG.SEASON, start: G.LG.SEASON_START,
+          drift: Math.abs(G.LG.now() - Date.now()),
+          week: G.LG.currentWeek(), uiWeek: G.UI.week,
+          rosterId: G.LG.rosterId(1, 1), claimsId: G.LG.claimsId(G.LG.SEASON, 1),
+          simProj: G.D.S.simProj, setupDone: G.UI._simSetupDone,
+          sawSetup: window.__sawSetupCard,
+        };
+      }) || {};
+      ok(cal.sim === false, "LG.SIM_2025 is OFF by default — the 2025 replay is not what the family opens into");
+      ok(cal.season === 2026, "…LG.SEASON is 2026 (" + cal.season + ")");
+      ok(cal.start === "2026-09-08", "…LG.SEASON_START is the Tuesday before the real 2026 opener (" + cal.start + ")");
+      ok(cal.drift < 5000, "…and LG.now() is the real wall clock, not a pinned replay instant (" + cal.drift + "ms drift)");
+      // The claim the old comment made, verified rather than trusted: flipping the ONE literal
+      // reverts the calendar AND leaves no replay machinery running behind it.
+      ok(cal.sawSetup === false && cal.setupDone === undefined,
+        "…the replay's auto-setup never runs — no setup card, ever");
+      ok(cal.simProj == null, "…the replay's derived-projection cache is never built");
+      ok(simSbUrls.length === simUrlsBefore,
+        "…and its historical-slate parser never fires: zero dates=<season> scoreboard requests (" + (simSbUrls.length - simUrlsBefore) + ")");
+      // The live path IS running instead — the thing the replay used to switch off.
+      const live = await evalOr(page, () => ({ slpWeek: window.__GFFL__.D.S.slpWeek, bucket: window.__GFFL__.D.S.slpBucket.cands.slice() })) || {};
+      ok(live.slpWeek === 1 && live.bucket.length === 1, "…live polling is back on: Sleeper's own week is recorded and one bucket is armed (" + JSON.stringify(live) + ")");
+      ok(cal.rosterId === "roster_2026_w1_t1" && cal.claimsId === "claims_2026_w1",
+        "…and every per-season doc id addresses 2026 again (" + cal.rosterId + ")");
+      // No replay chrome anywhere on the Rules page either.
+      await evalOr(page, () => window.__GFFL__.UI.show("rules"));
+      await waitFnOr(page, () => document.body.textContent.includes("League rules"));
+      const rulesTxt = (await evalOr(page, () => document.body.textContent)) || "";
+      ok(!/Replay clock/.test(rulesTxt), "…and the commissioner's Replay-clock card is gone from the Rules page");
+      ok(errors.length === 0, "0 page errors on a plain 2026 boot");
+      await ctx.close();
+    }
+
+    // ---- AI1b (ITEM 29): ?sim=1 still restores the whole replay. It is not deleted, only off.
+    {
+      fixture.rich2025 = true; fixture.simProjReal = false;
+      const { ctx, page, errors } = await newTestPage(browser, seedSim2025());
+      await page.goto(BASE + "/league.html?fam=" + FAM + "&sim=1&simphase=pre&simspeed=0", { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => !!window.__GFFL__, { timeout: 12000 });
+      const back = await evalOr(page, () => {
+        const LG = window.__GFFL__.LG;
+        return { sim: LG.SIM_2025, season: LG.SEASON, start: LG.SEASON_START, iso: new Date(LG.now()).toISOString() };
+      }) || {};
+      ok(back.sim === true && back.season === 2025 && back.start === "2025-09-02",
+        "?sim=1 restores the 2025 replay in full — season, start and clock together (" + back.season + ")");
+      ok(back.iso === "2025-09-04T14:00:00.000Z", "…including its pinned phase instant (" + back.iso + ")");
+      const stored = await evalOr(page, () => Object.keys(localStorage).filter((k) => /^sim/i.test(k) || k === "gffl_sim"));
+      ok((stored || []).length === 0, "…and it persists nothing, so no device can be stranded in the wrong season");
+      ok(errors.length === 0, "0 page errors with the replay explicitly re-enabled");
+      await ctx.close();
+      fixture.rich2025 = false;
+    }
+
+    // ---- AI2 (ITEM 30): preseason is followed automatically — the STATS BUCKET is the proof.
+    // Both providers drive themselves off their own current-week state, so in principle the app
+    // follows the NFL into preseason with no code at all. This asserts the wire rather than
+    // assuming it: the bucket path has to carry /pre/, not /regular/.
+    {
+      // depthCharts OFF, explicitly: the exact-number checks in AI2/AI3/AI4 are hand-computed
+      // against PRE_WEEK1_BASE alone, and the drafted-backup lines must be provably absent.
+      fixture.preseason = true; fixture.preseasonWeek = 1; fixture.preseasonFinal = false; fixture.depthCharts = false;
+      const nStats = slpStatsUrls.length, nProj = slpProjUrls.length;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLiveOr(page);
+      const statUrls = slpStatsUrls.slice(nStats), projUrls = slpProjUrls.slice(nProj);
+      ok(statUrls.length > 0 && statUrls.every((u) => /\/stats\/nfl\/pre\/2026\/1(\?|$)/.test(u)),
+        "the live stats bucket resolves to the PRESEASON path — /stats/nfl/pre/2026/1 (" + (statUrls[0] || "none") + ")");
+      ok(statUrls.every((u) => !/\/stats\/nfl\/regular\//.test(u)),
+        "…and never once asks for the regular-season bucket");
+      ok(projUrls.length > 0 && projUrls.every((u) => /\/projections\/nfl\/pre\/2026\/1(\?|$)/.test(u)),
+        "…projections follow the same season type (" + (projUrls[0] || "none") + ")");
+      const st = await evalOr(page, () => {
+        const G = window.__GFFL__;
+        return {
+          espn: G.D.S.espnSeasonType, slp: G.D.S.slpSeasonType,
+          engine: G.D.engineSeasonType(), regular: G.D.engineRegular(),
+          week: G.LG.currentWeek(), engineWeek: G.D.engineWeek(), uiWeek: G.UI.week,
+          rosterId: G.LG.rosterId(G.LG.currentWeek(), 1),
+        };
+      }) || {};
+      ok(st.espn === "pre" && st.slp === "pre", "both providers are read as preseason (" + JSON.stringify([st.espn, st.slp]) + ")");
+      ok(st.engine === "pre" && st.regular === false, "…so the engine reports preseason and refuses to call itself regular");
+      // THE TRAP, stated out loud: before SEASON_START the league-week arithmetic goes negative
+      // and clamps to 1, and preseason week 1 is also "1". The week is NOT provenance.
+      ok(st.week === 1 && st.uiWeek === 1, "LG.currentWeek() clamps to 1 before SEASON_START, so the app opens on week 1 (" + st.week + ")");
+      ok(st.engineWeek === 1, "…and the ENGINE also says week 1 — the two agree exactly, which is why a week check cannot catch preseason");
+      ok(st.rosterId === "roster_2026_w1_t1", "…and the rosters/claims it addresses are the ones that exist (" + st.rosterId + ")");
+      ok(errors.length === 0, "0 page errors in preseason");
+      await ctx.close();
+    }
+
+    // ---- AI3 (ITEM 30): preseason data actually POPULATES the board.
+    {
+      fixture.preseason = true; fixture.preseasonFinal = false; fixture.depthCharts = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLiveOr(page);
+      const pts = await evalOr(page, () => ({
+        passer: window.__GFFL__.D.livePts("3915511"),
+        rec: window.__GFFL__.D.livePts("4361741"),
+        dst: window.__GFFL__.D.livePts("dst_PHI"),
+      })) || {};
+      // Hand-computed from PRE_WEEK1 / sumAPreFix (which agree, as the two real providers do):
+      //   75 pass yd ×0.04 = 3 · 1 pass TD = 4          -> 7.0   (regular week 1 would be 10.0)
+      //   3 rec ×1 = 3 · 22 rec yd ×0.1 = 2.2           -> 5.2   (regular week 1 would be 9.0)
+      //   20 points allowed = 0 · 1 sack = 1            -> 1.0
+      ok(pts.passer === 7, "live scoring reads the PRESEASON line: P. Passer 7.0, not his regular-season 10.0 (" + pts.passer + ")");
+      ok(pts.rec === 5.2, "…W. Receiver 5.2 (" + pts.rec + ")");
+      ok(pts.dst === 1, "…and the D/ST derives from the preseason box too, 1.0 (" + pts.dst + ")");
+      await evalOr(page, () => window.__GFFL__.UI.show("matchup"));
+      await waitFnOr(page, () => document.querySelector(".muhead"));
+      const mu = await evalOr(page, () => ({
+        scores: [...document.querySelectorAll(".muhscore .bigpts")].map((e) => e.textContent.trim()),
+        body: document.body.textContent,
+      })) || {};
+      // 7.0 + 5.2 + 1.0 = 13.2 for team 1; team 2's only scorer is DAL D/ST (PHI scored 13 ->
+      // dst_pa_7_13 = 3.0). Both hand-computed above, both from preseason numbers.
+      ok((mu.scores || []).includes("13.2"), "the matchup page totals the preseason lines: 13.2 (" + JSON.stringify(mu.scores) + ")");
+      ok((mu.scores || []).includes("3.0"), "…and the opponent's own preseason total, 3.0");
+      ok(!/NaN/.test(mu.body || "NaN"), "…with no NaN anywhere on it");
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitFnOr(page, () => document.querySelector("#faResults tr"));
+      const tbl = await evalOr(page, () => {
+        const rows = [...document.querySelectorAll("#faResults tbody tr")];
+        const agent = rows.find((r) => /F\. Agent/.test(r.textContent));
+        return { n: rows.length, agent: agent ? agent.textContent.replace(/\s+/g, " ") : null, nan: /NaN/.test(document.body.textContent) };
+      }) || {};
+      ok(tbl.n > 0, "the players table populates in preseason (" + tbl.n + " rows)");
+      // OPP resolves off the PRESEASON slate: F. Agent is KC, and KC's preseason game is at DEN.
+      ok(tbl.agent && /@\s*DEN/.test(tbl.agent), "…and OPP reads from the preseason slate (" + tbl.agent + ")");
+      ok(tbl.nan === false, "…with no NaN on the players table either");
+      ok(errors.length === 0, "0 page errors reading preseason data");
+      await ctx.close();
+    }
+
+    // ---- AI4 (ITEM 30): ⭐ NOTHING FINALIZES — and the MECHANISM, not just the outcome.
+    // Staged so every OTHER gate is satisfied: the engine's week equals the league's week, and
+    // every starter's game reads Final. The season-type guard is the only thing left standing
+    // between the app and a permanently-wrong write-once weekly doc.
+    {
+      fixture.preseason = true; fixture.preseasonFinal = true; fixture.depthCharts = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLiveOr(page);
+      const gates = await evalOr(page, () => {
+        const G = window.__GFFL__;
+        return {
+          engineWeek: G.D.engineWeek(), leagueWeek: G.LG.currentWeek(),
+          states: ["PHI", "DAL", "KC", "DEN"].map((ab) => (G.D.S.games.get(ab) || {}).state),
+          seasonType: G.D.engineSeasonType(), regular: G.D.engineRegular(),
+        };
+      }) || {};
+      ok(gates.engineWeek === 1 && gates.leagueWeek === 1,
+        "STAGED: the week gate would have PASSED — engine week 1, league week 1 (" + gates.engineWeek + "/" + gates.leagueWeek + ")");
+      ok((gates.states || []).every((s) => s === "post"),
+        "STAGED: the every-game-final gate would have PASSED too — every starter's game reads Final (" + (gates.states || []).join(",") + ")");
+      ok(gates.seasonType === "pre" && gates.regular === false,
+        "…and the ONLY thing that refuses is the season type: pre, not regular");
+      const fin = await evalOr(page, async () => {
+        const G = window.__GFFL__;
+        const plain = await G.LG.finalizeWeek(1);
+        const forced = await G.LG.finalizeWeek(1, { force: true });
+        await G.UI.maybeAutoFinalizeWeeks();
+        await G.UI.maybeAdvanceLeague();
+        return {
+          plain, forced,
+          stale: G.UI._staleWeeks,
+          weekly: localStorage.getItem("lg_gffl_test1_weekly_2026_w1"),
+          anyWeekly: Object.keys(localStorage).filter((k) => /weekly_/.test(k)),
+          bracket: localStorage.getItem("lg_gffl_test1_bracket_2026"),
+        };
+      }) || {};
+      ok(fin.plain && fin.plain.ok === false && fin.plain.reason === "preseason" && fin.plain.seasonType === "pre",
+        "LG.finalizeWeek refuses with reason 'preseason' and names the season type it read (" + JSON.stringify(fin.plain) + ")");
+      ok(fin.forced && fin.forced.ok === false && fin.forced.reason === "preseason",
+        "…and FORCE does not bypass it — force only ever meant 'some games aren't final'");
+      ok(fin.weekly === null && (fin.anyWeekly || []).length === 0,
+        "…the auto-finalize chain writes NO weekly doc at all (" + JSON.stringify(fin.anyWeekly) + ")");
+      ok(fin.bracket === null, "…and builds no bracket");
+      ok(Array.isArray(fin.stale) && fin.stale.length === 0, "…and records no stale week to nag about");
+      // Standings stay 0-0, and the league home says so rather than showing a preseason result.
+      await evalOr(page, () => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      const stand = await evalOr(page, async () => {
+        const s = await window.__GFFL__.LG.loadStandings();
+        return {
+          rows: Object.values(s).map((r) => [r.w, r.l, r.t, r.pf]),
+          stale: !!document.querySelector(".staleFinBtn"),
+          nag: /needs? finalizing/i.test(document.body.textContent),
+        };
+      }) || {};
+      ok((stand.rows || []).length === 8 && stand.rows.every(([w, l, t, pf]) => w === 0 && l === 0 && t === 0 && pf === 0),
+        "standings are still 0-0 with 0 points for, for every team (" + JSON.stringify((stand.rows || [])[0]) + ")");
+      ok(stand.stale === false && stand.nag === false, "…and nothing on the league home offers to finalize anything");
+      const rb = await evalOr(page, () => window.__GFFL__.LG.recordBook()) || null;
+      ok(rb && rb.hasData === false && rb.highestWeek === null && rb.champs.length === 0,
+        "…and the record book has nothing in it — no preseason performance became a league record");
+      ok(errors.length === 0, "0 page errors through the whole finalize-refusal path");
+      await ctx.close();
+    }
+
+    // ---- AI5 (ITEM 30): once the engine rolls to preseason week 2, week 1 is still not stale.
+    // This is the second, subtler way preseason could have poisoned the record: the stale card's
+    // own button backfills from /stats/nfl/regular/<season>/<week>, a week nobody has played.
+    {
+      fixture.preseason = true; fixture.preseasonWeek = 2; fixture.preseasonFinal = true;
+      fixture.espnWeekNum = 2;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLiveOr(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      const s2 = await evalOr(page, () => ({
+        engineWeek: window.__GFFL__.D.engineWeek(), leagueWeek: window.__GFFL__.LG.currentWeek(),
+        stale: !!document.querySelector(".staleFinBtn"),
+        nag: /needs? finalizing/i.test(document.body.textContent),
+      })) || {};
+      ok(s2.engineWeek === 2 && s2.leagueWeek === 1,
+        "STAGED: the engine has rolled to preseason week 2 while the league still reads week 1 — the exact shape that lists a week as stale (" + s2.engineWeek + "/" + s2.leagueWeek + ")");
+      ok(s2.stale === false && s2.nag === false,
+        "…and week 1 is STILL not offered for finalizing: no regular-season week can be stale before the regular season starts");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.espnWeekNum = null;
+    }
+
+    // ---- AI6 (ITEM 30): and if a commissioner reaches the backfill anyway, an unplayed week
+    // refuses rather than writing a permanent document full of zeroes.
+    {
+      fixture.preseason = true; fixture.preseasonWeek = 1; fixture.preseasonFinal = true;
+      fixture.unplayedRegular = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLiveOr(page);
+      const bf = await evalOr(page, async () => {
+        const G = window.__GFFL__;
+        const r = await G.LG.finalizeWeek(1, { backfill: true });
+        return { r, weekly: localStorage.getItem("lg_gffl_test1_weekly_2026_w1") };
+      }) || {};
+      ok(bf.r && bf.r.ok === false && bf.r.reason === "no-archived-stats",
+        "an archived-stats backfill of a week nobody has played REFUSES (" + JSON.stringify(bf.r) + ")");
+      ok(bf.weekly === null, "…and writes nothing — an empty Sleeper payload is 'not played', never 'a week of zeroes'");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.unplayedRegular = false;
+    }
+
+    // ---- AI7 (ITEM 30): the season-type reader itself, and the disagreement rule.
+    {
+      fixture.preseason = false; fixture.preseasonFinal = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLiveOr(page);
+      const u = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        const n = D.normSeasonType;
+        return { one: n(1), two: n(2), three: n(3), four: n(4), pre: n("preseason"), reg: n("regular-season"),
+          post: n("post-season"), nul: n(null), junk: n("nonsense"), strNum: n("2") };
+      }) || {};
+      ok(u.one === "pre" && u.two === "regular" && u.three === "post" && u.four === "post",
+        "ESPN's numeric season.type maps 1/2/3/4 -> pre/regular/post/post");
+      ok(u.pre === "pre" && u.reg === "regular" && u.post === "post", "…and its slug form maps the same way");
+      ok(u.strNum === "regular", "…a numeric string is read as the number it is (ESPN has shipped both)");
+      ok(u.nul === null && u.junk === null, "…and anything unrecognised is null, never a guess");
+      const dis = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        const keep = [D.S.espnSeasonType, D.S.slpSeasonType];
+        D.S.espnSeasonType = "pre"; D.S.slpSeasonType = "regular";
+        const out = { type: D.engineSeasonType(), regular: D.engineRegular() };
+        D.S.espnSeasonType = null; D.S.slpSeasonType = null;
+        out.unknown = D.engineSeasonType(); out.unknownRegular = D.engineRegular();
+        D.S.espnSeasonType = keep[0]; D.S.slpSeasonType = keep[1];
+        return out;
+      }) || {};
+      ok(dis.type === null && dis.regular === false,
+        "two providers that DISAGREE about the season type is a refusal, not a coin toss");
+      ok(dis.unknown === null && dis.unknownRegular === false,
+        "…and an unknown season type fails CLOSED: the permanent write never happens on a guess");
+      // The regular-season path is untouched by all of this — the guard is satisfied and week 1
+      // finalizes exactly as it always did (section M's own territory, re-asserted here because
+      // a guard that also blocks the real season would be worse than the bug).
+      const finReg = await evalOr(page, () => window.__GFFL__.LG.finalizeWeek(1, { force: true })) || {};
+      ok(finReg.ok === true, "a REGULAR-season week still finalizes normally — the guard costs the real season nothing");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AI8 (ITEM 31): the pool. Who is drafted, who is not, and in what order.
+    {
+      fixture.preseason = true; fixture.preseasonFinal = false; fixture.depthCharts = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLiveOr(page);
+      const pool = await evalOr(page, () => {
+        const p = window.__GFFL__.D.backupPool();
+        if (!p) return null;
+        return {
+          n: p.players.length, def: p.defenses.length,
+          firstFive: p.players.slice(0, 5).map((x) => ({ name: x.name, pos: x.pos, depth: x.depth })),
+          depths: [...new Set(p.players.map((x) => x.depth))].sort(),
+          names: p.players.map((x) => x.name),
+          teams: [...new Set(p.players.map((x) => x.team))],
+          // the order must be every 2 before every 3 — not the directory's own interleaving
+          sortedByDepth: p.players.every((x, i, a) => i === 0 || a[i - 1].depth <= x.depth),
+          defOrder: p.defenses.map((d) => d.key),
+          keyForms: { espn: p.players.filter((x) => /^\d+$/.test(x.key)).length, slp: p.players.filter((x) => /^slp_/.test(x.key)).length },
+        };
+      });
+      ok(pool && pool.n === 141, "the pool is every depth-chart 2 and 3 in the directory (" + (pool ? pool.n : "null") + " — 140 generated + the Questionable one)");
+      ok(pool && pool.depths.join(",") === "2,3", "…nobody else: every player is depth-chart order 2 or 3 (" + (pool ? pool.depths.join(",") : "?") + ")");
+      ok(pool && pool.sortedByDepth, "…ordered every 2 ahead of every 3, against a directory that interleaves them");
+      ok(pool && !pool.names.includes("Ace Starter"), "…the depth-1 STARTER is excluded — he barely plays in preseason");
+      ok(pool && !pool.names.includes("Sid Sidelined"), "…the OUT backup is excluded");
+      ok(pool && !pool.names.includes("Free Agentson"), "…and so is a backup with no NFL team, who plays in no preseason game");
+      ok(pool && pool.names.includes("Query Maybe"), "…but a QUESTIONABLE backup IS drafted: in preseason a dinged 2 plays plenty");
+      ok(pool && pool.firstFive[0] && pool.firstFive[0].name === "Query Maybe",
+        "…and the order is depth-then-rank: the best-ranked depth-2 leads the pool (" + (pool ? pool.firstFive[0].name : "?") + ")");
+      ok(pool && pool.def === 8, "there is exactly one team defense per GFFL team (" + (pool ? pool.def : "?") + ")");
+      ok(pool && pool.defOrder[0] === "dst_PHI", "…ordered deterministically too (" + (pool ? pool.defOrder[0] : "?") + ")");
+      ok(pool && pool.keyForms.espn > 0 && pool.keyForms.slp > 0,
+        "…and BOTH key forms are represented, as they are in the real directory (" + JSON.stringify(pool ? pool.keyForms : {}) + ")");
+      ok(errors.length === 0, "0 page errors reading the depth charts");
+      await ctx.close();
+    }
+
+    // ---- AI9 (ITEM 31): the confirm step guards the overwrite, and Cancel really cancels.
+    {
+      fixture.preseason = true; fixture.depthCharts = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await evalOr(page, () => window.__GFFL__.LG.gateCommish());
+      await evalOr(page, () => window.__GFFL__.UI.show("rules"));
+      await waitFnOr(page, () => document.body.textContent.includes("League rules"));
+      ok(!!(await page.$("#backupsFill")), "the Rules page carries a 'Fill rosters with backups' commissioner button");
+      const explained = ((await evalOr(page, () => document.body.textContent)) || "").replace(/\s+/g, " ");
+      ok(/second and third stringers/.test(explained) && /preseason shakedown/.test(explained),
+        "…explained, like every other importer beside it: what it does and why backups");
+      await clickIn(page, "#backupsFill");
+      ok(await waitOr(page, "#backupsGo", 9000), "tapping it opens a CONFIRM step, not an immediate overwrite");
+      const conf = await evalOr(page, () => {
+        const el = document.querySelector("#importOut");
+        return { txt: el.textContent.replace(/\s+/g, " "), rows: el.querySelectorAll(".rowline").length };
+      }) || {};
+      ok(/REPLACES week 1's rosters/.test(conf.txt), "…naming the week it will overwrite (" + (conf.txt || "").slice(0, 60) + ")");
+      ok(/will be overwritten/.test(conf.txt) && /Every player currently on them is dropped/.test(conf.txt),
+        "…and saying plainly that the current players are lost");
+      ok(/12 players/.test(conf.txt), "…with each team's CURRENT roster size, so nobody is guessing what they're about to lose");
+      ok(/Battle Kreussers/.test(conf.txt) && /The Goat Kids/.test(conf.txt), "…every team named");
+      const untouched = await evalOr(page, (k) => JSON.parse(localStorage.getItem(k)).players.length, LSPFX + "roster_2026_w1_t1");
+      ok(untouched === 12, "…and NOTHING has been written yet — the first tap only ever shows (" + untouched + " players)");
+      await clickIn(page, "#backupsCancel");
+      const cancelled = await evalOr(page, (k) => ({
+        n: JSON.parse(localStorage.getItem(k)).players.length,
+        card: !!document.querySelector("#backupsGo"),
+      }), LSPFX + "roster_2026_w1_t1") || {};
+      ok(cancelled.n === 12 && cancelled.card === false, "Cancel really cancels: the card closes and the roster is untouched");
+      ok(errors.length === 0, "0 page errors through the confirm step");
+      await ctx.close();
+    }
+
+    // ---- AI10 (ITEM 31): the fill itself — legal, complete, even, and all backups.
+    let filledDocs = null;
+    {
+      fixture.preseason = true; fixture.depthCharts = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await evalOr(page, () => window.__GFFL__.LG.gateCommish());
+      await evalOr(page, () => window.__GFFL__.UI.show("rules"));
+      await waitFnOr(page, () => document.body.textContent.includes("League rules"));
+      await clickIn(page, "#backupsFill");
+      await waitOr(page, "#backupsGo", 9000);
+      await clickIn(page, "#backupsGo");
+      ok(await waitFnOr(page, () => /rosters filled from the depth charts/.test(document.body.textContent)),
+        "the fill runs and reports what it did");
+      const okTxt = ((await evalOr(page, () => document.querySelector("#importOut").textContent)) || "").replace(/\s+/g, " ");
+      ok(/8 teams · 16 players each/.test(okTxt), "…8 teams, 16 players each (" + okTxt.slice(0, 90) + ")");
+      ok(!/uneven/.test(okTxt) && !/ran out at/.test(okTxt), "…with no team short and no position exhausted");
+      const dir = depthDirectoryFix();
+      filledDocs = await evalOr(page, (pfx) => {
+        const out = {};
+        for (let t = 1; t <= 8; t++) out[t] = JSON.parse(localStorage.getItem(pfx + "roster_2026_w1_t" + t) || "null");
+        return out;
+      }, LSPFX);
+      const rosters = Object.values(filledDocs || {}).map((d) => (d && d.players) || []);
+      ok(rosters.length === 8 && rosters.every((p) => p.length === ROSTER_SIZE),
+        "every one of the 8 teams got a full " + ROSTER_SIZE + "-player roster (" + rosters.map((p) => p.length).join("/") + ")");
+      // The slot MULTISET must match the rules exactly — that is "can field every required slot".
+      const want = Object.entries(RULES_ROSTER).map(([s, n]) => s + ":" + n).sort().join(" ");
+      const shapes = rosters.map((p) => {
+        const c = {};
+        for (const x of p) c[x.slot] = (c[x.slot] || 0) + 1;
+        return Object.entries(c).map(([s, n]) => s + ":" + n).sort().join(" ");
+      });
+      ok(shapes.every((s) => s === want), "…with exactly the slots the rules require, on every team (" + shapes[0] + ")");
+      // Every drafted skill player is a genuine depth-chart 2 or 3.
+      const bad = [];
+      for (const p of rosters.flat()) {
+        if (p.slot === "DST") { if (!/^dst_/.test(p.key)) bad.push(p.name + " (not a D/ST key)"); continue; }
+        const entry = Object.values(dir).find((e) => e.full_name === p.name);
+        if (!entry) { bad.push(p.name + " (not in the depth-chart directory)"); continue; }
+        if (![2, 3].includes(entry.depth_chart_order)) bad.push(p.name + " (depth " + entry.depth_chart_order + ")");
+      }
+      ok(bad.length === 0, "every drafted player is a depth-chart 2 or 3 — no starters, no strays (" + bad.slice(0, 3).join("; ") + ")");
+      // FLEX is legal, and nobody is on two teams.
+      const flexBad = rosters.flat().filter((p) => p.slot === "FLEX" && !["RB", "WR", "TE"].includes(p.pos));
+      ok(flexBad.length === 0, "…every FLEX is an RB, WR or TE");
+      const keys = rosters.flat().map((p) => p.key);
+      ok(new Set(keys).size === keys.length, "…and no player is on two teams at once (" + keys.length + " keys, " + new Set(keys).size + " distinct)");
+      const dsts = rosters.flat().filter((p) => p.slot === "DST").map((p) => p.key);
+      ok(dsts.length === 8 && new Set(dsts).size === 8, "…each team fields its own, distinct team defense (" + dsts.join(",") + ")");
+      // The old rosters are genuinely GONE — this replaces, it does not merge.
+      ok(!rosters.flat().some((p) => p.name === "P. Passer"), "the pre-existing rosters are REPLACED — the old starters are gone");
+      // …and the ENGINE follows. pollSleeper filters stat rows by the tracked-team set, which
+      // startData built once at boot from the OLD rosters; without re-tracking, every drafted
+      // player on a team the old rosters never used would read 0.0 until the next page load.
+      // (Found by looking at the review plate, not by a test — see retrackTeams' own note.)
+      const tracked = await evalOr(page, () => [...window.__GFFL__.D.S.tracked].sort()) || [];
+      const wantTeams = [...new Set(rosters.flat().map((p) => p.team))].sort();
+      ok(wantTeams.every((t) => tracked.includes(t)),
+        "…and the live engine is re-tracked onto the NEW rosters' NFL teams (" + tracked.join(",") + ")");
+      // The snake: the first round runs t1..t8, the second runs t8..t1. Hand-derived from the
+      // fixture's own ordering rule (depth asc, then search_rank asc): the QB queue's best is
+      // generated index 0, and the RB queue's best is generated index 20.
+      const teamRoster = (t) => ((filledDocs && filledDocs[t] && filledDocs[t].players) || []); // pre-fix tolerance
+      const qb1 = (teamRoster(1).find((p) => p.slot === "QB") || {}).name;
+      const qb8 = (teamRoster(8).find((p) => p.slot === "QB") || {}).name;
+      const rb8 = (teamRoster(8).filter((p) => p.slot === "RB")[0] || {}).name;
+      ok(qb1 === "Alden Ames", "SNAKE: round 1 runs t1 first, so team 1 takes the best backup QB (" + qb1 + ")");
+      ok(qb8 === "Cass Barnes", "…and team 8 takes the 8th (" + qb8 + ")");
+      ok(rb8 === "Ike Barnes", "…then round 2 REVERSES, so team 8 takes the best backup RB (" + rb8 + ")");
+      // The Questionable backup is drafted — and by the team the snake says.
+      const dinged = Object.entries(filledDocs || {}).find(([, d]) => ((d && d.players) || []).some((p) => p.name === "Query Maybe"));
+      ok(dinged && dinged[0] === "8", "…and the Questionable TE lands on team 8, where the reversed TE round puts him (" + (dinged ? dinged[0] : "nobody") + ")");
+      ok(errors.length === 0, "0 page errors through the fill");
+      await ctx.close();
+    }
+
+    // ---- AI11 (ITEM 31): re-running is clean and deterministic — the same directory, the same
+    // eight rosters, byte for byte. That is what makes it safe to re-run when a pick looks bad.
+    {
+      fixture.preseason = true; fixture.depthCharts = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await evalOr(page, () => window.__GFFL__.LG.gateCommish());
+      await evalOr(page, () => window.__GFFL__.UI.show("rules"));
+      await waitFnOr(page, () => document.body.textContent.includes("League rules"));
+      for (let run = 0; run < 2; run++) {
+        await clickIn(page, "#backupsFill");
+        await waitOr(page, "#backupsGo", 9000);
+        await clickIn(page, "#backupsGo");
+        await waitFnOr(page, () => /rosters filled from the depth charts/.test(document.body.textContent));
+      }
+      const twice = await evalOr(page, (pfx) => {
+        const out = {};
+        for (let t = 1; t <= 8; t++) out[t] = JSON.parse(localStorage.getItem(pfx + "roster_2026_w1_t" + t) || "null");
+        return out;
+      }, LSPFX);
+      ok(stableStr(twice) === stableStr(filledDocs),
+        "running it a second time produces byte-identical rosters — deterministic given the same depth charts");
+      const n = Object.values(twice || {}).map((d) => ((d && d.players) || []).length); // pre-fix tolerance
+      ok(n.every((x) => x === ROSTER_SIZE), "…and never doubles a roster up (" + n.join("/") + ")");
+      ok(errors.length === 0, "0 page errors on the re-run");
+      await ctx.close();
+    }
+
+    // ---- AI12 (ITEM 31): a non-commissioner cannot do this. The button is hidden AND gated —
+    // a hidden element is still clickable from devtools, so the PIN is what has to stop it.
+    {
+      fixture.preseason = true; fixture.depthCharts = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      // A PIN already exists and is NOT the one the harness's prompt stub answers with, so the
+      // gate genuinely rejects rather than creating one on first use.
+      await page.evaluateOnNewDocument(() => localStorage.setItem("dadPinHash", "0".repeat(64)));
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await evalOr(page, () => window.__GFFL__.UI.show("rules"));
+      await waitFnOr(page, () => document.body.textContent.includes("League rules"));
+      const vis = await evalOr(page, () => {
+        const b = document.querySelector("#backupsFill");
+        return { present: !!b, hidden: !!(b && b.hidden) };
+      }) || {};
+      ok(vis.present && vis.hidden, "a non-commissioner sees no Fill button (present in the markup, rendered hidden)");
+      await clickIn(page, "#backupsFill"); // hidden elements still click — the PIN is the real gate
+      await sleep(400);
+      const after = await evalOr(page, (k) => ({
+        n: JSON.parse(localStorage.getItem(k)).players.length,
+        card: !!document.querySelector("#backupsGo"),
+        unlocked: sessionStorage.getItem("gfflCommish"),
+      }), LSPFX + "roster_2026_w1_t1") || {};
+      ok(after.card === false, "…and clicking it anyway never reaches the confirm step");
+      ok(after.n === 12 && after.unlocked === null, "…the rosters are untouched and no commissioner session is granted (" + after.n + " players)");
+      ok(errors.length === 0, "0 page errors on the refusal");
+      await ctx.close();
+      fixture.preseason = false; fixture.depthCharts = false; fixture.preseasonFinal = false;
+    }
+
+    // ---- AI13: the review plates. Preseason, week 1, rosters full of backups.
+    if (SHOTS) {
+      fixture.preseason = true; fixture.depthCharts = true;
+      const { ctx, page } = await newTestPage(browser, fullSeed());
+      await bootReal(page);
+      await waitOr(page, ".mucard", 12000);
+      await evalOr(page, () => window.__GFFL__.LG.gateCommish());
+      await evalOr(page, () => window.__GFFL__.UI.show("rules"));
+      await waitFnOr(page, () => document.body.textContent.includes("League rules"));
+      await clickIn(page, "#backupsFill");
+      await waitOr(page, "#backupsGo", 9000);
+      // The confirm card renders into #importOut, at the BOTTOM of a long Rules page — a plate
+      // taken at scroll 0 photographs the button row instead and shows nothing this filename
+      // claims. Scroll it into frame and ASSERT it is there before writing the file.
+      await evalOr(page, () => document.querySelector("#importOut").scrollIntoView({ block: "start" }));
+      await sleep(250);
+      const inFrame = await evalOr(page, () => {
+        const r = document.querySelector("#backupsGo").getBoundingClientRect();
+        return r.top >= 0 && r.bottom <= window.innerHeight;
+      });
+      ok(inFrame === true, "the confirm card is in frame for its review plate");
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_backups_confirm_390.png") });
+      console.log("  📸 shots/gffl_backups_confirm_390.png");
+      await clickIn(page, "#backupsGo");
+      await waitFnOr(page, () => /rosters filled from the depth charts/.test(document.body.textContent));
+      await evalOr(page, () => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      await waitLiveOr(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      // The Rules page left the window scrolled to the bottom for the confirm plate above; a
+      // shot taken without resetting it photographs whatever happens to be under that offset.
+      await evalOr(page, () => window.scrollTo(0, 0));
+      await sleep(200);
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_2026_league_390.png") });
+      console.log("  📸 shots/gffl_2026_league_390.png");
+      await evalOr(page, () => window.__GFFL__.UI.show("matchup"));
+      await waitFnOr(page, () => document.querySelector(".muhead"));
+      await evalOr(page, () => window.scrollTo(0, 0));
+      await sleep(200);
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_2026_matchup_390.png") });
+      console.log("  📸 shots/gffl_2026_matchup_390.png");
+      ok(true, "review plates written");
+      await ctx.close();
+      fixture.preseason = false; fixture.depthCharts = false;
     }
   }
 

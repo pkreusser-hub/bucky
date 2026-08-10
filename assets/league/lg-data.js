@@ -270,6 +270,12 @@
     // ask "which week is this?" and refuse rather than guess. null = unknown (not yet
     // polled, or the provider didn't say) — also a refusal, never an assumption.
     espnWeek: null, slpWeek: null,
+    // …and WHICH PART OF THE SEASON those rows belong to (ITEM 30, 2026-08-09). A week number
+    // on its own is NOT provenance: preseason week 1 and regular-season week 1 are both "1",
+    // and LG.currentWeek() clamps to 1 before SEASON_START, so in August the two agree
+    // perfectly while the data underneath is preseason box scores. "pre" | "regular" | "post",
+    // or null for unknown/not-yet-polled — and null is a refusal, exactly like the week is.
+    espnSeasonType: null, slpSeasonType: null,
     // cands is the Sleeper stats bucket to poll. It is now ALWAYS exactly the authoritative
     // week (or empty when Sleeper never told us one) — the old ["<wk>", "<wk+1>", "1"]
     // rotation could, and did, LOCK onto week 1's completed stat lines any time the current
@@ -323,6 +329,10 @@
         // and (b) point the live stats bucket at a completely unrelated week. So the directory
         // is still loaded (the whole app's player metadata + free-agent search depend on it)
         // and the WEEK is deliberately not.
+        // Which part of the season Sleeper says we are in (ITEM 30). Recorded from the SAME
+        // successful parse as the week, so the two can never disagree about which poll they
+        // came from. Under the replay it is deliberately left null with the week.
+        D.S.slpSeasonType = LG.SIM_2025 ? null : normSeasonType(st && st.season_type);
         if (LG.SIM_2025) { D.S.slpWeek = null; D.S.slpBucket.cands = []; }
         // ONE candidate — the week Sleeper itself says we're in. Never a "1" fallback:
         // week 1's bucket is the one bucket that is ALWAYS full, so a fallback rotation
@@ -341,6 +351,13 @@
             pid, name: p.full_name || ((p.first_name || "") + " " + (p.last_name || "")).trim() || pid,
             team: p.team || "", pos: p.position || "", espn_id: p.espn_id != null ? String(p.espn_id) : null,
             injury: p.injury_status || "", searchRank: p.search_rank != null ? p.search_rank : null,
+            // ⭐ ITEM 31 (2026-08-09). The directory has carried these all along and nothing
+            // read them. depth_chart_order is 1 = starter, 2 = backup, 3 = third string —
+            // which is exactly the question "who actually plays in a preseason game". Two
+            // field reads per entry, no extra network, on a payload already being walked.
+            depth: p.depth_chart_order != null && isFinite(Number(p.depth_chart_order))
+              ? Number(p.depth_chart_order) : null,
+            depthPos: p.depth_chart_position || "",
           };
           if (meta.pos === "DEF") meta.name = pid + " D/ST";
           if (meta.espn_id) byEspn.set(meta.espn_id, meta);
@@ -464,6 +481,40 @@
     if (e != null && s != null) return e === s ? e : null;
     return e != null ? e : (s != null ? s : null);
   };
+  // ⭐ ITEM 30 (2026-08-09) — the OTHER half of that provenance question, and the one that was
+  // missing. A week number alone cannot distinguish preseason week 1 from regular-season week
+  // 1; before SEASON_START, LG.currentWeek() clamps to 1, so through August the engine's week
+  // and the league's week AGREE while the rows in memory are preseason box scores. Without
+  // this, the first Sunday of preseason would have written weekly_<season>_w1 — a WRITE-ONCE
+  // regular-season record — from exhibition football, and standings would have carried it for
+  // the rest of the year with no way back.
+  // Same null-means-refuse rule as the week, and same disagreement rule: two providers that
+  // don't agree means the rows in memory are a MIX, which is exactly when a permanent write
+  // must not happen.
+  function normSeasonType(v) {
+    if (v == null) return null;
+    if (typeof v === "number" || /^\d+$/.test(String(v))) {
+      const n = Number(v);
+      return n === 1 ? "pre" : n === 2 ? "regular" : (n === 3 || n === 4) ? "post" : null;
+    }
+    const s = String(v).toLowerCase();
+    if (s.startsWith("pre")) return "pre";
+    if (s.startsWith("reg")) return "regular";
+    if (s.startsWith("post")) return "post";
+    return null;
+  }
+  D.normSeasonType = normSeasonType; // test hook
+  D.engineSeasonType = function () {
+    const e = D.S.espnSeasonType, s = D.S.slpSeasonType;
+    if (e != null && s != null) return e === s ? e : null;
+    return e != null ? e : (s != null ? s : null);
+  };
+  // The single question every permanent per-week write asks. POSITIVELY regular, never
+  // "not known to be preseason": an unknown season type fails CLOSED, and the failure is a
+  // visible one the league already knows how to recover from (the stale-weeks card, and the
+  // commissioner's archived-stats backfill), where the permissive answer's failure is a
+  // silently-wrong write-once document.
+  D.engineRegular = function () { return D.engineSeasonType() === "regular"; };
 
   // Archived per-week stats — Sleeper's own /stats/nfl/<type>/<season>/<week> endpoint, which
   // serves ANY completed week, not just the live one. This is the ONLY honest way to finalize
@@ -518,7 +569,12 @@
       let j;
       try { j = await fx("sleeper week stats " + week, `${SLP}/stats/nfl/${seasonType}/${season}/${week}`); }
       catch (e) { return null; }
-      if (!j || typeof j !== "object") return null;
+      // An EMPTY payload is NOT "a week in which nobody scored" — it is a week that has not
+      // been played (ITEM 30, 2026-08-09). Sleeper answers 200 with {} for a future week, and
+      // an empty Map is truthy, so the backfill path took it as real data and would have
+      // written a permanent weekly doc of ZEROES for every team. Treated as unavailable, which
+      // is what "no-archived-stats" already means everywhere upstream.
+      if (!j || typeof j !== "object" || !Object.keys(j).length) return null;
       const entry = { raw: j, map: null, gen: -1 };
       const m = weekStatsMap(entry);
       if (!m) return null;
@@ -602,6 +658,53 @@
     }
     out.sort((a, b) => (a.searchRank ?? 1e9) - (b.searchRank ?? 1e9) || a.name.localeCompare(b.name));
     return out.slice(0, limit);
+  };
+
+  // ---------------- ⭐ ITEM 31: the backup pool (2026-08-09) ----------------
+  // WHY BACKUPS AND NOT STARTERS. In preseason week 1 the starters take a handful of snaps or
+  // none at all; the 2s and 3s play most of the game. A roster of stars would show a column of
+  // zeroes all night, which is the opposite of what a shakedown is for.
+  //
+  // Returns { players, defenses } — both ORDERED best-first and both TOTALLY ordered, because
+  // LG.buildBackupRosters draws from the head of these lists and the whole action has to be
+  // deterministic given the same directory (same input, same eight rosters, every time, on
+  // every device). `_i` is each skill player's index in the global order, which is what lets
+  // FLEX and the bench pick "the best remaining across several positions" without re-sorting.
+  // null (never []) when the directory hasn't loaded — the caller must be able to tell
+  // "no data yet" from "nobody qualifies".
+  D.BACKUP_POSITIONS = ["QB", "RB", "WR", "TE", "K"];
+  // Genuinely unavailable, not merely dinged: a Questionable backup still plays in preseason
+  // (and is exactly the kind of player who plays a LOT of it), so only the designations that
+  // mean "will not be on the field" are excluded.
+  D.BACKUP_EXCLUDE_INJURY = ["Out", "IR", "PUP", "NFI", "Sus", "SUS", "DNR", "NA", "COV"];
+  D.backupPool = function (opts) {
+    if (!D.S.slpPlayers) return null;
+    const orders = (opts && opts.orders) || [2, 3];
+    const players = [], defenses = [];
+    for (const [pid, m] of D.S.slpPlayers) {
+      if (!m.team) continue; // a free agent with no NFL team plays in no preseason game
+      if (m.pos === "DEF") {
+        // A team defense has no depth chart — there is exactly one per NFL team, and every
+        // roster needs one, so they are drafted from their own list (see buildBackupRosters).
+        defenses.push({ key: "dst_" + pid, pid, name: m.name, pos: "DST", team: m.team, injury: "", depth: null, searchRank: m.searchRank });
+        continue;
+      }
+      if (!D.BACKUP_POSITIONS.includes(m.pos)) continue;
+      if (m.depth == null || !orders.includes(m.depth)) continue;
+      if (D.BACKUP_EXCLUDE_INJURY.includes(String(m.injury || ""))) continue;
+      players.push({
+        key: m.espn_id || ("slp_" + pid), pid, name: m.name, pos: m.pos,
+        team: m.team, injury: m.injury || "", depth: m.depth, searchRank: m.searchRank,
+      });
+    }
+    // depth first (every 2 before every 3 — the 2s get far more preseason snaps), then the
+    // directory's own popularity rank, then the pid so the order is TOTAL and no two runs can
+    // disagree about a tie.
+    const byPid = (a, b) => String(a.pid).localeCompare(String(b.pid));
+    players.sort((a, b) => a.depth - b.depth || (a.searchRank ?? 1e9) - (b.searchRank ?? 1e9) || byPid(a, b));
+    players.forEach((p, i) => { p._i = i; });
+    defenses.sort((a, b) => (a.searchRank ?? 1e9) - (b.searchRank ?? 1e9) || byPid(a, b));
+    return { players, defenses };
   };
 
   // ---------------- player stats card (2026-08-08) ----------------
@@ -772,6 +875,12 @@
     // numbers (findings 1/3/7).
     const wkNum = Number(j?.week?.number);
     D.S.espnWeek = wkNum >= 1 && wkNum <= 22 ? wkNum : null;
+    // …and WHICH PART of the season it is (ITEM 30). ESPN states this two ways on the same
+    // payload — a numeric season.type (1 pre / 2 regular / 3-4 post) and a season.slug
+    // ("preseason"/"regular-season"/"post-season") — and the older shape nests it under
+    // leagues[0]. All three are read because the cost is nothing and the consequence of
+    // reading none of them is a permanent record written from the wrong part of the season.
+    D.S.espnSeasonType = normSeasonType(j?.season?.type ?? j?.season?.slug ?? j?.leagues?.[0]?.season?.type?.type);
     // D.S.games is REBUILT, never merged into. It used to only ever .set(), so a tab left
     // open across the Tuesday rollover kept last week's "post" entries forever — which made
     // finalizeWeek's "is every game final?" guard pass for ANY past week, in any week, byes
