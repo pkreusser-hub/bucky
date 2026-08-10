@@ -271,15 +271,17 @@
   // Routes to whichever view the URL hash asks for (or the league home) — split out of
   // UI.boot() so it's the one place both the normal boot path and any future fast/cached
   // paint path can call to land on the same first screen.
+  // Item 28 (2026-08-09): a sub-view carries its subject in the hash (#locker=<id>,
+  // #nflgame=<id>), so a shared or reloaded link lands on the same locker/game.
+  // ITEM 32 (2026-08-10): the parse moved into viewFromHash — ONE parser, shared with every
+  // Back/Forward, so a deep link and a history entry can never be read differently. The landing
+  // is a REPLACE, never a push: this is the entry point, there is nothing in the app behind it,
+  // and Back from here must leave rather than consume an entry the reader never made.
   function routeInitial() {
-    const h = location.hash;
-    const lockerM = /^#locker=(\d+)$/.exec(h);
-    if (lockerM) { UI.lockerTeamId = Number(lockerM[1]); UI.show("locker"); return; }
-    // Item 28 (2026-08-09): the NFL game view. Same "a sub-view carries its subject in the
-    // hash" shape as #locker=<id> above, so a shared/reloaded link lands on the same game.
-    const gameM = /^#nflgame=(\d+)$/.exec(h);
-    if (gameM) { UI.nflGameId = gameM[1]; UI.show("nflgame"); return; }
-    UI.show(h === "#team" ? "team" : h === "#rules" ? "rules" : h === "#matchup" ? "matchup" : h === "#moves" ? "moves" : h === "#chat" ? "chat" : h === "#bracket" ? "bracket" : h === "#scores" ? "scores" : "league");
+    const v = viewFromHash(location.hash);
+    if (v.locker != null) UI.lockerTeamId = v.locker;
+    if (v.game != null) UI.nflGameId = v.game;
+    UI.go(v.name, { replace: true });
   }
 
   // ---------------- 2025 SEASON REPLAY — the app loads its own data (2026-08-08) ----------------
@@ -448,13 +450,221 @@
   // (which calls UI.show("rules") before the import even finishes).
   function hideBnav() { const el = $("#bnav"); if (el) el.hidden = true; }
   function showBnav() { const el = $("#bnav"); if (el) el.hidden = false; }
-  UI.show = function (name) {
-    // "My Team" is now the owner's own locker (merged 2026-08-07) — kept as a distinct nav
-    // entry/hash for muscle memory, but there is no separate team view any more.
+
+  // ============ ITEM 32 (2026-08-10) — Back walks the app, not out of it ============
+  // User: "clicking back takes you to the previous page you were on in the app, not out of
+  // chrome entirely." Before this, the app ran TWO half-systems at once and that inconsistency
+  // WAS the bug: five views wrote `location.hash = …` (which pushes an entry for free, so Back
+  // stepped back a view) while the other five changed view through a bare UI.show() that
+  // touched history not at all (so Back left the app). Sometimes one, sometimes the other,
+  // with nothing to tell the reader which they were about to get.
+  //
+  // ONE MECHANISM NOW: history.pushState, with the view's own hash written as that entry's URL.
+  //   · pushState is what index.html already uses for the same problem (its HOME + NAV FIX
+  //     BATCH), and it is the only one of the two that can also carry a NON-URL entry — which
+  //     the overlay sentinels below need, since "the player card is open" is not a place you
+  //     can link to and must not change the address bar.
+  //   · writing the hash as the entry's URL is what keeps every existing deep link
+  //     (#locker=<id>, #nflgame=<id>, #rules, #scores, #bracket, and ?fam=) working, and what
+  //     makes a reload on any view restore that view — the URL stays the source of truth for
+  //     WHICH view, exactly as it was.
+  // Nothing listens for `hashchange`: traversing between two entries whose URLs differ only by
+  // fragment fires BOTH popstate and hashchange, so a hashchange listener would double-route
+  // every single Back press. There are no `href="#…"` links in this app (checked), which is the
+  // only thing that could change the fragment without a popstate.
+  //
+  // THE SPLIT THAT MAKES THIS WORK: UI.show() is now a PURE RENDER and UI.go() is the ONE
+  // navigator. Everything that is a repaint rather than a navigation — the live-poll repaint,
+  // LG.db.onChange's quiet refresh after a background list(), the replay's
+  // projections-just-landed repaint — keeps calling UI.show() and correctly leaves history
+  // alone. Anything a PERSON did goes through UI.go(). Getting that backwards is what would
+  // fill the stack with dozens of dead entries during a live game.
+  const VIEW_HASHES = ["league", "matchup", "team", "moves", "chat", "rules", "bracket", "scores"];
+  let navSeq = 0;
+  // ---- overlays. ONE sentinel at a time (this app can only ever have one modal up: the player
+  // card, the swap sheet, the claim sheet, the chat lightbox — none of them contains a control
+  // that opens another). Back closes what is on top and goes no further; closing by the
+  // overlay's own button/backdrop/Escape CONSUMES that entry with history.back(), so the stack
+  // never keeps a dead one that would make the NEXT Back appear to do nothing.
+  let ovlHide = null;
+  UI.overlayOpened = function (hide) {
+    // A second overlay opening while one is registered reuses the ONE sentinel rather than
+    // stacking a second (defensive — no path in the app does this today).
+    if (ovlHide && ovlHide !== hide) { try { ovlHide(); } catch (_) {} }
+    else if (!ovlHide) { try { history.pushState({ gfflOverlay: true }, ""); } catch (_) {} }
+    ovlHide = hide;
+  };
+  // The overlay closed by something other than Back — its own button, the backdrop, Escape, or
+  // a re-render that destroyed its DOM. Give the sentinel back.
+  UI.overlayClosed = function () {
+    if (!ovlHide) return;
+    ovlHide = null;
+    try { if (history.state && history.state.gfflOverlay) history.back(); } catch (_) {}
+  };
+  // Hide + consume in one go. league.html's Escape handler and its backdrop taps use this.
+  UI.closeTopOverlay = function () {
+    if (!ovlHide) return false;
+    const h = ovlHide;
+    try { h(); } catch (_) {}
+    UI.overlayClosed();
+    return true;
+  };
+  // Hide the DOM and forget the registration WITHOUT touching history — for a caller that is
+  // about to write the current entry itself (UI.go, below).
+  function dropOverlayDom() {
+    const h = ovlHide;
+    ovlHide = null;
+    if (h) { try { h(); } catch (_) {} }
+  }
+  UI._overlayOpen = () => !!ovlHide; // test hook
+
+  // Every screen that is a real VIEW — i.e. one this history layer may route to. The gate, the
+  // claim screen, the outage card and the replay's setup card are NOT in here on purpose.
+  const REAL_VIEWS = ["league", "matchup", "moves", "chat", "rules", "bracket", "scores", "locker", "nflgame"];
+  // "My Team" is the owner's own locker (merged 2026-08-07) — kept as a distinct nav entry and
+  // hash for muscle memory, but there is no separate team view any more. Resolved in ONE place
+  // so the navigator, the first paint and a Back press can never disagree about it.
+  // PURE — it returns the resolution rather than applying it. An earlier cut wrote
+  // UI.lockerTeamId here, and because the popstate handler resolves BEFORE asking "am I already
+  // on this screen?", that write made the answer yes: a Back onto #team from another team's
+  // locker compared the target against a state the resolution had already changed, decided
+  // nothing had moved, and left the URL naming a screen that was no longer on the page.
+  function resolveView(name) {
     if (name === "team") {
       const mine = LG.myTeamId();
-      if (mine != null) { UI.lockerTeamId = mine; location.hash = "#locker=" + mine; name = "locker"; }
+      if (mine != null) return { name: "locker", locker: mine };
     }
+    return { name };
+  }
+  function applyView(name) {
+    const r = resolveView(name);
+    if (r.locker != null) UI.lockerTeamId = r.locker;
+    return r.name;
+  }
+  // The canonical URL for a view. Sub-views carry their subject, exactly as they always did.
+  UI.hashFor = function (name) {
+    if (name === "locker") return "#locker=" + UI.lockerTeamId;
+    if (name === "nflgame") return "#nflgame=" + UI.nflGameId;
+    return "#" + name;
+  };
+  // The ONE hash parser — shared by the first paint and by every Back/Forward, so a deep link
+  // and a history entry can never be read differently.
+  function viewFromHash(h) {
+    const lockerM = /^#locker=(\d+)$/.exec(h || "");
+    if (lockerM) return { name: "locker", locker: Number(lockerM[1]) };
+    const gameM = /^#nflgame=(\d+)$/.exec(h || "");
+    if (gameM) return { name: "nflgame", game: gameM[1] };
+    const key = (h || "").slice(1);
+    return { name: VIEW_HASHES.indexOf(key) >= 0 ? key : "league" };
+  }
+  // What is on screen right now, as one comparable string — a view plus whatever subject makes
+  // it a distinct screen. Used to skip a pointless full re-render when a pop lands us exactly
+  // where we already are (which is what the sentinel-consuming history.back() above does).
+  function viewSig(name, ex) {
+    ex = ex || {};
+    if (name === "locker") return "locker:" + (ex.locker != null ? ex.locker : UI.lockerTeamId);
+    if (name === "nflgame") return "nflgame:" + (ex.game != null ? ex.game : UI.nflGameId);
+    if (name === "matchup") return "matchup:" + ((ex.mu || []).join("-"));
+    return name;
+  }
+  function paintedSig() {
+    return viewSig(UI.view, { locker: UI.lockerTeamId, game: UI.nflGameId, mu: UI.matchup || [] });
+  }
+  // THE INVARIANT: the URL always describes what is PAINTED. UI.show() is the repaint
+  // primitive and anything may call it — the live poll, LG.db.onChange's quiet refresh, a
+  // test — so if it ever left the address bar naming a different screen than the one on the
+  // page, the next Back would resolve that stale URL and land the reader somewhere nobody
+  // asked for. (That is not hypothetical: the suite drives ~50 view changes through UI.show,
+  // and the first cut of this batch, which left the URL alone, sent a locker mid-edit to the
+  // league home the moment a swap sheet closed.) Always a REPLACE — a repaint is not a place —
+  // and it keeps whatever UI.go already recorded on this entry rather than flattening it.
+  function syncUrlToView(name) {
+    const url = UI.hashFor(name);
+    if (location.hash === url) return;
+    const sig = viewSig(name, { mu: UI.matchup || [] });
+    const prev = history.state;
+    const st = prev && prev.gfflView
+      ? Object.assign({}, prev, { gfflView: name, sig })
+      : { gfflView: name, sig, from: null, mu: name === "matchup" ? (UI.matchup || null) : null, n: ++navSeq };
+    try { history.replaceState(st, "", url); } catch (_) {}
+  }
+  // THE navigator. Every gesture that means "take me somewhere" ends here.
+  //   opts.replace — write the current entry instead of pushing one (the first paint, and any
+  //                  correction that must not be a place Back can return to).
+  UI.go = function (name, opts) {
+    opts = opts || {};
+    // BEFORE applyView, for the same reason the popstate handler captures it before resolving:
+    // resolving "team" writes UI.lockerTeamId, so a signature taken afterwards would already
+    // describe the destination. Tapping "My Team" from ANOTHER owner's locker would then look
+    // like re-selecting the screen you are on, replace instead of push, and quietly cost the
+    // reader the Back that should have returned them to the locker they came from.
+    const wasSig = paintedSig();
+    name = applyView(name);
+    const url = UI.hashFor(name);
+    // Standing on an overlay sentinel? Navigating away means that overlay is gone, so REUSE its
+    // slot rather than pushing on top of it — otherwise Back from the new view would land on a
+    // sentinel for an overlay that no longer exists and appear to do nothing.
+    const onSentinel = !!ovlHide;
+    dropOverlayDom();
+    const sig = viewSig(name, { mu: UI.matchup || [] });
+    // `from` is what lets a sub-view's own UP button (the NFL game's "‹ Scores") tell "the
+    // reader tapped in from Scores" apart from "the reader deep-linked straight here".
+    const st = { gfflView: name, sig, from: UI.view || null, mu: name === "matchup" ? (UI.matchup || null) : null, n: ++navSeq };
+    try {
+      // Re-selecting the screen you are already on is not a place in the history — replace, so
+      // Back never has to be pressed twice to leave one view.
+      if (opts.replace || onSentinel || sig === wasSig) history.replaceState(st, "", url);
+      else history.pushState(st, "", url);
+    } catch (_) {}
+    UI.show(name);
+  };
+  window.addEventListener("popstate", function (e) {
+    // (1) An overlay was on top: Back closes it, and nothing else moves. The pop itself already
+    // consumed the sentinel, so there is no history call to make here.
+    if (ovlHide) { const h = ovlHide; ovlHide = null; try { h(); } catch (_) {} return; }
+    // (2) Only route when a real VIEW is on the page. UI.view is NOT the honest answer to
+    // that — it defaults to "league" at module load and is only ever written by UI.show, so on
+    // the gate, the claim screen, the outage card or the replay's setup card it still reads
+    // "league", and a Back press would paint a league home over a screen that deliberately has
+    // no usable app behind it yet. main()'s own data-view is stamped by every one of those
+    // screens (the lesson simProjEnsureAndRepaint's note already records).
+    const painted = main() && main().dataset ? main().dataset.view : "";
+    if (REAL_VIEWS.indexOf(painted) < 0) return;
+    // Captured BEFORE resolving anything — see resolveView's note on why the comparison must
+    // not be able to see its own resolution.
+    const before = paintedSig();
+    const st = e.state || {};
+    const v = viewFromHash(location.hash);
+    const r = resolveView(v.name);
+    const name = r.name;
+    const locker = v.locker != null ? v.locker : r.locker;
+    // The matchup a card opened is sticky state, not part of the URL, so it rides in the entry.
+    // Only an entry WE wrote may set it; anything else leaves the reader's current pick alone.
+    const mu = st.gfflView === "matchup" ? (st.mu || null) : (name === "matchup" ? UI.matchup : null);
+    if (viewSig(name, { locker, game: v.game, mu: mu || [] }) === before) return;
+    if (locker != null) UI.lockerTeamId = locker;
+    if (v.game != null) UI.nflGameId = v.game;
+    if (name === "matchup") UI.matchup = mu;
+    UI.show(name);
+  });
+
+  UI.show = function (name) {
+    name = applyView(name);
+    // A repaint that replaces main()'s innerHTML destroys any sheet rendered inside it (the
+    // swap sheet, the claim sheet — the player card and the chat lightbox are siblings of
+    // main() and survive), so its registration has to go with it.
+    // DOM ONLY, never history.back(): back() is asynchronous, so a call that both traverses AND
+    // rewrites the URL in the same turn lands them in the wrong order — the traversal completes
+    // a beat later and undoes the navigation the repaint just made. (Measured: it sent a Moves
+    // page straight back to the locker it came from.) The syncUrlToView below writes over the
+    // sentinel's own slot whenever the view is actually changing, which removes it just as
+    // cleanly and synchronously. The one case it can't tidy is a background repaint of the SAME
+    // view with a sheet open (cloud-only: LG.db.onChange; neither locker nor moves is
+    // live-repainted) — that leaves one dead entry, so one Back press closes nothing visible
+    // before the next walks the app. Rare, and strictly better than a race that moves the
+    // reader somewhere they didn't ask to go.
+    dropOverlayDom();
+    syncUrlToView(name); // never let the address bar describe a screen that isn't on the page
     showBnav();
     UI.view = name;
     stopChatPoll(); // leaving whatever view had one open — chat/matchup-thread restart their own
@@ -487,8 +697,7 @@
   // of their own.
   UI.openLocker = function (teamId) {
     UI.lockerTeamId = Number(teamId);
-    location.hash = "#locker=" + UI.lockerTeamId;
-    UI.show("locker");
+    UI.go("locker");
   };
   // ---------------- the bottom-nav gesture (2026-08-09) ----------------
   // "the matchup tab should always show the matchup for that users team." UI.matchup is
@@ -499,13 +708,12 @@
   // gesture that means "take me to MY game", and it is the only thing that clears it.
   UI.navTo = function (name) {
     if (name === "matchup") UI.matchup = null;
-    UI.show(name);
+    UI.go(name);
   };
   // Reachable from the league home's  Playoffs card (S7) — same no-nav-entry-needed
   // posture as lockers.
   UI.openBracket = function () {
-    location.hash = "#bracket";
-    UI.show("bracket");
+    UI.go("bracket");
   };
   function wireLockerTaps(root) {
     (root || document).querySelectorAll("[data-locker]").forEach((el) => el.addEventListener("click", (e) => {
@@ -583,9 +791,13 @@
       </div>
     </div>`;
   }
-  UI.closePlayerCard = function () {
+  function hidePlayerCardDom() {
     const ov = $("#playerCard");
     if (ov) { ov.hidden = true; ov.innerHTML = ""; delete ov.dataset.pk; }
+  }
+  UI.closePlayerCard = function () {
+    hidePlayerCardDom();
+    UI.overlayClosed(); // ITEM 32 — give back the history entry the open pushed
   };
   // The game log is a real fetch (Sleeper's archived per-week stats, one request per finalized
   // week) — a "Loading…" placeholder paints INSTANTLY so a tap never feels dead, and the real
@@ -598,6 +810,9 @@
     ov.dataset.pk = key;
     ov.innerHTML = '<div class="pccard center mut">Loading…</div>';
     ov.hidden = false;
+    // ITEM 32: registered on the OPEN, not on the resolve — the card is on screen (as
+    // "Loading…") from this instant, so Back has to mean "close it" from this instant too.
+    UI.overlayOpened(hidePlayerCardDom);
     let html;
     try { html = await playerCardHtml(key); }
     catch (e) { html = '<div class="pccard center mut">Couldn’t load that player.</div>'; }
@@ -1076,13 +1291,13 @@
       ${recordBookHtml(UI._recordBook)}`;
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       UI.matchup = el.dataset.mu.split("-").map(Number);
-      UI.show("matchup");
+      UI.go("matchup");
     }));
     // Item 16: the Rules link routes exactly like the tab did (UI.navTo), which also means it
     // does NOT clear UI.matchup — navTo only does that for the Matchup tab itself.
     $("#lnkRules") && $("#lnkRules").addEventListener("click", () => UI.navTo("rules"));
-    $("#recentMovesAll") && $("#recentMovesAll").addEventListener("click", () => UI.show("moves"));
-    $("#recentChatOpen") && $("#recentChatOpen").addEventListener("click", () => UI.show("chat"));
+    $("#recentMovesAll") && $("#recentMovesAll").addEventListener("click", () => UI.go("moves"));
+    $("#recentChatOpen") && $("#recentChatOpen").addEventListener("click", () => UI.go("chat"));
     $("#finalizeBtn") && $("#finalizeBtn").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       let r = await LG.finalizeWeek(UI.week);
@@ -1348,7 +1563,7 @@
       const wk = Number(el.dataset.wk);
       if (wk) UI.week = wk;
       UI.matchup = el.dataset.mu.split("-").map(Number);
-      UI.show("matchup");
+      UI.go("matchup");
     }));
     paintHealth();
   }
@@ -1500,7 +1715,7 @@
       ${ffScoresHtml(UI._ffSb)}`;
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       UI.matchup = el.dataset.mu.split("-").map(Number);
-      UI.show("matchup");
+      UI.go("matchup");
     }));
     // Item 28: tapping an NFL card opens that game. An event with no id (a slate row the
     // upstream gave us nothing to open) simply doesn't wire — better an inert card than a tap
@@ -1550,8 +1765,7 @@
   UI.openNflGame = function (eventId) {
     UI.nflGameId = String(eventId);
     UI._nflGame = null; // never show the PREVIOUS game's field while this one loads
-    location.hash = "#nflgame=" + UI.nflGameId;
-    UI.show("nflgame");
+    UI.go("nflgame");
   };
 
   // ---- field geometry. PORTED VERBATIM from sports.html (which is where it was worked out
@@ -1816,7 +2030,9 @@
 
   UI.renderNflGame = renderNflGame;
   async function renderNflGame() {
-    if (!UI.nflGameId) { UI.show("scores"); return; }
+    // A #nflgame= URL with nothing to open is a bad address, not a place — REPLACE it, so Back
+    // doesn't have to step over an entry the reader never chose.
+    if (!UI.nflGameId) { UI.go("scores", { replace: true }); return; }
     main().innerHTML = `<div class="rowline nflbar">
         <button type="button" id="nflBack" class="nflback">&lsaquo; Scores</button>
         <span id="nflChip" class="mut small"></span></div>
@@ -1831,10 +2047,14 @@
     startNflGamePoll();
   }
   function nflBack() {
-    // Set the hash as well as the view: a reload after backing out must land on Scores, not
-    // back inside the game the reader just left.
-    location.hash = "#scores";
-    UI.show("scores");
+    // A real UP button (ITEM 32). If Scores is genuinely the entry behind this one, step BACK
+    // to it — that keeps the stack honest (tap in, tap out, and the reader is where they
+    // started) instead of pushing a SECOND Scores entry that Back would then walk straight back
+    // into the game they just left. Someone who deep-linked to #nflgame=<id> has no Scores
+    // behind them at all, so they get a real forward navigation instead of leaving the app.
+    const st = history.state || {};
+    if (st.gfflView === "nflgame" && st.from === "scores") { history.back(); return; }
+    UI.go("scores");
   }
   async function loadNflGame() {
     const id = UI.nflGameId;
@@ -2684,13 +2904,16 @@
       el.hidden = true;
     }));
   }
+  function hideImageOverlayDom() { const ov = $("#imgOverlay"); if (ov) ov.hidden = true; }
   function openImageOverlay(src) {
     const ov = $("#imgOverlay"), img = $("#imgOverlayImg");
     if (!ov || !img) return;
     img.src = src;
     ov.hidden = false;
+    UI.overlayOpened(hideImageOverlayDom); // ITEM 32 — Back closes the lightbox, not the view
   }
   UI.openImageOverlay = openImageOverlay;
+  UI.closeImageOverlay = function () { hideImageOverlayDom(); UI.overlayClosed(); };
   function chatMsgHtml(m, byId, tid) {
     if (m.sys) {
       const when = new Date(m.t).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
@@ -3367,6 +3590,11 @@
     // Since browsing is now the DEFAULT state (not something the family has to type
     // into), repaint once it lands, but only if we're still looking at this page.
     D().initSleeper().then(() => { if (UI.view === "moves") refreshFa(); }).catch(() => {});
+    // ITEM 32 (2026-08-10): same modal contract as the swap sheet — Back closes the sheet and
+    // leaves the reader on Moves; Cancel/Submit hand the sentinel back so the NEXT Back is a
+    // real view change.
+    function hideClaimDom() { const s = $("#claimSheet"); if (s) s.hidden = true; }
+    function hideClaimSheet() { hideClaimDom(); UI.overlayClosed(); }
     function openClaimSheet(fa) {
       const sheet = $("#claimSheet");
       const ros = myRoster;
@@ -3379,16 +3607,17 @@
         <button id="claimGo" class="primary" disabled>${past ? "Add" : "Submit claim"}</button>
         <button class="swaprow mut" id="claimCancel">Cancel</button></div>`;
       sheet.hidden = false;
+      UI.overlayOpened(hideClaimDom);
       sheet.querySelectorAll("[data-di]").forEach((b) => b.addEventListener("click", () => {
         chosen = ros[Number(b.dataset.di)];
         sheet.querySelectorAll("[data-di]").forEach((x) => x.classList.remove("picked"));
         b.classList.add("picked");
         $("#claimGo").disabled = false;
       }));
-      $("#claimCancel").addEventListener("click", () => { sheet.hidden = true; });
+      $("#claimCancel").addEventListener("click", hideClaimSheet);
       $("#claimGo").addEventListener("click", async () => {
         if (!chosen) return;
-        sheet.hidden = true;
+        hideClaimSheet();
         if (past) {
           const r = await LG.faAdd(UI.week, tid, fa, chosen.key);
           if (r.ok) { toast("Added " + fa.name + "."); UI._rosters = null; renderMoves(); }
@@ -4021,6 +4250,13 @@
     const bench = ros.filter((p) => p.slot === "BENCH");
     const ir = ros.filter((p) => p.slot === "IR");
     const irMax = (LG.rules.roster && LG.rules.roster.IR) || 0;
+    // ITEM 32 (2026-08-10): the swap sheet is a modal, so Back must close it rather than leave
+    // the locker. showSwap() registers it (which pushes ONE sentinel entry); hideSwap() — every
+    // row in the sheet, Cancel included — gives that entry straight back, so the following Back
+    // moves the reader to the previous VIEW instead of silently consuming a dead entry.
+    function hideSwapDom() { const s = $("#swapSheet"); if (s) s.hidden = true; }
+    function showSwap() { const s = $("#swapSheet"); if (s) s.hidden = false; UI.overlayOpened(hideSwapDom); }
+    function hideSwap() { hideSwapDom(); UI.overlayClosed(); }
     function openSwap(slot, idx) {
       const sheet = $("#swapSheet");
       let cur = null;
@@ -4039,9 +4275,9 @@
           ${[...new Set(opts)].map((s) => `<button class="swaprow" data-to="${s}">→ ${s}</button>`).join("")}
           ${irOk ? `<button class="swaprow" data-to="IR">→ IR</button>` : ""}
           <button class="swaprow mut" data-to="">Cancel</button></div>`;
-        sheet.hidden = false;
+        showSwap();
         sheet.querySelectorAll(".swaprow").forEach((b) => b.addEventListener("click", () => {
-          sheet.hidden = true;
+          hideSwap();
           if (b.dataset.to) doMove(cur, b.dataset.to);
         }));
         return;
@@ -4052,9 +4288,9 @@
             <span class="lpts">proj ${LG.fmtPts(d.projFor(p.key))}</span></button>`).join("")
           : '<p class="mut">Nobody eligible and unlocked.</p>'}
         <button class="swaprow mut" data-ci="">Cancel</button></div>`;
-      sheet.hidden = false;
+      showSwap();
       sheet.querySelectorAll(".swaprow").forEach((b) => b.addEventListener("click", async () => {
-        sheet.hidden = true;
+        hideSwap();
         if (b.dataset.ci === "") return;
         const incoming = cands[Number(b.dataset.ci)];
         await swap(cur, incoming, slot);
