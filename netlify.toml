@@ -11,15 +11,18 @@
 [functions."chorereminders"]
   schedule = "0,30 1,13,18 * * *"
 
-# ---- GFFL custom domain (activate once the domain is purchased) ----
-# 1) Buy the domain at any registrar (e.g. thegffl.com / gffl.football).
-# 2) Netlify -> Domain management -> "Add domain alias" -> enter the domain,
-#    then create the DNS records Netlify shows at the registrar (usually one
-#    CNAME for www + one A/ALIAS for the apex). HTTPS is automatic.
-# 3) Replace thegffl.com below with the real domain and uncomment. The league
-#    then answers at the domain ROOT while the rest of Bucky stays on
-#    amenfarms.netlify.app (force=false: real files/assets/functions still
-#    resolve normally; only the bare root rewrites to the league app).
+# ---- GFFL custom domain: goatfantasyleague.com (bought 2026-08-10) ----
+# Netlify -> Domain management -> add goatfantasyleague.com to THIS site, then point the
+# registrar's DNS at Netlify (nameservers, or the A/ALIAS + www CNAME Netlify shows) and
+# turn OFF any registrar parking/forwarding. HTTPS provisions automatically afterwards.
+#
+# ⚠ THE RULES BELOW ARE force = true AND MATCH THE EXACT ROOT, not "/*" with force = false.
+# The earlier draft of this block had it the other way round and would NOT have worked:
+# force = false means "serve the real file if one exists", and a real file DOES exist at
+# "/" — index.html, the FARM app. The league domain would have opened Bucky. Forcing only
+# the exact root rewrites the bare domain and leaves every other path alone, so
+# /league.html, /ffdraft.html, /icons/*, /assets/* and /.netlify/functions/* keep resolving
+# normally without needing a wildcard at all.
 #
 # WHY THIS EXISTS AT ALL (2026-08-10, user hit it): a PWA's install identity is its
 # ORIGIN. Bucky is installed with scope "/" — manifest.webmanifest declares no scope
@@ -33,17 +36,27 @@
 # domain ALIAS on THIS site is the cheap form of it: same functions, same env vars, one
 # deploy — only the hostname differs, which is exactly what PWA identity keys on.
 #
-# 4) DO NOT change league.webmanifest. start_url/id stay "/league.html": the same
-#    manifest file is served from BOTH hostnames and its URLs resolve against whichever
-#    one loaded it, so "/league.html" is correct on both. Setting start_url to "/" would
-#    open BUCKY on amenfarms.netlify.app. scope stays absent for the same reason it
-#    always was — it defaults to "/", which keeps ffdraft.html inside the window.
-# 5) Install the league FROM the new domain (the old hostname will still hand you Bucky).
-#    A new origin starts with empty localStorage, so each device re-enters the family
-#    password and re-picks who it is (gffl_pass, choreUser, choreUnlocked, dadPinHash).
-#    League data lives in Firestore and is untouched.
-# [[redirects]]
-#   from = "https://thegffl.com/*"
-#   to = "/league.html"
-#   status = 200
-#   force = false
+# DO NOT change league.webmanifest. start_url/id stay "/league.html": the same manifest
+# file is served from BOTH hostnames and its URLs resolve against whichever one loaded it,
+# so "/league.html" is correct on both. Setting start_url to "/" would open BUCKY on
+# amenfarms.netlify.app. scope stays absent for the same reason it always was — it defaults
+# to "/", which keeps ffdraft.html inside the installed window.
+#
+# Install the league FROM goatfantasyleague.com (amenfarms.netlify.app still hands you
+# Bucky — that is the point). A new origin starts with empty localStorage, so each device
+# re-enters the family password and re-picks who it is (gffl_pass, choreUser,
+# choreUnlocked, dadPinHash). League data lives in Firestore and is untouched.
+
+[[redirects]]
+  from = "https://goatfantasyleague.com/"
+  to = "/league.html"
+  status = 200
+  force = true
+
+# www too, in case Netlify's own www->apex redirect is not enabled for this domain. Harmless
+# if it is: the rule simply never matches.
+[[redirects]]
+  from = "https://www.goatfantasyleague.com/"
+  to = "/league.html"
+  status = 200
+  force = true
