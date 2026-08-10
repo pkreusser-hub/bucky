@@ -1351,25 +1351,50 @@ draft is a real-world appointment and must not follow a replay clock; the one pl
 that is exempt from the engine clock, commented as such. At zero → "Draft is LIVE — join ▶";
 once rosters carry draft results (or T+6h) → quiet "Drafted ✓" line, then gone.
 
-## S3 · LOGO IDENTITY MAXIMIZATION (the unique angle)
+## S3 · LOGO + TEAM-COLOUR IDENTITY MAXIMIZATION (the unique angle; scope grown 2026-08-10)
 
 Today: `logoData` dataURL capped ~80KB (shared with chat images), palette extraction returns
 ONE primary colour, and the logo renders at 20/22/38px. The asset is better than its billing.
+User direction (verbatim spirit): every team gets a SETTABLE primary/secondary/tertiary colour
+scheme used EVERYWHERE the team appears; team-name typography stylized so the scheme comes
+through and "each team feels very unique"; and the NFL-scores stat-bar mechanic (`.nflsbt` at
+lg-ui ~L2116 — split bars filled with each side's own colour) reused for GFFL matchups.
+- **THE COLOUR MODEL — three colours, settable, extraction is the DEFAULT not the law**:
+  `team.colors = { primary, secondary, tertiary }` on the team doc. Uploading a logo re-runs
+  extraction and proposes all three (dominant buckets by population, clamped); a small
+  "Team colours" editor on the locker (three swatches → native `<input type=color>`) lets the
+  owner override any of them, commissioner too on any team (rides S1's gating). A manual
+  override is never clobbered by a logo re-upload (an `colorsCustom` flag latches once a human
+  touches a swatch; "↺ from logo" resets the latch).
+- **CONTRAST GUARD stays the LAW over both extracted AND hand-picked colours**: colours are
+  stored as chosen, but every RENDER site derives through a clamp (relative-luminance floor
+  against the surface it sits on, ink chosen black/white per luminance) so a white-on-white
+  pick can never produce invisible chrome. Asserted in the suite, not eyeballed.
+- **APPLIED EVERYWHERE the team appears** — one helper (`teamPalette(t)` → derived, clamped
+  set) so no render site invents its own rules: matchup score cards (each side tinted by ITS
+  team), locker/My Team, standings rows, the Scores-tab GFFL card, Moves rows that name a
+  team, chat bylines. The existing win/loss colour language keeps the LAST word — palette
+  colours identity, never verdict.
+- **TEAM-NAME TYPOGRAPHY**: team names render in a stylized display treatment (the existing
+  Barlow Condensed at heavier weight, uppercase, tight tracking) with primary fill +
+  secondary accent (text-shadow/edge — CSS only, no webfont additions; must stay legible at
+  12px row sizes, so the treatment SCALES: full fill+edge at locker/matchup sizes, fill-only
+  at small row sizes). Placeholder-initials avatars take primary bg + ink initial.
+- **STAT BARS FROM THE NFL PATTERN**: the matchup view's team-total and category comparisons
+  render as split bars — away fill vs home fill in each team's primary (the `.nflsbt`
+  mechanic ported), and the locker's progress bars take the team's colours.
 - **Bigger source**: logo resize target → 512px, own `LOGO_CAP` (~160KB chars) split from the
   chat `IMG_CAP` (per-team docs; Firestore's 1MB per-doc budget laughs at this).
-- **Richer palette**: `extractPalette` returns `{primary, secondary, ink}` (dominant-bucket
-  quantize, as now, plus second bucket + a luminance-clamped text colour). CONTRAST GUARD:
-  every derived colour is clamped against its background (relative-luminance floor) so a
-  white-on-white logo can never produce invisible chrome — asserted in the suite, not eyeballed.
-- **Locker hero**: full-width banner — the logo blurred+darkened as the backdrop wash, the
-  crisp logo 96–128px over it, name/motto/record set in palette-derived colours; stat chips,
-  progress bars and buttons on the locker take the team's colours.
-- **Matchup**: crest-vs-crest at 44–56px, each side's score block tinted by ITS team's palette
-  (the existing win/loss colour language keeps the last word — palette colours the identity,
-  not the verdict).
+- **Richer palette extraction**: `extractPalette` returns THREE buckets (population-ordered
+  quantize) to seed primary/secondary/tertiary + a luminance-derived ink.
+- **Locker hero**: full-width banner — the logo blurred+darkened as the backdrop wash over a
+  primary→secondary gradient, the crisp logo 96–128px over it, name/motto/record in the
+  stylized treatment; stat chips, bars and buttons on the locker take the team's colours.
+- **Matchup**: crest-vs-crest at 44–56px, each side's score block tinted by ITS team.
 - **Sizes up everywhere**: standings 20→28px, scores card 22→28px, chat byline avatars take
   the team logo.
-- Plates at 390/1440 for: photo logo, flat-art logo, AND the no-logo initials placeholder.
+- Plates at 390/1440 for: photo logo, flat-art logo, the no-logo initials placeholder, AND a
+  hand-picked-colours team (proving the editor path renders identically to the extracted one).
 
 ## S4 · PUSH NOTIFICATIONS (the one structural Sleeper gap)
 
