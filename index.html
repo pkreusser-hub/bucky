@@ -2897,6 +2897,13 @@ function goTo(tab, push = true){
   // Meals or Chores would read as "somebody opened the app". Guarded so a blocked or
   // missing beacon can never break navigation.
   try { if (window.BuckyActivity) window.BuckyActivity.hit("app_" + tab); } catch {}
+  // Opening the Plan calendar always starts on the month, on today. Here rather than in
+  // navGroup (the Meals precedent) because the calendar is reached six ways — the nav
+  // button, the Home widget, an event notification, the sub-nav chip, a #calendar link,
+  // and Back — and goTo is the one seam all six share. render() is NOT a seam: it also
+  // runs on every data refresh, which would yank a reader out of the month they were
+  // browsing. Unconditional, so tapping Plan while already on it means "back to today".
+  if (tab === "calendar") calResetToToday();
   const g = groupForTab(tab);
   if (SECTION_BY_KEY[tab]) groupLast[g.id] = tab;
   syncTabsUI(); renderSubnav(); render();
@@ -6331,8 +6338,10 @@ document.getElementById("shopName").addEventListener("keydown", e=>{ if(e.key===
 // password, exactly like FarmGPT). Anyone in the family can add/edit/delete. Events cache
 // to localStorage for instant paint; the function is the source of truth on refresh.
 const CAL_FN_URL = "/.netlify/functions/calendar";
-let calView = localStorage.getItem("bucky_cal_view") || "month";       // month | week | day
-if (!["month","week","day"].includes(calView)) calView = "month";
+// The view is NOT persisted (user spec 2026-08-10): opening Plan always lands on the
+// month, on today. calResetToToday() re-applies that on every entry into the tab, so a
+// week/day view only ever lasts as long as the visit that chose it.
+let calView = "month";                        // month | week | day
 let calFocus = startOfDay(new Date());        // the date the current view is anchored on
 let calSelectedKey = dateKeyLocal(new Date());// month view: which day's agenda is shown below the grid
 let calEvents = [];                            // normalized [{id,title,start,end,allDay,notes}]
@@ -6346,7 +6355,9 @@ let calWeeksBefore = 1;                        // week view: weeks ABOVE the anc
 const CAL_WEEK_MAX = 26;                       // ~6 months each direction — bounds the events fetch
 let calWeekObs = null;                         // IntersectionObserver growing the feed downward
 let calWeekTopObs = null;                      // …and upward
-let calWeekScrollPending = false;              // one-shot: align today's week under the controls
+let calWeekScrollPending = false;              // one-shot: align the week feed under the controls
+let calWeekAnchorToday = false;                // …on TODAY's card (opening the tab / Today) vs
+                                               //    the week separator (paging to another week)
 let calDayScrollPending = false;               // one-shot: scroll the day grid to the useful hour
 let editingCalId = null;                       // null = adding a new event
 let calSheetAllDay = false;
@@ -6550,20 +6561,36 @@ function calNav(dir){   // driven by swipes now (month/day) — the ‹ › butt
   calFocus = startOfDay(f);
   renderCalendar();
 }
-function calGoToday(){
-  calFocus = startOfDay(new Date()); calSelectedKey = dateKeyLocal(calFocus);
+// Point every view at today. `pending` arms the one-shot scroll each view uses to put
+// today where it belongs — today's own card at the top in week, the useful hour in day.
+function calAimAtToday(){
+  calFocus = startOfDay(new Date());
+  calSelectedKey = dateKeyLocal(calFocus);
   calWeekCount = 3; calWeeksBefore = 1;
-  if (calView === "week") calWeekScrollPending = true;
-  if (calView === "day") calDayScrollPending = true;
+  calWeekScrollPending = calView === "week";
+  calWeekAnchorToday = true;
+  calDayScrollPending = calView === "day";
+}
+// Entering the Plan calendar from anywhere — the nav button, the Home widget, an event
+// notification, a #calendar link, Back — starts on the month, on today (user spec
+// 2026-08-10). Called from goTo(), so a data-driven repaint can never yank a reader who
+// is mid-browse back to this month; only a real navigation does.
+function calResetToToday(){
+  calView = "month";
+  calAimAtToday();
+}
+function calGoToday(){
+  calAimAtToday();
   if (calView === "month") window.scrollTo(0, 0);
   renderCalendar();
 }
 function calSetView(v){
   calView = v; calWeekCount = 3; calWeeksBefore = 1;
-  // opening the WEEK tab always lands on today (user spec) and aligns it under the controls
-  if (v === "week"){ calFocus = startOfDay(new Date()); calWeekScrollPending = true; }
+  // The WEEK chip always lands on today, with today's OWN card at the top of the screen
+  // (user spec 2026-08-10). Month and Day deliberately keep whatever date you had been
+  // browsing — only entering the tab, or Today, moves the anchor.
+  if (v === "week"){ calFocus = startOfDay(new Date()); calWeekScrollPending = true; calWeekAnchorToday = true; }
   if (v === "day") calDayScrollPending = true;
-  localStorage.setItem("bucky_cal_view", v);
   renderCalendar();
 }
 // Swipe left/right to change month/day (pointer-based so a mouse drag works on desktop too;
@@ -6759,6 +6786,7 @@ function calWeekDayCards(container, ws){
     const d = new Date(ws.getTime()+i*86400000);
     const key = dateKeyLocal(d);
     const card = document.createElement("div"); card.className = "cal-daycard" + (key===todayKey?" today":"");
+    if (key === todayKey) card.dataset.todayAnchor = "1";   // what the week feed scrolls to
     const h = document.createElement("div"); h.className = "cal-daycard-h";
     const nm = document.createElement("span"); nm.className = "cal-dname"; nm.textContent = d.toLocaleDateString(undefined,{weekday:"long"});
     const dt = document.createElement("span"); dt.className = "cal-ddate"; dt.textContent = d.toLocaleDateString(undefined,{month:"short",day:"numeric"});
@@ -6831,13 +6859,17 @@ function buildCalWeek(container){
     });
     calWeekTopObs.observe(topNote);
   }
-  // One-shot alignment (view switch / Today / week jump): today's week lands right under
-  // the sticky controls, with last week reachable by scrolling up.
+  // One-shot alignment. Opening the week (or Today) puts TODAY'S OWN CARD right under the
+  // sticky controls — user spec 2026-08-10; anchoring the week SEPARATOR instead, as this
+  // used to, left today most of a screen down on a Friday. Paging to another week has no
+  // today to show, so it keeps the separator.
   if (calWeekScrollPending){
-    calWeekScrollPending = false;
+    const anchorToday = calWeekAnchorToday;
+    calWeekScrollPending = false; calWeekAnchorToday = false;
     requestAnimationFrame(()=>{
-      const sep = feed.querySelector('.cal-weeksep[data-anchor="1"]');
-      if (sep) window.scrollTo(0, Math.max(0, sep.getBoundingClientRect().top + window.scrollY - calStickyOffset()));
+      const el = (anchorToday && feed.querySelector('.cal-daycard[data-today-anchor="1"]'))
+        || feed.querySelector('.cal-weeksep[data-anchor="1"]');
+      if (el) window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + window.scrollY - calStickyOffset()));
     });
   }
 }
