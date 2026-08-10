@@ -3490,13 +3490,26 @@ async function openDetails(page, id) {
       return true;
     });
     ok(uploaded, "a red logo PNG is assigned to the hidden file input via a real change event");
+    // RESTAGED 2026-08-10 (S3): the locker header is a HERO now — a primary→secondary
+    // gradient over a blurred wash of the logo itself — so its `background-color` is
+    // transparent and the team's colour lives in the `--tp` custom property that the gradient
+    // (and every other tinted rule) reads. The GUARANTEE this check exists for is unchanged
+    // and still asserted, on the value that now decides the pixels: upload a red logo, and the
+    // header goes red. It is additionally checked through LG.teamPalette so what is measured
+    // is the CLAMPED colour that really renders, not a raw pick that a contrast floor might
+    // have moved. ("the default green" in the old wording was already stale — the default had
+    // been var(--accent) since the retheme — and is dropped rather than restated wrong.)
     await page1.waitForFunction(() => {
       const el = document.querySelector(".lockerhead");
-      return el && /rgb\(\d/.test(getComputedStyle(el).backgroundColor);
+      return el && /^#[0-9a-f]{6}$/i.test(getComputedStyle(el).getPropertyValue("--tp").trim());
     }, { timeout: 9000 });
-    const bg = await page1.evaluate(() => getComputedStyle(document.querySelector(".lockerhead")).backgroundColor);
-    const rgb = (bg.match(/\d+/g) || []).map(Number);
-    ok(rgb.length === 3 && rgb[0] > rgb[1] + 30 && rgb[0] > rgb[2] + 30, "the extracted palette makes the header background REDDISH, not the default green (" + bg + ")");
+    const bg = await page1.evaluate(() => {
+      const el = document.querySelector(".lockerhead");
+      return { tp: getComputedStyle(el).getPropertyValue("--tp").trim(), grad: getComputedStyle(el).backgroundImage.slice(0, 16) };
+    });
+    const rgb = [1, 3, 5].map((i) => parseInt(bg.tp.slice(i, i + 2), 16));
+    ok(rgb[0] > rgb[1] + 30 && rgb[0] > rgb[2] + 30, "the extracted palette makes the locker hero REDDISH (" + bg.tp + ")");
+    ok(/gradient/.test(bg.grad), "…as the primary end of the hero's own primary→secondary gradient");
     const savedColors = await page1.evaluate(() => window.__GFFL__.LG.teamById(1).colors);
     ok(savedColors && typeof savedColors.primary === "string", "the extracted colour is stored on the team doc (computed once at upload, not per render)");
     // Regression guard for the cache-corruption bug this test caught: cacheUpsert() used to
@@ -3529,12 +3542,25 @@ async function openDetails(page, id) {
     // and still asserted — a rival owner is offered nothing on someone else's locker — it is
     // just measured on what the reader can see instead of on what the DOM contains. AK7 covers
     // the other half (clicking one anyway lands on the commissioner PIN, and renames nothing).
+    // RESTAGED 2026-08-10 (S3): this said it measured "what the reader can see" and then read
+    // the `hidden` ATTRIBUTE, which is not the same thing — and the difference turned out to
+    // be a live bug. .lockeredit carries its own display:flex, which beats the UA's
+    // [hidden]{display:none}, so the block was marked hidden and painted anyway: a rival could
+    // SEE Name / Motto / Logo on somebody else's locker. (The PIN was still the real gate, so
+    // nothing could be changed — but the affordance was on offer.) Fixed with the house
+    // [hidden]-override rule; measured here on the RENDERED box, which is what the claim was
+    // always about, plus the attribute, which is what renderLocker is responsible for setting.
     const rivalEdit = await page2.evaluate(() => {
       const box = document.querySelector(".lockeredit");
-      return { box: !!box, hidden: !!(box && box.hidden), btns: ["#lockerEditName", "#lockerEditMotto", "#lockerEditLogo"].filter((s) => !!document.querySelector(s)).length };
+      const r = box.getBoundingClientRect();
+      return { box: !!box, hidden: !!(box && box.hidden), display: getComputedStyle(box).display,
+               painted: r.width > 0 && r.height > 0,
+               btns: ["#lockerEditName", "#lockerEditMotto", "#lockerEditLogo"].filter((s) => !!document.querySelector(s)).length };
     });
     ok(rivalEdit.btns === 3 && rivalEdit.hidden === true,
-      "…but NO edit affordances a non-commissioner can see on someone else's locker (present in the markup, rendered hidden — " + JSON.stringify(rivalEdit) + ")");
+      "…but NO edit affordances a non-commissioner can see on someone else's locker (present in the markup, marked hidden — " + JSON.stringify(rivalEdit) + ")");
+    ok(rivalEdit.display === "none" && rivalEdit.painted === false,
+      "…and genuinely NOT PAINTED, not merely flagged (the house [hidden]-override lesson — display:" + rivalEdit.display + ")");
 
     // Tap-through from standings / "My Team" nav (item 3, 2026-08-07: "My Team" IS the locker
     // now, so there's no separate "My locker" button on a team page to click through any more —
@@ -8548,16 +8574,44 @@ async function openDetails(page, id) {
       ok(names.every((n) => n.lines <= 2), "…and no name wraps past two lines (worst " + Math.max(...names.map((n) => n.lines)) + ")");
       ok(names.some((n) => /McLaughlin/.test(n.t)), "…including the one that used to overflow outright");
 
-      // AD10 — the team-name card, halved. Measured before this batch: 182px.
+      // AD10 — the team-name card. RESTAGED 2026-08-10 (S3), and this one is a real change of
+      // shape rather than a change of measurement, so it says so out loud.
+      //
+      // The 2026-08-09 complaint was "shrink the team name card in half": 182px spending
+      // itself on a 64px crest and a flat accent band that told the reader nothing. The
+      // halving to ~98px was right for what that card WAS. S3 makes it a HERO — the crest at
+      // 96px, the logo blurred behind it as the banner, the team's own colour scheme, and the
+      // three-swatch colour editor — because the crest and the scheme ARE the team's identity
+      // and this is the one page in the app about exactly one team.
+      //
+      // What is measured now, and why these two numbers rather than one:
+      //   · the OWNER's locker carries controls nobody else sees (Name/Motto/Logo, then the
+      //     colour row). It is taller than the old card, and it should be — it is the editor.
+      //   · EVERY OTHER team's locker — the common case, and what the original complaint was
+      //     really about, since a reader browsing the league sees seven of those and one of
+      //     their own — is the hero WITHOUT the controls, and it must not have grown much past
+      //     the card it replaced.
+      // Both are asserted, so a future change that quietly pads the hero fails here.
       const lh = await page.evaluate(() => {
         const h = document.querySelector(".lockerhead");
+        const ctl = [...h.querySelectorAll(".lockeredit, .lockercolors")]
+          .reduce((s, e) => s + e.getBoundingClientRect().height + 6, 0); // +6 = each block's own margin-top
         return { height: Math.round(h.getBoundingClientRect().height),
+                 bare: Math.round(h.getBoundingClientRect().height - ctl),
+                 rows: [...h.querySelectorAll(".lockercolors")].length,
+                 colourRowH: Math.round((h.querySelector(".lockercolors") || { getBoundingClientRect: () => ({ height: 0 }) }).getBoundingClientRect().height),
                  logo: !!h.querySelector(".lockerlogo"), name: (h.querySelector(".lockername") || {}).textContent,
-                 rec: /PF/.test(h.textContent), edit: h.querySelectorAll(".lockeredit button").length };
+                 rec: /PF/.test(h.textContent), edit: h.querySelectorAll(".lockeredit button").length,
+                 swatches: h.querySelectorAll(".tcswatch").length,
+                 logoW: Math.round((h.querySelector(".lockerlogo") || { getBoundingClientRect: () => ({ width: 0 }) }).getBoundingClientRect().width) };
       });
-      ok(lh.height <= 110, "the team-name card is halved — 182px before this batch, " + lh.height + "px now");
+      ok(lh.bare <= 125, "the locker hero WITHOUT the owner-only controls — what every other team's locker is — stays close to the card it replaced (" + lh.bare + "px, vs 182 before the 2026-08-09 halving and ~98 after it)");
+      ok(lh.height <= 190, "…and the OWNER's own, which additionally carries the identity editor, is " + lh.height + "px");
+      ok(lh.colourRowH <= 40, "…with the colour editor on ONE row, never two (" + lh.colourRowH + "px)");
       ok(lh.logo && /Battle Kreussers/.test(lh.name || "") && lh.rec, "…keeping the crest, the name and the record");
+      ok(lh.logoW >= 96, "…the crest at the S3 hero size (" + lh.logoW + "px, was 38)");
       ok(lh.edit === 3, "…and the owner's Name / Motto / Logo controls");
+      ok(lh.swatches === 3, "…now joined by the three colour swatches");
 
       // AD11 — injury designations.
       const inj = await page.evaluate(() => {
@@ -12382,6 +12436,526 @@ async function openDetails(page, id) {
       ok(/Sun, Sep 13/.test(after) && /6:00\s*PM/.test(after) && after !== before,
         "…and the league home's countdown card reflects the RESCHEDULED date on the very next render — no hardcoded text anywhere (" + JSON.stringify({ before, after }) + ")");
       ok(errors.length === 0, "0 page errors through the whole reschedule flow");
+      await ctx.close();
+    }
+  }
+
+  // ---- AM: S3 — logo + team-colour identity ----
+  // The colour model is THREE settable colours per team, an extractor that PROPOSES them, a
+  // latch that stops a re-upload overruling a human, and — the part this section exists for —
+  // a contrast clamp that is the LAW rather than a suggestion. Every check below measures what
+  // actually reaches the screen (computed styles, real palette output) rather than reading the
+  // stylesheet's intentions.
+  section("AM · S3 — team colours, the contrast clamp, crests everywhere, split stat bars");
+  {
+    // Three flat bands, so extraction has three genuinely separate hue buckets to find and the
+    // "three shades of one red" failure would show up as a collapsed palette. Painted at 48px
+    // so the 32px sample the extractor takes still lands cleanly inside each band.
+    const THREE_BAND_LOGO = `(function () {
+      const cv = document.createElement("canvas"); cv.width = 48; cv.height = 48;
+      const c = cv.getContext("2d");
+      c.fillStyle = "#d81f26"; c.fillRect(0, 0, 48, 16);
+      c.fillStyle = "#1552b0"; c.fillRect(0, 16, 48, 16);
+      c.fillStyle = "#e8c11c"; c.fillRect(0, 32, 48, 16);
+      return cv;
+    })()`;
+    // Flat ART, in the sense that matters to the extractor: no saturated pixel anywhere. This
+    // used to yield NO scheme at all.
+    const FLAT_ART_LOGO = `(function () {
+      const cv = document.createElement("canvas"); cv.width = 48; cv.height = 48;
+      const c = cv.getContext("2d");
+      c.fillStyle = "#101010"; c.fillRect(0, 0, 48, 48);
+      c.fillStyle = "#f4f4f4"; c.fillRect(8, 8, 32, 20);
+      c.fillStyle = "#8a8a8a"; c.fillRect(8, 32, 32, 8);
+      return cv;
+    })()`;
+    // Drives the REAL upload path: the same hidden <input type=file> a person picks with, the
+    // same change event, the same resize/extract/save chain. Nothing is stubbed.
+    async function uploadLogo(page, canvasExpr) {
+      return page.evaluate(async (expr) => {
+        const cv = eval(expr); // eslint-disable-line no-eval
+        const blob = await new Promise((res) => cv.toBlob(res, "image/png"));
+        const file = new File([blob], "logo.png", { type: "image/png" });
+        const dt = new DataTransfer(); dt.items.add(file);
+        const input = document.getElementById("lockerLogoInput");
+        input.files = dt.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      }, canvasExpr);
+    }
+    const openLocker = async (page, id) => {
+      await page.evaluate((i) => window.__GFFL__.UI.openLocker(i), id);
+      await page.waitForSelector(".lockerhead", { timeout: 9000 });
+    };
+
+    // ---- AM1: the derivation, on its own. Pure function, measured directly.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+
+      // A team with nothing on file still gets an identity — and the same one every time, on
+      // every device, because the hue wheel is keyed on the team NUMBER and nothing else.
+      const defaults = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        const a = LG.teamPalette({ id: 1 }), b = LG.teamPalette({ id: 1 }), c = LG.teamPalette({ id: 2 });
+        return { same: a.primary === b.primary, differ: a.primary !== c.primary, isDefault: a.isDefault, p: a.primary };
+      });
+      ok(defaults.same, "a team with no colours on file gets a DETERMINISTIC default palette (" + defaults.p + ")");
+      ok(defaults.differ, "…and two different teams get different ones, so eight unstyled teams don't all look alike");
+      ok(defaults.isDefault === true, "…flagged isDefault, which is what the locker's own \"league default\" label reads");
+
+      // THE LAW, case 1: white. On a white FILL, white ink would be invisible — the clamp has
+      // to flip the INK, not edit the colour, because the colour is what the reader chose.
+      // Measured with the SAME WCAG contrast the clamp itself used.
+      const white = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        const p = LG.teamPalette({ id: 1, colors: { primary: "#ffffff", secondary: "#ffffff", tertiary: "#ffffff" } });
+        return { raw: p.raw.primary, primary: p.primary, ink: p.ink, onDark: p.onDark,
+                 inkContrast: LG.contrast(p.primary, p.ink), darkContrast: LG.contrast(p.onDark, "#151b26") };
+      });
+      ok(white.raw === "#ffffff", "a white pick is STORED as white — the clamp derives, it never edits what the reader chose");
+      ok(white.inkContrast >= 4.5, "…and white-on-white is impossible: the ink flips to dark, " + white.inkContrast.toFixed(2) + ":1 against the fill");
+      ok(white.darkContrast >= 4.5, "…while the same colour as INK on the dark card clears AA too (" + white.darkContrast.toFixed(2) + ":1)");
+
+      // THE LAW, case 2: a near-black pick, which on this app's near-black page is the OTHER
+      // way to be invisible — a fill that vanishes into the surface it sits on.
+      const dark = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        const p = LG.teamPalette({ id: 1, colors: { primary: "#04060a", secondary: "#04060a", tertiary: "#04060a" } });
+        return { raw: p.raw.primary, primary: p.primary,
+                 pageContrast: LG.contrast(p.primary, "#0c1017"), rawPageContrast: LG.contrast("#04060a", "#0c1017"),
+                 darkContrast: LG.contrast(p.onDark, "#151b26") };
+      });
+      ok(dark.raw === "#04060a", "a near-black pick is stored as chosen too");
+      ok(dark.rawPageContrast < 1.5 && dark.pageContrast >= 1.5,
+        "…and the FILL is lifted until it separates from the page (" + dark.rawPageContrast.toFixed(2) + ":1 raw → " + dark.pageContrast.toFixed(2) + ":1 rendered)");
+      ok(dark.darkContrast >= 4.5, "…and as ink it is lifted to AA as well (" + dark.darkContrast.toFixed(2) + ":1)");
+
+      // The clamp must be a FLOOR, not a filter: a colour that already passes has to come back
+      // untouched, or every team's chosen colour would be quietly shifted a little.
+      const passthrough = await page.evaluate(() => {
+        const p = window.__GFFL__.LG.teamPalette({ id: 1, colors: { primary: "#d81f26", secondary: "#1552b0", tertiary: "#e8c11c" } });
+        return { primary: p.primary, secondary: p.secondary, tertiary: p.tertiary };
+      });
+      ok(passthrough.primary === "#d81f26" && passthrough.secondary === "#1552b0" && passthrough.tertiary === "#e8c11c",
+        "a palette that already clears both floors comes back BYTE-IDENTICAL — the clamp never silently retunes a legible pick");
+
+      // A doc from before S3 carries a primary alone. It must still get three colours.
+      const legacy = await page.evaluate(() => {
+        const p = window.__GFFL__.LG.teamPalette({ id: 3, colors: { primary: "rgb(216,31,38)" } });
+        return { primary: p.primary, secondary: p.secondary, tertiary: p.tertiary, isDefault: p.isDefault };
+      });
+      ok(legacy.primary === "#d81f26", "a pre-S3 doc's single `rgb(...)` primary is parsed and kept");
+      ok(legacy.secondary && legacy.tertiary && legacy.secondary !== legacy.primary && legacy.tertiary !== legacy.primary,
+        "…and its two companions are DERIVED from it, so an old team gets the full treatment with no migration (" + JSON.stringify(legacy) + ")");
+      ok(legacy.isDefault === false, "…and it is not mistaken for a team with nothing on file");
+      ok(errors.length === 0, "0 page errors through the palette derivation");
+      await ctx.close();
+    }
+
+    // ---- AM2: the tokens the clamp measures against are the app's REAL tokens.
+    // lg-core cannot read CSS (no DOM guarantee, and the palette is a pure function), so the
+    // surface colours are duplicated as literals there. This is the check that stops the two
+    // copies drifting: a retheme that moved --bg without moving PAL_PAGE would silently make
+    // every contrast guarantee in this section a statement about a colour no longer on screen.
+    {
+      const core = fs.readFileSync(path.join(ROOT, "assets", "league", "lg-core.js"), "utf8");
+      const html = fs.readFileSync(path.join(ROOT, "league.html"), "utf8");
+      const root = (html.match(/:root\s*\{[\s\S]*?\}/) || [""])[0];
+      const cssBg = (root.match(/--bg:\s*(#[0-9a-fA-F]{6})/) || [])[1];
+      const cssCard = (root.match(/--card:\s*(#[0-9a-fA-F]{6})/) || [])[1];
+      const jsPage = (core.match(/const PAL_PAGE\s*=\s*"(#[0-9a-fA-F]{6})"/) || [])[1];
+      const jsSurface = (core.match(/const PAL_SURFACE\s*=\s*"(#[0-9a-fA-F]{6})"/) || [])[1];
+      ok(!!cssBg && String(cssBg).toLowerCase() === String(jsPage).toLowerCase(),
+        "lg-core's PAL_PAGE still matches league.html's --bg token (" + jsPage + " vs " + cssBg + ")");
+      ok(!!cssCard && String(cssCard).toLowerCase() === String(jsSurface).toLowerCase(),
+        "…and PAL_SURFACE still matches --card (" + jsSurface + " vs " + cssCard + ")");
+    }
+
+    // ---- AM3: teamPalette is the ONLY path. A render site reading team.colors raw would be a
+    // render site outside the contrast law, which is the one way this whole batch can rot.
+    // Comments are stripped first — the code's own notes NARRATE the field by name, and that
+    // narration is exactly what a future reader needs (section AB11's precedent).
+    {
+      const raw = fs.readFileSync(path.join(ROOT, "assets", "league", "lg-ui.js"), "utf8");
+      const code = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+      // A READ is `<something>.colors`. The colour editor's own WRITE is `colors,` / `colors:`
+      // inside an object literal — a property name, not a read of a team's stored colours —
+      // and stays legal.
+      const reads = code.match(/\b[A-Za-z_$][\w$]*\s*\.colors\b/g) || [];
+      ok(reads.length === 0, "no render site in lg-ui.js reads `<team>.colors` directly — every one derives through LG.teamPalette (" + JSON.stringify(reads) + ")");
+      ok(/LG\.teamPalette|LG\.teamStyle|LG\.palStyle/.test(code), "…and the derivation helpers really are what it calls instead");
+      const core = fs.readFileSync(path.join(ROOT, "assets", "league", "lg-core.js"), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+      ok(/LG\.teamPalette\s*=\s*function/.test(core), "…and teamPalette lives in lg-core, beside the team data it derives from");
+    }
+
+    // ---- AM4: extraction proposes THREE colours from a real uploaded logo, and the latch.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await openLocker(page, 1);
+
+      await uploadLogo(page, THREE_BAND_LOGO);
+      await page.waitForFunction(() => {
+        const t = window.__GFFL__.LG.teamById(1);
+        return t && t.colors && t.colors.secondary;
+      }, { timeout: 9000 });
+      const ex = await page.evaluate(() => {
+        const t = window.__GFFL__.LG.teamById(1);
+        const p = window.__GFFL__.LG.teamPalette(t);
+        return { colors: t.colors, custom: !!t.colorsCustom, logo: (t.logoData || "").slice(0, 15),
+                 len: (t.logoData || "").length, three: [p.primary, p.secondary, p.tertiary] };
+      });
+      ok(ex.colors && ex.colors.primary && ex.colors.secondary && ex.colors.tertiary,
+        "an uploaded logo PROPOSES all three colours, not one (" + JSON.stringify(ex.colors) + ")");
+      ok(new Set(ex.three).size === 3, "…and the three are genuinely distinct — not three shades of the same band (" + JSON.stringify(ex.three) + ")");
+      ok(ex.custom === false, "…with the hand-picked latch still OFF (nobody has touched a swatch)");
+      ok(ex.logo.startsWith("data:image/"), "…and the picture itself is stored as a data: URL on the team doc");
+      ok(ex.len > 0 && ex.len <= 160000, "…inside the logo's OWN 160KB budget, split from chat's 80KB (" + ex.len + " chars)");
+
+      // A HAND-PICK latches. From here a new logo may change the picture and nothing else.
+      const before = await page.evaluate(() => window.__GFFL__.LG.teamById(1).colors.primary);
+      await page.evaluate(() => {
+        const inp = document.querySelector('.tcswatch[data-slot="primary"]');
+        inp.value = "#2f8f4e";
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await page.waitForFunction(() => window.__GFFL__.LG.teamById(1).colorsCustom === true, { timeout: 9000 });
+      const picked = await page.evaluate(() => {
+        const t = window.__GFFL__.LG.teamById(1);
+        return { colors: t.colors, custom: t.colorsCustom, logoStill: (t.logoData || "").startsWith("data:image/") };
+      });
+      ok(picked.colors.primary === "#2f8f4e" && picked.colors.primary !== before,
+        "a swatch override saves the chosen colour exactly (" + before + " → " + picked.colors.primary + ")");
+      ok(picked.custom === true, "…and latches colorsCustom, the flag that makes it final");
+      ok(!!picked.colors.secondary && !!picked.colors.tertiary, "…leaving the other two slots alone");
+      ok(picked.logoStill, "…and the logo is untouched by a colour edit (delta writes only — never a whole spread team)");
+
+      // THE LATCH, under fire: a completely different logo, uploaded after the hand-pick.
+      await openLocker(page, 1);
+      await uploadLogo(page, FLAT_ART_LOGO);
+      await page.waitForFunction(() => {
+        const t = window.__GFFL__.LG.teamById(1);
+        return t && (t.logoData || "").length > 0;
+      }, { timeout: 9000 });
+      await sleep(400);
+      const afterReupload = await page.evaluate(() => {
+        const t = window.__GFFL__.LG.teamById(1);
+        return { primary: t.colors.primary, custom: t.colorsCustom };
+      });
+      ok(afterReupload.primary === "#2f8f4e",
+        "re-uploading a logo does NOT clobber a hand-picked colour — the latch holds (" + afterReupload.primary + ")");
+      ok(afterReupload.custom === true, "…and stays latched");
+
+      // "↺ from logo" is the way back — and it must CLEAR the latch, not just re-read once.
+      await openLocker(page, 1);
+      await clickIn(page, "#lockerColorReset");
+      await page.waitForFunction(() => window.__GFFL__.LG.teamById(1).colorsCustom === false, { timeout: 9000 });
+      const reset = await page.evaluate(() => {
+        const t = window.__GFFL__.LG.teamById(1);
+        return { primary: t.colors.primary, custom: t.colorsCustom };
+      });
+      ok(reset.custom === false, "…and \"↺ from logo\" clears the latch EXPLICITLY (written false, not omitted — saveTeam merges)");
+      ok(reset.primary !== "#2f8f4e", "…having re-read the colours from the logo that is actually on the team now (" + reset.primary + ")");
+      // That logo is the monochrome one, which used to yield NO scheme at all — every pixel
+      // filtered out of the saturated pass. The lightness fallback is what answers it.
+      ok(/^(#|rgb)/.test(String(reset.primary)), "a flat black-and-white logo still proposes a scheme, via the lightness fallback (" + reset.primary + ")");
+      ok(errors.length === 0, "0 page errors through upload → hand-pick → re-upload → reset");
+      await ctx.close();
+    }
+
+    // ---- AM5: the locker hero, for all four kinds of team, measured on SCREEN.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+
+      // (a) no logo at all — the initials placeholder, on the team's own default colour.
+      await openLocker(page, 3);
+      const ph = await page.evaluate(() => {
+        const head = document.querySelector(".lockerhead");
+        const logo = head.querySelector(".lockerlogo");
+        return { isPh: logo.classList.contains("lockerlogo-ph"), text: logo.textContent.trim(),
+                 w: Math.round(logo.getBoundingClientRect().width),
+                 wash: !!head.querySelector(".lockerwash"),
+                 bg: getComputedStyle(head).backgroundImage.slice(0, 20) };
+      });
+      ok(ph.isPh && ph.text.length > 0, "a team with NO logo renders initials, not an empty box (\"" + ph.text + "\")");
+      ok(ph.w >= 96, "…at the hero size (" + ph.w + "px — the S3 96-128 band's floor, which is what phone width gets)");
+      ok(!ph.wash, "…with no blurred backdrop wash, because there is no picture to blur");
+      ok(/gradient/.test(ph.bg), "…over the primary→secondary gradient every hero carries");
+
+      // (b) a real picture — the wash appears and the crisp crest sits over it.
+      await openLocker(page, 1);
+      await uploadLogo(page, THREE_BAND_LOGO);
+      await page.waitForFunction(() => !!document.querySelector(".lockerwash"), { timeout: 9000 });
+      const hero = await page.evaluate(() => {
+        const head = document.querySelector(".lockerhead");
+        const wash = head.querySelector(".lockerwash"), logo = head.querySelector(".lockerlogo");
+        const ws = getComputedStyle(wash);
+        return { washUrl: /data:image/.test(ws.backgroundImage), blur: ws.filter, z: ws.zIndex,
+                 logoW: Math.round(logo.getBoundingClientRect().width), crisp: getComputedStyle(logo).filter };
+      });
+      ok(hero.washUrl, "a team WITH a logo gets that logo as the hero's backdrop wash");
+      ok(/blur/.test(hero.blur), "…blurred (" + hero.blur + ")");
+      ok(Number(hero.z) < 0, "…and behind everything (z-index " + hero.z + "), so it can never sit over the name");
+      ok(hero.logoW >= 96, "…while the CRISP crest over it is the hero size (" + hero.logoW + "px)");
+      ok(hero.crisp === "none", "…and is not itself blurred");
+
+      // (c) THE CONTRAST LAW on screen: a hand-picked WHITE team. Read the RENDERED colours.
+      await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        await LG.saveTeam({ teamId: 1, colors: { primary: "#ffffff", secondary: "#ffffff", tertiary: "#ffffff" }, colorsCustom: true });
+        await LG.loadTeams();
+      });
+      await openLocker(page, 1);
+      const whiteOnScreen = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        const nm = document.querySelector(".lockername"), head = document.querySelector(".lockerhead");
+        const toHex = (c) => "#" + c.match(/\d+/g).slice(0, 3).map((v) => Number(v).toString(16).padStart(2, "0")).join("");
+        const ink = toHex(getComputedStyle(nm).color);
+        const fill = getComputedStyle(head).getPropertyValue("--tp").trim();
+        return { ink, fill, contrast: LG.contrast(ink, fill) };
+      });
+      ok(whiteOnScreen.contrast >= 4.5,
+        "ON SCREEN, a white-picked team's hero name is legible against its own white fill — " + whiteOnScreen.contrast.toFixed(2) + ":1 (ink " + whiteOnScreen.ink + " on " + whiteOnScreen.fill + ")");
+
+      // (d) …and the other invisible pick: near-black on a near-black page.
+      await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        await LG.saveTeam({ teamId: 1, colors: { primary: "#04060a", secondary: "#04060a", tertiary: "#04060a" }, colorsCustom: true });
+        await LG.loadTeams();
+      });
+      await openLocker(page, 1);
+      const darkOnScreen = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        const head = document.querySelector(".lockerhead"), nm = document.querySelector(".lockername");
+        const toHex = (c) => "#" + c.match(/\d+/g).slice(0, 3).map((v) => Number(v).toString(16).padStart(2, "0")).join("");
+        const fill = getComputedStyle(head).getPropertyValue("--tp").trim();
+        return { fill, page: LG.contrast(fill, "#0c1017"), ink: LG.contrast(toHex(getComputedStyle(nm).color), fill) };
+      });
+      ok(darkOnScreen.page >= 1.5, "ON SCREEN, a near-black pick's hero still separates from the page (" + darkOnScreen.page.toFixed(2) + ":1, rendered " + darkOnScreen.fill + ")");
+      ok(darkOnScreen.ink >= 4.5, "…and its name stays legible on it (" + darkOnScreen.ink.toFixed(2) + ":1)");
+      ok(errors.length === 0, "0 page errors through the four hero shapes");
+      await ctx.close();
+    }
+
+    // ---- AM6: who may change a team's colours. Rides S1's gate; adds no second answer.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+
+      // The OWNER, on their own locker: no prompt at all.
+      await openLocker(page, 1);
+      await page.evaluate(() => { window.__promptCalls = 0; const p = window.prompt; window.prompt = function () { window.__promptCalls++; return p.apply(null, arguments); }; });
+      await page.evaluate(() => {
+        const inp = document.querySelector('.tcswatch[data-slot="secondary"]');
+        inp.value = "#123456";
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await page.waitForFunction(() => (window.__GFFL__.LG.teamById(1).colors || {}).secondary === "#123456", { timeout: 9000 });
+      ok((await page.evaluate(() => window.__promptCalls)) === 0,
+        "the OWNER edits their own team's colours with no PIN prompt — byte-identical to how they already edit name/motto/logo");
+
+      // A COMMISSIONER, on somebody else's locker: the same gate the rest of the identity
+      // edits use, and nothing new invented beside it.
+      const snap = await snapshotAllDocs(page);
+      ok(errors.length === 0, "0 page errors on the owner's own colour edit");
+      await ctx.close();
+      const { ctx: ctx2, page: page2, errors: err2 } = await newTestPage(browser, { docs: snap, pass: "amenfarms", team: 2, who: "Rival" });
+      await bootPage(page2);
+      await page2.waitForSelector(".mucard", { timeout: 9000 });
+      // This device holds the league's commissioner hash (local backend — AK1/AK2 cover the
+      // cloud half). Set it directly, or gateCommish takes its legitimate FIRST-TIME-SET path
+      // and accepts whatever is typed, and "a wrong PIN is refused" would be untestable.
+      await page2.evaluate((h) => localStorage.setItem("dadPinHash", h), require("crypto").createHash("sha256").update("1234:amenfarms").digest("hex"));
+      await openLocker(page2, 1);
+      const visible = await page2.evaluate(() => {
+        const box = document.querySelector("#lockerColors");
+        return { present: !!box, hidden: !!(box && box.hidden), swatches: document.querySelectorAll(".tcswatch").length };
+      });
+      ok(visible.present && visible.swatches === 3,
+        "the three swatches exist in every locker's markup (a hidden control is still clickable from devtools — the PIN is the gate, not the markup)");
+      ok(visible.hidden === true, "…and a plain rival sees none of it on someone else's locker");
+      // A WRONG PIN must change nothing. window.prompt is stubbed to a queue by the harness.
+      await page2.evaluate(() => { window.__prompts = ["0000"]; });
+      await page2.evaluate(() => {
+        const inp = document.querySelector('.tcswatch[data-slot="tertiary"]');
+        inp.value = "#abcdef";
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await sleep(600);
+      const refused = await page2.evaluate(() => (window.__GFFL__.LG.teamById(1).colors || {}).tertiary);
+      ok(refused !== "#abcdef", "a wrong commissioner PIN changes nothing (" + refused + ")");
+      // …and the right one lets it through, on a team that isn't theirs.
+      await page2.evaluate(() => { window.__prompts = ["1234"]; });
+      await page2.evaluate(() => {
+        const inp = document.querySelector('.tcswatch[data-slot="tertiary"]');
+        inp.value = "#abcdef";
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await page2.waitForFunction(() => (window.__GFFL__.LG.teamById(1).colors || {}).tertiary === "#abcdef", { timeout: 9000 });
+      ok(true, "…and the COMMISSIONER, through the same LG.gateCommish() the rest of the identity edits use, can set another team's colours");
+      ok(err2.length === 0, "0 page errors through the gating flow");
+      await ctx2.close();
+    }
+
+    // ---- AM7: the matchup — crest-vs-crest, both sides tinted, the verdict keeps the last
+    // word, split stat bars, and the 120px header cap that must NOT move.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      // Two teams with deliberately opposite, unmistakable schemes, so "each side wears its
+      // OWN colours" is a measurement rather than an impression.
+      await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        await LG.saveTeam({ teamId: 1, colors: { primary: "#d81f26", secondary: "#7a1015", tertiary: "#e8c11c" }, colorsCustom: true });
+        await LG.saveTeam({ teamId: 2, colors: { primary: "#1552b0", secondary: "#0a2a5e", tertiary: "#7fc3ff" }, colorsCustom: true });
+        await LG.loadTeams();
+      });
+      await page.evaluate(() => { window.__GFFL__.UI.matchup = [1, 2]; window.__GFFL__.UI.show("matchup"); });
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+      const mu = await page.evaluate(() => {
+        const head = document.querySelector(".card.muhead");
+        const sides = [...head.querySelectorAll(".muhteam")];
+        const av = [...head.querySelectorAll(".muavatar")];
+        const rd = (el) => getComputedStyle(el);
+        return {
+          height: Math.round(head.getBoundingClientRect().height),
+          crestW: av.map((a) => Math.round(a.getBoundingClientRect().width)),
+          tp: sides.map((s) => rd(s).getPropertyValue("--tp").trim()),
+          scoreEdge: sides.map((s) => rd(s.querySelector(".muhscore")).borderRightColor + "|" + rd(s.querySelector(".muhscore")).borderLeftColor),
+          nameCls: sides.map((s) => s.querySelector(".muhname").className),
+          wpFill: head.querySelector(".wpfill") ? rd(head.querySelector(".wpfill")).backgroundColor : null,
+        };
+      });
+      // The cap is a REAL constraint from a real complaint (item 6: a third of the phone spent
+      // before the first lineup row). Crest-vs-crest is sized to fit UNDER it, never the
+      // reverse.
+      ok(mu.height <= 120, "the matchup header still fits its measured 120px ceiling with crests at the S3 size (" + mu.height + "px)");
+      ok(mu.crestW.length === 2 && mu.crestW.every((w) => w >= 44 && w <= 56),
+        "…crest-vs-crest, both inside the S3 44-56px band at phone width (" + JSON.stringify(mu.crestW) + ")");
+      // The header renders AWAY on the left, HOME on the right (muhrow's own order), and
+      // UI.matchup is [home, away] — so sides[0] is team 2's blue and sides[1] is team 1's red.
+      ok(mu.tp[0] === "#1552b0" && mu.tp[1] === "#d81f26",
+        "each side of the header carries ITS OWN team's colour, not one shared accent (away, home = " + JSON.stringify(mu.tp) + ")");
+      ok(/21, 82, 176/.test(mu.scoreEdge[0]) && /216, 31, 38/.test(mu.scoreEdge[1]),
+        "…and each score block's rule is drawn in that side's colour (" + JSON.stringify(mu.scoreEdge) + ")");
+      ok(mu.nameCls.every((c) => /tname/.test(c) && /big/.test(c)), "…with both names in the stylized display treatment at its full fill+edge size");
+      // The verdict keeps the last word: whatever the two teams' colours are, the
+      // win-probability bar is the app's own accent. Identity colours the teams; the outcome
+      // colours itself.
+      ok(mu.wpFill === "rgb(213, 10, 10)", "the win-probability fill is STILL the app's own accent — palette colours identity, never verdict (" + mu.wpFill + ")");
+
+      const bars = await page.evaluate(() => {
+        const card = [...document.querySelectorAll(".card")].find((c) => /Head to head/.test(c.textContent));
+        if (!card) return null;
+        const wrap = card.querySelector(".gsbars");
+        const rows = [...card.querySelectorAll(".gsb")];
+        // The colours are asserted on a row that actually HAS something on it — an all-zero
+        // row is deliberately painted as an empty track (see .gsbt.unknown), so measuring one
+        // of those would be measuring the no-signal case and calling it a colour bug.
+        const known = rows.find((r) => !r.querySelector(".gsbt").classList.contains("unknown")) || null;
+        return {
+          rows: rows.length,
+          labels: rows.map((r) => r.querySelector(".small").textContent.trim()),
+          abar: getComputedStyle(wrap).getPropertyValue("--abar").trim(),
+          hbar: getComputedStyle(wrap).getPropertyValue("--hbar").trim(),
+          knownLabel: known && known.querySelector(".small").textContent.trim(),
+          aFill: known && getComputedStyle(known.querySelector("i")).backgroundColor,
+          hFill: known && getComputedStyle(known.querySelector("em")).backgroundColor,
+          emptyTrack: rows.some((r) => r.querySelector(".gsbt").classList.contains("unknown"))
+            ? getComputedStyle(rows.find((r) => r.querySelector(".gsbt").classList.contains("unknown")).querySelector("i")).backgroundColor
+            : null,
+        };
+      });
+      ok(!!bars && bars.rows >= 3, "the matchup carries SPLIT STAT BARS — the NFL box-score mechanic, ported (" + (bars && bars.rows) + " rows: " + JSON.stringify(bars && bars.labels) + ")");
+      ok(bars.labels[0] === "Points" && bars.labels[1] === "Projected", "…leading with the two totals that decide the game");
+      // UI.matchup is [home, away], so team 2 is the AWAY side here.
+      ok(bars.abar === "#1552b0" && bars.hbar === "#d81f26", "…each end of every track takes its own team's colour (" + JSON.stringify([bars.abar, bars.hbar]) + ")");
+      ok(!bars.knownLabel || (/21, 82, 176/.test(bars.aFill) && /216, 31, 38/.test(bars.hFill)),
+        "…and on a row that HAS something on it, that is what actually paints (" + bars.knownLabel + ": " + bars.aFill + " / " + bars.hFill + ")");
+      ok(!bars.emptyTrack || /rgba\(0, 0, 0, 0\)|transparent/.test(bars.emptyTrack),
+        "…while a row with nothing on either side paints an EMPTY track, never a 50/50 claim about a game nobody has played (" + bars.emptyTrack + ")");
+      ok(errors.length === 0, "0 page errors on the tinted matchup");
+      await ctx.close();
+    }
+
+    // ---- AM8: everywhere else the team appears — standings, cards, chat, the header avatar.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        await LG.saveTeam({ teamId: 1, colors: { primary: "#d81f26", secondary: "#7a1015", tertiary: "#e8c11c" }, colorsCustom: true });
+        await LG.loadTeams();
+        await LG.postChat({ text: "Colour check." });
+      });
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      const home = await page.evaluate(() => {
+        const row = [...document.querySelectorAll(".tbl .teamlink")].find((e) => /Battle Kreussers/.test(e.textContent));
+        const crest = row.querySelector(".tcrest"), nm = row.querySelector(".tname");
+        const card = document.querySelector(".mucard"), av = document.querySelector("#hAvatar");
+        return {
+          crest: Math.round(crest.getBoundingClientRect().width),
+          crestBg: getComputedStyle(crest).backgroundColor,
+          nameCol: getComputedStyle(nm).color,
+          nameEdge: getComputedStyle(nm).textShadow,
+          cardCrests: card.querySelectorAll(".tcrest").length,
+          cardNames: card.querySelectorAll(".tname").length,
+          headerAv: getComputedStyle(av).backgroundColor,
+        };
+      });
+      ok(home.crest >= 28, "the STANDINGS crest grew to the S3 size (" + home.crest + "px, was 20)");
+      ok(/216, 31, 38/.test(home.crestBg), "…and a logo-less team's crest disc is its OWN colour, so every row is identifiable (" + home.crestBg + ")");
+      ok(home.nameCol !== "rgb(233, 237, 244)", "…with the team name in that team's ink rather than the sheet's default (" + home.nameCol + ")");
+      // Small rows get FILL ONLY — a coloured edge under 12px condensed type reads as a
+      // printing fault, so the treatment SCALES rather than shrinking uniformly.
+      ok(home.nameEdge === "none", "…and NO edge treatment at row size — the typography scales down to fill-only (" + home.nameEdge + ")");
+      ok(home.cardCrests === 2 && home.cardNames === 2, "every matchup card on the league home carries both crests and both stylized names");
+      ok(/216, 31, 38/.test(home.headerAv), "…and the persistent header avatar wears the viewer's own team colour (" + home.headerAv + ")");
+
+      // Chat bylines.
+      await page.evaluate(() => window.__GFFL__.UI.show("chat"));
+      await page.waitForFunction(() => document.querySelectorAll(".chatRowMsg").length > 0, { timeout: 9000 });
+      const chat = await page.evaluate(() => {
+        const meta = [...document.querySelectorAll(".chatMeta")].find((m) => /Battle Kreussers/.test(m.textContent));
+        if (!meta) return null;
+        const crest = meta.querySelector(".tcrest"), nm = meta.querySelector(".tname");
+        return { crest: !!crest, crestBg: crest && getComputedStyle(crest).backgroundColor,
+                 nameCol: nm && getComputedStyle(nm).color };
+      });
+      ok(!!chat && chat.crest, "a chat byline leads with the team's crest");
+      ok(/216, 31, 38/.test((chat && chat.crestBg) || ""), "…in the team's own colour (" + (chat && chat.crestBg) + ")");
+      ok(!!(chat && chat.nameCol), "…and the name takes the team's ink");
+
+      // A message from a team the league no longer rosters — the folded-franchise shape
+      // (92f7ffe drops those from every listing). An identity treatment is for teams that
+      // exist; painting one here would put a franchise back on screen that the record book
+      // deliberately hides.
+      await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        await LG.db.set("chat_folded1", { kind: "chat", id: "folded1", teamId: 99, who: "Ghost Franchise", text: "Still here.", t: LG.now() });
+      });
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await page.evaluate(() => window.__GFFL__.UI.show("chat"));
+      await page.waitForFunction(() => /Still here\./.test(document.body.textContent), { timeout: 9000 });
+      const ghost = await page.evaluate(() => {
+        const row = [...document.querySelectorAll(".chatRowMsg")].find((r) => /Still here\./.test(r.textContent));
+        return { crest: row.querySelectorAll(".tcrest").length, tname: row.querySelectorAll(".tname").length,
+                 name: /Ghost Franchise/.test(row.textContent) };
+      });
+      ok(ghost.name, "a message from a FOLDED franchise still shows its stored name");
+      ok(ghost.crest === 0 && ghost.tname === 0, "…but gets no crest and no palette — the identity treatment never resurrects a team the league doesn't roster");
+      ok(errors.length === 0, "0 page errors across standings, cards, chat and the header");
       await ctx.close();
     }
   }

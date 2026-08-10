@@ -928,6 +928,152 @@
   };
   LG.teamById = (id) => LG.teams.find((t) => t.id === Number(id)) || null;
 
+  // ---------------- TEAM COLOURS (S3, 2026-08-10) ----------------
+  // Every team carries `colors = {primary, secondary, tertiary}` — proposed by the logo
+  // extractor, overridable by hand — and `colorsCustom`, the latch that says a human has
+  // touched a swatch (so a logo re-upload never clobbers their pick).
+  //
+  // THE LAW: colours are stored EXACTLY AS CHOSEN, and NOTHING renders them raw. Every render
+  // site goes through LG.teamPalette(t) → LG.palStyle(pal), which clamps for contrast against
+  // the surface the colour is about to sit on. A white-on-white pick, or a near-black one that
+  // would vanish into the page, cannot produce invisible chrome, because the derivation — not
+  // the render site — decides what actually reaches the screen. Two different clamps, because
+  // there are two different jobs:
+  //   · FILL (a hero wash, a crest disc, a stat bar): keep the colour at full strength, floor
+  //     its contrast against the PAGE so the block still reads as a block, then flip the INK
+  //     on top of it to black or white by whichever wins. That is where saturation lives.
+  //   · INK ON DARK (a team name on a card, a tinted row label): floor at AA 4.5:1 against the
+  //     card. Mixing toward white preserves hue, so a deep navy arrives as a pale blue — a
+  //     legible team colour rather than a vibrant invisible one. That is the deliberate trade:
+  //     text pays for legibility, fills keep the punch.
+  //
+  // ⚠ PAL_PAGE / PAL_SURFACE / PAL_INK_DARK DUPLICATE league.html's :root tokens (--bg,
+  // --card and the ink used on light fills). They cannot be read from CSS here — lg-core runs
+  // with no DOM guarantee and the palette is a pure function — so the suite asserts the
+  // literals still match league.html instead (section AM), which is what keeps them from
+  // drifting apart.
+  const PAL_PAGE = "#0c1017";     // --bg          — what a fill sits on
+  const PAL_SURFACE = "#151b26";  // --card        — what tinted ink sits on
+  const PAL_INK_DARK = "#0b0f16"; // ink for a LIGHT fill
+  const PAL_FILL_MIN = 1.5;       // a fill must separate from the page this much
+  const PAL_INK_MIN = 4.5;        // WCAG AA for normal text — tinted ink never goes below it
+  function palHex(c) {
+    const s = String(c == null ? "" : c).trim();
+    let m = /^#?([0-9a-fA-F]{6})$/.exec(s);
+    if (m) return "#" + m[1].toLowerCase();
+    m = /^#?([0-9a-fA-F]{3})$/.exec(s);
+    if (m) return "#" + m[1].toLowerCase().split("").map((ch) => ch + ch).join("");
+    m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(s);
+    if (m) return palFromRgb(Number(m[1]), Number(m[2]), Number(m[3]));
+    return null;
+  }
+  function palFromRgb(r, g, b) {
+    return "#" + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("");
+  }
+  function palRgb(hex) {
+    const h = palHex(hex) || "#000000";
+    return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  }
+  function palLum(hex) {
+    const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    const c = palRgb(hex);
+    return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+  }
+  // Exposed so the suite can measure the SAME contrast the clamp used, rather than
+  // re-implementing WCAG beside it and testing its own arithmetic.
+  LG.contrast = function (a, b) {
+    const la = palLum(a), lb = palLum(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  };
+  LG.inkOn = function (bg) { return LG.contrast("#ffffff", bg) >= LG.contrast(PAL_INK_DARK, bg) ? "#ffffff" : PAL_INK_DARK; };
+  function palMix(hex, target, t) {
+    const a = palRgb(hex), b = palRgb(target);
+    return palFromRgb(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t);
+  }
+  // Both clamps walk in small steps toward white and stop the moment the floor is cleared, so
+  // a colour that already passes comes back BYTE-IDENTICAL — the common case costs nothing and
+  // an already-legible pick is never quietly shifted.
+  function palClampFill(hex) {
+    let c = hex;
+    for (let i = 0; i < 40 && LG.contrast(c, PAL_PAGE) < PAL_FILL_MIN; i++) c = palMix(c, "#ffffff", 0.08);
+    return c;
+  }
+  function palClampInk(hex) {
+    let c = hex;
+    for (let i = 0; i < 40 && LG.contrast(c, PAL_SURFACE) < PAL_INK_MIN; i++) c = palMix(c, "#ffffff", 0.08);
+    return c;
+  }
+  function palHsl(h, s, l) {
+    h = ((h % 360) + 360) % 360;
+    const C = (1 - Math.abs(2 * l - 1)) * s, X = C * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - C / 2;
+    let r = 0, g = 0, b = 0;
+    if (h < 60) { r = C; g = X; } else if (h < 120) { r = X; g = C; } else if (h < 180) { g = C; b = X; }
+    else if (h < 240) { g = X; b = C; } else if (h < 300) { r = X; b = C; } else { r = C; b = X; }
+    return palFromRgb((r + m) * 255, (g + m) * 255, (b + m) * 255);
+  }
+  function palToHsl(hex) {
+    const c = palRgb(hex).map((v) => v / 255);
+    const mx = Math.max(c[0], c[1], c[2]), mn = Math.min(c[0], c[1], c[2]);
+    let h = 0, s = 0; const l = (mx + mn) / 2;
+    if (mx !== mn) {
+      const d = mx - mn;
+      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      if (mx === c[0]) h = (c[1] - c[2]) / d + (c[1] < c[2] ? 6 : 0);
+      else if (mx === c[1]) h = (c[2] - c[0]) / d + 2;
+      else h = (c[0] - c[1]) / d + 4;
+      h *= 60;
+    }
+    return { h, s, l };
+  }
+  // A team with nothing on file still deserves an identity — eight teams that all render in the
+  // app accent are eight teams that look the same. The hue wheel is keyed on the team NUMBER,
+  // so it is stable forever and identical on every device, and it starts on BLUE rather than
+  // red so a default never impersonates the app's own alarm colour.
+  const PAL_DEFAULT_HUES = [210, 14, 145, 275, 34, 190, 320, 96, 250, 52, 168, 300];
+  function palDefaultFor(id) {
+    const n = Number(id);
+    const h = PAL_DEFAULT_HUES[(Number.isFinite(n) ? Math.abs(Math.trunc(n)) : 0) % PAL_DEFAULT_HUES.length];
+    return { primary: palHsl(h, 0.54, 0.42), secondary: palHsl(h + 26, 0.44, 0.26), tertiary: palHsl(h + 174, 0.58, 0.62) };
+  }
+  // Old team docs (and any logo that only ever yielded one bucket) carry a primary alone. The
+  // two companions are DERIVED from it rather than left empty, so those teams get the same
+  // three-colour treatment as everyone else without a migration.
+  function palDeriveFrom(primary) {
+    const c = palToHsl(primary);
+    return {
+      secondary: palHsl(c.h + 22, Math.max(0.25, c.s * 0.85), Math.max(0.14, c.l * 0.52)),
+      tertiary: palHsl(c.h + 172, Math.max(0.3, c.s * 0.9), Math.min(0.72, Math.max(0.5, c.l * 1.5))),
+    };
+  }
+  // THE one derivation. Render sites call this and then LG.palStyle(); none of them reads
+  // team.colors, and section AM asserts that by reading the source.
+  LG.teamPalette = function (t) {
+    const raw = (t && t.colors) || {};
+    const def = palDefaultFor(t ? (t.id != null ? t.id : t.teamId) : 0);
+    const p0 = palHex(raw.primary) || def.primary;
+    const derived = palHex(raw.primary) ? palDeriveFrom(p0) : def;
+    const s0 = palHex(raw.secondary) || derived.secondary;
+    const t0 = palHex(raw.tertiary) || derived.tertiary;
+    const primary = palClampFill(p0), secondary = palClampFill(s0), tertiary = palClampFill(t0);
+    return {
+      raw: { primary: p0, secondary: s0, tertiary: t0 },
+      primary, secondary, tertiary,
+      ink: LG.inkOn(primary), ink2: LG.inkOn(secondary), ink3: LG.inkOn(tertiary),
+      onDark: palClampInk(p0), onDark2: palClampInk(s0), onDark3: palClampInk(t0),
+      custom: !!(t && t.colorsCustom),
+      isDefault: !palHex(raw.primary),
+    };
+  };
+  // The palette as CSS custom properties, for an inline style attribute. Every tinted rule in
+  // league.html reads these vars and nothing else, so a render site is one call and can never
+  // invent its own colour rules.
+  LG.palStyle = function (pal) {
+    return "--tp:" + pal.primary + ";--ts:" + pal.secondary + ";--tt:" + pal.tertiary
+      + ";--ti:" + pal.ink + ";--ti2:" + pal.ink2
+      + ";--tpd:" + pal.onDark + ";--tsd:" + pal.onDark2 + ";--ttd:" + pal.onDark3;
+  };
+  LG.teamStyle = function (t) { return LG.palStyle(LG.teamPalette(t)); };
+
   // ---------------- OWNER PINs (S1, 2026-08-10) ----------------
   // A claim used to be "tap your team, type a name" — so on a shared iPad, or on any sibling's
   // phone, anyone could take anyone's team and then set its lineup. The team doc now carries a

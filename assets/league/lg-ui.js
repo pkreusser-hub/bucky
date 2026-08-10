@@ -76,7 +76,13 @@
   // Item 10 (2026-08-08, no emoji in app chrome): reactions are text chips, not emoji glyphs —
   // FIRE/DEAD/LOL/GOAT reads the same as the original  set without a single pictograph.
   const REACTS = ["FIRE", "DEAD", "LOL", "GOAT"];
-  const IMG_CAP = 80000; // ~80KB dataURL chars (design cap for chat images/logos)
+  const IMG_CAP = 80000; // ~80KB dataURL chars (design cap for CHAT images)
+  // S3: the crest is now the biggest thing on a locker (96-128px) and the source of every
+  // team's colour scheme, so it gets its own budget rather than sharing chat's. A logo lives
+  // ONE PER TEAM DOC, and Firestore's 1MB-per-document limit laughs at 160KB of base64; a chat
+  // image is one of hundreds in a thread, which is why that cap stays where it is.
+  const LOGO_CAP = 160000;
+  const LOGO_DIM = 512;  // was 240 — a 38px crest could live with that, a 128px hero cannot
 
   // ---------------- offline-with-a-mirror (2026-08-08, the REST transport) ----------------
   // When the cloud can't be reached but this device holds a mirror of the league (see
@@ -874,7 +880,15 @@
     const tid = LG.myTeamId(), T = tid ? LG.teamById(tid) : null;
     if (!T) { av.hidden = true; return; }
     av.hidden = false;
-    av.innerHTML = T.logo ? `<img src="${esc(T.logo)}" alt="">` : esc(initials(T.name));
+    // S3: the header avatar is the ONE piece of persistent chrome that says whose league this
+    // is, so it wears the viewer's own team colours (and, at last, an uploaded logo — this
+    // read used to be `.logo` only, so a crest a person had uploaded themselves never appeared
+    // in their own header).
+    const avSrc = teamSrc(T);
+    av.innerHTML = avSrc ? `<img src="${esc(avSrc)}" alt="">` : esc(initials(T.name));
+    const avPal = LG.teamPalette(T);
+    av.style.background = avPal.primary;
+    av.style.color = avPal.ink;
     av.title = T.name || "";
   }
   // ITEM 18 (2026-08-09, user: "lets also get rid of the yellow banner, I know we are in a
@@ -912,9 +926,9 @@
     main().innerHTML = `<div class="card">
       <h2>Who are you?</h2><p class="mut">Claim your team — this device remembers.</p>
       <div id="claimList">${LG.teams.map((t) => `
-        <button class="teamrow" data-tid="${t.id}">
-          ${t.logo ? `<img src="${esc(t.logo)}" alt="">` : `<span class="logoph">${esc(initials(t.name))}</span>`}
-          <span><b>${esc(t.name)}</b><br><small class="mut">${esc(t.owner || "")}${t.claimedBy ? " · claimed by " + esc(t.claimedBy) : ""}</small></span>
+        <button class="teamrow" data-tid="${t.id}" style="${esc(LG.teamStyle(t))}">
+          ${crestHtml(t, "teamrowcrest")}
+          <span>${teamNameHtml(t, { cls: "teamrowname" })}<br><small class="mut">${esc(t.owner || "")}${t.claimedBy ? " · claimed by " + esc(t.claimedBy) : ""}</small></span>
         </button>`).join("")}</div></div>`;
     document.querySelectorAll(".teamrow").forEach((b) => b.addEventListener("click", async () => {
       if (await claimTeam(Number(b.dataset.tid))) UI.boot();
@@ -1069,7 +1083,7 @@
         : prevR > r.rank ? `<span class="delta up">▲${prevR - r.rank}</span>`
         : prevR < r.rank ? `<span class="delta down">▼${r.rank - prevR}</span>`
         : '<span class="mut">–</span>';
-      return `<div class="rowline"><span>#${r.rank} <span class="teamlink" data-locker="${r.teamId}">${logoTd(T)}${esc(T ? T.name : "?")}</span></span>
+      return `<div class="rowline"><span>#${r.rank} <span class="teamlink" data-locker="${r.teamId}">${logoTd(T)}${teamNameHtml(T)}</span></span>
         <span>${move} <span class="mut small">${r.score}</span></span></div>`;
     }).join("");
     return `<div class="card"><h2>Power rankings <span class="mut">— through week ${latest.week}</span></h2>${rows}</div>`;
@@ -1412,7 +1426,10 @@
         <thead><tr><th></th><th>Team</th><th class="num">W</th><th class="num">L</th><th class="num">PF</th><th class="num">PA</th></tr></thead>
         <tbody>${rows.map((t, i) => {
           const s = st[t.id] || { w: 0, l: 0, pf: 0, pa: 0 };
-          return `<tr><td class="mut">${i + 1}</td><td><span class="teamlink" data-locker="${t.id}">${logoTd(t)}${esc(t.name)}</span></td>
+          // S3: the standings row is where most people meet most teams, so the crest grew
+          // 20 -> 28px and the name takes the team's own (contrast-clamped) ink. Fill-only
+          // treatment at this size — see teamNameHtml.
+          return `<tr><td class="mut">${i + 1}</td><td><span class="teamlink" data-locker="${t.id}">${logoTd(t)}${teamNameHtml(t)}</span></td>
             <td class="num">${s.w}</td><td class="num">${s.l}</td>
             <td class="num">${LG.fmtNum(s.pf)}</td><td class="num">${LG.fmtNum(s.pa)}</td></tr>`;
         }).join("")}</tbody></table></div></div>
@@ -1512,15 +1529,51 @@
     bind("txDetails", "_tx", LG.loadTx);
     bind("chatDetails", "_recentChat", () => LG.loadChat(null));
   }
-  function logoTd(t) { return t.logo ? `<img class="tlogo" src="${esc(t.logo)}" alt="">` : ""; }
-  // 44px initial-circle avatar for the Matchup page header (design: "mine accent bg,
-  // opponent #2B2D32"). Falls back to the same `.logo` field logoTd() already reads —
-  // deliberately not `.logoData` too, to match logoTd()'s existing precedence exactly
-  // rather than introduce a second, inconsistent notion of "the team's picture".
+  // ---------------- S3: the crest and the name, everywhere ----------------
+  // ONE notion of "the team's picture" and ONE of "the team's name in type". Before S3 there
+  // were two of the first (logoTd read `.logo`, and a note under avatarHtml said matching that
+  // precedence exactly was deliberate) — which meant an UPLOADED logo, which lands in
+  // `logoData`, never appeared in the standings or on a matchup card at all. That was a bug
+  // hiding behind a consistency rule, so the rule is now the other way round: every crest in
+  // the app reads `logoData || logo`, and a team with neither gets its initials on its OWN
+  // palette disc instead of nothing at all.
+  //
+  // Nothing here reads t.colors. LG.teamStyle(t) → LG.palStyle(LG.teamPalette(t)) is the only
+  // path, and section AM reads this file to prove it.
+  function teamSrc(t) { return (t && (t.logoData || t.logo)) || ""; }
+  function crestHtml(t, cls) {
+    const c = "tcrest " + (cls || "");
+    const src = teamSrc(t);
+    const style = LG.teamStyle(t || {});
+    if (src) return `<span class="${c}" style="${esc(style)}"><img src="${esc(src)}" alt="" loading="lazy"></span>`;
+    return `<span class="${c} tcrest-ph" style="${esc(style)}">${esc(initials(t && t.name))}</span>`;
+  }
+  // The stylized name. `big` earns the edge treatment (a secondary-coloured offset behind the
+  // fill); small row sizes get the FILL ONLY, because a 1px shadow under 12px condensed type
+  // reads as a printing fault rather than a team's colours. Both take their ink from the
+  // clamped ON-DARK derivation, never the raw pick.
+  function teamNameHtml(t, opts) {
+    opts = opts || {};
+    const nm = (t && t.name) || "?";
+    const cls = "tname" + (opts.big ? " big" : "") + (opts.cls ? " " + opts.cls : "");
+    const attrs = opts.attrs || "";
+    return `<span class="${cls}" style="${esc(LG.teamStyle(t || {}))}"${attrs}>${esc(nm)}</span>`;
+  }
+  function logoTd(t) { return crestHtml(t, "tlogo"); }
+  // A team NAMED inside a row of prose or controls (the Moves page's trade rows, the veto
+  // list). A team id that resolves to nothing — a folded franchise in imported history — gets
+  // a plain muted label with no crest and no palette, for chatMsgHtml's reason.
+  function teamMention(id) {
+    const t = LG.teamById(id);
+    if (!t) return `<span class="tmention mut">Team ${esc(String(id))}</span>`;
+    return `<span class="tmention">${crestHtml(t, "tmini")}${teamNameHtml(t)}</span>`;
+  }
+  // The matchup header's crest (44px phone / 52px desktop — the S3 band, sized so the header
+  // stays inside its measured 120px cap). `mine` keeps the "this one is yours" ring it always
+  // had; the DISC beneath is now the team's own colour rather than one shared accent, which is
+  // the whole point of the batch.
   function avatarHtml(t, mine) {
-    const cls = "muavatar" + (mine ? " mine" : "");
-    if (t && t.logo) return `<span class="${cls}"><img src="${esc(t.logo)}" alt=""></span>`;
-    return `<span class="${cls}">${esc(initials(t && t.name))}</span>`;
+    return crestHtml(t, "muavatar" + (mine ? " mine" : ""));
   }
   // One side of the matchup header, in the ESPN reference's arrangement (2026-08-09): the
   // crest on the OUTER edge with the score block on the INNER (mirrored, so the two big
@@ -1532,10 +1585,13 @@
   function muTeamHead(T, id, mine, tot, proj, rem, sideCls, recTxt) {
     const owner = (T && T.owner || "").trim();
     const sub = [owner, recTxt].filter(Boolean).join(" · ");
-    return `<div class="muhteam${sideCls}">
+    // S3: the whole side carries its team's palette (crest disc, the score block's tint band,
+    // the name's ink). The LIVE/Final badge and the win-probability bar live in the middle
+    // column and keep the app's own verdict colours — nothing here reaches them.
+    return `<div class="muhteam${sideCls}" style="${esc(LG.teamStyle(T || {}))}">
       <div class="muhtop">${avatarHtml(T, id === mine)}
         <div class="muhscore"><span class="bigpts">${LG.fmtPts(tot)}</span><span class="mut muhproj">${LG.fmtPts(proj)}</span></div></div>
-      <b class="teamlink muhname" data-locker="${id}" title="${esc(T?.name || "?")}">${esc(T?.name || "?")}</b>
+      <b class="teamlink muhname tname big" data-locker="${id}" title="${esc(T?.name || "?")}">${esc(T?.name || "?")}</b>
       <div class="mut muhowner">${esc(sub)}</div>
       <div class="mut muhsub">${rem.left} to play · ${rem.playing} live</div></div>`;
   }
@@ -1602,10 +1658,14 @@
     const H = LG.teamById(h), A = LG.teamById(a);
     const mine = LG.myTeamId();
     const isMine = h === mine || a === mine;
+    // S3: each side carries ITS OWN team's colours — crest disc, name ink and the hairline
+    // rule under the name. The card's own state chrome (the .mine accent border, the live
+    // badge, the win-probability fill) is untouched: identity colours the teams, the verdict
+    // colours the outcome, and where they meet the verdict wins.
     return `<button class="mucard ${isMine ? "mine" : ""}" data-mu="${h}-${a}">
-      <span class="muteam">${logoTd(A)}${esc(A?.name || "?")}</span>
+      <span class="muteam">${logoTd(A)}${teamNameHtml(A, { cls: "muteamname" })}</span>
       <span class="muscore">${LG.fmtPts(liveTotal(a))} — ${LG.fmtPts(liveTotal(h))}</span>
-      <span class="muteam right">${esc(H?.name || "?")}${logoTd(H)}</span>
+      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname" })}${logoTd(H)}</span>
       ${matchupHeroExtra(h, a)}</button>`;
   }
 
@@ -2254,6 +2314,48 @@
     const wk = await LG.gamesForWeek(UI.week);
     return wk.find(([h, a]) => h === mine || a === mine) || wk[0] || null;
   }
+  // ---------------- S3: split stat bars, ported from the NFL box score ----------------
+  // The NFL game page has carried this mechanic since item 28 (.nflsb / .nflsbt at ~L2160): one
+  // track per stat, filled from BOTH ends in each side's own colour, so which way a category
+  // leans is readable without doing arithmetic. The GFFL matchup had nothing like it — two
+  // columns of numbers and a win-probability bar — and it is exactly the surface where a team's
+  // colour scheme earns its keep, so the mechanic comes across whole.
+  //
+  // COST: zero reads. Every figure is d.livePts / d.projFor over starter arrays this render
+  // already built, which is the same in-memory walk the lineup table beside it does.
+  //
+  // A row with nothing on either side (every category before kickoff) renders an EMPTY track
+  // rather than a 50/50 split, for matchupHeroExtra's own reason: a half-and-half bar is a
+  // claim about a game nobody has played. Projections always have signal, so the card is never
+  // just a stack of empty tracks.
+  const SPLIT_GROUPS = [["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["K", "K"], ["DST", "D/ST"]];
+  function splitBar(label, av, hv, fmt) {
+    const tot = av + hv;
+    const known = tot > 0.0001;
+    const ap = known ? Math.round((av / tot) * 100) : 0;
+    return `<div class="gsb"><div class="gsbl"><b>${esc(fmt(av))}</b><span class="mut small">${esc(label)}</span><b>${esc(fmt(hv))}</b></div>
+      <div class="gsbt${known ? "" : " unknown"}"><i style="width:${ap}%"></i><em style="width:${known ? 100 - ap : 0}%"></em></div></div>`;
+  }
+  function teamSplitBarsHtml(A, H, aStarters, hStarters, aTot, hTot, aProj, hProj) {
+    const d = D();
+    const sumBy = (list, pick, pred) => list.reduce((s, p) => s + (pred(p) ? (pick(p.key) || 0) : 0), 0);
+    const live = (k) => d.livePts(k), proj = (k) => d.projFor(k);
+    let rows = splitBar("Points", aTot, hTot, LG.fmtPts) + splitBar("Projected", aProj, hProj, LG.fmtPts);
+    SPLIT_GROUPS.forEach(([pos, label]) => {
+      const inGroup = (p) => p.pos === pos;
+      const hasAny = aStarters.some(inGroup) || hStarters.some(inGroup);
+      if (!hasAny) return;
+      rows += splitBar(label, sumBy(aStarters, live, inGroup), sumBy(hStarters, live, inGroup), LG.fmtPts);
+    });
+    // The two sides' own palettes drive the two fills — set on the WRAPPER once rather than on
+    // every bar, so a row is markup and nothing else.
+    const pa = LG.teamPalette(A || {}), ph = LG.teamPalette(H || {});
+    const style = `--abar:${pa.primary};--hbar:${ph.primary}`;
+    return `<div class="card"><h2>Head to head</h2>
+      <div class="gsbkey"><span class="gsbdot" style="background:${esc(pa.primary)}"></span>${esc((A && A.name) || "Away")}
+        <span class="gsbdot right" style="background:${esc(ph.primary)}"></span>${esc((H && H.name) || "Home")}</div>
+      <div class="gsbars" style="${esc(style)}">${rows}</div></div>`;
+  }
   UI.renderMatchup = renderMatchup;
   async function renderMatchup(repaint) {
     if (!UI.matchup) UI.matchup = await myMatchupThisWeek();
@@ -2326,6 +2428,7 @@
         ${h2hLine(UI._h2h, H, A)}
         <div class="rowline"><span id="healthChip" class="health" hidden></span></div>
       </div>
+      ${teamSplitBarsHtml(A, H, as_, hs, aTot, hTot, aProj, hProj)}
       <div class="card lineupcard"><div class="panner"><table class="tbl slottable mutable">
         <tbody>${rows.map(([pa, slot, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
@@ -3061,9 +3164,17 @@
     const imgSrc = m.img ? m.img : (m.gif ? (m.gif.preview || m.gif.url) : "");
     const imgFull = m.img ? m.img : (m.gif ? m.gif.url : "");
     const canDelete = mine || isCommish();
+    // S3: the byline carries the team's crest and its colours. A message whose team is NOT on
+    // the league's current roster — a folded franchise, an imported season's ghost — resolves
+    // to no team at all, and keeps the plain stored name it always had: an identity treatment
+    // is for teams that exist, and painting one here would put a franchise back on screen that
+    // the record book deliberately drops (lg-core's `live(id)` gate, 92f7ffe).
+    const byline = team
+      ? `${crestHtml(team, "chatcrest")}<b class="tname chatwho" style="${esc(LG.teamStyle(team))}">${name}</b>`
+      : `<b class="chatwho">${name}</b>`;
     return `<div class="chatRowMsg" data-mid="${esc(m.id || "")}">
       <div class="chatBubble ${mine ? "mine" : ""}">
-        <div class="chatMeta"><b>${name}</b> <span class="mut small">${when}</span></div>
+        <div class="chatMeta">${byline} <span class="mut small">${when}</span></div>
         ${replyBlock}
         ${m.text ? `<div class="chatText2">${esc(m.text)}</div>` : ""}
         ${imgSrc ? `<img class="chatImg" src="${esc(imgSrc)}" data-full="${esc(imgFull)}" loading="lazy" alt="">` : ""}
@@ -3360,11 +3471,11 @@
       } else if (tr.status === "accepted") {
         actions = `<span class="mut small">reviews until ${new Date(tr.reviewEndsAt).toLocaleString()}</span>`;
       }
-      return `<div class="rowline"><span>You give ${give} → get ${get} <span class="mut">(${esc((LG.teamById(otherId) || {}).name || "?")}) · ${esc(tr.status)}</span></span>${actions}</div>`;
+      return `<div class="rowline"><span>You give ${give} → get ${get} <span class="mut">(${teamMention(otherId)}) · ${esc(tr.status)}</span></span>${actions}</div>`;
     };
     const reviewRow = (tr) => {
       const already = (tr.vetoes || []).includes(tid);
-      return `<div class="rowline"><span>${esc((LG.teamById(tr.from) || {}).name)} vs ${esc((LG.teamById(tr.to) || {}).name)}
+      return `<div class="rowline"><span>${teamMention(tr.from)} vs ${teamMention(tr.to)}
         <span class="mut">· ${(tr.vetoes || []).length}/${LG.rules.trades.vetoVotes} vetoes</span></span>
         ${already ? '<span class="mut small">voted</span>' : `<button class="mvveto" data-tid="${tr.id}">Veto</button>`}</div>`;
     };
@@ -4182,6 +4293,60 @@
     }
     return { h, s, l };
   }
+  // S3: THREE colours, not one. The buckets are population-ordered and the top three are taken
+  // with a HUE-SEPARATION rule (>= PAL_HUE_SEP apart), because the three biggest buckets of a
+  // logo with a big red field are otherwise three shades of the same red — a "scheme" that
+  // looks like one colour applied three times. Anything the image genuinely cannot supply is
+  // left null and LG.teamPalette derives it, so the caller never has to care how many the
+  // picture happened to hold.
+  //
+  // The GREY FALLBACK matters as much as the colour path: a flat black-and-white crest filters
+  // every pixel out of the saturated pass, and the old code answered {primary:null} — a team
+  // whose logo is deliberately monochrome got no scheme at all. When nothing saturated
+  // survives, the same pass runs again over LIGHTNESS buckets, so a black/white/grey mark
+  // proposes black/white/grey.
+  const PAL_HUE_SEP = 25;
+  function paletteFromPixels(data) {
+    const hue = new Map(), grey = new Map();
+    let any = false;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 128) continue; // transparent
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const { h, s, l } = rgbToHsl(r, g, b);
+      any = true;
+      // Lightness buckets are collected on the SAME pass — free, and the only thing that can
+      // answer a monochrome mark.
+      const lb = Math.min(9, Math.floor(l * 10));
+      const grec = grey.get(lb) || { count: 0, r: 0, g: 0, b: 0, key: l * 360 };
+      grec.count++; grec.r += r; grec.g += g; grec.b += b; grey.set(lb, grec);
+      if (s < 0.18 || l < 0.12 || l > 0.92) continue; // grayish / near-black / near-white
+      const hb = Math.floor(h / 10) % 36;
+      const rec = hue.get(hb) || { count: 0, r: 0, g: 0, b: 0, key: hb * 10 };
+      rec.count++; rec.r += r; rec.g += g; rec.b += b; hue.set(hb, rec);
+    }
+    if (!any) return { primary: null, secondary: null, tertiary: null };
+    const useHue = hue.size > 0;
+    const src = useHue ? hue : grey;
+    const sep = useHue ? PAL_HUE_SEP : 30; // lightness buckets are 36 "degrees" apart by construction
+    const ranked = [...src.values()].sort((a, b) => b.count - a.count);
+    const picked = [];
+    for (const rec of ranked) {
+      if (picked.length >= 3) break;
+      // Circular distance for hues; a plain one for lightness (0 and 1 are opposites there,
+      // not neighbours).
+      const far = picked.every((p) => {
+        const d = Math.abs(p.key - rec.key);
+        return (useHue ? Math.min(d, 360 - d) : d) >= sep;
+      });
+      if (far) picked.push(rec);
+    }
+    const avg = (rec) => `rgb(${Math.round(rec.r / rec.count)},${Math.round(rec.g / rec.count)},${Math.round(rec.b / rec.count)})`;
+    return {
+      primary: picked[0] ? avg(picked[0]) : null,
+      secondary: picked[1] ? avg(picked[1]) : null,
+      tertiary: picked[2] ? avg(picked[2]) : null,
+    };
+  }
   function extractPalette(src) {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -4193,22 +4358,7 @@
           cv.width = S; cv.height = S;
           const ctx = cv.getContext("2d");
           ctx.drawImage(img, 0, 0, S, S);
-          const data = ctx.getImageData(0, 0, S, S).data;
-          const buckets = new Map(); // 10°-wide hue bucket -> {count,r,g,b}
-          for (let i = 0; i < data.length; i += 4) {
-            if (data[i + 3] < 128) continue; // transparent
-            const r = data[i], g = data[i + 1], b = data[i + 2];
-            const { h, s, l } = rgbToHsl(r, g, b);
-            if (s < 0.18 || l < 0.12 || l > 0.92) continue; // grayish / near-black / near-white
-            const hb = Math.floor(h / 10) % 36;
-            const rec = buckets.get(hb) || { count: 0, r: 0, g: 0, b: 0 };
-            rec.count++; rec.r += r; rec.g += g; rec.b += b;
-            buckets.set(hb, rec);
-          }
-          if (!buckets.size) { resolve({ primary: null }); return; }
-          let best = null;
-          for (const rec of buckets.values()) if (!best || rec.count > best.count) best = rec;
-          resolve({ primary: `rgb(${Math.round(best.r / best.count)},${Math.round(best.g / best.count)},${Math.round(best.b / best.count)})` });
+          resolve(paletteFromPixels(ctx.getImageData(0, 0, S, S).data));
         } catch (e) { reject(e); }
       };
       img.src = src;
@@ -4252,17 +4402,86 @@
         e.target.value = "";
         if (!file) return;
         try {
-          const dataUrl = await resizeImageToDataUrl(file, 240, 0.82);
-          if (dataUrl.length > IMG_CAP) { toast("That logo is too big — try a smaller image."); return; }
-          let colors = T.colors;
-          try { const p = await extractPalette(dataUrl); if (p && p.primary) colors = { primary: p.primary }; } catch (e2) { /* fall back to existing/no colour */ }
-          await LG.saveTeam({ teamId: T.id, logoData: dataUrl, colors });
+          const dataUrl = await resizeImageToDataUrl(file, LOGO_DIM, 0.86);
+          if (dataUrl.length > LOGO_CAP) { toast("That logo is too big — try a smaller image."); return; }
+          // THE LATCH. Extraction proposes; a human's pick is final. Once anyone has touched a
+          // swatch (colorsCustom) a new logo changes the PICTURE and nothing else — the team's
+          // scheme is theirs, and silently repainting the whole app off a re-upload would be
+          // the app overruling a deliberate choice. "↺ from logo" is the way back.
+          const delta = { teamId: T.id, logoData: dataUrl };
+          if (!T.colorsCustom) {
+            try {
+              const p = await extractPalette(dataUrl);
+              if (p && p.primary) delta.colors = { primary: p.primary, secondary: p.secondary || null, tertiary: p.tertiary || null };
+            } catch (e2) { /* keep whatever colours are already on file */ }
+          }
+          await LG.saveTeam(delta); // DELTA only — never a whole spread team (lg-core's saveTeam note)
           await LG.loadTeams();
-          toast("Logo updated.");
+          toast(T.colorsCustom ? "Logo updated — your colours were kept." : "Logo updated.");
           UI.openLocker(T.id);
         } catch (err) { toast("Couldn't read that image."); }
       });
     }
+    wireColorEditor(T, gate);
+  }
+  // S3 — the three swatches on the locker. They ride wireLockerEdit's OWN gate (owner: free,
+  // commissioner: LG.gateCommish, anyone else: refused), so there is exactly one answer in this
+  // file to "may this person change this team's identity" and colours are not a second one.
+  //
+  // <input type="color"> is deliberate: it is the platform's picker on every device the family
+  // owns, it needs no library, and it hands back a #rrggbb string — the storage format — with
+  // no parsing. Its `change` event fires once the reader has settled on a colour (`input` fires
+  // continuously while they drag, which would write a doc per frame).
+  function wireColorEditor(T, gate) {
+    const wrap = $("#lockerColors");
+    if (!wrap) return;
+    wrap.querySelectorAll(".tcswatch").forEach((inp) => {
+      // The gate has to run BEFORE the native picker opens — same reasoning as the logo
+      // button. A colour input opens on pointerdown, so the refusal is wired there and the
+      // press is cancelled; the change handler can then trust that it is allowed to write.
+      let allowed = false;
+      inp.addEventListener("pointerdown", async (e) => {
+        if (allowed) return;
+        e.preventDefault();
+        if (!(await gate())) return;
+        allowed = true;
+        inp.click();
+      });
+      // …and gated AGAIN on change, because pointerdown is not the only way into a colour
+      // input: a keyboard user opens it with Space, and an assistive tool may set it outright.
+      // A commissioner is never asked twice for the same session — LG.gateCommish() returns
+      // immediately once unlocked — so the belt-and-braces costs nothing but closes the hole.
+      inp.addEventListener("change", async () => {
+        if (!allowed && !(await gate())) { inp.value = LG.teamPalette(T).raw[inp.dataset.slot]; return; }
+        allowed = true;
+        const which = inp.dataset.slot;
+        const cur = LG.teamPalette(T).raw;
+        const colors = { primary: cur.primary, secondary: cur.secondary, tertiary: cur.tertiary };
+        colors[which] = inp.value;
+        // colorsCustom latches TRUE here and only here — the one place a human hand reaches a
+        // colour. Written as part of the same delta so a save can never land half-latched.
+        await LG.saveTeam({ teamId: T.id, colors, colorsCustom: true });
+        await LG.loadTeams();
+        toast("Team colours saved.");
+        UI.openLocker(T.id);
+      });
+    });
+    const reset = $("#lockerColorReset");
+    if (reset) reset.addEventListener("click", async () => {
+      if (!(await gate())) return;
+      const src = T.logoData || T.logo || "";
+      if (!src) { toast("No logo to read colours from yet."); return; }
+      let p = null;
+      try { p = await extractPalette(src); } catch (e) { p = null; }
+      if (!p || !p.primary) { toast("Couldn't read colours from that logo."); return; }
+      // Clearing the latch is the WHOLE point of this button, so colorsCustom is written
+      // FALSE explicitly rather than omitted — saveTeam merges onto the stored doc, so an
+      // absent key would leave the old `true` sitting there.
+      await LG.saveTeam({ teamId: T.id, colors: { primary: p.primary, secondary: p.secondary || null, tertiary: p.tertiary || null }, colorsCustom: false });
+      await LG.loadTeams();
+      toast("Colours re-read from the logo.");
+      UI.openLocker(T.id);
+    });
   }
   // My Team = Locker (merged 2026-08-07): the owner's OWN locker embeds the editable lineup
   // (tap-to-swap starters/bench/IR, kickoff locks — exactly what the old separate "team" page
@@ -4301,8 +4520,10 @@
     const rows = [...LG.teams].sort((a, b) => { const A = standings[a.id] || { w: 0, pf: 0 }, B = standings[b.id] || { w: 0, pf: 0 }; return (B.w - A.w) || (B.pf - A.pf); });
     const place = rows.findIndex((t) => t.id === teamId) + 1;
     const teamTx = tx.filter((t) => t.teamId === teamId || (t.type === "trade" && (t.detail.from === teamId || t.detail.to === teamId)));
-    const primary = T.colors && T.colors.primary;
-    const logoSrc = T.logoData || T.logo || "";
+    // S3: NOTHING here reads T.colors. The one derivation clamps for contrast and hands back
+    // both the raw picks (what the swatches must show) and the safe rendered set.
+    const pal = LG.teamPalette(T);
+    const logoSrc = teamSrc(T);
 
     // Owner-only editable lineup — the exact tap-to-swap mechanic the old "team" page had,
     // operating on the SAME `roster` array (mutated in place by doMove/swap below, then
@@ -4359,11 +4580,12 @@
     }
 
     main().innerHTML = `
-      <div class="lockerhead" style="${primary ? `background:${esc(primary)};` : ""}">
+      <div class="lockerhead" style="${esc(LG.palStyle(pal))}">
+        ${logoSrc ? `<div class="lockerwash" style="background-image:url('${esc(logoSrc)}')" aria-hidden="true"></div>` : ""}
         <div class="lockerhead-inner">
           ${logoSrc ? `<img class="lockerlogo" src="${esc(logoSrc)}" alt="">` : `<div class="lockerlogo lockerlogo-ph">${esc(initials(T.name))}</div>`}
           <div class="lockerid">
-            <h1 class="lockername">${esc(T.name)}</h1>
+            <h1 class="lockername tname big">${esc(T.name)}</h1>
             <p class="lockermotto">${T.motto ? esc(T.motto) : (isOwner ? '<span class="mut">Add a motto →</span>' : "")}</p>
             <p class="lockerrec">#${place} · ${st.w}-${st.l}${st.t ? "-" + st.t : ""} · ${LG.fmtNum(st.pf)} PF</p>
           </div>
@@ -4374,6 +4596,14 @@
           <button id="lockerEditLogo">Logo</button>
           ${isOwner ? "" : `<button id="lockerPinReset" class="lockerpin">Reset owner PIN</button>`}
           <input type="file" accept="image/*" id="lockerLogoInput" hidden></div>
+        <div class="lockercolors" id="lockerColors"${isOwner || isCommish() ? "" : " hidden"}>
+          <span class="tclabel">Colours</span>
+          <span class="tcstate mut small">${pal.custom ? "hand-picked" : (pal.isDefault ? "league default" : "from the logo")}</span>
+          <label class="tcslot"><input type="color" class="tcswatch" data-slot="primary" value="${esc(pal.raw.primary)}" aria-label="Primary colour" title="Primary"><span>1</span></label>
+          <label class="tcslot"><input type="color" class="tcswatch" data-slot="secondary" value="${esc(pal.raw.secondary)}" aria-label="Secondary colour" title="Secondary"><span>2</span></label>
+          <label class="tcslot"><input type="color" class="tcswatch" data-slot="tertiary" value="${esc(pal.raw.tertiary)}" aria-label="Tertiary colour" title="Tertiary"><span>3</span></label>
+          <button id="lockerColorReset" class="tcreset" title="Re-read this team's colours from its logo">↺</button>
+        </div>
       </div>
       ${rosterHtml}
       <div class="card"><h2>Schedule</h2><div class="panner"><table class="tbl">

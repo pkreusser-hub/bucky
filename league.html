@@ -141,7 +141,35 @@
   .tbl td.num, .tbl th.num { text-align:right; }
   .tbl td.num { font:700 14px var(--font-display); font-variant-numeric:tabular-nums; }
   .tbl tbody tr:hover { background:var(--row-hover); }
-  .tlogo { width:20px; height:20px; border-radius:50%; vertical-align:-4px; margin-right:6px; object-fit:cover; }
+  /* ---------------- S3: team identity — the crest and the name ----------------
+     ONE crest element everywhere (.tcrest), sized by a modifier class, and ONE name treatment
+     (.tname). Both read the SAME custom properties, which every render site sets from
+     LG.palStyle(LG.teamPalette(t)) and from nowhere else:
+       --tp/--ts/--tt   the team's colours as FILLS, contrast-floored against the page
+       --ti/--ti2       the ink that belongs ON --tp / --ts (black or white, whichever wins)
+       --tpd/--tsd/--ttd the same three colours as INK on a dark card, floored at AA 4.5:1
+     A crest with a real picture shows the picture; one without shows initials on the team's
+     own primary disc, which is why a logo-less team is now identifiable instead of blank.
+     The DEFAULTS on .tcrest/.tname matter: an element that somehow renders without a palette
+     falls back to app chrome rather than to nothing. */
+  .tcrest { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
+            width:28px; height:28px; border-radius:50%; overflow:hidden; vertical-align:-8px;
+            background:var(--tp, var(--nested)); color:var(--ti, var(--ink));
+            font:800 11px var(--font-display); letter-spacing:.3px; line-height:1;
+            box-shadow:inset 0 0 0 1px rgba(255,255,255,.14); }
+  .tcrest img { width:100%; height:100%; object-fit:cover; display:block; }
+  .tlogo { margin-right:7px; }
+  .tmini { width:18px; height:18px; font-size:8.5px; vertical-align:-4px; margin-right:4px; }
+  /* The stylized name. FILL ONLY at row sizes — a coloured edge under 12px condensed type
+     reads as a printing fault, not as a team's colours — and fill + a secondary-coloured edge
+     once the type is big enough to carry it (locker hero, matchup header). Both take the
+     CLAMPED on-dark ink, never the raw pick, so a near-black team colour can't hide a name. */
+  .tname { font-family:var(--font-display); font-weight:700; text-transform:uppercase;
+           letter-spacing:.4px; color:var(--tpd, inherit); }
+  .tname.big { font-weight:800; letter-spacing:.9px;
+               text-shadow:0 1.5px 0 var(--tsd, transparent), 0 0 12px rgba(0,0,0,.45); }
+  .tmention { display:inline-flex; align-items:center; gap:0; white-space:nowrap; }
+  .tmention .tname { letter-spacing:.3px; }
   .health { font:600 11px var(--font-display); letter-spacing:.8px; text-transform:uppercase; padding:3px 10px; border-radius:var(--radius-pill); border:1px solid var(--border-card); }
   .health.ok { color:var(--accent); border-color:var(--border-card); background:var(--nested); }
   .health.warn { color:var(--bg); background:var(--gold); border-color:var(--gold); font-weight:700; }
@@ -294,9 +322,14 @@
   .mucard.mine { grid-column:1 / -1; order:-1; grid-template-columns:1fr 1fr; grid-template-rows:auto auto auto;
                  gap:4px 10px; border-color:var(--accent); border-radius:var(--radius-card);
                  padding:16px; background:var(--card); }
-  .muteam { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:600 13px var(--font-display); letter-spacing:.3px; }
-  .muteam.right { text-align:right; }
+  /* S3: each side of a card is a crest + a name in that team's own ink. The crest keeps its
+     own box (flex), so a long name ellipsizes against the text and never against the picture. */
+  .muteam { overflow:hidden; display:flex; align-items:center; gap:0; min-width:0;
+            font:600 13px var(--font-display); letter-spacing:.3px; }
+  .muteam .muteamname { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; font-size:13px; }
+  .muteam.right { justify-content:flex-end; text-align:right; }
   .mucard.mine .muteam { grid-row:1; font-size:14px; }
+  .mucard.mine .muteam .muteamname { font-size:14px; }
   .muscore { font:700 16px var(--font-display); font-variant-numeric:tabular-nums; }
   .mucard.mine .muscore { grid-row:2; grid-column:1 / -1; text-align:center; font-size:32px; }
   /* ITEM 27 (2026-08-09): the badge + win-prob bar now renders on EVERY matchup card, not just
@@ -326,15 +359,19 @@
      the avatar drops 44->28px, the score 30->22px, and the card takes 10px of padding instead of
      16. Everything the header carried is still on it — including the win-probability bar and the
      live/Final indicator, which are the two things that must not go. */
-  .card.muhead { padding:8px 12px; }
+  /* S3 trimmed this 8px -> 7px: crest-vs-crest costs the top row 12px, and this is part of
+     paying for it out of the design rather than out of the 120px ceiling. */
+  .card.muhead { padding:7px 12px; }
   .muhrow { display:grid; grid-template-columns:1fr auto 1fr; gap:8px; align-items:start; }
   .muhteam { min-width:0; display:flex; flex-direction:column; gap:0; }
   .muhteam.right { text-align:right; align-items:flex-end; }
-  .muavatar { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center;
-              font:700 11px var(--font-display); background:var(--border-card); color:var(--mut); overflow:hidden;
-              flex:0 0 auto; }
-  .muavatar.mine { background:var(--accent); color:#fff; }
-  .muavatar img { width:100%; height:100%; object-fit:cover; display:block; }
+  /* S3 crest-vs-crest. 44px at phone width, 52px from 700px up — the spec's 44-56 band, and
+     no larger, because the header's MEASURED 120px ceiling (item 6, from a real user complaint
+     about a third of the phone spent before the first lineup row) is a harder constraint than
+     the crest size. It is the design that shrinks to fit the cap, never the cap that moves.
+     Colours come from .tcrest; only the geometry and the "this one is yours" ring live here. */
+  .muavatar { width:44px; height:44px; font-size:15px; vertical-align:0; }
+  .muavatar.mine { box-shadow:inset 0 0 0 2px rgba(255,255,255,.2), 0 0 0 2px var(--accent); }
   .bigpts { font:800 19px/1.05 var(--font-display); font-variant-numeric:tabular-nums; }
   /* THE ESPN HEADER (2026-08-09, from the user's own screenshot of the real app): crest on the
      OUTER edge, score block on the INNER — mirrored, so the two big numbers face each other
@@ -349,6 +386,16 @@
   .muhteam.right .muhscore { align-items:flex-start; }
   .muhead .muhname { display:block; max-width:100%; min-width:0; font-size:12px; line-height:1.2;
                      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* S3: the score block gets a hairline of the team's own colour on its inner edge and the
+     name takes the team's ink. The middle column — LIVE/Final, the win-probability bar, the
+     percentages — is NOT touched by any of this: identity colours the teams, the verdict
+     colours the outcome, and the verdict has the last word wherever they meet. */
+  .muhead .muhscore { border-right:3px solid var(--tp, transparent); padding-right:7px; }
+  .muhead .muhteam.right .muhscore { border-right:0; border-left:3px solid var(--tp, transparent); padding-right:0; padding-left:7px; }
+  /* Kept at the 12px item 6 tightened it to: the display treatment here is carried by weight,
+     tracking and the secondary edge, not by extra size, so the name gains a team's colours
+     without spending a pixel of the header's height budget. */
+  .muhead .muhname.tname.big { font-size:12px; letter-spacing:.6px; text-shadow:0 1px 0 var(--tsd, transparent); }
   .muhead .muhproj { font:600 10px/1.2 var(--font-display); font-variant-numeric:tabular-nums; white-space:nowrap; }
   .muhead .muhowner { font-size:9.5px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
   .muhead .muhsub { font-size:9.5px; line-height:1.2; white-space:nowrap; }
@@ -359,6 +406,27 @@
   .mulive.done { color:var(--mut); }
   .wpbar { height:5px; border-radius:var(--radius-pill); background:var(--border-card); overflow:hidden; margin:2px 0; width:100%; }
   .wpfill { height:100%; background:var(--accent); display:block; }
+
+  /* ---------------- S3: split stat bars (the NFL box-score mechanic, ported) ----------------
+     Deliberately the SAME shape as .nflsb/.nflsbt further down this sheet — value, label,
+     value over one track filled from both ends — because it is the same idea and a reader who
+     has met it on an NFL game page should meet it again here, not a second dialect of it.
+     What differs is only where the two fills' colours come from: --abar/--hbar, set once on
+     .gsbars from each team's own clamped palette, instead of the NFL feed's team hex. */
+  .gsbkey { display:flex; align-items:center; gap:6px; font:600 10.5px var(--font-display);
+            letter-spacing:.6px; text-transform:uppercase; color:var(--mut); margin-bottom:8px; }
+  .gsbdot { width:10px; height:10px; border-radius:2px; flex:0 0 auto; }
+  .gsbdot.right { margin-left:auto; }
+  .gsb { margin-bottom:9px; }
+  .gsbl { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:3px; }
+  .gsbl b { font:700 13px var(--font-display); font-variant-numeric:tabular-nums; }
+  .gsbl .small { text-transform:uppercase; letter-spacing:.7px; font-size:10px; }
+  .gsbt { display:flex; height:7px; border-radius:var(--radius-pill); overflow:hidden; background:var(--divider2); }
+  .gsbt i { background:var(--abar, var(--mut)); }
+  .gsbt em { background:var(--hbar, var(--faint)); margin-left:auto; }
+  /* Nothing on either side yet — an empty track, never a 50/50 split, for the same reason
+     .wpbar.mini.unknown exists: a half-and-half bar is a claim about a game nobody has played. */
+  .gsbt.unknown i, .gsbt.unknown em { background:transparent; }
   /* table-layout:fixed + an explicit white-space:normal override are both required here:
      .tbl td (shared with the standings tables, which DO want single-line rows) sets
      white-space:nowrap, which — under the default table-layout:auto — let a long player
@@ -703,8 +771,16 @@
   .chatRowMsg { display:flex; }
   .chatBubble { background:var(--nested2); border:1px solid var(--border-card); border-radius:12px; padding:8px 10px; max-width:88%; }
   .chatBubble.mine { background:var(--card); border-color:var(--accent); margin-left:auto; }
-  .chatMeta { display:flex; justify-content:space-between; gap:10px; font-size:12px; margin-bottom:2px; }
+  /* S3: the byline leads with the team's crest, so a thread reads as a conversation between
+     teams rather than a column of names. align-items:center keeps the 20px crest, the name and
+     the timestamp on one baseline band; the timestamp keeps its right-hand berth via the auto
+     margin (justify-content can no longer do it now that the row has three children). */
+  .chatMeta { display:flex; align-items:center; gap:6px; font-size:12px; margin-bottom:2px; }
+  .chatMeta .small { margin-left:auto; white-space:nowrap; }
   .chatMeta b { font-family:var(--font-display); font-weight:600; letter-spacing:.3px; }
+  .chatcrest { width:20px; height:20px; font-size:9px; vertical-align:0; }
+  .teamrowcrest { width:38px; height:38px; font-size:14px; vertical-align:0; }
+  .teamrowname { font-size:15px; }
   .chatQuote { border-left:2px solid var(--border-card); padding-left:8px; margin:4px 0; color:var(--mut); font-size:12.5px; }
   .chatText2 { white-space:pre-wrap; word-break:break-word; }
   .chatImg { max-width:220px; max-height:220px; border-radius:10px; margin-top:6px; display:block; cursor:zoom-in; }
@@ -922,17 +998,81 @@
      colour, crest, name, record, motto — at about half the scale: 8px padding instead of 16,
      a 38px logo instead of 64, a 17px name instead of 24, and the owner's edit buttons on a
      tighter row. */
-  .lockerhead { border-radius:var(--radius-card); padding:8px 12px; margin-bottom:10px; background:var(--accent); color:#fff; }
-  .lockerhead-inner { display:flex; align-items:center; gap:10px; }
-  .lockerlogo { width:38px; height:38px; border-radius:10px; object-fit:cover; flex:0 0 auto; background:rgba(255,255,255,.15); }
-  .lockerlogo-ph { display:flex; align-items:center; justify-content:center; font-size:17px; }
+  /* S3 THE HERO. Item 10's halving above was right about what it was fixing — 182px of flat
+     accent that said nothing a 12px row couldn't — and it stays honoured in spirit: this is
+     still one compact band, still padded 10px, and the roster starts within a phone screen of
+     the top. What it now spends its height ON is different, and deliberately so, because the
+     crest and the colour scheme ARE the team's identity and this is the one page in the app
+     that is entirely about one team. The wash is the logo itself, blurred and darkened behind
+     a primary→secondary gradient, so a team's own picture makes the banner without any
+     per-team art direction. Ink is --ti, the clamped ink for whatever primary turned out to
+     be, which is what makes a white-picked team readable instead of white-on-white. */
+  .lockerhead { position:relative; isolation:isolate; overflow:hidden;
+                border-radius:var(--radius-card); padding:10px 12px; margin-bottom:10px;
+                background:linear-gradient(135deg, var(--tp, var(--accent)) 0%, var(--ts, var(--accent)) 100%);
+                color:var(--ti, #fff); }
+  /* Behind everything, never in the way: blurred, darkened, and pointer-transparent. */
+  .lockerwash { position:absolute; inset:-24px; z-index:-1; background-size:cover; background-position:center;
+                filter:blur(22px) saturate(1.3); opacity:.45; pointer-events:none; }
+  .lockerhead::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+                       background:linear-gradient(180deg, rgba(0,0,0,.16) 0%, rgba(0,0,0,.42) 100%); }
+  .lockerhead-inner { display:flex; align-items:center; gap:12px; }
+  .lockerlogo { width:96px; height:96px; border-radius:14px; object-fit:cover; flex:0 0 auto;
+                background:rgba(255,255,255,.14); box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 1px rgba(255,255,255,.22); }
+  .lockerlogo-ph { display:flex; align-items:center; justify-content:center;
+                   font:800 34px var(--font-display); letter-spacing:1px; }
   .lockerid { min-width:0; }
-  .lockername { margin:0; font:700 17px/1.15 var(--font-display); letter-spacing:.5px; text-transform:uppercase; }
-  .lockermotto { margin:0; opacity:.92; font-style:italic; font-size:12px; line-height:1.3; }
-  .lockerrec { margin:0; font:600 12px/1.3 var(--font-display); opacity:.92; }
-  .lockeredit { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  .lockername { margin:0; font-size:24px; line-height:1.08; }
+  /* The hero's own ink wins over .tname's on-dark tint: the name sits on the team's own FILL
+     here, not on a dark card, so --ti (chosen black/white against that fill) is the only
+     colour that can be guaranteed legible on it. The secondary-coloured edge still comes from
+     .tname.big, which is what keeps the treatment recognisably the same one. */
+  .lockerhead .lockername.tname { color:var(--ti, #fff); }
+  .lockermotto { margin:2px 0 0; opacity:.92; font-style:italic; font-size:12.5px; line-height:1.3; }
+  .lockerrec { margin:2px 0 0; font:600 12.5px/1.3 var(--font-display); opacity:.94; letter-spacing:.4px; }
+  .lockeredit { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  /* The house [hidden]-override lesson, and this one had genuinely bitten: .lockeredit's own
+     display:flex beats the UA's [hidden]{display:none}, so a rival looking at somebody else's
+     locker could SEE the Name / Motto / Logo buttons even though renderLocker had marked the
+     block hidden. The PIN was still the real gate — pressing one landed on gateCommish and
+     changed nothing — but the affordance was on offer to someone who has no business with it.
+     Caught by an S3 review plate; section L now measures visibility rather than the attribute. */
+  .lockeredit[hidden] { display:none; }
   .lockeredit button { padding:5px 10px; font-size:11.5px; }
   .lockeredit button { background:rgba(0,0,0,.25); border-color:rgba(255,255,255,.35); color:#fff; }
+  /* The three swatches. Native <input type="color"> — the platform's own picker on every
+     device this family owns — stripped back to a plain square so it reads as a swatch rather
+     than as a form control. Targets are 30px, inside a 34px label, so the row stays tappable. */
+  /* ONE row, and it has to STAY one row: a second wrapped line here costs the roster ~34px of
+     the phone screen, which is precisely what item 10's complaint was about. Hence the short
+     "Colours" label and the bare ↺ button (its meaning is in the title/aria) rather than the
+     "Team colours" / "↺ from logo" wording the first cut used and measured 215px with. */
+  .lockercolors { display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  .lockercolors[hidden] { display:none; }
+  .tclabel { font:600 10.5px var(--font-display); letter-spacing:.9px; text-transform:uppercase; opacity:.88; }
+  .tcslot { position:relative; display:inline-flex; align-items:center; justify-content:center;
+            width:30px; height:30px; border-radius:7px; background:rgba(0,0,0,.22); cursor:pointer; }
+  .tcslot span { position:absolute; right:1px; bottom:0; font:700 8px var(--font-display); opacity:.7; pointer-events:none; }
+  .tcswatch { -webkit-appearance:none; appearance:none; width:26px; height:26px; padding:0; cursor:pointer;
+              border:1px solid rgba(255,255,255,.55); border-radius:5px; background:transparent; }
+  .tcswatch::-webkit-color-swatch-wrapper { padding:0; }
+  .tcswatch::-webkit-color-swatch { border:0; border-radius:5px; }
+  .tcswatch::-moz-color-swatch { border:0; border-radius:5px; }
+  .tcreset { width:30px; height:30px; padding:0; font-size:14px; line-height:1; background:rgba(0,0,0,.25);
+             border-color:rgba(255,255,255,.35); color:#fff; }
+  .tcstate { opacity:.8; letter-spacing:.3px; }
+  /* Desktop has room for the TOP of each S3 size band; the phone keeps the FLOOR of each,
+     because the matchup header's 120px cap and the locker's "the roster still starts within a
+     phone screen" rule are both measured at 390px and neither is negotiable. */
+  @media (min-width:700px) {
+    /* NOTE the matchup crest is deliberately NOT bumped here. A 52px crest measured the header
+       at 128px on a matchup that HAS an all-time-series line — 8px past the ceiling — and the
+       ceiling is a real constraint from a real complaint, so the design shrank to fit it rather
+       than the other way round. 44px is the S3 band's floor and it stays 44 at every width. */
+    .lockerlogo { width:128px; height:128px; border-radius:18px; }
+    .lockerlogo-ph { font-size:44px; }
+    .lockername { font-size:30px; }
+  }
   /* S1's commissioner-only "Reset owner PIN" — deliberately quieter than the identity edits
      beside it: it is a rare administrative action, not something to invite a tap. */
   .lockeredit button.lockerpin { background:transparent; border-color:rgba(255,255,255,.22); color:rgba(255,255,255,.72); font-size:11px; }
