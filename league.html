@@ -12,9 +12,10 @@
      goat on the home screen that opens the FARM app, not the league. Its name, id, theme and
      splash colours are the league's own dark tokens (#0c1017 is --bg) so the launch screen and
      the status bar match the app instead of flashing Bucky's cream.
-     ICONS: there is no league-specific icon — these are the family app's Bucky goat, reused
-     because an invented one would be worse than a shared one. An installed GFFL will wear the
-     goat until somebody draws it a football.
+     ICONS (2026-08-10): the league has its OWN crest now — the user's GFFL shield, baked by
+     tools/_gffl_icons.cjs into icons/gffl-*.png. They are deliberately NEW files rather than
+     overwrites of icons/icon-192/512 + maskable-*, which manifest.webmanifest still points at:
+     those are the family app's Bucky goat and installing the FARM app must not change.
      iOS reads NONE of the manifest for display mode, so the two apple-* metas below are what
      actually give an iPhone a chrome-less window; black-translucent is the right status bar for
      a dark app (with viewport-fit=cover above, the page paints under it — which is why every
@@ -24,7 +25,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="GFFL">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
+<link rel="icon" href="icons/gffl-192.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -87,6 +89,15 @@
   header .sub { display:none; color:var(--mut); font-size:11px; }
   header .hmeta { display:none; align-items:center; gap:10px; margin-left:auto; }
   header .hmeta[hidden] { display:none; } /* the house [hidden]-override lesson — restate it, an author rule always beats the UA one */
+  /* The crest owns the right end of the header. It carries the auto margin ITSELF so it pins
+     right no matter what else is in the bar — including the gate, claim, outage and setup
+     screens, where #hMeta is still [hidden] and there is nothing else on the right at all.
+     (The desktop block below hands the margin back to .hmeta for the one case where .hmeta is
+     genuinely on screen — two auto margins would otherwise SPLIT the free space and strand
+     .hmeta mid-header. That handover is keyed to :not([hidden]), i.e. to whether .hmeta is
+     really there, not to the width alone — an earlier cut keyed it to width and put the crest
+     in the middle of every desktop screen that had not loaded its data yet.) */
+  header .hcrest { margin-left:auto; flex:0 0 auto; display:block; height:34px; width:auto; }
   #hWeekYear { font:600 12px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--mut); white-space:nowrap; }
   #hAvatar { width:32px; height:32px; border-radius:50%; flex:0 0 auto; overflow:hidden; cursor:pointer;
              background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center;
@@ -1019,6 +1030,10 @@
              height:calc(46px + env(safe-area-inset-top)); border-bottom:none; }
     header .sub { display:inline; margin-left:2px; }
     header .hmeta { display:flex; }
+    header .hcrest { height:30px; }
+    /* Only when .hmeta is ACTUALLY on screen does it take over the pinning, so the two read as
+       one right-hand group. While it is [hidden] the crest keeps its own auto margin above. */
+    header .hmeta:not([hidden]) ~ .hcrest { margin-left:0; }
     main { max-width:1200px; padding:20px calc(24px + env(safe-area-inset-right)) 20px calc(24px + env(safe-area-inset-left)); }
     body { padding-bottom:24px; }
     .bnav { position:sticky; top:calc(46px + env(safe-area-inset-top)); background:var(--tabbar); border-top:none; border-bottom:1px solid var(--border-card);
@@ -1066,6 +1081,11 @@
       <span id="hWeekYear"></span>
       <span id="hAvatar" hidden></span>
     </span>
+    <!-- The crest is LAST so it pins to the top-right corner on every view and at every
+         width. alt="" on purpose: the wordmark beside it already says "THE GFFL", so a
+         screen reader announcing the same name twice is noise, not information. Intrinsic
+         width/height are set so the box is reserved before the PNG decodes. -->
+    <img class="hcrest" src="icons/gffl-mark.png" alt="" width="110" height="136" decoding="async">
   </header>
   <div id="offlineChip" hidden></div>
   <!-- #bnav stays a SIBLING of <header>, never a descendant: header sets backdrop-filter,

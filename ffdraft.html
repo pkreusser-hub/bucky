@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Draft Day — live keeper draft board</title>
 <meta name="description" content="Live fantasy football keeper draft board — claim your team, set your keepers, draft from ESPN rankings.">
+<!-- The GFFL crest (2026-08-10). Draft Day is reached from inside the installed league app —
+     league.webmanifest declares no scope precisely so this page stays in that window — so it
+     wears the same icon. No manifest link of its own: a second manifest would offer a second,
+     competing install for what is one app. -->
+<link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
+<link rel="icon" href="icons/gffl-192.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -43,8 +49,16 @@ header{
   background:linear-gradient(180deg,#101724,#0d1320);
   border-top:3px solid var(--accent);
   border-bottom:1px solid var(--line);
-  padding:12px 16px 10px;
+  /* right padding is widened to reserve the crest's column: #soundBtn already pins itself to
+     the right of .brand with margin-left:auto, so an absolutely-positioned crest would land on
+     top of it. Shrinking the content box instead keeps them side by side at every width. */
+  padding:12px 64px 10px 16px;
+  position:relative;
 }
+/* Centred rather than pinned to a fixed top, because TV mode (body.tv) hides #phaseLine and
+   the header gets shorter — a fixed offset would sit off-centre there. */
+header .hcrest{ position:absolute; right:16px; top:50%; transform:translateY(-50%);
+                height:34px; width:auto; display:block; }
 .brand{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
 .wordmark{
   font-family:var(--disp); font-weight:700; font-size:24px; color:#fff;
@@ -397,6 +411,7 @@ body.tv #boardLegend{display:none}
 <header>
   <div class="brand"><span class="wordmark">DRAFT DAY</span><span id="lgName"></span><button id="soundBtn" hidden>SOUND ON</button></div>
   <div id="phaseLine"></div>
+  <img class="hcrest" src="icons/gffl-mark.png" alt="" width="110" height="136" decoding="async">
 </header>
 <div id="clockStrip" hidden></div>
 <nav id="tabs" hidden>

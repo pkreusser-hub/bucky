@@ -10834,9 +10834,8 @@ with its own stylesheet mechanically substituted — a rule that never asked for
 untouched by the substitution, which is what makes it a genuine detector. Pre-fix it catches the
 header under the notch (wordmark at 17px vs a 47px inset) and the sheet clearing by 22px not 34.
 
-**⚠ THE ICON GAP**: there is **no league-specific icon**. The manifest reuses `icons/icon-192/512`
-and the maskables — the family app's Bucky goat. An installed GFFL wears the goat until someone
-draws it a football. Deliberately not invented or generated.
+**~~⚠ THE ICON GAP~~ — CLOSED 2026-08-10**, see "THE CREST" below: the user drew it a football.
+The manifest no longer reuses the family app's Bucky goat.
 
 **VERIFIED**: **1716/1716, 0 page errors** (1720 with `--shots`). Pre-fix with the app files at
 `main` and the manifest removed: **1671 / 45**, every failure inside the new section AJ — so all
@@ -10861,3 +10860,64 @@ restart mid-review; it survived only because its contents were already in contex
 untracked files promptly.
 
 Plates: `shots/gffl_standalone_safearea_390.png`, `gffl_standalone_desktop.png`.
+
+## 🐐 GFFL — THE CREST: a league icon at last, and it rides the header (2026-08-10)
+
+User supplied the GFFL crest (a leaping white goat on a red shield, wordmark below) and asked for
+it as **the app icon** and **top-right on every page, desktop and mobile**. Files: NEW
+`assets/league/gffl-logo-source.jpg` (the user's own artwork — commit-safe, same standing as their
+Tripo models and the Castle Kruzer track) · NEW `tools/_gffl_icons.cjs` (the bake) · NEW
+`icons/gffl-*.png` (6 files) · `league.webmanifest` · `league.html` · `ffdraft.html` · NEW
+`tools/_gffl_crest_shots.cjs` (**56/56**). This CLOSES the icon gap the standalone batch flagged.
+
+**THE KEY IS A FLOOD FILL, NOT A THRESHOLD — and that is the whole trick.** The source is a JPEG
+on white paper, but the crest is a two-colour mark whose **goat, wordmark and inner ring are also
+white**. "Make white transparent" would have punched the goat and the letters straight out of the
+shield. Only white REACHABLE FROM THE BORDER is paper, so the key floods in from the edges: the
+interior white is unreachable and survives untouched (999,230 px cleared, 1,320 feathered). The
+outer shield stroke is solid red, so the fill cannot leak inward. A linear alpha ramp across the
+JPEG's anti-aliased rim (min-channel 240→180) keeps the edge clean — verified against both a dark
+and a white backdrop, no halo either way.
+
+**NEW FILES, NEVER OVERWRITES.** `icons/icon-192/512` + `maskable-*` are the FAMILY app's Bucky
+goat and `manifest.webmanifest` still points at them — overwriting them would have silently
+re-skinned the farm app's install. Everything here is `gffl-`-prefixed and only
+`league.webmanifest` references it. The suite asserts the family manifest and all four family
+icons are untouched.
+**Backgrounds are per purpose, not per taste**: `any` + apple-touch sit on the league's own
+`#0c1017` (so icon, splash and theme are one surface, and iOS — which composites transparency onto
+black — has nothing to guess at); `maskable` uses the same full-bleed background with the crest at
+0.62 of the tile so a circular launcher crop cannot clip it; only the header mark is transparent.
+
+**THE HEADER BUG THE PLATES CAUGHT, which is the one worth remembering.** First cut pinned the
+crest by letting `.hmeta` (WEEK N · YEAR + avatar) keep its `margin-left:auto` and zeroing the
+crest's on desktop — two auto margins otherwise SPLIT the free space and strand `.hmeta`
+mid-header. But `#hMeta` ships with the **`hidden` attribute** until data lands, so on every
+pre-data, gate, claim, outage and setup screen nothing pinned anything and the crest sat 1,125px
+from the right edge. The fix keys the handover to the STATE, not the width:
+`header .hmeta:not([hidden]) ~ .hcrest { margin-left:0 }` inside the desktop query only — mobile
+never runs it, because there `.hmeta` is `display:none` by width regardless of the attribute, and
+`:not([hidden])` would wrongly match. The crest owns `margin-left:auto` in every other case.
+`ffdraft.html` needed a different mechanism: its header is a block, and `#soundBtn` already pins
+itself right inside `.brand`, so an absolutely-positioned crest would land on top of it — the
+header's right PADDING is widened to reserve the crest's column instead, and the crest is centred
+vertically (`top:50%`) because TV mode (`body.tv`) hides `#phaseLine` and a fixed offset would sit
+off-centre there.
+
+**WEIGHT.** The header mark is fetched on EVERY page load (manifest icons are read once, at
+install), so it is sized to its job — a 34px slot, so 136px tall covers a 4x screen — and the flat
+two-colour art palette-quantises with no visible loss: **59.3 KB → 9.4 KB**, whole set 392 → 172 KB.
+
+**VERIFY**: `node tools/_gffl_icons.cjs` re-bakes from source (idempotent); `node
+tools/_gffl_crest_shots.cjs` — **56/56, 0 page errors** — asserts before it photographs: crest
+present and DECODED, inside the header box, in its right half, clear of the wordmark, hugging the
+right edge, no sideways scroll, on league.html AND ffdraft.html at 390 and 1440, plus the desktop
+state **with `.hmeta` un-hidden** (the case the bug hid) proving the meta tucks immediately left of
+the crest as one group. Regression: `_verify-gffl.cjs` **1716/1716**.
+Plates: `shots/gffl_crest_{league_390,league_desktop,league_desktop_meta,draft_390,draft_desktop}.png`.
+
+**KNOWN**: at 30px the shield and goat carry the identity and the "GFFL" lettering inside it is
+decorative rather than legible — correct for a crest at that size, but it is why the wordmark
+beside it stays. The crest is `alt=""` on purpose (the wordmark already names the app; announcing
+it twice is noise). `ffdraft.html` gets the touch icon and favicon but deliberately NO manifest of
+its own — a second manifest would offer a second, competing install for one app.
