@@ -1389,7 +1389,11 @@ function startStatic() {
   const srv = http.createServer((req, res) => {
     const p = path.join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname).replace(/^\/+/, "") || "index.html");
     if (!p.startsWith(ROOT) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end("nope"); return; }
-    const mime = { ".html": "text/html", ".js": "text/javascript" }[path.extname(p)] || "application/octet-stream";
+    // ITEM 33: .webmanifest and the icons it points at are served with real types — a manifest
+    // handed back as application/octet-stream is one Chrome will fetch and then ignore, so the
+    // section that fetches and parses it would be testing the harness, not the file.
+    const mime = { ".html": "text/html", ".js": "text/javascript", ".webmanifest": "application/manifest+json",
+                   ".json": "application/json", ".png": "image/png" }[path.extname(p)] || "application/octet-stream";
     res.writeHead(200, { "Content-Type": mime });
     res.end(fs.readFileSync(p));
   });
@@ -1457,7 +1461,26 @@ async function newTestPage(browser, seed, opts) {
           const r = await sportsFn(new Request("http://fn/sports", { method: "POST", body: req.postData() || "{}" }));
           return req.respond({ status: r.status, contentType: "application/json", headers: cors, body: await r.text() });
         }
-        if (u.startsWith(BASE)) return req.continue();
+        if (u.startsWith(BASE)) {
+          // ITEM 33 (2026-08-10): a device with a notch resolves env(safe-area-inset-*) to real
+          // numbers; a headless browser resolves every one of them to 0, so a rule that FORGOT
+          // its inset measures identically to one that carries it and "the nav clears the home
+          // indicator" can't be asserted at all. opts.safeArea serves league.html with its OWN
+          // stylesheet, mechanically substituted — every env(safe-area-inset-X) in the shipped
+          // file becomes the number an iPhone would supply. A rule that never asked for the
+          // inset is untouched by the substitution, which is exactly what makes the overlap
+          // assertions downstream a real regression detector rather than a test of a mock.
+          if (opts.safeArea && /\/league\.html(\?|#|$)/.test(u)) {
+            const sa = opts.safeArea;
+            const raw = fs.readFileSync(path.join(ROOT, "league.html"), "utf8")
+              .replace(/env\(safe-area-inset-top\)/g, sa.top + "px")
+              .replace(/env\(safe-area-inset-bottom\)/g, sa.bottom + "px")
+              .replace(/env\(safe-area-inset-left\)/g, sa.left + "px")
+              .replace(/env\(safe-area-inset-right\)/g, sa.right + "px");
+            return req.respond({ status: 200, contentType: "text/html", headers: cors, body: raw });
+          }
+          return req.continue();
+        }
         // The Firestore REST transport. A page that armed a wire fixture (opts.rest) gets it;
         // every other page aborts firestore.googleapis.com exactly as before, which is what
         // keeps every pre-existing section in LOCAL mode.
@@ -11290,6 +11313,495 @@ async function openDetails(page, id) {
       ok(true, "review plates written");
       await ctx.close();
       fixture.preseason = false; fixture.depthCharts = false;
+    }
+  }
+
+
+  // ==================== SECTION AJ ====================
+  // ITEM 32 — Back walks the app, not out of it.
+  // ITEM 33 — the league installs standalone, so there is no browser bar to walk out of.
+  // They are ONE batch because they depend on each other: standalone removes the browser's own
+  // back affordance, so on Android the SYSTEM back button becomes the only Back there is — and
+  // it fires popstate. Ship standalone WITHOUT the history work and the app gets worse, not
+  // better: Back closes the whole thing from any screen, instantly.
+  //
+  // Every check here is BEHAVIOUR, driven through real gestures — nav-button taps, real
+  // page.goBack()/goForward() (which exercise the browser's own history stack, not a hook),
+  // real deep links, real reloads.
+  //
+  // PRE-FIX TOLERANT (the lesson sections AC/AG/AH each restate): every hook this section
+  // reaches for is new, so a bare wait or a bare evaluate against HEAD would abort the run with
+  // one stack trace instead of the readable list a pre-fix verification exists to produce.
+  section("AJ · item 32 Back walks the app (history, overlays, deep links) · item 33 standalone (manifest, safe areas)");
+  {
+    // Tap a bottom-nav entry the way a thumb does — this is the gesture under test, and it is
+    // deliberately NOT UI.go(): a check that calls the navigator directly would still pass if
+    // the nav buttons were wired to something else entirely.
+    const tapNav = (page, v) => clickIn(page, '.bnav button[data-v="' + v + '"]');
+    // waitLive() throws (after a debug dump) on timeout; section AH declares its own tolerant
+    // wrapper inside its own block, so this one needs its own too.
+    const waitLiveOr = async (pg) => { try { await waitLive(pg); return true; } catch (e) { return false; } };
+    const viewNow = (page) => evalOr(page, () => ({
+      view: window.__GFFL__.UI.view,
+      hash: location.hash,
+      painted: (document.querySelector("#main") || {}).dataset ? document.querySelector("#main").dataset.view : null,
+    }));
+    const waitView = (page, v) => waitFnOr(page, (want) => window.__GFFL__ && window.__GFFL__.UI.view === want, v);
+
+    // ---- AJ1: the three-view walk. League -> Matchup -> Moves -> Chat, then three Backs land
+    // where the reader came from, in order — and Forward walks it again.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await page.evaluateOnNewDocument(() => { window.__hlen0 = history.length; });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const boot = await evalOr(page, () => ({ len0: window.__hlen0, len: history.length, view: window.__GFFL__.UI.view, hash: location.hash })) || {};
+      ok(boot.view === "league", "the first paint lands on the league home (" + boot.view + ")");
+      // The mechanical proof behind "Back from the root leaves the app": the first paint is a
+      // REPLACE, so there is no in-app entry for Back to consume in the first place.
+      ok(boot.len === boot.len0, "…and boot adds ZERO history entries — the landing is a replace, never a push (" + boot.len0 + " -> " + boot.len + ")");
+      ok(boot.hash === "#league", "…with the URL naming the view it painted (" + boot.hash + ")");
+
+      for (const v of ["matchup", "moves", "chat"]) { await tapNav(page, v); await waitView(page, v); }
+      const walked = await viewNow(page);
+      ok(walked && walked.view === "chat" && walked.hash === "#chat", "walked League -> Matchup -> Moves -> Chat (" + JSON.stringify(walked) + ")");
+      const grew = await evalOr(page, () => history.length);
+      ok(grew === boot.len + 3, "…which pushed exactly three entries, one per screen (" + boot.len + " -> " + grew + ")");
+
+      const back = [];
+      for (let i = 0; i < 3; i++) { await page.goBack().catch(() => {}); await sleep(250); back.push((await viewNow(page)) || {}); }
+      ok(back[0].view === "moves" && back[0].hash === "#moves", "Back #1 -> Moves (" + JSON.stringify(back[0]) + ")");
+      ok(back[1].view === "matchup" && back[1].hash === "#matchup", "Back #2 -> Matchup (" + JSON.stringify(back[1]) + ")");
+      ok(back[2].view === "league" && back[2].hash === "#league", "Back #3 -> the league home, where the walk started (" + JSON.stringify(back[2]) + ")");
+      ok(back[2].painted === "league", "…and the SCREEN followed, not just the variable (main is painting \"" + back[2].painted + "\")");
+
+      const fwd = [];
+      for (let i = 0; i < 3; i++) { await page.goForward().catch(() => {}); await sleep(250); fwd.push((await viewNow(page)) || {}); }
+      ok(fwd[0].view === "matchup" && fwd[1].view === "moves" && fwd[2].view === "chat",
+        "Forward re-walks the same stack — a half-implemented stack is worse than none (" + fwd.map((f) => f.view).join(" -> ") + ")");
+      ok(errors.length === 0, "0 page errors through the walk");
+      await ctx.close();
+    }
+
+    // ---- AJ2: from the root, Back LEAVES. An app you cannot get out of is worse than one that
+    // exits too eagerly, so this is asserted as hard as the walking is.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await page.goBack().catch(() => {});
+      await sleep(400);
+      const gone = await evalOr(page, () => ({ href: location.href, app: !!(window.__GFFL__ && window.__GFFL__.UI.view) }));
+      ok(!gone || !/league\.html/.test(gone.href) || gone.app === false,
+        "Back on the root view leaves the league entirely — no in-app entry to consume (" + JSON.stringify(gone) + ")");
+      ok(errors.length === 0, "0 page errors leaving");
+      await ctx.close();
+    }
+
+    // ---- AJ3: overlays. The single most app-like behaviour on the list — Back dismisses what
+    // is on top of the screen before it moves the screen.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLiveOr(page);
+
+      // (a) the player stats card, opened from a matchup lineup row.
+      await tapNav(page, "matchup"); await waitView(page, "matchup");
+      await evalOr(page, () => {
+        const el = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.trim());
+        if (el) el.click();
+      });
+      await waitOr(page, ".pccard", 5000);
+      const openCard = await evalOr(page, () => ({
+        shown: !document.getElementById("playerCard").hidden,
+        registered: window.__GFFL__.UI._overlayOpen(),
+        view: window.__GFFL__.UI.view, len: history.length,
+      })) || {};
+      ok(openCard.shown === true && openCard.registered === true, "the player card is up, and registered as the overlay on top");
+      await page.goBack().catch(() => {}); await sleep(250);
+      const afterBack = await evalOr(page, () => ({
+        shown: !document.getElementById("playerCard").hidden,
+        view: window.__GFFL__.UI.view, hash: location.hash,
+      })) || {};
+      ok(afterBack.shown === false, "Back closes the card");
+      ok(afterBack.view === "matchup" && afterBack.hash === "#matchup",
+        "…and the VIEW does not move — Back dismissed the overlay, nothing else (" + JSON.stringify(afterBack) + ")");
+      await page.goBack().catch(() => {}); await sleep(250);
+      const afterBack2 = await viewNow(page);
+      ok(afterBack2 && afterBack2.view === "league", "…and the NEXT Back is a real view change (" + (afterBack2 || {}).view + ")");
+
+      // (b) closing by the card's OWN button must leave the stack clean — the classic bug is a
+      // stale sentinel that makes the following Back appear to do nothing.
+      await tapNav(page, "matchup"); await waitView(page, "matchup");
+      await evalOr(page, () => {
+        const el = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.trim());
+        if (el) el.click();
+      });
+      await waitOr(page, ".pccard", 5000);
+      const stOpen = await evalOr(page, () => (history.state || {}).gfflOverlay === true);
+      ok(stOpen === true, "…and the reader is standing ON the overlay's own history entry while it is up");
+      await clickIn(page, "#pcClose");
+      await waitFnOr(page, () => document.getElementById("playerCard").hidden);
+      await sleep(250);
+      // history.length does NOT shrink on a back() — a traversal leaves the forward entry in
+      // place, it does not truncate. The honest fact is WHERE the reader is now standing: back
+      // on the view's own entry rather than on a dead sentinel.
+      const stClosed = await evalOr(page, () => ({ ov: (history.state || {}).gfflOverlay, view: (history.state || {}).gfflView })) || {};
+      ok(!stClosed.ov && stClosed.view === "matchup",
+        "closing by the card's own ✕ steps off the entry it pushed (" + JSON.stringify(stClosed) + ")");
+      await page.goBack().catch(() => {}); await sleep(250);
+      const afterClose = await viewNow(page);
+      ok(afterClose && afterClose.view === "league",
+        "…so the very next Back changes VIEW rather than silently doing nothing (" + (afterClose || {}).view + ")");
+
+      // (c) Escape closes whatever is up, and leaves the same clean stack. It used to know only
+      // about the player card; every modal shares one registration now.
+      await tapNav(page, "matchup"); await waitView(page, "matchup");
+      await evalOr(page, () => {
+        const el = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.trim());
+        if (el) el.click();
+      });
+      await waitOr(page, ".pccard", 5000);
+      await page.keyboard.press("Escape");
+      await waitFnOr(page, () => document.getElementById("playerCard").hidden);
+      await sleep(250);
+      const escClosed = await evalOr(page, () => ({ ov: (history.state || {}).gfflOverlay, reg: window.__GFFL__.UI._overlayOpen() })) || {};
+      ok(!escClosed.ov && escClosed.reg === false, "Escape closes it and steps off its entry too (" + JSON.stringify(escClosed) + ")");
+      await page.goBack().catch(() => {}); await sleep(250);
+      ok((await evalOr(page, () => window.__GFFL__.UI.view)) === "league", "…and the Back after THAT is a real view change");
+      ok(errors.length === 0, "0 page errors through the player-card overlay");
+      await ctx.close();
+    }
+
+    // ---- AJ3b: the sheets. The swap sheet and the claim sheet are modals rendered INSIDE
+    // main(), so they are the two that a background repaint can destroy — worth their own pass.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLiveOr(page);
+      await tapNav(page, "team"); await waitOr(page, ".lrow");
+      const lockerBefore = await viewNow(page);
+      await clickChildIn(page, ".lrow", ".lswap", "H. Healthy");
+      await waitOr(page, ".swaprow", 5000);
+      const swapOpen = await evalOr(page, () => ({ shown: !document.getElementById("swapSheet").hidden, reg: window.__GFFL__.UI._overlayOpen() })) || {};
+      ok(swapOpen.shown === true && swapOpen.reg === true, "the lineup swap sheet is up and registered");
+      await page.goBack().catch(() => {}); await sleep(250);
+      const swapBack = await evalOr(page, () => ({ shown: !document.getElementById("swapSheet").hidden, view: window.__GFFL__.UI.view })) || {};
+      ok(swapBack.shown === false && swapBack.view === "locker",
+        "Back closes the swap sheet and leaves the reader on their locker (" + JSON.stringify(swapBack) + ")");
+      // Cancel (the sheet's own row) must leave the stack clean too.
+      await clickChildIn(page, ".lrow", ".lswap", "H. Healthy");
+      await waitOr(page, ".swaprow", 5000);
+      ok((await evalOr(page, () => (history.state || {}).gfflOverlay)) === true, "…standing on its own history entry while it is up");
+      await evalOr(page, () => { const r = [...document.querySelectorAll(".swaprow")].find((x) => /Cancel/.test(x.textContent)); if (r) r.click(); });
+      await sleep(300);
+      const stSwap = await evalOr(page, () => ({ ov: (history.state || {}).gfflOverlay, view: (history.state || {}).gfflView })) || {};
+      ok(!stSwap.ov && stSwap.view === "locker", "…and its Cancel row steps back off it (" + JSON.stringify(stSwap) + ")");
+      await page.goBack().catch(() => {}); await sleep(300);
+      const outOfLocker = await viewNow(page);
+      ok(outOfLocker && outOfLocker.view !== "locker",
+        "…so the following Back leaves the locker instead of doing nothing (now \"" + (outOfLocker || {}).view + "\", was \"" + (lockerBefore || {}).view + "\")");
+
+      // The waiver claim sheet, on Moves.
+      await tapNav(page, "moves"); await waitView(page, "moves");
+      await waitOr(page, "#faResults .faMoveBtn", 9000);
+      await evalOr(page, () => { const b = [...document.querySelectorAll("#faResults .faMoveBtn")].find((x) => !x.disabled); if (b) b.click(); });
+      await waitOr(page, "#claimSheet .swaprow", 5000);
+      const claimOpen = await evalOr(page, () => ({ shown: !document.getElementById("claimSheet").hidden, reg: window.__GFFL__.UI._overlayOpen() })) || {};
+      ok(claimOpen.shown === true && claimOpen.reg === true, "the waiver claim sheet is up and registered");
+      await page.goBack().catch(() => {}); await sleep(250);
+      const claimBack = await evalOr(page, () => ({ shown: !document.getElementById("claimSheet").hidden, view: window.__GFFL__.UI.view })) || {};
+      ok(claimBack.shown === false && claimBack.view === "moves",
+        "Back closes the claim sheet and leaves the reader on Moves (" + JSON.stringify(claimBack) + ")");
+      ok(errors.length === 0, "0 page errors through the sheets");
+      await ctx.close();
+    }
+
+    // ---- AJ4: every existing deep link still lands, and a reload on any view restores it.
+    // games.html's JOIN cards and anything the family has bookmarked go through exactly these.
+    {
+      const cases = [
+        ["", "league"], ["#league", "league"], ["#matchup", "matchup"], ["#moves", "moves"],
+        ["#chat", "chat"], ["#rules", "rules"], ["#scores", "scores"], ["#bracket", "bracket"],
+        ["#locker=2", "locker"], ["#team", "locker"], ["#nflgame=401900001", "nflgame"],
+      ];
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      // THE NONCE IS LOAD-BEARING, and it is this repo's own recorded gotcha (the farmgpt nav
+      // suite learned it): page.goto to a URL that differs only in its FRAGMENT is a
+      // SAME-DOCUMENT navigation — the page never reloads, boot never re-runs, and a check
+      // written without it silently exercises the popstate path instead of the cold deep-link
+      // path a family member's tapped bookmark actually takes. ?n= forces a real load each time.
+      let n = 0;
+      for (const [hash, want] of cases) {
+        await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "&n=" + (++n) + hash, { waitUntil: "domcontentloaded" });
+        const landed = await waitFnOr(page, (w) => window.__GFFL__ && window.__GFFL__.UI.view === w, want);
+        const st = await evalOr(page, () => ({ view: window.__GFFL__.UI.view, hash: location.hash, search: location.search,
+          locker: window.__GFFL__.UI.lockerTeamId, game: window.__GFFL__.UI.nflGameId })) || {};
+        ok(landed && st.view === want, "deep link \"" + (hash || "(bare)") + "\" lands on " + want + " (" + st.view + ")");
+        ok(/fam=/.test(st.search || ""), "…with ?fam= preserved (" + st.search + ")");
+      }
+      // The two that carry a subject must carry the RIGHT one, not just the right view.
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "&n=90#locker=2", { waitUntil: "domcontentloaded" });
+      await waitFnOr(page, () => window.__GFFL__ && window.__GFFL__.UI.view === "locker");
+      const l2 = await evalOr(page, () => ({ id: window.__GFFL__.UI.lockerTeamId, hash: location.hash }));
+      ok(l2 && l2.id === 2 && l2.hash === "#locker=2", "#locker=2 opens team 2's locker, not somebody else's (" + JSON.stringify(l2) + ")");
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "&n=91#team", { waitUntil: "domcontentloaded" });
+      await waitFnOr(page, () => window.__GFFL__ && window.__GFFL__.UI.view === "locker");
+      const lt = await evalOr(page, () => ({ id: window.__GFFL__.UI.lockerTeamId, hash: location.hash }));
+      ok(lt && lt.id === 1, "the legacy #team link still resolves to MY OWN locker (" + JSON.stringify(lt) + ")");
+      ok(lt && lt.hash === "#locker=1", "…and the URL is rewritten to name the locker it actually opened (" + (lt || {}).hash + ")");
+      // A hash change made from OUTSIDE the page — the address bar, or an installed standalone
+      // window being handed a second deep link while it is already open. Same-document, so no
+      // boot runs: the popstate handler is the only thing that can follow it, and it must.
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "&n=91#moves", { waitUntil: "domcontentloaded" });
+      const followed = await waitFnOr(page, () => window.__GFFL__ && window.__GFFL__.UI.view === "moves");
+      const sameDoc = await evalOr(page, () => ({ view: window.__GFFL__.UI.view, painted: document.querySelector("#main").dataset.view }));
+      ok(followed && sameDoc && sameDoc.painted === "moves",
+        "a hash change from outside the page (address bar / a second deep link into an open app) is followed (" + JSON.stringify(sameDoc) + ")");
+
+      // A reload on a view the reader NAVIGATED to (rather than deep-linked) restores it.
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "domcontentloaded" });
+      await waitOr(page, ".mucard");
+      await tapNav(page, "chat"); await waitView(page, "chat");
+      await page.reload({ waitUntil: "domcontentloaded" });
+      const reloaded = await waitFnOr(page, () => window.__GFFL__ && window.__GFFL__.UI.view === "chat");
+      ok(reloaded === true, "a reload on Chat comes back to Chat — the URL still describes the screen");
+      ok(errors.length === 0, "0 page errors across every deep link");
+      await ctx.close();
+    }
+
+    // ---- AJ5: the Matchup-tab gesture survives the restructuring. Two rules, from an earlier
+    // batch, that a history rework is exactly the sort of thing to break by accident.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLiveOr(page);
+      await clickIn(page, ".mucard:not(.mine)");
+      await waitView(page, "matchup");
+      const opened = await evalOr(page, () => ({ mu: window.__GFFL__.UI.matchup, view: window.__GFFL__.UI.view })) || {};
+      ok(!!opened.mu && opened.mu.indexOf(1) < 0, "tapping another team's card opens THAT game (" + JSON.stringify(opened.mu) + ")");
+      await tapNav(page, "matchup");
+      await waitFnOr(page, () => JSON.stringify(window.__GFFL__.UI.matchup) === "[1,2]");
+      // [1,2] and not null: navTo CLEARS the pick and renderMatchup then resolves the reader's
+      // own game into it — section AD3's own hand-check of the same rule.
+      const mine = await evalOr(page, () => ({ mu: window.__GFFL__.UI.matchup, view: window.__GFFL__.UI.view,
+        head: (document.querySelector(".muhead") || {}).textContent || "" })) || {};
+      ok(mine.view === "matchup" && JSON.stringify(mine.mu) === "[1,2]",
+        "…and pressing the Matchup TAB still returns you to your OWN game (" + JSON.stringify(mine.mu) + ")");
+      ok(/Battle Kreussers/.test(mine.head), "…and that is the game on SCREEN, not merely the state variable");
+      // Back/Forward across a card-opened matchup restores the same game — the pick is sticky
+      // state, not part of the URL, so it rides in the history entry.
+      await tapNav(page, "league"); await waitView(page, "league");
+      await clickIn(page, ".mucard:not(.mine)");
+      await waitView(page, "matchup");
+      const pick = await evalOr(page, () => window.__GFFL__.UI.matchup);
+      await page.goBack().catch(() => {}); await sleep(250);
+      await page.goForward().catch(() => {}); await sleep(300);
+      const restored = await evalOr(page, () => ({ mu: window.__GFFL__.UI.matchup, view: window.__GFFL__.UI.view })) || {};
+      ok(restored.view === "matchup" && JSON.stringify(restored.mu) === JSON.stringify(pick),
+        "Back then Forward restores the SAME game the card opened (" + JSON.stringify(restored.mu) + " vs " + JSON.stringify(pick) + ")");
+
+      // Locker -> MY locker is a real move between two screens, so it has to be a real entry.
+      // (It resolves through the "team" alias, whose resolution writes UI.lockerTeamId — which
+      // is exactly what could make the navigator mistake it for re-selecting the current view
+      // and replace instead of push, costing the reader this Back.)
+      await evalOr(page, () => window.__GFFL__.UI.openLocker(3));
+      await waitFnOr(page, () => window.__GFFL__.UI.lockerTeamId === 3);
+      await tapNav(page, "team");
+      await waitFnOr(page, () => window.__GFFL__.UI.lockerTeamId === 1);
+      await page.goBack().catch(() => {}); await sleep(300);
+      const backToTheirs = await evalOr(page, () => ({ id: window.__GFFL__.UI.lockerTeamId, view: window.__GFFL__.UI.view, hash: location.hash })) || {};
+      ok(backToTheirs.view === "locker" && backToTheirs.id === 3 && backToTheirs.hash === "#locker=3",
+        "Back from MY locker returns to the other owner's locker I was reading (" + JSON.stringify(backToTheirs) + ")");
+
+      // The Rules link left the tab bar in an earlier batch and lives on the League page now —
+      // it still has to be a place Back can return FROM.
+      await tapNav(page, "league"); await waitView(page, "league");
+      await clickIn(page, "#lnkRules");
+      await waitView(page, "rules");
+      await page.goBack().catch(() => {}); await sleep(250);
+      ok((await evalOr(page, () => window.__GFFL__.UI.view)) === "league", "the League page's Rules link is a place Back returns from");
+
+      // The NFL game view's own "‹ Scores" is an UP button. Tapping in from Scores and out
+      // again must leave the reader where they started — not one entry deeper, with Back
+      // walking them straight back into the game they just left.
+      await tapNav(page, "scores"); await waitView(page, "scores");
+      const lenScores = await evalOr(page, () => history.length);
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
+      await waitView(page, "nflgame");
+      await waitOr(page, "#nflBack", 9000);
+      await clickIn(page, "#nflBack");
+      await waitView(page, "scores");
+      const afterUp = await evalOr(page, () => ({ len: history.length, view: window.__GFFL__.UI.view, hash: location.hash })) || {};
+      ok(afterUp.view === "scores" && afterUp.hash === "#scores", "the game view's \"‹ Scores\" lands back on Scores (" + JSON.stringify(afterUp) + ")");
+      // Opening the game pushed one entry (N -> N+1); stepping BACK over it traverses without
+      // truncating, so the length HOLDS at N+1. Pushing a second Scores on top would read N+2.
+      ok(afterUp.len === lenScores + 1, "…by stepping BACK over the game rather than pushing a second Scores on top of it (" + lenScores + " -> " + afterUp.len + ", a push would read " + (lenScores + 2) + ")");
+      await page.goBack().catch(() => {}); await sleep(300);
+      const outOfScores = await evalOr(page, () => window.__GFFL__.UI.view);
+      ok(outOfScores !== "scores" && outOfScores !== "nflgame",
+        "…so the next Back leaves Scores rather than re-entering the game (" + outOfScores + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AJ6 (ITEM 33): the manifest. Its start_url is the load-bearing field — pointing it at
+    // "/" (the family app's answer) would put a goat on the home screen that opens the FARM app.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const link = await evalOr(page, () => {
+        const l = document.querySelector('link[rel="manifest"]');
+        return l ? { href: l.getAttribute("href"), abs: l.href } : null;
+      });
+      ok(!!link && /league\.webmanifest$/.test(link.href || ""), "league.html links its OWN manifest, not the family app's (" + JSON.stringify(link) + ")");
+      const man = await evalOr(page, async (u) => {
+        const r = await fetch(u);
+        return { status: r.status, type: r.headers.get("content-type"), body: await r.json(), base: u };
+      }, (link && link.abs) || (BASE + "/league.webmanifest"));
+      ok(!!man && man.status === 200 && !!man.body, "…it is served and parses as JSON (" + ((man || {}).status) + ")");
+      const m = (man && man.body) || {};
+      ok(m.display === "standalone", "display is standalone — that is what removes the browser bar (" + m.display + ")");
+      const startAbs = man ? new URL(m.start_url, man.base).pathname : "";
+      ok(startAbs === "/league.html", "start_url resolves to the LEAGUE, not to \"/\" (" + startAbs + ")");
+      ok(m.theme_color === "#0c1017" && m.background_color === "#0c1017",
+        "theme + splash take the league's own dark background token, so nothing flashes cream (" + m.theme_color + "/" + m.background_color + ")");
+      ok(/GFFL/.test(m.name || "") && /GFFL/.test(m.short_name || ""), "…and it is named as the league (" + m.name + " / " + m.short_name + ")");
+      // No explicit scope, DELIBERATELY: the default is the start_url's own directory ("/"), so
+      // the League page's Draft link (a real <a href> out to ffdraft.html) stays inside the
+      // installed window. A scope of "/league.html" would kick that tap out into a browser.
+      ok(m.scope === undefined, "…and it declares no scope, so the Draft link doesn't kick the reader out into a browser (" + m.scope + ")");
+      const icons = await evalOr(page, async (list, base) => {
+        const out = [];
+        for (const i of list) { const r = await fetch(new URL(i.src, base).href); out.push({ src: i.src, status: r.status }); }
+        return out;
+      }, m.icons || [], man ? man.base : BASE);
+      ok(Array.isArray(icons) && icons.length >= 2 && icons.every((i) => i.status === 200),
+        "every icon it points at really exists (" + JSON.stringify(icons) + ")");
+      // iOS reads none of the manifest for display mode — these metas are what give an iPhone a
+      // chrome-less window, so their absence is a silent half-fix.
+      const metas = await evalOr(page, () => {
+        const g = (n) => { const e = document.querySelector('meta[name="' + n + '"]'); return e ? e.content : null; };
+        return { cap: g("apple-mobile-web-app-capable"), bar: g("apple-mobile-web-app-status-bar-style"),
+          title: g("apple-mobile-web-app-title"), theme: g("theme-color"),
+          viewport: g("viewport"), touch: !!document.querySelector('link[rel="apple-touch-icon"]') };
+      }) || {};
+      ok(metas.cap === "yes", "iOS standalone meta present (apple-mobile-web-app-capable=" + metas.cap + ")");
+      ok(metas.bar === "black-translucent", "…with a status-bar style that suits a dark app (" + metas.bar + ")");
+      ok(metas.touch === true && !!metas.title, "…a home-screen title and touch icon (" + metas.title + ")");
+      ok(/viewport-fit=cover/.test(metas.viewport || ""), "…and viewport-fit=cover, which is what makes the safe-area insets below meaningful");
+      ok(errors.length === 0, "0 page errors with the manifest linked");
+      await ctx.close();
+    }
+    // The family app's own manifest must be untouched — its start_url is "/" and another
+    // session is live in index.html. Read from disk, not from the page.
+    {
+      let fam = null;
+      try { fam = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.webmanifest"), "utf8")); } catch (e) {}
+      ok(!!fam && fam.start_url === "/" && fam.name === "BUCKY",
+        "the family app's manifest.webmanifest is untouched — still BUCKY at \"/\" (" + JSON.stringify(fam && { n: fam.name, s: fam.start_url }) + ")");
+    }
+
+    // ---- AJ7 (ITEM 33): safe areas. Served with every env(safe-area-inset-*) resolved to the
+    // numbers an iPhone supplies — see the substitution's own note in newTestPage for why a
+    // headless zero-inset page cannot test this at all.
+    {
+      const SA = { top: 47, bottom: 34, left: 0, right: 0 };
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { safeArea: SA });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const geo = await evalOr(page, (sa) => {
+        const vh = window.innerHeight;
+        const nav = document.querySelector(".bnav");
+        const btn = document.querySelector(".bnav button");
+        const hdr = document.querySelector("header");
+        const mark = document.querySelector("header .wordmark");
+        const nb = nav.getBoundingClientRect(), bb = btn.getBoundingClientRect();
+        const hb = hdr.getBoundingClientRect(), mb = mark.getBoundingClientRect();
+        return {
+          vh, navBottom: Math.round(nb.bottom), navTop: Math.round(nb.top), navH: Math.round(nb.height),
+          btnBottom: Math.round(bb.bottom), btnH: Math.round(bb.height),
+          hdrTop: Math.round(hb.top), markTop: Math.round(mb.top), hdrH: Math.round(hb.height),
+          bodyPadBottom: parseFloat(getComputedStyle(document.body).paddingBottom),
+          docW: document.documentElement.scrollWidth, winW: window.innerWidth,
+        };
+      }, SA) || {};
+      ok(geo.navBottom === geo.vh, "the nav bar still sits flush to the very bottom edge (" + geo.navBottom + "/" + geo.vh + ")");
+      // THE classic standalone regression: the bar reaches the bottom, but its BUTTONS sit under
+      // the home indicator, so the row you tap is the row the OS owns.
+      ok(geo.vh - geo.btnBottom >= SA.bottom, "…while its BUTTONS clear the home indicator by the full inset (" + (geo.vh - geo.btnBottom) + "px >= " + SA.bottom + ")");
+      ok(geo.bodyPadBottom >= geo.navH, "…and page content still clears the whole bar (body pads " + geo.bodyPadBottom + " for a " + geo.navH + "px bar)");
+      ok(geo.hdrTop === 0, "the header still paints to the very top edge — a sticky strip that starts below the notch shows the page scrolling past above it");
+      ok(geo.markTop >= SA.top, "…with its CONTENT below the status bar (wordmark at " + geo.markTop + "px, inset " + SA.top + ")");
+      ok(geo.docW <= geo.winW, "no sideways scroll with the insets applied (" + geo.docW + "/" + geo.winW + ")");
+      // A bottom sheet's last row is its Cancel — exactly where the home indicator lives.
+      await waitLiveOr(page);
+      await tapNav(page, "team"); await waitOr(page, ".lrow");
+      await clickChildIn(page, ".lrow", ".lswap", "H. Healthy");
+      await waitOr(page, ".swaprow", 5000);
+      const sheet = await evalOr(page, () => {
+        const rows = [...document.querySelectorAll("#swapSheet .swaprow")];
+        const last = rows[rows.length - 1];
+        const card = document.querySelector("#swapSheet .card");
+        return { n: rows.length, vh: window.innerHeight, txt: last.textContent.trim(),
+          lastBottom: Math.round(last.getBoundingClientRect().bottom),
+          cardBottom: Math.round(card.getBoundingClientRect().bottom) };
+      }) || {};
+      // Measured on the sheet's own CONTENT BOX, not the last row: a row can happen to carry a
+      // bottom margin big enough to clear the indicator by accident (pre-fix this exact sheet
+      // cleared it by 45px on 10px of padding, so a last-row check would have passed while the
+      // sheet itself had no inset at all). The card's edge is where the padding actually is.
+      ok(sheet.n > 0 && sheet.vh - sheet.cardBottom >= SA.bottom,
+        "an open sheet's own bottom edge clears the home indicator (" + (sheet.vh - sheet.cardBottom) + "px >= " + SA.bottom + ")");
+      ok(sheet.vh - sheet.lastBottom >= SA.bottom,
+        "…and so does its last tappable row, the Cancel (\"" + sheet.txt + "\", " + (sheet.vh - sheet.lastBottom) + "px)");
+      ok(errors.length === 0, "0 page errors with real insets");
+      if (SHOTS) {
+        await page.keyboard.press("Escape");
+        await sleep(200);
+        await evalOr(page, () => window.__GFFL__.UI.go("league"));
+        await waitOr(page, ".mucard");
+        await evalOr(page, () => window.scrollTo(0, 0));
+        await sleep(250);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_standalone_safearea_390.png") });
+        console.log("  📸 shots/gffl_standalone_safearea_390.png");
+      }
+      await ctx.close();
+    }
+
+    // ---- AJ8: desktop. The nav is a sticky top strip there, not a fixed bottom bar, so the
+    // header's own growth has to carry it — otherwise the notch eats the tab row instead.
+    {
+      const SA = { top: 47, bottom: 34, left: 0, right: 0 };
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 }, safeArea: SA });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const d = await evalOr(page, () => {
+        const hb = document.querySelector("header").getBoundingClientRect();
+        const nb = document.querySelector(".bnav").getBoundingClientRect();
+        return { hdrBottom: Math.round(hb.bottom), navTop: Math.round(nb.top), gap: Math.round(nb.top - hb.bottom),
+          docW: document.documentElement.scrollWidth, winW: window.innerWidth };
+      }) || {};
+      ok(Math.abs(d.gap) <= 1, "desktop: the sticky tab strip still sits directly under the grown header, with no gap or overlap (" + d.gap + "px)");
+      ok(d.docW <= d.winW, "…and no sideways scroll (" + d.docW + "/" + d.winW + ")");
+      // The walk works the same on a desktop-width layout.
+      await clickIn(page, '.bnav button[data-v="moves"]');
+      await waitFnOr(page, () => window.__GFFL__.UI.view === "moves");
+      await page.goBack().catch(() => {}); await sleep(250);
+      const backDesk = await evalOr(page, () => window.__GFFL__.UI.view);
+      ok(backDesk === "league", "…and Back walks the app on desktop too (" + backDesk + ")");
+      ok(errors.length === 0, "0 page errors on desktop");
+      if (SHOTS) {
+        await evalOr(page, () => window.scrollTo(0, 0));
+        await sleep(200);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_standalone_desktop.png") });
+        console.log("  📸 shots/gffl_standalone_desktop.png");
+      }
+      await ctx.close();
     }
   }
 

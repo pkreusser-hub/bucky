@@ -6,6 +6,25 @@
 <title>The GFFL — Goat Fantasy Football League</title>
 <meta name="description" content="The Goat Fantasy Football League — fast, clean, ours.">
 <meta name="theme-color" content="#0c1017">
+<!-- ITEM 33 (2026-08-10, user: "hide the browser bar at the top so it truly behaves like an
+     app, like bucky does"). The league gets its OWN manifest, deliberately not the family app's
+     manifest.webmanifest: that one's start_url is "/", so installing from here would put a Bucky
+     goat on the home screen that opens the FARM app, not the league. Its name, id, theme and
+     splash colours are the league's own dark tokens (#0c1017 is --bg) so the launch screen and
+     the status bar match the app instead of flashing Bucky's cream.
+     ICONS: there is no league-specific icon — these are the family app's Bucky goat, reused
+     because an invented one would be worse than a shared one. An installed GFFL will wear the
+     goat until somebody draws it a football.
+     iOS reads NONE of the manifest for display mode, so the two apple-* metas below are what
+     actually give an iPhone a chrome-less window; black-translucent is the right status bar for
+     a dark app (with viewport-fit=cover above, the page paints under it — which is why every
+     fixed/sticky element in this stylesheet carries a safe-area inset). -->
+<link rel="manifest" href="league.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GFFL">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -53,8 +72,15 @@
      chrome, ahead of everything else on the page (ffdraft's own header carries the same
      3px accent top-border). box-sizing:border-box (above) keeps the header's own declared
      height whole — the border eats into content padding, not layout height. */
+  /* ITEM 33 (2026-08-10) safe areas: installed standalone there is no browser chrome to
+     absorb the notch, so the header GROWS by the top inset and pads by it rather than sliding
+     down (a sticky element with top:0 has to keep painting to the very top edge, or the strip
+     of page scrolling past above it shows through). The left/right insets are the landscape
+     case — a rotated phone puts the notch beside the wordmark. Every value is env(...), which
+     is 0 in a browser tab, so nothing about the tabbed layout moves. */
   header { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:16px;
-           padding:0 14px; height:52px; background:var(--tabbar); backdrop-filter:blur(8px);
+           padding:env(safe-area-inset-top) calc(14px + env(safe-area-inset-right)) 0 calc(14px + env(safe-area-inset-left));
+           height:calc(52px + env(safe-area-inset-top)); background:var(--tabbar); backdrop-filter:blur(8px);
            border-top:3px solid var(--accent); border-bottom:1px solid var(--border-card); }
   header .wordmark { font:700 20px/1 var(--font-display); letter-spacing:1.2px; text-transform:uppercase; white-space:nowrap; }
   header .wordmark .accentword { color:var(--accent); }
@@ -67,7 +93,8 @@
              font:700 13px var(--font-display); }
   #hAvatar[hidden] { display:none; }
   #hAvatar img { width:100%; height:100%; object-fit:cover; display:block; }
-  main { max-width:860px; margin:0 auto; padding:12px; }
+  main { max-width:860px; margin:0 auto;
+         padding:12px calc(12px + env(safe-area-inset-right)) 12px calc(12px + env(safe-area-inset-left)); }
   .card { background:var(--card); border:1px solid var(--border-card); border-radius:var(--radius-card); padding:16px; margin-bottom:12px; }
   .card.center { text-align:center; }
   h1 { margin:6px 0; font:700 26px var(--font-display); letter-spacing:1px; text-transform:uppercase; }
@@ -541,7 +568,12 @@
      the matchup rows, the locker, the swap sheet, the players table and the stats card —
      shares this one rule, so they cannot disagree. */
   .inj { color:var(--accent); font-weight:700; font-size:10.5px; letter-spacing:.3px; text-transform:uppercase; }
-  .sheet { position:fixed; inset:auto 0 0 0; z-index:40; padding:10px; background:rgba(6,7,8,.7); backdrop-filter:blur(3px); }
+  /* ITEM 33: a bottom sheet's LAST row is its Cancel — standalone, the home indicator sits
+     exactly there, so the bottom padding carries the inset (and the sides carry theirs for
+     landscape). */
+  .sheet { position:fixed; inset:auto 0 0 0; z-index:40;
+           padding:10px calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));
+           background:rgba(6,7,8,.7); backdrop-filter:blur(3px); }
   .sheet .card { max-height:60vh; overflow-y:auto; box-shadow:0 -8px 30px rgba(0,0,0,.55); }
   .swaprow { display:flex; justify-content:space-between; gap:10px; width:100%; text-align:left; background:var(--card);
              border:1px solid var(--border-card); border-radius:var(--radius-sm); margin-bottom:6px; padding:11px 12px;
@@ -688,7 +720,8 @@
   /* the house [hidden]-override lesson, again — every chat auxiliary panel
      sets its own `display` unconditionally, so each needs this restated */
   .chatmeme[hidden], .chatgifbox[hidden], .chatReplyPreview[hidden], .chatPending[hidden] { display:none; }
-  .imgoverlay { position:fixed; inset:0; z-index:70; background:rgba(6,7,8,.92); display:flex; align-items:center; justify-content:center; padding:20px; }
+  .imgoverlay { position:fixed; inset:0; z-index:70; background:rgba(6,7,8,.92); display:flex; align-items:center; justify-content:center;
+                 padding:calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left)); }
   .imgoverlay[hidden] { display:none; } /* the house [hidden]-override lesson — an author rule always beats the UA [hidden]{display:none} */
   .imgoverlay img { max-width:100%; max-height:100%; border-radius:10px; }
 
@@ -928,7 +961,8 @@
   .faMoveBtn:hover { background:var(--accent); color:#fff; }
 
   .pcoverlay { position:fixed; inset:0; z-index:68; background:rgba(6,7,8,.82); backdrop-filter:blur(3px);
-               display:flex; align-items:center; justify-content:center; padding:16px; }
+               display:flex; align-items:center; justify-content:center;
+               padding:calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); }
   .pcoverlay[hidden] { display:none; } /* the house [hidden]-override lesson, again */
   .pccard { position:relative; width:100%; max-width:420px; max-height:86vh; overflow-y:auto;
             background:var(--card); border:1px solid var(--border-card); border-radius:var(--radius-card);
@@ -953,7 +987,7 @@
   /* ---------------- nav — mobile bottom bar / desktop top-nav row ---------------- */
   .bnav { position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex;
           background:var(--tabbar); backdrop-filter:blur(8px); border-top:1px solid var(--border-card);
-          padding:6px 6px calc(6px + env(safe-area-inset-bottom)); }
+          padding:6px calc(6px + env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) calc(6px + env(safe-area-inset-left)); }
   /* Polish pass (2026-08-08): the house [hidden]-override lesson, again — .bnav's own
      display:flex above beats the UA [hidden]{display:none} rule, so hideBnav()'s `hidden`
      attribute (gate/first-run/claim screens — nothing usable behind the tabs yet) needs this
@@ -981,13 +1015,14 @@
      60px top-nav strip: wordmark left, links across the middle, "WEEK N · YEAR"
      + avatar pinned right. */
   @media (min-width:1024px) {
-    header { padding:0 24px; height:46px; border-bottom:none; }
+    header { padding:env(safe-area-inset-top) calc(24px + env(safe-area-inset-right)) 0 calc(24px + env(safe-area-inset-left));
+             height:calc(46px + env(safe-area-inset-top)); border-bottom:none; }
     header .sub { display:inline; margin-left:2px; }
     header .hmeta { display:flex; }
-    main { max-width:1200px; padding:20px 24px; }
+    main { max-width:1200px; padding:20px calc(24px + env(safe-area-inset-right)) 20px calc(24px + env(safe-area-inset-left)); }
     body { padding-bottom:24px; }
-    .bnav { position:sticky; top:46px; background:var(--tabbar); border-top:none; border-bottom:1px solid var(--border-card);
-            padding:0 24px; max-width:none; margin:0; height:34px; }
+    .bnav { position:sticky; top:calc(46px + env(safe-area-inset-top)); background:var(--tabbar); border-top:none; border-bottom:1px solid var(--border-card);
+            padding:0 calc(24px + env(safe-area-inset-right)) 0 calc(24px + env(safe-area-inset-left)); max-width:none; margin:0; height:34px; }
     /* item 6 fix, desktop half: the OLD padding here was asymmetric (0 16px 0 0 — "left" gap
        folded entirely into the right side), so the border-bottom below — which spans the
        button's FULL border-box — sat centered on a box whose CONTENT (and therefore its
@@ -1016,11 +1051,11 @@
      from this device's saved copy, so the chip is what keeps that honest — which copy, how
      old, and that we're still trying. Clay rather than gold: this is a state to get out of,
      not a mode to settle into. [hidden] restated because the rule above sets a display. */
-  #offlineChip { position:sticky; top:52px; z-index:19; background:var(--accent); color:#fff;
+  #offlineChip { position:sticky; top:calc(52px + env(safe-area-inset-top)); z-index:19; background:var(--accent); color:#fff;
                  font:700 11px var(--font-display); letter-spacing:.4px; text-transform:uppercase;
                  text-align:center; padding:6px 10px; }
   #offlineChip[hidden] { display:none; }
-  @media (min-width:1024px) { #offlineChip { top:46px; } }
+  @media (min-width:1024px) { #offlineChip { top:calc(46px + env(safe-area-inset-top)); } }
 </style>
 </head>
 <body>
@@ -1069,7 +1104,10 @@
     // logged-in user's OWN game — see UI.navTo's note in lg-ui.js.
     document.querySelectorAll(".bnav button").forEach((b) =>
       b.addEventListener("click", () => LG.ui.navTo(b.dataset.v)));
-    document.getElementById("imgOverlay").addEventListener("click", () => { document.getElementById("imgOverlay").hidden = true; });
+    // ITEM 32 (2026-08-10): closing an overlay by tapping its own backdrop hands the history
+    // entry it pushed straight back (LG.ui.closeImageOverlay / closePlayerCard both do), so the
+    // reader's NEXT Back is a real view change rather than a silently-consumed dead entry.
+    document.getElementById("imgOverlay").addEventListener("click", () => LG.ui.closeImageOverlay());
     // Player stats card (2026-08-08): bound ONCE, same posture as #imgOverlay above — the
     // overlay itself is persistent chrome (a sibling of #main, never destroyed by a render),
     // so this doesn't need re-wiring per view. Backdrop tap closes ONLY when the click target
@@ -1078,10 +1116,12 @@
     document.getElementById("playerCard").addEventListener("click", (e) => {
       if (e.target === e.currentTarget) LG.ui.closePlayerCard();
     });
+    // Escape closes whatever modal is up — the player card, the lineup swap sheet, the waiver
+    // claim sheet, the chat lightbox. It used to know only about the player card; ITEM 32 gave
+    // every one of them the same registration, so there is one answer to "what is on top".
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
-      const ov = document.getElementById("playerCard");
-      if (ov && !ov.hidden) LG.ui.closePlayerCard();
+      LG.ui.closeTopOverlay();
     });
     // Bound ONCE — #hAvatar is persistent header chrome, never re-created by a
     // render (unlike main()'s innerHTML swaps), so wiring it through the
