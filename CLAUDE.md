@@ -10946,3 +10946,58 @@ the old one), are written out in `netlify.toml`'s GFFL custom-domain block. **Co
 front**: a new origin starts with empty `localStorage`, so every device re-enters the family
 password and re-picks who it is (`gffl_pass`, `choreUser`, `choreUnlocked`, `dadPinHash`); league
 data is in Firestore and is untouched. **BLOCKED ON**: the user buying the domain.
+
+---
+
+## 🐐 THE GOAT MARK: a new app icon, and the app stops shouting its own name (2026-08-10)
+
+User supplied a green goat-head silhouette and asked for it as the Bucky logo, plus *"the app
+subtitle to be 'Bucky' instead of 'BUCKY'"*. Files: NEW `assets/bucky-logo-source.jpg` (the
+user's own artwork — commit-safe, same standing as the GFFL crest) · NEW `tools/_bucky_icons.cjs`
+(the bake, replacing `tools/gen-icons.js`) · `bucky.png` + `icons/{icon,maskable}-{192,512}.png`
+· `manifest.webmanifest` · every page's `<title>` · `firebase-messaging-sw.js`.
+
+**ONE BAKE FEEDS EVERY LOGO SURFACE.** `bucky.png` is the favicon AND the apple-touch icon on all
+~20 pages AND the lock screen's own `<img>`; `icons/icon-192` is also the push-notification icon
+in `firebase-messaging-sw.js`. So regenerating those five files re-skins the whole app — no page
+needed editing. `node tools/_bucky_icons.cjs [--check]` is idempotent and **asserts before it
+ships**: exact dimensions, corners exactly cream (an installed tile must be opaque edge to edge),
+the mark actually landed, its height is the intended fraction, it is centred, and — measured, not
+eyeballed — a maskable's half-diagonal fits inside the 40%-radius safe circle, because "it looks
+like it fits" is how horns get clipped. 30/30.
+
+**THE FLOOD FILL IS BORROWED FROM THE GFFL CREST, INVERTED.** Keying "every light pixel"
+transparent works for a silhouette right up until the art has an ENCLOSED light region (here the
+notch under the ear, and the gap the beard cuts into the neck). Only light reachable from the
+BORDER is paper. Ramp on the pixel's MAX channel (paper ~254, ink ~66), feathered across the
+JPEG's anti-aliased edge or the mark comes out jagged.
+Mark height 0.76 of the tile for `any`, **0.62 for maskable** (the launcher may crop to a circle).
+Flat two-colour art palettises with no visible loss: **bucky.png 63 → 8.4 KB, icon-512 212 → 24 KB**.
+
+**`tools/gen-icons.js` DELETED, not left lying around** — it upscaled the 256px `bucky.png` into a
+512 icon, so re-running it after this batch would silently DEGRADE the icon set, and it never knew
+about maskables. The new baker owns all five outputs from the 1408px source. `icons/gffl-*` is
+untouched and asserted so — that is the LEAGUE's crest and only `league.webmanifest` points at it.
+
+**"BUCKY" → "Bucky"** on the label surfaces: `manifest.webmanifest` name + short_name (the label
+under the installed icon — the "subtitle" the user meant), every page's `<title>`, and the two
+system-notification titles. **Deliberately NOT changed: stored DATA** — `by: "BUCKY"` on bank
+ledger rows and `from: "BUCKY"` on notification docs are values already written across the
+family's live Firestore, and new rows disagreeing with every historical row is worse than a shouty
+string. Email CTA prose ("View in BUCKY") left alone too.
+**A STALE MANIFEST FIXED WHILE IN THERE, and it was load-bearing**: `background_color` was still
+the pre-re-skin `#eef2fa` and `theme_color` the old navy `#0a3161`, while index.html's own
+`theme-color` meta has read `#3f5c46` since the re-skin. The splash screen composites the icon on
+`background_color`, so a cream icon on a pale-blue splash shows a visible square — the new icon
+needs `#f4f1e8` to sit seamlessly.
+
+**VERIFY**: `node tools/_bucky_icons.cjs --check` (30) + the plate script in the session scratchpad
+(11: the lock screen really shows /bucky.png decoded at 256², the tab title, the manifest as a
+browser parses it, all five icons 200, and every launcher size rendering). Regressions green:
+beacon-safety **96/96** (loads every page whose title changed) · chore-care **50/50** · news
+**200/200** · activity **147/147**.
+**TEST GOTCHA worth keeping**: a plate built with `page.setContent` on `about:blank` has a **null
+origin**, and Chrome's private-network rules refuse a null-origin request to **loopback** — every
+icon silently failed to load (`naturalWidth` 0) with only a console line to say why. Serve the
+plate from the same origin (a `/__tiles` route on the suite's own server) instead.
+Shots: `shots/bucky_logo_lock_390.png`, `shots/bucky_logo_tiles.png`.

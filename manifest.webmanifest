@@ -1,11 +1,11 @@
 {
-  "name": "BUCKY",
-  "short_name": "BUCKY",
+  "name": "Bucky",
+  "short_name": "Bucky",
   "description": "Amen Farms family farm app",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#eef2fa",
-  "theme_color": "#0a3161",
+  "background_color": "#f4f1e8",
+  "theme_color": "#3f5c46",
   "icons": [
     { "src": "bucky.png", "sizes": "256x256", "type": "image/png" },
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
