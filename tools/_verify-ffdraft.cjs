@@ -934,6 +934,10 @@ async function sectionRoom(browser) {
     "…and a pasted commissioner link still works too");
   await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
 
+  // --- draft-day countdown: silent while the draft is LIVE (this room is mid-draft here) ---
+  ok(await page.evaluate(() => document.getElementById("countStrip").hidden),
+    "no countdown clutter once the draft is live");
+
   // no sideways scroll on a phone (the board pans inside its own container)
   ok(await page.evaluate(() => document.scrollingElement.scrollWidth <= window.innerWidth + 1),
     "the page never scrolls sideways at 390px");
@@ -945,6 +949,29 @@ async function sectionRoom(browser) {
   ok(d.phase === "setup" && Object.keys(d.picks).length === 0
     && d.keepers[1].length === 3 && d.keepers[3].length === 1,
     "reset clears the board but keeps everyone's keepers");
+
+  // --- draft-day countdown (pre-draft = visible and ticking toward Sep 6, 3PM CT) ---
+  ok(await page.evaluate(() => window.__DRAFT__.draftAt === Date.UTC(2026, 8, 6, 20, 0, 0)),
+    "the countdown targets Sunday Sep 6 2026, 3:00 PM CT (20:00 UTC)");
+  ok(await page.evaluate(() => {
+    const el = document.getElementById("countStrip");
+    const t = el.textContent.replace(/ /g, " ");
+    return !el.hidden && t.includes("September 6") && t.includes("3:00 PM CT");
+  }), "pre-draft, the header counts down and names the date and time");
+  // Pin the target to a known distance so the segments are assertable (2d 3h 4m + slack).
+  await hook(page, () => window.__DRAFT__.setDraftAt(Date.now() + (2 * 86400 + 3 * 3600 + 4 * 60 + 30) * 1000));
+  ok(await page.evaluate(() => {
+    const segs = Array.from(document.querySelectorAll("#countStrip .seg"))
+      .map((s) => s.querySelector("b").textContent + " " + s.querySelector("small").textContent);
+    return segs.length === 4 && segs[0] === "2 days" && segs[1] === "3 hrs"
+      && /^4 min$/.test(segs[2]) && / sec$/.test(segs[3]);
+  }), "days / hrs / min / sec segments read the real time remaining");
+  await hook(page, () => window.__DRAFT__.setDraftAt(Date.now() - 1000));
+  ok(await page.evaluate(() => {
+    const el = document.getElementById("countStrip");
+    return !el.hidden && el.textContent.includes("DRAFT DAY") && !el.querySelector(".seg");
+  }), "once the moment passes it reads IT'S DRAFT DAY instead of negative numbers");
+  await hook(page, () => window.__DRAFT__.setDraftAt(Date.UTC(2026, 8, 6, 20, 0, 0)));
 
   // commish mass-release (mis-claims / stale test devices): ownership only
   await hook(page, () => window.__DRAFT__.resetClaims());
