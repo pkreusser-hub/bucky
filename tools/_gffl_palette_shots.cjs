@@ -192,7 +192,7 @@ const openLocker = async (page, id) => {
 async function uploadLogo(page, teamId, expr) {
   await openLocker(page, teamId);
   await page.evaluate(async (e) => {
-    const cv = eval(e); // eslint-disable-line no-eval
+    const cv = await eval(e); // eslint-disable-line no-eval — await tolerates the sync exprs and lets plate 5 fetch real art
     const blob = await new Promise((res) => cv.toBlob(res, "image/png"));
     const file = new File([blob], "logo.png", { type: "image/png" });
     const dt = new DataTransfer(); dt.items.add(file);
@@ -221,11 +221,25 @@ async function heroFacts(page) {
       logoW: logo ? Math.round(logo.getBoundingClientRect().width) : 0,
       isPlaceholder: !!(logo && logo.classList.contains("lockerlogo-ph")),
       imgLoaded: !!(logo && logo.tagName === "IMG" && logo.naturalWidth > 0),
+      // FABLE DESIGN PASS (2026-08-10): the wash + gradient are GONE by design — the hero is
+      // a flat dark card with a crisp diagonal primary panel (::before) and a secondary stripe
+      // (::after). "panel" proves the geometry exists and carries --tp; "flatCard" proves the
+      // murk is gone; the name now sits on the DARK side so its contrast is measured against
+      // the CARD, not the colour fill.
       wash: !!head.querySelector(".lockerwash"),
       gradient: /gradient/.test(cs.backgroundImage),
+      panel: (() => {
+        const b = getComputedStyle(head, "::before");
+        return b.clipPath !== "none" && b.backgroundColor !== "rgba(0, 0, 0, 0)";
+      })(),
+      stripe: (() => {
+        const a = getComputedStyle(head, "::after");
+        return a.clipPath !== "none" && a.backgroundColor !== "rgba(0, 0, 0, 0)";
+      })(),
+      flatCard: !/gradient/.test(cs.backgroundImage),
       fill: cs.getPropertyValue("--tp").trim(),
       ink: toHex(getComputedStyle(nm).color),
-      contrast: window.__GFFL__.LG.contrast(toHex(getComputedStyle(nm).color), cs.getPropertyValue("--tp").trim()),
+      contrast: window.__GFFL__.LG.contrast(toHex(getComputedStyle(nm).color), toHex(cs.backgroundColor)),
       swatches: [...document.querySelectorAll(".tcswatch")].map((i) => i.value),
       state: (document.querySelector(".tcstate") || {}).textContent,
       height: Math.round(head.getBoundingClientRect().height),
@@ -281,8 +295,11 @@ async function plate(page, file, label) {
     await openLocker(page, 1);
     let f = await heroFacts(page);
     ok(!!f && f.imgLoaded && f.logoW >= 96, wname + " · photo hero: the crest is a real loaded image at hero size (" + (f && f.logoW) + "px)");
-    ok(f.wash && f.gradient, "…over its own blurred wash and the primary→secondary gradient");
-    ok(f.contrast >= 4.5, "…with the name legible on the fill (" + f.contrast.toFixed(2) + ":1 on " + f.fill + ")");
+    // RESTAGED (design pass): was "over its own blurred wash and the gradient" — the wash and
+    // gradient are the murk the pass removed. The hero must now be FLAT with the diagonal
+    // panel+stripe carrying the scheme, and the name is white on the dark side of the cut.
+    ok(!f.wash && f.flatCard && f.panel && f.stripe, "…flat card, no wash — the scheme arrives as the diagonal panel + stripe");
+    ok(f.contrast >= 4.5, "…with the name legible on the DARK side (" + f.contrast.toFixed(2) + ":1, panel colour " + f.fill + ")");
     ok(f.swatches.length === 3 && new Set(f.swatches).size >= 2, "…and three swatches showing the EXTRACTED scheme (" + f.swatches.join(" ") + ")");
     ok(/logo/.test(f.state || ""), "…labelled as coming from the logo (\"" + (f.state || "").trim() + "\")");
     if (f.imgLoaded && f.contrast >= 4.5) await plate(page, "gffl_pal_hero_photo_" + wname + ".png", "photo logo");
@@ -291,15 +308,17 @@ async function plate(page, file, label) {
     await openLocker(page, 2);
     f = await heroFacts(page);
     ok(!!f && f.imgLoaded && f.logoW >= 96, wname + " · flat-art hero: real crest at hero size (" + (f && f.logoW) + "px)");
-    ok(f.contrast >= 4.5, "…name legible on its own fill (" + f.contrast.toFixed(2) + ":1 on " + f.fill + ")");
+    ok(f.contrast >= 4.5, "…name legible on the dark side (" + f.contrast.toFixed(2) + ":1)"); // restaged with the panel design — see plate 1
     if (f.imgLoaded && f.contrast >= 4.5) await plate(page, "gffl_pal_hero_flat_" + wname + ".png", "flat-art logo");
 
     // ---- plate 3: the no-logo hero ----
     await openLocker(page, 3);
     f = await heroFacts(page);
     ok(!!f && f.isPlaceholder && f.name.length > 0, wname + " · no-logo hero: initials placeholder, not an empty box");
-    ok(!f.wash, "…and no wash, because there is no picture to blur");
-    ok(f.gradient && f.contrast >= 4.5, "…on the team's DEFAULT palette, still legible (" + f.contrast.toFixed(2) + ":1 on " + f.fill + ")");
+    ok(!f.wash, "…and no wash (none for anyone, since the design pass)");
+    // RESTAGED (design pass): the default-palette team gets the same flat panel geometry —
+    // "gradient" died with the murk, and legibility is the white name on the dark card.
+    ok(f.panel && f.stripe && f.contrast >= 4.5, "…the DEFAULT palette still cuts a real panel + stripe, name legible (" + f.contrast.toFixed(2) + ":1 on " + f.fill + ")");
     if (f.isPlaceholder && f.contrast >= 4.5) await plate(page, "gffl_pal_hero_none_" + wname + ".png", "no logo — initials placeholder");
 
     // ---- plate 4: the hand-picked hero. THE LATCH PLATE.
@@ -314,6 +333,38 @@ async function plate(page, file, label) {
     if (f.fill.toLowerCase() === PICKED_COLORS.primary && f.contrast >= 4.5) {
       await plate(page, "gffl_pal_hero_picked_" + wname + ".png", "hand-picked colours over a disagreeing logo");
     }
+
+    // ---- plate 5: REAL ART (2026-08-10, the user's own Goat Kids crest) ----
+    // The four fixtures above are synthetic on purpose; this one is genuine team art
+    // committed at assets/league/goatkids-logo-example.webp (crimson/gold/maroon — a real
+    // multi-colour crest), so the extraction pipeline is judged on the thing it will
+    // actually be fed. Loaded from the served repo, drawn to canvas, and pushed through the
+    // SAME upload path as every other plate.
+    await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.saveTeam({ teamId: 5, name: "The Goat Kids" });
+      await LG.loadTeams();
+    });
+    await openLocker(page, 5);
+    await uploadLogo(page, 5, `(async function () {
+      const img = new Image();
+      img.src = "/assets/league/goatkids-logo-example.webp";
+      await img.decode();
+      const cv = document.createElement("canvas"); cv.width = 256; cv.height = 256;
+      cv.getContext("2d").drawImage(img, 0, 0, 256, 256);
+      return cv;
+    })()`); // returns a Promise<canvas>; uploadLogo's `await eval(e)` unwraps it
+    await sleep(600);
+    f = await heroFacts(page);
+    ok(!!f && f.imgLoaded, wname + " · REAL ART hero (Goat Kids): the crest decoded and rendered");
+    ok(/The Goat Kids/i.test(f.name), "…under the team's real name");
+    const gk = f.swatches.map((s) => s.toLowerCase());
+    // the art is crimson/gold/maroon — the extractor must land in that family, with a
+    // warm-red primary or secondary (not the grey/blue a mud extractor would produce)
+    const warm = gk.filter((h) => { const r = parseInt(h.slice(1, 3), 16), g2 = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16); return r > g2 + 20 && r > b + 20; });
+    ok(warm.length >= 1, "…extraction proposes the art's warm family (" + gk.join(" ") + ")");
+    ok(f.contrast >= 4.5, "…name legible (" + f.contrast.toFixed(2) + ":1)");
+    if (f.imgLoaded) await plate(page, "gffl_pal_hero_goatkids_" + wname + ".png", "the user's real Goat Kids art");
 
     // ---- plate 5: the matchup — photo team vs flat-art team ----
     await page.evaluate(() => { window.__GFFL__.UI.matchup = [1, 2]; window.__GFFL__.UI.show("matchup"); });

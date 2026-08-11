@@ -3463,8 +3463,24 @@ async function openDetails(page, id) {
     ok((await page1.$$eval(".chatRowMsg", (els) => els.length)) >= 1 && /going all the way/.test(body1),
       "the wall picks up a chat message that mentions the team by name");
     ok(/Add a motto/.test(body1), "no motto set yet — the owner-only placeholder invites them to add one");
-    ok(!!(await page1.$("#lockerEditName")) && !!(await page1.$("#lockerEditMotto")) && !!(await page1.$("#lockerEditLogo")),
-      "the OWNER (team 1, on their own locker) sees Name/Motto/Logo edit affordances");
+    // RESTAGED (design pass 2, 2026-08-10, user: "put all the logo, color, name options behind
+    // an edit card, pencil top right"): the owner's ONE visible affordance is the pencil; the
+    // controls exist behind it and disclose on tap. Measured by GEOMETRY (offsetParent), never
+    // the attribute — the foot hides everything above the .lockeredit div, so the attribute
+    // alone would pass vacuously.
+    const pencilFlow = await page1.evaluate(() => {
+      const vis = (el) => !!el && el.offsetParent !== null;
+      const pencil = document.querySelector("#lockerEditToggle");
+      const before = vis(document.querySelector("#lockerEditName"));
+      if (pencil) pencil.click();
+      const after = vis(document.querySelector("#lockerEditName")) && vis(document.querySelector("#lockerEditMotto")) &&
+                    vis(document.querySelector("#lockerEditLogo")) && vis(document.querySelector(".lockercolors"));
+      return { pencil: vis(pencil), before, after, expanded: pencil && pencil.getAttribute("aria-expanded") };
+    });
+    ok(pencilFlow.pencil, "the OWNER sees the pencil, top right of their own hero");
+    ok(pencilFlow.before === false, "…and NO edit controls before it is pressed — the hero opens quiet");
+    ok(pencilFlow.after === true && pencilFlow.expanded === "true",
+      "…pressing it discloses Name/Motto/Logo + the colour swatches (aria-expanded true)");
 
     // Owner edits the motto.
     await page1.evaluate(() => { window.__prompts = ["Go Kreussers!"]; });
@@ -3509,7 +3525,15 @@ async function openDetails(page, id) {
     });
     const rgb = [1, 3, 5].map((i) => parseInt(bg.tp.slice(i, i + 2), 16));
     ok(rgb[0] > rgb[1] + 30 && rgb[0] > rgb[2] + 30, "the extracted palette makes the locker hero REDDISH (" + bg.tp + ")");
-    ok(/gradient/.test(bg.grad), "…as the primary end of the hero's own primary→secondary gradient");
+    // RESTAGED (Fable design pass, 2026-08-10): the gradient died with the murk — the hero is
+    // a FLAT card whose ::before diagonal panel carries --tp. Same guarantee (the extracted
+    // primary decides the hero's colour surface), measured on the panel that now paints it.
+    ok(!/gradient/.test(bg.grad), "…and the hero card itself is FLAT (no gradient — the murk is gone)");
+    const panelOk = await page1.evaluate(() => {
+      const b = getComputedStyle(document.querySelector(".lockerhead"), "::before");
+      return b.clipPath !== "none" && b.backgroundColor !== "rgba(0, 0, 0, 0)";
+    });
+    ok(panelOk, "…the diagonal ::before panel is what wears the extracted primary now");
     const savedColors = await page1.evaluate(() => window.__GFFL__.LG.teamById(1).colors);
     ok(savedColors && typeof savedColors.primary === "string", "the extracted colour is stored on the team doc (computed once at upload, not per render)");
     // Regression guard for the cache-corruption bug this test caught: cacheUpsert() used to
@@ -3524,6 +3548,34 @@ async function openDetails(page, id) {
       "…and the logo image itself (not just the colour) survives — no stale duplicate shadowing the edited team");
     const listedOnce = await page1.evaluate(() => window.__GFFL__.LG.teams.filter((t) => t.id === 1).length);
     ok(listedOnce === 1, "…and LG.teams has exactly ONE row for team 1 after two consecutive saves — no duplicate left behind in the list cache");
+
+    // CROSS-TAB PROPAGATION (2026-08-10, user report against the DEPLOYED app: "changing the
+    // logo here did not change in every other tab"). On main, logoTd/avatarHtml read `.logo`
+    // only, so an uploaded logo (which saves to `.logoData`) never left the locker. S3's
+    // teamSrc() unification is the fix — this proves it END TO END, in one session with no
+    // reload: the logo just uploaded above must be the crest the League standings, the
+    // Matchup header and the persistent app header all render.
+    const propag = await (async () => {
+      const nav = async (v) => { await page1.click(`.bnav button[data-v="${v}"]`); await sleep(350); };
+      await nav("league");
+      const inStandings = await page1.evaluate((want) => {
+        const rows = [...document.querySelectorAll(".tbl tr")].filter((r) => /Battle Kreussers/i.test(r.textContent));
+        return rows.some((r) => [...r.querySelectorAll(".tcrest img")].some((i) => i.getAttribute("src") === want));
+      }, savedLogo);
+      await nav("matchup");
+      const inMatchup = await page1.evaluate((want) =>
+        [...document.querySelectorAll(".muavatar img")].some((i) => i.getAttribute("src") === want), savedLogo);
+      const inHeader = await page1.evaluate((want) => {
+        const img = document.querySelector("#hAvatar img");
+        return !!img && img.getAttribute("src") === want;
+      }, savedLogo);
+      return { inStandings, inMatchup, inHeader };
+    })();
+    ok(propag.inStandings, "the uploaded logo appears in the League standings crest WITHOUT a reload");
+    ok(propag.inMatchup, "…and in the Matchup header crest");
+    ok(propag.inHeader, "…and in the persistent app-header avatar (the viewer's own team)");
+    await page1.evaluate(() => document.querySelector('.bnav button[data-v="team"]').click());
+    await sleep(350); // back on the locker for the checks that follow
 
     // Non-owner viewing the SAME locker: no edit affordances at all.
     const snap = await snapshotAllDocs(page1);
@@ -12190,11 +12242,16 @@ async function openDetails(page, id) {
       await evalOr(page, () => window.__GFFL__.LG.gateCommish()); // local backend: create-on-first-use, unchanged
       await evalOr(page, () => window.__GFFL__.UI.openLocker(2));
       ok(await waitOr(page, ".lockerhead", 12000), "the commissioner opens another owner's locker");
+      // RESTAGED (design pass 2): the reset lives behind the pencil now, and "sees" is
+      // measured by GEOMETRY after opening it — the attribute alone passes vacuously because
+      // the FOOT above .lockeredit is what hides everything.
       const btn = await evalOr(page, () => {
+        const p = document.querySelector("#lockerEditToggle");
+        if (p) p.click();
         const b = document.querySelector("#lockerPinReset");
-        return b ? { present: true, hidden: !!b.closest(".lockeredit").hidden, txt: b.textContent.trim() } : { present: false };
+        return b ? { present: true, visible: b.offsetParent !== null, txt: b.textContent.trim() } : { present: false };
       }) || {};
-      ok(btn.present && btn.hidden === false && /Reset owner PIN/.test(btn.txt), "…and sees a Reset owner PIN control (" + JSON.stringify(btn) + ")");
+      ok(btn.present && btn.visible === true && /Reset owner PIN/.test(btn.txt), "…opens the pencil and sees a Reset owner PIN control (" + JSON.stringify(btn) + ")");
       await clickIn(page, "#lockerPinReset");
       await sleep(700);
       const doc2 = await teamDoc(page, 2);
@@ -12251,8 +12308,15 @@ async function openDetails(page, id) {
       ok(unlocked === true, "the commissioner unlocks");
       await evalOr(page, () => window.__GFFL__.UI.openLocker(2));
       await waitOr(page, ".lockerhead", 12000);
-      const vis2 = await evalOr(page, () => !!document.querySelector(".lockeredit") && !document.querySelector(".lockeredit").hidden);
-      ok(vis2 === true, "…and now sees the Name / Motto / Logo edits on another team's locker");
+      // RESTAGED (design pass 2): behind the pencil, measured by geometry — see the reset check.
+      const vis2 = await evalOr(page, () => {
+        const p = document.querySelector("#lockerEditToggle");
+        const pencilVisible = !!p && p.offsetParent !== null;
+        if (p) p.click();
+        const b = document.querySelector("#lockerEditName");
+        return pencilVisible && !!b && b.offsetParent !== null;
+      });
+      ok(vis2 === true, "…and now sees the pencil, and behind it the Name / Motto / Logo edits, on another team's locker");
       await evalOr(page, () => { window.__answers = ["Eleanor's Goats"]; });
       await clickIn(page, "#lockerEditName");
       await sleep(800);
@@ -12263,11 +12327,16 @@ async function openDetails(page, id) {
       await evalOr(page, () => window.__GFFL__.UI.openLocker(1));
       await waitOr(page, ".lockerhead", 12000);
       await sleep(400);
-      const own = await evalOr(page, () => ({
-        edits: !!document.querySelector(".lockeredit") && !document.querySelector(".lockeredit").hidden,
-        reset: !!document.querySelector("#lockerPinReset"),
-      })) || {};
-      ok(own.edits === true, "the owner still sees their own identity edits");
+      // RESTAGED (design pass 2): the owner's route is the pencil too — geometry, not attribute.
+      const own = await evalOr(page, () => {
+        const p = document.querySelector("#lockerEditToggle");
+        const pencilVisible = !!p && p.offsetParent !== null;
+        if (p) p.click();
+        const b = document.querySelector("#lockerEditName");
+        return { edits: pencilVisible && !!b && b.offsetParent !== null,
+                 reset: !!document.querySelector("#lockerPinReset") };
+      }) || {};
+      ok(own.edits === true, "the owner still reaches their own identity edits, through the pencil");
       ok(own.reset === false, "…and no Reset owner PIN on their own locker — there is nothing to reset for yourself");
       await clickIn(page, "#lockerEditName");
       await sleep(800);
@@ -12685,25 +12754,38 @@ async function openDetails(page, id) {
       });
       ok(ph.isPh && ph.text.length > 0, "a team with NO logo renders initials, not an empty box (\"" + ph.text + "\")");
       ok(ph.w >= 96, "…at the hero size (" + ph.w + "px — the S3 96-128 band's floor, which is what phone width gets)");
-      ok(!ph.wash, "…with no blurred backdrop wash, because there is no picture to blur");
-      ok(/gradient/.test(ph.bg), "…over the primary→secondary gradient every hero carries");
+      ok(!ph.wash, "…with no backdrop wash (the design pass removed it for everyone)");
+      // RESTAGED (Fable design pass, 2026-08-10): "the primary→secondary gradient every hero
+      // carries" is the murk the pass killed. The hero is FLAT; the scheme arrives as the
+      // ::before diagonal panel + ::after stripe. Same guarantee — every hero wears the
+      // team's colours — measured on the geometry that now paints them.
+      ok(!/gradient/.test(ph.bg), "…on a FLAT card (no gradient — the murk is gone)");
+      const phPanel = await page.evaluate(() => {
+        const h = document.querySelector(".lockerhead");
+        const b = getComputedStyle(h, "::before"), a = getComputedStyle(h, "::after");
+        return { panel: b.clipPath !== "none" && b.backgroundColor !== "rgba(0, 0, 0, 0)",
+                 stripe: a.clipPath !== "none" && a.backgroundColor !== "rgba(0, 0, 0, 0)" };
+      });
+      ok(phPanel.panel && phPanel.stripe, "…cut by the diagonal primary panel + secondary stripe that carry the scheme now");
 
-      // (b) a real picture — the wash appears and the crisp crest sits over it.
+      // (b) a real picture — RESTAGED: the wash is gone BY DESIGN (three translucent layers
+      // read as mud); a logo now means a crisp hero crest over the same flat panel geometry,
+      // and NO .lockerwash element may exist for anyone, picture or not.
       await openLocker(page, 1);
       await uploadLogo(page, THREE_BAND_LOGO);
-      await page.waitForFunction(() => !!document.querySelector(".lockerwash"), { timeout: 9000 });
+      await page.waitForFunction(() => {
+        const img = document.querySelector(".lockerlogo");
+        return !!img && img.tagName === "IMG" && img.naturalWidth > 0;
+      }, { timeout: 9000 });
       const hero = await page.evaluate(() => {
         const head = document.querySelector(".lockerhead");
-        const wash = head.querySelector(".lockerwash"), logo = head.querySelector(".lockerlogo");
-        const ws = getComputedStyle(wash);
-        return { washUrl: /data:image/.test(ws.backgroundImage), blur: ws.filter, z: ws.zIndex,
+        const logo = head.querySelector(".lockerlogo");
+        return { wash: !!head.querySelector(".lockerwash"),
                  logoW: Math.round(logo.getBoundingClientRect().width), crisp: getComputedStyle(logo).filter };
       });
-      ok(hero.washUrl, "a team WITH a logo gets that logo as the hero's backdrop wash");
-      ok(/blur/.test(hero.blur), "…blurred (" + hero.blur + ")");
-      ok(Number(hero.z) < 0, "…and behind everything (z-index " + hero.z + "), so it can never sit over the name");
-      ok(hero.logoW >= 96, "…while the CRISP crest over it is the hero size (" + hero.logoW + "px)");
-      ok(hero.crisp === "none", "…and is not itself blurred");
+      ok(!hero.wash, "a team WITH a logo gets NO wash either — the flat panel design is universal");
+      ok(hero.logoW >= 96, "…the crisp crest is the hero size (" + hero.logoW + "px)");
+      ok(hero.crisp === "none", "…and is not blurred");
 
       // (c) THE CONTRAST LAW on screen: a hand-picked WHITE team. Read the RENDERED colours.
       await page.evaluate(async () => {
@@ -12712,16 +12794,21 @@ async function openDetails(page, id) {
         await LG.loadTeams();
       });
       await openLocker(page, 1);
+      // RESTAGED (design pass): the name no longer sits on the colour fill at all — it lives
+      // on the DARK side of the diagonal, so the law is measured name-vs-CARD. A white-picked
+      // team is the case that used to need the ink derivation; now it is safe by architecture,
+      // which is the stronger property (asserted: white panel or not, the name is white on
+      // dark and clears AA with room to spare).
       const whiteOnScreen = await page.evaluate(() => {
         const LG = window.__GFFL__.LG;
         const nm = document.querySelector(".lockername"), head = document.querySelector(".lockerhead");
         const toHex = (c) => "#" + c.match(/\d+/g).slice(0, 3).map((v) => Number(v).toString(16).padStart(2, "0")).join("");
         const ink = toHex(getComputedStyle(nm).color);
-        const fill = getComputedStyle(head).getPropertyValue("--tp").trim();
-        return { ink, fill, contrast: LG.contrast(ink, fill) };
+        const card = toHex(getComputedStyle(head).backgroundColor);
+        return { ink, card, fill: getComputedStyle(head).getPropertyValue("--tp").trim(), contrast: LG.contrast(ink, card) };
       });
       ok(whiteOnScreen.contrast >= 4.5,
-        "ON SCREEN, a white-picked team's hero name is legible against its own white fill — " + whiteOnScreen.contrast.toFixed(2) + ":1 (ink " + whiteOnScreen.ink + " on " + whiteOnScreen.fill + ")");
+        "ON SCREEN, a white-picked team's hero name is legible — " + whiteOnScreen.contrast.toFixed(2) + ":1 (ink " + whiteOnScreen.ink + " on the dark card, panel " + whiteOnScreen.fill + ")");
 
       // (d) …and the other invisible pick: near-black on a near-black page.
       await page.evaluate(async () => {
@@ -12915,10 +13002,14 @@ async function openDetails(page, id) {
       });
       ok(home.crest >= 28, "the STANDINGS crest grew to the S3 size (" + home.crest + "px, was 20)");
       ok(/216, 31, 38/.test(home.crestBg), "…and a logo-less team's crest disc is its OWN colour, so every row is identifiable (" + home.crestBg + ")");
-      ok(home.nameCol !== "rgb(233, 237, 244)", "…with the team name in that team's ink rather than the sheet's default (" + home.nameCol + ")");
-      // Small rows get FILL ONLY — a coloured edge under 12px condensed type reads as a
-      // printing fault, so the treatment SCALES rather than shrinking uniformly.
-      ok(home.nameEdge === "none", "…and NO edge treatment at row size — the typography scales down to fill-only (" + home.nameEdge + ")");
+      // RESTAGED — INVERTED (Fable design pass, 2026-08-10): this asserted the name was NOT
+      // the sheet ink, because the first S3 cut filled names with team colour. Eight coloured
+      // names on one table read as a rainbow, not identity, so the pass made names NEUTRAL at
+      // every size and moved the colour onto the crest disc beside them (asserted just above).
+      // The identity guarantee stands — it just lives in the crest now, and the name must be
+      // the app's own ink.
+      ok(home.nameCol === "rgb(233, 237, 244)", "…with the team NAME in the sheet's neutral ink — identity is the crest's job now (" + home.nameCol + ")");
+      ok(home.nameEdge === "none", "…and no edge treatment on names anywhere since the pass (" + home.nameEdge + ")");
       ok(home.cardCrests === 2 && home.cardNames === 2, "every matchup card on the league home carries both crests and both stylized names");
       ok(/216, 31, 38/.test(home.headerAv), "…and the persistent header avatar wears the viewer's own team colour (" + home.headerAv + ")");
 

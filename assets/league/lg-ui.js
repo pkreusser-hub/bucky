@@ -4371,6 +4371,19 @@
   // call, no prompt consumed, nothing awaited that wasn't before).
   function wireLockerEdit(T, isOwner) {
     const gate = async () => isOwner || await LG.gateCommish();
+    // Design pass 2 (2026-08-10, user): ALL the identity controls live behind the pencil.
+    // The hero shows nothing but identity until the pencil is pressed; the pencil itself is
+    // the only affordance, and it only renders for owner/commish (renderLocker's gate). The
+    // disclosure is per-render — a locker always opens quiet.
+    const pencil = $("#lockerEditToggle");
+    if (pencil) pencil.addEventListener("click", () => {
+      const foot = $(".lockerfoot");
+      if (!foot) return;
+      const open = foot.hidden;
+      foot.hidden = !open;
+      pencil.setAttribute("aria-expanded", String(open));
+      pencil.classList.toggle("on", open);
+    });
     const nameBtn = $("#lockerEditName");
     if (nameBtn) nameBtn.addEventListener("click", async () => {
       if (!(await gate())) return;
@@ -4581,7 +4594,9 @@
 
     main().innerHTML = `
       <div class="lockerhead" style="${esc(LG.palStyle(pal))}">
-        ${logoSrc ? `<div class="lockerwash" style="background-image:url('${esc(logoSrc)}')" aria-hidden="true"></div>` : ""}
+        ${isOwner || isCommish() ? `<button id="lockerEditToggle" class="lockerpencil" aria-label="Edit team" aria-expanded="false" title="Edit team">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+        </button>` : ""}
         <div class="lockerhead-inner">
           ${logoSrc ? `<img class="lockerlogo" src="${esc(logoSrc)}" alt="">` : `<div class="lockerlogo lockerlogo-ph">${esc(initials(T.name))}</div>`}
           <div class="lockerid">
@@ -4590,6 +4605,7 @@
             <p class="lockerrec">#${place} · ${st.w}-${st.l}${st.t ? "-" + st.t : ""} · ${LG.fmtNum(st.pf)} PF</p>
           </div>
         </div>
+        <div class="lockerfoot" hidden>
         <div class="lockeredit"${isOwner || isCommish() ? "" : " hidden"}>
           <button id="lockerEditName">Name</button>
           <button id="lockerEditMotto">Motto</button>
@@ -4603,6 +4619,7 @@
           <label class="tcslot"><input type="color" class="tcswatch" data-slot="secondary" value="${esc(pal.raw.secondary)}" aria-label="Secondary colour" title="Secondary"><span>2</span></label>
           <label class="tcslot"><input type="color" class="tcswatch" data-slot="tertiary" value="${esc(pal.raw.tertiary)}" aria-label="Tertiary colour" title="Tertiary"><span>3</span></label>
           <button id="lockerColorReset" class="tcreset" title="Re-read this team's colours from its logo">↺</button>
+        </div>
         </div>
       </div>
       ${rosterHtml}

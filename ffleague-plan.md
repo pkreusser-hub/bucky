@@ -1377,11 +1377,17 @@ lg-ui ~L2116 — split bars filled with each side's own colour) reused for GFFL 
   team), locker/My Team, standings rows, the Scores-tab GFFL card, Moves rows that name a
   team, chat bylines. The existing win/loss colour language keeps the LAST word — palette
   colours identity, never verdict.
-- **TEAM-NAME TYPOGRAPHY**: team names render in a stylized display treatment (the existing
-  Barlow Condensed at heavier weight, uppercase, tight tracking) with primary fill +
-  secondary accent (text-shadow/edge — CSS only, no webfont additions; must stay legible at
-  12px row sizes, so the treatment SCALES: full fill+edge at locker/matchup sizes, fill-only
-  at small row sizes). Placeholder-initials avatars take primary bg + ink initial.
+- **TEAM-NAME TYPOGRAPHY** (REVISED by the Fable design pass, 2026-08-10 — the first cut
+  filled every name with its team colour and eight coloured names on one table read as a
+  rainbow, not identity): names are app ink at EVERY size, styled by typography alone
+  (Barlow Condensed heavy, uppercase, tracked). Colour is spent on STRUCTURE — the crest
+  disc/ring, the matchup score-block rails, the split stat bars, and ONE hero surface per
+  screen. The hero itself is FLAT AND GEOMETRIC: no blur wash, no gradient — a dark card cut
+  by a crisp diagonal primary panel behind the crest plus a thin parallel secondary stripe
+  (px-based geometry so the cut frames the 96px and 128px crests identically), the name in
+  white on the dark side, and the owner controls in a quiet full-bleed footer band under a
+  hairline so the panel can never run beneath a button. Placeholder-initials avatars keep
+  primary bg + ink initial.
 - **STAT BARS FROM THE NFL PATTERN**: the matchup view's team-total and category comparisons
   render as split bars — away fill vs home fill in each team's primary (the `.nflsbt`
   mechanic ported), and the locker's progress bars take the team's colours.

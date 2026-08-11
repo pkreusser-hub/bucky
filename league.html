@@ -160,14 +160,19 @@
   .tcrest img { width:100%; height:100%; object-fit:cover; display:block; }
   .tlogo { margin-right:7px; }
   .tmini { width:18px; height:18px; font-size:8.5px; vertical-align:-4px; margin-right:4px; }
-  /* The stylized name. FILL ONLY at row sizes — a coloured edge under 12px condensed type
-     reads as a printing fault, not as a team's colours — and fill + a secondary-coloured edge
-     once the type is big enough to carry it (locker hero, matchup header). Both take the
-     CLAMPED on-dark ink, never the raw pick, so a near-black team colour can't hide a name. */
+  /* The stylized name — FABLE DESIGN PASS (2026-08-10, user: S3's look needed "modern,
+     minimalist but impactful … a polished app"). The S3 cut filled every team name with its
+     team colour and put a secondary-coloured edge under the big sizes. Eight coloured names
+     on one standings table read as a rainbow, not as identity — polished sports apps keep
+     TEXT neutral and spend colour on STRUCTURE (the crest, a rail, a bar, one hero surface).
+     So: names are app ink at EVERY size, styled by typography alone (condensed, heavy,
+     uppercase, tracked); the palette custom properties stay on the element — the crest ring,
+     the hero panel and the stat bars consume them — but the glyphs themselves no longer do.
+     The clamps in teamPalette are untouched; this changes where colour is SPENT, not how it
+     is derived. */
   .tname { font-family:var(--font-display); font-weight:700; text-transform:uppercase;
-           letter-spacing:.4px; color:var(--tpd, inherit); }
-  .tname.big { font-weight:800; letter-spacing:.9px;
-               text-shadow:0 1.5px 0 var(--tsd, transparent), 0 0 12px rgba(0,0,0,.45); }
+           letter-spacing:.4px; color:var(--ink); }
+  .tname.big { font-weight:800; letter-spacing:.9px; text-shadow:0 0 12px rgba(0,0,0,.35); }
   .tmention { display:inline-flex; align-items:center; gap:0; white-space:nowrap; }
   .tmention .tname { letter-spacing:.3px; }
   .health { font:600 11px var(--font-display); letter-spacing:.8px; text-transform:uppercase; padding:3px 10px; border-radius:var(--radius-pill); border:1px solid var(--border-card); }
@@ -395,7 +400,9 @@
   /* Kept at the 12px item 6 tightened it to: the display treatment here is carried by weight,
      tracking and the secondary edge, not by extra size, so the name gains a team's colours
      without spending a pixel of the header's height budget. */
-  .muhead .muhname.tname.big { font-size:12px; letter-spacing:.6px; text-shadow:0 1px 0 var(--tsd, transparent); }
+  /* design pass: the edge shadow went with the coloured fills — the side's identity is its
+     crest and its 3px score-block rail, and the name stays quiet ink */
+  .muhead .muhname.tname.big { font-size:12px; letter-spacing:.6px; text-shadow:none; }
   .muhead .muhproj { font:600 10px/1.2 var(--font-display); font-variant-numeric:tabular-nums; white-space:nowrap; }
   .muhead .muhowner { font-size:9.5px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
   .muhead .muhsub { font-size:9.5px; line-height:1.2; white-space:nowrap; }
@@ -998,38 +1005,63 @@
      colour, crest, name, record, motto — at about half the scale: 8px padding instead of 16,
      a 38px logo instead of 64, a 17px name instead of 24, and the owner's edit buttons on a
      tighter row. */
-  /* S3 THE HERO. Item 10's halving above was right about what it was fixing — 182px of flat
-     accent that said nothing a 12px row couldn't — and it stays honoured in spirit: this is
-     still one compact band, still padded 10px, and the roster starts within a phone screen of
-     the top. What it now spends its height ON is different, and deliberately so, because the
-     crest and the colour scheme ARE the team's identity and this is the one page in the app
-     that is entirely about one team. The wash is the logo itself, blurred and darkened behind
-     a primary→secondary gradient, so a team's own picture makes the banner without any
-     per-team art direction. Ink is --ti, the clamped ink for whatever primary turned out to
-     be, which is what makes a white-picked team readable instead of white-on-white. */
+  /* S3 THE HERO — FABLE DESIGN PASS (2026-08-10). The first cut stacked three translucent
+     layers (the logo blurred 22px, a primary→secondary gradient, a darkening wash) and the
+     result was mud: every team's banner converged on the same murky smear, and the chosen
+     colours never arrived crisply. Modern-minimalist means FLAT and GEOMETRIC: the card is
+     the app's own dark surface, and the team's colour arrives as one sharp diagonal PANEL of
+     primary behind the crest with a thin parallel STRIPE of secondary beside it — broadcast
+     package language, which is the app's own heritage (ffdraft). Every banner is now
+     unmistakably that team's, and every name is guaranteed-legible white on dark, with no
+     dependence on what colour the owner picked. Item 10's height discipline still holds:
+     one compact band, roster within a phone screen of the top.
+     The panel geometry is PX-based, not %, so the cut sits identically behind the 96px and
+     128px crests instead of stretching with the card's width. */
   .lockerhead { position:relative; isolation:isolate; overflow:hidden;
                 border-radius:var(--radius-card); padding:10px 12px; margin-bottom:10px;
-                background:linear-gradient(135deg, var(--tp, var(--accent)) 0%, var(--ts, var(--accent)) 100%);
-                color:var(--ti, #fff); }
-  /* Behind everything, never in the way: blurred, darkened, and pointer-transparent. */
-  .lockerwash { position:absolute; inset:-24px; z-index:-1; background-size:cover; background-position:center;
-                filter:blur(22px) saturate(1.3); opacity:.45; pointer-events:none; }
+                background:var(--card); border:1px solid var(--border-card); color:#fff; }
+  .lockerhead::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+                        background:var(--tp, var(--accent));
+                        clip-path:polygon(0 0, 132px 0, 92px 100%, 0 100%); }
   .lockerhead::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
-                       background:linear-gradient(180deg, rgba(0,0,0,.16) 0%, rgba(0,0,0,.42) 100%); }
-  .lockerhead-inner { display:flex; align-items:center; gap:12px; }
+                       background:var(--ts, var(--accent));
+                       clip-path:polygon(140px 0, 148px 0, 108px 100%, 100px 100%); }
+  .lockerhead-inner { display:flex; align-items:center; gap:16px; }
   .lockerlogo { width:96px; height:96px; border-radius:14px; object-fit:cover; flex:0 0 auto;
                 background:rgba(255,255,255,.14); box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 1px rgba(255,255,255,.22); }
   .lockerlogo-ph { display:flex; align-items:center; justify-content:center;
                    font:800 34px var(--font-display); letter-spacing:1px; }
   .lockerid { min-width:0; }
   .lockername { margin:0; font-size:24px; line-height:1.08; }
-  /* The hero's own ink wins over .tname's on-dark tint: the name sits on the team's own FILL
-     here, not on a dark card, so --ti (chosen black/white against that fill) is the only
-     colour that can be guaranteed legible on it. The secondary-coloured edge still comes from
-     .tname.big, which is what keeps the treatment recognisably the same one. */
-  .lockerhead .lockername.tname { color:var(--ti, #fff); }
-  .lockermotto { margin:2px 0 0; opacity:.92; font-style:italic; font-size:12.5px; line-height:1.3; }
-  .lockerrec { margin:2px 0 0; font:600 12.5px/1.3 var(--font-display); opacity:.94; letter-spacing:.4px; }
+  /* Design pass: the name sits on the DARK side of the diagonal, never on the colour panel,
+     so white is always right and no per-team ink derivation is needed here. A short
+     secondary-coloured underline beneath the name is the one place the scheme touches the
+     type — an accent, not a fill. */
+  .lockerhead .lockername.tname { color:#fff; }
+  /* (a secondary underline under the name was tried and removed — the panel + stripe already
+     carry the scheme, and a third accent is one more than minimal) */
+  .lockermotto { margin:4px 0 0; color:var(--mut); font-style:italic; font-size:12.5px; line-height:1.3; }
+  .lockerrec { margin:2px 0 0; font:600 12.5px/1.3 var(--font-display); color:var(--mut); letter-spacing:.4px; }
+  /* Design pass: the controls live in their own quiet FOOTER BAND under the identity row —
+     full-bleed to the card's edges with a hairline on top, solid card colour, so the diagonal
+     panel behind the hero can never run underneath a button or a label. Identity above the
+     line, utility below it. (Owner/commish only — the whole band is hidden for everyone else,
+     and the [hidden] restatement below is the house lesson, again.) */
+  .lockerfoot { position:relative; margin:10px -12px -10px; padding:2px 12px 10px;
+                background:var(--card); border-top:1px solid var(--border-card);
+                border-radius:0 0 var(--radius-card) var(--radius-card); }
+  .lockerfoot[hidden] { display:none; }
+  /* Design pass 2: the pencil. The one visible edit affordance — a quiet ghost disc, top
+     right of the hero, over the dark side of the card (the identity block is padded away
+     from it below). Owner/commish only; toggles the .lockerfoot disclosure. */
+  .lockerpencil { position:absolute; top:8px; right:8px; z-index:1;
+                  display:inline-flex; align-items:center; justify-content:center;
+                  width:30px; height:30px; padding:0; border-radius:50%;
+                  background:rgba(255,255,255,.05); border:1px solid var(--border-card);
+                  color:var(--mut); cursor:pointer; }
+  .lockerpencil:hover { color:var(--ink); }
+  .lockerpencil.on { color:var(--ink); background:rgba(255,255,255,.1); }
+  .lockerhead-inner { padding-right:34px; } /* the name never runs under the pencil */
   .lockeredit { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
   /* The house [hidden]-override lesson, and this one had genuinely bitten: .lockeredit's own
      display:flex beats the UA's [hidden]{display:none}, so a rival looking at somebody else's
@@ -1038,8 +1070,11 @@
      changed nothing — but the affordance was on offer to someone who has no business with it.
      Caught by an S3 review plate; section L now measures visibility rather than the attribute. */
   .lockeredit[hidden] { display:none; }
-  .lockeredit button { padding:5px 10px; font-size:11.5px; }
-  .lockeredit button { background:rgba(0,0,0,.25); border-color:rgba(255,255,255,.35); color:#fff; }
+  /* Design pass: these sit on the app's own dark card now, not on a colour fill, so they are
+     ordinary quiet ghost controls — the identity surface stops looking like a control panel. */
+  .lockeredit button { padding:5px 10px; font-size:11.5px;
+                       background:rgba(255,255,255,.05); border-color:var(--border-card); color:var(--mut); }
+  .lockeredit button:hover { color:var(--ink); }
   /* The three swatches. Native <input type="color"> — the platform's own picker on every
      device this family owns — stripped back to a plain square so it reads as a swatch rather
      than as a form control. Targets are 30px, inside a 34px label, so the row stays tappable. */
@@ -1051,15 +1086,16 @@
   .lockercolors[hidden] { display:none; }
   .tclabel { font:600 10.5px var(--font-display); letter-spacing:.9px; text-transform:uppercase; opacity:.88; }
   .tcslot { position:relative; display:inline-flex; align-items:center; justify-content:center;
-            width:30px; height:30px; border-radius:7px; background:rgba(0,0,0,.22); cursor:pointer; }
+            width:30px; height:30px; border-radius:7px; background:rgba(255,255,255,.05);
+            border:1px solid var(--border-card); cursor:pointer; }
   .tcslot span { position:absolute; right:1px; bottom:0; font:700 8px var(--font-display); opacity:.7; pointer-events:none; }
   .tcswatch { -webkit-appearance:none; appearance:none; width:26px; height:26px; padding:0; cursor:pointer;
               border:1px solid rgba(255,255,255,.55); border-radius:5px; background:transparent; }
   .tcswatch::-webkit-color-swatch-wrapper { padding:0; }
   .tcswatch::-webkit-color-swatch { border:0; border-radius:5px; }
   .tcswatch::-moz-color-swatch { border:0; border-radius:5px; }
-  .tcreset { width:30px; height:30px; padding:0; font-size:14px; line-height:1; background:rgba(0,0,0,.25);
-             border-color:rgba(255,255,255,.35); color:#fff; }
+  .tcreset { width:30px; height:30px; padding:0; font-size:14px; line-height:1;
+             background:rgba(255,255,255,.05); border-color:var(--border-card); color:var(--mut); }
   .tcstate { opacity:.8; letter-spacing:.3px; }
   /* Desktop has room for the TOP of each S3 size band; the phone keeps the FLOOR of each,
      because the matchup header's 120px cap and the locker's "the roster still starts within a
@@ -1072,6 +1108,9 @@
     .lockerlogo { width:128px; height:128px; border-radius:18px; }
     .lockerlogo-ph { font-size:44px; }
     .lockername { font-size:30px; }
+    /* the diagonal cut widens with the crest so the panel still frames it */
+    .lockerhead::before { clip-path:polygon(0 0, 172px 0, 124px 100%, 0 100%); }
+    .lockerhead::after { clip-path:polygon(180px 0, 188px 0, 140px 100%, 132px 100%); }
   }
   /* S1's commissioner-only "Reset owner PIN" — deliberately quieter than the identity edits
      beside it: it is a rare administrative action, not something to invite a tap. */
