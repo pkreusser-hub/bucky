@@ -914,12 +914,16 @@ async function sectionRoom(browser) {
     "the header carries the league's chosen name");
   ok(await page.evaluate(() => !!document.getElementById("commishLoginBtn")),
     "a non-commissioner sees the Commissioner login button");
-  await hook(page, () => window.__DRAFT__.commishLogin("bogus-key"));
+  await hook(page, () => window.__DRAFT__.commishLogin("99999"));
   ok(await page.evaluate(() => document.getElementById("tabCommish").hidden)
-    && (await toastText(page)).includes("doesn't match"), "a wrong key is refused");
+    && (await toastText(page)).includes("not the commissioner PIN"), "a wrong PIN is refused");
+  await hook(page, () => window.__DRAFT__.commishLogin("14903"));
+  ok(await page.evaluate(() => !document.getElementById("tabCommish").hidden),
+    "PIN 14903 signs this device in as commissioner");
+  await hook(page, () => window.__DRAFT__.setMe("Visitor2", "dev-v2", ""));
   await hook(page, (k) => window.__DRAFT__.commishLogin("https://site/ffdraft.html?c=" + k + "#x"), ckey);
   ok(await page.evaluate(() => !document.getElementById("tabCommish").hidden),
-    "the right key — even pasted as a whole link — signs this device in as commissioner");
+    "…and a pasted commissioner link still works too");
   await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
 
   // no sideways scroll on a phone (the board pans inside its own container)

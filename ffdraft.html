@@ -481,6 +481,7 @@ body.tv #boardLegend{display:none}
   // The league's chosen name (the family renamed it; ESPN's own settings
   // may lag — the room always shows this).
   var LEAGUE_NAME = "Goat Fantasy Football League";
+  var COMMISH_PIN = "14903";   // commissioner sign-in PIN (any device)
   var POS = ["QB", "RB", "WR", "TE", "K", "D/ST"];
   // CSS class/var names can't carry a slash — "D/ST" maps to the DST token.
   function cssPos(pos) { return pos === "D/ST" ? "DST" : pos; }
@@ -986,22 +987,22 @@ body.tv #boardLegend{display:none}
       return d;
     });
   }
-  // Sign in as the commissioner from any device: type the key from the
-  // commissioner link (a pasted full link works too — the c= part is
-  // extracted). The key lives in localStorage after, same as via the link.
+  // Sign in as the commissioner from any device with the PIN (a pasted
+  // commissioner link still works too — the c= part is extracted). Success
+  // stores the room's real key in localStorage, same as opening the link.
   function commishLogin(key) {
-    var k = key != null ? String(key) : prompt("Commissioner key (or paste your whole commissioner link):");
+    var k = key != null ? String(key) : prompt("Commissioner PIN:");
     if (!k) return;
     k = k.trim();
     var m = k.match(/[?&]c=([^&#\s]+)/);
     if (m) k = m[1];
-    if (D && D.commishKey && k === D.commishKey) {
-      me.ckey = k;
-      localStorage.setItem("ffd_ckey_" + SEASON, k);
+    if (D && D.commishKey && (k === COMMISH_PIN || k === D.commishKey)) {
+      me.ckey = D.commishKey;
+      localStorage.setItem("ffd_ckey_" + SEASON, me.ckey);
       toast("You're the commissioner on this device now.");
       renderAll();
     } else {
-      toast("That key doesn't match this draft room", true);
+      toast("That's not the commissioner PIN", true);
     }
   }
   function armDeadline(d) {
