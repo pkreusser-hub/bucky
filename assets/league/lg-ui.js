@@ -4207,6 +4207,23 @@
       $("#claimCancel").addEventListener("click", UI.closeRosterCard);
       $("#claimGo").addEventListener("click", async () => {
         if (!chosen) return;
+        // ⭐ DISARM FIRST (season-sim advisory, 2026-08-11). The fix below moved the bid READ
+        // in front of the close; it did not stop the handler running TWICE. `chosen` is a
+        // closure variable and survives the close, and #claimBid does not — so a second entry
+        // files a duplicate claim for the same player at $0, silently, and the owner's real
+        // bid is the one that loses. Not reachable by a real double-tap today (the button is
+        // detached and hit-testing never delivers the second one — measured), but it becomes
+        // live the moment anything puts an await, an animation or a confirm between the click
+        // and the close. Disarming the control closes the whole class rather than this
+        // instance; the disabled check is what makes the SECOND entry a no-op.
+        const go = $("#claimGo");
+        if (go) {
+          if (go.disabled) return;
+          go.disabled = true;
+        }
+        // Re-arm only where the card is genuinely still on screen and the action refused —
+        // every path below closes it, so this is defensive rather than routine.
+        const rearm = () => { if (go && go.isConnected) go.disabled = false; };
         // READ THE BID BEFORE CLOSING. The old bottom sheet only set `hidden`, so its input
         // survived the close and could be read afterwards; closing the card EMPTIES it (the
         // player card's own discipline — a modal must not hold a stale screen), so a bid read
@@ -4216,7 +4233,7 @@
         if (past) {
           const r = await LG.faAdd(UI.week, tid, fa, chosen.key);
           if (r.ok) { toast("Added " + fa.name + "."); UI._rosters = null; renderMoves(); }
-          else toast("Couldn't add: " + reasonLabel(r.reason));
+          else { toast("Couldn't add: " + reasonLabel(r.reason)); rearm(); }
         } else {
           const bid = Math.max(0, Math.min(LG.teamFaab(T), rawBid));
           const claim = {

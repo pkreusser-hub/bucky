@@ -919,13 +919,31 @@
   //   · the write merges onto a FRESH read of the doc, so fields the caller isn't changing
   //     come from the real current backend state rather than from this page's snapshot.
   // Callers should still pass the DELTA (`{teamId, faab}`) rather than a whole spread team.
-  LG.saveTeam = async function (t) {
+  //
+  // ⭐ SEASON-SIM BUG 3 (2026-08-11) — `opts.from`. The fresh read above protects the fields a
+  // caller ISN'T changing; it cannot protect the one it IS, because an ABSOLUTE value computed
+  // from this page's cache is still absolute when it lands. FAAB is the field where that costs
+  // real money: processWaivers deducted a bid from its own cached purse and wrote the answer,
+  // so a deduction another device had already made was simply restored (measured in the sim:
+  // an owner $54 up over a season, and $6 up inside two weeks).
+  //   `opts.from(cur)` is handed the SAME fresh doc this write is merging onto, and whatever
+  // it returns is laid on last — so a caller can express "take $8 off whatever the purse
+  // really holds" instead of "the purse is 92", within one read and one write.
+  //   WHY NOT A FIRESTORE INCREMENT TRANSFORM: this app's REST transport speaks documents
+  // only — get/set/del/runQuery, a hand-rolled codec, a PATCH with an updateMask. Field
+  // transforms are a different request shape the transport, its codec, the local backend and
+  // the offline mirror would ALL have to learn, and the local backend has no atomic primitive
+  // to implement one with anyway. That is a transport rework for a hazard a compute-from-fresh
+  // closes at one read. If FAAB ever needs to survive genuinely simultaneous writers (rather
+  // than the seconds-apart ones a family league produces) that rework is the honest answer.
+  LG.saveTeam = async function (t, opts) {
     const { id: _stray, ...rest } = t || {};
     const docId = "team_" + rest.teamId;
     let cur = null;
     try { cur = await LG.db.getFresh(docId); } catch (e) { /* offline: fall through to a plain write */ }
     const { id: _stray2, ...curClean } = cur || {};
-    return LG.db.set(docId, { ...curClean, kind: "team", ...rest });
+    const derived = opts && opts.from ? opts.from(cur) : null;
+    return LG.db.set(docId, { ...curClean, kind: "team", ...rest, ...(derived || {}) });
   };
   LG.teamById = (id) => LG.teams.find((t) => t.id === Number(id)) || null;
 
@@ -1304,7 +1322,24 @@
     // Copying a previous week forward is a CONVENIENCE write, not the answer itself — on a
     // read-only mirror the roster still resolves in memory, it just isn't persisted (and
     // must not raise the "you're offline" toast, which is for what a PERSON tried to do).
-    if (p && !LG.mirrorOffline) await LG.saveRoster(week, teamId, p);
+    //
+    // ⭐ SEASON-SIM BUG 1 (2026-08-11): this write used to be BLIND, and it is by far the most
+    // common roster write in a season (measured: 551 of 622). The absence that gets here is
+    // usually derived, not observed — loadWeekRosters() lists the whole "roster" kind up front
+    // precisely so knownAbsent() can answer get(rosterId) as null with NO round trip (that is
+    // the "absence is free" perf note over there), so a list snapshot taken seconds ago is what
+    // says "week N has no roster yet". Meanwhile another device wins a waiver, or an owner sets
+    // a lineup, and writes that very doc. This render then copied week N-1 forward straight
+    // over it: waiver results silently undone, and — because the previous week still held the
+    // dropped player while the new roster held the added one — a player on TWO teams for the
+    // rest of the season. So the write takes the same getFresh-before-write guard the five
+    // idempotency guards elsewhere in this file take. The cost is bounded to the WRITE path:
+    // a roster that already exists returned at the top, from cache, for free.
+    if (p && !LG.mirrorOffline) {
+      const cur = await LG.loadRoster(week, teamId, { fresh: true });
+      if (cur) return cur; // it existed after all — adopt it, never overwrite it
+      await LG.saveRoster(week, teamId, p);
+    }
     return p || [];
   };
 
@@ -1505,13 +1540,38 @@
   // the team's remaining FAAB. Winners: drop out/add in (BENCH), FAAB
   // deducted, one "waiver" tx logged. Losers get a reason, no tx (nothing
   // moved).
-  LG.processWaivers = async function (week) {
+  //
+  // ⭐ SEASON-SIM BUG 4 (2026-08-11) — SINGLE FLIGHT PER WEEK, PER PAGE. The observed double
+  // run was not two phones: it was ONE page, whose auto-check chain and whose own
+  // carry-forward-on-open both reached this function for the same week while the first run was
+  // still awaiting. Every write below then happened twice — including the append-only tx log,
+  // where a duplicate is permanent and reads to the family as two identical transactions. A
+  // per-week in-flight latch closes that class outright (a second caller in this page gets the
+  // FIRST run's promise, not a second run), which no amount of re-reading can do: two runs in
+  // one page share a cache, so they see the same "not processed yet" however fresh the read.
+  // Cross-device concurrency is a different question and is answered by the pre-write guard
+  // inside, plus the write-once results doc that has always been the commit point.
+  const waiverRuns = new Map(); // week -> in-flight promise
+  LG.processWaivers = function (week) {
+    const k = String(week);
+    if (waiverRuns.has(k)) return waiverRuns.get(k);
+    const run = processWaiversRun(week).finally(() => waiverRuns.delete(k));
+    waiverRuns.set(k, run);
+    return run;
+  };
+  async function processWaiversRun(week) {
     // FRESH from the first read: this run permanently settles the week, so it must resolve
     // the claim set that actually EXISTS, not the one this page happened to cache hours ago
     // (finding 2 — the cached read here is what let a stale page process a subset and stamp
     // the week processed with everyone else's bids missing).
     const doc = await LG.loadClaims(week, { fresh: true });
     if (doc.processed) return doc;
+    // FRESH TEAMS, for the same reason the claims are read fresh: this run both CHECKS bids
+    // against each purse and DEDUCTS from it, and a cached team list is exactly how a page
+    // decides a bid is affordable out of money another device already spent (bug 3's other
+    // half). listFresh repopulates the list cache, so the loadTeams below is a cache hit on
+    // real current data rather than a second round trip.
+    await LG.db.listFresh("team");
     await LG.loadTeams();
     const claims = doc.claims || [];
     if (!claims.length) {
@@ -1529,6 +1589,7 @@
     for (const t of LG.teams) rosterMap.set(t.id, (await LG.ensureRoster(week, t.id, { fresh: true })).map((p) => ({ ...p })));
     const faabMap = new Map();
     for (const t of LG.teams) faabMap.set(t.id, LG.teamFaab(t));
+    const spend = new Map(); // teamId -> $ this run takes off them (bug 3 — a DELTA, not a total)
     const owned = new Set();
     for (const [, ros] of rosterMap) for (const p of ros) owned.add(p.key);
     const wonThisRun = new Set();
@@ -1553,6 +1614,7 @@
         owned.add(c.addKey);
         wonThisRun.add(c.addKey);
         faabMap.set(c.teamId, (faabMap.get(c.teamId) ?? 0) - c.bid);
+        spend.set(c.teamId, (spend.get(c.teamId) || 0) + c.bid); // bug 3: what this run actually COSTS each team
         dirtyTeams.add(c.teamId);
         results.push({ id: c.id, teamId: c.teamId, ok: true, reason: "won" });
         txs.push({ teamId: c.teamId, detail: { addKey: c.addKey, addName: c.addName, dropKey: c.dropKey, dropName: dropped ? dropped.name : c.dropKey, bid: c.bid } });
@@ -1561,10 +1623,33 @@
       }
     }
 
+    // ⭐ SEASON-SIM BUG 4 — THE GUARD MOVES IN FRONT OF THE WRITES. It used to sit only after
+    // them (below), which made it a guard on the RESULTS DOC and on nothing else: a second
+    // runner that lost the race had already rewritten every roster, re-deducted every purse
+    // and appended a duplicate of every waiver tx before finding out it had lost, and the tx
+    // log is append-only, so that duplicate is permanent. Reading fresh here narrows the
+    // window from "the whole resolution" — the priority order, eight fresh roster reads, the
+    // sort, seconds of work — to the microtask between this line and the first write. It is a
+    // check-then-act and does not CLOSE the cross-device race (the transport has no
+    // compare-and-swap to close it with, see the transform note at LG.saveTeam); the
+    // same-page case, which is the one actually observed, is closed outright by the
+    // single-flight latch above.
+    const pre = await LG.loadClaims(week, { fresh: true });
+    if (pre.processed) return pre;
+
     for (const tid of dirtyTeams) await LG.saveRoster(week, tid, rosterMap.get(tid));
     // DELTA only — spreading the whole in-memory team here wrote this page's (possibly
     // stale) name/logo/trophies back over good data (finding 10's blast radius).
-    for (const tid of dirtyTeams) await LG.saveTeam({ teamId: tid, faab: faabMap.get(tid) });
+    // ⭐ SEASON-SIM BUG 3 — and the FAAB is a delta too, now. `faabMap` is derived from this
+    // page's view of the purse at the top of the run; writing it as an absolute simply undoes
+    // any deduction that landed in between. `from` is handed saveTeam's OWN fresh read of the
+    // doc, so what lands is "whatever the purse really holds, minus what this run cost".
+    // Floored at 0: a purse can never go negative even if the affordability check upstream
+    // was computed against a figure that has since moved.
+    for (const tid of dirtyTeams) {
+      const sp = spend.get(tid) || 0;
+      await LG.saveTeam({ teamId: tid }, { from: (cur) => ({ faab: Math.max(0, LG.teamFaab(cur || {}) - sp) }) });
+    }
     // Item 15 (2026-08-09): the sys chat post that used to go here is GONE — the logTx above
     // is this event's real record, and it renders in Recent moves + each team's Transactions.
     for (const tx of txs) await LG.logTx("waiver", week, tx.teamId, tx.detail);
@@ -1579,7 +1664,7 @@
     // who bid hear anything at all, and each hears only their OWN claims resolve.
     LG.pushWaiverResults(week, claims, results);
     return { kind: "claims", week, ...done };
-  };
+  }
   // Split out so the suite can drive the message-building on its own, and so processWaivers
   // itself keeps reading as the engine rather than the engine plus a mailer.
   LG.pushWaiverResults = function (week, claims, results) {
@@ -1962,8 +2047,29 @@
   LG.projSnapId = (season, week) => `projsnap_${season}_w${week}`;
   LG.loadProjSnap = (week) => LG.db.get(LG.projSnapId(LG.SEASON, week));
 
-  async function fzStarters(week, teamId) {
-    const ros = await LG.ensureRoster(week, teamId);
+  // ⭐ SEASON-SIM BUG 2 (2026-08-11) — WHICH ROSTER A FINALIZE SCORES.
+  // Every fz* helper used to read rosters through LG.db's cache, and finalizeWeek writes a
+  // WRITE-ONCE doc that standings, waiver priority, power rankings, playoff seeding and the
+  // record book all derive from forever. A commissioner whose page had cached a lineup before
+  // that owner's last-minute change therefore stamped the WRONG lineup into the permanent
+  // record (measured in the sim at Δ9.66 points, and there is no way back). So a finalize run
+  // builds ONE fresh snapshot of the rosters it is about to score and threads it through every
+  // helper. Two properties, both load-bearing:
+  //   · FRESH — the roster of record at the instant of the write, not this page's snapshot;
+  //   · CONSISTENT — fzTeamTotal, the Bust award and fzOptimalTotal all score the SAME lineup,
+  //     which a per-call fresh read would not guarantee (an owner tapping Swap mid-finalize
+  //     could otherwise have their optimal-lineup grade computed against a different roster
+  //     than their score).
+  // `rosters` is a Map(teamId -> players), lazily filled, created per finalizeWeek call and
+  // NEVER shared between runs. Omit it (snapshotProjections, and any future caller) and every
+  // read is the ordinary cached one, exactly as before.
+  async function fzRosterOf(week, teamId, rosters) {
+    if (!rosters) return LG.ensureRoster(week, teamId);
+    if (!rosters.has(teamId)) rosters.set(teamId, await LG.ensureRoster(week, teamId, { fresh: true }));
+    return rosters.get(teamId);
+  }
+  async function fzStarters(week, teamId, rosters) {
+    const ros = await fzRosterOf(week, teamId, rosters);
     return ros.filter((p) => p.slot !== "BENCH" && p.slot !== "IR");
   }
   // Reads whatever the live engine currently has for this player — at finalization time (every
@@ -1992,10 +2098,10 @@
     const g = d.S.games.get(d.slpTeam(team));
     return g ? g.state : null;
   }
-  async function fzTeamTotal(week, teamId, ptsOf) {
+  async function fzTeamTotal(week, teamId, ptsOf, rosters) {
     const pts = ptsOf || fzPts;
     let total = 0;
-    for (const p of await fzStarters(week, teamId)) total += pts(p.key);
+    for (const p of await fzStarters(week, teamId, rosters)) total += pts(p.key);
     return Math.round(total * 100) / 100;
   }
   // The optimal LEGAL lineup's total — what LG.slotEligible would have allowed, at maximum —
@@ -2005,9 +2111,9 @@
   // optimal for this "one shared slot" roster shape (an exchange argument — swapping a worse
   // player into a dedicated slot to "free up" a better one for FLEX can never help, since the
   // vacated dedicated slot can only be re-filled by another player of that same position).
-  async function fzOptimalTotal(week, teamId, ptsOf) {
+  async function fzOptimalTotal(week, teamId, ptsOf, rosters) {
     const fz = ptsOf || fzPts;
-    const ros = (await LG.ensureRoster(week, teamId)).filter((p) => p.slot !== "IR");
+    const ros = (await fzRosterOf(week, teamId, rosters)).filter((p) => p.slot !== "IR");
     const r = (LG.rules || LG.DEFAULT_RULES).roster;
     const byPos = { QB: [], RB: [], WR: [], TE: [], DST: [], K: [] };
     for (const p of ros) { if (byPos[p.pos]) byPos[p.pos].push({ key: p.key, pts: fz(p.key) }); }
@@ -2067,7 +2173,7 @@
 
   // Bust of the Week (min proj 8 — plan §5) + Top Score + Bench Blunder, computed against
   // THIS week's just-settled matchups.
-  async function fzAwards(week, matchups, ptsOf, projOf) {
+  async function fzAwards(week, matchups, ptsOf, projOf, rosters) {
     const fz = ptsOf || fzPts;
     // Bust of the Week grades an actual against a PRE-GAME PROJECTION, and the engine only
     // ever holds the CURRENT week's projections — so an archived-stats backfill of a past
@@ -2081,7 +2187,7 @@
     for (const tid of teamIds) if (!topScore || teamPts[tid] > topScore.pts) topScore = { teamId: tid, pts: teamPts[tid] };
     let bust = null;
     for (const tid of teamIds) {
-      for (const p of await fzStarters(week, tid)) {
+      for (const p of await fzStarters(week, tid, rosters)) {
         const pj = proj(p.key);
         if (pj == null || pj < 8) continue;
         const shortfall = Math.round((pj - fz(p.key)) * 100) / 100;
@@ -2092,7 +2198,7 @@
     }
     let benchBlunder = null;
     for (const tid of teamIds) {
-      const optimal = await fzOptimalTotal(week, tid, fz);
+      const optimal = await fzOptimalTotal(week, tid, fz, rosters);
       const actual = teamPts[tid];
       const diff = Math.round((optimal - actual) * 100) / 100;
       if (diff > 0.01 && (!benchBlunder || diff > benchBlunder.diff)) benchBlunder = { teamId: tid, optimal, actual, diff };
@@ -2221,13 +2327,20 @@
     const wkGames = await LG.gamesForWeek(week);
     if (!wkGames || !wkGames.length) return { ok: false, reason: "no-schedule" };
 
+    // ⭐ SEASON-SIM BUG 2 — the one fresh, consistent roster snapshot this run scores. Created
+    // here (not at the top) so every early return above still costs nothing extra: the reads
+    // only happen once a finalize is genuinely going to compute something. Deliberately
+    // ordered BEFORE the "is every game post?" gate, so the gate judges the same lineups the
+    // scoring will use rather than a cached set that might name a different player.
+    const fzRosters = new Map();
+
     // The archived-stats path is its own proof that the week is over (Sleeper only serves a
     // completed week's box), so the live "is every game post?" gate applies to the live path.
     if (!opts.force && !opts.backfill) {
       const pending = [];
       for (const [h, a] of wkGames) {
         for (const tid of [h, a]) {
-          for (const p of await fzStarters(week, tid)) {
+          for (const p of await fzStarters(week, tid, fzRosters)) {
             if (fzGameState(p.team) !== "post") pending.push(p.name);
           }
         }
@@ -2238,9 +2351,9 @@
     const pts = ptsOf || fzPts;
     const matchups = [];
     for (const [h, a] of wkGames) {
-      matchups.push({ home: h, away: a, homePts: await fzTeamTotal(week, h, pts), awayPts: await fzTeamTotal(week, a, pts) });
+      matchups.push({ home: h, away: a, homePts: await fzTeamTotal(week, h, pts, fzRosters), awayPts: await fzTeamTotal(week, a, pts, fzRosters) });
     }
-    const awards = await fzAwards(week, matchups, pts, opts.backfill ? () => null : null);
+    const awards = await fzAwards(week, matchups, pts, opts.backfill ? () => null : null, fzRosters);
     const power = await LG.powerRankings(week, [{ week, matchups }]);
 
     const snap = await LG.loadProjSnap(week);

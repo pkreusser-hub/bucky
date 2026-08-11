@@ -15003,6 +15003,253 @@ async function openDetails(page, id) {
     }
   }
 
+  // =========================================================================================
+  section("AS · the four production races the season sim found (2026-08-11)");
+  // ---------------------------------------------------------------------------------------
+  // WHY THESE ARE HERE AND NOT ONLY IN tools/_gffl_race_*.cjs. The three repro scripts are the
+  // EVIDENCE — each stages one race in isolation and prints the mechanism — but a repro that
+  // lives outside the battery is a repro nobody runs. These are the standing regressions: the
+  // narrowest statement of each fix that a future refactor would trip over.
+  //
+  // THE COMMON SHAPE, and why the ordinary local-backend sections cannot carry it: a race needs
+  // TWO devices sharing ONE store, and the local backend is per-CONTEXT localStorage — two
+  // contexts there are two leagues. So every cross-device check below runs on the REST wire
+  // fixture (section AB's transport, section AR7's two-page technique), whose `docs` object
+  // lives in NODE and is therefore genuinely shared. The store is also readable from here, which
+  // is what lets a check assert what actually LANDED rather than what a page believes.
+  {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+
+    // ---- AS1: BUG 1 — ensureRoster's copy-forward must never overwrite a doc that arrived
+    // while this page's list snapshot said the week was empty.
+    //
+    // The staging is deterministic rather than a timing gamble: device A is put into the exact
+    // state every first render of a new week is in (a cached list() in which week 2 is absent,
+    // and no cached doc for it — which is what lg-ui's loadWeekRosters deliberately creates, so
+    // that knownAbsent can answer each week-2 get for free), device B then writes the doc, and
+    // only then does A do what a render does. No sleep decides the outcome.
+    {
+      const R = restFixture(fullSeed().docs);
+      const seedA = { docs: {}, pass: "amenfarms", team: 1, who: "Peter" };
+      const seedB = { docs: {}, pass: "amenfarms", team: 2, who: "Joy" };
+      const { ctx: cA, page: pA, errors: eA } = await newTestPage(browser, seedA, { rest: R });
+      await pA.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(pA, ".mucard", 15000), "AS1: device A boots against the shared cloud store");
+      await waitLive(pA);
+      const { ctx: cB, page: pB, errors: eB } = await newTestPage(browser, seedB, { rest: R });
+      await pB.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(pB, ".mucard", 15000), "…and device B boots against the SAME store");
+      await waitLive(pB);
+
+      const rid = "roster_2026_w2_t1";
+      // A renders week 2 — the real path that takes the list snapshot (and, pre-fix, the real
+      // path that writes). Reset the doc and A's caches back to the pre-write state and re-take
+      // ONLY the snapshot, so the single write this check judges is the staged one.
+      await pA.evaluate(() => { window.__GFFL__.UI.week = 2; window.__GFFL__.UI.go("moves"); });
+      await sleep(500);
+      delete R.docs[rid];
+      await pA.evaluate(() => window.__GFFL__.LG.db.clearCache());
+      await pA.evaluate(() => window.__GFFL__.LG.db.list("roster"));
+      const absentFree = await pA.evaluate((id) => window.__GFFL__.LG.db.get(id).then((d) => !d), rid);
+      ok(absentFree, "device A's cached list answers \"week 2 has no roster\" with no round trip — the stale snapshot the bug turns on is real");
+
+      // B writes week 2 for team 1: the shape a won waiver leaves behind (one player in, the
+      // dropped one out).
+      await pB.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const w1 = await LG.loadRoster(1, 1, { fresh: true });
+        const next = w1.map((p) => ({ ...p }));
+        const i = next.findIndex((p) => p.key === "111333"); // B. Backup
+        next.splice(i, 1, { key: "9201", name: "F. Agent", pos: "WR", team: "KC", slot: "BENCH" });
+        await LG.saveRoster(2, 1, next);
+      });
+      await sleep(200);
+      ok((R.docs[rid].players || []).some((p) => p.key === "9201"), "…device B has written it, with the won player on it");
+
+      const aGot = await pA.evaluate(async () => (await window.__GFFL__.LG.ensureRoster(2, 1)).map((p) => p.key));
+      await sleep(250);
+      const landed = (R.docs[rid].players || []).map((p) => p.key);
+      ok(landed.includes("9201"), "device A's copy-forward does NOT overwrite it — the won player is still on the roster of record ([" + landed.join(", ") + "])");
+      ok(!landed.includes("111333"), "…and the dropped player has not come back (a copy-forward restores him)");
+      ok(aGot.includes("9201"), "…and A's own ensureRoster RETURNS the real roster rather than its copy-forward ([" + aGot.join(", ") + "])");
+      ok(eA.length === 0 && eB.length === 0, "0 page errors on both devices");
+      await cA.close(); await cB.close();
+    }
+
+    // ---- AS2: BUG 3 — the FAAB lost update. processWaivers deducts a DELTA from the purse the
+    // store really holds, never an absolute computed from this page's cached team list.
+    {
+      const seedDocs = { ...fullSeed().docs,
+        claim_2026_w1_asc1: { kind: "claim", season: 2026, week: 1, claimId: "asc1", teamId: 1,
+          addKey: "9201", addName: "F. Agent", addPos: "WR", addTeam: "KC",
+          dropKey: "111333", dropName: "B. Backup", bid: 10, t: 1 },
+      };
+      const R = restFixture(seedDocs);
+      const seedA = { docs: {}, pass: "amenfarms", team: 1, who: "Peter" };
+      const seedB = { docs: {}, pass: "amenfarms", team: 2, who: "Joy" };
+      const { ctx: cA, page: pA, errors: eA } = await newTestPage(browser, seedA, { rest: R });
+      await pA.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(pA, ".mucard", 15000); await waitLive(pA);
+      const { ctx: cB, page: pB, errors: eB } = await newTestPage(browser, seedB, { rest: R });
+      await pB.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(pB, ".mucard", 15000); await waitLive(pB);
+
+      const cached = await pA.evaluate(async () => {
+        const LG = window.__GFFL__.LG; await LG.loadTeams(); return LG.teamFaab(LG.teamById(1));
+      });
+      ok(cached === 100, "AS2: device A holds team 1's purse cached at the full budget ($" + cached + ")");
+      // Device B spends $30 of it — a waiver that cleared on somebody else's phone.
+      await pB.evaluate(() => window.__GFFL__.LG.saveTeam({ teamId: 1, faab: 70 }));
+      await sleep(200);
+      ok(R.docs.team_1.faab === 70, "…device B takes $30 off it in the shared store ($" + R.docs.team_1.faab + ")");
+      // A now settles a week in which team 1 wins a $10 claim, off its stale cache.
+      const res = await pA.evaluate(() => window.__GFFL__.LG.processWaivers(1));
+      await sleep(300);
+      ok((res.results || []).filter((r) => r.ok).length === 1, "…team 1's $10 claim is awarded (" + JSON.stringify(res.results) + ")");
+      ok(R.docs.team_1.faab === 60,
+        "…and the purse is $60 — the budget less BOTH spends. It reads $" + R.docs.team_1.faab +
+        (R.docs.team_1.faab === 90 ? " (device B's $30 has come back from the dead — the lost update)" : ""));
+      ok(eA.length === 0 && eB.length === 0, "0 page errors on both devices");
+      await cA.close(); await cB.close();
+    }
+
+    // ---- AS3: BUG 4 — two runs of the same week must not double the append-only transaction
+    // log. The observed case is ONE page (a render's auto-check chain and the
+    // carry-forward-on-open both reaching processWaivers while the first is still awaiting), so
+    // that is what this drives; the local backend is enough, because both callers are the same
+    // device by construction.
+    {
+      const seed = fullSeed();
+      seed.docs = { ...seed.docs,
+        claim_2026_w1_asc2: { kind: "claim", season: 2026, week: 1, claimId: "asc2", teamId: 1,
+          addKey: "9201", addName: "F. Agent", addPos: "WR", addTeam: "KC",
+          dropKey: "111333", dropName: "B. Backup", bid: 25, t: 1 },
+      };
+      const { ctx, page, errors } = await newTestPage(browser, seed);
+      await bootPage(page);
+      await waitOr(page, ".mucard", 15000);
+      await waitLive(page);
+      const both = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const [r1, r2] = await Promise.all([LG.processWaivers(1), LG.processWaivers(1)]);
+        return { a: (r1.results || []).length, b: (r2.results || []).length, same: r1 === r2 };
+      });
+      await sleep(400);
+      ok(both.a === 1 && both.b === 1, "AS3: two overlapping calls both return the week's one result (" + JSON.stringify(both) + ")");
+      ok(both.same, "…because the second caller is handed the FIRST run's promise — one run, not two (single flight)");
+      const txs = await page.evaluate(async () => (await window.__GFFL__.LG.db.listFresh("tx")).filter((t) => t.type === "waiver").map((t) => t.id));
+      ok(txs.length === 1, "…exactly ONE waiver transaction is logged — the log is append-only, so a duplicate is permanent (" + txs.length + ")");
+      const faab = await page.evaluate(async () => {
+        await window.__GFFL__.LG.loadTeams();
+        return window.__GFFL__.LG.teamFaab(window.__GFFL__.LG.teamById(1));
+      });
+      ok(faab === 75, "…and the $25 bid is deducted once ($" + faab + ")");
+      const ros = await page.evaluate(async () => (await window.__GFFL__.LG.loadRoster(1, 1, { fresh: true })).map((p) => p.key));
+      ok(ros.filter((k) => k === "9201").length === 1 && !ros.includes("111333"),
+        "…the roster holds the won player exactly once and no longer holds the dropped one");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AS4: BUG 2 — a finalize scores the roster of record, not this page's cached copy.
+    // The write-once weekly doc is what standings, waiver priority, power rankings, playoff
+    // seeding and the record book derive from forever, so scoring a stale lineup is permanent.
+    // Staged the same deterministic way as AS1: device A caches the lineup, device B changes
+    // it, and only then does A finalize.
+    {
+      const R = restFixture(fullSeed().docs);
+      const seedA = { docs: {}, pass: "amenfarms", team: 1, who: "Peter" };
+      const seedB = { docs: {}, pass: "amenfarms", team: 2, who: "Joy" };
+      const { ctx: cA, page: pA, errors: eA } = await newTestPage(browser, seedA, { rest: R });
+      await pA.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(pA, ".mucard", 15000); await waitLive(pA);
+      const { ctx: cB, page: pB, errors: eB } = await newTestPage(browser, seedB, { rest: R });
+      await pB.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(pB, ".mucard", 15000); await waitLive(pB);
+
+      // A caches team 1's week-1 lineup by reading it the way every render does.
+      const aStarters = await pA.evaluate(async () => (await window.__GFFL__.LG.ensureRoster(1, 1)).filter((p) => p.slot !== "BENCH" && p.slot !== "IR").map((p) => p.key));
+      ok(aStarters.includes("3915511"), "AS4: device A has team 1's lineup cached, P. Passer starting at QB");
+
+      // B benches P. Passer and starts H. Healthy in his place — an owner's last-minute change.
+      await pB.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const r = (await LG.loadRoster(1, 1, { fresh: true })).map((p) => ({ ...p }));
+        r.find((p) => p.key === "3915511").slot = "BENCH";
+        r.find((p) => p.key === "111777").slot = "WR";   // H. Healthy, off the bench
+        r.find((p) => p.key === "111555").slot = "BENCH"; // W. Two, benched to make the slot
+        await LG.saveRoster(1, 1, r);
+      });
+      await sleep(200);
+      const ofRecord = (R.docs.roster_2026_w1_t1.players || []).filter((p) => p.slot !== "BENCH" && p.slot !== "IR").map((p) => p.key);
+      ok(!ofRecord.includes("3915511") && ofRecord.includes("111777"), "…device B has changed the lineup of record ([" + ofRecord.join(", ") + "])");
+
+      // A finalizes. The archived-stats backfill is the deliberate commissioner path (and the
+      // one the season sim drives), so the score is a pure function of the roster — which is
+      // exactly what makes "which lineup did it score" answerable.
+      const fin = await pA.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { backfill: true }));
+      await sleep(300);
+      if (fin && fin.ok) {
+        // Re-derive the total from the roster OF RECORD, in the test, and require the doc to
+        // agree — the same question the season sim's weekly.totalsMatchRosters invariant asks.
+        const expect = await pA.evaluate(async () => {
+          const LG = window.__GFFL__.LG;
+          const map = await LG.data.weekStats(1, { season: 2026, seasonType: "regular" });
+          const r = await LG.loadRoster(1, 1, { fresh: true });
+          let t = 0;
+          for (const p of r) { if (p.slot === "BENCH" || p.slot === "IR") continue; t += (map && map.has(p.key)) ? map.get(p.key) : 0; }
+          return Math.round(t * 100) / 100;
+        });
+        const m = (fin.matchups || []).find((x) => x.home === 1 || x.away === 1);
+        const got = m ? (m.home === 1 ? m.homePts : m.awayPts) : null;
+        ok(m && Math.abs(got - expect) < 0.02,
+          "…and the finalized total scores the ROSTER OF RECORD, not A's cached lineup (doc " + got + " vs " + expect + " re-derived here)");
+      } else {
+        ok(false, "…the finalize did not run: " + JSON.stringify(fin));
+      }
+      ok(eA.length === 0 && eB.length === 0, "0 page errors on both devices");
+      await cA.close(); await cB.close();
+    }
+
+    // ---- AS5: the ADVISORY — #claimGo disarms itself, so a second entry into the handler
+    // cannot file a duplicate claim at $0 (the bid input its own close destroyed). Not reachable
+    // by a real double-tap today (the button is detached and hit-testing never delivers the
+    // second one — measured by the season sim); this drives it the way it IS reachable, which is
+    // exactly the way the next await, animation or confirm step would make live.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard", 15000);
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+      await page.waitForSelector("#faResults [data-fi]", { timeout: 9000 });
+      await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "F. Agent");
+      await page.waitForSelector("#rosterCard [data-di]", { timeout: 5000 });
+      const staged = await page.evaluate(() => {
+        const bid = document.querySelector("#claimBid");
+        if (!bid) return { bid: false };
+        bid.value = "11";
+        document.querySelector("#rosterCard [data-di]").click(); // pick a drop -> arms #claimGo
+        return { bid: true, armed: !document.querySelector("#claimGo").disabled };
+      });
+      ok(staged.bid && staged.armed, "AS5: the claim card offers a FAAB bid and picking a drop arms the submit button");
+      await page.evaluate(() => { const g = document.querySelector("#claimGo"); g.click(); g.click(); });
+      await sleep(600);
+      // Filtered by NAME, not by key: this fixture's F. Agent carries no espn_id, so the FA
+      // table keys him `slp_9201` (D.searchFA's `espn_id || "slp_" + pid`) and a key filter
+      // would silently match nothing and pass for the wrong reason.
+      const filed = await page.evaluate(async () => {
+        const rows = await window.__GFFL__.LG.db.listFresh("claim");
+        return rows.filter((c) => c.week === 1 && c.teamId === 1 && c.addName === "F. Agent").map((c) => c.bid);
+      });
+      ok(filed.length === 1, "…two entries into the handler file exactly ONE claim (" + JSON.stringify(filed) + ")");
+      ok(!filed.includes(0), "…and no $0 claim exists to shadow the owner's real bid");
+      ok(filed[0] === 11, "…the one claim carries the bid that was actually typed ($" + filed[0] + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

@@ -125,12 +125,16 @@ const SEED = Number(argOf("--seed", 1)) || 1;
 const FAST = argv.includes("--fast");
 const REPORT = argv.includes("--report");
 const TRACE = argv.includes("--trace");
-// A DIAGNOSTIC A/B, not a fix. LG.finalizeWeek scores through LG.ensureRoster WITHOUT
-// {fresh:true}, so the commissioner's device can write the week's permanent, write-once record
-// from a roster another device has already changed. Running the same seed with and without
-// this flag is what turns "the numbers differ" into "the numbers differ BECAUSE the read was
-// cached" — see PRODUCT BUG 1 in the report. The harness never ships it on.
-const FRESH_FINALIZE = argv.includes("--fresh-finalize");
+// ⭐ --fresh-finalize IS GONE (2026-08-11). It was a DIAGNOSTIC A/B: it dropped the finalizing
+// device's caches before the tap, so running the same seed with and without it turned "the
+// numbers differ" into "the numbers differ BECAUSE the read was cached". That question is
+// settled — LG.finalizeWeek now builds one fresh, consistent roster snapshot and scores THAT
+// (see its own ⭐ SEASON-SIM BUG 2 note), so the diagnostic has become the behaviour and
+// keeping the flag would mean the sim could still be run in a mode the product no longer has.
+// The evidence it produced is preserved where it belongs: FINALIZE_VIEW below still captures
+// what the finalizing device BELIEVED the lineups were, and the weekly.totalsMatchRosters
+// invariant still prints that view beside the store's own roster of record — so a future
+// regression is self-proving on the first run, with no flag to remember.
 const SETTLE = FAST ? 90 : 220;   // per-action settle wait
 
 // ---------------- deterministic rng ----------------
@@ -161,6 +165,14 @@ const sha = (pin) => crypto.createHash("sha256").update(pin + ":" + PASS).digest
 // A table cell's innerText carries the position, the name and the NFL team on three lines;
 // a failure message that reproduces those newlines is unreadable.
 const flat = (s) => String(s == null ? "" : s).replace(/\s+/g, " ").trim();
+
+// What the app will actually store for a bid of `typed` on a card whose purse cap was `cap`.
+// This MIRRORS lg-ui's own `Math.max(0, Math.min(LG.teamFaab(T), rawBid))` — an owner may not
+// bid money they do not have, and the claim card advertises the ceiling on #claimBid's `max`.
+// `cap` null means the card offered no ceiling to read (a pre-clamp ledger row, or a
+// post-deadline instant ADD with no bid input at all), in which case the typed figure stands.
+const expectedBid = (typed, cap) =>
+  (cap == null ? Number(typed) : Math.max(0, Math.min(Number(cap), Number(typed))));
 
 // ---------------- log + failure collection ----------------
 const t0 = Date.now();
@@ -891,11 +903,24 @@ function sweepFaab(week) {
   // and the same owner racing two phones is two intentions on one player):
   //   · every typed bid must be findable as a stored bid on that (week, team, player);
   //   · every stored bid must be one somebody typed — a $0 that nobody typed is the bug.
+  //
+  // ⭐ RESTAGED 2026-08-11, and the reason is worth keeping. Both rules above compared the
+  // TYPED figure to the STORED one, and that was only ever true because money leaked: the FAAB
+  // lost update (season-sim bug 3) kept restoring spends, so no purse ever ran low enough for
+  // the app's own bid clamp to bite. With the deductions made real, the chaos owner spends down
+  // to a dollar and the app correctly clamps — `Math.max(0, Math.min(LG.teamFaab(T), rawBid))`,
+  // with the same figure on the input's own `max` attribute — and the old rules called every one
+  // of those a lost input (measured: 1654 false failures across one season, every incident the
+  // same team, every stored bid exactly its remaining $1).
+  //   So the expectation is the CLAMPED bid. `cap` is READ OFF THE CARD at the moment of typing,
+  // never recomputed here, so this still measures the product rather than agreeing with it — and
+  // the check keeps all of its teeth: a $0 nobody typed, a bid that silently became something
+  // else, or an input lost to the modal close all still fail.
   const byTarget = new Map();
   for (const c of LEDGER.claims) {
     const k = c.week + "|" + c.teamId + "|" + c.addKey;
     if (!byTarget.has(k)) byTarget.set(k, { typed: [], any: c });
-    byTarget.get(k).typed.push(c.bid);
+    byTarget.get(k).typed.push(expectedBid(c.bid, c.cap));
   }
   for (const [k, e] of byTarget) {
     const [wk, tid, addKey] = [Number(k.split("|")[0]), Number(k.split("|")[1]), k.split("|").slice(2).join("|")];
@@ -908,14 +933,15 @@ function sweepFaab(week) {
     if (!stored.length) continue; // not written yet, or cancelled — other invariants cover that
     for (const want of e.typed) {
       check(stored.some((s) => s.bid === want), "faab.bidPersisted",
-        "week " + wk + " " + e.any.dev + " typed $" + want + " for " + e.any.addName +
+        "week " + wk + " " + e.any.dev + " should have stored $" + want + " for " + e.any.addName +
+        " (typed $" + e.any.bid + ", purse cap $" + e.any.cap + ")" +
         " but the stored bids for that player are " + JSON.stringify(stored.map((s) => s.bid)),
-        "type " + want + " into #claimBid FIRST, then pick a drop row, then press #claimGo — then read claim_" + SEASON + "_w" + wk + "_*");
+        "type " + e.any.bid + " into #claimBid FIRST, then pick a drop row, then press #claimGo — then read claim_" + SEASON + "_w" + wk + "_*");
     }
     for (const s of stored) {
       check(e.typed.includes(s.bid), "faab.bidInvented",
         "week " + wk + " team " + tid + " has a stored bid of $" + s.bid + " for " + e.any.addName +
-        " that nobody typed (typed: " + JSON.stringify(e.typed) + ")",
+        " that nobody asked for (expected, after the purse clamp: " + JSON.stringify(e.typed) + ")",
         "a bid nobody entered is either a lost input or a default that leaked — read claim_" + SEASON + "_w" + wk + "_*");
     }
   }
@@ -1276,7 +1302,18 @@ async function doClaim(dev, week) {
   // Type the bid into the REAL input, then pick a drop, then submit — in that order, which is
   // the order a person does it in and the order the lifecycle bug lived in.
   await clearToasts(dev);
-  await ev(dev, (v) => { const i = document.querySelector("#claimBid"); if (i) { i.value = String(v); i.dispatchEvent(new Event("input", { bubbles: true })); } }, bid);
+  // ⭐ THE CAP IS READ FROM THE CARD, not recomputed here (restaged 2026-08-11 — see
+  // expectedBid below). #claimBid carries max="<the team's remaining FAAB>", which is the same
+  // figure the handler clamps against, so reading the attribute records what the app itself
+  // was offering at the instant the bid was typed.
+  const cap = await ev(dev, (v) => {
+    const i = document.querySelector("#claimBid");
+    if (!i) return null;
+    i.value = String(v);
+    i.dispatchEvent(new Event("input", { bubbles: true }));
+    const m = Number(i.getAttribute("max"));
+    return Number.isFinite(m) ? m : null;
+  }, bid);
   // NEVER DROP A STARTER, and never fall back to one. The app happily lets you (an empty
   // starter slot is legal), but a persona that does it degrades every later week's lineup and
   // makes the roster-of-record checks measure the harness's own carelessness instead of the
@@ -1304,12 +1341,14 @@ async function doClaim(dev, week) {
       "Moves → MOVE button → type a bid → pick a drop → #claimGo");
     return null;
   }
-  check(new RegExp("\\$" + bid + "\\b").test(claimToast), "claim.bidOnScreen",
-    "week " + week + " " + dev.label + " typed $" + bid + " but the confirmation reads \"" + claimToast + "\"",
+  const want = expectedBid(bid, cap);
+  check(new RegExp("\\$" + want + "\\b").test(claimToast), "claim.bidOnScreen",
+    "week " + week + " " + dev.label + " typed $" + bid + " (purse cap $" + cap + ", so the app should say $" + want +
+    ") but the confirmation reads \"" + claimToast + "\"",
     "type " + bid + " into #claimBid BEFORE picking the drop row, then press #claimGo");
-  LEDGER.claims.push({ week, teamId: dev.teamId, addKey: target.pk, addName: nm, bid, dev: dev.label });
-  actLog(dev.label, o.owner, "claimed " + nm + " for $" + bid);
-  return { key: target.pk, name: nm, bid };
+  LEDGER.claims.push({ week, teamId: dev.teamId, addKey: target.pk, addName: nm, bid, cap, dev: dev.label });
+  actLog(dev.label, o.owner, "claimed " + nm + " for $" + want + (want !== bid ? " (typed $" + bid + ", capped by the purse)" : ""));
+  return { key: target.pk, name: nm, bid: want };
 }
 
 // ---- free agency: the same card, post-deadline (the button reads "Add" and adds instantly).
@@ -1501,7 +1540,15 @@ async function chaosRun(dev, week, phase, secondPhone) {
       });
       if (!ok || !(await waitFor(dev, "#rosterCard [data-di]", 5000))) return;
       const past = await ev(dev, () => !document.querySelector("#claimBid"));
-      await ev(dev, () => { const i = document.querySelector("#claimBid"); if (i) i.value = "7"; });
+      // The purse cap, read off the card exactly as doClaim reads it — the chaos owner is the
+      // one who actually spends down to it, so this is the ledger row that most needs it.
+      const cap7 = await ev(dev, () => {
+        const i = document.querySelector("#claimBid");
+        if (!i) return null;
+        i.value = "7";
+        const m = Number(i.getAttribute("max"));
+        return Number.isFinite(m) ? m : null;
+      });
       await ev(dev, () => { const r = document.querySelector("#rosterCard [data-di]"); if (r) r.click(); });
       const box = await ev(dev, () => {
         const g = document.querySelector("#claimGo");
@@ -1513,7 +1560,7 @@ async function chaosRun(dev, week, phase, secondPhone) {
       await sleep(SETTLE);
       // Recorded in the SAME ledger as an ordinary claim: the chaos owner's bids are just as
       // real, and leaving them out made an honest duplicate look like a lost input.
-      if (!past && box) LEDGER.claims.push({ week, teamId: dev.teamId, addKey: ok, addName: "(chaos double-tap)", bid: 7, dev: dev.label });
+      if (!past && box) LEDGER.claims.push({ week, teamId: dev.teamId, addKey: ok, addName: "(chaos double-tap)", bid: 7, cap: cap7, dev: dev.label });
       actLog(dev.label, o.owner, "CHAOS double-tapped the submit button");
     },
     // Open the claim card and Back out mid-flow — the modal must not leave the view behind.
@@ -1576,16 +1623,19 @@ async function chaosRun(dev, week, phase, secondPhone) {
     })();
     const [k1, k2] = await Promise.all([openFirst(dev), openFirst(secondPhone)]);
     await sleep(SETTLE);
+    // Returns the purse cap the card was offering (or null if there was no bid input), so the
+    // ledger row records the same ceiling the handler is about to clamp against.
     const submit = (d) => ev(d, () => {
       const i = document.querySelector("#claimBid"); if (i) i.value = "5";
+      const cap = i ? Number(i.getAttribute("max")) : null;
       const r = document.querySelector("#rosterCard [data-di]"); if (r) r.click();
       const g = document.querySelector("#claimGo"); if (g) g.click();
-      return !!i;
+      return i ? { ok: true, cap: Number.isFinite(cap) ? cap : null } : null;
     });
     const [s1, s2] = await Promise.all([submit(dev), submit(secondPhone)]);
     await sleep(SETTLE + 200);
-    if (k1 && s1) LEDGER.claims.push({ week, teamId: dev.teamId, addKey: k1, addName: "(chaos race, phone 1)", bid: 5, dev: dev.label });
-    if (k2 && s2) LEDGER.claims.push({ week, teamId: secondPhone.teamId, addKey: k2, addName: "(chaos race, phone 2)", bid: 5, dev: secondPhone.label });
+    if (k1 && s1) LEDGER.claims.push({ week, teamId: dev.teamId, addKey: k1, addName: "(chaos race, phone 1)", bid: 5, cap: s1.cap, dev: dev.label });
+    if (k2 && s2) LEDGER.claims.push({ week, teamId: secondPhone.teamId, addKey: k2, addName: "(chaos race, phone 2)", bid: 5, cap: s2.cap, dev: secondPhone.label });
     actLog(dev.label, o.owner, "CHAOS raced the same claim from two phones");
   }
 }
@@ -1866,10 +1916,6 @@ async function main() {
 
 // ---- the finalize flow, through #finalizeBtn (falls back to a named failure, never silence).
 async function finalizeWeek(dev, week) {
-  if (FRESH_FINALIZE) {
-    await ev(dev, () => { window.__GFFL__.LG.db.clearCache(); window.__GFFL__.UI._rosters = null; });
-    await sleep(SETTLE);
-  }
   await nav(dev, "league");
   await sleep(SETTLE);
   const has = await waitFor(dev, "#finalizeBtn", 6000);
@@ -1885,11 +1931,13 @@ async function finalizeWeek(dev, week) {
       "league home as the commissioner with UI.week = " + week);
     return;
   }
-  // ⭐ WHAT THE FINALIZING DEVICE ITSELF BELIEVES THE LINEUPS ARE, read the same way
-  // LG.finalizeWeek is about to read them (LG.loadRoster with no {fresh:true} — i.e. through
-  // LG.db's cache). Captured BEFORE the tap so a mismatch against the store is self-proving:
-  // it shows the disagreement at the moment of the write rather than asking anyone to re-run
-  // with --fresh-finalize to believe it.
+  // ⭐ WHAT THE FINALIZING DEVICE'S OWN CACHE SAYS THE LINEUPS ARE — read through LG.db's
+  // cache (LG.loadRoster with no {fresh:true}), which is how LG.finalizeWeek used to read them
+  // and is therefore still the right thing to capture. Since the bug-2 fix the finalize scores
+  // a FRESH snapshot instead, so this view and the store's roster of record should now agree
+  // even when the cache is stale; kept, and still printed by weekly.totalsMatchRosters,
+  // because a regression that reintroduces the cached read is then self-proving on the first
+  // run — the failure names the two lineups side by side instead of merely reporting a Δ.
   FINALIZE_VIEW.set(week, await ev(dev, async (wk) => {
     const LG = window.__GFFL__.LG;
     const out = {};
