@@ -914,12 +914,20 @@ async function sectionRoom(browser) {
     "the header carries the league's chosen name");
   ok(await page.evaluate(() => !!document.getElementById("commishLoginBtn")),
     "a non-commissioner sees the Commissioner login button");
-  await hook(page, () => window.__DRAFT__.commishLogin("99999"));
+  await clickSafely(page, "#commishLoginBtn");
+  ok(await page.evaluate(() => {
+    const row = document.getElementById("commishPinRow");
+    return !row.hidden && !!document.getElementById("commishPinIn");
+  }), "tapping it reveals a real PIN input (no native prompt dialog)");
+  await page.type("#commishPinIn", "99999");
+  await clickSafely(page, "#commishPinGo");
   ok(await page.evaluate(() => document.getElementById("tabCommish").hidden)
     && (await toastText(page)).includes("not the commissioner PIN"), "a wrong PIN is refused");
-  await hook(page, () => window.__DRAFT__.commishLogin("14903"));
-  ok(await page.evaluate(() => !document.getElementById("tabCommish").hidden),
-    "PIN 14903 signs this device in as commissioner");
+  await page.evaluate(() => { const i = document.getElementById("commishPinIn"); i.value = ""; });
+  await page.type("#commishPinIn", "14903");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => !document.getElementById("tabCommish").hidden, { timeout: 3000 });
+  ok(true, "typing PIN 14903 + Enter signs this device in as commissioner");
   await hook(page, () => window.__DRAFT__.setMe("Visitor2", "dev-v2", ""));
   await hook(page, (k) => window.__DRAFT__.commishLogin("https://site/ffdraft.html?c=" + k + "#x"), ckey);
   ok(await page.evaluate(() => !document.getElementById("tabCommish").hidden),

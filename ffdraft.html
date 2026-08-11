@@ -987,12 +987,13 @@ body.tv #boardLegend{display:none}
       return d;
     });
   }
-  // Sign in as the commissioner from any device with the PIN (a pasted
-  // commissioner link still works too — the c= part is extracted). Success
-  // stores the room's real key in localStorage, same as opening the link.
+  // Sign in as the commissioner from any device with the PIN, typed into a
+  // real inline input — native prompt() dialogs get suppressed by some
+  // browsers. A pasted commissioner link still works too (the c= part is
+  // extracted); success stores the room's real key, same as the link.
   function commishLogin(key) {
-    var k = key != null ? String(key) : prompt("Commissioner PIN:");
-    if (!k) return;
+    var k = key == null ? "" : String(key);
+    if (!k) { toast("Type the commissioner PIN first", true); return; }
     k = k.trim();
     var m = k.match(/[?&]c=([^&#\s]+)/);
     if (m) k = m[1];
@@ -2063,7 +2064,10 @@ body.tv #boardLegend{display:none}
     // but the commissioner must be able to sign in from ANY device by typing
     // (or pasting the whole link containing) the key.
     if (!isCommish(D)) {
-      ch += '<p style="margin:6px 2px"><button class="btn ghost sm" id="commishLoginBtn">Commissioner login</button></p>';
+      ch += '<p style="margin:6px 2px"><button class="btn ghost sm" id="commishLoginBtn">Commissioner login</button></p>' +
+        '<div class="row" id="commishPinRow" hidden style="margin:4px 2px">' +
+        '<input type="tel" id="commishPinIn" placeholder="Commissioner PIN" maxlength="24" autocomplete="off" style="width:160px">' +
+        '<button class="btn sm" id="commishPinGo">Sign in</button></div>';
     }
     $("claimCard").innerHTML = ch;
     var ns = $("nameSave");
@@ -2075,7 +2079,15 @@ body.tv #boardLegend{display:none}
       b.onclick = function () { releaseTeam(Number(b.dataset.tid)); };
     });
     var cl = $("commishLoginBtn");
-    if (cl) cl.onclick = commishLogin;
+    if (cl) cl.onclick = function () {
+      var row = $("commishPinRow");
+      row.hidden = !row.hidden;
+      if (!row.hidden) $("commishPinIn").focus();
+    };
+    var cg = $("commishPinGo");
+    if (cg) cg.onclick = function () { commishLogin($("commishPinIn").value); };
+    var ci = $("commishPinIn");
+    if (ci) ci.onkeydown = function (e) { if (e.key === "Enter") commishLogin(ci.value); };
 
     // Roster browser
     if (teamSel == null || !teamById(D, teamSel)) teamSel = (mine || D.teams[0]).id;
