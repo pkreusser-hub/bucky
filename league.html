@@ -1042,6 +1042,14 @@
      carry the scheme, and a third accent is one more than minimal) */
   .lockermotto { margin:4px 0 0; color:var(--mut); font-style:italic; font-size:12.5px; line-height:1.3; }
   .lockerrec { margin:2px 0 0; font:600 12.5px/1.3 var(--font-display); color:var(--mut); letter-spacing:.4px; }
+  /* S4 — the league-alerts card. The bell is an inline SVG, not an emoji: section U scans every
+     app-authored string on every view and a bell emoji would fail it (and read as a different
+     glyph on every platform besides). */
+  .alertcard h2 { display:flex; align-items:center; gap:7px; }
+  .alertcard .alertbell { flex:0 0 auto; color:var(--mut); }
+  .alertcard p { margin:6px 0 0; }
+  .alertrow { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; }
+  .alertrow button { min-height:44px; }
   /* Design pass: the controls live in their own quiet FOOTER BAND under the identity row —
      full-bleed to the card's edges with a hairline on top, solid card colour, so the diagonal
      panel behind the hero can never run underneath a button or a label. Identity above the
@@ -1310,6 +1318,10 @@
   <div id="imgOverlay" class="imgoverlay" hidden><img id="imgOverlayImg" alt=""></div>
   <div id="playerCard" class="pcoverlay" hidden></div>
 
+  <!-- S4: the family app's FCM helper, reused verbatim. Loaded here (not lazily) only because
+       it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
+       time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
+  <script src="push-client.js"></script>
   <script src="assets/league/lg-core.js"></script>
   <script src="assets/league/lg-data.js"></script>
   <script src="assets/league/lg-ui.js"></script>

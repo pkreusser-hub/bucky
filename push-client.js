@@ -55,7 +55,24 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
       enabled: !!saved,
       user: saved && saved.user,
       familyKey: saved && saved.familyKey,
+      // Whatever the caller stamped onto the token doc (S4: {gfflTeam: <id>}). Absent for
+      // every family-app caller, which is how the league card tells "this phone has league
+      // alerts on" from "this phone has chore reminders on".
+      extra: (saved && saved.extra) || null,
     };
+  }
+
+  // The token doc, as one pure function so a caller's extra fields can be verified without
+  // standing up FCM. `extra` is optional and ABSENT-BY-DEFAULT: a family-app enable() writes
+  // exactly the four fields it always did, so nothing that filters on `.user` is disturbed.
+  function buildTokenDoc(token, userName, extra) {
+    var doc = { token: token, user: userName, ua: deviceLabel(), at: Date.now() };
+    if (extra && typeof extra === "object") {
+      for (var k in extra) {
+        if (Object.prototype.hasOwnProperty.call(extra, k) && extra[k] != null) doc[k] = extra[k];
+      }
+    }
+    return doc;
   }
 
   // Short, non-identifying device label for the token doc (e.g. "Chrome on Android").
@@ -117,7 +134,10 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
     return _cache;
   }
 
-  async function enable(userName, familyKey, firebaseConfigOverride) {
+  // `extra` (4th arg, optional) is merged into the token doc — S4 uses it for
+  // {gfflTeam: <teamId>}, which is what notify.mjs's league-wide and owner-targeted sends
+  // select on. Every existing family call site passes 1-3 args and is byte-for-byte unaffected.
+  async function enable(userName, familyKey, firebaseConfigOverride, extra) {
     if (!isSupported()) {
       throw new Error("Push notifications are not supported in this browser.");
     }
@@ -156,17 +176,15 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
     var db = mods.firestoreMod.getFirestore(_cache.app);
     var docId = await hashToken(token);
     var ref = mods.firestoreMod.doc(db, "pushTokens_" + familyKey, docId);
-    await mods.firestoreMod.setDoc(ref, {
-      token: token,
-      user: userName,
-      ua: deviceLabel(),
-      at: Date.now(),
-    });
+    // merge:true — a device that already had family alerts on and now turns LEAGUE alerts on
+    // must keep its `user` (chore/bank targeting) and gain `gfflTeam`, not trade one for the
+    // other. Same the other way round.
+    await mods.firestoreMod.setDoc(ref, buildTokenDoc(token, userName, extra), { merge: true });
 
     try {
       localStorage.setItem(
         STATE_KEY,
-        JSON.stringify({ token: token, familyKey: familyKey, user: userName, docId: docId })
+        JSON.stringify({ token: token, familyKey: familyKey, user: userName, docId: docId, extra: extra || null })
       );
     } catch (e) {
       /* ignore storage failures */
@@ -244,5 +262,6 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
     isSupported: isSupported,
     status: status,
     notify: notify,
+    _buildTokenDoc: buildTokenDoc, // test hook — the doc shape without standing up FCM
   };
 })();

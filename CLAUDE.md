@@ -10945,7 +10945,9 @@ is served from both hostnames and resolves against whichever loaded it — `"/"`
 the old one), are written out in `netlify.toml`'s GFFL custom-domain block. **Cost, stated up
 front**: a new origin starts with empty `localStorage`, so every device re-enters the family
 password and re-picks who it is (`gffl_pass`, `choreUser`, `choreUnlocked`, `dadPinHash`); league
-data is in Firestore and is untouched. **BLOCKED ON**: the user buying the domain.
+data is in Firestore and is untouched. ~~BLOCKED ON: the user buying the domain~~ **DONE
+2026-08-10**: goatfantasyleague.com bought, aliased, verified live (27/27 — root serves the
+league, all assets/functions resolve, amenfarms untouched). Install from the new domain.
 
 ---
 
@@ -11132,3 +11134,81 @@ and no restaging was required**.
 future caller passing a folded id would get a real answer rather than an empty one. And the
 2012-15 seasons carry 20-team `teams[]` arrays of which only 6 render, which is the intended cost
 of keeping the raw record intact.
+
+## 🏈 GFFL — THE SEPTEMBER BATCH, WEEK ONE (2026-08-10, one session: plan → P1/S1/S2/S3/S4)
+
+Plan of record: `ffleague-plan.md` "GFFL SEPTEMBER PLAN" (Sleeper-gap features + the
+readiness program; ordered proof-first around preseason W2/W3 as live windows, freeze Sep
+3–10, draft SUN Sep 6 3PM CT — the plan first said "Sat" and the S2 build agent caught it).
+Delegation per the user's split: Fable orchestrates + reviews + designs, Opus builds the hard
+workstreams, Sonnet the mechanical ones; every agent report re-verified by the orchestrator's
+own suite run before commit. Suite 1716 → **2009** across the batch, FAIL 0 at every commit.
+- **P1 · `tools/_gffl_live_probe.mjs`** (sonnet) — read-only probe of REAL ESPN/Sleeper/
+  Firestore through the app's own mirrored parsers (line-cited); `--selftest` = 40 network-free
+  checks. FIRST REAL-FEED PROOF (Aug 10): season.type resolves `"pre"` (the finalize guard can
+  see) · Sleeper agrees · **142/142 rostered ids resolve** · preseason projections are ADP-husks
+  and preseason stats empty (PROJ reads "—" by design) · `fgm_yds` proven in a real 2025 payload
+  (2026 pre-W1 stats not yet posted — re-probe during a W2 game). NOTE: the sports feeds ARE
+  reachable from this sandbox now — the old egress-blocked note is stale.
+- **S1 · owner PINs** (opus) — `claimTeam()`: first claim sets a 4+-digit PIN (hash on the team
+  doc, `sha256(pin+":"+LG.PASS)` — the dadAuth formula); a claimed team demands it on any new
+  device, refusal writes nothing; grandfathered claims nag once/session. Commish reset writes
+  `pinHash:""` (NOT deletion — `LG.db.set` merges, an absent key leaves the old hash standing).
+  **THE COMMISH PIN MOVED TO THE CLOUD** (`auth` doc, its own kind — never a rules field, the
+  Rules editor renders+writes back what it renders): the domain move had opened first-set-per-
+  device (any kid could self-seed commish on a fresh origin); migration runs AT BOOT from a
+  device carrying `dadPinHash` and no-ops forever after. `gateCommish` reads FRESH at the
+  boundary; cloud wins; local only when the league holds none. POSTURE unchanged: family-grade.
+- **S2 · draft countdown** (sonnet) — `rules.draftAt` (commish-editable; the Rules editor's
+  save handler generalized: a dot-less `data-k` writes top-level), league-home card first
+  while future, LIVE within 6h, quiet "Drafted ✓" after. **Counts on the REAL clock,
+  deliberately NOT LG.now()** — the one engine-clock exemption in the app, commented as such.
+- **S3 · team colours** (opus) + **THE FABLE DESIGN PASS** (orchestrator's own hands, user:
+  "needs your Fable High touch… modern, minimalist but impactful"): `team.colors =
+  {primary, secondary, tertiary}` settable (extraction proposes, `colorsCustom` latch means a
+  re-upload never clobbers a hand-pick, "↺" resets), ONE `teamPalette()` derivation with
+  contrast floors, split stat bars from the NFL `.nflsbt` mechanic, `LOGO_CAP` 160k split from
+  chat's 80k, 512px logos. THE PASS REVERSED TWO S3 CALLS, reasons in the plan: the blur-wash
+  hero → a FLAT card cut by a px-based diagonal primary panel + secondary stripe (three
+  translucent layers read as mud; every hero converged on the same smear), and colour-FILLED
+  names → NEUTRAL ink at every size (eight coloured names = rainbow; colour lives on crests/
+  rails/bars — one bold moment per screen). A tried name-underline was REMOVED (third accent =
+  one more than minimal). **Design pass 2 (user): the pencil** — every identity control
+  (Name/Motto/Logo, swatches, PIN reset) behind one SVG pencil disclosure top-right of the
+  hero (zero-emoji chrome rule); hero opens quiet; owner/commish only. S3's review found a bug
+  in S1's D (`.lockeredit` painted while `hidden` — own display:flex beats the UA rule, the
+  recurring house lesson) and TWO more real ones: `logoTd`/`avatarHtml` read `.logo` only (an
+  UPLOADED logo — `.logoData` — never left the locker; this is the LIVE bug the user reported
+  as "changing the logo did not change in every other tab", fixed by `teamSrc()` unification +
+  a standing no-reload propagation check across standings/matchup/header), and greyscale logos
+  extracted no palette (lightness fallback). RESTAGE HONESTY: four checks that would have
+  passed VACUOUSLY after the pencil (attribute reads while the FOOT above did the hiding) were
+  rewritten to rendered geometry through the real pencil flow, and one check was INVERTED with
+  its reason (names must now BE the sheet ink). The user's real Goat Kids crest is committed at
+  `assets/league/goatkids-logo-example.webp` and plate 5 of `tools/_gffl_palette_shots.cjs`
+  (66/66) runs it through the REAL upload path every run, asserting extraction lands in its
+  warm family. `uploadLogo`'s `eval` became `await eval` (tolerates sync exprs, lets a fixture
+  fetch real art — top-level `await` inside eval'd code is a SyntaxError, return a Promise).
+- **S4 · push notifications** (opus) — the family FCM stack reused: `push-client.js` `enable()`
+  gains an optional 4th arg `extra` → `{gfflTeam}` stamped on the token doc (family callers
+  byte-identical; `merge:true` so one device carries BOTH audiences); `notify.mjs` allowlist →
+  a SET of parsed origins (+goatfantasyleague.com/www; lookalikes still fall to DEFAULT_URL;
+  `_verify-notify-url.mjs` 14 → 36). v1 producers, all client-side fire-and-forget after the
+  action commits, never able to break it, actor never self-notified: trade offer → target,
+  accept/veto → counterpart (veto only on the KILLING vote), waiver results → each owner with
+  a claim from the client that ran processWaivers, finalize recap → league-wide (2 games +
+  "+N more"), chat @mention (normalized, prefix-tolerant, ≥3 chars). Enable card on My Team
+  (its own card, NOT in the pencil foot — alerts are a fact about THIS PHONE, not the team's
+  identity), honest iOS line (web push needs the installed PWA), and an honest disable caveat:
+  `BuckyPush.disable()` removes the device's ONE token doc, so it kills family alerts on that
+  phone too — said in the UI. `gfflTeam` audience filtered IN CODE off an unfiltered query
+  (a mismatched integerValue/doubleValue fieldFilter returns zero rows SILENTLY — worst
+  possible failure for a notification path). Suite section AN (88 checks; producers drained
+  before reading — fire-and-forget + immediate assert = 30 false failures the first time).
+  NOT live-pushed to a real phone yet — that is the P4 drill. Deliberately not done:
+  executeTrade push (S7's call), post-claim enable interstitial (competes with the PIN nag).
+**KNOWN / NEXT**: S5 waiver-cron + S6 search/trending are the Aug 17 batch; the P2 game-night
+drill runs during preseason W2 (Thu Aug 13+, `node tools/_gffl_live_probe.mjs --report`
+during a live game); everything is on the feature branch, NOTHING deployed — deploy decision
+is the user's, and the S1 note stands: after deploy, Dad opens the league on his phone FIRST
+so the commish hash migrates before the kids get curious.

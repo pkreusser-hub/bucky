@@ -4507,6 +4507,80 @@
     const lab = injLabel((row && row.injury) || p.injury || "");
     return lab ? ` <span class="inj">${esc(lab)}</span>` : "";
   }
+  // ---------------- S4: the league-alerts card (My Team only) ----------------
+  // Deliberately its own card among Schedule/Transactions/Rivalries rather than a row inside
+  // the pencil-disclosed hero foot. The foot is IDENTITY — what this team is called, what
+  // colour it is, facts about the team that every owner sees. Alerts are a fact about THIS
+  // PHONE: the same owner on a second device sees a different state here. Putting a
+  // per-device toggle inside a per-team editor would have been the wrong drawer, and the
+  // design pass's rule — the hero stays quiet until the pencil — is untouched either way.
+  UI._pushEnv = pushEnv; // test hook
+  function pushEnv() {
+    const ua = navigator.userAgent || "";
+    // iPadOS 13+ reports itself as a Mac; the touch-point count is what still gives it away.
+    const iOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1);
+    let standalone = false;
+    try {
+      standalone = !!((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true);
+    } catch (e) { /* matchMedia can throw in odd embeddings */ }
+    const P = window.BuckyPush;
+    const st = P && P.status ? P.status() : null;
+    const supported = !!(P && P.isSupported && P.isSupported());
+    const onTeam = st && st.extra && st.extra.gfflTeam != null ? Number(st.extra.gfflTeam) : null;
+    return { iOS, standalone, supported, st, onTeam, has: !!P };
+  }
+  const BELL_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="alertbell">' +
+    '<path fill="currentColor" d="M12 22a2.05 2.05 0 0 0 2.05-2.05h-4.1A2.05 2.05 0 0 0 12 22zm6.2-6.2v-5.3a6.25 6.25 0 0 0-4.7-6.05V3.7a1.5 1.5 0 0 0-3 0v.75a6.25 6.25 0 0 0-4.7 6.05v5.3L4 17.5v.85h16v-.85z"/></svg>';
+  function alertsCardHtml(T, isOwner) {
+    if (!isOwner) return "";
+    const e = pushEnv();
+    const head = `<h2>${BELL_SVG} Alerts</h2>`;
+    // iOS FIRST, and before the support test: Safari in a tab reports no PushManager at all,
+    // so "this browser can't" would be technically true and completely useless — the honest
+    // answer is that there IS a way and it runs through the installed app.
+    if (e.iOS && !e.standalone) {
+      return `<div class="card alertcard" id="alertCard">${head}
+        <p class="mut small">On iPhone and iPad, alerts only work from the installed app. Add the league to your Home Screen from the Share menu (iOS 16.4 or newer), open it from there, and this card will offer to turn them on.</p></div>`;
+    }
+    if (!e.has || !e.supported) {
+      return `<div class="card alertcard" id="alertCard">${head}
+        <p class="mut small">This browser can't do push notifications.</p></div>`;
+    }
+    if (e.onTeam === T.id) {
+      return `<div class="card alertcard" id="alertCard">${head}
+        <p class="small">Alerts are on for ${esc(T.name)} on this phone.</p>
+        <p class="mut small">Trade offers, waiver results, week recaps and chat mentions.</p>
+        <div class="alertrow"><button id="alertOff">Turn off</button>
+          <span class="mut small">That turns off every Bucky alert on this phone.</span></div></div>`;
+    }
+    return `<div class="card alertcard" id="alertCard">${head}
+      <p class="small">Get league alerts on this phone.</p>
+      <p class="mut small">Trade offers, waiver results, week recaps and chat mentions. Nothing else.</p>
+      <div class="alertrow"><button id="alertOn" class="primary">Turn on league alerts</button></div></div>`;
+  }
+  function wireAlertsCard(T) {
+    const on = $("#alertOn"), off = $("#alertOff");
+    if (on) on.addEventListener("click", async () => {
+      on.disabled = true;
+      try {
+        // `user` keeps the family app's own targeting working on this device — a phone that
+        // gets chore reminders as "Isaac" keeps getting them. gfflTeam is what every S4 send
+        // selects on, and setDoc merges, so neither audience displaces the other.
+        await window.BuckyPush.enable(LG.who() || T.name, LG.famKey, null, { gfflTeam: T.id });
+        toast("Alerts are on for " + T.name + " on this phone.");
+        renderLocker();
+      } catch (err) {
+        on.disabled = false;
+        toast(String((err && err.message) || "Couldn't turn alerts on."));
+      }
+    });
+    if (off) off.addEventListener("click", async () => {
+      off.disabled = true;
+      try { await window.BuckyPush.disable(); toast("Alerts are off on this phone."); renderLocker(); }
+      catch (err) { off.disabled = false; toast("Couldn't turn alerts off."); }
+    });
+  }
+
   UI.renderLocker = renderLocker;
   async function renderLocker() {
     const teamId = UI.lockerTeamId;
@@ -4623,6 +4697,7 @@
         </div>
       </div>
       ${rosterHtml}
+      ${alertsCardHtml(T, isOwner)}
       <div class="card"><h2>Schedule</h2><div class="panner"><table class="tbl">
         <thead><tr><th>Wk</th><th>Opp</th><th class="num">Result</th></tr></thead>
         <tbody>${scheduleRows}</tbody></table></div></div>
@@ -4642,7 +4717,7 @@
     // non-commissioner's copy unwired would only hide the gate, not add one.
     wireLockerEdit(T, isOwner);
     if (!isOwner) wireLockerPinReset(T);
-    if (isOwner) { wireLockerLineup(teamId, roster); maybeOfferOwnerPin(T); }
+    if (isOwner) { wireLockerLineup(teamId, roster); wireAlertsCard(T); maybeOfferOwnerPin(T); }
     paintHealth();
   }
   // S1 GRANDFATHERING. Devices that claimed a team before owner PINs existed stay valid — the

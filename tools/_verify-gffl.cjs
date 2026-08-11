@@ -66,6 +66,16 @@ function canon(v) {
 }
 const stableStr = (v) => JSON.stringify(canon(v));
 
+// ---------------- S4: the notify producer recorder (section AN) ----------------
+// /.netlify/functions/notify is route-mocked IN THE PAGE and every body is recorded here,
+// node-side — so a check can assert WHO was pushed, WITH WHAT, and (the half that matters
+// most) that a notify which fails never costs the action that produced it. `status`/`abort`
+// are how that failing half is staged. Defaults are the happy path, and every pre-existing
+// section is untouched by it: nothing outside section AN produces a push at all, and a route
+// that is never hit records nothing.
+const notify = { calls: [], status: 200, abort: false };
+notify.reset = () => { notify.calls = []; notify.status = 200; notify.abort = false; };
+
 // ---------------- fixtures ----------------
 const fixture = {
   phase: 1, sleeperDown: false, espnDown: false, tenorDown: false,
@@ -1443,6 +1453,17 @@ async function newTestPage(browser, seed, opts) {
     const json = (obj, status) => req.respond({ status: status || 200, contentType: "application/json", headers: cors, body: JSON.stringify(obj) });
     (async () => {
       try {
+        // S4 (section AN). Must come BEFORE the u.startsWith(BASE) branch below — this path is
+        // same-origin, so continuing it would 404 against the static server and every producer
+        // would look like it "failed safely" for the wrong reason.
+        if (u.includes("/.netlify/functions/notify")) {
+          let sent = null;
+          try { sent = JSON.parse(req.postData() || "{}"); } catch (e) { sent = { unparseable: true }; }
+          notify.calls.push(sent);
+          if (notify.abort) return req.abort();
+          if (notify.status !== 200) return req.respond({ status: notify.status, contentType: "application/json", headers: cors, body: JSON.stringify({ error: "boom" }) });
+          return json({ sent: 1, pruned: 0 });
+        }
         if (u.includes("/.netlify/functions/league")) {
           const r = await leagueFn(new Request("http://fn/league", { method: "POST", body: req.postData() || "{}" }));
           return req.respond({ status: r.status, contentType: "application/json", headers: cors, body: await r.text() });
@@ -13047,6 +13068,444 @@ async function openDetails(page, id) {
       ok(ghost.name, "a message from a FOLDED franchise still shows its stored name");
       ok(ghost.crest === 0 && ghost.tname === 0, "…but gets no crest and no palette — the identity treatment never resurrects a team the league doesn't roster");
       ok(errors.length === 0, "0 page errors across standings, cards, chat and the header");
+      await ctx.close();
+    }
+  }
+
+  // ---- AN: S4 — push notifications ------------------------------------------------------
+  // Every check below drives the REAL producer (LG.offerTrade / acceptTrade / vetoTrade /
+  // processWaivers / finalizeWeek / postChat) against a route-mocked notify function and reads
+  // the recorded WIRE — target, title, body, deep link. That is deliberately the only thing
+  // asserted: a producer's intention read off the source proves nothing about what a phone
+  // would actually have received.
+  section("AN · S4 — push notifications: producers, targeting, deep links, and the enable card");
+  {
+    const LEAGUE = "https://goatfantasyleague.com/league.html";
+    const last = () => notify.calls[notify.calls.length - 1] || {};
+    const targets = () => notify.calls.map((c) => (c.gfflAll ? "ALL" : c.gfflTeam));
+    // THE TIMING RULE FOR THIS WHOLE SECTION. Producers are fire-and-forget BY DESIGN: an
+    // action's own promise resolves the moment its write lands, with the notify fetch still in
+    // flight. So nothing here reads the wire the instant an action returns — every assertion
+    // drains first, and every reset drains before it clears. That is the property under test
+    // written as a test procedure rather than assumed, and it is why every count below is
+    // asserted EXACTLY: draining waits for the push we expect, then keeps waiting a beat, so
+    // an EXTRA push (the spam failure) still fails the check.
+    const drain = async (n) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < 4000 && notify.calls.length < (n || 0)) await sleep(25);
+      await sleep(220);
+    };
+    const reset = async () => { await sleep(260); notify.reset(); };
+
+    // ---- AN1: trades — offered, accepted, vetoed ----
+    {
+      await reset();
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed()); // team 1, "Peter"
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await stopPolling(page);
+      await drain(0);
+      // Boot runs the whole auto-check chain (waivers, trades, finalize) against a league that
+      // has none of those pending. Nothing may buzz for that: an app that pushes on open is an
+      // app every owner mutes within a week.
+      ok(notify.calls.length === 0, "an ordinary boot pushes nobody (" + notify.calls.length + " calls)");
+
+      const offered = await page.evaluate(() => window.__GFFL__.LG.offerTrade(1, 2, ["3915511"], ["222111"], ""));
+      await drain(1);
+      ok(offered.ok === true, "a trade is offered (the action itself)");
+      ok(notify.calls.length === 1, "…and sends exactly one push");
+      const off = last();
+      ok(off.gfflTeam === 2, "…to the TARGET owner's team (gfflTeam " + off.gfflTeam + "), the one who doesn't know yet");
+      ok(off.gfflAll === undefined && off.targetUser === undefined,
+        "…as an owner-targeted send: no gfflAll, and no family-app targetUser to spray it at a name");
+      ok(off.title === "Trade offer", "…titled \"Trade offer\" (got " + JSON.stringify(off.title) + ")");
+      ok(/Battle Kreussers/.test(off.body || ""), "…naming the team that sent it (" + off.body + ")");
+      ok(off.url === LEAGUE + "#moves", "…deep-linking the league app's Moves tab (" + off.url + ")");
+      ok(off.secret === "amenfarms" && off.familyKey, "…carrying the family secret + key notify.mjs gates on");
+
+      // Self-suppression, the trade case: an offer arriving AT me, sent from this device.
+      await reset();
+      const toMe = await page.evaluate(() => window.__GFFL__.LG.offerTrade(2, 1, ["222333"], ["111888"], ""));
+      await drain(0);
+      ok(toMe.ok === true && notify.calls.length === 0,
+        "an offer whose target is THIS device's own team pushes nobody — the actor is looking at the screen");
+
+      // Accept -> the PROPOSER hears. I am team 1; accepting the offer made TO me above means
+      // the push goes to team 2, so this is a genuine send rather than a suppressed one.
+      await reset();
+      const acc = await page.evaluate((id) => window.__GFFL__.LG.acceptTrade(id, 1), toMe.trade.id);
+      await drain(1);
+      ok(acc && acc.status === "accepted", "the trade is accepted (the action itself)");
+      ok(notify.calls.length === 1 && last().gfflTeam === 2, "…and pushes the PROPOSER, nobody else");
+      // The accepter here is THIS device (team 1), so the body names team 1 — which is the
+      // whole point of the line: the proposer is being told who answered them.
+      ok(last().title === "Trade accepted" && /Battle Kreussers accepted/.test(last().body || ""),
+        "…titled \"Trade accepted\", naming who accepted (" + last().body + ")");
+      ok(last().url === LEAGUE + "#moves", "…deep-linking Moves");
+
+      // Veto. Staged between two OTHER teams on purpose: a veto pushes BOTH parties, and on the
+      // trade above one of the parties is this device, so self-suppression would (correctly)
+      // hide half the behaviour under test. Suppression on the veto path is asserted separately
+      // below, on a trade this device IS a party to.
+      await reset();
+      const other = await page.evaluate(() => window.__GFFL__.LG.offerTrade(3, 4, ["a1"], ["b1"], ""));
+      await page.evaluate((id) => window.__GFFL__.LG.acceptTrade(id, 4), other.trade.id);
+      await reset();
+      await page.evaluate(async (id) => {
+        const LG = window.__GFFL__.LG;
+        for (const t of [1, 2, 5]) await LG.vetoTrade(id, t); // neither party may vote
+      }, other.trade.id);
+      await drain(0);
+      ok(notify.calls.length === 0, "three of the four votes needed pushes nobody — the trade is still alive");
+      const killed = await page.evaluate((id) => window.__GFFL__.LG.vetoTrade(id, 6), other.trade.id);
+      await drain(2);
+      ok(killed && killed.status === "vetoed", "the fourth vote kills it (the action itself)");
+      ok(notify.calls.length === 2, "…and pushes BOTH parties (" + notify.calls.length + " calls)");
+      ok(targets().includes(3) && targets().includes(4), "…each by team id (" + JSON.stringify(targets()) + ")");
+      ok(notify.calls.every((c) => c.title === "Trade vetoed"), "…both titled \"Trade vetoed\"");
+
+      // …and the same veto on a trade this device IS a party to pushes only the OTHER party.
+      await reset();
+      await page.evaluate(async (id) => {
+        const LG = window.__GFFL__.LG;
+        for (const t of [3, 4, 5, 6]) await LG.vetoTrade(id, t);
+      }, toMe.trade.id);
+      await drain(1);
+      ok(notify.calls.length === 1 && targets()[0] === 2,
+        "a veto on MY OWN trade pushes only the other party — self-suppression holds on a two-target send (" + JSON.stringify(targets()) + ")");
+
+      // A failing notify may never cost the action. Both failure shapes: a 500 from the
+      // function, and a request that never lands at all.
+      await reset(); notify.status = 500;
+      const still = await page.evaluate(() => window.__GFFL__.LG.offerTrade(1, 3, ["4241457"], ["222333"], ""));
+      await drain(1);
+      ok(still.ok === true && notify.calls.length === 1,
+        "notify answering 500 does not stop the trade being offered (and the call really was attempted)");
+      const persisted = await page.evaluate((id) => window.__GFFL__.LG.loadTrade(id, { fresh: true }), still.trade.id);
+      ok(persisted && persisted.status === "offered", "…and the trade doc is on the backend exactly as it should be");
+      await reset(); notify.abort = true;
+      const stillToo = await page.evaluate(() => window.__GFFL__.LG.offerTrade(1, 4, ["111888"], ["222333"], ""));
+      await drain(1);
+      ok(stillToo.ok === true, "a notify request that never lands at all doesn't stop the trade either");
+      await reset();
+      ok(errors.length === 0, "0 page errors across the trade producers");
+      await ctx.close();
+    }
+
+    // ---- AN2: waiver results — per owner, their own results, nobody else's ----
+    {
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed()); // team 1 = the actor
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await stopPolling(page);
+      // MY claim wins; team 2 loses the same player and wins a different one. Team 2's push
+      // must therefore carry BOTH halves, and mine must not exist at all.
+      await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        await LG.addClaim(1, { id: "n1", teamId: 1, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "111333", dropName: "B. Backup", bid: 30, t: 1 });
+        await LG.addClaim(1, { id: "n2", teamId: 2, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "dst_DAL", dropName: "DAL D/ST", bid: 20, t: 2 });
+        await LG.addClaim(1, { id: "n3", teamId: 2, addKey: "dst_DEN", addName: "DEN D/ST", addPos: "DST", addTeam: "DEN", dropKey: "222333", dropName: "X. Wideout", bid: 5, t: 3 });
+      });
+      await reset();
+      const done = await page.evaluate(() => window.__GFFL__.LG.processWaivers(1));
+      await drain(1);
+      ok(done.processed === true, "waivers process (the action itself)");
+      ok(notify.calls.length === 1, "exactly ONE push goes out — one per owner WITH a claim, minus the actor (" + notify.calls.length + ")");
+      const w = last();
+      ok(w.gfflTeam === 2, "…to the only other owner who bid (gfflTeam " + w.gfflTeam + ")");
+      ok(w.title === "Waivers — week 1", "…titled with the week (" + JSON.stringify(w.title) + ")");
+      ok(/Won DEN D\/ST for \$5/.test(w.body || ""), "…naming what they WON and what it cost (" + w.body + ")");
+      ok(/lost KC D\/ST/.test(w.body || ""), "…and what they lost, in the same line");
+      ok(!/B\. Backup/.test(w.body || "") && !/222333/.test(w.body || ""),
+        "…and NOTHING about anyone else's claims, or their own drops — it is their result sheet, not the league's");
+      ok(w.url === LEAGUE + "#moves", "…deep-linking Moves (" + w.url + ")");
+
+      // Player names go through the same shortener every screen uses, so a push reads like the
+      // app it came from.
+      const shortened = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        LG.pushWaiverResults(9, [{ id: "s1", teamId: 2, addName: "Jaxon Smith-Njigba", bid: 12 }], [{ id: "s1", teamId: 2, ok: true }]);
+        return true;
+      });
+      await drain(1);
+      ok(shortened && /Won J\. Smith-Njigba for \$12/.test(last().body || ""),
+        "a won player is named through LG.shortName (" + last().body + ")");
+
+      // A processing run that resolves nobody's claims pushes nobody.
+      await reset();
+      await page.evaluate(() => window.__GFFL__.LG.processWaivers(2));
+      await drain(0);
+      ok(notify.calls.length === 0, "a week with no claims at all pushes nobody");
+
+      // Failing notify vs. the waiver engine: the run is the product.
+      await reset(); notify.status = 500;
+      await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        await LG.addClaim(3, { id: "n4", teamId: 2, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "222111", dropName: "Q. Rival", bid: 4, t: 4 });
+      });
+      const ran = await page.evaluate(() => window.__GFFL__.LG.processWaivers(3));
+      await drain(1);
+      ok(ran.processed === true && notify.calls.length === 1,
+        "notify answering 500 does not stop waivers from processing (and the call really was attempted)");
+      await reset();
+      ok(errors.length === 0, "0 page errors across the waiver producer");
+      await ctx.close();
+    }
+
+    // ---- AN3: the week recap — the one LEAGUE-WIDE send ----
+    {
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      // The same staging section M finalizes against: every relevant game final, real per-player
+      // points on the board. Driven through the REAL finalizeWeek so the producer is proven at
+      // its actual call site rather than called directly.
+      await page.evaluate(() => {
+        const D = window.__GFFL__.D;
+        const setP = (key, name, team, pos, pts) =>
+          D.S.players.set(key, { key, name, team, pos, pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0 });
+        setP("3915511", "P. Passer", "PHI", "QB", 25); setP("4241457", "R. Rusher", "DAL", "RB", 10);
+        setP("111888", "S. Second", "DEN", "RB", 8); setP("4361741", "W. Receiver", "PHI", "WR", 15);
+        setP("111555", "W. Two", "DEN", "WR", 6); setP("111222", "T. Tight", "KC", "TE", 5);
+        setP("111444", "F. Flexman", "DEN", "RB", 2); setP("dst_PHI", "PHI D/ST", "PHI", "DST", 9);
+        setP("2473037", "K. Kicker", "DAL", "K", 7); setP("222111", "Q. Rival", "DAL", "QB", 20);
+        setP("222333", "X. Wideout", "PHI", "WR", 12); setP("dst_DAL", "DAL D/ST", "DAL", "DST", 4);
+        ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+      });
+      await reset();
+      const fin = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
+      await drain(1);
+      ok(fin.ok === true, "week 1 finalizes (the action itself)");
+      ok(notify.calls.length === 1, "…and sends exactly one push (" + notify.calls.length + ")");
+      const rec = last();
+      ok(rec.gfflAll === true && rec.gfflTeam === undefined,
+        "…LEAGUE-WIDE: every device with league alerts on, not one owner");
+      ok(rec.excludeTeam === 1,
+        "…minus the team whose client actually ran the finalize — whoever's app did it is looking at the league right now");
+      ok(rec.title === "Week 1 is final", "…titled with the week (" + JSON.stringify(rec.title) + ")");
+      ok(/Battle Kreussers/.test(rec.body || "") && / — /.test(rec.body || ""),
+        "…the body is real scorelines, winner first (" + rec.body + ")");
+      ok(/\+2 more$/.test(rec.body || ""),
+        "…trimmed to two games plus a count — a notification body is one glanceable line, not a scoreboard");
+      ok(rec.url === LEAGUE, "…deep-linking the league home (" + rec.url + ")");
+
+      // Write-once: a second finalize of the same week is a no-op, so it must not re-announce.
+      await reset();
+      const again = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
+      await drain(0);
+      ok(again.ok === true && notify.calls.length === 0,
+        "re-finalizing an already-final week announces nothing — one event, one push, however many clients try");
+
+      // A finalize that REFUSES announces nothing either (this fixture's week 2 has no schedule).
+      await reset();
+      const refused = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(2, { force: true }));
+      await drain(0);
+      ok(refused.ok === false && notify.calls.length === 0, "a refused finalize pushes nobody (" + refused.reason + ")");
+      await reset();
+      ok(errors.length === 0, "0 page errors across the recap producer");
+      await ctx.close();
+    }
+
+    // ---- AN4: chat @mentions ----
+    {
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await stopPolling(page);
+      // Give one team a claimed-by name, so "people say @Peter as readily as @Battle Kreussers"
+      // is a real path rather than a comment.
+      await page.evaluate(async () => {
+        await window.__GFFL__.LG.saveTeam({ teamId: 3, claimedBy: "Grandpa" });
+        await window.__GFFL__.LG.loadTeams();
+      });
+      const m = (t) => page.evaluate((s) => window.__GFFL__.LG.mentionTargets(s), t);
+      ok(JSON.stringify(await m("nice pick @Wyoming")) === "[3]", "\"@Wyoming\" is prefix-matched to Wyoming Cowboys");
+      ok(JSON.stringify(await m("@waffle house warriors you're done")) === "[4]",
+        "a multi-word mention matches, and the trailing words don't break it (the longest run is tried first)");
+      ok(JSON.stringify(await m("@BATTLE kreussers")) === "[1]", "case is irrelevant");
+      ok(JSON.stringify(await m("@nailsforbreakfast")) === "[5]",
+        "…and so is punctuation and spacing (\"Nails  For Breakfast\" has a double space on the team doc)");
+      ok(JSON.stringify(await m("@Grandpa what a week")) === "[3]", "an OWNER's name works as a handle too");
+      ok(JSON.stringify(await m("no mentions in here at all")) === "[]", "a message with no @ mentions nobody — the non-mention control");
+      ok(JSON.stringify(await m("email me at peter@example.com")) === "[]",
+        "an email address is not a mention (nothing in the league is called \"example.com\")");
+      ok(JSON.stringify(await m("@zz")) === "[]", "a run under three characters mentions nobody, rather than half the league");
+      ok(JSON.stringify(await m("@Battleship")) === "[]",
+        "prefix-tolerance runs ONE way: the typed mention must be a prefix of the handle, not the other way round");
+
+      // The producer, at its real call site.
+      await reset();
+      const posted = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@End Zone Goats you're up" }));
+      await drain(1);
+      ok(posted.ok === true, "the message posts (the action itself)");
+      ok(notify.calls.length === 1 && last().gfflTeam === 2, "…and pushes exactly the mentioned owner");
+      ok(/mentioned you/.test(last().title || "") && /Battle Kreussers/.test(last().title || ""),
+        "…titled with who mentioned them (" + last().title + ")");
+      ok(/you're up/.test(last().body || ""), "…carrying the message itself (" + last().body + ")");
+      ok(last().url === LEAGUE + "#chat", "…deep-linking Chat (" + last().url + ")");
+
+      await reset();
+      const plain = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "great week everyone" }));
+      await drain(0);
+      ok(plain.ok === true && notify.calls.length === 0, "a message mentioning nobody pushes nobody");
+
+      await reset();
+      const selfie = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@Battle Kreussers is unstoppable" }));
+      await drain(0);
+      ok(selfie.ok === true && notify.calls.length === 0, "mentioning YOURSELF pushes nobody");
+
+      await reset();
+      const two = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@Wyoming and @The Goat Kids, trade?" }));
+      await drain(2);
+      ok(two.ok === true && notify.calls.length === 2 && targets().includes(3) && targets().includes(8),
+        "two mentions push two owners (" + JSON.stringify(targets()) + ")");
+
+      await reset(); notify.status = 500;
+      const survived = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@Wyoming hello again" }));
+      await drain(1);
+      const chatDocs = await page.evaluate(() => window.__GFFL__.LG.loadChat(null));
+      ok(survived.ok === true && notify.calls.length === 1 && chatDocs.some((c) => /hello again/.test(c.text || "")),
+        "notify answering 500 does not stop the message being posted (and the call really was attempted)");
+      await reset();
+      ok(errors.length === 0, "0 page errors across the chat producer");
+      await ctx.close();
+    }
+
+    // ---- AN5: the enable card on My Team ----
+    {
+      await reset();
+      // The card reads window.BuckyPush LIVE, so each state is staged by replacing that object
+      // after boot — which also proves the card is reading the real helper rather than a copy
+      // it took at render time. push-client.js itself is loaded by league.html; the FCM stack
+      // underneath it is never stood up (it needs a service worker, a VAPID key and Google).
+      const stub = (page, cfg) => page.evaluate((c) => {
+        window.__pushCalls = [];
+        window.BuckyPush = {
+          isSupported: () => c.supported !== false,
+          status: () => ({ supported: c.supported !== false, permission: "granted", enabled: !!c.extra, user: "Peter", familyKey: "x", extra: c.extra || null }),
+          enable: async (u, f, o, extra) => { window.__pushCalls.push({ kind: "enable", u, f, extra }); return { token: "T" }; },
+          disable: async () => { window.__pushCalls.push({ kind: "disable" }); return true; },
+        };
+      }, cfg);
+      const openMine = async (page) => {
+        await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+        await page.waitForSelector(".lockerhead", { timeout: 9000 });
+      };
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await stopPolling(page);
+
+      // Default state, unstubbed: headless Chrome on 127.0.0.1 is a secure context with a
+      // service worker, PushManager and Notification, so the REAL helper's own support test is
+      // what decides here.
+      await openMine(page);
+      const real = await page.evaluate(() => {
+        const c = document.getElementById("alertCard");
+        return { present: !!c, on: !!document.getElementById("alertOn"), off: !!document.getElementById("alertOff"),
+                 emoji: c ? /\p{Extended_Pictographic}/u.test(c.textContent) : null,
+                 bell: c ? c.querySelectorAll("svg.alertbell").length : 0,
+                 loaded: typeof window.BuckyPush === "object" };
+      });
+      ok(real.loaded, "push-client.js is loaded on the league page (window.BuckyPush exists)");
+      ok(real.present && real.on && !real.off, "My Team carries an alerts card, offering to turn them ON");
+      ok(real.emoji === false && real.bell === 1,
+        "…with an inline SVG bell and zero emoji anywhere in it (section U scans every view for exactly this)");
+
+      // ON state.
+      await stub(page, { extra: { gfflTeam: 1 } });
+      await openMine(page);
+      const on = await page.evaluate(() => {
+        const c = document.getElementById("alertCard");
+        return { txt: c.textContent.replace(/\s+/g, " ").trim(), off: !!document.getElementById("alertOff"), on: !!document.getElementById("alertOn") };
+      });
+      ok(on.off && !on.on, "a phone with league alerts ON offers to turn them off, not on");
+      ok(/Alerts are on for Battle Kreussers on this phone/.test(on.txt), "…and says which team, on which phone (" + on.txt.slice(0, 80) + ")");
+      ok(/every Bucky alert on this phone/.test(on.txt),
+        "…and is honest that turning them off takes the family app's alerts with it — one token doc per device");
+
+      // A device enabled for a DIFFERENT team (a phone that changed hands) is offered the
+      // enable, not told it is already on.
+      await stub(page, { extra: { gfflTeam: 4 } });
+      await openMine(page);
+      ok(await page.evaluate(() => !!document.getElementById("alertOn")),
+        "a device enabled as ANOTHER team is offered the enable for this one");
+
+      // The enable call itself — the gfflTeam stamp is the whole point of the card.
+      await stub(page, { extra: null });
+      await openMine(page);
+      await page.evaluate(() => document.getElementById("alertOn").click());
+      await page.waitForFunction(() => (window.__pushCalls || []).length > 0, { timeout: 5000 });
+      const call = await page.evaluate(() => window.__pushCalls[0]);
+      ok(call.kind === "enable" && call.extra && call.extra.gfflTeam === 1,
+        "turning alerts on stamps gfflTeam onto the token doc — what every S4 send selects on");
+      ok(call.u === "Peter" && !!call.f,
+        "…while still writing the person's own name as `user`, so family chore/bank targeting on this device is untouched");
+
+      // Unsupported browser.
+      await stub(page, { supported: false, extra: null });
+      await openMine(page);
+      const unsup = await page.evaluate(() => ({ txt: (document.getElementById("alertCard") || {}).textContent || "", on: !!document.getElementById("alertOn") }));
+      ok(!unsup.on && /can't do push notifications/.test(unsup.txt), "a browser with no push support says so, and offers no button");
+
+      // iOS in a TAB — the honest line. Safari there reports no PushManager at all, so
+      // "this browser can't" would be true and useless: there IS a way, through the install.
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, "userAgent", { configurable: true, get: () => "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15" });
+      });
+      await stub(page, { supported: false, extra: null });
+      await openMine(page);
+      const ios = await page.evaluate(() => ({ txt: (document.getElementById("alertCard") || {}).textContent || "", on: !!document.getElementById("alertOn") }));
+      ok(/Home Screen/.test(ios.txt) && /16\.4/.test(ios.txt),
+        "on iPhone in a tab the card names the real way in — install it, iOS 16.4+ (" + ios.txt.replace(/\s+/g, " ").slice(0, 90) + ")");
+      ok(!ios.on, "…and offers no button that could only fail");
+
+      // Another owner's locker is not a place to configure MY phone.
+      await page.evaluate(() => window.__GFFL__.UI.openLocker(2));
+      await page.waitForSelector(".lockerhead", { timeout: 9000 });
+      ok(await page.evaluate(() => !document.getElementById("alertCard")), "another owner's locker carries no alerts card at all");
+
+      // The design pass's rule is untouched: the hero still opens quiet.
+      await openMine(page);
+      const quiet = await page.evaluate(() => {
+        const foot = document.querySelector(".lockerfoot");
+        return { footHidden: !!(foot && foot.hasAttribute("hidden")), cardInHero: !!document.querySelector(".lockerhead #alertCard") };
+      });
+      ok(quiet.footHidden, "the pencil-disclosed foot still starts hidden — the alerts card did not open the hero");
+      ok(!quiet.cardInHero, "…and the card lives among the page's cards, not inside the identity hero");
+      ok(errors.length === 0, "0 page errors across the enable card's states");
+      await ctx.close();
+    }
+
+    // ---- AN6: push-client.js still works with NO gfflTeam (family compatibility) ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await stopPolling(page);
+      const docs = await page.evaluate(() => {
+        const B = window.BuckyPush;
+        return { family: B._buildTokenDoc("TOK", "Isaac"), league: B._buildTokenDoc("TOK", "Peter", { gfflTeam: 5 }),
+                 nully: B._buildTokenDoc("TOK", "Peter", { gfflTeam: null }), arity: B.enable.length };
+      });
+      ok(!("gfflTeam" in docs.family) && docs.family.user === "Isaac" && docs.family.token === "TOK" && !!docs.family.ua && !!docs.family.at,
+        "a family enable() writes exactly the four fields it always did — no gfflTeam key at all");
+      ok(docs.league.gfflTeam === 5 && docs.league.user === "Peter",
+        "a league enable() adds gfflTeam and keeps `user` — both audiences on one device");
+      ok(!("gfflTeam" in docs.nully), "a null extra is dropped rather than written as a field that means nothing");
+      ok(docs.arity === 4, "enable()'s new 4th argument is optional — every 2-and-3-arg family call site is unchanged");
+      // The shipped source, not a paraphrase of it: the doc write MERGES, so a device that had
+      // family alerts and now turns league alerts on gains gfflTeam rather than trading `user`
+      // for it.
+      const src = fs.readFileSync(path.join(ROOT, "push-client.js"), "utf8");
+      ok(/setDoc\(ref, buildTokenDoc\(token, userName, extra\), \{ merge: true \}\)/.test(src),
+        "…and the write is setDoc(..., {merge:true}) — turning one audience on never deletes the other");
+      ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
   }

@@ -1332,6 +1332,91 @@
     return (await LG.db.list("tx")).sort((a, b) => b.t - a.t);
   };
 
+  // ---------------- S4 · push notifications (plan "the one structural Sleeper gap") ----------
+  // The whole FCM stack already exists for the family app — push-client.js writes a token doc,
+  // notify.mjs sends. What is new here is only WHO a push is for and WHAT it says.
+  //
+  // Producers are CLIENT-side and fire AFTER the action has committed (the lobby-invite
+  // precedent — no server watcher, and nothing to keep awake). Two rules make that safe:
+  //
+  //   1. FIRE-AND-FORGET, ALWAYS. Every producer goes through LG.pushNotify, which awaits
+  //      nothing the caller can see and swallows every failure. A notify outage, a 500, a
+  //      blocked fetch — none of them may cost the family a trade, a waiver run or a message.
+  //      The action is the product; the buzz is a courtesy.
+  //   2. ONE SENDER. Each producer sits at the point of a genuine STATE TRANSITION inside the
+  //      action's own idempotency guard (executeTrade/processWaivers/finalizeWeek all re-read
+  //      and bail if another device got there first), so a league where every phone runs the
+  //      same auto-check chain still sends exactly one push per event, not one per phone.
+  //
+  // The actor never pushes themselves: they are looking at the screen the news is on.
+  //
+  // Deep links are ABSOLUTE on the league's own domain. A relative link would resolve against
+  // notify.mjs's family origin and open the FARM app — the reader would tap "trade offer" and
+  // land in the chores list. /league.html, not /, because "/" on that host is the family app.
+  LG.PUSH_ORIGIN = "https://goatfantasyleague.com";
+  LG.pushLink = (hash) => LG.PUSH_ORIGIN + "/league.html" + (hash || "");
+  // opts: { toTeam } | { all: true } — plus title, body, link.
+  // Returns a promise for the SUITE's benefit (so a check can await the call having been made);
+  // no producer awaits it, and it never rejects.
+  LG.pushNotify = function (opts) {
+    opts = opts || {};
+    const payload = {
+      secret: LG.PASS, familyKey: LG.famKey,
+      title: String(opts.title || ""), body: String(opts.body || ""),
+      url: opts.link || LG.pushLink(),
+    };
+    if (opts.all) { payload.gfflAll = true; if (opts.excludeTeam != null) payload.excludeTeam = opts.excludeTeam; }
+    else if (opts.toTeam != null) payload.gfflTeam = opts.toTeam;
+    else return Promise.resolve(null); // no audience — nothing to do, and never an error
+    return fetch("/.netlify/functions/notify", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    }).then((r) => r.json().catch(() => null)).catch(() => null);
+  };
+  // Every producer routes through here so "don't buzz the person who just did it" is ONE rule
+  // in ONE place rather than a condition repeated at six call sites.
+  LG.pushTeam = function (teamId, title, body, link) {
+    if (teamId == null) return Promise.resolve(null);
+    if (Number(teamId) === Number(LG.myTeamId())) return Promise.resolve(null); // the actor
+    return LG.pushNotify({ toTeam: Number(teamId), title, body, link });
+  };
+  LG.teamName = (id) => { if (id == null) return "Someone"; const t = LG.teamById(id); return (t && t.name) || ("Team " + id); };
+
+  // @MENTION MATCHING. Deliberately simple and deliberately documented, because a matcher
+  // nobody can predict is a matcher that buzzes the wrong person:
+  //   · a mention is "@" followed by up to FOUR words (letters/digits and the punctuation real
+  //     team names carry — apostrophes, dots, hyphens);
+  //   · both the mention and each handle are normalised to letters+digits only, so case,
+  //     spaces and punctuation are all irrelevant ("@nailsforbreakfast" == "Nails  For Breakfast");
+  //   · it is PREFIX-tolerant one way — the typed mention must be a prefix of the handle, so
+  //     "@Battle" reaches Battle Kreussers but "@Battleship" reaches nobody;
+  //   · the LONGEST run of words is tried first and the first run that matches anything wins,
+  //     which is what stops "@Battle you're up" collapsing into one unmatchable blob;
+  //   · a handle is the team's NAME, its abbrev, its `owner`, or whoever `claimedBy` it —
+  //     people say "@Peter" as readily as "@Battle Kreussers";
+  //   · a run under 3 characters is ignored, or "@a" would mention half the league.
+  const mNorm = (s) => String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]/g, "");
+  LG.mentionTargets = function (text) {
+    const out = [];
+    const re = /@([A-Za-z0-9][A-Za-z0-9'._-]*(?:[ ][A-Za-z0-9][A-Za-z0-9'._-]*){0,3})/g;
+    let m;
+    while ((m = re.exec(String(text || "")))) {
+      const words = m[1].split(" ").filter(Boolean);
+      for (let n = words.length; n >= 1; n--) {
+        const raw = mNorm(words.slice(0, n).join(""));
+        if (raw.length < 3) continue;
+        let hit = false;
+        for (const t of LG.teams) {
+          for (const h of [t.name, t.abbrev, t.owner, t.claimedBy]) {
+            const hn = mNorm(h);
+            if (hn && hn.length >= 3 && hn.startsWith(raw)) { if (!out.includes(t.id)) out.push(t.id); hit = true; }
+          }
+        }
+        if (hit) break;
+      }
+    }
+    return out;
+  };
+
   // ---------------- weekly waivers (FAAB, plan §4.3) ----------------
   // One doc per week: claims:[{id,teamId,addKey,addName,addPos,addTeam,
   // dropKey,dropName,bid,t}]. Blind by UI convention only — the doc itself is
@@ -1488,7 +1573,34 @@
     const done = { claims, processed: true, results };
     await LG.saveClaims(week, done);
     await LG.loadTeams(); // refresh in-memory FAAB for the caller
+    // S4 producer. Sent by whichever client actually RAN the processing — the guard above is
+    // what makes that exactly one client, so nobody gets the same results twice. Only owners
+    // who bid hear anything at all, and each hears only their OWN claims resolve.
+    LG.pushWaiverResults(week, claims, results);
     return { kind: "claims", week, ...done };
+  };
+  // Split out so the suite can drive the message-building on its own, and so processWaivers
+  // itself keeps reading as the engine rather than the engine plus a mailer.
+  LG.pushWaiverResults = function (week, claims, results) {
+    try {
+      const byId = new Map((results || []).map((r) => [r.id, r]));
+      const perTeam = new Map();
+      for (const c of claims || []) {
+        const r = byId.get(c.id);
+        if (!r) continue;
+        if (!perTeam.has(c.teamId)) perTeam.set(c.teamId, { won: [], lost: [] });
+        const bucket = perTeam.get(c.teamId);
+        const nm = LG.shortName(c.addName || c.addKey);
+        if (r.ok) bucket.won.push(nm + " for $" + c.bid);
+        else bucket.lost.push(nm);
+      }
+      for (const [teamId, b] of perTeam) {
+        const parts = [];
+        if (b.won.length) parts.push("Won " + b.won.join(", "));
+        if (b.lost.length) parts.push("lost " + b.lost.join(", "));
+        LG.pushTeam(teamId, "Waivers — week " + week, parts.join(" · "), LG.pushLink("#moves"));
+      }
+    } catch (e) { /* a producer may never cost the run that produced it */ }
   };
 
   // ---------------- trades (plan §4.4) ----------------
@@ -1514,6 +1626,8 @@
     const id = LG.tradeId(t);
     const doc = { kind: "trade", id, from, to, give, get, note: note || "", status: "offered", t, acceptedAt: null, reviewEndsAt: null, vetoes: [] };
     await LG.saveTrade(doc);
+    // S4 producer — the offer's whole point is that the other owner doesn't know about it yet.
+    LG.pushTeam(to, "Trade offer", LG.teamName(from) + " sent you a trade.", LG.pushLink("#moves"));
     return { ok: true, trade: doc };
   };
   // Every status transition below is a read-modify-write on one shared trade doc, so each
@@ -1546,6 +1660,8 @@
     const reviewMs = ((LG.rules && LG.rules.trades.reviewHours) || 24) * 3600e3;
     const next = { ...doc, status: "accepted", acceptedAt: now, reviewEndsAt: now + reviewMs };
     await LG.saveTrade(next);
+    // S4 producer — to the PROPOSER, who has been waiting on an answer.
+    LG.pushTeam(doc.from, "Trade accepted", LG.teamName(doc.to) + " accepted your trade. It goes through after the review window.", LG.pushLink("#moves"));
     return next;
   };
   // Any owner NOT a party to the trade may add one veto vote; enough votes
@@ -1563,6 +1679,10 @@
     if (status === "vetoed") {
       // Item 15 (2026-08-09): sys chat post removed — this logTx IS the veto's record.
       await LG.logTx("trade", LG.currentWeek(), doc.from, { tradeId: id, from: doc.from, to: doc.to, give: doc.give, get: doc.get, result: "vetoed" });
+      // S4 producer — BOTH parties, because a trade they had both agreed to has just died.
+      // Only on the vote that actually kills it: the earlier votes changed nothing.
+      LG.pushTeam(doc.from, "Trade vetoed", "The league voted down your trade with " + LG.teamName(doc.to) + ".", LG.pushLink("#moves"));
+      LG.pushTeam(doc.to, "Trade vetoed", "The league voted down your trade with " + LG.teamName(doc.from) + ".", LG.pushLink("#moves"));
     }
     return next;
   };
@@ -1632,6 +1752,16 @@
     if (opts.gif && opts.gif.url) doc.gif = { url: opts.gif.url, preview: opts.gif.preview || opts.gif.url };
     if (opts.replyTo) doc.replyTo = opts.replyTo;
     await LG.db.set(LG.chatId(t), doc);
+    // S4 producer — @mentions only. A message nobody was named in pushes nobody: chat is a
+    // room people drop into, and buzzing the whole league for every line would be the fastest
+    // possible way to get every owner to turn alerts off.
+    try {
+      const from = LG.myTeamId() != null ? LG.teamName(LG.myTeamId()) : (LG.who() || "Someone");
+      for (const tid of LG.mentionTargets(text)) {
+        // pushTeam already drops the sender, so a self-mention is silent by construction.
+        LG.pushTeam(tid, from + " mentioned you", text.slice(0, 140), LG.pushLink("#chat"));
+      }
+    } catch (e) { /* never costs the message */ }
     return { ok: true, msg: doc };
   };
   // Every mode-"story"-style event post below routes through here. Wrapped so
@@ -2083,7 +2213,34 @@
     // this function just wrote IS the record — the league home renders its scores and all
     // three awards straight off it, and the record book reads every one of them.
 
+    // S4 producer — the one LEAGUE-WIDE send. It sits after the write-once race guard above,
+    // so the client that actually wrote the doc is the only one that sends it. `excludeTeam`
+    // is that client's own team: whoever's app happened to run the auto-finalize is, by
+    // definition, looking at the league right now.
+    LG.pushWeekRecap(week, matchups);
+
     return { ok: true, ...doc };
+  };
+  // "Battle Kreussers 112.4 — 98.1 End Zone Goats · …", winner first in each pairing so the
+  // line reads as results rather than as the schedule. Trimmed to two games plus a count,
+  // because a notification body is one glanceable line, not a scoreboard.
+  LG.pushWeekRecap = function (week, matchups) {
+    try {
+      const lines = (matchups || []).map((m) => {
+        const homeWon = m.homePts >= m.awayPts;
+        const [wId, wPts, lId, lPts] = homeWon
+          ? [m.home, m.homePts, m.away, m.awayPts]
+          : [m.away, m.awayPts, m.home, m.homePts];
+        return LG.teamName(wId) + " " + LG.fmtPts(wPts) + " — " + LG.fmtPts(lPts) + " " + LG.teamName(lId);
+      });
+      const shown = lines.slice(0, 2).join(" · ");
+      const more = lines.length > 2 ? " · +" + (lines.length - 2) + " more" : "";
+      LG.pushNotify({
+        all: true, excludeTeam: LG.myTeamId(),
+        title: "Week " + week + " is final",
+        body: shown + more, link: LG.pushLink(),
+      });
+    } catch (e) { /* a producer may never cost the week it is announcing */ }
   };
 
   // ---------------- playoffs, bracket, trophies (S7, plan §4.10) ----------------
