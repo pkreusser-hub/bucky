@@ -24,6 +24,11 @@
 // rosters, for keeper costs), ff_player (one player's stat breakdown + ESPN's
 // seasonOutlook analysis, for the detail card).
 //
+// THE GFFL (league.html) also reads two of these: ff_freeagents feeds its waiver
+// advice, and ff_pct_owned { ids:[espn player ids] } -> { ok, own:{id: pct} } is
+// the percent-owned column on its drop/swap card (S10) — ownership only, nothing
+// else, batched one call per card open.
+//
 // FANTASY (ff_* actions): the family's private ESPN league (id 705063, team
 // "Battle Kreussers") through the fantasy v3 API. A private league requires two
 // cookies from a logged-in espn.com browser session — set them as Netlify env
@@ -934,6 +939,58 @@ async function ffPlayer(body) {
   }
 }
 
+// S10: percent-owned for a BATCH of players, and nothing else. The league's drop/swap card
+// shows "how much of the fantasy world rosters this player" beside each candidate, which is
+// one number per id — so this action slims to exactly that and never carries a stat line, an
+// outlook, a draft rank or a projection back to the client.
+//
+// ⚠ THE VIEW IS kona_playerCARD, NOT kona_player_INFO. ESPN 400s a filterIds filter on
+// kona_player_info (measured live 2026-08-06 — see ffPlayer above, which learned this the
+// hard way); the by-id recipe is the playercard view plus a filterIds/top-scoring-periods
+// filter. ff_freeagents' filterStatus recipe is the OTHER shape and is untouched.
+//
+// The ids are the league's own roster keys, which are ESPN player ids — validated as
+// positive integers, deduped, and capped at 40 (a full roster plus the player being added,
+// with room to spare; an unbounded list would be an unbounded upstream payload).
+const PCT_OWNED_MAX = 40;
+async function ffPctOwned(body) {
+  const seen = new Set();
+  for (const raw of (Array.isArray(body?.ids) ? body.ids : [])) {
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n <= 0) continue;      // "slp_1234", "dst_KC", "", null → dropped
+    seen.add(n);
+    if (seen.size >= PCT_OWNED_MAX) break;
+  }
+  const ids = [...seen];
+  if (!ids.length) return { ok: true, own: {} };       // nothing to ask about is not a failure
+  const year = Number(body?.year) >= 2000 && Number(body?.year) <= 2100
+    ? Number(body.year) : ffSeason();
+  const filter = {
+    players: {
+      filterIds: { value: ids },
+      filterStatsForTopScoringPeriodIds: { value: 17, additionalValue: ["00" + year] },
+      limit: PCT_OWNED_MAX,
+    },
+  };
+  const { data: j, err } = await ffFetch(["kona_playercard"], "", { ...body, year },
+    { "x-fantasy-filter": JSON.stringify(filter) });
+  if (err) return { ok: false, reason: err };
+  try {
+    const own = {};
+    for (const e of (Array.isArray(j?.players) ? j.players : [])) {
+      const p = e?.player || e || {};
+      const id = p?.id ?? e?.id;
+      if (!Number.isFinite(Number(id))) continue;
+      own[String(id)] = Math.round((p?.ownership?.percentOwned ?? 0) * 10) / 10;
+    }
+    // An id ESPN simply doesn't know is ABSENT from `own`, never a fabricated 0 — the client
+    // renders "—" for a missing entry, which is the honest answer.
+    return { ok: true, season: year, own };
+  } catch {
+    return { ok: false, reason: "bad-shape" };
+  }
+}
+
 // ---------------- handler ----------------
 
 export default async (req) => {
@@ -961,6 +1018,7 @@ export default async (req) => {
   if (body.action === "ff_draftpool") return json(await ffDraftPool(body), 200, headers);
   if (body.action === "ff_lastdraft") return json(await ffLastDraft(body), 200, headers);
   if (body.action === "ff_player") return json(await ffPlayer(body), 200, headers);
+  if (body.action === "ff_pct_owned") return json(await ffPctOwned(body), 200, headers);
   return json({ error: "Unknown action" }, 400, headers);
 };
 

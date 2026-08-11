@@ -98,6 +98,12 @@ const fixture = {
   // D.simEnsureProj's derive-from-real-final-stats fallback — the shipped default path.
   simProjReal: false,
   simProjAdpOnly: false, // the live-probe ADP-husk trap (2026-08-08)
+  // S6 (2026-08-11). null = the endpoints answer {} — which is what EVERY pre-existing section
+  // sees, and is precisely the "no trending data" path: no chips, no strip, not one pixel of
+  // difference. Armed only by section AO. `trendingDown` makes them fail outright (503).
+  trending: null,
+  trendingDown: false,
+  projS10: false,      // S10 — see slpProjS10
   // Coordinator addendum (2026-08-08) — the Scores tab's ff_scoreboard fixture (fake sports.mjs
   // fantasy upstream). Default false = the existing scored 2-matchup fixture; true = an
   // all-zero preseason/pre-draft shape (see ffScoreboardFix's own comment).
@@ -515,9 +521,31 @@ function ffScoreboardFix() {
     ],
   };
 }
+// S10 (2026-08-11): percent-owned. The keys the league's rosters use ARE espn ids, so this
+// is keyed by them. Two players are known, and everyone else is DELIBERATELY absent — an id
+// ESPN doesn't recognise must read "—" on the card rather than a fabricated 0. Shaped as the
+// RAW kona_playercard document sports.mjs's own ffPctOwned() consumes, not the slim answer it
+// produces, so the fixture proves the real integration.
+const PCT_OWNED_FIX = { 111333: 42.5, 111777: 8.1 };
+function ffPctOwnedDoc(ids) {
+  return {
+    players: ids.filter((id) => PCT_OWNED_FIX[id] != null)
+      .map((id) => ({ id, player: { id, fullName: "P" + id, ownership: { percentOwned: PCT_OWNED_FIX[id] } } })),
+  };
+}
+const sportsFfUp = { lastUrl: "", lastFilter: "", calls: 0 };
 function startSportsFfUpstream() {
   const srv = http.createServer((req, res) => {
+    sportsFfUp.calls++;
+    sportsFfUp.lastUrl = req.url;
     res.writeHead(200, { "Content-Type": "application/json" });
+    if (req.url.includes("view=kona_playercard")) {
+      sportsFfUp.lastFilter = req.headers["x-fantasy-filter"] || "";
+      let ids = [];
+      try { ids = (JSON.parse(sportsFfUp.lastFilter).players.filterIds.value || []).map(Number); } catch (e) {}
+      res.end(JSON.stringify(ffPctOwnedDoc(ids)));
+      return;
+    }
     res.end(JSON.stringify(ffScoreboardFix()));
   });
   return new Promise((r) => srv.listen(SPORTS_FF_PORT, "127.0.0.1", () => r(srv)));
@@ -803,6 +831,7 @@ const simSbUrls = [];
 // section AI can assert the season-TYPE segment ("/stats/nfl/pre/2026/1") rather than trust it.
 const slpStatsUrls = [];
 const slpProjUrls = [];
+const trendUrls = []; // S6 — every /players/nfl/trending/* request the page makes
 function sbSim2025Fix() {
   const ev = (id, away, home, date, net, extra) => ({
     id, shortName: away + " @ " + home, date,
@@ -1184,6 +1213,14 @@ function sumPreFix(state) {
   };
 }
 const slpProjFix = { "9001": { rec: 4, rec_yd: 45 } }; // TE proj 4 + 4.5 = 8.5
+// S10 (2026-08-11): three MORE real projections, layered in only when section AO asks for them
+// — the drop/swap card renders a PROJ column, and a fixture where every row reads "—" could
+// not tell a working column from a broken one. Hand-computed against the league's default
+// scoring (rec 1, rec_yd 0.1, rush_yd 0.1, rush_td 6): H. Healthy 6 + 6.0 = 12.0, B. Backup
+// 5.0 + 6 = 11.0, F. Agent 3 + 4.0 = 7.0 (the card HEADER's own projection).
+// Deliberately behind a flag: every other section still sees exactly one projection.
+const slpProjS10 = { "9006": { rec: 6, rec_yd: 60 }, "9002": { rush_yd: 50, rush_td: 1 }, "9201": { rec: 3, rec_yd: 40 } };
+const slpProjNow = () => (fixture.projS10 ? { ...slpProjFix, ...slpProjS10 } : slpProjFix);
 
 // ---------------- seeds (the local backend's docs) ----------------
 const FAM = "test1";
@@ -1534,6 +1571,17 @@ async function newTestPage(browser, seed, opts) {
         }
         if (u.includes("api.sleeper.app")) {
           if (fixture.sleeperDown) return req.respond({ status: 503, headers: cors, body: "{}" });
+          // S6: the keyless trending endpoints. The URL is recorded so the lookback/limit
+          // params can be asserted, and the COUNT is what proves the 1h localStorage cache
+          // really spares a second visit a fetch.
+          if (u.includes("/players/nfl/trending/")) {
+            trendUrls.push(u);
+            if (fixture.trendingDown) return req.respond({ status: 503, headers: cors, body: "{}" });
+            const kind = /trending\/(add|drop)/.exec(u);
+            const t = fixture.trending;
+            if (!t || !kind) return json({});
+            return json((t[kind[1]] || []).map(([pid, count]) => ({ player_id: pid, count })));
+          }
           if (u.endsWith("/state/nfl")) return json(slpStateNow());
           if (u.endsWith("/players/nfl")) return json(fixture.prod2025 ? prodSlpDirectory() : slpDirectoryFix());
           if (u.includes("/stats/nfl/")) {
@@ -1554,7 +1602,7 @@ async function newTestPage(browser, seed, opts) {
             // caller (the real 2026 league) is untouched — same generic slpProjFix always.
             const m = /\/projections\/nfl\/[^/]+\/(\d+)\/(\d+)/.exec(u);
             const simFix = m ? slpSimProjFix(m[1], m[2]) : null;
-            return json(simFix != null ? simFix : slpProjFix);
+            return json(simFix != null ? simFix : slpProjNow());
           }
           return json({});
         }
@@ -1811,6 +1859,17 @@ const clickChildIn = (page, containerSel, childSel, filterText) => page.evaluate
   if (!child) return false;
   child.click(); return true;
 }, containerSel, childSel, filterText || null);
+// S10 (2026-08-11): the add/claim and lineup-swap bottom sheets (#claimSheet / #rosterCard,
+// class .sheet) are GONE — both flows render into ONE centered overlay, #rosterCard. Every
+// restaged check below keeps its own point (the flow still completes, the lock still refuses,
+// Back still closes the modal without losing the view) and only changes WHERE it looks.
+// Cancel moved out of the row list into the card's footer as a ghost button, so it is no
+// longer a .swaprow — this is the one way to dismiss the card the way a person does.
+const cancelRosterCard = (page) => page.evaluate(() => {
+  const b = document.querySelector("#rosterCard .rcghost");
+  if (!b) return false;
+  b.click(); return true;
+});
 // ITEM 20 (2026-08-09): the trade builder's two sides start COLLAPSED — a side is the players
 // already chosen plus a "+", and the roster picker only exists once the "+" is tapped. Every
 // pre-existing test that reached straight for a .pickchip therefore has to open the side
@@ -2236,7 +2295,9 @@ async function openDetails(page, id) {
     const opts2 = await page.$$eval(".swaprow", (els) => els.map((e) => e.textContent));
     ok(!opts2.some((t) => t.includes("→ IR")), "healthy player is NOT IR-eligible");
     ok(opts2.some((t) => t.includes("→ WR")), "…but can move into a WR slot");
-    await page.evaluate(() => { [...document.querySelectorAll(".swaprow")].find((r) => r.textContent.includes("Cancel")).click(); });
+    // RESTAGED (S10, 2026-08-11): Cancel is the card's footer ghost button now, not a row in
+    // the list — dismissing is what is under test, not which element carries it.
+    await cancelRosterCard(page);
     // FLEX swap: unlocked starter <-> eligible bench.
     await clickChildIn(page, ".lrow", ".lswap", "F. Flexman");
     await page.waitForSelector(".swaprow", { timeout: 5000 });
@@ -2637,9 +2698,9 @@ async function openDetails(page, id) {
     // (proven separately below), so the claim flow starts from the row's own explicit
     // accent-outlined MOVE button (.faMoveBtn) instead.
     await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "A. Vail");
-    await page.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
-    ok(/Claim A\. Vail/.test(await page.$eval("#claimSheet", (e) => e.textContent)), "tapping the MOVE button on a browsed row (no search typed) opens the claim sheet for that player");
-    await clickIn(page, "#claimSheet [data-di]", "B. Backup");
+    await page.waitForSelector("#rosterCard [data-di]", { timeout: 5000 });
+    ok(/Claim A\. Vail/.test(await page.$eval("#rosterCard", (e) => e.textContent)), "tapping the MOVE button on a browsed row (no search typed) opens the claim sheet for that player");
+    await clickIn(page, "#rosterCard [data-di]", "B. Backup");
     await clickIn(page, "#claimGo");
     await page.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent && document.querySelector("#mvMyClaims").textContent.includes("A. Vail"), { timeout: 5000 });
     ok(true, "claiming straight from the browse table (pre-deadline) queues a claim exactly like a searched one");
@@ -2652,8 +2713,8 @@ async function openDetails(page, id) {
     const addBtnTxt = await page.$eval("#faResults .faAddBtn", (e) => e.textContent.trim());
     ok(addBtnTxt === "Add", "past the waiver deadline the row button reads \"Add\", not \"Claim\"");
     await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "F. Agent"); // RESTAGED — see the note above
-    await page.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
-    await clickIn(page, "#claimSheet [data-di]", "H. Healthy");
+    await page.waitForSelector("#rosterCard [data-di]", { timeout: 5000 });
+    await clickIn(page, "#rosterCard [data-di]", "H. Healthy");
     await clickIn(page, "#claimGo");
     await sleep(300);
     const rosterAfterAdd = await page.evaluate(() => window.__GFFL__.LG.loadRoster(1, 1));
@@ -2677,8 +2738,8 @@ async function openDetails(page, id) {
     await page1.type("#faSearch", "dst");
     await page1.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
     await clickChildIn(page1, "#faResults [data-fi]", ".faMoveBtn", "KC D/ST"); // RESTAGED — see I0's note
-    await page1.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
-    await clickIn(page1, "#claimSheet [data-di]", "B. Backup");
+    await page1.waitForSelector("#rosterCard [data-di]", { timeout: 5000 });
+    await clickIn(page1, "#rosterCard [data-di]", "B. Backup");
     await page1.$eval("#claimBid", (el) => { el.value = "25"; });
     await clickIn(page1, "#claimGo");
     await page1.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent && document.querySelector("#mvMyClaims").textContent.includes("KC D/ST"), { timeout: 5000 });
@@ -2847,8 +2908,8 @@ async function openDetails(page, id) {
     await page.type("#faSearch", "dst");
     await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
     await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "KC D/ST"); // RESTAGED — see I0's note
-    await page.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
-    await clickIn(page, "#claimSheet [data-di]", "B. Backup");
+    await page.waitForSelector("#rosterCard [data-di]", { timeout: 5000 });
+    await clickIn(page, "#rosterCard [data-di]", "B. Backup");
     await clickIn(page, "#claimGo");
     await page.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent && document.querySelector("#mvMyClaims").textContent.includes("KC D/ST"), { timeout: 5000 });
     await clickIn(page, ".mvcancel");
@@ -5424,8 +5485,8 @@ async function openDetails(page, id) {
     // The owner, whose tab has been open the whole time, taps an unrelated lineup change:
     // move the OUT player to IR (section E's own flow).
     await clickChildIn(page, ".lrow", ".lswap", "I. Injured"); // RESTAGED (2026-08-08) — see section E's own note
-    await page.waitForSelector("#swapSheet .swaprow", { timeout: 5000 });
-    await clickIn(page, "#swapSheet .swaprow", "IR");
+    await page.waitForSelector("#rosterCard .swaprow", { timeout: 5000 });
+    await clickIn(page, "#rosterCard .swaprow", "IR");
     await page.waitForFunction(() => {
       const d = JSON.parse(localStorage.getItem("lg_gffl_test1_roster_2026_w1_t1") || "{}");
       return (d.players || []).some((p) => p.key === "111666" && p.slot === "IR");
@@ -6060,13 +6121,13 @@ async function openDetails(page, id) {
       const row = [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("T. Tight"));
       row.querySelector(".slotchip").click();
     });
-    const nothingOpened = await page.evaluate(() => document.getElementById("playerCard").hidden && document.getElementById("swapSheet").hidden);
+    const nothingOpened = await page.evaluate(() => document.getElementById("playerCard").hidden && document.getElementById("rosterCard").hidden);
     ok(nothingOpened, "row-click no longer triggers anything — only .linfo (stats) and .lswap (swap) do");
     // Swap still works — the affordance moved to its own button, it didn't disappear.
     await clickChildIn(page, ".lrow", ".lswap", "F. Flexman");
-    await page.waitForSelector("#swapSheet .swaprow", { timeout: 5000 });
-    ok((await page.$$eval("#swapSheet .swaprow", (els) => els.length)) > 0, "the .lswap button still opens the swap sheet, unchanged");
-    await page.evaluate(() => { document.getElementById("swapSheet").hidden = true; });
+    await page.waitForSelector("#rosterCard .swaprow", { timeout: 5000 });
+    ok((await page.$$eval("#rosterCard .swaprow", (els) => els.length)) > 0, "the .lswap button still opens the swap sheet, unchanged");
+    await page.evaluate(() => { document.getElementById("rosterCard").hidden = true; });
 
     // ---- non-owner locker (read-only roster table — item 1's "locker/My-Team roster rows") ----
     await page.evaluate(() => window.__GFFL__.UI.openLocker(2));
@@ -6084,13 +6145,13 @@ async function openDetails(page, id) {
     await clickIn(page, "#faResults [data-fi]", "F. Agent"); // the WHOLE row, deliberately not the button
     await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
     ok((await text(page, ".pcname")) === "F. Agent", "tapping an FA row (not its MOVE button) opens the stats card");
-    ok((await page.evaluate(() => document.getElementById("claimSheet").hidden)), "…and row-click no longer triggers the add/claim flow");
+    ok((await page.evaluate(() => document.getElementById("rosterCard").hidden)), "…and row-click no longer triggers the add/claim flow");
     await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
     const moveBtnStyle = await page.$eval(".faMoveBtn", (b) => getComputedStyle(b).borderColor);
     ok(moveBtnStyle === "rgb(213, 10, 10)", "the MOVE button is accent-outlined (--accent #d50a0a), distinct from an ordinary button's --border-card outline (" + moveBtnStyle + ")");
     await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "F. Agent");
-    await page.waitForSelector("#claimSheet [data-di]", { timeout: 5000 });
-    ok(/Claim F\. Agent/.test(await page.$eval("#claimSheet", (e) => e.textContent)), "the MOVE button still opens the claim/add flow, exactly as before");
+    await page.waitForSelector("#rosterCard [data-di]", { timeout: 5000 });
+    ok(/Claim F\. Agent/.test(await page.$eval("#rosterCard", (e) => e.textContent)), "the MOVE button still opens the claim/add flow, exactly as before");
     await clickIn(page, "#claimCancel");
 
     // ---- Y4: trade builder — a pick chip's own row opens stats; .pcpick still does the picking ----
@@ -8722,7 +8783,7 @@ async function openDetails(page, id) {
       await page.waitForSelector(".swaprow", { timeout: 5000 });
       const sheetIr = await page.$$eval(".swaprow", (els) => els.map((r) => r.textContent.replace(/\s+/g, " ").trim()));
       ok(sheetIr.some((t) => /→ IR/.test(t)), "…so the OUT player is still offered IR from the swap sheet");
-      await page.evaluate(() => { const c = [...document.querySelectorAll(".swaprow")].find((r) => /Cancel/.test(r.textContent)); if (c) c.click(); });
+      await cancelRosterCard(page); // RESTAGED (S10): Cancel is the card footer's ghost button, not a row
       // The swap sheet's own candidate rows go through the same injChip — a non-vacuous check
       // needs a candidate who actually HAS a designation, so this opens the FLEX slot, whose
       // bench candidates include the PUP running back.
@@ -8737,7 +8798,7 @@ async function openDetails(page, id) {
       });
       ok(sheet.chip === "PUP", "…and the sheet's own candidate rows abbreviate the same way (" + sheet.chip + ")");
       ok(!sheet.longWord && sheet.chips.length >= 1, "…never printing the long upstream word (" + JSON.stringify(sheet.chips) + ")");
-      await page.evaluate(() => { const c = [...document.querySelectorAll(".swaprow")].find((r) => /Cancel/.test(r.textContent)); if (c) c.click(); });
+      await cancelRosterCard(page); // RESTAGED (S10): Cancel is the card footer's ghost button, not a row
 
       // AD9 — the greyed Swap says what the LOCKED word used to.
       const swap = await page.evaluate(() => {
@@ -10282,8 +10343,8 @@ async function openDetails(page, id) {
         out.locker = l ? getComputedStyle(l).color === accent : null;
         const sw = [...document.querySelectorAll(".lswap")].find((b) => !b.disabled);
         if (sw) { sw.click(); await new Promise((r) => setTimeout(r, 300));
-          const s = document.querySelector("#swapSheet .inj"); out.swap = s ? getComputedStyle(s).color === accent : null;
-          const sh = document.getElementById("swapSheet"); if (sh) sh.hidden = true; }
+          const s = document.querySelector("#rosterCard .inj"); out.swap = s ? getComputedStyle(s).color === accent : null;
+          const sh = document.getElementById("rosterCard"); if (sh) sh.hidden = true; }
         UI.show("moves");
         await new Promise((r) => setTimeout(r, 900));
         const chips = document.querySelectorAll("#faFilterChips .poschip");
@@ -11683,8 +11744,12 @@ async function openDetails(page, id) {
       await ctx.close();
     }
 
-    // ---- AJ3b: the sheets. The swap sheet and the claim sheet are modals rendered INSIDE
-    // main(), so they are the two that a background repaint can destroy — worth their own pass.
+    // ---- AJ3b: the drop/swap card. RESTAGED (S10, 2026-08-11): the two bottom sheets this
+    // block was written for are gone — both flows now render into ONE centered overlay,
+    // #rosterCard, which (like the player card) is a SIBLING of main() rather than inside it.
+    // The modal contract under test is exactly the same and every check below still asserts
+    // it: Back closes the card and leaves the view alone, the card's own control consumes the
+    // sentinel it pushed, and the NEXT Back is therefore a real view change.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -11694,20 +11759,22 @@ async function openDetails(page, id) {
       const lockerBefore = await viewNow(page);
       await clickChildIn(page, ".lrow", ".lswap", "H. Healthy");
       await waitOr(page, ".swaprow", 5000);
-      const swapOpen = await evalOr(page, () => ({ shown: !document.getElementById("swapSheet").hidden, reg: window.__GFFL__.UI._overlayOpen() })) || {};
+      const swapOpen = await evalOr(page, () => ({ shown: !document.getElementById("rosterCard").hidden, reg: window.__GFFL__.UI._overlayOpen() })) || {};
       ok(swapOpen.shown === true && swapOpen.reg === true, "the lineup swap sheet is up and registered");
       await page.goBack().catch(() => {}); await sleep(250);
-      const swapBack = await evalOr(page, () => ({ shown: !document.getElementById("swapSheet").hidden, view: window.__GFFL__.UI.view })) || {};
+      const swapBack = await evalOr(page, () => ({ shown: !document.getElementById("rosterCard").hidden, view: window.__GFFL__.UI.view })) || {};
       ok(swapBack.shown === false && swapBack.view === "locker",
         "Back closes the swap sheet and leaves the reader on their locker (" + JSON.stringify(swapBack) + ")");
-      // Cancel (the sheet's own row) must leave the stack clean too.
+      // Cancel must leave the stack clean too. RESTAGED (S10, 2026-08-11): it is the card's
+      // footer ghost button now rather than a row in the list — the point is unchanged, that
+      // dismissing by the card's OWN control consumes the sentinel it pushed.
       await clickChildIn(page, ".lrow", ".lswap", "H. Healthy");
       await waitOr(page, ".swaprow", 5000);
       ok((await evalOr(page, () => (history.state || {}).gfflOverlay)) === true, "…standing on its own history entry while it is up");
-      await evalOr(page, () => { const r = [...document.querySelectorAll(".swaprow")].find((x) => /Cancel/.test(x.textContent)); if (r) r.click(); });
+      await cancelRosterCard(page);
       await sleep(300);
       const stSwap = await evalOr(page, () => ({ ov: (history.state || {}).gfflOverlay, view: (history.state || {}).gfflView })) || {};
-      ok(!stSwap.ov && stSwap.view === "locker", "…and its Cancel row steps back off it (" + JSON.stringify(stSwap) + ")");
+      ok(!stSwap.ov && stSwap.view === "locker", "…and its Cancel button steps back off it (" + JSON.stringify(stSwap) + ")");
       await page.goBack().catch(() => {}); await sleep(300);
       const outOfLocker = await viewNow(page);
       ok(outOfLocker && outOfLocker.view !== "locker",
@@ -11717,11 +11784,11 @@ async function openDetails(page, id) {
       await tapNav(page, "moves"); await waitView(page, "moves");
       await waitOr(page, "#faResults .faMoveBtn", 9000);
       await evalOr(page, () => { const b = [...document.querySelectorAll("#faResults .faMoveBtn")].find((x) => !x.disabled); if (b) b.click(); });
-      await waitOr(page, "#claimSheet .swaprow", 5000);
-      const claimOpen = await evalOr(page, () => ({ shown: !document.getElementById("claimSheet").hidden, reg: window.__GFFL__.UI._overlayOpen() })) || {};
+      await waitOr(page, "#rosterCard .swaprow", 5000);
+      const claimOpen = await evalOr(page, () => ({ shown: !document.getElementById("rosterCard").hidden, reg: window.__GFFL__.UI._overlayOpen() })) || {};
       ok(claimOpen.shown === true && claimOpen.reg === true, "the waiver claim sheet is up and registered");
       await page.goBack().catch(() => {}); await sleep(250);
-      const claimBack = await evalOr(page, () => ({ shown: !document.getElementById("claimSheet").hidden, view: window.__GFFL__.UI.view })) || {};
+      const claimBack = await evalOr(page, () => ({ shown: !document.getElementById("rosterCard").hidden, view: window.__GFFL__.UI.view })) || {};
       ok(claimBack.shown === false && claimBack.view === "moves",
         "Back closes the claim sheet and leaves the reader on Moves (" + JSON.stringify(claimBack) + ")");
       ok(errors.length === 0, "0 page errors through the sheets");
@@ -11961,9 +12028,9 @@ async function openDetails(page, id) {
       await clickChildIn(page, ".lrow", ".lswap", "H. Healthy");
       await waitOr(page, ".swaprow", 5000);
       const sheet = await evalOr(page, () => {
-        const rows = [...document.querySelectorAll("#swapSheet .swaprow")];
+        const rows = [...document.querySelectorAll("#rosterCard .swaprow")];
         const last = rows[rows.length - 1];
-        const card = document.querySelector("#swapSheet .card");
+        const card = document.querySelector("#rosterCard .rccard");
         return { n: rows.length, vh: window.innerHeight, txt: last.textContent.trim(),
           lastBottom: Math.round(last.getBoundingClientRect().bottom),
           cardBottom: Math.round(card.getBoundingClientRect().bottom) };
@@ -13508,6 +13575,380 @@ async function openDetails(page, id) {
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
+  }
+
+  // ================= AO · S6 (search + trending) and S10 (the centered drop/swap card) =====
+  // S6's search box and position chips ALREADY EXISTED (item 1's players-table rework built
+  // them); what this batch adds to them is the DEBOUNCE and the too-short-query answer, and
+  // what is genuinely new is TRENDING. S10 replaces both bottom sheets with one centered card.
+  section("AO · S6 search + trending · S10 the centered drop/swap card");
+  {
+    // ---- AO1: search. The pool is the same client-side list the chips already narrow. ----
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await waitOr(page, "#faSearch", 9000);
+    await waitFnOr(page, () => document.querySelectorAll("#faResults [data-fi]").length === 4);
+    const faNames = () => page.$$eval("#faResults [data-fi]", (els) => els.map((e) => e.textContent));
+    ok((await faNames()).length === 4, "the players table starts on the full browse pool");
+    // Count the REAL work a keystroke causes — D.searchFA rescans the whole directory, which is
+    // the thing the debounce exists to stop happening once per character.
+    await page.evaluate(() => {
+      const d = window.__GFFL__.D;
+      window.__sfa = 0;
+      const orig = d.searchFA;
+      d.searchFA = function (...a) { window.__sfa++; return orig.apply(this, a); };
+    });
+    await page.type("#faSearch", "agent", { delay: 20 });
+    await waitFnOr(page, () => document.querySelectorAll("#faResults [data-fi]").length === 1);
+    const narrowed = await faNames();
+    ok(narrowed.length === 1 && /F\. Agent/.test(narrowed[0]), "typing a name narrows the table to that player (" + narrowed.join("|") + ")");
+    const scans = await page.evaluate(() => window.__sfa);
+    ok(scans === 1, "…and five keystrokes in a burst cost ONE directory rescan, not five (" + scans + ")");
+    // A 1-2 letter query is refused by D.searchFA by design; it used to read as the flat
+    // "No matches.", which describes the league rather than the query.
+    await page.$eval("#faSearch", (el) => { el.value = ""; });
+    await page.type("#faSearch", "ag", { delay: 20 });
+    await waitFnOr(page, () => /Keep typing/.test(document.querySelector("#faResults").textContent));
+    const shortTxt = await text(page, "#faResults");
+    ok(/Keep typing/.test(shortTxt) && !/No matches/.test(shortTxt), "a 1-2 letter query says \"keep typing\", not \"no matches\"");
+    // Search x position chip x Available/All all compose over the one pool.
+    await page.$eval("#faSearch", (el) => { el.value = ""; el.dispatchEvent(new Event("input", { bubbles: true })); });
+    await waitFnOr(page, () => document.querySelectorAll("#faResults [data-fi]").length === 4);
+    ok((await faNames()).length === 4, "clearing the box restores the full pool");
+    await clickIn(page, ".poschip", "WR");
+    await waitFnOr(page, () => document.querySelectorAll("#faResults [data-fi]").length === 1);
+    await page.$eval("#faSearch", (el) => { el.value = "vail"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+    await waitFnOr(page, () => document.querySelector("#faResults").textContent.includes("No matches"));
+    ok(/No matches/.test(await text(page, "#faResults")),
+      "the search and the position chip AND each other: a K's name under the WR chip matches nobody");
+    await clickIn(page, ".poschip", "ALL");
+    await waitFnOr(page, () => document.querySelectorAll("#faResults [data-fi]").length === 1);
+    const vailOnly = await faNames();
+    ok(vailOnly.length === 1 && /A\. Vail/.test(vailOnly[0]), "…and dropping the chip leaves the search still applied (" + vailOnly.join("|") + ")");
+    ok(errors.length === 0, "0 page errors through the search flow");
+    await ctx.close();
+  }
+  {
+    // ---- AO2: trending. Chips on the table, a strip at the top of Moves. ----
+    // F. Agent (pid 9201) is a FREE agent and the top add; B. Backup (9002) is trending too but
+    // is ALREADY ON A ROSTER, which is what makes "the strip only shows who is genuinely free
+    // in THIS league" a real assertion; A. Vail (9202) is a free agent being dropped.
+    fixture.trending = { add: [["9201", 4210], ["9002", 3900]], drop: [["9202", 1180]] };
+    trendUrls.length = 0;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await waitOr(page, "#faSearch", 9000);
+    await waitFnOr(page, () => !!document.querySelector(".hotpick"));
+    const hot = await page.evaluate(() => [...document.querySelectorAll(".hotpick")].map((b) => b.textContent.replace(/\s+/g, " ").trim()));
+    ok(hot.length === 1 && /F\. Agent/.test(hot[0]), "the Hot pickups strip lists the trending add who is genuinely free (" + hot.join("|") + ")");
+    ok(!hot.some((t) => /B\. Backup/.test(t)), "…and never one eight of our own teams already roster");
+    ok(/\+4,210/.test(hot[0]), "…with the count of leagues that added him (" + hot[0] + ")");
+    const chips = await page.evaluate(() => [...document.querySelectorAll("#faResults tr[data-fi]")].map((tr) => {
+      const c = tr.querySelector(".trendchip");
+      return { row: tr.textContent.replace(/\s+/g, " ").trim().slice(0, 22), chip: c ? c.textContent : "", cls: c ? c.className : "", title: c ? c.title : "" };
+    }));
+    const agentRow = chips.find((c) => /F\. Agent/.test(c.row)), vailRow = chips.find((c) => /A\. Vail/.test(c.row));
+    ok(!!agentRow && agentRow.chip === "HOT" && /up/.test(agentRow.cls), "a trending ADD carries a HOT chip on its table row");
+    ok(!!vailRow && vailRow.chip === "COLD" && /down/.test(vailRow.cls), "…a trending DROP carries COLD");
+    ok(!!agentRow && /4,210/.test(agentRow.title) && /24h/.test(agentRow.title), "…and the count rides in the title rather than widening the row");
+    ok(chips.filter((c) => c.chip).length === 2, "…and a player nobody is moving carries no chip at all");
+    // ZERO EMOJI - section U's rule, restated where the new chrome is.
+    const emo = await page.evaluate(() => {
+      const t = (document.querySelector("#hotStrip").textContent || "") + [...document.querySelectorAll(".trendchip")].map((e) => e.textContent).join("");
+      return [...t].filter((ch) => /\p{Extended_Pictographic}/u.test(ch));
+    });
+    ok(emo.length === 0, "the trending chrome is words, never an emoji (" + JSON.stringify(emo) + ")");
+    // Tapping a strip entry opens that player's stats card (it is a browse affordance, not an add).
+    await page.evaluate(() => document.querySelector(".hotpick").click());
+    await waitFnOr(page, () => !document.getElementById("playerCard").hidden);
+    ok(/F\. Agent/.test(await text(page, "#playerCard")), "tapping a hot pickup opens that player's stats card");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+    // The 1h localStorage cache: a second visit to Moves paints from it and fetches nothing.
+    const before = trendUrls.length;
+    ok(before >= 2 && /lookback_hours=24/.test(trendUrls[0]) && /limit=50/.test(trendUrls[0]),
+      "both directions are asked for a 24h lookback, capped at 50 (" + before + " calls)");
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await waitFnOr(page, () => !!document.querySelector(".hotpick"));
+    ok(trendUrls.length === before, "…and a second visit inside the hour paints from cache with zero new fetches (" + before + " -> " + trendUrls.length + ")");
+    ok(errors.length === 0, "0 page errors with trending armed");
+    await ctx.close();
+  }
+  {
+    // ---- AO3: the endpoint is DEAD. Bare, not broken. ----
+    fixture.trendingDown = true;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await waitOr(page, "#faSearch", 9000);
+    await waitFnOr(page, () => document.querySelectorAll("#faResults [data-fi]").length === 4);
+    await sleep(500);
+    const dead = await page.evaluate(() => ({
+      strip: (document.querySelector("#hotStrip") || {}).innerHTML,
+      chips: document.querySelectorAll(".trendchip").length,
+      rows: document.querySelectorAll("#faResults [data-fi]").length,
+      trending: window.__GFFL__.D.S.trending,
+      body: /Hot pickups/i.test(document.body.textContent),
+    }));
+    ok(dead.strip === "" && dead.chips === 0, "a dead trending endpoint renders NOTHING — no strip, no chips");
+    ok(dead.trending === null && !dead.body, "…and says nothing about itself anywhere on the page");
+    ok(dead.rows === 4, "…while the players table itself is completely unaffected");
+    ok(errors.length === 0, "0 page errors with trending down");
+    fixture.trendingDown = false;
+    fixture.trending = null;
+    await ctx.close();
+  }
+  {
+    // ---- AO4: S10 — the ADD/CLAIM card. Centered, with proj + % owned on every row. ----
+    fixture.projS10 = true;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await waitOr(page, "#faResults .faMoveBtn", 9000);
+    // The bottom sheets are GONE — element, class and stylesheet rule.
+    const gone = await page.evaluate(() => ({
+      sheets: document.querySelectorAll(".sheet").length,
+      claim: !!document.getElementById("claimSheet"),
+      swap: !!document.getElementById("swapSheet"),
+      card: !!document.getElementById("rosterCard"),
+      rule: [...document.styleSheets].some((ss) => { try { return [...ss.cssRules].some((r) => r.selectorText === ".sheet"); } catch (e) { return false; } }),
+    }));
+    ok(gone.sheets === 0 && !gone.claim && !gone.swap, "the two bottom sheets are gone from the DOM entirely");
+    ok(!gone.rule, "…and so is the .sheet stylesheet rule — removed, not hidden");
+    ok(gone.card, "…replaced by ONE centered overlay, #rosterCard");
+    await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "A. Vail");
+    await waitOr(page, "#rosterCard .swaprow", 5000);
+    await waitFnOr(page, () => [...document.querySelectorAll("#rosterCard .rcnum")].some((e) => /%/.test(e.textContent)));
+    const geo = await page.evaluate(() => {
+      const card = document.querySelector("#rosterCard .rccard").getBoundingClientRect();
+      const list = document.querySelector("#rosterCard .rclist");
+      const rows = [...document.querySelectorAll("#rosterCard .swaprow")].map((r) => r.getBoundingClientRect().height);
+      return {
+        vw: innerWidth, vh: innerHeight, top: card.top, bottom: card.bottom, left: card.left, right: card.right,
+        cy: card.top + card.height / 2, h: card.height, w: card.width,
+        listScrolls: list.scrollHeight > list.clientHeight + 1, listOverflow: getComputedStyle(list).overflowY,
+        minRow: Math.min(...rows), rows: rows.length,
+      };
+    });
+    ok(Math.abs(geo.cy - geo.vh / 2) < geo.vh * 0.08,
+      "the card is CENTERED on the screen, not anchored to its bottom (centre " + Math.round(geo.cy) + " of " + geo.vh + ")");
+    ok(geo.bottom < geo.vh - 20 && geo.top > 20, "…with real air above AND below it (top " + Math.round(geo.top) + ", bottom " + Math.round(geo.bottom) + ")");
+    ok(geo.w <= 362 && Math.abs((geo.left + geo.right) / 2 - geo.vw / 2) < 2, "…mobile-first at ~360px wide and horizontally centred (" + Math.round(geo.w) + "px)");
+    ok(geo.h <= geo.vh * 0.7 + 1, "…never taller than 70vh (" + Math.round(geo.h) + " of " + Math.round(geo.vh * 0.7) + ")");
+    ok(geo.listScrolls && geo.listOverflow === "auto", "…so a 12-man roster scrolls INSIDE the card rather than off the screen");
+    ok(geo.minRow >= 44, "…and every row is a 44px touch target (" + geo.minRow + ")");
+    const cardTxt = await text(page, "#rosterCard");
+    ok(/Claim A\. Vail/.test(cardTxt) && /Who do you drop\?/.test(cardTxt), "the card names the player being added and asks the question");
+    const cols = await page.evaluate(() => {
+      const row = (name) => {
+        const r = [...document.querySelectorAll("#rosterCard .swaprow")].find((x) => x.textContent.includes(name));
+        return r ? [...r.querySelectorAll(".rcnum")].map((e) => e.textContent.trim()) : null;
+      };
+      const head = document.querySelector("#rosterCard .rchead").textContent.replace(/\s+/g, " ").trim();
+      const inHead = [...document.querySelectorAll("#rosterCard .rcin b")].map((e) => e.textContent.trim());
+      return { head, inHead, backup: row("B. Backup"), healthy: row("H. Healthy"), tight: row("T. Tight"), dst: row("PHI D/ST") };
+    });
+    ok(/Player.*Proj.*Own/i.test(cols.head), "the list carries ONE header line — Player / Proj / Own (" + cols.head + ")");
+    ok(cols.backup[0] === "11.0" && cols.healthy[0] === "12.0",
+      "…each row's PROJ is this week's league-scored projection, hand-computed (" + cols.backup[0] + " / " + cols.healthy[0] + ")");
+    ok(cols.backup[1] === "43%" && cols.healthy[1] === "8%",
+      "…and its % OWNED comes from ESPN through ff_pct_owned (" + cols.backup[1] + " / " + cols.healthy[1] + ")");
+    ok(cols.tight[1] === "—" && cols.dst[1] === "—",
+      "…an id ESPN doesn't know, and a team defense that has no espn player id at all, both read \"—\" — never a fabricated 0");
+    ok(cols.inHead.length === 2 && cols.inHead.every((v) => v === "—"),
+      "…and the incoming player's own proj + owned ride in the card's header — honestly \"—\" for a man with neither on file");
+    // ONE batched call per open, not one per row — and the header's own numbers are REAL when
+    // there are any to have (A. Vail above has no projection and no espn id, so his card can
+    // only ever prove the "—" half).
+    const callsBefore = sportsFfUp.calls;
+    await page.evaluate(() => window.__GFFL__.UI.closeRosterCard());
+    await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "F. Agent");
+    await waitOr(page, "#rosterCard .swaprow", 5000);
+    await sleep(400);
+    const inHead2 = await page.evaluate(() => [...document.querySelectorAll("#rosterCard .rcin b")].map((e) => e.textContent.trim()));
+    ok(inHead2[0] === "7.0", "…and a real projection when he has one, hand-computed (3 rec + 40 yds = " + inHead2[0] + ")");
+    ok(sportsFfUp.calls === callsBefore, "a second card open inside 30 min reuses the cached percentages — zero extra calls");
+    // …and the flow still completes, end to end, with the bid the reader typed.
+    await clickIn(page, "#rosterCard [data-di]", "B. Backup");
+    await page.$eval("#claimBid", (el) => { el.value = "17"; });
+    await clickIn(page, "#claimGo");
+    await waitFnOr(page, () => (document.querySelector("#mvMyClaims") || {}).textContent.includes("F. Agent"));
+    const pend = await text(page, "#mvMyClaims");
+    ok(/F\. Agent/.test(pend) && /\$17/.test(pend),
+      "picking a drop and submitting queues the real claim, with the bid read BEFORE the card was emptied");
+    ok(errors.length === 0, "0 page errors through the claim card");
+    if (SHOTS) {
+      await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "A. Vail");
+      await waitOr(page, "#rosterCard .swaprow", 5000);
+      await sleep(250);
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_dropcard_390.png") });
+      console.log("  📸 shots/gffl_dropcard_390.png");
+      await page.evaluate(() => window.__GFFL__.UI.closeRosterCard());
+    }
+    await ctx.close();
+  }
+  {
+    // ---- AO5: S10 — the SWAP card, incl. a locked candidate shown DISABLED with the reason.
+    // The seed puts W. Receiver (PHI, whose game is LIVE) on the bench, which leaves one WR
+    // slot empty and gives that slot's candidate list exactly one locked man and two free ones.
+    const seed = fullSeed();
+    const r1 = seedRosterT1();
+    seed.docs.roster_2026_w1_t1 = { ...r1, players: r1.players.map((p) => (p.name === "W. Receiver" ? { ...p, slot: "BENCH" } : p)) };
+    const { ctx, page, errors } = await newTestPage(browser, seed);
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.go("team"));
+    await waitOr(page, ".lrow", 9000);
+    await clickIn(page, ".lswapfill");
+    await waitOr(page, "#rosterCard .swaprow", 5000);
+    await waitFnOr(page, () => [...document.querySelectorAll("#rosterCard .rcnum")].some((e) => /%/.test(e.textContent)));
+    const swapCard = await page.evaluate(() => {
+      const card = document.querySelector("#rosterCard .rccard").getBoundingClientRect();
+      const rows = [...document.querySelectorAll("#rosterCard .swaprow")].map((r) => ({
+        t: r.textContent.replace(/\s+/g, " ").trim(),
+        disabled: r.disabled, title: r.title,
+        nums: [...r.querySelectorAll(".rcnum")].map((e) => e.textContent.trim()),
+      }));
+      return { cy: card.top + card.height / 2, vh: innerHeight, rows, head: !!document.querySelector("#rosterCard .rchead") };
+    });
+    ok(Math.abs(swapCard.cy - swapCard.vh / 2) < swapCard.vh * 0.08, "the swap card is the same centered card (centre " + Math.round(swapCard.cy) + " of " + swapCard.vh + ")");
+    ok(swapCard.head, "…with the same Player / Proj / Own header");
+    const locked = swapCard.rows.find((r) => /W\. Receiver/.test(r.t));
+    const free = swapCard.rows.find((r) => /H\. Healthy/.test(r.t));
+    ok(!!locked && locked.disabled === true && /Game started/.test(locked.title),
+      "a candidate whose game has started is SHOWN, disabled, and says why — it used to be silently absent");
+    ok(!!locked && /Game started/.test(locked.t), "…in the row itself, not only in a tooltip a phone can never show");
+    ok(!!free && free.disabled === false, "…while an eligible, unlocked candidate is tappable");
+    ok(!!free && free.nums[0] === "12.0" && free.nums[1] === "8%", "…carrying the same PROJ and OWN columns (" + (free ? free.nums.join(" / ") : "?") + ")");
+    await clickIn(page, "#rosterCard .swaprow", "H. Healthy");
+    await waitFnOr(page, () => [...document.querySelectorAll(".lrow")].some((r) => /WR/.test(r.textContent) && /H\. Healthy/.test(r.textContent)));
+    const doc = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)), LSPFX + "roster_2026_w1_t1");
+    ok((doc.players.find((p) => p.name === "H. Healthy") || {}).slot === "WR", "picking a candidate really swaps him in, and it persists");
+    ok((await page.evaluate(() => document.getElementById("rosterCard").hidden)) === true, "…and the card closes behind the move");
+    ok(errors.length === 0, "0 page errors through the swap card");
+    if (SHOTS) {
+      await clickIn(page, ".lswapfill");
+      await waitOr(page, "#rosterCard .swaprow", 5000);
+      await sleep(250);
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_swapcard_390.png") });
+      console.log("  📸 shots/gffl_swapcard_390.png");
+      await page.evaluate(() => window.__GFFL__.UI.closeRosterCard());
+    }
+    await ctx.close();
+  }
+  {
+    // ---- AO6: dismissal. Escape, backdrop and Back all close it and leave the view alone. --
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.go("moves"));
+    await waitOr(page, "#faResults .faMoveBtn", 9000);
+    const openCard = async () => {
+      await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "A. Vail");
+      await waitOr(page, "#rosterCard .swaprow", 5000);
+    };
+    const state = () => page.evaluate(() => ({
+      shown: !document.getElementById("rosterCard").hidden,
+      view: window.__GFFL__.UI.view, ov: !!(history.state || {}).gfflOverlay,
+    }));
+    await openCard();
+    ok((await state()).ov === true, "opening the card pushes ONE history sentinel");
+    await page.keyboard.press("Escape");
+    await sleep(300);
+    let st = await state();
+    ok(!st.shown && st.view === "moves" && !st.ov, "Escape closes it, leaves the reader on Moves, and hands the entry back");
+    await openCard();
+    await page.evaluate(() => {
+      const ov = document.getElementById("rosterCard");
+      ov.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await sleep(300);
+    st = await state();
+    ok(!st.shown && st.view === "moves" && !st.ov, "a backdrop tap does the same");
+    await openCard();
+    await page.evaluate(() => document.querySelector("#rosterCard .rccard").dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await sleep(200);
+    ok((await state()).shown === true, "…while a tap on the card's OWN content never dismisses a half-made move");
+    await page.goBack().catch(() => {});
+    await sleep(350);
+    st = await state();
+    ok(!st.shown && st.view === "moves", "system Back closes the card WITHOUT changing view");
+    await page.goBack().catch(() => {});
+    await sleep(350);
+    ok((await page.evaluate(() => window.__GFFL__.UI.view)) !== "moves", "…and the NEXT Back is a real view change, not a dead entry");
+    ok(errors.length === 0, "0 page errors through the dismissal paths");
+    await ctx.close();
+  }
+  {
+    // ---- AO7: % owned degrades honestly. No cookies on the server = "—" for everyone, and
+    // the card is fully usable anyway — percent-owned is context, never a gate on a move.
+    const s2 = process.env.ESPN_S2, swid = process.env.ESPN_SWID;
+    delete process.env.ESPN_S2; delete process.env.ESPN_SWID;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await waitOr(page, "#faResults .faMoveBtn", 9000);
+    await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "A. Vail");
+    await waitOr(page, "#rosterCard .swaprow", 5000);
+    await sleep(500);
+    const dash = await page.evaluate(() => ({
+      owns: [...document.querySelectorAll("#rosterCard [data-pctkey]")].map((e) => e.textContent.trim()),
+      gate: (window.__GFFL__.UI._pctGate || {}).reason,
+      rows: document.querySelectorAll("#rosterCard .swaprow").length,
+    }));
+    ok(dash.owns.length > 1 && dash.owns.every((t) => t === "—"), "with the fantasy cookies unset every OWN cell reads \"—\"");
+    ok(dash.gate === "fantasy-not-configured", "…the server's own honest reason is what came back (" + dash.gate + ")");
+    ok(dash.rows >= 12, "…and the card is fully usable regardless — every drop candidate is still there");
+    await clickIn(page, "#rosterCard [data-di]", "B. Backup");
+    await clickIn(page, "#claimGo");
+    await waitFnOr(page, () => (document.querySelector("#mvMyClaims") || {}).textContent.includes("A. Vail"));
+    ok(/A\. Vail/.test(await text(page, "#mvMyClaims")), "…and a claim still goes through with the column empty");
+    ok(errors.length === 0, "0 page errors with the percent-owned backend unconfigured");
+    process.env.ESPN_S2 = s2; process.env.ESPN_SWID = swid;
+    await ctx.close();
+  }
+  {
+    // ---- AO8: desktop. The same card, still centered, still bounded. ----
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await waitOr(page, "#faResults .faMoveBtn", 9000);
+    await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "A. Vail");
+    await waitOr(page, "#rosterCard .swaprow", 5000);
+    await sleep(400);
+    const d = await page.evaluate(() => {
+      const c = document.querySelector("#rosterCard .rccard").getBoundingClientRect();
+      return { cx: c.left + c.width / 2, cy: c.top + c.height / 2, w: c.width, h: c.height, vw: innerWidth, vh: innerHeight,
+               sideways: document.documentElement.scrollWidth > innerWidth };
+    });
+    ok(Math.abs(d.cx - d.vw / 2) < 2 && Math.abs(d.cy - d.vh / 2) < d.vh * 0.08,
+      "on a desktop it is centered on both axes (" + Math.round(d.cx) + "," + Math.round(d.cy) + " of " + d.vw + "x" + d.vh + ")");
+    ok(d.w <= 362, "…and stays a card rather than stretching across the window (" + Math.round(d.w) + "px)");
+    ok(!d.sideways, "…with no sideways page scroll");
+    ok(errors.length === 0, "0 page errors on desktop");
+    if (SHOTS) {
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_dropcard_desktop.png") });
+      console.log("  📸 shots/gffl_dropcard_desktop.png");
+    }
+    fixture.projS10 = false;
+    await ctx.close();
   }
 
   await browser.close();

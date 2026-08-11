@@ -618,6 +618,27 @@ function ffFreeAgentsDoc() {
   };
 }
 
+// S10 (2026-08-11): the GFFL drop/swap card's percent-owned batch. Shaped as the RAW
+// kona_playercard document ff_pct_owned consumes — the by-id view, NOT kona_player_info, which
+// 400s on a filterIds filter (measured live 2026-08-06, see ffPlayer's own note in sports.mjs).
+// One requested id is deliberately UNKNOWN to ESPN so "absent, never a fabricated 0" is
+// provable, and every entry carries the stat/outlook junk the slimmer must throw away.
+const PCT_OWNED_FIX = { 3915511: 61.2, 4241457: 8.4, 111333: 42.5 };
+function ffPctOwnedDoc(ids) {
+  return {
+    id: 705063, seasonId: 2026,
+    players: (ids || []).filter((id) => PCT_OWNED_FIX[id] != null).map((id) => ({
+      id,
+      player: {
+        id, fullName: "Player " + id, defaultPositionId: 2, proTeamId: 21,
+        ownership: { percentOwned: PCT_OWNED_FIX[id], averageDraftPosition: 12.5 },
+        stats: [{ scoringPeriodId: 0, statSourceId: 1, appliedTotal: 210.4 }],
+        draftRanksByRankType: { PPR: { rank: 14 } }, seasonOutlook: "y".repeat(300),
+      },
+    })),
+  };
+}
+
 // ---------------- draft room (ffdraft.html) fixtures ----------------
 // kona_player_info under a sortDraftRanks X-Fantasy-Filter (the draft pool),
 // mDraftDetail+mRoster for LAST season (keeper costs), and the season-level
@@ -797,4 +818,4 @@ function proTeamSchedulesDoc() {
   };
 }
 
-module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc, ffFreeAgentsDoc, cfbScoreboard, CFB_SUMMARIES, CTEAMS, ffDraftPoolDoc, ffLastDraftDoc, ffHistoryDoc, proTeamSchedulesDoc };
+module.exports = { scoreboardLive, scoreboardIdle, SUMMARIES, TEAMS, ffLeagueDoc, ffFreeAgentsDoc, ffPctOwnedDoc, PCT_OWNED_FIX, cfbScoreboard, CFB_SUMMARIES, CTEAMS, ffDraftPoolDoc, ffLastDraftDoc, ffHistoryDoc, proTeamSchedulesDoc };

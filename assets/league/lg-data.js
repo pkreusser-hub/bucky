@@ -660,6 +660,100 @@
     return out.slice(0, limit);
   };
 
+  // ---------------- S6: TRENDING adds/drops (Sleeper, keyless) ----------------
+  // "Who is the rest of the fantasy world picking up right now" — the one piece of genuine
+  // league-external signal this app can have for free. Sleeper's /players/nfl/trending/add
+  // and /drop take no key and no cookie (the same public host the directory and the stats
+  // buckets already come from), so this is a straight client fetch like every other Sleeper
+  // read here.
+  //
+  // BARE-NOT-BROKEN is the whole contract: a failure of either endpoint (down, blocked,
+  // rate-limited, garbage JSON) leaves D.S.trending null and EVERY consumer simply renders
+  // nothing — no badge, no strip, no error card, no toast. Trending is decoration over the
+  // real player list; it may never be the reason a page looks broken.
+  //
+  // CACHED 1h in localStorage, because it is a 24-hour rolling statistic — polling it more
+  // often than that would be noise, and a page reload should not re-fetch it. Only a
+  // genuinely successful pair of fetches is ever written to the cache, so an outage can
+  // always retry on the next open rather than caching its own failure for an hour.
+  const TRENDING_KEY = "gffl_trending_v1";
+  D.TRENDING_TTL_MS = 3600e3;
+  D.TRENDING_HOURS = 24;
+  D.TRENDING_LIMIT = 50;
+  D.S.trending = null;          // {at, add:{pid:count}, drop:{pid:count}} — null = absent
+  D.S.trendingInFlight = null;
+  function trendingFresh(t) { return !!t && Date.now() - (t.at || 0) < D.TRENDING_TTL_MS; }
+  function readTrendingCache() {
+    try {
+      const raw = localStorage.getItem(TRENDING_KEY);
+      const t = raw ? JSON.parse(raw) : null;
+      return t && t.add && t.drop ? t : null;
+    } catch (e) { return null; }
+  }
+  // One fetch of one direction -> {pid: count}. Never throws: an unusable answer is {} and
+  // the CALLER decides that the pair failed (see below) rather than each half guessing.
+  async function fetchTrend(kind) {
+    const j = await fx("sleeper trending " + kind,
+      `${SLP}/players/nfl/trending/${kind}?lookback_hours=${D.TRENDING_HOURS}&limit=${D.TRENDING_LIMIT}`);
+    const out = {};
+    for (const r of (Array.isArray(j) ? j : [])) {
+      const pid = r && (r.player_id != null ? String(r.player_id) : null);
+      const n = Number(r && r.count);
+      if (pid && Number.isFinite(n)) out[pid] = n;
+    }
+    return out;
+  }
+  // Resolves to the trending object or null. Deduped in flight (the Moves page's strip and
+  // its table both want it on the same paint) and memoized for the TTL.
+  D.loadTrending = function () {
+    if (trendingFresh(D.S.trending)) return Promise.resolve(D.S.trending);
+    if (D.S.trendingInFlight) return D.S.trendingInFlight;
+    const cached = readTrendingCache();
+    if (trendingFresh(cached)) { D.S.trending = cached; return Promise.resolve(cached); }
+    D.S.trendingInFlight = (async () => {
+      try {
+        const [add, drop] = await Promise.all([fetchTrend("add"), fetchTrend("drop")]);
+        // BOTH halves have to have said something. One empty side is a legitimate quiet day;
+        // both empty is indistinguishable from "the endpoint answered nothing useful", and
+        // caching that for an hour would silently disable the feature on a device that was
+        // merely unlucky once.
+        if (!Object.keys(add).length && !Object.keys(drop).length) return null;
+        const t = { at: Date.now(), add, drop };
+        D.S.trending = t;
+        try { localStorage.setItem(TRENDING_KEY, JSON.stringify(t)); } catch (e) {}
+        return t;
+      } catch (e) {
+        return null; // absent, never an error — see the contract note above
+      } finally { D.S.trendingInFlight = null; }
+    })();
+    return D.S.trendingInFlight;
+  };
+  // What this app KEY is doing in the wider fantasy world, or null. Resolves through the one
+  // id resolver (D.pidForKey), so a player Sleeper knows by a pid the roster keys by an ESPN
+  // id still lines up — the same "half the league was invisible" fix the projections needed.
+  D.trendingFor = function (key) {
+    const t = D.S.trending;
+    if (!t) return null;
+    const pid = D.pidForKey(key);
+    if (pid == null) return null;
+    const add = t.add[pid], drop = t.drop[pid];
+    if (add != null && (drop == null || add >= drop)) return { dir: "add", count: add };
+    if (drop != null) return { dir: "drop", count: drop };
+    return null;
+  };
+  // The top N trending ADDS, as {pid, count} — newest signal first. The caller maps pids onto
+  // its own player pool (the Moves strip only shows the ones who are genuinely free in THIS
+  // league), which is why this hands back pids rather than pretending to know about rosters.
+  D.trendingAdds = function (n) {
+    const t = D.S.trending;
+    if (!t) return [];
+    return Object.keys(t.add)
+      .map((pid) => ({ pid, count: t.add[pid] }))
+      .sort((a, b) => b.count - a.count || String(a.pid).localeCompare(String(b.pid)))
+      .slice(0, n || 5);
+  };
+  D._trendingKey = TRENDING_KEY; // test hook
+
   // ---------------- ⭐ ITEM 31: the backup pool (2026-08-09) ----------------
   // WHY BACKUPS AND NOT STARTERS. In preseason week 1 the starters take a handful of snaps or
   // none at all; the 2s and 3s play most of the game. A roster of stars would show a column of

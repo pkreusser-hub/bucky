@@ -654,18 +654,70 @@
      the matchup rows, the locker, the swap sheet, the players table and the stats card —
      shares this one rule, so they cannot disagree. */
   .inj { color:var(--accent); font-weight:700; font-size:10.5px; letter-spacing:.3px; text-transform:uppercase; }
-  /* ITEM 33: a bottom sheet's LAST row is its Cancel — standalone, the home indicator sits
-     exactly there, so the bottom padding carries the inset (and the sides carry theirs for
-     landscape). */
-  .sheet { position:fixed; inset:auto 0 0 0; z-index:40;
-           padding:10px calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));
-           background:rgba(6,7,8,.7); backdrop-filter:blur(3px); }
-  .sheet .card { max-height:60vh; overflow-y:auto; box-shadow:0 -8px 30px rgba(0,0,0,.55); }
-  .swaprow { display:flex; justify-content:space-between; gap:10px; width:100%; text-align:left; background:var(--card);
-             border:1px solid var(--border-card); border-radius:var(--radius-sm); margin-bottom:6px; padding:11px 12px;
+  /* ---- S10 (2026-08-11): the centered drop/swap card ----------------------------------
+     The two bottom sheets are GONE — element, class and rule. Both flows render into
+     #rosterCard, which wears .pcoverlay (the player card's own backdrop + centering, defined
+     once, further down this stylesheet) and .pccard.rccard for the card itself. .swaprow
+     survives as the ROW class: it names what a row is (tap to pick), not where it lives, and
+     it is what carries the .picked state.
+     THE ROW IS A 3-COLUMN GRID — who / this week's projection / how much of the fantasy world
+     rosters him — with ONE header line (.rchead) on the same track sizes rather than a label
+     repeated fifteen times. 44px minimum, because this is played on a phone. */
+  /* .pccard.rccard, not .rccard: .pccard's own max-width/max-height/overflow rule is written
+     LATER in this stylesheet, so a single-class override here would silently lose the cascade
+     — the same "a rule that looks applied can be losing" lesson td.slotcell already carries. */
+  .pccard.rccard { max-width:360px; max-height:70vh; overflow:hidden;
+                   display:flex; flex-direction:column; }
+  .rcin { display:flex; gap:14px; margin-top:8px; font-size:12px; color:var(--mut); }
+  .rcin b { color:var(--ink); font-variant-numeric:tabular-nums; }
+  .rcbid { display:block; font:600 10.5px var(--font-display); letter-spacing:1px;
+           text-transform:uppercase; color:var(--faint); margin-bottom:12px; }
+  .rcbid input { width:100%; margin-top:5px; }
+  .rcq { margin:0 0 6px; font:700 13px var(--font-display); letter-spacing:.6px;
+         text-transform:uppercase; color:var(--ink2); }
+  .rchead, .swaprow { display:grid; grid-template-columns:1fr 44px 44px; gap:8px; align-items:center; }
+  .rchead { padding:0 12px 4px; font:600 9.5px var(--font-display); letter-spacing:1px;
+            text-transform:uppercase; color:var(--faint); }
+  .rchead .num, .swaprow .rcnum { text-align:right; }
+  /* The list is the ONLY thing that scrolls — the header, the bid and the footer stay put, so
+     a long roster never pushes the submit button off the card. */
+  .rclist { overflow-y:auto; overscroll-behavior:contain; flex:1 1 auto; min-height:0; margin:0 -2px; padding:0 2px 2px; }
+  .swaprow { width:100%; text-align:left; background:var(--card); min-height:44px;
+             border:1px solid var(--border-card); border-radius:var(--radius-sm); margin-bottom:6px; padding:9px 12px;
              text-transform:none; letter-spacing:normal; }
   .swaprow:hover { border-color:var(--border-hover); background:var(--row-hover2); }
   .swaprow.picked { border-color:var(--accent); background:var(--nested); }
+  .swaprow:disabled { opacity:.45; cursor:default; }
+  .swaprow:disabled:hover { border-color:var(--border-card); background:var(--card); }
+  .rcwho { min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; }
+  .rcwho b { font-weight:600; }
+  .rcwho small { font-size:11px; }
+  .rcblock { color:var(--faint); font-size:10px; text-transform:uppercase; letter-spacing:.5px; }
+  .rcnum { font:600 13px var(--font-display); font-variant-numeric:tabular-nums; }
+  /* A destination-slot row carries no player, so it has no numbers to line up — it spans the
+     whole grid instead of leaving two empty columns. */
+  .swaprow.rcslot { display:block; font:600 13px var(--font-display); letter-spacing:.5px; }
+  .rcfoot { display:flex; flex-direction:column; gap:6px; padding-top:10px; }
+  .rcfoot button { min-height:44px; }
+  /* Submit is disabled until a drop is picked, and the card's loudest element must not LOOK
+     tappable while it isn't — the app has no generic .primary:disabled rule, so this is scoped
+     to the card rather than changing every primary button in the league. */
+  .rcfoot .primary:disabled { opacity:.42; cursor:default; }
+  .rcghost { background:transparent; border:1px solid var(--border-card); color:var(--mut); }
+  .rcghost:hover { border-color:var(--border-hover); color:var(--ink2); }
+
+  /* ---- S6: trending chrome. Text, never an emoji (the app's zero-emoji chrome rule). ---- */
+  .trendchip { display:inline-block; vertical-align:middle; border-radius:var(--radius-badge);
+               padding:1px 4px; font:700 9px var(--font-display); letter-spacing:.6px; }
+  .trendchip.up { background:var(--gold); color:#1a1205; }
+  .trendchip.down { background:var(--nested); color:var(--faint); border:1px solid var(--border-card); }
+  .hotcard .hotrow { display:flex; gap:6px; overflow-x:auto; overscroll-behavior-x:contain; padding-bottom:2px; }
+  .hotpick { flex:0 0 auto; display:flex; align-items:center; gap:6px; min-height:44px;
+             background:var(--nested2); border:1px solid var(--border-card); border-radius:var(--radius-sm);
+             padding:6px 10px; text-transform:none; letter-spacing:normal; }
+  .hotpick b { font-weight:600; font-size:13px; }
+  .hotpick small { font-size:11px; }
+  .hotn { font:600 11px var(--font-display); font-variant-numeric:tabular-nums; }
   /* ---- item 12 (2026-08-09): the Moves player list is a bounded box, not the whole page ----
      The table already pans HORIZONTALLY inside .panner with its PLAYER column sticky-left; the
      vertical cap is added to that SAME container rather than a wrapper around it, because a
@@ -1317,6 +1369,12 @@
   <div id="toast" hidden></div>
   <div id="imgOverlay" class="imgoverlay" hidden><img id="imgOverlayImg" alt=""></div>
   <div id="playerCard" class="pcoverlay" hidden></div>
+  <!-- S10 (2026-08-11): the drop/swap card. A SIBLING of #main like the two overlays above —
+       the bottom sheets it replaces lived inside main()'s innerHTML and were destroyed by any
+       repaint. One element serves BOTH flows (add/claim from the players table, and the
+       locker's lineup swap) and it reuses .pcoverlay's own centering rule, so "centered modal"
+       has exactly one definition in this stylesheet. -->
+  <div id="rosterCard" class="pcoverlay" hidden></div>
 
   <!-- S4: the family app's FCM helper, reused verbatim. Loaded here (not lazily) only because
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
@@ -1343,6 +1401,11 @@
     // inside .pccard) — a tap anywhere on the card's own content must never close it.
     document.getElementById("playerCard").addEventListener("click", (e) => {
       if (e.target === e.currentTarget) LG.ui.closePlayerCard();
+    });
+    // S10's drop/swap card — same posture, same backdrop-only rule (a tap on the card's own
+    // content must never dismiss a half-made move).
+    document.getElementById("rosterCard").addEventListener("click", (e) => {
+      if (e.target === e.currentTarget) LG.ui.closeRosterCard();
     });
     // Escape closes whatever modal is up — the player card, the lineup swap sheet, the waiver
     // claim sheet, the chat lightbox. It used to know only about the player card; ITEM 32 gave

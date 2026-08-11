@@ -12,6 +12,8 @@
   // plain esc() — this one is only ever for a person on a roster. See LG.shortName's own note
   // for why the shortening is display-only and never touches stored or wire data.
   const escn = (s) => esc(LG.shortName(s));
+  const FA_SEARCH_DEBOUNCE_MS = 180; // S6 — see the players-table search's own note
+  const HOT_PICKUPS_N = 5;           // S6 — how many trending adds the Moves strip shows
   // Up to 2-letter initials for a team-avatar fallback (design system §"Team avatars are
   // initials on colored circles") — used only where a team has no logo on file.
   const initials = (name) => (String(name || "?").trim().split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?");
@@ -836,6 +838,185 @@
     const closeBtn = $("#pcClose");
     if (closeBtn) closeBtn.addEventListener("click", UI.closePlayerCard);
   };
+
+  // ---------------- S6: trending chrome (2026-08-11) ----------------
+  // ZERO EMOJI, deliberately — the app's own chrome rule (section U scans every rendered view
+  // for a pictographic codepoint), so "the rest of the league is picking this man up" is a
+  // word on a chip, not a flame. HOT = trending ADD, COLD = trending DROP; the count rides in
+  // the title/aria so the chip itself stays two or three characters wide on a phone row.
+  // Absent — every time — when D.trendingFor returns null, which is what it returns whenever
+  // the endpoint is down, blocked or simply hasn't landed yet.
+  function trendChip(key) {
+    const t = D().trendingFor(key);
+    if (!t) return "";
+    const n = t.count.toLocaleString();
+    const label = t.dir === "add" ? "Added in " + n + " leagues in the last 24h"
+      : "Dropped in " + n + " leagues in the last 24h";
+    return ` <span class="trendchip ${t.dir === "add" ? "up" : "down"}" title="${esc(label)}" aria-label="${esc(label)}">${t.dir === "add" ? "HOT" : "COLD"}</span>`;
+  }
+  // The "Hot pickups" strip: the top trending ADDS who are genuinely FREE in THIS league.
+  // Sleeper's list is the whole NFL, so a player eight of our own teams already roster is
+  // noise here — the owned filter is what makes the strip actionable rather than a news
+  // ticker. Returns "" (and the strip renders nothing at all) when there is no trending data
+  // or nothing on it is available.
+  function hotPickupsHtml(ownedKeys) {
+    const d = D();
+    if (!d.S.slpPlayers) return "";
+    const out = [];
+    for (const t of d.trendingAdds(HOT_PICKUPS_N * 4)) {
+      const m = d.S.slpPlayers.get(t.pid);
+      if (!m || !m.name || !m.team) continue;
+      const pos = m.pos === "DEF" ? "DST" : m.pos;
+      const key = m.pos === "DEF" ? "dst_" + t.pid : (m.espn_id || "slp_" + t.pid);
+      if (ownedKeys.has(key)) continue;
+      out.push(`<button type="button" class="hotpick" data-pk="${esc(key)}">
+        <span class="posbadge" data-pos="${esc(pos)}">${esc(pos || "?")}</span>
+        <b>${escn(m.name)}</b><small class="mut">${esc(m.team)}</small>
+        <span class="hotn mut">+${t.count.toLocaleString()}</span></button>`);
+      if (out.length >= HOT_PICKUPS_N) break;
+    }
+    if (!out.length) return "";
+    return `<div class="card hotcard"><h2>Hot pickups <span class="mut small">— most added across fantasy, last 24h</span></h2>
+      <div class="hotrow">${out.join("")}</div></div>`;
+  }
+
+  // ---------------- S10: the centered drop / swap card (2026-08-11) ----------------
+  // User: "when someone clicks add or swap on a player, rather than have it pull up this big
+  // wide window at the bottom of the screen, have it pull up a card in the middle of the
+  // screen to select a player to drop and this card should include their projected points and
+  // % owned."
+  //
+  // The two bottom sheets (#claimSheet / #swapSheet, class .sheet) are GONE — element, class
+  // and stylesheet rule. Both flows now render into ONE persistent centered overlay,
+  // #rosterCard, which is a SIBLING of #main exactly like #playerCard and reuses that card's
+  // own .pcoverlay backdrop rule, so "centered modal" has one definition in the stylesheet
+  // rather than two that can drift apart.
+  //
+  // IT RIDES THE PLAYER CARD'S MODAL CONTRACT VERBATIM (item 32): openRosterCard() registers
+  // ONE history sentinel, so system Back closes the card and leaves the reader exactly where
+  // they were; every close that is NOT Back (✕, Cancel, the backdrop, Escape, submitting)
+  // hands that entry straight back so the reader's next Back is a real view change. A modal
+  // that breaks Back is the regression this app has already paid for once.
+  //
+  // Being a sibling of main() is also strictly better than the sheets were: a background
+  // repaint of the SAME view used to DESTROY a sheet's DOM while its sentinel survived (the
+  // one dead-entry case UI.show's own note documents). The card survives that, and UI.show's
+  // dropOverlayDom() still closes it cleanly on a real view change.
+  function hideRosterCardDom() { const ov = $("#rosterCard"); if (ov) { ov.hidden = true; ov.innerHTML = ""; } }
+  UI.closeRosterCard = function () { hideRosterCardDom(); UI.overlayClosed(); };
+  // ⚠ THE HIDE FUNCTION PASSED TO overlayOpened MUST BE A STABLE REFERENCE. That registrar
+  // treats a DIFFERENT function while one is already registered as "a second overlay opened"
+  // and runs the first one's hide — which, since both flows share this one element, would
+  // wipe the card that had just been written into it. (Handing it a fresh arrow per open did
+  // exactly that: the card painted and vanished in the same turn.) The player card gets this
+  // right for free by passing its own named hidePlayerCardDom; this does the same, so
+  // re-opening the card simply reuses the ONE sentinel already on the stack.
+  function openRosterCard(html) {
+    const ov = $("#rosterCard");
+    if (!ov) return null;
+    ov.innerHTML = html;
+    ov.hidden = false;
+    UI.overlayOpened(hideRosterCardDom);
+    const c = $("#rcClose");
+    if (c) c.addEventListener("click", UI.closeRosterCard);
+    return ov;
+  }
+
+  // ---- % OWNED (S10). One batched call per card open, cached 30 min in memory. ----------
+  // The number comes from ESPN's own fantasy API through sports.mjs's ff_pct_owned — the
+  // league's rosters key players by ESPN player id, which is exactly what that action takes.
+  // A key that ISN'T an espn id resolves through the Sleeper directory's own espn_id (that is
+  // what slp_-prefixed keys are for); a team defense has no ESPN player id at all and simply
+  // reads "—". EVERY failure path — no cookies, an expired cookie, an unreachable function, a
+  // shape we don't recognise — leaves the column reading "—" for everyone and the card fully
+  // usable. Percent-owned is context, never a gate on making a move.
+  const PCT_TTL_MS = 30 * 60e3;
+  UI._pctOwn = new Map();  // espn id (string) -> {pct: number|null, at}  (null = ESPN doesn't know him)
+  UI._pctGate = null;      // {reason, at} — a FAILURE, cached for the same TTL so an
+                           // unconfigured/expired backend is asked once, not once per card open.
+  function espnIdForKey(key) {
+    const k = String(key == null ? "" : key);
+    if (/^\d+$/.test(k)) return k;                       // the ordinary case: the key IS the espn id
+    if (k.startsWith("slp_")) {
+      const m = D().S.slpPlayers && D().S.slpPlayers.get(k.slice(4));
+      if (m && m.espn_id) return String(m.espn_id);
+    }
+    return null;                                          // dst_* and anything unresolvable
+  }
+  UI._espnIdForKey = espnIdForKey; // test hook
+  async function ensurePctOwned(keys) {
+    if (UI._pctGate && Date.now() - UI._pctGate.at < PCT_TTL_MS) return;
+    const now = Date.now();
+    const want = new Set();
+    for (const k of (keys || [])) {
+      const id = espnIdForKey(k);
+      if (!id) continue;
+      const hit = UI._pctOwn.get(id);
+      if (hit && now - hit.at < PCT_TTL_MS) continue;
+      want.add(id);
+    }
+    if (!want.size) return;
+    let j = null;
+    try { j = await sportsFn("ff_pct_owned", { ids: [...want].map(Number) }); } catch (e) { j = null; }
+    if (!j || j.ok !== true) {
+      UI._pctGate = { reason: (j && j.reason) || "fetch-failed", at: now };
+      return;
+    }
+    UI._pctGate = null;
+    const own = j.own || {};
+    // Cache the MISSES too (as null): an id ESPN doesn't know will never be known, and
+    // re-asking for him on every card open would be a request per open, forever.
+    for (const id of want) UI._pctOwn.set(id, { pct: own[id] != null ? own[id] : null, at: now });
+  }
+  function pctOwnedText(key) {
+    const id = espnIdForKey(key);
+    const hit = id ? UI._pctOwn.get(id) : null;
+    return hit && hit.pct != null ? Math.round(hit.pct) + "%" : "—";
+  }
+  UI._pctOwnedText = pctOwnedText; // test hook
+
+  // The card's list is a 3-column grid — who / this week's projection / how much of the
+  // fantasy world rosters him — with ONE header line rather than a label repeated on every
+  // row. .swaprow is kept as the row class (it names what the row IS, a tap-to-pick row, not
+  // where it lives) so its .picked state and every existing behavioural check keep working.
+  function rcHeadHtml() {
+    return '<div class="rchead"><span>Player</span><span class="num">Proj</span><span class="num">Own</span></div>';
+  }
+  function gameStateText(teamAb) {
+    const d = D();
+    const g = d.S.games.get(d.slpTeam(teamAb));
+    if (!g) return "";
+    if (g.state === "in") return "Q" + g.period + " " + g.clock;
+    if (g.state === "post") return "Final";
+    return g.kickoff ? shortKick(g) : "";
+  }
+  // p: a roster/candidate player. attrs: the data-attribute the flow's own click handler reads
+  // ("data-di"/"data-ci"). opts.blocked: a reason string -> the row renders DISABLED and says
+  // why, instead of silently not being there.
+  function rcRowHtml(p, attrs, opts) {
+    opts = opts || {};
+    const d = D();
+    const proj = d.projFor(p.key);
+    const meta = [p.pos, p.team, opts.slot === false ? null : p.slot].filter(Boolean).join(" · ");
+    const state = opts.game === false ? "" : gameStateText(p.team);
+    const sub = [meta, state].filter(Boolean).join(" · ");
+    return `<button type="button" class="swaprow" ${attrs}${opts.blocked
+      ? ` disabled title="${esc(opts.blocked)}" aria-label="${esc(opts.blocked)}"` : ""}>
+      <span class="rcwho"><b>${escn(p.name)}</b>
+        <small class="mut">${esc(sub)}</small>${injChip(d, p)}${opts.blocked ? ` <small class="rcblock">${esc(opts.blocked)}</small>` : ""}</span>
+      <span class="rcnum">${proj != null ? LG.fmtPts(proj) : "—"}</span>
+      <span class="rcnum mut" data-pctkey="${esc(p.key)}">${esc(pctOwnedText(p.key))}</span>
+    </button>`;
+  }
+  // Fill the % owned column once the batched call lands, WITHOUT rebuilding the card — a
+  // rebuild would throw away a drop the reader had already picked and any bid they had typed.
+  // Every cell that carries a percentage tags itself with its own key, so this is one text
+  // write per cell and touches nothing else on the card.
+  function paintPctOwned() {
+    const ov = $("#rosterCard");
+    if (!ov || ov.hidden) return;
+    ov.querySelectorAll("[data-pctkey]").forEach((el) => { el.textContent = pctOwnedText(el.dataset.pctkey); });
+  }
 
   function main() { return $("#main"); }
   function paintLive() {
@@ -3560,6 +3741,7 @@
           ${myResultsHtml}
         </div>`;
     main().innerHTML = `
+      <div id="hotStrip"></div>
       ${pendHtml}
       <div class="card"><h2>Waivers</h2>
         ${wvBlocksHtml}
@@ -3587,8 +3769,7 @@
       </div>
       <div class="card"><h2>Transaction log</h2><div id="mvLog">
         ${UI._tx.length ? UI._tx.map((tx) => `<div class="fline sys"><span class="mut">${new Date(tx.t).toLocaleString()}</span> ${esc(txSentence(tx))}</div>`).join("") : '<p class="mut">No moves yet.</p>'}
-      </div></div>
-      <div id="claimSheet" class="sheet" hidden></div>`;
+      </div></div>`;
 
     document.querySelectorAll(".mvcancel").forEach((b) => b.addEventListener("click", async () => {
       await LG.cancelClaim(UI.week, b.dataset.cid, tid);
@@ -3767,7 +3948,7 @@
         ? ` disabled title="${esc(blocked)}" aria-label="${esc(blocked)}"` : ""}>${past ? "Add" : "Claim"}</button>`;
       return `<tr data-fi="${i}" data-pk="${esc(p.key)}">
         <td class="faname"><span class="posbadge" data-pos="${esc(p.pos)}">${esc(p.pos)}</span>
-          <b>${escn(p.name)}</b>${injLabel(p.injury) ? ' <span class="inj">' + esc(injLabel(p.injury)) + "</span>" : ""}
+          <b>${escn(p.name)}</b>${trendChip(p.key)}${injLabel(p.injury) ? ' <span class="inj">' + esc(injLabel(p.injury)) + "</span>" : ""}
           <br><small class="mut">${esc(p.team)}</small></td>
         <td class="faadd">${moveBtn}</td>
         <td class="fatype">${esc(type)}</td>
@@ -3779,6 +3960,10 @@
     }
     function faResultsHtml(list) {
       if (list == null) return '<p class="mut">Player search is warming up — try again in a moment.</p>';
+      // A 1-2 letter query is deliberately refused by D.searchFA (unfiltered substring
+      // matching on two letters is mostly noise) — it used to read as the flat "No matches.",
+      // which describes the league rather than the query and looks like the search is broken.
+      if (!list.length && faState.q && faState.q.length < 3) return '<p class="mut">Keep typing — three letters or more.</p>';
       if (!list.length) return '<p class="mut">No matches.</p>';
       const ownerMap = faOwnerMap();
       // Sorted across the WHOLE fetched pool (bounded by faState.limit — the same pool "Show
@@ -3811,7 +3996,7 @@
         if (btn.disabled) return; // belt and braces — a disabled button fires no click anyway
         const key = btn.closest("tr").dataset.pk;
         const fa = list.find((x) => x.key === key);
-        if (fa) openClaimSheet(fa);
+        if (fa) openClaimCard(fa);
       }));
       wirePlayerCardTaps(resEl); // the row itself (data-pk) — see faRowHtml's own comment
       $("#faMore") && $("#faMore").addEventListener("click", () => { faState.limit += 40; refreshFa(); });
@@ -3823,50 +4008,103 @@
     $("#faFilterChips").querySelectorAll(".poschip").forEach((b) => b.addEventListener("click", () => {
       faState.filter = b.dataset.filter; UI._faFilter = faState.filter; faState.limit = 40; refreshFa();
     }));
+    // S6: DEBOUNCED. Every keystroke used to re-scan the whole 12,000-entry Sleeper directory
+    // and rebuild the table; at typing speed that is a dozen full scans for one name. 180ms is
+    // under the gap between deliberate keystrokes and far above the gap within a burst, so a
+    // fast typist pays for one scan instead of eight and a slow one notices nothing.
+    // WHAT SEARCH DOES NOT DO: re-sort. The column headers are the reader's own explicit
+    // control, so typing FILTERS the pool and leaves the order they chose alone.
     faInput.addEventListener("input", () => {
-      faState.q = faInput.value.trim(); faState.limit = 40; refreshFa();
+      clearTimeout(UI._faSearchT);
+      UI._faSearchT = setTimeout(() => {
+        faState.q = faInput.value.trim(); faState.limit = 40; refreshFa();
+      }, FA_SEARCH_DEBOUNCE_MS);
     });
     refreshFa();
+    // S6: the trending strip + the table's HOT/COLD chips. Painted from whatever is already
+    // cached (instant on a second visit inside the hour), then once more if a fetch lands.
+    // Both repaints are no-ops when there is no trending data — the strip renders NOTHING
+    // rather than an empty card, so a dead endpoint costs the page not one pixel.
+    function paintHotStrip() {
+      const el = $("#hotStrip");
+      if (!el) return;
+      el.innerHTML = hotPickupsHtml(allOwnedKeys());
+      wirePlayerCardTaps(el);
+    }
+    paintHotStrip();
+    D().loadTrending().then(() => {
+      if (UI.view !== "moves") return;
+      paintHotStrip();
+      if ($("#faResults")) refreshFa();
+    }).catch(() => {});
     // The Sleeper directory (D.searchFA's backing data) often isn't warm yet at the
     // moment Moves first mounts — searchFA returns null ("warming up") until it is.
     // Since browsing is now the DEFAULT state (not something the family has to type
     // into), repaint once it lands, but only if we're still looking at this page.
     D().initSleeper().then(() => { if (UI.view === "moves") refreshFa(); }).catch(() => {});
-    // ITEM 32 (2026-08-10): same modal contract as the swap sheet — Back closes the sheet and
-    // leaves the reader on Moves; Cancel/Submit hand the sentinel back so the NEXT Back is a
-    // real view change.
-    function hideClaimDom() { const s = $("#claimSheet"); if (s) s.hidden = true; }
-    function hideClaimSheet() { hideClaimDom(); UI.overlayClosed(); }
-    function openClaimSheet(fa) {
-      const sheet = $("#claimSheet");
+    // S10 (2026-08-11): the add/claim flow is a CENTERED CARD now — see openRosterCard's own
+    // note. The modal contract is unchanged from the sheet it replaces (item 32): Back closes
+    // it and leaves the reader on Moves; Cancel/Submit hand the sentinel back so the NEXT Back
+    // is a real view change.
+    //
+    // ⚠ THERE IS NO "NO DROP NEEDED" ROW, and that is a fact about the league rather than an
+    // omission: LG.faAdd SPLICES one player out for the one coming in (and refuses outright
+    // with `drop-not-found` otherwise), and processWaivers does the same for a won claim — the
+    // roster is a fixed-size slot script, so there is never a free spot to add into. A
+    // no-drop row would need roster-cap logic in BOTH of those core paths that doesn't exist.
+    // The one case where a drop is genuinely impossible (an empty roster) is already refused
+    // upstream, on the table's own ADD button ("You have nobody to drop").
+    function openClaimCard(fa) {
       const ros = myRoster;
+      const d = D();
       let chosen = null;
-      sheet.innerHTML = `<div class="card"><h2>${past ? "Add" : "Claim"} ${escn(fa.name)}</h2>
-        <p class="mut">${esc(fa.pos)} · ${esc(fa.team)}</p>
-        <h2 class="small mut">Drop</h2>
-        ${ros.map((p, i) => `<button class="swaprow" data-di="${i}"><b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${esc(p.slot)}</small></button>`).join("")}
-        ${!past ? `<input id="claimBid" type="number" min="0" max="${LG.teamFaab(T)}" value="0" placeholder="FAAB bid ($)">` : ""}
-        <button id="claimGo" class="primary" disabled>${past ? "Add" : "Submit claim"}</button>
-        <button class="swaprow mut" id="claimCancel">Cancel</button></div>`;
-      sheet.hidden = false;
-      UI.overlayOpened(hideClaimDom);
-      sheet.querySelectorAll("[data-di]").forEach((b) => b.addEventListener("click", () => {
+      const faProj = d.projFor(fa.key);
+      const faInj = injLabel(fa.injury);
+      openRosterCard(`<div class="pccard rccard">
+        <button type="button" class="pcclose" id="rcClose" aria-label="Close">✕</button>
+        <div class="pchead">
+          <h2 class="pcname">${past ? "Add" : "Claim"} ${escn(fa.name)}</h2>
+          <div class="pcmeta"><span class="posbadge" data-pos="${esc(fa.pos)}">${esc(fa.pos || "?")}</span>
+            <span class="mut">${esc(fa.team || "")}</span>${faInj ? ` <span class="inj">${esc(faInj)}</span>` : ""}</div>
+          <div class="rcin"><span>proj <b>${faProj != null ? LG.fmtPts(faProj) : "—"}</b></span>
+            <span>owned <b data-pctkey="${esc(fa.key)}">${esc(pctOwnedText(fa.key))}</b></span></div>
+        </div>
+        ${!past ? `<label class="rcbid" for="claimBid">FAAB bid ($, up to ${LG.teamFaab(T)})
+          <input id="claimBid" type="number" min="0" max="${LG.teamFaab(T)}" value="0"></label>` : ""}
+        <h2 class="rcq">Who do you drop?</h2>
+        ${rcHeadHtml()}
+        <div class="rclist">${ros.length ? ros.map((p, i) => rcRowHtml(p, `data-di="${i}"`)).join("")
+          : '<p class="mut">Nobody on the roster to drop.</p>'}</div>
+        <div class="rcfoot">
+          <button id="claimGo" class="primary" disabled>${past ? "Add" : "Submit claim"}</button>
+          <button type="button" id="claimCancel" class="rcghost">Cancel</button>
+        </div>
+      </div>`);
+      const ov = $("#rosterCard");
+      // ONE batched percent-owned call per open (the incoming player + the whole roster), then
+      // a text-only repaint — never a rebuild, which would throw away a pick and a typed bid.
+      ensurePctOwned([fa.key, ...ros.map((p) => p.key)]).then(paintPctOwned).catch(() => {});
+      ov.querySelectorAll("[data-di]").forEach((b) => b.addEventListener("click", () => {
         chosen = ros[Number(b.dataset.di)];
-        sheet.querySelectorAll("[data-di]").forEach((x) => x.classList.remove("picked"));
+        ov.querySelectorAll("[data-di]").forEach((x) => x.classList.remove("picked"));
         b.classList.add("picked");
         $("#claimGo").disabled = false;
       }));
-      $("#claimCancel").addEventListener("click", hideClaimSheet);
+      $("#claimCancel").addEventListener("click", UI.closeRosterCard);
       $("#claimGo").addEventListener("click", async () => {
         if (!chosen) return;
-        hideClaimSheet();
+        // READ THE BID BEFORE CLOSING. The old bottom sheet only set `hidden`, so its input
+        // survived the close and could be read afterwards; closing the card EMPTIES it (the
+        // player card's own discipline — a modal must not hold a stale screen), so a bid read
+        // after the close would silently be 0 on every claim.
+        const rawBid = Number(($("#claimBid") || {}).value) || 0;
+        UI.closeRosterCard();
         if (past) {
           const r = await LG.faAdd(UI.week, tid, fa, chosen.key);
           if (r.ok) { toast("Added " + fa.name + "."); UI._rosters = null; renderMoves(); }
           else toast("Couldn't add: " + reasonLabel(r.reason));
         } else {
-          const raw = Number(($("#claimBid") || {}).value) || 0;
-          const bid = Math.max(0, Math.min(LG.teamFaab(T), raw));
+          const bid = Math.max(0, Math.min(LG.teamFaab(T), rawBid));
           const claim = {
             id: "claim_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
             teamId: tid, addKey: fa.key, addName: fa.name, addPos: fa.pos, addTeam: fa.team,
@@ -4656,8 +4894,7 @@
           <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i)).join("")}</div></div>
         <div class="card"><h2>Bench</h2><div id="lockerBench">${bench.length ? bench.map((p, i) => rowHtml("BENCH", p, i)).join("") : '<p class="mut">Empty bench.</p>'}</div></div>
         <div class="card"><h2>IR <span class="mut">(${ir.length}/${irMax})</span></h2>
-          <div id="lockerIR">${ir.length ? ir.map((p, i) => rowHtml("IR", p, i)).join("") : '<p class="mut">Nobody stashed.</p>'}</div></div>
-        <div id="swapSheet" class="sheet" hidden></div>`;
+          <div id="lockerIR">${ir.length ? ir.map((p, i) => rowHtml("IR", p, i)).join("") : '<p class="mut">Nobody stashed.</p>'}</div></div>`;
     } else {
       // Read-only — no swap affordance to split out, so the whole row (data-pk) opens the
       // stats card (item 1's "locker/My-Team roster rows").
@@ -4777,47 +5014,66 @@
     const bench = ros.filter((p) => p.slot === "BENCH");
     const ir = ros.filter((p) => p.slot === "IR");
     const irMax = (LG.rules.roster && LG.rules.roster.IR) || 0;
-    // ITEM 32 (2026-08-10): the swap sheet is a modal, so Back must close it rather than leave
-    // the locker. showSwap() registers it (which pushes ONE sentinel entry); hideSwap() — every
-    // row in the sheet, Cancel included — gives that entry straight back, so the following Back
-    // moves the reader to the previous VIEW instead of silently consuming a dead entry.
-    function hideSwapDom() { const s = $("#swapSheet"); if (s) s.hidden = true; }
-    function showSwap() { const s = $("#swapSheet"); if (s) s.hidden = false; UI.overlayOpened(hideSwapDom); }
-    function hideSwap() { hideSwapDom(); UI.overlayClosed(); }
+    // S10 (2026-08-11): the swap flow is the SAME centered card as the add/claim flow — one
+    // component, one modal contract, one row layout with the same PROJ and OWN columns. The
+    // bottom sheet it replaces is gone.
+    // ITEM 32's contract is unchanged: openRosterCard registers ONE sentinel (so Back closes
+    // the card and leaves the reader in the locker); every row in it, Cancel included, hands
+    // that entry straight back so the following Back moves them to the previous VIEW.
+    function closeSwap() { UI.closeRosterCard(); }
     function openSwap(slot, idx) {
-      const sheet = $("#swapSheet");
       let cur = null;
       if (slot === "BENCH") cur = bench[idx];
       else if (slot === "IR") cur = ir[idx];
       else cur = (starters[idx] || {}).p || null;
       if (cur && playerLocked(cur)) { toast(cur.name + "'s game already started."); return; }
-      let cands;
-      if (slot === "IR") cands = ros.filter((p) => p.slot !== "IR" && LG.irEligible((d.S.players.get(p.key) || {}).injury || p.injury) && !playerLocked(p));
-      else if (slot === "BENCH") cands = []; // bench taps: move the player somewhere else via their target slot instead
-      else cands = ros.filter((p) => p !== cur && (p.slot === "BENCH" || p.slot === "IR") && LG.slotEligible(p.pos, slot) && !playerLocked(p) && (p.slot !== "IR" || true));
+      // A bench tap picks a DESTINATION SLOT, not a player, so those rows carry no projection
+      // or ownership — there is no player on them to have any.
       if (slot === "BENCH" && cur) {
         const opts = starterSlotList().filter((s) => LG.slotEligible(cur.pos, s));
         const irOk = ir.length < irMax && LG.irEligible((d.S.players.get(cur.key) || {}).injury || cur.injury);
-        sheet.innerHTML = `<div class="card"><h2>Move ${escn(cur.name)}</h2>
-          ${[...new Set(opts)].map((s) => `<button class="swaprow" data-to="${s}">→ ${s}</button>`).join("")}
-          ${irOk ? `<button class="swaprow" data-to="IR">→ IR</button>` : ""}
-          <button class="swaprow mut" data-to="">Cancel</button></div>`;
-        showSwap();
-        sheet.querySelectorAll(".swaprow").forEach((b) => b.addEventListener("click", () => {
-          hideSwap();
+        openRosterCard(`<div class="pccard rccard">
+          <button type="button" class="pcclose" id="rcClose" aria-label="Close">✕</button>
+          <div class="pchead"><h2 class="pcname">Move ${escn(cur.name)}</h2>
+            <div class="pcmeta"><span class="posbadge" data-pos="${esc(cur.pos)}">${esc(cur.pos || "?")}</span>
+              <span class="mut">${esc(cur.team || "")}</span>${injChip(d, cur)}</div></div>
+          <h2 class="rcq">Move him where?</h2>
+          <div class="rclist">
+            ${[...new Set(opts)].map((s) => `<button type="button" class="swaprow rcslot" data-to="${s}">→ ${s}</button>`).join("")}
+            ${irOk ? '<button type="button" class="swaprow rcslot" data-to="IR">→ IR</button>' : ""}
+          </div>
+          <div class="rcfoot"><button type="button" class="rcghost" data-to="">Cancel</button></div>
+        </div>`);
+        $("#rosterCard").querySelectorAll("[data-to]").forEach((b) => b.addEventListener("click", () => {
+          closeSwap();
           if (b.dataset.to) doMove(cur, b.dataset.to);
         }));
         return;
       }
-      sheet.innerHTML = `<div class="card"><h2>${slot}: ${cur ? "swap out " + escn(cur.name) : "fill the slot"}</h2>
-        ${cands.length ? cands.map((p, i) => `<button class="swaprow" data-ci="${i}">
-            <b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)} · ${p.slot}${injChip(d, p)}</small>
-            <span class="lpts">proj ${LG.fmtPts(d.projFor(p.key))}</span></button>`).join("")
-          : '<p class="mut">Nobody eligible and unlocked.</p>'}
-        <button class="swaprow mut" data-ci="">Cancel</button></div>`;
-      showSwap();
-      sheet.querySelectorAll(".swaprow").forEach((b) => b.addEventListener("click", async () => {
-        hideSwap();
+      // ⚠ A LOCKED CANDIDATE IS SHOWN, DISABLED, WITH THE REASON — it used to be filtered out
+      // of the list entirely, so a player the reader was looking for simply wasn't there and
+      // nothing said why. That is exactly the confusion item 9 fixed on the lineup row's own
+      // Swap button; the same answer belongs here. A disabled button fires no click, so the
+      // `cands` indices the handler below reads stay aligned with what is rendered.
+      let cands;
+      if (slot === "IR") cands = ros.filter((p) => p.slot !== "IR" && LG.irEligible((d.S.players.get(p.key) || {}).injury || p.injury));
+      else if (slot === "BENCH") cands = []; // bench taps: move the player somewhere else via their target slot instead
+      else cands = ros.filter((p) => p !== cur && (p.slot === "BENCH" || p.slot === "IR") && LG.slotEligible(p.pos, slot));
+      openRosterCard(`<div class="pccard rccard">
+        <button type="button" class="pcclose" id="rcClose" aria-label="Close">✕</button>
+        <div class="pchead"><h2 class="pcname">${esc(slot)}</h2>
+          <div class="pcmeta mut">${cur ? "Swap out " + escn(cur.name) : "Fill the slot"}</div></div>
+        <h2 class="rcq">Who goes in?</h2>
+        ${cands.length ? rcHeadHtml() : ""}
+        <div class="rclist">${cands.length
+          ? cands.map((p, i) => rcRowHtml(p, `data-ci="${i}"`, { blocked: playerLocked(p) ? "Game started" : "" })).join("")
+          : '<p class="mut">Nobody eligible.</p>'}</div>
+        <div class="rcfoot"><button type="button" class="rcghost" data-ci="">Cancel</button></div>
+      </div>`);
+      // ONE batched percent-owned call per open, then a text-only repaint (never a rebuild).
+      ensurePctOwned(cands.map((p) => p.key)).then(paintPctOwned).catch(() => {});
+      $("#rosterCard").querySelectorAll("[data-ci]").forEach((b) => b.addEventListener("click", async () => {
+        closeSwap();
         if (b.dataset.ci === "") return;
         const incoming = cands[Number(b.dataset.ci)];
         await swap(cur, incoming, slot);

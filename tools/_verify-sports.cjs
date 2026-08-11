@@ -98,6 +98,18 @@ function startFfUpstream() {
       res.end(JSON.stringify(FIX.ffFreeAgentsDoc()));
       return;
     }
+    // S10: percent-owned by id. A DIFFERENT view (kona_playercard) — kona_player_info 400s on
+    // a filterIds filter — and the fixture answers only the ids the filter actually asked for,
+    // so "an id ESPN doesn't know is absent from the answer" is the fixture's own behaviour
+    // rather than something the test asserts about itself.
+    if (req.url.includes("view=kona_playercard")) {
+      ffUp.lastFilter = req.headers["x-fantasy-filter"] || "";
+      let ids = [];
+      try { ids = (JSON.parse(ffUp.lastFilter).players.filterIds.value || []).map(Number); } catch (e) {}
+      ffUp.lastIds = ids;
+      res.end(JSON.stringify(FIX.ffPctOwnedDoc(ids)));
+      return;
+    }
     res.end(JSON.stringify(FIX.ffLeagueDoc()));
   });
   return new Promise((resolve) => srv.listen(FF_PORT, "127.0.0.1", () => resolve(srv)));
@@ -286,6 +298,9 @@ async function sectionFantasy() {
   let r = await call({ secret: "amenfarms", action: "ff_league" });
   ok(r.json && r.json.ok === false && r.json.reason === "fantasy-not-configured" && ffUp.calls === calls0,
     "with no cookies set, ff_* answers fantasy-not-configured without calling ESPN");
+  r = await call({ secret: "amenfarms", action: "ff_pct_owned", ids: [3915511] });
+  ok(r.json && r.json.ok === false && r.json.reason === "fantasy-not-configured" && ffUp.calls === calls0,
+    "…ff_pct_owned included (S10) — the drop card's OWN column simply reads \"—\"");
 
   ffAuthGood();
   r = await call({ secret: "amenfarms", action: "ff_league" });
@@ -394,6 +409,36 @@ async function sectionFantasy() {
     "injuries tag through; ACTIVE reads as no tag");
   ok(!/seasonOutlook|draftRanksByRankType|ownership/.test(r.text), "player-card junk never reaches the client");
 
+  // S10 (2026-08-11): ff_pct_owned — the GFFL drop/swap card's percent-owned column. One
+  // batched call, ownership ONLY, and every failure mode the card degrades on.
+  r = await call({ secret: "amenfarms", action: "ff_pct_owned", ids: [3915511, 4241457, 999999] });
+  const po = r.json;
+  ok(!!po && po.ok === true && po.own && po.own["3915511"] === 61.2 && po.own["4241457"] === 8.4,
+    "ff_pct_owned returns one percentage per known id");
+  ok(!!po && !("999999" in po.own), "…and an id ESPN doesn't know is ABSENT, never a fabricated 0");
+  ok(/view=kona_playercard/.test(ffUp.lastUrl),
+    "…through the kona_playerCARD view — kona_player_info 400s on a filterIds filter (measured live 2026-08-06)");
+  let pf = null; try { pf = JSON.parse(ffUp.lastFilter); } catch (e) {}
+  ok(!!pf && pf.players && Array.isArray(pf.players.filterIds.value) && pf.players.filterIds.value.length === 3
+     && pf.players.limit === 40,
+    "…with the ids in the X-Fantasy-Filter HEADER's filterIds, capped at 40");
+  ok(!/seasonOutlook|draftRanksByRankType|appliedTotal|averageDraftPosition/.test(r.text),
+    "…and NOTHING but ownership comes back — no stat lines, no outlook, no draft rank, no ADP");
+  r = await call({ secret: "amenfarms", action: "ff_pct_owned", ids: [3915511, 3915511, "3915511", "slp_9201", "dst_KC", 0, -4, null, 1.5] });
+  ok(!!r.json && r.json.ok === true && ffUp.lastIds.length === 1 && ffUp.lastIds[0] === 3915511,
+    "ids are deduped and validated as positive integers — a slp_/dst_ key, a zero, a negative and a fraction are all dropped ("
+    + JSON.stringify(ffUp.lastIds) + ")");
+  {
+    const calls0 = ffUp.calls;
+    r = await call({ secret: "amenfarms", action: "ff_pct_owned", ids: [] });
+    ok(!!r.json && r.json.ok === true && Object.keys(r.json.own).length === 0 && ffUp.calls === calls0,
+      "nothing to ask about is answered ok with an empty map, and ESPN is never called");
+    r = await call({ secret: "amenfarms", action: "ff_pct_owned" });
+    ok(!!r.json && r.json.ok === true, "…as is a request with no ids field at all");
+    const many = await call({ secret: "amenfarms", action: "ff_pct_owned", ids: Array.from({ length: 90 }, (_, i) => 5000 + i) });
+    ok(many.json.ok === true && ffUp.lastIds.length === 40, "a 90-id request is capped at 40 (" + ffUp.lastIds.length + ")");
+  }
+
   // failure modes
   ffAuthWrong();
   r = await call({ secret: "amenfarms", action: "ff_matchup" });
@@ -402,6 +447,9 @@ async function sectionFantasy() {
   r = await call({ secret: "amenfarms", action: "ff_freeagents" });
   ok(!!r.json && r.json.ok === false && r.json.reason === "fantasy-auth-expired",
     "ff_freeagents rides the same cookie gate");
+  r = await call({ secret: "amenfarms", action: "ff_pct_owned", ids: [3915511] });
+  ok(!!r.json && r.json.ok === false && r.json.reason === "fantasy-auth-expired",
+    "…and so does ff_pct_owned — the card's column reads \"—\" rather than breaking");
   ffAuthGood();
   ffUp.mode = "http500";
   r = await call({ secret: "amenfarms", action: "ff_league" });
