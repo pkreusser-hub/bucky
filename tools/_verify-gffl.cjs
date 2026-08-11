@@ -8227,6 +8227,59 @@ async function openDetails(page, id) {
       await ctx.close();
     }
 
+    // ---- AC5b: THE "undefined" POISONING — found IN PRODUCTION by the shadow scorer
+    // (2026-08-11): the live doc's fg_made_yd / one_pt_safety / dst_2pt_ret held the literal
+    // string "undefined", so the league's signature FG-by-yards rule scored silent zeroes.
+    // Mechanism: String(absentKey) renders "undefined" into the editor input; the string
+    // branch stored it back. This reproduces that exact doc state and proves both guards.
+    {
+      // fullSeed() ships NO settings doc (the app runs on DEFAULT_RULES until a save creates
+      // one), so the poison is written the way production really got it: a rules SAVE whose
+      // scoring map already carried the strings — LG.saveRules stores what it is given.
+      const { ctx, page, errors } = await newTestPage(browser, { docs: fullSeed().docs, pass: "amenfarms", team: 1, who: "Peter" });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 12000 });
+      await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const r = JSON.parse(JSON.stringify(LG.rules));
+        r.scoring.fg_made_yd = "undefined";     // the EXACT production state, all three
+        r.scoring.one_pt_safety = "undefined";
+        r.scoring.dst_2pt_ret = "undefined";
+        await LG.saveRules(r, "seed");
+        await LG.loadRules();
+      });
+      await page.evaluate(() => window.__GFFL__.LG.ui.show("rules"));
+      await sleep(400);
+      await clickIn(page, "#rulesEdit");
+      await page.waitForSelector(".redit", { timeout: 6000 });
+      const rendered = await page.evaluate(() => {
+        const val = (k) => { const i = [...document.querySelectorAll(".redit")].find((x) => x.dataset.k === k); return i ? i.value : null; };
+        return { fgy: val("scoring.fg_made_yd"), safety: val("scoring.one_pt_safety"), ret: val("scoring.dst_2pt_ret") };
+      });
+      ok(rendered.fgy === "" && rendered.safety === "" && rendered.ret === "",
+        "RENDER GUARD: all three poisoned keys render an EMPTY box, never the literal text \"undefined\" (" + JSON.stringify(rendered) + ")");
+      // the commissioner also TYPES the poison into a healthy key — the write guard's case
+      await page.evaluate(() => {
+        const i = [...document.querySelectorAll(".redit")].find((x) => x.dataset.k === "scoring.pass_td");
+        if (i) i.value = "undefined";
+      });
+      await clickIn(page, "#rulesEdit"); // Save, boxes otherwise untouched
+      await sleep(700);
+      const after = await page.evaluate(() => {
+        const s = window.__GFFL__.LG.rules.scoring;
+        const poisons = Object.entries(s).filter(([, v]) => v === "undefined" || v === "null").map(([k]) => k);
+        return { poisons, fgy: s.fg_made_yd, safety: s.one_pt_safety, ret: s.dst_2pt_ret, pass_td: s.pass_td };
+      });
+      ok(after.poisons.length === 0,
+        "WRITE GUARD: after a save, NO scoring key holds the string \"undefined\"/\"null\" (" + JSON.stringify(after.poisons) + ")");
+      ok(after.fgy === 0 && after.safety === 0 && after.ret === 0,
+        "…an empty box over a poisoned key HEALS it to 0, all three (" + JSON.stringify([after.fgy, after.safety, after.ret]) + ")");
+      ok(after.pass_td === 4,
+        "…and typing the literal word \"undefined\" into a healthy key is rejected like garbage — value kept (" + JSON.stringify(after.pass_td) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
     // ---- AC6: D.projFor no longer WALKS the directory. It used to scan all 12,217 entries
     // looking for a matching espn_id — per player, per render.
     {

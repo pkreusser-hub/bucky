@@ -4428,22 +4428,32 @@
   async function renderRules(editing) {
     const r = LG.rules;
     const doc = LG.rulesDoc || { v: 0, log: [] };
+    // THE "undefined" POISONING (found by the shadow scorer, 2026-08-11, IN PRODUCTION):
+    // String(obj[key]) on an ABSENT key renders the literal text "undefined" into the input,
+    // and one save later that string is IN THE DOC — which is exactly how the live league's
+    // fg_made_yd (the signature kicker rule!), one_pt_safety and dst_2pt_ret came to score
+    // as silent zeroes. redval() is the render-side guard: absent (and the poison strings a
+    // historical save already wrote) render EMPTY; the save handler below is the write-side
+    // guard. Both ends, because either alone leaves the other half of the loop open.
+    const POISON = (s) => s === "undefined" || s === "null";
+    const redval = (v) => (v === undefined || v === null || POISON(String(v))) ? "" : String(v);
     // View-mode row: label + value only, never the raw key. Edit-mode row: label + a `.redit`
     // input carrying the SAME data-k the save handler has always parsed — every key renders
     // here, zero or not (item 7's "still present in edit mode").
     const rowV = (group, key, obj) => `<tr><td>${esc(RULE_LABELS[group + "." + key] || key)}</td>
-      <td class="num">${esc(String(obj[key]))}</td></tr>`;
+      <td class="num">${esc(redval(obj[key]))}</td></tr>`;
     const rowE = (group, key, obj) => `<tr><td>${esc(RULE_LABELS[group + "." + key] || key)}</td>
-      <td class="num"><input class="redit" data-k="${group}.${key}" value="${esc(String(obj[key]))}"></td></tr>`;
+      <td class="num"><input class="redit" data-k="${group}.${key}" value="${esc(redval(obj[key]))}"></td></tr>`;
     const row = (group, key, obj) => (editing ? rowE : rowV)(group, key, obj);
     // S2's draftAt is TOP-LEVEL (no group to nest it under), so it gets its own tiny row pair
     // with a bare `data-k` (no dot) — the save handler below treats a dot-less data-k as a key
     // straight on `next` itself rather than on `next[group]`.
     const rowVTop = (key, obj) => `<tr><td>${esc(RULE_LABELS[key] || key)}</td>
-      <td class="num">${esc(String(obj[key]))}</td></tr>`;
+      <td class="num">${esc(redval(obj[key]))}</td></tr>`;
     const rowETop = (key, obj) => `<tr><td>${esc(RULE_LABELS[key] || key)}</td>
-      <td class="num"><input class="redit" data-k="${key}" value="${esc(String(obj[key]))}"></td></tr>`;
+      <td class="num"><input class="redit" data-k="${key}" value="${esc(redval(obj[key]))}"></td></tr>`;
     const rowTop = (key, obj) => (editing ? rowETop : rowVTop)(key, obj);
+    UI._redval = redval; // test hook
     const scoringGroupsHtml = SCORING_GROUPS.map((g) => {
       const keys = editing ? g.keys : g.keys.filter((k) => Number(r.scoring[k]) !== 0);
       if (!keys.length) return ""; // a fully-zero group (view mode only) contributes nothing, not an empty heading
@@ -4521,7 +4531,17 @@
             if (raw !== "" && Number.isFinite(n)) target[k] = n;
             else rejected.push(label);
           } else {
-            target[k] = raw !== "" && Number.isFinite(n) ? n : raw;
+            // WRITE-SIDE POISON GUARD (the production fg_made_yd incident): the string branch
+            // exists for the legitimately-text fields, but it must never store the literal
+            // "undefined"/"null" — that is how three scoring keys silently became zeroes in
+            // the live league. A poison string is REJECTED like an unparseable number; an
+            // EMPTY box over a currently-poisoned/absent value HEALS the key to 0 (numeric is
+            // the only context an absent scoring key has); an empty box over a real text
+            // value keeps it.
+            const curPoison = target[k] === undefined || target[k] === null || (typeof target[k] === "string" && /^(undefined|null)$/.test(target[k]));
+            if (/^(undefined|null)$/.test(raw)) rejected.push(label);
+            else if (raw === "") { if (curPoison) target[k] = 0; }
+            else target[k] = Number.isFinite(n) ? n : raw;
           }
         });
         if (rejected.length) toast("Left unchanged (needs a number): " + rejected.slice(0, 3).join(", "));
