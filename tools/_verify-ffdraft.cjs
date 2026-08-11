@@ -387,7 +387,7 @@ async function sectionRoom(browser) {
     && window.__DRAFT__.lastDraft && window.__DRAFT__.lastDraft.ok, { timeout: 20000 });
   ok(true, "page boots; ESPN pool + league info + last draft all load through the real function");
   ok(await page.evaluate(() => !!document.getElementById("createBtn")), "landing offers Create (no draft doc yet)");
-  ok(await page.evaluate(() => document.getElementById("vLanding").textContent.includes("Nerd Fantasy Football League")),
+  ok(await page.evaluate(() => document.getElementById("vLanding").textContent.includes("Goat Fantasy Football League")),
     "landing names the ESPN league it found");
 
   // --- create ---
@@ -910,6 +910,16 @@ async function sectionRoom(browser) {
   await hook(page, () => window.__DRAFT__.setMe("Visitor", "dev-visitor", ""));
   ok(await page.evaluate(() => document.querySelectorAll("#claimCard .claimrow").length === 8
     && !!document.getElementById("nameIn")), "an unclaimed visitor still gets the full claim list");
+  ok(await page.evaluate(() => document.getElementById("lgName").textContent.includes("Goat Fantasy Football League")),
+    "the header carries the league's chosen name");
+  ok(await page.evaluate(() => !!document.getElementById("commishLoginBtn")),
+    "a non-commissioner sees the Commissioner login button");
+  await hook(page, () => window.__DRAFT__.commishLogin("bogus-key"));
+  ok(await page.evaluate(() => document.getElementById("tabCommish").hidden)
+    && (await toastText(page)).includes("doesn't match"), "a wrong key is refused");
+  await hook(page, (k) => window.__DRAFT__.commishLogin("https://site/ffdraft.html?c=" + k + "#x"), ckey);
+  ok(await page.evaluate(() => !document.getElementById("tabCommish").hidden),
+    "the right key — even pasted as a whole link — signs this device in as commissioner");
   await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
 
   // no sideways scroll on a phone (the board pans inside its own container)

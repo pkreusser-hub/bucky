@@ -478,6 +478,9 @@ body.tv #boardLegend{display:none}
   // The real gate is server-side: sports.mjs checks this against BUCKY_NOTIFY_SECRET.
   var FAMILY_PASSWORD = "amenfarms";
   var FN = "/.netlify/functions/sports";
+  // The league's chosen name (the family renamed it; ESPN's own settings
+  // may lag — the room always shows this).
+  var LEAGUE_NAME = "Goat Fantasy Football League";
   var POS = ["QB", "RB", "WR", "TE", "K", "D/ST"];
   // CSS class/var names can't carry a slash — "D/ST" maps to the DST token.
   function cssPos(pos) { return pos === "D/ST" ? "DST" : pos; }
@@ -907,7 +910,7 @@ body.tv #boardLegend{display:none}
     return {
       v: 1,
       season: SEASON,
-      leagueName: (info && info.leagueName) || "Keeper draft",
+      leagueName: LEAGUE_NAME,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       commishKey: me.ckey || rndKey(8),
@@ -982,6 +985,24 @@ body.tv #boardLegend{display:none}
       d.keepers[teamId] = (d.keepers[teamId] || []).filter(function (k) { return k.pid !== pid; });
       return d;
     });
+  }
+  // Sign in as the commissioner from any device: type the key from the
+  // commissioner link (a pasted full link works too — the c= part is
+  // extracted). The key lives in localStorage after, same as via the link.
+  function commishLogin(key) {
+    var k = key != null ? String(key) : prompt("Commissioner key (or paste your whole commissioner link):");
+    if (!k) return;
+    k = k.trim();
+    var m = k.match(/[?&]c=([^&#\s]+)/);
+    if (m) k = m[1];
+    if (D && D.commishKey && k === D.commishKey) {
+      me.ckey = k;
+      localStorage.setItem("ffd_ckey_" + SEASON, k);
+      toast("You're the commissioner on this device now.");
+      renderAll();
+    } else {
+      toast("That key doesn't match this draft room", true);
+    }
   }
   function armDeadline(d) {
     d.deadline = (d.timerSecs > 0 && d.phase === "live" && !d.paused) ? Date.now() + d.timerSecs * 1000 : null;
@@ -1575,9 +1596,9 @@ body.tv #boardLegend{display:none}
   }
 
   function renderHeader() {
-    $("lgName").textContent = D ? D.leagueName + " · " + D.season : "";
+    $("lgName").textContent = D ? LEAGUE_NAME + " · " + D.season : "";
     $("phaseLine").textContent = phaseText(D);
-    if (!titleTimer) document.title = (D ? D.leagueName + " — " : "") + "Draft Day";
+    if (!titleTimer) document.title = (D ? LEAGUE_NAME + " — " : "") + "Draft Day";
   }
 
   function renderClock() {
@@ -1643,7 +1664,7 @@ body.tv #boardLegend{display:none}
       '<p class="mut">Whoever creates it becomes the commissioner and gets a private commissioner link.</p>' +
       '<p style="margin-top:16px"><button class="btn" id="createBtn">Create the draft room</button></p>' +
       (info === null ? '<p class="mut">Loading league info from ESPN…</p>' :
-        (info && info.ok ? '<p class="mut">League found: <b>' + esc(info.leagueName) + "</b> · " + info.teams.length + " teams · " + info.rosterSize + " roster spots</p>"
+        (info && info.ok ? '<p class="mut">League found: <b>' + esc(LEAGUE_NAME) + "</b> · " + info.teams.length + " teams · " + info.rosterSize + " roster spots</p>"
           : '<p class="mut">Couldn\'t load the ESPN league (' + esc((info && info.reason) || "error") + ") — the room will start with placeholder team names the commissioner can fix later.</p>")) +
       "</div>";
     var b = $("createBtn");
@@ -2037,6 +2058,12 @@ body.tv #boardLegend{display:none}
       });
       ch += "</div>";
     }
+    // Commissioner login — the commish key normally arrives via the ?c= link,
+    // but the commissioner must be able to sign in from ANY device by typing
+    // (or pasting the whole link containing) the key.
+    if (!isCommish(D)) {
+      ch += '<p style="margin:6px 2px"><button class="btn ghost sm" id="commishLoginBtn">Commissioner login</button></p>';
+    }
     $("claimCard").innerHTML = ch;
     var ns = $("nameSave");
     if (ns) ns.onclick = function () { setMyName($("nameIn").value); toast("Hi, " + (me.name || "friend") + "!"); renderAll(); };
@@ -2046,6 +2073,8 @@ body.tv #boardLegend{display:none}
     document.querySelectorAll(".relBtn").forEach(function (b) {
       b.onclick = function () { releaseTeam(Number(b.dataset.tid)); };
     });
+    var cl = $("commishLoginBtn");
+    if (cl) cl.onclick = commishLogin;
 
     // Roster browser
     if (teamSel == null || !teamById(D, teamSel)) teamSel = (mine || D.teams[0]).id;
@@ -2278,6 +2307,7 @@ body.tv #boardLegend{display:none}
     setSetting: setSetting,
     resetDraft: resetDraft,
     resetClaims: resetClaims,
+    commishLogin: commishLogin,
     renderAll: renderAll,
     backendReady: function () { return backendReady; },
     loads: function () { return Promise.all([loadInfo(), loadPool(), loadLastDraft()]); },
