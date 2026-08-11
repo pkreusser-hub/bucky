@@ -755,6 +755,21 @@
   .pendcard .rowline > button { min-height:44px; }
   .pendcard .fline { padding:4px 0; font-size:12.5px; }
   .pendcard .pendnone { margin:0; }
+  /* ---- S7: a counter chain renders as ONE thread ----
+     The live offer keeps the ordinary .rowline it always had; its ancestors sit under it as
+     quiet single lines behind a rail, so an exchange reads as one item in the list rather
+     than as several competing offers. */
+  .tradethread { padding:2px 0; }
+  .tradethread + .tradethread { border-top:1px solid var(--divider2); }
+  .tradeanc { margin:1px 0 3px 2px; padding-left:9px; border-left:2px solid var(--divider); }
+  .tradeancline { padding:1px 0; font-size:11.5px; line-height:1.35; }
+  /* An OFFER made to me carries three actions (Accept · Counter · Decline). At 390px three
+     44px buttons plus the sentence do not fit on one nowrap line with the sentence still
+     readable, so this row alone is allowed to wrap: the sentence takes the full width and the
+     buttons sit under it. Every other pending row keeps the single-line treatment. */
+  .pendcard .rowline.tactions { flex-wrap:wrap; }
+  .pendcard .rowline.tactions > span:first-child { flex:1 1 100%; }
+  #mvCounterNote { margin:0 0 8px; }
   #mvTradeTeam { width:100%; margin-bottom:8px; }
   #faSearch, #mvTradeNote { width:100%; margin:6px 0; }
   .teamrow { display:flex; align-items:center; gap:12px; width:100%; text-align:left; background:var(--card);

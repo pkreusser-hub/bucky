@@ -8947,7 +8947,14 @@ async function openDetails(page, id) {
       // action buttons were only 32px tall, under the 44px tap floor. Smaller AND more
       // tappable. (A probe with longer player names measured the old card at 381px; 359 is
       // what THIS fixture reports, which is the number the budget below is set against.)
-      ok(full.h <= 300, "a populated card is substantially smaller — 359px before, " + full.h + "px now");
+      // RESTAGED for S7 (2026-08-11), budget 300 -> 320: an offer made TO me now carries a
+      // third action (Accept · Counter · Decline), and three 44px buttons do not fit beside
+      // the sentence at 390px, so that ONE row is allowed to wrap (.tactions). Measured cost
+      // of the whole S7 batch on this exact fixture: 300 -> 308px. The check's point is
+      // unchanged and still comfortably made — 359px before item 13, 308 now, with an action
+      // added since. (Keeping the sentence on the button line instead measured WORSE: nowrap
+      // shrinks the text column to ~130px and the sentence wraps to five lines.)
+      ok(full.h <= 320, "a populated card is substantially smaller — 359px before, " + full.h + "px now");
       ok(full.rows === 3, "…still carrying the claim, the trade and the league-veto row (" + full.rows + ")");
       const want = ["Cancel", "Accept", "Decline", "Veto"];
       ok(want.every((w) => full.btns.some((b) => b.t === w)), "…every action still reachable (" + full.btns.map((b) => b.t).join(",") + ")");
@@ -13949,6 +13956,490 @@ async function openDetails(page, id) {
     }
     fixture.projS10 = false;
     await ctx.close();
+  }
+
+  // ================= AP · S7 — the counter-offer, its thread, and the two pushes ==========
+  // A counter is an ORDINARY OFFER in the other direction that carries a link back to the one
+  // it answers (counterOf) and terminates it (status "countered"). So most of what is under
+  // test here is that NOTHING was forked: the deadline check, the 1-3-player validation, the
+  // fresh-read-before-write posture, accept/veto/execute and the S4 push all have to be the
+  // paths they already were, reached through one more door.
+  section("AP · S7 — trade counter-offer (chain, thread, refusals) + the trade-executed push");
+  {
+    const LEAGUE = "https://goatfantasyleague.com/league.html";
+    const last = () => notify.calls[notify.calls.length - 1] || {};
+    const targets = () => notify.calls.map((c) => (c.gfflAll ? "ALL" : c.gfflTeam));
+    // Section AN's timing rule, restated because it applies just as hard here: producers are
+    // fire-and-forget, so an action's promise resolves with the notify fetch still in flight.
+    // Drain before every read AND before every reset, and assert counts EXACTLY, so an extra
+    // push still fails.
+    const drain = async (n) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < 4000 && notify.calls.length < (n || 0)) await sleep(25);
+      await sleep(220);
+    };
+    const reset = async () => { await sleep(260); notify.reset(); };
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+
+    // ---- AP1: the mechanism. Who may counter, what it writes, and what it refuses. ----
+    {
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed()); // team 1, "Peter"
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+
+      // Only the RECEIVER may counter, and only while the offer is still open.
+      const guards = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(2, 1, ["222333"], ["111333"], "");
+        const byStranger = await LG.counterTrade(o.trade.id, 3, ["a"], ["b"], "");
+        const bySender = await LG.counterTrade(o.trade.id, 2, ["a"], ["b"], "");
+        const missing = await LG.counterTrade("trade_nope", 1, ["a"], ["b"], "");
+        // …and the offer is untouched by any of them.
+        const after = await LG.loadTrade(o.trade.id, { fresh: true });
+        await LG.declineTrade(o.trade.id, 1);
+        const resolved = await LG.counterTrade(o.trade.id, 1, ["111333"], ["222333"], "");
+        return { byStranger, bySender, missing, afterStatus: after.status, resolved,
+                 count: (await LG.loadTrades()).length };
+      });
+      ok(guards && guards.byStranger.ok === false && guards.byStranger.reason === "not-yours",
+        "an owner who is not the offer's target cannot counter it (" + JSON.stringify(guards && guards.byStranger) + ")");
+      ok(guards && guards.bySender.ok === false && guards.bySender.reason === "not-yours",
+        "…and neither can the owner who SENT it — a counter is an answer, not something you give yourself");
+      ok(guards && guards.missing.ok === false && guards.missing.reason === "no-trade",
+        "countering a trade that isn't there refuses rather than writing a dangling doc");
+      ok(guards && guards.afterStatus === "offered", "…and the real offer is untouched by every one of those refusals");
+      ok(guards && guards.resolved.ok === false && guards.resolved.reason === "not-pending",
+        "an offer that has already been answered cannot be countered (" + (guards && guards.resolved.reason) + ")");
+      ok(guards && guards.count === 1, "…and not one of the refusals left a trade doc behind (" + (guards && guards.count) + " total)");
+
+      // The happy path: a NEW doc, linked, and the original terminated rather than edited.
+      await reset();
+      const made = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(2, 1, ["222333"], ["111333"], "take it");
+        const r = await LG.counterTrade(o.trade.id, 1, ["111777"], ["222111"], "how about this");
+        const orig = await LG.loadTrade(o.trade.id, { fresh: true });
+        return { origId: o.trade.id, r, orig };
+      });
+      ok(made && made.r.ok === true, "the receiving owner counters (the action itself)");
+      ok(made && made.r.trade.id !== made.origId && made.r.trade.status === "offered",
+        "…which writes a NEW trade doc, offered, with its own id");
+      ok(made && made.r.trade.counterOf === made.origId,
+        "…carrying counterOf back to the offer it answers (" + (made && made.r.trade.counterOf) + ")");
+      ok(made && made.r.trade.from === 1 && made.r.trade.to === 2,
+        "…pointing the other way: from the counterer to the original proposer");
+      ok(made && stableStr(made.r.trade.give) === stableStr(["111777"]) && stableStr(made.r.trade.get) === stableStr(["222111"]),
+        "…with the players the counterer actually chose, not the original's");
+      ok(made && made.orig.status === "countered",
+        "…and the ORIGINAL is now terminal, status \"countered\" (" + (made && made.orig.status) + ")");
+      ok(made && made.orig.counteredBy === made.r.trade.id,
+        "…linked forward to its replacement, so the chain reads from either end");
+      ok(made && stableStr(made.orig.give) === stableStr(["222333"]) && made.orig.note === "take it",
+        "…with the original's own players and note UNCHANGED — a live offer is never edited under anyone");
+      const dead = await evalOr(page, async (id) => {
+        const LG = window.__GFFL__.LG;
+        return { acc: await LG.acceptTrade(id, 1), dec: await LG.declineTrade(id, 1), s: (await LG.loadTrade(id, { fresh: true })).status };
+      }, made && made.origId);
+      ok(dead && dead.acc === null && dead.dec === null && dead.s === "countered",
+        "a countered offer can no longer be accepted or declined — terminal means terminal");
+
+      // THE RACE. counterTrade guards, writes the replacement, then re-reads before marking
+      // the original terminal. Staged by resolving the original from "another device" in the
+      // one moment between those two — the write must NOT clobber the newer status.
+      await reset();
+      const race = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(2, 1, ["222333"], ["111333"], "");
+        const realOffer = LG.offerTrade;
+        LG.offerTrade = async function (...a) {
+          await LG.declineTrade(o.trade.id, 1); // another device answers it mid-flight
+          return realOffer.apply(LG, a);
+        };
+        const r = await LG.counterTrade(o.trade.id, 1, ["111777"], ["222111"], "");
+        LG.offerTrade = realOffer;
+        return { ok: r.ok, counterOf: r.trade && r.trade.counterOf, orig: (await LG.loadTrade(o.trade.id, { fresh: true })).status };
+      });
+      ok(race && race.orig === "declined",
+        "an original resolved between the guard and the write KEEPS the newer status — the fresh re-read holds (" + (race && race.orig) + ")");
+      ok(race && race.ok === true && race.counterOf,
+        "…and the counter that was already written stands as an ordinary offer rather than vanishing");
+
+      // The deadline is the OFFER's own check, reached through the counter — same reason word.
+      await reset();
+      const dl = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(2, 1, ["222333"], ["111333"], "");
+        const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
+        LG.nowOverride = start + LG.rules.trades.deadlineWeek * 7 * 24 * 3600 * 1000 + 3600000;
+        const blocked = await LG.counterTrade(o.trade.id, 1, ["111777"], ["222111"], "");
+        const offerToo = await LG.offerTrade(1, 2, ["111777"], ["222111"], "");
+        LG.nowOverride = null;
+        return { blocked, offerToo, orig: (await LG.loadTrade(o.trade.id, { fresh: true })).status };
+      });
+      ok(dl && dl.blocked.ok === false && dl.blocked.reason === "deadline-passed",
+        "past the trade deadline a counter refuses in exactly the word an offer does (" + (dl && dl.blocked.reason) + ")");
+      ok(dl && dl.offerToo.ok === false && dl.offerToo.reason === "deadline-passed", "…which is the same refusal a plain offer gets");
+      ok(dl && dl.orig === "offered", "…and a refused counter leaves the original open, not half-killed");
+      // The 1-3 validation is the offer's too, and a refused counter must not terminate anything.
+      const bad = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(2, 1, ["222333"], ["111333"], "");
+        const r = await LG.counterTrade(o.trade.id, 1, [], ["222111"], "");
+        return { r, orig: (await LG.loadTrade(o.trade.id, { fresh: true })).status };
+      });
+      ok(bad && bad.r.ok === false && bad.r.reason === "invalid-players" && bad.orig === "offered",
+        "an empty side refuses through the offer's own validation, and the original survives it");
+      ok(errors.length === 0, "0 page errors across the counter mechanism");
+      await ctx.close();
+    }
+
+    // ---- AP2: a counter is an ordinary trade — accept / veto / execute are the SAME paths. ----
+    {
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+      const flow = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(2, 1, ["222333"], ["111333"], "");
+        const c = await LG.counterTrade(o.trade.id, 1, ["111333"], ["222333"], "");
+        const acc = await LG.acceptTrade(c.trade.id, 2); // the counter's target is the original proposer
+        const wrong = await LG.acceptTrade(c.trade.id, 1); // …and only them
+        // Execute it: the review window is a WALL-CLOCK deadline (see acceptTrade), so the
+        // only honest way past it is to move the doc's own stamp back.
+        const d = await LG.loadTrade(c.trade.id, { fresh: true });
+        await LG.saveTrade({ ...d, reviewEndsAt: Date.now() - 1000 });
+        const ex = await LG.executeTrade(c.trade.id);
+        const wk = LG.currentWeek(); // executeTrade writes the week IT decided on — read the same one
+        const r1 = await LG.loadRoster(wk, 1, { fresh: true });
+        const r2 = await LG.loadRoster(wk, 2, { fresh: true });
+        return { accStatus: acc && acc.status, wrong, exStatus: ex && ex.status,
+                 t1: r1.map((p) => p.key), t2: r2.map((p) => p.key) };
+      });
+      ok(flow && flow.accStatus === "accepted", "a counter is accepted through the ordinary acceptTrade path");
+      ok(flow && flow.wrong === null, "…and only by the owner it was sent to");
+      ok(flow && flow.exStatus === "executed", "…and executes through the ordinary executeTrade path");
+      ok(flow && flow.t1.includes("222333") && !flow.t1.includes("111333"), "…moving the players for real (" + JSON.stringify(flow && flow.t1) + ")");
+      ok(flow && flow.t2.includes("111333") && !flow.t2.includes("222333"), "…on both rosters");
+      // Veto, on a counter, between two OTHER teams (section AN's own staging rule: a veto
+      // pushes both parties, and self-suppression would hide half of it on my own trade).
+      const veto = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(3, 4, ["a1"], ["b1"], "");
+        const c = await LG.counterTrade(o.trade.id, 4, ["b2"], ["a2"], "");
+        await LG.acceptTrade(c.trade.id, 3);
+        for (const t of [1, 2, 5, 6]) await LG.vetoTrade(c.trade.id, t);
+        return (await LG.loadTrade(c.trade.id, { fresh: true })).status;
+      });
+      ok(veto === "vetoed", "the league can veto a counter exactly as it vetoes any accepted trade (" + veto + ")");
+      ok(errors.length === 0, "0 page errors across accept/veto/execute on a counter");
+      await ctx.close();
+    }
+
+    // ---- AP3: the pushes. Counter -> the proposer. Executed -> both parties. ----
+    {
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed()); // team 1
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+      await drain(0);
+      notify.reset();
+
+      const off = await page.evaluate(() => window.__GFFL__.LG.offerTrade(2, 1, ["222333"], ["111333"], ""));
+      await drain(0);
+      ok(notify.calls.length === 0, "an offer arriving AT this device pushes nobody (the actor rule, unchanged)");
+      await reset();
+      const c = await page.evaluate((id) => window.__GFFL__.LG.counterTrade(id, 1, ["111777"], ["222111"], ""), off.trade.id);
+      await drain(1);
+      ok(c.ok === true, "the counter is sent (the action itself)");
+      ok(notify.calls.length === 1, "…and sends exactly ONE push — not an offer push AND a counter push");
+      ok(last().gfflTeam === 2, "…to the ORIGINAL PROPOSER, who has been waiting on an answer (gfflTeam " + last().gfflTeam + ")");
+      ok(last().title === "Trade countered", "…titled \"Trade countered\" (" + JSON.stringify(last().title) + ")");
+      ok(/Battle Kreussers countered/.test(last().body || ""), "…naming who countered (" + last().body + ")");
+      ok(last().url === LEAGUE + "#moves", "…deep-linking Moves (" + last().url + ")");
+
+      // A counter I am the TARGET of pushes nobody, same suppression rule. The offer that sets
+      // it up is drained and cleared first — it is a genuine push (to team 2) and belongs to
+      // section AN's checks, not this one's count.
+      await reset();
+      const mine = await page.evaluate(() => window.__GFFL__.LG.offerTrade(1, 2, ["111333"], ["222333"], ""));
+      await drain(1);
+      await reset();
+      const mineToMe = await page.evaluate((id) => window.__GFFL__.LG.counterTrade(id, 2, ["222111"], ["111777"], ""), mine.trade.id);
+      await drain(0);
+      ok(mineToMe.ok === true && notify.calls.length === 0,
+        "a counter whose target is THIS device's own team pushes nobody (" + notify.calls.length + " calls)");
+
+      // A failing notify may never cost the counter — including the link and the termination.
+      await reset(); notify.status = 500;
+      const survived = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(2, 1, ["222333"], ["111333"], "");
+        const r = await LG.counterTrade(o.trade.id, 1, ["111777"], ["222111"], "");
+        return { ok: r.ok, counterOf: r.trade && r.trade.counterOf, orig: (await LG.loadTrade(o.trade.id, { fresh: true })).status };
+      });
+      await drain(1);
+      ok(survived.ok === true && survived.counterOf && survived.orig === "countered",
+        "notify answering 500 does not stop the counter being written or the original being closed");
+      ok(notify.calls.length === 1, "…and the call really was attempted (" + notify.calls.length + ")");
+      await reset(); notify.abort = true;
+      const survivedToo = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(2, 1, ["222333"], ["111333"], "");
+        return LG.counterTrade(o.trade.id, 1, ["111777"], ["222111"], "");
+      });
+      await drain(1);
+      ok(survivedToo.ok === true, "a notify request that never lands at all doesn't stop the counter either");
+      await reset();
+      ok(errors.length === 0, "0 page errors across the counter producer");
+      await ctx.close();
+    }
+    {
+      // The EXECUTED push, staged on a device that is NEITHER party — which is the ordinary
+      // case (executeTrade runs off whichever device opened the app past the review window),
+      // and the only staging where self-suppression cannot hide half the behaviour.
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, { ...fullSeed(), team: 5, who: "Sixth" });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+      await drain(0);
+      const setUp = async (p) => p.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(1, 2, ["111333"], ["222333"], "");
+        await LG.acceptTrade(o.trade.id, 2);
+        const d = await LG.loadTrade(o.trade.id, { fresh: true });
+        await LG.saveTrade({ ...d, reviewEndsAt: Date.now() - 1000 });
+        return o.trade.id;
+      });
+      const id = await setUp(page);
+      await reset(); // the offer + accept pushes are AN's territory, not this check's
+      const ex = await page.evaluate((i) => window.__GFFL__.LG.executeTrade(i), id);
+      await drain(2);
+      ok(ex && ex.status === "executed", "the trade executes (the action itself)");
+      ok(notify.calls.length === 2, "…and pushes BOTH parties — S4 deliberately left this producer out (" + notify.calls.length + " calls)");
+      ok(targets().includes(1) && targets().includes(2), "…each by team id (" + JSON.stringify(targets()) + ")");
+      ok(notify.calls.every((c) => c.title === "Trade executed"), "…both titled \"Trade executed\"");
+      ok(notify.calls.every((c) => c.url === LEAGUE + "#moves"), "…both deep-linking Moves");
+      const forOne = notify.calls.find((c) => c.gfflTeam === 1) || {};
+      const forTwo = notify.calls.find((c) => c.gfflTeam === 2) || {};
+      ok(/You sent B\. Backup to End Zone Goats for X\. Wideout\./.test(forOne.body || ""),
+        "…and each body is written from THAT owner's side (" + forOne.body + ")");
+      ok(/You sent X\. Wideout to Battle Kreussers for B\. Backup\./.test(forTwo.body || ""),
+        "…the other way round for the other owner (" + forTwo.body + ")");
+      // Re-running it is a no-op, so a league of phones all opening at once does not spam.
+      await reset();
+      const again = await page.evaluate((i) => window.__GFFL__.LG.executeTrade(i), id);
+      await drain(0);
+      ok(again && again.status === "executed" && notify.calls.length === 0,
+        "executing an already-executed trade pushes nobody — the idempotency guard is what gates the producer");
+      // A failing notify may never cost the swap.
+      await reset(); notify.status = 500;
+      // 222333 already moved to team 1 in the swap above, so this one trades players who are
+      // still where this trade says they are — otherwise executeTrade's own roster-changed
+      // fail-safe would (correctly) cancel it and the check would be measuring that instead.
+      const id2 = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(2, 1, ["222111"], ["111777"], "");
+        await LG.acceptTrade(o.trade.id, 1);
+        const d = await LG.loadTrade(o.trade.id, { fresh: true });
+        await LG.saveTrade({ ...d, reviewEndsAt: Date.now() - 1000 });
+        return o.trade.id;
+      });
+      await reset(); notify.status = 500;
+      const ex2 = await page.evaluate((i) => window.__GFFL__.LG.executeTrade(i), id2);
+      await drain(2);
+      const roster = await page.evaluate(() => window.__GFFL__.LG.loadRoster(window.__GFFL__.LG.currentWeek(), 1, { fresh: true }));
+      ok(ex2 && ex2.status === "executed" && roster.some((p) => p.key === "222111"),
+        "notify answering 500 does not stop the rosters actually swapping (" + (ex2 && (ex2.cancelReason || ex2.status)) + ")");
+      await reset();
+      ok(errors.length === 0, "0 page errors across the executed producer");
+      await ctx.close();
+    }
+    {
+      // …and the same rule from a PARTY's device: the actor hears nothing, the other owner does.
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed()); // team 1, a party
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+      const id = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(1, 2, ["111333"], ["222333"], "");
+        await LG.acceptTrade(o.trade.id, 2);
+        const d = await LG.loadTrade(o.trade.id, { fresh: true });
+        await LG.saveTrade({ ...d, reviewEndsAt: Date.now() - 1000 });
+        return o.trade.id;
+      });
+      await reset();
+      await page.evaluate((i) => window.__GFFL__.LG.executeTrade(i), id);
+      await drain(1);
+      ok(notify.calls.length === 1 && targets()[0] === 2,
+        "executed from a party's OWN device pushes only the other owner — self-suppression holds (" + JSON.stringify(targets()) + ")");
+      await reset();
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AP4: the UI. Who is offered Counter, what it prefills, and the thread it leaves. ----
+    {
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed()); // team 1 — the TARGET
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+      const orig = await page.evaluate(() => window.__GFFL__.LG.offerTrade(2, 1, ["222333"], ["111333"], ""));
+      await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#mvMyTrades .rowline", 9000);
+      const acts = await page.evaluate(() => ({
+        counter: document.querySelectorAll("#mvMyTrades .mvcounter").length,
+        accept: document.querySelectorAll("#mvMyTrades .mvaccept").length,
+        decline: document.querySelectorAll("#mvMyTrades .mvdecline").length,
+        cancel: document.querySelectorAll("#mvMyTrades .mvcanceltrade").length,
+        h: Math.round((document.querySelector("#mvMyTrades .mvcounter") || { getBoundingClientRect: () => ({ height: 0 }) }).getBoundingClientRect().height),
+        sideways: document.documentElement.scrollWidth > innerWidth,
+      }));
+      ok(acts.counter === 1 && acts.accept === 1 && acts.decline === 1,
+        "the owner an offer was sent to is given Counter beside Accept and Decline");
+      ok(acts.cancel === 0, "…and no Cancel — that is the sender's control");
+      ok(acts.h >= 44, "…with a real tap target (" + acts.h + "px), like every other pending action");
+      ok(!acts.sideways, "…and three actions still fit the phone with no sideways scroll");
+
+      // Prefill: the sides really are swapped, in the STATE and on the screen.
+      await clickIn(page, "#mvMyTrades .mvcounter");
+      await waitFnOr(page, () => /Counter/.test((document.querySelector("#mvTradeCard h2") || {}).textContent || ""));
+      const pre = await page.evaluate(() => {
+        const UI = window.__GFFL__.UI;
+        return { give: [...UI._tradeGive], get: [...UI._tradeGet], cp: UI._tradeCp, counterOf: UI._counterOf,
+                 head: (document.querySelector("#mvTradeCard h2") || {}).textContent,
+                 send: (document.querySelector("#mvTradeSend") || {}).textContent,
+                 giveChips: [...document.querySelectorAll("#mvGive .tradechip")].map((e) => e.textContent.replace(/\s+/g, " ").trim()),
+                 getChips: [...document.querySelectorAll("#mvGet .tradechip")].map((e) => e.textContent.replace(/\s+/g, " ").trim()) };
+      });
+      ok(stableStr(pre.give) === stableStr(["111333"]),
+        "Counter prefills MY give with what they asked me for (" + JSON.stringify(pre.give) + ")");
+      ok(stableStr(pre.get) === stableStr(["222333"]),
+        "…and MY get with what they offered — the sides, swapped (" + JSON.stringify(pre.get) + ")");
+      ok(pre.cp === 2 && pre.counterOf === orig.trade.id, "…pointed at the right owner, linked to the right offer");
+      ok(/Counter End Zone Goats's offer/.test(pre.head || ""), "…and the builder says what it is now for (" + pre.head + ")");
+      ok(/Send counter/.test(pre.send || ""), "…right down to the button (" + pre.send + ")");
+      ok(pre.giveChips.some((t) => /B\. Backup/.test(t)) && pre.getChips.some((t) => /X\. Wideout/.test(t)),
+        "…and it is really on the screen, not just in a Set (" + JSON.stringify([pre.giveChips, pre.getChips]) + ")");
+
+      // Editable as normal: drop their pick, add my own, then send.
+      await page.evaluate(() => { const b = document.querySelector('#mvGive .tradedrop[data-gk="111333"]'); if (b) b.click(); });
+      await openTradeSideOr(page, "give");
+      await clickChildIn(page, "#mvGive .pickchip", ".pcpick", "H. Healthy");
+      await waitFnOr(page, () => window.__GFFL__.UI._tradeGive.has("111777"));
+      const edited = await page.evaluate(() => [...window.__GFFL__.UI._tradeGive]);
+      ok(stableStr(edited) === stableStr(["111777"]), "the prefill is fully editable — swapped out for a different player (" + JSON.stringify(edited) + ")");
+      await clickIn(page, "#mvTradeSend");
+      await waitFnOr(page, () => document.querySelectorAll("#mvMyTrades .tradeancline").length === 1);
+
+      const thread = await page.evaluate(() => ({
+        threads: document.querySelectorAll("#mvMyTrades .tradethread").length,
+        rows: document.querySelectorAll("#mvMyTrades .rowline").length,
+        anc: [...document.querySelectorAll("#mvMyTrades .tradeancline")].map((e) => e.textContent.replace(/\s+/g, " ").trim()),
+        live: (document.querySelector("#mvMyTrades .tradethread .rowline") || {}).textContent.replace(/\s+/g, " ").trim(),
+        accept: document.querySelectorAll("#mvMyTrades .mvaccept").length,
+        counter: document.querySelectorAll("#mvMyTrades .mvcounter").length,
+        veto: document.querySelectorAll("#mvMyTrades .mvveto").length,
+        cancel: document.querySelectorAll("#mvMyTrades .mvcanceltrade").length,
+        head: (document.querySelector("#mvTradeCard h2") || {}).textContent,
+        counterOf: window.__GFFL__.UI._counterOf,
+      }));
+      ok(thread.threads === 1 && thread.rows === 1,
+        "the exchange renders as ONE thread with ONE live row, not two competing offers (" + thread.threads + "/" + thread.rows + ")");
+      ok(thread.anc.length === 1 && /^Countered — was: you give B\. Backup → get X\. Wideout$/.test(thread.anc[0]),
+        "…with the offer it answered beneath it as one quiet line (" + JSON.stringify(thread.anc) + ")");
+      ok(/H\. Healthy/.test(thread.live) && /X\. Wideout/.test(thread.live),
+        "…and the live row is the COUNTER's own players (" + thread.live + ")");
+      ok(thread.accept === 0 && thread.counter === 0 && thread.veto === 0,
+        "the countered original offers no Accept, Counter or Veto — it is terminal");
+      ok(thread.cancel === 1, "…and the counter I just sent is mine to cancel");
+      ok(/Propose a trade/.test(thread.head || "") && thread.counterOf === null,
+        "…and the builder has gone back to being a fresh proposal (" + thread.head + ")");
+
+      // A second device, as the PROPOSER, sees the same thread and is offered the answer.
+      const docs = await snapshotAllDocs(page);
+      const p2 = await newTestPage(browser, { docs, pass: "amenfarms", team: 2, who: "Rival" });
+      await bootPage(p2.page);
+      await waitOr(p2.page, ".mucard");
+      await stopPolling(p2.page);
+      await p2.page.evaluate(() => window.__GFFL__.UI.show("moves"));
+      await waitOr(p2.page, "#mvMyTrades .rowline", 9000);
+      const other = await p2.page.evaluate(() => ({
+        counter: document.querySelectorAll("#mvMyTrades .mvcounter").length,
+        accept: document.querySelectorAll("#mvMyTrades .mvaccept").length,
+        threads: document.querySelectorAll("#mvMyTrades .tradethread").length,
+        anc: [...document.querySelectorAll("#mvMyTrades .tradeancline")].map((e) => e.textContent.replace(/\s+/g, " ").trim()),
+        live: (document.querySelector("#mvMyTrades .tradethread .rowline") || {}).textContent.replace(/\s+/g, " ").trim(),
+      }));
+      ok(other.threads === 1 && other.accept === 1 && other.counter === 1,
+        "the original proposer sees the same one thread, and may accept it or counter back");
+      ok(other.anc.length === 1 && /^Countered — was: you give X\. Wideout → get B\. Backup$/.test(other.anc[0]),
+        "…with the history read from THEIR side of the deal (" + JSON.stringify(other.anc) + ")");
+      ok(/You give X\. Wideout/.test(other.live), "…and so is the live row (" + other.live + ")");
+      ok(p2.errors.length === 0, "0 page errors on the proposer's device");
+      await p2.ctx.close();
+      ok(errors.length === 0, "0 page errors across the counter UI");
+      if (SHOTS) {
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_counter_thread_390.png") });
+        console.log("  📸 shots/gffl_counter_thread_390.png");
+      }
+      await ctx.close();
+    }
+
+    // ---- AP5: a counter can be countered. The chain grows; the thread folds. ----
+    {
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed()); // team 1
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+      const chain = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        // 2 offers -> 1 counters -> 2 counters back -> 1 -> 2 -> 1. Six links, five of them
+        // terminal, all between the same two owners.
+        const o = await LG.offerTrade(2, 1, ["222333"], ["111333"], "");
+        const ids = [o.trade.id];
+        let by = 1;
+        for (let i = 0; i < 5; i++) {
+          const r = await LG.counterTrade(ids[ids.length - 1], by, by === 1 ? ["111333"] : ["222333"], by === 1 ? ["222333"] : ["111333"], "");
+          ids.push(r.trade.id);
+          by = by === 1 ? 2 : 1;
+        }
+        const docs = await Promise.all(ids.map((i) => LG.loadTrade(i, { fresh: true })));
+        return { ids, statuses: docs.map((d) => d.status), links: docs.map((d) => d.counterOf || null) };
+      });
+      ok(chain && chain.ids.length === 6, "a counter can itself be countered, without limit (" + (chain && chain.ids.length) + " links)");
+      ok(chain && stableStr(chain.statuses) === stableStr(["countered", "countered", "countered", "countered", "countered", "offered"]),
+        "…each link closing the one before it, only the newest still live (" + JSON.stringify(chain && chain.statuses) + ")");
+      ok(chain && chain.links[0] === null && chain.links.slice(1).every((l, i) => l === chain.ids[i]),
+        "…and every counterOf points at its own immediate ancestor");
+      await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#mvMyTrades .tradeancline", 9000);
+      const folded = await page.evaluate(() => ({
+        threads: document.querySelectorAll("#mvMyTrades .tradethread").length,
+        rows: document.querySelectorAll("#mvMyTrades .rowline").length,
+        anc: [...document.querySelectorAll("#mvMyTrades .tradeancline")].map((e) => e.textContent.replace(/\s+/g, " ").trim()),
+        sideways: document.documentElement.scrollWidth > innerWidth,
+      }));
+      ok(folded.threads === 1 && folded.rows === 1,
+        "six linked offers still render as ONE thread with one live row (" + folded.threads + "/" + folded.rows + ")");
+      ok(folded.anc.length === 4, "…showing at most the 3 newest ancestors plus a fold (" + folded.anc.length + " lines)");
+      ok(folded.anc.slice(0, 3).every((t) => /^Countered — was: you give /.test(t)),
+        "…each ancestor one muted 'Countered — was: …' line (" + JSON.stringify(folded.anc.slice(0, 3)) + ")");
+      ok(/^\+2 earlier$/.test(folded.anc[3]), "…and the rest folded into '+2 earlier' (" + folded.anc[3] + ")");
+      ok(!folded.sideways, "…with no sideways scroll on the phone");
+      ok(errors.length === 0, "0 page errors across the chain");
+      await ctx.close();
+    }
+    await reset();
   }
 
   await browser.close();

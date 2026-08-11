@@ -1616,7 +1616,17 @@
     return (await LG.db.list("trade")).sort((a, b) => b.t - a.t);
   };
   LG.tradeDeadlinePassed = () => LG.currentWeek() > ((LG.rules && LG.rules.trades.deadlineWeek) || 99);
-  LG.offerTrade = async function (from, to, give, get, note) {
+  // opts (S7, optional — every pre-S7 call site passes nothing and is byte-identical):
+  //   opts.counterOf — the trade doc id this offer answers. Stamped on the doc; it is what
+  //                    makes a chain a chain, and the ONLY thing Moves needs to render one.
+  //   opts.push      — {title, body} replacing the default offer wording, so a counter says
+  //                    "countered" rather than arriving as a bare new offer.
+  // A counter is an ORDINARY OFFER in the other direction, so it goes through this same
+  // function rather than a parallel one: the deadline check, the 1-3-players validation, the
+  // doc write and the S4 producer are all the existing path, and there is no second copy of
+  // any of them to drift.
+  LG.offerTrade = async function (from, to, give, get, note, opts) {
+    opts = opts || {};
     if (LG.tradeDeadlinePassed()) return { ok: false, reason: "deadline-passed" };
     give = give || []; get = get || [];
     if (!give.length || !get.length || give.length > 3 || get.length > 3) return { ok: false, reason: "invalid-players" };
@@ -1625,10 +1635,41 @@
     const t = Date.now();
     const id = LG.tradeId(t);
     const doc = { kind: "trade", id, from, to, give, get, note: note || "", status: "offered", t, acceptedAt: null, reviewEndsAt: null, vetoes: [] };
+    if (opts.counterOf) doc.counterOf = opts.counterOf;
     await LG.saveTrade(doc);
     // S4 producer — the offer's whole point is that the other owner doesn't know about it yet.
-    LG.pushTeam(to, "Trade offer", LG.teamName(from) + " sent you a trade.", LG.pushLink("#moves"));
+    const push = opts.push || { title: "Trade offer", body: LG.teamName(from) + " sent you a trade." };
+    LG.pushTeam(to, push.title, push.body, LG.pushLink("#moves"));
     return { ok: true, trade: doc };
+  };
+  // S7 — COUNTER-OFFER. The receiving owner answers an offer with their own, and the original
+  // becomes terminal ("countered") rather than being edited: the doc model stays append-ish,
+  // so nothing ever mutates a live offer under the person looking at it, and the whole
+  // exchange is still readable afterwards by following counterOf up the chain.
+  //
+  // A counter may itself be countered — the chain just grows, with no cap. There is nothing
+  // to cap: each link is one small doc, and Moves renders only the newest few (see the
+  // "+N earlier" fold in renderMoves).
+  //
+  // ORDERING, and the race it is chosen for: the replacement is written FIRST and the original
+  // is terminated SECOND, behind its own fresh re-read. If the proposer cancels or the trade
+  // is accepted in the moment between the two, the loser of that race leaves the counter
+  // standing as an ordinary offer the counterer can cancel — honest and recoverable. The other
+  // order can lose the original to a counter that then fails to write, which is not.
+  LG.counterTrade = async function (id, byTeamId, give, get, note) {
+    const doc = await LG.loadTrade(id, { fresh: true }); // same fresh-read posture as every other transition
+    if (!doc) return { ok: false, reason: "no-trade" };
+    if (doc.to !== byTeamId) return { ok: false, reason: "not-yours" };       // only the RECEIVER may counter
+    if (doc.status !== "offered") return { ok: false, reason: "not-pending" }; // already accepted/declined/cancelled/countered
+    const r = await LG.offerTrade(byTeamId, doc.from, give, get, note, {
+      counterOf: id,
+      // S7 producer — to the ORIGINAL PROPOSER, who is waiting on an answer and is getting one.
+      push: { title: "Trade countered", body: LG.teamName(byTeamId) + " countered your trade." },
+    });
+    if (!r.ok) return r; // deadline / invalid players — nothing written, the original is untouched
+    const again = await LG.loadTrade(id, { fresh: true });
+    if (again && again.status === "offered") await LG.saveTrade({ ...again, status: "countered", counteredBy: r.trade.id });
+    return r;
   };
   // Every status transition below is a read-modify-write on one shared trade doc, so each
   // reads FRESH (adversarial review 2026-08-08): a cached copy let one device resurrect a
@@ -1722,6 +1763,17 @@
       giveNames: movedFrom.map((p) => (p ? p.name : "?")), getNames: movedTo.map((p) => (p ? p.name : "?")), result: "executed",
     });
     // Item 15 (2026-08-09): sys chat post removed — the logTx above carries the same names.
+    // S7 producer — the one S4 deliberately left out. This is the moment the rosters actually
+    // change, and it is usually nobody's own doing: executeTrade runs off whichever device
+    // happened to open the app past the review window, so BOTH parties are told. pushTeam's
+    // one rule still applies — if the device running it IS a party, that party is looking at
+    // the screen and hears nothing, exactly as with every other producer.
+    try {
+      const nm = (list) => list.map((p) => (p ? LG.shortName(p.name) : "?")).join(", ");
+      const sent = nm(movedFrom), got = nm(movedTo);
+      LG.pushTeam(fresh.from, "Trade executed", "You sent " + sent + " to " + LG.teamName(fresh.to) + " for " + got + ".", LG.pushLink("#moves"));
+      LG.pushTeam(fresh.to, "Trade executed", "You sent " + got + " to " + LG.teamName(fresh.from) + " for " + sent + ".", LG.pushLink("#moves"));
+    } catch (e) { /* a producer may never cost the swap that produced it */ }
     return executed;
   };
 

@@ -3494,6 +3494,7 @@
   // ---------------- moves (waivers, trades, transaction log) ----------------
   UI._tradeGive = new Set();
   UI._tradeGet = new Set();
+  UI._counterOf = null; // S7 — the id of the offer the builder is currently answering, if any
   function allOwnedKeys() {
     const s = new Set();
     for (const t of LG.teams) for (const p of ((UI._rosters && UI._rosters[t.id]) || [])) s.add(p.key);
@@ -3601,6 +3602,12 @@
     preseason: "the NFL is still in preseason — nothing counts yet",
     "no-archived-stats": "that week's archived stats aren't available", "bracket-unresolved": "an earlier playoff round hasn't been settled yet",
     "no-schedule": "there are no games on the board for that week",
+    // S7 — the counter's own refusals. "deadline-passed" and "invalid-players" come back
+    // through LG.offerTrade unchanged, so a counter refuses in exactly the words an offer does.
+    "deadline-passed": "the trade deadline has passed",
+    "invalid-players": "a trade needs 1-3 players on each side",
+    "no-trade": "that offer is gone", "not-yours": "that offer wasn't sent to you",
+    "not-pending": "that offer has already been answered",
   };
   function reasonLabel(r) { return REASON_LABEL[r] || r; }
   function txSentence(tx) {
@@ -3631,6 +3638,29 @@
     const past = LG.now() >= LG.waiverDeadline(UI.week);
     const myClaims = (UI._claims.claims || []).filter((c) => c.teamId === tid);
     const myTrades = (UI._trades || []).filter((tr) => (tr.from === tid || tr.to === tid) && (tr.status === "offered" || tr.status === "accepted"));
+    // S7 — the counter CHAIN. Every link is between the same two teams, so a chain I am in is
+    // entirely mine; walking `counterOf` up from a live offer gives its whole history, newest
+    // first. Ancestors are terminal by construction ("countered"), so they never appear in
+    // myTrades themselves — but the ancestor set is subtracted anyway, because a lost race
+    // (see LG.counterTrade's ordering note) can leave one live, and one exchange must render
+    // as one thread whatever state its links are in.
+    const tradeById = new Map((UI._trades || []).map((tr) => [tr.id, tr]));
+    const ancestorsOf = (tr) => {
+      const out = [];
+      let cur = tr.counterOf ? tradeById.get(tr.counterOf) : null;
+      while (cur && out.length < 40) { out.push(cur); cur = cur.counterOf ? tradeById.get(cur.counterOf) : null; }
+      return out;
+    };
+    const ancestorIds = new Set();
+    myTrades.forEach((tr) => ancestorsOf(tr).forEach((a) => ancestorIds.add(a.id)));
+    const tradeHeads = myTrades.filter((tr) => !ancestorIds.has(tr.id));
+    // A counter I am composing right now points at a specific live offer. If that offer has
+    // since been answered (or the counterparty was switched under it), the link is stale —
+    // drop it rather than sending a counter to a trade that no longer exists.
+    if (UI._counterOf) {
+      const src = tradeById.get(UI._counterOf);
+      if (!src || src.status !== "offered" || src.to !== tid) UI._counterOf = null;
+    }
     const reviewTrades = (UI._trades || []).filter((tr) => tr.status === "accepted" && tr.from !== tid && tr.to !== tid);
 
     // Item 1's "claims list" — the player names in "My pending" are their own tappable stats
@@ -3639,20 +3669,49 @@
     const pcName = (key, label) => `<button type="button" class="pcinline" data-pk="${esc(key)}">${escn(label)}</button>`;
     const claimRow = (c) => `<div class="rowline"><span>${pcName(c.addKey, c.addName)} <span class="mut">(${esc(c.addPos)}·${esc(c.addTeam)})</span> ← drop ${pcName(c.dropKey, c.dropName || c.dropKey)} · $${c.bid}</span>
       <button class="mvcancel" data-cid="${esc(c.id)}">Cancel</button></div>`;
-    const tradeRow = (tr) => {
+    // Both the live row and its quiet ancestors read from MY side of the deal, so a thread is
+    // one consistent sentence all the way down: "You give … → get …", whichever end of the
+    // original offer I happened to be on.
+    const tradeSides = (tr) => {
       const mine = tr.from === tid;
-      const otherId = mine ? tr.to : tr.from;
+      return { give: mine ? tr.give : tr.get, get: mine ? tr.get : tr.give, otherId: mine ? tr.to : tr.from };
+    };
+    const tradeRow = (tr) => {
+      const s = tradeSides(tr);
       const nameBtns = (keys) => keys.map((k) => pcName(k, nameOfKey(k))).join(", ");
-      const give = nameBtns(mine ? tr.give : tr.get);
-      const get = nameBtns(mine ? tr.get : tr.give);
+      const give = nameBtns(s.give);
+      const get = nameBtns(s.get);
       let actions = "";
+      let cls = "rowline";
       if (tr.status === "offered") {
-        if (tr.to === tid) actions = `<button class="mvaccept" data-tid="${tr.id}">Accept</button> <button class="mvdecline" data-tid="${tr.id}">Decline</button>`;
-        else if (tr.from === tid) actions = `<button class="mvcanceltrade" data-tid="${tr.id}">Cancel</button>`;
+        // S7 — Counter sits beside Accept/Decline, and ONLY for the owner the offer was sent
+        // to: it is an answer to an offer, which is not something the sender can give.
+        if (tr.to === tid) {
+          actions = `<button class="mvaccept" data-tid="${tr.id}">Accept</button> <button class="mvcounter" data-tid="${tr.id}">Counter</button> <button class="mvdecline" data-tid="${tr.id}">Decline</button>`;
+          cls += " tactions"; // three 44px buttons do not fit beside the sentence at 390px — see the CSS note
+        } else if (tr.from === tid) actions = `<button class="mvcanceltrade" data-tid="${tr.id}">Cancel</button>`;
       } else if (tr.status === "accepted") {
         actions = `<span class="mut small">reviews until ${new Date(tr.reviewEndsAt).toLocaleString()}</span>`;
       }
-      return `<div class="rowline"><span>You give ${give} → get ${get} <span class="mut">(${teamMention(otherId)}) · ${esc(tr.status)}</span></span>${actions}</div>`;
+      return `<div class="${cls}"><span>You give ${give} → get ${get} <span class="mut">(${teamMention(s.otherId)}) · ${esc(tr.status)}</span></span>${actions}</div>`;
+    };
+    // An ancestor is HISTORY, so it is one muted line and nothing more: what it was, and what
+    // became of it. No player-stats links, no actions — the live offer above it is the thing
+    // to act on.
+    const ANCESTOR_SHOWN = 3;
+    const STATUS_WORD = { countered: "Countered", declined: "Declined", cancelled: "Cancelled", accepted: "Accepted", executed: "Executed", vetoed: "Vetoed", offered: "Still open" };
+    const ancestorLine = (tr) => {
+      const s = tradeSides(tr);
+      const nm = (keys) => keys.map((k) => LG.shortName(nameOfKey(k))).join(", ");
+      // esc(), not escn(): nm() has already shortened each NAME, and escn would then run
+      // LG.shortName over the whole joined "A. One, B. Two" string and read it as one name.
+      return `<div class="tradeancline mut small">${esc(STATUS_WORD[tr.status] || tr.status)} — was: you give ${esc(nm(s.give))} → get ${esc(nm(s.get))}</div>`;
+    };
+    const tradeThread = (tr) => {
+      const anc = ancestorsOf(tr);
+      const shown = anc.slice(0, ANCESTOR_SHOWN);
+      const more = anc.length - shown.length;
+      return `<div class="tradethread">${tradeRow(tr)}${anc.length ? `<div class="tradeanc">${shown.map(ancestorLine).join("")}${more > 0 ? `<div class="tradeancline mut small">+${more} earlier</div>` : ""}</div>` : ""}</div>`;
     };
     const reviewRow = (tr) => {
       const already = (tr.vetoes || []).includes(tid);
@@ -3727,7 +3786,7 @@
           wvDl.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }))}
       </div>`;
 
-    const pendEmpty = !myClaims.length && !myTrades.length && !reviewTrades.length && !myResultsHtml;
+    const pendEmpty = !myClaims.length && !tradeHeads.length && !reviewTrades.length && !myResultsHtml;
     const pendHtml = pendEmpty
       ? `<div class="card pendcard"><h2>My pending</h2>
           <p class="pendnone mut small"><span id="mvMyClaims">No pending claims.</span> <span id="mvMyTrades">No pending trades.</span></p>
@@ -3735,8 +3794,8 @@
       : `<div class="card pendcard"><h2>My pending</h2>
           ${myClaims.length ? '<h2 class="small mut">Your waiver claims</h2>' : ""}
           <div id="mvMyClaims">${myClaims.length ? myClaims.map(claimRow).join("") : '<p class="pendnone mut small">No pending claims.</p>'}</div>
-          ${myTrades.length ? '<h2 class="small mut">Your trades</h2>' : ""}
-          <div id="mvMyTrades">${myTrades.length ? myTrades.map(tradeRow).join("") : '<p class="pendnone mut small">No pending trades.</p>'}</div>
+          ${tradeHeads.length ? '<h2 class="small mut">Your trades</h2>' : ""}
+          <div id="mvMyTrades">${tradeHeads.length ? tradeHeads.map(tradeThread).join("") : '<p class="pendnone mut small">No pending trades.</p>'}</div>
           ${reviewTrades.length ? `<h2 class="small mut">Trades under review — league vote</h2><div id="mvReviewTrades">${reviewTrades.map(reviewRow).join("")}</div>` : ""}
           ${myResultsHtml}
         </div>`;
@@ -3756,7 +3815,9 @@
         <input id="faSearch" placeholder="Search players… (optional — browse below)" autocomplete="off">
         <div id="faResults"></div>
       </div>
-      <div class="card"><h2>Propose a trade</h2>
+      <div class="card" id="mvTradeCard"><h2>${UI._counterOf ? "Counter " + esc(LG.teamName(cpId)) + "'s offer" : "Propose a trade"}</h2>
+        ${UI._counterOf ? `<p class="mut small" id="mvCounterNote">Their offer, with the sides swapped — change it however you like.
+          <button type="button" id="mvCounterDrop" class="pcinline">Start a fresh offer instead</button></p>` : ""}
         <select id="mvTradeTeam">${others.map((t) => `<option value="${t.id}" ${t.id === cpId ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select>
         <div class="rowline mvsugrow"><button id="mvSuggest" type="button">Suggest a trade</button>
           <span id="mvSuggestWhy" class="mut small"></span></div>
@@ -3765,7 +3826,7 @@
         <h2 class="small mut">You get (up to 3)</h2>
         <div id="mvGet" class="tradeside"></div>
         <input id="mvTradeNote" placeholder="Note (optional)">
-        <button id="mvTradeSend" class="primary">Send offer</button>
+        <button id="mvTradeSend" class="primary">${UI._counterOf ? "Send counter" : "Send offer"}</button>
       </div>
       <div class="card"><h2>Transaction log</h2><div id="mvLog">
         ${UI._tx.length ? UI._tx.map((tx) => `<div class="fline sys"><span class="mut">${new Date(tx.t).toLocaleString()}</span> ${esc(txSentence(tx))}</div>`).join("") : '<p class="mut">No moves yet.</p>'}
@@ -3784,6 +3845,31 @@
       await LG.declineTrade(b.dataset.tid, tid);
       toast("Trade declined.");
       renderMoves();
+    }));
+    // ---- S7: Counter. This half only PREFILLS — it writes nothing. The owner reviews the
+    // swapped sides in the builder they already know, edits them however they like, and
+    // presses Send counter; LG.counterTrade is what finally links the two docs.
+    // The prefill is intersected with the two rosters as they stand now, so a player who has
+    // moved since the offer was made is simply absent rather than silently riding along in a
+    // Set the picker can no longer show (executeTrade's own roster-changed fail-safe is the
+    // backstop, but it should not be the first line of defence).
+    document.querySelectorAll(".mvcounter").forEach((b) => b.addEventListener("click", () => {
+      const tr = (UI._trades || []).find((x) => x.id === b.dataset.tid);
+      if (!tr || tr.status !== "offered" || tr.to !== tid) { toast("That offer has already been answered."); renderMoves(); return; }
+      const onRoster = (keys, teamId) => {
+        const roster = (UI._rosters || {})[teamId] || [];
+        return roster.length ? keys.filter((k) => roster.some((p) => p.key === k)) : keys.slice();
+      };
+      UI._tradeCp = tr.from;
+      // Sides SWAPPED: what they asked me for is now what I am giving, and what they offered
+      // is now what I am asking for. (`give` is always "what `from` sends" — see offerTrade.)
+      UI._tradeGive = new Set(onRoster(tr.get, tid));
+      UI._tradeGet = new Set(onRoster(tr.give, tr.from));
+      UI._counterOf = tr.id;
+      renderMoves().then(() => {
+        const card = $("#mvTradeCard");
+        if (card && card.scrollIntoView) card.scrollIntoView({ block: "center" });
+      });
     }));
     document.querySelectorAll(".mvcanceltrade").forEach((b) => b.addEventListener("click", async () => {
       await LG.cancelTrade(b.dataset.tid, tid);
@@ -4120,6 +4206,11 @@
     $("#mvTradeTeam").addEventListener("change", (e) => {
       UI._tradeCp = Number(e.target.value);
       UI._tradeGet = new Set();
+      UI._counterOf = null; // a counter answers ONE owner's offer — pick a different owner and it is a fresh proposal
+      renderMoves();
+    });
+    $("#mvCounterDrop") && $("#mvCounterDrop").addEventListener("click", () => {
+      UI._counterOf = null; UI._tradeGive = new Set(); UI._tradeGet = new Set();
       renderMoves();
     });
     // ---- ITEM 20 (2026-08-09, user: "the You give you get sections should start blank a plus
@@ -4204,9 +4295,15 @@
     });
     $("#mvTradeSend").addEventListener("click", async () => {
       if (!UI._tradeGive.size || !UI._tradeGet.size) { toast("Pick at least one player on each side."); return; }
-      const r = await LG.offerTrade(tid, UI._tradeCp, [...UI._tradeGive], [...UI._tradeGet], $("#mvTradeNote").value.trim());
-      if (r.ok) { toast("Trade offer sent."); UI._tradeGive = new Set(); UI._tradeGet = new Set(); renderMoves(); }
-      else toast("Couldn't send offer: " + reasonLabel(r.reason));
+      // S7 — one button, two destinations. A counter carries the link that makes the exchange
+      // a thread and terminates the offer it answers; everything else about the send (the
+      // deadline check, the 1-3 validation, the doc write, the push) is the same path.
+      const counterOf = UI._counterOf;
+      const r = counterOf
+        ? await LG.counterTrade(counterOf, tid, [...UI._tradeGive], [...UI._tradeGet], $("#mvTradeNote").value.trim())
+        : await LG.offerTrade(tid, UI._tradeCp, [...UI._tradeGive], [...UI._tradeGet], $("#mvTradeNote").value.trim());
+      if (r.ok) { toast(counterOf ? "Counter sent." : "Trade offer sent."); UI._tradeGive = new Set(); UI._tradeGet = new Set(); UI._counterOf = null; renderMoves(); }
+      else toast((counterOf ? "Couldn't send counter: " : "Couldn't send offer: ") + reasonLabel(r.reason));
     });
     wirePlayerCardTaps(); // FA table already covered by refreshFa() above; this catches the
                            // claim/trade "My pending" .pcinline names + the trade-builder chips
