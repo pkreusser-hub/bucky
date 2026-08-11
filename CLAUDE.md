@@ -11212,3 +11212,74 @@ drill runs during preseason W2 (Thu Aug 13+, `node tools/_gffl_live_probe.mjs --
 during a live game); everything is on the feature branch, NOTHING deployed — deploy decision
 is the user's, and the S1 note stands: after deploy, Dad opens the league on his phone FIRST
 so the commish hash migrates before the kids get curious.
+(SUPERSEDED same-day: the week-one batch DEPLOYED 2026-08-10 evening, and the Aug-17 batch
+(S5-S10 + two matchup design passes) DEPLOYED 2026-08-11 — see the next entries.)
+
+## 🏈 GFFL — WEEK-TWO BATCH SHIPS EARLY + THE READINESS PROGRAM'S FIRST DAY (2026-08-11)
+
+ALL of S5-S10 built, verified and DEPLOYED in one day (commits 981e464 · bf951ad · 94c3fb6 ·
+d021bde), plus two user-directed matchup passes (d1c30a8 header rework from a marked-up
+screenshot: h2h card REMOVED, owner·record gone, series below the lineups, full-width
+win bar in each team's own primary — the documented USER-ORDERED exception to S3's
+"palette never colours verdict" law; 11e3cb7 tune 2: Week label above the bar, scores
+inward, crest 54 phone/62 desktop, names 15px, ceiling restaged 132→140) and
+`gffl-test-plan.md` — the family's dated test schedule through kickoff (setup night Aug 12
+7PM · game-night drills Aug 13 + 20 · enrollment weekend Aug 15-16 · scrimmage Sep 1 ·
+freeze Sep 3-10 · draft SUN Sep 6 3PM · cron's first real fire Sep 9 8AM · opener Sep 10).
+S10 (user request mid-batch): both bottom sheets REPLACED by one centered #rosterCard
+(player-card overlay pattern incl. the Back-history sentinel) showing PROJ + OWN% per row —
+%owned via a new sports.mjs `ff_pct_owned` action (kona_playercard + filterIds; cookie loss
+degrades to em dashes). SIM-C's build caught the read-after-close bid bug that would have
+made EVERY FAAB claim bid $0.
+
+**THE READINESS PROGRAM (user: "lots of things will slip through the cracks… robust
+simulation and testing using agents"): FIVE season-breaking bugs found and closed in ONE
+DAY, 29 days before week 1.**
+- **`tools/_gffl_shadow_score.mjs`** (SIM-C, sonnet build): an INDEPENDENT scoring
+  re-implementation (line-cited mirrors, own arithmetic) diffed against the DEPLOYED site,
+  read-only with write-interception PROVEN in its own output; 50-check selftest. ITS FIRST
+  PRODUCTION READ found the live rules doc holding the literal string "undefined" in
+  fg_made_yd (the signature FG-by-yards rule!), one_pt_safety and dst_2pt_ret, WITH the FG
+  brackets armed at 3/4/5 — every kicker mis-scored every week into write-once records from
+  week 1. Root cause: the rules editor rendered String(absentKey) and a save stored it.
+  REPAIRED in production (backup → masked PATCH of six fields → values grounded in the real
+  ESPN league via the read-only settings proxy → siblings verified → scorer re-run green)
+  and GUARDED both ends (redval renders absent/poison as EMPTY; the save path rejects
+  "undefined"/"null" and an empty box over a poisoned key HEALS to 0; suite AC5b reproduces
+  the exact production doc state through a real saveRules). Nightly in-season job: weeks 1-2.
+- **`tools/_gffl_season_sim.cjs`** (SIM-A, opus build, 1,929 lines): "the season in a day" —
+  17 weeks through the REAL UI, four persona devices genuinely racing ONE store (the REST
+  fixture, deliberately NOT per-context localStorage), chaos owner, invariant engine after
+  every phase (FAAB conservation from the harness's OWN ledger · roster conservation ·
+  write-once hashes · independently re-derived standings · DOM NaN sweeps · push ledger ·
+  COVERAGE AS AN INVARIANT — a flow exercised zero times fails the run). 17 weeks = 5.7 min.
+  HONEST LIMIT in every footer: the seed reproduces persona CHOICES, not the season — these
+  are timing bugs and a clean run is not proof of absence; --fast searches harder.
+- **FOUR RACES found by its first runs, all fixed (af5c574 → deployed as 38b7b84)** — this
+  is the "FAAB write-ordering… worth a dedicated pass" the 2026-08-08 adversarial review
+  deferred, delivered: (1) ensureRoster's copy-forward was an UNGUARDED BLIND WRITE (551 of
+  622 roster writes/season) — waiver results silently undone, a player on TWO teams weeks
+  8→17; now getFresh-before-write, existing docs ADOPTED, +1 read only when writing, read
+  path free; (2) finalizeWeek scored the write-once doc from a CACHED roster (Δ9.66
+  observed) — now ONE fresh per-run snapshot threaded through fzStarters/totals/awards;
+  (3) processWaivers wrote FAAB as an ABSOLUTE from a 15s-cached read (an owner $54 up,
+  error direction favours the owner) — saveTeam gained opts.from(cur), purse written as a
+  DELTA off the store's fresh value (increment transforms REJECTED at the call site: the
+  REST transport speaks documents, the local backend has no atomic); (4) two concurrent
+  waiver runs doubled the tx log — per-week single-flight latch + the idempotency guard
+  moved IN FRONT of all writes (cross-device check-then-act limit stated plainly, not
+  papered over). Advisory closed: #claimGo disarms first-statement. EVIDENCE: three
+  promoted repros `tools/_gffl_race_{clobber,doublespend,dbltap}.cjs` each FAIL pre-fix /
+  pass post-fix; suite section AS (+29, races staged deterministically — no sleep decides
+  an outcome); the 17-week sim 30 failures → 0 across 15,753 checks. THE UNMASKING LESSON:
+  the fixes surfaced 1,669 chaos-owner "failures" that were the bid CLAMP working correctly
+  once money stopped leaking (faab.conservation never fired = the tell) — restaged to
+  expect min(typed, cap), never chased as a bug.
+- Battery now **2265/0**. Deploys 2026-08-11: d1c30a8+11e3cb7 (matchup passes, with S5-S10),
+  then 38b7b84 (the safety batch, REBASED over a parallel session's ffdraft.html
+  draft-countdown commits — 4 foreign commits, zero file overlap, third clean interleave on
+  this branch). **KNOWN / NEXT**: cross-device waiver concurrency is NARROWED not eliminated
+  (true CAS = transport surgery, argued at the call site); race battery D + soak and the
+  S1-S10 adversarial fan-out review remain queued; Saturday = first clean-by-construction
+  17-week run as the formal P3 milestone; the sim + shadow scorer + race repros are
+  PERMANENT EQUIPMENT — rerun the sim after any future change.
