@@ -2138,13 +2138,10 @@ async function openDetails(page, id) {
     ok(!/class="conflictflag"/.test(passerHtml), "no conflict flag during ordinary live source lag");
     const remain = await page.evaluate(() => [...document.querySelectorAll(".muhteam")].map((e) => e.textContent).join("|"));
     ok(/4 to play · 5 live/.test(remain), "players-remaining clock: 4 to play · 5 live");
-    const wp = await page.$eval(".wpfill", (e) => parseFloat(e.style.width));
-    // RESTAGED (S8, 2026-08-11): the OLD fixed-scale logistic gave a 37-point deficit a flat
-    // ~7% regardless of how much game is left; the SAME deficit under the upgraded model reads
-    // as far MORE decisive once little remains to change it — that shrinking-spread behaviour
-    // is the whole point of the upgrade (see D.winProb's own header note). The property under
-    // test — "a big deficit reads as a low chance, not a coin flip" — is unchanged; only how
-    // low "low" is allowed to go moved, honestly, with the model.
+    // RESTAGED AGAIN (cosmetic pass 2026-08-11): the header bar is the full-width .mupbar now
+    // — the away side's fill is its <i>, width = the away win %. Same property as ever: a big
+    // deficit reads as a low chance, not a coin flip.
+    const wp = await page.$eval(".mupbar i", (e) => parseFloat(e.style.width));
     ok(wp >= 0 && wp < 15, "win-prob bar: away side trailing 4.0-41.0 reads a LOW chance under the S8 upgrade — more decisive than the old flat-scale model, since less remains to flip it (" + wp + "%)");
     // Item 3 (2026-08-08): a strict, symmetric slot-paired grid — a TOTAL row at the bottom of
     // the starters table (matching the header's own totals), and a Bench section paired by
@@ -4137,7 +4134,15 @@ async function openDetails(page, id) {
     await clickIn(page, ".mucard.mine");
     await page.waitForSelector(".muhead", { timeout: 9000 });
     const seriesLine = await text(page, ".h2hline");
-    ok(!!seriesLine && /All-time series: Battle Kreussers leads 2.0/.test(seriesLine), "matchup header: All-time series line (" + seriesLine + ")");
+    ok(!!seriesLine && /All-time series: Battle Kreussers leads 2.0/.test(seriesLine), "matchup: All-time series line (" + seriesLine + ")");
+    // Cosmetic pass 2026-08-11: the line lives BELOW the player matchups now — this fixture
+    // is the one with real shared history, so the placement is asserted HERE (the AM block's
+    // fixture has no history and the line is honestly absent there).
+    const seriesPos = await page.evaluate(() => {
+      const s = document.querySelector(".h2hline"), l = document.querySelector(".lineupcard");
+      return !!(s && l) && s.getBoundingClientRect().top > l.getBoundingClientRect().bottom;
+    });
+    ok(seriesPos, "…and it reads BELOW the player matchups, not in the header");
 
     // N6: locker — championship banner (2023 only — they didn't win 2024) + rivalries table
     // (only opponents with shared history show, not all 7 other teams).
@@ -6821,7 +6826,8 @@ async function openDetails(page, id) {
       ok(mu.headProj.length === 2 && mu.headProj.every((t) => /^\d+(\.\d)?$/.test(t)),
         "…and the header carries a projected total for each side (" + JSON.stringify(mu.headProj) + ")");
       const wp = await page.evaluate(() => {
-        const el = document.querySelector(".wpfill") || document.querySelector("[class*=wp]");
+        // cosmetic pass 2026-08-11: the header bar is .mupbar now
+        const el = document.querySelector(".mupbar") || document.querySelector(".wpfill");
         return !!el;
       });
       ok(wp, "…the win-probability bar renders off it");
@@ -8551,7 +8557,7 @@ async function openDetails(page, id) {
         const txt = h.textContent.replace(/\s+/g, " ");
         return {
           height: Math.round(h.getBoundingClientRect().height),
-          wp: !!h.querySelector(".wpfill"), live: !!h.querySelector(".mulive"),
+          wp: !!h.querySelector(".mupbar"), live: !!h.querySelector(".mulive"),
           avatars: h.querySelectorAll(".muavatar").length,
           pts: [...h.querySelectorAll(".bigpts")].map((e) => e.textContent.trim()),
           proj: [...h.querySelectorAll(".muhproj")].map((e) => e.textContent.trim()),
@@ -8560,7 +8566,11 @@ async function openDetails(page, id) {
         };
       });
       // MEASURED before this batch, same fixture, same viewport: 220px.
-      ok(head.height <= 120, "the matchup header is halved — 220px before this batch, " + head.height + "px now");
+      // RESTAGED (cosmetic pass 2026-08-11): 120 → 132. The same user who ordered the halving
+      // ordered THIS: owner line + h2h card removed, the freed space spent on a 62px crest and
+      // a 30px score, and the win bar full-width (the .mupbar the wp probe reads now). The
+      // page as a whole nets ~300px SHORTER; the header itself measures 125.
+      ok(head.height <= 132, "the matchup header fits the cosmetic-pass ceiling — 220px two batches ago, " + head.height + "px now");
       ok(head.wp && head.live, "…with the win-probability bar and the live/Final indicator both still on it");
       ok(head.avatars === 2 && head.names && head.pts.join("/") === "4.0/41.0", "…both crests, both names, both scores");
       // RESTAGED 2026-08-09 (the ESPN header rebuild): the projection is still there, on both
@@ -9217,11 +9227,14 @@ async function openDetails(page, id) {
             name: (t.querySelector(".muhname") || {}).textContent, owner: (t.querySelector(".muhowner") || {}).textContent };
         };
         return { height: Math.round(h.getBoundingClientRect().height), a: side(".muhteam:not(.right)"), b: side(".muhteam.right"),
-          wp: !!h.querySelector(".wpfill"), live: !!h.querySelector(".mulive"), week: /Week 1/.test(h.textContent) };
+          wp: !!h.querySelector(".mupbar"), live: !!h.querySelector(".mulive"), week: /Week 1/.test(h.textContent),
+          ownerGone: !h.querySelector(".muhowner") };
       });
-      // MEASURED at 390px: 220px before the 2026-08-08 batch, 111px after it. This rebuild adds
-      // a line (owner · record) and must NOT give that back.
-      ok(head.height <= 111, "the matchup header does not regress past the 111px it measured at (" + head.height + "px)");
+      // MEASURED at 390px: 220px before the 2026-08-08 batch, 111px after it, 125 after the
+      // 2026-08-11 cosmetic pass — which REMOVED the owner·record line this block used to
+      // defend and spent the space (plus the whole h2h card, ~300px of page) on a 62px crest,
+      // a 30px score and the full-width team-colour bar, by the user's own marked-up order.
+      ok(head.height <= 132, "the matchup header fits the cosmetic-pass ceiling (" + head.height + "px ≤ 132)");
       ok(head.a.avLeft < head.a.scLeft, "team A's crest sits on the OUTER (left) edge with the score inner");
       ok(head.b.avLeft > head.b.scLeft, "…and team B's is mirrored — crest outer (right), score inner");
       ok(head.a.projBelowBig && head.b.projBelowBig, "the projection sits directly BENEATH the big score, both sides");
@@ -9229,11 +9242,11 @@ async function openDetails(page, id) {
       ok(/^\d+(\.\d)?$/.test(head.a.proj || "") && /^\d+(\.\d)?$/.test(head.b.proj || ""),
         "…and a BARE number — the reference carries no 'Proj' label (" + JSON.stringify([head.a.proj, head.b.proj]) + ")");
       ok(/Battle Kreussers/.test(head.b.name || "") && /End Zone Goats/.test(head.a.name || ""), "team names below the scores, both sides");
-      // seedTeams() gives every team owner:"" — the deliberate no-owner case, which must read
-      // as the record alone rather than a stray separator.
-      ok(head.a.owner === "0-0" && head.b.owner === "0-0",
-        "…and owner · record below that, with no stray bullet when a team has no owner on file (" + JSON.stringify([head.a.owner, head.b.owner]) + ")");
-      ok(head.wp && head.live && head.week, "…while the centre column keeps the live indicator, the week and the win-probability bar");
+      // RESTAGED (cosmetic pass 2026-08-11): the owner · record line this used to measure is
+      // REMOVED by the user's order — the standings table is the one place a record is stated.
+      // The check inverts: the line must be GONE.
+      ok(head.ownerGone, "…and the owner · record line is gone (the record lives in the standings table)");
+      ok(head.wp && head.live && head.week, "…while the header keeps the live indicator, the week and the (now full-width) win-probability bar");
 
       // -- the little crests.
       const crests = await page.evaluate(() => {
@@ -13028,15 +13041,16 @@ async function openDetails(page, id) {
           tp: sides.map((s) => rd(s).getPropertyValue("--tp").trim()),
           scoreEdge: sides.map((s) => rd(s.querySelector(".muhscore")).borderRightColor + "|" + rd(s.querySelector(".muhscore")).borderLeftColor),
           nameCls: sides.map((s) => s.querySelector(".muhname").className),
-          wpFill: head.querySelector(".wpfill") ? rd(head.querySelector(".wpfill")).backgroundColor : null,
+          wpFills: [...head.querySelectorAll(".mupbar i, .mupbar em")].map((el) => rd(el).backgroundColor),
         };
       });
-      // The cap is a REAL constraint from a real complaint (item 6: a third of the phone spent
-      // before the first lineup row). Crest-vs-crest is sized to fit UNDER it, never the
-      // reverse.
-      ok(mu.height <= 120, "the matchup header still fits its measured 120px ceiling with crests at the S3 size (" + mu.height + "px)");
-      ok(mu.crestW.length === 2 && mu.crestW.every((w) => w >= 44 && w <= 56),
-        "…crest-vs-crest, both inside the S3 44-56px band at phone width (" + JSON.stringify(mu.crestW) + ")");
+      // RESTAGED (cosmetic pass 2026-08-11, the user's own marked-up screenshot): ceiling
+      // 120 → 132 and the crest band 44-56 → 56-72 — the same user who set the cap ordered the
+      // freed space (owner line + the whole h2h card) spent on bigger crests and scores, and
+      // the page as a whole nets ~300px shorter.
+      ok(mu.height <= 132, "the matchup header fits the cosmetic-pass ceiling with the BIGGER crests (" + mu.height + "px ≤ 132)");
+      ok(mu.crestW.length === 2 && mu.crestW.every((w) => w >= 56 && w <= 72),
+        "…crest-vs-crest, both inside the cosmetic-pass 56-72px band at phone width (" + JSON.stringify(mu.crestW) + ")");
       // The header renders AWAY on the left, HOME on the right (muhrow's own order), and
       // UI.matchup is [home, away] — so sides[0] is team 2's blue and sides[1] is team 1's red.
       ok(mu.tp[0] === "#1552b0" && mu.tp[1] === "#d81f26",
@@ -13046,39 +13060,35 @@ async function openDetails(page, id) {
       ok(mu.nameCls.every((c) => /tname/.test(c) && /big/.test(c)), "…with both names in the stylized display treatment at its full fill+edge size");
       // The verdict keeps the last word: whatever the two teams' colours are, the
       // win-probability bar is the app's own accent. Identity colours the teams; the outcome
-      // colours itself.
-      ok(mu.wpFill === "rgb(213, 10, 10)", "the win-probability fill is STILL the app's own accent — palette colours identity, never verdict (" + mu.wpFill + ")");
+      // RESTAGED — and deliberately INVERTED — by the cosmetic pass (2026-08-11). S3's rule
+      // was "palette colours identity, never verdict", and the wp fill stayed the app accent
+      // under it. The user's marked-up screenshot ORDERS the exception: "the colors of the bar
+      // are the primary color of each team". The bar is a share-of-chances readout, not a
+      // verdict (the verdict language — LIVE/Final, injury red — is untouched), so each end
+      // now carries its side's own primary. UI.matchup is [home, away]: away=team2 blue left,
+      // home=team1 red right.
+      ok(mu.wpFills.length === 2 && /21, 82, 176/.test(mu.wpFills[0]) && /216, 31, 38/.test(mu.wpFills[1]),
+        "the full-width win bar's two ends carry the two teams' OWN primaries, per the user's order (" + JSON.stringify(mu.wpFills) + ")");
 
-      const bars = await page.evaluate(() => {
-        const card = [...document.querySelectorAll(".card")].find((c) => /Head to head/.test(c.textContent));
-        if (!card) return null;
-        const wrap = card.querySelector(".gsbars");
-        const rows = [...card.querySelectorAll(".gsb")];
-        // The colours are asserted on a row that actually HAS something on it — an all-zero
-        // row is deliberately painted as an empty track (see .gsbt.unknown), so measuring one
-        // of those would be measuring the no-signal case and calling it a colour bug.
-        const known = rows.find((r) => !r.querySelector(".gsbt").classList.contains("unknown")) || null;
-        return {
-          rows: rows.length,
-          labels: rows.map((r) => r.querySelector(".small").textContent.trim()),
-          abar: getComputedStyle(wrap).getPropertyValue("--abar").trim(),
-          hbar: getComputedStyle(wrap).getPropertyValue("--hbar").trim(),
-          knownLabel: known && known.querySelector(".small").textContent.trim(),
-          aFill: known && getComputedStyle(known.querySelector("i")).backgroundColor,
-          hFill: known && getComputedStyle(known.querySelector("em")).backgroundColor,
-          emptyTrack: rows.some((r) => r.querySelector(".gsbt").classList.contains("unknown"))
-            ? getComputedStyle(rows.find((r) => r.querySelector(".gsbt").classList.contains("unknown")).querySelector("i")).backgroundColor
-            : null,
-        };
+      // RESTAGED (cosmetic pass): the 8-row "Head to head" card is REMOVED — every figure it
+      // restated is in the player matchups directly beneath. The split-bar MECHANIC survives
+      // as the header's own full-width bar (asserted above) and on the NFL game page.
+      const h2hGone = await page.evaluate(() =>
+        !document.querySelector(".gsb") && ![...document.querySelectorAll(".card h2")].some((h) => /head to head/i.test(h.textContent)));
+      ok(h2hGone, "the Head-to-head card is gone — its numbers live in the player matchups below");
+      // This fixture has NO shared h2h history, so the series line correctly does not render
+      // at all (h2hLine returns "" on an empty series — that behaviour predates the move).
+      // The position claim is only assertable when the line exists; THE PRESENT CASE IS
+      // COVERED by _gffl_palette_shots.cjs plate 5 and section N5, both of which seed real
+      // history and assert the below-the-lineups placement for real.
+      const series = await page.evaluate(() => {
+        const s = document.querySelector(".h2hline"), l = document.querySelector(".lineupcard");
+        if (!s) return { present: false };
+        return { present: true, below: !!l && s.getBoundingClientRect().top > l.getBoundingClientRect().bottom };
       });
-      ok(!!bars && bars.rows >= 3, "the matchup carries SPLIT STAT BARS — the NFL box-score mechanic, ported (" + (bars && bars.rows) + " rows: " + JSON.stringify(bars && bars.labels) + ")");
-      ok(bars.labels[0] === "Points" && bars.labels[1] === "Projected", "…leading with the two totals that decide the game");
-      // UI.matchup is [home, away], so team 2 is the AWAY side here.
-      ok(bars.abar === "#1552b0" && bars.hbar === "#d81f26", "…each end of every track takes its own team's colour (" + JSON.stringify([bars.abar, bars.hbar]) + ")");
-      ok(!bars.knownLabel || (/21, 82, 176/.test(bars.aFill) && /216, 31, 38/.test(bars.hFill)),
-        "…and on a row that HAS something on it, that is what actually paints (" + bars.knownLabel + ": " + bars.aFill + " / " + bars.hFill + ")");
-      ok(!bars.emptyTrack || /rgba\(0, 0, 0, 0\)|transparent/.test(bars.emptyTrack),
-        "…while a row with nothing on either side paints an EMPTY track, never a 50/50 claim about a game nobody has played (" + bars.emptyTrack + ")");
+      ok(!series.present || series.below,
+        series.present ? "…and the all-time series line reads BELOW the player matchups"
+                       : "…and with no shared history the series line is honestly absent (its placement is asserted where history exists — N5 + the plate suite)");
       ok(errors.length === 0, "0 page errors on the tinted matchup");
       await ctx.close();
     }
@@ -14634,9 +14644,12 @@ async function openDetails(page, id) {
       await waitLive(page);
       await page.evaluate(() => { window.__GFFL__.UI.matchup = [1, 2]; window.__GFFL__.UI.go("matchup"); });
       await waitOr(page, ".muhead");
-      const mid = await text(page, ".muhmid");
-      ok(mid && /est\./i.test(mid), "the matchup header's win-probability line carries the 'est.' qualifier (" + JSON.stringify(mid) + ")");
-      ok(!!(await page.$(".wpbar")) && !!(await page.$(".wpfill")), "…on the same thin bar that already existed — no second bar was added");
+      // RESTAGED (cosmetic pass 2026-08-11): "est." rides the right-hand percentage flanking
+      // the full-width .mupbar now — the centre column carries only LIVE/Final + the week.
+      const mid = await text(page, ".mupbarrow");
+      ok(mid && /est\./i.test(mid), "the win-probability bar row carries the 'est.' qualifier (" + JSON.stringify(mid) + ")");
+      ok(!!(await page.$(".mupbar")) && (await page.evaluate(() => document.querySelectorAll(".muhead .mupbar, .muhead .wpbar").length)) === 1,
+        "…on ONE bar — full-width now, and no second bar was added");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }

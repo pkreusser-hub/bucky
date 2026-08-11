@@ -251,15 +251,25 @@ async function matchupFacts(page) {
     const head = document.querySelector(".card.muhead");
     if (!head) return null;
     const sides = [...head.querySelectorAll(".muhteam")];
-    const bars = [...document.querySelectorAll(".gsb")];
+    // COSMETIC PASS (2026-08-11): the .gsb head-to-head card is GONE; the team-coloured bar
+    // is now the header's own full-width .mupbar. Probe that instead, plus where the
+    // all-time-series line moved to (below the lineup cards).
+    const wide = head.querySelector(".mupbar");
+    const fills = wide ? [...wide.querySelectorAll("i, em")].map((el) => getComputedStyle(el).backgroundColor) : [];
+    const series = document.querySelector(".h2hline");
+    const lineup = document.querySelector(".lineupcard");
     return {
       height: Math.round(head.getBoundingClientRect().height),
       crests: [...head.querySelectorAll(".muavatar")].map((a) => Math.round(a.getBoundingClientRect().width)),
       crestImgs: [...head.querySelectorAll(".muavatar img")].filter((i) => i.naturalWidth > 0).length,
       tp: sides.map((s) => getComputedStyle(s).getPropertyValue("--tp").trim()),
       names: sides.map((s) => s.querySelector(".muhname").textContent.trim()),
-      bars: bars.length,
-      barLabels: bars.map((b) => b.querySelector(".small").textContent.trim()),
+      h2hCardGone: !document.querySelector(".gsb"),
+      ownerLineGone: !head.querySelector(".muhowner"),
+      wideBar: !!wide,
+      wideBarSpansCard: wide ? (wide.closest(".mupbarrow").getBoundingClientRect().width / head.getBoundingClientRect().width) > 0.9 : false,
+      wideFills: fills,
+      seriesBelowLineups: !!(series && lineup) && series.getBoundingClientRect().top > lineup.getBoundingClientRect().bottom,
     };
   });
 }
@@ -371,12 +381,23 @@ async function plate(page, file, label) {
     await page.waitForSelector(".muhead", { timeout: 15000 });
     await sleep(300);
     let m = await matchupFacts(page);
-    ok(!!m && m.height <= 120, wname + " · matchup: the header still fits its 120px ceiling (" + (m && m.height) + "px)");
-    ok(m.crests.length === 2 && m.crests.every((w) => w >= 44 && w <= 56), "…crest-vs-crest inside the 44-56px band (" + JSON.stringify(m.crests) + ")");
+    // RESTAGED (cosmetic pass 2026-08-11, from the user's own marked-up screenshot): the
+    // owner·record line and the 8-row head-to-head card are REMOVED, the all-time series
+    // moved below the lineups, the win bar went full-width in each team's primary, and the
+    // freed space bought a 62px crest + 30px score. The 120px ceiling — a real complaint
+    // about the OLD design — moves to 132px by the same user's explicit order ("use that
+    // upper space to make the logos bigger, scores bigger"), while the PAGE as a whole nets
+    // ~300px SHORTER from the card removal.
+    ok(!!m && m.height <= 132, wname + " · matchup: the header fits the cosmetic-pass ceiling (" + (m && m.height) + "px ≤ 132)");
+    ok(m.crests.length === 2 && m.crests.every((w) => w >= 56 && w <= 72), "…crest-vs-crest at the BIGGER band, 56-72px (" + JSON.stringify(m.crests) + ")");
     ok(m.crestImgs === 2, "…both crests are real loaded images");
     ok(m.tp[0] !== m.tp[1], "…and the two sides are visibly DIFFERENT colours (" + JSON.stringify(m.tp) + ")");
-    ok(m.bars >= 3 && m.barLabels[0] === "Points", "…with the split stat bars below it (" + m.bars + " rows)");
-    if (m.height <= 120 && m.crestImgs === 2 && m.tp[0] !== m.tp[1] && m.bars >= 3) {
+    ok(m.ownerLineGone, "…the owner·record line is gone");
+    ok(m.h2hCardGone, "…the head-to-head card is gone (the numbers live in the player matchups)");
+    ok(m.wideBar && m.wideBarSpansCard, "…the win bar stretches the full width between the two teams");
+    ok(m.wideFills.length === 2 && m.wideFills[0] !== m.wideFills[1], "…its two ends filled with the two teams' OWN primaries (" + JSON.stringify(m.wideFills) + ")");
+    ok(m.seriesBelowLineups, "…and the all-time series line reads BELOW the player matchups");
+    if (m.height <= 132 && m.crestImgs === 2 && m.tp[0] !== m.tp[1] && m.wideBar) {
       await plate(page, "gffl_pal_matchup_" + wname + ".png", "photo vs flat-art");
     }
 

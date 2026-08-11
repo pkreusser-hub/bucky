@@ -1821,17 +1821,16 @@
   // does not carry one and at this size the label costs more than it explains — then the team
   // name, then owner · record.
   // A team with no owner on file shows the record alone rather than a stray separator.
-  function muTeamHead(T, id, mine, tot, proj, rem, sideCls, recTxt) {
-    const owner = (T && T.owner || "").trim();
-    const sub = [owner, recTxt].filter(Boolean).join(" · ");
+  // COSMETIC PASS (2026-08-11, user markup on a live screenshot): the owner-name · record
+  // line is GONE — the header is crest, score, name, and the to-play line, nothing else —
+  // and the freed space is spent on a bigger crest and a bigger score (the CSS side).
+  function muTeamHead(T, id, mine, tot, proj, rem, sideCls) {
     // S3: the whole side carries its team's palette (crest disc, the score block's tint band,
-    // the name's ink). The LIVE/Final badge and the win-probability bar live in the middle
-    // column and keep the app's own verdict colours — nothing here reaches them.
+    // the name's ink). The LIVE/Final badge keeps the app's own verdict colours.
     return `<div class="muhteam${sideCls}" style="${esc(LG.teamStyle(T || {}))}">
       <div class="muhtop">${avatarHtml(T, id === mine)}
         <div class="muhscore"><span class="bigpts">${LG.fmtPts(tot)}</span><span class="mut muhproj">${LG.fmtPts(proj)}</span></div></div>
       <b class="teamlink muhname tname big" data-locker="${id}" title="${esc(T?.name || "?")}">${esc(T?.name || "?")}</b>
-      <div class="mut muhowner">${esc(sub)}</div>
       <div class="mut muhsub">${rem.left} to play · ${rem.playing} live</div></div>`;
   }
   // "All-time series" line (plan §4.8's rivalries) — h2h is from the HOME
@@ -2553,48 +2552,13 @@
     const wk = await LG.gamesForWeek(UI.week);
     return wk.find(([h, a]) => h === mine || a === mine) || wk[0] || null;
   }
-  // ---------------- S3: split stat bars, ported from the NFL box score ----------------
-  // The NFL game page has carried this mechanic since item 28 (.nflsb / .nflsbt at ~L2160): one
-  // track per stat, filled from BOTH ends in each side's own colour, so which way a category
-  // leans is readable without doing arithmetic. The GFFL matchup had nothing like it — two
-  // columns of numbers and a win-probability bar — and it is exactly the surface where a team's
-  // colour scheme earns its keep, so the mechanic comes across whole.
-  //
-  // COST: zero reads. Every figure is d.livePts / d.projFor over starter arrays this render
-  // already built, which is the same in-memory walk the lineup table beside it does.
-  //
-  // A row with nothing on either side (every category before kickoff) renders an EMPTY track
-  // rather than a 50/50 split, for matchupHeroExtra's own reason: a half-and-half bar is a
-  // claim about a game nobody has played. Projections always have signal, so the card is never
-  // just a stack of empty tracks.
-  const SPLIT_GROUPS = [["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["K", "K"], ["DST", "D/ST"]];
-  function splitBar(label, av, hv, fmt) {
-    const tot = av + hv;
-    const known = tot > 0.0001;
-    const ap = known ? Math.round((av / tot) * 100) : 0;
-    return `<div class="gsb"><div class="gsbl"><b>${esc(fmt(av))}</b><span class="mut small">${esc(label)}</span><b>${esc(fmt(hv))}</b></div>
-      <div class="gsbt${known ? "" : " unknown"}"><i style="width:${ap}%"></i><em style="width:${known ? 100 - ap : 0}%"></em></div></div>`;
-  }
-  function teamSplitBarsHtml(A, H, aStarters, hStarters, aTot, hTot, aProj, hProj) {
-    const d = D();
-    const sumBy = (list, pick, pred) => list.reduce((s, p) => s + (pred(p) ? (pick(p.key) || 0) : 0), 0);
-    const live = (k) => d.livePts(k), proj = (k) => d.projFor(k);
-    let rows = splitBar("Points", aTot, hTot, LG.fmtPts) + splitBar("Projected", aProj, hProj, LG.fmtPts);
-    SPLIT_GROUPS.forEach(([pos, label]) => {
-      const inGroup = (p) => p.pos === pos;
-      const hasAny = aStarters.some(inGroup) || hStarters.some(inGroup);
-      if (!hasAny) return;
-      rows += splitBar(label, sumBy(aStarters, live, inGroup), sumBy(hStarters, live, inGroup), LG.fmtPts);
-    });
-    // The two sides' own palettes drive the two fills — set on the WRAPPER once rather than on
-    // every bar, so a row is markup and nothing else.
-    const pa = LG.teamPalette(A || {}), ph = LG.teamPalette(H || {});
-    const style = `--abar:${pa.primary};--hbar:${ph.primary}`;
-    return `<div class="card"><h2>Head to head</h2>
-      <div class="gsbkey"><span class="gsbdot" style="background:${esc(pa.primary)}"></span>${esc((A && A.name) || "Away")}
-        <span class="gsbdot right" style="background:${esc(ph.primary)}"></span>${esc((H && H.name) || "Home")}</div>
-      <div class="gsbars" style="${esc(style)}">${rows}</div></div>`;
-  }
+  // ---------------- (removed 2026-08-11) the "Head to head" split-bar card ----------------
+  // S3 ported the NFL box score's split-bar mechanic here as an 8-row category card. The user's
+  // cosmetic pass removed it: every one of those numbers is readable in the player matchups
+  // directly beneath, so the card was 300px of restatement. The per-team-colour split-bar idea
+  // survives as the header's own full-width win-probability bar (each end in its side's
+  // primary), and the .nflsbt original still lives on the NFL game page where the box score
+  // has no per-player restatement.
   UI.renderMatchup = renderMatchup;
   async function renderMatchup(repaint) {
     if (!UI.matchup) UI.matchup = await myMatchupThisWeek();
@@ -2614,16 +2578,8 @@
     const projSum = (keys) => keys.reduce((s, k) => s + (d.projFor(k) || 0), 0);
     const hProj = projSum(hKeys), aProj = projSum(aKeys);
     const mine = LG.myTeamId();
-    // The header's own "owner · record" line (2026-08-09, the ESPN reference). loadStandings()
-    // is the SAME derivation the standings table uses — a second, disagreeing notion of a
-    // team's record would be worse than none — and it reads list("weekly"), which renderLeague
-    // has already warmed, so a warm matchup render still costs no backend call.
-    const standings = await LG.loadStandings();
-    const recOf = (id) => {
-      const s = standings && standings[id];
-      if (!s) return "";
-      return s.t ? `${s.w}-${s.l}-${s.t}` : `${s.w}-${s.l}`;
-    };
+    // (The "owner · record" line and its loadStandings() read left with the 2026-08-11
+    // cosmetic pass — the standings table remains the one place a record is stated.)
     const anyLive = hRem.playing > 0 || aRem.playing > 0;
     const allDone = !anyLive && hRem.left === 0 && aRem.left === 0;
     const liveIndicator = anyLive ? '<div class="mulive"><span class="dot"></span>Live</div>'
@@ -2652,22 +2608,35 @@
     const fside = UI._feedSide || "both";
     const fchip = (v, label) => `<button type="button" class="poschip ${fside === v ? "on" : ""}" data-fside="${v}">${esc(label)}</button>`;
     const threadKey = `w${UI.week}_${hId}-${aId}`;
+    // COSMETIC PASS (2026-08-11, user markup): the win-probability bar leaves the narrow
+    // middle column and stretches the FULL card width where the all-time-series line used to
+    // sit, each end filled with THAT team's own primary meeting at the split — the one place
+    // the matchup header spends team colour. Percentages flank the bar (no extra row). An
+    // unknown probability (nobody counted yet) renders the track empty with no percentages —
+    // a half-and-half bar is a claim about a game nobody has played (the .mini rule's lesson).
+    const wpPct = Math.round(wp * 100);
+    // "Known" needs BOTH rosters to exist — a probability against a side with no starters is
+    // the half-and-half claim the .mini bar's unknown state was invented to refuse.
+    const counted = aKeys.length > 0 && hKeys.length > 0;
+    const pa = LG.teamPalette(A || {}), ph = LG.teamPalette(H || {});
+    const wideBar = counted
+      ? `<div class="mupbarrow"><b class="mupct">${wpPct}%</b>
+           <div class="mupbar"><i style="width:${wpPct}%;background:${esc(pa.primary)}"></i><em style="width:${100 - wpPct}%;background:${esc(ph.primary)}"></em></div>
+           <b class="mupct">${100 - wpPct}%<span class="wpest">est.</span></b></div>`
+      : `<div class="mupbarrow"><div class="mupbar unknown"></div></div>`;
     main().innerHTML = `
       <div class="card muhead">
         <div class="muhrow">
-          ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "", recOf(aId))}
+          ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "")}
           <div class="muhmid">
             ${liveIndicator}
             <div class="mut small">Week ${UI.week}</div>
-            <div class="wpbar"><div class="wpfill" style="width:${Math.round(wp * 100)}%"></div></div>
-            <div class="mut small">${Math.round(wp * 100)}% — ${Math.round((1 - wp) * 100)}% <span class="wpest">est.</span></div>
           </div>
-          ${muTeamHead(H, hId, mine, hTot, hProj, hRem, " right", recOf(hId))}
+          ${muTeamHead(H, hId, mine, hTot, hProj, hRem, " right")}
         </div>
-        ${h2hLine(UI._h2h, H, A)}
+        ${wideBar}
         <div class="rowline"><span id="healthChip" class="health" hidden></span></div>
       </div>
-      ${teamSplitBarsHtml(A, H, as_, hs, aTot, hTot, aProj, hProj)}
       <div class="card lineupcard"><div class="panner"><table class="tbl slottable mutable">
         <tbody>${rows.map(([pa, slot, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
@@ -2685,6 +2654,7 @@
           <td class="slotcell" data-pos="X">${slotBadge("BENCH")}</td>
           <td class="pcell right">${halfCell(ph, "right")}</td></tr>`).join("")}
       </tbody></table></div></div>` : ""}
+      ${h2hLine(UI._h2h, H, A) /* cosmetic pass 2026-08-11: the all-time series reads BELOW the player matchups now */}
       <div class="card"><h2>The feed</h2>
         <div class="poschips feedfilter" id="mufeedFilter">
           ${fchip("both", "Both")}${fchip("a", UI._feedTeams.a)}${fchip("h", UI._feedTeams.h)}

@@ -375,9 +375,12 @@
      about a third of the phone spent before the first lineup row) is a harder constraint than
      the crest size. It is the design that shrinks to fit the cap, never the cap that moves.
      Colours come from .tcrest; only the geometry and the "this one is yours" ring live here. */
-  .muavatar { width:44px; height:44px; font-size:15px; vertical-align:0; }
+  /* COSMETIC PASS (2026-08-11): the owner·record line and the 8-row head-to-head card are
+     gone, and the space they cost is spent HERE — crest 44→62px, score 19→30px. The header's
+     job is who's playing and what the score is, at a glance from across the room. */
+  .muavatar { width:62px; height:62px; font-size:20px; vertical-align:0; }
   .muavatar.mine { box-shadow:inset 0 0 0 2px rgba(255,255,255,.2), 0 0 0 2px var(--accent); }
-  .bigpts { font:800 19px/1.05 var(--font-display); font-variant-numeric:tabular-nums; }
+  .bigpts { font:800 30px/1.02 var(--font-display); font-variant-numeric:tabular-nums; }
   /* THE ESPN HEADER (2026-08-09, from the user's own screenshot of the real app): crest on the
      OUTER edge, score block on the INNER — mirrored, so the two big numbers face each other
      across the centre column — with the projection directly BENEATH the score as a bare muted
@@ -403,40 +406,33 @@
   /* design pass: the edge shadow went with the coloured fills — the side's identity is its
      crest and its 3px score-block rail, and the name stays quiet ink */
   .muhead .muhname.tname.big { font-size:12px; letter-spacing:.6px; text-shadow:none; }
-  .muhead .muhproj { font:600 10px/1.2 var(--font-display); font-variant-numeric:tabular-nums; white-space:nowrap; }
-  .muhead .muhowner { font-size:9.5px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  .muhead .muhproj { font:600 11px/1.2 var(--font-display); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  /* (.muhowner removed with the cosmetic pass — the record lives in the standings table) */
+  /* The full-width probability bar: away's primary grows from the left, home's from the
+     right, meeting at the split; percentages flank so no extra row is spent. */
+  .mupbarrow { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .mupct { font:700 12px var(--font-display); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .mupbar { flex:1 1 auto; display:flex; height:8px; border-radius:var(--radius-pill); overflow:hidden; background:var(--divider2); }
+  .mupbar i, .mupbar em { display:block; height:100%; }
+  .mupbar em { margin-left:auto; }
+  .mupbar.unknown { background:var(--divider2); }
+  .mupct .wpest { margin-left:4px; }
   .muhead .muhsub { font-size:9.5px; line-height:1.2; white-space:nowrap; }
   .muhead .h2hline { margin-top:2px; }
   .muhmid { text-align:center; min-width:84px; padding-top:2px; display:flex; flex-direction:column; align-items:center; gap:3px; }
   .mulive { display:flex; align-items:center; gap:6px; font:600 12px var(--font-display); letter-spacing:1px; color:var(--accent); text-transform:uppercase; }
   .mulive .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); }
   .mulive.done { color:var(--mut); }
+  /* base rule for .wpbar.mini (the league-home cards); the full-size .wpfill variant died
+     with the cosmetic pass — the matchup header's bar is .mupbar above now */
   .wpbar { height:5px; border-radius:var(--radius-pill); background:var(--border-card); overflow:hidden; margin:2px 0; width:100%; }
-  .wpfill { height:100%; background:var(--accent); display:block; }
   /* S8: "est." — honest, not oracular. A quiet qualifier on the percentage line rather than a
      second bar; the plan's own language ("labeled 'est.'"). */
   .wpest { font-size:8.5px; letter-spacing:.4px; text-transform:uppercase; opacity:.62; margin-left:2px; }
 
-  /* ---------------- S3: split stat bars (the NFL box-score mechanic, ported) ----------------
-     Deliberately the SAME shape as .nflsb/.nflsbt further down this sheet — value, label,
-     value over one track filled from both ends — because it is the same idea and a reader who
-     has met it on an NFL game page should meet it again here, not a second dialect of it.
-     What differs is only where the two fills' colours come from: --abar/--hbar, set once on
-     .gsbars from each team's own clamped palette, instead of the NFL feed's team hex. */
-  .gsbkey { display:flex; align-items:center; gap:6px; font:600 10.5px var(--font-display);
-            letter-spacing:.6px; text-transform:uppercase; color:var(--mut); margin-bottom:8px; }
-  .gsbdot { width:10px; height:10px; border-radius:2px; flex:0 0 auto; }
-  .gsbdot.right { margin-left:auto; }
-  .gsb { margin-bottom:9px; }
-  .gsbl { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:3px; }
-  .gsbl b { font:700 13px var(--font-display); font-variant-numeric:tabular-nums; }
-  .gsbl .small { text-transform:uppercase; letter-spacing:.7px; font-size:10px; }
-  .gsbt { display:flex; height:7px; border-radius:var(--radius-pill); overflow:hidden; background:var(--divider2); }
-  .gsbt i { background:var(--abar, var(--mut)); }
-  .gsbt em { background:var(--hbar, var(--faint)); margin-left:auto; }
-  /* Nothing on either side yet — an empty track, never a 50/50 split, for the same reason
-     .wpbar.mini.unknown exists: a half-and-half bar is a claim about a game nobody has played. */
-  .gsbt.unknown i, .gsbt.unknown em { background:transparent; }
+  /* (the S3 "Head to head" split-bar card and its .gsb* rules were removed by the 2026-08-11
+     cosmetic pass — every figure it restated is in the player matchups directly beneath, and
+     the per-team-colour bar idea lives on as the header's .mupbar) */
   /* table-layout:fixed + an explicit white-space:normal override are both required here:
      .tbl td (shared with the standings tables, which DO want single-line rows) sets
      white-space:nowrap, which — under the default table-layout:auto — let a long player
