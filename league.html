@@ -413,6 +413,9 @@
   .mulive.done { color:var(--mut); }
   .wpbar { height:5px; border-radius:var(--radius-pill); background:var(--border-card); overflow:hidden; margin:2px 0; width:100%; }
   .wpfill { height:100%; background:var(--accent); display:block; }
+  /* S8: "est." — honest, not oracular. A quiet qualifier on the percentage line rather than a
+     second bar; the plan's own language ("labeled 'est.'"). */
+  .wpest { font-size:8.5px; letter-spacing:.4px; text-transform:uppercase; opacity:.62; margin-left:2px; }
 
   /* ---------------- S3: split stat bars (the NFL box-score mechanic, ported) ----------------
      Deliberately the SAME shape as .nflsb/.nflsbt further down this sheet — value, label,
@@ -1233,6 +1236,15 @@
               text-decoration:underline dotted; text-underline-offset:2px; text-transform:none;
               letter-spacing:normal; cursor:pointer; }
   .pcinline:hover { color:var(--accent); }
+  /* S9's injury feed rows — the same "reset a <button> back to plain content" idiom as
+     .linfo/.pcinfo/.pcinline above, keeping .fline's own row styling (padding/border/font)
+     and only resetting the <button> chrome underneath the tap target it needs to be. */
+  .fline.injline { display:block; width:100%; background:none; border:none;
+                   border-bottom:1px dotted var(--divider2); padding:6px 0; margin:0;
+                   color:inherit; font:inherit; font-size:13.5px; text-align:left;
+                   text-transform:none; letter-spacing:normal; cursor:pointer; }
+  .fline.injline:hover { color:var(--accent); }
+  .fline.injline .injto { color:var(--accent); font-weight:700; }
   /* the row-level tap target itself (matchup half-cells, the read-only locker roster table) —
      the FA table already carries its own `table.faTable tbody tr { cursor:pointer }` rule. */
   .pcellgrid[data-pk] { cursor:pointer; }

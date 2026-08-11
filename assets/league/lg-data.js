@@ -291,6 +291,7 @@
     tracked: new Set(),        // slpTeam abbrevs whose games we fetch summaries for
     running: false, timer: null, pollMs: 20000,
     loopStarts: 0,              // test hook (2026-08-08 perf fix) — see D.start()'s own comment
+    injDirRefreshedAt: 0,       // S9 — wall-clock stamp of the last player-directory refetch
   };
   D.EP = {}; // endpoint bookkeeping (fftest pattern) — feeds the health page
 
@@ -316,6 +317,34 @@
 
   // ---------------- sleeper bootstrap ----------------
   D.slpReady = null;
+  // The player DIRECTORY fetch, split out of initSleeper (S9, 2026-08-11) so it can be re-run
+  // later on its own — everything else initSleeper does (the current-week state, the
+  // projections) is genuinely a once-per-session bootstrap and stays where it was.
+  async function fetchPlayerDirectory() {
+    const dump = await fx("sleeper players", `${SLP}/players/nfl`);
+    const byEspn = new Map(), byName = new Map(), byId = new Map();
+    for (const pid in dump) {
+      const p = dump[pid]; if (!p || typeof p !== "object") continue;
+      const meta = {
+        pid, name: p.full_name || ((p.first_name || "") + " " + (p.last_name || "")).trim() || pid,
+        team: p.team || "", pos: p.position || "", espn_id: p.espn_id != null ? String(p.espn_id) : null,
+        injury: p.injury_status || "", searchRank: p.search_rank != null ? p.search_rank : null,
+        // ⭐ ITEM 31 (2026-08-09). The directory has carried these all along and nothing
+        // read them. depth_chart_order is 1 = starter, 2 = backup, 3 = third string —
+        // which is exactly the question "who actually plays in a preseason game". Two
+        // field reads per entry, no extra network, on a payload already being walked.
+        depth: p.depth_chart_order != null && isFinite(Number(p.depth_chart_order))
+          ? Number(p.depth_chart_order) : null,
+        depthPos: p.depth_chart_position || "",
+      };
+      if (meta.pos === "DEF") meta.name = pid + " D/ST";
+      if (meta.espn_id) byEspn.set(meta.espn_id, meta);
+      if (meta.team) byName.set(nameKey(meta.name, meta.team), meta);
+      byId.set(pid, meta);
+    }
+    D.S.slpPlayers = byId; D.S.slpByEspn = byEspn; D.S.slpByName = byName;
+    D.bumpPidGen(); // the directory is one of the two sources pidForKey resolves through
+  }
   D.initSleeper = function () {
     if (D.slpReady) return D.slpReady;
     D.slpReady = (async () => {
@@ -342,31 +371,8 @@
         else if (wk >= 1 && wk <= 22) { D.S.slpWeek = wk; D.S.slpBucket.cands = [String(wk)]; }
         else { D.S.slpWeek = null; D.S.slpBucket.cands = []; }
       } catch (e) { D.S.slpWeek = null; D.S.slpBucket.cands = []; }
-      try {
-        const dump = await fx("sleeper players", `${SLP}/players/nfl`);
-        const byEspn = new Map(), byName = new Map(), byId = new Map();
-        for (const pid in dump) {
-          const p = dump[pid]; if (!p || typeof p !== "object") continue;
-          const meta = {
-            pid, name: p.full_name || ((p.first_name || "") + " " + (p.last_name || "")).trim() || pid,
-            team: p.team || "", pos: p.position || "", espn_id: p.espn_id != null ? String(p.espn_id) : null,
-            injury: p.injury_status || "", searchRank: p.search_rank != null ? p.search_rank : null,
-            // ⭐ ITEM 31 (2026-08-09). The directory has carried these all along and nothing
-            // read them. depth_chart_order is 1 = starter, 2 = backup, 3 = third string —
-            // which is exactly the question "who actually plays in a preseason game". Two
-            // field reads per entry, no extra network, on a payload already being walked.
-            depth: p.depth_chart_order != null && isFinite(Number(p.depth_chart_order))
-              ? Number(p.depth_chart_order) : null,
-            depthPos: p.depth_chart_position || "",
-          };
-          if (meta.pos === "DEF") meta.name = pid + " D/ST";
-          if (meta.espn_id) byEspn.set(meta.espn_id, meta);
-          if (meta.team) byName.set(nameKey(meta.name, meta.team), meta);
-          byId.set(pid, meta);
-        }
-        D.S.slpPlayers = byId; D.S.slpByEspn = byEspn; D.S.slpByName = byName;
-        D.bumpPidGen(); // the directory is one of the two sources pidForKey resolves through
-      } catch (e) { /* health carries it */ }
+      try { await fetchPlayerDirectory(); D.S.injDirRefreshedAt = Date.now(); }
+      catch (e) { /* health carries it */ }
       try {
         const seasonType = D.S.slpState?.season_type || "regular";
         const season = D.S.slpState?.season || String(LG.SEASON);
@@ -377,6 +383,31 @@
       } catch (e) { /* optional */ }
     })();
     return D.slpReady;
+  };
+
+  // ---------------- S9's slow directory refresh (injury designations, 2026-08-11) ------------
+  // The player-directory dump is the ONLY source of injury designations this app has, and
+  // D.initSleeper's own load of it is a genuine ONCE-PER-SESSION bootstrap (memoized via
+  // D.slpReady) — so without this, a designation baked into that one snapshot could never
+  // change for the life of a tab, however long a family leaves it open on game day. Sleeper's
+  // own API guidance asks this endpoint be called sparingly (at most about once a day); this
+  // app's live-stat poll runs every 15-60s, so riding that clock directly would be a real abuse
+  // of it. An hour is comfortably under that ceiling while still letting a designation change
+  // surface the same day it happens. D.S.injDirRefreshedAt is stamped from D.initSleeper's own
+  // one-time load and re-stamped here BEFORE the fetch (not after) — a slow or failing attempt
+  // must not retry on every single poll tick in between, only after the interval has genuinely
+  // elapsed again.
+  //
+  // Deliberately WALL-CLOCK (Date.now()), not LG.now(): this is a real-world API-pacing
+  // concern, not a fact about the league calendar, so it must not speed up under the 2025
+  // replay's 8x-accelerated clock the way genuinely league-time things correctly do.
+  const INJ_DIR_REFRESH_MS = 60 * 60 * 1000; // once an hour
+  D.maybeRefreshInjuryDirectory = async function () {
+    if (!D.S.slpPlayers) return; // the one-time boot load hasn't landed yet — nothing to refresh
+    if (Date.now() - (D.S.injDirRefreshedAt || 0) < INJ_DIR_REFRESH_MS) return;
+    D.S.injDirRefreshedAt = Date.now();
+    try { await fetchPlayerDirectory(); }
+    catch (e) { /* best-effort — the live poll's own health tracking covers real outages; this is a courtesy refresh */ }
   };
 
   // ---------------- ⭐ ONE ID RESOLVER (2026-08-09, the "everything reads 0" production bug) --
@@ -1478,6 +1509,13 @@
   // ---------------- orchestration ----------------
   D.trackTeams = function (abbrevs) { D.S.tracked = new Set(abbrevs.map(slpTeam)); };
   D.pollOnce = async function () {
+    // S9's slow injury-directory refresh (2026-08-11) — see D.maybeRefreshInjuryDirectory's own
+    // header note. Rides the SAME tick every other poll job already runs on (that is the whole
+    // point: no separate timer, no separate loop), but internally no-ops unless real wall-clock
+    // hours have actually passed — applies uniformly whether the board is showing the live
+    // season or the 2025 replay, because "which real NFL players are hurt right now" is a fact
+    // about today, not about whichever season's scores this tab happens to be simulating.
+    await D.maybeRefreshInjuryDirectory().catch(() => {});
     // 2025 TEST SEASON: the live-polling chain below always means "the real, current NFL
     // week" — never meaningful for a past-season replay, and actively wrong (real current-
     // season data could otherwise leak onto a 2025 board for any player id that recurs).
@@ -1610,10 +1648,57 @@
     }
     return { played, playing, left };
   };
+  // ---------------- S8 · matchup win probability (est.) ----------------
+  // The ESTIMATE is exactly what D.liveProj already sums for every card and the matchup
+  // header — live points + the remaining fraction of a starter's projection — so the model
+  // COMPOSES that, it doesn't invent a second one. What was missing was the SPREAD: the old
+  // model was a fixed-scale logistic (a flat ±25-point slope), so a 10-point lead read
+  // identically whether it was struck at kickoff — a whole slate still live, plenty of room
+  // for it to flip — or with the clock at 0:00 and nothing left to change it. D.remainingProj
+  // isolates the "still could happen" half of D.liveProj's own formula (0 once a game is
+  // final, the full projection pre-game, the remaining fraction mid-game) so the SPREAD can
+  // shrink as the slate empties out while the point ESTIMATE itself is untouched.
+  D.remainingProj = function (key) {
+    const row = D.S.players.get(key);
+    const team = slpTeam((row && row.team) || (D.metaForKey ? D.metaForKey(key).team : ""));
+    const g = D.S.games.get(team);
+    const proj = D.projFor(key);
+    if (!g || g.state === "post" || proj == null) return 0;
+    if (g.state === "pre") return num(proj);
+    const period = num(g.period) || 1;
+    const [mm, ss] = String(g.clock || "0:00").split(":").map(Number);
+    const minLeft = Math.max(0, (4 - Math.min(period, 4)) * 15 + num(mm) + num(ss) / 60);
+    const frac = Math.min(1, minLeft / 60);
+    return num(proj) * frac;
+  };
+  // K_SPREAD is a felt-right constant, documented rather than derived — there is no "correct"
+  // k, only one that reads honestly, and the property tests (S8 suite) are what actually pin
+  // its behaviour, not this comment. Calibrated against a "full slate remaining" reference: a
+  // typical starting lineup projects to roughly ~125-130 points a side (~250-260 combined), and
+  // the plan's own target is a 10-point PRE-GAME edge reading "roughly 65-70%" there. At
+  // K_SPREAD=1.5, combined remaining 250 -> sd = 1.5*sqrt(250) ~= 23.7, z = 10/23.7 ~= 0.42,
+  // logistic(1.702*z) ~= 67% — inside the target band.
+  const WP_K_SPREAD = 1.5;
+  // Floor so a near-final game (a real remaining projection near zero, but not YET the
+  // provably-decided allDone case below) never divides a real point gap by a near-zero spread
+  // into a knife-edge swing.
+  const WP_MIN_SPREAD = 4;
   D.winProb = function (keysA, keysB) {
     const tot = (keys) => keys.reduce((s, k) => s + num(D.liveProj(k)), 0);
+    const rem = (keys) => keys.reduce((s, k) => s + num(D.remainingProj(k)), 0);
     const diff = tot(keysA) - tot(keysB);
-    const p = 1 / (1 + Math.exp((-1.702 * diff) / 25));
+    // FINAL pins to exactly 100/0 — decided by the same game-STATE test D.remaining already
+    // answers everywhere else on the page (every starter's game is "post", nobody still
+    // playing), never by "remaining projection happens to read ~0", which could just as
+    // easily mean nobody here resolves to a real projection yet.
+    if ((keysA && keysA.length) && (keysB && keysB.length)) {
+      const a = D.remaining(keysA), b = D.remaining(keysB);
+      if (a.left === 0 && a.playing === 0 && b.left === 0 && b.playing === 0) {
+        return diff > 0 ? 1 : diff < 0 ? 0 : 0.5;
+      }
+    }
+    const sd = Math.max(WP_MIN_SPREAD, WP_K_SPREAD * Math.sqrt(rem(keysA) + rem(keysB)));
+    const p = 1 / (1 + Math.exp((-1.702 * diff) / sd));
     // The bar's width is Math.round(wp*100) straight into a style attribute — a non-finite p
     // would paint "width:NaN%" (an even-money 50% is the honest fallback).
     return Number.isFinite(p) ? p : 0.5;

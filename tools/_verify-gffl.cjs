@@ -2139,7 +2139,13 @@ async function openDetails(page, id) {
     const remain = await page.evaluate(() => [...document.querySelectorAll(".muhteam")].map((e) => e.textContent).join("|"));
     ok(/4 to play · 5 live/.test(remain), "players-remaining clock: 4 to play · 5 live");
     const wp = await page.$eval(".wpfill", (e) => parseFloat(e.style.width));
-    ok(wp >= 1 && wp < 40, "win-prob bar: away side trailing 4.0-41.0 reads a low chance (" + wp + "%)");
+    // RESTAGED (S8, 2026-08-11): the OLD fixed-scale logistic gave a 37-point deficit a flat
+    // ~7% regardless of how much game is left; the SAME deficit under the upgraded model reads
+    // as far MORE decisive once little remains to change it — that shrinking-spread behaviour
+    // is the whole point of the upgrade (see D.winProb's own header note). The property under
+    // test — "a big deficit reads as a low chance, not a coin flip" — is unchanged; only how
+    // low "low" is allowed to go moved, honestly, with the model.
+    ok(wp >= 0 && wp < 15, "win-prob bar: away side trailing 4.0-41.0 reads a LOW chance under the S8 upgrade — more decisive than the old flat-scale model, since less remains to flip it (" + wp + "%)");
     // Item 3 (2026-08-08): a strict, symmetric slot-paired grid — a TOTAL row at the bottom of
     // the starters table (matching the header's own totals), and a Bench section paired by
     // roster order. Team2 (away, "Rival") has NO bench players on file at all — that's the real
@@ -4586,8 +4592,14 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
     const statsAfter = await page.evaluate(() => ({ ...window.__GFFL__.LG.db.stats }));
-    ok(statsAfter.gets === statsBefore.gets,
-      "a second full League render makes ZERO additional real .get() calls — every roster/team/settings/weekly/bracket doc served from cache (" + JSON.stringify({ statsBefore, statsAfter }) + ")");
+    // RESTAGED (S9, 2026-08-11): renderLeague now also fetches LG.loadInjuryFeed() every
+    // !repaint visit, and — same as every other doc in this app — a NEGATIVE read is never
+    // cached (adversarial review 2026-08-08's own "a null is never stored" rule), so a league
+    // whose injfeed doc doesn't exist yet re-asks for it on every full render. At most ONE
+    // extra real .get(), never more; everything else (team/roster/settings/weekly/bracket)
+    // still comes from cache exactly as before.
+    ok(statsAfter.gets - statsBefore.gets <= 1,
+      "a second full League render makes AT MOST ONE additional real .get() call (S9's injury feed, a genuine absence that is never cached) — everything else still served from cache (" + JSON.stringify({ statsBefore, statsAfter }) + ")");
     ok(statsAfter.lists - statsBefore.lists <= 1,
       "…and at most ONE additional .list() call — \"chat\" is the one kind deliberately EXEMPTED from caching (so the league home's own new 'recent chat' preview, and the live Chat tab, never go stale); every other kind (team/weekly/hist/tx/bracket) is cache-served");
     ok(errors.length === 0, "0 page errors");
@@ -10637,8 +10649,11 @@ async function openDetails(page, id) {
       await evalOr(page, () => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".mucard");
       const after = (await evalOr(page, () => ({ ...window.__GFFL__.LG.db.stats }))) || {};
-      ok(after.gets === before.gets,
-        "ITEM 27 costs NO extra backend read — a second League render with the strip on all 4 cards still makes zero .get() calls (" + JSON.stringify({ before, after }) + ")");
+      // RESTAGED (S9, 2026-08-11) — same reason as section P1's own budget this check is
+      // aimed at: LG.loadInjuryFeed() is a genuine absence on a fresh league and is never
+      // cached negatively, so one extra real .get() is now the honest floor.
+      ok(after.gets - before.gets <= 1,
+        "ITEM 27 costs AT MOST ONE extra backend read (S9's injury feed) — a second League render with the strip on all 4 cards otherwise still comes from cache (" + JSON.stringify({ before, after }) + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -14440,6 +14455,484 @@ async function openDetails(page, id) {
       await ctx.close();
     }
     await reset();
+  }
+
+  // ================= AQ · S8 — matchup win probability (est.) ============================
+  // D.winProb was already composed out of D.liveProj (live pts + remaining fraction of
+  // projection) with a FIXED-SCALE logistic slope — the plan's upgrade is entirely in the
+  // SPREAD, which now shrinks with D.remainingProj (new) as the slate empties out, so the
+  // SAME point gap reads more decisive late than it does at kickoff. Every scenario below is
+  // DIRECT manipulation of D.S.games/D.S.players/D.projFor (section M's own technique) rather
+  // than the 2025 replay's fixture machinery — simpler, fully deterministic, and it exercises
+  // the exact same composed pieces (D.liveProj/D.remaining/D.projFor) an advancing replay
+  // clock would, without the extra coupling. PROPERTY tests throughout, per the plan — no
+  // exact percentage is asserted, only the shape the plan itself describes.
+  section("AQ · S8 — matchup win probability (est.)");
+  {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const A9 = ["3915511", "4241457", "111888", "4361741", "111555", "111222", "111444", "dst_PHI", "2473037"]; // team1's 9 starters
+    const B3 = ["222111", "222333", "dst_DAL"]; // team2's 3 starters
+
+    // ---- AQ1: pre-game — a modest projected edge reads as sane favoritism, not a landslide,
+    // and the two directions are exact complements (the model is anti-symmetric in the diff).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const wp = await page.evaluate((A9, B3) => {
+        const D = window.__GFFL__.D;
+        ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "pre" }));
+        // team1: 9×10 = 90 combined projected. team2: 30+30+20 = 80 combined. A 10-point edge.
+        const table = {}; A9.forEach((k) => (table[k] = 10));
+        table["222111"] = 30; table["222333"] = 30; table["dst_DAL"] = 20;
+        D.projFor = (key) => (key in table ? table[key] : null);
+        return { ab: D.winProb(A9, B3), ba: D.winProb(B3, A9) };
+      }, A9, B3);
+      ok(wp.ab > 0.5 && wp.ab < 0.95, "pre-game: a modest 10-point projected edge (90 vs 80) favors the leader without reading as a lock (" + wp.ab + ")");
+      ok(wp.ab > 0.05, "…comfortably inside the plan's 5%-95% sanity band (" + wp.ab + ")");
+      ok(Math.abs(wp.ab + wp.ba - 1) < 1e-9, "…and the two directions are EXACT complements — the model is anti-symmetric in the point gap (" + wp.ab + " + " + wp.ba + " = " + (wp.ab + wp.ba) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AQ2: a big LIVE lead deep in the 4th quarter reads as near-certain (>85%) — and the
+    // exact same model drives the compact card on the league home, not a separately-cached or
+    // stale one.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const direct = await page.evaluate((A9, B3) => {
+        const D = window.__GFFL__.D;
+        // 1 minute left in Q4 for every relevant NFL team — almost nothing left to happen.
+        ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "in", period: 4, clock: "1:00" }));
+        const setP = (key, pts) => D.S.players.set(key, {
+          key, name: key, team: "PHI", pos: "QB", pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0,
+        });
+        // team1 100 live (20 + 8×10), team2 40 live (20 + 10 + 10) — a 60-point lead.
+        A9.forEach((k, i) => setP(k, i === 0 ? 20 : 10));
+        B3.forEach((k, i) => setP(k, i === 0 ? 20 : 10));
+        D.projFor = () => 5; // small, so the remaining-fraction contribution stays tiny
+        return D.winProb(A9, B3);
+      }, A9, B3);
+      ok(direct > 0.85, "a 100-40 lead with 1:00 left in Q4 reads as near-certain, well past the plan's >85% bar (" + direct + ")");
+      ok(direct < 1, "…but it is NOT the same as a final — the game is still 'in', not 'post' (" + direct + ")");
+      // The SAME scenario, read off the league home's compact card (matchupHeroExtra's
+      // .wpfillmini) for the team1-vs-team2 game (week 1's [1,2] pairing). matchupCard(h,a) is
+      // called (1,2) — home=team1(A9, the 100-pt leader), away=team2(B3) — and
+      // matchupHeroExtra's own fill is the AWAY perspective (d.winProb(aKeys,hKeys), same
+      // convention the dedicated matchup header uses), so the mini bar shows team2's OWN win%,
+      // which in this scenario is near-ZERO, not the leader's near-100%.
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      const mini = await page.evaluate((A9, B3) => {
+        const D = window.__GFFL__.D;
+        const el = document.querySelector('.mucard[data-mu="1-2"]');
+        const fill = el && el.querySelector(".wpfillmini");
+        return { pct: fill ? parseInt(fill.style.width, 10) : null, awayPerspective: Math.round(D.winProb(B3, A9) * 100) };
+      }, A9, B3);
+      ok(mini.pct != null && mini.pct < 15, "…and the compact card on the league home reads the SAME model, not a duplicated or stale one — team2's OWN (away) win% reads near-zero here (" + mini.pct + "%)");
+      ok(mini.pct === mini.awayPerspective, "…matching D.winProb(away,home) exactly, to the rendered percentage point (" + mini.pct + " vs " + mini.awayPerspective + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AQ3: FINAL pins to exactly 100/0 — decided by game STATE, never by "remaining
+    // projection happens to read ~0". A genuine tie pins to exactly 50/50.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await page.evaluate((A9, B3) => {
+        const D = window.__GFFL__.D;
+        ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+        const setP = (key, pts) => D.S.players.set(key, {
+          key, name: key, team: "PHI", pos: "QB", pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0,
+        });
+        // team1 50.5 final, team2 50.4 final — a razor-thin margin, decided purely by state.
+        A9.forEach((k, i) => setP(k, i === 0 ? 10.5 : 5));
+        B3.forEach((k, i) => setP(k, i === 0 ? 30.4 : 10));
+        D.projFor = () => 40; // large, real-looking projections — must NOT matter once final
+        const decided = { ab: D.winProb(A9, B3), ba: D.winProb(B3, A9) };
+        // Now a genuine tie.
+        A9.forEach((k) => D.S.players.set(k, { ...D.S.players.get(k), pts: 5 }));
+        B3.forEach((k) => D.S.players.set(k, { ...D.S.players.get(k), pts: 15 })); // 45 each
+        const tie = { ab: D.winProb(A9, B3), ba: D.winProb(B3, A9) };
+        return { decided, tie };
+      }, A9, B3);
+      ok(r.decided.ab === 1 && r.decided.ba === 0, "a razor-thin FINAL margin (50.5-50.4) pins to EXACTLY 100/0, not a squeaker percentage (" + JSON.stringify(r.decided) + ")");
+      ok(r.tie.ab === 0.5 && r.tie.ba === 0.5, "…and a genuine FINAL tie pins to exactly 50/50 (" + JSON.stringify(r.tie) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AQ4: monotone-ish under an advancing game clock — no single-tick swing exceeds 20
+    // percentage points, on a realistic gradual walk from kickoff to late in the 4th.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const series = await page.evaluate((A9, B3) => {
+        const D = window.__GFFL__.D;
+        D.projFor = () => 8;
+        const setP = (key, pts) => D.S.players.set(key, {
+          key, name: key, team: "PHI", pos: "QB", pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0,
+        });
+        // 6 ticks: kickoff -> Q1 -> Q2 -> Q3 -> Q4 -> late Q4, team1 pulling gradually ahead.
+        const ticks = [
+          { state: "pre", period: 0, clock: "", a: 0, b: 0 },
+          { state: "in", period: 1, clock: "5:00", a: 7, b: 3 },
+          { state: "in", period: 2, clock: "5:00", a: 17, b: 10 },
+          { state: "in", period: 3, clock: "5:00", a: 30, b: 17 },
+          { state: "in", period: 4, clock: "5:00", a: 40, b: 24 },
+          { state: "in", period: 4, clock: "1:00", a: 45, b: 27 },
+        ];
+        return ticks.map((t) => {
+          ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: t.state, period: t.period, clock: t.clock }));
+          A9.forEach((k, i) => setP(k, i === 0 ? t.a : 0));
+          B3.forEach((k, i) => setP(k, i === 0 ? t.b : 0));
+          return Math.round(D.winProb(A9, B3) * 100);
+        });
+      }, A9, B3);
+      let worst = 0;
+      for (let i = 1; i < series.length; i++) worst = Math.max(worst, Math.abs(series[i] - series[i - 1]));
+      ok(worst <= 20, "a gradual walk through the game clock never swings win% by more than 20 points in one tick (" + JSON.stringify(series) + ", worst jump " + worst + ")");
+      ok(series.every((v) => Number.isFinite(v) && v >= 0 && v <= 100), "…and every sample stays inside [0,100] (" + JSON.stringify(series) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AQ5: never NaN, never outside [0,1] — empty rosters and totally unresolvable keys.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const edge = await page.evaluate(() => {
+        const D = window.__GFFL__.D;
+        return {
+          empty: D.winProb([], []),
+          unresolvable: D.winProb(["totally-unknown-key-1"], ["totally-unknown-key-2"]),
+        };
+      });
+      ok(edge.empty === 0.5, "no starters on either side -> the honest even-money fallback, never NaN (" + edge.empty + ")");
+      ok(edge.unresolvable === 0.5, "two keys that resolve to nobody -> the same honest fallback (" + edge.unresolvable + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AQ6: the matchup header carries the "est." label — honest, not oracular (plan's own
+    // language). The compact league-home card stays unlabeled by design (no room for prose).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await page.evaluate(() => { window.__GFFL__.UI.matchup = [1, 2]; window.__GFFL__.UI.go("matchup"); });
+      await waitOr(page, ".muhead");
+      const mid = await text(page, ".muhmid");
+      ok(mid && /est\./i.test(mid), "the matchup header's win-probability line carries the 'est.' qualifier (" + JSON.stringify(mid) + ")");
+      ok(!!(await page.$(".wpbar")) && !!(await page.$(".wpfill")), "…on the same thin bar that already existed — no second bar was added");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+  }
+
+  // ================= AR · S9 — the injury-status-change feed ==============================
+  // "The news that is actually reachable" — the injury designation already on the player
+  // directory this app polls for stats, kept as a league-wide last-known map (one doc,
+  // kind "injstate", one TOP-LEVEL FIELD per rostered player rather than one nested object —
+  // see LG.checkInjuryChanges' own header note for why), diffed on every poll tick, turned
+  // into a feed line + a push to the OWNING team on a genuine change. The base fixture already
+  // carries a real designation out of the box (I. Injured, "Out" — slpPlayersFix's own note),
+  // which is what proves the FIRST-EVER run seeds silently rather than announcing it as news.
+  section("AR · S9 — injury-status-change feed");
+  {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+
+    // ---- AR1: the first-ever run seeds every rostered player's CURRENT designation silently
+    // — no feed line, no push, even for I. Injured's real base-fixture "Out". A second call
+    // with nothing changed writes nothing further.
+    //
+    // waitLive()'s own "one controlled extra poll, so merge/paint settle" ALREADY fires a real
+    // D.pollOnce() -> d.onUpdate() -> LG.checkInjuryChanges() — so by the time it resolves, the
+    // first-ever run has already happened AUTOMATICALLY, exactly as it would for a real family
+    // device that never calls the function directly. That is deliberately what is asserted
+    // below (no separate manual "first call" is made) — a short settle covers its
+    // fire-and-forget write/push chain.
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await sleep(400);
+      ok(notify.calls.length === 0, "the automatic first-ever run (the very first poll tick) pushed nobody — a first sighting is never news, including I. Injured's real base-fixture 'Out' (" + notify.calls.length + ")");
+      const feed0 = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feed0.length === 0, "…nor did the feed gain a single line (" + feed0.length + ")");
+      const state = await page.evaluate(() => window.__GFFL__.LG.db.get(window.__GFFL__.LG.injStateId()));
+      ok(state && state.kind === "injstate" && state.season === 2026, "…yet the map doc itself now exists — kind 'injstate', season 2026 (" + JSON.stringify(state && { kind: state.kind, season: state.season }) + ")");
+      ok(state && state.p_111666 === "OUT", "…I. Injured's real designation IS on record, canonical short form (" + JSON.stringify(state && state.p_111666) + ")");
+      ok(state && state.p_3915511 === "", "…and a healthy player is recorded as the empty string — present, not omitted, not null (" + JSON.stringify(state && state.p_3915511) + ")");
+      // A second, EXPLICIT call with nothing changed since: fully idempotent, writes nothing
+      // further — this IS the "second poll with no change" case the plan asks for.
+      const r2 = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(r2 && r2.changed === 0 && r2.seeded === 0, "an explicit second poll with nothing new to see writes NOTHING further (" + JSON.stringify(r2) + ")");
+      ok(notify.calls.length === 0, "…still zero pushes");
+      ok(errors.length === 0, "0 page errors on the seeding pass");
+      await ctx.close();
+    }
+
+    // ---- AR2: a GENUINE designation change — Q. Rival (team2, healthy) goes Questionable ->
+    // Doubtful. One feed line, one push to the OWNING team (2, not the viewing device's own
+    // team 1), the push naming the player and spelling the designation out in words.
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed()); // team 1, "Peter"
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page); // this alone already seeds the baseline (see AR1) — no push, but drain before resetting anyway
+      await sleep(300);
+      notify.reset();
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Doubtful"; }); // Q. Rival
+      const r = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(r && r.changed === 1, "exactly one real transition is detected (" + JSON.stringify(r) + ")");
+      const state = await page.evaluate(() => window.__GFFL__.LG.db.getFresh(window.__GFFL__.LG.injStateId()));
+      ok(state && state.p_222111 === "D", "…the map records the canonical short form, 'D' not the raw 'Doubtful' (" + state.p_222111 + ")");
+      const feed = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feed.length === 1 && feed[0].key === "222111" && feed[0].from === "" && feed[0].to === "D" && feed[0].teamId === 2,
+        "…and exactly one feed row: healthy ('') -> D, attributed to team 2 (" + JSON.stringify(feed[0]) + ")");
+      await sleep(300);
+      ok(notify.calls.length === 1, "…and exactly one push fired (" + notify.calls.length + ")");
+      const push = notify.calls[0] || {};
+      ok(push.gfflTeam === 2, "…to the OWNING team, 2 — not this device's own team, 1 (" + JSON.stringify(push.gfflTeam) + ")");
+      ok(push.title === "Injury update", "…titled plainly (" + push.title + ")");
+      ok(/Q\. Rival/.test(push.body) && /Doubtful/.test(push.body), "…the body names the player and spells the designation out in WORDS, not the app's own short 'D' badge (" + push.body + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AR3: dedupe on a stable device — a THIRD poll with no further change writes nothing
+    // more; ONE more real change (Doubtful -> Out) adds exactly one more line and one more push.
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()); // seed baseline
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Doubtful"; });
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()); // Q -> D lands
+      // Producers are fire-and-forget (section AN's own rule): the promise above resolves with
+      // the notify fetch still possibly in flight. Drain before resetting, or a late arrival
+      // lands AFTER the reset and is mistaken for the next (supposedly no-op) poll's push.
+      await sleep(300);
+      notify.reset();
+      const still = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(still && still.changed === 0, "nothing changed since the last poll -> nothing to report (" + JSON.stringify(still) + ")");
+      ok(notify.calls.length === 0, "…and no push for a no-op poll");
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Out"; });
+      const r2 = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(r2 && r2.changed === 1, "…but a REAL further change (Doubtful -> Out) is caught (" + JSON.stringify(r2) + ")");
+      const feed = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feed.length === 2 && feed[0].from === "D" && feed[0].to === "OUT" && feed[1].from === "" && feed[1].to === "D",
+        "…newest first: D -> OUT on top of the earlier healthy -> D (" + JSON.stringify(feed.map((f) => f.from + "->" + f.to)) + ")");
+      await sleep(300);
+      ok(notify.calls.length === 1, "…exactly one more push, not two (" + notify.calls.length + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AR4: back to healthy counts as real news too, and it is NOT accent-tinted (good
+    // news, not a warning) when it reaches the card.
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Doubtful"; });
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      await sleep(300); // drain the "Q -> D" push before resetting — see AR3's own note
+      notify.reset();
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = ""; }); // cleared
+      const r = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(r && r.changed === 1, "clearing a real designation IS a reportable change (" + JSON.stringify(r) + ")");
+      const feed = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feed[0] && feed[0].from === "D" && feed[0].to === "", "…D -> healthy is on the feed, newest first (" + JSON.stringify(feed[0]) + ")");
+      await sleep(300);
+      ok(notify.calls.length === 1, "…and it still pushes the owner — good news is still news (" + notify.calls.length + ")");
+      // Render the card and confirm the destination reads "Healthy" and is NOT accent-tinted.
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".injline");
+      const row = await page.evaluate(() => {
+        const el = document.querySelector(".injline");
+        return { text: el && el.textContent.replace(/\s+/g, " ").trim(), tinted: !!(el && el.querySelector(".injto")) };
+      });
+      ok(row.text && /Doubtful → Healthy/.test(row.text), "…the card spells it out in words, 'Doubtful → Healthy' (" + JSON.stringify(row.text) + ")");
+      ok(row.tinted === false, "…and 'Healthy' is plain text, not accent-tinted like an ongoing designation");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AR5: a read-only MIRROR writes nothing at all, however many real changes it sees.
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()); // seed baseline while writable
+      const before = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      await page.evaluate(() => {
+        window.__GFFL__.LG.mirrorOffline = true;
+        window.__GFFL__.D.S.slpPlayers.get("9102").injury = "Out"; // X. Wideout
+      });
+      const r = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(r === null, "checkInjuryChanges refuses outright on a read-only mirror (" + JSON.stringify(r) + ")");
+      const after = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(after.length === before.length, "…the feed is byte-unchanged (" + before.length + " -> " + after.length + ")");
+      await sleep(300);
+      ok(notify.calls.length === 0, "…and nothing was pushed");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AR6: a device that ALREADY recorded a transition (simulated as another device's
+    // write, section V3's own cross-device technique on the local backend) is detected by the
+    // fresh-read guard and skips — no duplicate feed line, no duplicate push. This is the
+    // MECHANISM that makes "a lost line is not acceptable" true rather than merely likely.
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()); // seed baseline
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9102").injury = "Questionable"; }); // X. Wideout
+      // "Another device" already recorded this exact transition and pushed for it — written
+      // straight into the shared local store, bypassing this page's LG.db entirely.
+      await page.evaluate((k, doc) => localStorage.setItem(k, JSON.stringify(doc)), LSPFX + "injstate_2026", {
+        kind: "injstate", season: 2026, p_222333: "Q",
+      });
+      notify.reset();
+      const r = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(r && r.changed === 0, "this device's OWN read of the pre-race state is stale by the time it re-reads fresh — it correctly reports nothing WON (" + JSON.stringify(r) + ")");
+      const feed = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feed.every((f) => f.key !== "222333"), "…no duplicate feed line for the player another device already recorded (" + JSON.stringify(feed) + ")");
+      await sleep(300);
+      ok(notify.calls.length === 0, "…and no duplicate push");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AR7: TWO REAL PAGES sharing one cloud store race the SAME player's transition at
+    // the same instant. The guarantee that matters is stated in the plan itself — "a duplicate
+    // feed line is the acceptable worst case, a lost one is not" — so this asserts AT LEAST
+    // one push landed (never zero, never lost) and never more than the two devices could
+    // possibly have produced between them (never a runaway multiply).
+    {
+      const R = restFixture(fullSeed().docs);
+      const seed2 = { docs: {}, pass: "amenfarms", team: 1, who: "Peter" };
+      const { ctx: c1, page: p1, errors: e1 } = await newTestPage(browser, seed2, { rest: R });
+      await p1.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(p1, ".mucard", 15000), "device 1 boots against the shared cloud store");
+      await waitLive(p1);
+      const { ctx: c2, page: p2, errors: e2 } = await newTestPage(browser, seed2, { rest: R });
+      await p2.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(p2, ".mucard", 15000), "device 2 boots against the SAME shared cloud store");
+      await waitLive(p2);
+      // Both devices see the baseline first (a real pair of phones would already have, on an
+      // earlier tick) — racing the very first seed is a lower-stakes, different question.
+      await p1.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      await p2.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      // Both devices now observe the SAME real-world change at roughly the same instant.
+      await p1.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9102").injury = "Out"; });
+      await p2.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9102").injury = "Out"; });
+      notify.reset();
+      await Promise.all([
+        p1.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()),
+        p2.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()),
+      ]);
+      await sleep(400);
+      const hits = notify.calls.filter((c) => c.gfflTeam === 2 && /X\. Wideout/.test(c.body || ""));
+      ok(hits.length >= 1, "the race produces AT LEAST one push — the change is never silently lost (" + hits.length + ")");
+      ok(hits.length <= 2, "…and never more than the two racing devices could possibly have sent (" + hits.length + ")");
+      ok(R.docs.injstate_2026 && R.docs.injstate_2026.p_222333 === "OUT", "…the shared map really does hold the new value, whoever won (" + JSON.stringify(R.docs.injstate_2026 && R.docs.injstate_2026.p_222333) + ")");
+      const rowsFor = ((R.docs.injfeed_2026 || {}).rows || []).filter((r) => r.key === "222333");
+      ok(rowsFor.length >= 1, "…and the feed carries the transition at least once (a duplicate is the accepted worst case, a loss is not) (" + rowsFor.length + ")");
+      ok(e1.length === 0 && e2.length === 0, "0 page errors on both devices");
+      await c1.close(); await c2.close();
+    }
+
+    // ---- AR8: the card — absent entirely with nothing to show, present with the right rows
+    // once there's real news, and tapping a row opens THAT player's stats card.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const emptyState = await text(page, "main");
+      ok(!/League injury report/.test(emptyState || ""), "a fresh league with no recorded CHANGES shows no injury card at all (not an empty shell)");
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()); // seed
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Questionable"; }); // Q. Rival
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".injline");
+      const card = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".injline")];
+        return {
+          hasHeading: [...document.querySelectorAll(".card h2")].some((h) => h.textContent === "League injury report"),
+          n: rows.length,
+          key: rows[0] && rows[0].dataset.pk,
+          text: rows[0] && rows[0].textContent.replace(/\s+/g, " ").trim(),
+        };
+      });
+      ok(card.hasHeading, "…and a real change shows the 'League injury report' card");
+      ok(card.n === 1 && card.key === "222111", "…one row, keyed to the real player (" + card.key + ")");
+      ok(card.text && /Q\. Rival/.test(card.text) && /Healthy → Questionable/.test(card.text),
+        "…reading 'Q. Rival: Healthy → Questionable' (" + JSON.stringify(card.text) + ")");
+      await page.evaluate(() => document.querySelector(".injline").click());
+      await waitOr(page, "#playerCard .pcname");
+      const opened = await text(page, "#playerCard .pcname");
+      ok(opened && /Q\. Rival/.test(opened), "…tapping the row opens THAT player's own stats card (" + JSON.stringify(opened) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AR9: the poll loop really is wired — a real D.pollOnce() (the same tick the live
+    // stat poll rides) reaches LG.checkInjuryChanges() on its own, with no direct call.
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page); // stops the automatic loop; poll() below drives one tick by hand
+      await poll(page); // baseline seed, via the REAL poll path (not a direct call)
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Out"; });
+      notify.reset();
+      await poll(page); // one real D.pollOnce() tick
+      const ok1 = await waitFnOr(page, () => {
+        const rows = document.querySelectorAll(".injline");
+        return rows.length > 0 || document.body.textContent.includes("League injury report");
+      });
+      // d.onUpdate's own repaint only fires if UI.view is still "league" — this page never
+      // navigated away, so it should have painted on its own with no direct render call.
+      const seen = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".injline")];
+        return rows.some((r) => r.dataset.pk === "222111");
+      });
+      ok(seen, "a real D.pollOnce() tick reaches LG.checkInjuryChanges() through startData()'s d.onUpdate, and the league home repaints on its own (" + ok1 + ")");
+      await sleep(300);
+      ok(notify.calls.some((c) => c.gfflTeam === 2 && /Q\. Rival/.test(c.body || "")), "…and the poll-triggered path pushes the owner exactly like a direct call would (" + JSON.stringify(notify.calls) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
   }
 
   await browser.close();

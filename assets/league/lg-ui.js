@@ -57,6 +57,20 @@
     return s.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
   }
   LG.injLabel = injLabel; // test hook — the suite asserts the mapping directly as well as rendered
+  // S9's injury feed reads better in words ("Questionable → Out") than in the app's own compact
+  // Q/D/OUT badges — but WHICH VALUES COUNT AS A DESIGNATION is decided in exactly one place,
+  // injLabel's own INJ_HEALTHY/INJ_ABBR tables, never re-derived here. injWord defers to
+  // injLabel for the healthy/not-healthy question (idempotent, so it works equally well fed a
+  // raw Sleeper string or an already-canonical abbreviation) and only spells the common short
+  // codes out longhand for the feed's prose; anything else stays as its abbreviation, which
+  // already reads fine on its own ("IR", "PUP", "SUS") rather than being dropped.
+  const INJ_WORD = { Q: "Questionable", D: "Doubtful", OUT: "Out", P: "Probable" };
+  function injWord(raw) {
+    const abbr = injLabel(raw);
+    if (!abbr) return "Healthy";
+    return INJ_WORD[abbr] || abbr;
+  }
+  LG.injWord = injWord; // test hook — S9's feed card + LG.pushInjuryChange's push body
   // "Is this player's NFL team currently on offense?" (2026-08-09 playtest: "we need to
   // highlight players when their team has the ball and is on offense"). A D/ST is deliberately
   // never highlighted — its side has the ball, which means the defense is off the field, the
@@ -424,7 +438,23 @@
     // The real trigger for auto-finalization (+ S7's bracket build/advance): once live data
     // exists. Throttled (see runAutoChecks above) — this fires on every poll tick, not just
     // once a minute apart.
-    d.onUpdate = () => { paintLive(); runAutoChecks(false).catch(() => {}); };
+    d.onUpdate = () => {
+      paintLive();
+      runAutoChecks(false).catch(() => {});
+      // S9 — runs every tick (cheap: it only ever walks the currently-rostered keys already in
+      // memory; the expensive half, the directory refetch, is throttled separately inside
+      // D.maybeRefreshInjuryDirectory). A genuine change re-fetches the feed doc THIS device
+      // just wrote and repaints the league home if that's still what's on screen — mirrors
+      // simProjEnsureAndRepaint's own "repaint once new data lands, only if still on that view"
+      // idiom. A DIFFERENT device's change self-heals through the existing LG.db.onChange
+      // background-refresh path, which already re-renders the current view from a fresh read.
+      LG.checkInjuryChanges().then(async (r) => {
+        if (r && r.changed) {
+          UI._injFeed = await LG.loadInjuryFeed();
+          if (UI.view === "league") renderLeague(true);
+        }
+      }).catch(() => {});
+    };
     // Quiet repaint after a background (cloud-only) list() refresh notices new data — reruns
     // the current view's own full render, which now paints from the just-updated cache.
     LG.db.onChange = () => { if (UI.view) UI.show(UI.view); };
@@ -1278,6 +1308,27 @@
     return `<div class="card"><h2>Projection accuracy</h2>
       <p class="mut small">Our projections: avg miss ${acc.avg} pts/player over ${acc.n} player-week${acc.n === 1 ? "" : "s"}.</p></div>`;
   }
+  // League injury report (S9, plan "the news that is actually reachable") — the last real
+  // designation CHANGES this league has seen, newest first, off LG.loadInjuryFeed(). ABSENT
+  // ENTIRELY when there's nothing to show (matchupHeroExtra's own reasoning for its "unknown"
+  // state, applied to a whole card) — an empty "no injury news" card is more chrome to scroll
+  // past, not information. Each row opens the player's own stats card (data-pk, wired by
+  // wirePlayerCardTaps at the end of renderLeague — the same convention as every other player
+  // row in this app), so "what's actually wrong with him" is one tap away.
+  function injuryFeedCardHtml(rows) {
+    if (!rows || !rows.length) return "";
+    const line = (r) => {
+      const from = injWord(r.from), to = injWord(r.to);
+      const t = LG.teamById(r.teamId);
+      // "to Healthy" is good news, not a warning — only an ongoing real designation gets the
+      // accent tint (matches .inj's own "colour = needs your attention" convention elsewhere).
+      const toHtml = to === "Healthy" ? esc(to) : `<b class="injto">${esc(to)}</b>`;
+      return `<button type="button" class="fline injline" data-pk="${esc(r.key)}">
+        <b>${escn(r.name)}</b>: ${esc(from)} → ${toHtml}${t ? ` <span class="mut small">· ${esc(teamTag(t))}</span>` : ""}
+      </button>`;
+    };
+    return `<div class="card"><h2>League injury report</h2>${rows.slice(0, 8).map(line).join("")}</div>`;
+  }
   //  Record book card (plan §4.8): collapsed by default so it doesn't crowd the home page —
   // champions, the biggest single-week score/blowout ever, best season PF, and the all-time
   // standings, all combined from imported ESPN history + this season's own finalized weeks.
@@ -1566,7 +1617,7 @@
       // CURRENTLY true, once opened), it just no longer costs anything until you look.
       UI._recordBook = undefined; UI._tx = undefined; UI._recentChat = undefined;
       [UI._allWeekly] = await Promise.all([LG.db.list("weekly"), LG.db.list("bracket")]);
-      const [, standings, weeklyDoc, accuracy, bracket, wkGames, staleWeeks] = await Promise.all([
+      const [, standings, weeklyDoc, accuracy, bracket, wkGames, staleWeeks, injFeed] = await Promise.all([
         loadWeekRosters(),
         LG.loadStandings(),
         LG.loadWeekly(UI.week),
@@ -1576,9 +1627,14 @@
         // seasonWeeks, the bracket's currently-resolved pairings for a playoff week (S7).
         LG.gamesForWeek(UI.week),
         staleFinalizeWeeks(),
+        // S9 — one small doc GET, eagerly fetched alongside the rest of this batch (unlike
+        // record book/tx/chat below, which are genuinely expensive walks and stay lazy behind
+        // a tap): the injury report is meant to be seen at a glance, not opened for.
+        LG.loadInjuryFeed(),
       ]);
       UI._standings = standings; UI._weeklyDoc = weeklyDoc; UI._accuracy = accuracy;
       UI._bracket = bracket; UI._wkGames = wkGames; UI._staleWeeks = staleWeeks;
+      UI._injFeed = injFeed;
     }
     const st = UI._standings || {};
     const wkGames = UI._wkGames || [];
@@ -1598,6 +1654,7 @@
         ${wkGames.length ? `<div class="mugrid">${wkGames.map(([h, a]) => matchupCard(h, a)).join("")}</div>` : `<p class="mut">${noGamesMsg}</p>`}
         ${finalizeBtn}
       </div>
+      ${injuryFeedCardHtml(UI._injFeed)}
       ${leagueLinksHtml(LG.rules)}
       ${staleWeeksHtml(UI._staleWeeks, isCommish())}
       ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
@@ -1674,6 +1731,7 @@
     });
     $("#openBracketBtn") && $("#openBracketBtn").addEventListener("click", () => UI.openBracket());
     wireLockerTaps();
+    wirePlayerCardTaps(); // S9's injury feed rows — the league home's only [data-pk] elements
     wireLazyLeagueDetails();
     paintHealth();
     startDraftCountdown();
@@ -2602,7 +2660,7 @@
             ${liveIndicator}
             <div class="mut small">Week ${UI.week}</div>
             <div class="wpbar"><div class="wpfill" style="width:${Math.round(wp * 100)}%"></div></div>
-            <div class="mut small">${Math.round(wp * 100)}% — ${Math.round((1 - wp) * 100)}%</div>
+            <div class="mut small">${Math.round(wp * 100)}% — ${Math.round((1 - wp) * 100)}% <span class="wpest">est.</span></div>
           </div>
           ${muTeamHead(H, hId, mine, hTot, hProj, hRem, " right", recOf(hId))}
         </div>

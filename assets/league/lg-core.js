@@ -649,6 +649,7 @@
     team: "team", roster: "roster", weekly: "weekly", claims: "claims", claim: "claim",
     trade: "trade", tx: "tx", hist: "hist", bracket: "bracket", sched: "sched",
     projsnap: "projsnap", settings: "settings",
+    injstate: "injstate", injfeed: "injfeed", // S9
   };
   function kindOf(id) {
     const s = String(id || "");
@@ -2663,5 +2664,156 @@
     // hasData asks what SURVIVED the live() gate, not what is on disk — a league whose whole
     // history belongs to folded franchises must show the empty state, not a table of zeroes.
     return { champs, highestWeek, biggestBlowout, bestSeasonPF, standings, hasData: standings.length > 0 || champs.length > 0 };
+  };
+
+  // ---------------- S9 · injury-status-change feed (plan "the news that is actually reachable") ----------------
+  // Sleeper's real news feed is licensed content with no free API — not buildable. What IS
+  // reachable is the injury designation already carried on the player directory this app
+  // already polls for stats (D.S.slpPlayers.get(pid).injury). This keeps a league-wide
+  // LAST-KNOWN state of every ROSTERED player's designation, diffs it against the directory's
+  // CURRENT answer, and turns a genuine change into one feed line ("K. Walker: Questionable →
+  // Out") + one push to the OWNING team. Rostered-only + designation-only (a healthy<->healthy
+  // read never writes) keeps it signal, not noise.
+  //
+  // THE DIRECTORY NOW REFRESHES ON A SLOW CADENCE OF ITS OWN (see D.maybeRefreshInjuryDirectory
+  // in lg-data.js, ridden off the same D.pollOnce tick the live-stat poll already runs on) —
+  // without that, the directory this reads is fetched exactly ONCE at boot and nothing here
+  // would ever observe a change for the life of the tab. checkInjuryChanges itself is cheap
+  // regardless of that cadence (it only ever walks the currently-rostered keys, all already in
+  // memory, no network of its own beyond the writes a real transition earns) — it is called
+  // every poll tick from startData()'s d.onUpdate, exactly like runAutoChecks.
+  //
+  // THE MAP IS ONE DOCUMENT, BUT EVERY PLAYER IS ITS OWN TOP-LEVEL FIELD (p_<key>), not one
+  // nested object under a single "keys" field. LG.db.set's updateMask lists exactly the
+  // TOP-LEVEL keys of the payload (see lg-core's REST-transport note at the top of this file) —
+  // a nested map field would be replaced WHOLESALE on every write, the exact "array field
+  // replaced wholesale" hazard the adversarial review already found and fixed for waiver
+  // claims (S1's "ONE DOC PER CLAIM" note). Two devices recording two DIFFERENT players'
+  // transitions in the same window would otherwise be able to clobber each other and silently
+  // LOSE one, which the plan explicitly rules out ("a lost line is not acceptable" — only a
+  // duplicate is). Per-field writes only ever touch the fields actually named, so two different
+  // players' transitions can never collide; only the SAME player changing on two devices in the
+  // same instant can race at all, and the getFresh guard below makes even that a harmless
+  // DUPLICATE at worst, never a loss — the field itself is untouched by whoever loses the race.
+  //
+  // ABSENT field = "never recorded" — the baseline-seeding case, the same idiom the live
+  // poller's own espnSeeded/slpSeeded flags use for "don't feed-line what was already on the
+  // board when the tab opened": the FIRST time this league ever sees a player is seeded
+  // silently (no feed line, no push). Present-and-different = a real transition. Present-and-
+  // same = nothing to do — no write at all, not even a needless refresh.
+  LG.injStateId = () => "injstate_" + LG.SEASON;
+  LG.injFeedId = () => "injfeed_" + LG.SEASON;
+  const INJ_FIELD_PFX = "p_";
+  const injField = (key) => INJ_FIELD_PFX + String(key);
+  const INJ_FEED_CAP = 40;
+  LG.checkInjuryChanges = async function () {
+    // A read-only mirror can't persist a thing, and this is a background convenience the next
+    // genuinely-connected client will pick up anyway (LG.snapshotProjections' own posture) —
+    // never a reason to raise the "you're offline" toast at a reader who only opened the app.
+    if (LG.mirrorOffline) return null;
+    const d = LG.data;
+    const rosters = LG.ui && LG.ui._rosters;
+    if (!d || !d.S || !d.S.slpPlayers || !rosters || !LG.teams.length) return null; // not warm yet — next tick
+
+    // Every currently-rostered key, with its owning team and the directory's CURRENT answer.
+    const live = new Map(); // key -> {desig, teamId, name}
+    for (const t of LG.teams) {
+      for (const p of (rosters[t.id] || [])) {
+        if (!p || !p.key) continue;
+        const pid = d.pidForKey(p.key);
+        if (pid == null) continue; // can't resolve to a real Sleeper player -> nothing to compare
+        const meta = d.S.slpPlayers.get(pid);
+        if (!meta) continue;
+        live.set(String(p.key), { desig: LG.injLabel(meta.injury), teamId: t.id, name: p.name || meta.name || String(p.key) });
+      }
+    }
+    if (!live.size) return null;
+
+    const doc = await LG.db.get(LG.injStateId());
+    const known = doc && doc.kind === "injstate" ? doc : null;
+
+    // Split into: genuinely new transitions to record, vs never-before-seen keys to seed.
+    const changed = [], seed = {};
+    for (const [key, info] of live) {
+      const field = injField(key);
+      const prior = known ? known[field] : undefined;
+      if (prior === undefined) { seed[field] = info.desig; continue; }
+      if (prior !== info.desig) changed.push({ key, field, from: prior, to: info.desig, teamId: info.teamId, name: info.name });
+    }
+
+    // Seeding is race-tolerant on its own — two devices writing the SAME "first sighting"
+    // value is a no-op either way — so it needs no fresh-read guard, unlike a real transition.
+    if (Object.keys(seed).length) {
+      for (const chunk of LG._chunkFields(seed, 30)) {
+        if (!Object.keys(chunk).length) continue;
+        try { await LG.db.set(LG.injStateId(), { kind: "injstate", season: LG.SEASON, ...chunk }); }
+        catch (e) { /* best-effort — the next poll tick tries again */ }
+      }
+    }
+    if (!changed.length) return { seeded: Object.keys(seed).length, changed: 0 };
+
+    // MULTI-DEVICE DEDUPE: re-read right before writing. A field the fresh doc no longer shows
+    // at OUR recorded "prior" value means another device already recorded this transition (or a
+    // later one) — skip it here. Worst case is a DUPLICATE feed line/push if two devices both
+    // read stale and raced to write at the exact same instant; never a LOST one, because a
+    // field only this device is touching can't be clobbered by anyone else's write.
+    const fresh = await LG.db.getFresh(LG.injStateId());
+    const winners = changed.filter((c) => (fresh ? fresh[c.field] : undefined) === c.from);
+    if (!winners.length) return { seeded: Object.keys(seed).length, changed: 0 };
+
+    const write = { kind: "injstate", season: LG.SEASON };
+    for (const w of winners) write[w.field] = w.to;
+    try { await LG.db.set(LG.injStateId(), write); }
+    catch (e) { return { seeded: Object.keys(seed).length, changed: 0 }; } // never break the poll loop
+
+    // Feed + push only for what THIS device actually won.
+    await LG.appendInjuryFeed(winners);
+    for (const w of winners) LG.pushInjuryChange(w);
+    return { seeded: Object.keys(seed).length, changed: winners.length, winners };
+  };
+  // Splits an arbitrary field map into ≤`size`-field chunks — a league's FIRST-EVER seed can
+  // carry every one of its ~100+ rostered players at once, and naming all of them as separate
+  // updateMask.fieldPaths params in one PATCH risks an unreasonably long request URL. A failed
+  // chunk simply retries on the next poll tick; the others still land.
+  LG._chunkFields = function (obj, size) {
+    const ks = Object.keys(obj || {}), out = [];
+    for (let i = 0; i < ks.length; i += size) {
+      const chunk = {}; for (const k of ks.slice(i, i + size)) chunk[k] = obj[k];
+      out.push(chunk);
+    }
+    return out.length ? out : [{}];
+  };
+  // Append is its own fresh-read/merge, capped to the newest 40. LOWER-STAKES than the state
+  // map above (this is prose, not the source of truth the badges and the push both depend on) —
+  // two devices appending in the exact same instant could still clobber one another's line, an
+  // accepted residual given how rare that overlap is in practice; the injstate map itself can
+  // never lose an entry (see above), which is the guarantee that actually matters.
+  LG.appendInjuryFeed = async function (winners) {
+    if (LG.mirrorOffline || !winners || !winners.length) return;
+    try {
+      const fresh = await LG.db.getFresh(LG.injFeedId());
+      const rows = (fresh && fresh.kind === "injfeed" && Array.isArray(fresh.rows)) ? fresh.rows.slice() : [];
+      for (const w of winners) {
+        // Persisted AND ordered AND read across devices -> Date.now(), never LG.now() (the
+        // 2026-08-09 chat-order lesson: a persisted, cross-device-compared stamp must be wall
+        // time, or a device on a different replay clock sorts its own entries out of real
+        // chronological order on someone else's screen).
+        rows.unshift({ t: Date.now(), key: w.key, name: w.name, from: w.from, to: w.to, teamId: w.teamId });
+      }
+      await LG.db.set(LG.injFeedId(), { kind: "injfeed", season: LG.SEASON, rows: rows.slice(0, INJ_FEED_CAP) });
+    } catch (e) { /* the feed is a courtesy — never worth failing the change it's recording */ }
+  };
+  LG.loadInjuryFeed = async function () {
+    const doc = await LG.db.get(LG.injFeedId());
+    return (doc && doc.kind === "injfeed" && Array.isArray(doc.rows)) ? doc.rows : [];
+  };
+  // S4 producer — no actor to exclude (nobody DID this; Sleeper just updated a designation), so
+  // this is a plain per-team send. LG.pushTeam's own "never push the device's own claimed team"
+  // rule still applies exactly as it does for every other producer.
+  LG.pushInjuryChange = function (w) {
+    try {
+      LG.pushTeam(w.teamId, "Injury update",
+        LG.shortName(w.name) + " is now " + LG.injWord(w.to) + ".", LG.pushLink("#league"));
+    } catch (e) { /* a producer may never cost the change it is announcing */ }
   };
 })();
