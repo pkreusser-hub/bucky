@@ -11,6 +11,16 @@
 [functions."chorereminders"]
   schedule = "0,30 1,13,18 * * *"
 
+# GFFL S5 — scheduled waiver-processing nudge (cron as REMINDER only; the client engine stays
+# authoritative). Two UTC fires every Wednesday (13:00 and 14:00) — one for each DST state — so
+# the handler's own Central-hour guard (netlify/functions/leaguecron.mjs) can pick the correct
+# 8:00 AM Central fire without hardcoding an offset that would silently drift twice a year.
+# Cron day-of-week 3 = Wednesday. Activates only after deploy; the function itself also no-ops
+# before the season's first waiver Wednesday (2026-09-09) and independently re-checks the
+# Central weekday, so a stray manual invoke can never fire outside its intended window.
+[functions."leaguecron"]
+  schedule = "0 13,14 * * 3"
+
 # ---- GFFL custom domain: goatfantasyleague.com (bought 2026-08-10) ----
 # Netlify -> Domain management -> add goatfantasyleague.com to THIS site, then point the
 # registrar's DNS at Netlify (nameservers, or the A/ALIAS + www CNAME Netlify shows) and
