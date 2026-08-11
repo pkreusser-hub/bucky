@@ -8570,7 +8570,8 @@ async function openDetails(page, id) {
       // ordered THIS: owner line + h2h card removed, the freed space spent on a 62px crest and
       // a 30px score, and the win bar full-width (the .mupbar the wp probe reads now). The
       // page as a whole nets ~300px SHORTER; the header itself measures 125.
-      ok(head.height <= 132, "the matchup header fits the cosmetic-pass ceiling — 220px two batches ago, " + head.height + "px now");
+      // TUNE 2: +the Week row above the bar, by user order — ceiling 132 → 140.
+      ok(head.height <= 140, "the matchup header fits the TUNE-2 ceiling — 220px two batches ago, " + head.height + "px now");
       ok(head.wp && head.live, "…with the win-probability bar and the live/Final indicator both still on it");
       ok(head.avatars === 2 && head.names && head.pts.join("/") === "4.0/41.0", "…both crests, both names, both scores");
       // RESTAGED 2026-08-09 (the ESPN header rebuild): the projection is still there, on both
@@ -9234,7 +9235,7 @@ async function openDetails(page, id) {
       // 2026-08-11 cosmetic pass — which REMOVED the owner·record line this block used to
       // defend and spent the space (plus the whole h2h card, ~300px of page) on a 62px crest,
       // a 30px score and the full-width team-colour bar, by the user's own marked-up order.
-      ok(head.height <= 132, "the matchup header fits the cosmetic-pass ceiling (" + head.height + "px ≤ 132)");
+      ok(head.height <= 140, "the matchup header fits the TUNE-2 ceiling (" + head.height + "px ≤ 140)"); // Week row added by user order
       ok(head.a.avLeft < head.a.scLeft, "team A's crest sits on the OUTER (left) edge with the score inner");
       ok(head.b.avLeft > head.b.scLeft, "…and team B's is mirrored — crest outer (right), score inner");
       ok(head.a.projBelowBig && head.b.projBelowBig, "the projection sits directly BENEATH the big score, both sides");
@@ -13048,9 +13049,10 @@ async function openDetails(page, id) {
       // 120 → 132 and the crest band 44-56 → 56-72 — the same user who set the cap ordered the
       // freed space (owner line + the whole h2h card) spent on bigger crests and scores, and
       // the page as a whole nets ~300px shorter.
-      ok(mu.height <= 132, "the matchup header fits the cosmetic-pass ceiling with the BIGGER crests (" + mu.height + "px ≤ 132)");
-      ok(mu.crestW.length === 2 && mu.crestW.every((w) => w >= 56 && w <= 72),
-        "…crest-vs-crest, both inside the cosmetic-pass 56-72px band at phone width (" + JSON.stringify(mu.crestW) + ")");
+      ok(mu.height <= 140, "the matchup header fits the TUNE-2 ceiling (" + mu.height + "px ≤ 140)");
+      // TUNE 2: the phone crest eased 62 → 54 so it can't crowd the (now 15px) names.
+      ok(mu.crestW.length === 2 && mu.crestW.every((w) => w >= 50 && w <= 64),
+        "…crest-vs-crest, both inside the TUNE-2 50-64px band at phone width (" + JSON.stringify(mu.crestW) + ")");
       // The header renders AWAY on the left, HOME on the right (muhrow's own order), and
       // UI.matchup is [home, away] — so sides[0] is team 2's blue and sides[1] is team 1's red.
       ok(mu.tp[0] === "#1552b0" && mu.tp[1] === "#d81f26",

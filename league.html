@@ -376,11 +376,15 @@
      the crest size. It is the design that shrinks to fit the cap, never the cap that moves.
      Colours come from .tcrest; only the geometry and the "this one is yours" ring live here. */
   /* COSMETIC PASS (2026-08-11): the owner·record line and the 8-row head-to-head card are
-     gone, and the space they cost is spent HERE — crest 44→62px, score 19→30px. The header's
-     job is who's playing and what the score is, at a glance from across the room. */
-  .muavatar { width:62px; height:62px; font-size:20px; vertical-align:0; }
+     gone, and the space they cost is spent HERE — bigger crest, 30px score. TUNE 2 (same day,
+     user): on the PHONE the crest eases 62→54 so it can't crowd the name, the Week label moves
+     down beside the bar so the centre column collapses and the scores slide toward the middle
+     with room for triple digits, and the names grow 12→15px into the space that freed.
+     Desktop keeps the 62px crest — width is not scarce there. */
+  .muavatar { width:54px; height:54px; font-size:18px; vertical-align:0; }
   .muavatar.mine { box-shadow:inset 0 0 0 2px rgba(255,255,255,.2), 0 0 0 2px var(--accent); }
   .bigpts { font:800 30px/1.02 var(--font-display); font-variant-numeric:tabular-nums; }
+  @media (min-width:700px) { .muavatar { width:62px; height:62px; font-size:20px; } }
   /* THE ESPN HEADER (2026-08-09, from the user's own screenshot of the real app): crest on the
      OUTER edge, score block on the INNER — mirrored, so the two big numbers face each other
      across the centre column — with the projection directly BENEATH the score as a bare muted
@@ -404,13 +408,14 @@
      tracking and the secondary edge, not by extra size, so the name gains a team's colours
      without spending a pixel of the header's height budget. */
   /* design pass: the edge shadow went with the coloured fills — the side's identity is its
-     crest and its 3px score-block rail, and the name stays quiet ink */
-  .muhead .muhname.tname.big { font-size:12px; letter-spacing:.6px; text-shadow:none; }
+     crest and its 3px score-block rail, and the name stays quiet ink. TUNE 2: 12→15px — with
+     the Week label out of the centre column, the name can stretch toward the middle. */
+  .muhead .muhname.tname.big { font-size:15px; letter-spacing:.6px; text-shadow:none; }
   .muhead .muhproj { font:600 11px/1.2 var(--font-display); font-variant-numeric:tabular-nums; white-space:nowrap; }
   /* (.muhowner removed with the cosmetic pass — the record lives in the standings table) */
   /* The full-width probability bar: away's primary grows from the left, home's from the
      right, meeting at the split; percentages flank so no extra row is spent. */
-  .mupbarrow { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .mupbarrow { display:flex; align-items:center; gap:8px; margin-top:3px; }
   .mupct { font:700 12px var(--font-display); font-variant-numeric:tabular-nums; white-space:nowrap; }
   .mupbar { flex:1 1 auto; display:flex; height:8px; border-radius:var(--radius-pill); overflow:hidden; background:var(--divider2); }
   .mupbar i, .mupbar em { display:block; height:100%; }
@@ -419,7 +424,11 @@
   .mupct .wpest { margin-left:4px; }
   .muhead .muhsub { font-size:9.5px; line-height:1.2; white-space:nowrap; }
   .muhead .h2hline { margin-top:2px; }
-  .muhmid { text-align:center; min-width:84px; padding-top:2px; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  /* TUNE 2: with the Week label gone to the bar row, the centre column carries only the
+     LIVE/Final indicator — its 84px claim collapses to a sliver and the two score blocks
+     slide toward the middle, which is what buys triple-digit room beside the crests. */
+  .muhmid { text-align:center; min-width:40px; padding-top:2px; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .mupweek { text-align:center; margin-top:3px; font-size:10.5px; line-height:1.1; }
   .mulive { display:flex; align-items:center; gap:6px; font:600 12px var(--font-display); letter-spacing:1px; color:var(--accent); text-transform:uppercase; }
   .mulive .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); }
   .mulive.done { color:var(--mut); }

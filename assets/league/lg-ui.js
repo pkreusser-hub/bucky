@@ -2630,10 +2630,10 @@
           ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "")}
           <div class="muhmid">
             ${liveIndicator}
-            <div class="mut small">Week ${UI.week}</div>
           </div>
           ${muTeamHead(H, hId, mine, hTot, hProj, hRem, " right")}
         </div>
+        <div class="mut small mupweek">Week ${UI.week}</div>
         ${wideBar}
         <div class="rowline"><span id="healthChip" class="health" hidden></span></div>
       </div>

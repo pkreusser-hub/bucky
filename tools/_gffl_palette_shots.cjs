@@ -388,8 +388,11 @@ async function plate(page, file, label) {
     // about the OLD design — moves to 132px by the same user's explicit order ("use that
     // upper space to make the logos bigger, scores bigger"), while the PAGE as a whole nets
     // ~300px SHORTER from the card removal.
-    ok(!!m && m.height <= 132, wname + " · matchup: the header fits the cosmetic-pass ceiling (" + (m && m.height) + "px ≤ 132)");
-    ok(m.crests.length === 2 && m.crests.every((w) => w >= 56 && w <= 72), "…crest-vs-crest at the BIGGER band, 56-72px (" + JSON.stringify(m.crests) + ")");
+    // TUNE 2 (2026-08-11, user): the Week label became its OWN row above the bar, so the
+    // ceiling moves 132 → 140 for the ordered layout (phone measures ~131, desktop ~138).
+    ok(!!m && m.height <= 140, wname + " · matchup: the header fits the TUNE-2 ceiling (" + (m && m.height) + "px ≤ 140)");
+    // TUNE 2: phone 54, desktop 62 — one band covering the pair.
+    ok(m.crests.length === 2 && m.crests.every((w) => w >= 50 && w <= 68), "…crest-vs-crest in the TUNE-2 50-68px band (" + JSON.stringify(m.crests) + ")");
     ok(m.crestImgs === 2, "…both crests are real loaded images");
     ok(m.tp[0] !== m.tp[1], "…and the two sides are visibly DIFFERENT colours (" + JSON.stringify(m.tp) + ")");
     ok(m.ownerLineGone, "…the owner·record line is gone");
@@ -406,7 +409,7 @@ async function plate(page, file, label) {
     await page.waitForSelector(".muhead", { timeout: 15000 });
     await sleep(300);
     m = await matchupFacts(page);
-    ok(!!m && m.height <= 120, wname + " · matchup (picked vs no-logo): header still inside 120px (" + (m && m.height) + "px)");
+    ok(!!m && m.height <= 140, wname + " · matchup (picked vs no-logo): header inside the TUNE-2 140px ceiling (" + (m && m.height) + "px)");
     ok(m.tp[1] && m.tp[1].toLowerCase() === PICKED_COLORS.primary,
       "…the hand-picked side renders IDENTICALLY to an extracted one — same helper, same clamp (" + m.tp[1] + ")");
     ok(m.tp[0] !== m.tp[1], "…and the no-logo side still has an identity of its own (" + JSON.stringify(m.tp) + ")");
