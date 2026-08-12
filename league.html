@@ -461,6 +461,10 @@
   .muhead.muhero .muhteam .muhsub { text-align:center; }
   .muhead.muhero .muhteam:not(.right) .muhname, .muhead.muhero .muhteam:not(.right) .muhsub { padding-left:46px; }
   .muhead.muhero .muhteam.right .muhname, .muhead.muhero .muhteam.right .muhsub { padding-right:46px; }
+  /* The win bar clears the slash at EVERY width (user, 2026-08-11: "narrow the win bar so it
+     doesnt overlap the slashes") — 44px inset covers the mobile bands' bottom reach (~38px);
+     the desktop media below widens it to 180px for its own geometry. */
+  .muhead.muhero .mupbarrow { margin:3px 44px 0; }
   .muplayline { display:none; } /* the per-side to-play line — desktop home is the lineup card */
   @media (min-width:1024px) {
     .card.muhead.muhero { padding:12px 16px; }

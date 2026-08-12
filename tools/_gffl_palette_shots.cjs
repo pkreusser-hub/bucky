@@ -408,11 +408,10 @@ async function plate(page, file, label) {
     ok(m.tp[0] !== m.tp[1], "…and the two sides are visibly DIFFERENT colours (" + JSON.stringify(m.tp) + ")");
     ok(m.ownerLineGone, "…the owner·record line is gone");
     ok(m.h2hCardGone, "…the head-to-head card is gone (the numbers live in the player matchups)");
-    // RESTAGED 2026-08-11 (design handoff): on desktop the bar is deliberately INSET 180px a
-    // side so it clears the colour slashes — so "full width" is the phone's contract, and the
-    // desktop's is "genuinely inset, but still the row between the two sides".
-    if (wname === "390") ok(m.wideBar && m.wideBarSpansCard, "…the win bar stretches the full width between the two teams");
-    else ok(m.wideBar && !m.wideBarSpansCard, "…the win bar is inset to clear the muhero colour slashes (handoff geometry)");
+    // RESTAGED AGAIN 2026-08-11 (user: "narrow the win bar so it doesnt overlap the
+    // slashes") — the inset is now the contract at EVERY width (44px phone / 180px desktop),
+    // so "full width" is gone from both.
+    ok(m.wideBar && !m.wideBarSpansCard, "…the win bar is inset to clear the colour slashes (both widths now)");
     ok(m.wideFills.length === 2 && m.wideFills[0] !== m.wideFills[1], "…its two ends filled with the two teams' OWN primaries (" + JSON.stringify(m.wideFills) + ")");
     ok(m.seriesBelowLineups, "…and the all-time series line reads BELOW the player matchups");
     if (m.height <= HEAD_CEIL && m.crestImgs === 2 && m.tp[0] !== m.tp[1] && m.wideBar) {
