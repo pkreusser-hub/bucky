@@ -11055,3 +11055,62 @@ wrong mental model; ask "is any other day's card above today's, in view?" instea
 Regressions green: calnotify **117** · chore-care **50** · news **200** · activity **147** ·
 fitness **253** · finance **117**.
 Shots: `shots/cal_open_month_390.png`, `cal_week_today_390.png`, `cal_week_today_desktop.png`.
+
+---
+
+## 🔎 THE CALENDAR COULD NOT SAY WHY IT FAILED (2026-08-10)
+
+User: *"bucky plan is giving me an error when editing a calendar event saying it cant be reached
+right now."* The live site is egress-blocked from the agent sandbox (403 through the proxy), so
+the root cause could not be observed — **what shipped is the fix for why it was unobservable**,
+plus three real defects found on the way. Files: `netlify/functions/calendar.mjs` · `index.html` ·
+NEW `tools/_verify-calendar-errors.mjs` (**21/21**).
+
+**FIRST, THE MAPPING** (scratchpad `caldiag.cjs` — drives the real page's edit flow against a
+mocked function failing each way, and prints what the family actually sees). Worth keeping,
+because the report was ambiguous between two messages that mean very different things:
+
+| what the family sees | what it means |
+|---|---|
+| toast *"Couldn't reach the calendar — try again"* | the function reached Google and Google refused (`google-error`) |
+| banner *"Can't reach the calendar right now"* | the `status`/`list` call itself failed — a dead network or a non-500/502 HTTP status |
+| *"The family calendar isn't shared…"* | Google 401/403/404 |
+| *"Couldn't save — check your connection"* | the function 500/502'd, or the fetch threw |
+
+**THE REAL DEFECT: THE FAILURE WAS UNDIAGNOSABLE BY DESIGN.** `classifyGoogleError` collapsed
+every non-auth Google refusal to a bare `{error:"google-error"}`, and the handler's catch-all did
+the same **for a thrown exception in our own code** — with **no logging anywhere**, so a genuine
+bug and a Google 400 were indistinguishable and neither left a trace. Now: Google's own one-line
+reason (`invalid: Invalid recurrence rule`, `rateLimitExceeded: …`) rides back as `detail` and is
+`console.error`'d into the Netlify function log; a thrown error is `server-bug` with its message,
+logged with its stack, and named as OURS rather than Google's. **Secret hygiene is asserted, not
+assumed** — the token rides in a request header and is never echoed, and the suite greps every
+response and log line for the SA key, the access token and the calendar id.
+
+**THREE MORE, all real:**
+1. **A `google-error` on the LIST call rendered NOTHING.** `renderCalendar` named `network`,
+   `server`, `calendar-not-shared` and `not-configured`; anything else matched no branch, so the
+   tab painted stale cached events as if all was well. Any unhandled `calError` now gets a banner.
+2. **A 404 on an EVENT was reported as "the family calendar isn't shared with Bucky yet".**
+   `classifyGoogleError` is calendar-scoped by origin, but get/update/delete are EVENT-scoped —
+   a 404 there means that event is gone (deleted elsewhere), which sent the family to a setup
+   page for something setup cannot fix. `scope` is now a parameter; 404/410 on an event →
+   `event-gone` ("that event isn't on the calendar any more"), while 401/403 still means sharing
+   on either scope and a 404 LISTING still means the calendar.
+3. **The HTTP status was thrown away.** "Couldn't reach the calendar" covered a dead network, a
+   504 timeout and a 401 alike. `calPost` now carries `e.status` and every message shows it, so a
+   family member can read back *"(HTTP 504)"* — which is the one fact that would have settled
+   this report on its own.
+
+**VERIFY**: `node tools/_verify-calendar-errors.mjs` — 21 checks, running the REAL handler in
+process against a fake Google (its own `CAL_GOOGLE_TOKEN_URL`/`CALENDAR_BASE_URL` overrides) and a
+throwaway generated RSA service account, so nothing touches the family's calendar. Covers the
+reason passing through + being logged, event-404 vs calendar-404, 401/403 on both scopes, a 429
+naming itself, a thrown error as `server-bug`, the no-leak greps, and the healthy path unchanged.
+**TEST GOTCHA**: forcing a throw is harder than it looks — `JSON.stringify` never calls a throwing
+`toString` (a bad id serialises to `{}`), and dropping the socket server-side leaves undici hanging
+until the suite times out. A title that is a NUMBER is the clean one: `(ev.title || "").slice()` is
+a TypeError before Google is ever called.
+Regressions: calnotify **117** · calview **25** · chore-care **50** · news **200** · activity **147**.
+**STILL OPEN**: the live cause. Post-deploy the message names itself, and the Netlify function log
+now carries a `[calendar]` line for every failure.

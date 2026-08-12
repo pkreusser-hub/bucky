@@ -6346,7 +6346,8 @@ let calFocus = startOfDay(new Date());        // the date the current view is an
 let calSelectedKey = dateKeyLocal(new Date());// month view: which day's agenda is shown below the grid
 let calEvents = [];                            // normalized [{id,title,start,end,allDay,notes}]
 let calStatus = null;                          // {configured, saEmail, hasServiceAccount, hasCalendarId}
-let calError = null;                           // null | "network" | "calendar-not-shared" | "not-configured" | "server"
+let calError = null;                           // null | "network" | "calendar-not-shared" | "not-configured" | "server" | "google-error" | "server-bug"
+let calErrorDetail = "";                       // Google's own one-line reason, when it gave one
 let calLoading = false;
 let calStatusFetched = false;
 let calRangeKey = "";                          // signature of the last fetched range (avoids refetch churn)
@@ -6385,9 +6386,12 @@ async function calPost(action, extra){
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ secret: FAMILY_PASSWORD, action, ...(extra||{}) }),
   });
-  if (resp.status === 500 || resp.status === 502){ const e = new Error("server"); e.code = "server"; throw e; }
+  if (resp.status === 500 || resp.status === 502){ const e = new Error("server"); e.code = "server"; e.status = resp.status; throw e; }
   let j = null; try { j = await resp.json(); } catch {}
-  if (!resp.ok){ const e = new Error("http " + resp.status); e.code = "http"; throw e; }
+  // The STATUS is carried, not discarded: "couldn't reach the calendar" covers a dead
+  // network, a 504 timeout and a 401 wrong-password alike, and those want different
+  // answers. It is what a family member can read back to whoever is fixing it.
+  if (!resp.ok){ const e = new Error("http " + resp.status); e.code = "http"; e.status = resp.status; throw e; }
   return j || {};
 }
 
@@ -6398,7 +6402,7 @@ async function calPost(action, extra){
 // keep mapping it to its setup/warn cards exactly as before. Callers decide how loud to be.
 async function calFetchEvents(min, max){
   const r = await calPost("list", { timeMin: min.toISOString(), timeMax: max.toISOString() });
-  if (r.error){ const e = new Error(r.error); e.apiError = r.error; throw e; }
+  if (r.error){ const e = new Error(r.error); e.apiError = r.error; e.apiDetail = r.detail; throw e; }
   calEvents = r.events || [];
   calCacheTs = Date.now();
   try {
@@ -6440,7 +6444,10 @@ async function ensureCalData(force){
   try {
     await calFetchEvents(min, max);
     calError = null;
-  } catch (e){ calError = e.apiError ? e.apiError : (e.code === "server" ? "server" : "network"); }
+  } catch (e){
+    calError = e.apiError ? e.apiError : (e.code === "server" ? "server" : "network");
+    calErrorDetail = e.apiDetail || (e.status ? "HTTP " + e.status : "");
+  }
   calLoading = false;
   if (currentTab === "calendar") renderCalendar();
 }
@@ -6664,10 +6671,17 @@ function clampMonthAgenda(){
 function calBanner(text, kind){
   const b = document.createElement("div"); b.className = "cal-banner " + (kind||"muted"); b.textContent = text; return b;
 }
-function calErrText(code){
+// `detail` is Google's own one-line explanation (or our thrown error's message), passed
+// through by the function. It is what turns an unchaseable "couldn't reach the calendar"
+// into something a person can act on or repeat back, so it is SHOWN, not swallowed.
+function calErrText(code, detail){
+  const why = detail ? ` (${String(detail).slice(0, 120)})` : "";
   if (code === "calendar-not-shared") return "⚠️ The family calendar isn't shared with Bucky yet — see setup.";
   if (code === "not-configured" || code === "server") return "⚠️ The calendar isn't finished setting up.";
-  return "⚠️ Couldn't reach the calendar — try again.";
+  if (code === "event-gone") return "⚠️ That event isn't on the calendar any more — it may have been deleted elsewhere. Pull to refresh.";
+  if (code === "server-bug") return "⚠️ Bucky hit a snag saving that" + why;
+  if (code === "google-error") return "⚠️ Google wouldn't accept that change" + why;
+  return "⚠️ Couldn't reach the calendar — try again." + why;
 }
 
 let calStuckObs = null;   // IntersectionObserver toggling the sticky-controls shadow
@@ -6719,7 +6733,12 @@ function renderCalendar(){
   if (unconfigured || calError === "server" || calError === "calendar-not-shared" || calError === "not-configured"){
     cal.appendChild(buildCalSetup());
   } else {
-    if (calError === "network") cal.appendChild(calBanner("⚠️ Can't reach the calendar right now — showing your last saved events.", "warn"));
+    // Any error that isn't a setup card gets a banner. The `else` matters: before, only
+    // "network" was named here, so a google-error or a server-bug on the LIST call showed
+    // NOTHING AT ALL — a calendar quietly painting stale cached events as if all was well.
+    if (calError === "network") cal.appendChild(calBanner("⚠️ Can't reach the calendar right now"
+      + (calErrorDetail ? ` (${calErrorDetail})` : "") + " — showing your last saved events.", "warn"));
+    else if (calError) cal.appendChild(calBanner(calErrText(calError, calErrorDetail) + " Showing your last saved events.", "warn"));
     else if (calLoading) cal.appendChild(calBanner("Loading…", "muted"));
     const body = document.createElement("div"); body.className = "cal-body";
     if (calView === "month") buildCalMonth(body);
@@ -7250,14 +7269,16 @@ async function saveCalEvent(){
   showToast(editing ? "Saving change…" : "Adding event…");
   try {
     const r = await calPost(editing ? "update" : "create", { event: payload });
-    if (r.error) showToast(calErrText(r.error));
+    if (r.error) showToast(calErrText(r.error, r.detail));
     else {
       showToast(editing ? "Event updated ✅" : "Event added ✅");
       // The event is already saved — from here on, notifying people is best-effort and must
       // never be able to make the save itself look like it failed.
       if (r.event) notifyCalEvent(r.event, notifyNames, editing, repeatInfo);
     }
-  } catch (e){ showToast("⚠️ Couldn't save — check your connection"); }
+  } catch (e){
+    showToast("⚠️ Couldn't save — check your connection" + (e && e.status ? ` (HTTP ${e.status})` : ""));
+  }
   ensureCalData(true);
 }
 async function doCalDelete(id){
@@ -7265,7 +7286,7 @@ async function doCalDelete(id){
   showToast("Deleting…");
   try {
     const r = await calPost("delete", { event: { id } });
-    if (r.error) showToast(calErrText(r.error));
+    if (r.error) showToast(calErrText(r.error, r.detail));
     else showToast("Event deleted");
   } catch (e){ showToast("⚠️ Couldn't delete — check your connection"); }
   ensureCalData(true);
