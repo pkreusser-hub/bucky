@@ -390,17 +390,29 @@ async function plate(page, file, label) {
     // ~300px SHORTER from the card removal.
     // TUNE 2 (2026-08-11, user): the Week label became its OWN row above the bar, so the
     // ceiling moves 132 → 140 for the ordered layout (phone measures ~131, desktop ~138).
-    ok(!!m && m.height <= 140, wname + " · matchup: the header fits the TUNE-2 ceiling (" + (m && m.height) + "px ≤ 140)");
-    // TUNE 2: phone 54, desktop 62 — one band covering the pair.
-    ok(m.crests.length === 2 && m.crests.every((w) => w >= 50 && w <= 68), "…crest-vs-crest in the TUNE-2 50-68px band (" + JSON.stringify(m.crests) + ")");
+    // RESTAGED 2026-08-11 (design handoff, "GFFL desktop view refinement"): at ≥1024px the
+    // header is the MUHERO — 104px rounded-square crests on the team colour slashes, 30px
+    // names, one row per side — and measures 156-161px on these fixtures. The TUNE-2 140px
+    // ceiling stays THE PHONE'S contract (the handoff's own rule: keep the phone inside its
+    // measured cap); the desktop's new ceiling is 175, headroom over the measured 161.
+    const HEAD_CEIL = wname === "390" ? 140 : 175;
+    ok(!!m && m.height <= HEAD_CEIL, wname + " · matchup: the header fits its ceiling (" + (m && m.height) + "px ≤ " + HEAD_CEIL + ")");
+    // Phone keeps TUNE-2's 54px crest; desktop is the handoff's 104px rounded square.
+    const CREST_BAND = wname === "390" ? [50, 68] : [100, 108];
+    ok(m.crests.length === 2 && m.crests.every((w) => w >= CREST_BAND[0] && w <= CREST_BAND[1]),
+      "…crest-vs-crest in the " + CREST_BAND.join("-") + "px band (" + JSON.stringify(m.crests) + ")");
     ok(m.crestImgs === 2, "…both crests are real loaded images");
     ok(m.tp[0] !== m.tp[1], "…and the two sides are visibly DIFFERENT colours (" + JSON.stringify(m.tp) + ")");
     ok(m.ownerLineGone, "…the owner·record line is gone");
     ok(m.h2hCardGone, "…the head-to-head card is gone (the numbers live in the player matchups)");
-    ok(m.wideBar && m.wideBarSpansCard, "…the win bar stretches the full width between the two teams");
+    // RESTAGED 2026-08-11 (design handoff): on desktop the bar is deliberately INSET 180px a
+    // side so it clears the colour slashes — so "full width" is the phone's contract, and the
+    // desktop's is "genuinely inset, but still the row between the two sides".
+    if (wname === "390") ok(m.wideBar && m.wideBarSpansCard, "…the win bar stretches the full width between the two teams");
+    else ok(m.wideBar && !m.wideBarSpansCard, "…the win bar is inset to clear the muhero colour slashes (handoff geometry)");
     ok(m.wideFills.length === 2 && m.wideFills[0] !== m.wideFills[1], "…its two ends filled with the two teams' OWN primaries (" + JSON.stringify(m.wideFills) + ")");
     ok(m.seriesBelowLineups, "…and the all-time series line reads BELOW the player matchups");
-    if (m.height <= 132 && m.crestImgs === 2 && m.tp[0] !== m.tp[1] && m.wideBar) {
+    if (m.height <= HEAD_CEIL && m.crestImgs === 2 && m.tp[0] !== m.tp[1] && m.wideBar) {
       await plate(page, "gffl_pal_matchup_" + wname + ".png", "photo vs flat-art");
     }
 
@@ -409,11 +421,11 @@ async function plate(page, file, label) {
     await page.waitForSelector(".muhead", { timeout: 15000 });
     await sleep(300);
     m = await matchupFacts(page);
-    ok(!!m && m.height <= 140, wname + " · matchup (picked vs no-logo): header inside the TUNE-2 140px ceiling (" + (m && m.height) + "px)");
+    ok(!!m && m.height <= HEAD_CEIL, wname + " · matchup (picked vs no-logo): header inside its ceiling (" + (m && m.height) + "px <= " + HEAD_CEIL + ")");
     ok(m.tp[1] && m.tp[1].toLowerCase() === PICKED_COLORS.primary,
       "…the hand-picked side renders IDENTICALLY to an extracted one — same helper, same clamp (" + m.tp[1] + ")");
     ok(m.tp[0] !== m.tp[1], "…and the no-logo side still has an identity of its own (" + JSON.stringify(m.tp) + ")");
-    if (m.height <= 120 && m.tp[0] !== m.tp[1]) {
+    if (m.height <= HEAD_CEIL && m.tp[0] !== m.tp[1]) {
       await plate(page, "gffl_pal_matchup_picked_" + wname + ".png", "hand-picked vs no-logo");
     }
 

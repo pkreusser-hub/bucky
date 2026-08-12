@@ -432,6 +432,48 @@
   .mupct .wpest { margin-left:4px; }
   .muhead .muhsub { font-size:9.5px; line-height:1.2; white-space:nowrap; }
   .muhead .h2hline { margin-top:2px; }
+  /* DESIGN HANDOFF (2026-08-11, "GFFL desktop view refinement") — the muhero header.
+     Desktop-only: the phone header stays inside its measured cap (AD6's 140px ceiling), so
+     every rule below is gated ≥1024px. The markup is unchanged; the one-row-per-side
+     arrangement (crest → name → score, mirrored) comes from display:contents on .muhtop +
+     explicit `order`, which is what lets ONE markup serve both breakpoints. */
+  .muplayline { display:none; } /* the per-side to-play line — desktop home is the lineup card */
+  @media (min-width:1024px) {
+    .card.muhead.muhero { padding:12px 16px; position:relative; isolation:isolate; overflow:hidden; }
+    /* Each team's locker-hero colour slash: primary diagonal panel + thin secondary stripe,
+       away on the left edge, home mirrored on the right (handoff geometry, verbatim). */
+    .muhead.muhero::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+      background:var(--tpa); clip-path:polygon(0 0, 172px 0, 124px 100%, 0 100%); }
+    .muhead.muhero::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+      background:var(--tph); clip-path:polygon(calc(100% - 172px) 0, 100% 0, 100% 100%, calc(100% - 124px) 100%); }
+    .muhead.muhero .muhrow::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+      background:var(--tsa); clip-path:polygon(180px 0, 188px 0, 140px 100%, 132px 100%); }
+    .muhead.muhero .muhrow::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+      background:var(--tsh); clip-path:polygon(calc(100% - 188px) 0, calc(100% - 180px) 0, calc(100% - 132px) 100%, calc(100% - 140px) 100%); }
+    .muhead.muhero .muhrow { align-items:center; }
+    .muhead.muhero .muhtop { display:contents; }
+    .muhead.muhero .muhteam { display:flex; flex-direction:row; align-items:center; gap:14px; min-width:0; }
+    .muhead.muhero .muhteam .muavatar { order:1; flex:0 0 auto; width:104px; height:104px; font-size:34px;
+      border-radius:18px; box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 1px rgba(255,255,255,.22); }
+    .muhead.muhero .muavatar.mine { box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 2px rgba(255,255,255,.2), 0 0 0 2px var(--accent); }
+    .muhead.muhero .muhteam .muhname { order:2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto; }
+    .muhead.muhero .muhname.tname.big { font-size:30px; }
+    .muhead.muhero .muhteam .muhscore { order:3; margin-left:auto; }
+    .muhead.muhero .muhteam.right .muhscore { order:1; margin-left:0; margin-right:auto; }
+    .muhead.muhero .muhteam.right .muhname { order:2; }
+    .muhead.muhero .muhteam.right .muavatar { order:3; }
+    .muhead.muhero .muhteam > .muhsub { display:none; } /* rendered in the lineup card instead */
+    .muhead.muhero .mupbarrow { margin:3px 180px 0; } /* inset so the bar clears the slashes */
+    .muplayline { display:flex; justify-content:space-between; }
+    /* My Team slot chips take the matchup slot band's position colours (handoff §2). */
+    .slotchip[data-pos="QB"] { background:var(--pos-QB); color:#fff; border-color:transparent; }
+    .slotchip[data-pos="RB"] { background:var(--pos-RB); color:#fff; border-color:transparent; }
+    .slotchip[data-pos="WR"] { background:var(--pos-WR); color:#fff; border-color:transparent; }
+    .slotchip[data-pos="TE"] { background:var(--pos-TE); color:#fff; border-color:transparent; }
+    .slotchip[data-pos="K"]  { background:var(--pos-K);  color:#fff; border-color:transparent; }
+    .slotchip[data-pos="DST"] { background:var(--pos-DST); color:#fff; border-color:transparent; }
+    .slotchip[data-pos="X"]  { background:var(--pos-X);  color:var(--ink2); border-color:transparent; }
+  }
   /* TUNE 2: with the Week label gone to the bar row, the centre column carries only the
      LIVE/Final indicator — its 84px claim collapses to a sliver and the two score blocks
      slide toward the middle, which is what buys triple-digit room beside the crests. */
@@ -1323,7 +1365,9 @@
   @media (min-width:1024px) {
     header { padding:env(safe-area-inset-top) calc(24px + env(safe-area-inset-right)) 0 calc(24px + env(safe-area-inset-left));
              height:calc(46px + env(safe-area-inset-top)); border-bottom:none; }
-    header .sub { display:inline; margin-left:2px; }
+    /* Design handoff 2026-08-11: the tagline reads centered, white, bold on a desktop —
+       flex:1 lets it take the slack between the wordmark and the right-hand meta group. */
+    header .sub { display:inline; flex:1 1 auto; text-align:center; color:#fff; font-weight:700; }
     header .hmeta { display:flex; }
     header .hcrest { height:30px; }
     /* Only when .hmeta is ACTUALLY on screen does it take over the pinning, so the two read as
@@ -1453,7 +1497,7 @@
 <body>
   <header>
     <span class="wordmark">The <span class="accentword">GFFL</span></span>
-    <span class="sub">Goat Fantasy Football League</span>
+    <span class="sub">G.O.A.T. Fantasy Football League</span>
     <span class="hmeta" id="hMeta" hidden>
       <span id="hWeekYear"></span>
       <span id="hAvatar" hidden></span>

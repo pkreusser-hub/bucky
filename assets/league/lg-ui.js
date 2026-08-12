@@ -3020,8 +3020,15 @@
            <div class="mupbar"><i style="width:${wpPct}%;background:${esc(pa.primary)}"></i><em style="width:${100 - wpPct}%;background:${esc(ph.primary)}"></em></div>
            <b class="mupct">${100 - wpPct}%<span class="wpest">est.</span></b></div>`
       : `<div class="mupbarrow"><div class="mupbar unknown"></div></div>`;
+    // DESIGN HANDOFF (2026-08-11, "GFFL desktop view refinement"): the header carries the
+    // muhero class + the two teams' palettes as CSS vars, and at ≥1024px becomes the
+    // locker-hero treatment — 104px rounded-square crests on each team's own colour slash,
+    // 30px names, scores at the inner edges. Pure CSS from this same markup (display:contents
+    // + order), so the PHONE header stays byte-identical inside its measured cap. The
+    // per-side "N to play · N live" line moves into the lineup card on desktop (.muplayline,
+    // hidden on phones where the header's own .muhsub still carries it).
     main().innerHTML = `
-      <div class="card muhead">
+      <div class="card muhead muhero" style="--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)}">
         <div class="muhrow">
           ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "")}
           <div class="muhmid">
@@ -3033,7 +3040,10 @@
         ${wideBar}
         <div class="rowline"><span id="healthChip" class="health" hidden></span></div>
       </div>
-      <div class="card lineupcard"><div class="panner"><table class="tbl slottable mutable">
+      <div class="card lineupcard"><div class="rowline muplayline">
+          <span class="mut muhsub">${aRem.left} to play · ${aRem.playing} live</span>
+          <span class="mut muhsub">${hRem.left} to play · ${hRem.playing} live</span>
+        </div><div class="panner"><table class="tbl slottable mutable">
         <tbody>${rows.map(([pa, slot, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
           <td class="slotcell" data-pos="${slotPos(slot)}">${slotBadge(slot)}</td>
@@ -5505,7 +5515,7 @@
       // bumped starter), which a disabled button can no longer reach.
       const rowHtml = (slot, p, idx) => p
         ? `<div class="lrow ${playerLocked(p) ? "locked" : ""}${hasBall(p) ? " hasball" : ""}" data-slot="${slot}" data-idx="${idx}">
-            <span class="slotchip">${slot}</span>
+            <span class="slotchip" data-pos="${slotPos(slot)}">${slot}</span>
             <button type="button" class="linfo" data-pk="${esc(p.key)}">
               <span class="lname"><b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${injChip(d, p)}</small></span>
               <span class="lpts">${LG.fmtPts(d.livePts(p.key))}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
@@ -5514,7 +5524,7 @@
               ? ' disabled title="Game started — this slot is locked" aria-label="Swap unavailable — this game has started"' : ""}>Swap</button>
           </div>`
         : `<div class="lrow" data-slot="${slot}" data-idx="${idx}">
-            <span class="slotchip">${slot}</span>
+            <span class="slotchip" data-pos="${slotPos(slot)}">${slot}</span>
             <button type="button" class="lswap lswapfill" data-slot="${slot}" data-idx="${idx}"><span class="mut">Empty — tap to fill</span></button>
           </div>`;
       rosterHtml = `

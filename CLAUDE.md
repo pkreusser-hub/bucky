@@ -11382,3 +11382,51 @@ reviewed. Plate: `shots/gffl_desk_edit_1440.png`.
 is the control row and it must identify empty cards too); per-card size is dashboard-only
 (other tabs take the global size); and CSS zoom needs Chrome/Edge/Safari or Firefox ≥126 —
 the family's browsers all qualify.
+
+## 🏈 GFFL — THE DESIGN-HANDOFF REFINEMENT: the muhero matchup header (2026-08-11, DEPLOYED)
+
+The user brought "GFFL desktop view refinement.zip" — a Claude-Design handoff of DOCUMENTED
+DELTAS against our shipped code (not a full-file copy: a README naming exact rules, a
+prototype, three target screenshots), built pixel-faithfully FROM the real app. Files:
+`league.html` + `assets/league/lg-ui.js` + `tools/_gffl_palette_shots.cjs` (restaged).
+Handoff extracted at the session scratchpad `refine/`.
+
+**THREE DELTAS, all ≥1024px except the tagline copy** (the handoff's own rule: the phone
+header stays inside its measured cap — and it held: the battery needed ZERO restages, every
+phone matchup check passed untouched):
+1. **The MUHERO matchup header**: the `.muhead` carries `muhero` + the two teams' palettes as
+   inline CSS vars (`--tpa/--tsa/--tph/--tsh` from `LG.teamPalette`); at desktop each team
+   gets the locker-hero colour slash (primary diagonal + thin secondary stripe, away left,
+   home mirrored), a **104px rounded-square crest** (radius 18, locker shadow, `mine` ring
+   kept) sitting ON its slash, a **30px nowrap name**, and the score block at the INNER edge
+   (rail preserved). **ONE MARKUP SERVES BOTH BREAKPOINTS**: `.muhtop { display:contents }` +
+   explicit `order` per side produces the one-row crest→name→score arrangement (mirrored via
+   order, replacing the row-reverse) with no JS branching — the phone renders the exact same
+   DOM as before. The per-side "N to play · N live" line moves into a `.muplayline` rowline
+   at the top of the lineup card on desktop (hidden on phones, where the header's own
+   `.muhsub` still carries it — both are in body text, so X8e's count checks pass at any
+   width). Win bar inset `3px 180px 0` to clear the slashes; card padding 12px 16px.
+2. **My Team slot chips** take the draft's `--pos-*` colours via `data-pos="${slotPos(slot)}"`
+   (added to BOTH rowHtml branches) + attribute-selector fills — desktop-gated, so the phone
+   chip is byte-identical.
+3. **Tagline**: "G.O.A.T. Fantasy Football League", centered/white/700 on desktop
+   (`flex:1 1 auto` between the wordmark and the right meta group). Copy change is the one
+   thing that isn't width-gated — `.sub` is `display:none` on phones anyway.
+
+**RESTAGED, each with its reason in the file — `_gffl_palette_shots.cjs` only** (the one
+suite asserting desktop header geometry; the battery's matchup assertions all run at 390):
+the TUNE-2 140px ceiling is now THE PHONE'S contract with a measured desktop ceiling of 175
+(muhero measures 156-161 on the fixtures); the crest band splits 50-68 phone / 100-108
+desktop; and "the win bar spans the card" INVERTED at 1440 — the inset is the design, so the
+desktop assertion is that the bar genuinely does NOT span. Plate-gate literals moved onto the
+same per-width ceiling.
+
+**VERIFY**: battery **2388/2388** (zero restages — the width gate is what made that true) ·
+palette shots **74/74** · desk shots 30/30 · crest shots 56/56 (the tagline restyle left the
+crest pinning intact) + a chip plate (every chip filled with ITS position's own token at
+1440, the phone chip unfilled). Plates: `shots/gffl_pal_matchup_1440.png` (the muhero),
+`gffl_refine_myteam_1440.png` — both reviewed against the handoff's own screenshots.
+**KNOWN**: at 1024-1200px two long team names ellipsise beside the 104px crests (nowrap +
+min-width:0 — the handoff's prototype was 1366px); and the muhero's slash geometry is fixed
+px (172/124), so it doesn't scale with the per-card text-size zoom — harmless, the slash is
+an edge decoration.
