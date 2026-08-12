@@ -199,7 +199,9 @@ async function deskFacts(page) {
     const card = stand ? stand.closest(".card").getBoundingClientRect() : null;
     return {
       railLeft: Math.round(rb.left), mainRight: Math.round(mb.right), railTop: Math.round(rb.top),
-      chatFirst: !!(chat && rail.firstElementChild === chat),
+      // Restaged 2026-08-11 (layout editor): cards sit in .deskcard wrappers — first is
+      // judged by the wrapper's card id.
+      chatFirst: !!(chat && rail.firstElementChild && rail.firstElementChild.dataset.card === "chat"),
       chatTop: cb ? Math.round(cb.top) : null,
       composer: !!rail.querySelector("#chatText"),
       chatMsgs: rail.querySelectorAll("#chatList .chatRowMsg").length,
@@ -261,6 +263,20 @@ async function deskFacts(page) {
       ok(errors.length === 0, "0 page errors at 1440 (" + errors.join(" | ") + ")");
       await page.screenshot({ path: path.join(SHOTS, "gffl_desk_league_1440.png"), fullPage: true });
       console.log("  📸 shots/gffl_desk_league_1440.png");
+      // ---- the LAYOUT EDITOR, mid-edit (2026-08-11) — assert, then photograph ----
+      await page.evaluate(() => document.querySelector("#deskLayoutBtn").click());
+      await page.waitForFunction(() => !!document.querySelector(".lgdeskbar.editing"), { timeout: 8000 }).catch(() => {});
+      const e = await page.evaluate(() => ({
+        bar: !!document.querySelector(".lgdeskbar.editing"),
+        strips: document.querySelectorAll(".deskcard .deskedit").length,
+        wrappers: document.querySelectorAll(".deskcard").length,
+        sideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+      }));
+      ok(e.bar && e.strips === e.wrappers && e.strips === 12, "EDIT: the bar + one strip per card, all 12 (" + e.strips + ")");
+      ok(!e.sideways, "…and edit mode never scrolls sideways");
+      await page.screenshot({ path: path.join(SHOTS, "gffl_desk_edit_1440.png"), fullPage: true });
+      console.log("  📸 shots/gffl_desk_edit_1440.png");
+      ok(errors.length === 0, "0 page errors incl. the editing session (" + errors.join(" | ") + ")");
       await ctx.close();
     }
     // ---- 1280: the tightest width every standings column still has to fit ----

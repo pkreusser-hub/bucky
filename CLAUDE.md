@@ -11331,3 +11331,54 @@ Plates: `shots/gffl_desk_league_{1440,1280}.png`, `gffl_desk_mobile_390.png`.
 **KNOWN**: the playoff% column is points-driven and can read counterintuitively early (an 0-2
 team above a 1-1 team when its PF is far higher) — the model working as specified, but the
 family will ask; and both commits are on the branch only, awaiting the user's deploy word.
+
+## 🏈 GFFL — THE DESKTOP LAYOUT EDITOR (2026-08-11, follows the dashboard entry above)
+
+User: *"give me the ability to make edits directly to the desktop page layouts … not just
+cards but also formatting of text and text size."* Files: `league.html` +
+`assets/league/lg-ui.js` + `tools/_gffl_desk_shots.cjs` (27 → 30) + `tools/_verify-gffl.cjs`
+(2364 → **2388**, new section AU).
+
+**EVERY DASHBOARD CARD IS A REGISTRY ENTRY NOW** — the wide branch renders through a named
+`renderCard` map into `.deskcard[data-card=<id>]` wrappers, and the ARRANGEMENT is a
+per-DEVICE preference (`localStorage gffl_desklayout` — layout is a viewing preference like
+the calendar view was, never league state: no cloud write, no offline-mirror interaction, no
+race surface). A pencil (SVG, zero-emoji chrome) above the dashboard opens edit mode: per-card
+▴▾ reorder (swaps with the nearest VISIBLE neighbour — stepping onto a hidden card's slot
+would be an invisible move that reads as a dead button), ◂▸ column move, per-card text size
+(100→115→130→85% cycle), Hide with a Show tray in the bar — plus GLOBAL text size
+(85–125% in steps) and a Comfortable/Compact density toggle. The global size rides EVERY
+league.html tab on a desktop; phones are byte-untouched (wide branch only).
+- **TEXT SIZE IS CSS `zoom`, NOT font-size — load-bearing.** The stylesheet is px-based
+  throughout, so a font-size multiplier on an ancestor moves NOTHING. Zoom scales text and
+  boxes together. Global = `#main.style.zoom` (header/nav/overlay siblings stay 100%, so
+  modal geometry and sticky chrome are never distorted); per-card =
+  `.deskcard[data-cz] > :not(.deskedit) { zoom:… }` — it must target the CHILDREN because the
+  wrapper is `display:contents` and zoom on a boxless element does nothing.
+- **`display:contents` wrappers are the other load-bearing choice**: every non-hidden card
+  emits a wrapper even when it renders "" (self-hiding injury/trending/countdown), costing no
+  box and no flex-gap slot — so a card that GAINS data mid-session appears on the next live
+  repaint instead of waiting for a full rebuild. KNOCK-ON: `.lgmain > .card` child selectors
+  stopped matching (the wrapper is in the DOM tree even without a box) → `.lgdesk .card`.
+  In edit mode wrappers switch to `display:block` with dashed borders + control strips, and
+  empty cards render labelled placeholder shells so they can still be positioned.
+- **SANITIZED ON EVERY READ**: unknown ids dropped, junk hidden entries dropped, off-step
+  scale/cz snapped to 100 — and a card the saved layout has never heard of (a future
+  addition) lands at the END of its default column rather than vanishing (the fitness-plan
+  tombstone lesson, applied to layout).
+- **THE TWO CONTRACTS SURVIVE ANY ARRANGEMENT**, both asserted: (1) a live repaint is
+  PER-WRAPPER and skips `data-card="chat"` wherever it sits — chat can be moved into MAIN
+  and the composer still survives every scoring tick; (2) a live repaint under the OPEN
+  editor is a no-op (scores wait the few seconds an arrangement takes). Leaving the League
+  view closes the editor; a reload lands on the arranged page, never mid-edit.
+- Restaged with reasons: AT1's chatIsFirst/movesIsLast + desk-shots' chatFirst read the
+  wrapper's card id now (same fact, new architecture).
+**VERIFY**: battery **2388/2388** (AU: pencil→edit, reorder persisting across a real reload,
+column move, hide/show tray, global size on League AND Scores and NEVER at 390, per-card
+zoom with the strip pinned at 100%, density, reset-to-default, the sanitizer against a
+stale/corrupt saved layout, both contracts) + desk shots **30/30** with the edit-mode plate
+reviewed. Plate: `shots/gffl_desk_edit_1440.png`.
+**KNOWN**: the strip label duplicates a card's own h2 while editing (deliberate — the strip
+is the control row and it must identify empty cards too); per-card size is dashboard-only
+(other tabs take the global size); and CSS zoom needs Chrome/Edge/Safari or Firefox ≥126 —
+the family's browsers all qualify.

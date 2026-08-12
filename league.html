@@ -1360,7 +1360,43 @@
     main[data-view="league"] { padding-bottom:24px; }
     .lgdesk { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:16px; align-items:start; }
     .lgmain, .lgrail { min-width:0; display:flex; flex-direction:column; gap:16px; }
-    .lgmain > .card, .lgrail > .card { margin-bottom:0; }
+    /* Layout editor (2026-08-11): every card sits in a .deskcard registry wrapper.
+       display:contents keeps the CARDS as the flex items (an EMPTY wrapper — a self-hiding
+       card — costs no box and no gap slot), so the child selector below had to widen from
+       `.lgmain > .card` to a descendant — the wrapper is in the DOM tree even when it has
+       no box. */
+    .lgdesk .card { margin-bottom:0; }
+    .deskcard { display:contents; }
+    /* Per-card text size — CSS zoom, because the stylesheet is px-based and a font-size
+       multiplier on an ancestor would move nothing. :not(.deskedit) keeps the editor strip
+       itself at 100%. */
+    .deskcard[data-cz="85"] > :not(.deskedit) { zoom:0.85; }
+    .deskcard[data-cz="115"] > :not(.deskedit) { zoom:1.15; }
+    .deskcard[data-cz="130"] > :not(.deskedit) { zoom:1.3; }
+    /* Density: Comfortable (default 16px) vs Compact. */
+    .lgdesk.compact { gap:10px; }
+    .lgdesk.compact .lgmain, .lgdesk.compact .lgrail { gap:10px; }
+    .lgdesk.compact .card { padding:10px 12px; }
+    /* The edit bar + per-card strips. */
+    .lgdeskbar { display:flex; justify-content:flex-end; align-items:center; gap:10px; margin:0 0 10px; flex-wrap:wrap; }
+    .deskpencil { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--mut);
+      background:none; border:1px solid var(--line, var(--border-card)); border-radius:6px; padding:4px 9px; cursor:pointer; }
+    .deskpencil:hover { color:var(--ink); border-color:var(--ink); }
+    .lgdeskbar.editing { justify-content:flex-start; background:var(--card); border:1px dashed var(--accent);
+      border-radius:var(--radius-card); padding:8px 12px; font-size:12px; color:var(--ink2); }
+    .lgdeskbar .dlgroup { display:inline-flex; align-items:center; gap:6px; color:var(--mut); }
+    .lgdeskbar .dlval { min-width:38px; text-align:center; font-variant-numeric:tabular-nums; color:var(--ink); }
+    .lgdeskbar.editing button { font-size:11px; padding:3px 8px; border:1px solid var(--line, var(--border-card));
+      background:var(--nested); color:var(--ink2); border-radius:5px; cursor:pointer; }
+    .lgdeskbar .dldone { margin-left:auto; background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; }
+    .lgdesk.editing .deskcard { display:block; border:1px dashed var(--line, var(--border-card)); border-radius:var(--radius-card); }
+    .lgdesk.editing .deskcard .deskedit { display:flex; align-items:center; gap:6px; padding:6px 10px;
+      background:var(--nested); border-radius:var(--radius-card) var(--radius-card) 0 0; font-size:11px; }
+    .deskedit b { margin-right:auto; font-size:11px; text-transform:uppercase; letter-spacing:0.04em; color:var(--mut); }
+    .deskedit button { font-size:11px; padding:2px 7px; border:1px solid var(--line, var(--border-card));
+      background:var(--card); color:var(--ink2); border-radius:4px; min-width:26px; cursor:pointer; }
+    .deskedit button:hover { color:var(--ink); border-color:var(--ink); }
+    .deskempty { opacity:0.6; }
     /* THE CHAT PANEL — always expanded, never a disclosure. "Always expanded" is about the
        PANEL, not about height: the message list keeps its own internal scroll, and the panel is
        capped so Recent moves beneath it is never pushed off the fold. */

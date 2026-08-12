@@ -15378,8 +15378,11 @@ async function openDetails(page, id) {
           railLeft: Math.round(rb.left), mainRight: Math.round(mb.right),
           railW: Math.round(rb.width), mainW: Math.round(mb.width),
           topSame: Math.abs(rb.top - mb.top) < 2,
-          chatIsFirst: rail.firstElementChild === chat,
-          movesIsLast: !!moves && rail.lastElementChild === moves,
+          // RESTAGED 2026-08-11 (layout editor): every card sits in a .deskcard registry
+          // wrapper now, so first/last are judged by the wrapper's own card id — the same
+          // fact, read off the new architecture.
+          chatIsFirst: (rail.firstElementChild || {}).dataset && rail.firstElementChild.dataset.card === "chat" && !!chat,
+          movesIsLast: !!moves && (rail.lastElementChild || {}).dataset && rail.lastElementChild.dataset.card === "moves",
           railHot: !!rail.querySelector("#railHot"),
           railKids: rail.children.length,
           // The order MAIN's own cards land in — the state of the league, top to bottom.
@@ -15852,6 +15855,166 @@ async function openDetails(page, id) {
       ok((await evalOr(page, () => document.querySelectorAll("main details").length)) === 3,
         "…and narrowing back restores the phone's collapsed cards");
       ok(errors.length === 0, "0 page errors across the breakpoint");
+      await ctx.close();
+    }
+
+    // ================= AU · THE DESKTOP LAYOUT EDITOR (2026-08-11) =================
+    // User: "give me the ability to make edits directly to the desktop page layouts …
+    // not just cards but also formatting of text and text size." Reorder / move-between-
+    // columns / hide+show per card, per-card text size, GLOBAL text size + density in the
+    // bar — all a per-DEVICE localStorage preference (gffl_desklayout), sanitized on read.
+    console.log("\n== AU · the desktop layout editor — cards, text size, density ==");
+    {
+      const { ctx, page, errors } = await newTestPage(browser, atSeed(), { vw: DESK });
+      await atOpen(page);
+      // ---- AU1: the pencil, and entering edit mode ----
+      const pencil = await evalOr(page, () => {
+        const b = document.querySelector("#deskLayoutBtn");
+        return b ? { seen: b.offsetParent !== null, svg: !!b.querySelector("svg") } : null;
+      });
+      ok(pencil && pencil.seen && pencil.svg, "AU1: the Edit-layout pencil sits above the dashboard (SVG, zero-emoji chrome)");
+      await evalOr(page, () => document.querySelector("#deskLayoutBtn").click());
+      await waitFnOr(page, () => !!document.querySelector(".lgdeskbar.editing"));
+      const edit = (await evalOr(page, () => ({
+        editingGrid: !!document.querySelector(".lgdesk.editing"),
+        strips: document.querySelectorAll(".deskcard .deskedit").length,
+        wrappers: document.querySelectorAll(".deskcard").length,
+        empties: document.querySelectorAll(".deskempty").length,
+        barBits: (document.querySelector(".lgdeskbar.editing") || {}).textContent || "",
+      }))) || {};
+      ok(edit.editingGrid === true, "…the grid enters edit mode");
+      ok(edit.strips === edit.wrappers && edit.wrappers === 12,
+        "…every registered card carries an edit strip — all 12, hidden none (" + edit.strips + "/" + edit.wrappers + ")");
+      ok(edit.empties >= 1, "…a self-hiding card renders as a labelled placeholder so it can still be positioned (" + edit.empties + ")");
+      ok(/Text size/.test(edit.barBits) && /Spacing/.test(edit.barBits) && /Done/.test(edit.barBits),
+        "…and the bar carries the global text-size and spacing controls");
+      // ---- AU2: reorder within a column, and it PERSISTS across a reload ----
+      await evalOr(page, () => document.querySelector('.deskcard[data-card="standings"] [data-dla="up"]').click());
+      await waitFnOr(page, () => {
+        const ids = [...document.querySelectorAll(".lgmain .deskcard")].map((w) => w.dataset.card);
+        return ids.indexOf("standings") < ids.indexOf("playoffs");
+      });
+      ok(true, "AU2: ▴ moves Standings above Playoffs in the DOM");
+      await page.reload({ waitUntil: "networkidle0" });
+      await waitFnOr(page, () => window.__GFFL__ && window.__GFFL__.UI && !!document.querySelector(".lgdesk"));
+      const afterReload = await evalOr(page, () => {
+        const ids = [...document.querySelectorAll(".lgmain .deskcard")].map((w) => w.dataset.card);
+        return { order: ids.indexOf("standings") < ids.indexOf("playoffs"), editing: !!document.querySelector(".lgdesk.editing") };
+      });
+      ok(afterReload && afterReload.order === true, "…and the order SURVIVES a full reload (localStorage, per device)");
+      ok(afterReload && afterReload.editing === false, "…while edit mode itself does not — a reload lands on the arranged page, not the editor");
+      // ---- AU3: move a card to the other column ----
+      await evalOr(page, () => document.querySelector("#deskLayoutBtn").click());
+      await waitFnOr(page, () => !!document.querySelector(".lgdeskbar.editing"));
+      await evalOr(page, () => document.querySelector('.deskcard[data-card="injury"] [data-dla="side"]').click());
+      await waitFnOr(page, () => [...document.querySelectorAll(".lgmain .deskcard")].some((w) => w.dataset.card === "injury"));
+      const moved = await evalOr(page, () => ({
+        inMain: window.__GFFL__.UI.deskLayout().main.includes("injury"),
+        railHasIt: [...document.querySelectorAll(".lgrail .deskcard")].some((w) => w.dataset.card === "injury"),
+      }));
+      ok(moved && moved.inMain === true && moved.railHasIt === false, "AU3: ◂ moves the injury card from the rail into MAIN, in the store and on the page");
+      // ---- AU4: hide, the Show tray, and show ----
+      await evalOr(page, () => document.querySelector('.deskcard[data-card="accuracy"] [data-dla="hide"]').click());
+      await waitFnOr(page, () => ![...document.querySelectorAll(".deskcard")].some((w) => w.dataset.card === "accuracy"));
+      const hid = await evalOr(page, () => ({
+        chip: !!document.querySelector('.lgdeskbar [data-dla="show"][data-dlid="accuracy"]'),
+        hidden: window.__GFFL__.UI.deskLayout().hidden.includes("accuracy"),
+      }));
+      ok(hid && hid.chip === true && hid.hidden === true, "AU4: Hide removes the card and its name lands as a chip in the bar's Hidden tray");
+      await evalOr(page, () => document.querySelector('.lgdeskbar [data-dla="show"][data-dlid="accuracy"]').click());
+      await waitFnOr(page, () => [...document.querySelectorAll(".deskcard")].some((w) => w.dataset.card === "accuracy"));
+      ok(true, "…and the chip brings it straight back, at the position it held");
+      // ---- AU5: GLOBAL text size — every desktop tab, never the phone ----
+      await evalOr(page, () => document.querySelector('.lgdeskbar [data-dla="scaleup"]').click());
+      await waitFnOr(page, () => getComputedStyle(document.querySelector("#main")).zoom === "1.08");
+      ok(true, "AU5: A+ steps the global text size to 108% (CSS zoom on #main — the stylesheet is px-based, font-size would move nothing)");
+      await evalOr(page, () => document.querySelector('.lgdeskbar [data-dla="done"]').click());
+      await waitFnOr(page, () => !document.querySelector(".lgdeskbar.editing"));
+      await evalOr(page, () => window.__GFFL__.UI.show("scores"));
+      await waitFnOr(page, () => (document.querySelector("#main").dataset || {}).view === "scores");
+      ok((await evalOr(page, () => getComputedStyle(document.querySelector("#main")).zoom)) === "1.08",
+        "…and the size rides EVERY desktop tab, not just the dashboard (Scores at 108%)");
+      await page.setViewport({ width: 390, height: 844 });
+      await waitFnOr(page, () => !document.querySelector(".lgdesk") || true);
+      await evalOr(page, () => window.__GFFL__.UI.show("league"));
+      await waitFnOr(page, () => !document.querySelector(".lgdesk"));
+      ok((await evalOr(page, () => document.querySelector("#main").style.zoom || "")) === "",
+        "…while the PHONE is untouched — no zoom below the breakpoint, whatever is saved");
+      await page.setViewport({ width: DESK.width, height: DESK.height });
+      await waitFnOr(page, () => !!document.querySelector(".lgdesk"));
+      // ---- AU6: per-card text size ----
+      await evalOr(page, () => document.querySelector("#deskLayoutBtn").click());
+      await waitFnOr(page, () => !!document.querySelector(".lgdeskbar.editing"));
+      await evalOr(page, () => document.querySelector('.deskcard[data-card="standings"] [data-dla="cz"]').click());
+      await waitFnOr(page, () => (document.querySelector('.deskcard[data-card="standings"]') || {}).dataset
+        && document.querySelector('.deskcard[data-card="standings"]').dataset.cz === "115");
+      const cz = await evalOr(page, () => {
+        const w = document.querySelector('.deskcard[data-card="standings"]');
+        const card = [...w.children].find((c) => !c.classList.contains("deskedit"));
+        return { zoom: getComputedStyle(card).zoom, stripZoom: getComputedStyle(w.querySelector(".deskedit")).zoom };
+      });
+      ok(cz && cz.zoom === "1.15" && cz.stripZoom === "1", "AU6: one card's own text steps to 115% while its edit strip stays at 100% (" + JSON.stringify(cz) + ")");
+      // ---- AU7: density ----
+      await evalOr(page, () => document.querySelector('.lgdeskbar [data-dla="density"]').click());
+      await waitFnOr(page, () => !!document.querySelector(".lgdesk.compact"));
+      ok((await evalOr(page, () => getComputedStyle(document.querySelector(".lgmain")).rowGap)) === "10px",
+        "AU7: Compact tightens the column gap 16 → 10px");
+      // ---- AU8: reset ----
+      await evalOr(page, () => document.querySelector('.lgdeskbar [data-dla="reset"]').click());
+      await waitFnOr(page, () => !document.querySelector(".lgdesk.compact"));
+      const reset = await evalOr(page, () => ({
+        key: localStorage.getItem("gffl_desklayout"),
+        firstMain: (document.querySelector(".lgmain .deskcard") || {}).dataset && document.querySelector(".lgmain .deskcard").dataset.card,
+        zoom: document.querySelector("#main").style.zoom || "",
+        injuryBack: window.__GFFL__.UI.deskLayout().rail.includes("injury"),
+      }));
+      ok(reset && reset.key === null && reset.firstMain === "countdown" && reset.zoom === "" && reset.injuryBack === true,
+        "AU8: Reset drops the saved layout entirely — default order, default size, injury back in the rail");
+      ok(errors.length === 0, "0 page errors through the whole editing session");
+      await ctx.close();
+    }
+
+    // ---- AU9: the sanitizer, and the two contracts that must survive any arrangement ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, atSeed(), { vw: DESK });
+      // A saved layout from an OLDER build: an id that no longer exists, a missing card, a
+      // junk hidden entry, an off-step scale. Nothing may vanish and nothing may throw.
+      await page.evaluateOnNewDocument(() => {
+        localStorage.setItem("gffl_desklayout", JSON.stringify({
+          main: ["standings", "bogusCard", "week"], rail: ["chat"], hidden: ["nope"], scale: 97, cz: { standings: 999 },
+        }));
+      });
+      await atOpen(page);
+      const sane = await evalOr(page, () => {
+        const l = window.__GFFL__.UI.deskLayout();
+        const all = [...l.main, ...l.rail];
+        return {
+          bogusGone: !all.includes("bogusCard"), hiddenClean: l.hidden.length === 0,
+          complete: all.length === 12 && new Set(all).size === 12,
+          movesAppended: l.rail.includes("moves"), scale: l.scale, cz: Object.keys(l.cz).length,
+          rendered: document.querySelectorAll(".deskcard").length === 12 - l.hidden.length,
+        };
+      });
+      ok(sane && sane.bogusGone && sane.hiddenClean && sane.complete && sane.movesAppended,
+        "AU9: unknown ids are dropped and every card the saved layout never heard of lands back in its default column — nothing can vanish");
+      ok(sane && sane.scale === 100 && sane.cz === 0, "…and an off-step scale or size snaps to 100% instead of rendering garbage");
+      ok(sane && sane.rendered === true, "…with all 12 wrappers on the page");
+      // THE CHAT CONTRACT, WHEREVER CHAT SITS: move it into MAIN, type, force a live repaint.
+      await evalOr(page, () => { window.__GFFL__.UI.deskLayoutAction("side", "chat"); });
+      await waitFnOr(page, () => [...document.querySelectorAll(".lgmain .deskcard")].some((w) => w.dataset.card === "chat"));
+      await evalOr(page, () => { const t = document.querySelector("#chatText"); t.value = "half a typed thought"; });
+      await evalOr(page, () => window.__GFFL__.UI.renderLeague(true));
+      await waitFnOr(page, () => !!document.querySelector(".lgmain .deskcard [id=chatText]"));
+      ok((await evalOr(page, () => document.querySelector("#chatText").value)) === "half a typed thought",
+        "AU9b: chat moved into MAIN and a live repaint still cannot touch the composer — the contract follows the card, not the column");
+      // …and a live repaint under the OPEN EDITOR is a no-op (scores wait for Done).
+      await evalOr(page, () => { window.__GFFL__.UI._deskEdit = true; window.__GFFL__.UI.renderLeague(); });
+      await waitFnOr(page, () => !!document.querySelector(".lgdeskbar.editing"));
+      await evalOr(page, () => window.__GFFL__.UI.renderLeague(true));
+      await new Promise((r) => setTimeout(r, 250));
+      ok((await evalOr(page, () => !!document.querySelector(".lgdeskbar.editing") && document.querySelectorAll(".deskedit").length === 12)) === true,
+        "AU9c: a live repaint while the editor is open changes nothing — the strips stand");
+      ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
   }

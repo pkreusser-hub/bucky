@@ -738,6 +738,8 @@
     // further JS — league.html's own stylesheet reads this attribute.
     if (main()) main().dataset.view = name;
     paintHeader();
+    applyDeskDisplay(); // the layout editor's GLOBAL text size rides every desktop tab
+    if (name !== "league") UI._deskEdit = false; // leaving the dashboard closes its editor
     if (name === "league") renderLeague();
     else if (name === "matchup") renderMatchup();
     else if (name === "moves") renderMoves();
@@ -1405,6 +1407,169 @@
         : '<p class="mut">No moves yet.</p>'}
       <button id="recentMovesAll" class="mut">View all →</button></div>`;
   }
+
+  // ---------------- THE DESKTOP LAYOUT EDITOR (2026-08-11) ----------------
+  // User: "give me the ability to make edits directly to the desktop page layouts …
+  // not just cards but also formatting of text and text size."
+  //
+  // Every desktop dashboard card is a REGISTRY entry, and the arrangement is a per-DEVICE
+  // preference (localStorage — layout is a viewing preference like the calendar view was,
+  // not league state; no cloud write, no offline-mirror interaction, no race surface).
+  // A pencil above the dashboard opens edit mode: per-card ▴▾ reorder, ◂▸ column move,
+  // per-card text size, Hide (with a Show tray in the bar), plus GLOBAL text size and a
+  // density toggle in the bar. Text size is implemented as CSS zoom — the stylesheet is
+  // px-based throughout, so a font-size multiplier on an ancestor would move NOTHING; zoom
+  // scales text and boxes together, which is what "bigger text" means on a dashboard.
+  // The global size applies to every league.html tab on a desktop; per-card size and card
+  // arrangement are the dashboard's own. Phones are byte-untouched (wide branch only).
+  //
+  // SANITIZED ON EVERY READ: unknown ids are dropped, and a card this device's saved layout
+  // has never heard of (a future addition) lands at the END of its default column rather
+  // than vanishing — the fitness-plan tombstone lesson, applied to layout.
+  const DESK_LAYOUT_KEY = "gffl_desklayout";
+  const DESK_MAIN = ["countdown", "links", "stale", "week", "playoffs", "standings", "alltime"];
+  const DESK_RAIL = ["chat", "injury", "hot", "accuracy", "moves"];
+  const DESK_LABELS = {
+    countdown: "Draft countdown", links: "Rules & Draft links", stale: "Unsettled weeks",
+    week: "This week's games", playoffs: "Playoffs", standings: "Standings", alltime: "All-time",
+    chat: "League chat", injury: "Injury report", hot: "Hot pickups",
+    accuracy: "Projection accuracy", moves: "Recent moves",
+  };
+  const DESK_SCALE_STEPS = [85, 92, 100, 108, 116, 125]; // global, %
+  const DESK_CZ_STEPS = [100, 115, 130, 85];             // per-card cycle, %
+  function deskLayoutDefault() {
+    return { main: DESK_MAIN.slice(), rail: DESK_RAIL.slice(), hidden: [], scale: 100, density: "comfortable", cz: {} };
+  }
+  function deskLayout() {
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(DESK_LAYOUT_KEY) || "null"); } catch (e) { /* corrupt = default */ }
+    const def = deskLayoutDefault();
+    if (!raw || typeof raw !== "object") return def;
+    const known = new Set([...DESK_MAIN, ...DESK_RAIL]);
+    const seen = new Set();
+    const col = (a) => (Array.isArray(a) ? a : []).filter((id) => {
+      if (!known.has(id) || seen.has(id)) return false;
+      seen.add(id); return true;
+    });
+    const out = {
+      main: col(raw.main), rail: col(raw.rail),
+      hidden: (Array.isArray(raw.hidden) ? raw.hidden : []).filter((id) => known.has(id)),
+      scale: DESK_SCALE_STEPS.includes(raw.scale) ? raw.scale : 100,
+      density: raw.density === "compact" ? "compact" : "comfortable",
+      cz: {},
+    };
+    for (const id of DESK_MAIN) if (!seen.has(id)) { out.main.push(id); seen.add(id); }
+    for (const id of DESK_RAIL) if (!seen.has(id)) { out.rail.push(id); seen.add(id); }
+    if (raw.cz && typeof raw.cz === "object") {
+      for (const k of Object.keys(raw.cz)) {
+        if (known.has(k) && DESK_CZ_STEPS.includes(raw.cz[k]) && raw.cz[k] !== 100) out.cz[k] = raw.cz[k];
+      }
+    }
+    return out;
+  }
+  function deskLayoutSave(l) { try { localStorage.setItem(DESK_LAYOUT_KEY, JSON.stringify(l)); } catch (e) { /* quota = this stays a session preference */ } }
+  function deskLayoutIsDefault(l) { return JSON.stringify(l) === JSON.stringify(deskLayoutDefault()); }
+  function deskCardWrap(id, lay, editing, renderCard) {
+    const cz = lay.cz[id];
+    const czAttr = cz ? ` data-cz="${cz}"` : "";
+    const html = (renderCard[id] || (() => ""))();
+    if (!editing) return `<div class="deskcard" data-card="${id}"${czAttr}>${html}</div>`;
+    // Edit mode: an empty self-hiding card (no injuries, cold trending, drafted countdown)
+    // still has to be POSITIONABLE, so it renders as a labelled placeholder shell.
+    const col = lay.main.includes(id) ? "main" : "rail";
+    const strip = `<div class="deskedit">
+      <b>${esc(DESK_LABELS[id] || id)}</b>
+      <button type="button" data-dla="up" data-dlid="${id}" title="Move up" aria-label="Move ${esc(DESK_LABELS[id] || id)} up">▴</button>
+      <button type="button" data-dla="down" data-dlid="${id}" title="Move down" aria-label="Move ${esc(DESK_LABELS[id] || id)} down">▾</button>
+      <button type="button" data-dla="side" data-dlid="${id}" title="${col === "main" ? "Move to the side rail" : "Move to the main column"}">${col === "main" ? "▸" : "◂"}</button>
+      <button type="button" data-dla="cz" data-dlid="${id}" title="This card's text size">A ${cz || 100}%</button>
+      <button type="button" data-dla="hide" data-dlid="${id}" title="Hide this card">Hide</button>
+    </div>`;
+    const bare = html.replace(/<[^>]*>/g, "").trim();
+    const body = bare ? html : `<div class="card deskempty"><h2>${esc(DESK_LABELS[id] || id)}</h2><p class="mut small">Nothing to show right now — this card appears when it has data.</p></div>`;
+    return `<div class="deskcard" data-card="${id}"${czAttr}>${strip}${body}</div>`;
+  }
+  function deskBarHtml(lay, editing) {
+    if (!editing) {
+      return `<div class="lgdeskbar"><button type="button" id="deskLayoutBtn" class="deskpencil" title="Edit this page's layout" aria-label="Edit this page's layout">
+        <svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true"><path d="M14.06 2.94a1.5 1.5 0 0 1 2.12 0l.88.88a1.5 1.5 0 0 1 0 2.12L7.5 15.5 3 17l1.5-4.5 9.56-9.56Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        Edit layout</button></div>`;
+    }
+    const hiddenChips = lay.hidden.map((id) => `<button type="button" data-dla="show" data-dlid="${id}">+ ${esc(DESK_LABELS[id] || id)}</button>`).join(" ");
+    return `<div class="lgdeskbar editing">
+      <b>Editing layout</b>
+      <span class="dlgroup">Text size
+        <button type="button" data-dla="scaledn" title="Smaller text everywhere">A−</button>
+        <span class="dlval">${lay.scale}%</span>
+        <button type="button" data-dla="scaleup" title="Bigger text everywhere">A+</button>
+      </span>
+      <span class="dlgroup">Spacing
+        <button type="button" data-dla="density">${lay.density === "compact" ? "Compact" : "Comfortable"}</button>
+      </span>
+      ${lay.hidden.length ? `<span class="dlgroup">Hidden: ${hiddenChips}</span>` : ""}
+      ${deskLayoutIsDefault(lay) ? "" : `<button type="button" data-dla="reset">Reset to default</button>`}
+      <button type="button" data-dla="done" class="dldone">Done</button>
+    </div>`;
+  }
+  function deskLayoutAction(a, id) {
+    if (a === "done") { UI._deskEdit = false; renderLeague(); return; }
+    if (a === "reset") { try { localStorage.removeItem(DESK_LAYOUT_KEY); } catch (e) {} renderLeague(); return; }
+    const l = deskLayout();
+    if (a === "scaleup" || a === "scaledn") {
+      const i = DESK_SCALE_STEPS.indexOf(l.scale);
+      l.scale = DESK_SCALE_STEPS[Math.min(DESK_SCALE_STEPS.length - 1, Math.max(0, i + (a === "scaleup" ? 1 : -1)))];
+    } else if (a === "density") {
+      l.density = l.density === "compact" ? "comfortable" : "compact";
+    } else if (a === "cz") {
+      const cur = l.cz[id] || 100;
+      const next = DESK_CZ_STEPS[(DESK_CZ_STEPS.indexOf(cur) + 1) % DESK_CZ_STEPS.length];
+      if (next === 100) delete l.cz[id]; else l.cz[id] = next;
+    } else if (a === "hide") {
+      if (!l.hidden.includes(id)) l.hidden.push(id);
+    } else if (a === "show") {
+      l.hidden = l.hidden.filter((x) => x !== id);
+    } else if (a === "up" || a === "down") {
+      const colName = l.main.includes(id) ? "main" : "rail";
+      const arr = l[colName], i = arr.indexOf(id), dir = a === "up" ? -1 : 1;
+      // Swap with the nearest VISIBLE neighbour — stepping onto a hidden card's slot would
+      // be an invisible move that looks like a dead button.
+      let j = i + dir;
+      while (j >= 0 && j < arr.length && l.hidden.includes(arr[j])) j += dir;
+      if (j < 0 || j >= arr.length) return;
+      arr.splice(i, 1); arr.splice(Math.min(j, arr.length), 0, id);
+    } else if (a === "side") {
+      const from = l.main.includes(id) ? "main" : "rail", to = from === "main" ? "rail" : "main";
+      l[from].splice(l[from].indexOf(id), 1); l[to].push(id);
+    } else return;
+    deskLayoutSave(l);
+    renderLeague();
+  }
+  UI.deskLayoutAction = deskLayoutAction; // test hook
+  UI.deskLayout = deskLayout;            // test hook
+  let deskLayoutWired = false;
+  function wireDeskLayout() {
+    if (deskLayoutWired) return;
+    deskLayoutWired = true;
+    document.addEventListener("click", (e) => {
+      if (UI.view !== "league") return;
+      const btn = e.target.closest && e.target.closest("#deskLayoutBtn,[data-dla]");
+      if (!btn) return;
+      if (btn.id === "deskLayoutBtn") { UI._deskEdit = true; renderLeague(); return; }
+      deskLayoutAction(btn.dataset.dla, btn.dataset.dlid);
+    });
+  }
+  // The GLOBAL text size rides every league.html tab on a desktop. CSS zoom, not font-size:
+  // the stylesheet is px-based, so only zoom actually moves the type. #main is the scope —
+  // the header, nav and the overlay siblings (player card, roster card) stay at 100%, so
+  // modal geometry and the sticky chrome are never distorted.
+  function applyDeskDisplay() {
+    const el = main();
+    if (!el) return;
+    const lay = deskLayout();
+    el.style.zoom = isWide() && lay.scale !== 100 ? String(lay.scale / 100) : "";
+    const desk = el.querySelector(".lgdesk");
+    if (desk) desk.classList.toggle("compact", lay.density === "compact");
+  }
   //  Projection accuracy card (plan §5's scoreboard): our own running miss vs OUR pre-game
   // snapshots. Never rendered as a comparison to ESPN — that data isn't logged (see the S5 plan
   // entry) — and never rendered at all until there's at least one real player-week to report,
@@ -1790,61 +1955,83 @@
     // top of MAIN, which is what "compact at the top" asks for. The stale-weeks alarm follows
     // immediately, because it is the one card on this page that asks somebody to do something.
     if (wide) {
-      const mainHtml = `
-        ${draftCountdownCardHtml(LG.rules)}
-        ${leagueLinksHtml(LG.rules)}
-        ${staleWeeksHtml(UI._staleWeeks, isCommish())}
-        ${weekCard}
-        ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
-        ${standingsHtml(rows, st, { wide: true, streaks: UI._streaks, odds: UI._odds, power: LG.powerRanking(UI._allWeekly) })}
-        ${allTimeHtml(UI._recordBook)}`;
-      // RAIL BALANCE (2026-08-11, user: "add more to the rail so we have equal to main"):
-      // the injury report and projection accuracy move from MAIN to the rail — both are
-      // PULSE, not state — and a Hot-pickups card joins them (the Moves page's own trending
-      // renderer, reused; renders "" until the cached trending feed is warm, and a dead
-      // endpoint means the card is simply absent). Moves deepens 8 → 14 on desktop.
-      const railExtras = `
-        ${injuryFeedCardHtml(UI._injFeed)}
-        <div id="railHot">${hotPickupsHtml(allOwnedKeys())}</div>
-        ${accuracyHtml(UI._accuracy)}`;
+      // THE CARD REGISTRY (2026-08-11 layout editor). Each dashboard card renders through a
+      // named entry; the ARRANGEMENT (which column, what order, hidden, per-card text size)
+      // comes from deskLayout() — a sanitized per-device preference. Default order = the
+      // rail-balance design: MAIN is the league's STATE, the RAIL its PULSE.
+      const renderCard = {
+        countdown: () => draftCountdownCardHtml(LG.rules),
+        links: () => leagueLinksHtml(LG.rules),
+        stale: () => staleWeeksHtml(UI._staleWeeks, isCommish()),
+        week: () => weekCard,
+        playoffs: () => playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish()),
+        standings: () => standingsHtml(rows, st, { wide: true, streaks: UI._streaks, odds: UI._odds, power: LG.powerRanking(UI._allWeekly) }),
+        alltime: () => allTimeHtml(UI._recordBook),
+        chat: () => deskChatPanelHtml(),
+        injury: () => injuryFeedCardHtml(UI._injFeed),
+        hot: () => `<div id="railHot">${hotPickupsHtml(allOwnedKeys())}</div>`,
+        accuracy: () => accuracyHtml(UI._accuracy),
+        moves: () => deskMovesHtml(UI._tx),
+      };
+      const lay = deskLayout();
+      const editing = !!UI._deskEdit;
+      // EVERY non-hidden card gets a wrapper, even when it renders "" — .deskcard is
+      // display:contents, so an empty wrapper costs no box and no flex gap, and a card that
+      // GAINS data mid-session (an injury lands, trending warms) appears on the next live
+      // repaint instead of waiting for a full rebuild.
+      const colHtml = (name) => lay[name].filter((id) => !lay.hidden.includes(id))
+        .map((id) => deskCardWrap(id, lay, editing, renderCard)).join("");
       const el = main();
-      const liveRail = el.querySelector(".lgdesk .lgrail #chatText");
-      // A LIVE REPAINT MUST NOT TOUCH THE RAIL. renderLeague(true) fires on every scoring poll
-      // tick; rebuilding the rail's innerHTML each time would blow away a half-typed message,
-      // the composer's focus, and the reader's place in the message list — every few seconds.
-      // Nothing the poll changes lives in the rail (chat has its own 8s poll; the moves log
-      // changes on a transaction, which repaints through UI.show), so on a repaint only the
-      // MAIN column is rewritten.
-      if (repaint && liveRail) {
-        el.querySelector(".lgmain").innerHTML = mainHtml;
+      const desk = el.querySelector(".lgdesk");
+      // A LIVE REPAINT MUST NOT TOUCH CHAT — WHEREVER IT SITS. renderLeague(true) fires on
+      // every scoring poll tick; rewriting the chat panel would blow away a half-typed
+      // message, the composer's focus, and the reader's place in the list. With the layout
+      // editable, chat can live in EITHER column, so the repaint is per-wrapper: every card
+      // except chat is re-rendered in place. While the EDITOR is open the repaint is skipped
+      // outright — scores can wait the few seconds an arrangement takes.
+      if (repaint && desk) {
+        if (!editing) {
+          desk.querySelectorAll(".deskcard").forEach((w) => {
+            const id = w.dataset.card;
+            if (id === "chat") return;
+            w.innerHTML = (renderCard[id] || (() => ""))();
+          });
+          wirePlayerCardTaps(desk); // injury rows / hot picks may have just repainted
+        }
       } else {
         // A FULL rebuild still preserves what the reader had typed — a background cloud refresh
         // (LG.db.onChange -> UI.show) is not their doing and must not cost them a sentence.
-        const keep = liveRail ? { text: liveRail.value, scroll: (el.querySelector("#chatList") || {}).scrollTop || 0 } : null;
-        el.innerHTML = `<div class="lgdesk">
-          <div class="lgmain">${mainHtml}</div>
-          <aside class="lgrail">${deskChatPanelHtml()}${railExtras}${deskMovesHtml(UI._tx)}</aside>
+        const liveChat = el.querySelector(".lgdesk #chatText");
+        const keep = liveChat ? { text: liveChat.value, scroll: (el.querySelector("#chatList") || {}).scrollTop || 0 } : null;
+        el.innerHTML = `${deskBarHtml(lay, editing)}<div class="lgdesk${editing ? " editing" : ""}">
+          <div class="lgmain">${colHtml("main")}</div>
+          <aside class="lgrail">${colHtml("rail")}</aside>
         </div>`;
-        wireChat("chat", null);
-        if (keep) {
-          const t = $("#chatText");
-          if (t) { t.value = keep.text; autoGrowChatText(t); }
+        wireDeskLayout();
+        if (!lay.hidden.includes("chat")) {
+          wireChat("chat", null);
+          if (keep) {
+            const t = $("#chatText");
+            if (t) { t.value = keep.text; autoGrowChatText(t); }
+          }
+          refreshChatList("chat", null).then(() => {
+            const l = $("#chatList");
+            if (l && keep && keep.scroll) l.scrollTop = keep.scroll;
+          }).catch(() => {});
+          startChatPoll("chat", null); // idempotent — see startChatPoll's own guard
         }
-        refreshChatList("chat", null).then(() => {
-          const l = $("#chatList");
-          if (l && keep && keep.scroll) l.scrollTop = keep.scroll;
-        }).catch(() => {});
-        startChatPoll("chat", null); // idempotent — see startChatPoll's own guard
         // Hot pickups: paint from whatever trending is cached (often "" cold), then once more
         // when the fetch lands — the Moves page's own pattern. A dead endpoint = no card.
+        // Skipped while editing (the placeholder shell owns that slot until Done).
         wirePlayerCardTaps($("#railHot"));
-        D().loadTrending().then(() => {
+        if (!editing) D().loadTrending().then(() => {
           const hot = $("#railHot");
-          if (!hot || UI.view !== "league") return;
+          if (!hot || UI.view !== "league" || UI._deskEdit) return;
           hot.innerHTML = hotPickupsHtml(allOwnedKeys());
           wirePlayerCardTaps(hot);
         }).catch(() => {});
       }
+      applyDeskDisplay();
     } else {
       main().innerHTML = `
         ${draftCountdownCardHtml(LG.rules)}
