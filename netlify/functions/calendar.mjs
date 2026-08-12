@@ -132,13 +132,38 @@ async function calFetch(token, method, path, opts) {
   return { ok: resp.ok, status: resp.status, data };
 }
 
-// Google 401/403/404 on the calendar itself → the family calendar isn't shared with the SA
-// (or the id is wrong). The client renders a friendly "share your calendar" explainer for this.
-function classifyGoogleError(r, headers) {
-  if (r.status === 401 || r.status === 403 || r.status === 404) {
-    return json({ error: "calendar-not-shared" }, 200, headers);
+// Pull Google's own explanation out of an error body, safely. Google returns
+// { error: { code, message, errors:[{reason,message}] } }; the message is a plain sentence
+// like "Invalid recurrence rule" or "Rate Limit Exceeded" and carries no credential of
+// ours (the token rides in a request HEADER and is never echoed). Capped anyway, and only
+// ever the message/reason — never the body, the URL (which holds the calendar id) or the
+// service account.
+function googleReason(r) {
+  const e = r && r.data && r.data.error;
+  if (!e) return "";
+  const first = Array.isArray(e.errors) && e.errors[0] ? e.errors[0] : null;
+  const txt = [first && first.reason, e.message || (first && first.message)]
+    .filter(Boolean).join(": ");
+  return String(txt).replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+// `scope` is what the call was ABOUT, and it changes what a 404 means:
+//   "calendar" (list) — 401/403/404 really is "the calendar isn't shared with us / wrong id"
+//   "event" (get/update/delete) — a 404/410 is THAT EVENT being gone (someone deleted or
+//      moved it elsewhere), which is a completely different thing to tell the family than
+//      "your calendar isn't set up"; only 401/403 still means the sharing itself.
+function classifyGoogleError(r, headers, scope) {
+  const detail = googleReason(r);
+  // Lands in the Netlify function log, which is the only place anyone can see WHY a save
+  // failed after the fact. Without it "google-error" is untraceable.
+  console.error(`[calendar] google ${r.status} on ${scope || "calendar"}: ${detail || "(no message)"}`);
+  if (scope === "event" && (r.status === 404 || r.status === 410)) {
+    return json({ error: "event-gone", detail }, 200, headers);
   }
-  return json({ error: "google-error" }, 200, headers);
+  if (r.status === 401 || r.status === 403 || r.status === 404) {
+    return json({ error: "calendar-not-shared", detail }, 200, headers);
+  }
+  return json({ error: "google-error", detail, status: r.status }, 200, headers);
 }
 
 // Normalize a Google event → the lean shape the client renders. Handles both timed
@@ -258,7 +283,7 @@ async function listEvents(token, calId, body, headers) {
   if (body.timeMin) query.timeMin = body.timeMin;
   if (body.timeMax) query.timeMax = body.timeMax;
   const r = await calFetch(token, "GET", `/calendars/${encodeURIComponent(calId)}/events`, { query });
-  if (!r.ok) return classifyGoogleError(r, headers);
+  if (!r.ok) return classifyGoogleError(r, headers, "calendar");
   const events = ((r.data && r.data.items) || []).map(normalizeEvent);
   return json({ events }, 200, headers);
 }
@@ -267,7 +292,7 @@ async function createEvent(token, calId, ev, headers) {
   const body = buildGoogleEvent(ev);
   applyRepeat(body, ev, false);
   const r = await calFetch(token, "POST", `/calendars/${encodeURIComponent(calId)}/events`, { body });
-  if (!r.ok) return classifyGoogleError(r, headers);
+  if (!r.ok) return classifyGoogleError(r, headers, "event");
   return json({ event: normalizeEvent(r.data || {}) }, 200, headers);
 }
 
@@ -276,7 +301,7 @@ async function updateEvent(token, calId, ev, headers) {
   const body = buildGoogleEvent(ev);
   applyRepeat(body, ev, true);
   const r = await calFetch(token, "PATCH", `/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(ev.id)}`, { body });
-  if (!r.ok) return classifyGoogleError(r, headers);
+  if (!r.ok) return classifyGoogleError(r, headers, "event");
   return json({ event: normalizeEvent(r.data || {}) }, 200, headers);
 }
 
@@ -285,7 +310,7 @@ async function updateEvent(token, calId, ev, headers) {
 async function getEvent(token, calId, ev, headers) {
   if (!ev || !ev.id) return jsonError(400, "Missing event id", headers);
   const r = await calFetch(token, "GET", `/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(ev.id)}`);
-  if (!r.ok) return classifyGoogleError(r, headers);
+  if (!r.ok) return classifyGoogleError(r, headers, "event");
   const norm = normalizeEvent(r.data || {});
   norm.repeat = parseRepeat((r.data || {}).recurrence);
   return json({ event: norm }, 200, headers);
@@ -295,7 +320,7 @@ async function deleteEvent(token, calId, ev, headers) {
   if (!ev || !ev.id) return jsonError(400, "Missing event id", headers);
   const r = await calFetch(token, "DELETE", `/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(ev.id)}`);
   // Idempotent: an already-gone event (404/410) is a successful delete from the client's view.
-  if (!r.ok && r.status !== 404 && r.status !== 410) return classifyGoogleError(r, headers);
+  if (!r.ok && r.status !== 404 && r.status !== 410) return classifyGoogleError(r, headers, "event");
   return json({ ok: true }, 200, headers);
 }
 
@@ -343,8 +368,12 @@ export default async (req) => {
     if (action === "delete") return await deleteEvent(token, calId, body.event || {}, headers);
     return jsonError(400, "Unknown action", headers);
   } catch (err) {
-    // Never leak the service-account key or Google internals.
-    return json({ error: "google-error" }, 200, headers);
+    // A THROWN error here is our own bug, not Google's, and it used to be indistinguishable
+    // from a Google refusal AND logged nowhere at all — which is exactly what makes a
+    // "couldn't reach the calendar" report impossible to chase. Log it, and tell the client
+    // it was us. Still never the service-account key: only the error's own message.
+    console.error(`[calendar] threw on ${action}:`, err && err.stack ? err.stack : err);
+    return json({ error: "server-bug", detail: String((err && err.message) || err).slice(0, 160) }, 200, headers);
   }
 };
 
