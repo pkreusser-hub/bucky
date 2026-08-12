@@ -11283,3 +11283,51 @@ DAY, 29 days before week 1.**
   S1-S10 adversarial fan-out review remain queued; Saturday = first clean-by-construction
   17-week run as the formal P3 milestone; the sim + shadow scorer + race repros are
   PERMANENT EQUIPMENT — rerun the sim after any future change.
+
+## 🏈 GFFL — THE DESKTOP DASHBOARD + THE RAIL BALANCE (2026-08-11, b88025c + e25e117, UNDEPLOYED)
+
+User: the League tab's desktop view "looks too much like an app" — then, after review, "lets
+add more to the rail so we have equal to main." Files: `league.html` + `assets/league/lg-ui.js`
++ `tools/_gffl_desk_shots.cjs` (NEW, 27 checks) + `tools/_verify-gffl.cjs` (→ **2364**).
+
+**THE SHAPE: two columns with JOBS.** ≥1024px the league home is `.lgdesk` — `.lgmain` is the
+league's STATE (draft countdown hero → Rules/Draft links row → stale-weeks alarm → week card →
+playoffs → standings → all-time) and the fixed-width `.lgrail` is its PULSE (chat → injury
+report → hot pickups → projection accuracy → recent moves). The old masonry column-count dealt
+cards out by height, so the page read as a scatter with no left-to-right meaning — that was the
+complaint. The phone keeps its stacked card list byte-identical (asserted at 390).
+- **Matchup cards** carry the team-colour probability bar everywhere (`.mupbar.mini`, each
+  half in that team's own primary).
+- **Standings: no scroller, ever, plus Streak / Pwr / Playoff%** columns (loadStreaks /
+  powerRanking / playoffOdds — Monte Carlo 1000 seasons, strength = avg PF with a Bayesian
+  prior, deterministic seed from the data-state hash). The separate Power-rankings card is
+  GONE on desktop (it is a column now); the phone keeps it.
+- **Chat is the top-right panel, always expanded**, composer and all — and a LIVE REPAINT MUST
+  NOT TOUCH THE RAIL: `renderLeague(true)` (every scoring poll tick) rewrites `.lgmain` only,
+  so a half-typed message and the reader's scroll survive; a FULL rebuild (cloud refresh)
+  preserves the composer text + scroll explicitly. Player names inside chat messages are
+  tappable controls (`linkPlayerNames` — full name AND the rendered short form both match;
+  teams win ties; escaping proven against a literal script tag).
+- **Record book on desktop = the all-time aggregate table only** — champions list and
+  superlatives hidden (the user's own words); absent entirely with no history, never an empty
+  table.
+**THE RAIL BALANCE** (e25e117): injury report + projection accuracy MOVED from MAIN into the
+rail (they are pulse, not state — and the moved cards repaint only on full rebuilds, which
+their cadence suits); a **Hot-pickups card** joined (the Moves page's own trending renderer
+REUSED — paints from cache into an unconditional `#railHot` shell, once more when
+`D.loadTrending()` lands, self-hides to nothing on a dead endpoint, chips WRAP in the narrow
+rail instead of panning sideways); **Recent moves deepened 8 → 14** on desktop; rail chat
+376 → 440px. Fixture measure: rail 1157px vs MAIN 1621px (**71%**, was ~40%) with ZERO injury/
+trending data — live data closes the rest. A 45% floor is the regression guard.
+**VERIFY**: `node tools/_gffl_desk_shots.cjs` 27/27 (14-row cap proven off 16 seeded, MAIN
+emptied of both moved cards, shell presence, balance floor, all at 1440/1280/390) + battery
+**2364/2364** — confirmed across two clean full runs; one intermediate run crashed on the
+known puppeteer "Promise was collected" flake and another read 2362/2 on two timing-shaped
+checks (an AF same-millisecond chat-stamp tie + the AT8 chat-tap 8s-poll repaint race), both
+green on identical check code either side — the flake pattern, not a regression. RESTAGED with
+reasons: AT's rail composition (moves now CLOSES the rail, children ≥ 3 — middle cards
+self-hide), AT3 seeds 16 names so the 14 cap is what trims (Ashby + Baker fall off).
+Plates: `shots/gffl_desk_league_{1440,1280}.png`, `gffl_desk_mobile_390.png`.
+**KNOWN**: the playoff% column is points-driven and can read counterintuitively early (an 0-2
+team above a 1-1 team when its PF is far higher) — the model working as specified, but the
+family will ask; and both commits are on the branch only, awaiting the user's deploy word.
