@@ -395,7 +395,10 @@ async function plate(page, file, label) {
     // names, one row per side — and measures 156-161px on these fixtures. The TUNE-2 140px
     // ceiling stays THE PHONE'S contract (the handoff's own rule: keep the phone inside its
     // measured cap); the desktop's new ceiling is 175, headroom over the measured 161.
-    const HEAD_CEIL = wname === "390" ? 140 : 175;
+    // REFINEMENT 2 (2026-08-11): phone 140 → 148 — names may take two rows at full size
+    // rather than shrinking ("that way we can see even the long names"); the fixture names
+    // wrap, a short one-liner still measures ~132.
+    const HEAD_CEIL = wname === "390" ? 148 : 175;
     ok(!!m && m.height <= HEAD_CEIL, wname + " · matchup: the header fits its ceiling (" + (m && m.height) + "px ≤ " + HEAD_CEIL + ")");
     // Phone keeps TUNE-2's 54px crest; desktop is the handoff's 104px rounded square.
     const CREST_BAND = wname === "390" ? [50, 68] : [100, 108];

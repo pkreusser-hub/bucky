@@ -429,34 +429,60 @@
   .mupbar i, .mupbar em { display:block; height:100%; }
   .mupbar em { margin-left:auto; }
   .mupbar.unknown { background:var(--divider2); }
-  .mupct .wpest { margin-left:4px; }
+  /* (.wpest removed — refinement 2: no "est." on the win bar, any width) */
   .muhead .muhsub { font-size:9.5px; line-height:1.2; white-space:nowrap; }
   .muhead .h2hline { margin-top:2px; }
   /* DESIGN HANDOFF (2026-08-11, "GFFL desktop view refinement") — the muhero header.
-     Desktop-only: the phone header stays inside its measured cap (AD6's 140px ceiling), so
-     every rule below is gated ≥1024px. The markup is unchanged; the one-row-per-side
-     arrangement (crest → name → score, mirrored) comes from display:contents on .muhtop +
-     explicit `order`, which is what lets ONE markup serve both breakpoints. */
+     REFINEMENT 2 (same day, user): the slash gains the TERTIARY strip (all three team
+     colours), the names are centered / up-to-two-rows / FIT-SIZED (JS fitHeroNames steps the
+     font down instead of ellipsizing) and carry a slash-side clearance pad so the text never
+     sits on any colour, "est." is gone, and the slash COMES TO THE PHONE as a slim experiment
+     (base rules below = mobile geometry; the ≥1024px block overrides the clip-paths).
+     Six pseudo-hosts, two per stripe: the card's own ::before/::after (primary), .muhrow's
+     (secondary), .mupweek's (tertiary) — all position:absolute inset:0 against the card
+     (their hosts are unpositioned), z-index:-1 under isolation:isolate. */
+  .card.muhead.muhero { position:relative; isolation:isolate; overflow:hidden; }
+  .muhead.muhero::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tpa); clip-path:polygon(0 0, 38px 0, 16px 100%, 0 100%); }
+  .muhead.muhero::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tph); clip-path:polygon(calc(100% - 38px) 0, 100% 0, 100% 100%, calc(100% - 16px) 100%); }
+  .muhead.muhero .muhrow::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tsa); clip-path:polygon(44px 0, 49px 0, 27px 100%, 22px 100%); }
+  .muhead.muhero .muhrow::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tsh); clip-path:polygon(calc(100% - 49px) 0, calc(100% - 44px) 0, calc(100% - 22px) 100%, calc(100% - 27px) 100%); }
+  .muhead.muhero .mupweek::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tta); clip-path:polygon(55px 0, 58px 0, 36px 100%, 33px 100%); }
+  .muhead.muhero .mupweek::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tth); clip-path:polygon(calc(100% - 58px) 0, calc(100% - 55px) 0, calc(100% - 33px) 100%, calc(100% - 36px) 100%); }
+  /* Names + to-play lines: centered, clear of the slash on their own side. white-space
+     normal + a tame line-height is what the JS fitter measures against; no ellipsis — a name
+     that doesn't fit SHRINKS (fitHeroNames), it never clips. */
+  .muhead.muhero .muhname { white-space:normal; overflow:visible; text-overflow:clip; line-height:1.08; text-align:center; }
+  .muhead.muhero .muhteam .muhsub { text-align:center; }
+  .muhead.muhero .muhteam:not(.right) .muhname, .muhead.muhero .muhteam:not(.right) .muhsub { padding-left:46px; }
+  .muhead.muhero .muhteam.right .muhname, .muhead.muhero .muhteam.right .muhsub { padding-right:46px; }
   .muplayline { display:none; } /* the per-side to-play line — desktop home is the lineup card */
   @media (min-width:1024px) {
-    .card.muhead.muhero { padding:12px 16px; position:relative; isolation:isolate; overflow:hidden; }
-    /* Each team's locker-hero colour slash: primary diagonal panel + thin secondary stripe,
-       away on the left edge, home mirrored on the right (handoff geometry, verbatim). */
-    .muhead.muhero::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
-      background:var(--tpa); clip-path:polygon(0 0, 172px 0, 124px 100%, 0 100%); }
-    .muhead.muhero::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
-      background:var(--tph); clip-path:polygon(calc(100% - 172px) 0, 100% 0, 100% 100%, calc(100% - 124px) 100%); }
-    .muhead.muhero .muhrow::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
-      background:var(--tsa); clip-path:polygon(180px 0, 188px 0, 140px 100%, 132px 100%); }
-    .muhead.muhero .muhrow::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
-      background:var(--tsh); clip-path:polygon(calc(100% - 188px) 0, calc(100% - 180px) 0, calc(100% - 132px) 100%, calc(100% - 140px) 100%); }
+    .card.muhead.muhero { padding:12px 16px; }
+    /* Desktop slash geometry (handoff, + the tertiary strip at 196-202 → 148-154). */
+    .muhead.muhero::before { clip-path:polygon(0 0, 172px 0, 124px 100%, 0 100%); }
+    .muhead.muhero::after { clip-path:polygon(calc(100% - 172px) 0, 100% 0, 100% 100%, calc(100% - 124px) 100%); }
+    .muhead.muhero .muhrow::before { clip-path:polygon(180px 0, 188px 0, 140px 100%, 132px 100%); }
+    .muhead.muhero .muhrow::after { clip-path:polygon(calc(100% - 188px) 0, calc(100% - 180px) 0, calc(100% - 132px) 100%, calc(100% - 140px) 100%); }
+    .muhead.muhero .mupweek::before { clip-path:polygon(196px 0, 202px 0, 154px 100%, 148px 100%); }
+    .muhead.muhero .mupweek::after { clip-path:polygon(calc(100% - 202px) 0, calc(100% - 196px) 0, calc(100% - 148px) 100%, calc(100% - 154px) 100%); }
     .muhead.muhero .muhrow { align-items:center; }
     .muhead.muhero .muhtop { display:contents; }
     .muhead.muhero .muhteam { display:flex; flex-direction:row; align-items:center; gap:14px; min-width:0; }
     .muhead.muhero .muhteam .muavatar { order:1; flex:0 0 auto; width:104px; height:104px; font-size:34px;
       border-radius:18px; box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 1px rgba(255,255,255,.22); }
     .muhead.muhero .muavatar.mine { box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 2px rgba(255,255,255,.2), 0 0 0 2px var(--accent); }
-    .muhead.muhero .muhteam .muhname { order:2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto; }
+    /* Refinement 2: the name is a CENTERED, wrap-capable block between crest and score —
+       flex:1 takes the slack, the clearance pad keeps its box off the slash colour, and the
+       fitter (maxLines 2 on desktop) sizes long names down instead of cutting them. */
+    .muhead.muhero .muhteam .muhname { order:2; flex:1 1 auto; min-width:0; }
+    .muhead.muhero .muhteam:not(.right) .muhname { padding-left:66px; }
+    .muhead.muhero .muhteam.right .muhname { padding-right:66px; }
     .muhead.muhero .muhname.tname.big { font-size:30px; }
     .muhead.muhero .muhteam .muhscore { order:3; margin-left:auto; }
     .muhead.muhero .muhteam.right .muhscore { order:1; margin-left:0; margin-right:auto; }
@@ -486,7 +512,6 @@
      size now, so there is exactly ONE probability-bar mechanic in this stylesheet) */
   /* S8: "est." — honest, not oracular. A quiet qualifier on the percentage line rather than a
      second bar; the plan's own language ("labeled 'est.'"). */
-  .wpest { font-size:8.5px; letter-spacing:.4px; text-transform:uppercase; opacity:.62; margin-left:2px; }
 
   /* (the S3 "Head to head" split-bar card and its .gsb* rules were removed by the 2026-08-11
      cosmetic pass — every figure it restated is in the player matchups directly beneath, and
@@ -1150,13 +1175,23 @@
   .lockerhead::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
                        background:var(--ts, var(--accent));
                        clip-path:polygon(140px 0, 148px 0, 108px 100%, 100px 100%); }
+  /* Refinement 2 (2026-08-11, user): the TERTIARY strip completes the scheme — all three
+     team colours on the slash. Hosted on the inner row's ::before (the card's own two pseudos
+     are taken); same abs-inset-0/z-1 pattern, .lockerhead-inner is unpositioned so it
+     resolves against the card. */
+  .lockerhead .lockerhead-inner::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+                       background:var(--tt, var(--accent));
+                       clip-path:polygon(156px 0, 162px 0, 122px 100%, 116px 100%); }
   .lockerhead-inner { display:flex; align-items:center; gap:16px; }
   .lockerlogo { width:96px; height:96px; border-radius:14px; object-fit:cover; flex:0 0 auto;
                 background:rgba(255,255,255,.14); box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 1px rgba(255,255,255,.22); }
   .lockerlogo-ph { display:flex; align-items:center; justify-content:center;
                    font:800 34px var(--font-display); letter-spacing:1px; }
-  .lockerid { min-width:0; }
-  .lockername { margin:0; font-size:24px; line-height:1.08; }
+  /* Refinement 2: the identity block is CENTERED in the space right of the crest, with a
+     slash-side clearance pad so its box never reaches under any of the three colour strips.
+     The name wraps to two rows and is FIT-SIZED by fitHeroNames — never ellipsized. */
+  .lockerid { min-width:0; flex:1 1 auto; text-align:center; padding-left:32px; }
+  .lockername { margin:0; font-size:24px; line-height:1.08; white-space:normal; }
   /* Design pass: the name sits on the DARK side of the diagonal, never on the colour panel,
      so white is always right and no per-team ink derivation is needed here. A short
      secondary-coloured underline beneath the name is the one place the scheme touches the
@@ -1243,6 +1278,8 @@
     /* the diagonal cut widens with the crest so the panel still frames it */
     .lockerhead::before { clip-path:polygon(0 0, 172px 0, 124px 100%, 0 100%); }
     .lockerhead::after { clip-path:polygon(180px 0, 188px 0, 140px 100%, 132px 100%); }
+    .lockerhead .lockerhead-inner::before { clip-path:polygon(196px 0, 202px 0, 154px 100%, 148px 100%); } /* tertiary, refinement 2 */
+    .lockerid { padding-left:44px; } /* clearance past the wider desktop slash */
   }
   /* S1's commissioner-only "Reset owner PIN" — deliberately quieter than the identity edits
      beside it: it is a rare administrative action, not something to invite a tap. */

@@ -2217,6 +2217,37 @@
       <b class="teamlink muhname tname big" data-locker="${id}" title="${esc(T?.name || "?")}">${esc(T?.name || "?")}</b>
       <div class="mut muhsub">${rem.left} to play · ${rem.playing} live</div></div>`;
   }
+  // FIT, DON'T CLIP (2026-08-11, user: "instead of cutting off text it adjusts text size…
+  // two rows and centered, that way we can see even the long names"). A hero name starts at
+  // its stylesheet size and steps down 1px at a time until it fits its box in at most
+  // maxLines wrapped lines with no sideways overflow (the single-long-word case). The reset
+  // to "" first is what makes this idempotent across live repaints — without it a name that
+  // once shrank could never grow back after a rename. Cheap: 2-3 elements, ≤40 steps, only
+  // on renders that rebuild the header anyway. Re-run once when the display font finishes
+  // loading — Barlow landing late changes every measurement.
+  function fitText(el, maxLines, minPx) {
+    if (!el) return;
+    el.style.fontSize = "";
+    let fs = parseFloat(getComputedStyle(el).fontSize) || 16;
+    let guard = 40;
+    const fits = () => el.scrollWidth <= el.clientWidth + 1
+      && el.getBoundingClientRect().height <= fs * 1.12 * maxLines + 3;
+    while (!fits() && fs > minPx && guard-- > 0) { fs -= 1; el.style.fontSize = fs + "px"; }
+  }
+  function fitHeroNames() {
+    // Two rows allowed at EVERY width — measured: the phone header still sits at ~136px of
+    // its 140px cap with a two-row name, and two 10px+ rows read far better than one row
+    // ground down to 9px (the first cut's floor, and the probe's own finding).
+    const wide = isWide();
+    document.querySelectorAll(".muhead.muhero .muhname").forEach((el) => fitText(el, 2, wide ? 16 : 10));
+    fitText(document.querySelector(".lockername"), 2, 14);
+  }
+  let fitFontsHooked = false;
+  function hookFitOnFonts() {
+    if (fitFontsHooked || !document.fonts || !document.fonts.ready) return;
+    fitFontsHooked = true;
+    document.fonts.ready.then(() => fitHeroNames()).catch(() => {});
+  }
   // "All-time series" line (plan §4.8's rivalries) — h2h is from the HOME
   // team's perspective (LG.headToHead(hId, aId)), so aWins is H's wins.
   // Omitted entirely when there's no shared history yet.
@@ -3018,7 +3049,7 @@
     const wideBar = counted
       ? `<div class="mupbarrow"><b class="mupct">${wpPct}%</b>
            <div class="mupbar"><i style="width:${wpPct}%;background:${esc(pa.primary)}"></i><em style="width:${100 - wpPct}%;background:${esc(ph.primary)}"></em></div>
-           <b class="mupct">${100 - wpPct}%<span class="wpest">est.</span></b></div>`
+           <b class="mupct">${100 - wpPct}%</b></div>`
       : `<div class="mupbarrow"><div class="mupbar unknown"></div></div>`;
     // DESIGN HANDOFF (2026-08-11, "GFFL desktop view refinement"): the header carries the
     // muhero class + the two teams' palettes as CSS vars, and at ≥1024px becomes the
@@ -3028,7 +3059,7 @@
     // per-side "N to play · N live" line moves into the lineup card on desktop (.muplayline,
     // hidden on phones where the header's own .muhsub still carries it).
     main().innerHTML = `
-      <div class="card muhead muhero" style="--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)}">
+      <div class="card muhead muhero" style="--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tta:${esc(pa.tertiary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)};--tth:${esc(ph.tertiary)}">
         <div class="muhrow">
           ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "")}
           <div class="muhmid">
@@ -3084,6 +3115,7 @@
     refreshChatList("muThread", threadKey);
     startChatPoll("muThread", threadKey);
     paintHealth();
+    fitHeroNames(); hookFitOnFonts(); // fit-don't-clip, after the header is in the DOM
   }
 
   // ----------------  AI read (S5, plan §4.6's AI adjustment layer) ----------------
@@ -5594,6 +5626,7 @@
     if (!isOwner) wireLockerPinReset(T);
     if (isOwner) { wireLockerLineup(teamId, roster); wireAlertsCard(T); maybeOfferOwnerPin(T); }
     paintHealth();
+    fitHeroNames(); hookFitOnFonts(); // the hero name fits, never clips
   }
   // S1 GRANDFATHERING. Devices that claimed a team before owner PINs existed stay valid — the
   // local claim is never revoked — but the team has no lock on it, so the next device to tap it

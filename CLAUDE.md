@@ -11430,3 +11430,45 @@ crest pinning intact) + a chip plate (every chip filled with ITS position's own 
 min-width:0 — the handoff's prototype was 1366px); and the muhero's slash geometry is fixed
 px (172/124), so it doesn't scale with the per-card text-size zoom — harmless, the slash is
 an edge decoration.
+
+## 🏈 GFFL — REFINEMENT 2: three colours, names that fit, the slash goes mobile (2026-08-11, DEPLOYED)
+
+User, on the muhero/locker heroes: the TERTIARY strip joins (all three team colours), the
+name may never overlap any colour, it reads CENTERED in up to TWO ROWS and FIT-SIZES down
+instead of ellipsizing, "est." leaves the win bar everywhere, and the slash comes to the
+PHONE matchup header as an experiment. Files: `league.html` + `assets/league/lg-ui.js` +
+restages in `tools/_verify-gffl.cjs` + `tools/_gffl_palette_shots.cjs`.
+
+- **SIX PSEUDO-HOSTS, two per stripe** on the matchup card (its own ::before/::after =
+  primary, `.muhrow`'s = secondary, `.mupweek`'s = tertiary — each abs/inset:0 against the
+  positioned card, its host unpositioned); the locker's tertiary rides
+  `.lockerhead-inner::before`. Palettes: muhead inline vars gained `--tta/--tth`; the locker
+  already had `--tt` via palStyle. Desktop tertiary at 196-202→148-154 (locker identical);
+  MOBILE matchup geometry is slim (38/16 primary, 44-49/22-27 secondary, 55-58/33-36
+  tertiary) — slimmed once from a first cut precisely to buy the name column width.
+- **FIT, DON'T CLIP** (`fitText`/`fitHeroNames` in lg-ui): reset to the stylesheet size,
+  step down 1px until the text fits ≤2 wrapped lines with no sideways overflow; the reset
+  is what makes it idempotent across live repaints. Matchup names min 16px desktop / 10px
+  phone, locker 14px; re-run once on `document.fonts.ready` (Barlow landing late moves every
+  measurement). Names are `white-space:normal`, centered, with a SLASH-SIDE CLEARANCE PAD
+  (matchup 66px desktop / 46px phone; lockerid 44px desktop / 32px phone) so the INK never
+  sits on colour — and the probe measures the ink via a **Range**, not the padding box,
+  because the padding IS the clearance (first probe run failed on exactly that).
+- **TWO ROWS AT EVERY WIDTH.** The first cut capped phones at one line and the probe showed
+  a 28-char name ground to 9px; two ≥10px rows read better and the header still fits. The
+  cost is honest: the ordered-layout phone ceiling moved **140 → 148** (a short name still
+  measures ~132; the stress name ≤146) — three battery ceilings + the palette suite restaged
+  with that reason, and AQ6 ("the bar carries 'est.' — honest, not oracular") is INVERTED by
+  the owner's own order.
+- Probe: scratchpad `refine2_probe.cjs` — **50/50** over matchup 390/1024/1440 + locker
+  390/1440 with stress names ("Waffle House Warriors" vs "The Undefeated Breakfast Crew"):
+  tertiary painted in the team's own colour, ink-clear of the computed slash outer edge at
+  the text's own y, unclipped, ≤2 rows, no est., playline/muhsub swap right, ceilings,
+  no sideways scroll.
+**VERIFY**: battery **2388/2388** + palette **74/74** (one AF same-millisecond flake passed
+on rerun, the established pattern). Plates reviewed: `shots/gffl_refine2_matchup_{390,1440}`,
+`gffl_refine2_locker_{390,1440}`.
+**KNOWN**: the phone win bar spans full width, so its flanking % labels can graze the slash
+bottom bands — left as part of the experiment for the family's reaction; and the slash
+geometry is fixed px, so the per-card text-size zoom scales type but not the slash (edge
+decoration, harmless).

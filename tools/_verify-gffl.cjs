@@ -8631,7 +8631,11 @@ async function openDetails(page, id) {
       // a 30px score, and the win bar full-width (the .mupbar the wp probe reads now). The
       // page as a whole nets ~300px SHORTER; the header itself measures 125.
       // TUNE 2: +the Week row above the bar, by user order — ceiling 132 → 140.
-      ok(head.height <= 140, "the matchup header fits the TUNE-2 ceiling — 220px two batches ago, " + head.height + "px now");
+      // RESTAGED 2026-08-11 (refinement 2, user: names may take TWO ROWS at full size rather
+      // than shrinking to one — 'that way we can see even the long names'): the fixture names
+      // wrap, so the ordered-layout ceiling moves 140 → 148. A short one-line name still
+      // measures ~132; the probe pins the stress case (28 chars) at ≤146.
+      ok(head.height <= 148, "the matchup header fits the two-row ceiling — 220px two batches ago, " + head.height + "px now");
       ok(head.wp && head.live, "…with the win-probability bar and the live/Final indicator both still on it");
       ok(head.avatars === 2 && head.names && head.pts.join("/") === "4.0/41.0", "…both crests, both names, both scores");
       // RESTAGED 2026-08-09 (the ESPN header rebuild): the projection is still there, on both
@@ -9295,7 +9299,11 @@ async function openDetails(page, id) {
       // 2026-08-11 cosmetic pass — which REMOVED the owner·record line this block used to
       // defend and spent the space (plus the whole h2h card, ~300px of page) on a 62px crest,
       // a 30px score and the full-width team-colour bar, by the user's own marked-up order.
-      ok(head.height <= 140, "the matchup header fits the TUNE-2 ceiling (" + head.height + "px ≤ 140)"); // Week row added by user order
+      // RESTAGED 2026-08-11 (refinement 2, user: names may take TWO ROWS at full size rather
+      // than shrinking to one — 'that way we can see even the long names'): the fixture names
+      // wrap, so the ordered-layout ceiling moves 140 → 148. A short one-line name still
+      // measures ~132; the probe pins the stress case (28 chars) at ≤146.
+      ok(head.height <= 148, "the matchup header fits the two-row ceiling (" + head.height + "px ≤ 148)");
       ok(head.a.avLeft < head.a.scLeft, "team A's crest sits on the OUTER (left) edge with the score inner");
       ok(head.b.avLeft > head.b.scLeft, "…and team B's is mirrored — crest outer (right), score inner");
       ok(head.a.projBelowBig && head.b.projBelowBig, "the projection sits directly BENEATH the big score, both sides");
@@ -13127,7 +13135,11 @@ async function openDetails(page, id) {
       // 120 → 132 and the crest band 44-56 → 56-72 — the same user who set the cap ordered the
       // freed space (owner line + the whole h2h card) spent on bigger crests and scores, and
       // the page as a whole nets ~300px shorter.
-      ok(mu.height <= 140, "the matchup header fits the TUNE-2 ceiling (" + mu.height + "px ≤ 140)");
+      // RESTAGED 2026-08-11 (refinement 2, user: names may take TWO ROWS at full size rather
+      // than shrinking to one — 'that way we can see even the long names'): the fixture names
+      // wrap, so the ordered-layout ceiling moves 140 → 148. A short one-line name still
+      // measures ~132; the probe pins the stress case (28 chars) at ≤146.
+      ok(mu.height <= 148, "the matchup header fits the two-row ceiling (" + mu.height + "px ≤ 148)");
       // TUNE 2: the phone crest eased 62 → 54 so it can't crowd the (now 15px) names.
       ok(mu.crestW.length === 2 && mu.crestW.every((w) => w >= 50 && w <= 64),
         "…crest-vs-crest, both inside the TUNE-2 50-64px band at phone width (" + JSON.stringify(mu.crestW) + ")");
@@ -14718,8 +14730,10 @@ async function openDetails(page, id) {
       await ctx.close();
     }
 
-    // ---- AQ6: the matchup header carries the "est." label — honest, not oracular (plan's own
-    // language). The compact league-home card stays unlabeled by design (no room for prose).
+    // ---- AQ6 — RESTAGED 2026-08-11 (refinement 2, user: "get rid of the 'est.' on both
+    // mobile and desktop"): the honesty label the plan asked for is now DROPPED by the
+    // league owner's own order, so the check INVERTS — the qualifier must be ABSENT from the
+    // bar row at any width, while the bar itself (and its single-bar rule) stays.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -14730,7 +14744,7 @@ async function openDetails(page, id) {
       // RESTAGED (cosmetic pass 2026-08-11): "est." rides the right-hand percentage flanking
       // the full-width .mupbar now — the centre column carries only LIVE/Final + the week.
       const mid = await text(page, ".mupbarrow");
-      ok(mid && /est\./i.test(mid), "the win-probability bar row carries the 'est.' qualifier (" + JSON.stringify(mid) + ")");
+      ok(mid && !/est\./i.test(mid), "the win-probability bar row carries NO 'est.' qualifier (" + JSON.stringify(mid) + ")");
       ok(!!(await page.$(".mupbar")) && (await page.evaluate(() => document.querySelectorAll(".muhead .mupbar, .muhead .wpbar").length)) === 1,
         "…on ONE bar — full-width now, and no second bar was added");
       ok(errors.length === 0, "0 page errors");
