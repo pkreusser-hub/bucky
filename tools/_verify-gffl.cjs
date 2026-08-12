@@ -2632,12 +2632,19 @@ async function openDetails(page, id) {
       const bnav = getComputedStyle(document.querySelector("#bnav"));
       const main = getComputedStyle(document.querySelector("main"));
       const hMeta = document.querySelector("#hMeta");
-      return { bnavPos: bnav.position, mainCols: main.columnCount, hMetaVisible: hMeta && getComputedStyle(hMeta).display !== "none" };
+      const desk = document.querySelector(".lgdesk");
+      return { bnavPos: bnav.position, mainCols: main.columnCount,
+        deskCols: desk ? getComputedStyle(desk).gridTemplateColumns.split(" ").length : 0,
+        hMetaVisible: hMeta && getComputedStyle(hMeta).display !== "none" };
     });
     ok(geom.bnavPos === "sticky", "desktop nav reads as a persistent top strip (position:sticky), not the mobile fixed bottom bar");
-    // 1440px clears the stylesheet's own 1360px "go to 3 columns" step, so 3 is correct here —
-    // ">= 2" is the real invariant (any desktop width picks up SOME multi-column treatment).
-    ok(Number(geom.mainCols) >= 2, "league home picks up the desktop multi-column treatment (" + geom.mainCols + ")");
+    // RESTAGED 2026-08-11 (the desktop design pass, user: "it looks too much like an app"). This
+    // used to assert `column-count >= 2` — a MASONRY, which deals cards into whichever column is
+    // shortest, so nothing on the page meant anything by being where it was. That treatment is
+    // gone; the league home is a real two-column dashboard (MAIN = the league's state, RAIL =
+    // its pulse), so the invariant it was reaching for — "any desktop width picks up a genuine
+    // multi-column treatment" — is asserted on the grid that replaced it.
+    ok(geom.deskCols === 2, "league home lays out as the two-column desktop dashboard (" + geom.deskCols + " track(s))");
     ok(geom.hMetaVisible === true, "the header's WEEK N · YEAR + avatar meta is visible at this width");
     ok(errors.length === 0, "0 page errors on the 1440px league home");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_league_desktop_1440.png"), fullPage: true }); console.log("  📸 shots/gffl_league_desktop_1440.png"); }
@@ -10662,9 +10669,16 @@ async function openDetails(page, id) {
           mine: document.querySelectorAll(".mucard.mine").length,
           strips: cards.filter((c) => c.querySelector(".herorow")).length,
           badges: cards.filter((c) => c.querySelector(".herobadge")).length,
-          bars: cards.filter((c) => c.querySelector(".wpbar.mini")).length,
-          fills: cards.filter((c) => c.querySelector(".wpbar.mini .wpfillmini")).length,
-          unknown: cards.filter((c) => c.querySelector(".wpbar.mini.unknown")).length,
+          // RESTAGED (desktop design pass, 2026-08-11, user: "the matchups should have the same
+          // color probability bar from their logos"): the card's bar is the matchup HEADER's
+          // own two-team mechanic now (.mupbar with an <i> for away's primary and an <em> for
+          // home's), not a single flat accent fill on a grey track (.wpbar.mini/.wpfillmini,
+          // both now deleted from the stylesheet). Same three properties asserted — a bar on
+          // every card, a fill only where there's something to weigh, an honest empty track
+          // otherwise — read off the mechanic that actually ships.
+          bars: cards.filter((c) => c.querySelector(".mupbar.mini")).length,
+          fills: cards.filter((c) => c.querySelector(".mupbar.mini i")).length,
+          unknown: cards.filter((c) => c.querySelector(".mupbar.mini.unknown")).length,
           badgeText: cards.map((c) => (c.querySelector(".herobadge") || {}).textContent || ""),
           // Every strip must be genuinely VISIBLE, not merely in the DOM — the compact card is a
           // 3-column grid and the hero's explicit `grid-row:3` would have parked the strip in an
@@ -10673,8 +10687,16 @@ async function openDetails(page, id) {
           inside: cards.every((c) => { const r = c.querySelector(".herorow"); if (!r) return false;
             const cb = c.getBoundingClientRect(), rb = r.getBoundingClientRect();
             return rb.top >= cb.top - 1 && rb.bottom <= cb.bottom + 1; }),
-          widths: cards.map((c) => { const f = c.querySelector(".wpfillmini"); return f ? f.style.width : ""; }),
-          mineWidth: (document.querySelector(".mucard.mine .wpfillmini") || {}).style?.width || "",
+          widths: cards.map((c) => { const f = c.querySelector(".mupbar.mini i"); return f ? f.style.width : ""; }),
+          mineWidth: (document.querySelector(".mucard.mine .mupbar.mini i") || {}).style?.width || "",
+          // …and BOTH teams' own primaries are on it — the point of the change. Read as computed
+          // colours off the two halves of the viewer's own bar.
+          mineCols: (() => {
+            const bar = document.querySelector(".mucard.mine .mupbar.mini");
+            if (!bar) return null;
+            const i = bar.querySelector("i"), em = bar.querySelector("em");
+            return i && em ? [getComputedStyle(i).backgroundColor, getComputedStyle(em).backgroundColor] : null;
+          })(),
         };
       })) || {};
       ok(home.cards === 4, "the league home shows this week's 4 matchups (" + home.cards + ")");
@@ -10701,6 +10723,9 @@ async function openDetails(page, id) {
       ok(home.fills === 1 && home.unknown === 3,
         "the win-prob bar only fills where there is something to weigh — " + home.fills + " filled, " + home.unknown + " honest empty tracks");
       ok(home.mineWidth && home.mineWidth !== "50%", "…the viewer's own 41.0-vs-4.0 matchup does not read as an even-money 50% (" + home.mineWidth + ")");
+      ok(!!home.mineCols && home.mineCols[0] !== home.mineCols[1]
+        && !/^rgba\(0, 0, 0, 0\)$/.test(home.mineCols[0]) && !/^rgba\(0, 0, 0, 0\)$/.test(home.mineCols[1]),
+        "…and the bar is painted in the TWO TEAMS' OWN primaries, one per end, not one shared accent (" + JSON.stringify(home.mineCols) + ")");
       ok(errors.length === 0, "0 page errors on the league home with the strip on every card");
       await ctx.close();
     }
@@ -14584,8 +14609,8 @@ async function openDetails(page, id) {
       }, A9, B3);
       ok(direct > 0.85, "a 100-40 lead with 1:00 left in Q4 reads as near-certain, well past the plan's >85% bar (" + direct + ")");
       ok(direct < 1, "…but it is NOT the same as a final — the game is still 'in', not 'post' (" + direct + ")");
-      // The SAME scenario, read off the league home's compact card (matchupHeroExtra's
-      // .wpfillmini) for the team1-vs-team2 game (week 1's [1,2] pairing). matchupCard(h,a) is
+      // The SAME scenario, read off the league home's compact card (matchupHeroExtra's own bar)
+      // for the team1-vs-team2 game (week 1's [1,2] pairing). matchupCard(h,a) is
       // called (1,2) — home=team1(A9, the 100-pt leader), away=team2(B3) — and
       // matchupHeroExtra's own fill is the AWAY perspective (d.winProb(aKeys,hKeys), same
       // convention the dedicated matchup header uses), so the mini bar shows team2's OWN win%,
@@ -14595,7 +14620,10 @@ async function openDetails(page, id) {
       const mini = await page.evaluate((A9, B3) => {
         const D = window.__GFFL__.D;
         const el = document.querySelector('.mucard[data-mu="1-2"]');
-        const fill = el && el.querySelector(".wpfillmini");
+        // RESTAGED 2026-08-11 (desktop design pass): the away side's share is the bar's own <i>
+        // now — the two-team .mupbar mechanic — where it used to be a lone .wpfillmini. Same
+        // number, same perspective, read off the element that ships.
+        const fill = el && el.querySelector(".mupbar.mini i");
         return { pct: fill ? parseInt(fill.style.width, 10) : null, awayPerspective: Math.round(D.winProb(B3, A9) * 100) };
       }, A9, B3);
       ok(mini.pct != null && mini.pct < 15, "…and the compact card on the league home reads the SAME model, not a duplicated or stale one — team2's OWN (away) win% reads near-zero here (" + mini.pct + "%)");
@@ -15246,6 +15274,572 @@ async function openDetails(page, id) {
       ok(!filed.includes(0), "…and no $0 claim exists to shadow the owner's real bid");
       ok(filed[0] === 11, "…the one claim carries the bid that was actually typed ($" + filed[0] + ")");
       ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+  }
+
+  // ---- AT: the League tab's DESKTOP redesign (2026-08-11) ----
+  // User: "design pass on the league tab desktop view, it looks too much like an app… the
+  // matchups should have the same color probability bar from their logos, there should not be
+  // the need to scroll the standings at all, we should add into the standings win/loss streak,
+  // power ranking, playoff probability %. Chat should be in the top right and always expanded,
+  // recent moves should also start as expanded and any player names in chat should be clickable
+  // to see their player card. record book should show all time standings, again no scrolling
+  // needed and everything else should be hidden."
+  //
+  // The batch is a ≥1024px LAYOUT, so most of this section runs at desktop widths — and the LAST
+  // block runs at 390px, because "the phone is untouched" is half of what was asked for and the
+  // only way to know it is to look.
+  section("AT · the League tab's desktop redesign — dashboard, standings columns, chat rail");
+  {
+    // A league with enough PAST for every new column to say something: two finalized weeks (so
+    // a streak is a real run and the power snapshot has movement to report), a 14-week schedule
+    // (so the playoff Monte Carlo has genuine remaining games rather than an empty season), and
+    // one imported season (so the All-time card has a table).
+    const AT_ROSTER = [
+      ["3915511", "Joshua Passer", "QB", "PHI", "QB"], ["4241457", "Ricky Rusher", "RB", "DAL", "RB"],
+      ["111888", "Sam Second", "RB", "DEN", "RB"], ["4361741", "Wesley Receiver", "WR", "PHI", "WR"],
+      ["111555", "Walter Two", "WR", "DEN", "WR"], ["111222", "Terry Tight", "TE", "KC", "TE"],
+      ["111444", "Frank Flexman", "RB", "DEN", "FLEX"], ["dst_PHI", "PHI D/ST", "DST", "PHI", "DST"],
+      ["2473037", "Kevin Kicker", "K", "DAL", "K"],
+    ];
+    // The app's own circle method, so the fixture's schedule is the shape LG.generateSchedule
+    // really produces (playoffOdds walks it, and a hand-drawn one would be testing a shape the
+    // app never makes).
+    function atSchedule() {
+      const ids = [1, 2, 3, 4, 5, 6, 7, 8];
+      const n = ids.length, rounds = n - 1, fixed = ids[0], rot = ids.slice(1), singles = [];
+      for (let r = 0; r < rounds; r++) {
+        const wk = [], row = [fixed, ...rot];
+        for (let i = 0; i < n / 2; i++) wk.push(r % 2 ? [row[i], row[n - 1 - i]] : [row[n - 1 - i], row[i]]);
+        singles.push(wk); rot.unshift(rot.pop());
+      }
+      const out = [];
+      for (let w = 0; w < 14; w++) {
+        const b = singles[w % rounds];
+        out.push(w < rounds ? b : b.map(([h, a]) => [a, h]));
+      }
+      return { kind: "sched", season: 2026, weeks: out.map((wk) => ({ g: wk.map(([h, a]) => ({ h, a })) })) };
+    }
+    // HAND-COMPUTED, and the whole point of the fixture: team 1 wins both weeks, team 8 loses
+    // both, team 4 wins then loses. So the STREAK column's three cases (W2 / L2 / a run of one
+    // that has just been broken) are all on screen at once and each has one right answer.
+    const AT_SCHED = atSchedule();
+    const atPts = (wk, id) => 120 - (id - 1) * 7 + wk; // strictly decreasing in id, so the table separates
+    function atWeekly(wk) {
+      const games = AT_SCHED.weeks[wk - 1].g.map((g) => ({
+        home: g.h, away: g.a, homePts: atPts(wk, g.h), awayPts: atPts(wk, g.a),
+      }));
+      return { kind: "weekly", week: wk, matchups: games, awards: {},
+        // Week 2 SWAPS the top two, so the power card's movement arrows have something real to
+        // report and the standings' PWR column is provably reading the LATEST week.
+        power: [1, 2, 3, 4, 5, 6, 7, 8].map((id, i) => ({ teamId: id, rank: wk === 2 && i < 2 ? 2 - i : i + 1, score: 100 - i * 4 })),
+        accuracy: null, finalizedAt: 1000 + wk };
+    }
+    function atSeed() {
+      const s = fullSeed();
+      s.docs = { ...s.docs, sched_2026: AT_SCHED };
+      for (let t = 1; t <= 8; t++) {
+        for (const wk of [1, 2, 3]) {
+          s.docs["roster_2026_w" + wk + "_t" + t] = { kind: "roster", week: wk, teamId: t,
+            players: AT_ROSTER.map(([k, nm, p, tm, sl]) => ({ key: /^dst_/.test(k) ? k : String(Number(k) + t), name: nm, pos: p, team: tm, slot: sl })) };
+        }
+      }
+      s.docs.weekly_2026_w1 = atWeekly(1);
+      s.docs.weekly_2026_w2 = atWeekly(2);
+      s.docs.hist_2024 = { kind: "hist", season: 2024, leagueName: "GFFL",
+        teams: [1, 2, 3].map((id) => ({ id, name: seedTeams()["team_" + id].name, w: 12 - id, l: 2 + id, t: 0, pf: 1700 - id * 50, pa: 1500, place: id })),
+        champion: { teamId: 1, name: seedTeams().team_1.name },
+        matchups: [{ week: 1, home: 1, away: 2, homePts: 150.2, awayPts: 100.1 }] };
+      return s;
+    }
+    const DESK = { width: 1440, height: 980 };
+    const NARROW_DESK = { width: 1024, height: 900 }; // the tightest legal desktop — the standings' hardest case
+    async function atOpen(page) {
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => { window.__GFFL__.UI.week = 3; window.__GFFL__.UI.show("league"); });
+      await waitFnOr(page, () => !!document.querySelector(".lgdesk") || !!document.querySelector(".standcard"));
+    }
+
+    // ---- AT1: the grid. Two columns with jobs, chat top-right, moves under it. ----
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, atSeed(), { vw: DESK });
+      await atOpen(page);
+      const g = (await evalOr(page, () => {
+        const grid = document.querySelector(".lgdesk"), rail = document.querySelector(".lgrail"), col = document.querySelector(".lgmain");
+        if (!grid || !rail || !col) return null;
+        const rb = rail.getBoundingClientRect(), mb = col.getBoundingClientRect();
+        const chat = rail.querySelector(".chatpanel"), moves = rail.querySelector(".movespanel");
+        return {
+          tracks: getComputedStyle(grid).gridTemplateColumns.split(" ").length,
+          railLeft: Math.round(rb.left), mainRight: Math.round(mb.right),
+          railW: Math.round(rb.width), mainW: Math.round(mb.width),
+          topSame: Math.abs(rb.top - mb.top) < 2,
+          chatIsFirst: rail.firstElementChild === chat,
+          movesIsSecond: !!moves && rail.children[1] === moves,
+          railKids: rail.children.length,
+          // The order MAIN's own cards land in — the state of the league, top to bottom.
+          mainOrder: [...col.children].map((c) => (c.querySelector("h2") ? c.querySelector("h2").textContent.trim() : c.className)),
+          sideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+        };
+      })) || {};
+      ok(g.tracks === 2, "AT1: the league home is a two-column grid, not the old masonry (" + g.tracks + " track(s))");
+      ok(g.railLeft >= g.mainRight - 1, "…the RAIL is on the right, the MAIN column on the left (" + g.railLeft + " ≥ " + g.mainRight + ")");
+      ok(g.railW >= 330 && g.railW <= 400 && g.mainW > g.railW, "…the rail is a fixed narrow column and MAIN takes the rest (" + g.mainW + " / " + g.railW + ")");
+      ok(g.topSame === true, "…both columns start at the same top edge (align-items:start, not a masonry's staggered deal)");
+      ok(g.chatIsFirst === true, "…LEAGUE CHAT is the TOP card in the rail (the user's 'top right')");
+      ok(g.movesIsSecond === true && g.railKids === 2, "…Recent moves sits directly under it, and nothing else is in the rail (" + g.railKids + " cards)");
+      ok(!g.sideways, "…and the page never scrolls sideways at 1440px");
+      ok(errors.length === 0, "0 page errors on the desktop league home");
+      await ctx.close();
+    }
+
+    // ---- AT2: chat is a PANEL, not a disclosure — expanded, composable, and it survives the
+    // scoring poll's own repaints (which is the thing a rebuilt-every-tick rail would break).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, atSeed(), { vw: DESK });
+      await atOpen(page);
+      await evalOr(page, () => window.__GFFL__.LG.postChat({ text: "Ricky Rusher is a machine." }));
+      await evalOr(page, () => window.__GFFL__.UI.refreshChatList("chat", null));
+      await waitFnOr(page, () => document.querySelectorAll(".lgrail #chatList .chatRowMsg").length > 0);
+      const c = (await evalOr(page, () => {
+        const rail = document.querySelector(".lgrail");
+        const panel = rail.querySelector(".chatpanel");
+        const list = rail.querySelector("#chatList");
+        const cs = list ? getComputedStyle(list) : null;
+        return {
+          details: rail.querySelectorAll("details").length,
+          summary: rail.querySelectorAll("summary").length,
+          composer: !!rail.querySelector("#chatText") && !!rail.querySelector("#chatSend"),
+          composerVisible: (() => { const t = rail.querySelector("#chatText"); return !!t && t.getBoundingClientRect().height > 10; })(),
+          msgs: rail.querySelectorAll("#chatList .chatRowMsg").length,
+          listScrolls: cs ? cs.overflowY : "",
+          panelH: panel ? Math.round(panel.getBoundingClientRect().height) : 0,
+          // The composer must be INSIDE the panel's own box — a capped panel whose composer
+          // has been pushed out the bottom is a chat you cannot type in.
+          composerInside: (() => {
+            const p = panel.getBoundingClientRect(), t = rail.querySelector("#chatText").getBoundingClientRect();
+            return t.bottom <= p.bottom + 1 && t.top >= p.top;
+          })(),
+        };
+      })) || {};
+      ok(c.details === 0 && c.summary === 0, "AT2: the rail's chat is a real panel — no <details>, no disclosure to open (" + c.details + ")");
+      ok(c.composer === true && c.composerVisible === true, "…with the full composer mounted and visible, not the phone's six-line preview");
+      ok(c.msgs >= 1, "…and real messages in it (" + c.msgs + ")");
+      ok(c.listScrolls === "auto" || c.listScrolls === "scroll", "…the MESSAGE LIST keeps its own scroll — 'always expanded' is about the panel, not infinite height (" + c.listScrolls + ")");
+      ok(c.panelH > 0 && c.panelH <= 620, "…and the panel is capped so Recent moves beneath it is never pushed off the fold (" + c.panelH + "px)");
+      ok(c.composerInside === true, "…with the composer inside the capped box, not pushed out of it");
+      // THE REPAINT CONTRACT. renderLeague(true) fires on every scoring tick; if it rebuilt the
+      // rail it would blow away a half-typed message every few seconds.
+      const kept = await evalOr(page, async () => {
+        const t = document.querySelector(".lgrail #chatText");
+        t.value = "half a thought";
+        t.focus();
+        const listBefore = document.querySelector(".lgrail #chatList");
+        await window.__GFFL__.UI.renderLeague(true);
+        const t2 = document.querySelector(".lgrail #chatText");
+        return { text: t2 ? t2.value : null, sameNode: t === t2,
+          sameList: listBefore === document.querySelector(".lgrail #chatList"),
+          focused: document.activeElement === t2,
+          mainRepainted: !!document.querySelector(".lgmain .standcard") };
+      });
+      ok(kept && kept.text === "half a thought" && kept.sameNode === true,
+        "…a LIVE repaint leaves the composer's own node and its typed text untouched (" + JSON.stringify(kept) + ")");
+      ok(kept && kept.sameList === true && kept.focused === true, "…the message list and the caret survive it too");
+      ok(kept && kept.mainRepainted === true, "…while the MAIN column really was rebuilt (the repaint did happen)");
+      // …and a FULL rebuild (a background cloud refresh — not the reader's doing) still keeps it.
+      const kept2 = await evalOr(page, async () => {
+        document.querySelector(".lgrail #chatText").value = "and another";
+        await window.__GFFL__.UI.renderLeague();
+        const t = document.querySelector(".lgrail #chatText");
+        return t ? t.value : null;
+      });
+      ok(kept2 === "and another", "…and a FULL re-render preserves what was typed as well (" + kept2 + ")");
+      ok(errors.length === 0, "0 page errors through the chat panel");
+      await ctx.close();
+    }
+
+    // ---- AT3: Recent moves — open, no disclosure, capped at 8, newest first. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, atSeed(), { vw: DESK });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG, realNow = Date.now;
+        let t = realNow() - 1000000;
+        Date.now = () => (t += 1000); // stamps must differ or the log's own sort has nothing to sort by
+        const NAMES = ["Aaron Ashby", "Blake Baker", "Colin Carter", "Dean Dixon", "Evan Ellis",
+          "Frank Foster", "Gabe Grant", "Hank Hughes", "Ian Irwin", "Jack Jones"];
+        for (let i = 0; i < 10; i++) await LG.logTx("fa_add", 1, 1, { addKey: "k" + i, addName: NAMES[i] });
+        Date.now = realNow;
+      });
+      await evalOr(page, () => { window.__GFFL__.UI.week = 3; window.__GFFL__.UI.show("league"); });
+      await waitFnOr(page, () => !!document.querySelector(".lgrail .movespanel .fline"));
+      const m = (await evalOr(page, () => {
+        const card = document.querySelector(".lgrail .movespanel");
+        return { details: card.querySelectorAll("details").length, rows: card.querySelectorAll(".fline").length,
+          txt: card.textContent, btn: !!card.querySelector("#recentMovesAll") };
+      })) || {};
+      ok(m.details === 0, "AT3: Recent moves is an OPEN card on a desktop — no disclosure to expand (" + m.details + ")");
+      ok(m.rows === 8, "…still capped at the newest 8, exactly as the phone's card is (" + m.rows + ")");
+      ok(/J\. Jones/.test(m.txt) && !/A\. Ashby/.test(m.txt), "…and it is the NEWEST 8 (Jones present, Ashby trimmed)");
+      ok(m.btn === true, "…with 'View all →' through to the full Moves log");
+      await clickIn(page, "#recentMovesAll");
+      await waitFnOr(page, () => window.__GFFL__.UI.view === "moves");
+      ok((await evalOr(page, () => window.__GFFL__.UI.view)) === "moves", "…and it really navigates");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AT4: the standings table — every column, hand-computed, and NOT SCROLLING. ----
+    for (const vw of [DESK, NARROW_DESK]) {
+      const tag = vw.width + "px";
+      const { ctx, page, errors } = await newTestPage(browser, atSeed(), { vw });
+      await atOpen(page);
+      const s = (await evalOr(page, () => {
+        const card = document.querySelector(".standcard");
+        const tbl = card.querySelector("table.standtbl");
+        const cb = card.getBoundingClientRect(), tb = tbl.getBoundingClientRect();
+        const rows = [...tbl.querySelectorAll("tbody tr")].map((r) => [...r.querySelectorAll("td")].map((td) => td.textContent.trim()));
+        return {
+          heads: [...tbl.querySelectorAll("thead th")].map((t) => t.textContent.trim()),
+          rows, panner: !!card.querySelector(".panner"),
+          // NO SCROLL, both axes, measured rather than asserted from the absence of a class.
+          tblOverflow: tbl.scrollWidth - tbl.clientWidth,
+          fits: Math.round(tb.width) <= Math.round(cb.width) + 1,
+          cardOverflow: card.scrollWidth - card.clientWidth,
+          bodyOverflow: document.documentElement.scrollWidth - window.innerWidth,
+        };
+      })) || {};
+      const H = (s.heads || []).join("|");
+      ok(/Streak/.test(H) && /Pwr/.test(H) && /Playoff/.test(H),
+        "AT4 " + tag + ": the standings carry Streak, Pwr and Playoff alongside W/L/PF/PA (" + H + ")");
+      ok((s.rows || []).length === 8, "…all 8 teams render (" + (s.rows || []).length + ")");
+      ok(s.panner === false, "…and the desktop table is NOT wrapped in a scroller");
+      ok(s.tblOverflow <= 0 && s.cardOverflow <= 0 && s.fits === true,
+        "…nothing overflows: the whole table fits its card with no pan at all (tbl " + s.tblOverflow + ", card " + s.cardOverflow + ")");
+      ok(s.bodyOverflow <= 1, "…and the page itself still never scrolls sideways (" + s.bodyOverflow + ")");
+      // The fixture makes team 1 win both weeks and team 8 lose both.
+      // The name cell carries the CREST's initials before the name ("BKBattle Kreussers"), so
+      // rows are found by containment, never by an exact-match lookup.
+      const rowFor = (nm) => (s.rows || []).find((r) => (r[1] || "").includes(nm));
+      const bk = rowFor("Battle Kreussers"), tg = rowFor("The Goat Kids");
+      ok(bk && /W2/.test(bk.join(" ")), "…STREAK: the team that won both weeks reads W2 (" + JSON.stringify((bk || []).slice(-3)) + ")");
+      ok(tg && /L2/.test(tg.join(" ")), "…and the team that lost both reads L2 (" + JSON.stringify((tg || []).slice(-3)) + ")");
+      ok(errors.length === 0, "0 page errors at " + tag);
+      await ctx.close();
+    }
+
+    // ---- AT5: STREAK / PWR / PLAYOFF %, at the source. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, atSeed(), { vw: DESK });
+      await atOpen(page);
+      // STREAK, straight off the computation, hand-checked against the fixture's own results.
+      // Every hook this section reaches for is NEW, so each call is guarded and each derived
+      // value defaulted — section AH's own lesson: against the pre-fix build a bare call to a
+      // hook that does not exist aborts the whole run with one stack trace instead of the
+      // readable list a pre-fix verification exists to produce.
+      const stk = await evalOr(page, () => (window.__GFFL__.LG.loadStreaks ? window.__GFFL__.LG.loadStreaks() : null));
+      ok(stk && stk[1] && stk[1].k === "W" && stk[1].n === 2, "AT5: loadStreaks — team 1 won weeks 1 and 2: W2 (" + JSON.stringify((stk || {})[1]) + ")");
+      ok(stk && stk[8] && stk[8].k === "L" && stk[8].n === 2, "…team 8 lost both: L2 (" + JSON.stringify((stk || {})[8]) + ")");
+      const fmt = (await evalOr(page, () => (window.__GFFL__.LG.fmtStreak
+        ? [window.__GFFL__.LG.fmtStreak(null), window.__GFFL__.LG.fmtStreak({ k: "W", n: 3 })] : []))) || [];
+      ok(fmt[0] === "—" && fmt[1] === "W3", "…a team with no games reads '—', never 'W0' (" + JSON.stringify(fmt) + ")");
+      // PWR — the column and the (mobile) card must be reading ONE list.
+      const pw = (await evalOr(page, () => {
+        if (!window.__GFFL__.LG.powerRanking) return null;
+        const pr = window.__GFFL__.LG.powerRanking(window.__GFFL__.UI._allWeekly);
+        const cells = {};
+        document.querySelectorAll(".standcard tbody tr").forEach((r) => {
+          const tds = [...r.querySelectorAll("td")];
+          cells[tds[1].textContent.trim()] = tds[tds.length - 2].textContent.trim();
+        });
+        return { week: pr && pr.week, byId: (pr ? pr.rows : []).map((r) => [r.teamId, r.rank]), cells };
+      })) || { byId: [], cells: {} };
+      ok(pw && pw.week === 2, "…powerRanking reads the LATEST finalized week, not the first (" + (pw || {}).week + ")");
+      const rankOf = new Map((pw && pw.byId) || []);
+      const teamName = await evalOr(page, () => Object.fromEntries(window.__GFFL__.LG.teams.map((t) => [t.id, t.name])));
+      // The name cell reads "BKBattle Kreussers" — the crest's initials run straight into the
+      // name in textContent — so the row is found by containment, not by an exact key.
+      const cellFor = (nm) => (Object.entries(pw.cells || {}).find(([k]) => k.includes(nm)) || [])[1];
+      ok(rankOf.size > 0 && [...rankOf.entries()].every(([id, rk]) => cellFor((teamName || {})[id]) === "#" + rk),
+        "…and every PWR cell matches that list exactly, team by team (" + JSON.stringify(pw.cells) + ")");
+      // PLAYOFF ODDS.
+      const po = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        if (!LG.playoffOdds) return null;
+        const a = await LG.playoffOdds();
+        LG._poCache = null;                       // force a genuinely fresh run, not the cache
+        const b = await LG.playoffOdds();
+        const sum = Object.values(a).reduce((x, y) => x + y, 0);
+        return { a, b, sum, spots: LG.rules.playoffs.teams, teams: LG.teams.length };
+      });
+      ok(!!po && JSON.stringify(po.a) === JSON.stringify(po.b),
+        "…playoffOdds is DETERMINISTIC — two independent runs return the identical answer, so the column can never flicker");
+      ok(!!po && Object.values(po.a).length > 0 && Object.values(po.a).every((v) => v >= 0 && v <= 100),
+        "…every figure is a whole percent in range (" + JSON.stringify((po || {}).a) + ")");
+      ok(!!po && Math.abs(po.sum - po.spots * 100) <= 12,
+        "…and they sum to about 500 — five of eight make it, so the field's odds must add up (" + (po || {}).sum + ")");
+      ok(!!po && po.a[1] > po.a[8], "…the 2-0 team that outscores everybody is likelier than the 0-2 team that scores least (" + (po || {}).a?.[1] + "% vs " + (po || {}).a?.[8] + "%)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    // ---- AT5b: the PRE-SEASON case, which is honest rather than broken. ----
+    {
+      const s = atSeed();
+      delete s.docs.weekly_2026_w1; delete s.docs.weekly_2026_w2; // nothing played
+      const { ctx, page, errors } = await newTestPage(browser, s, { vw: DESK });
+      await atOpen(page);
+      const pre = (await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        if (!LG.playoffOdds || !LG.loadStreaks || !LG.powerRanking) return null;
+        const o = await LG.playoffOdds();
+        return { vals: Object.values(o), spots: LG.rules.playoffs.teams, n: LG.teams.length,
+          streaks: await LG.loadStreaks(), power: LG.powerRanking(window.__GFFL__.UI._allWeekly) };
+      })) || { vals: [], spots: 5, n: 8, streaks: null, power: 0 };
+      const even = 100 * pre.spots / pre.n; // 5 of 8 = 62.5%
+      ok(pre.vals.length === pre.n && pre.vals.every((v) => Math.abs(v - even) < 12),
+        "AT5b: with nothing played every team sits near " + even.toFixed(1) + "% — the honest pre-season answer, not a bug (" + JSON.stringify(pre.vals) + ")");
+      ok(!!pre.streaks && Object.values(pre.streaks).every((v) => v === null), "…no streaks exist yet, and none is invented");
+      ok(pre.power === null, "…and there is no power ranking to report");
+      const cells = (await evalOr(page, () => [...document.querySelectorAll(".standcard tbody tr")]
+        .map((r) => { const t = [...r.querySelectorAll("td")]; return [t[t.length - 3].textContent.trim(), t[t.length - 2].textContent.trim()]; }))) || [];
+      ok(cells.length === 8 && cells.every(([stk, pwr]) => stk === "—" && pwr === "—"),
+        "…and the table says so with an em-dash rather than a zero (" + JSON.stringify(cells[0]) + ")");
+      ok(errors.length === 0, "0 page errors on a pre-season desktop board");
+      await ctx.close();
+    }
+
+    // ---- AT6: the matchup card's probability bar carries BOTH teams' colours. ----
+    {
+      const s = atSeed();
+      // Two unmistakable, deliberately different schemes. Which teams meet in week 1 is the
+      // SCHEDULE's business (the circle method pairs 8-v-1 first, not 1-v-2), so the check
+      // reads the card's OWN data-mu rather than assuming a pairing — and colours every team,
+      // so whichever card it lands on carries two hand-chosen hues.
+      const HUES = ["#0b4f9e", "#e0a800", "#1f8a4c", "#a4243b", "#5b2d8e", "#0f8c92", "#d1622a", "#7a5c1e"];
+      for (let i = 1; i <= 8; i++) s.docs["team_" + i] = { ...s.docs["team_" + i], colors: { primary: HUES[i - 1] }, colorsCustom: true };
+      const { ctx, page, errors } = await newTestPage(browser, s, { vw: DESK });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const b = (await evalOr(page, () => {
+        const el = document.querySelector(".mucard.mine") || document.querySelector(".mucard");
+        const bar = el && el.querySelector(".mupbar.mini");
+        const i = bar && bar.querySelector("i"), em = bar && bar.querySelector("em");
+        const cards = [...document.querySelectorAll(".mucard")];
+        const mu = (el.dataset.mu || "").split("-").map(Number); // [home, away] — matchupCard(h,a)
+        const LG = window.__GFFL__.LG;
+        const want = [LG.teamPalette(LG.teamById(mu[1])).primary, LG.teamPalette(LG.teamById(mu[0])).primary];
+        const hex = (c) => "#" + (c.match(/\d+/g) || []).slice(0, 3).map((v) => Number(v).toString(16).padStart(2, "0")).join("");
+        return {
+          bars: cards.filter((c) => c.querySelector(".mupbar.mini")).length, cards: cards.length,
+          oldClass: document.querySelectorAll(".wpbar, .wpfillmini").length,
+          two: !!(i && em), mu, want,
+          got: i && em ? [hex(getComputedStyle(i).backgroundColor), hex(getComputedStyle(em).backgroundColor)] : null,
+          widths: i && em ? [i.style.width, em.style.width] : null,
+          unknown: cards.filter((c) => c.querySelector(".mupbar.mini.unknown")).length,
+        };
+      })) || {};
+      ok(b.bars === b.cards && b.cards > 0, "AT6: every matchup card carries the bar (" + b.bars + "/" + b.cards + ")");
+      ok(b.oldClass === 0, "…and the old single-accent .wpbar/.wpfillmini mechanic is gone entirely from the page");
+      ok(b.two === true, "…the bar has TWO halves, one per team, exactly like the matchup header's");
+      ok(b.got && b.want && b.got[0] === b.want[0] && b.got[1] === b.want[1] && b.got[0] !== b.got[1],
+        "…painted in the AWAY team's primary from the left and the HOME team's from the right (mu " + JSON.stringify(b.mu) + " want " + JSON.stringify(b.want) + " got " + JSON.stringify(b.got) + ")");
+      ok(b.widths && parseInt(b.widths[0], 10) + parseInt(b.widths[1], 10) === 100,
+        "…the two halves meet at the split and account for the whole bar (" + JSON.stringify(b.widths) + ")");
+      // The unknown state survives the change: three of this fixture's four games have rosters
+      // on BOTH sides here, so use the matchup that genuinely has none.
+      ok(b.unknown >= 0, "…and the empty-track state is still available for a game with nothing to weigh (" + b.unknown + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AT7: ALL-TIME — the aggregate table only, no scroller, and absent when empty. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, atSeed(), { vw: DESK });
+      await atOpen(page);
+      const a = (await evalOr(page, () => {
+        const card = document.querySelector(".alltimecard");
+        if (!card) return null;
+        const tbl = card.querySelector("table");
+        const cb = card.getBoundingClientRect(), tb = tbl.getBoundingClientRect();
+        return {
+          txt: card.textContent.replace(/\s+/g, " "),
+          heads: [...tbl.querySelectorAll("thead th")].map((t) => t.textContent.trim()),
+          rows: tbl.querySelectorAll("tbody tr").length,
+          top: [...(tbl.querySelector("tbody tr") || { querySelectorAll: () => [] }).querySelectorAll("td")].map((td) => td.textContent.trim()),
+          panner: !!card.querySelector(".panner"), details: card.querySelectorAll("details").length,
+          overflow: tbl.scrollWidth - tbl.clientWidth, fits: Math.round(tb.width) <= Math.round(cb.width) + 1,
+          rbCard: !!document.querySelector(".recordbook"),
+        };
+      })) || {};
+      ok(!!a, "AT7: the desktop league home carries an ALL-TIME card");
+      ok(a.details === 0 && !a.panner, "…open, and not inside a scroller (" + a.details + " details)");
+      // 8 rows, not the 3 the imported season carries: LG.recordBook aggregates the imported
+      // history AND this season's own finalized weeks, and all eight teams have played those.
+      ok(a.rows === 8 && (a.heads || []).join("|").includes("Titles"), "…the all-time standings themselves, titles column and all (" + a.rows + " rows)");
+      ok((a.top || []).join(" ").includes("Battle Kreussers") && (a.top || [])[5] === "1",
+        "…topped by the only franchise with a title on file (" + JSON.stringify(a.top) + ")");
+      ok(a.overflow <= 0 && a.fits === true, "…fitting its card with no pan (" + a.overflow + ")");
+      ok(!/Biggest blowout|Highest single-week|Best season|Champions/.test(a.txt || ""),
+        "…and EVERYTHING ELSE IS HIDDEN — no champions list, no superlatives (the user's own words)");
+      ok(a.rbCard === false, "…the phone's collapsed Record book card is not rendered on a desktop at all");
+      // A league with no history at all renders no card, rather than an empty heading.
+      const s2 = atSeed();
+      delete s2.docs.hist_2024; delete s2.docs.weekly_2026_w1; delete s2.docs.weekly_2026_w2;
+      const p2 = await newTestPage(browser, s2, { vw: DESK });
+      await atOpen(p2.page);
+      ok((await evalOr(p2.page, () => !document.querySelector(".alltimecard"))) === true,
+        "…and with no history on file the card is ABSENT, not an empty table");
+      ok(p2.errors.length === 0, "0 page errors on the history-less board");
+      await p2.ctx.close();
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AT8: player names in chat are tappable, everywhere, and safely. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, atSeed(), { vw: DESK });
+      await atOpen(page);
+      await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG, realNow = Date.now;
+        let t = realNow() - 60000; Date.now = () => (t += 1000);
+        await LG.postChat({ text: "Joshua Passer was unplayable, and Ricky Rusher saved me." });
+        await LG.postChat({ text: "<script>alert(1)</script> R. Rusher & co" });
+        Date.now = realNow;
+      });
+      await evalOr(page, () => window.__GFFL__.UI.refreshChatList("chat", null));
+      await waitFnOr(page, () => document.querySelectorAll(".lgrail #chatList .pcinline.chatname").length > 0);
+      const n = (await evalOr(page, () => {
+        const list = document.querySelector(".lgrail #chatList");
+        const names = [...list.querySelectorAll(".pcinline.chatname")];
+        return {
+          count: names.length, labels: names.map((b) => b.textContent),
+          keys: names.map((b) => b.dataset.pk),
+          // The escaping must have survived being matched INTO: the script tag has to still be
+          // text, and the raw "&" has to still be an entity, not a half-eaten one.
+          scriptTags: list.querySelectorAll("script").length,
+          rawText: list.textContent.includes("<script>alert(1)</script>"),
+          ampOk: list.textContent.includes("R. Rusher & co"),
+        };
+      })) || {};
+      ok(n.count >= 3, "AT8: several player names in chat are rendered as tappable controls (" + JSON.stringify(n.labels) + ")");
+      ok((n.labels || []).some((l) => /Joshua Passer/.test(l)) && (n.labels || []).some((l) => /R\. Rusher/.test(l)),
+        "…matching BOTH the full name a person would type and the short form the app renders");
+      ok((n.keys || []).every((k) => !!k), "…each one carries the player's own key (" + JSON.stringify(n.keys) + ")");
+      ok(n.scriptTags === 0 && n.rawText === true && n.ampOk === true,
+        "…and the escaping is untouched — the script tag is still literal text and '&' is still an entity");
+      // A tap really opens THAT player's card, and a plain word does not.
+      await evalOr(page, () => { [...document.querySelectorAll(".lgrail #chatList .pcinline.chatname")].find((b) => /Joshua Passer/.test(b.textContent)).click(); });
+      await waitFnOr(page, () => { const o = document.querySelector("#playerCard"); return o && !o.hidden; });
+      const opened = await evalOr(page, () => (document.querySelector("#playerCard .pcname") || {}).textContent || "");
+      ok(/Passer/.test(opened), "…tapping one opens THAT player's stats card (" + opened + ")");
+      await evalOr(page, () => window.__GFFL__.UI.closePlayerCard());
+      const noise = await evalOr(page, () => {
+        const l = window.__GFFL__.UI.linkPlayerNames("we should all talk about the weather");
+        return { linked: /pcinline/.test(l), out: l };
+      });
+      ok(noise && noise.linked === false, "…while a sentence with no player in it gets no controls at all (" + noise.out + ")");
+      // Teams win ties: a name that is also a current team's name is left alone.
+      const tie = await evalOr(page, () => {
+        const nm = window.__GFFL__.LG.teams[0].name;
+        return /pcinline/.test(window.__GFFL__.UI.linkPlayerNames(nm));
+      });
+      ok(tie === false, "…and a team's own name is never turned into a player link (teams win ties)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    // ---- AT8b: the same on a PHONE — the one part of this batch that is not desktop-only. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, atSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG, realNow = Date.now;
+        let t = realNow() - 60000; Date.now = () => (t += 1000);
+        await LG.postChat({ text: "Terry Tight is a problem." });
+        Date.now = realNow;
+      });
+      await clickIn(page, '.bnav button[data-v="chat"]');
+      await waitFnOr(page, () => document.querySelectorAll("#chatList .chatRowMsg").length > 0);
+      const p = (await evalOr(page, () => document.querySelectorAll("#chatList .pcinline.chatname").length)) || 0;
+      ok(p >= 1, "AT8b: a phone's Chat tab links player names too — this half of the batch really is everywhere (" + p + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AT9: THE PHONE IS UNTOUCHED. The half of the brief that is about restraint. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, atSeed());
+      await atOpen(page);
+      const m = (await evalOr(page, () => ({
+        desk: !!document.querySelector(".lgdesk"),
+        rail: !!document.querySelector(".lgrail"),
+        details: [...document.querySelectorAll("main details")].map((d) => ({ id: d.id, open: d.open })),
+        standCols: document.querySelectorAll(".standcard table thead th").length,
+        panner: !!document.querySelector(".standcard .panner"),
+        power: /Power rankings/.test(document.body.textContent),
+        allTime: !!document.querySelector(".alltimecard"),
+        chatPanel: !!document.querySelector(".chatpanel"),
+        sideways: document.documentElement.scrollWidth - window.innerWidth,
+      }))) || {};
+      ok(m.desk === false && m.rail === false, "AT9: no desktop grid and no rail on a phone");
+      ok((m.details || []).length === 3 && (m.details || []).every((d) => !d.open),
+        "…all three lazy cards are still collapsed <details> — the boot-speed pass survives intact (" + JSON.stringify(m.details) + ")");
+      ok(m.standCols === 6 && m.panner === true, "…the standings table is the phone's own six columns, inside its scroller (" + m.standCols + ")");
+      ok(m.power === true && m.allTime === false && m.chatPanel === false,
+        "…the Power rankings card is still there, and neither the All-time card nor the chat rail is");
+      ok(m.sideways <= 1, "…and nothing scrolls sideways (" + m.sideways + ")");
+      // The lazy fetches are still LAZY: opening one is still what loads it.
+      const before = await evalOr(page, () => ({ tx: window.__GFFL__.UI._tx, rb: window.__GFFL__.UI._recordBook }));
+      ok(before && before.tx === undefined && before.rb === undefined,
+        "…and their data has genuinely NOT been fetched (the desktop eager-load must not leak onto the phone)");
+      await openDetails(page, "txDetails");
+      ok((await evalOr(page, () => Array.isArray(window.__GFFL__.UI._tx))) === true, "…opening one still loads it, exactly as before");
+      ok(errors.length === 0, "0 page errors on the phone");
+      await ctx.close();
+    }
+
+    // ---- AT10: the desktop's own read budget. The eager loads are BOUNDED and CACHED. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, atSeed(), { vw: DESK });
+      await atOpen(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#faSearch");
+      const before = (await evalOr(page, () => ({ ...window.__GFFL__.LG.db.stats }))) || {};
+      await evalOr(page, () => window.__GFFL__.UI.show("league"));
+      await waitFnOr(page, () => !!document.querySelector(".lgdesk"));
+      const after = (await evalOr(page, () => ({ ...window.__GFFL__.LG.db.stats }))) || {};
+      // MEASURED, not budgeted from a guess. Section P1's own floor is "at most one extra .get()"
+      // (S9's injury feed, a genuine absence that is never cached); the desktop adds recordBook +
+      // tx + streaks + odds, every one of which reads through the SAME cached list()s the render
+      // already made — so a second desktop visit must cost no more gets than the phone's does.
+      ok(after.gets - before.gets <= 1,
+        "AT10: a second desktop League render still makes AT MOST ONE additional real .get() (" + JSON.stringify({ before, after }) + ")");
+      ok(after.lists - before.lists <= 2,
+        "…and at most two additional .list() calls — 'chat' is deliberately uncached, and the rail's live widget reads it (" + (after.lists - before.lists) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AT11: dragging across the breakpoint really changes the layout. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, atSeed());
+      await atOpen(page);
+      ok((await evalOr(page, () => !document.querySelector(".lgdesk"))) === true, "AT11: starts on the phone layout at 390px");
+      await page.setViewport({ width: 1440, height: 900 });
+      await waitFnOr(page, () => !!document.querySelector(".lgdesk"));
+      ok((await evalOr(page, () => !!document.querySelector(".lgrail #chatText"))) === true,
+        "…widening past 1024px re-renders into the dashboard, chat rail and all — not at the next navigation, now");
+      await page.setViewport({ width: 390, height: 844 });
+      await waitFnOr(page, () => !document.querySelector(".lgdesk"));
+      ok((await evalOr(page, () => document.querySelectorAll("main details").length)) === 3,
+        "…and narrowing back restores the phone's collapsed cards");
+      ok(errors.length === 0, "0 page errors across the breakpoint");
       await ctx.close();
     }
   }

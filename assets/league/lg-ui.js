@@ -12,6 +12,15 @@
   // plain esc() — this one is only ever for a person on a roster. See LG.shortName's own note
   // for why the shortening is display-only and never touches stored or wire data.
   const escn = (s) => esc(LG.shortName(s));
+  // ---------------- the desktop breakpoint (2026-08-11) ----------------
+  // The League tab is TWO layouts, not one stylesheet: on a phone it is the stacked card list
+  // it has always been (collapsed <details>, lazy data, six standings columns); at ≥1024px it
+  // is a two-column dashboard with an always-expanded chat rail. The split is a real branch in
+  // renderLeague — a CSS-only version can't turn a <details> into a panel, can't add table
+  // columns, and can't decide what to fetch. 1024px is the SAME number league.html's own
+  // desktop media block uses; the two must stay in step.
+  const DESK_MQ = "(min-width:1024px)";
+  const isWide = () => !!(window.matchMedia && window.matchMedia(DESK_MQ).matches);
   const FA_SEARCH_DEBOUNCE_MS = 180; // S6 — see the players-table search's own note
   const HOT_PICKUPS_N = 5;           // S6 — how many trending adds the Moves strip shows
   // Up to 2-letter initials for a team-avatar fallback (design system §"Team avatars are
@@ -1282,22 +1291,119 @@
   // with a movement arrow against the PRIOR finalized week's own snapshot for the same team
   // (blank on week 1 — nothing to move against). Renders nothing at all until at least one week
   // is official — a ranking of an unplayed season would be meaningless.
+  // MOBILE ONLY since the desktop design pass (2026-08-11): on a desktop the rank is a column
+  // in the standings table (PWR), so a whole second card restating the same order is redundant
+  // chrome. The computation moved to LG.powerRanking() so the card and that column read from
+  // ONE list and can never disagree.
   function powerRankingsHtml(weeklyDocs) {
-    const sorted = [...(weeklyDocs || [])].filter((w) => Array.isArray(w.power) && w.power.length).sort((a, b) => b.week - a.week);
-    const latest = sorted[0];
-    if (!latest) return "";
-    const prior = sorted.find((w) => w.week === latest.week - 1);
-    const rows = [...latest.power].sort((a, b) => a.rank - b.rank).map((r) => {
+    const pr = LG.powerRanking(weeklyDocs);
+    if (!pr) return "";
+    const rows = pr.rows.map((r) => {
       const T = LG.teamById(r.teamId);
-      const prevR = prior ? (prior.power.find((p) => p.teamId === r.teamId) || {}).rank : null;
-      const move = prevR == null ? '<span class="mut">–</span>'
-        : prevR > r.rank ? `<span class="delta up">▲${prevR - r.rank}</span>`
-        : prevR < r.rank ? `<span class="delta down">▼${r.rank - prevR}</span>`
+      const move = r.prevRank == null ? '<span class="mut">–</span>'
+        : r.prevRank > r.rank ? `<span class="delta up">▲${r.prevRank - r.rank}</span>`
+        : r.prevRank < r.rank ? `<span class="delta down">▼${r.rank - r.prevRank}</span>`
         : '<span class="mut">–</span>';
       return `<div class="rowline"><span>#${r.rank} <span class="teamlink" data-locker="${r.teamId}">${logoTd(T)}${teamNameHtml(T)}</span></span>
         <span>${move} <span class="mut small">${r.score}</span></span></div>`;
     }).join("");
-    return `<div class="card"><h2>Power rankings <span class="mut">— through week ${latest.week}</span></h2>${rows}</div>`;
+    return `<div class="card"><h2>Power rankings <span class="mut">— through week ${pr.week}</span></h2>${rows}</div>`;
+  }
+  // ---------------- standings (2026-08-11 desktop pass) ----------------
+  // ONE builder, two shapes. MOBILE is byte-for-byte what it always was — # / Team / W / L /
+  // PF / PA inside a .panner, because three more columns on a 390px phone is three more columns
+  // to pan past. DESKTOP is the user's own list — "win/loss streak, power ranking, playoff
+  // probability %" — and carries the batch's hardest constraint: NO SCROLL AT ALL. No .panner,
+  // no max-height, and the whole table has to fit the MAIN column at 1024px (the tightest legal
+  // desktop, ~620px of content). That is paid for out of the type and the padding (a .standtbl
+  // rule in league.html), and out of PF/PA dropping their decimals — a tenth of a point in a
+  // season total is not what anyone reads a standings table for, and the matchup pages carry
+  // the exact figures.
+  function standingsHtml(rows, st, opts) {
+    opts = opts || {};
+    const wide = !!opts.wide;
+    const streaks = opts.streaks || {};
+    const odds = opts.odds || {};
+    const pwr = {};
+    if (opts.power) for (const r of opts.power.rows) pwr[r.teamId] = r.rank;
+    // The T column earns its place only if somebody has actually tied.
+    const anyTie = wide && rows.some((t) => ((st[t.id] || {}).t || 0) > 0);
+    const head = wide
+      ? `<tr><th></th><th>Team</th><th class="num">W</th><th class="num">L</th>${anyTie ? '<th class="num">T</th>' : ""}
+         <th class="num">PF</th><th class="num">PA</th><th class="num">Streak</th><th class="num">Pwr</th><th class="num">Playoff</th></tr>`
+      : `<tr><th></th><th>Team</th><th class="num">W</th><th class="num">L</th><th class="num">PF</th><th class="num">PA</th></tr>`;
+    const body = rows.map((t, i) => {
+      const s = st[t.id] || { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
+      // S3: the standings row is where most people meet most teams, so the crest grew
+      // 20 -> 28px and the name takes the team's own (contrast-clamped) ink. Fill-only
+      // treatment at this size — see teamNameHtml.
+      const idcell = `<tr><td class="mut">${i + 1}</td><td><span class="teamlink" data-locker="${t.id}">${logoTd(t)}${teamNameHtml(t)}</span></td>
+        <td class="num">${s.w}</td><td class="num">${s.l}</td>`;
+      if (!wide) return idcell + `<td class="num">${LG.fmtNum(s.pf)}</td><td class="num">${LG.fmtNum(s.pa)}</td></tr>`;
+      const stk = streaks[t.id] || null;
+      // A run is coloured by what it IS — the app's own good/bad language — but only ever
+      // when there is a run; "—" stays quiet ink.
+      const stkCls = !stk ? "mut" : stk.k === "W" ? "stkw" : stk.k === "L" ? "stkl" : "mut";
+      const rank = pwr[t.id];
+      const po = odds[t.id];
+      const poCls = po == null ? "mut" : po >= 100 ? "poin" : po <= 0 ? "poout" : "";
+      const poTxt = po == null ? "—" : po + "%";
+      return idcell
+        + (anyTie ? `<td class="num">${s.t || 0}</td>` : "")
+        + `<td class="num">${Math.round(LG.n(s.pf))}</td><td class="num">${Math.round(LG.n(s.pa))}</td>
+           <td class="num ${stkCls}">${esc(LG.fmtStreak(stk))}</td>
+           <td class="num">${rank == null ? '<span class="mut">—</span>' : "#" + rank}</td>
+           <td class="num ${poCls}">${poTxt}</td></tr>`;
+    }).join("");
+    const table = `<table class="tbl standtbl"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+    // The whole point of the desktop table: it is NOT wrapped in a scroller.
+    return `<div class="card standcard"><h2>Standings</h2>${wide ? table : `<div class="panner">${table}</div>`}</div>`;
+  }
+  // ---------------- ALL-TIME (2026-08-11 desktop pass) ----------------
+  // The record book, reduced to the one thing the user asked to keep: "record book should show
+  // all time standings, again no scrolling needed and everything else should be hidden." So on
+  // a desktop the champions / highest week / biggest blowout / best-season-PF superlatives are
+  // ABSENT — not collapsed, absent — and what remains is the aggregate table, open, unscrolled.
+  // Mobile's record book keeps every one of them behind its own <details>; this is a second
+  // reader of the SAME LG.recordBook() data, never a second computation.
+  // The card renders NOTHING AT ALL when there is no history — an "all-time standings" heading
+  // over an empty table is chrome, not information (matchupHeroExtra's own rule, applied to a
+  // card).
+  function allTimeHtml(rb) {
+    if (!rb || !rb.hasData || !rb.standings || !rb.standings.length) return "";
+    // The crest + the team's own ink, exactly as the standings table above it renders them —
+    // the two tables sit one under the other on this page and must read as one family. Safe
+    // because recordBook's own live() gate means every row here IS a current franchise, so
+    // teamById always resolves (a folded team never reaches this list).
+    const rows = rb.standings.map((s, i) => {
+      const T = LG.teamById(s.teamId);
+      return `<tr><td class="mut">${i + 1}</td>
+        <td><span class="teamlink" data-locker="${s.teamId}">${logoTd(T)}${T ? teamNameHtml(T) : esc(s.name)}</span></td>
+        <td class="num">${s.w}</td><td class="num">${s.l}</td>
+        <td class="num">${Math.round(LG.n(s.pf))}</td><td class="num">${s.titles}</td></tr>`;
+    }).join("");
+    return `<div class="card alltimecard"><h2>All-time</h2>
+      <table class="tbl standtbl"><thead><tr><th></th><th>Team</th><th class="num">W</th><th class="num">L</th>
+        <th class="num">PF</th><th class="num">Titles</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  }
+  // ---------------- the desktop rail (2026-08-11) ----------------
+  // "Chat should be in the top right and always expanded, recent moves should also start as
+  // expanded." Neither is a <details> here: a disclosure whose answer is always "open" is a
+  // control that does nothing. The chat panel is the FULL widget (list + composer), not the
+  // six-line preview the phone shows — the rail is where the league's talk lives, so it has to
+  // be talkable-in. Its message list keeps its own internal scroll (that is what "always
+  // expanded" means about the PANEL, not about height): league.html caps the panel around
+  // 560px so the moves card beneath it is never pushed off the fold.
+  function deskChatPanelHtml() {
+    return `<div class="card chatcard chatpanel" id="deskChatPanel"><h2>League chat</h2>${chatWidgetHtml("chat")}</div>`;
+  }
+  function deskMovesHtml(tx) {
+    const recent = (tx || []).slice(0, 8);
+    return `<div class="card movespanel"><h2>Recent moves</h2>
+      ${recent.length ? recent.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${esc(txSentence(t))}</div>`).join("")
+        : '<p class="mut">No moves yet.</p>'}
+      <button id="recentMovesAll" class="mut">View all →</button></div>`;
   }
   //  Projection accuracy card (plan §5's scoreboard): our own running miss vs OUR pre-game
   // snapshots. Never rendered as a comparison to ESPN — that data isn't logged (see the S5 plan
@@ -1438,7 +1544,7 @@
     const line = (m) => {
       const who = (LG.teamById(m.teamId) || {}).name || m.who || "?";
       const body = m.text || (m.img ? "[photo]" : m.gif ? "[gif]" : "");
-      return `<div class="fline"><b>${esc(who)}:</b> ${esc(body.slice(0, 120))}</div>`;
+      return `<div class="fline"><b>${esc(who)}:</b> ${linkPlayerNames(esc(body.slice(0, 120)))}</div>`;
     };
     if (chat === undefined) {
       return `<div class="card"><details class="collapsecard" id="chatDetails"><summary>League chat</summary>
@@ -1594,6 +1700,7 @@
   }
   async function renderLeague(repaint) {
     if (!LG.teams.length) { renderFirstRun(repaint); return; }
+    const wide = isWide();
     if (!repaint) {
       // Boot-speed pass (2026-08-08): this used to be TWELVE serial awaits before the first
       // pixel of the league home ever painted — on a real (non-instant) backend that's twelve
@@ -1635,6 +1742,21 @@
       UI._standings = standings; UI._weeklyDoc = weeklyDoc; UI._accuracy = accuracy;
       UI._bracket = bracket; UI._wkGames = wkGames; UI._staleWeeks = staleWeeks;
       UI._injFeed = injFeed;
+      // DESKTOP EAGER-LOADS, in ONE more parallel batch (2026-08-11). The three lazy cards
+      // above exist because most phone opens never look at them; on a desktop the record book
+      // IS a card on the page (All-time) and the moves list is the right-hand rail, so there is
+      // nothing to wait for a tap on — the reason for the laziness is gone, and keeping it
+      // would just paint two placeholder shells. Bounded exactly as the cards were:
+      // deskMovesHtml takes the newest 8, allTimeHtml the aggregate table only.
+      // CHAT is deliberately NOT in this batch: on a desktop the rail carries the LIVE widget,
+      // which fetches its own messages through refreshChatList after the paint — awaiting it
+      // here would put a network round trip in front of the first pixel for no gain.
+      if (wide) {
+        const [rb, tx, streaks, odds] = await Promise.all([
+          LG.recordBook(), LG.loadTx(), LG.loadStreaks(), LG.playoffOdds(),
+        ]);
+        UI._recordBook = rb; UI._tx = tx; UI._streaks = streaks; UI._odds = odds;
+      }
     }
     const st = UI._standings || {};
     const wkGames = UI._wkGames || [];
@@ -1647,33 +1769,81 @@
       ? `<div class="rowline"><button id="finalizeBtn">Finalize week ${UI.week}</button></div>` : "";
     const noGamesMsg = !schedule ? `No schedule yet${isCommish() ? " — generate one in Rules" : ""}.`
       : UI.week > seasonWeeks ? "See the Playoffs card below." : "No games this week.";
-    main().innerHTML = `
-      ${draftCountdownCardHtml(LG.rules)}
+    const weekCard = `
       <div class="card">
         <div class="rowline"><h2>Week ${UI.week}</h2><span id="healthChip" class="health" hidden></span></div>
         ${wkGames.length ? `<div class="mugrid">${wkGames.map(([h, a]) => matchupCard(h, a)).join("")}</div>` : `<p class="mut">${noGamesMsg}</p>`}
         ${finalizeBtn}
-      </div>
-      ${injuryFeedCardHtml(UI._injFeed)}
-      ${leagueLinksHtml(LG.rules)}
-      ${staleWeeksHtml(UI._staleWeeks, isCommish())}
-      ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
-      ${powerRankingsHtml(UI._allWeekly)}
-      ${accuracyHtml(UI._accuracy)}
-      <div class="card"><h2>Standings</h2><div class="panner"><table class="tbl">
-        <thead><tr><th></th><th>Team</th><th class="num">W</th><th class="num">L</th><th class="num">PF</th><th class="num">PA</th></tr></thead>
-        <tbody>${rows.map((t, i) => {
-          const s = st[t.id] || { w: 0, l: 0, pf: 0, pa: 0 };
-          // S3: the standings row is where most people meet most teams, so the crest grew
-          // 20 -> 28px and the name takes the team's own (contrast-clamped) ink. Fill-only
-          // treatment at this size — see teamNameHtml.
-          return `<tr><td class="mut">${i + 1}</td><td><span class="teamlink" data-locker="${t.id}">${logoTd(t)}${teamNameHtml(t)}</span></td>
-            <td class="num">${s.w}</td><td class="num">${s.l}</td>
-            <td class="num">${LG.fmtNum(s.pf)}</td><td class="num">${LG.fmtNum(s.pa)}</td></tr>`;
-        }).join("")}</tbody></table></div></div>
-      ${recentMovesHtml(UI._tx)}
-      ${recentChatHtml(UI._recentChat)}
-      ${recordBookHtml(UI._recordBook)}`;
+      </div>`;
+    // ---------------- THE DESKTOP DASHBOARD (2026-08-11) ----------------
+    // "it looks too much like an app." The masonry column-count treatment that used to do this
+    // job dealt the cards out by height, so the page read as a scatter with no left-to-right
+    // meaning. Two columns with jobs instead: MAIN is the league's STATE (what is being played,
+    // where everyone stands, what has ever happened) and the RAIL is its PULSE (talk, and
+    // transactions). The rail is fixed-width so the main column can't be squeezed by a long
+    // chat message, and both are plain flex stacks with ONE gutter, so every card gutter on the
+    // page is the same 16px.
+    //
+    // ORDER, and the one deviation from the brief recorded here: the countdown keeps FIRST
+    // position when it exists (it is the page's hero while it lasts) and the Rules/Draft links
+    // row sits directly beneath it rather than above — with no countdown the links row IS the
+    // top of MAIN, which is what "compact at the top" asks for. The stale-weeks alarm follows
+    // immediately, because it is the one card on this page that asks somebody to do something.
+    if (wide) {
+      const mainHtml = `
+        ${draftCountdownCardHtml(LG.rules)}
+        ${leagueLinksHtml(LG.rules)}
+        ${staleWeeksHtml(UI._staleWeeks, isCommish())}
+        ${weekCard}
+        ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
+        ${standingsHtml(rows, st, { wide: true, streaks: UI._streaks, odds: UI._odds, power: LG.powerRanking(UI._allWeekly) })}
+        ${injuryFeedCardHtml(UI._injFeed)}
+        ${accuracyHtml(UI._accuracy)}
+        ${allTimeHtml(UI._recordBook)}`;
+      const el = main();
+      const liveRail = el.querySelector(".lgdesk .lgrail #chatText");
+      // A LIVE REPAINT MUST NOT TOUCH THE RAIL. renderLeague(true) fires on every scoring poll
+      // tick; rebuilding the rail's innerHTML each time would blow away a half-typed message,
+      // the composer's focus, and the reader's place in the message list — every few seconds.
+      // Nothing the poll changes lives in the rail (chat has its own 8s poll; the moves log
+      // changes on a transaction, which repaints through UI.show), so on a repaint only the
+      // MAIN column is rewritten.
+      if (repaint && liveRail) {
+        el.querySelector(".lgmain").innerHTML = mainHtml;
+      } else {
+        // A FULL rebuild still preserves what the reader had typed — a background cloud refresh
+        // (LG.db.onChange -> UI.show) is not their doing and must not cost them a sentence.
+        const keep = liveRail ? { text: liveRail.value, scroll: (el.querySelector("#chatList") || {}).scrollTop || 0 } : null;
+        el.innerHTML = `<div class="lgdesk">
+          <div class="lgmain">${mainHtml}</div>
+          <aside class="lgrail">${deskChatPanelHtml()}${deskMovesHtml(UI._tx)}</aside>
+        </div>`;
+        wireChat("chat", null);
+        if (keep) {
+          const t = $("#chatText");
+          if (t) { t.value = keep.text; autoGrowChatText(t); }
+        }
+        refreshChatList("chat", null).then(() => {
+          const l = $("#chatList");
+          if (l && keep && keep.scroll) l.scrollTop = keep.scroll;
+        }).catch(() => {});
+        startChatPoll("chat", null); // idempotent — see startChatPoll's own guard
+      }
+    } else {
+      main().innerHTML = `
+        ${draftCountdownCardHtml(LG.rules)}
+        ${weekCard}
+        ${injuryFeedCardHtml(UI._injFeed)}
+        ${leagueLinksHtml(LG.rules)}
+        ${staleWeeksHtml(UI._staleWeeks, isCommish())}
+        ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
+        ${powerRankingsHtml(UI._allWeekly)}
+        ${accuracyHtml(UI._accuracy)}
+        ${standingsHtml(rows, st, {})}
+        ${recentMovesHtml(UI._tx)}
+        ${recentChatHtml(UI._recentChat)}
+        ${recordBookHtml(UI._recordBook)}`;
+    }
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       UI.matchup = el.dataset.mu.split("-").map(Number);
       UI.go("matchup");
@@ -1767,6 +1937,17 @@
     bind("rbDetails", "_recordBook", LG.recordBook);
     bind("txDetails", "_tx", LG.loadTx);
     bind("chatDetails", "_recentChat", () => LG.loadChat(null));
+  }
+  // Crossing the desktop breakpoint changes which LAYOUT the league home is, not just how it is
+  // painted (see isWide) — a window dragged from 900px to 1200px would otherwise keep the phone's
+  // stacked cards until the next navigation, and one dragged the other way would leave a
+  // fixed-width rail wedged into a narrow window. A genuine (!repaint) re-render is what picks
+  // up the other branch's fetches too (the desktop batch above). Bound ONCE, at module scope.
+  if (window.matchMedia) {
+    const mq = window.matchMedia(DESK_MQ);
+    const onFlip = () => { if (UI.view === "league") renderLeague(); };
+    if (mq.addEventListener) mq.addEventListener("change", onFlip);
+    else if (mq.addListener) mq.addListener(onFlip); // older Safari
   }
   // ---------------- S3: the crest and the name, everywhere ----------------
   // ONE notion of "the team's picture" and ONE of "the team's name in type". Before S3 there
@@ -1881,16 +2062,28 @@
     const allDone = counted > 0 && !anyLive && hRem.left === 0 && aRem.left === 0;
     const badge = anyLive ? '<span class="herobadge live"><span class="dot"></span>Live</span>'
       : allDone ? '<span class="herobadge">Final</span>' : '<span class="herobadge">Upcoming</span>';
+    // THE DESKTOP DESIGN PASS (2026-08-11, user: "the matchups should have the same color
+    // probability bar from their logos"). The card's bar used to be one flat accent fill on a
+    // grey track — the same colour on every card, saying nothing about WHO was ahead. It is now
+    // the matchup header's own mechanic (.mupbar): away's primary grows from the left, home's
+    // from the right, meeting at the split. ONE CSS family, not a second dialect — the card just
+    // adds `.mini` for its smaller height, and the header keeps its flanking percentages.
+    // Applied on mobile too, deliberately: a bar that means one thing on a phone and another on
+    // a desktop is worse than either, and the user's own wording is about the matchups, not
+    // about a breakpoint.
+    //
     // With nobody counted on either side, winProb has nothing to weigh and returns an
-    // even-money 0.5 — and four stacked cards each painting a bold accent half-bar reads as a
+    // even-money 0.5 — and four stacked cards each painting a bold half-and-half bar reads as a
     // claim about four games. An empty track says "we can't separate these two yet", which is
     // the truth. Once rosters exist the bar is meaningful again even before kickoff, because
     // it is computed off projections.
+    const pct = Math.round(wp * 100);
+    const pa = LG.teamPalette(LG.teamById(a) || {}), ph = LG.teamPalette(LG.teamById(h) || {});
     const fill = counted > 0
-      ? `<span class="wpfillmini" style="width:${Math.round(wp * 100)}%"></span>`
+      ? `<i style="width:${pct}%;background:${esc(pa.primary)}"></i><em style="width:${100 - pct}%;background:${esc(ph.primary)}"></em>`
       : "";
     const title = counted > 0 ? "" : ' title="No lineup data for this matchup yet"';
-    return `<span class="herorow">${badge}<span class="wpbar mini${counted > 0 ? "" : " unknown"}"${title}>${fill}</span></span>`;
+    return `<span class="herorow">${badge}<span class="mupbar mini${counted > 0 ? "" : " unknown"}"${title}>${fill}</span></span>`;
   }
   function matchupCard(h, a) {
     const H = LG.teamById(h), A = LG.teamById(a);
@@ -3357,6 +3550,72 @@
   }
   UI.openImageOverlay = openImageOverlay;
   UI.closeImageOverlay = function () { hideImageOverlayDom(); UI.overlayClosed(); };
+  // ---------------- player names in chat are tappable (2026-08-11) ----------------
+  // "any player names in chat should be clickable to see their player card." EVERYWHERE — the
+  // Chat tab, a matchup's trash-talk thread, the locker wall, the desktop rail and the phone's
+  // own league-home preview — because a name that is a link on one surface and dead text on the
+  // next teaches nothing.
+  //
+  // SAFETY: chat is user content, so the match runs on the ESCAPED string and never on the raw
+  // text — the only markup that can ever reach the page is the wrapper this function writes.
+  // Entity runs (&amp; &lt; &gt; &quot;) are split out first and never matched INTO, so a name
+  // can never be found inside an escape sequence and tear it in half.
+  //
+  // TEAMS WIN TIES: a player name that is also a CURRENT team's name is left alone. teamMention
+  // is what that string means everywhere else in this app, and one word with two meanings is
+  // worse than one missing link.
+  function playerNameIndex() {
+    const rosters = UI._rosters || {};
+    const keys = [];
+    for (const t of LG.teams) for (const p of (rosters[t.id] || [])) keys.push(p.key);
+    const sig = keys.join(",");
+    if (UI._pnIndex && UI._pnIndex.sig === sig) return UI._pnIndex;
+    const teamNames = new Set(LG.teams.map((t) => String(t.name || "").trim().toLowerCase()));
+    const byName = new Map(); // lowercased ESCAPED display form -> {key, form}
+    for (const t of LG.teams) {
+      for (const p of (rosters[t.id] || [])) {
+        if (!p || !p.name || !p.key) continue;
+        // BOTH forms: what the app renders (LG.shortName — "J. Allen") and what a person is
+        // far more likely to actually type ("Josh Allen").
+        for (const raw of [String(p.name), LG.shortName(p.name)]) {
+          const form = raw.trim();
+          if (form.length < 4) continue;                  // too short to be a name in prose
+          if (teamNames.has(form.toLowerCase())) continue; // teams win ties
+          const k = esc(form).toLowerCase();
+          if (!byName.has(k)) byName.set(k, { key: p.key, form: esc(form) });
+        }
+      }
+    }
+    // Longest first, so "Amon-Ra St. Brown" is matched before a bare "St. Brown" ever could be.
+    const forms = [...byName.values()].sort((a, b) => b.form.length - a.form.length);
+    const idx = { sig, byName, re: null };
+    if (forms.length) {
+      const alt = forms.map((f) => f.form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+      // Word-bounded by hand: \b is wrong here because these forms end in "." and "/" as often
+      // as they end in a letter ("J. Allen", "Bills D/ST").
+      idx.re = new RegExp("(^|[^A-Za-z0-9])(" + alt + ")(?![A-Za-z0-9])", "gi");
+    }
+    UI._pnIndex = idx;
+    return idx;
+  }
+  const ENTITY_RE = /(&(?:amp|lt|gt|quot);)/;
+  function linkPlayerNames(escaped) {
+    const idx = playerNameIndex();
+    if (!idx.re || !escaped) return escaped;
+    return String(escaped).split(ENTITY_RE).map((seg) => {
+      if (ENTITY_RE.test(seg)) return seg; // an escape sequence — never matched into
+      idx.re.lastIndex = 0;
+      return seg.replace(idx.re, (m, pre, name) => {
+        const hit = idx.byName.get(String(name).toLowerCase());
+        if (!hit) return m;
+        // .pcinline is the app's existing inline player-name control (the claims/trade rows);
+        // wirePlayerCardTaps picks it up off data-pk exactly like every other player row, so
+        // Escape/Back/overlay behaviour is identical by construction.
+        return pre + `<button type="button" class="pcinline chatname" data-pk="${esc(hit.key)}">${name}</button>`;
+      });
+    }).join("");
+  }
+  UI.linkPlayerNames = linkPlayerNames; // test hook
   function chatMsgHtml(m, byId, tid) {
     if (m.sys) {
       const when = new Date(m.t).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
@@ -3385,7 +3644,7 @@
       <div class="chatBubble ${mine ? "mine" : ""}">
         <div class="chatMeta">${byline} <span class="mut small">${when}</span></div>
         ${replyBlock}
-        ${m.text ? `<div class="chatText2">${esc(m.text)}</div>` : ""}
+        ${m.text ? `<div class="chatText2">${linkPlayerNames(esc(m.text))}</div>` : ""}
         ${imgSrc ? `<img class="chatImg" src="${esc(imgSrc)}" data-full="${esc(imgFull)}" loading="lazy" alt="">` : ""}
         <div class="chatActions">
           ${REACTS.map((e) => `<button class="chatReact" type="button" data-mid="${esc(m.id)}" data-e="${e}">${e}${((m.reactions || {})[e] || []).length ? " " + (m.reactions[e] || []).length : ""}</button>`).join("")}
@@ -3409,6 +3668,10 @@
       if (r.ok) refreshChatList(idPfx, thread); else toast("Couldn't delete that.");
     }));
     listEl.querySelectorAll(".chatImg").forEach((img) => img.addEventListener("click", () => openImageOverlay(img.dataset.full)));
+    // Player names inside message text (2026-08-11) — scoped to this list, the same narrow-root
+    // convention refreshFa() uses. Idempotent, so the unscoped call some views also make later
+    // can never double-fire a tap.
+    wirePlayerCardTaps(listEl);
   }
   // Item 15 (2026-08-09, user: "dont put rules changes in the chat or any other system
   // message, just users chats"). The GUARANTEE is here, at RENDER, not at the write: every

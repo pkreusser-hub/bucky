@@ -1161,6 +1161,149 @@
     }
     return st;
   };
+  // ---------------- desktop standings: streak · power rank · playoff odds (2026-08-11) ----------------
+  // The desktop League tab's standings table carries three columns the mobile one doesn't
+  // (STREAK / PWR / PLAYOFF %). All three are DERIVED — nothing new is persisted, and every read
+  // below is a cached list()/get() the league home has already made, so section P's
+  // zero-extra-reads budget is untouched.
+  //
+  // A team's CURRENT run of results — "W3", "L2", "—" — read from the finalized weekly docs
+  // newest week first. REGULAR SEASON ONLY, for exactly LG.loadStandings' own reason: a
+  // semifinal win is not more regular-season record.
+  LG.loadStreaks = async function () {
+    const sw = (LG.rules || LG.DEFAULT_RULES).seasonWeeks;
+    const weekly = (await LG.db.list("weekly"))
+      .filter((wd) => (wd.week || 0) <= sw)
+      .sort((a, b) => (b.week || 0) - (a.week || 0)); // newest first — the run reads backwards
+    const out = {};
+    for (const t of LG.teams) out[t.id] = null;
+    const closed = {}; // the run has already been broken for this team — stop extending it
+    for (const wd of weekly) {
+      for (const m of (wd.matchups || [])) {
+        for (const side of [[m.home, m.homePts, m.awayPts], [m.away, m.awayPts, m.homePts]]) {
+          const id = side[0];
+          if (!(id in out) || closed[id]) continue;
+          const mine = LG.n(side[1]), theirs = LG.n(side[2]);
+          const k = mine > theirs ? "W" : theirs > mine ? "L" : "T";
+          if (!out[id]) out[id] = { k, n: 1 };
+          else if (out[id].k === k) out[id].n++;
+          else closed[id] = true;
+        }
+      }
+    }
+    return out;
+  };
+  LG.fmtStreak = (s) => (s && s.n ? s.k + s.n : "—");
+  // The power-rankings LIST, extracted from lg-ui's powerRankingsHtml so the card (mobile) and
+  // the standings table's PWR column (desktop) can never disagree about a team's rank — one
+  // computation, two readers. Null until at least one week carries a real `power` snapshot.
+  LG.powerRanking = function (weeklyDocs) {
+    const sorted = [...(weeklyDocs || [])]
+      .filter((w) => w && Array.isArray(w.power) && w.power.length)
+      .sort((a, b) => b.week - a.week);
+    const latest = sorted[0];
+    if (!latest) return null;
+    const prior = sorted.find((w) => w.week === latest.week - 1);
+    const rows = [...latest.power].sort((a, b) => a.rank - b.rank).map((r) => {
+      const prev = prior ? (prior.power.find((p) => p.teamId === r.teamId) || {}).rank : null;
+      return { teamId: r.teamId, rank: r.rank, score: r.score, prevRank: prev == null ? null : prev };
+    });
+    return { week: latest.week, rows };
+  };
+  // PLAYOFF ODDS — a Monte Carlo over the games that are actually left, seeded so it can never
+  // flicker. 1000 seasons; each remaining scheduled game is decided by an Elo-shaped coin
+  // (P(i beats j) = 1/(1+10^-((s_i-s_j)/40))) whose strengths are each team's average points-for
+  // over its FINALIZED weeks, pulled toward the league mean by a one-game Bayesian prior so a
+  // single week-1 blowout can't declare a season.
+  //
+  // DETERMINISTIC BY CONSTRUCTION: the PRNG is seeded from a hash of the exact data state
+  // (season, spots, every team's W-L-PF, how many games remain), and the answer is cached under
+  // that same key — so two renders of the same board return the identical object and the column
+  // never changes under the reader's eye. A new finalized week changes the key, and only then.
+  //
+  // PRE-SEASON IS NOT A BUG: with nothing finalized every strength is the same prior, so every
+  // game is a coin flip and eight teams chasing five spots land near 62% each. That is the
+  // honest answer to "who makes the playoffs" before a ball is thrown.
+  const PO_SIMS = 1000, PO_PRIOR_W = 1, PO_PRIOR_PTS = 100, PO_SCALE = 40, PO_PF_NOISE = 20;
+  function poHash(s) {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return h >>> 0;
+  }
+  function poRng(seed) { // mulberry32
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  LG.playoffOdds = async function () {
+    const rules = LG.rules || LG.DEFAULT_RULES;
+    const sw = rules.seasonWeeks;
+    const ids = LG.teams.map((t) => t.id).sort((a, b) => a - b);
+    const spots = Math.max(0, Math.min((rules.playoffs || {}).teams || 0, ids.length));
+    if (!ids.length || !spots) return {};
+    const weekly = (await LG.db.list("weekly")).filter((wd) => (wd.week || 0) <= sw);
+    const finalized = new Set(weekly.map((wd) => wd.week));
+    const base = {};
+    for (const id of ids) base[id] = { w: 0, pf: 0, g: 0 };
+    for (const wd of weekly) {
+      for (const m of (wd.matchups || [])) {
+        const h = base[m.home], a = base[m.away];
+        if (!h || !a) continue;
+        const hp = LG.n(m.homePts), ap = LG.n(m.awayPts);
+        h.pf += hp; a.pf += ap; h.g++; a.g++;
+        if (hp > ap) h.w++; else if (ap > hp) a.w++;
+      }
+    }
+    const weeks = await LG.loadSchedule();
+    const rem = [];
+    for (let w = 1; w <= sw; w++) {
+      if (finalized.has(w)) continue;
+      for (const g of ((weeks && weeks[w - 1]) || [])) {
+        if (base[g[0]] && base[g[1]]) rem.push([g[0], g[1]]);
+      }
+    }
+    let totPF = 0, totG = 0;
+    for (const id of ids) { totPF += base[id].pf; totG += base[id].g; }
+    const mean = totG ? totPF / totG : PO_PRIOR_PTS;
+    const s = {};
+    for (const id of ids) s[id] = (base[id].pf + PO_PRIOR_W * mean) / (base[id].g + PO_PRIOR_W);
+    const key = [LG.SEASON, sw, spots, rem.length, ids.join(",")].concat(
+      ids.map((id) => id + ":" + base[id].w + ":" + Math.round(base[id].pf * 10) + ":" + base[id].g)).join("~");
+    if (LG._poCache && LG._poCache.key === key) return LG._poCache.odds;
+    const rnd = poRng(poHash(key));
+    const counts = {}, wSim = {}, pfSim = {};
+    for (const id of ids) counts[id] = 0;
+    for (let n = 0; n < PO_SIMS; n++) {
+      for (const id of ids) { wSim[id] = base[id].w; pfSim[id] = base[id].pf; }
+      for (const g of rem) {
+        const h = g[0], a = g[1];
+        const p = 1 / (1 + Math.pow(10, -((s[h] - s[a]) / PO_SCALE)));
+        if (rnd() < p) wSim[h]++; else wSim[a]++;
+        // Simulated points-for, so the app's OWN seeding tiebreak (wins → PF → teamId) still
+        // decides a tie. The noise is what keeps it from collapsing onto the teamId tiebreak in
+        // the pre-season case, where every strength is identical.
+        pfSim[h] += s[h] + (rnd() - 0.5) * PO_PF_NOISE;
+        pfSim[a] += s[a] + (rnd() - 0.5) * PO_PF_NOISE;
+      }
+      // The app's own seeding rules — the same sort LG.buildBracket uses.
+      const order = ids.slice().sort((x, y) => (wSim[y] - wSim[x]) || (pfSim[y] - pfSim[x]) || (x - y));
+      for (let i = 0; i < spots; i++) counts[order[i]]++;
+    }
+    const odds = {};
+    for (const id of ids) {
+      const c = counts[id];
+      // A LOCK is only ever reported when EVERY simulated season agreed. 99.6% rounding up to
+      // "100%" would be the app claiming a clinch it hasn't got.
+      odds[id] = c === PO_SIMS ? 100 : c === 0 ? 0 : Math.min(99, Math.max(1, Math.round((c / PO_SIMS) * 100)));
+    }
+    LG._poCache = { key, odds };
+    return odds;
+  };
   // Waiver priority order, WORST record first (plan §4.3's FAAB tie-break):
   // fewer wins, then fewer points-for, then lower teamId — deterministic even
   // on an untouched 0-0-0 season.

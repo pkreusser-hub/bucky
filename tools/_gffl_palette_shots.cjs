@@ -424,7 +424,12 @@ async function plate(page, file, label) {
     await page.waitForSelector(".mucard", { timeout: 15000 });
     await sleep(300);
     const home = await page.evaluate(() => {
-      const rows = [...document.querySelectorAll(".tbl .teamlink")];
+      // RESTAGED 2026-08-11 (the desktop design pass): a bare ".tbl .teamlink" scan now also
+      // picks up the new ALL-TIME card's table, which sits under the standings on a desktop and
+      // has its own (differently-sized) row count. Scoped to the STANDINGS card, which is what
+      // this plate's checks are about — and the all-time table gained the same crest treatment,
+      // so nothing here is being excused, only aimed.
+      const rows = [...document.querySelectorAll(".standcard .tbl .teamlink")];
       return {
         rows: rows.length,
         crests: rows.filter((r) => r.querySelector(".tcrest")).length,
