@@ -1399,7 +1399,7 @@
     return `<div class="card chatcard chatpanel" id="deskChatPanel"><h2>League chat</h2>${chatWidgetHtml("chat")}</div>`;
   }
   function deskMovesHtml(tx) {
-    const recent = (tx || []).slice(0, 8);
+    const recent = (tx || []).slice(0, 14); // 8 → 14 (2026-08-11 rail balance)
     return `<div class="card movespanel"><h2>Recent moves</h2>
       ${recent.length ? recent.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${esc(txSentence(t))}</div>`).join("")
         : '<p class="mut">No moves yet.</p>'}
@@ -1797,9 +1797,16 @@
         ${weekCard}
         ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
         ${standingsHtml(rows, st, { wide: true, streaks: UI._streaks, odds: UI._odds, power: LG.powerRanking(UI._allWeekly) })}
-        ${injuryFeedCardHtml(UI._injFeed)}
-        ${accuracyHtml(UI._accuracy)}
         ${allTimeHtml(UI._recordBook)}`;
+      // RAIL BALANCE (2026-08-11, user: "add more to the rail so we have equal to main"):
+      // the injury report and projection accuracy move from MAIN to the rail — both are
+      // PULSE, not state — and a Hot-pickups card joins them (the Moves page's own trending
+      // renderer, reused; renders "" until the cached trending feed is warm, and a dead
+      // endpoint means the card is simply absent). Moves deepens 8 → 14 on desktop.
+      const railExtras = `
+        ${injuryFeedCardHtml(UI._injFeed)}
+        <div id="railHot">${hotPickupsHtml(allOwnedKeys())}</div>
+        ${accuracyHtml(UI._accuracy)}`;
       const el = main();
       const liveRail = el.querySelector(".lgdesk .lgrail #chatText");
       // A LIVE REPAINT MUST NOT TOUCH THE RAIL. renderLeague(true) fires on every scoring poll
@@ -1816,7 +1823,7 @@
         const keep = liveRail ? { text: liveRail.value, scroll: (el.querySelector("#chatList") || {}).scrollTop || 0 } : null;
         el.innerHTML = `<div class="lgdesk">
           <div class="lgmain">${mainHtml}</div>
-          <aside class="lgrail">${deskChatPanelHtml()}${deskMovesHtml(UI._tx)}</aside>
+          <aside class="lgrail">${deskChatPanelHtml()}${railExtras}${deskMovesHtml(UI._tx)}</aside>
         </div>`;
         wireChat("chat", null);
         if (keep) {
@@ -1828,6 +1835,15 @@
           if (l && keep && keep.scroll) l.scrollTop = keep.scroll;
         }).catch(() => {});
         startChatPoll("chat", null); // idempotent — see startChatPoll's own guard
+        // Hot pickups: paint from whatever trending is cached (often "" cold), then once more
+        // when the fetch lands — the Moves page's own pattern. A dead endpoint = no card.
+        wirePlayerCardTaps($("#railHot"));
+        D().loadTrending().then(() => {
+          const hot = $("#railHot");
+          if (!hot || UI.view !== "league") return;
+          hot.innerHTML = hotPickupsHtml(allOwnedKeys());
+          wirePlayerCardTaps(hot);
+        }).catch(() => {});
       }
     } else {
       main().innerHTML = `

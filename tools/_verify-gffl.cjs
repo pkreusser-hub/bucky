@@ -15379,7 +15379,8 @@ async function openDetails(page, id) {
           railW: Math.round(rb.width), mainW: Math.round(mb.width),
           topSame: Math.abs(rb.top - mb.top) < 2,
           chatIsFirst: rail.firstElementChild === chat,
-          movesIsSecond: !!moves && rail.children[1] === moves,
+          movesIsLast: !!moves && rail.lastElementChild === moves,
+          railHot: !!rail.querySelector("#railHot"),
           railKids: rail.children.length,
           // The order MAIN's own cards land in — the state of the league, top to bottom.
           mainOrder: [...col.children].map((c) => (c.querySelector("h2") ? c.querySelector("h2").textContent.trim() : c.className)),
@@ -15391,7 +15392,12 @@ async function openDetails(page, id) {
       ok(g.railW >= 330 && g.railW <= 400 && g.mainW > g.railW, "…the rail is a fixed narrow column and MAIN takes the rest (" + g.mainW + " / " + g.railW + ")");
       ok(g.topSame === true, "…both columns start at the same top edge (align-items:start, not a masonry's staggered deal)");
       ok(g.chatIsFirst === true, "…LEAGUE CHAT is the TOP card in the rail (the user's 'top right')");
-      ok(g.movesIsSecond === true && g.railKids === 2, "…Recent moves sits directly under it, and nothing else is in the rail (" + g.railKids + " cards)");
+      // RESTAGED 2026-08-11 (rail balance, user: "add more to the rail so we have equal to
+      // main"): the rail grew — injury report + projection accuracy moved in from MAIN and a
+      // Hot-pickups shell joined. Chat still leads, Moves now CLOSES the rail; the middle
+      // cards self-hide without data, so the child count is a floor, not an exact number.
+      ok(g.movesIsLast === true && g.railHot === true && g.railKids >= 3,
+        "…Recent moves closes the rail, the Hot-pickups shell is present, ≥3 rail children (" + g.railKids + ")");
       ok(!g.sideways, "…and the page never scrolls sideways at 1440px");
       ok(errors.length === 0, "0 page errors on the desktop league home");
       await ctx.close();
@@ -15471,9 +15477,12 @@ async function openDetails(page, id) {
         const LG = window.__GFFL__.LG, realNow = Date.now;
         let t = realNow() - 1000000;
         Date.now = () => (t += 1000); // stamps must differ or the log's own sort has nothing to sort by
+        // 16 names (was 10) so the desktop cap — 14 as of the 2026-08-11 rail balance — is
+        // what decides the row count, not the seed size.
         const NAMES = ["Aaron Ashby", "Blake Baker", "Colin Carter", "Dean Dixon", "Evan Ellis",
-          "Frank Foster", "Gabe Grant", "Hank Hughes", "Ian Irwin", "Jack Jones"];
-        for (let i = 0; i < 10; i++) await LG.logTx("fa_add", 1, 1, { addKey: "k" + i, addName: NAMES[i] });
+          "Frank Foster", "Gabe Grant", "Hank Hughes", "Ian Irwin", "Jack Jones",
+          "Kyle Kent", "Liam Lowe", "Mike Mason", "Nate Nolan", "Owen Oliver", "Pete Price"];
+        for (let i = 0; i < 16; i++) await LG.logTx("fa_add", 1, 1, { addKey: "k" + i, addName: NAMES[i] });
         Date.now = realNow;
       });
       await evalOr(page, () => { window.__GFFL__.UI.week = 3; window.__GFFL__.UI.show("league"); });
@@ -15484,8 +15493,11 @@ async function openDetails(page, id) {
           txt: card.textContent, btn: !!card.querySelector("#recentMovesAll") };
       })) || {};
       ok(m.details === 0, "AT3: Recent moves is an OPEN card on a desktop — no disclosure to expand (" + m.details + ")");
-      ok(m.rows === 8, "…still capped at the newest 8, exactly as the phone's card is (" + m.rows + ")");
-      ok(/J\. Jones/.test(m.txt) && !/A\. Ashby/.test(m.txt), "…and it is the NEWEST 8 (Jones present, Ashby trimmed)");
+      // RESTAGED 2026-08-11 (rail balance): the desktop cap grew 8 → 14; 16 seeded so the
+      // cap is provably what trims (the two OLDEST, Ashby and Baker, fall off).
+      ok(m.rows === 14, "…capped at the newest 14 on desktop (" + m.rows + " of 16 seeded)");
+      ok(/P\. Price/.test(m.txt) && !/A\. Ashby/.test(m.txt) && !/B\. Baker/.test(m.txt),
+        "…and it is the NEWEST 14 (Price present, Ashby + Baker trimmed)");
       ok(m.btn === true, "…with 'View all →' through to the full Moves log");
       await clickIn(page, "#recentMovesAll");
       await waitFnOr(page, () => window.__GFFL__.UI.view === "moves");

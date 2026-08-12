@@ -163,6 +163,13 @@ async function newPage(browser, viewport) {
     const realNow = Date.now;
     let fake = realNow() - 600000;
     Date.now = () => (fake += 60000);
+    // Rail balance (2026-08-11): 13 OLDER filler moves so the desktop Moves panel can prove
+    // its 14-row cap (8 → 14). Stamped FIRST so the three named, readable moves stay newest
+    // and lead the panel; the phone card is a collapsed <details> and never counts rows, so
+    // these cost the 390 plate nothing.
+    for (let i = 0; i < 13; i++) {
+      await LG.logTx("fa_add", 3, 1 + (i % 4), { addKey: "111100" + i, addName: "Filler Player" + i });
+    }
     await LG.logTx("fa_add", 3, 1, { addKey: "1111121", addName: "Benny Bench" });
     await LG.logTx("drop", 3, 4, { dropKey: "1111114", dropName: "Carl Cover" });
     await LG.logTx("waiver", 3, 2, { addKey: "1112223", addName: "Terry Tight", bid: 14, dropName: "Walter Two" });
@@ -208,6 +215,12 @@ async function deskFacts(page) {
       chatNames: document.querySelectorAll("#chatList .pcinline.chatname").length,
       sideways: document.documentElement.scrollWidth > window.innerWidth + 1,
       power: !!q(".lgmain") && /Power rankings/.test(q(".lgmain").textContent),
+      // Rail balance (2026-08-11): injury/accuracy moved MAIN → rail; #railHot shell is
+      // unconditional (the card inside self-hides until trending is warm).
+      railHot: !!rail.querySelector("#railHot"),
+      injInMain: /League injury report/.test(col.textContent),
+      accInMain: /Projection accuracy/.test(col.textContent),
+      railH: Math.round(rb.height), mainH: Math.round(mb.height),
       bars: document.querySelectorAll(".mucard .mupbar.mini").length,
       barCols: (() => {
         const b = document.querySelector(".mucard .mupbar.mini i");
@@ -230,7 +243,13 @@ async function deskFacts(page) {
       ok(!!d, "1440: the league home renders the two-column dashboard (.lgdesk / .lgmain / .lgrail)");
       ok(d && d.railLeft >= d.mainRight - 1, "…the rail is to the RIGHT of the main column (rail " + (d || {}).railLeft + " ≥ main " + (d || {}).mainRight + ")");
       ok(d && d.chatFirst && d.composer, "…LEAGUE CHAT is the TOP card in the rail and carries its composer, not a preview");
-      ok(d && !d.movesDetails && d.moves && d.moveRows === 3, "…Recent moves is an open card (no disclosure) with its 3 rows showing (" + (d || {}).moveRows + ")");
+      // RESTAGED 2026-08-11 (rail balance): the desktop Moves cap grew 8 → 14 and the fixture
+      // now seeds 16 tx precisely so the cap is what decides — 3 rows would mean the cap
+      // regressed to nothing, 16 would mean it is gone.
+      ok(d && !d.movesDetails && d.moves && d.moveRows === 14, "…Recent moves is an open card showing its 14-row desktop cap (" + (d || {}).moveRows + " of 16 seeded)");
+      ok(d && d.railHot, "…the Hot-pickups shell (#railHot) lives in the rail (card self-hides until trending warms)");
+      ok(d && !d.injInMain && !d.accInMain, "…injury report + projection accuracy have LEFT the main column (pulse lives in the rail)");
+      ok(d && d.railH >= d.mainH * 0.45, "…rail balance floor: rail " + (d || {}).railH + "px vs main " + (d || {}).mainH + "px (≥ 45% on this fixture; live data — injuries, trending, chat — closes the rest)");
       ok(d && d.standCols >= 9 && d.standHeads.join("|").includes("Streak"), "…the standings table carries the new columns (" + ((d || {}).standHeads || []).join(" ") + ")");
       ok(d && d.standRows === 8 && !d.standPanner && d.standFits, "…all 8 rows, no scroller, table inside its card (" + (d || {}).standRows + " rows)");
       ok(d && d.allTime && !d.allTimeExtras, "…ALL-TIME is the aggregate table only — the superlatives are hidden on desktop");

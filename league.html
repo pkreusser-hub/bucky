@@ -1365,8 +1365,12 @@
        PANEL, not about height: the message list keeps its own internal scroll, and the panel is
        capped so Recent moves beneath it is never pushed off the fold. */
     .lgrail .chatpanel { padding-bottom:0; }
-    .lgrail .chatpanel .chatlist { height:376px; max-height:376px; }
+    .lgrail .chatpanel .chatlist { height:440px; max-height:440px; } /* 376 → 440, 2026-08-11 rail balance */
     .lgrail .movespanel .fline { font-size:12px; }
+    /* In the narrow rail the trending strip wraps into rows instead of panning sideways —
+       a sideways scroller inside a 360px column hides most of its own content. */
+    .lgrail .hotcard .hotrow { flex-wrap:wrap; overflow-x:visible; }
+    .lgrail .injline { font-size:12px; }
     /* THE STANDINGS TABLE MUST NOT SCROLL — not sideways inside a .panner, not at 1024px. Ten
        columns in ~620px is paid for here, out of the padding and the figure size, and out of
        PF/PA rendering as whole numbers (see standingsHtml). */
