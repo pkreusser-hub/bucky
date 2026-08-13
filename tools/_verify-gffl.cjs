@@ -13025,6 +13025,40 @@ async function openDetails(page, id) {
       ok(!!picked.colors.secondary && !!picked.colors.tertiary, "…leaving the other two slots alone");
       ok(picked.logoStill, "…and the logo is untouched by a colour edit (delta writes only — never a whole spread team)");
 
+      // WYSIWYG (2026-08-11, the user's own repro: "I pick a very dark color in the selector
+      // and it comes out much lighter"): a HAND-PICKED colour renders VERBATIM — the fill
+      // clamp (which brightens toward white for contrast) applies only to machine-extracted
+      // palettes and to derived companion slots, never to a slot the owner's own hex filled.
+      await page.evaluate(() => {
+        const inp = document.querySelector('.tcswatch[data-slot="primary"]');
+        inp.value = "#101830"; // a very dark navy — the exact class of pick the clamp mangled
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      // wait for the STORE and the PAINT — the swatch handler saves then repaints, and reading
+      // the hero's var between the two is a race, not a finding
+      await page.waitForFunction(() => window.__GFFL__.LG.teamById(1).colors.primary === "#101830"
+        && getComputedStyle(document.querySelector(".lockerhead")).getPropertyValue("--tp").trim() === "#101830", { timeout: 9000 });
+      const wys = await page.evaluate(() => {
+        const LG = window.__GFFL__.LG;
+        const pal = LG.teamPalette(LG.teamById(1));
+        const derivedOnly = LG.teamPalette({ teamId: 1, colors: { primary: "#101830" } }); // NOT custom — extraction shape
+        return { rendered: pal.primary, unclampedRaw: pal.raw.primary,
+          hero: getComputedStyle(document.querySelector(".lockerhead")).getPropertyValue("--tp").trim(),
+          extractedStillClamped: derivedOnly.primary !== "#101830",
+          inkStillClamped: pal.onDark !== "#101830" };
+      });
+      ok(wys.rendered === "#101830" && wys.hero === "#101830",
+        "a hand-picked VERY DARK colour renders VERBATIM — picker and page finally agree (" + wys.rendered + " / hero " + wys.hero + ")");
+      ok(wys.extractedStillClamped, "…while the SAME hex arriving as a machine extraction still gets the contrast clamp (a guess needs the guardrail; a choice doesn't)");
+      ok(wys.inkStillClamped, "…and the team-colour-as-TEXT derivation (onDark) keeps its own clamp for everyone — legibility is a contract, fills are a choice");
+      // put the section's expected colour back for everything downstream
+      await page.evaluate(() => {
+        const inp = document.querySelector('.tcswatch[data-slot="primary"]');
+        inp.value = "#2f8f4e";
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await page.waitForFunction(() => window.__GFFL__.LG.teamById(1).colors.primary === "#2f8f4e", { timeout: 9000 });
+
       // THE LATCH, under fire: a completely different logo, uploaded after the hand-pick.
       await openLocker(page, 1);
       await uploadLogo(page, FLAT_ART_LOGO);
@@ -13146,8 +13180,16 @@ async function openDetails(page, id) {
         const fill = getComputedStyle(head).getPropertyValue("--tp").trim();
         return { fill, page: LG.contrast(fill, "#0c1017"), ink: LG.contrast(toHex(getComputedStyle(nm).color), fill) };
       });
-      ok(darkOnScreen.page >= 1.5, "ON SCREEN, a near-black pick's hero still separates from the page (" + darkOnScreen.page.toFixed(2) + ":1, rendered " + darkOnScreen.fill + ")");
-      ok(darkOnScreen.ink >= 4.5, "…and its name stays legible on it (" + darkOnScreen.ink.toFixed(2) + ":1)");
+      // RESTAGED + INVERTED 2026-08-11 (user: "I pick a very dark color in the selector and
+      // it comes out much lighter"): the separation law is REPEALED for HAND-PICKED colours,
+      // by owner order. The arithmetic behind the repeal: the page is so dark that ANY
+      // luminance floor turns a deep navy into slate grey (1.5:1 needs luminance a saturated
+      // navy can't have while staying navy — blue barely counts toward luminance), while
+      // CHROMATIC separation keeps a dark pick genuinely visible on the blue-black page. The
+      // law survives where it still owns the call: machine-extracted palettes (case 2 above,
+      // no colorsCustom — still clamped) and every ink derivation (the name check below).
+      ok(darkOnScreen.fill === "#04060a", "ON SCREEN, a hand-picked near-black renders VERBATIM — the owner's colour is the owner's colour (" + darkOnScreen.fill + ", " + darkOnScreen.page.toFixed(2) + ":1 by luminance, separated by chroma and the slash geometry)");
+      ok(darkOnScreen.ink >= 4.5, "…and its name stays legible on it — ink still derives from the ACTUAL fill (" + darkOnScreen.ink.toFixed(2) + ":1)");
       ok(errors.length === 0, "0 page errors through the four hero shapes");
       await ctx.close();
     }

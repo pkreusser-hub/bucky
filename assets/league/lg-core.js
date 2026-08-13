@@ -1073,7 +1073,20 @@
     const derived = palHex(raw.primary) ? palDeriveFrom(p0) : def;
     const s0 = palHex(raw.secondary) || derived.secondary;
     const t0 = palHex(raw.tertiary) || derived.tertiary;
-    const primary = palClampFill(p0), secondary = palClampFill(s0), tertiary = palClampFill(t0);
+    // WYSIWYG FOR HAND-PICKS (2026-08-11, user: "I pick a very dark color in the selector and
+    // it comes out much lighter"): the fill clamp brightens toward white until a colour clears
+    // a contrast floor against the near-black page — the right guardrail for a MACHINE-
+    // EXTRACTED palette (extraction is a guess, and a muddy guess needs rescuing), and exactly
+    // the wrong move for a colour a person chose on purpose. With colorsCustom latched, a
+    // slot the OWNER's own hex filled renders VERBATIM (their deliberate dark navy is their
+    // deliberate dark navy — legibility is their call to make, the reader-is-law posture);
+    // slots still DERIVED (a custom primary with untouched companions) keep the clamp, and so
+    // does palClampInk below — a team colour used AS TEXT on a dark surface is a legibility
+    // contract, not a fill, and stays protected for everyone.
+    const custom = !!(t && t.colorsCustom);
+    const primary = custom && palHex(raw.primary) ? p0 : palClampFill(p0);
+    const secondary = custom && palHex(raw.secondary) ? s0 : palClampFill(s0);
+    const tertiary = custom && palHex(raw.tertiary) ? t0 : palClampFill(t0);
     return {
       raw: { primary: p0, secondary: s0, tertiary: t0 },
       primary, secondary, tertiary,

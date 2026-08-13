@@ -425,7 +425,7 @@ async function plate(page, file, label) {
     m = await matchupFacts(page);
     ok(!!m && m.height <= HEAD_CEIL, wname + " · matchup (picked vs no-logo): header inside its ceiling (" + (m && m.height) + "px <= " + HEAD_CEIL + ")");
     ok(m.tp[1] && m.tp[1].toLowerCase() === PICKED_COLORS.primary,
-      "…the hand-picked side renders IDENTICALLY to an extracted one — same helper, same clamp (" + m.tp[1] + ")");
+      "…the hand-picked side renders EXACTLY the picked hex — WYSIWYG for hand-picks (2026-08-11: custom colours bypass the fill clamp by design) (" + m.tp[1] + ")");
     ok(m.tp[0] !== m.tp[1], "…and the no-logo side still has an identity of its own (" + JSON.stringify(m.tp) + ")");
     if (m.height <= HEAD_CEIL && m.tp[0] !== m.tp[1]) {
       await plate(page, "gffl_pal_matchup_picked_" + wname + ".png", "hand-picked vs no-logo");

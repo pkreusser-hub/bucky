@@ -11529,3 +11529,30 @@ K3 restaged to the full new flow with reasons: empty state (no chips, no fixed w
 palette), palette-on-message, chip + ring, doc keyed by the emoji itself, toggle-off
 disappearance, and the legacy-word rendering (seeded doc, unlit for a team not in it).
 Battery **2400/2400**.
+
+## 🏈 GFFL — WYSIWYG TEAM COLOURS: hand-picks render verbatim (2026-08-11, DEPLOYED)
+
+User: *"the team color picker colors dont match what actually shows up, I pick a very dark
+color in the selecter and it comes out much lighter."* Files: `assets/league/lg-core.js` +
+restages in `tools/_verify-gffl.cjs` (→ **2403**) + one palette-shots message.
+
+**ROOT CAUSE**: `palClampFill` — S3's contrast guardrail — walks EVERY fill toward WHITE
+until it clears `PAL_FILL_MIN` (1.5:1) against the near-black page. Right for a
+machine-EXTRACTED palette (a muddy guess needs rescuing); wrong for a colour a person chose.
+And the arithmetic is unforgiving: the page is so dark that ANY luminance floor turns a deep
+navy into slate grey (1.5:1 needs luminance a saturated navy cannot have while staying navy —
+blue barely counts toward luminance — and the 8% white-mix steps DESATURATE on the way up).
+**FIX**: with `colorsCustom` latched, a slot the owner's own hex filled renders VERBATIM;
+still clamped for everyone/everything else: extracted palettes, DERIVED companion slots of a
+custom primary, and every INK derivation (`palClampInk`/`onDark` — a team colour used AS TEXT
+is a legibility contract, not a fill; `inkOn` also still derives from the ACTUAL fill, so the
+name on a near-black hero flips to white and stays AA).
+**A DESIGN LAW WAS REPEALED, on the record**: the S3 pass's "a near-black pick's hero still
+separates from the page (≥1.5:1)" on-screen check is INVERTED for hand-picks — owner order,
+the same precedent as the est./win-bar/AQ6 inversions — with the arithmetic above written at
+the check. The law survives for extraction (case 2, no latch — still clamped) and ink. New
+battery checks reproduce the user's exact report: a dark-navy swatch pick asserted verbatim in
+the STORE, the PALETTE, and the hero's own painted `--tp` (wait for store AND paint — reading
+between the save and the repaint is a race, not a finding), plus "the same hex arriving as an
+extraction still clamps" and "onDark still clamps".
+Battery **2403/2403** · palette **74/74**.
