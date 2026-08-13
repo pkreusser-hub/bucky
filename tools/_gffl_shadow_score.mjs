@@ -140,6 +140,7 @@ const KEYS = [
   "dst_sack", "dst_int", "dst_fum_rec", "dst_td", "dst_safety", "dst_blk",
   "off_fum_td",
   "fg_made_yd", "dst_2pt_ret", "one_pt_safety",
+  "dst_fum_forced", "dst_kr_td", // 2026-08-13 reconciliation — mirrors lg-data byte-for-byte
 ];
 const empty = () => { const o = {}; for (const k of KEYS) o[k] = 0; o.dst_pa = null; return o; };
 
@@ -183,10 +184,11 @@ const NORMSLP_RAW_KEYS = new Set([
   "fgm_0_19", "fgm_20_29", "fgm_30_39", "fgm_40_49", "fgm_50p",
   "fgmiss", "xpm", "xpmiss",
   "sack", "def_sack", "int", "def_int", "fum_rec", "def_fum_rec",
-  "def_td", "def_st_td", "st_td", "safe", "safety", "blk_kick",
+  "def_td", "def_st_td", "st_td", "safe", "safety", "blk_kick", "ff", "def_ff",
   "fum_rec_td", "pts_allow",
 ]);
-function normSlp(st) {
+function normSlp(st, isDst) {
+  if (isDst == null) isDst = st.pts_allow != null;
   const n = empty();
   n.pass_yd = st.pass_yd || 0; n.pass_td = st.pass_td || 0; n.pass_int = st.pass_int || 0;
   n.pass_2pt = st.pass_2pt || 0;
@@ -198,12 +200,22 @@ function normSlp(st) {
   n.fg_0_39 = (st.fgm_0_19 || 0) + (st.fgm_20_29 || 0) + (st.fgm_30_39 || 0);
   n.fg_40_49 = st.fgm_40_49 || 0; n.fg_50 = st.fgm_50p || 0;
   n.fg_miss = st.fgmiss || 0; n.xp_made = st.xpm || 0; n.xp_miss = st.xpmiss || 0;
-  n.dst_sack = st.sack ?? st.def_sack ?? 0;
-  n.dst_int = st.int ?? st.def_int ?? 0;
-  n.dst_fum_rec = st.fum_rec ?? st.def_fum_rec ?? 0;
-  n.dst_td = (st.def_td || 0) + (st.def_st_td || 0) + (st.st_td || 0);
-  n.dst_safety = st.safe ?? st.safety ?? 0;
-  n.dst_blk = st.blk_kick || 0;
+  // 2026-08-13 reconciliation split (mirrors lg-data): defensive keys are D/ST-only —
+  // defensive returns 6 (dst_td), the unit's kick/punt returns 8 (dst_kr_td), forced
+  // fumbles their own key; a PLAYER row maps its return TD into dst_td (base 6, ESPN's own
+  // 2025 Shaheed rows) and nothing else defensive (Hurts's fumble recovery paid 0).
+  if (isDst) {
+    n.dst_sack = st.sack ?? st.def_sack ?? 0;
+    n.dst_int = st.int ?? st.def_int ?? 0;
+    n.dst_fum_rec = st.fum_rec ?? st.def_fum_rec ?? 0;
+    n.dst_td = st.def_td || 0;
+    n.dst_kr_td = (st.def_st_td || 0) + (st.st_td || 0);
+    n.dst_fum_forced = st.ff ?? st.def_ff ?? 0;
+    n.dst_safety = st.safe ?? st.safety ?? 0;
+    n.dst_blk = st.blk_kick || 0;
+  } else {
+    n.dst_td = st.st_td || 0;
+  }
   n.off_fum_td = st.fum_rec_td || 0;
   if (st.pts_allow != null) n.dst_pa = st.pts_allow;
   return n;
@@ -455,10 +467,15 @@ function selftest() {
   }
 
   // ---- rules-doc keys the scorer never applies (the real production drift found live) ----
+  // RESTAGED 2026-08-13 (the full rules reconciliation): dst_kr_td and dst_fum_forced were
+  // PROMOTED into the scorer's KEYS — the league really pays them (8/unit and 1/unit, proven
+  // on 2,497 real 2025 player-weeks). The four that remain are the ESPN-shaped per-return-type
+  // aliases (fum/int/blocked/punt return TDs) whose events the app deliberately buckets into
+  // dst_td (6) and dst_kr_td (8) — identical pay, one bucket per rate.
   {
     const scoring = { dst_fum_ret_td: 6, dst_int_ret_td: 6, dst_pr_td: 6, dst_kr_td: 6, dst_fum_forced: 0, dst_blk_td: 6, pass_yd: 0.04 };
     const unknown = Object.keys(scoring).filter((k) => !KEYS.includes(k) && !k.startsWith("dst_pa_") && !k.startsWith("bonus_"));
-    ok("6 real drift keys detected as scorer-unsupported", unknown.length === 6);
+    ok("4 alias keys remain scorer-unsupported (their events bucket into dst_td/dst_kr_td)", unknown.length === 4);
     ok('"pass_yd" (a real scorer key) is NOT flagged as drift', !unknown.includes("pass_yd"));
   }
 

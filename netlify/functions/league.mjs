@@ -123,7 +123,16 @@ async function lgEspnSettings(body) {
     const unmapped = [];
     for (const it of (s?.scoringSettings?.scoringItems || [])) {
       const id = Number(it?.statId);
-      const pts = Number(it?.points ?? it?.pointsOverrides?.[16] ?? 0);
+      // THE pointsOverrides[16] TRAP (2026-08-13, caught by the full rules reconciliation vs
+      // the real 2025 boxscores): ESPN stores every DEFENSIVE rule's real value in
+      // pointsOverrides["16"] (the D/ST position group) while `points` is a genuine 0 — and
+      // `points ?? override` NEVER falls through on 0, so this import wrote ZEROS for the
+      // whole D/ST family (sack/int/fum/blk/safety) and the non-override 6 where the
+      // override says 8 (kick/punt return TDs) or 4 (2-pt return). The override WINS when
+      // present; `points` is the fallback. Proven against appliedStats coefficients on 2,497
+      // real player-weeks.
+      const ov = it?.pointsOverrides?.[16];
+      const pts = ov != null ? Number(ov) : Number(it?.points ?? 0);
       if (!id && id !== 0) continue;
       const key = STAT_MAP[id];
       if (key) scoring[key] = pts;

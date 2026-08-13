@@ -11823,3 +11823,60 @@ miss into a SUITE CRASH; and `await waitFnOr(...)` followed by `ok(true, …)` a
 NOTHING — the previous run "passed" the finalized-totals check while the browsed week had
 zero pairings at all (the shared seedSchedule carries ONE week; AV5 seeds its own two-week
 sched now, and the check captures the wait's own result).
+
+## 🏈 GFFL — THE FULL RULES RECONCILIATION vs ESPN'S REAL 2025 SEASON (2026-08-13, pre-week-1 proof)
+
+User: *"did you confirm that all of our rules produce the same results as ESPN did for games
+last season?"* The honest answer was NO — the settings had been imported and the FG rule
+reconciled, but nobody had ever re-scored a real season through our rules and diffed it
+against ESPN's own numbers. Now it has been, and it caught a REAL, season-corrupting bug 28
+days before week 1. Files: `netlify/functions/league.mjs` + `assets/league/lg-data.js` +
+`tools/_gffl_shadow_score.mjs` + NEW `tools/_gffl_rules_reconcile.mjs` (permanent equipment).
+
+**THE HARNESS**: `lg_espn_rules_audit` (the kicker audit widened to every position — though
+its slot-filtered kona recipe, which worked 2026-08-07, 400s today and past-season kona lines
+come back with EMPTY appliedStats; ESPN moved) + `lg_espn_probe` (a bounded, ALLOWLISTED,
+family-secret-gated read-only passthrough — the iteration loop that found the recipe that DOES
+work: **past-season mBoxscore per scoringPeriod** serves every rostered player-week's raw
+stats + `appliedStats` — the per-statId points ESPN actually paid — + ESPN's own player and
+matchup totals). `node tools/_gffl_rules_reconcile.mjs [season] [weeks]` walks all 17 weeks:
+every exercised coefficient vs the live rules doc (through the server's own STAT_MAP, regex-
+extracted so there is ONE source of truth), paid-but-unmapped statIds, per-player re-scores vs
+`appliedStatTotal`, per-team starter sums vs `totalPoints`, and the unexercised-rules list.
+
+**WHAT IT CAUGHT — the pointsOverrides[16] trap.** ESPN stores every DEFENSIVE rule's real
+value in `pointsOverrides["16"]` (the D/ST position group) while `points` is a genuine 0 —
+and the importer's `points ?? override` NEVER falls through on 0. So the live rules doc had
+**six defensive rules at ZERO** (sack 1, int 2, fum_rec 1, fum_forced 1, blk 3, safety 4 —
+154 paid sack samples in 2025 alone), return TDs at 6 where the override pays **8**,
+dst_2pt_ret at 2 where the override pays **4** (the 2026-08-08 shadow-scorer repair had
+inherited this same parse bug for that field), armed PA brackets in a league that **scores no
+points allowed at all**, and an armed xp_miss (-1) for a rule ESPN's scoringItems don't carry.
+Every D/ST would have under-scored every week of the real season. FIXED three layers deep:
+the parse (override wins when present), the LIVE DOC (backup → masked PATCH → verified), and
+the app.
+
+**THE LAST 5 OF 2,497 TAUGHT THE SEMANTICS**: the overrides apply ONLY when a stat scores for
+a D/ST SLOT. An individual player's kick-return TD paid the base 6 (Shaheed's real rows), and
+a player credited with a fumble recovery paid the base **0** (Hurts w14, id 96 applied 0).
+So `normSlp` is POSITION-AWARE now (`normSlp(st, isDst)`, callers pass `meta.pos === "DEF"`,
+pts_allow-presence as the backstop): defensive keys are D/ST-only; a player row maps its
+`st_td` into dst_td (6) and nothing else defensive. Two NEW scorer keys — `dst_fum_forced`
+and `dst_kr_td` (the unit's kick/punt-return bucket at 8; Sleeper never splits KR from PR and
+ESPN pays both 8, so one bucket is exact) — with `deriveEspnDst`'s scoring-play regex split
+the same way. The shadow scorer mirrors all of it (selftest 50/50; its "6 drift keys" check
+restaged to 4 — two were PROMOTED into the scorer because the league really pays them).
+
+**THE RESULT**: **RECONCILED — zero discrepancies.** Every exercised coefficient to the
+penny, all **2,497 player-week totals**, all **136 matchup totals**, across the family
+league's entire real 2025 season. ESPN internal-consistency (Σ appliedStats = appliedTotal)
+0 mismatches. Unexercised in 2025 and grounded through the settings instead: one_pt_safety 1,
+dst_2pt_ret 4, dst_td 6, xp_miss 0.
+
+**LESSONS**: `0 ?? x` is the whole bug class — a real zero never falls through, and ESPN uses
+real zeros next to overrides; a coefficient audit over one position (the kicker audit) proves
+that position only — the D/ST family was broken the entire time it was green; and the
+recipe that works on ESPN's past seasons CHANGES (slot filters worked Aug 7, 400 Aug 13) —
+which is why lg_espn_probe exists. Battery **2468/2468** over the position-aware
+normalization, zero restages needed. RE-RUN `_gffl_rules_reconcile.mjs` after ANY scoring
+change, and against 2026 itself once real weeks exist.

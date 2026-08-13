@@ -42,6 +42,12 @@
     // FG made YARDS at 0.1/yd — the league's ONLY per-make FG scoring.
     // 206 = 2-pt conversion return TD (DST), 209 = 1-pt safety (both rare).
     "fg_made_yd", "dst_2pt_ret", "one_pt_safety",
+    // FULL RULES RECONCILIATION vs the real 2025 boxscores (2026-08-13): the league pays
+    // FORCED fumbles (1) separately from recoveries, and KICK/PUNT return TDs at 8 where
+    // defensive return TDs (int/fum/blocked) pay 6 — one combined dst_td could not price
+    // both. dst_kr_td is the SPECIAL-TEAMS TD bucket (Sleeper never splits KR from PR, and
+    // ESPN pays both 8, so one bucket is exact, not an approximation).
+    "dst_fum_forced", "dst_kr_td",
   ];
   D.KEYS = KEYS;
   const empty = () => { const o = {}; for (const k of KEYS) o[k] = 0; o.dst_pa = null; return o; };
@@ -92,7 +98,17 @@
   };
 
   // ---------------- sleeper normalization ----------------
-  function normSlp(st) {
+  // POSITION-AWARE (2026-08-13, the last 5 of 2,497 reconciled player-weeks): ESPN's
+  // pointsOverrides[16] values apply only when a stat scores FOR A D/ST SLOT. An individual
+  // PLAYER's kick/punt-return TD pays the base 6 (2025's Rashid Shaheed rows, paid 6 not 8),
+  // and a player credited with a fumble recovery pays the base 0 (Jalen Hurts w14, id 96
+  // applied 0) — while the D/ST unit pays 8 and 1 for the same events. So the defensive keys
+  // are populated ONLY for a defense row; a player row maps its return TD into dst_td (the
+  // 6-point key) and nothing else defensive. isDst comes from the caller (meta.pos === "DEF")
+  // with the pts_allow heuristic as the backstop — Sleeper only puts points-allowed on
+  // team-defense rows.
+  function normSlp(st, isDst) {
+    if (isDst == null) isDst = st.pts_allow != null;
     const n = empty();
     n.pass_yd = st.pass_yd || 0; n.pass_td = st.pass_td || 0; n.pass_int = st.pass_int || 0;
     n.pass_2pt = st.pass_2pt || 0;
@@ -106,12 +122,26 @@
     n.fg_0_39 = (st.fgm_0_19 || 0) + (st.fgm_20_29 || 0) + (st.fgm_30_39 || 0);
     n.fg_40_49 = st.fgm_40_49 || 0; n.fg_50 = st.fgm_50p || 0;
     n.fg_miss = st.fgmiss || 0; n.xp_made = st.xpm || 0; n.xp_miss = st.xpmiss || 0;
-    n.dst_sack = st.sack ?? st.def_sack ?? 0;
-    n.dst_int = st.int ?? st.def_int ?? 0;
-    n.dst_fum_rec = st.fum_rec ?? st.def_fum_rec ?? 0;
-    n.dst_td = (st.def_td || 0) + (st.def_st_td || 0) + (st.st_td || 0);
-    n.dst_safety = st.safe ?? st.safety ?? 0;
-    n.dst_blk = st.blk_kick || 0;
+    if (isDst) {
+      n.dst_sack = st.sack ?? st.def_sack ?? 0;
+      n.dst_int = st.int ?? st.def_int ?? 0;
+      n.dst_fum_rec = st.fum_rec ?? st.def_fum_rec ?? 0;
+      // SPLIT, not combined (2026-08-13 reconciliation): defensive return TDs (def_td —
+      // interception/fumble/blocked returns) pay 6; the unit's SPECIAL-TEAMS TDs (kick/punt
+      // returns) pay 8. The old single bucket priced a punt-return TD at 6 — a real 2-point
+      // drift ESPN's own 2025 boxscores exposed.
+      n.dst_td = st.def_td || 0;
+      n.dst_kr_td = (st.def_st_td || 0) + (st.st_td || 0);
+      // Forced fumbles pay 1 — the reconciliation found this key entirely absent (86 paid
+      // samples across 2025 that the app would have scored 0).
+      n.dst_fum_forced = st.ff ?? st.def_ff ?? 0;
+      n.dst_safety = st.safe ?? st.safety ?? 0;
+      n.dst_blk = st.blk_kick || 0;
+    } else {
+      // A PLAYER's return TD pays the BASE 6 (dst_td's rate), never the D/ST-group 8; his
+      // fumble recoveries/sacks/etc. pay nothing at all — ESPN's own 2025 rows prove both.
+      n.dst_td = st.st_td || 0;
+    }
     n.off_fum_td = st.fum_rec_td || 0;
     if (st.pts_allow != null) n.dst_pa = st.pts_allow;
     return n;
@@ -246,7 +276,13 @@
       for (const p of (summary?.scoringPlays || [])) {
         if ((p?.team?.abbreviation || "") !== myAb) continue;
         const text = String(p?.text || "");
-        if (/interception return|fumble return|punt return|kickoff return|blocked .* (return|touchdown)/i.test(text)) st.dst_td++;
+        // Same 6-vs-8 split the Sleeper normalization makes (2026-08-13 reconciliation):
+        // kick/punt return TDs are the 8-point special-teams bucket; interception/fumble/
+        // blocked returns are the 6-point defensive bucket. Forced fumbles are NOT derivable
+        // from the box summary — a documented approximation of this fallback path (the
+        // Sleeper side, the season's primary source, carries them).
+        if (/punt return|kickoff return/i.test(text)) st.dst_kr_td++;
+        else if (/interception return|fumble return|blocked .* (return|touchdown)/i.test(text)) st.dst_td++;
         if (String(p?.type || "") === "SF" || /safety/i.test(text)) st.dst_safety++;
       }
       out.set("dst_" + slpTeam(myAb), { meta: { name: myAb + " D/ST", pos: "DST", team: myAb }, stats: st });
@@ -624,7 +660,7 @@
       const row = entry.raw[pid]; if (!row || typeof row !== "object") continue;
       const meta = D.S.slpPlayers && D.S.slpPlayers.get(pid);
       if (!meta) continue;
-      const pts = D.score(normSlp(row));
+      const pts = D.score(normSlp(row, meta.pos === "DEF"));
       // Same keying rule as the live pollers (2026-08-09): the ROSTER's own key wins, so a
       // player Sleeper carries no espn_id for still shows a season history / FPTS column.
       const nk = nameKey(meta.name, meta.team);
@@ -652,7 +688,8 @@
     const pid = D.pidForKey(key);
     const st = pid != null ? projMap[pid] : null;
     if (!st) return null;
-    const pts = D.score(normSlp(st));
+    const meta = D.S.slpPlayers.get(pid);
+    const pts = D.score(normSlp(st, !!(meta && meta.pos === "DEF")));
     return sim ? Math.round(pts * 10) / 10 : pts;
   };
 
@@ -1171,7 +1208,7 @@
       const row = rowFor(key, { name: meta.name, pos: meta.pos === "DEF" ? "DST" : meta.pos, team: meta.team });
       row.injury = meta.injury || row.injury;
       if (st.pts_ppr != null) row.official = st.pts_ppr;
-      applySide("slp", key, {}, normSlp(st), st);
+      applySide("slp", key, {}, normSlp(st, meta.pos === "DEF"), st);
       n++;
     }
     if (n) { D.S.slpSeeded = true; D.S.slpBucket.locked = true; }
@@ -1489,7 +1526,7 @@
       const row = rowFor(key, { name: meta.name, pos: meta.pos === "DEF" ? "DST" : meta.pos, team: meta.team });
       row.injury = meta.injury || row.injury;
       if (scaled.pts_ppr != null) row.official = scaled.pts_ppr;
-      applySide("slp", key, {}, normSlp(scaled), scaled);
+      applySide("slp", key, {}, normSlp(scaled, meta.pos === "DEF"), scaled);
       n++;
     }
     // Seeded AFTER the first pass, exactly like the live poller: the first poll establishes the
