@@ -3089,4 +3089,133 @@
         LG.shortName(w.name) + " is now " + LG.injWord(w.to) + ".", LG.pushLink("#league"));
     } catch (e) { /* a producer may never cost the change it is announcing */ }
   };
+
+  // ---------------- THE GROK PROJECTION ADJUSTER (2026-08-13) ----------------
+  // User: "go with the grok adjusting from espn projection" — after both sources were MEASURED
+  // on the family league's real 2025 season (ESPN and Sleeper both MAE ~5.5-6, everyone
+  // squeezed into a 13±4 band against reality's ±8). The shape: ESPN's own league-scored
+  // weekly projection is the ANCHOR (lg_espn_projections — kona, already in the reconciled
+  // scoring), each player's recent game log + injury designation + depth order + opponent ride
+  // along, and Grok 4.5 (mode gffladjust, reasoning low) returns an adjusted number and a
+  // ≤10-word reason. The result is ONE doc per week — proj_<season>_w<week> — that D.projFor
+  // consults first, so the adjustment flows through every surface that reads a projection
+  // (matchup, locker, players table, win probability, the pre-game accuracy snapshot) with no
+  // other code knowing it exists.
+  //
+  // FAIL-OPEN, EVERY PATH: no cookies, a dead endpoint, an unparseable reply, a mirror, the
+  // replay — the baseline (Sleeper-scored) projections simply stand, exactly as before. And
+  // VALIDATED, not trusted: only keys we actually sent are kept, every number is finite and
+  // CLAMPED UPWARD to max(2×base, base+6) — hallucination damage is inflation; a downward move
+  // (injury news) is self-limiting at 0 and deliberately unclamped.
+  //
+  // Scope note, stated rather than hidden: only NUMERIC (espn-id) keys are adjustable — the
+  // baseline is keyed by espn id, and a slp_-prefixed key exists precisely because the player
+  // HAS no espn id. D/STs and slp_ free agents keep the old path.
+  LG.projId = (season, week) => `proj_${season}_w${week}`;
+  LG.loadAdjProj = async function (week) {
+    const doc = await LG.db.get(LG.projId(LG.SEASON, week));
+    return doc && doc.kind === "proj" ? doc : null;
+  };
+  const ADJ_TTL_MS = 20 * 3600e3;   // regenerate daily-ish, so Wed injury news reaches Thu screens
+  const ADJ_RETRY_MS = 10 * 60e3;   // a failed generation is not retried for 10 minutes
+  const ADJ_BATCH = 35, ADJ_MAX_PLAYERS = 150;
+  let adjInFlight = null, adjFailAt = 0;
+  LG.ensureAdjustedProj = async function (opts) {
+    if (LG.SIM_2025 || LG.mirrorOffline) return null;
+    if (adjInFlight) return adjInFlight;   // single-flight — two views asking = one generation
+    adjInFlight = (async () => {
+      const week = LG.currentWeek();
+      const D = LG.data;
+      // Adopt whatever is already on file FIRST — a fresh doc means no model call at all, and
+      // even a stale one is better on screen than nothing while the regeneration runs.
+      const existing = await LG.loadAdjProj(week);
+      if (existing) D.setAdjProj(existing);
+      const force = !!(opts && opts.force);
+      if (existing && !force && Date.now() - (Number(existing.at) || 0) < ADJ_TTL_MS) return existing;
+      if (!force && Date.now() - adjFailAt < ADJ_RETRY_MS) return existing || null;
+      try {
+        // 1 · the ESPN baseline (league-scored, rostered + free agents in one bounded call)
+        const base = await fetch("/.netlify/functions/league", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ secret: LG.PASS, action: "lg_espn_projections", week }),
+        }).then((r) => r.json()).catch(() => null);
+        if (!base || base.ok !== true || !Array.isArray(base.players) || !base.players.length) throw new Error((base && base.reason) || "no-baseline");
+        const baseById = new Map(base.players.map((p) => [String(p.espnId), p]));
+        // 2 · who to adjust: every rostered numeric key, then top-owned free agents to the cap
+        const keys = [];
+        const seen = new Set();
+        for (const t of (LG.teams || [])) {
+          const ros = await LG.ensureRoster(week, t.id).catch(() => null);
+          for (const p of (ros || [])) {
+            const k = String(p.key);
+            if (!/^\d+$/.test(k) || seen.has(k) || !baseById.has(k)) continue;
+            seen.add(k); keys.push(k);
+          }
+        }
+        for (const p of base.players) {
+          if (keys.length >= ADJ_MAX_PLAYERS) break;
+          const k = String(p.espnId);
+          if (seen.has(k) || !/^\d+$/.test(k)) continue;
+          seen.add(k); keys.push(k);
+        }
+        if (!keys.length) throw new Error("no-adjustable-keys");
+        // 3 · each player's recent log, from the archived weeks already cached by D.weekStats
+        const weekly = (await LG.db.list("weekly")).filter((w) => w && w.kind === "weekly").sort((a, b) => (a.week || 0) - (b.week || 0)).slice(-5);
+        const maps = await Promise.all(weekly.map((w) => D.weekStats(w.week, { season: LG.SEASON, seasonType: "regular" }).catch(() => null)));
+        const logFor = (k) => {
+          const out = [];
+          weekly.forEach((w, i) => { const m = maps[i]; if (m && m.has(k)) out.push({ w: w.week, pts: m.get(k) }); });
+          return out;
+        };
+        // 4 · context + batches
+        const ctx = keys.map((k) => {
+          const meta = D.metaForKey(k) || {};
+          const pid = D.pidForKey(k);
+          const dir = pid != null && D.S.slpPlayers ? D.S.slpPlayers.get(pid) : null;
+          const b = baseById.get(k);
+          const row = { key: k, name: LG.shortName(meta.name || (b && b.name) || k), pos: meta.pos || "", team: meta.team || "",
+            base: Math.round(((b && b.proj) || 0) * 10) / 10, log: logFor(k) };
+          const opp = D.oppForWeek(week, meta.team);
+          if (opp) row.opp = opp.replace("vs ", "");
+          const inj = LG.injLabel ? LG.injLabel((dir && dir.injury) || meta.injury || "") : "";
+          if (inj) row.inj = inj;
+          if (dir && dir.depth != null) row.depth = dir.depth;
+          return row;
+        });
+        const players = {};
+        for (let i = 0; i < ctx.length; i += ADJ_BATCH) {
+          const batch = ctx.slice(i, i + ADJ_BATCH);
+          const sent = new Map(batch.map((p) => [p.key, p]));
+          const r = await fetch("/.netlify/functions/farmgpt", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ secret: LG.PASS, mode: "gffladjust", adjust: { week, players: batch } }),
+          });
+          if (!r.ok) continue;   // one failed batch costs its own players only
+          const text = (await r.text()).trim();
+          let arr = null;
+          try { arr = JSON.parse(text); } catch (e) { continue; }
+          if (!Array.isArray(arr)) continue;
+          for (const a of arr) {
+            const k = a && String(a.key);
+            const src = k && sent.get(k);
+            if (!src) continue;                       // a key we never sent — hallucinated, dropped
+            let p = Number(a.proj);
+            if (!Number.isFinite(p) || p < 0) continue;
+            p = Math.min(p, Math.max(src.base * 2, src.base + 6));   // the inflation clamp
+            players[k] = { b: src.base, p: Math.round(p * 10) / 10, note: String((a && a.note) || "").slice(0, 90) };
+          }
+        }
+        if (!Object.keys(players).length) throw new Error("no-adjustments");
+        const doc = { kind: "proj", season: LG.SEASON, week, at: Date.now(), model: "grok", players };
+        await LG.db.set(LG.projId(LG.SEASON, week), doc);
+        D.setAdjProj(doc);
+        adjFailAt = 0;
+        return doc;
+      } catch (e) {
+        adjFailAt = Date.now();
+        return existing || null;
+      }
+    })();
+    try { return await adjInFlight; } finally { adjInFlight = null; }
+  };
 })();

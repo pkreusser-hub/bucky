@@ -365,6 +365,49 @@ async function lgEspnProbe(body) {
   }
 }
 
+// WEEKLY ESPN PROJECTIONS (2026-08-13, the Grok projection adjuster's baseline). ESPN's own
+// per-player weekly projection line (statSourceId 1, statSplitTypeId 1) arrives ALREADY in the
+// league's own scoring (appliedTotal — the same rules the 2025 reconciliation proved to the
+// penny), for rostered players AND free agents alike: kona_player_info sorted by percentOwned,
+// one bounded call covering everyone the league could plausibly start or claim. Verified LIVE
+// on the current season before this was written (past-season kona is the recipe that broke;
+// current-season is what this asks for). Slimmed to espn id + name + the one number. Never an
+// open proxy — the league id is pinned, the limit capped, family-secret-gated like everything.
+async function lgEspnProjections(body) {
+  const cookies = ffCookies();
+  if (!cookies) return { ok: false, reason: "fantasy-not-configured" };
+  const year = ffSeason(body);
+  const week = Number(body?.week);
+  if (!(week >= 1 && week <= 18)) return { ok: false, reason: "bad-week" };
+  const limit = Math.min(Math.max(Number(body?.limit) || 300, 1), 400);
+  const url = `${FF_BASE}/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${FF_LEAGUE_ID}?scoringPeriodId=${week}&view=kona_player_info`;
+  const headers = { "User-Agent": UA, accept: "application/json", Cookie: cookies,
+    "X-Fantasy-Filter": JSON.stringify({ players: { limit, sortPercOwned: { sortAsc: false, sortPriority: 1 } } }) };
+  try {
+    const r = await fetch(url, { headers });
+    if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
+    if (!r.ok) return { ok: false, reason: "http-" + r.status };
+    const data = await r.json();
+    const players = [];
+    for (const p of (data?.players || [])) {
+      const pl = p?.player || {};
+      const line = (pl.stats || []).find((s) => s && s.statSourceId === 1 && s.statSplitTypeId === 1
+        && s.scoringPeriodId === week && s.seasonId === year);
+      if (!line || line.appliedTotal == null) continue;
+      players.push({
+        espnId: pl.id,
+        name: pl.fullName || "",
+        posId: pl.defaultPositionId ?? null,
+        pctOwned: Math.round(((pl.ownership && pl.ownership.percentOwned) || 0) * 10) / 10,
+        proj: Math.round(line.appliedTotal * 100) / 100,
+      });
+    }
+    return { ok: true, season: year, week, players };
+  } catch (e) {
+    return { ok: false, reason: "fetch-failed" };
+  }
+}
+
 // ESPN history import (plan §4.8) — one past season per call; the client
 // loops seasons backward until the import runs dry. Slimmed hard: final
 // standings + the champion + every real matchup's final score, nothing
@@ -491,6 +534,7 @@ export default async (req) => {
   if (action === "lg_espn_rosters_season") return json(await lgEspnRostersSeason(body));
   if (action === "lg_espn_kicker_audit") return json(await lgEspnKickerAudit(body));
   if (action === "lg_espn_rules_audit") return json(await lgEspnRulesAudit(body));
+  if (action === "lg_espn_projections") return json(await lgEspnProjections(body));
   if (action === "lg_espn_probe") return json(await lgEspnProbe(body));
   if (action === "lg_espn_history") return json(await lgEspnHistory(body));
   if (action === "lg_gif_search") return json(await lgGifSearch(body));

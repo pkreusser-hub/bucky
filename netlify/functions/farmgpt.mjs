@@ -1380,6 +1380,39 @@ RULES
   If you propose no trade: ===TRADE=== {"give":[],"get":[]}
   Nothing may follow that line.`;
 
+// THE PROJECTION ADJUSTER (2026-08-13, user: "go with the grok adjusting from espn projection").
+// Measured first, built second: ESPN's and Sleeper's 2025 weekly projections both graded at
+// MAE ~5.5-6 with sd ~3.5-4.4 against reality's ±8 — everyone squeezed into a 13±4 band. The
+// winnable ground is rank ordering and responsiveness, not halving a ~5-point error that sits
+// near the industry ceiling — so the prompt is built around CALIBRATION DISCIPLINE, with
+// ESPN's own league-scored projection as the anchor the model must justify leaving.
+const GFFLADJUST_SYSTEM = `You are a careful weekly fantasy football projection analyst for a family's
+private league. You are given a JSON list of players, each with: "key" (an opaque id — echo it
+back VERBATIM), name, position, NFL team, this week's opponent ("opp", "@XXX" = on the road; may
+be absent), injury designation ("inj": Q / D / OUT / IR / SUS, or absent = healthy), depth-chart
+order ("depth", 1 = the starter), ESPN's projection for this week in THIS league's own scoring
+("base"), and recent per-week fantasy points in this league's scoring ("log", newest last — may
+be short or empty early in the season).
+
+TASK: for each player, return an ADJUSTED projection for this week, using the data given plus
+your own real NFL knowledge of these players' roles, offenses and matchups.
+
+CALIBRATION RULES — the whole job is discipline, not boldness:
+- "base" is your anchor. Stay within ±35% of it unless a CONCRETE given fact justifies more: an
+  injury designation, a role change visible in the log, a depth-chart change, or an extreme
+  matchup you are genuinely confident about.
+- OUT / IR / Suspended → project 0-2 and say why. Doubtful → shade down hard (50-80%).
+  Questionable → shade down modestly (10-25%), never to zero.
+- Do NOT inflate everyone: across the whole list your moves must roughly balance — some up,
+  some down, most close to base. Real outcomes spread wider than projections should; chasing
+  upside on every player is how projections go bad.
+- A short or empty log (early season) is LESS reason to move off base, not more.
+- Never move a player ABOVE base on hope alone — the note must name the concrete reason.
+
+OUTPUT — STRICT JSON only, no markdown fences, no prose before or after:
+[{"key":"<verbatim>","proj":<number, one decimal>,"note":"<10 words max — the reason, or 'in line with ESPN' when unchanged>"}]
+Every input player appears EXACTLY once. Keys verbatim. Nobody invented, nobody dropped.`;
+
 const MODES = {
   // 1600, not the long-standing 1200, and this is a MEASURED fix, not headroom for its own sake:
   // at 1200 a Haiku scene sometimes ran past the budget and arrived cut off mid-sentence with no
@@ -1434,6 +1467,11 @@ const MODES = {
   // API, and at 1400 the reasoning ate the budget and cut the ===TRADE=== machine tail
   // (measured live 2026-08-12). Output bills only for what is produced, so the headroom is free.
   gffltrade:   { system: GFFLTRADE_SYSTEM,  maxTokens: 4000, thinking: { type: "disabled" }, cache: false },
+  // The weekly projection adjuster: a JSON array of up to ~40 {key,proj,note} objects (~25
+  // tokens each) PLUS grok's reasoning, which bills against max_tokens on the xAI API (the
+  // gffltrade lesson) — 6000 keeps a full batch's tail from ever being cut mid-JSON, and
+  // output bills only for what is produced.
+  gffladjust:  { system: GFFLADJUST_SYSTEM, maxTokens: 6000, thinking: { type: "disabled" }, cache: false },
 };
 const KID_ART_MODEL = RESEARCH_MODEL;   // Sonnet 5 — better at clean, readable vector art
 
@@ -1693,7 +1731,7 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
       : modeName === "storyseed" ? "f"
       : (modeName === "fantasy" || modeName === "ffrecap") ? "w"
       // The live projection adjuster reuses "w" too — it's the same fantasy-AI spend.
-      : modeName === "gfflproj" || modeName === "gffltrade" ? "w"
+      : modeName === "gfflproj" || modeName === "gffltrade" || modeName === "gffladjust" ? "w"
       : modeName === "audit" ? "x" : "r";
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
@@ -2874,6 +2912,33 @@ function buildGfflTradeMessages(body) {
   parts.push("", "TASK: size up both rosters, then propose ONE fair trade per your instructions — and end with the ===TRADE=== line carrying the exact keys.");
   return [{ role: "user", content: parts.join("\n") }];
 }
+// The projection adjuster's turn — named body fields, built server-side, exactly like every
+// other league-data mode (the ledger lesson: MAX_CONTENT_CHARS slices JSON stuffed into
+// messages[]). Every field is re-validated and clipped here because the client is untrusted.
+function buildGffladjustMessages(body) {
+  const a = body.adjust && typeof body.adjust === "object" && !Array.isArray(body.adjust) ? body.adjust : null;
+  if (!a || !Array.isArray(a.players) || !a.players.length) return null;
+  const players = a.players.slice(0, 40).map((p) => {
+    const o = {
+      key: String((p && p.key) || ""),
+      name: String((p && p.name) || "").slice(0, 40),
+      pos: String((p && p.pos) || "").slice(0, 4),
+      team: String((p && p.team) || "").slice(0, 4),
+      base: Number.isFinite(Number(p && p.base)) ? Math.round(Number(p.base) * 10) / 10 : 0,
+      log: Array.isArray(p && p.log)
+        ? p.log.slice(-5).map((g) => ({ w: Number(g && g.w) || 0, pts: Math.round((Number(g && g.pts) || 0) * 10) / 10 }))
+        : [],
+    };
+    if (p && p.opp) o.opp = String(p.opp).slice(0, 8);
+    if (p && p.inj) o.inj = String(p.inj).slice(0, 12);
+    if (Number.isFinite(Number(p && p.depth))) o.depth = Number(p.depth);
+    return o;
+  }).filter((p) => p.key);
+  if (!players.length) return null;
+  return [{ role: "user", content: "WEEK " + (Number.isInteger(Number(a.week)) ? Number(a.week) : "?")
+    + " PLAYERS:\n" + clipJson(players, 9000)
+    + "\n\nTASK: return the strict-JSON adjusted-projections array per your instructions — every key exactly once, nothing but the JSON." }];
+}
 // One column per completed week, family-shared: doc farmgpt_ffrecap/<season>_w<week>.
 const FFRECAP_COLLECTION = "farmgpt_ffrecap";
 async function fetchFfRecap(id) {
@@ -3278,6 +3343,7 @@ export default async (req) => {
   else if (body.mode === "ffrecap") messages = buildRecapMessages(body);
   else if (body.mode === "gfflproj") messages = buildGfflProjMessages(body);
   else if (body.mode === "gffltrade") messages = buildGfflTradeMessages(body);
+  else if (body.mode === "gffladjust") messages = buildGffladjustMessages(body);
   else if (body.mode === "storyseed") {
     const built = buildSeedMessages(body);
     if (built) { messages = built.messages; seedHasPack = built.hasPack; }
@@ -3289,6 +3355,7 @@ export default async (req) => {
       : body.mode === "ffrecap" ? "Bad recap request"
       : body.mode === "gfflproj" ? "Bad projection request"
       : body.mode === "gffltrade" ? "Bad trade request"
+      : body.mode === "gffladjust" ? "Bad adjust request"
       : body.mode === "storyseed" ? "Bad seed request" : "Bad messages array", jsonHeaders);
   }
 
@@ -3426,7 +3493,7 @@ export default async (req) => {
   // trash talk and hot takes), falling back to Sonnet, the quality tier for advice.
   else if (body.mode === "fantasy" || body.mode === "ffrecap") { provider = "xai"; model = XAI_MODEL; }
   // The live projection adjuster: same Grok pick, same reasoning as the analyst/columnist above.
-  else if (body.mode === "gfflproj" || body.mode === "gffltrade") { provider = "xai"; model = XAI_MODEL; }
+  else if (body.mode === "gfflproj" || body.mode === "gffltrade" || body.mode === "gffladjust") { provider = "xai"; model = XAI_MODEL; }
 
   // DEGRADE BEFORE WE EVEN ASK. A site with no XAI_API_KEY is a working site: every xAI route
   // resolves back to its Anthropic equivalent here, so the reader gets a Haiku-narrated story
@@ -3441,7 +3508,7 @@ export default async (req) => {
   // doesn't know about it and would leave it on STORY_MODEL (Haiku) — wrong tier for advice. Correct
   // it here rather than touch that ternary: RESEARCH_MODEL is the fallback quality tier every other
   // Grok-backed mode (fantasy/ffrecap) already gets.
-  if ((body.mode === "gfflproj" || body.mode === "gffltrade") && !process.env.XAI_API_KEY) { provider = "anthropic"; model = RESEARCH_MODEL; }
+  if ((body.mode === "gfflproj" || body.mode === "gffltrade" || body.mode === "gffladjust") && !process.env.XAI_API_KEY) { provider = "anthropic"; model = RESEARCH_MODEL; }
 
   let upstream;
   // One attempt at one provider. Returns {ok:true, upstream} or {ok:false, status, msg} — an
@@ -3493,7 +3560,7 @@ export default async (req) => {
       // tail present and key-valid on every run, and 0.2 also curbed (not cured) grok's
       // fast-path name mangling. Mode-scoped: story/fantasy prompts never triggered long
       // reasoning and their prose should keep the default sampling.
-      if (body.mode === "gffltrade") { xaiReq.reasoning_effort = "low"; xaiReq.temperature = 0.2; }
+      if (body.mode === "gffltrade" || body.mode === "gffladjust") { xaiReq.reasoning_effort = "low"; xaiReq.temperature = 0.2; }
       try {
         resp = await fetch(`${xaiBase}/v1/chat/completions`, {
           method: "POST",
@@ -3560,7 +3627,7 @@ export default async (req) => {
     attempt = await openUpstream(provider, model);
   }
   // Same outage fallback, added separately for gfflproj so the condition above stays untouched.
-  if (!attempt.ok && provider !== "anthropic" && (body.mode === "gfflproj" || body.mode === "gffltrade")) {
+  if (!attempt.ok && provider !== "anthropic" && (body.mode === "gfflproj" || body.mode === "gffltrade" || body.mode === "gffladjust")) {
     provider = "anthropic";
     model = RESEARCH_MODEL;
     attempt = await openUpstream(provider, model);
@@ -3592,14 +3659,15 @@ export default async (req) => {
       let stopReason = null;
       let replyText = "";   // accumulated scene text, for the content log (story mode only)
       let inTok = 0, outTok = 0, cacheWriteTok = 0, cacheReadTok = 0;
-      // HEARTBEAT, gffltrade ONLY (2026-08-12): even at reasoning_effort "low" grok's first
-      // token can take 20-33s, and the CDN 504s a response that has moved no bytes for 30s
-      // ("Inactivity Timeout", reproduced live). A single space every 8s until the first real
-      // token keeps the pipe warm; the client's prose formatter collapses leading whitespace
-      // and the ===TRADE=== tail parser is untouched by it. DELIBERATELY not on any other
-      // mode — the story path's marker parsing must never see bytes the model didn't write.
+      // HEARTBEAT, gffltrade + gffladjust ONLY (2026-08-12; adjuster added 2026-08-13): even at
+      // reasoning_effort "low" grok's first token can take 20-33s, and the CDN 504s a response
+      // that has moved no bytes for 30s ("Inactivity Timeout", reproduced live). A single space
+      // every 8s until the first real token keeps the pipe warm; the trade client's prose
+      // formatter collapses leading whitespace, and the adjuster's reply is strict JSON whose
+      // JSON.parse tolerates leading whitespace natively. DELIBERATELY not on any other mode —
+      // the story path's marker parsing must never see bytes the model didn't write.
       let heartbeat = null;
-      if (body.mode === "gffltrade") {
+      if (body.mode === "gffltrade" || body.mode === "gffladjust") {
         heartbeat = setInterval(() => {
           if (sentAnyText) { clearInterval(heartbeat); heartbeat = null; return; }
           try { controller.enqueue(encoder.encode(" ")); } catch { clearInterval(heartbeat); heartbeat = null; }

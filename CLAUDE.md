@@ -11952,3 +11952,74 @@ keys via the same `D.pidForKey` the scoring already trusts. A D/ST wears its tea
 Plates: `shots/gffl_headshots_moves_390.png`, `gffl_headshots_matchup_1440.png`.
 **KNOWN**: a brand-new signing ESPN hasn't photographed 404s to the disc (by design); the
 face discs sit on `--nested2` so a transparent-PNG headshot never floats on the card colour.
+
+## 🏈 GFFL — THE GROK PROJECTION ADJUSTER (2026-08-13)
+
+User: *"ESPN projections are always bad, they basically project everyone will get about 10
+points"* → investigate better sources vs an AI machine → *"skip fantasypros for now and go
+with the grok adjusting from espn projection."* Files: `netlify/functions/{farmgpt,league}.mjs`
++ `assets/league/lg-{core,data,ui}.js` + `league.html` + `tools/_verify-gffl.cjs`
+(2507 → **2535**, new section AX). farmgpt regressions all green (storyledger 683 · kidstory
+54 · dnd 47 · ffai 32).
+
+**MEASURED FIRST, BUILT SECOND.** Both candidate baselines were graded against the family
+league's REAL 2025 boxscores (the reconcile machinery): ESPN MAE ~5.3-6.3 / sd ±3.6-4.4,
+Sleeper ~5.4-6.1 / ±3.4-3.8, against actuals at ±7.3-8.9 — the user's "everyone ~10" is a
+real 13.5±4 compression, and a naive 2-source blend buys NOTHING (pooled 5.91 vs ESPN's own
+5.84; skill positions only after the first run's kicker-scoring contamination). Weekly MAE
+~5 is near the industry ceiling (FFA's decade study), so the design goal is RANK ORDERING +
+RESPONSIVENESS, not halving the error. Also measured: **Sleeper DOES retain past-season
+projections now** (regular/2025/N answers real stat lines — the X8-era "not retained"
+finding is stale), which is what made the backtest possible at all.
+
+**THE PIPELINE** — one doc per week, `proj_<season>_w<week>` (kind "proj"):
+- **`lg_espn_projections {week}`** (league.mjs): kona_player_info + X-Fantasy-Filter
+  sortPercOwned (limit ≤400) → each player's weekly PROJECTION line (statSourceId 1,
+  statSplitTypeId 1) whose `appliedTotal` is ALREADY in the league's reconciled-to-the-penny
+  scoring — rostered players AND free agents in one bounded call. **Verified LIVE on the
+  current season before a line was written** (Achane 17.0/Adams 12.3 at week 1 2026) —
+  past-season kona is the recipe that broke; current-season works.
+- **farmgpt mode `gffladjust`** (Grok 4.5, the full gffltrade lesson set: reasoning_effort
+  low + temp 0.2 + maxTokens 6000 — reasoning bills against the cap — + the 8s heartbeat,
+  safe here because JSON.parse tolerates leading whitespace; no-key degrade + mid-request
+  fallback to Sonnet; usage bucket "w"). GFFLADJUST_SYSTEM is built around CALIBRATION
+  DISCIPLINE: base is the anchor, ±35% unless a concrete fed fact, OUT/IR→0-2, moves must
+  roughly balance across the list, short log = less reason to move. Named body field
+  `adjust` (the ledger lesson), server-re-validated per player.
+- **`LG.ensureAdjustedProj()`** (lg-core): single-flight, adopt-existing-first, 20h TTL,
+  10-min failure floor, skipped under the replay and on a mirror. Context per player: ESPN
+  base + last-5 finalized-week log (D.weekStats, cached) + injury designation + depth order
+  + opponent. Batches of 35, ≤150 players (every rostered numeric key + top-owned FAs).
+  **VALIDATED, NOT TRUSTED**: only keys we sent are kept (hallucinations dropped), and the
+  UPWARD clamp is max(2×base, base+6) — inflation is the damage direction; a downward move
+  (injury news) is self-limiting at 0 and deliberately unclamped. Triggered from UI.boot
+  post-paint, detached, repaint-when-ready.
+- **`D.projFor` consults the doc FIRST** (week-gated to LG.currentWeek(), never under the
+  replay) — so the adjustment flows through the matchup, locker, players table, win
+  probability and the pre-game accuracy snapshot with no surface knowing it exists. The
+  stats card gains `.pcadj`: "AI-adjusted from ESPN's 9.8 — <the model's ≤10-word reason>"
+  — the explanation line no external source could give us. **SCOPE, stated**: only NUMERIC
+  (espn-id) keys are adjustable — a slp_ key exists precisely because the player has no espn
+  id; D/STs and slp_ FAs keep the old Sleeper-scored path.
+
+**SUITE**: the fake xai's gffladjust branch answers from the request's OWN players (inj →
+base×0.2, else base+1.5) PLUS two deliberate poisons — a never-sent key and an 80-on-a-base-
+of-8 inflation — so validation/clamping is proven, not assumed. **`fixture.espnProj` defaults
+OFF and this is load-bearing**: UI.boot auto-runs the adjuster on EVERY suite page, and an
+armed baseline would silently move T. Tight's hand-computed 8.5 (present in dozens of
+assertions) to 10.0 across the whole battery — the empty-kona default makes generation fail
+open at "no-baseline" on every pre-existing page, byte-identical projections everywhere.
+TEST BUG caught pre-run: `waitFnOr(page, fn, ...args)` has a FIXED 9s timeout — passing
+`15000` as a third arg feeds it to the browser fn as its first ARGUMENT (getItem(15000),
+never true).
+
+**HONESTY NOTE for the season**: Grok's accuracy CANNOT be backtested on 2025 (the season is
+inside its training data — any such number would be contaminated); it is judged live-forward.
+The clamps + fail-open guarantee it can never be worse than the ESPN baseline by more than
+the calibration band it was given.
+
+**KNOWN / DEFERRED**: regeneration is client-driven (first device of the day pays ~5 Grok
+calls ≈ $0.10-0.25/wk; two devices racing = double-spend + last-write-wins, family-scale
+acceptable, noted at the writer); the FA table's PROJ column for slp_-keyed FAs stays on the
+old path; and Bust of the Week now grades against the ADJUSTED projection wherever the
+snapshot captured one — the projection of record is the adjusted one, which is the point.

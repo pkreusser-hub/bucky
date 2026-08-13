@@ -313,6 +313,14 @@
     // same "quiet repaint after new data landed" pattern LG.db.onChange already uses.
     await runAutoChecks(true).catch(() => {});
     if (UI.view) UI.show(UI.view);
+    // The Grok projection adjuster (2026-08-13): adopt/refresh this week's adjusted
+    // projections in the BACKGROUND — a fresh doc is adopted with no model call, a stale/absent
+    // one regenerates (~5 batched Grok calls, pennies), and every failure leaves the baseline
+    // standing. Deliberately AFTER boot resolves its own await chain: projections are a
+    // repaint-when-ready concern, never something the first screen waits on.
+    LG.ensureAdjustedProj().then((doc) => {
+      if (doc && UI.view) UI.show(UI.view);
+    }).catch(() => {});
   };
   // Routes to whichever view the URL hash asks for (or the league home) — split out of
   // UI.boot() so it's the one place both the normal boot path and any future fast/cached
@@ -847,6 +855,14 @@
           <span class="mut small">proj ${proj != null ? LG.fmtPts(proj) : "—"}</span>
           ${state ? `<span class="mut small">${esc(state)}</span>` : ""}
         </div>
+        ${(() => {
+          // The adjuster's "why" (2026-08-13): when this week's projection is Grok-adjusted,
+          // say so, show ESPN's own number it moved from, and give the model's ≤10-word
+          // reason — the one thing no external projection source can offer. Absent entirely
+          // when the week has no adjustment for this player.
+          const ai = d.adjInfoFor ? d.adjInfoFor(key) : null;
+          return ai ? `<div class="pcadj mut small">AI-adjusted from ESPN's ${LG.fmtPts(ai.b)}${ai.note ? " — " + esc(ai.note) : ""}</div>` : "";
+        })()}
       </div>
       <div class="pctiles">
         ${tile("Season total", log.total != null ? LG.fmtPts(log.total) : "—")}

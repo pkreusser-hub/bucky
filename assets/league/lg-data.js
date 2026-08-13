@@ -680,6 +680,17 @@
   // an estimate and shouldn't wear two decimal places of false precision.
   D.projFor = function (key) {
     const sim = LG.SIM_2025;
+    // THE GROK-ADJUSTED PROJECTION WINS when one exists for this week (2026-08-13, user: "go
+    // with the grok adjusting from espn projection"). The adjusted doc is generated from
+    // ESPN's own league-scored weekly line + each player's recent log/injury/depth, clamped
+    // and validated before it was ever stored (LG.ensureAdjustedProj) — so by the time it is
+    // here it is the projection of record. Absent/stale/off-week → the old path, untouched;
+    // never under the 2025 replay, which is its own sealed world.
+    if (!sim) {
+      const adj = D.S.adjProj;
+      const hit = adj && adj.week === LG.currentWeek() && adj.players ? adj.players[String(key)] : null;
+      if (hit && Number.isFinite(hit.p)) return hit.p;
+    }
     const projMap = sim ? (D.S.simProj ? D.S.simProj.map : null) : D.S.slpProj;
     if (!projMap || !D.S.slpPlayers) return null;
     // ONE resolver (D.pidForKey) — was a LINEAR SCAN of all 12,217 directory entries per call,
@@ -691,6 +702,24 @@
     const meta = D.S.slpPlayers.get(pid);
     const pts = D.score(normSlp(st, !!(meta && meta.pos === "DEF")));
     return sim ? Math.round(pts * 10) / 10 : pts;
+  };
+  // Adopt a validated `proj_<season>_w<week>` doc as the week's projections of record.
+  // Plain object in, defensive shape-check here — a hand-edited or half-written doc must
+  // degrade to "no adjustments", never to a throwing render.
+  D.setAdjProj = function (doc) {
+    if (!doc || doc.kind !== "proj" || !Number.isFinite(Number(doc.week)) || !doc.players || typeof doc.players !== "object") {
+      D.S.adjProj = null; return false;
+    }
+    D.S.adjProj = { week: Number(doc.week), at: Number(doc.at) || 0, players: doc.players };
+    return true;
+  };
+  // The stats card's "why": {b: espn base, p: adjusted, note} for a key the adjuster covered
+  // this week, else null. Same week gate as projFor so the two can never disagree.
+  D.adjInfoFor = function (key) {
+    if (LG.SIM_2025) return null;
+    const adj = D.S.adjProj;
+    const hit = adj && adj.week === LG.currentWeek() && adj.players ? adj.players[String(key)] : null;
+    return hit && Number.isFinite(hit.p) ? hit : null;
   };
 
   // ---------------- free agent search (S3 waivers; item 1's browsable table) ----------------

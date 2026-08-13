@@ -108,6 +108,12 @@ const fixture = {
   // load, not an element-exists claim (the crest-CDN precedent). true = both answer 404,
   // which is what proves the onerror-placeholder discipline instead of hoping for it.
   headshotsDown: false,
+  // Section AX (2026-08-13, the Grok projection adjuster). UI.boot auto-runs
+  // LG.ensureAdjustedProj on EVERY page, so the kona baseline MUST default to an empty
+  // answer — the generation then fails open at "no-baseline" and every pre-existing section
+  // keeps its hand-computed Sleeper-scored projections (T. Tight's 8.5 appears in dozens of
+  // assertions) byte-for-byte. Section AX arms it, and ONLY section AX.
+  espnProj: false,
   projS10: false,      // S10 — see slpProjS10
   // Coordinator addendum (2026-08-08) — the Scores tab's ff_scoreboard fixture (fake sports.mjs
   // fantasy upstream). Default false = the existing scored 2-matchup fixture; true = an
@@ -440,10 +446,35 @@ const HIST_FIX = {
   },
   // 2022 deliberately absent -> HIST_FIX[2022] undefined -> always empty/no-season below.
 };
+// The lg_espn_projections baseline (section AX, 2026-08-13): a kona_player_info document in
+// the REAL wire shape — per-player stats array carrying the weekly PROJECTION line
+// (statSourceId 1, statSplitTypeId 1, appliedTotal = league-scored points). Ids align with the
+// shared roster fixture's own espn ids so "every rostered numeric key gets a baseline" is a
+// real case, plus ONE unrostered free agent with an espn id (555999) so the FA half is too.
+// I. Injured (111666) carries a real baseline while the Sleeper directory marks him Out —
+// which is exactly what must flow through to a near-zero adjusted number.
+function espnProjFix() {
+  const mk = (id, name, posId, pct, proj) => ({ player: { id, fullName: name, defaultPositionId: posId,
+    ownership: { percentOwned: pct },
+    stats: [{ statSourceId: 1, statSplitTypeId: 1, scoringPeriodId: 1, seasonId: 2026, appliedTotal: proj }] } });
+  return { players: [
+    mk(3915511, "P. Passer", 1, 99, 12.0),
+    mk(4241457, "R. Rusher", 2, 95, 8.0),
+    mk(111222, "T. Tight", 4, 90, 8.5),
+    mk(111666, "I. Injured", 3, 80, 9.0),
+    mk(222111, "Q. Rival", 1, 85, 11.0),
+    mk(555999, "X. Tra", 3, 55, 7.5),
+  ] };
+}
 function startFfUpstream() {
   const srv = http.createServer((req, res) => {
     const u = req.url;
     res.writeHead(200, { "Content-Type": "application/json" });
+    if (u.includes("view=kona_player_info")) {
+      konaUrls.push({ u, filter: String(req.headers["x-fantasy-filter"] || "") });
+      res.end(JSON.stringify(fixture.espnProj ? espnProjFix() : { players: [] }));
+      return;
+    }
     if (u.includes("view=mRoster")) {
       // Item 2 (2026-08-08): a season-aware branch, mirroring the mMatchupScore one below —
       // season 2025's PLAIN url comes back with a real team but EMPTY rosters on purpose, so a
@@ -774,6 +805,24 @@ function startXaiUpstream() {
         + '===TRADE=== {"give":["' + giveKey + '"],"get":["' + getKey + '"]}'));
       return;
     }
+    // THE PROJECTION ADJUSTER (section AX, 2026-08-13) — told apart by ITS system prompt's own
+    // signature, same as the trade branch above. The reply is derived from the request's OWN
+    // players (injured → base×0.2, else base+1.5, note "echo-<key>") so every client-side
+    // assertion is real — PLUS two deliberate poisons the client MUST neutralize: a key that
+    // was never sent (999999 — hallucination, must be dropped) and an insane inflation for
+    // 4241457 (proj 80 on a base of 8 — must be clamped to max(2×base, base+6) = 16).
+    if (/CALIBRATION RULES/.test(sys)) {
+      const userTurn = (((b || {}).messages || []).find((m) => m.role === "user") || {}).content || "";
+      const jm = /PLAYERS:\n([\s\S]*?)\n\nTASK:/.exec(userTurn);
+      let sent = [];
+      try { sent = JSON.parse(jm ? jm[1] : "[]"); } catch (e) { sent = []; }
+      const out = sent.map((p) => p.key === "4241457"
+        ? { key: p.key, proj: 80, note: "echo-" + p.key }
+        : { key: p.key, proj: Math.round((p.inj ? p.base * 0.2 : p.base + 1.5) * 10) / 10, note: "echo-" + p.key });
+      out.push({ key: "999999", proj: 40, note: "hallucinated" });
+      res.end(xaiSse(JSON.stringify(out)));
+      return;
+    }
     res.end(xaiSse(JSON.stringify({ players: [{ name: "T. Tight", mult: 1.25, why: "KC up big, feeding the tight end in garbage time" }] })));
   });
   return new Promise((r) => srv.listen(XAI_PORT, "127.0.0.1", () => r(srv)));
@@ -886,6 +935,7 @@ function sbFix() {
 // than a tautology.
 const simSbUrls = [];
 const weekSlateUrls = []; // 2026-08-13: every explicit current-season week the cycler asks for
+const konaUrls = [];      // 2026-08-13 (section AX): every lg_espn_projections kona call + its X-Fantasy-Filter
 // A future regular-season week's slate (the week cycler): two upcoming games with real
 // kickoffs, networks and colours — nothing live, nothing final, which is what "future" means.
 function sbWeekFix(week) {
@@ -17008,6 +17058,142 @@ async function openDetails(page, id) {
       ok(broken.boxW >= 20 && broken.boxW <= 24, "…and the disc stands at its full size, so the column never shifts (" + broken.boxW + "px)");
       ok(errors.length === 0, "0 page errors with the headshot CDN dead");
       fixture.headshotsDown = false;
+      await ctx.close();
+    }
+  }
+
+  // ================= AX · THE GROK PROJECTION ADJUSTER (2026-08-13) =================
+  // User: "go with the grok adjusting from espn projection" — after both sources were MEASURED
+  // on the real 2025 season (ESPN and Sleeper both MAE ~5.5-6, everyone squeezed into a 13±4
+  // band). The pipeline under test: lg_espn_projections (kona, league-scored baseline) →
+  // farmgpt mode gffladjust (Grok, reasoning low, batched, heartbeat) → a validated + clamped
+  // proj_<season>_w<week> doc → D.projFor precedence → every projection surface. The fake xai
+  // deliberately poisons its reply (a hallucinated key + an insane inflation) so the client's
+  // validation is proven, not assumed; fixture.espnProj arms the kona baseline for THIS
+  // section only (see the fixture flag's own note).
+  {
+    console.log("\n== AX · the Grok projection adjuster — espn baseline, grok adjust, validated doc, projFor precedence ==");
+    // ---- AX0: the baseline action itself, in-node ----
+    {
+      const konaBefore = konaUrls.length;
+      fixture.espnProj = true;
+      const j = await (await leagueFn(new Request("http://fn/league", { method: "POST",
+        body: JSON.stringify({ secret: "amenfarms", action: "lg_espn_projections", week: 1 }) }))).json();
+      ok(j.ok === true && j.week === 1 && j.season === 2026 && Array.isArray(j.players) && j.players.length === 6,
+        "lg_espn_projections answers the slim shape — 6 players, week + season echoed (" + (j.players || []).length + ")");
+      const pp = (j.players || []).find((p) => p.espnId === 3915511);
+      ok(!!pp && pp.proj === 12 && pp.name === "P. Passer" && pp.pctOwned === 99,
+        "…each row is espn id + name + %owned + the league-scored projection (P. Passer 12.0)");
+      const kona = konaUrls[konaUrls.length - 1] || {};
+      ok(konaUrls.length === konaBefore + 1 && /scoringPeriodId=1/.test(kona.u || "") && /view=kona_player_info/.test(kona.u || ""),
+        "…the wire asks kona for THAT week explicitly (" + (kona.u || "").split("?")[1] + ")");
+      ok(/sortPercOwned/.test(kona.filter || "") && /"limit":300/.test(kona.filter || ""),
+        "…with the X-Fantasy-Filter sorting by ownership at the capped default limit");
+      const bad = await (await leagueFn(new Request("http://fn/league", { method: "POST",
+        body: JSON.stringify({ secret: "amenfarms", action: "lg_espn_projections", week: 99 }) }))).json();
+      ok(bad.ok === false && bad.reason === "bad-week", "an out-of-range week refuses, never a guess");
+      const s2 = process.env.ESPN_S2; delete process.env.ESPN_S2;
+      const noC = await (await leagueFn(new Request("http://fn/league", { method: "POST",
+        body: JSON.stringify({ secret: "amenfarms", action: "lg_espn_projections", week: 1 }) }))).json();
+      process.env.ESPN_S2 = s2;
+      ok(noC.ok === false && noC.reason === "fantasy-not-configured", "missing cookies → the honest reason, never a 500");
+    }
+    // ---- AX1: the whole pipeline, driven by UI.boot's own trigger ----
+    {
+      const gffladjustCalls = () => xaiReqs.filter((r) => /CALIBRATION RULES/.test(JSON.stringify(r && r.messages || ""))).length;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      // Boot fired the generation on its own — the doc landing in storage IS the trigger proof.
+      const landed = await waitFnOr(page, (k) => !!localStorage.getItem(k), LSPFX + "proj_2026_w1");
+      ok(landed === true, "UI.boot generates this week's adjusted-projection doc on its own, in the background");
+      const req = xaiReqs.filter((r) => /CALIBRATION RULES/.test(JSON.stringify(r && r.messages || ""))).pop();
+      ok(!!req && req.max_tokens === 6000 && req.reasoning_effort === "low" && req.temperature === 0.2,
+        "the grok request carries the adjuster's own knobs — max_tokens 6000, reasoning low, temp 0.2");
+      const turn = ((req && req.messages) || []).find((m) => m.role === "user");
+      ok(!!turn && /WEEK 1 PLAYERS:/.test(turn.content) && /"key":"3915511"/.test(turn.content) && /"base":12/.test(turn.content) && /"log":\[\]/.test(turn.content),
+        "…and the user turn is the named-field payload — keys, espn baselines, (empty, early-season) logs");
+      ok(/"inj":"OUT"/.test((turn && turn.content) || ""), "…with I. Injured's directory designation riding along");
+      const doc = await readDoc(page, "proj_2026_w1");
+      const pl = (doc && doc.players) || {};
+      ok(doc && doc.kind === "proj" && doc.week === 1 && doc.model === "grok" && Number(doc.at) > 0,
+        "the doc is the week's projection record — kind/week/model/wall-clock stamp");
+      ok(pl["3915511"] && pl["3915511"].b === 12 && pl["3915511"].p === 13.5 && pl["3915511"].note === "echo-3915511",
+        "a clean adjustment lands with its espn base and its note (P. Passer 12.0 → 13.5)");
+      ok(!pl["999999"], "the hallucinated key the fake deliberately returned is DROPPED — only keys we sent are kept");
+      ok(pl["4241457"] && pl["4241457"].p === 16, "the insane inflation (80 on a base of 8) is CLAMPED to max(2×base, base+6) = 16");
+      ok(pl["111666"] && pl["111666"].p === 1.8, "an OUT player's shade-to-nothing flows through unclamped — down moves are self-limiting (9.0 → 1.8)");
+      ok(pl["555999"] && pl["555999"].b === 7.5 && pl["555999"].p === 9,
+        "an UNROSTERED free agent with an espn id is adjusted too — the FA half of the table is covered");
+      const reads = (await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        return { pp: D.projFor("3915511"), tt: D.projFor("111222"), info: D.adjInfoFor("111222"), dst: D.projFor("dst_PHI") };
+      })) || {};
+      ok(reads.pp === 13.5 && reads.tt === 10, "D.projFor now answers the ADJUSTED number (T. Tight 8.5 → 10.0)");
+      ok(reads.info && reads.info.b === 8.5 && reads.info.note === "echo-111222",
+        "…and adjInfoFor carries the espn base + the note for the stats card");
+      ok(reads.dst == null, "a D/ST stays on the old path — dst_ keys are deliberately not adjustable");
+      // The surfaces read it with no code of their own: the locker's proj column…
+      await clickIn(page, '.bnav button[data-v="team"]');
+      await waitOr(page, ".lrow");
+      const lkTxt = (await evalOr(page, () => [...document.querySelectorAll(".lrow")].map((r) => r.textContent).find((t) => /T\. Tight/.test(t)))) || "";
+      ok(/proj 10\.0/.test(lkTxt), "…the locker row reads proj 10.0 (was Sleeper's 8.5)");
+      // …and the stats card says WHY.
+      await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("111222"));
+      await waitOr(page, "#playerCard .pcadj");
+      const adjLine = (await evalOr(page, () => (document.querySelector("#playerCard .pcadj") || {}).textContent)) || "";
+      ok(/AI-adjusted from ESPN's 8\.5/.test(adjLine) && /echo-111222/.test(adjLine),
+        "the stats card explains itself — the espn number it moved from, and the model's reason");
+      await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+      // Freshness: a second ensure is a no-op; a stale doc regenerates.
+      const n1 = gffladjustCalls();
+      await page.evaluate(() => window.__GFFL__.LG.ensureAdjustedProj());
+      ok(gffladjustCalls() === n1, "a fresh doc means NO model call — ensure is adopt-and-return");
+      await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const doc = await LG.db.get(LG.projId(LG.SEASON, 1));
+        await LG.db.set(LG.projId(LG.SEASON, 1), { ...doc, at: Date.now() - 21 * 3600e3 });
+        await LG.ensureAdjustedProj();
+      });
+      ok(gffladjustCalls() === n1 + 1, "a 21h-old doc regenerates — Wednesday's injury news reaches Thursday's screens");
+      ok(errors.length === 0, "0 page errors through the whole pipeline");
+      await ctx.close();
+    }
+    // ---- AX2: failure is open, floored, and forceable ----
+    {
+      const gffladjustCalls = () => xaiReqs.filter((r) => /CALIBRATION RULES/.test(JSON.stringify(r && r.messages || ""))).length;
+      fixture.farmgptDown = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r1 = await evalOr(page, () => window.__GFFL__.LG.ensureAdjustedProj());
+      ok(r1 === null, "with the model endpoint down the generation fails OPEN — null, no throw");
+      ok((await readDoc(page, "proj_2026_w1")) === null, "…and no half-made doc is written");
+      ok((await evalOr(page, () => window.__GFFL__.D.projFor("111222"))) === 8.5,
+        "…the baseline (Sleeper-scored 8.5) simply stands");
+      fixture.farmgptDown = false;
+      const n2 = gffladjustCalls();
+      const r2 = await evalOr(page, () => window.__GFFL__.LG.ensureAdjustedProj());
+      ok(r2 === null && gffladjustCalls() === n2, "a failed generation is not retried for 10 minutes — no hammering");
+      const r3 = await evalOr(page, () => window.__GFFL__.LG.ensureAdjustedProj({ force: true }));
+      ok(!!r3 && (await evalOr(page, () => window.__GFFL__.D.projFor("111222"))) === 10,
+        "force bypasses the floor and the week recovers on the spot");
+      ok(errors.length === 0, "0 page errors across the failure paths");
+      await ctx.close();
+    }
+    // ---- AX3: a read-only mirror never generates ----
+    {
+      const seed = fullSeed();
+      seed.stamp = Date.now();
+      const { ctx, page, errors } = await newTestPage(browser, seed);
+      await bootPage(page);
+      const rm = await evalOr(page, () => window.__GFFL__.LG.ensureAdjustedProj());
+      ok(rm === null && (await readDoc(page, "proj_2026_w1")) === null,
+        "a mirror-offline device adopts nothing and writes nothing — projections are a cloud concern");
+      ok(errors.length === 0, "0 page errors on the mirror");
+      fixture.espnProj = false;
       await ctx.close();
     }
   }
