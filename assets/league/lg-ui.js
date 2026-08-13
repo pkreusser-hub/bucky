@@ -1434,7 +1434,9 @@
   // has never heard of (a future addition) lands at the END of its default column rather
   // than vanishing — the fitness-plan tombstone lesson, applied to layout.
   const DESK_LAYOUT_KEY = "gffl_desklayout";
-  const DESK_MAIN = ["countdown", "links", "stale", "week", "playoffs", "standings", "alltime"];
+  // 2026-08-13 (user): the Rules/Draft links row moved from second to LAST in MAIN — it is
+  // reference chrome, not league state, and it was costing the standings a fold position.
+  const DESK_MAIN = ["countdown", "stale", "week", "playoffs", "standings", "alltime", "links"];
   const DESK_RAIL = ["chat", "injury", "hot", "accuracy", "moves"];
   const DESK_LABELS = {
     countdown: "Draft countdown", links: "Rules & Draft links", stale: "Unsettled weeks",
@@ -1467,6 +1469,13 @@
     };
     for (const id of DESK_MAIN) if (!seen.has(id)) { out.main.push(id); seen.add(id); }
     for (const id of DESK_RAIL) if (!seen.has(id)) { out.rail.push(id); seen.add(id); }
+    // ONE-TIME MIGRATION (2026-08-13): a layout saved under the OLD default still opens with
+    // links in second position — ["countdown","links",…] is exactly the old default's head,
+    // so a layout still wearing it was never deliberately arranged that way. A user who MOVED
+    // links anywhere else keeps their choice.
+    if (out.main[0] === "countdown" && out.main[1] === "links") {
+      out.main = out.main.filter((id) => id !== "links").concat("links");
+    }
     if (raw.cz && typeof raw.cz === "object") {
       for (const k of Object.keys(raw.cz)) {
         if (known.has(k) && DESK_CZ_STEPS.includes(raw.cz[k]) && raw.cz[k] !== 100) out.cz[k] = raw.cz[k];
@@ -2044,7 +2053,6 @@
         ${draftCountdownCardHtml(LG.rules)}
         ${weekCard}
         ${injuryFeedCardHtml(UI._injFeed)}
-        ${leagueLinksHtml(LG.rules)}
         ${staleWeeksHtml(UI._staleWeeks, isCommish())}
         ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
         ${powerRankingsHtml(UI._allWeekly)}
@@ -2052,7 +2060,8 @@
         ${standingsHtml(rows, st, {})}
         ${recentMovesHtml(UI._tx)}
         ${recentChatHtml(UI._recentChat)}
-        ${recordBookHtml(UI._recordBook)}`;
+        ${recordBookHtml(UI._recordBook)}
+        ${leagueLinksHtml(LG.rules)}`;
     }
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       UI.matchup = el.dataset.mu.split("-").map(Number);
@@ -2345,7 +2354,12 @@
     // rule under the name. The card's own state chrome (the .mine accent border, the live
     // badge, the win-probability fill) is untouched: identity colours the teams, the verdict
     // colours the outcome, and where they meet the verdict wins.
-    return `<button class="mucard ${isMine ? "mine" : ""}" data-mu="${h}-${a}">
+    // 2026-08-13 (user): the matchup header's colour slash comes to EVERY score card — same
+    // three-stripe language, same mobile geometry, away team cutting in from the left and
+    // home from the right, with the crest sitting on its slash exactly like the muhero.
+    const pa = LG.teamPalette(A), ph = LG.teamPalette(H);
+    const slashVars = `--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tta:${esc(pa.tertiary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)};--tth:${esc(ph.tertiary)}`;
+    return `<button class="mucard muslash ${isMine ? "mine" : ""}" data-mu="${h}-${a}" style="${slashVars}">
       <span class="muteam">${logoTd(A)}${teamNameHtml(A, { cls: "muteamname" })}</span>
       <span class="muscore">${LG.fmtPts(liveTotal(a))} — ${LG.fmtPts(liveTotal(h))}</span>
       <span class="muteam right">${teamNameHtml(H, { cls: "muteamname" })}${logoTd(H)}</span>
@@ -2493,8 +2507,22 @@
     const logoHtml = (t) => (t && t.logo)
       ? `<img class="sclogo" src="${esc(t.logo)}" alt="" width="22" height="22" loading="lazy" onerror="this.style.visibility='hidden'">`
       : "";
-    const teamHtml = (t) => `<span class="scteam">${logoHtml(t)}<b>${esc((t && t.abbrev) || "?")}</b>
-      ${live || done ? `<span class="scpts">${esc((t && t.score) || "0")}</span>` : ""}</span>`;
+    // 2026-08-13 (user): the matchup page's slash + crest language, on the NFL cards too —
+    // away team's own colours cutting in from the left, home's from the right (primary slash
+    // + secondary stripe; the NFL has no tertiary), crest on the OUTER edge of its slash and
+    // the whole side mirrored exactly like the matchup header. A team ESPN sent no colour
+    // for paints no band (the vars fall back to transparent) and loses nothing else.
+    const teamHtml = (t, right) => {
+      const bits = [logoHtml(t), `<b>${esc((t && t.abbrev) || "?")}</b>`,
+        live || done ? `<span class="scpts">${esc((t && t.score) || "0")}</span>` : ""];
+      if (right) bits.reverse();
+      return `<span class="scteam${right ? " right" : ""}">${bits.join("")}</span>`;
+    };
+    const sv = [];
+    if (e.away && e.away.color) sv.push(`--tpa:${esc(e.away.color)}`);
+    if (e.away && e.away.altColor) sv.push(`--tsa:${esc(e.away.altColor)}`);
+    if (e.home && e.home.color) sv.push(`--tph:${esc(e.home.color)}`);
+    if (e.home && e.home.altColor) sv.push(`--tsh:${esc(e.home.altColor)}`);
     const stateHtml = live ? `<span class="scstate live">${esc(e.detail || ("Q" + e.period + " " + e.clock))}</span>`
       : done ? '<span class="scstate mut">Final</span>'
       : `<span class="scstate mut">${esc(kickTimeStr(e.date))}</span>`;
@@ -2506,10 +2534,11 @@
     // A <div> with a click handler is unreachable by keyboard and announces nothing; the
     // button's own uppercase/letter-spacing is cancelled in league.html the same way .mucard
     // already cancels it, so the team abbrevs and times read exactly as they did.
-    return `<button type="button" class="sccard ${live ? "live" : ""}" data-eid="${esc(e.id || "")}"
+    return `<button type="button" class="sccard scslash ${live ? "live" : ""}" data-eid="${esc(e.id || "")}"
+        ${sv.length ? `style="${sv.join(";")}"` : ""}
         aria-label="Open the ${esc((e.away && e.away.abbrev) || "?")} at ${esc((e.home && e.home.abbrev) || "?")} game">
-      <div class="rowline">${net}${stateHtml}</div>
-      <div class="scteams">${teamHtml(e.away)}<span class="mut small">at</span>${teamHtml(e.home)}</div>
+      <div class="rowline scstaterow">${net}${stateHtml}</div>
+      <div class="scteams">${teamHtml(e.away, false)}<span class="scat mut small">at</span>${teamHtml(e.home, true)}</div>
       ${spread}${moLine}
     </button>`;
   }
@@ -2556,14 +2585,24 @@
     return `<div class="card"><h2>ESPN league (live)</h2>${rows}</div>`;
   }
   UI.renderScores = renderScores;
+  // WEEK CYCLING (2026-08-13, user: "cycle to view future weeks for both the fantasy matchups
+  // and nfl matchups"). UI._scoresWeek === null means NOW — the live board, polling as ever.
+  // Any other value is a BROWSED GFFL week: the fantasy pairings for that week (real totals
+  // when the week is finalized, an honest "—" when it hasn't been played) and that week's NFL
+  // regular-season slate through D.fetchWeekSlate — a page, not a feed, so browsing never
+  // polls and never touches the live board's own state.
+  UI._scoresWeek = UI._scoresWeek === undefined ? null : UI._scoresWeek;
+  function scoresTotalWeeks() { return ((LG.rules && LG.rules.seasonWeeks) || 14) + 3; }
+  function scoresShownWeek() { return UI._scoresWeek == null ? UI.week : UI._scoresWeek; }
   async function renderScores() {
     main().innerHTML = `<div class="card mut">Loading scores…</div>`;
     // Item 2's "mine/opp" line needs this week's rosters — load once per mount (cheap, cached),
     // never on every poll repaint (paintScores stays a pure re-render off what's already loaded).
     if (!UI._rosters) await loadWeekRosters();
-    // ONE fetch of this week's games serves BOTH the "mine/opp" NFL-game counts below AND the
-    // new GFFL matchups card — same array, not two separate reads that could disagree.
-    const wk = await LG.gamesForWeek(UI.week);
+    const shown = scoresShownWeek();
+    // ONE fetch of the shown week's games serves BOTH the "mine/opp" NFL-game counts below AND
+    // the GFFL matchups card — same array, not two separate reads that could disagree.
+    const wk = await LG.gamesForWeek(shown);
     UI._scoresGfflGames = wk;
     const mine = LG.myTeamId();
     const myGame = mine ? (wk.find(([h, a]) => h === mine || a === mine) || null) : null;
@@ -2571,22 +2610,80 @@
       const [h, a] = myGame;
       UI._scoresMine = mine; UI._scoresOpp = h === mine ? a : h;
     } else { UI._scoresMine = null; UI._scoresOpp = null; }
-    await loadFfScoreboard();
-    paintScores();
-    startScoresPoll();
+    if (UI._scoresWeek == null) {
+      await loadFfScoreboard();
+      UI._scoresWeekly = null; UI._scoresNflWeek = null;
+      paintScores();
+      startScoresPoll();
+    } else {
+      stopScoresPoll(); // a browsed week is a page, not a feed
+      // A finalized week's REAL totals come off its own write-once record; an unplayed week
+      // has no number and never pretends to one.
+      UI._scoresWeekly = await LG.loadWeekly(UI._scoresWeek);
+      UI._scoresNflWeek = await D().fetchWeekSlate(UI._scoresWeek);
+      if (UI.view === "scores") paintScores();
+    }
   }
   async function loadFfScoreboard() {
     const T = LG.teamById(LG.myTeamId());
     try { UI._ffSb = await sportsFn("ff_scoreboard", T ? { teamName: T.name } : {}); } catch (e) { UI._ffSb = { ok: false, reason: "fetch-failed" }; }
   }
+  // A browsed week's GFFL pairings: the same slash/crest card language, static — finalized
+  // totals when the record exists, "—" when the week hasn't been played. NOT tappable: the
+  // Matchup view is the LIVE week's lineups, and opening it from another week's pairing would
+  // silently show the wrong week's players.
+  function gfflWeekStaticHtml(w, games, weekly) {
+    if (!games || !games.length) return `<div class="card"><h2>GFFL — Week ${w}</h2><p class="mut">No matchups set for this week yet.</p></div>`;
+    const byPair = new Map();
+    for (const m of ((weekly && weekly.matchups) || [])) byPair.set(m.home + "-" + m.away, m);
+    const card = ([h, a]) => {
+      const H = LG.teamById(h), A = LG.teamById(a);
+      const pa = LG.teamPalette(A), ph = LG.teamPalette(H);
+      const m = byPair.get(h + "-" + a);
+      const score = m ? `${LG.fmtPts(m.awayPts)} — ${LG.fmtPts(m.homePts)}` : "— vs —";
+      const slashVars = `--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tta:${esc(pa.tertiary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)};--tth:${esc(ph.tertiary)}`;
+      return `<div class="mucard muslash static" style="${slashVars}">
+        <span class="muteam">${logoTd(A)}${teamNameHtml(A, { cls: "muteamname" })}</span>
+        <span class="muscore">${score}</span>
+        <span class="muteam right">${teamNameHtml(H, { cls: "muteamname" })}${logoTd(H)}</span>
+        <span class="herorow"></span></div>`;
+    };
+    return `<div class="card"><h2>GFFL — Week ${w}${weekly ? "" : ' <span class="mut small">upcoming</span>'}</h2><div class="mugrid">${games.map(card).join("")}</div></div>`;
+  }
+  function scoresWeekNavHtml() {
+    const shown = scoresShownWeek(), total = scoresTotalWeeks();
+    const browsing = UI._scoresWeek != null;
+    return `<div class="card scweeknav"><div class="rowline">
+      <button type="button" id="scPrev" ${shown <= 1 ? "disabled" : ""} aria-label="Previous week">‹</button>
+      <b class="scweeklabel">Week ${shown}${browsing ? "" : " · live"}</b>
+      ${browsing ? '<button type="button" id="scNow">Back to now</button>' : ""}
+      <button type="button" id="scNext" ${shown >= total ? "disabled" : ""} aria-label="Next week">›</button>
+    </div></div>`;
+  }
   function paintScores() {
     const d = D();
-    main().innerHTML = `
+    const browsing = UI._scoresWeek != null;
+    main().innerHTML = browsing ? `
+      ${scoresWeekNavHtml()}
+      ${gfflWeekStaticHtml(UI._scoresWeek, UI._scoresGfflGames, UI._scoresWeekly)}
+      <div class="card"><div class="rowline"><h2>NFL — Week ${UI._scoresWeek}</h2></div>
+        ${nflScoresHtml(UI._scoresNflWeek)}
+      </div>` : `
+      ${scoresWeekNavHtml()}
       ${gfflScoresHtml(UI._scoresGfflGames)}
       <div class="card"><div class="rowline"><h2>NFL this week</h2><span id="healthChip" class="health" hidden></span></div>
         ${nflScoresHtml(d.S && d.S.nflEvents)}
       </div>
       ${ffScoresHtml(UI._ffSb)}`;
+    const step = (delta) => {
+      const next = Math.max(1, Math.min(scoresTotalWeeks(), scoresShownWeek() + delta));
+      // Stepping ONTO the live week returns to the live board, never a frozen copy of it.
+      UI._scoresWeek = next === UI.week ? null : next;
+      renderScores();
+    };
+    $("#scPrev") && $("#scPrev").addEventListener("click", () => step(-1));
+    $("#scNext") && $("#scNext").addEventListener("click", () => step(1));
+    $("#scNow") && $("#scNow").addEventListener("click", () => { UI._scoresWeek = null; renderScores(); });
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       UI.matchup = el.dataset.mu.split("-").map(Number);
       UI.go("matchup");
@@ -3580,6 +3677,30 @@
       "<p>" + p.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br>") + "</p>").join("");
   }
   UI.aiProseFmt = aiProseFmt; // test hook
+  // THE ANALYSIS SURVIVES REPAINTS (2026-08-13, user: "as I was reading the reasoning it
+  // disappeared"). The Moves page live-repaints on poll ticks, and a panel painted only by
+  // the click handler is wiped by every one of them. The rendered analysis is SESSION STATE
+  // now — the markup re-renders it on every repaint — and it leaves only two ways: a new
+  // Suggest run replaces it, or its own ✕ dismisses it.
+  function aiSuggestPanel() {
+    if (!UI._aiSuggest) return `<div id="mvSuggestAi" class="mvsugai" hidden></div>`;
+    return `<div id="mvSuggestAi" class="mvsugai"><button type="button" id="mvSuggestX" class="mvsugx" aria-label="Dismiss the analysis">✕</button><div class="mvsugbody">${UI._aiSuggest}</div></div>`;
+  }
+  function setAiSuggest(html) {
+    UI._aiSuggest = html || null;
+    const out = $("#mvSuggestAi");
+    if (!out) return;
+    if (!UI._aiSuggest) { out.hidden = true; out.innerHTML = ""; return; }
+    out.hidden = false;
+    const body = out.querySelector(".mvsugbody");
+    if (body) body.innerHTML = UI._aiSuggest;
+    else out.innerHTML = `<button type="button" id="mvSuggestX" class="mvsugx" aria-label="Dismiss the analysis">✕</button><div class="mvsugbody">${UI._aiSuggest}</div>`;
+  }
+  // Delegated, module-level: the ✕ is re-created by every repaint AND by setAiSuggest itself,
+  // so a per-render bind would go stale the moment the panel it bound to was replaced.
+  document.addEventListener("click", (e) => {
+    if (e.target && e.target.id === "mvSuggestX") setAiSuggest(null);
+  });
   function suggestTradePair(mine, theirs) {
     if (!mine || !theirs || !mine.length || !theirs.length) return null;
     const edge = {};
@@ -4022,7 +4143,20 @@
     listEl.innerHTML = last.length ? last.map((m) => chatMsgHtml(m, byId, tid)).join("") : '<p class="mut">No messages yet — say hi!</p>';
     listEl.dataset.rendered = "1";
     wireChatMsgEvents(idPfx, listEl, thread);
-    if (wasNearBottom) listEl.scrollTop = listEl.scrollHeight;
+    if (wasNearBottom) {
+      // ALWAYS LAND ON THE NEWEST MESSAGE (2026-08-13, user: "when I load chat it's halfway
+      // scrolled up"). The scroll below runs before the GIFs and photos DECODE — every image
+      // that lands afterward grows the content ABOVE the fold and strands the viewport
+      // mid-list. So each late image re-pins the bottom, until the reader scrolls on purpose
+      // (wheel/touch = a person; our own scrollTop writes fire no such events).
+      listEl.scrollTop = listEl.scrollHeight;
+      let readerTookOver = false;
+      listEl.addEventListener("wheel", () => { readerTookOver = true; }, { once: true, passive: true });
+      listEl.addEventListener("touchstart", () => { readerTookOver = true; }, { once: true, passive: true });
+      listEl.querySelectorAll("img").forEach((im) => {
+        if (!im.complete) im.addEventListener("load", () => { if (!readerTookOver) listEl.scrollTop = listEl.scrollHeight; }, { once: true });
+      });
+    }
   }
   UI.refreshChatList = refreshChatList;
   // Item 5 (2026-08-08): the composer is a <textarea> now — 1 row min, auto-grows to ~5 lines,
@@ -4466,7 +4600,7 @@
         <select id="mvTradeTeam">${others.map((t) => `<option value="${t.id}" ${t.id === cpId ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select>
         <div class="rowline mvsugrow"><button id="mvSuggest" type="button">Suggest a trade</button>
           <span id="mvSuggestWhy" class="mut small"></span></div>
-        <div id="mvSuggestAi" class="mvsugai" hidden></div>
+        ${aiSuggestPanel()}
         <h2 class="small mut">You give (up to 3)</h2>
         <div id="mvGive" class="tradeside"></div>
         <h2 class="small mut">You get (up to 3)</h2>
@@ -4963,10 +5097,10 @@
       if (why) why.textContent = note + " " + s.why + " " + LG.fmtPts(s.giveVal) + " for " + LG.fmtPts(s.getVal) + " — review it before you send.";
     };
     $("#mvSuggest") && $("#mvSuggest").addEventListener("click", async () => {
-      const btn = $("#mvSuggest"), why = $("#mvSuggestWhy"), out = $("#mvSuggestAi");
+      const btn = $("#mvSuggest"), why = $("#mvSuggestWhy");
       btn.disabled = true;
       if (why) why.textContent = "Asking the analyst…";
-      if (out) { out.hidden = false; out.innerHTML = '<p class="mut small">Reading both rosters…</p>'; }
+      setAiSuggest('<p class="mut small">Reading both rosters…</p>');
       try {
         await ensureStats(myRoster.concat(cpRoster));
         const d = D();
@@ -4992,11 +5126,13 @@
           const c = await reader.read(); if (c.done) break;
           text += dec.decode(c.value, { stream: true });
           // Stream the PROSE as it lands; the machine tail is held back until the end.
-          if (out) out.innerHTML = aiProseFmt(text.split("===TRADE===")[0]);
+          // Through setAiSuggest, so a live repaint mid-stream re-renders the partial
+          // instead of wiping it.
+          setAiSuggest(aiProseFmt(text.split("===TRADE===")[0]));
         }
         if (!text.trim()) throw new Error("empty");
         const prose = text.split("===TRADE===")[0].trim();
-        if (out) out.innerHTML = aiProseFmt(prose);
+        setAiSuggest(aiProseFmt(prose));
         let applied = false;
         const tail = /===TRADE===\s*(\{[\s\S]*?\})/.exec(text);
         if (tail) {
@@ -5013,7 +5149,9 @@
         else if (prose) { if (why) why.textContent = "Read the analysis — then pick the players yourself below."; }
         else throw new Error("no-content");
       } catch (e) {
-        if (out) out.hidden = true;
+        // A FAILED run clears the panel outright — re-showing an OLDER analysis under a
+        // fallback label that describes the math suggestion would be two answers at once.
+        setAiSuggest(null);
         await mathFallback($("#mvSuggestWhy"), "The AI analyst isn't available right now — here's the numbers-based suggestion.");
       } finally { btn.disabled = false; }
     });
@@ -5689,15 +5827,17 @@
     const rows = [...LG.teams].sort((a, b) => { const A = standings[a.id] || { w: 0, pf: 0 }, B = standings[b.id] || { w: 0, pf: 0 }; return (B.w - A.w) || (B.pf - A.pf); });
     const place = rows.findIndex((t) => t.id === teamId) + 1;
     // THE TROPHY CASE (2026-08-12, user: "add a trophy case to each My Team page, Champion,
-    // Runner Up and Point total champion" — plus the Toilet Bowl, which their own award
-    // history carries and this family celebrates). It SUPERSEDES the plain Championships
-    // card: the champion shelf keeps reading the merged `banners` above (hist champions +
-    // live trophies, deduped by season — so a January import and advanceBracket can never
+    // Runner Up and Point total champion"). It SUPERSEDES the plain Championships card: the
+    // champion shelf keeps reading the merged `banners` above (hist champions + live
+    // trophies, deduped by season — so a January import and advanceBracket can never
     // double-count), while the other shelves read the team doc's own trophies[]
-    // ({year, kind}: "runnerup" | "points" | "toilet"). Every icon is inline SVG — the
-    // zero-emoji app-chrome rule. A team with nothing on the shelf gets NO card, not an
-    // empty cabinet. Points Champion is REGULAR SEASON points only (the award history's own
-    // rule; the data loader derives it that way).
+    // ({year, kind}). Every icon is inline SVG — the zero-emoji app-chrome rule. A team with
+    // nothing on the shelf gets NO card, not an empty cabinet. Points Champion is REGULAR
+    // SEASON points only (the award history's own rule; the data loader derives it that way).
+    // 2026-08-13 (user): the TOILET BOWL is deliberately NOT displayed — the rows stay on the
+    // team docs and in awards_history, the case just doesn't hang them. And a repeat winner
+    // gets ONE ICON PER YEAR ("rather than show x3, just make more trophy icons"), each icon
+    // wearing its own year, so four titles read as a row of four cups.
     const TROPHY_KINDS = [
       { kind: "champion", label: "League Champion", cls: "tk-champ",
         icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path fill="none" stroke="currentColor" stroke-width="1.6" d="M7 6H4.5a3 3 0 0 0 3 4M17 6h2.5a3 3 0 0 1-3 4"/><path fill="currentColor" d="M11 14h2v3h-2z"/><path fill="none" stroke="currentColor" stroke-width="1.7" d="M8 19.5h8"/></svg>' },
@@ -5705,8 +5845,6 @@
         icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="14.5" r="5.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M8.5 10 6 3.5h4L12 8l2-4.5h4L15.5 10"/><path fill="currentColor" d="M11.2 17.5v-4.2l-1.4.9v-1.3l1.6-1h1.2v5.6z"/></svg>' },
       { kind: "points", label: "Points Champion", cls: "tk-points",
         icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 19.5h16"/><path fill="currentColor" d="M5.5 13h3v4.5h-3zM10.5 9h3v8.5h-3zM15.5 5h3v12.5h-3z"/></svg>' },
-      { kind: "toilet", label: "Toilet Bowl Champion", cls: "tk-toilet",
-        icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M8 3.5h5v6h-5zM6 11.5h12a6 6 0 0 1-6 6h-1.5l.8 3H8l.5-3.4A6 6 0 0 1 6 11.5Z"/><path fill="none" stroke="currentColor" stroke-width="1.6" d="M9.5 6.2h2"/></svg>' },
     ];
     const trophyCaseHtml = () => {
       const byKind = { champion: banners.map((b) => b.season) };
@@ -5716,9 +5854,9 @@
       }
       const shelves = TROPHY_KINDS.filter((k) => (byKind[k.kind] || []).length).map((k) => {
         const years = [...new Set(byKind[k.kind])].sort((a, b) => b - a);
-        return `<div class="tcshelf ${k.cls}">${k.icon}<b class="tclabel">${k.label}</b>
-          ${years.length > 1 ? `<span class="tccount">×${years.length}</span>` : ""}
-          <span class="tcyears">${years.map((y) => `<span class="trophyline">${y}</span>`).join("")}</span></div>`;
+        return `<div class="tcshelf ${k.cls}"><b class="tclabel">${k.label}</b>
+          <span class="tcyears">${years.map((y) =>
+            `<span class="tctoken trophyline" title="${k.label} ${y}">${k.icon}<span class="tcyear">${y}</span></span>`).join("")}</span></div>`;
       });
       return shelves.length ? `<div class="card trophycase"><h2>Trophy case</h2>${shelves.join("")}</div>` : "";
     };

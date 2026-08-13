@@ -792,6 +792,14 @@ const NFL_LOGO = {
   SF: "https://a.espncdn.com/i/teamlogos/nfl/500/sf.png",
   SEA: "https://a.espncdn.com/i/teamlogos/nfl/500/sea.png",
 };
+// The real teams' real hexes, in ESPN's own BARE form (no '#') — DEN deliberately absent.
+const NFL_COLORS = {
+  PHI: { color: "004C54", alternateColor: "a5acaf" },
+  DAL: { color: "002a5c", alternateColor: "b0b7bc" },
+  KC: { color: "e31837", alternateColor: "ffb612" },
+  SF: { color: "aa0000", alternateColor: "b3995d" },
+  SEA: { color: "002a5c", alternateColor: "69be28" },
+};
 function sbFix() {
   // Item 2 (2026-08-08): broadcasts[0].names[0] + odds[0].details, the SAME real ESPN
   // scoreboard fields netlify/functions/sports.mjs already reads for the standalone app's
@@ -805,10 +813,12 @@ function sbFix() {
       odds: extra.spread ? [{ details: extra.spread }] : [],
       // Item 4 (2026-08-09): ESPN's own competitor.team.logo. DEN deliberately has NONE, so
       // the "a game whose crest is missing still renders cleanly" case is a real one in the
-      // fixture rather than a hypothetical.
+      // fixture rather than a hypothetical. 2026-08-13: team.color/alternateColor join (the
+      // score-card slash) — real ESPN shape is BARE 6-hex, no '#'. DEN carries no colours
+      // either, so "no colour = no band, nothing else changes" is a real case too.
       competitors: [
-        { homeAway: "home", team: { abbreviation: homeAb, logo: NFL_LOGO[homeAb] || "" }, score: extra.hs },
-        { homeAway: "away", team: { abbreviation: awayAb, logo: NFL_LOGO[awayAb] || "" }, score: extra.as },
+        { homeAway: "home", team: { abbreviation: homeAb, logo: NFL_LOGO[homeAb] || "", ...(NFL_COLORS[homeAb] || {}) }, score: extra.hs },
+        { homeAway: "away", team: { abbreviation: awayAb, logo: NFL_LOGO[awayAb] || "", ...(NFL_COLORS[awayAb] || {}) }, score: extra.as },
       ],
     }],
   });
@@ -860,6 +870,27 @@ function sbFix() {
 // which is what makes "the replay presents them all as 0-0 upcoming" a real assertion rather
 // than a tautology.
 const simSbUrls = [];
+const weekSlateUrls = []; // 2026-08-13: every explicit current-season week the cycler asks for
+// A future regular-season week's slate (the week cycler): two upcoming games with real
+// kickoffs, networks and colours — nothing live, nothing final, which is what "future" means.
+function sbWeekFix(week) {
+  const mk = (id, awayAb, homeAb, date, net) => ({
+    id, date,
+    competitions: [{
+      status: { type: { state: "pre", shortDetail: "Sun 12:00 PM" } },
+      broadcasts: net ? [{ names: [net] }] : [],
+      competitors: [
+        { homeAway: "home", team: { abbreviation: homeAb, logo: NFL_LOGO[homeAb] || "", ...(NFL_COLORS[homeAb] || {}) } },
+        { homeAway: "away", team: { abbreviation: awayAb, logo: NFL_LOGO[awayAb] || "", ...(NFL_COLORS[awayAb] || {}) } },
+      ],
+    }],
+  });
+  if (!(week >= 1)) return { events: [] };
+  return { events: [
+    mk("4019w" + week + "01", "SF", "PHI", "2026-09-20T17:00Z", "FOX"),
+    mk("4019w" + week + "02", "SEA", "KC", "2026-09-20T20:25Z", "CBS"),
+  ], season: { type: 2, year: 2026 }, week: { number: week } };
+}
 // ITEM 30 (2026-08-09): every Sleeper stats/projections URL the page asks for, recorded so
 // section AI can assert the season-TYPE segment ("/stats/nfl/pre/2026/1") rather than trust it.
 const slpStatsUrls = [];
@@ -1467,6 +1498,18 @@ function seedWeekProvenance() {
 // ---------------- plumbing ----------------
 function startStatic() {
   const srv = http.createServer((req, res) => {
+    // A deliberately SLOW, deliberately TALL image (2026-08-13, the chat bottom-pin fix):
+    // the pin bug only exists when an image finishes loading AFTER the initial scroll and
+    // then GROWS the content — a data-URI or a local file completes too fast to exercise the
+    // late-load re-pin listener, and a 1px image grows nothing, which would let the re-pin
+    // assertion pass vacuously. A 300px SVG, 400ms late, is both.
+    if (new URL(req.url, "http://x").pathname === "/__slowimg.svg") {
+      setTimeout(() => {
+        res.writeHead(200, { "Content-Type": "image/svg+xml" });
+        res.end('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="#2a4f80"/></svg>');
+      }, 400);
+      return;
+    }
     const p = path.join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname).replace(/^\/+/, "") || "index.html");
     if (!p.startsWith(ROOT) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end("nope"); return; }
     // ITEM 33: .webmanifest and the icons it points at are served with real types — a manifest
@@ -1596,6 +1639,15 @@ async function newTestPage(browser, seed, opts) {
         if (u.includes("site.api.espn.com")) {
           if (fixture.espnDown) return req.respond({ status: 503, headers: cors, body: "{}" });
           if (u.includes("/scoreboard")) {
+            // A BROWSED week (2026-08-13, the Scores week cycler): dates=2026&seasontype=2&week=N
+            // — the CURRENT season addressed explicitly, which the 2025 replay never does, so
+            // dates=2026 is what separates the two dates= consumers. URL recorded so the params
+            // can be asserted.
+            if (u.includes("dates=2026")) {
+              weekSlateUrls.push(u);
+              const wm = /[?&]week=(\d+)/.exec(u);
+              return json(sbWeekFix(wm ? Number(wm[1]) : 0));
+            }
             // The 2025 replay asks for an EXPLICIT historical slate; everything else gets the
             // bare "current week" fixture exactly as before.
             if (u.includes("dates=")) { simSbUrls.push(u); return json(fixture.prod2025 ? prodSlate() : sbSim2025Fix()); }
@@ -2072,8 +2124,14 @@ async function openDetails(page, id) {
     await page.type("#gatePass", "wrong");
     await page.click("#gateGo");
     ok(!(await page.$eval("#gateErr", (e) => e.hidden)), "wrong passphrase is refused");
+    // 2026-08-13 (user): the TYPED gate password changed to "thegoatleague" — and the OLD one
+    // must now be refused at the gate, though it remains the functions' secret underneath.
     await page.$eval("#gatePass", (e) => { e.value = ""; });
     await page.type("#gatePass", "amenfarms");
+    await page.click("#gateGo");
+    ok(!(await page.$eval("#gateErr", (e) => e.hidden)), "the OLD password no longer opens the gate — it is the plumbing's secret, not the door's");
+    await page.$eval("#gatePass", (e) => { e.value = ""; });
+    await page.type("#gatePass", "thegoatleague");
     await page.click("#gateGo");
     await page.waitForSelector(".teamrow", { timeout: 9000 });
     ok((await page.$$eval(".teamrow", (els) => els.length)) === 8, "claim screen lists all 8 teams");
@@ -4364,27 +4422,33 @@ async function openDetails(page, id) {
     await waitOr(page, ".mucard");
     await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
     await page.waitForSelector(".trophycase", { timeout: 9000 });
+    // RESTAGED 2026-08-13 (user, same day the case shipped): (a) the TOILET BOWL is not
+    // displayed — the fixture still seeds it, which is what makes "it does not render" a real
+    // assertion rather than a vacuous one; (b) "rather than show ×3, just make more trophy
+    // icons" — a repeat winner is a ROW of icons, one per year, each icon wearing its year.
     const tc = await page.evaluate(() => {
       const c = document.querySelector(".trophycase");
       const shelves = [...c.querySelectorAll(".tcshelf")].map((s) => ({
         label: s.querySelector(".tclabel").textContent.trim(),
-        years: [...s.querySelectorAll(".trophyline")].map((y) => y.textContent.trim()),
-        count: (s.querySelector(".tccount") || {}).textContent || "",
+        years: [...s.querySelectorAll(".tctoken .tcyear")].map((y) => y.textContent.trim()),
+        iconsPerToken: [...s.querySelectorAll(".tctoken")].every((t) => t.querySelectorAll("svg").length === 1),
         svg: !!s.querySelector("svg"),
       }));
       return { shelves,
+        anyCount: /×\d/.test(c.textContent),
         pictographs: /\p{Extended_Pictographic}/u.test(c.textContent),
         aboveRoster: (() => { const r = [...document.querySelectorAll("h2")].find((h) => /Lineup|Roster/.test(h.textContent));
           return r ? c.getBoundingClientRect().top < r.getBoundingClientRect().top : true; })(),
       };
     });
-    ok(tc.shelves.map((s) => s.label).join("|") === "League Champion|Runner-Up|Points Champion|Toilet Bowl Champion",
-      "all four shelves render, in the case's fixed order (" + tc.shelves.map((s) => s.label).join(", ") + ")");
+    ok(tc.shelves.map((s) => s.label).join("|") === "League Champion|Runner-Up|Points Champion",
+      "THREE shelves, fixed order — the seeded Toilet Bowl trophy exists on the doc and hangs NOWHERE (" + tc.shelves.map((s) => s.label).join(", ") + ")");
     const champ = tc.shelves[0];
-    ok(champ.years.join() === "2023,2020,2011" && champ.count === "×3",
-      "the champion shelf MERGES the hist title with the live trophies, deduped, newest first, counted (" + champ.years.join() + ")");
-    ok(tc.shelves[2].years.join() === "2019,2011", "the Points Champion shelf carries its own years (" + tc.shelves[2].years.join() + ")");
-    ok(tc.shelves[3].years.join() === "2014", "…and the Toilet Bowl hangs there too, as the family's history demands");
+    ok(champ.years.join() === "2023,2020,2011",
+      "the champion shelf MERGES the hist title with the live trophies, deduped, newest first (" + champ.years.join() + ")");
+    ok(champ.years.length === 3 && champ.iconsPerToken && !tc.anyCount,
+      "…as THREE CUPS, one per title each wearing its year — no ×N count anywhere in the case");
+    ok(tc.shelves[2].years.join() === "2019,2011", "the Points Champion shelf carries its own year tokens (" + tc.shelves[2].years.join() + ")");
     ok(tc.shelves.every((s) => s.svg) && !tc.pictographs, "every shelf icon is inline SVG — zero emoji in the app's own chrome");
     ok(tc.aboveRoster, "the case sits at the TOP of the page, right under the hero — a trophy case is for showing off");
     ok(errors.length === 0, "0 page errors on the full case");
@@ -5103,12 +5167,19 @@ async function openDetails(page, id) {
     // same data path (LG.gamesForWeek + matchupCard) as the league home, so these are
     // provably the SAME numbers section C already hand-checked for this identical fixture
     // (team1/home 41.0, team2/away 4.0).
-    const gfflHeading = await page.$eval("main > .card:first-child h2", (h) => h.textContent);
-    ok(gfflHeading === "GFFL — Week 1", "the GFFL matchups card is the FIRST card on the Scores tab (" + gfflHeading + ")");
-    ok((await page.$$eval("main > .card:first-child .mucard", (els) => els.length)) === 4, "the GFFL card shows all 4 of this week's matchups");
-    const gfflScore = await page.$eval("main > .card:first-child .mucard.mine .muscore", (e) => e.textContent);
+    // RESTAGED 2026-08-13: the week-cycling nav card (the same user batch) sits above it now,
+    // so "first" became "first CONTENT card, directly under the week nav" — the fact under
+    // test (GFFL above the NFL slate and the ESPN card) is unchanged.
+    const scTop = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll("main > .card")];
+      return { first: cards[0] && cards[0].className, secondH2: cards[1] && (cards[1].querySelector("h2") || {}).textContent };
+    });
+    ok(/scweeknav/.test(scTop.first || ""), "the week cycler heads the Scores tab (" + scTop.first + ")");
+    ok(scTop.secondH2 === "GFFL — Week 1", "the GFFL matchups card is the first CONTENT card, above the NFL slate (" + scTop.secondH2 + ")");
+    ok((await page.$$eval("main > .card:nth-child(2) .mucard", (els) => els.length)) === 4, "the GFFL card shows all 4 of this week's matchups");
+    const gfflScore = await page.$eval("main > .card:nth-child(2) .mucard.mine .muscore", (e) => e.textContent);
     ok(gfflScore === "4.0 — 41.0", "my GFFL matchup's live total, hand-checked identically to the league home's own card (away 4.0 — home 41.0, " + gfflScore + ")");
-    await clickIn(page, "main > .card:first-child .mucard.mine");
+    await clickIn(page, "main > .card:nth-child(2) .mucard.mine");
     await page.waitForSelector(".muhead", { timeout: 9000 });
     ok((await page.$$eval(".bigpts", (els) => els.map((e) => e.textContent))).join("/") === "4.0/41.0",
       "…and tapping the GFFL card's matchup opens the real matchup view with the same totals");
@@ -9774,7 +9845,11 @@ async function openDetails(page, id) {
       ok(links.rTag === "BUTTON" && links.dTag === "A" && links.dHref === "ffdraft.html",
         "Rules is an in-app button; Draft is a real <a href> to ffdraft.html, so middle-click/open-in-new-tab still work (" + JSON.stringify(links) + ")");
       ok(links.rH >= 44 && links.dH >= 44, "…both ≥44px tappable (" + links.rH + "/" + links.dH + ")");
-      ok(links.rTop < 900, "…and high enough on the League page to be found without scrolling it all (" + links.rTop + "px down)");
+      // RESTAGED 2026-08-13 (user: "move the rules/draft button to the bottom") — the old
+      // "high on the page, < 900px down" bar is INVERTED by the owner's own order: the row is
+      // reference chrome now and closes the page. Superseded, not weakened; AV2 asserts the
+      // new placement positively on both widths.
+      ok(links.rTop >= 900, "…and at the BOTTOM of the League page now, by the owner's order (" + links.rTop + "px down)");
 
       // Tapping Rules really opens the commissioner's control panel — and leaves no stale
       // tab highlight behind, since no tab corresponds to that view any more.
@@ -10446,6 +10521,26 @@ async function openDetails(page, id) {
       ok(/analyst's pick is loaded/.test(ai.why), "…and the status says the analyst filled it — review before send");
       const sentAi = (await evalOr(page, () => window.__GFFL__.LG.loadTrades())) || [];
       ok(sentAi.length === 0, "…and the AI path never sends either (" + sentAi.length + " trades on the board)");
+      // THE ANALYSIS SURVIVES A REPAINT (2026-08-13, user: "as I was reading the reasoning
+      // it disappeared"). The Moves page live-repaints on poll ticks; the panel is session
+      // state now, re-rendered by the markup, until a new run replaces it or ✕ dismisses it.
+      const afterRepaint = await evalOr(page, () => {
+        window.__GFFL__.UI.show("moves"); // a full re-render — exactly what used to wipe it
+        const p = document.querySelector("#mvSuggestAi");
+        return { shown: !!(p && !p.hidden), prose: p ? p.innerHTML : "", hasX: !!document.querySelector("#mvSuggestX") };
+      }) || {};
+      ok(afterRepaint.shown && /<b>[^<]+<\/b>/.test(afterRepaint.prose),
+        "a full Moves repaint re-renders the analysis instead of wiping it — the reader keeps their place");
+      ok(afterRepaint.hasX, "…and the panel carries its own ✕");
+      const afterX = await evalOr(page, () => {
+        document.querySelector("#mvSuggestX").click();
+        const gone1 = !document.querySelector("#mvSuggestAi") || document.querySelector("#mvSuggestAi").hidden;
+        window.__GFFL__.UI.show("moves"); // and it STAYS dismissed across the next repaint
+        const p2 = document.querySelector("#mvSuggestAi");
+        return { gone1, gone2: !p2 || p2.hidden, state: window.__GFFL__.UI._aiSuggest || null };
+      }) || {};
+      ok(afterX.gone1 && afterX.gone2 && afterX.state === null,
+        "✕ dismisses it for good — cleared from the state, not just the screen, so no repaint resurrects it");
       ok(errors.length === 0, "0 page errors on the AI path");
       await ctx.close();
     }
@@ -16405,6 +16500,233 @@ async function openDetails(page, id) {
       ok((await evalOr(page, () => !!document.querySelector(".lgdeskbar.editing") && document.querySelectorAll(".deskedit").length === 12)) === true,
         "AU9c: a live repaint while the editor is open changes nothing — the strips stand");
       ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+  }
+
+  // ================= AV · THE PLAYTEST-4 BATCH (2026-08-13) =================
+  // Chat opens on the newest message · Rules/Draft to the bottom · the matchup slash + crest
+  // language on every score card (GFFL and NFL) · week cycling on the Scores tab. The AI-trade
+  // persistence half of the same batch lives in the AG AI-path block; the gate-password half
+  // in the gate section; the trophy-case rework in N's own block.
+  console.log("\n== AV · playtest-4 — chat lands at newest, links at bottom, slashed score cards, week cycling ==");
+  {
+    // ---- AV1: the late image cannot strand the reader off the newest message ----
+    {
+      // The photo is the NEWEST message: it sits in view when the list pins, so lazy-loading
+      // can never skip it (the first cut put it above the fold, where loading="lazy" left it
+      // unfetched forever and the wait timed out). Its 300px of late growth still un-pins a
+      // naive scroller — scrollHeight grows while scrollTop stands still — which is the
+      // reported "halfway scrolled up" mechanism from the other end.
+      const base = fullSeed();
+      const docs = { ...base.docs };
+      for (let i = 0; i < 18; i++) docs["chat_p" + i] = { kind: "chat", teamId: 1, who: "Peter", text: "scrollback line " + i, t: 2000 + i, thread: null, reactions: {} };
+      docs.chat_pimg = { kind: "chat", teamId: 1, who: "Peter", text: "", img: BASE + "/__slowimg.svg?case=a", t: 2100, thread: null, reactions: {} };
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, { ...base, docs });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await evalOr(page, () => window.__GFFL__.UI.go("chat"));
+      await waitOr(page, "#chatList .chatRowMsg");
+      const before = await evalOr(page, () => {
+        const l = document.querySelector("#chatList");
+        return { h: l.scrollHeight, overflows: l.scrollHeight > l.clientHeight + 40 };
+      }) || {};
+      const loaded = await waitFnOr(page, () => {
+        const im = document.querySelector("#chatList img.chatImg");
+        return !!(im && im.complete && im.naturalWidth > 0);
+      });
+      ok(loaded === true, "the slow photo really loads (400ms after the list first pinned)");
+      const pin = await evalOr(page, () => {
+        const l = document.querySelector("#chatList");
+        return { gap: Math.round(l.scrollHeight - l.scrollTop - l.clientHeight), h: l.scrollHeight };
+      }) || {};
+      ok(before.overflows === true, "the seeded chat genuinely overflows its box — a list that fits can't test scrolling");
+      ok(pin.h - before.h > 100, "…and the photo genuinely GREW the list after the pin (" + (pin.h - before.h) + "px) — without growth the re-pin check would be vacuous");
+      ok(pin.gap <= 4, "after the photo lands, the list is STILL pinned to the newest message — the late image re-pinned it (" + pin.gap + "px off the bottom)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // …and a reader who has deliberately scrolled UP is left alone: the wheel is a person.
+      const base = fullSeed();
+      const docs = { ...base.docs };
+      for (let i = 0; i < 18; i++) docs["chat_p" + i] = { kind: "chat", teamId: 1, who: "Peter", text: "scrollback line " + i, t: 2000 + i, thread: null, reactions: {} };
+      docs.chat_pimg = { kind: "chat", teamId: 1, who: "Peter", text: "", img: BASE + "/__slowimg.svg?case=b", t: 2100, thread: null, reactions: {} };
+      const { ctx, page, errors } = await newTestPage(browser, { ...base, docs });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await evalOr(page, () => window.__GFFL__.UI.go("chat"));
+      await waitOr(page, "#chatList .chatRowMsg");
+      // Beat the 400ms image: scroll to the top AS A PERSON (a wheel event) right away.
+      await evalOr(page, () => {
+        const l = document.querySelector("#chatList");
+        l.dispatchEvent(new WheelEvent("wheel", { deltaY: -300, bubbles: true }));
+        l.scrollTop = 0;
+      });
+      const loadedB = await waitFnOr(page, () => {
+        const im = document.querySelector("#chatList img.chatImg");
+        return !!(im && im.complete && im.naturalWidth > 0);
+      });
+      ok(loadedB === true, "the slow photo loads on this pass too");
+      const held = await evalOr(page, () => Math.round(document.querySelector("#chatList").scrollTop));
+      ok(held <= 4, "a reader who scrolled up STAYS where they scrolled — the late image never yanks a person reading history (scrollTop " + held + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    // ---- AV2: the Rules/Draft links row is the LAST card, both widths, with the migration ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const phoneLast = await evalOr(page, () => {
+        const cards = [...document.querySelectorAll("main > .card")];
+        const last = cards[cards.length - 1];
+        return !!(last && last.querySelector("#lnkRules") && last.querySelector("#lnkDraft"));
+      });
+      ok(phoneLast === true, "phone league home: the Rules/Draft row is the LAST card on the page");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+      await bootPage(page);
+      await waitOr(page, ".lgdesk");
+      const desk = await evalOr(page, () => {
+        const mainIds = [...document.querySelectorAll(".lgmain .deskcard")].map((w) => w.dataset.card);
+        return { last: mainIds[mainIds.length - 1], ids: mainIds };
+      }) || {};
+      ok(desk.last === "links", "desktop default: links closes MAIN (" + (desk.ids || []).join(",") + ")");
+      // THE MIGRATION: a layout saved under the OLD default (countdown, links, …) moves links
+      // to the end; a layout where someone DELIBERATELY placed links keeps their choice.
+      const mig = await evalOr(page, () => {
+        localStorage.setItem("gffl_desklayout", JSON.stringify({ main: ["countdown", "links", "stale", "week", "playoffs", "standings", "alltime"], rail: ["chat", "injury", "hot", "accuracy", "moves"], hidden: [], scale: 100, density: "comfortable", cz: {} }));
+        const a = window.__GFFL__.UI.deskLayout().main;
+        localStorage.setItem("gffl_desklayout", JSON.stringify({ main: ["stale", "week", "links", "countdown", "playoffs", "standings", "alltime"], rail: ["chat", "injury", "hot", "accuracy", "moves"], hidden: [], scale: 100, density: "comfortable", cz: {} }));
+        const b = window.__GFFL__.UI.deskLayout().main;
+        localStorage.removeItem("gffl_desklayout");
+        return { old: a, custom: b };
+      }) || {};
+      ok(mig.old && mig.old[mig.old.length - 1] === "links" && mig.old[1] !== "links",
+        "a layout saved under the OLD default migrates links to the end (" + (mig.old || []).join(",") + ")");
+      ok(mig.custom && mig.custom[2] === "links",
+        "…while a layout where links was deliberately MOVED keeps the owner's placement (" + (mig.custom || []).join(",") + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    // ---- AV3: the GFFL matchup cards wear the slash in each team's own palette ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const slash = await evalOr(page, () => {
+        const c = document.querySelector(".mucard.mine");
+        const st = c.getAttribute("style") || "";
+        const before = getComputedStyle(c, "::before");
+        const A = window.__GFFL__.LG.teamById(2), pal = window.__GFFL__.LG.teamPalette(A);
+        return {
+          hasClass: c.classList.contains("muslash"),
+          tpa: (st.match(/--tpa:([^;]+)/) || [])[1],
+          awayPrimary: pal.primary,
+          painted: before.backgroundColor !== "rgba(0, 0, 0, 0)" && before.clipPath !== "none",
+          allCards: [...document.querySelectorAll(".mucard")].every((m) => m.classList.contains("muslash")),
+        };
+      }) || {};
+      ok(slash.hasClass === true && slash.allCards === true, "every matchup card carries the slash treatment, hero and compact alike");
+      ok(slash.tpa === slash.awayPrimary, "…the left slash is the AWAY team's own primary (" + slash.tpa + ")");
+      ok(slash.painted === true, "…and it genuinely PAINTS — a real background inside a real clip-path, not an unset var");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    // ---- AV4: the NFL cards wear their teams' real colours, mirrored like the matchup page ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await clickIn(page, '.bnav button[data-v="scores"]');
+      await waitOr(page, ".sccard");
+      const sc = await evalOr(page, () => {
+        const cards = [...document.querySelectorAll(".sccard")];
+        const phiCard = cards.find((c) => c.textContent.includes("PHI"));
+        const denCard = cards.find((c) => c.textContent.includes("DEN"));
+        const st = phiCard.getAttribute("style") || "";
+        const before = getComputedStyle(phiCard, "::before");
+        const denAfter = getComputedStyle(denCard, "::after"); // DEN is home, colour-less in the fixture
+        const homeSpan = phiCard.querySelector(".scteam.right");
+        const kids = homeSpan ? [...homeSpan.children].map((k) => k.tagName) : [];
+        return {
+          cls: phiCard.classList.contains("scslash"),
+          tph: (st.match(/--tph:([^;]+)/) || [])[1],
+          awayPainted: before.backgroundColor !== "rgba(0, 0, 0, 0)",
+          denHomeBand: denAfter.backgroundColor,
+          mirrored: kids.length >= 2 && kids[kids.length - 1] === "IMG",
+        };
+      }) || {};
+      ok(sc.cls === true && sc.tph === "#004c54", "the PHI card carries PHI's own midnight green on its home slash (" + sc.tph + ")");
+      ok(sc.awayPainted === true, "…and the away side's band genuinely paints");
+      ok(sc.denHomeBand === "rgba(0, 0, 0, 0)", "a team ESPN sent no colour for paints NO band — transparent, never a wrong guess (" + sc.denHomeBand + ")");
+      ok(sc.mirrored === true, "the home side is MIRRORED — crest on the outer edge, exactly the matchup page's arrangement");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    // ---- AV5: week cycling — both cards, any week ----
+    {
+      // The shared seedSchedule carries ONE week (every other section lives in week 1);
+      // browsing forward needs a week 2 to browse, so this page seeds its own two-week sched.
+      const base5 = fullSeed();
+      const seed5 = { ...base5, docs: { ...base5.docs,
+        sched_2026: { kind: "sched", season: 2026, weeks: [[[1, 2], [3, 4], [5, 6], [7, 8]], [[2, 1], [4, 3], [6, 5], [8, 7]]] } } };
+      const { ctx, page, errors } = await newTestPage(browser, seed5);
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await clickIn(page, '.bnav button[data-v="scores"]');
+      await waitOr(page, ".scweeknav");
+      ok((await evalOr(page, () => document.querySelector(".scweeklabel").textContent)) === "Week 1 · live",
+        "the Scores tab opens on the LIVE week, and says so");
+      const wsBefore = weekSlateUrls.length;
+      await clickIn(page, "#scNext");
+      await waitFnOr(page, () => document.body.textContent.includes("NFL — Week 2"));
+      const wk2 = await evalOr(page, () => ({
+        label: document.querySelector(".scweeklabel").textContent,
+        gfflH2: [...document.querySelectorAll("main h2")].map((h) => h.textContent).find((t) => /GFFL/.test(t)),
+        statics: document.querySelectorAll(".mucard.static").length,
+        tappable: document.querySelectorAll(".mucard[data-mu]").length,
+        dashes: document.body.textContent.includes("— vs —"),
+        nflAbs: [...document.querySelectorAll(".sccard .scteam b")].map((b) => b.textContent.trim()).join("|"),
+        polling: !!window.__GFFL__.UI._scoresPoll,
+        backBtn: !!document.querySelector("#scNow"),
+      })) || {};
+      ok(/Week 2/.test(wk2.label || "") && /GFFL — Week 2/.test(wk2.gfflH2 || ""), "› steps to week 2 — the GFFL card follows (" + wk2.label + ")");
+      ok(wk2.statics === 4 && wk2.tappable === 0 && wk2.dashes === true,
+        "an unplayed week's pairings are STATIC slash cards reading '— vs —' — not tappable, because the Matchup view belongs to the live week (" + JSON.stringify({ statics: wk2.statics, tappable: wk2.tappable, dashes: wk2.dashes }) + ")");
+      ok(/SF\|PHI\|SEA\|KC/.test(wk2.nflAbs || ""), "…and the NFL half shows week 2's own slate (" + wk2.nflAbs + ")");
+      const wsUrl = weekSlateUrls[weekSlateUrls.length - 1] || "";
+      ok(weekSlateUrls.length === wsBefore + 1 && /dates=2026/.test(wsUrl) && /seasontype=2/.test(wsUrl) && /week=2/.test(wsUrl),
+        "the slate was asked for EXPLICITLY — dates=2026&seasontype=2&week=2, never the bare current-week endpoint (" + wsUrl + ")");
+      ok(wk2.polling === false && wk2.backBtn === true, "a browsed week is a page, not a feed — the poll is stopped, and Back-to-now is offered");
+      // A week with a FINALIZED record shows its real totals, not dashes — written through the
+      // real db from the page against the real week-2 pairings, then re-rendered.
+      await evalOr(page, async () => {
+        const pairs = await window.__GFFL__.LG.gamesForWeek(2);
+        await window.__GFFL__.LG.db.set(window.__GFFL__.LG.weeklyId(window.__GFFL__.LG.SEASON, 2), {
+          kind: "weekly", week: 2, season: window.__GFFL__.LG.SEASON,
+          matchups: pairs.map(([h, a], i) => ({ home: h, away: a, homePts: 50 + i, awayPts: 40 + i })),
+        });
+        await window.__GFFL__.UI.renderScores();
+      });
+      // NOT ok(true) after a tolerant wait — that pattern asserts nothing (this session's own
+      // lesson, re-learned the embarrassing way: the previous run PASSED this line while the
+      // browsed week had zero pairings at all).
+      const totalsLanded = await waitFnOr(page, () => document.body.textContent.includes("40.0 — 50.0"));
+      ok(totalsLanded === true, "…and once the week HAS a finalized record, the same cards read its real totals (40.0 — 50.0)");
+      const wsAfterRerender = weekSlateUrls.length;
+      ok(wsAfterRerender === wsBefore + 1, "the re-render reused the cached slate — one fetch per week per session (" + (wsAfterRerender - wsBefore) + ")");
+      await clickIn(page, "#scNow");
+      await waitFnOr(page, () => document.body.textContent.includes("NFL this week"));
+      ok((await evalOr(page, () => ({ l: document.querySelector(".scweeklabel").textContent, p: !!window.__GFFL__.UI._scoresPoll }))).l === "Week 1 · live",
+        "Back to now restores the live board");
+      ok((await evalOr(page, () => !!window.__GFFL__.UI._scoresPoll)) === true, "…and the live poll resumes");
+      ok(errors.length === 0, "0 page errors across the cycler");
       await ctx.close();
     }
   }

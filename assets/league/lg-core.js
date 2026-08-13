@@ -172,9 +172,21 @@
   LG.myTeamId = () => { const v = parseInt(localStorage.getItem(teamKey()) || "", 10); return v >= 1 ? v : null; };
   LG.setMyTeamId = (id) => localStorage.setItem(teamKey(), String(id));
 
-  LG.unlocked = () => localStorage.getItem("choreUnlocked") === LG.PASS || localStorage.getItem("gffl_pass") === LG.PASS;
+  // THE TYPED GATE PASSWORD IS ITS OWN THING (2026-08-13, user: "change the password to
+  // access gffl from amenfarms to thegoatleague"). LG.PASS could NOT simply change with it —
+  // it is simultaneously the server functions' secret (BUCKY_NOTIFY_SECRET), the famKey seed
+  // (roomId(LG.PASS) IS the Firestore collection name), and the salt inside every owner and
+  // commissioner PIN hash. Changing LG.PASS would point the app at an EMPTY collection and
+  // invalidate every PIN. So the gate gets its own phrase; the plumbing keeps its secret.
+  LG.GATE_PASS = "thegoatleague";
+  // A device already inside stays inside: choreUnlocked === LG.PASS is the family app's own
+  // unlock on the shared origin (that password is unchanged), and a stored gffl_pass from
+  // before the change is a SESSION, not a typed entry — grandfathered, so the whole family
+  // isn't bounced to the gate by a deploy. Only the gate's INPUT demands the new phrase.
+  LG.unlocked = () => localStorage.getItem("choreUnlocked") === LG.PASS ||
+    [LG.GATE_PASS, LG.PASS].includes(localStorage.getItem("gffl_pass"));
   LG.tryUnlock = (phrase) => {
-    if ((phrase || "").trim().toLowerCase() === LG.PASS) { localStorage.setItem("gffl_pass", LG.PASS); return true; }
+    if ((phrase || "").trim().toLowerCase() === LG.GATE_PASS) { localStorage.setItem("gffl_pass", LG.GATE_PASS); return true; }
     return false;
   };
 

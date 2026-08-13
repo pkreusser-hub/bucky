@@ -11754,3 +11754,72 @@ masked PATCH → 16/16 re-read verification). Data only — no code changed.
   needed there). **2017 runner-up = Scruffy**, **2017 points champ = Elanikan Skywalkers**.
 - awards_history updated to match on every row + the three additions (54 rows). STILL
   UNKNOWN: 2016's champion, points champ and toilet bowl.
+
+## 🏈 GFFL — THE PLAYTEST-4 BATCH: eight items from one sitting at the wheel (2026-08-13)
+
+Eight user asks arriving mid-session, all landed together. Files: `league.html` +
+`assets/league/lg-{core,data,ui}.js` + `tools/_verify-gffl.cjs` (2427 → **2468**, FAIL 0).
+`netlify/functions/*` untouched.
+
+1. **THE ANALYST'S READ SURVIVES REPAINTS** (user: "as I was reading the reasoning it
+   disappeared"). The Moves page live-repaints on poll ticks and the panel was painted only
+   by the click handler — every repaint wiped it. The rendered analysis is SESSION STATE now
+   (`UI._aiSuggest`, re-rendered by the markup itself), leaving only two ways: a new Suggest
+   run replaces it, or its own ✕ (a module-level DELEGATED listener — the button is re-created
+   by every repaint, so a per-render bind would go stale). A FAILED run clears it outright:
+   an old analysis under the math-fallback label would be two answers at once. Streaming
+   writes go through the same setter, so a repaint mid-stream re-renders the partial.
+2. **CHAT ALWAYS LANDS ON THE NEWEST MESSAGE** (user: "halfway scrolled up"). The
+   scroll-to-bottom ran before the GIFs and photos DECODED — every late image grew the
+   content and stranded the viewport. Each incomplete image now re-pins the bottom on load,
+   until the reader takes over (wheel/touchstart = a person; our own scrollTop writes fire
+   neither). SUITE: a 400ms-late 300px SVG served by the harness's own server — first cut
+   used a 1px png the fix's growth-assertion would have passed VACUOUSLY on, and put it above
+   the fold where `loading="lazy"` never fetched it (crashed the run); the image is the
+   NEWEST message now, whose growth un-pins a naive scroller from the other end.
+3. **RULES/DRAFT ROW TO THE BOTTOM** — phone (last card) and desktop (DESK_MAIN reordered,
+   links last) with a ONE-TIME layout migration: a saved layout still wearing the old
+   default's head (`countdown, links, …`) was never deliberately arranged, so links moves to
+   the end; a layout where someone MOVED links keeps their placement. The old "high on the
+   page, <900px" check INVERTED with its reason — the owner's own order supersedes it.
+4. **THE TROPHY CASE DROPS THE TOILET BOWL AND COUNTS IN CUPS** (user: two follow-ups). The
+   toilet rows STAY on the team docs and in awards_history — the case just doesn't hang
+   them (the fixture still seeds one, which is what makes "it does not render" a real
+   assertion). A repeat winner is a ROW OF ICONS, one per year, each wearing its year — no
+   ×N anywhere (`.tctoken`, the four-titles case reads as four cups).
+5. **EVERY SCORE CARD WEARS THE MATCHUP SLASH.** GFFL matchup cards (league home + Scores
+   tab, hero and compact alike) take the muhero's exact three-stripe mobile geometry via the
+   same six-pseudo-host trick — hosts are `.muscore` and `.herorow` (always-rendered,
+   unpositioned, UNCLIPPED — `.muteam` can't host, its overflow:hidden clips pseudos) —
+   with each team's own palette inline. NFL `.sccard`s take a two-stripe version in each
+   NFL team's REAL colours: `team.color`/`alternateColor` slimmed in ALL THREE parsers
+   (live poll, replay slate, replay apply) through `D.nflHex` (bare 6-hex or nothing —
+   a colour ESPN never sent paints no band, `var(--tpa, transparent)`), and the home side
+   MIRRORED (crest on the outer edge) exactly like the matchup layout.
+6. **WEEK CYCLING ON THE SCORES TAB** (user: "cycle to view future weeks for both").
+   `UI._scoresWeek` null = NOW (the live board, polling as ever); ‹ › browse GFFL weeks
+   1..seasonWeeks+3. A browsed week is A PAGE, NOT A FEED: the GFFL pairings render as
+   STATIC slash cards — real totals off the week's own write-once record when it exists,
+   an honest "— vs —" when unplayed, and never tappable (the Matchup view belongs to the
+   live week) — and the NFL slate comes from `D.fetchWeekSlate(w)`:
+   `?dates=<season>&seasontype=2&week=N` (GFFL week N IS NFL regular week N), same event
+   shape as pollScoreboard (deliberately side-by-side, NOT extracted — pollScoreboard's loop
+   also feeds D.S.games, which a browsed week must never touch), fetched once per week per
+   session with in-flight dedupe, only a REAL slate cached so an outage can retry. Stepping
+   ONTO the live week returns to the live board, never a frozen copy.
+7. **THE GATE PASSWORD IS "thegoatleague"** — and LG.PASS could NOT simply change with it:
+   it is the server functions' secret, the famKey seed (roomId(LG.PASS) IS the Firestore
+   collection name) and the salt in every PIN hash; changing it would point the app at an
+   EMPTY collection. `LG.GATE_PASS` is the door, `LG.PASS` stays the plumbing. Typed
+   "amenfarms" is now REFUSED at the gate; a device already inside is GRANDFATHERED (a
+   stored session is not a typed entry — nobody gets bounced by a deploy), which the whole
+   battery proves incidentally since every seed stores the old value.
+8. (With #1:) the `.mvsugai` panel gained its ✕ + `.mvsugbody` chrome.
+
+**SUITE**: new section AV (33 checks) + the restages above, each with its reason in place.
+TWO OWN-GOAL LESSONS from this batch's first runs, both now written at the checks:
+a raw `page.waitForFunction` in a section (instead of the tolerant helper) turns a staging
+miss into a SUITE CRASH; and `await waitFnOr(...)` followed by `ok(true, …)` asserts
+NOTHING — the previous run "passed" the finalized-totals check while the browsed week had
+zero pairings at all (the shared seedSchedule carries ONE week; AV5 seeds its own two-week
+sched now, and the check captures the wait's own result).

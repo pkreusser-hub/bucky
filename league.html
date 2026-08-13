@@ -358,6 +358,33 @@
      full-size badge would out-shout the score it belongs to. */
   .mucard:not(.mine) .herobadge { font-size:10px; }
   .mucard:not(.mine) .mupbar.mini { height:5px; }
+  /* THE SLASH COMES TO EVERY SCORE CARD (2026-08-13, user: "use the same color slash and
+     logo formatting from the matchup page"). Identical language to the muhero's mobile
+     geometry — three stripes a side, away from the left, home from the right — via the same
+     six-pseudo-host trick: the card's own ::before/::after carry the primary, .muscore's the
+     secondary, .herorow's the tertiary (both are always-rendered, UNPOSITIONED and unclipped
+     children, so their inset:0 pseudos measure against the card; .muteam can't host — its
+     overflow:hidden would clip them). The crest sits ON its slash exactly like the muhero's;
+     the NAME gets a clearance pad so ink never lands on colour (the muhero's own law). */
+  .mucard.muslash { position:relative; isolation:isolate; overflow:hidden; }
+  .mucard.muslash::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tpa); clip-path:polygon(0 0, 38px 0, 16px 100%, 0 100%); }
+  .mucard.muslash::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tph); clip-path:polygon(calc(100% - 38px) 0, 100% 0, 100% 100%, calc(100% - 16px) 100%); }
+  .mucard.muslash .muscore::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tsa); clip-path:polygon(44px 0, 49px 0, 27px 100%, 22px 100%); }
+  .mucard.muslash .muscore::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tsh); clip-path:polygon(calc(100% - 49px) 0, calc(100% - 44px) 0, calc(100% - 22px) 100%, calc(100% - 27px) 100%); }
+  .mucard.muslash .herorow::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tta); clip-path:polygon(55px 0, 58px 0, 36px 100%, 33px 100%); }
+  .mucard.muslash .herorow::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tth); clip-path:polygon(calc(100% - 58px) 0, calc(100% - 55px) 0, calc(100% - 33px) 100%, calc(100% - 36px) 100%); }
+  /* Name clearance: the crest (on the slash) starts each side, so only the NAME needs the
+     pad — enough that its ink starts past the tertiary band's mid-card reach. */
+  .mucard.muslash .muteam:not(.right) .muteamname { padding-left:16px; }
+  .mucard.muslash .muteam.right .muteamname { padding-right:16px; }
+  /* The badge/win-bar strip clears the bands' bottom reach (~36px), the muhero's own rule. */
+  .mucard.muslash .herorow { padding:0 40px; }
   .herobadge { display:inline-flex; align-items:center; gap:6px; font:600 11px var(--font-display); letter-spacing:1px;
                text-transform:uppercase; color:var(--faint); flex:0 0 auto; }
   .herobadge.live { color:var(--accent); }
@@ -963,22 +990,30 @@
   .chatText2 { white-space:pre-wrap; word-break:break-word; }
   .chatImg { max-width:220px; max-height:220px; border-radius:10px; margin-top:6px; display:block; cursor:zoom-in; }
   .chatActions { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
-  /* THE TROPHY CASE (2026-08-12) — one shelf per award kind, icon + label + year chips.
-     Icon colours: gold cup, silver medal, green points bars, muted porcelain. */
+  /* THE TROPHY CASE (2026-08-12, reworked 2026-08-13) — one shelf per award kind, and a
+     repeat winner gets ONE ICON PER YEAR (the user's call — a row of cups, not "×3"), each
+     icon wearing its own year. Icon colours: gold cup, silver medal, green points bars. */
   .trophycase .tcshelf { display:flex; align-items:center; gap:9px; padding:8px 0; flex-wrap:wrap;
     border-bottom:1px solid var(--divider2); }
   .trophycase .tcshelf:last-child { border-bottom:0; padding-bottom:2px; }
   .trophycase svg { flex:0 0 auto; }
   .tk-champ svg { color:var(--gold); } .tk-silver svg { color:#c3cbdb; }
-  .tk-points svg { color:var(--green); } .tk-toilet svg { color:var(--mut); }
+  .tk-points svg { color:var(--green); }
   .trophycase .tclabel { font:700 13px var(--font-display); letter-spacing:.5px; text-transform:uppercase; color:var(--ink); }
-  .trophycase .tccount { font:700 12px var(--font-display); color:var(--mut); }
-  .trophycase .tcyears { display:flex; flex-wrap:wrap; gap:4px; margin-left:auto; }
-  .trophycase .trophyline { font:600 11.5px var(--font-display); letter-spacing:.4px; color:var(--ink2);
-    background:var(--nested2); border:1px solid var(--border-card); border-radius:var(--radius-badge); padding:2px 7px; }
+  .trophycase .tcyears { display:flex; flex-wrap:wrap; gap:8px; margin-left:auto; }
+  .trophycase .tctoken { display:inline-flex; flex-direction:column; align-items:center; gap:1px;
+    background:var(--nested2); border:1px solid var(--border-card); border-radius:var(--radius-badge); padding:5px 7px 3px; }
+  .trophycase .tcyear { font:600 10.5px var(--font-display); letter-spacing:.4px; color:var(--ink2); }
   /* The AI trade analyst's read (2026-08-12) — a quiet nested panel under the Suggest button. */
   .mvsugai { background:var(--nested2); border:1px solid var(--border-card); border-radius:10px;
-    padding:10px 12px; margin:8px 0 10px; font-size:13px; line-height:1.5; color:var(--ink2); }
+    padding:10px 12px; margin:8px 0 10px; font-size:13px; line-height:1.5; color:var(--ink2);
+    position:relative; }
+  /* the analysis persists across repaints; the ✕ is its one deliberate exit (with a new run) */
+  .mvsugx { position:absolute; top:4px; right:4px; width:28px; height:28px; line-height:1;
+    background:none; border:none; color:var(--mut); font-size:14px; cursor:pointer;
+    border-radius:6px; padding:0; }
+  .mvsugx:hover { color:var(--ink); background:var(--card); }
+  .mvsugbody { padding-right:26px; }
   .mvsugai p { margin:0 0 8px; } .mvsugai p:last-child { margin-bottom:0; }
   .mvsugai b { color:var(--ink); }
   .mvsugai[hidden] { display:none; } /* the house [hidden] restatement, again */
@@ -1080,6 +1115,38 @@
   .scgrid { display:grid; grid-template-columns:1fr; gap:8px; }
   .sccard { background:var(--card); border:1px solid var(--border-card); border-radius:var(--radius-sm); padding:10px 12px; }
   .sccard.live { border-color:var(--accent); }
+  /* 2026-08-13: the matchup page's slash on the NFL cards, in each team's OWN colours
+     (ESPN's team.color/alternateColor, slimmed by lg-data). Primary slash + secondary
+     stripe per side — the NFL has no tertiary. Hosts: the card's own pseudos (primary) and
+     .scstaterow's (secondary — always rendered, unpositioned, unclipped). A colour ESPN
+     never sent leaves its var unset and `background:var(--tpa, transparent)` paints
+     nothing — the card is otherwise byte-identical. */
+  .sccard.scslash { position:relative; isolation:isolate; overflow:hidden; }
+  .sccard.scslash::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tpa, transparent); clip-path:polygon(0 0, 34px 0, 14px 100%, 0 100%); }
+  .sccard.scslash::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tph, transparent); clip-path:polygon(calc(100% - 34px) 0, 100% 0, 100% 100%, calc(100% - 14px) 100%); }
+  .sccard.scslash .scstaterow::before { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tsa, transparent); clip-path:polygon(39px 0, 43px 0, 23px 100%, 19px 100%); }
+  .sccard.scslash .scstaterow::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:var(--tsh, transparent); clip-path:polygon(calc(100% - 43px) 0, calc(100% - 39px) 0, calc(100% - 19px) 100%, calc(100% - 23px) 100%); }
+  /* The state row's own text clears the bands; the crest sits ON its slash (outer edge). */
+  .sccard.scslash .scstaterow { padding:0 46px; justify-content:space-between; }
+  .sccard.scslash .scteam.right { flex-direction:row; } /* bits are pre-reversed in markup */
+  /* Abbrev ink clears the secondary stripe's mid-card reach on both sides. */
+  .sccard.scslash .scteam:not(.right) > b { padding-left:6px; }
+  .sccard.scslash .scteam.right > b { padding-right:6px; }
+  /* Week cycling (2026-08-13): ‹ Week N › over both cards; a browsed GFFL pairing is a
+     STATIC card — same slash language, no pointer, because the Matchup view belongs to the
+     live week alone. */
+  .scweeknav .rowline { justify-content:center; gap:14px; }
+  .scweeknav button { min-width:44px; min-height:36px; background:var(--nested2);
+    border:1px solid var(--border-card); border-radius:var(--radius-badge); color:var(--ink);
+    font:700 15px var(--font-display); cursor:pointer; }
+  .scweeknav button:disabled { opacity:.35; cursor:default; }
+  .scweeknav .scweeklabel { font:700 15px var(--font-display); letter-spacing:.5px; text-transform:uppercase; }
+  .mucard.static { cursor:default; }
+  .mucard.static .herorow { padding:0; min-height:0; }
   .scnet { font:600 10.5px var(--font-display); letter-spacing:.5px; text-transform:uppercase; color:var(--mut); }
   .scstate { font:600 11.5px var(--font-display); letter-spacing:.5px; text-transform:uppercase; color:var(--mut); }
   .scstate.live { color:var(--accent); }

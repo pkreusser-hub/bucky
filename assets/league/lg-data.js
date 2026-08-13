@@ -1025,11 +1025,16 @@
       // scoreboard payload carries the team's own crest at competitor.team.logo, with
       // team.logos[0].href as the older/alternate shape. "" when neither is present, which
       // the Scores card renders as no image at all rather than a broken one.
+      const nflHex = D.nflHex;
       const side = (comp) => comp ? {
         abbrev: comp.team?.abbreviation || "",
         name: comp.team?.shortDisplayName || comp.team?.abbreviation || "",
         score: comp.score != null ? String(comp.score) : "",
         logo: comp.team?.logo || comp.team?.logos?.[0]?.href || "",
+        // 2026-08-13: the score cards wear each NFL team's own colours (the matchup-page
+        // slash language). ESPN carries bare 6-hex at team.color/alternateColor; anything
+        // else degrades to "" and the card simply paints no band on that side.
+        color: nflHex(comp.team?.color), altColor: nflHex(comp.team?.alternateColor),
       } : null;
       // TV network + betting line (item 2's Scores tab cards) — same fields/paths
       // netlify/functions/sports.mjs already reads off this same public ESPN
@@ -1278,6 +1283,7 @@
         name: comp.team?.shortDisplayName || comp.team?.abbreviation || "",
         final: Number(comp.score) || 0,
         logo: comp.team?.logo || comp.team?.logos?.[0]?.href || "",
+        color: D.nflHex(comp.team?.color), altColor: D.nflHex(comp.team?.alternateColor),
       } : null;
       const kick = Date.parse(ev.date || "");
       if (isFinite(kick) && kick > last) last = kick;
@@ -1298,6 +1304,61 @@
     return raw;
   }
   D.fetchSimSlate = fetchSimSlate;
+  // ESPN team colours arrive as bare 6-hex ("004C54"); anything else — absent, malformed,
+  // an 8-digit oddity — degrades to "" and the score card paints no band on that side.
+  D.nflHex = (v) => (typeof v === "string" && /^[0-9a-fA-F]{6}$/.test(v.trim()) ? "#" + v.trim().toLowerCase() : "");
+
+  // ---- BROWSING OTHER NFL WEEKS (2026-08-13, user: "cycle to view future weeks") ----
+  // The bare /scoreboard is always THE CURRENT week; an explicit week is addressed as
+  // ?dates=<season>&seasontype=2&week=N — regular season deliberately (GFFL week N is NFL
+  // regular week N; the league opens with NFL week 1). Parsed to the SAME event shape
+  // pollScoreboard builds (the Scores cards read one shape), fetched ONCE per week per
+  // session with an in-flight dedupe — a browsed week is a page, not a feed: past weeks are
+  // finished history and a future week's kickoffs don't move either. Returns [] on any
+  // failure, which the card renders as "No games" rather than an error.
+  D.S.weekSlates = D.S.weekSlates || {};
+  D._weekSlateInFlight = D._weekSlateInFlight || {};
+  D.fetchWeekSlate = async function (week) {
+    const w = Number(week);
+    if (!(w >= 1 && w <= 22)) return [];
+    if (D.S.weekSlates[w]) return D.S.weekSlates[w];
+    if (D._weekSlateInFlight[w]) return D._weekSlateInFlight[w];
+    const run = (async () => {
+      let j = null;
+      try { j = await fx("espn scoreboard", `${ESPN}/scoreboard?dates=${LG.SEASON}&seasontype=2&week=${w}`); } catch (e) { j = null; }
+      const events = [];
+      for (const ev of (j?.events || [])) {
+        const c = ev.competitions && ev.competitions[0]; if (!c) continue;
+        const st = (c.status && c.status.type) || {};
+        const comps = c.competitors || [];
+        // Field-for-field the pollScoreboard event shape (see its side() above) — one shape,
+        // one card renderer. Kept side-by-side rather than extracted because pollScoreboard's
+        // loop also feeds D.S.games, which a BROWSED week must never touch (the live board's
+        // per-team state belongs to the live week alone).
+        const side = (comp) => comp ? {
+          abbrev: comp.team?.abbreviation || "",
+          name: comp.team?.shortDisplayName || comp.team?.abbreviation || "",
+          score: comp.score != null ? String(comp.score) : "",
+          logo: comp.team?.logo || comp.team?.logos?.[0]?.href || "",
+          color: D.nflHex(comp.team?.color), altColor: D.nflHex(comp.team?.alternateColor),
+        } : null;
+        events.push({
+          id: String(ev.id || ""), date: ev.date || "",
+          state: st.state || "pre", detail: st.shortDetail || "",
+          period: c.status?.period || 0, clock: c.status?.displayClock || "",
+          broadcast: c.broadcasts?.[0]?.names?.[0] || "",
+          spread: (typeof c.odds?.[0]?.details === "string" ? c.odds[0].details : "").slice(0, 24),
+          away: side(comps.find((x) => x.homeAway === "away")),
+          home: side(comps.find((x) => x.homeAway === "home")),
+        });
+      }
+      // Only a REAL slate caches — an outage must be able to retry on the next visit.
+      if (events.length) D.S.weekSlates[w] = events;
+      return events;
+    })();
+    D._weekSlateInFlight[w] = run;
+    try { return await run; } finally { delete D._weekSlateInFlight[w]; }
+  };
 
   // Rebuild D.S.games / D.S.nflEvents from the cached slate at the CURRENT replay clock. The
   // slate itself is fetched once (static history — re-polling it would be pure waste); the
@@ -1315,8 +1376,8 @@
         : g.state === "pre" ? "0"
         : g.state === "post" ? String(side.final)
         : String(Math.round(side.final * g.progress));
-      const away = ev.away ? { abbrev: ev.away.abbrev, name: ev.away.name, score: shown(ev.away), logo: ev.away.logo || "" } : null;
-      const home = ev.home ? { abbrev: ev.home.abbrev, name: ev.home.name, score: shown(ev.home), logo: ev.home.logo || "" } : null;
+      const away = ev.away ? { abbrev: ev.away.abbrev, name: ev.away.name, score: shown(ev.away), logo: ev.away.logo || "", color: ev.away.color || "", altColor: ev.away.altColor || "" } : null;
+      const home = ev.home ? { abbrev: ev.home.abbrev, name: ev.home.name, score: shown(ev.home), logo: ev.home.logo || "", color: ev.home.color || "", altColor: ev.home.altColor || "" } : null;
       events.push({
         id: ev.id, date: ev.date, state: g.state, detail: g.detail, period: g.period, clock: g.clock,
         broadcast: ev.broadcast, spread: ev.spread, away, home,
