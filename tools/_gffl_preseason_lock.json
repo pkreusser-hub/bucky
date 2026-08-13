@@ -1,0 +1,191 @@
+{
+  "lockedAt": "2026-08-13T21:39:12.059Z",
+  "slateDate": "2026-08-13",
+  "games": [
+    {
+      "id": "401873272",
+      "name": "DET @ CIN",
+      "kickoff": "2026-08-13T23:00Z"
+    },
+    {
+      "id": "401873275",
+      "name": "GB @ PIT",
+      "kickoff": "2026-08-13T23:00Z"
+    },
+    {
+      "id": "401873273",
+      "name": "IND @ NE",
+      "kickoff": "2026-08-13T23:30Z"
+    },
+    {
+      "id": "401873640",
+      "name": "ARI @ LV",
+      "kickoff": "2026-08-14T00:00Z"
+    },
+    {
+      "id": "401873274",
+      "name": "LAC @ HOU",
+      "kickoff": "2026-08-14T00:00Z"
+    },
+    {
+      "id": "401874392",
+      "name": "TEN @ SF",
+      "kickoff": "2026-08-14T01:00Z"
+    }
+  ],
+  "prior": {
+    "QB": {
+      "1": 8,
+      "2": 5,
+      "3": 3
+    },
+    "RB": {
+      "1": 6,
+      "2": 4,
+      "3": 2.5
+    },
+    "WR": {
+      "1": 5,
+      "2": 3.5,
+      "3": 2
+    },
+    "TE": {
+      "1": 4,
+      "2": 2.5,
+      "3": 1.5
+    },
+    "K": {
+      "1": 4,
+      "2": 3,
+      "3": 2
+    }
+  },
+  "model": "grok via gffladjust (deployed)",
+  "note": "These are NFL PRESEASON exhibition games tonight (preseason, not the regular season). The 'base' numbers are NOT real projections — no provider publishes preseason projections — they are a crude positional prior. Ignore the ±35% anchor discipline for this run: project each player's PRESEASON fantasy points freely from his depth-chart order, injury status and what you know of how his team handles preseason snaps (starters usually sit or play a series; 2nd/3rd-stringers carry the middle quarters; late-round rookies fighting for a roster spot play most). Healthy scratches are common.",
+  "players": [
+    {
+      "key": "3045147",
+      "name": "James Conner",
+      "pos": "RB",
+      "team": "ARI",
+      "base": 2.5,
+      "log": [],
+      "inj": "Q",
+      "depth": 3,
+      "proj": 1.2,
+      "note": "Q vet; minimal preseason snaps expected"
+    },
+    {
+      "key": "4239993",
+      "name": "Tee Higgins",
+      "pos": "WR",
+      "team": "CIN",
+      "base": 3.5,
+      "log": [],
+      "depth": 2,
+      "proj": 2,
+      "note": "starter-level WR; brief early series only"
+    },
+    {
+      "key": "3116407",
+      "name": "Mason Rudolph",
+      "pos": "QB",
+      "team": "PIT",
+      "base": 5,
+      "log": [],
+      "depth": 2,
+      "proj": 9.5,
+      "note": "backup QB; heavy middle-quarter work"
+    },
+    {
+      "key": "14163",
+      "name": "Tyrod Taylor",
+      "pos": "QB",
+      "team": "GB",
+      "base": 5,
+      "log": [],
+      "depth": 2,
+      "proj": 9,
+      "note": "GB backup; extended preseason snaps"
+    },
+    {
+      "key": "4035687",
+      "name": "Michael Pittman",
+      "pos": "WR",
+      "team": "PIT",
+      "base": 3.5,
+      "log": [],
+      "inj": "Q",
+      "depth": 2,
+      "proj": 1.8,
+      "note": "Q; limited vet preseason role"
+    },
+    {
+      "key": "3044720",
+      "name": "Joshua Dobbs",
+      "pos": "QB",
+      "team": "DET",
+      "base": 5,
+      "log": [],
+      "depth": 2,
+      "proj": 8.5,
+      "note": "DET depth QB; long middle stint"
+    },
+    {
+      "key": "3116389",
+      "name": "Samaje Perine",
+      "pos": "RB",
+      "team": "CIN",
+      "base": 4,
+      "log": [],
+      "depth": 2,
+      "proj": 6.5,
+      "note": "RB2; strong preseason carry volume"
+    },
+    {
+      "key": "14880",
+      "name": "Kirk Cousins",
+      "pos": "QB",
+      "team": "LV",
+      "base": 5,
+      "log": [],
+      "depth": 2,
+      "proj": 3.5,
+      "note": "vet QB; short early look then sit"
+    },
+    {
+      "key": "3126486",
+      "name": "Deebo Samuel",
+      "pos": "WR",
+      "team": "SF",
+      "base": 3.5,
+      "log": [],
+      "depth": 2,
+      "proj": 1.5,
+      "note": "vet WR1; token series then rest"
+    },
+    {
+      "key": "3123076",
+      "name": "David Njoku",
+      "pos": "TE",
+      "team": "LAC",
+      "base": 2.5,
+      "log": [],
+      "depth": 2,
+      "proj": 1.5,
+      "note": "vet TE; limited preseason snaps"
+    },
+    {
+      "key": "11252",
+      "name": "Joe Flacco",
+      "pos": "QB",
+      "team": "CIN",
+      "base": 5,
+      "log": [],
+      "depth": 2,
+      "proj": 9,
+      "note": "CIN backup QB; extended playing time"
+    }
+  ],
+  "graded": null
+}
