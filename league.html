@@ -390,7 +390,14 @@
      with room for triple digits, and the names grow 12→15px into the space that freed.
      Desktop keeps the 62px crest — width is not scarce there. */
   .muavatar { width:54px; height:54px; font-size:18px; vertical-align:0; }
-  .muavatar.mine { box-shadow:inset 0 0 0 2px rgba(255,255,255,.2), 0 0 0 2px var(--accent); }
+  /* "This is your team" — a slightly stronger WHITE inset, never an outer ring. It used to add
+     `0 0 0 2px var(--accent)`, and the owner read that hot red as part of their own artwork
+     ("the logo has a red border even though thats not in the image"): an outer ring sits
+     OUTSIDE the crest's box, so it reads as the image's own frame rather than as app chrome.
+     Red also means one thing in this app (overdue, alerts, the live clock) — a neutral
+     "which one is me" marker was borrowing the alarm colour. The inset stays inside the
+     artwork's edge, so it can only ever read as a highlight. */
+  .muavatar.mine { box-shadow:inset 0 0 0 2px rgba(255,255,255,.34); }
   .bigpts { font:800 30px/1.02 var(--font-display); font-variant-numeric:tabular-nums; }
   @media (min-width:700px) { .muavatar { width:62px; height:62px; font-size:20px; } }
   /* THE ESPN HEADER (2026-08-09, from the user's own screenshot of the real app): crest on the
@@ -480,7 +487,7 @@
     .muhead.muhero .muhteam { display:flex; flex-direction:row; align-items:center; gap:14px; min-width:0; }
     .muhead.muhero .muhteam .muavatar { order:1; flex:0 0 auto; width:104px; height:104px; font-size:34px;
       border-radius:18px; box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 1px rgba(255,255,255,.22); }
-    .muhead.muhero .muavatar.mine { box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 2px rgba(255,255,255,.2), 0 0 0 2px var(--accent); }
+    .muhead.muhero .muavatar.mine { box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 2px rgba(255,255,255,.34); } /* no red outer ring — see the base rule's note */
     /* Refinement 2: the name is a CENTERED, wrap-capable block between crest and score —
        flex:1 takes the slack, the clearance pad keeps its box off the slash colour, and the
        fitter (maxLines 2 on desktop) sizes long names down instead of cutting them. */
