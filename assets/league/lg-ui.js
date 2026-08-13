@@ -98,9 +98,16 @@
   UI.lockerTeamId = null;   // viewed locker
   UI._aiRead = null;        // {key, at, busy, error, mults:{name:{mult,why,proj,adj}}} — S5's AI read
   let schedule = null;
-  // Item 10 (2026-08-08, no emoji in app chrome): reactions are text chips, not emoji glyphs —
-  // FIRE/DEAD/LOL/GOAT reads the same as the original  set without a single pictograph.
-  const REACTS = ["FIRE", "DEAD", "LOL", "GOAT"];
+  // REFINEMENT 4 (2026-08-11, user: "get rid of the fire, dead, goat buttons and just add an
+  // Emoji button where you can emoji response directly on to someone's chat") — item 10's four
+  // fixed text chips are GONE. A message now shows only the reactions it HAS (any emoji,
+  // straight from its own doc's keys, count + a lit ring when YOUR team is in it) plus one SVG
+  // add-reaction button that opens a lazy emoji palette on that message. Reaction glyphs are
+  // USER content (someone reacted), so they are exempt from the app-chrome emoji ban exactly
+  // like message text; the PALETTE renders lazily on tap, the same section-U discipline as the
+  // composer's picker. Legacy docs keyed by the old chip WORDS display as their emoji but keep
+  // their STORED key on the wire, so an old FIRE and a new tap land in the same bucket.
+  const LEGACY_REACTS = { FIRE: "🔥", DEAD: "💀", LOL: "😂", GOAT: "🐐" };
   const IMG_CAP = 80000; // ~80KB dataURL chars (design cap for CHAT images)
   // S3: the crest is now the biggest thing on a locker (96-128px) and the source of every
   // team's colour scheme, so it gets its own budget rather than sharing chat's. A logo lives
@@ -3895,16 +3902,40 @@
         ${m.text ? `<div class="chatText2">${linkPlayerNames(esc(m.text))}</div>` : ""}
         ${imgSrc ? `<img class="chatImg" src="${esc(imgSrc)}" data-full="${esc(imgFull)}" loading="lazy" alt="">` : ""}
         <div class="chatActions">
-          ${REACTS.map((e) => `<button class="chatReact" type="button" data-mid="${esc(m.id)}" data-e="${e}">${e}${((m.reactions || {})[e] || []).length ? " " + (m.reactions[e] || []).length : ""}</button>`).join("")}
+          ${Object.entries(m.reactions || {}).filter(([, v]) => (v || []).length).map(([e, v]) =>
+            `<button class="chatReact${v.includes(LG.myTeamId()) ? " on" : ""}" type="button" data-mid="${esc(m.id)}" data-e="${esc(e)}" title="React">${esc(LEGACY_REACTS[e] || e)} ${v.length}</button>`).join("")}
+          <button class="chatReactAdd" type="button" data-mid="${esc(m.id)}" title="React with an emoji" aria-label="React with an emoji">
+            <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><circle cx="9" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="6.8" cy="9.6" r=".95" fill="currentColor"/><circle cx="11.2" cy="9.6" r=".95" fill="currentColor"/><path d="M6.4 12.7c.7 1 1.6 1.5 2.6 1.5s1.9-.5 2.6-1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M15.5 2.5v5M13 5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
           <button class="chatReply" type="button" data-mid="${esc(m.id)}" title="Reply">Reply</button>
           ${canDelete ? `<button class="chatDel" type="button" data-mid="${esc(m.id)}" title="Delete">Delete</button>` : ""}
         </div>
       </div></div>`;
   }
   function wireChatMsgEvents(idPfx, listEl, thread) {
+    // An existing reaction chip is a TOGGLE for your own team — tap 🔥 2 to join or leave it.
     listEl.querySelectorAll(".chatReact").forEach((b) => b.addEventListener("click", async () => {
       await LG.toggleReaction(b.dataset.mid, b.dataset.e, LG.myTeamId());
       refreshChatList(idPfx, thread);
+    }));
+    // The add-reaction button: one lazy palette at a time, anchored to ITS message; a second
+    // tap on the same button (or tapping another message's) closes/moves it. The refresh a
+    // reaction triggers rebuilds the list, which removes the palette naturally.
+    listEl.querySelectorAll(".chatReactAdd").forEach((b) => b.addEventListener("click", () => {
+      const bubble = b.closest(".chatBubble");
+      const existing = listEl.querySelector(".reactPalette");
+      const wasHere = existing && existing.dataset.mid === b.dataset.mid;
+      if (existing) existing.remove();
+      if (wasHere || !bubble) return;
+      const pal = document.createElement("div");
+      pal.className = "reactPalette";
+      pal.dataset.mid = b.dataset.mid;
+      pal.innerHTML = CHAT_EMOJI.map((e) => `<button type="button" class="chatEmoji" data-em="${esc(e)}">${esc(e)}</button>`).join("");
+      bubble.appendChild(pal);
+      pal.querySelectorAll(".chatEmoji").forEach((x) => x.addEventListener("click", async () => {
+        await LG.toggleReaction(b.dataset.mid, x.dataset.em, LG.myTeamId());
+        refreshChatList(idPfx, thread);
+      }));
     }));
     listEl.querySelectorAll(".chatReply").forEach((b) => b.addEventListener("click", async () => {
       const msgs = await LG.loadChat(thread || null);

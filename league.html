@@ -937,6 +937,16 @@
   .chatText2 { white-space:pre-wrap; word-break:break-word; }
   .chatImg { max-width:220px; max-height:220px; border-radius:10px; margin-top:6px; display:block; cursor:zoom-in; }
   .chatActions { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  /* Refinement 4: reactions. A chip only exists when someone reacted; a lit ring marks YOUR
+     team's own reaction; the add-button is the SVG smiley-plus; the palette is the same
+     keyboard the composer uses, anchored to one message at a time. */
+  .chatReact.on { border-color:var(--accent); color:var(--ink); }
+  .chatReactAdd { display:inline-flex; align-items:center; justify-content:center; }
+  .reactPalette { display:flex; flex-wrap:wrap; gap:2px; background:var(--nested2);
+    border:1px solid var(--border-card); border-radius:10px; padding:5px; margin-top:6px; }
+  .reactPalette .chatEmoji { font-size:18px; line-height:1; padding:4px; min-height:32px; min-width:32px;
+    background:none; border:none; border-radius:6px; cursor:pointer; }
+  .reactPalette .chatEmoji:hover { background:var(--nested); }
   .chatActions button { background:var(--nested2); border:1px solid var(--border-card); border-radius:var(--radius-pill);
                          padding:3px 9px; font-size:12px; text-transform:none; letter-spacing:0; }
   .chatDel { color:var(--accent); }

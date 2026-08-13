@@ -3392,16 +3392,50 @@ async function openDetails(page, id) {
     ok((await page2.evaluate(() => document.querySelector("#chatList").textContent)).includes("second message"),
       "…and a later message shows up once the refresh hook (the 8s poll's own code path) is driven");
 
-    // K3: reactions toggle on/off and render counts.
+    // K3 — RESTAGED 2026-08-11 (refinement 4, user: "get rid of the fire, dead, goat buttons
+    // and just add an Emoji button"): the fixed chips are gone; the flow is now add-button →
+    // lazy palette → pick any emoji → a chip exists only because someone reacted → tapping
+    // the chip toggles your team back off and the chip disappears.
     const mid = await page1.evaluate(() => window.__GFFL__.LG.loadChat(null).then((m) => m.find((x) => x.text === "Hello league!").id));
-    await page1.evaluate((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="FIRE"]`).click(), mid);
-    await page1.waitForFunction((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="FIRE"]`).textContent.includes("1"), { timeout: 5000 }, mid);
-    ok(true, "tapping a reaction toggles it on and the count renders");
-    const after1 = await page1.evaluate((id) => window.__GFFL__.LG.loadChat(null).then((m) => m.find((x) => x.id === id).reactions["FIRE"]), mid);
-    ok(Array.isArray(after1) && after1.includes(1), "reaction doc carries the reacting team's id");
-    await page1.evaluate((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="FIRE"]`).click(), mid);
-    await page1.waitForFunction((id) => !document.querySelector(`.chatReact[data-mid="${id}"][data-e="FIRE"]`).textContent.includes("1"), { timeout: 5000 }, mid);
-    ok(true, "tapping the same reaction again toggles it back off");
+    const pre = await page1.evaluate((id) => ({
+      chips: document.querySelectorAll(`.chatReact[data-mid="${id}"]`).length,
+      addBtn: !!document.querySelector(`.chatReactAdd[data-mid="${id}"] svg`),
+      fixedWords: /FIRE|DEAD|LOL|GOAT/.test(document.querySelector(`.chatRowMsg[data-mid="${id}"] .chatActions`).textContent),
+      palette: !!document.querySelector(".reactPalette"),
+    }), mid);
+    ok(pre.chips === 0 && !pre.fixedWords, "an unreacted message shows NO chips and none of the old fixed words");
+    ok(pre.addBtn && !pre.palette, "…just the SVG add-reaction button, with the palette not yet rendered (lazy)");
+    await page1.evaluate((id) => document.querySelector(`.chatReactAdd[data-mid="${id}"]`).click(), mid);
+    await page1.waitForFunction((id) => {
+      const p = document.querySelector(".reactPalette");
+      return p && p.dataset.mid === id && p.querySelectorAll(".chatEmoji").length >= 40;
+    }, { timeout: 5000 }, mid);
+    ok(true, "the add button opens a real emoji palette ON that message");
+    await page1.evaluate(() => [...document.querySelectorAll(".reactPalette .chatEmoji")].find((b) => b.dataset.em === "🔥").click());
+    await page1.waitForFunction((id) => {
+      const c = document.querySelector(`.chatReact[data-mid="${id}"][data-e="🔥"]`);
+      return c && /🔥\s*1/.test(c.textContent) && c.classList.contains("on");
+    }, { timeout: 5000 }, mid);
+    ok(true, "picking 🔥 lands the reaction as a chip — emoji, count, and a lit ring for YOUR OWN team");
+    const after1 = await page1.evaluate((id) => window.__GFFL__.LG.loadChat(null).then((m) => m.find((x) => x.id === id).reactions["🔥"]), mid);
+    ok(Array.isArray(after1) && after1.includes(1), "reaction doc carries the reacting team's id under the emoji's own key");
+    await page1.evaluate((id) => document.querySelector(`.chatReact[data-mid="${id}"][data-e="🔥"]`).click(), mid);
+    await page1.waitForFunction((id) => !document.querySelector(`.chatReact[data-mid="${id}"][data-e="🔥"]`), { timeout: 5000 }, mid);
+    ok(true, "tapping the chip toggles your team off — and with nobody left in it, the chip disappears");
+    // Legacy docs keyed by the old chip WORDS display as their emoji but keep the stored key,
+    // so an old FIRE and a new 🔥 tap land in the same bucket.
+    await page1.evaluate(async (id) => {
+      const LG = window.__GFFL__.LG;
+      const doc = await LG.db.getFresh(id);
+      await LG.db.set(id, { ...doc, reactions: { FIRE: [2, 3] } });
+      await window.__GFFL__.UI.refreshChatList("chat", null);
+    }, mid);
+    const legacy = await page1.evaluate((id) => {
+      const c = document.querySelector(`.chatReact[data-mid="${id}"][data-e="FIRE"]`);
+      return c ? { text: c.textContent.trim(), on: c.classList.contains("on") } : null;
+    }, mid);
+    ok(legacy && /^🔥\s*2$/.test(legacy.text) && !legacy.on,
+      "a LEGACY word-keyed reaction renders as its emoji with its count, unlit for a team that isn't in it (" + JSON.stringify(legacy) + ")");
 
     // K4: reply renders a quote of the original.
     await page1.evaluate((id) => document.querySelector(`.chatReply[data-mid="${id}"]`).click(), mid);

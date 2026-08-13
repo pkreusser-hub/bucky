@@ -11508,3 +11508,24 @@ Three user asks. Files: `league.html` + `assets/league/lg-{ui,core}.js` +
 all five fixture ports (EADDRINUSE 8844) — find the PID via netstat and kill THAT, never
 taskkill-all-node.
 **VERIFY**: battery **2396/2396** (net +8: emoji/Images checks + the two-provider GIF matrix).
+
+## 🏈 GFFL — REFINEMENT 4: reactions become real emoji (2026-08-11, DEPLOYED)
+
+User: *"get rid of the fire, dead, goat buttons and just add an Emoji button where you can
+emoji response directly on to someone's chat."* Files: `assets/league/lg-ui.js` +
+`league.html` + K3 restaged in `tools/_verify-gffl.cjs` (→ **2400**).
+
+Item 10's four fixed text chips are GONE. Each message carries ONE SVG smiley-plus
+(`.chatReactAdd`); tapping it opens the composer's own emoji keyboard as a `.reactPalette`
+anchored to THAT message (one palette at a time, LAZILY rendered — the section-U discipline
+again), and any pick lands via the unchanged `LG.toggleReaction(id, emoji, teamId)`. A chip
+(`.chatReact`) exists ONLY because someone reacted: emoji + count + a lit `.on` ring when
+YOUR team is in it; tapping a chip toggles your team, and the last leaver takes the chip
+with them. Reaction glyphs are USER content (someone reacted) — exempt from the app-chrome
+emoji ban exactly like message text. **LEGACY word-keys (FIRE/DEAD/LOL/GOAT) display as
+🔥/💀/😂/🐐 but keep their STORED key on the wire (`LEGACY_REACTS`), so an old FIRE and a
+new tap land in the same bucket** — nothing already reacted is lost or split.
+K3 restaged to the full new flow with reasons: empty state (no chips, no fixed words, lazy
+palette), palette-on-message, chip + ring, doc keyed by the emoji itself, toggle-off
+disappearance, and the legacy-word rendering (seeded doc, unlit for a team not in it).
+Battery **2400/2400**.
