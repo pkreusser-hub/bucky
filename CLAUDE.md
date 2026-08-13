@@ -11734,3 +11734,23 @@ string can never open a block), and an assignment target is exempt — the hones
 WHOLE file then found zero real reads, so the S3 contrast law genuinely held everywhere.
 RULE: a comment-stripping grep over a file containing markup strings must never use the naive
 block regex — `image/*` is sitting in every file-input's accept attribute.
+
+## 🏆 GFFL — LINEAGE CORRECTIONS, from the commissioner's own mouth (2026-08-13)
+
+Four user rulings, applied to production via `scratchpad/fix_awards2.mjs` (backup →
+masked PATCH → 16/16 re-read verification). Data only — no code changed.
+- **Cruise Missiles IS Battle Kreussers.** hist_2009's champion went back to franchise 1
+  (the historical NAME stays "Cruise Missiles"; the id is the franchise). BK is back to
+  **4 all-time titles** — yesterday's flagged 4→3 demotion is reversed.
+- **Dawn Treaders / Space City Rockets are DEFUNCT.** The GOAT Kids lineage is Little
+  Rocket Farmers → Great Lords of Football → The GOAT Kids, and NOT the Dawn Treaders era
+  the 2026-08-10 history load had merged in. Every Dawn Treaders row in hist_2011..2015
+  re-id'd 12 → **1904** — in `teams[]` AND `matchups[]` (74 games), or head-to-head and
+  highest-week would still attribute those games to the GOAT Kids. Their all-time record
+  sheds the 2011-2015 Dawn Treaders seasons, and their trophy case drops that era's two
+  awards (2015 points, 2014 toilet — now defunct-held in awards_history).
+- **2016 runner-up = Nails For Breakfast** (whose lineage — ST Red Shirts / TNG Yellow
+  Shirts — was verified already correctly mapped to id 5 in the hist docs; no change
+  needed there). **2017 runner-up = Scruffy**, **2017 points champ = Elanikan Skywalkers**.
+- awards_history updated to match on every row + the three additions (54 rows). STILL
+  UNKNOWN: 2016's champion, points champ and toilet bowl.
