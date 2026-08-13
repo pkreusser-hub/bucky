@@ -289,6 +289,45 @@ async function lgEspnKickerAudit(body) {
   }
 }
 
+// FULL RULES RECONCILIATION (2026-08-13, pre-season proof: "did we confirm all of our rules
+// produce the same results as ESPN did last season?"). The kicker audit's recipe widened to
+// EVERY position: for each lineup slot group, the season's real player lines with ESPN's own
+// appliedStats — the per-statId points ESPN actually paid — so a reconciliation script can
+// diff every exercised coefficient against our rules doc to the penny, and surface any statId
+// ESPN paid that our map doesn't carry. Read-only, diag-only (no suite fixture — the kicker
+// audit's own posture); slot-only filters are the mode proven to work on past seasons.
+async function lgEspnRulesAudit(body) {
+  const cookies = ffCookies();
+  if (!cookies) return { ok: false, reason: "fantasy-not-configured" };
+  const year = Number(body?.season) >= 2020 ? Number(body.season) : 2025;
+  const base = `${FF_BASE}/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${FF_LEAGUE_ID}?scoringPeriodId=0&view=kona_player_info`;
+  const players = [];
+  const perSlot = {};
+  for (const slot of [0, 2, 4, 6, 16, 17]) { // QB RB WR TE DST K
+    let j = null;
+    try {
+      const r = await fetch(base, { headers: {
+        "User-Agent": UA, accept: "application/json", Cookie: cookies,
+        "X-Fantasy-Filter": JSON.stringify({ players: { filterSlotIds: { value: [slot] }, limit: Number(body?.limit) > 0 ? Number(body.limit) : 40 } }),
+      } });
+      if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
+      if (r.ok) j = await r.json();
+    } catch { /* one slot failing shouldn't sink the others */ }
+    const pool = j?.players || [];
+    perSlot[slot] = pool.length;
+    for (const e of pool) {
+      const p = e?.player || {};
+      const line = (p?.stats || []).find((s) => s?.statSourceId === 0 && s?.statSplitTypeId === 0 && Number(s?.seasonId) === year);
+      if (!line || line.appliedTotal == null) continue;
+      players.push({
+        name: p?.fullName || "", espnId: p?.id ?? null, posId: p?.defaultPositionId ?? null,
+        appliedTotal: line.appliedTotal, stats: line.stats || {}, appliedStats: line.appliedStats || {},
+      });
+    }
+  }
+  return { ok: true, season: year, perSlot, players };
+}
+
 // ESPN history import (plan §4.8) — one past season per call; the client
 // loops seasons backward until the import runs dry. Slimmed hard: final
 // standings + the champion + every real matchup's final score, nothing
@@ -414,6 +453,7 @@ export default async (req) => {
   if (action === "lg_espn_rosters") return json(await lgEspnRosters(body));
   if (action === "lg_espn_rosters_season") return json(await lgEspnRostersSeason(body));
   if (action === "lg_espn_kicker_audit") return json(await lgEspnKickerAudit(body));
+  if (action === "lg_espn_rules_audit") return json(await lgEspnRulesAudit(body));
   if (action === "lg_espn_history") return json(await lgEspnHistory(body));
   if (action === "lg_gif_search") return json(await lgGifSearch(body));
   return json({ ok: false, reason: "unknown-action" });
