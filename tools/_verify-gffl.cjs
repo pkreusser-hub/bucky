@@ -10426,6 +10426,13 @@ async function openDetails(page, id) {
         "…each player carrying his key, injury and the league's own numbers for the model to weigh");
       ok(/STARTING LINEUP REQUIREMENTS/.test(turn) && /"QB":1/.test(turn.replace(/\s+/g, "")),
         "…and the legal-lineup slot requirements the fairness rules depend on");
+      // MEASURED LIVE 2026-08-12: at default effort grok-4.5 reasons 56s before its first
+      // token on this prompt (the CDN kills a byte-less response at 30s) and the reasoning
+      // ate a 1400 cap, cutting the machine tail. These three wire params ARE the fix.
+      ok(wire && wire.reasoning_effort === "low" && wire.temperature === 0.2,
+        "…the request asks grok for LOW reasoning effort at temperature 0.2 — the measured TTFB/quality recipe");
+      ok(wire && wire.max_tokens >= 4000,
+        "…with headroom past reasoning (max_tokens " + (wire && wire.max_tokens) + " — 1400 was cut live)");
       const ai = (await evalOr(page, () => ({
         give: [...window.__GFFL__.UI._tradeGive], get: [...window.__GFFL__.UI._tradeGet],
         prose: (document.querySelector("#mvSuggestAi") || {}).innerHTML || "",

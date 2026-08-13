@@ -1430,7 +1430,10 @@ const MODES = {
   // comfortable headroom for a handful of {name,mult,why} objects. cache:false — one-shot, no
   // cached prefix to read.
   gfflproj:    { system: GFFLPROJ_SYSTEM,   maxTokens: 800,  thinking: { type: "disabled" }, cache: false },
-  gffltrade:   { system: GFFLTRADE_SYSTEM,  maxTokens: 1400, thinking: { type: "disabled" }, cache: false },
+  // maxTokens 4000, NOT 1400: grok-4.5's REASONING tokens bill against max_tokens on the xAI
+  // API, and at 1400 the reasoning ate the budget and cut the ===TRADE=== machine tail
+  // (measured live 2026-08-12). Output bills only for what is produced, so the headroom is free.
+  gffltrade:   { system: GFFLTRADE_SYSTEM,  maxTokens: 4000, thinking: { type: "disabled" }, cache: false },
 };
 const KID_ART_MODEL = RESEARCH_MODEL;   // Sonnet 5 — better at clean, readable vector art
 
@@ -3483,6 +3486,14 @@ export default async (req) => {
         stream: true,
         stream_options: { include_usage: true },
       };
+      // MEASURED 2026-08-12 (gffltrade probes against real grok-4.5): at DEFAULT effort a
+      // two-roster analysis reasons 56s before its first token — past the CDN's 30s byte-less
+      // kill — and the reasoning tokens ate the whole 1400 cap, cutting the ===TRADE=== tail.
+      // reasoning_effort "low" + temperature 0.2 landed TTFB 13-33s / totals 17-38s with the
+      // tail present and key-valid on every run, and 0.2 also curbed (not cured) grok's
+      // fast-path name mangling. Mode-scoped: story/fantasy prompts never triggered long
+      // reasoning and their prose should keep the default sampling.
+      if (body.mode === "gffltrade") { xaiReq.reasoning_effort = "low"; xaiReq.temperature = 0.2; }
       try {
         resp = await fetch(`${xaiBase}/v1/chat/completions`, {
           method: "POST",
@@ -3581,6 +3592,19 @@ export default async (req) => {
       let stopReason = null;
       let replyText = "";   // accumulated scene text, for the content log (story mode only)
       let inTok = 0, outTok = 0, cacheWriteTok = 0, cacheReadTok = 0;
+      // HEARTBEAT, gffltrade ONLY (2026-08-12): even at reasoning_effort "low" grok's first
+      // token can take 20-33s, and the CDN 504s a response that has moved no bytes for 30s
+      // ("Inactivity Timeout", reproduced live). A single space every 8s until the first real
+      // token keeps the pipe warm; the client's prose formatter collapses leading whitespace
+      // and the ===TRADE=== tail parser is untouched by it. DELIBERATELY not on any other
+      // mode — the story path's marker parsing must never see bytes the model didn't write.
+      let heartbeat = null;
+      if (body.mode === "gffltrade") {
+        heartbeat = setInterval(() => {
+          if (sentAnyText) { clearInterval(heartbeat); heartbeat = null; return; }
+          try { controller.enqueue(encoder.encode(" ")); } catch { clearInterval(heartbeat); heartbeat = null; }
+        }, 8000);
+      }
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -3661,6 +3685,7 @@ export default async (req) => {
       } catch {
         // Upstream connection dropped mid-stream — end what we have; the client keeps the partial.
       } finally {
+        if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
         // Log before closing so the lambda stays alive for the writes (both fail silently).
         if (inTok || outTok || cacheWriteTok || cacheReadTok) await logUsage(body.mode, inTok, outTok, cacheWriteTok, cacheReadTok, model);
         if (logStoryReq && sentAnyText) {
