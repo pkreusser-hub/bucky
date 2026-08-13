@@ -12860,6 +12860,16 @@ async function openDetails(page, id) {
       c.fillStyle = "#8a8a8a"; c.fillRect(8, 32, 32, 8);
       return cv;
     })()`;
+    // A REAL cut-out mark: a coloured disc on a fully TRANSPARENT field, which is the shape
+    // every "logo with a transparent background" has and the one JPEG encoding destroyed
+    // (2026-08-11 — the user reported it as "the background comes out black").
+    const TRANSPARENT_LOGO = `(function () {
+      const cv = document.createElement("canvas"); cv.width = 64; cv.height = 64;
+      const c = cv.getContext("2d");
+      c.clearRect(0, 0, 64, 64);                       // corners stay genuinely empty
+      c.fillStyle = "#1f9d55"; c.beginPath(); c.arc(32, 32, 22, 0, Math.PI * 2); c.fill();
+      return cv;
+    })()`;
     // Drives the REAL upload path: the same hidden <input type=file> a person picks with, the
     // same change event, the same resize/extract/save chain. Nothing is stubbed.
     async function uploadLogo(page, canvasExpr) {
@@ -13089,6 +13099,68 @@ async function openDetails(page, id) {
       // filtered out of the saturated pass. The lightness fallback is what answers it.
       ok(/^(#|rgb)/.test(String(reset.primary)), "a flat black-and-white logo still proposes a scheme, via the lightness fallback (" + reset.primary + ")");
       ok(errors.length === 0, "0 page errors through upload → hand-pick → re-upload → reset");
+      await ctx.close();
+    }
+
+    // ---- AM4b: A LOGO WITH A TRANSPARENT BACKGROUND STAYS TRANSPARENT (2026-08-11).
+    // The user's report: "I upload a logo with a transparent background and it makes the
+    // background black." JPEG has no alpha channel, so the resize step was compositing every
+    // cut-out mark onto transparent-black. Run LAST in its own page so nothing here can
+    // disturb the colour/latch state the checks above walk through.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await openLocker(page, 1);
+      await uploadLogo(page, TRANSPARENT_LOGO);
+      await page.waitForFunction(() => (window.__GFFL__.LG.teamById(1).logoData || "").length > 0, { timeout: 9000 });
+      const t = await page.evaluate(async () => {
+        const stored = window.__GFFL__.LG.teamById(1).logoData;
+        // Decode what was actually SAVED and read its corner — the pixel a cut-out mark leaves
+        // empty and the one that came back black.
+        const px = await new Promise((res) => {
+          const im = new Image();
+          im.onload = () => {
+            const cv = document.createElement("canvas");
+            cv.width = im.width; cv.height = im.height;
+            const c = cv.getContext("2d");
+            c.drawImage(im, 0, 0);
+            const corner = c.getImageData(1, 1, 1, 1).data;
+            const middle = c.getImageData(Math.floor(im.width / 2), Math.floor(im.height / 2), 1, 1).data;
+            res({ corner: [...corner], middle: [...middle], w: im.width });
+          };
+          im.src = stored;
+        });
+        return { isPng: stored.startsWith("data:image/png"), len: stored.length, ...px };
+      });
+      ok(t.isPng, "a source that really carries transparency is stored as PNG, not JPEG (" + t.len + " chars)");
+      ok(t.corner[3] === 0, "…and its empty corner is STILL EMPTY — alpha 0, not a black pixel (rgba " + t.corner.join(",") + ")");
+      ok(t.middle[3] === 255 && t.middle[1] > t.middle[0] && t.middle[1] > t.middle[2],
+        "…while the mark itself survives intact, in its own colour (rgba " + t.middle.join(",") + ")");
+      ok(t.len <= 160000, "…inside the same 160KB logo budget as any other upload (" + t.len + ")");
+      // The crest paints the TEAM'S OWN primary behind the image, so a cut-out mark sits on
+      // its team's colour rather than on a hole — that is what makes transparency worth having.
+      // .tcrest lives on the LEAGUE home's matchup cards — the locker hero uses its own
+      // .lockerlogo <img> — so measure it there. (Queried defensively: a hard querySelector
+      // that throws turns a readable failure into a whole-run crash, which is exactly what the
+      // first cut of this check did.)
+      await evalOr(page, () => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".tcrest");
+      const bg = await page.evaluate(() => {
+        const c = document.querySelector(".tcrest");
+        if (!c) return null;
+        return { bg: getComputedStyle(c).backgroundColor, tp: getComputedStyle(c).getPropertyValue("--tp").trim() };
+      });
+      ok(bg && bg.bg !== "rgba(0, 0, 0, 0)" && /^#[0-9a-f]{6}$/i.test(bg.tp),
+        "…and the crest behind it paints the team's own primary, never a hole (" + JSON.stringify(bg) + ")");
+      await evalOr(page, () => window.__GFFL__.UI.openLocker(1));
+      await waitOr(page, ".lockerhead");
+      // AN OPAQUE logo must NOT be pushed onto the PNG path — JPEG is far smaller and is what
+      // every photo-ish mark wants. This is the no-regression half.
+      await uploadLogo(page, FLAT_ART_LOGO); // fills its whole canvas — genuinely opaque
+      await page.waitForFunction(() => (window.__GFFL__.LG.teamById(1).logoData || "").startsWith("data:image/jpeg"), { timeout: 9000 });
+      ok(true, "an OPAQUE logo still takes the JPEG path — transparency is detected, never assumed");
+      ok(errors.length === 0, "0 page errors through the transparent-logo path");
       await ctx.close();
     }
 

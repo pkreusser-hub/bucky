@@ -11556,3 +11556,37 @@ the STORE, the PALETTE, and the hero's own painted `--tp` (wait for store AND pa
 between the save and the repaint is a race, not a finding), plus "the same hex arriving as an
 extraction still clamps" and "onDark still clamps".
 Battery **2403/2403** · palette **74/74**.
+
+## 🏈 GFFL — TRANSPARENT LOGOS STAY TRANSPARENT (2026-08-11, DEPLOYED)
+
+User: *"I would like to be able to upload logos with transparent backgrounds, right now when I
+do that it makes the background black."* Files: `assets/league/lg-ui.js` +
+`tools/_verify-gffl.cjs` (→ **2410**, new section AM4b).
+
+**ROOT CAUSE, one line**: `resizeImageToDataUrl` ends `cv.toDataURL("image/jpeg", …)` — and
+**JPEG HAS NO ALPHA CHANNEL**. A cut-out PNG drawn onto a fresh canvas composites against
+transparent-BLACK, so every transparent pixel encoded as pure black: the reported box behind
+the mark. Nothing else in the chain was at fault — `paletteFromPixels` already skips
+`alpha < 128`, so extraction was alpha-aware the whole time.
+**FIX**: `opts.alpha` on the resizer (the LOGO path passes it; chat passes nothing, so photo
+behaviour is byte-identical). `hasTransparency()` scans the drawn canvas and short-circuits on
+the first pixel under alpha 250 — for a logo with clear corners that is the first pixel it
+reads. Transparent → **PNG**; opaque → **JPEG**, which is far smaller and what a photo-ish
+mark wants. Transparency is DETECTED, never assumed.
+**SIZE**: PNG has no quality dial, so `resizeLogoToDataUrl(file, cap)` shrinks the DIMENSION
+(512 → ×0.75, up to 4 passes) until it fits `LOGO_CAP`, rather than flattening — losing
+pixels is recoverable, losing transparency is the bug. An opaque logo fits on pass 1 and
+never sees the loop.
+**THE PAYOFF is free**: `.tcrest` already paints `background:var(--tp)` — the team's OWN
+primary — so a cut-out mark now sits on its team's colour instead of in a hole. Measured on
+the fixture: crest bg `rgb(49,165,97)`, extracted from the transparent logo's own disc.
+**VERIFY** (AM4b, its own page so it can't disturb the colour/latch walk above it): a real
+cut-out fixture (`TRANSPARENT_LOGO` — a disc on a cleared field) uploaded through the REAL
+input, then the STORED dataURL decoded and read pixel-by-pixel — stored as PNG (1,734 chars),
+**corner alpha 0** (it was black), mark intact in its own colour, inside the 160KB budget,
+the crest painting the team primary behind it, and the no-regression half: an OPAQUE logo
+still takes the JPEG path. Battery **2410/2410** · palette **74/74**.
+**TEST GOTCHA**: `.tcrest` is the league home's crest element — the locker hero uses its own
+`.lockerlogo` `<img>`, so a `.tcrest` query on the locker returns null and an UNGUARDED
+`getComputedStyle(null)` crashes the whole suite instead of failing one check (it did, once).
+**KNOWN**: a logo uploaded BEFORE this fix is already flattened in storage — re-upload it.

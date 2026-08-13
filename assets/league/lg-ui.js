@@ -3687,7 +3687,21 @@
   // ≤320px longest side, JPEG q0.72 — the same shape as index.html's photo
   // pickers (goat/work-order), written inline here per house convention (no
   // shared JS module between pages/apps in this repo).
-  function resizeImageToDataUrl(file, maxDim, quality) {
+  //
+  // ALPHA (2026-08-11, user: "when I upload a logo with a transparent background it makes the
+  // background black"): JPEG HAS NO ALPHA CHANNEL, so a transparent PNG drawn onto a canvas
+  // and encoded as JPEG composites against the canvas's own transparent-BLACK and comes out
+  // with a black box behind the mark. `opts.alpha` (the logo path) encodes PNG *when the
+  // source genuinely carries transparency* and stays on JPEG when it doesn't — JPEG is far
+  // smaller and is what every photo wants. Chat passes no opts at all, so its behaviour is
+  // byte-identical. The scan short-circuits on the first transparent pixel, which for a logo
+  // with clear corners is the very first one it reads.
+  function hasTransparency(ctx, w, h) {
+    const d = ctx.getImageData(0, 0, w, h).data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] < 250) return true;
+    return false;
+  }
+  function resizeImageToDataUrl(file, maxDim, quality, opts) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = reject;
@@ -3700,14 +3714,31 @@
           else if (h > w && h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
           const cv = document.createElement("canvas");
           cv.width = w || 1; cv.height = h || 1;
-          cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-          resolve(cv.toDataURL("image/jpeg", quality || 0.72));
+          const ctx = cv.getContext("2d");
+          ctx.drawImage(img, 0, 0, cv.width, cv.height);
+          if (opts && opts.alpha && hasTransparency(ctx, cv.width, cv.height)) resolve(cv.toDataURL("image/png"));
+          else resolve(cv.toDataURL("image/jpeg", quality || 0.72));
         };
         img.src = reader.result;
       };
       reader.readAsDataURL(file);
     });
   }
+  // A logo, sized to fit its cap WITHOUT ever giving up transparency. PNG has no quality dial
+  // the way JPEG does, so the only lever on an oversized transparent logo is PIXELS — and
+  // shrinking is the right trade here: a slightly softer crest is recoverable, a black box
+  // behind the mark is the bug being fixed. An opaque logo takes the JPEG path on the first
+  // pass and almost never sees the loop at all.
+  async function resizeLogoToDataUrl(file, cap) {
+    let dim = LOGO_DIM, out = "";
+    for (let i = 0; i < 4; i++) {
+      out = await resizeImageToDataUrl(file, dim, 0.86, { alpha: true });
+      if (out.length <= cap) return out;
+      dim = Math.round(dim * 0.75);
+    }
+    return out; // still too big — the caller reports it rather than silently flattening
+  }
+  UI.resizeLogoToDataUrl = resizeLogoToDataUrl; // test hook
   // The single gate every image path (file pick, meme-library re-post) runs
   // through — exposed so tests can drive the oversized-refusal path directly
   // without needing a real >320px source image to prove the cap.
@@ -5380,7 +5411,10 @@
         e.target.value = "";
         if (!file) return;
         try {
-          const dataUrl = await resizeImageToDataUrl(file, LOGO_DIM, 0.86);
+          // Alpha-preserving (2026-08-11): a transparent PNG stays transparent — .tcrest paints
+          // the team's own primary behind it, so a cut-out mark sits on its team's colour
+          // instead of in a black box.
+          const dataUrl = await resizeLogoToDataUrl(file, LOGO_CAP);
           if (dataUrl.length > LOGO_CAP) { toast("That logo is too big — try a smaller image."); return; }
           // THE LATCH. Extraction proposes; a human's pick is final. Once anyone has touched a
           // swatch (colorsCustom) a new logo changes the PICTURE and nothing else — the team's
