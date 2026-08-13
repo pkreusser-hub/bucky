@@ -558,20 +558,12 @@
               width:100%; height:100%; min-height:34px; background:var(--nested);
               border-radius:0; padding:2px 1px; overflow:hidden; }
   td.slotcell .slotbadge.sbwide { font-size:.72em; letter-spacing:.3px; }
-  /* Item 2 (2026-08-09 playtest: "the player position indicator between the two teams should be
-     color coded the same as the way positions are colored in the draft"). Same --pos-* tokens
-     the players table's .posbadge already tints with — lifted from ffdraft's board palette, so
-     a QB reads the same colour in the draft room and in the matchup. td.slotcell[data-pos]
-     (0,2,1) outranks the plain td.slotcell rule above (0,1,1), which is what lets it replace
-     the neutral --nested background. FLEX/BENCH/TOT/IR carry data-pos="X" — they are not a
-     single position, and --pos-X is the neutral the badge already uses for that same case. */
-  td.slotcell[data-pos="QB"] .slotbadge { background:var(--pos-QB); color:#fff; }
-  td.slotcell[data-pos="RB"] .slotbadge { background:var(--pos-RB); color:#fff; }
-  td.slotcell[data-pos="WR"] .slotbadge { background:var(--pos-WR); color:#fff; }
-  td.slotcell[data-pos="TE"] .slotbadge { background:var(--pos-TE); color:#fff; }
-  td.slotcell[data-pos="K"]  .slotbadge { background:var(--pos-K);  color:#fff; }
-  td.slotcell[data-pos="DST"] .slotbadge { background:var(--pos-DST);color:#fff; }
-  td.slotcell[data-pos="X"]  .slotbadge { background:var(--pos-X);  color:var(--ink2); }
+  /* SUPERSEDED 2026-08-11 (refinement 3, user: "remove the colors for positions since thats
+     too much color clash, but leave them on the my team page, just remove on matchup") — with
+     the muhero's three-colour slashes on the same screen, a rainbow slot column was one
+     palette too many. The item-2 per-position fills are GONE from this band; every matchup
+     badge takes the neutral .slotbadge base above. The --pos-* tokens live on where a single
+     surface carries them: the My Team slot chips (desktop) and the players-table .posbadge. */
   /* height:1px is the standard "let a child use height:100%" cell trick — a table cell always
      grows to its own content, but declaring a height gives the percentage below something
      definite to resolve against (with auto height it resolves to auto and silently does
@@ -969,18 +961,22 @@
               padding:9px 10px; font:15px var(--font-body); resize:none; }
   .chatText:focus { outline:none; border-color:var(--border-hover); }
   .chatSend { flex:0 0 auto; }
-  .chatgifbox, .chatmeme { background:var(--nested2); border:1px solid var(--border-card); border-radius:12px; padding:8px; margin-bottom:8px; }
+  .chatgifbox, .chatEmojiBox { background:var(--nested2); border:1px solid var(--border-card); border-radius:12px; padding:8px; margin-bottom:8px; }
   .chatGifQ { width:100%; margin-bottom:8px; }
-  .chatGifGrid, .chatmeme { display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:6px; }
-  .gifThumb, .memeThumb { padding:0; border-radius:8px; overflow:hidden; border:1px solid var(--border-card); background:none; }
-  .gifThumb img, .memeThumb img { width:100%; height:64px; object-fit:cover; display:block; }
+  .chatGifGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:6px; }
+  /* Refinement 3: the emoji picker keyboard — big tap targets, no button chrome. */
+  .chatEmojiGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(38px,1fr)); gap:2px; max-height:180px; overflow-y:auto; }
+  .chatEmojiGrid .chatEmoji { font-size:21px; line-height:1; padding:6px 2px; min-height:38px; background:none; border:none; border-radius:8px; cursor:pointer; }
+  .chatEmojiGrid .chatEmoji:hover { background:var(--nested); }
+  .gifThumb { padding:0; border-radius:8px; overflow:hidden; border:1px solid var(--border-card); background:none; }
+  .gifThumb img { width:100%; height:64px; object-fit:cover; display:block; }
   .chatReplyPreview, .chatPending { display:flex; align-items:center; gap:8px; background:var(--nested2); border:1px solid var(--border-card);
     border-radius:10px; padding:6px 10px; margin-bottom:8px; }
   .chatPending img { width:44px; height:44px; object-fit:cover; border-radius:8px; }
   .chatReplyX, .chatPendingX { margin-left:auto; background:none; border:none; padding:2px 6px; }
   /* the house [hidden]-override lesson, again — every chat auxiliary panel
      sets its own `display` unconditionally, so each needs this restated */
-  .chatmeme[hidden], .chatgifbox[hidden], .chatReplyPreview[hidden], .chatPending[hidden] { display:none; }
+  .chatEmojiBox[hidden], .chatgifbox[hidden], .chatReplyPreview[hidden], .chatPending[hidden] { display:none; }
   .imgoverlay { position:fixed; inset:0; z-index:70; background:rgba(6,7,8,.92); display:flex; align-items:center; justify-content:center;
                  padding:calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left)); }
   .imgoverlay[hidden] { display:none; } /* the house [hidden]-override lesson — an author rule always beats the UA [hidden]{display:none} */

@@ -2067,16 +2067,8 @@
   };
   // Meme library: the most recent DISTINCT images already posted anywhere in
   // chat (main channel or any thread) — house classics, not per-thread.
-  LG.recentChatImages = async function (limit) {
-    const all = await LG.loadAllChat();
-    const seen = new Set(), out = [];
-    for (const m of all) {
-      if (!m.img || seen.has(m.img)) continue;
-      seen.add(m.img); out.push(m.img);
-      if (out.length >= (limit || 12)) break;
-    }
-    return out;
-  };
+  // (LG.recentChatImages removed 2026-08-11 — it existed only to feed the chat composer's
+  //  "Images" recent-images picker, which the user ordered gone in refinement 3.)
   LG.toggleReaction = async function (id, emoji, teamId) {
     const doc = await LG.db.getFresh(id); // read-modify-write on a shared reactions map — must see other devices' taps
     if (!doc || doc.kind !== "chat") return null;

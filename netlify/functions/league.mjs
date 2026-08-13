@@ -354,23 +354,46 @@ async function lgEspnHistory(body) {
   }
 }
 
-// GIF search proxy (plan §4.5) — Tenor, free API, key stays server-side. No
-// key configured -> { ok:false, reason:"gif-not-configured" }, never a 500;
-// the client hides the GIF affordance on that reason and never bothers again.
+// GIF search proxy (plan §4.5). PROVIDER HISTORY, and why there is no Tenor path any more:
+// this launched on Tenor, but Google announced the public Tenor API's discontinuation on
+// 2026-01-13 and TERMINATED every key and agreement on 2026-06-30 — the industry migrated
+// (WhatsApp/X to GIPHY, Bluesky to Klipy). The proxy now speaks both survivors and picks by
+// whichever key is configured:
+//   GIPHY_API_KEY — developers.giphy.com (instant free key; rating=pg, family posture)
+//   KLIPY_API_KEY — klipy.com/developers (the ex-Tenor team; the key rides in the PATH)
+// GIPHY wins when both are set. No key -> { ok:false, reason:"gif-not-configured" }, never a
+// 500 — the client hides the GIF affordance on that reason. The WIRE CONTRACT is unchanged
+// from the Tenor era ({ ok, gifs:[{url, preview}] }): the server normalizes, the client
+// never learns the vendor, and a future migration is this function alone again.
 async function lgGifSearch(body) {
-  const key = process.env.TENOR_API_KEY;
-  if (!key) return { ok: false, reason: "gif-not-configured" };
+  const giphy = process.env.GIPHY_API_KEY, klipy = process.env.KLIPY_API_KEY;
+  if (!giphy && !klipy) return { ok: false, reason: "gif-not-configured" };
   const q = String(body?.q || "").trim();
   if (!q) return { ok: true, gifs: [] };
-  const base = process.env.TENOR_BASE_URL || "https://tenor.googleapis.com";
-  const url = `${base}/v2/search?q=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}&limit=12&contentfilter=high&media_filter=tinygif,nanogif`;
   try {
+    if (giphy) {
+      const base = process.env.GIPHY_BASE_URL || "https://api.giphy.com";
+      const url = `${base}/v1/gifs/search?api_key=${encodeURIComponent(giphy)}&q=${encodeURIComponent(q)}&limit=12&rating=pg&bundle=messaging_non_clips`;
+      const r = await fetch(url);
+      if (!r.ok) return { ok: false, reason: "http-" + r.status };
+      const j = await r.json();
+      const gifs = (Array.isArray(j?.data) ? j.data : []).map((res) => {
+        const im = res?.images || {};
+        return { url: im?.fixed_height?.url || im?.original?.url || "",
+          preview: im?.fixed_height_small?.url || im?.fixed_height?.url || "" };
+      }).filter((g) => g.url);
+      return { ok: true, gifs };
+    }
+    const base = process.env.KLIPY_BASE_URL || "https://api.klipy.com";
+    const url = `${base}/api/v1/${encodeURIComponent(klipy)}/gifs/search?q=${encodeURIComponent(q)}&per_page=12&customer_id=gffl`;
     const r = await fetch(url);
     if (!r.ok) return { ok: false, reason: "http-" + r.status };
     const j = await r.json();
-    const gifs = (Array.isArray(j?.results) ? j.results : []).map((res) => {
-      const mf = res?.media_formats || {};
-      return { url: mf?.tinygif?.url || "", preview: mf?.nanogif?.url || mf?.tinygif?.url || "" };
+    const rows = Array.isArray(j?.data?.data) ? j.data.data : Array.isArray(j?.data) ? j.data : [];
+    const gifs = rows.map((res) => {
+      const f = res?.file || {};
+      const pick = (v) => (v && ((v.gif && v.gif.url) || (v.webp && v.webp.url))) || "";
+      return { url: pick(f.md) || pick(f.hd) || pick(f.sm), preview: pick(f.xs) || pick(f.sm) || pick(f.md) };
     }).filter((g) => g.url);
     return { ok: true, gifs };
   } catch (e) {

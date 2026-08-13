@@ -681,33 +681,49 @@ function startSportsNflUpstream() {
   return new Promise((r) => srv.listen(SPORTS_NFL_PORT, "127.0.0.1", () => r(srv)));
 }
 
-// -- fake Tenor (S4/item 4 chat GIF search) — mirrors Tenor's REAL documented v2 /search
-// response shape (developers.google.com/tenor/guides/response-objects-and-errors), not just
-// the two fields the server happens to read: id/title/content_description/itemurl/url/tags/
-// flags/hasaudio/created + every OTHER media_formats size (gif/mediumgif/nanogif/tinygif/mp4/
-// webp/…), plus a top-level "next" pagination cursor. The point is a fixture that could only
-// pass if the server maps real Tenor fields correctly — a fixture shaped to match whatever the
-// server happens to read (and nothing else) proves nothing about the real integration.
-// fixture.tenorDown flips it to a transient 500 (item 4's "GIF search hiccuped" retry path).
+// -- fake GIF upstream (S4/item 4 chat GIF search) — RESTAGED 2026-08-11: Google KILLED the
+// public Tenor API (announced 2026-01-13, every key terminated 2026-06-30), so the proxy
+// migrated to the two survivors and this ONE fake serves BOTH providers' REAL documented
+// shapes, routed by path — GIPHY (`/v1/gifs/search`, developers.giphy.com/docs/api/schema:
+// data[].images.{original,fixed_height,fixed_height_small,fixed_width,downsized…} + meta +
+// pagination) and Klipy (`/api/v1/<key>/gifs/search`: {result, data:{data:[{file:{hd/md/sm/
+// xs:{gif/webp:{url}}}}], has_next}}). The fixtures carry every documented sibling field, not
+// just what the server reads — a fixture shaped to the reader proves nothing about the real
+// integration. gifUrls records each hit (the rating=pg assertion reads it);
+// fixture.tenorDown kept its job (transient 500 → the "hiccuped" retry path) under the same
+// name so every existing retry-path stage reads unchanged.
+const gifUrls = [];
 function startTenorUpstream() {
   const srv = http.createServer((req, res) => {
+    gifUrls.push(req.url);
     if (fixture.tenorDown) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "upstream unavailable" })); return; }
     res.writeHead(200, { "Content-Type": "application/json" });
-    const gifResult = (n) => ({
-      id: "tid_" + n, title: "goat gif " + n, content_description: "a goat GIF, number " + n,
-      itemurl: "https://tenor.com/view/goat-" + n, url: "https://tenor.com/view/goat-" + n,
-      tags: ["goat", "gffl"], flags: [], hasaudio: false, created: 1700000000 + n,
-      media_formats: {
-        gif: { url: "http://tenor.test/goat" + n + ".gif", dims: [498, 372], size: 900000, duration: 0 },
-        mediumgif: { url: "http://tenor.test/goat" + n + "m.gif", dims: [300, 224], size: 400000, duration: 0 },
-        tinygif: { url: "http://tenor.test/goat" + n + ".gif", dims: [220, 164], size: 90000, duration: 0 },
-        nanogif: { url: "http://tenor.test/goat" + n + "n.gif", dims: [120, 90], size: 25000, duration: 0 },
-        mp4: { url: "http://tenor.test/goat" + n + ".mp4", dims: [498, 372], size: 300000, duration: 3.1 },
-        tinymp4: { url: "http://tenor.test/goat" + n + "t.mp4", dims: [220, 164], size: 60000, duration: 3.1 },
-        webp: { url: "http://tenor.test/goat" + n + ".webp", dims: [498, 372], size: 200000, duration: 0 },
-      },
-    });
-    res.end(JSON.stringify({ results: [gifResult(1), gifResult(2)], next: "0" }));
+    if (req.url.startsWith("/v1/gifs/search")) {
+      const img = (n, kind, w, h) => ({ url: "http://giphy.test/goat" + n + "-" + kind + ".gif", width: String(w), height: String(h), size: String(w * h) });
+      const row = (n) => ({
+        type: "gif", id: "gid_" + n, slug: "goat-gif-" + n, url: "https://giphy.com/gifs/goat-" + n,
+        bitly_url: "https://gph.is/g" + n, embed_url: "https://giphy.com/embed/gid_" + n,
+        username: "", source: "", rating: "pg", title: "goat gif " + n, alt_text: "a goat, number " + n,
+        images: {
+          original: img(n, "orig", 480, 360), fixed_height: img(n, "fh", 267, 200),
+          fixed_height_small: img(n, "fhs", 134, 100), fixed_width: img(n, "fw", 200, 150),
+          fixed_width_small: img(n, "fws", 100, 75), downsized: img(n, "ds", 480, 360),
+          preview_gif: img(n, "pv", 96, 72),
+        },
+      });
+      res.end(JSON.stringify({ data: [row(1), row(2)], meta: { status: 200, msg: "OK", response_id: "r1" },
+        pagination: { total_count: 2, count: 2, offset: 0 } }));
+      return;
+    }
+    if (/^\/api\/v1\/[^/]+\/gifs\/search/.test(req.url)) {
+      const kf = (n, kind, w, h) => ({ gif: { url: "http://klipy.test/goat" + n + "-" + kind + ".gif", width: w, height: h },
+        webp: { url: "http://klipy.test/goat" + n + "-" + kind + ".webp", width: w, height: h } });
+      const row = (n) => ({ id: n, slug: "goat-" + n, title: "goat gif " + n, type: "gif",
+        file: { hd: kf(n, "hd", 480, 360), md: kf(n, "md", 267, 200), sm: kf(n, "sm", 134, 100), xs: kf(n, "xs", 96, 72) } });
+      res.end(JSON.stringify({ result: true, data: { data: [row(1), row(2)], current_page: 1, per_page: 12, has_next: false } }));
+      return;
+    }
+    res.end(JSON.stringify({ data: [], meta: { status: 200 } }));
   });
   return new Promise((r) => srv.listen(TENOR_PORT, "127.0.0.1", () => r(srv)));
 }
@@ -1987,17 +2003,38 @@ async function openDetails(page, id) {
     const unk = await call({ secret: "amenfarms", action: "nope" });
     ok(unk.j.ok === false && unk.j.reason === "unknown-action", "unknown action refused");
 
-    // S4 · Tenor GIF search proxy — no key, then keyed against the fake upstream.
+    // S4 · GIF search proxy — RESTAGED 2026-08-11 (the Tenor API is DEAD — see the fake
+    // upstream's own note): no key, then GIPHY, then Klipy, then the precedence rule.
     const noKey = await call({ secret: "amenfarms", action: "lg_gif_search", q: "goat" });
-    ok(noKey.j.ok === false && noKey.j.reason === "gif-not-configured", "gif search with no TENOR_API_KEY -> gif-not-configured, never a 500");
-    process.env.TENOR_API_KEY = "testkey";
-    process.env.TENOR_BASE_URL = "http://127.0.0.1:" + TENOR_PORT;
+    ok(noKey.j.ok === false && noKey.j.reason === "gif-not-configured", "gif search with NO provider key -> gif-not-configured, never a 500");
+    process.env.GIPHY_API_KEY = "giphytest";
+    process.env.GIPHY_BASE_URL = "http://127.0.0.1:" + TENOR_PORT;
     const empty = await call({ secret: "amenfarms", action: "lg_gif_search", q: "" });
-    ok(empty.j.ok === true && Array.isArray(empty.j.gifs) && empty.j.gifs.length === 0, "empty query short-circuits to an empty result without hitting Tenor");
+    ok(empty.j.ok === true && Array.isArray(empty.j.gifs) && empty.j.gifs.length === 0, "empty query short-circuits to an empty result without hitting the provider");
+    gifUrls.length = 0;
     const gif = await call({ secret: "amenfarms", action: "lg_gif_search", q: "goat" });
-    ok(gif.j.ok === true && gif.j.gifs.length === 2 && gif.j.gifs[0].url === "http://tenor.test/goat1.gif" && gif.j.gifs[0].preview === "http://tenor.test/goat1n.gif",
-      "gif search maps tenor's tinygif/nanogif into {url,preview}");
-    delete process.env.TENOR_API_KEY;
+    ok(gif.j.ok === true && gif.j.gifs.length === 2
+      && gif.j.gifs[0].url === "http://giphy.test/goat1-fh.gif" && gif.j.gifs[0].preview === "http://giphy.test/goat1-fhs.gif",
+      "GIPHY: fixed_height/fixed_height_small map into the unchanged {url,preview} wire contract");
+    ok(gifUrls.length === 1 && /[?&]rating=pg\b/.test(gifUrls[0]) && /api_key=giphytest/.test(gifUrls[0]),
+      "…and the wire carries rating=pg (family posture) + the key, server-side only (" + gifUrls[0] + ")");
+    delete process.env.GIPHY_API_KEY; delete process.env.GIPHY_BASE_URL;
+    process.env.KLIPY_API_KEY = "klipytest";
+    process.env.KLIPY_BASE_URL = "http://127.0.0.1:" + TENOR_PORT;
+    gifUrls.length = 0;
+    const kgif = await call({ secret: "amenfarms", action: "lg_gif_search", q: "goat" });
+    ok(kgif.j.ok === true && kgif.j.gifs.length === 2
+      && kgif.j.gifs[0].url === "http://klipy.test/goat1-md.gif" && kgif.j.gifs[0].preview === "http://klipy.test/goat1-xs.gif",
+      "Klipy: file.md/file.xs map into the same contract (key rides the PATH — " + (gifUrls[0] || "").split("?")[0] + ")");
+    ok(/^\/api\/v1\/klipytest\/gifs\/search/.test(gifUrls[0] || ""), "…on Klipy's own key-in-path route");
+    process.env.GIPHY_API_KEY = "giphytest";
+    process.env.GIPHY_BASE_URL = "http://127.0.0.1:" + TENOR_PORT;
+    gifUrls.length = 0;
+    const both = await call({ secret: "amenfarms", action: "lg_gif_search", q: "goat" });
+    ok(both.j.ok === true && both.j.gifs[0].url === "http://giphy.test/goat1-fh.gif" && /^\/v1\/gifs\/search/.test(gifUrls[0] || ""),
+      "with BOTH keys set, GIPHY wins (one provider per deployment, deterministically)");
+    delete process.env.GIPHY_API_KEY; delete process.env.GIPHY_BASE_URL;
+    delete process.env.KLIPY_API_KEY; delete process.env.KLIPY_BASE_URL;
   }
 
   const srv = await startStatic();
@@ -3292,9 +3329,43 @@ async function openDetails(page, id) {
     // via the `hidden` attribute needs its `display` restated for it —
     // measure GEOMETRY, never the attribute, or a rule like `.chatmeme,
     // .chatGifGrid { display:grid }` silently un-hides it.
-    const hiddenGeom = await page1.evaluate(() => ["chatMeme", "chatGifBox", "chatReplyPreview", "chatPending"]
+    // RESTAGED 2026-08-11 (refinement 3): the meme panel is GONE (the Images button with it);
+    // the emoji picker's panel takes its slot in this hidden-geometry sweep.
+    const hiddenGeom = await page1.evaluate(() => ["chatEmojiBox", "chatGifBox", "chatReplyPreview", "chatPending"]
       .map((id) => document.getElementById(id).getBoundingClientRect().height));
-    ok(hiddenGeom.every((h) => h === 0), "the meme/gif/reply/pending panels are ACTUALLY hidden (0 height) before any of them is opened — not just the `hidden` attribute set (" + hiddenGeom.join(",") + ")");
+    ok(hiddenGeom.every((h) => h === 0), "the emoji/gif/reply/pending panels are ACTUALLY hidden (0 height) before any of them is opened — not just the `hidden` attribute set (" + hiddenGeom.join(",") + ")");
+    // ---- REFINEMENT 3: the emoji picker, and the Images button's absence ----
+    ok((await page1.evaluate(() => !document.getElementById("chatMemeBtn") && !document.getElementById("chatMeme"))) === true,
+      "the 'Images' (recent images) button and its panel are GONE from the composer");
+    const emojiBtn = await page1.evaluate(() => {
+      const b = document.getElementById("chatEmojiBtn");
+      return b ? { svg: !!b.querySelector("svg"), text: b.textContent.trim(), gridKids: document.getElementById("chatEmojiGrid").childElementCount } : null;
+    });
+    ok(emojiBtn && emojiBtn.svg && emojiBtn.text === "", "the emoji trigger is an SVG smiley with NO text glyph (zero-emoji chrome)");
+    ok(emojiBtn && emojiBtn.gridKids === 0, "…and the grid is EMPTY until opened — lazily rendered, so section U's chrome scan can never see it");
+    await page1.evaluate(() => {
+      const t = document.getElementById("chatText");
+      t.value = "GOAT move"; t.setSelectionRange(4, 4); // cursor mid-text
+      document.getElementById("chatEmojiBtn").click();
+    });
+    const opened = await page1.evaluate(() => ({
+      shown: document.getElementById("chatEmojiBox").getBoundingClientRect().height > 0,
+      kids: document.getElementById("chatEmojiGrid").childElementCount,
+    }));
+    ok(opened.shown && opened.kids >= 40, "opening the picker renders a real keyboard of choices (" + opened.kids + ")");
+    const inserted = await page1.evaluate(() => {
+      const b = [...document.querySelectorAll("#chatEmojiGrid .chatEmoji")].find((x) => x.dataset.em === "🐐");
+      b.click();
+      return document.getElementById("chatText").value;
+    });
+    ok(inserted === "GOAT🐐 move", "tapping an emoji inserts AT THE CURSOR, not the end (" + JSON.stringify(inserted) + ")");
+    ok((await page1.evaluate(() => {
+      document.getElementById("chatGifBox").hidden = false; // as if the gif tray were open
+      document.getElementById("chatEmojiBtn").click(); // close…
+      document.getElementById("chatEmojiBtn").click(); // …and reopen the emoji tray
+      return document.getElementById("chatGifBox").hidden === true && document.getElementById("chatEmojiBox").hidden === false;
+    })) === true, "one open tray at a time — opening the emoji picker closes the gif tray");
+    await page1.evaluate(() => { document.getElementById("chatEmojiBox").hidden = true; document.getElementById("chatText").value = ""; });
     await page1.type("#chatText", "Hello league!");
     await page1.click("#chatSend");
     await page1.waitForFunction(() => document.querySelector("#chatList").textContent.includes("Hello league!"), { timeout: 5000 });
@@ -3395,8 +3466,10 @@ async function openDetails(page, id) {
     ok((await page.evaluate(() => document.getElementById("imgOverlay").hidden)) === false, "tapping a posted image opens the full-size overlay");
     await page.evaluate(() => document.getElementById("imgOverlay").click());
     ok((await page.evaluate(() => document.getElementById("imgOverlay").hidden)) === true, "…and tapping the overlay closes it again");
-    const recents = await page.evaluate(() => window.__GFFL__.LG.recentChatImages(12));
-    ok(recents.includes("data:image/jpeg;base64,AAAA"), "the meme library (recent distinct images) picks up what was just posted");
+    // RESTAGED 2026-08-11 (refinement 3): LG.recentChatImages and the Images button it fed
+    // are REMOVED by user order — the check inverts to prove the dead API really is gone.
+    ok((await page.evaluate(() => typeof window.__GFFL__.LG.recentChatImages)) === "undefined",
+      "the meme-library API is gone with its button (refinement 3)");
     ok(errors.length === 0, "0 page errors through the image path");
     await ctx.close();
   }
@@ -3404,7 +3477,9 @@ async function openDetails(page, id) {
   // K7: GIF search — probed on first tap; hides itself permanently on
   // gif-not-configured; a configured key returns real results end to end.
   {
-    delete process.env.TENOR_API_KEY;
+    // RESTAGED 2026-08-11: Tenor is dead — the client is provider-blind, so this section
+    // simply runs against the GIPHY half of the fake upstream now.
+    delete process.env.GIPHY_API_KEY;
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
@@ -3413,13 +3488,13 @@ async function openDetails(page, id) {
     ok((await page.evaluate(() => document.getElementById("chatGifBtn").hidden)) === false, "the GIF button starts visible — no proactive/uninvited probe");
     await page.click("#chatGifBtn");
     await page.waitForFunction(() => document.getElementById("chatGifBtn").hidden === true, { timeout: 5000 });
-    ok(true, "tapping it with no TENOR_API_KEY configured probes once and hides the button for the rest of the session");
+    ok(true, "tapping it with no provider key configured probes once and hides the button for the rest of the session");
     ok((await page.evaluate(() => document.getElementById("chatGifBox").hidden)) === true, "…and the search box never opens");
     ok(errors.length === 0, "0 page errors on the unconfigured GIF path");
     await ctx.close();
 
-    process.env.TENOR_API_KEY = "testkey";
-    process.env.TENOR_BASE_URL = "http://127.0.0.1:" + TENOR_PORT;
+    process.env.GIPHY_API_KEY = "giphytest";
+    process.env.GIPHY_BASE_URL = "http://127.0.0.1:" + TENOR_PORT;
     const { ctx: ctx2, page: page2, errors: err2 } = await newTestPage(browser, fullSeed());
     await bootPage(page2);
     await page2.waitForSelector(".mucard", { timeout: 9000 });
@@ -3430,16 +3505,16 @@ async function openDetails(page, id) {
     ok(true, "with a key configured, the search box opens on tap");
     await page2.type("#chatGifQ", "goat");
     await page2.waitForFunction(() => document.querySelectorAll("#chatGifGrid .gifThumb").length === 2, { timeout: 5000 });
-    ok(true, "the (debounced) query returns the fake Tenor upstream's 2 results as thumbnails");
+    ok(true, "the (debounced) query returns the fake GIPHY upstream's 2 results as thumbnails");
     await page2.click("#chatGifGrid .gifThumb");
     await page2.waitForSelector("#chatPending:not([hidden])", { timeout: 5000 });
     await page2.click("#chatSend");
     await page2.waitForFunction(() => !!document.querySelector(".chatImg"), { timeout: 5000 });
     const gifMsg = await page2.evaluate(() => window.__GFFL__.LG.loadChat(null).then((m) => m.find((x) => x.gif)));
-    ok(gifMsg && gifMsg.gif.url === "http://tenor.test/goat1.gif", "picking a GIF posts the message carrying its {url,preview}");
+    ok(gifMsg && gifMsg.gif.url === "http://giphy.test/goat1-fh.gif", "picking a GIF posts the message carrying its {url,preview}");
     ok(err2.length === 0, "0 page errors on the configured GIF path");
     await ctx2.close();
-    delete process.env.TENOR_API_KEY; // restore: no key by default for every other section
+    delete process.env.GIPHY_API_KEY; delete process.env.GIPHY_BASE_URL; // restore: no key by default for every other section
   }
 
   // K8: event posts — rules save, waiver processing, executed + vetoed trades.
@@ -8537,21 +8612,21 @@ async function openDetails(page, id) {
           bench: paint(document.querySelector(".benchtable td.slotcell")),
           tot: paint(document.querySelector(".totalrow td.slotcell")) };
       });
-      const matched = slots.cells.filter((c) => slots.want[c.pos] === c.bg);
-      ok(matched.length === slots.cells.length,
-        "every slot badge is painted with its own --pos-* draft colour (" + matched.length + "/" + slots.cells.length + ")");
+      // RESTAGED 2026-08-11 (refinement 3, user: "remove the colors for positions since thats
+      // too much color clash… just remove on matchup") — item 2's per-position palette is
+      // SUPERSEDED on this band: with the muhero's three-colour slashes above it, every slot
+      // badge now takes ONE neutral fill, and none of the --pos-* tokens may appear here. The
+      // tokens live on where a single surface carries them (the My Team chips, the players
+      // table's .posbadge — both untouched).
+      const posTinted = slots.cells.filter((c) => c.pos !== "X" && slots.want[c.pos] === c.bg);
+      ok(posTinted.length === 0, "NO matchup slot badge wears a --pos-* colour any more (" + posTinted.length + " tinted)");
       const distinct = new Set(slots.cells.map((c) => c.bg));
-      ok(distinct.size >= 6, "…and the positions are genuinely different colours, not one tint (" + distinct.size + " distinct)");
-      // RESTAGED 2026-08-09 (ITEM 23) — SUPERSEDED, in the opposite direction. This used to
-      // assert the badge was a compact pill inside its cell; the user has since asked for the
-      // colour to "take up the width and height of the column so there isn't blank space", so
-      // filling the cell IS the requirement now. Same measurement, inverted expectation.
+      ok(distinct.size === 1, "…the whole band is ONE neutral colour (" + [...distinct].join(" | ") + ")");
+      // The full-cell geometry (item 23) is unchanged — only the paint went.
       const short = slots.cells.filter((c) => c.h < c.cellH - 1);
-      ok(short.length === 0, "…and it FILLS its cell top to bottom, no blank band above or below (" + slots.cells.map((c) => c.h + "/" + c.cellH).join(" ") + ")");
-      const flex = slots.cells.find((c) => c.slot === "FLEX");
-      ok(!!flex && flex.pos === "X" && flex.bg === slots.want.X, "FLEX is not a single position, so it takes the neutral --pos-X");
-      ok(slots.bench && slots.bench.pos === "X" && slots.bench.bg === slots.want.X, "…as do BENCH");
-      ok(slots.tot && slots.tot.pos === "X" && slots.tot.bg === slots.want.X, "…and the TOT row");
+      ok(short.length === 0, "…and it still FILLS its cell top to bottom (" + slots.cells.map((c) => c.h + "/" + c.cellH).join(" ") + ")");
+      ok(slots.bench && slots.bench.bg === slots.cells[0].bg && slots.tot && slots.tot.bg === slots.cells[0].bg,
+        "…BENCH and TOT share the same neutral as the starters' band");
 
       // AD3 — the bench renders exactly like the starters, and never pans sideways.
       const bench = await page.evaluate(() => {
@@ -9268,7 +9343,10 @@ async function openDetails(page, id) {
       });
       ok(band.cellBg === band.nested2, "the centre column is a BAND — the cell itself is painted a shade darker than the card (" + band.cellBg + ")");
       ok(band.maxGap === 0, "…and consecutive cells are contiguous, so it reads as one continuous strip, not a stack of pills (max gap " + band.maxGap + "px)");
-      ok(band.matched === band.badges.length, "…with the draft position colours KEPT (" + band.matched + "/" + band.badges.length + ")");
+      // RESTAGED 2026-08-11 (refinement 3, user: "remove the colors for positions… just
+      // remove on matchup") — INVERTED: the band keeps its shape and its contiguity, but no
+      // badge may wear a --pos-* token here any more (they live on My Team's chips).
+      ok(band.matched === 0, "…with the draft position colours GONE from this band (" + band.matched + "/" + band.badges.length + " tinted)");
       // RESTAGED 2026-08-09 (ITEM 23) — SUPERSEDED, inverted: the user asked for the colour to
       // fill the column rather than float in it, so a badge shorter than its cell is now the
       // failure. The BAND itself (maxGap 0 above) is unaffected — it is simply the position

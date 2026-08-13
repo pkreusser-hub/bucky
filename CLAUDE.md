@@ -11472,3 +11472,39 @@ on rerun, the established pattern). Plates reviewed: `shots/gffl_refine2_matchup
 bottom bands — left as part of the experiment for the family's reaction; and the slash
 geometry is fixed px, so the per-card text-size zoom scales type but not the slash (edge
 decoration, harmless).
+
+## 🏈 GFFL — REFINEMENT 3: the band goes quiet, the composer grows up (2026-08-11, DEPLOYED)
+
+Three user asks. Files: `league.html` + `assets/league/lg-{ui,core}.js` +
+`netlify/functions/league.mjs` + restages in `tools/_verify-gffl.cjs` (→ **2396**).
+
+- **MATCHUP SLOT COLOURS REMOVED** ("too much color clash… leave them on my team, just remove
+  on matchup"): item 2's per-position band fills are gone — every matchup slot badge takes ONE
+  neutral fill; the full-cell geometry (item 23) is untouched. The --pos-* tokens live on where
+  a single surface carries them: the My Team chips (desktop) and the players-table .posbadge.
+  TWO battery sections restaged+INVERTED with reasons (AD2, AE's "colours KEPT" → "GONE").
+- **THE GIF PROXY MIGRATED OFF A DEAD SERVICE.** The live probe answered `gif-not-configured`;
+  the REAL cause is that **Google killed the public Tenor API** (announced 2026-01-13, every
+  key terminated 2026-06-30 — post-cutoff knowledge, WebSearch-confirmed; WhatsApp/X → GIPHY,
+  Bluesky → Klipy). `lgGifSearch` now speaks BOTH survivors, picked by whichever key is set —
+  `GIPHY_API_KEY` (developers.giphy.com; `rating=pg` on the wire, family posture) or
+  `KLIPY_API_KEY` (klipy.com/developers; the key rides the PATH) — GIPHY wins when both. The
+  wire contract ({ok, gifs:[{url,preview}]}) is unchanged, so the client never learns the
+  vendor. The suite's fake upstream serves BOTH providers' real documented shapes routed by
+  path; checks cover no-key/empty-q/field-mapping/rating-on-the-wire/key-in-path/precedence.
+  USER ACTION taken same day: a key loaded into Netlify env (applies on next deploy).
+- **EMOJI PICKER, MESSENGER-STYLE**: an SVG-smiley trigger (zero-emoji chrome) opens a
+  ~60-emoji keyboard that inserts AT THE CURSOR (`setRangeText` + a bubbled input event so
+  autoGrow runs); one open tray at a time with the GIF box. **THE GRID RENDERS LAZILY on
+  first open — load-bearing**: until someone opens it the emojis would be app-authored glyphs
+  in the DOM, exactly what section U's chrome scan exists to catch (hidden elements still
+  contribute textContent). Empty-until-opened = clean by construction, and asserted.
+- **THE "Images" (recent-images) BUTTON IS GONE** — markup, wiring, `toggleMemeLibrary`, the
+  `.chatmeme` CSS family, and `LG.recentChatImages` in lg-core (it existed only to feed the
+  button). The battery's meme-library check INVERTS to prove the dead API is really gone; the
+  hidden-geometry sweep swaps the meme panel for the emoji panel.
+**SUITE-HARNESS LESSONS, again**: `node -e` multi-line replaces silently no-op on CRLF files
+(tools/*.cjs are CRLF — use the Edit tool); and a killed battery leaves ONE process squatting
+all five fixture ports (EADDRINUSE 8844) — find the PID via netstat and kill THAT, never
+taskkill-all-node.
+**VERIFY**: battery **2396/2396** (net +8: emoji/Images checks + the two-provider GIF matrix).

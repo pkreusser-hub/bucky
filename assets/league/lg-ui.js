@@ -3637,26 +3637,45 @@
   function chatState(idPfx) {
     return UI._chatState[idPfx] || (UI._chatState[idPfx] = { replyTo: null, pendingImg: null, pendingGif: null });
   }
+  // REFINEMENT 3 (2026-08-11, user): the "Images" (recent-images) button is GONE — its meme
+  // library went with it — and a messenger-style EMOJI PICKER joins. The picker's trigger is
+  // an SVG smiley (the zero-emoji app-chrome rule), and its GRID IS RENDERED LAZILY on first
+  // open: the panel's emojis are keyboard keys for USER content, but until someone opens it
+  // they would be app-authored glyphs sitting in the DOM — which is exactly what section U's
+  // chrome scan exists to catch. Empty until opened = clean by construction.
   function chatWidgetHtml(idPfx) {
     return `
       <div class="chatlist" id="${idPfx}List"></div>
       <div class="chatcompose">
-        <div class="chatmeme" id="${idPfx}Meme" hidden></div>
         <div class="chatgifbox" id="${idPfx}GifBox" hidden>
           <input class="chatGifQ" id="${idPfx}GifQ" placeholder="Search GIFs…" autocomplete="off">
           <div class="chatGifGrid" id="${idPfx}GifGrid"></div>
         </div>
+        <div class="chatEmojiBox" id="${idPfx}EmojiBox" hidden><div class="chatEmojiGrid" id="${idPfx}EmojiGrid"></div></div>
         <div class="chatReplyPreview" id="${idPfx}ReplyPreview" hidden></div>
         <div class="chatPending" id="${idPfx}Pending" hidden></div>
         <div class="chatRow">
           <button class="chaticon" id="${idPfx}ImgBtn" type="button" title="Add a photo">Photo</button>
           <input type="file" accept="image/*" class="chatFileInput" id="${idPfx}FileInput" hidden>
-          <button class="chaticon" id="${idPfx}MemeBtn" type="button" title="Recent images">Images</button>
           <button class="chaticon" id="${idPfx}GifBtn" type="button" title="Search GIFs">GIF</button>
+          <button class="chaticon chatEmojiBtn" id="${idPfx}EmojiBtn" type="button" title="Add an emoji" aria-label="Add an emoji">
+            <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="7" cy="8" r="1.1" fill="currentColor"/><circle cx="13" cy="8" r="1.1" fill="currentColor"/><path d="M6.4 12.2c.9 1.3 2.1 2 3.6 2s2.7-.7 3.6-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
           <textarea class="chatText" id="${idPfx}Text" maxlength="500" rows="1" placeholder="Say something…"></textarea>
           <button class="chatSend primary" id="${idPfx}Send" type="button">Send</button>
         </div>
       </div>`;
+  }
+  // The messenger set — league-flavoured. USER CONTENT once tapped (it lands in the composer
+  // exactly as if typed), so the app-chrome emoji ban does not apply to what the reader picks.
+  const CHAT_EMOJI = ["😂","🤣","😭","💀","🔥","🐐","🏈","💪","👑","🏆","🎯","💰","🙌","👏","🤝","👀","😤","😮‍💨","🥶","🥵","😈","🤡","🗑️","💩","🧊","❄️","📈","📉","🚀","🛬","😱","😴","🤯","🫡","🤞","🙏","💔","❤️","💯","✅","❌","⚠️","🍀","🎉","🍿","🧀","🥩","🍺","😬","🤔","🙄","😅","🤷","🤦","😎","🤓","🥴","🤢","😡","🤬"];
+  function insertAtCursor(ta, s) {
+    if (!ta) return;
+    const st = ta.selectionStart == null ? ta.value.length : ta.selectionStart;
+    const en = ta.selectionEnd == null ? st : ta.selectionEnd;
+    ta.setRangeText(s, st, en, "end");
+    ta.dispatchEvent(new Event("input", { bubbles: true })); // autoGrowChatText listens here
+    ta.focus();
   }
   // ≤320px longest side, JPEG q0.72 — the same shape as index.html's photo
   // pickers (goat/work-order), written inline here per house convention (no
@@ -3767,24 +3786,8 @@
       showPendingPreview(idPfx, g.preview);
     }));
   }
-  // Meme library: the most recent distinct images already posted ANYWHERE in
-  // chat — the "house classics" picker (plan §4.5).
-  async function toggleMemeLibrary(idPfx) {
-    const el = $("#" + idPfx + "Meme");
-    if (!el) return;
-    if (!el.hidden) { el.hidden = true; return; }
-    el.innerHTML = '<p class="mut small">Loading…</p>';
-    el.hidden = false;
-    const imgs = await LG.recentChatImages(12);
-    if (!$("#" + idPfx + "Meme")) return;
-    el.innerHTML = imgs.length
-      ? imgs.map((src, i) => `<button class="memeThumb" type="button" data-mi="${i}"><img src="${esc(src)}" loading="lazy" alt=""></button>`).join("")
-      : '<p class="mut small">No images posted yet.</p>';
-    el.querySelectorAll("[data-mi]").forEach((b) => b.addEventListener("click", () => {
-      UI.attachImage(idPfx, imgs[Number(b.dataset.mi)]);
-      el.hidden = true;
-    }));
-  }
+  // (toggleMemeLibrary — the "Images" recent-images picker — REMOVED 2026-08-11 by user
+  // order, refinement 3. LG.recentChatImages, its data source, went with it in lg-core.)
   function hideImageOverlayDom() { const ov = $("#imgOverlay"); if (ov) ov.hidden = true; }
   function openImageOverlay(src) {
     const ov = $("#imgOverlay"), img = $("#imgOverlayImg");
@@ -3988,8 +3991,27 @@
         catch (err) { toast("Couldn't read that photo."); }
       });
     }
-    const memeBtn = $("#" + idPfx + "MemeBtn");
-    if (memeBtn) memeBtn.addEventListener("click", () => toggleMemeLibrary(idPfx));
+    // The EMOJI PICKER (refinement 3). Grid renders LAZILY on first open — see
+    // chatWidgetHtml's own note on why that laziness is load-bearing (section U). The gif
+    // and emoji panels are mutually exclusive: one open tray at a time keeps the composer
+    // from stacking into a wall.
+    const emojiBtn = $("#" + idPfx + "EmojiBtn");
+    if (emojiBtn) emojiBtn.addEventListener("click", () => {
+      const box = $("#" + idPfx + "EmojiBox");
+      if (!box) return;
+      if (box.hidden) {
+        const grid = $("#" + idPfx + "EmojiGrid");
+        if (grid && !grid.childElementCount) {
+          grid.innerHTML = CHAT_EMOJI.map((e) => `<button type="button" class="chatEmoji" data-em="${esc(e)}">${esc(e)}</button>`).join("");
+          grid.querySelectorAll(".chatEmoji").forEach((b) => b.addEventListener("click", () => {
+            insertAtCursor($("#" + idPfx + "Text"), b.dataset.em);
+          }));
+        }
+        const gb = $("#" + idPfx + "GifBox");
+        if (gb) gb.hidden = true;
+        box.hidden = false;
+      } else box.hidden = true;
+    });
     const gifBtn = $("#" + idPfx + "GifBtn");
     if (gifBtn) {
       if (UI._gifAvailable === false) gifBtn.hidden = true;
@@ -3999,7 +4021,11 @@
         const box = $("#" + idPfx + "GifBox");
         if (!box) return;
         box.hidden = !box.hidden;
-        if (!box.hidden) $("#" + idPfx + "GifQ").focus();
+        if (!box.hidden) {
+          const eb = $("#" + idPfx + "EmojiBox");
+          if (eb) eb.hidden = true; // one open tray at a time
+          $("#" + idPfx + "GifQ").focus();
+        }
       });
       const qInp = $("#" + idPfx + "GifQ");
       let gifDebounce;
