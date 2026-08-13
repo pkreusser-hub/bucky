@@ -11665,8 +11665,24 @@ they now ALSO prove the honest fallback label. New block: wire shape (both roste
 requirements on the turn), builder filled m_/t_ on correct sides, prose with <b> and without
 the tail, status line, and loadTrades still 0 (suggest never sends).
 
-**LIVE-VERIFIED** post-deploy against real Grok through goatfantasyleague.com (XAI key is in
-Netlify env — the fantasy-smoke precedent).
+**THE FIRST LIVE PROBE 504'd, AND THE FIX IS THREE WIRE PARAMS + A HEARTBEAT** (same day,
+second deploy). The CDN answers "Inactivity Timeout" at exactly 30s of byte-less response —
+and grok-4.5 at DEFAULT effort reasoned **56 seconds** before its first token on a two-roster
+analysis (74KB of reasoning SSE), with the reasoning tokens ALSO eating the 1400 max_tokens
+cap and cutting the ===TRADE=== tail. The `fantasy` mode never hit this (5.6s control probe —
+same model, but a Q&A prompt doesn't trigger long reasoning; an ANALYSIS prompt does).
+Measured through direct xAI probes: `reasoning_effort:"low"` + `temperature:0.2` +
+`max_tokens:4000` lands TTFB 13-33s / totals 17-38s with the tail present and key-valid every
+run (0.2 also curbs — not cures — grok's fast-path name mangling, "Pukaacua"-style; a
+residual cosmetic artifact). TTFB can still cross 30s, so the stream gained a **gffltrade-
+scoped 8s heartbeat** (a space until the first real token — aiProseFmt trims; DELIBERATELY on
+no other mode, the story path's marker parsing must never see bytes the model didn't write).
+xAI extras are mode-gated in openUpstream's xaiReq; suite asserts all three params on the
+wire. **LIVE-VERIFIED end-to-end through goatfantasyleague.com**: first byte 11.2s (2
+heartbeat spaces), total 32.3s, clean prose, valid 2-for-2 tail on the correct sides
+(Waddle+BRob for Achane+Odunze — a genuinely sensible read of the fixture rosters).
+KNOWN: totals of 25-40s flirt with the ~45s function ceiling the teachergpt saga measured —
+the client's math fallback with its honest label is the net under every such failure.
 
 ## 🏆 GFFL — THE TROPHY CASE + SEVENTEEN SEASONS OF AWARDS (2026-08-12)
 
