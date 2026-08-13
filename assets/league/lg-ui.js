@@ -2478,7 +2478,10 @@
 
   function kickTimeStr(iso) {
     if (!iso) return "";
-    return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    // Pinned to America/Chicago + labeled (2026-08-13, user: "add timezone") — the family's
+    // home zone, matching every other timestamp in the app (day keys, deadlines), and it
+    // makes the suite deterministic whatever zone the test machine runs in.
+    return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }) + " CT";
   }
   // Item 2 (2026-08-08) — "MINE: N players · OPP: N players": how many of MY current-matchup
   // starters, and how many of my OPPONENT's, play for either team in a given real NFL game.
@@ -2504,19 +2507,26 @@
     // abbrev alone rather than a broken image; the fixed width/height (and visibility:hidden on
     // an error, never display:none) mean a missing or failed crest can never change the row's
     // height or shift the score beside it.
+    // 44px (2026-08-13, "make the logos much bigger"): still a FIXED box (a slow, missing or
+    // failed crest can never change the column's height), with an empty placeholder span for
+    // a crest-less team so both columns' name rows stay level.
     const logoHtml = (t) => (t && t.logo)
-      ? `<img class="sclogo" src="${esc(t.logo)}" alt="" width="22" height="22" loading="lazy" onerror="this.style.visibility='hidden'">`
-      : "";
-    // 2026-08-13 (user): the matchup page's slash + crest language, on the NFL cards too —
-    // away team's own colours cutting in from the left, home's from the right (primary slash
-    // + secondary stripe; the NFL has no tertiary), crest on the OUTER edge of its slash and
-    // the whole side mirrored exactly like the matchup header. A team ESPN sent no colour
-    // for paints no band (the vars fall back to transparent) and loses nothing else.
+      ? `<img class="sclogo" src="${esc(t.logo)}" alt="" width="44" height="44" loading="lazy" onerror="this.style.visibility='hidden'">`
+      : '<span class="sclogo sclogo-none"></span>';
+    // 2026-08-13 (user): the matchup page's slash language on the NFL cards — away team's own
+    // colours cutting in from the left, home's from the right. REWORKED same day from the
+    // user's own screenshot: each side is a CENTERED COLUMN — a big crest OFF the slash (the
+    // slashes are pure edge decoration now), the full team name over two rows ("Detroit" /
+    // "Lions", the abbrev alone when ESPN sent no city), and the score beneath once the game
+    // is playing. A team ESPN sent no colour for paints no band and loses nothing else.
     const teamHtml = (t, right) => {
-      const bits = [logoHtml(t), `<b>${esc((t && t.abbrev) || "?")}</b>`,
-        live || done ? `<span class="scpts">${esc((t && t.score) || "0")}</span>` : ""];
-      if (right) bits.reverse();
-      return `<span class="scteam${right ? " right" : ""}">${bits.join("")}</span>`;
+      const city = (t && t.city) || "";
+      const nick = (t && t.name && t.name !== t.abbrev) ? t.name : "";
+      const nameRows = city && nick
+        ? `<span class="sccity">${esc(city)}</span><b class="scnick">${esc(nick)}</b>`
+        : `<b class="scnick">${esc((t && t.abbrev) || "?")}</b>`;
+      return `<span class="scteam${right ? " right" : ""}">${logoHtml(t)}${nameRows}
+        ${live || done ? `<span class="scpts">${esc((t && t.score) || "0")}</span>` : ""}</span>`;
     };
     const sv = [];
     if (e.away && e.away.color) sv.push(`--tpa:${esc(e.away.color)}`);

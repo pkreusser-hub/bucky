@@ -800,6 +800,16 @@ const NFL_COLORS = {
   SF: { color: "aa0000", alternateColor: "b3995d" },
   SEA: { color: "002a5c", alternateColor: "69be28" },
 };
+// location + shortDisplayName (2026-08-13, the score-card rework's two-row names) — DEN
+// deliberately absent HERE TOO, so the abbrev-fallback row is a real fixture case alongside
+// its missing crest and missing colours.
+const NFL_NAMES = {
+  PHI: { location: "Philadelphia", shortDisplayName: "Eagles" },
+  DAL: { location: "Dallas", shortDisplayName: "Cowboys" },
+  KC: { location: "Kansas City", shortDisplayName: "Chiefs" },
+  SF: { location: "San Francisco", shortDisplayName: "49ers" },
+  SEA: { location: "Seattle", shortDisplayName: "Seahawks" },
+};
 function sbFix() {
   // Item 2 (2026-08-08): broadcasts[0].names[0] + odds[0].details, the SAME real ESPN
   // scoreboard fields netlify/functions/sports.mjs already reads for the standalone app's
@@ -817,8 +827,8 @@ function sbFix() {
       // score-card slash) — real ESPN shape is BARE 6-hex, no '#'. DEN carries no colours
       // either, so "no colour = no band, nothing else changes" is a real case too.
       competitors: [
-        { homeAway: "home", team: { abbreviation: homeAb, logo: NFL_LOGO[homeAb] || "", ...(NFL_COLORS[homeAb] || {}) }, score: extra.hs },
-        { homeAway: "away", team: { abbreviation: awayAb, logo: NFL_LOGO[awayAb] || "", ...(NFL_COLORS[awayAb] || {}) }, score: extra.as },
+        { homeAway: "home", team: { abbreviation: homeAb, logo: NFL_LOGO[homeAb] || "", ...(NFL_COLORS[homeAb] || {}), ...(NFL_NAMES[homeAb] || {}) }, score: extra.hs },
+        { homeAway: "away", team: { abbreviation: awayAb, logo: NFL_LOGO[awayAb] || "", ...(NFL_COLORS[awayAb] || {}), ...(NFL_NAMES[awayAb] || {}) }, score: extra.as },
       ],
     }],
   });
@@ -880,8 +890,8 @@ function sbWeekFix(week) {
       status: { type: { state: "pre", shortDetail: "Sun 12:00 PM" } },
       broadcasts: net ? [{ names: [net] }] : [],
       competitors: [
-        { homeAway: "home", team: { abbreviation: homeAb, logo: NFL_LOGO[homeAb] || "", ...(NFL_COLORS[homeAb] || {}) } },
-        { homeAway: "away", team: { abbreviation: awayAb, logo: NFL_LOGO[awayAb] || "", ...(NFL_COLORS[awayAb] || {}) } },
+        { homeAway: "home", team: { abbreviation: homeAb, logo: NFL_LOGO[homeAb] || "", ...(NFL_COLORS[homeAb] || {}), ...(NFL_NAMES[homeAb] || {}) } },
+        { homeAway: "away", team: { abbreviation: awayAb, logo: NFL_LOGO[awayAb] || "", ...(NFL_COLORS[awayAb] || {}), ...(NFL_NAMES[awayAb] || {}) } },
       ],
     }],
   });
@@ -5190,11 +5200,14 @@ async function openDetails(page, id) {
     // the class/markup genuinely changed shape, the behaviors this section checks persist).
     const body = await page.evaluate(() => document.body.textContent);
     const liveRowTxt = await page.$eval(".sccard.live", (el) => el.textContent);
-    ok(/DAL/.test(liveRowTxt) && /PHI/.test(liveRowTxt) && /10/.test(liveRowTxt) && /14/.test(liveRowTxt),
-      "live game (DAL @ PHI, 10-14) renders as a card with both teams + both scores, scoped to its own card");
+    // RESTAGED 2026-08-13 (the two-row full-name card): the fixture teams carry city+nickname
+    // now, so the card reads "Dallas Cowboys" / "Philadelphia Eagles" — the same game, its
+    // shipped rendering. DEN stays the abbrev-fallback case throughout.
+    ok(/Cowboys/.test(liveRowTxt) && /Eagles/.test(liveRowTxt) && /10/.test(liveRowTxt) && /14/.test(liveRowTxt),
+      "live game (Cowboys @ Eagles, 10-14) renders as a card with both teams + both scores, scoped to its own card");
     ok(/Q2 5:00/.test(liveRowTxt), "live game shows its in-progress clock/period, not a kickoff time");
     ok((await page.$$eval(".sccard.live", (els) => els.length)) === 1, "exactly one card is marked live (red-state CSS hook)");
-    ok(/KC/.test(body) && /DEN/.test(body), "upcoming game (KC @ DEN) renders too, not just the live one");
+    ok(/Chiefs/.test(body) && /DEN/.test(body), "upcoming game (Chiefs @ DEN) renders too, not just the live one");
     const dayHeaders = await page.$$eval(".scoreday h2", (els) => els.map((e) => e.textContent));
     ok(dayHeaders.length === 2, "games group into 2 separate day headers — the live game and the future game fall on different calendar dates");
     ok(!/Final/.test(await page.$eval(".sccard.live", (el) => el.textContent)), "the live card itself doesn't say Final");
@@ -5202,7 +5215,7 @@ async function openDetails(page, id) {
     // real ESPN scoreboard fields (the SAME ones netlify/functions/sports.mjs already reads for
     // the standalone app), display strings only.
     ok(/FOX/.test(liveRowTxt), "live game shows its TV network (FOX)");
-    const upcomingTxt = await page.evaluate(() => [...document.querySelectorAll(".sccard")].find((c) => c.textContent.includes("KC")).textContent);
+    const upcomingTxt = await page.evaluate(() => [...document.querySelectorAll(".sccard")].find((c) => c.textContent.includes("DEN")).textContent);
     ok(/CBS/.test(upcomingTxt), "upcoming game shows its TV network (CBS)");
     ok(/DEN -3\.5/.test(upcomingTxt), "upcoming game shows its betting line (DEN -3.5)");
     ok(!/-3\.5/.test(liveRowTxt), "the live game (no odds in its fixture) shows no spread line of its own");
@@ -5236,7 +5249,8 @@ async function openDetails(page, id) {
       "the real in-process sports.mjs handler genuinely returned fantasy-not-configured (no cookies), not a stubbed response");
     const degraded = await page.evaluate(() => document.body.textContent);
     ok(!/ESPN league \(live\)/.test(degraded), "on a failed/unconfigured fantasy fetch, the ESPN fantasy card is hidden entirely — no error banner");
-    ok(/DAL/.test(degraded) && /PHI/.test(degraded), "…while the NFL slate keeps rendering, completely unaffected");
+    // RESTAGED 2026-08-13: the cards read full two-row names now (Cowboys/Eagles, not DAL/PHI).
+    ok(/Cowboys/.test(degraded) && /Eagles/.test(degraded), "…while the NFL slate keeps rendering, completely unaffected");
     // Poll timers: armed while the tab is open, cleared on tab switch (never leak/keep firing
     // against a page that's moved on).
     const pollArmed = await page.evaluate(() => window.__GFFL__.UI._scoresPoll != null);
@@ -8956,40 +8970,68 @@ async function openDetails(page, id) {
         () => [...document.querySelectorAll("img.sclogo")].every((i) => i.complete),
         { timeout: 9000 },
       );
+      // RESTAGED 2026-08-13 (the user's own screenshot drove a card rework): crests are 44px
+      // now ("much bigger"), each side is a CENTERED COLUMN with the FULL team name over two
+      // rows ("Philadelphia" / "Eagles"), and a crest-less team keeps an EMPTY placeholder box
+      // the same size so both columns' name rows stay level. The facts under test are the
+      // same family — fixed box, no broken images, level columns — at the new geometry.
       const logos = await page.evaluate(() => {
         const cards = [...document.querySelectorAll(".sccard")];
-        // Per TEAM span, never per card: a card holds two teams and only one of them is the
-        // one under test (DEN is the fixture's deliberately crest-less team, and it shares a
-        // card with KC, which has one).
-        const spanFor = (ab) => {
+        // Per TEAM column, matched by nickname OR abbrev (DEN has no city in the fixture, so
+        // its bold row IS the abbrev — the deliberate fallback case).
+        const spanFor = (label) => {
           for (const c of cards) for (const s of c.querySelectorAll(".scteam")) {
-            const b = s.querySelector("b");
-            if (b && b.textContent.trim() === ab) return s;
+            const b = s.querySelector("b.scnick");
+            if (b && b.textContent.trim() === label) return s;
           }
           return null;
         };
-        const phi = spanFor("PHI"), den = spanFor("DEN");
+        const phi = spanFor("Eagles"), den = spanFor("DEN");
         const img = phi && phi.querySelector("img.sclogo");
         const r = img && img.getBoundingClientRect();
+        const denBox = den && den.querySelector(".sclogo");
         return {
           total: document.querySelectorAll("img.sclogo").length,
           src: img && img.getAttribute("src"),
           size: r && [Math.round(r.width), Math.round(r.height)],
           loaded: !!(img && img.complete && img.naturalWidth > 0),
           vis: img && getComputedStyle(img).visibility,
+          phiCity: phi ? (phi.querySelector(".sccity") || {}).textContent : null,
+          cityAboveNick: phi ? (phi.querySelector(".sccity").getBoundingClientRect().bottom
+            <= phi.querySelector(".scnick").getBoundingClientRect().top + 2) : false,
           denImgs: den ? den.querySelectorAll("img.sclogo").length : -1,
-          kcImgs: (spanFor("KC") || { querySelectorAll: () => [] }).querySelectorAll("img.sclogo").length,
-          heights: cards.map((c) => Math.round(c.querySelector(".scteams").getBoundingClientRect().height)),
-          abbrevs: cards.map((c) => [...c.querySelectorAll(".scteam b")].map((b) => b.textContent.trim()).join("@")),
+          denBoxH: denBox ? Math.round(denBox.getBoundingClientRect().height) : -1,
+          denCity: den ? den.querySelectorAll(".sccity").length : -1,
+          kcImgs: (spanFor("Chiefs") || { querySelectorAll: () => [] }).querySelectorAll("img.sclogo").length,
+          // RESTAGED from "every card's .scteams is the same height": a LIVE card's columns
+          // carry scores now, so a live card is legitimately taller than a pre-game card.
+          // The real "level columns" fact is WITHIN a card: the crest-less side's box
+          // top-aligns with its opponent's real crest, name rows level with name rows.
+          crestsLevel: (() => {
+            const denCard = den && den.closest(".sccard");
+            if (!denCard) return false;
+            const boxes = [...denCard.querySelectorAll(".scteam .sclogo")].map((el) => Math.round(el.getBoundingClientRect().top));
+            return boxes.length === 2 && boxes[0] === boxes[1];
+          })(),
+          centered: (() => { // the column is genuinely CENTERED: crest and nick share a center x
+            if (!phi) return false;
+            const a = phi.querySelector(".sclogo").getBoundingClientRect();
+            const b = phi.querySelector(".scnick").getBoundingClientRect();
+            return Math.abs((a.left + a.right) / 2 - (b.left + b.right) / 2) <= 2;
+          })(),
         };
       });
       ok(logos.total >= 3, "the NFL scoreboard renders team crests (" + logos.total + " on the board)");
       ok(/teamlogos\/nfl\/500\/phi\.png$/.test(logos.src || ""), "…from the slate's own team.logo URL (" + logos.src + ")");
-      ok(logos.size && logos.size[0] === 22 && logos.size[1] === 22, "…at a fixed 22x22, so a slow crest can't shift the score (" + JSON.stringify(logos.size) + ")");
+      ok(logos.size && logos.size[0] === 44 && logos.size[1] === 44, "…at a fixed 44x44 — 'much bigger', and still a fixed box so a slow crest can't shift the name rows (" + JSON.stringify(logos.size) + ")");
       ok(logos.loaded === true && logos.vis === "visible", "…and the image genuinely LOADED and is on screen, not a hidden broken box (" + logos.loaded + "/" + logos.vis + ")");
-      ok(logos.denImgs === 0 && logos.kcImgs === 1, "a team with NO crest in the payload renders no image at all — never a broken one (DEN " + logos.denImgs + ", its opponent KC " + logos.kcImgs + ")");
-      ok(new Set(logos.heights).size === 1, "…and the crest-less row is exactly as tall as the others (" + logos.heights.join("/") + ")");
-      ok(logos.abbrevs.every((a) => a.length >= 3), "…with the abbreviations still there beside them (" + logos.abbrevs.join(" ") + ")");
+      ok(logos.phiCity === "Philadelphia" && logos.cityAboveNick === true,
+        "the FULL team name reads over two centered rows — city above nickname (" + logos.phiCity + " / Eagles)");
+      ok(logos.centered === true, "…with crest and name sharing one center axis — a real column, not a row");
+      ok(logos.denImgs === 0 && logos.denBoxH === 44 && logos.kcImgs === 1,
+        "a team with NO crest renders no image — an EMPTY 44px placeholder keeps its column level (DEN imgs " + logos.denImgs + ", box " + logos.denBoxH + "px; KC " + logos.kcImgs + ")");
+      ok(logos.denCity === 0, "…and a team ESPN sent no city for falls back to its bold abbrev alone — never an invented name");
+      ok(logos.crestsLevel === true, "…and its empty box TOP-ALIGNS with its opponent's real crest — the columns stay level within the card");
       if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_scores_390.png") }); console.log("  📸 shots/gffl_pt_scores_390.png"); }
       ok(errors.length === 0, "0 page errors on the Scores tab");
       await ctx.close();
@@ -16638,7 +16680,11 @@ async function openDetails(page, id) {
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
-    // ---- AV4: the NFL cards wear their teams' real colours, mirrored like the matchup page ----
+    // ---- AV4: the NFL cards wear their teams' real colours + the centered-column rework ----
+    // RESTAGED 2026-08-13 (the user's own screenshot, same day the slash landed): the
+    // "crest on the outer edge, mirrored" arrangement is SUPERSEDED — crests are big centered
+    // columns OFF the slashes now, with the full name over two rows, and the time (with CT),
+    // the vegas line and the player count all centered. The slash itself is unchanged.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -16646,26 +16692,43 @@ async function openDetails(page, id) {
       await clickIn(page, '.bnav button[data-v="scores"]');
       await waitOr(page, ".sccard");
       const sc = await evalOr(page, () => {
+        // Full names now: PHI's card reads "Philadelphia Eagles"; DEN (no city in the
+        // fixture) still reads its bold abbrev — the deliberate fallback.
         const cards = [...document.querySelectorAll(".sccard")];
-        const phiCard = cards.find((c) => c.textContent.includes("PHI"));
+        const phiCard = cards.find((c) => c.textContent.includes("Eagles"));
         const denCard = cards.find((c) => c.textContent.includes("DEN"));
         const st = phiCard.getAttribute("style") || "";
         const before = getComputedStyle(phiCard, "::before");
         const denAfter = getComputedStyle(denCard, "::after"); // DEN is home, colour-less in the fixture
-        const homeSpan = phiCard.querySelector(".scteam.right");
-        const kids = homeSpan ? [...homeSpan.children].map((k) => k.tagName) : [];
+        const cardBox = phiCard.getBoundingClientRect();
+        const mid = (r) => (r.left + r.right) / 2;
+        const stateRow = phiCard.querySelector(".scstaterow");
+        const awayCrest = phiCard.querySelector(".scteam:not(.right) .sclogo");
+        const spreadEl = [...cards.flatMap((c) => [...c.querySelectorAll(".scspread")])][0] || null;
+        const moEl = phiCard.querySelector(".scmine");
         return {
           cls: phiCard.classList.contains("scslash"),
           tph: (st.match(/--tph:([^;]+)/) || [])[1],
           awayPainted: before.backgroundColor !== "rgba(0, 0, 0, 0)",
           denHomeBand: denAfter.backgroundColor,
-          mirrored: kids.length >= 2 && kids[kids.length - 1] === "IMG",
+          timeCT: /CT/.test((denCard.querySelector(".scstate") || {}).textContent || ""), // DEN@KC is the fixture's pre-game card
+          stateCentered: stateRow ? Math.abs(mid(stateRow.getBoundingClientRect()) - mid(cardBox)) <= 3 : false,
+          crestOffSlash: awayCrest ? awayCrest.getBoundingClientRect().left - cardBox.left >= 44 : false,
+          spreadCentered: spreadEl ? (() => { const r = document.createRange(); r.selectNodeContents(spreadEl);
+            const c = spreadEl.closest(".sccard").getBoundingClientRect();
+            return Math.abs(mid(r.getBoundingClientRect()) - mid(c)) <= 4; })() : null,
+          moCentered: moEl ? (() => { const r = document.createRange(); r.selectNodeContents(moEl);
+            return Math.abs(mid(r.getBoundingClientRect()) - mid(cardBox)) <= 4; })() : null,
         };
       }) || {};
       ok(sc.cls === true && sc.tph === "#004c54", "the PHI card carries PHI's own midnight green on its home slash (" + sc.tph + ")");
       ok(sc.awayPainted === true, "…and the away side's band genuinely paints");
       ok(sc.denHomeBand === "rgba(0, 0, 0, 0)", "a team ESPN sent no colour for paints NO band — transparent, never a wrong guess (" + sc.denHomeBand + ")");
-      ok(sc.mirrored === true, "the home side is MIRRORED — crest on the outer edge, exactly the matchup page's arrangement");
+      ok(sc.timeCT === true, "the kickoff time carries its timezone (… CT)");
+      ok(sc.stateCentered === true, "…and the state row is CENTERED on the card");
+      ok(sc.crestOffSlash === true, "the crest sits OFF the slash — clear of the band's own reach, in its centered column");
+      ok(sc.spreadCentered === true, "the vegas line's INK is centered (Range-measured — a block always spans the card)");
+      ok(sc.moCentered === true, "…and so is the MINE/OPP player count");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -16699,7 +16762,8 @@ async function openDetails(page, id) {
       ok(/Week 2/.test(wk2.label || "") && /GFFL — Week 2/.test(wk2.gfflH2 || ""), "› steps to week 2 — the GFFL card follows (" + wk2.label + ")");
       ok(wk2.statics === 4 && wk2.tappable === 0 && wk2.dashes === true,
         "an unplayed week's pairings are STATIC slash cards reading '— vs —' — not tappable, because the Matchup view belongs to the live week (" + JSON.stringify({ statics: wk2.statics, tappable: wk2.tappable, dashes: wk2.dashes }) + ")");
-      ok(/SF\|PHI\|SEA\|KC/.test(wk2.nflAbs || ""), "…and the NFL half shows week 2's own slate (" + wk2.nflAbs + ")");
+      // RESTAGED 2026-08-13: the bold row is the NICKNAME now (the two-row full-name card).
+      ok(/49ers\|Eagles\|Seahawks\|Chiefs/.test(wk2.nflAbs || ""), "…and the NFL half shows week 2's own slate (" + wk2.nflAbs + ")");
       const wsUrl = weekSlateUrls[weekSlateUrls.length - 1] || "";
       ok(weekSlateUrls.length === wsBefore + 1 && /dates=2026/.test(wsUrl) && /seasontype=2/.test(wsUrl) && /week=2/.test(wsUrl),
         "the slate was asked for EXPLICITLY — dates=2026&seasontype=2&week=2, never the bare current-week endpoint (" + wsUrl + ")");

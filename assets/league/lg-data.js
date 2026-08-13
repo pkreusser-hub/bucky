@@ -1066,6 +1066,9 @@
       const side = (comp) => comp ? {
         abbrev: comp.team?.abbreviation || "",
         name: comp.team?.shortDisplayName || comp.team?.abbreviation || "",
+        // `city` (2026-08-13, the score-card rework): team.location ("Detroit") — with `name`
+        // ("Lions") it makes the card's two centered rows. "" degrades the card to the abbrev.
+        city: comp.team?.location || "",
         score: comp.score != null ? String(comp.score) : "",
         logo: comp.team?.logo || comp.team?.logos?.[0]?.href || "",
         // 2026-08-13: the score cards wear each NFL team's own colours (the matchup-page
@@ -1318,6 +1321,7 @@
       const side = (comp) => comp ? {
         abbrev: comp.team?.abbreviation || "",
         name: comp.team?.shortDisplayName || comp.team?.abbreviation || "",
+        city: comp.team?.location || "",
         final: Number(comp.score) || 0,
         logo: comp.team?.logo || comp.team?.logos?.[0]?.href || "",
         color: D.nflHex(comp.team?.color), altColor: D.nflHex(comp.team?.alternateColor),
@@ -1375,6 +1379,7 @@
         const side = (comp) => comp ? {
           abbrev: comp.team?.abbreviation || "",
           name: comp.team?.shortDisplayName || comp.team?.abbreviation || "",
+          city: comp.team?.location || "",
           score: comp.score != null ? String(comp.score) : "",
           logo: comp.team?.logo || comp.team?.logos?.[0]?.href || "",
           color: D.nflHex(comp.team?.color), altColor: D.nflHex(comp.team?.alternateColor),
@@ -1413,8 +1418,8 @@
         : g.state === "pre" ? "0"
         : g.state === "post" ? String(side.final)
         : String(Math.round(side.final * g.progress));
-      const away = ev.away ? { abbrev: ev.away.abbrev, name: ev.away.name, score: shown(ev.away), logo: ev.away.logo || "", color: ev.away.color || "", altColor: ev.away.altColor || "" } : null;
-      const home = ev.home ? { abbrev: ev.home.abbrev, name: ev.home.name, score: shown(ev.home), logo: ev.home.logo || "", color: ev.home.color || "", altColor: ev.home.altColor || "" } : null;
+      const away = ev.away ? { abbrev: ev.away.abbrev, name: ev.away.name, city: ev.away.city || "", score: shown(ev.away), logo: ev.away.logo || "", color: ev.away.color || "", altColor: ev.away.altColor || "" } : null;
+      const home = ev.home ? { abbrev: ev.home.abbrev, name: ev.home.name, city: ev.home.city || "", score: shown(ev.home), logo: ev.home.logo || "", color: ev.home.color || "", altColor: ev.home.altColor || "" } : null;
       events.push({
         id: ev.id, date: ev.date, state: g.state, detail: g.detail, period: g.period, clock: g.clock,
         broadcast: ev.broadcast, spread: ev.spread, away, home,

@@ -1130,12 +1130,12 @@
     background:var(--tsa, transparent); clip-path:polygon(39px 0, 43px 0, 23px 100%, 19px 100%); }
   .sccard.scslash .scstaterow::after { content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
     background:var(--tsh, transparent); clip-path:polygon(calc(100% - 43px) 0, calc(100% - 39px) 0, calc(100% - 19px) 100%, calc(100% - 23px) 100%); }
-  /* The state row's own text clears the bands; the crest sits ON its slash (outer edge). */
-  .sccard.scslash .scstaterow { padding:0 46px; justify-content:space-between; }
-  .sccard.scslash .scteam.right { flex-direction:row; } /* bits are pre-reversed in markup */
-  /* Abbrev ink clears the secondary stripe's mid-card reach on both sides. */
-  .sccard.scslash .scteam:not(.right) > b { padding-left:6px; }
-  .sccard.scslash .scteam.right > b { padding-right:6px; }
+  /* 2026-08-13 rework: everything is CENTERED now — the state row (network · time CT), the
+     team columns, the vegas line, the player count — and the crests moved OFF the slashes
+     into their columns, so the slashes are pure edge decoration and nothing needs a
+     clearance pad beyond the card's own padding. */
+  .sccard.scslash .scstaterow { justify-content:center; gap:10px; }
+  .sccard.scslash .scteams { padding:0 34px; } /* the columns center between the bands, never under them */
   /* Week cycling (2026-08-13): ‹ Week N › over both cards; a browsed GFFL pairing is a
      STATIC card — same slash language, no pointer, because the Matchup view belongs to the
      live week alone. */
@@ -1150,14 +1150,22 @@
   .scnet { font:600 10.5px var(--font-display); letter-spacing:.5px; text-transform:uppercase; color:var(--mut); }
   .scstate { font:600 11.5px var(--font-display); letter-spacing:.5px; text-transform:uppercase; color:var(--mut); }
   .scstate.live { color:var(--accent); }
-  .scteams { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:4px; font:600 15px var(--font-display); }
-  .scteam { display:flex; align-items:center; gap:8px; }
-  /* Item 4 (2026-08-09): the NFL crest beside each abbrev. FIXED width/height (matching the
-     img element's own width/height attributes) so the row's height is decided before the image
-     arrives — a slow, missing or failed logo can never shift the score beside it. */
-  .sclogo { width:22px; height:22px; flex:0 0 auto; object-fit:contain; }
-  .scpts { font-weight:800; font-variant-numeric:tabular-nums; }
-  .scspread, .scmine { margin-top:4px; }
+  /* REWORKED 2026-08-13 from the user's own screenshot: each side is a CENTERED COLUMN —
+     big crest, the full team name over two rows, the score beneath while playing. The state
+     row (network · kickoff/clock), the vegas line and the player count all center too. */
+  .scteams { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-top:6px; font:600 15px var(--font-display); }
+  .scteam { display:flex; flex-direction:column; align-items:center; gap:2px; flex:1 1 0; min-width:0; text-align:center; }
+  .scat { align-self:center; flex:0 0 auto; }
+  /* FIXED box (matching the img's own width/height attributes) so the column's height is
+     decided before the image arrives — a slow, missing or failed crest can never shift the
+     name rows; a crest-less team gets an EMPTY box the same size so both columns stay level. */
+  .sclogo { width:44px; height:44px; flex:0 0 auto; object-fit:contain; }
+  .sccity { font:600 12px var(--font-display); letter-spacing:.4px; color:var(--ink2); max-width:100%;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .scnick { font:700 15px var(--font-display); letter-spacing:.4px; max-width:100%;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .scpts { font-weight:800; font-size:19px; font-variant-numeric:tabular-nums; margin-top:1px; }
+  .scspread, .scmine { margin-top:5px; text-align:center; }
   .ffrow { display:flex; align-items:center; justify-content:space-between; gap:10px; }
   .ffside { display:flex; flex-direction:column; gap:1px; min-width:0; }
   .ffside.mut { flex-direction:row; }

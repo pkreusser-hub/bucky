@@ -11880,3 +11880,37 @@ recipe that works on ESPN's past seasons CHANGES (slot filters worked Aug 7, 400
 which is why lg_espn_probe exists. Battery **2468/2468** over the position-aware
 normalization, zero restages needed. RE-RUN `_gffl_rules_reconcile.mjs` after ANY scoring
 change, and against 2026 itself once real weeks exist.
+
+## 🏈 GFFL — THE NFL SCORE CARD, FROM THE USER'S OWN SCREENSHOT (2026-08-13)
+
+User, with a DET@CIN card attached: *"center the vegas line and the player count, center the
+time and add timezone, make the logos much bigger and move them off of the color slashes and
+spell out the whole team name using 2 rows centered."* Files: `league.html` +
+`assets/league/lg-{data,ui}.js` + `tools/_verify-gffl.cjs` (2468 → **2474**, FAIL 0).
+
+- **CITY IS SLIMMED IN ALL THREE SLATE PARSERS** (`comp.team?.location`) — pollScoreboard,
+  fetchWeekSlate AND fetchSimSlate + the applySimSlate away/home passthrough; miss any one
+  and a browsed/replay week's cards silently fall back to abbrevs while the live board reads
+  full names. Two-row name = `.sccity` (12px) over `.scnick` (700 15px), both ellipsised;
+  **a team ESPN sent no location for falls back to the bare abbrev as the nick row** — never
+  a blank line (the fixture keeps DEN name-less on purpose, the same discipline as its
+  crest-less/colour-less role).
+- **CRESTS 24 → 44px, in a FIXED 44px box** — a crest-less team renders `.sclogo-none`, the
+  same-size empty span, or every column with no logo starts 44px higher than its neighbour
+  (the matchup layout's placeholder lesson). The columns are centered flex, and
+  `.scteams { padding:0 34px }` walks both columns OFF the slashes — the slash pseudo-hosts
+  themselves are untouched, the content just clears their reach (asserted: crest left edge
+  ≥44px from the card edge).
+- **Kickoff pinned to America/Chicago + " CT"** (`kickTimeStr` toLocaleTimeString with an
+  explicit timeZone — the family is one league in one timezone; a viewer's device zone was
+  never the right answer). State row / vegas line / MINE-OPP all centered — the spread and
+  count assertions are **Range-measured** (a block element's own midpoint is always centered;
+  only the INK's midpoint proves anything — the AE lesson again).
+- **RESTAGE LESSONS, two, both from the first run's 2472/2**: a fixture that stops sending
+  abbrevs as the visible name breaks every abbrev-text FINDER, not just the card checks —
+  sweep the whole suite for /DAL/&&/PHI/-style finders (line 5252's Scores-tab finder was the
+  straggler → /Cowboys/&&/Eagles/); and "both cards' crests at equal heights" became
+  **within-card crestsLevel** — a live card now legitimately stands taller than an upcoming
+  one (scores render beneath the names), so cross-card height equality stopped being true
+  for a good reason. Fixture: `NFL_NAMES` map spread into all four competitor sites, DEN
+  deliberately absent (the no-name/no-crest/no-colour fallback case in one team).
