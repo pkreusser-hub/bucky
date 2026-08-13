@@ -103,6 +103,11 @@ const fixture = {
   // difference. Armed only by section AO. `trendingDown` makes them fail outright (503).
   trending: null,
   trendingDown: false,
+  // Section AW (2026-08-13, player headshots). Default false = the two headshot CDNs (ESPN's
+  // combiner, Sleeper's thumbs) answer a real SVG face, so "the face renders" is a genuine
+  // load, not an element-exists claim (the crest-CDN precedent). true = both answer 404,
+  // which is what proves the onerror-placeholder discipline instead of hoping for it.
+  headshotsDown: false,
   projS10: false,      // S10 — see slpProjS10
   // Coordinator addendum (2026-08-08) — the Scores tab's ff_scoreboard fixture (fake sports.mjs
   // fantasy upstream). Default false = the existing scored 2-matchup fixture; true = an
@@ -1645,6 +1650,16 @@ async function newTestPage(browser, seed, opts) {
           const ab = ((/\/([a-z0-9]+)\.png$/i.exec(u) || [])[1] || "nfl").toUpperCase();
           return req.respond({ status: 200, contentType: "image/svg+xml", headers: cors,
             body: `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="32" cy="32" r="31" fill="#2a4f80"/><text x="32" y="40" font-size="21" fill="#fff" text-anchor="middle" font-family="sans-serif">${ab.slice(0, 3)}</text></svg>` });
+        }
+        // The two HEADSHOT CDNs (section AW, 2026-08-13) — same rationale as the crest CDN
+        // above: an aborted <img> can only ever be asserted as "the element exists". A real
+        // SVG face by default; a clean 404 under fixture.headshotsDown, which is exactly what
+        // the live CDN answers for a retired/unphotographed id, so the onerror-placeholder
+        // path is exercised against the real failure shape.
+        if (/a\.espncdn\.com\/combiner\/i\?img=\/i\/headshots/.test(u) || /sleepercdn\.com\/content\/nfl\/players/.test(u)) {
+          if (fixture.headshotsDown) return req.respond({ status: 404, contentType: "text/html", headers: cors, body: "not found" });
+          return req.respond({ status: 200, contentType: "image/svg+xml", headers: cors,
+            body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="70"><rect width="96" height="70" fill="#20304a"/><circle cx="48" cy="26" r="14" fill="#c9a06a"/><path d="M20 70 Q48 42 76 70 Z" fill="#5a442c"/></svg>' });
         }
         if (u.includes("site.api.espn.com")) {
           if (fixture.espnDown) return req.respond({ status: 503, headers: cors, body: "{}" });
@@ -16791,6 +16806,208 @@ async function openDetails(page, id) {
         "Back to now restores the live board");
       ok((await evalOr(page, () => !!window.__GFFL__.UI._scoresPoll)) === true, "…and the live poll resumes");
       ok(errors.length === 0, "0 page errors across the cycler");
+      await ctx.close();
+    }
+  }
+
+  // ================= AW · PLAYER HEADSHOTS (2026-08-13) =================
+  // User: "would it be possible to bring in player images?" → "do it". The faces come from
+  // two CDNs keyed by ids the app already holds (D.headshotUrl — ESPN's combiner for espn-id
+  // keys, Sleeper's thumbs for slp_/name-resolved keys, the team crest for a D/ST), and they
+  // render at every width on the players table, the stats card and the drop/swap/claim cards
+  // — but on the MATCHUP rows (.mushot) and MY TEAM rows (.lkshot) only at ≥1024px, because
+  // the phone matchup row's 101px name budget and the locker's ≥140px name floor (AD8) were
+  // both bought by measurement and a face + gap costs exactly that width. Both halves of that
+  // rule are asserted here: painted on a desktop, in-the-DOM-but-not-painted on a phone, with
+  // AD8's own floor re-measured on the phone page.
+  {
+    console.log("\n== AW · player headshots — table/card/claim at every width, matchup + My Team at ≥1024 ==");
+    // ---- AW1: the URL builder + the players table (390px) ----
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false; fixture.headshotsDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const urls = await evalOr(page, () => {
+        const d = window.__GFFL__.D;
+        return { espn: d.headshotUrl("3915511"), espnBig: d.headshotUrl("3915511", 160),
+                 dstPhi: d.headshotUrl("dst_PHI"), crest: d.teamLogo("PHI"),
+                 slp: d.headshotUrl("slp_9001"), nobody: d.headshotUrl("zzz_nobody"), blank: d.headshotUrl("") };
+      }) || {};
+      ok(/a\.espncdn\.com\/combiner/.test(urls.espn || "") && (urls.espn || "").includes("/full/3915511.png") && /w=96/.test(urls.espn || ""),
+        "an espn-id key builds the ESPN combiner URL at the default 96px (" + urls.espn + ")");
+      ok(/w=160/.test(urls.espnBig || ""), "…and the px argument resizes it server-side (w=160 for the big card face)");
+      ok(!!urls.dstPhi && urls.dstPhi === urls.crest, "a D/ST wears its own team crest — the slate already in memory, never a new fetch");
+      ok(/sleepercdn\.com\/content\/nfl\/players\/thumb\/9001\.jpg/.test(urls.slp || ""),
+        "a Sleeper-only key falls to Sleeper's thumb CDN through D.pidForKey (" + urls.slp + ")");
+      ok(urls.nobody === "" && urls.blank === "", 'an unresolvable key and a blank key both answer "" — the renderer draws the placeholder disc');
+      await clickIn(page, '.bnav button[data-v="moves"]');
+      await waitOr(page, "#faResults .faTable");
+      const tbl = (await evalOr(page, () => [...document.querySelectorAll("#faResults tbody tr")].map((tr) => {
+        const box = tr.querySelector(".faname .pshot");
+        const img = box && box.querySelector("img");
+        return { pk: tr.dataset.pk, hasBox: !!box, w: box ? Math.round(box.getBoundingClientRect().width) : 0,
+                 src: img ? img.getAttribute("src") : null };
+      }))) || [];
+      ok(tbl.length >= 4 && tbl.every((r) => r.hasBox && r.w >= 20 && r.w <= 24),
+        "every players-table row carries the fixed face box (" + tbl.length + " rows, all 20-24px at 390)");
+      // The browse pool's two non-D/ST free agents deliberately carry NO espn_id (item 1's own
+      // fixture note), so their faces are the SLEEPER-thumb path — which is exactly the case
+      // worth proving on this table.
+      const slpRow = tbl.find((r) => r.pk.startsWith("slp_"));
+      ok(!!slpRow && /sleepercdn/.test(slpRow.src || ""), "a Sleeper-only free agent's face comes from Sleeper's thumb CDN (" + (slpRow && slpRow.pk) + ")");
+      const kc = tbl.find((r) => r.pk === "dst_KC"), den = tbl.find((r) => r.pk === "dst_DEN");
+      ok(!!kc && /teamlogos/.test(kc.src || ""), "the free KC D/ST row wears the KC crest");
+      ok(!!den && den.src === null && den.hasBox, "…and the crest-less DEN D/ST keeps the SAME box with no <img> at all — never a broken image, never a shifted column");
+      // The ESPN-combiner path on this table needs a ROSTERED player (numeric espn-id key) —
+      // the All filter is how the table shows one.
+      await clickIn(page, "#faFilterChips .poschip", "All");
+      await waitFnOr(page, () => [...document.querySelectorAll("#faResults tbody tr")].some((tr) => /^\d+$/.test(tr.dataset.pk || "")));
+      const espnRow = (await evalOr(page, () => {
+        const tr = [...document.querySelectorAll("#faResults tbody tr")].find((t) => /^\d+$/.test(t.dataset.pk || ""));
+        const img = tr && tr.querySelector(".faname .pshot img");
+        return tr ? { pk: tr.dataset.pk, src: img ? img.getAttribute("src") : null } : null;
+      })) || null;
+      ok(!!espnRow && /combiner/.test(espnRow.src || ""), "a rostered (espn-id-keyed) row's face comes from the ESPN combiner (" + (espnRow && espnRow.pk) + ")");
+      await clickIn(page, "#faFilterChips .poschip", "Available");
+      await waitFnOr(page, () => [...document.querySelectorAll("#faResults tbody tr")].every((tr) => !/^\d+$/.test(tr.dataset.pk || "")));
+      // The face genuinely LOADS (the fixtured CDN answers a real SVG) — settle first, the
+      // NFL-card lesson: a real (even intercepted) image cannot be sampled at first paint.
+      await page.evaluate(() => { const i = document.querySelector("#faResults .faname .pshot img"); if (i) i.scrollIntoView(); });
+      const loaded = await waitFnOr(page, () => {
+        const i = document.querySelector("#faResults .faname .pshot img");
+        return !!i && i.complete && i.naturalWidth > 0 && getComputedStyle(i).visibility !== "hidden";
+      });
+      ok(loaded === true, "…and a face genuinely loads and stays visible (not just an element that exists)");
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_headshots_moves_390.png") }); console.log("  📸 shots/gffl_headshots_moves_390.png"); }
+      // ---- AW2: the stats card + the claim card, same page ----
+      await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511"));
+      await waitOr(page, "#playerCard .pcname");
+      const card = (await evalOr(page, () => {
+        const box = document.querySelector("#playerCard .pchead .pshot.pshotbig");
+        const img = box && box.querySelector("img");
+        return { has: !!box, w: box ? Math.round(box.getBoundingClientRect().width) : 0, src: img ? img.getAttribute("src") : null };
+      })) || {};
+      ok(card.has === true && card.w === 72 && /combiner/.test(card.src || "") && /w=160/.test(card.src || ""),
+        "the stats card leads with the 72px face, fetched at 160px for retina (" + card.w + "px)");
+      await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+      await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "F. Agent");
+      await waitOr(page, "#rosterCard .rccard");
+      const cc = (await evalOr(page, () => {
+        const head = document.querySelector("#rosterCard .pchead .pshot.pshotbig");
+        const rows = [...document.querySelectorAll("#rosterCard .rclist .swaprow")];
+        return { head: !!head, rows: rows.length, withBox: rows.filter((r) => r.querySelector(".rcwho .pshot")).length,
+                 h44: rows.every((r) => r.getBoundingClientRect().height >= 44) };
+      })) || {};
+      ok(cc.head === true, "the claim card's header carries the incoming player's own face");
+      ok(cc.rows > 0 && cc.withBox === cc.rows, "…every drop-candidate row carries a face box (" + cc.withBox + "/" + cc.rows + ")");
+      ok(cc.h44 === true, "…and every row is still a 44px touch target");
+      await page.evaluate(() => window.__GFFL__.UI.closeRosterCard());
+      // ---- AW3: the phone half of the desktop-only rule, same page ----
+      await clickIn(page, '.bnav button[data-v="matchup"]');
+      await waitOr(page, ".mutable");
+      const mu390 = (await evalOr(page, () => {
+        const shots = [...document.querySelectorAll(".pcellgrid .mushot")];
+        return { n: shots.length, painted: shots.filter((s) => s.offsetParent !== null).length };
+      })) || {};
+      ok(mu390.n >= 10 && mu390.painted === 0,
+        "at 390px the matchup faces are in the DOM and NONE is painted — the phone row keeps every px of the name budget it won (" + mu390.painted + " of " + mu390.n + " painted)");
+      await clickIn(page, '.bnav button[data-v="team"]');
+      await waitOr(page, ".lrow");
+      const lk390 = (await evalOr(page, () => {
+        const shots = [...document.querySelectorAll(".linfo .lkshot")];
+        const names = [...document.querySelectorAll(".lname")].map((el) => Math.round(el.clientWidth));
+        return { n: shots.length, painted: shots.filter((s) => s.offsetParent !== null).length, minName: Math.min(...names) };
+      })) || {};
+      ok(lk390.n >= 9 && lk390.painted === 0, "My Team at 390px: faces in the DOM, none painted (" + lk390.painted + " of " + lk390.n + ")");
+      ok(lk390.minName >= 140, "…so AD8's own floor holds on THIS page too — the name column still reads " + lk390.minName + "px");
+      ok(errors.length === 0, "0 page errors across the phone pass");
+      await ctx.close();
+    }
+    // ---- AW4: the desktop half — matchup rows, My Team, a rival's read-only roster ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="matchup"]');
+      await waitOr(page, ".mutable");
+      const mu = (await evalOr(page, () => {
+        const cells = [...document.querySelectorAll(".mutable .pcellgrid")];
+        const stats = cells.map((c) => {
+          const s = c.querySelector(".mushot");
+          return { has: !!s, painted: s ? s.offsetParent !== null : false,
+                   w: s ? Math.round(s.getBoundingClientRect().width) : 0,
+                   ph: s ? s.classList.contains("pshotph") : false, img: s ? !!s.querySelector("img") : false };
+        });
+        // The OUTER-edge rule, measured: a right-half face sits right of its points column,
+        // a left-half face left of its info column — the score cards' crest convention.
+        const r = document.querySelector(".pcellgrid.right");
+        const l = document.querySelector(".pcellgrid.left");
+        const x = (el, sel) => el.querySelector(sel).getBoundingClientRect().left;
+        return { cells: cells.length, withShot: stats.filter((s) => s.has).length,
+                 painted: stats.filter((s) => s.painted).length,
+                 w38: stats.every((s) => !s.painted || s.w === 38),
+                 anyPh: stats.some((s) => s.ph), anyImg: stats.some((s) => s.img),
+                 rightOuter: r ? x(r, ".mushot") > x(r, ".ppts") : null,
+                 leftOuter: l ? x(l, ".mushot") < x(l, ".pinfo") : null };
+      })) || {};
+      ok(mu.cells >= 10 && mu.withShot === mu.cells && mu.painted === mu.cells,
+        "at 1440px EVERY matchup half — starters, bench, Empty halves and the TOTAL row — carries a painted face box (" + mu.painted + "/" + mu.cells + ")");
+      ok(mu.w38 === true, "…all at the fixed 38px, so the columns keep one edge");
+      ok(mu.anyImg === true && mu.anyPh === true,
+        "…a real face where one resolves, the placeholder disc where none can (an Empty half, the TOTAL row)");
+      ok(mu.rightOuter === true && mu.leftOuter === true,
+        "…and the face rides the OUTER edge on both sides, mirroring the score cards' crest convention");
+      await clickIn(page, '.bnav button[data-v="team"]');
+      await waitOr(page, ".lrow");
+      const lk = (await evalOr(page, () => {
+        const shots = [...document.querySelectorAll(".linfo .lkshot")];
+        return { n: shots.length, painted: shots.filter((s) => s.offsetParent !== null).length,
+                 w30: shots.every((s) => s.offsetParent === null || Math.round(s.getBoundingClientRect().width) === 30) };
+      })) || {};
+      ok(lk.n >= 9 && lk.painted === lk.n && lk.w30 === true, "My Team on a desktop paints every row's face at 30px (" + lk.painted + "/" + lk.n + ")");
+      await page.evaluate(() => window.__GFFL__.UI.openLocker(2));
+      await waitFnOr(page, () => /Roster — week/.test(document.body.textContent));
+      const ro = (await evalOr(page, () => {
+        const rows = [...document.querySelectorAll("table.tbl tr[data-pk]")];
+        return { rows: rows.length, withBox: rows.filter((r) => r.querySelector(".faply .pshot")).length };
+      })) || {};
+      ok(ro.rows > 0 && ro.withBox === ro.rows, "a rival's read-only roster rows carry faces too (" + ro.withBox + "/" + ro.rows + ")");
+      if (SHOTS) {
+        await clickIn(page, '.bnav button[data-v="matchup"]');
+        await waitOr(page, ".mutable");
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_headshots_matchup_1440.png") });
+        console.log("  📸 shots/gffl_headshots_matchup_1440.png");
+      }
+      ok(errors.length === 0, "0 page errors on the desktop pass");
+      await ctx.close();
+    }
+    // ---- AW5: the CDN answering 404 — the real failure shape, proven not hoped ----
+    {
+      fixture.headshotsDown = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="moves"]');
+      await waitOr(page, "#faResults .faTable");
+      await page.evaluate(() => { const i = document.querySelector("#faResults .faname .pshot img"); if (i) i.scrollIntoView(); });
+      const settled = await waitFnOr(page, () => {
+        const i = document.querySelector("#faResults .faname .pshot img");
+        return !!i && i.complete; // a 404'd img still completes — that's when onerror has fired
+      });
+      const broken = (await evalOr(page, () => {
+        const i = document.querySelector("#faResults .faname .pshot img");
+        const box = i && i.closest(".pshot");
+        return { hidden: i ? getComputedStyle(i).visibility === "hidden" : null,
+                 boxW: box ? Math.round(box.getBoundingClientRect().width) : 0 };
+      })) || {};
+      ok(settled === true && broken.hidden === true, "a 404'ing face hides ITSELF via onerror — never a broken-image glyph");
+      ok(broken.boxW >= 20 && broken.boxW <= 24, "…and the disc stands at its full size, so the column never shifts (" + broken.boxW + "px)");
+      ok(errors.length === 0, "0 page errors with the headshot CDN dead");
+      fixture.headshotsDown = false;
       await ctx.close();
     }
   }

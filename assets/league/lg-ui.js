@@ -832,10 +832,13 @@
     }).join("");
     return `<div class="pccard">
       <button type="button" class="pcclose" id="pcClose" aria-label="Close">✕</button>
-      <div class="pchead">
-        <h2 class="pcname">${escn(meta.name)}</h2>
-        <div class="pcmeta"><span class="posbadge" data-pos="${esc(meta.pos)}">${esc(meta.pos || "?")}</span>
-          <span class="mut">${esc(meta.team || "")}</span>${injLabel(meta.injury) ? ` <span class="inj">${esc(injLabel(meta.injury))}</span>` : ""}</div>
+      <div class="pchead pcheadshot">
+        ${pshotHtml(key, "pshotbig", 160)}
+        <div class="pcheadtxt">
+          <h2 class="pcname">${escn(meta.name)}</h2>
+          <div class="pcmeta"><span class="posbadge" data-pos="${esc(meta.pos)}">${esc(meta.pos || "?")}</span>
+            <span class="mut">${esc(meta.team || "")}</span>${injLabel(meta.injury) ? ` <span class="inj">${esc(injLabel(meta.injury))}</span>` : ""}</div>
+        </div>
       </div>
       <div class="pcweek">
         <div class="mut small">This week${UI.week != null ? " · Week " + UI.week : ""}</div>
@@ -1050,8 +1053,8 @@
     const sub = [meta, state].filter(Boolean).join(" · ");
     return `<button type="button" class="swaprow" ${attrs}${opts.blocked
       ? ` disabled title="${esc(opts.blocked)}" aria-label="${esc(opts.blocked)}"` : ""}>
-      <span class="rcwho"><b>${escn(p.name)}</b>
-        <small class="mut">${esc(sub)}</small>${injChip(d, p)}${opts.blocked ? ` <small class="rcblock">${esc(opts.blocked)}</small>` : ""}</span>
+      <span class="rcwho">${pshotHtml(p.key)}<span class="rcwhotxt"><b>${escn(p.name)}</b>
+        <small class="mut">${esc(sub)}</small>${injChip(d, p)}${opts.blocked ? ` <small class="rcblock">${esc(opts.blocked)}</small>` : ""}</span></span>
       <span class="rcnum">${proj != null ? LG.fmtPts(proj) : "—"}</span>
       <span class="rcnum mut" data-pctkey="${esc(p.key)}">${esc(pctOwnedText(p.key))}</span>
     </button>`;
@@ -3367,6 +3370,27 @@
     if (!src) return '<span class="plogo plogoph" aria-hidden="true"></span>';
     return `<img class="plogo" src="${esc(src)}" alt="" width="14" height="14" loading="lazy" onerror="this.style.visibility='hidden'">`;
   }
+  // THE PLAYER'S FACE (2026-08-13, user: "bring in player images" → "do it"). One fixed-size
+  // circular box, ALWAYS rendered — with a face inside it when D.headshotUrl resolves one,
+  // and as a plain placeholder disc when it doesn't (a D/ST with no slate yet, a genuinely
+  // unresolvable key). The box being unconditional is the whole discipline: every row's name
+  // starts at the same x whether ESPN has shot this man or not (the crest-placeholder lesson,
+  // third time it has earned its keep). A URL that 404s — a retired id, a practice-squad
+  // signing ESPN hasn't photographed — hides ITSELF via onerror and leaves the disc standing,
+  // never a broken-image glyph and never a reflow.
+  // WHERE THESE RENDER, and where they deliberately DON'T: the players table, the stats card,
+  // the drop/swap card and the claim header carry them at every width; the matchup lineup
+  // (.mushot) and My Team rows (.lkshot) carry them at ≥1024px ONLY — the phone matchup row's
+  // 101px name budget and the locker's hard-won ≥140px name column (AD8) were both fought for
+  // by measurement, and a 30px face would hand back exactly the width those fights won.
+  function pshotHtml(key, cls, px) {
+    const u = D().headshotUrl ? D().headshotUrl(key, px) : "";
+    return `<span class="pshot${cls ? " " + cls : ""}" aria-hidden="true">${u
+      ? `<img src="${esc(u)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : ""}</span>`;
+  }
+  // The empty-slot / TOTAL-row twin: the box with nothing in it, so a column that mixes real
+  // players and "Empty" halves keeps one left edge on a desktop.
+  function pshotPh(cls) { return `<span class="pshot${cls ? " " + cls : ""} pshotph" aria-hidden="true"></span>`; }
   // Line 2 of a lineup row: the opponent and kickoff before the game, the live clock while it
   // is on, "Final" once it is done — exactly the ESPN reference's second line. "@DET" away,
   // bare "TB" at home (g.home, recorded by BOTH slate parsers).
@@ -3483,7 +3507,13 @@
     // for the matchup lineup + bench tables (item 1's "matchup lineup rows both sides").
     // The gold ring is the only thing that says "this man has the ball", so it carries the
     // label the pip used to — a colour on its own is not an accessible statement.
-    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}"${ball ? ' title="Has the ball"' : ""}${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
+    // The headshot rides the OUTER edge (mirroring the crest convention on the score cards)
+    // and is DESKTOP-ONLY — .mushot is display:none below 1024px, because the phone row's
+    // name budget (101px against a 97px need) was fought for by measurement and a face would
+    // hand it straight back. An empty half carries the placeholder disc so the desktop
+    // column keeps one edge.
+    const shot = p ? pshotHtml(p.key, "mushot") : pshotPh("mushot");
+    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}"${ball ? ' title="Has the ball"' : ""}${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? ptsDiv + infoDiv + shot : shot + infoDiv + ptsDiv}</div>`;
   }
   // The ESPN-reference stat summary for a matchup row: a compact position-aware line built
   // from the stats of whichever source mergeRow() picked for display (row.src — the same
@@ -3526,7 +3556,10 @@
       + '<div class="pline pmeta mut"></div><div class="pline pstatline mut"></div></div>';
     const ptsDiv = `<div class="ppts"><div class="pline pscore"><span class="pts">${LG.fmtPts(total)}</span></div>`
       + '<div class="pline pproj mut"></div><div class="pline pstatpad"></div></div>';
-    return `<div class="pcellgrid ${side}">${side === "right" ? ptsDiv + infoDiv : infoDiv + ptsDiv}</div>`;
+    // The placeholder disc keeps "TOTAL" on the same left edge as every name above it once
+    // the desktop rows carry headshots (invisible on phones, like theirs).
+    const shot = pshotPh("mushot");
+    return `<div class="pcellgrid ${side}">${side === "right" ? ptsDiv + infoDiv + shot : shot + infoDiv + ptsDiv}</div>`;
   }
   function shortKick(g) {
     if (!g.kickoff) return "";
@@ -4823,9 +4856,9 @@
       const moveBtn = `<button type="button" class="faAddBtn faMoveBtn"${blocked
         ? ` disabled title="${esc(blocked)}" aria-label="${esc(blocked)}"` : ""}>${past ? "Add" : "Claim"}</button>`;
       return `<tr data-fi="${i}" data-pk="${esc(p.key)}">
-        <td class="faname"><span class="posbadge" data-pos="${esc(p.pos)}">${esc(p.pos)}</span>
+        <td class="faname"><span class="faply">${pshotHtml(p.key)}<span class="faplytxt"><span class="posbadge" data-pos="${esc(p.pos)}">${esc(p.pos)}</span>
           <b>${escn(p.name)}</b>${trendChip(p.key)}${injLabel(p.injury) ? ' <span class="inj">' + esc(injLabel(p.injury)) + "</span>" : ""}
-          <br><small class="mut">${esc(p.team)}</small></td>
+          <br><small class="mut">${esc(p.team)}</small></span></span></td>
         <td class="faadd">${moveBtn}</td>
         <td class="fatype">${esc(type)}</td>
         <td class="faproj num">${proj != null ? LG.fmtPts(proj) : "—"}</td>
@@ -4938,12 +4971,15 @@
       const faInj = injLabel(fa.injury);
       openRosterCard(`<div class="pccard rccard">
         <button type="button" class="pcclose" id="rcClose" aria-label="Close">✕</button>
-        <div class="pchead">
-          <h2 class="pcname">${past ? "Add" : "Claim"} ${escn(fa.name)}</h2>
-          <div class="pcmeta"><span class="posbadge" data-pos="${esc(fa.pos)}">${esc(fa.pos || "?")}</span>
-            <span class="mut">${esc(fa.team || "")}</span>${faInj ? ` <span class="inj">${esc(faInj)}</span>` : ""}</div>
-          <div class="rcin"><span>proj <b>${faProj != null ? LG.fmtPts(faProj) : "—"}</b></span>
-            <span>owned <b data-pctkey="${esc(fa.key)}">${esc(pctOwnedText(fa.key))}</b></span></div>
+        <div class="pchead pcheadshot">
+          ${pshotHtml(fa.key, "pshotbig", 160)}
+          <div class="pcheadtxt">
+            <h2 class="pcname">${past ? "Add" : "Claim"} ${escn(fa.name)}</h2>
+            <div class="pcmeta"><span class="posbadge" data-pos="${esc(fa.pos)}">${esc(fa.pos || "?")}</span>
+              <span class="mut">${esc(fa.team || "")}</span>${faInj ? ` <span class="inj">${esc(faInj)}</span>` : ""}</div>
+            <div class="rcin"><span>proj <b>${faProj != null ? LG.fmtPts(faProj) : "—"}</b></span>
+              <span>owned <b data-pctkey="${esc(fa.key)}">${esc(pctOwnedText(fa.key))}</b></span></div>
+          </div>
         </div>
         ${!past ? `<label class="rcbid" for="claimBid">FAAB bid ($, up to ${LG.teamFaab(T)})
           <input id="claimBid" type="number" min="0" max="${LG.teamFaab(T)}" value="0"></label>` : ""}
@@ -5901,10 +5937,15 @@
       // the player's name (item 8). .lrow.locked keeps dimming the row; openSwap keeps its own
       // lock guard as defence for every other path into it (an empty slot's candidate list, a
       // bumped starter), which a disabled button can no longer reach.
+      // .lkshot is DESKTOP-ONLY (display:none below 1024px): AD8's measured ≥140px name-column
+      // floor at 390px is a real usability bar this app already paid to reach, and a face plus
+      // its gap costs exactly the width that bar protects. On a desktop the row has room to
+      // spare.
       const rowHtml = (slot, p, idx) => p
         ? `<div class="lrow ${playerLocked(p) ? "locked" : ""}${hasBall(p) ? " hasball" : ""}" data-slot="${slot}" data-idx="${idx}">
             <span class="slotchip" data-pos="${slotPos(slot)}">${slot}</span>
             <button type="button" class="linfo" data-pk="${esc(p.key)}">
+              ${pshotHtml(p.key, "lkshot")}
               <span class="lname"><b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${injChip(d, p)}</small></span>
               <span class="lpts">${LG.fmtPts(d.livePts(p.key))}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
             </button>
@@ -5925,7 +5966,7 @@
       // Read-only — no swap affordance to split out, so the whole row (data-pk) opens the
       // stats card (item 1's "locker/My-Team roster rows").
       rosterHtml = `<div class="card"><h2>Roster — week ${UI.week}</h2>${roster.length ? `<div class="panner"><table class="tbl"><tbody>
-        ${roster.map((p) => `<tr data-pk="${esc(p.key)}"><td>${esc(p.slot)}</td><td>${escn(p.name)}</td><td class="mut">${esc(p.pos)} · ${esc(p.team)}</td></tr>`).join("")}
+        ${roster.map((p) => `<tr data-pk="${esc(p.key)}"><td>${esc(p.slot)}</td><td><span class="faply">${pshotHtml(p.key)}<span>${escn(p.name)}</span></span></td><td class="mut">${esc(p.pos)} · ${esc(p.team)}</td></tr>`).join("")}
       </tbody></table></div>` : '<p class="mut">No roster yet.</p>'}</div>`;
     }
 

@@ -210,7 +210,7 @@
      .faname is sticky-left so it stays in view while the rest of the row pans inside .panner
      on a phone — cheap since the table already lives in an overflow-x:auto container. */
   table.faTable tbody tr { cursor:pointer; }
-  table.faTable .faname { width:150px; min-width:150px; position:sticky; left:0; background:var(--card); z-index:1; }
+  table.faTable .faname { width:180px; min-width:180px; position:sticky; left:0; background:var(--card); z-index:1; }
   table.faTable .faname b { font-family:var(--font-body); font-weight:600; }
   table.faTable .fatype, table.faTable .faopp { min-width:60px; }
   table.faTable .faproj, table.faTable .faavg, table.faTable .falast { min-width:56px; }
@@ -224,17 +224,20 @@
   .faAddBtn:disabled:hover { border-color:var(--divider2); }
   /* ITEM 22's phone half: "on mobile view we need to be able to see add, type and projection
      without horizontal scrolling". At 390px the card's own content box is ~342px, and the
-     four columns that have to fit inside it are PLAYER + ADD + TYPE + PROJ. Measured budget:
-       116  PLAYER (sticky; was 150 — a name wraps to its second line here rather than
-            stealing the room the three data columns need)
+     four columns that have to fit inside it are PLAYER + ADD + TYPE + PROJ. Measured budget
+     (re-cut 2026-08-13 for the headshot — a 22px face + 6px gap widened PLAYER by 28, and
+     the whole row still lands inside the box):
+       144  PLAYER (sticky; 22px face + 6px gap + the 116 the text always had)
         66  ADD    (a 58px button plus its cell)
         44  TYPE   ("FA" or a 2-4 character abbrev)
         50  PROJ
         32  4 cells x 8px of horizontal padding (was 16px a cell)
-      = 308, inside 342 with room to spare. Everything after PROJ pans as it always did. */
+      = 336, inside 342. Everything after PROJ pans as it always did. */
   @media (max-width:560px) {
     table.faTable th, table.faTable td { padding:7px 4px; }
-    table.faTable .faname { width:116px; min-width:116px; }
+    table.faTable .faname { width:144px; min-width:144px; }
+    .faname .pshot { width:22px; height:22px; flex-basis:22px; }
+    .faname .faply { gap:6px; }
     table.faTable .faadd { min-width:58px; }
     table.faTable .fatype { min-width:36px; }
     table.faTable .faproj { min-width:42px; }
@@ -820,7 +823,11 @@
   .swaprow.picked { border-color:var(--accent); background:var(--nested); }
   .swaprow:disabled { opacity:.45; cursor:default; }
   .swaprow:disabled:hover { border-color:var(--border-card); background:var(--card); }
-  .rcwho { min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; }
+  /* 2026-08-13: the face rides first, so the row is face + a text stack; .rcwhotxt carries
+     the wrap/baseline behaviour the whole cell used to (its b/small descendant rules below
+     still match through it). */
+  .rcwho { min-width:0; display:flex; align-items:center; gap:8px; }
+  .rcwhotxt { min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; }
   .rcwho b { font-weight:600; }
   .rcwho small { font-size:11px; }
   .rcblock { color:var(--faint); font-size:10px; text-transform:uppercase; letter-spacing:.5px; }
@@ -1502,6 +1509,31 @@
   .pctileval { font:700 18px var(--font-display); font-variant-numeric:tabular-nums; }
   .pctilelabel { margin-top:2px; text-transform:uppercase; letter-spacing:.5px; }
   .pclog table.tbl th, .pclog table.tbl td { padding:7px 8px; }
+
+  /* ---- PLAYER HEADSHOTS (2026-08-13, user: "bring in player images") ----
+     One circular fixed-size box (.pshot), ALWAYS rendered where a face belongs — the box is
+     what keeps every row's name on one left edge whether ESPN has shot this man or not; a
+     404'ing image hides itself (onerror) and leaves the disc standing (the crest-placeholder
+     discipline, again). --nested2 gives the disc a quiet seat so a transparent-PNG headshot
+     doesn't float on the card colour.
+     .mushot (matchup rows) and .lkshot (My Team rows) exist ONLY at >=1024px: the phone
+     matchup row's 101px name budget and the locker's measured >=140px name floor (AD8) were
+     both bought by measurement, and a face + gap costs exactly what those fights won. */
+  .pshot { width:24px; height:24px; flex:0 0 24px; border-radius:50%; background:var(--nested2);
+           border:1px solid var(--border-card); overflow:hidden; display:inline-flex; align-self:center; }
+  .pshot img { width:100%; height:100%; object-fit:cover; display:block; }
+  .pshot.pshotbig { width:72px; height:72px; flex-basis:72px; }
+  .pcheadshot { display:flex; align-items:center; gap:14px; }
+  .pcheadshot .pcheadtxt { min-width:0; flex:1 1 auto; }
+  /* players table + the read-only roster table: face beside the existing text stack */
+  .faply { display:flex; align-items:center; gap:8px; }
+  .faply .faplytxt, .faply > span:last-child { min-width:0; }
+  /* desktop-only surfaces — the base rule hides them, the media block below paints them */
+  .pshot.mushot, .pshot.lkshot { display:none; }
+  @media (min-width:1024px) {
+    .pcellgrid .mushot { display:inline-flex; width:38px; height:38px; flex:0 0 38px; }
+    .linfo .lkshot { display:inline-flex; width:30px; height:30px; flex:0 0 30px; }
+  }
 
   /* ---------------- nav — mobile bottom bar / desktop top-nav row ---------------- */
   .bnav { position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex;

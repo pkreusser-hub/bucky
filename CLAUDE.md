@@ -11914,3 +11914,41 @@ spell out the whole team name using 2 rows centered."* Files: `league.html` +
   one (scores render beneath the names), so cross-card height equality stopped being true
   for a good reason. Fixture: `NFL_NAMES` map spread into all four competitor sites, DEN
   deliberately absent (the no-name/no-crest/no-colour fallback case in one team).
+
+## 🏈 GFFL — PLAYER HEADSHOTS (2026-08-13)
+
+User: *"would it be possible to bring in player images?"* → *"do it."* Files: `league.html` +
+`assets/league/lg-{data,ui}.js` + `tools/_verify-gffl.cjs` (2474 → **2507**, FAIL 0, new
+section AW). No server work, no keys, no cost — **two CDNs keyed by ids the app already
+holds, both verified LIVE before a line was written**: ESPN hosts a headshot for every espn
+player id the rosters key on (`/i/headshots/nfl/players/full/<id>.png` answered 200 for real
+roster ids; their COMBINER resizes server-side — 8KB at 96px, 20KB at 160, vs a 260KB
+original; a bad id answers a clean 404), and Sleeper's thumb CDN covers slp_/name-resolved
+keys via the same `D.pidForKey` the scoring already trusts. A D/ST wears its team crest.
+- **`D.headshotUrl(key, px)`** (lg-data, beside teamLogo) is the one answer: dst_ → crest ·
+  numeric → combiner at the asked size · else pidForKey → sleeper thumb · "" otherwise.
+- **`pshotHtml`/`pshotPh`** (lg-ui): ONE fixed-size circular box, ALWAYS rendered — the box
+  is what keeps every row's name on one left edge whether ESPN has shot this man or not (the
+  crest-placeholder discipline's third outing); a 404'ing face hides ITSELF via onerror and
+  leaves the disc standing.
+- **WHERE, and the width rule that decides it**: the players table (22px, sticky PLAYER
+  column widened 116→144 phone / 150→180 desktop — the phone budget re-cut in the CSS
+  comment lands at 336 of 342, still no panning for PLAYER/ADD/TYPE/PROJ), the stats card
+  (72px, fetched at 160 for retina), the claim-card header + every drop/swap-candidate row,
+  and a rival's read-only roster — at EVERY width. The matchup rows (`.mushot`, 38px, OUTER
+  edge both sides — the score cards' crest convention; empty halves and the TOTAL row carry
+  the placeholder so the desktop columns keep one edge) and My Team rows (`.lkshot`, 30px)
+  render at **≥1024px ONLY**: the phone matchup row's 101px name budget and AD8's measured
+  ≥140px locker name floor were both bought by measurement, and a face + gap costs exactly
+  that width. Both halves of the rule are ASSERTED — painted on a desktop,
+  in-the-DOM-but-not-painted at 390 with AD8's floor re-measured on the same page.
+- **SUITE**: the two headshot CDNs are FIXTURED (the crest-CDN precedent — an aborted <img>
+  can only ever be asserted as "the element exists"): a real SVG face by default, and a 404
+  under `fixture.headshotsDown` proving the onerror-placeholder path against the real
+  failure shape. FIXTURE FACT that shaped AW1: the browse pool's two non-D/ST free agents
+  deliberately carry NO espn_id (item 1's own note), so the espn-combiner row assertion has
+  to click the All filter to find a rostered numeric key — the Available pool exercises the
+  SLEEPER path, which is the one worth proving there anyway.
+Plates: `shots/gffl_headshots_moves_390.png`, `gffl_headshots_matchup_1440.png`.
+**KNOWN**: a brand-new signing ESPN hasn't photographed 404s to the disc (by design); the
+face discs sit on `--nested2` so a transparent-PNG headshot never floats on the card colour.

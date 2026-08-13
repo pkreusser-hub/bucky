@@ -965,6 +965,34 @@
     return logoMap.get(ab) || "";
   };
 
+  // A player's own FACE (2026-08-13, user: "would it be possible to bring in player images?").
+  // Two CDNs, both keyed by ids this app already holds — no new dependency, no key, no server
+  // call of ours, all verified LIVE before shipping:
+  //   · ESPN hosts a headshot for every player id the league's rosters key on
+  //     (/i/headshots/nfl/players/full/<espnId>.png — real roster ids answer 200), and their
+  //     COMBINER resizes it server-side (~8KB at 96px vs 260KB for the original — never ship
+  //     the original to a phone). A bad/retired id answers a clean 404, so the renderer's
+  //     onerror-placeholder discipline works exactly like the crests'.
+  //   · A key that only resolves through the Sleeper directory (slp_-prefixed, or a name-match
+  //     pid) falls to Sleeper's own thumb CDN, same id space D.pidForKey already answers in.
+  //   · A D/ST has no face — its team's crest (D.teamLogo, the slate already in memory) is the
+  //     honest picture.
+  // "" for anything unresolvable: the renderer draws a same-size placeholder disc, never a
+  // broken-image glyph and never a hole that shifts the column (the score-card crest lesson).
+  D.headshotUrl = function (key, px) {
+    const k = String(key == null ? "" : key);
+    if (!k) return "";
+    if (k.startsWith("dst_")) return D.teamLogo(k.slice(4)) || "";
+    const w = Math.round(Number(px) || 96);
+    // ESPN's headshot masters are 350x254 — ask the combiner for the same aspect so nothing
+    // is letterboxed or stretched before our own object-fit ever sees it.
+    if (/^\d+$/.test(k)) {
+      return "https://a.espncdn.com/combiner/i?img=/i/headshots/nfl/players/full/" + k + ".png&w=" + w + "&h=" + Math.round(w * 0.726);
+    }
+    const pid = D.pidForKey ? D.pidForKey(k) : null;
+    return pid != null ? "https://sleepercdn.com/content/nfl/players/thumb/" + pid + ".jpg" : "";
+  };
+
   // ---------------- diff engine ----------------
   function rowFor(key, meta) {
     let row = D.S.players.get(key);
