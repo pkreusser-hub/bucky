@@ -328,6 +328,34 @@ async function lgEspnRulesAudit(body) {
   return { ok: true, season: year, perSlot, players };
 }
 
+// Bounded read-only ESPN probe (2026-08-13, the rules reconciliation's iteration loop): the
+// slot-filtered kona recipe that worked on 2026-08-07 400s today and past-season kona lines
+// come back with EMPTY appliedStats — ESPN moved, and finding the current recipe by
+// deploy-per-guess is the wrong loop. Views are ALLOWLISTED (never an open proxy), the league
+// id is pinned server-side as everywhere else, and the response is size-capped raw JSON for a
+// diagnosis script to dissect. Family-secret-gated like every action here.
+const PROBE_VIEWS = new Set(["mBoxscore", "mMatchupScore", "mMatchup", "mRoster", "mSettings", "kona_player_info", "kona_playercard"]);
+async function lgEspnProbe(body) {
+  const cookies = ffCookies();
+  if (!cookies) return { ok: false, reason: "fantasy-not-configured" };
+  const year = Number(body?.season) >= 2018 ? Number(body.season) : 2025;
+  const views = (Array.isArray(body?.views) ? body.views : []).filter((v) => PROBE_VIEWS.has(v));
+  if (!views.length) return { ok: false, reason: "no-views" };
+  const sp = Number(body?.scoringPeriodId);
+  const qp = [Number.isFinite(sp) ? "scoringPeriodId=" + sp : "", ...views.map((v) => "view=" + v)].filter(Boolean).join("&");
+  const url = `${FF_BASE}/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${FF_LEAGUE_ID}?${qp}`;
+  const headers = { "User-Agent": UA, accept: "application/json", Cookie: cookies };
+  if (body?.filter && typeof body.filter === "object") headers["X-Fantasy-Filter"] = JSON.stringify(body.filter).slice(0, 4000);
+  try {
+    const r = await fetch(url, { headers });
+    if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
+    const text = await r.text();
+    return { ok: r.ok, status: r.status, bytes: text.length, body: text.slice(0, 900000) };
+  } catch (e) {
+    return { ok: false, reason: "fetch-failed" };
+  }
+}
+
 // ESPN history import (plan §4.8) — one past season per call; the client
 // loops seasons backward until the import runs dry. Slimmed hard: final
 // standings + the champion + every real matchup's final score, nothing
@@ -454,6 +482,7 @@ export default async (req) => {
   if (action === "lg_espn_rosters_season") return json(await lgEspnRostersSeason(body));
   if (action === "lg_espn_kicker_audit") return json(await lgEspnKickerAudit(body));
   if (action === "lg_espn_rules_audit") return json(await lgEspnRulesAudit(body));
+  if (action === "lg_espn_probe") return json(await lgEspnProbe(body));
   if (action === "lg_espn_history") return json(await lgEspnHistory(body));
   if (action === "lg_gif_search") return json(await lgGifSearch(body));
   return json({ ok: false, reason: "unknown-action" });
