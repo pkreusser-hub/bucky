@@ -1343,6 +1343,43 @@ RULES
   hasn't started — nothing has happened yet to justify a change). Only "in" players can move.
 - Use ONLY the numbers and game state in the data. Never invent stats, injuries or news not in it.`;
 
+// The AI trade analyst (2026-08-12, user: "right now its mathematical, I want to connect it to
+// Grok 4.5 and actually have it analyze both rosters strengths and weaknesses, player future
+// projections and come up with a fair trade"). Unlike gfflproj above, this mode WANTS the
+// model's own NFL knowledge — rest-of-season outlook, roles, schedules, real-world injury
+// context — layered ON TOP of the league's own numbers. The prose is for the owner; the
+// ===TRADE=== tail is for the machine (the client pre-fills the trade builder from it), which
+// is why it must carry the payload's own player KEYS verbatim, never names.
+const GFFLTRADE_SYSTEM = `You are a sharp, honest fantasy football trade analyst for a family's private
+8-team league. You are given BOTH rosters as JSON — "mine" (the owner asking you) and "theirs"
+(the trade partner) — each player with a "key" (an opaque id), name, position, real NFL team,
+current lineup slot, injury status, and this league's own numbers: season average (avg), last
+week (last), season total (total), and this week's projection (proj). You also get the league's
+starting-lineup requirements and the current week.
+
+TASK
+1. Briefly size up each roster's positional STRENGTHS and WEAKNESSES (2-3 sentences per team) —
+   use the numbers given AND your own real-world NFL knowledge of these players' rest-of-season
+   outlook: roles, offenses, schedules, age, injury situations you know of.
+2. Propose ONE fair trade that helps BOTH teams where they are weaker — 1-for-1 up to 3-for-3
+   (this league caps a side at 3). "Fair" means an even exchange of rest-of-season value, not a
+   fleecing; say plainly why each side should want it.
+3. If the two rosters genuinely have no even trade that helps both, say so and propose nothing.
+
+RULES
+- Use ONLY players present in the two rosters given. Never invent players.
+- Both rosters must still be able to field a legal starting lineup after the trade (the slot
+  requirements are in the data) — never trade away a team's only QB for a bench receiver.
+- If a proposed player is injured/out, address it head-on — a discount is a reason, hiding it
+  is not.
+- Keep the whole answer under 250 words. Bold player names with **double asterisks**. No
+  markdown headers, no tables, no bullet spam — short paragraphs.
+- END with EXACTLY ONE line, the machine tail, using the "key" values from the data VERBATIM
+  ("give" = players MY team sends away, "get" = players I receive):
+  ===TRADE=== {"give":["<key>","<key>"],"get":["<key>"]}
+  If you propose no trade: ===TRADE=== {"give":[],"get":[]}
+  Nothing may follow that line.`;
+
 const MODES = {
   // 1600, not the long-standing 1200, and this is a MEASURED fix, not headroom for its own sake:
   // at 1200 a Haiku scene sometimes ran past the budget and arrived cut off mid-sentence with no
@@ -1393,6 +1430,7 @@ const MODES = {
   // comfortable headroom for a handful of {name,mult,why} objects. cache:false — one-shot, no
   // cached prefix to read.
   gfflproj:    { system: GFFLPROJ_SYSTEM,   maxTokens: 800,  thinking: { type: "disabled" }, cache: false },
+  gffltrade:   { system: GFFLTRADE_SYSTEM,  maxTokens: 1400, thinking: { type: "disabled" }, cache: false },
 };
 const KID_ART_MODEL = RESEARCH_MODEL;   // Sonnet 5 — better at clean, readable vector art
 
@@ -1652,7 +1690,7 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
       : modeName === "storyseed" ? "f"
       : (modeName === "fantasy" || modeName === "ffrecap") ? "w"
       // The live projection adjuster reuses "w" too — it's the same fantasy-AI spend.
-      : modeName === "gfflproj" ? "w"
+      : modeName === "gfflproj" || modeName === "gffltrade" ? "w"
       : modeName === "audit" ? "x" : "r";
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
@@ -2816,6 +2854,23 @@ function buildGfflProjMessages(body) {
   parts.push("", "TASK: Return adjustment multipliers for players whose rest-of-game outlook has genuinely changed.");
   return [{ role: "user", content: parts.join("\n") }];
 }
+// The trade analyst's turn — SERVER-BUILT from named body fields, the house rule for every
+// mode that carries league JSON (MAX_CONTENT_CHARS would slice a payload stuffed into
+// messages[], and half a roster is worse than none).
+function buildGfflTradeMessages(body) {
+  const t = body.trade && typeof body.trade === "object" && !Array.isArray(body.trade) ? body.trade : null;
+  const sideOk = (s) => s && typeof s === "object" && Array.isArray(s.players) && s.players.length;
+  if (!t || !sideOk(t.mine) || !sideOk(t.theirs)) return null;
+  const parts = [];
+  parts.push("WEEK " + (Number.isInteger(Number(t.week)) ? Number(t.week) : "?")
+    + " · STARTING LINEUP REQUIREMENTS: " + JSON.stringify(t.slots || {}));
+  parts.push("", "MY TEAM (" + String(t.mine.name || "mine") + ", record " + String(t.mine.record || "?") + "):");
+  parts.push(clipJson(t.mine.players.slice(0, 25), 8000));
+  parts.push("", "THEIR TEAM (" + String(t.theirs.name || "theirs") + ", record " + String(t.theirs.record || "?") + "):");
+  parts.push(clipJson(t.theirs.players.slice(0, 25), 8000));
+  parts.push("", "TASK: size up both rosters, then propose ONE fair trade per your instructions — and end with the ===TRADE=== line carrying the exact keys.");
+  return [{ role: "user", content: parts.join("\n") }];
+}
 // One column per completed week, family-shared: doc farmgpt_ffrecap/<season>_w<week>.
 const FFRECAP_COLLECTION = "farmgpt_ffrecap";
 async function fetchFfRecap(id) {
@@ -3219,6 +3274,7 @@ export default async (req) => {
   else if (body.mode === "fantasy") messages = buildFantasyMessages(body);
   else if (body.mode === "ffrecap") messages = buildRecapMessages(body);
   else if (body.mode === "gfflproj") messages = buildGfflProjMessages(body);
+  else if (body.mode === "gffltrade") messages = buildGfflTradeMessages(body);
   else if (body.mode === "storyseed") {
     const built = buildSeedMessages(body);
     if (built) { messages = built.messages; seedHasPack = built.hasPack; }
@@ -3229,6 +3285,7 @@ export default async (req) => {
       : body.mode === "fantasy" ? "Bad fantasy request"
       : body.mode === "ffrecap" ? "Bad recap request"
       : body.mode === "gfflproj" ? "Bad projection request"
+      : body.mode === "gffltrade" ? "Bad trade request"
       : body.mode === "storyseed" ? "Bad seed request" : "Bad messages array", jsonHeaders);
   }
 
@@ -3366,7 +3423,7 @@ export default async (req) => {
   // trash talk and hot takes), falling back to Sonnet, the quality tier for advice.
   else if (body.mode === "fantasy" || body.mode === "ffrecap") { provider = "xai"; model = XAI_MODEL; }
   // The live projection adjuster: same Grok pick, same reasoning as the analyst/columnist above.
-  else if (body.mode === "gfflproj") { provider = "xai"; model = XAI_MODEL; }
+  else if (body.mode === "gfflproj" || body.mode === "gffltrade") { provider = "xai"; model = XAI_MODEL; }
 
   // DEGRADE BEFORE WE EVEN ASK. A site with no XAI_API_KEY is a working site: every xAI route
   // resolves back to its Anthropic equivalent here, so the reader gets a Haiku-narrated story
@@ -3381,7 +3438,7 @@ export default async (req) => {
   // doesn't know about it and would leave it on STORY_MODEL (Haiku) — wrong tier for advice. Correct
   // it here rather than touch that ternary: RESEARCH_MODEL is the fallback quality tier every other
   // Grok-backed mode (fantasy/ffrecap) already gets.
-  if (body.mode === "gfflproj" && !process.env.XAI_API_KEY) { provider = "anthropic"; model = RESEARCH_MODEL; }
+  if ((body.mode === "gfflproj" || body.mode === "gffltrade") && !process.env.XAI_API_KEY) { provider = "anthropic"; model = RESEARCH_MODEL; }
 
   let upstream;
   // One attempt at one provider. Returns {ok:true, upstream} or {ok:false, status, msg} — an
@@ -3492,7 +3549,7 @@ export default async (req) => {
     attempt = await openUpstream(provider, model);
   }
   // Same outage fallback, added separately for gfflproj so the condition above stays untouched.
-  if (!attempt.ok && provider !== "anthropic" && body.mode === "gfflproj") {
+  if (!attempt.ok && provider !== "anthropic" && (body.mode === "gfflproj" || body.mode === "gffltrade")) {
     provider = "anthropic";
     model = RESEARCH_MODEL;
     attempt = await openUpstream(provider, model);

@@ -963,6 +963,25 @@
   .chatText2 { white-space:pre-wrap; word-break:break-word; }
   .chatImg { max-width:220px; max-height:220px; border-radius:10px; margin-top:6px; display:block; cursor:zoom-in; }
   .chatActions { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  /* THE TROPHY CASE (2026-08-12) — one shelf per award kind, icon + label + year chips.
+     Icon colours: gold cup, silver medal, green points bars, muted porcelain. */
+  .trophycase .tcshelf { display:flex; align-items:center; gap:9px; padding:8px 0; flex-wrap:wrap;
+    border-bottom:1px solid var(--divider2); }
+  .trophycase .tcshelf:last-child { border-bottom:0; padding-bottom:2px; }
+  .trophycase svg { flex:0 0 auto; }
+  .tk-champ svg { color:var(--gold); } .tk-silver svg { color:#c3cbdb; }
+  .tk-points svg { color:var(--green); } .tk-toilet svg { color:var(--mut); }
+  .trophycase .tclabel { font:700 13px var(--font-display); letter-spacing:.5px; text-transform:uppercase; color:var(--ink); }
+  .trophycase .tccount { font:700 12px var(--font-display); color:var(--mut); }
+  .trophycase .tcyears { display:flex; flex-wrap:wrap; gap:4px; margin-left:auto; }
+  .trophycase .trophyline { font:600 11.5px var(--font-display); letter-spacing:.4px; color:var(--ink2);
+    background:var(--nested2); border:1px solid var(--border-card); border-radius:var(--radius-badge); padding:2px 7px; }
+  /* The AI trade analyst's read (2026-08-12) — a quiet nested panel under the Suggest button. */
+  .mvsugai { background:var(--nested2); border:1px solid var(--border-card); border-radius:10px;
+    padding:10px 12px; margin:8px 0 10px; font-size:13px; line-height:1.5; color:var(--ink2); }
+  .mvsugai p { margin:0 0 8px; } .mvsugai p:last-child { margin-bottom:0; }
+  .mvsugai b { color:var(--ink); }
+  .mvsugai[hidden] { display:none; } /* the house [hidden] restatement, again */
   /* Refinement 4: reactions. A chip only exists when someone reacted; a lit ring marks YOUR
      team's own reaction; the add-button is the SVG smiley-plus; the palette is the same
      keyboard the composer uses, anchored to one message at a time. */

@@ -3570,6 +3570,16 @@
   }
   // mine / theirs are roster arrays ([{key,name,pos,team,slot}]). Returns a suggestion or
   // null — "no reasonable trade exists" is a real answer here, not a failure to try harder.
+  // The tiniest possible renderer for the analyst's prose: escape EVERYTHING first (model
+  // output is external data), then allow exactly two shapes back — **bold** and paragraph
+  // breaks. No markdown library; the prompt promises short paragraphs and bold names, nothing
+  // else, and anything else the model tries stays visible as literal text rather than markup.
+  function aiProseFmt(text) {
+    const paras = esc(String(text || "").trim()).split(/\n{2,}/);
+    return paras.filter((p) => p.trim()).map((p) =>
+      "<p>" + p.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br>") + "</p>").join("");
+  }
+  UI.aiProseFmt = aiProseFmt; // test hook
   function suggestTradePair(mine, theirs) {
     if (!mine || !theirs || !mine.length || !theirs.length) return null;
     const edge = {};
@@ -4456,6 +4466,7 @@
         <select id="mvTradeTeam">${others.map((t) => `<option value="${t.id}" ${t.id === cpId ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select>
         <div class="rowline mvsugrow"><button id="mvSuggest" type="button">Suggest a trade</button>
           <span id="mvSuggestWhy" class="mut small"></span></div>
+        <div id="mvSuggestAi" class="mvsugai" hidden></div>
         <h2 class="small mut">You give (up to 3)</h2>
         <div id="mvGive" class="tradeside"></div>
         <h2 class="small mut">You get (up to 3)</h2>
@@ -4924,25 +4935,86 @@
     renderTradeSide("give");
     renderTradeSide("get");
 
-    // ---- ITEM 21: Suggest a trade. See suggestTradePair() for the heuristic itself. This
-    // half only gathers the season averages it values players by (cached, usually already
-    // warm from the players table above), fills the two selections, and says why. It never
-    // sends — the user reviews and presses Send themselves.
+    // ---- ITEM 21, UPGRADED (2026-08-12, user: "right now its mathematical, I want to
+    // connect it to Grok 4.5 and actually have it analyze both rosters strengths and
+    // weaknesses, player future projections and come up with a fair trade"). The button asks
+    // THE ANALYST first — mode gffltrade in farmgpt.mjs (Grok 4.5, Anthropic fallback), the
+    // rosters travelling as NAMED BODY FIELDS with each player's key/pos/slot/injury + the
+    // league's own numbers, streaming its written read into #mvSuggestAi and pre-filling the
+    // builder from the ===TRADE=== machine tail. The OLD deterministic heuristic
+    // (suggestTradePair) survives as the honest FALLBACK — offline, an outage, an unparseable
+    // tail: the owner still gets a numbers-based suggestion, labelled as such. Neither path
+    // ever sends — the user reviews and presses Send themselves.
+    const applySuggestedKeys = (giveKeys, getKeys) => {
+      const mineOk = new Set(myRoster.map((p) => p.key)), theirsOk = new Set(cpRoster.map((p) => p.key));
+      const give = (giveKeys || []).filter((k) => mineOk.has(k)).slice(0, 3);
+      const get = (getKeys || []).filter((k) => theirsOk.has(k)).slice(0, 3);
+      if (!give.length || !get.length) return false;
+      UI._tradeGive = new Set(give); UI._tradeGet = new Set(get);
+      tradeOpen.give = false; tradeOpen.get = false;
+      renderTradeSide("give"); renderTradeSide("get");
+      return true;
+    };
+    const mathFallback = async (why, note) => {
+      await ensureStats(myRoster.concat(cpRoster));
+      const s = suggestTradePair(myRoster, cpRoster);
+      if (!s) { if (why) why.textContent = note + " No even trade fits these two rosters right now — try another team."; return; }
+      applySuggestedKeys(s.give.map((p) => p.key), s.get.map((p) => p.key));
+      if (why) why.textContent = note + " " + s.why + " " + LG.fmtPts(s.giveVal) + " for " + LG.fmtPts(s.getVal) + " — review it before you send.";
+    };
     $("#mvSuggest") && $("#mvSuggest").addEventListener("click", async () => {
-      const btn = $("#mvSuggest"), why = $("#mvSuggestWhy");
-      btn.disabled = true; if (why) why.textContent = "Looking…";
+      const btn = $("#mvSuggest"), why = $("#mvSuggestWhy"), out = $("#mvSuggestAi");
+      btn.disabled = true;
+      if (why) why.textContent = "Asking the analyst…";
+      if (out) { out.hidden = false; out.innerHTML = '<p class="mut small">Reading both rosters…</p>'; }
       try {
         await ensureStats(myRoster.concat(cpRoster));
-        const s = suggestTradePair(myRoster, cpRoster);
-        if (!s) {
-          if (why) why.textContent = "No even trade fits these two rosters right now — try another team.";
-          return;
+        const d = D();
+        const packSide = (ros) => ros.map((p) => {
+          const s = UI._faStats.get(p.key), meta = d.metaForKey(p.key) || {};
+          return { key: p.key, name: p.name, pos: p.pos, team: p.team, slot: p.slot,
+            injury: meta.injury || "", avg: s ? s.avg : null, last: s ? s.last : null,
+            total: s ? s.total : null, proj: d.projFor(p.key) };
+        });
+        const my = LG.teamById(tid), cp = LG.teamById(UI._tradeCp);
+        const rec = (id) => { const st = (UI._standings || {})[id] || {}; return (st.w || 0) + "-" + (st.l || 0); };
+        const payload = { week: UI.week, slots: LG.rules.roster || {}, // rules.roster IS the slot map ({QB:1,RB:2,…})
+          mine: { name: my ? my.name : "My team", record: rec(tid), players: packSide(myRoster) },
+          theirs: { name: cp ? cp.name : "Their team", record: rec(UI._tradeCp), players: packSide(cpRoster) } };
+        const r = await fetch("/.netlify/functions/farmgpt", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ secret: LG.PASS, mode: "gffltrade", trade: payload }),
+        });
+        if (!r.ok) throw new Error("http-" + r.status);
+        const reader = r.body.getReader(), dec = new TextDecoder();
+        let text = "";
+        for (;;) {
+          const c = await reader.read(); if (c.done) break;
+          text += dec.decode(c.value, { stream: true });
+          // Stream the PROSE as it lands; the machine tail is held back until the end.
+          if (out) out.innerHTML = aiProseFmt(text.split("===TRADE===")[0]);
         }
-        UI._tradeGive = new Set(s.give.map((p) => p.key));
-        UI._tradeGet = new Set(s.get.map((p) => p.key));
-        tradeOpen.give = false; tradeOpen.get = false;
-        renderTradeSide("give"); renderTradeSide("get");
-        if (why) why.textContent = s.why + " " + LG.fmtPts(s.giveVal) + " for " + LG.fmtPts(s.getVal) + " — review it before you send.";
+        if (!text.trim()) throw new Error("empty");
+        const prose = text.split("===TRADE===")[0].trim();
+        if (out) out.innerHTML = aiProseFmt(prose);
+        let applied = false;
+        const tail = /===TRADE===\s*(\{[\s\S]*?\})/.exec(text);
+        if (tail) {
+          try {
+            const t = JSON.parse(tail[1]);
+            applied = applySuggestedKeys(t.give, t.get);
+            if (!applied && Array.isArray(t.give) && !t.give.length) {
+              if (why) why.textContent = "The analyst sees no even trade here — try another team.";
+              return;
+            }
+          } catch (e) { /* unparseable tail → fall through */ }
+        }
+        if (applied) { if (why) why.textContent = "The analyst's pick is loaded below — review it before you send."; }
+        else if (prose) { if (why) why.textContent = "Read the analysis — then pick the players yourself below."; }
+        else throw new Error("no-content");
+      } catch (e) {
+        if (out) out.hidden = true;
+        await mathFallback($("#mvSuggestWhy"), "The AI analyst isn't available right now — here's the numbers-based suggestion.");
       } finally { btn.disabled = false; }
     });
     $("#mvTradeSend").addEventListener("click", async () => {
@@ -5616,6 +5688,40 @@
     const st = standings[teamId] || { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
     const rows = [...LG.teams].sort((a, b) => { const A = standings[a.id] || { w: 0, pf: 0 }, B = standings[b.id] || { w: 0, pf: 0 }; return (B.w - A.w) || (B.pf - A.pf); });
     const place = rows.findIndex((t) => t.id === teamId) + 1;
+    // THE TROPHY CASE (2026-08-12, user: "add a trophy case to each My Team page, Champion,
+    // Runner Up and Point total champion" — plus the Toilet Bowl, which their own award
+    // history carries and this family celebrates). It SUPERSEDES the plain Championships
+    // card: the champion shelf keeps reading the merged `banners` above (hist champions +
+    // live trophies, deduped by season — so a January import and advanceBracket can never
+    // double-count), while the other shelves read the team doc's own trophies[]
+    // ({year, kind}: "runnerup" | "points" | "toilet"). Every icon is inline SVG — the
+    // zero-emoji app-chrome rule. A team with nothing on the shelf gets NO card, not an
+    // empty cabinet. Points Champion is REGULAR SEASON points only (the award history's own
+    // rule; the data loader derives it that way).
+    const TROPHY_KINDS = [
+      { kind: "champion", label: "League Champion", cls: "tk-champ",
+        icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path fill="none" stroke="currentColor" stroke-width="1.6" d="M7 6H4.5a3 3 0 0 0 3 4M17 6h2.5a3 3 0 0 1-3 4"/><path fill="currentColor" d="M11 14h2v3h-2z"/><path fill="none" stroke="currentColor" stroke-width="1.7" d="M8 19.5h8"/></svg>' },
+      { kind: "runnerup", label: "Runner-Up", cls: "tk-silver",
+        icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="14.5" r="5.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M8.5 10 6 3.5h4L12 8l2-4.5h4L15.5 10"/><path fill="currentColor" d="M11.2 17.5v-4.2l-1.4.9v-1.3l1.6-1h1.2v5.6z"/></svg>' },
+      { kind: "points", label: "Points Champion", cls: "tk-points",
+        icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 19.5h16"/><path fill="currentColor" d="M5.5 13h3v4.5h-3zM10.5 9h3v8.5h-3zM15.5 5h3v12.5h-3z"/></svg>' },
+      { kind: "toilet", label: "Toilet Bowl Champion", cls: "tk-toilet",
+        icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M8 3.5h5v6h-5zM6 11.5h12a6 6 0 0 1-6 6h-1.5l.8 3H8l.5-3.4A6 6 0 0 1 6 11.5Z"/><path fill="none" stroke="currentColor" stroke-width="1.6" d="M9.5 6.2h2"/></svg>' },
+    ];
+    const trophyCaseHtml = () => {
+      const byKind = { champion: banners.map((b) => b.season) };
+      for (const tr of (T.trophies || [])) {
+        if (tr.kind === "champion") continue; // already merged into banners, deduped
+        (byKind[tr.kind] = byKind[tr.kind] || []).push(tr.year);
+      }
+      const shelves = TROPHY_KINDS.filter((k) => (byKind[k.kind] || []).length).map((k) => {
+        const years = [...new Set(byKind[k.kind])].sort((a, b) => b - a);
+        return `<div class="tcshelf ${k.cls}">${k.icon}<b class="tclabel">${k.label}</b>
+          ${years.length > 1 ? `<span class="tccount">×${years.length}</span>` : ""}
+          <span class="tcyears">${years.map((y) => `<span class="trophyline">${y}</span>`).join("")}</span></div>`;
+      });
+      return shelves.length ? `<div class="card trophycase"><h2>Trophy case</h2>${shelves.join("")}</div>` : "";
+    };
     const teamTx = tx.filter((t) => t.teamId === teamId || (t.type === "trade" && (t.detail.from === teamId || t.detail.to === teamId)));
     // S3: NOTHING here reads T.colors. The one derivation clamps for contrast and hands back
     // both the raw picks (what the swatches must show) and the safe rendered set.
@@ -5705,13 +5811,14 @@
         </div>
         </div>
       </div>
+      ${trophyCaseHtml()}
       ${rosterHtml}
       ${alertsCardHtml(T, isOwner)}
       <div class="card"><h2>Schedule</h2><div class="panner"><table class="tbl">
         <thead><tr><th>Wk</th><th>Opp</th><th class="num">Result</th></tr></thead>
         <tbody>${scheduleRows}</tbody></table></div></div>
       <div class="card"><h2>Transactions</h2>${teamTx.length ? teamTx.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${esc(txSentence(t))}</div>`).join("") : '<p class="mut">No moves yet.</p>'}</div>
-      ${banners.length ? `<div class="card"><h2>Championships</h2>${banners.map((c) => `<div class="fline trophyline">${c.season}</div>`).join("")}</div>` : ""}
+      ${"" /* the Championships card is SUPERSEDED by the Trophy case above (2026-08-12) */}
       <div class="card"><h2>Rivalries</h2>${rivalries.length ? `<div class="panner"><table class="tbl">
           <thead><tr><th>Opponent</th><th class="num">W</th><th class="num">L</th><th class="num">T</th></tr></thead>
           <tbody>${rivalries.map((r) => `<tr><td><span class="teamlink" data-locker="${r.id}">${esc(r.name)}</span></td>

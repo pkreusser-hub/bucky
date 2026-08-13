@@ -78,7 +78,7 @@ notify.reset = () => { notify.calls = []; notify.status = 200; notify.abort = fa
 
 // ---------------- fixtures ----------------
 const fixture = {
-  phase: 1, sleeperDown: false, espnDown: false, tenorDown: false,
+  phase: 1, sleeperDown: false, espnDown: false, tenorDown: false, farmgptDown: false,
   // Section V knobs (adversarial review 2026-08-08) — every one defaults OFF, so sections
   // A-U see exactly the fixture they always did.
   espnWeekNum: null,      // what /scoreboard says its own week is (finding 1/3/7's provenance)
@@ -752,6 +752,23 @@ function startXaiUpstream() {
     let b = null; try { b = JSON.parse(raw); } catch { b = { parseError: raw }; }
     xaiReqs.push(b);
     res.setHeader("content-type", "text/event-stream");
+    // TWO Grok-backed GFFL modes share this upstream now, told apart the only way the real
+    // provider could — by the SYSTEM PROMPT in the request. The trade analyst's answer echoes
+    // REAL KEYS parsed out of the request's own roster JSON (never invented), which is exactly
+    // the contract the client's builder-prefill depends on.
+    const sys = JSON.stringify((b && b.messages) || "") + JSON.stringify((b && b.system) || "");
+    if (/===TRADE===/.test(sys)) {
+      const userTurn = (((b || {}).messages || []).find((m) => m.role === "user") || {}).content || "";
+      const keys = [...userTurn.matchAll(/"key":"([^"]+)"/g)].map((m) => m[1]);
+      const mineStart = userTurn.indexOf("MY TEAM"), theirsStart = userTurn.indexOf("THEIR TEAM");
+      const giveKey = keys.find((k, i) => userTurn.indexOf('"key":"' + k + '"') > mineStart && userTurn.indexOf('"key":"' + k + '"') < theirsStart) || keys[0];
+      const getKey = keys.find((k) => userTurn.indexOf('"key":"' + k + '"') > theirsStart) || keys[keys.length - 1];
+      res.end(xaiSse("Your roster is deep at running back but thin at receiver; theirs is the reverse. "
+        + "**P. Passer** has a soft rest-of-season schedule while their side needs the floor.\n\n"
+        + "A fair one-for-one that helps you both.\n"
+        + '===TRADE=== {"give":["' + giveKey + '"],"get":["' + getKey + '"]}'));
+      return;
+    }
     res.end(xaiSse(JSON.stringify({ players: [{ name: "T. Tight", mult: 1.25, why: "KC up big, feeding the tight end in garbage time" }] })));
   });
   return new Promise((r) => srv.listen(XAI_PORT, "127.0.0.1", () => r(srv)));
@@ -1525,6 +1542,10 @@ async function newTestPage(browser, seed, opts) {
         // complete body (same simplification the /league route above already uses) — the
         // page's own reader.getReader() loop is happy either way.
         if (u.includes("/.netlify/functions/farmgpt")) {
+          // AI-TRADE (2026-08-12): the outage switch — the button's math FALLBACK only runs
+          // when the AI genuinely fails, so the sections that assert the heuristic's own
+          // behaviour arm this to stage that failure honestly.
+          if (fixture.farmgptDown) return req.respond({ status: 500, contentType: "application/json", headers: cors, body: "{}" });
           const r = await farmgptFn(new Request("http://fn/farmgpt", { method: "POST", body: req.postData() || "{}" }));
           return req.respond({ status: r.status, contentType: r.headers.get("content-type") || "text/plain", headers: cors, body: await r.text() });
         }
@@ -4268,8 +4289,11 @@ async function openDetails(page, id) {
     // Restaged (item 10): the trophy banner rows carry a dedicated ".trophyline" class now (no
     // leading emoji to anchor a regex on) — read those rows directly instead.
     const trophyLines = await page.evaluate(() => [...document.querySelectorAll(".trophyline")].map((e) => e.textContent.trim()));
-    ok(/Championships/.test(lockerText) && trophyLines.includes("2023") && !trophyLines.includes("2024"),
-      "Battle Kreussers' locker shows their 2023 title banner, and only that one (" + JSON.stringify(trophyLines) + ")");
+    // RESTAGED 2026-08-12 (TROPHY CASE): the plain Championships card became the Trophy case —
+    // the champion shelf still reads the same merged banners, so the year chips (.trophyline)
+    // carry the identical facts under the new heading.
+    ok(/Trophy case/.test(lockerText) && /League Champion/.test(lockerText) && trophyLines.includes("2023") && !trophyLines.includes("2024"),
+      "Battle Kreussers' trophy case shows their 2023 title, and only that one (" + JSON.stringify(trophyLines) + ")");
     const rivRows = await page.evaluate(() => {
       const h2 = [...document.querySelectorAll("h2")].find((h) => h.textContent === "Rivalries");
       return h2 ? [...h2.closest(".card").querySelectorAll("tbody tr")].map((r) => [...r.querySelectorAll("td")].map((td) => td.textContent.trim())) : null;
@@ -4312,9 +4336,58 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
     await page.waitForSelector(".lockerhead", { timeout: 9000 });
     const lockerEmptyText = await page.evaluate(() => document.body.textContent);
-    ok(!/Championships/.test(lockerEmptyText), "no championships card renders when nobody's won anything yet");
+    ok(!/Trophy case/.test(lockerEmptyText) && !/Championships/.test(lockerEmptyText), "no trophy case renders when nobody's won anything yet — never an empty cabinet (restaged 2026-08-12)");
     ok(/No history against current opponents yet/.test(lockerEmptyText), "rivalries card shows the empty-history message");
     ok(errors.length === 0, "0 page errors on the empty-history state");
+    await ctx.close();
+  }
+
+  // ---- THE FULL TROPHY CASE (2026-08-12): all four shelves, from the team doc's own
+  // trophies[] + a hist champion, grouped and ordered, icons SVG (zero-emoji chrome),
+  // Points Champion carrying the award history's regular-season-only meaning.
+  {
+    const base = fullSeed();
+    const seed = { ...base, docs: { ...base.docs,
+      team_1: { ...base.docs.team_1, trophies: [
+        { year: 2020, kind: "champion" }, { year: 2011, kind: "champion" },
+        { year: 2019, kind: "runnerup" }, { year: 2021, kind: "runnerup" },
+        { year: 2019, kind: "points" }, { year: 2011, kind: "points" },
+        { year: 2014, kind: "toilet" },
+      ] },
+      hist_2023x: { kind: "hist", season: 2023, leagueName: "GFFL",
+        teams: [{ id: 1, name: "Battle Kreussers", w: 12, l: 2, t: 0, pf: 1700, pa: 1500, place: 1 }],
+        champion: { teamId: 1, name: "Battle Kreussers" }, matchups: [] },
+    } };
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, seed);
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+    await page.waitForSelector(".trophycase", { timeout: 9000 });
+    const tc = await page.evaluate(() => {
+      const c = document.querySelector(".trophycase");
+      const shelves = [...c.querySelectorAll(".tcshelf")].map((s) => ({
+        label: s.querySelector(".tclabel").textContent.trim(),
+        years: [...s.querySelectorAll(".trophyline")].map((y) => y.textContent.trim()),
+        count: (s.querySelector(".tccount") || {}).textContent || "",
+        svg: !!s.querySelector("svg"),
+      }));
+      return { shelves,
+        pictographs: /\p{Extended_Pictographic}/u.test(c.textContent),
+        aboveRoster: (() => { const r = [...document.querySelectorAll("h2")].find((h) => /Lineup|Roster/.test(h.textContent));
+          return r ? c.getBoundingClientRect().top < r.getBoundingClientRect().top : true; })(),
+      };
+    });
+    ok(tc.shelves.map((s) => s.label).join("|") === "League Champion|Runner-Up|Points Champion|Toilet Bowl Champion",
+      "all four shelves render, in the case's fixed order (" + tc.shelves.map((s) => s.label).join(", ") + ")");
+    const champ = tc.shelves[0];
+    ok(champ.years.join() === "2023,2020,2011" && champ.count === "×3",
+      "the champion shelf MERGES the hist title with the live trophies, deduped, newest first, counted (" + champ.years.join() + ")");
+    ok(tc.shelves[2].years.join() === "2019,2011", "the Points Champion shelf carries its own years (" + tc.shelves[2].years.join() + ")");
+    ok(tc.shelves[3].years.join() === "2014", "…and the Toilet Bowl hangs there too, as the family's history demands");
+    ok(tc.shelves.every((s) => s.svg) && !tc.pictographs, "every shelf icon is inline SVG — zero emoji in the app's own chrome");
+    ok(tc.aboveRoster, "the case sits at the TOP of the page, right under the hero — a trophy case is for showing off");
+    ok(errors.length === 0, "0 page errors on the full case");
     await ctx.close();
   }
 
@@ -4591,7 +4664,7 @@ async function openDetails(page, id) {
     await page.waitForSelector(".lockerhead", { timeout: 9000 });
     const lockerTxt = await page.evaluate(() => document.body.textContent);
     const trophyLines2 = await page.evaluate(() => [...document.querySelectorAll(".trophyline")].map((e) => e.textContent.trim()));
-    ok(/Championships/.test(lockerTxt) && trophyLines2.includes("2026"), "Battle Kreussers' locker shows the 2026 trophy right away (" + JSON.stringify(trophyLines2) + ")");
+    ok(/Trophy case/.test(lockerTxt) && trophyLines2.includes("2026"), "Battle Kreussers' trophy case shows the 2026 trophy right away (restaged 2026-08-12) (" + JSON.stringify(trophyLines2) + ")");
 
     ok(errors.length === 0, "0 page errors through the full three-round advance + trophy + bracket-page flow");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_bracket_final_390.png"), fullPage: true }); console.log("  📸 shots/gffl_bracket_final_390.png"); }
@@ -10235,9 +10308,14 @@ async function openDetails(page, id) {
         await UI.renderMoves();
       });
       await waitOr(page, "#mvSuggest");
+      // RESTAGED 2026-08-12 (AI-TRADE): the button asks the Grok analyst FIRST now, so the
+      // heuristic's own no-fit sentence lives on the FALLBACK path — stage the outage that
+      // reaches it.
+      fixture.farmgptDown = true;
       await evalOr(page, () => document.querySelector("#mvSuggest").click());
       const saidSo = await waitFnOr(page, () => /No even trade fits/.test(document.querySelector("#mvSuggestWhy").textContent));
-      ok(saidSo, "…and when nothing fits the card says so in plain words rather than proposing something silly");
+      fixture.farmgptDown = false;
+      ok(saidSo, "…and when nothing fits, the FALLBACK says so in plain words rather than proposing something silly");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -10267,8 +10345,14 @@ async function openDetails(page, id) {
       await evalOr(page, () => window.__GFFL__.UI.show("moves"));
       await waitOr(page, "#mvSuggest");
       await evalOr(page, (v) => { window.__GFFL__.D.projFor = (k) => (k in v ? v[k] : null); }, VALS);
+      // RESTAGED 2026-08-12 (AI-TRADE): this block is the MATH heuristic's own contract —
+      // exact pair, exact values, the explain-yourself sentence — which now lives on the
+      // fallback path, so the AI is staged down for it. The AI-first path gets its own block
+      // right below.
+      fixture.farmgptDown = true;
       await evalOr(page, () => document.querySelector("#mvSuggest").click());
       await waitFnOr(page, () => document.querySelectorAll("#mvGive .tradechip").length === 1);
+      fixture.farmgptDown = false;
       const filled = (await evalOr(page, () => ({
         give: [...document.querySelectorAll("#mvGive .tradesel .tradechip")].map((e) => e.textContent.replace(/\s+/g, " ").trim()),
         get: [...document.querySelectorAll("#mvGet .tradesel .tradechip")].map((e) => e.textContent.replace(/\s+/g, " ").trim()),
@@ -10280,6 +10364,7 @@ async function openDetails(page, id) {
         "the button fills BOTH sides of the real builder with the suggested pair (" + JSON.stringify([filled.give, filled.get]) + ")");
       ok(filled.giveSet.join() === "m_rb1" && filled.getSet.join() === "t_wr1", "…into the same selections the Send button reads, so it is a normal editable offer");
       ok(/deep at RB/.test(filled.why) && /20\.0 for 19\.0/.test(filled.why), "…and explains itself with the two values (" + filled.why + ")");
+      ok(/AI analyst isn't available/.test(filled.why), "…HONESTLY LABELLED as the numbers-based fallback, never passed off as the analyst (AI-TRADE, 2026-08-12)");
       const sent = (await evalOr(page, () => window.__GFFL__.LG.loadTrades())) || [];
       ok(sent.length === 0 && filled.giveSet.length > 0,
         "…and having filled the builder it has still sent NOTHING — the user reviews and presses Send themselves (" + sent.length + " trades on the board)");
@@ -10302,6 +10387,59 @@ async function openDetails(page, id) {
       const stillNone = (await evalOr(page, () => window.__GFFL__.LG.loadTrades())) || [];
       ok(stillNone.length === 0, "…and a suggestion the user has half-dismantled can't be sent either — the existing guard is untouched");
       ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // ---- AI-TRADE (2026-08-12, user: "connect it to Grok 4.5 and actually have it analyze
+      // both rosters strengths and weaknesses, player future projections and come up with a
+      // fair trade"): the AI-FIRST path, end to end through the real farmgpt handler and the
+      // fake Grok upstream (which echoes REAL keys parsed from the request's own rosters —
+      // the same contract the live model is instructed to keep).
+      const mk = (teamId, rows) => ({ kind: "roster", week: 1, teamId,
+        players: rows.map(([key, name, pos, slot]) => ({ key, name, pos, team: "DEN", slot })) });
+      const MINE = [["m_qb", "My QB", "QB", "QB"], ["m_rb1", "My RB One", "RB", "RB"], ["m_rb2", "My RB Two", "RB", "RB"],
+        ["m_wr1", "My WR One", "WR", "WR"], ["m_wr2", "My WR Two", "WR", "WR"],
+        ["m_te", "My TE", "TE", "TE"], ["m_fx", "My Flex", "RB", "FLEX"], ["m_k", "My K", "K", "K"], ["m_dst", "My DST", "DST", "DST"]];
+      const THEIRS = [["t_qb", "Their QB", "QB", "QB"], ["t_rb1", "Their RB One", "RB", "RB"], ["t_rb2", "Their RB Two", "RB", "RB"],
+        ["t_wr1", "Their WR One", "WR", "WR"], ["t_wr2", "Their WR Two", "WR", "WR"],
+        ["t_te", "Their TE", "TE", "TE"], ["t_fx", "Their Flex", "WR", "FLEX"], ["t_k", "Their K", "K", "K"], ["t_dst", "Their DST", "DST", "DST"]];
+      const base = fullSeed();
+      const seed = { ...base, docs: { ...base.docs, roster_2026_w1_t1: mk(1, MINE), roster_2026_w1_t2: mk(2, THEIRS) } };
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false; fixture.farmgptDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, seed);
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#mvSuggest");
+      xaiReqs.length = 0;
+      await evalOr(page, () => document.querySelector("#mvSuggest").click());
+      await waitFnOr(page, () => window.__GFFL__.UI._tradeGive.size === 1 && window.__GFFL__.UI._tradeGet.size === 1);
+      // The wire: named body field (the server BUILT the turn — rosters never ride messages[]
+      // from the client, the MAX_CONTENT_CHARS lesson), slots + both teams + every per-player
+      // number in the user turn, and the analyst prompt with its machine-tail contract.
+      const wire = xaiReqs.find((r) => JSON.stringify(r).includes("===TRADE==="));
+      ok(!!wire, "the click reaches Grok through the real farmgpt handler with the trade analyst's own prompt");
+      const turn = wire ? (((wire.messages || []).find((m) => m.role === "user") || {}).content || "") : "";
+      ok(/MY TEAM \(Battle Kreussers/.test(turn) && /THEIR TEAM \(End Zone Goats/.test(turn),
+        "…both rosters travel as ONE server-built turn, teams named");
+      ok(/"key":"m_rb1"/.test(turn) && /"key":"t_wr1"/.test(turn) && /"avg":/.test(turn) && /"proj":/.test(turn) && /"injury":/.test(turn),
+        "…each player carrying his key, injury and the league's own numbers for the model to weigh");
+      ok(/STARTING LINEUP REQUIREMENTS/.test(turn) && /"QB":1/.test(turn.replace(/\s+/g, "")),
+        "…and the legal-lineup slot requirements the fairness rules depend on");
+      const ai = (await evalOr(page, () => ({
+        give: [...window.__GFFL__.UI._tradeGive], get: [...window.__GFFL__.UI._tradeGet],
+        prose: (document.querySelector("#mvSuggestAi") || {}).innerHTML || "",
+        shown: !!(document.querySelector("#mvSuggestAi") && !document.querySelector("#mvSuggestAi").hidden),
+        why: (document.querySelector("#mvSuggestWhy") || {}).textContent || "",
+      }))) || { give: [], get: [], prose: "", why: "" };
+      ok(ai.give.length === 1 && ai.give[0].slice(0, 2) === "m_" && ai.get.length === 1 && ai.get[0].slice(0, 2) === "t_",
+        "the ===TRADE=== tail's keys land in the REAL builder, each on its own side (" + JSON.stringify([ai.give, ai.get]) + ")");
+      ok(ai.shown && /<b>P\. Passer<\/b>|<b>[^<]+<\/b>/.test(ai.prose) && !/===TRADE===/.test(ai.prose),
+        "…the analysis renders with its bold names and WITHOUT the machine tail");
+      ok(/analyst's pick is loaded/.test(ai.why), "…and the status says the analyst filled it — review before send");
+      const sentAi = (await evalOr(page, () => window.__GFFL__.LG.loadTrades())) || [];
+      ok(sentAi.length === 0, "…and the AI path never sends either (" + sentAi.length + " trades on the board)");
+      ok(errors.length === 0, "0 page errors on the AI path");
       await ctx.close();
     }
     {
@@ -12980,11 +13118,16 @@ async function openDetails(page, id) {
     // narration is exactly what a future reader needs (section AB11's precedent).
     {
       const raw = fs.readFileSync(path.join(ROOT, "assets", "league", "lg-ui.js"), "utf8");
-      const code = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
-      // A READ is `<something>.colors`. The colour editor's own WRITE is `colors,` / `colors:`
-      // inside an object literal — a property name, not a read of a team's stored colours —
-      // and stays legal.
-      const reads = code.match(/\b[A-Za-z_$][\w$]*\s*\.colors\b/g) || [];
+      // STRIPPER HARDENED 2026-08-12: the naive /\/\*[\s\S]*?\*\//g paired the `/*` inside the
+      // chat markup's accept="image/*" STRING with a */ 110KB later, silently skipping a third
+      // of the file — this check had been passing vacuously. Requiring whitespace/*/! after /*
+      // (the house comment style) means a glob in a string can never open a fake block.
+      const code = raw.replace(/\/\*[\s*!][\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+      // A READ is `<something>.colors`. The colour editor's own WRITE — `colors,` / `colors:`
+      // as a property name, or `delta.colors = {...}` as an assignment target headed for
+      // saveTeam — stays legal: the law is about RENDERING outside the contrast derivation,
+      // and a write is how the derivation gets its input.
+      const reads = code.match(/\b[A-Za-z_$][\w$]*\s*\.colors\b(?!\s*=[^=])/g) || [];
       ok(reads.length === 0, "no render site in lg-ui.js reads `<team>.colors` directly — every one derives through LG.teamPalette (" + JSON.stringify(reads) + ")");
       ok(/LG\.teamPalette|LG\.teamStyle|LG\.palStyle/.test(code), "…and the derivation helpers really are what it calls instead");
       const core = fs.readFileSync(path.join(ROOT, "assets", "league", "lg-core.js"), "utf8")

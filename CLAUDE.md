@@ -11625,3 +11625,96 @@ REAL input, then computed styles read on the hero (panel `rgba(0,0,0,0)`, shadow
 the slash, because the slash colour is EXTRACTED FROM THE MARK — that is what "seamless"
 costs. Pulling the slash toward the secondary behind cut-outs is the fix if the family dislikes
 it.
+
+## 🏈 GFFL — THE ANALYST TAKES OVER TRADE SUGGESTIONS (2026-08-12, Grok 4.5)
+
+User: *"right now its mathematical, I want to connect it to Grok 4.5 and actually have it
+analyze both rosters strengths and weaknesses, player future projections and come up with a
+fair trade."* Files: `netlify/functions/farmgpt.mjs` + `assets/league/lg-ui.js` +
+`league.html` + `tools/_verify-gffl.cjs` (2410 → **2427**).
+
+**SERVER — mode `gffltrade`**, the established Grok pattern verbatim (provider "xai"/XAI_MODEL,
+no-key degrade AND mid-request outage fallback to Sonnet, league data in NAMED BODY FIELDS —
+never messages[], MAX_CONTENT_CHARS slices JSON — user turn built server-side by
+`buildGfflTradeMessages`). `GFFLTRADE_SYSTEM`: size up both rosters (strengths/weaknesses, 2-3
+sentences each side), then propose ONE fair trade, 1-for-1 up to 3-for-3, drawing on the
+model's own NFL knowledge for trajectories PLUS the league's numbers (avg/last/total/proj/
+injury per player, records, the STARTING LINEUP REQUIREMENTS json — the legal-lineup rule is
+in the prompt); injury honesty; ≤250 words; **bold** names; and it ends with exactly one
+MACHINE TAIL — `===TRADE=== {"give":[...],"get":[...]}` quoting the payload's own keys
+verbatim (the ===CHOICES=== protocol family), empty arrays = no fair trade exists. maxTokens
+1400, thinking disabled, cache off, usage bucket "w" beside gfflproj.
+
+**CLIENT — the ⭐ Suggest button is AI-FIRST, math-as-fallback.** `packSide` ships each roster
+(key/name/pos/team/slot/injury via d.metaForKey + avg/last/total via UI._faStats + proj via
+d.projFor) with records and `LG.rules.roster` (which IS the slot map — no .slots subkey, a
+trap already stepped on once). The stream splits on the tail: prose renders into a new
+`.mvsugai` panel through `aiProseFmt` (esc-first, then only **bold** and paragraphs — no
+markdown lib), the tail's keys go through `applySuggestedKeys` which VALIDATES every key
+against the real rosters (≤3 a side) before filling the trade builder — a hallucinated key
+falls back rather than half-filling a proposal. Empty arrays render the analyst's "no even
+trade here" prose with the builder untouched. ANY failure — endpoint down, unparseable tail,
+invalid keys — lands on the old `suggestTradePair` with an honest label ("The AI analyst
+isn't available right now — here's the numbers-based suggestion."), so the button never dies.
+
+**SUITE**: the fake xai upstream answers the ===TRADE=== system prompt by parsing keys out of
+the request's own user turn (give from the MY TEAM block, get from THEIRS) — so the assertion
+that the builder fills with the right keys on the right sides is real, not an echo. AG3a/AG3b
+(the math contract) restaged to run under a new `fixture.farmgptDown` flag with reasons —
+they now ALSO prove the honest fallback label. New block: wire shape (both rosters + stats +
+requirements on the turn), builder filled m_/t_ on correct sides, prose with <b> and without
+the tail, status line, and loadTrades still 0 (suggest never sends).
+
+**LIVE-VERIFIED** post-deploy against real Grok through goatfantasyleague.com (XAI key is in
+Netlify env — the fantasy-smoke precedent).
+
+## 🏆 GFFL — THE TROPHY CASE + SEVENTEEN SEASONS OF AWARDS (2026-08-12)
+
+User: *"add a trophy case to each My Team page, Champion, Runner Up and Point total champion"*
++ the 2009-2015 award table from the family's own records + *"you should be able to get the
+results from ESPN directly for the other years, note that Point Total Champion is regular
+season points only."* Files: `assets/league/lg-ui.js` + `league.html` +
+`tools/_verify-gffl.cjs` + production data via `scratchpad/load_awards.mjs`.
+
+**THE CASE** (`trophyCaseHtml` in renderLocker): four shelves in fixed order — League
+Champion (gold cup) · Runner-Up (silver medal) · Points Champion (green bars) · Toilet Bowl
+Champion (muted toilet) — all inline SVG (zero-emoji chrome), year chips newest-first with a
+×N count, a shelf absent when empty, the whole card absent when the case is. **Champion years
+MERGE two sources deduped by season**: the hist docs' own champions (the existing `banners`
+mechanism — so the 2010-2025 titles already on file need no trophy rows) + the team doc's new
+`trophies[]` (`[{year, kind}]`, kinds champion/runnerup/points/toilet). The old
+"Championships" card is superseded by the case.
+
+**THE DATA** — every doc backed up to the session scratchpad before writing, masked PATCHes,
+verified by re-read:
+- Per-team `trophies` on the 8 current docs per the confirmed lineage (Dawn Treaders→GOAT
+  Kids 12, Scruffy Looking Nerfherders 9, ST-shirts→Nails For Breakfast 5, three Kruz
+  spellings→11); a defunct winner gets NO case — but nothing is lost:
+- **`awards_history`** (kind "awards") holds the COMPLETE raw table, defunct franchises
+  included, so the family record survives the franchise mapping.
+- **hist_2009's champion CORRECTED to Cruise Missiles** — the doc said Battle Kreussers, the
+  user's own award table says Cruise Missiles, and the family's table wins. **BK drops 4→3
+  all-time titles** (flagged to the user, veto invited). hist_2013 (Outlaws) and hist_2014
+  (Alley Cats) get their missing champions as synthetic defunct ids (1901-1903, outside 1-12
+  so the record book's live() gate drops them correctly).
+- ESPN-era points champions DERIVED as regular-season-only (weeks ≤14 matchup sums — proven
+  exact against the standings pf for 2020-2025; for 2018/2019 the hist matchup points run
+  ~1.3x the table so the TABLE wins there, documented in the loader).
+- **GAPS awaiting the user's next batch**: all of 2016, and 2017's runner-up + points champ
+  (ESPN history 404s pre-2018; 2017 has only a champion on file).
+
+**SUITE**: three Championships checks restaged to the case with reasons; a full trophy-case
+block seeds team_1 with 7 trophies across all 4 kinds + a hist champion and asserts shelf
+order, the hist+trophies merge dedupe ("2023,2020,2011"), counts, SVG-only, and
+placement above the roster.
+
+**A CHECK-HARNESS BUG THE BATCH EXPOSED, worth its own line**: AM3's "no render site reads
+team.colors" grep strips comments with the naive `/\/\*[\s\S]*?\*\//` — which paired the `/*`
+inside the chat markup's `accept="image/*"` STRING with a `*/` **110KB later**, silently
+skipping a third of lg-ui.js. The check had been passing VACUOUSLY; my edits re-paired the
+blocks and a legitimate saveTeam write (`delta.colors = …`) surfaced as a false failure.
+Fixed both halves: the stripper now requires whitespace/`*`/`!` after `/*` (a glob in a
+string can never open a block), and an assignment target is exempt — the honest scan over the
+WHOLE file then found zero real reads, so the S3 contrast law genuinely held everywhere.
+RULE: a comment-stripping grep over a file containing markup strings must never use the naive
+block regex — `image/*` is sitting in every file-input's accept attribute.
