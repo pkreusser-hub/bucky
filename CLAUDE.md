@@ -11590,3 +11590,38 @@ still takes the JPEG path. Battery **2410/2410** · palette **74/74**.
 `.lockerlogo` `<img>`, so a `.tcrest` query on the locker returns null and an UNGUARDED
 `getComputedStyle(null)` crashes the whole suite instead of failing one check (it did, once).
 **KNOWN**: a logo uploaded BEFORE this fix is already flattened in storage — re-upload it.
+
+## 🏈 GFFL — A CUT-OUT LOGO HAS NO BORDER (2026-08-11, DEPLOYED)
+
+User, with a screenshot of their own locker hero: *"we also need to get rid of the transparent
+image border, a picture with transparent background should blend seamlessly with the color
+behind, no borders at all."* Files: `assets/league/lg-ui.js` + `league.html`. Follows the
+transparent-upload fix directly above — that made transparency SURVIVE, this makes it READ.
+
+**WHAT THE "BORDER" ACTUALLY WAS**, three separate things stacked: `.lockerlogo`'s own
+`background:rgba(255,255,255,.14)` (the lighter rounded square in the screenshot), its inset
+hairline ring, and its **drop shadow** — which on a transparent image traces the ELEMENT'S
+SQUARE rather than the mark, so it drew a second hard edge. All three come off for a cut-out;
+`object-fit` goes `cover` → **`contain`** so the mark is never cropped by the hero's rounded
+corners or the crest's circle.
+**DETECTION NEEDS NO NEW FIELD AND NO MIGRATION**: the upload path emits PNG *only* when
+`hasTransparency()` actually found transparency and JPEG otherwise, so a stored
+`data:image/png` IS the flag. `isCutoutLogo(src)` (also matches a legacy `.png` URL in the old
+`logo` field) stamps `.cutout` in `crestHtml` and on the hero `<img>`.
+**CASCADE, and it bit**: `.muavatar.mine` (0,2,0) and `.muhead.muhero .muavatar[.mine]`
+(0,4,0) both out-rank or tie a bare `.tcrest.cutout`, so the rings survived the first cut —
+the overrides are repeated in BOTH blocks, each placed AFTER the `.mine` rule it has to beat.
+**KEPT ON PURPOSE**: `.tcrest` holds its `background:var(--tp)` — that IS "the colour behind",
+and without it a dark mark would vanish into the dark card. **DROPPED on purpose**: a cut-out
+crest loses even the "this one is yours" ring — a ring is a border, and the ask was none.
+**OPAQUE LOGOS ARE UNTOUCHED** (panel, ring and shadow all stay): a mark with its own hard
+edges wants the frame, and that is the no-regression half of every check.
+**VERIFY**: scratchpad `cutout_plate.cjs` **8/8** — a real cut-out shield uploaded through the
+REAL input, then computed styles read on the hero (panel `rgba(0,0,0,0)`, shadow `none`, fit
+`contain`) and on the matchup crest (shadow `none`, background still the team primary
+`rgb(192,57,43)`), plus the opaque case keeping both. Plates REVIEWED:
+`shots/gffl_cutout_{locker,matchup}_1440.png`. Battery **2410/2410** · palette **74/74**.
+**FLAGGED to the user, not hidden**: with the panel gone a mark's own colours can merge into
+the slash, because the slash colour is EXTRACTED FROM THE MARK — that is what "seamless"
+costs. Pulling the slash toward the secondary behind cut-outs is the fix if the family dislikes
+it.

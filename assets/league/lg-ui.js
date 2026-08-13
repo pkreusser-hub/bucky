@@ -2171,13 +2171,24 @@
   // Nothing here reads t.colors. LG.teamStyle(t) → LG.palStyle(LG.teamPalette(t)) is the only
   // path, and section AM reads this file to prove it.
   function teamSrc(t) { return (t && (t.logoData || t.logo)) || ""; }
+  // A CUT-OUT logo — one with a genuinely transparent background — must sit DIRECTLY on the
+  // colour behind it: no panel, no ring, no drop shadow, and never cropped (2026-08-11, user:
+  // "a picture with transparent background should blend seamlessly with the color behind, no
+  // borders at all"). Detecting it needs no new field and no migration: the upload path emits
+  // PNG *only* when hasTransparency() actually found transparency and JPEG otherwise, so a
+  // stored `data:image/png` IS the transparency flag. A legacy `.png` URL in the old `logo`
+  // field is treated the same way — it is the only other shape that can carry alpha.
+  function isCutoutLogo(src) {
+    return /^data:image\/png/i.test(src || "") || /\.png(\?|#|$)/i.test(src || "");
+  }
   function crestHtml(t, cls) {
-    const c = "tcrest " + (cls || "");
     const src = teamSrc(t);
+    const c = "tcrest " + (cls || "") + (isCutoutLogo(src) ? " cutout" : "");
     const style = LG.teamStyle(t || {});
     if (src) return `<span class="${c}" style="${esc(style)}"><img src="${esc(src)}" alt="" loading="lazy"></span>`;
     return `<span class="${c} tcrest-ph" style="${esc(style)}">${esc(initials(t && t.name))}</span>`;
   }
+  UI.isCutoutLogo = isCutoutLogo; // test hook
   // The stylized name. `big` earns the edge treatment (a secondary-coloured offset behind the
   // fill); small row sizes get the FILL ONLY, because a 1px shadow under 12px condensed type
   // reads as a printing fault rather than a team's colours. Both take their ink from the
@@ -5670,7 +5681,7 @@
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
         </button>` : ""}
         <div class="lockerhead-inner">
-          ${logoSrc ? `<img class="lockerlogo" src="${esc(logoSrc)}" alt="">` : `<div class="lockerlogo lockerlogo-ph">${esc(initials(T.name))}</div>`}
+          ${logoSrc ? `<img class="lockerlogo${isCutoutLogo(logoSrc) ? " cutout" : ""}" src="${esc(logoSrc)}" alt="">` : `<div class="lockerlogo lockerlogo-ph">${esc(initials(T.name))}</div>`}
           <div class="lockerid">
             <h1 class="lockername tname big">${esc(T.name)}</h1>
             <p class="lockermotto">${T.motto ? esc(T.motto) : (isOwner ? '<span class="mut">Add a motto →</span>' : "")}</p>

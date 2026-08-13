@@ -158,6 +158,17 @@
             font:800 11px var(--font-display); letter-spacing:.3px; line-height:1;
             box-shadow:inset 0 0 0 1px rgba(255,255,255,.14); }
   .tcrest img { width:100%; height:100%; object-fit:cover; display:block; }
+  /* CUT-OUT LOGOS (2026-08-11, user: "a picture with transparent background should blend
+     seamlessly with the color behind, no borders at all"). A logo with real transparency is
+     marked `.cutout` at render (see isCutoutLogo). Everything that draws a BOX around the
+     image comes off: the inset hairline ring, and — on the elements that have one — the panel
+     background and the drop shadow, which a transparent image turns into a square silhouette
+     of its own element rather than a shadow of the mark. `contain` replaces `cover` so a
+     cut-out is never cropped by the crest's circle or the hero's rounded square.
+     .tcrest KEEPS its team-primary background on purpose: that IS "the colour behind", and
+     without it a dark mark would vanish into the dark card. */
+  .tcrest.cutout { box-shadow:none; }
+  .tcrest.cutout img { object-fit:contain; }
   .tlogo { margin-right:7px; }
   .tmini { width:18px; height:18px; font-size:8.5px; vertical-align:-4px; margin-right:4px; }
   /* The stylized name — FABLE DESIGN PASS (2026-08-10, user: S3's look needed "modern,
@@ -398,6 +409,11 @@
      "which one is me" marker was borrowing the alarm colour. The inset stays inside the
      artwork's edge, so it can only ever read as a highlight. */
   .muavatar.mine { box-shadow:inset 0 0 0 2px rgba(255,255,255,.34); }
+  /* …and a CUT-OUT crest carries no ring at all, "yours" included — a ring is a border, and
+     borders are exactly what a transparent mark must not have. Placed after .mine (equal
+     specificity, so source order decides) and repeated in the muhero block below, whose own
+     selector is more specific than either. */
+  .muavatar.cutout { box-shadow:none; }
   .bigpts { font:800 30px/1.02 var(--font-display); font-variant-numeric:tabular-nums; }
   @media (min-width:700px) { .muavatar { width:62px; height:62px; font-size:20px; } }
   /* THE ESPN HEADER (2026-08-09, from the user's own screenshot of the real app): crest on the
@@ -488,6 +504,9 @@
     .muhead.muhero .muhteam .muavatar { order:1; flex:0 0 auto; width:104px; height:104px; font-size:34px;
       border-radius:18px; box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 1px rgba(255,255,255,.22); }
     .muhead.muhero .muavatar.mine { box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 2px rgba(255,255,255,.34); } /* no red outer ring — see the base rule's note */
+    /* A cut-out crest: no ring AND no drop shadow — on a transparent image the shadow is cast
+       by the element's own square, not by the mark, so it reads as one more border. */
+    .muhead.muhero .muavatar.cutout { box-shadow:none; }
     /* Refinement 2: the name is a CENTERED, wrap-capable block between crest and score —
        flex:1 takes the slack, the clearance pad keeps its box off the slash colour, and the
        fitter (maxLines 2 on desktop) sizes long names down instead of cutting them. */
@@ -1202,6 +1221,10 @@
   .lockerhead-inner { display:flex; align-items:center; gap:16px; }
   .lockerlogo { width:96px; height:96px; border-radius:14px; object-fit:cover; flex:0 0 auto;
                 background:rgba(255,255,255,.14); box-shadow:0 3px 14px rgba(0,0,0,.42), inset 0 0 0 1px rgba(255,255,255,.22); }
+  /* The hero's own cut-out case — the one in the report. The lighter rounded square was this
+     element's `background` + inset ring; the drop shadow drew a second square edge under it.
+     All three go, and the mark lands straight on the team's colour slash. */
+  .lockerlogo.cutout { background:none; box-shadow:none; object-fit:contain; }
   .lockerlogo-ph { display:flex; align-items:center; justify-content:center;
                    font:800 34px var(--font-display); letter-spacing:1px; }
   /* Refinement 2: the identity block is CENTERED in the space right of the crest, with a
