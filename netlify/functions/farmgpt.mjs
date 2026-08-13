@@ -2935,7 +2935,13 @@ function buildGffladjustMessages(body) {
     return o;
   }).filter((p) => p.key);
   if (!players.length) return null;
-  return [{ role: "user", content: "WEEK " + (Number.isInteger(Number(a.week)) ? Number(a.week) : "?")
+  // Optional free-text CONTEXT preamble (2026-08-13, the preseason test probe): rides the
+  // user turn, where a directive beats the system prompt's own calibration defaults (the
+  // chapter-close lesson — models follow the immediate user instruction). The in-app weekly
+  // generation never sends one; the probe uses it to say "these are preseason games, the
+  // base is a crude prior, project freely from depth order". Clipped like everything else.
+  const note = a.note ? "CONTEXT: " + String(a.note).slice(0, 500) + "\n\n" : "";
+  return [{ role: "user", content: note + "WEEK " + (Number.isInteger(Number(a.week)) ? Number(a.week) : "?")
     + " PLAYERS:\n" + clipJson(players, 9000)
     + "\n\nTASK: return the strict-JSON adjusted-projections array per your instructions — every key exactly once, nothing but the JSON." }];
 }

@@ -17097,6 +17097,15 @@ async function openDetails(page, id) {
         body: JSON.stringify({ secret: "amenfarms", action: "lg_espn_projections", week: 1 }) }))).json();
       process.env.ESPN_S2 = s2;
       ok(noC.ok === false && noC.reason === "fantasy-not-configured", "missing cookies → the honest reason, never a 500");
+      // The optional CONTEXT preamble (the preseason probe's field — the in-app weekly
+      // generation never sends one): rides the user turn ahead of the players, clipped.
+      await (await farmgptFn(new Request("http://fn/farmgpt", { method: "POST",
+        body: JSON.stringify({ secret: "amenfarms", mode: "gffladjust",
+          adjust: { week: 1, note: "preseason smoke", players: [{ key: "1", name: "A", pos: "QB", team: "KC", base: 5, log: [] }] } }) }))).text();
+      const noteReq = xaiReqs.filter((r) => /CALIBRATION RULES/.test(JSON.stringify(r && r.messages || ""))).pop();
+      const noteTurn = ((noteReq && noteReq.messages) || []).find((m) => m.role === "user");
+      ok(!!noteTurn && /^CONTEXT: preseason smoke\n/.test(noteTurn.content) && /WEEK 1 PLAYERS:/.test(noteTurn.content),
+        "adjust.note rides the user turn as a CONTEXT preamble, ahead of the players");
     }
     // ---- AX1: the whole pipeline, driven by UI.boot's own trigger ----
     {
