@@ -17432,6 +17432,69 @@ async function openDetails(page, id) {
       ok(errors.length === 0, "0 page errors across the scores morph");
       await ctx.close();
     }
+    // ---- AY5: the OTHER repaint seam — LG.db.onChange's background refresh (the follow-up
+    // report: "the nfl matchup view is still doing the full screen refresh"). The poll paths
+    // were morphed; this seam still rode UI.show → the FULL renderers, and renderNflGame wipes
+    // to "Loading the game…" before refetching. Every ~15s, on a screen the family was
+    // actively watching. UI.quietRepaint is the fix; a MutationObserver armed BEFORE the
+    // refresh is what makes "no loading card ever flashed" a real assertion rather than a
+    // sampled hope.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      // NFL game view: a db change has NOTHING to repaint there (pure ESPN payload) — the
+      // screen must not move at all.
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
+      await waitFnOr(page, () => document.querySelector(".nflhead"));
+      const nfl = (await evalOr(page, async () => {
+        const el = document.querySelector(".nflhead");
+        el.__probe = 1;
+        let sawLoading = false;
+        const mo = new MutationObserver(() => { if (/Loading the game/.test(document.body.textContent)) sawLoading = true; });
+        mo.observe(document.querySelector("#main"), { childList: true, subtree: true });
+        window.__GFFL__.LG.db.onChange();
+        await new Promise((r) => setTimeout(r, 500));
+        mo.disconnect();
+        const el2 = document.querySelector(".nflhead");
+        return { same: !!(el2 && el2.__probe === 1 && el2.isConnected), sawLoading };
+      })) || {};
+      ok(nfl.same === true && nfl.sawLoading === false,
+        "a background db refresh leaves the NFL game view UNTOUCHED — same nodes, and the 'Loading the game…' wipe never flashes");
+      // Matchup: the quiet path refreshes rosters then rides the MORPH branch.
+      await clickIn(page, '.bnav button[data-v="matchup"]');
+      await waitOr(page, ".mutable");
+      const mu = (await evalOr(page, async () => {
+        const img = document.querySelector(".pcellgrid .plogo");
+        if (img) img.__probe = 1;
+        window.__GFFL__.LG.db.onChange();
+        await new Promise((r) => setTimeout(r, 500));
+        const img2 = document.querySelector(".pcellgrid .plogo");
+        return { same: !!(img2 && img2.__probe === 1 && img2.isConnected), view: window.__GFFL__.UI.view };
+      })) || {};
+      ok(mu.same === true && mu.view === "matchup",
+        "…the matchup rides its morph branch on the same seam — same crest node through a background refresh");
+      // Scores: renderScores must NOT wipe an already-painted board on this path.
+      await clickIn(page, '.bnav button[data-v="scores"]');
+      await waitOr(page, ".sccard");
+      const sc2 = (await evalOr(page, async () => {
+        const img = document.querySelector(".sccard .sclogo");
+        if (img) img.__probe = 1;
+        let sawLoading = false;
+        const mo = new MutationObserver(() => { if (/Loading scores/.test(document.body.textContent)) sawLoading = true; });
+        mo.observe(document.querySelector("#main"), { childList: true, subtree: true });
+        window.__GFFL__.LG.db.onChange();
+        await new Promise((r) => setTimeout(r, 500));
+        mo.disconnect();
+        const img2 = document.querySelector(".sccard .sclogo");
+        return { same: !!(img2 && img2.__probe === 1 && img2.isConnected), sawLoading };
+      })) || {};
+      ok(sc2.same === true && sc2.sawLoading === false,
+        "…and the Scores board keeps its nodes too — the arriving-only loading card never flashes on a refresh");
+      ok(errors.length === 0, "0 page errors across the background-refresh seam");
+      await ctx.close();
+    }
   }
 
   await browser.close();

@@ -12085,3 +12085,35 @@ TD drive gained 2 plays (the Punt deliberately none — the degrade case).
 **KNOWN**: the sports suite's W-L nowrap failure predates this batch (fails at HEAD);
 morph-surviving nodes keep listeners by DESIGN, so any future per-node wiring on a morphed
 view must use wireOnce/dataset guards — the rule is written at MORPH_KEEP_ATTR.
+
+## 🏈 GFFL — THE OTHER REPAINT SEAM (2026-08-13, same night, user: "the nfl matchup view is
+still doing the full screen refresh instead of the morph")
+
+The morph work covered each view's own POLL path — but `LG.db.onChange`'s ~15s background
+refresh still rode `UI.show(view)` → the FULL renderers: `renderNflGame()` wipes to "Loading
+the game…" and refetches, `renderScores()` wipes to "Loading scores…", `renderMatchup()`
+rebuilds wholesale. Every 15 seconds, on the screen the family was actively watching — the
+exact flash the morphs had just removed, resurfacing through a different door. Files:
+`assets/league/lg-ui.js` + `tools/_verify-gffl.cjs` (2559 → **2563**, AY5).
+- **`UI.quietRepaint()`** is the background-refresh dispatcher now (onChange + the projection
+  adjuster's landing both route through it): matchup → refresh rosters (the background change
+  may BE a waiver landing) then the MORPH branch · **nflgame → skip entirely** (nothing on
+  that screen reads LG.db — it is pure ESPN payload, so a db change has nothing to repaint;
+  its own 25s poll morphs) · scores → the ordinary renderScores, whose loading-card wipe is
+  now ARRIVING-ONLY (skipped when the Scores view is already painted, so the .scweeknav
+  sentinel survives and paintScores' morph engages) · every other view keeps the full repaint
+  it always had.
+- **THE MORPH BUG THE WIPE-SKIP EXPOSED — an ID is an IDENTITY.** With renderScores no longer
+  wiping, the week-nav's buttons started surviving live↔browse morphs by SHAPE: `#scNext`
+  survived as "#scNow" — id rewritten by the attribute sync, `data-wired` preserved by the
+  keep-set, and the node still firing its original `step(+1)` listener. "Back to now" paged
+  FORWARD instead (AV5 caught it: 2561/2). morphChildren now REPLACES a same-shape survivor
+  whose id differs from the incoming node's — morphing across ids is how a control becomes a
+  different control wearing someone else's listener. Note the ORDER of discovery: the
+  previous battery was 2559/0 because the old always-wipe path made fresh nodes every render
+  — the bug was born WITH the morph but only reachable once the wipe stopped.
+- **AY5** proves the seam with a MutationObserver armed BEFORE the refresh (a transient
+  loading-card flash cannot be caught by sampling after): nflgame untouched + no "Loading the
+  game…" ever, matchup same-crest-node through onChange, scores same-node + no "Loading
+  scores…". The 2 AV5 failures the id-clash caused are green again with zero restaging —
+  they were correct all along.

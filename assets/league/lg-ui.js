@@ -319,7 +319,7 @@
     // standing. Deliberately AFTER boot resolves its own await chain: projections are a
     // repaint-when-ready concern, never something the first screen waits on.
     LG.ensureAdjustedProj().then((doc) => {
-      if (doc && UI.view) UI.show(UI.view);
+      if (doc) UI.quietRepaint(); // the flash-free path — never the full renderers
     }).catch(() => {});
   };
   // Routes to whichever view the URL hash asks for (or the league home) — split out of
@@ -481,7 +481,7 @@
     };
     // Quiet repaint after a background (cloud-only) list() refresh notices new data — reruns
     // the current view's own full render, which now paints from the just-updated cache.
-    LG.db.onChange = () => { if (UI.view) UI.show(UI.view); };
+    LG.db.onChange = () => UI.quietRepaint();
     d.start();
   }
   // 2025 SEASON REPLAY only — the "repaint once it lands" idiom the real league already uses
@@ -717,6 +717,31 @@
     if (name === "matchup") UI.matchup = mu;
     UI.show(name);
   });
+
+  // THE QUIET REPAINT — for BACKGROUND data refreshes only (LG.db.onChange's ~15s cadence,
+  // the projection adjuster landing). The game-night morph work (2026-08-13) covered each
+  // view's own POLL path, but this seam still routed through UI.show → the FULL renderers —
+  // and renderNflGame() wipes to "Loading the game…" and refetches, renderScores() wipes to
+  // "Loading scores…", renderMatchup() rebuilds wholesale. That was the full-screen refresh
+  // the family kept seeing after the morphs shipped. Same-view background repaints now ride
+  // each view's morph path instead:
+  //   · matchup — refresh the rosters (the background change may BE a waiver landing), then
+  //     the morph branch;
+  //   · nflgame — nothing on that screen reads LG.db at all (it is pure ESPN payload), so a
+  //     db change has nothing to repaint: skip entirely, and its own 25s poll morphs;
+  //   · scores — renderScores itself now skips its loading-card wipe when the Scores view is
+  //     already painted (see its own note), so the ordinary call lands in paintScores' morph;
+  //   · everything else keeps the full UI.show repaint it always had (league's own rebuild
+  //     already preserves the rail composer; locker/moves are deliberately not live-repainted).
+  UI.quietRepaint = function () {
+    if (!UI.view) return;
+    if (UI.view === "nflgame") return;
+    if (UI.view === "matchup") {
+      loadWeekRosters().then(() => { if (UI.view === "matchup") renderMatchup(true); }).catch(() => {});
+      return;
+    }
+    UI.show(UI.view);
+  };
 
   UI.show = function (name) {
     name = applyView(name);
@@ -1151,7 +1176,13 @@
         from.insertBefore(w, cur);
         continue;
       }
-      if (cur.nodeType === w.nodeType && cur.nodeName === w.nodeName) morphNode(cur, w);
+      // An ID is an IDENTITY, never just an attribute: a same-shape survivor whose id differs
+      // from the incoming node's must be REPLACED, not morphed — morphing would rewrite the id
+      // while the node kept its old listener (found live: the Scores week-nav's #scNext
+      // survived a live↔browse morph as "#scNow", data-wired preserved, still firing step(+1)
+      // — "Back to now" paged FORWARD instead).
+      const idClash = cur.nodeType === 1 && w.nodeType === 1 && (cur.id || w.id) && cur.id !== w.id;
+      if (!idClash && cur.nodeType === w.nodeType && cur.nodeName === w.nodeName) morphNode(cur, w);
       else from.replaceChild(w, cur);
     }
     while (from.childNodes.length > want.length) from.removeChild(from.lastChild);
@@ -2702,7 +2733,13 @@
   function scoresTotalWeeks() { return ((LG.rules && LG.rules.seasonWeeks) || 14) + 3; }
   function scoresShownWeek() { return UI._scoresWeek == null ? UI.week : UI._scoresWeek; }
   async function renderScores() {
-    main().innerHTML = `<div class="card mut">Loading scores…</div>`;
+    // The loading card only when ARRIVING — a re-render of the already-painted Scores view
+    // (the week cycler, UI.quietRepaint's background refresh) must not wipe the tree, or the
+    // .scweeknav sentinel dies and paintScores' morph degrades to the full-flash innerHTML
+    // path it exists to replace.
+    if (!(main().dataset.view === "scores" && main().querySelector(".scweeknav"))) {
+      main().innerHTML = `<div class="card mut">Loading scores…</div>`;
+    }
     // Item 2's "mine/opp" line needs this week's rosters — load once per mount (cheap, cached),
     // never on every poll repaint (paintScores stays a pure re-render off what's already loaded).
     if (!UI._rosters) await loadWeekRosters();
