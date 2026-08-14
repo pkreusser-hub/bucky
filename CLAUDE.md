@@ -12144,3 +12144,36 @@ ui}.js` + `tools/_verify-gffl.cjs` (2563 → **2567**, new AY6).
   light pollOnce bumps "espn scoreboard" and neither "espn summary" nor "sleeper stats"; the
   game map is live off it; a plain pollOnce() still fetches both heavies. waitLive already
   stops the loop, so the counts are race-free between the check's own calls.
+
+## 🏈 GFFL — POSSESSION RINGS THE PICTURE, THE MATCHUP SCORES RIDE THE OUTER EDGE (2026-08-13, same night)
+
+Two live-test tweaks, `league.html` CSS + a two-site reorder in `assets/league/lg-ui.js` +
+`tools/_verify-gffl.cjs`. User: *"if a player's team has the ball, their whole card gets
+highlighted in yellow and I found that to be too much — just highlight the player's picture
+in gold. also the away team's PLAYER SCORES IN THE MATCHUP should be all the way to the
+left."* (The first pass mis-read #2 as the NFL score cards; the user corrected — it's the
+matchup lineup rows. The `.scteam` score-card change was reverted, unshipped.)
+- **POSSESSION**: ITEM 25's whole-cell inset gold ring PLUS a faint gold row WASH
+  (`rgba(255,182,18,.07)`) — the wash is the "too much". The gold now rides the HEADSHOT:
+  gold border + inset gold rim on `.mushot`/`.lkshot`. INSET, not an outset halo — the image
+  is circular `overflow:hidden` and `.pcellgrid` sits tight against neighbours, so an outset
+  ring could clip; inset can never clip or shift the "exactly even height for every player"
+  row layout. **The picture is desktop-only (>=1024px)**, so MOBILE (no headshot) keeps a
+  QUIET ball-side gold EDGE (`inset ±3px 0 0`) on the possessing cell — far lighter than the
+  old full-card wash, and still a gold box-shadow so section AD5's 390px read is unchanged.
+- **MATCHUP SCORES**: item 3/AE put the `.ppts` column INNER (both scores flanking the centre
+  slot, names on the outer edges) per the ESPN head-to-head reference. The user wants the
+  reverse: the SCORE rides the OUTER edge, the face just inside it, the name inner toward the
+  slot — away = `[score][face][name→]`, home = `[←name][face][score]`. So away scores form a
+  clean LEFT column, home a clean RIGHT column, names flank the slot. ONE reorder in
+  `halfCell`/`totalHalfCell` (`side==="right" ? infoDiv+shot+ptsDiv : ptsDiv+shot+infoDiv`) +
+  `.pcellgrid.left .ppts{text-align:left}` (away number hugs the far-left edge; home keeps
+  `text-align:right`). The total fixed width (52px score + 38px face) is unchanged, so the
+  flex:1 name budget the phone rows were tuned to is UNTOUCHED — no name-clip regression.
+- SUITE: AD5 (390px) stays green on the mobile edge (restaged to say so); NEW **AD5b** boots
+  1440px and proves the picture ring + no card wash. The item-3 geometry check and AW4's
+  desktop face-outer check both INVERT (now score-outer/face-inside), restaged with reason;
+  AE's points-column comment + right-name-edge message restaged (the assertions —
+  score-on-name's-line, consistent name edges — still hold, only the wording moved). The
+  header (muhero) keeps crest-outer/score-inner, untouched. Plates:
+  `shots/gffl_pt_matchup_{390,desktop}.png` (gold-ringed faces, scores at the outer edges).

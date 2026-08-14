@@ -2371,9 +2371,11 @@ async function openDetails(page, id) {
     // up with the right team's"). .pcellgrid shipped with NO layout rule at all (the .scgrid
     // family of bug), so its two inner divs stacked in raw DOM order — the left half read
     // name→points top-to-bottom while the right half read points→name. Assert the RENDERED
-    // geometry, never the markup: name and points sit BESIDE each other on one horizontal
-    // band, and the points column hugs the INNER edge of both halves (adjacent to the slot
-    // badge), mirrored, per the ESPN head-to-head reference.
+    // geometry, never the markup: name and points sit BESIDE each other on one horizontal band.
+    // RESTAGED 2026-08-13 (user: "the away team's player scores should be all the way to the
+    // left"): the points column now rides the OUTER edge of each half — away score hugs the
+    // cell's LEFT, home score hugs its RIGHT — the reverse of the previous inner/mirrored
+    // arrangement (which flanked the centre slot badge).
     const rowGeo = await page.evaluate(() => {
       const tr = [...document.querySelectorAll(".mutable tbody tr")].find((r) => r.textContent.includes("P. Passer"));
       if (!tr) return null;
@@ -2387,15 +2389,15 @@ async function openDetails(page, id) {
       const beside = (a, b) => a.top < b.bottom && b.top < a.bottom;
       return {
         leftBeside: beside(l.info, l.pts), rightBeside: beside(r.info, r.pts),
-        leftPtsInner: (l.cell.right - l.pts.right) < 24 && l.pts.left > l.info.left,
-        rightPtsInner: (r.pts.left - r.cell.left) < 24 && r.info.right > r.pts.right,
+        leftPtsOuter: (l.pts.left - l.cell.left) < 24 && l.pts.left < l.info.left,
+        rightPtsOuter: (r.cell.right - r.pts.right) < 24 && r.pts.left > r.info.left,
         slotAlign: getComputedStyle(tr.querySelector(".slotcell")).textAlign,
       };
     });
     ok(!!rowGeo && rowGeo.leftBeside && rowGeo.rightBeside,
       "matchup row: name and points render BESIDE each other on both halves — never stacked in DOM order (" + JSON.stringify(rowGeo) + ")");
-    ok(!!rowGeo && rowGeo.leftPtsInner && rowGeo.rightPtsInner,
-      "…and the points column hugs the INNER edge of each half (adjacent to the slot badge), mirrored per the ESPN reference");
+    ok(!!rowGeo && rowGeo.leftPtsOuter && rowGeo.rightPtsOuter,
+      "…and the points column rides the OUTER edge of each half — away score all the way LEFT, home all the way RIGHT (2026-08-13)");
     ok(!!rowGeo && rowGeo.slotAlign === "center",
       "…slot badge label is horizontally centered (td.slotcell — .tbl td's text-align:left used to outweigh it)");
     // The ESPN stat summary line under the meta line, built from the SAME picked-source stats
@@ -8927,8 +8929,12 @@ async function openDetails(page, id) {
         const cellFor = (nm) => {
           const tr = [...document.querySelectorAll(".mutable tbody tr")].find((r) => r.textContent.includes(nm));
           const g = tr && [...tr.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
-          // RESTAGED 2026-08-09 (ITEM 25): the pip is gone — possession is a gold ring on the
-          // half-cell now. Read the painted shadow, not a marker element.
+          // RESTAGED 2026-08-13: possession moved OFF the whole card (user: "the whole card
+          // highlighted in yellow is too much — just highlight the player's picture in gold").
+          // At DESKTOP the gold now rings the PICTURE (a fresh 1440px block, AD5b, covers
+          // that); this 390px section has no headshot to ring, so the cell carries a quiet
+          // ball-side gold EDGE instead — still a gold box-shadow on the cell, so this read is
+          // unchanged and still proves "the possessing player is highlighted, the D/ST is not".
           return g && { ball: g.classList.contains("hasball"), ring: /rgb\(255, 182, 18\)/.test(getComputedStyle(g).boxShadow || ""),
                         h: Math.round(g.getBoundingClientRect().height) };
         };
@@ -8940,7 +8946,7 @@ async function openDetails(page, id) {
         };
       });
       ok(poss.phi === true && poss.dal === false, "the drive's own team is recorded as having the ball, its opponent is not (PHI " + poss.phi + " / DAL " + poss.dal + ")");
-      ok(poss.passer && poss.passer.ball && poss.passer.ring, "a PHI starter is highlighted with a gold possession ring");
+      ok(poss.passer && poss.passer.ball && poss.passer.ring, "a PHI starter's cell carries the gold possession cue (the ball-side edge at 390px; the picture-ring is the desktop cue — AD5b)");
       ok(poss.receiver && poss.receiver.ball, "…so is his team-mate");
       ok(poss.phiDst && !poss.phiDst.ball && !poss.phiDst.ring, "…but PHI's D/ST is NOT — its side has the ball, so the defence is off the field");
       // The ring is PAINTED, not laid out — a highlighted half-cell measures exactly the same
@@ -9001,6 +9007,49 @@ async function openDetails(page, id) {
         console.log("  📸 shots/gffl_pt_matchup_{390,desktop}.png");
       }
       ok(errors.length === 0, "0 page errors on the matchup page");
+      await ctx.close();
+    }
+
+    // ---- AD5b: possession at DESKTOP — the gold rides the PICTURE, not the whole card
+    // (2026-08-13, user: "the whole card highlighted in yellow is too much — just highlight
+    // the player's picture in gold"). The headshot (.mushot) only exists >=1024px, so the
+    // requested treatment is a desktop cue: a gold rim + gold border on the FACE, and the
+    // whole-card ring + yellow wash ITEM 25 shipped is gone.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+      const d = await page.evaluate(() => {
+        const gold = (s) => /rgb\(255, 182, 18\)/.test(s || "");
+        const cellFor = (nm) => [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
+        const read = (nm) => {
+          const g = cellFor(nm); if (!g) return null;
+          const shot = g.querySelector(".mushot");
+          const cs = getComputedStyle(g);
+          return {
+            ball: g.classList.contains("hasball"),
+            shotShown: shot ? getComputedStyle(shot).display !== "none" : false,
+            shotRing: shot ? gold(getComputedStyle(shot).boxShadow) : false,
+            shotBorder: shot ? gold(getComputedStyle(shot).borderColor) : false,
+            cellRing: gold(cs.boxShadow),
+            cellWash: cs.backgroundColor,
+            h: Math.round(g.getBoundingClientRect().height),
+          };
+        };
+        return { passer: read("P. Passer"), dst: read("PHI D/ST"), rusher: read("R. Rusher") };
+      });
+      ok(d.passer && d.passer.ball && d.passer.shotShown, "at desktop the possessing starter's headshot is on screen");
+      ok(d.passer && d.passer.shotRing && d.passer.shotBorder, "…and the PICTURE itself carries the gold ring + gold border (the requested change)");
+      ok(d.passer && !d.passer.cellRing, "…while the whole CARD no longer carries a gold ring (the 'too much' is gone)");
+      ok(d.passer && (d.passer.cellWash === "rgba(0, 0, 0, 0)" || d.passer.cellWash === "transparent"),
+        "…and no yellow row wash either (" + (d.passer && d.passer.cellWash) + ")");
+      ok(d.dst && !d.dst.shotRing, "PHI's D/ST picture is NOT ringed — its side has the ball, so the defence is off the field");
+      ok(d.rusher && !d.rusher.shotRing, "…and nobody on the other team's picture is ringed");
+      ok(d.passer && d.rusher && d.passer.h === d.rusher.h, "the picture ring costs the row no height (" + (d.passer && d.passer.h) + " vs " + (d.rusher && d.rusher.h) + ")");
+      ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
 
@@ -9488,7 +9537,7 @@ async function openDetails(page, id) {
       ok(align.nL >= 1 && new Set(align.leftEdges).size === 1,
         "…every LEFT name starts at one consistent x (" + JSON.stringify(align.leftEdges) + ")");
       ok(align.nR >= 2 && new Set(align.rightEdges).size === 1,
-        "…and every RIGHT name ENDS at one consistent x — hugging the right edge, not ragged (" + JSON.stringify(align.rightEdges) + ")");
+        "…and every RIGHT name ENDS at one consistent x, not ragged (the inner edge now, toward the face, since the score moved outer 2026-08-13) (" + JSON.stringify(align.rightEdges) + ")");
 
       // -- exactly even height, and the row set really does contain the hard cases.
       const heights = await page.evaluate(() => {
@@ -9604,7 +9653,8 @@ async function openDetails(page, id) {
       ok(clips.benchTxt === "BENCH" && clips.benchNeed <= clips.benchHave + 1,
         "…and the word BENCH fits the centre band, which it also did not (" + clips.benchNeed + " into " + clips.benchHave + "px)");
 
-      // -- the points column: score on line 1, projection on line 2, both on the inner edge.
+      // -- the points column: score on line 1, projection on line 2 (this asserts the vertical
+      // stack, not the horizontal edge — the score rides the OUTER edge since 2026-08-13).
       const pts = await page.evaluate(() => {
         const c = [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => /A\. St\. Brown/.test(e.textContent));
         if (!c) return null;
@@ -17018,8 +17068,10 @@ async function openDetails(page, id) {
                    w: s ? Math.round(s.getBoundingClientRect().width) : 0,
                    ph: s ? s.classList.contains("pshotph") : false, img: s ? !!s.querySelector("img") : false };
         });
-        // The OUTER-edge rule, measured: a right-half face sits right of its points column,
-        // a left-half face left of its info column — the score cards' crest convention.
+        // ORDER (2026-08-13, user: "the away team's player scores all the way to the left"):
+        // the SCORE rides the outer edge now, the face sits just INSIDE it — away = [score]
+        // [face][name→slot], home = [slot←name][face][score]. So the outermost element on each
+        // half is the points column, and the face is between the score and the name.
         const r = document.querySelector(".pcellgrid.right");
         const l = document.querySelector(".pcellgrid.left");
         const x = (el, sel) => el.querySelector(sel).getBoundingClientRect().left;
@@ -17027,16 +17079,18 @@ async function openDetails(page, id) {
                  painted: stats.filter((s) => s.painted).length,
                  w38: stats.every((s) => !s.painted || s.w === 38),
                  anyPh: stats.some((s) => s.ph), anyImg: stats.some((s) => s.img),
-                 rightOuter: r ? x(r, ".mushot") > x(r, ".ppts") : null,
-                 leftOuter: l ? x(l, ".mushot") < x(l, ".pinfo") : null };
+                 // home: name (inner) < face < score (outer-right)
+                 rightScoreOuter: r ? (x(r, ".pinfo") < x(r, ".mushot") && x(r, ".mushot") < x(r, ".ppts")) : null,
+                 // away: score (outer-left) < face < name (inner)
+                 leftScoreOuter: l ? (x(l, ".ppts") < x(l, ".mushot") && x(l, ".mushot") < x(l, ".pinfo")) : null };
       })) || {};
       ok(mu.cells >= 10 && mu.withShot === mu.cells && mu.painted === mu.cells,
         "at 1440px EVERY matchup half — starters, bench, Empty halves and the TOTAL row — carries a painted face box (" + mu.painted + "/" + mu.cells + ")");
       ok(mu.w38 === true, "…all at the fixed 38px, so the columns keep one edge");
       ok(mu.anyImg === true && mu.anyPh === true,
         "…a real face where one resolves, the placeholder disc where none can (an Empty half, the TOTAL row)");
-      ok(mu.rightOuter === true && mu.leftOuter === true,
-        "…and the face rides the OUTER edge on both sides, mirroring the score cards' crest convention");
+      ok(mu.leftScoreOuter === true && mu.rightScoreOuter === true,
+        "…the SCORE rides the outer edge on both sides (away all the way left, home all the way right) and the face sits just inside it");
       await clickIn(page, '.bnav button[data-v="team"]');
       await waitOr(page, ".lrow");
       const lk = (await evalOr(page, () => {

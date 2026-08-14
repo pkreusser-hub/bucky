@@ -649,6 +649,10 @@
   .pcellgrid .pinfo { flex:1 1 auto; min-width:0; }
   .pcellgrid .ppts { flex:0 0 52px; font-variant-numeric:tabular-nums; text-align:right; }
   .pcellgrid.right .pinfo, .pcellgrid.right .ppts, td.pcell.right { text-align:right; }
+  /* away score rides the OUTER-LEFT edge now (2026-08-13, user: "the away team's player
+     scores all the way to the left") — the .ppts column is the leftmost child on the away
+     half, so its number hugs the far-left edge; home keeps text-align:right (outer-right). */
+  .pcellgrid.left .ppts { text-align:left; }
   .pcellgrid.right .pname { flex-direction:row-reverse; }
 
   /* EXACTLY THREE LINES, EXACTLY THIS TALL — the "exactly even height for every player" the
@@ -739,17 +743,24 @@
      10.5px, so this cannot move a row's height; the suite measures that rather than trusting
      it. vertical-align keeps the small caps sitting on the clock's own baseline. */
   .pcellgrid .pmeta .inj { margin-right:3px; vertical-align:baseline; font-size:inherit; }
-  /* ITEM 25 (2026-08-09, user: "we need players where there offense has the ball to be
-     highlighted, you can put a gold border around that player"). Replaces the pip + faint
-     row tint the previous batch shipped.
-     An INSET ring, not a border: a real border would add 2px to the cell's box and break the
-     "exactly even height for every player" rule the whole row layout is built on. box-shadow
-     is painted, not laid out, so a highlighted row measures identically to its neighbours.
-     The 2px of padding is on EVERY .pcellgrid, not just the highlighted one, for the same
-     reason — so the ring has something to sit in without moving the text when it appears. */
+  /* POSSESSION (2026-08-13, user: "the whole card highlighted in yellow is too much — just
+     highlight the player's picture in gold"). ITEM 25 (2026-08-09) had shipped a whole-cell
+     inset gold ring PLUS a faint row wash (rgba gold .07); that wash is the "too much".
+     Now the gold rides the HEADSHOT itself: a gold rim + gold border on .mushot/.lkshot.
+     An INSET rim, not an outset halo: the image is circular + overflow:hidden, and .pcellgrid
+     sits tight against its neighbours where an outset ring could clip — inset can never clip
+     or shift the "exactly even height for every player" row layout. The picture only exists
+     >=1024px, so this is inherently a desktop cue; MOBILE (no headshot) keeps a quiet
+     ball-side gold edge in its place — far lighter than the old full-card wash.
+     The 2px of padding stays on EVERY .pcellgrid so the mobile edge has room without moving
+     the text when it appears. */
   .pcellgrid { padding:2px 3px; border-radius:var(--radius-badge); }
-  .pcellgrid.hasball { box-shadow:inset 0 0 0 2px var(--gold); background:rgba(255,182,18,.07); }
-  .lrow.hasball { box-shadow:inset 0 0 0 2px var(--gold); border-color:var(--gold); }
+  .pcellgrid.hasball .mushot, .lrow.hasball .lkshot { border-color:var(--gold); box-shadow:inset 0 0 0 2px var(--gold); }
+  @media (max-width:1023px) {
+    .pcellgrid.hasball.left  { box-shadow:inset 3px 0 0 var(--gold); }
+    .pcellgrid.hasball.right { box-shadow:inset -3px 0 0 var(--gold); }
+    .lrow.hasball { box-shadow:inset 3px 0 0 var(--gold); }
+  }
   .fline { padding:6px 0; border-bottom:1px dotted var(--divider2); font-size:13.5px; }
   .fline.sys { color:var(--mut); }
   .delta { font:700 13px var(--font-display); font-variant-numeric:tabular-nums; }

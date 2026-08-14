@@ -3705,13 +3705,17 @@
     // for the matchup lineup + bench tables (item 1's "matchup lineup rows both sides").
     // The gold ring is the only thing that says "this man has the ball", so it carries the
     // label the pip used to — a colour on its own is not an accessible statement.
-    // The headshot rides the OUTER edge (mirroring the crest convention on the score cards)
-    // and is DESKTOP-ONLY — .mushot is display:none below 1024px, because the phone row's
-    // name budget (101px against a 97px need) was fought for by measurement and a face would
-    // hand it straight back. An empty half carries the placeholder disc so the desktop
-    // column keeps one edge.
+    // ORDER (2026-08-13, user: "the away team's player scores should be all the way to the
+    // left"): the SCORE now rides the OUTER edge — away = [score][pic][name→slot], home =
+    // [slot←name][pic][score] — so each side's score hugs its own team's outer edge instead
+    // of both flanking the centre slot. Total fixed width (52px score + 38px pic) is unchanged
+    // either way, so the flex:1 name budget the phone rows were tuned to is untouched. The
+    // headshot sits just inside the score and is DESKTOP-ONLY (.mushot is display:none below
+    // 1024px — the phone row's 101px-vs-97px name budget was fought for by measurement and a
+    // face would hand it straight back); an empty half carries the placeholder disc so the
+    // desktop column keeps one edge.
     const shot = p ? pshotHtml(p.key, "mushot") : pshotPh("mushot");
-    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}"${ball ? ' title="Has the ball"' : ""}${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? ptsDiv + infoDiv + shot : shot + infoDiv + ptsDiv}</div>`;
+    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}"${ball ? ' title="Has the ball"' : ""}${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
   }
   // The ESPN-reference stat summary for a matchup row: a compact position-aware line built
   // from the stats of whichever source mergeRow() picked for display (row.src — the same
@@ -3757,7 +3761,7 @@
     // The placeholder disc keeps "TOTAL" on the same left edge as every name above it once
     // the desktop rows carry headshots (invisible on phones, like theirs).
     const shot = pshotPh("mushot");
-    return `<div class="pcellgrid ${side}">${side === "right" ? ptsDiv + infoDiv + shot : shot + infoDiv + ptsDiv}</div>`;
+    return `<div class="pcellgrid ${side}">${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
   }
   function shortKick(g) {
     if (!g.kickoff) return "";
