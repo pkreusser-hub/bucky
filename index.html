@@ -3278,7 +3278,9 @@ async function gfflHomeFetch(){
     ? weekly.matchups.find(x => x.home === myId || x.away === myId) : null;
   return {
     week: wk,
-    draftAt: settings && settings.draftAt ? settings.draftAt : null,
+    // draftAt lives INSIDE the rules map (LG.rules = doc.rules — the league app's own read
+    // path); the bare top-level fallback tolerates any older hand-written shape.
+    draftAt: (settings && settings.rules && settings.rules.draftAt) || (settings && settings.draftAt) || null,
     final: !!m,
     my:  { id: myId, name: myT.name || "My team", pts: m ? (m.home === myId ? m.homePts : m.awayPts) : null },
     opp: oppId != null ? { id: oppId, name: (oppT && oppT.name) || "Opponent", pts: m ? (m.home === oppId ? m.homePts : m.awayPts) : null } : null,

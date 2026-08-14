@@ -159,9 +159,13 @@ const GFFL_TEAM_NAMES = {
 };
 // Home-card docs: settings (draftAt) + the season schedule + the team names. The
 // weekly write-once record is deliberately ABSENT (404) — the pre-season state.
+// RESTAGED 2026-08-13 (same day, live-doc reality): draftAt lives INSIDE the `rules`
+// map (LG.rules = doc.rules is the league app's own read path) — the flat top-level
+// shape this fixture first shipped with was the SPEC's error, caught by probing the
+// real settings doc, and the card's reader now takes rules.draftAt first.
 function gfflDoc(id) {
   const wk = gfflWeekNow();
-  if (id === "settings") return fsDoc({ draftAt: "2026-09-06T15:00:00-05:00" });
+  if (id === "settings") return fsDoc({ rules: { draftAt: "2026-09-06T15:00:00-05:00" } });
   if (id === "sched_" + GFFL_SEASON) {
     const g = [{ h: 1, a: 2 }, { h: 3, a: 4 }, { h: 5, a: 9 }, { h: 11, a: 12 }];
     return fsDoc({ weeks: Array.from({ length: wk }, () => ({ g })) });

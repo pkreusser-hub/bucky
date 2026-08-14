@@ -10528,6 +10528,18 @@ its suite restage by a delegated opus agent (its report re-verified by an indepe
   INCLUDES `display:none` content, so "the lock screen is showing" can never be read from
   body text (the lock's copy is always in the DOM); and a cross-origin `req.respond` mock
   needs `access-control-allow-origin: *` or the fetch dies before any logic runs.
+- **THE LIVE-DOC PROBE CAUGHT A SPEC ERROR the suites could not** (same night): the settings
+  doc's `draftAt` lives INSIDE the `rules` map (`LG.rules = doc.rules` is the league's own
+  read path) — the home card's first reader and the suite fixture both used a flat top-level
+  shape from my own spec, and the fixture faithfully encoding the wrong shape kept the suite
+  green. Probing the REAL doc surfaced it. Fixed three layers: the reader
+  (`settings.rules.draftAt` first, bare top-level tolerated), the fixture (restaged with the
+  reason), and the LIVE DOC — which predated S2's field entirely — via backup → masked PATCH
+  (`updateMask=draftAt&rules.draftAt`, body carrying only the nested one, so the stray
+  top-level from the first attempt was DELETED in the same call) → canonical re-read proving
+  every rules sibling byte-identical (raw JSON.stringify of a Firestore read is key-order
+  noise — canon-sort before comparing, the stableStr lesson again). Also proven live: week-1
+  pairings 12v1 · 11v2 · 9v3 · 5v4 (GOAT Kids @ Battle Kreussers).
 - **KNOWN / FOLLOW-UPS**: league.html's own Scores tab still carries the ESPN-league card
   (self-hides while all-zero; worth removing now that league is abandoned — flagged, not
   done); the ESPN cookies (ESPN_S2/SWID) stop mattering for Bucky's UI and can be left to
