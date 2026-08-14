@@ -63,6 +63,12 @@
     --radius-card:10px; --radius-sm:7px; --radius-xs:6px; --radius-badge:4px; --radius-pill:16px;
     --font-display:'Barlow Condensed','Arial Narrow','Helvetica Neue',Arial,system-ui,sans-serif;
     --font-body:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+    /* SCORE NUMBERS (2026-08-13, user: "the matchup scoring number font is hard to read, so
+       compact"): Barlow Condensed squeezed the digits narrow. Inter — already loaded, tabular
+       figures — is the sports-stat standard (ESPN's own site uses proprietary A2 Beckett /
+       Klavika; Inter is the freely-available match). A dedicated token so the number font can
+       move independently of body copy, and so it's one place to extend to other score readouts. */
+    --font-num:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
   }
   * { box-sizing:border-box; }
   html,body { margin:0; }
@@ -349,7 +355,7 @@
   .muteam.right { justify-content:flex-end; text-align:right; }
   .mucard.mine .muteam { grid-row:1; font-size:14px; }
   .mucard.mine .muteam .muteamname { font-size:14px; }
-  .muscore { font:700 16px var(--font-display); font-variant-numeric:tabular-nums; }
+  .muscore { font:700 16px var(--font-num); font-variant-numeric:tabular-nums; }
   .mucard.mine .muscore { grid-row:2; grid-column:1 / -1; text-align:center; font-size:32px; }
   /* ITEM 27 (2026-08-09): the badge + win-prob bar now renders on EVERY matchup card, not just
      .mine. The explicit `grid-row:3` was written for the hero card's 3-row grid and had to move
@@ -444,7 +450,7 @@
      specificity, so source order decides) and repeated in the muhero block below, whose own
      selector is more specific than either. */
   .muavatar.cutout { box-shadow:none; }
-  .bigpts { font:800 30px/1.02 var(--font-display); font-variant-numeric:tabular-nums; }
+  .bigpts { font:800 30px/1.02 var(--font-num); font-variant-numeric:tabular-nums; }
   @media (min-width:700px) { .muavatar { width:62px; height:62px; font-size:20px; } }
   /* THE ESPN HEADER (2026-08-09, from the user's own screenshot of the real app): crest on the
      OUTER edge, score block on the INNER — mirrored, so the two big numbers face each other
@@ -472,7 +478,7 @@
      crest and its 3px score-block rail, and the name stays quiet ink. TUNE 2: 12→15px — with
      the Week label out of the centre column, the name can stretch toward the middle. */
   .muhead .muhname.tname.big { font-size:15px; letter-spacing:.6px; text-shadow:none; }
-  .muhead .muhproj { font:600 11px/1.2 var(--font-display); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .muhead .muhproj { font:600 11px/1.2 var(--font-num); font-variant-numeric:tabular-nums; white-space:nowrap; }
   /* (.muhowner removed with the cosmetic pass — the record lives in the standings table) */
   /* The full-width probability bar: away's primary grows from the left, home's from the
      right, meeting at the split; percentages flank so no extra row is spent. */
@@ -676,7 +682,7 @@
   .pcellgrid .pname b { font:600 13px/17px var(--font-body); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .pcellgrid .pname .plogo { flex:0 0 auto; width:14px; height:14px; object-fit:contain; }
   .pcellgrid .pname .plogoph { display:block; }
-  .pcellgrid .ppts .pts { font:700 15px/17px var(--font-display); display:block; }
+  .pcellgrid .ppts .pts { font:700 15px/17px var(--font-num); display:block; }
   .totalrow .ppts .pts { font-size:17px; }
   /* Phone: the fixed points column + centre band leave ~110px per name at 390px — tighten the
      row's fixed costs so the name and the opponent line keep a readable share. */

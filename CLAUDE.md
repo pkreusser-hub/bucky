@@ -12177,3 +12177,29 @@ matchup lineup rows. The `.scteam` score-card change was reverted, unshipped.)
   score-on-name's-line, consistent name edges — still hold, only the wording moved). The
   header (muhero) keeps crest-outer/score-inner, untouched. Plates:
   `shots/gffl_pt_matchup_{390,desktop}.png` (gold-ringed faces, scores at the outer edges).
+
+## 🏈 GFFL — READABLE SCORE NUMBERS: matchup scores move to Inter (2026-08-13, same night)
+
+User: the matchup scoring number font *"is hard to read because it's so compact."* The scores
+used `--font-display` = Barlow **Condensed** — the narrow digits were the "compact". RESEARCHED
+ESPN: their own site uses proprietary A2 Beckett / Klavika; the freely-available sports-stat
+standard for aligning number columns is Inter or IBM Plex Sans with tabular figures. Built a
+4-panel side-by-side (Barlow / Inter / IBM Plex / Roboto) rendered with real Chrome + the GFFL
+colors (scratchpad `fontcompare.html`); user picked **Inter** — already loaded (zero new font),
+non-condensed, tabular. New **`--font-num`** token (Inter stack, distinct from `--font-body` so
+the number font can move independently and it's one place to extend) applied to the matchup
+score elements: `.pcellgrid .ppts .pts` (row + total scores), `.bigpts` + `.muhead .muhproj`
+(muhero header), `.muscore` (the small matchup cards on league home / Scores tab). `.pproj`
+already inherited Inter (no font-family set), so it needed nothing.
+- WIDTH CHECKED before running the suite (scratchpad `widthcheck.html` — rendered pixel widths
+  of realistic scores in Inter tabular vs the column budgets): a 4-char score ("41.0" = 24.5px)
+  fits the 30px mobile `.ppts` comfortably; only a theoretical 5-char PLAYER score (100+ or
+  ≤ -10, essentially never in one week) is 31.5px and the existing `.pline overflow:hidden`
+  clips it gracefully; the total column (44px) fits "148.0" at 38.3px, desktop (52px) fits
+  everything. Sizes UNCHANGED — the readability win is the non-condensed SHAPE, not the size.
+- No suite check asserted the score font-family (grep-confirmed), so NO restage; the AE
+  total-fits check confirms Inter still fits its box. Battery **2579/2579**.
+- SCOPED to the matchup: player stats-card scores (`.pcweekrow .pts`, generic `.pts`) and the
+  standings / players-table numbers stay on Barlow Condensed — different surfaces, and a
+  one-token extension if the family later wants them to match. Plates:
+  `shots/gffl_pt_matchup_{390,desktop}.png` (open, readable Inter digits).
