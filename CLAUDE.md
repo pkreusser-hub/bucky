@@ -12023,3 +12023,65 @@ calls ≈ $0.10-0.25/wk; two devices racing = double-spend + last-write-wins, fa
 acceptable, noted at the writer); the FA table's PROJ column for slp_-keyed FAs stays on the
 old path; and Bust of the Week now grades against the ADJUSTED projection wherever the
 snapshot captured one — the projection of record is the adjusted one, which is the point.
+
+## 🏈 GFFL — THE FIRST LIVE GAME NIGHT'S FIXES (2026-08-13, preseason wk1 on real screens)
+
+Three findings from the family's first night watching REAL games through the app. Files:
+`assets/league/lg-{data,ui}.js` + `league.html` + `netlify/functions/sports.mjs` +
+`tools/_verify-gffl.cjs` (2536 → **2559**, new section AY) + `tools/_verify-sports.cjs`
+(→ 275; its ONE failure, a standings W-L nowrap check, is PRE-EXISTING — proven by stash-
+revert-rerun at HEAD: fails 273/274 there too).
+
+**1 · "SCORES GO TO ZERO EVERY 30-40s, THEN COME BACK" — two stacked defects, diagnosed by
+booting the real page against the LIVE feeds** (scratchpad zero_probe.cjs — both raw wires
+were proven STABLE first, so the flicker had to be ours; the repro's own health flap
+mid-run was the tell):
+- **failN accounting**: every failed ESPN summary bumped `failN` individually — six live
+  games meant ONE flaky cycle jumped it past the ≥3 threshold in a single pass → health
+  flapped into sleeper-only → next scoreboard success reset it → dual again. 15-45s
+  oscillation, exactly the reported period. failN now moves AT MOST ONE per cycle, and only
+  when EVERY summary in the cycle failed — a partial summary failure is not an outage.
+- **mergeRow's degraded pin**: sleeper-only pinned EVERY player to the Sleeper side — and
+  Sleeper's live preseason bucket (946 rows that night) was missing rostered vets outright →
+  `pick` empty → row.pts null → **livePts coerces null→0** → literal 0.0 on screen. The pin
+  now falls back to the OTHER side when the surviving source has nothing for a player: a
+  stale number beats a fabricated zero, and the pin's real intent (no display flip-flop
+  during an outage) is untouched when the surviving side genuinely has him.
+**2 · FLASH-FREE LIVE REPAINTS** — every poll tick replaced innerHTML wholesale, re-creating
+every node: headshots/crests re-decode (the visible flash), scroll resets, an open details
+snaps shut. **`patchInto()` — a ~70-line keyed DOM morph** (lg-ui, beside paintLive): same-
+shape nodes are KEPT and only changed attributes/text move. Rules, each load-bearing:
+children align by `data-mkey` when present (else index); a DETAILS' `open` is the READER'S
+state, never synced; `data-wired`/`data-pc-wired` never synced (survivors keep their
+listeners; only NEW nodes re-wire — **the guard is `data-pc-wired`, wirePlayerCardTaps' own
+camelCase dataset key, and the first cut wrote `data-pk-wired` into the keep-set: one tap
+would have opened N cards after N ticks**); morph ONLY on a same-view repaint (each caller
+checks a structural sentinel — morphing another view's tree lets old nodes with old
+listeners survive by shape coincidence). Applied to: **renderMatchup(repaint)** (the three
+volatile card interiors get ids muHead/muLineup/muBench and morph; feed/AI-read/trash-talk
+untouched on repaint — which also fixed a latent composer-wipe; the repaint branch skips ALL
+re-wiring except the guarded wirePlayerCardTaps), **paintScores** (morph + wireOnce guards;
+handlers RE-READ data-mu/data-eid at CLICK time — a surviving node's morph may have removed
+the attribute that made it tappable), and **paintNflGame**.
+**3 · DRIVE DROPDOWNS + THE PROGRESS ARROW** (nflgame view): previous drives with plays on
+file are native `<details class="nfldrvd">` (summary = the exact old one-line card + "N
+plays"; a drive the payload carried no plays for stays a plain line, never an empty
+disclosure), KEYED by from-game-start ordinal — `previous[]` is newest-first, so an INDEX
+key would slide the reader's open state onto a sibling every time a drive completes.
+sports.mjs's slimGame forwards per-drive `plays` (capped 20, same slimPlay). And the field's
+fixed direction glyph is SUPERSEDED by the **drive-progress arrow**: tail at the drive's own
+start, head AT THE BALL — its length is the drive, and a drive that lost ground honestly
+points backwards; the old glyph survives as the fallback for a too-young drive (<~2yd span).
+**SUITE**: section AY — the one-source-row survival matrix under forced health modes, the
+summary-blackout accounting (fixture.espnSummariesDown: 3 cycles, mode stays dual, failN
+[1,1,1], P. Passer's 10.0 never wavers), same-node-across-repaint proofs via JS-property
+marks (a property survives a morph, never an innerHTML replace — the exact distinction under
+test), composer text+focus through a tick, ONE card per tap after three repaints, the
+dropdown surviving a poll AND a new drive prepending (data-mkey drv_2 stable), and the
+arrow's tail/head hand-computed from the fixture (691.7 → 183.3). RESTAGED with reasons: AH3
+(the fixed glyph is superseded — tail/head asserted instead), AH4 + the AH2 shapeOf helper
+(play counts scope to `.card > .nflplays`, the current drive's own list), and the fixture's
+TD drive gained 2 plays (the Punt deliberately none — the degrade case).
+**KNOWN**: the sports suite's W-L nowrap failure predates this batch (fails at HEAD);
+morph-surviving nodes keep listeners by DESIGN, so any future per-node wiring on a morphed
+view must use wireOnce/dataset guards — the rule is written at MORPH_KEEP_ATTR.

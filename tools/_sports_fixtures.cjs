@@ -239,7 +239,16 @@ function summaryLiveHome() {
         ],
       },
       previous: [
-        { id: "d1", team: { id: "12", abbreviation: "KC" }, description: "9 plays, 75 yards, 4:41", displayResult: "Touchdown", isScore: true },
+        // d1 carries its own plays (2026-08-13: previous drives are DROPDOWNS in the league
+        // app, so the slimmer forwards per-drive plays now); d2/d3 deliberately carry none —
+        // the shape a thin payload really sends, which must slim to an empty array.
+        { id: "d1", team: { id: "12", abbreviation: "KC" }, description: "9 plays, 75 yards, 4:41", displayResult: "Touchdown", isScore: true,
+          plays: [
+            { id: "p1", text: "P. Mahomes pass deep right to X. Worthy for 42 yards", clock: { displayValue: "6:10" }, period: { number: 1 },
+              start: { shortDownDistanceText: "1st & 10" }, end: { down: 1, distance: 10, yardsToEndzone: 33, shortDownDistanceText: "1st & 10" } },
+            { id: "p2", text: "T. Kelce 12 Yd pass from P. Mahomes (H. Butker Kick)", clock: { displayValue: "3:22" }, period: { number: 1 },
+              scoringPlay: true, start: { shortDownDistanceText: "2nd & 4" }, end: { down: 1, distance: 10, yardsToEndzone: 0, shortDownDistanceText: "2nd & 4" } },
+          ] },
         { id: "d2", team: { id: "2", abbreviation: "BUF" }, description: "6 plays, 70 yards, 3:05", displayResult: "Touchdown", isScore: true },
         { id: "d3", team: { id: "2", abbreviation: "BUF" }, description: "3 plays, 9 yards, 1:42", displayResult: "Punt", isScore: false },
       ],

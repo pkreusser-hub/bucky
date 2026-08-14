@@ -1063,13 +1063,33 @@
   }
 
   // Freshest healthy side wins the display; disagreement > 0.5 pts flags ⚠.
-  // Degraded modes pin to the surviving source (plan §7's display rule).
+  // Degraded modes pin to the surviving source (plan §7's display rule) — WITH the game-night
+  // amendment (2026-08-13, first live preseason night): the pin only holds when the surviving
+  // source actually HAS this player. Sleeper's live preseason bucket is missing plenty of the
+  // roster (946 rows tonight, and several rostered vets had no row at all), so a health flap
+  // into sleeper-only used to pin those players to a side that held NOTHING — row.pts went
+  // null, livePts coerced that to 0, and the family watched real scores drop to 0.0 every
+  // 30-40 seconds and come back. A STALE number from the degraded source beats a fabricated
+  // zero from the surviving one, every time; the pin's real intent — don't flip-flop displays
+  // during an outage — is untouched when the surviving side genuinely has the player.
+  function hasStats(side) {
+    if (!side) return false;
+    const st = side.stats || {};
+    for (const k in st) if (st[k]) return true;
+    return false;
+  }
   function mergeRow(row) {
     const mode = D.S.health.mode;
     const e = row.espn, s = row.slp;
     let pick = null, src = "";
-    if (mode === "espn-only") { pick = e; src = "espn"; }
-    else if (mode === "sleeper-only") { pick = s; src = "slp"; }
+    if (mode === "espn-only") {
+      if (hasStats(e) || !hasStats(s)) { pick = e || s; src = e ? "espn" : (s ? "slp" : ""); }
+      else { pick = s; src = "slp"; }
+    }
+    else if (mode === "sleeper-only") {
+      if (hasStats(s) || !hasStats(e)) { pick = s || e; src = s ? "slp" : (e ? "espn" : ""); }
+      else { pick = e; src = "espn"; }
+    }
     else if (e && s) { if (e.last >= s.last) { pick = e; src = "espn"; } else { pick = s; src = "slp"; } }
     else if (e) { pick = e; src = "espn"; }
     else if (s) { pick = s; src = "slp"; }
@@ -1726,6 +1746,15 @@
       for (let i = 0; i < CAP; i++) take.push(eids[(start + i) % eids.length]);
       D.S.sumCursor = (start + CAP) % eids.length;
     } else { D.S.sumCursor = 0; }
+    // PER-CYCLE summary accounting (2026-08-13, the zero-flicker's OTHER half). Each failed
+    // summary used to bump failN individually — with six live games, ONE flaky cycle jumped
+    // failN past the ≥3 threshold in a single pass, health flapped into sleeper-only, and
+    // every player pinned to a source that may not hold them (see mergeRow's own game-night
+    // note). A PARTIAL summary failure isn't an ESPN outage at all — player data is still
+    // flowing from the summaries that succeeded — so failN now moves by AT MOST ONE per
+    // cycle, and only when EVERY summary in the cycle failed (a real blackout). The
+    // scoreboard's own success/failure accounting above is untouched.
+    let sumFails = 0;
     const sums = take.map((eid) =>
       pollEspnGame(eid).then(() => {
         D.S.health.espn.lastOk = Date.now();
@@ -1735,9 +1764,10 @@
         // final box was never read — the ESPN side of every 1pm game froze at whatever the
         // last in-progress poll saw (finding 14).
         if (g && g.state === "post") D.S.fetchedFinal.add(eid);
-      }).catch(() => { D.S.health.espn.failN++; })
+      }).catch(() => { sumFails++; })
     );
     await Promise.allSettled(sums);
+    if (take.length && sumFails === take.length) D.S.health.espn.failN++;
     updateHealth();
     for (const row of D.S.players.values()) mergeRow(row);
     if (D.onUpdate) D.onUpdate();

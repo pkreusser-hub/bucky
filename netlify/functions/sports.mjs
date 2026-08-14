@@ -247,12 +247,16 @@ function slimGame(j) {
       plays: curPlays.slice(-14).map(slimPlay),
     } : null,
     // Newest first — this feeds the "previous drives" list top-down.
+    // `plays` (2026-08-13 game night: previous drives are DROPDOWNS now) — each drive carries
+    // its own play list, slimmed exactly like the current drive's and capped per drive so a
+    // 15-drive game stays a few tens of KB, not a megabyte.
     previous: (Array.isArray(j?.drives?.previous) ? j.drives.previous : []).map((d) => ({
       teamId: String(d?.team?.id ?? ""),
       teamAbbrev: d?.team?.abbreviation || "",
       result: d?.displayResult || d?.result || "",
       description: d?.description || "",
       scoring: d?.isScore === true,
+      plays: (Array.isArray(d?.plays) ? d.plays : []).slice(0, 20).map(slimPlay),
     })).reverse(),
   };
 

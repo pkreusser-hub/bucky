@@ -114,6 +114,11 @@ const fixture = {
   // keeps its hand-computed Sleeper-scored projections (T. Tight's 8.5 appears in dozens of
   // assertions) byte-for-byte. Section AX arms it, and ONLY section AX.
   espnProj: false,
+  // Section AY (2026-08-13, first live game night). Summaries fail while the scoreboard stays
+  // healthy — the exact shape that used to jump failN past ≥3 in ONE cycle (six live games,
+  // one flaky pass) and flap health into sleeper-only, zeroing every player Sleeper's
+  // preseason bucket didn't carry. Default off.
+  espnSummariesDown: false,
   projS10: false,      // S10 — see slpProjS10
   // Coordinator addendum (2026-08-08) — the Scores tab's ff_scoreboard fixture (fake sports.mjs
   // fantasy upstream). Default false = the existing scored 2-matchup fixture; true = an
@@ -655,8 +660,15 @@ function nflSummaryFix(eventId, state) {
       ],
     },
     previous: [
+      // The PUNT drive deliberately carries NO plays (a payload gap the dropdown must degrade
+      // on — a plain line, never an empty disclosure); the TD drive carries two, so the
+      // previous-drives DROPDOWN (2026-08-13 game night) is a real case in this fixture.
       { team: { id: "6", abbreviation: "DAL" }, displayResult: "Punt", description: "3 plays, 4 yards, 1:38", isScore: false },
-      { team: { id: "21", abbreviation: "PHI" }, displayResult: "Touchdown", description: "9 plays, 75 yards, 5:04", isScore: true },
+      { team: { id: "21", abbreviation: "PHI" }, displayResult: "Touchdown", description: "9 plays, 75 yards, 5:04", isScore: true,
+        plays: [
+          nflPlay(11, "P. Passer pass short middle to W. Receiver for 21 yards", "11:02", 1, "1st & 10", 54, 2, 1),
+          nflPlay(12, "W. Receiver 12 Yd pass from P. Passer (K. Kicker kick)", "9:40", 1, "2nd & 4", 0, 1, 10, true),
+        ] },
       { team: { id: "6", abbreviation: "DAL" }, displayResult: "Field Goal", description: "7 plays, 40 yards, 3:22", isScore: true },
     ],
   };
@@ -1713,6 +1725,8 @@ async function newTestPage(browser, seed, opts) {
         }
         if (u.includes("site.api.espn.com")) {
           if (fixture.espnDown) return req.respond({ status: 503, headers: cors, body: "{}" });
+          // Section AY: a SUMMARY-only blackout — the scoreboard (and sleeper) stay healthy.
+          if (fixture.espnSummariesDown && u.includes("/summary")) return req.respond({ status: 503, headers: cors, body: "{}" });
           if (u.includes("/scoreboard")) {
             // A BROWSED week (2026-08-13, the Scores week cycler): dates=2026&seasontype=2&week=N
             // — the CURRENT season addressed explicitly, which the 2025 replay never does, so
@@ -11293,19 +11307,26 @@ async function openDetails(page, id) {
           ball: (svg.querySelector(".nflball") || {}).dataset?.x || "",
           los: (svg.querySelector(".nfllos") || {}).getAttribute?.("x1") || "",
           fd: (svg.querySelector(".nflfd") || {}).getAttribute?.("x1") || "",
-          leftArrow: /M 360 33/.test(svg.innerHTML),
-          rightArrow: /M 640 33/.test(svg.innerHTML),
+          arrow: (() => { const a = svg.querySelector(".nfldarrow"); return a ? { x0: a.dataset.x0, x1: a.dataset.x1, head: (a.querySelector("path") || {}).getAttribute?.("d") || "" } : null; })(),
           vb: svg.getAttribute("viewBox"),
           wide: Math.round(svg.getBoundingClientRect().width) > 200,
         };
       })) || {};
       const EXP_BALL = (83.33 + 12 * 8.3334).toFixed(1);   // 183.3 — computed HERE, not read off the page
       const EXP_FD = (83.33 + 8 * 8.3334).toFixed(1);      // 150.0
+      const EXP_START = (83.33 + 73 * 8.3334).toFixed(1);  // 691.7 — the fixture drive's own start (yTE 73)
       ok(f.vb === "0 0 1000 300", "the field is drawn on the documented 1000x300 viewBox (" + f.vb + ")");
       ok(f.ball === EXP_BALL, "the ball sits at the hand-computed x for a home possession 12 yards out: " + EXP_BALL + " (got " + f.ball + ")");
       ok(f.los === EXP_BALL, "…the line of scrimmage is drawn at the same x as the ball (" + f.los + ")");
       ok(f.fd === EXP_FD, "…and the first-down line at ballPos-distance = 8 yards out: " + EXP_FD + " (got " + f.fd + ")");
-      ok(f.leftArrow === true && f.rightArrow === false, "…with the drive arrow pointing LEFT — the home team drives toward the away end zone");
+      // RESTAGED 2026-08-13 (game night: "the arrow on the field should reflect how far the
+      // drive has gone so far"): the fixed direction glyph is SUPERSEDED by the drive-progress
+      // arrow — tail at the drive's own start (yTE 73 → 691.7), head AT THE BALL (183.3),
+      // pointing left because that is where this home drive has actually gone.
+      ok(!!f.arrow && f.arrow.x0 === EXP_START && f.arrow.x1 === EXP_BALL,
+        "the drive arrow spans the DRIVE — tail at its start (" + EXP_START + "), head at the ball (" + EXP_BALL + ") — got " + JSON.stringify(f.arrow && { x0: f.arrow.x0, x1: f.arrow.x1 }));
+      ok(!!f.arrow && new RegExp("^M " + EXP_BALL.replace(".", "\\.") + " 43\\.5 l 15").test(f.arrow.head),
+        "…with the arrowhead drawn AT the ball, pointing left — the direction this drive is moving");
       ok(f.wide === true, "the field actually renders at a usable width on a 390px phone");
       // The same maths from the other side, straight off the exposed helpers — an away
       // possession 12 yards out is at field position 88, mirrored.
@@ -11333,13 +11354,17 @@ async function openDetails(page, id) {
       await waitLive(page);
       await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
       await waitFnOr(page, () => document.querySelectorAll(".nflplay").length > 0);
+      // RESTAGED 2026-08-13: play selectors scope to `.card > .nflplays` — the CURRENT drive's
+      // own list. Previous drives carry .nflplay rows of their own now (inside their
+      // <details>), so an unscoped count would read 3 + the TD drive's 2 and the check would
+      // stop measuring what it names.
       const pbp = (await evalOr(page, () => ({
-        plays: [...document.querySelectorAll(".nflplay .nfltext")].map((e) => e.textContent.trim()),
-        dd: [...document.querySelectorAll(".nflplay .nfldd")].map((e) => e.textContent.trim()),
+        plays: [...document.querySelectorAll(".card > .nflplays .nflplay .nfltext")].map((e) => e.textContent.trim()),
+        dd: [...document.querySelectorAll(".card > .nflplays .nflplay .nfldd")].map((e) => e.textContent.trim()),
         drives: [...document.querySelectorAll(".nfldrv .nflres")].map((e) => e.textContent.trim()),
         scored: [...document.querySelectorAll(".nfldrv .nflres.scored")].map((e) => e.textContent.trim()),
         tags: [...document.querySelectorAll(".nfldrv .nfltag")].map((e) => e.textContent.trim()),
-        capped: (() => { const b = document.querySelector(".nflplays"); return b ? getComputedStyle(b).maxHeight !== "none" : false; })(),
+        capped: (() => { const b = document.querySelector(".card > .nflplays"); return b ? getComputedStyle(b).maxHeight !== "none" : false; })(),
       }))) || {};
       ok((pbp.plays || []).length === 3, "the current drive renders all three of its plays (" + (pbp.plays || []).length + ")");
       ok(/49 yards/.test(pbp.plays[0] || "") && /9 yards/.test(pbp.plays[2] || ""),
@@ -11402,7 +11427,9 @@ async function openDetails(page, id) {
         await waitFnOr(page, (w) => !!document.querySelector(w), wait);
         return (await evalOr(page, () => ({
           field: document.querySelectorAll(".nflfield").length,
-          plays: document.querySelectorAll(".nflplay").length,
+          // Scoped to the CURRENT drive's own list (RESTAGED 2026-08-13, same reason as AH4's):
+          // previous drives carry .nflplay rows of their own inside their dropdowns now.
+          plays: document.querySelectorAll(".card > .nflplays .nflplay").length,
           drives: document.querySelectorAll(".nfldrv").length,
           box: document.querySelectorAll("table.nflbox").length,
           kick: document.querySelectorAll(".nflkick").length,
@@ -17203,6 +17230,206 @@ async function openDetails(page, id) {
         "a mirror-offline device adopts nothing and writes nothing — projections are a cloud concern");
       ok(errors.length === 0, "0 page errors on the mirror");
       fixture.espnProj = false;
+      await ctx.close();
+    }
+  }
+
+  // ================= AY · THE FIRST LIVE GAME NIGHT'S FIXES (2026-08-13) =================
+  // Three findings from the family's first night watching real preseason games through the
+  // app: (1) player scores dropped to 0.0 every 30-40s and came back — health flapping into a
+  // degraded mode whose pinned source didn't hold every player, with livePts coercing the
+  // resulting null to 0; (2) every poll tick FLASHED the screen — wholesale innerHTML
+  // replacement re-creating every img; (3) previous drives should be dropdowns with their
+  // plays, and the field arrow should show how far the drive has actually gone.
+  {
+    console.log("\n== AY · game-night fixes — zero-flicker, flash-free repaints, drive dropdowns, progress arrow ==");
+    // ---- AY1: a degraded-mode pin never hides data we hold ----
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false; fixture.espnSummariesDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const zz = (await evalOr(page, () => {
+        const d = window.__GFFL__.D;
+        // Two SYNTHETIC rows, each carried by only ONE source — the exact shape the live
+        // night's preseason bucket produced (Sleeper held 946 rows and still missed rostered
+        // vets outright).
+        d.S.players.set("zz_eonly", { key: "zz_eonly", name: "Z EspnOnly", pos: "WR", team: "PHI",
+          espn: { last: Date.now(), stats: { rec: 3, rec_yd: 30 }, raw: {} }, slp: null, official: null, injury: "" });
+        d.S.players.set("zz_sonly", { key: "zz_sonly", name: "Z SlpOnly", pos: "WR", team: "PHI",
+          slp: { last: Date.now(), stats: { rec: 2, rec_yd: 20 }, raw: {} }, espn: null, official: null, injury: "" });
+        const read = () => ({ e: d.livePts("zz_eonly"), s: d.livePts("zz_sonly") });
+        // Healthy dual — both real.
+        for (const k of ["zz_eonly", "zz_sonly"]) d.mergeRow(d.S.players.get(k));
+        const dual = read();
+        // ESPN flagged bad → sleeper-only. The espn-only row's data must SURVIVE the pin.
+        d.S.health.espn.failN = 5; d.updateHealth();
+        for (const k of ["zz_eonly", "zz_sonly"]) d.mergeRow(d.S.players.get(k));
+        const slpOnly = { ...read(), mode: d.S.health.mode };
+        // Sleeper flagged bad instead → espn-only. The slp-only row must survive too.
+        d.S.health.espn.failN = 0; d.S.health.slp.failN = 5; d.updateHealth();
+        for (const k of ["zz_eonly", "zz_sonly"]) d.mergeRow(d.S.players.get(k));
+        const espnOnly = { ...read(), mode: d.S.health.mode };
+        // restore
+        d.S.health.slp.failN = 0; d.updateHealth();
+        for (const k of ["zz_eonly", "zz_sonly"]) d.mergeRow(d.S.players.get(k));
+        d.S.players.delete("zz_eonly"); d.S.players.delete("zz_sonly");
+        return { dual, slpOnly, espnOnly };
+      })) || {};
+      ok(zz.dual && zz.dual.e === 6 && zz.dual.s === 4, "healthy dual: both one-source rows score their real points (6.0 / 4.0)");
+      ok(zz.slpOnly && zz.slpOnly.mode === "sleeper-only" && zz.slpOnly.e === 6,
+        "sleeper-only mode: a player Sleeper doesn't carry KEEPS his espn points — a stale number beats a fabricated zero (was 0.0 all night pre-fix)");
+      ok(zz.espnOnly && zz.espnOnly.mode === "espn-only" && zz.espnOnly.s === 4,
+        "espn-only mode: the mirror case holds too (" + (zz.espnOnly && zz.espnOnly.s) + ")");
+      ok(errors.length === 0, "0 page errors through the forced health modes");
+      await ctx.close();
+    }
+    // ---- AY1b: a summary-only blackout is not an ESPN outage ----
+    {
+      fixture.espnSummariesDown = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      // waitLive() needs espnSeeded, which only a successful SUMMARY sets — this page's whole
+      // premise is that summaries are down, so wait on the sleeper side alone.
+      await waitFnOr(page, () => { const d = window.__GFFL__.D; return d && d.S.slpSeeded && d.S.players.size > 0; });
+      await page.evaluate(() => window.__GFFL__.D.stop());
+      const acct = (await evalOr(page, async () => {
+        const d = window.__GFFL__.D;
+        const out = [];
+        for (let i = 0; i < 3; i++) {
+          await d.pollOnce();
+          out.push({ mode: d.S.health.mode, failN: d.S.health.espn.failN, passer: d.livePts("3915511") });
+        }
+        return out;
+      })) || [];
+      ok(acct.length === 3 && acct.every((t) => t.mode === "dual"),
+        "three straight cycles of failing summaries never flip health — a partial ESPN failure is not an outage (" + JSON.stringify(acct.map((t) => t.mode)) + ")");
+      ok(acct.every((t) => t.failN <= 1),
+        "…because failN moves at most ONE per cycle now, not once per failed summary (was +6 in a single pass with six live games) — " + JSON.stringify(acct.map((t) => t.failN)));
+      ok(acct.every((t) => t.passer === 10), "…and P. Passer's 10.0 never wavers through any of it");
+      ok(errors.length === 0, "0 page errors under the blackout");
+      fixture.espnSummariesDown = false;
+      await ctx.close();
+    }
+    // ---- AY2: the matchup repaint is a MORPH — no flash, no lost typing, numbers still move ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="matchup"]');
+      await waitOr(page, ".mutable");
+      const flash = (await evalOr(page, () => {
+        const d = window.__GFFL__.D;
+        // Mark REAL NODES with a JS property — a property survives a morph (the morph only
+        // touches attributes/text) and can never survive an innerHTML replacement, which is
+        // exactly the distinction under test.
+        const img = document.querySelector(".pcellgrid .plogo");
+        if (img) img.__probe = 1;
+        const ta = document.querySelector("#muThreadText");
+        if (ta) { ta.value = "half a trash talk"; ta.focus(); }
+        const before = document.querySelector(".muhrow").textContent;
+        // Move a real stat the way the poll would, then drive the LIVE repaint path itself.
+        const row = d.S.players.get("3915511");
+        row.espn.stats = { ...row.espn.stats, pass_yd: 350 };
+        row.espn.last = Date.now() + 5;
+        d.mergeRow(row);
+        window.__GFFL__.UI.renderMatchup(true);
+        const img2 = document.querySelector(".pcellgrid .plogo");
+        const ta2 = document.querySelector("#muThreadText");
+        return {
+          sameImg: !!(img2 && img2.__probe === 1 && img2.isConnected),
+          taText: ta2 ? ta2.value : null,
+          taFocused: document.activeElement === ta2,
+          moved: document.querySelector(".muhrow").textContent !== before,
+        };
+      })) || {};
+      ok(flash.sameImg === true, "a crest <img> is the SAME NODE after a live repaint — nothing to re-decode, nothing to flash");
+      ok(flash.taText === "half a trash talk" && flash.taFocused === true,
+        "…the trash-talk composer keeps its half-typed text AND its focus through the tick");
+      ok(flash.moved === true, "…while the header totals genuinely moved — the morph updates what changed, only what changed");
+      // The duplicate-listener hazard the morph creates and the keep-set closes: a surviving
+      // row keeps its data-pc-wired guard, so N repaints must still mean ONE listener — one
+      // tap, one card. (Stripping the guard would re-bind every survivor every tick.)
+      const dup = (await evalOr(page, () => {
+        window.__GFFL__.UI.renderMatchup(true);
+        window.__GFFL__.UI.renderMatchup(true);
+        let n = 0;
+        const orig = window.__GFFL__.UI.openPlayerCard;
+        window.__GFFL__.UI.openPlayerCard = () => { n++; };
+        document.querySelector(".pcellgrid[data-pk]").click();
+        window.__GFFL__.UI.openPlayerCard = orig;
+        return n;
+      }));
+      ok(dup === 1, "after three live repaints, tapping a player row opens exactly ONE card — no duplicate listeners (" + dup + ")");
+      ok(errors.length === 0, "0 page errors across the matchup morph");
+      await ctx.close();
+    }
+    // ---- AY3: previous drives are dropdowns; the reader's open state survives the poll ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
+      await waitFnOr(page, () => document.querySelector("details.nfldrvd"));
+      const drv = (await evalOr(page, () => {
+        const dd = [...document.querySelectorAll("details.nfldrvd")];
+        const plain = [...document.querySelectorAll(".nfldrv")].filter((e) => e.tagName !== "DETAILS");
+        const td = dd[0];
+        return { details: dd.length, plain: plain.length,
+          count: td ? (td.querySelector(".nfldrvn") || {}).textContent : "",
+          key: td ? td.dataset.mkey : "",
+          openByDefault: td ? td.open : null };
+      })) || {};
+      ok(drv.details === 1 && drv.plain === 2,
+        "the drive WITH plays on file is a dropdown; the two the payload carried none for stay plain lines (" + drv.details + "/" + drv.plain + ")");
+      ok(/2 plays/.test(drv.count || "") && drv.openByDefault === false, "…closed by default, announcing its 2 plays");
+      const opened = (await evalOr(page, () => {
+        const td = document.querySelector("details.nfldrvd");
+        td.open = true; td.__probe = 1;
+        const plays = [...td.querySelectorAll(".nflplay .nfltext")].map((e) => e.textContent.trim());
+        // …now the 25s poll repaints, and then a NEW drive completes and prepends.
+        window.__GFFL__.UI.paintNflGame();
+        const after1 = document.querySelector("details.nfldrvd");
+        const g = window.__GFFL__.UI._nflGame;
+        g.drives.previous.unshift({ teamId: "6", teamAbbrev: "DAL", result: "Interception", description: "2 plays, -3 yards, 0:41", scoring: false, plays: [] });
+        window.__GFFL__.UI.paintNflGame();
+        const after2 = document.querySelector("details.nfldrvd");
+        const rows = [...document.querySelectorAll(".nfldrv, details.nfldrvd")].map((e) => (e.querySelector(".nflres") || {}).textContent);
+        return { plays, still1: !!(after1 && after1.__probe === 1 && after1.open),
+          still2: !!(after2 && after2.__probe === 1 && after2.open && after2.dataset.mkey === "drv_2"),
+          rows };
+      })) || {};
+      ok((opened.plays || []).length === 2 && /21 yards/.test(opened.plays[0] || ""),
+        "opening it shows the drive's own plays, chronologically (" + JSON.stringify(opened.plays) + ")");
+      ok(opened.still1 === true, "the open dropdown SURVIVES a poll repaint — same node, still open (the reader's own state)");
+      ok(opened.still2 === true,
+        "…and survives a NEW drive prepending above it — the keyed morph keeps the state on the SAME drive, not the same position");
+      ok((opened.rows || [])[0] === "Interception", "…while the new drive really did land at the top (" + (opened.rows || [])[0] + ")");
+      ok(errors.length === 0, "0 page errors through the drive dropdowns");
+      await ctx.close();
+    }
+    // ---- AY4: the Scores tab repaint is a morph too ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="scores"]');
+      await waitOr(page, ".sccard");
+      const sc = (await evalOr(page, () => {
+        const img = document.querySelector(".sccard .sclogo");
+        if (img) img.__probe = 1;
+        window.__GFFL__.UI.paintScores();
+        window.__GFFL__.UI.paintScores();
+        const img2 = document.querySelector(".sccard .sclogo");
+        return { same: !!(img2 && img2.__probe === 1 && img2.isConnected) };
+      })) || {};
+      ok(sc.same === true, "an NFL crest on the Scores tab is the same node across two repaints — the flash is gone there too");
+      ok(errors.length === 0, "0 page errors across the scores morph");
       await ctx.close();
     }
   }

@@ -209,6 +209,13 @@ async function sectionA() {
   ok(!!g && g.drives.previous.length === 3 && g.drives.previous[0].result === "Punt"
     && g.drives.previous[2].result === "Touchdown" && g.drives.previous[2].scoring === true,
     "previous drives are newest-first with results");
+  // 2026-08-13 (the league app's drive dropdowns): each previous drive forwards its OWN
+  // slimmed plays — the KC TD drive's two, and an honest [] for a drive the raw payload
+  // carried none for.
+  ok(!!g && Array.isArray(g.drives.previous[2].plays) && g.drives.previous[2].plays.length === 2
+    && /Worthy for 42/.test(g.drives.previous[2].plays[0].text) && g.drives.previous[2].plays[1].scoring === true
+    && g.drives.previous[0].plays.length === 0,
+    "previous drives carry their own slimmed plays (2 on the TD drive, [] where the payload had none)");
   ok(!!g && g.winprob.length <= 81 && Math.abs(g.winprob[g.winprob.length - 1] - 0.68) < 0.001,
     `win probability is thinned (${g.winprob.length} pts) and keeps the final value`);
   const kcStats = g && g.boxscore.teams.find((t) => t.abbrev === "KC");

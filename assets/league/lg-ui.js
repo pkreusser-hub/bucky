@@ -1086,6 +1086,84 @@
   }
 
   function main() { return $("#main"); }
+
+  // ---------------- FLASH-FREE LIVE REPAINTS (2026-08-13, first live game night) ----------------
+  // Live repaints used to REPLACE innerHTML wholesale every poll tick — which re-creates every
+  // node: headshots and crests re-decode (the flash the family watched all night), scroll
+  // positions reset, an open <details> snaps shut, a focused composer dies. patchInto() morphs
+  // the EXISTING tree toward the new HTML instead: same-shape nodes are KEPT and only changed
+  // attributes/text move, so an <img> whose src didn't change is never touched and never
+  // flashes, and focus/scroll/typed text all survive because the nodes carrying them do.
+  // Rules, each load-bearing:
+  //   · children align by data-mkey when both sides carry one (a KEYED list — the drives
+  //     dropdowns — survives newest-first insertions without an open/closed state sliding onto
+  //     the wrong sibling), else by index;
+  //   · a DETAILS element's `open` attribute is the READER'S OWN state — never synced;
+  //   · data-wired / data-pc-wired are the wiring guards' property — never synced, so a
+  //     surviving node keeps its listener and only genuinely NEW nodes get wired again
+  //     (data-pc-wired is wirePlayerCardTaps' own guard — strip it and every surviving row
+  //     would be re-bound each tick, and one tap would open N player cards);
+  //   · morph ONLY on a same-view repaint (each caller checks its own structural sentinel
+  //     first) — morphing a DIFFERENT view's tree would let old nodes with old listeners
+  //     survive by shape coincidence into the new screen.
+  const MORPH_KEEP_ATTR = new Set(["data-wired", "data-pc-wired"]);
+  function patchInto(el, html) {
+    const t = document.createElement("template");
+    t.innerHTML = html;
+    morphChildren(el, t.content);
+  }
+  function morphNode(from, to) {
+    if (from.nodeType === 3) { if (from.nodeValue !== to.nodeValue) from.nodeValue = to.nodeValue; return; }
+    if (from.nodeType !== 1) return;
+    for (let i = from.attributes.length - 1; i >= 0; i--) {
+      const n = from.attributes[i].name;
+      if (MORPH_KEEP_ATTR.has(n)) continue;
+      if (n === "open" && from.tagName === "DETAILS") continue;
+      if (!to.hasAttribute(n)) from.removeAttribute(n);
+    }
+    for (const a of [...to.attributes]) {
+      if (MORPH_KEEP_ATTR.has(a.name)) continue;
+      if (a.name === "open" && from.tagName === "DETAILS") continue;
+      if (from.getAttribute(a.name) !== a.value) from.setAttribute(a.name, a.value);
+    }
+    morphChildren(from, to);
+  }
+  function morphChildren(from, to) {
+    const want = [...to.childNodes];
+    const haveByKey = new Map();
+    for (const h of from.children) {
+      const k = h.getAttribute("data-mkey");
+      if (k) haveByKey.set(k, h);
+    }
+    for (let i = 0; i < want.length; i++) {
+      const w = want[i];
+      const cur = from.childNodes[i] || null;   // live read — earlier moves shift positions
+      const wk = w.nodeType === 1 ? w.getAttribute("data-mkey") : null;
+      if (wk && haveByKey.has(wk)) {
+        const keyed = haveByKey.get(wk);
+        if (keyed !== cur) from.insertBefore(keyed, cur);
+        morphNode(keyed, w);
+        continue;
+      }
+      if (!cur) { from.appendChild(w); continue; }
+      // never let an unkeyed want consume a KEYED survivor that belongs to a later position
+      if (cur.nodeType === 1 && cur.getAttribute("data-mkey") && cur.getAttribute("data-mkey") !== wk) {
+        from.insertBefore(w, cur);
+        continue;
+      }
+      if (cur.nodeType === w.nodeType && cur.nodeName === w.nodeName) morphNode(cur, w);
+      else from.replaceChild(w, cur);
+    }
+    while (from.childNodes.length > want.length) from.removeChild(from.lastChild);
+  }
+  // Wiring guard for morph-repainted views: a surviving node keeps its listener (the morph
+  // never touches data-wired), so re-running the wiring after a repaint binds NEW nodes only.
+  function wireOnce(el, fn) {
+    if (!el || el.dataset.wired) return;
+    el.dataset.wired = "1";
+    el.addEventListener("click", fn);
+  }
+
   function paintLive() {
     if (UI.view === "matchup") renderMatchup(true);
     else if (UI.view === "league") renderLeague(true);
@@ -2692,7 +2770,7 @@
   function paintScores() {
     const d = D();
     const browsing = UI._scoresWeek != null;
-    main().innerHTML = browsing ? `
+    const html = browsing ? `
       ${scoresWeekNavHtml()}
       ${gfflWeekStaticHtml(UI._scoresWeek, UI._scoresGfflGames, UI._scoresWeekly)}
       <div class="card"><div class="rowline"><h2>NFL — Week ${UI._scoresWeek}</h2></div>
@@ -2704,16 +2782,27 @@
         ${nflScoresHtml(d.S && d.S.nflEvents)}
       </div>
       ${ffScoresHtml(UI._ffSb)}`;
+    // Same-view repaint → MORPH (the .scweeknav sentinel says this tree is already the Scores
+    // view's own), so the crests never flash and the reader's scroll survives a poll tick.
+    // A view change / first paint still replaces wholesale — morphing another view's tree
+    // would let its nodes (and their listeners) survive by shape coincidence.
+    if (main().querySelector(".scweeknav")) patchInto(main(), html);
+    else main().innerHTML = html;
     const step = (delta) => {
       const next = Math.max(1, Math.min(scoresTotalWeeks(), scoresShownWeek() + delta));
       // Stepping ONTO the live week returns to the live board, never a frozen copy of it.
       UI._scoresWeek = next === UI.week ? null : next;
       renderScores();
     };
-    $("#scPrev") && $("#scPrev").addEventListener("click", () => step(-1));
-    $("#scNext") && $("#scNext").addEventListener("click", () => step(1));
-    $("#scNow") && $("#scNow").addEventListener("click", () => { UI._scoresWeek = null; renderScores(); });
-    document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
+    wireOnce($("#scPrev"), () => step(-1));
+    wireOnce($("#scNext"), () => step(1));
+    wireOnce($("#scNow"), () => { UI._scoresWeek = null; renderScores(); });
+    // Handlers RE-READ their data-attribute at CLICK time, not at wire time: a morphed node
+    // SURVIVES a live↔browse repaint with its listener attached, and the morph may have
+    // removed the attribute that made it tappable (a live card becoming a static browse
+    // card) — the stale closure firing anyway was the regression the re-read prevents.
+    document.querySelectorAll("[data-mu]").forEach((el) => wireOnce(el, () => {
+      if (!el.dataset.mu) return;
       UI.matchup = el.dataset.mu.split("-").map(Number);
       UI.go("matchup");
     }));
@@ -2722,7 +2811,7 @@
     // that lands on a "bad-event-id" error.
     document.querySelectorAll(".sccard[data-eid]").forEach((el) => {
       if (!el.dataset.eid) { el.disabled = true; return; }
-      el.addEventListener("click", () => UI.openNflGame(el.dataset.eid));
+      wireOnce(el, () => { if (el.dataset.eid) UI.openNflGame(el.dataset.eid); });
     });
     paintHealth();
   }
@@ -2843,9 +2932,23 @@
         svg += `<line class="nflfd" x1="${fdx}" y1="0" x2="${fdx}" y2="300" stroke="var(--gold)" stroke-width="3.5"/>`;
       }
       svg += `<line class="nfllos" x1="${bx.toFixed(1)}" y1="0" x2="${bx.toFixed(1)}" y2="300" stroke="#eaf2ff" stroke-width="3" opacity="0.95"/>`;
-      svg += poss === "away"
-        ? `<g fill="#fff" opacity="0.9"><rect x="600" y="41" width="40" height="5" rx="2"/><path d="M 640 33 l 15 10.5 l -15 10.5 z"/></g>`
-        : `<g fill="#fff" opacity="0.9"><rect x="360" y="41" width="40" height="5" rx="2"/><path d="M 360 33 l -15 10.5 l 15 10.5 z"/></g>`;
+      // THE ARROW IS THE DRIVE (2026-08-13 game night: "the arrow on the field should reflect
+      // how far the drive has gone so far"): tail at the drive's own start, head at the ball —
+      // its LENGTH is the drive's progress, and a drive that has LOST ground honestly points
+      // backwards. Falls back to the old fixed direction glyph when the drive is too young to
+      // read (under ~2 yards of span) or the payload carried no start.
+      const dr2 = g.drives && g.drives.current;
+      const startX = (poss && dr2 && dr2.startYardsToEndzone != null) ? fieldX(fieldPos(poss, dr2.startYardsToEndzone)) : null;
+      if (startX != null && Math.abs(bx - startX) >= 18) {
+        const dir = bx >= startX ? 1 : -1;
+        svg += `<g class="nfldarrow" data-x0="${startX.toFixed(1)}" data-x1="${bx.toFixed(1)}" stroke="#fff" fill="#fff" opacity="0.9">
+          <line x1="${startX.toFixed(1)}" y1="43.5" x2="${(bx - dir * 13).toFixed(1)}" y2="43.5" stroke-width="5" stroke-linecap="round"/>
+          <path d="M ${bx.toFixed(1)} 43.5 l ${(-dir * 15).toFixed(1)} -8 l 0 16 z" stroke="none"/></g>`;
+      } else {
+        svg += poss === "away"
+          ? `<g fill="#fff" opacity="0.9"><rect x="600" y="41" width="40" height="5" rx="2"/><path d="M 640 33 l 15 10.5 l -15 10.5 z"/></g>`
+          : `<g fill="#fff" opacity="0.9"><rect x="360" y="41" width="40" height="5" rx="2"/><path d="M 360 33 l -15 10.5 l 15 10.5 z"/></g>`;
+      }
       svg += `<g class="nflball" data-x="${bx.toFixed(1)}" transform="translate(${bx.toFixed(1)},150)">`
         + `<ellipse rx="14" ry="9" fill="#6b3f23" stroke="#fff" stroke-width="1.5"/>`
         + `<line x1="-6" y1="0" x2="6" y2="0" stroke="#fff" stroke-width="1.4"/></g>`;
@@ -2933,25 +3036,37 @@
     // the game's state, so a just-finished game still shows its last drive.
     const cur = g.drives && g.drives.current;
     const curPlays = (cur && Array.isArray(cur.plays) ? cur.plays : []).filter((p) => p && p.text);
+    const playRow = (p) => `<div class="nflplay${p.scoring ? " score" : ""}"><span class="nfldd">${esc(p.downDistanceText || "—")}</span>
+          <span class="nfltext">${esc(p.text)}</span><span class="nflck mut small">${esc(p.clock || "")}</span></div>`;
     if (curPlays.length) {
       html += `<div class="card"><div class="seclabel">
         <span class="nfltag" style="background:${abColor(cur.teamId)}">${esc(cur.teamAbbrev || "")}</span>
         <b>${live ? "This drive" : "Last drive"}</b>
         ${cur.description ? `<span class="mut small">${esc(cur.description)}</span>` : ""}</div>
         <div class="nflplays">`;
-      curPlays.slice().reverse().forEach((p) => {
-        html += `<div class="nflplay${p.scoring ? " score" : ""}"><span class="nfldd">${esc(p.downDistanceText || "—")}</span>
-          <span class="nfltext">${esc(p.text)}</span><span class="nflck mut small">${esc(p.clock || "")}</span></div>`;
-      });
+      curPlays.slice().reverse().forEach((p) => { html += playRow(p); });
       html += `</div></div>`;
     }
+    // PREVIOUS DRIVES ARE DROPDOWNS (2026-08-13 game night: "previous drives should be drop
+    // downs where you can see each play"). Each drive with plays on file is a native <details>
+    // whose summary is the exact one-line card it used to be; a drive the payload carried no
+    // plays for stays a plain line rather than an empty disclosure. KEYED by the drive's
+    // from-game-start ordinal (previous[] is newest-first, so an index would SHIFT every time
+    // a drive completes — the ordinal is what keeps a reader's open dropdown attached to the
+    // same drive across the live morph).
     const prev = (g.drives && Array.isArray(g.drives.previous) ? g.drives.previous : []);
     if (prev.length) {
       html += `<div class="card"><div class="seclabel"><b>${curPlays.length ? "Previous drives" : "Drives"}</b></div>`;
-      prev.slice(0, 14).forEach((d) => {
-        html += `<div class="nfldrv"><span class="nfltag" style="background:${abColor(d.teamId)}">${esc(d.teamAbbrev || "")}</span>
+      prev.slice(0, 14).forEach((d, i) => {
+        const plays = (Array.isArray(d.plays) ? d.plays : []).filter((p) => p && p.text);
+        const key = "drv_" + (prev.length - i);
+        const head = `<span class="nfltag" style="background:${abColor(d.teamId)}">${esc(d.teamAbbrev || "")}</span>
           <span class="nflres${d.scoring ? " scored" : ""}">${esc(d.result || "Drive")}</span>
-          <span class="mut small">${esc(d.description || "")}</span></div>`;
+          <span class="mut small">${esc(d.description || "")}</span>`;
+        html += plays.length
+          ? `<details class="nfldrv nfldrvd" data-mkey="${key}"><summary>${head}<span class="nfldrvn mut small">${plays.length} plays</span></summary>
+              <div class="nflplays">${plays.map(playRow).join("")}</div></details>`
+          : `<div class="nfldrv" data-mkey="${key}">${head}</div>`;
       });
       html += `</div>`;
     }
@@ -3086,7 +3201,12 @@
     // own "Where" line one row above it (caught on the review plate).
     if (chip) chip.textContent = st.state === "in" ? "LIVE" : st.state === "post" ? "FINAL" : "";
     if (chip) chip.className = st.state === "in" ? "nfllivechip" : "mut small";
-    body.innerHTML = nflGameHtml(g);
+    // Same-view repaint → MORPH (see patchInto's own note): the field redraws only where its
+    // numbers moved, the crests never flash, and a previous-drive <details> the reader opened
+    // STAYS open across the 25s poll — its `open` is theirs, and the drives are keyed
+    // (data-mkey) so a newly completed drive prepending never slides that state onto a sibling.
+    if (body.querySelector(".nflhead")) patchInto(body, nflGameHtml(g));
+    else body.innerHTML = nflGameHtml(g);
   }
   UI.paintNflGame = paintNflGame;
   function nflGameLive() { const g = UI._nflGame; return !!(g && g.ok && g.status && g.status.state === "in"); }
@@ -3202,8 +3322,13 @@
     // + order), so the PHONE header stays byte-identical inside its measured cap. The
     // per-side "N to play · N live" line moves into the lineup card on desktop (.muplayline,
     // hidden on phones where the header's own .muhsub still carries it).
-    main().innerHTML = `
-      <div class="card muhead muhero" style="--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tta:${esc(pa.tertiary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)};--tth:${esc(ph.tertiary)}">
+    // FLASH-FREE REPAINT (2026-08-13): the three VOLATILE card interiors are built once here
+    // and used by both branches — the full render assembles the whole page around them; a live
+    // repaint MORPHS them in place (patchInto) and touches nothing else, so the headshots and
+    // crests never flash, the trash-talk composer keeps its text and focus, and no listener is
+    // ever bound twice (the repaint branch deliberately re-runs ONLY the dataset-guarded
+    // wirePlayerCardTaps, for rows the morph genuinely created).
+    const muHeadInner = `
         <div class="muhrow">
           ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "")}
           <div class="muhmid">
@@ -3213,9 +3338,8 @@
         </div>
         <div class="mut small mupweek">Week ${UI.week}</div>
         ${wideBar}
-        <div class="rowline"><span id="healthChip" class="health" hidden></span></div>
-      </div>
-      <div class="card lineupcard"><div class="rowline muplayline">
+        <div class="rowline"><span id="healthChip" class="health" hidden></span></div>`;
+    const muLineupInner = `<div class="rowline muplayline">
           <span class="mut muhsub">${aRem.left} to play · ${aRem.playing} live</span>
           <span class="mut muhsub">${hRem.left} to play · ${hRem.playing} live</span>
         </div><div class="panner"><table class="tbl slottable mutable">
@@ -3228,13 +3352,32 @@
           <td class="slotcell" data-pos="X">${slotBadge("TOT")}</td>
           <td class="pcell right">${totalHalfCell(hTot, "right")}</td>
         </tr></tfoot>
-      </table></div></div>
-      ${(aBench.length || hBench.length) ? `<div class="card lineupcard"><h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
+      </table></div>`;
+    const muBenchInner = (aBench.length || hBench.length) ? `<h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
         ${benchRows.map(([pa, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
           <td class="slotcell" data-pos="X">${slotBadge("BENCH")}</td>
           <td class="pcell right">${halfCell(ph, "right")}</td></tr>`).join("")}
-      </tbody></table></div></div>` : ""}
+      </tbody></table></div>` : "";
+    if (repaint && $("#muHead")) {
+      patchInto($("#muHead"), muHeadInner);
+      patchInto($("#muLineup"), muLineupInner);
+      const mb = $("#muBench");
+      if (mb && muBenchInner) patchInto(mb, muBenchInner);
+      paintFeed(); // UI._feedAll was recomputed above; #mufeed repaints alone, as ever
+      const ab = $("#aiReadBtn");
+      if (ab) { ab.disabled = !!(UI._aiRead && UI._aiRead.busy); ab.textContent = UI._aiRead && UI._aiRead.busy ? "Reading the game…" : "Get an AI read"; }
+      const ao = $("#aiReadOut");
+      if (ao) ao.innerHTML = aiReadHtml();
+      wirePlayerCardTaps(); // dataset-guarded — binds only rows the morph actually created
+      paintHealth();
+      fitHeroNames();
+      return;
+    }
+    main().innerHTML = `
+      <div class="card muhead muhero" id="muHead" style="--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tta:${esc(pa.tertiary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)};--tth:${esc(ph.tertiary)}">${muHeadInner}</div>
+      <div class="card lineupcard" id="muLineup">${muLineupInner}</div>
+      ${muBenchInner ? `<div class="card lineupcard" id="muBench">${muBenchInner}</div>` : ""}
       ${h2hLine(UI._h2h, H, A) /* cosmetic pass 2026-08-11: the all-time series reads BELOW the player matchups now */}
       <div class="card"><h2>The feed</h2>
         <div class="poschips feedfilter" id="mufeedFilter">

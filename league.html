@@ -1249,6 +1249,21 @@
   .nfldrv { display:grid; grid-template-columns:auto auto 1fr; gap:8px; align-items:baseline;
             padding:6px 0; border-top:1px solid var(--divider2); font-size:13px; }
   .nfldrv:first-of-type { border-top:none; }
+  /* Previous drives are DROPDOWNS (2026-08-13 game night). The <details> keeps the plain
+     drive-line grid on its SUMMARY (plus a quiet "N plays" count and a chevron); its play list
+     reuses .nflplays/.nflplay unchanged and is inset under a hairline so it reads as the
+     drive's own contents, not a new section. The reader's open/closed state is theirs — the
+     live morph never syncs a details' `open` (see patchInto's rules). */
+  details.nfldrvd { display:block; padding:0; }
+  details.nfldrvd > summary { display:grid; grid-template-columns:auto auto 1fr auto; gap:8px;
+    align-items:baseline; padding:6px 0; cursor:pointer; list-style:none; font-size:13px; }
+  details.nfldrvd > summary::-webkit-details-marker { display:none; }
+  details.nfldrvd > summary::after { content:"▾"; color:var(--mut); font-size:11px;
+    align-self:center; transition:transform .12s; }
+  details.nfldrvd[open] > summary::after { transform:rotate(180deg); }
+  .nfldrvn { white-space:nowrap; }
+  details.nfldrvd > .nflplays { margin:0 0 6px 10px; padding-left:8px;
+    border-left:2px solid var(--divider2); max-height:340px; }
   .nflres { font:700 11.5px var(--font-display); letter-spacing:.5px; text-transform:uppercase; color:var(--ink2); }
   .nflres.scored { color:var(--gold); }
   .nflwp { display:flex; align-items:center; gap:12px; }
