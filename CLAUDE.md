@@ -12117,3 +12117,30 @@ exact flash the morphs had just removed, resurfacing through a different door. F
   game…" ever, matchup same-crest-node through onChange, scores same-node + no "Loading
   scores…". The 2 AV5 failures the id-clash caused are green again with zero restaging —
   they were correct all along.
+
+## 🏈 GFFL — SCORES AT THE API'S OWN FLOOR: the light/full poll split (2026-08-13, same night)
+
+User: *"it looks like our nfl score is about 30 seconds delayed from ESPN, any way to lower
+that delay?"* MEASURED FIRST, during a live game: ESPN's public scoreboard is **edge-cached at
+`cache-control: max-age=7-9s`**, and a cache-busted query param returns byte-identical data —
+so ~8s is the freshest that API ever gets (ESPN's own app rides a private FastCast push
+channel; single-digit parity is unreachable from the public REST). The family's ~30s was
+their ~8s + OUR cadence (15s main poll, 25s game-view poll). Files: `assets/league/lg-{data,
+ui}.js` + `tools/_verify-gffl.cjs` (2563 → **2567**, new AY6).
+- **`D.pollOnce({light:true})`** fetches the SCOREBOARD ONLY — score/clock/state, the thing
+  the eye compares against ESPN's app — then merges + paints; it skips the injury refresh,
+  Sleeper, and the up-to-8 per-game summaries. **A DIRECT `pollOnce()` is always FULL**, which
+  is the load-bearing design choice: dozens of suite sections stage state with `poll(page)`
+  and every one keeps its meaning — ZERO restages.
+- **The loop runs 8s ticks while live, alternating FULL/LIGHT** (tick 0 always full — boot
+  needs the Sleeper seed; an explicit `D.start(ms)` stays full at that cadence; idle stays
+  60s full). Net: scores refresh every ~8s, the heavy half keeps its old ~16s volume — total
+  upstream summary/Sleeper load UNCHANGED, scoreboard fetches 2x (fine at family scale).
+  Sleeper's health `lastOk` deliberately doesn't move on a light tick (full ticks land every
+  ~16s, inside every staleness window; a light tick learned nothing about Sleeper).
+- **`startNflGamePoll` 25s → 12s while THAT game is live** (pre 120s / final never, unchanged).
+- Expected on screen: ~9-17s behind ESPN's app instead of ~15-34s.
+- **AY6** asserts via the app's OWN `D.EP` endpoint bookkeeping (no new fixture recorder): a
+  light pollOnce bumps "espn scoreboard" and neither "espn summary" nor "sleeper stats"; the
+  game map is live off it; a plain pollOnce() still fetches both heavies. waitLive already
+  stops the loop, so the counts are race-free between the check's own calls.

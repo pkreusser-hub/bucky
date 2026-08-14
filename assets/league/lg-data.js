@@ -1688,14 +1688,25 @@
 
   // ---------------- orchestration ----------------
   D.trackTeams = function (abbrevs) { D.S.tracked = new Set(abbrevs.map(slpTeam)); };
-  D.pollOnce = async function () {
+  D.pollOnce = async function (opts) {
+    // LIGHT ticks (2026-08-13 latency fix, user: "our nfl score is about 30 seconds delayed
+    // from ESPN"). MEASURED live: ESPN's public scoreboard is edge-cached at max-age=7-9s
+    // (cache-busting returns byte-identical data — verified during a real game), so the API's
+    // own floor is ~8s; the rest of the family's observed delay was OUR cadence (15s main
+    // poll, 25s game view). A light tick fetches the SCOREBOARD ONLY — game score/clock/state,
+    // the thing the eye compares against ESPN's app — and skips the heavy half (Sleeper stats
+    // + up-to-8 per-game summaries), so the loop can run at the API's own refresh rate while
+    // total upstream volume for the heavy fetches stays at today's level. The loop alternates
+    // light/full while live; a DIRECT pollOnce() call (tests, manual) is always FULL, so no
+    // existing caller's semantics move.
+    const light = !!(opts && opts.light);
     // S9's slow injury-directory refresh (2026-08-11) — see D.maybeRefreshInjuryDirectory's own
     // header note. Rides the SAME tick every other poll job already runs on (that is the whole
     // point: no separate timer, no separate loop), but internally no-ops unless real wall-clock
     // hours have actually passed — applies uniformly whether the board is showing the live
     // season or the 2025 replay, because "which real NFL players are hurt right now" is a fact
     // about today, not about whichever season's scores this tab happens to be simulating.
-    await D.maybeRefreshInjuryDirectory().catch(() => {});
+    if (!light) await D.maybeRefreshInjuryDirectory().catch(() => {});
     // 2025 TEST SEASON: the live-polling chain below always means "the real, current NFL
     // week" — never meaningful for a past-season replay, and actively wrong (real current-
     // season data could otherwise leak onto a 2025 board for any player id that recurs).
@@ -1721,9 +1732,19 @@
     const jobs = [];
     jobs.push(pollScoreboard().then(() => { D.S.health.espn.lastOk = Date.now(); D.S.health.espn.failN = 0; })
       .catch(() => { D.S.health.espn.failN++; }));
-    jobs.push(pollSleeper().then(() => { D.S.health.slp.lastOk = Date.now(); D.S.health.slp.failN = 0; })
+    // Sleeper's lastOk deliberately does NOT move on a light tick — full ticks still land every
+    // ~16s while live (tighter than the old 15s), well inside every staleness window, and a
+    // light tick genuinely learned nothing about Sleeper's health either way.
+    if (!light) jobs.push(pollSleeper().then(() => { D.S.health.slp.lastOk = Date.now(); D.S.health.slp.failN = 0; })
       .catch(() => { D.S.health.slp.failN++; }));
     await Promise.allSettled(jobs);
+    if (light) {
+      // The scoreboard is merged and painted NOW — that is the whole point of the tick.
+      updateHealth();
+      for (const row of D.S.players.values()) mergeRow(row);
+      if (D.onUpdate) D.onUpdate();
+      return;
+    }
     // Summaries for tracked teams' games (live games always; a FINAL box exactly once).
     D.S.fetchedFinal = D.S.fetchedFinal || new Set();
     const wanted = new Map();
@@ -1773,7 +1794,7 @@
     if (D.onUpdate) D.onUpdate();
   };
   D.start = function (ms) {
-    D.S.pollMs = ms || (anyLive() ? 15000 : 60000);
+    D.S.pollMs = ms || (anyLive() ? 8000 : 60000);
     if (D.S.running) return;
     D.S.running = true;
     D.S.loopStarts++; // test hook (2026-08-08 perf fix) — proves the poll loop is armed at
@@ -1782,8 +1803,16 @@
                        // this go to 2 without D.S.running ever having gone false in between.
     const loop = async () => {
       if (!D.S.running) return;
-      await D.pollOnce().catch(() => {});
-      D.S.timer = setTimeout(loop, anyLive() ? (ms || 15000) : 60000);
+      // While live: 8s ticks (the measured edge-cache floor of ESPN's own API — see
+      // pollOnce's header note) alternating FULL/LIGHT, so the score/clock refreshes every
+      // ~8s while the heavy half (Sleeper + per-game summaries) keeps its old ~16s cadence
+      // and total upstream volume. Tick 0 is always FULL (boot needs the Sleeper seed);
+      // an explicit `ms` (tests/manual) keeps every tick full at that cadence. Idle: 60s,
+      // always full, exactly as before.
+      const n = D.S.tickN || 0; D.S.tickN = n + 1;
+      const light = !ms && anyLive() && (n & 1) === 1;
+      await D.pollOnce(light ? { light: true } : undefined).catch(() => {});
+      D.S.timer = setTimeout(loop, anyLive() ? (ms || 8000) : 60000);
     };
     loop();
   };

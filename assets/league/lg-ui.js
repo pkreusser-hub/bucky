@@ -3240,7 +3240,7 @@
     if (chip) chip.className = st.state === "in" ? "nfllivechip" : "mut small";
     // Same-view repaint → MORPH (see patchInto's own note): the field redraws only where its
     // numbers moved, the crests never flash, and a previous-drive <details> the reader opened
-    // STAYS open across the 25s poll — its `open` is theirs, and the drives are keyed
+    // STAYS open across the poll — its `open` is theirs, and the drives are keyed
     // (data-mkey) so a newly completed drive prepending never slides that state onto a sibling.
     if (body.querySelector(".nflhead")) patchInto(body, nflGameHtml(g));
     else body.innerHTML = nflGameHtml(g);
@@ -3248,13 +3248,15 @@
   UI.paintNflGame = paintNflGame;
   function nflGameLive() { const g = UI._nflGame; return !!(g && g.ok && g.status && g.status.state === "in"); }
   function nflGamePre() { const g = UI._nflGame; return !!(g && g.ok && g.status && g.status.state === "pre"); }
-  // Cadence follows the Scores tab's own discipline (25s while anything is live, else slow) —
-  // with one honest addition: a FINAL game is never polled at all, because its payload cannot
-  // change again. A pre-game one is polled slowly so the view notices kickoff on its own
-  // rather than sitting frozen until the reader backs out and comes in again.
+  // Cadence: 12s while THIS game is live (2026-08-13 latency fix — ESPN's own public API is
+  // edge-cached at max-age=7-9s, measured during a real game, so 12s here + the server hop
+  // approaches the freshest this data ever gets; the old 25s was most of the family's observed
+  // "~30s behind ESPN's app"). One honest rule kept: a FINAL game is never polled at all,
+  // because its payload cannot change again. A pre-game one is polled slowly so the view
+  // notices kickoff on its own rather than sitting frozen until the reader backs out.
   function startNflGamePoll() {
     stopNflGamePoll();
-    const iv = nflGameLive() ? 25000 : nflGamePre() ? 120000 : 0;
+    const iv = nflGameLive() ? 12000 : nflGamePre() ? 120000 : 0;
     if (!iv) return;
     const tick = async () => {
       UI._nflGamePoll = null;

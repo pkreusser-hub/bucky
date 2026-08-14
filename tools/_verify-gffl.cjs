@@ -17495,6 +17495,40 @@ async function openDetails(page, id) {
       ok(errors.length === 0, "0 page errors across the background-refresh seam");
       await ctx.close();
     }
+
+    // ---- AY6: LIGHT poll ticks (the 2026-08-13 latency fix — user: "our nfl score is about
+    // 30 seconds delayed from ESPN"). MEASURED live: ESPN's public API is edge-cached at
+    // max-age=7-9s (cache-busting returns identical data), so the loop now runs 8s ticks
+    // while live, alternating FULL/LIGHT — a light tick fetches the SCOREBOARD ONLY, keeping
+    // the heavy half (Sleeper + up-to-8 summaries) at its old ~16s volume. Asserted via the
+    // app's OWN D.EP endpoint bookkeeping rather than a new fixture recorder: a light
+    // pollOnce bumps "espn scoreboard" and NOTHING heavy; a plain pollOnce() is still a FULL
+    // cycle — which is what keeps every other section's poll(page) staging meaning what it
+    // always meant (no restages anywhere).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page); // stops the loop — EP counts are stable between our own calls
+      const r = await evalOr(page, async () => {
+        const D = window.__GFFL__.D;
+        const count = (pfx) => Object.keys(D.EP).filter((k) => k.startsWith(pfx)).reduce((a, k) => a + D.EP[k].n, 0);
+        const snap = () => ({ sb: count("espn scoreboard"), sum: count("espn summary"), slp: count("sleeper stats") });
+        const before = snap();
+        await D.pollOnce({ light: true });
+        const afterLight = snap();
+        await D.pollOnce();
+        const afterFull = snap();
+        return { before, afterLight, afterFull, games: D.S.games.size };
+      });
+      ok(!!r && r.afterLight.sb === r.before.sb + 1 && r.afterLight.sum === r.before.sum && r.afterLight.slp === r.before.slp,
+        "a LIGHT pollOnce fetches the scoreboard and nothing heavy — no summary, no sleeper-stats request " + JSON.stringify(r && [r.before, r.afterLight]));
+      ok(!!r && r.games > 0, "…and the game map is live off it (score/clock/state refresh at the 8s cadence)");
+      ok(!!r && r.afterFull.sum > r.afterLight.sum && r.afterFull.slp === r.afterLight.slp + 1,
+        "a plain pollOnce() is still a FULL cycle — summaries AND sleeper fetched, so every section's poll() staging keeps its meaning");
+      ok(errors.length === 0, "0 page errors across the light/full poll split");
+      await ctx.close();
+    }
   }
 
   await browser.close();
