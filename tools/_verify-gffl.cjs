@@ -17583,6 +17583,53 @@ async function openDetails(page, id) {
       ok(errors.length === 0, "0 page errors across the light/full poll split");
       await ctx.close();
     }
+
+    // ---- AY7: the Bucky embed pauses the poll (GFFL-CONNECT, 2026-08-13). Bucky hosts
+    // this page as its GFFL tab in a persistent same-origin iframe; a CSS-hidden iframe's
+    // own document NEVER reports hidden, so Bucky sets __buckyEmbedVisible + fires
+    // "bucky-embed-visibility" instead. Hidden -> the loop stops (no 8s live polling
+    // behind another tab); visible -> it resumes with a catch-up poll. A PRE-BOOT event
+    // (the gate screen) must never arm a loop the boot hasn't started (loopStarts guard).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page); // stops the loop; restart it for real so there is something to pause
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        D.start();
+        const armed = D.S.running === true;
+        window.__buckyEmbedVisible = false;
+        window.dispatchEvent(new Event("bucky-embed-visibility"));
+        const paused = D.S.running === false;
+        window.__buckyEmbedVisible = true;
+        window.dispatchEvent(new Event("bucky-embed-visibility"));
+        const resumed = D.S.running === true;
+        D.stop(); // leave the page quiet for the error sweep
+        return { armed, paused, resumed };
+      });
+      ok(!!r && r.armed && r.paused, "covering the embedded GFFL tab STOPS the live poll loop");
+      ok(!!r && r.resumed, "…and uncovering it resumes polling (with the loop's own immediate catch-up poll)");
+      ok(errors.length === 0, "0 page errors across the embed-visibility round trip");
+      await ctx.close();
+    }
+    // The pre-boot guard, on a page that never unlocked — no seed.pass = the GATE screen,
+    // where boot never runs and the poll loop is never armed.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {} });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "domcontentloaded" });
+      await sleep(400);
+      const r = await evalOr(page, () => {
+        window.__buckyEmbedVisible = true;
+        window.dispatchEvent(new Event("bucky-embed-visibility"));
+        const D = window.__GFFL__ && window.__GFFL__.D;
+        return { running: !!(D && D.S.running), loopStarts: D ? D.S.loopStarts : -1 };
+      });
+      ok(!!r && r.running === false && r.loopStarts === 0,
+        "a pre-boot visibility event never arms a poll loop the boot hasn't started (" + JSON.stringify(r) + ")");
+      ok(errors.length === 0, "0 page errors on the gate-screen guard");
+      await ctx.close();
+    }
   }
 
   await browser.close();

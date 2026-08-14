@@ -221,53 +221,13 @@
   .kick { font-size: 14px; color: var(--ink-2); font-weight: 600; line-height: 1.6; }
   .kick b { color: var(--ink); }
 
-  /* ---------- fantasy ---------- */
-  .ffleague { font-family: Fraunces, Georgia, serif; font-size: 17px; font-weight: 700; text-align: center; margin: 2px 0 2px; }
-  .ffweek { text-align: center; color: var(--muted); font-size: 12px; font-weight: 700; margin: 0 0 12px; }
-  .fftm { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-weight: 700; font-size: 14.5px; }
-  .fftm .rec { color: var(--muted); font-weight: 600; font-size: 11.5px; }
-  .fftm .pts { margin-left: auto; font-family: Fraunces, Georgia, serif; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .fftm.losing, .fftm.losing .pts { color: var(--muted); }
-  .fftm .mono { width: 28px; height: 28px; font-size: 10px; }
-  .ffproj { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; font-weight: 600; padding: 2px 2px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
-  .ffbar { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; display: flex; margin: 6px 0 8px; }
-  .ffbar i, .ffbar em { height: 100%; }
-  .ffbar i { background: var(--green); } .ffbar em { background: var(--red); }
+  /* GFFL-CONNECT (2026-08-13): the ESPN fantasy CSS families that lived here
+     (.ffleague/.fftm/.ffrow/.ffp/.gdot/table.stand/.ffsetup/.ffmini/.ffvs/.wpct/
+     .guardcard/.gw/.aibtn*/.aians/.recapcard) are GONE with the ESPN fantasy
+     stack — the family's fantasy lives in the GFFL app now (index.html#gffl).
+     Only the 🏆 starter badge (.ffct) survives, re-sourced from the GFFL roster. */
 
-  .ffrow { display: grid; grid-template-columns: 1fr 42px 1fr; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); align-items: center; }
-  .ffrow:first-of-type { border-top: 0; }
-  .ffrow .slot { text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .04em; color: var(--muted); }
-  .ffrow.benchhead { border-top: 1px solid var(--line); padding: 8px 0 2px; }
-  .ffrow.benchhead .slot { color: var(--muted); }
-  .ffrow.bench .ffp .nm { font-weight: 600; color: var(--ink-2); }
-  .ffp { min-width: 0; }
-  .ffp .nm { display: flex; align-items: baseline; gap: 6px; font-weight: 700; font-size: 12.5px; }
-  .ffp .nm span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .ffp .nm b { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 800; }
-  .ffp .nm b.projpts { color: var(--muted); font-weight: 600; }
-  .ffp .sub { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; }
-  .ffp .sub .inj { color: var(--red); font-weight: 800; }
-  .gdot { width: 6px; height: 6px; border-radius: 50%; background: var(--line); flex: 0 0 auto; }
-  .gdot.in { background: var(--live); animation: pulse 1.6s infinite; }
-  .gdot.post { background: var(--muted); }
-  .ffp .sub .glive { color: var(--live); font-weight: 700; }
-
-  table.stand { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
-  table.stand th { text-align: right; font-weight: 700; color: var(--muted); font-size: 10.5px; letter-spacing: .06em; padding: 4px 6px; border-bottom: 1px solid var(--line); }
-  /* Every cell nowraps (the "1-0" record was wrapping to two lines); the NAME
-     column absorbs the width and ellipsizes instead. */
-  table.stand th, table.stand td { white-space: nowrap; }
-  table.stand th:nth-child(2), table.stand td:nth-child(2) { text-align: left; width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  table.stand td { padding: 6px 6px; text-align: right; border-bottom: 1px solid var(--line); }
-  table.stand tr:last-child td { border-bottom: 0; }
-  table.stand td.fam { font-weight: 800; }
-  .ffsetup { font-size: 13.5px; color: var(--ink-2); font-weight: 600; line-height: 1.55; }
-  .ffsetup b { color: var(--ink); }
-  .ffsetup ol { margin: 8px 0 0; padding-left: 20px; }
-  .ffsetup li { margin: 4px 0; }
-  .ffsetup code { background: var(--surface-2); border-radius: 6px; padding: 1px 6px; font-size: 12px; }
-
-  /* college filter + fantasy scoreboard */
+  /* college filter */
   .cfbfilter { margin: 0 2px 10px; }
   .cfbfilter select {
     width: 100%; font: 600 13.5px/1.3 inherit; font-family: inherit; color: var(--ink);
@@ -275,56 +235,6 @@
     padding: 9px 12px; box-shadow: var(--shadow);
   }
   .tn .rk { color: var(--muted); font-weight: 800; font-size: 11px; margin-right: 3px; }
-  .ffmini { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
-  .ffmini .ffhome { padding: 2px 0; font-size: 13.5px; }
-  .ffmini .fhp { font-size: 17px; }
-  .ffvs { display: flex; align-items: center; gap: 8px; padding: 10px 2px; }
-  #ffBody .gbtn + .gbtn .ffvs { border-top: 1px solid var(--line); }
-  .ffvs .chev { color: var(--muted); font-size: 15px; flex: 0 0 auto; }
-  .ffvs .stat { flex: 0 0 auto; font-size: 11px; font-weight: 800; color: var(--muted); width: 40px; text-align: right; }
-  .ffvs .stat.live { color: var(--live); }
-  /* win% sits between the name and the score: IT carries the auto margin, so a
-     row without one keeps the score's own auto margin working as before. */
-  .fftm .wpct { flex: 0 0 auto; margin-left: auto; font-size: 11px; font-weight: 700; color: var(--muted); min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
-  .fftm .wpct + .pts { margin-left: 0; }
-
-  /* lineup guard · Grok advice · the weekly column */
-  .guardcard { border-left: 4px solid var(--live); }
-  .gw { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; font-size: 13.5px; }
-  .gw > b:first-child { flex: 0 0 auto; }
-  .gwsub { margin-top: 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
-  .aibtns { display: flex; gap: 8px; margin: 2px 0 8px; }
-  .aibtn {
-    flex: 1; font: 700 13px/1.25 inherit; font-family: inherit; color: var(--ink);
-    background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
-    padding: 10px 8px; cursor: pointer;
-  }
-  .aibtn:disabled, .aigo:disabled { opacity: .5; }
-  .aiask { display: flex; gap: 6px; }
-  .aiask input {
-    flex: 1; min-width: 0; font: 600 13.5px/1.3 inherit; font-family: inherit;
-    padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px;
-    background: var(--bg); color: var(--ink);
-  }
-  .aiask .aigo {
-    flex: 0 0 auto; width: 40px; font: 800 15px/1 inherit; font-family: inherit;
-    border: 0; border-radius: 10px; background: var(--green); color: #fffdf8; cursor: pointer;
-  }
-  .aians { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 9px; font-size: 13.5px; line-height: 1.55; }
-  .aians p { margin: 0 0 8px; }
-  .aians ul { margin: 0 0 8px; padding-left: 20px; }
-  .aians li { margin: 2px 0; }
-  .aians .aithinking { color: var(--muted); font-weight: 600; }
-  .aians .aierr { color: var(--live); font-weight: 600; }
-  .recapcard summary {
-    cursor: pointer; font-weight: 800; font-size: 14px; list-style: none; position: relative; padding-right: 20px;
-  }
-  .recapcard summary::-webkit-details-marker { display: none; }
-  .recapcard summary::after { content: "▾"; position: absolute; right: 2px; color: var(--muted); }
-  .recapcard[open] summary::after { content: "▴"; }
-  .recapbody { margin-top: 9px; border-top: 1px solid var(--line); padding-top: 9px; font-size: 13.5px; line-height: 1.55; }
-  .recapbody p { margin: 0 0 8px; }
-  .recapbody ul { margin: 0 0 8px; padding-left: 20px; }
 
   /* Bottom Bucky nav — same pattern as games.html / farmgpt.html / weather.html:
      balanced two-row-on-phone grid (--bnav-cols set from JS). */
@@ -429,7 +339,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   <div class="pills" id="topPills">
     <button type="button" class="pill on" id="pillNfl">🏈 NFL</button>
     <button type="button" class="pill" id="pillCfb">🎓 College</button>
-    <button type="button" class="pill" id="pillFf">🏆 Fantasy</button>
     <button type="button" class="upd" id="wkUpdated" title="Refresh now" aria-label="Refresh scores now"></button>
   </div>
 
@@ -482,23 +391,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     </div>
   </section>
 
-  <!-- ================= FANTASY (league scoreboard) ================= -->
-  <section id="ffView" hidden>
-    <div id="ffBody">
-      <div class="card"><div class="loadrow">Loading the league…</div></div>
-    </div>
-  </section>
-
-  <!-- ================= FANTASY MATCHUP DETAIL ================= -->
-  <section id="ffmView" hidden>
-    <div class="backrow">
-      <button type="button" class="backbtn" id="ffmBack">‹ Fantasy</button>
-      <span id="ffmMeta"></span>
-    </div>
-    <div id="ffmBody">
-      <div class="card"><div class="loadrow">Loading the matchup…</div></div>
-    </div>
-  </section>
+  <!-- GFFL-CONNECT (2026-08-13): the ESPN fantasy scoreboard (#ffView) and its
+       matchup detail (#ffmView) are RETIRED — the family's fantasy league is the
+       GFFL app (index.html#gffl). Legacy #fantasy / #ffm=<id> hashes fall through
+       to the NFL week view; see route(). -->
 
   <!-- ================= GAME VIEW ================= -->
   <section id="gameView" hidden>
@@ -518,7 +414,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 <script>
 (function () {
   // ---- Bucky bottom nav (mirrors games.html / farmgpt.html / weather.html) ----
-  // Mirrors index.html's NAV_GROUPS (13 areas incl. Sports). Gate lists duplicated
+  // Mirrors index.html's NAV_GROUPS (14 areas incl. Sports + the GFFL). Gate lists duplicated
   // from index.html — keep in sync with index.html.
   var BANK_USERS = ["Eleanor", "Isaac", "Dad", "Mom"];
   var MEAL_USERS = ["Mom", "Dad"];
@@ -538,6 +434,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     fit:   "M7 8 V16 M4 10 V14 M17 8 V16 M20 10 V14 M7 12 H17",
     news:  "M5 5 H19 V19 H5 Z M8 9 H16 M8 12 H16 M8 15 H13",
     sports:"M4 20 C4 12 12 4 20 4 C20 12 12 20 4 20 Z M9 15 L15 9 M10 12 L12 14 M12 10 L14 12",
+    gffl:  "M8 4 H16 V10 A4 4 0 0 1 8 10 Z M8 5.5 H5 A3 3 0 0 0 8.5 9.5 M16 5.5 H19 A3 3 0 0 1 15.5 9.5 M12 14 V17 M9 20 H15 M10 17 H14 L15 20 M9 20 L10 17",
     wo:    "M4 9 H20 V19 H4 Z M9 9 V7 A3 3 0 0 1 15 7 V9 M4 13 H20",
     shop:  "M6 8 H18 L17 20 H7 Z M9 8 V6 A3 3 0 0 1 15 6 V8",
     bank:  "M12 4 V20 M16 7 H10 A2.5 2.5 0 0 0 10 12 H14 A2.5 2.5 0 0 1 14 17 H8",
@@ -557,6 +454,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     { gid:"fit",   ico:"💪", name:"Fit",   href:"index.html#fitness",  gate:seesFitness },
     { gid:"news",  ico:"📰", name:"News",  href:"index.html#news" },
     { gid:"sports",ico:"🏈", name:"Sports",href:"index.html#sports", active:true },
+    { gid:"gffl",  ico:"🏆", name:"GFFL",  href:"index.html#gffl" },
     { gid:"wo",    ico:"🛠️", name:"Jobs",  href:"index.html#workorders" },
     { gid:"shop",  ico:"🛒", name:"Shop",  href:"index.html#shopping" },
     { gid:"bank",  ico:"💰", name:"Bank",  href:"index.html#farmbank", gate:seesBank },
@@ -612,32 +510,15 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   // The real gate is server-side: the function checks this against BUCKY_NOTIFY_SECRET.
   var FAMILY_PASSWORD = "amenfarms";
   var FN = "/.netlify/functions/sports";
-  var FN_GPT = "/.netlify/functions/farmgpt";   // the fantasy AI + weekly column live there
   var TZ = "America/Chicago";
   var LS_SB = "bucky_nfl_sb";
-  var LS_FF_LG = "bucky_ff_league";
 
   // Poll cadences (ms). Live polling pauses whenever the tab is hidden and
   // refreshes immediately on return — see schedule()/visibilitychange below.
-  // Fantasy at 60s during NFL game windows: ESPN's own fantasy scoring lags
-  // real plays by ~30-60s, so faster polling buys nothing.
-  var IV = { gameLive: 15000, gamePre: 120000, sbLive: 25000, sbIdle: 300000, ffLive: 60000, ffIdle: 900000 };
-
-  // Which fantasy team each family member follows (matched by name against the
-  // league, case-insensitive; unknown profiles follow the default). DUPLICATED
-  // in index.html's home-card block — keep in sync.
-  var FF_TEAM_BY_USER = {
-    "isaac": "The Goat Kids",
-    "grandpa": "Wyoming Cowboys",
-    "mom": "Nails for Breakfast",
-  };
-  function myFfTeamName() {
-    var me = (localStorage.getItem("choreUser") || "").trim().toLowerCase();
-    return FF_TEAM_BY_USER[me] || "Battle Kreussers";
-  }
+  var IV = { gameLive: 15000, gamePre: 120000, sbLive: 25000, sbIdle: 300000 };
 
   // ---------------- state ----------------
-  var view = "week";          // "week" | "cfb" | "ff" | "ffm" | "game"
+  var view = "week";          // "week" | "cfb" | "game"
   var gameId = null;
   var gameSport = "nfl";      // which league the open game detail belongs to
   var cur = { week: null, seasontype: null, year: null };   // null = server's current week
@@ -648,16 +529,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   var cfbCur = { week: null, seasontype: null, year: null };
   var cfbGroup = localStorage.getItem("bucky_cfb_group") || "top25";
   var game = null;            // latest game payload (either league)
-  var ffSb = null;            // ff_scoreboard payload (every matchup this week)
-  var ffLg = null;            // ff_league payload (standings; cached ~1h)
-  var ffState = "";           // "" | "ok" | "fantasy-not-configured" | "fantasy-auth-expired"
-  var ffWeek = null;          // null = the league's current matchup week
-  var ffTs = 0;
-  var ffmTeamId = null;       // fantasy matchup detail: the team whose matchup is open
-  var ffmD = null;            // ff_matchup payload for the detail view
   var pollT = null;
   var lastIv = 0;
-  var wkLoading = false, cfbLoading = false, gmLoading = false, ffLoading = false, ffmLoading = false;
+  var wkLoading = false, cfbLoading = false, gmLoading = false;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -739,18 +613,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   function anyCfbLive() {
     return !!(cfbSb && cfbSb.events && cfbSb.events.some(function (e) { return e.status.state === "in"; }));
   }
-  function anyFfLive() {
-    return !!(ffSb && ffSb.matchups && ffSb.matchups.some(function (m) {
-      return (m.home && m.home.live) || (m.away && m.away.live);
-    }));
-  }
   function gameLive() { return !!(game && game.status && game.status.state === "in"); }
 
   function refreshCurrentView() {
     if (view === "game") loadGame(true);
     else if (view === "cfb") loadCfb(true);
-    else if (view === "ff") loadFF(true);
-    else if (view === "ffm") loadFfm(true);
     else loadWeek(true);
   }
 
@@ -765,10 +632,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       else if (game && game.status && game.status.state === "pre") iv = IV.gamePre;
     } else if (view === "cfb") {
       iv = anyCfbLive() ? IV.sbLive : IV.sbIdle;
-    } else if (view === "ff") {
-      if (ffState === "ok") iv = anyFfLive() ? IV.ffLive : IV.ffIdle;
-    } else if (view === "ffm") {
-      if (ffState === "ok") iv = (ffmD && ffmD.anyProLive) ? IV.ffLive : IV.ffIdle;
     } else {
       iv = anyLive() ? IV.sbLive : IV.sbIdle;
     }
@@ -854,72 +717,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     }
   }
 
-  async function loadFF(quiet) {
-    if (ffLoading) return;
-    ffLoading = true;
-    try {
-      var s = await api("ff_scoreboard", { teamName: myFfTeamName() });
-      var gated = s && s.ok === false && (s.reason === "fantasy-not-configured" || s.reason === "fantasy-auth-expired");
-      if (gated) {
-        ffState = s.reason; ffSb = null;
-        if (view === "ff") paintFf();
-        return;
-      }
-      if (!s || s.ok === false) throw new Error((s && s.reason) || "bad");
-      ffState = "ok"; ffSb = s; ffTs = Date.now();
-      if (!ffLg) loadFfLeague();   // standings, cached ~1h — fire and forget
-      maybeLoadRecap();            // the weekly column, once a week is finished
-      if (view === "ff") paintFf();
-    } catch (e) {
-      if (view === "ff" && !ffSb) paintFfError();
-      // With a stale copy on screen we keep it — next poll retries.
-    } finally {
-      ffLoading = false;
-      schedule();
-    }
-  }
-
-  async function loadFfm(quiet) {
-    if (ffmLoading || ffmTeamId == null) return;
-    ffmLoading = true;
-    try {
-      var d = await api("ff_matchup", { teamId: ffmTeamId, teamName: myFfTeamName() });
-      var gated = d && d.ok === false && (d.reason === "fantasy-not-configured" || d.reason === "fantasy-auth-expired");
-      if (gated) {
-        ffState = d.reason; ffmD = null;
-        if (view === "ffm") paintFfm();
-        return;
-      }
-      if (!d || d.ok === false) throw new Error((d && d.reason) || "bad");
-      ffState = "ok"; ffmD = d; ffTs = Date.now();
-      if (view === "ffm") paintFfm();
-    } catch (e) {
-      if (view === "ffm" && !ffmD) paintFfmError();
-    } finally {
-      ffmLoading = false;
-      schedule();
-    }
-  }
-
-  async function loadFfLeague() {
-    try {
-      var c = JSON.parse(localStorage.getItem(LS_FF_LG) || "null");
-      if (c && c.data && c.data.ok && Date.now() - (c.ts || 0) < 3600000) {
-        ffLg = c.data;
-        if (view === "ff") paintFf();
-        return;
-      }
-    } catch (e) {}
-    try {
-      var d = await api("ff_league", {});
-      if (d && d.ok) {
-        ffLg = d;
-        try { localStorage.setItem(LS_FF_LG, JSON.stringify({ ts: Date.now(), data: d })); } catch (e) {}
-        if (view === "ff") paintFf();
-      }
-    } catch (e) {}
-  }
-
   // ---------------- week rendering ----------------
   function teamMono(t, cls) {
     var span = '<span class="mono ' + (cls || "") + '" style="background:' + hexColor(t.color) + '">' + esc((t.abbrev || "?").slice(0, 3));
@@ -941,203 +738,72 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     return '<div class="' + cls + '">' + teamMono(t) + '<span class="tn">' + rank + esc(t.name || t.abbrev) + rec + "</span>" + score + "</div>";
   }
 
-  // MY fantasy matchup — fetched once per page load (silently absent when fantasy
-  // isn't configured). Feeds three things: the 🏆 starter badges on NFL rows, the
-  // lineup guard, and the Grok advice payload.
-  var ffMine = null;   // { proAbbrev: starterCount }
-  var ffMyM = null;    // the full ff_matchup payload for MY team
-  async function loadMyFfCounts() {
+  // ---------------- MY GFFL starters (the 🏆 badge on NFL rows) ----------------
+  // GFFL-CONNECT (2026-08-13): the badge counts MY GFFL starters per NFL game now —
+  // the family's own league — instead of the retired ESPN league. Which franchise is
+  // mine is by TEAM ID; DUPLICATED in index.html's gfflMyTeamId — keep the two in sync.
+  // The read is the same public-key Firestore REST call league.html's own transport
+  // makes; failures are silent (badges are a bonus, never worth breaking the scores).
+  var GFFL_FS_BASE = "https://firestore.googleapis.com/v1/projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/";
+  var GFFL_FS_KEY = "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU";
+  var GFFL_SEASON = 2026, GFFL_SEASON_START = "2026-09-08";
+  var GFFL_TEAM_BY_USER = { "isaac": 12, "grandpa": 3, "mom": 5 };  // GOAT Kids · Wyoming Cowboys · Nails For Breakfast
+  function myGfflTeamId() {
+    var who = (localStorage.getItem("choreUser") || "").trim().toLowerCase();
+    return GFFL_TEAM_BY_USER[who] || 1;  // default Battle Kreussers
+  }
+  // The league week, lg-core's own formula (weeks roll Tuesday 05:00 CT).
+  function gfflWeek() {
+    var t0 = new Date(GFFL_SEASON_START + "T05:00:00-05:00").getTime();
+    return Math.max(1, Math.min(18, 1 + Math.floor((Date.now() - t0) / (7 * 24 * 3600 * 1000))));
+  }
+  // Firestore REST values → plain JS (the small subset the roster doc uses).
+  function fsVal(v) {
+    if (!v || typeof v !== "object") return null;
+    if ("stringValue" in v) return v.stringValue;
+    if ("integerValue" in v) return Number(v.integerValue);
+    if ("doubleValue" in v) return Number(v.doubleValue);
+    if ("booleanValue" in v) return !!v.booleanValue;
+    if ("nullValue" in v) return null;
+    if ("arrayValue" in v) return ((v.arrayValue && v.arrayValue.values) || []).map(fsVal);
+    if ("mapValue" in v) return fsFields((v.mapValue && v.mapValue.fields) || {});
+    return null;
+  }
+  function fsFields(f) {
+    var o = {};
+    Object.keys(f || {}).forEach(function (k) { o[k] = fsVal(f[k]); });
+    return o;
+  }
+  // Roster rows imported from ESPN carry "WSH" while Sleeper-sourced adds carry
+  // "WAS"; the NFL scoreboard's abbrevs are ESPN-style, so normalize the ROSTER side.
+  function proAbbrev(t) {
+    var a = String(t || "").toUpperCase();
+    return a === "WAS" ? "WSH" : a;
+  }
+  var ffMine = null;   // { proAbbrev: starterCount } — the badge's only input
+  async function loadMyGfflCounts() {
     try {
-      var d = await api("ff_matchup", { teamName: myFfTeamName() });
-      if (!d || d.ok !== true || !d.matchup) return;
-      ffMyM = d;
-      var mine = d.matchup.home && d.matchup.home.teamId === d.familyTeamId ? d.matchup.home : d.matchup.away;
-      if (!mine) return;
+      var id = "roster_" + GFFL_SEASON + "_w" + gfflWeek() + "_t" + myGfflTeamId();
+      var r = await fetch(GFFL_FS_BASE + encodeURIComponent(id) + "?key=" + GFFL_FS_KEY);
+      if (!r.ok) return;   // 404 = no roster for this week yet → no badges, silently
+      var doc = await r.json();
+      var players = fsFields((doc && doc.fields) || {}).players;
+      if (!Array.isArray(players)) return;
       var by = {};
-      (mine.roster || []).forEach(function (p) {
-        if (p.starter && p.proTeam) by[p.proTeam] = (by[p.proTeam] || 0) + 1;
+      players.forEach(function (p) {
+        if (!p || !p.team) return;
+        var slot = String(p.slot || "").toUpperCase();
+        if (slot === "BENCH" || slot === "IR") return;   // starters only
+        var ab = proAbbrev(p.team);
+        by[ab] = (by[ab] || 0) + 1;
       });
       ffMine = by;
       if (view === "week" && sb) paintWeek();
-      if (view === "ff" && ffSb) paintFf();   // the lineup guard card can appear now
     } catch (e) { /* no badges — never break the scores */ }
   }
   function ffCountFor(ev) {
     if (!ffMine) return 0;
     return ev.teams.reduce(function (n, t) { return n + (ffMine[t.abbrev] || 0); }, 0);
-  }
-  function ffMySide() {
-    if (!ffMyM || !ffMyM.matchup) return null;
-    var m = ffMyM.matchup;
-    return m.home && m.home.teamId === ffMyM.familyTeamId ? m.home : m.away;
-  }
-
-  // ---------------- lineup guard ----------------
-  // A STARTER who is hurt/suspended/on bye and hasn't kicked off yet is a fixable
-  // mistake — that's the whole test. Once his game is live/over there's nothing to
-  // do, so no nagging. (Same rules on index.html's home ffcard — keep in sync.)
-  function ffLineupWarnings(side) {
-    var out = [];
-    ((side && side.roster) || []).forEach(function (p) {
-      if (!p.starter) return;
-      var started = p.game && p.game.state !== "pre";
-      if (started) return;
-      if (!p.game) out.push({ name: p.name, why: "on a BYE week — no game at all", bad: true });
-      else if (p.injury === "OUT" || p.injury === "INJURY_RESERVE" || p.injury === "SUSPENSION")
-        out.push({ name: p.name, why: "ruled " + (p.injury === "OUT" ? "OUT" : p.injury === "SUSPENSION" ? "suspended" : "on IR"), bad: true });
-      else if (p.injury === "DOUBTFUL") out.push({ name: p.name, why: "Doubtful", bad: true });
-      else if (p.injury === "QUESTIONABLE") out.push({ name: p.name, why: "Questionable", bad: false });
-    });
-    return out;
-  }
-  function ffGuardHTML() {
-    var side = ffMySide();
-    if (!side) return "";
-    var warns = ffLineupWarnings(side);
-    if (!warns.length) return "";
-    var rows = warns.map(function (w) {
-      return '<div class="gw"><b>' + (w.bad ? "🚫" : "🟡") + "</b><span><b>" + esc(w.name) + "</b> is " + esc(w.why)
-        + " and still in your lineup</span></div>";
-    }).join("");
-    return '<div class="card guardcard"><div class="seclabel"><b>⚠️ Lineup check</b>'
-      + '<span class="meta">' + esc(side.name || "") + "</span></div>" + rows
-      + '<div class="gwsub">Fix it in the ESPN app before kickoff — or ask the AI below who to start.</div></div>';
-  }
-
-  // ---------------- Grok fantasy advice ----------------
-  var ffAi = { busy: false, kind: "", text: "", error: "" };
-  var ffFA = null, ffFATs = 0;   // free-agent cache (~30 min)
-  async function loadFreeAgents() {
-    if (ffFA && Date.now() - ffFATs < 30 * 60000) return ffFA;
-    try {
-      var d = await api("ff_freeagents", {});
-      if (d && d.ok && Array.isArray(d.players)) { ffFA = d.players; ffFATs = Date.now(); }
-    } catch (e) {}
-    return ffFA;
-  }
-  async function askFantasyAi(kind, question) {
-    if (ffAi.busy) return;
-    ffAi = { busy: true, kind: kind, text: "", error: "" };
-    paintFfAi();
-    try {
-      if (!ffMyM) await loadMyFfCounts();
-      if (!ffMyM) throw new Error("no-matchup");
-      // The lineup check doesn't need the wire; waivers and open questions do.
-      var fa = kind === "lineup" ? null : await loadFreeAgents();
-      var r = await fetch(FN_GPT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          secret: FAMILY_PASSWORD, mode: "fantasy", kind: kind,
-          question: question || "", matchup: ffMyM, freeAgents: fa || [],
-        }),
-      });
-      if (!r.ok) throw new Error("ai-" + r.status);
-      var reader = r.body.getReader(), dec = new TextDecoder();
-      for (;;) {
-        var c = await reader.read();
-        if (c.done) break;
-        ffAi.text += dec.decode(c.value, { stream: true });
-        paintFfAi();
-      }
-      if (!ffAi.text.trim()) throw new Error("empty");
-    } catch (e) {
-      if (!ffAi.text) ffAi.error = "The fantasy AI couldn’t answer right now — try again in a minute.";
-    } finally {
-      ffAi.busy = false;
-      paintFfAi();
-    }
-  }
-  // Tiny **bold** + bullet formatter for the AI's answers (no markdown lib on this page).
-  function ffFmt(t) {
-    var html = esc(t).replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
-    return html.split(/\n{2,}/).map(function (para) {
-      var lines = para.split("\n").filter(function (l) { return l.trim(); });
-      if (lines.length && lines.every(function (l) { return /^\s*[-•]\s+/.test(l); })) {
-        return "<ul>" + lines.map(function (l) { return "<li>" + l.replace(/^\s*[-•]\s+/, "") + "</li>"; }).join("") + "</ul>";
-      }
-      return "<p>" + para.replace(/\n/g, "<br>") + "</p>";
-    }).join("");
-  }
-  function ffAiCardHTML() {
-    return '<div class="card" id="ffAiCard"><div class="seclabel"><b>🧠 Fantasy AI</b><span class="meta">Grok</span></div>'
-      + '<div class="aibtns">'
-      + '<button type="button" class="aibtn" data-ffai="lineup"' + (ffAi.busy ? " disabled" : "") + ">🩺 Check my lineup</button>"
-      + '<button type="button" class="aibtn" data-ffai="waivers"' + (ffAi.busy ? " disabled" : "") + ">🔎 Waiver ideas</button>"
-      + "</div>"
-      + '<form class="aiask" id="ffAiForm"><input type="text" id="ffAiQ" maxlength="400" placeholder="Ask anything — trades, start/sit…" aria-label="Ask the fantasy AI">'
-      + '<button type="submit" class="aigo"' + (ffAi.busy ? " disabled" : "") + ">→</button></form>"
-      + '<div class="aians" id="ffAiAns"' + (ffAi.text || ffAi.busy || ffAi.error ? "" : " hidden") + "></div></div>";
-  }
-  function paintFfAi() {
-    var box = $("ffAiAns");
-    if (!box) return;
-    var busyNote = ffAi.busy && !ffAi.text ? '<p class="aithinking">Grok is looking at your roster…</p>' : "";
-    box.hidden = !(ffAi.text || ffAi.busy || ffAi.error);
-    box.innerHTML = ffAi.error ? '<p class="aierr">' + esc(ffAi.error) + "</p>" : busyNote + ffFmt(ffAi.text);
-    document.querySelectorAll("#ffAiCard .aibtn, #ffAiCard .aigo").forEach(function (b) { b.disabled = ffAi.busy; });
-  }
-
-  // ---------------- the weekly league column ("The Nerd Report") ----------------
-  // Generated ONCE per finished week (the server caches it family-wide; localStorage
-  // gives this device an instant paint), shown as a collapsible card on the fantasy tab.
-  var ffRecap = null;        // { season, week, text }
-  var ffRecapBusy = false;
-  var LS_RECAP = "bucky_ffrecap";
-  async function maybeLoadRecap() {
-    if (ffRecapBusy || !ffSb || ffState !== "ok") return;
-    try {
-      // Which week is DONE? The current one if every matchup is decided, else last week.
-      var season = ffSb.season, wk = null, ms = null;
-      var allDone = function (l) { return l && l.length && l.every(function (m) { return m.winner === "HOME" || m.winner === "AWAY"; }); };
-      if (allDone(ffSb.matchups)) { wk = ffSb.week; ms = ffSb.matchups; }
-      else if (ffSb.week > 1) wk = ffSb.week - 1;
-      if (!wk || !season) return;
-      if (ffRecap && ffRecap.season === season && ffRecap.week === wk) return;
-      try {
-        var c = JSON.parse(localStorage.getItem(LS_RECAP) || "null");
-        if (c && c.season === season && c.week === wk && c.text) { ffRecap = c; if (view === "ff") paintFf(); return; }
-      } catch (e) {}
-      ffRecapBusy = true;
-      if (!ms) {
-        var past = await api("ff_scoreboard", { week: wk, teamName: myFfTeamName() });
-        if (!past || past.ok !== true || !allDone(past.matchups)) return;   // week not actually finished
-        ms = past.matchups;
-      }
-      var standings = (ffLg && ffLg.teams ? ffLg.teams : []).map(function (t) {
-        return { name: t.name, wins: t.wins, losses: t.losses, pointsFor: t.pointsFor };
-      });
-      var r = await fetch(FN_GPT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          secret: FAMILY_PASSWORD, mode: "ffrecap", season: season, week: wk,
-          leagueName: ffSb.leagueName || "", matchups: ms, standings: standings,
-        }),
-      });
-      if (!r.ok) return;
-      var text = "";
-      if ((r.headers.get("content-type") || "").indexOf("application/json") >= 0) {
-        var j = await r.json();
-        text = j && j.text || "";
-      } else {
-        text = await r.text();   // first device: the generation streams; we take it whole
-      }
-      text = text.trim();
-      if (!text) return;
-      ffRecap = { season: season, week: wk, text: text };
-      try { localStorage.setItem(LS_RECAP, JSON.stringify(ffRecap)); } catch (e) {}
-      if (view === "ff") paintFf();
-    } catch (e) {
-      // No column this week — the scoreboard stands on its own.
-    } finally {
-      ffRecapBusy = false;
-    }
-  }
-  function ffRecapHTML() {
-    if (!ffRecap || !ffRecap.text) return "";
-    return '<details class="card recapcard"><summary>📰 The Nerd Report — Week ' + esc(ffRecap.week) + "</summary>"
-      + '<div class="recapbody">' + ffFmt(ffRecap.text) + "</div></details>";
   }
 
   function gameRowHTML(ev, sport) {
@@ -1575,226 +1241,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     $("gameBody").innerHTML = html;
   }
 
-  // ---------------- fantasy rendering ----------------
-  function kickShort(iso) {
-    try {
-      return new Date(iso).toLocaleString("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", minute: "2-digit" });
-    } catch (e) { return ""; }
-  }
-  function ffTeamMono(t, cls) {
-    return teamMono({ abbrev: t.abbrev || t.name, color: "3f5c46", logo: t.logo }, cls);
-  }
-  function ffPlayerCell(p) {
-    if (!p) return '<div class="ffp"></div>';
-    var dot = "", txt = "bye", live = false;
-    if (p.game) {
-      if (p.game.state === "in") { dot = "in"; txt = p.game.detail || "LIVE"; live = true; }
-      else if (p.game.state === "post") { dot = "post"; txt = "final"; }
-      else { txt = kickShort(p.game.date); }
-    }
-    var started = !!(p.game && p.game.state !== "pre");
-    var pts, ptsCls = "";
-    if (started) pts = p.actual != null ? p.actual.toFixed(1) : "0.0";
-    else if (p.proj != null) { pts = "proj " + p.proj.toFixed(1); ptsCls = " projpts"; }
-    else { pts = "—"; ptsCls = " projpts"; }
-    return '<div class="ffp"><div class="nm"><span>' + esc(p.name) + '</span><b class="' + ptsCls.trim() + '">' + pts + "</b></div>"
-      + '<div class="sub"><span class="gdot ' + dot + '"></span>'
-      + (p.proTeam ? esc(p.proTeam) + " · " : "")
-      + (p.injury ? '<span class="inj">' + esc(p.injury.slice(0, 1)) + "</span> " : "")
-      + '<span class="' + (live ? "glive" : "") + '">' + esc(txt) + "</span></div></div>";
-  }
-  function ffTeamRow(side, other) {
-    var losing = other && side.points < other.points && (side.points || other.points);
-    return '<div class="fftm' + (losing ? " losing" : "") + '">' + ffTeamMono(side)
-      + '<span>' + esc(side.name) + ' <span class="rec">' + esc(side.record || "") + "</span></span>"
-      + '<span class="pts">' + (side.points != null ? side.points.toFixed(1) : "0.0") + "</span></div>";
-  }
-
-  // Setup/expired-cookie cards shared by the scoreboard and matchup views.
-  function ffGateHTML() {
-    if (ffState === "fantasy-not-configured") {
-      return '<div class="card"><div class="ffsetup"><b>🏆 Fantasy needs a one-time setup by Dad.</b> '
-        + "The league is private, so ESPN wants the login cookies from a signed-in browser:"
-        + "<ol><li>On a computer logged in to <b>espn.com</b>, open DevTools → Application → Cookies → espn.com.</li>"
-        + "<li>Copy the values of <code>espn_s2</code> and <code>SWID</code>.</li>"
-        + "<li>In Netlify → Site configuration → Environment variables, add <code>ESPN_S2</code> and <code>ESPN_SWID</code> with those values, then redeploy.</li></ol>"
-        + "League <b>705063</b> and team <b>Battle Kreussers</b> are already built in.</div></div>";
-    }
-    if (ffState === "fantasy-auth-expired") {
-      return '<div class="card"><div class="ffsetup"><b>ESPN signed us out.</b> The <code>espn_s2</code> cookie expires about once a year. '
-        + "Dad: copy a fresh <code>espn_s2</code> value from espn.com's cookies and update the <code>ESPN_S2</code> "
-        + "environment variable in Netlify, then redeploy. Scores come right back.</div></div>";
-    }
-    return "";
-  }
-
-  function ffMatchupInvolves(m, teamId) {
-    return !!((m.home && m.home.teamId === teamId) || (m.away && m.away.teamId === teamId));
-  }
-  // Estimated chance to win, from each side's projected FINAL total (a normal
-  // model, σ≈30 pts of remaining-game variance — OUR estimate, not ESPN's).
-  function ffWinPct(side, other) {
-    if (!side || !other) return null;
-    var a = side.proj != null ? side.proj : side.points;
-    var b = other.proj != null ? other.proj : other.points;
-    if (a == null || b == null || (!a && !b)) return null;
-    var p = 1 / (1 + Math.exp(-1.702 * (a - b) / 30));
-    return Math.round(p * 100);
-  }
-  function ffMiniRow(side, other, pct) {
-    if (!side) {
-      return '<div class="fftm ffhome"><span style="color:var(--muted)">Bye week</span></div>';
-    }
-    var losing = other && side.points < other.points && (side.points || other.points);
-    return '<div class="fftm ffhome' + (losing ? " losing" : "") + '">' + ffTeamMono(side)
-      + '<span>' + esc(side.name) + ' <span class="rec">' + esc(side.record || "") + "</span></span>"
-      + (pct != null ? '<span class="wpct" title="Estimated chance to win">' + pct + "%</span>" : "")
-      + '<span class="pts fhp">' + (side.points != null ? side.points.toFixed(1) : "0.0") + "</span></div>";
-  }
-  function ffMatchupBtn(m, famId) {
-    // Open the matchup by ONE of its team ids — the family's own when it's
-    // their game so the detail view keeps "us on the left".
-    var openId = ffMatchupInvolves(m, famId) ? famId
-      : (m.home ? m.home.teamId : (m.away ? m.away.teamId : null));
-    if (openId == null) return "";
-    var lv = (m.home && m.home.live) || (m.away && m.away.live);
-    var stat = lv ? '<span class="stat live">LIVE</span>'
-      : (m.winner ? '<span class="stat">FINAL</span>' : '<span class="stat"></span>');
-    var awayPct = m.winner ? null : ffWinPct(m.away, m.home);
-    var homePct = m.winner ? null : ffWinPct(m.home, m.away);
-    return '<button type="button" class="gbtn" data-ffteam="' + esc(openId) + '">'
-      + '<div class="ffvs"><div class="ffmini">' + ffMiniRow(m.away, m.home, awayPct) + ffMiniRow(m.home, m.away, homePct)
-      + "</div>" + stat + '<span class="chev">›</span></div></button>';
-  }
-
-  function paintFf() {
-    stampUpdated(ffTs);
-    var body = $("ffBody");
-    var gate = ffGateHTML();
-    if (gate) { body.innerHTML = gate; return; }
-    if (!ffSb) return;
-
-    var html = '<div class="ffleague">' + esc(ffSb.leagueName || "Fantasy league") + "</div>"
-      + '<div class="ffweek">Week ' + esc(ffSb.week || "") + "</div>";
-
-    html += ffGuardHTML();   // starters who are hurt/on bye and fixable — before anything else
-
-    var famId = ffSb.familyTeamId;
-    var ms = ffSb.matchups || [];
-    var mine = ms.filter(function (m) { return ffMatchupInvolves(m, famId); });
-    var others = ms.filter(function (m) { return !ffMatchupInvolves(m, famId); });
-    if (!ms.length) {
-      html += '<div class="card"><div class="loadrow">No matchups this week — the scoreboard fills in once the season kicks off. 🏈</div></div>';
-    } else {
-      if (mine.length) {
-        html += '<div class="card"><div class="seclabel"><b>Your matchup</b>'
-          + '<span class="meta">' + esc(myFfTeamName()) + "</span></div>"
-          + mine.map(function (m) { return ffMatchupBtn(m, famId); }).join("") + "</div>";
-      }
-      if (others.length) {
-        html += '<div class="card"><div class="seclabel"><b>' + (mine.length ? "Around the league" : "Matchups") + "</b></div>"
-          + others.map(function (m) { return ffMatchupBtn(m, famId); }).join("") + "</div>";
-      }
-    }
-
-    html += ffRecapHTML();   // last week's column, once it exists
-    html += ffAiCardHTML();  // Grok: lineup checks, waiver ideas, open questions
-
-    // Standings (from the cached league doc; the family highlight follows the
-    // FRESH scoreboard's familyTeamId so a profile switch never shows stale).
-    if (ffLg && ffLg.teams && ffLg.teams.length) {
-      var rows = ffLg.teams.slice().sort(function (a, b) {
-        return (b.wins - a.wins) || (b.pointsFor - a.pointsFor);
-      });
-      html += '<div class="card"><div class="seclabel"><b>Standings</b></div><table class="stand">'
-        + "<tr><th>#</th><th></th><th>W-L</th><th>PF</th></tr>";
-      rows.forEach(function (t, i) {
-        var fam2 = t.id === famId;
-        html += "<tr><td>" + (i + 1) + '</td><td class="' + (fam2 ? "fam" : "") + '">' + esc(t.name) + "</td>"
-          + "<td>" + t.wins + "-" + t.losses + (t.ties ? "-" + t.ties : "") + "</td>"
-          + "<td>" + (t.pointsFor != null ? t.pointsFor.toFixed(1) : "—") + "</td></tr>";
-      });
-      html += "</table></div>";
-    }
-
-    // Repaints (the 60s live poll) must not eat a typed question or a streamed answer.
-    var qv = ($("ffAiQ") || {}).value || "";
-    body.innerHTML = html;
-    if ($("ffAiQ")) $("ffAiQ").value = qv;
-    paintFfAi();
-  }
-
-  // Matchup detail: both lineups, player-by-player, for whichever matchup was
-  // tapped on the fantasy scoreboard (hash #ffm=<teamId>).
-  function paintFfm() {
-    var body = $("ffmBody");
-    var gate = ffGateHTML();
-    if (gate) { body.innerHTML = gate; $("ffmMeta").textContent = ""; return; }
-    if (!ffmD) return;
-    stampUpdated(ffTs);
-    $("ffmMeta").textContent = (ffmD.leagueName ? ffmD.leagueName + " · " : "") + "Week " + (ffmD.week || "");
-
-    var mu = ffmD.matchup;
-    if (!mu) {
-      body.innerHTML = '<div class="card"><div class="loadrow">No matchup this week — lineups appear once the season kicks off. 🏈</div></div>';
-      return;
-    }
-    // "fam" = the team this detail was opened FOR (the server echoes it back as
-    // familyTeamId) — it renders on the left/top like the ESPN app's "my team".
-    var fam = mu.home && mu.home.teamId === ffmD.familyTeamId ? mu.home : mu.away;
-    var opp = fam === mu.home ? mu.away : mu.home;
-    if (!fam || !opp) {
-      body.innerHTML = '<div class="card"><div class="loadrow">Bye week — no opponent this week. 😴</div></div>';
-      return;
-    }
-    var tot = (fam.points || 0) + (opp.points || 0);
-    var famW = tot ? Math.round(((fam.points || 0) / tot) * 100) : 50;
-    var html = '<div class="card">' + ffTeamRow(fam, opp) + ffTeamRow(opp, fam)
-      + '<div class="ffbar"><i style="width:' + famW + '%"></i><em style="width:' + (100 - famW) + '%"></em></div>'
-      + '<div class="ffproj"><span>proj ' + (fam.proj != null ? fam.proj.toFixed(1) : "—") + "</span>"
-      + "<span>proj " + (opp.proj != null ? opp.proj.toFixed(1) : "—") + "</span></div>";
-    var famS = (fam.roster || []).filter(function (p) { return p.starter; });
-    var oppS = (opp.roster || []).filter(function (p) { return p.starter; });
-    var n = Math.max(famS.length, oppS.length);
-    for (var i = 0; i < n; i++) {
-      var slot = (famS[i] && famS[i].slot) || (oppS[i] && oppS[i].slot) || "";
-      html += '<div class="ffrow">' + ffPlayerCell(famS[i]) + '<span class="slot">' + esc(slot) + "</span>" + ffPlayerCell(oppS[i]) + "</div>";
-    }
-    var famB = (fam.roster || []).filter(function (p) { return !p.starter; });
-    var oppB = (opp.roster || []).filter(function (p) { return !p.starter; });
-    var nb = Math.max(famB.length, oppB.length);
-    if (nb) {
-      html += '<div class="ffrow benchhead"><span></span><span class="slot">BENCH</span><span></span></div>';
-      for (var b = 0; b < nb; b++) {
-        html += '<div class="ffrow bench">' + ffPlayerCell(famB[b]) + '<span class="slot">' + esc((famB[b] && famB[b].slot) || (oppB[b] && oppB[b].slot) || "") + "</span>" + ffPlayerCell(oppB[b]) + "</div>";
-      }
-    }
-    html += "</div>";
-    body.innerHTML = html;
-  }
-
-  function paintFfError() {
-    $("ffBody").innerHTML =
-      '<div class="card"><div class="errcard">Couldn’t load the fantasy league right now. Check your connection and try again.'
-      + '<button type="button" id="ffRetry">Try again</button></div></div>';
-    var btn = $("ffRetry");
-    if (btn) btn.addEventListener("click", function () {
-      $("ffBody").innerHTML = '<div class="card"><div class="loadrow">Loading the league…</div></div>';
-      loadFF();
-    });
-  }
-
-  function paintFfmError() {
-    $("ffmBody").innerHTML =
-      '<div class="card"><div class="errcard">Couldn’t load this matchup right now. Check your connection and try again.'
-      + '<button type="button" id="ffmRetry">Try again</button></div></div>';
-    var btn = $("ffmRetry");
-    if (btn) btn.addEventListener("click", function () {
-      $("ffmBody").innerHTML = '<div class="card"><div class="loadrow">Loading the matchup…</div></div>';
-      loadFfm();
-    });
-  }
-
   function paintGameError() {
     $("gameBody").innerHTML =
       '<div class="card"><div class="errcard">Couldn’t load this game right now. Check your connection and try again.'
@@ -1807,7 +1253,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   }
 
   // ---------------- router ----------------
-  var VIEW_SECTIONS = ["weekView", "cfbView", "ffView", "ffmView", "gameView"];
+  var VIEW_SECTIONS = ["weekView", "cfbView", "gameView"];
   function showSection(id) {
     VIEW_SECTIONS.forEach(function (v) { $(v).hidden = (v !== id); });
   }
@@ -1817,14 +1263,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     // "cgame=…" contains "game=…", so only look for the NFL form when the
     // college form didn't match.
     var mNfl = mCfb ? null : /game=(\d{5,12})/.exec(h);
-    var mFfm = /ffm=(\d{1,6})/.exec(h);
-    var ff = /^#fantasy/.test(h);
     var cfb = /^#college/.test(h);
-    var detail = !!(mNfl || mCfb || mFfm);
+    // GFFL-CONNECT (2026-08-13): the ESPN fantasy views are retired, so the legacy
+    // "#fantasy" / "#ffm=<id>" hashes (old bookmarks, the old home-card handoff)
+    // match NOTHING here and fall through SILENTLY to the NFL week view.
+    var detail = !!(mNfl || mCfb);
     $("topPills").hidden = detail;
-    $("pillNfl").classList.toggle("on", !detail && !ff && !cfb);
+    $("pillNfl").classList.toggle("on", !detail && !cfb);
     $("pillCfb").classList.toggle("on", !detail && cfb);
-    $("pillFf").classList.toggle("on", !detail && ff);
     if (mNfl || mCfb) {
       var id = (mCfb || mNfl)[1];
       var sport = mCfb ? "ncaa" : "nfl";
@@ -1836,24 +1282,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       $("gameMeta").textContent = "";
       if (!game) $("gameBody").innerHTML = '<div class="card"><div class="loadrow">Loading game…</div></div>';
       loadGame();
-      window.scrollTo(0, 0);
-    } else if (mFfm) {
-      var tid = Number(mFfm[1]);
-      if (view !== "ffm" || ffmTeamId !== tid) { ffmD = null; }
-      view = "ffm"; ffmTeamId = tid; gameId = null; game = null;
-      showSection("ffmView");
-      if (ffmD) paintFfm();
-      else {
-        $("ffmMeta").textContent = "";
-        $("ffmBody").innerHTML = '<div class="card"><div class="loadrow">Loading the matchup…</div></div>';
-      }
-      loadFfm();
-      window.scrollTo(0, 0);
-    } else if (ff) {
-      view = "ff"; gameId = null; game = null;
-      showSection("ffView");
-      if (ffState) paintFf();
-      loadFF(true);
       window.scrollTo(0, 0);
     } else if (cfb) {
       view = "cfb"; gameId = null; game = null;
@@ -1874,35 +1302,19 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
   window.addEventListener("hashchange", route);
   // One delegated click handler serves every score row: NFL/college game
-  // buttons open the game detail, fantasy matchup buttons the lineup detail.
+  // buttons open the game detail.
   document.addEventListener("click", function (ev) {
     var el = ev.target;
     while (el && el !== document && !(el.classList && el.classList.contains("gbtn"))) el = el.parentNode;
     if (!el || el === document) return;
     if (el.dataset.eid) {
       location.hash = (el.dataset.sport === "ncaa" ? "cgame=" : "game=") + el.dataset.eid;
-    } else if (el.dataset.ffteam) {
-      location.hash = "ffm=" + el.dataset.ffteam;
     }
-  });
-  // The Fantasy AI card (delegated — paintFf rebuilds its DOM on every poll).
-  document.addEventListener("click", function (ev) {
-    var el = ev.target;
-    while (el && el !== document && !(el.classList && el.classList.contains("aibtn"))) el = el.parentNode;
-    if (!el || el === document || !el.dataset.ffai) return;
-    askFantasyAi(el.dataset.ffai, "");
-  });
-  document.addEventListener("submit", function (ev) {
-    if (!ev.target || ev.target.id !== "ffAiForm") return;
-    ev.preventDefault();
-    var q = (($("ffAiQ") || {}).value || "").trim();
-    if (q) askFantasyAi("question", q);
   });
   $("gameBack").addEventListener("click", function () {
     location.hash = gameSport === "ncaa" ? "college" : "";
     route();
   });
-  $("ffmBack").addEventListener("click", function () { location.hash = "fantasy"; });
   $("wkPrev").addEventListener("click", function () { stepWeek(-1); });
   $("wkNext").addEventListener("click", function () { stepWeek(1); });
   $("cfbPrev").addEventListener("click", function () { stepCfbWeek(-1); });
@@ -1912,7 +1324,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     if (location.hash) location.hash = ""; else route();
   });
   $("pillCfb").addEventListener("click", function () { location.hash = "college"; });
-  $("pillFf").addEventListener("click", function () { location.hash = "fantasy"; });
   $("cfbGroup").addEventListener("change", function () {
     cfbGroup = this.value;
     try { localStorage.setItem("bucky_cfb_group", cfbGroup); } catch (e) {}
@@ -1939,24 +1350,20 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         hasSb: !!sb, hasGame: !!game, hasCfb: !!cfbSb,
         cfbGroup: cfbGroup, cfbEvents: cfbSb ? (cfbSb.events || []).length : 0,
         anyLive: anyLive(), cfbAnyLive: anyCfbLive(), gameLive: gameLive(),
-        ffState: ffState, hasFf: !!ffSb, hasFfLg: !!ffLg, hasFfm: !!ffmD,
-        ffmTeamId: ffmTeamId,
-        ffFamilyTeamId: ffSb ? ffSb.familyTeamId : null,
-        ffTeamName: myFfTeamName(),
-        ffAnyLive: anyFfLive(),
-        ffmAnyLive: !!(ffmD && ffmD.anyProLive),
+        // GFFL-CONNECT: the ESPN fantasy fields are gone; ffMine stays — it is the
+        // 🏆 badge's map, sourced from the GFFL roster now.
         ffMine: ffMine,
         pollScheduled: !!pollT, pollIv: lastIv,
         events: sb ? sb.events.length : 0,
       };
     },
     fieldPos: fieldPos, firstDownPos: firstDownPos, fieldX: fieldX,
-    loadWeek: loadWeek, loadGame: loadGame, loadFF: loadFF, loadCfb: loadCfb, loadFfm: loadFfm, route: route,
+    loadWeek: loadWeek, loadGame: loadGame, loadCfb: loadCfb, loadMyGfflCounts: loadMyGfflCounts, route: route,
     setIntervals: function (o) { Object.assign(IV, o || {}); },
   };
 
   route();
-  loadMyFfCounts();   // background — badges the NFL rows with my fantasy starters
+  loadMyGfflCounts();   // background — badges the NFL rows with my GFFL starters
 })();
 </script>
 </body>

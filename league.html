@@ -1834,6 +1834,20 @@
     LG.ui.boot().catch((e) => { try { LG.ui.renderOffline(); } catch (_) {} console.error("GFFL boot failed", e); });
     // Test hook — the suites drive and inspect through this.
     window.__GFFL__ = { LG, get D() { return LG.data; }, get UI() { return LG.ui; } };
+    // GFFL-CONNECT (2026-08-13): Bucky embeds this page as its GFFL tab (same-origin
+    // persistent iframe). A CSS-hidden iframe's own document NEVER reports hidden
+    // (visibilityState follows the TOP page), so Bucky sets __buckyEmbedVisible + fires
+    // this event when the tab is covered/uncovered — the live poll (8s while games are on)
+    // pauses rather than burning requests behind another tab, and resumes with an
+    // immediate catch-up poll. Guarded on loopStarts>0 so a pre-boot event (gate screen)
+    // can never arm a loop the boot hasn't started. Standalone (goatfantasyleague.com,
+    // never framed) the event simply never fires and nothing here runs.
+    window.addEventListener("bucky-embed-visibility", () => {
+      const D = LG.data;
+      if (!D || !D.S || !D.S.loopStarts) return;
+      if (window.__buckyEmbedVisible === false) D.stop();
+      else if (!D.S.running) { D.start(); }
+    });
   </script>
 </body>
 </html>

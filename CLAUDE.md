@@ -10464,6 +10464,75 @@ the same one the banner was removed for. **Three suite checks restaged with the 
 place** (league home, and the two replay sections that asserted it read "replay"); the three
 DEGRADED checks — `ESPN only` / `Sleeper only` / `STALE out loud` — are unchanged and are what
 still prove it speaks up when it matters. Suite **1313/1313** (a straight swap, no net change).
+
+## 🏆 GFFL-CONNECT — Bucky drops the old ESPN league and adopts the GFFL (2026-08-13)
+
+User: *"we need to connect Bucky to the GFFL now, it is currently connected to our old ESPN
+league."* Two user decisions shaped it: the GFFL is **its own Bucky bottom-nav tab embedding
+the real league app** (the sports/farmgpt persistent-iframe pattern — league.html is
+SAME-ORIGIN, goatfantasyleague.com being an alias of this Netlify site), and the ESPN-specific
+extras (Fantasy AI ask box, Nerd Report, free agents) are **retired outright** (the GFFL app
+has its own AI). Files: `index.html` + `sports.html` + `league.html` + the 5 mirrored-nav
+satellites (farmgpt/games/weather/activity/status) + 4 suites. **Server untouched** —
+sports.mjs's ff_* actions and farmgpt.mjs's fantasy/ffrecap modes remain (unused by any
+client now; the server suite sections and the diag workflow's live ff smokes keep passing).
+Built split: index/league/satellites/suites by the main session, the sports.html excision +
+its suite restage by a delegated opus agent (its report re-verified by an independent run).
+- **THE 14th NAV AREA `gffl`** (🏆, an SVG trophy in NAV_PATHS, entry after Sports) — a
+  pseudo-tab like sports/gpt: DEEP_LINK_TABS `#gffl`, `renderEmbedTab("gffl")`, EMBEDS entry
+  `league.html`. UNLIKE sports/farmgpt the league KEEPS its own header + internal nav inside
+  the frame — it is a full sub-app whose tabs Bucky's bar doesn't replicate. First use on a
+  Bucky device asks the GFFL gate password once (localStorage is per-origin). The 5 satellite
+  navs + sports.html's own each gained the entry + the path (all say keep-in-sync).
+- **league.html listens for Bucky's `bucky-embed-visibility`**: covered → `D.stop()` (no 8s
+  live polling behind another tab), uncovered → `D.start()` (whose loop's first tick IS the
+  catch-up poll). Guarded on `loopStarts > 0` so a pre-boot event (the gate screen) can never
+  arm a loop the boot hasn't started. Standalone the event never fires. Suite AY7 proves all
+  three (stop / resume / pre-boot guard).
+- **THE HOME FANTASY CARD IS GFFL-NATIVE** (`gfflHomeFetch`/`paintFfCard` in index.html):
+  five public-key Firestore REST GETs against `gffl_fam2jan2g` — `settings` (draftAt),
+  `sched_<season>` (this week's pairing; decoded via the SAME `{g:[{h,a}]}`-or-legacy rule as
+  lg-core's loadSchedule), `weekly_<season>_w<N>` (the real final once the write-once record
+  exists), and the two team docs. Shows "🏆 GFFL · Week N", my team + "vs <opp>", the draft
+  countdown while `draftAt` is ahead, finals once a week settles. NO live totals — live
+  scoring is the league app's engine, one tap away (the card's tap → the GFFL tab). Hidden
+  when the team doc can't be read (honest absence, never a guess). Cache `bucky_gffl_home`
+  keyed by team id (a profile switch invalidates). **Which franchise is mine = TEAM ID**:
+  `gfflMyTeamId()` { isaac:12 GOAT Kids, grandpa:3 Wyoming, mom:5 Nails } default 1 (BK) —
+  DUPLICATED as sports.html's `GFFL_TEAM_BY_USER`, keep in sync (the third copy of this
+  house-convention duplication; the retired ESPN name-map was the same shape).
+- **sports.html's ESPN fantasy stack is GONE** (−761 lines): the Fantasy pill, both fantasy
+  views, all loaders/renderers/gate cards, the lineup guard, the whole Grok-advice block, the
+  Nerd Report, the fantasy CSS families, the ff state + hook fields. `#fantasy`/`#ffm=…`
+  hashes (old bookmarks, the old home-card handoff) fall through SILENTLY to the NFL week
+  view. **The "🏆 N of yours" badges survive, re-sourced**: `loadMyGfflCounts()` reads
+  `roster_<season>_w<wk>_t<myId>` straight from the GFFL's Firestore (week via lg-core's own
+  formula), counts non-BENCH/non-IR rows per NFL team with **WAS→WSH normalized** (rosters
+  mix ESPN-imported "WSH" and Sleeper-sourced "WAS" spellings; the scoreboard speaks ESPN).
+  404 = no badges, silently — badges are a bonus, never break the scores.
+- **SUITES**: sports **229/229** (section F rewritten as a retirement contract — pill gone,
+  hashes fall through, no ff_* request on a normal boot; badges re-fixtured with the
+  arithmetic stated — PHI@DAL "2 of yours" with BENCH+IR counting nothing, `ffMine.WSH===1`
+  proving the normalization; section G = the GFFL home card incl. Isaac→GOAT Kids and
+  tap→embed_gffl) · gffl **2580/2580** (AY7) · activity **147/147** (13→14 links/rail,
+  columns stay 7 = ceil(14/2)) · chore-care **50/50** (the 55px button floor restaged 55→48
+  WITH the arithmetic: the 14th area pushes a kid's bar from 6 to 7 columns → ~51px buttons,
+  still well over the app-wide 44px touch floor) · beacon-safety **96/96** · a 10/10
+  scratchpad smoke (gffl_connect_smoke.cjs: nav+icon, embed create/hide/flag, honest-absence
+  card, Dad's card "Battle Kreussers vs Elanikan Skywalkers · Draft: Sun, Sep 6, 3:00 PM CT",
+  tap→tab).
+- **GOTCHAS worth keeping**: index.html's unlock seed is `choreUnlocked = "amenfarms"` (the
+  PASSWORD, not a flag — a "1" leaves the lock up and reads as "the app is broken");
+  `goTo()` navigates via `history.pushState(STATE)` with NO URL, so in-app taps never move
+  `location.hash` — assert the embed/currentTab, never the hash; `document.body.textContent`
+  INCLUDES `display:none` content, so "the lock screen is showing" can never be read from
+  body text (the lock's copy is always in the DOM); and a cross-origin `req.respond` mock
+  needs `access-control-allow-origin: *` or the fetch dies before any logic runs.
+- **KNOWN / FOLLOW-UPS**: league.html's own Scores tab still carries the ESPN-league card
+  (self-hides while all-zero; worth removing now that league is abandoned — flagged, not
+  done); the ESPN cookies (ESPN_S2/SWID) stop mattering for Bucky's UI and can be left to
+  expire; `_probe-sports.mjs` still exercises the ff_* server actions (they exist) — retire
+  those probe checks whenever the actions themselves go.
 ---
 
 # 📈 FINANCE TAB + 🔔 EVENT NOTIFICATIONS (2026-08-09)

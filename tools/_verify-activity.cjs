@@ -842,9 +842,11 @@ async function sectionLayout(browser, mock) {
   // after a day's use), so the nav is back to a balanced TWO-row bar (--bnav-cols =
   // Math.ceil(shown.length/2), --bnav-all = shown.length). navRows is really a
   // COLUMN count read off gridTemplateColumns, so the 2-row bar reads its column count.
-  // RESTAGED 2026-08-05 (sports): the 🏈 Sports area is the 13th (Dad sees all 13,
-  // ceil(13/2) = 7 columns). Behaviour (0 clipped, nothing active) unchanged below.
-  ok(m.links === 13 && m.navRows === 7, "the bottom nav is the 13-area, two-row bar");
+  // RESTAGED 2026-08-05 (sports): the 🏈 Sports area is the 13th.
+  // RESTAGED 2026-08-13 (GFFL-CONNECT): the 🏆 GFFL area is the 14th — the family's own
+  // league app became a Bucky embed tab. ceil(14/2) = 7 columns, same as before, so only
+  // the link count moves. Behaviour (0 clipped, nothing active) unchanged below.
+  ok(m.links === 14 && m.navRows === 7, "the bottom nav is the 14-area, two-row bar");
   ok(m.clipped === 0, "no nav label is clipped at 390px");
   ok(m.active === 0, "no nav area is marked active — this page is not one of them");
   ok(m.navBottom <= m.innerH + 1, "the nav sits at the bottom of the viewport, not below it");
@@ -875,8 +877,8 @@ async function sectionLayout(browser, mock) {
   // Description only, not a check: the rail recolored navy → pine green in the 2026-08-05
   // Farmstead re-skin (see activity.html's farmstead-theme-page block) — the assertion
   // itself was always about item count/visibility, never color, so it's unchanged.
-  // 12 → 13 on 2026-08-05: the 🏈 Sports area joined the nav.
-  ok(d.railShown && d.railItems === 13, "the 13-item rail is used at 1280px");
+  // 12 → 13 on 2026-08-05 (Sports) → 14 on 2026-08-13 (GFFL-CONNECT: the league tab).
+  ok(d.railShown && d.railItems === 14, "the 14-item rail is used at 1280px");
   ok(d.brand === "Bucky", "the rail carries the wordmark");
   ok(!d.navShown, "the bottom bar is hidden when the rail is up");
   ok(d.mainLeft >= d.railRight, "the content clears the rail rather than hiding under it");

@@ -114,6 +114,64 @@ function startFfUpstream() {
   });
   return new Promise((resolve) => srv.listen(FF_PORT, "127.0.0.1", () => resolve(srv)));
 }
+// ---------------- fake GFFL Firestore (GFFL-CONNECT, 2026-08-13) ----------------
+// The ESPN fantasy CLIENT is retired: sports.html's 🏆 badges and index.html's home
+// fantasy card both read the family's OWN league straight from Firestore now, with the
+// public web key. These fixtures are the REST wire shape, encoded here INDEPENDENTLY of
+// the page's own decoder (so a round trip proves the decoder, not itself).
+function fsEnc(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === "boolean") return { booleanValue: v };
+  if (typeof v === "number") return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (typeof v === "string") return { stringValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(fsEnc) } };
+  const fields = {}; for (const k of Object.keys(v)) fields[k] = fsEnc(v[k]);
+  return { mapValue: { fields } };
+}
+function fsDoc(obj) {
+  const fields = {}; for (const k of Object.keys(obj)) fields[k] = fsEnc(obj[k]);
+  return { name: "projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/x", fields };
+}
+// The league week, computed here with lg-core's OWN formula so every expectation below
+// is date-independent (the suite may run before or after the season starts).
+const GFFL_SEASON = 2026, GFFL_SEASON_START = "2026-09-08";
+function gfflWeekNow() {
+  const t0 = new Date(GFFL_SEASON_START + "T05:00:00-05:00").getTime();
+  return Math.max(1, Math.min(18, 1 + Math.floor((Date.now() - t0) / (7 * 24 * 3600 * 1000))));
+}
+// MY roster (team 1 = the default franchise, Battle Kreussers). The arithmetic the
+// badge checks assert: DAL 2 starters (the BENCH DAL row and the IR PHI row are NOT
+// starters) · KC 1 · "WAS" 1, which must normalize to the scoreboard's own "WSH".
+const GFFL_ROSTER = {
+  players: [
+    { key: "3139477", name: "D. Prescott",  pos: "QB", team: "DAL", slot: "QB" },
+    { key: "4241457", name: "R. Williams",  pos: "RB", team: "DAL", slot: "RB" },
+    { key: "4430807", name: "T. McLaurin",  pos: "WR", team: "WAS", slot: "WR" },
+    { key: "3116365", name: "T. Kelce",     pos: "TE", team: "KC",  slot: "TE" },
+    { key: "4361579", name: "J. Ferguson",  pos: "TE", team: "DAL", slot: "BENCH" },
+    { key: "4362628", name: "A. Brown",     pos: "WR", team: "PHI", slot: "IR" },
+  ],
+};
+const GFFL_TEAM_NAMES = {
+  1: "Battle Kreussers", 2: "Elanikan Skywalkers", 3: "Wyoming Cowboys",
+  4: "Chula Vista Jaguarrams", 5: "Nails For Breakfast", 9: "Scruffy Looking Nerfherders",
+  11: "Kruz Control", 12: "The GOAT Kids",
+};
+// Home-card docs: settings (draftAt) + the season schedule + the team names. The
+// weekly write-once record is deliberately ABSENT (404) — the pre-season state.
+function gfflDoc(id) {
+  const wk = gfflWeekNow();
+  if (id === "settings") return fsDoc({ draftAt: "2026-09-06T15:00:00-05:00" });
+  if (id === "sched_" + GFFL_SEASON) {
+    const g = [{ h: 1, a: 2 }, { h: 3, a: 4 }, { h: 5, a: 9 }, { h: 11, a: 12 }];
+    return fsDoc({ weeks: Array.from({ length: wk }, () => ({ g })) });
+  }
+  const mT = /^team_(\d+)$/.exec(id);
+  if (mT && GFFL_TEAM_NAMES[Number(mT[1])]) return fsDoc({ name: GFFL_TEAM_NAMES[Number(mT[1])] });
+  if (id === "roster_" + GFFL_SEASON + "_w" + wk + "_t1") return fsDoc(GFFL_ROSTER);
+  return null;   // 404 — every other doc (incl. the weekly record) simply isn't there
+}
+
 function ffAuthGood() { process.env.ESPN_S2 = GOOD_S2; process.env.ESPN_SWID = GOOD_SWID; }   // unbraced SWID on purpose
 function ffAuthWrong() { process.env.ESPN_S2 = "stale-cookie"; process.env.ESPN_SWID = GOOD_SWID; }
 function ffAuthNone() { delete process.env.ESPN_S2; delete process.env.ESPN_SWID; }
@@ -488,6 +546,7 @@ function startStatic() {
 // the Nerd Report column (mode "ffrecap"). The mock answers with canned text and
 // records every call NODE-SIDE so "one recap generation per week" is countable.
 const gpt = { calls: [] };
+const gfflReq = [];   // every GFFL Firestore URL the browser asked for
 const GPT_ADVICE = "**Bottom line:** start De'Von Achane over Justin Jefferson.\n\n- Jefferson is Questionable and Achane projects 13.1.\n- Everyone else checks out.";
 const GPT_COLUMN = "**Week 1: the Kreussers strike first.** Battle Kreussers rolled End Zone Goats 121.4-87.9 while The Goat Kids stunned the Waffle House Warriors.";
 
@@ -548,6 +607,21 @@ async function newPage(ctx, o) {
         await req.respond({ status: resp.status, contentType: "application/json", body: text });
         return;
       }
+      // GFFL-CONNECT: the family league's own Firestore reads (the 🏆 badges and the
+      // home fantasy card). Served ONLY when a section asks for them — every other
+      // page keeps the blanket Firebase abort the house rule requires.
+      if (/firestore\.googleapis\.com/i.test(u) && (o.gffl || o.gfflNoRoster)) {
+        gfflReq.push(u);
+        const id = decodeURIComponent((/documents\/gffl_fam2jan2g\/([^?]+)/.exec(u) || [])[1] || "");
+        const doc = o.gfflNoRoster && /^roster_/.test(id) ? null : gfflDoc(id);
+        // The page is same-origin with the suite's static server, so a mocked
+        // cross-origin response still needs the CORS header the real API sends —
+        // without it the fetch fails before any of this is exercised.
+        const cors = { "access-control-allow-origin": "*" };
+        if (!doc) { await req.respond({ status: 404, contentType: "application/json", headers: cors, body: '{"error":{"code":404}}' }); return; }
+        await req.respond({ status: 200, contentType: "application/json", headers: cors, body: JSON.stringify(doc) });
+        return;
+      }
       if (/googleapis|firestore|firebase|gstatic/i.test(u)) { await req.abort(); return; }
       if (u.includes("/.netlify/functions/farmgpt")) {
         let body = {}; try { body = JSON.parse(req.postData() || "{}"); } catch (e) {}
@@ -580,7 +654,8 @@ async function shot(page, name) {
 async function sectionWeekGame(browser) {
   section("B · sports.html week list + click-through (390×844)");
   const ctx = await browser.createBrowserContext();
-  const page = await newPage(ctx);
+  gfflReq.length = 0;
+  const page = await newPage(ctx, { gffl: true });
   await page.goto(BASE + "/sports.html", { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().hasSb, { timeout: 20000 });
   await page.waitForSelector(".dayhead.live", { timeout: 10000 });
@@ -642,7 +717,10 @@ async function sectionWeekGame(browser) {
   ok(/MIN -2\.5/.test(extras.preSitu), "an upcoming row shows the spread");
   ok(extras.liveSpreadless, "a live row shows the situation, not the stale pregame line");
 
-  // My fantasy starters badge each NFL game (loads in the background from ff_matchup).
+  // RESTAGED (GFFL-CONNECT, 2026-08-13): the badge still exists but its SOURCE moved
+  // — from the retired ESPN ff_matchup to MY GFFL roster doc, read straight from
+  // Firestore. GFFL_ROSTER's arithmetic: DAL 2 starters + KC 1 + WAS 1; the DAL BENCH
+  // row and the PHI IR row are not starters and must count for nothing.
   await page.waitForFunction(() => !!window.__SPORTS__.state().ffMine, { timeout: 20000 });
   const badges = await page.evaluate(() => {
     const get = (id) => {
@@ -650,12 +728,23 @@ async function sectionWeekGame(browser) {
       const f = b && b.querySelector(".ffct");
       return f ? f.textContent : "";
     };
-    return { kc: get("401770001"), gb: get("401770003"), fin: get("401770004") };
+    return {
+      dal: get("401770002"), kc: get("401770001"), gb: get("401770003"), fin: get("401770004"),
+      mine: window.__SPORTS__.state().ffMine,
+    };
   });
-  ok(/🏆 5 of yours/.test(badges.kc), "the featured game counts my 5 starters (BUF 2 + KC 3)");
-  ok(/🏆 1 of yours/.test(badges.gb) && /MIN -2\.5/.test(extras.preSitu),
-    "an upcoming row carries both the spread and my starter count");
-  ok(/🏆 1 of yours/.test(badges.fin), "a final still notes my starters who played");
+  ok(/🏆 2 of yours/.test(badges.dal),
+    "PHI @ DAL counts my 2 DAL starters — the DAL bench row and the PHI IR row count for nothing");
+  ok(/🏆 1 of yours/.test(badges.kc), "BUF @ KC counts my one KC starter");
+  ok(!badges.gb && /MIN -2\.5/.test(extras.preSitu),
+    "a game with none of my starters carries no badge — the spread still reads");
+  ok(!badges.fin, "…and neither does a final I had nobody in");
+  // The scoreboard's abbrevs are ESPN-style, so a Sleeper-sourced "WAS" roster row has
+  // to land on "WSH". No Washington game is on this slate, so assert the MAP itself.
+  ok(badges.mine && badges.mine.WSH === 1 && badges.mine.WAS === undefined,
+    "a WAS roster row normalizes to the scoreboard's WSH");
+  ok(gfflReq.some((u) => u.includes("roster_" + GFFL_SEASON + "_w" + gfflWeekNow() + "_t1")),
+    "…read from THIS league week's roster doc for my own franchise");
   await shot(page, "sports_week_390.png");
 
   // week stepping forwards + back
@@ -814,7 +903,9 @@ async function sectionWeekGame(browser) {
       clipped: links.filter((a) => { const l = a.querySelector(".blabel"); return l && l.scrollWidth > l.clientWidth + 1; }).length,
     };
   });
-  ok(nav.count === 13 && nav.active === "Sports", `the nav shows all 13 areas with Sports active (Dad)`);
+  // RESTAGED (GFFL-CONNECT): 13 → 14 — sports.html's own nav mirrors index.html's,
+  // which gained the GFFL area.
+  ok(nav.count === 14 && nav.active === "Sports", `the nav shows all 14 areas with Sports active (Dad)`);
   ok(nav.rows === 2 && nav.clipped === 0, "two balanced nav rows, no clipped labels at 390px");
 
   ok(page._errs.length === 0, "0 page errors on sports.html" + (page._errs.length ? " — " + page._errs[0] : ""));
@@ -1030,324 +1121,88 @@ async function sectionCollege(browser) {
   }
 }
 
-// ---------------- section F: the fantasy view ----------------
-async function sectionFantasyUI(browser) {
-  section("F · the Fantasy view (390×844)");
-  ffAuthGood();
-  gpt.calls.length = 0;
-  {
-    const ctx = await browser.createBrowserContext();
-    const page = await newPage(ctx);
-    await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
-    await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().hasFf, { timeout: 20000 });
-    await page.waitForFunction(() => window.__SPORTS__.state().hasFfLg, { timeout: 20000 });
-    const ff = await page.evaluate(() => {
-      const cards = [...document.querySelectorAll("#ffBody .card")];
-      const mineCard = cards.find((c) => /Your matchup/.test(c.textContent));
-      const othersCard = cards.find((c) => /Around the league/.test(c.textContent));
-      const btns = [...document.querySelectorAll("#ffBody .gbtn[data-ffteam]")];
-      const standRows = [...document.querySelectorAll("table.stand tr")].slice(1);
-      return {
-        view: window.__SPORTS__.state().view,
-        pillOn: document.getElementById("pillFf").classList.contains("on"),
-        league: (document.querySelector(".ffleague") || {}).textContent || "",
-        week: (document.querySelector(".ffweek") || {}).textContent || "",
-        btnCount: btns.length,
-        mineBtnTeam: mineCard && mineCard.querySelector(".gbtn") ? mineCard.querySelector(".gbtn").dataset.ffteam : "",
-        mineText: mineCard ? mineCard.textContent : "",
-        mineLive: mineCard ? !!mineCard.querySelector(".stat.live") : false,
-        othersText: othersCard ? othersCard.textContent : "",
-        othersBtns: othersCard ? othersCard.querySelectorAll(".gbtn[data-ffteam]").length : 0,
-        lineupRows: document.querySelectorAll("#ffBody .ffrow").length,
-        minePcts: mineCard ? [...mineCard.querySelectorAll(".wpct")].map((w) => w.textContent) : [],
-        pctCount: document.querySelectorAll("#ffBody .wpct").length,
-        // separation: every matchup row is padded, and stacked rows get a divider
-        vsPad: parseFloat(getComputedStyle(document.querySelector("#ffBody .ffvs")).paddingTop) || 0,
-        vsDivider: (() => {
-          const stacked = [...document.querySelectorAll("#ffBody .gbtn + .gbtn .ffvs")];
-          return stacked.length && stacked.every((v) => parseFloat(getComputedStyle(v).borderTopWidth) >= 1);
-        })(),
-        standCount: standRows.length,
-        standFirst: standRows.length ? standRows[0].textContent : "",
-        famBoldName: (document.querySelector("table.stand td.fam") || {}).textContent || "",
-        // the W-L cell must never wrap "1-0" onto two lines
-        wlNowrap: (() => {
-          const td = standRows[0] && standRows[0].children[2];
-          if (!td) return false;
-          return getComputedStyle(td).whiteSpace === "nowrap" && td.getBoundingClientRect().height < 30;
-        })(),
-        owners: /KreusserFTW|isaac|grandpa/.test(document.querySelector("table.stand").textContent),
-        pollIv: window.__SPORTS__.state().pollIv,
-      };
-    });
-    ok(ff.view === "ff" && ff.pillOn, "#fantasy deep-links straight into the Fantasy view");
-    ok(ff.league === "Nerd Fantasy Football League" && /Week 2/.test(ff.week), "the league name + week head the page");
-    ok(ff.btnCount === 4, "the scoreboard lists ALL 4 matchups (8 teams) as tappable rows");
-    ok(ff.mineBtnTeam === "1" && /Battle Kreussers/.test(ff.mineText) && /Waffle House Warriors/.test(ff.mineText),
-      "the family matchup is pinned under \"Your matchup\"");
-    ok(/87\.4/.test(ff.mineText) && /76\.2/.test(ff.mineText) && ff.mineLive,
-      "it carries both live totals and a LIVE tag");
-    ok(ff.othersBtns === 3 && /The Goat Kids/.test(ff.othersText) && /Draft Punks/.test(ff.othersText)
-      && /Wyoming Cowboys/.test(ff.othersText) && /Hay Bale Hail Marys/.test(ff.othersText)
-      && /Nails\s+For Breakfast/.test(ff.othersText) && /End Zone Goats/.test(ff.othersText),
-      "the other 3 matchups (all 6 remaining teams) render under Around the league");
-    ok(ff.lineupRows === 0, "the scoreboard itself carries NO lineups — those live in the matchup detail");
-    // 112.6 vs 98.1 projected finals -> Φ((112.6-98.1)/30) ≈ 69% (hand-computed)
-    ok(ff.minePcts.join(",") === "31%,69%", `win chances sit next to the scores (${ff.minePcts.join("/")})`);
-    ok(ff.pctCount === 8, "every live matchup carries a chance for both sides");
-    ok(ff.vsPad >= 8 && ff.vsDivider, "matchups get breathing room + a divider between stacked rows");
-    ok(ff.standCount === 8 && /Battle Kreussers/.test(ff.standFirst) && /Battle Kreussers/.test(ff.famBoldName),
-      "standings list all 8 teams, wins→points-for, family row bold");
-    ok(!ff.owners, "standings show team names only — no usernames");
-    ok(ff.wlNowrap, "the W-L record renders on one line");
-    ok(ff.pollIv === 60000, "with matchups live, fantasy polls every 60s");
+// ---------------- section F: the retired ESPN fantasy CLIENT ----------------
+// RESTAGED WHOLESALE (GFFL-CONNECT, 2026-08-13). What used to live here — the Fantasy
+// pill, the #fantasy scoreboard, the #ffm=<id> lineup detail, the per-user teamName
+// resolution in the UI, the lineup guard, the Grok advice card, the Nerd Report and the
+// standings table — is GONE from sports.html: the family's fantasy is the GFFL app now.
+// Those checks would be noise, so what survives is the REMOVAL contract, which is real
+// protection: old bookmarks and the old home-card handoff still point at #fantasy, and
+// they must land somewhere sensible rather than on a dead screen. The SERVER keeps its
+// ff_* actions (section E is untouched) — this is a client-side retirement.
+async function sectionFantasyRetired(browser) {
+  section("F · the ESPN fantasy client is retired (390×844)");
+  const ctx = await browser.createBrowserContext();
+  const page = await newPage(ctx, { gffl: true });
+  const fnCalls = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/.netlify/functions/sports") && r.postData()) {
+      try { fnCalls.push(JSON.parse(r.postData()).action); } catch (e) {}
+    }
+  });
+  await page.goto(BASE + "/sports.html", { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().hasSb, { timeout: 20000 });
 
-    // -------- the lineup guard (needs ffMyM, which loads in the background) --------
-    await page.waitForSelector("#ffBody .guardcard", { timeout: 20000 });
-    const guard = await page.evaluate(() => {
-      const g = document.querySelector("#ffBody .guardcard");
-      const cards = [...document.querySelectorAll("#ffBody .card")];
-      return {
-        rows: g.querySelectorAll(".gw").length,
-        text: g.textContent,
-        first: cards.indexOf(g) === 0,
-        sub: (g.querySelector(".gwsub") || {}).textContent || "",
-      };
-    });
-    ok(guard.rows === 1 && /Justin Jefferson/.test(guard.text) && /Questionable/.test(guard.text)
-      && /still in your lineup/.test(guard.text) && /🟡/.test(guard.text),
-      "the lineup guard flags the Questionable starter (Jefferson), soft-marked 🟡");
-    ok(!/Josh Allen|Achane|Bijan/.test(guard.text),
-      "…and ONLY him: live starters, healthy pre-game starters and the bench-bye are never flagged");
-    ok(guard.first && /Battle Kreussers/.test(guard.text), "the guard card leads the page, named to my team");
-    ok(/Fix it in the ESPN app/.test(guard.sub) && /ask the AI below/.test(guard.sub),
-      "…and says where the fix actually happens");
+  const gone = await page.evaluate(() => ({
+    pill: !!document.getElementById("pillFf"),
+    pills: [...document.querySelectorAll("#topPills .pill")].map((p) => p.textContent.trim()),
+    ffView: !!document.getElementById("ffView"),
+    ffmView: !!document.getElementById("ffmView"),
+    ffBody: !!document.getElementById("ffBody"),
+    ffmBack: !!document.getElementById("ffmBack"),
+    stateKeys: Object.keys(window.__SPORTS__.state()),
+    hookKeys: Object.keys(window.__SPORTS__),
+  }));
+  ok(!gone.pill && gone.pills.length === 2 && /NFL/.test(gone.pills[0]) && /College/.test(gone.pills[1]),
+    "the 🏆 Fantasy pill is GONE — NFL and College are the only two");
+  ok(!gone.ffView && !gone.ffmView && !gone.ffBody && !gone.ffmBack,
+    "the fantasy scoreboard + matchup-detail sections are gone from the markup");
+  const deadState = ["ffState", "hasFf", "hasFfLg", "hasFfm", "ffmTeamId", "ffFamilyTeamId", "ffTeamName", "ffAnyLive", "ffmAnyLive"];
+  ok(deadState.every((k) => !gone.stateKeys.includes(k)) && gone.stateKeys.includes("ffMine"),
+    "the state hook drops every ESPN fantasy field and keeps ffMine (the badge's own map)");
+  ok(!gone.hookKeys.includes("loadFF") && !gone.hookKeys.includes("loadFfm") && gone.hookKeys.includes("loadMyGfflCounts"),
+    "…and exports loadMyGfflCounts in place of loadFF/loadFfm");
 
-    // -------- the Nerd Report (mode ffrecap, generated for the finished week 1) --------
-    await page.waitForSelector("#ffBody details.recapcard", { timeout: 20000 });
-    const recap = await page.evaluate(() => {
-      const d = document.querySelector("#ffBody details.recapcard");
-      d.open = true;
-      let cached = null; try { cached = JSON.parse(localStorage.getItem("bucky_ffrecap") || "null"); } catch (e) {}
-      return {
-        summary: d.querySelector("summary").textContent,
-        body: (d.querySelector(".recapbody") || {}).textContent || "",
-        bolded: d.querySelectorAll(".recapbody b").length,
-        openByDefault: false,
-        cached,
-      };
-    });
-    ok(/The Nerd Report — Week 1/.test(recap.summary), "the weekly column renders as a collapsed card, titled to the FINISHED week");
-    ok(/Kreussers strike first/.test(recap.body) && recap.bolded >= 1,
-      "…with the column text inside, **bold** formatted");
-    ok(!!recap.cached && recap.cached.week === 1 && /Kreussers strike first/.test(recap.cached.text),
-      "the column caches to localStorage bucky_ffrecap for an instant paint next open");
-    const recapCalls = gpt.calls.filter((c) => c.mode === "ffrecap");
-    ok(recapCalls.length === 1 && recapCalls[0].week === 1 && recapCalls[0].season === 2026
-      && Array.isArray(recapCalls[0].matchups) && recapCalls[0].matchups.length === 4
-      && recapCalls[0].matchups.every((m) => m.winner === "HOME" || m.winner === "AWAY"),
-      "ONE ffrecap call across every repaint, carrying week 1's four DECIDED matchups");
-
-    // -------- the Grok advice card --------
-    const aiCard = await page.evaluate(() => ({
-      btns: [...document.querySelectorAll("#ffAiCard .aibtn")].map((b) => b.dataset.ffai),
-      hasForm: !!document.querySelector("#ffAiForm #ffAiQ"),
-      ansHidden: document.getElementById("ffAiAns").hidden,
+  // Legacy hashes must fall through SILENTLY — no error, no dead screen.
+  for (const [h, what] of [["fantasy", "#fantasy (an old bookmark / the old home-card handoff)"], ["ffm=5", "#ffm=<id> (an old matchup link)"]]) {
+    await page.evaluate((x) => { location.hash = x; }, h);
+    await sleep(250);
+    const st = await page.evaluate(() => ({
+      view: window.__SPORTS__.state().view,
+      weekUp: document.getElementById("weekView").hidden === false,
+      rows: document.querySelectorAll("#wkGroups .gbtn").length,
+      nflOn: document.getElementById("pillNfl").classList.contains("on"),
+      pillsUp: document.getElementById("topPills").hidden === false,
     }));
-    ok(aiCard.btns.join(",") === "lineup,waivers" && aiCard.hasForm && aiCard.ansHidden,
-      "the Fantasy AI card offers lineup check + waiver ideas + a free question, answer box hidden until asked");
-    await page.click('#ffAiCard .aibtn[data-ffai="lineup"]');
-    await page.waitForFunction(() => /start De'Von Achane/.test((document.getElementById("ffAiAns") || {}).textContent || ""), { timeout: 20000 });
-    const lineupCall = gpt.calls.filter((c) => c.mode === "fantasy").pop();
-    ok(!!lineupCall && lineupCall.kind === "lineup" && lineupCall.matchup && lineupCall.matchup.familyTeamId === 1
-      && lineupCall.matchup.matchup.home.roster.length === 11 && (lineupCall.freeAgents || []).length === 0,
-      "🩺 Check my lineup posts mode fantasy/kind lineup with my FULL matchup payload and NO free agents");
-    ok(await page.evaluate(() => document.querySelectorAll("#ffAiAns b").length >= 1
-      && document.querySelectorAll("#ffAiAns li").length >= 2),
-      "the streamed advice renders **bold** + bullets in the answer box");
-    // The mock answers instantly, so waiting on the DOM can't distinguish the second
-    // ask from the first — wait NODE-SIDE for the recorded call instead.
-    const gptWait = async (pred) => {
-      for (let i = 0; i < 100; i++) {
-        if (gpt.calls.filter((c) => c.mode === "fantasy").some(pred)) return true;
-        await sleep(50);
-      }
-      return false;
-    };
-    await page.click('#ffAiCard .aibtn[data-ffai="waivers"]');
-    ok(await gptWait((c) => c.kind === "waivers"), "🔎 Waiver ideas reaches the AI");
-    const wCall = gpt.calls.filter((c) => c.mode === "fantasy" && c.kind === "waivers").pop();
-    ok(!!wCall && Array.isArray(wCall.freeAgents) && wCall.freeAgents.length === 7
-      && wCall.freeAgents[0].name === "Tyjae Spears" && wCall.freeAgents[0].pctOwned === 61.2,
-      "…fetching ff_freeagents first and shipping the slim FA list to Grok");
-    await page.type("#ffAiQ", "Should I trade Kelce?");
-    await page.evaluate(() => document.getElementById("ffAiForm").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    ok(await gptWait((c) => c.kind === "question"), "the free-text ask reaches the AI");
-    const qCall = gpt.calls.filter((c) => c.mode === "fantasy" && c.kind === "question").pop();
-    ok(!!qCall && qCall.question === "Should I trade Kelce?", "…as kind question with the typed question");
-    await shot(page, "sports_ff_390.png");
-
-    // tap the family matchup -> lineup detail
-    await page.click('#ffBody .gbtn[data-ffteam="1"]');
-    await page.waitForFunction(() => window.__SPORTS__.state().view === "ffm" && window.__SPORTS__.state().hasFfm, { timeout: 20000 });
-    const fm = await page.evaluate(() => {
-      const rows = [...document.querySelectorAll("#ffmBody .ffrow")];
-      const firstRow = rows[0];
-      const jj = rows.map((r) => r.textContent).find((t) => /Justin Jefferson/.test(t)) || "";
-      return {
-        hash: location.hash,
-        // Geometry, not the attribute: .pills' display:flex used to beat the UA
-        // [hidden] rule, leaving "hidden" pills painted on every detail view.
-        pillsHidden: document.getElementById("topPills").hidden
-          && document.getElementById("topPills").offsetParent === null,
-        meta: document.getElementById("ffmMeta").textContent,
-        famNames: [...document.querySelectorAll("#ffmBody .fftm")].slice(0, 2).map((t) => t.textContent),
-        famPts: [...document.querySelectorAll("#ffmBody .fftm .pts")].slice(0, 2).map((t) => t.textContent),
-        rowCount: rows.length,
-        firstSlot: firstRow ? firstRow.querySelector(".slot").textContent : "",
-        firstText: firstRow ? firstRow.textContent : "",
-        benchHead: rows.some((r) => r.classList.contains("benchhead")),
-        liveDots: document.querySelectorAll("#ffmBody .gdot.in").length,
-        projStyled: document.querySelectorAll("#ffmBody .ffp .nm b.projpts").length,
-        jjHasInjury: /Q/.test(jj) && /proj 16\.4/.test(jj),
-        pollIv: window.__SPORTS__.state().pollIv,
-      };
-    });
-    ok(fm.hash === "#ffm=1" && fm.pillsHidden, "tapping a matchup deep-links #ffm=<teamId> and hides the pills");
-    ok(/Nerd Fantasy Football League/.test(fm.meta) && /Week 2/.test(fm.meta), "the detail header names the league + week");
-    ok(/Battle Kreussers/.test(fm.famNames[0]) && /Waffle House Warriors/.test(fm.famNames[1])
-      && fm.famPts[0] === "87.4" && fm.famPts[1] === "76.2",
-      "the tapped team leads the matchup card with live totals");
-    ok(fm.rowCount === 12 && fm.firstSlot === "QB" && /Josh Allen/.test(fm.firstText) && /22\.4/.test(fm.firstText),
-      "lineups render slot by slot — QB first with live points");
-    ok(fm.benchHead, "the bench sits under its own divider");
-    ok(fm.liveDots >= 5, `in-play players carry live dots (${fm.liveDots})`);
-    ok(fm.projStyled >= 3 && fm.jjHasInjury, "yet-to-play players show muted projections (+ injury tag on Jefferson)");
-    ok(fm.pollIv === 60000, "the matchup detail keeps the live cadence");
-    await shot(page, "sports_ffm_390.png");
-
-    // back to the scoreboard, then open a DIFFERENT matchup
-    await page.click("#ffmBack");
-    await page.waitForFunction(() => window.__SPORTS__.state().view === "ff", { timeout: 20000 });
-    ok(await page.evaluate(() => !document.getElementById("ffView").hidden
-      && document.querySelectorAll('#ffBody .gbtn[data-ffteam]').length === 4),
-      "‹ Fantasy returns to the scoreboard");
-    await page.click('#ffBody .gbtn[data-ffteam="3"]');
-    await page.waitForFunction(() => window.__SPORTS__.state().view === "ffm" && window.__SPORTS__.state().ffmTeamId === 3
-      && window.__SPORTS__.state().hasFfm, { timeout: 20000 });
-    const fm3 = await page.evaluate(() => ({
-      names: [...document.querySelectorAll("#ffmBody .fftm")].slice(0, 2).map((t) => t.textContent),
-      hasLamar: /Lamar Jackson/.test(document.getElementById("ffmBody").textContent),
-    }));
-    ok(/The Goat Kids/.test(fm3.names[0]) && /Draft Punks/.test(fm3.names[1]) && fm3.hasLamar,
-      "ANY matchup opens with its own lineups (Goat Kids vs Draft Punks)");
-
-    // deep link straight to a third matchup
-    await page.evaluate(() => { location.hash = "ffm=5"; });
-    await page.waitForFunction(() => window.__SPORTS__.state().ffmTeamId === 5 && window.__SPORTS__.state().hasFfm, { timeout: 20000 });
-    ok(await page.evaluate(() => /Wyoming Cowboys/.test(document.getElementById("ffmBody").textContent)
-      && /Hay Bale Hail Marys/.test(document.getElementById("ffmBody").textContent)),
-      "#ffm=<id> deep-links straight into that matchup");
-
-    // pill back to NFL
-    await page.evaluate(() => { location.hash = "fantasy"; });
-    await page.waitForFunction(() => window.__SPORTS__.state().view === "ff", { timeout: 20000 });
-    await page.click("#pillNfl");
-    await page.waitForFunction(() => window.__SPORTS__.state().view === "week" && window.__SPORTS__.state().hasSb, { timeout: 20000 });
-    ok(await page.evaluate(() => !document.getElementById("weekView").hidden && document.getElementById("pillNfl").classList.contains("on")),
-      "the NFL pill switches back to the week list");
-    await page.click("#pillFf");
-    await page.waitForFunction(() => window.__SPORTS__.state().view === "ff", { timeout: 20000 });
-    ok(true, "…and the Fantasy pill returns");
-    ok(page._errs.length === 0, "0 page errors on the fantasy views");
-    await ctx.close();
+    ok(st.view === "week" && st.weekUp && st.rows === 5 && st.nflOn && st.pillsUp,
+      `${what} falls through to the NFL week view`);
   }
+  await page.evaluate(() => { location.hash = ""; });
+  await sleep(200);
 
-  // Per-user teams: Isaac follows The Goat Kids, Grandpa the Wyoming Cowboys,
-  // Mom the Nails for Breakfast (whose LEAGUE name carries the double space — the
-  // pinned card shows the league's own spelling, the app's config the natural one).
-  for (const [who, team, disp, oppo] of [
-    ["Isaac", "The Goat Kids", /The Goat Kids/, "Draft Punks"],
-    ["Grandpa", "Wyoming Cowboys", /Wyoming Cowboys/, "Hay Bale Hail Marys"],
-    ["Mom", "Nails for Breakfast", /Nails\s+For Breakfast/, "End Zone Goats"],
-  ]) {
-    const ctx = await browser.createBrowserContext();
-    const page = await newPage(ctx, { choreUser: who });
-    await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
-    await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().hasFf, { timeout: 20000 });
-    const p = await page.evaluate(() => {
-      const mineCard = [...document.querySelectorAll("#ffBody .card")].find((c) => /Your matchup/.test(c.textContent));
-      return {
-        teamName: window.__SPORTS__.state().ffTeamName,
-        famId: window.__SPORTS__.state().ffFamilyTeamId,
-        mineText: mineCard ? mineCard.textContent : "",
-      };
-    });
-    ok(p.teamName === team && /Your matchup/.test(p.mineText) && disp.test(p.mineText) && p.mineText.includes(oppo),
-      `${who}'s scoreboard pins ${team} (vs ${oppo}) as "Your matchup"`);
-    ok(page._errs.length === 0, `0 page errors as ${who}`);
-    await ctx.close();
-  }
+  ok(!fnCalls.some((a) => /^ff_/.test(a)),
+    "a normal boot + navigation asks the sports function for NO ff_* action ("
+      + [...new Set(fnCalls)].join(", ") + ")");
+  ok(page._errs.length === 0, "0 page errors across the legacy-hash fall-throughs");
+  await shot(page, "sports_no_fantasy_390.png");
+  await ctx.close();
 
-  // The AI down: a friendly line in the answer box, the recap simply absent — the
-  // scoreboard itself must stand untouched.
-  {
-    const ctx = await browser.createBrowserContext();
-    const page = await newPage(ctx, { gptDown: true });
-    await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
-    await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().hasFf, { timeout: 20000 });
-    // Background loads (ffMyM, the league doc) repaint #ffBody and replace the button
-    // node — a coordinate click can land on a stale spot. Wait for the guard card
-    // (ffMyM landed) and dispatch el.click() so delegation catches it regardless.
-    await page.waitForSelector("#ffBody .guardcard", { timeout: 20000 });
-    await page.evaluate(() => document.querySelector('#ffAiCard .aibtn[data-ffai="lineup"]').click());
-    await page.waitForFunction(() => /couldn.t answer right now/.test((document.getElementById("ffAiAns") || {}).textContent || ""), { timeout: 20000 });
-    ok(true, "a dead AI answers with a friendly try-again line, never a raw error");
-    const after = await page.evaluate(() => ({
-      recap: !!document.querySelector("#ffBody .recapcard"),
-      matchups: document.querySelectorAll("#ffBody .gbtn[data-ffteam]").length,
-      btnEnabled: !document.querySelector('#ffAiCard .aibtn[data-ffai="lineup"]').disabled,
-    }));
-    ok(!after.recap && after.matchups === 4 && after.btnEnabled,
-      "no column card when the AI is down, the scoreboard stands, and the buttons re-enable");
-    ok(page._errs.length === 0, "0 page errors with the AI down");
-    await ctx.close();
-  }
-
-  // Not configured: an honest setup card for Dad, nothing scary.
-  ffAuthNone();
-  {
-    const ctx = await browser.createBrowserContext();
-    const page = await newPage(ctx);
-    await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
-    await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().ffState === "fantasy-not-configured", { timeout: 20000 });
-    const t = await page.evaluate(() => document.getElementById("ffBody").textContent);
-    ok(/one-time setup by Dad/.test(t) && /ESPN_S2/.test(t) && /ESPN_SWID/.test(t) && /705063/.test(t),
-      "an unconfigured league walks Dad through the cookie setup");
-    ok(await page.evaluate(() => window.__SPORTS__.state().pollScheduled === false),
-      "an unconfigured fantasy view doesn't poll");
-    // a matchup deep link is gated the same way
-    await page.evaluate(() => { location.hash = "ffm=3"; });
-    await page.waitForFunction(() => /one-time setup by Dad/.test(document.getElementById("ffmBody").textContent), { timeout: 20000 });
-    ok(true, "an unconfigured matchup deep link shows the same setup card");
-    ok(page._errs.length === 0, "0 page errors on the setup card");
-    await ctx.close();
-  }
-
-  // Expired cookie: names the fix.
-  ffAuthWrong();
-  {
-    const ctx = await browser.createBrowserContext();
-    const page = await newPage(ctx);
-    await page.goto(BASE + "/sports.html#fantasy", { waitUntil: "domcontentloaded", timeout: 60000 });
-    await page.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().ffState === "fantasy-auth-expired", { timeout: 20000 });
-    ok(await page.evaluate(() => /signed us out/.test(document.getElementById("ffBody").textContent)
-      && /ESPN_S2/.test(document.getElementById("ffBody").textContent)),
-      "an expired cookie names the exact fix");
-    ok(page._errs.length === 0, "0 page errors on the expired card");
-    await ctx.close();
-  }
-  ffAuthGood();
+  // No roster doc for this league week (pre-draft, or a franchise nobody claimed):
+  // the badges are a bonus, so they simply don't appear — and nothing breaks.
+  const ctx2 = await browser.createBrowserContext();
+  const page2 = await newPage(ctx2, { gfflNoRoster: true });
+  await page2.goto(BASE + "/sports.html", { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page2.waitForFunction(() => window.__SPORTS__ && window.__SPORTS__.state().hasSb, { timeout: 20000 });
+  await sleep(600);
+  const bare = await page2.evaluate(() => ({
+    badges: document.querySelectorAll("#wkGroups .ffct").length,
+    mine: window.__SPORTS__.state().ffMine,
+    rows: document.querySelectorAll("#wkGroups .gbtn").length,
+  }));
+  ok(bare.badges === 0 && bare.mine === null && bare.rows === 5,
+    "a 404 roster leaves the badges off entirely — the week list is untouched");
+  ok(page2._errs.length === 0, "0 page errors with no roster doc");
+  await ctx2.close();
 }
 
 // ---------------- section D: desktop + index.html nav ----------------
@@ -1365,7 +1220,8 @@ async function sectionDesktopIndex(browser) {
       bnavGone: document.getElementById("buckyNav").getBoundingClientRect().height === 0
         || getComputedStyle(document.getElementById("buckyNav")).display === "none",
     }));
-    ok(d.rail && d.railItems === 13 && d.railActive === "Sports", "the desktop rail lists 13 areas with Sports active");
+    // RESTAGED (GFFL-CONNECT): 13 → 14 areas — the family league got its own tab.
+    ok(d.rail && d.railItems === 14 && d.railActive === "Sports", "the desktop rail lists 14 areas with Sports active");
     ok(d.bnavGone, "the bottom nav is gone on desktop");
     await shot(page, "sports_desktop.png");
     ok(page._errs.length === 0, "0 page errors on desktop");
@@ -1383,11 +1239,13 @@ async function sectionDesktopIndex(browser) {
       return {
         count: btns.length,
         hasSports: !!sports,
+        hasGffl: !!btns.find((b) => b.dataset.gid === "gffl"),
         rows: new Set(btns.map((b) => Math.round(b.getBoundingClientRect().top))).size,
         clipped: btns.filter((b) => { const l = b.querySelector(".blabel"); return l && l.scrollWidth > l.clientWidth + 1; }).length,
       };
     });
-    ok(n.hasSports && n.count === 13, "index.html's bottom nav gained the Sports area (13 for Dad)");
+    // RESTAGED (GFFL-CONNECT): 13 → 14 for Dad — the GFFL is its own area now.
+    ok(n.hasSports && n.hasGffl && n.count === 14, "index.html's bottom nav carries Sports AND the GFFL (14 for Dad)");
     ok(n.rows === 2 && n.clipped === 0, "index.html still lays out two clean rows, no clipped labels");
 
     // Sports is an IN-APP tab now: tapping it hosts sports.html in a persistent
@@ -1499,7 +1357,7 @@ async function sectionHomeCards(browser) {
   ffAuthGood();
   {
     const ctx = await browser.createBrowserContext();
-    const page = await newPage(ctx);
+    const page = await newPage(ctx, { gffl: true });
     await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForFunction(() => {
       const n = document.querySelector(".home2 .nflcard"), f = document.querySelector(".home2 .ffcard");
@@ -1531,17 +1389,18 @@ async function sectionHomeCards(browser) {
     ok(/2nd & 7/.test(h.situ), "the featured game carries its situation line");
     ok(/\+ 3 more this week/.test(h.foot), "the rest of the week folds into the footer");
     ok(h.afterWeather, "the cards slot in right after the weather card");
-    ok(/🏆 Fantasy · Week 2/.test(h.ffHead) && /LIVE/.test(h.ffHead), "the fantasy card heads with its week + LIVE");
-    ok(/Battle Kreussers/.test(h.ffNames[0]) && h.ffPts[0] === "87.4" && h.ffPts[1] === "76.2" && h.oppDim,
-      "the family matchup shows live scores with the trailing side dimmed");
-    ok(/proj 112\.6 – 98\.1/.test(h.ffSub) && /2 starters yet to play/.test(h.ffSub),
-      "projections + the yet-to-play count read at a glance");
-    // The home-card lineup guard (same rules as sports.html's — keep in sync):
-    // Jefferson is the only fixable problem, so it names him in the single form.
-    ok(await page.evaluate(() => {
-      const w = document.querySelector(".home2 .ffcard .ffwarnline");
-      return !!w && /⚠️ Justin Jefferson is questionable and still in your lineup/.test(w.textContent);
-    }), "the ⚠️ lineup-guard line warns about the Questionable starter right on Home");
+    // RESTAGED (GFFL-CONNECT, 2026-08-13): the fantasy card is the GFFL's now — read
+    // from the league's own Firestore docs, not the ESPN cookie proxy. Live totals and
+    // the lineup guard belonged to that proxy and are retired with it; what the card
+    // carries is the week's pairing plus the draft countdown while it's still ahead.
+    ok(h.ffHead === "🏆 GFFL · Week " + gfflWeekNow() + "League →",
+      `the fantasy card heads with the GFFL's own week (${h.ffHead})`);
+    ok(/Battle Kreussers/.test(h.ffNames[0]) && /^vs Elanikan Skywalkers/.test(h.ffNames[1]),
+      "…and pins my franchise's own pairing from sched_2026, my side first");
+    const draftAhead = new Date("2026-09-06T15:00:00-05:00").getTime() > Date.now();
+    ok(draftAhead ? /Draft: .*Sep 6.*3:00 PM CT/.test(h.ffSub) : /This week's matchup/.test(h.ffSub),
+      draftAhead ? `the draft countdown reads off settings.draftAt (${h.ffSub})`
+                 : `past the draft, the sub-line names the week's state (${h.ffSub})`);
     await shot(page, "sports_home_390.png");
 
     await page.click(".home2 .nflcard");
@@ -1554,55 +1413,51 @@ async function sectionHomeCards(browser) {
     ok(page._errs.length === 0, "0 page errors with the cards live");
     await ctx.close();
   }
+  // RESTAGED: the fantasy card no longer opens the Sports tab's (retired) Fantasy
+  // view — it opens the GFFL tab, the league's own app.
   {
     const ctx = await browser.createBrowserContext();
-    const page = await newPage(ctx);
+    const page = await newPage(ctx, { gffl: true });
     await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForFunction(() => { const f = document.querySelector(".home2 .ffcard"); return f && !f.hidden; }, { timeout: 20000 });
     await page.click(".home2 .ffcard");
     await page.waitForFunction(() => {
-      const w = document.getElementById("embed_sports");
-      if (!w || w.hidden) return false;
-      try {
-        const s = w.querySelector("iframe").contentWindow.__SPORTS__;
-        return s && s.state().view === "ff";
-      } catch { return false; }
+      const w = document.getElementById("embed_gffl");
+      return !!w && !w.hidden && !!w.querySelector("iframe");
     }, { timeout: 20000 });
-    ok(true, "tapping the fantasy card opens the embedded Sports tab on the Fantasy view");
+    ok(await page.evaluate(() => !location.pathname.endsWith("/league.html")),
+      "tapping the fantasy card opens the embedded GFFL tab (no navigation)");
     await ctx.close();
   }
-  // Per-user home card: Isaac's dashboard shows HIS team's matchup.
+  // Per-user home card: Isaac's dashboard shows HIS franchise's pairing (team 12).
   {
     const ctx = await browser.createBrowserContext();
-    const page = await newPage(ctx, { choreUser: "Isaac" });
+    const page = await newPage(ctx, { choreUser: "Isaac", gffl: true });
     await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForFunction(() => { const f = document.querySelector(".home2 .ffcard"); return f && !f.hidden; }, { timeout: 20000 });
     const i = await page.evaluate(() => {
       const f = document.querySelector(".home2 .ffcard");
-      return {
-        names: [...f.querySelectorAll(".ffhome .fhn")].map((r) => r.textContent),
-        pts: [...f.querySelectorAll(".ffhome .fhp")].map((r) => r.textContent),
-      };
+      return { names: [...f.querySelectorAll(".ffhome .fhn")].map((r) => r.textContent) };
     });
-    ok(i.names[0] === "The Goat Kids" && i.names[1] === "Draft Punks" && i.pts[0] === "65.0" && i.pts[1] === "55.1",
-      "Isaac's home card shows The Goat Kids' matchup, his side first");
+    ok(i.names[0] === "The GOAT Kids" && i.names[1] === "vs Kruz Control",
+      "Isaac's home card shows The GOAT Kids' pairing, his side first");
     ok(page._errs.length === 0, "0 page errors on Isaac's dashboard");
     await ctx.close();
   }
 
-  // Fantasy unconfigured -> the fantasy card simply isn't there; NFL unaffected.
-  ffAuthNone();
+  // RESTAGED: "fantasy unconfigured" used to mean missing ESPN cookies. The GFFL card's
+  // equivalent is a league its Firestore reads can't reach — the card simply isn't
+  // there, and the NFL card is untouched by it.
   {
     const ctx = await browser.createBrowserContext();
-    const page = await newPage(ctx);
+    const page = await newPage(ctx);   // no gffl fixture -> the Firebase abort stands
     await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForFunction(() => { const n = document.querySelector(".home2 .nflcard"); return n && !n.hidden; }, { timeout: 20000 });
     ok(await page.evaluate(() => document.querySelector(".home2 .ffcard").hidden === true),
-      "an unconfigured fantasy league leaves no card (setup lives on the sports page)");
-    ok(page._errs.length === 0, "0 page errors with fantasy unconfigured");
+      "an unreachable league leaves no fantasy card — the NFL card still paints");
+    ok(page._errs.length === 0, "0 page errors with the league unreachable");
     await ctx.close();
   }
-  ffAuthGood();
   // Everything down + no cache -> no cards, no shells, no errors.
   upstream.mode = "http500"; ffUp.mode = "http500";
   {
@@ -1653,7 +1508,7 @@ async function sectionHomeCards(browser) {
     await sectionWeekGame(browser);
     await sectionQuietAndErrors(browser);
     await sectionCollege(browser);
-    await sectionFantasyUI(browser);
+    await sectionFantasyRetired(browser);
     await sectionDesktopIndex(browser);
     await sectionHomeCards(browser);
   } catch (e) {

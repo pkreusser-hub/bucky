@@ -649,7 +649,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .ffhome .fhp { font-family: Fraunces, Georgia, serif; font-size: 21px; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
   .ffhome.down, .ffhome.down .fhp { color: var(--muted); font-weight: 600; }
   .ffhsub { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11.5px; font-weight: 600; margin-top: 3px; }
-  .ffwarnline { color: var(--red, #b8552f); font-size: 12px; font-weight: 700; margin-top: 5px; }
+  /* .ffwarnline removed (GFFL-CONNECT 2026-08-13) — the ESPN lineup guard retired with its league. */
   .home2 .wxhead { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .home2 .wxhead .wxmore { color: var(--green); font-weight: 800; text-transform: none; letter-spacing: 0; font-size: 12px; }
   .home2 .wxdays { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
@@ -2206,7 +2206,7 @@ const SECTIONS = [
 // workorders/farmbank are here too so email "View in BUCKY" buttons can land on the right tab.
 // Every tab is deep-linkable via index.html#<key> so the persistent icon nav on the
 // FarmGPT/Games pages can land you directly on any section here.
-const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "finance", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "fitness", "news", "sports", "farmgpt", "game", "catgame", "play"];
+const DEEP_LINK_TABS = ["dashboard", "chores", "workorders", "print3d", "shopping", "farmbank", "finance", "goathooves", "goatcare", "calendar", "animalcare", "mealplan", "fitness", "news", "sports", "gffl", "farmgpt", "game", "catgame", "play"];
 const initialHashTab = DEEP_LINK_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "dashboard";
 let currentTab = initialHashTab;
 
@@ -2226,6 +2226,7 @@ const NAV_GROUPS = [
   { id:"fit",   ico:"💪",  name:"Fit",    def:"fitness",    members:["fitness"] },
   { id:"news",  ico:"📰",  name:"News",   def:"news",       members:["news"] },
   { id:"sports",ico:"🏈",  name:"Sports", def:"sports",     members:["sports"] },
+  { id:"gffl",  ico:"🏆",  name:"GFFL",   def:"gffl",       members:["gffl"] },
   { id:"wo",    ico:"🛠️",  name:"Jobs",   def:"workorders", members:["workorders","print3d"] },
   { id:"shop",  ico:"🛒",  name:"Shop",   def:"shopping",   members:["shopping"] },
   { id:"bank",  ico:"💰",  name:"Bank",   def:"finance",    members:["farmbank","finance"] },
@@ -2242,6 +2243,7 @@ const NAV_PATHS = {
   fit:   "M7 8 V16 M4 10 V14 M17 8 V16 M20 10 V14 M7 12 H17",
   news:  "M5 5 H19 V19 H5 Z M8 9 H16 M8 12 H16 M8 15 H13",
   sports:"M4 20 C4 12 12 4 20 4 C20 12 12 20 4 20 Z M9 15 L15 9 M10 12 L12 14 M12 10 L14 12",
+  gffl:  "M8 4 H16 V10 A4 4 0 0 1 8 10 Z M8 5.5 H5 A3 3 0 0 0 8.5 9.5 M16 5.5 H19 A3 3 0 0 1 15.5 9.5 M12 14 V17 M9 20 H15 M10 17 H14 L15 20 M9 20 L10 17",
   wo:    "M4 9 H20 V19 H4 Z M9 9 V7 A3 3 0 0 1 15 7 V9 M4 13 H20",
   shop:  "M6 8 H18 L17 20 H7 Z M9 8 V6 A3 3 0 0 1 15 6 V8",
   bank:  "M12 4 V20 M16 7 H10 A2.5 2.5 0 0 0 10 12 H14 A2.5 2.5 0 0 1 14 17 H8",
@@ -2786,11 +2788,12 @@ function render(){
   document.body.classList.toggle("cal-fixed", currentTab === "calendar" && calView === "month");
   const cf = document.getElementById("careFilter");
   if (cf) cf.style.display = currentTab === "goatcare" ? "block" : "none";
-  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "finance" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan" || currentTab === "fitness" || currentTab === "news" || currentTab === "sports" || currentTab === "farmgpt") ? "none" : "";
+  document.getElementById("addFab").style.display = (currentTab === "dashboard" || currentTab === "goatcare" || currentTab === "shopping" || currentTab === "print3d" || currentTab === "game" || currentTab === "catgame" || currentTab === "farmbank" || currentTab === "finance" || currentTab === "play" || currentTab === "animalcare" || currentTab === "mealplan" || currentTab === "fitness" || currentTab === "news" || currentTab === "sports" || currentTab === "gffl" || currentTab === "farmgpt") ? "none" : "";
   document.getElementById("progress").classList.remove("greet");   // greeting styling is dashboard-only
   document.getElementById("progress").style.display = "";          // restored here; Home hides it (greeting is in the hero)
   syncEmbedTabs();   // hide the Sports/AI frames whenever another tab takes over
   if (currentTab === "sports") return renderEmbedTab("sports");
+  if (currentTab === "gffl") return renderEmbedTab("gffl");
   if (currentTab === "farmgpt") return renderEmbedTab("farmgpt");
   if (currentTab === "dashboard") return renderDashboard();
   if (currentTab === "calendar") return renderCalendar();
@@ -2994,6 +2997,14 @@ function renderWxInto(el){
 // document.visibilityState follows the TOP page, never CSS display).
 const EMBEDS = {
   sports:  { src: "sports.html",  title: "Sports" },
+  // GFFL-CONNECT (2026-08-13, user: "connect Bucky to the GFFL — it is currently connected
+  // to our old ESPN league"): the family's own league app becomes a Bucky tab. league.html
+  // is SAME-ORIGIN here (goatfantasyleague.com is an alias of this Netlify site), so the
+  // persistent-embed pattern applies verbatim. Unlike sports/farmgpt it KEEPS its own
+  // header + internal nav inside the frame — the league is a full sub-app whose tabs
+  // (League/Matchup/My Team/…) Bucky's bottom bar doesn't replicate. First use on a Bucky
+  // device asks for the GFFL gate password once (localStorage is per-origin).
+  gffl:    { src: "league.html",  title: "GFFL" },
   farmgpt: { src: "farmgpt.html", title: "FarmGPT" },
 };
 function embedWrap(tab){ return document.getElementById("embed_" + tab); }
@@ -3092,9 +3103,10 @@ const SPORTS_FN_URL = "/.netlify/functions/sports";
 let sportsHomeFetching = false;
 function sportsHomeCached(key){ try { const c = JSON.parse(localStorage.getItem(key) || "null"); return c && c.data ? c : null; } catch { return null; } }
 function sportsHomeAnyLive(){
-  const sb = sportsHomeCached("bucky_nfl_home"), ff = sportsHomeCached("bucky_ff_home");
-  return !!((sb && (sb.data.events || []).some(e => e.status && e.status.state === "in"))
-    || (ff && ff.data && ff.data.anyProLive));
+  // GFFL-CONNECT (2026-08-13): the ESPN-league half of this check is gone with its card —
+  // the NFL scoreboard alone decides the live window now.
+  const sb = sportsHomeCached("bucky_nfl_home");
+  return !!(sb && (sb.data.events || []).some(e => e.status && e.status.state === "in"));
 }
 async function sportsHomeApi(action, params){
   const r = await fetch(SPORTS_FN_URL, {
@@ -3106,11 +3118,53 @@ async function sportsHomeApi(action, params){
   if (!d || d.ok !== true) throw new Error((d && d.reason) || "sports");
   return d;
 }
-// Which fantasy team this profile follows (matched server-side by name).
-// DUPLICATED in sports.html's FF_TEAM_BY_USER — keep the two in sync.
-function sportsHomeFfTeam(){
+// ---- GFFL home card (GFFL-CONNECT, 2026-08-13) ----
+// The fantasy card reads the family's OWN league now — the GFFL's Firestore collection,
+// via the same public-key REST reads league.html's own transport makes — instead of the
+// abandoned ESPN league through the cookie proxy. No live totals here (live scoring is
+// the league app's engine, not a home card's); the card shows this week's pairing, the
+// draft countdown while the draft is still ahead, and the real final once a week's
+// write-once record exists. Tap → the GFFL tab (the embedded league app).
+const GFFL_FS_BASE = "https://firestore.googleapis.com/v1/projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/";
+const GFFL_FS_KEY = "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU";
+const GFFL_SEASON = 2026, GFFL_SEASON_START = "2026-09-08";
+// Which GFFL franchise this profile follows — by TEAM ID (the league's own identity), the
+// GFFL analog of the retired ESPN FF_TEAM_BY_USER. DUPLICATED in sports.html's
+// GFFL_TEAM_BY_USER (the N-of-yours badges) — keep the two in sync.
+function gfflMyTeamId(){
   const me = (myName() || "").trim().toLowerCase();
-  return { isaac: "The Goat Kids", grandpa: "Wyoming Cowboys", mom: "Nails for Breakfast" }[me] || "Battle Kreussers";
+  return { isaac: 12, grandpa: 3, mom: 5 }[me] || 1; // GOAT Kids · Wyoming Cowboys · Nails For Breakfast · default Battle Kreussers
+}
+// lg-core's own currentWeek formula (weeks roll Tuesday 5AM CT), clamped 1..18.
+function gfflWeek(){
+  const start = new Date(GFFL_SEASON_START + "T05:00:00-05:00").getTime();
+  return Math.max(1, Math.min(18, 1 + Math.floor((Date.now() - start) / (7 * 24 * 3600 * 1000))));
+}
+// Minimal Firestore REST value decoder (the tools/ scripts' pattern, browser-side).
+function gfflFsVal(v){
+  if (!v || typeof v !== "object") return null;
+  if ("stringValue" in v) return v.stringValue;
+  if ("integerValue" in v) return Number(v.integerValue);
+  if ("doubleValue" in v) return Number(v.doubleValue);
+  if ("booleanValue" in v) return v.booleanValue;
+  if ("nullValue" in v) return null;
+  if ("timestampValue" in v) return v.timestampValue;
+  if ("arrayValue" in v) return (v.arrayValue.values || []).map(gfflFsVal);
+  if ("mapValue" in v){
+    const o = {};
+    for (const k of Object.keys(v.mapValue.fields || {})) o[k] = gfflFsVal(v.mapValue.fields[k]);
+    return o;
+  }
+  return null;
+}
+async function gfflGet(id){
+  const r = await fetch(GFFL_FS_BASE + encodeURIComponent(id) + "?key=" + GFFL_FS_KEY, { cache: "no-store" });
+  if (r.status === 404) return null;               // server-confirmed absence
+  if (!r.ok) throw new Error("gffl " + r.status);
+  const j = await r.json();
+  const o = {};
+  for (const k of Object.keys(j.fields || {})) o[k] = gfflFsVal(j.fields[k]);
+  return o;
 }
 function sportsKick(iso){
   try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", hour: "numeric", minute: "2-digit" }); }
@@ -3158,68 +3212,94 @@ function paintNflCard(el){
   }
 }
 function paintFfCard(el){
-  const c = sportsHomeCached("bucky_ff_home");
+  // GFFL-CONNECT (2026-08-13): the old ESPN-league painter (live points, proj line,
+  // lineup guard — all sourced from the cookie proxy) is retired with that league. This
+  // card is the GFFL's: the week's pairing, the draft countdown while it's still ahead,
+  // and the real final once the week's write-once record exists. Live totals belong to
+  // the league app itself — one tap away.
+  const c = sportsHomeCached("bucky_gffl_home");
   const d = c && c.data;
-  if (!d || !d.matchup || !d.matchup.home || !d.matchup.away){ el.hidden = true; return; }
-  const fam = d.matchup.home.teamId === d.familyTeamId ? d.matchup.home : d.matchup.away;
-  const opp = fam === d.matchup.home ? d.matchup.away : d.matchup.home;
+  if (!d || !d.my){ el.hidden = true; return; }
   el.hidden = false;
   el.textContent = "";
   const head = document.createElement("div"); head.className = "sph";
-  const hl = document.createElement("span"); hl.textContent = "🏆 Fantasy" + (d.week ? " · Week " + d.week : "");
-  const hr = document.createElement("span");
-  if (d.anyProLive){ hr.className = "splive"; hr.textContent = "● LIVE"; }
-  else { hr.className = "spmore"; hr.textContent = "League →"; }
+  const hl = document.createElement("span"); hl.textContent = "🏆 GFFL" + (d.week ? " · Week " + d.week : "");
+  const hr = document.createElement("span"); hr.className = "spmore"; hr.textContent = "League →";
   head.append(hl, hr); el.appendChild(head);
-  [fam, opp].forEach(side => {
-    const other = side === fam ? opp : fam;
+  const sides = [d.my, d.opp].filter(Boolean);
+  sides.forEach(side => {
+    const other = sides.find(s => s !== side);
     const row = document.createElement("div");
-    row.className = "ffhome" + ((side.points || other.points) && side.points < other.points ? " down" : "");
-    const n = document.createElement("span"); n.className = "fhn"; n.textContent = side.name || "—";
+    row.className = "ffhome" + (d.final && other && side.pts < other.pts ? " down" : "");
+    const n = document.createElement("span"); n.className = "fhn";
+    n.textContent = (side === d.opp ? "vs " : "") + (side.name || "—");
     const p = document.createElement("span"); p.className = "fhp";
-    p.textContent = side.points != null ? side.points.toFixed(1) : "0.0";
+    p.textContent = d.final && side.pts != null ? side.pts.toFixed(1) : "";
     row.append(n, p); el.appendChild(row);
   });
+  // One quiet sub-line: the draft while it's ahead of us, else the week's own state.
   const sub = document.createElement("div"); sub.className = "ffhsub";
   const l = document.createElement("span");
-  l.textContent = (fam.proj != null && opp.proj != null) ? "proj " + fam.proj.toFixed(1) + " – " + opp.proj.toFixed(1) : "";
-  const yet = (fam.roster || []).filter(p => p.starter && p.game && p.game.state === "pre").length;
-  const rsp = document.createElement("span");
-  rsp.textContent = yet ? yet + (yet === 1 ? " starter" : " starters") + " yet to play" : "";
-  sub.append(l, rsp);
-  if (l.textContent || rsp.textContent) el.appendChild(sub);
-  // Lineup guard: a STARTER who is hurt/suspended/on bye and hasn't kicked off is a
-  // fixable mistake — surface it right here on Home. (Same rules as sports.html's
-  // ffLineupWarnings — keep the two in sync.)
-  const warns = (fam.roster || []).filter(p => {
-    if (!p.starter) return false;
-    if (p.game && p.game.state !== "pre") return false;   // already playing/played
-    return !p.game || !!p.injury;                          // bye, or any injury tag
-  });
-  if (warns.length){
-    const w = document.createElement("div"); w.className = "ffwarnline";
-    w.textContent = warns.length === 1
-      ? "⚠️ " + (warns[0].name || "A starter") + " is " + (warns[0].game ? (warns[0].injury || "").toLowerCase().replace(/_/g, " ") : "on a bye") + " and still in your lineup"
-      : "⚠️ " + warns.length + " lineup problems: " + warns.map(p => p.name).join(", ");
-    el.appendChild(w);
+  if (d.draftAt && new Date(d.draftAt).getTime() > Date.now()){
+    l.textContent = "Draft: " + new Date(d.draftAt).toLocaleString("en-US",
+      { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " CT";
+  } else if (d.final){
+    l.textContent = "Final";
+  } else if (d.opp){
+    l.textContent = "This week's matchup";
   }
+  sub.append(l);
+  if (l.textContent) el.appendChild(sub);
+}
+// GFFL-CONNECT: build the home card's snapshot from the league's own Firestore docs —
+// settings (draftAt) + sched_<season> (this week's pairing) + weekly_<season>_w<N> (the
+// final, once written) + the two team docs (names). Five small public-key GETs, cached.
+async function gfflHomeFetch(){
+  const myId = gfflMyTeamId();
+  const wk = gfflWeek();
+  const [settings, sched, weekly] = await Promise.all([
+    gfflGet("settings").catch(() => null),
+    gfflGet("sched_" + GFFL_SEASON).catch(() => null),
+    gfflGet("weekly_" + GFFL_SEASON + "_w" + wk).catch(() => null),
+  ]);
+  // sched weeks are stored as {g:[{h,a}]} (Firestore forbids nested arrays); legacy raw
+  // [[h,a]] tolerated — the same decode lg-core's loadSchedule does.
+  let pair = null;
+  const wkRow = sched && Array.isArray(sched.weeks) ? sched.weeks[wk - 1] : null;
+  const games = Array.isArray(wkRow) ? wkRow.map(g => Array.isArray(g) ? g : [g && g.h, g && g.a]) : (wkRow && wkRow.g ? wkRow.g.map(g => [g.h, g.a]) : []);
+  for (const [h, a] of games) if (h === myId || a === myId) pair = { h, a };
+  const oppId = pair ? (pair.h === myId ? pair.a : pair.h) : null;
+  const [myT, oppT] = await Promise.all([
+    gfflGet("team_" + myId).catch(() => null),
+    oppId != null ? gfflGet("team_" + oppId).catch(() => null) : null,
+  ]);
+  if (!myT) return null; // no league to show (never paint a guess)
+  const m = weekly && Array.isArray(weekly.matchups)
+    ? weekly.matchups.find(x => x.home === myId || x.away === myId) : null;
+  return {
+    week: wk,
+    draftAt: settings && settings.draftAt ? settings.draftAt : null,
+    final: !!m,
+    my:  { id: myId, name: myT.name || "My team", pts: m ? (m.home === myId ? m.homePts : m.awayPts) : null },
+    opp: oppId != null ? { id: oppId, name: (oppT && oppT.name) || "Opponent", pts: m ? (m.home === oppId ? m.homePts : m.awayPts) : null } : null,
+  };
 }
 function sportsHomeRefresh(force){
   if (sportsHomeFetching) return;
-  const sbC = sportsHomeCached("bucky_nfl_home"), ffC = sportsHomeCached("bucky_ff_home");
-  const ffTeam = sportsHomeFfTeam();
+  const sbC = sportsHomeCached("bucky_nfl_home"), ffC = sportsHomeCached("bucky_gffl_home");
+  const myId = gfflMyTeamId();
   const ttl = sportsHomeAnyLive() ? 60 * 1000 : 10 * 60 * 1000;
   const oldest = Math.min(sbC ? sbC.ts : 0, ffC ? ffC.ts : 0);
   // A profile switch changes whose matchup the card shows — the cached copy is
   // another team's, so it doesn't count as fresh.
-  const ffTeamStale = ffC && ffC.team !== ffTeam;
+  const ffTeamStale = ffC && ffC.team !== myId;
   if (!force && sbC && ffC && !ffTeamStale && Date.now() - oldest <= ttl) return;
   sportsHomeFetching = true;
-  Promise.allSettled([sportsHomeApi("nfl_scoreboard"), sportsHomeApi("ff_matchup", { teamName: ffTeam })])
+  Promise.allSettled([sportsHomeApi("nfl_scoreboard"), gfflHomeFetch()])
     .then(([sb, ff]) => {
       const now = Date.now();
       if (sb.status === "fulfilled"){ try { localStorage.setItem("bucky_nfl_home", JSON.stringify({ ts: now, data: sb.value })); } catch {} }
-      if (ff.status === "fulfilled"){ try { localStorage.setItem("bucky_ff_home", JSON.stringify({ ts: now, team: ffTeam, data: ff.value })); } catch {} }
+      if (ff.status === "fulfilled" && ff.value){ try { localStorage.setItem("bucky_gffl_home", JSON.stringify({ ts: now, team: myId, data: ff.value })); } catch {} }
       if (currentTab !== "dashboard") return;
       const n = document.querySelector(".home2 .nflcard"); if (n) paintNflCard(n);
       const f = document.querySelector(".home2 .ffcard"); if (f) paintFfCard(f);
@@ -4243,8 +4323,8 @@ function renderDashboard(){
   railCol.appendChild(nflC);
   const ffC = document.createElement("button"); ffC.className = "ffcard"; ffC.type = "button";
   ffC.hidden = true;
-  ffC.setAttribute("aria-label", "Open the fantasy league");
-  ffC.onclick = () => openSportsAt("fantasy");   // the embedded Sports tab, league view
+  ffC.setAttribute("aria-label", "Open the GFFL");
+  ffC.onclick = () => goTo("gffl");   // the embedded GFFL tab (GFFL-CONNECT, 2026-08-13)
   railCol.appendChild(ffC);
   renderSportsCards(nflC, ffC);
 

@@ -297,8 +297,12 @@ async function sectionChrome(browser){
   ok(geo.rows === 2, `the bottom nav is two rows (${geo.rows})`);
   ok(geo.rowCounts.length === 2 && Math.abs(geo.rowCounts[0] - geo.rowCounts[1]) <= 1,
     `…and the rows are balanced (${geo.rowCounts.join(" vs ")})`);
-  ok(geo.clipped === 0, "no nav label is clipped, even at twelve areas");
-  ok(geo.minW >= 55, `nav buttons stay comfortably tappable (${geo.minW}px)`);
+  ok(geo.clipped === 0, "no nav label is clipped, even at fourteen areas");
+  // RESTAGED 2026-08-13 (GFFL-CONNECT): the 🏆 GFFL area is the 14th, which pushes this
+  // profile's bar from 6 columns to 7 (ceil(13-visible/2)) — buttons measure ~51px at
+  // 390px. The 55px literal was tuned to the old column count; the honest floor is the
+  // app-wide 44px touch minimum, held with margin.
+  ok(geo.minW >= 48, `nav buttons stay comfortably tappable (${geo.minW}px, >= 48; the 44px touch floor holds with margin)`);
   ok(geo.header + geo.nav <= 210, `total chrome fits its budget (${geo.header + geo.nav}px, was 149px one-row / ~196px pre-re-skin two-row)`);
 
   // The FAB and the last of the page must clear a taller nav.
