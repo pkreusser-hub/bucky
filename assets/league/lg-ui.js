@@ -2647,12 +2647,18 @@
     // slashes are pure edge decoration now), the full team name over two rows ("Detroit" /
     // "Lions", the abbrev alone when ESPN sent no city), and the score beneath once the game
     // is playing. A team ESPN sent no colour for paints no band and loses nothing else.
+    // WHO HAS THE BALL, on the team itself (2026-08-14) — a gold pip beside the possessing
+    // team's nickname, the same gold-means-possession language the matchup rows use, so it
+    // reads at a glance without parsing the text line below. Red zone turns it accent-red.
+    const sit = live && e.situation ? e.situation : null;
     const teamHtml = (t, right) => {
       const city = (t && t.city) || "";
       const nick = (t && t.name && t.name !== t.abbrev) ? t.name : "";
+      const hasBall = !!(sit && sit.poss === (right ? "home" : "away"));
+      const pip = hasBall ? `<span class="scposs${sit.rz ? " rz" : ""}" title="Has the ball"></span>` : "";
       const nameRows = city && nick
-        ? `<span class="sccity">${esc(city)}</span><b class="scnick">${esc(nick)}</b>`
-        : `<b class="scnick">${esc((t && t.abbrev) || "?")}</b>`;
+        ? `<span class="sccity">${esc(city)}</span><b class="scnick">${esc(nick)}${pip}</b>`
+        : `<b class="scnick">${esc((t && t.abbrev) || "?")}${pip}</b>`;
       return `<span class="scteam${right ? " right" : ""}">${logoHtml(t)}${nameRows}
         ${live || done ? `<span class="scpts">${esc((t && t.score) || "0")}</span>` : ""}</span>`;
     };
@@ -2666,6 +2672,16 @@
       : `<span class="scstate mut">${esc(kickTimeStr(e.date))}</span>`;
     const net = e.broadcast ? `<span class="scnet">${esc(e.broadcast)}</span>` : "";
     const spread = e.spread ? `<div class="scspread mut small">${esc(e.spread)}</div>` : "";
+    // DOWN · DISTANCE · WHO HAS IT, centered under the teams (2026-08-14, the user's ask).
+    // Live only — a final or an upcoming game has no situation to state, and inventing a
+    // blank strip for one is how a card ends up only looking right mid-game. The possessing
+    // team's abbrev leads it (the plain-text half of "who has possession"); the spot
+    // ("DEN 38") comes from ESPN's own possessionText.
+    const situLine = (sit && (sit.dd || sit.possAb))
+      ? `<div class="scsitu${sit.rz ? " rz" : ""}">${sit.possAb ? `<b>${esc(sit.possAb)}</b> ball` : ""}`
+        + `${sit.possAb && sit.dd ? " · " : ""}${sit.dd ? `<b>${esc(sit.dd)}</b>` : ""}`
+        + `${sit.at ? ` · ${esc(sit.at)}` : ""}${sit.rz ? ` · <b>RED ZONE</b>` : ""}</div>`
+      : "";
     const mo = gameMineOppCounts(e);
     const moLine = mo ? `<div class="scmine mut small">MINE: ${mo.mine} player${mo.mine === 1 ? "" : "s"} · OPP: ${mo.opp} player${mo.opp === 1 ? "" : "s"}</div>` : "";
     // Item 28 (2026-08-09): the card is a real <button> — tapping it opens the game view.
@@ -2677,7 +2693,7 @@
         aria-label="Open the ${esc((e.away && e.away.abbrev) || "?")} at ${esc((e.home && e.home.abbrev) || "?")} game">
       <div class="rowline scstaterow">${net}${stateHtml}</div>
       <div class="scteams">${teamHtml(e.away, false)}<span class="scat mut small">at</span>${teamHtml(e.home, true)}</div>
-      ${spread}${moLine}
+      ${situLine}${spread}${moLine}
     </button>`;
   }
   function nflScoresHtml(events) {

@@ -10607,6 +10607,28 @@ lg-ui.js` + `league.html` + `tools/_verify-gffl.cjs` (2580 → **2595**).
   the real payload; and the suite's check is an EXACT match (a contains-check would have passed
   on the very bug reported). Also fixes sports.html's own field, which `.slice(0,10)`s that
   string into "DENVER BRO". Suite 2595 → **2602**.
+- **DOWN · DISTANCE · POSSESSION ON THE SCORE CARDS (2026-08-14, user: "on the summary score
+  for each game, we need to show down, distance and who has possession")** — and the enabling
+  finding is that **the SCOREBOARD endpoint carries `competition.situation`**: probed live,
+  three in-progress games returned `shortDownDistanceText` "4th & 7", `possessionText`
+  "DEN 38", `possession` (the team id) and `isRedZone`. lg-data's parser had a note saying the
+  scoreboard "carries no drive at all" — TRUE of drives, and it had been read as ruling out
+  situation too. `pollScoreboard` now slims it onto each event, **resolving the possessing
+  SIDE at parse time** against that event's own competitor ids so no renderer ever matches ids
+  again. The card gains a centered `.scsitu` line ("PHI ball · 1st & 10 · DAL 12 · RED ZONE")
+  plus a `.scposs` gold pip on the possessing team's nickname (the at-a-glance half; the
+  matchup rows' own gold-means-possession language), both accent-red in the red zone. LIVE
+  ONLY — a final or upcoming card carries neither, asserted.
+- **A FREE WIN FROM THE SAME PARSE**: `games.poss` (what the matchup's possession ring reads)
+  came only from the per-game SUMMARY poll, which reaches ≤8 games a cycle on a rotating
+  cursor — so on a full Sunday the 9th+ game's ring could be minutes stale. The scoreboard
+  carries possession for EVERY live game on every 8s tick, so it now feeds the map, falling
+  back to the carried-across summary value when unknown (strictly additive; AD5/AD5b/AG7 all
+  green unchanged).
+- Fixture: competitor `id`s (ESPN's real team ids, PHI 21 / DAL 6 — matching the summary
+  fixture so both endpoints tell ONE story about who has the ball) + a live `situation`
+  spotted at DAL 12, which is inside the 20, so the RED-ZONE branch is a real case rather than
+  an untested one. Suite 2602 → **2607**.
 - **KNOWN / FOLLOW-UPS**: sports.html's own game view still renders the OLD flat field — port
   after the family approves this look (the rendering exists twice by documented choice); the
   drive path only draws the CURRENT drive's own plays (the reference sometimes shows the

@@ -891,6 +891,10 @@ const NFL_NAMES = {
   SF: { location: "San Francisco", shortDisplayName: "49ers" },
   SEA: { location: "Seattle", shortDisplayName: "Seahawks" },
 };
+// ESPN's own team ids — competitor.id on the scoreboard, and what situation.possession
+// points at. The two that matter here match the SUMMARY fixture's ids (PHI 21 / DAL 6), so
+// both endpoints tell one coherent story about who has the ball.
+const NFL_TEAM_ID = { PHI: "21", DAL: "6", KC: "12", DEN: "7", SF: "25", SEA: "26" };
 function sbFix() {
   // Item 2 (2026-08-08): broadcasts[0].names[0] + odds[0].details, the SAME real ESPN
   // scoreboard fields netlify/functions/sports.mjs already reads for the standalone app's
@@ -907,10 +911,16 @@ function sbFix() {
       // fixture rather than a hypothetical. 2026-08-13: team.color/alternateColor join (the
       // score-card slash) — real ESPN shape is BARE 6-hex, no '#'. DEN carries no colours
       // either, so "no colour = no band, nothing else changes" is a real case too.
+      // `id` on each competitor + `situation` (2026-08-14, down/distance/possession on the
+      // score card) — both PROBED LIVE off the real scoreboard: competitor.id IS the team id,
+      // and situation.possession points at it (an in-progress game also carries
+      // shortDownDistanceText / possessionText / isRedZone; a final or upcoming one carries
+      // no situation at all, which is why only the live game gets one here).
       competitors: [
-        { homeAway: "home", team: { abbreviation: homeAb, logo: NFL_LOGO[homeAb] || "", ...(NFL_COLORS[homeAb] || {}), ...(NFL_NAMES[homeAb] || {}) }, score: extra.hs },
-        { homeAway: "away", team: { abbreviation: awayAb, logo: NFL_LOGO[awayAb] || "", ...(NFL_COLORS[awayAb] || {}), ...(NFL_NAMES[awayAb] || {}) }, score: extra.as },
+        { id: NFL_TEAM_ID[homeAb] || homeAb, homeAway: "home", team: { id: NFL_TEAM_ID[homeAb] || homeAb, abbreviation: homeAb, logo: NFL_LOGO[homeAb] || "", ...(NFL_COLORS[homeAb] || {}), ...(NFL_NAMES[homeAb] || {}) }, score: extra.hs },
+        { id: NFL_TEAM_ID[awayAb] || awayAb, homeAway: "away", team: { id: NFL_TEAM_ID[awayAb] || awayAb, abbreviation: awayAb, logo: NFL_LOGO[awayAb] || "", ...(NFL_COLORS[awayAb] || {}), ...(NFL_NAMES[awayAb] || {}) }, score: extra.as },
       ],
+      ...(extra.situation ? { situation: extra.situation } : {}),
     }],
   });
   // ITEM 30 (2026-08-09): preseasonFinal flips BOTH games to "post". That is the state in which
@@ -920,7 +930,11 @@ function sbFix() {
   const done = fixture.preseasonFinal;
   const events = [
     mk("401900001", "DAL", "PHI", done ? "post" : "in",
-      { date: "2026-08-07T00:15Z", detail: done ? "Final" : "Q2 5:00", period: done ? 4 : 2, clock: done ? "0:00" : "5:00", hs: done ? "13" : "14", as: done ? "20" : "10", net: "FOX" }),
+      { date: "2026-08-07T00:15Z", detail: done ? "Final" : "Q2 5:00", period: done ? 4 : 2, clock: done ? "0:00" : "5:00", hs: done ? "13" : "14", as: done ? "20" : "10", net: "FOX",
+        // PHI (home, id 21) has the ball 12 yards out — the same story the summary fixture
+        // tells, and inside the 20, so the RED-ZONE styling is a real case here rather than
+        // an untested branch. A FINALIZED game correctly carries no situation at all.
+        situation: done ? null : { possession: "21", shortDownDistanceText: "1st & 10", downDistanceText: "1st & 10 at DAL 12", possessionText: "DAL 12", isRedZone: true } }),
     mk("401900002", "KC", "DEN", done ? "post" : "pre",
       { date: done ? "2026-08-07T00:15Z" : KICK_FUTURE, detail: done ? "Final" : "Sun 12:00 PM", hs: done ? "17" : undefined, as: done ? "14" : undefined, net: "CBS", spread: done ? "" : "DEN -3.5" }),
   ];
@@ -16965,6 +16979,41 @@ async function openDetails(page, id) {
       ok(sc.crestOffSlash === true, "the crest sits OFF the slash — clear of the band's own reach, in its centered column");
       ok(sc.spreadCentered === true, "the vegas line's INK is centered (Range-measured — a block always spans the card)");
       ok(sc.moCentered === true, "…and so is the MINE/OPP player count");
+      // ---- DOWN · DISTANCE · POSSESSION on the live card (2026-08-14, the user's ask).
+      // Everything hand-derived from the fixture's own situation: PHI (home, id 21) has the
+      // ball, 1st & 10, spotted at DAL 12 — inside the 20, so red zone. The upcoming card
+      // (DEN@KC, no situation) must carry NONE of it: a strip invented for a game that hasn't
+      // kicked off is exactly how a card ends up only looking right mid-game.
+      const situ = await evalOr(page, () => {
+        const cards = [...document.querySelectorAll(".sccard")];
+        const live = cards.find((c) => c.classList.contains("live"));
+        const up = cards.find((c) => !c.classList.contains("live"));
+        const mid = (el) => { const r = el.getBoundingClientRect(); return (r.left + r.right) / 2; };
+        const line = live && live.querySelector(".scsitu");
+        const pips = live ? [...live.querySelectorAll(".scteam")].map((t) => ({
+          right: t.classList.contains("right"), pip: !!t.querySelector(".scposs"),
+          rz: !!t.querySelector(".scposs.rz"),
+        })) : [];
+        return {
+          text: line ? line.textContent.replace(/\s+/g, " ").trim() : null,
+          rzClass: line ? line.classList.contains("rz") : null,
+          centered: line ? Math.abs(mid(line) - mid(live)) <= 4 : null,
+          pips,
+          upHasSitu: up ? !!up.querySelector(".scsitu") : null,
+          upHasPip: up ? !!up.querySelector(".scposs") : null,
+        };
+      }) || {};
+      ok(!!situ.text && /PHI ball/.test(situ.text) && /1st & 10/.test(situ.text) && /DAL 12/.test(situ.text),
+        "a LIVE card states who has the ball, the down & distance, and the spot (" + situ.text + ")");
+      ok(situ.centered === true, "…centered under the two teams");
+      // The pip is the at-a-glance half of "who has possession" — on the HOME side only,
+      // because that is the side the fixture's situation.possession points at.
+      ok(situ.pips.length === 2 && situ.pips.find((p) => p.right).pip === true && situ.pips.find((p) => !p.right).pip === false,
+        "…and a possession pip rides the possessing team ONLY (" + JSON.stringify(situ.pips) + ")");
+      ok(situ.rzClass === true && situ.pips.find((p) => p.right).rz === true && /RED ZONE/.test(situ.text),
+        "…the red zone (DAL 12 is inside the 20) turns both the pip and the line accent-red and says so");
+      ok(situ.upHasSitu === false && situ.upHasPip === false,
+        "an UPCOMING card carries no situation strip and no pip — nothing to state before kickoff");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }

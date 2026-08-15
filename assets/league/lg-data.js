@@ -1165,14 +1165,47 @@
         period: c.status?.period || 0, clock: c.status?.displayClock || "",
         broadcast: c.broadcasts?.[0]?.names?.[0] || "",
         spread: (typeof c.odds?.[0]?.details === "string" ? c.odds[0].details : "").slice(0, 24),
+        // DOWN / DISTANCE / POSSESSION on the score card (2026-08-14, user: "on the summary
+        // score for each game, we need to show down, distance and who has possession").
+        // PROBED LIVE: the scoreboard endpoint DOES carry competition.situation for in-progress
+        // games (shortDownDistanceText "4th & 7", possessionText "DEN 38", possession = the
+        // team ID, isRedZone) — the note below is about DRIVES, which it genuinely lacks.
+        // The possessing SIDE is resolved here, at parse time, against this event's own
+        // competitor ids, so no renderer ever has to match ids again.
+        situation: (st.state === "in" && c.situation) ? {
+          dd: c.situation.shortDownDistanceText || c.situation.downDistanceText || "",
+          at: c.situation.possessionText || "",
+          rz: c.situation.isRedZone === true,
+          poss: (() => {
+            const pid = c.situation.possession != null ? String(c.situation.possession) : "";
+            if (!pid) return "";
+            const t = comps.find((x) => String(x.id) === pid || String(x.team?.id) === pid);
+            return t ? (t.homeAway === "home" ? "home" : "away") : "";
+          })(),
+          possAb: (() => {
+            const pid = c.situation.possession != null ? String(c.situation.possession) : "";
+            const t = pid ? comps.find((x) => String(x.id) === pid || String(x.team?.id) === pid) : null;
+            return t?.team?.abbreviation || "";
+          })(),
+        } : null,
         away: side(comps.find((x) => x.homeAway === "away")),
         home: side(comps.find((x) => x.homeAway === "home")),
       });
+      // Possession straight off the scoreboard (2026-08-14) — see the situation note above.
+      // The summary poll only reaches ≤8 games a cycle on a rotating cursor, so before this
+      // the possession ring could be several minutes stale on the 9th+ game; the scoreboard
+      // carries it for EVERY live game on every 8s tick. Strictly additive: an unknown
+      // possession still falls back to the value carried across from the summary below.
+      const sbPossId = (st.state === "in" && c.situation && c.situation.possession != null)
+        ? String(c.situation.possession) : "";
       for (const comp of comps) {
         const ab = comp?.team?.abbreviation; if (!ab) continue;
         const opp = comps.find((x) => x !== comp);
         const key = slpTeam(ab);
         const prev = prevGames.get(key);
+        const sbPoss = sbPossId
+          ? (String(comp.id) === sbPossId || String(comp.team?.id) === sbPossId)
+          : null;
         games.set(key, {
           eventId: String(ev.id), state: st.state || "pre",
           detail: st.shortDetail || "", period: c.status?.period || 0,
@@ -1191,7 +1224,7 @@
           // ACROSS this rebuild exactly the way rz is, keyed on the same eventId, or every
           // scoreboard tick (which runs far more often than the summary poll) would blank it
           // and the highlight would flicker on and off all afternoon.
-          poss: !!(prev && prev.eventId === String(ev.id) && prev.poss),
+          poss: sbPoss != null ? sbPoss : !!(prev && prev.eventId === String(ev.id) && prev.poss),
           score: comp?.score, oppScore: opp?.score,
         });
       }
