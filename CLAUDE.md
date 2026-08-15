@@ -12435,3 +12435,30 @@ is 500; the CAP stays 500 too, since that is the depth actually probed and deepe
 speculation. The suite passes its own explicit `limit`, so no restage.
 **KNOWN**: a player owned in under ~6% of leagues still reads "—" (genuinely fringe, and one
 constant if the family wants deeper).
+
+## 🏈 GFFL — THE PRESEASON PROJECTION TEST, GRADED: Grok lost, and the split says why (2026-08-15)
+
+`tools/_gffl_preseason_test.mjs --grade` against Sleeper's real `pre/2026/1` (1,712 stat rows,
+scored through the LIVE rules doc). Projections were LOCKED before kickoff in
+`tools/_gffl_preseason_lock.json`, so this is a genuine forward test, not a backfit — and it
+is the only kind of Grok measurement that CAN be honest, since 2025 is inside its training
+data.
+**HEADLINE: Grok MAE 3.36 vs the crude prior's 2.41 on 11 players. It did not beat the prior.**
+**THE AGGREGATE HIDES THE WHOLE LESSON, and the split is unanimous both ways:**
+- **Every STARTER, Grok won** (5/5): Conner 1.2 vs prior 2.5 · Higgins 2.0 vs 3.5 · Pittman
+  1.8 vs 3.5 · Deebo 1.5 vs 3.5 · Njoku 1.5 vs 2.5 — actual **0.0 on all five**. It understood
+  that starters barely dress in week 1 of preseason; the flat prior had no idea.
+- **Every BACKUP, Grok lost** (6/6), and always by OVER-projecting volume: Tyrod 9.0 → 1.2 ·
+  Dobbs 8.5 → 2.2 · Rudolph 9.5 → 3.7 · Perine 6.5 → 2.9 · Flacco 9.0 → 6.0 · Cousins 3.5 →
+  6.0. It priced them as if they would play most of a game; they got a series or two.
+**WHAT IT DOES AND DOESN'T TELL US.** The failure mode is *guessing exhibition snap counts for
+backups* — which does not exist in the regular season, where the depth chart IS the volume
+signal and the adjuster's own context (last-5 log, depth order, injury) speaks to exactly that.
+A flat "everyone ~5" prior is also freakishly well calibrated for a week where nobody plays,
+which will not be true again after Sep 10. So this is **weak evidence against Grok for
+preseason and near-zero evidence either way for the season** — which is why the adjuster's
+clamps (±35% band, upward ceiling `max(2×base, base+6)`, fail-open to the ESPN baseline)
+matter more than this number: the one thing the test DOES confirm is that its errors run
+UPWARD, which is the direction those clamps bound.
+**NEXT**: re-grade on regular-season week 1 (Sep 10), where the measurement is finally the one
+we care about.

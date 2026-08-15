@@ -187,5 +187,115 @@
       "note": "CIN backup QB; extended playing time"
     }
   ],
-  "graded": null
+  "graded": {
+    "at": "2026-08-15T15:03:14.065Z",
+    "sleeperWeek": 1,
+    "played": 11,
+    "of": 11,
+    "grokMaePlayed": 3.3563636363636373,
+    "priorMaePlayed": 2.409090909090909,
+    "grokMaeAll": 3.3563636363636373,
+    "priorMaeAll": 2.409090909090909,
+    "rows": [
+      {
+        "key": "11252",
+        "name": "Joe Flacco",
+        "pos": "QB",
+        "team": "CIN",
+        "base": 5,
+        "proj": 9,
+        "actual": 6.04
+      },
+      {
+        "key": "14880",
+        "name": "Kirk Cousins",
+        "pos": "QB",
+        "team": "LV",
+        "base": 5,
+        "proj": 3.5,
+        "actual": 6
+      },
+      {
+        "key": "3116407",
+        "name": "Mason Rudolph",
+        "pos": "QB",
+        "team": "PIT",
+        "base": 5,
+        "proj": 9.5,
+        "actual": 3.72
+      },
+      {
+        "key": "3116389",
+        "name": "Samaje Perine",
+        "pos": "RB",
+        "team": "CIN",
+        "base": 4,
+        "proj": 6.5,
+        "actual": 2.9
+      },
+      {
+        "key": "3044720",
+        "name": "Joshua Dobbs",
+        "pos": "QB",
+        "team": "DET",
+        "base": 5,
+        "proj": 8.5,
+        "actual": 2.18
+      },
+      {
+        "key": "14163",
+        "name": "Tyrod Taylor",
+        "pos": "QB",
+        "team": "GB",
+        "base": 5,
+        "proj": 9,
+        "actual": 1.24
+      },
+      {
+        "key": "3045147",
+        "name": "James Conner",
+        "pos": "RB",
+        "team": "ARI",
+        "base": 2.5,
+        "proj": 1.2,
+        "actual": 0
+      },
+      {
+        "key": "4239993",
+        "name": "Tee Higgins",
+        "pos": "WR",
+        "team": "CIN",
+        "base": 3.5,
+        "proj": 2,
+        "actual": 0
+      },
+      {
+        "key": "4035687",
+        "name": "Michael Pittman",
+        "pos": "WR",
+        "team": "PIT",
+        "base": 3.5,
+        "proj": 1.8,
+        "actual": 0
+      },
+      {
+        "key": "3126486",
+        "name": "Deebo Samuel",
+        "pos": "WR",
+        "team": "SF",
+        "base": 3.5,
+        "proj": 1.5,
+        "actual": 0
+      },
+      {
+        "key": "3123076",
+        "name": "David Njoku",
+        "pos": "TE",
+        "team": "LAC",
+        "base": 2.5,
+        "proj": 1.5,
+        "actual": 0
+      }
+    ]
+  }
 }
