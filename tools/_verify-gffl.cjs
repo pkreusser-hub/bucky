@@ -9460,6 +9460,67 @@ async function openDetails(page, id) {
       fixture.bigGame = false;
     }
 
+    // ---- AD5d: ?demo=ember — the look-only score override (2026-08-15, user: "since I can't
+    // see an example right now, lets override a player result to 40 points so I can see it in
+    // action"). The ember is a rendering EXPERIMENT the family judges on their own phone, and
+    // out of season nothing scores 40. What has to be TRUE of a demo that ships to production:
+    // it is off unless asked for, it never persists, and — the safety-critical half — a board
+    // carrying fabricated scores can NEVER write a write-once weekly record.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      // (a) OFF by default. Every one of this suite's other pages boots without the param, so
+      // this is the state the whole 2653-check battery already runs in — asserted explicitly
+      // once so the default can never drift silently.
+      await bootPage(page);
+      await waitLive(page);
+      ok(await page.evaluate(() => window.__GFFL__.D.demo === null && !window.__GFFL__.D.demoActive()),
+        "?demo is OFF unless it is asked for — the default board is untouched");
+      const finOff = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1));
+      ok(!(finOff && finOff.reason === "demo-board"),
+        "…and an ordinary board is never refused as a demo (" + JSON.stringify(finOff && finOff.reason) + ")");
+      // (b) ON: the viewer's own two starters land in the two tiers, off the REAL bigGame()
+      // arithmetic — the demo supplies numbers, it does not paint the effect on directly.
+      // The EXACT url handed to the family — query before hash (this repo has put the query
+      // inside the hash before, and then `location.hash` reads "matchup?demo=ember" and the
+      // deep link silently lands on the league home instead).
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "&demo=ember#matchup", { waitUntil: "networkidle0" });
+      await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
+      await waitLive(page);
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+      ok(await page.evaluate(() => window.__GFFL__.UI.view === "matchup"),
+        "…and the link lands straight on the matchup, no tapping required");
+      const dm = await evalOr(page, () => {
+        const rows = [...document.querySelectorAll(".pcellgrid[data-heat]")];
+        return {
+          armed: window.__GFFL__.D.demo ? window.__GFFL__.D.demo.pts.size : 0,
+          tiers: rows.map((r) => r.getAttribute("data-heat")).sort(),
+          pts: rows.map((r) => (r.querySelector(".pts") || {}).textContent).sort(),
+          // …and the fabricated points really do reach the team total, the way a real big
+          // game would — the demo moves the whole card, not one badge.
+          tot: [...document.querySelectorAll(".mubig .bigpts, .bigpts")].map((e) => e.textContent),
+        };
+      }, {});
+      ok(dm.armed === 2, "?demo=ember arms exactly two of the viewer's own starters (" + dm.armed + ")");
+      ok(JSON.stringify(dm.tiers) === '["1","2"]',
+        "…one in each tier, decided by the real bigGame() rule (40 on 12 blazing, 20 on 12 hot) — " + JSON.stringify(dm.tiers));
+      ok(dm.pts.includes("40.0") && dm.pts.includes("20.0"),
+        "…and those are the scores on screen (" + JSON.stringify(dm.pts) + ")");
+      // (c) THE SAFETY HALF. Fabricated scores reach D.livePts, so without this refusal they
+      // could reach weekly_<season>_w1 — write-once — and stand there all season.
+      const finOn = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1));
+      ok(finOn && finOn.ok === false && finOn.reason === "demo-board",
+        "a demo board REFUSES to finalize — a fabricated score can never reach a write-once record (" + JSON.stringify(finOn) + ")");
+      const finForce = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
+      ok(finForce && finForce.ok === false && finForce.reason === "demo-board",
+        "…and force does not bypass it (" + JSON.stringify(finForce && finForce.reason) + ")");
+      // (d) NEVER PERSISTED — unlike ?sim= and ?look=, which deliberately write a flag. A demo
+      // you cannot remember switching on is a demo that misreports the league tomorrow.
+      const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => /demo|ember/i.test(k)));
+      ok(stored.length === 0, "…and it writes NOTHING to localStorage — closing the tab ends it (" + JSON.stringify(stored) + ")");
+      ok(errors.length === 0, "0 page errors across the demo override");
+      await ctx.close();
+    }
+
     // ---- AD7: the Matchup TAB always lands on the logged-in user's own game.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());

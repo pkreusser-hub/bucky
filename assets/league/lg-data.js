@@ -331,6 +331,36 @@
   };
   D.EP = {}; // endpoint bookkeeping (fftest pattern) — feeds the health page
 
+  // ---------------- ?demo=ember — a LOOK-ONLY score override (2026-08-15) ----------------
+  // The big-game ember is a rendering EXPERIMENT the family has to judge on their own phone,
+  // and out of season nothing is scoring 40. This forces two of the viewer's own starters
+  // into the two heat tiers so the effect can be seen beside untouched rows.
+  //
+  // THREE RULES, all load-bearing:
+  //   * URL-ONLY, never persisted. Unlike ?sim= and ?look=, this writes NO localStorage — a
+  //     demo you can't remember switching on is a demo that misreports the league at 3am.
+  //   * It overrides the two DISPLAY funnels (livePts / projFor) and nothing else, so the
+  //     ember, the score, the team total and the win bar all move together the way a real
+  //     big game would. bigGame() still does its own arithmetic on these numbers — the demo
+  //     proves the real rule fires, it does not paint the effect on directly.
+  //   * IT MAKES finalizeWeek REFUSE. A demo number must never reach a write-once record.
+  //     That refusal is the reason this is safe to ship rather than a debug branch to sneak in.
+  D.demo = null;
+  try {
+    const dq = new URLSearchParams(location.search).get("demo");
+    if (dq === "ember") D.demo = { kind: "ember", pts: new Map(), proj: new Map() };
+  } catch (e) { /* no location (tests/node) — no demo, which is the right default */ }
+  D.demoActive = function () { return !!(D.demo && D.demo.kind); };
+  // Arms the override against whichever starters are actually on screen. Called by the
+  // matchup renderer with the viewer's own starter keys, so it lands on real players rather
+  // than guessing at ids. Idempotent — re-running on a poll tick keeps the same two.
+  D.demoArm = function (keys) {
+    if (!D.demoActive() || D.demo.pts.size) return;
+    const usable = (keys || []).filter((k) => k && !/^dst_/.test(k));
+    if (usable[0]) { D.demo.pts.set(usable[0], 40); D.demo.proj.set(usable[0], 12); }   // 40 on 12 → BLAZING (40≥28, 3.3×)
+    if (usable[1]) { D.demo.pts.set(usable[1], 20); D.demo.proj.set(usable[1], 12); }   // 20 on 12 → hot (20≥18, 1.7×)
+  };
+
   async function fx(name, url) {
     const ep = D.EP[name] || (D.EP[name] = { n: 0, okN: 0, status: "—", ms: 0, bytes: 0, lastAt: 0, err: "" });
     ep.url = url; ep.n++;
@@ -679,6 +709,7 @@
   // so one map, warmed once. Rounded to 1dp there because a derived-from-actuals projection is
   // an estimate and shouldn't wear two decimal places of false precision.
   D.projFor = function (key) {
+    if (D.demo && D.demo.proj.has(key)) return D.demo.proj.get(key);
     const sim = LG.SIM_2025;
     // THE GROK-ADJUSTED PROJECTION WINS when one exists for this week (2026-08-13, user: "go
     // with the grok adjusting from espn projection"). The adjusted doc is generated from
@@ -1884,6 +1915,7 @@
   // he is and simply nothing has landed), null when the key resolves to nobody — "—" beats a
   // fabricated 0.0. Always finite; never NaN.
   D.livePts = function (key) {
+    if (D.demo && D.demo.pts.has(key)) return D.demo.pts.get(key);
     const row = D.S.players.get(key);
     if (row && row.pts != null) return num(row.pts);
     if (!row && D.pidForKey(key) == null) return null;

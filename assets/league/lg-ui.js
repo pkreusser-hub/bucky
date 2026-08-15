@@ -3493,6 +3493,10 @@
     const H = LG.teamById(hId), A = LG.teamById(aId);
     const hs = teamStarters(hId), as_ = teamStarters(aId);
     const hKeys = hs.map((p) => p.key), aKeys = as_.map((p) => p.key);
+    // ?demo=ember — arm the look-only score override against the VIEWER'S OWN starters, before
+    // the totals and the win bar are summed, so a demo big game moves the whole card the way a
+    // real one would. A no-op without the URL param, and finalizeWeek refuses while it is set.
+    if (d.demoActive) { const own = LG.myTeamId(); d.demoArm(own === hId ? hKeys : own === aId ? aKeys : aKeys); }
     const hTot = liveTotal(hId), aTot = liveTotal(aId);
     const wp = d.winProb(aKeys, hKeys); // away perspective, bar shows both
     const hRem = d.remaining(hKeys), aRem = d.remaining(aKeys);

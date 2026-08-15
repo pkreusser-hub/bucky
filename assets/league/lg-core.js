@@ -2466,6 +2466,12 @@
       // write-once doc. The archived-stats backfill above stays available — that's a
       // deliberate commissioner action against real numbers, not a guess off the board.
       if (LG.SIM_2025) return { ok: false, reason: "sim-replay" };
+      // …and the same refusal for ?demo=ember (2026-08-15). That override forces two starters
+      // to fabricated scores so a rendering experiment can be SEEN out of season; those numbers
+      // reach D.livePts, so without this they could reach a WRITE-ONCE weekly record and stand
+      // there all season. A demo must never be able to write. Backfill is untouched — it scores
+      // from archived stats and never consults the live board.
+      if (LG.data && LG.data.demoActive && LG.data.demoActive()) return { ok: false, reason: "demo-board" };
       // ⭐ ITEM 30 (2026-08-09) — PRESEASON. This is the guard the week check cannot be:
       // preseason week 1 and regular-season week 1 are both "1", and LG.currentWeek() clamps
       // to 1 before SEASON_START, so from the day preseason starts until the real opener the

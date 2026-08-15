@@ -12462,3 +12462,33 @@ matter more than this number: the one thing the test DOES confirm is that its er
 UPWARD, which is the direction those clamps bound.
 **NEXT**: re-grade on regular-season week 1 (Sep 10), where the measurement is finally the one
 we care about.
+
+## 🏈 GFFL — `?demo=ember`: a look-only score override so a rendering experiment can be SEEN (2026-08-15)
+
+User: *"since I can't see an example right now, lets override a player result to 40 points so I
+can see it in action."* Out of season nothing scores 40, and the big-game ember is an
+experiment the family has to judge on their own phone. Files: `assets/league/lg-{data,ui}.js` +
+`assets/league/lg-core.js` + `tools/_verify-gffl.cjs` (2653 → **2663**, new AD5d).
+**THE URL**: `…/league.html?demo=ember#matchup` — query BEFORE hash (this repo has put the
+query inside the hash before, and `location.hash` then reads `matchup?demo=ember` and the deep
+link silently lands on the league home). It arms the viewer's OWN first two non-D/ST starters
+at **40 on a 12 projection** (blazing: 40≥28 and 3.3×) and **20 on 12** (hot: 20≥18 and 1.7×),
+leaving every other row untouched as the control.
+**THREE RULES, all load-bearing, and the third is why this is safe to ship rather than a debug
+branch to sneak in:**
+1. **URL-ONLY, never persisted.** Unlike `?sim=` and `?look=`, which deliberately write a flag,
+   this writes NOTHING — a demo you cannot remember switching on is a demo that misreports the
+   league at 3am. Closing the tab ends it.
+2. **It overrides the two DISPLAY funnels only** (`D.livePts` / `D.projFor`), so the ember, the
+   score, the team total and the win bar all move together the way a real big game would — and
+   `bigGame()` still does its own arithmetic on those numbers. The demo supplies a score; it
+   does not paint the effect on directly, so what you see is the real rule firing.
+3. **A DEMO BOARD REFUSES TO FINALIZE.** Fabricated points reach `D.livePts`, so without this
+   they could reach `weekly_<season>_w1` — **write-once** — and stand there all season.
+   `finalizeWeek`'s live path returns `{ok:false, reason:"demo-board"}`, **force included**,
+   beside the existing `sim-replay` and preseason guards. The archived-stats BACKFILL is
+   untouched: it scores from Sleeper's own records and never consults the live board.
+`D.demoArm(keys)` is idempotent and called from `renderMatchup` BEFORE the totals are summed,
+so it lands on real on-screen players rather than guessing at ids, and a poll tick keeps the
+same two. Absent the param `D.demo` is `null` and every funnel is byte-identical — which is the
+state the other 2654 checks already run in, now asserted explicitly once so it cannot drift.
