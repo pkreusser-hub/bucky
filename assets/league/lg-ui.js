@@ -2948,11 +2948,15 @@
   // numbers illegible on the first plate.
   const FY = { top: 140, bot: 258, mid: 199, numY: 288 };
   // FRAME: the skew leans the slab beyond the viewBox (the first plate clipped both end
-  // zones' corners), so the whole drawing is translated to put the slab's bottom-left at
-  // x=0 and scaled to fit the lean's full extent inside the 1000-unit width. data-* attrs
-  // carry MATH x throughout — the suite asserts arithmetic, never pixels.
-  const FTX = FY.bot * TAN;                                        // bottom-left → 0
-  const FSC = 1000 / (FTX + 1000 - FY.top * TAN);                  // top-right → 1000
+  // zones' corners), so the whole drawing is translated + scaled to fit the lean's full
+  // extent inside the viewBox — now with FPAD of margin at both edges, because the goalposts
+  // stand at the BACK of each end zone (x=0 / x=1000) and their crossbars overhang it.
+  // Solved rather than tuned: leftmost slab point is (0, FY.bot), rightmost is (1000, FY.top).
+  // data-* attrs carry MATH x throughout — the suite asserts arithmetic, never pixels.
+  const FPAD = 26;
+  const FEXT = 1000 + (FY.bot - FY.top) * TAN;                     // the leaned slab's own width
+  const FSC = (1000 - 2 * FPAD) / FEXT;                            // slab spans [FPAD, 1000-FPAD]
+  const FTX = FPAD / FSC + FY.bot * TAN;
   function kickedPlay(p) { return /punt|kickoff|field goal/i.test(p && p.type || ""); }
   function nflFieldSvg(g) {
     const away = gSide(g, "away"), home = gSide(g, "home");
@@ -2962,15 +2966,6 @@
     let svg = `<svg class="nfldiag" viewBox="0 0 ${FLD.W} ${FLD.H}" role="img" aria-label="Field view">`;
     // ---- the skewed field slab (see the FRAME note above) ----
     svg += `<g transform="scale(${FSC.toFixed(4)} 1) translate(${FTX.toFixed(1)} 0) skewX(-${SKEW})">`;
-    // Goalposts BEHIND each end zone — drawn FIRST so the slab occludes everything below the
-    // turf line (a real broadcast's framing), counter-skewed so the posts stand upright.
-    const post = (x) => `<g transform="translate(${x} ${FY.top}) skewX(${SKEW})">`
-      + `<g stroke="var(--gold)" stroke-width="5" fill="none" opacity="0.92">`
-      + `<line x1="0" y1="52" x2="0" y2="-20"/>`
-      + `<line x1="-24" y1="-20" x2="24" y2="-20"/>`
-      + `<line x1="-24" y1="-20" x2="-24" y2="-66"/>`
-      + `<line x1="24" y1="-20" x2="24" y2="-66"/></g></g>`;
-    svg += post(41) + post(958);
     svg += `<rect x="0" y="${FY.top}" width="1000" height="${FY.bot - FY.top}" fill="var(--turf)"/>`;
     for (let i = 1; i < 10; i += 2) {
       svg += `<rect x="${(FLD.EZ + i * 10 * FLD.PER_YD).toFixed(1)}" y="${FY.top}" width="${(10 * FLD.PER_YD).toFixed(1)}" height="${FY.bot - FY.top}" fill="var(--turf-2)"/>`;
@@ -3000,12 +2995,20 @@
     }
     if (ballPos != null) {
       const bx = fieldX(ballPos);
-      // First-down line pokes ABOVE the strip like a real broadcast overlay.
+      // The chalk lines span EXACTLY the field's own depth (2026-08-14, user: "the yellow and
+      // white lines should match the width of the field") — they used to poke above the strip
+      // like a broadcast overlay, which read as floating.
       if (s.distance) {
         const fdx = fieldX(firstDownPos(poss, ballPos, s.distance)).toFixed(1);
-        svg += `<line class="nflfd" x1="${fdx}" y1="${FY.top - 16}" x2="${fdx}" y2="${FY.bot}" stroke="var(--gold)" stroke-width="4"/>`;
+        svg += `<line class="nflfd" x1="${fdx}" y1="${FY.top}" x2="${fdx}" y2="${FY.bot}" stroke="var(--gold)" stroke-width="4"/>`;
       }
-      svg += `<line class="nfllos" x1="${bx.toFixed(1)}" y1="${FY.top - 8}" x2="${bx.toFixed(1)}" y2="${FY.bot}" stroke="#eaf2ff" stroke-width="3" opacity="0.95"/>`;
+      // WHERE THE DRIVE STARTED, dashed (2026-08-14, user's own ask) — same depth as the other
+      // two, but broken so it never competes with the solid line of scrimmage.
+      const dsx = (dr && dr.startYardsToEndzone != null) ? fieldX(fieldPos(poss, dr.startYardsToEndzone)) : null;
+      if (dsx != null && Math.abs(dsx - bx) > 2) {
+        svg += `<line class="nflstart" x1="${dsx.toFixed(1)}" y1="${FY.top}" x2="${dsx.toFixed(1)}" y2="${FY.bot}" stroke="#eaf2ff" stroke-width="3" stroke-dasharray="9 8" opacity="0.7"/>`;
+      }
+      svg += `<line class="nfllos" x1="${bx.toFixed(1)}" y1="${FY.top}" x2="${bx.toFixed(1)}" y2="${FY.bot}" stroke="#eaf2ff" stroke-width="3" opacity="0.95"/>`;
       // THE DRIVE PATH — dotted, play by play (supersedes 2026-08-13's single progress arrow;
       // the container keeps the arrow's data-x0/x1 CONTRACT — drive start -> ball — so the
       // suite's hand-computed tail/head numbers read off this group unchanged). Ground plays
@@ -3037,6 +3040,19 @@
         + (pt.logo ? `<image href="${esc(pt.logo)}" x="-16" y="-68" width="32" height="32"/>` : `<text x="0" y="-46" fill="#fff" font-size="14" font-weight="800" text-anchor="middle">${esc(pt.abbrev || "")}</text>`)
         + `</g>`;
     }
+    // GOALPOSTS at the BACK LINE of each end zone (2026-08-14, user: "the goalposts should be
+    // on the far left and far right of the field in the middle") — x=0 and x=1000 are the two
+    // back lines, i.e. the field's far edges, and the base stands at FY.mid, the middle of the
+    // field's depth. Counter-skewed so they stand upright on the leaning slab, and drawn LAST
+    // (on top of the turf) so the whole post reads rather than being half-buried. FPAD is what
+    // gives the overhanging crossbars room inside the viewBox.
+    const post = (x) => `<g class="nflpost" data-x="${x}" transform="translate(${x} ${FY.mid}) skewX(${SKEW})">`
+      + `<g stroke="var(--gold)" stroke-width="5" fill="none" opacity="0.95" stroke-linecap="round">`
+      + `<line x1="0" y1="8" x2="0" y2="-34"/>`
+      + `<line x1="-20" y1="-34" x2="20" y2="-34"/>`
+      + `<line x1="-20" y1="-34" x2="-20" y2="-78"/>`
+      + `<line x1="20" y1="-34" x2="20" y2="-78"/></g></g>`;
+    svg += post(0) + post(1000);
     svg += `</g>`;   // end skewed slab
     // ---- the yard row BELOW the strip, aligned to the slab's bottom edge (which the frame
     // put at x=0, so the row only needs the same horizontal scale) ----

@@ -232,7 +232,14 @@ function slimGame(j) {
       id: String(c?.id ?? t?.id ?? ""),
       homeAway: c?.homeAway || "",
       abbrev: t?.abbreviation || "",
-      name: t?.shortDisplayName || t?.displayName || "",
+      // THE NICKNAME, and the order matters (2026-08-14, user: "the team name in the endzone
+      // should be just the name, like 'Broncos', not 'Denver Broncos'"). PROBED LIVE against
+      // the real summary endpoint: its header competitors carry `nickname`/`name` ("Broncos")
+      // and `displayName` ("Denver Broncos") but NO shortDisplayName — so the old
+      // shortDisplayName-first chain fell straight through to the full name on every real
+      // game, while the fixture (which wrongly had shortDisplayName) rendered correctly and
+      // hid it. `full` still carries the display name for anything that wants it.
+      name: t?.nickname || t?.name || t?.shortDisplayName || t?.displayName || "",
       full: t?.displayName || "",
       color: t?.color || "",
       alt: t?.alternateColor || "",

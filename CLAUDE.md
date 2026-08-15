@@ -10590,6 +10590,23 @@ lg-ui.js` + `league.html` + `tools/_verify-gffl.cjs` (2580 → **2595**).
   the real chain 73→64→61→12. ONE own-goal on the first run: `/Down: 1st/` with a literal
   space — label and value are ADJACENT elements and textContent runs them together (the AE
   lesson, again); the visible gap is the flex gap. `\s*`.
+- **FOUR-FIX ROUND (2026-08-14, user, from the deployed look)**: (1) **goalposts** moved from
+  inside the end zones to the field's own FAR EDGES — x=0 and x=1000 ARE the two back lines —
+  standing at `FY.mid`, the middle of the field's depth, counter-skewed upright and drawn LAST
+  so the whole post reads instead of being half-buried; the frame gained `FPAD` 26 (solved, not
+  tuned: leftmost slab point is (0, FY.bot), rightmost (1000, FY.top)) so the overhanging
+  crossbars can't clip. (2) **The gold and white lines span EXACTLY the strip** (`FY.top`→
+  `FY.bot`) — they used to poke above it like a broadcast overlay, which read as floating.
+  (3) **A DASHED white line marks where the drive started** (`.nflstart`, suppressed when it
+  would sit on the line of scrimmage). (4) **THE END ZONE WEARS THE NICKNAME ALONE** — and this
+  was a REAL BUG the fixture was hiding: probed live, the summary endpoint's header competitors
+  carry `nickname`/`name` ("Broncos"), `location` and `displayName` ("Denver Broncos") but NO
+  `shortDisplayName`, so slimGame's `shortDisplayName || displayName` chain fell through to the
+  full name on every real game while the fixture — which invented a `shortDisplayName` — kept
+  rendering "EAGLES" on every plate. Server now prefers `nickname || name`; the fixture MIRRORS
+  the real payload; and the suite's check is an EXACT match (a contains-check would have passed
+  on the very bug reported). Also fixes sports.html's own field, which `.slice(0,10)`s that
+  string into "DENVER BRO". Suite 2595 → **2602**.
 - **KNOWN / FOLLOW-UPS**: sports.html's own game view still renders the OLD flat field — port
   after the family approves this look (the rendering exists twice by documented choice); the
   drive path only draws the CURRENT drive's own plays (the reference sometimes shows the

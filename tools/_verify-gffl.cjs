@@ -603,10 +603,17 @@ function startSportsFfUpstream() {
 //   poss = home  ->  pos = yardsToEndzone       = 12   ->  x = 83.33 + 12*8.3334 = 183.3
 //   first down   ->  pos = ballPos - distance   = 8    ->  x = 83.33 +  8*8.3334 = 150.0
 const NFL_SUM_LOGO = (ab) => "https://a.espncdn.com/i/teamlogos/nfl/500/" + ab.toLowerCase() + ".png";
+// RESTAGED 2026-08-14 to MIRROR THE REAL PAYLOAD, probed live against the summary endpoint:
+// its header competitors carry `nickname`/`name` ("Broncos") + `location` + `displayName`
+// ("Denver Broncos") and NO shortDisplayName. The old fixture invented a shortDisplayName,
+// which is exactly why the end zone rendered "EAGLES" on every plate while the deployed site
+// showed "DENVER BRONCOS" — a fixture kinder than reality hid a real bug.
 function sumTeam(id, ab, name, color, homeAway, score, extra) {
+  const CITY = { DAL: "Dallas", PHI: "Philadelphia", KC: "Kansas City", DEN: "Denver" };
   return {
     id, homeAway, score, winner: !!(extra && extra.winner),
-    team: { id, abbreviation: ab, shortDisplayName: name, displayName: "The " + name, color, alternateColor: "ffffff", logo: NFL_SUM_LOGO(ab) },
+    team: { id, abbreviation: ab, nickname: name, name, location: CITY[ab] || "City",
+            displayName: (CITY[ab] || "City") + " " + name, color, alternateColor: "ffffff", logo: NFL_SUM_LOGO(ab) },
     linescores: ((extra && extra.line) || []).map((v) => ({ displayValue: String(v) })),
     record: [{ type: "total", summary: (extra && extra.record) || "1-0" }],
   };
@@ -11369,6 +11376,22 @@ async function openDetails(page, id) {
           pin: (() => { const b = svg.querySelector(".nflball"); return b ? { crest: !!b.querySelector("image"), upright: /skewX\(10\)/.test(b.getAttribute("transform") || "") } : null; })(),
           skewed: !!svg.querySelector('g[transform*="skewX(-10)"]'),
           ez: (() => { const t = [...svg.querySelectorAll("text")].map((e) => e.textContent); return t; })(),
+          // 2026-08-14 four-fix round: goalposts at the field's own far edges (the back line
+          // of each end zone) standing upright; the chalk lines spanning exactly the strip;
+          // a DASHED marker where the drive began.
+          posts: [...svg.querySelectorAll(".nflpost")].map((p) => ({ x: p.dataset.x, upright: /skewX\(10\)/.test(p.getAttribute("transform") || "") })),
+          depths: (() => {
+            const d = (sel) => { const e = svg.querySelector(sel); return e ? [e.getAttribute("y1"), e.getAttribute("y2")].join("-") : null; };
+            return { fd: d(".nflfd"), los: d(".nfllos"), start: d(".nflstart") };
+          })(),
+          startLine: (() => { const e = svg.querySelector(".nflstart"); return e ? { x: e.getAttribute("x1"), dash: e.getAttribute("stroke-dasharray") || "" } : null; })(),
+          // Every point the frame draws must land inside the viewBox — the goalposts overhang
+          // the slab, and clipping them is exactly what FPAD exists to prevent.
+          inFrame: (() => {
+            const b = svg.getBoundingClientRect(), r = svg.querySelector(".nflpost").getBoundingClientRect();
+            const b2 = svg.querySelectorAll(".nflpost")[1].getBoundingClientRect();
+            return r.left >= b.left - 0.5 && b2.right <= b.right + 0.5;
+          })(),
           vb: svg.getAttribute("viewBox"),
           wide: Math.round(svg.getBoundingClientRect().width) > 200,
         };
@@ -11394,7 +11417,25 @@ async function openDetails(page, id) {
       // wear the team NICKNAMES with the yard row below.
       ok(f.skewed === true, "the field slab carries the isometric skew");
       ok(!!f.pin && f.pin.crest && f.pin.upright, "the ball is a team-crest PIN, counter-skewed upright on the leaning field");
-      ok(f.ez.some((t) => /EAGLES/i.test(t)) && f.ez.some((t) => t === "50"), "end zones wear the nickname; the yard row renders below the strip");
+      // EXACT match, not `contains` (2026-08-14): the fixture now mirrors the real payload,
+      // whose displayName is "Philadelphia Eagles" — a contains-check would pass on the very
+      // bug the user reported ("Denver Broncos" in the end zone).
+      ok(f.ez.includes("EAGLES") && f.ez.includes("COWBOYS") && !f.ez.some((t) => /PHILADELPHIA|DALLAS/.test(t)),
+        "the end zone wears the NICKNAME alone — never the city (" + JSON.stringify(f.ez.slice(0, 4)) + ")");
+      ok(f.ez.some((t) => t === "50"), "…and the yard row renders below the strip");
+      // Goalposts: one at each BACK LINE (x=0 and x=1000 — the field's far edges), upright,
+      // and both fully inside the frame.
+      ok(f.posts.length === 2 && f.posts[0].x === "0" && f.posts[1].x === "1000",
+        "a goalpost stands at each far edge of the field — the back line of both end zones (" + JSON.stringify(f.posts.map((p) => p.x)) + ")");
+      ok(f.posts.every((p) => p.upright), "…both counter-skewed upright on the leaning slab");
+      ok(f.inFrame === true, "…and neither is clipped by the viewBox (what FPAD buys)");
+      // The chalk lines span EXACTLY the strip — same y1/y2 as each other, no overhang.
+      ok(f.depths.fd === f.depths.los && /^140-258$/.test(f.depths.los || ""),
+        "the gold and white lines match the field's own depth exactly (" + JSON.stringify(f.depths) + ")");
+      // The drive-start marker: dashed, at the drive's own start x (yTE 73 → 691.7).
+      ok(!!f.startLine && f.startLine.x === EXP_START && /\d/.test(f.startLine.dash),
+        "a DASHED line marks where the drive started (" + EXP_START + ") — " + JSON.stringify(f.startLine));
+      ok(f.depths.start === f.depths.los, "…at the same depth as the other two");
       ok(f.wide === true, "the field actually renders at a usable width on a 390px phone");
       // The same maths from the other side, straight off the exposed helpers — an away
       // possession 12 yards out is at field position 88, mirrored.
