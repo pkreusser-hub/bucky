@@ -12426,6 +12426,12 @@ fixture, then check the tier separately.
 **VERIFY**: battery **2653/2653** (+46: I2b's 41 ownership/column checks incl. a real
 server-level `nfl_ownership` call, AD5c's ember block) · sports **229/229** · plates
 `shots/gffl_biggame_{390,desktop}.png` reviewed.
-**KNOWN**: the pool is ESPN's top 300 by ownership, so a genuinely fringe free agent reads
-"—" in both columns (honest, and one constant if the family wants deeper); and the real
-Netlify latency of an 8.8 MB upstream call is worth an eyeball on the first cold hit.
+**POST-DEPLOY MEASUREMENT changed a constant, which is why the eyeball was flagged**: live,
+300 rows returned 241 players with a figure and **bottomed out at 24.5% owned** — and a
+FREE-AGENT table shops BELOW the rostered crowd, so most of the pool it browses would have
+read "—". 500 rows reach a **5.8% floor** (423 players) at the SAME cost — 1.7s cold / 104ms
+warm / ~8.9 KB down the wire, because the slimming happens server-side. `OWN_LIMIT_DEFAULT`
+is 500; the CAP stays 500 too, since that is the depth actually probed and deeper is
+speculation. The suite passes its own explicit `limit`, so no restage.
+**KNOWN**: a player owned in under ~6% of leagues still reads "—" (genuinely fringe, and one
+constant if the family wants deeper).

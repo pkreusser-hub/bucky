@@ -1021,13 +1021,20 @@ async function ffPctOwned(body) {
 //   * The X-FANTASY-FILTER MUST BE TOP-LEVEL. The nested {players:{...}} shape every other
 //     call in this file uses is silently IGNORED here — the server answers 200 with all
 //     ~11,573 players and ~39 MB. `{filterActive, limit, sortPercOwned}` at the top level
-//     is honoured (300 rows, sorted by %owned desc, ~8.8 MB, ~950 ms).
+//     is honoured (sorted by %owned desc; 300 rows ~8.8 MB / ~950 ms, 500 rows no slower).
 //   * The response is a BARE ARRAY of player objects — no {players:[...]} wrapper and no
 //     per-row {player:{...}} envelope. Both are tolerated below anyway (ESPN has moved a
 //     recipe under us before), but the array is what really comes back.
 // The browser UA is correct for lm-api-reads (see NFL_UA's note — do NOT use the curl UA
 // here; that is site.api.espn.com's inverse rule).
-const OWN_LIMIT_DEFAULT = 300;
+// 500, NOT 300, and the reason is measured against the live endpoint post-deploy (2026-08-15):
+// 300 rows bottom out at 24.5% owned — but a FREE-AGENT table shops BELOW the rostered crowd,
+// so most of the pool it browses would have read "—". 500 reaches a 5.8% floor (423 players
+// with a figure) for the same latency (1.7s cold / 104ms warm) and the same ~8.9 KB down the
+// wire, because the slimming happens up here. Deeper than ~6% owned is genuinely fringe.
+// The cap stays at the depth actually measured against the live endpoint; going deeper is
+// speculation until someone probes it.
+const OWN_LIMIT_DEFAULT = 500;
 const OWN_LIMIT_MAX = 500;
 const OWN_TTL_MS = 30 * 60e3;
 // Warm-invocation cache. 8.8 MB in, a few KB out — a family of six opening Moves must not
