@@ -12490,5 +12490,65 @@ branch to sneak in:**
    untouched: it scores from Sleeper's own records and never consults the live board.
 `D.demoArm(keys)` is idempotent and called from `renderMatchup` BEFORE the totals are summed,
 so it lands on real on-screen players rather than guessing at ids, and a poll tick keeps the
-same two. Absent the param `D.demo` is `null` and every funnel is byte-identical — which is the
+same set. Absent the param `D.demo` is `null` and every funnel is byte-identical — which is the
 state the other 2654 checks already run in, now asserted explicitly once so it cannot drift.
+
+## 🏈 GFFL — THE LOOT LADDER: WoW rarity colours replace the ember (2026-08-15)
+
+User: *"lets try something similar but this time lets use the color convention for world of
+warcraft loot, where baseline is white, then green, blue, purple and then orange."* SUPERSEDES
+the two-tier ember shipped the day before. Files: `assets/league/lg-{data,ui}.js` +
+`league.html` + `tools/_verify-gffl.cjs` (2663 → **2675**). Demo param renamed `?demo=loot`
+(`ember` kept as an alias so the link already handed out keeps working).
+
+**THE JUDGEMENT IS UNCHANGED — only the scale got longer.** Still a FLOOR and a RATIO, both
+required at every rung, so a stud doing his job stays white (24 pts on a 20 projection: nothing)
+and a kicker beating a 1.0 projection sixfold stays white too. `LOOT` is a plain table —
+**uncommon 12/1.25 · rare 18/1.5 · epic 26/1.8 · legendary 36/2.1** — and `rarity()` walks it,
+so adding or moving a rung is one line. The ember's two rungs survive INSIDE the ladder (its
+"hot" is rare, its "blazing" ≈ epic), so nothing that used to light up has gone quiet. With NO
+projection to judge against (a rookie, a replay board) the ratio gate is WAIVED and the floors
+alone decide — the old code returned 0 in that case for anything under 28, which quietly made
+an unprojected 40-point game look ordinary.
+
+**THE PALETTE IS WoW's, LIFTED ONLY WHERE IT HAD TO BE — and the numbers are measured against
+our own card (`--nested2` #151b26), in the suite, not eyeballed:**
+
+| rung | WoW | on our card | shipped |
+|---|---|---|---|
+| uncommon | `#1eff00` | **12.62:1** | WoW exact |
+| rare | `#0070dd` | **3.59:1** ✗ | `#1f8fff` → 5.29:1 |
+| epic | `#a335ee` | **3.54:1** ✗ | `#c56bff` → 5.69:1 |
+| legendary | `#ff8000` | **6.85:1** | WoW exact |
+
+WoW paints those two on near-black chat text; our card is lighter, and at ~3.5:1 the middle two
+rungs would have been **the hardest to read on the whole ladder** — backwards, and under the
+4.5:1 AA bar for the row's most-scanned number. Lifting the luminance keeps both hues
+unmistakably rare-blue and epic-purple. The suite recomputes the contrast IN PAGE from the
+rendered colour (5.69:1 for epic, matching the prediction exactly), so a future edit that
+quietly restores the true WoW values fails rather than merely looking wrong.
+
+**TWO DELIBERATE DEVIATIONS, both stated at the code:**
+1. **The colour rides the SCORE, not the name.** WoW tints the item NAME — but the name is the
+   row's most-read text and the brief that started this was "doesn't interfere with
+   readability". The score is the number that earned the tier, and in a lineup you scan by
+   score the way you scan a loot list by name, so it is the true analogue.
+2. **No row wash at any rung, and a breathing rim on LEGENDARY alone.** Five tinted numbers
+   down a lineup read as a scale; five washed rows would be a paint chart. An orange drop
+   stops the raid, so the top rung — which nobody hits most weeks — keeps the ember's outline
+   flourish (still an `outline`, never a `box-shadow`: that property belongs to the mobile
+   possession edge and an animation on it would erase the gold has-the-ball cue for exactly the
+   players most likely to have both).
+The `title` NAMES the tier ("Epic — 34.0 pts") because a colour alone means nothing to a
+screen reader *or* to anyone who has never played WoW.
+
+**VERIFY**: **2675/2675, 0 page errors**. AD5c restaged rung by rung with the reason in place
+(the two conditions are unchanged, so every old case kept its meaning and just resolves further
+along a longer scale) plus the in-page contrast measurement, "the rim is legendary's alone", and
+the no-projection case. AD5d arms one starter on EVERY coloured rung (42/12 · 30/12 · 20/12 ·
+14/10 — each clearing its own gates and neither of the rung above's) and asserts four DISTINCT
+rendered colours, all ≥4.5:1. Plates: `shots/gffl_loot_{390,desktop}.png` (a real epic in a
+live lineup) and `gffl_loot_ladder_{390,desktop}.png` (all five steps in one frame).
+**KNOWN, and it is WoW's own trait rather than ours**: `#1eff00` is the brightest thing on the
+ladder, so the LOWEST coloured rung slightly out-shouts rare and epic above it. Faithful to the
+convention the family asked for; a desaturated green is the fix if it grates.

@@ -9387,24 +9387,35 @@ async function openDetails(page, id) {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
       await waitOr(page, ".mucard");
+      // RESTAGED 2026-08-15 for the five-rung WoW loot ladder, which SUPERSEDES the two-tier
+      // ember (user: "lets use the color convention for world of warcraft loot"). The two
+      // CONDITIONS are unchanged — a floor and a ratio, both required at every rung — so the
+      // old cases keep their meaning; they just resolve to more places on a longer scale.
       const h = await evalOr(page, () => {
-        const f = window.__GFFL__.UI._bigGame;
+        const f = window.__GFFL__.UI._rarity;
         return {
-          solid: f(17.9, 4),        // a fine day, under the absolute floor -> nothing
-          floor: f(18, 12),         // 18 pts but only 1.5x... exactly 1.5 -> hot
-          under: f(24, 20),         // 24 pts, 1.2x -> a stud doing his job, NOT a big game
-          hot: f(22, 11),           // 22 and 2x, but under the blazing points floor -> hot
-          blaze: f(32, 10),         // 32 and 3.2x -> blazing
-          blazePts: f(30, 20),      // 30 pts but only 1.5x -> hot, never blazing
-          tiny: f(6, 1),            // a kicker beating a 1.0 projection sixfold -> nothing
+          quiet: f(11.9, 4),        // under the lowest floor -> white, however it was projected
+          under: f(24, 20),         // 24 pts, 1.2x -> a stud doing his job -> WHITE, the whole point
+          green: f(14, 10),         // 14 and 1.4x -> uncommon
+          greenEdge: f(12, 9.6),    // exactly the 12pt/1.25x floor -> uncommon
+          blue: f(20, 12),          // 20 and 1.7x, under the epic floor -> rare
+          blueRatio: f(30, 20),     // 30 pts but only 1.5x -> RARE, never epic: the ratio gate bites
+          purple: f(30, 12),        // 30 and 2.5x -> epic
+          orange: f(42, 12),        // 42 and 3.5x -> legendary
+          orangeRatio: f(40, 22),   // 40 pts but 1.8x -> epic, not legendary
+          tiny: f(6, 1),            // a kicker beating a 1.0 projection sixfold -> white
           none: f(null, 10),        // hasn't played
+          noProj: f(40, null),      // no projection to judge him by -> the floors alone decide
         };
       }) || {};
-      ok(h.solid === 0 && h.tiny === 0 && h.none === 0,
-        "no ember for a solid day, a tiny score that beat a tiny projection, or a man who hasn't played (" + JSON.stringify([h.solid, h.tiny, h.none]) + ")");
-      ok(h.under === 0, "…nor for a stud merely doing his job (24 pts on a 20-pt projection)");
-      ok(h.floor === 1 && h.hot === 1 && h.blazePts === 1, "tier 1 at the 18pt/1.5x floor, and 30 pts at only 1.5x stays tier 1 (" + JSON.stringify([h.floor, h.hot, h.blazePts]) + ")");
-      ok(h.blaze === 2, "tier 2 needs BOTH 28+ points and 2x the projection (32 on a 10 = " + h.blaze + ")");
+      ok(h.quiet === 0 && h.tiny === 0 && h.none === 0,
+        "white for a modest day, a tiny score that beat a tiny projection, or a man who hasn't played (" + JSON.stringify([h.quiet, h.tiny, h.none]) + ")");
+      ok(h.under === 0, "…and white for a stud merely doing his job (24 pts on a 20-pt projection)");
+      ok(h.green === 1 && h.greenEdge === 1, "green at the 12pt/1.25x floor (" + JSON.stringify([h.green, h.greenEdge]) + ")");
+      ok(h.blue === 2 && h.blueRatio === 2, "blue at 18/1.5x — and 30 pts at only 1.5x stays BLUE, the ratio gate bites (" + JSON.stringify([h.blue, h.blueRatio]) + ")");
+      ok(h.purple === 3, "purple needs BOTH 26+ and 1.8x (30 on a 12 = " + h.purple + ")");
+      ok(h.orange === 4 && h.orangeRatio === 3, "orange needs BOTH 36+ and 2.1x — 40 pts at 1.8x is epic, not legendary (" + JSON.stringify([h.orange, h.orangeRatio]) + ")");
+      ok(h.noProj === 4, "…and with NO projection to beat, the floors alone decide rather than silently failing every rung (" + h.noProj + ")");
       await ctx.close();
     }
     {
@@ -9423,44 +9434,62 @@ async function openDetails(page, id) {
         const cellFor = (nm) => [...document.querySelectorAll(".mutable .pcellgrid")].find((c) => c.textContent.includes(nm));
         const hot = cellFor("P. Passer"), cool = cellFor("R. Rusher");
         const css = [...document.styleSheets].flatMap((s) => { try { return [...s.cssRules].map((x) => x.cssText); } catch { return []; } });
-        const rule = css.filter((t) => /\[data-heat\]/.test(t)).join(" ");
+        const rule = css.filter((t) => /\[data-loot="4"\]/.test(t)).join(" ");
+        // The CONTRAST claim is measured here rather than trusted: WoW's own rare/epic land at
+        // ~3.5:1 on this card, so the shipped palette lifts those two, and a future edit that
+        // quietly puts the true WoW values back must fail rather than merely look wrong.
+        const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        const lum = (s) => { const m = s.match(/\d+/g).map(Number); return 0.2126 * lin(m[0]) + 0.7152 * lin(m[1]) + 0.0722 * lin(m[2]); };
+        const contrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+        // The cell paints no background of its own, so the score sits on the card behind it.
+        const behind = getComputedStyle(document.querySelector(".mutable").closest(".card")).backgroundColor;
         return {
-          heat: hot && hot.getAttribute("data-heat"),
+          loot: hot && hot.getAttribute("data-loot"),
           pts: hot && (hot.querySelector(".pts") || {}).textContent,
-          coolHeat: cool ? cool.getAttribute("data-heat") : "none",
+          coolLoot: cool ? cool.getAttribute("data-loot") : "none",
           sameH: hot && cool ? Math.round(hot.getBoundingClientRect().height) === Math.round(cool.getBoundingClientRect().height) : null,
-          // The NAME must be untouched — the effect may not cost readability.
+          // The NAME must be untouched — the colour may not cost readability.
           nameColor: hot ? getComputedStyle(hot.querySelector(".pname b")).color : "",
           coolName: cool ? getComputedStyle(cool.querySelector(".pname b")).color : "",
+          scoreColor: hot ? getComputedStyle(hot.querySelector(".pts")).color : "",
+          coolScore: cool ? getComputedStyle(cool.querySelector(".pts")).color : "",
+          ratio: hot ? contrast(getComputedStyle(hot.querySelector(".pts")).color, behind) : 0,
           title: hot ? hot.getAttribute("title") : "",
           animated: /animation/.test(rule),
-          reduced: css.some((t) => /prefers-reduced-motion/.test(t) && /data-heat/.test(t)),
+          reduced: css.some((t) => /prefers-reduced-motion/.test(t) && /data-loot/.test(t)),
+          // …and the legendary rim belongs to legendary ALONE — an epic row must not breathe.
+          rimOnEpic: hot ? getComputedStyle(hot).animationName : "",
         };
       }) || {};
-      // 34.0, not the 32.0 I first wrote: 400 yds × 0.04 = 16, 4 TD × 4 = 16, AND the fixture's
-      // scoring plays hand him a 2-pt conversion (applyScoringPlays) = 34.0. My arithmetic
-      // missed the two-pointer; the tier was right all along. 34 ≥ 28 and 34/10 = 3.4 ≥ 2.
-      ok(r.pts === "34.0" && r.heat === "2", "a 34.0 line on a 10.0 projection renders the BLAZING tier (" + JSON.stringify([r.pts, r.heat]) + ")");
-      ok(r.coolHeat === null, "…and an ordinary team-mate carries no heat attribute at all (" + r.coolHeat + ")");
-      ok(r.sameH === true, "…the ember is PAINTED, not laid out — the row measures exactly its neighbour's height");
+      // 34.0: 400 yds × 0.04 = 16, 4 TD × 4 = 16, plus the fixture's 2-pt conversion. Against
+      // his 10.0 pre-game projection that is 34 ≥ 26 and 3.4× ≥ 1.8 → EPIC, and deliberately
+      // NOT legendary: the top rung wants 36. THE DENOMINATOR MATTERS — an earlier cut divided
+      // by liveProj, which already contains the points scored, so nothing could ever fire
+      // mid-game; this check is what pins the pre-game projection in place.
+      ok(r.pts === "34.0" && r.loot === "3", "a 34.0 line on a 10.0 projection renders EPIC — and not legendary, which wants 36 (" + JSON.stringify([r.pts, r.loot]) + ")");
+      ok(r.coolLoot === null, "…and an ordinary team-mate carries no rarity attribute at all (" + r.coolLoot + ")");
+      ok(r.sameH === true, "…the colour is PAINTED, not laid out — the row measures exactly its neighbour's height");
       ok(!!r.nameColor && r.nameColor === r.coolName, "…the player's NAME keeps its ordinary ink — readability is untouched (" + r.nameColor + ")");
-      ok(/34\.0 pts/.test(r.title || "") && /Blazing/.test(r.title || ""), "…and it says so in words for a screen reader (" + r.title + ")");
-      ok(r.animated === true && r.reduced === true, "the rule animates AND ships a prefers-reduced-motion escape");
-      ok(errors.length === 0, "0 page errors with the ember on screen");
+      ok(!!r.scoreColor && r.scoreColor !== r.coolScore, "…while the SCORE takes the tier's colour, and the baseline score does not (" + r.scoreColor + " vs " + r.coolScore + ")");
+      ok(r.ratio >= 4.5, "…at " + (r.ratio || 0).toFixed(2) + ":1 against the card — clear of the 4.5:1 AA bar, which WoW's own #a335ee (3.54:1) is not");
+      ok(/34\.0 pts/.test(r.title || "") && /Epic/.test(r.title || ""), "…and the title NAMES the tier, because a colour alone means nothing to a non-WoW-player or a screen reader (" + r.title + ")");
+      ok(r.animated === true && r.reduced === true, "the legendary rule animates AND ships a prefers-reduced-motion escape");
+      ok(r.rimOnEpic === "none", "…but the breathing rim is legendary's ALONE — an epic row does not pulse (" + r.rimOnEpic + ")");
+      ok(errors.length === 0, "0 page errors with the rarity colours on screen");
       if (SHOTS) {
-        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_biggame_desktop.png") });
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_loot_desktop.png") });
         await page.setViewport({ width: 390, height: 844 });
         await sleep(300);
         await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
         await sleep(250);
-        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_biggame_390.png") });
-        console.log("  📸 shots/gffl_biggame_{390,desktop}.png");
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_loot_390.png") });
+        console.log("  📸 shots/gffl_loot_{390,desktop}.png");
       }
       await ctx.close();
       fixture.bigGame = false;
     }
 
-    // ---- AD5d: ?demo=ember — the look-only score override (2026-08-15, user: "since I can't
+    // ---- AD5d: ?demo=loot — the look-only score override (2026-08-15, user: "since I can't
     // see an example right now, lets override a player result to 40 points so I can see it in
     // action"). The ember is a rendering EXPERIMENT the family judges on their own phone, and
     // out of season nothing scores 40. What has to be TRUE of a demo that ships to production:
@@ -9481,30 +9510,41 @@ async function openDetails(page, id) {
       // (b) ON: the viewer's own two starters land in the two tiers, off the REAL bigGame()
       // arithmetic — the demo supplies numbers, it does not paint the effect on directly.
       // The EXACT url handed to the family — query before hash (this repo has put the query
-      // inside the hash before, and then `location.hash` reads "matchup?demo=ember" and the
+      // inside the hash before, and then `location.hash` reads "matchup?demo=loot" and the
       // deep link silently lands on the league home instead).
-      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "&demo=ember#matchup", { waitUntil: "networkidle0" });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "&demo=loot#matchup", { waitUntil: "networkidle0" });
       await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
       await waitLive(page);
       await page.waitForSelector(".muhead", { timeout: 9000 });
       ok(await page.evaluate(() => window.__GFFL__.UI.view === "matchup"),
         "…and the link lands straight on the matchup, no tapping required");
       const dm = await evalOr(page, () => {
-        const rows = [...document.querySelectorAll(".pcellgrid[data-heat]")];
+        const rows = [...document.querySelectorAll(".pcellgrid[data-loot]")];
+        const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        const lum = (s) => { const m = s.match(/\d+/g).map(Number); return 0.2126 * lin(m[0]) + 0.7152 * lin(m[1]) + 0.0722 * lin(m[2]); };
+        const behind = getComputedStyle(document.querySelector(".mutable").closest(".card")).backgroundColor;
+        const cr = (s) => { const x = lum(s), y = lum(behind); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+        const colors = rows.map((r) => getComputedStyle(r.querySelector(".pts")).color);
         return {
           armed: window.__GFFL__.D.demo ? window.__GFFL__.D.demo.pts.size : 0,
-          tiers: rows.map((r) => r.getAttribute("data-heat")).sort(),
+          tiers: rows.map((r) => r.getAttribute("data-loot")).sort(),
           pts: rows.map((r) => (r.querySelector(".pts") || {}).textContent).sort(),
+          colors,
+          worstContrast: Math.min(...colors.map(cr)),
+          distinct: new Set(colors).size,
           // …and the fabricated points really do reach the team total, the way a real big
           // game would — the demo moves the whole card, not one badge.
           tot: [...document.querySelectorAll(".mubig .bigpts, .bigpts")].map((e) => e.textContent),
         };
       }, {});
-      ok(dm.armed === 2, "?demo=ember arms exactly two of the viewer's own starters (" + dm.armed + ")");
-      ok(JSON.stringify(dm.tiers) === '["1","2"]',
-        "…one in each tier, decided by the real bigGame() rule (40 on 12 blazing, 20 on 12 hot) — " + JSON.stringify(dm.tiers));
-      ok(dm.pts.includes("40.0") && dm.pts.includes("20.0"),
+      ok(dm.armed === 4, "?demo=loot arms four of the viewer's own starters (" + dm.armed + ")");
+      ok(JSON.stringify(dm.tiers) === '["1","2","3","4"]',
+        "…one on EVERY coloured rung, decided by the real rarity() rule — " + JSON.stringify(dm.tiers));
+      ok(dm.pts.includes("42.0") && dm.pts.includes("30.0") && dm.pts.includes("20.0") && dm.pts.includes("14.0"),
         "…and those are the scores on screen (" + JSON.stringify(dm.pts) + ")");
+      ok(dm.distinct === 4, "…in four DISTINCT colours — the whole ladder is legible at a glance (" + JSON.stringify(dm.colors) + ")");
+      ok(dm.worstContrast >= 4.5,
+        "…and the worst of the four clears AA at " + (dm.worstContrast || 0).toFixed(2) + ":1 against the card");
       // (c) THE SAFETY HALF. Fabricated scores reach D.livePts, so without this refusal they
       // could reach weekly_<season>_w1 — write-once — and stand there all season.
       const finOn = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1));
@@ -9518,6 +9558,21 @@ async function openDetails(page, id) {
       const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => /demo|ember/i.test(k)));
       ok(stored.length === 0, "…and it writes NOTHING to localStorage — closing the tab ends it (" + JSON.stringify(stored) + ")");
       ok(errors.length === 0, "0 page errors across the demo override");
+      if (SHOTS) {
+        // The ladder in ONE frame is the whole point — a single tier in isolation says nothing
+        // about whether five steps read as a scale.
+        await page.setViewport({ width: 1440, height: 900 });
+        await sleep(300);
+        await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
+        await sleep(250);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_loot_ladder_desktop.png") });
+        await page.setViewport({ width: 390, height: 844 });
+        await sleep(300);
+        await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
+        await sleep(250);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_loot_ladder_390.png") });
+        console.log("  📸 shots/gffl_loot_ladder_{390,desktop}.png");
+      }
       await ctx.close();
     }
 

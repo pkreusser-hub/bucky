@@ -3823,29 +3823,46 @@
   // what keeps the big number on the name's own baseline.
   // An empty half renders the SAME three-line shape with a muted "Empty" — never a bare "—" —
   // so both columns stay aligned however the two rosters differ.
-  // IS THIS MAN HAVING A HUGE GAME? (2026-08-14, user: "some effects for players that are
-  // having a huge game… something that doesn't interfere with readability but immediately
-  // shows a player is having a big game.") Two conditions, BOTH required, so neither a garbage-
-  // time projection miss nor a merely-solid day lights up:
+  // HOW GOOD IS THIS MAN'S DAY? — the WoW LOOT RARITY ladder (2026-08-15, user: "lets use the
+  // color convention for world of warcraft loot, where baseline is white, then green, blue,
+  // purple and then orange"). SUPERSEDES the 2026-08-14 two-tier ember: five steps instead of
+  // two, on a scale the family can already read without being taught it.
+  //
+  // The JUDGEMENT is unchanged and still needs BOTH conditions at every rung, so neither a
+  // garbage-time projection miss nor a stud doing his job lights up:
   //   · a real SCORE in absolute terms — a 9-point day is nobody's big game however it was
-  //     projected, and a kicker who was projected 1.0 must not catch fire for scoring 4;
-  //   · well AHEAD of what he was projected for — that is what makes it a *big* game rather
-  //     than a stud doing his job.
-  // Returns 0 (nothing), 1 (hot) or 2 (blazing) so the effect can escalate rather than being
-  // one binary state everybody hits. A player whose game hasn't started can never be hot.
-  const HEAT = { ptsHot: 18, ptsBlaze: 28, ratioHot: 1.5, ratioBlaze: 2.0 };
-  function bigGame(pts, proj, p) {
+  //     projected, and a kicker projected 1.0 must not go green for scoring 4;
+  //   · well AHEAD of what he was projected for — that is what makes it a *big* game.
+  // The old ember's two rungs survive inside the ladder (its "hot" IS rare, its "blazing" is
+  // roughly epic), so nothing that used to light up has gone quiet; green and orange extend
+  // the scale in both directions.
+  //
+  // WHERE THE COLOUR GOES — the one deliberate deviation from WoW, which tints the item NAME.
+  // Here the colour rides the SCORE, for two reasons: the score is the number that earned the
+  // tier, and the name is the row's most-read text — the brief that started this was
+  // "something that doesn't interfere with readability", so the name stays stable ink. In a
+  // loot list you scan by name; in a lineup you scan by score, so the score is the true
+  // analogue of the thing WoW is colouring.
+  const LOOT = [
+    { t: 1, name: "Uncommon",  pts: 12, ratio: 1.25 },
+    { t: 2, name: "Rare",      pts: 18, ratio: 1.5 },
+    { t: 3, name: "Epic",      pts: 26, ratio: 1.8 },
+    { t: 4, name: "Legendary", pts: 36, ratio: 2.1 },
+  ];
+  function rarity(pts, proj) {
     const s = Number(pts);
-    if (!Number.isFinite(s) || s < HEAT.ptsHot) return 0;
-    // No projection to beat (a rookie, a replay board) — judge on the score alone, which is
-    // why the absolute tier exists at all.
+    if (!Number.isFinite(s)) return 0;
+    // No projection to judge him against (a rookie, a replay board, a game not yet projected)
+    // — waive the ratio gate and let the floors decide on the score alone. Silently failing
+    // every rung would make an unprojected 40-point game look ordinary.
     const pr = Number(proj);
-    const ratio = Number.isFinite(pr) && pr > 0 ? s / pr : (s >= HEAT.ptsBlaze ? 99 : 0);
-    if (s >= HEAT.ptsBlaze && ratio >= HEAT.ratioBlaze) return 2;
-    if (ratio >= HEAT.ratioHot) return 1;
-    return 0;
+    const ratio = Number.isFinite(pr) && pr > 0 ? s / pr : Infinity;
+    let t = 0;
+    for (const r of LOOT) if (s >= r.pts && ratio >= r.ratio) t = r.t;
+    return t;
   }
-  UI._bigGame = bigGame; // test hook — the thresholds are asserted, not eyeballed
+  UI._rarity = rarity;                       // test hook — the thresholds are asserted, not eyeballed
+  UI._lootName = (t) => (LOOT[t - 1] || {}).name || "";
   function halfCell(p, side) {
     let nameHtml, metaHtml, statHtml, ptsHtml, projHtml, ball = false, heat = 0, heatPts = null, titleAttr = "";
     if (!p) {
@@ -3879,7 +3896,7 @@
       // he has scored. Dividing by it makes the ratio approach 1 from below and the effect
       // could never fire mid-game, which is the only time it means anything. (Caught on the
       // review plate: no fixture player lit up, and this is why.)
-      heat = bigGame(pts, d.projFor(p.key), p); heatPts = pts;
+      heat = rarity(pts, d.projFor(p.key)); heatPts = pts;
       const conflict = row && row.conflict ? '<span class="conflictflag" title="Sources disagree">CONFLICT</span>' : "";
       // ESPN-style stat summary line ("312 pass yds, 2 TD" / "6 rec, 84 yds"), from whichever
       // source mergeRow picked. "" before any stat lands — the LINE still reserves its height.
@@ -3939,11 +3956,11 @@
     // face would hand it straight back); an empty half carries the placeholder disc so the
     // desktop column keeps one edge.
     const shot = p ? pshotHtml(p.key, "mushot") : pshotPh("mushot");
-    // data-heat drives the CSS ember effect (see .pcellgrid[data-heat] in league.html); the
-    // title says in words what the glow says in colour, because an effect on its own is not
-    // an accessible statement.
-    const heatAttr = heat ? ` data-heat="${heat}" title="${heat === 2 ? "Blazing" : "Big game"} — ${LG.fmtPts(heatPts)} pts"` : "";
-    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}${heat ? " hot" : ""}"${ball && !heat ? ' title="Has the ball"' : ""}${heatAttr}${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
+    // data-loot drives the rarity colour (see .pcellgrid[data-loot] in league.html); the title
+    // NAMES the tier, because a colour on its own is not an accessible statement — and this
+    // particular colour scale means nothing at all to anyone who has never played WoW.
+    const lootAttr = heat ? ` data-loot="${heat}" title="${UI._lootName(heat)} — ${LG.fmtPts(heatPts)} pts"` : "";
+    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}${heat ? " loot" : ""}"${ball && !heat ? ' title="Has the ball"' : ""}${lootAttr}${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
   }
   // The ESPN-reference stat summary for a matchup row: a compact position-aware line built
   // from the stats of whichever source mergeRow() picked for display (row.src — the same

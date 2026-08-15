@@ -787,36 +787,46 @@
      the text when it appears. */
   .pcellgrid { padding:2px 3px; border-radius:var(--radius-badge); }
   .pcellgrid.hasball .mushot, .lrow.hasball .lkshot { border-color:var(--gold); box-shadow:inset 0 0 0 2px var(--gold); }
-  /* ---- BIG GAME (2026-08-14, user: "some effects for players that are having a huge game…
-     something that doesn't interfere with readability but immediately shows a player is
-     having a big game"). An EMBER wash behind the row plus a breathing inset rim — painted,
-     never laid out, so the "exactly even height for every player" rule survives and no text
-     moves. The text itself is untouched (no colour change on the name, meta or stat line);
-     only the SCORE warms up, which is the number the effect is about.
-     Two tiers so it escalates instead of everyone hitting one state: 1 = big game (amber),
-     2 = blazing (deeper orange, faster breath, and the score itself glows).
-     Motion is a slow 2.6s breath, not a flicker — and it is switched OFF WHOLESALE under
-     prefers-reduced-motion, where the static wash alone still says "big game". */
-  .pcellgrid[data-heat] { background:linear-gradient(90deg, rgba(255,138,26,.16), rgba(255,138,26,.05) 62%, transparent); }
-  .pcellgrid[data-heat].right { background:linear-gradient(270deg, rgba(255,138,26,.16), rgba(255,138,26,.05) 62%, transparent); }
-  .pcellgrid[data-heat="2"] { background:linear-gradient(90deg, rgba(255,94,20,.26), rgba(255,138,26,.09) 62%, transparent); }
-  .pcellgrid[data-heat="2"].right { background:linear-gradient(270deg, rgba(255,94,20,.26), rgba(255,138,26,.09) 62%, transparent); }
-  .pcellgrid[data-heat] .ppts .pts { color:#ffb15a; }
-  .pcellgrid[data-heat="2"] .ppts .pts { color:#ff8f3a; text-shadow:0 0 10px rgba(255,120,30,.55); }
-  /* The rim is an OUTLINE, deliberately, not a box-shadow: box-shadow is already spoken for by
+  /* ---- LOOT RARITY (2026-08-15, user: "lets use the color convention for world of warcraft
+     loot, where baseline is white, then green, blue, purple and then orange"). SUPERSEDES the
+     2026-08-14 two-tier ember wash: five steps rather than two, on a scale the family already
+     reads, and far quieter — a tinted number instead of a lit-up row.
+
+     THE PALETTE IS WoW's, LIFTED ONLY WHERE IT HAD TO BE, and the numbers are measured against
+     this card (--nested2 #151b26), not eyeballed:
+        uncommon  #1eff00  WoW exact          12.62:1
+        rare      #0070dd  WoW exact           3.59:1  ->  #1f8fff  5.29:1
+        epic      #a335ee  WoW exact           3.54:1  ->  #c56bff  5.69:1
+        legendary #ff8000  WoW exact           6.85:1
+     WoW paints those two on near-black chat text; our card is lighter, and at 3.5:1 the middle
+     two rungs would have been the HARDEST to read on the whole ladder — backwards, and under
+     the 4.5:1 AA bar for the row's most-scanned number. Lifting the luminance keeps both hues
+     unmistakably "rare blue" and "epic purple" and clears AA at any size. Green and orange
+     needed nothing and are WoW's own values untouched.
+
+     Colour rides the SCORE only — the name, meta and stat line keep their ordinary ink, which
+     is what the brief that started this ("doesn't interfere with readability") demands. The
+     row itself gets NO wash: five tinted numbers down a lineup read cleanly, five washed rows
+     would be a paint chart. */
+  .pcellgrid[data-loot="1"] .ppts .pts { color:#1eff00; }
+  .pcellgrid[data-loot="2"] .ppts .pts { color:#1f8fff; }
+  .pcellgrid[data-loot="3"] .ppts .pts { color:#c56bff; }
+  .pcellgrid[data-loot="4"] .ppts .pts { color:#ff8000; text-shadow:0 0 10px rgba(255,128,0,.45); }
+  /* LEGENDARY, and only legendary, keeps a breathing rim — in WoW an orange drop stops the
+     raid, and a tier nobody hits most weeks has earned a flourish the other four have not.
+     The rim is an OUTLINE, deliberately, not a box-shadow: box-shadow is already spoken for by
      the mobile possession edge (.pcellgrid.hasball.left/right), and an animation on the same
      property would silently win and erase the gold "has the ball" cue for exactly the players
      most likely to have both. outline is inset with a negative offset, is painted rather than
-     laid out, and leaves box-shadow entirely to possession. */
-  @keyframes gfflEmber {
-    0%, 100% { outline-color:rgba(255,138,26,.28); }
-    50%      { outline-color:rgba(255,175,70,.78); }
+     laid out, so the "exactly even height for every player" rule survives and no text moves. */
+  @keyframes gfflLegendary {
+    0%, 100% { outline-color:rgba(255,128,0,.26); }
+    50%      { outline-color:rgba(255,168,60,.72); }
   }
-  .pcellgrid[data-heat] { outline:1.5px solid rgba(255,138,26,.28); outline-offset:-1.5px;
-                          border-radius:var(--radius-badge); animation:gfflEmber 2.6s ease-in-out infinite; }
-  .pcellgrid[data-heat="2"] { animation-duration:1.7s; }
+  .pcellgrid[data-loot="4"] { outline:1.5px solid rgba(255,128,0,.26); outline-offset:-1.5px;
+                              border-radius:var(--radius-badge); animation:gfflLegendary 2.2s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) {
-    .pcellgrid[data-heat] { animation:none; outline-color:rgba(255,160,50,.6); }
+    .pcellgrid[data-loot="4"] { animation:none; outline-color:rgba(255,150,40,.6); }
   }
   @media (max-width:1023px) {
     .pcellgrid.hasball.left  { box-shadow:inset 3px 0 0 var(--gold); }

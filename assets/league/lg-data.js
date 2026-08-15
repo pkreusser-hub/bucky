@@ -331,10 +331,11 @@
   };
   D.EP = {}; // endpoint bookkeeping (fftest pattern) — feeds the health page
 
-  // ---------------- ?demo=ember — a LOOK-ONLY score override (2026-08-15) ----------------
-  // The big-game ember is a rendering EXPERIMENT the family has to judge on their own phone,
-  // and out of season nothing is scoring 40. This forces two of the viewer's own starters
-  // into the two heat tiers so the effect can be seen beside untouched rows.
+  // ---------------- ?demo=loot — a LOOK-ONLY score override (2026-08-15) ----------------
+  // The loot-rarity scale is a rendering EXPERIMENT the family has to judge on their own
+  // phone, and out of season nothing is scoring 40. This forces four of the viewer's own
+  // starters onto the four coloured rungs so the whole ladder can be seen at once, with the
+  // untouched rows below them standing as the white baseline.
   //
   // THREE RULES, all load-bearing:
   //   * URL-ONLY, never persisted. Unlike ?sim= and ?look=, this writes NO localStorage — a
@@ -348,17 +349,30 @@
   D.demo = null;
   try {
     const dq = new URLSearchParams(location.search).get("demo");
-    if (dq === "ember") D.demo = { kind: "ember", pts: new Map(), proj: new Map() };
+    // "ember" is kept as an alias so the link already handed out keeps working; the two-tier
+    // ember it named is superseded by the five-rung ladder.
+    if (dq === "loot" || dq === "ember") D.demo = { kind: "loot", pts: new Map(), proj: new Map() };
   } catch (e) { /* no location (tests/node) — no demo, which is the right default */ }
   D.demoActive = function () { return !!(D.demo && D.demo.kind); };
   // Arms the override against whichever starters are actually on screen. Called by the
   // matchup renderer with the viewer's own starter keys, so it lands on real players rather
   // than guessing at ids. Idempotent — re-running on a poll tick keeps the same two.
+  // Each pair clears its rung's BOTH gates and neither of the rung above's, so the ladder
+  // shows one of every colour rather than four of the brightest.
+  D.DEMO_RUNGS = [
+    [42, 12],   // 42 on 12 → LEGENDARY (42 ≥ 36, 3.5× ≥ 2.1)
+    [30, 12],   // 30 on 12 → EPIC      (30 ≥ 26, 2.5× ≥ 1.8, under 36)
+    [20, 12],   // 20 on 12 → RARE      (20 ≥ 18, 1.7× ≥ 1.5, under 26)
+    [14, 10],   // 14 on 10 → UNCOMMON  (14 ≥ 12, 1.4× ≥ 1.25, under 18)
+  ];
   D.demoArm = function (keys) {
     if (!D.demoActive() || D.demo.pts.size) return;
     const usable = (keys || []).filter((k) => k && !/^dst_/.test(k));
-    if (usable[0]) { D.demo.pts.set(usable[0], 40); D.demo.proj.set(usable[0], 12); }   // 40 on 12 → BLAZING (40≥28, 3.3×)
-    if (usable[1]) { D.demo.pts.set(usable[1], 20); D.demo.proj.set(usable[1], 12); }   // 20 on 12 → hot (20≥18, 1.7×)
+    D.DEMO_RUNGS.forEach(([pts, proj], i) => {
+      if (!usable[i]) return;
+      D.demo.pts.set(usable[i], pts);
+      D.demo.proj.set(usable[i], proj);
+    });
   };
 
   async function fx(name, url) {
