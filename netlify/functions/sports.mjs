@@ -1010,6 +1010,73 @@ async function ffPctOwned(body) {
   }
 }
 
+// ---------------- ownership: %rostered + %started, whole-pool (Moves players table) -------
+// The Moves table's %ROST/%START columns. DELIBERATELY NOT ffPctOwned's cousin: that one
+// answers "these 40 specific ids" through the private LEAGUE endpoint and therefore needs
+// the cookies; this one reads ESPN's PUBLIC per-season PLAYER pool, which needs NO auth at
+// all, and hands back the top N by ownership in one go — the table wants ownership for a
+// whole browsable pool, not for a hand-picked handful.
+//
+// PROBED LIVE 2026-08-15 before a line of this was written, and two of the findings matter:
+//   * The X-FANTASY-FILTER MUST BE TOP-LEVEL. The nested {players:{...}} shape every other
+//     call in this file uses is silently IGNORED here — the server answers 200 with all
+//     ~11,573 players and ~39 MB. `{filterActive, limit, sortPercOwned}` at the top level
+//     is honoured (300 rows, sorted by %owned desc, ~8.8 MB, ~950 ms).
+//   * The response is a BARE ARRAY of player objects — no {players:[...]} wrapper and no
+//     per-row {player:{...}} envelope. Both are tolerated below anyway (ESPN has moved a
+//     recipe under us before), but the array is what really comes back.
+// The browser UA is correct for lm-api-reads (see NFL_UA's note — do NOT use the curl UA
+// here; that is site.api.espn.com's inverse rule).
+const OWN_LIMIT_DEFAULT = 300;
+const OWN_LIMIT_MAX = 500;
+const OWN_TTL_MS = 30 * 60e3;
+// Warm-invocation cache. 8.8 MB in, a few KB out — a family of six opening Moves must not
+// pull that payload six times over. Keyed by season+limit so a different ask is a different
+// entry rather than a wrong answer, and only a SUCCESS is ever cached (a failure must be
+// retryable on the very next call, the same discipline D.weekStats uses client-side).
+let ownCache = null; // { key, at, payload }
+async function nflOwnership(body) {
+  const year = Number(body?.year) >= 2000 && Number(body?.year) <= 2100 ? Number(body.year) : ffSeason();
+  const asked = Number(body?.limit);
+  const limit = Number.isFinite(asked) ? Math.max(1, Math.min(OWN_LIMIT_MAX, Math.floor(asked))) : OWN_LIMIT_DEFAULT;
+  const key = year + ":" + limit;
+  if (ownCache && ownCache.key === key && Date.now() - ownCache.at < OWN_TTL_MS) return ownCache.payload;
+  const url = FF_BASE + "/apis/v3/games/ffl/seasons/" + year + "/players?scoringPeriodId=0&view=kona_player_info";
+  const filter = { filterActive: { value: true }, limit, sortPercOwned: { sortAsc: false, sortPriority: 1 } };
+  let r;
+  try {
+    r = await fetch(url, {
+      headers: { "User-Agent": UA, accept: "application/json", "x-fantasy-filter": JSON.stringify(filter) },
+    });
+  } catch {
+    return { ok: false, reason: "unreachable" };
+  }
+  if (!r.ok) return { ok: false, reason: "http-" + r.status };
+  let j;
+  try { j = await r.json(); } catch { return { ok: false, reason: "bad-json" }; }
+  try {
+    const rows = Array.isArray(j) ? j : (Array.isArray(j?.players) ? j.players : []);
+    const players = {};
+    for (const e of rows) {
+      const p = e?.player || e || {};
+      const id = Number(p?.id);
+      if (!Number.isInteger(id) || id <= 0) continue;
+      const o = p?.ownership || {};
+      // A player ESPN has no ownership figure for is ABSENT, never a fabricated 0 — the
+      // client renders "—" for a missing entry, which is the honest answer (ffPctOwned's
+      // own rule, and the same reason the table's other columns read "—" rather than 0.0).
+      const owned = r1(o.percentOwned), started = r1(o.percentStarted);
+      if (owned == null && started == null) continue;
+      players[String(id)] = [owned == null ? 0 : owned, started == null ? 0 : started];
+    }
+    const payload = { ok: true, season: year, players };
+    ownCache = { key, at: Date.now(), payload };
+    return payload;
+  } catch {
+    return { ok: false, reason: "bad-shape" };
+  }
+}
+
 // ---------------- handler ----------------
 
 export default async (req) => {
@@ -1038,6 +1105,7 @@ export default async (req) => {
   if (body.action === "ff_lastdraft") return json(await ffLastDraft(body), 200, headers);
   if (body.action === "ff_player") return json(await ffPlayer(body), 200, headers);
   if (body.action === "ff_pct_owned") return json(await ffPctOwned(body), 200, headers);
+  if (body.action === "nfl_ownership") return json(await nflOwnership(body), 200, headers);
   return json({ error: "Unknown action" }, 400, headers);
 };
 

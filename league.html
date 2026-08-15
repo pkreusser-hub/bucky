@@ -210,17 +210,37 @@
              letter-spacing:.8px; }
   .poschip.on { background:var(--blue); border-color:var(--blue); color:#fff; }
   /* ESPN-style sortable stats table (2026-08-08 rework, columns re-ordered 2026-08-09 by
-     ITEM 22) — PLAYER · ADD · TYPE · PROJ · LAST · OPP · AVG, every header a sort control
-     (.thsort). STATUS, SCORE and FPTS were dropped with the re-order; see faRowHtml's own
-     note, which spells out what that costs.
+     ITEM 22) — PLAYER · ADD · TYPE · PROJ · LAST · OPP · AVG · %ROST · %START, every header a
+     sort control (.thsort). STATUS, SCORE and FPTS were dropped with the re-order; see
+     faRowHtml's own note, which spells out what that costs.
      .faname is sticky-left so it stays in view while the rest of the row pans inside .panner
-     on a phone — cheap since the table already lives in an overflow-x:auto container. */
+     on a phone — cheap since the table already lives in an overflow-x:auto container.
+
+     2026-08-15 (user: "consistent column widths where possible", on BOTH mobile and desktop).
+     The per-cell min-widths this replaces were only ever a FLOOR — the auto table layout then
+     grew whichever column happened to hold the longest text in the current pool, so the same
+     column sat at a different width on every re-sort and the numbers never formed a column.
+     Now: table-layout:fixed, widths declared ONCE on the <col> elements lg-ui.js emits (a body
+     cell's width is ignored under fixed layout, and the header row's th elements carry .thsort
+     rather than the per-column classes — the colgroup is the only place that can express it).
+       * every numeric/short column shares ONE width (col.facol)
+       * PLAYER is the only auto column, so on a desktop it absorbs all the slack
+       * the TABLE's min-width is PLAYER's floor: below it the table pans inside .panner
+         rather than squeezing the name to nothing
+     Desktop min-width = 200 (PLAYER floor) + 76 (ADD) + 58 (TYPE) + 6x68 = 742.
+     Mobile  min-width = 144 (PLAYER floor) + 58 (ADD) + 44 (TYPE) + 6x52 = 558. */
+  table.faTable { table-layout:fixed; min-width:742px; }
+  table.faTable col.facol { width:68px; }
+  table.faTable col.facol-player { width:auto; }
+  table.faTable col.facol-add { width:76px; }
+  table.faTable col.facol-type { width:58px; }
   table.faTable tbody tr { cursor:pointer; }
-  table.faTable .faname { width:180px; min-width:180px; position:sticky; left:0; background:var(--card); z-index:1; }
+  table.faTable .faname { position:sticky; left:0; background:var(--card); z-index:1; overflow:hidden; }
   table.faTable .faname b { font-family:var(--font-body); font-weight:600; }
-  table.faTable .fatype, table.faTable .faopp { min-width:60px; }
-  table.faTable .faproj, table.faTable .faavg, table.faTable .falast { min-width:56px; }
-  table.faTable .faadd { text-align:left; min-width:70px; }
+  /* A fixed column can no longer grow to fit a long name, so it has to clip cleanly rather
+     than spill across the ADD button beside it. */
+  table.faTable .faname .faplytxt { overflow:hidden; text-overflow:ellipsis; }
+  table.faTable .faadd { text-align:left; }
   table.faTable thead th:first-child { position:sticky; left:0; background:var(--card); z-index:3; }
   .faAddBtn { padding:6px 12px; font-size:11.5px; }
   /* A row whose player is already owned gets a REAL disabled button naming the owner in its
@@ -230,24 +250,29 @@
   .faAddBtn:disabled:hover { border-color:var(--divider2); }
   /* ITEM 22's phone half: "on mobile view we need to be able to see add, type and projection
      without horizontal scrolling". At 390px the card's own content box is ~342px, and the
-     four columns that have to fit inside it are PLAYER + ADD + TYPE + PROJ. Measured budget
-     (re-cut 2026-08-13 for the headshot — a 22px face + 6px gap widened PLAYER by 28, and
-     the whole row still lands inside the box):
+     four columns that have to fit inside it are PLAYER + ADD + TYPE + PROJ. Re-cut 2026-08-15
+     for the fixed layout: the widths below are now EXACT (border-box, padding included),
+     not floors an auto layout could grow past, so the budget is arithmetic rather than an
+     estimate:
        144  PLAYER (sticky; 22px face + 6px gap + the 116 the text always had)
-        66  ADD    (a 58px button plus its cell)
+        58  ADD    (holds the 5px/10.5px button below)
         44  TYPE   ("FA" or a 2-4 character abbrev)
-        50  PROJ
-        32  4 cells x 8px of horizontal padding (was 16px a cell)
-      = 336, inside 342. Everything after PROJ pans as it always did. */
+        52  PROJ   (one shared numeric width — wide enough for the longest header, "%START")
+      = 298, inside 342. Everything after PROJ pans as it always did. */
   @media (max-width:560px) {
     table.faTable th, table.faTable td { padding:7px 4px; }
-    table.faTable .faname { width:144px; min-width:144px; }
+    table.faTable { min-width:558px; }
+    table.faTable col.facol { width:52px; }
+    /* RE-DECLARED, not inherited from the block above: `col.facol` here and `col.facol-player`
+       up there have the SAME specificity (0,2,2), and this rule comes later in the sheet — so
+       without this line PLAYER stops being the auto column, all nine columns end up with a
+       declared width totalling less than the table's min-width, and fixed layout hands the
+       leftover out EQUALLY, collapsing PLAYER to 62px alongside everything else. Measured. */
+    table.faTable col.facol-player { width:auto; }
+    table.faTable col.facol-add { width:58px; }
+    table.faTable col.facol-type { width:44px; }
     .faname .pshot { width:22px; height:22px; flex-basis:22px; }
     .faname .faply { gap:6px; }
-    table.faTable .faadd { min-width:58px; }
-    table.faTable .fatype { min-width:36px; }
-    table.faTable .faproj { min-width:42px; }
-    table.faTable .faopp, table.faTable .faavg, table.faTable .falast { min-width:48px; }
     .faAddBtn { padding:5px 7px; font-size:10.5px; letter-spacing:.4px; }
   }
   /* ---- ITEM 19 (2026-08-09): the Waivers card is three data blocks, no prose ----

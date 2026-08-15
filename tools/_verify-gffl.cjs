@@ -119,6 +119,7 @@ const fixture = {
   // one flaky pass) and flap health into sleeper-only, zeroing every player Sleeper's
   // preseason bucket didn't carry. Default off.
   espnSummariesDown: false,
+  bigGame: false,          // one starter posts a blazing line — the 2026-08-14 ember effect
   projS10: false,      // S10 — see slpProjS10
   // Coordinator addendum (2026-08-08) — the Scores tab's ff_scoreboard fixture (fake sports.mjs
   // fantasy upstream). Default false = the existing scored 2-matchup fixture; true = an
@@ -149,6 +150,12 @@ const fixture = {
   // realistically-sized pool of 2s and 3s (the base fixture's 19 players carry no depth data
   // at all, so the backup fill would have nothing to draft and every check would be vacuous).
   depthCharts: false,
+  // ---- 2026-08-15 (%ROST / %START on the Moves players table). Both default OFF.
+  // ownershipDown fails the FUNCTION (what the client sees); ownershipUpstreamDown fails
+  // ESPN itself (what the server sees). They are separate because nflOwnership caches a
+  // success for 30 minutes in module scope — see startSportsFfUpstream's own note.
+  ownershipDown: false,
+  ownershipUpstreamDown: false,
 };
 
 // ---------------- section AC: production-shaped identity data (2026-08-09) ----------------
@@ -574,11 +581,61 @@ function ffPctOwnedDoc(ids) {
       .map((id) => ({ id, player: { id, fullName: "P" + id, ownership: { percentOwned: PCT_OWNED_FIX[id] } } })),
   };
 }
-const sportsFfUp = { lastUrl: "", lastFilter: "", calls: 0 };
+// 2026-08-15: %ROST / %START for the Moves players table (sports.mjs's nfl_ownership).
+// PROBED LIVE against the real endpoint before this fixture was written, and the shape matters:
+// the /players read answers with a BARE ARRAY of player objects — NOT {players:[...]}, and NOT
+// a per-row {player:{...}} envelope like every other kona read in this file. A fixture wearing
+// the friendlier wrapper would have proved nothing about the real integration (the exact trap
+// the NFL summary fixture's own 2026-08-14 note records).
+// The numbers are chosen so every assertion downstream is hand-checkable and unambiguous:
+//   3915511 P. Passer  92.4 owned / 88.1 started  -> renders "92%" / "88%"
+//    222111 Q. Rival   61.8 owned / 12.3 started  -> renders "62%" / "12%"   (%ROST rounds UP)
+//    111222 T. Tight   55.0 owned / 44.0 started  -> renders "55%" / "44%"
+// THE TWO COLUMNS ORDER DIFFERENTLY ON PURPOSE — %ROST desc is Passer > Rival > Tight, %START
+// desc is Passer > TIGHT > RIVAL. That reversal is what proves the two are genuinely
+// independent sorts rather than one order wearing two labels (the same discipline the AVG/LAST
+// block above already uses). Every OTHER player is deliberately ABSENT so "ESPN doesn't know
+// him" renders "—" rather than a fabricated 0%.
+const OWNERSHIP_FIX = {
+  3915511: [92.4, 88.1],
+  222111: [61.8, 12.3],
+  111222: [55.0, 44.0],
+};
+function ownershipDoc() {
+  const rows = Object.keys(OWNERSHIP_FIX).map((id) => ({
+    id: Number(id), fullName: "Player " + id, defaultPositionId: 1, proTeamId: 21,
+    ownership: { percentOwned: OWNERSHIP_FIX[id][0], percentStarted: OWNERSHIP_FIX[id][1] },
+  }));
+  // Two rows the slimmer must DROP rather than pass through: a player ESPN carries with no
+  // ownership figures at all (absent from the answer, never a fabricated 0), and a row whose
+  // id isn't a usable player id. Neither collides with any roster key, so the client half of
+  // this fixture is unaffected by their presence.
+  rows.push({ id: 999888, fullName: "No Ownership", ownership: {} });
+  rows.push({ id: "not-an-id", fullName: "Bad Row", ownership: { percentOwned: 50, percentStarted: 50 } });
+  return rows;
+}
+const sportsFfUp = { lastUrl: "", lastFilter: "", calls: 0, ownCalls: 0, ownFilter: "", ownUrl: "" };
 function startSportsFfUpstream() {
   const srv = http.createServer((req, res) => {
     sportsFfUp.calls++;
     sportsFfUp.lastUrl = req.url;
+    // The PUBLIC per-season player pool (no /leagues/ segment) — nfl_ownership's own upstream.
+    if (/\/seasons\/\d+\/players\?/.test(req.url)) {
+      sportsFfUp.ownCalls++;
+      sportsFfUp.ownUrl = req.url;
+      sportsFfUp.ownFilter = String(req.headers["x-fantasy-filter"] || "");
+      // Two separate outage switches, deliberately. This one fails the UPSTREAM, for the
+      // server-side check that ESPN falling over becomes {ok:false, reason} at HTTP 200.
+      // fixture.ownershipDown (below, at the page's own /.netlify/functions/sports route)
+      // fails the FUNCTION instead — which is what the CLIENT sees, and which sidesteps
+      // nflOwnership's 30-minute module-scope cache: once any page in this process has
+      // fetched the default limit successfully, a later upstream outage would be answered
+      // out of that cache and the client's own failure path would never run.
+      if (fixture.ownershipUpstreamDown) { res.writeHead(500, { "Content-Type": "application/json" }); res.end("{}"); return; }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(ownershipDoc()));
+      return;
+    }
     res.writeHead(200, { "Content-Type": "application/json" });
     if (req.url.includes("view=kona_playercard")) {
       sportsFfUp.lastFilter = req.headers["x-fantasy-filter"] || "";
@@ -1114,8 +1171,13 @@ function sumAFix() {
       ],
       players: [
         { team: { abbreviation: "PHI" }, statistics: [
+          // fixture.bigGame (2026-08-14): a genuinely huge line so the big-game EMBER has
+          // something to fire on. 400 yds × 0.04 = 16, 4 TD × 4 = 16, no INT → 32.0 against a
+          // 10.0 pre-game projection = 3.2×, which clears the "blazing" tier (28 pts AND 2×).
+          // Default OFF, so every other section still scores its hand-computed 10.0.
           { name: "passing", labels: ["C/ATT", "YDS", "AVG", "TD", "INT"],
-            athletes: [ath("3915511", "P. Passer", "QB", p2 ? ["14/20", "175", "8.8", "2", "1"] : ["12/18", "150", "8.3", "1", "1"])] },
+            athletes: [ath("3915511", "P. Passer", "QB", fixture.bigGame ? ["25/33", "400", "12.1", "4", "0"]
+              : p2 ? ["14/20", "175", "8.8", "2", "1"] : ["12/18", "150", "8.3", "1", "1"])] },
           { name: "receiving", labels: ["REC", "YDS", "AVG", "TD", "LONG", "TGTS"],
             athletes: [ath("4361741", "W. Receiver", "WR", p2 ? ["5", "62", "12.4", "0", "24", "7"] : ["4", "50", "12.5", "0", "24", "6"])] },
         ] },
@@ -1702,6 +1764,12 @@ async function newTestPage(browser, seed, opts) {
         // function; answered here by the real sports.mjs handler in process against the
         // dedicated fixture above (startSportsFfUpstream).
         if (u.includes("/.netlify/functions/sports")) {
+          // 2026-08-15: the %ROST/%START outage switch, applied at the FUNCTION boundary — see
+          // startSportsFfUpstream's note on why failing the upstream instead would be answered
+          // out of nflOwnership's own 30-minute cache and prove nothing about the client.
+          if (fixture.ownershipDown && /"action"\s*:\s*"nfl_ownership"/.test(req.postData() || "")) {
+            return req.respond({ status: 200, contentType: "application/json", headers: cors, body: JSON.stringify({ ok: false, reason: "http-500" }) });
+          }
           const r = await sportsFn(new Request("http://fn/sports", { method: "POST", body: req.postData() || "{}" }));
           return req.respond({ status: r.status, contentType: "application/json", headers: cors, body: await r.text() });
         }
@@ -3189,8 +3257,13 @@ async function openDetails(page, id) {
     // stays in front as the row's own label, and the MOVE button's old trailing blank header
     // is gone because the button moved into a real, sortable ADD column of its own.
     const headers = await page.$$eval("table.faTable thead th", (els) => els.map((e) => e.textContent.replace(/[▲▼]/g, "").trim()));
-    ok(JSON.stringify(headers) === JSON.stringify(["PLAYER", "ADD", "TYPE", "PROJ", "LAST", "OPP", "AVG"]),
-      "the column set renders in exactly the user's order, no trailing blank header (" + JSON.stringify(headers) + ")");
+    // RESTAGED 2026-08-15 (user: "add %start, %rostered"): two columns joined the set. They are
+    // APPENDED rather than slotted mid-table on purpose — item 22's measured phone budget below
+    // guarantees PLAYER + ADD + TYPE + PROJ read without panning, and inserting before PROJ
+    // would break that promise. Everything the old assertion protected (the user's own column
+    // order, no trailing blank header) is unchanged.
+    ok(JSON.stringify(headers) === JSON.stringify(["PLAYER", "ADD", "TYPE", "PROJ", "LAST", "OPP", "AVG", "%ROST", "%START"]),
+      "the column set renders in exactly the user's order with %ROST/%START appended, no trailing blank header (" + JSON.stringify(headers) + ")");
     // Available (default): every visible row is a genuine free agent — TYPE reads "FA" for all
     // of them, and every row still carries its own MOVE button (unchanged behavior).
     const availTypes = await page.$$eval("#faResults .fatype", (els) => els.map((e) => e.textContent.trim()));
@@ -3245,14 +3318,20 @@ async function openDetails(page, id) {
     // same fixture value section M's own AI-read tests already hand-check). Sorting PROJ desc
     // must put him FIRST (every FA-only row has no projection -> -Infinity, tied); asc must
     // put him LAST.
-    await clickIn(page, 'th.thsort[data-sort="proj"]');
+    // RESTAGED 2026-08-15 (user: "set the default sort to sort on projection from highest to
+    // lowest"): PROJ is the LANDING sort now, so this block no longer opens with a click — the
+    // first assertion is that the table is ALREADY on PROJ desc with nobody having touched a
+    // header, which is a strictly stronger statement than the old "click it and it sorts". The
+    // desc/asc click mechanics it used to prove are kept below, one click further along.
     await page.waitForFunction(() => document.querySelector("#faResults tbody tr:first-child")?.textContent.includes("T. Tight"), { timeout: 5000 });
-    ok(await page.evaluate(() => document.querySelector('th.thsort[data-sort="proj"]').classList.contains("active")), "PROJ header shows the active-column state after being clicked");
-    ok(/▼/.test(await page.$eval('th.thsort[data-sort="proj"]', (e) => e.textContent)), "…and the FIRST click on a column sorts it DESC (▼ shown)");
-    ok((await page.$eval("#faResults tbody tr:first-child", (e) => e.textContent)).includes("T. Tight"), "PROJ desc: the only player with a real projection (8.5) sorts to the TOP of the whole pool");
-    await clickIn(page, 'th.thsort[data-sort="proj"]'); // second click on the SAME column -> asc
-    ok(/▲/.test(await page.$eval('th.thsort[data-sort="proj"]', (e) => e.textContent)), "clicking the SAME column again flips to ASC (▲ shown)");
+    ok(await page.evaluate(() => document.querySelector('th.thsort[data-sort="proj"]').classList.contains("active")), "PROJ is the DEFAULT active column — no header has been clicked");
+    ok(/▼/.test(await page.$eval('th.thsort[data-sort="proj"]', (e) => e.textContent)), "…and the default direction is DESC, highest projection first (▼ shown)");
+    ok((await page.$eval("#faResults tbody tr:first-child", (e) => e.textContent)).includes("T. Tight"), "PROJ desc: the only player with a real projection (8.5) sits at the TOP of the whole pool on landing");
+    await clickIn(page, 'th.thsort[data-sort="proj"]'); // clicking the ACTIVE column flips it -> asc
+    ok(/▲/.test(await page.$eval('th.thsort[data-sort="proj"]', (e) => e.textContent)), "clicking the ACTIVE column flips it to ASC (▲ shown)");
     ok((await page.$eval("#faResults tbody tr:last-child", (e) => e.textContent)).includes("T. Tight"), "PROJ asc: missing projections (-Infinity) sort first, so the only real value sorts to the very BOTTOM");
+    await clickIn(page, 'th.thsort[data-sort="proj"]'); // and back -> desc
+    ok(/▼/.test(await page.$eval('th.thsort[data-sort="proj"]', (e) => e.textContent)), "…and once more flips it back to DESC — the two-way toggle is unchanged by the new default");
     ok(errors.length === 0, "0 page errors through the column-set/filter/OPP/PROJ-sort flow");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_players_table_390.png"), fullPage: true }); console.log("  📸 shots/gffl_players_table_390.png"); }
     await ctx.close();
@@ -3276,14 +3355,21 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page.waitForSelector("#faPosChips", { timeout: 9000 });
     await clickIn(page, "#faFilterChips .poschip", "All");
-    // Default landing sort (no header click yet) is season AVG desc — wait for the real
-    // number to land (the season columns fetch lazily) before asserting on it.
+    // Wait for the real season numbers to land (those columns fetch lazily) before asserting.
     await page.waitForFunction(() => {
       const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
       return tr && tr.querySelector(".faavg").textContent.trim() === "10.3";
     }, { timeout: 9000 });
-    ok(await page.evaluate(() => document.querySelector('th.thsort[data-sort="avg"]').classList.contains("active")),
-      "default sort (before any header click) is already AVG — the season column that survived item 22");
+    // RESTAGED 2026-08-15: the landing sort is PROJ desc now (asserted in the block above), so
+    // this block reaches AVG the way a reader does — by clicking its header. The AVG/LAST
+    // hand-computed lines and orderings below are what this block is actually for, and none of
+    // them moved.
+    ok(await page.evaluate(() => document.querySelector('th.thsort[data-sort="proj"]').classList.contains("active")),
+      "the landing sort here is PROJ too — the default is a property of the table, not of one seed");
+    await clickIn(page, 'th.thsort[data-sort="avg"]'); // a fresh column -> desc
+    await page.waitForFunction(() => document.querySelector('th.thsort[data-sort="avg"]').classList.contains("active"), { timeout: 5000 });
+    ok(/▼/.test(await page.$eval('th.thsort[data-sort="avg"]', (e) => e.textContent)),
+      "clicking AVG (a column that was NOT active) sorts it DESC on the first click");
     const rowSeason = async (name) => page.evaluate((n) => {
       const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes(n));
       return tr ? { avg: tr.querySelector(".faavg").textContent.trim(), last: tr.querySelector(".falast").textContent.trim() } : null;
@@ -3303,7 +3389,7 @@ async function openDetails(page, id) {
       return names.map((n) => all.findIndex((t) => t.includes(n)));
     };
     const isAscendingIdx = (idxs) => idxs.every((v, i) => i === 0 || idxs[i - 1] < v);
-    ok((await topName()) === "Q. Rival", "AVG desc (default): Q. Rival (15.0/gm) leads the WHOLE pool");
+    ok((await topName()) === "Q. Rival", "AVG desc: Q. Rival (15.0/gm) leads the WHOLE pool");
     ok(isAscendingIdx(await orderOf(["Q. Rival", "P. Passer", "T. Tight"])),
       "AVG desc: among the three, Q. Rival (15.0) > P. Passer (10.3) > T. Tight (9.0), in that row order");
     await clickIn(page, 'th.thsort[data-sort="last"]');
@@ -3360,6 +3446,212 @@ async function openDetails(page, id) {
     });
     ok(pannerScrolls, "…because the table genuinely overflows its .panner (the panning container is doing real work, not just present unused)");
     await ctx.close();
+  }
+  // ---- I2b: %ROST / %START, and the fixed column widths (2026-08-15) --------------------
+  // "consistent column widths where possible and add %start, %rostered, set the default sort
+  // to sort on projection from highest to lowest."
+  {
+    // (1) THE SERVER ACTION, in process, against the fake upstream — the same discipline
+    // section A uses for league.mjs. What matters here is the WIRE: the filter shape, because
+    // a nested {players:{...}} filter (which every OTHER kona read in this file uses) is
+    // silently IGNORED by the /players endpoint and answers with all ~11,573 players / ~39 MB.
+    const callOwn = async (extra) => {
+      const r = await sportsFn(new Request("http://fn/sports", {
+        method: "POST", body: JSON.stringify({ secret: "amenfarms", action: "nfl_ownership", ...(extra || {}) }),
+      }));
+      return r.json();
+    };
+    const ownCallsBefore = sportsFfUp.ownCalls;
+    const j9 = await callOwn({ limit: 9 });   // its own cache key, so it can't be answered out of any earlier ask
+    ok(j9 && j9.ok === true, "nfl_ownership answers ok:true against the real /players upstream (" + JSON.stringify(j9 && j9.reason) + ")");
+    ok(sportsFfUp.ownCalls === ownCallsBefore + 1 && /\/seasons\/\d+\/players\?/.test(sportsFfUp.ownUrl)
+      && /scoringPeriodId=0/.test(sportsFfUp.ownUrl) && /view=kona_player_info/.test(sportsFfUp.ownUrl),
+      "…hitting the PUBLIC per-season player pool (no /leagues/ segment, scoringPeriodId=0, kona_player_info) — " + sportsFfUp.ownUrl);
+    const sentFilter = (() => { try { return JSON.parse(sportsFfUp.ownFilter); } catch (e) { return null; } })();
+    ok(sentFilter && sentFilter.filterActive && sentFilter.filterActive.value === true
+      && sentFilter.sortPercOwned && sentFilter.sortPercOwned.sortAsc === false && sentFilter.limit === 9
+      && !sentFilter.players,
+      "…and the x-fantasy-filter is TOP-LEVEL (filterActive/limit/sortPercOwned, NO nested `players` key — the nested shape is ignored and returns 39MB) — " + sportsFfUp.ownFilter);
+    // The response is a BARE ARRAY of player objects; the slim answer is id -> [owned, started].
+    ok(j9 && j9.players && JSON.stringify(j9.players["3915511"]) === "[92.4,88.1]",
+      "…parsed straight off the bare-array response into { id: [owned, started] }, 1dp (" + JSON.stringify(j9 && j9.players && j9.players["3915511"]) + ")");
+    ok(j9 && j9.players && j9.players["999888"] === undefined && j9.players["not-an-id"] === undefined,
+      "…a player ESPN carries with NO ownership figures is ABSENT, never a fabricated 0 — and an unusable id is dropped (" + Object.keys((j9 || {}).players || {}).sort().join(",") + ")");
+    // The 30-minute warm-invocation cache: 8.8 MB in, a few KB out, and a family of six must
+    // not pull that payload six times over.
+    const cachedBefore = sportsFfUp.ownCalls;
+    const j9b = await callOwn({ limit: 9 });
+    ok(sportsFfUp.ownCalls === cachedBefore && JSON.stringify(j9b) === JSON.stringify(j9),
+      "…and asking again inside the TTL is answered from the module cache — zero extra upstream calls (" + sportsFfUp.ownCalls + "/" + cachedBefore + ")");
+    const jClamp = await callOwn({ limit: 9999 });
+    ok(jClamp && jClamp.ok === true && JSON.parse(sportsFfUp.ownFilter).limit === 500,
+      "…an over-large limit is clamped to 500 rather than passed through (" + JSON.parse(sportsFfUp.ownFilter).limit + ")");
+    // An ESPN outage is {ok:false, reason} at HTTP 200, and NOT cached — the next call retries.
+    fixture.ownershipUpstreamDown = true;
+    const jBad = await callOwn({ limit: 11 });
+    ok(jBad && jBad.ok === false && jBad.reason === "http-500",
+      "an upstream failure is an honest {ok:false, reason} at HTTP 200, never a throw (" + JSON.stringify(jBad) + ")");
+    fixture.ownershipUpstreamDown = false;
+    const retryBefore = sportsFfUp.ownCalls;
+    const jRetry = await callOwn({ limit: 11 });
+    ok(jRetry && jRetry.ok === true && sportsFfUp.ownCalls === retryBefore + 1,
+      "…and a FAILURE is never cached — the very next ask really goes back upstream");
+  }
+  {
+    // (2) THE COLUMNS, in the browser, with hand-checked values. fullSeed()'s roster keys ARE
+    // espn ids (3915511 / 222111 / 111222), which is exactly how a row resolves its ownership —
+    // espnIdForKey, the same resolver the % OWNED card already uses.
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faPosChips", { timeout: 9000 });
+    await clickIn(page, "#faFilterChips .poschip", "All");
+    // The ownership read is LAZY and lands after the first paint, so wait for the repaint.
+    await page.waitForFunction(() => {
+      const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
+      return tr && tr.querySelector(".faown") && tr.querySelector(".faown").textContent.trim() === "92%";
+    }, { timeout: 9000 });
+    const ownRow = async (name) => page.evaluate((n) => {
+      const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes(n));
+      return tr ? { own: tr.querySelector(".faown").textContent.trim(), start: tr.querySelector(".fastart").textContent.trim() } : null;
+    }, name);
+    ok(JSON.stringify(await ownRow("P. Passer")) === JSON.stringify({ own: "92%", start: "88%" }),
+      "%ROST/%START render the real ESPN figures, rounded to a whole percent — P. Passer 92.4/88.1");
+    ok(JSON.stringify(await ownRow("Q. Rival")) === JSON.stringify({ own: "62%", start: "12%" }),
+      "…and rounding is real rounding, not truncation — Q. Rival's 61.8 reads 62%, not 61%");
+    ok(JSON.stringify(await ownRow("T. Tight")) === JSON.stringify({ own: "55%", start: "44%" }), "…and T. Tight's 55.0/44.0");
+    // A player with a NUMERIC key that ESPN's top-N pool simply doesn't carry, and a team
+    // defense, which has no ESPN player id at ALL. Both read "—": "nobody rosters him" and
+    // "we don't know" are different facts and must not render the same.
+    ok(JSON.stringify(await ownRow("W. Receiver")) === JSON.stringify({ own: "—", start: "—" }),
+      "a rostered player ESPN's pool doesn't carry reads '—' in both columns, never 0%");
+    const dstRow = await page.evaluate(() => {
+      const tr = [...document.querySelectorAll("#faResults tr")].find((r) => /D\/ST/.test(r.textContent));
+      return tr ? { key: tr.dataset.pk, own: tr.querySelector(".faown").textContent.trim(), start: tr.querySelector(".fastart").textContent.trim() } : null;
+    });
+    ok(dstRow && /^dst_/.test(dstRow.key) && dstRow.own === "—" && dstRow.start === "—",
+      "…and a team defense — which has NO espn player id to resolve at all — reads '—' too (" + JSON.stringify(dstRow) + ")");
+    // Both columns sort, and they order DIFFERENTLY from each other. Hand-checked from the
+    // fixture: %ROST desc is Passer(92.4) > Rival(61.8) > Tight(55.0); %START desc is
+    // Passer(88.1) > TIGHT(44.0) > RIVAL(12.3) — Rival and Tight SWAP, which is the proof that
+    // these are two independent sorts and not one order under two headers.
+    const orderOf = async (names) => {
+      const all = await page.$$eval("#faResults tbody tr", (els) => els.map((e) => e.textContent));
+      return names.map((n) => all.findIndex((t) => t.includes(n)));
+    };
+    const ascendingIdx = (i) => i.every((v, k) => v >= 0 && (k === 0 || i[k - 1] < v));
+    await clickIn(page, 'th.thsort[data-sort="own"]');
+    await page.waitForFunction(() => document.querySelector('th.thsort[data-sort="own"]').classList.contains("active"), { timeout: 5000 });
+    ok(ascendingIdx(await orderOf(["P. Passer", "Q. Rival", "T. Tight"])),
+      "%ROST desc: Passer (92.4) > Rival (61.8) > Tight (55.0), in that row order");
+    await clickIn(page, 'th.thsort[data-sort="own"]');
+    ok(ascendingIdx(await orderOf(["T. Tight", "Q. Rival", "P. Passer"])), "%ROST asc: the exact reverse — missing values (-Infinity) sort first, real ones climb");
+    await clickIn(page, 'th.thsort[data-sort="start"]');
+    await page.waitForFunction(() => document.querySelector('th.thsort[data-sort="start"]').classList.contains("active"), { timeout: 5000 });
+    ok(ascendingIdx(await orderOf(["P. Passer", "T. Tight", "Q. Rival"])),
+      "%START desc: Passer (88.1) > TIGHT (44.0) > RIVAL (12.3) — Rival and Tight swap places vs %ROST, so this is a genuinely independent sort");
+    await clickIn(page, 'th.thsort[data-sort="start"]');
+    ok(ascendingIdx(await orderOf(["Q. Rival", "T. Tight", "P. Passer"])), "%START asc: the exact reverse of that");
+    ok(errors.length === 0, "0 page errors through the %ROST/%START render + sort flow");
+    await ctx.close();
+  }
+  {
+    // (3) THE DEFAULT SORT, asserted against the RENDERED order rather than the header's own
+    // class — a header can carry .active while the rows are in any order at all.
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faPosChips", { timeout: 9000 });
+    await clickIn(page, "#faFilterChips .poschip", "All");
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 2, { timeout: 5000 });
+    const projSeq = await page.$$eval("#faResults tbody .faproj", (els) => els.map((e) => e.textContent.trim()));
+    // "—" is a missing projection, which sorts LAST on desc — so as a number it is -Infinity.
+    const asNum = (t) => (t === "—" ? -Infinity : Number(t));
+    const nonIncreasing = projSeq.every((t, i) => i === 0 || asNum(projSeq[i - 1]) >= asNum(t));
+    ok(projSeq.length > 2 && nonIncreasing,
+      "the LANDING order really is highest projection first, row by row down the whole pool, with nobody having touched a header (" + JSON.stringify(projSeq) + ")");
+    ok(asNum(projSeq[0]) > -Infinity, "…and the top row is a REAL projection, not a table of dashes that happens to be non-increasing (" + projSeq[0] + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    // (4) THE OWNERSHIP ENDPOINT DOWN — the columns read "—" and everything else still works.
+    // Failed at the FUNCTION boundary rather than the upstream: nflOwnership caches a success
+    // for 30 minutes in module scope, so by now an upstream outage would be answered out of
+    // that cache and this would prove nothing about the client.
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    fixture.ownershipDown = true;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await page.waitForSelector("#faPosChips", { timeout: 9000 });
+    await clickIn(page, "#faFilterChips .poschip", "All");
+    await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 2, { timeout: 5000 });
+    const down = await page.evaluate(() => {
+      const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
+      const all = [...document.querySelectorAll("#faResults tbody .faown")].map((e) => e.textContent.trim());
+      return { own: tr.querySelector(".faown").textContent.trim(), start: tr.querySelector(".fastart").textContent.trim(),
+               allDash: all.length > 2 && all.every((t) => t === "—"), rows: all.length,
+               proj: tr.querySelector(".faproj").textContent.trim(), hasBtn: !!tr.querySelector(".faMoveBtn") };
+    });
+    ok(down.own === "—" && down.start === "—" && down.allDash,
+      "with the ownership endpoint down every %ROST/%START cell reads '—' — never 0%, never blank (" + down.rows + " rows)");
+    ok(down.proj && down.hasBtn, "…and the rest of the table is completely unaffected: PROJ still renders and the MOVE button is still there");
+    ok(errors.length === 0, "0 page errors with the ownership endpoint down — the failure is silent, as designed");
+    await ctx.close();
+    fixture.ownershipDown = false;
+  }
+  {
+    // (5) CONSISTENT COLUMN WIDTHS, measured — at 390px AND on a desktop. table-layout:fixed
+    // means every numeric/short column is ONE shared width and never grows to fit whichever
+    // row happens to hold the longest text, which is what the old per-cell min-widths allowed.
+    for (const vw of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+      const tag = vw.width + "px";
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw });
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+      await page.waitForSelector("#faPosChips", { timeout: 9000 });
+      await clickIn(page, "#faFilterChips .poschip", "All");
+      await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 2, { timeout: 5000 });
+      const w = await page.evaluate(() => {
+        const wd = (el) => Math.round(el.getBoundingClientRect().width * 100) / 100;
+        const rows = [...document.querySelectorAll("#faResults tbody tr")];
+        const shared = ["faproj", "falast", "faopp", "faavg", "faown", "fastart"];
+        // Every shared column, on every row: one single width across the whole table.
+        const widths = [];
+        for (const r of rows) for (const c of shared) widths.push(wd(r.querySelector("." + c)));
+        // The header cells sit in the same columns and must match them exactly.
+        const ths = [...document.querySelectorAll("table.faTable thead th")].map(wd);
+        // Header ink must fit its fixed column — "%START" is the longest label on the table.
+        const clipped = [...document.querySelectorAll("table.faTable thead th")].filter((th) => th.scrollWidth > th.clientWidth + 1)
+          .map((th) => th.textContent.replace(/[▲▼]/g, "").trim());
+        const player = wd(rows[0].querySelector(".faname"));
+        return { uniq: [...new Set(widths)], sharedTh: [...new Set(ths.slice(3))], player, clipped,
+                 body: document.body.scrollWidth, win: window.innerWidth };
+      });
+      ok(w.uniq.length === 1, tag + ": PROJ/LAST/OPP/AVG/%ROST/%START are ONE shared width on every row — " + JSON.stringify(w.uniq) + "px");
+      ok(w.sharedTh.length === 1 && w.sharedTh[0] === w.uniq[0],
+        "…and their HEADER cells sit at exactly the same width, so the numbers really do line up under their labels (" + JSON.stringify(w.sharedTh) + ")");
+      ok(w.clipped.length === 0, "…with no header ink clipped by its own fixed column (" + JSON.stringify(w.clipped) + ")");
+      ok(w.body <= w.win + 1, "…and the PAGE never scrolls sideways (" + w.body + "/" + w.win + ") — the table pans inside its own .panner");
+      // PLAYER is the one auto column: it must hold its floor on a phone and absorb the slack
+      // on a desktop, which is the whole reason it isn't a fixed width like the rest.
+      if (vw.width === 390) ok(w.player >= 143 && w.player <= 145, "390px: PLAYER holds its 144px floor exactly (" + w.player + ")");
+      else ok(w.player > 200, "1440px: PLAYER absorbs all the slack rather than leaving the table short (" + w.player + "px, floor 200)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
   }
 
   // ---- J: trades — offer/accept/review/execute, veto, decline/cancel, deadline ----
@@ -9082,6 +9374,92 @@ async function openDetails(page, id) {
       await ctx.close();
     }
 
+    // ---- AD5c: THE BIG-GAME EMBER (2026-08-14, user: "some effects for players that are
+    // having a huge game… something that doesn't interfere with readability but immediately
+    // shows a player is having a big game"). Two tiers, and BOTH conditions are required, so
+    // neither a merely-solid day nor a blown projection on a tiny score lights up. The
+    // ANIMATION itself is not assertable headless (this repo's own lesson: CSS @keyframes
+    // stall under headless Chrome) — what IS asserted is the tier arithmetic, the attribute
+    // the CSS keys on, that the effect is PAINTED (costs the row no height, moves no text),
+    // and that the rule declares both an animation and a reduced-motion escape.
+    {
+      // (a) the arithmetic, straight off the exposed helper — hand-picked cases at the edges.
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const h = await evalOr(page, () => {
+        const f = window.__GFFL__.UI._bigGame;
+        return {
+          solid: f(17.9, 4),        // a fine day, under the absolute floor -> nothing
+          floor: f(18, 12),         // 18 pts but only 1.5x... exactly 1.5 -> hot
+          under: f(24, 20),         // 24 pts, 1.2x -> a stud doing his job, NOT a big game
+          hot: f(22, 11),           // 22 and 2x, but under the blazing points floor -> hot
+          blaze: f(32, 10),         // 32 and 3.2x -> blazing
+          blazePts: f(30, 20),      // 30 pts but only 1.5x -> hot, never blazing
+          tiny: f(6, 1),            // a kicker beating a 1.0 projection sixfold -> nothing
+          none: f(null, 10),        // hasn't played
+        };
+      }) || {};
+      ok(h.solid === 0 && h.tiny === 0 && h.none === 0,
+        "no ember for a solid day, a tiny score that beat a tiny projection, or a man who hasn't played (" + JSON.stringify([h.solid, h.tiny, h.none]) + ")");
+      ok(h.under === 0, "…nor for a stud merely doing his job (24 pts on a 20-pt projection)");
+      ok(h.floor === 1 && h.hot === 1 && h.blazePts === 1, "tier 1 at the 18pt/1.5x floor, and 30 pts at only 1.5x stays tier 1 (" + JSON.stringify([h.floor, h.hot, h.blazePts]) + ")");
+      ok(h.blaze === 2, "tier 2 needs BOTH 28+ points and 2x the projection (32 on a 10 = " + h.blaze + ")");
+      await ctx.close();
+    }
+    {
+      // (b) the rendered row, with a fixture line that really is blazing: P. Passer 400 yds +
+      // 4 TD = 32.0 against his 10.0 pre-game projection. THE DENOMINATOR MATTERS — an earlier
+      // cut divided by liveProj, which already contains the points scored, so nothing could
+      // ever fire mid-game; this check is what pins the pre-game projection in place.
+      fixture.bigGame = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+      const r = await evalOr(page, () => {
+        const cellFor = (nm) => [...document.querySelectorAll(".mutable .pcellgrid")].find((c) => c.textContent.includes(nm));
+        const hot = cellFor("P. Passer"), cool = cellFor("R. Rusher");
+        const css = [...document.styleSheets].flatMap((s) => { try { return [...s.cssRules].map((x) => x.cssText); } catch { return []; } });
+        const rule = css.filter((t) => /\[data-heat\]/.test(t)).join(" ");
+        return {
+          heat: hot && hot.getAttribute("data-heat"),
+          pts: hot && (hot.querySelector(".pts") || {}).textContent,
+          coolHeat: cool ? cool.getAttribute("data-heat") : "none",
+          sameH: hot && cool ? Math.round(hot.getBoundingClientRect().height) === Math.round(cool.getBoundingClientRect().height) : null,
+          // The NAME must be untouched — the effect may not cost readability.
+          nameColor: hot ? getComputedStyle(hot.querySelector(".pname b")).color : "",
+          coolName: cool ? getComputedStyle(cool.querySelector(".pname b")).color : "",
+          title: hot ? hot.getAttribute("title") : "",
+          animated: /animation/.test(rule),
+          reduced: css.some((t) => /prefers-reduced-motion/.test(t) && /data-heat/.test(t)),
+        };
+      }) || {};
+      // 34.0, not the 32.0 I first wrote: 400 yds × 0.04 = 16, 4 TD × 4 = 16, AND the fixture's
+      // scoring plays hand him a 2-pt conversion (applyScoringPlays) = 34.0. My arithmetic
+      // missed the two-pointer; the tier was right all along. 34 ≥ 28 and 34/10 = 3.4 ≥ 2.
+      ok(r.pts === "34.0" && r.heat === "2", "a 34.0 line on a 10.0 projection renders the BLAZING tier (" + JSON.stringify([r.pts, r.heat]) + ")");
+      ok(r.coolHeat === null, "…and an ordinary team-mate carries no heat attribute at all (" + r.coolHeat + ")");
+      ok(r.sameH === true, "…the ember is PAINTED, not laid out — the row measures exactly its neighbour's height");
+      ok(!!r.nameColor && r.nameColor === r.coolName, "…the player's NAME keeps its ordinary ink — readability is untouched (" + r.nameColor + ")");
+      ok(/34\.0 pts/.test(r.title || "") && /Blazing/.test(r.title || ""), "…and it says so in words for a screen reader (" + r.title + ")");
+      ok(r.animated === true && r.reduced === true, "the rule animates AND ships a prefers-reduced-motion escape");
+      ok(errors.length === 0, "0 page errors with the ember on screen");
+      if (SHOTS) {
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_biggame_desktop.png") });
+        await page.setViewport({ width: 390, height: 844 });
+        await sleep(300);
+        await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
+        await sleep(250);
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_biggame_390.png") });
+        console.log("  📸 shots/gffl_biggame_{390,desktop}.png");
+      }
+      await ctx.close();
+      fixture.bigGame = false;
+    }
+
     // ---- AD7: the Matchup TAB always lands on the logged-in user's own game.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -10873,7 +11251,9 @@ async function openDetails(page, id) {
         const pan = document.querySelector("#faResults .panner");
         const tr = pan.querySelector("tbody tr");
         const pr = pan.getBoundingClientRect();
-        return { last: Math.round(tr.querySelector(".faavg").getBoundingClientRect().right - pr.left), view: Math.round(pan.clientWidth) };
+        // RESTAGED 2026-08-15: AVG is no longer the last column — %ROST/%START were appended
+        // after it — so measuring AVG's right edge would stop measuring "the whole table".
+        return { last: Math.round(tr.querySelector(".fastart").getBoundingClientRect().right - pr.left), view: Math.round(pan.clientWidth) };
       })) || {};
       ok(desk.last <= desk.view, "on a desktop the whole re-ordered table fits with no pan at all (" + desk.last + "/" + desk.view + ")");
       if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_moves_desktop.png") }); console.log("  📸 shots/gffl_moves_desktop.png"); }

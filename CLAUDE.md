@@ -12375,3 +12375,57 @@ already inherited Inter (no font-family set), so it needed nothing.
   standings / players-table numbers stay on Barlow Condensed — different surfaces, and a
   one-token extension if the family later wants them to match. Plates:
   `shots/gffl_pt_matchup_{390,desktop}.png` (open, readable Inter digits).
+
+## 🏈 GFFL — PLAYTEST-5: the players table grows up, and a big game shows itself (2026-08-15)
+
+Five items from one sitting. Files: `league.html` + `assets/league/lg-ui.js` +
+`netlify/functions/sports.mjs` + `tools/_verify-gffl.cjs` (2607 → **2653**, FAIL 0).
+
+**1 · %ROST / %START, AND FIXED COLUMN WIDTHS.** New server action **`nfl_ownership`** —
+DELIBERATELY NOT `ff_pct_owned`'s cousin: that one asks the private LEAGUE endpoint about a
+handful of ids and therefore needs the cookies; this reads ESPN's **PUBLIC per-season player
+pool**, no auth at all, and returns the top 300 by ownership in one call, which is what a
+BROWSABLE table wants. **PROBED LIVE BEFORE A LINE WAS WRITTEN, and the finding is the whole
+feature**: the `x-fantasy-filter` here must be **TOP-LEVEL** — the nested `{players:{…}}`
+shape every other call in that file uses is silently IGNORED and the server answers 200 with
+all ~11,573 players and **~39 MB**; `{filterActive, limit, sortPercOwned}` at the top level is
+honoured (300 rows, ~8.8 MB, ~950 ms). The response is a **bare array**, not `{players:[…]}`
+and not per-row `{player:{…}}` (both tolerated anyway — ESPN has moved a recipe under us
+before). Browser UA, which is lm-api-reads' rule and the INVERSE of site.api.espn.com's
+`curl/8.6.0` — do not unify. 30-min warm cache keyed season+limit, **success only** (a failure
+must be retryable on the next call — `D.weekStats`' discipline). A player with no ownership
+figure is **absent**, so the table renders "—" rather than a fabricated 0.
+Client: `UI._ownership` + `bucky_gffl_own` (6h localStorage, 10-min failure floor), columns
+via a real `<colgroup>` so phone and desktop share one width contract, and **default sort is
+PROJ desc** (the column you actually shop by; FPTS/AVG were the old default).
+**2 · CHAT FILLS THE PHONE SCREEN** — `sizeChatList()` measures the gap to the tab bar into
+`--chatlist-h`. **THE DESKTOP GUARD IS LOAD-BEARING and the agent's own suite caught it
+missing**: at ≥1024px `.bnav` is a sticky TOP strip, so `navTop − listTop` goes negative and
+clamps to the 200px floor — the desktop chat pane collapsed. The measurer now runs on phones
+only and CLEARS the root var otherwise (`UI.show` re-runs it, so the var self-heals on a
+resize into desktop).
+**3 · Down/distance on the scores MOBILE view** — already shipping. The checks run at 390 by
+default and pass; no CSS hides it. The family's phone was holding a stale cache.
+**4 · PHONE LEAGUE ORDER** = week matchups → recent moves → standings → injury report. Desktop
+untouched (its two-column dashboard is user-arrangeable).
+**5 · THE BIG-GAME EMBER** (the user's own experiment): `bigGame(pts, proj)` → 0/1/2 from
+`HEAT = {ptsHot:18, ptsBlaze:28, ratioHot:1.5, ratioBlaze:2.0}` — a floor AND a ratio, so a
+20-point stud meeting his projection stays quiet while a 20 on a 9 glows. Rendered as
+`data-heat` on the matchup row with a warm **outline** + a 2.6s ember pulse (1.7s blazing) and
+an orange score; `prefers-reduced-motion` gets the static rim. **Outline, not box-shadow, on
+purpose — box-shadow is possession's gold ring**, and the two must be able to fire on the same
+row. The row's name and stat line keep their ordinary ink: the ask was "immediately shows a
+player is having a big game" WITHOUT hurting readability.
+**THE BUG A PLATE CAUGHT, NOT A TEST**: the first cut divided by `d.liveProj(...)`, which
+already folds in points scored — so the ratio can never exceed 1 mid-game and the ember could
+never fire. The denominator is the PRE-GAME `d.projFor(p.key)`.
+**AND MY OWN ARITHMETIC WAS WRONG IN THE SUITE**: I asserted 32.0 for the fixture's monster
+line (400 yds × 0.04 + 4 TD × 4) and forgot its 2-pt conversion — 34.0. The TIER was right
+either way, which is exactly how a hand-checked expectation hides: derive the number from the
+fixture, then check the tier separately.
+**VERIFY**: battery **2653/2653** (+46: I2b's 41 ownership/column checks incl. a real
+server-level `nfl_ownership` call, AD5c's ember block) · sports **229/229** · plates
+`shots/gffl_biggame_{390,desktop}.png` reviewed.
+**KNOWN**: the pool is ESPN's top 300 by ownership, so a genuinely fringe free agent reads
+"—" in both columns (honest, and one constant if the family wants deeper); and the real
+Netlify latency of an 8.8 MB upstream call is worth an eyeball on the first cold hit.

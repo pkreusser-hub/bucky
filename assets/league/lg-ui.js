@@ -1073,6 +1073,58 @@
   }
   UI._pctOwnedText = pctOwnedText; // test hook
 
+  // ---- OWNERSHIP: %ROSTERED / %STARTED for the Moves players table (2026-08-15) ----------
+  // A DIFFERENT source from the % OWNED column above, deliberately. That one asks the PRIVATE
+  // league endpoint about a hand-picked handful of ids and therefore needs Dad's ESPN cookies;
+  // this is sports.mjs's nfl_ownership — ESPN's PUBLIC per-season player pool, no auth at all,
+  // the top few hundred players by ownership in ONE call. The table wants ownership for a whole
+  // browsable pool, so one bulk read beats a per-row ask by a mile, and it keeps working on a
+  // day the league cookies have expired.
+  //
+  // Fetched ONCE per session, LAZILY, AFTER the table has already painted — ownership is
+  // context, never a gate on making a move, so it must never sit on the path to a first render.
+  // A localStorage copy (6h TTL, the wxcard / bucky_nfl_sb pattern used elsewhere in this file)
+  // paints it instantly on the next visit. EVERY failure — no network, an ESPN outage, a shape
+  // we don't recognise — leaves both columns reading "—" with the table fully usable, silently.
+  const OWN_TTL_MS = 6 * 3600e3;
+  const OWN_FAIL_FLOOR_MS = 10 * 60e3; // a failed ask is not retried on every repaint
+  const OWN_LS = "bucky_gffl_own";
+  UI._ownership = null;   // { at, players: { "<espnId>": [owned, started] } }
+  UI._ownPending = false;
+  UI._ownFailAt = 0;
+  function ownReadLs() {
+    try {
+      const j = JSON.parse(localStorage.getItem(OWN_LS) || "null");
+      if (j && j.players && typeof j.players === "object" && Date.now() - (j.at || 0) < OWN_TTL_MS) return j;
+    } catch (e) {}
+    return null;
+  }
+  // A row's ESPN id resolves exactly the way the rest of the app resolves one — espnIdForKey
+  // above: a numeric roster key IS the espn id, an slp_ key goes through the Sleeper directory's
+  // own espn_id, and a team defense has no ESPN player id at all. No id -> null -> "—".
+  function ownershipFor(key) {
+    const src = UI._ownership && UI._ownership.players;
+    if (!src) return null;
+    const id = espnIdForKey(key);
+    const row = id ? src[id] : null;
+    return Array.isArray(row) ? { owned: row[0], started: row[1] } : null;
+  }
+  UI._ownershipFor = ownershipFor; // test hook
+  function ensureOwnership(onLand) {
+    if (!UI._ownership) UI._ownership = ownReadLs();
+    if (UI._ownership && Date.now() - (UI._ownership.at || 0) < OWN_TTL_MS) return;
+    if (UI._ownPending || Date.now() - UI._ownFailAt < OWN_FAIL_FLOOR_MS) return;
+    UI._ownPending = true;
+    sportsFn("nfl_ownership", {}).then((j) => {
+      UI._ownPending = false;
+      if (!j || j.ok !== true || !j.players) { UI._ownFailAt = Date.now(); return; }
+      UI._ownership = { at: Date.now(), players: j.players };
+      try { localStorage.setItem(OWN_LS, JSON.stringify(UI._ownership)); } catch (e) {}
+      if (typeof onLand === "function") onLand();
+    }).catch(() => { UI._ownPending = false; UI._ownFailAt = Date.now(); });
+  }
+  UI._ensureOwnership = ensureOwnership; // test hook
+
   // The card's list is a 3-column grid — who / this week's projection / how much of the
   // fantasy world rosters him — with ONE header line rather than a label repeated on every
   // row. .swaprow is kept as the row class (it names what the row IS, a tap-to-pick row, not
@@ -3818,7 +3870,12 @@
       // defence is off the field), never under the replay (there is no drive data to read).
       // Drawn as an INSET ring (see .pcellgrid.hasball) so it costs the row no height.
       ball = hasBall(p);
-      heat = bigGame(pts, proj, p); heatPts = pts;
+      // The denominator is the PRE-GAME projection (d.projFor), NOT `proj` above — `proj` is
+      // liveProj, which is "what he'll finish on" and therefore ALREADY CONTAINS the points
+      // he has scored. Dividing by it makes the ratio approach 1 from below and the effect
+      // could never fire mid-game, which is the only time it means anything. (Caught on the
+      // review plate: no fixture player lit up, and this is why.)
+      heat = bigGame(pts, d.projFor(p.key), p); heatPts = pts;
       const conflict = row && row.conflict ? '<span class="conflictflag" title="Sources disagree">CONFLICT</span>' : "";
       // ESPN-style stat summary line ("312 pass yds, 2 TD" / "6 rec, 84 yds"), from whichever
       // source mergeRow picked. "" before any stat lands — the LINE still reserves its height.
@@ -4682,7 +4739,13 @@
   // one is a column in a two-column dashboard, not the whole screen), so this only ever
   // touches the chat TAB's card.
   function sizeChatList() {
-    const list = document.querySelector(".chatcard:not(.chatpanel) .chatlist");
+    // PHONE ONLY, and this was a real bug the suite caught (2026-08-14): at >=1024px .bnav is
+    // a sticky TOP strip (league.html's desktop block), not a bottom bar — so "the gap down to
+    // the nav" is deeply NEGATIVE there, clamped to the 200px floor, and the desktop chat pane
+    // collapsed with its history overflowing upward out of the box. The dead space this fixes
+    // is a phone problem in the first place (a fixed 52vh under a full-height viewport); the
+    // desktop card keeps the 52vh fallback, so the var is CLEARED rather than computed.
+    const list = isWide() ? null : document.querySelector(".chatcard:not(.chatpanel) .chatlist");
     if (!list) { document.documentElement.style.removeProperty("--chatlist-h"); return; }
     const card = list.closest(".chatcard");
     const nav = document.querySelector(".bnav");
@@ -5108,14 +5171,18 @@
     // more" only ever rebuilds #faResults' own subtree, never a full renderMoves(), so the
     // search box's focus/caret and the rest of the Moves page are untouched.
     // Default landing sort was season FPTS desc; FPTS is one of the three columns item 22
-    // dropped, so it is season AVG desc now — the same "best players first" idea, on the
+    // dropped, so it became season AVG desc — the same "best players first" idea, on the
     // season column that survived. A remembered key from before the re-order (or from a
     // future re-order) is discarded rather than silently sorting by a column that is no
     // longer on the table.
+    // RESTAGED 2026-08-15 (user: "set the default sort to sort on projection from highest to
+    // lowest"): the landing sort is PROJ desc. It is the better default for what this table is
+    // FOR — a season average is history, and the question a manager opens Moves with is "who
+    // is going to score for me THIS week". AVG remains one tap away.
     const faState = {
       q: "", pos: UI._faPos || "ALL", limit: 40,
       filter: UI._faFilter || "avail",
-      sortKey: "avg", sortDir: UI._faSortDir || "desc",
+      sortKey: "proj", sortDir: UI._faSortDir || "desc",
     };
     const faInput = $("#faSearch");
     // Season stats (FPTS/AVG/LAST) come from D.gameLog — cached per-player here so a sort
@@ -5181,6 +5248,12 @@
       { id: "last", label: "LAST", num: true },
       { id: "opp", label: "OPP" },
       { id: "avg", label: "AVG", num: true },
+      // 2026-08-15 (user: "add %start, %rostered"). Appended rather than slotted mid-table on
+      // purpose: item 22's measured phone budget guarantees PLAYER + ADD + TYPE + PROJ are
+      // readable without panning, and inserting a column before PROJ would break that promise.
+      // Short labels because every column is now a fixed width — see the colgroup in league.html.
+      { id: "own", label: "%ROST", num: true },
+      { id: "start", label: "%START", num: true },
     ];
     if (UI._faSortKey && FA_COLS.some((c) => c.id === UI._faSortKey)) faState.sortKey = UI._faSortKey;
     // Why a row's MOVE button is unavailable, or "" when it is available. A rostered player
@@ -5204,6 +5277,15 @@
       if (colId === "add") return faAddBlocked(p, faTypeText(p, ownerMap)) ? 0 : 1;
       if (colId === "opp") return d.oppForWeek(UI.week, p.team) || "";
       if (colId === "proj") { const v = d.projFor(p.key); return v == null ? -Infinity : v; }
+      // %ROST/%START sort on the RAW figure (more precision than the rounded cell text), and a
+      // player ESPN has no ownership row for is -Infinity like every other missing number —
+      // sorts last on desc, first on asc, no special-casing. NOT subtraction downstream; see
+      // compareFA's own note on the -Infinity NaN trap.
+      if (colId === "own" || colId === "start") {
+        const o = ownershipFor(p.key);
+        const v = o ? (colId === "own" ? o.owned : o.started) : null;
+        return v == null ? -Infinity : v;
+      }
       const s = UI._faStats.get(p.key);
       if (colId === "avg") return s && s.avg != null ? s.avg : -Infinity;
       if (colId === "last") return s && s.last != null ? s.last : -Infinity;
@@ -5243,6 +5325,11 @@
       const proj = d.projFor(p.key);
       const stats = UI._faStats.get(p.key); // undefined = still loading | null = no games | {total,avg,last}
       const seasonCell = (v) => stats === undefined ? "…" : (v != null ? LG.fmtPts(v) : "—");
+      const own = ownershipFor(p.key);
+      // Rounded to a whole percent — the column is 3-4 characters wide and "99.9%" buys nothing
+      // a manager acts on. Missing (no espn id, or a player outside ESPN's top-N pool) is "—",
+      // never a fabricated 0%: "nobody rosters him" and "we don't know" are different facts.
+      const ownCell = (v) => (own && v != null ? Math.round(v) + "%" : "—");
       const blocked = faAddBlocked(p, type);
       const moveBtn = `<button type="button" class="faAddBtn faMoveBtn"${blocked
         ? ` disabled title="${esc(blocked)}" aria-label="${esc(blocked)}"` : ""}>${past ? "Add" : "Claim"}</button>`;
@@ -5256,6 +5343,8 @@
         <td class="falast num">${seasonCell(stats && stats.last)}</td>
         <td class="faopp mut">${esc(opp || "—")}</td>
         <td class="faavg num">${seasonCell(stats && stats.avg)}</td>
+        <td class="faown num">${ownCell(own && own.owned)}</td>
+        <td class="fastart num">${ownCell(own && own.started)}</td>
       </tr>`;
     }
     function faResultsHtml(list) {
@@ -5271,7 +5360,15 @@
       const sorted = list.slice().sort((a, b) => compareFA(a, b, faState.sortKey, faState.sortDir, ownerMap));
       const rows = sorted.map((p, i) => faRowHtml(p, i, ownerMap)).join("");
       const more = list.length >= faState.limit ? '<button id="faMore" type="button" class="mut">Show more ↓</button>' : "";
-      return `<div class="panner"><table class="tbl faTable"><thead>${faHeadHtml()}</thead><tbody>${rows}</tbody></table></div>${more}`;
+      // 2026-08-15 (user: "consistent column widths where possible"). The table is
+      // table-layout:fixed now, so column widths come from THESE cols — a body cell's own width
+      // is ignored under fixed layout, and the header row's th elements carry .thsort rather
+      // than the per-column classes, so neither of those could express it. Every numeric column
+      // is one shared width (col.facol) and PLAYER is the only auto one, absorbing the slack on
+      // a desktop; the table's own min-width is PLAYER's floor, below which it pans inside its
+      // .panner instead of squeezing. See league.html for the two width scales.
+      const cols = FA_COLS.map((c) => `<col class="facol facol-${c.id}">`).join("");
+      return `<div class="panner"><table class="tbl faTable"><colgroup>${cols}</colgroup><thead>${faHeadHtml()}</thead><tbody>${rows}</tbody></table></div>${more}`;
     }
     function refreshFa() {
       const posChips = $("#faPosChips"), filterChips = $("#faFilterChips"), resEl = $("#faResults");
@@ -5301,6 +5398,11 @@
       wirePlayerCardTaps(resEl); // the row itself (data-pk) — see faRowHtml's own comment
       $("#faMore") && $("#faMore").addEventListener("click", () => { faState.limit += 40; refreshFa(); });
       if (list) ensureFaStatsBatch(list); // per-rendered-page, lazy — see ensureFaStatsBatch's own comment
+      // AFTER the paint above, never before it: %ROST/%START render "—" until the one bulk
+      // ownership read lands, then the table repaints in place — and only if the reader is
+      // still looking at Moves. Fresh/pending/recently-failed all return immediately, so this
+      // costs nothing on a re-sort, a chip tap or a "show more".
+      ensureOwnership(() => { if (UI.view === "moves" && $("#faResults")) refreshFa(); });
     }
     $("#faPosChips").querySelectorAll(".poschip").forEach((b) => b.addEventListener("click", () => {
       faState.pos = b.dataset.pos; UI._faPos = faState.pos; faState.limit = 40; refreshFa();
