@@ -611,10 +611,16 @@ function sumTeam(id, ab, name, color, homeAway, score, extra) {
     record: [{ type: "total", summary: (extra && extra.record) || "1-0" }],
   };
 }
-function nflPlay(id, text, clock, period, dd, endYTE, endDown, endDist, scoring) {
+// ESPN-style gamecast (2026-08-13): raw plays also carry type/statYardage/start.yardsToEndzone
+// — slimPlay slims all three, and they are what draw the dotted per-play drive path and the
+// "<n>-yd <Type>" last-play headline. startYTE/type/yds are optional so older call sites
+// (previous-drive plays the path never draws) stay byte-identical.
+function nflPlay(id, text, clock, period, dd, endYTE, endDown, endDist, scoring, startYTE, type, yds) {
   return {
     id: String(id), text, clock: { displayValue: clock }, period: { number: period },
-    start: { shortDownDistanceText: dd },
+    type: type ? { text: type } : undefined,
+    statYardage: yds != null ? yds : undefined,
+    start: { shortDownDistanceText: dd, yardsToEndzone: startYTE != null ? startYTE : undefined },
     end: { down: endDown, distance: endDist, yardsToEndzone: endYTE, shortDownDistanceText: dd },
     scoringPlay: !!scoring,
   };
@@ -653,10 +659,12 @@ function nflSummaryFix(eventId, state) {
       team: { id: "21", abbreviation: "PHI" },
       description: "8 plays, 61 yards, 4:12",
       start: { yardsToEndzone: 73 },
+      // start/end YTE per play (73→64→61→12), type + yardage — the dotted drive path draws
+      // one segment per play, and the last play heads the card as "49-yd Pass Reception".
       plays: [
-        nflPlay(1, "P. Passer pass short right to W. Receiver for 9 yards", "8:11", 2, "1st & 10", 64, 2, 1),
-        nflPlay(2, "R. Rusher run up the middle for 3 yards", "7:36", 2, "2nd & 1", 61, 1, 10),
-        nflPlay(3, "P. Passer pass deep left to X. Wideout for 49 yards", "6:02", 2, "1st & 10", 12, 1, 4),
+        nflPlay(1, "P. Passer pass short right to W. Receiver for 9 yards", "8:11", 2, "1st & 10", 64, 2, 1, false, 73, "Pass Reception", 9),
+        nflPlay(2, "R. Rusher run up the middle for 3 yards", "7:36", 2, "2nd & 1", 61, 1, 10, false, 64, "Rush", 3),
+        nflPlay(3, "P. Passer pass deep left to X. Wideout for 49 yards", "6:02", 2, "1st & 10", 12, 1, 4, false, 61, "Pass Reception", 49),
       ],
     },
     previous: [
@@ -11357,7 +11365,10 @@ async function openDetails(page, id) {
           ball: (svg.querySelector(".nflball") || {}).dataset?.x || "",
           los: (svg.querySelector(".nfllos") || {}).getAttribute?.("x1") || "",
           fd: (svg.querySelector(".nflfd") || {}).getAttribute?.("x1") || "",
-          arrow: (() => { const a = svg.querySelector(".nfldarrow"); return a ? { x0: a.dataset.x0, x1: a.dataset.x1, head: (a.querySelector("path") || {}).getAttribute?.("d") || "" } : null; })(),
+          path: (() => { const a = svg.querySelector(".nfldpath"); return a ? { x0: a.dataset.x0, x1: a.dataset.x1, segs: a.querySelectorAll("line, path").length, dash: a.getAttribute("stroke-dasharray") || "" } : null; })(),
+          pin: (() => { const b = svg.querySelector(".nflball"); return b ? { crest: !!b.querySelector("image"), upright: /skewX\(10\)/.test(b.getAttribute("transform") || "") } : null; })(),
+          skewed: !!svg.querySelector('g[transform*="skewX(-10)"]'),
+          ez: (() => { const t = [...svg.querySelectorAll("text")].map((e) => e.textContent); return t; })(),
           vb: svg.getAttribute("viewBox"),
           wide: Math.round(svg.getBoundingClientRect().width) > 200,
         };
@@ -11366,17 +11377,24 @@ async function openDetails(page, id) {
       const EXP_FD = (83.33 + 8 * 8.3334).toFixed(1);      // 150.0
       const EXP_START = (83.33 + 73 * 8.3334).toFixed(1);  // 691.7 — the fixture drive's own start (yTE 73)
       ok(f.vb === "0 0 1000 300", "the field is drawn on the documented 1000x300 viewBox (" + f.vb + ")");
-      ok(f.ball === EXP_BALL, "the ball sits at the hand-computed x for a home possession 12 yards out: " + EXP_BALL + " (got " + f.ball + ")");
+      ok(f.ball === EXP_BALL, "the ball pin sits at the hand-computed x for a home possession 12 yards out: " + EXP_BALL + " (got " + f.ball + ")");
       ok(f.los === EXP_BALL, "…the line of scrimmage is drawn at the same x as the ball (" + f.los + ")");
       ok(f.fd === EXP_FD, "…and the first-down line at ballPos-distance = 8 yards out: " + EXP_FD + " (got " + f.fd + ")");
-      // RESTAGED 2026-08-13 (game night: "the arrow on the field should reflect how far the
-      // drive has gone so far"): the fixed direction glyph is SUPERSEDED by the drive-progress
-      // arrow — tail at the drive's own start (yTE 73 → 691.7), head AT THE BALL (183.3),
-      // pointing left because that is where this home drive has actually gone.
-      ok(!!f.arrow && f.arrow.x0 === EXP_START && f.arrow.x1 === EXP_BALL,
-        "the drive arrow spans the DRIVE — tail at its start (" + EXP_START + "), head at the ball (" + EXP_BALL + ") — got " + JSON.stringify(f.arrow && { x0: f.arrow.x0, x1: f.arrow.x1 }));
-      ok(!!f.arrow && new RegExp("^M " + EXP_BALL.replace(".", "\\.") + " 43\\.5 l 15").test(f.arrow.head),
-        "…with the arrowhead drawn AT the ball, pointing left — the direction this drive is moving");
+      // RESTAGED 2026-08-13 (the ESPN-style gamecast): the single drive-progress arrow is
+      // SUPERSEDED by the dotted PER-PLAY drive path — but the container keeps the arrow's
+      // exact data contract (data-x0 = the drive's own start, data-x1 = the ball), so the same
+      // hand-computed tail/head numbers read off .nfldpath unchanged. The path must carry at
+      // least one real dotted segment (the fixture drive's plays each moved the ball).
+      ok(!!f.path && f.path.x0 === EXP_START && f.path.x1 === EXP_BALL,
+        "the drive path spans the DRIVE — start (" + EXP_START + ") to the ball (" + EXP_BALL + ") — got " + JSON.stringify(f.path && { x0: f.path.x0, x1: f.path.x1 }));
+      ok(!!f.path && f.path.segs >= 1 && /\d/.test(f.path.dash),
+        "…drawn as DOTTED per-play segments, not a solid bar (" + (f.path && f.path.segs) + " segs, dash " + (f.path && f.path.dash) + ")");
+      // The ESPN-style dressing: the field group is skewed (the isometric lean), the pin is
+      // counter-skewed upright and carries the possessing team's crest, and the end zones
+      // wear the team NICKNAMES with the yard row below.
+      ok(f.skewed === true, "the field slab carries the isometric skew");
+      ok(!!f.pin && f.pin.crest && f.pin.upright, "the ball is a team-crest PIN, counter-skewed upright on the leaning field");
+      ok(f.ez.some((t) => /EAGLES/i.test(t)) && f.ez.some((t) => t === "50"), "end zones wear the nickname; the yard row renders below the strip");
       ok(f.wide === true, "the field actually renders at a usable width on a 390px phone");
       // The same maths from the other side, straight off the exposed helpers — an away
       // possession 12 yards out is at field position 88, mirrored.
@@ -11389,6 +11407,41 @@ async function openDetails(page, id) {
       ok(mirror.away === 88 && mirror.home === 12, "away possession mirrors: 12 yards out is field position 88, home's is 12 (" + JSON.stringify(mirror) + ")");
       ok(mirror.awayFd === 92 && mirror.homeFd === 8, "…and the first-down marker moves the opposite way for each side (away 92, home 8)");
       ok(mirror.x === Number((83.33 + 88 * 8.3334).toFixed(1)), "…fieldX is the documented EZ + pos*PER_YD (" + mirror.x + ")");
+      // The ESPN-style CHROME around the field (2026-08-13), every value hand-derived from the
+      // fixture: the drive header carries the possessing crest + the drive's OWN description;
+      // the Down/Ball-on strip is centered arithmetic ("Ball on: DAL 12" — PHI possesses, 12
+      // yards from DAL's end zone); the last-play card heads "49-yd Pass Reception" (statYardage
+      // 49 + type), chips "Last Play", and quotes the live win % off the series' newest point
+      // (0.66 home → PHI 66.0).
+      const chrome = (await evalOr(page, () => {
+        const card = document.querySelector(".card.nflfield");
+        if (!card) return null;
+        const t = (sel) => { const e = card.querySelector(sel); return e ? e.textContent.replace(/\s+/g, " ").trim() : null; };
+        const mid = (el) => { const r = el.getBoundingClientRect(); return (r.left + r.right) / 2; };
+        const dd = card.querySelector(".nflddrow");
+        return {
+          driveHead: t(".nfldrivehead"), driveCrest: !!card.querySelector(".nfldrivehead .nflcrest"),
+          event: t(".nflevent"),
+          ddText: t(".nflddrow"),
+          ddCentered: dd ? Math.abs(mid(dd) - mid(card)) <= 4 : null,
+          lpHead: t(".nfllph"), lpChip: t(".nfllpchip"), lpWp: t(".nfllpwp"),
+          lpWpCrest: !!card.querySelector(".nfllpwp .nflcrest"),
+          lpText: t(".nfllptext"),
+        };
+      })) || {};
+      ok(!!chrome.driveHead && /CURRENT DRIVE/.test(chrome.driveHead) && /8 plays, 61 yards, 4:12/.test(chrome.driveHead) && chrome.driveCrest,
+        "the drive header: possessing crest + CURRENT DRIVE + the drive's own plays/yards/clock (" + chrome.driveHead + ")");
+      ok(chrome.event === "Pass Reception", "the event label reads the last play's type (" + chrome.event + ")");
+      // \s* not a literal space — the label and value are ADJACENT elements, and textContent
+      // runs them together (the AE lesson); the visible gap is the flex gap, not a text node.
+      ok(!!chrome.ddText && /Down:\s*1st & 10/.test(chrome.ddText) && /Ball on:\s*DAL 12/.test(chrome.ddText),
+        "the very clear Down / Ball-on strip, hand-derived (" + chrome.ddText + ")");
+      ok(chrome.ddCentered === true, "…and it is CENTERED on the card");
+      ok(chrome.lpHead === "49-yd Pass Reception", "the last-play headline is yardage + type (" + chrome.lpHead + ")");
+      ok(chrome.lpChip === "Last Play", "…with the Last Play chip");
+      ok(!!chrome.lpWp && /66\.0/.test(chrome.lpWp) && chrome.lpWpCrest,
+        "…and the LIVE win % off the series' newest point, with the leading crest (" + chrome.lpWp + ")");
+      ok(!!chrome.lpText && /49 yards/.test(chrome.lpText), "…over the full play text");
       ok(errors.length === 0, "0 page errors rendering the field");
       await ctx.close();
     }

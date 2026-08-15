@@ -196,6 +196,14 @@ function slimPlay(p) {
     clock: p?.clock?.displayValue || "",
     period: p?.period?.number ?? 0,
     downDistanceText: p?.start?.shortDownDistanceText || p?.start?.downDistanceText || "",
+    // ESPN-style gamecast (2026-08-13): the play TYPE ("Rush", "Punt", "Penalty"…) heads the
+    // last-play card and decides whether the drive path draws this play as a ground segment
+    // or a kicked ARC; statYardage feeds the "10-yd Penalty"-style headline. Where the ball
+    // STARTED (yards to the end zone) is what lets each play render as its own dotted
+    // segment along the field rather than only the drive's net band.
+    type: p?.type?.text || "",
+    yds: p?.statYardage ?? null,
+    start: { yardsToEndzone: p?.start?.yardsToEndzone ?? null },
     // Where the ball ENDED, as yards to the end zone the offense is driving toward —
     // this is what places the ball marker on the field visual.
     end: {

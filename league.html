@@ -1249,9 +1249,27 @@
      which is enough for the ball, the two lines and the yard numbers to all read. */
   .nflfield { --turf:#1c3b28; --turf-2:#21462f; --chalk:#dfe7f2; padding:10px 12px 12px; }
   .nfldiag { display:block; width:100%; height:auto; border-radius:var(--radius-xs); }
-  .nflsitu { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-top:8px; }
-  .nflsitu b { font:700 14px var(--font-display); letter-spacing:.5px; color:var(--gold); }
-  .nfllast { margin-top:6px; padding-top:6px; border-top:1px solid var(--divider2); font-size:13px; }
+  /* ESPN-style gamecast chrome (2026-08-13): the field card carries a CURRENT DRIVE header,
+     the event label + Down/Ball-on strip centered above the field, and the last-play card
+     with the live Win %. .nflsitu/.nfllast retired with the old flat layout. */
+  .nfldrivehead { display:flex; align-items:center; gap:10px; padding-bottom:8px; border-bottom:1px solid var(--divider2); margin-bottom:6px; }
+  .nfldrivehead .nfldht { display:flex; flex-direction:column; gap:1px; }
+  .nfldrivehead b { font:700 14px var(--font-display); letter-spacing:1.2px; }
+  .nflevent { display:flex; align-items:center; justify-content:center; gap:7px; margin-top:4px; font:600 13.5px var(--font-body); }
+  .nflevent .nflcrest { width:18px; height:18px; }
+  .nflddrow { display:flex; align-items:baseline; justify-content:center; gap:26px; margin:4px 0 2px; }
+  .nfldditem { display:flex; align-items:baseline; gap:7px; }
+  .nfldditem b { font:800 19px var(--font-num); font-variant-numeric:tabular-nums; letter-spacing:.2px; }
+  .nfllastcard { margin-top:8px; padding:10px 12px; background:var(--nested2); border:1px solid var(--divider2); border-radius:var(--radius-xs); }
+  .nfllphead { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:5px; }
+  .nfllph { font:800 15px var(--font-body); }
+  .nfllpr { display:flex; align-items:center; gap:10px; }
+  .nfllpwp { display:flex; align-items:center; gap:5px; }
+  .nfllpwp .nflcrest { width:18px; height:18px; }
+  .nfllpwp b { font:800 15px var(--font-num); font-variant-numeric:tabular-nums; }
+  .nfllpchip { font:700 10.5px var(--font-display); letter-spacing:.8px; text-transform:uppercase; color:var(--mut);
+               background:var(--nested); border:1px solid var(--divider); border-radius:var(--radius-xs); padding:3px 8px; }
+  .nfllptext { font-size:13px; line-height:1.5; color:var(--ink2); }
   .nfltag { display:inline-block; min-width:34px; text-align:center; padding:1px 5px; border-radius:var(--radius-badge);
             font:700 10.5px var(--font-display); letter-spacing:.5px; color:#fff; }
   /* Play-by-play. The current drive is capped and scrolls inside its own box so a long drive

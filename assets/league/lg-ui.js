@@ -2927,69 +2927,125 @@
   }
   const gSide = (g, ha) => (g.teams || []).find((t) => t.homeAway === ha) || (g.teams || [])[ha === "away" ? 0 : 1] || {};
 
+  // ESPN-STYLE GAMECAST FIELD (2026-08-13, user: "modify our nfl game cast to be a clone of
+  // ESPN — the isometric view, the drive progress, the current drive description and team
+  // logo, the very clear down and distance in the middle, and win probability"). The flat
+  // top-down gridiron becomes a SIDE-VIEW strip with a perspective lean (skewX), end-zone
+  // slabs in the teams' own colours wearing their wordmarks, goalposts, and the yard row
+  // BELOW the strip. The drive renders as dotted PER-PLAY segments along the surface (a
+  // kicked ball — punt/kickoff/FG — draws an arc through the air), with a team-logo PIN at
+  // the ball. All of it is OUR OWN drawing in the GFFL's broadcast language — the layout
+  // concepts are the genre's, the code/colours/crests are ours.
+  //
+  // GEOMETRY CONTRACT: fieldX/fieldPos/firstDownPos are UNTOUCHED (unit-tested, ported from
+  // sports.html), and every marker still carries its MATH x in data-* attributes (data-x on
+  // the pin, data-x0/x1 on the drive path) — the suite asserts arithmetic, never pixels, so
+  // the skew can never invalidate a geometry check.
+  const SKEW = 10;                                   // degrees of lean ("/" — top edge right)
+  const TAN = Math.tan((SKEW * Math.PI) / 180);
+  // Strip band + yard-number row. The band is TALL (118 units) because at 390px the whole
+  // 1000-unit viewBox is ~366px wide — a thin slab made the end-zone wordmarks and yard
+  // numbers illegible on the first plate.
+  const FY = { top: 140, bot: 258, mid: 199, numY: 288 };
+  // FRAME: the skew leans the slab beyond the viewBox (the first plate clipped both end
+  // zones' corners), so the whole drawing is translated to put the slab's bottom-left at
+  // x=0 and scaled to fit the lean's full extent inside the 1000-unit width. data-* attrs
+  // carry MATH x throughout — the suite asserts arithmetic, never pixels.
+  const FTX = FY.bot * TAN;                                        // bottom-left → 0
+  const FSC = 1000 / (FTX + 1000 - FY.top * TAN);                  // top-right → 1000
+  function kickedPlay(p) { return /punt|kickoff|field goal/i.test(p && p.type || ""); }
   function nflFieldSvg(g) {
     const away = gSide(g, "away"), home = gSide(g, "home");
     const s = g.situation;
     const poss = s && s.possessionId ? (String(s.possessionId) === String(home.id) ? "home" : "away") : null;
     const awayC = hexColor(away.color), homeC = hexColor(home.color);
     let svg = `<svg class="nfldiag" viewBox="0 0 ${FLD.W} ${FLD.H}" role="img" aria-label="Field view">`;
-    svg += `<rect x="0" y="0" width="1000" height="300" fill="var(--turf)"/>`;
+    // ---- the skewed field slab (see the FRAME note above) ----
+    svg += `<g transform="scale(${FSC.toFixed(4)} 1) translate(${FTX.toFixed(1)} 0) skewX(-${SKEW})">`;
+    // Goalposts BEHIND each end zone — drawn FIRST so the slab occludes everything below the
+    // turf line (a real broadcast's framing), counter-skewed so the posts stand upright.
+    const post = (x) => `<g transform="translate(${x} ${FY.top}) skewX(${SKEW})">`
+      + `<g stroke="var(--gold)" stroke-width="5" fill="none" opacity="0.92">`
+      + `<line x1="0" y1="52" x2="0" y2="-20"/>`
+      + `<line x1="-24" y1="-20" x2="24" y2="-20"/>`
+      + `<line x1="-24" y1="-20" x2="-24" y2="-66"/>`
+      + `<line x1="24" y1="-20" x2="24" y2="-66"/></g></g>`;
+    svg += post(41) + post(958);
+    svg += `<rect x="0" y="${FY.top}" width="1000" height="${FY.bot - FY.top}" fill="var(--turf)"/>`;
     for (let i = 1; i < 10; i += 2) {
-      svg += `<rect x="${(FLD.EZ + i * 10 * FLD.PER_YD).toFixed(1)}" y="0" width="${(10 * FLD.PER_YD).toFixed(1)}" height="300" fill="var(--turf-2)"/>`;
+      svg += `<rect x="${(FLD.EZ + i * 10 * FLD.PER_YD).toFixed(1)}" y="${FY.top}" width="${(10 * FLD.PER_YD).toFixed(1)}" height="${FY.bot - FY.top}" fill="var(--turf-2)"/>`;
     }
-    svg += `<rect x="0" y="0" width="83.3" height="300" fill="${awayC}" opacity="0.85"/>`;
-    svg += `<rect x="916.7" y="0" width="83.3" height="300" fill="${homeC}" opacity="0.85"/>`;
-    svg += `<text x="41" y="150" fill="#fff" font-size="24" font-weight="800" text-anchor="middle" transform="rotate(-90 41 150)" letter-spacing="3">${esc(String(away.abbrev || "").toUpperCase())}</text>`;
-    svg += `<text x="958" y="150" fill="#fff" font-size="24" font-weight="800" text-anchor="middle" transform="rotate(90 958 150)" letter-spacing="3">${esc(String(home.abbrev || "").toUpperCase())}</text>`;
-    // The drive band — from where this drive started to where the ball is now.
+    // End zones: team-colour slabs with the NICKNAME run diagonally up the slab (rotated text
+    // inside the skewed group leans with it — the perspective look). textLength pins long
+    // nicknames ("Buccaneers") inside the 100-unit run.
+    svg += `<rect x="0" y="${FY.top}" width="83.3" height="${FY.bot - FY.top}" fill="${awayC}"/>`;
+    svg += `<rect x="916.7" y="${FY.top}" width="83.3" height="${FY.bot - FY.top}" fill="${homeC}"/>`;
+    const ezName = (t) => String(t.name || t.abbrev || "").toUpperCase();
+    svg += `<text x="41" y="${FY.mid}" fill="#fff" font-size="24" font-weight="800" text-anchor="middle" dominant-baseline="middle" transform="rotate(-90 41 ${FY.mid})" letter-spacing="1.5" textLength="104" lengthAdjust="spacingAndGlyphs">${esc(ezName(away))}</text>`;
+    svg += `<text x="958" y="${FY.mid}" fill="#fff" font-size="24" font-weight="800" text-anchor="middle" dominant-baseline="middle" transform="rotate(90 958 ${FY.mid})" letter-spacing="1.5" textLength="104" lengthAdjust="spacingAndGlyphs">${esc(ezName(home))}</text>`;
+    // Yard lines + goal lines, ON the strip.
+    svg += `<g stroke="var(--chalk)" stroke-width="1.4" opacity="0.6">`;
+    for (let y = 10; y <= 90; y += 10) svg += `<line x1="${fieldX(y).toFixed(1)}" y1="${FY.top}" x2="${fieldX(y).toFixed(1)}" y2="${FY.bot}"/>`;
+    svg += `</g><g stroke="var(--chalk)" stroke-width="3" opacity="0.9"><line x1="83.3" y1="${FY.top}" x2="83.3" y2="${FY.bot}"/><line x1="916.7" y1="${FY.top}" x2="916.7" y2="${FY.bot}"/></g>`;
+    // The drive so far, faint, in the possessing team's own colour.
     let ballPos = null;
+    const dr = g.drives && g.drives.current;
     if (poss && s && s.yardsToEndzone != null) {
       ballPos = fieldPos(poss, s.yardsToEndzone);
-      const dr = g.drives && g.drives.current;
       if (dr && dr.startYardsToEndzone != null) {
         const startPos = fieldPos(poss, dr.startYardsToEndzone);
         const x0 = fieldX(Math.min(startPos, ballPos)), x1 = fieldX(Math.max(startPos, ballPos));
-        if (x1 - x0 > 1) svg += `<rect x="${x0.toFixed(1)}" y="0" width="${(x1 - x0).toFixed(1)}" height="300" fill="${poss === "home" ? homeC : awayC}" opacity="0.18"/>`;
+        if (x1 - x0 > 1) svg += `<rect x="${x0.toFixed(1)}" y="${FY.top}" width="${(x1 - x0).toFixed(1)}" height="${FY.bot - FY.top}" fill="${poss === "home" ? homeC : awayC}" opacity="0.16"/>`;
       }
     }
-    svg += `<g stroke="var(--chalk)" stroke-width="1.4" opacity="0.7">`;
-    for (let y = 10; y <= 90; y += 10) svg += `<line x1="${fieldX(y).toFixed(1)}" y1="0" x2="${fieldX(y).toFixed(1)}" y2="300"/>`;
-    svg += `</g><g stroke="var(--chalk)" stroke-width="3" opacity="0.9"><line x1="83.3" y1="0" x2="83.3" y2="300"/><line x1="916.7" y1="0" x2="916.7" y2="300"/></g>`;
-    svg += `<g fill="var(--chalk)" font-size="15" font-weight="700" text-anchor="middle" opacity="0.75">`;
-    [10, 20, 30, 40, 50, 40, 30, 20, 10].forEach((n, i) => {
-      svg += `<text x="${fieldX((i + 1) * 10).toFixed(1)}" y="282">${n}</text>`;
-    });
-    svg += `</g><g stroke="var(--chalk)" stroke-width="1" opacity="0.35">`
-      + `<line x1="83.3" y1="105" x2="916.7" y2="105" stroke-dasharray="1 15.6"/>`
-      + `<line x1="83.3" y1="195" x2="916.7" y2="195" stroke-dasharray="1 15.6"/></g>`;
     if (ballPos != null) {
       const bx = fieldX(ballPos);
+      // First-down line pokes ABOVE the strip like a real broadcast overlay.
       if (s.distance) {
         const fdx = fieldX(firstDownPos(poss, ballPos, s.distance)).toFixed(1);
-        svg += `<line class="nflfd" x1="${fdx}" y1="0" x2="${fdx}" y2="300" stroke="var(--gold)" stroke-width="3.5"/>`;
+        svg += `<line class="nflfd" x1="${fdx}" y1="${FY.top - 16}" x2="${fdx}" y2="${FY.bot}" stroke="var(--gold)" stroke-width="4"/>`;
       }
-      svg += `<line class="nfllos" x1="${bx.toFixed(1)}" y1="0" x2="${bx.toFixed(1)}" y2="300" stroke="#eaf2ff" stroke-width="3" opacity="0.95"/>`;
-      // THE ARROW IS THE DRIVE (2026-08-13 game night: "the arrow on the field should reflect
-      // how far the drive has gone so far"): tail at the drive's own start, head at the ball —
-      // its LENGTH is the drive's progress, and a drive that has LOST ground honestly points
-      // backwards. Falls back to the old fixed direction glyph when the drive is too young to
-      // read (under ~2 yards of span) or the payload carried no start.
-      const dr2 = g.drives && g.drives.current;
-      const startX = (poss && dr2 && dr2.startYardsToEndzone != null) ? fieldX(fieldPos(poss, dr2.startYardsToEndzone)) : null;
-      if (startX != null && Math.abs(bx - startX) >= 18) {
-        const dir = bx >= startX ? 1 : -1;
-        svg += `<g class="nfldarrow" data-x0="${startX.toFixed(1)}" data-x1="${bx.toFixed(1)}" stroke="#fff" fill="#fff" opacity="0.9">
-          <line x1="${startX.toFixed(1)}" y1="43.5" x2="${(bx - dir * 13).toFixed(1)}" y2="43.5" stroke-width="5" stroke-linecap="round"/>
-          <path d="M ${bx.toFixed(1)} 43.5 l ${(-dir * 15).toFixed(1)} -8 l 0 16 z" stroke="none"/></g>`;
-      } else {
-        svg += poss === "away"
-          ? `<g fill="#fff" opacity="0.9"><rect x="600" y="41" width="40" height="5" rx="2"/><path d="M 640 33 l 15 10.5 l -15 10.5 z"/></g>`
-          : `<g fill="#fff" opacity="0.9"><rect x="360" y="41" width="40" height="5" rx="2"/><path d="M 360 33 l -15 10.5 l 15 10.5 z"/></g>`;
+      svg += `<line class="nfllos" x1="${bx.toFixed(1)}" y1="${FY.top - 8}" x2="${bx.toFixed(1)}" y2="${FY.bot}" stroke="#eaf2ff" stroke-width="3" opacity="0.95"/>`;
+      // THE DRIVE PATH — dotted, play by play (supersedes 2026-08-13's single progress arrow;
+      // the container keeps the arrow's data-x0/x1 CONTRACT — drive start -> ball — so the
+      // suite's hand-computed tail/head numbers read off this group unchanged). Ground plays
+      // run along the surface; a kicked ball arcs through the air, peak scaled by distance.
+      const startX2 = (dr && dr.startYardsToEndzone != null) ? fieldX(fieldPos(poss, dr.startYardsToEndzone)) : null;
+      if (startX2 != null) {
+        let path = "";
+        const plays = (dr && Array.isArray(dr.plays) ? dr.plays : []).filter((p) => p && p.start && p.start.yardsToEndzone != null && p.end && p.end.yardsToEndzone != null);
+        for (const p of plays) {
+          const px0 = fieldX(fieldPos(poss, p.start.yardsToEndzone));
+          const px1 = fieldX(fieldPos(poss, p.end.yardsToEndzone));
+          if (Math.abs(px1 - px0) < 4) continue;
+          if (kickedPlay(p)) {
+            const peak = Math.max(50, FY.top - 24 - Math.min(95, Math.abs(px1 - px0) * 0.14));
+            path += `<path d="M ${px0.toFixed(1)} ${FY.mid} Q ${((px0 + px1) / 2).toFixed(1)} ${peak.toFixed(1)} ${px1.toFixed(1)} ${FY.mid}" fill="none"/>`;
+          } else {
+            path += `<line x1="${px0.toFixed(1)}" y1="${FY.mid}" x2="${px1.toFixed(1)}" y2="${FY.mid}"/>`;
+          }
+        }
+        svg += `<g class="nfldpath" data-x0="${startX2.toFixed(1)}" data-x1="${bx.toFixed(1)}" stroke="#fff" stroke-width="4" stroke-dasharray="1 9" stroke-linecap="round" opacity="0.95">${path}</g>`;
       }
-      svg += `<g class="nflball" data-x="${bx.toFixed(1)}" transform="translate(${bx.toFixed(1)},150)">`
-        + `<ellipse rx="14" ry="9" fill="#6b3f23" stroke="#fff" stroke-width="1.5"/>`
-        + `<line x1="-6" y1="0" x2="6" y2="0" stroke="#fff" stroke-width="1.4"/></g>`;
+      // THE PIN — the possessing team's crest in a teardrop at the ball, counter-skewed so it
+      // stands upright on the leaning field. data-x carries the MATH x (the old ball marker's
+      // contract); the disc under the crest marks the spot even if the logo never decodes.
+      const pt = poss === "home" ? home : away;
+      svg += `<g class="nflball" data-x="${bx.toFixed(1)}" transform="translate(${bx.toFixed(1)},${FY.top}) skewX(${SKEW})">`
+        + `<path d="M 0 0 C -22 -26 -26 -38 -26 -50 A 26 26 0 1 1 26 -50 C 26 -38 22 -26 0 0 Z" fill="#101724" stroke="#fff" stroke-width="2.5"/>`
+        + `<circle cx="0" cy="-52" r="19" fill="#1a2231"/>`
+        + (pt.logo ? `<image href="${esc(pt.logo)}" x="-16" y="-68" width="32" height="32"/>` : `<text x="0" y="-46" fill="#fff" font-size="14" font-weight="800" text-anchor="middle">${esc(pt.abbrev || "")}</text>`)
+        + `</g>`;
     }
+    svg += `</g>`;   // end skewed slab
+    // ---- the yard row BELOW the strip, aligned to the slab's bottom edge (which the frame
+    // put at x=0, so the row only needs the same horizontal scale) ----
+    svg += `<g transform="scale(${FSC.toFixed(4)} 1)" fill="var(--mut)" font-size="19" font-weight="700" text-anchor="middle">`;
+    svg += `<text x="41" y="${FY.numY}">${esc(away.abbrev || "")}</text><text x="958" y="${FY.numY}">${esc(home.abbrev || "")}</text>`;
+    [10, 20, 30, 40, 50, 40, 30, 20, 10].forEach((n, i) => {
+      svg += `<text x="${fieldX((i + 1) * 10).toFixed(1)}" y="${FY.numY}">${n}</text>`;
+    });
+    svg += `</g>`;
     return svg + "</svg>";
   }
 
@@ -3052,19 +3108,57 @@
         ${g.spread ? `<div><span class="mut">Line</span> ${esc(g.spread)}</div>` : ""}</div></div>`;
     }
 
-    // THE FIELD — live only. Its whole content (ball, line of scrimmage, first-down line,
-    // drive band, direction arrow) comes from `situation`, which slimGame only builds while
-    // the game is in progress; drawing an empty gridiron after the final whistle says nothing.
+    // THE FIELD CARD — live only (situation only exists in-progress; an empty gridiron after
+    // the final whistle says nothing). ESPN-style gamecast (2026-08-13): the card is now
+    //   CURRENT DRIVE header (possessing crest + the drive's own plays/yards/clock line)
+    //   the event label + the very clear Down / Ball-on strip, centered above the field
+    //   the isometric field itself (nflFieldSvg)
+    //   the LAST-PLAY card: headline ("10-yd Penalty"), live Win % with the leading crest,
+    //   a "Last play" chip, and the full play text.
     if (live) {
-      html += `<div class="card nflfield">${nflFieldSvg(g)}`;
       const s = g.situation;
-      if (s && s.downDistanceText) {
-        html += `<div class="nflsitu"><b>${esc(s.downDistanceText)}</b>
-          <span class="mut">${esc(s.possessionAbbrev || "")} ball · driving ${String(s.possessionId) === String(away.id) ? "→" : "←"}</span></div>`;
-      } else {
-        html += `<div class="nflsitu"><span class="mut">${esc(st.detail || "")}</span></div>`;
+      const dr = g.drives && g.drives.current;
+      const possT = s && String(s.possessionId) === String(home.id) ? home : away;
+      const lastP = dr && Array.isArray(dr.plays) && dr.plays.length ? dr.plays[dr.plays.length - 1] : null;
+      // "Ball on: DEN 11" — yardsToEndzone is distance to the OPPONENT'S end zone, so past
+      // midfield the spot reads in the opponent's numbers, before it in the offense's own.
+      let ballOn = "";
+      if (s && s.yardsToEndzone != null) {
+        const yte = Number(s.yardsToEndzone);
+        const oppT = possT === home ? away : home;
+        ballOn = yte === 50 ? "50" : yte > 50 ? `${possT.abbrev} ${100 - yte}` : `${oppT.abbrev} ${yte}`;
       }
-      if (s && s.lastPlay) html += `<div class="nfllast"><span class="mut small">LAST PLAY</span> ${esc(s.lastPlay)}</div>`;
+      // Headline: "<n>-yd <Type>" when the play moved the ball, the bare type otherwise.
+      const headline = lastP
+        ? (lastP.yds != null && lastP.yds !== 0 && lastP.type ? `${Math.abs(lastP.yds)}-yd ${lastP.type}` : (lastP.type || "Last play"))
+        : "";
+      html += `<div class="card nflfield">`;
+      html += `<div class="nfldrivehead">${nflCrest(possT)}<div class="nfldht"><b>${dr && dr.plays && dr.plays.length ? "CURRENT DRIVE" : "DRIVE STARTING"}</b>`
+        + `<span class="mut small">${esc((dr && dr.description) || "0 plays, 0 yards, 0:00")}</span></div></div>`;
+      if (lastP && lastP.type) html += `<div class="nflevent">${nflCrest(possT)}<span>${esc(lastP.type)}</span></div>`;
+      if (s && s.downDistanceText) {
+        html += `<div class="nflddrow">
+          <span class="nfldditem"><span class="mut small">Down:</span><b>${esc(s.downDistanceText)}</b></span>
+          ${ballOn ? `<span class="nfldditem"><span class="mut small">Ball on:</span><b>${esc(ballOn)}</b></span>` : ""}
+        </div>`;
+      } else {
+        html += `<div class="nflddrow"><span class="mut">${esc(st.detail || "")}</span></div>`;
+      }
+      html += nflFieldSvg(g);
+      if (s && s.lastPlay) {
+        // Live win % from the series' own newest point — the same numbers the sparkline draws.
+        let wpBit = "";
+        if (Array.isArray(g.winprob) && g.winprob.length) {
+          const last = g.winprob[g.winprob.length - 1];
+          const leadHome = last >= 0.5;
+          const leadT = leadHome ? home : away;
+          wpBit = `<span class="nfllpwp"><span class="mut small">Win %:</span>${nflCrest(leadT)}<b>${(Math.round((leadHome ? last : 1 - last) * 1000) / 10).toFixed(1)}</b></span>`;
+        }
+        html += `<div class="nfllastcard">
+          <div class="nfllphead">${headline ? `<b class="nfllph">${esc(headline)}</b>` : "<b class=\"nfllph\">Last play</b>"}
+            <span class="nfllpr">${wpBit}<span class="nfllpchip">Last Play</span></span></div>
+          <div class="nfllptext">${esc(s.lastPlay)}</div></div>`;
+      }
       html += `</div>`;
     }
 

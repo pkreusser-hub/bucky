@@ -10545,6 +10545,58 @@ its suite restage by a delegated opus agent (its report re-verified by an indepe
   done); the ESPN cookies (ESPN_S2/SWID) stop mattering for Bucky's UI and can be left to
   expire; `_probe-sports.mjs` still exercises the ff_* server actions (they exist) — retire
   those probe checks whenever the actions themselves go.
+
+## 🏟 GFFL — THE GAMECAST GOES BROADCAST-STYLE (2026-08-13/14, user's ESPN-screenshot brief)
+
+User (with a reference screenshot): *"modify our nfl game cast to be a clone of ESPN — note
+the isometric view, the drive progress, the current drive description and team logo, the very
+clear down and distance in the middle, and win probability."* Layout CONCEPTS mirrored, every
+pixel our OWN drawing in the GFFL's broadcast language (own SVG, house tokens, the team
+crests/colors already in use). Files: `netlify/functions/sports.mjs` + `assets/league/
+lg-ui.js` + `league.html` + `tools/_verify-gffl.cjs` (2580 → **2595**).
+- **SERVER (`slimPlay`)**: plays gain `type` (play-type text), `yds` (statYardage) and
+  `start.yardsToEndzone` — the dotted per-play path needs where each play BEGAN, the headline
+  needs "<n>-yd <Type>", and kicked plays (punt/kickoff/FG by type regex) draw ARCS.
+  Backward-compatible (defaults ""/null) — sports suite 229/229 untouched.
+- **THE FIELD (`nflFieldSvg`) is a SIDE-VIEW slab now**, not a top-down gridiron: skewX(-10)
+  lean, end-zone slabs in the teams' real colors wearing rotated NICKNAME wordmarks
+  (`textLength` pins long ones), goalposts BEHIND each end zone (drawn first so the slab
+  occludes below the turf line; counter-skewed upright), alternating 10-yd shading, the gold
+  first-down line poking above the strip, the yard row BELOW it (abbrev 10..50..10 abbrev),
+  and the ball as a team-crest PIN (teardrop, counter-skewed upright, disc fallback if the
+  logo never decodes). THE DRIVE renders as DOTTED PER-PLAY SEGMENTS along the surface (arcs
+  for kicks, peak scaled by distance); the container keeps the superseded progress-arrow's
+  exact data contract (`data-x0` = drive start, `data-x1` = ball) so the suite's hand-computed
+  691.7→183.3 numbers read off `.nfldpath` unchanged.
+- **FRAME MATH, learned from plate 1**: the skew leans the slab past the viewBox (both end
+  zones' corners CLIPPED, and the right goalpost cut through the EAGLES slab when drawn
+  outside the group). Fix: `translate(FY.bot·tan)` puts the slab's bottom-left at x=0 and a
+  `scale(1000/(extent))` fits the lean inside the 1000-unit width; the yard row shares the
+  scale (bottom edge lands at 0 by construction). The strip is TALL (118 units) because at
+  390px the viewBox is ~366px wide and a thin slab made the wordmarks/numbers illegible.
+  GEOMETRY CONTRACT: fieldX/fieldPos/firstDownPos untouched; data-* attrs carry MATH x —
+  the suite asserts arithmetic, never pixels, so the frame can't invalidate a check.
+- **THE CHROME** (nflGameHtml's live card): CURRENT DRIVE header (possessing crest + the
+  drive's own "N plays, N yards, M:SS" description), the last play's TYPE as a centered event
+  label, the very clear **Down: 1st & 10 · Ball on: DAL 12** strip (ball-on derived: past
+  midfield = the opponent's numbers, before it = the offense's own), and the LAST-PLAY card —
+  headline "<n>-yd <Type>", live **Win %** off the winprob series' newest point with the
+  leading crest, a "Last Play" chip, the full play text. `.nflsitu`/`.nfllast` retired.
+- **SUITE**: AH3's arrow checks RESTAGED to the path (same data contract + "dotted per-play
+  segments, not a solid bar"), + skew/pin/wordmark/yard-row checks, + the chrome hand-derived
+  from the fixture (drive header text, event label, Down/Ball-on centered, headline
+  "49-yd Pass Reception", Win % 66.0 with crest). Fixture's `nflPlay` helper gained OPTIONAL
+  startYTE/type/yds params (old call sites byte-identical); the current drive's plays carry
+  the real chain 73→64→61→12. ONE own-goal on the first run: `/Down: 1st/` with a literal
+  space — label and value are ADJACENT elements and textContent runs them together (the AE
+  lesson, again); the visible gap is the flex gap. `\s*`.
+- **KNOWN / FOLLOW-UPS**: sports.html's own game view still renders the OLD flat field — port
+  after the family approves this look (the rendering exists twice by documented choice); the
+  drive path only draws the CURRENT drive's own plays (the reference sometimes shows the
+  punt that handed the ball over — that play belongs to the previous drive and stays there);
+  fixture arcs are unexercised (all ground plays) — the kicked-arc branch is regex-gated and
+  live preseason games will exercise it, worth an eyeball on the first real punt.
+  Plates: `shots/gffl_nflgame_{390,desktop}.png`.
 ---
 
 # 📈 FINANCE TAB + 🔔 EVENT NOTIFICATIONS (2026-08-09)
