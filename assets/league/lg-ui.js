@@ -763,6 +763,12 @@
     showBnav();
     UI.view = name;
     stopChatPoll(); // leaving whatever view had one open — chat/matchup-thread restart their own
+    // --chatlist-h lives on the ROOT, so it has to be re-measured (or cleared) whenever the
+    // view changes, or a stale height from the chat tab would follow us onto any other
+    // .chatcard — e.g. the desktop chat panel if the layout editor moves it out of the rail,
+    // where the rail's own fixed-height rule no longer covers it. sizeChatList() clears the
+    // var itself when the chat tab's card isn't on the page, so this one call does both.
+    if (UI.sizeChatList) setTimeout(() => UI.sizeChatList(), 0);
     stopScoresPoll(); // ditto for the Scores tab's fantasy-scoreboard poll
     stopNflGamePoll(); // …and item 28's NFL game view — a poll must never outlive its view
     stopDraftCountdown(); // S2 — the league home's own ticking clock, same rule
@@ -2177,16 +2183,23 @@
       }
       applyDeskDisplay();
     } else {
+      // PHONE ORDER (2026-08-14, user: "on the league page it should go week 1 matchups, then
+      // recent moves, then standings, then injury report"). The four they named lead, in that
+      // order; everything else keeps its old relative order beneath them. Two exceptions stay
+      // ABOVE the week card, both because they are interruptions rather than reading material:
+      // the draft countdown (the page's hero while it lasts) and the stale-weeks alarm (the one
+      // card that asks somebody to DO something). Recent moves is a lazy <details> — putting it
+      // second costs nothing until it is opened (wireLazyLeagueDetails).
       main().innerHTML = `
         ${draftCountdownCardHtml(LG.rules)}
-        ${weekCard}
-        ${injuryFeedCardHtml(UI._injFeed)}
         ${staleWeeksHtml(UI._staleWeeks, isCommish())}
+        ${weekCard}
+        ${recentMovesHtml(UI._tx)}
+        ${standingsHtml(rows, st, {})}
+        ${injuryFeedCardHtml(UI._injFeed)}
         ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
         ${powerRankingsHtml(UI._allWeekly)}
         ${accuracyHtml(UI._accuracy)}
-        ${standingsHtml(rows, st, {})}
-        ${recentMovesHtml(UI._tx)}
         ${recentChatHtml(UI._recentChat)}
         ${recordBookHtml(UI._recordBook)}
         ${leagueLinksHtml(LG.rules)}`;
@@ -3754,8 +3767,31 @@
   // what keeps the big number on the name's own baseline.
   // An empty half renders the SAME three-line shape with a muted "Empty" — never a bare "—" —
   // so both columns stay aligned however the two rosters differ.
+  // IS THIS MAN HAVING A HUGE GAME? (2026-08-14, user: "some effects for players that are
+  // having a huge game… something that doesn't interfere with readability but immediately
+  // shows a player is having a big game.") Two conditions, BOTH required, so neither a garbage-
+  // time projection miss nor a merely-solid day lights up:
+  //   · a real SCORE in absolute terms — a 9-point day is nobody's big game however it was
+  //     projected, and a kicker who was projected 1.0 must not catch fire for scoring 4;
+  //   · well AHEAD of what he was projected for — that is what makes it a *big* game rather
+  //     than a stud doing his job.
+  // Returns 0 (nothing), 1 (hot) or 2 (blazing) so the effect can escalate rather than being
+  // one binary state everybody hits. A player whose game hasn't started can never be hot.
+  const HEAT = { ptsHot: 18, ptsBlaze: 28, ratioHot: 1.5, ratioBlaze: 2.0 };
+  function bigGame(pts, proj, p) {
+    const s = Number(pts);
+    if (!Number.isFinite(s) || s < HEAT.ptsHot) return 0;
+    // No projection to beat (a rookie, a replay board) — judge on the score alone, which is
+    // why the absolute tier exists at all.
+    const pr = Number(proj);
+    const ratio = Number.isFinite(pr) && pr > 0 ? s / pr : (s >= HEAT.ptsBlaze ? 99 : 0);
+    if (s >= HEAT.ptsBlaze && ratio >= HEAT.ratioBlaze) return 2;
+    if (ratio >= HEAT.ratioHot) return 1;
+    return 0;
+  }
+  UI._bigGame = bigGame; // test hook — the thresholds are asserted, not eyeballed
   function halfCell(p, side) {
-    let nameHtml, metaHtml, statHtml, ptsHtml, projHtml, ball = false, titleAttr = "";
+    let nameHtml, metaHtml, statHtml, ptsHtml, projHtml, ball = false, heat = 0, heatPts = null, titleAttr = "";
     if (!p) {
       // The empty half carries the crest's 14px slot too, so its "Empty" label starts at the
       // same x as every real name in the column — the point of the whole even-row rule.
@@ -3782,6 +3818,7 @@
       // defence is off the field), never under the replay (there is no drive data to read).
       // Drawn as an INSET ring (see .pcellgrid.hasball) so it costs the row no height.
       ball = hasBall(p);
+      heat = bigGame(pts, proj, p); heatPts = pts;
       const conflict = row && row.conflict ? '<span class="conflictflag" title="Sources disagree">CONFLICT</span>' : "";
       // ESPN-style stat summary line ("312 pass yds, 2 TD" / "6 rec, 84 yds"), from whichever
       // source mergeRow picked. "" before any stat lands — the LINE still reserves its height.
@@ -3841,7 +3878,11 @@
     // face would hand it straight back); an empty half carries the placeholder disc so the
     // desktop column keeps one edge.
     const shot = p ? pshotHtml(p.key, "mushot") : pshotPh("mushot");
-    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}"${ball ? ' title="Has the ball"' : ""}${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
+    // data-heat drives the CSS ember effect (see .pcellgrid[data-heat] in league.html); the
+    // title says in words what the glow says in colour, because an effect on its own is not
+    // an accessible statement.
+    const heatAttr = heat ? ` data-heat="${heat}" title="${heat === 2 ? "Blazing" : "Big game"} — ${LG.fmtPts(heatPts)} pts"` : "";
+    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}${heat ? " hot" : ""}"${ball && !heat ? ' title="Has the ball"' : ""}${heatAttr}${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
   }
   // The ESPN-reference stat summary for a matchup row: a compact position-aware line built
   // from the stats of whichever source mergeRow() picked for display (row.src — the same
@@ -4634,9 +4675,31 @@
     if (UI._chatTimer) { clearInterval(UI._chatTimer.h); UI._chatTimer = null; }
   }
   UI.renderChat = renderChat;
+  // The chat list's height is MEASURED, not guessed (2026-08-14): the real gap between the
+  // list's own top and the top of the bottom nav, minus whatever of the card sits below it
+  // (the composer). A fixed 52vh left ~200px of dead space under the card on a phone. Runs
+  // after the paint and on resize; the desktop RAIL panel keeps its own fixed height (that
+  // one is a column in a two-column dashboard, not the whole screen), so this only ever
+  // touches the chat TAB's card.
+  function sizeChatList() {
+    const list = document.querySelector(".chatcard:not(.chatpanel) .chatlist");
+    if (!list) { document.documentElement.style.removeProperty("--chatlist-h"); return; }
+    const card = list.closest(".chatcard");
+    const nav = document.querySelector(".bnav");
+    const navTop = nav && getComputedStyle(nav).display !== "none"
+      ? nav.getBoundingClientRect().top : window.innerHeight;
+    const below = card.getBoundingClientRect().bottom - list.getBoundingClientRect().bottom;
+    const h = Math.round(navTop - list.getBoundingClientRect().top - below - 12);
+    // A floor keeps a very short window (a landscape phone) from collapsing the list to
+    // nothing; above it the list simply fills whatever is really there.
+    document.documentElement.style.setProperty("--chatlist-h", Math.max(200, h) + "px");
+  }
+  UI.sizeChatList = sizeChatList;
+  window.addEventListener("resize", () => { if (UI.view === "chat") sizeChatList(); });
   async function renderChat() {
     main().innerHTML = `<div class="card chatcard"><h2>League chat</h2>${chatWidgetHtml("chat")}</div>`;
     wireChat("chat", null);
+    sizeChatList();
     await refreshChatList("chat", null);
     startChatPoll("chat", null);
   }
