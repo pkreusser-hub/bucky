@@ -284,6 +284,15 @@
   const local = {
     key: (id) => "lg_" + LG.COLL + "_" + id,
     async get(id) { const s = localStorage.getItem(this.key(id)); return s ? JSON.parse(s) : null; },
+    // READ-ONLY escape hatch to a collection that is not this league's (2026-08-15). The one
+    // caller is the Draft Day import: the draft board (ffdraft.html) is a separate app with
+    // its own collection, ffdraft_<famKey>, and the league has to be able to read what was
+    // drafted. Deliberately read-only and deliberately NOT mirrored/cached — it is somebody
+    // else's data, and the league's own doc caches must never be able to answer for it.
+    async foreignGet(coll, id) {
+      const s = localStorage.getItem("lg_" + coll + "_" + id);
+      return s ? JSON.parse(s) : null;
+    },
     async set(id, data) {
       const cur = (await this.get(id)) || {};
       localStorage.setItem(this.key(id), JSON.stringify({ ...cur, ...data }));
@@ -512,6 +521,16 @@
       markHealthy();
       mirrorPut(id, doc);
       return doc;
+    },
+    // See local.foreignGet — read-only, another app's collection, never mirrored. A 404 is a
+    // real "there is no draft" rather than an error, exactly as it is for our own docs.
+    async foreignGet(coll, id) {
+      const url = FS_BASE + "/" + encodeURIComponent(coll) + "/" + encodeURIComponent(id) + "?key=" + FS_KEY;
+      const r = await fsFetch(url, { method: "GET" }, "Firestore read");
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error("Firestore read failed (" + r.status + ")");
+      const j = await r.json();
+      return fsDecFields(j && j.fields);
     },
     async set(id, data) {
       const keys = Object.keys(data || {}).filter((k) => data[k] !== undefined);
@@ -751,6 +770,13 @@
       const v = await backend().get(id);
       cacheUpsert(id, v); // adopt the truth (and drop any stale row from every list cache)
       return v;
+    },
+    // Another app's collection, read-only, ALWAYS fresh and never cached here — this league's
+    // doc/list caches must never be able to answer for data they do not own. Used only by the
+    // Draft Day import to read ffdraft.html's own draft room.
+    async foreignGet(coll, id) {
+      LG.db.stats.fresh++;
+      return backend().foreignGet(coll, id);
     },
     // Bypasses the list cache — every "did someone else already do this?" guard and every
     // read-modify-write MUST see the real current backend state, not this page's snapshot.

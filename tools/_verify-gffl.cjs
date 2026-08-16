@@ -12800,6 +12800,169 @@ async function openDetails(page, id) {
       fixture.preseason = false; fixture.depthCharts = false; fixture.preseasonFinal = false;
     }
 
+    // ---- AI14: IMPORT ROSTERS FROM DRAFT DAY (2026-08-15, user: "we need to create an import
+    // roster from Draft Day button in the comissioner rules view"). The draft lives in another
+    // app's collection (ffdraft_<fam>/draft_<season>), so the whole feature is a foreign read
+    // plus a reshape into applyImportedRosters' own wire shape. What has to be true: it refuses
+    // honestly rather than blanking eight rosters, it writes WEEK 1 whatever week is on screen,
+    // and the slotting is the same rule the ESPN importers beside it use.
+    {
+      const DRAFT_KEY = "lg_ffdraft_" + FAM + "_draft_2026";
+      // Real-shaped picks: keyed r<round>_t<team>, pid = an ESPN player id, plus the two cases
+      // that need their own handling — a D/ST (keyed dst_<team>, never by id) and a hand-typed
+      // "custom" pick, which ffdraft writes as pid "c_<slug>" and nothing can ever score.
+      const draftDoc = (over) => JSON.stringify(Object.assign({
+        v: 1, season: 2026, phase: "done", rounds: 4,
+        teams: [{ id: 1, name: "Battle Kreussers" }, { id: 2, name: "The Goat Kids" }],
+        picks: {
+          r1_t1: { pid: 3915511, name: "Patrick Passer", pos: "QB", proTeam: "PHI" },
+          r2_t1: { pid: 222111, name: "Ray Rusher", pos: "RB", proTeam: "PHI" },
+          r3_t1: { pid: 4241457, name: "Wes Wideout", pos: "WR", proTeam: "DAL" },
+          r4_t1: { pid: -16021, name: "Eagles D/ST", pos: "DST", proTeam: "PHI" },
+          r1_t2: { pid: 111222, name: "Quentin Rival", pos: "QB", proTeam: "DAL" },
+          r2_t2: { pid: "c_uncle-rico", name: "Uncle Rico", pos: "QB", proTeam: "" },
+        },
+      }, over || {}));
+      const openRules = async (page) => {
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        await evalOr(page, () => window.__GFFL__.LG.gateCommish());
+        await evalOr(page, () => window.__GFFL__.UI.show("rules"));
+        await waitFnOr(page, () => document.body.textContent.includes("League rules"));
+      };
+      const rosterOf = (page, t) => evalOr(page, (k) => {
+        const d = JSON.parse(localStorage.getItem(k) || "null");
+        return d && d.players ? d.players : null;
+      }, LSPFX + "roster_2026_w1_t" + t);
+
+      // (a) NO draft room at all — the honest refusal, and not one byte written.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await openRules(page);
+        ok(!!(await page.$("#draftRostersImport")), "the Rules page carries an 'Import rosters from Draft Day' commissioner button");
+        const before = await rosterOf(page, 1);
+        await clickIn(page, "#draftRostersImport");
+        await waitFnOr(page, () => /draft room|Draft Day/i.test((document.querySelector("#importOut") || {}).textContent || ""));
+        const txt = ((await evalOr(page, () => (document.querySelector("#importOut") || {}).textContent)) || "").replace(/\s+/g, " ");
+        ok(/No draft room for 2026 yet/.test(txt), "with no draft room it says so plainly (" + txt.slice(0, 70) + ")");
+        ok(!(await page.$("#draftGo")), "…and never offers to import");
+        ok(stableStr(await rosterOf(page, 1)) === stableStr(before), "…and nothing was written");
+        ok(errors.length === 0, "0 page errors on the no-draft refusal");
+        await ctx.close();
+      }
+      // (b) A draft room that exists but nobody has drafted in — the state the REAL room is in
+      // right now (phase "keepers", 0 picks). Blanking eight rosters from an empty draft is the
+      // single worst thing this button could do.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await page.evaluateOnNewDocument((k, v) => localStorage.setItem(k, v), DRAFT_KEY, draftDoc({ phase: "keepers", picks: {} }));
+        await openRules(page);
+        const before = await rosterOf(page, 1);
+        await clickIn(page, "#draftRostersImport");
+        await waitFnOr(page, () => /nobody has been drafted/i.test((document.querySelector("#importOut") || {}).textContent || ""));
+        const txt = ((await evalOr(page, () => (document.querySelector("#importOut") || {}).textContent)) || "").replace(/\s+/g, " ");
+        ok(/nobody has been drafted yet/.test(txt) && /phase: keepers/.test(txt),
+          "an EMPTY draft refuses and names the phase, rather than blanking every roster (" + txt.slice(0, 80) + ")");
+        ok(!(await page.$("#draftGo")) && stableStr(await rosterOf(page, 1)) === stableStr(before),
+          "…no import offered, nothing written");
+        ok(errors.length === 0, "0 page errors on the empty-draft refusal");
+        await ctx.close();
+      }
+      // (c) + (d) A real draft: the confirm, then the import.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await page.evaluateOnNewDocument((k, v) => localStorage.setItem(k, v), DRAFT_KEY, draftDoc());
+        await openRules(page);
+        const before1 = await rosterOf(page, 1), before3 = await rosterOf(page, 3);
+        await clickIn(page, "#draftRostersImport");
+        ok(await waitOr(page, "#draftGo", 9000), "a real draft opens a CONFIRM step, not an immediate overwrite");
+        const conf = ((await evalOr(page, () => (document.querySelector("#importOut") || {}).textContent)) || "").replace(/\s+/g, " ");
+        ok(/6 picks across 2 teams/.test(conf), "…counting the picks and the teams that made them (" + conf.slice(0, 70) + ")");
+        ok(/week 1/.test(conf), "…and naming WEEK 1 — a draft sets the opening roster, whatever week is on screen");
+        ok(/Uncle Rico/.test(conf) && /typed in by hand/.test(conf),
+          "…flagging the hand-typed pick nothing can score, by name");
+        ok(!/not marked finished/.test(conf), "…and a finished draft raises no unfinished warning");
+        ok(stableStr(await rosterOf(page, 1)) === stableStr(before1), "…with nothing written yet — the first tap only ever shows");
+        await clickIn(page, "#draftCancel");
+        await sleep(200);
+        ok(!(await page.$("#draftGo")) && stableStr(await rosterOf(page, 1)) === stableStr(before1),
+          "Cancel really cancels: the card closes and the rosters are untouched");
+        // …now do it for real.
+        await clickIn(page, "#draftRostersImport");
+        await waitOr(page, "#draftGo", 9000);
+        await clickIn(page, "#draftGo");
+        await waitFnOr(page, () => /Draft imported/.test(document.body.textContent));
+        const t1 = await rosterOf(page, 1), t2 = await rosterOf(page, 2);
+        ok((t1 || []).length === 4 && (t2 || []).length === 2,
+          "week 1 rosters are written for the teams that drafted (" + (t1 || []).length + "/" + (t2 || []).length + ")");
+        const byName = Object.fromEntries((t1 || []).map((p) => [p.name, p]));
+        ok(byName["Patrick Passer"] && byName["Patrick Passer"].key === "3915511",
+          "…each player keyed by his ESPN id, which is what the scoring engine resolves (" + JSON.stringify(byName["Patrick Passer"] || null) + ")");
+        ok(byName["Eagles D/ST"] && byName["Eagles D/ST"].key === "dst_PHI",
+          "…except a D/ST, keyed dst_<team> like everywhere else (" + ((byName["Eagles D/ST"] || {}).key) + ")");
+        ok(byName["Patrick Passer"].slot === "QB" && byName["Ray Rusher"].slot === "RB"
+          && byName["Wes Wideout"].slot === "WR" && byName["Eagles D/ST"].slot === "DST",
+          "…and slotted by the app's OWN rule, in draft order — the same rule the ESPN importers use");
+        ok(stableStr(await rosterOf(page, 3)) === stableStr(before3),
+          "a team that did not draft is left exactly as it was — the import writes only what it read");
+        ok(errors.length === 0, "0 page errors through the import");
+        await ctx.close();
+      }
+      // (e) An UNFINISHED draft still imports, but says so — a commissioner may well want the
+      // picks made so far, and silently importing a half-done draft would be the wrong shape.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await page.evaluateOnNewDocument((k, v) => localStorage.setItem(k, v), DRAFT_KEY, draftDoc({ phase: "live" }));
+        await openRules(page);
+        await clickIn(page, "#draftRostersImport");
+        await waitOr(page, "#draftGo", 9000);
+        const conf = ((await evalOr(page, () => (document.querySelector("#importOut") || {}).textContent)) || "").replace(/\s+/g, " ");
+        ok(/not marked finished/.test(conf) && /phase: live/.test(conf),
+          "an unfinished draft warns and names the phase, but still offers the import (" + conf.slice(0, 80) + ")");
+        ok(errors.length === 0, "0 page errors on the unfinished draft");
+        await ctx.close();
+      }
+      // (f) Week 1 already SCORED. That weekly doc is write-once, so re-importing the draft over
+      // the top of it would leave the roster and the settled result telling different stories.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await page.evaluateOnNewDocument((k, v) => localStorage.setItem(k, v), DRAFT_KEY, draftDoc());
+        await page.evaluateOnNewDocument((k) => localStorage.setItem(k, JSON.stringify({
+          kind: "weekly", week: 1, season: 2026, matchups: [], finalizedAt: 1,
+        })), LSPFX + "weekly_2026_w1");
+        await openRules(page);
+        const before = await rosterOf(page, 1);
+        await clickIn(page, "#draftRostersImport");
+        await waitFnOr(page, () => /already been finalized/i.test((document.querySelector("#importOut") || {}).textContent || ""));
+        ok(!(await page.$("#draftGo")), "a finalized week 1 refuses the import outright");
+        ok(stableStr(await rosterOf(page, 1)) === stableStr(before), "…and the rosters behind that result are untouched");
+        ok(errors.length === 0, "0 page errors on the finalized-week refusal");
+        await ctx.close();
+      }
+      // (g) A non-commissioner cannot do it. Hidden AND gated — a hidden button still clicks.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await page.evaluateOnNewDocument((k, v) => localStorage.setItem(k, v), DRAFT_KEY, draftDoc());
+        await page.evaluateOnNewDocument(() => localStorage.setItem("dadPinHash", "0".repeat(64)));
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        await evalOr(page, () => window.__GFFL__.UI.show("rules"));
+        await waitFnOr(page, () => document.body.textContent.includes("League rules"));
+        const vis = await evalOr(page, () => {
+          const b = document.querySelector("#draftRostersImport");
+          return { present: !!b, hidden: !!(b && b.hidden) };
+        }) || {};
+        ok(vis.present && vis.hidden, "a non-commissioner sees no Draft Day button (present in the markup, rendered hidden)");
+        const before = await rosterOf(page, 1);
+        await clickIn(page, "#draftRostersImport");
+        await sleep(400);
+        ok(!(await page.$("#draftGo")), "…and clicking it anyway never reaches the confirm step");
+        ok(stableStr(await rosterOf(page, 1)) === stableStr(before), "…the rosters are untouched");
+        ok(errors.length === 0, "0 page errors on the refusal");
+        await ctx.close();
+      }
+    }
+
     // ---- AI13: the review plates. Preseason, week 1, rosters full of backups.
     if (SHOTS) {
       fixture.preseason = true; fixture.depthCharts = true;

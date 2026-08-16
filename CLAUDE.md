@@ -12552,3 +12552,63 @@ live lineup) and `gffl_loot_ladder_{390,desktop}.png` (all five steps in one fra
 **KNOWN, and it is WoW's own trait rather than ours**: `#1eff00` is the brightest thing on the
 ladder, so the LOWEST coloured rung slightly out-shouts rare and epic above it. Faithful to the
 convention the family asked for; a desaturated green is the fix if it grates.
+
+## 🏈 GFFL — DRAFT DAY IMPORT + the end-of-2025 roster reset (2026-08-15)
+
+Two asks: *"reset all rosters to their end of 2025 positions"* and *"create an import roster
+from Draft Day button in the comissioner rules view."* Files: `assets/league/lg-{core,ui}.js` +
+`tools/_verify-gffl.cjs` (2675 → **2701**). No server work — see below, the join was free.
+
+### THE DRAFT DAY IMPORT — the join costs nothing, and that is the finding
+The draft happens in `ffdraft.html`, a SEPARATE app with its own collection
+(`ffdraft_<famKey>/draft_<season>`, picks keyed `r<round>_t<teamId>`). **Probed before a line was
+written**: that app takes its teams from ESPN (`ff_draftinfo` → `t.id`) and its players from ESPN
+(`ff_draftpool` → `p.id`), which are the SAME team ids and the SAME player ids this league already
+keys rosters by, and both apps hash the same family password so the collection name is derivable.
+So the whole feature is **one document read plus a reshape** — no id mapping, no new server
+action, no new secret.
+- **`LG.db.foreignGet(coll, id)`** (both backends) is the only new plumbing: read-only, always
+  fresh, and deliberately NEVER cached or mirrored — this league's doc/list caches must not be
+  able to answer for another app's data.
+- It reshapes into **`applyImportedRosters`' own wire shape** and hands off, so the slotting rule
+  is not duplicated and cannot drift from the ESPN importers beside it. Sorting by ROUND is
+  load-bearing: slots fill in list order, so a first-round pick has to arrive first or slotting
+  would depend on object key order, which nothing guarantees.
+- **REFUSALS, all before any write** (the real room is sitting at phase "keepers" with 0 picks
+  right now, so the empty case is not hypothetical): no draft room · a room with no picks, naming
+  the phase · **week 1 already finalized** (that record is write-once — a re-import over a played
+  week would leave the roster and the result telling different stories). An UNFINISHED draft
+  warns and still offers, because a commissioner may well want the picks made so far.
+- Week **1** always, whatever week is on screen — a draft sets the opening roster. Two-step
+  confirm (the backup-fill pattern): the first tap only ever SHOWS. Hand-typed "custom" picks
+  (ffdraft writes `pid: "c_<slug>"`) can never be scored, so the confirm NAMES them rather than
+  letting them turn up as em dashes on a Sunday.
+
+### THE RESET — and the bug the word "positions" caught
+`lg_espn_rosters_season` with no scoring period returns a PAST season's FINAL state, so the
+existing "Import 2025 rosters (test run)" button already was this. Done as a script (backup →
+masked PATCH → canonical re-read verify, the house pattern) since a button needs a browser:
+all 8 teams, **156 players**, every one landing on exactly the legal shape (11 starters matching
+the rules table, 7 bench, 1-2 IR), verified against what was sent.
+**But the first run put Marvin Harrison Jr. in a starting WR slot when ESPN had him BENCHED.**
+`applyImportedRosters` honoured the source's `lineupSlot` for IR *only* and re-derived everyone
+else greedily from roster order — right players, wrong lineup, which is not "end of 2025
+**positions**". Now **TWO PASSES**: honour the source's own slot where the rules have it, the
+player is eligible and it has room; then fill whatever starting slots are STILL EMPTY, greedily,
+in list order. A full source lineup leaves pass 2 nothing to do; a thin or absent one still
+produces a LEGAL lineup instead of holes — and pass 2 alone is what the Draft Day import runs on,
+where draft order IS the ranking. **The battery passed 2701/0 with ZERO restaging**, which is the
+tell that this is the right rule rather than a bent test: the one check that failed under
+honour-only (a fixture whose own comment read "bench-tagged; slotting is re-derived") passes
+untouched under two passes, because its bench player legitimately fills an empty slot while
+Harrison — benched on a FULL roster — correctly stays put.
+
+**VERIFY**: battery **2701/2701, 0 page errors** (+26, section AI14: the button, no-draft /
+empty-draft / finalized-week refusals each proving nothing was written, the confirm's counts and
+custom-pick warning, Cancel, then a real import checked key-by-key — ESPN ids, `dst_<team>` for a
+defense, draft-order slotting — plus a team that did NOT draft left untouched, and the
+hidden-AND-gated non-commissioner path). Backup: session scratchpad
+`gffl_backup/rosters_before_2025reset.json`.
+**KNOWN**: the reset writes week 1 only, which is the only week that exists right now (no
+later-week roster docs — checked); and a `?fam=` test league would read that same league's own
+draft room, which is correct by construction.

@@ -5867,6 +5867,7 @@
           <button id="rulesImport" ${isCommish() && !editing ? "" : "hidden"}>Import from ESPN</button>
           <button id="schedGen" ${isCommish() && !editing ? "" : "hidden"}>${schedule ? "Regenerate" : "Generate"} schedule</button>
           <button id="rostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import ESPN rosters</button>
+          <button id="draftRostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import rosters from Draft Day</button>
           <button id="testRostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import 2025 rosters (test run)</button>
           <button id="backupsFill" ${isCommish() && !editing ? "" : "hidden"}>Fill rosters with backups</button>
           <button id="historyImport" ${isCommish() && !editing ? "" : "hidden"}>Import history</button>
@@ -5874,6 +5875,8 @@
       ${isCommish() && !editing ? `<div class="card mut small">
         <b>Import from ESPN</b> — rules, scoring, and the 8 teams, from the real live league.<br>
         <b>Import ESPN rosters</b> — this week's rosters, from the real live (${r.season}) league.<br>
+        <b>Import rosters from Draft Day</b> — turns what was drafted on the Draft page into
+        week 1's rosters, for every team at once. Starters fill in draft order.<br>
         <b>Import 2025 rosters (test run)</b> — re-seeds THIS week's rosters from the real,
         FINAL 2025 season. The 2025 replay already does this at week 1 automatically; this is
         the manual button for re-running it against whichever week is open.<br>
@@ -5963,6 +5966,10 @@
     $("#rostersImport") && $("#rostersImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       await importRosters();
+    });
+    $("#draftRostersImport") && $("#draftRostersImport").addEventListener("click", async () => {
+      if (!(await LG.gateCommish())) return;
+      try { await renderDraftImportConfirm(); } catch (e) { importFail(importOut(), "Couldn't read the draft room", e); }
     });
     $("#testRostersImport") && $("#testRostersImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
@@ -6791,11 +6798,34 @@
     const slots = starterSlotList();
     for (const t of (j.teams || [])) {
       const taken = {};
-      const players = (t.players || []).map((p) => {
-        let slot = "BENCH";
-        const want = p.lineupSlot === "IR" ? "IR" : slots.find((s) => LG.slotEligible(p.pos, s) && (taken[s] = (taken[s] || 0)) < (LG.rules.roster[s] || 0) && ++taken[s]);
-        if (p.lineupSlot === "IR") slot = "IR";
-        else if (want) slot = want;
+      // HONOUR THE SOURCE'S OWN LINEUP when it has one (2026-08-15), in TWO passes.
+      // ESPN tells us exactly who was STARTING and who was benched, and until now that was
+      // thrown away for everyone but IR: slotting was re-derived greedily from roster order,
+      // which could start a man his owner had deliberately benched (Marvin Harrison Jr., end
+      // of 2025 — BENCH on ESPN, WR1 after import).
+      //   pass 1 · take the source's own slot, when it is a slot these rules have, the player
+      //            is eligible for it, and it still has room. IR likewise.
+      //   pass 2 · anyone left fills whatever starting slots are STILL EMPTY, greedily, in
+      //            list order — so a source with a thin or absent lineup still produces a
+      //            legal one rather than a lineup full of holes. This pass is the ONLY one
+      //            that runs for the Draft Day import, which carries no lineup at all and
+      //            where draft order IS the ranking.
+      // A full source lineup leaves nothing for pass 2 to do, which is what makes the two
+      // compose instead of fighting: fidelity where there is a lineup, completeness where
+      // there is not.
+      const src = (t.players || []).map((p) => ({ p, slot: null }));
+      for (const e of src) {
+        const s = e.p.lineupSlot;
+        if (s === "IR") { e.slot = "IR"; continue; }
+        if (s && s !== "BENCH" && LG.slotEligible(e.p.pos, s)
+          && (taken[s] = (taken[s] || 0)) < (LG.rules.roster[s] || 0)) { taken[s]++; e.slot = s; }
+      }
+      for (const e of src) {
+        if (e.slot) continue;
+        const want = slots.find((s) => LG.slotEligible(e.p.pos, s) && (taken[s] = (taken[s] || 0)) < (LG.rules.roster[s] || 0) && ++taken[s]);
+        e.slot = want || "BENCH";
+      }
+      const players = src.map(({ p, slot }) => {
         return {
           key: p.pos === "DST" ? "dst_" + D().slpTeam(p.proTeam) : String(p.espnId),
           name: p.name, pos: p.pos, team: p.proTeam, slot, injury: p.injury || "",
@@ -6833,6 +6863,115 @@
       (week ${UI.week}). These are for testing — re-import real ${LG.rules.season} rosters once the
       season starts.</div>`;
   }
+  // ---------------- ⭐ IMPORT ROSTERS FROM DRAFT DAY (2026-08-15) ----------------------------
+  // The draft happens in ffdraft.html — a SEPARATE app with its own Firestore collection
+  // (ffdraft_<famKey>/draft_<season>). This is the bridge that turns what was drafted into the
+  // league's own week-1 rosters, so the family never has to re-enter 21 picks × 8 teams by hand.
+  //
+  // THE JOIN IS FREE, and that is worth knowing rather than rediscovering: the draft board gets
+  // its teams from ESPN (ff_draftinfo -> t.id) and its players from ESPN (ff_draftpool -> p.id),
+  // which are the SAME team ids and the SAME player ids this league keys rosters by. Both apps
+  // also hash the same family password, so the collection name is derivable. No id mapping, no
+  // new server action, no new secret — a read of one document and a reshape.
+  //
+  // It reshapes into applyImportedRosters' OWN wire shape and hands off, so the slotting rule
+  // (starters greedily by the app's own slot table, IR honoured, DST keyed dst_<team>) is not
+  // duplicated here and can never drift from the ESPN importers beside it.
+  function draftColl() { return "ffdraft_" + LG.famKey; }
+  function draftDocId() { return "draft_" + LG.SEASON; }
+  // Picks are keyed "r<round>_t<teamId>". Sorting by ROUND is load-bearing: applyImportedRosters
+  // fills starting slots greedily in list order, so a team's first-round pick has to arrive
+  // first or the slotting would depend on object key order, which nothing guarantees.
+  function draftToTeams(doc) {
+    const picks = (doc && doc.picks) || {};
+    const byTeam = new Map();
+    for (const key of Object.keys(picks)) {
+      const m = /^r(\d+)_t(\d+)$/.exec(key);
+      if (!m) continue;
+      const round = Number(m[1]), teamId = Number(m[2]);
+      const p = picks[key] || {};
+      if (!byTeam.has(teamId)) byTeam.set(teamId, []);
+      byTeam.get(teamId).push({ round, espnId: p.pid, name: p.name || "", pos: p.pos || "", proTeam: p.proTeam || "", injury: "", keeper: !!p.keeper });
+    }
+    const teams = [];
+    for (const [id, list] of byTeam) {
+      list.sort((a, b) => a.round - b.round);
+      const t = LG.teamById(id) || (doc.teams || []).find((x) => Number(x.id) === id) || {};
+      teams.push({ id, name: t.name || "Team " + id, players: list });
+    }
+    return teams.sort((a, b) => a.id - b.id);
+  }
+  // A player the board could not match to a real ESPN id — ffdraft lets a commissioner type a
+  // name in ("c_<slug>"). It still lands on the roster, but nothing can score it, so the
+  // confirm NAMES them rather than letting them turn up as em dashes on a Sunday.
+  const draftCustomPick = (p) => !Number.isFinite(Number(p.espnId));
+  async function renderDraftImportConfirm() {
+    const out = importOut();
+    out.innerHTML = '<div class="card mut">Reading the draft room…</div>';
+    let doc;
+    try { doc = await LG.db.foreignGet(draftColl(), draftDocId()); }
+    catch (e) { importFail(out, "Couldn't reach the draft room", e); return; }
+    if (!doc) {
+      out.innerHTML = `<div class="card bad">No draft room for ${LG.SEASON} yet — nothing to import.
+        The draft happens on the Draft page; come back here once it has run.</div>`;
+      return;
+    }
+    const teams = draftToTeams(doc);
+    const total = teams.reduce((s, t) => s + t.players.length, 0);
+    if (!total) {
+      out.innerHTML = `<div class="card bad">The ${LG.SEASON} draft room exists but nobody has been
+        drafted yet (phase: ${esc(String(doc.phase || "?"))}). Nothing was changed.</div>`;
+      return;
+    }
+    // Week 1 always: a draft sets the OPENING roster, whatever week happens to be on screen.
+    // And once week 1 has been scored, that record is write-once — re-importing the draft over
+    // the top of a played week would leave the roster and the result telling different stories.
+    const wk = 1;
+    if (await LG.loadWeekly(wk)) {
+      out.innerHTML = `<div class="card bad">Week ${wk} has already been finalized, so its rosters
+        are part of a settled result — the draft can't be imported over the top of it.</div>`;
+      return;
+    }
+    const custom = teams.flatMap((t) => t.players.filter(draftCustomPick));
+    const unfinished = String(doc.phase || "") !== "done";
+    const cur = [];
+    for (const t of teams) cur.push(((await LG.loadRoster(wk, t.id)) || []).length);
+    const list = teams.map((t, i) => `<div class="rowline"><span>${esc(t.name)}</span>
+      <span class="mut small">${t.players.length} drafted${cur[i] ? " · replaces " + cur[i] + " now" : ""}</span></div>`).join("");
+    out.innerHTML = `<div class="card"><h2>Import rosters from Draft Day</h2>
+      <p>${total} picks across ${teams.length} team${teams.length === 1 ? "" : "s"} become week ${wk}'s
+        rosters. Starters are filled in draft order — the earliest pick eligible for a slot takes
+        it — and everyone else goes to the bench.</p>
+      ${unfinished ? `<p class="warn">The draft is not marked finished (phase:
+        ${esc(String(doc.phase || "?"))}), so this imports it exactly as far as it has got.</p>` : ""}
+      ${cur.some(Boolean) ? `<p class="warn">Whatever is on those rosters now is replaced.</p>` : ""}
+      ${list}
+      ${custom.length ? `<p class="warn">${custom.length} pick${custom.length === 1 ? " was" : "s were"}
+        typed in by hand rather than picked from the player list
+        (${esc(custom.slice(0, 4).map((p) => p.name).join(", "))}${custom.length > 4 ? "…" : ""}),
+        so nothing can score ${custom.length === 1 ? "it" : "them"} — swap ${custom.length === 1 ? "it" : "them"}
+        out on My Team afterwards.</p>` : ""}
+      <p class="mut small">Nothing else is touched — the schedule, standings, chat, transactions
+        and every other week's rosters stay exactly as they are. Run it again any time.</p>
+      <div class="rowline"><button id="draftGo" class="primary">Import week ${wk} rosters</button>
+        <button id="draftCancel">Cancel</button></div></div>`;
+    $("#draftCancel").addEventListener("click", () => { importOut().innerHTML = ""; });
+    $("#draftGo").addEventListener("click", async () => {
+      const btn = $("#draftGo");
+      if (btn) { btn.disabled = true; btn.textContent = "Importing…"; }
+      try { await runDraftImport(teams, wk); } catch (e) { importFail(importOut(), "Couldn't save the drafted rosters", e); }
+    });
+  }
+  UI.renderDraftImportConfirm = renderDraftImportConfirm; // test hook
+  async function runDraftImport(teams, wk) {
+    const out = importOut();
+    out.innerHTML = '<div class="card mut">Saving the drafted rosters…</div>';
+    const n = await applyImportedRosters({ teams }, wk);
+    out.innerHTML = `<div class="card ok">Draft imported — week ${wk} rosters saved for ${n}
+      team${n === 1 ? "" : "s"}. Check My Team and set your lineup.</div>`;
+    if (UI.view === "rules") UI.show("rules");
+  }
+
   // ---------------- ⭐ ITEM 31: fill every roster from the backup pool (2026-08-09) ----------
   // A real, re-runnable, commissioner-gated ACTION rather than a one-off script — it has to be
   // auditable, repeatable and testable, and a pick that turns out badly has to be fixable by
