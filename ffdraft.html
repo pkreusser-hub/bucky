@@ -72,6 +72,16 @@ header .hcrest{ position:absolute; right:16px; top:50%; transform:translateY(-50
 }
 #soundBtn.off{opacity:.55}
 #connBanner{background:var(--accent-d); color:#fff; padding:8px 14px; font-size:13px; font-weight:600}
+#bkBanner{
+  background:#5a3b06; color:#ffe9b8; padding:9px 14px; font-size:13px; font-weight:600;
+  border-bottom:1px solid #7a5309; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+}
+#bkBanner .btn{padding:4px 10px; font-size:12px}
+.bkstat{
+  background:#0e131d; border:1px solid var(--line); border-radius:8px;
+  padding:8px 10px; font-size:13px; color:var(--ink);
+}
+.bkstat b{color:var(--gold)}
 #localBadge{
   background:#2a2f1d; color:#cfd68a; padding:6px 14px; font-size:11.5px; font-weight:700; letter-spacing:.6px;
 }
@@ -430,6 +440,7 @@ body.tv #boardLegend{display:none}
 </head>
 <body>
 <div id="connBanner" hidden>CAN'T REACH THE DRAFT ROOM — check your connection and reload.</div>
+<div id="bkBanner" hidden></div>
 <div id="localBadge" hidden>PRACTICE MODE — this draft lives on this device only.</div>
 <header>
   <div class="brand"><span class="wordmark">DRAFT DAY</span><span id="lgName"></span><button id="soundBtn" hidden>SOUND ON</button></div>
@@ -632,10 +643,13 @@ body.tv #boardLegend{display:none}
       $("localBadge").hidden = false;
       D = localRead();
       chatMsgs = localChatRead();
+      bkAdopt(lsGet(BK_DOC) || { entries: [] });
+      bkObserve(D);
       // Another tab on this device counts as another "device" in practice mode.
       window.addEventListener("storage", function (e) {
-        if (e.key === "ffd_local_" + SEASON) { D = localRead(); renderAll(); }
+        if (e.key === "ffd_local_" + SEASON) { D = localRead(); bkObserve(D); renderAll(); }
         if (e.key === CHAT_KEY) { chatMsgs = localChatRead(); renderChat(); }
+        if (e.key === BK_DOC) { bkAdopt(lsGet(BK_DOC) || { entries: [] }); bkObserve(D); renderAll(); }
       });
       renderAll();
       return Promise.resolve();
@@ -657,6 +671,7 @@ body.tv #boardLegend{display:none}
           connState = "ok";
           $("connBanner").hidden = true;
           D = snap.exists() ? snap.data() : null;
+          bkObserve(D);
           renderAll();
         }, function () {
           connState = "dead";
@@ -669,6 +684,14 @@ body.tv #boardLegend{display:none}
           chatMsgs = (snap.exists() && Array.isArray(snap.data().messages)) ? snap.data().messages : [];
           renderChat();
         }, function () {});
+        // The pick ledger is its OWN doc for exactly one reason: whatever goes
+        // wrong with the draft doc must not be able to reach the backup.
+        bkRef = fs.doc(Cloud.db, DOC_COLL, "bk_" + SEASON);
+        fs.onSnapshot(bkRef, function (snap) {
+          bkAdopt(snap.exists() ? snap.data() : { entries: [] });
+          bkObserve(D);
+          renderAll();
+        }, function () { Backup.ready = false; });
       });
     }).catch(function () {
       connState = "dead";
@@ -685,7 +708,7 @@ body.tv #boardLegend{display:none}
       return new Promise(function (resolve, reject) {
         try {
           var next = fn(localRead());
-          if (next) { next.updatedAt = Date.now(); localWrite(next); D = next; renderAll(); }
+          if (next) { next.updatedAt = Date.now(); localWrite(next); D = next; bkObserve(D); renderAll(); }
           resolve();
         } catch (e) { reject(e); }
       });
@@ -704,6 +727,287 @@ body.tv #boardLegend{display:none}
       if (doneMsg) toast(doneMsg);
     }).catch(function (e) {
       toast((e && e.message) || "That didn't work", true);
+    });
+  }
+
+  // ---------------- the black box: an append-only pick ledger ----------------
+  // The worst thing that can happen on draft night is losing the record of who
+  // went where. So the board is never the only copy:
+  //   1. every pick is mirrored into a SEPARATE Firestore doc as an append-only
+  //      ledger (arrayUnion — it only ever grows, and two devices writing the
+  //      same pick can neither duplicate nor clobber it). A bad write to the
+  //      draft doc cannot reach it;
+  //   2. that same doc carries `mark`, a full mirror of the last healthy board,
+  //      so even a DELETED draft can be rebuilt in one tap;
+  //   3. every device also keeps its own copy in localStorage — eight
+  //      independent backups walking around the room;
+  //   4. if the board ever comes back missing picks that no undo and no reset
+  //      explains, every screen says so loudly instead of carrying on.
+  // Restores rebuild the board from the ledger and can stop at any pick number.
+  var BK_DOC = "ffd_bkdoc_" + SEASON;    // practice mode's ledger
+  var BK_MINE = "ffd_bkmine_" + SEASON;  // this device's own copy of the board
+  var Backup = { entries: [], mark: null, seen: null, at: 0, ready: false, alarm: null, trips: [], suspect: 0 };
+  var bkRef = null, bkTimer = null, bkNudge = false, bkLastMark = "";
+
+  // A ledger row is derived purely from the doc, so every device computes an
+  // identical object for the same pick — which is what makes arrayUnion's
+  // set semantics do the de-duplication for us.
+  function bkId(e) { return e.key + "|" + e.pid + "|" + (e.ts || 0); }
+  function bkEntriesOf(d) {
+    if (!d || !d.picks) return [];
+    var at = {};
+    (d.history || []).forEach(function (k, i) { at[k] = i + 1; });
+    return Object.keys(d.picks).map(function (k) {
+      var p = d.picks[k];
+      return {
+        key: k, n: p.keeper ? 0 : (at[k] || 0), pid: p.pid, name: p.name || "",
+        pos: p.pos || "?", proTeam: p.proTeam || "", keeper: !!p.keeper,
+        by: p.by || "", ts: p.ts || 0,
+      };
+    });
+  }
+  function bkPickFrom(e) {
+    return { pid: e.pid, name: e.name, pos: e.pos, proTeam: e.proTeam, keeper: !!e.keeper, by: e.by, ts: e.ts };
+  }
+  // Rebuild a picks map + history from the ledger, optionally stopping after
+  // pick number uptoN. A slot that was picked, undone and re-picked has TWO
+  // rows at the same pick number — the later timestamp is the one that stands.
+  function bkRebuild(entries, uptoN) {
+    var byN = {}, byKey = {}, picks = {}, history = [];
+    (entries || []).forEach(function (e) {
+      // Keepers aren't in the pick order, so they de-duplicate by slot; a board
+      // that was reset and re-run leaves older rows behind and the later
+      // timestamp is always the one that stands.
+      if (e.keeper) {
+        if (!byKey[e.key] || (e.ts || 0) > (byKey[e.key].ts || 0)) byKey[e.key] = e;
+        return;
+      }
+      if (uptoN != null && e.n > uptoN) return;
+      var cur = byN[e.n];
+      if (!cur || (e.ts || 0) > (cur.ts || 0)) byN[e.n] = e;
+    });
+    Object.keys(byKey).forEach(function (k) { picks[k] = bkPickFrom(byKey[k]); });
+    Object.keys(byN).map(Number).sort(function (a, b) { return a - b; }).forEach(function (n) {
+      picks[byN[n].key] = bkPickFrom(byN[n]);
+      history.push(byN[n].key);
+    });
+    return { picks: picks, history: history };
+  }
+  function bkMaxN(entries) {
+    var m = 0;
+    (entries || []).forEach(function (e) { if (!e.keeper && e.n > m) m = e.n; });
+    return m;
+  }
+  // Does the board still hold everything the backup knows about?
+  function bkKeepsAll(mk, d) {
+    var mp = (mk && mk.picks) || {}, dp = (d && d.picks) || {};
+    for (var k in mp) if (!dp[k]) return false;
+    return true;
+  }
+  // A board SHORTER than the backup is only ever legitimate two ways: the
+  // commissioner undid the last pick (or several), or reset the board back to
+  // setup. Anything else means picks went missing on their own.
+  function bkShrinkOk(mk, d) {
+    if (!d || !d.teams) return false;
+    if (d.phase === "setup" || d.phase === "keepers") return true;   // the board was reset
+    var cut = {};
+    (mk.history || []).slice((d.history || []).length).forEach(function (k) { cut[k] = 1; });
+    var mp = mk.picks || {}, dp = d.picks || {};
+    for (var k in mp) {
+      if (dp[k]) { if (dp[k].pid !== mp[k].pid) return false; continue; }
+      if (!cut[k]) return false;
+    }
+    return true;
+  }
+  function bkMarkAdvances(mk, d) {
+    if (!d || !d.teams) return false;
+    if (!mk || !mk.teams) return true;
+    return bkKeepsAll(mk, d) || bkShrinkOk(mk, d);
+  }
+  function bkNorm(d) {
+    if (!d) return "";
+    try {
+      var c = JSON.parse(JSON.stringify(d));
+      delete c.updatedAt; delete c.deadline;
+      return JSON.stringify(c);
+    } catch (e) { return ""; }
+  }
+  function bkAdopt(doc) {
+    Backup.entries = (doc && Array.isArray(doc.entries)) ? doc.entries : [];
+    var m = (doc && doc.mark && doc.mark.teams) ? doc.mark : null;
+    if (m) Backup.mark = m;
+    Backup.at = (doc && doc.at) || 0;
+    Backup.ready = true;
+    // `seen` is this device's own yardstick — the last board it watched be
+    // healthy. It's seeded once, from whatever survived, and after that it
+    // only ever moves under this device's own eyes, so no amount of
+    // out-of-order snapshot traffic can make a healthy board look robbed.
+    if (!Backup.seen) {
+      var mine = lsGet(BK_MINE);
+      Backup.seen = Backup.mark || ((mine && mine.doc && mine.doc.teams) ? mine.doc : null);
+    }
+  }
+  // Called on every snapshot of the draft doc.
+  var BK_SETTLE = 4000;
+  function bkObserve(d) {
+    if (d && d.teams) lsSet(BK_MINE, { at: Date.now(), doc: d });
+    if (!Backup.ready) return;
+    var mk = Backup.seen, bad = null;
+    if (mk && mk.teams) {
+      if (!d || !d.teams) bad = { gone: true, lost: Object.keys(mk.picks || {}).length, keys: [] };
+      else if (!bkMarkAdvances(mk, d)) {
+        var lost = Object.keys(mk.picks || {}).filter(function (k) { return !(d.picks || {})[k]; });
+        bad = { gone: false, lost: lost.length, keys: lost };
+      }
+    }
+    if (!bad) {
+      Backup.suspect = 0;
+      bkAlarm(null, d, mk);
+      if (d && d.teams) Backup.seen = d;
+      bkSchedule();
+      return;
+    }
+    // A missing DOC is unambiguous — nothing legitimate deletes a draft. Missing
+    // PICKS get a settling window first: on a cold boot the ledger and the draft
+    // doc arrive independently, and for a moment either can be ahead.
+    if (bad.gone) { bkAlarm(bad, d, mk); return; }
+    if (!Backup.suspect) {
+      Backup.suspect = Date.now();
+      setTimeout(function () { bkObserve(D); renderBkBanner(); }, BK_SETTLE + 60);
+    }
+    if (Date.now() - Backup.suspect >= BK_SETTLE) bkAlarm(bad, d, mk);
+  }
+  // Keep a short trail of every time the board and the backup disagreed. If
+  // this ever fires for real, the commissioner shouldn't have to guess when it
+  // happened or how much went with it.
+  function bkAlarm(a, d, mk) {
+    if (a && !Backup.alarm) {
+      Backup.trips.push({
+        at: Date.now(), phase: d ? d.phase : "(no draft)",
+        board: d ? Object.keys(d.picks || {}).length : 0,
+        backup: Object.keys((mk || {}).picks || {}).length,
+        keys: (a.keys || []).slice(0, 8),
+      });
+      if (Backup.trips.length > 5) Backup.trips.shift();
+    }
+    Backup.alarm = a;
+  }
+  function bkSchedule() {
+    if (bkTimer) return;
+    // The device that made the pick writes straight away; the others wait a
+    // random moment and usually find the work already done — so the ledger
+    // self-heals if that first write fails, without eight racing writes.
+    var delay = bkNudge ? 0 : 1200 + Math.floor(Math.random() * 3000);
+    bkNudge = false;
+    bkTimer = setTimeout(function () { bkTimer = null; bkFlush(); }, delay);
+  }
+  function bkFlush() {
+    var d = D;
+    // Never write anything from a board this device doubts — during the
+    // settling window included. A device that boots into a damaged draft must
+    // not be the one that mirrors the damage over everyone else's backup.
+    if (!d || !d.teams || Backup.alarm || Backup.suspect) return;
+    var have = {};
+    Backup.entries.forEach(function (e) { have[bkId(e)] = 1; });
+    var add = bkEntriesOf(d).filter(function (e) { return !have[bkId(e)]; });
+    // The shared mirror only ever moves to a board this device has itself just
+    // watched be healthy. It is deliberately NOT gated on the stored mark: a
+    // legitimate reset leaves that mark holding slots the new board will never
+    // have again, and gating on it would freeze the mirror for the rest of the
+    // night. `seen` starts AT the stored mark and only advances through
+    // transitions this device watched, which is the same guarantee without the
+    // deadlock.
+    var advance = bkNorm(d) !== bkLastMark && Backup.seen === d;
+    if (!add.length && !advance) return;
+    if (advance) bkLastMark = bkNorm(d);
+    bkWrite(add, advance ? d : null);
+  }
+  function bkWrite(add, mark) {
+    if (LOCAL) {
+      var cur = lsGet(BK_DOC) || { entries: [] };
+      if (!Array.isArray(cur.entries)) cur.entries = [];
+      var have = {};
+      cur.entries.forEach(function (e) { have[bkId(e)] = 1; });
+      (add || []).forEach(function (e) { if (!have[bkId(e)]) { have[bkId(e)] = 1; cur.entries.push(e); } });
+      if (mark) cur.mark = JSON.parse(JSON.stringify(mark));
+      cur.at = Date.now();
+      lsSet(BK_DOC, cur);
+      bkAdopt(cur);
+      return Promise.resolve();
+    }
+    if (!bkRef || connState !== "ok") return Promise.resolve();
+    var body = { at: Date.now() };
+    if (add && add.length) body.entries = Cloud.fs.arrayUnion.apply(null, add);
+    if (mark) body.mark = mark;
+    return Cloud.fs.setDoc(bkRef, body, { merge: true }).catch(function () {});
+  }
+  // The board a restore would produce. Prefers the shared mirror; falls back to
+  // this device's own copy, which is why a phone in someone's pocket is a
+  // genuine backup and not just a cache.
+  function bkBase() {
+    if (Backup.mark && Backup.mark.teams) return Backup.mark;
+    var mine = lsGet(BK_MINE);
+    return (mine && mine.doc && mine.doc.teams) ? mine.doc : null;
+  }
+  // Only the commissioner puts a board back — and the key is checked against
+  // the BACKUP's own copy of it, because in the worst case there's no live doc
+  // left to check against.
+  function bkCanRestore() {
+    var base = bkBase();
+    return !!(base && me.ckey && base.commishKey === me.ckey);
+  }
+  // Rebuild the board from the ledger. uptoN === null restores everything;
+  // a number rewinds to just after that pick. Lands PAUSED on purpose — nobody
+  // should be picking into a board that is still being put back together.
+  function bkRestore(uptoN) {
+    var base = bkBase();
+    if (!base) { toast("There's no backup to restore from", true); return Promise.resolve(); }
+    var rb = bkRebuild(Backup.entries.length ? Backup.entries : bkEntriesOf(base), uptoN);
+    return act(function (d) {
+      if (d && d.commishKey && me.ckey !== d.commishKey) throw new Error("Commissioner only");
+      var next = JSON.parse(JSON.stringify(d && d.teams ? d : base));
+      // Structure (teams, order, claims, keepers, rounds) comes from the backup
+      // whenever the live doc is gone or emptied.
+      if (!d || !d.teams) {
+        next = JSON.parse(JSON.stringify(base));
+      }
+      next.picks = rb.picks;
+      next.history = rb.history;
+      if (rb.history.length || Object.keys(rb.picks).length) next.phase = currentSlot(next) ? "live" : "done";
+      next.paused = true;
+      next.deadline = null;
+      next.updatedAt = Date.now();
+      return next;
+    }, "Board restored — " + rb.history.length + " picks are back. It's paused; hit Resume when everyone's ready.");
+  }
+  function bkFileName() { return "draft-backup-" + SEASON + "-" + new Date().toISOString().slice(0, 16).replace(/[:T]/g, "") + ".json"; }
+  function bkPayload() {
+    return { v: 1, season: SEASON, at: Date.now(), entries: Backup.entries, doc: bkBase() };
+  }
+  function bkDownload() {
+    var blob = new Blob([JSON.stringify(bkPayload(), null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = bkFileName();
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+    toast("Backup file saved");
+  }
+  // Adopt a backup file: its rows merge into the ledger (they can only ever
+  // ADD), then the board is rebuilt from the merged result.
+  function bkImport(text) {
+    var j;
+    try { j = JSON.parse(text); } catch (e) { toast("That file isn't a draft backup", true); return Promise.resolve(); }
+    if (!j || !Array.isArray(j.entries) || !j.doc || !j.doc.teams) { toast("That file isn't a draft backup", true); return Promise.resolve(); }
+    if (j.season !== SEASON) { toast("That backup is for " + j.season + ", not " + SEASON, true); return Promise.resolve(); }
+    var have = {};
+    Backup.entries.forEach(function (e) { have[bkId(e)] = 1; });
+    var add = j.entries.filter(function (e) { return e && e.key && !have[bkId(e)]; });
+    if (!Backup.mark || !Backup.mark.teams) Backup.mark = j.doc;
+    return bkWrite(add, Backup.mark).then(function () {
+      if (!LOCAL) { Backup.entries = Backup.entries.concat(add); }
+      toast("Backup loaded — " + add.length + " picks merged in. Restore when you're ready.");
+      renderAll();
     });
   }
 
@@ -1053,6 +1357,7 @@ body.tv #boardLegend{display:none}
       d.history.push(cur.key);
       if (!currentSlot(d)) { d.phase = "done"; d.deadline = null; }
       else armDeadline(d);
+      bkNudge = true;   // this device made the pick — back it up immediately
       return d;
     });
   }
@@ -1698,10 +2003,43 @@ body.tv #boardLegend{display:none}
     });
   }
 
+  // The loud half of the safety net: if the board comes back missing picks the
+  // ledger still holds, nobody has to notice on their own.
+  function renderBkBanner() {
+    var el = $("bkBanner");
+    var a = Backup.alarm;
+    el.hidden = !a;
+    if (!a) return;
+    var msg = a.gone
+      ? "THE DRAFT BOARD IS GONE — the backup still has " + a.lost + " picks."
+      : a.lost + (a.lost === 1 ? " pick has" : " picks have") + " gone missing from the board — the backup still has them.";
+    el.innerHTML = '<span>' + esc(msg) + "</span>" +
+      (bkCanRestore() ? '<button class="btn" id="bkFix">Put them back</button>' : '<span>Ask the commissioner to restore it.</span>');
+    var b = $("bkFix");
+    if (b) b.onclick = function () { bkRestore(null); };
+  }
+
   function renderLanding() {
     var el = $("vLanding");
     if (D) { el.hidden = true; return; }
     el.hidden = false;
+    // A missing draft doc with a live backup is a recovery, not a fresh start —
+    // offering "Create the draft room" here is how a season gets overwritten.
+    if (connState === "ok" && bkBase() && Backup.ready) {
+      var base = bkBase();
+      var np = bkMaxN(Backup.entries.length ? Backup.entries : bkEntriesOf(base));
+      el.innerHTML =
+        '<div class="hero"><h1>DRAFT DAY ' + SEASON + "</h1>" +
+        "<p>The draft room is missing — but the backup isn't.</p>" +
+        '<p class="mut">' + esc(String(np)) + " picks and every team's keepers are saved. Restoring puts the board back exactly as it was, paused.</p>" +
+        '<p style="margin-top:16px"><button class="btn" id="bkRestoreLanding">Restore the draft</button> ' +
+        '<button class="btn ghost sm" id="bkDlLanding">Download the backup file</button></p>' +
+        '<p class="mut" style="margin-top:14px">Really starting over? <button class="btn ghost sm" id="createBtn">Create a brand-new draft room</button></p></div>';
+      $("bkRestoreLanding").onclick = function () { bkRestore(null); };
+      $("bkDlLanding").onclick = bkDownload;
+      armTap("createBtn", "Tap again — leave " + np + " picks behind", createDraft);
+      return;
+    }
     if (connState === "dead") {
       el.innerHTML = '<div class="hero"><h1>DRAFT DAY</h1><p class="mut">Can\'t reach the draft room right now. Check your connection and reload.</p></div>';
       return;
@@ -2236,6 +2574,29 @@ body.tv #boardLegend{display:none}
         '<p class="mut">Rehearse the whole night in a private practice room on this device — claim your team, turn on Mock draft, and bots pick for the other seven. The family board is never touched.</p>' +
         '<p><a class="btn ghost sm" style="text-decoration:none" href="ffdraft.html?local=1">Open the practice room</a></p></div>';
 
+    // --- the safety net, in plain sight so nobody has to trust it blind ---
+    var bkN = bkMaxN(Backup.entries), bkAt = Backup.at ? new Date(Backup.at) : null;
+    var mine = lsGet(BK_MINE);
+    h += '<div class="card"><h2>Backup &amp; restore</h2>' +
+      '<p class="mut">Every pick is written to a second, append-only copy the moment it happens — a separate place the draft board can\'t touch. ' +
+      "Nothing here is ever deleted, so any pick can be put back.</p>" +
+      '<div class="bkstat" id="bkStat">' +
+      "<b>" + bkN + "</b> picks backed up" +
+      (bkAt ? " · last at " + esc(bkAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })) : "") +
+      (mine ? " · also saved on this device" : "") +
+      (Backup.ready ? "" : " · <b>waiting for the backup to load…</b>") +
+      "</div>" +
+      '<div class="row" style="margin-top:10px">' +
+      '<button class="btn ghost sm" id="bkDl">Download a backup file</button>' +
+      '<button class="btn ghost sm" id="bkUpBtn">Load a backup file</button>' +
+      '<input type="file" id="bkUp" accept=".json,application/json" hidden></div>' +
+      '<div class="row" style="margin-top:10px">' +
+      '<button class="btn ghost sm" id="bkAll">Rebuild the board from the backup</button></div>' +
+      '<div class="row" style="margin-top:10px"><label>Rewind to pick <input type="number" id="bkTo" min="0" max="' + bkN + '" value="' + bkN + '" style="width:80px"></label>' +
+      '<button class="btn warn sm" id="bkRewind">Rewind</button></div>' +
+      '<p class="mut">Rewinding drops every pick after that number off the board — they stay in the backup, so it can always be undone by rewinding forward again. The board comes back paused.</p>' +
+      "</div>";
+
     h += '<div class="card"><h2>Draft order</h2>' +
       '<p class="mut">Round 1 order, top to bottom (snakes each round).' + (d.phase === "live" || d.phase === "done" ? " Locked — the draft has started." : "") + "</p>";
     d.teams.forEach(function (t, i) {
@@ -2256,12 +2617,12 @@ body.tv #boardLegend{display:none}
     on("copyGuest", function () { copyText(guestLink()); });
     on("copyCommish", function () { copyText(commishLink(d)); });
     on("phKeepers", function () { setPhase("keepers"); });
-    on("phLiveDirect", function () { if (confirm("Start the draft with no keepers?")) setPhase("live"); });
-    on("phLive", function () { if (confirm("Start the draft? Keepers lock onto the board.")) setPhase("live"); });
+    armTap("phLiveDirect", "Tap again — no keepers", function () { setPhase("live"); });
+    armTap("phLive", "Tap again to start", function () { setPhase("live"); });
     on("phBackSetup", function () { setPhase("setup"); });
     on("phPause", togglePause);
     on("phUndo", undoLast);
-    on("phEnd", function () { if (confirm("End the draft?")) setPhase("done"); });
+    armTap("phEnd", "Tap again to end", function () { setPhase("done"); });
     on("phReopen", function () { setPhase("live"); });
     on("setSave", function () {
       // Read both BEFORE mutating — the first apply re-renders this panel and
@@ -2277,8 +2638,26 @@ body.tv #boardLegend{display:none}
       toast("Refreshing ESPN data…");
       Promise.all([loadInfo(true), loadLastDraft(true)]).then(function () { return loadPool(true); }).then(renderAll);
     });
-    on("resetBoard", function () { if (confirm("Clear every pick and go back to setup? Keepers are kept.")) resetDraft(); });
-    on("resetClaims", function () { if (confirm("Release EVERY team claim? Everyone re-claims their team (keepers and picks stay).")) resetClaims(); });
+    on("bkDl", bkDownload);
+    on("bkUpBtn", function () { $("bkUp").click(); });
+    var up = $("bkUp");
+    if (up) up.onchange = function () {
+      var f = up.files && up.files[0];
+      if (!f) return;
+      var r = new FileReader();
+      r.onload = function () { bkImport(String(r.result)); up.value = ""; };
+      r.readAsText(f);
+    };
+    // Rebuilding only ever puts picks BACK, so it needs no guard.
+    on("bkAll", function () { bkRestore(null); });
+    armTap("bkRewind", "Tap again to rewind", function () {
+      var n = Number($("bkTo").value);
+      if (!(n >= 0)) { toast("Type a pick number", true); return; }
+      bkRestore(n);
+    });
+    // The one tap on this page that can wipe a night's work.
+    armTap("resetBoard", "Tap again to clear " + Object.keys(d.picks || {}).length + " picks", resetDraft);
+    armTap("resetClaims", "Tap again to release every claim", resetClaims);
     var mt = $("mockToggle");
     if (mt) mt.onchange = function () {
       var v = mt.checked;
@@ -2292,6 +2671,32 @@ body.tv #boardLegend{display:none}
     el.querySelectorAll(".ordUp").forEach(function (b) { b.onclick = function () { moveTeam(Number(b.dataset.i), -1); }; });
     el.querySelectorAll(".ordDn").forEach(function (b) { b.onclick = function () { moveTeam(Number(b.dataset.i), 1); }; });
   }
+  // Every "are you sure?" in this room is a SECOND TAP on the same button, not
+  // a native dialog. Browsers suppress confirm()/prompt() (that's how the
+  // commissioner PIN prompt vanished), and on draft night a control that
+  // silently does nothing because a dialog never appeared is far worse than
+  // no guard at all.
+  var armTimers = {};
+  function armTap(id, label, fn) {
+    var b = $(id);
+    if (!b) return;
+    var orig = b.textContent, cls = b.className;
+    b.onclick = function () {
+      if (b.dataset.armed === "1") {
+        clearTimeout(armTimers[id]);
+        b.dataset.armed = "";
+        b.textContent = orig; b.className = cls;
+        fn();
+        return;
+      }
+      b.dataset.armed = "1";
+      b.textContent = label;
+      b.className = cls.replace(/\bghost\b/, "") + " warn";
+      armTimers[id] = setTimeout(function () {
+        b.dataset.armed = ""; b.textContent = orig; b.className = cls;
+      }, 5000);
+    };
+  }
   function copyText(s) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(s).then(function () { toast("Copied!"); }, function () { toast("Couldn't copy — long-press the link", true); });
@@ -2300,6 +2705,7 @@ body.tv #boardLegend{display:none}
 
   function renderAll() {
     renderHeader();
+    renderBkBanner();
     renderCountdown();
     renderClock();
     renderTabs();
@@ -2358,6 +2764,13 @@ body.tv #boardLegend{display:none}
     keeperAdpBadge: function (costRound, pid) { return D ? keeperAdpBadge(costRound, pid, D) : null; },
     get draftAt() { return DRAFT_AT; },
     setDraftAt: function (ms) { DRAFT_AT = ms; renderCountdown(); },
+    get backup() { return Backup; },
+    bkFlush: function () { if (bkTimer) { clearTimeout(bkTimer); bkTimer = null; } bkFlush(); },
+    bkRestore: bkRestore,
+    bkRebuild: function (uptoN) { return bkRebuild(Backup.entries, uptoN); },
+    bkPayload: bkPayload,
+    bkImport: bkImport,
+    bkObserve: function () { bkObserve(D); },
     resolveKeeperRounds: resolveKeeperRounds,
     takenPids: function () { return takenPids(D); },
     createDraft: createDraft,

@@ -324,10 +324,16 @@ async function newPage(ctx, o) {
   o = o || {};
   const page = await ctx.newPage();
   await page.setViewport(o.vw || { width: 390, height: 844 });
+  // This page pretends to be a browser that SUPPRESSES native dialogs — which
+  // is exactly what the commissioner's phone did (the PIN prompt never
+  // appeared, and the tap silently did nothing). A stub that answers `true`
+  // proves the code path works while hiding that no human could reach it, so
+  // every dialog here refuses, and __dlg counts anything that still asks.
   await page.evaluateOnNewDocument(() => {
-    window.prompt = () => null;
-    window.alert = () => {};
-    window.confirm = () => true;
+    window.__dlg = [];
+    window.prompt = (m) => { window.__dlg.push("prompt:" + m); return null; };
+    window.alert = (m) => { window.__dlg.push("alert:" + m); };
+    window.confirm = (m) => { window.__dlg.push("confirm:" + m); return false; };
   });
   await page.setRequestInterception(true);
   page.on("request", async (req) => {
@@ -599,6 +605,11 @@ async function sectionRoom(browser) {
 
   // --- start the draft: keepers materialize ---
   await clickSafely(page, '#tabs button[data-v="commish"]');
+  // Destructive/irreversible controls arm on the first tap and fire on the
+  // second — no native dialog, which a suppressing browser would swallow.
+  await clickSafely(page, "#phLive");
+  ok(await page.evaluate(() => document.getElementById("phLive").textContent.includes("Tap again"))
+    && (await D(page)).phase !== "live", "one tap on Start only ARMS it — nothing has happened yet");
   await clickSafely(page, "#phLive");
   d = await D(page);
   ok(d.phase === "live", "the draft goes live");
@@ -945,6 +956,8 @@ async function sectionRoom(browser) {
   // --- reset, shrink, run a WHOLE draft to completion ---
   await clickSafely(page, '#tabs button[data-v="commish"]');
   await clickSafely(page, "#resetBoard");
+  ok((await D(page)).phase === "live", "one tap on Reset the board only arms it too");
+  await clickSafely(page, "#resetBoard");
   d = await D(page);
   ok(d.phase === "setup" && Object.keys(d.picks).length === 0
     && d.keepers[1].length === 3 && d.keepers[3].length === 1,
@@ -1119,6 +1132,137 @@ async function sectionRoom(browser) {
     "…and the latest-pick spotlight renders");
   await shot(tpage, "ffdraft_tv.png");
   ok(tpage._errs.length === 0, "0 page errors on the TV page");
+
+  // --- the black box: losing the record of who went where is the one thing
+  //     draft night can't survive, so the board is never the only copy ---
+  section("B4 · the pick ledger — nothing is ever the only copy");
+  await page.evaluate(() => window.__DRAFT__.bkFlush());
+  await sleep(250);
+  const bkBoard = await page.evaluate(() => JSON.parse(JSON.stringify(window.__DRAFT__.D.picks)));
+  const bk0 = await page.evaluate(() => {
+    const H = window.__DRAFT__, mk = H.backup.mark || {};
+    const have = {};
+    H.backup.entries.forEach((e) => { have[e.key + "|" + e.pid] = 1; });
+    return {
+      entries: H.backup.entries.length,
+      everyPickLogged: Object.keys(H.D.picks).every((k) => have[k + "|" + H.D.picks[k].pid]),
+      markPicks: Object.keys(mk.picks || {}).length,
+      boardPicks: Object.keys(H.D.picks).length,
+      mine: Object.keys(((JSON.parse(localStorage.getItem("ffd_bkmine_2026") || "null") || {}).doc || {}).picks || {}).length,
+      alarm: H.backup.alarm,
+    };
+  });
+  if (!bk0.everyPickLogged) console.log("    DEBUG trips:", JSON.stringify(await page.evaluate(() => window.__DRAFT__.backup.trips)));
+  ok(bk0.everyPickLogged && bk0.boardPicks === 32, "every pick on the finished board is in the ledger");
+  ok(bk0.markPicks === 32, "…and the ledger mirrors the whole board, so a wiped draft can be rebuilt");
+  ok(bk0.mine === 32, "…and this device keeps its own copy too — eight independent backups in the room");
+  ok(bk0.entries > 32, "the ledger still holds the picks the earlier board reset cleared (" + bk0.entries + " rows) — it only ever grows");
+  ok(bk0.alarm == null, "a healthy board raises no alarm");
+
+  // THE NIGHTMARE: picks vanish from the draft doc between reloads.
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem("ffd_local_2026"));
+    Object.keys(d.picks).slice(0, 9).forEach((k) => { delete d.picks[k]; });
+    d.history = d.history.filter((k) => d.picks[k]);
+    localStorage.setItem("ffd_local_2026", JSON.stringify(d));
+  });
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.D, { timeout: 15000 });
+  ok(await page.evaluate(() => Object.keys(window.__DRAFT__.D.picks).length === 23),
+    "9 picks are torn out of the draft doc behind the app's back");
+  // Missing picks get a few seconds to settle first (a cold boot can see the
+  // ledger before the board), so the alarm is a verdict, not a flinch.
+  // NOTE polling: this page is a background tab (the desktop and TV pages were
+  // opened after it), and requestAnimationFrame — puppeteer's default polling
+  // mode — is throttled to a standstill there. A wall-clock interval is the
+  // only reliable way to watch a background page settle.
+  await page.waitForFunction(() => !document.getElementById("bkBanner").hidden, { timeout: 15000, polling: 250 });
+  ok(await page.evaluate(() => {
+    const b = document.getElementById("bkBanner");
+    return b.textContent.includes("9 picks") && !!document.getElementById("bkFix");
+  }), "…and the app says so on sight instead of carrying on — with a one-tap fix");
+  ok(await page.evaluate(() => {
+    const H = window.__DRAFT__;
+    const mk = H.backup.mark;
+    return Object.keys(mk.picks).length === 32;
+  }), "the backup refuses to mirror a board that lost picks — it still holds all 32");
+  // A guest sees the alarm too; only the commissioner is offered the fix.
+  await hook(page, () => window.__DRAFT__.setMe("Guest", "dev-guest", ""));
+  ok(await page.evaluate(() => {
+    const b = document.getElementById("bkBanner");
+    return !b.hidden && b.textContent.includes("Ask the commissioner") && !document.getElementById("bkFix");
+  }), "every screen in the room shows the alarm; only the commissioner gets the button");
+  await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
+
+  await clickSafely(page, "#bkFix");
+  await sleep(250);
+  d = await D(page);
+  ok(Object.keys(d.picks).length === 32
+    && Object.keys(bkBoard).every((k) => d.picks[k] && d.picks[k].pid === bkBoard[k].pid),
+    "one tap puts all 32 picks back, every player on the same slot as before");
+  ok(d.paused === true && d.phase === "done", "…the board comes back paused, and a finished draft is still finished");
+  ok(await page.evaluate(() => document.getElementById("bkBanner").hidden), "…and the alarm clears itself");
+
+  // Rewind: the commissioner can wind the board back to any pick number.
+  await hook(page, () => window.__DRAFT__.bkRestore(10));
+  await sleep(250);
+  d = await D(page);
+  const keeperCount = Object.keys(bkBoard).filter((k) => bkBoard[k].keeper).length;
+  ok(d.history.length === 10 && Object.keys(d.picks).length === 10 + keeperCount,
+    "rewind to pick 10 leaves exactly ten drafted picks — keepers stay put");
+  ok(d.phase === "live" && d.paused === true, "…and the room reopens paused, mid-draft");
+  await hook(page, () => window.__DRAFT__.bkRestore(null));
+  await sleep(250);
+  d = await D(page);
+  ok(Object.keys(d.picks).length === 32
+    && Object.keys(bkBoard).every((k) => d.picks[k] && d.picks[k].pid === bkBoard[k].pid),
+    "…and rewinding forward again brings every pick back — nothing was thrown away");
+
+  // An undo is a legitimate shrink and must never cry wolf.
+  await hook(page, () => window.__DRAFT__.undoLast());
+  await sleep(250);
+  await page.evaluate(() => window.__DRAFT__.bkFlush());
+  await sleep(60);
+  ok(await page.evaluate(() => window.__DRAFT__.backup.alarm == null
+    && document.getElementById("bkBanner").hidden),
+    "undoing a pick raises no alarm — the app knows the difference");
+  await hook(page, () => window.__DRAFT__.bkRestore(null));
+  await sleep(250);
+
+  // A backup FILE is self-contained: the doc plus every row of the ledger.
+  const payload = await page.evaluate(() => window.__DRAFT__.bkPayload());
+  ok(payload && payload.doc && payload.doc.teams.length === 8 && payload.entries.length === bk0.entries
+    && payload.season === 2026, "the downloadable backup file carries the whole draft and the whole ledger");
+
+  // THE WORST CASE: the draft room is gone entirely.
+  await page.evaluate(() => localStorage.removeItem("ffd_local_2026"));
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.backup.ready, { timeout: 15000 });
+  ok(await page.evaluate(() => window.__DRAFT__.D == null), "the whole draft doc is deleted");
+  ok(await page.evaluate(() => {
+    const t = document.getElementById("vLanding").textContent;
+    return !document.getElementById("vLanding").hidden && t.includes("backup isn't")
+      && !!document.getElementById("bkRestoreLanding");
+  }), "…the room offers to RESTORE rather than quietly inviting a brand-new draft over the top");
+  ok(await page.evaluate(() => {
+    const b = document.getElementById("createBtn");
+    b.click();
+    return b.textContent.includes("Tap again") && window.__DRAFT__.D == null;
+  }), "…and starting over anyway takes a deliberate second tap");
+  await clickSafely(page, "#bkRestoreLanding");
+  await sleep(120);
+  d = await D(page);
+  ok(d && d.teams.length === 8 && Object.keys(d.picks).length === 32
+    && Object.keys(bkBoard).every((k) => d.picks[k] && d.picks[k].pid === bkBoard[k].pid),
+    "the entire draft — teams, keepers and all 32 picks — comes back from nothing");
+  ok(d.commishKey && d.keepers && d.keepers[1] && d.keepers[1].length === 3,
+    "…including the keeper lists and the commissioner's own key");
+
+  // The standing guard for the live bug that started this: a browser that
+  // suppresses native dialogs must not be able to disarm a single control.
+  ok(await page.evaluate(() => (window.__dlg || []).length === 0)
+    && await dpage.evaluate(() => (window.__dlg || []).length === 0),
+    "not one confirm() or prompt() anywhere in the room — a suppressing browser can't disarm it");
 
   ok(page._errs.length === 0, "0 page errors on the phone page" + (page._errs.length ? " — " + page._errs[0] : ""));
   ok(dpage._errs.length === 0, "0 page errors on the desktop page");
