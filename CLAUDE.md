@@ -12612,3 +12612,65 @@ hidden-AND-gated non-commissioner path). Backup: session scratchpad
 **KNOWN**: the reset writes week 1 only, which is the only week that exists right now (no
 later-week roster docs — checked); and a `?fam=` test league would read that same league's own
 draft room, which is correct by construction.
+
+## 🏈 GFFL — THE IR RULE: half of it did not exist (2026-08-15)
+
+User: *"can you confirm that our IR position is working? you should only be able to put a player
+on IR if they are designated as Out, IR, our doubtful, and if a player becomes healthy you can't
+add players to your roster until you remove the now healthy player from your IR slot."*
+**Half one worked. Half two was entirely absent** — grep found ZERO IR references in `faAdd`,
+`addClaim`, `processWaivers` or `executeTrade`, and the pre-fix suite run says it in the old
+code's own words: the free-agent add returned `{ok:true}`, the claim returned `{ok:true}`, and
+the waiver claim **won**, all with a healthy man parked on IR. Files:
+`assets/league/lg-{core,data,ui}.js` + `tools/_verify-gffl.cjs` (2701 → **2726**).
+
+**HALF ONE — eligibility, which was already right and is now a RULE rather than an affordance.**
+`LG.irEligible` is Out/IR/Doubtful **plus PUP/NFI/SUS** — a superset of the three the family
+named, which is correct (a PUP player is not available either) and worth knowing. The locker
+gated it in the two places a person can reach — the "→ IR" button isn't rendered for a healthy
+man, and he isn't offered in the IR slot's candidate list — but **`doMove` itself did not check**,
+so it was a hidden button, not a rule. It refuses now, with the reason.
+
+**HALF TWO — `LG.illegalIR(roster)`, and why the gate cannot live at the moment of the move.**
+An IR spot is EXTRA capacity (3 on top of 18), so a healthy man parked there is a 19th roster
+spot nobody else in the league can use. The eligibility gate on the way IN can never catch this
+by itself, because he is put there *legitimately* and then GETS BETTER — nothing about the roster
+changes at that moment. So every ACQUISITION is blocked until it is resolved, which forces the
+honest choice: bench him (costing a real roster spot) or drop him.
+- Blocked in **`faAdd`**, **`addClaim`** (submit) and **`executeTrade`** (a trade is an
+  acquisition for both sides, so both rosters are judged) — each returning `ir-illegal` and the
+  offending NAMES, so the refusal is one tap from a fix rather than a hunt.
+- **AND AGAIN in `processWaivers`**, because a man ruled out on Tuesday can be cleared on
+  Wednesday morning: checking only at submit would let a legal claim become an illegal
+  acquisition while it sat in the queue. The claim LOSES with a reason rather than erroring —
+  it is one bid among many and the run must still resolve everyone else. Ordered AFTER
+  `drop-gone`/`insufficient-faab`, which is what the suite's own staging tripped over.
+- **`D.injuryFor(key, fallback)`** is the new seam: a roster row's stored `injury` is a snapshot
+  from whenever the player was imported, so it goes stale exactly when this rule turns on. The
+  live poll row is the truth, the stored value the fallback, and `LG.injuryOf` reads through it
+  so the RULE and the LOCKER can never disagree about whether a man is hurt.
+- **The owner is told on their own team, before they go shopping.** `irWarnHtml` names the player
+  on My Team (where the fix is) and on Moves (where the block bites); a clean roster renders
+  nothing at all. Also fixed in passing: the claim handler **threw away `addClaim`'s return
+  value** and toasted "Claim submitted" whatever came back, so a refused claim looked accepted
+  and simply never appeared in My pending.
+
+**VERIFY**: **2726/2726, 0 page errors**. Pre-fix, with only the three app files reverted:
+**2716 / 10, every failure inside the new section AI15** — so all 2701 pre-existing checks pass
+in BOTH worlds and **no restaging was required**. Rule one's checks pass on both sides, which is
+what confirms that half was genuinely already working. Section (g) is the anti-vacuity half: a
+CLEAN roster shows no warning and an ordinary add still goes through, so the section cannot pass
+by blocking everything.
+**TWO STAGING BUGS OF MY OWN, both worth keeping.** (1) The IR player's key was `111333`, which
+the fixture's `INJURY_FIX` quietly maps to **PUP** — IR-eligible, so he was legally stashed and
+the rule correctly said nothing; worse, the locker check still "passed" because it ran before the
+injury feed landed. A test whose subject has a designation supplied by the harness is testing the
+harness's timing. The key is now one the engine has never heard of, so the fixture controls
+"healthy" outright. (2) The late-stash claim used `dropKey: null`, so `drop-gone` refused it
+before the IR gate ever ran — it passed for the wrong reason. And the Moves assertion missed a
+warning that was plainly on screen because the template literal wraps across source lines and
+puts its own newline into `textContent` — **the whitespace-normalisation gotcha already recorded
+in this file, walked into anyway.**
+**KNOWN**: `applyImportedRosters` still trusts a source's `lineupSlot === "IR"` without an
+eligibility check — deliberate, since ESPN's own IR designation is the authority at import time
+and the roster is judged the moment anyone tries to act on it.

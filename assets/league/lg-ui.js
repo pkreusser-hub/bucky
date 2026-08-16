@@ -4892,6 +4892,10 @@
   UI.maybeAutoAdvanceBracket = maybeAutoAdvanceBracket;
   UI.maybeAdvanceLeague = maybeAdvanceLeague;
   const REASON_LABEL = {
+    // The IR rule (2026-08-15). Generic on purpose — every caller that has the NAMES appends
+    // them, and the ones that don't (a waiver result read back off the processed doc) still
+    // say something a person can act on.
+    "ir-illegal": "somebody healthy is still on your IR — move or drop them first",
     outbid: "outbid by a higher blind bid", "player-taken": "taken by another claim",
     "drop-gone": "your drop player was gone", "insufficient-faab": "not enough FAAB",
     "already-processed": "this week's claims already processed", "drop-not-found": "that player isn't on your roster",
@@ -4907,6 +4911,22 @@
     "not-pending": "that offer has already been answered",
   };
   function reasonLabel(r) { return REASON_LABEL[r] || r; }
+  // " (Josh Allen)" — the offenders, when the refusal carried them. A rule that only says no
+  // makes the owner hunt; naming the man makes it a one-tap fix.
+  const irWho = (r) => (r && r.players && r.players.length ? " (" + r.players.map(LG.shortName).join(", ") + ")" : "");
+  // The standing warning. An owner should learn about this on THEIR OWN TEAM, before they go
+  // shopping — finding out at the checkout that the league won't let them add is the worst
+  // possible moment. Rendered on My Team (where the fix is) and on Moves (where the block
+  // bites). Empty string when there is nothing wrong, so it costs a clean roster nothing.
+  function irWarnHtml(roster, opts) {
+    const bad = LG.illegalIR(roster || []);
+    if (!bad.length) return "";
+    const who = bad.map((p) => LG.shortName(p.name)).join(", ");
+    return `<div class="card bad"><b>${esc(who)}</b> ${bad.length === 1 ? "is" : "are"} healthy but still
+      on your IR. ${(opts && opts.here) ? "Move " + (bad.length === 1 ? "him" : "them") + " to your bench or drop "
+        + (bad.length === 1 ? "him" : "them") + "" : "Fix it on My Team"} — until then you can't add anyone,
+      win a waiver claim, or complete a trade.</div>`;
+  }
   function txSentence(tx) {
     const nm = (id) => (LG.teamById(id) || {}).name || ("Team " + id);
     if (tx.type === "waiver") return `${nm(tx.teamId)} won a waiver claim: added ${LG.shortName(tx.detail.addName)} ($${tx.detail.bid}), dropped ${LG.shortName(tx.detail.dropName || tx.detail.dropKey)}.`;
@@ -5098,6 +5118,7 @@
         </div>`;
     main().innerHTML = `
       <div id="hotStrip"></div>
+      ${irWarnHtml(myRoster)}
       ${pendHtml}
       <div class="card"><h2>Waivers</h2>
         ${wvBlocksHtml}
@@ -5545,7 +5566,7 @@
         if (past) {
           const r = await LG.faAdd(UI.week, tid, fa, chosen.key);
           if (r.ok) { toast("Added " + fa.name + "."); UI._rosters = null; renderMoves(); }
-          else { toast("Couldn't add: " + reasonLabel(r.reason)); rearm(); }
+          else { toast("Couldn't add: " + reasonLabel(r.reason) + irWho(r)); rearm(); }
         } else {
           const bid = Math.max(0, Math.min(LG.teamFaab(T), rawBid));
           const claim = {
@@ -5553,7 +5574,10 @@
             teamId: tid, addKey: fa.key, addName: fa.name, addPos: fa.pos, addTeam: fa.team,
             dropKey: chosen.key, dropName: chosen.name, bid, t: Date.now(),
           };
-          await LG.addClaim(UI.week, claim);
+          // The return value used to be DROPPED — "Claim submitted" was toasted whatever came
+          // back, so a refused claim looked accepted and simply never appeared in My pending.
+          const r = await LG.addClaim(UI.week, claim);
+          if (r && r.ok === false) { toast("Couldn't submit: " + reasonLabel(r.reason) + irWho(r)); rearm(); return; }
           toast("Claim submitted: " + fa.name + " for $" + bid + ".");
           renderMoves();
         }
@@ -6521,6 +6545,7 @@
         </div>
         </div>
       </div>
+      ${isOwner ? irWarnHtml(roster, { here: true }) : ""}
       ${trophyCaseHtml()}
       ${rosterHtml}
       ${alertsCardHtml(T, isOwner)}
@@ -6683,6 +6708,14 @@
     }
     async function doMove(p, toSlot) {
       if (toSlot === "IR" && ir.length >= irMax) { toast("IR is full (" + irMax + ")."); return; }
+      // ENFORCE the eligibility rule, don't merely hide the affordance. Until now the only
+      // thing stopping a healthy man going on IR was that the "→ IR" button wasn't rendered
+      // and he wasn't offered in the IR slot's candidate list — a UI gate, not a rule. Same
+      // designation the locker displays and the same one LG.illegalIR judges by.
+      if (toSlot === "IR" && !LG.irEligible(LG.injuryOf(p))) {
+        toast(LG.shortName(p.name) + " isn't Out, Doubtful or on IR — only injured players can take an IR spot.");
+        return;
+      }
       if (toSlot !== "IR" && toSlot !== "BENCH") {
         const occ = starters.filter((s) => s.slot === toSlot).map((s) => s.p).filter(Boolean);
         const room = (LG.rules.roster[toSlot] || 0) - occ.length;

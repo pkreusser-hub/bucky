@@ -12963,6 +12963,205 @@ async function openDetails(page, id) {
       }
     }
 
+    // ---- AI15: THE IR RULE, both halves (2026-08-15, user: "can you confirm that our IR
+    // position is working? you should only be able to put a player on IR if they are
+    // designated as Out, IR, our doubtful, and if a player becomes healthy you can't add
+    // players to your roster until you remove the now healthy player from your IR slot").
+    // Half one was already enforced at the locker. Half two DID NOT EXIST — grep found zero
+    // IR references in faAdd, addClaim, processWaivers or executeTrade — so every check below
+    // that concerns an acquisition fails against the code as it stood before this section.
+    {
+      // ⚠ THE IR MAN'S KEY IS 990111 — one the fixture's engine has never heard of — ON PURPOSE.
+      // The first cut used 111333, which INJURY_FIX quietly maps to "PUP": PUP is IR-eligible,
+      // so he was legally stashed and the rule correctly said nothing. Worse, the locker check
+      // still "passed", because it ran before the injury feed had landed. A test whose subject
+      // has a designation supplied by the harness is testing the harness's timing, not the rule.
+      // With an unknown key, D.injuryFor falls through to the roster's own stored value, which
+      // this fixture controls outright — so "healthy" means healthy at every moment of the run.
+      const IR_KEY = "990111";
+      const irRoster = (injury) => JSON.stringify({
+        kind: "roster", season: 2026, week: 1, teamId: 1,
+        players: [
+          { key: "3915511", name: "P. Passer", pos: "QB", team: "PHI", slot: "QB", injury: "" },
+          { key: "222111", name: "R. Rusher", pos: "RB", team: "PHI", slot: "RB", injury: "" },
+          { key: "111222", name: "T. Tight", pos: "TE", team: "KC", slot: "BENCH", injury: "" },
+          { key: IR_KEY, name: "H. Healed", pos: "WR", team: "SF", slot: "IR", injury },
+        ],
+      });
+      const healthyOnIr = () => irRoster("");   // the man who got better and never left IR
+      const outOnIr = () => irRoster("O");      // …the same roster while he is legitimately hurt
+      const seedRoster = (page, json) => page.evaluateOnNewDocument((k, v) => localStorage.setItem(k, v), LSPFX + "roster_2026_w1_t1", json);
+
+      // (a) RULE ONE — only Out/IR/Doubtful can take an IR spot, and it is now a RULE rather
+      // than a hidden button: doMove refuses even when called directly.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        const r = await evalOr(page, () => {
+          const LG = window.__GFFL__.LG;
+          return {
+            out: LG.irEligible("O"), ir: LG.irEligible("IR"), doubt: LG.irEligible("Doubtful"),
+            quest: LG.irEligible("Questionable"), healthy: LG.irEligible(""), active: LG.irEligible("ACTIVE"),
+            pup: LG.irEligible("PUP"), sus: LG.irEligible("SUS"),
+          };
+        }) || {};
+        ok(r.out && r.ir && r.doubt, "Out, IR and Doubtful may take an IR spot");
+        ok(r.quest === false && r.healthy === false && r.active === false,
+          "…Questionable, healthy and ACTIVE may NOT (" + JSON.stringify([r.quest, r.healthy, r.active]) + ")");
+        ok(r.pup === true && r.sus === true, "…and PUP/SUS count as out too — a superset of the three the family named");
+        ok(errors.length === 0, "0 page errors reading the eligibility rule");
+        await ctx.close();
+      }
+      // (b) the locker offers no way in for a healthy man, AND refuses if driven directly.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seedRoster(page, healthyOnIr());
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        await evalOr(page, () => window.__GFFL__.UI.show("team"));
+        await waitFnOr(page, () => !!document.querySelector(".lrow"));
+        const before = await evalOr(page, () => (window.__GFFL__.UI._rosters[1] || []).map((p) => p.slot).join(","));
+        // T. Tight is healthy and on the bench. Tap his row -> the destination sheet.
+        await clickChildIn(page, ".lrow", ".lswap", "T. Tight");
+        await waitOr(page, "#rosterCard", 9000);
+        const opts = await evalOr(page, () => [...document.querySelectorAll("#rosterCard [data-to]")].map((b) => b.dataset.to)) || [];
+        ok(opts.length > 0 && !opts.includes("IR"),
+          "a healthy player's move sheet offers his real slots but NOT IR (" + JSON.stringify(opts) + ")");
+        await evalOr(page, () => window.__GFFL__.UI.closeRosterCard());
+        ok(errors.length === 0, "0 page errors on the locker's IR affordance");
+        ok(before === (await evalOr(page, () => (window.__GFFL__.UI._rosters[1] || []).map((p) => p.slot).join(","))),
+          "…and nothing moved");
+        await ctx.close();
+      }
+      // (c) RULE TWO — the stash itself. LG.illegalIR names him, and it reads the LIVE
+      // designation, not the roster's stale snapshot.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seedRoster(page, healthyOnIr());
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        const r = await evalOr(page, async () => {
+          const LG = window.__GFFL__.LG;
+          const ros = await LG.ensureRoster(1, 1);
+          const bad = LG.illegalIR(ros).map((p) => p.name);
+          // Now make him hurt again THROUGH THE LIVE ENGINE only — the roster row still says
+          // healthy, so this proves the rule reads d.S.players and not the stored snapshot.
+          const d = window.__GFFL__.D;
+          d.S.players.set("990111", { key: "990111", name: "H. Healed", injury: "O" });
+          const after = LG.illegalIR(ros).map((p) => p.name);
+          d.S.players.delete("990111");
+          return { bad, after };
+        }) || {};
+        ok(JSON.stringify(r.bad) === '["H. Healed"]', "a healthy man on IR is named by LG.illegalIR (" + JSON.stringify(r.bad) + ")");
+        ok(JSON.stringify(r.after) === "[]",
+          "…and the moment the LIVE feed says he is Out again the stash is legal — the rule reads the live designation, not the roster's stale copy");
+        ok(errors.length === 0, "0 page errors on the stash check");
+        await ctx.close();
+      }
+      // (d) …so every ACQUISITION is refused. This is the half that did not exist.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seedRoster(page, healthyOnIr());
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        const r = await evalOr(page, async () => {
+          const LG = window.__GFFL__.LG;
+          const fa = { key: "999001", name: "F. Agent", pos: "WR", team: "SF" };
+          const add = await LG.faAdd(1, 1, fa, "111222");
+          const claim = await LG.addClaim(1, { id: "c_ir_test", teamId: 1, addKey: "999002", addName: "A. Vail", dropKey: "111222", bid: 1 });
+          const ros = await LG.ensureRoster(1, 1, { fresh: true });
+          return { add, claim, names: ros.map((p) => p.name) };
+        }) || {};
+        ok(r.add && r.add.ok === false && r.add.reason === "ir-illegal",
+          "a free-agent ADD is refused while a healthy man sits on IR (" + JSON.stringify(r.add) + ")");
+        ok((r.add.players || []).includes("H. Healed"), "…and the refusal NAMES him, so the fix is one tap away");
+        ok(r.claim && r.claim.ok === false && r.claim.reason === "ir-illegal",
+          "a waiver CLAIM is refused at submit for the same reason (" + JSON.stringify(r.claim) + ")");
+        ok(!(r.names || []).includes("F. Agent") && (r.names || []).includes("T. Tight"),
+          "…and neither refusal changed the roster (" + (r.names || []).join(", ") + ")");
+        ok(errors.length === 0, "0 page errors on the refusals");
+        await ctx.close();
+      }
+      // (e) A claim that was legal when submitted must still LOSE if the stash appears before
+      // Wednesday's run — otherwise the submit-time check is the only gate and a player
+      // getting healthy mid-week walks straight through it.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        // Start LEGAL: the same roster, but he really is Out, so the stash is allowed.
+        await seedRoster(page, outOnIr());
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        const r = await evalOr(page, async (rosterJson) => {
+          const LG = window.__GFFL__.LG;
+          // The drop MUST be a player who is genuinely on the roster: processWaivers judges
+          // drop-gone BEFORE the IR gate, so a null drop would refuse for the wrong reason and
+          // the check would pass without ever exercising the rule (it did, first time round).
+          const sub = await LG.addClaim(1, {
+            id: "c_ir_late", teamId: 1, addKey: "999003", addName: "L. Ate",
+            dropKey: "111222", dropName: "T. Tight", bid: 1, t: 1,
+          });
+          // …then he gets better mid-week and nobody moves him off IR.
+          localStorage.setItem("lg_gffl_" + LG.famKey + "_roster_2026_w1_t1", rosterJson);
+          LG.db.clearCache && LG.db.clearCache();
+          const res = await LG.processWaivers(1);
+          const mine = ((res && res.results) || []).find((x) => x.id === "c_ir_late");
+          return { sub, mine };
+        }, healthyOnIr()) || {};
+        ok(r.sub && r.sub.ok === true, "a claim submitted while the IR stash is LEGAL is accepted");
+        ok(r.mine && r.mine.ok === false && r.mine.reason === "ir-illegal",
+          "…and still LOSES at processing once the stash has appeared — the submit check is not the only gate (" + JSON.stringify(r.mine) + ")");
+        ok(errors.length === 0, "0 page errors on the late-stash claim");
+        await ctx.close();
+      }
+      // (f) The owner is TOLD, on their own team, before they ever go shopping.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seedRoster(page, healthyOnIr());
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        await evalOr(page, () => window.__GFFL__.UI.show("team"));
+        await waitFnOr(page, () => !!document.querySelector(".lrow"));
+        const locker = ((await evalOr(page, () => document.body.textContent)) || "").replace(/\s+/g, " ");
+        ok(/H\. Healed is healthy but still on your IR/.test(locker),
+          "My Team warns, by name, that a healthy player is stashed (" + (locker.match(/[^.]*still on your IR[^.]*/) || [""])[0].slice(0, 90) + ")");
+        ok(/can't add anyone/.test(locker), "…and says plainly what it costs until it is fixed");
+        await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+        await waitFnOr(page, () => /Waivers/.test(document.body.textContent));
+        // NORMALISE FIRST. The warning's template literal wraps across source lines, so its
+        // own newline + indentation land in textContent ("still\n      on your IR") and a
+        // single-space regex misses a warning that is plainly on the page — which is exactly
+        // what happened here before this comment existed.
+        const moves = ((await evalOr(page, () => document.body.textContent)) || "").replace(/\s+/g, " ");
+        ok(/H\. Healed.*still on your IR/.test(moves),
+          "…and the same warning greets them on Moves, where the block bites");
+        ok(errors.length === 0, "0 page errors with the warning up");
+        await ctx.close();
+      }
+      // (g) A CLEAN roster is completely unaffected — no warning, and adds work exactly as
+      // they always did. Without this the whole section could pass by blocking everything.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        await evalOr(page, () => window.__GFFL__.UI.show("team"));
+        await waitFnOr(page, () => !!document.querySelector(".lrow"));
+        ok(!/still on your IR/.test((await evalOr(page, () => document.body.textContent)) || ""),
+          "a clean roster shows no IR warning at all");
+        const r = await evalOr(page, async () => {
+          const LG = window.__GFFL__.LG;
+          const ros = await LG.ensureRoster(1, 1, { fresh: true });
+          const add = await LG.faAdd(1, 1, { key: "999009", name: "N. Ewguy", pos: "WR", team: "SF" }, ros[ros.length - 1].key);
+          const after = await LG.ensureRoster(1, 1, { fresh: true });
+          return { add, has: after.some((p) => p.key === "999009") };
+        }) || {};
+        ok(r.add && r.add.ok === true && r.has === true,
+          "…and an ordinary free-agent add still goes through (" + JSON.stringify(r.add) + ")");
+        ok(errors.length === 0, "0 page errors on the clean path");
+        await ctx.close();
+      }
+    }
+
     // ---- AI13: the review plates. Preseason, week 1, rosters full of backups.
     if (SHOTS) {
       fixture.preseason = true; fixture.depthCharts = true;

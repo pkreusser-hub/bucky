@@ -1546,6 +1546,21 @@
   };
   // The 3 IR spots take genuinely-out players only (standard rule).
   LG.irEligible = (injury) => ["IR", "O", "Out", "PUP", "NFI", "SUS", "Doubtful"].includes(String(injury || ""));
+  // A player's CURRENT designation, live where the engine knows it (see D.injuryFor) and the
+  // roster's own stored snapshot otherwise. lg-core has no player state of its own, so this is
+  // the seam — and it means the RULE below and the LOCKER's own IR affordances judge a man by
+  // exactly the same value.
+  LG.injuryOf = (p) => (LG.data && LG.data.injuryFor ? LG.data.injuryFor(p.key, p.injury) : (p.injury || ""));
+  // ⭐ THE OTHER HALF OF THE IR RULE (2026-08-15, user: "if a player becomes healthy you can't
+  // add players to your roster until you remove the now healthy player from your IR slot").
+  // An IR spot is EXTRA capacity — 3 on top of the 18 — so a healthy man parked there is a
+  // 19th roster spot nobody else in the league can use. The eligibility gate on the way IN
+  // (LG.irEligible, enforced by the locker) cannot catch this on its own, because a man is
+  // put there legitimately and then GETS BETTER; nothing about the roster changes at that
+  // moment. So every ACQUISITION is blocked until the stash is resolved, which forces the
+  // honest choice: bench him (costing a real roster spot) or drop him.
+  // Returns the offending players, so every caller can NAME them rather than just refusing.
+  LG.illegalIR = (roster) => (roster || []).filter((p) => p.slot === "IR" && !LG.irEligible(LG.injuryOf(p)));
 
   // ---------------- transactions log (append-only) ----------------
   // One doc per event, id tx_<t>_<rand4>. Only actual roster moves land here
@@ -1688,6 +1703,13 @@
   LG.addClaim = async function (week, claim) {
     const wk = await LG.db.getFresh(LG.claimsId(LG.SEASON, week));
     if (wk && wk.processed) return { ok: false, reason: "already-processed" };
+    // Refused at SUBMIT, and again at PROCESSING (see processWaivers) — a man can perfectly
+    // well be ruled out on Tuesday and cleared on Wednesday morning, so checking only here
+    // would let a legal claim become an illegal acquisition while it sat in the queue.
+    if (claim && claim.teamId != null) {
+      const stashed = LG.illegalIR(await LG.ensureRoster(week, claim.teamId, { fresh: true }));
+      if (stashed.length) return { ok: false, reason: "ir-illegal", players: stashed.map((p) => p.name) };
+    }
     const { id: claimId, ...rest } = claim || {};
     await LG.db.set(LG.claimDocId(LG.SEASON, week, claimId), { kind: "claim", season: LG.SEASON, week, claimId, ...rest });
     return { ok: true };
@@ -1710,6 +1732,10 @@
     // FRESH: this both writes a roster and decides "is he already owned?" — a cached roster
     // makes it possible to add a player another team just won (finding 4).
     const ros = await LG.ensureRoster(week, teamId, { fresh: true });
+    // Blocked while a healthy man is stashed on IR — see LG.illegalIR. Checked against the
+    // FRESH roster above, so it can't be dodged by a stale cache.
+    const stashed = LG.illegalIR(ros);
+    if (stashed.length) return { ok: false, reason: "ir-illegal", players: stashed.map((p) => p.name) };
     for (const t of LG.teams) {
       const r = t.id === teamId ? ros : await LG.ensureRoster(week, t.id, { fresh: true });
       if (r.some((p) => p.key === addPlayer.key)) return { ok: false, reason: "player-taken" };
@@ -1798,6 +1824,11 @@
         const ros = rosterMap.get(c.teamId) || [];
         if (!ros.some((p) => p.key === c.dropKey)) reason = "drop-gone";
         else if (c.bid > (faabMap.get(c.teamId) ?? 0)) reason = "insufficient-faab";
+        // The second half of the IR gate: addClaim refused it at submit, but a player ruled
+        // out on Tuesday can be cleared by Wednesday's run, so the claim is re-judged here
+        // against the rosters this run actually read. The claim LOSES rather than erroring —
+        // it is one bid among many and the run must still resolve everyone else.
+        else if (LG.illegalIR(ros).length) reason = "ir-illegal";
       }
       if (!reason) {
         const ros = rosterMap.get(c.teamId);
@@ -2027,6 +2058,16 @@
     const getOk = fresh.get.every((k) => toRoster.some((p) => p.key === k));
     if (!giveOk || !getOk) {
       const failed = { ...fresh, status: "cancelled", cancelReason: "roster-changed" };
+      await LG.saveTrade(failed);
+      return failed;
+    }
+    // A trade is an ACQUISITION for both sides, so the IR rule applies to both. Judged here,
+    // at execution, against the fresh rosters — a trade sits in a review window and a player
+    // can perfectly well get healthy inside it. Cancelled with its own reason rather than
+    // silently, so the owners can see which stash to resolve and re-offer.
+    const stashed = LG.illegalIR(fromRoster).concat(LG.illegalIR(toRoster));
+    if (stashed.length) {
+      const failed = { ...fresh, status: "cancelled", cancelReason: "ir-illegal", cancelNames: stashed.map((p) => p.name) };
       await LG.saveTrade(failed);
       return failed;
     }

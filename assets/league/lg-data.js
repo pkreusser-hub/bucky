@@ -1935,6 +1935,16 @@
     if (!row && D.pidForKey(key) == null) return null;
     return 0;
   };
+  // A player's CURRENT injury designation (2026-08-15). The roster row's own `injury` is a
+  // snapshot from whenever he was imported or added, so it goes stale the moment the news
+  // moves — which is exactly the case the IR rule turns on ("if a player becomes healthy…").
+  // The live poll row is the truth; the stored value is the fallback for a player the engine
+  // has not seen. This is the seam lg-core reads through, so the rule and the UI can never
+  // disagree about whether a man is hurt.
+  D.injuryFor = function (key, fallback) {
+    const row = D.S.players.get(key);
+    return (row && row.injury != null && row.injury !== "" ? row.injury : fallback) || "";
+  };
   // {played, playing, left} for a set of starters.
   D.remaining = function (keys) {
     let played = 0, playing = 0, left = 0;
