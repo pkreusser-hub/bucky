@@ -13280,7 +13280,9 @@ async function openDetails(page, id) {
         await waitFnOr(page, () => /Waivers/.test(document.body.textContent));
         await clickChildIn(page, "#faResults tr", ".faMoveBtn", "F. Agent");
         ok(await waitOr(page, "#rosterCard", 9000), "the claim card opens with a drop picker");
-        const rows = await evalOr(page, () => [...document.querySelectorAll("#rosterCard [data-di]")].map((b) => ({
+        // :not(.rcnodrop) — the card also carries a "no drop needed" affordance when the team
+        // is under its cap (2026-08-15), and that is a choice, not a roster row.
+        const rows = await evalOr(page, () => [...document.querySelectorAll("#rosterCard [data-di]:not(.rcnodrop)")].map((b) => ({
           name: (b.querySelector("b") || {}).textContent || "",
           disabled: b.disabled === true,
           why: (b.querySelector(".rcblock") || {}).textContent || "",
@@ -13293,6 +13295,173 @@ async function openDetails(page, id) {
           "…and the bench player whose game has started is pickable (" + JSON.stringify(find("Rusher")) + ")");
         ok(find("Flexman").disabled === false, "…as is an ordinary bench player");
         ok(errors.length === 0, "0 page errors on the picker");
+        await ctx.close();
+      }
+    }
+
+    // ---- AI17: THE DEDICATED DROP BUTTON (2026-08-15, user: "the swap button wont let me drop
+    // a player that has started, we need a dedicated drop button"). Swap is a LINEUP move and
+    // is correctly locked at kickoff; there was no drop affordance ANYWHERE except as the
+    // drop-side of an add on Moves. Shipped WITH add-without-drop, because a standalone drop
+    // leaves an open spot and the add flow used to demand a drop unconditionally — so a bare
+    // Drop button would have cost the owner a player on every subsequent add.
+    {
+      const dropRoster2 = () => JSON.stringify({
+        kind: "roster", season: 2026, week: 1, teamId: 1,
+        players: [
+          { key: "3915511", name: "P. Passer", pos: "QB", team: "PHI", slot: "QB", injury: "" },     // started, game on
+          { key: "222111", name: "R. Rusher", pos: "RB", team: "DAL", slot: "BENCH", injury: "" },   // benched, game on
+          { key: "111222", name: "T. Tight", pos: "TE", team: "KC", slot: "TE", injury: "" },        // started, no kickoff
+        ],
+      });
+      const seed2 = (page) => page.evaluateOnNewDocument((k, v) => localStorage.setItem(k, v), LSPFX + "roster_2026_w1_t1", dropRoster2());
+      const openLocker = async (page) => {
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        await waitLive(page);
+        await evalOr(page, () => window.__GFFL__.UI.show("team"));
+        await waitFnOr(page, () => !!document.querySelector(".lrow"));
+      };
+      const rowFor = (page, name) => evalOr(page, (n) => {
+        const row = [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes(n));
+        if (!row) return null;
+        const d = row.querySelector(".ldrop"), s = row.querySelector(".lswap");
+        return { hasDrop: !!d, dropDisabled: !!(d && d.disabled), swapDisabled: !!(s && s.disabled),
+          why: d ? (d.getAttribute("title") || "") : "" };
+      }, name);
+
+      // (a) the button EXISTS on every row, and is the thing Swap could not be.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seed2(page);
+        await openLocker(page);
+        const bench = await rowFor(page, "R. Rusher");
+        const started = await rowFor(page, "P. Passer");
+        ok(bench && bench.hasDrop && started && started.hasDrop, "every locker row carries a dedicated Drop button");
+        ok(bench.swapDisabled === true && bench.dropDisabled === false,
+          "⭐ THE REPORT: a BENCH player whose game has started has Swap greyed (a lineup move) but Drop LIVE — " + JSON.stringify(bench));
+        ok(started.swapDisabled === true && started.dropDisabled === true,
+          "…while a man you STARTED has both greyed (" + JSON.stringify(started) + ")");
+        ok(/once waivers clear/.test(started.why), "…and the disabled Drop says why (" + started.why + ")");
+        const pre = await rowFor(page, "T. Tight");
+        ok(pre.swapDisabled === false && pre.dropDisabled === false, "…a player whose game hasn't kicked off can do either");
+        ok(errors.length === 0, "0 page errors on the locker buttons");
+        await ctx.close();
+      }
+      // (b) it really drops — through the REAL button, with the confirm answered.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seed2(page);
+        await page.evaluateOnNewDocument(() => { window.confirm = () => true; });
+        await openLocker(page);
+        await clickChildIn(page, ".lrow", ".ldrop", "R. Rusher");
+        await waitFnOr(page, () => !/R\. Rusher/.test(document.body.textContent));
+        const after = await evalOr(page, async () => {
+          const LG = window.__GFFL__.LG;
+          const ros = await LG.ensureRoster(1, 1, { fresh: true });
+          const tx = await LG.loadTx();
+          return { names: ros.map((p) => p.name), n: ros.length,
+            drop: (tx || []).some((t) => t.type === "drop" && t.detail && t.detail.dropName === "R. Rusher") };
+        }) || {};
+        ok(!(after.names || []).includes("R. Rusher") && after.n === 2,
+          "tapping Drop on a bench player whose game is underway really removes him (" + (after.names || []).join(", ") + ")");
+        ok(after.drop === true, "…and it lands in the transaction log as a drop");
+        ok(errors.length === 0, "0 page errors on the drop");
+        await ctx.close();
+      }
+      // (c) the CORE refuses a started player even driven directly — the button is an
+      // affordance, LG.dropPlayer is the rule.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seed2(page);
+        await openLocker(page);
+        const r = await evalOr(page, async () => {
+          const LG = window.__GFFL__.LG;
+          const bad = await LG.dropPlayer(1, 1, "3915511");   // started, game on
+          const good = await LG.dropPlayer(1, 1, "222111");   // benched, game on
+          const gone = await LG.dropPlayer(1, 1, "nobody");
+          const ros = await LG.ensureRoster(1, 1, { fresh: true });
+          return { bad, good, gone, names: ros.map((p) => p.name) };
+        }) || {};
+        ok(r.bad && r.bad.ok === false && r.bad.reason === "drop-started" && (r.bad.players || []).includes("P. Passer"),
+          "LG.dropPlayer refuses a started player, by name (" + JSON.stringify(r.bad) + ")");
+        ok(r.good && r.good.ok === true, "…allows the bench player whose game is equally underway");
+        ok(r.gone && r.gone.ok === false && r.gone.reason === "drop-not-found", "…and refuses a key that isn't on the roster");
+        ok((r.names || []).includes("P. Passer"), "…leaving the started man exactly where he was");
+        ok(errors.length === 0, "0 page errors on the core drop");
+        await ctx.close();
+      }
+      // (d) ⭐ THE TRAP THAT MADE THIS A TWO-PART CHANGE: after a drop the roster is UNDER its
+      // cap, and an add must not demand another drop — otherwise every add after a drop costs
+      // a player. (The league's teams are ALREADY under cap: 21 slots, 19-20 players.)
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seed2(page);
+        await openLocker(page);
+        const r = await evalOr(page, async () => {
+          const LG = window.__GFFL__.LG;
+          const before = await LG.ensureRoster(1, 1, { fresh: true });
+          const add = await LG.faAdd(1, 1, { key: "992001", name: "N. Oneed", pos: "WR", team: "SF" }, null);
+          const after = await LG.ensureRoster(1, 1, { fresh: true });
+          const want = Object.values(LG.rules.roster).reduce((s, n) => s + (Number(n) || 0), 0);
+          return { cap: LG.rosterCap(), want, roomBefore: LG.rosterRoom(before), add,
+            before: before.length, after: after.length, has: after.some((p) => p.key === "992001"),
+            kept: before.every((p) => after.some((q) => q.key === p.key)) };
+        }) || {};
+        // The cap is the FIXTURE's own slot script (19 here; the live league's is 21) — assert
+        // it is derived from the rules rather than hard-coding either number.
+        ok(r.cap === r.want && r.cap > 0 && r.roomBefore > 0,
+          "the roster cap is DERIVED from the slot script (not a hard-coded number), and this team is under it (" + r.cap + ", room " + r.roomBefore + ")");
+        ok(r.add && r.add.ok === true, "an add with NO drop succeeds when there is an open spot (" + JSON.stringify(r.add) + ")");
+        ok(r.after === r.before + 1 && r.has === true && r.kept === true,
+          "…the roster GROWS by one and nobody was dropped for it (" + r.before + " → " + r.after + ")");
+        ok(errors.length === 0, "0 page errors on the no-drop add");
+        await ctx.close();
+      }
+      // (e) …and a FULL roster still demands a drop, so the cap is real.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        const r = await evalOr(page, async () => {
+          const LG = window.__GFFL__.LG;
+          const ros = await LG.ensureRoster(1, 1, { fresh: true });
+          const pad = ros.slice();
+          while (pad.length < LG.rosterCap()) pad.push({ key: "pad" + pad.length, name: "P. Ad" + pad.length, pos: "WR", team: "SF", slot: "BENCH" });
+          await LG.saveRoster(1, 1, pad);
+          const add = await LG.faAdd(1, 1, { key: "992002", name: "T. ooMany", pos: "WR", team: "SF" }, null);
+          const after = await LG.ensureRoster(1, 1, { fresh: true });
+          return { add, n: after.length, cap: LG.rosterCap() };
+        }) || {};
+        ok(r.add && r.add.ok === false && r.add.reason === "roster-full",
+          "a FULL roster refuses a no-drop add (" + JSON.stringify(r.add) + ")");
+        ok(r.n === r.cap, "…and nothing was added (" + r.n + "/" + r.cap + ")");
+        ok(errors.length === 0, "0 page errors on the full roster");
+        await ctx.close();
+      }
+      // (f) the claim card offers the no-drop row only when there IS room.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seed2(page);
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        await waitLive(page);
+        await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+        await waitFnOr(page, () => /Waivers/.test(document.body.textContent));
+        await clickChildIn(page, "#faResults tr", ".faMoveBtn", "F. Agent");
+        ok(await waitOr(page, "#rosterCard", 9000), "the claim card opens");
+        const card = await evalOr(page, () => ({
+          nodrop: !!document.querySelector("#rosterCard .rcnodrop"),
+          q: (document.querySelector("#rosterCard .rcq") || {}).textContent || "",
+          armed: !((document.querySelector("#claimGo") || {}).disabled),
+        })) || {};
+        ok(card.nodrop === true, "…with a 'No drop needed' row, because this roster has open spots");
+        ok(/Drop anyone\?/.test(card.q), "…and the question softens to 'Drop anyone?' (" + card.q + ")");
+        ok(card.armed === false, "…submit starts disarmed");
+        await clickIn(page, "#rosterCard .rcnodrop");
+        ok(await waitFnOr(page, () => !((document.querySelector("#claimGo") || {}).disabled)),
+          "…and picking the no-drop row ARMS submit — ros[-1] is undefined, so this needed its own picked flag");
+        ok(errors.length === 0, "0 page errors on the claim card");
         await ctx.close();
       }
     }
@@ -15629,7 +15798,11 @@ async function openDetails(page, id) {
     ok(geo.listScrolls && geo.listOverflow === "auto", "…so a 12-man roster scrolls INSIDE the card rather than off the screen");
     ok(geo.minRow >= 44, "…and every row is a 44px touch target (" + geo.minRow + ")");
     const cardTxt = await text(page, "#rosterCard");
-    ok(/Claim A\. Vail/.test(cardTxt) && /Who do you drop\?/.test(cardTxt), "the card names the player being added and asks the question");
+    // RESTAGED 2026-08-15: the question is "Who do you drop?" only when the roster is FULL.
+    // With an open spot it softens to "Drop anyone?", because a drop is no longer required —
+    // same fact under test (the card names the player and asks the drop question).
+    ok(/Claim A\. Vail/.test(cardTxt) && /(Who do you drop\?|Drop anyone\?)/.test(cardTxt),
+      "the card names the player being added and asks the question");
     const cols = await page.evaluate(() => {
       const row = (name) => {
         const r = [...document.querySelectorAll("#rosterCard .swaprow")].find((x) => x.textContent.includes(name));
@@ -18159,7 +18332,10 @@ async function openDetails(page, id) {
       await waitOr(page, "#rosterCard .rccard");
       const cc = (await evalOr(page, () => {
         const head = document.querySelector("#rosterCard .pchead .pshot.pshotbig");
-        const rows = [...document.querySelectorAll("#rosterCard .rclist .swaprow")];
+        // RESTAGED 2026-08-15: .rcnodrop is the "no drop needed" affordance, not a player, so
+        // it carries no face and no PROJ/OWN columns by design — this check is about the
+        // CANDIDATE rows.
+        const rows = [...document.querySelectorAll("#rosterCard .rclist .swaprow:not(.rcnodrop)")];
         return { head: !!head, rows: rows.length, withBox: rows.filter((r) => r.querySelector(".rcwho .pshot")).length,
                  h44: rows.every((r) => r.getBoundingClientRect().height >= 44) };
       })) || {};

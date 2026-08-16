@@ -12720,3 +12720,51 @@ asked for.
 **KNOWN**: trades still exclude every locked player, bench included (`TRADE_POS … &&
 !playerLocked(p)`, unchanged) — the ask was about drops, so that is left alone; say the word if
 the bench should be tradeable mid-game too.
+
+## 🏈 GFFL — A DEDICATED DROP BUTTON, AND THE OPEN SPOT IT CREATES (2026-08-15)
+
+User: *"the swap button wont let me drop a player that has started, we need a dedicated drop
+button."* Files: `assets/league/lg-{core,ui}.js` + `league.html` +
+`tools/_verify-gffl.cjs` (2746 → **2773**). Both halves of the report were right: Swap is a
+LINEUP move and is correctly greyed at kickoff, and there was **no drop affordance anywhere**
+except as the drop-side of an add on Moves.
+
+**IT HAD TO SHIP AS TWO CHANGES, and the second one is why.** Every add SPLICED — one player
+out for the one coming in — so the roster could never be short and `faAdd` demanded a drop
+unconditionally. A standalone drop leaves an open spot, so a bare Drop button would have cost
+the owner a player on every subsequent add. **The live league is already under cap** (21 slots,
+teams carrying 19-20 after the 2025 reset), so this was a real limitation before the button
+existed, not a hypothetical one. So: `LG.rosterCap()`/`LG.rosterRoom()` derived from the slot
+script, `faAdd(…, dropKey = null)` appends when there is room and returns `roster-full` when
+there isn't, `processWaivers` honours a drop-less claim (re-checked at run time — an earlier
+claim of theirs in the SAME run may have taken the spot), and the claim card grows a **"No drop
+needed — N open spots"** row. That row reverses a documented decision (the old comment said a
+no-drop row would need roster-cap logic that "doesn't exist") — the premise changed.
+- `LG.dropPlayer(week, teamId, key)` is the standalone drop: fresh read, `LG.dropBlocked`, one
+  `drop` tx. Confirmed in the UI, because it is irreversible — the man goes to free agency.
+- The waiver tx sentence can now end after the add ("…into an open spot.") instead of trailing
+  "dropped ." with nobody's name in it.
+
+**THE ROW HAD NO ROOM FOR A THIRD BUTTON — measured, not guessed.** At 390px the locker row is
+332px: chip 52 + name + Swap 52 + Drop 52 + gaps, and a 52px "Drop" drove the name column to
+**120px**, under the **≥140px** floor AD8 measured and this app already paid to reach (two
+separate checks enforce it). On a phone the button keeps its tap height but shows **✕**; the
+word "Drop" stays in the DOM for a screen reader and the title/aria-label name the player. Name
+back to exactly 140. Desktop has room and keeps the word.
+
+**VERIFY**: **2773/2773, 0 page errors**. Pre-fix, app files reverted: **2757 / 16**. New
+section AI17: the button exists on every row · ⭐ the report itself — a BENCH player whose game
+has started has Swap greyed and Drop LIVE, while a started player has both greyed with the
+reason · a real click through the confirm removes him and logs the tx · the core refuses a
+started player driven directly · the no-drop add grows the roster by one and drops nobody · a
+FULL roster still refuses it · the claim card offers the no-drop row only when there is room and
+arming it enables submit.
+**THREE STAGING COLLISIONS, all mine, each restaged with its reason in the file**: two existing
+counts (`nobody hidden`, `every drop-candidate row carries a face box`) now had the no-drop row
+as a sibling — excluded via `:not(.rcnodrop)`, since it is a choice and not a roster line; and
+the claim card's question softens to "Drop anyone?" when a drop is optional, so the copy check
+accepts either wording. Plus one bug of my own the suite caught by its page-error check: the
+handler used `teamId`, but the locker's wiring function is `wireLockerLineup(tid, ros)` — the
+drop threw and silently did nothing.
+**KNOWN**: the ✕ is 32px wide on a phone (44px tall) — narrower than the 44px ideal, and the
+deliberate trade against the name-column floor, which is the contract with a test behind it.

@@ -1584,6 +1584,27 @@
   LG.dropBlocked = (p) => !!p && STARTING(p.slot)
     && !!(LG.data && LG.data.gameStarted && LG.data.gameStarted(p.team));
 
+  // How many players a roster may hold: the slot script's own total (2026-08-15). Until now
+  // nothing needed it, because every add SPLICED one player out for the one coming in and the
+  // roster could therefore never change size. A standalone drop makes size a real quantity.
+  LG.rosterCap = () => Object.values(((LG.rules || LG.DEFAULT_RULES).roster) || {})
+    .reduce((s, n) => s + (Number(n) || 0), 0);
+  LG.rosterRoom = (roster) => Math.max(0, LG.rosterCap() - (roster || []).length);
+
+  // ⭐ A STANDALONE DROP (2026-08-15, user: "the swap button wont let me drop a player that has
+  // started, we need a dedicated drop button"). Swap is a LINEUP move and is correctly locked
+  // at kickoff; dropping is a different act with a different rule (LG.dropBlocked), and there
+  // was no way to do it at all except as the drop-side of an add on Moves.
+  LG.dropPlayer = async function (week, teamId, key) {
+    const ros = await LG.ensureRoster(week, teamId, { fresh: true });
+    const p = ros.find((x) => x.key === key);
+    if (!p) return { ok: false, reason: "drop-not-found" };
+    if (LG.dropBlocked(p)) return { ok: false, reason: "drop-started", players: [p.name] };
+    await LG.saveRoster(week, teamId, ros.filter((x) => x.key !== key));
+    await LG.logTx("drop", week, teamId, { dropKey: key, dropName: p.name });
+    return { ok: true, name: p.name };
+  };
+
   // ---------------- transactions log (append-only) ----------------
   // One doc per event, id tx_<t>_<rand4>. Only actual roster moves land here
   // (a losing waiver claim isn't a transaction) — kind:"tx" so LG.db.list("tx")
@@ -1762,13 +1783,24 @@
       const r = t.id === teamId ? ros : await LG.ensureRoster(week, t.id, { fresh: true });
       if (r.some((p) => p.key === addPlayer.key)) return { ok: false, reason: "player-taken" };
     }
+    const incoming = { key: addPlayer.key, name: addPlayer.name, pos: addPlayer.pos, team: addPlayer.team, slot: "BENCH" };
+    // NO DROP NEEDED when the roster is under its cap (2026-08-15). This used to be impossible
+    // — every add spliced, so the roster could never be short — but a standalone drop can now
+    // leave an open spot, and forcing a drop into it would cost the owner a player for every
+    // add. A dropKey is still honoured when one is given.
+    if (dropKey == null) {
+      if (!LG.rosterRoom(ros)) return { ok: false, reason: "roster-full" };
+      await LG.saveRoster(week, teamId, ros.concat([incoming]));
+      await LG.logTx("fa_add", week, teamId, { addKey: addPlayer.key, addName: addPlayer.name });
+      return { ok: true };
+    }
     const idx = ros.findIndex((p) => p.key === dropKey);
     if (idx < 0) return { ok: false, reason: "drop-not-found" };
     const dropped = ros[idx];
     // A man you STARTED, whose game is underway — see LG.dropBlocked. The bench is free.
     if (LG.dropBlocked(dropped)) return { ok: false, reason: "drop-started", players: [dropped.name] };
     const next = ros.slice();
-    next.splice(idx, 1, { key: addPlayer.key, name: addPlayer.name, pos: addPlayer.pos, team: addPlayer.team, slot: "BENCH" });
+    next.splice(idx, 1, incoming);
     await LG.saveRoster(week, teamId, next);
     await LG.logTx("fa_add", week, teamId, { addKey: addPlayer.key, addName: addPlayer.name });
     await LG.logTx("drop", week, teamId, { dropKey, dropName: dropped ? dropped.name : dropKey });
@@ -1846,8 +1878,12 @@
       if (owned.has(c.addKey)) reason = wonThisRun.has(c.addKey) ? "outbid" : "player-taken";
       if (!reason) {
         const ros = rosterMap.get(c.teamId) || [];
-        if (!ros.some((p) => p.key === c.dropKey)) reason = "drop-gone";
-        else if (c.bid > (faabMap.get(c.teamId) ?? 0)) reason = "insufficient-faab";
+        // A claim may carry NO drop when the team had an open spot — see faAdd's own note.
+        // It still needs the spot to be there at RUN time, since another claim of theirs
+        // earlier in this same run may have filled it.
+        if (c.dropKey == null) { if (!LG.rosterRoom(ros)) reason = "roster-full"; }
+        else if (!ros.some((p) => p.key === c.dropKey)) reason = "drop-gone";
+        if (!reason && c.bid > (faabMap.get(c.teamId) ?? 0)) reason = "insufficient-faab";
         // ⚠ NO drop-started GATE HERE, DELIBERATELY, and the reason is the rule itself: a
         // claim's drop takes effect AT THE WAIVER RUN, which IS "once waivers clear". Dropping
         // a started player by claim is therefore the PERMITTED route, not the abuse — the abuse
@@ -1862,10 +1898,11 @@
       }
       if (!reason) {
         const ros = rosterMap.get(c.teamId);
-        const dropIdx = ros.findIndex((p) => p.key === c.dropKey);
-        const dropped = ros[dropIdx];
-        ros.splice(dropIdx, 1, { key: c.addKey, name: c.addName, pos: c.addPos, team: c.addTeam, slot: "BENCH" });
-        owned.delete(c.dropKey);
+        const incoming = { key: c.addKey, name: c.addName, pos: c.addPos, team: c.addTeam, slot: "BENCH" };
+        const dropIdx = c.dropKey == null ? -1 : ros.findIndex((p) => p.key === c.dropKey);
+        const dropped = dropIdx < 0 ? null : ros[dropIdx];
+        if (dropIdx < 0) ros.push(incoming); else ros.splice(dropIdx, 1, incoming);
+        if (c.dropKey != null) owned.delete(c.dropKey);
         owned.add(c.addKey);
         wonThisRun.add(c.addKey);
         faabMap.set(c.teamId, (faabMap.get(c.teamId) ?? 0) - c.bid);

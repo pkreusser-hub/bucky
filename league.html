@@ -1591,6 +1591,31 @@
   .lswap[disabled] { opacity:.42; cursor:default; }
   .lswap[disabled]:hover { border-color:var(--border-card); }
   .lswapfill { flex:1 1 auto; text-align:left; text-transform:none; letter-spacing:normal; }
+  /* The dedicated Drop (2026-08-15). Sits beside Swap, deliberately QUIETER than it — dropping
+     is the irreversible one, so it should not be the button the thumb lands on by habit; it
+     earns its weight only on hover/focus. Same disabled treatment as Swap, and the same size
+     either way so the row's geometry never shifts. On a phone the two together must not squeeze
+     the name column the locker fought to widen (AD8's measured ≥140px floor), hence the tighter
+     padding below 1024px. */
+  .ldrop { flex:0 0 auto; color:var(--mut); }
+  .ldrop:hover:not([disabled]), .ldrop:focus-visible:not([disabled]) { color:var(--accent); border-color:var(--accent); }
+  .ldrop[disabled] { opacity:.42; cursor:default; }
+  .ldrop[disabled]:hover { border-color:var(--border-card); }
+  /* ⚠ THE WORD "Drop" COSTS THE NAME COLUMN EXACTLY WHAT IT CANNOT SPARE. Measured at 390px:
+     the row is 332px = chip 52 + name + Swap 52 + Drop 52 + gaps, and a 52px Drop drove the
+     name to 120px — under the ≥140px floor AD8 measured and this app already paid to reach.
+     So on a phone the button keeps its 44px tap target but shows a glyph instead of the word;
+     "Drop" stays in the DOM for a screen reader (and the title/aria-label name the player), so
+     nothing is lost but the pixels. Desktop has room and keeps the word. */
+  @media (max-width:1023px) {
+    .lswap { padding-left:8px; padding-right:8px; }
+    .ldrop { padding-left:9px; padding-right:9px; }
+    .ldrop .ldroptxt { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+    .ldrop::before { content:"\2715"; font-size:13px; line-height:1; }
+  }
+  /* The claim card's "no drop needed" row — an affordance, not a player, so it carries no
+     projection/ownership columns and reads as a choice rather than a roster line. */
+  .rcnodrop { justify-content:flex-start; }
   .pcinfo { flex:1 1 auto; min-width:0; text-align:left; background:none; border:none; padding:0; margin:0;
             color:inherit; font:inherit; text-transform:none; letter-spacing:normal; cursor:pointer; }
   .pickchip.picked .pcpick { border-color:var(--accent); color:var(--accent); }

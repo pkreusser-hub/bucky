@@ -4894,6 +4894,7 @@
     "ir-illegal": "somebody healthy is still on your IR — move or drop them first",
     // You started him and his game is underway. The bench is always droppable.
     "drop-started": "you started him and his game has begun — you can drop him once waivers clear",
+    "roster-full": "your roster is full — pick somebody to drop",
     outbid: "outbid by a higher blind bid", "player-taken": "taken by another claim",
     "drop-gone": "your drop player was gone", "insufficient-faab": "not enough FAAB",
     "already-processed": "this week's claims already processed", "drop-not-found": "that player isn't on your roster",
@@ -4927,7 +4928,13 @@
   }
   function txSentence(tx) {
     const nm = (id) => (LG.teamById(id) || {}).name || ("Team " + id);
-    if (tx.type === "waiver") return `${nm(tx.teamId)} won a waiver claim: added ${LG.shortName(tx.detail.addName)} ($${tx.detail.bid}), dropped ${LG.shortName(tx.detail.dropName || tx.detail.dropKey)}.`;
+    // A claim can carry NO drop when the team had an open spot, so the sentence has to be able
+    // to end after the add rather than trailing "dropped ." with nobody's name in it.
+    if (tx.type === "waiver") {
+      const d = tx.detail.dropName || tx.detail.dropKey;
+      return `${nm(tx.teamId)} won a waiver claim: added ${LG.shortName(tx.detail.addName)} ($${tx.detail.bid})`
+        + (d ? `, dropped ${LG.shortName(d)}.` : " into an open spot.");
+    }
     if (tx.type === "fa_add") return `${nm(tx.teamId)} added ${LG.shortName(tx.detail.addName)} (free agency).`;
     if (tx.type === "drop") return `${nm(tx.teamId)} dropped ${LG.shortName(tx.detail.dropName || tx.detail.dropKey)}.`;
     if (tx.type === "trade" && tx.detail.result === "executed")
@@ -5302,7 +5309,10 @@
     // legal claim and always has been.
     function faAddBlocked(p, type) {
       if (type !== "FA") return type === myAbbrev ? "Already on your team" : "Owned by " + type;
-      if (!myRoster.length) return "You have nobody to drop";
+      // An empty roster is only a dead end when there is also no room — with an open spot the
+      // add needs no drop at all. (Before the standalone Drop button the roster could never be
+      // short, so "nobody to drop" and "no room" were the same sentence.)
+      if (!myRoster.length && !LG.rosterRoom(myRoster)) return "You have nobody to drop";
       return "";
     }
     // Every value a column can be SORTED by — numeric columns return a number (missing ->
@@ -5499,7 +5509,7 @@
     function openClaimCard(fa) {
       const ros = myRoster;
       const d = D();
-      let chosen = null;
+      let chosen = null, picked = false;
       const faProj = d.projFor(fa.key);
       const faInj = injLabel(fa.injury);
       openRosterCard(`<div class="pccard rccard">
@@ -5516,8 +5526,15 @@
         </div>
         ${!past ? `<label class="rcbid" for="claimBid">FAAB bid ($, up to ${LG.teamFaab(T)})
           <input id="claimBid" type="number" min="0" max="${LG.teamFaab(T)}" value="0"></label>` : ""}
-        <h2 class="rcq">Who do you drop?</h2>
+        <h2 class="rcq">${LG.rosterRoom(ros) ? "Drop anyone?" : "Who do you drop?"}</h2>
         ${rcHeadHtml()}
+        ${/* An open spot means no drop is required — see faAdd. Before the standalone Drop
+              button existed the roster could never be short, which is why this row wasn't
+              here; now a team can genuinely be carrying fewer than its cap. */
+          LG.rosterRoom(ros) ? `<div class="rclist"><button type="button" class="swaprow rcnodrop" data-di="-1">
+            <span class="rcwho"><span class="rcwhotxt"><b>No drop needed</b>
+            <small class="mut">${LG.rosterRoom(ros)} open spot${LG.rosterRoom(ros) === 1 ? "" : "s"} on your roster</small></span></span>
+          </button></div>` : ""}
         <div class="rclist">${ros.length
           ? ros.map((p, i) => rcRowHtml(p, `data-di="${i}"`,
               // SHOWN, DISABLED, WITH THE REASON — the same discipline the swap sheet uses.
@@ -5540,14 +5557,19 @@
       // a text-only repaint — never a rebuild, which would throw away a pick and a typed bid.
       ensurePctOwned([fa.key, ...ros.map((p) => p.key)]).then(paintPctOwned).catch(() => {});
       ov.querySelectorAll("[data-di]").forEach((b) => b.addEventListener("click", () => {
-        chosen = ros[Number(b.dataset.di)];
+        // di="-1" is the "no drop needed" row. `chosen` stays null for it, so the SUBMIT flag
+        // has to be separate — ros[-1] is undefined, and treating that as "nothing picked"
+        // would leave the button dead on the one row that means something.
+        const di = Number(b.dataset.di);
+        chosen = di < 0 ? null : ros[di];
+        picked = true;
         ov.querySelectorAll("[data-di]").forEach((x) => x.classList.remove("picked"));
         b.classList.add("picked");
         $("#claimGo").disabled = false;
       }));
       $("#claimCancel").addEventListener("click", UI.closeRosterCard);
       $("#claimGo").addEventListener("click", async () => {
-        if (!chosen) return;
+        if (!picked) return;
         // ⭐ DISARM FIRST (season-sim advisory, 2026-08-11). The fix below moved the bid READ
         // in front of the close; it did not stop the handler running TWICE. `chosen` is a
         // closure variable and survives the close, and #claimBid does not — so a second entry
@@ -5572,7 +5594,7 @@
         const rawBid = Number(($("#claimBid") || {}).value) || 0;
         UI.closeRosterCard();
         if (past) {
-          const r = await LG.faAdd(UI.week, tid, fa, chosen.key);
+          const r = await LG.faAdd(UI.week, tid, fa, chosen ? chosen.key : null);
           if (r.ok) { toast("Added " + fa.name + "."); UI._rosters = null; renderMoves(); }
           else { toast("Couldn't add: " + reasonLabel(r.reason) + irWho(r)); rearm(); }
         } else {
@@ -5580,7 +5602,7 @@
           const claim = {
             id: "claim_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
             teamId: tid, addKey: fa.key, addName: fa.name, addPos: fa.pos, addTeam: fa.team,
-            dropKey: chosen.key, dropName: chosen.name, bid, t: Date.now(),
+            dropKey: chosen ? chosen.key : null, dropName: chosen ? chosen.name : null, bid, t: Date.now(),
           };
           // The return value used to be DROPPED — "Claim submitted" was toasted whatever came
           // back, so a refused claim looked accepted and simply never appeared in My pending.
@@ -6504,13 +6526,18 @@
             </button>
             <button type="button" class="lswap" data-slot="${slot}" data-idx="${idx}"${playerLocked(p)
               ? ' disabled title="Game started — this slot is locked" aria-label="Swap unavailable — this game has started"' : ""}>Swap</button>
+            ${isOwner ? `<button type="button" class="ldrop" data-dropkey="${esc(p.key)}"${LG.dropBlocked(p)
+              ? ' disabled title="You started him and his game has begun — you can drop him once waivers clear" aria-label="Drop unavailable — you started him and his game has begun"'
+              : ` title="Drop ${esc(p.name)}" aria-label="Drop ${esc(p.name)}"`}><span class="ldroptxt">Drop</span></button>` : ""}
           </div>`
         : `<div class="lrow" data-slot="${slot}" data-idx="${idx}">
             <span class="slotchip" data-pos="${slotPos(slot)}">${slot}</span>
             <button type="button" class="lswap lswapfill" data-slot="${slot}" data-idx="${idx}"><span class="mut">Empty — tap to fill</span></button>
           </div>`;
       rosterHtml = `
-        <div class="card"><h2>Lineup — week ${UI.week}</h2><p class="mut small">Tap a player for their stats, or Swap to change the lineup. A greyed-out Swap means that game has started.</p>
+        <div class="card"><h2>Lineup — week ${UI.week}</h2><p class="mut small">Tap a player for their stats,
+          Swap to change the lineup, or ${isOwner ? "✕" : "Drop"} to release him. A greyed-out Swap means that game
+          has started; you can still drop anyone on your bench, but a player you started waits until waivers clear.</p>
           <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i)).join("")}</div></div>
         <div class="card"><h2>Bench</h2><div id="lockerBench">${bench.length ? bench.map((p, i) => rowHtml("BENCH", p, i)).join("") : '<p class="mut">Empty bench.</p>'}</div></div>
         <div class="card"><h2>IR <span class="mut">(${ir.length}/${irMax})</span></h2>
@@ -6627,6 +6654,24 @@
     document.querySelectorAll(".lswap").forEach((b) => b.addEventListener("click", (e) => {
       e.stopPropagation();
       openSwap(b.dataset.slot, Number(b.dataset.idx));
+    }));
+    // ⭐ THE DEDICATED DROP (2026-08-15, user: "the swap button wont let me drop a player that
+    // has started, we need a dedicated drop button"). Swap is a LINEUP move and is correctly
+    // locked at kickoff — dropping is a different act with a different rule, and it had no
+    // affordance of its own anywhere. Confirmed, because it is irreversible: the man goes to
+    // free agency and anyone can have him.
+    document.querySelectorAll(".ldrop").forEach((b) => b.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const p = ros.find((x) => x.key === b.dataset.dropkey);
+      if (!p) return;
+      if (!confirm("Drop " + p.name + "?\n\nHe goes straight to free agency and anyone in the league can pick him up.")) return;
+      b.disabled = true; b.textContent = "Dropping…";
+      const r = await LG.dropPlayer(UI.week, tid, p.key);
+      if (!r.ok) { toast("Couldn't drop: " + reasonLabel(r.reason) + irWho(r)); b.disabled = false; b.textContent = "Drop"; return; }
+      toast("Dropped " + LG.shortName(p.name) + ".");
+      UI._rosters = null;
+      await loadWeekRosters();
+      renderLocker();
     }));
     const slots = starterSlotList();
     const taken = new Set();
