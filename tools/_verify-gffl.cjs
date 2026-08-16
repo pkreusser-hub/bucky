@@ -13162,6 +13162,141 @@ async function openDetails(page, id) {
       }
     }
 
+    // ---- AI16: WHO CAN BE DROPPED ONCE THE BALL IS IN THE AIR (2026-08-15, user: "lets make
+    // it so you can drop players from your bench even if their game has started, but you still
+    // cant drop players you started until waivers clear"). BOTH halves matter equally: the
+    // bench half was already true (the drop picker never filtered anything) and must STAY true,
+    // and the starter half did not exist at all — pre-fix, faAdd happily dropped a starter
+    // mid-game. A section that only tested the block could be satisfied by freezing everything,
+    // which is the opposite of what was asked for, so the bench cases are the anti-vacuity half.
+    {
+      // The fixture's own live board: PHI and DAL are underway, KC has not kicked off. So a
+      // PHI/DAL man is "started" and a KC man is not, without touching a clock.
+      const dropRoster = () => JSON.stringify({
+        kind: "roster", season: 2026, week: 1, teamId: 1,
+        players: [
+          { key: "3915511", name: "P. Passer", pos: "QB", team: "PHI", slot: "QB", injury: "" },      // STARTED, game on
+          { key: "222111", name: "R. Rusher", pos: "RB", team: "DAL", slot: "BENCH", injury: "" },    // benched, game on
+          { key: "111222", name: "T. Tight", pos: "TE", team: "KC", slot: "TE", injury: "" },         // started, no kickoff yet
+          { key: "111444", name: "F. Flexman", pos: "RB", team: "KC", slot: "BENCH", injury: "" },    // benched, no kickoff
+        ],
+      });
+      const seedDrop = (page) => page.evaluateOnNewDocument((k, v) => localStorage.setItem(k, v), LSPFX + "roster_2026_w1_t1", dropRoster());
+
+      // (a) the rule itself, on all four combinations of {started, benched} × {underway, not}.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seedDrop(page);
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        await waitLive(page);
+        const r = await evalOr(page, async () => {
+          const LG = window.__GFFL__.LG, d = window.__GFFL__.D;
+          const ros = await LG.ensureRoster(1, 1, { fresh: true });
+          const by = Object.fromEntries(ros.map((p) => [p.name, p]));
+          return {
+            games: { PHI: d.gameStarted("PHI"), DAL: d.gameStarted("DAL"), KC: d.gameStarted("KC") },
+            startedLive: LG.dropBlocked(by["P. Passer"]),
+            benchLive: LG.dropBlocked(by["R. Rusher"]),
+            startedPre: LG.dropBlocked(by["T. Tight"]),
+            benchPre: LG.dropBlocked(by["F. Flexman"]),
+            ir: LG.dropBlocked({ slot: "IR", team: "PHI" }),
+          };
+        }) || {};
+        ok(r.games && r.games.PHI === true && r.games.KC === false,
+          "the fixture really does have one team underway and one not (" + JSON.stringify(r.games) + ")");
+        ok(r.startedLive === true, "a player you STARTED whose game has begun cannot be dropped");
+        ok(r.benchLive === false, "…but a BENCH player can be dropped even though his game has begun — the whole point");
+        ok(r.startedPre === false, "…a starter whose game hasn't kicked off is droppable as normal");
+        ok(r.benchPre === false && r.ir === false, "…and bench/IR are never blocked by this rule");
+        ok(errors.length === 0, "0 page errors on the drop rule");
+        await ctx.close();
+      }
+      // (b) the CORE enforces it — the UI is an affordance, faAdd is the gate.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seedDrop(page);
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        await waitLive(page);
+        const r = await evalOr(page, async () => {
+          const LG = window.__GFFL__.LG;
+          const fa = (k) => ({ key: k, name: "F. Agent" + k, pos: "WR", team: "SF" });
+          const started = await LG.faAdd(1, 1, fa("991001"), "3915511");   // drop the live starter
+          const bench = await LG.faAdd(1, 1, fa("991002"), "222111");      // drop the live bench man
+          const ros = await LG.ensureRoster(1, 1, { fresh: true });
+          return { started, bench, names: ros.map((p) => p.name) };
+        }) || {};
+        ok(r.started && r.started.ok === false && r.started.reason === "drop-started",
+          "faAdd REFUSES to drop a started player whose game is underway (" + JSON.stringify(r.started) + ")");
+        ok((r.started.players || []).includes("P. Passer"), "…naming him, so the refusal is actionable");
+        ok(r.bench && r.bench.ok === true,
+          "…and ALLOWS the bench player whose game is equally underway (" + JSON.stringify(r.bench) + ")");
+        ok((r.names || []).includes("P. Passer") && !(r.names || []).includes("R. Rusher"),
+          "…so the starter is still on the roster and the bench man really left (" + (r.names || []).join(", ") + ")");
+        ok(errors.length === 0, "0 page errors on the enforced drop");
+        await ctx.close();
+      }
+      // (c) ⭐ A WAIVER CLAIM IS THE PERMITTED ROUTE, and this check exists because the first
+      // cut got it backwards. A claim's drop takes effect AT the waiver run, which IS "once
+      // waivers clear" — so a claim that drops a started player must WIN. Gating processWaivers
+      // as well contradicted the user's own sentence and broke nine pre-existing waiver checks,
+      // which is what surfaced the error: the rule belongs on the INSTANT add alone.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seedDrop(page);
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        await waitLive(page);
+        const r = await evalOr(page, async () => {
+          const LG = window.__GFFL__.LG;
+          await LG.addClaim(1, { id: "c_drop_started", teamId: 1, addKey: "991003", addName: "W. Anted", dropKey: "3915511", dropName: "P. Passer", bid: 1, t: 1 });
+          await LG.addClaim(1, { id: "c_drop_bench", teamId: 1, addKey: "991004", addName: "B. Enched", dropKey: "222111", dropName: "R. Rusher", bid: 1, t: 2 });
+          const res = await LG.processWaivers(1);
+          const get = (id) => ((res && res.results) || []).find((x) => x.id === id);
+          return { started: get("c_drop_started"), bench: get("c_drop_bench") };
+        }) || {};
+        ok(r.started && r.started.ok === true && r.started.reason === "won",
+          "a CLAIM that drops a started player WINS — the drop lands at the waiver run, which is when it becomes legal (" + JSON.stringify(r.started) + ")");
+        ok(r.bench && r.bench.ok === true && r.bench.reason === "won",
+          "…and so does the one dropping a bench player (" + JSON.stringify(r.bench) + ")");
+        ok(errors.length === 0, "0 page errors on the waiver drop rule");
+        await ctx.close();
+      }
+      // (d) the picker SHOWS the blocked man with the reason rather than hiding him, and leaves
+      // every bench player pickable.
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seedDrop(page);
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        await waitLive(page);
+        // INSTANT-ADD MODE. The fixture's default clock sits BEFORE week 1's waiver deadline,
+        // where this card submits a claim and nothing is blocked (correctly — see (c)). Push
+        // the clock past the deadline so the card is the instant add, which is the mode the
+        // block belongs to.
+        await evalOr(page, () => { window.__GFFL__.LG.nowOverride = window.__GFFL__.LG.waiverDeadline(1) + 3600e3; });
+        await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+        await waitFnOr(page, () => /Waivers/.test(document.body.textContent));
+        await clickChildIn(page, "#faResults tr", ".faMoveBtn", "F. Agent");
+        ok(await waitOr(page, "#rosterCard", 9000), "the claim card opens with a drop picker");
+        const rows = await evalOr(page, () => [...document.querySelectorAll("#rosterCard [data-di]")].map((b) => ({
+          name: (b.querySelector("b") || {}).textContent || "",
+          disabled: b.disabled === true,
+          why: (b.querySelector(".rcblock") || {}).textContent || "",
+        }))) || [];
+        const find = (n) => rows.find((x) => x.name.includes(n)) || {};
+        ok(rows.length === 4, "…listing the whole roster, nobody hidden (" + rows.length + ")");
+        ok(find("Passer").disabled === true && /drop after waivers/.test(find("Passer").why),
+          "…the started player is DISABLED and says why (" + JSON.stringify(find("Passer")) + ")");
+        ok(find("Rusher").disabled === false,
+          "…and the bench player whose game has started is pickable (" + JSON.stringify(find("Rusher")) + ")");
+        ok(find("Flexman").disabled === false, "…as is an ordinary bench player");
+        ok(errors.length === 0, "0 page errors on the picker");
+        await ctx.close();
+      }
+    }
+
     // ---- AI13: the review plates. Preseason, week 1, rosters full of backups.
     if (SHOTS) {
       fixture.preseason = true; fixture.depthCharts = true;

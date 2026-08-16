@@ -1935,6 +1935,16 @@
     if (!row && D.pidForKey(key) == null) return null;
     return 0;
   };
+  // Has this player's NFL game kicked off? (2026-08-15 — lifted out of lg-ui's playerLocked so
+  // there is ONE definition; lg-core's drop rule and the locker's lineup locks must never be
+  // able to disagree about whether a man is underway.) An untracked team is "not started",
+  // which is the safe answer: it unlocks rather than freezing a roster on missing data.
+  D.gameStarted = function (team) {
+    const g = D.S.games.get(slpTeam(team));
+    if (!g) return false;
+    if (g.state === "in" || g.state === "post") return true;
+    return g.kickoff ? LG.now() >= new Date(g.kickoff).getTime() : false;
+  };
   // A player's CURRENT injury designation (2026-08-15). The roster row's own `injury` is a
   // snapshot from whenever he was imported or added, so it goes stale the moment the news
   // moves — which is exactly the case the IR rule turns on ("if a player becomes healthy…").

@@ -1562,6 +1562,28 @@
   // Returns the offending players, so every caller can NAME them rather than just refusing.
   LG.illegalIR = (roster) => (roster || []).filter((p) => p.slot === "IR" && !LG.irEligible(LG.injuryOf(p)));
 
+  // ⭐ WHO CAN BE DROPPED ONCE THE BALL IS IN THE AIR (2026-08-15, user: "lets make it so you
+  // can drop players from your bench even if their game has started, but you still cant drop
+  // players you started until waivers clear").
+  //
+  // A BENCH or IR player is droppable at any time, kickoff or not — he is not earning you
+  // anything this week, and freezing him only stops an owner reacting to news. A player you
+  // STARTED is a different matter: dropping him mid-game is the move this rule exists to
+  // prevent (your back goes down on the first drive, you cut him and grab the handcuff before
+  // anyone else has seen it), so he is frozen from his own kickoff.
+  //
+  // "UNTIL WAIVERS CLEAR" FALLS OUT OF THE LEAGUE'S OWN RHYTHM rather than needing a second
+  // clock, and this is the part worth keeping: week N runs Tue 05:00 -> Mon, and week N's
+  // waiver deadline is the WEDNESDAY AT ITS START, before that week's games. So a man started
+  // on Sunday is locked here for the rest of week N (free agency is open, adds are instant —
+  // exactly when the block has to bite). When the week rolls on Tuesday he is a week N+1
+  // player whose N+1 game has not kicked off, so he unfreezes — but adds are back on the
+  // blind-bid queue until Wednesday 08:00, so the earliest ANY drop of him can take effect is
+  // the waiver run itself. Which is the rule, stated in the user's own words.
+  const STARTING = (slot) => slot !== "BENCH" && slot !== "IR";
+  LG.dropBlocked = (p) => !!p && STARTING(p.slot)
+    && !!(LG.data && LG.data.gameStarted && LG.data.gameStarted(p.team));
+
   // ---------------- transactions log (append-only) ----------------
   // One doc per event, id tx_<t>_<rand4>. Only actual roster moves land here
   // (a losing waiver claim isn't a transaction) — kind:"tx" so LG.db.list("tx")
@@ -1743,6 +1765,8 @@
     const idx = ros.findIndex((p) => p.key === dropKey);
     if (idx < 0) return { ok: false, reason: "drop-not-found" };
     const dropped = ros[idx];
+    // A man you STARTED, whose game is underway — see LG.dropBlocked. The bench is free.
+    if (LG.dropBlocked(dropped)) return { ok: false, reason: "drop-started", players: [dropped.name] };
     const next = ros.slice();
     next.splice(idx, 1, { key: addPlayer.key, name: addPlayer.name, pos: addPlayer.pos, team: addPlayer.team, slot: "BENCH" });
     await LG.saveRoster(week, teamId, next);
@@ -1824,6 +1848,12 @@
         const ros = rosterMap.get(c.teamId) || [];
         if (!ros.some((p) => p.key === c.dropKey)) reason = "drop-gone";
         else if (c.bid > (faabMap.get(c.teamId) ?? 0)) reason = "insufficient-faab";
+        // ⚠ NO drop-started GATE HERE, DELIBERATELY, and the reason is the rule itself: a
+        // claim's drop takes effect AT THE WAIVER RUN, which IS "once waivers clear". Dropping
+        // a started player by claim is therefore the PERMITTED route, not the abuse — the abuse
+        // is the instant free-agent add, which is where LG.faAdd blocks it. A first cut gated
+        // this too and it contradicted the rule (and lost a claim for a commissioner's early
+        // "Process now", punishing an owner for somebody else's timing).
         // The second half of the IR gate: addClaim refused it at submit, but a player ruled
         // out on Tuesday can be cleared by Wednesday's run, so the claim is re-judged here
         // against the rosters this run actually read. The claim LOSES rather than erroring —

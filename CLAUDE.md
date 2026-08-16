@@ -12674,3 +12674,49 @@ in this file, walked into anyway.**
 **KNOWN**: `applyImportedRosters` still trusts a source's `lineupSlot === "IR"` without an
 eligibility check — deliberate, since ESPN's own IR designation is the authority at import time
 and the roster is judged the moment anyone tries to act on it.
+
+## 🏈 GFFL — DROPPING ONCE THE BALL IS IN THE AIR (2026-08-15)
+
+User: *"lets make it so you can drop players from your bench even if their game has started, but
+you still cant drop players you started until waivers clear."* Files:
+`assets/league/lg-{core,data,ui}.js` + `tools/_verify-gffl.cjs` (2726 → **2746**).
+Starting point: the drop picker listed the WHOLE roster with no filtering at all, so the bench
+half was already true — and a started STARTER could be dropped mid-game, which is the abuse.
+
+**THE RULE**: `LG.dropBlocked(p)` = p is in a STARTING slot (not BENCH, not IR) **and** his game
+has kicked off. Bench and IR are droppable at any time — they are not earning anything this
+week, and freezing them only stops an owner reacting to news.
+
+**"UNTIL WAIVERS CLEAR" NEEDED NO SECOND CLOCK — it falls out of the league's own rhythm**, and
+that is the part worth keeping. Week N runs Tue 05:00 → Mon, and **week N's waiver deadline is
+the Wednesday at its START, before that week's games**. So: a man started on Sunday is frozen
+for the rest of week N, which is exactly when free agency is open and adds are instant — the
+moment the block has to bite. When the week rolls on Tuesday he becomes a week N+1 player whose
+N+1 game has not kicked off, so he unfreezes — but adds are back on the blind-bid queue until
+Wednesday 08:00, so the earliest any drop of him can TAKE EFFECT is the waiver run itself.
+
+**⭐ THE MISTAKE WORTH RECORDING: I first gated `processWaivers` too, and it contradicts the
+rule.** A claim's drop lands AT the waiver run, which IS "once waivers clear" — so dropping a
+started player BY CLAIM is the permitted route, not the abuse. Gating it also lost a claim
+whenever a commissioner hit "Process now" on a Sunday, punishing an owner for someone else's
+timing. **Nine pre-existing waiver checks failed and that is what surfaced it** — the collateral
+damage was the signal, not a set of tests to restage. The gate lives on the INSTANT add alone
+(`LG.faAdd`), and the picker only disables a row when `past` (instant-add mode) is true; before
+the deadline the same card submits a claim and blocks nothing. Suite (c) now asserts the
+inverse — a claim dropping a started player WINS — so the correction is pinned.
+**ONE DEFINITION OF "UNDERWAY"**: `D.gameStarted(team)` lifted out of lg-ui's `playerLocked`
+(which now delegates to it), so lg-core's rule and the locker's lineup locks cannot disagree.
+An untracked team reads "not started" — the safe answer, unfreezing rather than freezing a
+roster on missing data. Refusal is `drop-started`, carrying the player's NAME; the picker shows
+him disabled with "Started — drop after waivers" rather than hiding him.
+
+**VERIFY**: **2746/2746, 0 page errors**. Pre-fix, only the three app files reverted:
+**2737 / 9, every failure in the new section AI16** — all 2726 pre-existing checks pass in BOTH
+worlds, no restaging. The old code says it in its own words: `faAdd` returned `{ok:true}` and
+the roster came back without P. Passer. The section tests all four combinations of
+{started, benched} × {underway, not}, and the BENCH cases are the anti-vacuity half — a rule
+that froze everything would satisfy a block-only test and would be the opposite of what was
+asked for.
+**KNOWN**: trades still exclude every locked player, bench included (`TRADE_POS … &&
+!playerLocked(p)`, unchanged) — the ask was about drops, so that is left alone; say the word if
+the bench should be tradeable mid-game too.

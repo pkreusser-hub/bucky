@@ -4251,13 +4251,9 @@
   }
   UI.suggestTradePair = suggestTradePair;
 
-  function playerLocked(p) {
-    const d = D();
-    const g = d.S.games.get(d.slpTeam(p.team));
-    if (!g) return false;
-    if (g.state === "in" || g.state === "post") return true;
-    return g.kickoff ? LG.now() >= new Date(g.kickoff).getTime() : false;
-  }
+  // ONE definition, in lg-data, so the locker's lineup locks and lg-core's drop rule can never
+  // disagree about whether a man is underway.
+  function playerLocked(p) { return D().gameStarted(p.team); }
   function toast(msg) {
     const t = $("#toast");
     t.textContent = msg; t.hidden = false;
@@ -4896,6 +4892,8 @@
     // them, and the ones that don't (a waiver result read back off the processed doc) still
     // say something a person can act on.
     "ir-illegal": "somebody healthy is still on your IR — move or drop them first",
+    // You started him and his game is underway. The bench is always droppable.
+    "drop-started": "you started him and his game has begun — you can drop him once waivers clear",
     outbid: "outbid by a higher blind bid", "player-taken": "taken by another claim",
     "drop-gone": "your drop player was gone", "insufficient-faab": "not enough FAAB",
     "already-processed": "this week's claims already processed", "drop-not-found": "that player isn't on your roster",
@@ -5520,7 +5518,17 @@
           <input id="claimBid" type="number" min="0" max="${LG.teamFaab(T)}" value="0"></label>` : ""}
         <h2 class="rcq">Who do you drop?</h2>
         ${rcHeadHtml()}
-        <div class="rclist">${ros.length ? ros.map((p, i) => rcRowHtml(p, `data-di="${i}"`)).join("")
+        <div class="rclist">${ros.length
+          ? ros.map((p, i) => rcRowHtml(p, `data-di="${i}"`,
+              // SHOWN, DISABLED, WITH THE REASON — the same discipline the swap sheet uses.
+              // Filtering a started starter out would leave an owner hunting for a man who
+              // simply isn't in the list, with nothing saying why. Bench players are NOT
+              // blocked, kickoff or not — that is the point of this rule.
+              // ONLY IN INSTANT-ADD MODE (`past`): before the deadline this card submits a
+              // CLAIM, whose drop lands at the waiver run — which is exactly when dropping a
+              // started player becomes legal, so blocking it there would forbid the one route
+              // the rule allows.
+              { blocked: past && LG.dropBlocked(p) ? "Started — drop after waivers" : "" })).join("")
           : '<p class="mut">Nobody on the roster to drop.</p>'}</div>
         <div class="rcfoot">
           <button id="claimGo" class="primary" disabled>${past ? "Add" : "Submit claim"}</button>
