@@ -973,6 +973,32 @@ body.tv #boardLegend{display:none}
       }
       next.picks = rb.picks;
       next.history = rb.history;
+      // Keepers are DERIVED state, not history. The ledger keeps every keeper
+      // row it ever saw — including slots from a board that has since been
+      // reset or resized — so they're re-placed from the keeper lists using
+      // the very same code that puts them there when a draft starts.
+      var anyKeep = Object.keys(next.keepers || {}).some(function (id) { return (next.keepers[id] || []).length; });
+      if (anyKeep) {
+        // Keep each keeper's ORIGINAL timestamp so restoring twice writes the
+        // same rows the ledger already has — a restore must not grow it.
+        var kts = {};
+        Backup.entries.forEach(function (e) { if (e.keeper) kts[e.pid] = e.ts; });
+        Object.keys(next.picks).forEach(function (k) { if (next.picks[k].keeper) delete next.picks[k]; });
+        (next.teams || []).forEach(function (t) {
+          resolveKeeperRounds(next.keepers[t.id] || [], next.rounds).forEach(function (kk) {
+            next.picks["r" + kk.finalRound + "_t" + t.id] = {
+              pid: kk.pid, name: kk.name, pos: kk.pos, proTeam: kk.proTeam,
+              keeper: true, by: "keeper", ts: kts[kk.pid] || Date.now(),
+            };
+          });
+        });
+      }
+      // A slot that no longer exists can't hold a pick (the board shrank).
+      Object.keys(next.picks).forEach(function (k) {
+        var r = Number((/^r(\d+)_/.exec(k) || [])[1] || 0);
+        if (r > next.rounds) delete next.picks[k];
+      });
+      next.history = next.history.filter(function (k) { return next.picks[k]; });
       if (rb.history.length || Object.keys(rb.picks).length) next.phase = currentSlot(next) ? "live" : "done";
       next.paused = true;
       next.deadline = null;

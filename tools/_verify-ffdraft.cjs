@@ -1195,7 +1195,7 @@ async function sectionRoom(browser) {
   await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
 
   await clickSafely(page, "#bkFix");
-  await sleep(250);
+  await page.waitForFunction(() => Object.keys(window.__DRAFT__.D.picks).length === 32, { timeout: 15000, polling: 100 });
   d = await D(page);
   ok(Object.keys(d.picks).length === 32
     && Object.keys(bkBoard).every((k) => d.picks[k] && d.picks[k].pid === bkBoard[k].pid),
@@ -1205,34 +1205,37 @@ async function sectionRoom(browser) {
 
   // Rewind: the commissioner can wind the board back to any pick number.
   await hook(page, () => window.__DRAFT__.bkRestore(10));
-  await sleep(250);
+  await page.waitForFunction(() => window.__DRAFT__.D.history.length === 10, { timeout: 15000, polling: 100 });
   d = await D(page);
   const keeperCount = Object.keys(bkBoard).filter((k) => bkBoard[k].keeper).length;
   ok(d.history.length === 10 && Object.keys(d.picks).length === 10 + keeperCount,
     "rewind to pick 10 leaves exactly ten drafted picks — keepers stay put");
   ok(d.phase === "live" && d.paused === true, "…and the room reopens paused, mid-draft");
   await hook(page, () => window.__DRAFT__.bkRestore(null));
-  await sleep(250);
+  await page.waitForFunction(() => Object.keys(window.__DRAFT__.D.picks).length === 32, { timeout: 15000, polling: 100 });
   d = await D(page);
   ok(Object.keys(d.picks).length === 32
     && Object.keys(bkBoard).every((k) => d.picks[k] && d.picks[k].pid === bkBoard[k].pid),
     "…and rewinding forward again brings every pick back — nothing was thrown away");
 
   // An undo is a legitimate shrink and must never cry wolf.
+  const h0 = (await D(page)).history.length;
   await hook(page, () => window.__DRAFT__.undoLast());
-  await sleep(250);
+  await page.waitForFunction((n) => window.__DRAFT__.D.history.length === n, { timeout: 15000, polling: 100 }, h0 - 1);
   await page.evaluate(() => window.__DRAFT__.bkFlush());
-  await sleep(60);
   ok(await page.evaluate(() => window.__DRAFT__.backup.alarm == null
     && document.getElementById("bkBanner").hidden),
     "undoing a pick raises no alarm — the app knows the difference");
   await hook(page, () => window.__DRAFT__.bkRestore(null));
-  await sleep(250);
+  await page.waitForFunction(() => Object.keys(window.__DRAFT__.D.picks).length === 32, { timeout: 15000, polling: 100 });
 
   // A backup FILE is self-contained: the doc plus every row of the ledger.
   const payload = await page.evaluate(() => window.__DRAFT__.bkPayload());
   ok(payload && payload.doc && payload.doc.teams.length === 8 && payload.entries.length === bk0.entries
     && payload.season === 2026, "the downloadable backup file carries the whole draft and the whole ledger");
+  // Restoring is idempotent: three restores and an undo later, the ledger is
+  // the same size it was — it grows with PICKS, never with recoveries.
+  ok(payload.entries.length === bk0.entries, "…and putting the board back never bloated the ledger");
 
   // THE WORST CASE: the draft room is gone entirely.
   await page.evaluate(() => localStorage.removeItem("ffd_local_2026"));
