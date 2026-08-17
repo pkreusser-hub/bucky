@@ -2050,10 +2050,15 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       } else if (from === "home") {
         farmgptHistDepth = 1;
         farmgptHistPush({ farmgptView: name, farmgptDepth: 1 });
-      } else if (from === "storySetup" && name === "story") {
+      // "world" (the world-creation wait screen) is a NESTED view under storySetup, exactly
+      // like "story" — it must PUSH. It was missing from these cases, so it fell through to
+      // the sibling branch below and REPLACED the setup entry; cancelling then ran
+      // history.back() and overshot all the way to home, leaving the reader nowhere near the
+      // setup screen they backed out of. The storyledger suite's own P5 check caught it.
+      } else if (from === "storySetup" && (name === "story" || name === "world")) {
         farmgptHistDepth = Math.max(1, farmgptHistDepth) + 1;
         farmgptHistPush({ farmgptView: name, farmgptDepth: farmgptHistDepth });
-      } else if (from === "story" && name === "storySetup") {
+      } else if ((from === "story" || from === "world") && name === "storySetup") {
         // Prefer history.back() from the header; if something calls show() directly, replace.
         farmgptHistDepth = Math.max(1, (farmgptHistDepth || 2) - 1);
         if (farmgptCanTouchHistory()) farmgptHistReplace({ farmgptView: name, farmgptDepth: farmgptHistDepth });
@@ -3403,22 +3408,26 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       // Past this point the story request is in flight and already logged — there is nothing
       // left to cancel, so the button goes away rather than lying about what it can do.
       lockIn() { cancelAllowed = false; if (live) $("worldCancel").style.display = "none"; },
-      // Soft/back cancel must not navigate: popstate already restored the view,
-      // and farmgptGoHome shows home itself. Default = abort + climb (or storySetup).
+      // Soft/back cancel must not navigate: popstate already restored the view, and
+      // farmgptGoHome shows home itself. Otherwise let the history stack take us back, so
+      // Forward still works and no dead entry is left behind.
+      //
+      // WHICHEVER WAY WE LEAVE, THE CALLER'S CLEANUP MUST RUN. It owns the in-flight seed
+      // request (worldAbort) and the busy latch; only the view change is conditional. An
+      // earlier cut returned straight after history.back(), which left the request running
+      // and busy stuck true — the Begin button never worked again that session.
       cancel(opts) {
         if (!live || !cancelAllowed) return false;
         cancelled = true;
         const fromPop = !!(opts && opts.fromPop);
         const softHome = !!(opts && opts.softHome);
-        if (abort) { try { abort.abort(); } catch {} }
-        abort = null;
         this.finish();
-        if (fromPop || softHome) return true;
-        if (typeof history !== "undefined" && farmgptHistDepth > 0) {
-          try { history.back(); return true; } catch {}
+        let navigate = !fromPop && !softHome;
+        if (navigate && typeof history !== "undefined" && farmgptHistDepth > 0) {
+          try { history.back(); navigate = false; } catch {}
         }
-        if (onCancel) { try { onCancel(); } catch {} }
-        else show("storySetup");
+        if (onCancel) { try { onCancel({ navigate }); } catch {} }
+        else if (navigate) show("storySetup");
         return true;
       },
       // Teardown. Idempotent, and it does NOT switch views — the caller decides where the
@@ -3467,7 +3476,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     const worldAbort = typeof AbortController === "function" ? new AbortController() : null;
     worldWait.start({
       idea: seed, title, stages,
-      onCancel() { if (worldAbort) worldAbort.abort(); busy = false; renderBookshelf(); show("storySetup"); },
+      // Cleanup always; the view change only when cancel() didn't already move us (a
+      // history.back() or a popstate has its own landing).
+      onCancel(o) {
+        if (worldAbort) worldAbort.abort();
+        busy = false;
+        renderBookshelf();
+        if (!o || o.navigate !== false) show("storySetup");
+      },
     });
 
     // The universe pack seeds the ledger. A missing or broken pack is never fatal: the reader
