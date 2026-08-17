@@ -64,3 +64,20 @@ stale one found in this cleanup was abandoned mid-task, not deliberately kept.
 list, run `git cherry -v origin/main <branch>`: a `-` means the patch is already upstream under a
 different SHA (rebased), a `+` means it is genuinely unlanded. Both showed up in this repo, and
 telling them apart is the whole job.
+
+Two things that check has already caught people out on, both on 2026-08-17:
+
+1. **Compare the branch, not the files that happen to be dirty.** A `git checkout` refusal names
+   only the files blocking *it*. Auditing that list and concluding "nothing here is unlanded" misses
+   everything else the branch changed. `git cherry` reads the whole history; the dirty list doesn't.
+
+2. **A `+` means unlanded, never that it is wanted.** `origin/storytime-baked` is seven finished
+   picture books that the user retired 22 minutes after they were built. Deleting it as "abandoned
+   work" and landing it as "stranded work" are both wrong. Find out why it never landed — the
+   commit that removed the feature usually says so in its message — before doing either.
+
+**Branches kept on purpose** (do not delete; each is documented where its feature lives):
+
+| branch | why |
+|---|---|
+| `origin/storytime-baked` | Story Time Jr's 7 offline picture books + the bake tool. Feature retired 2026-08-03; this branch is the archive. See `docs/farmgpt.md`. |

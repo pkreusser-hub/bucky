@@ -569,6 +569,22 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   reading level, exactly-3 piped choices, and drawing quality; if SVG art disappoints, flip
   KID_ART_PROVIDER=gemini. Page is intentionally UNLINKED from the family nav — bookmark
   storytime.html to the iPad home screen (apple-mobile-web-app-capable = opens fullscreen).
+- ⚰️ **STORY TIME JR IS RETIRED (2026-08-03, user's call — "story time didn't work out")**, and
+  reconfirmed retired 2026-08-17. `storytime.html` is DELETED from `main`; the `kidstory`/
+  `kidart` server modes stay in farmgpt.mjs (harmless, and `_verify-kidstory-server.mjs` keeps
+  passing at 54/54), as does `assets/storytime/universes/` — those packs belong to the story
+  LEDGER engine, not to this page.
+  **`origin/storytime-baked` IS KEPT ON PURPOSE. Do not delete it.** It holds work that was
+  finished and never shipped: 7 offline picture books (dino · dino2 · goat · jungle · sea ·
+  sky · snow, ~5 MB of baked illustrations, a `story.json` each), the page rewritten to read
+  them, and `tools/_bake-story.mjs` that builds them. Space and pirates are half-baked there —
+  pictures, no `story.json`. A branch is a durable archive once pushed, so this is where that
+  work lives; landing it would only put an unfinished page back on a live URL.
+  **`git cherry` reports those commits as `+` (not upstream), and that is correct but not the
+  whole story** — a `+` means a patch never landed, never that it was wanted. This one was
+  retired by the user 22 minutes after it was baked. Read the reason before acting on the sign.
+  To revive: restore the page behind a `?baked=1` opt-in so a default visit is unchanged and
+  the iPad bookmark stays dark until it is deliberately flipped.
 - 🎲 DUNGEON MODE (2026-07-23, Dad-only D&D 5e DM): `dungeon.html` (self-contained page, linked
   Dad-only from the FarmGPT home next to Story Log) + modes `dnd`/`dnd_update`/`dnd_summary` +
   storage actions `dnd_list/get/save/delete` in farmgpt.mjs. Sonnet 5 (RESEARCH_MODEL), adaptive
