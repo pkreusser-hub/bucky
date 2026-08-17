@@ -6,6 +6,11 @@ never push without the user's preview approval unless pre-approved in the reques
 Existing games: `pasturepanic.html`, `goatcare.html`. Each game page is fully
 self-contained: its own `<script>`, its own render loop, no shared JS between pages.
 
+**Several agents work in this repo at once. Read `WORKTREES.md` before starting one** — where
+worktrees live (`C:\dev\bucky-wt\`, NOT OneDrive and NOT Temp, both of which have already cost
+this project real time), how to open and close one, the shared-stash hazard, and how to tell a
+rebased branch from a genuinely unlanded one before deleting it.
+
 ---
 
 # 🐐 BUCKY CAST — Tripo character pipeline (ACTIVE, 2026-07-17)
