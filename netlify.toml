@@ -21,6 +21,16 @@
 [functions."leaguecron"]
   schedule = "0 13,14 * * 3"
 
+# Event reminders — fires every 5 minutes. The handler selects events whose start instant falls
+# in [55, 65) minutes from "now" (netlify/functions/eventreminders.mjs). The window is TWICE the
+# cadence on purpose: consecutive runs overlap, so each event is offered to two runs and a single
+# skipped/delayed cron fire cannot lose a reminder. The slack is on the FLOOR, not the ceiling — a
+# missed run means the next one sees the event FEWER minutes ahead, not more. A Firestore idempotency marker — not the
+# window arithmetic — is what prevents the resulting double send. All-day events are excluded (no
+# single instant to be "1 hour before" of). Activates only after deploy.
+[functions."eventreminders"]
+  schedule = "*/5 * * * *"
+
 # ---- GFFL custom domain: goatfantasyleague.com (bought 2026-08-10) ----
 # Netlify -> Domain management -> add goatfantasyleague.com to THIS site, then point the
 # registrar's DNS at Netlify (nameservers, or the A/ALIAS + www CNAME Netlify shows) and
