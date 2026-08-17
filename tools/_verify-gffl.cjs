@@ -9558,6 +9558,122 @@ async function openDetails(page, id) {
       const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => /demo|ember/i.test(k)));
       ok(stored.length === 0, "…and it writes NOTHING to localStorage — closing the tab ends it (" + JSON.stringify(stored) + ")");
       ok(errors.length === 0, "0 page errors across the demo override");
+
+      // ---- PLAYER ON FIRE (2026-08-17): the Legendary row literally burns — a glow bed, flame
+      // tongues, rising embers, all three layered behind the row's own content (see league.html's
+      // dated comment on .pcellgrid[data-loot="4"] for why box-shadow/outline were off limits).
+      // Reuses this page's own ?demo=loot board, which already has one row on every rung.
+      const fire = await evalOr(page, () => {
+        const css = [...document.styleSheets].flatMap((s) => { try { return [...s.cssRules]; } catch (e) { return []; } });
+        // (a) walk the CSSOM keyframes — not the source text, so a property that reaches the
+        // page under any spelling is still caught the way a browser would apply it. Any
+        // property outside transform/opacity would risk layout on a row whose height must
+        // never move.
+        const kfNames = ["gfflFireGlow", "gfflFireDrift", "gfflEmberRise"];
+        const kfMissing = [], kfBad = {};
+        for (const n of kfNames) {
+          const rule = css.find((r) => r.type === CSSRule.KEYFRAMES_RULE && r.name === n);
+          if (!rule) { kfMissing.push(n); continue; }
+          const bad = [];
+          for (const frame of rule.cssRules) {
+            for (let i = 0; i < frame.style.length; i++) {
+              const prop = frame.style.item(i);
+              if (prop !== "transform" && prop !== "opacity") bad.push(prop);
+            }
+          }
+          kfBad[n] = bad;
+        }
+        // (b) geometry on the tier-4 row, and (c) .fembers per tier.
+        const row4 = document.querySelector('.pcellgrid[data-loot="4"]');
+        const csRow = row4 && getComputedStyle(row4);
+        const csBefore = row4 && getComputedStyle(row4, "::before");
+        const csAfter = row4 && getComputedStyle(row4, "::after");
+        const fembersEl = row4 && row4.querySelector(".fembers");
+        const csFembers = fembersEl && getComputedStyle(fembersEl);
+        const tierFembers = {};
+        for (const t of [1, 2, 3, 4]) {
+          const r = document.querySelector('.pcellgrid[data-loot="' + t + '"]');
+          tierFembers[t] = !!(r && r.querySelector(".fembers"));
+        }
+        // (d) CONTRAST ARITHMETIC, hand-computed from the fixture: pull the glow gradient's own
+        // stops out of the CSSOM (not retyped as constants here), linearly interpolate the alpha
+        // AND colour at 50% of row height between the 34% and 58% stops, composite that over the
+        // card behind the row, and measure the row's actual computed name colour against it.
+        const glowRule = css.find((r) => r.selectorText === '.pcellgrid[data-loot="4"]::before');
+        const bgImage = glowRule ? glowRule.style.backgroundImage : (csBefore ? csBefore.backgroundImage : "");
+        const stopRe = /rgba?\(([^)]+)\)\s*([\d.]+)%/g;
+        const stops = []; let sm;
+        while ((sm = stopRe.exec(bgImage))) {
+          const p = sm[1].split(",").map((x) => parseFloat(x));
+          stops.push({ r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1, pct: parseFloat(sm[2]) });
+        }
+        let nameCr = null, glowAt50 = null, composite = null, behind = null;
+        if (stops.length >= 3 && row4) {
+          const lo = stops[1], hi = stops[2]; // the 34% and 58% stops — 50% falls between them
+          const t = (50 - lo.pct) / (hi.pct - lo.pct);
+          glowAt50 = {
+            r: lo.r + (hi.r - lo.r) * t, g: lo.g + (hi.g - lo.g) * t,
+            b: lo.b + (hi.b - lo.b) * t, a: lo.a + (hi.a - lo.a) * t,
+          };
+          const cardEl = document.querySelector(".mutable").closest(".card");
+          behind = getComputedStyle(cardEl).backgroundColor;
+          const bm = behind.match(/\d+/g).map(Number);
+          composite = {
+            r: glowAt50.r * glowAt50.a + bm[0] * (1 - glowAt50.a),
+            g: glowAt50.g * glowAt50.a + bm[1] * (1 - glowAt50.a),
+            b: glowAt50.b * glowAt50.a + bm[2] * (1 - glowAt50.a),
+          };
+          const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+          const nm = getComputedStyle(row4.querySelector(".pname b")).color.match(/\d+/g).map(Number);
+          const nameLum = 0.2126 * lin(nm[0]) + 0.7152 * lin(nm[1]) + 0.0722 * lin(nm[2]);
+          const compLum = 0.2126 * lin(composite.r) + 0.7152 * lin(composite.g) + 0.0722 * lin(composite.b);
+          nameCr = (Math.max(nameLum, compLum) + 0.05) / (Math.min(nameLum, compLum) + 0.05);
+        }
+        return {
+          kfMissing, kfBad,
+          rowPosition: csRow && csRow.position, rowOverflow: csRow && csRow.overflow,
+          afterHeight: csAfter ? parseFloat(csAfter.height) : null,
+          beforePE: csBefore && csBefore.pointerEvents, afterPE: csAfter && csAfter.pointerEvents,
+          fembersPE: csFembers && csFembers.pointerEvents,
+          beforeZ: csBefore && csBefore.zIndex, afterZ: csAfter && csAfter.zIndex, fembersZ: csFembers && csFembers.zIndex,
+          tierFembers, stopCount: stops.length, glowAt50, composite, nameCr,
+        };
+      }, {});
+      ok(!!fire, "the ?demo=loot board renders a fire fixture to inspect");
+      if (fire) {
+        ok(fire.kfMissing.length === 0, "gfflFireGlow / gfflFireDrift / gfflEmberRise all exist as real @keyframes (missing: " + JSON.stringify(fire.kfMissing) + ")");
+        const kfBadList = Object.entries(fire.kfBad || {}).filter(([, arr]) => arr.length).map(([n, arr]) => n + ":" + arr.join(","));
+        ok(kfBadList.length === 0, "…and every one of them animates ONLY transform and/or opacity — nothing that can move layout (" + JSON.stringify(kfBadList) + ")");
+        ok(fire.rowPosition === "relative" && fire.rowOverflow === "hidden", "the Legendary row gets position:relative + overflow:hidden for its fire layers (" + fire.rowPosition + " / " + fire.rowOverflow + ")");
+        ok(fire.afterHeight != null && fire.afterHeight <= 16, "the flame-tongue strip (::after) is a thin band along the bottom edge, not a wash (" + fire.afterHeight + "px ≤ 16)");
+        ok(fire.beforePE === "none" && fire.afterPE === "none" && fire.fembersPE === "none",
+          "every fire layer is pointer-events:none — the row stays fully clickable through the flames (" + JSON.stringify([fire.beforePE, fire.afterPE, fire.fembersPE]) + ")");
+        ok(fire.beforeZ === "-1" && fire.afterZ === "-1" && fire.fembersZ === "-1",
+          "…and z-index:-1 on all three — the fire is painted BEHIND the row's own text by construction (" + JSON.stringify([fire.beforeZ, fire.afterZ, fire.fembersZ]) + ")");
+        ok(fire.tierFembers && fire.tierFembers[4] === true, ".fembers exists in the tier-4 (Legendary) row");
+        ok(fire.tierFembers && fire.tierFembers[1] === false && fire.tierFembers[2] === false && fire.tierFembers[3] === false,
+          "…and in NONE of the other three rungs (" + JSON.stringify(fire.tierFembers) + ")");
+        ok(fire.stopCount >= 3, "the glow gradient's own colour stops were readable from the CSSOM, not assumed (" + fire.stopCount + ")");
+        ok(fire.nameCr !== null && fire.nameCr >= 4.5,
+          "…the glow, hand-interpolated at 50% of row height and composited over the card, still clears AA for the player NAME ink (" + (fire.nameCr || 0).toFixed(2) + ":1)");
+      }
+      // (e) prefers-reduced-motion: reduce — all three fire animations turn off. Emulated after
+      // the fixture's own checks above so their reading is of the normal, motion-on page.
+      await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
+      await sleep(60);
+      const reduced = await evalOr(page, () => {
+        const row4 = document.querySelector('.pcellgrid[data-loot="4"]');
+        const fembersEl = row4 && row4.querySelector(".fembers");
+        return {
+          beforeAnim: row4 && getComputedStyle(row4, "::before").animationName,
+          afterAnim: row4 && getComputedStyle(row4, "::after").animationName,
+          fembersAnim: fembersEl && getComputedStyle(fembersEl).animationName,
+        };
+      }, {});
+      ok(!!reduced && reduced.beforeAnim === "none" && reduced.afterAnim === "none" && reduced.fembersAnim === "none",
+        "prefers-reduced-motion: reduce turns off all three fire animations on the row (" + JSON.stringify(reduced) + ")");
+      await page.emulateMediaFeatures([]);
+
       if (SHOTS) {
         // The ladder in ONE frame is the whole point — a single tier in isolation says nothing
         // about whether five steps read as a scale.

@@ -4579,3 +4579,65 @@ drop threw and silently did nothing.
 **KNOWN**: the ✕ is 32px wide on a phone (44px tall) — narrower than the 44px ideal, and the
 deliberate trade against the name-column floor, which is the contract with a test behind it.
 ---
+
+## 🏈 GFFL — PLAYER ON FIRE: the Legendary row literally burns (2026-08-17)
+
+A pure rendering pass on top of the loot ladder above — Legendary (`data-loot="4"`) rows gain
+a glow bed, flame tongues along the bottom edge, and rising embers, all behind the row's own
+text. Files: `league.html` + `assets/league/lg-ui.js` + `tools/_verify-gffl.cjs` (2775 →
+**2785**).
+
+**THE LAYERING PROBLEM WAS THE WHOLE DESIGN.** `box-shadow` is spoken for by the mobile
+possession edge (`.pcellgrid.hasball.left/right`, inset gold) and `outline` by the Legendary
+rim right above this entry — an animation on either would silently win over an existing one on
+exactly the rows most likely to carry both. Fire lives on `::before` (glow bed) + `::after`
+(flame tongues) + one real child, `.fembers` (embers), appended by `halfCell()` only when
+`heat === 4`. Every layer is `position:absolute` + `z-index:-1`, and the row itself gets
+`isolation:isolate` so that negative z-index can't leak past `.pcellgrid` to the card behind
+it — the fire is guaranteed to paint behind the row's flex-item content, not merely likely to.
+`overflow:hidden` clips the flame/ember layers at the row edge; safe on this element
+specifically because both possession shadows are inset, the headshot ring is inset, and —the
+one that would have mattered — `outline` is painted outside the element's own clipping box, so
+the Legendary rim is untouched by it.
+
+**PERF: every animation touches ONLY `transform` and/or `opacity`.** The "exactly even height
+for every player" row rule survives because nothing here can trigger layout — the suite walks
+the actual CSSOM `@keyframes` declarations and fails on any other property, not just an eyeball
+check.
+
+**THE SEAMLESS-LOOP INVARIANT**: every tongue layer's tile period must divide the per-loop
+drift distance exactly, or the loop point jumps. The drift is `3 x --gffl-fp` and the three
+layers tile at `fp/2` (yellow core), `fp` (orange), and `1.5fp` (deep-orange backdrop) — 6, 3
+and 2 whole tiles per loop. `--gffl-fp` is one CSS custom property driving every tile size AND
+the drift distance, so they cannot drift apart from each other, and it gets a smaller value
+(and a faster `animation-duration`) under `max-width:1023px` — the same tongue width stretched
+across a wider desktop row read as a slow, mushy wave rather than fire, and px/s is what the
+eye reads (both judged from the plates, not guessed).
+
+**THE FIRST CUT HAD TWO LAYERS (orange + yellow at exactly half its period, drift = 1fp) and
+the review plates killed it**: one 26px silhouette repeated 20+ times across a 520px desktop
+row reads as a uniform awning fringe, not fire. Mixed periods that beat against each other are
+what make it read as flame — the combined silhouette now only repeats every `3fp` = 78px. The
+scaleY flicker rides intermediate keyframes of the same animation (one element gets one
+transform timeline); `translateX` stays linear across those frames by advancing it
+`3fp x` the frame's own percentage.
+
+**VERIFY**: **2785/2785, 0 page errors**. Pre-fix, app files reverted to HEAD (tools kept):
+**2776 / 9** — every new failure is one of this entry's own checks, and nothing pre-existing
+broke. New checks, extending AD5d's `?demo=loot` fixture: the three `@keyframes` exist and
+touch only transform/opacity · `position:relative` + `overflow:hidden` + `isolation:isolate`
+on the tier-4 row · the flame strip is a thin band (≤16px), not a wash · `pointer-events:none`
++ `z-index:-1` on all three layers · `.fembers` exists on tier 4 and nowhere else · the glow
+gradient's stops parsed from the CSSOM, hand-interpolated at 50% of row height and composited
+over the card, still clear 4.5:1 for the player name · `prefers-reduced-motion: reduce` turns
+off all three animations.
+**ONE STAGING BUG OF MY OWN, caught by my own new check**: the glow gradient's first stop was
+written as bare `0` rather than `0%` — functionally identical CSS, but it broke the stop-parsing
+regex in the CSSOM-based contrast check (which requires every stop to carry a unit), silently
+dropping the darkest stop and reading only 2 of 3. Restaged to `0%`.
+**Plates** (scratchpad, not committed): a forced `data-loot="4"` + `.fembers` row with all three
+animations pinned to a mid-cycle frame via negative `animation-delay` (headless keyframes
+otherwise always render frame 0), cropped to the row + its neighbours and as a full matchup
+card, at 390px and 1280px. The flame reads as flame at both sizes without touching the name or
+score's legibility.
+---

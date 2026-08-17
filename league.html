@@ -828,6 +828,92 @@
   @media (prefers-reduced-motion: reduce) {
     .pcellgrid[data-loot="4"] { animation:none; outline-color:rgba(255,150,40,.6); }
   }
+  /* ---- PLAYER ON FIRE (2026-08-17): Legendary rows burn. THE LAYERING TRICK: box-shadow is
+     spoken for by the mobile possession edge (.pcellgrid.hasball.left/right, inset gold) and
+     outline is spoken for by the rim just above (gfflLegendary) — an animation on either would
+     silently win over an existing one on the very rows most likely to carry both. Fire has to
+     live somewhere else entirely, so it rides ::before/::after (free on this element) plus one
+     real child (.fembers, appended by lg-ui.js only on a tier-4 row — see halfCell()). Every
+     layer is position:absolute + z-index:-1 inside its OWN stacking context (isolation:isolate
+     stops that negative z-index leaking past .pcellgrid to the card behind it) so nothing here
+     can ever paint over the row's text. overflow:hidden clips the flame/ember layers at the
+     row edge; it is safe on THIS element specifically because both possession shadows are
+     inset, the headshot ring is inset, and — the one that would have mattered — outline is
+     painted outside the clipping box, so the Legendary rim above is untouched by it.
+     PERF: the row's height must never move (the "exactly even height for every player" rule),
+     so every animation below touches ONLY transform and/or opacity — nothing that can ever
+     trigger layout, on ANY of the three layers.
+     --gffl-fp is the flame tongues' base period in px — ONE value drives every gradient tile
+     size and the drift distance, so the tiles and the drift keyframe can't drift apart from
+     each other. THE SEAMLESS-LOOP INVARIANT: every layer's period must divide the per-loop
+     drift distance exactly. The drift is 3 x --gffl-fp, and the three layers are tiled at
+     fp/2 (yellow core), fp (orange), and 1.5fp (deep-orange backdrop) — 6, 3 and 2 whole
+     tiles per loop. The mixed periods are the POLISH, not decoration: a single period made
+     the desktop row read as a uniform awning fringe on the first plates (26px of silhouette
+     repeated 20+ times across 520px); with a 1.5fp layer beating against the fp layer the
+     combined silhouette only repeats every 3fp = 78px, which is what makes it read as flame.
+     The scaleY flicker rides intermediate keyframes of the SAME animation (an element gets
+     one transform timeline; translateX stays linear across those frames by advancing it
+     3fp x the frame's own percentage). Mobile gets a smaller --gffl-fp — a flame the same
+     ~7 fingers wide as the phone row reads as fire; the desktop period stretched across a
+     wider row would just look like a slow, mushy wave — and its own faster duration, because
+     px/s is what the eye reads and 51px at the desktop duration would crawl. */
+  .pcellgrid[data-loot="4"] { position:relative; overflow:hidden; isolation:isolate; --gffl-fp:26px; }
+  @keyframes gfflFireGlow { from { opacity:.65; } to { opacity:1; } }
+  .pcellgrid[data-loot="4"]::before {
+    content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background:linear-gradient(to top, rgba(255,84,0,.26) 0%, rgba(255,110,20,.10) 34%, rgba(255,128,0,0) 58%);
+    animation:gfflFireGlow 1.7s ease-in-out infinite alternate;
+  }
+  @keyframes gfflFireDrift {
+    0%   { transform:translateX(0) scaleY(1); }
+    14%  { transform:translateX(calc(var(--gffl-fp) * .42)) scaleY(1.10); }
+    32%  { transform:translateX(calc(var(--gffl-fp) * .96)) scaleY(.95); }
+    47%  { transform:translateX(calc(var(--gffl-fp) * 1.41)) scaleY(1.06); }
+    63%  { transform:translateX(calc(var(--gffl-fp) * 1.89)) scaleY(.93); }
+    81%  { transform:translateX(calc(var(--gffl-fp) * 2.43)) scaleY(1.08); }
+    100% { transform:translateX(calc(var(--gffl-fp) * 3)) scaleY(1); }
+  }
+  .pcellgrid[data-loot="4"]::after {
+    content:""; position:absolute; left:-50%; bottom:0; width:200%; height:15px; z-index:-1;
+    pointer-events:none; transform-origin:bottom; background-repeat:repeat-x;
+    background-image:
+      radial-gradient(circle at 50% 168%, #ffc04d 0, #ffc04d calc(var(--gffl-fp) * .26), transparent calc(var(--gffl-fp) * .38)),
+      radial-gradient(circle at 50% 148%, #ff8000 0, #ff8000 calc(var(--gffl-fp) * .40), transparent calc(var(--gffl-fp) * .56)),
+      radial-gradient(circle at 50% 150%, #e85d00 0, #e85d00 calc(var(--gffl-fp) * .62), transparent calc(var(--gffl-fp) * .84));
+    background-size:calc(var(--gffl-fp) / 2) 100%, var(--gffl-fp) 100%, calc(var(--gffl-fp) * 1.5) 100%;
+    background-position:calc(var(--gffl-fp) / 4) 0, 0 0, calc(var(--gffl-fp) * .75) 0;
+    -webkit-mask-image:linear-gradient(to top, #000 30%, transparent);
+            mask-image:linear-gradient(to top, #000 30%, transparent);
+    animation:gfflFireDrift 7.8s linear infinite;
+  }
+  @keyframes gfflEmberRise {
+    0%   { transform:translateY(0); opacity:.85; }
+    50%  { opacity:.45; }
+    100% { transform:translateY(-64px); opacity:.85; }
+  }
+  .pcellgrid[data-loot="4"] .fembers {
+    position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background-repeat:repeat; background-size:56px 64px;
+    background-image:
+      radial-gradient(circle, rgba(255,192,77,.7) 0 1.5px, transparent 2.5px),
+      radial-gradient(circle, rgba(255,128,0,.7) 0 1.5px, transparent 2.5px),
+      radial-gradient(circle, rgba(255,192,77,.55) 0 1px, transparent 2px),
+      radial-gradient(circle, rgba(255,128,0,.6) 0 2px, transparent 3px);
+    background-position:6px 50px, 24px 14px, 40px 34px, 48px 4px;
+    -webkit-mask-image:linear-gradient(to top, #000 25%, transparent 85%);
+            mask-image:linear-gradient(to top, #000 25%, transparent 85%);
+    animation:gfflEmberRise 2.8s linear infinite;
+  }
+  @media (max-width:1023px) {
+    .pcellgrid[data-loot="4"] { --gffl-fp:17px; }
+    .pcellgrid[data-loot="4"]::after { height:12px; animation-duration:5.2s; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pcellgrid[data-loot="4"]::before, .pcellgrid[data-loot="4"]::after,
+    .pcellgrid[data-loot="4"] .fembers { animation:none; }
+    .pcellgrid[data-loot="4"]::before { opacity:.8; }
+  }
   @media (max-width:1023px) {
     .pcellgrid.hasball.left  { box-shadow:inset 3px 0 0 var(--gold); }
     .pcellgrid.hasball.right { box-shadow:inset -3px 0 0 var(--gold); }

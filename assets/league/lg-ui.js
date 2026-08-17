@@ -3960,7 +3960,14 @@
     // NAMES the tier, because a colour on its own is not an accessible statement — and this
     // particular colour scale means nothing at all to anyone who has never played WoW.
     const lootAttr = heat ? ` data-loot="${heat}" title="${UI._lootName(heat)} — ${LG.fmtPts(heatPts)} pts"` : "";
-    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}${heat ? " loot" : ""}"${ball && !heat ? ' title="Has the ball"' : ""}${lootAttr}${p ? ` data-pk="${esc(p.key)}"` : ""}>${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
+    // PLAYER ON FIRE (2026-08-17): Legendary (tier 4) only. A real child, not another pseudo —
+    // .fembers needs its own tileable background separate from ::before (glow) and ::after
+    // (tongues), and CSS caps an element at exactly those two. Placed FIRST, ahead of the
+    // side-ordered content, but it costs the flex layout nothing: league.html's rule for it is
+    // position:absolute, which pulls it out of flow entirely, so it can sit anywhere in the
+    // markup without shifting ptsDiv/shot/infoDiv's own order.
+    const embersHtml = heat === 4 ? '<i class="fembers" aria-hidden="true"></i>' : "";
+    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}${heat ? " loot" : ""}"${ball && !heat ? ' title="Has the ball"' : ""}${lootAttr}${p ? ` data-pk="${esc(p.key)}"` : ""}>${embersHtml}${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
   }
   // The ESPN-reference stat summary for a matchup row: a compact position-aware line built
   // from the stats of whichever source mergeRow() picked for display (row.src — the same
