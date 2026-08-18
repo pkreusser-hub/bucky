@@ -6,11 +6,13 @@
 // for an event with no time on it.
 //
 // SCHEDULING NOTE: the cron fires every 5 minutes (`*/5 * * * *`, see netlify.toml). On each
-// run we select events whose start instant falls in the half-open window [60, 70) minutes from
+// run we select events whose start instant falls in the half-open window [55, 65) minutes from
 // "now" — TWICE the cadence, so consecutive runs deliberately OVERLAP and each event is offered
 // to two runs. A window exactly as wide as the cadence would tile perfectly, but only while
-// every run fires: one skipped run would drop its events permanently and silently. Overlap plus
-// the Firestore idempotency marker gives both properties — a missed run costs nothing, and the
+// every run fires: one skipped run would drop its events permanently and silently. The slack sits
+// on the FLOOR, not the ceiling: a missed run means the next one sees the event FEWER minutes
+// ahead, so 55 is what recovers it (see the WINDOW_MIN comment). Overlap plus the Firestore
+// idempotency marker gives both properties — a missed run costs nothing, and the
 // marker (not the arithmetic) prevents the double send. We compare absolute epoch
 // instants throughout (event.start.dateTime carries its own UTC offset from Google), never
 // wall-clock strings — that makes the window check inherently DST-safe with no Central-time
