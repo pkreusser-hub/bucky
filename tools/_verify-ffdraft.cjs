@@ -645,9 +645,12 @@ async function sectionRoom(browser) {
   await page.type("#pSearch", "Saquon");
   await page.waitForFunction(() => document.querySelectorAll("#pList .pDraft:not([disabled])").length === 1, { timeout: 3000 });
   await clickSafely(page, "#pList .pDraft");
-  await clickSafely(page, "#cbGo");
+  await page.waitForFunction(() => !!window.__DRAFT__.D.picks["r1_t3"], { timeout: 5000, polling: 100 });
   d = await D(page);
-  ok(d.picks["r1_t3"] && d.picks["r1_t3"].pid === 4003, "Mike drafts Barkley from his own phone at 1.03");
+  ok(d.picks["r1_t3"] && d.picks["r1_t3"].pid === 4003,
+    "Mike drafts Barkley from his own phone at 1.03 — ONE tap, no confirmation");
+  ok(await page.evaluate(() => document.getElementById("confirmBar").hidden),
+    "…and no confirm bar ever appeared for it");
   ok(await page.evaluate(() => !window.__DRAFT__.titleFlashing()), "…and the title flash stops once he picks");
   ok(await page.evaluate(() => window.__DRAFT__.sndLog.includes("pick")),
     "every landed pick fires the draft sound (headless: the trigger trail)");
@@ -781,6 +784,8 @@ async function sectionRoom(browser) {
   await page.evaluate(() => { document.getElementById("pSearch").value = "Johnny Testman"; document.getElementById("pSearch").dispatchEvent(new Event("input")); });
   await page.waitForFunction(() => document.getElementById("customAdd"), { timeout: 3000 });
   await clickSafely(page, "#customAdd");
+  ok(await page.evaluate(() => !document.getElementById("confirmBar").hidden && !!document.getElementById("customPos")),
+    "a hand-typed player still confirms — that bar is where his position is chosen");
   await page.evaluate(() => { document.getElementById("customPos").value = "TE"; });
   await clickSafely(page, "#cbGo");
   d = await D(page);
@@ -851,9 +856,9 @@ async function sectionRoom(browser) {
   await page.waitForFunction(() => !document.getElementById("pcOverlay").hidden && document.getElementById("pcDraft"), { timeout: 5000 });
   await shot(page, "ffdraft_card_390.png");
   await clickSafely(page, "#pcDraft");
-  await clickSafely(page, "#cbGo");
+  await page.waitForFunction(() => !!window.__DRAFT__.D.picks["r3_t4"], { timeout: 5000, polling: 100 });
   d = await D(page);
-  ok(d.picks["r3_t4"] && d.picks["r3_t4"].pid === 4009, "Draft him straight from the detail card");
+  ok(d.picks["r3_t4"] && d.picks["r3_t4"].pid === 4009, "Draft him straight from the detail card, in one tap");
   await hook(page, () => window.__DRAFT__.undoLast());
 
   // --- queue, needs, alerts hardware ---
@@ -1109,7 +1114,7 @@ async function sectionRoom(browser) {
   await dpage.evaluate(() => window.__DRAFT__.undoLast());
   await dpage.waitForFunction(() => window.__DRAFT__.D.phase === "live", { timeout: 3000 });
   await dpage.evaluate(() => { document.querySelector("#boardRail #pList .pDraft:not([disabled])").click(); });
-  await clickSafely(dpage, "#cbGo");
+  await dpage.waitForFunction(() => window.__DRAFT__.D.phase === "done", { timeout: 5000, polling: 100 });
   ok(await dpage.evaluate(() => window.__DRAFT__.D.phase === "done"),
     "you can draft straight from the board-side players column");
   await shot(dpage, "ffdraft_board_desktop.png");
@@ -1325,6 +1330,52 @@ async function sectionRehearse(browser) {
   }), "…and on Players & Teams it reaches the bottom of the roster column too");
   ok(await page.evaluate(() => document.scrollingElement.scrollWidth <= window.innerWidth + 1),
     "no sideways scroll at 1440px");
+
+  // --- the clock runs OUT and the draft carries on regardless ---
+  await hook(page, () => window.__DRAFT__.setSetting("timerSecs", 1));
+  await page.waitForFunction(() => {
+    const el = document.getElementById("cdown");
+    return el && el.textContent === "0:00";
+  }, { timeout: 8000, polling: 100 });
+  const expired = await D(page);
+  ok(expired.phase === "live" && !expired.paused,
+    "the clock hitting zero does NOT pause the draft — it just stops at 0:00");
+  ok(await page.evaluate(() => !document.getElementById("clockStrip").className.includes("paused")),
+    "…the strip doesn't go grey either; the team is simply over time");
+  const overtime = await page.evaluate(async () => {
+    const H = window.__DRAFT__;
+    const cur = H.currentSlot();
+    const p = H.pool.find((x) => !H.takenPids()[x.pid]);
+    await H.makePick(p, "Paul");
+    return { key: cur.key, landed: !!H.D.picks[cur.key] };
+  });
+  ok(overtime.landed, "…and the team on the clock still makes its pick, late as it is");
+
+  // --- the commissioner's undo sits on the clock strip, on every tab ---
+  ok(await page.evaluate(() => !!document.getElementById("csUndo")),
+    "the commissioner gets an Undo pick button right on the clock strip");
+  await hook(page, () => window.__DRAFT__.setView("board"));
+  await sleep(120);
+  ok(await page.evaluate(() => !!document.getElementById("csUndo")),
+    "…on the board tab too — it follows the clock, not a tab");
+  await hook(page, () => window.__DRAFT__.setSetting("timerSecs", 90));
+  await sleep(120);
+  const preUndo = await D(page);
+  await clickSafely(page, "#csUndo");
+  await page.waitForFunction((n) => window.__DRAFT__.D.history.length === n,
+    { timeout: 8000, polling: 100 }, preUndo.history.length - 1);
+  const undone = await D(page);
+  ok(!undone.picks[preUndo.history[preUndo.history.length - 1]],
+    "…one tap takes the last pick back off the board");
+  ok(undone.deadline - Date.now() > 80000,
+    "…and the clock restarts in full for whoever's pick it is again ("
+      + Math.round((undone.deadline - Date.now()) / 1000) + "s of 90)");
+  await hook(page, () => window.__DRAFT__.setMe("Guest", "dev-guest-reh", ""));
+  await sleep(150);
+  ok(await page.evaluate(() => !document.getElementById("csUndo")),
+    "…and nobody but the commissioner sees it");
+  await hook(page, (d) => window.__DRAFT__.setMe("Paul", d, JSON.parse(localStorage.getItem("ffd_local_2026")).commishKey), dev);
+  await sleep(150);
 
   // --- stop the draft and go back to keeper picking ---
   await hook(page, () => window.__DRAFT__.setView("commish"));
