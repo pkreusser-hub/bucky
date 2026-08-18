@@ -119,6 +119,22 @@ jobs:
           print(len(dst),'defenses; first 3:',[(p.get('rank'),p['name'],'adp',p.get('adp'),'proj',p.get('proj')) for p in dst[:3]])
           print('DEFENSES OK' if len(dst) >= 20 else 'DEFENSES MISSING — dig into the slot sweep')
           " || true
+          # ADP vs RANK alignment — the value badges compare a pick's overall
+          # number in OUR 8-team draft against ESPN cross-site ADP (10-team
+          # dominated). Print the drift so the badge threshold is a measured
+          # number, not a guess.
+          python3 -c "
+          import json;d=json.load(open('/tmp/o.json'));ps=[p for p in d.get('players',[]) if p.get('rank') is not None]
+          ps.sort(key=lambda p:p['rank'])
+          adps=[p.get('adp') for p in ps]
+          print('adp: none-count',sum(1 for a in adps if a is None),'| zeros',sum(1 for a in adps if a==0),'| max',max((a for a in adps if a),default=None))
+          for lo,hi in [(1,24),(25,48),(49,72),(73,96),(97,120),(121,144),(145,200)]:
+              seg=[p for p in ps if lo<=p['rank']<=hi and p.get('adp')]
+              if seg:
+                  dr=[p['adp']-p['rank'] for p in seg]
+                  print(f'rank {lo}-{hi}: n={len(seg)} adp-rank min/med/max = {min(dr):.0f}/{sorted(dr)[len(dr)//2]:.0f}/{max(dr):.0f}')
+          print('sample:',[(p['rank'],round(p['adp'],1),p['name'][:12]) for p in ps[::25][:10]])
+          " || true
           pid=$(python3 -c "import json;d=json.load(open('/tmp/o.json'));print(d['players'][0]['pid'])" 2>/dev/null || echo 0)
           code=$(fn "{\"secret\":\"amenfarms\",\"action\":\"ff_player\",\"pid\":$pid}" || echo FAIL)
           echo "ff_player($pid) HTTP $code, $(wc -c < /tmp/o.json) bytes"
