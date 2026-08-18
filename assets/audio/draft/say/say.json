@@ -28,6 +28,38 @@
     "test-announce": {
       "file": "test-announce.mp3",
       "bytes": 95756
+    },
+    "team-1": {
+      "file": "team-1.mp3",
+      "bytes": 33062
+    },
+    "team-2": {
+      "file": "team-2.mp3",
+      "bytes": 46019
+    },
+    "team-3": {
+      "file": "team-3.mp3",
+      "bytes": 34316
+    },
+    "team-4": {
+      "file": "team-4.mp3",
+      "bytes": 58558
+    },
+    "team-5": {
+      "file": "team-5.mp3",
+      "bytes": 44765
+    },
+    "team-9": {
+      "file": "team-9.mp3",
+      "bytes": 43511
+    },
+    "team-11": {
+      "file": "team-11.mp3",
+      "bytes": 46019
+    },
+    "team-12": {
+      "file": "team-12.mp3",
+      "bytes": 34316
     }
   }
 }
