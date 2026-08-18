@@ -1,0 +1,29 @@
+{
+  "note": "Player-name announcements: ElevenLabs eleven_v3, voice James. tools/_gen-draft-audio.mjs --fire-tts/--collect-tts.",
+  "voices": {
+    "3117251": {
+      "file": "3117251.mp3",
+      "bytes": 18852
+    },
+    "4362628": {
+      "file": "4362628.mp3",
+      "bytes": 17598
+    },
+    "4426515": {
+      "file": "4426515.mp3",
+      "bytes": 16344
+    },
+    "4429795": {
+      "file": "4429795.mp3",
+      "bytes": 20106
+    },
+    "4430807": {
+      "file": "4430807.mp3",
+      "bytes": 18852
+    },
+    "4430878": {
+      "file": "4430878.mp3",
+      "bytes": 33062
+    }
+  }
+}

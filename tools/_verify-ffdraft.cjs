@@ -382,6 +382,24 @@ async function clickSafely(page, sel) {
   }, sel);
 }
 
+// ---------------- section A3: committed audio assets are real audio -------------
+function sectionAudioAssets() {
+  section("A3 · committed draft audio — files exist and are actual mp3s");
+  const fs2 = require("fs"), path2 = require("path");
+  const dir = path2.join(__dirname, "..", "assets", "audio", "draft");
+  const man = JSON.parse(fs2.readFileSync(path2.join(dir, "manifest.json"), "utf8"));
+  ok(man.files.length === 6 && man.files.every((f) => {
+    const b = fs2.readFileSync(path2.join(dir, f.file));
+    return b.length > 5000 && (b.slice(0, 3).toString() === "ID3" || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0));
+  }), "4 stingers + 2 music beds committed, every one real mp3 bytes");
+  const say = JSON.parse(fs2.readFileSync(path2.join(dir, "say", "say.json"), "utf8"));
+  const pids = Object.keys(say.voices);
+  ok(pids.length >= 6 && pids.every((pid) => {
+    const b = fs2.readFileSync(path2.join(dir, "say", say.voices[pid].file));
+    return b.length > 5000 && (b.slice(0, 3).toString() === "ID3" || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0));
+  }), "player-name announcements on disk for " + pids.length + " players, all real mp3s");
+}
+
 // ---------------- section B: the draft room, end to end (local mode) ----------------
 async function sectionRoom(browser) {
   section("B · ffdraft.html — create, claim, keepers, live snake draft (390×844)");
@@ -1583,6 +1601,7 @@ async function sectionCloudDead(browser) {
   const ffup = await startFfUpstream();
   await initHandler();
   await sectionServer();
+  sectionAudioAssets();
 
   const srv = await startStatic();
   const browser = await launchBrowser();
