@@ -264,7 +264,11 @@ const MUSIC2_JOBS = [
   ["ffd-music-live4", "driving stadium rock bed, palm-muted electric guitars, punchy drums, big arena energy kept under conversation, background music, instrumental, seamless loop", 110000],
   ["ffd-music-live5", "pulsing synthwave sports bed, analog arpeggios, steady four-on-the-floor, neon late-night energy, background music, instrumental, seamless loop", 110000],
   // live6 (big band swing) was generated, auditioned, and CUT — the user's
-  // call, 2026-08-18: it didn't fit the room. Don't regenerate it.
+  // call, 2026-08-18: it didn't fit the room. Don't regenerate it; its slot
+  // number is retired so a stale cache can never resurrect the wrong track.
+  // live7/live8 backfill in the two styles the room actually loved:
+  ["ffd-music-live7", "cinematic NFL Films orchestral bed, thundering field drums and bold french horn theme, soaring strings, slow heroic build, mythic gridiron swagger, background music, instrumental, seamless loop", 115000],
+  ["ffd-music-live8", "driving stadium rock bed, gritty riff-led electric guitars, stomping four-count drums, hand-clap accents, big confident arena strut kept under conversation, background music, instrumental, seamless loop", 110000],
 ];
 async function fireMusic2() {
   const jobs = MUSIC2_JOBS.map(([name, prompt, ms]) => ({ name, kind: "music", prompt, length_ms: ms }));
