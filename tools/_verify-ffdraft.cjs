@@ -401,11 +401,12 @@ function sectionAudioAssets() {
   const fs2 = require("fs"), path2 = require("path");
   const dir = path2.join(__dirname, "..", "assets", "audio", "draft");
   const man = JSON.parse(fs2.readFileSync(path2.join(dir, "manifest.json"), "utf8"));
-  // 11 = 4 stingers + lobby + six live beds (the rotation batch, 2026-08-18)
-  ok(man.files.length === 11 && man.files.every((f) => {
+  // 10 = 4 stingers + lobby + five live beds (big band auditioned and cut,
+  // 2026-08-18 — restaged from 11)
+  ok(man.files.length === 10 && man.files.every((f) => {
     const b = fs2.readFileSync(path2.join(dir, f.file));
     return b.length > 5000 && (b.slice(0, 3).toString() === "ID3" || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0));
-  }), "4 stingers + 7 music beds committed, every one real mp3 bytes");
+  }), "4 stingers + 6 music beds committed, every one real mp3 bytes");
   const say = JSON.parse(fs2.readFileSync(path2.join(dir, "say", "say.json"), "utf8"));
   const isMp3 = (b) => b.length > 5000 && (b.slice(0, 3).toString() === "ID3" || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0));
   const pids = Object.keys(say.voices);
