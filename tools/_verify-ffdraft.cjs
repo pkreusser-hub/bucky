@@ -1272,6 +1272,106 @@ async function sectionRoom(browser) {
   await ctx.close();
 }
 
+// ---------------- section B5: rehearsal + the desktop player column ----------
+// Two things a commissioner needs that the main run can't cover: stopping a
+// live draft to run it again from keeper picking, and a players column that
+// doesn't sit a third the height of the board beside it. Needs its own room —
+// a tall 18-round board is the whole point of the geometry half.
+async function sectionRehearse(browser) {
+  section("B5 · stop the draft and rehearse; the desktop player column");
+  const ctx = await browser.createBrowserContext();
+  const page = await newPage(ctx, { vw: { width: 1440, height: 900 } });
+  await page.goto(BASE + "/ffdraft.html?local=1&fam=famrehearse&season=2026",
+    { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.pool.length >= 30, { timeout: 20000 });
+  const dev = "dev-reh";
+  await hook(page, (d) => { window.__DRAFT__.setMe("Paul", d, ""); }, dev);
+  await hook(page, () => window.__DRAFT__.createDraft());
+  await page.waitForFunction(() => window.__DRAFT__.D, { timeout: 8000 });
+  await hook(page, () => window.__DRAFT__.setSetting("rounds", 18));
+  await hook(page, () => window.__DRAFT__.claimTeam(1));
+  await hook(page, () => window.__DRAFT__.setPhase("keepers"));
+  await hook(page, () => window.__DRAFT__.addKeeper(1, window.__DRAFT__.pool.find((p) => p.pid === 4002)));
+  await hook(page, () => window.__DRAFT__.setPhase("live"));
+  await hook(page, async () => {
+    const H = window.__DRAFT__;
+    for (let i = 0; i < 12; i++) { try { await H.makePick(H.pool[i], "Paul"); } catch (e) { /* slot taken */ } }
+  });
+  await hook(page, () => window.__DRAFT__.setView("board"));
+  await page.waitForFunction(() => document.querySelectorAll("#boardGrid .cell").length > 100, { timeout: 8000 });
+  await sleep(300);
+
+  // --- the players column stands as tall as the board beside it ---
+  const geo = await page.evaluate(() => {
+    const r = (s) => { const e = document.querySelector(s); return e ? e.getBoundingClientRect() : null; };
+    const list = r("#pList"), main = r("#vBoard .boardmain");
+    return { list: { top: list.top, h: list.height, bot: list.bottom },
+      mainBot: main.bottom, vh: innerHeight };
+  });
+  ok(geo.mainBot > geo.vh, "an 18-round board really is taller than the window (the case that was broken)");
+  ok(geo.list.bot >= geo.mainBot - 14,
+    "the desktop players column runs the full height of the board beside it");
+  ok(geo.list.h > (geo.vh - geo.list.top) * 1.8,
+    "…which is far taller than the old window-height cap (" + Math.round(geo.list.h) + "px, was ~"
+      + Math.round(geo.vh - geo.list.top - 16) + "px)");
+  await shot(page, "ffdraft_board_desktop_tall.png");
+
+  await hook(page, () => window.__DRAFT__.setView("players"));
+  await sleep(300);
+  ok(await page.evaluate(() => {
+    const r = (s) => { const e = document.querySelector(s); return e ? e.getBoundingClientRect() : null; };
+    const list = r("#pList"), teams = r("#teamsCol");
+    return list.bottom >= Math.min(teams.bottom, innerHeight) - 14;
+  }), "…and on Players & Teams it reaches the bottom of the roster column too");
+  ok(await page.evaluate(() => document.scrollingElement.scrollWidth <= window.innerWidth + 1),
+    "no sideways scroll at 1440px");
+
+  // --- stop the draft and go back to keeper picking ---
+  await hook(page, () => window.__DRAFT__.setView("commish"));
+  await sleep(150);
+  const before = await D(page);
+  ok(before.phase === "live" && Object.keys(before.picks).length > 5,
+    "the draft is live with a board full of picks");
+  ok(await page.evaluate(() => !!document.getElementById("phKeepAgain")),
+    "a live draft offers Stop and go back to keepers");
+  await clickSafely(page, "#phKeepAgain");
+  ok((await D(page)).phase === "live", "one tap only arms it — the draft is still running");
+  await clickSafely(page, "#phKeepAgain");
+  await page.waitForFunction(() => window.__DRAFT__.D.phase === "keepers", { timeout: 8000, polling: 100 });
+  const after = await D(page);
+  ok(Object.keys(after.picks).length === 0 && after.history.length === 0 && !after.paused && !after.deadline,
+    "…and the second clears the whole board and reopens keeper picking");
+  ok(after.keepers[1] && after.keepers[1].length === 1 && after.teams[0].owner
+    && after.teams[0].owner.name === "Paul" && after.rounds === 18,
+    "…with every keeper, claim and setting untouched — nobody re-claims a thing");
+  // Writes are debounced, so this also pins the case where a pick is made and
+  // wiped inside that window: the ledger queues rows when it SEES them.
+  await page.waitForFunction((n) => window.__DRAFT__.backup.entries.length >= n,
+    { timeout: 10000, polling: 100 }, Object.keys(before.picks).length).catch(() => {});
+  const kept = await page.evaluate(() => window.__DRAFT__.backup.entries.length);
+  ok(kept >= Object.keys(before.picks).length,
+    "…and all " + Object.keys(before.picks).length + " cleared picks are still in the backup (" + kept + " rows)");
+
+  // it's a commissioner control, and it needs a draft to stop
+  await hook(page, () => window.__DRAFT__.setMe("Mike", "dev-mike2", ""));
+  await hook(page, () => window.__DRAFT__.backToKeepers());
+  await sleep(120);
+  ok((await toastText(page)).includes("Commissioner only"), "…and only the commissioner can stop a draft");
+  await hook(page, (d) => window.__DRAFT__.setMe("Paul", d, JSON.parse(localStorage.getItem("ffd_local_2026")).commishKey), dev);
+  await hook(page, () => window.__DRAFT__.backToKeepers());
+  await sleep(120);
+  ok((await toastText(page)).includes("hasn't started"), "…and there's nothing to stop before it starts");
+
+  // the room really is re-runnable: start it again and the keeper lands back on the board
+  await hook(page, () => window.__DRAFT__.setPhase("live"));
+  await page.waitForFunction(() => window.__DRAFT__.D.phase === "live", { timeout: 8000, polling: 100 });
+  const again = await D(page);
+  ok(Object.keys(again.picks).length === 1 && again.picks["r1_t1"] && again.picks["r1_t1"].keeper === true,
+    "starting again puts the keeper straight back on the board — the night can be run twice");
+  ok(page._errs.length === 0, "0 page errors" + (page._errs.length ? " — " + page._errs[0] : ""));
+  await ctx.close();
+}
+
 // ---------------- section B2: a defense-less pool is shown but NEVER trusted ----
 // The live 2026-08-06 incident: the sweep can fail silently, and a pool with
 // zero defenses must not be cached for 24h — on read OR write.
@@ -1341,6 +1441,7 @@ async function sectionCloudDead(browser) {
   const browser = await launchBrowser();
   try {
     await sectionRoom(browser);
+    await sectionRehearse(browser);
     await sectionPoolHealth(browser);
     await sectionCloudDead(browser);
   } finally {

@@ -747,7 +747,7 @@ body.tv #boardLegend{display:none}
   var BK_DOC = "ffd_bkdoc_" + SEASON;    // practice mode's ledger
   var BK_MINE = "ffd_bkmine_" + SEASON;  // this device's own copy of the board
   var Backup = { entries: [], mark: null, seen: null, at: 0, ready: false, alarm: null, trips: [], suspect: 0 };
-  var bkRef = null, bkTimer = null, bkNudge = false, bkLastMark = "";
+  var bkRef = null, bkTimer = null, bkNudge = false, bkLastMark = "", bkPending = {};
 
   // A ledger row is derived purely from the doc, so every device computes an
   // identical object for the same pick — which is what makes arrayUnion's
@@ -852,6 +852,11 @@ body.tv #boardLegend{display:none}
   function bkObserve(d) {
     if (d && d.teams) lsSet(BK_MINE, { at: Date.now(), doc: d });
     if (!Backup.ready) return;
+    // Queue every pick the moment it is SEEN, not when the write happens.
+    // Writes are debounced, and a pick made and then undone inside that window
+    // would otherwise never reach the ledger at all — which is precisely the
+    // window in which losing it would matter most.
+    bkEntriesOf(d).forEach(function (e) { bkPending[bkId(e)] = e; });
     var mk = Backup.seen, bad = null;
     if (mk && mk.teams) {
       if (!d || !d.teams) bad = { gone: true, lost: Object.keys(mk.picks || {}).length, keys: [] };
@@ -892,6 +897,12 @@ body.tv #boardLegend{display:none}
     }
     Backup.alarm = a;
   }
+  // Anything about to take picks OFF the board writes the backup FIRST — the
+  // debounce is a courtesy to the network, not something to gamble a night on.
+  function bkFlushNow() {
+    if (bkTimer) { clearTimeout(bkTimer); bkTimer = null; }
+    bkFlush();
+  }
   function bkSchedule() {
     if (bkTimer) return;
     // The device that made the pick writes straight away; the others wait a
@@ -909,7 +920,10 @@ body.tv #boardLegend{display:none}
     if (!d || !d.teams || Backup.alarm || Backup.suspect) return;
     var have = {};
     Backup.entries.forEach(function (e) { have[bkId(e)] = 1; });
-    var add = bkEntriesOf(d).filter(function (e) { return !have[bkId(e)]; });
+    var add = [];
+    Object.keys(bkPending).forEach(function (id) {
+      if (have[id]) delete bkPending[id]; else add.push(bkPending[id]);
+    });
     // The shared mirror only ever moves to a board this device has itself just
     // watched be healthy. It is deliberately NOT gated on the stored mark: a
     // legitimate reset leaves that mark holding slots the new board will never
@@ -933,13 +947,16 @@ body.tv #boardLegend{display:none}
       cur.at = Date.now();
       lsSet(BK_DOC, cur);
       bkAdopt(cur);
+      (add || []).forEach(function (e) { delete bkPending[bkId(e)]; });
       return Promise.resolve();
     }
     if (!bkRef || connState !== "ok") return Promise.resolve();
     var body = { at: Date.now() };
     if (add && add.length) body.entries = Cloud.fs.arrayUnion.apply(null, add);
     if (mark) body.mark = mark;
-    return Cloud.fs.setDoc(bkRef, body, { merge: true }).catch(function () {});
+    return Cloud.fs.setDoc(bkRef, body, { merge: true }).then(function () {
+      (add || []).forEach(function (e) { delete bkPending[bkId(e)]; });
+    }, function () { /* keep it queued and try again on the next pick */ });
   }
   // The board a restore would produce. Prefers the shared mirror; falls back to
   // this device's own copy, which is why a phone in someone's pocket is a
@@ -1392,6 +1409,7 @@ body.tv #boardLegend{display:none}
     // slot, same pick count), so the one-shot signature would still read
     // "already fired" and the mock would wedge on that slot forever.
     mockArmKey = null;
+    bkFlushNow();
     return act(function (d) {
       if (!isCommish(d)) throw new Error("Commissioner only");
       var key = (d.history || []).pop();
@@ -1468,11 +1486,27 @@ body.tv #boardLegend{display:none}
     });
   }
   function resetDraft() {
+    bkFlushNow();
     return act(function (d) {
       if (!isCommish(d)) throw new Error("Commissioner only");
       d.picks = {}; d.history = []; d.phase = "setup"; d.paused = false; d.deadline = null;
       return d;
     }, "Draft board cleared");
+  }
+  // Stop a running draft and go back to picking keepers — the rehearsal button.
+  // Distinct from Reset the board, which drops all the way to setup and makes
+  // everyone re-claim: this keeps the teams and their claims exactly as they
+  // are and reopens keeper selection, so the same eight people can run the
+  // night again from the top. Every cleared pick stays in the backup.
+  function backToKeepers() {
+    mockArmKey = null;
+    bkFlushNow();
+    return act(function (d) {
+      if (!isCommish(d)) throw new Error("Commissioner only");
+      if (d.phase !== "live" && d.phase !== "done") throw new Error("The draft hasn't started");
+      d.picks = {}; d.history = []; d.phase = "keepers"; d.paused = false; d.deadline = null;
+      return d;
+    }, "Draft stopped — back to keeper picking. Every pick is still in the backup.");
   }
   // Release every claim in one go (mis-claims, stale test devices, draft-day
   // do-overs). Ownership only — keepers, picks, and the phase are untouched.
@@ -2287,6 +2321,14 @@ body.tv #boardLegend{display:none}
     if (!DESK_MQ.matches) {
       var row = el.querySelector(".prow");
       h = Math.min(h, (row ? row.offsetHeight : 52) * 10 + 4);
+    } else {
+      // On a desktop the list sits in a column BESIDE a much taller one — an
+      // 18-round board, or the team rosters. Sizing it to the viewport left it
+      // a third of its neighbour's height with acres of empty rail below. It
+      // runs to the bottom of whatever it's standing next to instead, and the
+      // page scrolls the pair together.
+      var sib = document.querySelector(view === "board" ? "#vBoard .boardmain" : "#teamsCol");
+      if (sib && sib.offsetParent) h = Math.max(h, sib.getBoundingClientRect().bottom - top - 4);
     }
     el.style.maxHeight = h + "px";
   }
@@ -2572,9 +2614,13 @@ body.tv #boardLegend{display:none}
     } else if (d.phase === "live") {
       h += '<button class="btn" id="phPause">' + (d.paused ? "Resume" : "Pause") + "</button> " +
         '<button class="btn ghost" id="phUndo">Undo last pick</button> ' +
-        '<button class="btn warn" id="phEnd">End draft</button>';
+        '<button class="btn warn" id="phEnd">End draft</button>' +
+        '<p class="mut" style="margin:10px 0 6px">Rehearsing? Stop the draft and run it again from keeper picking. ' +
+        "Teams and claims stay as they are, and every pick stays in the backup.</p>" +
+        '<button class="btn warn sm" id="phKeepAgain">Stop and go back to keepers</button>';
     } else {
-      h += '<p>Draft complete.</p><button class="btn ghost" id="phReopen">Reopen (back to live)</button>';
+      h += '<p>Draft complete.</p><button class="btn ghost" id="phReopen">Reopen (back to live)</button> ' +
+        '<button class="btn warn sm" id="phKeepAgain">Stop and go back to keepers</button>';
     }
     h += "</div>";
 
@@ -2649,6 +2695,7 @@ body.tv #boardLegend{display:none}
     on("phPause", togglePause);
     on("phUndo", undoLast);
     armTap("phEnd", "Tap again to end", function () { setPhase("done"); });
+    armTap("phKeepAgain", "Tap again — clears the board", backToKeepers);
     on("phReopen", function () { setPhase("live"); });
     on("setSave", function () {
       // Read both BEFORE mutating — the first apply re-renders this panel and
@@ -2791,7 +2838,7 @@ body.tv #boardLegend{display:none}
     get draftAt() { return DRAFT_AT; },
     setDraftAt: function (ms) { DRAFT_AT = ms; renderCountdown(); },
     get backup() { return Backup; },
-    bkFlush: function () { if (bkTimer) { clearTimeout(bkTimer); bkTimer = null; } bkFlush(); },
+    bkFlush: bkFlushNow,
     bkRestore: bkRestore,
     bkRebuild: function (uptoN) { return bkRebuild(Backup.entries, uptoN); },
     bkPayload: bkPayload,
@@ -2805,6 +2852,7 @@ body.tv #boardLegend{display:none}
     addKeeper: addKeeper,
     removeKeeper: removeKeeper,
     setPhase: setPhase,
+    backToKeepers: backToKeepers,
     makePick: makePick,
     undoLast: undoLast,
     togglePause: togglePause,
