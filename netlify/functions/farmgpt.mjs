@@ -1428,7 +1428,9 @@ inappropriate, kids are reading. No emoji.
 HARD RULES
 - ONE or TWO punchy sentences, 45 words maximum — this sits in a broadcast lower-third.
 - React ONLY to facts in the JSON. Never invent players, picks, stats or history.
-- Use team names and owners' first names exactly as given.
+- Refer to teams the way family talks around a table: short conversational handles — "the
+  Nerfherders", "the Skywalkers", "the Goat Kids" — never full official names. Owners by
+  first name.
 - Your recent lines are provided: take a fresh angle, never repeat their phrasing.
 - Plain text only — no markdown, no quotation marks around the line, no stage directions.`;
 

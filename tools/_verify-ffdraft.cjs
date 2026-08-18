@@ -1589,20 +1589,44 @@ async function sectionRehearse(browser) {
   await hook(page, () => window.__DRAFT__.setBoothCooldown(50));
   await hook(page, () => window.__DRAFT__.boothFire("state", true));
   await page.waitForFunction(() => window.__DRAFT__.boothItems.length >= 1, { timeout: 8000, polling: 100 });
+  const boothSrc = require("fs").readFileSync(require("path").join(__dirname, "..", "netlify", "functions", "farmgpt.mjs"), "utf8");
+  ok(boothSrc.includes('short conversational handles') && boothSrc.includes('never full official names'),
+    "the persona is briefed to say \"the Nerfherders\", never full official team names");
   ok(boothFake.calls.length === 1 && boothFake.calls[0].mode === "ffcommentary"
     && boothFake.calls[0].secret && boothFake.calls[0].draft && boothFake.calls[0].draft.teams.length === 8
     && Array.isArray(boothFake.calls[0].draft.lastPicks),
     "the booth calls farmgpt's ffcommentary mode with a full compact draft context");
   await sleep(150);
+  // Restaged 2026-08-18: the bar moved from a fixed overlay into the DRAFT DAY
+  // header row itself, so scrolling takes Billy out of view with the header.
   ok(await page.evaluate(() => {
     const b = document.getElementById("boothBar");
-    if (b.hidden) return false;
-    const r = b.getBoundingClientRect();
-    return b.textContent.includes("BILLY IN THE BOOTH") && b.textContent.includes("Canned Billy take")
-      && r.top < 200 && Math.abs((r.left + r.width / 2) - window.innerWidth / 2) < 20;
-  }), "…and the line lands in a lower-third at the TOP MIDDLE of the screen — not the chat");
+    return !b.hidden && !!b.closest("header")
+      && b.textContent.includes("BILLY IN THE BOOTH") && b.textContent.includes("Canned Billy take")
+      && getComputedStyle(b).position !== "fixed";
+  }), "…and the line lives IN the dark header row — not a fixed overlay, not the chat");
+  ok(await page.evaluate(() => {
+    window.scrollTo(0, 600);
+    const gone = document.getElementById("boothBar").getBoundingClientRect().bottom < 0;
+    window.scrollTo(0, 0);
+    return gone;
+  }), "…so scrolling down scrolls Billy away with the header");
   ok(await page.evaluate(() => !document.getElementById("chatMsgs").textContent.includes("Canned Billy")),
     "…the chat stays the humans' room — Billy is not in it");
+  // a STEAL/REACH no longer jumps the queue (it drowned every other angle) —
+  // a single badged pick earns nothing; the cadence below is the only voice
+  const preBadge = boothFake.calls.length;
+  await page.evaluate(async () => {
+    const H = window.__DRAFT__;
+    // ADP 96 at an early pick = a REACH badge for sure
+    const k = H.pool.find((x) => !H.takenPids()[x.pid] && x.adp >= 90);
+    if (k) await H.makePick(k, "Paul");
+  });
+  await sleep(300);
+  ok(boothFake.calls.length === preBadge, "a lone REACH pick no longer triggers its own commentary");
+  await hook(page, () => window.__DRAFT__.undoLast());
+  await sleep(150);
+
   // three quick picks trigger exactly one more call (cadence, not chatter)
   const boothCallsBefore = boothFake.calls.length;
   await page.evaluate(async () => {
