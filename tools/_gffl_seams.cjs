@@ -798,14 +798,33 @@ function tightNine(prefix) {
   head("C4. a trade executing while processWaivers is mid-run on an overlapping roster");
   {
     // Team 1 is a party to BOTH: it trades p107 away to team 2, AND has a waiver claim pending
-    // in the same run. Fired concurrently, one page, no artificial delay — the SAME shape the
-    // season sim actually observed for the analogous double-processWaivers race (season-sim bug
-    // 4): real network round trips to the fake-Firestore store genuinely interleave within one
-    // task even without an injected pause.
+    // in the same run. Fired concurrently, one page — the SAME shape the season sim actually
+    // observed for the analogous double-processWaivers race (season-sim bug 4).
+    //
+    // THE COLLISION IS NOW STAGED, and that is a strengthening, not a weakening (2026-08-18).
+    // Before the CAS rework each operation carried SECONDS of resolution work between its
+    // fresh read and its write, so the two windows overlapped on their own and this check ran
+    // with no injected pause. LG.db.update reads immediately before it writes, which shrinks
+    // that window to one round-trip pair — and a window that small stopped overlapping by
+    // itself, which would have quietly turned this check into a test of nothing. So the first
+    // roster PATCH out of this page is HELD for 600ms while the other operation completes its
+    // whole read-modify-write against the same document. The held write is then released with
+    // a base version that provably no longer exists: without a precondition it lands on top and
+    // erases the other, which is exactly the lost update this section pinned for a day.
     const store = K.makeStore(K.seedDocs({
       ["claim_" + S_ + "_w1_c1"]: claimDoc(1, "c1", 1, "p901", "N. Newman", "RB", "SF", "p110", "B. Backup", 10),
     }));
     const A = await K.boot(await K.newDevice(browser, store, "A", { team: 1, who: "Peter" }));
+    await ev(A, () => {
+      const orig = window.fetch;
+      let held = 0;
+      window.fetch = function (u, init) {
+        if (init && init.method === "PATCH" && /roster_/.test(String(u)) && held++ === 0) {
+          return new Promise((r) => setTimeout(r, 600)).then(() => orig(u, init));
+        }
+        return orig(u, init);
+      };
+    });
     const offer = await ev(A, () => window.__GFFL__.LG.offerTrade(1, 2, ["p107"], ["p203"], ""));
     await ev(A, (id) => window.__GFFL__.LG.acceptTrade(id, 2), offer.trade.id);
     const raced = await ev(A, async (id) => {
@@ -817,25 +836,31 @@ function tightNine(prefix) {
     }, offer.trade.id);
     const ros1 = await ev(A, () => window.__GFFL__.LG.ensureRoster(1, 1, {}));
     const keys = ros1.map((p) => p.key);
+    // RESTAGED 2026-08-18 (was a SEAM-FINDING pin: "a genuine lost update — neither op holds a
+    // lock, LG.saveRoster replaces the whole array… the fix is the same transport-level CAS
+    // work already deferred"). That work landed today. Both backends now carry a precondition
+    // (rest.setIf's `currentDocument.updateTime`, local.setIf's version key), LG.db.update is
+    // the one read-modify-write loop, and BOTH of these operations express their roster change
+    // as a DELTA re-applied to the store's own current array — so neither can replace the
+    // other, whichever order they land in.
+    //
+    // THE ARITHMETIC, stated rather than eyeballed. Team 1 starts week 1 with the kit's ten:
+    //   p101 p102 p103 p104 p105 p106 p107 dst_PHI p109 p110
+    // the trade takes p107 out and puts p203 in; the waiver takes p110 out and puts p901 in.
+    // Ten − two + two = TEN, and the eight neither op touched must all still be there. That is
+    // one serialization of the pair (the two are disjoint, so both orders give the same set),
+    // and it is the only correct answer: any nine-key result is one op's write erased.
+    const untouched = ["p101", "p102", "p103", "p104", "p105", "p106", "dst_PHI", "p109"];
+    const want = untouched.concat(["p203", "p901"]).slice().sort();
+    const got = keys.slice().sort();
     const tradeApplied = !keys.includes("p107") && keys.includes("p203");
     const waiverApplied = !keys.includes("p110") && keys.includes("p901");
-    const bothApplied = tradeApplied && waiverApplied;
-    if (bothApplied) {
-      ok(true, "both the trade's roster change AND the waiver's roster change survive on team 1's final roster — " +
-        "each op's own fresh-read-before-write (both call LG.ensureRoster(..., {fresh:true}) immediately before saving) " +
-        "narrowed the window enough that no update was lost here (keys=[" + keys.join(", ") + "])");
-    } else {
-      // SEAM-FINDING: a genuine lost update — one op's write clobbered the other's, because
-      // LG.saveRoster replaces the WHOLE players array and neither op holds a lock or a
-      // compare-and-swap against the other. This is the exact class of race the codebase already
-      // documents as accepted-but-narrowed ("cross-device waiver concurrency is NARROWED not
-      // eliminated... true CAS = transport surgery, argued at the call site" — 2026-08-11 batch)
-      // extended to a trade/waiver pair rather than waiver/waiver. Not fixed here — the fix is
-      // the same transport-level CAS work already deferred there, out of scope for a single seam.
-      ok(true, "SEAM-FINDING pinned: a lost update — trade-applied=" + tradeApplied + " waiver-applied=" + waiverApplied +
-        " (keys=[" + keys.join(", ") + "]) — neither op holds a lock, LG.saveRoster replaces the whole array, " +
-        "consistent with the codebase's own documented \"narrowed, not eliminated\" concurrency limit");
-    }
+    ok(got.length === 10 && JSON.stringify(got) === JSON.stringify(want),
+      "BOTH operations land: 10 starting players − 2 leaving (p107 traded, p110 dropped) + 2 arriving " +
+      "(p203, p901) = 10, the 8 men neither op touched included — one serialization of the pair, and the " +
+      "only correct answer, since a 9-key roster is one op's write erased. trade-applied=" + tradeApplied +
+      " waiver-applied=" + waiverApplied + " · store refused " + store.conflicts + " stale write(s) · " +
+      "want=[" + want.join(", ") + "] got=[" + got.join(", ") + "]");
     ok(raced.tradeStatus === "executed", "the trade itself completed without erroring (status=" + raced.tradeStatus + ")");
     ok(raced.waiverResults.length === 1, "the waiver run itself completed without erroring (" + JSON.stringify(raced.waiverResults) + ")");
     ok(A.errors.length === 0, "0 page errors (" + JSON.stringify(A.errors) + ")");
@@ -934,6 +959,54 @@ function tightNine(prefix) {
       ok(A.errors.length === 0, "0 page errors");
       await A.ctx.close();
     }
+  }
+
+  head("C6. two FAAB deductions genuinely interleaved on ONE purse — the money seam, staged rather than hoped for");
+  {
+    // NEW 2026-08-18, with the compare-and-swap rework. C4 above stages a roster collision and
+    // has to take whatever interleaving the two real round trips happen to produce; this one
+    // stages the MONEY collision and leaves nothing to chance, because a purse is the one doc
+    // in this league where a lost update is a family member's dollars.
+    //
+    // THE GATE. Device A's own fetch is wrapped so its first PATCH — and only a PATCH, never a
+    // read — parks on a promise this script holds open. That freezes A precisely inside the
+    // window every read-modify-write has: it has READ the purse (100) and has not yet written.
+    // Device B then completes a whole deduction against the same doc, unobstructed. Only then
+    // is A released, so A's write necessarily carries a base version that no longer exists.
+    // Without a precondition, A's write lands on top and B's $20 is simply gone — the exact
+    // shape of season-sim bug 3, which is what this staging reproduces on demand.
+    //
+    // THE ARITHMETIC: $100 − $30 (A) − $20 (B) = $50. Any other number names its own failure —
+    // $70 is A's write erasing B's, $80 is B's erasing A's.
+    const store = K.makeStore(K.seedDocs());
+    const A = await K.boot(await K.newDevice(browser, store, "A", { team: 1, who: "Peter" }));
+    const B = await K.boot(await K.newDevice(browser, store, "B", { team: 2, who: "Joy" }));
+    await ev(A, () => {
+      const orig = window.fetch;
+      window.__gate = new Promise((res) => { window.__openGate = res; });
+      window.fetch = function (u, init) {
+        if (init && init.method === "PATCH") return window.__gate.then(() => orig(u, init));
+        return orig(u, init);
+      };
+    });
+    const spend = (dev, amt) => ev(dev, (n) => window.__GFFL__.LG.saveTeam({ teamId: 1 }, {
+      from: (cur) => ({ faab: window.__GFFL__.LG.teamFaab(cur || {}) - n }),
+    }), amt);
+    const pA = spend(A, 30);          // reads $100, then parks at its PATCH
+    await K.sleep(400);
+    await spend(B, 20);               // completes end to end: the store now holds $80
+    await ev(A, () => window.__openGate());
+    await pA;                          // released: A's stale write is refused, re-read, re-applied
+    await K.sleep(150);
+    const faab = store.docs.team_1.faab;
+    const errs = [...A.errors, ...B.errors];
+    ok(faab === 50 && store.conflicts >= 1 && errs.length === 0,
+      "two interleaved deductions on one purse both land: $100 − $30 (device A, held open across B's whole write) " +
+      "− $20 (device B) = $50, and the purse reads $" + faab + ". The store REFUSED " + store.conflicts +
+      " stale write(s), which is A's first attempt being told its base had moved; without that refusal A's " +
+      "$70 would have overwritten B's $80 and the league would have been $20 richer than its own record. " +
+      "(page errors: " + JSON.stringify(errs) + ")");
+    await A.ctx.close(); await B.ctx.close();
   }
 
   // ================================================================================ D. finalizeWeek

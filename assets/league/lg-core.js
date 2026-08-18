@@ -283,6 +283,13 @@
   // Cloud unreachable (or blocked, as in every suite) -> local mode, same API.
   const local = {
     key: (id) => "lg_" + LG.COLL + "_" + id,
+    // ---- THE VERSION KEY (2026-08-18, the CAS rework — see LG.db.update) ----
+    // A doc's version lives in its OWN namespace, `lgv_<COLL>_<id>`, and deliberately NOT
+    // under the doc prefix as `lg_<COLL>_<id>__v`: local.list() scans localStorage for every
+    // key starting with `lg_<COLL>_` and JSON.parses it as a document, so a sibling version
+    // key under that prefix would be returned from list() as a doc — a bare integer where a
+    // team is expected. `lgv_` cannot collide with `lg_<COLL>_` by construction.
+    vkey: (id) => "lgv_" + LG.COLL + "_" + id,
     async get(id) { const s = localStorage.getItem(this.key(id)); return s ? JSON.parse(s) : null; },
     // READ-ONLY escape hatch to a collection that is not this league's (2026-08-15). The one
     // caller is the Draft Day import: the draft board (ffdraft.html) is a separate app with
@@ -296,8 +303,44 @@
     async set(id, data) {
       const cur = (await this.get(id)) || {};
       localStorage.setItem(this.key(id), JSON.stringify({ ...cur, ...data }));
+      this.bump(id);
     },
-    async del(id) { localStorage.removeItem(this.key(id)); },
+    async del(id) { localStorage.removeItem(this.key(id)); try { localStorage.removeItem(this.vkey(id)); } catch (e) {} },
+    // Every write through this backend moves the version, blind ones included — otherwise a
+    // plain set() could land underneath a CAS holder and its setIf would still be accepted.
+    bump(id) {
+      try {
+        const n = Number(localStorage.getItem(this.vkey(id)) || 0) || 0;
+        localStorage.setItem(this.vkey(id), String(n + 1));
+      } catch (e) { /* private mode / quota */ }
+    },
+    // The read half of compare-and-swap. `v` is a STRING (matching the REST backend, whose
+    // version is Firestore's own `updateTime`), or null when the doc does not exist — which
+    // is what setIf turns into a create-only precondition.
+    async getV(id) {
+      const doc = await this.get(id);
+      if (!doc) return { doc: null, v: null };
+      let v = null;
+      try { v = localStorage.getItem(this.vkey(id)); } catch (e) {}
+      return { doc, v: v == null ? "0" : String(v) };
+    },
+    // The write half. Refuses (rather than throws) when the version moved under us, so
+    // LG.db.update can tell contention apart from a real failure. The compare, the bump and
+    // the write all happen with NO await in between — localStorage is synchronous, so two
+    // interleaved setIfs on one page genuinely cannot both win.
+    async setIf(id, data, v) {
+      const keys = Object.keys(data || {}).filter((k) => data[k] !== undefined);
+      if (!keys.length) return { ok: true };
+      const s = localStorage.getItem(this.key(id));
+      const cur = s ? JSON.parse(s) : null;
+      let have = null;
+      if (cur) { const raw = localStorage.getItem(this.vkey(id)); have = raw == null ? "0" : String(raw); }
+      if (have !== (v == null ? null : String(v))) return { conflict: true };
+      const next = { ...(cur || {}), ...data };
+      localStorage.setItem(this.key(id), JSON.stringify(next));
+      localStorage.setItem(this.vkey(id), String((Number(have) || 0) + 1));
+      return { ok: true, doc: next };
+    },
     async list(kind) {
       const out = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -462,6 +505,10 @@
     try {
       if (doc) localStorage.setItem(local.key(id), JSON.stringify(doc));
       else localStorage.removeItem(local.key(id));
+      // The mirror writes the DOC around the local backend's own set(), so it has to move the
+      // version too — a mirror refresh that changed a doc while leaving its version untouched
+      // would let a later local-mode setIf commit against a base it never actually read.
+      local.bump(id);
       localStorage.setItem(SNAPSTAMP_KEY, String(Date.now()));
     } catch (e) { /* private mode / quota — the mirror is a bonus, never a requirement */ }
   }
@@ -521,6 +568,63 @@
       markHealthy();
       mirrorPut(id, doc);
       return doc;
+    },
+    // ---- COMPARE-AND-SWAP (2026-08-18) ----
+    // Same GET as above; the ONE addition is that the response's own `updateTime` — which
+    // Firestore returns on every read and which this transport has been discarding since the
+    // day it was written — comes back as the version. A doc that isn't there has version null,
+    // which setIf turns into a create-only precondition.
+    //
+    // If an upstream ever answers a document with NO updateTime, v is null, the next setIf
+    // sends `exists=false` against a document that plainly exists, and the write conflicts
+    // until LG.db.update gives up with `cas-contention`. That is the RIGHT failure: loud, and
+    // impossible to mistake for a write that landed.
+    async getV(id) {
+      const url = FS_BASE + "/" + encodeURIComponent(LG.COLL) + "/" + encodeURIComponent(id) + "?key=" + FS_KEY;
+      const r = await fsFetch(url, { method: "GET" }, "Firestore read");
+      if (r.status === 404) { markHealthy(); return { doc: null, v: null }; }
+      if (!r.ok) throw new Error("Firestore read failed (" + r.status + ")");
+      const j = await r.json();
+      const doc = fsDecFields(j && j.fields);
+      markHealthy();
+      mirrorPut(id, doc);
+      return { doc, v: (j && j.updateTime) || null };
+    },
+    // rest.set's PATCH + updateMask, plus ONE precondition — and the precondition is the whole
+    // point: Firestore evaluates it server-side against the document as it stands right now, so
+    // a write whose base has moved is REFUSED rather than applied over the top. That is the
+    // atomicity the local backend and this transport can both express, and it is what closes
+    // the read-modify-write window every money path in this file sits in.
+    //   · v non-null -> currentDocument.updateTime=<v>   ("only if it is still exactly this")
+    //   · v null     -> currentDocument.exists=false     ("only if nobody has created it")
+    // A refusal comes back as {conflict:true} rather than a throw, because the caller's answer
+    // to it is to re-read and try again, not to give up. Every OTHER non-ok status still
+    // throws — a 500 is not contention and must never be retried as if it were.
+    async setIf(id, data, v) {
+      const keys = Object.keys(data || {}).filter((k) => data[k] !== undefined);
+      if (!keys.length) return { ok: true };
+      const mask = keys.map((k) => "updateMask.fieldPaths=" + encodeURIComponent(fsPath(k))).join("&");
+      const pre = v == null
+        ? "&currentDocument.exists=false"
+        : "&currentDocument.updateTime=" + encodeURIComponent(v);
+      const url = FS_BASE + "/" + encodeURIComponent(LG.COLL) + "/" + encodeURIComponent(id) + "?key=" + FS_KEY + "&" + mask + pre;
+      const r = await fsFetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fields: fsEncFields(data) }),
+      }, "Firestore write");
+      if (!r.ok) {
+        // Google's own gRPC->HTTP mapping is not consistent across the two precondition kinds
+        // (FAILED_PRECONDITION has been seen as both 400 and 409, ALREADY_EXISTS as 409), so
+        // the STATUS STRING in the body is checked as well as the code. Anything else throws.
+        const txt = await r.text().catch(() => "");
+        if (r.status === 409 || r.status === 412 || /FAILED_PRECONDITION|ALREADY_EXISTS|ABORTED/.test(txt)) return { conflict: true };
+        throw new Error("Firestore write failed (" + r.status + ")");
+      }
+      markHealthy();
+      const j = await r.json().catch(() => null);
+      if (j && j.fields) mirrorPut(id, fsDecFields(j.fields));
+      return { ok: true, doc: j && j.fields ? fsDecFields(j.fields) : null, v: (j && j.updateTime) || null };
     },
     // See local.foreignGet — read-only, another app's collection, never mirrored. A 404 is a
     // real "there is no draft" rather than an error, exactly as it is for our own docs.
@@ -734,6 +838,48 @@
       else if (i >= 0) entry.docs.splice(i, 1);
     }
   }
+  // ---------------- the fake-cloud CAS shim (TEST-ONLY) ----------------
+  // A fake installed by a suite implements the four operations it needs — get/set/del/list —
+  // and knows nothing about versions, while LG.db.update needs getV/setIf. Letting such a
+  // fake go without them would leave every CAS-dependent check on that page passing for the
+  // wrong reason, which is the "a fixture kinder than reality hides bugs" failure this whole
+  // rework is about. So the shim gives it REAL compare-and-swap rather than a permissive stub:
+  // the version compare and the version bump happen in ONE synchronous run with no await
+  // between them, so two setIfs interleaved on the same page genuinely cannot both win.
+  //
+  // It is PAGE-LOCAL, which is all an in-page Map store ever is — those fakes are not shared
+  // between browser contexts, so there is no other writer for a page-local version to miss.
+  // Every SHARED fixture (the node-side stores in _gffl_race_kit.cjs, _gffl_season_sim.cjs and
+  // _verify-gffl.cjs's REST fixture) implements the precondition ON THE WIRE instead, which is
+  // what makes the two-device race checks real.
+  //
+  // A fake that already speaks getV/setIf is returned untouched.
+  function casShim(impl) {
+    if (!impl || (impl.getV && impl.setIf)) return impl;
+    const vers = new Map(); // id -> version number, or null meaning "this doc is not there"
+    const seed = (id, doc) => { if (!vers.has(id)) vers.set(id, doc ? 0 : null); };
+    return {
+      ...impl,
+      async getV(id) {
+        const doc = await impl.get(id);
+        seed(id, doc);
+        const have = vers.get(id);
+        return { doc: doc || null, v: have == null ? null : String(have) };
+      },
+      async setIf(id, data, v) {
+        if (!vers.has(id)) seed(id, await impl.get(id));
+        const have = vers.get(id);
+        if ((have == null ? null : String(have)) !== (v == null ? null : String(v))) return { conflict: true };
+        vers.set(id, (Number(have) || 0) + 1); // synchronous — nothing awaits between here and the compare
+        await impl.set(id, data);
+        return { ok: true };
+      },
+      // A blind write still has to move the version, or it could land underneath a CAS holder
+      // whose setIf would then be accepted against a base that no longer exists.
+      async set(id, data) { const had = vers.get(id); vers.set(id, had == null ? 0 : Number(had) + 1); return impl.set(id, data); },
+      async del(id) { vers.set(id, null); return impl.del(id); },
+    };
+  }
   LG.db = {
     stats: { gets: 0, lists: 0, sets: 0, dels: 0, fresh: 0, missGets: 0 }, // real (non-cache) backend calls — perf test hook
     onChange: null, // (kind) => void — lg-ui registers this to quietly repaint after a background refresh finds new data
@@ -801,6 +947,59 @@
       cacheUpsert(id, null);
       await backend().del(id);
     },
+    // ================= THE ONE READ-MODIFY-WRITE PRIMITIVE (2026-08-18) =================
+    // Every money path in this file used to be: read fresh, compute, write. Between the read
+    // and the write sits a window in which another device can land its own write, and the
+    // second writer's whole-document PATCH puts it back. Narrowed repeatedly (getFresh before
+    // every write, deltas instead of absolutes, a single-flight latch) and never CLOSED,
+    // because closing it needs the transport to be able to say "only if it is still exactly
+    // what I read". Both backends can now say that (rest.setIf / local.setIf), so this is it.
+    //
+    //   const r = await LG.db.update(id, (doc) => next);
+    //     · doc  — the CURRENT document, read fresh from the backend (never the cache), or
+    //              null when it does not exist;
+    //     · next — the whole document to write, merged the way set() merges;
+    //     · null — ABORT: nothing is written at all, and the caller gets
+    //              {ok:false, aborted:true, doc} with the fresh doc it refused against, which
+    //              is how a guard ("already processed", "no longer offered", "he's already
+    //              gone") re-decides against the truth instead of against a stale read.
+    //   returns {ok:true, doc} on a successful write.
+    //   throws  Error("cas-contention:"+id) if six attempts all lost the race — a real
+    //           failure, never a silent last-writer-wins.
+    //
+    // ⚠⚠ `mutate` MUST BE PURE AND REENTRANT. IT CAN RUN UP TO SIX TIMES. ⚠⚠
+    // It is called once per attempt, each time against a DIFFERENT fresh document. Anything
+    // it does besides computing the next document — logging a transaction, sending a push,
+    // showing a toast, appending to an array it captured from an earlier read, bumping a
+    // counter in the closure — happens once per attempt and is a bug. Side effects belong
+    // AFTER a successful loop, in the caller. Every adopter below is written that way, and a
+    // refusal is recomputed from the returned `doc` rather than smuggled out of the mutate.
+    async update(id, mutate, opts) {
+      refuseMirrorWrite(); // a mirror is read-only, and it must refuse BEFORE any read work
+      const be = backend();
+      // A backend with no compare-and-swap must not be silently downgraded to a blind write:
+      // that would be exactly the vacuous green this rework exists to remove.
+      if (!be.getV || !be.setIf) throw new Error("cas-unsupported:" + id);
+      const max = (opts && opts.attempts) || 6;
+      for (let attempt = 1; attempt <= max; attempt++) {
+        LG.db.stats.fresh++;
+        const { doc, v } = await be.getV(id);
+        cacheUpsert(id, doc); // adopt what we just read, exactly as getFresh does
+        const next = mutate(doc == null ? null : doc);
+        if (next == null) return { ok: false, aborted: true, doc: doc == null ? null : doc };
+        LG.db.stats.sets++;
+        const res = await be.setIf(id, next, v);
+        if (res && res.conflict) {
+          // Backoff with jitter: two devices that collide must not re-collide in lockstep.
+          await new Promise((r) => setTimeout(r, 40 * attempt + Math.floor(Math.random() * 40)));
+          continue;
+        }
+        const merged = { ...(doc || {}), ...next };
+        cacheUpsert(id, merged);
+        return { ok: true, doc: merged };
+      }
+      throw new Error("cas-contention:" + id);
+    },
     async list(kind) {
       if (kind === "chat") { LG.db.stats.lists++; return backend().list(kind); } // see the note above
       const key = kind || "";
@@ -836,7 +1035,7 @@
     // Never called by production code.
     // A fake cloud IS a reachable backend — clear the degraded flag with it, or every test
     // that installs one would look like an offline session.
-    _installFakeCloud(impl) { cloud = impl; LG.backendMode = "cloud"; LG.backendDegraded = false; LG.backendError = ""; LG.mirrorOffline = false; docCache.clear(); docAt.clear(); listCache.clear(); },
+    _installFakeCloud(impl) { cloud = casShim(impl); LG.backendMode = "cloud"; LG.backendDegraded = false; LG.backendError = ""; LG.mirrorOffline = false; docCache.clear(); docAt.clear(); listCache.clear(); },
     // Drop every cached read. Idempotent and safe to call at any time; used by the offline
     // card's Retry (a cache filled while degraded is a cache of answers nobody could confirm).
     clearCache() { docCache.clear(); docAt.clear(); listCache.clear(); },
@@ -974,14 +1173,43 @@
   // to implement one with anyway. That is a transport rework for a hazard a compute-from-fresh
   // closes at one read. If FAAB ever needs to survive genuinely simultaneous writers (rather
   // than the seconds-apart ones a family league produces) that rework is the honest answer.
+  //
+  // ⭐ THAT REWORK ARRIVED (2026-08-18). The paragraph above is kept because it is still the
+  // right reasoning about TRANSFORMS — this is not one. What both backends turned out to be
+  // able to express, without a codec change and without an atomic primitive, is a
+  // PRECONDITION: "apply this document, but only if the base is still exactly what I read"
+  // (Firestore's `currentDocument.updateTime`; a version integer in localStorage). So the
+  // read and the write below are now ONE compare-and-swap loop, LG.db.update, and the window
+  // between them is closed rather than narrowed. `opts.from(cur)` is unchanged and still gets
+  // the fresh doc — it now gets the fresh doc of the attempt that actually commits.
   LG.saveTeam = async function (t, opts) {
     const { id: _stray, ...rest } = t || {};
     const docId = "team_" + rest.teamId;
-    let cur = null;
-    try { cur = await LG.db.getFresh(docId); } catch (e) { /* offline: fall through to a plain write */ }
-    const { id: _stray2, ...curClean } = cur || {};
-    const derived = opts && opts.from ? opts.from(cur) : null;
-    return LG.db.set(docId, { ...curClean, kind: "team", ...rest, ...(derived || {}) });
+    // Pure and reentrant, as LG.db.update requires: it reads only its argument and the
+    // caller's own delta. `readOk` is NOT part of the computed document — it is a monotonic
+    // latch that records "the backend answered a read", which is the one thing the offline
+    // fall-through below has to know and cannot learn from the error alone.
+    let readOk = false;
+    const build = (cur) => {
+      readOk = true;
+      const { id: _stray2, ...curClean } = cur || {};
+      const derived = opts && opts.from ? opts.from(cur) : null;
+      return { ...curClean, kind: "team", ...rest, ...(derived || {}) };
+    };
+    try {
+      await LG.db.update(docId, build);
+      return;
+    } catch (e) {
+      // A read that worked means this was a WRITE failure — fatal before this change, fatal
+      // now, including a lost CAS race (`cas-contention`), which is a real refusal and must
+      // never be quietly retried as a blind write.
+      if (readOk) throw e;
+      if (e && e.offlineReadOnly) throw e;                                  // mirror: refused, as always
+      if (/^cas-unsupported:/.test(String((e && e.message) || ""))) throw e; // loud, never a silent downgrade
+      // Cloud unreachable — exactly the case the pre-CAS `try { getFresh }` swallowed. The
+      // plain write is what this function has always done there, unchanged.
+      return LG.db.set(docId, build(null));
+    }
   };
   LG.teamById = (id) => LG.teams.find((t) => t.id === Number(id)) || null;
 
@@ -1509,6 +1737,30 @@
     registerRoster(players);
     return LG.db.set(LG.rosterId(week, teamId), { kind: "roster", week, teamId, players });
   };
+  // ---------------- THE ROSTER COMPARE-AND-SWAP (2026-08-18) ----------------
+  // LG.saveRoster replaces the WHOLE players array, which is why two owners' roster moves used
+  // to be able to erase each other (the seam suite's C4: a trade and a waiver run touching one
+  // roster, one write landing on top of the other with no complaint from anybody). Every write
+  // that CHANGES a roster now goes through here instead: `mutate` is handed the players array
+  // as it stands in the store this instant, and returns the array to write — so the change is
+  // re-applied to the truth on every attempt rather than computed once against a snapshot.
+  //
+  //   mutate(players|null) -> nextPlayers | null (abort, nothing written)
+  //
+  // MUST BE PURE AND REENTRANT — see LG.db.update's own warning; it can run six times.
+  // Express the change as a DELTA against the argument ("drop this key, add this man"), never
+  // as "here is the array I computed earlier": an absolute array is a lost update wearing a
+  // compare-and-swap.
+  async function rosterUpdate(week, teamId, mutate) {
+    const r = await LG.db.update(LG.rosterId(week, teamId), (cur) => {
+      const next = mutate((cur && cur.players) || null);
+      if (next == null) return null;
+      return { kind: "roster", week, teamId, players: next };
+    });
+    if (r.ok) registerRoster(r.doc.players); // the id registry still sees every roster write
+    return r;
+  }
+  LG._rosterUpdate = rosterUpdate; // test hook — the seam suite stages two writers against it
   LG.ensureRoster = async function (week, teamId, opts) {
     let p = await LG.loadRoster(week, teamId, opts);
     if (p) return p;
@@ -1595,12 +1847,32 @@
   // started, we need a dedicated drop button"). Swap is a LINEUP move and is correctly locked
   // at kickoff; dropping is a different act with a different rule (LG.dropBlocked), and there
   // was no way to do it at all except as the drop-side of an add on Moves.
+  //
+  // CAS (2026-08-18): the drop is expressed as a delta and BOTH refusals are re-judged inside
+  // the loop, against the roster as it stands at the instant of the write — a man who was
+  // dropped, traded away or whose game kicked off between the read and the write is refused
+  // with the same reason the pre-read would have given, rather than being "dropped" out of an
+  // array that no longer describes the team. The refusal is recomputed from the doc the loop
+  // returns, so nothing has to be smuggled out of the mutate.
   LG.dropPlayer = async function (week, teamId, key) {
     const ros = await LG.ensureRoster(week, teamId, { fresh: true });
     const p = ros.find((x) => x.key === key);
     if (!p) return { ok: false, reason: "drop-not-found" };
     if (LG.dropBlocked(p)) return { ok: false, reason: "drop-started", players: [p.name] };
-    await LG.saveRoster(week, teamId, ros.filter((x) => x.key !== key));
+    const r = await rosterUpdate(week, teamId, (players) => {
+      const cur = players || [];
+      const q = cur.find((x) => x.key === key);
+      if (!q || LG.dropBlocked(q)) return null;
+      return cur.filter((x) => x.key !== key);
+    });
+    if (!r.ok) {
+      const cur = (r.doc && r.doc.players) || [];
+      const q = cur.find((x) => x.key === key);
+      if (!q) return { ok: false, reason: "drop-not-found" };
+      return { ok: false, reason: "drop-started", players: [q.name] };
+    }
+    // The side effect fires AFTER the loop committed — never inside a mutate that can run six
+    // times, or one drop would read to the family as six transactions.
     await LG.logTx("drop", week, teamId, { dropKey: key, dropName: p.name });
     return { ok: true, name: p.name };
   };
@@ -1784,13 +2056,27 @@
       if (r.some((p) => p.key === addPlayer.key)) return { ok: false, reason: "player-taken" };
     }
     const incoming = { key: addPlayer.key, name: addPlayer.name, pos: addPlayer.pos, team: addPlayer.team, slot: "BENCH" };
+    // CAS (2026-08-18): the add is a DELTA re-applied to the roster as it stands at the
+    // instant of the write, and every guard that reads THIS roster — the IR stash, the cap,
+    // the drop target, that target's kickoff — is re-judged inside the loop. The one guard
+    // that cannot be is "is he already owned somewhere else", because that is a question
+    // about EIGHT OTHER DOCUMENTS and this transport has per-document atomicity only; it
+    // stays where it was, above, against fresh reads. Said plainly in docs/gffl.md.
+    //
     // NO DROP NEEDED when the roster is under its cap (2026-08-15). This used to be impossible
     // — every add spliced, so the roster could never be short — but a standalone drop can now
     // leave an open spot, and forcing a drop into it would cost the owner a player for every
     // add. A dropKey is still honoured when one is given.
     if (dropKey == null) {
       if (!LG.rosterRoom(ros)) return { ok: false, reason: "roster-full" };
-      await LG.saveRoster(week, teamId, ros.concat([incoming]));
+      const r = await rosterUpdate(week, teamId, (players) => {
+        const cur = players || [];
+        if (LG.illegalIR(cur).length) return null;
+        if (cur.some((p) => p.key === addPlayer.key)) return null;
+        if (!LG.rosterRoom(cur)) return null;
+        return cur.concat([incoming]);
+      });
+      if (!r.ok) return faAddRefusal(r.doc, addPlayer, null);
       await LG.logTx("fa_add", week, teamId, { addKey: addPlayer.key, addName: addPlayer.name });
       return { ok: true };
     }
@@ -1799,13 +2085,34 @@
     const dropped = ros[idx];
     // A man you STARTED, whose game is underway — see LG.dropBlocked. The bench is free.
     if (LG.dropBlocked(dropped)) return { ok: false, reason: "drop-started", players: [dropped.name] };
-    const next = ros.slice();
-    next.splice(idx, 1, incoming);
-    await LG.saveRoster(week, teamId, next);
+    const r = await rosterUpdate(week, teamId, (players) => {
+      const cur = players || [];
+      if (LG.illegalIR(cur).length) return null;
+      if (cur.some((p) => p.key === addPlayer.key)) return null;
+      const i = cur.findIndex((p) => p.key === dropKey);
+      if (i < 0 || LG.dropBlocked(cur[i])) return null;
+      const next = cur.slice();
+      next.splice(i, 1, incoming); // the incoming man takes the dropped man's place, as before
+      return next;
+    });
+    if (!r.ok) return faAddRefusal(r.doc, addPlayer, dropKey);
     await LG.logTx("fa_add", week, teamId, { addKey: addPlayer.key, addName: addPlayer.name });
     await LG.logTx("drop", week, teamId, { dropKey, dropName: dropped ? dropped.name : dropKey });
     return { ok: true };
   };
+  // Re-derives WHICH guard refused, from the fresh roster the aborted loop returned — the same
+  // reasons and the same shapes the pre-read above produces, so a caller cannot tell whether it
+  // was refused before the loop or inside it. Order matters and matches the checks themselves.
+  function faAddRefusal(doc, addPlayer, dropKey) {
+    const cur = (doc && doc.players) || [];
+    const stashed = LG.illegalIR(cur);
+    if (stashed.length) return { ok: false, reason: "ir-illegal", players: stashed.map((p) => p.name) };
+    if (cur.some((p) => p.key === addPlayer.key)) return { ok: false, reason: "player-taken" };
+    if (dropKey == null) return { ok: false, reason: "roster-full" };
+    const i = cur.findIndex((p) => p.key === dropKey);
+    if (i < 0) return { ok: false, reason: "drop-not-found" };
+    return { ok: false, reason: "drop-started", players: [cur[i].name] };
+  }
 
   // Process one week's blind-bid claims. PURE (given the same claims/rosters/
   // standings it always resolves the same way) and IDEMPOTENT (a processed
@@ -1851,11 +2158,12 @@
     await LG.loadTeams();
     const claims = doc.claims || [];
     if (!claims.length) {
-      const fresh = await LG.loadClaims(week, { fresh: true });
-      if (fresh.processed) return fresh;
-      const done = { claims: [], processed: true, results: [] };
-      await LG.saveClaims(week, done);
-      return { kind: "claims", week, ...done };
+      // Same commit-under-CAS as the loaded path below: nothing to move, but the week is still
+      // being permanently settled, and two devices must not both claim to have settled it.
+      const empty = { kind: "claims", week, claims: [], processed: true, results: [] };
+      const r = await LG.db.update(LG.claimsId(LG.SEASON, week), (cur) => (cur && cur.processed ? null : empty));
+      if (!r.ok) return LG.loadClaims(week, { fresh: true });
+      return { kind: "claims", week, claims: [], processed: true, results: [] };
     }
     const order = await LG.waiverPriorityOrder();
     const rank = new Map(order.map((id, i) => [id, i]));
@@ -1866,6 +2174,11 @@
     const faabMap = new Map();
     for (const t of LG.teams) faabMap.set(t.id, LG.teamFaab(t));
     const spend = new Map(); // teamId -> $ this run takes off them (bug 3 — a DELTA, not a total)
+    // teamId -> the ordered roster CHANGES this run makes to that team ({dropKey, incoming}).
+    // CAS (2026-08-18): the writes below re-apply THESE against whatever the roster really
+    // holds at write time, instead of writing the array this run computed from its own opening
+    // snapshot. An absolute array is what let a trade that executed mid-run vanish (seam C4).
+    const rosterOps = new Map();
     const owned = new Set();
     for (const [, ros] of rosterMap) for (const p of ros) owned.add(p.key);
     const wonThisRun = new Set();
@@ -1902,6 +2215,8 @@
         const dropIdx = c.dropKey == null ? -1 : ros.findIndex((p) => p.key === c.dropKey);
         const dropped = dropIdx < 0 ? null : ros[dropIdx];
         if (dropIdx < 0) ros.push(incoming); else ros.splice(dropIdx, 1, incoming);
+        if (!rosterOps.has(c.teamId)) rosterOps.set(c.teamId, []);
+        rosterOps.get(c.teamId).push({ dropKey: c.dropKey, incoming });
         if (c.dropKey != null) owned.delete(c.dropKey);
         owned.add(c.addKey);
         wonThisRun.add(c.addKey);
@@ -1926,16 +2241,67 @@
     // compare-and-swap to close it with, see the transform note at LG.saveTeam); the
     // same-page case, which is the one actually observed, is closed outright by the
     // single-flight latch above.
+    //
+    // ⭐ 2026-08-18: "the transport has no compare-and-swap to close it with" is no longer
+    // true — it has one now (LG.db.update), and every write below goes through it. This
+    // pre-read stays: it is still the cheapest way to abandon a run that is already settled,
+    // before doing any writing at all. What changed is that losing the race no longer costs
+    // anything, because each write re-applies its own delta against the truth.
     const pre = await LG.loadClaims(week, { fresh: true });
     if (pre.processed) return pre;
 
-    for (const tid of dirtyTeams) await LG.saveRoster(week, tid, rosterMap.get(tid));
+    // The roster writes, as DELTAS. Each op is re-applied to the roster as it stands at the
+    // instant of the write, so a trade, a free-agent add or another device's waiver run that
+    // landed while this one was resolving all survive alongside it — instead of one of the two
+    // being silently replaced by the other's whole-array write (seam C4's lost update).
+    // Idempotent by construction: an op whose add is already there, or whose drop is already
+    // gone, applies the half that is still missing and nothing else.
+    for (const tid of dirtyTeams) {
+      const ops = rosterOps.get(tid) || [];
+      await rosterUpdate(week, tid, (players) => {
+        const next = (players || []).slice();
+        for (const op of ops) {
+          const i = op.dropKey == null ? -1 : next.findIndex((p) => p.key === op.dropKey);
+          const has = next.some((p) => p.key === op.incoming.key);
+          if (i < 0) { if (!has) next.push(op.incoming); }
+          else if (has) next.splice(i, 1);
+          else next.splice(i, 1, op.incoming); // in place, exactly as the resolution computed it
+        }
+        return next;
+      });
+    }
+    // ⭐ THE COMMIT POINT (2026-08-18) — and it MOVED, in front of the money.
+    // The week's processing record is written under a compare-and-swap that ABORTS if the doc
+    // already says processed, so of two devices resolving the same week EXACTLY ONE gets past
+    // this line. That matters because of what is on either side of it:
+    //   · ABOVE — the roster writes, which are IDEMPOTENT deltas. Two devices applying the same
+    //     waiver results to a roster produce one roster, so it costs nothing to have run both,
+    //     and leaving them ahead of the commit means a run that dies before committing has
+    //     still moved no money and can simply be re-run.
+    //   · BELOW — the FAAB deductions, the append-only transaction log and the push. NONE of
+    //     those are idempotent: two devices deducting the same winning bid is the family
+    //     paying twice for one player, and a duplicate tx is permanent. They now happen only
+    //     for the device that actually holds the week.
+    // The old order (write everything, then re-read to see whether we lost) could only NARROW
+    // that: a loser had already spent the money by the time it found out. The residual risk
+    // swaps for a far smaller and far more visible one — a run that dies between the commit
+    // and the deductions leaves a purse unpaid, which the season sim's conservation sweep
+    // reports by name, where a double-spend was silent.
+    const commit = await LG.db.update(LG.claimsId(LG.SEASON, week), (cur) => {
+      if (cur && cur.processed) return null; // another device settled this week while we worked
+      return { kind: "claims", week, claims, processed: true, results };
+    });
+    if (!commit.ok) return LG.loadClaims(week, { fresh: true }); // theirs is the record; return it
+    const done = { claims, processed: true, results };
+
     // DELTA only — spreading the whole in-memory team here wrote this page's (possibly
     // stale) name/logo/trophies back over good data (finding 10's blast radius).
     // ⭐ SEASON-SIM BUG 3 — and the FAAB is a delta too, now. `faabMap` is derived from this
     // page's view of the purse at the top of the run; writing it as an absolute simply undoes
     // any deduction that landed in between. `from` is handed saveTeam's OWN fresh read of the
-    // doc, so what lands is "whatever the purse really holds, minus what this run cost".
+    // doc, so what lands is "whatever the purse really holds, minus what this run cost" — and
+    // since 2026-08-18 that read and the write it feeds are one compare-and-swap, so the
+    // deduction cannot be computed from a purse that moves before it lands.
     // Floored at 0: a purse can never go negative even if the affordability check upstream
     // was computed against a figure that has since moved.
     for (const tid of dirtyTeams) {
@@ -1945,11 +2311,6 @@
     // Item 15 (2026-08-09): the sys chat post that used to go here is GONE — the logTx above
     // is this event's real record, and it renders in Recent moves + each team's Transactions.
     for (const tx of txs) await LG.logTx("waiver", week, tx.teamId, tx.detail);
-
-    const fresh = await LG.loadClaims(week, { fresh: true }); // guard: someone else may have processed while we worked
-    if (fresh.processed) return fresh;
-    const done = { claims, processed: true, results };
-    await LG.saveClaims(week, done);
     await LG.loadTeams(); // refresh in-memory FAAB for the caller
     // S4 producer. Sent by whichever client actually RAN the processing — the guard above is
     // what makes that exactly one client, so nobody gets the same results twice. Only owners
@@ -2213,11 +2574,22 @@
     // deadline — and correctly stays on the season clock.)
     const now = Date.now();
     const reviewMs = ((LG.rules && LG.rules.trades.reviewHours) || 24) * 3600e3;
-    const next = { ...doc, status: "accepted", acceptedAt: now, reviewEndsAt: now + reviewMs };
-    await LG.saveTrade(next);
-    // S4 producer — to the PROPOSER, who has been waiting on an answer.
+    // CAS (2026-08-18): offered -> accepted is a STATUS TRANSITION, and the doc it transitions
+    // is shared with the proposer's device (cancel), every other owner (veto) and the receiver
+    // themselves on a second phone. The mutate re-tests the same two conditions the read above
+    // tested — still offered, still addressed to this team — against the doc as it stands at
+    // the instant of the write, so a cancel that landed in between wins instead of being
+    // overwritten by an acceptance computed from before it. An abort returns null, which is
+    // the SAME refusal shape the pre-read gives for exactly those conditions.
+    const r = await LG.db.update(doc.id, (cur) => {
+      if (!cur || cur.status !== "offered" || cur.to !== byTeamId) return null;
+      return { ...cur, status: "accepted", acceptedAt: now, reviewEndsAt: now + reviewMs };
+    });
+    if (!r.ok) return null;
+    // S4 producer — to the PROPOSER, who has been waiting on an answer. AFTER the loop: a push
+    // fired inside a mutate would go out once per attempt.
     LG.pushTeam(doc.from, "Trade accepted", LG.teamName(doc.to) + " accepted your trade. It goes through after the review window.", LG.pushLink("#moves"));
-    return next;
+    return r.doc;
   };
   // Any owner NOT a party to the trade may add one veto vote; enough votes
   // (rules.trades.vetoVotes, default 4) kills it before it ever executes.
@@ -2257,13 +2629,19 @@
     // guard read the stale data it was written to detect (finding 4).
     const fromRoster = await LG.ensureRoster(week, fresh.from, { fresh: true });
     const toRoster = await LG.ensureRoster(week, fresh.to, { fresh: true });
+    // CAS (2026-08-18): every terminal transition below is a cancellation, and a cancellation
+    // may only move a trade that is STILL accepted — otherwise a device that decided to cancel
+    // could write over an `executed` another device had already committed, un-doing a swap
+    // that has physically happened on both rosters. The mutate re-tests that; an abort returns
+    // whatever the winner wrote, which is the honest answer to "what happened to my trade".
+    // Refusal reasons and doc shapes are byte-for-byte what they were.
+    const cancelWith = async (extra) => {
+      const c = await LG.db.update(id, (cur) => (cur && cur.status === "accepted" ? { ...cur, status: "cancelled", ...extra } : null));
+      return c.doc;
+    };
     const giveOk = fresh.give.every((k) => fromRoster.some((p) => p.key === k));
     const getOk = fresh.get.every((k) => toRoster.some((p) => p.key === k));
-    if (!giveOk || !getOk) {
-      const failed = { ...fresh, status: "cancelled", cancelReason: "roster-changed" };
-      await LG.saveTrade(failed);
-      return failed;
-    }
+    if (!giveOk || !getOk) return cancelWith({ cancelReason: "roster-changed" });
     // ⭐ THE THREE TRADE GUARDS (2026-08-17 ruling) — CAP, LINEUP, CLOCK; see LG.tradeBlockers'
     // own block comment for what each one is and why CLOCK is deliberately stricter than
     // LG.dropBlocked. This is the AUTHORITATIVE gate: acceptTrade and the Moves composer both
@@ -2274,28 +2652,52 @@
     const blockers = LG.tradeBlockers(fresh, fromRoster, toRoster);
     if (blockers.length) {
       const b = blockers[0];
-      const failed = { ...fresh, status: "cancelled", cancelReason: b.reason, cancelDetail: b.detail };
-      await LG.saveTrade(failed);
-      return failed;
+      return cancelWith({ cancelReason: b.reason, cancelDetail: b.detail });
     }
     // A trade is an ACQUISITION for both sides, so the IR rule applies to both. Judged here,
     // at execution, against the fresh rosters — a trade sits in a review window and a player
     // can perfectly well get healthy inside it. Cancelled with its own reason rather than
     // silently, so the owners can see which stash to resolve and re-offer.
     const stashed = LG.illegalIR(fromRoster).concat(LG.illegalIR(toRoster));
-    if (stashed.length) {
-      const failed = { ...fresh, status: "cancelled", cancelReason: "ir-illegal", cancelNames: stashed.map((p) => p.name) };
-      await LG.saveTrade(failed);
-      return failed;
-    }
+    if (stashed.length) return cancelWith({ cancelReason: "ir-illegal", cancelNames: stashed.map((p) => p.name) });
     const movedFrom = fresh.give.map((k) => fromRoster.find((p) => p.key === k));
     const movedTo = fresh.get.map((k) => toRoster.find((p) => p.key === k));
-    const newFromRoster = fromRoster.filter((p) => !fresh.give.includes(p.key)).concat(movedTo.map((p) => ({ ...p, slot: "BENCH" })));
-    const newToRoster = toRoster.filter((p) => !fresh.get.includes(p.key)).concat(movedFrom.map((p) => ({ ...p, slot: "BENCH" })));
-    await LG.saveRoster(week, fresh.from, newFromRoster);
-    await LG.saveRoster(week, fresh.to, newToRoster);
-    const executed = { ...fresh, status: "executed" };
-    await LG.saveTrade(executed);
+    // ⭐ CAS (2026-08-18) — THE SWAP, AS TWO IDEMPOTENT DELTAS.
+    // These used to be two whole-array writes computed from the rosters read above, which is
+    // exactly how the seam suite's C4 lost a trade: a waiver run resolving the same roster in
+    // the same moment wrote its own whole array, and whichever landed second erased the other.
+    // Now each side says only what it CHANGES — "these keys leave, these men arrive on the
+    // bench" — re-applied to the roster as it stands at the instant of the write, so a waiver
+    // add, a drop or another trade that landed in between survives alongside the swap.
+    //
+    // The mutate re-reads its side and does nothing when the swap is ALREADY THERE, which is
+    // what makes a second device running the same execution harmless. It deliberately does NOT
+    // cancel from in here: the guards above are the authoritative gate (against fresh reads,
+    // unchanged), and a refusal raised between the first roster write and the second would
+    // manufacture a HALF-SWAP this code cannot produce today. Cross-document atomicity is not
+    // something a per-document precondition can give — stated plainly in docs/gffl.md.
+    const swap = (leaving, arriving) => (players) => {
+      const cur = players || [];
+      const gone = leaving.every((k) => !cur.some((p) => p.key === k));
+      const here = arriving.every((p) => p && cur.some((x) => x.key === p.key));
+      if (gone && here) return null; // already applied (another device, or a retry) — nothing to do
+      return cur.filter((p) => !leaving.includes(p.key))
+        .concat(arriving.filter((p) => p && !cur.some((x) => x.key === p.key)).map((p) => ({ ...p, slot: "BENCH" })));
+    };
+    await rosterUpdate(week, fresh.from, swap(fresh.give, movedTo));
+    await rosterUpdate(week, fresh.to, swap(fresh.get, movedFrom));
+    // The accepted -> executed transition, under the same precondition acceptTrade uses. This
+    // is what turns the "someone else may have executed it already" re-read at the top from a
+    // check-then-act into a real commit: of two devices past the review window, exactly one
+    // writes `executed`, and only that one logs the transaction and sends the pushes. The
+    // rosters above are idempotent, so the loser having also applied them costs nothing.
+    const committed = await LG.db.update(id, (cur) => {
+      if (!cur || cur.status !== "accepted") return null;
+      if (Date.now() < (cur.reviewEndsAt ?? Infinity)) return null;
+      return { ...cur, status: "executed" };
+    });
+    if (!committed.ok) return committed.doc; // theirs is the executed record; nothing more to do
+    const executed = committed.doc;
     await LG.logTx("trade", week, fresh.from, {
       tradeId: id, from: fresh.from, to: fresh.to, give: fresh.give, get: fresh.get,
       giveNames: movedFrom.map((p) => (p ? p.name : "?")), getNames: movedTo.map((p) => (p ? p.name : "?")), result: "executed",
@@ -2821,9 +3223,15 @@
       source: opts.backfill ? "archived" : "live", // provenance, on the record
     };
 
-    const fresh = await LG.db.getFresh(id); // idempotency race guard — bypasses LG.db's cache
-    if (fresh && fresh.kind === "weekly") return { ok: true, ...fresh };
-    await LG.db.set(id, doc);
+    // ⭐ WRITE-ONCE, STRUCTURALLY (2026-08-18). This was a re-read followed by a write — a
+    // check-then-act, so two devices finalizing the same week could both read "not there yet"
+    // and both write, and a weekly doc is the league's permanent record of scores, awards,
+    // standings input and playoff seeding. It is now a CREATE-ONLY compare-and-swap: the write
+    // carries `currentDocument.exists=false`, so the SERVER refuses the second one. The mutate
+    // aborts the moment it sees a weekly doc already there, and the caller answers exactly what
+    // it answered before — ok:true with the record that exists, never an error.
+    const r = await LG.db.update(id, (cur) => (cur && cur.kind === "weekly" ? null : doc));
+    if (!r.ok) return { ok: true, ...r.doc };
 
     // Item 15 (2026-08-09): the "week N is official" sys chat post is GONE. The weekly doc
     // this function just wrote IS the record — the league home renders its scores and all

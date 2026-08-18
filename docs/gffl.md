@@ -4725,3 +4725,140 @@ the comparators MATCH by reading both sources); the season sim's exact-16 roster
 was stale since add-without-drop and drowned its own signal under 82 spurious reds — restaged
 to the band draft 16 ≤ n ≤ cap 19, reason at the check.
 ---
+
+## 🏈 GFFL — COMPARE-AND-SWAP: THE LOST-UPDATE WINDOW CLOSES (2026-08-18, pre-season)
+
+The last known money bug. Every write in this app was read-fresh, compute, write — and between
+the read and the write another device could land its own. The second writer's whole-document
+PATCH then put the first one back. Narrowed four times (getFresh before every write, FAAB as a
+delta rather than an absolute, the idempotency guard moved in front of the writes, a per-week
+single-flight latch) and never closed, because closing it needs the transport to be able to say
+*only if it is still exactly what I read*. Proven twice: the seam suite's C4 (a trade and a
+waiver run on one roster, one write erasing the other — pinned as a SEAM-FINDING for a day),
+and the season sim's intermittent `faab.conservation` cascade, roughly one full-season run in
+five. Files: `assets/league/lg-core.js` + the four fixtures + `tools/_gffl_seams.cjs`.
+
+**THE PRECONDITION WAS THERE ALL ALONG.** `LG.saveTeam`'s own comment argued against an
+increment TRANSFORM, and that argument still stands — a transform is a request shape the
+transport, the codec, the local backend and the mirror would all have to learn, and the local
+backend has no atomic primitive to build one with. But a *precondition* is neither. Firestore
+returns an `updateTime` on every read and honours `currentDocument.updateTime` on every write;
+this transport had been discarding that field since the day it was written. localStorage can
+carry a version integer beside each doc. So both backends can express the same contract:
+
+- **`getV(id) → {doc, v}`** — the same GET, plus the version. A doc that isn't there has
+  `v: null`.
+- **`setIf(id, data, v)`** — the same PATCH + `updateMask`, plus `currentDocument.updateTime=v`,
+  or `currentDocument.exists=false` when `v` is null (create-only). A refused write comes back
+  as `{conflict:true}`, never a throw: the answer to contention is to re-read, not to give up.
+  Every other non-ok status still throws — a 500 is not contention.
+- **`LG.db.update(id, mutate)`** — the ONE read-modify-write primitive. Up to six attempts of
+  getV → mutate → setIf, with jittered backoff; `mutate` returning `null` ABORTS with nothing
+  written and hands back the fresh doc it refused against; exhaustion throws
+  `cas-contention:<id>` rather than silently letting the last writer win.
+- **`mutate` MUST BE PURE AND REENTRANT — it can run six times.** Written loudly at the
+  definition, because that is the one way to misuse this: a `logTx`, a push or a toast inside a
+  mutate fires once per attempt. Every adopter fires its side effects after a successful loop
+  and recomputes its refusal from the returned doc rather than smuggling it out of the mutate.
+
+**THE ADOPTERS** — seven paths, each with the modify now running against the loop's own fresh
+document:
+
+1. `LG.saveTeam` (the FAAB deduction) — `opts.from(cur)` is unchanged and still gets the fresh
+   doc; it now gets the fresh doc of the attempt that actually commits. Offline still falls
+   through to a plain write, because CAS needs a backend — but only when the READ failed; a
+   write failure, contention included, is fatal exactly as it always was.
+2. `LG.dropPlayer` — the drop as a delta; both refusals (`drop-not-found`, `drop-started`)
+   re-judged inside the loop and re-derived from the doc it returns.
+3. `LG.faAdd` — same, plus the IR-stash and cap gates.
+4. `processWaivers` — every roster write is now the run's own list of `{dropKey, incoming}` ops
+   re-applied to the store's current array, idempotent in both halves. **And the commit point
+   moved in front of the money**: the week's processing record is written under a CAS that
+   aborts if it already says processed, so of two devices exactly one gets past it. The roster
+   deltas stay above it (idempotent, so both devices applying them costs nothing, and a run that
+   dies before committing can simply be re-run); the FAAB deductions, the append-only tx log and
+   the push moved below it, because none of those are idempotent and two devices deducting one
+   winning bid is the family paying twice.
+5. `LG.acceptTrade` — offered → accepted, mutate aborting unless still offered and still
+   addressed to this team. A cancel that landed in between now wins instead of being overwritten.
+6. `LG.executeTrade` — the swap as two idempotent deltas, and accepted → executed as a real
+   commit rather than a check-then-act, so exactly one device logs the transaction and sends the
+   pushes. The three cancellations (`roster-changed`, the three trade guards, `ir-illegal`) each
+   CAS too — a cancellation may only move a trade that is still accepted, or a device could
+   write `cancelled` over an `executed` whose swap has physically happened on both rosters.
+7. `LG.finalizeWeek` — the weekly doc is now CREATE-ONLY (`exists=false`). Write-once stopped
+   being a convention the code re-checks and became something the server enforces.
+
+Every refusal reason and every returned shape is byte-for-byte what it was; the suites pin them
+and none needed restaging.
+
+**THE FAKES LEARNED TO REFUSE, and without that everything above is vacuous green.** All four
+node-side fixtures — `_gffl_race_kit.cjs`, `_gffl_season_sim.cjs`, `_verify-gffl.cjs`'s REST
+fixture (the seams suite rides the race kit) — now version every doc, stamp `updateTime` on
+every read, and answer a stale PATCH with a real 409 `FAILED_PRECONDITION` body. The version is
+a MONOTONIC COUNTER rendered as a timestamp string, not a clock: a wall-clock stamp cannot
+distinguish two writes inside one millisecond, which is the only case these harnesses exist to
+produce. `_verify-gffl.cjs`'s in-page `_installFakeCloud` fakes speak only get/set/del/list, so
+`_installFakeCloud` wraps them in a **real** page-local CAS shim (compare and version bump in
+one synchronous run, no await between) rather than a permissive stub — those stores are
+page-local by construction, and every SHARED fixture does it on the wire instead.
+
+**PROOF OF BITE, from the fixture side.** Flip the race kit's `ignorePreconditions` on so the
+store accepts every write, exactly as it did before this work: **119/2** — the restaged C4 and
+the new C6 fail, every one of the other 119 checks still passes. Restore it: **121/0**. That
+split is the evidence; the passing run alone is not.
+
+- **C4 restaged** from "SEAM-FINDING pinned: a lost update" to the arithmetic: ten starting
+  players − two leaving (p107 traded, p110 dropped) + two arriving = **ten**, the eight men
+  neither operation touched included. A nine-key roster is one op's write erased.
+- **The collision in C4 is now STAGED, and that is a strengthening.** Pre-CAS each operation
+  carried seconds of resolution work between its fresh read and its write, so the two windows
+  overlapped on their own. `LG.db.update` reads immediately before it writes, and a window that
+  small stopped overlapping by itself — which would have quietly turned the check into a test of
+  nothing. The first roster PATCH out of the page is now held 600ms while the other operation
+  completes its whole read-modify-write, so the released write provably carries a dead base.
+- **C6 is new**: two FAAB deductions genuinely interleaved on ONE purse, device A's PATCH parked
+  on a gate across the whole of device B's write. $100 − $30 − $20 = **$50**, with the store
+  recording the refusal that made it so. $70 would be A erasing B; $80 the reverse.
+
+**Counts**: seams **121/0** (120 + C6; C4's restage kept its one check) · `_verify-gffl.cjs`
+**2785/0**, clean first run · the three race repros green (clobber 9/0, doublespend 12/0,
+dbltap 9/0) · season sim **three consecutive clean 17-week runs** (0 failures across 14,942 /
+15,400 / 15,632 checks; six post-fix runs in all, five of them clean).
+`faab.conservation` — the check this whole effort exists to satisfy — **did not fire once in
+six full-season runs**, against roughly one cascade in five before it.
+
+**WHAT IS DELIBERATELY NOT PROTECTED, and why that is the honest scope.** This is per-document
+compare-and-swap. It cannot give CROSS-document atomicity, because the transport has no
+multi-document transaction and the local backend has nothing to build one from — Firestore's
+`:commit` with a real transaction is a different request shape, a second codec and a lock the
+localStorage backend cannot honour, which is the same argument that ruled out increment
+transforms and it is still correct. So three things stay as they were:
+
+- **`faAdd`'s "is he already owned somewhere else"** reads eight other roster documents. Only
+  this team's own document is under the precondition; the ownership scan is still a fresh read
+  followed by an act.
+- **The two roster writes in `executeTrade`** are two documents. Neither can be lost, but a
+  process that dies between them still leaves a half-swap — which is why the mutates deliberately
+  do NOT cancel from inside: the guards above are the authoritative gate, and a refusal raised
+  between the first write and the second would manufacture a half-swap this code cannot produce
+  today.
+- **`processWaivers` spans rosters, purses, the tx log and the record.** Exactly one device now
+  holds the week, but the four writes it then makes are four writes.
+
+**FOUND, NOT FIXED — the same bug one document over.** `LG.advanceBracket` reads the bracket
+through the CACHE, fills what it can, and writes the WHOLE document: a device that resolves r2
+from a cached copy whose r3 was still null writes those nulls back over another device's r3
+result. The season sim's `writeOnce.bracket` catches it — champ/third home and away reverting
+from a real team id to null at w17 — and it reproduces **2 of 2 runs on unmodified HEAD**, so it
+is pre-existing and not a consequence of this work (1 of 6 post-fix). The primitive to fix it now
+exists; the work is restructuring `advanceBracket` so its side effects (the champion's trophy
+write, the `loadTeams` refresh) sit outside a mutate that can run six times. Left for its own
+pass rather than improvised into this one.
+
+Also open, unattributed: one transient `roster.dupAcrossTeams` in six post-fix runs (0 in 2
+baseline runs) — a player on two teams for three sweeps of one week, self-healed by the next
+phase. Not enough occurrences to place; `persistLineup` (lg-ui) is the one remaining whole-array
+roster write, though it already applies only slot changes onto a fresh read, so it cannot
+resurrect a traded-away player. The sim stays the harness for it.
+---

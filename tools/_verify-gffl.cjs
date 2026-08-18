@@ -2004,16 +2004,40 @@ function fsWireDec(v) {
   if ("mapValue" in v) { const o = {}; const f = v.mapValue.fields || {}; for (const k of Object.keys(f)) o[k] = fsWireDec(f[k]); return o; }
   return null;
 }
-function fsWireDoc(id, doc) {
+// ---- updateTime, and the precondition it exists to serve (2026-08-18) ----
+// Firestore returns an `updateTime` on every read and honours `currentDocument.updateTime` /
+// `currentDocument.exists` on every write. lg-core's LG.db.update — the one read-modify-write
+// primitive every money path now goes through — is built entirely on that pair, so a fixture
+// that stamped no version and accepted every PATCH would report green over a transport with no
+// compare-and-swap in it. Monotonic counter, not a real clock: the suite deliberately stages
+// two writes inside one millisecond.
+let FS_VER = 0;
+const fsStamp = () => "2026-01-01T00:00:00." + String(++FS_VER).padStart(9, "0") + "Z";
+const FS_PRECON_FAIL = {
+  error: { code: 409, message: "the stored version does not match the required base version", status: "FAILED_PRECONDITION" },
+};
+function fsPrecondition(u) {
+  const mUt = /[?&]currentDocument\.updateTime=([^&]+)/.exec(u);
+  if (mUt) return { updateTime: decodeURIComponent(mUt[1]) };
+  const mEx = /[?&]currentDocument\.exists=(true|false)/.exec(u);
+  if (mEx) return { exists: mEx[1] === "true" };
+  return null;
+}
+function fsWireDoc(id, doc, R) {
   const fields = {};
   for (const k of Object.keys(doc || {})) fields[k] = fsWireEnc(doc[k]);
-  return { name: FS_DOC_ROOT + "/gffl_" + FAM + "/" + id, fields };
+  const out = { name: FS_DOC_ROOT + "/gffl_" + FAM + "/" + id, fields };
+  if (R) { R.vers = R.vers || {}; out.updateTime = R.vers[id] || (R.vers[id] = fsStamp()); }
+  return out;
 }
 // A live REST fixture. `docs` is a plain id->doc map the responder mutates, so a PATCH really
 // is visible to the next GET. Every flag is flippable MID-TEST (the auto-retry recovery check
 // turns `fail` off while the page is running).
 function restFixture(docs) {
-  return { docs: JSON.parse(JSON.stringify(docs || {})), calls: [], fail: false, hang: false };
+  // `ignorePreconditions` is the bite-proof switch — flip it on and this fixture behaves like
+  // the pre-CAS one (accepts everything), which is how a compare-and-swap check proves it is
+  // detecting the fix and not passing by coincidence. Never on in a committed run.
+  return { docs: JSON.parse(JSON.stringify(docs || {})), calls: [], fail: false, hang: false, vers: {}, conflicts: 0, ignorePreconditions: false };
 }
 function restRespond(req, u, R) {
   const method = req.method();
@@ -2035,7 +2059,7 @@ function restRespond(req, u, R) {
     R.calls.push({ method, op: "runQuery", kind, coll: ((q.from || [])[0] || {}).collectionId, url: u });
     const rows = Object.entries(R.docs)
       .filter(([, d]) => !kind || d.kind === kind)
-      .map(([id, d]) => ({ document: fsWireDoc(id, d), readTime: "2026-01-01T00:00:00Z" }));
+      .map(([id, d]) => ({ document: fsWireDoc(id, d, R), readTime: "2026-01-01T00:00:00Z" }));
     // A zero-result runQuery really does answer with one document-LESS row, not an empty array.
     return json(rows.length ? rows : [{ readTime: "2026-01-01T00:00:00Z" }]);
   }
@@ -2047,17 +2071,28 @@ function restRespond(req, u, R) {
   if (method === "GET") {
     const d = R.docs[id];
     if (!d) return json({ error: { code: 404, status: "NOT_FOUND", message: "Document not found." } }, 404);
-    return json(fsWireDoc(id, d));
+    return json(fsWireDoc(id, d, R));
   }
   if (method === "PATCH") {
     let payload = {};
     try { payload = JSON.parse(body); } catch (e) { /* malformed */ }
+    // The precondition, judged against the document as it stands right now and answered with
+    // the real service's FAILED_PRECONDITION body — see fsWireDoc's note.
+    const pre = fsPrecondition(u);
+    if (pre && !R.ignorePreconditions) {
+      R.vers = R.vers || {};
+      const bad = "exists" in pre
+        ? (pre.exists ? !R.docs[id] : !!R.docs[id])
+        : (!R.docs[id] || (R.vers[id] || null) !== pre.updateTime);
+      if (bad) { R.conflicts = (R.conflicts || 0) + 1; return json(FS_PRECON_FAIL, 409); }
+    }
     const patch = {};
     for (const k of Object.keys(payload.fields || {})) patch[k] = fsWireDec(payload.fields[k]);
     R.docs[id] = { ...(R.docs[id] || {}), ...patch }; // updateMask semantics: listed fields replaced, others kept
-    return json(fsWireDoc(id, R.docs[id]));
+    R.vers = R.vers || {}; R.vers[id] = fsStamp();    // every accepted write moves the version
+    return json(fsWireDoc(id, R.docs[id], R));
   }
-  if (method === "DELETE") { delete R.docs[id]; return json({}); }
+  if (method === "DELETE") { delete R.docs[id]; if (R.vers) delete R.vers[id]; return json({}); }
   return json({});
 }
 

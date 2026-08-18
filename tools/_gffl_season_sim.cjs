@@ -226,7 +226,25 @@ function check(cond, invariant, detail, repro) {
 // The exact shape _verify-gffl.cjs's restFixture uses, with the wire codec re-implemented
 // independently of lg-core's fsEnc/fsDec (that is what makes a round trip a real assertion).
 const FS_DOC_ROOT = "projects/amen-farms-app/databases/(default)/documents";
-const STORE = { docs: {}, calls: 0, writes: [] };
+// `vers` / `conflicts` are the CAS half (2026-08-18). Firestore stamps every read with an
+// `updateTime` and honours `currentDocument.updateTime` / `currentDocument.exists` on every
+// write; lg-core's LG.db.update is built on exactly that, so a fixture that accepted every
+// PATCH would let this whole simulator report green over a transport with no compare-and-swap
+// in it at all. The version is a monotonic counter rendered as a timestamp string, NOT a real
+// clock: two writes inside one millisecond are the case this simulator exists to produce.
+const STORE = { docs: {}, calls: 0, writes: [], vers: {}, conflicts: 0, ignorePreconditions: false };
+let VER = 0;
+const stampVer = () => "2026-01-01T00:00:00." + String(++VER).padStart(9, "0") + "Z";
+const PRECON_FAIL = {
+  error: { code: 409, message: "the stored version does not match the required base version", status: "FAILED_PRECONDITION" },
+};
+function precondition(u) {
+  const mUt = /[?&]currentDocument\.updateTime=([^&]+)/.exec(u);
+  if (mUt) return { updateTime: decodeURIComponent(mUt[1]) };
+  const mEx = /[?&]currentDocument\.exists=(true|false)/.exec(u);
+  if (mEx) return { exists: mEx[1] === "true" };
+  return null;
+}
 function fsEnc(v) {
   if (v === null || v === undefined) return { nullValue: null };
   if (typeof v === "boolean") return { booleanValue: v };
@@ -250,7 +268,10 @@ function fsDec(v) {
 const fsDoc = (id, doc) => {
   const fields = {};
   for (const k of Object.keys(doc || {})) fields[k] = fsEnc(doc[k]);
-  return { name: FS_DOC_ROOT + "/gffl_" + FAM + "/" + id, fields };
+  return {
+    name: FS_DOC_ROOT + "/gffl_" + FAM + "/" + id, fields,
+    updateTime: STORE.vers[id] || (STORE.vers[id] = stampVer()),
+  };
 };
 function restRespond(req, u, devLabel) {
   const method = req.method();
@@ -281,9 +302,24 @@ function restRespond(req, u, devLabel) {
   if (method === "PATCH") {
     let payload = {};
     try { payload = JSON.parse(req.postData() || ""); } catch (e) { /* malformed */ }
+    // The precondition, evaluated against the document as it stands right now — the refusal
+    // that makes a compare-and-swap a compare-and-swap. Answered with the real service's
+    // FAILED_PRECONDITION body so lg-core's setIf classifies it the way it will in production.
+    const pre = precondition(u);
+    if (pre && !STORE.ignorePreconditions) {
+      const bad = "exists" in pre
+        ? (pre.exists ? !STORE.docs[id] : !!STORE.docs[id])
+        : (!STORE.docs[id] || (STORE.vers[id] || null) !== pre.updateTime);
+      if (bad) {
+        STORE.conflicts++;
+        STORE.writes.push({ at: Date.now() - t0, id, dev: devLabel, week: CUR.week, phase: CUR.phase, refused: true, sig: null });
+        return json(PRECON_FAIL, 409);
+      }
+    }
     const patch = {};
     for (const k of Object.keys(payload.fields || {})) patch[k] = fsDec(payload.fields[k]);
     STORE.docs[id] = { ...(STORE.docs[id] || {}), ...patch }; // updateMask semantics
+    STORE.vers[id] = stampVer();                              // every accepted write moves the version
     // WHO wrote it, and WHAT — a doc that ends up wrong is almost always a doc that two
     // devices wrote, and "which device, in which phase, with which contents" is the only
     // thing that turns that from a hunch into a finding.
@@ -293,7 +329,7 @@ function restRespond(req, u, devLabel) {
     });
     return json(fsDoc(id, STORE.docs[id]));
   }
-  if (method === "DELETE") { delete STORE.docs[id]; return json({}); }
+  if (method === "DELETE") { delete STORE.docs[id]; delete STORE.vers[id]; return json({}); }
   return json({});
 }
 // Every write to one doc, in order, with the device that made it — the evidence a

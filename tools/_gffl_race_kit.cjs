@@ -85,18 +85,50 @@ function dec(v) {
   if ("mapValue" in v) { const o = {}; const f = v.mapValue.fields || {}; for (const k of Object.keys(f)) o[k] = dec(f[k]); return o; }
   return null;
 }
-const wireDoc = (id, d) => {
+// ---------------------------------------------------------------------------- updateTime
+// THE FIXTURE MUST BE ABLE TO REFUSE (2026-08-18, the CAS rework). Firestore returns an
+// `updateTime` on every read and honours `currentDocument.updateTime` / `currentDocument.exists`
+// on every write — that precondition is the entire mechanism lg-core's LG.db.update is built
+// on. A fixture that answered reads with no updateTime and accepted every PATCH would make
+// every compare-and-swap check here pass for the wrong reason, which is the house's own
+// "a fixture kinder than reality hides bugs" law. So this store versions each doc, stamps the
+// version on every read, and answers a stale write with the real FAILED_PRECONDITION shape.
+//
+// The version is a MONOTONIC COUNTER rendered as a timestamp string. Firestore's own value is
+// a wall-clock timestamp, which cannot distinguish two writes inside the same millisecond —
+// and this harness exists precisely to stage writes inside the same millisecond.
+let VER = 0;
+const stamp = () => "2026-01-01T00:00:00." + String(++VER).padStart(9, "0") + "Z";
+const wireDoc = (id, d, S) => {
   const fields = {};
   for (const k of Object.keys(d || {})) fields[k] = enc(d[k]);
-  return { name: FS_DOC_ROOT + "/gffl_" + FAM + "/" + id, fields };
+  const out = { name: FS_DOC_ROOT + "/gffl_" + FAM + "/" + id, fields };
+  if (S && S.vers) out.updateTime = S.vers[id] || (S.vers[id] = stamp());
+  return out;
 };
+// The body Firestore really answers a failed precondition with.
+const PRECON_FAIL = {
+  error: { code: 409, message: "the stored version does not match the required base version", status: "FAILED_PRECONDITION" },
+};
+// Reads the precondition off the PATCH's own query string, the way the REST API takes it.
+function precondition(u) {
+  const mUt = /[?&]currentDocument\.updateTime=([^&]+)/.exec(u);
+  if (mUt) return { updateTime: decodeURIComponent(mUt[1]) };
+  const mEx = /[?&]currentDocument\.exists=(true|false)/.exec(u);
+  if (mEx) return { exists: mEx[1] === "true" };
+  return null;
+}
 
 // ---------------------------------------------------------------------------- the shared store
 // ONE object, in NODE — which is what makes two browser contexts two DEVICES sharing a league
 // rather than two leagues. `writes` is an ordered log of every PATCH that reached it, so a
 // repro can say WHICH device clobbered WHAT, not merely that a value is wrong.
+// `vers` is the per-doc updateTime — see the note at wireDoc. `ignorePreconditions` is the
+// BITE PROOF switch: flipping it on makes this store behave like the pre-CAS one (accept
+// everything), which is how a CAS check proves it is testing the fix rather than passing by
+// coincidence. It must never be on in a committed suite run.
 function makeStore(docs) {
-  return { docs: JSON.parse(JSON.stringify(docs || {})), writes: [], reads: 0 };
+  return { docs: JSON.parse(JSON.stringify(docs || {})), writes: [], reads: 0, vers: {}, ignorePreconditions: false, conflicts: 0 };
 }
 function respond(req, u, S, label) {
   const method = req.method();
@@ -113,7 +145,7 @@ function respond(req, u, S, label) {
     try { q = (JSON.parse(req.postData() || "{}").structuredQuery) || {}; } catch (e) { /* malformed */ }
     const kind = q.where && q.where.fieldFilter ? q.where.fieldFilter.value.stringValue : null;
     const rows = Object.entries(S.docs).filter(([, d]) => !kind || d.kind === kind)
-      .map(([id, d]) => ({ document: wireDoc(id, d), readTime: "2026-01-01T00:00:00Z" }));
+      .map(([id, d]) => ({ document: wireDoc(id, d, S), readTime: "2026-01-01T00:00:00Z" }));
     // A zero-result runQuery really answers with one document-LESS row, not an empty array.
     return json(rows.length ? rows : [{ readTime: "2026-01-01T00:00:00Z" }]);
   }
@@ -123,18 +155,34 @@ function respond(req, u, S, label) {
     S.reads++;
     const d = S.docs[id];
     if (!d) return json({ error: { code: 404, status: "NOT_FOUND", message: "Document not found." } }, 404);
-    return json(wireDoc(id, d));
+    return json(wireDoc(id, d, S));
   }
   if (method === "PATCH") {
     let payload = {};
     try { payload = JSON.parse(req.postData() || "{}"); } catch (e) { /* malformed */ }
+    // THE PRECONDITION, evaluated the way the real service evaluates it: against the document
+    // as it stands RIGHT NOW, inside the same synchronous turn as the write it guards.
+    const pre = precondition(u);
+    if (pre && !S.ignorePreconditions) {
+      const have = S.docs[id] ? (S.vers[id] || null) : null;
+      const wanted = "exists" in pre ? (pre.exists ? "any" : null) : pre.updateTime;
+      const bad = "exists" in pre
+        ? (pre.exists ? !S.docs[id] : !!S.docs[id])
+        : (!S.docs[id] || have !== wanted);
+      if (bad) {
+        S.conflicts++;
+        S.writes.push({ id, by: label, at: Date.now(), refused: true });
+        return json(PRECON_FAIL, 409);
+      }
+    }
     const patch = {};
     for (const k of Object.keys(payload.fields || {})) patch[k] = dec(payload.fields[k]);
     S.docs[id] = { ...(S.docs[id] || {}), ...patch }; // updateMask semantics
+    S.vers[id] = stamp();                             // every accepted write moves the version
     S.writes.push({ id, by: label, at: Date.now(), patch });
-    return json(wireDoc(id, S.docs[id]));
+    return json(wireDoc(id, S.docs[id], S));
   }
-  if (method === "DELETE") { delete S.docs[id]; S.writes.push({ id, by: label, at: Date.now(), deleted: true }); return json({}); }
+  if (method === "DELETE") { delete S.docs[id]; delete S.vers[id]; S.writes.push({ id, by: label, at: Date.now(), deleted: true }); return json({}); }
   return json({});
 }
 
