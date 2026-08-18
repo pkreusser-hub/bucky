@@ -101,7 +101,13 @@ const NFL_FULL = {
   WAS: "Washington Commanders",
 };
 const normName = (n) => String(n).toLowerCase().replace(/[^a-z0-9]/g, "");
-function playerAnnounceJobs(pool, upTo) {
+// Two variants per player. PLAIN (real spelling) is the DEFAULT the room
+// plays — eleven_v3 turned out to read broadcast respellings worse than the
+// names themselves (2026-08-18, the phonetic batch). The phonetic set is kept
+// parked under say/ph/ as per-player alternates for names the plain read gets
+// wrong. Distinct job prefixes (ffd-say- / ffd-sayph-) keep the two runs from
+// ever colliding in the resume-skip logic.
+function playerAnnounceJobs(pool, upTo, style) {
   const guide = JSON.parse(fs.readFileSync(path.join(__dirname, "_pronunciations.json"), "utf8")).players;
   const byName = new Map(pool.map((p) => [normName(p.name), p]));
   const jobs = [], missing = [];
@@ -111,10 +117,11 @@ function playerAnnounceJobs(pool, upTo) {
     if (!p) { missing.push(row.player); continue; }
     const posFull = POS_FULL[p.pos] || p.pos;
     const teamFull = NFL_FULL[p.proTeam] || NFL_FULL[row.team] || row.team;
+    const phonetic = style === "phonetic";
     jobs.push({
-      name: "ffd-say-" + p.pid, kind: "tts", voice: "James", model: "eleven_v3",
+      name: (phonetic ? "ffd-sayph-" : "ffd-say-") + p.pid, kind: "tts", voice: "James", model: "eleven_v3",
       voice_id: process.env.SAY_VOICE_ID || undefined,
-      prompt: "[excitedly] " + row.phonetic + ", " + posFull + ", " + teamFull + "!",
+      prompt: "[excitedly] " + (phonetic ? row.phonetic : p.name) + ", " + posFull + ", " + teamFull + "!",
     });
   }
   if (missing.length) console.log("NOT IN LIVE POOL (skipped):", missing.join(", "));
@@ -122,7 +129,7 @@ function playerAnnounceJobs(pool, upTo) {
 }
 async function firePlayers() {
   const pool = await poolTop(400);
-  const jobs = playerAnnounceJobs(pool, Number(process.env.SAY_N || 200));
+  const jobs = playerAnnounceJobs(pool, Number(process.env.SAY_N || 200), process.env.SAY_STYLE || "plain");
   console.log(jobs.length, "announcement jobs; first:", jobs[0] && jobs[0].prompt, "| last:", jobs[jobs.length - 1] && jobs[jobs.length - 1].prompt);
   const res = await fetch(FN, {
     method: "POST",
@@ -199,19 +206,27 @@ async function collectTts() {
   const say = fs.existsSync(sayPath) ? JSON.parse(fs.readFileSync(sayPath, "utf8"))
     : { note: "Player-name announcements: ElevenLabs eleven_v3, voice James. tools/_gen-draft-audio.mjs --fire-tts/--collect-tts.", voices: {} };
   let wrote = 0;
+  // COLLECT_AS=ph routes everything into the phonetic alternates dir — the
+  // one-time escape hatch for chunks generated under the plain prefix before
+  // the prefixes split.
+  const forcePh = process.env.COLLECT_AS === "ph";
+  fs.mkdirSync(path.join(SAY_DIR, "ph"), { recursive: true });
+  say.phonetic = say.phonetic || {};
   for (const nm of done) {
-    if (!/^ffd-say-/.test(nm)) continue;
-    const pid = nm.replace("ffd-say-", "");
+    const isPh = forcePh || /^ffd-sayph-/.test(nm);
+    if (!/^ffd-say(ph)?-/.test(nm)) continue;
+    const pid = nm.replace(/^ffd-say(ph)?-/, "");
     const first = await fsGet(`audio_${nm}_c0`);
     if (!first) { console.log(`  ?? ${nm} chunk 0 missing`); continue; }
     let b64 = first.b64;
     for (let i = 1; i < first.parts; i++) { const c = await fsGet(`audio_${nm}_c${i}`); if (!c) { b64 = null; break; } b64 += c.b64; }
     if (!b64) { console.log(`  ?? ${nm} incomplete`); continue; }
     const buf = Buffer.from(b64, "base64");
-    fs.writeFileSync(path.join(SAY_DIR, pid + ".mp3"), buf);
-    say.voices[pid] = { file: pid + ".mp3", bytes: buf.length };
+    const rel = isPh ? path.join("ph", pid + ".mp3") : pid + ".mp3";
+    fs.writeFileSync(path.join(SAY_DIR, rel), buf);
+    (isPh ? say.phonetic : say.voices)[pid] = { file: rel.replace(/\\/g, "/"), bytes: buf.length };
     wrote++;
-    console.log(`  ok say/${pid}.mp3 (${buf.length} bytes)`);
+    console.log(`  ok say/${rel} (${buf.length} bytes)`);
     for (let i = 0; i < first.parts; i++) await fsDelete(`audio_${nm}_c${i}`);
   }
   if (wrote) {
