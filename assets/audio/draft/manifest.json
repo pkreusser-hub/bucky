@@ -42,6 +42,41 @@
       "kind": "music",
       "bytes": 1599574,
       "prompt": "energetic sports television draft night broadcast bed, driving percussion, pulsing synth bass, confident brass section hits, hype but restrained enough to sit under conversation, background music, instrumental, seamless loop"
+    },
+    {
+      "file": "ffd-music-live2.mp3",
+      "key": "music-live2",
+      "kind": "music",
+      "bytes": 1760071,
+      "prompt": "confident funky sports show bed, wah guitar, tight drum breaks, punchy horn stabs, head-nod groove, background music, instrumental, seamless loop"
+    },
+    {
+      "file": "ffd-music-live3.mp3",
+      "key": "music-live3",
+      "kind": "music",
+      "bytes": 1841155,
+      "prompt": "cinematic NFL Films style orchestral bed, noble french horns, rolling snare marches, sweeping strings, heroic but restrained, background music, instrumental, seamless loop"
+    },
+    {
+      "file": "ffd-music-live4.mp3",
+      "key": "music-live4",
+      "kind": "music",
+      "bytes": 1760071,
+      "prompt": "driving stadium rock bed, palm-muted electric guitars, punchy drums, big arena energy kept under conversation, background music, instrumental, seamless loop"
+    },
+    {
+      "file": "ffd-music-live5.mp3",
+      "key": "music-live5",
+      "kind": "music",
+      "bytes": 1760907,
+      "prompt": "pulsing synthwave sports bed, analog arpeggios, steady four-on-the-floor, neon late-night energy, background music, instrumental, seamless loop"
+    },
+    {
+      "file": "ffd-music-live6.mp3",
+      "key": "music-live6",
+      "kind": "music",
+      "bytes": 1680658,
+      "prompt": "upbeat big band swing, bright brass shout choruses, walking upright bass, brushed drums, broadcast bumper energy, background music, instrumental, seamless loop"
     }
   ]
 }

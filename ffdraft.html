@@ -1445,8 +1445,11 @@ body.tv #boardLegend{display:none}
       toast("That's not the commissioner PIN", true);
     }
   }
-  function armDeadline(d) {
-    d.deadline = (d.timerSecs > 0 && d.phase === "live" && !d.paused) ? Date.now() + d.timerSecs * 1000 : null;
+  function armDeadline(d, extraMs) {
+    // extraMs pushes the next clock back behind the pick announcement — the
+    // clock starting while James is still talking made every timer feel short.
+    d.deadline = (d.timerSecs > 0 && d.phase === "live" && !d.paused)
+      ? Date.now() + d.timerSecs * 1000 + (extraMs || 0) : null;
   }
   function makePick(player, byLabel) {
     return act(function (d) {
@@ -1463,7 +1466,7 @@ body.tv #boardLegend{display:none}
       };
       d.history.push(cur.key);
       if (!currentSlot(d)) { d.phase = "done"; d.deadline = null; }
-      else armDeadline(d);
+      else armDeadline(d, DAudio.announceDurMs(cur.teamId, player.pid) + 900);
       bkNudge = true;   // this device made the pick — back it up immediately
       return d;
     });
@@ -1722,6 +1725,20 @@ body.tv #boardLegend{display:none}
     // Player-name announcements (ElevenLabs TTS, one small mp3 per pid under
     // say/). Fetched lazily on the pick — most of the pool is never drafted —
     // and a miss is cached so an unvoiced player costs one 404, once, silently.
+    // say.json rides along at boot: clip byte-sizes → announcement lengths,
+    // known synchronously — the pick transaction needs the length BEFORE any
+    // audio decodes, to push the next pick's clock back behind the call.
+    var sayMeta = null;
+    fetch(BASE + "say/say.json").then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { sayMeta = j; }).catch(function () {});
+    function clipMs(entry) { return entry && entry.bytes ? Math.round(entry.bytes / 16000 * 1000) : 0; }
+    function announceDurMs(teamId, pid) {
+      if (!sayMeta || !sayMeta.voices) return 0;
+      var player = clipMs(sayMeta.voices[String(pid)]);
+      if (!player) return 0;   // no player clip = no announcement at all
+      var team = clipMs(sayMeta.voices["team-" + teamId]);
+      return (team ? team - 120 : 0) + player;
+    }
     var sayCache = {};
     function sayBuf(name) {
       var hit = sayCache[name];
@@ -1768,7 +1785,9 @@ body.tv #boardLegend{display:none}
       });
     }
     return { play: play, music: music, loadAll: loadAll, announce: announce, stat: stat,
+      announceDurMs: announceDurMs,
       setSayStub: function (ms) { sayStubMs = ms; },
+      setSayMeta: function (m) { sayMeta = m; },
       get musicKey() { return musicKey; } };
   })();
   document.addEventListener("pointerdown", function () { DAudio.loadAll(); }, { once: true });
@@ -1893,6 +1912,10 @@ body.tv #boardLegend{display:none}
     if (TV) return;
     var p = D && D.picks && D.picks[key];
     if (!p) return;
+    var teamIdEarly = Number(key.split("_t")[1]);
+    // On Players & Teams the card would sit on top of the list someone is
+    // actively working — the call plays, the takeover stays on the board tab.
+    if (view === "players") { DAudio.announce(teamIdEarly, p.pid, 200); return; }
     var el = $("pickSpot"), card = $("psCard");
     clearTimeout(spotT1); clearTimeout(spotT2);
     var mySeq = ++spotSeq;
@@ -3334,6 +3357,7 @@ body.tv #boardLegend{display:none}
     get musicKey() { return DAudio.musicKey; },
     pickRevealNow: pickReveal,
     setSayStub: function (ms) { DAudio.setSayStub(ms); },
+    setSayMeta: function (m) { DAudio.setSayMeta(m); },
     setGfflTeam: function (id, obj) { gfflTeams[id] = obj; },
     setSpotTimings: function (hold, fly) { SPOT_HOLD = hold; SPOT_FLY = fly; },
     sendChat: sendChat,

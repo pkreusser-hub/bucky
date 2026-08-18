@@ -388,10 +388,11 @@ function sectionAudioAssets() {
   const fs2 = require("fs"), path2 = require("path");
   const dir = path2.join(__dirname, "..", "assets", "audio", "draft");
   const man = JSON.parse(fs2.readFileSync(path2.join(dir, "manifest.json"), "utf8"));
-  ok(man.files.length === 6 && man.files.every((f) => {
+  // 11 = 4 stingers + lobby + six live beds (the rotation batch, 2026-08-18)
+  ok(man.files.length === 11 && man.files.every((f) => {
     const b = fs2.readFileSync(path2.join(dir, f.file));
     return b.length > 5000 && (b.slice(0, 3).toString() === "ID3" || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0));
-  }), "4 stingers + 2 music beds committed, every one real mp3 bytes");
+  }), "4 stingers + 7 music beds committed, every one real mp3 bytes");
   const say = JSON.parse(fs2.readFileSync(path2.join(dir, "say", "say.json"), "utf8"));
   const isMp3 = (b) => b.length > 5000 && (b.slice(0, 3).toString() === "ID3" || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0));
   const pids = Object.keys(say.voices);
@@ -1477,6 +1478,43 @@ async function sectionRehearse(browser) {
   }), "the card wears the drafting team's GFFL colours and crest, confetti included");
   await hook(page, () => { window.__DRAFT__.setSayStub(null); });
   await page.waitForFunction(() => document.getElementById("pickSpot").hidden, { timeout: 6000, polling: 100 });
+
+  // --- Players & Teams: the call plays, the takeover card does NOT ---
+  await hook(page, () => { window.__DRAFT__.setSayStub(400); window.__DRAFT__.setView("players"); });
+  const quietPick = await page.evaluate(async () => {
+    const H = window.__DRAFT__;
+    const p = H.pool.find((x) => !H.takenPids()[x.pid]);
+    const before = (H.audioStat.played["say:" + p.pid] || 0);
+    await H.makePick(p, "Paul");
+    return { pid: p.pid, before };
+  });
+  await sleep(250);
+  ok(await page.evaluate((q) => document.getElementById("pickSpot").hidden
+    && (window.__DRAFT__.audioStat.played["say:" + q.pid] || 0) > q.before, quietPick),
+    "on Players & Teams a pick announces WITHOUT the takeover card");
+  await hook(page, () => { window.__DRAFT__.setSayStub(null); window.__DRAFT__.setView("board"); });
+  await hook(page, () => window.__DRAFT__.undoLast());
+  await sleep(250);
+
+  // --- the next pick's clock starts AFTER the announcement ---
+  await hook(page, () => window.__DRAFT__.setSetting("timerSecs", 60));
+  const clockPick = await page.evaluate(async () => {
+    const H = window.__DRAFT__;
+    const p = H.pool.find((x) => !H.takenPids()[x.pid]);
+    const cur = H.currentSlot();
+    // inject clip metadata: 4s player + 2s team lead-in for the CURRENT slot
+    const v = {}; v[String(p.pid)] = { bytes: 64000 }; v["team-" + cur.teamId] = { bytes: 32000 };
+    H.setSayMeta({ voices: v });
+    const t0 = Date.now();
+    await H.makePick(p, "Paul");
+    return { left: H.D.deadline - t0 };
+  });
+  ok(clockPick.left > 64000 && clockPick.left < 70000,
+    "the next clock arms ~6s late — the announcement plays before the countdown starts ("
+      + Math.round(clockPick.left / 100) / 10 + "s)");
+  await hook(page, () => { window.__DRAFT__.setSayMeta(null); window.__DRAFT__.setSetting("timerSecs", 0); });
+  await hook(page, () => window.__DRAFT__.undoLast());
+  await sleep(250);
 
   // A reload must NOT replay the announcement, and keeper materialization
   // (a many-pick jump) never gets one.
