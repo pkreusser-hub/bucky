@@ -1,0 +1,14 @@
+# Fires the Draft Day audio generation (ElevenLabs, via the deployed
+# audiogen-background function) from a runner with open egress — the agent
+# sandbox can reach neither the site nor ElevenLabs, but it CAN reach
+# Firestore, where the finished audio lands for `--collect` to pick up.
+name: draft-audio
+on:
+  workflow_dispatch:
+
+jobs:
+  fire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node tools/_gen-draft-audio.mjs --fire
