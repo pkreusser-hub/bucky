@@ -271,7 +271,13 @@ const MUSIC2_JOBS = [
   ["ffd-music-live8", "driving stadium rock bed, gritty riff-led electric guitars, stomping four-count drums, hand-clap accents, big confident arena strut kept under conversation, background music, instrumental, seamless loop", 110000],
 ];
 async function fireMusic2() {
-  const jobs = MUSIC2_JOBS.map(([name, prompt, ms]) => ({ name, kind: "music", prompt, length_ms: ms }));
+  // Tracks already committed under assets/ don't regenerate — the batch is
+  // additive, so backfills only pay for the new slots.
+  const jobs = MUSIC2_JOBS
+    .filter(([name]) => !fs.existsSync(path.join(OUT_DIR, name + ".mp3")))
+    .map(([name, prompt, ms]) => ({ name, kind: "music", prompt, length_ms: ms }));
+  if (!jobs.length) { console.log("nothing to generate — every track already on disk"); return; }
+  console.log("firing:", jobs.map((j) => j.name).join(", "));
   const res = await fetch(FN, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -288,7 +294,8 @@ async function collectMusic2() {
   const manPath = path.join(OUT_DIR, "manifest.json");
   const man = JSON.parse(fs.readFileSync(manPath, "utf8"));
   let wrote = 0;
-  for (const [name, prompt] of MUSIC2_JOBS.map((j) => [j[0], j[1]])) {
+  const wanted = MUSIC2_JOBS.filter(([name]) => !fs.existsSync(path.join(OUT_DIR, name + ".mp3")));
+  for (const [name, prompt] of wanted.map((j) => [j[0], j[1]])) {
     if (!done.includes(name)) { console.log(`  … ${name} not finished`); continue; }
     const first = await fsGet(`audio_${name}_c0`);
     if (!first) { console.log(`  ?? ${name} chunk 0 missing`); continue; }
@@ -304,7 +311,7 @@ async function collectMusic2() {
     console.log(`  ok ${name}.mp3 (${buf.length} bytes)`);
     for (let i = 0; i < first.parts; i++) await fsDelete(`audio_${name}_c${i}`);
   }
-  if (wrote === MUSIC2_JOBS.length) {
+  if (wrote === wanted.length && wrote > 0) {
     fs.writeFileSync(manPath, JSON.stringify(man, null, 2) + "\n");
     await fsDelete("audio_status");
     console.log("manifest updated (" + man.files.length + " files) — commit assets/audio/draft/");
