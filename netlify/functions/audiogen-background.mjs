@@ -50,6 +50,23 @@ async function xiAudio(key, pathSeg, body) {
   return Buffer.from(await res.arrayBuffer());
 }
 
+// Voice lookup by name, cached per invocation — "James" etc. resolve against
+// the account's voice list so nothing here hardcodes a voice id.
+let voiceCache = null;
+async function voiceIdByName(key, name) {
+  if (!voiceCache) {
+    const r = await fetch(XI + "/voices", { headers: { "xi-api-key": key } });
+    if (!r.ok) throw new Error("voices HTTP " + r.status);
+    voiceCache = (await r.json()).voices || [];
+  }
+  const want = String(name).toLowerCase();
+  const hit = voiceCache.find((v) => String(v.name).toLowerCase() === want)
+    || voiceCache.find((v) => String(v.name).toLowerCase().startsWith(want));
+  if (!hit) throw new Error("voice '" + name + "' not in account; have: " +
+    voiceCache.map((v) => v.name).slice(0, 20).join(", "));
+  return hit.voice_id;
+}
+
 async function runJobs(body) {
   const key = process.env.ELEVENLABS_API_KEY;
   const jobs = Array.isArray(body.jobs) ? body.jobs.slice(0, 12) : [];
@@ -65,7 +82,13 @@ async function runJobs(body) {
     if (!name || !job.prompt) { failed.push({ name: name || "?", detail: "bad job" }); await stamp(); continue; }
     try {
       let buf;
-      if (job.kind === "music") {
+      if (job.kind === "tts") {
+        const vid = await voiceIdByName(key, job.voice || "James");
+        buf = await xiAudio(key, "/text-to-speech/" + vid, {
+          text: String(job.prompt).slice(0, 300),
+          model_id: job.model || "eleven_v3",
+        });
+      } else if (job.kind === "music") {
         const ms = Math.max(10000, Math.min(300000, Number(job.length_ms) || 90000));
         buf = await xiAudio(key, "/music", {
           prompt: String(job.prompt).slice(0, 1000), music_length_ms: ms, force_instrumental: true,

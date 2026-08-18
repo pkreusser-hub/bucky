@@ -5,10 +5,15 @@
 name: draft-audio
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "generator mode"
+        default: "--fire"
+        type: string
 
 jobs:
   fire:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: node tools/_gen-draft-audio.mjs --fire
+      - run: node tools/_gen-draft-audio.mjs ${{ inputs.mode || '--fire' }}
