@@ -393,11 +393,15 @@ function sectionAudioAssets() {
     return b.length > 5000 && (b.slice(0, 3).toString() === "ID3" || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0));
   }), "4 stingers + 2 music beds committed, every one real mp3 bytes");
   const say = JSON.parse(fs2.readFileSync(path2.join(dir, "say", "say.json"), "utf8"));
+  const isMp3 = (b) => b.length > 5000 && (b.slice(0, 3).toString() === "ID3" || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0));
   const pids = Object.keys(say.voices);
-  ok(pids.length >= 6 && pids.every((pid) => {
-    const b = fs2.readFileSync(path2.join(dir, "say", say.voices[pid].file));
-    return b.length > 5000 && (b.slice(0, 3).toString() === "ID3" || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0));
-  }), "player-name announcements on disk for " + pids.length + " players, all real mp3s");
+  // ≥208: the top-200 announcement batch + the 8 team lead-ins (raised from 6
+  // when the full-pool batch landed, 2026-08-18).
+  ok(pids.length >= 208 && pids.every((pid) => isMp3(fs2.readFileSync(path2.join(dir, "say", say.voices[pid].file)))),
+    "announcements on disk for " + pids.length + " players/teams, all real mp3s");
+  const phs = Object.keys(say.phonetic || {});
+  ok(phs.length >= 200 && phs.every((pid) => isMp3(fs2.readFileSync(path2.join(dir, "say", say.phonetic[pid].file)))),
+    "…and " + phs.length + " phonetic alternate takes parked under say/ph/");
 }
 
 // ---------------- section B: the draft room, end to end (local mode) ----------------
