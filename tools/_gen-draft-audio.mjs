@@ -82,6 +82,23 @@ async function fireTts() {
   console.log("fire ->", res.status, res.status === 202 ? "(generating in the background)" : await res.text());
   if (res.status !== 202) process.exit(1);
 }
+// One-off audition clip for the full announcement format — listen at
+// /assets/audio/draft/say/test-announce.mp3 once collected and committed.
+async function fireAnnounceTest() {
+  const job = {
+    name: "ffd-say-test-announce", kind: "tts", voice: "James", model: "eleven_v3",
+    voice_id: process.env.SAY_VOICE_ID || undefined,
+    prompt: "[excitedly] The Battle Kreussers select... CeeDee Lamb, Wide Receiver, Dallas Cowboys!",
+  };
+  const res = await fetch(FN, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: familySecret(), jobs: [job] }),
+  });
+  console.log("fire ->", res.status, res.status === 202 ? "(generating)" : await res.text());
+  if (res.status !== 202) process.exit(1);
+}
+
 async function collectTts() {
   const status = await fsGet("audio_status");
   if (!status) { console.log("no audio_status doc"); process.exit(2); }
@@ -212,5 +229,6 @@ if (mode === "--fire") fire();
 else if (mode === "--collect") collect();
 else if (mode === "--direct") direct();
 else if (mode === "--fire-tts") fireTts();
+else if (mode === "--fire-announce") fireAnnounceTest();
 else if (mode === "--collect-tts") collectTts();
 else { console.log("usage: node tools/_gen-draft-audio.mjs --fire | --collect | --direct | --fire-tts | --collect-tts"); process.exit(1); }
