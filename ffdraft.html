@@ -1707,19 +1707,11 @@ body.tv #boardLegend{display:none}
     });
   }
   function pickSound() {
+    // Deliberately SILENT since 2026-08-18 (it played sfx-fanfare before): with
+    // the announcer reading names over the reveal, a stinger on every pick was
+    // one sound too many. The trail entry stays — it is the suite's marker
+    // that the pick was noticed on every device.
     sndLog.push("pick");
-    DAudio.play("sfx-fanfare", 0.95, function () {
-      var t = audioCtx.currentTime;
-      var o = audioCtx.createOscillator(), g = audioCtx.createGain();
-      o.type = "triangle";
-      o.frequency.setValueAtTime(220, t);
-      o.frequency.exponentialRampToValueAtTime(466, t + 0.12);
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
-      o.connect(g); g.connect(audioCtx.destination);
-      o.start(t); o.stop(t + 0.32);
-    });
   }
   function doneSound() {
     sndLog.push("done");

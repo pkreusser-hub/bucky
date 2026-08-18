@@ -24,6 +24,10 @@
     "4430878": {
       "file": "4430878.mp3",
       "bytes": 33062
+    },
+    "test-announce": {
+      "file": "test-announce.mp3",
+      "bytes": 95756
     }
   }
 }

@@ -693,7 +693,7 @@ async function sectionRoom(browser) {
     "…and no confirm bar ever appeared for it");
   ok(await page.evaluate(() => !window.__DRAFT__.titleFlashing()), "…and the title flash stops once he picks");
   ok(await page.evaluate(() => window.__DRAFT__.sndLog.includes("pick")),
-    "every landed pick fires the draft sound (headless: the trigger trail)");
+    "every landed pick is marked on every device (restaged: the per-pick fanfare is deliberately gone — the announcer is the sound)");
   await page.evaluate(() => { document.getElementById("pSearch").value = ""; document.getElementById("pSearch").dispatchEvent(new Event("input")); });
 
   await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
@@ -1432,7 +1432,7 @@ async function sectionRehearse(browser) {
     return !!cell && cell.classList.contains("landed") && cell.textContent.includes("KEEPER") === false;
   }, spotPick.key), "…then it shrinks away and its board cell flashes the landing");
   ok(await page.evaluate(() => window.__DRAFT__.sndLog.includes("pick")),
-    "…with the fanfare trigger on the trail");
+    "…with the pick marked on the trail (no stinger — the announcer carries the reveal)");
   ok(await page.evaluate((pid) => (window.__DRAFT__.audioStat.played["say:" + pid] || 0) >= 1,
     await page.evaluate((k) => window.__DRAFT__.D.picks[k].pid, spotPick.key)),
     "…and the announcer is asked for the player's name (a miss stays silent, never errors)");
