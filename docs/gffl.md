@@ -4896,3 +4896,17 @@ resurrect a traded-away player. The sim stays the harness for it.
   round units too. Fixture ADPs all sit under ~30 where /8 and /10 agree — which is why the
   suite never caught it; the divergent region is pinned via hook checks at the live shape
   (overall 60 / adp 73 = no badge).
+
+## ffdraft.html — Billy in the Booth (2026-08-18)
+
+The robo commentator: Grok 4.5 through `farmgpt.mjs` mode `ffcommentary` (same xai routing +
+Sonnet fallback as the fantasy analyst; usage bucket "w"). Personality and guardrails live in
+`FFBOOTH_SYSTEM` — good-natured family smack talk, 45-word cap, react only to facts in the
+JSON, no emoji. The COMMISSIONER'S device is the only generator (same posture as mock bots):
+triggers are draft-start, every 3rd pick, a STEAL/REACH badge (shortened cooldown), and
+draft-done, all behind a 75s cooldown. Lines land in their own doc (`booth_<season>` — NOT the
+chat, which belongs to the humans; not the draft doc, which belongs to the picks) and every
+screen renders the newest into `#boothBar`, a fixed lower-third top-middle (25s auto-hide; TV
+shows it bigger). A dead upstream = a silently quiet booth, asserted in the suite along with
+the exactly-one-line-per-3-picks cadence. The suite's farmgpt fake answers with the real shape
+(plain text on 200) and has a `boothFake.down` refusal knob.

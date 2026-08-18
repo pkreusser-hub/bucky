@@ -182,6 +182,10 @@ jobs:
             --data '{"secret":"amenfarms","mode":"fantasy","kind":"question","question":"One sentence: is my QB fine this week?","matchup":{"familyTeamId":1,"matchup":{"home":{"teamId":1,"name":"Battle Kreussers","roster":[{"name":"Josh Allen","slot":"QB","starter":true,"proj":21.3,"injury":""}]},"away":{"teamId":2,"name":"Test","roster":[]}}},"freeAgents":[]}' || echo FAIL)
           echo "fantasy AI HTTP $code, $(wc -c < /tmp/ai.txt) bytes"
           head -c 400 /tmp/ai.txt; echo
+          # Billy in the Booth (ffdraft's robo commentator) — one tiny live smoke
+          code=$(curl -sS -o /tmp/booth.txt -w "%{http_code}" -X POST             "https://amenfarms.netlify.app/.netlify/functions/farmgpt"             -H "Content-Type: application/json"             --data '{"secret":"amenfarms","mode":"ffcommentary","focus":"pick","recent":[],"draft":{"league":"Goat Fantasy Football League","round":2,"pickNo":9,"totalRounds":16,"phase":"live","onClock":{"team":"Wyoming Cowboys","owner":"Tom"},"justPicked":{"player":"Puka Nacua","pos":"WR","nfl":"LAR","team":"Battle Kreussers","owner":"Paul","round":2,"badge":"steal"},"lastPicks":[],"steals":[],"reaches":[],"teams":[{"team":"Battle Kreussers","owner":"Paul","picks":["Bijan Robinson (RB, keeper)","Puka Nacua (WR)"]},{"team":"Wyoming Cowboys","owner":"Tom","picks":["Jahmyr Gibbs (RB, keeper)"]}]}}' || echo FAIL)
+          echo "booth HTTP $code, $(wc -c < /tmp/booth.txt) bytes"
+          head -c 400 /tmp/booth.txt; echo
   ffdata:
     runs-on: ubuntu-latest
     steps:

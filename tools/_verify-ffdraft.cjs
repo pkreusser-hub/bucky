@@ -295,6 +295,8 @@ const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript",
   ".css": "text/css", ".png": "image/png", ".json": "application/json", ".svg": "image/svg+xml",
 };
+const boothFake = { calls: [], down: false };
+
 function startStatic() {
   const srv = http.createServer((req, res) => {
     const u = new URL(req.url, BASE);
@@ -339,6 +341,17 @@ async function newPage(ctx, o) {
   page.on("request", async (req) => {
     const u = req.url();
     try {
+      if (u.includes("/.netlify/functions/farmgpt")) {
+        // Billy's upstream, faked with the real function's SHAPE: plain-text
+        // body on 200, and a refusal path (boothFake.down) — the page must go
+        // quietly mute on failure, never crash a draft over commentary.
+        boothFake.calls.push(JSON.parse(req.postData() || "{}"));
+        if (boothFake.down) { await req.respond({ status: 500, contentType: "text/plain", body: "no booth" }); return; }
+        const n = boothFake.calls.length;
+        await req.respond({ status: 200, contentType: "text/plain",
+          body: "Canned Billy take #" + n + " — somebody tell Team 4 the kicker run starts LATER." });
+        return;
+      }
       if (u.includes("/.netlify/functions/sports")) {
         const resp = await handler(new Request(u, {
           method: req.method(),
@@ -1569,6 +1582,53 @@ async function sectionRehearse(browser) {
     "…and nobody but the commissioner sees it");
   await hook(page, (d) => window.__DRAFT__.setMe("Paul", d, JSON.parse(localStorage.getItem("ffd_local_2026")).commishKey), dev);
   await sleep(150);
+
+  // --- Billy in the Booth: the robo commentator ---
+  // (this page is the commissioner's device in a live draft — the generator)
+  boothFake.calls.length = 0;
+  await hook(page, () => window.__DRAFT__.setBoothCooldown(50));
+  await hook(page, () => window.__DRAFT__.boothFire("state", true));
+  await page.waitForFunction(() => window.__DRAFT__.boothItems.length >= 1, { timeout: 8000, polling: 100 });
+  ok(boothFake.calls.length === 1 && boothFake.calls[0].mode === "ffcommentary"
+    && boothFake.calls[0].secret && boothFake.calls[0].draft && boothFake.calls[0].draft.teams.length === 8
+    && Array.isArray(boothFake.calls[0].draft.lastPicks),
+    "the booth calls farmgpt's ffcommentary mode with a full compact draft context");
+  await sleep(150);
+  ok(await page.evaluate(() => {
+    const b = document.getElementById("boothBar");
+    if (b.hidden) return false;
+    const r = b.getBoundingClientRect();
+    return b.textContent.includes("BILLY IN THE BOOTH") && b.textContent.includes("Canned Billy take")
+      && r.top < 200 && Math.abs((r.left + r.width / 2) - window.innerWidth / 2) < 20;
+  }), "…and the line lands in a lower-third at the TOP MIDDLE of the screen — not the chat");
+  ok(await page.evaluate(() => !document.getElementById("chatMsgs").textContent.includes("Canned Billy")),
+    "…the chat stays the humans' room — Billy is not in it");
+  // three quick picks trigger exactly one more call (cadence, not chatter)
+  const boothCallsBefore = boothFake.calls.length;
+  await page.evaluate(async () => {
+    const H = window.__DRAFT__;
+    for (let i = 0; i < 3; i++) {
+      const p = H.pool.find((x) => !H.takenPids()[x.pid]);
+      await H.makePick(p, "Paul");
+    }
+  });
+  await page.waitForFunction((n) => window.__DRAFT__.boothItems.length >= n + 1,
+    { timeout: 8000, polling: 100 }, 1);
+  ok(boothFake.calls.length === boothCallsBefore + 1,
+    "three rapid picks earn exactly ONE more line — occasional commentary, not play-by-play");
+  // upstream failure: the booth goes mute, the draft does not notice
+  boothFake.down = true;
+  const itemsBefore = await page.evaluate(() => window.__DRAFT__.boothItems.length);
+  await hook(page, () => window.__DRAFT__.boothFire("state", true));
+  await sleep(400);
+  const boothDbg = await page.evaluate((n) => ({ len: window.__DRAFT__.boothItems.length, want: n,
+    texts: window.__DRAFT__.boothItems.map((i) => i.text.slice(0, 40)) }), itemsBefore);
+  if (boothDbg.len !== boothDbg.want) console.log("    DEBUG booth:", JSON.stringify(boothDbg), "calls:", boothFake.calls.length);
+  ok(boothDbg.len === boothDbg.want,
+    "a dead AI upstream = a quiet booth, zero errors, zero broken drafts");
+  boothFake.down = false;
+  await page.evaluate(async () => { const H = window.__DRAFT__; for (let i = 0; i < 3; i++) await H.undoLast(); });
+  await sleep(200);
 
   // --- stop the draft and go back to keeper picking ---
   await hook(page, () => window.__DRAFT__.setView("commish"));

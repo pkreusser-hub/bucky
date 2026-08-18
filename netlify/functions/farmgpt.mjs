@@ -1413,6 +1413,25 @@ OUTPUT — STRICT JSON only, no markdown fences, no prose before or after:
 [{"key":"<verbatim>","proj":<number, one decimal>,"note":"<10 words max — the reason, or 'in line with ESPN' when unchanged>"}]
 Every input player appears EXACTLY once. Keys verbatim. Nobody invented, nobody dropped.`;
 
+// ---------------- Billy in the Booth (ffdraft.html's robo commentator) ----------------
+// A goat in a headset calling the family's live draft: occasional one-liners on
+// the state of the board, a fresh pick, a steal/reach, or a team's build. Grok
+// 4.5, same routing as the fantasy analyst — its voice suits the smack talk.
+const FFBOOTH_SYSTEM = `You are Billy — the booth analyst of the Goat Fantasy Football League, a goat in a
+headset calling the family's live 8-team keeper draft.
+
+VOICE: old-school broadcast bravado. Confident, quick, funny. Good-natured ribbing and smack
+talk about picks, rosters and draft strategy IS the job — tease the decisions, never the
+person. It must always read like family banter: never mean, no profanity, nothing
+inappropriate, kids are reading. No emoji.
+
+HARD RULES
+- ONE or TWO punchy sentences, 45 words maximum — this sits in a broadcast lower-third.
+- React ONLY to facts in the JSON. Never invent players, picks, stats or history.
+- Use team names and owners' first names exactly as given.
+- Your recent lines are provided: take a fresh angle, never repeat their phrasing.
+- Plain text only — no markdown, no quotation marks around the line, no stage directions.`;
+
 const MODES = {
   // 1600, not the long-standing 1200, and this is a MEASURED fix, not headroom for its own sake:
   // at 1200 a Haiku scene sometimes ran past the budget and arrived cut off mid-sentence with no
@@ -1458,6 +1477,7 @@ const MODES = {
   // Fantasy advice reads a big JSON payload and writes ~300 words; the recap is one
   // 200-300 word column a week. cache:false — one-shot calls never read a cached prefix.
   fantasy:     { system: FANTASY_SYSTEM,    maxTokens: 1400, thinking: { type: "disabled" }, cache: false },
+  ffcommentary:{ system: FFBOOTH_SYSTEM,    maxTokens: 200,  thinking: { type: "disabled" }, cache: false },
   ffrecap:     { system: FFRECAP_SYSTEM,    maxTokens: 1200, thinking: { type: "disabled" }, cache: false },
   // The live in-game projection adjuster: strict JSON, small payload, small reply — 800 is
   // comfortable headroom for a handful of {name,mult,why} objects. cache:false — one-shot, no
@@ -1729,7 +1749,7 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
       // story on a far pricier model than the per-scene calls, so folding it into "s" would make
       // every chapter of that story look like it cost a share of a one-time build.
       : modeName === "storyseed" ? "f"
-      : (modeName === "fantasy" || modeName === "ffrecap") ? "w"
+      : (modeName === "fantasy" || modeName === "ffrecap" || modeName === "ffcommentary") ? "w"
       // The live projection adjuster reuses "w" too — it's the same fantasy-AI spend.
       : modeName === "gfflproj" || modeName === "gffltrade" || modeName === "gffladjust" ? "w"
       : modeName === "audit" ? "x" : "r";
@@ -2864,6 +2884,24 @@ function buildFantasyMessages(body) {
   else parts.push("QUESTION: " + (q || "How does my team look this week?"));
   return [{ role: "user", content: parts.join("\n") }];
 }
+const BOOTH_TASKS = {
+  start: "The draft just went LIVE. Set the scene in one line — keepers are locked on the board and the first pick is on the clock.",
+  pick: "React to the most recent pick (justPicked in the JSON).",
+  value: "React to the most recent pick — the board graded it (see justPicked.badge: STEAL fell past his market round, REACH went early). Have fun with it.",
+  team: "Size up the roster of the team named spotlightTeam — what they've built so far, what they're still missing.",
+  state: "Give the state of the draft in one line — position runs, who's quietly building something, who's on the clock.",
+  done: "The draft just ENDED. One closing line: crown the night's best draft and gently roast one wobbly roster.",
+};
+function buildBoothMessages(body) {
+  const draft = body.draft && typeof body.draft === "object" && !Array.isArray(body.draft) ? body.draft : null;
+  if (!draft) return null;
+  const focus = BOOTH_TASKS[body.focus] ? body.focus : "state";
+  const recent = Array.isArray(body.recent) ? body.recent.slice(-4).map((t) => String(t).slice(0, 200)) : [];
+  const parts = ["DRAFT STATE (JSON):", clipJson(draft, 9000)];
+  if (recent.length) parts.push("", "YOUR RECENT LINES (fresh angle required):", ...recent.map((t) => "- " + t));
+  parts.push("", "TASK: " + BOOTH_TASKS[focus]);
+  return [{ role: "user", content: parts.join("\n") }];
+}
 function buildRecapMessages(body) {
   const wk = Number(body.week);
   const ms = Array.isArray(body.matchups) ? body.matchups.slice(0, 8) : [];
@@ -3346,6 +3384,7 @@ export default async (req) => {
   if (body.mode === "ledger") messages = buildKeeperMessages(body);
   else if (body.mode === "audit") messages = buildAuditMessages(body);
   else if (body.mode === "fantasy") messages = buildFantasyMessages(body);
+  else if (body.mode === "ffcommentary") messages = buildBoothMessages(body);
   else if (body.mode === "ffrecap") messages = buildRecapMessages(body);
   else if (body.mode === "gfflproj") messages = buildGfflProjMessages(body);
   else if (body.mode === "gffltrade") messages = buildGfflTradeMessages(body);
@@ -3358,6 +3397,7 @@ export default async (req) => {
     return jsonError(400, body.mode === "ledger" ? "Bad ledger request"
       : body.mode === "audit" ? "Bad audit request"
       : body.mode === "fantasy" ? "Bad fantasy request"
+      : body.mode === "ffcommentary" ? "Bad commentary request"
       : body.mode === "ffrecap" ? "Bad recap request"
       : body.mode === "gfflproj" ? "Bad projection request"
       : body.mode === "gffltrade" ? "Bad trade request"
@@ -3497,7 +3537,7 @@ export default async (req) => {
   else if (body.mode === "kidart") { provider = "anthropic"; model = KID_ART_MODEL; }
   // The fantasy analyst + the league columnist: Grok 4.5 (the user's pick — its voice suits
   // trash talk and hot takes), falling back to Sonnet, the quality tier for advice.
-  else if (body.mode === "fantasy" || body.mode === "ffrecap") { provider = "xai"; model = XAI_MODEL; }
+  else if (body.mode === "fantasy" || body.mode === "ffrecap" || body.mode === "ffcommentary") { provider = "xai"; model = XAI_MODEL; }
   // The live projection adjuster: same Grok pick, same reasoning as the analyst/columnist above.
   else if (body.mode === "gfflproj" || body.mode === "gffltrade" || body.mode === "gffladjust") { provider = "xai"; model = XAI_MODEL; }
 
@@ -3507,7 +3547,7 @@ export default async (req) => {
   if (provider === "xai" && !process.env.XAI_API_KEY) {
     provider = "anthropic";
     model = body.mode === "storyseed" ? FABLE_MODEL
-      : (body.mode === "fantasy" || body.mode === "ffrecap") ? RESEARCH_MODEL
+      : (body.mode === "fantasy" || body.mode === "ffrecap" || body.mode === "ffcommentary") ? RESEARCH_MODEL
       : STORY_MODEL;
   }
   // gfflproj falls under the block above too (it also starts on "xai"), but that block's ternary
