@@ -1606,6 +1606,11 @@ body.tv #boardLegend{display:none}
       if (audioCtx && audioCtx.state === "suspended") { try { audioCtx.resume(); } catch (e) {} }
       return audioCtx;
     }
+    // Stingers decode upfront (small, played instantly). Music tracks only get
+    // INDEXED here — a decoded 110s stereo bed is ~35MB of RAM, and with seven
+    // of them a phone would hold a quarter gigabyte of song. They decode on
+    // demand, one ahead, and evict behind (see playTrack).
+    var musicFiles = {};
     function loadAll() {
       if (loading || !ensureCtx()) return loading;
       loading = fetch(BASE + "manifest.json").then(function (r) {
@@ -1613,6 +1618,7 @@ body.tv #boardLegend{display:none}
         return r.json();
       }).then(function (man) {
         return Promise.all((man.files || []).map(function (f) {
+          if (f.kind === "music") { musicFiles[f.key] = f.file; return null; }
           return fetch(BASE + f.file).then(function (r) { return r.arrayBuffer(); })
             .then(function (ab) { return audioCtx.decodeAudioData(ab); })
             .then(function (buf) { buffers[f.key] = buf; stat.files++; })
@@ -1620,6 +1626,14 @@ body.tv #boardLegend{display:none}
         }));
       }).then(function () { music(stat.wantMusic); }).catch(function () {});
       return loading;
+    }
+    function musicBuf(key) {
+      if (buffers[key]) return Promise.resolve(buffers[key]);
+      if (!musicFiles[key]) return Promise.resolve(null);
+      return fetch(BASE + musicFiles[key]).then(function (r) { return r.arrayBuffer(); })
+        .then(function (ab) { return audioCtx.decodeAudioData(ab); })
+        .then(function (buf) { buffers[key] = buf; stat.files++; return buf; })
+        .catch(function () { return null; });
     }
     function play(key, vol, synth) {
       stat.played[key] = (stat.played[key] || 0) + 1;
@@ -1633,24 +1647,76 @@ body.tv #boardLegend{display:none}
         src.start();
       } catch (e) {}
     }
+    // "music-live" is a REQUEST for the live rotation, not one track: every
+    // manifest key matching music-live* joins a shuffled playlist so a two-
+    // hour draft never loops one song. The lobby stays a single loop.
+    var liveList = null, liveIdx = 0;
+    function shuffled(arr) {
+      var a = arr.slice();
+      for (var i = a.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t;
+      }
+      return a;
+    }
     function music(key) {
       stat.wantMusic = key || null;
       if (!key || !musicOn) { stopMusic(); return; }
-      if (!audioCtx || !buffers[key]) return;   // picks itself up via wantMusic after unlock/decode
+      if (!audioCtx || !Object.keys(musicFiles).length) return;   // picks itself up via wantMusic
+      if (key === "music-live") {
+        if (musicSrc && musicKey && /^music-live/.test(musicKey)) return;
+        var tracks = Object.keys(musicFiles).filter(function (k) { return /^music-live/.test(k); });
+        if (!tracks.length) return;
+        if (!liveList) { liveList = shuffled(tracks); liveIdx = 0; }
+        playTrack(liveList[liveIdx]);
+        return;
+      }
       if (musicKey === key && musicSrc) return;
+      musicBuf(key).then(function (b) {
+        if (!b || stat.wantMusic !== key || !musicOn) return;
+        startSrc(key, b, true, null);
+      });
+    }
+    function playTrack(key) {
+      musicBuf(key).then(function (b) {
+        if (stat.wantMusic !== "music-live" || !musicOn) return;
+        if (!b) {   // a missing track drops out of the rotation rather than stalling it
+          liveList.splice(liveList.indexOf(key), 1);
+          if (liveList.length) { liveIdx = liveIdx % liveList.length; playTrack(liveList[liveIdx]); }
+          return;
+        }
+        startSrc(key, b, false, function () {
+          if (stat.wantMusic !== "music-live" || !musicOn) return;
+          liveIdx = (liveIdx + 1) % liveList.length;
+          if (liveIdx === 0) liveList = shuffled(liveList);   // reshuffle each full pass
+          playTrack(liveList[liveIdx]);
+        });
+        // decode the next track while this one plays; evict the ones behind
+        var nextKey = liveList[(liveIdx + 1) % liveList.length];
+        if (nextKey !== key) musicBuf(nextKey);
+        Object.keys(buffers).forEach(function (k) {
+          if (/^music-live/.test(k) && k !== key && k !== nextKey) delete buffers[k];
+        });
+      });
+    }
+    function startSrc(key, buf, loop, onended) {
       stopMusic();
       try {
         musicSrc = audioCtx.createBufferSource();
         musicGain = audioCtx.createGain();
-        musicSrc.buffer = buffers[key]; musicSrc.loop = true;
+        musicSrc.buffer = buf; musicSrc.loop = loop;
         musicGain.gain.value = 0.3;   // it sits UNDER eight people talking
         musicSrc.connect(musicGain); musicGain.connect(audioCtx.destination);
+        if (onended) musicSrc.onended = onended;
         musicSrc.start();
         musicKey = key; stat.musicStarts++;
       } catch (e) { musicSrc = null; musicKey = null; }
     }
     function stopMusic() {
-      if (musicSrc) { try { musicSrc.stop(); } catch (e) {} stat.musicStops++; }
+      if (musicSrc) {
+        musicSrc.onended = null;   // a deliberate stop must not chain to the next track
+        try { musicSrc.stop(); } catch (e) {}
+        stat.musicStops++;
+      }
       musicSrc = null; musicKey = null;
     }
     // Player-name announcements (ElevenLabs TTS, one small mp3 per pid under

@@ -255,6 +255,57 @@ async function collectTts() {
   } else { console.log("nothing collected"); process.exit(3); }
 }
 
+// ---- extra live-draft beds: variety for a two-hour room --------------------
+// Five more styles, all instrumental and all mixed to sit UNDER eight people
+// talking. The page shuffles everything named music-live* into one rotation.
+const MUSIC2_JOBS = [
+  ["ffd-music-live2", "confident funky sports show bed, wah guitar, tight drum breaks, punchy horn stabs, head-nod groove, background music, instrumental, seamless loop", 110000],
+  ["ffd-music-live3", "cinematic NFL Films style orchestral bed, noble french horns, rolling snare marches, sweeping strings, heroic but restrained, background music, instrumental, seamless loop", 115000],
+  ["ffd-music-live4", "driving stadium rock bed, palm-muted electric guitars, punchy drums, big arena energy kept under conversation, background music, instrumental, seamless loop", 110000],
+  ["ffd-music-live5", "pulsing synthwave sports bed, analog arpeggios, steady four-on-the-floor, neon late-night energy, background music, instrumental, seamless loop", 110000],
+  ["ffd-music-live6", "upbeat big band swing, bright brass shout choruses, walking upright bass, brushed drums, broadcast bumper energy, background music, instrumental, seamless loop", 105000],
+];
+async function fireMusic2() {
+  const jobs = MUSIC2_JOBS.map(([name, prompt, ms]) => ({ name, kind: "music", prompt, length_ms: ms }));
+  const res = await fetch(FN, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: familySecret(), jobs }),
+  });
+  console.log("fire ->", res.status, res.status === 202 ? "(generating — music runs a few minutes a track)" : await res.text());
+  if (res.status !== 202) process.exit(1);
+}
+async function collectMusic2() {
+  const status = await fsGet("audio_status");
+  if (!status) { console.log("no audio_status doc"); process.exit(2); }
+  const done = String(status.done || "").split(",").filter(Boolean);
+  console.log(`status: ${done.length}/${status.total} done` + (status.failed ? ` · FAILED: ${status.failed}` : ""));
+  const manPath = path.join(OUT_DIR, "manifest.json");
+  const man = JSON.parse(fs.readFileSync(manPath, "utf8"));
+  let wrote = 0;
+  for (const [name, prompt] of MUSIC2_JOBS.map((j) => [j[0], j[1]])) {
+    if (!done.includes(name)) { console.log(`  … ${name} not finished`); continue; }
+    const first = await fsGet(`audio_${name}_c0`);
+    if (!first) { console.log(`  ?? ${name} chunk 0 missing`); continue; }
+    let b64 = first.b64;
+    for (let i = 1; i < first.parts; i++) { const c = await fsGet(`audio_${name}_c${i}`); if (!c) { b64 = null; break; } b64 += c.b64; }
+    if (!b64) { console.log(`  ?? ${name} incomplete`); continue; }
+    const buf = Buffer.from(b64, "base64");
+    fs.writeFileSync(path.join(OUT_DIR, name + ".mp3"), buf);
+    const key = name.replace(/^ffd-(sfx|music)-/, "$1-");
+    man.files = man.files.filter((f) => f.key !== key);
+    man.files.push({ file: name + ".mp3", key, kind: "music", bytes: buf.length, prompt });
+    wrote++;
+    console.log(`  ok ${name}.mp3 (${buf.length} bytes)`);
+    for (let i = 0; i < first.parts; i++) await fsDelete(`audio_${name}_c${i}`);
+  }
+  if (wrote === MUSIC2_JOBS.length) {
+    fs.writeFileSync(manPath, JSON.stringify(man, null, 2) + "\n");
+    await fsDelete("audio_status");
+    console.log("manifest updated (" + man.files.length + " files) — commit assets/audio/draft/");
+  } else { console.log("incomplete — re-run in a minute"); process.exit(3); }
+}
+
 function familySecret() {
   const src = fs.readFileSync(path.join(ROOT, "ffdraft.html"), "utf8");
   const m = /var FAMILY_PASSWORD = "([^"]+)"/.exec(src);
@@ -357,5 +408,7 @@ else if (mode === "--fire-announce") fireAnnounceTest();
 else if (mode === "--fire-teams") fireTeams();
 else if (mode === "--fire-players") firePlayers();
 else if (mode === "--fire-dst") fireDst();
+else if (mode === "--fire-music2") fireMusic2();
+else if (mode === "--collect-music2") collectMusic2();
 else if (mode === "--collect-tts") collectTts();
 else { console.log("usage: node tools/_gen-draft-audio.mjs --fire | --collect | --direct | --fire-tts | --collect-tts"); process.exit(1); }

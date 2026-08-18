@@ -1410,11 +1410,14 @@ async function sectionRehearse(browser) {
   // The COMMITTED ElevenLabs files actually decode and drive the room: all six
   // buffers load, and the live bed genuinely starts (WebAudio source started —
   // audibility needs a real human gesture, but the counters don't lie).
-  await page.waitForFunction(() => window.__DRAFT__.audioStat.files === 6, { timeout: 15000, polling: 200 });
-  ok(true, "all 6 generated audio files (4 stingers + 2 music beds) decode in the browser");
-  await page.waitForFunction(() => window.__DRAFT__.musicKey === "music-live", { timeout: 8000, polling: 200 });
+  // Restaged 2026-08-18: music tracks decode ON DEMAND (a decoded bed is
+  // ~35MB of RAM; the live set is now a multi-track rotation), so the upfront
+  // count is the four stingers and the playing track arrives right after.
+  await page.waitForFunction(() => window.__DRAFT__.audioStat.files >= 4, { timeout: 15000, polling: 200 });
+  ok(true, "the four stingers decode in the browser up front");
+  await page.waitForFunction(() => /^music-live/.test(window.__DRAFT__.musicKey || ""), { timeout: 10000, polling: 200 });
   ok(await page.evaluate(() => window.__DRAFT__.audioStat.musicStarts >= 1),
-    "…and the live-draft music bed is actually playing, on a loop");
+    "…and a live-draft bed from the rotation is actually playing");
 
   // --- the pick spotlight: every screen, then it flies to its cell ---
   await hook(page, () => window.__DRAFT__.setSpotTimings(340, 140));
