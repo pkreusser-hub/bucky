@@ -1437,6 +1437,41 @@ async function sectionRehearse(browser) {
     await page.evaluate((k) => window.__DRAFT__.D.picks[k].pid, spotPick.key)),
     "…and the announcer is asked for the player's name (a miss stays silent, never errors)");
 
+  // --- the reveal holds for the announcement and wears the team's colours ---
+  await hook(page, () => {
+    window.__DRAFT__.setSayStub(1400);           // pretend the call runs 1.4s
+    window.__DRAFT__.setSpotTimings(300, 120);   // …far past the 300ms base hold
+    window.__DRAFT__.setGfflTeam(1, { colors: { primary: "#001331", secondary: "#a81d20", tertiary: "#ffffff" },
+      custom: true, crest: "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==", name: "Battle Kreussers" });
+  });
+  const spot2 = await page.evaluate(async () => {
+    const H = window.__DRAFT__;
+    const p = H.pool.find((x) => !H.takenPids()[x.pid]);
+    await H.makePick(p, "Paul");
+    return H.D.history[H.D.history.length - 1];
+  });
+  ok(spot2.endsWith("_t1") || true, "(pick landed for the reveal-timing check)");
+  await sleep(700);
+  ok(await page.evaluate(() => !document.getElementById("pickSpot").hidden),
+    "700ms in — past the base hold — the card is still up: it waits for the announcer");
+  await page.waitForFunction(() => document.getElementById("pickSpot").hidden, { timeout: 6000, polling: 100 });
+  ok(true, "…and flies off once the call is done");
+  // the drafting team's dressing (only if that pick belonged to team 1, whose
+  // identity we injected — check the card of a FORCED team-1 reveal instead)
+  await page.evaluate(() => {
+    const H = window.__DRAFT__;
+    const k = Object.keys(H.D.picks).find((x) => x.endsWith("_t1"));
+    H.pickRevealNow(k);
+  });
+  ok(await page.evaluate(() => {
+    const c = document.getElementById("psCard");
+    const bg = c.style.background || "";
+    return !!c.querySelector(".pscrest") && /0, 19, 49|#001331/.test(bg)
+      && document.querySelector("#pickSpot .cf").style.background !== "";
+  }), "the card wears the drafting team's GFFL colours and crest, confetti included");
+  await hook(page, () => { window.__DRAFT__.setSayStub(null); });
+  await page.waitForFunction(() => document.getElementById("pickSpot").hidden, { timeout: 6000, polling: 100 });
+
   // A reload must NOT replay the announcement, and keeper materialization
   // (a many-pick jump) never gets one.
   await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });

@@ -481,6 +481,8 @@ body.tv #boardLegend{display:none}
 #psCard.pos-QB{border-top-color:var(--pos-QB)} #psCard.pos-RB{border-top-color:var(--pos-RB)}
 #psCard.pos-WR{border-top-color:var(--pos-WR)} #psCard.pos-TE{border-top-color:var(--pos-TE)}
 #psCard.pos-K{border-top-color:var(--pos-K)} #psCard.pos-DST{border-top-color:var(--pos-DST)}
+#psCard .pscrest{height:64px; max-width:150px; object-fit:contain; display:block; margin:0 auto 10px;
+  filter:drop-shadow(0 4px 10px rgba(0,0,0,.45))}
 #psCard .eyebrow{font-family:var(--disp); font-weight:700; font-size:13px; letter-spacing:3px; color:var(--gold)}
 #psCard .pk{font-family:var(--disp); font-weight:600; font-size:15px; color:var(--muted); margin-top:3px; letter-spacing:1px}
 #psCard h3{font-family:var(--disp); font-weight:700; font-size:clamp(30px,9vw,46px); line-height:1.04; color:#fff;
@@ -1671,12 +1673,17 @@ body.tv #boardLegend{display:none}
     // the anchor — a lead-in with nothing after it is worse than silence, so
     // with no player voice nothing plays; with no team clip the name stands
     // alone.
+    var sayStubMs = null;   // suite hook: pretend an announcement of this length played
     function announce(teamId, pid, delayMs) {
       stat.played["say:" + pid] = (stat.played["say:" + pid] || 0) + 1;
-      if (!soundOn || !ensureCtx()) return;
-      Promise.all([sayBuf("team-" + teamId), sayBuf(String(pid))]).then(function (bufs) {
+      if (sayStubMs != null) return Promise.resolve(sayStubMs);
+      if (!soundOn || !ensureCtx()) return Promise.resolve(0);
+      // Resolves with the announcement's total length in ms (0 = nothing will
+      // play) so the reveal card can hold the stage until the call is done.
+      return Promise.all([sayBuf("team-" + teamId), sayBuf(String(pid))]).then(function (bufs) {
         var team = bufs[0], player = bufs[1];
-        if (!player) return;
+        if (!player) return 0;
+        var teamDur = team ? Math.max(0, team.duration - 0.12) : 0;
         setTimeout(function () {
           if (!soundOn) return;
           try {
@@ -1685,18 +1692,69 @@ body.tv #boardLegend{display:none}
             if (team) {
               var a = audioCtx.createBufferSource();
               a.buffer = team; a.connect(g); a.start(t0);
-              t0 += Math.max(0, team.duration - 0.12);   // tiny overlap keeps it one breath
+              t0 += teamDur;   // tiny overlap keeps it one breath
             }
             var b = audioCtx.createBufferSource();
             b.buffer = player; b.connect(g); b.start(t0);
           } catch (e) {}
         }, delayMs || 0);
+        return Math.round((teamDur + player.duration) * 1000);
       });
     }
     return { play: play, music: music, loadAll: loadAll, announce: announce, stat: stat,
+      setSayStub: function (ms) { sayStubMs = ms; },
       get musicKey() { return musicKey; } };
   })();
   document.addEventListener("pointerdown", function () { DAudio.loadAll(); }, { once: true });
+
+  // ---------------- GFFL team identity (colors + crest) --------------------
+  // The reveal card dresses in the DRAFTING team's colours and crest, which
+  // live on the GFFL page's team docs (gffl_<famKey>/team_<id> — custom
+  // palettes and uploaded logos, same ESPN team ids as this room). Read-only,
+  // fetched once and cached 6h; any failure leaves {} and the card keeps its
+  // house style. Headless suites block googleapis, so they exercise exactly
+  // that fallback.
+  var gfflTeams = {}, gfflLoadState = null;
+  function loadGfflTeams() {
+    if (gfflLoadState || !D) return;
+    gfflLoadState = "loading";
+    var ck = "ffd_gteam1_" + FAMILY_KEY;
+    var c = lsGet(ck);
+    if (c && Date.now() - c.ts < 6 * 3600000) { gfflTeams = c.teams || {}; gfflLoadState = "done"; return; }
+    var base = "https://firestore.googleapis.com/v1/projects/amen-farms-app/databases/(default)/documents/gffl_" +
+      FAMILY_KEY + "/team_";
+    var KEY = "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU";
+    Promise.all(D.teams.map(function (t) {
+      return fetch(base + t.id + "?key=" + KEY).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (!j || !j.fields) return;
+          var f = j.fields;
+          var sv = function (k) { return (f[k] && f[k].stringValue) || ""; };
+          var colors = {};
+          if (f.colors && f.colors.mapValue) {
+            var cf = f.colors.mapValue.fields || {};
+            Object.keys(cf).forEach(function (k) { colors[k] = cf[k].stringValue || ""; });
+          }
+          gfflTeams[t.id] = {
+            colors: colors,
+            custom: !!(f.colorsCustom && f.colorsCustom.booleanValue),
+            crest: sv("logoData") || sv("logo"),
+            name: sv("name"),
+          };
+        }).catch(function () {});
+    })).then(function () {
+      gfflLoadState = "done";
+      lsSet(ck, { ts: Date.now(), teams: gfflTeams });
+    });
+  }
+  // Black or white ink for a given fill — relative luminance, nothing fancier.
+  function inkOn(hex) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(String(hex) || "");
+    if (!m) return "#fff";
+    var n = parseInt(m[1], 16);
+    var lum = (0.2126 * (n >> 16 & 255) + 0.7152 * (n >> 8 & 255) + 0.0722 * (n & 255)) / 255;
+    return lum > 0.55 ? "#10151f" : "#fff";
+  }
 
   // What the room should sound like right now. TV stays silent — it has no
   // toggle buttons, and a wall board that can't be muted is a trap.
@@ -1763,7 +1821,7 @@ body.tv #boardLegend{display:none}
   // with the pick number and the player, fanfare underneath, then it shrinks
   // and flies to its own cell on the board. The TV keeps its own spotlight.
   var SPOT_HOLD = 2600, SPOT_FLY = 680;   // suite shrinks these via the hook
-  var spotT1 = null, spotT2 = null, spotSeenKey = null;
+  var spotT1 = null, spotT2 = null, spotSeenKey = null, spotSeq = 0;
   // (named pickReveal, not spotlight — TV mode's own #tvSpot spotlight owns that name)
   function pickReveal(key) {
     if (TV) return;
@@ -1771,32 +1829,63 @@ body.tv #boardLegend{display:none}
     if (!p) return;
     var el = $("pickSpot"), card = $("psCard");
     clearTimeout(spotT1); clearTimeout(spotT2);
+    var mySeq = ++spotSeq;
     var slot = null;
     slotSeq(D).forEach(function (s) { if (s.key === key) slot = s; });
-    var t = teamById(D, Number(key.split("_t")[1]));
-    // confetti in the position palette — deterministic spread, no randomness
+    var teamId = Number(key.split("_t")[1]);
+    var t = teamById(D, teamId);
+    var gt = gfflTeams[teamId] || null;
+    var prim = gt && gt.colors && gt.colors.primary, sec = gt && gt.colors && gt.colors.secondary,
+        tert = gt && gt.colors && gt.colors.tertiary;
+    // confetti — in the drafting team's colours when the GFFL doc gave us
+    // some, the position palette otherwise; deterministic spread either way
+    var confColors = prim ? [prim, sec || prim, tert || "#ffb612"] : null;
     var conf = "";
     for (var i = 0; i < 26; i++) {
       conf += '<span class="cf" style="left:' + ((i * 137 + 11) % 100) + "%;background:" +
-        posColor(POS[i % POS.length]) + ";animation-duration:" + (1.7 + ((i * 53) % 12) / 10) +
+        (confColors ? confColors[i % confColors.length] : posColor(POS[i % POS.length])) +
+        ";animation-duration:" + (1.7 + ((i * 53) % 12) / 10) +
         "s;animation-delay:" + ((i * 29) % 10) / 12 + 's"></span>';
     }
     el.querySelector(".cfs").innerHTML = conf;
+    // The card wears the DRAFTING team's colours and crest (the GFFL page's
+    // own palette); a team without one keeps the house card.
     card.className = posClass(p.pos);
+    card.removeAttribute("style");
+    var rays = el.querySelector(".rays");
+    rays.removeAttribute("style");
+    var ink = "#fff";
+    if (prim) {
+      ink = inkOn(prim);
+      card.style.background = "linear-gradient(165deg," + prim + "," + (sec || "#0d1422") + ")";
+      card.style.borderTopColor = tert || sec || "#ffb612";
+      card.style.color = ink;
+      rays.style.background = "repeating-conic-gradient(" + (sec || prim) + "22 0 9deg, transparent 9deg 18deg)";
+    }
     card.innerHTML =
-      '<div class="eyebrow">THE PICK IS IN</div>' +
-      '<div class="pk">' + (slot ? "PICK " + esc(slot.label) : (p.keeper ? "KEEPER" : "")) + "</div>" +
-      "<h3>" + esc(p.name) + "</h3>" +
-      '<div class="sub">' + teamLogoImg(p.proTeam) + "<span>" + esc(p.pos) +
+      (gt && gt.crest ? '<img class="pscrest" src="' + esc(gt.crest) + '" alt="" onerror="this.remove()">' : "") +
+      '<div class="eyebrow"' + (tert && prim ? ' style="color:' + esc(tert) + '"' : "") + ">THE PICK IS IN</div>" +
+      '<div class="pk"' + (prim ? ' style="color:' + esc(ink) + ';opacity:.75"' : "") + ">" +
+      (slot ? "PICK " + esc(slot.label) : (p.keeper ? "KEEPER" : "")) + "</div>" +
+      "<h3" + (prim ? ' style="color:' + esc(ink) + '"' : "") + ">" + esc(p.name) + "</h3>" +
+      '<div class="sub"' + (prim ? ' style="color:' + esc(ink) + ';opacity:.85"' : "") + ">" + teamLogoImg(p.proTeam) + "<span>" + esc(p.pos) +
       (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span></div>" +
-      (t ? '<div class="team">' + (t.owner ? esc(t.owner.name) + " — " : "") + "<b>" + esc(t.name) + "</b></div>" : "");
+      (t ? '<div class="team"' + (prim ? ' style="color:' + esc(ink) + ';opacity:.8"' : "") + ">" +
+        (t.owner ? esc(t.owner.name) + " — " : "") + "<b" + (prim ? ' style="color:' + esc(ink) + '"' : "") + ">" +
+        esc(t.name) + "</b></div>" : "");
     card.style.transform = ""; card.style.opacity = "";
     el.classList.remove("fly"); card.classList.remove("fly");
     el.hidden = false;
-    // The announcer makes the call over the card — team lead-in, then the
-    // player (both only where clips exist; the reveal is silent otherwise).
-    DAudio.announce(Number(key.split("_t")[1]), p.pid, 500);
+    // The card holds the stage while the announcer makes the call — the fly-
+    // away waits for the audio to finish (plus a beat), and a silent pick
+    // keeps the plain hold.
     spotT1 = setTimeout(function () { revealFly(key, el, card); }, SPOT_HOLD);
+    DAudio.announce(teamId, p.pid, 500).then(function (durMs) {
+      if (mySeq !== spotSeq || !durMs) return;
+      clearTimeout(spotT1);
+      spotT1 = setTimeout(function () { revealFly(key, el, card); },
+        Math.max(SPOT_HOLD, 500 + durMs + 400));
+    });
   }
   function revealFly(key, el, card) {
     var cell = document.querySelector('#boardGrid .cell[data-key="' + key + '"]');
@@ -3083,6 +3172,7 @@ body.tv #boardLegend{display:none}
   }
 
   function renderAll() {
+    loadGfflTeams();
     renderHeader();
     renderBkBanner();
     renderCountdown();
@@ -3177,6 +3267,8 @@ body.tv #boardLegend{display:none}
     get audioStat() { return DAudio.stat; },
     get musicKey() { return DAudio.musicKey; },
     pickRevealNow: pickReveal,
+    setSayStub: function (ms) { DAudio.setSayStub(ms); },
+    setGfflTeam: function (id, obj) { gfflTeams[id] = obj; },
     setSpotTimings: function (hold, fly) { SPOT_HOLD = hold; SPOT_FLY = fly; },
     sendChat: sendChat,
     openPlayerCard: openPlayerCard,
