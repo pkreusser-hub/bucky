@@ -1386,6 +1386,14 @@ async function sectionRehearse(browser) {
     "…one tap turns it off and the choice sticks");
   await clickSafely(page, "#musicBtn");
   ok(await page.evaluate(() => localStorage.getItem("ffd_music") === "1"), "…and back on");
+  // The COMMITTED ElevenLabs files actually decode and drive the room: all six
+  // buffers load, and the live bed genuinely starts (WebAudio source started —
+  // audibility needs a real human gesture, but the counters don't lie).
+  await page.waitForFunction(() => window.__DRAFT__.audioStat.files === 6, { timeout: 15000, polling: 200 });
+  ok(true, "all 6 generated audio files (4 stingers + 2 music beds) decode in the browser");
+  await page.waitForFunction(() => window.__DRAFT__.musicKey === "music-live", { timeout: 8000, polling: 200 });
+  ok(await page.evaluate(() => window.__DRAFT__.audioStat.musicStarts >= 1),
+    "…and the live-draft music bed is actually playing, on a loop");
 
   // --- the pick spotlight: every screen, then it flies to its cell ---
   await hook(page, () => window.__DRAFT__.setSpotTimings(340, 140));
