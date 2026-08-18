@@ -63,8 +63,11 @@ async function poolTop(n) {
   return j.players.slice(0, n);   // the pool arrives in draft (rank) order
 }
 function sayJobs(players) {
+  // SAY_VOICE_ID (workflow input) bypasses the by-name lookup for keys without
+  // the "Voices: Read" permission.
   return players.map((p) => ({
     name: "ffd-say-" + p.pid, kind: "tts", voice: "James", model: "eleven_v3",
+    voice_id: process.env.SAY_VOICE_ID || undefined,
     prompt: p.name, pid: p.pid, player: p.name,
   }));
 }

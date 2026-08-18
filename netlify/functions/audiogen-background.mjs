@@ -83,7 +83,9 @@ async function runJobs(body) {
     try {
       let buf;
       if (job.kind === "tts") {
-        const vid = await voiceIdByName(key, job.voice || "James");
+        // An explicit voice_id skips the lookup — /v1/voices needs its own key
+        // permission ("Voices: Read") that a scoped key may not carry.
+        const vid = job.voice_id || await voiceIdByName(key, job.voice || "James");
         buf = await xiAudio(key, "/text-to-speech/" + vid, {
           text: String(job.prompt).slice(0, 300),
           model_id: job.model || "eleven_v3",
