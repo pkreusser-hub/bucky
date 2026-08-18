@@ -70,6 +70,20 @@
       "kind": "music",
       "bytes": 1760907,
       "prompt": "pulsing synthwave sports bed, analog arpeggios, steady four-on-the-floor, neon late-night energy, background music, instrumental, seamless loop"
+    },
+    {
+      "file": "ffd-music-live7.mp3",
+      "key": "music-live7",
+      "kind": "music",
+      "bytes": 1840319,
+      "prompt": "cinematic NFL Films orchestral bed, thundering field drums and bold french horn theme, soaring strings, slow heroic build, mythic gridiron swagger, background music, instrumental, seamless loop"
+    },
+    {
+      "file": "ffd-music-live8.mp3",
+      "key": "music-live8",
+      "kind": "music",
+      "bytes": 1760071,
+      "prompt": "driving stadium rock bed, gritty riff-led electric guitars, stomping four-count drums, hand-clap accents, big confident arena strut kept under conversation, background music, instrumental, seamless loop"
     }
   ]
 }
