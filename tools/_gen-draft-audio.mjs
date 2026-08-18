@@ -82,6 +82,45 @@ async function fireTts() {
   console.log("fire ->", res.status, res.status === 202 ? "(generating in the background)" : await res.text());
   if (res.status !== 202) process.exit(1);
 }
+// ---- team lead-ins: "The <team> select..." ---------------------------------
+// One clip per ESPN team, stitched in front of the player clip at play time.
+// Spellings here are PHONETIC where the real name would misread — they are for
+// the announcer's mouth, never for the screen.
+const TEAM_PHONETIC = {
+  "Battle Kreussers": "The Battle Kruzers select",
+  "Elanikan Skywalkers": "The Elanikin Skywalkers select",
+  "The GOAT Kids": "The Goat Kids select",   // caps would risk G-O-A-T
+};
+function teamLeadText(name) {
+  const clean = String(name).replace(/\s+/g, " ").trim();
+  if (TEAM_PHONETIC[clean]) return TEAM_PHONETIC[clean];
+  if (/^the /i.test(clean)) return clean + " select";
+  if (/s$/i.test(clean)) return "The " + clean + " select";
+  return clean + " selects";   // singular-collective names ("Kruz Control")
+}
+async function fireTeams() {
+  const res0 = await fetch(SPORTS_FN, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: familySecret(), action: "ff_draftinfo" }),
+  });
+  const info = await res0.json();
+  if (!info || !info.ok || !Array.isArray(info.teams)) throw new Error("ff_draftinfo failed");
+  const jobs = info.teams.map((t) => ({
+    name: "ffd-say-team-" + t.id, kind: "tts", voice: "James", model: "eleven_v3",
+    voice_id: process.env.SAY_VOICE_ID || undefined,
+    prompt: "[excitedly] " + teamLeadText(t.name) + "...",
+  }));
+  jobs.forEach((j) => console.log(" ", j.name, "→", j.prompt));
+  const res = await fetch(FN, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: familySecret(), jobs }),
+  });
+  console.log("fire ->", res.status, res.status === 202 ? "(generating)" : await res.text());
+  if (res.status !== 202) process.exit(1);
+}
+
 // One-off audition clip for the full announcement format — listen at
 // /assets/audio/draft/say/test-announce.mp3 once collected and committed.
 async function fireAnnounceTest() {
@@ -230,5 +269,6 @@ else if (mode === "--collect") collect();
 else if (mode === "--direct") direct();
 else if (mode === "--fire-tts") fireTts();
 else if (mode === "--fire-announce") fireAnnounceTest();
+else if (mode === "--fire-teams") fireTeams();
 else if (mode === "--collect-tts") collectTts();
 else { console.log("usage: node tools/_gen-draft-audio.mjs --fire | --collect | --direct | --fire-tts | --collect-tts"); process.exit(1); }
