@@ -9569,7 +9569,11 @@ async function openDetails(page, id) {
         // page under any spelling is still caught the way a browser would apply it. Any
         // property outside transform/opacity would risk layout on a row whose height must
         // never move.
-        const kfNames = ["gfflFireGlow", "gfflFireDrift", "gfflEmberRise"];
+        // RESTAGED 2026-08-17 (same day): gfflFireDrift is gone — the user called the shipped
+        // scallop-drift cut "rolling lava", and the redesign draws SVG tongue strips that lick
+        // UPWARD on three phase-shifted timelines (LickA/B/C) instead of drifting sideways.
+        // The property discipline being checked is unchanged; only the roster of names is.
+        const kfNames = ["gfflFireGlow", "gfflLickA", "gfflLickB", "gfflLickC", "gfflEmberRise"];
         const kfMissing = [], kfBad = {};
         for (const n of kfNames) {
           const rule = css.find((r) => r.type === CSSRule.KEYFRAMES_RULE && r.name === n);
@@ -9583,17 +9587,34 @@ async function openDetails(page, id) {
           }
           kfBad[n] = bad;
         }
-        // (b) geometry on the tier-4 row, and (c) .fembers per tier.
+        // (b) geometry on the tier-4 row, and (c) the fire's real children per tier.
+        // RESTAGED 2026-08-17 (same day, the lava→licking redesign): the layers are no longer
+        // thin-band ELEMENTS — all four are inset:0 and the flame strip lives in a
+        // bottom-anchored background-size instead, because scaleY licking needs
+        // transform-origin at the row's bottom with the element's own box full-height. So the
+        // "thin band, not a wash" truth moved from element height to strip height, and a
+        // second child (.fflames, the orange mid layer) joined .fembers.
         const row4 = document.querySelector('.pcellgrid[data-loot="4"]');
         const csRow = row4 && getComputedStyle(row4);
         const csBefore = row4 && getComputedStyle(row4, "::before");
         const csAfter = row4 && getComputedStyle(row4, "::after");
         const fembersEl = row4 && row4.querySelector(".fembers");
         const csFembers = fembersEl && getComputedStyle(fembersEl);
-        const tierFembers = {};
+        const fflamesEl = row4 && row4.querySelector(".fflames");
+        const csFflames = fflamesEl && getComputedStyle(fflamesEl);
+        // The drawn strip height per layer, parsed from the computed background-size ("auto
+        // 20px" / "auto 15px, 100% 100%" — the flame strip is always the FIRST image layer).
+        const stripPx = (cs) => {
+          if (!cs) return null;
+          const m = cs.backgroundSize.split(",")[0].match(/([\d.]+)px/);
+          return m ? parseFloat(m[1]) : null;
+        };
+        const strips = { back: stripPx(csBefore), mid: stripPx(csFflames), core: stripPx(csAfter) };
+        const tierFembers = {}, tierFflames = {};
         for (const t of [1, 2, 3, 4]) {
           const r = document.querySelector('.pcellgrid[data-loot="' + t + '"]');
           tierFembers[t] = !!(r && r.querySelector(".fembers"));
+          tierFflames[t] = !!(r && r.querySelector(".fflames"));
         }
         // (d) CONTRAST ARITHMETIC, hand-computed from the fixture: pull the glow gradient's own
         // stops out of the CSSOM (not retyped as constants here), linearly interpolate the alpha
@@ -9632,27 +9653,33 @@ async function openDetails(page, id) {
         return {
           kfMissing, kfBad,
           rowPosition: csRow && csRow.position, rowOverflow: csRow && csRow.overflow,
-          afterHeight: csAfter ? parseFloat(csAfter.height) : null,
+          strips,
           beforePE: csBefore && csBefore.pointerEvents, afterPE: csAfter && csAfter.pointerEvents,
-          fembersPE: csFembers && csFembers.pointerEvents,
-          beforeZ: csBefore && csBefore.zIndex, afterZ: csAfter && csAfter.zIndex, fembersZ: csFembers && csFembers.zIndex,
-          tierFembers, stopCount: stops.length, glowAt50, composite, nameCr,
+          fembersPE: csFembers && csFembers.pointerEvents, fflamesPE: csFflames && csFflames.pointerEvents,
+          beforeZ: csBefore && csBefore.zIndex, afterZ: csAfter && csAfter.zIndex,
+          fembersZ: csFembers && csFembers.zIndex, fflamesZ: csFflames && csFflames.zIndex,
+          tierFembers, tierFflames, stopCount: stops.length, glowAt50, composite, nameCr,
         };
       }, {});
       ok(!!fire, "the ?demo=loot board renders a fire fixture to inspect");
       if (fire) {
-        ok(fire.kfMissing.length === 0, "gfflFireGlow / gfflFireDrift / gfflEmberRise all exist as real @keyframes (missing: " + JSON.stringify(fire.kfMissing) + ")");
+        ok(fire.kfMissing.length === 0, "gfflFireGlow / gfflLickA/B/C / gfflEmberRise all exist as real @keyframes (missing: " + JSON.stringify(fire.kfMissing) + ")");
         const kfBadList = Object.entries(fire.kfBad || {}).filter(([, arr]) => arr.length).map(([n, arr]) => n + ":" + arr.join(","));
         ok(kfBadList.length === 0, "…and every one of them animates ONLY transform and/or opacity — nothing that can move layout (" + JSON.stringify(kfBadList) + ")");
         ok(fire.rowPosition === "relative" && fire.rowOverflow === "hidden", "the Legendary row gets position:relative + overflow:hidden for its fire layers (" + fire.rowPosition + " / " + fire.rowOverflow + ")");
-        ok(fire.afterHeight != null && fire.afterHeight <= 16, "the flame-tongue strip (::after) is a thin band along the bottom edge, not a wash (" + fire.afterHeight + "px ≤ 16)");
-        ok(fire.beforePE === "none" && fire.afterPE === "none" && fire.fembersPE === "none",
-          "every fire layer is pointer-events:none — the row stays fully clickable through the flames (" + JSON.stringify([fire.beforePE, fire.afterPE, fire.fembersPE]) + ")");
-        ok(fire.beforeZ === "-1" && fire.afterZ === "-1" && fire.fembersZ === "-1",
-          "…and z-index:-1 on all three — the fire is painted BEHIND the row's own text by construction (" + JSON.stringify([fire.beforeZ, fire.afterZ, fire.fembersZ]) + ")");
-        ok(fire.tierFembers && fire.tierFembers[4] === true, ".fembers exists in the tier-4 (Legendary) row");
-        ok(fire.tierFembers && fire.tierFembers[1] === false && fire.tierFembers[2] === false && fire.tierFembers[3] === false,
-          "…and in NONE of the other three rungs (" + JSON.stringify(fire.tierFembers) + ")");
+        // The drawn flame strips: a thin band along the bottom, not a wash — and the depth
+        // order IS the design (tall red behind, mid orange, short bright core in front).
+        ok(fire.strips && fire.strips.back != null && fire.strips.mid != null && fire.strips.core != null
+          && fire.strips.back <= 20 && fire.strips.back > fire.strips.mid && fire.strips.mid > fire.strips.core,
+          "the three tongue strips stay a bottom band (back ≤ 20px) in strict back > mid > core depth order (" + JSON.stringify(fire.strips) + ")");
+        ok(fire.beforePE === "none" && fire.afterPE === "none" && fire.fembersPE === "none" && fire.fflamesPE === "none",
+          "every fire layer is pointer-events:none — the row stays fully clickable through the flames (" + JSON.stringify([fire.beforePE, fire.afterPE, fire.fflamesPE, fire.fembersPE]) + ")");
+        ok(fire.beforeZ === "-1" && fire.afterZ === "-1" && fire.fembersZ === "-1" && fire.fflamesZ === "-1",
+          "…and z-index:-1 on all four — the fire is painted BEHIND the row's own text by construction (" + JSON.stringify([fire.beforeZ, fire.afterZ, fire.fflamesZ, fire.fembersZ]) + ")");
+        ok(fire.tierFembers && fire.tierFembers[4] === true && fire.tierFflames && fire.tierFflames[4] === true,
+          ".fembers and .fflames both exist in the tier-4 (Legendary) row");
+        ok(fire.tierFembers && [1, 2, 3].every((t) => fire.tierFembers[t] === false && fire.tierFflames[t] === false),
+          "…and in NONE of the other three rungs (" + JSON.stringify({ embers: fire.tierFembers, flames: fire.tierFflames }) + ")");
         ok(fire.stopCount >= 3, "the glow gradient's own colour stops were readable from the CSSOM, not assumed (" + fire.stopCount + ")");
         ok(fire.nameCr !== null && fire.nameCr >= 4.5,
           "…the glow, hand-interpolated at 50% of row height and composited over the card, still clears AA for the player NAME ink (" + (fire.nameCr || 0).toFixed(2) + ":1)");
@@ -9664,14 +9691,17 @@ async function openDetails(page, id) {
       const reduced = await evalOr(page, () => {
         const row4 = document.querySelector('.pcellgrid[data-loot="4"]');
         const fembersEl = row4 && row4.querySelector(".fembers");
+        const fflamesEl = row4 && row4.querySelector(".fflames");
         return {
           beforeAnim: row4 && getComputedStyle(row4, "::before").animationName,
           afterAnim: row4 && getComputedStyle(row4, "::after").animationName,
           fembersAnim: fembersEl && getComputedStyle(fembersEl).animationName,
+          fflamesAnim: fflamesEl && getComputedStyle(fflamesEl).animationName,
         };
       }, {});
-      ok(!!reduced && reduced.beforeAnim === "none" && reduced.afterAnim === "none" && reduced.fembersAnim === "none",
-        "prefers-reduced-motion: reduce turns off all three fire animations on the row (" + JSON.stringify(reduced) + ")");
+      ok(!!reduced && reduced.beforeAnim === "none" && reduced.afterAnim === "none"
+        && reduced.fembersAnim === "none" && reduced.fflamesAnim === "none",
+        "prefers-reduced-motion: reduce turns off all four fire animations on the row (" + JSON.stringify(reduced) + ")");
       await page.emulateMediaFeatures([]);
 
       if (SHOTS) {

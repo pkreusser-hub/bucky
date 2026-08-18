@@ -843,49 +843,73 @@
      PERF: the row's height must never move (the "exactly even height for every player" rule),
      so every animation below touches ONLY transform and/or opacity — nothing that can ever
      trigger layout, on ANY of the three layers.
-     --gffl-fp is the flame tongues' base period in px — ONE value drives every gradient tile
-     size and the drift distance, so the tiles and the drift keyframe can't drift apart from
-     each other. THE SEAMLESS-LOOP INVARIANT: every layer's period must divide the per-loop
-     drift distance exactly. The drift is 3 x --gffl-fp, and the three layers are tiled at
-     fp/2 (yellow core), fp (orange), and 1.5fp (deep-orange backdrop) — 6, 3 and 2 whole
-     tiles per loop. The mixed periods are the POLISH, not decoration: a single period made
-     the desktop row read as a uniform awning fringe on the first plates (26px of silhouette
-     repeated 20+ times across 520px); with a 1.5fp layer beating against the fp layer the
-     combined silhouette only repeats every 3fp = 78px, which is what makes it read as flame.
-     The scaleY flicker rides intermediate keyframes of the SAME animation (an element gets
-     one transform timeline; translateX stays linear across those frames by advancing it
-     3fp x the frame's own percentage). Mobile gets a smaller --gffl-fp — a flame the same
-     ~7 fingers wide as the phone row reads as fire; the desktop period stretched across a
-     wider row would just look like a slow, mushy wave — and its own faster duration, because
-     px/s is what the eye reads and 51px at the desktop duration would crawl. */
-  .pcellgrid[data-loot="4"] { position:relative; overflow:hidden; isolation:isolate; --gffl-fp:26px; }
-  @keyframes gfflFireGlow { from { opacity:.65; } to { opacity:1; } }
+     THE TONGUES ARE DRAWN, NOT COMPUTED (2026-08-17, user: "looks more like rolling lava, we
+     need actual flames licking up with shades of red, orange and yellow" — killing the first
+     shipped cut, whose radial-gradient scallops drifting sideways were exactly lava's grammar).
+     A flame silhouette needs tapered tips and irregular tongue heights, which round gradient
+     stops cannot draw; each layer is an SVG strip (inline data URI, ~1KB) of bezier tongues
+     with its own base-to-tip vertical gradient. Three depths, back to front:
+       ::before   red back-glow tongues (tallest, darkest, slowest flicker) + the glow bed
+       .fflames   orange mid tongues
+       ::after    yellow-to-cream core tongues (shortest, brightest, fastest)
+     with .fembers rising between the orange and yellow layers. Same z-index:-1 on all four;
+     tree order (::before, children in DOM order, ::after) is what stacks them, so the markup
+     order of .fflames/.fembers in halfCell() is LOAD-BEARING. Motion is upward now — scaleY
+     licks + a small skewX sway, transform-origin:bottom, three different durations with
+     negative delays so the layers never breathe in unison; that phase disagreement, not any
+     one layer's motion, is what reads as licking. No horizontal drift → no seamless-drift
+     invariant any more; the strips tile statically, so each SVG only needs its left and right
+     edges to meet at the same y (they do: every strip enters and exits at its trough height).
+     Tile widths 64/52/44px are deliberately coprime-ish so the combined silhouette repeats
+     on the order of the row width, not every tongue — the anti-awning-fringe lesson from the
+     scallop cut, carried forward. background-size:auto 100% scales tongue width with the
+     shorter mobile layer heights, keeping the flame's aspect instead of squashing it. */
+  .pcellgrid[data-loot="4"] { position:relative; overflow:hidden; isolation:isolate; }
+  @keyframes gfflFireGlow { from { opacity:.7; } to { opacity:1; } }
+  @keyframes gfflLickA {
+    0%, 100% { transform:scaleY(1) skewX(0); }
+    32%      { transform:scaleY(1.07) skewX(1.2deg); }
+    58%      { transform:scaleY(.95) skewX(-.8deg); }
+    82%      { transform:scaleY(1.04) skewX(.6deg); }
+  }
+  @keyframes gfflLickB {
+    0%, 100% { transform:scaleY(1) skewX(0); }
+    27%      { transform:scaleY(1.14) skewX(-1.6deg); }
+    52%      { transform:scaleY(.92) skewX(1.2deg); }
+    78%      { transform:scaleY(1.08) skewX(-.7deg); }
+  }
+  @keyframes gfflLickC {
+    0%, 100% { transform:scaleY(1) skewX(0); opacity:.95; }
+    24%      { transform:scaleY(1.2) skewX(1.8deg); opacity:1; }
+    49%      { transform:scaleY(.88) skewX(-1.4deg); opacity:.85; }
+    76%      { transform:scaleY(1.1) skewX(.9deg); opacity:1; }
+  }
   .pcellgrid[data-loot="4"]::before {
     content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
-    background:linear-gradient(to top, rgba(255,84,0,.26) 0%, rgba(255,110,20,.10) 34%, rgba(255,128,0,0) 58%);
-    animation:gfflFireGlow 1.7s ease-in-out infinite alternate;
+    transform-origin:bottom;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 20'%3E%3ClinearGradient id='g' x1='0' y1='1' x2='0' y2='0'%3E%3Cstop offset='0' stop-color='%239e1c00'/%3E%3Cstop offset='1' stop-color='%23e84c00'/%3E%3C/linearGradient%3E%3Cpath fill='url(%23g)' d='M0,20 L0,17 Q3,15 5,9 Q6,4 7,8 Q8,12 11,14 Q14,15.5 16,11 Q17,7 18,3 Q19,.5 20,4 Q21,8 23,12 Q26,15 29,13 Q31,11 32,7 Q33,3.5 34,7 Q35,11 38,14 Q42,16.5 45,12 Q46,9 47,5 Q48,1.5 49,5 Q50,9 52,13 Q55,16 58,14 Q60,12.5 61,15 Q62,17 64,17 L64,20 Z'/%3E%3C/svg%3E"),
+      linear-gradient(to top, rgba(255,84,0,.26) 0%, rgba(255,110,20,.10) 34%, rgba(255,128,0,0) 58%);
+    background-repeat:repeat-x, no-repeat;
+    background-position:0 100%, 0 0;
+    background-size:auto var(--gffl-fh-back, 20px), 100% 100%;
+    animation:gfflFireGlow 1.7s ease-in-out infinite alternate,
+              gfflLickA 2.3s ease-in-out infinite;
   }
-  @keyframes gfflFireDrift {
-    0%   { transform:translateX(0) scaleY(1); }
-    14%  { transform:translateX(calc(var(--gffl-fp) * .42)) scaleY(1.10); }
-    32%  { transform:translateX(calc(var(--gffl-fp) * .96)) scaleY(.95); }
-    47%  { transform:translateX(calc(var(--gffl-fp) * 1.41)) scaleY(1.06); }
-    63%  { transform:translateX(calc(var(--gffl-fp) * 1.89)) scaleY(.93); }
-    81%  { transform:translateX(calc(var(--gffl-fp) * 2.43)) scaleY(1.08); }
-    100% { transform:translateX(calc(var(--gffl-fp) * 3)) scaleY(1); }
+  .pcellgrid[data-loot="4"] .fflames {
+    position:absolute; inset:0; z-index:-1; pointer-events:none; transform-origin:bottom;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 52 20'%3E%3ClinearGradient id='g' x1='0' y1='1' x2='0' y2='0'%3E%3Cstop offset='0' stop-color='%23d95400'/%3E%3Cstop offset='1' stop-color='%23ffa03c'/%3E%3C/linearGradient%3E%3Cpath fill='url(%23g)' d='M0,20 L0,16 Q2,14 4,10 Q5,6 6,9 Q8,13 10,14 Q13,15 15,10 Q16,6 17,9 Q18,12 21,14 Q24,15.5 26,12 Q27,9 28,5 Q29,2 30,6 Q31,10 34,13 Q37,15 40,13 Q42,11 43,8 Q44,5 45,8 Q46,12 49,14 Q51,15 52,16 L52,20 Z'/%3E%3C/svg%3E");
+    background-repeat:repeat-x; background-position:0 100%;
+    background-size:auto var(--gffl-fh-mid, 15px);
+    animation:gfflLickB 1.6s ease-in-out -0.4s infinite;
   }
   .pcellgrid[data-loot="4"]::after {
-    content:""; position:absolute; left:-50%; bottom:0; width:200%; height:15px; z-index:-1;
-    pointer-events:none; transform-origin:bottom; background-repeat:repeat-x;
-    background-image:
-      radial-gradient(circle at 50% 168%, #ffc04d 0, #ffc04d calc(var(--gffl-fp) * .26), transparent calc(var(--gffl-fp) * .38)),
-      radial-gradient(circle at 50% 148%, #ff8000 0, #ff8000 calc(var(--gffl-fp) * .40), transparent calc(var(--gffl-fp) * .56)),
-      radial-gradient(circle at 50% 150%, #e85d00 0, #e85d00 calc(var(--gffl-fp) * .62), transparent calc(var(--gffl-fp) * .84));
-    background-size:calc(var(--gffl-fp) / 2) 100%, var(--gffl-fp) 100%, calc(var(--gffl-fp) * 1.5) 100%;
-    background-position:calc(var(--gffl-fp) / 4) 0, 0 0, calc(var(--gffl-fp) * .75) 0;
-    -webkit-mask-image:linear-gradient(to top, #000 30%, transparent);
-            mask-image:linear-gradient(to top, #000 30%, transparent);
-    animation:gfflFireDrift 7.8s linear infinite;
+    content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    transform-origin:bottom;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 20'%3E%3ClinearGradient id='g' x1='0' y1='1' x2='0' y2='0'%3E%3Cstop offset='0' stop-color='%23ff9d1e'/%3E%3Cstop offset='1' stop-color='%23ffe89a'/%3E%3C/linearGradient%3E%3Cpath fill='url(%23g)' d='M0,20 L0,17.5 Q2,16 3,13 Q4,10 5,12 Q6,15 8,16 Q10,16.5 12,14 Q13,12 14,9 Q15,7 16,10 Q17,13 19,15 Q22,16.5 24,15 Q25,13 26,11 Q27,8.5 28,11 Q29,14 31,15.5 Q34,17 36,15 Q37,13.5 38,12 Q39,10 40,12.5 Q41,15 42,16.5 Q43,17.5 44,17.5 L44,20 Z'/%3E%3C/svg%3E");
+    background-repeat:repeat-x; background-position:0 100%;
+    background-size:auto var(--gffl-fh-core, 10px);
+    animation:gfflLickC 1.15s ease-in-out -0.7s infinite;
   }
   @keyframes gfflEmberRise {
     0%   { transform:translateY(0); opacity:.85; }
@@ -906,12 +930,14 @@
     animation:gfflEmberRise 2.8s linear infinite;
   }
   @media (max-width:1023px) {
-    .pcellgrid[data-loot="4"] { --gffl-fp:17px; }
-    .pcellgrid[data-loot="4"]::after { height:12px; animation-duration:5.2s; }
+    /* Shorter layers on the ~34px phone row — same 20/15/10 depth ORDER, scaled. The tile
+       width follows via background-size:auto, so tongues narrow with the row instead of
+       squashing. */
+    .pcellgrid[data-loot="4"] { --gffl-fh-back:14px; --gffl-fh-mid:10px; --gffl-fh-core:7px; }
   }
   @media (prefers-reduced-motion: reduce) {
     .pcellgrid[data-loot="4"]::before, .pcellgrid[data-loot="4"]::after,
-    .pcellgrid[data-loot="4"] .fembers { animation:none; }
+    .pcellgrid[data-loot="4"] .fflames, .pcellgrid[data-loot="4"] .fembers { animation:none; }
     .pcellgrid[data-loot="4"]::before { opacity:.8; }
   }
   @media (max-width:1023px) {

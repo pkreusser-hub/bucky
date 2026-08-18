@@ -4641,3 +4641,37 @@ otherwise always render frame 0), cropped to the row + its neighbours and as a f
 card, at 390px and 1280px. The flame reads as flame at both sizes without touching the name or
 score's legibility.
 ---
+
+## 🔥 GFFL — THE FIRE IS DRAWN, NOT COMPUTED (2026-08-17, same day: "looks more like rolling lava")
+
+The scallop-drift cut above shipped and the user killed it on sight: radial-gradient bumps
+drifting SIDEWAYS are lava's grammar. Fire's grammar is vertical — tapered tongues, irregular
+heights, licking UP, shaded red at the base through orange to a yellow-cream core. Round
+gradient stops cannot draw a tapered tip, so the redesign stops computing the silhouette and
+draws it: each layer is an inline-SVG strip (~1KB data URI) of bezier tongues carrying its own
+base-to-tip vertical gradient.
+
+**Four layers now, and the stacking is tree-order, which makes halfCell()'s markup order
+LOAD-BEARING** (all four share z-index:-1; ::before, then children in DOM order, then ::after):
+
+    ::before   red back tongues (#9e1c00→#e84c00, 20px strip) + the glow bed, slow lick
+    .fflames   orange mid tongues (#d95400→#ffa03c, 15px), medium lick        } real children,
+    .fembers   the rising embers, unchanged                                    } THIS order
+    ::after    yellow-cream core tongues (#ff9d1e→#ffe89a, 10px), fastest lick
+
+**Motion**: no horizontal drift at all any more. gfflLickA/B/C are scaleY licks + a small
+skewX sway, transform-origin:bottom, at 2.3s/1.6s/1.15s with negative delays — the PHASE
+DISAGREEMENT between layers is what reads as licking, not any one layer's motion. All still
+transform/opacity only; the CSSOM walk in the suite is unchanged in what it forbids.
+
+**Geometry restage (same-day, reason at the check)**: the layers are inset:0 full-height
+elements now — scaleY from the bottom needs the element's own box — so the "thin band, not a
+wash" assertion moved from element height to the drawn strip height in background-size, plus
+a new depth-order assertion (back 20 > mid 15 > core 10, mobile 14/10/7). The seamless-drift
+invariant died with the drift; tiling is static, each strip's edges meet at its trough height,
+and the 64/52/44px tile widths keep the anti-awning-fringe lesson from the scallop cut.
+
+The glow bed, its contrast arithmetic (the suite interpolates the gradient's own stops at 50%
+row height and composites over the card), reduced-motion, and the embers all carried over
+untouched.
+---
