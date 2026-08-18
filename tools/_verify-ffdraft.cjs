@@ -1415,6 +1415,9 @@ async function sectionRehearse(browser) {
   }, spotPick.key), "…then it shrinks away and its board cell flashes the landing");
   ok(await page.evaluate(() => window.__DRAFT__.sndLog.includes("pick")),
     "…with the fanfare trigger on the trail");
+  ok(await page.evaluate((pid) => (window.__DRAFT__.audioStat.played["say:" + pid] || 0) >= 1,
+    await page.evaluate((k) => window.__DRAFT__.D.picks[k].pid, spotPick.key)),
+    "…and the announcer is asked for the player's name (a miss stays silent, never errors)");
 
   // A reload must NOT replay the announcement, and keeper materialization
   // (a many-pick jump) never gets one.

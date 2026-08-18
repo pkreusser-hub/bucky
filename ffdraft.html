@@ -1651,7 +1651,34 @@ body.tv #boardLegend{display:none}
       if (musicSrc) { try { musicSrc.stop(); } catch (e) {} stat.musicStops++; }
       musicSrc = null; musicKey = null;
     }
-    return { play: play, music: music, loadAll: loadAll, stat: stat,
+    // Player-name announcements (ElevenLabs TTS, one small mp3 per pid under
+    // say/). Fetched lazily on the pick — most of the pool is never drafted —
+    // and a miss is cached so an unvoiced player costs one 404, once, silently.
+    var sayCache = {};
+    function sayName(pid, delayMs) {
+      stat.played["say:" + pid] = (stat.played["say:" + pid] || 0) + 1;
+      if (!soundOn || !ensureCtx()) return;
+      var hit = sayCache[pid];
+      if (hit === false) return;
+      var p = hit ? Promise.resolve(hit)
+        : fetch(BASE + "say/" + pid + ".mp3").then(function (r) {
+            if (!r.ok) throw new Error("no voice");
+            return r.arrayBuffer();
+          }).then(function (ab) { return audioCtx.decodeAudioData(ab); })
+          .then(function (buf) { sayCache[pid] = buf; return buf; });
+      p.then(function (buf) {
+        setTimeout(function () {
+          if (!soundOn) return;
+          try {
+            var src = audioCtx.createBufferSource(), g = audioCtx.createGain();
+            src.buffer = buf; g.gain.value = 1;
+            src.connect(g); g.connect(audioCtx.destination);
+            src.start();
+          } catch (e) {}
+        }, delayMs || 0);
+      }).catch(function () { sayCache[pid] = false; });
+    }
+    return { play: play, music: music, loadAll: loadAll, sayName: sayName, stat: stat,
       get musicKey() { return musicKey; } };
   })();
   document.addEventListener("pointerdown", function () { DAudio.loadAll(); }, { once: true });
@@ -1759,6 +1786,9 @@ body.tv #boardLegend{display:none}
     card.style.transform = ""; card.style.opacity = "";
     el.classList.remove("fly"); card.classList.remove("fly");
     el.hidden = false;
+    // The announcer reads the name just after the fanfare hit (players with a
+    // generated voice file only — everyone else's reveal is just the fanfare).
+    DAudio.sayName(p.pid, 900);
     spotT1 = setTimeout(function () { revealFly(key, el, card); }, SPOT_HOLD);
   }
   function revealFly(key, el, card) {
