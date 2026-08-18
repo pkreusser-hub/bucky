@@ -1880,6 +1880,10 @@ body.tv #boothBar .btxt{font-size:16.5px}
   // belongs to the humans. Only the commissioner's device generates; every
   // device renders. Good-natured smack talk is the brief; the system prompt
   // carries the guardrails.
+  // SHELVED 2026-08-18 (user call): Billy stays wired but gated off — no
+  // generation, no bar — until someone flips this. The suite enables it
+  // through the hook so the machinery stays proven while dormant.
+  var BOOTH_ENABLED = false;
   var FARMGPT_FN = "/.netlify/functions/farmgpt";
   var BOOTH_KEY = "ffd_localbooth_" + SEASON;
   var boothItems = [], boothShownTs = 0, boothHideTimer = null;
@@ -1905,7 +1909,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
   function renderBooth() {
     var el = $("boothBar");
     var last = boothItems.length ? boothItems[boothItems.length - 1] : null;
-    if (!last || !D) { el.hidden = true; return; }
+    if (!BOOTH_ENABLED || !last || !D) { el.hidden = true; return; }
     if (last.ts !== boothShownTs) {
       boothShownTs = last.ts;
       $("boothText").textContent = last.text;
@@ -1917,7 +1921,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
   }
   // The generator: watches the same doc every render already watches.
   function watchBooth() {
-    if (!D || TV || !isCommish(D)) return;
+    if (!BOOTH_ENABLED || !D || TV || !isCommish(D)) return;
     var picks = (D.history || []).length;
     var cur = { phase: D.phase, picks: picks };
     if (!boothPrev) { boothPrev = cur; return; }   // seed on reload — no replay
@@ -1967,7 +1971,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
     };
   }
   function boothFire(focus, force) {
-    if (boothBusy || !D) return Promise.resolve();
+    if (!BOOTH_ENABLED || boothBusy || !D) return Promise.resolve();
     if (!force && Date.now() - boothLastAt < boothCooldownMs * 0.5) return Promise.resolve();
     boothBusy = true; boothLastAt = Date.now();
     var body = {
@@ -3555,6 +3559,8 @@ body.tv #boothBar .btxt{font-size:16.5px}
     setSayMeta: function (m) { DAudio.setSayMeta(m); },
     setGfflTeam: function (id, obj) { gfflTeams[id] = obj; },
     get boothItems() { return boothItems; },
+    get boothEnabled() { return BOOTH_ENABLED; },
+    setBoothEnabled: function (v) { BOOTH_ENABLED = !!v; renderBooth(); },
     boothFire: boothFire,
     setBoothCooldown: function (ms) { boothCooldownMs = ms; },
     setSpotTimings: function (hold, fly) { SPOT_HOLD = hold; SPOT_FLY = fly; },

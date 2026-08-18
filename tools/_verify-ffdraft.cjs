@@ -1588,8 +1588,17 @@ async function sectionRehearse(browser) {
   await sleep(150);
 
   // --- Billy in the Booth: the robo commentator ---
-  // (this page is the commissioner's device in a live draft — the generator)
+  // SHELVED by default (2026-08-18) — the gate must hold with zero calls and
+  // zero bar; the suite then flips it on through the hook so the dormant
+  // machinery stays proven.
   boothFake.calls.length = 0;
+  ok(await page.evaluate(() => window.__DRAFT__.boothEnabled === false), "Billy ships GATED OFF");
+  await hook(page, () => window.__DRAFT__.boothFire("state", true));
+  await sleep(300);
+  ok(boothFake.calls.length === 0 && await page.evaluate(() => document.getElementById("boothBar").hidden),
+    "…gated means gated: no API call, no bar, even when poked directly");
+  await hook(page, () => window.__DRAFT__.setBoothEnabled(true));
+  // (this page is the commissioner's device in a live draft — the generator)
   await hook(page, () => window.__DRAFT__.setBoothCooldown(50));
   await hook(page, () => window.__DRAFT__.boothFire("state", true));
   await page.waitForFunction(() => window.__DRAFT__.boothItems.length >= 1, { timeout: 8000, polling: 100 });
