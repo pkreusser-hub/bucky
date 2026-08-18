@@ -1984,7 +1984,131 @@
   // ---------------- trades (plan §4.4) ----------------
   // Offer -> accept (starts a review window) -> auto-executes once the window
   // passes, unless enough OTHER owners veto it first. Player-for-player only;
-  // uneven trades (2-for-1) are allowed, no roster-size cap in v1.
+  // uneven trades (2-for-1) are allowed — AS LONG AS neither roster ends up over cap or
+  // unable to field a lineup (2026-08-17 ruling, below; this comment used to say "no
+  // roster-size cap in v1", which the seam suite's own C3 quoted back as proof nothing
+  // enforced it).
+
+  // ⭐ THE THREE TRADE GUARDS (2026-08-17 RULING). The seam hunt (tools/_gffl_seams.cjs,
+  // sections C3/C5) found executeTrade had NO roster-cap check, NO startable-lineup check, and
+  // NO clock check — three ways a trade could execute and leave a roster that LOOKED accepted
+  // but was actually broken. Pinned as findings with no ruling; the commissioner ruled the
+  // same day, on all three.
+  //
+  // One PURE function, LG.tradeBlockers, is the single source of truth — called from
+  // LG.acceptTrade and the Moves trade composer (lg-ui.js) for early UX refusal, and from
+  // LG.executeTrade as the AUTHORITATIVE gate against the fresh rosters right before the swap
+  // actually happens. No caller re-derives the rule; they all ask the same function.
+  //
+  // CAP — a trade may not leave EITHER roster over LG.rosterCap() (the slot script's own
+  // total, incl. BENCH and IR — 19 today).
+  //
+  // LINEUP — a trade may not leave either roster unable to fill every STARTING slot (all of
+  // rules.roster except BENCH/IR) with one player per slot. Judged as a TRANSITION (fillable
+  // before, unfillable after) rather than an absolute post-trade fact — see the comment at
+  // LG.tradeBlockers' own LINEUP section for why. See LG.canFillLineup just below for why the
+  // fillable/not-fillable check itself needs real bipartite matching, not a greedy pass.
+  //
+  // CLOCK — deliberately STRICTER than LG.dropBlocked. dropBlocked only freezes a STARTER,
+  // because the abuse it guards against (cutting a bad performance mid-drive) only exists for
+  // a man in your lineup. A mid-game TRADE is a different shenanigan — watching a teammate's
+  // guy implode in the first quarter and trading for him anyway before the rest of the league
+  // has reacted — and that exists for a BENCHED or IR'd player just as much as a starter,
+  // because it's the PLAYER that changed hands, not his slot. So this checks every traded
+  // player regardless of slot, against the exact same clock LG.dropBlocked reads
+  // (D.gameStarted via LG.data — never a second one).
+  LG.canFillLineup = function (roster) {
+    const rosterRules = (LG.rules || LG.DEFAULT_RULES).roster || {};
+    const slots = [];
+    for (const slot of Object.keys(rosterRules)) {
+      if (slot === "BENCH" || slot === "IR") continue;
+      const n = Number(rosterRules[slot]) || 0;
+      for (let i = 0; i < n; i++) slots.push(slot);
+    }
+    const players = roster || [];
+    // Fewest-eligible-first: a scheduling heuristic that keeps the search small (a TE slot with
+    // one candidate is worth pinning down before a FLEX slot with six candidates). Correctness
+    // does NOT depend on this order — the augmenting-path search below is EXACT for any order,
+    // because it can always re-route a player already placed rather than committing to the
+    // first match it finds. A plain greedy pass (place a player, never revisit) does not have
+    // that property: it can hand a roster's only TE to FLEX before the TE slot is even
+    // considered, and then wrongly refuse a trade a real assignment would have allowed.
+    const eligibleCount = (slot) => players.reduce((n, p) => n + (LG.slotEligible(p.pos, slot) ? 1 : 0), 0);
+    slots.sort((a, b) => eligibleCount(a) - eligibleCount(b));
+
+    const slotOfPlayer = new Map(); // player key -> index into `slots` currently holding him
+    function augment(slotIdx, seen) {
+      for (const p of players) {
+        if (seen.has(p.key) || !LG.slotEligible(p.pos, slots[slotIdx])) continue;
+        seen.add(p.key);
+        const holding = slotOfPlayer.get(p.key);
+        if (holding === undefined || augment(holding, seen)) {
+          slotOfPlayer.set(p.key, slotIdx);
+          return true;
+        }
+      }
+      return false;
+    }
+    for (let i = 0; i < slots.length; i++) {
+      if (!augment(i, new Set())) return false; // no augmenting path exists — this slot cannot be filled, full stop
+    }
+    return true;
+  };
+
+  // Pure function of its inputs — no fetching inside. offerDoc needs only {from, to, give,
+  // get}; rosterFrom/rosterTo are the CURRENT (pre-trade) rosters of those two teams, whatever
+  // "current" means to the caller (in-memory for the composer's early check, freshly-read for
+  // executeTrade's authoritative one). Returns [] when the trade is clean, else an array of
+  // {reason, detail} — reason is one of "over-cap" / "lineup-unfillable" / "player-started",
+  // detail carries whatever the reason needs to NAME (a team, a player) so no caller has to
+  // re-derive it from the raw doc.
+  LG.tradeBlockers = function (offerDoc, rosterFrom, rosterTo) {
+    const give = (offerDoc && offerDoc.give) || [], get = (offerDoc && offerDoc.get) || [];
+    const fromRoster = rosterFrom || [], toRoster = rosterTo || [];
+    const blockers = [];
+
+    // CAP — post-trade size is current length, minus what leaves, plus what arrives.
+    const cap = LG.rosterCap();
+    const fromSize = fromRoster.length - give.length + get.length;
+    const toSize = toRoster.length - get.length + give.length;
+    if (fromSize > cap) blockers.push({ reason: "over-cap", detail: { team: LG.teamName(offerDoc.from) } });
+    if (toSize > cap) blockers.push({ reason: "over-cap", detail: { team: LG.teamName(offerDoc.to) } });
+
+    // LINEUP — simulate the post-trade rosters the same way executeTrade actually builds them
+    // (an incoming player lands on BENCH; the owner sets their own lineup afterwards).
+    //
+    // "May not LEAVE a roster unable to fill its lineup" is judged as a TRANSITION — blocked
+    // only when the trade turns a roster that COULD fill its lineup into one that can't, not
+    // whenever the post-trade roster merely fails the check in absolute terms. A roster that
+    // was already short a full lineup before anyone proposed anything (an early-season roster
+    // still mid-build, a family test league with a handful of players seeded) is not this
+    // guard's business to freeze forever — it exists to stop a trade from BREAKING a working
+    // lineup, not to punish a roster for a gap the trade had nothing to do with. Real, live
+    // rosters are effectively always full (19-20 players, per the 2025 reset), so in practice
+    // this is the same rule either way; the distinction only matters for a roster that could
+    // never have fielded a lineup regardless of this trade.
+    const incomingToFrom = toRoster.filter((p) => get.includes(p.key)).map((p) => ({ ...p, slot: "BENCH" }));
+    const incomingToTo = fromRoster.filter((p) => give.includes(p.key)).map((p) => ({ ...p, slot: "BENCH" }));
+    const newFromRoster = fromRoster.filter((p) => !give.includes(p.key)).concat(incomingToFrom);
+    const newToRoster = toRoster.filter((p) => !get.includes(p.key)).concat(incomingToTo);
+    if (LG.canFillLineup(fromRoster) && !LG.canFillLineup(newFromRoster)) {
+      blockers.push({ reason: "lineup-unfillable", detail: { team: LG.teamName(offerDoc.from) } });
+    }
+    if (LG.canFillLineup(toRoster) && !LG.canFillLineup(newToRoster)) {
+      blockers.push({ reason: "lineup-unfillable", detail: { team: LG.teamName(offerDoc.to) } });
+    }
+
+    // CLOCK — every player changing hands, ANY slot (see the block comment above this function
+    // for why that's deliberately stricter than LG.dropBlocked).
+    const traded = fromRoster.filter((p) => give.includes(p.key)).concat(toRoster.filter((p) => get.includes(p.key)));
+    const started = traded.filter((p) => LG.data && LG.data.gameStarted && LG.data.gameStarted(p.team));
+    if (started.length) {
+      blockers.push({ reason: "player-started", detail: { player: started[0].name, players: started.map((p) => p.name) } });
+    }
+
+    return blockers;
+  };
+
   LG.tradeId = (t) => `trade_${t}_${Math.random().toString(36).slice(2, 6)}`;
   // opts.fresh bypasses LG.db's cache — see LG.loadClaims' note; executeTrade's own
   // "someone else already executed/cancelled this" re-check needs the real backend state.
@@ -2069,6 +2193,18 @@
   LG.acceptTrade = async function (id, byTeamId) {
     const doc = await LG.loadTrade(id, { fresh: true });
     if (!doc || doc.status !== "offered" || doc.to !== byTeamId) return null;
+    // Early UX refusal (2026-08-17 ruling) — same LG.tradeBlockers executeTrade runs
+    // authoritatively, against the rosters as they stand right now. This is NOT the last word:
+    // a roster can still change between accept and the review window closing, so executeTrade
+    // re-checks fresh at its own gate before the swap actually happens. Refusing here just
+    // saves the accepting owner a 48-hour wait for a trade that was always going to bounce.
+    {
+      const week = LG.currentWeek();
+      const fromRoster = await LG.ensureRoster(week, doc.from, { fresh: true });
+      const toRoster = await LG.ensureRoster(week, doc.to, { fresh: true });
+      const blockers = LG.tradeBlockers(doc, fromRoster, toRoster);
+      if (blockers.length) return { ok: false, reason: blockers[0].reason, detail: blockers[0].detail };
+    }
     // Date.now(), and the expiry check in executeTrade matches it. A "24 hour review" is a
     // real-world day the family waits for someone to veto — not a season-time duration. On
     // LG.now() an 8x replay clock would burn it in 3 real hours, and a freshly-loaded device
@@ -2125,6 +2261,20 @@
     const getOk = fresh.get.every((k) => toRoster.some((p) => p.key === k));
     if (!giveOk || !getOk) {
       const failed = { ...fresh, status: "cancelled", cancelReason: "roster-changed" };
+      await LG.saveTrade(failed);
+      return failed;
+    }
+    // ⭐ THE THREE TRADE GUARDS (2026-08-17 ruling) — CAP, LINEUP, CLOCK; see LG.tradeBlockers'
+    // own block comment for what each one is and why CLOCK is deliberately stricter than
+    // LG.dropBlocked. This is the AUTHORITATIVE gate: acceptTrade and the Moves composer both
+    // already ran the same validator for early UX refusal, but rosters move between offer,
+    // accept, and the review window closing, so the last word belongs here, against the exact
+    // fresh rosters the roster-changed check just read. Cancelled the same way as that check —
+    // own reason on the doc, rosters left untouched — rather than executing silently.
+    const blockers = LG.tradeBlockers(fresh, fromRoster, toRoster);
+    if (blockers.length) {
+      const b = blockers[0];
+      const failed = { ...fresh, status: "cancelled", cancelReason: b.reason, cancelDetail: b.detail };
       await LG.saveTrade(failed);
       return failed;
     }

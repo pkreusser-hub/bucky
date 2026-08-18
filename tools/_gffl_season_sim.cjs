@@ -107,7 +107,16 @@ const PASS = "amenfarms";
 const SEASON = 2026;
 const SEASON_START = "2026-09-08";
 const SEASON_WEEKS = 14;
-const ROSTER_SIZE = 16;      // 9 starters + 7 bench (QB1 RB2 WR2 TE1 FLEX1 DST1 K1, BENCH 7)
+const ROSTER_SIZE = 16;      // 9 starters + 7 bench (QB1 RB2 WR2 TE1 FLEX1 DST1 K1, BENCH 7) — the DRAFT size
+// RESTAGED 2026-08-17: rosters are no longer exactly ROSTER_SIZE for a whole season. The
+// 2026-08-15 add-without-drop feature legitimately grows a roster past 16 via no-drop adds,
+// up to the rules' true capacity: 16 slots + IR 3 = 19 (sum lg-core's DEFAULT_RULES.roster —
+// this constant is that sum hand-computed, and the sweep says the arithmetic in its message).
+// The old exact-16 check failed 82 times across a sim season for that one reason — every
+// failure was a roster at 19, none was a real leak. The invariant that still holds, and the
+// one now asserted, is a BAND: never below the draft size (this sim never drops without
+// adding — grep dropPlayer: 0 hits) and never above capacity.
+const ROSTER_CAP = 19;       // 16 + IR 3
 const FAAB_BUDGET = 100;
 const COMMISH_PIN = "9090";
 // The engine's reported week. Never equal to a week this season finalizes, which is what
@@ -953,8 +962,9 @@ function sweepRosters(week) {
   for (let t = 1; t <= 8; t++) {
     const r = effectiveRoster(week, t);
     if (!r) { fail("roster.exists", "team " + t + " has no roster at or before week " + week); continue; }
-    check(r.players.length === ROSTER_SIZE, "roster.size",
-      "team " + t + " carries " + r.players.length + " players at week " + week + " (script says " + ROSTER_SIZE + ")",
+    check(r.players.length >= ROSTER_SIZE && r.players.length <= ROSTER_CAP, "roster.size",
+      "team " + t + " carries " + r.players.length + " players at week " + week +
+      " (band is draft 16 ≤ n ≤ cap 19 = 16 slots + 3 IR; see the RESTAGED note at ROSTER_CAP)",
       "read STORE roster_" + SEASON + "_w" + r.week + "_t" + t);
     const seen = new Set();
     for (const p of r.players) {
@@ -1431,17 +1441,59 @@ async function doTradeRound(devs, week) {
       if (b) b.click();
     }, side);
     await sleep(120);
+    // RESTAGED 2026-08-17 (second pass, same day as the three-guard ruling): a fully random
+    // pick made a WHOLE SEASON execute zero trades — all 11 attempts drew a mid-game player
+    // and refused, which starved coverage.trade and left the executed-trade path (the roster
+    // swap, both pushes) unexercised for the entire run. Real owners do what this does now:
+    // pick someone who hasn't kicked off. PREFER a clock-clean chip (the same
+    // LG.data.gameStarted truth the guard reads), FALL BACK to random when none is clean —
+    // the fallback keeps the refusal path genuinely exercised too, just not exclusively.
     const okPick = await ev(proposer, (s) => {
       const chips = [...document.querySelectorAll("#mv" + (s === "give" ? "Give" : "Get") + " .pickchip .pcpick")];
       if (!chips.length) return false;
-      chips[Math.floor(Math.random() * chips.length)].click();
+      const LG = window.__GFFL__.LG;
+      // UI._rosters is the composer's OWN data source for these chips (see renderMoves), so
+      // resolving the chip's player through it can never disagree with what the chip shows.
+      const started = (k) => {
+        const R = window.__GFFL__.UI._rosters || {};
+        for (const tid of Object.keys(R)) {
+          const p = (R[tid] || []).find((x) => x.key === k);
+          if (p) return !!(LG.data && LG.data.gameStarted && LG.data.gameStarted(p.team));
+        }
+        return false;
+      };
+      const clean = chips.filter((b) => !started(b.dataset.gk));
+      const pool = clean.length ? clean : chips;
+      pool[Math.floor(Math.random() * pool.length)].click();
       return true;
     }, side);
     if (!okPick) { noop(proposer, "trade", "the " + side + " side offered no pick chips"); return; }
     await sleep(120);
   }
+  // RESTAGED 2026-08-17 (the three-guard trade ruling): the send is no longer unconditional.
+  // This persona picks RANDOM players, and the new composer guard legitimately refuses a
+  // player whose game is under way (or a cap/lineup break) with a toast and NO offer doc —
+  // so "clicked send" stopped implying "offer exists", and expecting a push for a refused
+  // offer is asserting the pre-ruling world. The store is the truth: only a grown trade_*
+  // count is an offer. A refusal must still SAY something (same discipline as
+  // claim.saidSomething) — a silent dead button is a real bug either way.
+  const tradeDocs = () => Object.keys(STORE.docs).filter((k) => k.startsWith("trade_")).length;
+  await clearToasts(proposer);
+  const beforeSend = tradeDocs();
   await clickSel(proposer, "#mvTradeSend");
   await sleep(SETTLE + 120);
+  if (tradeDocs() === beforeSend) {
+    const said = ((await toasts(proposer)) || []).join(" | ");
+    if (!said) {
+      check(false, "trade.refusalSaidSomething",
+        "week " + week + " " + proposer.label + " had a trade refused by a guard and the app said NOTHING",
+        "Moves → pick players → #mvTradeSend");
+    } else {
+      COVER.tradeRefused = (COVER.tradeRefused || 0) + 1;
+      noop(proposer, "trade", "composer guard refused the offer: " + said);
+    }
+    return;
+  }
   LEDGER.expectPush.push({ kind: "trade offer", team: target.teamId, week,
     note: "Moves → pick a counterparty → expand both sides → pick a player each → #mvTradeSend" });
   COVER.trade++;
@@ -1453,8 +1505,23 @@ async function doTradeRound(devs, week) {
   const countered = await clickSel(target, ".mvcounter");
   if (countered) {
     await sleep(SETTLE);
+    // Same restage as the offer above: a counter rides the same composer and the same guards.
+    await clearToasts(target);
+    const beforeCounter = tradeDocs();
     await clickSel(target, "#mvTradeSend");
     await sleep(SETTLE + 120);
+    if (tradeDocs() === beforeCounter) {
+      const saidC = ((await toasts(target)) || []).join(" | ");
+      if (!saidC) {
+        check(false, "trade.refusalSaidSomething",
+          "week " + week + " " + target.label + " had a counter refused by a guard and the app said NOTHING",
+          "Moves → Counter → #mvTradeSend");
+      } else {
+        COVER.tradeRefused = (COVER.tradeRefused || 0) + 1;
+        noop(target, "trade", "composer guard refused the counter: " + saidC);
+      }
+      return;
+    }
     LEDGER.expectPush.push({ kind: "trade counter", team: proposer.teamId, week, note: "Moves → Counter → #mvTradeSend" });
     actLog(target.label, target.who, "countered the trade");
     // Now the ORIGINAL proposer is the receiver of the counter.

@@ -3665,6 +3665,19 @@ async function openDetails(page, id) {
     await bootPage(page1);
     await page1.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page1);
+    // RESTAGED 2026-08-17 (ruling, same day): the new CLOCK trade guard correctly refuses any
+    // trade touching a player whose NFL game has started. J1's own traded players — B. Backup
+    // (KC) and X. Wideout (PHI) — sit on teams the shared "live replay" scoreboard fixture
+    // (sbSim2025Fix, used by many OTHER sections that need real live/final/pre variety) marks
+    // already under way at this instant: DAL@PHI final, KC@LAC live. Team 2's entire 3-player
+    // roster is PHI/DAL, so no choice of players on that side avoids this — the fixture itself
+    // has to be rewound, isolated to this one page, so it never touches any other section's use
+    // of the same scoreboard.
+    await page1.evaluate(() => {
+      const { D } = window.__GFFL__;
+      D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+      D.S.games.set("KC", { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+    });
     await page1.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page1.waitForSelector("#mvTradeTeam", { timeout: 9000 });
     await page1.select("#mvTradeTeam", "2");
@@ -3692,6 +3705,13 @@ async function openDetails(page, id) {
     await bootPage(page2);
     await page2.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page2);
+    // Same rewind as page1, same reason — this is a SEPARATE page/context with its own
+    // independently-polled D.S.games, so LG.acceptTrade's CLOCK check needs it here too.
+    await page2.evaluate(() => {
+      const { D } = window.__GFFL__;
+      D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+      D.S.games.set("KC", { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+    });
     await page2.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page2.waitForSelector(".mvaccept", { timeout: 9000 });
     ok(true, "the counterparty sees Accept/Decline for the offer on their own device");
@@ -3735,6 +3755,14 @@ async function openDetails(page, id) {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
+    // RESTAGED 2026-08-17 (ruling, same day), same reason as J1: 111333/222333 sit on KC/PHI,
+    // which the shared live-replay scoreboard fixture marks already under way — rewind them on
+    // this page only so the new CLOCK trade guard doesn't refuse J2's own trade.
+    await page.evaluate(() => {
+      const { D } = window.__GFFL__;
+      D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+      D.S.games.set("KC", { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+    });
     const r = await page.evaluate(async () => {
       const LG = window.__GFFL__.LG;
       const off = await LG.offerTrade(1, 2, ["111333"], ["222333"], "veto test");
@@ -4047,6 +4075,18 @@ async function openDetails(page, id) {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
+    // RESTAGED 2026-08-17 (ruling, same day): the new CLOCK trade guard correctly refuses a
+    // trade touching a player whose NFL game has started. This block's two trades touch PHI
+    // (222333, 4361741) and DAL (dst_DAL) players, all of which the shared live-replay
+    // scoreboard fixture (sbSim2025Fix, needed by many OTHER sections) marks already under
+    // way — rewind them here, isolated to this one page, so this section's own point is what
+    // gets tested (chat gets no sys posts for these events) rather than a refusal neither this
+    // check nor the ruling is about.
+    await page.evaluate(() => {
+      const { D } = window.__GFFL__;
+      D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+      D.S.games.set("DAL", { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+    });
     const r = await page.evaluate(async () => {
       const LG = window.__GFFL__.LG;
       // Rules save.
@@ -10899,6 +10939,24 @@ async function openDetails(page, id) {
       await bootSim(page);
       // Accept from a FRESHLY loaded device…
       await asDevice(page, 0);
+      // RESTAGED 2026-08-17 (ruling, same day): this is the real 2025 week-1 REPLAY — PHI's
+      // game is under way at this phase by design (that's the feature). The new CLOCK trade
+      // guard correctly refuses a trade for a player whose game has started, which AF3's own
+      // two PHI players (222333, 3915511) now are — rewind PHI here so what AF3 is actually
+      // testing (WALL time vs. the replay clock judging the review window) isn't confused
+      // with a second, unrelated refusal this section was never about.
+      //
+      // RESTAGED 2026-08-17 (three-guard ruling), second half: the PHI rewind above fixes the
+      // CLOCK guard, but the original pair (give 222333 X.Wideout WR PHI, get 3915511 P.Passer
+      // QB PHI) also trips the new LINEUP guard — 3915511 is team 1's ONLY QB, so removing it
+      // makes team 1's post-trade roster unable to fill its lineup (same "lineup-unfillable"
+      // shape proven separately at AF3's own evidence: acceptTrade returned
+      // {"ok":false,"reason":"lineup-unfillable","detail":{"team":"Battle Kreussers"}}). Traded
+      // 3915511 for team 1's 4361741 W.Receiver (also WR PHI) instead — WR-for-WR keeps both
+      // rosters lineup-legal, and the PHI rewind above still covers the CLOCK guard for both
+      // legs, so what's actually under test (WALL time vs. replay clock judging the review
+      // window) is isolated from both new, unrelated refusals.
+      await page.evaluate(() => window.__GFFL__.D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" }));
       const acc = await page.evaluate(async () => {
         const LG = window.__GFFL__.LG;
         // A 12-hour review, because the replay clock is CLAMPED ~33 sim-hours past the phase
@@ -10906,7 +10964,7 @@ async function openDetails(page, id) {
         // the window in season time and the pre-fix failure would be unreachable. 12h is a
         // legal setting; what is under test is which CLOCK judges it, not its length.
         LG.rules.trades.reviewHours = 12;
-        const off = await LG.offerTrade(2, 1, ["222333"], ["3915511"], "");
+        const off = await LG.offerTrade(2, 1, ["222333"], ["4361741"], "");
         const a = await LG.acceptTrade(off.trade.id, 1);
         return { id: off.trade.id, offeredAt: off.trade.t, acceptedAt: a.acceptedAt, endsAt: a.reviewEndsAt,
           now: Date.now(), reviewH: LG.rules.trades.reviewHours };
@@ -15367,6 +15425,12 @@ async function openDetails(page, id) {
       await bootPage(page);
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await stopPolling(page);
+      // RESTAGED 2026-08-17 (ruling, same day): AN1's own "toMe"/"acc" trade below touches
+      // 222333 (PHI), which the shared live-replay scoreboard fixture marks already under
+      // way — the new CLOCK trade guard correctly refuses that, which isn't what this section
+      // is testing (push targeting/suppression). Polling is already stopped above, so this
+      // rewind sticks for the rest of the block.
+      await page.evaluate(() => window.__GFFL__.D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" }));
       await drain(0);
       // Boot runs the whole auto-check chain (waivers, trades, finalize) against a league that
       // has none of those pending. Nothing may buzz for that: an app that pushes on open is an
@@ -16294,6 +16358,15 @@ async function openDetails(page, id) {
       await bootPage(page);
       await waitOr(page, ".mucard");
       await stopPolling(page);
+      // RESTAGED 2026-08-17 (three-guard ruling): this is the first AP check that actually
+      // ACCEPTS/EXECUTES a trade (AP1 only exercises offer/counter refusals, never touching
+      // acceptTrade), so it is the first place the new CLOCK guard can fire — 222333 is PHI,
+      // and fullSeed()'s default board (sbFix) has DAL@PHI already "in" progress. What AP2 is
+      // actually testing is that a counter walks the SAME accept/execute code paths as an
+      // ordinary trade, not the clock guard, so rewind PHI here rather than pick different
+      // players — team 2's whole fullSeed() roster (222111/222333/dst_DAL) is PHI/DAL, so no
+      // choice of players on that side avoids this.
+      await page.evaluate(() => window.__GFFL__.D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" }));
       const flow = await evalOr(page, async () => {
         const LG = window.__GFFL__.LG;
         const o = await LG.offerTrade(2, 1, ["222333"], ["111333"], "");
@@ -16400,6 +16473,17 @@ async function openDetails(page, id) {
       await waitOr(page, ".mucard");
       await stopPolling(page);
       await drain(0);
+      // RESTAGED 2026-08-17 (three-guard ruling): this block accepts/executes two trades
+      // below — 111333(KC)/222333(PHI), then 222111(DAL)/111777(DEN) — and the new CLOCK
+      // guard correctly refuses both against fullSeed()'s default board (DAL@PHI "in"
+      // progress), which isn't what an EXECUTED push producer test is about. Rewind both
+      // teams' games so acceptTrade/executeTrade see the same "nothing has kicked off yet"
+      // world every other non-clock trade check assumes.
+      await page.evaluate(() => {
+        const { D } = window.__GFFL__;
+        D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+        D.S.games.set("DAL", { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+      });
       const setUp = async (p) => p.evaluate(async () => {
         const LG = window.__GFFL__.LG;
         const o = await LG.offerTrade(1, 2, ["111333"], ["222333"], "");
@@ -16459,6 +16543,10 @@ async function openDetails(page, id) {
       await bootPage(page);
       await waitOr(page, ".mucard");
       await stopPolling(page);
+      // RESTAGED 2026-08-17 (three-guard ruling): same reason as the block above — 111333(KC)/
+      // 222333(PHI) trips the new CLOCK guard on fullSeed()'s default board (DAL@PHI "in"
+      // progress), unrelated to what this checks (self-suppression on the EXECUTED push).
+      await page.evaluate(() => window.__GFFL__.D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" }));
       const id = await page.evaluate(async () => {
         const LG = window.__GFFL__.LG;
         const o = await LG.offerTrade(1, 2, ["111333"], ["222333"], "");
@@ -16484,6 +16572,13 @@ async function openDetails(page, id) {
       await bootPage(page);
       await waitOr(page, ".mucard");
       await stopPolling(page);
+      // RESTAGED 2026-08-17 (three-guard ruling): AP4 drives the counter through the REAL
+      // #mvTradeSend UI button, which (2026-08-17 ruling) now runs LG.tradeBlockers itself
+      // before it will even write the doc — so the new CLOCK guard silently refuses the send
+      // here too, against 222333 (PHI, still in the get side after the edit below) on
+      // fullSeed()'s default board (DAL@PHI "in" progress). AP4 is testing who is offered
+      // Counter, what it prefills and the thread it leaves, not the guard, so rewind PHI.
+      await page.evaluate(() => window.__GFFL__.D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" }));
       const orig = await page.evaluate(() => window.__GFFL__.LG.offerTrade(2, 1, ["222333"], ["111333"], ""));
       await page.evaluate(() => window.__GFFL__.UI.show("moves"));
       await waitOr(page, "#mvMyTrades .rowline", 9000);

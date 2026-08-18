@@ -4823,7 +4823,10 @@
       // Date.now(), matching acceptTrade/executeTrade. reviewEndsAt is a REAL-WORLD deadline
       // (see the note at LG.SIM_LOADED_AT); judging it on the per-device replay clock would
       // have this device disagree with the one that accepted the trade.
-      if (tr.status === "accepted" && Date.now() >= (tr.reviewEndsAt || Infinity)) await LG.executeTrade(tr.id);
+      // ?? not ||, matching executeTrade's own comparator exactly (lg-core). The two disagree
+      // only when reviewEndsAt is the literal 0 — unreachable today, but the seam suite's C1
+      // section exists because two comparators for one deadline WILL drift apart eventually.
+      if (tr.status === "accepted" && Date.now() >= (tr.reviewEndsAt ?? Infinity)) await LG.executeTrade(tr.id);
     }
   }
   // S5 + adversarial review 2026-08-08 (findings 1/3/6/7/8). Any week with no weekly doc yet
@@ -4922,6 +4925,18 @@
   // " (Josh Allen)" — the offenders, when the refusal carried them. A rule that only says no
   // makes the owner hunt; naming the man makes it a one-tap fix.
   const irWho = (r) => (r && r.players && r.players.length ? " (" + r.players.map(LG.shortName).join(", ") + ")" : "");
+  // The three trade guards' copy (2026-08-17 ruling) — each names a TEAM or a PLAYER, which the
+  // static REASON_LABEL map has no room for, so they get their own composer instead of lying
+  // about static text. Fed by LG.tradeBlockers' {reason, detail} shape wherever a trade refuses
+  // (the composer's own pre-check, LG.acceptTrade, and a cancelled LG.executeTrade doc). The
+  // raw reason code must never reach the screen — this is the only place that's allowed to.
+  function tradeBlockLabel(r) {
+    const reason = r && r.reason, d = (r && r.detail) || {};
+    if (reason === "over-cap") return "That trade would put " + (d.team || "that team") + " over the roster limit.";
+    if (reason === "lineup-unfillable") return "That trade would leave " + (d.team || "that team") + " unable to field a full lineup.";
+    if (reason === "player-started") return (d.player || "That player") + "'s game has already started this week.";
+    return "That trade can't go through: " + reasonLabel(reason);
+  }
   // The standing warning. An owner should learn about this on THEIR OWN TEAM, before they go
   // shopping — finding out at the checkout that the league won't let them add is the worst
   // possible moment. Rendered on My Team (where the fix is) and on Moves (where the block
@@ -5170,7 +5185,11 @@
       renderMoves();
     }));
     document.querySelectorAll(".mvaccept").forEach((b) => b.addEventListener("click", async () => {
-      await LG.acceptTrade(b.dataset.tid, tid);
+      const r = await LG.acceptTrade(b.dataset.tid, tid);
+      // The three trade guards (2026-08-17 ruling) refuse here with {ok:false, reason, detail}
+      // rather than the null LG.acceptTrade's other refusals return — a blocked accept has
+      // something to SAY (which team, which player), and null has nowhere to carry it.
+      if (r && r.ok === false) { toast(tradeBlockLabel(r)); renderMoves(); return; }
       toast("Trade accepted — review window started.");
       renderMoves();
     }));
@@ -5780,6 +5799,16 @@
     });
     $("#mvTradeSend").addEventListener("click", async () => {
       if (!UI._tradeGive.size || !UI._tradeGet.size) { toast("Pick at least one player on each side."); return; }
+      // The three trade guards (2026-08-17 ruling) — early client-side refusal against the
+      // rosters already sitting in memory, before an offer doc is even written. This is UX
+      // only, not the last word: LG.acceptTrade runs the same check again on accept, and
+      // LG.executeTrade is the AUTHORITATIVE gate against fresh rosters right before the swap
+      // — rosters can move between here and either of those. `tid` is always the "from" side
+      // and UI._tradeCp the "to" side at send time, counter included (a counter swaps the sets
+      // into that shape before this button is ever clicked — see the .mvcounter handler above).
+      const draftDoc = { from: tid, to: UI._tradeCp, give: [...UI._tradeGive], get: [...UI._tradeGet] };
+      const blockers = LG.tradeBlockers(draftDoc, myRoster, cpRoster);
+      if (blockers.length) { toast(tradeBlockLabel(blockers[0])); return; }
       // S7 — one button, two destinations. A counter carries the link that makes the exchange
       // a thread and terminates the offer it answers; everything else about the send (the
       // deadline check, the 1-3 validation, the doc write, the push) is the same path.

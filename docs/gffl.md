@@ -4675,3 +4675,53 @@ The glow bed, its contrast arithmetic (the suite interpolates the gradient's own
 row height and composites over the card), reduced-motion, and the embers all carried over
 untouched.
 ---
+
+## 🏈 GFFL — THE SEAM HUNT AND THE THREE-GUARD TRADE RULING (2026-08-17, pre-season battery)
+
+**`tools/_gffl_seams.cjs` (120 checks) hunts INTERACTIONS, not mechanisms** — places where two
+systems, or a system and the clock, could disagree about the truth: the kickoff-millisecond
+boundary across every path, bye weeks, feed glitches ("in"→"pre"), every submit-vs-run waiver
+seam, cron double-fire, DST, trade expiry, double finalize, ties, the `??`/`||` scoring traps,
+non-contiguous team ids, week rollover. Built on `_gffl_race_kit.cjs`'s harness. The engine
+passed all of it clean on first contact except what follows.
+
+**THE RULING (user, same day): three guards trades never had.** `executeTrade` had no
+roster-cap check ("no roster-size cap in v1", said its own comment), no startable-lineup
+check, and no clock check. All three now live in ONE pure validator, `LG.tradeBlockers`
+(reasons `over-cap` / `lineup-unfillable` / `player-started`), run three times: the Moves
+composer and `LG.acceptTrade` for early UX refusal, and `LG.executeTrade` as the
+AUTHORITATIVE gate on fresh rosters — rosters move between offer, accept, and the review
+window closing, so only the last read counts. Refusal copy is composed in `tradeBlockLabel`
+(lg-ui.js) and names the team or player; raw reason codes never reach the screen.
+
+- **LINEUP is an exact bipartite matching** (`LG.canFillLineup`, augmenting paths), not a
+  greedy pass — greedy can hand the only TE to FLEX and falsely refuse a legal trade, and a
+  false refusal is as much a bug as a false pass; the suite carries a fixture for each
+  direction. Judged as a TRANSITION (fillable before → unfillable after), so a roster that
+  was already short a lineup isn't frozen by a guard its trade had nothing to do with.
+- **CLOCK is deliberately STRICTER than `LG.dropBlocked`**: it blocks ANY traded player whose
+  game is underway, bench and IR included — the shenanigan is trading for a player mid-game,
+  and that's about the player, not his slot. Same `D.gameStarted` clock as drops, never a
+  second one. The suite pins the contrast against dropBlocked's own verdict on the identical
+  fixture, so the difference stays deliberate.
+- Proof of bite: on the pre-ruling engine, exactly the 12 ruling checks fail, all 108
+  pre-existing pass (120/0 after).
+
+**Pinned, NOT fixed — the deferred findings, for whoever picks them up:**
+- A trade executing concurrently with a waiver run can lose the trade's roster write — same
+  no-CAS root cause the 2026-08-11 race work documented as "narrowed, not eliminated". The
+  season sim catches its FAAB face intermittently (one purse-conservation cascade in five
+  full-season runs, 2026-08-17). The fix is transport-level compare-and-swap; scheduled as
+  its own effort, sim as proof harness.
+- An exact PLAYOFF tie advances the HOME team (`bkResult` `hp >= ap`), while the regular
+  season records a symmetric T — two interpretations of one score, commissioner-acknowledged,
+  home-advances kept, not yet stated in the Rules view.
+- The trade fail-safe's "roster changed" check is by PLAYER KEY only; a slot-only change
+  does not cancel — correct-for-scope (incoming players re-slot to BENCH regardless), pinned.
+
+Also from the hunt: `maybeAutoExecuteTrades` used `|| Infinity` where `executeTrade` uses
+`?? Infinity` for the same deadline (unreachable mismatch, fixed, and the suite now asserts
+the comparators MATCH by reading both sources); the season sim's exact-16 roster assertion
+was stale since add-without-drop and drowned its own signal under 82 spurious reds — restaged
+to the band draft 16 ≤ n ≤ cap 19, reason at the check.
+---
