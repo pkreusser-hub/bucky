@@ -97,6 +97,9 @@ function makeCalMock(){
         allDay,
         notes: ev.notes || "",
         seriesId: null,   // a fresh create is always the series MASTER — never has its own seriesId
+        // Mirrors calendar.mjs's applyNotify: an explicit array (even []) sets it; create never
+        // sees "absent" in practice since the sheet always sends the key, but stay consistent.
+        notify: Array.isArray(ev.notify) ? ev.notify.slice() : [],
       };
       state.store.push(rec);
       return { event: rec };
@@ -112,6 +115,9 @@ function makeCalMock(){
       found.end = allDay ? (ev.endDate || found.end) : (ev.end || "");
       found.allDay = allDay;
       found.notes = ev.notes || "";
+      // Mirrors calendar.mjs's applyNotify semantics exactly: notify OMITTED leaves the
+      // existing subscriber list alone; notify PRESENT (even []) replaces it.
+      if (Array.isArray(ev.notify)) found.notify = ev.notify.slice();
       return { event: found };
     }
     if (action === "delete"){
@@ -281,7 +287,9 @@ async function notifyRows(page){
   return page.evaluate(() => [...document.querySelectorAll("#calNotifyList .cal-notify-row")].map((r) => ({
     name: (r.querySelector("span") || {}).textContent || "",
     checked: !!(r.querySelector("input") || {}).checked,
-    note: r.querySelector("small") ? r.querySelector("small").textContent : null,
+    // A row can carry TWO <small> notes now (no-email + no-push-device) — join them so a check
+    // against either substring still works, and note is null only when there's truly nothing.
+    note: [...r.querySelectorAll("small")].map((s) => s.textContent).join(" | ") || null,
   })));
 }
 async function notifiedLine(page){
@@ -330,6 +338,15 @@ async function sectionList(browser){
   await settle(page, 300);
   ok(await page.evaluate(() => document.getElementById("calOverlay").classList.contains("open")), "+ opens the event sheet");
 
+  // Firestore is blocked throughout this suite (see the file header), so the real
+  // pushTokens_<familyKey> read getPushDeviceNames() would attempt can never resolve here —
+  // window.__CAL__.setPushDeviceNames is the test hook that stands in for it (see index.html).
+  // Give everyone but Eleanor a device, so "has an email on file, shows no muted note" stays
+  // meaningful (Mom/Isaac have both an email AND a device -> genuinely no note at all) while
+  // Eleanor (email, no device) exercises the NEW warning on its own, distinct from Grandma's
+  // pre-existing no-email one.
+  await page.evaluate(() => window.__CAL__.setPushDeviceNames(["Mom", "Isaac"]));
+
   const rows = await notifyRows(page);
   ok(rows.length === 4, `one checkbox row per family member (${rows.length} of 4)`);
   ok(rows.every((r) => !r.checked), "every checkbox starts unchecked");
@@ -340,10 +357,17 @@ async function sectionList(browser){
   const grandma = rows.find((r) => r.name === "Grandma");
   ok(!!grandma && /in-app only/i.test(grandma.note || "") && /no email/i.test(grandma.note || ""),
     `the member with no email on file is labeled ("${grandma && grandma.note}")`);
-  for (const withEmail of ["Mom", "Isaac", "Eleanor"]){
-    const r = rows.find((x) => x.name === withEmail);
-    ok(!!r && !r.note, `${withEmail} (has an email on file) shows no muted note`);
+  for (const withBoth of ["Mom", "Isaac"]){
+    const r = rows.find((x) => x.name === withBoth);
+    ok(!!r && !r.note, `${withBoth} (has an email AND a registered device) shows no muted note at all`);
   }
+  // Eleanor: has an email on file (so no email-note) but is NOT in the device list -> the
+  // NEW no-push-device warning, and it alone (proving it's a distinct note, not a reuse of
+  // the email one).
+  const eleanor = rows.find((r) => r.name === "Eleanor");
+  ok(!!eleanor && !/no email/i.test(eleanor.note || ""), "Eleanor has an email on file, so no email-note");
+  ok(!!eleanor && /no push device/i.test(eleanor.note || ""),
+    `…but IS warned that no push device is registered for her, so a reminder would never reach her ("${eleanor && eleanor.note}")`);
 
   const line = await notifiedLine(page);
   ok(!line.visible, "a brand-new event shows no 'Told…' line");
@@ -352,9 +376,11 @@ async function sectionList(browser){
 }
 
 /* ============================================================================
-   B. Full lifecycle: nothing ticked -> zero sends; ticked -> exactly the right two people,
-      never the creator; reopen -> boxes unchecked again + the Told line; re-save with
-      nothing ticked -> the anti-spam property (nothing more goes out).
+   B. Full lifecycle (reworked 2026-08-18 for the persisted-subscriber model): nothing ticked
+      -> zero sends; ticked -> exactly the right two people, never the creator; reopen ->
+      boxes are PRE-TICKED from the persisted selection (not blank) + the Told line; re-saving
+      that pre-ticked, UNTOUCHED selection is the real anti-spam property now — it must send
+      nothing more, because nobody was NEWLY ticked.
    ============================================================================ */
 async function sectionLifecycle(browser){
   section("B. Create -> notify -> reopen -> anti-spam re-save");
@@ -411,27 +437,41 @@ async function sectionLifecycle(browser){
   ok(!emails1.some((e) => e.params.to_email === "mom@example.com"), "…and none was ever sent to the creator");
   ok(!!emails1[0] && /📅 New event: Vet visit/.test(emails1[0].params.subject), "the email subject matches the spec's example shape");
 
-  /* -- reopen THAT event: boxes are unchecked again, and the Told line names who knows -- */
+  /* -- reopen THAT event: boxes are PRE-TICKED from the persisted selection, and the Told
+        line still names who was actually told -- */
   const evs = await events(page);
   const savedEv = evs.find((e) => e.title === "Vet visit");
   ok(!!savedEv, "the created event is fetchable again (list re-ran after save)");
+  ok(JSON.stringify((savedEv.notify || []).slice().sort()) === JSON.stringify(["Eleanor", "Isaac", "Mom"]),
+    `the saved event carries the full ticked list as its persisted notify (got ${JSON.stringify(savedEv.notify)})`);
   await openSheetFor(page, savedEv);
 
-  ok((await checkedNames(page)).length === 0, "reopening the event starts every box unchecked again");
+  ok((await checkedNames(page)).sort().join(",") === "Eleanor,Isaac,Mom",
+    "reopening pre-ticks the boxes from the event's own persisted selection, not blank");
   const line1 = await notifiedLine(page);
   ok(line1.visible, "the 'Told…' record line is visible on reopen");
   ok(/^Told /.test(line1.text), `it reads as a record ("${line1.text}")`);
   ok(/Isaac/.test(line1.text) && /Eleanor/.test(line1.text), `it names who was told ("${line1.text}")`);
   ok(!new RegExp("\\bMom\\b").test(line1.text), `…and never claims the creator was told ("${line1.text}")`);
 
-  /* -- save again with nobody ticked: the anti-spam property -- */
+  /* -- save again WITHOUT touching a single checkbox: the anti-spam property this whole split
+        exists for. Pre-ticked boxes reflect an EXISTING subscription, not a fresh ask — saving
+        them untouched must never re-blast "Event updated" at Isaac and Eleanor. -- */
   await save(page);
   ok(calMock.updateCalls === 1, "the re-save reached the (mocked) function as an update");
-  ok(calEntries(await inboxFor(page, "Isaac")).length === 1, "…but Isaac gets nothing MORE (nobody was ticked this time)");
+  ok(JSON.stringify((calMock.store[1].notify || []).slice().sort()) === JSON.stringify(["Eleanor", "Isaac", "Mom"]),
+    "…and the persisted subscriber list is unchanged (still the same three)");
+  ok(calEntries(await inboxFor(page, "Isaac")).length === 1, "…but Isaac gets nothing MORE (nobody was NEWLY ticked)");
   ok(calEntries(await inboxFor(page, "Eleanor")).length === 1, "…nor does Eleanor");
   ok((await pushes(page)).filter((p) => /Vet visit|New event|Event updated/.test(p.title + " " + p.body)).length === 2,
     "…no additional pushes");
   ok((await emails(page)).length === 2, "…no additional emails");
+
+  /* -- reopening again still shows the same three pre-ticked (an untouched re-save doesn't
+        somehow reset or grow the subscription) -- */
+  const ev2 = (await events(page)).find((e) => e.title === "Vet visit");
+  await openSheetFor(page, ev2);
+  ok((await checkedNames(page)).sort().join(",") === "Eleanor,Isaac,Mom", "…and reopening once more shows the same three, unchanged");
 
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors[0] : ""));
 }
@@ -464,15 +504,18 @@ async function sectionEditWording(browser){
   const pushUpdated = (await pushes(page)).find((p) => p.targetUser === "Isaac");
   ok(!!pushUpdated && pushUpdated.title === "📅 Event updated", `the push title matches ("${pushUpdated && pushUpdated.title}")`);
 
-  /* -- reopen again: unchecked, Told line names Isaac only so far -- */
+  /* -- reopen again: Isaac's box is now PRE-TICKED (he's the persisted subscriber), and the
+        Told line still names him only so far -- */
   ev = (await events(page)).find((e) => e.title === "Piano recital");
   await openSheetFor(page, ev);
-  ok((await checkedNames(page)).length === 0, "reopening after the edit still starts unchecked");
+  ok((await checkedNames(page)).sort().join(",") === "Isaac", "reopening after the edit pre-ticks Isaac (the persisted subscriber)");
   let line = await notifiedLine(page);
   ok(/Isaac/.test(line.text) && !/Eleanor/.test(line.text), `so far only Isaac is recorded ("${line.text}")`);
 
-  /* -- a SECOND edit, ticking someone new: a deliberate re-tick, not a repeat -- */
+  /* -- a SECOND edit, ticking someone new ON TOP of the pre-ticked Isaac: a deliberate
+        re-tick that adds Eleanor without touching Isaac's already-checked box -- */
   await tickNotify(page, "Eleanor");
+  ok((await checkedNames(page)).sort().join(",") === "Eleanor,Isaac", "Eleanor's tick adds to, not replaces, the pre-ticked Isaac");
   await save(page);
 
   const eleanorInbox = calEntries(await inboxFor(page, "Eleanor"));

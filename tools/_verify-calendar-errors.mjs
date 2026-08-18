@@ -34,6 +34,7 @@ const SECRET = "test-secret";
 /* ---- fake Google ----------------------------------------------------------- */
 let googleReply = null;   // { status, body } for the next Calendar API call
 let lastPath = "";
+let lastBody = null;      // parsed JSON body of the last non-token request calendar.mjs SENT to Google
 const srv = http.createServer((req, res) => {
   let body = "";
   req.on("data", (d) => (body += d));
@@ -43,6 +44,7 @@ const srv = http.createServer((req, res) => {
       return res.end(JSON.stringify({ access_token: "fake-token", expires_in: 3600 }));
     }
     lastPath = req.url;
+    try { lastBody = body ? JSON.parse(body) : null; } catch { lastBody = null; }
     const r = googleReply || { status: 200, body: { id: "evt_1", summary: "ok",
       start: { dateTime: "2026-08-12T09:00:00-05:00" }, end: { dateTime: "2026-08-12T10:00:00-05:00" } } };
     res.writeHead(r.status, { "content-type": "application/json" });
@@ -146,6 +148,58 @@ ok(!r.json.error && r.json.event && r.json.event.id === "evt_1", "a good update 
 ok(/\/cal\/calendars\/.*\/events\/evt_1/.test(lastPath), `…via a PATCH to the event (${lastPath})`);
 r = await call({ action: "status" });
 ok(r.json.configured === true && r.json.saEmail === SA.client_email, "status still answers the setup card");
+
+console.log("\nH. Notify list round-trips through extendedProperties.private.buckyNotify (2026-08-18)");
+// Create with a notify selection -> the outgoing Google body carries it JSON-encoded.
+googleReply = null;
+r = await call({ action: "create", event: { title: "Vet visit", start: "2026-08-12T09:00:00", end: "2026-08-12T10:00:00", notify: ["Isaac", "Eleanor"] } });
+const sentPriv1 = lastBody && lastBody.extendedProperties && lastBody.extendedProperties.private;
+ok(!!sentPriv1 && sentPriv1.buckyNotify === JSON.stringify(["Isaac", "Eleanor"]),
+  `create sends the ticked names JSON-encoded under extendedProperties.private.buckyNotify (got ${JSON.stringify(sentPriv1)})`);
+
+// list() normalizes that property back into a `notify` array — Google echoes extendedProperties
+// on a plain list with no `fields` restriction, so simulate that echo.
+googleReply = { status: 200, body: { items: [{ id: "evt_2", summary: "Vet visit",
+  start: { dateTime: "2026-08-12T09:00:00-05:00" }, end: { dateTime: "2026-08-12T10:00:00-05:00" },
+  extendedProperties: { private: { buckyNotify: JSON.stringify(["Isaac", "Eleanor"]) } } }] } };
+r = await call({ action: "list", timeMin: "2026-08-01T00:00:00Z", timeMax: "2026-09-01T00:00:00Z" });
+ok(Array.isArray(r.json.events) && r.json.events.length === 1, "list returns the one event");
+ok(JSON.stringify(r.json.events[0].notify) === JSON.stringify(["Isaac", "Eleanor"]),
+  `…with notify parsed back into a plain array (got ${JSON.stringify(r.json.events[0].notify)})`);
+
+// An event that never had the property at all normalizes to an EMPTY array, never undefined/null.
+googleReply = { status: 200, body: { items: [{ id: "evt_3", summary: "No notify ever set",
+  start: { dateTime: "2026-08-12T09:00:00-05:00" }, end: { dateTime: "2026-08-12T10:00:00-05:00" } }] } };
+r = await call({ action: "list", timeMin: "2026-08-01T00:00:00Z", timeMax: "2026-09-01T00:00:00Z" });
+ok(Array.isArray(r.json.events[0].notify) && r.json.events[0].notify.length === 0,
+  `an event with the property never set normalizes to [] (got ${JSON.stringify(r.json.events[0].notify)})`);
+
+// UPDATE semantics, decided and documented in calendar.mjs's applyNotify:
+//   ev.notify OMITTED entirely  -> leave extendedProperties alone (PATCH sends no such key)
+//   ev.notify explicit (even []) -> replace/set
+googleReply = null;
+lastBody = null;
+r = await call({ action: "update", event: { id: "evt_1", title: "Vet visit (retitled)", start: "2026-08-12T09:00:00", end: "2026-08-12T10:00:00" } });
+ok(!r.json.error, "the no-notify-key update itself still succeeds");
+ok(lastBody && !("extendedProperties" in lastBody),
+  `an update that OMITS notify sends no extendedProperties key at all — the existing subscription is left alone, not wiped (got keys: ${lastBody ? Object.keys(lastBody).join(",") : "none"})`);
+
+lastBody = null;
+r = await call({ action: "update", event: { id: "evt_1", title: "Vet visit", start: "2026-08-12T09:00:00", end: "2026-08-12T10:00:00", notify: [] } });
+const sentPriv2 = lastBody && lastBody.extendedProperties && lastBody.extendedProperties.private;
+ok(!!sentPriv2 && sentPriv2.buckyNotify === "[]",
+  `an update that explicitly sends notify:[] DOES clear the subscription (got ${JSON.stringify(sentPriv2)})`);
+
+// Defensive cap: an oversized notify list is capped, not sent raw.
+lastBody = null;
+const hugeList = Array.from({ length: 80 }, (_, i) => "Family Member Number " + i);
+r = await call({ action: "update", event: { id: "evt_1", title: "Vet visit", start: "2026-08-12T09:00:00", end: "2026-08-12T10:00:00", notify: hugeList } });
+const sentPriv3 = lastBody && lastBody.extendedProperties && lastBody.extendedProperties.private;
+const cappedList = sentPriv3 ? JSON.parse(sentPriv3.buckyNotify) : null;
+ok(Array.isArray(cappedList) && cappedList.length > 0 && cappedList.length < hugeList.length,
+  `an oversized notify list is capped defensively, not sent as-is (80 -> ${cappedList && cappedList.length})`);
+ok(!sentPriv3 || sentPriv3.buckyNotify.length <= 1024,
+  `the capped value still respects Google's extendedProperties.private per-value limit (${sentPriv3 && sentPriv3.buckyNotify.length} bytes)`);
 
 console.error = realErr;
 // AWAIT the close, then let the loop drain. A bare srv.close() followed immediately by

@@ -28,15 +28,37 @@
 //
 // Reuses the same hand-signed service-account JWT (RS256 via node:crypto) technique as
 // calendar.mjs / chorereminders.mjs / leaguecron.mjs, and chorereminders.mjs's
-// getAllDeviceTokens/dead-token-pruning shape for the FCM broadcast — but is fully
+// getAllDeviceTokens/dead-token-pruning shape for the FCM lookup — but is fully
 // self-contained per the repo's one-file-per-function convention. Nothing here is imported from
 // (or imports into) those files.
 //
-// WHY BROADCAST, NOT NAME-TARGETED (important, non-obvious): push tokens are keyed on whatever
-// name a person was signed in as when they enabled push (BuckyPush's `user` field), and those
-// device-registered names have ZERO overlap with the roster/profile names the calendar's own
-// notify-picker UI offers. Name-targeted push here would reach nobody. So — exactly like
-// chorereminders.mjs — this function ignores `user` entirely and broadcasts to every token.
+// TARGETED, NOT BROADCAST (2026-08-18): this used to broadcast to every registered device,
+// because push tokens are keyed on whatever name a person was signed in as when they enabled
+// push (BuckyPush's `user` field), and an earlier check of that overlap against the roster
+// undercounted it (a paginated Firestore read stopped at the first page and missed most of the
+// roster). The real picture: push identity and roster identity are independently maintained and
+// only PARTLY overlap, which is exactly why this can't be a simple "trust the token's `user`"
+// broadcast OR a simple "trust the roster name" lookup — it has to match one against the other
+// and say plainly when a selected person has no match. That gap is closed from the calendar
+// side: calendar.mjs persists exactly who was ticked in the event sheet's Notify section onto
+// the Google event itself (extendedProperties.private.buckyNotify, a JSON array of names — see
+// calendar.mjs's buildGoogleEvent/normalizeEvent), and this function reads that list back as the
+// event's `notify` names and reminds ONLY them. An event nobody ticked gets NO reminder — that
+// is the direct, intended consequence, not an oversight (see the empty-selection handling below).
+//
+// A selected roster name still is not guaranteed to resolve to a device: some do match a
+// registered device's `user` field outright, some only after normalising away case/whitespace
+// drift (a real device is registered as "Perry  Kreusser", double space, for the roster's
+// "Dad"), and some don't resolve at all (a device can be registered under a name that isn't on
+// the roster at all, e.g. "Joe Adams"). Rather than papering over the unresolved case with a
+// broadcast fallback (which would silently restore the old, unaccountable behaviour), a
+// selected person with no matching device is counted and reported in the response
+// (`unmatchedNames`) so the gap is visible, not silent. index.html's Notify rows warn about it
+// too (see renderCalNotifyList's push-device check), for the same reason.
+//
+// Name matching is intentionally forgiving: trim, collapse internal whitespace, compare
+// case-insensitively (normalizeNotifyName, below) — that double-space "Perry  Kreusser" case is
+// real, and is exactly what this normalisation is for.
 //
 // Required env: FIREBASE_SERVICE_ACCOUNT, GOOGLE_CALENDAR_ID. Missing either -> clean no-op.
 // Optional: EVENTREMINDER_FAMILY_KEY (defaults to the production family key).
@@ -163,6 +185,48 @@ function startMsOf(ev) {
   return Number.isFinite(ms) ? ms : NaN;
 }
 
+// ---- Notify list: read back what calendar.mjs's buildGoogleEvent wrote (duplicated logic —
+// NOT imported, per the repo's one-file-per-function convention; calendar.mjs's normalizeEvent
+// has the write-side twin of this parse). Google returns extendedProperties on a plain list
+// call with no `fields` restriction, so ev.extendedProperties is already present here.
+function parseNotifyList(ev) {
+  try {
+    const raw = ev.extendedProperties && ev.extendedProperties.private && ev.extendedProperties.private.buckyNotify;
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((n) => typeof n === "string" && n.trim()) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Trim, collapse internal whitespace, lowercase — the SAME normalisation index.html's
+// no-push-device Notify-row warning must use, so a name that matches here also reads as
+// matched there. One real device is registered as "Perry  Kreusser" (double space) against a
+// roster entry of "Perry Kreusser" (single space); this is what makes them the same person.
+function normalizeNotifyName(s) {
+  return String(s == null ? "" : s).trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+// Selected names (deduped, original spelling kept for display/bell docs) -> which registered
+// device tokens they resolve to, and which selected names resolved to NO device at all.
+// selected/unmatchedNames use the ORIGINAL name text (bell docs and the response payload read
+// better that way); matching itself is done on the normalized form.
+function resolveNotifyRecipients(notifyRaw, tokens) {
+  const selected = [];
+  const seenNorm = new Set();
+  for (const n of notifyRaw || []) {
+    const norm = normalizeNotifyName(n);
+    if (!norm || seenNorm.has(norm)) continue;
+    seenNorm.add(norm);
+    selected.push(String(n).trim());
+  }
+  const matchedTokens = tokens.filter((t) => t.user && seenNorm.has(normalizeNotifyName(t.user)));
+  const matchedNorm = new Set(matchedTokens.map((t) => normalizeNotifyName(t.user)));
+  const unmatchedNames = selected.filter((n) => !matchedNorm.has(normalizeNotifyName(n)));
+  return { selected, matchedTokens, unmatchedNames };
+}
+
 // ---- Firestore field helpers (field names must match [a-zA-Z_][a-zA-Z_0-9]* or Google 400s) ----
 function fStr(s) { return { stringValue: String(s == null ? "" : s) }; }
 function fInt(n) { return { integerValue: String(Math.round(Number(n) || 0)) }; }
@@ -222,7 +286,8 @@ async function cleanupOldMarkers(accessToken, familyKey, now) {
   }
 }
 
-// ---- Push tokens: BROADCAST to every device, never filtered by `user` (see file header) ----
+// ---- Push tokens: read every registered device, then match by name (see resolveNotifyRecipients
+// above) — no longer a broadcast (see file header for why that changed 2026-08-18). ----
 async function getAllDeviceTokens(accessToken, familyKey) {
   const url = `${FIRESTORE_BASE()}:runQuery`;
   const body = { structuredQuery: { from: [{ collectionId: `pushTokens_${familyKey}` }] } };
@@ -252,30 +317,6 @@ async function deleteTokenDoc(accessToken, familyKey, docId) {
   });
 }
 
-// Profile names: chores_<familyKey> docs with frequency:"profile" (see index.html's own
-// getProfiles()-equivalent filter). Used, alongside pushToken `user`s, to decide who gets a
-// bell entry — the bell reader matches on name, so both namespaces need covering.
-async function getProfileNames(accessToken, familyKey) {
-  const url = `${FIRESTORE_BASE()}:runQuery`;
-  const body = { structuredQuery: { from: [{ collectionId: `chores_${familyKey}` }] } };
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const rows = await resp.json().catch(() => []);
-  if (!resp.ok) throw new Error(`Firestore chores query failed: ${resp.status} ${JSON.stringify(rows)}`);
-  const out = [];
-  for (const row of Array.isArray(rows) ? rows : []) {
-    const doc = row.document;
-    if (!doc || !doc.fields) continue;
-    const freq = doc.fields.frequency && doc.fields.frequency.stringValue;
-    const name = doc.fields.name && doc.fields.name.stringValue;
-    if (freq === "profile" && name) out.push(name);
-  }
-  return out;
-}
-
 async function sendFcmMessage(accessToken, token, title, body, url) {
   const message = {
     message: {
@@ -298,9 +339,11 @@ function isUnregistered(result) {
   return status === "UNREGISTERED" || status === "NOT_FOUND";
 }
 
-// Write one bell doc per distinct known person (union of pushToken users + profile names,
-// deduped). Deterministic id (derived from the same reminder key) so racing writers converge on
-// one doc, same discipline as index.html's writeCloudNotif. PATCH = create-or-overwrite.
+// Write one bell doc per SELECTED person (the event's own notify list — see
+// resolveNotifyRecipients), whether or not they have a push device: the bell is an in-app
+// fallback, so someone with no device on file still gets told inside the app. Deterministic id
+// (derived from the same reminder key) so racing writers converge on one doc, same discipline as
+// index.html's writeCloudNotif. PATCH = create-or-overwrite.
 async function writeBellDoc(accessToken, familyKey, to, text, url, reminderKey, now) {
   const id = "cal-" + idSlug(reminderKey) + "-" + idSlug(to);
   await fetch(`${FIRESTORE_BASE()}/notifs_${familyKey}/${encodeURIComponent(id)}`, {
@@ -377,22 +420,23 @@ export default async () => {
     if (diffMin >= WINDOW_MIN && diffMin < WINDOW_MAX) candidates.push({ ev, startMs });
   }
 
-  let remindersSent = 0, tokensNotified = 0, tokensPruned = 0, bellDocsWritten = 0, alreadyMarked = 0;
+  let remindersSent = 0, remindersSkippedEmpty = 0, tokensNotified = 0, tokensPruned = 0,
+    bellDocsWritten = 0, alreadyMarked = 0;
+  // Aggregated across every candidate processed this run (not just the ones that actually sent
+  // anything) — first-seen spelling kept, deduped by the same normalisation used for matching.
+  // This is the visibility the identity gap needs: a selected person with no matching device
+  // must show up here, never just vanish.
+  const selectedAgg = [], selectedSeen = new Set();
+  const unmatchedAgg = [], unmatchedSeen = new Set();
 
   if (candidates.length) {
-    let tokens = [], profileNames = [];
+    let tokens = [];
     try {
-      [tokens, profileNames] = await Promise.all([
-        getAllDeviceTokens(accessToken, familyKey),
-        getProfileNames(accessToken, familyKey),
-      ]);
+      tokens = await getAllDeviceTokens(accessToken, familyKey);
     } catch (err) {
       console.error("[eventreminders] Firestore read failed:", err && err.message);
       return json({ ok: true, skipped: "firestore-error", detail: String((err && err.message) || err).slice(0, 160) });
     }
-    const recipients = new Set();
-    for (const t of tokens) if (t.user) recipients.add(t.user);
-    for (const n of profileNames) recipients.add(n);
 
     for (const { ev, startMs } of candidates) {
       const id = markerId(ev.id, startMs);
@@ -404,11 +448,32 @@ export default async () => {
       }
       if (exists) { alreadyMarked++; continue; }
 
+      const notifyRaw = parseNotifyList(ev);
+      const { selected, matchedTokens, unmatchedNames } = resolveNotifyRecipients(notifyRaw, tokens);
+      for (const n of selected) {
+        const norm = normalizeNotifyName(n);
+        if (!selectedSeen.has(norm)) { selectedSeen.add(norm); selectedAgg.push(n); }
+      }
+      for (const n of unmatchedNames) {
+        const norm = normalizeNotifyName(n);
+        if (!unmatchedSeen.has(norm)) { unmatchedSeen.add(norm); unmatchedAgg.push(n); }
+      }
+
+      // Nobody ticked the Notify section for this event -> NO reminder, by design. This is the
+      // direct consequence of targeting instead of broadcasting (see file header): there is no
+      // "everyone" fallback here, because that would silently restore the old behaviour. The
+      // marker is still written so an overlapping run doesn't re-derive the same nothing.
+      if (!selected.length) {
+        try { await writeMarker(accessToken, familyKey, id, ev.id, startMs, now); } catch {}
+        remindersSkippedEmpty++;
+        continue;
+      }
+
       const title = ev.summary || "(untitled)";
       const timeText = chicagoTimeText(startMs);
       const text = `⏰ In 1 hour: ${title} — ${timeText}`;
 
-      for (const { docId, token } of tokens) {
+      for (const { docId, token } of matchedTokens) {
         let result;
         try {
           result = await sendFcmMessage(accessToken, token, "⏰ In 1 hour", `${title} — ${timeText}`, DEEP_LINK);
@@ -419,7 +484,7 @@ export default async () => {
         else if (isUnregistered(result)) { await deleteTokenDoc(accessToken, familyKey, docId); tokensPruned++; }
       }
 
-      for (const to of recipients) {
+      for (const to of selected) {
         try {
           await writeBellDoc(accessToken, familyKey, to, text, DEEP_LINK, id, now);
           bellDocsWritten++;
@@ -435,9 +500,14 @@ export default async () => {
 
   return json({
     ok: true,
-    remindersSent, tokensNotified, tokensPruned, bellDocsWritten, alreadyMarked,
+    remindersSent, remindersSkippedEmpty, tokensNotified, tokensPruned, bellDocsWritten, alreadyMarked,
     markersCleaned: cleaned,
     candidates: candidates.length,
+    // Visibility into the name-matching gap (see file header): who was selected across this
+    // run's events, and which of those selected names resolved to no registered device.
+    selected: selectedAgg,
+    resolvedDevices: tokensNotified,
+    unmatchedNames: unmatchedAgg,
   });
 };
 

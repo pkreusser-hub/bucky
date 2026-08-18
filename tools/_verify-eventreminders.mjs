@@ -175,23 +175,26 @@ function serveFcm() {
 }
 
 /* ============================ event/token fixture builders =========================== */
-function timedEvent(id, startMs, title) {
-  return {
+// `notify` mirrors what calendar.mjs's applyNotify actually writes: a JSON-encoded array under
+// extendedProperties.private.buckyNotify. Omit it (or pass []) to build an event nobody ticked.
+function timedEvent(id, startMs, title, notify) {
+  const ev = {
     id, summary: title,
     start: { dateTime: new Date(startMs).toISOString(), timeZone: "America/Chicago" },
     end: { dateTime: new Date(startMs + 30 * 60000).toISOString(), timeZone: "America/Chicago" },
   };
+  if (notify !== undefined) ev.extendedProperties = { private: { buckyNotify: JSON.stringify(notify) } };
+  return ev;
 }
-function allDayEvent(id, dateStr, title) {
-  return { id, summary: title, start: { date: dateStr }, end: { date: dateStr } };
+function allDayEvent(id, dateStr, title, notify) {
+  const ev = { id, summary: title, start: { date: dateStr }, end: { date: dateStr } };
+  if (notify !== undefined) ev.extendedProperties = { private: { buckyNotify: JSON.stringify(notify) } };
+  return ev;
 }
 function tokenFields(token, user) {
   const f = { token: { stringValue: token } };
   if (user != null) f.user = { stringValue: user };
   return f;
-}
-function profileFields(name) {
-  return { frequency: { stringValue: "profile" }, name: { stringValue: name } };
 }
 
 /* ================================= the module ========================================= */
@@ -251,9 +254,9 @@ async function main() {
   {
     resetFirestore(); resetFcm();
     resetCalendar([
-      timedEvent("ev62", NOW + 62 * 60000, "Dentist"),
-      timedEvent("ev30", NOW + 30 * 60000, "Soon Meeting"),
-      timedEvent("ev180", NOW + 180 * 60000, "Way Later"),
+      timedEvent("ev62", NOW + 62 * 60000, "Dentist", ["Mom"]),
+      timedEvent("ev30", NOW + 30 * 60000, "Soon Meeting", ["Mom"]),
+      timedEvent("ev180", NOW + 180 * 60000, "Way Later", ["Mom"]),
     ]);
     const r = await callAt(NOW);
     ok(r.status === 200 && r.body.ok === true, "handler answers 200 ok:true for a normal run");
@@ -268,8 +271,8 @@ async function main() {
     resetFirestore(); resetFcm();
     const todayStr = new Date(NOW).toISOString().slice(0, 10);
     resetCalendar([
-      allDayEvent("allday1", todayStr, "Grandma's Birthday"),
-      timedEvent("real62", NOW + 62 * 60000, "Checkup"),
+      allDayEvent("allday1", todayStr, "Grandma's Birthday", ["Mom"]),
+      timedEvent("real62", NOW + 62 * 60000, "Checkup", ["Mom"]),
     ]);
     const r = await callAt(NOW);
     ok(r.body.candidates === 1, "the all-day event was never even considered a candidate (only the timed one was)");
@@ -304,9 +307,9 @@ async function main() {
   {
     resetFirestore(); resetFcm();
     resetCalendar([
-      timedEvent("bound55", NOW + 55 * 60000, "Right At 55"),
-      timedEvent("bound60", NOW + 60 * 60000, "Right At 60"),
-      timedEvent("bound65", NOW + 65 * 60000, "Right At 65"),
+      timedEvent("bound55", NOW + 55 * 60000, "Right At 55", ["Mom"]),
+      timedEvent("bound60", NOW + 60 * 60000, "Right At 60", ["Mom"]),
+      timedEvent("bound65", NOW + 65 * 60000, "Right At 65", ["Mom"]),
     ]);
     const r1 = await callAt(NOW);
     ok(r1.body.candidates === 2 && r1.body.remindersSent === 2,
@@ -335,7 +338,7 @@ async function main() {
     // skipped — simulated by simply never calling it. The next fire is 5 minutes later, by which
     // point the event is only 57 minutes out: BELOW the old 60-minute floor, and recoverable only
     // because the floor is now 55. Restoring WINDOW_MIN to 60 makes this check fail.
-    resetCalendar([timedEvent("skipme", NOW + 62 * 60000, "Survives A Missed Run")]);
+    resetCalendar([timedEvent("skipme", NOW + 62 * 60000, "Survives A Missed Run", ["Janae", "Eleanor"])]);
     const late = await callAt(NOW + 5 * 60000);
     ok(late.body.remindersSent === 1,
       "an event whose first eligible run was skipped is still reminded by the following run");
@@ -351,7 +354,7 @@ async function main() {
   section("5. idempotency: same window run twice sends once; a fresh window sends again");
   {
     resetFirestore(); resetFcm();
-    resetCalendar([timedEvent("dupe1", NOW + 62 * 60000, "Repeat Test")]);
+    resetCalendar([timedEvent("dupe1", NOW + 62 * 60000, "Repeat Test", ["Mom"])]);
     const first = await callAt(NOW);
     ok(first.body.remindersSent === 1, "first run over the window sends the reminder");
     const second = await callAt(NOW); // same instant, same window — simulates a retry/duplicate invoke
@@ -360,7 +363,7 @@ async function main() {
     ok(fcmState.calls.length === (fcmState.calls.length), "sanity placeholder"); // count asserted precisely below in section 6
 
     // A fresh window (a different event) still sends normally.
-    resetCalendar([timedEvent("dupe1", NOW + 62 * 60000, "Repeat Test"), timedEvent("fresh1", NOW + 63 * 60000, "Fresh One")]);
+    resetCalendar([timedEvent("dupe1", NOW + 62 * 60000, "Repeat Test", ["Mom"]), timedEvent("fresh1", NOW + 63 * 60000, "Fresh One", ["Mom"])]);
     const third = await callAt(NOW);
     ok(third.body.remindersSent === 1 && third.body.alreadyMarked === 1,
       "a genuinely NEW event in the same run still sends, while the already-marked one is skipped — not an all-or-nothing gate");
@@ -372,44 +375,73 @@ async function main() {
     resetFirestore(); resetFcm();
     const instanceA = NOW + 62 * 60000;
     const instanceB = instanceA + 24 * 3600000;
-    resetCalendar([{ ...timedEvent("recSeries", instanceA, "Piano Lesson") }]);
+    resetCalendar([{ ...timedEvent("recSeries", instanceA, "Piano Lesson", ["Mom"]) }]);
     const runA = await callAt(NOW);
     ok(runA.body.remindersSent === 1, "instance A (same id as the series) is reminded on its own window");
 
-    resetCalendar([{ ...timedEvent("recSeries", instanceB, "Piano Lesson") }]);
+    resetCalendar([{ ...timedEvent("recSeries", instanceB, "Piano Lesson", ["Mom"]) }]);
     const runB = await callAt(NOW + 24 * 3600000);
     ok(runB.body.remindersSent === 1 && runB.body.alreadyMarked === 0,
       "instance B — SAME event id, 24h later start — is reminded too, not silently skipped as a duplicate of instance A " +
       "(proves the marker key is id+start, not id alone)");
   }
 
-  /* ==================== 7. push broadcast to every token + dead-token pruning ==================== */
-  section("7. push goes to every device token (broadcast, ignoring `user`); 404/410 prunes the doc");
+  /* ==================== 7. targeted delivery: matched, unmatched, two devices, dead token ==================== */
+  // Mirrors the real family shape (corrected 2026-08-18 after an earlier paginated Firestore
+  // read undercounted the roster): push identity and roster identity only PARTLY overlap.
+  // "Janae" and "Eleanor" match a registered device outright; "Perry Kreusser" (as ticked in
+  // the sheet) matches only after normalising away the real double-space registration quirk
+  // ("Perry  Kreusser"); "Grandpa" matches a token that turns out to be dead (404, pruned);
+  // "NotOnAnyDevice" matches nothing at all. All five are ticked on the SAME event, so a single
+  // run has to get the matched ones pushed, the dead one pruned, and the unmatched one reported
+  // — together, not as separate scenarios that could each pass by accident.
+  section("7. targeted delivery: matched + normalized + two-device + dead-token + unmatched, together");
   {
     resetFirestore(); resetFcm();
     seedRows(`pushTokens_${FAM}`, [
       { docId: "tokJanae", fields: tokenFields("TOK_JANAE", "Janae") },
-      { docId: "tokEleanor", fields: tokenFields("TOK_ELEANOR", "Eleanor") },
-      { docId: "tokUntagged", fields: tokenFields("TOK_UNTAGGED", null) }, // legacy/no user field
-      { docId: "tokDead", fields: tokenFields("TOK_DEAD", "GoneDevice") },
+      { docId: "tokEleanorA", fields: tokenFields("TOK_ELEANOR_A", "Eleanor") },   // Eleanor: two devices
+      { docId: "tokEleanorB", fields: tokenFields("TOK_ELEANOR_B", "Eleanor") },
+      { docId: "tokDad", fields: tokenFields("TOK_DAD", "Perry  Kreusser") },      // real double-space registration
+      { docId: "tokGrandpa", fields: tokenFields("TOK_GRANDPA", "Grandpa") },      // will 404 -> pruned
+      { docId: "tokJoeAdams", fields: tokenFields("TOK_JOE_ADAMS", "Joe Adams") }, // registered, but NEVER selected
     ]);
     resetFcm([
       ["TOK_JANAE", { status: 200, body: { name: "m1" } }],
-      ["TOK_ELEANOR", { status: 200, body: { name: "m2" } }],
-      ["TOK_UNTAGGED", { status: 200, body: { name: "m3" } }],
-      ["TOK_DEAD", { status: 404, body: { error: { status: "UNREGISTERED" } } }],
+      ["TOK_ELEANOR_A", { status: 200, body: { name: "m2" } }],
+      ["TOK_ELEANOR_B", { status: 200, body: { name: "m3" } }],
+      ["TOK_DAD", { status: 200, body: { name: "m4" } }],
+      ["TOK_GRANDPA", { status: 404, body: { error: { status: "UNREGISTERED" } } }],
+      ["TOK_JOE_ADAMS", { status: 200, body: { name: "m5" } }],   // would succeed IF ever sent to — it must not be
     ]);
-    resetCalendar([timedEvent("bcast1", NOW + 61 * 60000, "Family Meeting")]);
+    resetCalendar([timedEvent("targeted1", NOW + 61 * 60000, "Family Meeting",
+      ["Janae", "Eleanor", "Perry Kreusser", "Grandpa", "NotOnAnyDevice"])]);
     const r = await callAt(NOW);
-    ok(r.body.remindersSent === 1, "one qualifying event");
-    const tokens = fcmState.calls.map((c) => c.message.token).sort();
-    ok(tokens.length === 4, `all 4 registered tokens were sent to, including the untagged/no-user one — got ${tokens.length}`);
-    ok(tokens.includes("TOK_UNTAGGED"), "a token with NO `user` field still gets the broadcast (unlike chorereminders' allowlist gate)");
-    ok(r.body.tokensNotified === 3, `3 sends succeeded — got ${r.body.tokensNotified}`);
-    ok(r.body.tokensPruned === 1, "the one dead (404) token was pruned");
-    ok(fsState.deleted.includes("tokDead"), "the dead token's OWN doc id was deleted");
-    ok(!fsState.deleted.includes("tokJanae") && !fsState.deleted.includes("tokEleanor") && !fsState.deleted.includes("tokUntagged"),
+    ok(r.body.remindersSent === 1, "one qualifying, non-empty-notify event");
+
+    const pushedTokens = fcmState.calls.map((c) => c.message.token).sort();
+    ok(JSON.stringify(pushedTokens) === JSON.stringify(["TOK_DAD", "TOK_ELEANOR_A", "TOK_ELEANOR_B", "TOK_GRANDPA", "TOK_JANAE"].sort()),
+      `exactly the 5 matched devices were pushed, and no others — got ${JSON.stringify(pushedTokens)}`);
+    ok(!pushedTokens.includes("TOK_JOE_ADAMS"), "a REGISTERED device belonging to someone never selected gets nothing");
+    ok(pushedTokens.filter((t) => t === "TOK_ELEANOR_A" || t === "TOK_ELEANOR_B").length === 2,
+      "a selected person with two devices gets pushed on BOTH");
+    ok(pushedTokens.includes("TOK_DAD"),
+      "\"Perry Kreusser\" (as ticked) matches the real \"Perry  Kreusser\" (double-space) device after normalisation");
+
+    ok(r.body.tokensNotified === 4, `4 sends succeeded — Janae, Eleanor x2, Dad — got ${r.body.tokensNotified}`);
+    ok(r.body.tokensPruned === 1, "Grandpa's dead (404) token was pruned");
+    ok(fsState.deleted.includes("tokGrandpa"), "the dead token's OWN doc id was deleted");
+    ok(!fsState.deleted.includes("tokJanae") && !fsState.deleted.includes("tokEleanorA") &&
+      !fsState.deleted.includes("tokEleanorB") && !fsState.deleted.includes("tokDad") && !fsState.deleted.includes("tokJoeAdams"),
       "no live token's doc was touched");
+
+    ok(JSON.stringify((r.body.unmatchedNames || []).slice().sort()) === JSON.stringify(["NotOnAnyDevice"]),
+      `the one selected name with no matching device at all is reported, not silently dropped — got ${JSON.stringify(r.body.unmatchedNames)}`);
+    ok(JSON.stringify((r.body.selected || []).slice().sort()) ===
+      JSON.stringify(["Eleanor", "Grandpa", "Janae", "NotOnAnyDevice", "Perry Kreusser"].sort()),
+      `the response names everyone who was selected this run — got ${JSON.stringify(r.body.selected)}`);
+    ok(r.body.resolvedDevices === 4, `resolvedDevices mirrors the successful push count — got ${r.body.resolvedDevices}`);
+
     const bodyForJanae = fcmState.calls.find((c) => c.message.token === "TOK_JANAE");
     ok(/Family Meeting/.test(bodyForJanae.message.data.body), "the FCM body names the event title");
     ok(/\d/.test(bodyForJanae.message.data.body), "the FCM body carries a formatted time");
@@ -417,29 +449,32 @@ async function main() {
       "webpush urgency header set, matching the house convention");
   }
 
-  /* ==================== 8. bell docs: union of pushToken users + profile names, deduped ==================== */
-  section("8. in-app bell docs cover the union of pushToken users and profile names, deduped");
+  /* ==================== 8. bell docs go only to selected people; empty selection sends NOTHING ==================== */
+  section("8. bell docs go only to selected people; an empty/absent notify list sends nothing");
   {
     resetFirestore(); resetFcm();
     seedRows(`pushTokens_${FAM}`, [
       { docId: "t1", fields: tokenFields("TOKX1", "Janae") },
-      { docId: "t2", fields: tokenFields("TOKX2", "Eleanor") },   // overlaps a profile name below
+      { docId: "t2", fields: tokenFields("TOKX2", "Eleanor") },
+      { docId: "t3", fields: tokenFields("TOKX3", "Joe Adams") },   // registered, never selected below
     ]);
-    seedRows(`chores_${FAM}`, [
-      { docId: "p1", fields: profileFields("John") },
-      { docId: "p2", fields: profileFields("Eleanor") },          // duplicate of the pushToken user above
-      { docId: "p3", fields: profileFields("Isaac") },
-      { docId: "notaprofile", fields: { frequency: { stringValue: "daily" }, name: { stringValue: "Feed goats" } } },
+    resetFcm([["TOKX1", { status: 200, body: {} }], ["TOKX2", { status: 200, body: {} }], ["TOKX3", { status: 200, body: {} }]]);
+    resetCalendar([
+      timedEvent("bell1", NOW + 61 * 60000, "Vet Visit", ["Janae", "Eleanor"]),
+      timedEvent("noone1", NOW + 62 * 60000, "Nobody Ticked This", []),
+      timedEvent("absent1", NOW + 63 * 60000, "Notify Key Never Set"),   // no extendedProperties at all
     ]);
-    resetFcm([["TOKX1", { status: 200, body: {} }], ["TOKX2", { status: 200, body: {} }]]);
-    resetCalendar([timedEvent("bell1", NOW + 61 * 60000, "Vet Visit")]);
     const r = await callAt(NOW);
-    ok(r.body.bellDocsWritten === 4, `union of {Janae,Eleanor} + {John,Eleanor,Isaac} deduped is 4 people — got ${r.body.bellDocsWritten}`);
+    ok(r.body.candidates === 3, "all three fell in the reminder window");
+    ok(r.body.remindersSent === 1, "only the one with a non-empty notify list actually sent a reminder");
+    ok(r.body.remindersSkippedEmpty === 2, "the empty-array and the absent-key events both skipped, distinctly counted");
+
     const bellDocs = [...collOf(`notifs_${FAM}`).entries()];
-    ok(bellDocs.length === 4, "exactly 4 bell docs exist in the fake store");
+    ok(bellDocs.length === 2, `exactly 2 bell docs exist — one per selected person on the one event that sent — got ${bellDocs.length}`);
     const toNames = bellDocs.map(([, f]) => f.to.stringValue).sort();
-    ok(JSON.stringify(toNames) === JSON.stringify(["Eleanor", "Isaac", "Janae", "John"]),
-      `bell docs went to exactly the deduped union — got ${JSON.stringify(toNames)}`);
+    ok(JSON.stringify(toNames) === JSON.stringify(["Eleanor", "Janae"]),
+      `bell docs went to exactly the selected people — got ${JSON.stringify(toNames)}`);
+    ok(!toNames.includes("Joe Adams"), "a registered device owner who was never selected gets no bell doc either");
     for (const [, f] of bellDocs) {
       ok(f.type.stringValue === "cal_event", "each bell doc has type cal_event");
       ok(f.url.stringValue === "index.html#calendar", "each bell doc deep-links to the calendar tab");
@@ -447,8 +482,7 @@ async function main() {
       ok(Object.keys(f).every((k) => FIELD_NAME_RE.test(k)), "every field name on the bell doc is Firestore-legal");
       ok(/Vet Visit/.test(f.text.stringValue), "the bell text names the event");
     }
-    // "notaprofile" (frequency:"daily") must NOT have contributed a recipient.
-    ok(!toNames.includes("Feed goats"), "a non-profile chore doc never contributes a bell recipient");
+    ok(fcmState.calls.length === 2, `no push went out for either empty-selection event — got ${fcmState.calls.length} total pushes`);
   }
 
   /* ==================== 9. missing config / bad service account / Google outage no-op cleanly ==================== */

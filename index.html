@@ -6489,6 +6489,9 @@ let calSheetMasterReq = null;  // in-flight get promise (fetch once per sheet op
 let calSheetEnds = "never";    // "never" | "on" — the repeat's Ends control
 let calRepeatTouched = false;  // user changed the Repeats select this open (CUSTOM guard)
 let calEndTouched = false;     // user set the end time themselves (else it follows the start)
+// ---- Notify: subscriber list (persisted, ev.notify) vs. this-save action (see
+// renderCalNotifyList / saveCalEvent's notifyNames split for the full explanation) ----
+let calSheetInitialNotify = new Set();   // normalized names ticked on THIS event when the sheet opened
 let calCacheTs = 0;                            // when bucky_cal_cache was last written (Home-widget staleness check)
 try { const c = JSON.parse(localStorage.getItem("bucky_cal_cache")); if (Array.isArray(c)) calEvents = c; } catch {}
 try { const t = Number(localStorage.getItem("bucky_cal_cache_ts")); if (t > 0) calCacheTs = t; } catch {}
@@ -7260,10 +7263,22 @@ function openCalEventSheet(ev, opts){
   }
   syncCalAllDayUI();
   syncCalScopeUI();
-  // The Notify checkboxes are an ACTION, not stored state — always rebuilt unchecked (the
-  // roster itself can also have changed since this event was last opened). The "Told…" line
-  // reads a separate local record so re-opening never looks like it forgot who already knows.
-  renderCalNotifyList();
+  // The Notify checkboxes now do DOUBLE DUTY, and it matters which duty is which (2026-08-18):
+  //   1. Persisted SUBSCRIBER list ("who gets the 1-hour reminder for this event") — this is
+  //      ev.notify, round-tripped through the Google event itself (see calendar.mjs). Reopening
+  //      the sheet pre-ticks exactly this, so the boxes show the real, current subscription
+  //      instead of always looking empty.
+  //   2. This-save ACTION ("who gets told right now that this event was added/changed") — this
+  //      still only fires for names NEWLY ticked since the sheet opened (see saveCalEvent's
+  //      notifyNames/newlyTicked split). A pre-ticked box that the user leaves alone is NOT a
+  //      newly-ticked box, so re-saving an untouched subscription list re-sends NOTHING — the
+  //      original anti-spam property this sheet was built to guarantee, just computed off a
+  //      diff now instead of "boxes always start blank".
+  // calSheetInitialNotify records duty #1's starting point so saveCalEvent can compute duty #2's
+  // diff. A brand-new event has no prior subscribers, so nothing is pre-ticked and everything
+  // checked at Save counts as "newly ticked".
+  calSheetInitialNotify = new Set((ev && Array.isArray(ev.notify) ? ev.notify : []).map(normalizeNotifyName));
+  renderCalNotifyList(ev);
   syncCalNotifiedLine(ev);
   document.getElementById("calOverlay").classList.add("open");
   setTimeout(()=>titleI.focus(), 100);
@@ -7380,9 +7395,18 @@ async function saveCalEvent(){
   const editing = !!payload.id;
   // Captured BEFORE the sheet closes / the save goes out: who was ticked at the moment Save
   // was pressed, and whether this save is (still) establishing a repeat rule — both read
-  // straight off the payload we just built so they can never disagree with what was actually
-  // sent to Google.
+  // straight off the payload we just built (or straight off the checkboxes, for notify) so
+  // they can never disagree with what was actually sent to Google.
   const notifyNames = getCheckedNotifyNames();
+  // notify ALWAYS rides along, on every branch/every save — it IS the persisted subscriber
+  // list from here on (calendar.mjs's applyNotify treats an explicit array, even [], as
+  // "replace"; only an ABSENT key means "leave alone", and this sheet never sends that).
+  payload.notify = notifyNames;
+  // Duty #2 (this-save notification) is the DIFF against what was already subscribed when the
+  // sheet opened — not the full checked list. Re-saving an untouched, pre-ticked subscription
+  // sends nobody anything; only names newly ticked THIS time count as "newly told". See the
+  // comment in openCalEventSheet for why the split exists.
+  const newlyTicked = notifyNames.filter(n => !calSheetInitialNotify.has(normalizeNotifyName(n)));
   const repeatInfo = (payload.repeat && payload.repeat.freq && payload.repeat.freq !== "NONE") ? payload.repeat : null;
   closeCalSheet();
   showToast(editing ? "Saving change…" : "Adding event…");
@@ -7393,7 +7417,7 @@ async function saveCalEvent(){
       showToast(editing ? "Event updated ✅" : "Event added ✅");
       // The event is already saved — from here on, notifying people is best-effort and must
       // never be able to make the save itself look like it failed.
-      if (r.event) notifyCalEvent(r.event, notifyNames, editing, repeatInfo);
+      if (r.event) notifyCalEvent(r.event, newlyTicked, editing, repeatInfo);
     }
   } catch (e){
     showToast("⚠️ Couldn't save — check your connection" + (e && e.status ? ` (HTTP ${e.status})` : ""));
@@ -7441,10 +7465,14 @@ document.getElementById("calDelAllBtn").onclick = ()=>{ if (calSheetSeriesId) do
 document.getElementById("calOverlay").onclick = (e)=>{ if (e.target.id === "calOverlay") closeCalSheet(); };
 document.getElementById("calEvTitle").addEventListener("keydown", e=>{ if (e.key === "Enter") saveCalEvent(); });
 
-// ---- Event-sheet "Notify" (2026-08-09): in-app + push + email to whoever is ticked at Save.
-// The checkboxes are an ACTION, not stored state (see openCalEventSheet, which always rebuilds
-// them unchecked) — only a per-device local record of WHO/WHEN survives, purely so the sheet
-// can show a "Told…" line and never so the app has to guess whether re-ticking is a repeat.
+// ---- Event-sheet "Notify" (2026-08-09; reworked 2026-08-18) ----
+// The checkboxes are now STORED state, not a pure per-save action: they ARE the event's
+// persisted reminder-subscriber list (ev.notify, round-tripped through calendar.mjs's
+// extendedProperties — see openCalEventSheet). Reopening the sheet pre-ticks them from that
+// list. What's still an ACTION, computed fresh at every Save, is "who gets told about THIS
+// save" — only the names newly ticked since the sheet opened (saveCalEvent's `newlyTicked`),
+// so re-saving an untouched subscription never re-notifies anyone. The local "Told…" record
+// below is purely a per-device display convenience on top of that — it does not drive anything.
 function calNotifiedMap(){
   try { return JSON.parse(localStorage.getItem("bucky_cal_notified") || "{}") || {}; } catch { return {}; }
 }
@@ -7486,10 +7514,57 @@ function recordCalNotified(id, names){
   map[id] = { names: merged, at: Date.now() };
   calNotifiedSave(map);
 }
-// One row per family member, rebuilt every time the sheet opens (Exclude nobody — even the
-// creator gets a row; notifyCalEvent silently skips self at send time regardless). A member
-// with no email on file is labeled so ticking them never silently over-promises an email.
-function renderCalNotifyList(){
+// Trim, collapse internal whitespace, lowercase — MUST stay byte-for-byte the same rule
+// netlify/functions/eventreminders.mjs's normalizeNotifyName uses (duplicated, not shared, per
+// the repo's one-file-per-page convention), so a name this UI calls "matched" is the same name
+// the reminder function will actually reach, and vice versa. A real device is registered as
+// "Perry  Kreusser" (double space) against a roster entry of "Perry Kreusser" — this is the
+// normalisation that makes them the same person on both sides.
+function normalizeNotifyName(s){
+  return String(s == null ? "" : s).trim().replace(/\s+/g, " ").toLowerCase();
+}
+// Registered push-device owners (pushTokens_<familyKey>'s `user` field), normalized, so the
+// Notify list can warn "this person has no push device" the same way it already warns "no
+// email on file" — without this, targeted delivery (see eventreminders.mjs) fails SILENTLY for
+// a roster name that doesn't match any device, and nobody would ever know why a reminder never
+// arrived. Lazy-fetched once per app load and cached; a test can short-circuit this entirely via
+// window.__CAL__.setPushDeviceNames (Firestore is blocked in every headless test — see CLAUDE.md
+// — so this fetch would otherwise always fail closed there).
+let pushDeviceNamesCache = null;   // Set of normalized names, or null = not fetched yet
+let pushDeviceNamesReq = null;
+let pushDeviceNamesOverride = null;   // test hook — see window.__CAL__.setPushDeviceNames
+async function getPushDeviceNames(){
+  if (pushDeviceNamesOverride) return pushDeviceNamesOverride;
+  if (pushDeviceNamesCache) return pushDeviceNamesCache;
+  if (pushDeviceNamesReq) return pushDeviceNamesReq;
+  pushDeviceNamesReq = (async () => {
+    let set = new Set();
+    try {
+      const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+      const fs = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+      let app; try { app = appMod.getApp(); } catch { app = appMod.initializeApp(firebaseConfig); }
+      const db = fs.getFirestore(app);
+      const snap = await fs.getDocs(fs.collection(db, "pushTokens_" + familyKey));
+      snap.forEach(d => {
+        const u = d.data() && d.data().user;
+        if (u) set.add(normalizeNotifyName(u));
+      });
+    } catch { /* offline, blocked, or not configured — the warning just can't show yet */ }
+    pushDeviceNamesCache = set;
+    pushDeviceNamesReq = null;
+    return set;
+  })();
+  return pushDeviceNamesReq;
+}
+// One row per family member, rebuilt every time the sheet opens. Exclude nobody — even the
+// creator gets a row; notifyCalEvent silently skips self at send time regardless. A checkbox
+// starts ticked when that person is already an event.notify subscriber (see openCalEventSheet's
+// calSheetInitialNotify) — new events start every box unchecked, same as before. A member with
+// no email on file is labeled so ticking them never silently over-promises an email; a member
+// with no registered push device gets the equivalent warning for the 1-hour reminder, filled in
+// asynchronously once getPushDeviceNames() resolves (so opening the sheet is never blocked on a
+// network round trip).
+function renderCalNotifyList(ev){
   const wrap = document.getElementById("calNotifyList");
   wrap.innerHTML = "";
   const members = familyMembers();
@@ -7502,6 +7577,7 @@ function renderCalNotifyList(){
     row.className = "cal-notify-row";
     const cb = document.createElement("input");
     cb.type = "checkbox"; cb.dataset.name = m.name;
+    cb.checked = calSheetInitialNotify.has(normalizeNotifyName(m.name));
     const span = document.createElement("span");
     span.textContent = m.name;
     row.append(cb, span);
@@ -7512,6 +7588,19 @@ function renderCalNotifyList(){
     }
     wrap.appendChild(row);
   }
+  getPushDeviceNames().then(deviceNames => {
+    // The sheet may have been closed/reopened on a DIFFERENT event by the time this resolves —
+    // only touch rows that are still this exact list (querySelectorAll re-reads live DOM, so a
+    // stale write here would otherwise silently mislabel whatever's open now).
+    if (document.getElementById("calNotifyList") !== wrap) return;
+    for (const row of wrap.querySelectorAll(".cal-notify-row")){
+      const cb = row.querySelector("input[type=checkbox]");
+      if (!cb || deviceNames.has(normalizeNotifyName(cb.dataset.name))) continue;
+      const note = document.createElement("small");
+      note.textContent = "no push device registered — reminders won't reach them";
+      row.appendChild(note);
+    }
+  });
 }
 function getCheckedNotifyNames(){
   return [...document.querySelectorAll("#calNotifyList input[type=checkbox]:checked")].map(cb => cb.dataset.name);
@@ -10314,6 +10403,11 @@ window.__CAL__ = {
                 notifyChecked: getCheckedNotifyNames(),
                 notifyAll: familyMembers().map(m=>m.name) }),
   notifiedMap: ()=>calNotifiedMap(),
+  // Test hook: Firestore is blocked in every headless suite (see CLAUDE.md), so
+  // getPushDeviceNames() can never really reach pushTokens_<familyKey> there. This lets a test
+  // inject the device roster directly and re-render the open sheet's warnings against it,
+  // exactly the way the real Firestore read would once it resolves.
+  setPushDeviceNames: (names)=>{ pushDeviceNamesOverride = new Set((names||[]).map(normalizeNotifyName)); if (document.getElementById("calOverlay").classList.contains("open")) renderCalNotifyList(); },
   // Home-widget hooks (deterministic "now" for the dashboard calendar card)
   setHomeNow: (ts)=>{ calHomeNowOverride = ts || null; if (currentTab === "dashboard") render(); },
   home: ()=>({ cacheTs: calCacheTs, fetching: calHomeFetching }),

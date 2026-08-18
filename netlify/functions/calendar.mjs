@@ -166,10 +166,58 @@ function classifyGoogleError(r, headers, scope) {
   return json({ error: "google-error", detail, status: r.status }, 200, headers);
 }
 
+// ---- Notify list (2026-08-18): who should get eventreminders.mjs's 1-hour-before push, kept
+// on the event itself so a scheduled server-side function (and every family member's device,
+// not just the creator's) can read who was ticked in the event sheet's Notify section. Lives in
+// extendedProperties.private.buckyNotify as a JSON-encoded array of names — extendedProperties
+// values are plain strings, there is no native array type. Google copies a recurring master's
+// extendedProperties onto every instance it generates, so a series' selection is inherited by
+// each occurrence for free (list never has to special-case recurrence for this). See
+// applyNotify (below) for the write side and eventreminders.mjs's parseNotifyList for the
+// read-side twin (duplicated logic on purpose — no shared JS between functions here).
+const NOTIFY_MAX_COUNT = 40;      // a family roster is nowhere near this; still capped defensively
+const NOTIFY_MAX_NAME_LEN = 60;
+const NOTIFY_MAX_JSON_LEN = 900;  // Google's extendedProperties.private VALUE cap is 1024 bytes/prop
+
+function capNotifyList(names) {
+  let list = (names || [])
+    .filter((n) => typeof n === "string" && n.trim())
+    .slice(0, NOTIFY_MAX_COUNT)
+    .map((n) => n.trim().slice(0, NOTIFY_MAX_NAME_LEN));
+  while (list.length && JSON.stringify(list).length > NOTIFY_MAX_JSON_LEN) list.pop();
+  return list;
+}
+function parseNotifyList(e) {
+  try {
+    const raw = e.extendedProperties && e.extendedProperties.private && e.extendedProperties.private.buckyNotify;
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((n) => typeof n === "string" && n) : [];
+  } catch {
+    return [];
+  }
+}
+// Stamp ev.notify onto the outgoing Google body. Semantics deliberately mirror applyRepeat's
+// absent-vs-explicit convention:
+//   ev.notify === undefined  -> leave extendedProperties.private.buckyNotify ALONE (PATCH omits
+//                                the key entirely, so an update that isn't about Notify — or a
+//                                future caller that forgets to pass it — can never silently wipe
+//                                an existing subscription).
+//   ev.notify is an array (even []) -> explicitly SET/REPLACE the list. index.html's event
+//                                sheet always sends this key on every save (the Notify section
+//                                is core to the sheet), so in practice "absent" only protects
+//                                callers other than the sheet itself.
+function applyNotify(g, ev) {
+  if (ev.notify === undefined) return;
+  const list = capNotifyList(Array.isArray(ev.notify) ? ev.notify : []);
+  g.extendedProperties = { private: { buckyNotify: JSON.stringify(list) } };
+}
+
 // Normalize a Google event → the lean shape the client renders. Handles both timed
 // (start.dateTime) and all-day (start.date) events. seriesId = the master's id when this
 // is an INSTANCE of a recurring event (list uses singleEvents:true so that's what the
-// client sees); null for standalone events and for the master itself.
+// client sees); null for standalone events and for the master itself. notify = the persisted
+// reminder-subscriber list (see above), always an array, empty when nothing was ever set.
 function normalizeEvent(e) {
   const allDay = !!(e.start && e.start.date);
   return {
@@ -180,6 +228,7 @@ function normalizeEvent(e) {
     allDay,
     notes: e.description || "",
     seriesId: e.recurringEventId || null,
+    notify: parseNotifyList(e),
   };
 }
 
@@ -291,6 +340,7 @@ async function listEvents(token, calId, body, headers) {
 async function createEvent(token, calId, ev, headers) {
   const body = buildGoogleEvent(ev);
   applyRepeat(body, ev, false);
+  applyNotify(body, ev);
   const r = await calFetch(token, "POST", `/calendars/${encodeURIComponent(calId)}/events`, { body });
   if (!r.ok) return classifyGoogleError(r, headers, "event");
   return json({ event: normalizeEvent(r.data || {}) }, 200, headers);
@@ -300,6 +350,7 @@ async function updateEvent(token, calId, ev, headers) {
   if (!ev || !ev.id) return jsonError(400, "Missing event id", headers);
   const body = buildGoogleEvent(ev);
   applyRepeat(body, ev, true);
+  applyNotify(body, ev);
   const r = await calFetch(token, "PATCH", `/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(ev.id)}`, { body });
   if (!r.ok) return classifyGoogleError(r, headers, "event");
   return json({ event: normalizeEvent(r.data || {}) }, 200, headers);
