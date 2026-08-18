@@ -67,9 +67,19 @@ async function voiceIdByName(key, name) {
   return hit.voice_id;
 }
 
+async function fsExists(docId) {
+  const r = await fetch(`${FS_BASE}/${COLL}/${docId}?key=${FS_KEY}&mask.fieldPaths=name`);
+  return r.ok;
+}
+
 async function runJobs(body) {
   const key = process.env.ELEVENLABS_API_KEY;
-  const jobs = Array.isArray(body.jobs) ? body.jobs.slice(0, 12) : [];
+  // Cap raised from 12 for the 200-player announcement batch. Generation is
+  // sequential (one in-flight ElevenLabs request), and jobs whose result
+  // chunks already sit in Firestore are skipped — so if the 15-minute
+  // background window dies mid-batch, firing the SAME list again resumes
+  // where it stopped instead of paying for the first half twice.
+  const jobs = Array.isArray(body.jobs) ? body.jobs.slice(0, 220) : [];
   const done = [], failed = [];
   const stamp = () => fsSet("audio_status", {
     done: done.join(","), failed: failed.map((f) => f.name + ": " + f.detail).join(" | "),
@@ -81,6 +91,7 @@ async function runJobs(body) {
     const name = String(job.name || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
     if (!name || !job.prompt) { failed.push({ name: name || "?", detail: "bad job" }); await stamp(); continue; }
     try {
+      if (await fsExists(`audio_${name}_c0`)) { done.push(name); await stamp(); continue; }
       let buf;
       if (job.kind === "tts") {
         // An explicit voice_id skips the lookup — /v1/voices needs its own key

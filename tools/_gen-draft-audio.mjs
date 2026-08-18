@@ -82,6 +82,57 @@ async function fireTts() {
   console.log("fire ->", res.status, res.status === 202 ? "(generating in the background)" : await res.text());
   if (res.status !== 202) process.exit(1);
 }
+// ---- the full player announcements: top-200, phonetic, full format ---------
+// "[excitedly] JAH-meer GIBZ, Running Back, Detroit Lions!" — respellings from
+// tools/_pronunciations.json (family-supplied broadcast guide; CAPITALS mark
+// the stressed syllable), matched to the live pool by normalized name so every
+// clip is keyed by the pid the room actually drafts. The pool's OWN proTeam is
+// the team truth (trades move faster than spreadsheets).
+const POS_FULL = { QB: "Quarterback", RB: "Running Back", WR: "Wide Receiver", TE: "Tight End", K: "Kicker" };
+const NFL_FULL = {
+  ARI: "Arizona Cardinals", ATL: "Atlanta Falcons", BAL: "Baltimore Ravens", BUF: "Buffalo Bills",
+  CAR: "Carolina Panthers", CHI: "Chicago Bears", CIN: "Cincinnati Bengals", CLE: "Cleveland Browns",
+  DAL: "Dallas Cowboys", DEN: "Denver Broncos", DET: "Detroit Lions", GB: "Green Bay Packers",
+  HOU: "Houston Texans", IND: "Indianapolis Colts", JAX: "Jacksonville Jaguars", KC: "Kansas City Chiefs",
+  LAC: "Los Angeles Chargers", LAR: "Los Angeles Rams", LV: "Las Vegas Raiders", MIA: "Miami Dolphins",
+  MIN: "Minnesota Vikings", NE: "New England Patriots", NO: "New Orleans Saints", NYG: "New York Giants",
+  NYJ: "New York Jets", PHI: "Philadelphia Eagles", PIT: "Pittsburgh Steelers", SEA: "Seattle Seahawks",
+  SF: "San Francisco 49ers", TB: "Tampa Bay Buccaneers", TEN: "Tennessee Titans", WSH: "Washington Commanders",
+  WAS: "Washington Commanders",
+};
+const normName = (n) => String(n).toLowerCase().replace(/[^a-z0-9]/g, "");
+function playerAnnounceJobs(pool, upTo) {
+  const guide = JSON.parse(fs.readFileSync(path.join(__dirname, "_pronunciations.json"), "utf8")).players;
+  const byName = new Map(pool.map((p) => [normName(p.name), p]));
+  const jobs = [], missing = [];
+  for (const row of guide) {
+    if (row.rank > upTo) break;
+    const p = byName.get(normName(row.player));
+    if (!p) { missing.push(row.player); continue; }
+    const posFull = POS_FULL[p.pos] || p.pos;
+    const teamFull = NFL_FULL[p.proTeam] || NFL_FULL[row.team] || row.team;
+    jobs.push({
+      name: "ffd-say-" + p.pid, kind: "tts", voice: "James", model: "eleven_v3",
+      voice_id: process.env.SAY_VOICE_ID || undefined,
+      prompt: "[excitedly] " + row.phonetic + ", " + posFull + ", " + teamFull + "!",
+    });
+  }
+  if (missing.length) console.log("NOT IN LIVE POOL (skipped):", missing.join(", "));
+  return jobs;
+}
+async function firePlayers() {
+  const pool = await poolTop(400);
+  const jobs = playerAnnounceJobs(pool, Number(process.env.SAY_N || 200));
+  console.log(jobs.length, "announcement jobs; first:", jobs[0] && jobs[0].prompt, "| last:", jobs[jobs.length - 1] && jobs[jobs.length - 1].prompt);
+  const res = await fetch(FN, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: familySecret(), jobs }),
+  });
+  console.log("fire ->", res.status, res.status === 202 ? "(generating in the background; re-fire resumes if the window dies)" : await res.text());
+  if (res.status !== 202) process.exit(1);
+}
+
 // ---- team lead-ins: "The <team> select..." ---------------------------------
 // One clip per ESPN team, stitched in front of the player clip at play time.
 // Spellings here are PHONETIC where the real name would misread — they are for
@@ -270,5 +321,6 @@ else if (mode === "--direct") direct();
 else if (mode === "--fire-tts") fireTts();
 else if (mode === "--fire-announce") fireAnnounceTest();
 else if (mode === "--fire-teams") fireTeams();
+else if (mode === "--fire-players") firePlayers();
 else if (mode === "--collect-tts") collectTts();
 else { console.log("usage: node tools/_gen-draft-audio.mjs --fire | --collect | --direct | --fire-tts | --collect-tts"); process.exit(1); }
