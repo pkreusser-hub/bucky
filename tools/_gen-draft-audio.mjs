@@ -140,6 +140,25 @@ async function firePlayers() {
   if (res.status !== 202) process.exit(1);
 }
 
+// ---- defenses: "The Denver Broncos Defense!" -------------------------------
+async function fireDst() {
+  const pool = await poolTop(400);
+  const dst = pool.filter((p) => p.pos === "D/ST").slice(0, Number(process.env.SAY_N || 20));
+  const jobs = dst.map((p) => ({
+    name: "ffd-say-" + p.pid, kind: "tts", voice: "James", model: "eleven_v3",
+    voice_id: process.env.SAY_VOICE_ID || undefined,
+    prompt: "[excitedly] The " + (NFL_FULL[p.proTeam] || p.name.replace(/ D\/ST$/, "")) + " Defense!",
+  }));
+  jobs.forEach((j) => console.log(" ", j.name, "→", j.prompt));
+  const res = await fetch(FN, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: familySecret(), jobs }),
+  });
+  console.log("fire ->", res.status, res.status === 202 ? "(generating)" : await res.text());
+  if (res.status !== 202) process.exit(1);
+}
+
 // ---- team lead-ins: "The <team> select..." ---------------------------------
 // One clip per ESPN team, stitched in front of the player clip at play time.
 // Spellings here are PHONETIC where the real name would misread — they are for
@@ -337,5 +356,6 @@ else if (mode === "--fire-tts") fireTts();
 else if (mode === "--fire-announce") fireAnnounceTest();
 else if (mode === "--fire-teams") fireTeams();
 else if (mode === "--fire-players") firePlayers();
+else if (mode === "--fire-dst") fireDst();
 else if (mode === "--collect-tts") collectTts();
 else { console.log("usage: node tools/_gen-draft-audio.mjs --fire | --collect | --direct | --fire-tts | --collect-tts"); process.exit(1); }
