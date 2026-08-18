@@ -2066,9 +2066,9 @@ body.tv #boothBar .btxt{font-size:16.5px}
   var SPOT_HOLD = 2600, SPOT_FLY = 680;   // suite shrinks these via the hook
   var spotT1 = null, spotT2 = null, spotSeenKey = null, spotSeq = 0;
   // (named pickReveal, not spotlight — TV mode's own #tvSpot spotlight owns that name)
-  function pickReveal(key) {
+  function pickReveal(key, pOverride) {
     if (TV) return;
-    var p = D && D.picks && D.picks[key];
+    var p = pOverride || (D && D.picks && D.picks[key]);
     if (!p) return;
     var teamIdEarly = Number(key.split("_t")[1]);
     // On Players & Teams the card would sit on top of the list someone is
@@ -2113,7 +2113,8 @@ body.tv #boothBar .btxt{font-size:16.5px}
       (gt && gt.crest ? '<img class="pscrest" src="' + esc(gt.crest) + '" alt="" onerror="this.remove()">' : "") +
       '<div class="eyebrow"' + (tert && prim ? ' style="color:' + esc(tert) + '"' : "") + ">THE PICK IS IN</div>" +
       '<div class="pk"' + (prim ? ' style="color:' + esc(ink) + ';opacity:.75"' : "") + ">" +
-      (slot ? "PICK " + esc(slot.label) : (p.keeper ? "KEEPER" : "")) + "</div>" +
+      (p.keeper ? "KEEPER · ROUND " + esc(String((/^r(\d+)_/.exec(key) || [])[1] || "?"))
+        : (slot ? "PICK " + esc(slot.label) : "")) + "</div>" +
       "<h3" + (prim ? ' style="color:' + esc(ink) + '"' : "") + ">" + esc(p.name) + "</h3>" +
       '<div class="sub"' + (prim ? ' style="color:' + esc(ink) + ';opacity:.85"' : "") + ">" + teamLogoImg(p.proTeam) + "<span>" + esc(p.pos) +
       (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span></div>" +
@@ -2125,7 +2126,13 @@ body.tv #boothBar .btxt{font-size:16.5px}
     el.hidden = false;
     // The card holds the stage while the announcer makes the call — the fly-
     // away waits for the audio to finish (plus a beat), and a silent pick
-    // keeps the plain hold.
+    // keeps the plain hold. A tap anywhere dismisses the CARD early; the
+    // audio was scheduled independently and plays on.
+    el.onclick = function () {
+      if (el.classList.contains("fly")) return;
+      clearTimeout(spotT1);
+      revealFly(key, el, card);
+    };
     spotT1 = setTimeout(function () { revealFly(key, el, card); }, SPOT_HOLD);
     DAudio.announce(teamId, p.pid, 500).then(function (durMs) {
       if (mySeq !== spotSeq || !durMs) return;
@@ -2154,6 +2161,33 @@ body.tv #boothBar .btxt{font-size:16.5px}
       card.style.transform = ""; card.style.opacity = "";
       if (cell) { cell.classList.remove("landed"); void cell.offsetWidth; cell.classList.add("landed"); }
     }, SPOT_FLY + 60);
+  }
+
+  // A keeper ENTERED during keeper picking gets the same production as a live
+  // pick — card, colours, announcement — on every screen. (The +N jump when
+  // they all materialize at draft start stays silent: they've each had their
+  // moment already.)
+  var keeperSeen = null;
+  function watchKeepers() {
+    if (!D) { keeperSeen = null; return; }
+    var now = {};
+    D.teams.forEach(function (t) {
+      (D.keepers[t.id] || []).forEach(function (k) { now[t.id + ":" + k.pid] = k; });
+    });
+    var added = keeperSeen ? Object.keys(now).filter(function (id) { return !keeperSeen[id]; }) : [];
+    var seed = !keeperSeen;
+    keeperSeen = now;
+    if (seed || added.length !== 1) return;   // reloads seed silently; bulk = not an entry
+    if (D.phase !== "setup" && D.phase !== "keepers") return;
+    var teamId = Number(added[0].split(":")[0]);
+    var kp = now[added[0]];
+    var fr = null;
+    resolveKeeperRounds(D.keepers[teamId] || [], D.rounds).forEach(function (r) {
+      if (r.pid === kp.pid) fr = r.finalRound;
+    });
+    if (fr == null) return;
+    pickReveal("r" + fr + "_t" + teamId,
+      { pid: kp.pid, name: kp.name, pos: kp.pos, proTeam: kp.proTeam, keeper: true });
   }
 
   // Every landed pick makes a sound and the spotlight on every open device.
@@ -3440,6 +3474,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
     watchMusic();
     renderBooth();
     watchBooth();
+    watchKeepers();
     watchQueue();
     renderTv();
   }

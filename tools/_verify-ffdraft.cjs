@@ -1489,8 +1489,12 @@ async function sectionRehearse(browser) {
     return !!c.querySelector(".pscrest") && /0, 19, 49|#001331/.test(bg)
       && document.querySelector("#pickSpot .cf").style.background !== "";
   }), "the card wears the drafting team's GFFL colours and crest, confetti included");
+  // This reveal's audio-extended hold runs 2+ seconds — a tap ends the CARD
+  // now (the scheduled audio is independent and untouched).
+  await clickSafely(page, "#pickSpot");
+  await page.waitForFunction(() => document.getElementById("pickSpot").hidden, { timeout: 2500, polling: 50 });
+  ok(true, "a tap dismisses the reveal card early — the announcement plays on regardless");
   await hook(page, () => { window.__DRAFT__.setSayStub(null); });
-  await page.waitForFunction(() => document.getElementById("pickSpot").hidden, { timeout: 6000, polling: 100 });
 
   // --- Players & Teams: the call plays, the takeover card does NOT ---
   await hook(page, () => { window.__DRAFT__.setSayStub(400); window.__DRAFT__.setView("players"); });
@@ -1672,6 +1676,20 @@ async function sectionRehearse(browser) {
   ok(after.keepers[1] && after.keepers[1].length === 1 && after.teams[0].owner
     && after.teams[0].owner.name === "Paul" && after.rounds === 18,
     "…with every keeper, claim and setting untouched — nobody re-claims a thing");
+
+  // --- a keeper ENTERED in keeper picking gets the reveal + announcement ---
+  await hook(page, () => { window.__DRAFT__.setView("board"); window.__DRAFT__.setSpotTimings(500, 120); });
+  await sleep(150);
+  await hook(page, () => window.__DRAFT__.addKeeper(1, window.__DRAFT__.pool.find((x) => x.pid === 4014)));
+  await page.waitForFunction(() => !document.getElementById("pickSpot").hidden, { timeout: 4000, polling: 50 });
+  ok(await page.evaluate(() => {
+    const c = document.getElementById("psCard");
+    return /KEEPER · ROUND \d+/.test(c.textContent) && c.textContent.includes("Achane")
+      && (window.__DRAFT__.audioStat.played["say:4014"] || 0) >= 1;
+  }), "entering a keeper gets the full production — card, round, and the announcer's call");
+  await page.waitForFunction(() => document.getElementById("pickSpot").hidden, { timeout: 4000, polling: 50 });
+  await hook(page, () => window.__DRAFT__.removeKeeper(1, 4014));
+  await sleep(150);
   // Writes are debounced, so this also pins the case where a pick is made and
   // wiped inside that window: the ledger queues rows when it SEES them.
   await page.waitForFunction((n) => window.__DRAFT__.backup.entries.length >= n,
@@ -1696,6 +1714,9 @@ async function sectionRehearse(browser) {
   const again = await D(page);
   ok(Object.keys(again.picks).length === 1 && again.picks["r1_t1"] && again.picks["r1_t1"].keeper === true,
     "starting again puts the keeper straight back on the board — the night can be run twice");
+  await sleep(250);
+  ok(await page.evaluate(() => document.getElementById("pickSpot").hidden),
+    "…and the bulk keeper materialization at draft start stays SILENT — each keeper had its reveal when entered");
   ok(page._errs.length === 0, "0 page errors" + (page._errs.length ? " — " + page._errs[0] : ""));
   await ctx.close();
 }
