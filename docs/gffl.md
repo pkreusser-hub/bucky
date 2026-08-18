@@ -4862,3 +4862,37 @@ phase. Not enough occurrences to place; `persistLineup` (lg-ui) is the one remai
 roster write, though it already applies only slot changes onto a fresh read, so it cannot
 resurrect a traded-away player. The sim stays the harness for it.
 ---
+
+## ffdraft.html — audio, the pick reveal, and the ADP unit bug (2026-08-18)
+
+- **Audio is committed files over synth fallbacks.** `assets/audio/draft/` (ElevenLabs; job
+  list in `tools/_gen-draft-audio.mjs`) played through the page's `DAudio` module — every
+  trigger keeps its old WebAudio beep as fallback, so missing files degrade to beeps, never
+  silence. Music (`ffd_music`, its own header toggle next to SOUND) plays a lobby bed
+  pre-draft and a live bed during, at 0.3 gain, and TV mode is deliberately silent (no
+  toggle on a wall board = a trap). **Generation pipeline for sandboxed agents**:
+  `audiogen-background.mjs` (Netlify, 15-min background allowance — sync functions time out
+  on music) → mp3s land base64-chunked in Firestore `ffdraft_fam2jan2g/audio_*` → `--collect`
+  assembles and cleans up; `--fire` runs from a GitHub Actions runner
+  (`.github/workflows/draft-audio.yml`) because the sandbox can reach neither the site nor
+  ElevenLabs, but CAN reach Firestore. **ELEVENLABS_API_KEY must exist in Netlify env** —
+  it lives only in `tools/.env` on a human machine until someone adds it (first fire failed
+  exactly there, 2026-08-18).
+- **The pick reveal is `pickReveal`, NOT `spotlight`** — TV mode's `#tvSpot` already owns
+  `function spotlight(label, p)` and the duplicate declaration silently won the hoist; the
+  collision shipped a TypeError before the suite caught it. Reveal = full-screen card +
+  confetti on every non-TV device via `watchPicks` (+1 jumps only — keeper materialization
+  arrives as one +N jump and gets one note, no reveal), then FLIP-shrinks to its board cell.
+  Dedup key is `slotKey:pid`, not slotKey — an undone slot re-picked with someone else is a
+  new announcement.
+- **ESPN ADP is a 10-team number and every raw comparison against it was structurally
+  wrong.** Live-measured (sports-diag prints the drift): ADP ≈ 1.25 × rank through the
+  middle rounds — ESPN lobbies draft 10 a round to our 8 — and ADP hard-caps at ~171. The
+  old `overall − adp ≥ 10` badges called half of a best-available mock a REACH. Everything
+  ADP-flavored now converts through `adpRoundOf()` (`ceil(adp/10)`, clamped to the room's
+  rounds) and compares ROUNDS, each draft in its own shape, both sides clamped; badges need
+  a 2+ round disconnect. `keeperAdpBadge` divided by OUR team count (8) for the same reason
+  and overstated every keeper's market round — same conversion now. The recap grades in
+  round units too. Fixture ADPs all sit under ~30 where /8 and /10 agree — which is why the
+  suite never caught it; the divergent region is pinned via hook checks at the live shape
+  (overall 60 / adp 73 = no badge).

@@ -357,7 +357,7 @@ async function newPage(ctx, o) {
   });
   page._errs = [];
   const NOISE = /Failed to load resource|dynamically imported module|gstatic|firebase|ERR_FAILED|ERR_BLOCKED/i;
-  page.on("pageerror", (e) => { if (!NOISE.test(String(e))) page._errs.push(String(e)); });
+  page.on("pageerror", (e) => { if (!NOISE.test(String(e))) page._errs.push(String(e) + " @@ " + String(e.stack || "").split("\n").slice(0, 3).join(" | ")); });
   return page;
 }
 async function shot(page, name) {
@@ -515,6 +515,24 @@ async function sectionRoom(browser) {
     && adp.bad && adp.bad.cls === "bad" && adp.none === null,
     "ADP-round math: keeping an ADP-R2 player at R5 = value, at R1 = overpay, no ADP = no badge");
 
+  // The badge units, pinned at the exact live shape that burned a real mock
+  // (2026-08-18): ESPN ADP runs ~1.25x rank because ESPN lobbies draft 10 a
+  // round to our 8. Mid-draft best-available (overall 60, adp 73 — live
+  // median drift) must read as NO badge; only 2+ rounds of real disconnect
+  // may speak. And ESPN caps ADP ~171, so a late pick is never a "steal" just
+  // for existing (overall 140 = our R18 vs adp 165 = ESPN R17).
+  const vb = await hook(page, () => ({
+    midDrift: window.__DRAFT__.valueBadge(60, 73),
+    lateCap: window.__DRAFT__.valueBadge(140, 165),
+    reach: window.__DRAFT__.valueBadge(20, 96),
+    steal: window.__DRAFT__.valueBadge(38, 15),
+    zeroAdp: window.__DRAFT__.valueBadge(10, 0),
+  }));
+  ok(vb.midDrift === null && vb.lateCap === null,
+    "the 10-vs-8 picks-per-round drift earns NO badge — best-available is not a reach");
+  ok(vb.reach === "reach" && vb.steal === "steal" && vb.zeroAdp === null,
+    "…while a true 2+ round disconnect still badges, and ADP 0 never does");
+
   await hook(page, () => window.__DRAFT__.addKeeper(1, window.__DRAFT__.pool.find((p) => p.pid === 4022)));
   const resolved = await hook(page, () => window.__DRAFT__.resolveKeeperRounds(window.__DRAFT__.D.keepers[1], 16));
   ok(resolved.length === 3
@@ -592,7 +610,11 @@ async function sectionRoom(browser) {
   ok(await page.evaluate(() => {
     const c1 = document.querySelector('#boardGrid .cell[data-key="r1_t1"]');
     const c3 = document.querySelector('#boardGrid .cell[data-key="r3_t3"]');
-    return !!(c1 && c1.textContent.includes("B. Robinson") && c1.querySelector(".kb")
+    // Restaged 2026-08-18: cells mark keepers with a KEEPER badge (same chip
+    // family as REACH/STEAL) instead of the lock glyph, which stays in the
+    // keeper panel and players list.
+    const badge = c1 && c1.querySelector(".vbadge.keeper");
+    return !!(c1 && c1.textContent.includes("B. Robinson") && badge && badge.textContent === "KEEPER"
       && c3 && c3.textContent.includes("B. Bowers"));
   }), "keepers land on the board the moment they're entered (draft not started)");
   await hook(page, () => window.__DRAFT__.setView("players"));
@@ -725,14 +747,14 @@ async function sectionRoom(browser) {
     return {
       cells: cells.length,
       keeperCell: k ? k.textContent : "",
-      keeperLock: !!(k && k.querySelector(".kb")),
+      keeperLock: !!(k && k.querySelector(".vbadge.keeper")),   // restaged: badge, not lock
       keeperPos: k ? k.className : "",
       curKey: c ? c.dataset.key : null,
       filledHavePos: cells.filter((x) => x.querySelector("b")).every((x) => /pos-(QB|RB|WR|TE|K|DST|X)/.test(x.className)),
     };
   });
   ok(board.cells === 16 * 8, "the board renders every slot (16 rounds × 8 teams)");
-  ok(board.keeperLock && board.keeperCell.includes("B. Robinson"), "keeper cells carry the lock glyph + the player");
+  ok(board.keeperLock && board.keeperCell.includes("B. Robinson"), "keeper cells carry the KEEPER badge + the player");
   ok(/pos-RB/.test(board.keeperPos), "cells are position-colored");
   ok(board.curKey === "r3_t4", "the on-the-clock cell is highlighted");
   ok(await page.evaluate(() => {
@@ -1049,6 +1071,8 @@ async function sectionRoom(browser) {
   ok(Object.keys(d.picks).some((k) => d.picks[k].by === "MOCK"), "bot picks are labeled MOCK");
   ok(await page.evaluate(() => document.getElementById("clockStrip").textContent.includes("wrap")),
     "the strip celebrates the finish");
+  ok(await page.evaluate(() => window.__DRAFT__.sndLog.includes("done")),
+    "…and the final pick fires the draft-complete fanfare, not the ordinary pick note");
   await hook(page, () => window.__DRAFT__.makePick(window.__DRAFT__.pool[0]));
   await sleep(50);
   ok((await toastText(page)).includes("isn't live"), "no picks after the draft ends");
@@ -1330,6 +1354,67 @@ async function sectionRehearse(browser) {
   }), "…and on Players & Teams it reaches the bottom of the roster column too");
   ok(await page.evaluate(() => document.scrollingElement.scrollWidth <= window.innerWidth + 1),
     "no sideways scroll at 1440px");
+
+  // --- board cells: pick number row, then the NAME row, uncut ---
+  await hook(page, () => window.__DRAFT__.setView("board"));
+  await sleep(200);
+  ok(await page.evaluate(() => {
+    const cells = Array.from(document.querySelectorAll("#boardGrid .cell")).filter((c) => c.querySelector("b"));
+    const stacked = cells.every((c) => {
+      const pn = c.querySelector(".pn").getBoundingClientRect();
+      const nm = c.querySelector("b").getBoundingClientRect();
+      return nm.top >= pn.bottom - 1;
+    });
+    const uncut = cells.filter((c) => { const b = c.querySelector("b"); return b.scrollWidth <= b.clientWidth + 1; });
+    return stacked && uncut.length >= Math.ceil(cells.length * 0.85);
+  }), "cells stack pick number OVER the name, and ~all names fit uncut");
+  ok(await page.evaluate(() => {
+    const kc = Array.from(document.querySelectorAll("#boardGrid .cell .vbadge.keeper"));
+    return kc.length > 0 && kc.every((b) => b.textContent === "KEEPER");
+  }), "keepers wear a KEEPER tag in the same chip family as REACH/STEAL");
+
+  // --- music: its own toggle, and it follows the phase ---
+  ok(await page.evaluate(() => {
+    const m = document.getElementById("musicBtn");
+    return !m.hidden && m.textContent === "MUSIC ON";
+  }), "a MUSIC toggle sits in the header next to SOUND");
+  ok(await page.evaluate(() => window.__DRAFT__.audioStat.wantMusic === "music-live"),
+    "…a live draft asks for the live bed");
+  await clickSafely(page, "#musicBtn");
+  ok(await page.evaluate(() => document.getElementById("musicBtn").textContent === "MUSIC OFF"
+    && localStorage.getItem("ffd_music") === "0" && window.__DRAFT__.musicKey === null),
+    "…one tap turns it off and the choice sticks");
+  await clickSafely(page, "#musicBtn");
+  ok(await page.evaluate(() => localStorage.getItem("ffd_music") === "1"), "…and back on");
+
+  // --- the pick spotlight: every screen, then it flies to its cell ---
+  await hook(page, () => window.__DRAFT__.setSpotTimings(340, 140));
+  const spotPick = await page.evaluate(async () => {
+    const H = window.__DRAFT__;
+    const p = H.pool.find((x) => !H.takenPids()[x.pid]);
+    await H.makePick(p, "Paul");
+    return { name: p.name, key: H.D.history[H.D.history.length - 1] };
+  });
+  ok(await page.evaluate((nm) => {
+    const el = document.getElementById("pickSpot"), c = document.getElementById("psCard");
+    return !el.hidden && c.textContent.includes("THE PICK IS IN") && c.textContent.includes(nm)
+      && !!el.querySelector(".cf");
+  }, spotPick.name), "a landed pick takes over the screen — card, pick number, confetti");
+  await page.waitForFunction(() => document.getElementById("pickSpot").hidden, { timeout: 6000, polling: 100 });
+  ok(await page.evaluate((k) => {
+    const cell = document.querySelector('#boardGrid .cell[data-key="' + k + '"]');
+    return !!cell && cell.classList.contains("landed") && cell.textContent.includes("KEEPER") === false;
+  }, spotPick.key), "…then it shrinks away and its board cell flashes the landing");
+  ok(await page.evaluate(() => window.__DRAFT__.sndLog.includes("pick")),
+    "…with the fanfare trigger on the trail");
+
+  // A reload must NOT replay the announcement, and keeper materialization
+  // (a many-pick jump) never gets one.
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.D, { timeout: 15000 });
+  await sleep(400);
+  ok(await page.evaluate(() => document.getElementById("pickSpot").hidden),
+    "a reload mid-draft stays quiet — no replayed spotlight");
 
   // --- the clock runs OUT and the draft carries on regardless ---
   await hook(page, () => window.__DRAFT__.setSetting("timerSecs", 1));

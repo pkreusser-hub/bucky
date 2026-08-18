@@ -71,6 +71,11 @@ header .hcrest{ position:absolute; right:16px; top:50%; transform:translateY(-50
   border-radius:6px; padding:3px 10px; font-size:10.5px; font-weight:700; letter-spacing:.8px;
 }
 #soundBtn.off{opacity:.55}
+#musicBtn{
+  background:none; border:1px solid var(--line); color:var(--muted);
+  border-radius:6px; padding:3px 10px; font-size:10.5px; font-weight:700; letter-spacing:.8px;
+}
+#musicBtn.off{opacity:.55}
 #connBanner{background:var(--accent-d); color:#fff; padding:8px 14px; font-size:13px; font-weight:600}
 #bkBanner{
   background:#5a3b06; color:#ffe9b8; padding:9px 14px; font-size:13px; font-weight:600;
@@ -198,9 +203,12 @@ input::placeholder{color:#5b6579}
   font-size:11.5px; line-height:1.25; background:#131926; border:1px solid var(--board-line);
   overflow:hidden;
 }
-.cell b{display:block; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600}
-.cell .pn{position:absolute; top:3px; right:5px; font-size:9px; opacity:.6; font-variant-numeric:tabular-nums}
-.cell .pt{font-size:10px; opacity:.72}
+/* The pick number gets its own top row and the name a full row UNDER it, in
+   smaller type — with the number absolutely positioned in the corner the name
+   had to leave room for it and most names ellipsized. */
+.cell .pn{display:block; font-size:8.5px; opacity:.6; font-variant-numeric:tabular-nums; line-height:1.1}
+.cell b{display:block; font-size:10.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; margin-top:1px}
+.cell .pt{font-size:9.5px; opacity:.72}
 .cell .kb{width:9px; height:9px; margin-right:3px; opacity:.9; vertical-align:baseline}
 .cell.pos-QB{background:var(--pos-QB); border-color:transparent}
 .cell.pos-RB{background:var(--pos-RB); border-color:transparent}
@@ -218,6 +226,7 @@ input::placeholder{color:#5b6579}
 }
 .vbadge.steal{background:#0d3b24; color:#7ee2ae}
 .vbadge.reach{background:#42210c; color:#f0a35f}
+.vbadge.keeper{background:#152743; color:#ffd97a}
 #boardLegend .kb{width:10px;height:10px;vertical-align:middle}
 
 /* recap (draft grades) */
@@ -241,7 +250,8 @@ input::placeholder{color:#5b6579}
 }
 #boardGrid.fit{width:100%; min-width:0}
 #boardGrid.fit .cell{padding:4px 5px; min-width:0}
-#boardGrid.fit .cell b{padding-right:22px}
+/* (the fit board no longer reserves corner space for the pick number — it
+   lives on its own row now, so the name gets the whole width) */
 #boardGrid.fit .bhead{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 #boardGrid.fit .bhead .own{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 
@@ -416,10 +426,10 @@ input::placeholder{color:#5b6579}
 /* ---------- TV mode ---------- */
 body.tv{padding-bottom:64px}
 body.tv header{padding:8px 18px 7px}
-body.tv #phaseLine,body.tv #soundBtn{display:none}
+body.tv #phaseLine,body.tv #soundBtn,body.tv #musicBtn{display:none}
 body.tv main{max-width:none; padding:12px 18px}
 body.tv .cell{min-height:56px; font-size:13px}
-body.tv .cell b{font-size:14.5px}
+body.tv .cell b{font-size:13px}
 body.tv .cell .pt{font-size:11px}
 body.tv #clockStrip .pickno{font-size:28px}
 body.tv #clockStrip .who{font-size:19px}
@@ -443,6 +453,47 @@ body.tv #boardLegend{display:none}
 #tvSpot b{display:block; font-family:var(--disp); font-size:42px; color:#fff; letter-spacing:1px; margin:6px 0 2px}
 #tvSpot .spin>span:last-child{color:var(--muted); font-size:15px}
 @keyframes spotin{from{transform:scale(.85); opacity:0}}
+
+/* ---------- pick spotlight (every screen, not just the TV) ---------- */
+#pickSpot{
+  position:fixed; inset:0; z-index:80; display:flex; align-items:center; justify-content:center;
+  background:rgba(5,8,14,.78); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
+  overflow:hidden;
+}
+#pickSpot .rays{
+  position:absolute; width:160vmax; height:160vmax; border-radius:50%; left:50%; top:50%;
+  margin:-80vmax 0 0 -80vmax;
+  background:repeating-conic-gradient(rgba(255,182,18,.09) 0 9deg, transparent 9deg 18deg);
+  animation:raySpin 16s linear infinite;
+}
+@keyframes raySpin{to{transform:rotate(360deg)}}
+#pickSpot .cf{position:absolute; top:-6vh; width:8px; height:13px; border-radius:2px; opacity:.9;
+  animation:cfFall linear forwards}
+@keyframes cfFall{to{transform:translateY(115vh) rotate(720deg); opacity:.5}}
+#psCard{
+  position:relative; width:min(460px,88vw); border-radius:16px; padding:24px 26px 22px; text-align:center;
+  background:linear-gradient(165deg,#1c2537,#0d1422); border:1px solid rgba(255,255,255,.14);
+  border-top:6px solid var(--pos-X);
+  box-shadow:0 30px 80px rgba(0,0,0,.6); transform-origin:center;
+  animation:psIn .55s cubic-bezier(.2,1.5,.35,1);
+}
+@keyframes psIn{0%{transform:scale(.35) rotate(-2deg); opacity:0} 65%{transform:scale(1.06)} 100%{transform:scale(1)}}
+#psCard.pos-QB{border-top-color:var(--pos-QB)} #psCard.pos-RB{border-top-color:var(--pos-RB)}
+#psCard.pos-WR{border-top-color:var(--pos-WR)} #psCard.pos-TE{border-top-color:var(--pos-TE)}
+#psCard.pos-K{border-top-color:var(--pos-K)} #psCard.pos-DST{border-top-color:var(--pos-DST)}
+#psCard .eyebrow{font-family:var(--disp); font-weight:700; font-size:13px; letter-spacing:3px; color:var(--gold)}
+#psCard .pk{font-family:var(--disp); font-weight:600; font-size:15px; color:var(--muted); margin-top:3px; letter-spacing:1px}
+#psCard h3{font-family:var(--disp); font-weight:700; font-size:clamp(30px,9vw,46px); line-height:1.04; color:#fff;
+  margin:10px 0 6px; letter-spacing:.5px}
+#psCard .sub{display:flex; align-items:center; justify-content:center; gap:9px; font-size:14px; color:#cfd6e4}
+#psCard .sub .tlogo{width:30px; height:30px; object-fit:contain}
+#psCard .team{margin-top:12px; font-size:13.5px; color:var(--muted)}
+#psCard .team b{color:#e6ebf4}
+#pickSpot.fly{background:transparent; backdrop-filter:none; -webkit-backdrop-filter:none; pointer-events:none}
+#pickSpot.fly .rays,#pickSpot.fly .cf{display:none}
+#psCard.fly{animation:none; transition:transform .65s cubic-bezier(.55,.05,.35,1), opacity .65s ease-in}
+.cell.landed{animation:landPulse 1.3s ease-out}
+@keyframes landPulse{0%{outline:3px solid var(--gold); outline-offset:1px} 100%{outline:3px solid transparent}}
 </style>
 </head>
 <body>
@@ -450,7 +501,7 @@ body.tv #boardLegend{display:none}
 <div id="bkBanner" hidden></div>
 <div id="localBadge" hidden>PRACTICE MODE — this draft lives on this device only.</div>
 <header>
-  <div class="brand"><span class="wordmark">DRAFT DAY</span><span id="lgName"></span><button id="soundBtn" hidden>SOUND ON</button></div>
+  <div class="brand"><span class="wordmark">DRAFT DAY</span><span id="lgName"></span><button id="soundBtn" hidden>SOUND ON</button><button id="musicBtn" hidden>MUSIC ON</button></div>
   <div id="phaseLine"></div>
   <img class="hcrest" src="icons/gffl-mark.png" alt="" width="110" height="136" decoding="async">
 </header>
@@ -510,6 +561,7 @@ body.tv #boardLegend{display:none}
 <div id="tvTicker" hidden></div>
 <div id="tvSpot" hidden></div>
 <div id="pcOverlay" hidden><div id="pcCard"></div></div>
+<div id="pickSpot" hidden><div class="rays"></div><div class="cfs"></div><div id="psCard"></div></div>
 <div id="confirmBar" hidden></div>
 <div id="toastWrap"></div>
 
@@ -1247,9 +1299,12 @@ body.tv #boardLegend{display:none}
   // pool) → no badge.
   function keeperAdpBadge(costRound, pid, d) {
     var p = poolByPid[pid];
-    if (!p || p.adp == null || !d) return null;
-    var teams = (d.teams && d.teams.length) || 8;
-    var round = Math.max(1, Math.min(d.rounds, Math.ceil(p.adp / teams)));
+    if (!p || !d) return null;
+    // ADP is an ESPN-lobby number (~10 picks a round), NOT this league's —
+    // dividing by our 8 teams overstated every keeper's market round. Same
+    // conversion the board badges use.
+    var round = adpRoundOf(p.adp, d);
+    if (round == null) return null;
     var diff = costRound - round;
     return { round: round, diff: diff, cls: diff >= 1 ? "good" : diff <= -1 ? "bad" : "" };
   }
@@ -1529,12 +1584,89 @@ body.tv #boardLegend{display:none}
   // A two-tone chime + a flashing tab title the moment the clock becomes
   // YOURS. WebAudio needs one prior user gesture; without it we stay silent.
   var audioCtx = null, lastClockKey = null, titleTimer = null, flashFlip = false;
-  document.addEventListener("pointerdown", function () {
-    if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
-  }, { once: true });
+
+  // ---------------- audio: generated samples over synth fallbacks ------------
+  // The real sounds are ElevenLabs-generated mp3s committed under
+  // assets/audio/draft/ (job list: tools/_gen-draft-audio.mjs). Every trigger
+  // keeps its little WebAudio synth as a FALLBACK, so a missing or
+  // still-decoding file degrades to the old beep, never to silence. Background
+  // music is its own toggle (ffd_music): a lobby bed before the draft, a live
+  // bed once it starts — and like all browser audio, nothing can play until
+  // the first tap on the page.
+  var musicOn = localStorage.getItem("ffd_music") !== "0";
+  var DAudio = (function () {
+    var BASE = "assets/audio/draft/";
+    var buffers = {}, loading = null;
+    var musicSrc = null, musicGain = null, musicKey = null;
+    var stat = { files: 0, played: {}, musicStarts: 0, musicStops: 0, wantMusic: null };
+    function ensureCtx() {
+      if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+      if (audioCtx && audioCtx.state === "suspended") { try { audioCtx.resume(); } catch (e) {} }
+      return audioCtx;
+    }
+    function loadAll() {
+      if (loading || !ensureCtx()) return loading;
+      loading = fetch(BASE + "manifest.json").then(function (r) {
+        if (!r.ok) throw new Error("no manifest");
+        return r.json();
+      }).then(function (man) {
+        return Promise.all((man.files || []).map(function (f) {
+          return fetch(BASE + f.file).then(function (r) { return r.arrayBuffer(); })
+            .then(function (ab) { return audioCtx.decodeAudioData(ab); })
+            .then(function (buf) { buffers[f.key] = buf; stat.files++; })
+            .catch(function () {});
+        }));
+      }).then(function () { music(stat.wantMusic); }).catch(function () {});
+      return loading;
+    }
+    function play(key, vol, synth) {
+      stat.played[key] = (stat.played[key] || 0) + 1;
+      if (!soundOn || !ensureCtx()) return;
+      var b = buffers[key];
+      if (!b) { if (synth) { try { synth(); } catch (e) {} } return; }
+      try {
+        var src = audioCtx.createBufferSource(), g = audioCtx.createGain();
+        src.buffer = b; g.gain.value = vol || 0.9;
+        src.connect(g); g.connect(audioCtx.destination);
+        src.start();
+      } catch (e) {}
+    }
+    function music(key) {
+      stat.wantMusic = key || null;
+      if (!key || !musicOn) { stopMusic(); return; }
+      if (!audioCtx || !buffers[key]) return;   // picks itself up via wantMusic after unlock/decode
+      if (musicKey === key && musicSrc) return;
+      stopMusic();
+      try {
+        musicSrc = audioCtx.createBufferSource();
+        musicGain = audioCtx.createGain();
+        musicSrc.buffer = buffers[key]; musicSrc.loop = true;
+        musicGain.gain.value = 0.3;   // it sits UNDER eight people talking
+        musicSrc.connect(musicGain); musicGain.connect(audioCtx.destination);
+        musicSrc.start();
+        musicKey = key; stat.musicStarts++;
+      } catch (e) { musicSrc = null; musicKey = null; }
+    }
+    function stopMusic() {
+      if (musicSrc) { try { musicSrc.stop(); } catch (e) {} stat.musicStops++; }
+      musicSrc = null; musicKey = null;
+    }
+    return { play: play, music: music, loadAll: loadAll, stat: stat,
+      get musicKey() { return musicKey; } };
+  })();
+  document.addEventListener("pointerdown", function () { DAudio.loadAll(); }, { once: true });
+
+  // What the room should sound like right now. TV stays silent — it has no
+  // toggle buttons, and a wall board that can't be muted is a trap.
+  function watchMusic() {
+    if (TV || !D) { DAudio.music(null); return; }
+    DAudio.music(D.phase === "live" ? "music-live" : "music-lobby");
+  }
+
+  var sndLog = [];   // debug trail for the suite — audio itself needs a user gesture
   function chime() {
-    if (!soundOn || !audioCtx) return;
-    try {
+    sndLog.push("chime");
+    DAudio.play("sfx-yourturn", 0.9, function () {
       var t = audioCtx.currentTime;
       [523.25, 784].forEach(function (f, i) {
         var o = audioCtx.createOscillator(), g = audioCtx.createGain();
@@ -1545,13 +1677,11 @@ body.tv #boardLegend{display:none}
         o.connect(g); g.connect(audioCtx.destination);
         o.start(t + i * 0.18); o.stop(t + i * 0.18 + 0.55);
       });
-    } catch (e) {}
+    });
   }
-  var sndLog = [];   // debug trail for the suite — audio itself needs a user gesture
   function pickSound() {
     sndLog.push("pick");
-    if (!soundOn || !audioCtx) return;
-    try {
+    DAudio.play("sfx-fanfare", 0.95, function () {
       var t = audioCtx.currentTime;
       var o = audioCtx.createOscillator(), g = audioCtx.createGain();
       o.type = "triangle";
@@ -1562,12 +1692,26 @@ body.tv #boardLegend{display:none}
       g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
       o.connect(g); g.connect(audioCtx.destination);
       o.start(t); o.stop(t + 0.32);
-    } catch (e) {}
+    });
+  }
+  function doneSound() {
+    sndLog.push("done");
+    DAudio.play("sfx-done", 0.95, function () {
+      var t = audioCtx.currentTime;
+      [392, 523.25, 659.25, 784].forEach(function (f, i) {
+        var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.frequency.value = f; o.type = "triangle";
+        g.gain.setValueAtTime(0.0001, t + i * 0.14);
+        g.gain.exponentialRampToValueAtTime(0.2, t + i * 0.14 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.14 + 0.6);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(t + i * 0.14); o.stop(t + i * 0.14 + 0.65);
+      });
+    });
   }
   function buzzer() {
     sndLog.push("buzzer");
-    if (!soundOn || !audioCtx) return;
-    try {
+    DAudio.play("sfx-buzzer", 0.9, function () {
       var t = audioCtx.currentTime;
       [0, 0.3].forEach(function (d) {
         var o = audioCtx.createOscillator(), g = audioCtx.createGain();
@@ -1578,14 +1722,84 @@ body.tv #boardLegend{display:none}
         o.connect(g); g.connect(audioCtx.destination);
         o.start(t + d); o.stop(t + d + 0.26);
       });
-    } catch (e) {}
+    });
   }
-  // Every landed pick makes a sound on every open device (keeper
-  // materialization at draft start reads as one "draft started" note).
+  // ---------------- the pick spotlight ----------------
+  // Every landed pick takes over every open screen for a moment: a big card
+  // with the pick number and the player, fanfare underneath, then it shrinks
+  // and flies to its own cell on the board. The TV keeps its own spotlight.
+  var SPOT_HOLD = 2600, SPOT_FLY = 680;   // suite shrinks these via the hook
+  var spotT1 = null, spotT2 = null, spotSeenKey = null;
+  // (named pickReveal, not spotlight — TV mode's own #tvSpot spotlight owns that name)
+  function pickReveal(key) {
+    if (TV) return;
+    var p = D && D.picks && D.picks[key];
+    if (!p) return;
+    var el = $("pickSpot"), card = $("psCard");
+    clearTimeout(spotT1); clearTimeout(spotT2);
+    var slot = null;
+    slotSeq(D).forEach(function (s) { if (s.key === key) slot = s; });
+    var t = teamById(D, Number(key.split("_t")[1]));
+    // confetti in the position palette — deterministic spread, no randomness
+    var conf = "";
+    for (var i = 0; i < 26; i++) {
+      conf += '<span class="cf" style="left:' + ((i * 137 + 11) % 100) + "%;background:" +
+        posColor(POS[i % POS.length]) + ";animation-duration:" + (1.7 + ((i * 53) % 12) / 10) +
+        "s;animation-delay:" + ((i * 29) % 10) / 12 + 's"></span>';
+    }
+    el.querySelector(".cfs").innerHTML = conf;
+    card.className = posClass(p.pos);
+    card.innerHTML =
+      '<div class="eyebrow">THE PICK IS IN</div>' +
+      '<div class="pk">' + (slot ? "PICK " + esc(slot.label) : (p.keeper ? "KEEPER" : "")) + "</div>" +
+      "<h3>" + esc(p.name) + "</h3>" +
+      '<div class="sub">' + teamLogoImg(p.proTeam) + "<span>" + esc(p.pos) +
+      (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span></div>" +
+      (t ? '<div class="team">' + (t.owner ? esc(t.owner.name) + " — " : "") + "<b>" + esc(t.name) + "</b></div>" : "");
+    card.style.transform = ""; card.style.opacity = "";
+    el.classList.remove("fly"); card.classList.remove("fly");
+    el.hidden = false;
+    spotT1 = setTimeout(function () { revealFly(key, el, card); }, SPOT_HOLD);
+  }
+  function revealFly(key, el, card) {
+    var cell = document.querySelector('#boardGrid .cell[data-key="' + key + '"]');
+    var cr = card.getBoundingClientRect();
+    el.classList.add("fly"); card.classList.add("fly");
+    if (cell && cell.offsetParent && !$("vBoard").hidden) {
+      var tr = cell.getBoundingClientRect();
+      card.style.transform = "translate(" + ((tr.left + tr.width / 2) - (cr.left + cr.width / 2)) + "px," +
+        ((tr.top + tr.height / 2) - (cr.top + cr.height / 2)) + "px) scale(" + Math.max(tr.width / Math.max(cr.width, 1), 0.05) + ")";
+      card.style.opacity = "0.15";
+    } else {
+      // The board isn't on this screen — shrink away toward it instead.
+      card.style.transform = "translate(0,-40vh) scale(0.1)";
+      card.style.opacity = "0";
+    }
+    spotT2 = setTimeout(function () {
+      el.hidden = true;
+      el.classList.remove("fly"); card.classList.remove("fly");
+      card.style.transform = ""; card.style.opacity = "";
+      if (cell) { cell.classList.remove("landed"); void cell.offsetWidth; cell.classList.add("landed"); }
+    }, SPOT_FLY + 60);
+  }
+
+  // Every landed pick makes a sound and the spotlight on every open device.
+  // The count-jump gate matters twice over: keeper materialization at draft
+  // start arrives as one +N jump (one note, no spotlight), and a reload seeds
+  // lastPickCount without replaying history.
   var lastPickCount = null;
   function watchPicks() {
     var n = D ? Object.keys(D.picks || {}).length : 0;
-    if (lastPickCount != null && D && D.phase === "live" && n > lastPickCount) pickSound();
+    if (lastPickCount != null && D && (D.phase === "live" || D.phase === "done") && n > lastPickCount) {
+      if (D.phase === "done") doneSound(); else pickSound();
+      if (n === lastPickCount + 1) {
+        var k = D.history && D.history.length ? D.history[D.history.length - 1] : null;
+        // Dedup by slot AND player: an undone slot re-picked with someone else
+        // is a brand-new announcement, not a rerun.
+        var sig = k && D.picks[k] ? k + ":" + D.picks[k].pid : null;
+        if (sig && sig !== spotSeenKey) { spotSeenKey = sig; pickReveal(k); }
+      }
+    }
     lastPickCount = D ? n : null;
   }
   function myClockNow() {
@@ -1617,10 +1831,21 @@ body.tv #boardLegend{display:none}
     b.hidden = !D || TV;
     b.textContent = soundOn ? "SOUND ON" : "SOUND OFF";
     b.classList.toggle("off", !soundOn);
+    var m = $("musicBtn");
+    m.hidden = !D || TV;
+    m.textContent = musicOn ? "MUSIC ON" : "MUSIC OFF";
+    m.classList.toggle("off", !musicOn);
   }
   $("soundBtn").onclick = function () {
     soundOn = !soundOn;
     localStorage.setItem("ffd_sound", soundOn ? "1" : "0");
+    renderSound();
+  };
+  $("musicBtn").onclick = function () {
+    musicOn = !musicOn;
+    localStorage.setItem("ffd_music", musicOn ? "1" : "0");
+    DAudio.loadAll();   // the toggle tap is itself the unlock gesture
+    watchMusic();
     renderSound();
   };
 
@@ -1725,10 +1950,28 @@ body.tv #boardLegend{display:none}
   }
 
   // ---------------- value vs ADP (badges + recap grades) ----------------
+  // A badge is a claim about THIS league, and the raw pick-number comparison
+  // it replaced was structurally wrong: ESPN's ADP is measured in ESPN lobby
+  // drafts (~10 teams), so in an 8-team room the two pick counters drift a
+  // full round apart every ~5 rounds and by the middle rounds EVERY best-
+  // available pick read as a REACH (seen in a real mock, 2026-08-18). Compare
+  // ROUNDS, each in its own draft's shape, and only a genuinely big
+  // disconnect — 2+ rounds — earns a badge.
+  var ESPN_ADP_TEAMS = 10;
+  function adpRoundOf(adp, d) {
+    if (adp == null || adp <= 0) return null;
+    var r = Math.ceil(adp / ESPN_ADP_TEAMS);
+    return d ? Math.max(1, Math.min(d.rounds, r)) : r;
+  }
   function valueBadge(overall, adp) {
-    if (adp == null || overall == null) return null;
-    if (overall - adp >= 10) return "steal";   // fell well past his ADP to you
-    if (adp - overall >= 10) return "reach";   // taken well before his ADP
+    var ar = adpRoundOf(adp, D);
+    if (ar == null || overall == null) return null;
+    // Clamped to the same range as the ADP round — comparing an unclamped 18
+    // against a clamped 16 manufactures a "steal" at the board's tail.
+    var ourRound = Math.ceil(overall / ((D && D.teams.length) || 8));
+    if (D) ourRound = Math.max(1, Math.min(D.rounds, ourRound));
+    if (ourRound - ar >= 2) return "steal";   // fell rounds past where he usually goes
+    if (ar - ourRound >= 2) return "reach";   // taken rounds before it
     return null;
   }
   function renderRecap() {
@@ -1743,9 +1986,10 @@ body.tv #boardLegend{display:none}
         if (k.split("_t")[1] !== String(t.id)) return;
         var p = D.picks[k];
         if (p.keeper) return;
-        var adp = (poolByPid[p.pid] || {}).adp;
-        if (adp == null) return;
-        var v = overallByKey[k] - adp;
+        var ar = adpRoundOf((poolByPid[p.pid] || {}).adp, D);
+        if (ar == null) return;
+        // Same units as the badges: rounds of value, not raw pick numbers.
+        var v = Math.ceil(overallByKey[k] / D.teams.length) - ar;
         val += v;
         if (!best || v > best.v) best = { v: v, p: p };
         if (!worst || v < worst.v) worst = { v: v, p: p };
@@ -1757,11 +2001,11 @@ body.tv #boardLegend{display:none}
       rows.map(function (r, i) {
         return '<div class="grrow"><span class="gr">' + GRADES[Math.min(i, GRADES.length - 1)] + "</span><b>" + esc(r.t.name) + "</b>" +
           '<span class="grv">' + (r.val >= 0 ? "+" : "") + r.val + "</span>" +
-          (r.best && r.best.v >= 8 ? '<span class="mut">best value: ' + esc(fmtName(r.best.p.name)) + " (+" + Math.round(r.best.v) + ")</span>" : "") +
-          (r.worst && r.worst.v <= -8 ? '<span class="mut">biggest reach: ' + esc(fmtName(r.worst.p.name)) + " (" + Math.round(r.worst.v) + ")</span>" : "") +
+          (r.best && r.best.v >= 2 ? '<span class="mut">best value: ' + esc(fmtName(r.best.p.name)) + " (+" + Math.round(r.best.v) + " rds)</span>" : "") +
+          (r.worst && r.worst.v <= -2 ? '<span class="mut">biggest reach: ' + esc(fmtName(r.worst.p.name)) + " (" + Math.round(r.worst.v) + " rds)</span>" : "") +
           "</div>";
       }).join("") +
-      '<p class="mut" style="margin-top:8px">Positive = ADP value that fell to that team. Keepers excluded.</p></div>';
+      '<p class="mut" style="margin-top:8px">Rounds of ADP value that fell to that team (positive = value). Keepers excluded.</p></div>';
   }
 
   // ---------------- mock draft (practice mode) ----------------
@@ -2187,9 +2431,10 @@ body.tv #boardLegend{display:none}
         var vb = p && !p.keeper ? valueBadge(overallByKey[key], (poolByPid[p.pid] || {}).adp) : null;
         h += '<div class="' + cls + '" data-key="' + key + '">' +
           '<span class="pn">' + esc(label) + "</span>" +
-          (p ? ((p.keeper ? KB_LOCK : "") + "<b>" + esc(fmtName(p.name)) + "</b>" +
+          (p ? ("<b>" + esc(fmtName(p.name)) + "</b>" +
             '<span class="pt">' + esc(p.pos) + (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span>" +
-            (vb ? '<span class="vbadge ' + vb + '">' + vb.toUpperCase() + "</span>" : ""))
+            (p.keeper ? '<span class="vbadge keeper">KEEPER</span>'
+              : (vb ? '<span class="vbadge ' + vb + '">' + vb.toUpperCase() + "</span>" : "")))
             : "") +
           "</div>";
       });
@@ -2198,7 +2443,9 @@ body.tv #boardLegend{display:none}
     $("boardLegend").innerHTML = POS.map(function (p) {
       return '<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:' +
         posColor(p) + ';margin-right:4px"></span>' + p + "&nbsp;&nbsp;";
-    }).join("") + " · " + KB_LOCK + " keeper";
+    }).join("") + ' · <span class="vbadge keeper" style="position:static">KEEPER</span>' +
+      ' <span class="vbadge steal" style="position:static">STEAL</span> fell 2+ rounds past ADP' +
+      ' · <span class="vbadge reach" style="position:static">REACH</span> taken 2+ rounds early';
     renderRecap();
   }
 
@@ -2816,6 +3063,7 @@ body.tv #boardLegend{display:none}
     renderSound();
     watchClock();
     watchPicks();
+    watchMusic();
     watchQueue();
     renderTv();
   }
@@ -2857,6 +3105,7 @@ body.tv #boardLegend{display:none}
     keeperCostOf: function (pid) { return D ? keeperCostOf(pid, D) : null; },
     keeperStatusOf: function (pid, teamId) { return D ? keeperStatusOf(pid, teamId, D) : null; },
     keeperAdpBadge: function (costRound, pid) { return D ? keeperAdpBadge(costRound, pid, D) : null; },
+    valueBadge: valueBadge,
     get draftAt() { return DRAFT_AT; },
     setDraftAt: function (ms) { DRAFT_AT = ms; renderCountdown(); },
     get backup() { return Backup; },
@@ -2888,6 +3137,10 @@ body.tv #boardLegend{display:none}
     loads: function () { return Promise.all([loadInfo(), loadPool(), loadLastDraft()]); },
     get chat() { return chatMsgs; },
     get sndLog() { return sndLog; },
+    get audioStat() { return DAudio.stat; },
+    get musicKey() { return DAudio.musicKey; },
+    pickRevealNow: pickReveal,
+    setSpotTimings: function (hold, fly) { SPOT_HOLD = hold; SPOT_FLY = fly; },
     sendChat: sendChat,
     openPlayerCard: openPlayerCard,
     closePlayerCard: closePlayerCard,
