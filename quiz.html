@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0f172a" />
+<title>Team Quiz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
+<style>
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  :root {
+    --bg: #0f172a; --bg-2: #0b1222; --card: #f8fafc; --card-d: #1e293b;
+    --ink: #0f172a; --ink-inv: #f8fafc; --muted: #94a3b8; --muted-d: #64748b;
+    --indigo: #6366f1; --teal: #14b8a6; --amber: #f59e0b; --rose: #f43f5e;
+    --line: #334155; --good: #22c55e; --bad: #ef4444;
+  }
+  body {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--ink-inv); min-height: 100dvh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  h1, h2, h3 { margin: 0; font-weight: 800; }
+  button { font-family: inherit; cursor: pointer; }
+  input, select { font-family: inherit; }
+
+  #connBanner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+    background: var(--bad); color: #fff; text-align: center; font-weight: 800;
+    padding: 10px; font-size: 14px;
+  }
+  #localBadge {
+    position: fixed; top: 8px; right: 8px; z-index: 150; background: var(--amber); color: #1a1200;
+    font-weight: 800; font-size: 11px; padding: 4px 9px; border-radius: 999px;
+  }
+
+  .wrap { max-width: 480px; margin: 0 auto; padding: 24px 18px 60px; min-height: 100dvh; display: flex; flex-direction: column; }
+  .wrap.wide { max-width: 1100px; }
+
+  .card {
+    background: var(--card); color: var(--ink); border-radius: 18px; padding: 22px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.35);
+  }
+  .title { font-size: 26px; margin-bottom: 4px; }
+  .sub { color: var(--muted-d); font-size: 14px; font-weight: 600; margin-bottom: 18px; }
+
+  label.f { display: block; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--muted-d); margin: 14px 0 6px; }
+  .f:first-of-type { margin-top: 0; }
+  input[type=text], input[type=password], input[type=number], select {
+    width: 100%; padding: 13px 14px; border-radius: 12px; border: 2px solid #e2e8f0; font-size: 16px;
+    background: #fff; color: var(--ink); font-weight: 600;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--indigo); }
+  #joinCode { text-transform: uppercase; letter-spacing: 6px; font-size: 22px; text-align: center; font-weight: 800; }
+
+  .avatarGrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 6px; }
+  .avatarBtn {
+    font-size: 22px; padding: 8px 0; border-radius: 11px; border: 2px solid #e2e8f0; background: #fff;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .avatarBtn.sel { border-color: var(--indigo); background: #eef2ff; }
+
+  .btn {
+    display: block; width: 100%; border: 0; border-radius: 13px; padding: 15px; font-weight: 800; font-size: 16px;
+    background: var(--indigo); color: #fff; margin-top: 18px;
+  }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.secondary { background: #e2e8f0; color: var(--ink); }
+  .btn.danger { background: var(--rose); }
+  .linkBtn {
+    background: none; border: 0; color: var(--muted); font-weight: 700; font-size: 13.5px;
+    text-decoration: underline; padding: 6px; margin: 0 auto; display: block;
+  }
+  .errBox { background: #fee2e2; color: #991b1b; font-weight: 700; font-size: 13.5px; padding: 10px 12px; border-radius: 10px; margin-top: 12px; }
+
+  .chipRow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .chip {
+    border: 2px solid #e2e8f0; background: #fff; border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 700; color: var(--ink);
+  }
+  .chip.on { background: var(--indigo); border-color: var(--indigo); color: #fff; }
+  .catChip { display: inline-flex; align-items: center; gap: 6px; background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 800; }
+  .catChip button { background: none; border: 0; color: #3730a3; font-weight: 800; font-size: 14px; padding: 0 0 0 2px; }
+
+  .qReview { border-top: 1px solid #e2e8f0; padding: 12px 0; }
+  .qReview:first-child { border-top: 0; }
+  .qReview .qt { font-weight: 700; font-size: 14.5px; }
+  .qReview .ans { font-size: 13px; color: var(--good); font-weight: 700; margin-top: 4px; }
+  .qReview .del { float: right; background: none; border: 0; color: var(--bad); font-weight: 800; font-size: 13px; }
+
+  /* ---------------- Big screen (host) ---------------- */
+  .stage { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px 20px; text-align: center; }
+  .roomCode { font-size: 5.5rem; font-weight: 800; letter-spacing: .12em; line-height: 1; margin: 14px 0; }
+  .joinUrl { font-size: 1.1rem; font-weight: 700; color: var(--muted); word-break: break-all; }
+  .playerGrid { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 26px 0; max-width: 900px; }
+  .pTile {
+    background: var(--card-d); border-radius: 14px; padding: 12px 16px; display: flex; align-items: center; gap: 8px;
+    font-weight: 700; animation: popIn .28s ease;
+  }
+  .pTile .av { font-size: 22px; }
+  @keyframes popIn { from { transform: scale(.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .playerCount { font-size: 15px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
+
+  .qHead { display: flex; align-items: center; gap: 14px; justify-content: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .catTag { background: var(--indigo); border-radius: 999px; padding: 5px 14px; font-size: 13px; font-weight: 800; }
+  .qOf { font-weight: 700; color: var(--muted); font-size: 15px; }
+  .qText { font-size: 2.5rem; font-weight: 800; line-height: 1.2; max-width: 1000px; margin: 12px 0 26px; }
+  .optGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; max-width: 900px; }
+  .optCard {
+    border-radius: 16px; padding: 22px 18px; font-size: 1.4rem; font-weight: 800; text-align: left; color: #fff;
+    display: flex; align-items: center; gap: 12px; border: 0; min-height: 90px;
+  }
+  .optCard .lbl { font-size: 1.1rem; opacity: .85; }
+  .optCard.o0 { background: var(--indigo); } .optCard.o1 { background: var(--teal); }
+  .optCard.o2 { background: var(--amber); } .optCard.o3 { background: var(--rose); }
+  .optCard.dim { opacity: .35; }
+  .optCard.correct { outline: 5px solid var(--good); box-shadow: 0 0 0 3px #0f172a, 0 0 0 8px var(--good); }
+  .optCard.picked { outline: 4px solid #fff; }
+  .optCard:disabled { cursor: default; }
+  .distBarWrap { margin-top: 8px; }
+  .distBar { height: 10px; border-radius: 6px; background: rgba(255,255,255,.35); margin-top: 6px; }
+  .distFill { height: 100%; border-radius: 6px; background: #fff; }
+  .distCount { font-size: 13px; font-weight: 700; margin-top: 2px; }
+
+  .ringWrap { margin: 10px 0; }
+  .answeredCount { font-weight: 700; color: var(--muted); font-size: 14px; margin-top: 8px; }
+
+  .lbRow {
+    display: flex; align-items: center; gap: 12px; background: var(--card-d); border-radius: 13px;
+    padding: 10px 16px; margin-bottom: 8px; width: 100%; max-width: 640px; position: relative;
+    transition: transform .5s ease;
+  }
+  .lbRow .rank { font-weight: 800; width: 30px; color: var(--muted); font-size: 15px; }
+  .lbRow .av { font-size: 24px; }
+  .lbRow .nm { flex: 1; text-align: left; font-weight: 700; }
+  .lbRow .sc { font-weight: 800; font-variant-numeric: tabular-nums; }
+  .lbRow .gain { font-size: 12px; font-weight: 800; color: var(--good); margin-left: 6px; }
+  .lbRow .arrow { font-size: 12px; margin-left: 6px; width: 14px; display: inline-block; }
+  .lbRow .arrow.up { color: var(--good); } .lbRow .arrow.down { color: var(--bad); } .lbRow .arrow.same { color: var(--muted); }
+  .lbRow .newTag { font-size: 10px; background: var(--indigo); border-radius: 6px; padding: 2px 6px; margin-left: 6px; }
+  .lbList { width: 100%; display: flex; flex-direction: column; align-items: center; margin: 18px 0; }
+
+  .podiumWrap { display: flex; align-items: flex-end; gap: 18px; margin: 30px 0; }
+  .podBlock { width: 130px; border-radius: 12px 12px 0 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 12px 8px; color: #1a1200; animation: rise .5s ease backwards; }
+  .podBlock .av { font-size: 30px; } .podBlock .nm { font-weight: 800; font-size: 13px; margin-top: 4px; } .podBlock .sc { font-weight: 800; font-size: 15px; }
+  .pod1 { background: #fbbf24; height: 190px; order: 2; animation-delay: .3s; }
+  .pod2 { background: #cbd5e1; height: 140px; order: 1; animation-delay: .15s; }
+  .pod3 { background: #d97706; color: #fff; height: 100px; order: 3; animation-delay: 0s; }
+  @keyframes rise { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .restList { width: 100%; max-width: 500px; }
+
+  .hostBar { display: flex; gap: 10px; margin-top: 22px; justify-content: center; flex-wrap: wrap; }
+  .hostBar .btn { width: auto; margin-top: 0; padding: 12px 22px; }
+
+  /* ---------------- Player mobile ---------------- */
+  .pStage { min-height: 100dvh; display: flex; flex-direction: column; padding: 20px 16px 40px; }
+  .pQText { font-size: 1.4rem; font-weight: 800; line-height: 1.3; margin: 10px 0 18px; }
+  .pOptGrid { display: flex; flex-direction: column; gap: 12px; }
+  .pOptBtn {
+    border: 0; border-radius: 14px; padding: 18px 16px; font-size: 1.05rem; font-weight: 800; color: #fff;
+    text-align: left; display: flex; gap: 10px;
+  }
+  .pOptBtn .lbl { opacity: .85; }
+  .pOptBtn.o0 { background: var(--indigo); } .pOptBtn.o1 { background: var(--teal); }
+  .pOptBtn.o2 { background: var(--amber); } .pOptBtn.o3 { background: var(--rose); }
+  .pOptBtn:disabled { opacity: .45; }
+  .pOptBtn.picked { outline: 4px solid #fff; opacity: 1; }
+  .lockedNote { text-align: center; font-weight: 700; color: var(--muted); margin-top: 14px; }
+  .pTimeBar { height: 8px; border-radius: 5px; background: var(--card-d); overflow: hidden; margin: 14px 0; }
+  .pTimeFill { height: 100%; background: var(--indigo); transition: width .2s linear; }
+  .pResult { text-align: center; padding: 40px 10px; }
+  .pResult .big { font-size: 2.2rem; font-weight: 800; }
+  .pResult.correct .big { color: var(--good); } .pResult.wrong .big { color: var(--bad); }
+  .pResult .sub2 { color: var(--muted); font-weight: 700; margin-top: 8px; }
+  .meRow { background: var(--indigo); border-radius: 13px; padding: 14px; text-align: center; font-weight: 800; margin-bottom: 16px; }
+
+  .center { text-align: center; }
+  .spin { font-size: 15px; color: var(--muted); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div id="connBanner" hidden>Connection lost — trying to reconnect</div>
+<div id="localBadge" hidden>LOCAL MODE</div>
+
+<div id="app"></div>
+
+<script type="module">
+"use strict";
+
+/* ================= constants ================= */
+const AVATARS = ["🦊","🐼","🦉","🐙","🦕","🐝","🦄","🐢","🐸","🦁","🐨","🐧","🍕","🌮","🍩","🍓","🥑","🍿","🚀","🎸","🤖","👾","🧀","⚡"];
+const ROOM_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const CAT_SUGGESTIONS = ["General knowledge","Movies & TV","Science","Geography","Music","Sports","Food & drink","Tech"];
+const OPT_CLASSES = ["o0","o1","o2","o3"];
+const OPT_LABELS = ["A","B","C","D"];
+const FN_URL = new URLSearchParams(location.search).get("fn") || "/.netlify/functions/farmgpt";
+
+const qs = new URLSearchParams(location.search);
+const LOCAL = qs.get("local") === "1";
+const FIXTURE = qs.get("fixture") === "1";
+
+function $(id) { return document.getElementById(id); }
+function el(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html != null) e.innerHTML = html;
+  return e;
+}
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+function rndKey(n) {
+  const a = "abcdefghjkmnpqrstuvwxyz0123456789";
+  let s = "";
+  for (let i = 0; i < n; i++) s += a[Math.floor(Math.random() * a.length)];
+  return s;
+}
+function roomCode() {
+  let s = "";
+  for (let i = 0; i < 4; i++) s += ROOM_CHARS[Math.floor(Math.random() * ROOM_CHARS.length)];
+  return s;
+}
+
+/* ================= identity ================= */
+let myPid = localStorage.getItem("quiz_pid") || "";
+if (!myPid) { myPid = rndKey(12); localStorage.setItem("quiz_pid", myPid); }
+let myName = localStorage.getItem("quiz_name") || "";
+let myAvatar = localStorage.getItem("quiz_avatar") || AVATARS[0];
+
+/* ================= backend ================= */
+// LOCAL mode mirrors ffdraft.html's pattern: localStorage + storage events, and
+// same-tab writers must fire their own callbacks manually because 'storage'
+// never fires in the writing tab.
+let connState = "boot";
+const Cloud = { fs: null, db: null };
+
+function lsGetJSON(k, dflt) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? dflt : v; } catch (e) { return dflt; } }
+function lsSetJSON(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
+
+const localWatchers = { room: {}, players: {}, answers: {} };
+function localFire(kind, code) {
+  const key = kind + "|" + code;
+  const cbs = (localWatchers[kind] && localWatchers[kind][key]) || [];
+  const val = kind === "room" ? lsGetJSON("quiz_local_room_" + code, null)
+    : kind === "players" ? Object.values(lsGetJSON("quiz_local_players_" + code, {}))
+    : Object.values(lsGetJSON("quiz_local_answers_" + code, {}));
+  cbs.forEach(function (cb) { cb(val); });
+}
+window.addEventListener("storage", function (e) {
+  if (!e.key) return;
+  const m = /^quiz_local_(room|players|answers)_(.+)$/.exec(e.key);
+  if (!m) return;
+  localFire(m[1], m[2]);
+});
+
+const backend = {
+  createRoom(code, roomDoc) {
+    if (LOCAL) {
+      lsSetJSON("quiz_local_room_" + code, roomDoc);
+      lsSetJSON("quiz_local_players_" + code, {});
+      lsSetJSON("quiz_local_answers_" + code, {});
+      localFire("room", code);
+      return Promise.resolve();
+    }
+    return withFs(function (fs, db) {
+      return fs.setDoc(fs.doc(db, "quiz_rooms", code), roomDoc);
+    });
+  },
+  readRoom(code) {
+    if (LOCAL) return Promise.resolve(lsGetJSON("quiz_local_room_" + code, null));
+    return withFs(function (fs, db) {
+      return fs.getDoc(fs.doc(db, "quiz_rooms", code)).then(function (snap) { return snap.exists() ? snap.data() : null; });
+    });
+  },
+  writeRoom(code, patch) {
+    if (LOCAL) {
+      const cur = lsGetJSON("quiz_local_room_" + code, {}) || {};
+      const next = Object.assign({}, cur, patch, { updatedAt: Date.now() });
+      lsSetJSON("quiz_local_room_" + code, next);
+      localFire("room", code);
+      return Promise.resolve();
+    }
+    return withFs(function (fs, db) {
+      return fs.setDoc(fs.doc(db, "quiz_rooms", code), Object.assign({}, patch, { updatedAt: Date.now() }), { merge: true });
+    });
+  },
+  watchRoom(code, cb) {
+    if (LOCAL) {
+      const key = "room|" + code;
+      (localWatchers.room[key] = localWatchers.room[key] || []).push(cb);
+      cb(lsGetJSON("quiz_local_room_" + code, null));
+      return function () {
+        localWatchers.room[key] = (localWatchers.room[key] || []).filter(function (f) { return f !== cb; });
+      };
+    }
+    let unsub = function () {};
+    withFs(function (fs, db) {
+      unsub = fs.onSnapshot(fs.doc(db, "quiz_rooms", code), function (snap) {
+        connState = "ok"; $("connBanner").hidden = true;
+        cb(snap.exists() ? snap.data() : null);
+      }, function () { connState = "dead"; $("connBanner").hidden = false; });
+    }).catch(function () { connState = "dead"; $("connBanner").hidden = false; });
+    return function () { unsub(); };
+  },
+  joinPlayer(code, pid, info) {
+    const rec = { name: info.name, avatar: info.avatar, joinedAt: Date.now(), lastSeen: Date.now() };
+    if (LOCAL) {
+      const players = lsGetJSON("quiz_local_players_" + code, {});
+      if (!players[pid]) players[pid] = rec; else { players[pid].lastSeen = Date.now(); players[pid].name = info.name; players[pid].avatar = info.avatar; }
+      lsSetJSON("quiz_local_players_" + code, players);
+      localFire("players", code);
+      return Promise.resolve();
+    }
+    return withFs(function (fs, db) {
+      return fs.setDoc(fs.doc(db, "quiz_rooms", code, "players", pid), rec, { merge: true });
+    });
+  },
+  watchPlayers(code, cb) {
+    if (LOCAL) {
+      const key = "players|" + code;
+      (localWatchers.players[key] = localWatchers.players[key] || []).push(cb);
+      cb(Object.values(lsGetJSON("quiz_local_players_" + code, {})));
+      return function () {
+        localWatchers.players[key] = (localWatchers.players[key] || []).filter(function (f) { return f !== cb; });
+      };
+    }
+    let unsub = function () {};
+    withFs(function (fs, db) {
+      unsub = fs.onSnapshot(fs.collection(db, "quiz_rooms", code, "players"), function (snap) {
+        cb(snap.docs.map(function (d) { return Object.assign({ pid: d.id }, d.data()); }));
+      }, function () {});
+    }).catch(function () {});
+    return function () { unsub(); };
+  },
+  // submitAnswer is defined below (after backend is built) so it can also stamp
+  // __q onto the record for Cloud's flat answers collection.
+  getAnswers(code, qIndex) {
+    if (LOCAL) {
+      const answers = lsGetJSON("quiz_local_answers_" + code, {});
+      return Promise.resolve(Object.keys(answers).filter(function (k) { return k.indexOf(qIndex + "_") === 0; }).map(function (k) { return answers[k]; }));
+    }
+    return withFs(function (fs, db) {
+      return fs.getDocs(fs.collection(db, "quiz_rooms", code, "answers")).then(function (snap) {
+        return snap.docs.map(function (d) { return d.data(); }).filter(function (a) { return String(a.__q) === String(qIndex); });
+      });
+    });
+  },
+  watchAnswers(code, cb) {
+    if (LOCAL) {
+      const key = "answers|" + code;
+      (localWatchers.answers[key] = localWatchers.answers[key] || []).push(cb);
+      cb(Object.values(lsGetJSON("quiz_local_answers_" + code, {})));
+      return function () {
+        localWatchers.answers[key] = (localWatchers.answers[key] || []).filter(function (f) { return f !== cb; });
+      };
+    }
+    let unsub = function () {};
+    withFs(function (fs, db) {
+      unsub = fs.onSnapshot(fs.collection(db, "quiz_rooms", code, "answers"), function (snap) {
+        cb(snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }));
+      }, function () {});
+    }).catch(function () {});
+    return function () { unsub(); };
+  },
+  deleteRoom(code) {
+    if (LOCAL) {
+      localStorage.removeItem("quiz_local_room_" + code);
+      localStorage.removeItem("quiz_local_players_" + code);
+      localStorage.removeItem("quiz_local_answers_" + code);
+      localFire("room", code);
+      return Promise.resolve();
+    }
+    return withFs(function (fs, db) {
+      return fs.deleteDoc(fs.doc(db, "quiz_rooms", code));
+    });
+  },
+};
+
+// answer doc ids in cloud are "<qIndex>_<pid>"; store qIndex explicitly too so
+// getAnswers can filter without parsing the doc id. create-once: an answer
+// already recorded for (qIndex,pid) is left untouched (Cloud uses a transaction
+// that reads first and aborts if the doc exists; Local checks the key first).
+backend.submitAnswer = function (code, qIndex, pid, ans) {
+  const rec = { pid: pid, choice: ans.choice, elapsedMs: ans.elapsedMs, at: Date.now(), __q: qIndex };
+  const k = qIndex + "_" + pid;
+  if (LOCAL) {
+    const answers = lsGetJSON("quiz_local_answers_" + code, {});
+    if (answers[k]) return Promise.reject(new Error("already answered"));
+    answers[k] = rec;
+    lsSetJSON("quiz_local_answers_" + code, answers);
+    localFire("answers", code);
+    return Promise.resolve();
+  }
+  return withFs(function (fs, db) {
+    const ref = fs.doc(db, "quiz_rooms", code, "answers", k);
+    return fs.runTransaction(db, function (t) {
+      return t.get(ref).then(function (snap) {
+        if (snap.exists()) throw new Error("already answered");
+        t.set(ref, rec);
+      });
+    });
+  });
+};
+
+let fsPromise = null;
+function withFs(fn) {
+  if (LOCAL) return Promise.reject(new Error("local mode"));
+  if (!fsPromise) {
+    fsPromise = Promise.all([
+      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"),
+      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"),
+    ]).then(function (mods) {
+      const appMod = mods[0], fs = mods[1];
+      const firebaseConfig = {
+        apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
+        authDomain: "amen-farms-app.firebaseapp.com",
+        projectId: "amen-farms-app",
+        storageBucket: "amen-farms-app.firebasestorage.app",
+        messagingSenderId: "321230755979",
+        appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e",
+      };
+      const app = appMod.initializeApp(firebaseConfig, "quiz");
+      Cloud.fs = fs;
+      Cloud.db = fs.getFirestore(app);
+      connState = "ok";
+      return [fs, Cloud.db];
+    }).catch(function (e) {
+      connState = "dead"; $("connBanner").hidden = false;
+      throw e;
+    });
+  }
+  return fsPromise.then(function (pair) { return fn(pair[0], pair[1]); });
+}
+
+if (LOCAL) { connState = "ok"; $("localBadge").hidden = false; }
+
+/* ================= app state ================= */
+const app = $("app");
+let view = "join";       // join | host-gate | host-build | game
+let isHost = false;
+let roomCodeCur = null;
+let unsubRoom = null, unsubPlayers = null, unsubAnswers = null;
+let players = [];
+let liveAnswers = [];
+let lastRenderKey = null;
+let timers = [];
+function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+
+// host-only in-memory quiz state (never written to the room doc — the room doc's
+// `live` block is the question WITHOUT correctIndex, by design; see below).
+let hostQuiz = null;         // { title, questions:[...] }
+let hostScores = {};         // pid -> score
+let hostQIndex = -1;
+let hostAdvanceTimer = null;
+let hostSecret = "";
+
+/* ================= render shell ================= */
+function setApp(html) { app.innerHTML = html; }
+
+/* ---------------- JOIN VIEW ---------------- */
+let joinState = { code: (qs.get("room") || "").toUpperCase().slice(0, 4), avatar: myAvatar, err: "" };
+
+function renderJoin() {
+  clearTimers();
+  const avGrid = AVATARS.map(function (a) {
+    return '<button class="avatarBtn' + (a === joinState.avatar ? " sel" : "") + '" data-av="' + esc(a) + '">' + a + "</button>";
+  }).join("");
+  setApp(
+    '<div class="wrap"><div class="card">' +
+    '<h1 class="title">Join a quiz</h1>' +
+    '<p class="sub">Enter the room code from the big screen.</p>' +
+    '<label class="f" for="joinCode">Room code</label>' +
+    '<input id="joinCode" maxlength="4" placeholder="ABCD" value="' + esc(joinState.code) + '" autocomplete="off" />' +
+    '<label class="f" for="joinName">Your name</label>' +
+    '<input id="joinName" maxlength="20" placeholder="Your name" value="' + esc(myName) + '" autocomplete="off" />' +
+    '<label class="f">Pick an avatar</label>' +
+    '<div class="avatarGrid" id="avGrid">' + avGrid + "</div>" +
+    (joinState.err ? '<div class="errBox">' + esc(joinState.err) + "</div>" : "") +
+    '<button class="btn" id="joinBtn">Join</button>' +
+    '<button class="linkBtn" id="hostLink" style="margin-top:16px">Host a quiz</button>' +
+    "</div></div>"
+  );
+  $("joinCode").addEventListener("input", function (e) {
+    joinState.code = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+    e.target.value = joinState.code;
+  });
+  $("avGrid").addEventListener("click", function (e) {
+    const b = e.target.closest(".avatarBtn");
+    if (!b) return;
+    joinState.avatar = b.getAttribute("data-av");
+    renderJoin();
+  });
+  $("joinBtn").addEventListener("click", doJoin);
+  $("hostLink").addEventListener("click", function () {
+    history.pushState(null, "", location.pathname + "?host=1" + (LOCAL ? "&local=1" : "") + (FIXTURE ? "&fixture=1" : ""));
+    view = "host-gate"; renderHostGate();
+  });
+}
+
+async function doJoin() {
+  const code = joinState.code;
+  const name = ($("joinName").value || "").trim().slice(0, 20);
+  if (code.length !== 4) { joinState.err = "Room code must be 4 characters."; renderJoin(); return; }
+  if (!name) { joinState.err = "Enter your name."; renderJoin(); return; }
+  const room = await backend.readRoom(code).catch(function () { return null; });
+  if (!room) { joinState.err = "That quiz has ended."; renderJoin(); return; }
+  if (Date.now() - (room.createdAt || 0) > 12 * 3600 * 1000) { joinState.err = "That quiz has ended."; renderJoin(); return; }
+  myName = name; myAvatar = joinState.avatar;
+  localStorage.setItem("quiz_name", myName);
+  localStorage.setItem("quiz_avatar", myAvatar);
+  await backend.joinPlayer(code, myPid, { name: myName, avatar: myAvatar });
+  roomCodeCur = code; isHost = false;
+  history.pushState(null, "", location.pathname + "?room=" + code + (LOCAL ? "&local=1" : ""));
+  enterGame(code);
+}
+
+/* ---------------- HOST GATE ---------------- */
+function renderHostGate() {
+  clearTimers();
+  setApp(
+    '<div class="wrap"><div class="card">' +
+    '<h1 class="title">Host a quiz</h1>' +
+    '<p class="sub">Enter the host password.</p>' +
+    '<label class="f" for="hostPw">Password</label>' +
+    '<input id="hostPw" type="password" autocomplete="off" />' +
+    '<div id="hostGateErr"></div>' +
+    '<button class="btn" id="hostGateBtn">Continue</button>' +
+    "</div></div>"
+  );
+  $("hostGateBtn").addEventListener("click", function () {
+    const pw = $("hostPw").value || "";
+    if (!pw) return;
+    hostSecret = pw;
+    sessionStorage.setItem("quiz_host_secret", pw);
+    view = "host-build";
+    renderHostBuild();
+  });
+}
+
+/* ---------------- HOST BUILD ---------------- */
+let buildState = {
+  cats: [], catInput: "", difficulty: "mixed", count: 12, timeSec: 20,
+  loading: false, error: "", quiz: null,
+};
+
+function renderHostBuild() {
+  clearTimers();
+  if (!hostSecret) hostSecret = sessionStorage.getItem("quiz_host_secret") || "";
+  const chips = buildState.cats.map(function (c, i) {
+    return '<span class="catChip">' + esc(c) + ' <button data-i="' + i + '">&times;</button></span>';
+  }).join("");
+  const sugg = CAT_SUGGESTIONS.map(function (c) {
+    return '<button class="chip" data-sugg="' + esc(c) + '">' + esc(c) + "</button>";
+  }).join("");
+
+  if (buildState.quiz) {
+    const qList = buildState.quiz.questions.map(function (q, i) {
+      return '<div class="qReview" data-qi="' + i + '">' +
+        '<button class="del" data-del="' + i + '">Remove</button>' +
+        '<div class="qt">' + (i + 1) + ". " + esc(q.q) + "</div>" +
+        '<div class="ans">Correct: ' + esc(q.options[q.correctIndex]) + "</div>" +
+        "</div>";
+    }).join("");
+    setApp(
+      '<div class="wrap"><div class="card">' +
+      '<h1 class="title">' + esc(buildState.quiz.title || "Quiz ready") + "</h1>" +
+      '<p class="sub">' + buildState.quiz.questions.length + " questions. Review, then open the lobby." + "</p>" +
+      '<div id="qList">' + (qList || '<p class="sub">No questions left.</p>') + "</div>" +
+      '<button class="btn" id="openLobbyBtn"' + (buildState.quiz.questions.length ? "" : " disabled") + '>Open lobby</button>' +
+      '<button class="btn secondary" id="regenBtn">Start over</button>' +
+      "</div></div>"
+    );
+    $("qList").addEventListener("click", function (e) {
+      const b = e.target.closest("[data-del]");
+      if (!b) return;
+      buildState.quiz.questions.splice(Number(b.getAttribute("data-del")), 1);
+      renderHostBuild();
+    });
+    $("openLobbyBtn").addEventListener("click", openLobby);
+    $("regenBtn").addEventListener("click", function () { buildState.quiz = null; renderHostBuild(); });
+    return;
+  }
+
+  setApp(
+    '<div class="wrap"><div class="card">' +
+    '<h1 class="title">Build a quiz</h1>' +
+    '<p class="sub">Pick categories, then generate.</p>' +
+    '<label class="f">Categories (up to 6)</label>' +
+    '<div class="chipRow" id="catChips">' + chips + "</div>" +
+    '<input id="catInput" placeholder="Add a category and press Enter" maxlength="40" style="margin-top:8px" ' +
+      (buildState.cats.length >= 6 ? "disabled" : "") + ' />' +
+    '<div class="chipRow" id="catSugg" style="margin-top:10px">' + sugg + "</div>" +
+    '<label class="f" for="diffSel">Difficulty</label>' +
+    '<select id="diffSel">' +
+      ["easy", "medium", "hard", "mixed"].map(function (d) {
+        return '<option value="' + d + '"' + (d === buildState.difficulty ? " selected" : "") + ">" + d + "</option>";
+      }).join("") +
+    "</select>" +
+    '<label class="f" for="countInput">Question count (5–25)</label>' +
+    '<input id="countInput" type="number" min="5" max="25" value="' + buildState.count + '" />' +
+    '<label class="f" for="timeSel">Time per question</label>' +
+    '<select id="timeSel">' +
+      [10, 20, 30].map(function (s) {
+        return '<option value="' + s + '"' + (s === buildState.timeSec ? " selected" : "") + ">" + s + "s</option>";
+      }).join("") +
+    "</select>" +
+    (buildState.error ? '<div class="errBox">' + esc(buildState.error) + "</div>" : "") +
+    '<button class="btn" id="genBtn"' + (buildState.loading ? " disabled" : "") + '>' +
+      (buildState.loading ? "Generating…" : "Generate quiz") + "</button>" +
+    "</div></div>"
+  );
+
+  $("catChips").addEventListener("click", function (e) {
+    const b = e.target.closest("[data-i]");
+    if (!b) return;
+    buildState.cats.splice(Number(b.getAttribute("data-i")), 1);
+    renderHostBuild();
+  });
+  $("catSugg").addEventListener("click", function (e) {
+    const b = e.target.closest("[data-sugg]");
+    if (!b || buildState.cats.length >= 6) return;
+    const v = b.getAttribute("data-sugg");
+    if (buildState.cats.indexOf(v) === -1) buildState.cats.push(v);
+    renderHostBuild();
+  });
+  $("catInput").addEventListener("keydown", function (e) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const v = (e.target.value || "").trim();
+    if (v && buildState.cats.length < 6 && buildState.cats.indexOf(v) === -1) buildState.cats.push(v);
+    renderHostBuild();
+  });
+  $("diffSel").addEventListener("change", function (e) { buildState.difficulty = e.target.value; });
+  $("countInput").addEventListener("change", function (e) {
+    buildState.count = Math.max(5, Math.min(25, Number(e.target.value) || 12));
+  });
+  $("timeSel").addEventListener("change", function (e) { buildState.timeSec = Number(e.target.value); });
+  $("genBtn").addEventListener("click", generateQuiz);
+}
+
+function fixtureQuiz() {
+  return {
+    title: "Practice Quiz",
+    questions: [
+      { q: "Which of these is a fruit?", options: ["Carrot", "Apple", "Potato", "Celery"], correctIndex: 1, category: "Food & drink", difficulty: "easy" },
+      { q: "What is 7 x 8?", options: ["54", "56", "64", "48"], correctIndex: 1, category: "General knowledge", difficulty: "medium" },
+      { q: "Which planet is known as the Red Planet?", options: ["Venus", "Jupiter", "Mars", "Saturn"], correctIndex: 2, category: "Science", difficulty: "easy" },
+      { q: "Correct answer is A here.", options: ["Right one", "Wrong", "Wrong", "Wrong"], correctIndex: 0, category: "General knowledge", difficulty: "easy" },
+    ],
+  };
+}
+
+async function generateQuiz() {
+  buildState.error = "";
+  if (LOCAL && FIXTURE) {
+    buildState.quiz = fixtureQuiz();
+    renderHostBuild();
+    return;
+  }
+  buildState.loading = true;
+  renderHostBuild();
+  try {
+    const resp = await fetch(FN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        secret: hostSecret, mode: "quizgen",
+        categories: buildState.cats.length ? buildState.cats : ["General knowledge"],
+        difficulty: buildState.difficulty, count: buildState.count,
+      }),
+    });
+    const j = await resp.json().catch(function () { return null; });
+    if (!resp.ok || !j || j.ok !== true || !j.quiz) {
+      throw new Error((j && j.error) || "Generation failed (" + resp.status + ")");
+    }
+    buildState.quiz = j.quiz;
+  } catch (e) {
+    buildState.error = (e && e.message) || "Something went wrong.";
+  }
+  buildState.loading = false;
+  renderHostBuild();
+}
+
+/* ---------------- open lobby / host game ---------------- */
+async function openLobby() {
+  const code = roomCode();
+  hostQuiz = buildState.quiz;
+  hostScores = {};
+  hostQIndex = -1;
+  const roomDoc = {
+    createdAt: Date.now(), hostToken: myPid, phase: "lobby",
+    qIndex: -1, qTotal: hostQuiz.questions.length,
+    questionStartAt: 0, timeLimitMs: buildState.timeSec * 1000,
+    title: hostQuiz.title || "Team Quiz",
+    live: null, reveal: null, board: [], ranks: {}, updatedAt: Date.now(),
+  };
+  await backend.createRoom(code, roomDoc);
+  saveHostState(code);
+  roomCodeCur = code; isHost = true;
+  history.pushState(null, "", location.pathname + "?host=1&room=" + code + (LOCAL ? "&local=1" : "") + (FIXTURE ? "&fixture=1" : ""));
+  enterGame(code);
+}
+
+function saveHostState(code) {
+  try {
+    sessionStorage.setItem("quiz_host_state_" + code, JSON.stringify({
+      quiz: hostQuiz, scores: hostScores, qIndex: hostQIndex, prevRanks: prevBoardRanks,
+    }));
+  } catch (e) {}
+}
+function loadHostState(code) {
+  try {
+    const j = JSON.parse(sessionStorage.getItem("quiz_host_state_" + code) || "null");
+    if (!j) return false;
+    hostQuiz = j.quiz; hostScores = j.scores || {}; hostQIndex = j.qIndex;
+    prevBoardRanks = j.prevRanks || {};
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ================= game (both host & player) ================= */
+function enterGame(code) {
+  view = "game";
+  lastRenderKey = null;
+  clearTimers();
+  if (unsubRoom) unsubRoom();
+  if (unsubPlayers) unsubPlayers();
+  if (unsubAnswers) unsubAnswers();
+  players = []; liveAnswers = [];
+  unsubPlayers = backend.watchPlayers(code, function (list) { players = list; if (curRoom) render(curRoom); });
+  let curRoom = null;
+  unsubRoom = backend.watchRoom(code, function (room) {
+    curRoom = room;
+    if (!room) { setApp('<div class="wrap"><div class="card center"><h1 class="title">Quiz ended</h1><p class="sub">This room is gone.</p></div></div>'); return; }
+    render(room);
+  });
+  unsubAnswers = backend.watchAnswers(code, function (list) {
+    liveAnswers = list;
+    if (isHost && curRoom && curRoom.phase === "question") maybeAutoAdvance(curRoom);
+    if (curRoom) renderAnsweredCount(curRoom);
+  });
+}
+
+function render(room) {
+  const key = room.phase + "|" + room.qIndex;
+  const phaseChanged = key !== lastRenderKey;
+  lastRenderKey = key;
+  if (isHost) renderHost(room, phaseChanged);
+  else renderPlayer(room, phaseChanged);
+}
+
+// liveAnswers holds EVERY question's answers (one snapshot on the whole
+// collection) — always narrow to the current question, or question 2+ counts
+// question 1's answers and auto-advance fires instantly.
+function answersFor(room) {
+  return liveAnswers.filter(function (a) { return String(a.__q) === String(room.qIndex); });
+}
+function renderAnsweredCount(room) {
+  const c = $("answeredCount");
+  if (c) c.textContent = "Answered: " + answersFor(room).length + " / " + players.length;
+}
+
+/* ---------------- host render ---------------- */
+function renderHost(room, phaseChanged) {
+  if (room.phase === "lobby") return renderHostLobby(room);
+  if (room.phase === "question") return renderHostQuestion(room, phaseChanged);
+  if (room.phase === "reveal") return renderHostReveal(room, phaseChanged);
+  if (room.phase === "leaderboard") return renderHostLeaderboard(room, phaseChanged);
+  if (room.phase === "podium") return renderHostPodium(room, phaseChanged);
+}
+
+function renderHostLobby(room) {
+  clearTimers();
+  const url = location.origin + location.pathname + "?room=" + roomCodeCur;
+  const tiles = players.map(function (p) {
+    return '<div class="pTile"><span class="av">' + esc(p.avatar) + '</span><span>' + esc(p.name) + "</span></div>";
+  }).join("");
+  setApp(
+    '<div class="wrap wide"><div class="stage">' +
+    '<h2 class="sub">Join at</h2>' +
+    '<div class="joinUrl">' + esc(url) + "</div>" +
+    '<div class="roomCode">' + esc(roomCodeCur) + "</div>" +
+    '<div class="playerCount">' + players.length + " player" + (players.length === 1 ? "" : "s") + " joined" + "</div>" +
+    '<div class="playerGrid">' + tiles + "</div>" +
+    '<div class="hostBar"><button class="btn" id="startBtn"' + (players.length ? "" : " disabled") + '>Start quiz</button></div>' +
+    "</div></div>"
+  );
+  $("startBtn").addEventListener("click", startQuiz);
+}
+
+async function startQuiz() {
+  hostQIndex = 0;
+  await pushQuestion();
+}
+
+async function pushQuestion() {
+  const q = hostQuiz.questions[hostQIndex];
+  if (!q) return finishToPodium();
+  const startAt = Date.now();
+  await backend.writeRoom(roomCodeCur, {
+    phase: "question", qIndex: hostQIndex, qTotal: hostQuiz.questions.length,
+    questionStartAt: startAt, live: { q: q.q, options: q.options, category: q.category || "" },
+    reveal: null,
+  });
+  saveHostState(roomCodeCur);
+}
+
+function maybeAutoAdvance(room) {
+  if (room.phase !== "question") return;
+  if (players.length && answersFor(room).length >= players.length) {
+    scheduleAdvance(0);
+  }
+}
+function scheduleAdvance(delay) {
+  if (hostAdvanceTimer) return;
+  hostAdvanceTimer = setTimeout(function () {
+    hostAdvanceTimer = null;
+    revealCurrent();
+  }, delay);
+}
+
+function renderHostQuestion(room, phaseChanged) {
+  if (phaseChanged) {
+    clearTimers();
+    const limitMs = room.timeLimitMs || 20000;
+    const elapsed = Date.now() - (room.questionStartAt || Date.now());
+    const remainMs = Math.max(0, limitMs - elapsed);
+    if (hostAdvanceTimer) { clearTimeout(hostAdvanceTimer); hostAdvanceTimer = null; }
+    timers.push(setTimeout(function () { scheduleAdvance(1500); }, remainMs));
+  }
+  const live = room.live || {};
+  const opts = (live.options || []).map(function (o, i) {
+    return '<button class="optCard ' + OPT_CLASSES[i] + '" disabled><span class="lbl">' + OPT_LABELS[i] + "</span><span>" + esc(o) + "</span></button>";
+  }).join("");
+  setApp(
+    '<div class="wrap wide"><div class="stage">' +
+    '<div class="qHead"><span class="catTag">' + esc(live.category || "") + '</span><span class="qOf">Question ' + (room.qIndex + 1) + " of " + room.qTotal + "</span></div>" +
+    '<div class="qText">' + esc(live.q || "") + "</div>" +
+    '<div class="ringWrap"><svg id="ring" width="90" height="90" viewBox="0 0 90 90"><circle cx="45" cy="45" r="38" stroke="#334155" stroke-width="8" fill="none"/><circle id="ringArc" cx="45" cy="45" r="38" stroke="#6366f1" stroke-width="8" fill="none" stroke-linecap="round"/></svg></div>' +
+    '<div class="optGrid">' + opts + "</div>" +
+    '<div class="answeredCount" id="answeredCount">Answered: ' + answersFor(room).length + " / " + players.length + "</div>" +
+    '<div class="hostBar"><button class="btn secondary" id="skipBtn">Skip question</button></div>' +
+    "</div></div>"
+  );
+  $("skipBtn").addEventListener("click", revealCurrent);
+  startRingAnimation(room);
+}
+
+function startRingAnimation(room) {
+  const ring = $("ringArc");
+  if (!ring) return;
+  const circumference = 2 * Math.PI * 38;
+  ring.style.strokeDasharray = circumference;
+  const limitMs = room.timeLimitMs || 20000;
+  function tick() {
+    const el2 = $("ringArc");
+    if (!el2) return;
+    const elapsed = Date.now() - (room.questionStartAt || Date.now());
+    const frac = Math.max(0, Math.min(1, 1 - elapsed / limitMs));
+    el2.style.strokeDashoffset = circumference * (1 - frac);
+    if (frac > 0 && room.phase === "question") timers.push(setTimeout(tick, 100));
+  }
+  tick();
+}
+
+async function revealCurrent() {
+  if (hostAdvanceTimer) { clearTimeout(hostAdvanceTimer); hostAdvanceTimer = null; }
+  const room = await backend.readRoom(roomCodeCur);
+  if (!room || room.phase !== "question") return;
+  const q = hostQuiz.questions[hostQIndex];
+  const answers = await backend.getAnswers(roomCodeCur, hostQIndex);
+  const limitMs = room.timeLimitMs || 20000;
+  const dist = [0, 0, 0, 0];
+  const gained = {};
+  answers.forEach(function (a) {
+    // NEVER use `||` or `??` here — 0 is a valid choice index and a valid
+    // elapsed time, and this exact bug class has corrupted scoring before.
+    const choiceOk = Number.isInteger(a.choice) && a.choice >= 0 && a.choice <= 3;
+    const elapsedOk = typeof a.elapsedMs === "number" && Number.isFinite(a.elapsedMs);
+    if (!choiceOk || !elapsedOk) return;
+    const elapsed = Math.max(0, Math.min(limitMs, a.elapsedMs));
+    dist[a.choice]++;
+    const correct = a.choice === q.correctIndex;
+    const pts = correct ? Math.round(1000 * (1 - (elapsed / limitMs) / 2)) : 0;
+    gained[a.pid] = pts;
+    hostScores[a.pid] = (hostScores[a.pid] || 0) + pts;
+  });
+  saveHostState(roomCodeCur);
+  await backend.writeRoom(roomCodeCur, {
+    phase: "reveal", reveal: { correctIndex: q.correctIndex, dist: dist, gained: gained },
+  });
+}
+
+function renderHostReveal(room, phaseChanged) {
+  if (phaseChanged) clearTimers();
+  const live = room.live || {};
+  const rev = room.reveal || { correctIndex: 0, dist: [0, 0, 0, 0] };
+  const max = Math.max(1, Math.max.apply(null, rev.dist));
+  const opts = (live.options || []).map(function (o, i) {
+    const cls = "optCard " + OPT_CLASSES[i] + (i === rev.correctIndex ? " correct" : " dim");
+    return '<div class="' + cls + '" style="flex-direction:column;align-items:stretch">' +
+      '<div style="display:flex;gap:10px;align-items:center"><span class="lbl">' + OPT_LABELS[i] + "</span><span>" + esc(o) + "</span></div>" +
+      '<div class="distBarWrap"><div class="distBar"><div class="distFill" style="width:' + (rev.dist[i] / max * 100) + '%"></div></div>' +
+      '<div class="distCount">' + rev.dist[i] + "</div></div></div>";
+  }).join("");
+  setApp(
+    '<div class="wrap wide"><div class="stage">' +
+    '<div class="qHead"><span class="catTag">' + esc(live.category || "") + '</span><span class="qOf">Question ' + (room.qIndex + 1) + " of " + room.qTotal + "</span></div>" +
+    '<div class="qText" style="font-size:1.8rem">' + esc(live.q || "") + "</div>" +
+    '<div class="optGrid">' + opts + "</div>" +
+    '<div class="hostBar"><button class="btn" id="nextBtn">Next</button></div>' +
+    "</div></div>"
+  );
+  $("nextBtn").addEventListener("click", goToLeaderboard);
+}
+
+function buildBoard() {
+  const rows = players.map(function (p) {
+    return { pid: p.pid, name: p.name, avatar: p.avatar, joinedAt: p.joinedAt || 0, score: hostScores[p.pid] || 0 };
+  });
+  rows.sort(function (a, b) { return b.score - a.score || a.joinedAt - b.joinedAt; });
+  rows.forEach(function (r, i) { r.rank = i + 1; });
+  return rows;
+}
+
+let prevBoardRanks = {};
+
+async function goToLeaderboard() {
+  const room = await backend.readRoom(roomCodeCur);
+  const rev = (room && room.reveal) || { gained: {} };
+  const rows = buildBoard();
+  const board = rows.slice(0, 10).map(function (r) {
+    return { pid: r.pid, name: r.name, avatar: r.avatar, score: r.score, rank: r.rank, gained: rev.gained[r.pid] || 0, prevRank: prevBoardRanks[r.pid] || 0 };
+  });
+  const ranks = {};
+  rows.forEach(function (r) { ranks[r.pid] = { rank: r.rank, score: r.score, gained: rev.gained[r.pid] || 0 }; });
+  prevBoardRanks = {};
+  rows.forEach(function (r) { prevBoardRanks[r.pid] = r.rank; });
+  saveHostState(roomCodeCur);
+  await backend.writeRoom(roomCodeCur, { phase: "leaderboard", board: board, ranks: ranks });
+}
+
+function renderHostLeaderboard(room, phaseChanged) {
+  if (phaseChanged) clearTimers();
+  const board = room.board || [];
+  const isLast = room.qIndex >= room.qTotal - 1;
+  const rows = board.map(function (r) {
+    return rowHtml(r);
+  }).join("");
+  setApp(
+    '<div class="wrap wide"><div class="stage">' +
+    '<h1 class="title" style="font-size:2rem;margin-bottom:14px">Leaderboard</h1>' +
+    '<div class="lbList" id="lbList">' + rows + "</div>" +
+    '<div class="hostBar"><button class="btn" id="lbNextBtn">' + (isLast ? "Final results" : "Next question") + "</button></div>" +
+    "</div></div>"
+  );
+  $("lbNextBtn").addEventListener("click", function () {
+    if (isLast) finishToPodium();
+    else { hostQIndex++; pushQuestion(); }
+  });
+  if (phaseChanged) animateBoard();
+}
+
+// FLIP: rows are laid out in their NEW order, then translated back to where the
+// old rank would have put them and eased to 0, so climbing rows visibly climb.
+// The score counts up from (score - gained) alongside.
+function animateBoard() {
+  const list = $("lbList");
+  if (!list) return;
+  const rows = Array.prototype.slice.call(list.querySelectorAll(".lbRow"));
+  rows.forEach(function (rowEl, i) {
+    const prevRank = Number(rowEl.getAttribute("data-prevrank")) || 0;
+    const step = rowEl.offsetHeight + 8; // row + margin-bottom
+    const from = prevRank ? (prevRank - 1 - i) * step : step * 2; // new entries rise from below
+    rowEl.style.transition = "none";
+    rowEl.style.transform = "translateY(" + from + "px)";
+    if (!prevRank) rowEl.style.opacity = "0";
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        rowEl.style.transition = "transform .55s ease, opacity .4s ease";
+        rowEl.style.transform = "translateY(0)";
+        rowEl.style.opacity = "1";
+      });
+    });
+    const scEl = rowEl.querySelector(".sc");
+    const gained = Number(rowEl.getAttribute("data-gained")) || 0;
+    const score = Number(rowEl.getAttribute("data-score")) || 0;
+    if (scEl && gained > 0) {
+      const startAt = Date.now(), dur = 700, base = score - gained;
+      (function count() {
+        const t = Math.min(1, (Date.now() - startAt) / dur);
+        scEl.textContent = Math.round(base + gained * t).toLocaleString();
+        if (t < 1) timers.push(setTimeout(count, 40));
+      })();
+    }
+  });
+}
+
+function rowHtml(r) {
+  const arrow = !r.prevRank ? '<span class="newTag">NEW</span>' : r.rank < r.prevRank
+    ? '<span class="arrow up">&#9650;</span>' : r.rank > r.prevRank
+    ? '<span class="arrow down">&#9660;</span>' : '<span class="arrow same">&mdash;</span>';
+  return '<div class="lbRow" data-pid="' + esc(r.pid) + '" data-prevrank="' + (r.prevRank || 0) + '" data-gained="' + (r.gained || 0) + '" data-score="' + (r.score || 0) + '">' +
+    '<span class="rank">' + r.rank + "</span>" +
+    '<span class="av">' + esc(r.avatar) + "</span>" +
+    '<span class="nm">' + esc(r.name) + "</span>" +
+    arrow +
+    '<span class="sc">' + r.score.toLocaleString() + "</span>" +
+    (r.gained ? '<span class="gain">+' + r.gained + "</span>" : "") +
+    "</div>";
+}
+
+async function finishToPodium() {
+  const rows = buildBoard();
+  const ranks = {};
+  rows.forEach(function (r) { ranks[r.pid] = { rank: r.rank, score: r.score, gained: 0 }; });
+  await backend.writeRoom(roomCodeCur, { phase: "podium", board: rows.slice(0, 10), ranks: ranks });
+}
+
+function renderHostPodium(room, phaseChanged) {
+  if (phaseChanged) clearTimers();
+  const board = room.board || [];
+  const top3 = [board[0], board[1], board[2]].filter(Boolean);
+  const rest = board.slice(3);
+  function podBlock(r, n) {
+    if (!r) return "";
+    return '<div class="podBlock pod' + n + '"><span class="av">' + esc(r.avatar) + '</span><span class="nm">' + esc(r.name) + '</span><span class="sc">' + r.score.toLocaleString() + "</span></div>";
+  }
+  const restRows = rest.map(rowHtml).join("");
+  setApp(
+    '<div class="wrap wide"><div class="stage">' +
+    '<h1 class="title" style="font-size:2.4rem">Final results</h1>' +
+    '<div class="podiumWrap">' + podBlock(top3[1], 2) + podBlock(top3[0], 1) + podBlock(top3[2], 3) + "</div>" +
+    '<div class="restList">' + restRows + "</div>" +
+    '<div class="hostBar"><button class="btn danger" id="endBtn">End &amp; close room</button></div>' +
+    "</div></div>"
+  );
+  $("endBtn").addEventListener("click", async function () {
+    await backend.deleteRoom(roomCodeCur);
+    sessionStorage.removeItem("quiz_host_state_" + roomCodeCur);
+    isHost = false; roomCodeCur = null;
+    history.pushState(null, "", location.pathname);
+    view = "join"; renderJoin();
+  });
+}
+
+/* ---------------- player render ---------------- */
+let playerAnswered = { qIndex: -1, choice: null };
+
+function renderPlayer(room, phaseChanged) {
+  if (room.phase === "lobby") return renderPlayerLobby(room);
+  if (room.phase === "question") return renderPlayerQuestion(room, phaseChanged);
+  if (room.phase === "reveal") return renderPlayerReveal(room, phaseChanged);
+  if (room.phase === "leaderboard" || room.phase === "podium") return renderPlayerBoard(room, phaseChanged);
+}
+
+function renderPlayerLobby() {
+  clearTimers();
+  setApp(
+    '<div class="pStage center">' +
+    '<h1 class="title">You\'re in!</h1>' +
+    '<div style="font-size:3rem;margin:14px 0">' + esc(myAvatar) + "</div>" +
+    '<div class="sub" style="font-size:16px">' + esc(myName) + "</div>" +
+    '<p class="spin" style="margin-top:30px">Waiting for the host&hellip;</p>' +
+    "</div>"
+  );
+}
+
+function renderPlayerQuestion(room, phaseChanged) {
+  if (phaseChanged) { clearTimers(); playerAnswered = { qIndex: room.qIndex, choice: null }; }
+  const live = room.live || {};
+  const alreadyAnswered = playerAnswered.qIndex === room.qIndex && playerAnswered.choice != null;
+  const opts = (live.options || []).map(function (o, i) {
+    const picked = alreadyAnswered && playerAnswered.choice === i;
+    return '<button class="pOptBtn ' + OPT_CLASSES[i] + (picked ? " picked" : "") + '" data-i="' + i + '"' + (alreadyAnswered ? " disabled" : "") + '><span class="lbl">' + OPT_LABELS[i] + "</span><span>" + esc(o) + "</span></button>";
+  }).join("");
+  setApp(
+    '<div class="pStage">' +
+    '<div class="qHead" style="justify-content:flex-start"><span class="catTag">' + esc(live.category || "") + "</span></div>" +
+    '<div class="pQText">' + esc(live.q || "") + "</div>" +
+    '<div class="pTimeBar"><div class="pTimeFill" id="pTimeFill" style="width:100%"></div></div>' +
+    '<div class="pOptGrid">' + opts + "</div>" +
+    (alreadyAnswered ? '<p class="lockedNote">Answer locked in</p>' : "") +
+    "</div>"
+  );
+  if (!alreadyAnswered) {
+    Array.prototype.forEach.call(document.querySelectorAll(".pOptBtn"), function (b) {
+      b.addEventListener("click", function () { pickAnswer(room, Number(b.getAttribute("data-i"))); });
+    });
+  }
+  const limitMs = room.timeLimitMs || 20000;
+  function tick() {
+    const fill = $("pTimeFill");
+    if (!fill) return;
+    const elapsed = Date.now() - (room.questionStartAt || Date.now());
+    const frac = Math.max(0, Math.min(1, 1 - elapsed / limitMs));
+    fill.style.width = (frac * 100) + "%";
+    if (frac > 0) timers.push(setTimeout(tick, 150));
+    else {
+      // lock UI at time-up even if no answer was sent
+      Array.prototype.forEach.call(document.querySelectorAll(".pOptBtn"), function (b) { b.disabled = true; });
+    }
+  }
+  tick();
+}
+
+async function pickAnswer(room, choice) {
+  if (playerAnswered.qIndex === room.qIndex && playerAnswered.choice != null) return;
+  playerAnswered = { qIndex: room.qIndex, choice: choice };
+  Array.prototype.forEach.call(document.querySelectorAll(".pOptBtn"), function (b, i) {
+    b.disabled = true;
+    b.classList.toggle("picked", i === choice);
+  });
+  const note = document.createElement("p");
+  note.className = "lockedNote"; note.textContent = "Answer locked in";
+  document.querySelector(".pStage").appendChild(note);
+  const elapsedMs = Date.now() - (room.questionStartAt || Date.now());
+  try {
+    await backend.submitAnswer(roomCodeCur, room.qIndex, myPid, { choice: choice, elapsedMs: elapsedMs });
+  } catch (e) { /* create-once: a duplicate submit is a no-op */ }
+}
+
+function renderPlayerReveal(room) {
+  clearTimers();
+  const rev = room.reveal || { correctIndex: 0, gained: {} };
+  const mine = playerAnswered.qIndex === room.qIndex ? playerAnswered.choice : null;
+  const correct = mine === rev.correctIndex;
+  const gained = (rev.gained && rev.gained[myPid]) || 0;
+  const live = room.live || {};
+  setApp(
+    '<div class="pStage">' +
+    '<div class="pResult ' + (mine == null ? "wrong" : correct ? "correct" : "wrong") + '">' +
+    '<div class="big">' + (mine == null ? "Time\'s up" : correct ? "Correct! +" + gained : "Not this time") + "</div>" +
+    (mine == null || !correct ? '<div class="sub2">Correct answer: ' + esc(live.options ? live.options[rev.correctIndex] : "") + "</div>" : "") +
+    "</div></div>"
+  );
+}
+
+function renderPlayerBoard(room) {
+  clearTimers();
+  const board = room.board || [];
+  const mine = (room.ranks && room.ranks[myPid]) || null;
+  const rows = board.map(rowHtml).join("");
+  const isPodium = room.phase === "podium";
+  setApp(
+    '<div class="pStage">' +
+    '<h1 class="title" style="font-size:1.6rem;text-align:center">' + (isPodium ? "Final results" : "Leaderboard") + "</h1>" +
+    (mine ? '<div class="meRow">You\'re ' + ordinal(mine.rank) + " &mdash; " + mine.score.toLocaleString() + " pts</div>" : "") +
+    '<div class="lbList">' + rows + "</div>" +
+    (isPodium ? '<p class="sub center" style="margin-top:20px">Thanks for playing!</p>' : '<p class="spin center" style="margin-top:20px">Waiting for the host&hellip;</p>') +
+    "</div>"
+  );
+}
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+/* ================= boot ================= */
+function boot() {
+  const hostQP = qs.get("host") === "1";
+  const roomQP = (qs.get("room") || "").toUpperCase();
+
+  if (roomQP) {
+    roomCodeCur = roomQP;
+    // rejoin-safe: if a host state for this room exists, resume as host.
+    if (loadHostState(roomQP)) {
+      isHost = true;
+      view = "game";
+      enterGame(roomQP);
+      return;
+    }
+    isHost = false;
+    if (myName) {
+      backend.joinPlayer(roomQP, myPid, { name: myName, avatar: myAvatar }).finally(function () {
+        view = "game"; enterGame(roomQP);
+      });
+      return;
+    }
+    joinState.code = roomQP;
+    view = "join"; renderJoin();
+    return;
+  }
+
+  if (hostQP) {
+    hostSecret = sessionStorage.getItem("quiz_host_secret") || "";
+    view = hostSecret ? "host-build" : "host-gate";
+    if (view === "host-build") renderHostBuild(); else renderHostGate();
+    return;
+  }
+
+  view = "join";
+  renderJoin();
+}
+
+// test hook, matching the house convention
+window.__QUIZ__ = {
+  state: function () { return { view: view, isHost: isHost, roomCode: roomCodeCur, players: players }; },
+};
+
+boot();
+</script>
+</body>
+</html>
