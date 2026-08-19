@@ -2199,13 +2199,34 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   // POSTs the conversation, streams plain-text chunks to onChunk, resolves with full text.
   // `signal` is only used by background calls that must be able to give up (the keeper) — a story
   // request is never aborted, because the reader is sitting there waiting for it.
+  // Gateway hiccups (502/503/504) and dropped connections get ONE quiet retry before the reader
+  // sees an error. Safe to re-send: a failed status means nothing has streamed into the chat yet,
+  // so the retry can't duplicate content — the first attempt delivered nothing. 504 in particular
+  // has been seen on Story Time when an upstream model has a slow moment (2026-08-19): the model
+  // and the function were both healthy on re-measure; only that one response had timed out at the
+  // gateway. Real request errors (4xx) are NOT retried — those mean the request itself is wrong.
   async function callFarmGPT(mode, messages, onChunk, opts, signal) {
-    const resp = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ secret: FAMILY_PASSWORD, mode, messages, ...(opts || {}) }),
-      ...(signal ? { signal } : {}),
-    });
+    let resp;
+    for (let attempt = 0; ; attempt++) {
+      let netErr = null;
+      resp = null;
+      try {
+        resp = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ secret: FAMILY_PASSWORD, mode, messages, ...(opts || {}) }),
+          ...(signal ? { signal } : {}),
+        });
+      } catch (e) { netErr = e; }
+      if (signal && signal.aborted) throw (netErr || new Error("Cancelled"));
+      const retryable = netErr || (resp && (resp.status === 502 || resp.status === 503 || resp.status === 504));
+      if (retryable && attempt < 1) {
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+      if (netErr) throw netErr;
+      break;
+    }
     if (!resp.ok) {
       let msg = "Request failed (" + resp.status + ")";
       try { msg = (await resp.json()).error || msg; } catch { /* keep generic */ }
@@ -5495,6 +5516,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     histDepth: () => farmgptHistDepth,
     show,
     goHome: (opts) => farmgptGoHome(opts || {}),
+    // Test handle on the module-scoped request path (tools/_verify-farmgpt-retry.cjs drives the
+    // 504-retry behaviour through it). Not used by the app itself.
+    call: (mode, messages, onChunk, opts, signal) => callFarmGPT(mode, messages, onChunk || (() => {}), opts, signal),
   };
 })();
 </script>
