@@ -1870,3 +1870,31 @@ devtools reader could too — harmless, and the alternative was asserting about 
 of exercising the path.
 
 ---
+
+## Team Quiz generator — mode `quizgen`, bucket `q` (2026-08-19)
+
+`quiz.html` (the staff-meeting live quiz — see docs/games.md) generates its trivia through a
+new `mode:"quizgen"` branch: host-only behind the ordinary family-secret gate, players never
+call the function. One synchronous `callAnthropicOnce` on **claude-sonnet-5** (`QUIZ_MODEL`)
+with `QUIZ_SYSTEM` demanding strict JSON `{title, questions:[{q, options[4], correctIndex,
+category, difficulty}]}`; request is `{secret, mode:"quizgen", categories:[≤6], difficulty:
+easy|medium|hard|mixed, count 5–25 (default 12)}`. 5–25 questions is a ~15–30s run, inside the
+platform window — if timeouts ever appear, clone the teachergpt-background job pattern rather
+than stretching this one (comment at the mode says so).
+
+- `parseQuizJSON` validates `correctIndex` with `Number.isInteger` + range, never truthiness —
+  index 0 is a valid and common value (CLAUDE.md pitfall #3; the suite regression-tests it).
+  Fewer than 3 surviving questions = the reply was junk → `{error}` at HTTP 200, never a throw;
+  the refusal fixture in the suite is a real refusal sentence, not a friendly mock.
+- **Usage bucket `q`** ("Team quiz" row, 🎯, Sonnet-priced fallback in farmgpt.html's BUCKETS).
+  Checked free before claiming: s,u,r,d,k,a,g,c,l,x,t,f,n,w were taken. Added to `logUsage`'s
+  key map AND `USAGE_BUCKETS` in the same commit — `t` once shipped in only one of the two and
+  the dashboard row read zero for weeks (entry above).
+
+## Verified
+quiz **59/59** (`node tools/_verify-quiz.cjs`) — section A drives this mode in-process against
+a fake Anthropic + fake Firestore commit endpoint: gate, no-categories 400, fenced JSON, the
+correctIndex-0 survivor, realistic refusal, junk-batch rejection, count clamping asserted
+against the PROMPT the fake upstream actually received (999→25, 1→5), and the usage commit
+carrying `q_in/q_out/q_req` field paths. Before/after: with farmgpt.mjs stashed back to main
+the suite reads 5/17.

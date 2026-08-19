@@ -810,3 +810,57 @@ skills loaded by the opus build agent), Fable spec+review, one polish pass.
   position (family-app posture). STAGE 4 spec'd in the Stage-3 report: Firestore
   lobbies_<familyKey>/sb_<roomCode> doc (game:"storybook", ico 📖, 15s heartbeat) +
   games.html LOBBY_TEXT entry + tiles → then go-live push (user approval required).
+
+## Team Quiz — quiz.html (2026-08-19, staff-meeting Kahoot)
+
+NOT a family game: a work tool for the user's staff meetings, hosted on the same site but
+styled neutrally (dark slate + indigo, Inter, no farm branding, no family nav, and the ONLY
+emoji on screen are the 24 avatar choices — chrome is text-only per the house rule). Host
+builds an AI quiz (categories/difficulty/count → farmgpt `mode:"quizgen"`, family password as
+the secret, kept in sessionStorage), players join from their phones with a 4-char room code
+(`?room=CODE` deep link) — no password anywhere in the player flow, that was the point.
+
+- **Sync is Firestore-only, ffdraft's recipe, not Playroom**: turn-based, ~1 write per player
+  per question. Pinned CDN ESM 10.12.2, named app `"quiz"`, config duplicated inline (house
+  rule). Collection `quiz_rooms/{CODE}` (room doc, HOST is the only writer), subcollections
+  `players/{pid}` and `answers/{qIndex}_{pid}`. Answers are create-once: Cloud = transaction
+  that reads first and aborts if the doc exists; a double tap is a rejected promise the page
+  swallows. Cloud failure = red banner, never a silent local fallback.
+- **The room doc never carries `correctIndex` during the question phase** — `live` is the
+  question minus the answer; the full quiz lives in host memory + sessionStorage
+  (`quiz_host_state_<CODE>`, also scores/qIndex/prevRanks, so a host refresh resumes mid-game).
+  A devtools-savvy player reads nothing useful mid-question. Players ARE unauthenticated
+  against open Firestore rules — anyone with the code could write junk during a room's life;
+  accepted: rooms are ephemeral (joins reject >12h-old rooms), host-side scoring drops
+  malformed answer docs, and Firebase Auth is explicitly out of scope.
+- **Scoring is host-authoritative**, computed at reveal from `getAnswers(qIndex)`:
+  `correct ? round(1000 × (1 − (elapsed/timeLimit)/2)) : 0`, elapsed clamped to [0, limit].
+  Validation is `Number.isInteger`/`Number.isFinite` + range — NEVER `||`/`??`: choice 0 and
+  elapsed 0 are both valid (pitfall #3; suite asserts a correctIndex-0 question end-to-end).
+- **State machine** lobby → question → reveal → leaderboard → … → podium, all transitions
+  host writes to the room doc, players are pure onSnapshot renderers off ONE `render(room)`
+  keyed by `phase|qIndex` (so heartbeat re-renders don't restart animations). Leaderboard does
+  a FLIP: rows render in NEW order, translate from prevRank positions, ease to 0, score counts
+  up from (score − gained); rank arrows from prevRank, NEW tag for first appearances.
+- **Answers snapshot is the WHOLE collection** — every consumer must filter to the current
+  question (`answersFor(room)`, matching on the record's `__q`). The first build counted all
+  questions' answers in "Answered: N/M" and auto-advanced question 2 instantly off question
+  1's docs; the suite pins the fix (Q2 must show 0/2 and must NOT auto-reveal).
+- LOCAL mode (`?local=1`) = localStorage + storage events, same-tab writes fire callbacks
+  manually; `?fixture=1` skips the AI call (4-question fixture, one correctIndex 0). LOCAL
+  player records must be re-keyed with their pid on read (`localPlayersArray`) — without it
+  every leaderboard score keyed off `undefined` and read 0, which is exactly the kind of bug
+  a kind mock hides: Cloud got pids from doc ids all along.
+
+## Verified
+quiz **59/59** (`node tools/_verify-quiz.cjs`): server section per docs/farmgpt.md, then
+headless Chrome (all googleapis/firestore/firebase/gstatic + non-127.0.0.1 aborted) with host
++ two players as three tabs of one context (pids forced sequentially via localStorage before
+each load), full game: join, lobby names, question text whitespace-normalized, `live` proven
+free of `correctIndex`, hand-computed scoring off the stored answer's actual elapsedMs,
+double-answer (UI disabled AND a forced second submit leaves one doc), auto-advance,
+distribution counts, leaderboard order/gained/arrows, the Q2 stale-answer regression, the
+page-side correctIndex-0 regression, podium, own-rank on player phones, hidden-banner
+geometry via computed display (offsetParent lies for position:fixed), 24-avatar grid,
+no-emoji chrome, 390px no-overflow. Before/after: pre-fix quiz.html + main's farmgpt.mjs
+reads 5/17.

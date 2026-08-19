@@ -242,12 +242,22 @@ const Cloud = { fs: null, db: null };
 function lsGetJSON(k, dflt) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? dflt : v; } catch (e) { return dflt; } }
 function lsSetJSON(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
 
+// LOCAL player records are stored keyed by pid (quiz_local_players_<code> = { pid: {name,...} }),
+// but the app reads players as a flat array carrying its OWN pid on each entry (matching the
+// Cloud path's Object.assign({pid: d.id}, d.data())) — without this, buildBoard()'s
+// hostScores[p.pid] and the leaderboard's rev.gained[r.pid] key off `undefined` and every
+// score/gain silently reads as 0.
+function localPlayersArray(code) {
+  const players = lsGetJSON("quiz_local_players_" + code, {});
+  return Object.keys(players).map(function (pid) { return Object.assign({ pid: pid }, players[pid]); });
+}
+
 const localWatchers = { room: {}, players: {}, answers: {} };
 function localFire(kind, code) {
   const key = kind + "|" + code;
   const cbs = (localWatchers[kind] && localWatchers[kind][key]) || [];
   const val = kind === "room" ? lsGetJSON("quiz_local_room_" + code, null)
-    : kind === "players" ? Object.values(lsGetJSON("quiz_local_players_" + code, {}))
+    : kind === "players" ? localPlayersArray(code)
     : Object.values(lsGetJSON("quiz_local_answers_" + code, {}));
   cbs.forEach(function (cb) { cb(val); });
 }
@@ -324,7 +334,7 @@ const backend = {
     if (LOCAL) {
       const key = "players|" + code;
       (localWatchers.players[key] = localWatchers.players[key] || []).push(cb);
-      cb(Object.values(lsGetJSON("quiz_local_players_" + code, {})));
+      cb(localPlayersArray(code));
       return function () {
         localWatchers.players[key] = (localWatchers.players[key] || []).filter(function (f) { return f !== cb; });
       };
@@ -463,7 +473,7 @@ let hostSecret = "";
 function setApp(html) { app.innerHTML = html; }
 
 /* ---------------- JOIN VIEW ---------------- */
-let joinState = { code: (qs.get("room") || "").toUpperCase().slice(0, 4), avatar: myAvatar, err: "" };
+let joinState = { code: (qs.get("room") || "").toUpperCase().slice(0, 4), avatar: myAvatar, name: myName, err: "" };
 
 function renderJoin() {
   clearTimers();
@@ -477,7 +487,7 @@ function renderJoin() {
     '<label class="f" for="joinCode">Room code</label>' +
     '<input id="joinCode" maxlength="4" placeholder="ABCD" value="' + esc(joinState.code) + '" autocomplete="off" />' +
     '<label class="f" for="joinName">Your name</label>' +
-    '<input id="joinName" maxlength="20" placeholder="Your name" value="' + esc(myName) + '" autocomplete="off" />' +
+    '<input id="joinName" maxlength="20" placeholder="Your name" value="' + esc(joinState.name) + '" autocomplete="off" />' +
     '<label class="f">Pick an avatar</label>' +
     '<div class="avatarGrid" id="avGrid">' + avGrid + "</div>" +
     (joinState.err ? '<div class="errBox">' + esc(joinState.err) + "</div>" : "") +
@@ -489,6 +499,7 @@ function renderJoin() {
     joinState.code = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
     e.target.value = joinState.code;
   });
+  $("joinName").addEventListener("input", function (e) { joinState.name = e.target.value; });
   $("avGrid").addEventListener("click", function (e) {
     const b = e.target.closest(".avatarBtn");
     if (!b) return;
@@ -732,8 +743,8 @@ function enterGame(code) {
   if (unsubPlayers) unsubPlayers();
   if (unsubAnswers) unsubAnswers();
   players = []; liveAnswers = [];
-  unsubPlayers = backend.watchPlayers(code, function (list) { players = list; if (curRoom) render(curRoom); });
   let curRoom = null;
+  unsubPlayers = backend.watchPlayers(code, function (list) { players = list; if (curRoom) render(curRoom); });
   unsubRoom = backend.watchRoom(code, function (room) {
     curRoom = room;
     if (!room) { setApp('<div class="wrap"><div class="card center"><h1 class="title">Quiz ended</h1><p class="sub">This room is gone.</p></div></div>'); return; }
