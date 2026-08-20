@@ -4910,3 +4910,119 @@ screen renders the newest into `#boothBar`, a fixed lower-third top-middle (25s 
 shows it bigger). A dead upstream = a silently quiet booth, asserted in the suite along with
 the exactly-one-line-per-3-picks cadence. The suite's farmgpt fake answers with the real shape
 (plain text on 200) and has a `boothFake.down` refusal knob.
+---
+
+## 🏈 GFFL — THE COMMISSIONER'S RULING: the zero floor + mathematical finality (2026-08-20)
+
+Two locked-together halves, both from the commissioner directly. Files:
+`assets/league/lg-{core,data,ui}.js` + `league.html` + `tools/_verify-gffl.cjs` (2785 →
+**2836**, new section AZ). No commits, no push.
+
+**RULE 1 — THE ZERO FLOOR.** No player score may go below zero, ever. `LG.floorPts(n)`
+(`n==null?null:Math.max(0,n)`, lg-core.js) is the ONE clamp, applied as a RULE-LAYER step, not a
+formula change — the stats→points map (`D.score`/STAT_MAP) computes whatever the real formula
+says, negative included (a QB with 2 INT and no yards genuinely reads -4.0 there), and stays
+ESPN-faithful and untouched. `tools/_gffl_rules_reconcile.mjs` keeps proving that raw number
+against ESPN's real 2025 season and reads through none of the sites below — it queries ESPN's
+own boxscores directly and never calls into the client engine at all.
+
+The floor landed at: **`D.livePts`'s return** (lg-data.js, the score column's own funnel);
+**`fzPts`**, finalizeWeek's live-path default `ptsOf` (lg-core.js); **finalizeWeek's
+archived-stats backfill `ptsOf`** (lg-core.js, defence in depth); **`weekStatsMap`'s per-player
+value** (lg-data.js — one source that feeds the backfill map, the player stats card's game log,
+and the players table's FPTS/AVG/LAST columns); and **`liveTotal`** in lg-ui.js, which used to
+read `row.pts` straight off `D.S.players` — the one matchup-total summation that bypassed both
+the floor and the `?demo` override every other score cell already went through, now routed
+through `D.livePts` instead. Raw survives deliberately at `row.pts` itself (mergeRow's own
+storage — the funnel is at the READ, not the write) and at `applySide`'s `dPts` (the delta-events
+feed narrates stat changes, not totals).
+
+**RULE 2 — MATHEMATICAL FINALITY.** `LG.matchupDecided(sideA, sideB)` (pure, lg-core.js) — each
+side is `[{pts, done}]` per STARTING slot (BENCH/IR excluded). `LG.bankedOf(side)` sums FLOORED
+points over done players (a guaranteed MINIMUM — a not-done player can only ever add, never
+subtract, which is what makes the floor load-bearing here); `LG.totalOf(side)` sums floored
+points over everyone. Decided for A ⟺ every B player done AND `bankedOf(A) > totalOf(B)`; both
+sides done → winner by total, exact tie → decided with no winner; the TRAILING side having ANY
+not-done player refuses decision no matter the gap, because a live player has no upside bound.
+`D.gameDone(team)` (lg-data.js) is the one new seam beside `D.gameStarted` — "post", or no
+tracked game at all (a bye, which contributes its floored zero and can never add to it, so it
+counts as done). Reader side in lg-ui.js: `matchupSides`/`matchupDecidedFor` build the slot
+arrays and wire a small inline SVG gold star (house law: no emoji in app chrome) into the
+matchup hero and the matchup-list card, absolutely positioned so it costs the row no height.
+
+**STANDINGS ARE PROVISIONAL DISPLAY ONLY.** `LG.loadStandings()` itself is untouched — it only
+ever reads finalized `weekly` docs, and `finalizeWeek` stays the one write-once record; stat
+corrections still land Tuesdays via the archived-stats backfill exactly as before this ruling.
+`renderLeague`'s own overlay counts a regular-season week's DECIDED-but-unfinalized matchups as
+W/L/PF/PA on a CLONE of the base standings the moment the arithmetic says so — the permanent
+record never sees this, and neither does any other reader of `UI._standings` (waiver priority,
+playoff odds). Rows carrying a provisional result are marked with the table's own existing
+`mut`-idiom asterisk + a footnote, not new chrome.
+
+**`?demo=clinch`** extends the `?demo=loot` plumbing: `D.demo` gains a `done` Map (per-player,
+alongside the existing `pts`/`proj`), armed by `D.demoArmClinch` — the trailer's real starters
+forced all-post at a fixed total, the leader forced banked above it on every starter but one,
+left live — called from `ensureClinchDemo` (lg-ui.js), a no-op unless the URL param is set, URL
+only, never persisted. `LG.finalizeWeek`'s existing `demoActive()` guard (kind-agnostic already)
+covers it for free.
+
+### THE DEMO-COHERENCE LESSON (same day, coordinator review, caught on the review plate)
+
+**A demo that forks truth per consumer contradicts the feature it demos.** The first cut armed
+`D.demo.done` and had `matchupSides` (the RULE 2 MATH) read it correctly — but four DISPLAY
+surfaces still read `D.S.games` raw: the matchup row's status subtitle (`gameLineHtml`), the "N
+to play · N live" strips (`D.remaining`'s `rem.left`/`rem.playing`, which also feed the hero's
+Live/Final badge), `gameStateText` (the swap/drop card rows), and `playerCardHtml`'s state line.
+The review plate caught it directly: `gffl_democlinch_1280.png` showed the TRAILER still
+ticking "Q2 5:00" with a "2 to play · 1 live" strip — under a gold star claiming the whole
+matchup decided. That is a state the theorem can never actually produce (a trailer with anyone
+left to play is never decided), so the demo was showing the family a live contradiction of the
+very rule it exists to demonstrate.
+
+**Fixed the single-seam way.** `D.demoGameView(key)` (lg-data.js, beside `D.gameDone`) is the
+ONE seam every one of those five consumers (the four display surfaces plus `D.remaining`, and
+`matchupSides` itself was refactored onto it too, so there is exactly one place that knows about
+`D.demo.done` rather than two independently-written checks that could drift apart) now reads a
+player's "game" through, instead of `D.S.games` directly. It returns a game-SHAPED stand-in
+(`{state:"post"}` for done, `{state:"in",period:2,clock:"5:00"}` for still-live — a FIXED clock,
+never wall-clock-derived, so a repaint mid-demo can't flicker the display while nothing about
+the row has genuinely changed) rather than a pre-formatted label. That shape choice is what kept
+every existing caller's OWN formatting untouched for the byte-identical no-demo path: the three
+real callers already disagreed on how to render the same state (`playerCardHtml` prepends
+"Live — ", `gameLineHtml` wraps the clock in a `.gclock` span, `gameStateText` renders it bare)
+— unifying those into one pre-formatted label string would have changed real (non-demo) output
+on at least two of the three surfaces, which the coordinator's own requirement forbade. Handing
+back a `g`-shaped object instead of a label meant each caller's pre-existing `g.state`/
+`g.period`/`g.clock` branching just runs unmodified against a possibly-synthetic object; a key
+with no demo entry gets `null`, so every fallback is the exact pre-existing `D.S.games` read.
+
+**New standing regression guard**: section AZ's demo-coherence group renders `?demo=clinch`,
+then re-derives `{pts, done}` for every STARTER SLOT straight from the RENDERED DOM (each row's
+own `.pts`/`.gline` text, not `D.demo`'s internals) and calls `LG.matchupDecided` on THAT —
+proving the star is never showing a claim the rows themselves don't back. Also pins: every real
+trailer row's status text reads exactly "Final" (whitespace-normalised); the trailer's own strip
+reads "0 to play · 0 live"; the leader's reads "0 to play · 1 live" (8 Final + the one live
+starter, on screen); the star sits on the leader only. This is the check that makes a forked
+demo unshippable in general, not just this one bug.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **2836/2836, 0 page errors** (a rare "Promise was
+collected" Puppeteer flake surfaced twice while building this batch — both were REAL, at a
+double `page.goto` re-navigation the demo block no longer does, see below — not the usual
+documented rare flake; rerun-once did not fix either occurrence, the code fix did).
+`node tools/_gffl_seams.cjs` **121/0, unrestaged**. `node tools/_gffl_season_sim.cjs`: 15,644
+checks across 89 sweeps, 0 failures.
+
+**TWO REAL INFRASTRUCTURE BUGS FOUND WHILE BUILDING THIS, both worth keeping**: (1)
+`ensureClinchDemo` awaited inside `renderLeague`/`renderMatchup`'s always-executed synchronous
+tail destabilized Puppeteer even on its cheap no-op path (the common case — no `?demo=` at all)
+— fixed by moving the guard to a synchronous check at the call site so an ordinary render never
+suspends there at all, plus an in-flight promise guard (the `D._weekStatsInFlight` pattern)
+against re-entrant calls. (2) The demo suite block's own double `page.goto()` — boot plain, then
+re-navigate the SAME page with `?demo=clinch` — was intermittently fatal to the Puppeteer target
+even after (1); fixed by booting straight into the demo URL in one navigation instead of chasing
+the flake itself.
+
+**Proof of bite**: app files reverted to HEAD, new suite kept — 2790 pre-existing checks passed,
+exactly the 5 floor-arithmetic checks failed against old code, then a clean crash on `D.gameDone
+is not a function` (RULE 2 doesn't exist in old code at all).
+---

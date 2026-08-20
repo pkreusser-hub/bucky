@@ -1409,6 +1409,42 @@
     await LG.saveTeam({ teamId: Number(teamId), pinHash: "" });
   };
 
+  // ---------------- THE COMMISSIONER'S RULING, RULE 2 — MATHEMATICAL FINALITY (2026-08-20) ---
+  // A pure function — no LG.data/D.S read here at all. Callers (the matchup page, the
+  // matchup-list card, the standings' provisional overlay) build the per-STARTING-SLOT
+  // {pts, done} arrays from D.livePts/D.gameDone (BENCH/IR excluded — only starters score; an
+  // empty slot is {pts:0, done:true}, same reasoning as a bye: it can never add).
+  //
+  // bankedOf sums FLOORED points over players who are DONE — their number cannot go any lower,
+  // so it is this side's guaranteed MINIMUM. totalOf sums FLOORED points over EVERYONE, done or
+  // not — the live total right now, which is this side's guaranteed MAXIMUM only once every one
+  // of its players is done (a not-done player's score can still rise, so totalOf(a live side) is
+  // not a ceiling on anything). LG.floorPts is what makes the theorem hold: a not-done player
+  // contributes >= 0 to whatever he adds later, never a negative correction, so bankedOf(A) can
+  // only ever be a real floor under A's eventual total.
+  LG.bankedOf = (side) => (side || []).reduce((s, p) => s + (p.done ? LG.n(LG.floorPts(p.pts)) : 0), 0);
+  LG.totalOf = (side) => (side || []).reduce((s, p) => s + LG.n(LG.floorPts(p.pts)), 0);
+  // Decided for A <=> every B player is done (B's total is now fixed) AND bankedOf(A) already
+  // beats that fixed number — A's own not-done players can only ever add, never subtract, so A's
+  // guaranteed minimum already clearing B's guaranteed maximum makes the outcome a certainty, not
+  // a projection. Symmetric for B. Both sides all-done: the winner is whoever's fixed total is
+  // higher; an exact tie is decided with no winner (no star for either side) — the arithmetic
+  // gave a real answer, it just happens to be a draw. The TRAILING side having ANY not-done
+  // player refuses decision no matter the gap: a live player has no upside bound, so nothing
+  // about his side can be called fixed yet.
+  LG.matchupDecided = function (sideA, sideB) {
+    const aDone = (sideA || []).every((p) => p.done);
+    const bDone = (sideB || []).every((p) => p.done);
+    if (aDone && bDone) {
+      const totalA = LG.totalOf(sideA), totalB = LG.totalOf(sideB);
+      if (totalA === totalB) return { decided: true, winner: null };
+      return { decided: true, winner: totalA > totalB ? "A" : "B" };
+    }
+    if (bDone && LG.bankedOf(sideA) > LG.totalOf(sideB)) return { decided: true, winner: "A" };
+    if (aDone && LG.bankedOf(sideB) > LG.totalOf(sideA)) return { decided: true, winner: "B" };
+    return { decided: false, winner: null };
+  };
+
   // Standings derived from finalized "weekly" docs (there are none yet pre-S2
   // finalization — every team reads 0-0-0 until then). Moved here (was a
   // private helper inside lg-ui's renderLeague) because S3 waiver priority
@@ -2849,6 +2885,17 @@
   // team's points-for into NaN for the rest of the table — one missing field, a column of "NaN".
   LG.n = (v) => { const x = typeof v === "number" ? v : Number(v); return Number.isFinite(x) ? x : 0; };
 
+  // ---------------- THE COMMISSIONER'S RULING, RULE 1 — THE ZERO FLOOR (2026-08-20) ----------
+  // "no player score may go below zero, ever." A RULE-LAYER step, not a formula change: the
+  // stats->points map (D.score/STAT_MAP) stays ESPN-faithful and computes whatever the real
+  // formula says, negative included (a QB with 2 INT and no yards genuinely reads -4.0 there,
+  // and tools/_gffl_rules_reconcile.mjs must keep proving THAT number against ESPN's own 2025
+  // season — it never reads through this floor). Everywhere a player's TOTAL points become
+  // visible or recorded, this is the one funnel that clamps it. null passes through untouched —
+  // "we don't know" and "he scored zero" are different claims (the 2026-08-09 NaN work's own
+  // rule), and a floor must never turn the first into the second.
+  LG.floorPts = (n) => (n == null ? null : Math.max(0, n));
+
   // ---------------- player names: ALWAYS "J. Allen" (2026-08-08, user) ----------------
   // A DISPLAY-layer formatter, deliberately not a data-layer rewrite: stored rosters, the
   // transaction log's own addName/dropName records, the wire payload the AI read matches its
@@ -2926,7 +2973,10 @@
   function fzPts(key) {
     const d = LG.data;
     const row = d && d.S && d.S.players.get(key);
-    return row && row.pts != null ? row.pts : 0;
+    // RULE 1 (2026-08-20): the write-once weekly record scores off the FLOORED number, same as
+    // every other place a total reaches the family. `row.pts` itself stays raw in D.S — this
+    // is the one funnel, not a second copy of the rule.
+    return row && row.pts != null ? LG.floorPts(row.pts) : 0;
   }
   // The engine's own authoritative week, or null when unknown / the providers disagree.
   function fzEngineWeek() {
@@ -3142,7 +3192,11 @@
       // this changes nothing there.
       const map = LG.data && LG.data.weekStats ? await LG.data.weekStats(week, { season: LG.SEASON, seasonType: "regular" }) : null;
       if (!map) return { ok: false, reason: "no-archived-stats" };
-      ptsOf = (key) => (map.has(key) ? map.get(key) : 0);
+      // RULE 1: the backfill path writes the same write-once record the live path does, so it
+      // floors too — belt-and-suspenders alongside weekStatsMap's own floor (D.weekStats'
+      // per-player values are already floored at the source; LG.floorPts here is idempotent
+      // and keeps this site self-evidently compliant without relying on that other file).
+      ptsOf = (key) => LG.floorPts(map.has(key) ? map.get(key) : 0);
     } else {
       // Explicit belt-and-suspenders for the 2025 replay: its own poll path never sets
       // D.S.espnWeek/D.S.slpWeek, which already makes fzEngineWeek() return null and the check

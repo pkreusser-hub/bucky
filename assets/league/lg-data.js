@@ -350,8 +350,11 @@
   try {
     const dq = new URLSearchParams(location.search).get("demo");
     // "ember" is kept as an alias so the link already handed out keeps working; the two-tier
-    // ember it named is superseded by the five-rung ladder.
-    if (dq === "loot" || dq === "ember") D.demo = { kind: "loot", pts: new Map(), proj: new Map() };
+    // ember it named is superseded by the five-rung ladder. `done` rides along on every kind
+    // (unused by "loot") so both arm functions and every reader share one shape.
+    if (dq === "loot" || dq === "ember") D.demo = { kind: "loot", pts: new Map(), proj: new Map(), done: new Map() };
+    // ?demo=clinch (2026-08-20, the commissioner's finality ruling) — see D.demoArmClinch below.
+    if (dq === "clinch") D.demo = { kind: "clinch", pts: new Map(), proj: new Map(), done: new Map() };
   } catch (e) { /* no location (tests/node) — no demo, which is the right default */ }
   D.demoActive = function () { return !!(D.demo && D.demo.kind); };
   // Arms the override against whichever starters are actually on screen. Called by the
@@ -366,12 +369,61 @@
     [14, 10],   // 14 on 10 → UNCOMMON  (14 ≥ 12, 1.4× ≥ 1.25, under 18)
   ];
   D.demoArm = function (keys) {
-    if (!D.demoActive() || D.demo.pts.size) return;
+    // kind-gated (2026-08-20) — ?demo=clinch shares this same D.demo object shape and must not
+    // have its scenario overwritten by the loot rungs if both arm functions were ever called
+    // against the same active demo.
+    if (!D.demoActive() || D.demo.kind !== "loot" || D.demo.pts.size) return;
     const usable = (keys || []).filter((k) => k && !/^dst_/.test(k));
     D.DEMO_RUNGS.forEach(([pts, proj], i) => {
       if (!usable[i]) return;
       D.demo.pts.set(usable[i], pts);
       D.demo.proj.set(usable[i], proj);
+    });
+  };
+  // ---------------- ?demo=clinch — a LOOK-ONLY finality override (2026-08-20) ----------------
+  // The commissioner's finality ruling needs a matchup that is provably DECIDED to be seen —
+  // out of season, and most weeks even in season, nothing is. Arms one matchup so the star, the
+  // hero state and the standings' provisional row can all be screenshotted: the TRAILER's every
+  // starter is forced "post" (done) at a fixed, hand-chosen total; the LEADER is forced BANKED
+  // (done) above that total on every starter but one, who is left "in" (still live, still
+  // rising) — the exact shape the theorem exists for: the leader is decided ahead with a player
+  // still on the field.
+  //
+  // Reuses the pts/proj maps D.livePts/D.projFor already read; adds a THIRD map, `done`, that
+  // the matchup-side builder (lg-ui's matchupSides) checks ahead of the real D.gameDone clock —
+  // exactly the same "override the display funnel, never the real clock" shape ?demo=loot
+  // already established, just one funnel further down the chain (D.gameDone itself is
+  // untouched; this is a per-PLAYER override the caller opts into, same as D.demo.pts is a
+  // per-player override of the real live score).
+  //
+  // Same three rules as loot: URL-only, never persisted; look-only (finalizeWeek already
+  // refuses whenever D.demoActive(), which does not branch on kind); idempotent (guarded on
+  // D.demo.pts.size, same as demoArm).
+  D.demoArmClinch = function (leaderKeys, trailerKeys) {
+    if (!D.demoActive() || D.demo.kind !== "clinch" || D.demo.pts.size) return;
+    const trailer = (trailerKeys || []).filter((k) => k);
+    const leader = (leaderKeys || []).filter((k) => k);
+    if (!trailer.length || !leader.length) return;
+    // TRAILER: every starter "post", summing to a fixed, hand-chosen total.
+    const perTrailer = Math.round((80 / trailer.length) * 100) / 100;
+    let trailerTotal = 0;
+    trailer.forEach((k) => {
+      D.demo.pts.set(k, perTrailer); D.demo.proj.set(k, perTrailer); D.demo.done.set(k, true);
+      trailerTotal += perTrailer;
+    });
+    // LEADER: BANKED (done) points clearing the trailer's fixed total by a real margin, spread
+    // over every starter but the last, who is left "in" — still live, still able to rise —
+    // proving the theorem's whole point: the matchup is decided anyway, because the trailer has
+    // no room left to close the gap regardless of what the leader's live player does next.
+    const bankedTarget = Math.round((trailerTotal + 20) * 100) / 100;
+    const bankedCount = Math.max(1, leader.length - 1);
+    const perLeaderBanked = Math.round((bankedTarget / bankedCount) * 100) / 100;
+    leader.forEach((k, i) => {
+      if (i === leader.length - 1) {
+        D.demo.pts.set(k, 9); D.demo.proj.set(k, 12); D.demo.done.set(k, false);
+      } else {
+        D.demo.pts.set(k, perLeaderBanked); D.demo.proj.set(k, perLeaderBanked); D.demo.done.set(k, true);
+      }
     });
   };
 
@@ -704,7 +756,11 @@
       const row = entry.raw[pid]; if (!row || typeof row !== "object") continue;
       const meta = D.S.slpPlayers && D.S.slpPlayers.get(pid);
       if (!meta) continue;
-      const pts = D.score(normSlp(row, meta.pos === "DEF"));
+      // RULE 1: this map feeds finalizeWeek's archived-stats backfill, the player stats card's
+      // game log (D.gameLog) and the players table's FPTS/AVG/LAST columns — every one of them
+      // a place a player's TOTAL points becomes visible or recorded, so it floors at the source
+      // rather than trusting every later reader to remember to.
+      const pts = LG.floorPts(D.score(normSlp(row, meta.pos === "DEF")));
       // Same keying rule as the live pollers (2026-08-09): the ROSTER's own key wins, so a
       // player Sleeper carries no espn_id for still shows a season history / FPTS column.
       const nk = nameKey(meta.name, meta.team);
@@ -1928,10 +1984,14 @@
   // The SCORE column's value: a real number when we have one (or a real zero when we know who
   // he is and simply nothing has landed), null when the key resolves to nobody — "—" beats a
   // fabricated 0.0. Always finite; never NaN.
+  // RULE 1 (the commissioner's zero floor, 2026-08-20): LG.floorPts is the one clamp on the
+  // SCORE column's own funnel — a demo override stays exactly what the demo armed (it is
+  // already a non-negative display number by construction) and a real row's raw D.score() total
+  // is floored right here, at the point it becomes visible.
   D.livePts = function (key) {
     if (D.demo && D.demo.pts.has(key)) return D.demo.pts.get(key);
     const row = D.S.players.get(key);
-    if (row && row.pts != null) return num(row.pts);
+    if (row && row.pts != null) return LG.floorPts(num(row.pts));
     if (!row && D.pidForKey(key) == null) return null;
     return 0;
   };
@@ -1945,6 +2005,44 @@
     if (g.state === "in" || g.state === "post") return true;
     return g.kickoff ? LG.now() >= new Date(g.kickoff).getTime() : false;
   };
+  // RULE 2 (mathematical finality, 2026-08-20): has this player's score reached its FINAL,
+  // fixed value? Beside D.gameStarted, never a second clock — both read the SAME D.S.games row.
+  // "post" = the game is over. No tracked game at all = a bye: D.S.games is REBUILT (never
+  // merged) on every poll (finding 1's widening note, 2026-08-08), so a team genuinely off this
+  // week's slate simply has no entry by construction — and a bye contributes its current
+  // (floored) zero and can never add to it, which is exactly why it counts as done. An
+  // untracked-because-not-yet-polled team reads the same as a bye here; LG.matchupDecided's
+  // callers only ever ask this once the engine has a real slate in memory, same precondition
+  // D.remaining/D.winProb already carry.
+  D.gameDone = function (team) {
+    const g = D.S.games.get(slpTeam(team));
+    if (!g) return true;
+    return g.state === "post";
+  };
+  // DEMO COHERENCE (2026-08-20, coordinator review). ?demo=clinch's per-player `done` map
+  // decided RULE 2's arithmetic (matchupSides reads it via D.livePts/D.gameDone's own demo
+  // hooks); a first cut left the DISPLAY surfaces — the matchup row's status text, the "N to
+  // play" strips, the swap-card game state, the player stats card — reading D.S.games raw, so
+  // the demo could show a trailer's row still ticking "Q2 5:00" under a star that claims the
+  // whole thing decided. A live player has no upside bound, so that is a state the theorem can
+  // never actually produce — the demo was contradicting the very rule it exists to demonstrate.
+  //
+  // This is the ONE seam every one of those surfaces now reads a player's "game" through
+  // instead of D.S.games directly. It returns a game-SHAPED stand-in ({state} for done,
+  // {state,period,clock} for still-live) rather than a pre-formatted label — every existing
+  // caller's own g.state/g.period/g.clock branching (gameLineHtml's `.gclock` span,
+  // playerCardHtml's "Live — " prefix, gameStateText's bare clock, D.remaining's played/
+  // playing/left bucket) reads it exactly the way it already read a real row, so none of that
+  // per-surface formatting had to be duplicated or unified here. A demo state is only ever
+  // "post" or "in" — done maps straight to one or the other — so no kickoff/oppAb/home fields
+  // are needed; a key with NO demo entry gets null, and every caller's fallback is then its own
+  // pre-existing D.S.games read, byte-identical to before this seam existed.
+  D.demoGameView = function (key) {
+    if (!(D.demo && D.demo.done && D.demo.done.has(key))) return null;
+    // A FIXED clock — never wall-clock-derived — so a repaint mid-demo can't flicker the
+    // display while nothing about the row has genuinely changed.
+    return D.demo.done.get(key) ? { state: "post" } : { state: "in", period: 2, clock: "5:00" };
+  };
   // A player's CURRENT injury designation (2026-08-15). The roster row's own `injury` is a
   // snapshot from whenever he was imported or added, so it goes stale the moment the news
   // moves — which is exactly the case the IR rule turns on ("if a player becomes healthy…").
@@ -1955,12 +2053,16 @@
     const row = D.S.players.get(key);
     return (row && row.injury != null && row.injury !== "" ? row.injury : fallback) || "";
   };
-  // {played, playing, left} for a set of starters.
+  // {played, playing, left} for a set of starters. Feeds the "N to play · N live" strips AND
+  // (via D.winProb/the hero's allDone check) the Live/Final badge — demo-aware through the
+  // SAME D.demoGameView seam every other display surface uses (2026-08-20), so a decided demo
+  // matchup's strip and badge agree with the star sitting next to them instead of contradicting
+  // it. No demo entry for a key: exactly the pre-existing D.S.games read, untouched.
   D.remaining = function (keys) {
     let played = 0, playing = 0, left = 0;
     for (const k of keys) {
       const row = D.S.players.get(k);
-      const g = row ? D.S.games.get(slpTeam(row.team)) : null;
+      const g = D.demoGameView(k) || (row ? D.S.games.get(slpTeam(row.team)) : null);
       const st = g ? g.state : "pre";
       if (st === "post") played++; else if (st === "in") playing++; else left++;
     }

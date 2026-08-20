@@ -19220,6 +19220,392 @@ async function openDetails(page, id) {
     }
   }
 
+  // ==================== SECTION AZ ====================
+  // THE COMMISSIONER'S RULING (2026-08-20), two locked-together halves. RULE 1 — the zero
+  // floor: LG.floorPts is the ONE clamp, applied at D.livePts's return, finalizeWeek's
+  // per-player reads (both the live path's fzPts and the archived-stats backfill's ptsOf), and
+  // lg-ui's liveTotal — the one matchup-total summation that used to read row.pts itself. The
+  // raw formula (D.score/STAT_MAP) is untouched throughout; tools/_gffl_rules_reconcile.mjs
+  // never reads through any of these funnels. RULE 2 — mathematical finality: LG.matchupDecided
+  // (pure, lg-core) + D.gameDone (the one new seam beside D.gameStarted, lg-data) + the UI's
+  // clinch star (hero + matchup-list scale) + standings' provisional overlay + ?demo=clinch.
+  section("AZ · THE COMMISSIONER'S RULING (2026-08-20) — the zero floor + mathematical finality");
+
+  // AZ1 — THE ZERO FLOOR. The team1 QB's real stat line (2 INT, no yards) computes -4.0 under
+  // the league's own default scoring (pass_int: -2 × 2 = -4.0) — the ruling's own example.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+
+    // (a) THE RAW FORMULA — untouched. Nothing in this ruling's code path is between here and
+    // STAT_MAP; this is the exact number tools/_gffl_rules_reconcile.mjs keeps proving against
+    // ESPN's real 2025 season.
+    const raw = await page.evaluate(() => window.__GFFL__.D.score({ pass_int: 2 }));
+    ok(raw === -4, "RAW: D.score({pass_int:2}) = 2 × -2 = -4.0 — the formula itself is untouched (" + raw + ")");
+
+    // (b) the QB's LIVE ROW carries that exact raw number (row.pts stays raw in D.S — it is not
+    // itself the funnel), while D.livePts floors it. Every other team1 starter gets a known
+    // score so the matchup TOTAL is hand-computable both ways.
+    const r = await page.evaluate((raw) => {
+      const D = window.__GFFL__.D;
+      const setP = (key, name, team, pos, pts) =>
+        D.S.players.set(key, { key, name, team, pos, pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0 });
+      setP("3915511", "P. Passer", "PHI", "QB", raw);   // -4.0 raw
+      setP("4241457", "R. Rusher", "DAL", "RB", 10);
+      setP("111888", "S. Second", "DEN", "RB", 8);
+      setP("4361741", "W. Receiver", "PHI", "WR", 15);
+      setP("111555", "W. Two", "DEN", "WR", 6);
+      setP("111222", "T. Tight", "KC", "TE", 5);
+      setP("111444", "F. Flexman", "DEN", "RB", 2);
+      setP("dst_PHI", "PHI D/ST", "PHI", "DST", 9);
+      setP("2473037", "K. Kicker", "DAL", "K", 7);
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+      return { rowPts: D.S.players.get("3915511").pts, livePts: D.livePts("3915511") };
+    }, raw);
+    ok(r.rowPts === -4, "…row.pts stays RAW in D.S — the storage layer is not the funnel (" + r.rowPts + ")");
+    ok(r.livePts === 0, "D.livePts(\"3915511\") floors it to 0.0 (" + r.livePts + ")");
+
+    // (c) the MATCHUP ROW and the MATCHUP TOTAL — both floored.
+    await page.evaluate(() => { window.__GFFL__.UI.matchup = [1, 2]; window.__GFFL__.UI.show("matchup"); });
+    await page.waitForSelector(".muhead", { timeout: 9000 });
+    const cellTxt = await evalOr(page, () => {
+      const cell = [...document.querySelectorAll(".mutable .pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
+      return cell ? cell.querySelector(".pts").textContent : null;
+    });
+    ok(cellTxt === "0.0", "the MATCHUP ROW reads 0.0, not -4.0 (" + cellTxt + ")");
+    const totTxt = await text(page, ".muhead .muhteam.right .bigpts"); // home = team1 = mine
+    ok(totTxt === "62.0",
+      "the MATCHUP TOTAL floors too — hand-computed 0(QB, floored)+10+8+15+6+5+2+9+7 = 62.0, not the raw 58.0 (" + totTxt + ")");
+
+    // (d) finalizeWeek's LIVE path — the write-once record itself reads the floored number.
+    const fin = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1));
+    ok(fin.ok === true, "finalizeWeek succeeds — every relevant game reads post");
+    const m1 = fin.matchups.find((m) => m.home === 1 && m.away === 2);
+    ok(!!m1 && m1.homePts === 62, "…the WRITE-ONCE record reads the floored 62.0, never the raw 58.0 (" + JSON.stringify(m1) + ")");
+    await page.evaluate(() => window.__GFFL__.LG.db.del("weekly_2026_w1")); // clean slate for (e)
+
+    // (e) finalizeWeek's ARCHIVED-STATS BACKFILL path floors independently (defence in depth) —
+    // stub D.weekStats to answer a map carrying the same raw -4.0 a real archived week could.
+    const back = await page.evaluate(async (raw) => {
+      const D = window.__GFFL__.D, LG = window.__GFFL__.LG;
+      const realWeekStats = D.weekStats;
+      D.weekStats = async () => new Map([
+        ["3915511", raw], ["4241457", 10], ["111888", 8], ["4361741", 15], ["111555", 6],
+        ["111222", 5], ["111444", 2], ["dst_PHI", 9], ["2473037", 7],
+      ]);
+      const out = await LG.finalizeWeek(1, { backfill: true });
+      D.weekStats = realWeekStats;
+      return out;
+    }, raw);
+    ok(back.ok === true && back.source === "archived", "the backfill path succeeds off the stubbed archived map, stamped source:\"archived\"");
+    const bm1 = back.matchups.find((m) => m.home === 1 && m.away === 2);
+    ok(!!bm1 && bm1.homePts === 62, "…it ALSO floors the QB's raw -4.0 to 0 — 62.0, not 58.0 (" + JSON.stringify(bm1) + ")");
+
+    ok(errors.length === 0, "0 page errors across the zero-floor checks");
+    await ctx.close();
+  }
+
+  // AZ2 — DECIDED, POSITIVE (+ the theorem, + geometry, + no emoji). The trailer (team2/away)
+  // finishes all-post at a fixed, hand-picked total; the leader (team1/home) BANKS more than
+  // that with one starter still live. team2's roster in this fixture carries only 3 of its 9
+  // starting slots (QB/WR/DST) — the other 6 are genuinely "Empty", which is real bye/empty-slot
+  // coverage, not a fabricated case.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const setP = (key, name, team, pos, pts) =>
+        D.S.players.set(key, { key, name, team, pos, pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0 });
+      // TEAM1 (home, "mine"): 8 of 9 starters DONE (PHI/DAL/DEN, all "post"); the TE is the
+      // sole team1 starter on KC, which is left "in" — still live.
+      setP("3915511", "P. Passer", "PHI", "QB", 25);
+      setP("4241457", "R. Rusher", "DAL", "RB", 10);
+      setP("111888", "S. Second", "DEN", "RB", 8);
+      setP("4361741", "W. Receiver", "PHI", "WR", 15);
+      setP("111555", "W. Two", "DEN", "WR", 6);
+      setP("111444", "F. Flexman", "DEN", "RB", 2);
+      setP("dst_PHI", "PHI D/ST", "PHI", "DST", 9);
+      setP("2473037", "K. Kicker", "DAL", "K", 7);
+      setP("111222", "T. Tight", "KC", "TE", 5); // LIVE
+      // TEAM2 (away, the trailer): both real starters + its D/ST, all on PHI/DAL — DONE too.
+      setP("222111", "Q. Rival", "DAL", "QB", 10);
+      setP("222333", "X. Wideout", "PHI", "WR", 8);
+      setP("dst_DAL", "DAL D/ST", "DAL", "DST", 4);
+      ["PHI", "DAL", "DEN"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+      D.S.games.set("KC", { state: "in", period: 2, clock: "10:00" });
+    });
+
+    // (a) the pure function, hand-computed: trailer (team2) totalOf = 10+8+4 + 0×6 empty = 22.0,
+    // all done. Leader (team1) bankedOf = 25+10+8+15+6+2+9+7 = 82.0 (TE excluded — live);
+    // totalOf(team1) = 82+5 = 87.0. bankedOf(A) 82 > totalOf(B) 22 → decided, winner A.
+    const dec = await page.evaluate(() => {
+      const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
+      // Mirrors lg-ui's own matchupSides reader exactly: starterSlotList order, done via
+      // D.gameDone, points via D.livePts (already floored).
+      const sideFor = (roster) => roster.map(([key, team]) => ({ pts: LG.n(D.livePts(key)), done: D.gameDone(team) }));
+      const A = sideFor([["3915511", "PHI"], ["4241457", "DAL"], ["111888", "DEN"], ["4361741", "PHI"], ["111555", "DEN"],
+        ["111222", "KC"], ["111444", "DEN"], ["dst_PHI", "PHI"], ["2473037", "DAL"]]);
+      const B = sideFor([["222111", "DAL"], ["222333", "PHI"], ["dst_DAL", "DAL"]])
+        .concat(Array.from({ length: 6 }, () => ({ pts: 0, done: true }))); // the 6 empty starting slots
+      return { banked: LG.bankedOf(A), totalA: LG.totalOf(A), totalB: LG.totalOf(B), r: LG.matchupDecided(A, B) };
+    });
+    ok(dec.banked === 82 && dec.totalA === 87 && dec.totalB === 22,
+      "hand-computed: bankedOf(team1)=82.0, totalOf(team1)=87.0, totalOf(team2)=22.0 (" + JSON.stringify(dec) + ")");
+    ok(dec.r.decided === true && dec.r.winner === "A", "decided FOR the leader while one of his starters is still live (" + JSON.stringify(dec.r) + ")");
+
+    // (b) the SAME arithmetic, off the real page — the matchup-LIST star, its GEOMETRY, the
+    // standings row, and a first emoji scan (house law: no emoji in app chrome) — all while
+    // still on the league home, where the standings/list markup actually lives.
+    await page.evaluate(() => window.__GFFL__.UI.renderLeague());
+    await sleep(80);
+    const list = await evalOr(page, () => {
+      const card = [...document.querySelectorAll(".mucard")].find((c) => c.dataset.mu === "1-2");
+      const away = card.querySelector(".muteam:not(.right)"), home = card.querySelector(".muteam.right");
+      const bits = [...document.querySelectorAll(".clinchwrap")].map((e) => e.outerHTML)
+        .concat([(document.querySelector(".standprovnote") || {}).outerHTML || ""])
+        .concat([...document.querySelectorAll(".standprov")].map((e) => e.outerHTML)).join("");
+      return {
+        homeStar: !!card.querySelector(".muteam.right .clinchwrap"),
+        awayStar: !!card.querySelector(".muteam:not(.right) .clinchwrap"),
+        listH: [Math.round(away.getBoundingClientRect().height), Math.round(home.getBoundingClientRect().height)],
+        emojiBits: bits,
+      };
+    });
+    ok(list.homeStar === true, "the matchup-LIST card shows the star on the leader (home/team1)");
+    ok(list.awayStar === false, "…and no star on the trailer (away/team2)");
+    ok(!!list.listH && list.listH[0] === list.listH[1],
+      "the LIST card's starred (home) and starless (away) team blocks are the SAME height (" + JSON.stringify(list.listH) + ")");
+    ok(!/\p{Extended_Pictographic}/u.test(list.emojiBits || ""),
+      "no emoji anywhere in the star/standings chrome on league home (" + (list.emojiBits || "").slice(0, 200) + ")");
+    const standRow = await evalOr(page, () => {
+      const rows = [...document.querySelectorAll(".standtbl tbody tr")];
+      const find = (name) => rows.find((r) => r.textContent.includes(name));
+      const t1 = find("Battle Kreussers"), t2 = find("End Zone Goats");
+      // The W cell's own text is "1*" once the provisional mark rides along in the same <td> —
+      // the leading digits are the number, the trailing "*" is what .standprov is asserted for
+      // separately (t1prov), so strip it here rather than mis-reading a passing row as wrong.
+      const digits = (el) => (el ? (el.textContent.trim().match(/^\d+/) || [null])[0] : null);
+      return {
+        t1w: t1 ? digits(t1.children[2]) : null,
+        t1prov: t1 ? !!t1.querySelector(".standprov") : null,
+        t2l: t2 ? digits(t2.children[3]) : null,
+        note: !!document.querySelector(".standprovnote"),
+      };
+    });
+    ok(standRow.t1w === "1" && standRow.t1prov === true, "standings count the leader's PROVISIONAL win the moment it's decided, marked (" + JSON.stringify(standRow) + ")");
+    ok(standRow.t2l === "1", "…and the trailer's provisional loss (" + standRow.t2l + ")");
+    ok(standRow.note === true, "…with a footnote saying what the mark means");
+
+    // (c) the HERO — same star, same side, titled, and its own geometry + emoji scan, while
+    // still on the matchup page (the league home's .mucard doesn't exist here to re-measure).
+    await page.evaluate(() => { window.__GFFL__.UI.matchup = [1, 2]; window.__GFFL__.UI.show("matchup"); });
+    await page.waitForSelector(".muhead", { timeout: 9000 });
+    // GEOMETRY, hero scale: home and away legitimately CAN differ in height here (fitHeroNames
+    // wraps a long team name to a second line independent of the star), so the meaningful proof
+    // isn't "home == away" — it's "this exact block, with vs without its own star". Toggle the
+    // star's display and re-measure the SAME container.
+    const hero = await evalOr(page, () => {
+      const hHome = document.querySelector(".muhteam.right");
+      const star = hHome ? hHome.querySelector(".clinchwrap") : null;
+      const withStar = hHome ? Math.round(hHome.getBoundingClientRect().height) : null;
+      const starPosition = star ? getComputedStyle(star).position : null;
+      let withoutStar = withStar;
+      if (star) { star.style.display = "none"; withoutStar = Math.round(hHome.getBoundingClientRect().height); star.style.display = ""; }
+      const bits = [...document.querySelectorAll(".clinchwrap")].map((e) => e.outerHTML).join("");
+      return {
+        homeStar: !!star,
+        awayStar: !!document.querySelector(".muhteam:not(.right) .clinchwrap"),
+        title: star ? star.title : null,
+        starPosition, withStar, withoutStar,
+        emojiBits: bits,
+      };
+    });
+    ok(hero.homeStar === true && hero.awayStar === false, "the matchup HERO shows the star on the leader only (" + JSON.stringify(hero) + ")");
+    ok(hero.title === "Clinched — cannot be caught", "…titled for anyone who can't see gold (" + hero.title + ")");
+    ok(hero.starPosition === "absolute", "…positioned out of flow — it structurally cannot contribute to the block's height (" + hero.starPosition + ")");
+    ok(hero.withStar === hero.withoutStar,
+      "…and measured directly: the SAME block is the same height with the star toggled off (" + JSON.stringify([hero.withStar, hero.withoutStar]) + ")");
+    ok(!/\p{Extended_Pictographic}/u.test(hero.emojiBits || ""),
+      "no emoji anywhere in the hero's star chrome either (" + (hero.emojiBits || "").slice(0, 200) + ")");
+
+    // (d) AZ4 — THE THEOREM: drive team1's LIVE player (the TE, still "in") DOWN toward and
+    // through zero — bankedOf(A) never included him, so it is untouched, and the matchup stays
+    // decided regardless of what he does next.
+    await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      const row = D.S.players.get("111222"); row.pts = -3; D.S.players.set("111222", row);
+    });
+    const after = await page.evaluate(() => {
+      const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
+      const sideFor = (roster) => roster.map(([key, team]) => ({ pts: LG.n(D.livePts(key)), done: D.gameDone(team) }));
+      const A = sideFor([["3915511", "PHI"], ["4241457", "DAL"], ["111888", "DEN"], ["4361741", "PHI"], ["111555", "DEN"],
+        ["111222", "KC"], ["111444", "DEN"], ["dst_PHI", "PHI"], ["2473037", "DAL"]]);
+      const B = sideFor([["222111", "DAL"], ["222333", "PHI"], ["dst_DAL", "DAL"]])
+        .concat(Array.from({ length: 6 }, () => ({ pts: 0, done: true })));
+      return { banked: LG.bankedOf(A), r: LG.matchupDecided(A, B), tePts: D.livePts("111222") };
+    });
+    ok(after.tePts === 0, "the live player's own score floors to 0 as it regresses through zero (" + after.tePts + ")");
+    ok(after.banked === 82, "…bankedOf(A) is UNCHANGED — the live player was never part of it (" + after.banked + ")");
+    ok(after.r.decided === true && after.r.winner === "A",
+      "…still decided — the theorem holds regardless of what the live player does next (" + JSON.stringify(after.r) + ")");
+
+    if (SHOTS) {
+      // Already at the page's default 390x844 (newTestPage's own default) — the hero and its
+      // star are on screen right now from the checks just above.
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_clinch_390.png") });
+      await page.setViewport({ width: 1280, height: 900 });
+      await sleep(300);
+      await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
+      await sleep(250);
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_clinch_1280.png") });
+      console.log("  📸 shots/gffl_clinch_{390,1280}.png");
+    }
+    ok(errors.length === 0, "0 page errors across the decided-positive + theorem + geometry checks");
+    await ctx.close();
+  }
+
+  // AZ3 — DECIDED, NEGATIVE. Four ways the theorem must correctly refuse, or correctly fire.
+  // Pure function, hand-built {pts,done} arrays — a boolean's own truth table needs no DOM.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    const r = await page.evaluate(() => {
+      const LG = window.__GFFL__.LG;
+      const doneSide = (n, pts) => Array.from({ length: n }, () => ({ pts, done: true }));
+      // (a) trailer has ONE "pre" player and a HUGE gap — still NOT decided, no matter the gap.
+      const aPre = LG.matchupDecided(doneSide(9, 50), doneSide(8, 10).concat([{ pts: 0, done: false }]));
+      // (b) trailer has ONE "in" player instead — refuses the same way.
+      const bLive = LG.matchupDecided(doneSide(9, 50), doneSide(8, 10).concat([{ pts: 3, done: false }]));
+      // (c) an exact tie, both sides fully done — decided:true, winner:null (a draw is still an
+      // answer; no star for either side).
+      const cTie = LG.matchupDecided(doneSide(9, 10), doneSide(9, 10));
+      // (d) a bye/empty slot ({pts:0, done:true}) on the TRAILER is what makes it "all done" —
+      // decided fires purely because the bye counts as done, not because of a lucky gap.
+      const dBye = LG.matchupDecided(
+        doneSide(8, 20).concat([{ pts: 5, done: false }]),   // leader: 8 done @20 (160 banked) + 1 live
+        doneSide(7, 10).concat([{ pts: 0, done: true }]));   // trailer: 7 done @10 (70) + 1 BYE (done, 0)
+      return { aPre, bLive, cTie, dBye };
+    });
+    ok(r.aPre.decided === false, "(a) a trailing 'pre' player refuses decision no matter the gap (" + JSON.stringify(r.aPre) + ")");
+    ok(r.bLive.decided === false, "(b) a trailing 'in' player refuses decision the same way (" + JSON.stringify(r.bLive) + ")");
+    ok(r.cTie.decided === true && r.cTie.winner === null, "(c) an exact tie, both sides done, IS decided — winner:null, no star either side (" + JSON.stringify(r.cTie) + ")");
+    ok(r.dBye.decided === true && r.dBye.winner === "A",
+      "(d) a bye/empty slot on the trailer counts as DONE — bankedOf(A)=160 > totalOf(B)=70, decided fires purely off that arithmetic (" + JSON.stringify(r.dBye) + ")");
+
+    // …and the READER side of (d): D.gameDone treats a team with no tracked game at all — a
+    // real bye — as done, the same "no entry = safe to call finished" rule bankedOf/totalOf are
+    // counting on. Beside D.gameStarted, never a second clock.
+    const gd = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      D.S.games.delete("SF"); // guarantee no entry, whatever the fixture happened to seed
+      return D.gameDone("SF");
+    });
+    ok(gd === true, "D.gameDone() reads a team with no tracked game as done — a bye contributes 0 and can never add");
+
+    ok(errors.length === 0, "0 page errors across the decided-negative checks");
+    await ctx.close();
+  }
+
+  // AZ_DEMO — ?demo=clinch (2026-08-20): the look-only finality demo, extending the exact
+  // plumbing ?demo=loot established (URL-only, never persisted; overrides the display funnels —
+  // three now, counting `done` — never the real clock; finalizeWeek refuses while it is armed).
+  //
+  // "OFF by default" is not re-proven with its own boot here — it is the state every one of
+  // this suite's other 2800+ checks already runs in (asserted explicitly, once, by AD5d for
+  // ?demo=loot). This block boots STRAIGHT into the demo URL in one navigation instead of
+  // booting plain then re-navigating on the same page: a second full page.goto on an
+  // already-live page (poll loop just stopped, a fresh target about to replace it) is exactly
+  // the shape that produced an intermittent Puppeteer-level "Promise was collected" here —
+  // booting directly avoids the double-navigation rather than chasing the flake itself.
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "&demo=clinch#matchup", { waitUntil: "networkidle0" });
+    await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
+    await waitLive(page);
+    await page.waitForSelector(".muhead", { timeout: 9000 });
+    const armed = await evalOr(page, () => ({
+      kind: window.__GFFL__.D.demo && window.__GFFL__.D.demo.kind,
+      done: window.__GFFL__.D.demo ? window.__GFFL__.D.demo.done.size : 0,
+      star: !!document.querySelector(".muhteam.right .clinchwrap"),
+    }));
+    ok(armed.kind === "clinch" && armed.done === 12,
+      "?demo=clinch arms the finality override — 9 leader keys + 3 trailer keys = 12 (" + JSON.stringify(armed) + ")");
+    ok(armed.star === true, "…and the hero shows a real clinch star, out of season, on demand");
+
+    // DEMO COHERENCE (2026-08-20, coordinator review). The armed `done` map was already
+    // honored by the MATH (matchupSides) but not by the display surfaces, which kept reading
+    // D.S.games raw — so a plate could show the trailer still ticking "Q2 5:00" under a star
+    // that claims the whole thing decided, a state the theorem can never actually produce (a
+    // trailer with anyone left to play is never decided). This is the check that makes a
+    // forked demo unshippable, not just this one bug: read exactly what the family would see —
+    // every row's own status text, both "N to play" strips — and prove LG.matchupDecided
+    // RECOMPUTED from those rendered numbers (never from D.demo's internals) agrees with the
+    // star sitting next to them.
+    const coherence = await evalOr(page, () => {
+      const LG = window.__GFFL__.LG;
+      const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+      const rowsFor = (side) => [...document.querySelectorAll("#muLineup .pcellgrid." + side)].map((c) => {
+        if (!c.hasAttribute("data-pk")) return { pts: 0, done: true, status: null }; // an "Empty" slot
+        const status = norm((c.querySelector(".gline") || {}).textContent);
+        const pts = parseFloat(norm((c.querySelector(".pts") || {}).textContent)) || 0;
+        return { pts, done: status === "Final", status };
+      });
+      // ensureClinchDemo arms the viewer's own team (1, the week-1 HOME side) as leader — the
+      // hero's right half — and the opponent as trailer, the left half.
+      const leader = rowsFor("right"), trailer = rowsFor("left");
+      return {
+        leaderStatuses: leader.filter((r) => r.status !== null).map((r) => r.status),
+        trailerStatuses: trailer.filter((r) => r.status !== null).map((r) => r.status),
+        leaderStrip: norm((document.querySelector(".muhteam.right .muhsub") || {}).textContent),
+        trailerStrip: norm((document.querySelector(".muhteam:not(.right) .muhsub") || {}).textContent),
+        homeStar: !!document.querySelector(".muhteam.right .clinchwrap"),
+        awayStar: !!document.querySelector(".muhteam:not(.right) .clinchwrap"),
+        domDecided: LG.matchupDecided(leader, trailer),
+      };
+    });
+    ok(coherence.trailerStatuses.length > 0 && coherence.trailerStatuses.every((s) => s === "Final"),
+      "DEMO COHERENCE: every trailer row's own status text reads \"Final\" — never a live clock under a decided star (" + JSON.stringify(coherence.trailerStatuses) + ")");
+    ok(coherence.leaderStatuses.filter((s) => s === "Final").length === 8
+      && coherence.leaderStatuses.filter((s) => /^Q\d/.test(s)).length === 1,
+      "…the leader's own rows read 8 Final + exactly 1 still live — the theorem's 'one player still in' case, on screen (" + JSON.stringify(coherence.leaderStatuses) + ")");
+    ok(coherence.trailerStrip === "0 to play · 0 live", "…the trailer's own strip agrees: \"0 to play · 0 live\" (" + coherence.trailerStrip + ")");
+    ok(coherence.leaderStrip === "0 to play · 1 live", "…the leader's strip shows exactly the one starter still live (" + coherence.leaderStrip + ")");
+    ok(coherence.homeStar === true && coherence.awayStar === false, "…the star sits on the leader only, matching everything the rows themselves say");
+    ok(coherence.domDecided.decided === true && coherence.domDecided.winner === "A",
+      "…and LG.matchupDecided RECOMPUTED from the rendered rows (not D.demo's internals) agrees with the star (" + JSON.stringify(coherence.domDecided) + ")");
+
+    if (SHOTS) {
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_democlinch_390.png") });
+      await page.setViewport({ width: 1280, height: 900 });
+      await sleep(300);
+      await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
+      await sleep(250);
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_democlinch_1280.png") });
+      console.log("  📸 shots/gffl_democlinch_{390,1280}.png");
+      await page.setViewport({ width: 390, height: 844 }); // back to default for the rest of this check
+    }
+    const finOn = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1));
+    ok(finOn && finOn.ok === false && finOn.reason === "demo-board",
+      "the demoActive() guard covers ?demo=clinch too — finalizeWeek still refuses (" + JSON.stringify(finOn) + ")");
+    const finForce = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
+    ok(finForce && finForce.ok === false && finForce.reason === "demo-board", "…and force does not bypass it");
+    const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => /demo|clinch/i.test(k)));
+    ok(stored.length === 0, "…and it writes NOTHING to localStorage — closing the tab ends it (" + JSON.stringify(stored) + ")");
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.waitForSelector(".standtbl", { timeout: 9000 });
+    const standDemo = await evalOr(page, () => !!document.querySelector(".standprov"));
+    ok(standDemo === true, "…and the demo's decided matchup shows up as a provisional standings row too, unprompted");
+    ok(errors.length === 0, "0 page errors under ?demo=clinch");
+    await ctx.close();
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

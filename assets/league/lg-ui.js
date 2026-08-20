@@ -854,7 +854,10 @@
     const d = D();
     const meta = d.metaForKey(key);
     const row = d.S.players.get(key);
-    const g = d.S.games.get(d.slpTeam(meta.team));
+    // DEMO COHERENCE (2026-08-20): same D.demoGameView seam gameLineHtml/gameStateText/
+    // D.remaining read — a ?demo=clinch override for this key replaces the game this card's
+    // OWN "Live — "/"Final" text below reads, so the stats card can't disagree with the star.
+    const g = d.demoGameView(key) || d.S.games.get(d.slpTeam(meta.team));
     const pts = row && row.pts != null ? row.pts : null;
     const proj = d.projFor(key);
     const state = !g ? ""
@@ -1132,9 +1135,12 @@
   function rcHeadHtml() {
     return '<div class="rchead"><span>Player</span><span class="num">Proj</span><span class="num">Own</span></div>';
   }
-  function gameStateText(teamAb) {
+  // `key` (2026-08-20, demo coherence): optional, but when passed lets a ?demo=clinch override
+  // for THAT player replace the game this text reads, the same D.demoGameView seam every other
+  // display surface uses. Omitted or no override: the exact pre-existing team-only read.
+  function gameStateText(teamAb, key) {
     const d = D();
-    const g = d.S.games.get(d.slpTeam(teamAb));
+    const g = (key && d.demoGameView(key)) || d.S.games.get(d.slpTeam(teamAb));
     if (!g) return "";
     if (g.state === "in") return "Q" + g.period + " " + g.clock;
     if (g.state === "post") return "Final";
@@ -1148,7 +1154,7 @@
     const d = D();
     const proj = d.projFor(p.key);
     const meta = [p.pos, p.team, opts.slot === false ? null : p.slot].filter(Boolean).join(" · ");
-    const state = opts.game === false ? "" : gameStateText(p.team);
+    const state = opts.game === false ? "" : gameStateText(p.team, p.key);
     const sub = [meta, state].filter(Boolean).join(" · ");
     return `<button type="button" class="swaprow" ${attrs}${opts.blocked
       ? ` disabled title="${esc(opts.blocked)}" aria-label="${esc(opts.blocked)}"` : ""}>
@@ -1396,12 +1402,12 @@
   function teamBench(teamId) {
     return (UI._rosters && UI._rosters[teamId] || []).filter((p) => p.slot === "BENCH");
   }
+  // RULE 1 (2026-08-20): routed through D.livePts rather than reading row.pts directly — this
+  // was the one matchup-total summation that summed raw rows itself, bypassing both the zero
+  // floor and the ?demo look-only override every other score cell already goes through.
   function liveTotal(teamId) {
     const d = D();
-    return teamStarters(teamId).reduce((s, p) => {
-      const row = d.S.players.get(p.key);
-      return s + LG.n(row && row.pts != null ? row.pts : 0);
-    }, 0);
+    return teamStarters(teamId).reduce((s, p) => s + LG.n(d.livePts(p.key)), 0);
   }
   async function loadWeekRosters() {
     UI._rosters = UI._rosters || {};
@@ -1519,6 +1525,11 @@
     const wide = !!opts.wide;
     const streaks = opts.streaks || {};
     const odds = opts.odds || {};
+    // RULE 2 — provisional rows (2026-08-20): a decided-but-unfinalized matchup's W/L/PF/PA, per
+    // renderLeague's own overlay. Marked subtly — the existing `mut` idiom this table already
+    // uses for "nothing to report yet" (the streak dash, the power-rank dash) — never new chrome.
+    const provisional = opts.provisional || new Set();
+    const anyProvisional = rows.some((t) => provisional.has(t.id));
     const pwr = {};
     if (opts.power) for (const r of opts.power.rows) pwr[r.teamId] = r.rank;
     // The T column earns its place only if somebody has actually tied.
@@ -1529,11 +1540,13 @@
       : `<tr><th></th><th>Team</th><th class="num">W</th><th class="num">L</th><th class="num">PF</th><th class="num">PA</th></tr>`;
     const body = rows.map((t, i) => {
       const s = st[t.id] || { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
+      const prov = provisional.has(t.id)
+        ? '<sup class="mut standprov" title="Provisional — this week is decided but not yet finalized">*</sup>' : "";
       // S3: the standings row is where most people meet most teams, so the crest grew
       // 20 -> 28px and the name takes the team's own (contrast-clamped) ink. Fill-only
       // treatment at this size — see teamNameHtml.
       const idcell = `<tr><td class="mut">${i + 1}</td><td><span class="teamlink" data-locker="${t.id}">${logoTd(t)}${teamNameHtml(t)}</span></td>
-        <td class="num">${s.w}</td><td class="num">${s.l}</td>`;
+        <td class="num">${s.w}${prov}</td><td class="num">${s.l}</td>`;
       if (!wide) return idcell + `<td class="num">${LG.fmtNum(s.pf)}</td><td class="num">${LG.fmtNum(s.pa)}</td></tr>`;
       const stk = streaks[t.id] || null;
       // A run is coloured by what it IS — the app's own good/bad language — but only ever
@@ -1551,8 +1564,9 @@
            <td class="num ${poCls}">${poTxt}</td></tr>`;
     }).join("");
     const table = `<table class="tbl standtbl"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+    const footnote = anyProvisional ? '<p class="mut small standprovnote">* Provisional — decided this week, not yet official</p>' : "";
     // The whole point of the desktop table: it is NOT wrapped in a scroller.
-    return `<div class="card standcard"><h2>Standings</h2>${wide ? table : `<div class="panner">${table}</div>`}</div>`;
+    return `<div class="card standcard"><h2>Standings</h2>${wide ? table : `<div class="panner">${table}</div>`}${footnote}</div>`;
   }
   // ---------------- ALL-TIME (2026-08-11 desktop pass) ----------------
   // The record book, reduced to the one thing the user asked to keep: "record book should show
@@ -2125,9 +2139,41 @@
         UI._recordBook = rb; UI._tx = tx; UI._streaks = streaks; UI._odds = odds;
       }
     }
-    const st = UI._standings || {};
+    // ?demo=clinch only — the guard is read SYNCHRONOUSLY here, before ever reaching an `await`,
+    // so an ordinary render (no demo active — the overwhelming majority) suspends NOWHERE new.
+    // A render function that used to run its whole synchronous tail in one go (after its own
+    // fetch batch) must keep doing that when nothing changed: a stray extra microtask boundary
+    // in that tail is what let a concurrent poll repaint interleave and corrupt shared state
+    // (`UI._rosters`) mid-build — found empirically, not theorized (see the dated note on
+    // ensureClinchDemo's own definition).
+    if (D().demoActive && D().demoActive() && D().demo && D().demo.kind === "clinch") await ensureClinchDemo();
     const wkGames = UI._wkGames || [];
     const seasonWeeks = LG.rules.seasonWeeks;
+    // RULE 2 — STANDINGS, PROVISIONAL DISPLAY ONLY (2026-08-20). LG.loadStandings() itself is
+    // untouched — it only ever reads finalized "weekly" docs, and finalizeWeek stays the one
+    // write-once record. This overlay is purely what gets RENDERED: a regular-season week
+    // (playoff weeks are never part of the standings — LG.loadStandings' own rule) that hasn't
+    // been finalized yet gets its DECIDED matchups counted as W/L/PF/PA the moment the
+    // arithmetic says so, on a CLONE of the base standings, so the underlying data — and every
+    // other reader of UI._standings (waiver priority, playoff odds) — never sees this.
+    const provisionalTeams = new Set();
+    let st = UI._standings || {};
+    if (!UI._weeklyDoc && UI.week <= seasonWeeks && wkGames.length) {
+      const clone = {};
+      for (const id in st) clone[id] = { ...st[id] };
+      for (const [h, a] of wkGames) {
+        if (!clone[h] || !clone[a]) continue;
+        const r = matchupDecidedFor(h, a);
+        if (!r.decided) continue;
+        clone[h].pf += r.totalH; clone[h].pa += r.totalA;
+        clone[a].pf += r.totalA; clone[a].pa += r.totalH;
+        if (r.winner === "A") { clone[h].w++; clone[a].l++; }
+        else if (r.winner === "B") { clone[a].w++; clone[h].l++; }
+        else { clone[h].t = (clone[h].t || 0) + 1; clone[a].t = (clone[a].t || 0) + 1; }
+        provisionalTeams.add(h); provisionalTeams.add(a);
+      }
+      st = clone;
+    }
     const rows = [...LG.teams].sort((a, b) => {
       const A = st[a.id] || { w: 0, pf: 0 }, B = st[b.id] || { w: 0, pf: 0 };
       return (B.w - A.w) || (B.pf - A.pf);
@@ -2167,7 +2213,7 @@
         stale: () => staleWeeksHtml(UI._staleWeeks, isCommish()),
         week: () => weekCard,
         playoffs: () => playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish()),
-        standings: () => standingsHtml(rows, st, { wide: true, streaks: UI._streaks, odds: UI._odds, power: LG.powerRanking(UI._allWeekly) }),
+        standings: () => standingsHtml(rows, st, { wide: true, streaks: UI._streaks, odds: UI._odds, power: LG.powerRanking(UI._allWeekly), provisional: provisionalTeams }),
         alltime: () => allTimeHtml(UI._recordBook),
         chat: () => deskChatPanelHtml(),
         injury: () => injuryFeedCardHtml(UI._injFeed),
@@ -2247,7 +2293,7 @@
         ${staleWeeksHtml(UI._staleWeeks, isCommish())}
         ${weekCard}
         ${recentMovesHtml(UI._tx)}
-        ${standingsHtml(rows, st, {})}
+        ${standingsHtml(rows, st, { provisional: provisionalTeams })}
         ${injuryFeedCardHtml(UI._injFeed)}
         ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
         ${powerRankingsHtml(UI._allWeekly)}
@@ -2428,10 +2474,15 @@
   // COSMETIC PASS (2026-08-11, user markup on a live screenshot): the owner-name · record
   // line is GONE — the header is crest, score, name, and the to-play line, nothing else —
   // and the freed space is spent on a bigger crest and a bigger score (the CSS side).
-  function muTeamHead(T, id, mine, tot, proj, rem, sideCls) {
+  function muTeamHead(T, id, mine, tot, proj, rem, sideCls, star) {
     // S3: the whole side carries its team's palette (crest disc, the score block's tint band,
     // the name's ink). The LIVE/Final badge keeps the app's own verdict colours.
+    // `star` (RULE 2, 2026-08-20) is the clinch star markup or "" — absolutely positioned by
+    // its own stylesheet rule, so a clinched side's header is not one pixel taller than an
+    // undecided one.
+    const starWrap = star ? `<span class="clinchwrap" title="Clinched — cannot be caught">${star}</span>` : "";
     return `<div class="muhteam${sideCls}" style="${esc(LG.teamStyle(T || {}))}">
+      ${starWrap}
       <div class="muhtop">${avatarHtml(T, id === mine)}
         <div class="muhscore"><span class="bigpts">${LG.fmtPts(tot)}</span><span class="mut muhproj">${LG.fmtPts(proj)}</span></div></div>
       <b class="teamlink muhname tname big" data-locker="${id}" title="${esc(T?.name || "?")}">${esc(T?.name || "?")}</b>
@@ -2552,10 +2603,16 @@
     // home from the right, with the crest sitting on its slash exactly like the muhero.
     const pa = LG.teamPalette(A), ph = LG.teamPalette(H);
     const slashVars = `--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tta:${esc(pa.tertiary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)};--tth:${esc(ph.tertiary)}`;
+    // RULE 2 (2026-08-20) — matchup-list scale. Same computation the hero uses (matchupDecidedFor
+    // reads the same D.livePts/D.gameDone through the same starter slots), so a card here can
+    // never disagree with what the dedicated Matchup page shows for the same game.
+    const decided = matchupDecidedFor(h, a);
+    const aStar = decided.winner === "B" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
+    const hStar = decided.winner === "A" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
     return `<button class="mucard muslash ${isMine ? "mine" : ""}" data-mu="${h}-${a}" style="${slashVars}">
-      <span class="muteam">${logoTd(A)}${teamNameHtml(A, { cls: "muteamname" })}</span>
+      <span class="muteam">${aStar}${logoTd(A)}${teamNameHtml(A, { cls: "muteamname" })}</span>
       <span class="muscore">${LG.fmtPts(liveTotal(a))} — ${LG.fmtPts(liveTotal(h))}</span>
-      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname" })}${logoTd(H)}</span>
+      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname" })}${logoTd(H)}${hStar}</span>
       ${matchupHeroExtra(h, a)}</button>`;
   }
 
@@ -3493,11 +3550,26 @@
     const H = LG.teamById(hId), A = LG.teamById(aId);
     const hs = teamStarters(hId), as_ = teamStarters(aId);
     const hKeys = hs.map((p) => p.key), aKeys = as_.map((p) => p.key);
-    // ?demo=ember — arm the look-only score override against the VIEWER'S OWN starters, before
-    // the totals and the win bar are summed, so a demo big game moves the whole card the way a
-    // real one would. A no-op without the URL param, and finalizeWeek refuses while it is set.
+    // ?demo=ember/loot — arm the look-only score override against the VIEWER'S OWN starters,
+    // before the totals and the win bar are summed, so a demo big game moves the whole card the
+    // way a real one would. A no-op without the URL param (or under ?demo=clinch, which arms
+    // through ensureClinchDemo instead), and finalizeWeek refuses while either is set.
     if (d.demoActive) { const own = LG.myTeamId(); d.demoArm(own === hId ? hKeys : own === aId ? aKeys : aKeys); }
+    // ?demo=clinch only — the guard is read SYNCHRONOUSLY here, before ever reaching an `await`,
+    // so an ordinary render (no demo active — the overwhelming majority) suspends NOWHERE new.
+    // A render function that used to run its whole synchronous tail in one go (after its own
+    // fetch batch) must keep doing that when nothing changed: a stray extra microtask boundary
+    // in that tail is what let a concurrent poll repaint interleave and corrupt shared state
+    // (`UI._rosters`) mid-build — found empirically, not theorized (see the dated note on
+    // ensureClinchDemo's own definition).
+    if (d.demoActive && d.demoActive() && d.demo && d.demo.kind === "clinch") await ensureClinchDemo();
     const hTot = liveTotal(hId), aTot = liveTotal(aId);
+    // RULE 2 — mathematical finality: "A" = home clinched, "B" = away clinched. Computed off the
+    // same starter slots/D.livePts/D.gameDone the rest of this page already reads, so the star
+    // can never disagree with the score it is standing next to.
+    const decided = matchupDecidedFor(hId, aId);
+    const hStar = decided.winner === "A" ? clinchStarHtml() : "";
+    const aStar = decided.winner === "B" ? clinchStarHtml() : "";
     const wp = d.winProb(aKeys, hKeys); // away perspective, bar shows both
     const hRem = d.remaining(hKeys), aRem = d.remaining(aKeys);
     const projSum = (keys) => keys.reduce((s, k) => s + (d.projFor(k) || 0), 0);
@@ -3564,11 +3636,11 @@
     // wirePlayerCardTaps, for rows the morph genuinely created).
     const muHeadInner = `
         <div class="muhrow">
-          ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "")}
+          ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "", aStar)}
           <div class="muhmid">
             ${liveIndicator}
           </div>
-          ${muTeamHead(H, hId, mine, hTot, hProj, hRem, " right")}
+          ${muTeamHead(H, hId, mine, hTot, hProj, hRem, " right", hStar)}
         </div>
         <div class="mut small mupweek">Week ${UI.week}</div>
         ${wideBar}
@@ -3730,6 +3802,81 @@
     }
     return out;
   }
+  // ---------------- THE COMMISSIONER'S RULING, RULE 2 — reader side (2026-08-20) ----------
+  // Builds ONE team's per-STARTING-SLOT {pts, done} array for LG.matchupDecided — the exact
+  // slot enumeration starterSlotList/pairBySlots already walk, so an unfilled slot reads
+  // exactly the way it renders ("Empty") and counts as done/0, same reasoning as a bye.
+  // `d.demo.done` (armed only by ?demo=clinch) overrides the real D.gameDone clock at the
+  // per-PLAYER level, the same shape ?demo=loot already uses to override livePts/projFor — the
+  // clock itself (D.gameDone) is never touched, only what a specific demo-armed player reads as.
+  function matchupSides(teamId) {
+    const d = D();
+    const ros = (UI._rosters && UI._rosters[teamId]) || [];
+    const slots = starterSlotList();
+    const taken = new Set();
+    return slots.map((s) => {
+      const p = ros.find((r) => r.slot === s && !taken.has(r));
+      if (!p) return { pts: 0, done: true };
+      taken.add(p);
+      // Routed through the SAME D.demoGameView seam the display surfaces use (2026-08-20) —
+      // one place decides "does this key have a demo override", not two independently-written
+      // checks of D.demo.done that could quietly drift apart.
+      const dv = d.demoGameView(p.key);
+      const done = dv ? dv.state === "post" : d.gameDone(p.team);
+      return { pts: LG.n(d.livePts(p.key)), done };
+    });
+  }
+  // home = side A, away = side B — the same convention LG.pushWeekRecap/bkResult use for a
+  // matchup's two sides. Returns {decided, winner:"A"|"B"|null, totalH, totalA} — "A" means the
+  // HOME team; totalH/totalA are LG.totalOf each side (the live PF the standings' provisional
+  // overlay needs), computed off the SAME side arrays the decision itself used.
+  function matchupDecidedFor(h, a) {
+    const hSide = matchupSides(h), aSide = matchupSides(a);
+    const r = LG.matchupDecided(hSide, aSide);
+    r.totalH = LG.totalOf(hSide); r.totalA = LG.totalOf(aSide);
+    return r;
+  }
+  // A small filled 5-point star — house law: no emoji in app chrome, an SVG carries the meaning
+  // instead. Absolutely positioned by its stylesheet rule so it can never add height to a row
+  // (AD-star's own geometry check pins offsetHeight against a starless sibling). The title is
+  // the accessible statement a colour alone can never make.
+  function clinchStarHtml(cls) {
+    return `<svg class="clinchstar${cls ? " " + cls : ""}" viewBox="0 0 24 24" aria-hidden="true">`
+      + `<path fill="currentColor" d="M12 1.8l2.98 6.77 7.35.66-5.56 4.86 1.68 7.19L12 17.4l-6.45 3.88 1.68-7.19-5.56-4.86 7.35-.66z"/></svg>`;
+  }
+  // ?demo=clinch (2026-08-20) — arms the LOOK-ONLY finality override against the viewer's own
+  // matchup, whichever view renders first (League home's standings/star, the Matchup page's
+  // hero). Idempotent (D.demoArmClinch's own guard), so calling it from both render paths costs
+  // nothing once armed. A no-op whenever the demo isn't kind "clinch" — checked cheaply before
+  // any roster/matchup read, so an ordinary render never pays for this.
+  // Re-entrancy guard: the boot sequence's own first render and the live poll's first catch-up
+  // tick can both reach this within the same instant, and the two async reads below
+  // (myMatchupThisWeek/loadWeekRosters) mutate the SAME shared state (UI.matchup, UI._rosters) a
+  // second overlapping call would race on. Once one caller is in flight, every other caller
+  // awaits that SAME promise instead of starting a second one — the D._weekStatsInFlight pattern
+  // lg-data.js already uses for exactly this shape of problem.
+  let clinchDemoInFlight = null;
+  async function ensureClinchDemo() {
+    const d = D();
+    if (!d.demoActive || !d.demoActive() || !d.demo || d.demo.kind !== "clinch" || d.demo.pts.size) return;
+    if (clinchDemoInFlight) return clinchDemoInFlight;
+    clinchDemoInFlight = (async () => {
+      try {
+        const mu = UI.matchup || (UI.matchup = await myMatchupThisWeek());
+        if (!mu) return;
+        const [hId, aId] = mu;
+        if (!UI._rosters) await loadWeekRosters();
+        const hKeys = teamStarters(hId).map((p) => p.key), aKeys = teamStarters(aId).map((p) => p.key);
+        const own = LG.myTeamId();
+        const leaderKeys = own === aId ? aKeys : hKeys;
+        const trailerKeys = own === aId ? hKeys : aKeys;
+        d.demoArmClinch(leaderKeys, trailerKeys);
+      } finally {
+        clinchDemoInFlight = null;
+      }
+    })();
+    return clinchDemoInFlight;
+  }
   function pairBySlots(aList, hList) {
     const slots = starterSlotList();
     const take = (list, slot, taken) => {
@@ -3874,7 +4021,12 @@
     } else {
       const d = D();
       const row = d.S.players.get(p.key);
-      const g = d.S.games.get(d.slpTeam(p.team));
+      // DEMO COHERENCE (2026-08-20): a ?demo=clinch override for this key replaces the "game"
+      // this whole row reads — the live clock in gameLineHtml below, the red-zone dot, and the
+      // half-cell's colour cues all key off the SAME g, so none of them can show a state the
+      // demo's own arithmetic (matchupSides) disagrees with. No override: the exact pre-existing
+      // read, byte-identical.
+      const g = d.demoGameView(p.key) || d.S.games.get(d.slpTeam(p.team));
       // d.livePts / d.liveProj return null — rendered "—" — for a key that resolves to no
       // player at all, rather than the fabricated "0.0" an unresolvable roster row used to
       // claim (2026-08-09). Both are guaranteed finite-or-null; fmtPts can never print NaN.
