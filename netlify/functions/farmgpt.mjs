@@ -1629,6 +1629,77 @@ async function teacherGenerate(body) {
   return { ok: true, kind, questionCount: t.questions.length, quiz: t };
 }
 
+// ---------------- Team Quiz generator (quiz.html) ----------------
+// The staff-meeting quiz host picks categories + difficulty + count and Sonnet writes the
+// trivia. Host-only (rides the global family-secret gate; players never call this). One
+// synchronous call — 5-25 multiple-choice questions is a ~15-30s Sonnet run, well inside the
+// platform window. If timeouts ever show up in practice, clone the teachergpt-background job
+// pattern (jobs collection + a quizgen_result poll mode); don't build it preemptively.
+const QUIZ_MODEL = "claude-sonnet-5";
+const QUIZ_SYSTEM = `You write trivia for a live workplace quiz game (like Kahoot): a host
+projects questions on a big screen and colleagues answer on their phones. Fun, punchy,
+work-appropriate — no politics, no religion, nothing risque, nothing mean.
+
+RULES:
+- Produce EXACTLY the requested number of questions, spread as evenly as possible across the
+  given categories (tag each question with the category it belongs to).
+- Every question is multiple choice with EXACTLY 4 options and exactly ONE correct answer.
+- Distractors must be genuinely plausible — same category of thing as the answer, no joke
+  throwaways, never "all of the above" / "none of the above".
+- Vary which position holds the correct answer; across the whole quiz each position should be
+  correct roughly equally often.
+- Difficulty: "easy" = common knowledge, "medium" = a reasonably informed adult hesitates,
+  "hard" = specialists smile. "mixed" = ramp from easy to hard across the quiz. Tag each
+  question with its difficulty.
+- Questions must be short enough to read aloud in a few seconds; options at most a few words
+  each where possible. Facts must be verifiably true — when unsure, pick a different fact.
+
+OUTPUT — STRICT JSON ONLY, no markdown fences, no text before or after, exactly this shape:
+{"title": "short playful quiz title",
+ "questions": [{"q": "question text", "options": ["...","...","...","..."],
+                "correctIndex": 0-3, "category": "one of the given categories",
+                "difficulty": "easy"|"medium"|"hard"}]}`;
+
+function parseQuizJSON(text) {
+  if (!text) return null;
+  let s = String(text).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const start = s.indexOf("{"), end = s.lastIndexOf("}");
+  if (start === -1 || end < start) return null;
+  try {
+    const o = JSON.parse(s.slice(start, end + 1));
+    if (!Array.isArray(o.questions) || !o.questions.length) return null;
+    const questions = o.questions.slice(0, 30).map((q) => ({
+      q: String((q && q.q) || "").slice(0, 500),
+      options: Array.isArray(q && q.options) ? q.options.slice(0, 4).map((c) => String(c).slice(0, 200)) : [],
+      // Number.isInteger + range, never truthiness: correctIndex 0 is a valid (and common) value.
+      correctIndex: (q && Number.isInteger(q.correctIndex) && q.correctIndex >= 0 && q.correctIndex <= 3) ? q.correctIndex : -1,
+      category: String((q && q.category) || "").slice(0, 80),
+      difficulty: ["easy", "medium", "hard"].includes(q && q.difficulty) ? q.difficulty : "medium",
+    })).filter((q) => q.q && q.options.length === 4 && q.options.every(Boolean) && q.correctIndex !== -1);
+    // Fewer than 3 usable questions means the reply was junk, not a quiz with a couple of duds.
+    if (questions.length < 3) return null;
+    return { title: String(o.title || "Team Quiz").slice(0, 120), questions };
+  } catch { return null; }
+}
+
+async function quizGenerate(body) {
+  const categories = (Array.isArray(body.categories) ? body.categories : [])
+    .map((c) => String(c).replace(/\s+/g, " ").trim().slice(0, 60)).filter(Boolean).slice(0, 6);
+  if (!categories.length) return { error: "Pick at least one category first", badRequest: true };
+  const difficulty = ["easy", "medium", "hard", "mixed"].includes(body.difficulty) ? body.difficulty : "mixed";
+  const count = Math.max(5, Math.min(25, (body.count | 0) || 12));
+  const notes = String(body.notes || "").slice(0, 300);
+  const prompt =
+    `Write a quiz of EXACTLY ${count} questions.\nCategories: ${categories.join(", ")}.\n` +
+    `Difficulty: ${difficulty}.` + (notes ? `\nHost's notes: ${notes}` : "");
+  const r = await callAnthropicOnce(QUIZ_MODEL, QUIZ_SYSTEM, prompt, 6000);
+  if (!r) return { error: "The quiz maker couldn't reach the model — try again" };
+  await logUsage("quizgen", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok, QUIZ_MODEL);
+  const quiz = parseQuizJSON(r.text);
+  if (!quiz) return { error: "The quiz didn't come back in one piece — try again" };
+  return { ok: true, questionCount: quiz.questions.length, quiz };
+}
+
 // Background-job flavor: teachergpt-background.mjs invokes this with the raw POST body. The
 // endpoint is public, so the family secret is re-checked HERE; the outcome is written to a tiny
 // Firestore doc the page polls (mode "teachergpt_result"). Runs under Netlify's background
@@ -1754,7 +1825,10 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
       : (modeName === "fantasy" || modeName === "ffrecap" || modeName === "ffcommentary") ? "w"
       // The live projection adjuster reuses "w" too — it's the same fantasy-AI spend.
       : modeName === "gfflproj" || modeName === "gffltrade" || modeName === "gffladjust" ? "w"
-      : modeName === "audit" ? "x" : "r";
+      : modeName === "audit" ? "x"
+      // The staff-meeting quiz generator gets bucket "q": host-triggered Sonnet runs for work
+      // trivia, nothing to do with research, and "q" was free (t = TeacherGPT got there first).
+      : modeName === "quizgen" ? "q" : "r";
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
     const fields = [
@@ -1786,7 +1860,7 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
 // Every mode bucket the dashboard knows about. Keep in sync with logUsage's key map above.
 // "n" (the news digest's summariser) is written by netlify/functions/news.mjs, not from here —
 // a separate function with its own copy of logUsage, committing into these same two documents.
-const USAGE_BUCKETS = ["s", "u", "r", "d", "k", "a", "g", "c", "l", "x", "t", "f", "n", "w"];
+const USAGE_BUCKETS = ["s", "u", "r", "d", "k", "a", "g", "c", "l", "x", "t", "f", "n", "w", "q"];
 // Maps one Firestore usage doc → a flat row. `label` is "date" (daily) or "hour" (hourly).
 function usageRow(d, label) {
   const f = d.fields || {};
@@ -3262,6 +3336,14 @@ export default async (req) => {
     }
     if (s("status") === "error") return new Response(JSON.stringify({ error: s("error") || "Something went wrong" }), { status: 200, headers: jsonHeaders });
     return new Response(JSON.stringify({ pending: true }), { status: 200, headers: jsonHeaders });
+  }
+
+  // Team quiz generator (quiz.html host builder). Secret-gated like everything else — the
+  // host types the family password, players never touch this endpoint. Plain JSON in/out.
+  if (body.mode === "quizgen") {
+    const res = await quizGenerate(body);
+    if (res.badRequest) return jsonError(400, res.error, jsonHeaders);
+    return new Response(JSON.stringify(res), { status: 200, headers: jsonHeaders });
   }
 
   // 🍽 Meal calorie estimate (Meals tab). Secret-gated like everything else; JSON in/out, no
