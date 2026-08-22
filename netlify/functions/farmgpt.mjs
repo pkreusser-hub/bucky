@@ -51,6 +51,59 @@ const FABLE_MODEL = "claude-fable-5";       // the ledger seeder, when enabled
 // grok-build-0.1) are selectable through XAI_MODEL without a code change.
 const XAI_MODEL = process.env.XAI_MODEL || "grok-4.5";
 
+// EVERY model id this function can end up routing a request to — the defaults above plus every
+// id an env var may name without a code change. The usage dashboard prices per model, so an id
+// that can be routed to but has no rate entry would quietly cost $0 on that page; the suite
+// checks this list against the dashboard's rate table, which is why the list lives here (the
+// function's own truth) rather than being copied into the test.
+export const ROUTABLE_MODELS = [
+  "claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-fable-5", "gemini-2.5-flash",
+  "grok-4.5", "grok-4.6", "grok-4.3",
+  "grok-4.20-0309-reasoning", "grok-4.20-0309-non-reasoning", "grok-4.20-multi-agent-0309",
+  // NOT listed: grok-build-0.1 (named in the XAI_MODEL comment above as selectable). It has no
+  // published per-token price to enter, so it would fail the suite's rate check rather than be
+  // given an invented number — which is the correct outcome: price it before routing to it.
+];
+// Exported for the suite's rate check, so "what the logger writes" and "what the dashboard
+// prices" are compared against ONE definition of the slug rather than two that can drift.
+export { modelSlug };
+
+// ---------------------------------------------------------------------------
+// THE INACTIVITY KEEPALIVE (2026-08-22). Netlify's edge kills a streamed response that has
+// moved NO BYTES for 30s with a 504 "Inactivity Timeout" — measured, twice, on this function.
+// A slow-thinking model's first token can land well past that: storyseed on Fable took 16.3s
+// on an original world and 28.8s on an HTTYD pack, and one live run 504'd at 30.7s. The client
+// fails soft, so the child silently got an unseeded story and nobody saw an error.
+//
+// The fix is one shared ticker: begin the response immediately and emit a harmless byte every
+// KEEPALIVE_MS until the model's first real byte arrives, then pass the model's stream through
+// untouched. Only modes whose CLIENT provably tolerates leading whitespace get one — see the
+// call sites, each of which names the parser that makes it safe.
+//
+// ONE implementation, deliberately. TeacherGPT's streamed fallback had grown its own copy of
+// this idea; it now calls this, so there is a single place where "how often" and "does it stop"
+// are decided. The suite asserts no second setInterval appears in this file.
+const KEEPALIVE_MS = Math.max(250, parseInt(process.env.FARMGPT_KEEPALIVE_MS || "", 10) || 8000);
+// Returns a stop() that is idempotent and safe to call from any exit path (success, error,
+// abort, close). `hasContent()` is checked at every tick BEFORE enqueueing, so a heartbeat byte
+// can never be interleaved into text the model has started writing.
+function startKeepalive(controller, encoder, hasContent, byte = " ", ms = KEEPALIVE_MS) {
+  let timer = null;
+  const stop = () => { if (timer !== null) { clearInterval(timer); timer = null; } };
+  // ONE BYTE UP FRONT, before waiting out the first interval. The edge's inactivity clock starts
+  // when the REQUEST lands, not when this stream does, and everything before this point —
+  // building the messages, fetching the universe packs, opening the upstream — has already spent
+  // some of that budget. Measured live: an HTTYD seed reached this line ~3.4s in, so waiting a
+  // full interval put the first byte at 11.4s instead of 3.4s. Free, and it removes the
+  // interval's length from the worst case entirely.
+  try { controller.enqueue(encoder.encode(byte)); } catch { return stop; }
+  timer = setInterval(() => {
+    if (hasContent()) { stop(); return; }
+    try { controller.enqueue(encoder.encode(byte)); } catch { stop(); }
+  }, ms);
+  return stop;
+}
+
 const ALLOWED_ORIGINS = new Set([
   "https://amenfarms.netlify.app",
   "http://localhost:8080",
@@ -1836,6 +1889,34 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
   } catch { /* usage logging must never break a reply */ }
 }
 
+// ---------------------------------------------------------------------------
+// OUTCOME COUNTERS (2026-08-22). Tokens were logged for every seed request; whether the seed
+// actually LANDED was logged nowhere, which is why ~19% of new stories quietly started with no
+// world for months and no dashboard row moved. These are plain increments into the SAME two
+// usage documents logUsage writes (daily rollup + hourly bucket), so a bucket's spend and its
+// success rate can never come from different places. Fail-open like all logging.
+const SEED_OUTCOMES = ["ok", "fallback", "timeout", "httperr"];
+async function logCounters(fields) {
+  try {
+    const names = Object.keys(fields).filter((k) => /^[a-z][a-z0-9_]{1,30}$/.test(k) && fields[k] > 0);
+    if (!names.length) return;
+    const token = await getGoogleAccessToken();
+    if (!token) return;
+    const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
+    const ft = names.map((k) => ({ fieldPath: k, increment: { integerValue: String(fields[k] | 0) } }));
+    await fetch(`${FIRESTORE_BASE}:commit`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        writes: [
+          { transform: { document: `${base}/${USAGE_COLLECTION}/${farmDate()}`, fieldTransforms: ft } },
+          { transform: { document: `${base}/${USAGE_COLLECTION_HOURLY}/${farmHour()}`, fieldTransforms: ft } },
+        ],
+      }),
+    });
+  } catch { /* counters must never break a reply */ }
+}
+
 // Every mode bucket the dashboard knows about. Keep in sync with logUsage's key map above.
 // "n" (the news digest's summariser) is written by netlify/functions/news.mjs, not from here —
 // a separate function with its own copy of logUsage, committing into these same two documents.
@@ -1855,6 +1936,12 @@ function usageRow(d, label) {
   // models is open-ended, so this enumerates what the document actually has rather than a list
   // that would need editing every time a model changes.
   for (const k of Object.keys(f)) if (/^[a-z]_[a-z0-9]+_(in|out|req|cw|cr)$/.test(k)) row[k] = n(k);
+  // Outcome counters (logCounters): seed results f_ok/f_fallback/f_timeout/f_httperr and the
+  // story narrator's provider fallback s_fb. Enumerated explicitly rather than by pattern, so
+  // they can never collide with the per-model fields above (`f_claudefable5_in` and `f_ok` are
+  // both "f_<word>" — only a list tells them apart).
+  for (const o of SEED_OUTCOMES) row["f_" + o] = n("f_" + o);
+  row.s_fb = n("s_fb");
   return row;
 }
 async function readCollection(collection, label, cap) {
@@ -3197,6 +3284,18 @@ export default async (req) => {
 
   if (!body || body.secret !== familySecret) return jsonError(401, "Wrong family password", jsonHeaders);
 
+  // SEED OUTCOME PING. The seed's outcome is only knowable on the client — the server can hand
+  // back a perfectly good stream that the browser then fails to parse, times out on, or never
+  // receives. So the client reports it, one fire-and-forget POST per world creation, and the
+  // count lands in the same usage documents as the seeder's tokens (f_ok / f_fallback /
+  // f_timeout / f_httperr). Always 200: a telemetry ping must never become an error a child
+  // can see, and an unknown outcome is dropped rather than argued with.
+  if (body.mode === "seedstat") {
+    const outcome = String(body.outcome || "");
+    if (SEED_OUTCOMES.includes(outcome)) await logCounters({ ["f_" + outcome]: 1 });
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: jsonHeaders });
+  }
+
   // Usage dashboard: per-day rollups + recent per-hour buckets (story chapters s_*, story
   // summaries u_*, research r_*).
   if (body.mode === "stats") {
@@ -3303,13 +3402,24 @@ export default async (req) => {
     const tEncoder = new TextEncoder();
     const tStream = new ReadableStream({
       async start(controller) {
-        controller.enqueue(tEncoder.encode(" "));
-        const tick = setInterval(() => { try { controller.enqueue(tEncoder.encode(" ")); } catch {} }, 5000);
+        // This path kept itself alive BY HAND before the shared ticker existed, and the two
+        // implementations were the same idea written twice (2026-08-22). Same job, one helper
+        // now. teacherGenerate is a NON-streamed Opus call, so nothing comes back until it
+        // returns — the exact shape the edge 504s. `done` is the content flag; the ticker stops
+        // itself the moment the result is written, and stop() runs again in finally{} so an
+        // abort or a throw cannot leave a timer behind. 5s rather than the shared 8s default:
+        // this is the longest single call the site makes.
+        let done = false;
+        const stopTick = startKeepalive(controller, tEncoder, () => done, " ", 5000);
         try {
           const res = await teacherGenerate(body);
+          done = true; stopTick();
           controller.enqueue(tEncoder.encode("\n" + JSON.stringify(res)));
-        } catch { try { controller.enqueue(tEncoder.encode("\n" + JSON.stringify({ error: "TeacherGPT hit a snag — try again" }))); } catch {} }
-        finally { clearInterval(tick); try { controller.close(); } catch {} }
+        } catch {
+          done = true; stopTick();
+          try { controller.enqueue(tEncoder.encode("\n" + JSON.stringify({ error: "TeacherGPT hit a snag — try again" }))); } catch {}
+        }
+        finally { stopTick(); try { controller.close(); } catch {} }
       },
     });
     return new Response(tStream, { status: 200, headers: { ...jsonHeaders, "content-type": "text/plain; charset=utf-8" } });
@@ -3758,6 +3868,10 @@ export default async (req) => {
     provider = "anthropic";
     model = body.mode === "story" ? STORY_MODEL : RESEARCH_MODEL;
     attempt = await openUpstream(provider, model);
+    // Same invisibility problem as the seed: the whole point of this fallback is that the reader
+    // never notices, which also means NOBODY notices — a narrator that has quietly been Haiku
+    // for a week looks identical to one that has been Grok. Counted, not surfaced mid-story.
+    logCounters({ s_fb: 1 });
   }
   // Same outage fallback, added separately for gfflproj so the condition above stays untouched.
   if (!attempt.ok && provider !== "anthropic" && (body.mode === "gfflproj" || body.mode === "gffltrade" || body.mode === "gffladjust")) {
@@ -3795,20 +3909,24 @@ export default async (req) => {
       let stopReason = null;
       let replyText = "";   // accumulated scene text, for the content log (story mode only)
       let inTok = 0, outTok = 0, cacheWriteTok = 0, cacheReadTok = 0;
-      // HEARTBEAT, gffltrade + gffladjust ONLY (2026-08-12; adjuster added 2026-08-13): even at
-      // reasoning_effort "low" grok's first token can take 20-33s, and the CDN 504s a response
-      // that has moved no bytes for 30s ("Inactivity Timeout", reproduced live). A single space
-      // every 8s until the first real token keeps the pipe warm; the trade client's prose
-      // formatter collapses leading whitespace, and the adjuster's reply is strict JSON whose
-      // JSON.parse tolerates leading whitespace natively. DELIBERATELY not on any other mode —
-      // the story path's marker parsing must never see bytes the model didn't write.
-      let heartbeat = null;
-      if (body.mode === "gffltrade" || body.mode === "gffladjust") {
-        heartbeat = setInterval(() => {
-          if (sentAnyText) { clearInterval(heartbeat); heartbeat = null; return; }
-          try { controller.enqueue(encoder.encode(" ")); } catch { clearInterval(heartbeat); heartbeat = null; }
-        }, 8000);
-      }
+      // HEARTBEAT (startKeepalive, top of file). Originally gffltrade + gffladjust only
+      // (2026-08-12/13): even at reasoning_effort "low" grok's first token can take 20-33s and
+      // the CDN 504s a response that has moved no bytes for 30s. 2026-08-22 extends the same
+      // ticker to storyseed and audit, which were measured on the wrong side of that cliff too:
+      //   storyseed — 16.3s to first byte on an original world, 28.8s on an HTTYD pack, and a
+      //     live 504 at 30.7s. Safe because every client-side reader of a seed skips leading
+      //     whitespace: partialArrayObjects scans from the first "{", parseKeeperJSON slices
+      //     indexOf("{")..lastIndexOf("}"), and the wait screen's first-byte stage fires on
+      //     `raw.trim()` being non-empty, so a heartbeat byte never claims false progress.
+      //   audit — Sonnet reading a WHOLE transcript before it writes anything. parseAuditJSON
+      //     slices indexOf("{")..lastIndexOf("}") the same way.
+      // STILL DELIBERATELY NOT on `story`: grok reaches its first word there in ~5s, so there is
+      // nothing to fix, and the chapter renderer's marker parsing must never see a byte the
+      // model didn't write.
+      const KEEPALIVE_MODES = { gffltrade: " ", gffladjust: " ", storyseed: "\n", audit: "\n" };
+      const stopHeartbeat = Object.prototype.hasOwnProperty.call(KEEPALIVE_MODES, body.mode)
+        ? startKeepalive(controller, encoder, () => sentAnyText, KEEPALIVE_MODES[body.mode])
+        : null;
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -3889,7 +4007,10 @@ export default async (req) => {
       } catch {
         // Upstream connection dropped mid-stream — end what we have; the client keeps the partial.
       } finally {
-        if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+        // Every exit path lands here — normal end, a mid-stream upstream drop caught above, and
+        // an abort/cancel (which rejects the pending reader.read() into that same catch). One
+        // idempotent stop() covers all of them; there is no path that leaves the timer running.
+        if (stopHeartbeat) stopHeartbeat();
         // Log before closing so the lambda stays alive for the writes (both fail silently).
         if (inTok || outTok || cacheWriteTok || cacheReadTok) await logUsage(body.mode, inTok, outTok, cacheWriteTok, cacheReadTok, model);
         if (logStoryReq && sentAnyText) {

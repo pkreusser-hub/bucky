@@ -2017,3 +2017,119 @@ text alone.
 inside Valka's sheet). The next era that adds a cast will need the compaction step, not more
 trimming. Detection still reads request text, so a reader who renames everything ("my dragon
 Sparks") slips past it — deliberate, and unchanged: an unnamed world is an original world.
+
+---
+
+# 2026-08-22 — the seed that never arrived: an edge 504 nobody could see
+
+## The bug
+A `storyseed` sent **no bytes at all** until Fable's first token. Netlify's edge kills a streamed
+response that has moved nothing for 30s with `504 Inactivity Timeout`. Measured against the
+deployed function: **16,312ms** to first byte on an original world, **28,782ms** on an HTTYD pack,
+and one run came back 504 at **30,712ms**. The client fails soft by design — a failed seed is
+never an error a child can act on — so the reader silently got an **unseeded** story: no world, no
+cast, no planted secrets, and nothing on any screen said so. That is the ~19% of new stories that
+never got a seed, and the universe merge (3774174) pushed HTTYD right over the edge.
+
+The rule is simply **bytes must flow**. The function already streams and the client already reads
+the seed as a stream, so the fix is bytes, not architecture.
+
+## The helper
+`startKeepalive(controller, encoder, hasContent, byte, ms)` at the top of `farmgpt.mjs`. Returns
+an idempotent `stop()`. Three properties it is built around, each of which the suite asserts:
+
+1. **One byte immediately, then every `KEEPALIVE_MS` (8s).** The immediate byte matters more than
+   the interval: the edge's clock starts when the REQUEST lands, and building the prompt, fetching
+   the packs and opening the upstream had already spent 3.4s of that budget before this stream
+   existed. Waiting a full interval on top put the first byte at 11.4s instead of 3.6s.
+2. **`hasContent()` is checked at every tick BEFORE enqueueing**, so a heartbeat byte can never be
+   interleaved into text the model has started writing. The suite asserts every heartbeat byte in
+   the body is at the FRONT of it, nowhere else.
+3. **`stop()` on every exit path** — normal end, a mid-stream upstream drop, an abort/cancel. A
+   leaked interval is observable, so the suite counts live `Timeout` handles after a normal end
+   and a cancel and requires zero.
+
+## Which modes got it, and why not the others
+| mode | heartbeat | why |
+|---|---|---|
+| `storyseed` | **yes**, newline | the bug. Client is blind to leading whitespace: `partialArrayObjects` scans from the first brace, `parseKeeperJSON` slices `indexOf` to `lastIndexOf` |
+| `audit` | **yes**, newline | Sonnet reads a WHOLE transcript before writing. `parseAuditJSON` slices the same way |
+| `gffltrade`, `gffladjust` | yes, space | pre-existing (2026-08-12/13), now on the shared helper instead of their own copy |
+| `teachergpt` (streamed fallback) | yes, space, 5s | **already had one, hand-rolled.** Folded onto the helper — two copies of an idea means two places where "does it stop" is decided, and the second is the one nobody updates. The suite asserts exactly ONE `setInterval` survives in the file |
+| `story` scenes | **no** | Grok reaches its first word in ~5s, so there is nothing to fix, and the chapter renderer's marker parsing must never see a byte the model didn't write. Asserted: a slow upstream still gives a scene no heartbeat |
+
+## The client needed no change — but the reason is load-bearing
+Checked rather than assumed. The world screen's first-byte stage fires on `raw.trim()` being
+non-empty, so a heartbeat newline does **not** trip it — otherwise the screen would claim "putting
+your world down on paper" at 0s while the model was still thinking. Section P now drives the real
+screen against a seed delivered behind three heartbeat newlines and asserts the stage still says
+*thinking* while only heartbeats have landed, then advances on the model's own first byte.
+
+## MEASURED LIVE — before and after
+Through a local wrapper hosting this worktree's function with the real keys, as Dad.
+
+| | first byte BEFORE | first byte AFTER | model's own first byte | complete |
+|---|---|---|---|---|
+| HTTYD, post-movie-3 | 28,782ms (and a 504 at 30,712ms) | **3,692ms** (8 heartbeats) | 63,581ms | 86,125ms |
+| original world | 16,312ms | **3,618ms** (4 heartbeats) | 28,143ms | 57,007ms |
+
+Both seeds parse and validate. **An HTTYD seed was not a coin flip — at 63.6s to the model's first
+byte it was a guaranteed 504.** The earlier 28.8s measurement caught a fast run.
+
+## Telemetry — the reason this was invisible for months
+The seeder's **tokens** were logged for every request; whether the seed **landed** was logged
+nowhere, so the dashboard read identically at 100% and at 81%.
+
+- `f_ok` / `f_fallback` / `f_timeout` / `f_httperr` — outcome counters in the same two usage
+  documents `logUsage` writes, via a new `logCounters()`. The outcome is only knowable on the
+  client (the server can stream a perfect seed the browser then fails to parse), so the client
+  reports it through a new `seedstat` mode: one fire-and-forget POST per creation, always 200, an
+  unrecognised outcome dropped rather than argued with. A creation the child **backed out of** is
+  not counted either way. A seeder switched OFF reports nothing — that is a setting, not an outcome.
+- `s_fb` — a `story` scene falling back from Grok to Haiku. Same invisibility problem: the whole
+  point of that fallback is that the reader never notices, which also means nobody notices a
+  narrator that has quietly been the backup for a week.
+- Dad's usage page grows one line: **"seeded N of M new stories this month"**, plus the fallback
+  count when there is one. Drawn only once something has been counted, so it never sits at "0 of 0".
+- The counters share a document with the per-model token fields. `f_ok` and `f_claudefable5_in` are
+  both `f_` plus a word; only an explicit list tells them apart, and the suite asserts no counter is
+  ever read as a per-model breakdown field.
+
+## Model rates re-checked (same commit)
+`RATES` in `farmgpt.html` prices per model. **Sonnet 5 to $2/$10 with $0.20 flat cached input**
+(was $3/$15): the introductory rate was made permanent and the September increase cancelled. Every
+Sonnet bucket — research, audit, recaps, calories — had been reading a third high. Added the grok
+siblings so `XAI_MODEL` can be switched without landing in an unpriced bucket: `grok-4.6`
+$2/$6/$0.50, and `grok-4.3` plus the three `grok-4.20-*` ids at $1.25/$2.50/$0.20.
+
+**Closed months do not move.** `RATES` prices only rows that recorded WHICH model did the work; the
+`R_IN`/`R_OUT` bucket fallbacks stay at the old $3/$15 for rows written before per-model logging
+existed. That distinction is the whole reason the fallback constants exist, and moving them would
+retroactively re-price months already closed. The existing "a day written BEFORE per-model logging
+still prices at its historical rate" check still passes, and a new hand-computed one pins the live
+rate: research ran 200k in / 40k out on Sonnet, so **$0.80**, where the old rate read $1.20.
+
+`ROUTABLE_MODELS` is now exported from `farmgpt.mjs` — every id the function can route to — and the
+suite checks each one against the dashboard's rate table through the function's own `modelSlug`, so
+the logger's field names and the dashboard's keys cannot drift apart in the test's imagination.
+`grok-build-0.1` is deliberately NOT listed: it has no published price, so it fails the check rather
+than being given an invented number. Price it before routing to it.
+
+## Verified
+storyledger **804/804** (776 on main — 28 new, every original one still green) ·
+kidstory-server 54/54 · dnd-server 47/47 · news 200/200 · fitness 249/249.
+Before/after evidence: with `farmgpt.mjs` and `farmgpt.html` stashed back to `HEAD` and the new
+suite in place, the new checks FAIL there (0 keepalive chunks on the wire, first byte at 1114ms
+instead of immediate, counters `undefined`, the dashboard line `null`) and every pre-existing check
+still passes.
+LIVE: a local wrapper over this worktree's function with the real keys — numbers in the table above.
+
+**KNOWN / DEFERRED — the next decision, now measurable.** The HTTYD seed survives the edge but
+takes **86s**, and the client's own `SEED_TIMEOUT_MS` (75s) / `WORLD_SEED_DEADLINE_MS` (79s) cut it
+off before it finishes. So an HTTYD world now fails *visibly to the counters* (`f_timeout`) instead
+of invisibly to a 504 — which is the point of the telemetry, but it is not yet a world on screen.
+The options are a longer deadline (a child staring at the wait screen for 90s), a smaller HTTYD
+seed input, or the two-call seed already noted above (cast first, then the rest). Do not pick one
+until `f_ok`/`f_timeout` have a week of real readings. Caveat on the numbers: the probe posts the
+raw pack file as `packLedger` where the page posts its rendered seeded ledger, so the input size is
+close but not identical.

@@ -1978,6 +1978,32 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     return out;
   }
 
+  // SEED TELEMETRY. Every failure path in seedLedgerWithAI is deliberately silent — a child
+  // must never meet an error because the world-builder had a bad minute — and for months that
+  // silence hid the fact that roughly one new story in five started with no world at all. The
+  // outcome is only knowable here (the server can stream a perfect seed the browser then fails
+  // to parse), so the client reports it: one fire-and-forget POST per creation, counted into the
+  // seeder's own usage bucket. Never awaited, never surfaced, never able to fail a creation.
+  // A seeder that is switched OFF reports nothing — that is a setting, not an outcome.
+  function seedOutcomeOf(res) {
+    if (res && res.seeded) return "ok";
+    const why = String((res && res.reason) || "");
+    if (why === "off" || why === "disabled") return null;
+    if (why === "timeout" || why === "screen-deadline") return "timeout";
+    if (/^http \d/.test(why)) return "httperr";
+    return "fallback";                       // unparseable, empty, a failed validation, a throw
+  }
+  function reportSeedOutcome(res) {
+    try {
+      const outcome = seedOutcomeOf(res);
+      if (!outcome) return;
+      fetch(API_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "seedstat", outcome }),
+      }).catch(() => {});
+    } catch {}
+  }
+
   async function seedLedgerWithAI(led, opts) {
     if (!seedAiEnabled) return { seeded: false, reason: "off" };
     const ctl = typeof AbortController === "function" ? new AbortController() : null;
@@ -3752,7 +3778,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         new Promise((r) => setTimeout(() => r({ seeded: false, reason: "screen-deadline" }), WORLD_SEED_DEADLINE_MS)),
       ]);
       busy = false;
+      // A creation the child backed out of is not a seed failure — don't count it either way.
       if (worldWait.wasCancelled()) return;
+      reportSeedOutcome(seedRes);
       if (seedRes.seeded) ledger = seedRes.ledger;
       worldWait.done("seed");
       // Show the world that actually arrived. On a failed seed there is simply less to show —
@@ -4181,7 +4209,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     },
     get busyNow() { return busy; },
     // usage dashboard
-    loadUsage, usageDayCost(d) { return dayCost(d); },
+    loadUsage, usageDayCost(d) { return dayCost(d); }, usageRates: () => RATES,
     get story() { return story; },
     setStory(s) { story = s; },
     // The programmatic form of tapping a chip — so it must latch the same "the reader chose
@@ -4525,14 +4553,32 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   const RATES = {
     // slug (modelSlug() in farmgpt.mjs: lowercase, non-alphanumerics stripped) → $/MTok
     claudehaiku45:  { in: 1,  out: 5 },                    // Haiku 4.5
-    claudesonnet5:  { in: 3,  out: 15 },                   // Sonnet 5
+    // Sonnet 5 was $3/$15. 2026-08-22, checked against Anthropic's pricing page: the introductory
+    // rate was made permanent and the Sep 1 increase cancelled — $2/$10, cached input $0.20 flat
+    // (not the 0.1x convention). Every Sonnet bucket (research, audit, calories, recaps) had been
+    // reading a third high. Closed months do NOT move: this table only prices rows that recorded
+    // WHICH model did the work, and the bucket fallbacks below still carry the old numbers for
+    // rows written before per-model logging.
+    claudesonnet5:  { in: 2,  out: 10, cached: 0.20 },     // Sonnet 5
     claudeopus5:    { in: 5,  out: 25 },                   // Opus 5
     claudefable5:   { in: 10, out: 50 },                    // Fable 5 — the ledger seeder
-    grok45:         { in: 2,  out: 6, cached: 0.30 },       // grok-4.5 (<200k prompts), docs.x.ai
+    // The grok family. XAI_MODEL can be switched to any of these without a code change, so each
+    // one needs a rate here or a switch would land in an unpriced bucket and quietly cost $0 on
+    // this page. Slugs are modelSlug()'s: lowercased, non-alphanumerics stripped. docs.x.ai.
+    grok45:         { in: 2,  out: 6, cached: 0.30 },       // grok-4.5 (<200k prompts)
+    grok46:         { in: 2,  out: 6, cached: 0.50 },       // grok-4.6
+    grok43:         { in: 1.25, out: 2.50, cached: 0.20 },  // grok-4.3
+    grok4200309reasoning:    { in: 1.25, out: 2.50, cached: 0.20 },   // grok-4.20-0309-reasoning
+    grok4200309nonreasoning: { in: 1.25, out: 2.50, cached: 0.20 },   // grok-4.20-0309-non-reasoning
+    grok420multiagent0309:   { in: 1.25, out: 2.50, cached: 0.20 },   // grok-4.20-multi-agent-0309
     gemini25flash:  { in: 0.30, out: 2.50 },
   };
   const S_IN = 1, S_OUT = 5;    // $/MTok — Haiku 4.5 (the historical story/keeper/kid rate)
-  const R_IN = 3, R_OUT = 15;   // $/MTok — Sonnet 5 (research, audit, recaps, calories)
+  // $/MTok — the HISTORICAL Sonnet rate, and deliberately left at $3/$15 when the live rate
+  // dropped to $2/$10 on 2026-08-22. These constants price only the remainder: tokens in a bucket
+  // that no per-model record claimed, i.e. rows written before per-model logging existed. Moving
+  // them would retroactively re-price closed months, which is the one thing this page must not do.
+  const R_IN = 3, R_OUT = 15;
   const O_IN = 5, O_OUT = 25;   // $/MTok — Opus 5 (TeacherGPT)
   const F_IN = 10, F_OUT = 50;  // $/MTok — Fable 5 (the seeder)
   const cw = (d, k) => d[k] || 0;
@@ -4632,6 +4678,25 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     big.innerHTML = `<div class="amt"></div><div class="lbl">estimated this month · ${fmt$(allCost)} all time</div>`;
     big.querySelector(".amt").textContent = fmt$(monthCost);
     body.appendChild(big);
+
+    // SEED HEALTH — one line, and the only reason it exists is that its absence hid a real bug
+    // for months: a seed that fails is invisible by design on the child's screen, so the only
+    // place it can be visible at all is here. M is every new story that asked for a world this
+    // month; N is how many got one. Drawn only once something has been counted, so it doesn't
+    // sit at "0 of 0" on a fresh install or on days written before these counters existed.
+    const seedOk = sum(monthDays, "f_ok");
+    const seedTotal = seedOk + sum(monthDays, "f_fallback") + sum(monthDays, "f_timeout") + sum(monthDays, "f_httperr");
+    const storyFallbacks = sum(monthDays, "s_fb");
+    if (seedTotal || storyFallbacks) {
+      const note = document.createElement("div");
+      note.id = "usageSeedHealth";
+      note.style.cssText = "margin:-6px 0 14px;text-align:center;font-size:.82rem;opacity:.75";
+      const bits = [];
+      if (seedTotal) bits.push(`🌱 seeded ${seedOk} of ${seedTotal} new stories this month`);
+      if (storyFallbacks) bits.push(`${storyFallbacks} scene${storyFallbacks === 1 ? "" : "s"} fell back to the backup narrator`);
+      note.textContent = bits.join(" · ");
+      body.appendChild(note);
+    }
 
     // ---- which buckets are worth a row of their own -----------------------
     // A dashboard nobody reads is worse than no dashboard, and a dozen rows of which nine say

@@ -86,6 +86,12 @@ let runQueryRows = [];      // what the fake :runQuery returns (drives the daily
 let lastAnthStorySystem = "";   // the last STORY system prompt Anthropic saw, for byte-comparison
 let sseOverride = null;         // one-shot reply body for the fake Anthropic (see startFakes)
 const setSseOverride = (s) => { sseOverride = s; };
+// A SLOW-THINKING upstream, for the keepalive section (S). Shaped like the real one: the HTTP
+// headers come back at once and the first SSE event only lands `anthDelayMs` later — which is
+// exactly the gap that 504'd in production, and NOT the same thing as a slow connect (a slow
+// connect would stall `fetch` itself, before the response stream this is about even exists).
+let anthDelayMs = 0;
+const setAnthDelay = (ms) => { anthDelayMs = ms | 0; };
 
 const SSE = [
   'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":120,"output_tokens":0,"cache_creation_input_tokens":40,"cache_read_input_tokens":0}}}\n\n',
@@ -135,8 +141,12 @@ function startFakes() {
     // ONE-SHOT override, consumed on use. The keeper's family-canon batching turns on what the
     // clerk actually WROTE, so those checks need a real diff back rather than the scene fixture —
     // and it must be one-shot, or the merge call that follows would be answered with a diff too.
-    if (sseOverride) { const s = sseOverride; sseOverride = null; return res.end(s); }
-    res.end(SSE);
+    const bodyOut = sseOverride ? (() => { const s = sseOverride; sseOverride = null; return s; })() : SSE;
+    if (!anthDelayMs) return res.end(bodyOut);
+    // Flush the headers now, hold the first event back. res.flushHeaders() is what makes this a
+    // header/first-byte gap rather than a connect delay.
+    res.flushHeaders();
+    setTimeout(() => { try { res.end(bodyOut); } catch {} }, anthDelayMs);
   });
   const goog = http.createServer(async (req, res) => {
     const url = req.url.split("?")[0];
@@ -3404,6 +3414,38 @@ async function sectionWorldWait(browser) {
   ok(page.__errors.length === 0, "no page errors (filter)");
   await page.close();
 
+  // ---- P2b: the screen against a seed that arrives BEHIND heartbeats ----------------------
+  // The server now writes a "\n" every 8s until the model's first byte (see farmgpt.mjs's
+  // startKeepalive), so a real HTTYD seed reaches this screen with 2-4 newlines in front of it.
+  // Two things must hold, and the second is the one that would look like a bug: the world still
+  // builds, AND the "first byte back" stage does not fire on a heartbeat — a screen that claims
+  // "putting your world down on paper" at 0s while the model is still thinking is lying.
+  const HEARTBEATS = [{ delay: 120, text: "\n" }, { delay: 200, text: "\n" }, { delay: 200, text: "\n" }];
+  worldPlan = { seed: { chunks: [...HEARTBEATS, ...WORLD_SEED_CHUNKS] }, scene: WORLD_SCENE_OK };
+  const pHb = await worldPage(browser);
+  await worldBegin(pHb);
+  await pHb.waitForFunction(() => window.__STORY__.worldWait.stageState("seed") === "doing", { timeout: 10000 });
+  // Sample WHILE only heartbeats have been delivered (the last one lands at ~520ms, the first
+  // real chunk at ~640ms). "on paper" here would mean the screen reacted to a byte the model
+  // never wrote.
+  await new Promise((r) => setTimeout(r, 380));
+  const midBeat = await pHb.evaluate(() =>
+    document.getElementById("wStage_seed").querySelector(".wSub").textContent);
+  ok(!/on paper/.test(midBeat),
+    "a heartbeat byte is NOT the first byte — the stage still says thinking: " + JSON.stringify(midBeat));
+  await pHb.waitForFunction(() => /on paper/.test(document.getElementById("wStage_seed").querySelector(".wSub").textContent),
+    { timeout: 10000 });
+  ok(true, "…and the stage advances the moment the model's own first byte lands");
+  await pHb.waitForFunction(() => window.__STORY__.worldWait.stageState("seed") === "done", { timeout: 20000 });
+  const hbBuilt = await worldUi(pHb);
+  ok(hbBuilt.chips.some((c) => /Bramblewick/.test(c)) && hbBuilt.chips.some((c) => /Marrowmere quay/.test(c)),
+    "a seed delivered behind heartbeats still parses into the same world");
+  ok(/4 rules/.test(hbBuilt.counts) && /2 secrets/.test(hbBuilt.counts),
+    "…with the same counts, so the leading newlines cost the ledger nothing");
+  ok(!hbBuilt.chips.some((c) => c.includes(WORLD_SECRET)), "…and the secret is still not on screen");
+  ok(pHb.__errors.length === 0, "no page errors (heartbeat-prefixed seed)");
+  await pHb.close();
+
   // ---- P3: the screen, live, against a real chunked seed ----------------------------------
   worldPlan = { seed: { chunks: WORLD_SEED_CHUNKS }, scene: WORLD_SCENE_OK };
   const p3 = await worldPage(browser);
@@ -3688,6 +3730,9 @@ async function sectionDashboard(browser) {
       t_claudeopus5_in: 60000, t_claudeopus5_out: 20000, t_claudeopus5_req: 6, t_claudeopus5_cw: 0, t_claudeopus5_cr: 0,
       f_in: 4000, f_out: 5000, f_req: 2, f_cw: 0, f_cr: 0,
       f_claudefable5_in: 4000, f_claudefable5_out: 5000, f_claudefable5_req: 2, f_claudefable5_cw: 0, f_claudefable5_cr: 0,
+      // Seed OUTCOMES (2026-08-22) — 21 worlds asked for, 17 got one. Deliberately not 100%:
+      // the whole point of this line is that a failing seeder is visible somewhere.
+      f_ok: 17, f_fallback: 3, f_timeout: 1, f_httperr: 0, s_fb: 4,
       // the quiet ones
       k_in: 300, k_out: 120, k_req: 1, k_cw: 0, k_cr: 0,
       a_in: 200, a_out: 400, a_req: 1, a_cw: 0, a_cr: 0,
@@ -3724,9 +3769,19 @@ async function sectionDashboard(browser) {
       name: el.querySelector(".un").textContent, detail: el.querySelector(".ud").textContent }));
     const head = [...document.querySelectorAll(".usageTable tr:first-child th")].map((th) => th.textContent);
     const firstRow = [...document.querySelectorAll(".usageTable tr:nth-child(2) td")].map((td) => td.textContent);
+    const health = document.getElementById("usageSeedHealth");
     return { rows, head, firstRow, big: document.querySelector("#usageBig .amt").textContent,
-             note: document.getElementById("usageNote").textContent };
+             note: document.getElementById("usageNote").textContent,
+             health: health ? health.textContent.replace(/\s+/g, " ").trim() : null };
   });
+
+  // SEED HEALTH. The dashboard priced the seeder's tokens all along and said nothing about
+  // whether the seeds LANDED, which is exactly how a 19% failure rate stayed invisible. 17 of
+  // 21 is hand-computed from the fixture above (17 ok + 3 fallback + 1 timeout + 0 http).
+  ok(dash.health && /seeded 17 of 21 new stories/.test(dash.health),
+    "the dashboard says how many new stories actually got a world: " + JSON.stringify(dash.health));
+  ok(/4 scenes fell back to the backup narrator/.test(dash.health || ""),
+    "…and how often the narrator quietly became the backup");
   const names = dash.rows.map((r) => r.name);
   // The fixture deliberately leaves some bucket keys off the older day (a document written before
   // a bucket existed looks exactly like this). Nothing on the page may render as NaN because of it.
@@ -3779,6 +3834,30 @@ async function sectionDashboard(browser) {
   ok(dash.head.length === dash.firstRow.length, "…with a header for every cell, so the table lines up");
   ok(/per model/.test(dash.note) && /Grok 4\.5/.test(dash.note), "the footnote prices per model");
   ok(/🧩 Other/.test(dash.note), "…and says where the quiet features went");
+
+  // ---- EVERY ROUTABLE MODEL HAS A RATE ---------------------------------------------------
+  // XAI_MODEL / STORY_MODEL / STORY_SEED_MODEL can each name a different id without a code
+  // change. An id the function will happily route to but the dashboard has no rate for does not
+  // error — it prices at $0 and the row silently understates. Compared through the FUNCTION's own
+  // list and the FUNCTION's own modelSlug, so the logger's field names and the dashboard's keys
+  // can never drift apart in the test's imagination.
+  const fnMod = await import(new URL("../netlify/functions/farmgpt.mjs", `file://${__filename.replace(/\\/g, "/")}`));
+  const rates = await page.evaluate(() => window.__STORY__.usageRates());
+  const unpriced = fnMod.ROUTABLE_MODELS.filter((m) => !rates[fnMod.modelSlug(m)]);
+  ok(unpriced.length === 0, "every model the function can route to has a rate on the dashboard" +
+    (unpriced.length ? " — MISSING: " + unpriced.join(", ") : " (" + fnMod.ROUTABLE_MODELS.length + " ids)"));
+  // The 2026-08-22 re-check: Sonnet 5's introductory $2/$10 was made permanent and the September
+  // increase cancelled. Every Sonnet bucket had been reading a third high.
+  ok(rates.claudesonnet5.in === 2 && rates.claudesonnet5.out === 10 && rates.claudesonnet5.cached === 0.20,
+    "Sonnet 5 prices at $2/$10 with $0.20 cached input, not the old $3/$15");
+  ok(rates.grok43.in === 1.25 && rates.grok46.cached === 0.50 && rates.grok45.cached === 0.30,
+    "…and the grok siblings price at their own published rates, not grok-4.5's");
+  // ARITHMETIC, hand-computed from the fixture: research ran 200,000 in / 40,000 out on Sonnet 5.
+  // At the new rate that is 200000×$2 + 40000×$10 = $0.80 per MTok-denominated million → $0.80.
+  // At the old $3/$15 the same row read $1.20. A rate table nobody prices against is decoration.
+  const research = dash.rows.find((r) => /Research/.test(r.name));
+  ok(/\$0\.80/.test(research.detail),
+    "the Research row prices Sonnet's 200k in / 40k out at $0.80, not the old $1.20: " + research.detail);
 
   // MOBILE — main's scrollWrap work must not regress: the page itself must never scroll sideways.
   const mob = await page.evaluate(() => ({
@@ -4173,7 +4252,159 @@ async function sectionUniverseMerge() {
 }
 
 // ---------------------------------------------------------------------------
+// SECTION S — the inactivity keepalive, and the seed-outcome counters
+//
+// THE BUG THIS SECTION EXISTS FOR (2026-08-22, measured against the deployed function): a
+// storyseed sent NO bytes until Fable's first token — 16.3s on an original world, 28.8s on an
+// HTTYD pack — and Netlify's edge 504s a stream that has moved nothing for 30s. The client
+// fails soft, so a child silently got an UNSEEDED story and no error was raised anywhere.
+//
+// The fake upstream here holds its first SSE event back for longer than the heartbeat interval
+// (which the suite shrinks to 300ms via FARMGPT_KEEPALIVE_MS), so the wire really does have to
+// carry keepalive bytes before content — the assertions below read the chunks in order, not the
+// finished body, because "did bytes flow in time" is a question a finished body cannot answer.
+// ---------------------------------------------------------------------------
+async function sectionKeepalive() {
+  section("S — the inactivity keepalive + seed outcome counters");
+  const handler = (await import(new URL("../netlify/functions/farmgpt.mjs", `file://${__filename.replace(/\\/g, "/")}`))).default;
+  const post = (body) => handler(new Request("http://localhost/.netlify/functions/farmgpt", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://amenfarms.netlify.app" },
+    body: JSON.stringify({ secret: SECRET, ...body }),
+  }));
+  // Read the response chunk by chunk, timestamping each one.
+  async function readChunks(resp) {
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    const t0 = Date.now();
+    const chunks = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push({ at: Date.now() - t0, text: dec.decode(value, { stream: true }) });
+    }
+    return chunks;
+  }
+
+  // ---- S1: storyseed, upstream slower than the heartbeat --------------------------------
+  setAnthDelay(1100);                      // ~3 heartbeats' worth at the suite's 300ms interval
+  const seedResp = await post({ mode: "storyseed", setup: "A bell that rings by itself.", heroName: "Nell" });
+  const seedChunks = await readChunks(seedResp);
+  setAnthDelay(0);
+  const firstAt = seedChunks.length ? seedChunks[0].at : Infinity;
+  const beats = seedChunks.filter((c) => /^\n+$/.test(c.text));
+  const body = seedChunks.map((c) => c.text).join("");
+  const firstContentIdx = seedChunks.findIndex((c) => !/^\n+$/.test(c.text));
+
+  ok(seedResp.status === 200 && (seedResp.headers.get("content-type") || "").includes("text/plain"),
+    "a seed still answers 200 text/plain — the keepalive changes the timing, not the contract");
+  ok(beats.length >= 2, `bytes flow BEFORE the model does — ${beats.length} keepalive chunk(s) on the wire`);
+  // The first byte is written IMMEDIATELY, not after one interval: the edge's inactivity clock
+  // started when the request landed, and the work before this stream (packs, prompt, upstream
+  // handshake) has already spent part of that budget. Measured live at 3.4s on an HTTYD seed —
+  // waiting a full 8s interval on top of that would have put the first byte at 11.4s.
+  ok(firstAt < 300 / 2,
+    `…and the FIRST one is written at once (${firstAt}ms), not an interval later — the interval is 300ms here`);
+  // Heartbeats stop the instant real content starts: every chunk after the first content chunk
+  // must be content. A stray "\n" chunk in the middle is the failure mode this catches.
+  ok(firstContentIdx !== -1 && seedChunks.slice(firstContentIdx).every((c) => !/^\n+$/.test(c.text)),
+    "the heartbeat stops on the first real byte — no keepalive chunk is interleaved after content starts");
+  // …and the JSON itself is untouched. Strip the LEADING newlines only; if a heartbeat had landed
+  // inside the payload this parse is what would fail.
+  const seedText = body.replace(/^\n+/, "");
+  ok(!/^\n/.test(seedText) && seedText.startsWith("The lamps"),
+    "…so once the leading heartbeat is stripped the model's own bytes begin, unchanged");
+  ok(body.length - seedText.length === beats.reduce((a, c) => a + c.text.length, 0),
+    "…and every heartbeat byte written is accounted for at the FRONT of the body, nowhere else");
+
+  // The client's own parsers are the reason "\n" is safe. Prove it on the real shape rather than
+  // asserting the property in prose: a seed JSON with heartbeats in front still parses.
+  const heartbeatJson = "\n\n\n" + JSON.stringify({ characters: [{ name: "Nell" }] });
+  const a = heartbeatJson.indexOf("{"), b = heartbeatJson.lastIndexOf("}");
+  let parsed = null; try { parsed = JSON.parse(heartbeatJson.slice(a, b + 1)); } catch {}
+  ok(parsed && parsed.characters[0].name === "Nell",
+    "indexOf(\"{\")..lastIndexOf(\"}\") — the seed/audit parsers' own slice — is blind to leading heartbeats");
+
+  // ---- S2: a mode with NO keepalive is byte-identical --------------------------------------
+  // `story` is deliberately excluded (grok reaches its first word in ~5s and the chapter parser
+  // must never see a byte the model didn't write). A slow upstream must NOT change its wire.
+  setAnthDelay(1100);
+  const sceneResp = await post({ mode: "story", messages: legacyMessages(), user: "Dad" });
+  const sceneChunks = await readChunks(sceneResp);
+  setAnthDelay(0);
+  ok(!sceneChunks.some((c) => /^\n+$/.test(c.text)) && sceneChunks.map((c) => c.text).join("").startsWith("The lamps"),
+    "a story scene gets NO heartbeat — its first byte is still the narrator's first word");
+
+  // ---- S3: the timer is cleared on every exit path ------------------------------------------
+  // If a heartbeat interval outlived its stream, node would keep the event loop alive and this
+  // process would not exit. A leaked timer is observable: count the handles.
+  const seedFast = await post({ mode: "storyseed", setup: "A quiet lighthouse.", heroName: "Nell" });
+  await readChunks(seedFast);                       // a normal, fast run
+  const abortResp = await post({ mode: "storyseed", setup: "A cut ferry rope.", heroName: "Nell" });
+  setAnthDelay(0);
+  await abortResp.body.cancel();                     // the client walks away mid-stream
+  await new Promise((r) => setTimeout(r, 700));      // > 2 heartbeat intervals
+  const liveTimers = process._getActiveHandles().filter((h) => h.constructor && h.constructor.name === "Timeout");
+  ok(liveTimers.length === 0,
+    `no heartbeat timer outlives its stream — ${liveTimers.length} stray Timeout handle(s) after a normal end and a cancel`);
+
+  // ---- S3b: ONE keepalive implementation, not several ---------------------------------------
+  // TeacherGPT's streamed fallback had hand-rolled the same idea before the shared helper
+  // existed. Two copies means two places where "how often" and "does it stop on every path" are
+  // decided, and the second copy is the one nobody updates. Every keepalive in this function must
+  // go through startKeepalive — checked at the source, because that is where the duplication is.
+  const fnSrc = fs.readFileSync(path.join(ROOT, "netlify/functions/farmgpt.mjs"), "utf8");
+  const intervals = (fnSrc.match(/setInterval\(/g) || []).length;
+  ok(intervals === 1,
+    `exactly one setInterval in the function — every keepalive goes through startKeepalive (found ${intervals})`);
+  ok(/startKeepalive\(controller, tEncoder/.test(fnSrc),
+    "…including TeacherGPT's streamed fallback, which used to keep itself alive by hand");
+
+  // ---- S4: the outcome counters ---------------------------------------------------------
+  // The reason this bug was invisible: the seeder's TOKENS were logged for every request and
+  // whether the seed LANDED was logged nowhere, so the dashboard read identically at 100% and
+  // at 81%. Each outcome the client can report must land in the seeder's own usage document.
+  for (const [outcome, times] of [["ok", 3], ["fallback", 2], ["timeout", 1], ["httperr", 1]]) {
+    for (let i = 0; i < times; i++) await post({ mode: "seedstat", outcome });
+  }
+  await post({ mode: "seedstat", outcome: "nonsense" });     // must be dropped, not counted
+  await post({ mode: "seedstat" });                          // …and so must a missing one
+  const statsResp = await post({ mode: "stats" });
+  const row = ((await statsResp.json()).days || [])[0] || {};
+  ok(row.f_ok === 3 && row.f_fallback === 2 && row.f_timeout === 1 && row.f_httperr === 1,
+    `each outcome counts once per report: ${row.f_ok}/${row.f_fallback}/${row.f_timeout}/${row.f_httperr}`);
+  ok(row.f_ok + row.f_fallback + row.f_timeout + row.f_httperr === 7,
+    "…and an outcome the server doesn't recognise is dropped rather than counted as something");
+  // The counters share the document with the seeder's per-model token fields. `f_ok` and
+  // `f_claudefable5_in` are both "f_<word>[_metric]" — if the per-model regex ever swallowed the
+  // counters, the dashboard would price a success count as tokens.
+  ok(row.f_req > 0 && row.f_claudefable5_req > 0,
+    "…while the seeder's token/request fields in the SAME document are untouched");
+  ok(!Object.keys(row).some((k) => /^f_(ok|fallback|timeout|httperr)_(in|out|req|cw|cr)$/.test(k)),
+    "…and no counter is mistaken for a per-model breakdown field");
+
+  // ---- S5: the story provider fallback, counted ------------------------------------------
+  // Same invisibility problem: the whole point of the grok→Haiku fallback is that the reader
+  // never notices, which also means nobody notices a narrator that has quietly been the backup
+  // for a week. Point the story provider at the xAI that answers 429.
+  const beforeFb = row.s_fb || 0;
+  process.env.STORY_PROVIDER = "grok";
+  process.env.XAI_API_KEY = "test-key";
+  process.env.XAI_BASE_URL = `http://127.0.0.1:${XAI_ERR_PORT}`;
+  const fbResp = await post({ mode: "story", messages: legacyMessages(), user: "Dad" });
+  await fbResp.text();
+  await new Promise((r) => setTimeout(r, 200));    // the counter write is fire-and-forget
+  delete process.env.STORY_PROVIDER; delete process.env.XAI_API_KEY; delete process.env.XAI_BASE_URL;
+  const fbRow = ((await (await post({ mode: "stats" })).json()).days || [])[0] || {};
+  ok(fbRow.s_fb === beforeFb + 1,
+    `a scene that falls back from Grok to Haiku is counted: s_fb ${beforeFb} → ${fbRow.s_fb}`);
+}
+
+// ---------------------------------------------------------------------------
 (async () => {
+  // Shrink the keepalive so section S can watch it without a 24s test. Read at module scope in
+  // farmgpt.mjs, so it has to be set BEFORE the first import of the function.
+  process.env.FARMGPT_KEEPALIVE_MS = "300";
   const [xaiErr, xai, anth, goog] = await startFakes();
   // The static server now starts FIRST. Since the universe merge the function fetches the pack
   // files over HTTP (FARMGPT_PACK_BASE), and that base is read at module scope — so the origin
@@ -4183,6 +4414,8 @@ async function sectionUniverseMerge() {
   catch (err) { fail++; failures.push("section A crashed"); console.log("\n✗ SECTION A ERROR: " + (err && err.stack || err)); }
   try { await sectionUniverseMerge(); }
   catch (err) { fail++; failures.push("section U crashed"); console.log("\n✗ SECTION U ERROR: " + (err && err.stack || err)); }
+  try { await sectionKeepalive(); }
+  catch (err) { fail++; failures.push("section S crashed"); console.log("\n✗ SECTION S ERROR: " + (err && err.stack || err)); }
   void sectionRepair; void sectionFinishGrant; void sectionDashboard;
 
   const browser = await puppeteer.launch({
