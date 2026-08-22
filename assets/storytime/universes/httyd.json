@@ -5,108 +5,306 @@
     "timeline_point": "conclusion of Race to the Edge (before How To Train Your Dragon 2)",
     "genre_and_tone": "warm Viking adventure — flying, friendship and daring rescues, with danger that always lands gently",
     "narrative_voice": "close third person, wry and affectionate, rich in dragon detail",
-    "schema_version": 1,
-    "pack_version": 1
+    "schema_version": 2,
+    "pack_version": 2,
+    "triggers": "how to train your dragon|httyd|race to the edge|night fury|light fury|toothless|hiccup|isle of berk|\\bberk\\b|astrid|stormfly|windshear|grimborn|deadly nadder|gronckle|zippleback|monstrous nightmare|hofferson|haddock|razorwhip|berserker tribe|dragon hunters|maces and talons|death song|triple stryke|singetail|eruptodon|\\bgobber\\b|stoick|\\bvalka\\b|\\bkrogan\\b|trader johann|dragon's edge|dragons edge|meatlug|hookfang|fishlegs|snotlout|ruffnut|tuffnut|\\bgrimmel\\b|hidden world|skullcrusher|\\bgustav\\b|\\bmala\\b|\\bdagur\\b|\\bheather\\b|bewilderbeast|dragon rider",
+    "eras": {
+      "default": "rtte",
+      "list": [
+        {
+          "id": "rtte",
+          "label": "the end of Race to the Edge",
+          "timeline_point": "conclusion of Race to the Edge (before How To Train Your Dragon 2)",
+          "triggers": "race to the edge|dragon's edge|dragons edge|dragon eye|\\bviggo\\b|\\bryker\\b|\\bkrogan\\b|trader johann|dragon hunters|dragon flyers|before the second movie",
+          "canon_add": [],
+          "canon_remove": [],
+          "characters_add": [],
+          "character_overrides": [],
+          "locations_add": []
+        },
+        {
+          "id": "post_httyd3",
+          "label": "after the third film — Grimmel beaten, the Hidden World found",
+          "timeline_point": "after How To Train Your Dragon 3 — Grimmel is beaten, the Hidden World is known, and Hiccup is Chief of Berk",
+          "triggers": "\\bgrimmel\\b|light fury|hidden world|third movie|third film|httyd ?3|the hidden world|chief hiccup|hiccup is chief|new berk|night lights|deathgripper|after the movies|\\bvalka\\b",
+          "canon_remove": [
+            "C15"
+          ],
+          "canon_add": [
+            {
+              "rule": "Toothless is the Alpha of all dragons, and when he rises and roars every dragon in earshot answers him."
+            },
+            {
+              "rule": "A Light Fury can heat her scales white-hot with a plasma blast and vanish from sight for as long as the glow lasts."
+            },
+            {
+              "rule": "The Hidden World is the dragons' true home, an enormous glowing cavern deep beneath the sea, and every dragon knows the way to it."
+            },
+            {
+              "rule": "Hiccup is Chief of Berk now, and every decision the village makes finally stops with him."
+            }
+          ],
+          "character_overrides": [
+            {
+              "name": "Stoick the Vast",
+              "role": "the late Chief of Berk, Hiccup's father",
+              "status": "dead — he stepped in front of a blast meant for Hiccup and did not survive it; Berk gave him a chief's farewell and Hiccup carries his helmet",
+              "knows": [
+                "nothing further — his story is finished"
+              ],
+              "does_not_know": [
+                "nothing further — his story is finished"
+              ],
+              "last_seen": {
+                "turn": 0,
+                "location": "Berk",
+                "state": "gone; his name is spoken at every gathering"
+              }
+            },
+            {
+              "name": "Hiccup Horrendous Haddock III",
+              "role": "Chief of Berk, leader of the Dragon Riders, Astrid's husband",
+              "status": "alive and well; Chief of Berk since his father died, married to Astrid",
+              "knows": [
+                "how to read almost any dragon's mood",
+                "that his mother Valka is alive and home on Berk",
+                "that Toothless is not the last Night Fury, and that a Light Fury chose him",
+                "that the Hidden World lies deep beneath the sea",
+                "that Grimmel the Grisly is beaten"
+              ],
+              "does_not_know": [
+                "how to stop worrying that he is a worse chief than his father was"
+              ],
+              "last_seen": {
+                "turn": 0,
+                "location": "Berk",
+                "state": "chief, and still happiest in the air"
+              }
+            },
+            {
+              "name": "Astrid Hofferson",
+              "role": "Dragon Rider, Hiccup's wife and the Chief's steadiest counsel",
+              "status": "alive and well on Berk; married to Hiccup",
+              "knows": [
+                "that Hiccup is already a good chief and needs telling",
+                "that Valka is alive"
+              ],
+              "does_not_know": [
+                "how to sit still through a council meeting"
+              ],
+              "last_seen": {
+                "turn": 0,
+                "location": "Berk",
+                "state": "flying patrols with Stormfly"
+              }
+            },
+            {
+              "name": "Toothless",
+              "role": "Night Fury, Hiccup's bonded dragon and the Alpha of all dragons",
+              "status": "alive and thriving; Alpha of every dragon, mated to the Light Fury, and no longer the last of his kind",
+              "knows": [
+                "every handhold of Hiccup's saddle and every tone of his voice",
+                "the way down to the Hidden World"
+              ],
+              "does_not_know": [
+                "how to be anywhere the Light Fury is not"
+              ],
+              "last_seen": {
+                "turn": 0,
+                "location": "between Berk and the Hidden World",
+                "state": "leading, and coming back often"
+              }
+            }
+          ],
+          "characters_add": [
+            {
+              "name": "Valka",
+              "origin": "pack",
+              "role": "Hiccup's mother, dragon rescuer of twenty years, and Berk's greatest living dragon expert",
+              "status": "alive and home on Berk, widowed",
+              "physical": "tall and weathered in feathered scaled armour and a horned mask, greying auburn braids, carrying a long crook-staff, and rarely far from Cloudjumper, her four-winged owl-faced Stormcutter",
+              "voice": "quiet, unhurried and a little wild from years alone with dragons; explains dragons the way other people explain weather, and apologises for the missing years by doing rather than saying",
+              "motivation": "the dragons, and the son she nearly never knew",
+              "possessions": [
+                "her dragon-bone staff",
+                "Cloudjumper, her Stormcutter, and his saddle"
+              ],
+              "knows": [
+                "dragon species no Viking book has ever named",
+                "how to move so a wild dragon does not startle"
+              ],
+              "does_not_know": [
+                "how to be an ordinary villager"
+              ],
+              "last_seen": {
+                "turn": 0,
+                "location": "Berk",
+                "state": "home, and teaching anyone who will listen"
+              }
+            },
+            {
+              "name": "the Light Fury",
+              "origin": "pack",
+              "role": "wild white dragon of Toothless's kind, and his mate",
+              "status": "alive and well; wary of people, devoted to Toothless",
+              "physical": "sleek white dragon of Toothless's build, pale blue eyes, scales that glow white-hot before she disappears",
+              "voice": "does not speak — a high clear cry and a warning hiss; cat-like, wild, and slow to trust anyone who walks on two legs",
+              "motivation": "Toothless, and keeping dragons away from people",
+              "possessions": [
+                "nothing — she wears no saddle and will not"
+              ],
+              "knows": [
+                "the way down to the Hidden World"
+              ],
+              "does_not_know": [
+                "why Toothless trusts humans at all"
+              ],
+              "last_seen": {
+                "turn": 0,
+                "location": "the sea between Berk and the Hidden World",
+                "state": "flying with Toothless"
+              }
+            },
+            {
+              "name": "Grimmel the Grisly",
+              "origin": "pack",
+              "role": "the dragon hunter who made his name killing Night Furies",
+              "status": "beaten and gone — he fell from the sky over the sea when Hiccup and Toothless outflew him, and no one has seen him since",
+              "physical": "was gaunt and grey, pale-eyed and soft-spoken, in dark scaled armour",
+              "voice": "spoke gently and reasonably about terrible things, as if everyone in the room already agreed with him",
+              "motivation": "was the last Night Fury, and proving he could not be refused",
+              "possessions": [
+                "his Deathgrippers, freed and long gone"
+              ],
+              "knows": [
+                "nothing further — his story is finished"
+              ],
+              "does_not_know": [
+                "nothing further — his story is finished"
+              ],
+              "last_seen": {
+                "turn": 0,
+                "location": "the open sea",
+                "state": "gone; the riders do not say his name much"
+              }
+            }
+          ],
+          "locations_add": [
+            {
+              "name": "the Hidden World",
+              "description": "An immense glowing cavern far beneath the sea where every dragon alive can go — waterfalls of light, crystal spires, and more dragons than anyone has ever counted",
+              "state": "found, and kept secret from anyone who would hunt it"
+            }
+          ]
+        }
+      ]
+    }
   },
   "canon": [
     {
       "id": "C1",
-      "rule": "Dragons are intelligent, feeling creatures who choose their riders; they are partners, never property.",
+      "rule": "No dragon ever speaks words — dragons growl, croon, purr, screech and answer with their bodies, and a rider reads them rather than being told.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C2",
-      "rule": "A dragon is trained by earning trust — an open hand, a turned-away gaze, patience — and a bond once made lasts for life.",
+      "rule": "Dragons are intelligent, feeling creatures who choose their riders; they are partners, never property.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C3",
-      "rule": "Every dragon belongs to a class — Stoker, Boulder, Tracker, Sharp, Tidal, Strike, Mystery or Fear — which predicts how it flies and fights.",
+      "rule": "A dragon is trained by earning trust — an open hand, a turned-away gaze, patience — and a bond once made lasts for life.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C4",
-      "rule": "A dragon carries only so many shots before it must rest and reload, and Hiccup counts Toothless at about six plasma blasts.",
+      "rule": "Every dragon belongs to a class — Stoker, Boulder, Tracker, Sharp, Tidal, Strike, Mystery or Fear — which predicts how it flies and fights.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C5",
-      "rule": "A Night Fury is Strike Class: the fastest and quietest flier known, firing explosive blue-white plasma blasts with uncanny accuracy.",
+      "rule": "A dragon carries only so many shots before it must rest and reload, and Hiccup counts Toothless at about six plasma blasts.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C6",
-      "rule": "In darkness or fog a Night Fury navigates by echolocation, crying out and reading the sound that returns.",
+      "rule": "A Night Fury is Strike Class: the fastest and quietest flier known, firing explosive blue-white plasma blasts with uncanny accuracy.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C7",
-      "rule": "Toothless lost his left tail fin years ago, and the replacement Hiccup built is worked from the saddle, so he cannot fly properly without his rider.",
+      "rule": "In darkness or fog a Night Fury navigates by echolocation, crying out and reading the sound that returns.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C8",
-      "rule": "Nearly every dragon is terrified of eels, and the sight of one will panic even a calm dragon.",
+      "rule": "Toothless lost his left tail fin years ago, and the replacement Hiccup built is worked from the saddle, so he cannot fly properly without his rider.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C9",
-      "rule": "Dragon Nip is a herb that soothes and delights dragons; Dragon Root does the opposite and turns a gentle dragon wild.",
+      "rule": "Nearly every dragon is terrified of eels, and the sight of one will panic even a calm dragon.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C10",
-      "rule": "Gronckle Iron is made by feeding a Gronckle iron ore and limestone, and what it spits out is lighter and far stronger than ordinary iron.",
+      "rule": "Dragon Nip is a herb that soothes and delights dragons; Dragon Root does the opposite and turns a gentle dragon wild.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C11",
-      "rule": "Dragon fire has personality: a Monstrous Nightmare sets its whole body alight, a Zippleback sprays gas from one head and sparks it with the other, and a Gronckle spits molten lava.",
+      "rule": "Gronckle Iron is made by feeding a Gronckle iron ore and limestone, and what it spits out is lighter and far stronger than ordinary iron.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C12",
-      "rule": "Berk and its dragons live in peace — dragons nest on the rooftops and share the work — and the Riders defend the archipelago instead of fighting dragons.",
+      "rule": "Dragon fire has personality: a Monstrous Nightmare sets its whole body alight, a Zippleback sprays gas from one head and sparks it with the other, and a Gronckle spits molten lava.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C13",
-      "rule": "Dragon Hunters trap and sell dragons for gold, and Dragon Flyers ride captured dragons that obey out of fear rather than trust.",
+      "rule": "Berk and its dragons live in peace — dragons nest on the rooftops and share the work — and the Riders defend the archipelago instead of fighting dragons.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C14",
-      "rule": "Dragons must obey the call of an Alpha, and the mightiest Alpha the Riders have seen is a Bewilderbeast.",
+      "rule": "Dragon Hunters trap and sell dragons for gold, and Dragon Flyers ride captured dragons that obey out of fear rather than trust.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C15",
-      "rule": "Some dragon eggs, Gronckle eggs especially, explode when they hatch, which makes a stolen egg worth a war.",
+      "rule": "Dragons must obey the call of an Alpha, and the mightiest Alpha the Riders have seen is a Bewilderbeast.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C16",
-      "rule": "Rider gear is homemade — saddles, flight suits, prosthetics and blades all come off Gobber's forge — and anything broken gets mended, not replaced.",
+      "rule": "Some dragon eggs, Gronckle eggs especially, explode when they hatch, which makes a stolen egg worth a war.",
       "source": "pack",
       "turn": 0
     },
     {
       "id": "C17",
+      "rule": "Rider gear is homemade — saddles, flight suits, prosthetics and blades all come off Gobber's forge — and anything broken gets mended, not replaced.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C18",
       "rule": "Vanaheim is a hidden sanctuary dragons find their own way to, and the Riders have sworn to keep its location secret.",
       "source": "pack",
       "turn": 0
@@ -119,7 +317,7 @@
       "origin": "pack",
       "role": "leader of the Dragon Riders, Stoick's son, inventor and mapmaker",
       "status": "alive and well, moved back to Berk from Dragon's Edge; not chief yet",
-      "physical": "lean, about twenty, auburn hair, freckles, scarred chin, a prosthetic left leg of his own design",
+      "physical": "lean, about twenty, scruffy auburn hair, green eyes, freckles, a small scar on his chin, and a prosthetic left leg below the knee of his own design",
       "voice": "thinks out loud in quick self-deprecating tangents, jokes when nervous, goes quiet and very certain when asking someone to trust him",
       "motivation": "peace between people and dragons",
       "possessions": [
@@ -149,7 +347,7 @@
       "origin": "pack",
       "role": "Night Fury, Hiccup's bonded dragon and closest friend",
       "status": "alive and thriving; believed by all, himself included, to be the last of his kind",
-      "physical": "sleek black dragon the size of a small horse, retractable teeth, huge green eyes; his left tail fin is a red leather-and-metal prosthetic",
+      "physical": "sleek jet-black dragon the size of a small horse, big acid-green eyes, retractable teeth, ear-plates that telegraph his mood; his left tail fin is a red leather-and-metal prosthetic worked from Hiccup's stirrup",
       "voice": "does not speak — warbles, croons, gummy grins, hard clicking growl when unimpressed; halfway between a cat and a very loyal dog",
       "motivation": "Hiccup first and last, then flying fast and sleeping warm",
       "possessions": [
@@ -174,7 +372,7 @@
       "origin": "pack",
       "role": "Dragon Rider, Hiccup's second-in-command and his girlfriend",
       "status": "alive and well on Berk; openly together with Hiccup",
-      "physical": "athletic, long blonde braid, spiked shoulder guards, carries an axe",
+      "physical": "athletic, blue eyes, long blonde bangs and a thick braid over one shoulder, leather headband, spiked skirt and shoulder guards, arm wraps, and a double-headed battle axe",
       "voice": "blunt, dry and a step ahead — names the plan's flaw in one line, punches Hiccup's shoulder before she kisses him, never softens bad news",
       "motivation": "keeping the team alive and Hiccup honest about his risks",
       "possessions": [
@@ -199,7 +397,7 @@
       "origin": "pack",
       "role": "Deadly Nadder, Astrid's bonded dragon",
       "status": "alive and well, nesting on Berk",
-      "physical": "tall blue-and-yellow Nadder, horned beak, spiked tail she fires like darts",
+      "physical": "tall blue-and-gold Deadly Nadder, bird-like on two legs, a crown of head spikes, horned beak, blazing magnesium flame, and a spiked tail she fires like darts",
       "voice": "does not speak — chirps, preens and struts; a proud affectionate hen with a magpie's love of shiny things",
       "motivation": "Astrid's approval, chicken, and anything that glitters",
       "possessions": [
@@ -223,7 +421,7 @@
       "origin": "pack",
       "role": "Dragon Rider, the team's dragon scholar",
       "status": "alive and well, back on Berk",
-      "physical": "broad and soft-featured in a fur-trimmed tunic, always carrying notes",
+      "physical": "big, husky and gentle, blond hair and blue eyes, in a fur-trimmed tunic, always carrying notes",
       "voice": "excited cataloguing — reels off class, wingspan, firepower and shot limit in one breath, squeaks when frightened, calls Meatlug 'my precious girl'",
       "motivation": "recording every dragon alive and keeping Meatlug safe",
       "possessions": [
@@ -248,7 +446,7 @@
       "origin": "pack",
       "role": "Gronckle, Fishlegs's bonded dragon",
       "status": "alive and well, on Berk",
-      "physical": "round brown boulder of a dragon, stubby bumblebee wings, club tail",
+      "physical": "squat tan-brown boulder of a Gronckle, wings that buzz like a bumblebee's, club tail; she eats rocks and spits molten lava",
       "voice": "does not speak — snuffles, drools and hums; a slow, doting, endlessly affectionate lump",
       "motivation": "rocks to eat and staying close to Fishlegs",
       "possessions": [
@@ -272,7 +470,7 @@
       "origin": "pack",
       "role": "Dragon Rider, Hiccup's cousin",
       "status": "alive and well, back on Berk",
-      "physical": "short and thick-set in a horned helmet, permanently posing",
+      "physical": "stocky and muscular, black hair, blue eyes, horned helmet, permanently posing",
       "voice": "boasts in the third person — 'Snotlout! Snotlout! Oi, oi, oi!' — claims every success, blames the twins for the rest, then quietly does the brave thing",
       "motivation": "glory; underneath, not letting the team down",
       "possessions": [
@@ -297,7 +495,7 @@
       "origin": "pack",
       "role": "Monstrous Nightmare, Snotlout's bonded dragon",
       "status": "alive and well, on Berk",
-      "physical": "huge red-and-orange dragon with curling horns who sets his whole body ablaze at will",
+      "physical": "huge crimson Monstrous Nightmare with a long snake-like neck and curling horns who sets his whole body ablaze at will",
       "voice": "does not speak — roars, snorts smoke, drops Snotlout in puddles on purpose; the two bicker like brothers",
       "motivation": "doing as he pleases, then saving Snotlout at the last second",
       "possessions": [
@@ -321,7 +519,7 @@
       "origin": "pack",
       "role": "Dragon Rider, one half of the twins, shares Barf and Belch",
       "status": "alive and well, back on Berk",
-      "physical": "lanky, long blonde braids and a horned helmet, usually mid-shove",
+      "physical": "lanky, long thin blonde braids and a horned helmet, usually mid-shove",
       "voice": "gleeful and contrary — argues with Tuffnut about nothing at full volume, then agrees with him instantly if anyone else objects",
       "motivation": "chaos, and being the one who caused it",
       "possessions": [
@@ -346,7 +544,7 @@
       "origin": "pack",
       "role": "Dragon Rider, the other half of the twins",
       "status": "alive and well, back on Berk",
-      "physical": "lanky, dreadlocked and helmeted, identical in build to his sister",
+      "physical": "lanky, long blond dreadlocks and a horned helmet, identical in build to his sister",
       "voice": "long solemn tangents about his hair, his chicken and the philosophy of the moment, delivered with total confidence and no relevance; lands on wisdom by accident",
       "motivation": "glory, drama, and the wellbeing of Chicken",
       "possessions": [
@@ -421,7 +619,7 @@
       "origin": "pack",
       "role": "Berk's blacksmith, Stoick's oldest friend, Hiccup's mentor",
       "status": "alive and well, working the forge on Berk",
-      "physical": "big and blond-moustached, missing a hand and a leg, both replaced with screw-on tools",
+      "physical": "big and blond-moustached, missing one hand (hook, hammer and tongs screw into the stump) and one leg below the knee",
       "voice": "cheerful gallows humour and terrible timing — tells alarming stories as light conversation and gives genuinely good advice sideways",
       "motivation": "the forge, his friends, and dragon dentistry",
       "possessions": [
@@ -446,7 +644,7 @@
       "origin": "pack",
       "role": "dragon rider, Dagur's long-lost sister, once a spy inside the Dragon Hunters",
       "status": "alive and well; has chosen to live on Berserker Island with Dagur, her only family",
-      "physical": "dark-haired, black-and-green scaled armour, double-bladed axe",
+      "physical": "raven-black hair in a thick braid, green eyes, armour of silver dragon scales, and a double-bladed axe that folds",
       "voice": "measured and watchful, warmest with Astrid; speaks like someone long used to keeping a secret and glad to have set it down",
       "motivation": "family, and making up for the years spent under cover",
       "possessions": [
@@ -472,7 +670,7 @@
       "origin": "pack",
       "role": "Razorwhip, Heather's bonded dragon",
       "status": "alive and well, on Berserker Island",
-      "physical": "silver dragon in razor-edged metallic scales with a bladed tail that cuts rope and rigging",
+      "physical": "silver Razorwhip in razor-edged armour plating, with a blade-sharp tail that cuts rope and rigging",
       "voice": "does not speak — a low metallic rasp; wary of strangers, fiercely protective of Heather alone",
       "motivation": "Heather's safety",
       "possessions": [
@@ -496,7 +694,7 @@
       "origin": "pack",
       "role": "Chief of the Berserker Tribe, ally of the Riders, Heather's brother",
       "status": "alive, redeemed and newly married to Mala; rules alongside her",
-      "physical": "red-haired and tattooed, scarred face, Berserker's grin",
+      "physical": "wild auburn hair, claw-mark tattoos over one eye, scarred face, Berserker's grin",
       "voice": "still loud and unhinged in delivery, but the menace has turned into ferocious affection — says 'brother' constantly and means it",
       "motivation": "holding the family and alliance he nearly threw away",
       "possessions": [
@@ -570,7 +768,7 @@
       "origin": "pack",
       "role": "former leader of the Dragon Hunters, Hiccup's cleverest enemy and, at the last, his reluctant ally",
       "status": "dead — betrayed by Johann, he turned on his old partners and gave his life so Hiccup and Toothless could escape",
-      "physical": "was lean and dark-bearded in black furs, and never hurried",
+      "physical": "was lean and dark-bearded in black furs, neat short beard, a burn scar across one eye in his last year, and never hurried",
       "voice": "spoke softly and precisely, like a man moving a game piece, and enjoyed being understood more than he enjoyed winning",
       "motivation": "was the game itself, and at the end denying Johann his victory",
       "possessions": [
@@ -594,7 +792,7 @@
       "origin": "pack",
       "role": "Viggo's older brother, brawler and one-time leader of the Dragon Hunters",
       "status": "dead — his ship was dragged under the sea by a Submaripper in the battle over the Shellfire",
-      "physical": "was huge, bearded and heavily armoured, and fought with a broadsword",
+      "physical": "was huge, bald and broad as a door, heavily armoured, and fought with a broadsword",
       "voice": "spoke in blunt threats and had no patience for his brother's schemes",
       "motivation": "was gold and command, and escaping Viggo's shadow",
       "possessions": [
@@ -661,6 +859,30 @@
         "turn": 0,
         "location": "the nest of the King of Dragons",
         "state": "gone; the Riders still struggle to believe it"
+      }
+    },
+    {
+      "id": "CH23",
+      "name": "Skullcrusher",
+      "origin": "pack",
+      "role": "Rumblehorn, Stoick's bonded dragon",
+      "status": "alive and well, on Berk with Stoick",
+      "physical": "heavy brown-and-grey Rumblehorn with an armoured battering-ram head and a blunt hooked snout",
+      "voice": "does not speak — a low bullish snort and a steady grunt; stubborn, unshakeable, and a better tracker than any hound",
+      "motivation": "Stoick, and following a scent to its end",
+      "possessions": [
+        "his saddle"
+      ],
+      "knows": [
+        "that he can track anyone in the archipelago by smell alone"
+      ],
+      "does_not_know": [
+        "how to be hurried"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Berk",
+        "state": "standing watch outside the Great Hall"
       }
     }
   ],

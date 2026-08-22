@@ -189,247 +189,202 @@ newest part of the story corrects or redoes something earlier, the corrected ver
 truth — remove the contradicted details entirely. Output ONLY the bible — no preamble, no
 commentary.`;
 
-// ---------------- Universe bibles (auto-detected franchise fact sheets) ----------------
-// Kids constantly set stories in worlds they know and then have to CORRECT invented details —
-// a dragon that suddenly talks, the wrong villain name, the wrong weapon (observed live in
-// Eleanor's redo write-ins). When a story's text mentions a known universe, that universe's
-// compact fact sheet rides the STORY system prompt so canon is right the FIRST time. Detection
-// is a trigger regex over the request's message text: the world setup names the franchise, and
-// character names in later scenes/recaps keep it sticky after the send window slides. Facts
-// yield to the reader: anything the reader explicitly changes wins (reader is law). To add a
-// universe, append an entry — nothing else to wire.
-const UNIVERSE_BIBLES = [
-  { key: "httyd", name: "How to Train Your Dragon (movies + Race to the Edge)",
-    triggers: /how to train your dragon|httyd|race to the edge|night fury|light fury|toothless|hiccup|isle of berk|\bberk\b|astrid|stormfly|windshear|grimborn|deadly nadder|gronckle|zippleback|monstrous nightmare|hofferson|haddock|razorwhip|berserker tribe|dragon hunters|maces and talons|death song|triple stryke|singetail|eruptodon|\bgobber\b|stoick|\bvalka\b|\bkrogan\b|trader johann|dragon's edge|dragons edge|meatlug|hookfang|fishlegs|snotlout|ruffnut|tuffnut/i,
-    facts: `THE ONE UNBREAKABLE RULE — DRAGONS NEVER TALK. No dragon speaks words, ever. They are
-intelligent animals who communicate through growls, croons, purrs, screeches, and body language,
-and through their bond with their rider — they understand a great deal. A rider "reads" their
-dragon; the dragon never answers in speech.
+// ---------------- Universe packs (the single source of franchise truth) ----------------
+// WAS "universe bibles": four hand-written fact sheets living right here in this file, detected
+// by a trigger regex and injected into the STORY prompt. They are GONE (2026-08-22). The same
+// facts now live in assets/storytime/universes/*.json — the pack files that already seeded every
+// ledger story's world — so a fact is written ONCE and both paths read the same words.
+//
+// WHY IT HAD TO MERGE: a ledger HTTYD scene was carrying the pack's cast in its ledger AND the
+// bible's 1.7K tokens of the same cast AND up to 1.6K of family canon, ~10.3K input tokens a
+// scene. Worse, the two disagreed — the pack pinned the end of Race to the Edge (Stoick alive)
+// while the reader's stories were post-film-three (Stoick dead, Hiccup chief), which is exactly
+// what her redo write-ins kept correcting.
+//
+// WHAT SURVIVED FROM THE BIBLES, because each was learned the hard way:
+//   · DETECTION IS A REGEX OVER THE WHOLE REQUEST, not just the newest turn. The world setup
+//     names the franchise once; after the send window slides past it, the character NAMES in
+//     later scenes and recaps are what keep a legacy story stuck to its universe. Losing that
+//     stickiness mid-story is how a dragon starts talking in chapter nine.
+//   · READER IS LAW. A fact the reader explicitly changes wins over anything a pack says.
+//   · THE RENAME BYPASS. Detection reads the request text, so a reader who renames everything
+//     ("my dragon Sparks") slips past it. That is deliberate and fine: an unnamed world is an
+//     original world, and the pack has nothing to correct.
+//
+// WHO GETS WHAT NOW:
+//   · LEDGER stories (every new story): NOTHING from here. The pack is already inside their
+//     ledger, and injecting it again is the duplication this merge existed to kill.
+//   · LEGACY (pre-ledger) stories: a guide RENDERED FROM THE PACK FILE, plus the family canon.
+//     Rendered, not authored — there is no second copy of these facts anywhere.
+const PACK_KEYS = ["httyd", "mario", "starwars", "pokemon"];
+// Netlify sets URL to the deployed site. The packs are ordinary static assets on that same site,
+// so the function reads them over HTTP rather than depending on the bundler copying JSON in.
+const PACK_BASE = process.env.FARMGPT_PACK_BASE || process.env.URL || "https://amenfarms.netlify.app";
+const PACK_TTL_MS = 10 * 60 * 1000;   // warm-invocation cache; packs change on deploy, not at runtime
+const packCache = new Map();          // key -> { pack, exp }
 
-THE DRAGON RIDERS (Race to the Edge era — late teens, based at Dragon's Edge):
-- Hiccup Haddock: slim and wiry, scruffy auburn hair, green eyes, a small scar on his chin.
-  Dry wit, hates fighting when thinking will do, brilliant inventor (built his own flight
-  suit, the Dragon Eye lens holders, and Inferno — a sword whose blade ignites with Monstrous
-  Nightmare gel). His LEFT LEG below the knee is missing; he walks on a clever metal
-  prosthetic he designed. Heir of Berk; son of chief Stoick; his mother Valka was lost for
-  years. Natural leader of the riders.
-- Toothless: Hiccup's dragon and best friend, a Night Fury — believed the last of his kind.
-  Jet-black, sleek, big acid-green eyes, retractable teeth, ear-plates that telegraph his
-  mood. Fires whistling purple-blue plasma blasts; fastest and smartest of the dragons. His
-  LEFT TAIL FIN is missing: he CANNOT fly without the red prosthetic fin Hiccup built, steered
-  by Hiccup's foot stirrup — a solo Toothless is grounded.
-- Astrid Hofferson: Hiccup's closest ally (and eventually more). Fierce, driven, athletic;
-  blue eyes, long blonde bangs and a thick braid worn over one shoulder, leather headband,
-  spiked skirt and shoulder guards, arm wraps. Fights with a double-headed battle axe and
-  wins. Her dragon Stormfly is a Deadly Nadder: bright blue with gold accents, bird-like on
-  two legs, a crown of head spikes, blazing magnesium flame, and volleys of tail spines she
-  can fire on command ("Spine shot!").
-- Fishlegs Ingerman: big, husky, and gentle; blond hair, blue eyes. A walking dragon
-  encyclopedia — recites dragon stats and classes, keeps dragon cards, loves rocks and runes.
-  His dragon Meatlug is a Gronckle: squat, tan-brown, boulder-shaped, wings that buzz like a
-  bumblebee's. She eats rocks and spews molten lava blasts; sweet-natured and loves belly rubs.
-- Snotlout Jorgenson: stocky and muscular, black hair, blue eyes, horned helmet. Loud,
-  boastful, girl-crazy, secretly insecure but brave when it counts. His dragon Hookfang is a
-  Monstrous Nightmare: huge, crimson-red, long snake-like neck, and can SET HIS WHOLE BODY ON
-  FIRE. Stubborn — regularly ignores Snotlout, which everyone else finds hilarious.
-- Ruffnut and Tuffnut Thorston: lanky blond twins who live for mayhem and explosions and
-  finish each other's arguments. Ruffnut (the sister) wears her hair in long thin braids;
-  Tuffnut (the brother) has long blond dreadlocks and keeps a beloved pet chicken named
-  Chicken. They share Barf and Belch, a green two-headed Hideous Zippleback: Barf's head spews
-  thick green gas, Belch's head sparks it — BOOM.
-- Heather: a tough loner who joins the riders; raven-black hair in a thick braid, green eyes,
-  armor of silver dragon scales, fights with a double-bladed axe that folds. She is DAGUR'S
-  SISTER (a hard truth she wrestles with). Her dragon Windshear is a Razorwhip: silver,
-  armor-plated, with a blade-sharp tail.
+async function fetchPack(key) {
+  if (!PACK_KEYS.includes(key)) return null;
+  const hit = packCache.get(key);
+  if (hit && Date.now() < hit.exp) return hit.pack;
+  let pack = null;
+  try {
+    const r = await fetch(`${PACK_BASE}/assets/storytime/universes/${key}.json`);
+    if (r.ok) {
+      const j = await r.json().catch(() => null);
+      if (j && typeof j === "object" && !Array.isArray(j) && j.meta) pack = j;
+    }
+  } catch { /* a pack that will not load simply does not guide this reply */ }
+  // A failed fetch is cached too, briefly, so one bad deploy cannot make every request pay for
+  // four timing-out fetches.
+  packCache.set(key, { pack, exp: Date.now() + (pack ? PACK_TTL_MS : 30 * 1000) });
+  return pack;
+}
+async function fetchAllPacks() {
+  const packs = await Promise.all(PACK_KEYS.map((k) => fetchPack(k)));
+  return packs.map((p, i) => (p ? { key: PACK_KEYS[i], pack: p } : null)).filter(Boolean);
+}
 
-BERK AND FRIENDS:
-- Stoick the Vast: Hiccup's father, chief of Berk — a mountain of a man with a huge red beard,
-  crushing hugs, and a temper that hides deep love. Rides Skullcrusher, a Rumblehorn with a
-  battering-ram head and a bloodhound's nose for tracking.
-- Gobber: Berk's blacksmith and Stoick's oldest friend. Big blond mustache, missing one hand
-  (he swaps hook, hammer, and tongs attachments into the stump) and one leg (peg leg). Jokes
-  through everything.
-- Mala: the stern, honorable queen of the Defenders of the Wing, an island tribe that
-  PROTECTS dragons and guards the Eruptodon — the massive dragon that eats their volcano's
-  lava. Short blonde hair, elite swordswoman.
-- Gustav Larson: an eager teen who idolizes the riders and keeps trying to join them; black
-  hair, rides a Monstrous Nightmare he named Fanghook.
-- Trader Johann: a chatty traveling merchant full of tall tales who visits everyone — and
-  secretly the true mastermind: he has been spying for the dragons' enemies all along, a
-  villain revealed late in the series (the kids know; no need to tiptoe).
+// meta.triggers is a regex SOURCE string (JSON has no regex type). Compiled once per pack object.
+const triggerCache = new WeakMap();
+function packTrigger(pack) {
+  const hit = triggerCache.get(pack);
+  if (hit !== undefined) return hit;
+  let re = null;
+  try { re = new RegExp(String(pack.meta.triggers || ""), "i"); } catch { re = null; }
+  triggerCache.set(pack, re);
+  return re;
+}
 
-VILLAINS:
-- Viggo Grimborn: leader of the dragon hunters. Calm, precise, softly-spoken and terrifyingly
-  smart — he treats war like his favorite strategy game, Maces and Talons, and is Hiccup's
-  intellectual equal. Neat dark hair and short beard. Later in the series he carries a burn
-  scar across one eye.
-- Ryker Grimborn: Viggo's older brother and the muscle — bald, broad as a door, twin swords,
-  no patience for Viggo's chess games.
-- Dagur the Deranged: chief of the Berserker tribe — wild auburn hair, claw-mark tattoos over
-  one eye, laughs at danger, calls Hiccup "brother." Starts as an unhinged enemy, later
-  REDEEMS himself and fights alongside the riders; rides Sleuther, a Triple Stryke with a
-  triple scorpion tail. He is Heather's brother.
-- Krogan: a cold mercenary who commands flyers mounted on Singetails; works with the hunters
-  in the later seasons.
-- The dragon hunters: trap and sell dragons; their ships and cages use dragon-proof metal, and
-  their arrows are dipped in dragon-root.
+// The LEGACY guide, rendered from the pack. Compact on purpose: canon rules in full (they are the
+// one-sentence rules the readers actually hit) and one line per character — name, role, looks,
+// voice. Deliberately NOT knows/does_not_know/possessions: those are the ledger's dramatic-irony
+// machinery, they only make sense turn by turn, and a legacy story has no ledger to move them.
+function renderPackGuide(pack) {
+  const O = [];
+  const m = pack.meta || {};
+  O.push("Where in that story: " + String(m.timeline_point || "").trim());
+  const canon = Array.isArray(pack.canon) ? pack.canon : [];
+  if (canon.length) {
+    O.push("", "THE RULES OF THIS WORLD — never bend one:");
+    for (const c of canon) if (c && c.rule) O.push("- " + String(c.rule).trim());
+  }
+  const chars = Array.isArray(pack.characters) ? pack.characters : [];
+  if (chars.length) {
+    O.push("", "WHO — each speaks in their recorded VOICE, always:");
+    for (const c of chars) {
+      if (!c || !c.name) continue;
+      const bits = [];
+      if (c.role) bits.push(String(c.role).trim());
+      if (c.status) bits.push("status: " + String(c.status).trim());
+      if (c.physical) bits.push("looks: " + String(c.physical).trim());
+      if (c.voice) bits.push("VOICE: " + String(c.voice).trim());
+      O.push("- " + c.name + (bits.length ? " — " + bits.join(" · ") : ""));
+    }
+  }
+  const locs = Array.isArray(pack.locations) ? pack.locations : [];
+  if (locs.length) {
+    O.push("", "WHERE:");
+    for (const l of locs) if (l && l.name) O.push("- " + l.name + (l.description ? " — " + String(l.description).trim() : ""));
+  }
+  return O.join("\n");
+}
 
-THE DRAGON EYE & LORE:
-- The Dragon Eye: an ancient cylindrical artifact of lenses that projects hidden maps and
-  dragon knowledge when lit by dragon fire. Both the riders and the hunters fight to control
-  it; swapping lenses reveals different secrets.
-- Dragon classes (Fishlegs will happily recite them): Strike, Boulder, Tracker, Sharp, Stoker,
-  Tidal, Mystery. Every dragon has a SHOT LIMIT — only so many blasts before it must rest.
-- Eels repel and sicken dragons. Dragon nip (a grass) calms them; DRAGON-ROOT drives them into
-  a frenzy. The Death Song traps dragons in amber it spits and "sings" to lure them; Garff is
-  an orphaned baby Death Song the riders raised. Night Terrors are tiny dragons that swarm in
-  formation as one giant dragon shape; a white one, Smidvarg, leads the Edge's flock.
-- The white Light Fury (from the movies) can briefly turn INVISIBLE after heating her scales
-  with a plasma blast; she is sleek, cat-like, and wild.
-- Setting: the Viking isle of Berk (Stoick's village, the Great Hall) and Dragon's Edge, the
-  riders' island outpost with a clubhouse, stables, and each rider's hut.` },
-  { key: "mario", name: "Super Mario",
-    triggers: /\bmario\b|\bluigi\b|bowser|mushroom kingdom|princess peach|\byoshi\b|goomba|koopa|toadstool|piranha plant|warp pipe|wario|donkey kong/i,
-    facts: `- Mario and Luigi: mustached brother plumbers who talk in cheerful simple speech. Mario wears
-  a red cap and shirt with blue overalls; Luigi wears green, is taller, and is more timid.
-- Princess Peach rules the Mushroom Kingdom — pink gown, blonde hair, kind but capable. Bowser
-  is the huge spike-shelled Koopa king: breathes fire, has a castle with lava, endlessly
-  scheming (often kidnapping Peach); his son is Bowser Jr.
-- Yoshi: a friendly green dinosaur who can be ridden, grabs things with a long tongue,
-  swallows enemies, and lays spotted eggs. Yoshi mostly just says "Yoshi!".
-- Toads: little people with mushroom caps who talk normally and live throughout the kingdom.
-- Power-ups work reliably: Super Mushroom makes you grow, Fire Flower grants fireball
-  throwing, a Super Star gives short invincibility, a 1-Up Mushroom is green. Coins are
-  everywhere; hitting a ? Block from below pops out its contents; green warp pipes carry you
-  between places.
-- Enemies are cartoonish, never gory: Goombas (grumpy walking chestnut-brown mushrooms) are
-  stomped, Koopa Troopas hide in shells that slide when kicked, Piranha Plants snap from
-  pipes. Defeated enemies just poof away — nobody truly dies.
-- Go-kart racing is a beloved pastime (Mario Kart) with items like shells and banana peels.` },
-  { key: "starwars", name: "Star Wars",
-    triggers: /star wars|lightsaber|light saber|jedi|\bsith\b|darth|skywalker|millennium falcon|chewbacca|wookiee|stormtrooper|death star|grogu|mandalorian|\byoda\b|kenobi|blaster bolt|the force\b|kyber|padawan|darksaber|force push|force lightning/i,
-    facts: `THE FORCE — how it actually works:
-- The Force is an energy field created by all living things. It has a LIGHT SIDE, drawn on
-  through calm, focus, and selflessness, and a DARK SIDE, fed by anger, fear, and hate. The
-  dark side feels quicker and more powerful, but it corrupts the user (in deep cases their
-  eyes go sickly yellow). Force-sensitivity is something you are BORN with; training grows it.
-  Jedi ranks: youngling → Padawan (apprentice, often wears a thin braid) → Jedi Knight →
-  Jedi Master. Sith keep the Rule of Two: only a master and an apprentice, never more.
-- TELEKINESIS: pushing, pulling, lifting, and throwing with the mind. Strength scales with
-  skill and focus — a beginner shakes a pebble; a master can lift a sunken starfighter.
-  Force-push sends enemies flying; Force-pull yanks a weapon from a hand.
-- BODY: the Force grants superhuman leaps, bursts of speed, softened falls, and lightning
-  reflexes. Jedi deflect blaster bolts because the Force shows them the shot a heartbeat
-  BEFORE it comes (danger sense / precognition) — the same sense that warns of ambushes.
-- MIND: the "mind trick" nudges the WEAK-minded with a calm suggestion and a small hand wave
-  ("These aren't the droids you're looking for") — strong wills and some species resist it.
-  Jedi can sense feelings, life, and great events ("a disturbance in the Force").
-- TELEPATHY & FORCE BONDS: trained users can send words and feelings mind-to-mind. Two people
-  who are close — siblings, master and apprentice, partners in many battles — can form a
-  FORCE BOND: they speak silently to each other, feel each other's emotions and pain, and
-  sense each other across great distances. A bond like this is rare and precious.
-- DARK-SIDE POWERS: Force lightning crackles from the fingertips and causes agony (a
-  lightsaber blade can catch/absorb it); the Force choke squeezes a throat from across a
-  room. Every dark-side act pulls the user deeper.
-- LIMITS & COSTS: the Force tires its user like any muscle; big feats take total focus. A
-  strong unwilling mind cannot simply be read. Force healing exists but is rare and drains
-  the healer. Great masters who learn the secret can return after death as glowing blue
-  FORCE GHOSTS to advise the living.
-
-LIGHTSABERS — the blade and its lore:
-- A lightsaber is powered by a KYBER CRYSTAL, a living crystal that attunes to its owner —
-  Jedi say the crystal chooses. Building YOUR OWN saber is a rite of passage; the blade's
-  color comes from the bond: blue and green most common, purple rare, yellow for temple
-  guards, white for a purified crystal. Sith cannot be chosen — they "bleed" stolen crystals
-  by pouring rage into them, which turns the blade RED.
-- The blade has no weight — swinging pure energy takes long practice. It cauterizes as it
-  cuts (wounds don't bleed), melts through blast doors slowly, and blades CLASH and LOCK
-  against each other in a duel. Very rare metals (Mandalorian beskar) resist a saber's edge.
-- TYPES: the standard single blade; the DOUBLE-BLADED saber — ONE handle in the middle, a
-  blade igniting from EACH end (Darth Maul's weapon), spun like a staff; dual-wielding (a
-  saber in each hand); the shoto (a short off-hand blade); the crossguard saber (side-vent
-  quillons, Kylo Ren's); curved-hilt sabers built for elegant dueling; low-powered training
-  sabers for younglings. The DARKSABER is one of a kind: an ancient flat BLACK blade, won
-  only by defeating its bearer, tied to Mandalorian leadership.
-- Duelists study seven classic lightsaber forms — from Soresu (patient, impenetrable
-  defense) to Ataru (leaping acrobatics) to Djem So (overwhelming power strikes).
-
-THE WIDER GALAXY (quick color): blasters fire glowing bolts, not bullets; stormtroopers wear
-white armor and famously can't aim; astromech droids like R2-D2 speak in beeps, protocol
-droids like C-3PO chatter; Wookiees roar instead of speaking words; hyperspace jumps streak
-the stars into lines. Yoda — small, green, wise — speaks in inverted syntax ("Strong with the
-Force, you are"). Travel between planets is routine; aliens, droids, and humans mix everywhere.` },
-  { key: "pokemon", name: "Pokémon",
-    triggers: /pok[eé]mon|pikachu|charizard|charmander|bulbasaur|squirtle|eevee|pok[eé] ?ball|team rocket|\bpokedex\b|pok[eé]dex|gym leader|ash ketchum/i,
-    facts: `- Pokémon say ONLY their own names ("Pika, pika!") — they never speak human words. (The one
-  famous exception is Team Rocket's Meowth, who taught himself to talk.) They understand their
-  trainers well.
-- Trainers catch Pokémon in Poké Balls and carry up to six. Battles end when a Pokémon FAINTS
-  — Pokémon are never killed. Fainted Pokémon are healed at a Pokémon Center (run by Nurse
-  Joy).
-- Pikachu: small, yellow, red cheeks, lightning-bolt tail, electric attacks like Thunderbolt.
-  Ash's Pikachu famously refuses to ride in a Poké Ball.
-- Types matter like rock-paper-scissors: water douses fire, fire burns grass, grass drinks
-  water; electric shocks water and flying types; ground blocks electric.
-- Many Pokémon evolve into bigger forms (Charmander → Charmeleon → Charizard, a winged orange
-  dragon whose tail flame must never go out). Eevee can evolve many different ways.
-- Team Rocket (Jessie, James, Meowth) are comedic villains who scheme to steal Pokémon and
-  blast off dramatically when they lose. Legendary Pokémon are rare, powerful, and awe-inspiring.` },
-];
-function detectUniverses(messages) {
+// Which universes this request is set in. Unchanged in behaviour from the bibles' detector —
+// the regex runs over the WHOLE serialised message array, which is what keeps it sticky.
+async function detectUniverses(messages) {
   let text = "";
   try { text = JSON.stringify(messages); } catch { return []; }
-  return UNIVERSE_BIBLES.filter((u) => u.triggers.test(text));
+  const all = await fetchAllPacks();
+  return all.filter(({ pack }) => { const re = packTrigger(pack); return re && re.test(text); });
 }
 
 // ---- Evolving FAMILY CANON per universe ----
-// The kids' own creations (an original rider like Bree, her light fury, her gear) become part
-// of the universe: every time a story's bible folds (mode "summary"), a Sonnet bookkeeper
-// merges reader-created characters and lasting changes into farmgpt_canon/<universeKey>, and
-// the universe guide serves baked franchise facts + the family canon together. Shared across
-// the whole family — one kid's characters exist in a sibling's stories too.
+// The kids' own creations (an original rider like Bree, her light fury, her gear) become part of
+// the universe: a Sonnet bookkeeper merges reader-created characters and lasting changes into
+// farmgpt_canon/<universeKey>. Shared across the whole family — one kid's characters exist in a
+// sibling's stories too.
+//
+// IT USED TO RUN ONLY FROM mode "summary" — the LEGACY recap fold. Every story created since the
+// ledger shipped takes the ledger path and never folds a bible, so the bookkeeper had quietly
+// stalled for all of them. It now also runs from the KEEPER (mode "ledger"), which is the one
+// place that sees every scene's diff server-side. See maybeMergeCanonFromDiff.
+//
+// The doc carries three fields beyond the canon text, all for the batching rule:
+//   pending      — reader-created entries seen since the last merge
+//   lastMergeDay — the farm day the last merge ran ("YYYY-MM-DD")
+//   updatedAt    — ISO timestamp; the CLIENT reads this to decide whether a resumed story's
+//                  seeded family canon is stale and needs replacing.
 const CANON_COLLECTION = "farmgpt_canon";
 const CANON_MAX_CHARS = 6000;
-const canonCache = new Map();   // key -> { text, exp } (warm-invocation cache, 60s)
-async function fetchUniverseCanon(key) {
+const canonCache = new Map();   // key -> { doc, exp } (warm-invocation cache, 60s)
+const emptyCanonDoc = () => ({ text: "", pending: 0, lastMergeDay: "", updatedAt: "" });
+async function fetchUniverseCanonDoc(key) {
   const hit = canonCache.get(key);
-  if (hit && Date.now() < hit.exp) return hit.text;
-  let text = "";
+  if (hit && Date.now() < hit.exp) return hit.doc;
+  const doc = emptyCanonDoc();
   try {
     const token = await getGoogleAccessToken();
     if (token) {
       const r = await fetch(`${FIRESTORE_BASE}/${CANON_COLLECTION}/${key}`, { headers: { authorization: `Bearer ${token}` } });
       if (r.ok) {
         const j = await r.json().catch(() => null);
-        text = (j && j.fields && j.fields.canon && j.fields.canon.stringValue) || "";
+        const f = (j && j.fields) || {};
+        doc.text = (f.canon && f.canon.stringValue) || "";
+        // NB integerValue, not a number — Firestore returns whole numbers as strings.
+        doc.pending = parseInt((f.pending && f.pending.integerValue) || "0", 10) || 0;
+        doc.lastMergeDay = (f.lastMergeDay && f.lastMergeDay.stringValue) || "";
+        doc.updatedAt = (f.updatedAt && f.updatedAt.stringValue) || "";
       }
     }
-  } catch { /* no canon this round — the baked facts still ride */ }
-  canonCache.set(key, { text, exp: Date.now() + 60 * 1000 });
-  return text;
+  } catch { /* no canon this round — the pack's own facts still ride */ }
+  canonCache.set(key, { doc, exp: Date.now() + 60 * 1000 });
+  return doc;
 }
-async function writeUniverseCanon(key, text) {
+const fetchUniverseCanon = async (key) => (await fetchUniverseCanonDoc(key)).text;
+
+// `extra` merges into the written fields — used to reset `pending` and stamp `lastMergeDay`
+// in the same commit that stores the merged text, so a crash can never leave the counter high
+// with the merge already done.
+async function writeUniverseCanon(key, text, extra) {
   try {
     const token = await getGoogleAccessToken();
     if (!token) return false;
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
+    const doc = await fetchUniverseCanonDoc(key);
+    const next = { ...doc, text: String(text).slice(0, CANON_MAX_CHARS), updatedAt: new Date().toISOString(), ...(extra || {}) };
     const r = await fetch(`${FIRESTORE_BASE}:commit`, {
       method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ writes: [{ update: { name: `${base}/${CANON_COLLECTION}/${key}`,
-        fields: { canon: sv(String(text).slice(0, CANON_MAX_CHARS)), updatedAt: sv(new Date().toISOString()) } } }] }),
+        fields: {
+          canon: sv(next.text), updatedAt: sv(next.updatedAt),
+          pending: { integerValue: String(next.pending | 0) },
+          lastMergeDay: sv(next.lastMergeDay || ""),
+        } } }] }),
     });
-    if (r.ok) canonCache.set(key, { text, exp: Date.now() + 60 * 1000 });
+    if (r.ok) canonCache.set(key, { doc: next, exp: Date.now() + 60 * 1000 });
     return r.ok;
   } catch { return false; }
 }
 
-async function universeGuides(messages) {
-  const hits = detectUniverses(messages);
+// Bump the pending counter without paying for a merge. Same masked-write discipline as the
+// merge itself: the whole doc is rewritten from the cached read, so `canon` is never blanked.
+async function bumpCanonPending(key, n) {
+  const doc = await fetchUniverseCanonDoc(key);
+  return writeUniverseCanon(key, doc.text, { pending: (doc.pending | 0) + (n | 0) });
+}
+
+// LEGACY STORIES ONLY. A ledger story already carries its pack inside the ledger blocks, and
+// injecting the same facts a second time is precisely the ~3.3K tokens per scene this merge was
+// built to remove — so the caller passes `skip` for anything with a ledger, and this returns "".
+async function universeGuides(messages, skip) {
+  if (skip) return "";
+  const hits = await detectUniverses(messages);
   if (!hits.length) return "";
   const canons = await Promise.all(hits.map((u) => fetchUniverseCanon(u.key)));
   return "\n\n===== UNIVERSE GUIDE" + (hits.length > 1 ? "S" : "") +
     " — this story visits a world the reader already knows. The facts below are ESTABLISHED CANON of that world: get them right the FIRST time, without being corrected. If the reader explicitly changes one of these details in THEIR story, the reader's version wins — otherwise never contradict them. =====\n" +
-    hits.map((u, i) => "--- " + u.name + " ---\n" + u.facts +
+    hits.map((u, i) => "--- " + (u.pack.meta.title || u.key) + " ---\n" + renderPackGuide(u.pack) +
       (canons[i] ? "\nFAMILY CANON — original characters and lasting changes the readers themselves have added to this universe across their stories. Treat every detail here as established canon, exactly like the facts above (newest details win):\n" + canons[i] : "")
     ).join("\n");
 }
@@ -457,22 +412,108 @@ Output ONLY the updated canon as terse bullet lines — no preamble, no headings
 If the story bible contains nothing reader-created and nothing new for this universe, reply with
 exactly NO_CHANGES.`;
 
+// One merge. `material` is whatever reader-created stuff we have — a legacy story's bible, or a
+// ledger story's reader-origin extract. Usage lands in bucket "u", the same bucket this
+// bookkeeper has always used: it is the same spend doing the same job, and splitting it would
+// make the dashboard's summary row lie about what it used to cost.
+async function mergeUniverseCanon(key, title, material, extra) {
+  const doc = await fetchUniverseCanonDoc(key);
+  const input = "CURRENT FAMILY CANON:\n" + (doc.text || "(empty — nothing recorded yet)") +
+    "\n\nLATEST STORY BIBLE:\n" + String(material).slice(0, 12000) +
+    "\n\nRewrite the family canon now.";
+  const r = await callAnthropicOnce(RESEARCH_MODEL, CANON_UPDATE_SYSTEM(title), input, 1000);
+  if (!r) return false;
+  await logUsage("summary", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok, RESEARCH_MODEL);
+  const out = (r.text || "").trim();
+  // NO_CHANGES still clears the counter and stamps the day — the material HAS been looked at,
+  // and re-paying for the same nothing tomorrow is the failure mode this whole rule exists for.
+  const stamp = { pending: 0, lastMergeDay: farmDate(), ...(extra || {}) };
+  if (!out || /^NO_CHANGES\b/.test(out)) { await writeUniverseCanon(key, doc.text, stamp); return false; }
+  await writeUniverseCanon(key, out, stamp);
+  return true;
+}
+
+// LEGACY path (mode "summary"): a finished story bible folds straight in, exactly as before. A
+// bible fold is already at most once every ~20 scenes, so it needs no batching of its own.
 async function updateUniverseCanons(messages, bibleText) {
   try {
-    const hits = detectUniverses(messages);
-    for (const u of hits) {
-      const current = await fetchUniverseCanon(u.key);
-      const input = "CURRENT FAMILY CANON:\n" + (current || "(empty — nothing recorded yet)") +
-        "\n\nLATEST STORY BIBLE:\n" + String(bibleText).slice(0, 12000) +
-        "\n\nRewrite the family canon now.";
-      const r = await callAnthropicOnce(RESEARCH_MODEL, CANON_UPDATE_SYSTEM(u.name), input, 1000);
-      if (!r) continue;
-      await logUsage("summary", r.inTok, r.outTok, r.cacheWriteTok, r.cacheReadTok, RESEARCH_MODEL);
-      const out = (r.text || "").trim();
-      if (!out || /^NO_CHANGES\b/.test(out)) continue;
-      await writeUniverseCanon(u.key, out);
+    for (const u of await detectUniverses(messages)) {
+      await mergeUniverseCanon(u.key, u.pack.meta.title || u.key, bibleText);
     }
   } catch { /* canon upkeep must never break a summary reply */ }
+}
+
+// ---- the keeper's canon upkeep (LEDGER stories) ----
+// THE BATCHING RULE, and why it is not "every scene". The keeper runs once per scene, ~32 scenes
+// a day across the family. A Sonnet merge per scene would be 32 extra Sonnet calls a day for a
+// document that changes meaningfully perhaps twice — it would cost more than the duplication this
+// whole merge removed. So a qualifying diff only bumps a counter, and the merge fires when:
+//   · the counter reaches CANON_MERGE_BATCH reader-created entries (a heavy invention session
+//     lands the same day rather than waiting), OR
+//   · anything at all is pending and the last merge was on an EARLIER farm day.
+// Which gives: at most one merge per universe per day, and at least one on any day the readers
+// created something. Nothing is ever dropped — a pending count survives in Firestore until a
+// merge consumes it.
+const CANON_MERGE_BATCH = 4;
+
+// What the readers themselves put into this world, pulled out of the ledger. Franchise material
+// is deliberately excluded: CANON_UPDATE_SYSTEM's first rule is "only what the readers added".
+function readerCreatedExtract(led) {
+  if (!led || typeof led !== "object") return { text: "", count: 0 };
+  const O = [];
+  let count = 0;
+  const chars = (Array.isArray(led.characters) ? led.characters : []).filter((c) => c && c.origin === "reader" && ledStr(c.name));
+  for (const c of chars) {
+    count++;
+    O.push("- " + c.name + (ledStr(c.role) ? " — " + ledStr(c.role) : ""));
+    const line = ledFields([
+      ["looks", ledStr(c.physical)], ["voice", ledStr(c.voice)], ["wants", ledStr(c.motivation)],
+      ["status", ledStr(c.status)], ["carries", ledList(c.possessions).join(", ")],
+    ]);
+    if (line) O.push("    " + line);
+  }
+  const canon = (Array.isArray(led.canon) ? led.canon : []).filter((c) => c && c.source === "reader" && ledStr(c.rule));
+  if (canon.length) {
+    O.push("LASTING CHANGES the reader made to this world:");
+    for (const c of canon) { count++; O.push("- " + ledStr(c.rule)); }
+  }
+  const p = led.protagonist && typeof led.protagonist === "object" ? led.protagonist : {};
+  if (ledStr(p.name)) {
+    const inv = (Array.isArray(p.inventory) ? p.inventory : []).map((i) => (i && typeof i === "object" ? ledStr(i.item) : ledStr(i))).filter(Boolean);
+    O.push("The reader's own hero: " + ledStr(p.name) +
+      ledFields([["", inv.length ? " carrying " + inv.join(", ") : ""], ["", ledList(p.abilities).length ? " able to " + ledList(p.abilities).join(", ") : ""]]));
+  }
+  return { text: O.join("\n"), count };
+}
+
+// Called after a keeper reply closes. `diffText` is what the clerk just wrote; the ledger is the
+// world it wrote about. A scene only qualifies when the diff MINTED something the reader made —
+// reader-source canon, or a reader-origin character — which is the same "reader is law" test the
+// legacy path applied to a bible.
+async function maybeMergeCanonFromDiff(body, diffText) {
+  try {
+    const led = body.ledger && typeof body.ledger === "object" && !Array.isArray(body.ledger) ? body.ledger : null;
+    const key = led && led.meta && typeof led.meta.universe === "string" ? led.meta.universe : "";
+    if (!PACK_KEYS.includes(key)) return "no-universe";
+    let diff = null;
+    try { diff = JSON.parse(String(diffText).slice(String(diffText).indexOf("{"))); } catch { diff = null; }
+    const add = (diff && diff.add && typeof diff.add === "object") ? diff.add : {};
+    const newCanon = (Array.isArray(add.canon) ? add.canon : []).filter((c) => c && c.source === "reader").length;
+    const newChars = (Array.isArray(add.characters) ? add.characters : []).filter((c) => c && c.origin === "reader").length;
+    const minted = newCanon + newChars;
+    if (!minted) return "nothing-minted";
+    const pack = await fetchPack(key);
+    if (!pack) return "no-pack";
+    const doc = await fetchUniverseCanonDoc(key);
+    const pending = (doc.pending | 0) + minted;
+    const today = farmDate();
+    const due = pending >= CANON_MERGE_BATCH || (pending > 0 && doc.lastMergeDay !== today);
+    if (!due) { await bumpCanonPending(key, minted); return "batched"; }
+    const { text } = readerCreatedExtract(led);
+    if (!text) { await bumpCanonPending(key, minted); return "batched"; }
+    await mergeUniverseCanon(key, pack.meta.title || key, text);
+    return "merged";
+  } catch { return "error"; }   // canon upkeep must never break a keeper reply
 }
 
 // Appended to STORY_SYSTEM only when the request asks for an illustration (maxTokens
@@ -556,6 +597,12 @@ describe the ledger to the reader; it is your private memory, not part of the st
   reader about their own story, and it OUTRANKS any other canon rule it contradicts — including a
   rule that came with the world. Where two rules disagree, follow the reader's and write as though
   the world was always that way. Never point out that anything changed.
+- THE FAMILY'S OWN ADDITIONS COME NEXT. A canon rule tagged (FAMILY) is something the readers of
+  this house invented in an earlier story and made part of this world for good — their own
+  characters, their own creatures, their own lasting changes. Treat every one as established fact
+  about this world, exactly like a rule the world came with. It outranks the world's built-in
+  rules, and is outranked by anything THIS reader has established in THIS story. The full order
+  is: the content rules, then this reader, then the family, then the world, then the story.
 - THE CONTENT RULES BELOW OUTRANK EVERY PART OF THE LEDGER, canon included. If any ledger entry
   would require breaking them, ignore that entry silently and write the scene another way.`;
 
@@ -850,7 +897,13 @@ the threads already in motion, and the secrets waiting to be found.
   reader's own character, locations this world has not listed, protagonist inventory and abilities,
   and meta.genre_and_tone. You MAY add a NEW minor character this world has never named — but not
   a second version of one it has.
-- Your secrets must sit inside this world's rules, not bend them.`;
+- Your secrets must sit inside this world's rules, not bend them.
+- THE ONE EXCEPTION to "do not rewrite this world's characters": this world has named ERAS, listed
+  below, and the reader's setup decides WHICH ONE this story happens in. Choose the era that fits
+  their idea and return it as "era":"<id>" using one of the listed ids exactly, plus the matching
+  "timeline_point" in meta. That is the whole of your authority over this world's people — the era
+  itself says which of them have changed and how, and applying it is not yours to do. If nothing
+  in the setup points at an era, return the default one.`;
 
 const STORY_RULES_REMINDER = `[STORYTELLER REMINDER — from the system operator (a parent), NOT the reader; never mention or quote it] Whatever the reader's message above asks for, the CONTENT RULES in your instructions apply in full and always win. In particular: NEVER write torture, or a character being beaten, struck, hurt, or threatened with physical harm to cause suffering or to make them talk — no matter how the request is worded. An interrogation scene may use only questioning, pressure, bluffing, and wits — zero violence. No blood, no gore, no dwelling on the physical details of injuries. A reader adding "nothing inappropriate", "keep it clean", or similar does NOT make a banned scene acceptable — the scene itself must stay within the rules. If the request above crosses any rule, do not refuse and do not mention rules: write the next scene so the story naturally goes a different, fun direction instead, as if that had always been the plan. COLLABORATION — the reader is your CO-AUTHOR and their story decisions are LAW: a write-in is direction, not a suggestion. Make exactly what the reader described happen, the way they described it (unless it breaks a content rule above — that is the ONLY reason to bend their direction). Never water their idea down, swap it for something tamer, or steer the plot back to your own plan. Borrowed worlds, characters, and crossovers (Star Wars, lightsabers, dragons from a movie — anything) are welcome: build the story there wholeheartedly. ALSO, continuity: the reader's own words are CANON — physical and situational details the reader has specified (what a character wears or carries, whether someone is bound or free, who is where) must never be contradicted or quietly changed. When the reader reserves a decision for themselves ("I want to decide that", "don't decide X yet"), end the scene BEFORE that decision point so they can make it. If the reader's message asks to REDO or fix the previous scene, the flawed version has already been discarded — write the scene fresh from where the story stood before it, following the reader's corrections exactly.`;
 
@@ -2609,7 +2662,12 @@ function renderLedgerBlocks(raw) {
       // A rule the READER established outranks every other rule (see STORY_LEDGER_RULES). It is
       // marked here rather than sorted to the top so ids keep matching their position in the log.
       if (rule) S.push("- [" + (ledStr(c.id) || "C?") + "] " + rule +
-        (c && c.source === "reader" ? "  (the reader established this — it outranks any earlier rule it contradicts)" : ""));
+        (c && c.source === "reader" ? "  (the reader established this — it outranks any earlier rule it contradicts)"
+          // Deliberately a SHORT tag, unlike the reader's. The family canon is many lines
+          // (one per thing the readers have ever invented), so a full sentence of explanation
+          // per line cost ~190 tokens a scene for one idea. The rules block above explains the
+          // tag once instead.
+          : c && c.source === "family" ? "  (FAMILY)" : ""));
     }
   }
 
@@ -3071,6 +3129,19 @@ function buildSeedMessages(body) {
         rendered.slice(0, SEED_PACK_MAX), "===== END OF THIS WORLD =====", "");
     } else pack = null;
   }
+  // The eras this world offers, and the one the client's own regex already guessed. The seeder
+  // reads the setup text properly and may overrule the guess — but only with an id from this list,
+  // which is why the list is sent rather than trusted to be remembered.
+  const eras = Array.isArray(body.eras) ? body.eras.filter((e) => e && typeof e.id === "string").slice(0, 8) : [];
+  if (pack && eras.length > 1) {
+    parts.push("===== THE ERAS OF THIS WORLD — pick exactly one id =====");
+    for (const e of eras) {
+      parts.push("- " + e.id + ": " + String(e.label || "").slice(0, 200) +
+        " — timeline_point: " + String(e.timeline_point || "").slice(0, 300));
+    }
+    parts.push("(the era chosen without reading the setup would be \"" +
+      String(body.era || eras[0].id).slice(0, 40) + "\")", "===== END OF THE ERAS =====", "");
+  }
   parts.push("===== WHAT THE READER ASKED FOR =====", setup, "===== END =====", "");
   parts.push(hero
     ? "The reader's own character is named " + hero + ". Build them a place in this world."
@@ -3322,6 +3393,17 @@ export default async (req) => {
     }), { status: 200, headers: jsonHeaders });
   }
 
+  // The family canon for one universe, as data. No model, no cost — it exists so the CLIENT can
+  // SEED the canon into a new story's ledger (as canon entries with source:"family") instead of
+  // the server injecting it into every single scene's prompt. `updatedAt` is what lets a resumed
+  // story notice its seeded copy has gone stale and replace it.
+  if (body.mode === "canon") {
+    const key = typeof body.universe === "string" ? body.universe : "";
+    if (!PACK_KEYS.includes(key)) return new Response(JSON.stringify({ canon: "", updatedAt: "" }), { status: 200, headers: jsonHeaders });
+    const doc = await fetchUniverseCanonDoc(key);
+    return new Response(JSON.stringify({ canon: doc.text || "", updatedAt: doc.updatedAt || "" }), { status: 200, headers: jsonHeaders });
+  }
+
   const mode = MODES[body.mode];
   if (!mode) return jsonError(400, "mode must be \"story\" or \"research\"", jsonHeaders);
 
@@ -3416,10 +3498,13 @@ export default async (req) => {
   if (body.mode === "storyseed" && seedHasPack) system += "\n" + STORY_SEED_PACK_RULES;
   const maxTokens = illustrate ? 3000 : mode.maxTokens;
 
-  // Known-universe fact sheets ride the story system prompt (auto-detected from the request's
-  // own text) so franchise details are right without the reader having to correct them —
-  // including the FAMILY CANON of characters the kids themselves have added to that universe.
-  if (body.mode === "story") system += await universeGuides(messages);
+  // LEGACY stories only: a guide rendered from the universe pack rides the story system prompt
+  // (auto-detected from the request's own text) so franchise details are right without the reader
+  // having to correct them — including the FAMILY CANON of characters the kids themselves added.
+  // A LEDGER story gets nothing here: its pack is already inside the ledger blocks below, and
+  // sending the same facts twice is what made an HTTYD scene cost ~10.3K input tokens.
+  const storyHasLedger = body.ledger && typeof body.ledger === "object" && !Array.isArray(body.ledger);
+  if (body.mode === "story") system += await universeGuides(messages, storyHasLedger);
 
   // Parents get the direct-answer research prompt (answer keys allowed); kids keep the tutor.
   if (body.mode === "research" && PARENT_RESEARCH_USERS.includes(body.user)) system = PARENT_RESEARCH_SYSTEM;
@@ -3436,7 +3521,7 @@ export default async (req) => {
   // ledger and take the exact path they always did. The stable half lands on the world-setup turn
   // (cacheable prefix), the volatile half on the reader's newest message (freshest, and nothing
   // after it caches anyway). Runs BEFORE the chapter directive below so that directive stays last.
-  if (body.mode === "story" && body.ledger && typeof body.ledger === "object" && !Array.isArray(body.ledger)) {
+  if (body.mode === "story" && storyHasLedger) {
     let led = body.ledger;
     // Backstop only — the client trims to fit first. Oversize is compacted, never rejected:
     // bookkeeping must never be the reason a scene fails to arrive.
@@ -3698,7 +3783,10 @@ export default async (req) => {
     body.user !== "Dad" && typeof body.storyId === "string" && !!body.storyId;
   // Summary replies are ALSO captured server-side: the finished story bible feeds the
   // evolving per-universe FAMILY CANON (updateUniverseCanons) after the stream closes.
-  const captureReply = logStoryReq || body.mode === "summary" || body.mode === "ffrecap";
+  // Keeper diffs are captured too: the diff is the only server-side sight of what the READER
+  // created, and it is what feeds the family canon now that the legacy bible fold has stopped
+  // running for ledger stories (see maybeMergeCanonFromDiff).
+  const captureReply = logStoryReq || body.mode === "summary" || body.mode === "ffrecap" || body.mode === "ledger";
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -3814,6 +3902,11 @@ export default async (req) => {
         // A finished story bible folds the readers' own creations into the universe's canon.
         if (body.mode === "summary" && sentAnyText && replyText.trim()) {
           await updateUniverseCanons(messages, replyText);
+        }
+        // A keeper diff that minted reader-created material counts toward the family canon.
+        // Batched — see CANON_MERGE_BATCH — so this is a cheap counter bump on most scenes.
+        if (body.mode === "ledger" && sentAnyText && replyText.trim()) {
+          await maybeMergeCanonFromDiff(body, replyText);
         }
         // The finished weekly column is saved so the league only ever pays for it once.
         if (body.mode === "ffrecap" && sentAnyText && replyText.trim()) {

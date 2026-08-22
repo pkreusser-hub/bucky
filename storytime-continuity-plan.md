@@ -91,6 +91,33 @@ Packs are versioned data, human-readable, Dad-editable; private family use.
 - PACK QUALITY IS THE PRODUCT — wrong seeds were the original complaint. Every
   factual claim in a pack gets web-verified during authoring.
 
+### Pack schema v2 (2026-08-22, the universe merge)
+
+The server used to hold a SECOND copy of these facts (UNIVERSE_BIBLES). It is gone;
+packs are the only place a franchise fact is written. meta.schema_version is now 2
+and meta gains two fields:
+
+- meta.triggers — the detection regex SOURCE, as a string (JSON has no regex type),
+  compiled with "i". It selects the pack from the setup text at creation (a chip pick
+  always wins) and keeps a legacy story stuck to its universe server-side.
+- meta.eras — { default: "<id>", list: [ { id, label, timeline_point, triggers,
+  canon_add, canon_remove, characters_add, character_overrides, locations_add } ] }.
+  An era is a set of OVERRIDES applied to the pack BEFORE it seeds a ledger, so one
+  file holds several timeline points without several copies of the cast. The seeder
+  picks the era from the setup text, constrained to these ids; the era's own triggers
+  regex is the fallback when no seeder runs. character_overrides may touch only
+  role/status/knows/does_not_know/last_seen/physical/motivation.
+
+Packs are now four: httyd.json (eras rtte + post_httyd3) · mario.json · starwars.json ·
+pokemon.json. The picker's chips follow.
+
+PRECEDENCE gains a rung: FAMILY_RULES > reader > family > pack > story. Canon entries
+with source:"family" are the readers' own creations, seeded into a story's ledger at
+creation from farmgpt_canon/<universe> and refreshed on resume.
+
+The SIZE ceiling is measured on the seed an era actually produces, not on the file —
+meta.triggers and meta.eras never ride the ledger.
+
 ## Server contract (farmgpt.mjs)
 
 - Ledger arrives FROM THE CLIENT = untrusted (house threat model: the cap-bypass

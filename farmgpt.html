@@ -1168,7 +1168,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   const UNIVERSES = [
     { id: "original", label: "✨ My own world", pack: false },
     { id: "httyd",    label: "🐉 How To Train Your Dragon", pack: true },
+    { id: "mario",    label: "🍄 Super Mario", pack: true },
     { id: "starwars", label: "⚔️ Star Wars", pack: true },
+    { id: "pokemon",  label: "⚡ Pokémon", pack: true },
   ];
   // Arrays the ledger is made of, and the id prefix each one's entries use.
   const LEDGER_LISTS = {
@@ -1660,19 +1662,169 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   // ledger and is then never consulted again — the story's copy is what evolves, so editing a
   // pack file never rewrites a story already in progress.
   let selectedUniverse = "original";
+  // True once the reader has actually tapped a chip. A chip pick ALWAYS beats auto-detection —
+  // including a deliberate tap on "My own world" for a story that happens to mention a dragon.
+  let universePickedByReader = false;
+  const packCache = new Map();   // id -> pack | null (null = tried and failed)
   async function loadUniversePack(id) {
     if (!id || id === "original") return { pack: null, note: "" };
+    if (packCache.has(id)) {
+      const cached = packCache.get(id);
+      return cached ? { pack: cached, note: "" }
+        : { pack: null, note: "That world's notes couldn't be loaded — starting an original story instead." };
+    }
     try {
       const r = await fetch(UNIVERSE_DIR + id + ".json", { cache: "no-cache" });
       if (!r.ok) throw new Error("HTTP " + r.status);
       const pack = await r.json();
       if (!pack || typeof pack !== "object" || Array.isArray(pack)) throw new Error("not an object");
+      packCache.set(id, pack);
       return { pack, note: "" };
     } catch (err) {
+      packCache.set(id, null);
       // Graceful: an absent or broken pack must never stop a story starting. The reader gets
       // their own world instead, and a quiet note saying so.
       return { pack: null, note: "That world's notes couldn't be loaded — starting an original story instead." };
     }
+  }
+
+  // ---- auto-detection (pack schema v2) -------------------------------------
+  // The kids type "a story about Antasma and Luigi" and never touch a chip. Before this, that
+  // story got NO pack at all — the Mario facts lived only in the server's old universe bibles,
+  // which is exactly the split this merge closed. Every pack now carries meta.triggers (a regex
+  // source), so the setup text alone can select the world.
+  // A CHIP PICK ALWAYS WINS — auto-detection only fills a choice the reader never made.
+  let packsPrimed = null;
+  function primeUniversePacks() {
+    // Fetch every packed universe once, in the background, so detection can run on keystrokes.
+    // The packs are static files behind the browser's own cache; this costs one round trip each.
+    if (!packsPrimed) packsPrimed = Promise.all(UNIVERSES.filter((u) => u.pack).map((u) => loadUniversePack(u.id)));
+    return packsPrimed;
+  }
+  const triggerCache = new Map();
+  function packTrigger(pack) {
+    const src = pack && pack.meta && typeof pack.meta.triggers === "string" ? pack.meta.triggers : "";
+    if (!src) return null;
+    if (!triggerCache.has(src)) {
+      let re = null;
+      try { re = new RegExp(src, "i"); } catch { re = null; }
+      triggerCache.set(src, re);
+    }
+    return triggerCache.get(src);
+  }
+  // The first packed universe whose triggers match, or "" — synchronous, over whatever packs are
+  // already cached, so it is safe to call from an input handler.
+  function detectUniverse(text) {
+    const t = String(text || "");
+    if (!t.trim()) return "";
+    for (const u of UNIVERSES) {
+      if (!u.pack) continue;
+      const pack = packCache.get(u.id);
+      const re = pack && packTrigger(pack);
+      if (re && re.test(t)) return u.id;
+    }
+    return "";
+  }
+  // The universe a story will actually be built in: the reader's pick if they made one, else
+  // whatever the setup text names.
+  const effectiveUniverse = (text) => (universePickedByReader ? selectedUniverse : (detectUniverse(text) || selectedUniverse));
+
+  // ---- eras (pack schema v2) ----------------------------------------------
+  // One pack, several timeline points. HTTYD ships "rtte" (the end of Race to the Edge, which is
+  // what the pack has always been) and "post_httyd3" — and the second one exists because a real
+  // reader's stories were set after the third film while the pack insisted Stoick was alive, so
+  // she spent redo after redo correcting the same timeline facts.
+  const packEras = (pack) => ((pack && pack.meta && pack.meta.eras && Array.isArray(pack.meta.eras.list)) ? pack.meta.eras.list : []);
+  const defaultEra = (pack) => (pack && pack.meta && pack.meta.eras && pack.meta.eras.default) || (packEras(pack)[0] || {}).id || "";
+  const findEra = (pack, id) => packEras(pack).find((e) => e && e.id === id) || null;
+  // The no-seed fallback: match the setup text against each era's own regex. The SEEDER overrules
+  // this when it runs, because it reads the setup properly rather than by keyword.
+  function pickEra(pack, text) {
+    const t = String(text || "");
+    for (const e of packEras(pack)) {
+      if (e.id === defaultEra(pack)) continue;      // the default is the answer if nothing else matches
+      let re = null;
+      try { re = new RegExp(String(e.triggers || ""), "i"); } catch { re = null; }
+      if (re && re.test(t)) return e.id;
+    }
+    return defaultEra(pack);
+  }
+  // Apply an era's overrides to a COPY of the pack. Retire the canon the later timeline makes
+  // false, add what it makes true, rewrite the characters it changed, admit the ones who did not
+  // exist yet. Canon ids are renumbered afterwards so the ledger's ids stay contiguous.
+  const ERA_OVERRIDE_FIELDS = ["role", "status", "knows", "does_not_know", "last_seen", "physical", "motivation"];
+  function applyPackEra(pack, eraId) {
+    if (!pack) return pack;
+    const era = findEra(pack, eraId);
+    if (!era) return pack;
+    const out = deepCopy(pack);
+    out.meta.timeline_point = era.timeline_point || out.meta.timeline_point;
+    const remove = new Set(Array.isArray(era.canon_remove) ? era.canon_remove : []);
+    out.canon = (Array.isArray(out.canon) ? out.canon : []).filter((c) => !remove.has(c && c.id));
+    for (const c of (Array.isArray(era.canon_add) ? era.canon_add : [])) {
+      out.canon.push({ rule: c.rule, source: "pack", turn: 0 });
+    }
+    out.canon.forEach((c, i) => { c.id = "C" + (i + 1); });
+    const byName = new Map((out.characters || []).map((c) => [c && c.name, c]));
+    for (const o of (Array.isArray(era.character_overrides) ? era.character_overrides : [])) {
+      const ch = byName.get(o && o.name);
+      if (!ch) continue;
+      for (const f of ERA_OVERRIDE_FIELDS) if (o[f] !== undefined) ch[f] = deepCopy(o[f]);
+    }
+    for (const c of (Array.isArray(era.characters_add) ? era.characters_add : [])) {
+      if (byName.has(c && c.name)) continue;
+      out.characters.push(Object.assign(deepCopy(c), { origin: "pack" }));
+    }
+    out.characters.forEach((c, i) => { c.id = "CH" + (i + 1); });
+    for (const l of (Array.isArray(era.locations_add) ? era.locations_add : [])) {
+      out.locations.push(Object.assign(deepCopy(l), { visited_turns: [] }));
+    }
+    out.locations.forEach((l, i) => { l.id = "L" + (i + 1); });
+    return out;
+  }
+
+  // ---- family canon --------------------------------------------------------
+  // The kids' own creations, shared across the whole family. It USED to reach a story by being
+  // injected into every scene's system prompt server-side — which stopped happening for ledger
+  // stories the moment the guides did. It now SEEDS INTO THE LEDGER at creation, as canon entries
+  // with source:"family", where it sits at its own rung of the precedence order:
+  //   FAMILY_RULES > reader > family > pack > story.
+  async function fetchFamilyCanon(universe) {
+    if (!universe || universe === "original") return { text: "", updatedAt: "" };
+    try {
+      const r = await fetch(API_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret: FAMILY_PASSWORD, mode: "canon", universe }),
+      });
+      if (!r.ok) return { text: "", updatedAt: "" };
+      const d = await r.json();
+      return { text: String((d && d.canon) || ""), updatedAt: String((d && d.updatedAt) || "") };
+    } catch { return { text: "", updatedAt: "" }; }   // a story must never fail to start over this
+  }
+  // The bookkeeper writes terse bullet lines. One line becomes one canon entry, so the renderer
+  // can mark each with its own authority rather than dropping a wall of prose into the prompt.
+  function familyCanonLines(text) {
+    return String(text || "").split("\n")
+      .map((l) => l.replace(/^\s*[-*•]\s*/, "").trim())
+      .filter((l) => l.length > 1)
+      .slice(0, 40);
+  }
+  // Replace every source:"family" entry with a fresh set. Used at creation and again on resume
+  // when the universe's canon doc has moved on since this story was seeded.
+  // Ids of the entries that STAY are never touched. A resumed story's keeper quotes canon ids
+  // back in its diffs, so renumbering C7 out from under a story in progress would silently
+  // retarget an update — the family rows get fresh ids above the current high-water mark instead.
+  function applyFamilyCanon(led, text, updatedAt) {
+    if (!led || !Array.isArray(led.canon)) return led;
+    led.canon = led.canon.filter((c) => !(c && c.source === "family"));
+    let n = 0;
+    for (const c of led.canon) {
+      const m = /^C(\d+)$/.exec(String((c && c.id) || ""));
+      if (m) n = Math.max(n, +m[1]);
+    }
+    for (const rule of familyCanonLines(text)) led.canon.push({ id: "C" + (++n), rule, source: "family", turn: 0 });
+    led.meta.family_canon_at = updatedAt || "";
+    return led;
   }
 
   // Builds the story's starting ledger: an empty schema-v1 ledger, plus whatever the pack seeds,
@@ -1684,7 +1836,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     led.meta.title = opts.title || "";
     led.meta.universe = opts.universe || "original";
     led.meta.genre_and_tone = opts.genre || "";
-    const pack = opts.pack;
+    // The era is applied to the PACK, before anything is copied out of it — the ledger only ever
+    // sees one timeline point, and never learns there were others.
+    const pack = opts.era ? applyPackEra(opts.pack, opts.era) : opts.pack;
+    if (opts.era) led.meta.era = opts.era;
     if (pack && typeof pack === "object") {
       if (pack.meta && typeof pack.meta === "object") {
         for (const k of ["timeline_point", "genre_and_tone", "narrative_voice"]) {
@@ -1841,6 +1996,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
           setup: opts.setup || "", heroName: opts.heroName || "",
           // The pack half of the ledger, so the seeder sees the world the narrator will see.
           packLedger: opts.pack ? led : null,
+          // …and the eras it may choose between, plus the regex fallback's guess. The seeder
+          // reads the setup properly; the guess is only what happens when it doesn't run.
+          era: opts.era || "", eras: opts.eras || [],
         }),
       });
       if (!resp.ok) return { seeded: false, reason: "http " + resp.status };
@@ -1878,10 +2036,25 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       }
       const patch = parseKeeperJSON(raw);
       if (!patch) return { seeded: false, reason: "unparseable" };
+      // THE ERA HANDOFF. The seeder actually read the setup; the regex only matched keywords. If
+      // it named a DIFFERENT era — and it may only name one of the ids it was given — the pack
+      // half of the ledger is rebuilt in that era before the story layer lands on top. Rebuilding
+      // rather than patching is what keeps "apply the era to the pack, then seed" true either way.
+      let base = led;
+      const chosen = patch && typeof patch.era === "string" ? patch.era.trim() : "";
+      if (chosen && chosen !== (opts.era || "") && typeof opts.rebase === "function" &&
+          (opts.eras || []).some((e) => e && e.id === chosen)) {
+        const rebuilt = opts.rebase(chosen);
+        if (rebuilt) base = rebuilt;
+      }
+      // In a packed world the ERA owns meta.timeline_point, not the seeder's own wording — its
+      // job there is the story layer. Letting its paraphrase through is how a post-film-three
+      // ledger ends up labelled "sometime after the movies" over correct character statuses.
+      if (opts.pack && patch.meta && typeof patch.meta === "object") delete patch.meta.timeline_point;
       const diff = seedPatchToDiff(patch);
-      if (!diff) return { seeded: false, reason: "empty" };
-      const res = applyLedgerDiff(led, diff);
-      if (!res.ok) return { seeded: false, reason: res.reason };
+      if (!diff) return { seeded: base !== led, ledger: base, reason: "empty" };
+      const res = applyLedgerDiff(base, diff);
+      if (!res.ok) return { seeded: base !== led, ledger: base, reason: res.reason };
       return { seeded: true, ledger: res.ledger };
     } catch (err) {
       if (err && err.name === "AbortError") return { seeded: false, reason: "timeout" };
@@ -2292,21 +2465,33 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   // Universe picker (single-select chips; "✨ My own world" is the default and needs no pack).
   const universeEl = $("universeChips");
   function paintUniverse() {
-    for (const c of universeEl.children) c.classList.toggle("sel", c.dataset.u === selectedUniverse);
-    const u = UNIVERSES.find((x) => x.id === selectedUniverse);
+    // The world this story would actually be built in — the reader's pick, or the one their own
+    // words name. The auto-detected chip lights up exactly like a picked one, because from the
+    // child's side there is no difference: that IS the world their story is about to be in.
+    const typed = $("worldInput") ? $("worldInput").value : "";
+    const eff = effectiveUniverse(typed);
+    const auto = !universePickedByReader && eff !== "original" && eff !== selectedUniverse;
+    for (const c of universeEl.children) c.classList.toggle("sel", c.dataset.u === eff);
+    const u = UNIVERSES.find((x) => x.id === eff);
     const note = $("universeNote");
     if (u && u.pack) {
-      note.textContent = "The storyteller will know this world — its people, its rules, and how they talk.";
+      note.textContent = auto
+        ? "Your idea is set in " + u.label.replace(/^\S+\s/, "") + ", so the storyteller will know that world — its people, its rules, and how they talk. Tap another world to change it."
+        : "The storyteller will know this world — its people, its rules, and how they talk.";
       note.style.display = "block";
     } else note.style.display = "none";
   }
   for (const u of UNIVERSES) {
     const b = document.createElement("button");
     b.className = "chip"; b.textContent = u.label; b.dataset.u = u.id;
-    b.addEventListener("click", () => { selectedUniverse = u.id; paintUniverse(); });
+    b.addEventListener("click", () => { selectedUniverse = u.id; universePickedByReader = true; paintUniverse(); });
     universeEl.appendChild(b);
   }
   paintUniverse();
+  // Prime the packs so detection can run on a keystroke, and repaint when they land (a fast typist
+  // beats the fetch, and the chip must still light up when it arrives).
+  primeUniversePacks().then(paintUniverse).catch(() => {});
+  if ($("worldInput")) $("worldInput").addEventListener("input", paintUniverse);
 
   // Genre picker (single-select chips).
   const genreEl = $("genreChips");
@@ -3470,6 +3655,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     if (guardStoryCap()) return;
     const typed = $("worldInput").value.trim();
     const heroName = $("heroName").value.trim();
+    // Which world this story is really in. A chip pick wins; otherwise the setup text is matched
+    // against every pack's own triggers, so "a story about Antasma and Luigi" gets the Mario pack
+    // without anybody choosing it. Packs are already primed when the setup screen opened.
+    const universeForStory = effectiveUniverse(typed || (hasBuilder() ? buildPromptFromFields() : ""));
     let seed, title;
     if (typed) {                                   // the open-ended box wins if it's filled
       seed = typed;
@@ -3477,8 +3666,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     } else if (hasBuilder()) {                      // otherwise assemble from the builder fields
       seed = buildPromptFromFields();
       title = titleFromFields();
-    } else if (selectedUniverse !== "original") {   // a picked universe is an idea all on its own
-      const u = UNIVERSES.find((x) => x.id === selectedUniverse);
+    } else if (universeForStory !== "original") {   // a picked universe is an idea all on its own
+      const u = UNIVERSES.find((x) => x.id === universeForStory);
       seed = "Tell me an interactive story set in the world of " + u.label.replace(/^\S+\s/, "") +
         ". Begin the very first chapter now.";
       title = u.label.replace(/^\S+\s/, "");
@@ -3492,7 +3681,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     // Stages are chosen from what will ACTUALLY happen: a world with no pack has no notes to
     // fetch, and a device with the seeder switched off skips straight to the storyteller. A bar
     // over stages that were never going to run is the first way a progress screen lies.
-    const wantPack = selectedUniverse !== "original";
+    const wantPack = universeForStory !== "original";
     const stages = [...(wantPack ? ["pack"] : []), ...(seedAiEnabled ? ["seed"] : []), "scene"];
     const worldAbort = typeof AbortController === "function" ? new AbortController() : null;
     worldWait.start({
@@ -3512,16 +3701,29 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     busy = true;
     if (wantPack) worldWait.begin("pack");
     let packRes;
-    try { packRes = await loadUniversePack(selectedUniverse); }
+    try { packRes = await loadUniversePack(universeForStory); }
     catch { packRes = { pack: null, note: "" }; }
     if (wantPack) worldWait.done("pack");
     busy = false;
     if (worldWait.wasCancelled()) return;
     if (packRes.note) toast("📖 " + packRes.note);
-    let ledger = seedLedger({
-      title, universe: packRes.pack ? selectedUniverse : "original",
-      genre: bldGenreWord(), heroName, pack: packRes.pack,
+    // The era, guessed from the setup text. The seeder may overrule it below with a proper read.
+    const eraGuess = packRes.pack ? pickEra(packRes.pack, seed) : "";
+    const eraList = packEras(packRes.pack).map((e) => ({ id: e.id, label: e.label, timeline_point: e.timeline_point }));
+    const buildBase = (era) => seedLedger({
+      title, universe: packRes.pack ? universeForStory : "original",
+      genre: bldGenreWord(), heroName, pack: packRes.pack, era,
     });
+    let ledger = buildBase(eraGuess);
+    // The FAMILY CANON — the kids' own characters and lasting changes — is seeded straight into
+    // the ledger as canon entries with source:"family". It used to ride every scene's system
+    // prompt from the server; seeding it once is the same information for none of the per-scene
+    // tokens, and it puts family canon under the reader's own word where it belongs.
+    let familyCanon = { text: "", updatedAt: "" };
+    if (packRes.pack) {
+      familyCanon = await fetchFamilyCanon(universeForStory);
+      if (familyCanon.text) applyFamilyCanon(ledger, familyCanon.text, familyCanon.updatedAt);
+    }
     // The seeder builds the starting world before scene one. Fails open in every direction —
     // see seedLedgerWithAI — and the screen matches: a seed that fails, times out or is switched
     // off is not an error a child can act on, it is simply a story that starts on the ordinary
@@ -3532,6 +3734,13 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       const seedRes = await Promise.race([
         seedLedgerWithAI(ledger, {
           setup: seed, heroName, pack: !!packRes.pack,
+          era: eraGuess, eras: eraList,
+          // Rebuild the pack half in a different era, family canon and all, if the seeder picks one.
+          rebase: (era) => {
+            const rebuilt = buildBase(era);
+            if (familyCanon.text) applyFamilyCanon(rebuilt, familyCanon.text, familyCanon.updatedAt);
+            return rebuilt;
+          },
           signal: worldAbort ? worldAbort.signal : null,
           // Real events, all three: the first byte back, and each character/place the moment
           // the world-builder finishes writing them.
@@ -3643,6 +3852,23 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     const last = s.messages[s.messages.length - 1];
     if (!s.done && last && last.role === "user" && !storyCapped()) streamChapter({ newChapter: isNextChapterTurn(last.content) || !!last.opener });
     scrollStory();
+    refreshFamilyCanon(s);
+  }
+
+  // A story seeds the family canon at creation, so a story started in June does not know about a
+  // character a sibling invented in August. On resume, if the universe's canon doc has moved on,
+  // the source:"family" rows are replaced. Fire-and-forget and entirely non-blocking: the story
+  // is already on screen, and nothing here may delay a child reading.
+  async function refreshFamilyCanon(s) {
+    try {
+      if (!hasLedger(s)) return;
+      const uni = s.ledger.meta && s.ledger.meta.universe;
+      if (!uni || uni === "original") return;
+      const fc = await fetchFamilyCanon(uni);
+      if (!fc.updatedAt || fc.updatedAt === (s.ledger.meta.family_canon_at || "")) return;
+      applyFamilyCanon(s.ledger, fc.text, fc.updatedAt);
+      saveStoryObj(s);
+    } catch { /* stale family canon is not worth an error a child can see */ }
   }
 
   // ---- REDO: throw the last scene away and ask for it again -----------------
@@ -3916,6 +4142,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     LEDGER_SCHEMA_VERSION, LEDGER_MAX_CHARS, LEDGER_WIRE_BUDGET, SEND_SCENES, SEND_CHAPTERS, UNIVERSES,
     emptyLedger, validateLedger, applyLedgerDiff, compactLedger, ledgerForSend,
     seedLedger, loadUniversePack, recordLedgerDiff, replayLedgerDiffs, hasLedger,
+    // the universe merge: auto-detection, eras, family canon
+    primeUniversePacks, detectUniverse, effectiveUniverse, pickEra, applyPackEra,
+    defaultEra, packEras, applyFamilyCanon, familyCanonLines, UNIVERSES,
+    pickedByReader() { return universePickedByReader; },
     buildSendMessages, canonPreserved, matchFact,
     // the AI ledger seeder (shipping default; ?seed=0 forces it off)
     seedAiEnabled, seedPatchToDiff, seedLedgerWithAI, partialArrayObjects,
@@ -3954,7 +4184,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     loadUsage, usageDayCost(d) { return dayCost(d); },
     get story() { return story; },
     setStory(s) { story = s; },
-    universe(id) { if (id !== undefined) { selectedUniverse = id; paintUniverse(); } return selectedUniverse; },
+    // The programmatic form of tapping a chip — so it must latch the same "the reader chose
+    // this" flag a real tap does, or a test could never tell a pick from a default.
+    universe(id) { if (id !== undefined) { selectedUniverse = id; universePickedByReader = true; paintUniverse(); } return selectedUniverse; },
   };
 
   // =====================================================================

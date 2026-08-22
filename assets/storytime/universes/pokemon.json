@@ -1,0 +1,303 @@
+{
+  "meta": {
+    "universe": "pokemon",
+    "title": "Pokémon",
+    "timeline_point": "an ordinary year in a world of Pokémon, gyms and trainers — no particular region and no particular hero",
+    "genre_and_tone": "bright adventure about journeys and friendship, where every fight ends with everyone fine",
+    "narrative_voice": "close third person, warm and enthusiastic, with a commentator's eye for a battle",
+    "schema_version": 2,
+    "pack_version": 1,
+    "triggers": "pok[eé]mon|pikachu|charizard|charmander|bulbasaur|squirtle|\\beevee\\b|pok[eé] ?ball|team rocket|\\bpokedex\\b|pok[eé]dex|gym leader|ash ketchum|\\bnurse joy\\b|pok[eé]mon center|\\bmeowth\\b|\\bjigglypuff\\b|\\bsnorlax\\b|\\bmewtwo\\b|\\blegendary pok|\\bevolve[ds]? into\\b|\\bthunderbolt\\b|gym badge",
+    "eras": {
+      "default": "journey",
+      "list": [
+        {
+          "id": "journey",
+          "label": "an ordinary trainer's journey",
+          "timeline_point": "an ordinary year in a world of Pokémon, gyms and trainers — no particular region and no particular hero",
+          "triggers": "pok[eé]mon",
+          "canon_add": [],
+          "canon_remove": [],
+          "characters_add": [],
+          "character_overrides": [],
+          "locations_add": []
+        }
+      ]
+    }
+  },
+  "canon": [
+    {
+      "id": "C1",
+      "rule": "A Pokémon never speaks human words — it says its own name and nothing else, in a hundred different tones that its trainer learns to read exactly.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C2",
+      "rule": "The one famous exception is Team Rocket's Meowth, who taught himself human speech the hard way and will tell anyone about it.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C3",
+      "rule": "Pokémon understand their trainers perfectly well even though they cannot answer, and a well-bonded pair needs barely a word to act together.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C4",
+      "rule": "A Pokémon is caught by weakening it in a fair battle and then throwing a Poké Ball, and a Pokémon that does not want to be caught can break straight back out.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C5",
+      "rule": "A trainer carries at most six Pokémon at a time, and the rest wait safely elsewhere.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C6",
+      "rule": "A battle ends when a Pokémon faints — never worse than that — and a fainted Pokémon is healed completely at any Pokémon Center, free, usually within the hour.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C7",
+      "rule": "Every Pokémon and every move has a type, and type decides the battle: water beats fire, fire beats grass, grass beats water, electric beats water and flying, ground beats electric, and rock beats flying and fire.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C8",
+      "rule": "A move of a type the target resists barely lands at all, and an electric attack does nothing whatsoever to a ground-type Pokémon.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C9",
+      "rule": "Many Pokémon evolve into a bigger, stronger form with experience — Charmander to Charmeleon to Charizard, Bulbasaur to Ivysaur to Venusaur, Squirtle to Wartortle to Blastoise — and an evolution is permanent.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C10",
+      "rule": "Eevee is the exception that evolves eight different ways depending on how it is raised — Vaporeon by a Water Stone, Jolteon by a Thunder Stone, Flareon by a Fire Stone, Espeon and Umbreon through friendship by day or by night, Leafeon and Glaceon near a mossy or an icy rock, and Sylveon through affection and a fairy-type move.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C11",
+      "rule": "A Pokémon knows only four moves at a time, and teaching it a fifth means giving one up.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C12",
+      "rule": "A Pokédex identifies any Pokémon on sight and reads out its entry, whether or not anyone asked it to.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C13",
+      "rule": "Gyms are run by Gym Leaders who each specialise in one type, and beating one earns a badge; eight badges get a trainer into the League.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C14",
+      "rule": "Legendary Pokémon are one of a kind, enormously powerful, and almost never caught — meeting one at all is the story.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C15",
+      "rule": "Charizard's tail flame is its life — if that flame ever went out, so would Charizard — so it is never let near heavy rain unguarded.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C16",
+      "rule": "Team Rocket's schemes always fail, always end with the three of them launched into the sky, and never actually hurt anyone.",
+      "source": "pack",
+      "turn": 0
+    }
+  ],
+  "characters": [
+    {
+      "id": "CH1",
+      "name": "Pikachu",
+      "origin": "pack",
+      "role": "the best-known Pokémon in the world, an Electric-type and the model of a bonded partner",
+      "status": "alive and well, riding on its trainer's shoulder",
+      "physical": "small and yellow with a lightning-bolt tail, long black-tipped ears and round red cheek pouches that spark before an attack",
+      "voice": "does not speak — says 'Pika', 'Pika-pi' and 'Chuuu' with a hundred meanings, and sparks its cheeks when it means business",
+      "motivation": "its trainer, ketchup, and never being put in a Poké Ball",
+      "possessions": [
+        "nothing — it refuses to be carried in a ball"
+      ],
+      "knows": [
+        "Thunderbolt, Quick Attack, Iron Tail and Electro Ball"
+      ],
+      "does_not_know": [
+        "how to hold back when its friends are threatened"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "on the road",
+        "state": "on a shoulder, watching everything"
+      }
+    },
+    {
+      "id": "CH2",
+      "name": "Nurse Joy",
+      "origin": "pack",
+      "role": "the nurse who runs the Pokémon Center in every town",
+      "status": "alive and well, on shift",
+      "physical": "in a pink nurse's uniform with a white apron and looped pink hair under a white cap",
+      "voice": "unfailingly gentle and professional — 'we've restored your Pokémon to full health, we hope to see you again!' — and completely unflappable no matter what walks through the door",
+      "motivation": "every Pokémon that comes through her doors leaving healthy",
+      "possessions": [
+        "the healing machine behind her counter",
+        "a Chansey who assists her"
+      ],
+      "knows": [
+        "how to treat any Pokémon of any type"
+      ],
+      "does_not_know": [
+        "why trainers keep apologising for bringing her work"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "the nearest Pokémon Center",
+        "state": "behind the counter"
+      }
+    },
+    {
+      "id": "CH3",
+      "name": "Jessie",
+      "origin": "pack",
+      "role": "one third of the Team Rocket trio who chase rare Pokémon and never catch one",
+      "status": "alive and well, hiding in a bush",
+      "physical": "tall with an enormous swept curl of magenta hair, in a white Team Rocket uniform with a red R",
+      "voice": "theatrical and imperious, delivers half of a rhyming motto at full volume, and turns on a coin from grand villain to howling sulk",
+      "motivation": "one great catch that finally impresses the boss",
+      "possessions": [
+        "a balloon shaped like a Meowth",
+        "an assortment of terrible disguises"
+      ],
+      "knows": [
+        "the motto, perfectly, every time"
+      ],
+      "does_not_know": [
+        "that the plan will not work"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "behind a very obvious bush",
+        "state": "waiting for a cue"
+      }
+    },
+    {
+      "id": "CH4",
+      "name": "James",
+      "origin": "pack",
+      "role": "the second of the Team Rocket trio",
+      "status": "alive and well, in the same bush",
+      "physical": "with short lavender hair, in a white Team Rocket uniform with a red R",
+      "voice": "delivers the other half of the motto with as much drama as Jessie, agrees with whatever she just said, and goes soft and sentimental about any Pokémon he meets",
+      "motivation": "sticking with his friends, and one good catch",
+      "possessions": [
+        "a bottle-cap collection",
+        "the other half of the disguises"
+      ],
+      "knows": [
+        "his half of the motto"
+      ],
+      "does_not_know": [
+        "how to say no to Jessie"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "behind the same bush",
+        "state": "adjusting a fake moustache"
+      }
+    },
+    {
+      "id": "CH5",
+      "name": "Meowth",
+      "origin": "pack",
+      "role": "the talking Pokémon of the Team Rocket trio",
+      "status": "alive and well, doing all the thinking",
+      "physical": "a cream-coloured cat Pokémon walking upright, with a gold charm set in his forehead, whiskers and curled tail",
+      "voice": "speaks actual human words in a fast wisecracking city accent — the only Pokémon who does — and finishes the motto with 'Meowth, that's right!'",
+      "motivation": "proving a Pokémon who talks is worth more than one who battles",
+      "possessions": [
+        "the plans, which he draws himself"
+      ],
+      "knows": [
+        "how to talk, which he taught himself"
+      ],
+      "does_not_know": [
+        "that the others could not manage without him"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "behind the bush, holding a diagram",
+        "state": "explaining the plan"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "between": [
+        "Jessie",
+        "James"
+      ],
+      "state": "inseparable partners in every failed scheme, and each other's only real family",
+      "changed_turn": 0,
+      "history": "They have blasted off together more times than either can count and have never once considered splitting up."
+    },
+    {
+      "between": [
+        "Meowth",
+        "Jessie"
+      ],
+      "state": "constant bickering over whose plan it was, and complete loyalty underneath it",
+      "changed_turn": 0,
+      "history": "Meowth draws the plans, Jessie takes the credit, and neither would leave the other behind."
+    },
+    {
+      "between": [
+        "Nurse Joy",
+        "trainers"
+      ],
+      "state": "the one person on the road every trainer is glad to see",
+      "changed_turn": 0,
+      "history": "Every Center in every town is hers, and no trainer has ever been turned away."
+    }
+  ],
+  "locations": [
+    {
+      "id": "L1",
+      "name": "the Pokémon Center",
+      "description": "A red-roofed building in every town with a healing machine behind the counter, a phone to call home, and beds for trainers passing through",
+      "state": "open, free, and busy at all hours",
+      "visited_turns": []
+    },
+    {
+      "id": "L2",
+      "name": "the town Gym",
+      "description": "A hall built around one battlefield and themed to its Leader's type — rock, water, electric — with a badge waiting for whoever wins",
+      "state": "open to any trainer who asks for a match",
+      "visited_turns": []
+    },
+    {
+      "id": "L3",
+      "name": "the route between towns",
+      "description": "Long grass, forest paths and rivers where wild Pokémon appear without warning, and where most of a journey actually happens",
+      "state": "walked daily, and never quite the same twice",
+      "visited_turns": []
+    }
+  ]
+}

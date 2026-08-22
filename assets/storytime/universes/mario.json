@@ -1,0 +1,539 @@
+{
+  "meta": {
+    "universe": "mario",
+    "title": "Super Mario",
+    "timeline_point": "the Mushroom Kingdom as it stands today, with every adventure so far already behind them",
+    "genre_and_tone": "bright, bouncy cartoon adventure — running, jumping, silly danger and nobody ever really hurt",
+    "narrative_voice": "close third person, cheerful and quick, with the timing of a cartoon",
+    "schema_version": 2,
+    "pack_version": 1,
+    "triggers": "\\bmario\\b|\\bluigi\\b|bowser|mushroom kingdom|princess peach|\\byoshi\\b|goomba|koopa|toadstool|piranha plant|warp pipe|\\bwario\\b|\\bwaluigi\\b|donkey kong|\\btoad\\b|rosalina|\\bluma\\b|mario kart|antasma|reclusa|rabbid|\\bpi'?illo\\b|dream team|brothership|super star|fire flower|\\b1-?up\\b|\\bkamek\\b|shy guy|bob-?omb|\\bboo\\b|\\bbirdo\\b|\\bdaisy\\b|\\bstarlow\\b|dreambert|\\bzokket\\b|\\bsnoutlet\\b|soli-?tree|\\bconcordia\\b|paper mario|super mario",
+    "eras": {
+      "default": "present",
+      "list": [
+        {
+          "id": "present",
+          "label": "the Mushroom Kingdom today",
+          "timeline_point": "the Mushroom Kingdom as it stands today, with every adventure so far already behind them",
+          "triggers": "mushroom kingdom",
+          "canon_add": [],
+          "canon_remove": [],
+          "characters_add": [],
+          "character_overrides": [],
+          "locations_add": []
+        }
+      ]
+    }
+  },
+  "canon": [
+    {
+      "id": "C1",
+      "rule": "Nobody in this world is ever truly killed — a defeated enemy simply poofs away in a puff of smoke, and a defeated hero loses a life and comes straight back.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C2",
+      "rule": "Jumping is the answer to almost everything: Mario and Luigi jump on enemies to beat them, jump to reach anything high, and can bounce off one enemy straight onto the next.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C3",
+      "rule": "A Super Mushroom makes you bigger and lets you take one hit before shrinking back, and a hit while small sends you back to the start of the area.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C4",
+      "rule": "A Fire Flower lets you throw bouncing fireballs, an Ice Flower throws ice balls that freeze enemies solid, and both are lost the moment you take a hit.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C5",
+      "rule": "A Super Star makes you invincible and unstoppable for a short burst of music, and it always runs out at exactly the wrong moment.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C6",
+      "rule": "A green 1-Up Mushroom gives an extra life, and a hundred coins does the same.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C7",
+      "rule": "Other power-ups change what you can do rather than how tough you are: a Super Leaf gives a raccoon tail for gliding and tail-whipping, a Cape Feather lets you fly once you build up speed, a Super Bell turns you into a climbing, clawing cat, a Mega Mushroom makes you enormous, and a Mini Mushroom makes you tiny enough to walk on water.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C8",
+      "rule": "Hitting a question-mark block from underneath pops out whatever is inside it — a coin, a power-up, sometimes a surprise — and a brick block breaks only if you are big.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C9",
+      "rule": "Green warp pipes carry you somewhere else the moment you step into them, and there is no telling where a strange pipe leads until you take it.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C10",
+      "rule": "Every enemy has one obvious trick: Goombas walk straight and get stomped, Koopa Troopas duck into shells that slide when kicked, Piranha Plants snap out of pipes but never leave them, Bob-ombs walk until they blow up harmlessly, and Boos freeze in place the instant you look at them.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C11",
+      "rule": "Yoshi carries a rider, grabs things with a long sticky tongue, swallows enemies and lays them back out as spotted eggs, and can flutter-jump a little further than a jump should go.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C12",
+      "rule": "Yoshi says only 'Yoshi!' and Pokey-simple noises, and everyone understands him perfectly anyway.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C13",
+      "rule": "Danger here is cartoon danger — falls, bonks, lava you bounce out of, and enormous explosions nobody is hurt by — and it is always funny a heartbeat after it is frightening.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C14",
+      "rule": "Bowser's schemes are enormous, elaborate and doomed, and he always comes back for another one.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C15",
+      "rule": "Kart racing is a serious kingdom-wide pastime, raced with shells, banana peels and lightning bolts, and whoever is in last place gets the best item.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C16",
+      "rule": "In the Dream World reached through Luigi's sleeping mind, whatever Luigi dreams is really there — pulling his moustache, tickling his nose or tipping his pillow reshapes the whole dream around him.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C17",
+      "rule": "Mario and Luigi fight better together than apart, and their strongest moves are the ones that need both brothers to time a jump or a hammer swing at the same instant.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C18",
+      "rule": "Bonds between people are a real power in Concordia — friendships gathered up and carried along genuinely strengthen whoever carries them, which is the one thing Reclusa could never understand.",
+      "source": "pack",
+      "turn": 0
+    },
+    {
+      "id": "C19",
+      "rule": "Rabbids are chaos in rabbit form: they shriek 'Bwaah!', grab anything not nailed down, imitate whoever they last saw, and mean no harm by any of it.",
+      "source": "pack",
+      "turn": 0
+    }
+  ],
+  "characters": [
+    {
+      "id": "CH1",
+      "name": "Mario",
+      "origin": "pack",
+      "role": "the Mushroom Kingdom's hero, a plumber from Brooklyn who never says no to a rescue",
+      "status": "alive and well, and never out of work for long",
+      "physical": "short and stocky in a red cap with an M, red shirt, blue overalls, white gloves and brown boots, with a thick black moustache",
+      "voice": "cheerful, simple and short — a few words at a time, an 'Okey-dokey!' or a 'Let's-a go!', and the rest said by jumping straight at the problem",
+      "motivation": "helping whoever needs it, and being first to the finish line",
+      "possessions": [
+        "his cap",
+        "whatever power-up he is currently holding"
+      ],
+      "knows": [
+        "every warp pipe worth knowing in the kingdom",
+        "that Bowser is never gone for good"
+      ],
+      "does_not_know": [
+        "how to sit still",
+        "what he is actually going to do when he gets there"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Toad Town",
+        "state": "between adventures, which never lasts"
+      }
+    },
+    {
+      "id": "CH2",
+      "name": "Luigi",
+      "origin": "pack",
+      "role": "Mario's younger brother, braver than he believes",
+      "status": "alive and well, and quietly hoping nothing happens today",
+      "physical": "tall and lanky in a green cap with an L, green shirt, blue overalls, with a thinner moustache and a nervous stance",
+      "voice": "squeaky and anxious, talks himself into things out loud, yelps first and helps anyway; says 'Oh-ho!' when something goes right and 'Mamma mia' the rest of the time",
+      "motivation": "not letting Mario down, and getting through this without meeting a ghost",
+      "possessions": [
+        "his cap",
+        "a Poltergust vacuum, when ghosts are involved"
+      ],
+      "knows": [
+        "that he jumps higher than Mario does",
+        "that his own dreams are a real place people can walk into"
+      ],
+      "does_not_know": [
+        "that everyone already thinks he is brave"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Toad Town",
+        "state": "hoping to be left out of this one"
+      }
+    },
+    {
+      "id": "CH3",
+      "name": "Princess Peach",
+      "origin": "pack",
+      "role": "ruler of the Mushroom Kingdom",
+      "status": "alive and well, reigning; between kidnappings",
+      "physical": "tall in a long pink gown with a blue brooch, white gloves to the elbow, long blonde hair and a small gold crown",
+      "voice": "warm, gracious and unruffled — thanks people properly even mid-disaster, and gives an order so politely it takes a moment to notice it was one",
+      "motivation": "her kingdom and everyone in it",
+      "possessions": [
+        "her crown",
+        "a parasol that works as a weapon in a pinch"
+      ],
+      "knows": [
+        "every Toad in the kingdom by name",
+        "exactly how Bowser's castle is laid out, from experience"
+      ],
+      "does_not_know": [
+        "how to stop worrying about the kingdom for one afternoon"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Peach's Castle",
+        "state": "holding court, and keeping an eye on the horizon"
+      }
+    },
+    {
+      "id": "CH4",
+      "name": "Bowser",
+      "origin": "pack",
+      "role": "King of the Koopas, the Mushroom Kingdom's most persistent enemy",
+      "status": "alive and scheming, back in his castle after the last one failed",
+      "physical": "a mountain of a spiked-shell Koopa with red hair, horns, a studded collar and spiked cuffs, who breathes fire and shakes the floor when he walks",
+      "voice": "booming, boastful and easily offended — announces his plan at length before doing it, roars 'GWAHAHAHA', and turns oddly sulky the moment it goes wrong",
+      "motivation": "ruling the Mushroom Kingdom, beating Mario once, and Peach's good opinion, roughly in that order",
+      "possessions": [
+        "his castle over a lava pit",
+        "an airship fleet",
+        "a great many Koopa troops"
+      ],
+      "knows": [
+        "that Mario always comes",
+        "that his own minions are not very good"
+      ],
+      "does_not_know": [
+        "when to try something smaller"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Bowser's Castle",
+        "state": "planning the next enormous mistake"
+      }
+    },
+    {
+      "id": "CH5",
+      "name": "Bowser Jr.",
+      "origin": "pack",
+      "role": "Bowser's son and self-appointed second-in-command",
+      "status": "alive and well, following his father everywhere",
+      "physical": "a small Koopa in a spiked shell with a red ponytail, wearing a white bandana with a drawn-on fanged mouth, and flying a bright junior clown car",
+      "voice": "bratty, boastful and squeaky, copies his father's threats word for word at half the volume, and is genuinely wounded when anyone laughs",
+      "motivation": "his father's approval, and beating Mario himself",
+      "possessions": [
+        "his Junior Clown Car",
+        "a giant paintbrush"
+      ],
+      "knows": [
+        "every corner of his father's castle"
+      ],
+      "does_not_know": [
+        "that his father would rather he stayed home where it is safe"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Bowser's Castle",
+        "state": "demanding to come along"
+      }
+    },
+    {
+      "id": "CH6",
+      "name": "Yoshi",
+      "origin": "pack",
+      "role": "friendly dinosaur, mount, and the most cheerful creature in the kingdom",
+      "status": "alive and well on Yoshi's Island, always ready to be ridden",
+      "physical": "a green dinosaur with a red saddle-shell, orange boots, big dark eyes and a very long tongue",
+      "voice": "does not speak in sentences — says 'Yoshi!' with a hundred different meanings, plus happy hums and worried warbles; everyone understands him perfectly",
+      "motivation": "fruit, friends, and carrying whoever needs carrying",
+      "possessions": [
+        "his saddle"
+      ],
+      "knows": [
+        "which fruit on any island is the good fruit"
+      ],
+      "does_not_know": [
+        "that swallowing that was probably a bad idea"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Yoshi's Island",
+        "state": "eating"
+      }
+    },
+    {
+      "id": "CH7",
+      "name": "Toad",
+      "origin": "pack",
+      "role": "Peach's most loyal attendant and the kingdom's messenger",
+      "status": "alive and well, on duty at the castle",
+      "physical": "small and round with a white mushroom cap spotted red, a blue waistcoat and enormous shoes",
+      "voice": "high, fast and breathless — arrives already talking, delivers bad news at top speed, and always says thank you at the end of it",
+      "motivation": "the Princess, and getting the message through",
+      "possessions": [
+        "a lantern",
+        "far more errands than one Toad can run"
+      ],
+      "knows": [
+        "everything happening anywhere in the kingdom, usually first"
+      ],
+      "does_not_know": [
+        "how to whisper"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Peach's Castle",
+        "state": "running somewhere"
+      }
+    },
+    {
+      "id": "CH8",
+      "name": "Wario",
+      "origin": "pack",
+      "role": "greedy treasure-hunter and Mario's rival",
+      "status": "alive and well, and currently between get-rich schemes",
+      "physical": "squat and enormously broad in a yellow cap with a W, yellow shirt, purple overalls, with a jagged moustache and a pointed chin",
+      "voice": "loud, gloating and full of 'WAH!' — laughs at his own plans, calls everyone a loser, and drops everything the instant coins are mentioned",
+      "motivation": "treasure, garlic, and being richer than Mario",
+      "possessions": [
+        "a sack of coins he counts constantly"
+      ],
+      "knows": [
+        "the price of absolutely everything"
+      ],
+      "does_not_know": [
+        "why nobody wants to be his partner"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "somewhere with treasure in it",
+        "state": "digging"
+      }
+    },
+    {
+      "id": "CH9",
+      "name": "Antasma",
+      "origin": "pack",
+      "role": "the bat king of the Dream World, who feeds on nightmares",
+      "status": "beaten — Mario defeated him inside the Dream World and he burst like a balloon; whether anything is left of him is anyone's guess",
+      "physical": "a huge purple-black bat with a jagged crown-like crest, red eyes and long tattered wings, who shifts between a bat, a drifting cloud of gas and a monstrous battle form",
+      "voice": "a Dracula-film drawl full of hissing v-sounds — 'you vill never vake up!' — broken off by ear-splitting bat screeches",
+      "motivation": "was nightmares to feed on, and escaping the Dream World for good",
+      "possessions": [
+        "the nightmare portals he could tear open at will",
+        "his Antasmunchies"
+      ],
+      "knows": [
+        "nothing further — his story is finished"
+      ],
+      "does_not_know": [
+        "nothing further — his story is finished"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "the Dream World above Pi'illo Island",
+        "state": "gone; Bowser betrayed him before the end"
+      }
+    },
+    {
+      "id": "CH10",
+      "name": "Reclusa",
+      "origin": "pack",
+      "role": "the ancient being who tried to cut every bond in Concordia",
+      "status": "gone — Mario and Luigi beat him with the strength of every bond they had gathered, and he faded away still not understanding it",
+      "physical": "was a red legless figure in a purple robe and gold gauntlets, with a boxy old television for a head inside a frilly collar, its screen showing yellow and blue eyes and a red triangle mouth that changed with his mood",
+      "voice": "spoke coldly and reasonably, as if loneliness were simply the correct answer, and grew shrill only when someone refused it",
+      "motivation": "was to prove that needing anyone makes you weak",
+      "possessions": [
+        "the Soli-Tree, which crumbled with him"
+      ],
+      "knows": [
+        "nothing further — his story is finished"
+      ],
+      "does_not_know": [
+        "nothing further — his story is finished"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "the Soli-Tree, over Concordia",
+        "state": "gone; the islands are joined again"
+      }
+    },
+    {
+      "id": "CH11",
+      "name": "Rabbid Peach",
+      "origin": "pack",
+      "role": "the Rabbid who found a picture of Princess Peach and decided to be her",
+      "status": "alive and well, and taking a selfie",
+      "physical": "a white rabbit-like creature with long ears and wide staring eyes, wearing a scruffy pink dress and a bent crown, never without a phone",
+      "voice": "shrieks 'Bwaah!' and gibberish rather than words, and says everything else with an outrageous pose, an eye-roll or a photograph of herself",
+      "motivation": "attention, selfies, and being the most important person present",
+      "possessions": [
+        "her phone",
+        "a blaster she treats as an accessory"
+      ],
+      "knows": [
+        "exactly where the best light is"
+      ],
+      "does_not_know": [
+        "that she is not actually the Princess"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "Peach's Castle grounds",
+        "state": "posing in front of something on fire"
+      }
+    },
+    {
+      "id": "CH12",
+      "name": "Rabbid Luigi",
+      "origin": "pack",
+      "role": "the gloomiest Rabbid in the kingdom",
+      "status": "alive, and expecting the worst",
+      "physical": "a Rabbid in a drooping green cap and shirt, shoulders permanently slumped, eyes half-closed",
+      "voice": "a long weary 'bwaaaah' sigh instead of words, plus flat unimpressed stares; the only Rabbid who conveys sarcasm without saying anything",
+      "motivation": "getting this over with",
+      "possessions": [
+        "a vacuum he cannot be bothered to aim"
+      ],
+      "knows": [
+        "that it will go wrong"
+      ],
+      "does_not_know": [
+        "that he is usually the one who fixes it"
+      ],
+      "last_seen": {
+        "turn": 0,
+        "location": "wherever the others dragged him",
+        "state": "sighing"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "between": [
+        "Mario",
+        "Luigi"
+      ],
+      "state": "inseparable brothers — Mario leads, Luigi follows and complains, and neither goes anywhere important without the other",
+      "changed_turn": 0,
+      "history": "They have rescued the kingdom together more times than anyone has counted, and their best moves only work as a pair."
+    },
+    {
+      "between": [
+        "Mario",
+        "Bowser"
+      ],
+      "state": "the oldest rivalry in the kingdom — deadly serious in a castle, oddly companionable on a kart track",
+      "changed_turn": 0,
+      "history": "Bowser takes Peach, Mario comes for her, Bowser loses, and they have both stopped pretending it will end."
+    },
+    {
+      "between": [
+        "Bowser",
+        "Bowser Jr."
+      ],
+      "state": "a doting father and a son desperate to impress him",
+      "changed_turn": 0,
+      "history": "Junior insists on coming along on every scheme, and Bowser keeps letting him."
+    },
+    {
+      "between": [
+        "Princess Peach",
+        "Toad"
+      ],
+      "state": "sovereign and utterly devoted attendant, and genuinely fond friends",
+      "changed_turn": 0,
+      "history": "Toad has run every message in the kingdom for her and never once been late on purpose."
+    },
+    {
+      "between": [
+        "Mario",
+        "Yoshi"
+      ],
+      "state": "old friends and partners — Yoshi carries him anywhere without being asked twice",
+      "changed_turn": 0,
+      "history": "Yoshis carried the Mario brothers across Yoshi's Island when they were babies, and never stopped."
+    }
+  ],
+  "locations": [
+    {
+      "id": "L1",
+      "name": "Peach's Castle and Toad Town",
+      "description": "A white-and-pink castle with a stained-glass window over a cheerful town of round mushroom houses, market stalls and a great many Toads",
+      "state": "peaceful, busy, and quietly braced for the next emergency",
+      "visited_turns": []
+    },
+    {
+      "id": "L2",
+      "name": "Bowser's Castle",
+      "description": "A black spiked fortress straddling a lava lake, full of moving platforms, fire bars, thwomps and one very long bridge with an axe at the end of it",
+      "state": "rebuilt again, fully staffed, and open for business",
+      "visited_turns": []
+    },
+    {
+      "id": "L3",
+      "name": "Yoshi's Island",
+      "description": "A green tropical island of fruit trees, flower fields and shallow rivers, where the Yoshis live",
+      "state": "sunny and entirely untroubled",
+      "visited_turns": []
+    },
+    {
+      "id": "L4",
+      "name": "Pi'illo Island",
+      "description": "A holiday island of beaches and stone ruins, home of the ancient Pi'illo folk, where sleeping on a Dream Pillow opens a doorway into the Dream World inside Luigi's head",
+      "state": "at peace since Antasma was beaten; the Pi'illos are awake again",
+      "visited_turns": []
+    },
+    {
+      "id": "L5",
+      "name": "Concordia",
+      "description": "A wide ocean scattered with drifting islands, joined again by the currents and the light of the Uni-Tree, with the ship-shaped Shipshape Island sailing between them",
+      "state": "reconnected — the islands trade and visit each other freely now",
+      "visited_turns": []
+    },
+    {
+      "id": "L6",
+      "name": "the Warp Pipe network",
+      "description": "Green pipes standing in fields, under towns and at the bottom of the sea, each one a shortcut to somewhere else in the kingdom",
+      "state": "mostly mapped, and never entirely",
+      "visited_turns": []
+    }
+  ]
+}

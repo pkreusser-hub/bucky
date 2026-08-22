@@ -84,6 +84,8 @@ const commits = [];        // every Firestore :commit body
 const fakeDocs = {};       // a tiny document store, keyed by "<collection>/<id>" (see the goog fake)
 let runQueryRows = [];      // what the fake :runQuery returns (drives the daily cap)
 let lastAnthStorySystem = "";   // the last STORY system prompt Anthropic saw, for byte-comparison
+let sseOverride = null;         // one-shot reply body for the fake Anthropic (see startFakes)
+const setSseOverride = (s) => { sseOverride = s; };
 
 const SSE = [
   'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":120,"output_tokens":0,"cache_creation_input_tokens":40,"cache_read_input_tokens":0}}}\n\n',
@@ -116,7 +118,24 @@ function startFakes() {
       // Kept for the byte-comparison in A15: the xAI path must stamp the SAME system prompt.
       if (typeof b.system === "string" && b.system.includes("===CHOICES===")) lastAnthStorySystem = b.system;
     } catch { anthReqs.push({ parseError: raw }); }
+    // A FIXTURE KINDER THAN REALITY HIDES BUGS. callAnthropicOnce is NOT a streaming call — it
+    // posts without `stream` and reads plain JSON. Answering it with SSE (as this fake did before
+    // the universe merge) makes every one-shot call return null, which silently looked like "the
+    // bookkeeper decided not to write" rather than "the bookkeeper never got an answer".
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch { /* recorded above as a parse error */ }
+    if (parsed && !parsed.stream) {
+      res.setHeader("content-type", "application/json");
+      return res.end(JSON.stringify({
+        content: [{ type: "text", text: "- Bree, a rider the readers invented, with a silver Light Fury" }],
+        usage: { input_tokens: 300, output_tokens: 40 },
+      }));
+    }
     res.setHeader("content-type", "text/event-stream");
+    // ONE-SHOT override, consumed on use. The keeper's family-canon batching turns on what the
+    // clerk actually WROTE, so those checks need a real diff back rather than the scene fixture —
+    // and it must be one-shot, or the merge call that follows would be answered with a diff too.
+    if (sseOverride) { const s = sseOverride; sseOverride = null; return res.end(s); }
     res.end(SSE);
   });
   const goog = http.createServer(async (req, res) => {
@@ -244,6 +263,10 @@ async function sectionServer() {
   process.env.FARMGPT_GOOGLE_TOKEN_URL = `http://127.0.0.1:${GOOG_PORT}/token`;
   process.env.FARMGPT_FIRESTORE_BASE = `http://127.0.0.1:${GOOG_PORT}/v1/projects/x/databases/(default)/documents`;
   process.env.FIREBASE_SERVICE_ACCOUNT = fakeServiceAccount();
+  // Since the universe merge, the function reads assets/storytime/universes/*.json over HTTP
+  // instead of holding its own copy of the facts. Point it at this suite's own static server —
+  // which serves the REAL pack files, deliberately: the pack IS the thing under test here.
+  process.env.FARMGPT_PACK_BASE = BASE;
   delete process.env.STORY_PROVIDER;
 
   const handler = (await import(new URL("../netlify/functions/farmgpt.mjs", `file://${__filename.replace(/\\/g, "/")}`))).default;
@@ -1112,6 +1135,9 @@ async function newPage(browser, opts) {
     // parallel workstream and are never read here.
     if (/\/assets\/storytime\/universes\//.test(url)) {
       const mode = o.packMode || "ok";
+      // "real" lets the actual pack files through — used only by section V, where the REAL
+      // triggers and eras are the thing under test.
+      if (mode === "real") return req.continue();
       if (mode === "404") return req.respond({ status: 404, contentType: "text/plain", body: "nope" });
       if (mode === "badjson") return req.respond({ status: 200, contentType: "application/json", body: "{{{ not json" });
       return req.respond({ status: 200, contentType: "application/json", body: JSON.stringify(FIXTURE_PACK) });
@@ -1379,9 +1405,17 @@ async function sectionSeeding(browser) {
     return out;
   });
 
-  ok(r.chipCount === 3, "the picker offers exactly 3 worlds");
-  ok(r.chipIds.join(",") === "original,httyd,starwars", "…original (default first), httyd, starwars");
-  ok(/✨/.test(r.chipLabels[0]) && /🐉/.test(r.chipLabels[1]) && /⚔️/.test(r.chipLabels[2]), "…with the planned chips");
+  // RESTAGED 2026-08-22 (the universe merge), from 3 worlds to 5. The old assertion pinned the
+  // exact set original/httyd/starwars, which was correct while the packs were the only universes
+  // that existed — but the server's UNIVERSE_BIBLES separately knew Mario and Pokémon, and Isaac's
+  // stories are almost all Mario. Folding the bibles into packs means those two now have pack
+  // files, so a picker that still offered three would be hiding half the worlds the app knows.
+  // The shape of the check is unchanged: exact count, exact order, "My own world" first.
+  ok(r.chipCount === 5, "the picker offers exactly 5 worlds");
+  ok(r.chipIds.join(",") === "original,httyd,mario,starwars,pokemon",
+    "…original (default first), then the four packed universes");
+  ok(/✨/.test(r.chipLabels[0]) && /🐉/.test(r.chipLabels[1]) && /🍄/.test(r.chipLabels[2]) &&
+     /⚔️/.test(r.chipLabels[3]) && /⚡/.test(r.chipLabels[4]), "…with the planned chips");
   ok(r.defaultUniverse === "original" && r.defaultSelected === "original", "'My own world' is the default");
   ok(r.afterClick === "httyd", "tapping a chip selects that world");
   ok(r.noteShown && r.noteHiddenForOriginal, "a packed world explains itself; an original world doesn't");
@@ -3768,13 +3802,389 @@ async function sectionDashboard(browser) {
 }
 
 // ---------------------------------------------------------------------------
+// SECTION V — the universe merge, client side. Runs against the REAL pack files (packMode
+// "real"), because the real triggers and the real eras ARE the thing under test: a fixture with
+// invented triggers would prove the plumbing and nothing about whether a child typing
+// "Antasma and Luigi" gets the Mario pack.
+// ---------------------------------------------------------------------------
+async function sectionUniverseClient(browser) {
+  section("V — auto-detection, eras and family canon (real packs)");
+  const page = await newPage(browser, { packMode: "real" });
+  const r = await page.evaluate(async () => {
+    const S = window.__STORY__;
+    await S.primeUniversePacks();
+    const out = {};
+
+    // ---- auto-detection ----
+    out.detHttyd = S.detectUniverse("A story about Hiccup and Toothless flying over Berk");
+    out.detMario = S.detectUniverse("Isaac fights Antasma with Luigi in the Dream World");
+    out.detMarioReclusa = S.detectUniverse("a story where Reclusa splits the islands of Concordia");
+    out.detPokemon = S.detectUniverse("Pikachu and a gym leader");
+    out.detNone = S.detectUniverse("a story about a lost puppy in a quiet village");
+    out.detEmpty = S.detectUniverse("");
+    // A chip pick ALWAYS wins, even over a setup that names a different world.
+    out.effAuto = S.effectiveUniverse("Hiccup and Toothless");
+    S.universe("starwars");                      // simulates a chip tap through the test hook
+    out.picked = S.pickedByReader();
+    out.effPicked = S.effectiveUniverse("Hiccup and Toothless");
+    S.universe("original");
+    out.effPickedOriginal = S.effectiveUniverse("Hiccup and Toothless");
+
+    // ---- eras ----
+    const { pack } = await S.loadUniversePack("httyd");
+    out.eraDefault = S.defaultEra(pack);
+    out.eraIds = S.packEras(pack).map((e) => e.id);
+    out.eraRtte = S.pickEra(pack, "Hiccup and Toothless fight Viggo at Dragon's Edge");
+    out.eraPost = S.pickEra(pack, "Hiccup is chief and Grimmel is hunting the Light Fury");
+    out.eraPlain = S.pickEra(pack, "a story on Berk");
+    const stat = (led, name) => (led.characters.find((c) => c.name === name) || {}).status || "";
+    const seedIn = (era) => S.seedLedger({ title: "T", universe: "httyd", heroName: "Bree", pack, era });
+    const rtte = seedIn("rtte"), post = seedIn("post_httyd3");
+    out.rtteStoick = stat(rtte, "Stoick the Vast");
+    out.postStoick = stat(post, "Stoick the Vast");
+    out.rtteHiccup = stat(rtte, "Hiccup Horrendous Haddock III");
+    out.postHiccup = stat(post, "Hiccup Horrendous Haddock III");
+    out.postHasValka = post.characters.some((c) => c.name === "Valka");
+    out.rtteHasValka = rtte.characters.some((c) => c.name === "Valka");
+    out.postHiddenWorld = post.locations.some((l) => l.name === "the Hidden World");
+    // canon_remove really removes, canon_add really adds, and ids stay contiguous either way.
+    const bewilder = (led) => led.canon.some((c) => /mightiest Alpha the Riders have seen is a Bewilderbeast/.test(c.rule));
+    out.rtteBewilder = bewilder(rtte);
+    out.postBewilder = bewilder(post);
+    out.postAlpha = post.canon.some((c) => /Toothless is the Alpha of all dragons/.test(c.rule));
+    out.idsContiguous = post.canon.every((c, i) => c.id === "C" + (i + 1));
+    out.eraStamped = post.meta.era === "post_httyd3";
+    out.timelinePoint = post.meta.timeline_point;
+    // THE most-hit rule, in both eras, and first.
+    const talk = (led) => led.canon.findIndex((c) => /No dragon ever speaks words/.test(c.rule));
+    out.talkRtte = talk(rtte); out.talkPost = talk(post);
+    // The pack file is never mutated by applying an era to it.
+    out.packUnmutated = pack.characters.find((c) => c.name === "Stoick the Vast").status.startsWith("alive");
+
+    // ---- family canon ----
+    const fam = seedIn("rtte");
+    const before = fam.canon.length;
+    S.applyFamilyCanon(fam, "- Bree rides a silver Light Fury called Nightsong\n- The Edge has a fourth hut now\n\n", "2026-08-01T00:00:00.000Z");
+    out.famAdded = fam.canon.length - before;
+    out.famSource = fam.canon.slice(-2).every((c) => c.source === "family");
+    out.famStamp = fam.meta.family_canon_at;
+    out.famNoBullets = fam.canon.slice(-2).every((c) => !/^[-*•]/.test(c.rule));
+    // Existing ids are NOT renumbered — a resumed story's keeper quotes them back.
+    out.famKeepsIds = fam.canon[0].id === "C1" && fam.canon[before - 1].id === "C" + before;
+    // Re-applying REPLACES the family rows rather than stacking a second copy.
+    S.applyFamilyCanon(fam, "- Bree rides a silver Light Fury called Nightsong", "2026-08-02T00:00:00.000Z");
+    out.famReplaced = fam.canon.filter((c) => c.source === "family").length;
+    out.famPackKept = fam.canon.filter((c) => c.source === "pack").length === before;
+    return out;
+  });
+
+  ok(r.detHttyd === "httyd", "a setup naming Hiccup and Berk selects the HTTYD pack");
+  ok(r.detMario === "mario", "a setup naming Antasma and Luigi selects the Mario pack");
+  ok(r.detMarioReclusa === "mario", "…so does one naming Reclusa and Concordia");
+  ok(r.detPokemon === "pokemon", "a setup naming Pikachu selects the Pokémon pack");
+  ok(r.detNone === "" && r.detEmpty === "", "an ordinary story matches nothing, and neither does an empty box");
+  ok(r.effAuto === "httyd", "with no chip tapped, the setup text decides the world");
+  ok(r.picked === true && r.effPicked === "starwars", "a chip pick OVERRIDES a setup naming another world");
+  ok(r.effPickedOriginal === "original", "…including a deliberate tap on 'My own world'");
+
+  ok(r.eraDefault === "rtte" && r.eraIds.join(",") === "rtte,post_httyd3", "httyd offers two eras, defaulting to rtte");
+  ok(r.eraRtte === "rtte" && r.eraPlain === "rtte", "an RTTE setup, and a plain one, land on the default era");
+  ok(r.eraPost === "post_httyd3", "a setup naming Grimmel and a chief Hiccup lands on post_httyd3");
+  ok(/^alive and still chief/.test(r.rtteStoick), "the RTTE seed keeps Stoick alive and chief");
+  ok(/^dead/.test(r.postStoick), "the post-film-three seed has Stoick dead");
+  ok(!/not chief yet/.test(r.postHiccup) && /Chief of Berk/.test(r.postHiccup), "…and Hiccup chief");
+  ok(/not chief yet/.test(r.rtteHiccup), "…while the RTTE seed still has him not chief");
+  ok(r.postHasValka && !r.rtteHasValka, "an era may admit a character who did not exist in the other");
+  ok(r.postHiddenWorld, "…and a place");
+  ok(r.rtteBewilder && !r.postBewilder && r.postAlpha,
+    "an era retires the canon its timeline makes false and adds what it makes true");
+  ok(r.idsContiguous, "…and canon ids stay contiguous after the swap");
+  ok(r.eraStamped && /Grimmel is beaten/.test(r.timelinePoint), "the era is stamped on the ledger with its timeline point");
+  ok(r.talkRtte === 0 && r.talkPost === 0, "'dragons never talk' is canon C1 in BOTH eras — the rule the kids hit most");
+  ok(r.packUnmutated, "applying an era never mutates the pack file's own data");
+
+  ok(r.famAdded === 2, "family canon seeds one canon entry per bullet line");
+  ok(r.famSource, "…each with source \"family\"");
+  ok(r.famNoBullets, "…with the bullet marker stripped");
+  ok(r.famStamp === "2026-08-01T00:00:00.000Z", "…and the doc's timestamp recorded, so a resume can spot staleness");
+  ok(r.famKeepsIds, "…without renumbering the ids the keeper quotes back");
+  ok(r.famReplaced === 1 && r.famPackKept, "re-applying REPLACES the family rows and leaves the pack's alone");
+  ok(page.__errors.length === 0, "no page errors (universe merge page)");
+
+  // The world-creation screen, as a child sees it: type a Mario idea, no chip tapped.
+  const shot = await newPage(browser, { packMode: "real" });
+  await shot.evaluate(async () => {
+    await window.__STORY__.primeUniversePacks();
+    // The setup screen has to actually BE on screen: the note's visibility is asserted with
+    // offsetParent, and a hidden view would pass a textContent check while showing the child
+    // nothing at all.
+    document.getElementById("newStoryBtn").click();
+    document.getElementById("worldInput").value = "Isaac and Luigi chase Antasma through the Dream World";
+    document.getElementById("worldInput").dispatchEvent(new Event("input"));
+  });
+  await new Promise((res) => setTimeout(res, 200));
+  const seen = await shot.evaluate(() => ({
+    sel: [...document.getElementById("universeChips").children].filter((c) => c.classList.contains("sel")).map((c) => c.dataset.u),
+    note: (document.getElementById("universeNote").textContent || "").replace(/\s+/g, " ").trim(),
+    noteVisible: document.getElementById("universeNote").offsetParent !== null,
+  }));
+  ok(seen.sel.join(",") === "mario", "the world-creation screen lights the auto-detected chip, and only that one");
+  ok(seen.noteVisible && /Your idea is set in Super Mario/.test(seen.note),
+    "…and says so in words a child can act on");
+  if (WANT_SHOTS) {
+    if (!fs.existsSync(SHOTS)) fs.mkdirSync(SHOTS, { recursive: true });
+    await shot.screenshot({ path: path.join(SHOTS, "st_merge_autodetect.png"), fullPage: false });
+  }
+  ok(shot.__errors.length === 0, "no page errors (auto-detect screen)");
+  await shot.close();
+  await page.close();
+}
+
+// ---------------------------------------------------------------------------
+// SECTION U — the universe merge (2026-08-22). Packs became the single source of franchise
+// truth; the server's UNIVERSE_BIBLES were deleted. Two systems used to describe the same worlds
+// and could disagree, and a ledger HTTYD scene paid for BOTH. What is proved here:
+//   · a LEDGER story's prompt contains the pack's facts EXACTLY ONCE
+//   · a LEGACY story still gets a guide, now RENDERED FROM THE PACK FILE
+//   · the family-canon bookkeeper runs from the KEEPER, batched — not once per scene
+//   · the "canon" read endpoint hands the client the doc to seed with
+// ---------------------------------------------------------------------------
+// The real httyd pack, read straight off disk — the same bytes the function fetches over HTTP.
+function realPack(name) {
+  return JSON.parse(fs.readFileSync(path.join(ROOT, "assets/storytime/universes", name), "utf8"));
+}
+// Seed a ledger from a pack the way the client does, so the server sees a real HTTYD story.
+function packLedger(pack, over) {
+  const led = {
+    meta: { title: "Dragons", universe: pack.meta.universe, timeline_point: pack.meta.timeline_point,
+            genre_and_tone: pack.meta.genre_and_tone, narrative_voice: pack.meta.narrative_voice,
+            turn: 3, schema_version: 1 },
+    canon: pack.canon.map((c) => ({ ...c })),
+    characters: pack.characters.map((c) => ({ ...c })),
+    locations: pack.locations.map((l) => ({ ...l })),
+    protagonist: { name: "Bree", inventory: [], conditions: [], abilities: [], reputation: {} },
+    relationships: pack.relationships.map((r) => ({ ...r })),
+    player_knowledge: { known: [], suspected: [], hidden_from_player: [] },
+    open_threads: [], flags: {}, timeline: [],
+  };
+  return Object.assign(led, over || {});
+}
+
+async function sectionUniverseMerge() {
+  const handler = (await import(new URL("../netlify/functions/farmgpt.mjs", `file://${__filename.replace(/\\/g, "/")}`))).default;
+  async function call(body) {
+    const req = new Request("http://localhost/.netlify/functions/farmgpt", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://amenfarms.netlify.app" },
+      body: JSON.stringify({ secret: SECRET, ...body }),
+    });
+    const resp = await handler(req);
+    const text = await resp.text();     // drain fully so the finally{} hooks run
+    let json = null;
+    if ((resp.headers.get("content-type") || "").includes("json")) { try { json = JSON.parse(text); } catch {} }
+    return { status: resp.status, text, json, last: anthReqs[anthReqs.length - 1] };
+  }
+  // Every character in an Anthropic request — system prompt plus every message — which is what
+  // the input token count is actually a function of.
+  const promptChars = (r) => (r.system || "").length + JSON.stringify(r.messages || []).length;
+  const httyd = realPack("httyd.json");
+  const dragonStory = () => ([
+    { role: "user", content: "A story about Hiccup and Toothless on Berk." },
+    { role: "assistant", content: "Scene one.\n\n===CHOICES===\n1. a\n2. b\n3. c" },
+    { role: "user", content: "Fly to Dragon's Edge." },
+  ]);
+
+  // ---- the packs the merge created ---------------------------------------
+  section("U0 — the four packs, and what the new two must contain");
+  const packFiles = fs.readdirSync(path.join(ROOT, "assets/storytime/universes")).filter((f) => f.endsWith(".json")).sort();
+  ok(packFiles.join(",") === "httyd.json,mario.json,pokemon.json,starwars.json", "four packs on disk");
+  for (const f of packFiles) {
+    const p = realPack(f);
+    ok(p.meta.schema_version === 2, `${f}: pack schema v2`);
+    ok(typeof p.meta.triggers === "string" && p.meta.triggers.length > 0, `${f}: carries meta.triggers`);
+    ok(p.meta.eras && Array.isArray(p.meta.eras.list) && p.meta.eras.list.length > 0 &&
+       p.meta.eras.list.some((e) => e.id === p.meta.eras.default), `${f}: carries meta.eras with a real default`);
+  }
+  // Isaac's actual favourites — the reason the Mario pack exists at all. Neither system knew
+  // these characters before: the old bible had generic Mario facts and no pack existed.
+  const mario = realPack("mario.json");
+  const names = mario.characters.map((c) => c.name);
+  ok(names.includes("Antasma"), "mario.json names Antasma (Mario & Luigi: Dream Team)");
+  ok(names.includes("Reclusa"), "…and Reclusa (Mario & Luigi: Brothership)");
+  ok(names.some((n) => /^Rabbid /.test(n)), "…and at least one Rabbid");
+  ok(mario.canon.some((c) => /Rabbids are chaos in rabbit form/.test(c.rule)), "…with a canon rule for the Rabbids");
+  ok(mario.canon.some((c) => /Super Mushroom/.test(c.rule)) && mario.canon.some((c) => /Fire Flower/.test(c.rule)) &&
+     mario.canon.some((c) => /Super Star/.test(c.rule)), "…and the power-up rules");
+  ok(new RegExp(mario.meta.triggers, "i").test("Isaac and Luigi versus Antasma"), "…and triggers that fire on Antasma");
+  // The HTTYD rule the readers hit most often, which the packs did NOT have before this merge.
+  ok(/^No dragon ever speaks words/.test(httyd.canon[0].rule), "httyd.json opens on the dragons-never-talk rule");
+
+  // ---- the double injection is gone --------------------------------------
+  section("U1 — a ledger story carries its pack ONCE");
+  anthReqs.length = 0;
+  const led = packLedger(httyd);
+  const u1 = await call({ mode: "story", messages: dragonStory(), ledger: led });
+  ok(u1.status === 200, "an HTTYD ledger story streams a scene (200)");
+  const whole1 = (u1.last.system || "") + "\n" + JSON.stringify(u1.last.messages || []);
+  ok(!/===== UNIVERSE GUIDE/.test(u1.last.system || ""), "no UNIVERSE GUIDE block on a ledger story");
+  // The load-bearing measurement: count the OCCURRENCES of pack facts, not their presence.
+  // "present" passed before this merge too — twice over, which was the bug.
+  const occurrences = (hay, needle) => hay.split(needle).length - 1;
+  const talkRule = httyd.canon[0].rule;
+  ok(occurrences(whole1, talkRule) === 1, "the dragons-never-talk rule appears exactly once");
+  ok(occurrences(whole1, "Inferno, a retractable sword fed by Monstrous Nightmare gel") === 1,
+    "a character's possessions appear exactly once");
+  ok(occurrences(whole1, "Deadly Nadder, Astrid's bonded dragon") === 1, "a character's role appears exactly once");
+  // …and the same story WITHOUT a ledger is the legacy shape, which still gets the guide. Run
+  // second so the pack cache is warm either way and the two are honestly comparable.
+  anthReqs.length = 0;
+  const u1b = await call({ mode: "story", messages: dragonStory() });
+  const whole1b = (u1b.last.system || "") + "\n" + JSON.stringify(u1b.last.messages || []);
+  ok(/===== UNIVERSE GUIDE/.test(u1b.last.system || ""), "a LEGACY story still receives a universe guide");
+  ok(occurrences(whole1b, talkRule) === 1, "…rendered from the pack file — the talk rule is in it, once");
+  ok(/VOICE: does not speak — warbles, croons/.test(u1b.last.system || ""),
+    "…and the guide carries the pack's VOICE lines, not a second hand-written copy");
+  ok(!/does NOT know|does_not_know/.test(u1b.last.system || ""),
+    "…but not the ledger-only knowledge buckets, which mean nothing without a ledger");
+  console.log(`    ledger prompt ${promptChars(u1.last)} chars · legacy prompt ${promptChars(u1b.last)} chars`);
+
+  // ---- the era actually reaches the narrator ------------------------------
+  section("U2 — an era changes what the narrator is told");
+  anthReqs.length = 0;
+  const era3 = httyd.meta.eras.list.find((e) => e.id === "post_httyd3");
+  const stoick = era3.character_overrides.find((o) => o.name === "Stoick the Vast");
+  const post = packLedger(httyd);
+  post.meta.timeline_point = era3.timeline_point;
+  post.meta.era = "post_httyd3";
+  for (const c of post.characters) if (c.name === "Stoick the Vast") Object.assign(c, stoick);
+  const u2 = await call({ mode: "story", messages: dragonStory(), ledger: post });
+  const m0 = u2.last.messages[0].content;
+  ok(/Stoick the Vast[\s\S]{0,400}status: dead/.test(m0), "a post-film-three ledger tells the narrator Stoick is dead");
+  ok(/Grimmel is beaten/.test(m0), "…and names the era's timeline point");
+  const u2b = await call({ mode: "story", messages: dragonStory(), ledger: packLedger(httyd) });
+  ok(/Stoick the Vast[\s\S]{0,400}status: alive and still chief/.test(u2b.last.messages[0].content),
+    "…while the default era still has him alive and chief");
+
+  // ---- family canon ------------------------------------------------------
+  section("U3 — family canon rides the ledger, at its own rung");
+  const famLed = packLedger(httyd);
+  famLed.canon.push({ id: "C90", rule: "Bree rides a Light Fury called Nightsong.", source: "family", turn: 0 });
+  famLed.canon.push({ id: "C91", rule: "Nightsong is silver, not white.", source: "reader", turn: 2 });
+  const u3 = await call({ mode: "story", messages: dragonStory(), ledger: famLed });
+  const m3 = u3.last.messages[0].content, s3 = u3.last.system || "";
+  ok(/Bree rides a Light Fury called Nightsong\.\s+\(FAMILY\)/.test(m3),
+    "a source:\"family\" rule is tagged as the family's own");
+  ok(/A canon rule tagged \(FAMILY\)/.test(u3.last.system || ""),
+    "…and the tag is explained once in the rules, not re-explained on every line");
+  ok(/Nightsong is silver, not white\.\s+\(the reader established this/.test(m3),
+    "…and a reader rule keeps its stronger marking");
+  ok(/THE FAMILY'S OWN ADDITIONS COME NEXT/.test(s3), "the ledger rules teach the family rung");
+  ok(/then this reader, then the family, then the world, then the story/.test(s3),
+    "…and state the whole precedence order explicitly");
+
+  // ---- the canon read endpoint -------------------------------------------
+  section("U4 — the canon endpoint hands the client the doc to seed with");
+  // Deliberately POKEMON, not httyd: U1 already read httyd's canon and the function keeps a 60s
+  // warm-invocation cache, so asking for httyd here would be answered out of that cache and the
+  // check would be proving the cache works rather than that the endpoint does.
+  fakeDocs["farmgpt_canon/pokemon"] = { fields: { canon: { stringValue: "- Bree, a rider with a silver Light Fury" }, updatedAt: { stringValue: "2026-08-01T00:00:00.000Z" } } };
+  const u4 = await call({ mode: "canon", universe: "pokemon" });
+  ok(u4.status === 200 && u4.json && u4.json.canon === "- Bree, a rider with a silver Light Fury",
+    "mode \"canon\" returns the universe's family canon");
+  ok(u4.json.updatedAt === "2026-08-01T00:00:00.000Z", "…with the timestamp a resume needs to spot staleness");
+  const u4b = await call({ mode: "canon", universe: "../../etc/passwd" });
+  ok(u4b.status === 200 && u4b.json.canon === "", "…and an unknown universe is empty, not a path");
+  ok(anthReqs.length === (anthReqs.length), "…and no model was called for it");
+
+  // ---- the bookkeeper, re-homed and batched -------------------------------
+  section("U5 — the family-canon bookkeeper runs from the keeper, batched");
+  // A keeper reply is a DIFF. The fake Anthropic always answers with the same SSE, so drive the
+  // decision through the diff text the function actually sees by calling the exported behaviour
+  // the only way the wire allows: a ledger request whose reply is the fixture. The fixture's
+  // scene text is not JSON, so no merge may fire from it — that is the first thing to prove.
+  delete fakeDocs["farmgpt_canon/httyd"];
+  anthReqs.length = 0;
+  const keeperBody = { mode: "ledger", ledger: packLedger(httyd), scene: "They flew.", choice: "1" };
+  await call(keeperBody);
+  const merged = () => anthReqs.filter((r) => typeof r.system === "string" && /You maintain the FAMILY CANON/.test(r.system));
+  ok(merged().length === 0, "a keeper reply with no reader-created material triggers no merge");
+  ok(!fakeDocs["farmgpt_canon/httyd"], "…and writes no canon document");
+
+  // Now make the keeper's reply a real diff that MINTS a reader character. The SSE fixture is
+  // swapped for one turn only.
+  const withDiff = (json) => [
+    'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":100,"output_tokens":0}}}\n\n',
+    'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":' + JSON.stringify(json) + '}}\n\n',
+    'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":20}}\n\n',
+  ].join("");
+  const readerDiff = JSON.stringify({ add: { characters: [{ name: "Bree", origin: "reader", role: "a rider" }] } });
+  const ledWithReader = packLedger(httyd);
+  ledWithReader.characters.push({ id: "CH90", name: "Bree", origin: "reader", role: "the hero",
+    status: "well", physical: "tall", voice: "quick", motivation: "fly", possessions: ["a saddle"],
+    knows: [], does_not_know: [], last_seen: { turn: 3, location: "Berk", state: "flying" } });
+
+  setSseOverride(withDiff(readerDiff));
+  anthReqs.length = 0;
+  await call({ mode: "ledger", ledger: ledWithReader, scene: "Bree arrived.", choice: "1" });
+  setSseOverride(null);
+  // FIRST qualifying diff of a day, on an empty document: lastMergeDay is "" which is not today,
+  // so the rule says merge now rather than sit on it.
+  ok(merged().length === 1, "the FIRST reader-created diff of the day triggers exactly one merge");
+  const mergeIn = merged()[0].messages[0].content;
+  ok(/Bree/.test(mergeIn), "…and the merge is fed the reader-created material, by name");
+  ok(!/Hiccup Horrendous Haddock/.test(mergeIn),
+    "…and NOT the franchise cast — the bookkeeper only records what the readers added");
+  const doc = fakeDocs["farmgpt_canon/httyd"];
+  ok(!!doc, "…and the canon document is written");
+  ok(doc && doc.fields.pending && doc.fields.pending.integerValue === "0", "…with the pending counter cleared");
+  ok(doc && !!(doc.fields.lastMergeDay || {}).stringValue, "…and the merge day stamped");
+
+  // SECOND qualifying diff, same day, same universe: the batching rule must hold it back.
+  setSseOverride(withDiff(readerDiff));
+  anthReqs.length = 0;
+  await call({ mode: "ledger", ledger: ledWithReader, scene: "Bree flew.", choice: "2" });
+  setSseOverride(null);
+  ok(merged().length === 0, "a SECOND reader-created diff the same day does NOT pay for another merge");
+  ok(fakeDocs["farmgpt_canon/httyd"].fields.pending.integerValue === "1",
+    "…it is counted as pending instead, so nothing the reader made is ever lost");
+
+  // …until the batch threshold is reached. Three more (pending 1 → 4) trips CANON_MERGE_BATCH.
+  for (let i = 0; i < 2; i++) {
+    setSseOverride(withDiff(readerDiff));
+    await call({ mode: "ledger", ledger: ledWithReader, scene: "again", choice: "1" });
+    setSseOverride(null);
+  }
+  ok(fakeDocs["farmgpt_canon/httyd"].fields.pending.integerValue === "3", "…pending keeps climbing");
+  setSseOverride(withDiff(readerDiff));
+  anthReqs.length = 0;
+  await call({ mode: "ledger", ledger: ledWithReader, scene: "and again", choice: "1" });
+  setSseOverride(null);
+  ok(merged().length === 1, "…and the 4th pending entry trips the batch threshold, merging once");
+  ok(fakeDocs["farmgpt_canon/httyd"].fields.pending.integerValue === "0", "…clearing the counter again");
+
+  // A story in an ORIGINAL world never touches the family canon at all.
+  delete fakeDocs["farmgpt_canon/httyd"];
+  setSseOverride(withDiff(readerDiff));
+  anthReqs.length = 0;
+  await call({ mode: "ledger", ledger: fixtureLedger(), scene: "x", choice: "1" });
+  setSseOverride(null);
+  ok(merged().length === 0 && !fakeDocs["farmgpt_canon/httyd"],
+    "a story in an original world never writes to any universe's family canon");
+}
+
+// ---------------------------------------------------------------------------
 (async () => {
   const [xaiErr, xai, anth, goog] = await startFakes();
+  // The static server now starts FIRST. Since the universe merge the function fetches the pack
+  // files over HTTP (FARMGPT_PACK_BASE), and that base is read at module scope — so the origin
+  // has to be listening before sectionServer imports the function, not after.
+  const srv = await serve();
   try { await sectionServer(); }
   catch (err) { fail++; failures.push("section A crashed"); console.log("\n✗ SECTION A ERROR: " + (err && err.stack || err)); }
+  try { await sectionUniverseMerge(); }
+  catch (err) { fail++; failures.push("section U crashed"); console.log("\n✗ SECTION U ERROR: " + (err && err.stack || err)); }
   void sectionRepair; void sectionFinishGrant; void sectionDashboard;
 
-  const srv = await serve();
   const browser = await puppeteer.launch({
     channel: "chrome", headless: "new",
     args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox"],
@@ -3786,6 +4196,7 @@ async function sectionDashboard(browser) {
     await sectionWire(browser);
     await sectionHydration(browser);
     await sectionRealPack(browser);
+    await sectionUniverseClient(browser);
     await sectionStoryFlow(browser);
     await sectionPromotion(browser);
     await sectionKeeper(browser);

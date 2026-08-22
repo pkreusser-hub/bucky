@@ -237,43 +237,32 @@ continuity, research→Sonnet. GEMINI_BASE_URL env override exists for fake-serv
   _verify-storylog-summary 86/86 (deletion asserts inverted to retention + storylog_scenes +
   flag-rule checks) · scratchpad story_ux_test.cjs 22/22 (gate/steer/transcript) ·
   story_redo_test 26/26 + parent-research 25 / kidstory 54 / dnd 47 / calories 24.
-📚 UNIVERSE BIBLES (2026-08-01, user: Eleanor's redos mostly correct HTTYD canon): server-side
-  UNIVERSE_BIBLES in farmgpt.mjs — compact franchise fact sheets (HTTYD incl. RTTE · Super Mario ·
-  Star Wars · Pokémon; ~250 words each) AUTO-ATTACHED to the STORY system prompt when the
-  request's message text matches a trigger regex (universeGuides(messages) — JSON.stringify scan;
-  no picker, the world setup names the franchise and character names in scenes/recap keep it
-  sticky after windowing; crossovers attach multiple guides). Key facts encode the exact redo
-  classes: dragons NEVER talk, Hiccup/Toothless prosthetics, Grimborns, per-character
-  weapons/dragons; Pokémon say only their names + faint-never-die; Mario poof-not-die. Guide
-  header: reader's explicit changes WIN (reader-is-law compatible). story mode only (research/
-  kidstory/summary untouched). False-positive care: bare "peach"/"toad" don't trigger ("princess
-  peach" does). To add a universe: append an entry, nothing else to wire. Verify:
-  _verify-story-reminder.mjs now 40/40 (+10: attach/facts/yield-line, no-trigger, peach guard,
-  Mario, crossover BOTH, recap-sticky, research-never).
-⚔️ STAR WARS SHEET REBUILT MECHANICS-FIRST (2026-08-02, user: "she needs more force awareness,
-  not characters"): ~680 words — THE FORCE (light/dark, born-not-learned, ranks, Rule of Two;
-  telekinesis scaling; body powers + deflection-via-precognition; mind trick limits; TELEPATHY
-  & FORCE BONDS — siblings/partners speak mind-to-mind, feel each other, sense across distance,
-  the exact mechanic Eleanor plays; dark powers; limits/costs/Force ghosts) + LIGHTSABERS
-  (kyber crystals choose/bleeding-makes-red, weightless blade/cauterizes/locks, beskar resists;
-  TYPES incl. double-bladed = ONE central handle — evidenced by her ASCII-art redo — shoto,
-  crossguard, curved, darksaber; seven dueling forms) + compressed galaxy color. Triggers +=
-  kyber|padawan|darksaber|force push|force lightning.
-🧬 EVOLVING FAMILY CANON (2026-08-01, user: kid-created characters like Bree should become part
-  of the universe sheet and evolve): farmgpt_canon/<universeKey> Firestore doc per universe —
-  after every mode-"summary" story-bible fold, the server detects the story's universe(s) and a
-  Sonnet bookkeeper (CANON_UPDATE_SYSTEM, ≤500 words, NO_CHANGES sentinel skips writes, never
-  drops a reader-created character — compresses instead) merges reader-created characters +
-  lasting universe changes into the doc (updateUniverseCanons in the stream finally;
-  captureReply = logStoryReq || summary). universeGuides() is now ASYNC: serves baked facts +
-  "FAMILY CANON" block (fetchUniverseCanon, 60s warm cache; write updates cache). Canon is
-  FAMILY-SHARED — one kid's characters exist in siblings' stories. Usage logs under u_*
-  (Sonnet-priced ✓). HTTYD sheet also expanded 3x (~1,050 words, full RTTE cast w/ physical
-  descriptions, Dragon Eye, lore; Johann twist stated plainly — kids have seen everything;
-  "dragon rider" trigger REMOVED as too generic — an original dragon world must never get
-  "dragons never talk" imposed). Verify: _verify-storylog-summary 105/105 (+11 canon:
-  no-universe skip, Sonnet fold, empty-canon first fold, doc write, story-prompt injection,
-  current-canon merge, NO_CHANGES no-write) + reminder 40/40.
+📚 UNIVERSE BIBLES + 🧬 EVOLVING FAMILY CANON (2026-08-01/02) — **SUPERSEDED 2026-08-22 by the
+  universe merge; `UNIVERSE_BIBLES` no longer exists.** Franchise facts now live ONLY in
+  `assets/storytime/universes/*.json` and reach a story through its ledger. Full account, the
+  measured cost of having had two systems, and the current wiring: see **📖 STORY TIME CONTINUITY
+  — the universe merge** at the end of this file. What those two entries learned, which the merge
+  kept and which is still load-bearing:
+  - **Why any of it exists**: Eleanor's redo write-ins were mostly correcting HTTYD canon, and the
+    exact redo classes are still what the packs encode — **dragons NEVER talk** (now `httyd.json`
+    C1), Hiccup's and Toothless's prosthetics, which Grimborn is which, per-character weapons and
+    dragons; Pokémon say only their own names and faint rather than die; nothing in Mario really
+    dies. Star Wars was rebuilt MECHANICS-first on her note "she needs more force awareness, not
+    characters" — Force bonds (the mechanic she actually plays), the double-bladed saber being ONE
+    central handle (evidenced by her ASCII-art redo), bleeding a crystal red, what resists a blade.
+  - **Detection is a regex over the WHOLE request, and that stickiness is the point.** The world
+    setup names the franchise once; after the send window slides past it, the character NAMES in
+    later scenes and recaps are what keep a legacy story attached to its universe. Losing that
+    mid-story is how a dragon starts talking in chapter nine.
+  - **THE RENAME BYPASS is deliberate.** Detection reads the request text, so a reader who renames
+    everything slips past it — correctly. `"dragon rider"` was removed as a trigger for exactly
+    this reason: an original dragon world must never have "dragons never talk" imposed on it.
+  - **Reader is law**, and false-positive care (bare "peach"/"toad" must not trigger; "princess
+    peach" must).
+  - **Family canon is FAMILY-SHARED** — one kid's characters exist in a sibling's stories — and
+    the bookkeeper must never DROP a reader-created character, only compress it, because kids come
+    back to them years later. Still true; the doc is still `farmgpt_canon/<universeKey>`, the
+    prompt is still `CANON_UPDATE_SYSTEM`, usage is still bucket `u`.
 🎁 STORY BUDGET REFRESH (2026-08-01, user): Dad-only button atop the Story Log view
   (#budgetGrantBtn) → mode story_budget_grant increments farmgpt_story_bonus/<farmDate> .extra
   by STORY_DAILY_CAP — everyone's effective cap that day = 15 + extra (grants stack; bonus read
@@ -1870,3 +1859,161 @@ devtools reader could too — harmless, and the alternative was asserting about 
 of exercising the path.
 
 ---
+
+# 📖 STORY TIME CONTINUITY — the universe merge: one system, not two (2026-08-22)
+
+Story Time had **two independent universe systems running on the same scene**, built by two
+sessions that never met. Packs (`assets/storytime/universes/*.json`) seeded a ledger story's
+world at creation. Bibles (`UNIVERSE_BIBLES` in `farmgpt.mjs`) injected a hand-written fact sheet
+into the STORY prompt whenever a trigger regex matched, plus an evolving FAMILY CANON from
+Firestore. Both were describing How To Train Your Dragon, at the same time, in the same request.
+
+**What that cost, measured.** An HTTYD ledger scene carried the pack's cast in its ledger AND the
+bible's ~1.7K tokens of the same cast AND up to ~1.6K of family canon: **9,371 input tokens**,
+counted by Anthropic. Worse than the money, the two **disagreed** — the pack pinned the end of
+*Race to the Edge* (Stoick alive, Hiccup not chief) while Eleanor's stories are post-film-three
+(Grimmel, Light Furies, Stoick dead). Her August 2–3 redos were exactly those timeline facts. And
+because the bookkeeper only ran from the LEGACY recap fold, **family canon had stalled for every
+ledger story** — which is now every story. Each system also knew a world the other did not: the
+bibles had Mario and Pokémon (Isaac's 140 Mario scenes in a fortnight had no pack at all), and the
+packs were missing the single most-hit rule in the house — **dragons never talk**.
+
+**Packs are now the only place a franchise fact is written.** `UNIVERSE_BIBLES` is deleted.
+
+## Pack schema v2
+`meta.schema_version: 2`, and two new `meta` fields:
+- **`triggers`** — the detection regex SOURCE (a string; JSON has no regex type), ported from the
+  bibles per universe. Compiled with `"i"` by both the client and the server.
+- **`eras`** — `{ default, list: [{ id, label, timeline_point, triggers, canon_add, canon_remove,
+  characters_add, character_overrides, locations_add }] }`. An era is a set of OVERRIDES applied
+  to the pack **before** it seeds a ledger, so one file holds two timeline points without two
+  copies of the cast. `character_overrides` may touch only
+  `role/status/knows/does_not_know/last_seen/physical/motivation` — the validator rejects anything
+  else, because an era that can rewrite a `voice` is a second pack wearing a hat.
+
+`httyd.json` ships **`rtte`** (default — the pack as it always was) and **`post_httyd3`**: Stoick
+dead, Hiccup chief and married to Astrid, Valka and the Light Fury admitted as characters, the
+Hidden World as a location, Grimmel beaten, Toothless the Alpha — and `canon_remove: ["C15"]`,
+because "the mightiest Alpha the Riders have seen is a Bewilderbeast" stops being true the moment
+Toothless is one. `mario.json`/`pokemon.json`/`starwars.json` each carry one era; Star Wars stays
+deliberately era-agnostic (see the directory README).
+
+**Folded in from the bibles:** the **dragons-never-talk rule as httyd C1** — first, because it is
+the rule the kids hit most; the bibles' richer rider physicals (eye colour, braid, kit); Stoick's
+Skullcrusher; and seven Star Wars rules the pack lacked (Force bonds, Force ghosts, cauterising,
+hilt types, the Darksaber, the seven forms, blasters/droids/Wookiees).
+
+**Two new packs, every fact web-verified** (Super Mario Wiki, Bulbapedia): `mario.json` — 19 canon
+rules, 12 characters, with **Antasma** (Mario & Luigi: Dream Team), **Reclusa** (Brothership) and
+the **Rabbids**, which is the point: they are Isaac's actual favourites and *neither* old system
+knew them. `pokemon.json` — 16 rules, 5 characters.
+
+## Auto-detection at creation
+`farmgpt.html` primes all four packs in the background when the setup screen opens, then matches
+the setup text against each `meta.triggers` on every keystroke. A matched world lights its chip
+and says so in a line a child can act on. **A chip pick always wins** — including a deliberate tap
+on "My own world" for a story that happens to mention a dragon. Legacy stickiness is unchanged
+from the bibles: the server regex still runs over the WHOLE serialised message array, because
+after the send window slides past the setup it is the character NAMES in later scenes that keep an
+old story stuck to its universe.
+
+## Era selection
+The Fable seeder chooses it — it already reads the setup properly — constrained to the pack's own
+era ids, which are sent to it rather than trusted to be remembered. The client's `eraTriggers`
+regex is the fallback for when the seeder is off or fails, and its guess is shown to the seeder as
+"what would happen without you". If the seeder names a different era, the client **rebuilds the
+pack half of the ledger in that era** and lands the story layer on top — rebuilding, not patching,
+so "apply the era, then seed" stays true either way. In a packed world the era owns
+`meta.timeline_point`; the seeder's own paraphrase of it is dropped.
+
+## The double injection, and where family canon went
+`universeGuides()` now returns `""` for any story carrying a ledger. LEGACY stories still get a
+guide, but it is **rendered from the pack file** by `renderPackGuide()` — canon rules in full, one
+line per character (role · status · looks · VOICE), places — so nothing is authored twice. The
+server fetches packs over HTTP from its own site (`FARMGPT_PACK_BASE`, defaulting to Netlify's
+`URL`) with a 10-minute warm cache and a 30-second cache of failures.
+
+Family canon reaches ledger stories by being **seeded into the ledger** at creation as canon
+entries with `source:"family"` (one per bullet line), refreshed on resume when the doc's
+`updatedAt` has moved. New precedence: **FAMILY_RULES > reader > family > pack > story**. The
+renderer tags family rows `(FAMILY)` and the rules block explains the tag once — a full sentence
+of explanation on each of eight lines cost ~190 tokens a scene for one idea. `applyFamilyCanon`
+never renumbers the ids that stay: a resumed story's keeper quotes canon ids back in its diffs.
+
+## The bookkeeper, re-homed and batched
+The KEEPER (mode `ledger`) is the one place that sees every diff server-side, so
+`maybeMergeCanonFromDiff` runs there. A scene qualifies only when the diff MINTED reader-created
+material — `source:"reader"` canon or an `origin:"reader"` character.
+
+**THE BATCHING RULE**, and why it is not per scene: the keeper runs ~32 times a day, and a Sonnet
+merge per scene would cost more than the duplication this whole merge removed. So a qualifying
+diff bumps a `pending` counter on `farmgpt_canon/<key>`, and the merge fires when **pending
+reaches 4**, OR when **anything is pending and `lastMergeDay` is an earlier farm day**. Result: at
+most one merge per universe per day, at least one on any day the readers created something, and
+nothing ever dropped — the counter survives in Firestore until a merge consumes it. A `NO_CHANGES`
+reply still clears the counter and stamps the day, or the same nothing gets re-paid for tomorrow.
+The merge is fed `readerCreatedExtract(ledger)` — the reader-origin characters, reader-source
+canon and the hero — deliberately NOT the franchise cast. Legacy `mode:"summary"` keeps its own
+trigger. Usage stays in bucket **`u`**: same bookkeeper, same job, and splitting it would make the
+dashboard's summary row lie about what it used to cost.
+
+New non-AI endpoint `mode:"canon"` returns `{canon, updatedAt}` for one universe, so the client
+can seed and refresh without a model call.
+
+## Measured
+Real function, real ledger, real family canon, counted by Anthropic's `count_tokens`
+(`node tools/_probe-storyuniverse.mjs`, which hosts HEAD's function alongside this one):
+
+| scene | before | after | change |
+|---|---|---|---|
+| HTTYD ledger scene | 9,371 | 7,529 | **−1,842 (−19.7%)** |
+| HTTYD legacy scene (no ledger) | 4,743 | 6,065 | +1,322 |
+
+At ~32 scenes/day that is **$9.12 → $7.32 a month of input** on the narrator's tier. The −2,000
+target was missed by 158, and the reason is worth writing down: deleting the bible was worth
+−1,893 on its own, and the merge spent some of it back deliberately — the dragons-never-talk rule
+and Skullcrusher joined the pack (~120/scene), and family canon in the ledger costs +51/scene more
+than injecting it did, in exchange for being outranked by the reader, which it never was before.
+
+**The legacy number went UP, on purpose.** Legacy stories now get the pack's timeline-accurate
+statuses — Viggo dead, Johann unmasked, Krogan at large — which the bible never had; it listed the
+Grimborns as live villains. Legacy is a closed, dwindling set: no new story is legacy.
+
+## Verified
+storyledger **776/776** (was 683 — 93 new, 3 restaged) · packs **1857/1857** across four ·
+kidstory-server 54/54 · dnd-server 47/47 · news 200/200 · fitness 249/249. **Before/after
+evidence**: with the app files stashed back to `HEAD`, 14 checks fail — the four v2/trigger/era
+checks, the talk rule, `no UNIVERSE GUIDE block on a ledger story`, the pack-rendered guide, the
+restaged chip set — and section U crashes on the missing `canon` mode, while every pre-existing
+check stays green (705/719, all 14 failures new or restaged).
+
+Three checks were **restaged**, not loosened: the picker's world set went 3 → 5, because the old
+assertion pinned `original/httyd/starwars` while the server separately knew Mario and Pokémon.
+Its shape is unchanged — exact count, exact order, "My own world" first.
+
+One suite bug was found and fixed on the way: the fake Anthropic answered **every** request with
+SSE, including `callAnthropicOnce`, which is not a streaming call. Every one-shot call was
+therefore returning `null`, which reads as "the bookkeeper decided not to write" rather than "the
+bookkeeper never got an answer". A fixture kinder than reality hides bugs.
+
+LIVE (`node tools/_probe-storyuniverse-live.mjs`, real Fable + real narrator, Firestore faked
+locally so nothing touches the family's data). No chip tapped in either case:
+
+- *"Hiccup is Chief of Berk now and Grimmel is hunting the Light Fury"* → universe `httyd`, era
+  **`post_httyd3`**, 21 canon / 28 characters, **C1 = the talk rule**, Stoick *"dead — he stepped
+  in front of a blast meant for Hiccup"*, Hiccup *"Chief of Berk since his father died, married to
+  Astrid"*, Toothless *"Alpha of every dragon, mated to the Light Fury"*, Valka *"alive and home
+  on Berk, widowed"*. Ledger on the wire ≈ 3,799 tokens.
+- *"Luigi and I chase Antasma through the Dream World on Pi'illo Island"* → universe **`mario`**,
+  19 canon / 14 characters, Antasma *"beaten — Mario defeated him inside the Dream World"*, and
+  three threads the seeder built on exactly that ("what is the flapping shadow that circles the
+  Dozing Dunes every night and screeches like a bat?"). Ledger ≈ 3,556 tokens.
+
+Shot: `shots/st_merge_autodetect.png` — the world-creation screen with Super Mario lit from the
+text alone.
+
+**KNOWN / DEFERRED**: `httyd.json`'s `post_httyd3` seed is **27.4 KB**, leaving 2.6 KB under the
+30 KB ledger cap; Gustav, Fanghook and Cloudjumper were cut to get there (Cloudjumper survives
+inside Valka's sheet). The next era that adds a cast will need the compaction step, not more
+trimming. Detection still reads request text, so a reader who renames everything ("my dragon
+Sparks") slips past it — deliberate, and unchanged: an unnamed world is an original world.
