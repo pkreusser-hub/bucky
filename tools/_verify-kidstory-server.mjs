@@ -27,7 +27,13 @@ const fsSrv = http.createServer(async (q, s) => {
   send(200, {});
 });
 const antSrv = http.createServer(async (q, s) => {
-  const j = JSON.parse(await readBody(q)); anthropicReqs.push(j);
+  const j = JSON.parse(await readBody(q));
+      // SYSTEM-BLOCK NORMALISATION (2026-08-22). Story mode places its cache breakpoint on the
+      // system prompt, which the API only allows when `system` is a block array. The TEXT is
+      // byte-identical either way, so recording the joined text keeps every "is rule X stamped"
+      // check asking the same question of the same bytes rather than of the envelope.
+  if (Array.isArray(j.system)) j.system = j.system.map((b) => (b && b.text) || "").join("");
+  anthropicReqs.push(j);
   s.writeHead(200, {"content-type":"text/event-stream"});
   const ev = (o) => s.write("data: " + JSON.stringify(o) + "\n\n");
   ev({ type: "message_start", message: { usage: { input_tokens: 60, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
@@ -222,11 +228,12 @@ console.log("— the other modes are untouched —");
 {
   const r = await call({ mode: "story", messages: [{ role: "user", content: "A space story" }] });
   const a = lastAnt();
-  // RESTAGED 2026-08-04: the big-kid story's budget went 1200 -> 1600 (the truncation fix), and
-  // its narrator now defaults to Grok — with no XAI_API_KEY set here it degrades to Haiku, which
-  // is the state this suite runs in and exactly the fallback it should be seeing. What this check
-  // is really for is "little-kid mode did not disturb big-kid mode", and that still holds.
-  ok(r.status === 200 && a.model === "claude-haiku-4-5" && a.max_tokens === 1600, "big-kid story unchanged (Haiku fallback, 1600 tok)");
+  // RESTAGED 2026-08-22 (the 2026-08-04 note this replaces read "Haiku fallback"): the big-kid
+  // narrator defaults to SONNET 5 now, on Anthropic, so with no XAI_API_KEY set here there is no
+  // degradation to observe at all — this suite sees the shipped narrator. The budget is still
+  // 1600 from the truncation fix, and what this check is really for is "little-kid mode did not
+  // disturb big-kid mode", which is exactly as true as it was.
+  ok(r.status === 200 && a.model === "claude-sonnet-5" && a.max_tokens === 1600, "big-kid story unchanged (Sonnet 5, 1600 tok)");
   ok(a.system.includes("CONTENT RULES") && !a.system.includes("LITTLE-KID SAFETY"), "…and does NOT get the little-kid rules");
   const longOk = await call({ mode: "story", messages: [{ role: "user", content: "y".repeat(3000) }] });
   // Big-kid story turns now also carry the appended STORY_RULES_REMINDER (2026-07-31), so

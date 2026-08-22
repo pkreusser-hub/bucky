@@ -4694,13 +4694,24 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     const seedOk = sum(monthDays, "f_ok");
     const seedTotal = seedOk + sum(monthDays, "f_fallback") + sum(monthDays, "f_timeout") + sum(monthDays, "f_httperr");
     const storyFallbacks = sum(monthDays, "s_fb");
+    // WHICH backup answered. The narrator's chain is three deep since 2026-08-22
+    // (Sonnet 5 → grok-4.5 → Haiku 4.5), so a bare count no longer names the model that wrote the
+    // scene — and "12 scenes were quietly Haiku" is a different piece of news from "12 were grok".
+    // Hops are only named when one has actually fired; the line reads as it always did otherwise.
+    const FB_HOP_LABELS = { grok: "grok-4.5", haiku: "Haiku 4.5" };
+    const fbHops = Object.keys(FB_HOP_LABELS)
+      .map((k) => [FB_HOP_LABELS[k], sum(monthDays, "s_fb_" + k)])
+      .filter(([, n]) => n > 0);
     if (seedTotal || storyFallbacks) {
       const note = document.createElement("div");
       note.id = "usageSeedHealth";
       note.style.cssText = "margin:-6px 0 14px;text-align:center;font-size:.82rem;opacity:.75";
       const bits = [];
       if (seedTotal) bits.push(`🌱 seeded ${seedOk} of ${seedTotal} new stories this month`);
-      if (storyFallbacks) bits.push(`${storyFallbacks} scene${storyFallbacks === 1 ? "" : "s"} fell back to the backup narrator`);
+      if (storyFallbacks) {
+        const which = fbHops.length ? ` (${fbHops.map(([label, n]) => `${n} on ${label}`).join(", ")})` : "";
+        bits.push(`${storyFallbacks} scene${storyFallbacks === 1 ? "" : "s"} fell back to the backup narrator${which}`);
+      }
       note.textContent = bits.join(" · ");
       body.appendChild(note);
     }

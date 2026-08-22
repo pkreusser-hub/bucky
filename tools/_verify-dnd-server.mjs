@@ -94,6 +94,11 @@ const anthropicReqs = [];
 const antSrv = http.createServer(async (req, res) => {
   const body = await readBody(req);
   const j = JSON.parse(body);
+      // SYSTEM-BLOCK NORMALISATION (2026-08-22). Story mode places its cache breakpoint on the
+      // system prompt, which the API only allows when `system` is a block array. The TEXT is
+      // byte-identical either way, so recording the joined text keeps every "is rule X stamped"
+      // check asking the same question of the same bytes rather than of the envelope.
+  if (Array.isArray(j.system)) j.system = j.system.map((b) => (b && b.text) || "").join("");
   anthropicReqs.push(j);
   res.writeHead(200, { "content-type": "text/event-stream" });
   const ev = (o) => res.write("data: " + JSON.stringify(o) + "\n\n");
@@ -260,7 +265,10 @@ console.log("— story/research regression: guardrails + cap untouched —");
   const before = commits.length;
   const r = await call({ mode: "story", user: "Eleanor", storyId: "s1", storyTitle: "T", sceneIdx: 2, messages: msgs });
   const a = lastAnt();
-  ok(r.status === 200 && a.model === "claude-haiku-4-5", "story still on Haiku");
+  // RESTAGED 2026-08-22: the story narrator moved to Sonnet 5. The property under test is that
+  // DUNGEON mode did not disturb story mode, and it still does not — only the name of the model
+  // story mode is supposed to be on has changed.
+  ok(r.status === 200 && a.model === "claude-sonnet-5", "story still on its own narrator (Sonnet 5)");
   ok(a.system.includes("CONTENT RULES") && a.system.includes("swear words"), "story still gets FAMILY_RULES");
   const logWrites = commits.slice(before).flatMap((c) => c.writes || []).filter((w) => w.update && w.update.name.includes("farmgpt_story_log"));
   ok(logWrites.length === 1, "story scene still logged to the story log");

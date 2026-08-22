@@ -2222,3 +2222,174 @@ other route, the pack's own `hidden_from_player` never reaching the seeder at al
 relationships still going in full, the keeper's own view untouched, a seed patch merged onto a pack
 ledger still carrying the pack's voice, knowledge and possessions, and the timeout against 62.2s.
 LIVE: `node tools/_probe-seeddiet.mjs --models fable,opus --cases httyd,original` — 9 real seeds.
+
+---
+
+# 2026-08-22 — THE NEW STORY STACK: Opus seeds, Sonnet narrates, grok is the backup
+`netlify/functions/farmgpt.mjs` · `farmgpt.html` · `tools/_verify-storyledger.cjs` (824 → **854**)
+· `tools/_probe-storyship.mjs` · user-approved, all three switches, on the measurements below.
+
+Three changes, no new Netlify env var. `XAI_API_KEY` and `ANTHROPIC_API_KEY` are already set;
+`STORY_PROVIDER`, `STORY_SEED_MODEL`, `STORY_SEED_PROVIDER` and the new `STORY_CACHE` are
+overrides and rollbacks only. **Nothing has to be touched in Netlify for this to ship.**
+
+## 1. The narrator: grok-4.5 → Sonnet 5. The battery decided it, not a preference
+A full adversarial battery ran today: 16 hostile setups — the ones a determined ten-year-old
+actually writes — through three candidates.
+
+| | violations | reader write-ins honoured |
+|---|---|---|
+| **grok-4.20** | **FAILED** — f-words in dialogue, and a drawn-out drowning | — |
+| grok-4.5 | 0 / 16 | ignored 6 of 16 |
+| **claude-sonnet-5** | 0 / 16 | honoured 9 of 16 |
+
+**Write down the 4.20 verdict so nobody retries it.** It is a published xAI id that `XAI_MODEL`
+can select without a code change, it is priced in the dashboard, and it put both of those things
+in front of a child. It is named in the fallback chain's comment and the suite asserts no `4.20`
+id appears anywhere in the chain — the check exists because the mistake is one env var wide.
+
+Between the two that passed, the separator was obedience, not prose. `STORY_RULES_REMINDER`'s
+COLLABORATION clause says a write-in is LAW — *"a write-in is direction, not a suggestion"* — so a
+narrator that quietly steers the plot back to its own plan is failing at the job description, not
+at a nice-to-have. grok-4.5 did that 6 times out of 16.
+
+**The prompt assembly is untouched, deliberately.** It is built before the provider is resolved
+and is byte-identical whoever answers: FAMILY_RULES inside STORY_SYSTEM, STORY_LEDGER_RULES
+appended to the system prompt on a ledger story, STORY_RULES_REMINDER last on the newest user
+turn. That assembly is what passed the battery. Nothing about it was "improved" for Sonnet, and
+the note at the routing line says so, because the temptation will come back.
+
+`maxTokens` stays 1600. The markers are unchanged. **The keeper stays on Haiku** — measured at
+2026-08-04, Grok's keeper ran a median 47.8s against a 45s abort — and the suite proves moving the
+narrator onto Anthropic did not drag the bookkeeper along with it.
+
+## 2. The seeder: Fable 5 → Opus 5. Latency, not quality and not money
+The diet commit above left the decision measured and unmade. Taking it now, on those numbers: on
+the merged HTTYD pack the two cost the same to within a cent (Opus's higher rate cancelled by half
+the output), both return a valid, correctly-era'd world — and **Opus starts writing at ~1.5s where
+Fable thinks for ~30s**, finishing in 27–31s against 50–62s. The world-creation screen is
+forbidden to move without a real event, so Fable's think was half a minute of a child watching a
+screen with nothing true to say.
+
+`SEED_TIMEOUT_MS` stays at **100s** from the diet commit. Opus does not need it; the headroom is
+now enormous rather than adequate, and `STORY_SEED_PROVIDER=fable` still reaches Fable by name.
+
+## 3. The fallback chain: Sonnet 5 → grok-4.5 → Haiku 4.5
+The old chain was Grok → Haiku, guarded by `provider !== "anthropic"`. **That guard would have
+disabled the fallback entirely on the very case it now exists for** — an Anthropic 429/529 with
+xAI standing by — because the narrator is Anthropic now. So the single hop became a walk down
+`STORY_FALLBACK_CHAIN`, starting at the position after whichever hop failed.
+
+The ORDER is the decision. grok-4.5 is second because it cleared the same battery Sonnet did, so
+it can face a child. **Haiku is last because it has never been through that battery**: it is the
+answer to "both providers are down", not a cheaper peer.
+
+**A fallback cannot double-write a scene, structurally rather than by care.** `openUpstream()`
+returns before a single byte reaches the browser, and the `ReadableStream` is not constructed
+until one hop has answered. Once bytes are flowing there is no going back and none is attempted.
+The suite counts `===CHOICES===` in the delivered body — one scene, one marker — rather than
+trusting the argument.
+
+**Logged, because an invisible fallback is the whole problem.** `s_fb` is unchanged and still the
+total, so Dad's existing dashboard line keeps meaning what it meant. New per-hop counters
+`s_fb_grok` / `s_fb_haiku` name the model that answered, which one number can no longer do with
+three narrators in the chain, and the line now reads *"4 scenes fell back to the backup narrator
+(3 on grok-4.5, 1 on Haiku 4.5)"*. The counters are derived from the chain rather than hand-listed,
+and the suite asserts that derivation — two lists would drift. A hop is counted only when it
+ANSWERED: the line says "N scenes fell back", and a hop that also failed wrote no scene.
+A missing `XAI_API_KEY` SKIPS the grok hop rather than spending a round trip on a refusal, so the
+chain shortens to Sonnet → Haiku on a site with no xAI key at all.
+
+## 4. Caching on Sonnet — MEASURED, then enabled
+The old essay said caching was off for story because the prefix was under Haiku's 4,096-token
+minimum, and to revisit if story moved to Sonnet. It moved, so it was revisited — with the API's
+own numbers, not with the arithmetic.
+
+**`cache: false` stays exactly as it is.** The top-level flag caches the WHOLE prompt, and a
+story's whole prompt is still never byte-identical twice — the keeper rewrites `last_seen` on the
+"stable" ledger half every single scene. That measured 0% reads and +21.8% on input, on Haiku, and
+nothing about Sonnet changes it.
+
+What Sonnet made worth having is a **second, smaller entry**: a breakpoint on the SYSTEM PROMPT
+ALONE (`cacheSystem`), which requires sending `system` as a one-element block array. Measured live
+at **4,241 tokens** — dead weight under Haiku's 4,096 minimum, comfortably over Sonnet's 1,024.
+
+Through the real API, `node tools/_probe-storycache.mjs --turns 6`, two consecutive 6-turn stories:
+
+| run | cache WRITE | cache READ | prompt tokens | hit rate |
+|---|---|---|---|---|
+| cold (first story) | 8,662 | 17,144 | 46,204 | 37.1% |
+| warm (prefix still live) | **0** | **25,806** | 46,681 | **55.3%** |
+
+**Reads register.** 4,241 tokens off every scene, at $2.00/MTok uncached against $0.20/MTok
+cached: **$0.00763 saved per scene**, ~0.76¢. At ~32 scenes/day that is **~$7.30 a month**, better
+than the ~$5 estimate that justified looking. The write surcharge is 4,241 × $2.50/MTok = $0.0106,
+i.e. **+$0.0021 over an uncached scene**, paid once per five-minute window — the cold run above
+paid it three times over six scenes and still read 17k.
+
+Two live entries alternate rather than one, and that is correct, not a bug: an ILLUSTRATED scene
+appends `STORY_ILLUSTRATION` to the system prompt, so it caches as its own 4,421-token entry
+(turns 3 and 6 in both runs). Both variants read.
+
+`STORY_RULES_REMINDER` stays OUTSIDE the cached prefix, on the newest user turn, where it has to
+be — it is last so it outranks a reader's steer, and the suite pins that it did not migrate into
+the cacheable half in the name of a bigger entry. The KEEPER is untouched: its prompt is 2,215
+tokens and it is still on Haiku, so a breakpoint there would still write nothing. `STORY_CACHE=off`
+is the rollback if a later prompt change makes the system half churn, and the suite proves it
+removes the breakpoint and leaves the prompt bytes alone.
+
+## Verified
+storyledger **854/854** (824 on main — 30 new, 8 restaged) · kidstory-server 54/54 ·
+dnd-server 47/47 · news 200/200 · fitness 249/249 = **1,404 checks**, 0 page errors.
+
+**BEFORE/AFTER SPLIT**: with `farmgpt.mjs` and `farmgpt.html` restored to `cc4976a` and the new
+suite run against them, **831/854 — the 23 new-or-restaged checks fail there and all 831
+pre-existing ones pass.** Failures on the old code: the three defaults, every hop of the chain,
+the counters (`s_fb_grok 0→0`), the derived counter list (`(none exported)`), and all four cache
+breakpoint checks.
+
+**RESTAGED, each with its reason written at the check, never bent** — 8 in all: the seeder default
+Fable → Opus (twice: A15's "on by default" and the dashboard's attribution row); "with no
+XAI_API_KEY a story degrades to Haiku" → "is written by Sonnet 5, the narrator, not a fallback"
+(there is no degradation left to observe); "…Fable by default" → "STORY_SEED_PROVIDER=fable still
+reaches Fable BY NAME", which is what proves the old seeder is one env var away; A16's "the
+narrator IS Grok" → Sonnet 5, with the battery table as the reason; A16's outage block now pins
+`STORY_PROVIDER=grok` deliberately, because it owns the TAIL of the chain (grok → Haiku, which is
+the whole chain the old stack had) while the new head lives in A20; kidstory's "big-kid story
+unchanged (Haiku fallback)" → Sonnet 5, same 1600 tokens, same property; and dnd's "story still on
+Haiku" → "story still on its own narrator".
+
+**Two test-harness notes worth keeping.**
+1. **The fake Anthropic could not fail.** Survivable while Anthropic was only ever the backup;
+   now it is the narrator, so "Anthropic is overloaded" is hop one of the shipped chain and a fake
+   that always answers cannot exercise it. It refuses by MODEL (a real 529 `overloaded_error`),
+   not by host — Sonnet and Haiku live at the same host, and failing the host would have proved
+   nothing about the ORDER of the hops. The live probe's proxy does the same thing for the same
+   reason.
+2. **`system` as a block array is normalised to its joined text at the recording point** in all
+   three suites, with the raw blocks kept on `systemBlocks`. The bytes are identical either way,
+   so ~80 "is rule X stamped into the system prompt" checks keep asking about the prompt rather
+   than the envelope, and the breakpoint itself is asserted explicitly in A20 rather than
+   normalised out of sight.
+
+## LIVE — real models, fake Firestore, as Dad, nothing near the family's data
+`node tools/_probe-storyship.mjs --gate seed|narrate|fallback` — 6/6, 13/13, **12/12**.
+
+- **Opus seeds.** Original world: 200 in 44.9s, 5 canon rules, 4 characters each with a real
+  voice, 3 threads, 3 secrets, billed `f_claudeopus5_req`. On the HTTYD pack
+  (`_probe-seeddiet.mjs --models opus --cases httyd`): **first byte 2.3s, done 38.7s**, era
+  `post_httyd3` chosen from the setup text, Stoick dead, Hiccup Chief, 3 threads / 3 secrets,
+  6,656 in / 2,241 out, $0.089 — against a 100s deadline.
+- **Sonnet narrates.** Scene one in 15.7s, 543 words, `===CHAPTER===` with a title,
+  `===CHOICES===` with three, and usage recorded under **`s_claudesonnet5_req`** with grok not
+  called at all. A 6-turn story with the keeper running alongside (the cache probe) came back
+  clean, 0 page errors.
+- **Every hop, for real.** Sonnet 529 → **grok-4.5** wrote the scene, `s_fb` +1, `s_fb_grok` +1,
+  `s_fb_haiku` untouched. Sonnet 529 + xAI unreachable → **Haiku** wrote it, counted once on the
+  haiku hop. No xAI key → Sonnet, full quality, no fallback needed.
+
+**KNOWN / DEFERRED**: the cached system entry has a five-minute TTL, so a reader who pauses
+between scenes pays the write again — worth watching on `s_claudesonnet5_cw` vs `_cr` in a real
+week before anything is done about it. And Sonnet's write-in score was 9 of 16, not 16 of 16: the
+other 7 were not scored rather than failed, so "Sonnet honours write-ins better" is a comparison
+against grok-4.5, not a claim of perfection. Re-run the battery before the next narrator switch.

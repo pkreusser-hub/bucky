@@ -11,11 +11,19 @@
 // Zero-dependency by design, same as notify.mjs: raw fetch against the Anthropic Messages
 // API (SSE streaming parsed by hand below), so Netlify's bundler has nothing to pull in.
 //
-// Per-mode model. THE SHIPPING STACK (2026-08-04, user-approved on measured evidence):
-//   · the STORY NARRATOR runs on xAI's grok-4.5 — measurably richer scenes at the same
-//     ===CHOICES=== reliability, $2/$6 per MTok.
-//   · the LEDGER SEEDER runs on Anthropic's Fable 5 — once per story, and what it builds shapes
-//     every scene after it, so it is the cheapest place in the engine to spend on capability.
+// Per-mode model. THE SHIPPING STACK (2026-08-22, user-approved on measured evidence). This
+// SUPERSEDES the 2026-08-04 stack that stood here, for reasons recorded at each line:
+//   · the STORY NARRATOR runs on Anthropic's Sonnet 5. A full adversarial battery on 2026-08-22
+//     put 16 hostile setups through three candidates: grok-4.20 FAILED (f-words in dialogue, a
+//     drawn-out drowning) and must not be retried as a narrator; grok-4.5 and Sonnet 5 each came
+//     back 0/16. What separated the two survivors was the reader's own steering — Sonnet honoured
+//     9 of 16 write-ins where grok-4.5 ignored 6 — and in this house a write-in is direction, not
+//     a suggestion. grok-4.5 is now the FIRST FALLBACK instead (STORY_FALLBACK_CHAIN below).
+//   · the LEDGER SEEDER runs on Anthropic's Opus 5. On the merged pack it costs the same as Fable
+//     to within a cent (the higher rate cancelled by half the output) and builds the same valid,
+//     correctly-era'd world — but it starts writing at ~1.5s where Fable thinks for ~30s, and
+//     finishes in 27-31s against Fable's 50-62s. The wait screen has nothing honest to say during
+//     a think, so that whole difference lands on the child watching it.
 //   · the KEEPER STAYS ON HAIKU 4.5. Grok's keeper scored 40/40 on judgement but ran a median
 //     47.8s against the client's 45s abort and lost 3 of 8 scenes' bookkeeping in a real run.
 //     KEEPER_PROVIDER exists so that can be re-measured; it must stay defaulted to haiku.
@@ -27,16 +35,17 @@
 // Required environment variables (set in Netlify site settings):
 //   ANTHROPIC_API_KEY    - Anthropic API key (console.anthropic.com) — research, seeder, keeper
 //   BUCKY_NOTIFY_SECRET  - shared family passphrase (same one notify.mjs already uses)
-//   XAI_API_KEY          - xAI key (console.x.ai) — the story narrator. WITHOUT IT the story
-//                          silently runs on Haiku; nothing breaks, the prose is just weaker.
+//   XAI_API_KEY          - xAI key (console.x.ai) — the narrator's FIRST FALLBACK since
+//                          2026-08-22. WITHOUT IT the chain simply shortens to Sonnet → Haiku;
+//                          nothing breaks, and the ordinary reader never reaches it at all.
 // Optional:
-//   STORY_PROVIDER       - "grok" (DEFAULT) | "haiku" | "gemini" | "sonnet" for story mode
+//   STORY_PROVIDER       - "sonnet" (DEFAULT) | "grok" | "haiku" | "gemini" for story mode
 //   XAI_MODEL            - xAI model id (default "grok-4.5")
 //   GEMINI_API_KEY       - Google AI Studio key — only needed when STORY_PROVIDER=gemini
 //   KEEPER_PROVIDER      - "haiku" (DEFAULT — see above) | "grok" | "sonnet" for the keeper
 //   KEEPER_MODEL         - override the keeper's model id within its provider
 //   KEEPER_PROMPT        - "auto" (default; grok provider → grok-tuned) | "haiku" | "grok"
-//   STORY_SEED_PROVIDER  - "fable" (DEFAULT) | "sonnet" | "grok" | "off" to disable the seeder
+//   STORY_SEED_PROVIDER  - "opus" (DEFAULT) | "fable" | "sonnet" | "grok" | "off" to disable it
 //   STORY_SEED_MODEL     - override the seeder's model id within its provider
 //   ANTHROPIC_BASE_URL   - override for local testing against a fake Anthropic server
 //   GEMINI_BASE_URL      - override for local testing against a fake Gemini server
@@ -45,7 +54,8 @@
 const RESEARCH_MODEL = "claude-sonnet-5";   // research mode (Anthropic)
 const STORY_MODEL = "claude-haiku-4-5";     // story + summary (Anthropic, default)
 const GEMINI_MODEL = "gemini-2.5-flash";    // story + summary when STORY_PROVIDER=gemini
-const FABLE_MODEL = "claude-fable-5";       // the ledger seeder, when enabled
+const FABLE_MODEL = "claude-fable-5";       // the ledger seeder until 2026-08-22
+const OPUS_MODEL = "claude-opus-5";         // the ledger seeder (DEFAULT since 2026-08-22)
 // xAI is OpenAI-compatible. grok-4.5 is the default; the other published ids
 // (grok-4.3, grok-4.20-0309-{reasoning,non-reasoning}, grok-4.20-multi-agent-0309,
 // grok-build-0.1) are selectable through XAI_MODEL without a code change.
@@ -67,6 +77,28 @@ export const ROUTABLE_MODELS = [
 // Exported for the suite's rate check, so "what the logger writes" and "what the dashboard
 // prices" are compared against ONE definition of the slug rather than two that can drift.
 export { modelSlug };
+
+// THE STORY NARRATOR'S FALLBACK CHAIN (2026-08-22). Sonnet 5 → grok-4.5 → Haiku 4.5, in that
+// order, and the order IS the decision: the adversarial battery cleared Sonnet and grok-4.5 at
+// 0/16 violations each, so either can face a child, and Haiku sits last because it has never been
+// run through that battery — it is the answer to "Anthropic AND xAI are both down", not a peer.
+// grok-4.20 is deliberately absent from every position: it FAILED the battery.
+//
+// A hop fires only when the previous one could not be OPENED — a thrown fetch, a timeout before
+// the first byte, or an error status (429/500/529). That is the whole safety of it: openUpstream
+// returns before a single byte reaches the browser, and the response stream is not constructed
+// until one hop has answered, so a fallback is structurally incapable of double-writing a scene.
+// Once bytes are flowing there is no going back and none is attempted.
+const STORY_FALLBACK_CHAIN = [
+  { hop: "sonnet", provider: "anthropic", model: RESEARCH_MODEL },
+  { hop: "grok",   provider: "xai",       model: XAI_MODEL },
+  { hop: "haiku",  provider: "anthropic", model: STORY_MODEL },
+];
+// The counters this chain can write. `s_fb` is the total, unchanged since it shipped for the old
+// Grok→Haiku pair, so Dad's existing dashboard line keeps meaning exactly what it meant. The
+// per-hop counters are new and say WHICH backup answered — with three narrators in the chain,
+// "a scene fell back" no longer identifies the model that wrote it.
+export const STORY_FB_COUNTERS = ["s_fb", ...STORY_FALLBACK_CHAIN.slice(1).map((h) => "s_fb_" + h.hop)];
 
 // ---------------------------------------------------------------------------
 // THE INACTIVITY KEEPALIVE (2026-08-22). Netlify's edge kills a streamed response that has
@@ -1384,6 +1416,22 @@ function parseCalorieJSON(text) {
 // run brackets Haiku's minimum between 3,762 and 4,334 tokens — the documented 4,096).
 // REVISIT IF: story ever moves to Sonnet (1,024-token minimum) AND the ledger's stable half is
 // made genuinely byte-stable, which today would mean giving up cast hydration.
+//
+// 2026-08-22 — story DID move to Sonnet, so the revisit was run. `cache: false` above stays
+// exactly as it is: the top-level breakpoint caches the WHOLE prompt and the whole prompt is
+// still never byte-identical twice, for the unchanged reason above. What changed is that a
+// SECOND, smaller entry is now worth having, which it was not on Haiku:
+//   `cacheSystem` sends the system prompt as ONE text block with its own breakpoint, so the
+//   cached entry is the system prompt ALONE — FAMILY_RULES + STORY_SYSTEM (+ STORY_LEDGER_RULES
+//   on a ledger story). Measured live at 2,922 tokens: over Haiku's 4,096 minimum it was dead
+//   weight, under Sonnet's 1,024 it is not. Everything downstream of it may churn freely; a
+//   prefix entry does not care what follows it.
+// The measurement that decides this is in docs/farmgpt.md's 2026-08-22 entry, and STORY_CACHE
+// ("on"/"off") is the rollback if a later prompt change makes the system half churn too.
+const STORY_CACHE_ENV = String(process.env.STORY_CACHE || "").toLowerCase();
+const STORY_CACHE_SYSTEM = STORY_CACHE_ENV === "off" ? false
+  : STORY_CACHE_ENV === "on" ? true
+  : true;   // DEFAULT — see the measurement above
 // ---------------- fantasy football AI (2026-08-06) ----------------
 // Two modes over the family's private ESPN league, both on Grok 4.5 (XAI_MODEL) with a
 // Sonnet fallback: "fantasy" = on-demand lineup/waiver advice for whoever's asking,
@@ -1547,7 +1595,9 @@ const MODES = {
   // with a third offering 2 choices instead of 3). Output tokens bill only for what is produced,
   // so the extra 400 costs nothing on an ordinary scene. The budget is the FIRST of two defences —
   // it lowers the rate; STORY_REPAIR + the client's recovery pass are what make it survivable.
-  story:       { system: STORY_SYSTEM,      maxTokens: 1600, thinking: { type: "disabled" }, cache: false },
+  // cache:false is the WHOLE-prompt breakpoint (measured 0% reads, +21.8% surcharge — never turn
+  // it on). cacheSystem is the system-prompt-only breakpoint, which is a different entry entirely.
+  story:       { system: STORY_SYSTEM,      maxTokens: 1600, thinking: { type: "disabled" }, cache: false, cacheSystem: STORY_CACHE_SYSTEM },
   research:    { system: RESEARCH_SYSTEM,   maxTokens: 4096, thinking: undefined },
   summary:     { system: SUMMARY_SYSTEM,    maxTokens: 1200, thinking: { type: "disabled" } },
   // The story ledger's keeper (build-order step 3). JSON only, so thinking is off.
@@ -1937,11 +1987,11 @@ function usageRow(d, label) {
   // that would need editing every time a model changes.
   for (const k of Object.keys(f)) if (/^[a-z]_[a-z0-9]+_(in|out|req|cw|cr)$/.test(k)) row[k] = n(k);
   // Outcome counters (logCounters): seed results f_ok/f_fallback/f_timeout/f_httperr and the
-  // story narrator's provider fallback s_fb. Enumerated explicitly rather than by pattern, so
-  // they can never collide with the per-model fields above (`f_claudefable5_in` and `f_ok` are
-  // both "f_<word>" — only a list tells them apart).
+  // story narrator's fallback counters s_fb (the total) plus one per hop. Enumerated explicitly
+  // rather than by pattern, so they can never collide with the per-model fields above
+  // (`f_claudefable5_in` and `f_ok` are both "f_<word>" — only a list tells them apart).
   for (const o of SEED_OUTCOMES) row["f_" + o] = n("f_" + o);
-  row.s_fb = n("s_fb");
+  for (const c of STORY_FB_COUNTERS) row[c] = n(c);
   return row;
 }
 async function readCollection(collection, label, cap) {
@@ -3608,11 +3658,11 @@ export default async (req) => {
   // cap above is `body.mode === "story"` only, and logStoryReq below is story/kidstory only, so a
   // keeper call can neither eat a scene of a kid's daily allowance nor write a second copy of a
   // scene into Dad's Story Log.
-  // The SEEDER is ON by default (Fable). STORY_SEED_PROVIDER=off (or "none"/"0") turns it back
+  // The SEEDER is ON by default (Opus 5). STORY_SEED_PROVIDER=off (or "none"/"0") turns it back
   // off, in which case the mode answers 200 + {seeded:false} immediately without calling any
   // model and the client falls back to the ordinary empty/pack-seeded start — the same graceful
   // path a failed seed takes, so switching it off can never break story creation.
-  const SEED_PROVIDER_ENV = (process.env.STORY_SEED_PROVIDER || "fable").toLowerCase();
+  const SEED_PROVIDER_ENV = (process.env.STORY_SEED_PROVIDER || "opus").toLowerCase();
   const SEED_OFF = ["off", "none", "0", "false"].includes(SEED_PROVIDER_ENV);
   if (body.mode === "storyseed" && SEED_OFF) {
     return new Response(JSON.stringify({ seeded: false, reason: "disabled" }),
@@ -3757,15 +3807,22 @@ export default async (req) => {
     }
   }
 
-  // Resolve provider + model. Research → Sonnet (Anthropic). Story + its background summary →
-  // Haiku (Anthropic) by default; STORY_PROVIDER=gemini/sonnet flips story without a code change.
-  const STORY_PROVIDER = (process.env.STORY_PROVIDER || "grok").toLowerCase();
+  // Resolve provider + model. The NARRATOR is Sonnet 5 by default since 2026-08-22 — RESTAGED
+  // from grok-4.5, which held this line since 2026-08-04. Both cleared the adversarial battery at
+  // 0/16; Sonnet honoured 9 of 16 reader write-ins where grok-4.5 ignored 6, and a write-in is
+  // LAW here (see STORY_RULES_REMINDER's COLLABORATION clause), so obedience to the reader is the
+  // narrator's job description rather than a nice-to-have. grok-4.5 keeps the first fallback slot.
+  // NOTE the prompt is assembled ABOVE this line and is byte-identical whoever answers — the
+  // battery Sonnet passed ran on exactly this assembly (FAMILY_RULES inside STORY_SYSTEM, then
+  // STORY_LEDGER_RULES on the system prompt, then STORY_RULES_REMINDER last on the newest user
+  // turn). Do not "improve" it for Sonnet; that assembly is the thing that was tested.
+  const STORY_PROVIDER = (process.env.STORY_PROVIDER || "sonnet").toLowerCase();
   let provider = "anthropic", model = RESEARCH_MODEL;
   if (body.mode === "story") {
     if (STORY_PROVIDER === "gemini") { provider = "gemini"; model = GEMINI_MODEL; }
     else if (STORY_PROVIDER === "grok") { provider = "xai"; model = XAI_MODEL; }
-    else if (STORY_PROVIDER === "sonnet") { provider = "anthropic"; model = RESEARCH_MODEL; }
-    else { provider = "anthropic"; model = STORY_MODEL; }   // haiku
+    else if (STORY_PROVIDER === "haiku") { provider = "anthropic"; model = STORY_MODEL; }
+    else { provider = "anthropic"; model = RESEARCH_MODEL; }   // sonnet
   }
   // The story bible IS the story's long-term memory — run it on Sonnet regardless of the story
   // provider (user-approved token spend: continuity accuracy beats the ~3x summary cost).
@@ -3783,12 +3840,17 @@ export default async (req) => {
     else if (kp === "sonnet") { provider = "anthropic"; model = process.env.KEEPER_MODEL || RESEARCH_MODEL; }
     else { provider = "anthropic"; model = process.env.KEEPER_MODEL || STORY_MODEL; }
   }
-  // The seeder. Fable by default — it runs once per story and what it produces shapes every scene
-  // after it, which makes it the cheapest place in the engine to spend on capability.
+  // The seeder. OPUS 5 by default since 2026-08-22 — RESTAGED from Fable 5, and the reason is
+  // latency, not quality or money: measured on the merged HTTYD pack the two cost the same to
+  // within a cent and both return a valid, correctly-era'd world, but Opus's first byte lands at
+  // ~1.5s against Fable's ~30s think, and it finishes in 27-31s against 50-62s. The world-creation
+  // screen is forbidden to move without a real event, so Fable's think was ~30s of a child
+  // watching a screen that had nothing true to say. `fable` stays reachable by name.
   else if (body.mode === "storyseed") {
     if (SEED_PROVIDER_ENV === "grok") { provider = "xai"; model = process.env.STORY_SEED_MODEL || XAI_MODEL; }
     else if (SEED_PROVIDER_ENV === "sonnet") { provider = "anthropic"; model = process.env.STORY_SEED_MODEL || RESEARCH_MODEL; }
-    else { provider = "anthropic"; model = process.env.STORY_SEED_MODEL || FABLE_MODEL; }
+    else if (SEED_PROVIDER_ENV === "fable") { provider = "anthropic"; model = process.env.STORY_SEED_MODEL || FABLE_MODEL; }
+    else { provider = "anthropic"; model = process.env.STORY_SEED_MODEL || OPUS_MODEL; }
   }
   // The audit is pinned to Sonnet for the same reason the keeper is pinned to Haiku: which model
   // reads the story is a prose decision, and which model checks it is not.
@@ -3805,7 +3867,7 @@ export default async (req) => {
   // rather than a 500. (The mid-request outage fallback is further down, after the first fetch.)
   if (provider === "xai" && !process.env.XAI_API_KEY) {
     provider = "anthropic";
-    model = body.mode === "storyseed" ? FABLE_MODEL
+    model = body.mode === "storyseed" ? OPUS_MODEL
       : (body.mode === "fantasy" || body.mode === "ffrecap" || body.mode === "ffcommentary") ? RESEARCH_MODEL
       : STORY_MODEL;
   }
@@ -3893,6 +3955,15 @@ export default async (req) => {
       // system prompt, Sonnet's 1024-token minimum) and provably does NOT hold for a ledger story
       // — measured 0% reads and a 21.8% write surcharge, see MODES.story.
       if (mode.cache !== false) apiReq.cache_control = { type: "ephemeral" };
+      // SYSTEM-ONLY BREAKPOINT (2026-08-22, story on Sonnet). Mutually exclusive with the
+      // top-level flag above by construction — no mode sets both — because the top-level flag's
+      // entry ENDS at the last message, and this one ends at the system prompt. Sending the
+      // system as a one-element block array is the only way to place a breakpoint there; the
+      // TEXT is byte-identical to the plain-string form, so the model reads exactly what the
+      // adversarial battery ran against.
+      else if (mode.cacheSystem && system) {
+        apiReq.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
+      }
       if (mode.thinking) apiReq.thinking = mode.thinking;
       try {
         resp = await fetch(`${apiBase}/v1/messages`, {
@@ -3921,19 +3992,41 @@ export default async (req) => {
   let attempt = await openUpstream(provider, model);
   // THE OUTAGE FALLBACK. A reader in the middle of a chapter must never meet an error page
   // because a third-party API is having a bad afternoon: if the narrator's provider fails for any
-  // reason — unreachable, rate-limited, 500 — the same request is retried ONCE on the Anthropic
-  // default, and the scene arrives as if nothing happened. Deliberately story-only: the seeder
-  // already fails open into an ordinary story start, the keeper is on Anthropic anyway, and
-  // silently swapping the model under research/dungeon would hide a real misconfiguration.
-  if (!attempt.ok && provider !== "anthropic"
-    && (body.mode === "story" || body.mode === "fantasy" || body.mode === "ffrecap")) {
+  // reason — unreachable, rate-limited, overloaded (529), 500 — the request is retried on the next
+  // narrator in STORY_FALLBACK_CHAIN and the scene arrives as if nothing happened.
+  //
+  // RESTAGED from "retry ONCE on the Anthropic default": that form was written when the narrator
+  // was Grok and the only backup was Haiku, so one hop was the whole chain. Now the narrator IS
+  // Anthropic, so the old guard (provider !== "anthropic") would have disabled the fallback
+  // altogether on the very case it now exists for: an Anthropic 429/529 with xAI standing by.
+  // Story walks the chain; fantasy/ffrecap keep the single Grok→Sonnet hop they always had.
+  if (!attempt.ok && body.mode === "story") {
+    // Start at the hop AFTER whichever one just failed. A narrator pinned to something outside the
+    // chain (STORY_PROVIDER=gemini) is not in it, finds -1, and gets the whole chain — correct: it
+    // has no backup of its own, and every hop in the list has cleared the battery or is Haiku.
+    const failedAt = STORY_FALLBACK_CHAIN.findIndex((h) => h.provider === provider && h.model === model);
+    for (let i = failedAt + 1; i < STORY_FALLBACK_CHAIN.length && !attempt.ok; i++) {
+      const next = STORY_FALLBACK_CHAIN[i];
+      // A site with no XAI_API_KEY is a working site: skip the hop rather than spend a round trip
+      // on a request openUpstream would refuse to build. The chain simply shortens to Sonnet→Haiku.
+      if (next.provider === "xai" && !process.env.XAI_API_KEY) continue;
+      provider = next.provider; model = next.model;
+      attempt = await openUpstream(provider, model);
+      // Same invisibility problem as the seed: the whole point of this fallback is that the reader
+      // never notices, which also means NOBODY notices — a narrator that has quietly been the
+      // backup for a week looks identical to one that never faltered. Counted, not surfaced.
+      // Counted only when the hop actually ANSWERED, because Dad's dashboard line reads "N scenes
+      // fell back to the backup narrator" and a hop that also failed wrote no scene. The per-hop
+      // counter names the model, which the single s_fb total no longer can with three in the chain.
+      if (attempt.ok) logCounters({ s_fb: 1, ["s_fb_" + next.hop]: 1 });
+    }
+  }
+  // fantasy/ffrecap: unchanged single hop off xAI onto the Sonnet quality tier.
+  else if (!attempt.ok && provider !== "anthropic"
+    && (body.mode === "fantasy" || body.mode === "ffrecap")) {
     provider = "anthropic";
-    model = body.mode === "story" ? STORY_MODEL : RESEARCH_MODEL;
+    model = RESEARCH_MODEL;
     attempt = await openUpstream(provider, model);
-    // Same invisibility problem as the seed: the whole point of this fallback is that the reader
-    // never notices, which also means NOBODY notices — a narrator that has quietly been Haiku
-    // for a week looks identical to one that has been Grok. Counted, not surfaced mid-story.
-    logCounters({ s_fb: 1 });
   }
   // Same outage fallback, added separately for gfflproj so the condition above stays untouched.
   if (!attempt.ok && provider !== "anthropic" && (body.mode === "gfflproj" || body.mode === "gffltrade" || body.mode === "gffladjust")) {

@@ -7,8 +7,14 @@
  *
  * Hosts the REAL netlify/functions/farmgpt.mjs in process with the keys from tools/.env, against a
  * SMALL FAKE FIRESTORE (a doc store that honours increments and the exists:false precondition).
- * Real prose, real money — a few cents of Fable + Grok + Haiku — and no contact whatsoever with
- * the family's Story Log, usage documents or grant records.
+ * Real prose, real money — a few cents of Opus + Sonnet + Grok + Haiku — and no contact whatsoever
+ * with the family's Story Log, usage documents or grant records.
+ *
+ * 2026-08-22: the stack under test is Opus 5 seeding, Sonnet 5 narrating, and a three-deep
+ * narrator fallback (Sonnet → grok-4.5 → Haiku). Gate 4 drives every hop of that chain for real,
+ * through a local Anthropic PROXY that refuses one named model with a 529 and forwards everything
+ * else to the real API — the only way to fail Sonnet without also failing Haiku, which lives at
+ * the same host. A dead base URL would have failed both and proved nothing about the order.
  *
  * WHY A FAKE FIRESTORE RATHER THAN A DEAD ONE (which is what the keeper probe uses): the grant is
  * a Firestore write with a precondition, and "5 more scenes, once a day" cannot be demonstrated
@@ -81,6 +87,37 @@ const srv = http.createServer(async (req, res) => {
 });
 await new Promise((r) => srv.listen(GOOG_PORT, "127.0.0.1", r));
 
+// ---- the Anthropic proxy (gate 4) -----------------------------------------
+// Forwards to the real API, except for models named in `refuse`, which get a 529 "overloaded" —
+// the exact status an Anthropic capacity event returns, and the case the new chain exists for.
+const refuse = new Set();
+let refusedCount = 0;
+const ANTH_PORT = GOOG_PORT + 1;
+const proxy = http.createServer(async (req, res) => {
+  const chunks = []; for await (const c of req) chunks.push(c);
+  const raw = Buffer.concat(chunks).toString("utf8");
+  let model = ""; try { model = JSON.parse(raw).model || ""; } catch {}
+  if (refuse.has(model)) {
+    refusedCount++;
+    res.writeHead(529, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }));
+  }
+  const up = await fetch("https://api.anthropic.com" + req.url, {
+    method: req.method,
+    headers: { "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: raw,
+  });
+  res.writeHead(up.status, { "content-type": up.headers.get("content-type") || "text/plain" });
+  if (up.body) { const rd = up.body.getReader(); for (;;) { const { done, value } = await rd.read(); if (done) break; res.write(Buffer.from(value)); } }
+  res.end();
+});
+await new Promise((r) => proxy.listen(ANTH_PORT, "127.0.0.1", r));
+const PROXY_URL = `http://127.0.0.1:${ANTH_PORT}`;
+const counter = (name) => {
+  const day = Object.keys(docs).find((k) => k.startsWith("farmgpt_usage/"));
+  return day ? parseInt((docs[day].fields[name] || {}).integerValue || "0", 10) : 0;
+};
+
 process.env.BUCKY_NOTIFY_SECRET = SECRET;
 process.env.FARMGPT_GOOGLE_TOKEN_URL = `http://127.0.0.1:${GOOG_PORT}/token`;
 process.env.FARMGPT_FIRESTORE_BASE = `http://127.0.0.1:${GOOG_PORT}/v1/projects/x/databases/(default)/documents`;
@@ -116,7 +153,7 @@ let LEDGER = null;
 
 // ===========================================================================
 if (want("seed") || want("narrate") || want("grant")) {
-  rule("GATE 1 — FABLE BUILDS THE WORLD (mode storyseed, no flags set)");
+  rule("GATE 1 — OPUS 5 BUILDS THE WORLD (mode storyseed, no flags set)");
   const t0 = Date.now();
   const seed = await call({ mode: "storyseed", setup: SETUP, heroName: "Nell" });
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
@@ -128,7 +165,7 @@ if (want("seed") || want("narrate") || want("grant")) {
   } catch {}
   ok(!!patch, "…with parseable JSON (an unparseable seed would silently start an empty story)");
   if (patch) {
-    console.log("\n--- THE WORLD FABLE BUILT ---");
+    console.log("\n--- THE WORLD THE SEEDER BUILT ---");
     console.log("canon:");
     for (const c of (patch.canon || [])) console.log("   · " + (c.rule || c));
     console.log("characters:");
@@ -163,7 +200,7 @@ if (want("seed") || want("narrate") || want("grant")) {
 
 // ===========================================================================
 if (want("narrate")) {
-  rule("GATE 2 — GROK NARRATES (no flags set: the shipping default)");
+  rule("GATE 2 — SONNET 5 NARRATES (no flags set: the shipping default)");
   const before = usedModels();
   const t0 = Date.now();
   const scene = await call({ mode: "story", newChapter: true, ledger: LEDGER, messages: [
@@ -174,8 +211,14 @@ if (want("narrate")) {
   console.log("\n--- SCENE ONE, AS THE READER SEES IT ---\n" + scene.text.trim() + "\n--- end ---\n");
   const models = usedModels().filter((m) => !before.includes(m));
   console.log("usage recorded under: " + (usedModels().join(", ") || "(none)"));
-  ok(usedModels().some((m) => /^s_grok45_req$/.test(m)),
-    "the scene was written by GROK and the usage record says so");
+  // RESTAGED from s_grok45_req: the narrator default moved to Sonnet 5 on 2026-08-22 after the
+  // adversarial battery (grok-4.5 ignored 6 of 16 reader write-ins; Sonnet ignored none of the 9
+  // it was scored on). The SHAPE of the check is unchanged and is the point — whoever writes the
+  // scene must be the model the usage record bills, or the dashboard prices the wrong rate.
+  ok(usedModels().some((m) => /^s_claudesonnet5_req$/.test(m)),
+    "the scene was written by SONNET 5 and the usage record says so");
+  ok(usedModels().every((m) => !/^s_grok45_req$/.test(m)),
+    "…and grok was not called at all — it is the FALLBACK now, not the narrator");
   ok(/===CHAPTER===/.test(scene.text), "…opening a titled chapter, as asked");
   ok((scene.text.match(/^\s*\d[.)]\s+/gm) || []).length >= 3, "…and ending on three numbered choices");
   ok(/===CHOICES===/.test(scene.text), "…behind the ===CHOICES=== marker the client parses");
@@ -235,29 +278,56 @@ if (want("grant")) {
 
 // ===========================================================================
 if (want("fallback")) {
-  rule("GATE 4 — THE FALLBACKS (a site with no xAI key, and an xAI outage)");
+  rule("GATE 4 — THE FALLBACK CHAIN, EVERY HOP, FOR REAL (Sonnet → grok-4.5 → Haiku)");
+  process.env.ANTHROPIC_BASE_URL = PROXY_URL;
 
-  // (a) an OUTAGE: the key is present and correct, the service is not reachable.
-  process.env.XAI_BASE_URL = "http://127.0.0.1:9";
-  const before = usedModels();
-  const out = await call({ mode: "story", messages: [
+  // (a) HOP ONE. Anthropic answers 529 for Sonnet — a real capacity event — and grok-4.5 takes
+  // the scene. This is the case the old chain could not handle at all: its guard was
+  // (provider !== "anthropic"), so an Anthropic narrator had no fallback whatsoever.
+  refuse.add("claude-sonnet-5"); refusedCount = 0;
+  const fb0 = counter("s_fb"), fbG0 = counter("s_fb_grok");
+  const hop1 = await call({ mode: "story", messages: [
     { role: "user", content: SETUP + " My name is Nell." }] });
-  ok(out.status === 200, "an xAI outage still produces a scene — the reader never sees an error");
-  ok(/===CHOICES===/.test(out.text), "…with its choices, so the story can continue");
-  ok(usedModels().some((m) => /^s_claudehaiku45_req$/.test(m)),
-    "…written by Haiku, and billed to Haiku, because that is who wrote it");
-  console.log("\n--- THE FALLBACK SCENE (real Haiku, after a simulated xAI outage) ---\n"
-    + out.text.trim().slice(0, 700) + "\n--- end (truncated for the log) ---\n");
-  delete process.env.XAI_BASE_URL;
-  void before;
+  ok(refusedCount > 0, "the proxy really did refuse Sonnet (529 overloaded)");
+  ok(hop1.status === 200 && /===CHOICES===/.test(hop1.text),
+    "a Sonnet outage still produces a scene with its choices — the reader never sees an error");
+  ok(usedModels().some((m) => /^s_grok45_req$/.test(m)),
+    "…written by GROK-4.5 (hop one), and billed to grok, because that is who wrote it");
+  ok(counter("s_fb") === fb0 + 1, "…the s_fb total incremented by exactly ONE — one scene, one stream");
+  ok(counter("s_fb_grok") === fbG0 + 1, "…and the per-hop counter names grok as the model that answered");
+  ok(counter("s_fb_haiku") === 0, "…while the haiku hop, which never ran, counted nothing");
+  console.log("\n--- HOP ONE (real grok-4.5, after a real 529 from Sonnet) ---\n"
+    + hop1.text.trim().slice(0, 700) + "\n--- end (truncated for the log) ---\n");
 
-  // (b) NO KEY AT ALL — the state every Netlify deploy is in until XAI_API_KEY is added.
+  // (b) HOP TWO. Sonnet 529s AND xAI is unreachable. Haiku — still on Anthropic, and reached
+  // through the same proxy, which is why the proxy refuses by MODEL rather than by host.
+  process.env.XAI_BASE_URL = "http://127.0.0.1:9";
+  const fb1 = counter("s_fb"), fbH1 = counter("s_fb_haiku");
+  const hop2 = await call({ mode: "story", messages: [
+    { role: "user", content: SETUP + " My name is Nell." }] });
+  ok(hop2.status === 200 && /===CHOICES===/.test(hop2.text),
+    "Sonnet down AND xAI down still produces a scene — the last resort works");
+  ok(usedModels().some((m) => /^s_claudehaiku45_req$/.test(m)),
+    "…written by HAIKU 4.5 (hop two), and billed to Haiku");
+  ok(counter("s_fb") === fb1 + 1 && counter("s_fb_haiku") === fbH1 + 1,
+    "…counted once, on the haiku hop — a chain that walks two hops still wrote ONE scene");
+  console.log("\n--- HOP TWO (real Haiku, after Sonnet 529 + an xAI outage) ---\n"
+    + hop2.text.trim().slice(0, 500) + "\n--- end (truncated for the log) ---\n");
+  delete process.env.XAI_BASE_URL;
+  refuse.clear();
+
+  // (c) NO xAI KEY AT ALL — the state every Netlify deploy is in until XAI_API_KEY is added.
+  // The narrator is Anthropic now, so this is no longer even a degraded path: it is the ordinary
+  // one, and the chain simply shortens to Sonnet → Haiku behind it.
   const key = process.env.XAI_API_KEY;
   delete process.env.XAI_API_KEY;
   const nokey = await call({ mode: "story", messages: [{ role: "user", content: "A short story about a cat." }] });
   ok(nokey.status === 200 && /===CHOICES===/.test(nokey.text),
-    "with NO xAI key at all the site still tells stories (on Haiku) — shipping the code is safe");
+    "with NO xAI key at all the site still tells stories, on Sonnet — shipping the code is safe");
+  ok(usedModels().some((m) => /^s_claudesonnet5_req$/.test(m)),
+    "…and it is the FULL-QUALITY narrator, not a degraded one");
   process.env.XAI_API_KEY = key;
+  delete process.env.ANTHROPIC_BASE_URL;
 
   // (c) a seed that fails must leave story creation alone.
   process.env.STORY_SEED_PROVIDER = "off";
@@ -271,5 +341,5 @@ console.log("\n" + "=".repeat(72));
 console.log(`LIVE PROBE: ${pass}/${pass + fail} tripwires passed`);
 if (failures.length) { console.log("\nTripwires that did not fire as expected:"); for (const f of failures) console.log("  ✗ " + f); }
 console.log("Models billed during this probe: " + (usedModels().join(", ") || "(none)"));
-srv.close();
+srv.close(); proxy.close();
 process.exit(fail ? 1 : 0);
