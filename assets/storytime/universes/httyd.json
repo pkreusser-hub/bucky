@@ -114,6 +114,16 @@
                 "location": "between Berk and the Hidden World",
                 "state": "leading, and coming back often"
               }
+            },
+            {
+              "name": "Skullcrusher",
+              "role": "Rumblehorn, once Stoick’s bonded dragon, now ridden by Eret",
+              "status": "alive — after Stoick’s death he bonded with Eret, son of Eret, and flies with the Riders as Eret’s dragon",
+              "last_seen": {
+                "turn": 0,
+                "location": "Berk",
+                "state": "at Eret’s side"
+              }
             }
           ],
           "characters_add": [
@@ -956,7 +966,7 @@
       "id": "L1",
       "name": "Berk",
       "description": "A rocky island village of steep roofs and longhouses, twelve days north of hopeless, where dragons nest on the rooftops and help with the work",
-      "state": "home again — the Riders have moved back, the village is at peace, Stoick still chief",
+      "state": "home again — the Riders have moved back from Dragon’s Edge and the village is at peace",
       "visited_turns": []
     },
     {
