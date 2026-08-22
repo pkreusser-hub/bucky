@@ -319,6 +319,10 @@ function slimGame(j) {
       athletes: (Array.isArray(g?.athletes) ? g.athletes : []).slice(0, 8).map((a) => ({
         name: a?.athlete?.shortName || a?.athlete?.displayName || "",
         stats: Array.isArray(a?.stats) ? a.stats : [],
+        // item 6 (2026-08-22): the ESPN id, carried through so the box score can tag each row
+        // with its owner — league player keys ARE these ESPN id strings. "" (never a guess)
+        // when ESPN sends no athlete id at all.
+        id: String(a?.athlete?.id || ""),
       })),
     })),
   }));

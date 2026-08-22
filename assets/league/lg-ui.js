@@ -97,6 +97,13 @@
   UI.matchup = null;        // [homeTeamId, awayTeamId]
   UI.lockerTeamId = null;   // viewed locker
   UI._aiRead = null;        // {key, at, busy, error, mults:{name:{mult,why,proj,adj}}} — S5's AI read
+  // ITEM 8 (2026-08-22): the locker's own interaction-state flags — a background reconnect
+  // repaint must never blow away main() while a swap/add/drop card is open (sibling DOM, but
+  // renderLocker() itself is a full rebuild) or a logo upload is mid-flight. UI._lockerRepaintPending
+  // is set when a repaint was DEFERRED for exactly that reason, and drained the moment the
+  // interaction closes — see lockerInteractionBusy() and its two call sites below.
+  UI._lockerUploadBusy = false;
+  UI._lockerRepaintPending = false;
   let schedule = null;
   // REFINEMENT 4 (2026-08-11, user: "get rid of the fire, dead, goat buttons and just add an
   // Emoji button where you can emoji response directly on to someone's chat") — item 10's four
@@ -164,12 +171,101 @@
       (at ? " (from " + agoWords(Date.now() - at) + ")" : "") + " · reconnecting…";
   }
   UI._syncOfflineChip = syncOfflineChip; // test hook
+
+  // ---------------- ITEM 8's cheap insurance (2026-08-22) ----------------
+  // The reconnect fix above covers the app's OWN offline→online seam. The other reported
+  // cause is outside the app entirely: iOS can drop a backgrounded PWA's page and reload it
+  // outright — a fresh page load, not a reachable-again event, so nothing that seam touches
+  // runs. Persist {view, lockerTeamId, scrollY} to sessionStorage (not localStorage — a
+  // genuinely new tab/session should start clean) on scroll and on every navigation, and
+  // restore scrollY exactly ONCE, after the first render of that SAME view settles on the
+  // next boot. "Same view" (and same locker, when the view is locker) is the guard — a
+  // restored scroll must never apply to a different screen than the one it was measured on.
+  const SCROLL_KEY = "gffl_scrollState";
+  let scrollSaveTimer = null;
+  function saveScrollState() {
+    if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
+    scrollSaveTimer = setTimeout(() => {
+      scrollSaveTimer = null;
+      try {
+        sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ view: UI.view, lockerTeamId: UI.lockerTeamId, scrollY: window.scrollY }));
+      } catch (_) {}
+    }, 150);
+  }
+  if (typeof window !== "undefined" && window.addEventListener) {
+    window.addEventListener("scroll", saveScrollState, { passive: true });
+  }
+  UI._saveScrollState = saveScrollState; // test hook
+  function readScrollState() {
+    let raw;
+    try { raw = sessionStorage.getItem(SCROLL_KEY); } catch (_) { return null; }
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (_) { return null; }
+  }
+  // Waits for main()'s first render to settle (a short quiet window with no further
+  // mutations — render functions replace innerHTML then may keep patching async fetches in)
+  // before restoring, so the scroll lands on the FULL page, not a "Loading…" placeholder
+  // that hasn't grown to its real height yet. Fires at most once per boot.
+  function armScrollRestoreOnce() {
+    const st = readScrollState();
+    if (!st || st.view !== UI.view) return;
+    if (st.view === "locker" && st.lockerTeamId !== UI.lockerTeamId) return;
+    const el = main();
+    if (!el) { window.scrollTo(0, st.scrollY || 0); return; }
+    let quietTimer = null;
+    const settle = () => { mo.disconnect(); window.scrollTo(0, st.scrollY || 0); };
+    const mo = new MutationObserver(() => {
+      if (quietTimer) clearTimeout(quietTimer);
+      quietTimer = setTimeout(settle, 250);
+    });
+    mo.observe(el, { childList: true, subtree: true });
+    quietTimer = setTimeout(settle, 250); // in case the render already finished before this armed
+  }
+  UI._armScrollRestoreOnce = armScrollRestoreOnce; // test hook
   // The auto-retry. Each attempt is one bounded fsFetch (lg-core's timeout wrapper), so this
   // loop can never pile up or hang; on success the caches full of unconfirmed answers are
   // dropped, the chip goes, and the screen repaints with the real league.
   const MIRROR_RETRY_MS = 20000;
   let mirrorTimer = null;
   function stopMirrorRetry() { if (mirrorTimer) { clearInterval(mirrorTimer); mirrorTimer = null; } }
+  // ITEM 8 (2026-08-22): the reconnect used to hand off to UI.boot() outright — a FULL re-boot
+  // that re-runs the gate/claim/setup routing and wipes whatever view was on screen to rebuild
+  // it from "Loading…", the exact flash the quiet-repaint work (2026-08-13) removed from every
+  // other seam, resurfacing here on the one path nothing had covered: a device that opened on
+  // its saved mirror and only later found the backend. Diagnosed from "My team auto-refreshes
+  // and reloads" — reported live while a swap sheet was open, which UI.boot()'s routeInitial
+  // would have closed out from under the reader with no warning.
+  // Reload the same league data boot() reads WITHOUT boot's own gate/render routing — LG.
+  // retryBackend() already cleared LG.db's doc cache (a cache filled offline answers nobody
+  // could confirm), so this is a real re-read, not a read of stale confirmed-offline data.
+  async function reconnectAfterOffline() {
+    try {
+      await Promise.all([LG.loadRules(), LG.loadTeams(), LG.loadAuth(), LG.loadSchedule().then((s) => { schedule = s; })]);
+    } catch (e) {
+      LG._markDegraded(e); // reconnect attempt genuinely failed after all — the retry loop covers it
+      return;
+    }
+    UI.week = LG.currentWeek() > (LG.rules.seasonWeeks + 3) ? LG.rules.seasonWeeks : LG.currentWeek();
+    await runAutoChecks(true).catch(() => {});
+    // (c) scroll position survives any repaint this routine makes.
+    const y = window.scrollY;
+    // (b) repaint IN PLACE — never the full renderers. matchup/league/scores share paintLive()
+    // (the same lightweight repaint the live poll already uses); the locker only repaints when
+    // no interaction is in progress, and defers otherwise (drainLockerRepaint picks it up the
+    // moment the swap/add/drop card closes or the upload finishes).
+    if (UI.view === "matchup") {
+      await loadWeekRosters().catch(() => {}); // a background reconnect may BE a waiver landing
+      paintLive();
+    } else if (UI.view === "league" || UI.view === "scores") {
+      paintLive();
+    } else if (UI.view === "locker") {
+      if (lockerInteractionBusy()) UI._lockerRepaintPending = true;
+      else await renderLocker().catch(() => {});
+    }
+    window.scrollTo(0, y);
+    // (d) one quiet toast — never a banner, never a repeat of the outage chip's own wording.
+    toast("Back online");
+  }
   async function mirrorRetryTick() {
     if (!LG.mirrorOffline) { stopMirrorRetry(); return true; }
     let reached = false;
@@ -177,7 +273,7 @@
     if (!reached) { syncOfflineChip(); return false; } // also refreshes the "from N minutes ago" wording
     stopMirrorRetry();
     syncOfflineChip();
-    await UI.boot().catch(() => {});
+    await reconnectAfterOffline().catch(() => {});
     return true;
   }
   // `ms` is a test seam only — production always uses MIRROR_RETRY_MS. Re-arming with a
@@ -301,6 +397,7 @@
     }
     startData();
     routeInitial();
+    armScrollRestoreOnce(); // item 8's cheap insurance — a no-op unless sessionStorage carries a matching {view,scrollY}
     // Any client past a deadline can carry the league forward — no scheduled function in v1
     // (plan §6 deviation). Forced (bypasses the throttle above) — this is the ONE guaranteed
     // run per app open, so "open the app past a deadline" always carries the league forward
@@ -668,6 +765,7 @@
     // describe the destination. Tapping "My Team" from ANOTHER owner's locker would then look
     // like re-selecting the screen you are on, replace instead of push, and quietly cost the
     // reader the Back that should have returned them to the locker they came from.
+    saveScrollState(); // capture the OUTGOING view's scroll before it changes (item 8)
     const wasSig = paintedSig();
     name = applyView(name);
     const url = UI.hashFor(name);
@@ -846,6 +944,14 @@
       el.dataset.pcWired = "1";
       el.addEventListener("click", (e) => {
         e.stopPropagation();
+        // ITEM 1 (2026-08-22): on the MATCHUP page only, a row whose NFL game is IN PROGRESS
+        // carries data-live-eid (set by halfCell, the matchup lineup/bench's own cell — see
+        // its comment) and opens that live game instead of the player card. Read at CLICK
+        // time, not render time, so a game that goes final mid-poll falls back to the card on
+        // the very next tap without any re-wiring (the same "re-read at click time" rule the
+        // scores card taps already follow). Every other data-pk source (league feed, locker,
+        // injury report, hot picks, moves) never sets this attribute, so they are untouched.
+        if (el.dataset.liveEid) { UI.openNflGame(el.dataset.liveEid); return; }
         UI.openPlayerCard(el.dataset.pk);
       });
     });
@@ -1004,7 +1110,23 @@
   // one dead-entry case UI.show's own note documents). The card survives that, and UI.show's
   // dropOverlayDom() still closes it cleanly on a real view change.
   function hideRosterCardDom() { const ov = $("#rosterCard"); if (ov) { ov.hidden = true; ov.innerHTML = ""; } }
-  UI.closeRosterCard = function () { hideRosterCardDom(); UI.overlayClosed(); };
+  // ITEM 8 (2026-08-22): true while the locker has an interaction in progress that a
+  // background repaint must not interrupt — the roster card open (swap/add/drop, whichever
+  // flow last used it) or a logo upload mid-flight.
+  function lockerInteractionBusy() {
+    const ov = $("#rosterCard");
+    return !!(ov && !ov.hidden) || !!UI._lockerUploadBusy;
+  }
+  UI._lockerInteractionBusy = lockerInteractionBusy; // test hook
+  // Drains a repaint the reconnect routine deferred (UI._lockerRepaintPending) the moment an
+  // interaction closes — called from both the roster-card close path and the upload's finally.
+  function drainLockerRepaint() {
+    if (UI._lockerRepaintPending && UI.view === "locker" && !lockerInteractionBusy()) {
+      UI._lockerRepaintPending = false;
+      renderLocker();
+    }
+  }
+  UI.closeRosterCard = function () { hideRosterCardDom(); UI.overlayClosed(); drainLockerRepaint(); };
   // ⚠ THE HIDE FUNCTION PASSED TO overlayOpened MUST BE A STABLE REFERENCE. That registrar
   // treats a DIFFERENT function while one is already registered as "a second overlay opened"
   // and runs the first one's hide — which, since both flows share this one element, would
@@ -1807,9 +1929,10 @@
     const line = (r) => {
       const from = injWord(r.from), to = injWord(r.to);
       const t = LG.teamById(r.teamId);
-      // "to Healthy" is good news, not a warning — only an ongoing real designation gets the
-      // accent tint (matches .inj's own "colour = needs your attention" convention elsewhere).
-      const toHtml = to === "Healthy" ? esc(to) : `<b class="injto">${esc(to)}</b>`;
+      // "to Healthy" is good news — GREEN now (item 7, 2026-08-22; used to render plain).
+      // An ongoing real designation still gets the accent-red .injto tint (matches .inj's own
+      // "colour = needs your attention" convention elsewhere).
+      const toHtml = to === "Healthy" ? `<b class="injok">${esc(to)}</b>` : `<b class="injto">${esc(to)}</b>`;
       return `<button type="button" class="fline injline" data-pk="${esc(r.key)}">
         <b>${escn(r.name)}</b>: ${esc(from)} → ${toHtml}${t ? ` <span class="mut small">· ${esc(teamTag(t))}</span>` : ""}
       </button>`;
@@ -2789,7 +2912,12 @@
     if (e.away && e.away.altColor) sv.push(`--tsa:${esc(e.away.altColor)}`);
     if (e.home && e.home.color) sv.push(`--tph:${esc(e.home.color)}`);
     if (e.home && e.home.altColor) sv.push(`--tsh:${esc(e.home.altColor)}`);
-    const stateHtml = live ? `<span class="scstate live">${esc(e.detail || ("Q" + e.period + " " + e.clock))}</span>`
+    // A live event must never print "undefined" — guard each piece: a real period+clock pair
+    // wins, an absent one falls back to the event's own detail string, and an absent detail
+    // falls back to the plain word "Live" (2026-08-22, coordinator review: the item-4 test
+    // fixture exposed this — a live game missing period/clock rendered "Qundefined undefined").
+    const liveStateText = (e.period != null && e.clock) ? ("Q" + e.period + " " + e.clock) : (e.detail || "Live");
+    const stateHtml = live ? `<span class="scstate live">${esc(liveStateText)}</span>`
       : done ? '<span class="scstate mut">Final</span>'
       : `<span class="scstate mut">${esc(kickTimeStr(e.date))}</span>`;
     const net = e.broadcast ? `<span class="scnet">${esc(e.broadcast)}</span>` : "";
@@ -2818,17 +2946,27 @@
       ${situLine}${spread}${moLine}
     </button>`;
   }
+  // ITEM 4 (2026-08-22): games IN PROGRESS float to a "Live now" group above the day groups —
+  // a live game is the one thing on this page a family member is actively checking, and
+  // Thursday's live game buried under a completed Sunday slate was the reported complaint.
+  // "pre"/"post" keep the existing day-grouped, date-ordered layout below it, untouched.
   function nflScoresHtml(events) {
     if (!events || !events.length) return '<p class="mut">No games this week.</p>';
     const evs = [...events].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const liveNow = evs.filter((e) => e.state === "in");
+    const rest = evs.filter((e) => e.state !== "in");
     const byDay = new Map();
-    for (const e of evs) {
+    for (const e of rest) {
       const day = e.date ? new Date(e.date).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }) : "TBD";
       if (!byDay.has(day)) byDay.set(day, []);
       byDay.get(day).push(e);
     }
-    return [...byDay.entries()].map(([day, list]) =>
+    const liveHtml = liveNow.length
+      ? `<div class="scoreday scorelive"><h2 class="small mut">Live now</h2><div class="scgrid">${liveNow.map(scoreCardHtml).join("")}</div></div>`
+      : "";
+    const restHtml = [...byDay.entries()].map(([day, list]) =>
       `<div class="scoreday"><h2 class="small mut">${esc(day)}</h2><div class="scgrid">${list.map(scoreCardHtml).join("")}</div></div>`).join("");
+    return liveHtml + restHtml;
   }
   // Our OWN league's current-week matchups (coordinator addendum, 2026-08-08 — the Scores tab
   // showed nothing but a blank ESPN-fantasy card, no GFFL scores at all). Reuses the EXACT same
@@ -3178,18 +3316,28 @@
         + (pt.logo ? `<image href="${esc(pt.logo)}" x="-16" y="-68" width="32" height="32"/>` : `<text x="0" y="-46" fill="#fff" font-size="14" font-weight="800" text-anchor="middle">${esc(pt.abbrev || "")}</text>`)
         + `</g>`;
     }
-    // GOALPOSTS at the BACK LINE of each end zone (2026-08-14, user: "the goalposts should be
-    // on the far left and far right of the field in the middle") — x=0 and x=1000 are the two
-    // back lines, i.e. the field's far edges, and the base stands at FY.mid, the middle of the
-    // field's depth. Counter-skewed so they stand upright on the leaning slab, and drawn LAST
-    // (on top of the turf) so the whole post reads rather than being half-buried. FPAD is what
-    // gives the overhanging crossbars room inside the viewBox.
-    const post = (x) => `<g class="nflpost" data-x="${x}" transform="translate(${x} ${FY.mid}) skewX(${SKEW})">`
-      + `<g stroke="var(--gold)" stroke-width="5" fill="none" opacity="0.95" stroke-linecap="round">`
-      + `<line x1="0" y1="8" x2="0" y2="-34"/>`
-      + `<line x1="-20" y1="-34" x2="20" y2="-34"/>`
-      + `<line x1="-20" y1="-34" x2="-20" y2="-78"/>`
-      + `<line x1="20" y1="-34" x2="20" y2="-78"/></g></g>`;
+    // GOALPOSTS at the BACK LINE of each end zone (2026-08-14, on the far left/right, base at
+    // FY.mid). 2026-08-22: the crossbar used to be drawn INSIDE a counter-skewed local group
+    // (x ±20), which put it along the field's LENGTH — reads as facing the wrong way, per the
+    // commissioner ("they should be parallel with the end zone"). The crossbar now draws in
+    // SLAB coordinates at x=0/x=1000, spanning FY.mid±26 in y — a fixed-x, varying-y segment,
+    // so it inherits the slab's own skewX(-SKEW) directly and is parallel to the end line (the
+    // rect edge at that same x) by construction, not by eye. The base post still drops from
+    // the crossbar's centre and the two uprights still rise from its ends, each its own
+    // counter-skewed (screen-true-vertical) group — the same "stand upright" trick the ball
+    // pin uses — so the H-shape reads as goalposts seen from the stands, not from above.
+    // Gold stroke, stroke widths, data-x contract and draw order (last, on top of turf) kept.
+    const post = (x) => {
+      const cbTop = FY.mid - 26, cbBot = FY.mid + 26;
+      const upright = (y0, dy) => `<g transform="translate(${x} ${y0}) skewX(${SKEW})">`
+        + `<line x1="0" y1="0" x2="0" y2="${dy}" stroke="var(--gold)" stroke-width="5" opacity="0.95" stroke-linecap="round"/></g>`;
+      return `<g class="nflpost" data-x="${x}">`
+        + `<line x1="${x}" y1="${cbTop}" x2="${x}" y2="${cbBot}" stroke="var(--gold)" stroke-width="5" opacity="0.95" stroke-linecap="round"/>`
+        + upright(FY.mid, 40)     // the base post, dropping from the crossbar's centre to the ground
+        + upright(cbTop, -44)     // uprights rising from the crossbar's two ends
+        + upright(cbBot, -44)
+        + `</g>`;
+    };
     svg += post(0) + post(1000);
     svg += `</g>`;   // end skewed slab
     // ---- the yard row BELOW the strip, aligned to the slab's bottom edge (which the frame
@@ -3217,7 +3365,8 @@
     // A pre-game game reads "0" from ESPN for both sides. Painting two big zeroes is a lie
     // about a game that hasn't started (reviewed on the plate) — a dash says "no score yet".
     const score = (t) => (pre || t.score === "" || t.score == null) ? "–" : t.score;
-    const losing = (t, o) => (live || done) && Number(t.score) < Number(o.score);
+    // Both scores stay white while the game is live — only a FINAL loss dims the loser.
+    const losing = (t, o) => done && Number(t.score) < Number(o.score);
     // .nflq is the accent-red LIVE colour; a kickoff time in red reads as in-progress.
     let mid = pre ? `<span class="nflq done">${esc(kickTimeStr(g.date))}</span>`
       : `<span class="nflq${done ? " done" : ""}">${esc(st.detail || "")}</span>`;
@@ -3332,6 +3481,53 @@
       curPlays.slice().reverse().forEach((p) => { html += playRow(p); });
       html += `</div></div>`;
     }
+    // "IN THIS GAME" (item 5, 2026-08-22): every GFFL-rostered player on either NFL team,
+    // AWAY then HOME — the one place a family member can see who's actually IN this game
+    // without cross-referencing rosters by hand. Scans EVERY team's roster (UI._rosters,
+    // loaded once at open by renderNflGame — see its own comment), matched to this game's
+    // teams via D.slpTeam, the same normalisation every other team-abbrev comparison in this
+    // file already uses. Sorted by points desc within each side; a side with nobody rostered
+    // gets one muted "No GFFL players" line, and the WHOLE section is absent only when BOTH
+    // sides are empty — a game with nobody's roster in it gets no dead card at all.
+    {
+      const d = D();
+      const ptsOf = (key) => LG.n(pre ? d.projFor(key) : d.livePts(key));
+      const playersForSide = (abbrev) => {
+        const ab = d.slpTeam(abbrev || "");
+        if (!ab) return [];
+        const out = [];
+        for (const t of LG.teams) {
+          for (const p of ((UI._rosters && UI._rosters[t.id]) || [])) {
+            if (d.slpTeam(p.team) === ab) out.push({ p, owner: t });
+          }
+        }
+        out.sort((x, y) => ptsOf(y.p.key) - ptsOf(x.p.key));
+        return out;
+      };
+      const rowHtml = ({ p, owner }) => {
+        const benchIr = p.slot === "BENCH" || p.slot === "IR";
+        const ptsHtml = pre
+          ? `<span class="mut small">proj ${LG.fmtPts(d.projFor(p.key))}</span>`
+          : `<span class="small">${LG.fmtPts(d.livePts(p.key))}</span>`;
+        return `<button type="button" class="fline nflgprow" data-pk="${esc(p.key)}">
+          <b>${escn(p.name)}</b> <span class="mut small">${esc(p.pos || "")}</span>
+          <span class="mut small">${esc(teamTag(owner))}</span>
+          <span class="${benchIr ? "mut " : ""}small">${esc(p.slot || "")}</span>
+          ${ptsHtml}</button>`;
+      };
+      const sideHtml = (abbrev) => {
+        const rows = playersForSide(abbrev);
+        return { html: rows.length ? rows.map(rowHtml).join("") : '<p class="mut small">No GFFL players.</p>', n: rows.length };
+      };
+      const awaySide = sideHtml(away.abbrev), homeSide = sideHtml(home.abbrev);
+      if (awaySide.n || homeSide.n) {
+        html += `<div class="card nflgcard"><div class="seclabel"><b>In this game</b></div>
+          <div class="nflgteam"><span class="nfltag" style="background:${abColor(away.id)}">${esc(away.abbrev || "")}</span></div>
+          ${awaySide.html}
+          <div class="nflgteam"><span class="nfltag" style="background:${abColor(home.id)}">${esc(home.abbrev || "")}</span></div>
+          ${homeSide.html}</div>`;
+      }
+    }
     // PREVIOUS DRIVES ARE DROPDOWNS (2026-08-13 game night: "previous drives should be drop
     // downs where you can see each play"). Each drive with plays on file is a native <details>
     // whose summary is the exact one-line card it used to be; a drive the payload carried no
@@ -3393,14 +3589,23 @@
     const bp = g.boxscore && Array.isArray(g.boxscore.players) ? g.boxscore.players : [];
     if (bp.length && !pre) {
       const GROUPS = ["passing", "rushing", "receiving"];
+      // item 6 (2026-08-22): OWNER TAG per athlete row — league player keys ARE the ESPN id
+      // strings sports.mjs now carries, so a rostered id resolves straight to its team; an id
+      // that resolves to nobody is a free agent (FA); an athlete with NO id at all (ESPN sent
+      // none) gets no tag whatsoever — never a name-matched guess.
+      const keyOwner = new Map();
+      for (const t of LG.teams) for (const p of ((UI._rosters && UI._rosters[t.id]) || [])) keyOwner.set(String(p.key), t);
       let box = "";
       bp.forEach((t) => {
         (t.groups || []).forEach((grp) => {
           if (GROUPS.indexOf(grp.name) < 0 || !grp.athletes || !grp.athletes.length) return;
           box += `<div class="nflboxt">${esc((t.abbrev + " " + grp.name).toUpperCase())}</div>
-            <div class="panner"><table class="tbl nflbox"><tr><th></th>${(grp.labels || []).slice(0, 5).map((l) => `<th>${esc(l)}</th>`).join("")}</tr>`;
+            <div class="panner"><table class="tbl nflbox"><tr><th></th>${(grp.labels || []).slice(0, 5).map((l) => `<th>${esc(l)}</th>`).join("")}<th>Owner</th></tr>`;
           grp.athletes.forEach((a2) => {
-            box += `<tr><td>${escn(a2.name)}</td>${(a2.stats || []).slice(0, 5).map((s2) => `<td>${esc(s2)}</td>`).join("")}</tr>`;
+            const id = a2.id ? String(a2.id) : "";
+            const owner = id ? keyOwner.get(id) : null;
+            const tagCell = id ? `<td class="mut small">${esc(owner ? teamTag(owner) : "FA")}</td>` : "<td></td>";
+            box += `<tr><td>${escn(a2.name)}</td>${(a2.stats || []).slice(0, 5).map((s2) => `<td>${esc(s2)}</td>`).join("")}${tagCell}</tr>`;
           });
           box += `</table></div>`;
         });
@@ -3439,7 +3644,10 @@
       <div id="nflBody"><div class="card mut">Loading the game…</div></div>`;
     $("#nflBack").addEventListener("click", nflBack);
     const id = UI.nflGameId;
-    await loadNflGame();
+    // ITEM 5 (2026-08-22): "In this game" needs every team's roster to know who's GFFL-
+    // rostered — loaded ONCE at open, same as the matchup/locker convention; the 25s poll's
+    // own paintNflGame() re-reads the same UI._rosters rather than re-fetching it.
+    await Promise.all([loadNflGame(), loadWeekRosters().catch(() => {})]);
     // The reader may have gone somewhere else (or opened a different game) while that was in
     // flight — repainting then would drop a stale game over whatever they're now looking at.
     if (UI.view !== "nflgame" || UI.nflGameId !== id) return;
@@ -3492,6 +3700,7 @@
     // (data-mkey) so a newly completed drive prepending never slides that state onto a sibling.
     if (body.querySelector(".nflhead")) patchInto(body, nflGameHtml(g));
     else body.innerHTML = nflGameHtml(g);
+    wirePlayerCardTaps(body); // item 5's "In this game" rows — dataset-guarded, morph-safe
   }
   UI.paintNflGame = paintNflGame;
   function nflGameLive() { const g = UI._nflGame; return !!(g && g.ok && g.status && g.status.state === "in"); }
@@ -4011,7 +4220,7 @@
   UI._rarity = rarity;                       // test hook — the thresholds are asserted, not eyeballed
   UI._lootName = (t) => (LOOT[t - 1] || {}).name || "";
   function halfCell(p, side) {
-    let nameHtml, metaHtml, statHtml, ptsHtml, projHtml, ball = false, heat = 0, heatPts = null, titleAttr = "";
+    let nameHtml, metaHtml, statHtml, ptsHtml, projHtml, ball = false, heat = 0, heatPts = null, titleAttr = "", liveEid = "";
     if (!p) {
       // The empty half carries the crest's 14px slot too, so its "Empty" label starts at the
       // same x as every real name in the column — the point of the whole even-row rule.
@@ -4027,6 +4236,10 @@
       // demo's own arithmetic (matchupSides) disagrees with. No override: the exact pre-existing
       // read, byte-identical.
       const g = d.demoGameView(p.key) || d.S.games.get(d.slpTeam(p.team));
+      // ITEM 1 (2026-08-22): captured here, at the same read every other cue on this row
+      // (gameLineHtml, red zone) already uses, so the tap target can never disagree with what
+      // the row itself is displaying.
+      if (g && g.state === "in" && g.eventId) liveEid = String(g.eventId);
       // d.livePts / d.liveProj return null — rendered "—" — for a key that resolves to no
       // player at all, rather than the fabricated "0.0" an unresolvable roster row used to
       // claim (2026-08-09). Both are guaranteed finite-or-null; fmtPts can never print NaN.
@@ -4121,7 +4334,14 @@
     // then ::after. Both are position:absolute, out of flow entirely, so they can sit ahead
     // of the side-ordered content without shifting ptsDiv/shot/infoDiv's own order.
     const embersHtml = heat === 4 ? '<i class="fflames" aria-hidden="true"></i><i class="fembers" aria-hidden="true"></i>' : "";
-    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}${heat ? " loot" : ""}"${ball && !heat ? ' title="Has the ball"' : ""}${lootAttr}${p ? ` data-pk="${esc(p.key)}"` : ""}>${embersHtml}${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
+    // ITEM 1 (2026-08-22): a matchup row whose player's NFL game is IN PROGRESS carries the
+    // live event id — wirePlayerCardTaps' click handler branches on it to open the game
+    // instead of the card. `g` was already resolved above (demo-coherent), so this can never
+    // disagree with the row's own clock/red-zone read. No live game (pre/post/no game at all,
+    // or no player in this half) → no attribute, and the tap keeps opening the card exactly
+    // as before.
+    const liveEidAttr = liveEid ? ` data-live-eid="${esc(liveEid)}"` : "";
+    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}${heat ? " loot" : ""}"${ball && !heat ? ' title="Has the ball"' : ""}${lootAttr}${p ? ` data-pk="${esc(p.key)}"` : ""}${liveEidAttr}>${embersHtml}${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
   }
   // The ESPN-reference stat summary for a matchup row: a compact position-aware line built
   // from the stats of whichever source mergeRow() picked for display (row.src — the same
@@ -6442,6 +6662,9 @@
         const file = e.target.files && e.target.files[0];
         e.target.value = "";
         if (!file) return;
+        // ITEM 8 (2026-08-22): a background reconnect repaint must not land mid-upload —
+        // see lockerInteractionBusy(). Cleared in `finally` no matter how this resolves.
+        UI._lockerUploadBusy = true;
         try {
           // Alpha-preserving (2026-08-11): a transparent PNG stays transparent — .tcrest paints
           // the team's own primary behind it, so a cut-out mark sits on its team's colour
@@ -6464,6 +6687,7 @@
           toast(T.colorsCustom ? "Logo updated — your colours were kept." : "Logo updated.");
           UI.openLocker(T.id);
         } catch (err) { toast("Couldn't read that image."); }
+        finally { UI._lockerUploadBusy = false; drainLockerRepaint(); }
       });
     }
     wireColorEditor(T, gate);

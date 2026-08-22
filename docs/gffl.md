@@ -5026,3 +5026,149 @@ the flake itself.
 exactly the 5 floor-arithmetic checks failed against old code, then a clean crash on `D.gameDone
 is not a function` (RULE 2 doesn't exist in old code at all).
 ---
+
+## 🏈 GFFL — THE PLAYTEST-6 BATCH: eight items from the commissioner at the wheel (2026-08-22)
+
+Files: `assets/league/lg-ui.js` + `league.html` + `netlify/functions/sports.mjs` +
+`tools/_verify-gffl.cjs` + `tools/_verify-sports.cjs` + `tools/_sports_fixtures.cjs` (2836 →
+2836 → **2866**, new section BA). No commits, no push.
+
+**ITEM 1 — MATCHUP TAP OPENS A LIVE GAME.** `halfCell` (the matchup lineup/bench cell) already
+reads a player's game (`g`) for its own clock/red-zone cues — a `data-live-eid` attribute now
+rides the same read, set only when `g.state === "in"`. `wirePlayerCardTaps`' one click handler
+branches on it (read at click time, not render time) — `UI.openNflGame(eid)` instead of
+`UI.openPlayerCard(key)`. Every other `data-pk` source (league feed, locker, injury report, hot
+picks, moves) never sets the attribute, so nothing else changed. **Ripple, not a bug**: the
+default scoreboard fixture has been DAL@PHI live since section AY — the whole cast (P. Passer,
+Q. Rival, R. Rusher, X. Wideout, K. Kicker) is live by default, so every pre-existing test that
+tapped one of THEIR rows expecting the card broke on contact. Restaged: section Y's card-content
+checks now open the card directly via `UI.openPlayerCard()` (they test the card, not the tap
+routing — item 1 gets its own dedicated check); AJ3's overlay/Back-stack checks mark DAL@PHI
+`post` before tapping (unrelated to the live-tap feature); AY2's duplicate-listener check now
+stubs both `openPlayerCard` and `openNflGame` and asserts the total is 1, since which branch
+fires is no longer the thing under test there.
+
+**ITEM 2 — GAMECAST SCORES STAY WHITE UNTIL FINAL.** `losing` (the score-dimming predicate) was
+`(live || done) && …` — a losing team dimmed the moment the game went live, before the outcome
+meant anything. Now `done && …` only. No existing check had pinned the live-grey behaviour, so
+nothing to restage.
+
+**ITEM 3 — THE UPRIGHTS FACE THE RIGHT WAY.** The goalpost crossbar used to draw inside the
+COUNTER-skewed local group (`x` ±20), which put it along the field's LENGTH — reads as facing
+the wrong way. The commissioner: "they should be parallel with the end zone." Redrawn: the
+crossbar is now a direct `<line>` in SLAB coordinates (x=0/x=1000, y spanning `FY.mid`±26) — a
+fixed-x, varying-y segment that inherits the slab's own `skewX(-SKEW)` and is parallel to the
+end line (the rect edge at that same x) BY CONSTRUCTION. The base post still drops from the
+crossbar's centre and the two uprights still rise from its ends, each its own counter-skewed
+(screen-true-vertical) group — the "stand upright" trick the ball pin already uses. RESTAGED:
+AH3's `posts[].upright` check read `skewX(10)` off the `.nflpost` WRAPPER, which no longer
+carries a transform at all (the crossbar is now a direct child, not counter-skewed itself) —
+replaced with a geometry check: the crossbar's screen-space direction (via `getScreenCTM` on
+its rendered endpoints) vs. the end line's own screen-space direction (read the same way off
+the away end-zone rect), asserted parallel within 2°.
+
+**ITEM 4 — LIVE GAMES FLOAT TO THE TOP OF SCORES.** `nflScoresHtml` now splits events into
+`state==="in"` (a new "Live now" group, date-ordered, rendered first) and everything else (the
+existing day-grouped, date-ordered layout, unchanged, rendered below it).
+
+**ITEM 5 — "IN THIS GAME."** A new card between "This drive" and "Previous drives": every
+GFFL-rostered player on either NFL team, AWAY then HOME, one row each — name · pos · owner tag
+(`teamTag`) · slot marker (starter slot, or BENCH/IR muted) · points (`D.livePts`, or
+`D.projFor` with the "proj" mut styling pre-game). Scans every team's roster (`UI._rosters`,
+now loaded once by `renderNflGame` alongside the game itself — the matchup/locker convention),
+matched to the game's teams via `D.slpTeam`. Sorted by points desc within each side; a side
+with nobody rostered gets one muted "No GFFL players" line; the whole card is absent only when
+BOTH sides are empty. Rows carry `data-pk`, so the existing card tap works (`wirePlayerCardTaps`
+now runs on every `paintNflGame`, dataset-guarded).
+
+**ITEM 6 — BOX-SCORE OWNER TAGS.** `sports.mjs` now carries `id: String(a?.athlete?.id || "")`
+on every shaped box-score athlete (the ESPN athlete id — league player keys ARE these id
+strings). Every box-score row gets an Owner cell: `teamTag(owner)` when the id resolves to a
+rostered key, `FA` when it resolves to nobody, blank when ESPN sent no id at all (never a
+name-matched guess). Fixtures (`nflSummaryFix` in `_verify-gffl.cjs`, `players()` in
+`_sports_fixtures.cjs`) were made "as real as the real payload" — carrying ids for rostered
+athletes, an id for an unrostered one (proves FA), and one athlete with NO id field at all
+(proves the blank case, not a fabricated one).
+
+**ITEM 7 — INJURY REPORT: HEALTHY IS GREEN NOW.** A transition TO Healthy renders
+`<b class="injok">Healthy</b>`. The app's own good/positive token is `--green` (`.ok`,
+`.delta.up`, standings W-L) — but `--green` on `--card` measures 3.84:1, below AA's 4.5:1, for
+the small un-bold text this label needs. `--green-lt` (`#4e9972`) is `--green` run through the
+SAME palMix-toward-white clamp loop `lg-core.js`'s own contrast law already uses on extracted
+team colours, stepped until it clears AA (lands at 5.03:1) — the existing token, lightened by
+the existing derivation, not an invented hex. RESTAGED: AR4 used to assert Healthy rendered
+PLAIN (deliberately un-tinted, on the theory that colour meant "needs attention"); the
+commissioner's ruling inverts that — a clean bill of health is exactly the kind of news a
+colour should announce, just the GOOD colour. The check now asserts `.injok` (never `.injto`)
+and measures its live on-screen contrast against the card at ≥ 4.5:1.
+
+**ITEM 8 — THE RECONNECT SEAM, DIAGNOSED.** "My team auto-refreshes and reloads," reported live
+while a swap sheet was open. Root cause: `mirrorRetryTick` (the offline→online seam) called
+`UI.boot()` outright the moment the backend became reachable again — a FULL re-boot that
+re-runs the gate/claim/setup routing and wipes whatever view was on screen from "Loading…",
+closing any open locker sheet with no warning. This is the one seam the 2026-08-13 quiet-repaint
+work never covered (that batch fixed the poll/db.onChange paths; boot itself was untouched).
+Fix: `reconnectAfterOffline()` (a) reloads the same league data `boot()` reads
+(rules/teams/auth/schedule) WITHOUT boot's gate/render routing — `LG.retryBackend()` already
+clears `LG.db`'s doc cache on success, so this is a real re-read, not stale confirmed-offline
+data; (b) repaints IN PLACE — matchup/league/scores through `paintLive()` (the same lightweight
+path the live poll already uses; matchup also reloads rosters first, since a background
+reconnect may BE a waiver landing), and the locker only when no interaction is in progress
+(`lockerInteractionBusy()` — the roster card open, or a logo upload mid-flight via the new
+`UI._lockerUploadBusy` flag) — otherwise the repaint is deferred (`UI._lockerRepaintPending`)
+and drained (`drainLockerRepaint()`) the moment the interaction closes, from both
+`UI.closeRosterCard()` and the upload's own `finally`; (c) preserves `window.scrollY` across
+any repaint it makes; (d) shows one quiet "Back online" toast. Every existing mirror/offline
+test stayed green with no restaging — `mirrorRetryTick`'s own contract (`LG.mirrorOffline`,
+`UI._mirrorTimerOn()`) never changed, only what it hands off to on success.
+
+**Cheap insurance, the same item**: iOS can drop a backgrounded PWA's page and reload it
+outright — a fresh page load the reconnect seam above has no way to see, since nothing about it
+is a "the backend became reachable" event. `{view, lockerTeamId, scrollY}` now persists to
+`sessionStorage` (not `localStorage` — a genuinely new tab/session starts clean) on scroll
+(debounced) and on every navigation (`UI.go`); `armScrollRestoreOnce()`, called once from
+`UI.boot()`, restores `scrollY` after the FIRST render of that SAME view settles (a
+`MutationObserver` on `#main` with a 250ms quiet window, so the restore lands on the full page,
+not a "Loading…" placeholder) — a no-op unless the saved `view` (and `lockerTeamId`, for the
+locker) matches where boot actually landed.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **2866/2866**, 0 page errors. `node
+tools/_gffl_seams.cjs` **121/0, unrestaged**. `node tools/_verify-sports.cjs` **231/231** (229
+→ 231, item 6's two new athlete-id checks).
+
+**Proof of bite**: app files (`lg-ui.js`/`league.html`/`sports.mjs`) reverted to HEAD, the new
+suite kept. `node tools/_verify-sports.cjs`: 229 pre-existing checks passed, exactly the 2 new
+athlete-id checks (item 6) failed. `node tools/_verify-gffl.cjs`: 1602 pre-existing checks
+passed untouched (through section AH2 — everything ahead of the gamecast), then item 3's
+restaged geometry checks (the crossbar-parallel-to-end-line read) correctly went `undefined`
+against the old crossbar shape, ending in a clean crash reading a property off that `undefined`
+result — the same "a new check fails hard against old code" shape the 2026-08-20 zero-floor
+entry above documents as the acceptable proof when a check depends on a symbol/shape the old
+code never had. App files restored from the scratchpad backup afterward; `git diff --stat`
+confirmed byte-identical to the pre-revert working tree.
+
+Plates (scratchpad, not `shots/` — throwaway review artifacts never live in the repo):
+`gffl_gamecast_{390,1280}.png` (uprights + top of the game view), `gffl_boxscore_owner_tags_390.png`,
+`gffl_scores_livenow_390.png`, `gffl_injury_healthy_green_390.png`.
+
+**REVIEW FOLLOW-UP (same day)**: two things the plates caught that the DOM checks alone hadn't.
+(A) **The live scores plate read "QUNDEFINED UNDEFINED."** Two bugs stacked: the item-4 test
+fixture's live event carried no `period`/`clock`/`detail` at all — thinner than any real ESPN
+payload, which always sends all three for an in-progress game — and `scoreCardHtml`'s own state
+line had no fallback for that gap (`"Q" + e.period + " " + e.clock"` prints the literal word
+"undefined" when either is missing). Fixed both: the fixture now carries the real shape (period,
+clock, detail, AND name/city/color per side, matching `sbFix()`'s own `mk()` shape) plus a SECOND
+live event with no period/clock at all, to prove the fallback independently of any one fixture
+being complete; `scoreCardHtml`'s state line now reads `period+clock` if both are present, else
+the event's own `detail` string, else the plain word "Live" — never a printed `undefined`. New
+checks: the no-period/clock event renders its `detail` text, and the string "undefined" appears
+nowhere on the page.
+(B) **Neither gamecast plate reached "In this game"** — both crops ended at This Drive, above
+the fold. Three more plates, scrolled to the section: `gffl_gamecast_inthisgame_{390,1280}.png`
+(both NFL sides, owner tags, slot markers, points — the full 4-row hand-built fixture) and
+`gffl_gamecast_inthisgame_empty_390.png` (the "No GFFL players" line on the empty side, sitting
+next to a real rostered row on the other).
+
+**VERIFY (re-run after the follow-up)**: `node tools/_verify-gffl.cjs` **2872/2872**, 0 page
+errors (with `--shots`). `node tools/_verify-sports.cjs` **231/231**, unaffected by either fix.
+---

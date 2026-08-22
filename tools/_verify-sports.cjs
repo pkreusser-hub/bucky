@@ -287,6 +287,13 @@ async function sectionA() {
   ok(!!kcPlayers && kcPlayers.groups.some((x) => x.name === "passing" && x.labels[0] === "C/ATT"
     && x.athletes[0].name === "P. Mahomes" && x.athletes[0].stats[1] === "212"),
     "player box-score groups keep labels + stat rows");
+  // item 6 (2026-08-22): the athlete's ESPN id is carried through — the app's box score uses
+  // it as the owner-tag lookup key. Kelce's fixture entry carries none at all, and that comes
+  // through as "" (never a fabricated id), never dropped from the shape.
+  const kcPassing = kcPlayers && kcPlayers.groups.find((x) => x.name === "passing");
+  const kcReceiving = kcPlayers && kcPlayers.groups.find((x) => x.name === "receiving");
+  ok(!!kcPassing && kcPassing.athletes[0].id === "3139477", "the athlete id is carried through (" + (kcPassing && kcPassing.athletes[0].id) + ")");
+  ok(!!kcReceiving && kcReceiving.athletes[0].id === "", "…and an athlete ESPN sent no id for reads as \"\", not dropped (" + JSON.stringify(kcReceiving && kcReceiving.athletes[0]) + ")");
   ok(!!g && g.scoringPlays.length === 5 && g.scoringPlays[4].home === 17 && g.scoringPlays[4].team === "KC",
     "scoring plays carry period/clock/text/score");
   const kcTeam = g && g.teams.find((t) => t.abbrev === "KC");

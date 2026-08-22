@@ -181,20 +181,24 @@ function boxscoreFor(away, home) {
       ],
     };
   }
-  function players(t, qb, cmp, yds, td, int_, rb, car, ryds) {
+  // item 6 (2026-08-22): athlete ids, mirroring the real ESPN summary shape (athlete.id) —
+  // sports.mjs now carries them through so the box score can tag each row with its owner.
+  function players(t, qb, cmp, yds, td, int_, rb, car, ryds, qbId, rbId) {
     return {
       team: { id: t.id, abbreviation: t.abbrev },
       statistics: [
         {
           name: "passing", text: "Passing", labels: ["C/ATT", "YDS", "AVG", "TD", "INT"],
-          athletes: [{ athlete: { shortName: qb, displayName: qb }, stats: [cmp, String(yds), "8.8", String(td), String(int_)] }],
+          athletes: [{ athlete: { id: qbId, shortName: qb, displayName: qb }, stats: [cmp, String(yds), "8.8", String(td), String(int_)] }],
         },
         {
           name: "rushing", text: "Rushing", labels: ["CAR", "YDS", "AVG", "TD", "LONG"],
-          athletes: [{ athlete: { shortName: rb, displayName: rb }, stats: [String(car), String(ryds), "4.9", "0", "16"] }],
+          athletes: [{ athlete: { id: rbId, shortName: rb, displayName: rb }, stats: [String(car), String(ryds), "4.9", "0", "16"] }],
         },
         {
           name: "receiving", text: "Receiving", labels: ["REC", "YDS", "AVG", "TD", "LONG"],
+          // Kelce deliberately carries NO id — the "ESPN sent none" case the client's owner-tag
+          // read must fall back to blank on (never a name-matched guess).
           athletes: [{ athlete: { shortName: "T. Kelce", displayName: "Travis Kelce" }, stats: ["6", "78", "13.0", "1", "23"] }],
         },
       ],
@@ -202,7 +206,8 @@ function boxscoreFor(away, home) {
   }
   return {
     teams: [teamStats(away, 241, 178, 63, 1, "19:08", "3-8"), teamStats(home, 289, 212, 77, 0, "24:10", "6-9")],
-    players: [players(away, "J. Allen", "15/22", 178, 1, 1, "J. Cook", 9, 41), players(home, "P. Mahomes", "18/24", 212, 2, 0, "I. Pacheco", 11, 54)],
+    players: [players(away, "J. Allen", "15/22", 178, 1, 1, "J. Cook", 9, 41, "3918298", "4429795"),
+      players(home, "P. Mahomes", "18/24", 212, 2, 0, "I. Pacheco", 11, 54, "3139477", "4429205")],
   };
 }
 

@@ -17,6 +17,9 @@ const { pathToFileURL } = require("url");
 const puppeteer = require("puppeteer-core");
 
 const ROOT = path.join(__dirname, "..");
+// Review plates for the 2026-08-22 playtest-6 batch go to the session scratchpad, not shots/
+// (house rule: scratch/throwaway review artifacts never live in the repo).
+const SCRATCH = "C:\\Users\\pkreu\\AppData\\Local\\Temp\\claude\\C--Users-pkreu-OneDrive-Documents-BUCKY\\3975c6b5-997c-4420-be77-bbe51e7e6e8d\\scratchpad";
 const SRV_PORT = 8843;
 const FF_PORT = 8844;
 const TENOR_PORT = 8845;
@@ -763,20 +766,28 @@ function nflSummaryFix(eventId, state) {
     ],
     players: [
       { team: { abbreviation: "PHI" }, statistics: [
+        // item 6 (2026-08-22): athlete ids, mirroring the real ESPN summary shape (the box-
+        // score suite's fixture has to carry them for the owner-tag test to mean anything).
+        // P. Passer/W. Receiver/X. Wideout are rostered league players — their ids ARE their
+        // league keys — so each gets that team's own owner tag. F. Freeagent's id belongs to
+        // nobody's roster (FA). Z. Noid carries NO id at all — never a name-matched guess, so
+        // that row gets no tag whatsoever.
         { name: "passing", text: "Passing", labels: ["C/ATT", "YDS", "AVG", "TD", "INT"],
-          athletes: [{ athlete: { shortName: "P. Passer", displayName: "Peter Passer" }, stats: ["12/18", "175", "9.7", "1", "1"] }] },
+          athletes: [{ athlete: { id: "3915511", shortName: "P. Passer", displayName: "Peter Passer" }, stats: ["12/18", "175", "9.7", "1", "1"] }] },
         { name: "receiving", text: "Receiving", labels: ["REC", "YDS", "AVG", "TD", "LONG"],
           athletes: [
-            { athlete: { shortName: "W. Receiver", displayName: "Walt Receiver" }, stats: ["4", "50", "12.5", "1", "24"] },
-            { athlete: { shortName: "X. Wideout", displayName: "Xavier Wideout" }, stats: ["2", "61", "30.5", "0", "49"] }] },
+            { athlete: { id: "4361741", shortName: "W. Receiver", displayName: "Walt Receiver" }, stats: ["4", "50", "12.5", "1", "24"] },
+            { athlete: { id: "222333", shortName: "X. Wideout", displayName: "Xavier Wideout" }, stats: ["2", "61", "30.5", "0", "49"] },
+            { athlete: { id: "999001", shortName: "F. Freeagent", displayName: "Fred Freeagent" }, stats: ["1", "9", "9.0", "0", "9"] },
+            { athlete: { shortName: "Z. Noid", displayName: "Zack Noid" }, stats: ["1", "3", "3.0", "0", "3"] }] },
       ] },
       { team: { abbreviation: "DAL" }, statistics: [
         { name: "rushing", text: "Rushing", labels: ["CAR", "YDS", "AVG", "TD"],
-          athletes: [{ athlete: { shortName: "R. Rusher", displayName: "Roy Rusher" }, stats: ["9", "40", "4.4", "0"] }] },
+          athletes: [{ athlete: { id: "4241457", shortName: "R. Rusher", displayName: "Roy Rusher" }, stats: ["9", "40", "4.4", "0"] }] },
         // A group the view deliberately does NOT render (only passing/rushing/receiving) —
         // present so "we render the three we said we would" is a real filter, not a tautology.
         { name: "kicking", text: "Kicking", labels: ["FG", "PCT", "LONG", "XP", "PTS"],
-          athletes: [{ athlete: { shortName: "K. Kicker", displayName: "Kip Kicker" }, stats: ["1/1", "100.0", "47", "0/0", "3"] }] },
+          athletes: [{ athlete: { id: "2473037", shortName: "K. Kicker", displayName: "Kip Kicker" }, stats: ["1/1", "100.0", "47", "0/0", "3"] }] },
       ] },
     ],
   };
@@ -6824,10 +6835,13 @@ async function openDetails(page, id) {
     // ---- Y1: opens from a MATCHUP lineup row, HOME side, with hand-checked numbers ----
     await clickIn(page, ".mucard.mine");
     await page.waitForSelector(".muhead", { timeout: 9000 });
-    await page.evaluate(() => {
-      const el = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("P. Passer"));
-      el.click();
-    });
+    // 2026-08-22 (item 1): the default scoreboard fixture has DAL@PHI live — P. Passer/
+    // Q. Rival's own game — so a DOM tap on their row now opens the NFL GAME (item 1's own
+    // point, checked separately below), not the card. THIS section is about the CARD's own
+    // content (including the "Live — Q2 5:00" line a few asserts down, which needs the game
+    // to STAY live) — opened directly via UI.openPlayerCard, sidestepping the tap-routing
+    // decision entirely rather than fighting it with a fixture override.
+    await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511"));
     await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
     const y1 = await page.evaluate(() => ({
       name: document.querySelector(".pcname").textContent,
@@ -6857,10 +6871,7 @@ async function openDetails(page, id) {
     ok(true, "Escape closes the card");
 
     // Backdrop click closes it; a tap on the card's own content does not.
-    await page.evaluate(() => {
-      const el = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("P. Passer"));
-      el.click();
-    });
+    await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511"));
     await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
     await page.evaluate(() => document.querySelector(".pcweek").click());
     ok((await page.evaluate(() => !document.getElementById("playerCard").hidden)), "a tap on the card's own content does not close it");
@@ -6868,10 +6879,7 @@ async function openDetails(page, id) {
     ok((await page.evaluate(() => document.getElementById("playerCard").hidden)), "a tap on the backdrop itself closes it");
 
     // ---- AWAY side too (item 1's "matchup lineup rows both sides") ----
-    await page.evaluate(() => {
-      const el = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("Q. Rival"));
-      el.click();
-    });
+    await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("222111"));
     await page.waitForSelector(".pccard .pcname", { timeout: 5000 });
     ok((await text(page, ".pcname")) === "Q. Rival", "the AWAY side's own half-cells open the card too");
     await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
@@ -12128,7 +12136,38 @@ async function openDetails(page, id) {
           // 2026-08-14 four-fix round: goalposts at the field's own far edges (the back line
           // of each end zone) standing upright; the chalk lines spanning exactly the strip;
           // a DASHED marker where the drive began.
-          posts: [...svg.querySelectorAll(".nflpost")].map((p) => ({ x: p.dataset.x, upright: /skewX\(10\)/.test(p.getAttribute("transform") || "") })),
+          // 2026-08-22 RESTAGE: the crossbar used to be drawn inside the counter-skewed local
+          // group (skewX(10) on the .nflpost wrapper itself), which put it along the field's
+          // LENGTH — the commissioner: "they should be parallel with the end zone." The
+          // crossbar now draws in SLAB coordinates (no transform on .nflpost — the crossbar IS
+          // the direct <line> child), so the old `upright: /skewX\(10\)/` proxy on the wrapper
+          // no longer applies; geometry (crossbar angle vs. the end-line angle) replaces it
+          // below. The base post + two uprights keep the counter-skew trick as their OWN <g>s.
+          posts: [...svg.querySelectorAll(".nflpost")].map((p) => {
+            const cb = p.querySelector(":scope > line");
+            const upG = [...p.querySelectorAll(":scope > g")];
+            const toScreen = (el, x, y) => { const pt = svg.createSVGPoint(); pt.x = x; pt.y = y; return pt.matrixTransform(el.getScreenCTM()); };
+            const a = toScreen(cb, Number(cb.getAttribute("x1")), Number(cb.getAttribute("y1")));
+            const b = toScreen(cb, Number(cb.getAttribute("x2")), Number(cb.getAttribute("y2")));
+            return {
+              x: p.dataset.x,
+              cbAngle: Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI,
+              uprights: upG.length,
+              uprightsSkewed: upG.every((g) => /skewX\(10\)/.test(g.getAttribute("transform") || "")),
+            };
+          }),
+          // The end line is the goal-line edge of the away end-zone slab (x=0), read the same
+          // geometry way — its own getScreenCTM, not a hand-typed skew constant — so the
+          // parallel check proves the RENDERED result, not the formula that's supposed to
+          // produce it.
+          endLineAngle: (() => {
+            const rect = svg.querySelector('rect[x="0"]');
+            if (!rect) return null;
+            const y0 = Number(rect.getAttribute("y")), h = Number(rect.getAttribute("height"));
+            const toScreen = (x, y) => { const pt = svg.createSVGPoint(); pt.x = x; pt.y = y; return pt.matrixTransform(rect.getScreenCTM()); };
+            const a = toScreen(0, y0), b = toScreen(0, y0 + h);
+            return Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+          })(),
           depths: (() => {
             const d = (sel) => { const e = svg.querySelector(sel); return e ? [e.getAttribute("y1"), e.getAttribute("y2")].join("-") : null; };
             return { fd: d(".nflfd"), los: d(".nfllos"), start: d(".nflstart") };
@@ -12176,7 +12215,14 @@ async function openDetails(page, id) {
       // and both fully inside the frame.
       ok(f.posts.length === 2 && f.posts[0].x === "0" && f.posts[1].x === "1000",
         "a goalpost stands at each far edge of the field — the back line of both end zones (" + JSON.stringify(f.posts.map((p) => p.x)) + ")");
-      ok(f.posts.every((p) => p.upright), "…both counter-skewed upright on the leaning slab");
+      ok(f.posts.every((p) => p.uprights === 3 && p.uprightsSkewed), "…the base post + two uprights all counter-skewed upright on the leaning slab");
+      // 2026-08-22 RESTAGE (was `upright: /skewX\(10\)/` on the .nflpost wrapper itself, which
+      // pinned the OLD along-the-length crossbar): the crossbar's own screen-space direction,
+      // read via getScreenCTM off its rendered endpoints, must be parallel to the end line's —
+      // geometry, not a pixel compare, within a 2° tolerance for floating-point/transform noise.
+      const angleDiff = (a, b) => { let d = Math.abs(a - b) % 180; if (d > 90) d = 180 - d; return d; };
+      ok(f.endLineAngle != null && f.posts.every((p) => angleDiff(p.cbAngle, f.endLineAngle) <= 2),
+        "the crossbar is parallel to the end line, within 2° (end line " + f.endLineAngle + "°, posts " + JSON.stringify(f.posts.map((p) => p.cbAngle)) + ")");
       ok(f.inFrame === true, "…and neither is clipped by the viewBox (what FPAD buys)");
       // The chalk lines span EXACTLY the strip — same y1/y2 as each other, no overhang.
       ok(f.depths.fd === f.depths.los && /^140-258$/.test(f.depths.los || ""),
@@ -12330,6 +12376,7 @@ async function openDetails(page, id) {
           chip: (document.querySelector("#nflChip") || {}).textContent || "",
           text: (document.querySelector("#nflBody") || {}).textContent || "",
           cards: document.querySelectorAll("#nflBody .card").length,
+          cardClasses: [...document.querySelectorAll("#nflBody .card")].map((e) => e.className),
         }))) || {};
       };
       const live = await shapeOf("401900001", ".nflfield");
@@ -12344,7 +12391,15 @@ async function openDetails(page, id) {
         "…and NO empty field, drive or box-score cards for a game that hasn't kicked off (" + JSON.stringify({ f: pre.field, p: pre.plays, d: pre.drives, b: pre.box }) + ")");
       ok(pre.line === 0, "…no linescore either — there are no quarters to show yet");
       ok(!/SHOULD NEVER RENDER/.test(pre.text), "…and the odds PROVIDER never leaks — the line is a display string only");
-      ok(pre.cards <= 2, "…so a pre-game view is two cards, not a stack of empty shells (" + pre.cards + ")");
+      // RESTAGED 2026-08-22 (item 5): was `<= 2` — the head card (nflHeadHtml wraps its own
+      // score/head area in `.card`) + the kickoff card. Item 5's "In this game" now legitimately
+      // renders pre-game too (showing D.projFor, not D.livePts — that's the whole point of the
+      // pre/live distinction the section carries), and this fixture's KC@DEN genuinely has
+      // rostered players (T. Tight on KC; S. Second/W. Two/F. Flexman/H. Healthy on DEN) — so a
+      // real third card is correct, not a regression. Still proves "no stack of empty shells":
+      // the three cards are EXACTLY the known three, not junk (head, kickoff, in-this-game).
+      ok(pre.cards === 3 && JSON.stringify(pre.cardClasses) === JSON.stringify(["card", "card", "card nflgcard"]),
+        "…so a pre-game view with rostered players is exactly three real cards, not a stack of empty shells (" + pre.cards + " — " + JSON.stringify(pre.cardClasses) + ")");
       // Two things the REVIEW PLATE caught on the pre-game shape, not a test: ESPN sends "0"
       // for both sides before kickoff (two big zeroes are a lie about a game nobody has
       // played), and the kickoff time was painted in .nflq's accent RED, which is the LIVE
@@ -13845,6 +13900,16 @@ async function openDetails(page, id) {
 
       // (a) the player stats card, opened from a matchup lineup row.
       await tapNav(page, "matchup"); await waitView(page, "matchup");
+      // 2026-08-22 (item 1): the default fixture's DAL@PHI game is live, so a tap on the
+      // FIRST matchup row (a QB starter — DAL or PHI on this fixture) would now open the
+      // live NFL GAME instead of this card — item 1's own point, but not what THIS test is
+      // about (the overlay/Back stack). Polling is stopped (waitLiveOr), so this override
+      // holds for the whole block below.
+      await evalOr(page, async () => {
+        window.__GFFL__.D.S.games.set("PHI", { state: "post" });
+        window.__GFFL__.D.S.games.set("DAL", { state: "post" });
+        await window.__GFFL__.UI.renderMatchup(true);
+      });
       await evalOr(page, () => {
         const el = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.trim());
         if (el) el.click();
@@ -17062,8 +17127,15 @@ async function openDetails(page, id) {
       await ctx.close();
     }
 
-    // ---- AR4: back to healthy counts as real news too, and it is NOT accent-tinted (good
-    // news, not a warning) when it reaches the card.
+    // ---- AR4: back to healthy counts as real news too, and it reads as GOOD news (green) when
+    // it reaches the card — RESTAGED 2026-08-22 (item 7, commissioner's ask): it used to assert
+    // "Healthy" was PLAIN text, deliberately un-tinted, on the theory that colour was reserved
+    // for "needs your attention". The commissioner's own ruling inverts that: a clean bill of
+    // health is exactly the kind of news a colour should announce too — just the GOOD colour,
+    // not the warning one .injto (red) already owns for Q/D/Out. The old "plain, not accent"
+    // assertion is replaced by "green (.injok), and that green clears AA 4.5:1 against the
+    // card" — the reason this loosens nothing: it still proves Healthy is visually DISTINCT
+    // from an ongoing designation, just distinct the other direction.
     {
       notify.reset();
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -17082,15 +17154,37 @@ async function openDetails(page, id) {
       ok(feed[0] && feed[0].from === "D" && feed[0].to === "", "…D -> healthy is on the feed, newest first (" + JSON.stringify(feed[0]) + ")");
       await sleep(300);
       ok(notify.calls.length === 1, "…and it still pushes the owner — good news is still news (" + notify.calls.length + ")");
-      // Render the card and confirm the destination reads "Healthy" and is NOT accent-tinted.
+      // Render the card and confirm the destination reads "Healthy" — GREEN, AA-legible on
+      // the card behind it — and never wears .injto's red.
       await page.evaluate(() => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".injline");
       const row = await page.evaluate(() => {
         const el = document.querySelector(".injline");
-        return { text: el && el.textContent.replace(/\s+/g, " ").trim(), tinted: !!(el && el.querySelector(".injto")) };
+        const ok2 = el && el.querySelector(".injok");
+        const card = el ? el.closest(".card") : null;
+        const cardBg = card ? getComputedStyle(card).backgroundColor : null;
+        const fg = ok2 ? getComputedStyle(ok2).color : null;
+        const lum = (rgb) => {
+          const m = rgb.match(/[\d.]+/g).map(Number);
+          const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+          return 0.2126 * f(m[0]) + 0.7152 * f(m[1]) + 0.0722 * f(m[2]);
+        };
+        const contrast = (a, b) => { const la = lum(a), lb = lum(b); return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05); };
+        return {
+          text: el && el.textContent.replace(/\s+/g, " ").trim(),
+          hasOk: !!ok2, hasAccent: !!(el && el.querySelector(".injto")),
+          contrast: fg && cardBg ? contrast(fg, cardBg) : 0,
+        };
       });
       ok(row.text && /Doubtful → Healthy/.test(row.text), "…the card spells it out in words, 'Doubtful → Healthy' (" + JSON.stringify(row.text) + ")");
-      ok(row.tinted === false, "…and 'Healthy' is plain text, not accent-tinted like an ongoing designation");
+      ok(row.hasOk === true && row.hasAccent === false, "…and 'Healthy' wears .injok (green) — never .injto's red, which is reserved for an ongoing designation");
+      ok(row.contrast >= 4.5, "…and .injok clears AA 4.5:1 against the card it sits on (" + row.contrast.toFixed(2) + ":1)");
+      if (SHOTS) {
+        await page.evaluate(() => { const el = document.querySelector(".injline"); if (el) el.scrollIntoView({ block: "center" }); });
+        await new Promise((r) => setTimeout(r, 250));
+        await page.screenshot({ path: path.join(SCRATCH, "gffl_injury_healthy_green_390.png") });
+        console.log("  📸 " + path.join(SCRATCH, "gffl_injury_healthy_green_390.png"));
+      }
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -18995,17 +19089,23 @@ async function openDetails(page, id) {
       // The duplicate-listener hazard the morph creates and the keep-set closes: a surviving
       // row keeps its data-pc-wired guard, so N repaints must still mean ONE listener — one
       // tap, one card. (Stripping the guard would re-bind every survivor every tick.)
+      // 2026-08-22 (item 1): the tapped row may now branch to UI.openNflGame instead of
+      // UI.openPlayerCard, if this fixture's DAL@PHI game is live (it is, by default) — stub
+      // BOTH, so this stays a check about listener duplication, not about which of the two
+      // item 1's own branch picks.
       const dup = (await evalOr(page, () => {
         window.__GFFL__.UI.renderMatchup(true);
         window.__GFFL__.UI.renderMatchup(true);
         let n = 0;
-        const orig = window.__GFFL__.UI.openPlayerCard;
+        const origCard = window.__GFFL__.UI.openPlayerCard, origGame = window.__GFFL__.UI.openNflGame;
         window.__GFFL__.UI.openPlayerCard = () => { n++; };
+        window.__GFFL__.UI.openNflGame = () => { n++; };
         document.querySelector(".pcellgrid[data-pk]").click();
-        window.__GFFL__.UI.openPlayerCard = orig;
+        window.__GFFL__.UI.openPlayerCard = origCard;
+        window.__GFFL__.UI.openNflGame = origGame;
         return n;
       }));
-      ok(dup === 1, "after three live repaints, tapping a player row opens exactly ONE card — no duplicate listeners (" + dup + ")");
+      ok(dup === 1, "after three live repaints, tapping a player row opens exactly ONE card/game — no duplicate listeners (" + dup + ")");
       ok(errors.length === 0, "0 page errors across the matchup morph");
       await ctx.close();
     }
@@ -19604,6 +19704,296 @@ async function openDetails(page, id) {
     ok(standDemo === true, "…and the demo's decided matchup shows up as a provisional standings row too, unprompted");
     ok(errors.length === 0, "0 page errors under ?demo=clinch");
     await ctx.close();
+  }
+
+  // ---------------- BA: THE PLAYTEST-6 BATCH (2026-08-22) — items 1, 4, 5, 6, 8 ----------------
+  section("BA · playtest-6 — matchup tap-to-live-game · scores live-now group · In this game · box-score owner tags · the reconnect seam");
+  {
+    // ---- BA1 (item 1): a LIVE player's matchup row opens the GAME, not the card; a
+    // NOT-live player's row still opens the card exactly as before. Same fixture/game
+    // (401900001, DAL@PHI) the Y-section overrides to "post" for its own purposes — here it
+    // stays the fixture's own default "in", which is the whole point of this check.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await clickIn(page, ".mucard.mine");
+    await waitOr(page, ".muhead");
+    const tap = await evalOr(page, () => {
+      const UI = window.__GFFL__.UI;
+      let openedGame = null, openedCard = null;
+      const origGame = UI.openNflGame, origCard = UI.openPlayerCard;
+      UI.openNflGame = (eid) => { openedGame = eid; };
+      UI.openPlayerCard = (key) => { openedCard = key; };
+      // P. Passer plays for PHI — DAL@PHI is "in" by default (sbFix()'s own default).
+      const liveRow = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("P. Passer"));
+      const liveEidAttr = liveRow && liveRow.dataset.liveEid;
+      liveRow && liveRow.click();
+      const afterLive = { openedGame, openedCard };
+      openedGame = null; openedCard = null;
+      // T. Tight plays for KC — KC@DEN is "pre" by default, so this row must still open the card.
+      const preRow = [...document.querySelectorAll(".pcellgrid[data-pk]")].find((e) => e.textContent.includes("T. Tight"));
+      preRow && preRow.click();
+      const afterPre = { openedGame, openedCard };
+      UI.openNflGame = origGame; UI.openPlayerCard = origCard;
+      return { liveEidAttr, afterLive, afterPre };
+    });
+    ok(!!tap && tap.liveEidAttr === "401900001", "a live player's row carries the live event id (" + JSON.stringify(tap && tap.liveEidAttr) + ")");
+    ok(!!tap && tap.afterLive.openedGame === "401900001" && tap.afterLive.openedCard === null,
+      "…tapping it opens the GAME, not the card (" + JSON.stringify(tap && tap.afterLive) + ")");
+    ok(!!tap && tap.afterPre.openedGame === null && !!tap.afterPre.openedCard,
+      "…while a NOT-live player's row still opens the card, exactly as before (" + JSON.stringify(tap && tap.afterPre) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+
+    // ---- BA2 (item 4): the scores page groups LIVE games above the day groups, ordered by
+    // date within each group; final/upcoming keep the existing day grouping/order below it.
+    const { ctx: ctx2, page: page2, errors: errors2 } = await newTestPage(browser, fullSeed());
+    await bootPage(page2);
+    await waitOr(page2, ".mucard");
+    await waitLive(page2);
+    await clickIn(page2, '.bnav button[data-v="scores"]');
+    await waitOr(page2, ".scweeknav");
+    // 2026-08-22 (coordinator review, follow-up A): the first cut's live fixture carried NO
+    // period/clock/detail — thinner than reality (ESPN always sends status.period,
+    // displayClock and shortDetail for an in-progress game), and the plate showed
+    // "QUNDEFINED UNDEFINED". Fixed two ways: the fixture below now carries the real shape
+    // (period/clock/detail, plus name/city/color per side, matching sbFix()'s mk() shape) —
+    // AND a second live event carries NO period/clock at all, to prove scoreCardHtml's own
+    // fallback (detail string, never the literal word "undefined") independently of whether
+    // any one fixture happens to be complete.
+    const order = await evalOr(page2, () => {
+      const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+      D.S.nflEvents = [
+        { id: "e-thu-final", date: "2026-09-03T00:15Z", state: "post", detail: "Final",
+          away: { abbrev: "AWY", name: "Warriors", city: "Waffle House", score: "10", logo: "", color: "6b6154", altColor: "" },
+          home: { abbrev: "HOM", name: "Cowboys", city: "Home", score: "20", logo: "", color: "454c5c", altColor: "" } },
+        { id: "e-sun-live", date: "2026-09-07T17:00Z", state: "in", period: 2, clock: "8:41", detail: "Q2 8:41",
+          away: { abbrev: "SUA", name: "Alphas", city: "Sunday", score: "7", logo: "", color: "a03449", altColor: "" },
+          home: { abbrev: "SUH", name: "Homers", city: "Sunday", score: "3", logo: "", color: "2e8659", altColor: "" } },
+        // NO period/clock at all — the fallback-to-detail case.
+        { id: "e-sun-live-nodetail", date: "2026-09-07T20:00Z", state: "in", detail: "Q3 2:00",
+          away: { abbrev: "NDA", name: "No Period", city: "Sunday", score: "14", logo: "", color: "3a72b5", altColor: "" },
+          home: { abbrev: "NDH", name: "No Clock", city: "Sunday", score: "17", logo: "", color: "c07c2b", altColor: "" } },
+        { id: "e-mon-up", date: "2026-09-08T00:15Z", state: "pre",
+          away: { abbrev: "MOA", name: "Monday A", city: "Up Next", score: "", logo: "", color: "7b5ea7", altColor: "" },
+          home: { abbrev: "MOH", name: "Monday H", city: "Coming", score: "", logo: "", color: "6b6154", altColor: "" } },
+      ];
+      UI.paintScores();
+      return {
+        dayHeads: [...document.querySelectorAll(".scoreday h2")].map((e) => e.textContent.trim()),
+        cardOrder: [...document.querySelectorAll(".sccard")].map((e) => e.dataset.eid),
+        nodetailState: (() => {
+          const c = document.querySelector('.sccard[data-eid="e-sun-live-nodetail"]');
+          const s = c ? c.querySelector(".scstate") : null;
+          return s ? s.textContent.trim() : null;
+        })(),
+        bodyHasUndefined: document.body.textContent.includes("undefined"),
+      };
+    });
+    ok(!!order && order.dayHeads[0] === "Live now", "…\"Live now\" is the first group, above every day group (" + JSON.stringify(order && order.dayHeads) + ")");
+    ok(!!order && order.cardOrder[0] === "e-sun-live" && order.cardOrder[1] === "e-sun-live-nodetail",
+      "…both live games are the first cards on the page, in their own date order (" + JSON.stringify(order && order.cardOrder) + ")");
+    ok(!!order && order.cardOrder.indexOf("e-thu-final") === 2 && order.cardOrder.indexOf("e-mon-up") === 3,
+      "…final and upcoming keep the day-grouped, date order BELOW the live group (" + JSON.stringify(order && order.cardOrder) + ")");
+    ok(order && order.nodetailState === "Q3 2:00",
+      "a live event with no period/clock renders its detail text instead (" + JSON.stringify(order && order.nodetailState) + ")");
+    ok(order && order.bodyHasUndefined === false, "…and the string \"undefined\" appears nowhere on the page");
+    if (SHOTS) {
+      await page2.screenshot({ path: path.join(SCRATCH, "gffl_scores_livenow_390.png") });
+      console.log("  📸 " + path.join(SCRATCH, "gffl_scores_livenow_390.png"));
+    }
+    ok(errors2.length === 0, "0 page errors");
+    await ctx2.close();
+
+    // ---- BA3 (item 5): "In this game" — a hand-built roster override proves rows, order,
+    // owner tags, bench/IR markers, points, the empty-side line, and total absence.
+    const { ctx: ctx3, page: page3, errors: errors3 } = await newTestPage(browser, fullSeed());
+    await bootPage(page3);
+    await waitOr(page3, ".mucard");
+    await waitLive(page3);
+    await evalOr(page3, () => window.__GFFL__.UI.openNflGame("401900001")); // DAL@PHI, live
+    await waitFnOr(page3, () => document.querySelector(".nfldiag .nflball"));
+    const inGame = await evalOr(page3, () => {
+      const UI = window.__GFFL__.UI, D = window.__GFFL__.D, LG = window.__GFFL__.LG;
+      // Hand-built rosters — DAL gets two T1 players (one bench), PHI gets two T2 players
+      // (one IR) — deliberately NOT the fixture's real DAL/PHI rosters, so the numbers below
+      // are hand-computed against THIS override, not against a fixture that could drift.
+      // (fullSeed()'s own teams are abbrev'd "T1"/"T2" — seedTeams() — not the "BK"/"EZG"
+      // pair leagueDocs() uses for the mirror/cloud-backend sections.)
+      UI._rosters = {
+        1: [{ key: "p1", name: "A. Away1", pos: "RB", team: "DAL", slot: "RB" },
+            { key: "p2", name: "B. Bench1", pos: "WR", team: "DAL", slot: "BENCH" }],
+        2: [{ key: "p3", name: "C. Home1", pos: "QB", team: "PHI", slot: "QB" },
+            { key: "p4", name: "D. Ir1", pos: "TE", team: "PHI", slot: "IR" }],
+      };
+      const table = { p1: 12, p2: 5, p3: 20, p4: 3 };
+      D.livePts = (key) => (key in table ? table[key] : null);
+      UI.paintNflGame();
+      const rows = [...document.querySelectorAll(".nflgprow")].map((e) => e.textContent.replace(/\s+/g, " ").trim());
+      return { rows, present: !!document.querySelector(".nflgcard") };
+    });
+    ok(!!inGame && inGame.present, "the \"In this game\" card is present (" + JSON.stringify(inGame) + ")");
+    ok(!!inGame && inGame.rows.length === 4, "…four rows, one per rostered player on either NFL team (" + JSON.stringify(inGame && inGame.rows) + ")");
+    ok(!!inGame && /A\. Away1.*RB.*T1.*RB.*12\.0/.test(inGame.rows[0] || ""), "DAL's higher scorer (A. Away1, 12.0, owner T1) leads its side (" + (inGame && inGame.rows[0]) + ")");
+    ok(!!inGame && /B\. Bench1.*WR.*T1.*BENCH.*5\.0/.test(inGame.rows[1] || ""), "…then B. Bench1 — BENCH marker, lower score (" + (inGame && inGame.rows[1]) + ")");
+    ok(!!inGame && /C\. Home1.*QB.*T2.*QB.*20\.0/.test(inGame.rows[2] || ""), "PHI's higher scorer (C. Home1, 20.0, owner T2) leads its side (" + (inGame && inGame.rows[2]) + ")");
+    ok(!!inGame && /D\. Ir1.*TE.*T2.*IR.*3\.0/.test(inGame.rows[3] || ""), "…then D. Ir1 — IR marker, lower score (" + (inGame && inGame.rows[3]) + ")");
+    if (SHOTS) {
+      // The uprights (item 3) + "In this game" (item 5), both on screen at once — 390 then 1280.
+      await page3.screenshot({ path: path.join(SCRATCH, "gffl_gamecast_390.png") });
+      await page3.setViewport({ width: 1280, height: 900 });
+      await new Promise((r) => setTimeout(r, 250));
+      await page3.screenshot({ path: path.join(SCRATCH, "gffl_gamecast_1280.png") });
+      console.log("  📸 " + path.join(SCRATCH, "gffl_gamecast_{390,1280}.png"));
+      await page3.setViewport({ width: 390, height: 844 });
+      await new Promise((r) => setTimeout(r, 250));
+      // 2026-08-22 (coordinator review, follow-up B): the top-of-page crops above never
+      // reached "In this game" (it sits below This Drive / the box score). Scroll straight to
+      // it and plate it on its own, at both widths, so the rows themselves — owner tags, slot
+      // markers, points — are actually visible, not just proven by the DOM checks above.
+      await page3.evaluate(() => { const el = document.querySelector(".nflgcard"); if (el) el.scrollIntoView({ block: "start" }); });
+      await new Promise((r) => setTimeout(r, 250));
+      await page3.screenshot({ path: path.join(SCRATCH, "gffl_gamecast_inthisgame_390.png") });
+      await page3.setViewport({ width: 1280, height: 900 });
+      await new Promise((r) => setTimeout(r, 250));
+      await page3.evaluate(() => { const el = document.querySelector(".nflgcard"); if (el) el.scrollIntoView({ block: "start" }); });
+      await new Promise((r) => setTimeout(r, 250));
+      await page3.screenshot({ path: path.join(SCRATCH, "gffl_gamecast_inthisgame_1280.png") });
+      console.log("  📸 " + path.join(SCRATCH, "gffl_gamecast_inthisgame_{390,1280}.png"));
+      await page3.setViewport({ width: 390, height: 844 });
+      await page3.evaluate(() => window.scrollTo(0, 0));
+    }
+    // One side empty: DAL gets nobody, PHI keeps its two.
+    const oneEmpty = await evalOr(page3, () => {
+      const UI = window.__GFFL__.UI;
+      UI._rosters = { 1: [], 2: [{ key: "p3", name: "C. Home1", pos: "QB", team: "PHI", slot: "QB" }] };
+      UI.paintNflGame();
+      return {
+        rows: [...document.querySelectorAll(".nflgprow")].length,
+        noneLine: [...document.querySelectorAll(".nflgcard p")].some((e) => /No GFFL players/.test(e.textContent)),
+      };
+    });
+    ok(!!oneEmpty && oneEmpty.rows === 1 && oneEmpty.noneLine === true,
+      "a side with nobody rostered gets one muted \"No GFFL players\" line, not an empty table (" + JSON.stringify(oneEmpty) + ")");
+    if (SHOTS) {
+      // The empty-side "No GFFL players" line, plated too — the coordinator asked to see it,
+      // not just trust the DOM check above.
+      await page3.evaluate(() => { const el = document.querySelector(".nflgcard"); if (el) el.scrollIntoView({ block: "start" }); });
+      await new Promise((r) => setTimeout(r, 250));
+      await page3.screenshot({ path: path.join(SCRATCH, "gffl_gamecast_inthisgame_empty_390.png") });
+      console.log("  📸 " + path.join(SCRATCH, "gffl_gamecast_inthisgame_empty_390.png"));
+      await page3.evaluate(() => window.scrollTo(0, 0));
+    }
+    // BOTH sides empty: the whole card is absent.
+    const bothEmpty = await evalOr(page3, () => {
+      const UI = window.__GFFL__.UI;
+      UI._rosters = { 1: [], 2: [] };
+      UI.paintNflGame();
+      return !document.querySelector(".nflgcard");
+    });
+    ok(bothEmpty === true, "…and the WHOLE section is absent only when both sides are empty");
+    ok(errors3.length === 0, "0 page errors");
+    await ctx3.close();
+
+    // ---- BA4 (item 6): box-score owner tags — id -> rostered owner, id -> nobody -> FA,
+    // no id -> no tag at all.
+    const { ctx: ctx4, page: page4, errors: errors4 } = await newTestPage(browser, fullSeed());
+    await bootPage(page4);
+    await waitOr(page4, ".mucard");
+    await waitLive(page4);
+    await evalOr(page4, () => window.__GFFL__.UI.openNflGame("401900001"));
+    await waitFnOr(page4, () => document.querySelectorAll("table.nflbox").length > 0);
+    const tags = await evalOr(page4, () => {
+      const row = (name) => {
+        const tr = [...document.querySelectorAll("table.nflbox tr")].find((r) => r.textContent.includes(name));
+        if (!tr) return null;
+        return tr.lastElementChild ? tr.lastElementChild.textContent.trim() : null;
+      };
+      return { passer: row("P. Passer"), receiver: row("W. Receiver"), wideout: row("X. Wideout"), freeagent: row("F. Freeagent"), noid: row("Z. Noid") };
+    });
+    ok(tags && tags.passer === "T1", "P. Passer (rostered, team 1) tags T1 — the fixture's own owner (" + JSON.stringify(tags) + ")");
+    ok(tags && tags.wideout === "T2", "X. Wideout (rostered, team 2) tags T2");
+    ok(tags && tags.freeagent === "FA", "F. Freeagent (an id nobody rosters) tags FA — not a name-matched guess");
+    ok(tags && tags.noid === "", "Z. Noid (no id in the payload at all) gets NO tag — blank, never a guess");
+    if (SHOTS) {
+      await page4.evaluate(() => { const t = document.querySelector(".nflboxcard"); if (t) t.scrollIntoView({ block: "start" }); });
+      await new Promise((r) => setTimeout(r, 250));
+      await page4.screenshot({ path: path.join(SCRATCH, "gffl_boxscore_owner_tags_390.png") });
+      console.log("  📸 " + path.join(SCRATCH, "gffl_boxscore_owner_tags_390.png"));
+    }
+    ok(errors4.length === 0, "0 page errors");
+    await ctx4.close();
+
+    // ---- BA5 (item 8): the reconnect seam. A locker with a swap sheet open survives a
+    // reconnect untouched (same DOM, sheet still up); closing the sheet drains the deferred
+    // repaint. Driven straight at UI._mirrorRetryTick — the exact seam mirrorTimer fires.
+    const { ctx: ctx5, page: page5, errors: errors5 } = await newTestPage(browser, fullSeed());
+    await bootPage(page5);
+    await waitOr(page5, ".mucard");
+    await waitLive(page5);
+    await page5.evaluate(() => window.__GFFL__.UI.openLocker(1));
+    await waitOr(page5, ".lrow");
+    await clickChildIn(page5, ".lrow", ".lswap", "F. Flexman");
+    await waitOr(page5, "#rosterCard .swaprow");
+    await page5.evaluate(() => { document.querySelector("#main").firstElementChild.__probe = 1; });
+    const during = await page5.evaluate(async () => {
+      const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+      LG.mirrorOffline = true;
+      const orig = LG.retryBackend;
+      LG.retryBackend = async () => true; // "the backend is reachable again"
+      await UI._mirrorRetryTick();
+      LG.retryBackend = orig;
+      const mainEl = document.querySelector("#main").firstElementChild;
+      return {
+        sheetUp: !!document.querySelector("#rosterCard .swaprow"),
+        sameNode: mainEl && mainEl.__probe === 1,
+        pending: UI._lockerRepaintPending,
+      };
+    });
+    ok(during.sheetUp === true, "the swap sheet SURVIVES the reconnect — no UI.boot()-style wipe (" + JSON.stringify(during) + ")");
+    ok(during.sameNode === true, "…and the locker root's own DOM node identity is UNCHANGED while the sheet is up");
+    ok(during.pending === true, "…the repaint was DEFERRED, not skipped — it's queued for the moment the sheet closes");
+    await page5.evaluate(() => window.__GFFL__.UI.closeRosterCard());
+    await waitFnOr(page5, () => { const el = document.querySelector("#main").firstElementChild; return !el || el.__probe !== 1; });
+    const after = await page5.evaluate(() => ({
+      sameNode: (() => { const el = document.querySelector("#main").firstElementChild; return !!(el && el.__probe === 1); })(),
+      pending: window.__GFFL__.UI._lockerRepaintPending,
+      lrow: document.querySelectorAll(".lrow").length,
+    }));
+    ok(after.sameNode === false, "closing the sheet drains the deferred repaint — the locker root is a NEW node now");
+    ok(after.pending === false, "…and the pending flag is cleared");
+    ok(after.lrow > 0, "…with a real, fully-rendered locker on screen (" + after.lrow + " rows)");
+    ok(errors5.length === 0, "0 page errors through the reconnect/drain cycle");
+    await ctx5.close();
+
+    // ---- BA6 (item 8's cheap insurance): sessionStorage scroll restore, asserted by geometry
+    // (window.scrollY), not a screenshot. Seeds the key directly and drives the restore
+    // mechanism (armScrollRestoreOnce) rather than a full reload, so the check is fast and
+    // isolates the ONE mechanism under test.
+    const { ctx: ctx6, page: page6, errors: errors6 } = await newTestPage(browser, fullSeed());
+    await bootPage(page6);
+    await waitOr(page6, ".mucard");
+    const restored = await page6.evaluate(async () => {
+      const UI = window.__GFFL__.UI;
+      sessionStorage.setItem("gffl_scrollState", JSON.stringify({ view: UI.view, lockerTeamId: UI.lockerTeamId, scrollY: 240 }));
+      UI._armScrollRestoreOnce();
+      await new Promise((r) => setTimeout(r, 500)); // past the mutation-observer quiet window
+      return window.scrollY;
+    });
+    ok(Math.abs(restored - 240) <= 2, "scroll position restores from sessionStorage, asserted by geometry (window.scrollY=" + restored + ")");
+    // A MISMATCHED view must never apply the saved scroll — the guard the whole feature relies on.
+    const notApplied = await page6.evaluate(async () => {
+      const UI = window.__GFFL__.UI;
+      window.scrollTo(0, 0);
+      sessionStorage.setItem("gffl_scrollState", JSON.stringify({ view: "locker", lockerTeamId: 1, scrollY: 500 }));
+      UI._armScrollRestoreOnce(); // current view is "league", saved state is "locker" — no match
+      await new Promise((r) => setTimeout(r, 500));
+      return window.scrollY;
+    });
+    ok(notApplied === 0, "…and a saved scroll for a DIFFERENT view is never applied (" + notApplied + ")");
+    ok(errors6.length === 0, "0 page errors");
+    await ctx6.close();
   }
 
   await browser.close();
