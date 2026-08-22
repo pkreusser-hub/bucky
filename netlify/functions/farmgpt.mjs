@@ -3195,6 +3195,68 @@ function buildAuditMessages(body) {
   return [{ role: "user", content: parts.join("\n") }];
 }
 
+// ---------------- the seeder's view of a universe pack ----------------
+// Deliberately NOT renderLedgerForKeeper. The keeper files changes to PEOPLE, so it needs every
+// full sheet. The seeder in a packed world writes only the STORY layer — the reader's place in the
+// world, the situation, the threads, the secrets, the era — and STORY_SEED_PACK_RULES forbids it
+// from touching a pack character's voice, status, possessions or knowledge at all. Sending those
+// sheets bought nothing and cost everything: the HTTYD pack rendered 23 full sheets and Fable's
+// first byte landed at 63.6s with the seed finishing at 86s, past the client's own 75s abort — so
+// EVERY HTTYD story seeded nothing at all. What the seeder actually needs from a pack is who
+// EXISTS (so it never invents a duplicate or contradicts a status), the canon headlines, and the
+// places. So: one ROSTER LINE per person — id · name · role · status — and nothing else. Nothing
+// is lost downstream, because the client merges the seed INTO the full pack ledger; the dropped
+// fields never left the browser in the first place.
+function renderPackForSeeder(raw) {
+  const led = raw && typeof raw === "object" ? raw : {};
+  const meta = led.meta && typeof led.meta === "object" ? led.meta : {};
+  const O = [];
+  const idOf = (e, dflt) => "[" + (ledStr(e && e.id) || dflt) + "] ";
+  O.push("===== THIS WORLD, AS ALREADY WRITTEN =====");
+  O.push(ledFields([
+    ["Universe", ledStr(meta.universe)],
+    ["Where in that story", ledStr(meta.timeline_point)],
+  ]));
+  const canon = Array.isArray(led.canon) ? led.canon : [];
+  O.push("", "THE RULES OF THIS WORLD (already written — never restate one in your own words):");
+  if (!canon.length) O.push("  (none yet)");
+  for (const c of canon) {
+    const rule = ledStr(c && c.rule);
+    if (rule) O.push("  " + idOf(c, "C?") + rule + (ledStr(c.source) === "family" ? " (the family's own)" : ""));
+  }
+  // Everyone who EXISTS, one line each. On-stage and never-on-stage are the same kind of fact to a
+  // seeder — it may not rewrite either — so they render identically and the split is dropped.
+  const people = [].concat(
+    Array.isArray(led.characters) ? led.characters : [],
+    Array.isArray(led.roster) ? led.roster : []);
+  O.push("", "THE PEOPLE OF THIS WORLD — every one of them already exists. Write NO characters[]",
+    "entry for anyone on this list, and never a second version of one of them:");
+  if (!people.length) O.push("  (nobody yet)");
+  for (const c of people) {
+    const name = ledStr(c && c.name);
+    if (!name) continue;
+    O.push("  " + idOf(c, "CH?") + name + (ledStr(c.role) ? " — " + ledStr(c.role) : "") +
+      (ledStr(c.status) ? " — " + ledStr(c.status) : ""));
+  }
+  const locs = Array.isArray(led.locations) ? led.locations : [];
+  O.push("", "THE PLACES OF THIS WORLD (you may add a place it has not listed):");
+  if (!locs.length) O.push("  (none yet)");
+  for (const l of locs) {
+    const name = ledStr(l && l.name);
+    if (name) O.push("  " + idOf(l, "L?") + name + (ledStr(l.state) ? " — now: " + ledStr(l.state) : ""));
+  }
+  const rels = Array.isArray(led.relationships) ? led.relationships : [];
+  if (rels.length) {
+    O.push("", "HOW THEY STAND WITH EACH OTHER:");
+    for (const r of rels) {
+      const between = ledList(r && r.between);
+      if (between.length >= 2) O.push("  " + between.join(" ↔ ") + ": " + ledStr(r.state));
+    }
+  }
+  O.push("===== END OF THIS WORLD =====");
+  return O.join("\n");
+}
+
 // The SEEDER's single user turn, built server-side from named fields for the same reason the
 // keeper's is: a universe pack is far past MAX_CONTENT_CHARS and sanitizeMessages would slice it.
 const SEED_SETUP_MAX = 4000;
@@ -3210,11 +3272,11 @@ function buildSeedMessages(body) {
   const parts = [];
   if (pack) {
     let rendered = "";
-    try { rendered = renderLedgerForKeeper(pack); } catch { rendered = ""; }
-    if (rendered) {
-      parts.push("===== THIS WORLD, AS ALREADY WRITTEN =====",
-        rendered.slice(0, SEED_PACK_MAX), "===== END OF THIS WORLD =====", "");
-    } else pack = null;
+    try { rendered = renderPackForSeeder(pack); } catch { rendered = ""; }
+    // The cap stays as the backstop it always was; the roster puts the real HTTYD pack an order of
+    // magnitude under it rather than up against it.
+    if (rendered) parts.push(rendered.slice(0, SEED_PACK_MAX), "");
+    else pack = null;
   }
   // The eras this world offers, and the one the client's own regex already guessed. The seeder
   // reads the setup text properly and may overrule the guess — but only with an id from this list,

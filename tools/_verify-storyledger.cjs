@@ -771,6 +771,56 @@ async function sectionServer() {
   ok(String((((anthReqs[0] || {}).messages || [])[0] || {}).content || "").includes("Bramblewick"),
     "…and is shown the world the narrator will be shown");
 
+  // ---- A15b: THE SEEDER'S DIET ------------------------------------------------------------
+  // RESTAGED 2026-08-22. The pack used to reach the seeder through renderLedgerForKeeper — every
+  // full character sheet, voice, knowledge and possessions included. That is the keeper's view,
+  // and it was the wrong one: the seeder writes only the STORY layer and its own rules forbid it
+  // from rewriting any of those fields. It cost 63.6s to Fable's first byte and 86s to a finished
+  // HTTYD seed, past the client's 75s abort, so every HTTYD story seeded NOTHING. renderPackForSeeder
+  // sends a ROSTER instead: one line per person, id · name · role · status.
+  anthReqs.length = 0;
+  const rosterPack = fixtureLedger({
+    roster: [{ id: "CH3", name: "Pell", role: "ferryman", status: "ashore since the flood" }],
+  });
+  await call(Object.assign(seedBody(), { packLedger: rosterPack }));
+  const seedTurn = String((((anthReqs[0] || {}).messages || [])[0] || {}).content || "");
+  ok(/\[CH1\] Bramblewick — lamplighter — well/.test(seedTurn),
+    "a pack character reaches the seeder as ONE roster line: id · name · role · status");
+  ok(/\[CH3\] Pell — ferryman — ashore since the flood/.test(seedTurn),
+    "…and so does a character who has never been on stage — to a seeder they are the same fact");
+  // Arithmetic, not vibes: Bramblewick, the reader's own Wren, and the off-stage Pell — three people, three lines,
+  // nothing indented underneath any of them.
+  const peopleBlock = seedTurn.split(/never a second version of one of them:\n/)[1] || "";
+  const peopleLines = peopleBlock.split("\n\n")[0].split("\n").filter((l) => l.trim());
+  ok(peopleLines.length === 3,
+    "…exactly one line per person (3 people → " + peopleLines.length + " lines), never a block each");
+  for (const field of ["voice", "knows", "does NOT know", "carries", "last seen"]) {
+    ok(!seedTurn.includes(field + ":"),
+      "…the seeder is shown NO \"" + field + "\" for a pack character — it may not rewrite one anyway");
+  }
+  ok(!seedTurn.includes("brass tinder-hook") && !seedTurn.includes("clipped and gruff") &&
+     !seedTurn.includes("which lamps are lying"),
+    "…nor the contents of those fields by any other route");
+  ok(!seedTurn.includes("Bramblewick cut the rope himself"),
+    "…and the pack's own hidden_from_player never reaches it — the seeder plants secrets, it is not told them");
+  ok(seedTurn.includes("A lantern only lights for someone who has told it the truth that day.") &&
+     seedTurn.includes("No one may cross the river after dark."),
+    "the canon rules DO go in full — they are one sentence each and they are what must not be contradicted");
+  ok(seedTurn.includes("[L1] Marrowmere quay — now: half-dark"),
+    "…the places go in with their state");
+  ok(seedTurn.includes("Bramblewick ↔ Wren: wary"),
+    "…and how people stand with each other, which is where a thread comes from");
+  ok(seedTurn.length < 2600,
+    "…the whole rendered world fits in " + seedTurn.length + " characters (was ~2× that with full sheets)");
+
+  // The diet is SCOPED to the seeder. The keeper still needs every sheet — it files changes to
+  // exactly the fields the seeder is no longer shown.
+  anthReqs.length = 0;
+  await call(keeperBody());
+  const keeperTurn = String((((anthReqs[0] || {}).messages || [])[0] || {}).content || "");
+  ok(keeperTurn.includes("knows: which lamps are lying") && keeperTurn.includes("carries: a brass tinder-hook"),
+    "the KEEPER's view is untouched — it still gets the full sheet it files against");
+
   const seedBad = await call({ mode: "storyseed", setup: "" });
   ok(seedBad.status === 400, "a seed request with nothing to build from is rejected, not guessed at");
 
@@ -1412,6 +1462,31 @@ async function sectionSeeding(browser) {
     // The cast is SHAPED, not shortened: on-stage sheets + roster lines still add up to everyone.
     out.wireKeepsCast = wire.characters.length + (wire.roster || []).length === fat.characters.length;
     out.storedUntrimmed = fat.timeline.length === 2000;
+
+    // THE MERGE, after the seeder's diet. The seeder is no longer SHOWN a pack character's voice,
+    // knowledge or possessions — which is only safe because the seed lands on top of the full pack
+    // ledger here in the browser, and never replaces it. This is that guarantee, exercised: seed a
+    // real pack ledger, apply a seed patch shaped like the ones Fable actually returns (a new minor
+    // character, threads, secrets, an era), and check the pack's own sheets came through whole.
+    const merged = S.seedLedger({ title: "Quay", universe: "httyd", genre: "adventure", heroName: "Wren", pack: p1.pack });
+    const patch = S.seedPatchToDiff({
+      characters: [{ name: "Bram the Salt-Trader", role: "a trader who will not dock", voice: "mutters" }],
+      open_threads: [{ thread: "why the ferry stopped", urgency: "slow burn" }],
+      player_knowledge: { hidden_from_player: ["Pell cut the rope herself"] },
+      locations: [{ name: "the boathouse", description: "tarred and shut", state: "locked" }],
+    });
+    const mres = S.applyLedgerDiff(merged, patch);
+    out.mergeOk = mres.ok;
+    const L = mres.ok ? mres.ledger : merged;
+    const bw = (L.characters || []).find((c) => c.name === "Bramblewick");
+    out.mergeKeepsVoice = !!bw && /clipped and gruff/.test(bw.voice || "");
+    out.mergeKeepsKnows = !!bw && (bw.knows || []).includes("which lamps are lying") &&
+      (bw.possessions || []).includes("a brass tinder-hook") &&
+      (bw.does_not_know || []).includes("who cut the ferry rope");
+    out.mergeKeepsCanon = (L.canon || []).length === p1.pack.canon.length;
+    out.mergeAddsStory = (L.open_threads || []).length === 1 &&
+      ((L.player_knowledge || {}).hidden_from_player || []).length === 1 &&
+      (L.characters || []).some((c) => c.name === "Bram the Salt-Trader");
     return out;
   });
 
@@ -1447,6 +1522,12 @@ async function sectionSeeding(browser) {
   ok(r.readerId && r.idsUnique, "…a unique id, no collision with pack ids");
   ok(r.anonProtag && r.anonReader, "no name given: BOTH blocks still exist for the keeper to fill in");
   ok(r.anonEmptyWorld, "'My own world' seeds an empty original-world ledger");
+  ok(r.mergeOk, "a seed patch applies onto a pack-seeded ledger");
+  ok(r.mergeKeepsVoice && r.mergeKeepsKnows,
+    "…and the pack character keeps the VOICE, knowledge and possessions the seeder was never shown — " +
+    "the diet drops them from the seeder's INPUT, not from the world");
+  ok(r.mergeKeepsCanon, "…every pack canon rule survives the merge");
+  ok(r.mergeAddsStory, "…while the seed's own story layer (new character, thread, secret) lands on top");
   ok(r.wireTrimmed, "ledgerForSend trims to the wire budget before sending");
   ok(r.wireKeepsCanon && r.wireKeepsCast, "…without dropping canon or the cast");
   ok(r.storedUntrimmed, "…and the STORED ledger keeps its full timeline");
@@ -3571,6 +3652,14 @@ async function sectionWorldWait(browser) {
   });
   ok(clocks.deadline > clocks.timeout, "the screen's deadline sits BEYOND the seeder's own abort (" +
     clocks.timeout + "ms → " + clocks.deadline + "ms), so it can never outlive it");
+  // …and the abort itself is set from a MEASUREMENT, not a feel. tools/_probe-seeddiet.mjs, five
+  // real Fable seeds of the real HTTYD pack through the real function, worst finish 62.2s. A clock
+  // tighter than the worst seed is a clock that throws away worlds — which is exactly what 75000
+  // did before the roster diet, when the same seed finished at 86s.
+  const SEED_WORST_MEASURED_MS = 62200;
+  ok(clocks.timeout >= SEED_WORST_MEASURED_MS * 1.5,
+    "…and the abort clears the worst MEASURED seed (62.2s) by at least half again — " +
+    clocks.timeout + "ms is " + (clocks.timeout / SEED_WORST_MEASURED_MS).toFixed(2) + "×");
   await worldBegin(pHang);
   const tHang = Date.now();
   await pHang.waitForSelector("#viewStory.on", { timeout: 20000 });

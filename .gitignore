@@ -22,6 +22,11 @@ farmlife/node_modules/
 *.blend.bak
 tools/_inspect-*.txt
 tools/_verify-out.txt
+tools/_seeddiet_base.json
+tools/_seeddiet_last.json
+tools/_seeddiet_sent_*.txt
+tools/_seeddiet_turn_*.txt
+tools/_seeddiet_old.mjs
 .vscode/
 scratchpad/
 

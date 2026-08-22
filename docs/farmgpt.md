@@ -2133,3 +2133,92 @@ seed input, or the two-call seed already noted above (cast first, then the rest)
 until `f_ok`/`f_timeout` have a week of real readings. Caveat on the numbers: the probe posts the
 raw pack file as `packLedger` where the page posts its rendered seeded ledger, so the input size is
 close but not identical.
+
+---
+
+# 2026-08-22 — THE SEEDER'S DIET: 23 full character sheets it was forbidden to use
+`renderPackForSeeder` (farmgpt.mjs) · `SEED_TIMEOUT_MS` 75s → 100s · `tools/_probe-seeddiet.mjs`
+
+The heartbeat commit above turned the HTTYD 504 into a visible `f_timeout`. It did not make the
+seed arrive. **63.6s to Fable's first byte and 86s to a finished seed, against a 75s abort — every
+HTTYD story still seeded nothing, now with a name for it.** This is the cause, and it was in the
+prompt builder, not the model.
+
+## The seeder was being handed the KEEPER's view of the world
+`buildSeedMessages` rendered the pack through `renderLedgerForKeeper` — every character's full
+sheet: voice, motivation, possessions, `knows`, `does_not_know`, `last_seen`. That is exactly right
+for the keeper, which files changes to those fields. It is exactly wrong for the seeder, whose
+`STORY_SEED_PACK_RULES` **forbid it from touching any of them**. It was reading 23 sheets to obey a
+rule that says don't rewrite them.
+
+What a seeder actually needs from a pack is smaller than that: who EXISTS (so it never invents a
+duplicate or contradicts a status), the canon headlines (so its secrets sit inside the rules), the
+places, and the era list. So `renderPackForSeeder` sends a **ROSTER** — one line per person,
+`[id] name — role — status` — plus the canon rules in full (they are one sentence each and they are
+the thing that must not be contradicted), locations with their state, and relationships. On-stage
+and off-stage characters render identically, because to a seeder they are the same fact.
+
+**Nothing is lost.** The client merges the seed INTO the full pack ledger; the dropped fields never
+left the browser, and the merged ledger still carries Hiccup's voice and knowledge into scene one.
+`SEED_PACK_MAX` stays as the backstop it always was — the roster puts the real HTTYD pack an order
+of magnitude under it rather than up against it.
+
+## MEASURED — input, then latency
+Counted with Anthropic's own `count_tokens`, same real HTTYD pack ledger the browser posts
+(`tools/_seeddiet_count.mjs`; system prompt included, which is why the original world is not zero):
+
+| | rendered pack | seeder input |
+|---|---|---|
+| HTTYD post-film-three, before | 17,152 chars | **9,386 tok** |
+| HTTYD post-film-three, after | 9,411 chars | **6,614 tok** (−30% of the whole turn, −39% of the pack half) |
+| original world | unchanged | 2,316 tok |
+
+And the latency, live through the local wrapper against the real API — the merged pack, both
+candidate seeders, the same two setups. Every run validated, merged, and returned 3 threads and 3
+secrets; both models picked `post_httyd3` from the setup text; Stoick came out dead and Hiccup Chief
+in every HTTYD run.
+
+| | first byte | finished | in/out tok | $ |
+|---|---|---|---|---|
+| HTTYD · **Fable** ×5 | 26.5 / 28.6 / 30.6 / 36.2s | 49.7 / 52.3 / 54.1 / 58.3 / **62.2**s | 6,614 / ~3.3–3.9k | ~$0.07 |
+| HTTYD · **Opus 5** ×2 | **1.5 / 1.8s** | **27.3 / 30.6s** | 6,614 / ~1.8k | ~$0.078 |
+| original · Fable ×2 | 3.7 / 16.0s | 39.6 / 53.3s | 2,316 / ~2.8k | ~$0.05–0.075 |
+| original · Opus 5 ×2 | **1.4 / 1.7s** | 36.8 / 37.8s | 2,316 / ~2.6k | ~$0.077 |
+
+**The diet alone fixes the bug**: worst HTTYD seed 86s → 62.2s, first byte 63.6s → 36.2s.
+
+**The Fable-vs-Opus decision is now a real one, and it is not about money.** On the merged pack they
+cost the same to within a cent — Opus's higher rate is cancelled by its half-length output — and
+both produce a valid, correctly-era'd world. What separates them is the wait screen: **Opus starts
+writing in 1.5s where Fable thinks for half a minute.** The wait screen has nothing honest to say
+during Fable's think, and names on screen are the only thing on it a child cares about. Opus also
+finished at 27.3s against Fable's worst 62.2s. `STORY_SEED_MODEL` is already the switch; the default
+is left on Fable in this commit — flipping the family's seeder is the user's call, not a side effect
+of a latency fix.
+
+## The deadline, set from the worst measured seed
+`SEED_TIMEOUT_MS` **75000 → 100000** (`WORLD_SEED_DEADLINE_MS` derives, → 104000). 75s predates the
+universe merge and was already tighter than the thing it was clocking. 100s is **1.61× the worst
+measured seed (62.2s)**, ~38s of headroom against Fable's real run-to-run spread. It costs a healthy
+seed nothing — the screen ends on the seed's own last byte, not on this clock — and the platform is
+not the constraint: the heartbeat holds the connection open, demonstrated live past 86s. The suite
+now asserts the constant against the measured worst case with the number written at the check, so
+the next person to touch it has to re-measure rather than re-guess.
+
+## NOTED, NOT FIXED — the post_httyd3 era has two stale entries
+The roster made it readable at a glance: in `post_httyd3` the ledger says Stoick is dead, while
+`[CH23] Skullcrusher` is still "on Berk **with Stoick**" and `[L1] Berk` still reads "**Stoick still
+chief**". The era's `character_overrides` and location states missed them. Pre-existing pack data,
+unrelated to this change, and the seeder is not allowed to correct it — a pack fix.
+
+## Verified
+storyledger **824/824** (was 804 — 20 new, every original one still green) ·
+kidstory-server 54/54 · dnd-server 47/47 · news 200/200 · fitness 249/249.
+BEFORE/AFTER SPLIT: with `farmgpt.mjs` and `farmgpt.html` stashed back to `d6530e6` and the new
+suite run against them, **814/824 — the 10 diet checks fail there and all 814 pre-existing pass.**
+New checks: the roster line shape, one line per person (counted, not eyeballed), no `voice`/`knows`/
+`does NOT know`/`carries`/`last seen` for a pack character and none of those fields' CONTENTS by any
+other route, the pack's own `hidden_from_player` never reaching the seeder at all, canon/places/
+relationships still going in full, the keeper's own view untouched, a seed patch merged onto a pack
+ledger still carrying the pack's voice, knowledge and possessions, and the timeout against 62.2s.
+LIVE: `node tools/_probe-seeddiet.mjs --models fable,opus --cases httyd,original` — 9 real seeds.

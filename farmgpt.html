@@ -1934,13 +1934,20 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   // network error, unparseable JSON, or a patch that fails validation all leave `led` exactly as
   // it was, and the story starts on the ordinary empty/pack-seeded ledger. Story creation must
   // never be blocked by an experiment.
-  // MEASURED against real Fable: ~14s to the first byte (it thinks before it writes) and ~50s to
-  // a finished world. That is a long time to keep a child staring at a Begin button, and a
-  // hosting platform can cut a slow function off without warning — so the wait is BOUNDED here.
   // Timing out is not a failure state: the seed fails open like every other way it can fail, and
   // the story starts on the ordinary pack/empty ledger. Generous, because a world that arrives is
   // worth waiting for; finite, because a story that never starts is not.
-  let SEED_TIMEOUT_MS = 75000;
+  // MEASURED — the number is set from the worst real seed, not from a feel. tools/_probe-seeddiet.mjs
+  // against real Fable, five HTTYD post-film-three seeds through the real function: first byte
+  // 26.5–36.2s, FINISHED at 49.7 / 52.3 / 54.1 / 58.3 / 62.2s; an original world finishes at 53.3s.
+  // 75000 was set before the universe merge and was already too tight for it: the same seed with
+  // the pre-diet full-sheet input took 63.6s to its first byte and 86s to finish, so EVERY HTTYD
+  // story aborted here and seeded nothing. The roster diet (renderPackForSeeder) fixed the input;
+  // this fixes the margin. 100s is 1.6× the worst measured seed — ~38s of headroom against Fable's
+  // real run-to-run spread. It costs nothing when the seed is healthy (the screen ends on the
+  // seed's own last byte, not on this clock) and the platform is not the constraint: the server's
+  // heartbeat holds the connection open, demonstrated live past 86s.
+  let SEED_TIMEOUT_MS = 100000;
 
   // Pulls the COMPLETE `{...}` objects out of the array that follows `"<key>": [` in a
   // HALF-WRITTEN JSON document. A half-written object is simply not there yet, and turns up on a
