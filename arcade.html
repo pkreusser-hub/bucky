@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="robots" content="noindex" />
+<meta name="theme-color" content="#3f5c46" />
+<!-- The only off-page requests this page makes. Google Fonts for the Farmstead look shared with the
+     rest of the site; nothing else — no Firebase, no functions, no analytics (see tools/_verify-arcade.cjs). -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
+<title>Amen Farms Arcade</title>
+<meta property="og:title" content="Amen Farms Arcade" />
+<meta property="og:description" content="Seven free browser games — no account, no download." />
+<meta name="description" content="Seven free browser games — no account, no download." />
+<!-- Public, standalone page. No Firebase, no family password, no Bucky chrome, and no
+     network dependency of any kind — see docs/games.md for why: this is a link sent to
+     people outside the family, so it must carry zero family data and zero path back into
+     the password-gated app. (No Google Fonts CDN either, on purpose — a strictly
+     self-contained page, system fonts only.) -->
+<style>
+  :root {
+    --bg: #f4f1e8; --card: #fffdf8; --ink: #26332b; --muted: #8b9184;
+    --green: #3f5c46; --green-d: #2f4634; --red: #b8552f;
+    --line: #e3ded0;
+    --shadow: 0 1px 2px rgba(38,51,43,.06), 0 4px 12px rgba(38,51,43,.05);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
+  }
+  header {
+    background: var(--green); color: #fff;
+    padding: calc(env(safe-area-inset-top) + 22px) 20px 20px;
+    box-shadow: var(--shadow);
+  }
+  header h1 {
+    margin: 0; font-family: Fraunces, Georgia, "Times New Roman", serif; font-weight: 700;
+    font-size: clamp(22px, 6vw, 30px); letter-spacing: .2px;
+  }
+  header p { margin: 6px 0 0; font-size: 14px; color: rgba(255,255,255,.82); }
+  main { max-width: 640px; margin: 0 auto; padding: 18px 16px; }
+  ul.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+  a.tile {
+    display: flex; align-items: center; gap: 14px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: var(--shadow); padding: 16px 18px; min-height: 44px;
+    text-decoration: none; color: var(--ink);
+  }
+  a.tile:active { background: #eee9dc; }
+  .tile-ico {
+    flex: 0 0 auto; width: 40px; height: 40px; border-radius: 12px;
+    background: var(--green); color: #fff; display: flex; align-items: center; justify-content: center;
+  }
+  .tile-ico svg { width: 22px; height: 22px; }
+  .tile-text { min-width: 0; flex: 1; }
+  .tile-name { font-weight: 800; font-size: 16px; }
+  .tile-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  footer { max-width: 640px; margin: 8px auto 0; padding: 8px 16px 20px; font-size: 12px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Amen Farms Arcade</h1>
+  <p>Seven free games. No account, no download — tap one and play.</p>
+</header>
+
+<main>
+  <ul class="list" id="gamesGrid"></ul>
+</main>
+
+<footer>Amen Farms</footer>
+
+<script>
+(function () {
+  // Every game here must be self-contained: no family password, no Firestore lobby, no
+  // Bucky profile. This is a PUBLIC page sent to people outside the family, so nothing
+  // here may touch family data.
+  //
+  // Deliberately EXCLUDED — do not "helpfully" add them back:
+  //   - Bucky Jump, Cat Rescue: live inside the password-gated Bucky home page, not standalone.
+  //   - Barnyard Bistro, Farm Party, Farm Kart: multiplayer through the family's Firestore
+  //     lobbies, keyed on the family password and a Bucky profile name — an outsider would
+  //     land in the family's rooms, or break them.
+  const GAMES = [
+    { name: "Hay Haul",       desc: "Snake, but tractor & hay",                     url: "hayhaul.html" },
+    { name: "Branch Manager", desc: "Tetris, but with branches",                    url: "branchmanager.html" },
+    { name: "Hayhem",         desc: "farmyard artillery mayhem",                    url: "hayhem.html" },
+    // ?fam=arcade: Pasture Panic lazily loads Firebase for ONLINE co-op and registers its lobby in
+    // lobbies_<familyKey> — the very collection the family hub (games.html) shows live. Without this
+    // override a stranger hosting co-op would appear as a JOIN card on the family page. The game
+    // already honours ?fam= (and carries it into its share links), so guests get their own namespace.
+    { name: "Pasture Panic",  desc: "3D survive-the-stampede",                      url: "pasturepanic.html?fam=arcade" },
+    { name: "Baby Bucky",     desc: "raise & care for a baby goat",                 url: "goatcare.html" },
+    { name: "Castle Kruzer",  desc: "build a kingdom — flags, roads & knights",     url: "castlekruzer.html" },
+    { name: "Farm Life",      desc: "one family farm, always growing",              url: "farmlife/dist/" },
+  ];
+
+  // Plain inline dice-style icon — the only chrome mark on this page, no emoji.
+  const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg>';
+
+  const grid = document.getElementById("gamesGrid");
+  GAMES.forEach(function (g) {
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.className = "tile";
+    a.href = g.url;
+    const ico = document.createElement("span");
+    ico.className = "tile-ico";
+    ico.innerHTML = ICON;
+    const text = document.createElement("span");
+    text.className = "tile-text";
+    const name = document.createElement("span");
+    name.className = "tile-name";
+    name.textContent = g.name;
+    const desc = document.createElement("span");
+    desc.className = "tile-desc";
+    desc.textContent = g.desc;
+    text.append(name, document.createElement("br"), desc);
+    a.append(ico, text);
+    li.appendChild(a);
+    grid.appendChild(li);
+  });
+})();
+</script>
+
+</body>
+</html>
