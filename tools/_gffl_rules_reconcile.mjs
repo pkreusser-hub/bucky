@@ -39,10 +39,23 @@ const dec = (v) => {
   if ("mapValue" in v) { const o = {}; for (const [k, x] of Object.entries(v.mapValue.fields || {})) o[k] = dec(x); return o; }
   return null;
 };
-const setDoc = await fetch(`${FS_BASE}/settings?key=${KEY}`).then((r) => r.json());
-const settings = {}; for (const [k, v] of Object.entries(setDoc.fields || {})) settings[k] = dec(v);
-const scoring = (settings.rules && settings.rules.scoring) || settings.scoring || {};
-console.log("STAT_MAP:", Object.keys(STAT_MAP).length, "ids · live rules doc:", Object.keys(scoring).length, "keys · season", SEASON, "weeks 1.." + WEEKS, "\n");
+// The live settings doc now carries whatever rate the league is CURRENTLY playing under
+// (2026 rules once the season starts). 2025 must keep reconciling against the rates it was
+// actually played under — frozen in tools/_gffl_scoring_2025.json (a verbatim snapshot taken
+// 2026-08-22, before any 2026-only rule edit) — so a later live-doc change can't silently
+// break the 2025 proof. Every other season reconciles against the live doc, as before.
+let scoring;
+if (SEASON === 2025) {
+  const snap = JSON.parse(fs.readFileSync(new URL("./_gffl_scoring_2025.json", import.meta.url), "utf8"));
+  delete snap._comment;
+  scoring = snap;
+  console.log("STAT_MAP:", Object.keys(STAT_MAP).length, "ids · FROZEN 2025 scoring snapshot:", Object.keys(scoring).length, "keys · season", SEASON, "weeks 1.." + WEEKS, "\n");
+} else {
+  const setDoc = await fetch(`${FS_BASE}/settings?key=${KEY}`).then((r) => r.json());
+  const settings = {}; for (const [k, v] of Object.entries(setDoc.fields || {})) settings[k] = dec(v);
+  scoring = (settings.rules && settings.rules.scoring) || settings.scoring || {};
+  console.log("STAT_MAP:", Object.keys(STAT_MAP).length, "ids · live rules doc:", Object.keys(scoring).length, "keys · season", SEASON, "weeks 1.." + WEEKS, "\n");
+}
 
 // ---- walk the season's boxscores ----
 const byId = new Map();     // statId -> { samples, coeffs:Map(rounded->n), eg }

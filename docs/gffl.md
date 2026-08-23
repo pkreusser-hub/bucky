@@ -5172,3 +5172,162 @@ next to a real rostered row on the other).
 **VERIFY (re-run after the follow-up)**: `node tools/_verify-gffl.cjs` **2872/2872**, 0 page
 errors (with `--shots`). `node tools/_verify-sports.cjs` **231/231**, unaffected by either fix.
 ---
+
+## 🏈 GFFL — FOUR MORE FROM THE COMMISSIONER: "In this game" narrows to your own matchup, the
+## goalposts come down, the section reads at body scale, and the D/ST table catches up to the
+## league's own 2026 settings sheet (2026-08-22, same day as the playtest-6 batch above)
+
+Files: `assets/league/lg-ui.js` · `assets/league/lg-core.js` · `league.html` ·
+`tools/_verify-gffl.cjs` (2882 → **2882**, no new checks added net — see the count note below) ·
+NEW `tools/_gffl_scoring_2025.json` · `tools/_gffl_rules_reconcile.mjs`. No commits, no push.
+
+**ITEM 1 — "IN THIS GAME" NARROWS TO THE VIEWER'S OWN MATCHUP, STARTERS ONLY.** The section
+used to scan every GFFL team's roster (any slot, any team) for anyone on either NFL side — a
+"who's rostered anywhere" list, not "who's in MY game this week." Now it shows only STARTERS
+(never BENCH/IR) on either side of `LG.myTeamId()`'s own matchup this week. A new
+`myMatchupThisWeekStrict()` reuses the matchup tab's own lookup (`LG.gamesForWeek`) but WITHOUT
+its `wk[0]` fallback — the Matchup tab deliberately shows *some* game to a bye-week/no-team
+viewer so the page isn't blank; "In this game" must go absent for exactly that viewer instead.
+Loaded once at open (`UI._myMuGame`), alongside `UI._rosters`, the same convention. The
+empty-side "No GFFL players" line is gone — a side with nobody rostered (or nobody in a starter
+slot) now renders nothing for that side, and the WHOLE card is absent when: the viewer has no
+team, has no matchup this week (a bye), or the matchup has no starters in this game at all.
+RESTAGED (BA3, the "In this game" block): the row-count assertion (was 4, every roster slot; now
+2, starters only), plus three NEW checks — a bench player on the user's own team in this game is
+NOT listed, a starter on a THIRD team in this game is NOT listed, and a no-team viewer gets no
+section at all. The "No GFFL players" checks flipped to their opposite (no line renders now) and
+a new "no matchup this week (bye)" absence check was added.
+
+**ITEM 2 — GOALPOSTS REMOVED ENTIRELY.** `post()` (the crossbar + base post + two uprights
+function) and its two call sites (`post(0) + post(1000)`) are gone — `.nflpost` no longer exists
+anywhere in the field markup. `FPAD` (the 26-unit margin the frame carried solely so the
+goalposts' crossbar overhang didn't clip against the viewBox) goes to **0** — MEASURED, not
+guessed: with FPAD at 0 the field rect's own corners exactly fill `[0,1000]` by the frame's
+existing formula ("leftmost slab point is (0, FY.bot), rightmost is (1000, FY.top)"), and the
+PIN — the one thing left that draws outside the field rect's own y-range — was hand-computed and
+then measured live (`getBoundingClientRect` vs. the SVG's own box) to confirm it never overhangs
+at either extreme of ball position, at 390px AND 1280px. RESTAGED (AH3): the two `.nflpost`
+geometry checks (crossbar-parallel-to-end-line, post count/uprights, the goalpost `inFrame`
+check) replaced with the opposite assertion (`nflpostCount === 0`) plus a live pin-bounding-box
+check at both viewport widths — the field's end zones, chalk lines, drive path and pin are all
+still asserted rendering correctly around it.
+
+**ITEM 3 — "IN THIS GAME" FONT SIZES MATCH THE DRIVE ROWS.** `.nflgprow`'s row font-size was
+already 13px, numerically equal to `.nfldrv`'s — but the global `button{}` reset
+(`font:600 12.5px var(--font-display); text-transform:uppercase; letter-spacing:1px`) was
+leaking through `.nflgprow`'s own `font:inherit` (inherit resets family/weight/size/line-height,
+but NOT text-transform or letter-spacing), so the rows rendered in the app's BUTTON voice —
+small-caps, letter-spaced — instead of its body/small row voice. `.nflgprow` now explicitly
+resets `text-transform:none; letter-spacing:normal;`. NEW suite check (end of BA3): measures
+`getComputedStyle` on a live row vs. a live `.nfldrv` row vs. `.seclabel` — row font-size equals
+`.nfldrv`'s (13px = 13px, and NOT `.seclabel`'s 12px display scale), text-transform matches
+`.nfldrv`'s (`none`, not `uppercase`), letter-spacing is back to `normal`, and the player NAME
+(`<b>`, weight 700) is bold against the points span (weight 400) — the same bold/regular pattern
+the drive rows use. Re-measured at 1280px too.
+
+**ITEM 4 — D/ST SCORING vs. THE LEAGUE'S REAL 2026 ESPN SETTINGS SHEET.** The target table:
+`dst_sack` 1 (unchanged) · `dst_int` 2 (unchanged) · `dst_fum_rec` 1 (code default was 2) ·
+`dst_fum_forced` 1 · `dst_safety` 4 (code default was 2) · `dst_blk` 3 (code default was 2) ·
+`dst_td` 6 (unchanged) · `dst_kr_td` 8 · every `dst_pa_*` bracket **0** (points allowed is not
+scored at all) · no KR/PR-yardage or tackle key scores anything (confirmed — no such keys exist
+in `D.KEYS`).
+
+**THE COORDINATOR CAUGHT A REAL MISTAKE MID-TASK.** The first pass assumed the LIVE settings doc
+still carried pre-reconciliation rates and needed a masked PATCH. It did not: **the live doc has
+carried every one of these exact 2026 values since a 2026-08-14 commissioner edit (v=8)** — eight
+days before this session. Read live (before touching anything): `dst_fum_rec:1, dst_fum_forced:1,
+dst_safety:4, dst_blk:3, dst_kr_td:8, dst_pr_td:8`, and all eight `dst_pa_*` keys at `0`. **Item
+4c is therefore a NO-OP** — backup taken (`settings_backup_2026-08-23T00-35-55Z.json`), no
+weekly_2026_* docs exist yet (season hasn't started), NO PATCH sent, no version bump, no log
+entry. A second backup taken later (`settings_backup_2026-08-23T01-22-04Z.json`) diffs
+byte-identical (key-sorted) against the first — proof nothing drifted and nothing was written.
+
+**THE SNAPSHOT MECHANISM (item 4a), and a SECOND coordinator catch.** `tools/_gffl_rules_reconcile.mjs`
+now reads `tools/_gffl_scoring_2025.json` for `season === 2025` instead of the live doc (which
+now carries whatever rate the league is CURRENTLY playing under) — protecting the 2025 proof from
+any future live-doc edit. The coordinator's first version of this instruction proposed sourcing
+the snapshot from `LG.DEFAULT_RULES.scoring` AS COMMITTED AT HEAD instead of the live doc, on the
+theory that the live doc had moved past the 2025-reconciled rates. **Measured, not assumed**: ran
+the reconciliation against that HEAD object verbatim — it does **NOT** reconcile. 1739
+discrepancies: `rec:1` (full PPR) where ESPN paid 0.5/reception all season, every yardage
+game-bonus at 0 where ESPN paid real points all season, `off_fum_td:0` where ESPN paid 6, and
+`dst_blk_td`/`dst_kr_td`/`dst_pr_td`/`dst_fum_ret_td`/`dst_int_ret_td`/`dst_fum_forced`
+**entirely absent as keys** (six D/ST rules that don't exist in `DEFAULT_RULES` at all). 1721 of
+2497 player-weeks wrong. `LG.DEFAULT_RULES` is the code's generic new-league template — it was
+never touched by the 2026-08-13 rules-reconciliation fix, which worked entirely through the LIVE
+Firestore doc. The snapshot is therefore the verbatim `rules.scoring` map read from the live doc
+on 2026-08-22 (the object actually proven, by running it, to reconcile 2025 exactly) — it happens
+to already equal the 2026 target table, which is coincidence of timing (the commissioner
+finalized 2026 rates eight days early, and they matched what 2025 was actually scored under), not
+a 2026-into-2025 leak. The file's own header comment carries this full chain of reasoning so a
+future reader doesn't repeat either mistake.
+
+**RECONCILIATION BEFORE/AFTER.** BEFORE (original script, straight against the live doc, run
+before any change this session): `RECONCILED — our rules reproduce ESPN's 2025 scoring exactly:
+every exercised coefficient, every player-week total, every matchup total` — 2497/2497
+player-weeks, 136/136 matchup totals, 0 unmapped-paid stat ids, 0 ESPN-internal-consistency
+mismatches. AFTER (script now reads the frozen snapshot for season 2025; live doc for every other
+season): **byte-for-byte the same result** — `RECONCILED`, same 2497/2497, same 136/136, same
+dormant-rule list (`dst_2pt_ret, dst_td, one_pt_safety`, order differs only because the snapshot
+is a plain object vs. Firestore's field order — the SET is identical).
+
+**ITEM 4b — CODE DEFAULTS CATCH UP.** `LG.DEFAULT_RULES.scoring` (lg-core.js ~1070-1076) updated
+to the 2026 table above — it was eight days stale relative to the live doc's own 2026-08-14 edit.
+Comment names both the ESPN settings sheet and the staleness. RESTAGED: every suite check pinning
+the old D/ST rates via a no-settings-doc fixture (which falls back to `DEFAULT_RULES`) — the
+whole-team hand-computed matchup totals (away 4.0→**3.0**, home 41.0→**37.0**, phase-2 freshest-
+source 48.2→**44.2**), `dst_PHI`'s and `dst_DAL`'s individual derived totals (9.0→**5.0**,
+4.0→**3.0**), the preseason fixture's opponent total (3.0→**0.0**), the AC5 garbage-input-revert
+check (`dst_pa_0` reverts to its "previous value," now **0** not 5), and a live-final-box D/ST
+score (10.0→**7.0**). Every restage names "ESPN 2026 league settings sheet (commissioner,
+2026-08-22)" as the reason. No stray key missing: `dst_fum_forced` and `dst_kr_td` are both
+present in `DEFAULT_RULES` now.
+
+**ITEM 4d — THE RULES VIEW COLLAPSES THE ZERO PA TABLE.** When every `dst_pa_*` is 0 (view mode
+only — a commissioner editing still sees the real editable table, so PA scoring can be turned
+back on), the "Points allowed" table is replaced by one muted line: "Points allowed are not
+scored in this league." Genuinely data-driven, not hardcoded to 2026 — the SCORING_GROUPS'
+Defense/Special Teams row now also lists `dst_fum_forced` ("Forced fumble") and `dst_kr_td`
+("Kick/punt return TD"), previously absent from the view entirely despite being real, scored
+keys. Two fixtures prove both directions: `fullSeed()`'s no-settings-doc DEFAULT_RULES (all-zero
+PA) renders the muted line and no table; the suite's own ESPN-import fixture (its raw
+`scoringItems` still carry a real nonzero PA ladder, exactly the shape a league that DOES score
+PA would have) renders the full table unchanged — the same page, two different data shapes.
+
+**D.SCORE HAND-COMPUTED PROOF.** A hand-built D/ST stat line — 3 sacks + 1 INT + 1 fumble
+recovery + 1 forced fumble + 1 safety + 1 blocked kick + 1 defensive TD + 1 KR TD, with 35 points
+allowed — run through `D.score()` against `LG.DEFAULT_RULES.scoring` (loaded in a Node `vm`
+sandbox, not re-implemented by hand): `3×1 + 1×2 + 1×1 + 1×1 + 1×4 + 1×3 + 1×6 + 1×8 + 0 = `
+**28.0**, matching the hand computation exactly. The same stat line against the frozen 2025
+snapshot also scores **28.0** (the snapshot's D/ST rates equal the 2026 target on every key this
+line exercises).
+
+**`tools/_gffl_preseason_test.mjs --grade`**: ran it (grades against the live scoring doc, as
+designed — not restaged). Result on the current preseason slate: `played: 10/11 · GROK MAE 3.98
+vs PRIOR MAE 3.67` — **Grok did not beat the crude prior this slate**, an honest datapoint, no
+D/ST rows in this particular grading batch.
+
+**PROOF OF BITE, all four items in one pass.** `assets/league/lg-ui.js`, `assets/league/lg-core.js`
+and `league.html` reverted to `HEAD` (test file kept at its restaged state); `node
+tools/_verify-gffl.cjs` run against that mix: **2850 pre-existing checks passed untouched, 27
+new/restaged checks failed** — item 4's fifteen D/ST-total restages (old code still pays the old
+rates), item 2's goalpost check (`no .nflpost element exists` fails — old code still draws 2),
+item 1's five "In this game" restages (old code lists a bench player, a third-team starter, and
+never goes absent for a no-team/no-matchup viewer), and item 3's two font checks (old row reads
+`uppercase`/`1px` letter-spacing against the drive row's `none`/`normal`). App files then restored
+from the scratchpad backup (`cp` from a pre-revert copy, not `git stash`) and confirmed
+byte-for-byte identical (`diff` clean on all three) to the edited working tree a prior full run
+had already validated green.
+
+**VERIFY (final, all edits in place)**: `node tools/_verify-gffl.cjs --shots` **2882/2882**, 0
+page errors. `node tools/_gffl_seams.cjs` **121/0, unrestaged**. `node tools/_verify-sports.cjs`
+**231/231**, unaffected.
+
+Plates (scratchpad, throwaway review artifacts): `gffl_gamecast_{390,1280}.png` (no goalposts, pin
+fully inside the frame), `gffl_gamecast_inthisgame_{390,1280}.png` and
+`gffl_gamecast_inthisgame_empty_390.png` (starters-only rows at the drive-row font scale, one
+side collapsing to nothing rather than a dead line), `gffl_rules_dst_2026_390.png` (the live 2026
+D/ST table + the muted "Points allowed are not scored" line, on `DEFAULT_RULES`), `shots/gffl_rules_390.png`
+(the SAME view, post-ESPN-import, proving the PA table still renders when the data genuinely has
+nonzero brackets — the view is data-driven, not hardcoded).
+---

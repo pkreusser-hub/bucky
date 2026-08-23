@@ -929,9 +929,11 @@ function startXaiUpstream() {
 //   Receiver 4rec·50yd·1×2pt          = 4+5+2           = 11.0   (p2: 5rec·62yd = 13.2)
 //   Rusher  40yd                      = 4.0
 //   Kicker  FG 2/3 (one 47yd)·XP 1/1  = 3+4-1+1         = 7.0
-//   PHI DST sack2·int1·fum1·pa10      = 2+2+2+3         = 9.0
-//   DAL DST sack1·int1·pa14           = 1+2+1           = 4.0
-//   Team 1 total (dual OR either-source-alone) = 41.0 → p2 (espn leads) 48.2
+//   RESTAGED 2026-08-22 (ESPN 2026 league settings sheet, commissioner): dst_fum_rec 2→1,
+//   dst_safety 2→4 (unexercised here), dst_blk 2→3 (unexercised here), every dst_pa_* → 0.
+//   PHI DST sack2·int1·fum1·pa10(→0)  = 2+2+1+0         = 5.0    (was 9.0)
+//   DAL DST sack1·int1·pa14(→0)       = 1+2+0+0         = 3.0    (was 4.0)
+//   Team 1 total (dual OR either-source-alone) = 37.0 → p2 (espn leads) 44.2
 const KICK_FUTURE = "2027-01-01T01:00Z";
 // Item 4's crest URLs. DEN is absent on purpose (see mk() below).
 const NFL_LOGO = {
@@ -2426,7 +2428,9 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
     await sleep(60);
     const score = await text(page, ".mucard.mine .muscore");
-    ok(score === "4.0 — 41.0", "my card totals hand-computed: away 4.0 — home 41.0 (" + score + ")");
+    // RESTAGED 2026-08-22 (ESPN 2026 league settings sheet): dst_fum_rec 2→1 and every
+    // dst_pa_* →0 dock both D/STs — away 4.0→3.0, home 41.0→37.0 (see the fixture comment above).
+    ok(score === "3.0 — 37.0", "my card totals hand-computed: away 3.0 — home 37.0 (" + score + ")");
     // RESTAGED 2026-08-09 (user: "get rid of it"). The chip is a WARNING now, not a status
     // badge: silent when both sources are healthy, visible only when one is degraded or gone.
     // The degraded-mode checks further down (ESPN only / Sleeper only / STALE) are unchanged
@@ -2450,7 +2454,7 @@ async function openDetails(page, id) {
     await clickIn(page, ".mucard.mine");
     await page.waitForSelector(".muhead", { timeout: 9000 });
     const pts = await page.$$eval(".bigpts", (els) => els.map((e) => e.textContent));
-    ok(pts[0] === "4.0" && pts[1] === "41.0", "header totals away 4.0 / home 41.0 (" + pts.join("/") + ")");
+    ok(pts[0] === "3.0" && pts[1] === "37.0", "header totals away 3.0 / home 37.0 — RESTAGED 2026-08-22, ESPN 2026 D/ST rates (" + pts.join("/") + ")");
     // RESTAGED 2026-08-09 (playtest item 3: "the bench player section should match the
     // formatting of the non bench"). The bench table now carries the SAME .mutable class as
     // the starters — that is the fix — so ".mutable tbody tr" is no longer "the starters"; it
@@ -2490,7 +2494,7 @@ async function openDetails(page, id) {
     // — the away side's fill is its <i>, width = the away win %. Same property as ever: a big
     // deficit reads as a low chance, not a coin flip.
     const wp = await page.$eval(".mupbar i", (e) => parseFloat(e.style.width));
-    ok(wp >= 0 && wp < 15, "win-prob bar: away side trailing 4.0-41.0 reads a LOW chance under the S8 upgrade — more decisive than the old flat-scale model, since less remains to flip it (" + wp + "%)");
+    ok(wp >= 0 && wp < 15, "win-prob bar: away side trailing 3.0-37.0 reads a LOW chance under the S8 upgrade — more decisive than the old flat-scale model, since less remains to flip it (" + wp + "%)");
     // Item 3 (2026-08-08): a strict, symmetric slot-paired grid — a TOTAL row at the bottom of
     // the starters table (matching the header's own totals), and a Bench section paired by
     // roster order. Team2 (away, "Rival") has NO bench players on file at all — that's the real
@@ -2498,8 +2502,8 @@ async function openDetails(page, id) {
     // shows "Empty" on the away half and a real name on the home half, so both sides stay the
     // SAME LENGTH and row-aligned even though one team has nobody on the bench.
     const totalRow = await page.$eval(".totalrow", (el) => el.textContent.replace(/\s+/g, " ").trim());
-    ok(/4\.0/.test(totalRow) && /41\.0/.test(totalRow) && /TOTAL/.test(totalRow),
-      "a TOTAL row at the bottom of the lineup table carries both teams' totals (" + totalRow + ")");
+    ok(/3\.0/.test(totalRow) && /37\.0/.test(totalRow) && /TOTAL/.test(totalRow),
+      "a TOTAL row at the bottom of the lineup table carries both teams' totals — RESTAGED 2026-08-22, ESPN 2026 D/ST rates (" + totalRow + ")");
     const benchRows = await page.$$eval(".benchtable tbody tr", (els) => els.map((tr) => tr.textContent.replace(/\s+/g, " ").trim()));
     ok(benchRows.length === 3, "bench section has exactly 3 rows — paired to the LONGER side (home's 3 bench players; away has none) (" + benchRows.length + ")");
     ok(benchRows.every((t) => /Empty/.test(t)), "…every bench row's away half reads \"Empty\" (away has zero bench players) — never a bare dash (" + JSON.stringify(benchRows) + ")");
@@ -2562,7 +2566,7 @@ async function openDetails(page, id) {
     fixture.phase = 2;
     await poll(page);
     const pts2 = await page.$$eval(".bigpts", (els) => els.map((e) => e.textContent));
-    ok(pts2[1] === "48.2", "totals move with the freshest source: home now 48.2");
+    ok(pts2[1] === "44.2", "totals move with the freshest source: home now 44.2 — RESTAGED 2026-08-22, ESPN 2026 D/ST rates");
     const feed = await text(page, "#mufeed");
     ok(/P\. Passer/.test(feed) && /pass TD 1→2/.test(feed) && /\+4\.0/.test(feed),
       "feed logs the TD with its fantasy delta (+4.0)");
@@ -2695,7 +2699,21 @@ async function openDetails(page, id) {
       "Scoring → Passing subgroup renders plain-English labels");
     ok(/Reception/.test(summary), "Scoring → Receiving subgroup renders (\"Reception\", not \"rec\")");
     ok(/Field goal made, 0-39 yds/.test(summary), "Scoring → Kicking subgroup renders plain-English labels");
-    ok(/0 points allowed/.test(summary) && /1-6 points allowed/.test(summary), "Scoring → the points-allowed bracket table renders as readable ranges");
+    // RESTAGED 2026-08-22 (ESPN 2026 league settings sheet, commissioner): DEFAULT_RULES' own
+    // dst_pa_* brackets all went to 0 (points allowed is not scored in this league at all), so
+    // fullSeed()'s no-settings-doc fixture now hits the ALL-ZERO PA case — the view collapses
+    // the bracket table to one muted line instead of the old readable-ranges table.
+    ok(/Points allowed are not scored in this league\./.test(summary),
+      "Scoring → all-zero points-allowed collapses to one muted line, not a table of zero ranges");
+    ok(!/0 points allowed/.test(summary) && !/1-6 points allowed/.test(summary),
+      "…and the bracket table itself is genuinely gone, not just visually quiet");
+    if (SHOTS) {
+      // The D/ST section on the LIVE default rules (2026 rates, PA collapsed to the muted
+      // line) — distinct from gffl_rules_390.png below, which is taken AFTER an ESPN import
+      // swaps in a different (nonzero-PA) fixture to prove the view stays data-driven.
+      await page.screenshot({ path: path.join(SCRATCH, "gffl_rules_dst_2026_390.png"), fullPage: true });
+      console.log("  📸 " + path.join(SCRATCH, "gffl_rules_dst_2026_390.png"));
+    }
     ok(/300-399 yd passing game bonus/.test(summary) === false, "a ZERO-valued scoring key (the 300-yd passing bonus, off by default) is hidden in view mode — noise");
     ok(/Passing/.test(summary) && /Rushing/.test(summary) && /Receiving/.test(summary) && /Kicking/.test(summary) && /Defense \/ Special Teams/.test(summary),
       "all the expected Scoring subgroup headings are present");
@@ -2912,9 +2930,9 @@ async function openDetails(page, id) {
     await sleep(60);
     ok(/ESPN only/.test(await text(page, "#healthChip")), "degraded mode announces itself in the health chip");
     const score = await text(page, ".mucard.mine .muscore");
-    ok(score === "4.0 — 41.0", "ESPN ALONE reproduces the exact totals — incl. derived DST + FG distances + 2-pt (" + score + ")");
+    ok(score === "3.0 — 37.0", "ESPN ALONE reproduces the exact totals — incl. derived DST + FG distances + 2-pt — RESTAGED 2026-08-22, ESPN 2026 D/ST rates (" + score + ")");
     const dst = await page.evaluate(() => { const r = window.__GFFL__.D.S.players.get("dst_PHI"); return r && r.pts; });
-    ok(dst === 9, "PHI D/ST = 9.0 derived from the opponent's box + scoring plays + score");
+    ok(dst === 5, "PHI D/ST = 5.0 derived from the opponent's box + scoring plays + score — RESTAGED 2026-08-22 (was 9.0: dst_fum_rec 2→1, dst_pa_7_13 3→0)");
     ok(errors.length === 0, "0 page errors in espn-only mode");
     await ctx.close();
   }
@@ -2931,7 +2949,7 @@ async function openDetails(page, id) {
     await sleep(60);
     ok(/Sleeper only/.test(await text(page, "#healthChip")), "banner names the surviving source");
     const score = await text(page, ".mucard.mine .muscore");
-    ok(score === "4.0 — 41.0", "Sleeper ALONE also reproduces the exact totals (" + score + ")");
+    ok(score === "3.0 — 37.0", "Sleeper ALONE also reproduces the exact totals — RESTAGED 2026-08-22, ESPN 2026 D/ST rates (" + score + ")");
     ok(errors.length === 0, "0 page errors in sleeper-only mode");
     await ctx.close();
   }
@@ -5676,11 +5694,11 @@ async function openDetails(page, id) {
     ok(scTop.secondH2 === "GFFL — Week 1", "the GFFL matchups card is the first CONTENT card, above the NFL slate (" + scTop.secondH2 + ")");
     ok((await page.$$eval("main > .card:nth-child(2) .mucard", (els) => els.length)) === 4, "the GFFL card shows all 4 of this week's matchups");
     const gfflScore = await page.$eval("main > .card:nth-child(2) .mucard.mine .muscore", (e) => e.textContent);
-    ok(gfflScore === "4.0 — 41.0", "my GFFL matchup's live total, hand-checked identically to the league home's own card (away 4.0 — home 41.0, " + gfflScore + ")");
+    ok(gfflScore === "3.0 — 37.0", "my GFFL matchup's live total, hand-checked identically to the league home's own card — RESTAGED 2026-08-22, ESPN 2026 D/ST rates (away 3.0 — home 37.0, " + gfflScore + ")");
     await clickIn(page, "main > .card:nth-child(2) .mucard.mine");
     await page.waitForSelector(".muhead", { timeout: 9000 });
-    ok((await page.$$eval(".bigpts", (els) => els.map((e) => e.textContent))).join("/") === "4.0/41.0",
-      "…and tapping the GFFL card's matchup opens the real matchup view with the same totals");
+    ok((await page.$$eval(".bigpts", (els) => els.map((e) => e.textContent))).join("/") === "3.0/37.0",
+      "…and tapping the GFFL card's matchup opens the real matchup view with the same totals — RESTAGED 2026-08-22, ESPN 2026 D/ST rates");
     await page.evaluate(() => window.__GFFL__.UI.show("scores"));
     await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
     // NFL half: sbFix() has one LIVE game (DAL @ PHI) and one PRE game (KC @ DEN, next year) —
@@ -6536,8 +6554,9 @@ async function openDetails(page, id) {
       const row = D.S.players.get("dst_SF");
       return { pts: row ? row.pts : null, fetchedFinal: [...D.S.fetchedFinal] };
     });
-    // SF's defense: 3 sacks (×1) + 2 INT (×2) + 10 points allowed (dst_pa_7_13 = 3) = 10.0
-    ok(post.pts === 10, "…so when the game IS final its real box is still read, and the D/ST scores it: 3 sacks + 2 INT + 10 PA = 10.0 (" + post.pts + ")");
+    // SF's defense: 3 sacks (×1) + 2 INT (×2) + 10 points allowed (dst_pa_7_13, RESTAGED
+    // 2026-08-22 — ESPN 2026 league settings sheet: every dst_pa_* is now 0, was 3) = 7.0
+    ok(post.pts === 7, "…so when the game IS final its real box is still read, and the D/ST scores it: 3 sacks + 2 INT + 0 PA = 7.0 (" + post.pts + ")");
     ok(post.fetchedFinal.includes("401900777"), "…and only THEN is the final-box token consumed (" + JSON.stringify(post.fetchedFinal) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
@@ -8971,7 +8990,10 @@ async function openDetails(page, id) {
       });
       ok(typeof after.rec === "number" && typeof after.pass_td === "number" && typeof after.dst_pa_0 === "number",
         "a blank / fat-fingered / garbage scoring box can never persist a STRING into the scoring table (" + JSON.stringify(after) + ")");
-      ok(after.rec === 1 && after.pass_td === 4 && after.dst_pa_0 === 5,
+      // RESTAGED 2026-08-22: DEFAULT_RULES.scoring.dst_pa_0 is 0 now (ESPN 2026 league settings
+      // sheet — points allowed is not scored at all), not 5 — this fixture ships no settings
+      // doc, so LG.rules IS DEFAULT_RULES, and "previous value" means whatever that now is.
+      ok(after.rec === 1 && after.pass_td === 4 && after.dst_pa_0 === 0,
         "…those three keep their previous values rather than being corrupted");
       ok(after.rush_yd === 0.25, "…while a legitimate numeric edit still saves");
       ok(after.waiverCost === "last-round", "…and a field that is legitimately TEXT still round-trips");
@@ -9393,7 +9415,7 @@ async function openDetails(page, id) {
       // measures ~132; the probe pins the stress case (28 chars) at ≤146.
       ok(head.height <= 148, "the matchup header fits the two-row ceiling — 220px two batches ago, " + head.height + "px now");
       ok(head.wp && head.live, "…with the win-probability bar and the live/Final indicator both still on it");
-      ok(head.avatars === 2 && head.names && head.pts.join("/") === "4.0/41.0", "…both crests, both names, both scores");
+      ok(head.avatars === 2 && head.names && head.pts.join("/") === "3.0/37.0", "…both crests, both names, both scores — RESTAGED 2026-08-22, ESPN 2026 D/ST rates");
       // RESTAGED 2026-08-09 (the ESPN header rebuild): the projection is still there, on both
       // sides, but as a BARE muted number under the score — the reference carries no "Proj"
       // label, so /proj/i is no longer the right way to ask whether it survived.
@@ -12136,50 +12158,24 @@ async function openDetails(page, id) {
           // 2026-08-14 four-fix round: goalposts at the field's own far edges (the back line
           // of each end zone) standing upright; the chalk lines spanning exactly the strip;
           // a DASHED marker where the drive began.
-          // 2026-08-22 RESTAGE: the crossbar used to be drawn inside the counter-skewed local
-          // group (skewX(10) on the .nflpost wrapper itself), which put it along the field's
-          // LENGTH — the commissioner: "they should be parallel with the end zone." The
-          // crossbar now draws in SLAB coordinates (no transform on .nflpost — the crossbar IS
-          // the direct <line> child), so the old `upright: /skewX\(10\)/` proxy on the wrapper
-          // no longer applies; geometry (crossbar angle vs. the end-line angle) replaces it
-          // below. The base post + two uprights keep the counter-skew trick as their OWN <g>s.
-          posts: [...svg.querySelectorAll(".nflpost")].map((p) => {
-            const cb = p.querySelector(":scope > line");
-            const upG = [...p.querySelectorAll(":scope > g")];
-            const toScreen = (el, x, y) => { const pt = svg.createSVGPoint(); pt.x = x; pt.y = y; return pt.matrixTransform(el.getScreenCTM()); };
-            const a = toScreen(cb, Number(cb.getAttribute("x1")), Number(cb.getAttribute("y1")));
-            const b = toScreen(cb, Number(cb.getAttribute("x2")), Number(cb.getAttribute("y2")));
-            return {
-              x: p.dataset.x,
-              cbAngle: Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI,
-              uprights: upG.length,
-              uprightsSkewed: upG.every((g) => /skewX\(10\)/.test(g.getAttribute("transform") || "")),
-            };
-          }),
-          // The end line is the goal-line edge of the away end-zone slab (x=0), read the same
-          // geometry way — its own getScreenCTM, not a hand-typed skew constant — so the
-          // parallel check proves the RENDERED result, not the formula that's supposed to
-          // produce it.
-          endLineAngle: (() => {
-            const rect = svg.querySelector('rect[x="0"]');
-            if (!rect) return null;
-            const y0 = Number(rect.getAttribute("y")), h = Number(rect.getAttribute("height"));
-            const toScreen = (x, y) => { const pt = svg.createSVGPoint(); pt.x = x; pt.y = y; return pt.matrixTransform(rect.getScreenCTM()); };
-            const a = toScreen(0, y0), b = toScreen(0, y0 + h);
-            return Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+          // 2026-08-22: goalposts removed entirely per the commissioner's ruling — .nflpost no
+          // longer exists in this markup at all (see below). What's left that draws outside
+          // the field rect's own bounds is the PIN (its crest rises above FY.top); its
+          // bounding box is measured against the SVG's own box instead.
+          nflpostCount: svg.querySelectorAll(".nflpost").length,
+          pinBox: (() => {
+            const pin = svg.querySelector(".nflball");
+            if (!pin) return null;
+            const b = svg.getBoundingClientRect(), r = pin.getBoundingClientRect();
+            return { left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+              insideX: r.left >= b.left - 0.5 && r.right <= b.right + 0.5,
+              insideY: r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5 };
           })(),
           depths: (() => {
             const d = (sel) => { const e = svg.querySelector(sel); return e ? [e.getAttribute("y1"), e.getAttribute("y2")].join("-") : null; };
             return { fd: d(".nflfd"), los: d(".nfllos"), start: d(".nflstart") };
           })(),
           startLine: (() => { const e = svg.querySelector(".nflstart"); return e ? { x: e.getAttribute("x1"), dash: e.getAttribute("stroke-dasharray") || "" } : null; })(),
-          // Every point the frame draws must land inside the viewBox — the goalposts overhang
-          // the slab, and clipping them is exactly what FPAD exists to prevent.
-          inFrame: (() => {
-            const b = svg.getBoundingClientRect(), r = svg.querySelector(".nflpost").getBoundingClientRect();
-            const b2 = svg.querySelectorAll(".nflpost")[1].getBoundingClientRect();
-            return r.left >= b.left - 0.5 && b2.right <= b.right + 0.5;
-          })(),
           vb: svg.getAttribute("viewBox"),
           wide: Math.round(svg.getBoundingClientRect().width) > 200,
         };
@@ -12213,17 +12209,15 @@ async function openDetails(page, id) {
       ok(f.ez.some((t) => t === "50"), "…and the yard row renders below the strip");
       // Goalposts: one at each BACK LINE (x=0 and x=1000 — the field's far edges), upright,
       // and both fully inside the frame.
-      ok(f.posts.length === 2 && f.posts[0].x === "0" && f.posts[1].x === "1000",
-        "a goalpost stands at each far edge of the field — the back line of both end zones (" + JSON.stringify(f.posts.map((p) => p.x)) + ")");
-      ok(f.posts.every((p) => p.uprights === 3 && p.uprightsSkewed), "…the base post + two uprights all counter-skewed upright on the leaning slab");
-      // 2026-08-22 RESTAGE (was `upright: /skewX\(10\)/` on the .nflpost wrapper itself, which
-      // pinned the OLD along-the-length crossbar): the crossbar's own screen-space direction,
-      // read via getScreenCTM off its rendered endpoints, must be parallel to the end line's —
-      // geometry, not a pixel compare, within a 2° tolerance for floating-point/transform noise.
-      const angleDiff = (a, b) => { let d = Math.abs(a - b) % 180; if (d > 90) d = 180 - d; return d; };
-      ok(f.endLineAngle != null && f.posts.every((p) => angleDiff(p.cbAngle, f.endLineAngle) <= 2),
-        "the crossbar is parallel to the end line, within 2° (end line " + f.endLineAngle + "°, posts " + JSON.stringify(f.posts.map((p) => p.cbAngle)) + ")");
-      ok(f.inFrame === true, "…and neither is clipped by the viewBox (what FPAD buys)");
+      // 2026-08-22 RESTAGE (commissioner's ruling: goalposts removed entirely). Old checks
+      // pinned two .nflpost elements with a parallel crossbar and an in-frame post pair; now
+      // asserted the opposite way — no .nflpost anywhere — plus the field itself still renders
+      // its end zones, chalk lines and pin correctly, and the pin (the one thing left that
+      // draws outside the field rect's own y-range) stays inside the SVG's own bounding box at
+      // BOTH 390 and 1280 now that FPAD has gone to 0 with the posts.
+      ok(f.nflpostCount === 0, "no .nflpost element exists anywhere in the field markup (" + f.nflpostCount + ")");
+      ok(!!f.pinBox && f.pinBox.insideX && f.pinBox.insideY,
+        "the pin's own bounding box stays inside the SVG's box at 390px (" + JSON.stringify(f.pinBox) + ")");
       // The chalk lines span EXACTLY the strip — same y1/y2 as each other, no overhang.
       ok(f.depths.fd === f.depths.los && /^140-258$/.test(f.depths.los || ""),
         "the gold and white lines match the field's own depth exactly (" + JSON.stringify(f.depths) + ")");
@@ -12232,6 +12226,21 @@ async function openDetails(page, id) {
         "a DASHED line marks where the drive started (" + EXP_START + ") — " + JSON.stringify(f.startLine));
       ok(f.depths.start === f.depths.los, "…at the same depth as the other two");
       ok(f.wide === true, "the field actually renders at a usable width on a 390px phone");
+      // Re-measure the pin at desktop width too (1280) — the whole reason FPAD's removal was
+      // gated on a measurement rather than a guess: nothing else overhangs the viewBox there.
+      await page.setViewport({ width: 1280, height: 900 });
+      await sleep(60);
+      const pinWide = (await evalOr(page, () => {
+        const svg = document.querySelector(".nfldiag"), pin = svg && svg.querySelector(".nflball");
+        if (!svg || !pin) return null;
+        const b = svg.getBoundingClientRect(), r = pin.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+          insideX: r.left >= b.left - 0.5 && r.right <= b.right + 0.5,
+          insideY: r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5 };
+      })) || null;
+      ok(!!pinWide && pinWide.insideX && pinWide.insideY,
+        "…and at 1280px too (" + JSON.stringify(pinWide) + ")");
+      await page.setViewport({ width: 390, height: 844 });
       // The same maths from the other side, straight off the exposed helpers — an away
       // possession 12 yards out is at field position 88, mirrored.
       const mirror = (await evalOr(page, () => {
@@ -12706,9 +12715,10 @@ async function openDetails(page, id) {
         body: document.body.textContent,
       })) || {};
       // 7.0 + 5.2 + 1.0 = 13.2 for team 1; team 2's only scorer is DAL D/ST (PHI scored 13 ->
-      // dst_pa_7_13 = 3.0). Both hand-computed above, both from preseason numbers.
+      // dst_pa_7_13, RESTAGED 2026-08-22 — ESPN 2026 league settings sheet: every dst_pa_* is
+      // now 0, was 3.0). Both hand-computed above, both from preseason numbers.
       ok((mu.scores || []).includes("13.2"), "the matchup page totals the preseason lines: 13.2 (" + JSON.stringify(mu.scores) + ")");
-      ok((mu.scores || []).includes("3.0"), "…and the opponent's own preseason total, 3.0");
+      ok((mu.scores || []).includes("0.0"), "…and the opponent's own preseason total, 0.0 (was 3.0)");
       ok(!/NaN/.test(mu.body || "NaN"), "…with no NaN anywhere on it");
       await evalOr(page, () => window.__GFFL__.UI.show("moves"));
       await waitFnOr(page, () => document.querySelector("#faResults tr"));
@@ -19806,8 +19816,17 @@ async function openDetails(page, id) {
     ok(errors2.length === 0, "0 page errors");
     await ctx2.close();
 
-    // ---- BA3 (item 5): "In this game" — a hand-built roster override proves rows, order,
-    // owner tags, bench/IR markers, points, the empty-side line, and total absence.
+    // ---- BA3 (item 5, RESTAGED 2026-08-22 — commissioner's second pass): "In this game" now
+    // shows ONLY starters (never BENCH/IR) on EITHER side of the VIEWING USER's own matchup
+    // this week — never a third team's roster, never the bench/IR of the user's own team. Old
+    // checks pinned the pre-restage behaviour (scanned every team, included bench/IR); the
+    // reason: the commissioner narrowed the section from "everyone rostered" to "your game
+    // this week, starters only" — a bench player of mine playing in this game is exactly as
+    // irrelevant to my fantasy score as a rival's bench, and a third team's starter isn't in
+    // MY matchup at all. Peter (team 1) is scheduled against team 2 in week 1 (seedSchedule),
+    // so UI._myMuGame resolves to [1,2] (or [2,1]) with no override needed — the hand-built
+    // roster override below adds a BENCH player on team 1 and a THIRD team (3) starter, both
+    // proven absent by name, not just by row count.
     const { ctx: ctx3, page: page3, errors: errors3 } = await newTestPage(browser, fullSeed());
     await bootPage(page3);
     await waitOr(page3, ".mucard");
@@ -19815,30 +19834,41 @@ async function openDetails(page, id) {
     await evalOr(page3, () => window.__GFFL__.UI.openNflGame("401900001")); // DAL@PHI, live
     await waitFnOr(page3, () => document.querySelector(".nfldiag .nflball"));
     const inGame = await evalOr(page3, () => {
-      const UI = window.__GFFL__.UI, D = window.__GFFL__.D, LG = window.__GFFL__.LG;
-      // Hand-built rosters — DAL gets two T1 players (one bench), PHI gets two T2 players
-      // (one IR) — deliberately NOT the fixture's real DAL/PHI rosters, so the numbers below
-      // are hand-computed against THIS override, not against a fixture that could drift.
-      // (fullSeed()'s own teams are abbrev'd "T1"/"T2" — seedTeams() — not the "BK"/"EZG"
-      // pair leagueDocs() uses for the mirror/cloud-backend sections.)
+      const UI = window.__GFFL__.UI, D = window.__GFFL__.D;
       UI._rosters = {
         1: [{ key: "p1", name: "A. Away1", pos: "RB", team: "DAL", slot: "RB" },
             { key: "p2", name: "B. Bench1", pos: "WR", team: "DAL", slot: "BENCH" }],
         2: [{ key: "p3", name: "C. Home1", pos: "QB", team: "PHI", slot: "QB" },
             { key: "p4", name: "D. Ir1", pos: "TE", team: "PHI", slot: "IR" }],
+        // A THIRD team (not in the user's matchup) with a genuine starter on one of THIS
+        // game's NFL teams — must never appear, since [1,2] is the whole of UI._myMuGame.
+        3: [{ key: "p5", name: "E. Thirdteam", pos: "WR", team: "PHI", slot: "WR" }],
       };
-      const table = { p1: 12, p2: 5, p3: 20, p4: 3 };
+      const table = { p1: 12, p2: 5, p3: 20, p4: 3, p5: 99 };
       D.livePts = (key) => (key in table ? table[key] : null);
       UI.paintNflGame();
       const rows = [...document.querySelectorAll(".nflgprow")].map((e) => e.textContent.replace(/\s+/g, " ").trim());
-      return { rows, present: !!document.querySelector(".nflgcard") };
+      return { rows, present: !!document.querySelector(".nflgcard"), myMu: UI._myMuGame };
     });
     ok(!!inGame && inGame.present, "the \"In this game\" card is present (" + JSON.stringify(inGame) + ")");
-    ok(!!inGame && inGame.rows.length === 4, "…four rows, one per rostered player on either NFL team (" + JSON.stringify(inGame && inGame.rows) + ")");
-    ok(!!inGame && /A\. Away1.*RB.*T1.*RB.*12\.0/.test(inGame.rows[0] || ""), "DAL's higher scorer (A. Away1, 12.0, owner T1) leads its side (" + (inGame && inGame.rows[0]) + ")");
-    ok(!!inGame && /B\. Bench1.*WR.*T1.*BENCH.*5\.0/.test(inGame.rows[1] || ""), "…then B. Bench1 — BENCH marker, lower score (" + (inGame && inGame.rows[1]) + ")");
-    ok(!!inGame && /C\. Home1.*QB.*T2.*QB.*20\.0/.test(inGame.rows[2] || ""), "PHI's higher scorer (C. Home1, 20.0, owner T2) leads its side (" + (inGame && inGame.rows[2]) + ")");
-    ok(!!inGame && /D\. Ir1.*TE.*T2.*IR.*3\.0/.test(inGame.rows[3] || ""), "…then D. Ir1 — IR marker, lower score (" + (inGame && inGame.rows[3]) + ")");
+    ok(!!inGame && Array.isArray(inGame.myMu) && inGame.myMu.includes(1) && inGame.myMu.includes(2),
+      "the viewer's own matchup resolved to teams 1 and 2 (" + JSON.stringify(inGame && inGame.myMu) + ")");
+    ok(!!inGame && inGame.rows.length === 2, "…two rows now — STARTERS ONLY, one per side of the user's own matchup (" + JSON.stringify(inGame && inGame.rows) + ")");
+    ok(!!inGame && /A\. Away1.*RB.*T1.*RB.*12\.0/.test(inGame.rows[0] || ""), "DAL's starter (A. Away1, 12.0, owner T1) leads the away side (" + (inGame && inGame.rows[0]) + ")");
+    ok(!!inGame && /C\. Home1.*QB.*T2.*QB.*20\.0/.test(inGame.rows[1] || ""), "PHI's starter (C. Home1, 20.0, owner T2) leads the home side (" + (inGame && inGame.rows[1]) + ")");
+    ok(!!inGame && !inGame.rows.some((r) => /Bench1/.test(r)), "…a BENCH player on the user's own team in this game is NOT listed (" + JSON.stringify(inGame && inGame.rows) + ")");
+    ok(!!inGame && !inGame.rows.some((r) => /Ir1/.test(r)), "…nor an IR player (" + JSON.stringify(inGame && inGame.rows) + ")");
+    ok(!!inGame && !inGame.rows.some((r) => /Thirdteam/.test(r)), "…and a STARTER on a THIRD team in this game is NOT listed either (" + JSON.stringify(inGame && inGame.rows) + ")");
+    // A viewer with no team at all: the section is absent entirely, not an empty card.
+    const noTeam = await evalOr(page3, () => {
+      const UI = window.__GFFL__.UI;
+      UI._myMuGame = null; // what the strict loader stores for LG.myTeamId() === null
+      UI.paintNflGame();
+      return !document.querySelector(".nflgcard");
+    });
+    ok(noTeam === true, "a viewer with no team gets no \"In this game\" section at all (" + noTeam + ")");
+    // Restore the matchup for the rest of this test.
+    await evalOr(page3, () => { window.__GFFL__.UI._myMuGame = [1, 2]; window.__GFFL__.UI.paintNflGame(); });
     if (SHOTS) {
       // The uprights (item 3) + "In this game" (item 5), both on screen at once — 390 then 1280.
       await page3.screenshot({ path: path.join(SCRATCH, "gffl_gamecast_390.png") });
@@ -19864,7 +19894,9 @@ async function openDetails(page, id) {
       await page3.setViewport({ width: 390, height: 844 });
       await page3.evaluate(() => window.scrollTo(0, 0));
     }
-    // One side empty: DAL gets nobody, PHI keeps its two.
+    // RESTAGED 2026-08-22 (same commissioner pass): one side with nobody rostered used to get
+    // a muted "No GFFL players" line — that branch is GONE now. One side empty just renders
+    // that side's header+rows as nothing (no dead line), the other side unaffected.
     const oneEmpty = await evalOr(page3, () => {
       const UI = window.__GFFL__.UI;
       UI._rosters = { 1: [], 2: [{ key: "p3", name: "C. Home1", pos: "QB", team: "PHI", slot: "QB" }] };
@@ -19874,11 +19906,9 @@ async function openDetails(page, id) {
         noneLine: [...document.querySelectorAll(".nflgcard p")].some((e) => /No GFFL players/.test(e.textContent)),
       };
     });
-    ok(!!oneEmpty && oneEmpty.rows === 1 && oneEmpty.noneLine === true,
-      "a side with nobody rostered gets one muted \"No GFFL players\" line, not an empty table (" + JSON.stringify(oneEmpty) + ")");
+    ok(!!oneEmpty && oneEmpty.rows === 1 && oneEmpty.noneLine === false,
+      "a side with nobody rostered renders NO line at all any more — one real row from the other side, no dead placeholder (" + JSON.stringify(oneEmpty) + ")");
     if (SHOTS) {
-      // The empty-side "No GFFL players" line, plated too — the coordinator asked to see it,
-      // not just trust the DOM check above.
       await page3.evaluate(() => { const el = document.querySelector(".nflgcard"); if (el) el.scrollIntoView({ block: "start" }); });
       await new Promise((r) => setTimeout(r, 250));
       await page3.screenshot({ path: path.join(SCRATCH, "gffl_gamecast_inthisgame_empty_390.png") });
@@ -19892,7 +19922,65 @@ async function openDetails(page, id) {
       UI.paintNflGame();
       return !document.querySelector(".nflgcard");
     });
-    ok(bothEmpty === true, "…and the WHOLE section is absent only when both sides are empty");
+    ok(bothEmpty === true, "…and the WHOLE section is absent when both sides have no starters in this game");
+    // No matchup this week (a bye, or the schedule genuinely has nothing for this team):
+    // absent, same as no team at all — the STRICT lookup's other null case.
+    const noMatchup = await evalOr(page3, () => {
+      const UI = window.__GFFL__.UI;
+      UI._rosters = { 1: [{ key: "p1", name: "A. Away1", pos: "RB", team: "DAL", slot: "RB" }],
+        2: [{ key: "p3", name: "C. Home1", pos: "QB", team: "PHI", slot: "QB" }] };
+      UI._myMuGame = null; // what myMatchupThisWeekStrict() returns for a bye week too
+      UI.paintNflGame();
+      return !document.querySelector(".nflgcard");
+    });
+    ok(noMatchup === true, "…and no matchup this week (bye) is absent too, even with real starters on the field (" + noMatchup + ")");
+    // ---- ITEM 3 (2026-08-22, same commissioner pass): the "In this game" rows read in the
+    // app's button voice (uppercase, letter-spaced) instead of the page's own body/small
+    // scale every sibling row (.nfldrv, .nflplay) already uses — the global `button{}` reset
+    // was leaking through .nflgprow's own `font:inherit`. Measured against a LIVE row
+    // (.nfldrv exists on this same page — 401900001's fixture carries real previous drives)
+    // and against .seclabel (the thing rows must NOT look like).
+    await evalOr(page3, () => {
+      const UI = window.__GFFL__.UI;
+      UI._myMuGame = [1, 2];
+      UI._rosters = { 1: [{ key: "p1", name: "A. Away1", pos: "RB", team: "DAL", slot: "RB" }],
+        2: [{ key: "p3", name: "C. Home1", pos: "QB", team: "PHI", slot: "QB" }] };
+      UI.paintNflGame();
+    });
+    await waitFnOr(page3, () => document.querySelector(".nflgprow") && document.querySelector(".nfldrv"));
+    const fonts = await evalOr(page3, () => {
+      const cs = (el) => el ? getComputedStyle(el) : null;
+      const row = document.querySelector(".nflgprow");
+      const drv = document.querySelector(".nfldrv");
+      const sec = document.querySelector(".seclabel");
+      const nameEl = row && row.querySelector("b");
+      const ptsEl = row && row.lastElementChild;
+      const rowCs = cs(row), drvCs = cs(drv), secCs = cs(sec), nameCs = cs(nameEl), ptsCs = cs(ptsEl);
+      return {
+        rowSize: rowCs && rowCs.fontSize, drvSize: drvCs && drvCs.fontSize, secSize: secCs && secCs.fontSize,
+        rowTransform: rowCs && rowCs.textTransform, drvTransform: drvCs && drvCs.textTransform,
+        rowSpacing: rowCs && rowCs.letterSpacing,
+        nameWeight: nameCs && nameCs.fontWeight, ptsWeight: ptsCs && ptsCs.fontWeight,
+      };
+    });
+    ok(!!fonts && fonts.rowSize === fonts.drvSize, "…the \"In this game\" row font-size now equals .nfldrv's (" + JSON.stringify({ row: fonts && fonts.rowSize, drv: fonts && fonts.drvSize }) + ")");
+    ok(!!fonts && fonts.rowSize !== fonts.secSize, "…and it is NOT the section-label display scale (" + JSON.stringify({ row: fonts && fonts.rowSize, sec: fonts && fonts.secSize }) + ")");
+    ok(!!fonts && fonts.rowTransform === fonts.drvTransform && fonts.rowTransform !== "uppercase",
+      "…no more button-voice uppercase leaking through (" + JSON.stringify({ row: fonts && fonts.rowTransform, drv: fonts && fonts.drvTransform }) + ")");
+    ok(!!fonts && (fonts.rowSpacing === "normal" || fonts.rowSpacing === "0px"),
+      "…and no more button-voice letter-spacing either (" + JSON.stringify(fonts && fonts.rowSpacing) + ")");
+    ok(!!fonts && Number(fonts.nameWeight) > Number(fonts.ptsWeight),
+      "…the player NAME is bold, the points are regular — the same bold/regular pattern the drive rows use (" + JSON.stringify({ name: fonts && fonts.nameWeight, pts: fonts && fonts.ptsWeight }) + ")");
+    if (SHOTS) {
+      await page3.setViewport({ width: 1280, height: 900 });
+      await sleep(60);
+      const fonts1280 = await evalOr(page3, () => {
+        const row = document.querySelector(".nflgprow"), drv = document.querySelector(".nfldrv");
+        return { row: row && getComputedStyle(row).fontSize, drv: drv && getComputedStyle(drv).fontSize };
+      });
+      ok(!!fonts1280 && fonts1280.row === fonts1280.drv, "…still matched at 1280px (" + JSON.stringify(fonts1280) + ")");
+      await page3.setViewport({ width: 390, height: 844 });
+    }
     ok(errors3.length === 0, "0 page errors");
     await ctx3.close();
 

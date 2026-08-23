@@ -1504,9 +1504,17 @@
      team's group then HOME's, each led by its own .nfltag chip. */
   .nflgteam { margin-top:10px; }
   .nflgteam:first-child { margin-top:0; }
+  /* 2026-08-22 RESTAGE: the global `button{}` reset (font:600 12.5px var(--font-display),
+     uppercase, letter-spacing:1px — the app's BUTTON voice) was leaking through .nflgprow's
+     own `font:inherit` — inherit resets family/weight/size/line-height but NOT
+     text-transform/letter-spacing, which .fline/.nflgprow never explicitly reset either. The
+     row read in small-caps button type instead of the page's own body/small scale that every
+     sibling drive row (.nfldrv, .nflplay) already uses — same 13px this rule already declared,
+     but dressed as a button label instead of a line of text. Reset explicitly now. */
   .nflgprow { display:flex; width:100%; align-items:baseline; gap:6px; flex-wrap:wrap;
               text-align:left; background:none; border:none; border-top:1px solid var(--divider2);
-              padding:6px 0; font:inherit; color:inherit; font-size:13px; }
+              padding:6px 0; font:inherit; color:inherit; font-size:13px;
+              text-transform:none; letter-spacing:normal; }
   .nflgprow:first-of-type { border-top:none; }
   .nflgprow > :last-child { margin-left:auto; }
   /* Previous drives are DROPDOWNS (2026-08-13 game night). The <details> keeps the plain

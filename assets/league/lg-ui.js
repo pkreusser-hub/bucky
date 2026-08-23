@@ -3225,11 +3225,15 @@
   const FY = { top: 140, bot: 258, mid: 199, numY: 288 };
   // FRAME: the skew leans the slab beyond the viewBox (the first plate clipped both end
   // zones' corners), so the whole drawing is translated + scaled to fit the lean's full
-  // extent inside the viewBox — now with FPAD of margin at both edges, because the goalposts
-  // stand at the BACK of each end zone (x=0 / x=1000) and their crossbars overhang it.
-  // Solved rather than tuned: leftmost slab point is (0, FY.bot), rightmost is (1000, FY.top).
-  // data-* attrs carry MATH x throughout — the suite asserts arithmetic, never pixels.
-  const FPAD = 26;
+  // extent inside the viewBox. Solved rather than tuned: leftmost slab point is (0, FY.bot),
+  // rightmost is (1000, FY.top) — that alone fits the field exactly to [0,1000] with zero
+  // margin. FPAD used to carry margin for the goalposts' crossbar overhang (removed
+  // 2026-08-22, commissioner's ruling); the pin — the one thing left that draws outside the
+  // field rect's own y-range — was measured at FPAD=0 (getScreenCTM on its rendered
+  // bounding box) and stays inside the viewBox at both extremes of ball position, so FPAD
+  // goes to 0 rather than being retuned. data-* attrs carry MATH x throughout — the suite
+  // asserts arithmetic, never pixels.
+  const FPAD = 0;
   const FEXT = 1000 + (FY.bot - FY.top) * TAN;                     // the leaned slab's own width
   const FSC = (1000 - 2 * FPAD) / FEXT;                            // slab spans [FPAD, 1000-FPAD]
   const FTX = FPAD / FSC + FY.bot * TAN;
@@ -3316,29 +3320,8 @@
         + (pt.logo ? `<image href="${esc(pt.logo)}" x="-16" y="-68" width="32" height="32"/>` : `<text x="0" y="-46" fill="#fff" font-size="14" font-weight="800" text-anchor="middle">${esc(pt.abbrev || "")}</text>`)
         + `</g>`;
     }
-    // GOALPOSTS at the BACK LINE of each end zone (2026-08-14, on the far left/right, base at
-    // FY.mid). 2026-08-22: the crossbar used to be drawn INSIDE a counter-skewed local group
-    // (x ±20), which put it along the field's LENGTH — reads as facing the wrong way, per the
-    // commissioner ("they should be parallel with the end zone"). The crossbar now draws in
-    // SLAB coordinates at x=0/x=1000, spanning FY.mid±26 in y — a fixed-x, varying-y segment,
-    // so it inherits the slab's own skewX(-SKEW) directly and is parallel to the end line (the
-    // rect edge at that same x) by construction, not by eye. The base post still drops from
-    // the crossbar's centre and the two uprights still rise from its ends, each its own
-    // counter-skewed (screen-true-vertical) group — the same "stand upright" trick the ball
-    // pin uses — so the H-shape reads as goalposts seen from the stands, not from above.
-    // Gold stroke, stroke widths, data-x contract and draw order (last, on top of turf) kept.
-    const post = (x) => {
-      const cbTop = FY.mid - 26, cbBot = FY.mid + 26;
-      const upright = (y0, dy) => `<g transform="translate(${x} ${y0}) skewX(${SKEW})">`
-        + `<line x1="0" y1="0" x2="0" y2="${dy}" stroke="var(--gold)" stroke-width="5" opacity="0.95" stroke-linecap="round"/></g>`;
-      return `<g class="nflpost" data-x="${x}">`
-        + `<line x1="${x}" y1="${cbTop}" x2="${x}" y2="${cbBot}" stroke="var(--gold)" stroke-width="5" opacity="0.95" stroke-linecap="round"/>`
-        + upright(FY.mid, 40)     // the base post, dropping from the crossbar's centre to the ground
-        + upright(cbTop, -44)     // uprights rising from the crossbar's two ends
-        + upright(cbBot, -44)
-        + `</g>`;
-    };
-    svg += post(0) + post(1000);
+    // Goalposts removed entirely (2026-08-22, commissioner's ruling) — .nflpost no longer
+    // exists anywhere in this markup. FPAD (above) went to 0 with them.
     svg += `</g>`;   // end skewed slab
     // ---- the yard row BELOW the strip, aligned to the slab's bottom edge (which the frame
     // put at x=0, so the row only needs the same horizontal scale) ----
@@ -3481,23 +3464,26 @@
       curPlays.slice().reverse().forEach((p) => { html += playRow(p); });
       html += `</div></div>`;
     }
-    // "IN THIS GAME" (item 5, 2026-08-22): every GFFL-rostered player on either NFL team,
-    // AWAY then HOME — the one place a family member can see who's actually IN this game
-    // without cross-referencing rosters by hand. Scans EVERY team's roster (UI._rosters,
-    // loaded once at open by renderNflGame — see its own comment), matched to this game's
-    // teams via D.slpTeam, the same normalisation every other team-abbrev comparison in this
-    // file already uses. Sorted by points desc within each side; a side with nobody rostered
-    // gets one muted "No GFFL players" line, and the WHOLE section is absent only when BOTH
-    // sides are empty — a game with nobody's roster in it gets no dead card at all.
-    {
+    // "IN THIS GAME" (item 5, 2026-08-22; RESTAGED same day per the commissioner): every
+    // STARTER (never BENCH/IR) on EITHER SIDE of the viewing user's OWN matchup this week who
+    // is on one of the two NFL teams playing here — never a third team's players, never a
+    // stranger's roster. UI._myMuGame is the strict lookup (no wk[0] fallback), loaded once at
+    // open alongside UI._rosters. A viewer with no team, no matchup this week, or a matchup
+    // with no starters in this game gets NO section at all — no empty-side "No GFFL players"
+    // line any more, that branch is gone. Owner tag now only ever names one of the two teams
+    // in the user's own matchup, which is fine — it says whose is whose.
+    if (UI._myMuGame) {
       const d = D();
       const ptsOf = (key) => LG.n(pre ? d.projFor(key) : d.livePts(key));
+      const muTeamIds = UI._myMuGame;
       const playersForSide = (abbrev) => {
         const ab = d.slpTeam(abbrev || "");
         if (!ab) return [];
         const out = [];
-        for (const t of LG.teams) {
-          for (const p of ((UI._rosters && UI._rosters[t.id]) || [])) {
+        for (const tid of muTeamIds) {
+          const t = LG.teamById(tid);
+          if (!t) continue;
+          for (const p of teamStarters(tid)) {
             if (d.slpTeam(p.team) === ab) out.push({ p, owner: t });
           }
         }
@@ -3505,27 +3491,22 @@
         return out;
       };
       const rowHtml = ({ p, owner }) => {
-        const benchIr = p.slot === "BENCH" || p.slot === "IR";
         const ptsHtml = pre
           ? `<span class="mut small">proj ${LG.fmtPts(d.projFor(p.key))}</span>`
           : `<span class="small">${LG.fmtPts(d.livePts(p.key))}</span>`;
         return `<button type="button" class="fline nflgprow" data-pk="${esc(p.key)}">
           <b>${escn(p.name)}</b> <span class="mut small">${esc(p.pos || "")}</span>
           <span class="mut small">${esc(teamTag(owner))}</span>
-          <span class="${benchIr ? "mut " : ""}small">${esc(p.slot || "")}</span>
+          <span class="small">${esc(p.slot || "")}</span>
           ${ptsHtml}</button>`;
       };
-      const sideHtml = (abbrev) => {
-        const rows = playersForSide(abbrev);
-        return { html: rows.length ? rows.map(rowHtml).join("") : '<p class="mut small">No GFFL players.</p>', n: rows.length };
+      const sideHtml = (t) => {
+        const rows = playersForSide(t.abbrev);
+        return rows.length ? `<div class="nflgteam"><span class="nfltag" style="background:${abColor(t.id)}">${esc(t.abbrev || "")}</span></div>${rows.map(rowHtml).join("")}` : "";
       };
-      const awaySide = sideHtml(away.abbrev), homeSide = sideHtml(home.abbrev);
-      if (awaySide.n || homeSide.n) {
-        html += `<div class="card nflgcard"><div class="seclabel"><b>In this game</b></div>
-          <div class="nflgteam"><span class="nfltag" style="background:${abColor(away.id)}">${esc(away.abbrev || "")}</span></div>
-          ${awaySide.html}
-          <div class="nflgteam"><span class="nfltag" style="background:${abColor(home.id)}">${esc(home.abbrev || "")}</span></div>
-          ${homeSide.html}</div>`;
+      const awayHtml = sideHtml(away), homeHtml = sideHtml(home);
+      if (awayHtml || homeHtml) {
+        html += `<div class="card nflgcard"><div class="seclabel"><b>In this game</b></div>${awayHtml}${homeHtml}</div>`;
       }
     }
     // PREVIOUS DRIVES ARE DROPDOWNS (2026-08-13 game night: "previous drives should be drop
@@ -3644,10 +3625,12 @@
       <div id="nflBody"><div class="card mut">Loading the game…</div></div>`;
     $("#nflBack").addEventListener("click", nflBack);
     const id = UI.nflGameId;
-    // ITEM 5 (2026-08-22): "In this game" needs every team's roster to know who's GFFL-
-    // rostered — loaded ONCE at open, same as the matchup/locker convention; the 25s poll's
-    // own paintNflGame() re-reads the same UI._rosters rather than re-fetching it.
-    await Promise.all([loadNflGame(), loadWeekRosters().catch(() => {})]);
+    // ITEM 5 (2026-08-22, restaged same day): "In this game" needs the viewing user's OWN
+    // matchup this week (UI._myMuGame) and every roster to slot starters into it — both loaded
+    // ONCE at open, same as the matchup/locker convention; the 25s poll's own paintNflGame()
+    // re-reads the same cached state rather than re-fetching it.
+    await Promise.all([loadNflGame(), loadWeekRosters().catch(() => {}),
+      myMatchupThisWeekStrict().then((mu) => { UI._myMuGame = mu; }).catch(() => { UI._myMuGame = null; })]);
     // The reader may have gone somewhere else (or opened a different game) while that was in
     // flight — repainting then would drop a stale game over whatever they're now looking at.
     if (UI.view !== "nflgame" || UI.nflGameId !== id) return;
@@ -3738,6 +3721,16 @@
     if (!mine) return null;
     const wk = await LG.gamesForWeek(UI.week);
     return wk.find(([h, a]) => h === mine || a === mine) || wk[0] || null;
+  }
+  // STRICT variant for "In this game" (2026-08-22 restage): the Matchup TAB deliberately falls
+  // back to wk[0] so a commissioner/bye-week viewer still sees SOME game rather than a blank
+  // page — but "In this game" must go absent for exactly that viewer, not show a stranger's
+  // matchup. Same underlying lookup (LG.gamesForWeek) the matchup view uses, no fallback.
+  async function myMatchupThisWeekStrict() {
+    const mine = LG.myTeamId();
+    if (!mine) return null;
+    const wk = await LG.gamesForWeek(UI.week);
+    return wk.find(([h, a]) => h === mine || a === mine) || null;
   }
   // ---------------- (removed 2026-08-11) the "Head to head" split-bar card ----------------
   // S3 ported the NFL box score's split-bar mechanic here as an 8-row category card. The user's
@@ -6217,6 +6210,7 @@
     "scoring.fg_50": "Field goal made, 50+ yds", "scoring.fg_made_yd": "Field goal made (per yard)",
     "scoring.fg_miss": "Field goal missed", "scoring.xp_made": "Extra point made", "scoring.xp_miss": "Extra point missed",
     "scoring.dst_sack": "Sack", "scoring.dst_int": "Interception", "scoring.dst_fum_rec": "Fumble recovery",
+    "scoring.dst_fum_forced": "Forced fumble", "scoring.dst_kr_td": "Kick/punt return TD",
     "scoring.dst_td": "Defensive/return TD", "scoring.dst_safety": "Safety", "scoring.dst_blk": "Blocked kick",
     "scoring.dst_2pt_ret": "2-pt return", "scoring.dst_pa_0": "0 points allowed", "scoring.dst_pa_1_6": "1-6 points allowed",
     "scoring.dst_pa_7_13": "7-13 points allowed", "scoring.dst_pa_14_17": "14-17 points allowed",
@@ -6241,7 +6235,7 @@
     { title: "Rushing", keys: ["rush_yd", "rush_td", "rush_2pt", "bonus_rush_100", "bonus_rush_200"] },
     { title: "Receiving", keys: ["rec", "rec_yd", "rec_td", "rec_2pt", "bonus_rec_100", "bonus_rec_200"] },
     { title: "Kicking", keys: ["fg_0_39", "fg_40_49", "fg_50", "fg_made_yd", "fg_miss", "xp_made", "xp_miss"] },
-    { title: "Defense / Special Teams", keys: ["dst_sack", "dst_int", "dst_fum_rec", "dst_td", "dst_safety", "dst_blk", "dst_2pt_ret"] },
+    { title: "Defense / Special Teams", keys: ["dst_sack", "dst_int", "dst_fum_rec", "dst_fum_forced", "dst_td", "dst_kr_td", "dst_safety", "dst_blk", "dst_2pt_ret"] },
     { title: "Misc", keys: ["fum_lost", "off_fum_td", "one_pt_safety"] },
   ];
   // Points-allowed brackets are a structured VALUE TABLE, not a list of optional bonuses — a
@@ -6318,7 +6312,14 @@
       return `<h2 class="small mut">${esc(g.title)}</h2><div class="panner"><table class="tbl">
         <tbody>${keys.map((k) => row("scoring", k, r.scoring)).join("")}</tbody></table></div>`;
     }).join("");
-    const paHtml = `<h2 class="small mut">Points allowed</h2><div class="panner"><table class="tbl">
+    // Data-driven, not hardcoded to the 2026 rule: only when EVERY bracket the doc carries is
+    // 0 does the section collapse to one line — a league that still scores PA (2025's tiers,
+    // or a future commissioner change) keeps the full table. Edit mode always shows the real
+    // table (a commissioner has to be able to turn PA scoring back on).
+    const paAllZero = !editing && PA_BRACKETS.every((k) => Number(r.scoring[k]) === 0);
+    const paHtml = paAllZero
+      ? `<h2 class="small mut">Points allowed</h2><p class="mut small">Points allowed are not scored in this league.</p>`
+      : `<h2 class="small mut">Points allowed</h2><div class="panner"><table class="tbl">
       <tbody>${PA_BRACKETS.map((k) => row("scoring", k, r.scoring)).join("")}</tbody></table></div>`;
     const simpleSection = (title, summaryLine, group, obj) => `<div class="card"><h2>${esc(title)}</h2>
       <p class="mut small">${esc(summaryLine)}</p>

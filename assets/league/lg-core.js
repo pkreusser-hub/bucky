@@ -1067,9 +1067,17 @@
       fg_0_39: 3, fg_40_49: 4, fg_50: 5, fg_miss: -1, xp_made: 1, xp_miss: -1,
       bonus_pass_300: 0, bonus_pass_400: 0, bonus_rush_100: 0, bonus_rush_200: 0,
       bonus_rec_100: 0, bonus_rec_200: 0, off_fum_td: 0, fg_made_yd: 0, dst_2pt_ret: 0, one_pt_safety: 0,
-      dst_sack: 1, dst_int: 2, dst_fum_rec: 2, dst_td: 6, dst_safety: 2, dst_blk: 2,
-      dst_pa_0: 5, dst_pa_1_6: 4, dst_pa_7_13: 3, dst_pa_14_17: 1,
-      dst_pa_18_27: 0, dst_pa_28_34: -1, dst_pa_35_45: -3, dst_pa_46: -5,
+      // ESPN 2026 league settings sheet (commissioner, 2026-08-22): fum_rec 2→1, safety 2→4,
+      // blk 2→3, dst_fum_forced added at 1, dst_kr_td added at 8 (KR/PR return TDs share one
+      // bucket, matching the live doc and dst_pr_td). Points allowed is NOT scored at all —
+      // every dst_pa_* bracket is 0, not the old 5/4/3/1/0/-1/-3/-5 ladder. The LIVE settings
+      // doc already carried every one of these exact values as of a 2026-08-14 commissioner
+      // edit (v=8) — this code fallback was eight days stale; this brings the default a new
+      // league (or a fixture with no settings doc) starts from back in line with what the
+      // real league has been playing under.
+      dst_sack: 1, dst_int: 2, dst_fum_rec: 1, dst_fum_forced: 1, dst_td: 6, dst_safety: 4, dst_blk: 3, dst_kr_td: 8,
+      dst_pa_0: 0, dst_pa_1_6: 0, dst_pa_7_13: 0, dst_pa_14_17: 0,
+      dst_pa_18_27: 0, dst_pa_28_34: 0, dst_pa_35_45: 0, dst_pa_46: 0,
     },
     roster: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, DST: 1, K: 1, BENCH: 7, IR: 3 },
     waivers: { type: "faab", budget: 100, processDow: 3, processHour: 8 },
