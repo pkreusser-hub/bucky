@@ -20084,6 +20084,117 @@ async function openDetails(page, id) {
     await ctx6.close();
   }
 
+  // ================= BB · THE COMMISSIONER'S RULING (2026-08-23) — CONFLICT is commish-only,
+  // and mergeRow's feed eligibility is tightened =================
+  // "I don't want users to ever see that there is a conflict, that's only for the
+  // commissioner to care about." Two changes: (1) the CONFLICT badge (halfCell, lg-ui.js)
+  // now renders only when isCommish() — everyone else's row is byte-identical to a
+  // conflict:false row. row.conflict itself keeps getting COMPUTED; only the display is
+  // gated. (2) mergeRow (lg-data.js) no longer lets an empty-but-fresher feed win the
+  // display or count as a dissenting opinion — preseason exposed Sleeper thin on stats,
+  // so a fresher EMPTY Sleeper row used to beat a full ESPN row (0.0 on a finished player)
+  // and the mere existence of both sides used to flag "conflict" even when one side was
+  // empty.
+  {
+    section("BB · commissioner's ruling — CONFLICT display is commish-only · mergeRow feed eligibility tightened");
+    // ---- BB1: display — a non-commissioner never sees the badge, byte-identical to
+    // conflict:false; a commissioner still sees it exactly as before. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await waitOr(page, ".muhead");
+      const r = await evalOr(page, () => {
+        const { D, UI, LG } = window.__GFFL__;
+        const row = D.S.players.get("3915511"); // P. Passer — real starter, real matchup row
+        // Each .mutable tr holds TWO half-cells (away + home) — find P. Passer's OWN .pcell,
+        // not just the row, so a sibling half-cell's .pmeta can never be mistaken for his.
+        const findCell = () => [...document.querySelectorAll(".mutable .pcell")].find((td) => td.textContent.includes("P. Passer"));
+        // Baseline: conflict=false, non-commissioner.
+        row.conflict = false;
+        LG.commishUnlocked = () => false;
+        UI.renderMatchup(true);
+        const baseline = findCell().querySelector(".pmeta").textContent;
+        // conflict=true, still non-commissioner — must render byte-identical to baseline.
+        row.conflict = true;
+        UI.renderMatchup(true);
+        const td = findCell();
+        const html = td.innerHTML;
+        const nonCommishMeta = td.querySelector(".pmeta").textContent;
+        const noBadge = !td.querySelector(".conflictflag") && !/CONFLICT/.test(html);
+        // Now unlock the commissioner, same conflict=true row, same repaint path.
+        LG.commishUnlocked = () => true;
+        UI.renderMatchup(true);
+        const td2 = findCell();
+        const badge = td2.querySelector(".conflictflag");
+        return {
+          noBadge, byteIdentical: nonCommishMeta === baseline,
+          commishBadge: !!badge, commishTitle: badge ? badge.getAttribute("title") : null, commishText: badge ? badge.textContent : null,
+        };
+      });
+      ok(r && r.noBadge === true, "non-commissioner viewer: conflict=true row shows no .conflictflag element in P. Passer's OWN half-cell and no CONFLICT text in its markup");
+      ok(r && r.byteIdentical === true, "…and line 2's textContent is byte-identical to the same row rendered with conflict=false");
+      ok(r && r.commishBadge === true, "commissioner viewer, same row: the badge renders");
+      ok(r && r.commishTitle === "Sources disagree" && r.commishText === "CONFLICT", "…with its title and text exactly as before");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    // ---- BB2: mergeRow — a side with no stats is ABSENT for scoring and for conflict ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        D.S.games.set("PHI", { state: "post" });
+        // (c) ESPN full stats (rec 3 + rec_yd 30 = 6.0, hand-computed: 3*1 + 30*0.1), Sleeper
+        // EMPTY stats but FRESHER (last 200 > 100) — the exact bug shape: pre-fix the fresher
+        // empty side won and pinned the player at 0.0.
+        D.S.players.set("zz_bb_c", { key: "zz_bb_c", name: "Z Bb C", pos: "WR", team: "PHI",
+          espn: { last: 100, stats: { rec: 3, rec_yd: 30 }, raw: {} },
+          slp: { last: 200, stats: {}, raw: {} }, official: null, injury: "" });
+        const rowC = D.mergeRow(D.S.players.get("zz_bb_c"));
+        // (d) both sides WITH stats, game post: ESPN 10.0 (rec 3 + rec_yd 70 = 3 + 7.0) vs
+        // Sleeper 10.6 (rec 3 + rec_yd 76 = 3 + 7.6) — diff 0.6 > 0.5 → conflict true.
+        D.S.players.set("zz_bb_d1", { key: "zz_bb_d1", name: "Z Bb D1", pos: "WR", team: "PHI",
+          espn: { last: 100, stats: { rec: 3, rec_yd: 70 }, raw: {} },
+          slp: { last: 200, stats: { rec: 3, rec_yd: 76 }, raw: {} },
+          official: null, injury: "" });
+        const rowD1 = D.mergeRow(D.S.players.get("zz_bb_d1"));
+        // Same shape, Sleeper 10.3 (rec 3 + rec_yd 73 = 3 + 7.3) — diff 0.3 ≤ 0.5 → conflict false.
+        D.S.players.set("zz_bb_d2", { key: "zz_bb_d2", name: "Z Bb D2", pos: "WR", team: "PHI",
+          espn: { last: 100, stats: { rec: 3, rec_yd: 70 }, raw: {} },
+          slp: { last: 200, stats: { rec: 3, rec_yd: 73 }, raw: {} },
+          official: null, injury: "" });
+        const rowD2 = D.mergeRow(D.S.players.get("zz_bb_d2"));
+        // (e) both sides WITH stats, game "in" — same 0.6-pt gap as (d1) — conflict false
+        // regardless, the existing live-play suppression.
+        D.S.games.set("DAL", { state: "in", period: 2, clock: "5:00" });
+        D.S.players.set("zz_bb_e", { key: "zz_bb_e", name: "Z Bb E", pos: "WR", team: "DAL",
+          espn: { last: 100, stats: { rec: 3, rec_yd: 70 }, raw: {} },
+          slp: { last: 200, stats: { rec: 3, rec_yd: 76 }, raw: {} },
+          official: null, injury: "" });
+        const rowE = D.mergeRow(D.S.players.get("zz_bb_e"));
+        const out = {
+          c: { pts: rowC.pts, src: rowC.src, conflict: rowC.conflict },
+          d1: { conflict: rowD1.conflict }, d2: { conflict: rowD2.conflict },
+          e: { conflict: rowE.conflict },
+        };
+        for (const k of ["zz_bb_c", "zz_bb_d1", "zz_bb_d2", "zz_bb_e"]) D.S.players.delete(k);
+        return out;
+      });
+      ok(r && r.c.pts === 6 && r.c.src === "espn" && r.c.conflict === false,
+        "mergeRow: ESPN full stats (3 rec + 30 rec_yd = 3.0 + 3.0 = 6.0, last 100) beats a FRESHER but EMPTY Sleeper side (last 200) — pins the exact bug the tightening prevents (pts=" + (r && r.c.pts) + " src=" + (r && r.c.src) + ")");
+      ok(r && r.d1.conflict === true, "mergeRow: both sides with stats, game post, ESPN 10.0 vs Sleeper 10.6 (diff 0.6 > 0.5) → conflict true");
+      ok(r && r.d2.conflict === false, "…ESPN 10.0 vs Sleeper 10.3 (diff 0.3 ≤ 0.5) → conflict false — the rule doesn't over-fire");
+      ok(r && r.e.conflict === false, "mergeRow: both sides with stats, game IN, same 0.6-pt gap as the post-game conflict case → conflict false regardless (live-play suppression, pinned)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

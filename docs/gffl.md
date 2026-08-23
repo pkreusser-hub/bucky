@@ -5331,3 +5331,71 @@ D/ST table + the muted "Points allowed are not scored" line, on `DEFAULT_RULES`)
 (the SAME view, post-ESPN-import, proving the PA table still renders when the data genuinely has
 nonzero brackets — the view is data-driven, not hardcoded).
 ---
+
+## 🏈 GFFL — THE COMMISSIONER'S RULING: CONFLICT is commish-only, and mergeRow stops treating an empty feed as an opinion (2026-08-23)
+
+"I don't want users to ever see that there is a conflict, that's only for the commissioner to
+care about." Two changes, files `assets/league/lg-{data,ui}.js` + `tools/_verify-gffl.cjs`
+(new section BB, 9 checks; suite now **2887/2887**).
+
+**1 · DISPLAY IS COMMISH-ONLY.** `row.conflict` is still computed and tracked exactly as before
+— it's the commissioner's own diagnostic. Only the DISPLAY changed: `halfCell` (lg-ui.js
+~4258) now gates the `.conflictflag` badge behind `isCommish()`, the same helper that gates the
+replay-phase card and the rest of the commish-only chrome. A non-commissioner's row renders
+byte-identical to a `row.conflict === false` row — no badge, no title, nothing added to line 2.
+Grepped every read of `row.conflict` in lg-ui.js: it is read in exactly ONE place for display
+(`halfCell`, feeding the matchup starters/bench cells) — no tooltip, locker, players-table,
+player-card, or health-chip surface exposes it, so there was nothing else to gate.
+
+**2 · MERGEROW'S FEED ELIGIBILITY IS TIGHTENED (lg-data.js ~1182).** Preseason exposed Sleeper
+thin on stats. Before this fix, the default two-feed (`e && s`) branch picked whichever side
+had the LATER `last` stamp with no check that side actually carried any stats — so an empty
+but fresher Sleeper row could beat a full ESPN row and show a finished player at 0.0. And
+`row.conflict` fired whenever both sides merely EXISTED, so an empty Sleeper row sitting beside
+a full ESPN row read as a "disagreement" it never was. Both are now gated on the existing
+`hasStats()` helper (the same one the espn-only/sleeper-only branches already used): a side
+with no stats is ABSENT for scoring — the fresher-wins rule only applies between two sides that
+BOTH have stats, and a side with stats beats an empty fresher side outright. `row.conflict` now
+additionally requires BOTH sides to have stats. An empty feed is an absent opinion, not a
+dissenting one. Every other mode branch (`espn-only`, `sleeper-only`, one-side-only) is
+untouched — this only touches the default dual-feed path.
+
+**RESTAGED**: none of the pre-existing checks pinned the old behavior directly (no prior test
+asserted "an empty fresher side wins" or "existence alone conflicts") — this is new coverage,
+not a reversal of an asserted invariant, so nothing needed restaging.
+
+**SUITE — section BB, 9 checks**: (a) non-commissioner + `conflict:true` synthetic row on
+P. Passer (the real live starter, `key "3915511"`) → no `.conflictflag` in HIS OWN half-cell
+(found by matching the `.pcell` containing his name, not just the row — a `<tr>` holds both
+sides' half-cells, and the first check version accidentally read the wrong side's `.pmeta` and
+had to be corrected before it caught anything real), no CONFLICT text, and his `.pmeta`
+textContent byte-identical to the same cell rendered with `conflict:false`. (b) commissioner,
+same row → badge renders with title "Sources disagree" and text "CONFLICT", exactly as before.
+(c) `mergeRow`: ESPN full stats (`rec:3, rec_yd:30`, hand-computed 3×1 + 30×0.1 = **6.0**,
+`last:100`) vs Sleeper EMPTY stats but FRESHER (`last:200`) → `pts===6`, `src==="espn"`,
+`conflict===false` — pins the exact bug (pre-fix this returned `pts:0, src:"slp"`, the fresher
+empty side winning). (d) both sides with stats, game post: ESPN 10.0 vs Sleeper 10.6 (diff 0.6)
+→ `conflict===true`; ESPN 10.0 vs Sleeper 10.3 (diff 0.3) → `conflict===false`. (e) same 0.6-pt
+gap, game "in" → `conflict===false` regardless (the existing live-play suppression, pinned
+alongside the new checks).
+
+**BITE, proven twice.** First pass: app files reverted to HEAD, suite re-run — only 2 of the 3
+new-signal checks failed (`noBadge` and the mergeRow-c pts check), while a THIRD
+(`byteIdentical`) passed for the wrong reason — the test read `tr.querySelector(".pmeta")`,
+which grabbed the FIRST `.pmeta` in the row (the opponent's half-cell, which never had
+`conflict` set) rather than P. Passer's own. Debug output confirmed the CONFLICT badge really
+was rendering in his half-cell pre-fix; the check just wasn't looking there. Fixed to scope
+every read to the `.pcell` containing "P. Passer" specifically, re-verified: fixed app files →
+**2887/2887**; app files reverted to HEAD → **2884 pass / 3 fail**, exactly the three checks
+that pin the new behavior (`noBadge`, `byteIdentical`, mergeRow-c), every one of the 2884
+pre-existing checks (including the commissioner-badge-still-works and conflict-d/e checks, which
+the old code already satisfied by coincidence) green either way. App files restored from the
+scratchpad backup.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **2887/2887**, 0 page errors. `node
+tools/_gffl_seams.cjs` **121/0, unrestaged** — it calls `D.score` directly against stored stats
+for its mergeRow-adjacent checks, never `D.mergeRow` itself, so the tightening doesn't touch it.
+`node tools/_gffl_shadow_score.mjs --selftest` **50/50** — it's an independent re-implementation
+of `D.score`/`normSlp` only; it never calls `mergeRow` and carries no conflict logic, so this
+batch doesn't touch it either.
+---

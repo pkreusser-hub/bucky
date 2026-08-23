@@ -1191,7 +1191,20 @@
       if (hasStats(s) || !hasStats(e)) { pick = s || e; src = s ? "slp" : (e ? "espn" : ""); }
       else { pick = e; src = "espn"; }
     }
-    else if (e && s) { if (e.last >= s.last) { pick = e; src = "espn"; } else { pick = s; src = "slp"; } }
+    else if (e && s) {
+      // TIGHTENED (2026-08-23, commissioner's ruling batch): preseason exposed Sleeper thin
+      // on stats — an empty-but-FRESHER Sleeper row used to beat a full ESPN row on `last`
+      // alone, showing a finished player at 0.0, and the mere EXISTENCE of both sides used to
+      // flag a conflict even when one of them was an empty opinion, not a dissenting one. A
+      // side with no stats is now ABSENT for scoring: the fresher-wins rule applies only
+      // between two sides that both actually have stats; a side with stats beats an empty
+      // fresher side outright.
+      const eOk = hasStats(e), sOk = hasStats(s);
+      if (eOk && sOk) { if (e.last >= s.last) { pick = e; src = "espn"; } else { pick = s; src = "slp"; } }
+      else if (eOk) { pick = e; src = "espn"; }
+      else if (sOk) { pick = s; src = "slp"; }
+      else { if (e.last >= s.last) { pick = e; src = "espn"; } else { pick = s; src = "slp"; } }
+    }
     else if (e) { pick = e; src = "espn"; }
     else if (s) { pick = s; src = "slp"; }
     row.src = src;
@@ -1199,8 +1212,11 @@
     // ⚠ means SETTLED disagreement: game final and the sources still differ.
     // During live play the freshest source legitimately leads by 10-40s
     // (measured) — flagging that would flash on every play.
+    // TIGHTENED (2026-08-23): conflict now also requires BOTH sides to actually have stats —
+    // an empty feed existing isn't a dissenting opinion, it's an absent one, and used to fire
+    // "conflict" against a full-stat side for no reason.
     const g = D.S.games.get(slpTeam(row.team));
-    row.conflict = !!(g && g.state === "post" && e && s && Math.abs(D.score(e.stats) - D.score(s.stats)) > 0.5);
+    row.conflict = !!(g && g.state === "post" && e && s && hasStats(e) && hasStats(s) && Math.abs(D.score(e.stats) - D.score(s.stats)) > 0.5);
     row.last = Math.max(e ? e.last : 0, s ? s.last : 0);
     return row;
   }

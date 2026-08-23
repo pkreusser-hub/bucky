@@ -4255,7 +4255,12 @@
       // could never fire mid-game, which is the only time it means anything. (Caught on the
       // review plate: no fixture player lit up, and this is why.)
       heat = rarity(pts, d.projFor(p.key)); heatPts = pts;
-      const conflict = row && row.conflict ? '<span class="conflictflag" title="Sources disagree">CONFLICT</span>' : "";
+      // COMMISSIONER'S RULING (2026-08-23): row.conflict keeps getting computed and tracked —
+      // it's still the commissioner's diagnostic — but no other viewer ever sees that ESPN and
+      // Sleeper disagreed. Gated the same way the replay-phase card and other commish-only
+      // chrome are: isCommish(). A non-commish viewer renders this row exactly as if
+      // row.conflict were false — no badge, no title, nothing added to line 2.
+      const conflict = row && row.conflict && isCommish() ? '<span class="conflictflag" title="Sources disagree">CONFLICT</span>' : "";
       // ESPN-style stat summary line ("312 pass yds, 2 TD" / "6 rec, 84 yds"), from whichever
       // source mergeRow picked. "" before any stat lands — the LINE still reserves its height.
       const sline = statSummary(p, row);
