@@ -1,0 +1,1564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>REI Portfolio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M7 22 13 15 18 18 25 9' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<style>
+/* ---- tokens (dataviz reference palette; dark steps are selected, not a flip) ---- */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11,11,11,0.10);
+  --up: #006300;
+  --down: #d03b3b;
+  --accent: #2a78d6;
+  --c-core: #2a78d6;    /* slot 1 blue    — Core real estate (MIMG) */
+  --c-public: #eb6834;  /* slot 2 orange  — Public markets */
+  --c-funds: #1baf7a;   /* slot 3 aqua    — Private funds */
+  --c-synd: #eda100;    /* slot 4 yellow  — RE syndications */
+  --c-cash: #e87ba4;    /* slot 5 magenta — Cash */
+  --c-credit: #008300;  /* slot 6 green   — Private credit */
+  --s-base: #2a78d6;    /* scenario lines reuse slots 1–3 in legend order */
+  --s-bear: #eb6834;
+  --s-bull: #1baf7a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255,255,255,0.10);
+    --up: #0ca30c;
+    --down: #e66767;
+    --accent: #3987e5;
+    --c-core: #3987e5;
+    --c-public: #d95926;
+    --c-funds: #199e70;
+    --c-synd: #c98500;
+    --c-cash: #d55181;
+    --c-credit: #008300;
+    --s-base: #3987e5;
+    --s-bear: #d95926;
+    --s-bull: #199e70;
+  }
+}
+
+/* the hidden attribute must beat any display rule set on the element itself */
+[hidden] { display: none !important; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--page);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 1080px; margin: 0 auto; padding: 0 16px 64px; }
+a { color: var(--accent); }
+
+header.top {
+  max-width: 1080px; margin: 0 auto; padding: 22px 16px 6px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
+}
+header.top h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+header.top .sub { color: var(--ink-2); }
+header.top .asof { margin-left: auto; color: var(--muted); font-size: 13px; }
+
+h2 { font-size: 17px; margin: 34px 0 4px; }
+h2 + .sectionnote { margin-top: 0; }
+.sectionnote { color: var(--ink-2); font-size: 13.5px; margin: 2px 0 12px; max-width: 70ch; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 12px 0;
+}
+.card h3 { margin: 0 0 2px; font-size: 14.5px; }
+.card .chartnote { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+
+/* ---- stat tiles ---- */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 12px 0; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.tile .lbl { color: var(--ink-2); font-size: 13px; }
+.tile .val { font-size: 26px; font-weight: 600; margin-top: 2px; }
+.tile.hero .val { font-size: 40px; letter-spacing: -0.01em; }
+/* the full AUM figure needs ~260px at 40px — give the hero two grid tracks when the
+   row has them, or it clips to "$17,032,65" (caught on the desktop plate) */
+@media (min-width: 700px) { .tile.hero { grid-column: span 2; } }
+.tile .delta { font-size: 13px; margin-top: 2px; color: var(--ink-2); }
+.tile .delta .dir { font-weight: 600; }
+.tile .delta .dir.up { color: var(--up); }
+.tile .delta .dir.down { color: var(--down); }
+
+/* ---- charts ---- */
+.chartwrap { position: relative; }
+.chartwrap svg { display: block; width: 100%; height: auto; }
+.tooltip {
+  position: absolute; pointer-events: none; z-index: 5;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+  padding: 8px 10px; font-size: 12.5px; min-width: 130px; max-width: 240px;
+}
+.tooltip .tt-title { color: var(--muted); font-size: 11.5px; margin-bottom: 4px; }
+.tooltip .tt-row { display: flex; align-items: center; gap: 7px; padding: 1px 0; }
+.tooltip .tt-key { width: 12px; height: 0; border-top: 3px solid; border-radius: 2px; flex: none; }
+.tooltip .tt-key.sw { height: 10px; width: 10px; border: none; border-radius: 3px; }
+.tooltip .tt-val { font-weight: 600; margin-left: auto; font-variant-numeric: tabular-nums; }
+.tooltip .tt-name { color: var(--ink-2); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 0 2px; font-size: 12.5px; color: var(--ink-2); }
+.legend .li { display: inline-flex; align-items: center; gap: 6px; }
+.legend .key-line { width: 14px; border-top: 3px solid; border-radius: 2px; }
+.legend .key-rect { width: 10px; height: 10px; border-radius: 3px; }
+
+details.tablev { margin-top: 10px; }
+details.tablev summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+
+/* ---- tables ---- */
+.tscroll { overflow-x: auto; }
+table.data { border-collapse: collapse; width: 100%; font-size: 13.5px; margin-top: 8px; }
+table.data th, table.data td { padding: 6px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+table.data th { color: var(--ink-2); font-weight: 600; }
+table.data th:first-child, table.data td:first-child { text-align: left; }
+table.data td.num { font-variant-numeric: tabular-nums; }
+table.data tr.totalrow td { font-weight: 600; border-top: 1px solid var(--baseline); }
+table.data .subnote { color: var(--muted); font-size: 12px; display: block; white-space: normal; }
+.pos { color: var(--up); } .neg { color: var(--down); }
+
+/* ---- forms / controls ---- */
+input[type=number], input[type=text], input[type=date], input[type=password], select {
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--baseline); border-radius: 8px;
+  padding: 6px 8px; font: inherit; font-size: 13.5px;
+}
+input[type=number] { width: 90px; text-align: right; font-variant-numeric: tabular-nums; }
+button {
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--baseline); border-radius: 8px;
+  padding: 7px 14px; font: inherit; font-size: 13.5px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 10px 0; }
+.controls label { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--ink-2); }
+.controls output { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+input[type=range] { accent-color: var(--accent); width: 180px; }
+input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
+table.assume input[type=number] { width: 78px; }
+table.assume td, table.assume th { padding: 4px 8px; }
+/* seven-figure values need the room — 78px shows "16088" of 1608801 */
+#newSnapTable input[type=number] { width: 130px; }
+.formgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px 18px; margin: 10px 0; }
+.formgrid label { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13.5px; color: var(--ink-2); }
+.msg-ok { color: var(--up); font-size: 13px; }
+.msg-err { color: var(--down); font-size: 13px; }
+textarea.io {
+  width: 100%; min-height: 130px; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--baseline); border-radius: 8px; padding: 8px;
+}
+
+/* ---- lock screen ---- */
+.lock {
+  position: fixed; inset: 0; z-index: 50; background: var(--page);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.lockcard { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px; width: 320px; text-align: center; }
+.lockcard h2 { margin: 0 0 2px; font-size: 19px; }
+.lockcard .sub { color: var(--ink-2); font-size: 13.5px; margin-bottom: 16px; }
+.lockcard input { width: 100%; margin-bottom: 8px; }
+.lockcard button { width: 100%; margin-top: 6px; }
+.lockerr { color: var(--down); font-size: 13px; min-height: 18px; }
+
+@media print { .lock { display: none; } }
+</style>
+</head>
+<body>
+
+<noscript><p style="padding:24px;">This model needs JavaScript to run.</p></noscript>
+
+<!-- Family password lock. Same convention as the other pages: the password is duplicated
+     per page on purpose; this is a courtesy gate, not real security. -->
+<div class="lock" id="lockScreen">
+  <div class="lockcard">
+    <h2>REI Portfolio</h2>
+    <div class="sub">Laws Family REI LLC</div>
+    <input type="password" id="lockInput" placeholder="Family password" autocomplete="current-password" />
+    <div class="lockerr" id="lockErr"></div>
+    <button class="primary" id="lockBtn">Unlock</button>
+  </div>
+</div>
+
+<header class="top" id="pageHeader" hidden>
+  <h1>REI Portfolio</h1>
+  <span class="sub">Laws Family REI LLC — valuation history and scenario model</span>
+  <span class="asof" id="asofLabel"></span>
+</header>
+
+<main id="pageMain" hidden>
+
+  <!-- ============================== overview ============================== -->
+  <section id="overview">
+    <div class="tiles" id="kpiTiles"></div>
+  </section>
+
+  <!-- ============================== history =============================== -->
+  <section id="history">
+    <h2>History</h2>
+    <p class="sectionnote">
+      Everything below comes from the quarterly valuation workbooks. Values are the
+      manager's marks; syndications are mostly carried at cost until an exit, and the two All
+      Pro notes accrue interest into their balance.
+    </p>
+
+    <div class="card">
+      <h3>Assets under management</h3>
+      <p class="chartnote" id="aumChartNote"></p>
+      <div class="chartwrap" id="aumChart"></div>
+      <details class="tablev"><summary>Table view</summary>
+        <div class="tscroll"><table class="data" id="aumTable"></table></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h3>Allocation by asset class</h3>
+      <p class="chartnote">Each column is one quarterly valuation. Hover a segment for its value.</p>
+      <div class="chartwrap" id="allocChart"></div>
+      <div class="legend" id="allocLegend"></div>
+      <details class="tablev"><summary>Table view</summary>
+        <div class="tscroll"><table class="data" id="allocTable"></table></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h3>Assets</h3>
+      <p class="chartnote">
+        Implied annual growth is measured from the first to the latest snapshot holding out new
+        capital (BSSS +$50k on 4/1/26, HVG +$100k on 6/12/26). No rate is shown for Cash or
+        Schwab: the real estate pays its distributions into cash and the cash is periodically
+        swept into Schwab, so those two rows move on internal transfers, not market growth —
+        that sweep is most of what took Schwab from $755k to $1.6M.
+      </p>
+      <div class="tscroll"><table class="data" id="assetTable"></table></div>
+    </div>
+  </section>
+
+  <!-- ============================== scenarios ============================= -->
+  <section id="scenarios">
+    <h2>Scenario model</h2>
+    <p class="sectionnote">
+      Projections start from the latest valuation and compound quarterly. Each quarter, in order:
+      the marks grow at the class rate, the assets pay their distribution yield into cash,
+      contributions come in, withdrawals go out (from cash first), cash above the buffer is
+      swept into the Schwab account, then the management fee comes off the end-of-quarter
+      balance — the same way the fee is billed in the workbooks. Edit any assumption;
+      everything recomputes and is saved on this device.
+    </p>
+
+    <div class="card">
+      <h3>Assumptions</h3>
+      <div class="controls">
+        <label>Horizon <input type="range" id="horizonYears" min="1" max="20" step="1" value="10" /> <output id="horizonOut">10 yr</output></label>
+        <label>Management fee %/yr <input type="number" id="feeRate" step="0.05" min="0" max="5" value="0.5" /></label>
+        <label><input type="checkbox" id="feeFromPortfolio" checked /> deduct fee from portfolio</label>
+        <label><input type="checkbox" id="sweepCash" checked /> reinvest cash above
+          <input type="number" id="cashBuffer" step="25000" min="0" value="250000" style="width:100px;" />
+          into Public markets (Schwab)</label>
+        <label>Inflation %/yr <input type="number" id="inflRate" step="0.1" min="0" max="15" value="2.5" /></label>
+        <label><input type="checkbox" id="showReal" /> show real (today's dollars)</label>
+        <button id="resetAssumptions" style="margin-left:auto;">Reset to defaults</button>
+      </div>
+
+      <div class="tscroll">
+        <table class="data assume" id="growthTable"></table>
+      </div>
+      <p class="chartnote" style="margin-top:8px;">
+        Growth is appreciation of the marks, % per year. Yield is cash the assets pay out — it
+        lands in the cash account each quarter and the sweep reinvests it into Schwab. The two
+        are separate on purpose: MIMG's marks grew ~4%/yr while also distributing roughly 5%
+        (cash + Schwab grew $917k from 4/25 to 7/26, far more than Schwab's own market gains
+        explain). Revaluation is a one-time markup or markdown applied on day one — use it for
+        things the marks haven't caught up with, like the Forum deals the 7/26 workbook flags
+        as probably underwater. “Trailing actual” is the flow-adjusted appreciation observed
+        4/13/25 → 7/10/26, shown for reference.
+      </p>
+
+      <div class="tscroll">
+        <table class="data assume" id="flowTable"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Projected assets under management</h3>
+      <p class="chartnote" id="projChartNote"></p>
+      <div class="chartwrap" id="projChart"></div>
+      <div class="legend" id="projLegend"></div>
+      <details class="tablev"><summary>Table view (year-end values)</summary>
+        <div class="tscroll"><table class="data" id="projTable"></table></div>
+      </details>
+    </div>
+
+    <div class="tiles" id="horizonTiles"></div>
+
+    <div class="card">
+      <h3>Mix at horizon</h3>
+      <p class="chartnote">Where each scenario ends up by asset class, given the growth spreads above.</p>
+      <div class="tscroll"><table class="data" id="mixTable"></table></div>
+    </div>
+  </section>
+
+  <!-- ============================== fees ================================== -->
+  <section id="fees">
+    <h2>Management fee</h2>
+    <p class="sectionnote" id="feeNote"></p>
+    <div class="card">
+      <h3>Cumulative fees paid</h3>
+      <p class="chartnote">Projected at the fee rate above, billed quarterly on the end-of-quarter balance.</p>
+      <div class="chartwrap" id="feeChart"></div>
+      <div class="legend" id="feeLegend"></div>
+      <details class="tablev"><summary>Table view</summary>
+        <div class="tscroll"><table class="data" id="feeTable"></table></div>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============================== data ================================== -->
+  <section id="data">
+    <h2>Data &amp; quarterly updates</h2>
+    <p class="sectionnote">
+      The four workbook snapshots are built into this file. When a new quarterly report arrives,
+      either hand the workbook plus this file to Claude to regenerate the page (keeps every copy
+      canonical), or add the numbers below — snapshots added here live in this browser only and
+      feed every chart and projection above. Export merges both so a regenerated file can pick
+      them up.
+    </p>
+
+    <div class="card">
+      <h3>Snapshots</h3>
+      <div class="tscroll"><table class="data" id="snapList"></table></div>
+    </div>
+
+    <div class="card">
+      <h3>Add a quarterly snapshot</h3>
+      <div class="controls">
+        <label>Valuation date <input type="date" id="newSnapDate" /></label>
+      </div>
+      <div class="tscroll"><table class="data assume" id="newSnapTable"></table></div>
+      <div class="controls">
+        <button id="addAssetRow">Add new asset</button>
+        <button class="primary" id="saveSnap">Save snapshot</button>
+        <span id="snapMsg"></span>
+      </div>
+      <p class="chartnote">
+        Values prefill from the latest snapshot. “New capital” is money added to (or, negative,
+        returned from) that asset since the prior snapshot — it keeps the implied growth rates
+        honest.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Export / import</h3>
+      <div class="controls">
+        <button id="exportBtn">Export data as JSON</button>
+        <button id="importBtn">Import JSON</button>
+        <span id="ioMsg"></span>
+      </div>
+      <textarea class="io" id="ioArea" hidden spellcheck="false"></textarea>
+    </div>
+  </section>
+
+</main>
+
+<script>
+"use strict";
+/* =========================================================================
+   REI Portfolio — standalone financial model for Laws Family REI LLC.
+   Source of truth: the four quarterly "Valuation and Mgmt Fee" workbooks,
+   consolidated (the 4/13/25 workbook itemizes tranches; they are summed here
+   under the consolidated names the later workbooks use).
+   ========================================================================= */
+
+var FAMILY_PASSWORD = "amenfarms";
+var LS = { unlock: "reiPortfolioUnlock", assume: "reiPortfolio.v1.assumptions", snaps: "reiPortfolio.v1.userSnapshots" };
+
+/* ------------------------------ dataset -------------------------------- */
+var DATA = {
+  entity: "Laws Family REI LLC",
+  feeRateAnnual: 0.005,   // 0.5%/yr — each workbook bills total × 0.005 / 4 per quarter
+  classes: [
+    { id: "core",   name: "Core real estate (MIMG)" },
+    { id: "public", name: "Public markets" },
+    { id: "funds",  name: "Private funds" },
+    { id: "synd",   name: "RE syndications" },
+    { id: "cash",   name: "Cash" },
+    { id: "credit", name: "Private credit" }
+  ],
+  assets: [
+    { id: "mimg",               name: "MIMG Assets",                        cls: "core",   acquired: "various" },
+    { id: "schwab",             name: "Schwab Investment Account",          cls: "public", acquired: "" },
+    { id: "cash",               name: "Cash",                               cls: "cash",   acquired: "" },
+    { id: "bowriver-re3",       name: "Bow River RE III",                   cls: "funds",  acquired: "2021-12-13", note: "nine tranches 2021–2025, consolidated" },
+    { id: "bowriver-sge2",      name: "Bow River SGE Fund II",              cls: "funds",  acquired: "2023-04-01", note: "five tranches, consolidated" },
+    { id: "bowriver-evergreen", name: "Bow River Evergreen Fund Class I",   cls: "funds",  acquired: "2024-01-01", note: "four $100k investments" },
+    { id: "caz",                name: "Caz GP",                             cls: "funds",  acquired: "2024-04-06", note: "three $100k tranches" },
+    { id: "forum-promenade",    name: "Forum Promenade",                    cls: "synd",   acquired: "2021-09-10", note: "at cost; 7/26 workbook: probably underwater" },
+    { id: "forum-edera",        name: "Forum Edera",                        cls: "synd",   acquired: "2021-12-10", note: "at cost; 7/26 workbook: probably underwater" },
+    { id: "forum-kallan",       name: "Forum Kallan",                       cls: "synd",   acquired: "2022-05-27", note: "at cost; 7/26 workbook: probably underwater" },
+    { id: "berkeley",           name: "Berkeley Hidden Water",              cls: "synd",   acquired: "2022-02-03", note: "two tranches, $195.5k + $25.5k" },
+    { id: "bsss",               name: "BSSS Northport",                     cls: "synd",   acquired: "2022-05-27", note: "$50k added 4/1/26" },
+    { id: "hvg",                name: "HVG Multifamily",                    cls: "synd",   acquired: "2026-06-12", note: "new position, $100k" },
+    { id: "allpro-cottages",    name: "All Pro Cottages at Wodman Heights", cls: "credit", acquired: "2022-07-28", note: "incl. accrued interest" },
+    { id: "allpro-beachnut",    name: "All Pro Beachnut (storage)",         cls: "credit", acquired: "2022-12-22", note: "incl. accrued interest" }
+  ],
+  /* external capital in/out between snapshots (positive = new money in) */
+  flows: [
+    { asset: "bsss", date: "2026-04-01", amount: 50000 },
+    { asset: "hvg",  date: "2026-06-12", amount: 100000 }
+  ],
+  /* the 7/10/26 workbook's header cell still reads 4.11.26, but it contains the
+     6/12/26 HVG buy and the file is named "as of 7.10.26" — dated by the filename */
+  snapshots: [
+    { date: "2025-04-13", values: { cash: 219873, schwab: 754796, mimg: 11798327, "bowriver-re3": 377391,
+      "forum-promenade": 100000, "forum-edera": 100000, berkeley: 221000, "forum-kallan": 100000,
+      bsss: 100000, "allpro-cottages": 136817, "allpro-beachnut": 61700, "bowriver-sge2": 173065,
+      "bowriver-evergreen": 463270, caz: 300000 } },
+    { date: "2025-10-12", values: { cash: 240964.37, schwab: 1145736, mimg: 12125827, "bowriver-re3": 433537,
+      "forum-promenade": 100000, "forum-edera": 100000, berkeley: 221000, "forum-kallan": 100000,
+      bsss: 100000, "allpro-cottages": 143773, "allpro-beachnut": 64185, "bowriver-sge2": 279618,
+      "bowriver-evergreen": 485070, caz: 350000 } },
+    { date: "2026-01-15", values: { cash: 373376.41, schwab: 1192656.99, mimg: 12339896, "bowriver-re3": 448316,
+      "forum-promenade": 100000, "forum-edera": 100000, berkeley: 221000, "forum-kallan": 100000,
+      bsss: 100000, "allpro-cottages": 146283, "allpro-beachnut": 65494, "bowriver-sge2": 350093,
+      "bowriver-evergreen": 500915, caz: 340246 } },
+    { date: "2026-07-10", values: { cash: 283146, schwab: 1608801, mimg: 12410312, "bowriver-re3": 495462,
+      "forum-promenade": 100000, "forum-edera": 100000, berkeley: 221000, "forum-kallan": 100000,
+      bsss: 150000, "allpro-cottages": 153619, "allpro-beachnut": 57908, "bowriver-sge2": 253983,
+      "bowriver-evergreen": 524769, caz: 473658, hvg: 100000 } }
+  ]
+};
+
+/* scenario defaults: growth %/yr and one-time revaluation % by class */
+var SCENARIOS = [
+  { id: "base", name: "Base", color: "var(--s-base)", hex: "#2a78d6" },
+  { id: "bear", name: "Bear", color: "var(--s-bear)", hex: "#eb6834" },
+  { id: "bull", name: "Bull", color: "var(--s-bull)", hex: "#1baf7a" }
+];
+function defaultAssumptions() {
+  return {
+    horizonYears: 10, feeRate: DATA.feeRateAnnual * 100, feeFromPortfolio: true,
+    inflRate: 2.5, showReal: false,
+    sweep: true, cashBuffer: 250000,   /* reinvest cash above the buffer into Public markets */
+    growth: {  /* %/yr appreciation of the marks, per class, per scenario */
+      base: { core: 4, public: 7,  funds: 8,  synd: 2,  cash: 3, credit: 8 },
+      bear: { core: -2, public: -5, funds: -5, synd: 0,  cash: 2, credit: 4 },
+      bull: { core: 7, public: 11, funds: 14, synd: 8,  cash: 4, credit: 10 }
+    },
+    yield: {   /* %/yr distributions paid into cash, per class, per scenario.
+                  Base core 5%: cash+Schwab grew $917k 4/25→7/26 (~$740k/yr combined),
+                  net of plausible Schwab market gains ≈ $600k/yr ≈ 5% of the MIMG base */
+      base: { core: 5, public: 0, funds: 0, synd: 0, cash: 0, credit: 0 },
+      bear: { core: 2, public: 0, funds: 0, synd: 0, cash: 0, credit: 0 },
+      bull: { core: 6, public: 0, funds: 0, synd: 2, cash: 0, credit: 0 }
+    },
+    reval: {   /* one-time day-one revaluation, % per class, per scenario */
+      base: { core: 0, public: 0, funds: 0,   synd: 0,   cash: 0, credit: 0 },
+      bear: { core: 0, public: 0, funds: -10, synd: -30, cash: 0, credit: 0 },
+      bull: { core: 0, public: 0, funds: 0,   synd: 0,   cash: 0, credit: 0 }
+    },
+    contrib: { base: 0, bear: 0, bull: 0 },        /* new capital, $/yr, into contribClass */
+    contribClass: { base: "funds", bear: "funds", bull: "funds" },
+    withdraw: { base: 0, bear: 0, bull: 0 }        /* distributions out, $/yr, cash first */
+  };
+}
+
+/* ------------------------------ helpers -------------------------------- */
+function $(id) { return document.getElementById(id); }
+function el(tag, attrs, text) {
+  var n = document.createElement(tag);
+  if (attrs) for (var k in attrs) n.setAttribute(k, attrs[k]);
+  if (text != null) n.textContent = text;
+  return n;
+}
+function svgEl(tag, attrs) {
+  var n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  if (attrs) for (var k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+}
+function fmtUSD(v, dp) {
+  if (v == null || !isFinite(v)) return "—";
+  var neg = v < 0; v = Math.abs(v);
+  var s = "$" + v.toLocaleString("en-US", { minimumFractionDigits: dp || 0, maximumFractionDigits: dp || 0 });
+  return neg ? "−" + s : s;
+}
+function fmtUSDc(v) { /* compact: $17.03M */
+  if (v == null || !isFinite(v)) return "—";
+  var neg = v < 0 ? "−" : ""; v = Math.abs(v);
+  if (v >= 1e6) return neg + "$" + (v / 1e6).toFixed(2) + "M";
+  if (v >= 1e3) return neg + "$" + (v / 1e3).toFixed(0) + "K";
+  return neg + "$" + Math.round(v);
+}
+function fmtPct(v, dp) {
+  if (v == null || !isFinite(v)) return "—";
+  var s = (v * 100).toFixed(dp == null ? 1 : dp) + "%";
+  return v > 0 ? "+" + s : v < 0 ? s.replace("-", "−") : s;
+}
+function parseDate(s) { var p = s.split("-"); return Date.UTC(+p[0], +p[1] - 1, +p[2]); }
+function yearsBetween(a, b) { return (parseDate(b) - parseDate(a)) / 86400000 / 365.25; }
+function fmtDate(s) {
+  var m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var p = s.split("-");
+  return m[+p[1] - 1] + " " + (+p[2]) + ", " + p[0];
+}
+function fmtDateShort(s) {
+  var m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var p = s.split("-");
+  return m[+p[1] - 1] + " ’" + p[0].slice(2);
+}
+function lsGet(key) { try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; } }
+function lsSet(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {} }
+
+/* ------------------------------ model ---------------------------------- */
+function userSnapshots() { return lsGet(LS.snaps) || { snapshots: [], assets: [], flows: [] }; }
+
+function allAssets() {
+  var extra = userSnapshots().assets || [];
+  return DATA.assets.concat(extra);
+}
+function allFlows() { return DATA.flows.concat(userSnapshots().flows || []); }
+function allSnapshots() {
+  var merged = DATA.snapshots.concat(userSnapshots().snapshots || []);
+  merged = merged.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+  return merged;
+}
+function snapTotal(snap) {
+  var t = 0; for (var k in snap.values) t += snap.values[k];
+  return t;
+}
+function assetById(id) {
+  var list = allAssets();
+  for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+  return null;
+}
+function classTotals(snap) {
+  var by = {}; DATA.classes.forEach(function (c) { by[c.id] = 0; });
+  for (var k in snap.values) {
+    var a = assetById(k);
+    by[a ? a.cls : "funds"] += snap.values[k];
+  }
+  return by;
+}
+/* net external flows into `assetId` (or all assets) in (after, upto] */
+function flowsBetween(after, upto, assetId) {
+  return allFlows().reduce(function (s, f) {
+    if (assetId && f.asset !== assetId) return s;
+    return (f.date > after && f.date <= upto) ? s + f.amount : s;
+  }, 0);
+}
+/* flow-adjusted annualized growth between two snapshot values.
+   Flows are treated as if added at the end of the window: r = ((v1-flows)/v0)^(1/yrs)-1.
+   Coarse (quarterly marks, unknown flow timing) but consistent across assets. */
+function impliedAnnual(v0, v1, flows, yrs) {
+  if (!(v0 > 0) || !(yrs > 0)) return null;
+  var g = (v1 - flows) / v0;
+  if (!(g > 0)) return null;
+  return Math.pow(g, 1 / yrs) - 1;
+}
+
+/* Quarterly projection. cfg:
+   { years, growth:{cls:frac/yr}, yield:{cls:frac/yr}, reval:{cls:frac},
+     feeAnnual:frac, feeFromPortfolio:bool, contribAnnual:$, contribClass,
+     withdrawAnnual:$, sweep:bool, cashBuffer:$ }
+   Growth is appreciation of the marks; yield is distributions the assets pay into
+   cash (yield/4 of the class's current value each quarter — how the real estate
+   actually funds the Schwab account). Order each quarter:
+   grow → income to cash → contribute → withdraw (cash first) → sweep cash above
+   the buffer into Public markets → fee on end balance.
+   Returns { points:[{t, total, byClass, feeQ, cumFee}],
+             cumFee, cumContrib, cumWithdraw, cumIncome, cumSwept } */
+function project(startByClass, cfg) {
+  var v = {};
+  DATA.classes.forEach(function (c) {
+    var rv = (cfg.reval && cfg.reval[c.id]) || 0;
+    v[c.id] = (startByClass[c.id] || 0) * (1 + rv);
+  });
+  var points = [{ t: 0, total: sumVals(v), byClass: clone(v), feeQ: 0, cumFee: 0 }];
+  var cumFee = 0, cumContrib = 0, cumWithdraw = 0, cumIncome = 0, cumSwept = 0;
+  var nq = Math.round(cfg.years * 4);
+  for (var q = 1; q <= nq; q++) {
+    DATA.classes.forEach(function (c) {
+      v[c.id] *= Math.pow(1 + (cfg.growth[c.id] || 0), 0.25);
+    });
+    DATA.classes.forEach(function (c) {
+      var yl = (cfg.yield && cfg.yield[c.id]) || 0;
+      if (yl && c.id !== "cash") {
+        var inc = v[c.id] * yl / 4;
+        v.cash += inc; cumIncome += inc;
+      }
+    });
+    if (cfg.contribAnnual) {
+      v[cfg.contribClass || "funds"] += cfg.contribAnnual / 4;
+      cumContrib += cfg.contribAnnual / 4;
+    }
+    if (cfg.withdrawAnnual) {
+      var need = cfg.withdrawAnnual / 4;
+      var fromCash = Math.min(need, Math.max(0, v.cash));
+      v.cash -= fromCash; need -= fromCash;
+      var rest = sumVals(v);
+      if (need > 0 && rest > 0) {
+        var scale = Math.max(0, 1 - need / rest);
+        DATA.classes.forEach(function (c) { v[c.id] *= scale; });
+        need = 0;
+      }
+      cumWithdraw += cfg.withdrawAnnual / 4;
+    }
+    if (cfg.sweep) {
+      var excess = v.cash - (cfg.cashBuffer || 0);
+      if (excess > 0) { v.cash -= excess; v.public += excess; cumSwept += excess; }
+    }
+    var tot = sumVals(v);
+    var feeQ = tot * (cfg.feeAnnual || 0) / 4;
+    cumFee += feeQ;
+    if (cfg.feeFromPortfolio && tot > 0) {
+      DATA.classes.forEach(function (c) { v[c.id] -= feeQ * v[c.id] / tot; });
+    }
+    points.push({ t: q / 4, total: sumVals(v), byClass: clone(v), feeQ: feeQ, cumFee: cumFee });
+  }
+  return { points: points, cumFee: cumFee, cumContrib: cumContrib, cumWithdraw: cumWithdraw,
+           cumIncome: cumIncome, cumSwept: cumSwept };
+}
+function sumVals(o) { var t = 0; for (var k in o) t += o[k]; return t; }
+function clone(o) { var r = {}; for (var k in o) r[k] = o[k]; return r; }
+
+function scenarioCfg(A, sid) {
+  var g = {}, yl = {}, rv = {};
+  DATA.classes.forEach(function (c) {
+    g[c.id] = (A.growth[sid][c.id] || 0) / 100;
+    yl[c.id] = ((A.yield && A.yield[sid] && A.yield[sid][c.id]) || 0) / 100;
+    rv[c.id] = (A.reval[sid][c.id] || 0) / 100;
+  });
+  return {
+    years: A.horizonYears, growth: g, yield: yl, reval: rv,
+    feeAnnual: A.feeRate / 100, feeFromPortfolio: A.feeFromPortfolio,
+    contribAnnual: A.contrib[sid] || 0, contribClass: A.contribClass[sid] || "funds",
+    withdrawAnnual: A.withdraw[sid] || 0,
+    sweep: !!A.sweep, cashBuffer: A.cashBuffer || 0
+  };
+}
+
+/* ------------------------------ charts --------------------------------- */
+/* Shared line chart: series = [{name, colorVar, hex, dashed, pts:[{x,y}], label}]
+   x is a number (ms for history, years for projections). */
+function lineChart(mount, opts) {
+  mount.textContent = "";
+  var W = opts.width || Math.max(560, mount.clientWidth || 900);
+  var H = opts.height || 300;
+  var pad = { l: 62, r: opts.padR || 74, t: 14, b: 30 };
+  var xs = [], ys = [0];
+  opts.series.forEach(function (s) { s.pts.forEach(function (p) { xs.push(p.x); ys.push(p.y); }); });
+  var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+  var yMax = Math.max.apply(null, ys) * 1.06 || 1;
+  var yTicks = niceTicks(0, yMax, 5);
+  yMax = yTicks[yTicks.length - 1];
+  var px = function (x) { return pad.l + (x - x0) / (x1 - x0 || 1) * (W - pad.l - pad.r); };
+  var py = function (y) { return pad.t + (1 - y / yMax) * (H - pad.t - pad.b); };
+
+  var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": opts.aria || "line chart" });
+
+  yTicks.forEach(function (t) {
+    svg.appendChild(svgEl("line", { x1: pad.l, x2: W - pad.r, y1: py(t), y2: py(t), stroke: "var(--grid)", "stroke-width": 1 }));
+    var lbl = svgEl("text", { x: pad.l - 8, y: py(t) + 4, "text-anchor": "end", fill: "var(--muted)", "font-size": 11, style: "font-variant-numeric:tabular-nums" });
+    lbl.textContent = fmtUSDc(t);
+    svg.appendChild(lbl);
+  });
+  svg.appendChild(svgEl("line", { x1: pad.l, x2: W - pad.r, y1: py(0), y2: py(0), stroke: "var(--baseline)", "stroke-width": 1 }));
+
+  (opts.xTicks || []).forEach(function (t) {
+    var lbl = svgEl("text", { x: px(t.x), y: H - 8, "text-anchor": "middle", fill: "var(--muted)", "font-size": 11 });
+    lbl.textContent = t.label;
+    svg.appendChild(lbl);
+  });
+
+  opts.series.forEach(function (s) {
+    var d = s.pts.map(function (p, i) { return (i ? "L" : "M") + px(p.x).toFixed(1) + " " + py(p.y).toFixed(1); }).join(" ");
+    var attrs = { d: d, fill: "none", stroke: s.colorVar, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" };
+    if (s.dashed) attrs["stroke-dasharray"] = "6 5";
+    svg.appendChild(svgEl("path", attrs));
+    var last = s.pts[s.pts.length - 1];
+    /* 8px end marker with a 2px surface ring */
+    svg.appendChild(svgEl("circle", { cx: px(last.x), cy: py(last.y), r: 6, fill: s.colorVar, stroke: "var(--surface)", "stroke-width": 2 }));
+    if (s.label) {
+      var t = svgEl("text", { x: px(last.x) + 10, y: py(last.y) + 4, fill: "var(--ink-2)", "font-size": 11.5, "font-weight": 600 });
+      t.textContent = s.label;
+      svg.appendChild(t);
+    }
+  });
+
+  /* crosshair + tooltip: snap to nearest x present in any series */
+  var cross = svgEl("line", { y1: pad.t, y2: H - pad.b, stroke: "var(--baseline)", "stroke-width": 1, visibility: "hidden" });
+  svg.appendChild(cross);
+  var xsSnap = [];
+  opts.series.forEach(function (s) { s.pts.forEach(function (p) { if (xsSnap.indexOf(p.x) < 0) xsSnap.push(p.x); }); });
+  xsSnap.sort(function (a, b) { return a - b; });
+
+  var tip = el("div", { class: "tooltip" }); tip.style.display = "none";
+  mount.appendChild(svg); mount.appendChild(tip);
+
+  function showAt(clientX, clientY) {
+    var rect = svg.getBoundingClientRect();
+    var mx = (clientX - rect.left) / rect.width * W;
+    var best = xsSnap[0], bd = Infinity;
+    xsSnap.forEach(function (x) { var d = Math.abs(px(x) - mx); if (d < bd) { bd = d; best = x; } });
+    cross.setAttribute("x1", px(best)); cross.setAttribute("x2", px(best));
+    cross.setAttribute("visibility", "visible");
+    tip.textContent = "";
+    tip.appendChild(el("div", { class: "tt-title" }, opts.xTipLabel ? opts.xTipLabel(best) : String(best)));
+    opts.series.forEach(function (s) {
+      var pt = null;
+      s.pts.forEach(function (p) { if (p.x === best) pt = p; });
+      if (!pt) return;
+      var row = el("div", { class: "tt-row" });
+      var key = el("span", { class: "tt-key" }); key.style.borderTopColor = s.hex;
+      row.appendChild(key);
+      row.appendChild(el("span", { class: "tt-name" }, s.name));
+      row.appendChild(el("span", { class: "tt-val" }, fmtUSD(pt.y)));
+      tip.appendChild(row);
+    });
+    tip.style.display = "block";
+    var mrect = mount.getBoundingClientRect();
+    var lx = clientX - mrect.left + 14, ly = clientY - mrect.top + 6;
+    if (lx + tip.offsetWidth > mrect.width - 4) lx = clientX - mrect.left - tip.offsetWidth - 14;
+    tip.style.left = Math.max(0, lx) + "px";
+    tip.style.top = Math.max(0, ly - 10) + "px";
+  }
+  svg.addEventListener("pointermove", function (e) { showAt(e.clientX, e.clientY); });
+  svg.addEventListener("pointerleave", function () { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+}
+
+function niceTicks(min, max, n) {
+  var span = max - min || 1;
+  var step = Math.pow(10, Math.floor(Math.log10(span / n)));
+  var err = span / n / step;
+  if (err >= 7.5) step *= 10; else if (err >= 3.5) step *= 5; else if (err >= 1.5) step *= 2;
+  var ticks = [];
+  for (var t = Math.ceil(min / step) * step; t <= max + step * 0.999; t += step) ticks.push(t);
+  return ticks;
+}
+
+/* stacked columns: one column per snapshot, segments per class in fixed order */
+function stackedColumns(mount, snaps) {
+  mount.textContent = "";
+  var W = Math.max(560, mount.clientWidth || 900), H = 300;
+  var pad = { l: 62, r: 16, t: 14, b: 30 };
+  var totals = snaps.map(snapTotal);
+  var yMax = Math.max.apply(null, totals) * 1.06;
+  var yTicks = niceTicks(0, yMax, 5);
+  yMax = yTicks[yTicks.length - 1];
+  var py = function (y) { return pad.t + (1 - y / yMax) * (H - pad.t - pad.b); };
+  var slot = (W - pad.l - pad.r) / snaps.length;
+  var bw = Math.min(24, slot * 0.55);
+
+  var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "allocation by asset class per snapshot" });
+  yTicks.forEach(function (t) {
+    svg.appendChild(svgEl("line", { x1: pad.l, x2: W - pad.r, y1: py(t), y2: py(t), stroke: "var(--grid)", "stroke-width": 1 }));
+    var lbl = svgEl("text", { x: pad.l - 8, y: py(t) + 4, "text-anchor": "end", fill: "var(--muted)", "font-size": 11, style: "font-variant-numeric:tabular-nums" });
+    lbl.textContent = fmtUSDc(t);
+    svg.appendChild(lbl);
+  });
+  svg.appendChild(svgEl("line", { x1: pad.l, x2: W - pad.r, y1: py(0), y2: py(0), stroke: "var(--baseline)", "stroke-width": 1 }));
+
+  var tip = el("div", { class: "tooltip" }); tip.style.display = "none";
+
+  snaps.forEach(function (snap, i) {
+    var cx = pad.l + slot * (i + 0.5);
+    var by = classTotals(snap);
+    var acc = 0;
+    DATA.classes.forEach(function (c, ci) {
+      var v = by[c.id]; if (!(v > 0)) return;
+      var y1 = py(acc), y0 = py(acc + v);
+      acc += v;
+      /* 2px surface gap between segments; 4px rounded cap only on the top segment */
+      var hpx = Math.max(0, y1 - y0 - 2);
+      var isTop = ci === topClassIdx(by);
+      var seg = svgEl("rect", {
+        x: cx - bw / 2, y: y0 + 1, width: bw, height: hpx,
+        fill: "var(--c-" + c.id + ")", rx: isTop ? 4 : 0,
+        tabindex: 0, role: "img",
+        "aria-label": c.name + ", " + fmtDate(snap.date) + ": " + fmtUSD(v)
+      });
+      function show(clientX, clientY) {
+        tip.textContent = "";
+        tip.appendChild(el("div", { class: "tt-title" }, fmtDate(snap.date)));
+        var row = el("div", { class: "tt-row" });
+        var key = el("span", { class: "tt-key sw" }); key.style.background = cssVar("--c-" + c.id);
+        row.appendChild(key);
+        row.appendChild(el("span", { class: "tt-name" }, c.name));
+        row.appendChild(el("span", { class: "tt-val" }, fmtUSD(v)));
+        tip.appendChild(row);
+        var row2 = el("div", { class: "tt-row" });
+        row2.appendChild(el("span", { class: "tt-name" }, "share"));
+        row2.appendChild(el("span", { class: "tt-val" }, (v / snapTotal(snap) * 100).toFixed(1) + "%"));
+        tip.appendChild(row2);
+        tip.style.display = "block";
+        var mrect = mount.getBoundingClientRect();
+        var lx = clientX - mrect.left + 14, ly = clientY - mrect.top + 6;
+        if (lx + tip.offsetWidth > mrect.width - 4) lx = clientX - mrect.left - tip.offsetWidth - 14;
+        tip.style.left = Math.max(0, lx) + "px"; tip.style.top = Math.max(0, ly - 10) + "px";
+      }
+      seg.addEventListener("pointermove", function (e) { seg.setAttribute("opacity", "0.82"); show(e.clientX, e.clientY); });
+      seg.addEventListener("pointerleave", function () { seg.removeAttribute("opacity"); tip.style.display = "none"; });
+      seg.addEventListener("focus", function () {
+        var r = seg.getBoundingClientRect();
+        show(r.left + r.width / 2, r.top);
+      });
+      seg.addEventListener("blur", function () { tip.style.display = "none"; });
+      svg.appendChild(seg);
+    });
+    var lbl = svgEl("text", { x: cx, y: H - 8, "text-anchor": "middle", fill: "var(--muted)", "font-size": 11 });
+    lbl.textContent = fmtDateShort(snap.date);
+    svg.appendChild(lbl);
+  });
+  mount.appendChild(svg); mount.appendChild(tip);
+}
+function topClassIdx(by) {
+  /* index (in DATA.classes) of the last class with value > 0 — the segment that gets the rounded cap */
+  var idx = 0;
+  DATA.classes.forEach(function (c, i) { if (by[c.id] > 0) idx = i; });
+  return idx;
+}
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function sparkSVG(vals, w, h) {
+  w = w || 96; h = h || 26;
+  var svg = svgEl("svg", { viewBox: "0 0 " + w + " " + h, width: w, height: h, "aria-hidden": "true" });
+  var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
+  if (mx === mn) { mn -= 1; mx += 1; }
+  var px = function (i) { return 3 + i / (vals.length - 1) * (w - 6); };
+  var py = function (v) { return 3 + (1 - (v - mn) / (mx - mn)) * (h - 6); };
+  var d = vals.map(function (v, i) { return (i ? "L" : "M") + px(i).toFixed(1) + " " + py(v).toFixed(1); }).join(" ");
+  svg.appendChild(svgEl("path", { d: d, fill: "none", stroke: "var(--baseline)", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+  svg.appendChild(svgEl("circle", { cx: px(vals.length - 1), cy: py(vals[vals.length - 1]), r: 3, fill: "var(--accent)", stroke: "var(--surface)", "stroke-width": 2 }));
+  return svg;
+}
+
+/* ------------------------------ rendering ------------------------------ */
+var A = null;  /* live assumptions */
+
+function loadAssumptions() {
+  var d = defaultAssumptions();
+  var saved = lsGet(LS.assume);
+  if (!saved) return d;
+  /* deep-merge saved over defaults so new fields survive old saves */
+  ["horizonYears","feeRate","feeFromPortfolio","inflRate","showReal","sweep","cashBuffer"].forEach(function (k) {
+    if (saved[k] != null) d[k] = saved[k];
+  });
+  SCENARIOS.forEach(function (s) {
+    DATA.classes.forEach(function (c) {
+      if (saved.growth && saved.growth[s.id] && saved.growth[s.id][c.id] != null) d.growth[s.id][c.id] = saved.growth[s.id][c.id];
+      if (saved.yield && saved.yield[s.id] && saved.yield[s.id][c.id] != null) d.yield[s.id][c.id] = saved.yield[s.id][c.id];
+      if (saved.reval && saved.reval[s.id] && saved.reval[s.id][c.id] != null) d.reval[s.id][c.id] = saved.reval[s.id][c.id];
+    });
+    if (saved.contrib && saved.contrib[s.id] != null) d.contrib[s.id] = saved.contrib[s.id];
+    if (saved.contribClass && saved.contribClass[s.id]) d.contribClass[s.id] = saved.contribClass[s.id];
+    if (saved.withdraw && saved.withdraw[s.id] != null) d.withdraw[s.id] = saved.withdraw[s.id];
+  });
+  return d;
+}
+
+function trailingActuals() {
+  /* flow-adjusted class rates, first → latest snapshot; cash + public excluded (unrecorded flows) */
+  var snaps = allSnapshots();
+  var s0 = snaps[0], s1 = snaps[snaps.length - 1];
+  var yrs = yearsBetween(s0.date, s1.date);
+  var c0 = classTotals(s0), c1 = classTotals(s1);
+  var out = {};
+  DATA.classes.forEach(function (c) {
+    if (c.id === "cash" || c.id === "public") { out[c.id] = null; return; }
+    var fl = 0;
+    allAssets().forEach(function (a) { if (a.cls === c.id) fl += flowsBetween(s0.date, s1.date, a.id); });
+    out[c.id] = impliedAnnual(c0[c.id], c1[c.id], fl, yrs);
+  });
+  return out;
+}
+
+function renderKPIs() {
+  var snaps = allSnapshots();
+  var last = snaps[snaps.length - 1], prev = snaps[snaps.length - 2];
+  var tiles = $("kpiTiles"); tiles.textContent = "";
+  var lastTotal = snapTotal(last);
+
+  var hero = el("div", { class: "tile hero" });
+  hero.appendChild(el("div", { class: "lbl" }, "Assets under management"));
+  hero.appendChild(el("div", { class: "val" }, fmtUSD(lastTotal)));
+  hero.appendChild(el("div", { class: "delta" }, "as of " + fmtDate(last.date)));
+  tiles.appendChild(hero);
+
+  if (prev) {
+    var pt = snapTotal(prev);
+    var fl = flowsBetween(prev.date, last.date);
+    var d = lastTotal - pt, dx = d - fl;
+    var t2 = el("div", { class: "tile" });
+    t2.appendChild(el("div", { class: "lbl" }, "Since " + fmtDateShort(prev.date) + ", ex new capital"));
+    t2.appendChild(el("div", { class: "val" }, fmtPct(dx / pt)));
+    var dl = el("div", { class: "delta" });
+    var dir = el("span", { class: "dir " + (dx >= 0 ? "up" : "down") }, (dx >= 0 ? "+" : "−") + fmtUSD(Math.abs(dx)));
+    dl.appendChild(dir);
+    dl.appendChild(document.createTextNode(fl ? " growth, +" + fmtUSDc(fl) + " added" : " growth"));
+    t2.appendChild(dl);
+    tiles.appendChild(t2);
+  }
+
+  var s0 = snaps[0];
+  var yrs = yearsBetween(s0.date, last.date);
+  var totFlows = flowsBetween(s0.date, last.date);
+  var cagr = impliedAnnual(snapTotal(s0), lastTotal, totFlows, yrs);
+  var t3 = el("div", { class: "tile" });
+  t3.appendChild(el("div", { class: "lbl" }, "Annualized growth since " + fmtDateShort(s0.date)));
+  t3.appendChild(el("div", { class: "val" }, fmtPct(cagr)));
+  t3.appendChild(el("div", { class: "delta" }, "flow-adjusted, " + yrs.toFixed(1) + " yrs"));
+  tiles.appendChild(t3);
+
+  var fee = lastTotal * DATA.feeRateAnnual / 4;
+  var t4 = el("div", { class: "tile" });
+  t4.appendChild(el("div", { class: "lbl" }, "Management fee this quarter"));
+  t4.appendChild(el("div", { class: "val" }, fmtUSD(fee, 2)));
+  t4.appendChild(el("div", { class: "delta" }, (DATA.feeRateAnnual * 100).toFixed(2) + "%/yr, billed quarterly"));
+  tiles.appendChild(t4);
+
+  $("asofLabel").textContent = "Latest valuation " + fmtDate(last.date);
+  $("feeNote").textContent = "The manager bills " + (DATA.feeRateAnnual * 100).toFixed(1) +
+    "% per year, charged quarterly as 0.125% of that quarter's total valuation — " +
+    fmtUSD(fee, 2) + " on the latest one. Fees to date across the four workbooks: " +
+    fmtUSD(allSnapshots().reduce(function (s, sn) { return s + snapTotal(sn) * DATA.feeRateAnnual / 4; }, 0), 2) + ".";
+}
+
+function renderHistory() {
+  var snaps = allSnapshots();
+  $("aumChartNote").textContent = snaps.length + " quarterly valuations, " +
+    fmtDate(snaps[0].date) + " – " + fmtDate(snaps[snaps.length - 1].date) +
+    ". The 7/10/26 workbook includes $150k of new capital (BSSS, HVG).";
+
+  lineChart($("aumChart"), {
+    aria: "assets under management over time",
+    series: [{
+      name: "Total AUM", colorVar: "var(--accent)", hex: cssVar("--accent"),
+      pts: snaps.map(function (s) { return { x: parseDate(s.date), y: snapTotal(s) }; }),
+      label: fmtUSDc(snapTotal(snaps[snaps.length - 1]))
+    }],
+    xTicks: snaps.map(function (s) { return { x: parseDate(s.date), label: fmtDateShort(s.date) }; }),
+    xTipLabel: function (x) {
+      for (var i = 0; i < snaps.length; i++) if (parseDate(snaps[i].date) === x) return fmtDate(snaps[i].date);
+      return "";
+    }
+  });
+
+  /* AUM table twin */
+  var tbl = $("aumTable"); tbl.textContent = "";
+  var tr = el("tr"); ["Valuation date", "Total AUM", "Change", "New capital in window", "Mgmt fee (quarter)"].forEach(function (h) { tr.appendChild(el("th", null, h)); });
+  tbl.appendChild(tr);
+  snaps.forEach(function (s, i) {
+    var r = el("tr");
+    r.appendChild(el("td", null, fmtDate(s.date)));
+    r.appendChild(el("td", { class: "num" }, fmtUSD(snapTotal(s))));
+    var d = i ? snapTotal(s) - snapTotal(snaps[i - 1]) : null;
+    var td = el("td", { class: "num " + (d > 0 ? "pos" : d < 0 ? "neg" : "") }, i ? fmtUSD(d) : "—");
+    r.appendChild(td);
+    r.appendChild(el("td", { class: "num" }, i ? fmtUSD(flowsBetween(snaps[i - 1].date, s.date)) : "—"));
+    r.appendChild(el("td", { class: "num" }, fmtUSD(snapTotal(s) * DATA.feeRateAnnual / 4, 2)));
+    tbl.appendChild(r);
+  });
+
+  stackedColumns($("allocChart"), snaps);
+
+  var leg = $("allocLegend"); leg.textContent = "";
+  DATA.classes.forEach(function (c) {
+    var li = el("span", { class: "li" });
+    var k = el("span", { class: "key-rect" }); k.style.background = cssVar("--c-" + c.id);
+    li.appendChild(k); li.appendChild(document.createTextNode(c.name));
+    leg.appendChild(li);
+  });
+
+  /* allocation table twin */
+  var at = $("allocTable"); at.textContent = "";
+  var hr = el("tr"); hr.appendChild(el("th", null, "Asset class"));
+  snaps.forEach(function (s) { hr.appendChild(el("th", null, fmtDateShort(s.date))); });
+  hr.appendChild(el("th", null, "Share now"));
+  at.appendChild(hr);
+  var lastBy = classTotals(snaps[snaps.length - 1]);
+  var lastTotal = snapTotal(snaps[snaps.length - 1]);
+  DATA.classes.forEach(function (c) {
+    var r = el("tr");
+    r.appendChild(el("td", null, c.name));
+    snaps.forEach(function (s) { r.appendChild(el("td", { class: "num" }, fmtUSD(classTotals(s)[c.id]))); });
+    r.appendChild(el("td", { class: "num" }, (lastBy[c.id] / lastTotal * 100).toFixed(1) + "%"));
+    at.appendChild(r);
+  });
+  var totr = el("tr", { class: "totalrow" });
+  totr.appendChild(el("td", null, "Total"));
+  snaps.forEach(function (s) { totr.appendChild(el("td", { class: "num" }, fmtUSD(snapTotal(s)))); });
+  totr.appendChild(el("td", { class: "num" }, "100%"));
+  at.appendChild(totr);
+
+  /* per-asset table */
+  var t = $("assetTable"); t.textContent = "";
+  var h = el("tr");
+  ["Asset", "Class", "Acquired"].forEach(function (x) { h.appendChild(el("th", null, x)); });
+  snaps.forEach(function (s) { h.appendChild(el("th", null, fmtDateShort(s.date))); });
+  ["Implied %/yr", "Trend"].forEach(function (x) { h.appendChild(el("th", null, x)); });
+  t.appendChild(h);
+
+  var s0 = snaps[0], sl = snaps[snaps.length - 1];
+  var yrs = yearsBetween(s0.date, sl.date);
+  var order = allAssets().slice().sort(function (a, b) {
+    return (sl.values[b.id] || 0) - (sl.values[a.id] || 0);
+  });
+  order.forEach(function (a) {
+    var r = el("tr");
+    var nameTd = el("td", null, a.name);
+    if (a.note) nameTd.appendChild(el("span", { class: "subnote" }, a.note));
+    r.appendChild(nameTd);
+    var cls = null; DATA.classes.forEach(function (c) { if (c.id === a.cls) cls = c; });
+    r.appendChild(el("td", null, cls ? cls.name : a.cls));
+    r.appendChild(el("td", null, a.acquired === "various" ? "various" : a.acquired ? fmtDateShort(a.acquired) : "—"));
+    var vals = [];
+    snaps.forEach(function (s) {
+      var v = s.values[a.id];
+      vals.push(v || 0);
+      r.appendChild(el("td", { class: "num" }, v != null ? fmtUSD(v) : "—"));
+    });
+    var rate = null;
+    if (a.id !== "cash" && a.id !== "schwab") {
+      rate = impliedAnnual(s0.values[a.id], sl.values[a.id] || 0, flowsBetween(s0.date, sl.date, a.id), yrs);
+    }
+    r.appendChild(el("td", { class: "num " + (rate > 0.001 ? "pos" : rate < -0.001 ? "neg" : "") }, rate == null ? "—" : fmtPct(rate)));
+    var sp = el("td"); sp.appendChild(sparkSVG(vals)); r.appendChild(sp);
+    t.appendChild(r);
+  });
+  var trow = el("tr", { class: "totalrow" });
+  trow.appendChild(el("td", null, "Total"));
+  trow.appendChild(el("td")); trow.appendChild(el("td"));
+  snaps.forEach(function (s) { trow.appendChild(el("td", { class: "num" }, fmtUSD(snapTotal(s)))); });
+  trow.appendChild(el("td")); trow.appendChild(el("td"));
+  t.appendChild(trow);
+}
+
+function renderAssumptionTables() {
+  var actual = trailingActuals();
+  var gt = $("growthTable"); gt.textContent = "";
+  var hr = el("tr");
+  hr.appendChild(el("th", null, "Asset class"));
+  hr.appendChild(el("th", null, "Now"));
+  hr.appendChild(el("th", null, "Trailing actual"));
+  SCENARIOS.forEach(function (s) {
+    hr.appendChild(el("th", null, s.name + " growth %"));
+    hr.appendChild(el("th", null, s.name + " yield %"));
+    hr.appendChild(el("th", null, s.name + " reval %"));
+  });
+  gt.appendChild(hr);
+  var lastBy = classTotals(allSnapshots()[allSnapshots().length - 1]);
+  DATA.classes.forEach(function (c) {
+    var r = el("tr");
+    r.appendChild(el("td", null, c.name));
+    r.appendChild(el("td", { class: "num" }, fmtUSDc(lastBy[c.id])));
+    r.appendChild(el("td", { class: "num" }, actual[c.id] == null ? "n/a" : fmtPct(actual[c.id])));
+    SCENARIOS.forEach(function (s) {
+      var tdg = el("td");
+      var inpG = el("input", { type: "number", step: "0.5", value: A.growth[s.id][c.id] });
+      inpG.addEventListener("change", function () { A.growth[s.id][c.id] = +inpG.value || 0; onAssumptionChange(); });
+      tdg.appendChild(inpG); r.appendChild(tdg);
+      var tdy = el("td");
+      if (c.id === "cash") {
+        tdy.appendChild(el("span", { class: "subnote" }, "—"));
+      } else {
+        var inpY = el("input", { type: "number", step: "0.5", min: "0", value: A.yield[s.id][c.id] });
+        inpY.addEventListener("change", function () { A.yield[s.id][c.id] = Math.max(0, +inpY.value || 0); onAssumptionChange(); });
+        tdy.appendChild(inpY);
+      }
+      r.appendChild(tdy);
+      var tdr = el("td");
+      var inpR = el("input", { type: "number", step: "5", min: "-100", max: "100", value: A.reval[s.id][c.id] });
+      inpR.addEventListener("change", function () { A.reval[s.id][c.id] = +inpR.value || 0; onAssumptionChange(); });
+      tdr.appendChild(inpR); r.appendChild(tdr);
+    });
+    gt.appendChild(r);
+  });
+
+  var ft = $("flowTable"); ft.textContent = "";
+  var fh = el("tr");
+  ["Cash flows", "Base", "Bear", "Bull"].forEach(function (x) { fh.appendChild(el("th", null, x)); });
+  ft.appendChild(fh);
+  var rows = [
+    { key: "contrib", label: "New capital in, $/yr" },
+    { key: "withdraw", label: "Distributions out, $/yr" }
+  ];
+  rows.forEach(function (row) {
+    var r = el("tr");
+    r.appendChild(el("td", null, row.label));
+    SCENARIOS.forEach(function (s) {
+      var td = el("td");
+      var inp = el("input", { type: "number", step: "10000", min: "0", value: A[row.key][s.id] });
+      inp.style.width = "110px";
+      inp.addEventListener("change", function () { A[row.key][s.id] = Math.max(0, +inp.value || 0); onAssumptionChange(); });
+      td.appendChild(inp); r.appendChild(td);
+    });
+    ft.appendChild(r);
+  });
+  var r2 = el("tr");
+  r2.appendChild(el("td", null, "New capital goes into"));
+  SCENARIOS.forEach(function (s) {
+    var td = el("td");
+    var sel = el("select");
+    DATA.classes.forEach(function (c) {
+      var o = el("option", { value: c.id }, c.name);
+      if (A.contribClass[s.id] === c.id) o.setAttribute("selected", "");
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function () { A.contribClass[s.id] = sel.value; onAssumptionChange(); });
+    td.appendChild(sel); r2.appendChild(td);
+  });
+  ft.appendChild(r2);
+}
+
+function runScenarios() {
+  var snaps = allSnapshots();
+  var last = snaps[snaps.length - 1];
+  var start = classTotals(last);
+  var out = {};
+  SCENARIOS.forEach(function (s) { out[s.id] = project(start, scenarioCfg(A, s.id)); });
+  return { start: start, last: last, results: out };
+}
+
+function deflate(v, years) { return A.showReal ? v / Math.pow(1 + A.inflRate / 100, years) : v; }
+
+function renderScenarios() {
+  var run = runScenarios();
+  var snaps = allSnapshots();
+  var lastDate = run.last.date;
+  var lastTotal = snapTotal(run.last);
+
+  $("projChartNote").textContent = "Solid line is the recorded history; dashed lines are the " +
+    A.horizonYears + "-year projections from " + fmtDate(lastDate) +
+    (A.showReal ? ", in today's dollars (deflated at " + A.inflRate + "%/yr)" : ", in nominal dollars") + ".";
+
+  var histPts = snaps.map(function (s) { return { x: yearsBetween(lastDate, s.date), y: snapTotal(s) }; });
+  var series = [{
+    name: "History", colorVar: "var(--accent)", hex: cssVar("--accent"), pts: histPts
+  }];
+  SCENARIOS.forEach(function (s) {
+    var pts = run.results[s.id].points.map(function (p) { return { x: p.t, y: deflate(p.total, p.t) }; });
+    series.push({
+      name: s.name, colorVar: s.color, hex: cssVar("--s-" + s.id), dashed: true, pts: pts,
+      label: s.name + " " + fmtUSDc(pts[pts.length - 1].y)
+    });
+  });
+  var xt = [];
+  var step = A.horizonYears > 12 ? 4 : A.horizonYears > 6 ? 2 : 1;
+  for (var y = 0; y <= A.horizonYears; y += step) xt.push({ x: y, label: y === 0 ? "now" : "+" + y + "y" });
+  lineChart($("projChart"), {
+    aria: "projected assets under management by scenario",
+    padR: 110,
+    series: series,
+    xTicks: xt,
+    xTipLabel: function (x) {
+      if (x <= 0) {
+        for (var i = 0; i < snaps.length; i++) if (yearsBetween(lastDate, snaps[i].date) === x) return fmtDate(snaps[i].date);
+      }
+      return x === 0 ? fmtDate(lastDate) : "+" + (Math.round(x * 100) / 100) + " years";
+    }
+  });
+
+  var leg = $("projLegend"); leg.textContent = "";
+  [{ name: "History", css: "--accent" }].concat(SCENARIOS.map(function (s) { return { name: s.name, css: "--s-" + s.id }; }))
+    .forEach(function (li0) {
+      var li = el("span", { class: "li" });
+      var k = el("span", { class: "key-line" }); k.style.borderTopColor = cssVar(li0.css);
+      li.appendChild(k); li.appendChild(document.createTextNode(li0.name));
+      leg.appendChild(li);
+    });
+
+  /* year-end table */
+  var pt = $("projTable"); pt.textContent = "";
+  var hr = el("tr");
+  hr.appendChild(el("th", null, "Year"));
+  SCENARIOS.forEach(function (s) { hr.appendChild(el("th", null, s.name)); });
+  pt.appendChild(hr);
+  for (var yy = 0; yy <= A.horizonYears; yy++) {
+    var r = el("tr");
+    r.appendChild(el("td", null, yy === 0 ? "Now" : "+" + yy));
+    SCENARIOS.forEach(function (s) {
+      var p = run.results[s.id].points[yy * 4];
+      r.appendChild(el("td", { class: "num" }, fmtUSD(deflate(p.total, p.t))));
+    });
+    pt.appendChild(r);
+  }
+
+  /* horizon tiles */
+  var ht = $("horizonTiles"); ht.textContent = "";
+  SCENARIOS.forEach(function (s) {
+    var res = run.results[s.id];
+    var end = res.points[res.points.length - 1];
+    var endV = deflate(end.total, end.t);
+    var cagr = Math.pow(end.total / lastTotal, 1 / A.horizonYears) - 1;
+    var tile = el("div", { class: "tile" });
+    var lbl = el("div", { class: "lbl" });
+    var k = el("span", { class: "key-line", style: "display:inline-block;vertical-align:middle;margin-right:6px;border-top:3px solid " + cssVar("--s-" + s.id) + ";width:14px;border-radius:2px;" });
+    lbl.appendChild(k);
+    lbl.appendChild(document.createTextNode(s.name + " at +" + A.horizonYears + "y"));
+    tile.appendChild(lbl);
+    tile.appendChild(el("div", { class: "val" }, fmtUSDc(endV)));
+    var d = el("div", { class: "delta" });
+    var dir = el("span", { class: "dir " + (cagr >= 0 ? "up" : "down") }, fmtPct(cagr));
+    d.appendChild(dir);
+    var extras = "/yr nominal, " + fmtUSDc(res.cumFee) + " fees";
+    if (res.cumSwept > 0) extras += ", " + fmtUSDc(res.cumSwept) + " swept to Schwab";
+    d.appendChild(document.createTextNode(extras));
+    tile.appendChild(d);
+    ht.appendChild(tile);
+  });
+
+  /* mix at horizon */
+  var mt = $("mixTable"); mt.textContent = "";
+  var mh = el("tr");
+  mh.appendChild(el("th", null, "Asset class"));
+  mh.appendChild(el("th", null, "Now"));
+  SCENARIOS.forEach(function (s) { mh.appendChild(el("th", null, s.name + " +" + A.horizonYears + "y")); });
+  mt.appendChild(mh);
+  DATA.classes.forEach(function (c) {
+    var r = el("tr");
+    r.appendChild(el("td", null, c.name));
+    r.appendChild(el("td", { class: "num" }, fmtUSD(run.start[c.id])));
+    SCENARIOS.forEach(function (s) {
+      var res = run.results[s.id];
+      var end = res.points[res.points.length - 1];
+      r.appendChild(el("td", { class: "num" }, fmtUSD(deflate(end.byClass[c.id], end.t))));
+    });
+    mt.appendChild(r);
+  });
+  var tr2 = el("tr", { class: "totalrow" });
+  tr2.appendChild(el("td", null, "Total"));
+  tr2.appendChild(el("td", { class: "num" }, fmtUSD(lastTotal)));
+  SCENARIOS.forEach(function (s) {
+    var end = run.results[s.id].points[run.results[s.id].points.length - 1];
+    tr2.appendChild(el("td", { class: "num" }, fmtUSD(deflate(end.total, end.t))));
+  });
+  mt.appendChild(tr2);
+
+  /* fee chart + table */
+  var feeSeries = SCENARIOS.map(function (s) {
+    return {
+      name: s.name, colorVar: s.color, hex: cssVar("--s-" + s.id),
+      pts: run.results[s.id].points.map(function (p) { return { x: p.t, y: p.cumFee }; }),
+      label: s.name + " " + fmtUSDc(run.results[s.id].cumFee)
+    };
+  });
+  lineChart($("feeChart"), {
+    aria: "cumulative management fees by scenario",
+    height: 240, padR: 110,
+    series: feeSeries,
+    xTicks: xt,
+    xTipLabel: function (x) { return x === 0 ? "now" : "+" + (Math.round(x * 100) / 100) + " years"; }
+  });
+  var fl = $("feeLegend"); fl.textContent = "";
+  SCENARIOS.forEach(function (s) {
+    var li = el("span", { class: "li" });
+    var k = el("span", { class: "key-line" }); k.style.borderTopColor = cssVar("--s-" + s.id);
+    li.appendChild(k); li.appendChild(document.createTextNode(s.name));
+    fl.appendChild(li);
+  });
+  var ftb = $("feeTable"); ftb.textContent = "";
+  var fhr = el("tr");
+  fhr.appendChild(el("th", null, "Year"));
+  SCENARIOS.forEach(function (s) { fhr.appendChild(el("th", null, s.name + " fees/yr")); });
+  SCENARIOS.forEach(function (s) { fhr.appendChild(el("th", null, s.name + " cumulative")); });
+  ftb.appendChild(fhr);
+  for (var y2 = 1; y2 <= A.horizonYears; y2++) {
+    var fr = el("tr");
+    fr.appendChild(el("td", null, "+" + y2));
+    SCENARIOS.forEach(function (s) {
+      var pts = run.results[s.id].points;
+      var yearFee = 0;
+      for (var q = (y2 - 1) * 4 + 1; q <= y2 * 4; q++) yearFee += pts[q].feeQ;
+      fr.appendChild(el("td", { class: "num" }, fmtUSD(yearFee)));
+    });
+    SCENARIOS.forEach(function (s) {
+      fr.appendChild(el("td", { class: "num" }, fmtUSD(run.results[s.id].points[y2 * 4].cumFee)));
+    });
+    ftb.appendChild(fr);
+  }
+}
+
+/* ------------------------------ data section --------------------------- */
+function renderSnapList() {
+  var tbl = $("snapList"); tbl.textContent = "";
+  var hr = el("tr");
+  ["Valuation date", "Total", "Source", ""].forEach(function (h) { hr.appendChild(el("th", null, h)); });
+  tbl.appendChild(hr);
+  var userDates = (userSnapshots().snapshots || []).map(function (s) { return s.date; });
+  allSnapshots().forEach(function (s) {
+    var r = el("tr");
+    r.appendChild(el("td", null, fmtDate(s.date)));
+    r.appendChild(el("td", { class: "num" }, fmtUSD(snapTotal(s))));
+    var isUser = userDates.indexOf(s.date) >= 0;
+    r.appendChild(el("td", null, isUser ? "added on this device" : "workbook (built in)"));
+    var td = el("td");
+    if (isUser) {
+      var b = el("button", null, "Remove");
+      b.addEventListener("click", function () {
+        var u = userSnapshots();
+        u.snapshots = u.snapshots.filter(function (x) { return x.date !== s.date; });
+        u.flows = (u.flows || []).filter(function (f) { return f.date !== s.date; });
+        lsSet(LS.snaps, u);
+        renderAll();
+      });
+      td.appendChild(b);
+    }
+    r.appendChild(td);
+    tbl.appendChild(r);
+  });
+}
+
+var pendingNewAssets = [];
+function renderNewSnapForm() {
+  pendingNewAssets = [];
+  var snaps = allSnapshots();
+  var last = snaps[snaps.length - 1];
+  var d = new Date();
+  $("newSnapDate").value = d.toISOString().slice(0, 10);
+  var tbl = $("newSnapTable"); tbl.textContent = "";
+  var hr = el("tr");
+  ["Asset", "Value", "New capital since " + fmtDateShort(last.date)].forEach(function (h) { hr.appendChild(el("th", null, h)); });
+  tbl.appendChild(hr);
+  allAssets().forEach(function (a) {
+    var r = el("tr");
+    r.appendChild(el("td", null, a.name));
+    var tdv = el("td");
+    tdv.appendChild(el("input", { type: "number", step: "0.01", id: "nsv-" + a.id, value: last.values[a.id] != null ? last.values[a.id] : 0 }));
+    r.appendChild(tdv);
+    var tdf = el("td");
+    tdf.appendChild(el("input", { type: "number", step: "1000", id: "nsf-" + a.id, value: 0 }));
+    r.appendChild(tdf);
+    tbl.appendChild(r);
+  });
+}
+function addNewAssetRow() {
+  var tbl = $("newSnapTable");
+  var idx = pendingNewAssets.length;
+  var r = el("tr");
+  var tdn = el("td");
+  var name = el("input", { type: "text", placeholder: "New asset name", id: "nsn-new" + idx });
+  name.style.width = "180px";
+  tdn.appendChild(name);
+  var sel = el("select", { id: "nsc-new" + idx });
+  DATA.classes.forEach(function (c) { sel.appendChild(el("option", { value: c.id }, c.name)); });
+  sel.value = "synd";
+  tdn.appendChild(document.createTextNode(" "));
+  tdn.appendChild(sel);
+  r.appendChild(tdn);
+  var tdv = el("td"); tdv.appendChild(el("input", { type: "number", step: "0.01", id: "nsv-new" + idx, value: 0 })); r.appendChild(tdv);
+  var tdf = el("td"); tdf.appendChild(el("input", { type: "number", step: "1000", id: "nsf-new" + idx, value: 0 })); r.appendChild(tdf);
+  tbl.appendChild(r);
+  pendingNewAssets.push("new" + idx);
+}
+function saveSnapshot() {
+  var msg = $("snapMsg"); msg.className = ""; msg.textContent = "";
+  var date = $("newSnapDate").value;
+  var snaps = allSnapshots();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { msg.className = "msg-err"; msg.textContent = "Pick a valuation date."; return; }
+  if (snaps.some(function (s) { return s.date === date; })) { msg.className = "msg-err"; msg.textContent = "A snapshot for that date already exists."; return; }
+  var u = userSnapshots();
+  u.snapshots = u.snapshots || []; u.assets = u.assets || []; u.flows = u.flows || [];
+  var values = {};
+  /* new assets first, so ids exist for the value loop */
+  pendingNewAssets.forEach(function (key) {
+    var name = ($("nsn-" + key).value || "").trim();
+    var val = +$("nsv-" + key).value || 0;
+    if (!name || !val) return;
+    var id = "user-" + name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    if (!assetById(id)) u.assets.push({ id: id, name: name, cls: $("nsc-" + key).value, acquired: date, note: "added on this device" });
+    values[id] = val;
+    var fl = +$("nsf-" + key).value || 0;
+    if (fl) u.flows.push({ asset: id, date: date, amount: fl });
+  });
+  allAssets().forEach(function (a) {
+    var inp = $("nsv-" + a.id);
+    if (!inp) return;
+    var v = +inp.value || 0;
+    if (v) values[a.id] = v;
+    var fl = +($("nsf-" + a.id) && $("nsf-" + a.id).value) || 0;
+    if (fl) u.flows.push({ asset: a.id, date: date, amount: fl });
+  });
+  if (!Object.keys(values).length) { msg.className = "msg-err"; msg.textContent = "No values entered."; return; }
+  u.snapshots.push({ date: date, values: values });
+  lsSet(LS.snaps, u);
+  renderAll();
+  $("snapMsg").className = "msg-ok";
+  $("snapMsg").textContent = "Saved. Total " + fmtUSD(sumVals(values)) + ".";
+}
+
+function exportJSON() {
+  var payload = {
+    entity: DATA.entity, exported: new Date().toISOString().slice(0, 10),
+    feeRateAnnual: DATA.feeRateAnnual,
+    classes: DATA.classes, assets: allAssets(), flows: allFlows(), snapshots: allSnapshots(),
+    assumptions: A
+  };
+  var ta = $("ioArea");
+  ta.hidden = false;
+  ta.value = JSON.stringify(payload, null, 1);
+  ta.focus(); ta.select();
+  $("ioMsg").className = "msg-ok";
+  $("ioMsg").textContent = "Copy this JSON into the next Claude session (or keep it as a backup).";
+}
+function importJSON() {
+  var ta = $("ioArea");
+  if (ta.hidden) {
+    ta.hidden = false; ta.value = "";
+    $("ioMsg").className = "";
+    $("ioMsg").textContent = "Paste exported JSON here, then press Import again.";
+    ta.focus();
+    return;
+  }
+  try {
+    var j = JSON.parse(ta.value);
+    if (!j || !Array.isArray(j.snapshots)) throw new Error("no snapshots array");
+    var builtinDates = DATA.snapshots.map(function (s) { return s.date; });
+    var builtinAssets = DATA.assets.map(function (a) { return a.id; });
+    var u = {
+      snapshots: j.snapshots.filter(function (s) { return builtinDates.indexOf(s.date) < 0; }),
+      assets: (j.assets || []).filter(function (a) { return builtinAssets.indexOf(a.id) < 0; }),
+      flows: (j.flows || []).filter(function (f) {
+        return !DATA.flows.some(function (df) { return df.asset === f.asset && df.date === f.date && df.amount === f.amount; });
+      })
+    };
+    lsSet(LS.snaps, u);
+    if (j.assumptions) { lsSet(LS.assume, j.assumptions); A = loadAssumptions(); }
+    renderAll();
+    $("ioMsg").className = "msg-ok";
+    $("ioMsg").textContent = "Imported " + u.snapshots.length + " added snapshot(s).";
+  } catch (e) {
+    $("ioMsg").className = "msg-err";
+    $("ioMsg").textContent = "That JSON didn't parse: " + e.message;
+  }
+}
+
+/* ------------------------------ wiring --------------------------------- */
+function onAssumptionChange() {
+  lsSet(LS.assume, A);
+  renderScenarios();
+}
+function bindControls() {
+  $("horizonYears").value = A.horizonYears;
+  $("horizonOut").textContent = A.horizonYears + " yr";
+  $("feeRate").value = A.feeRate;
+  $("feeFromPortfolio").checked = A.feeFromPortfolio;
+  $("sweepCash").checked = A.sweep;
+  $("cashBuffer").value = A.cashBuffer;
+  $("inflRate").value = A.inflRate;
+  $("showReal").checked = A.showReal;
+
+  $("horizonYears").addEventListener("input", function () {
+    A.horizonYears = +this.value;
+    $("horizonOut").textContent = A.horizonYears + " yr";
+    onAssumptionChange();
+  });
+  $("feeRate").addEventListener("change", function () { A.feeRate = Math.max(0, +this.value || 0); onAssumptionChange(); });
+  $("feeFromPortfolio").addEventListener("change", function () { A.feeFromPortfolio = this.checked; onAssumptionChange(); });
+  $("sweepCash").addEventListener("change", function () { A.sweep = this.checked; onAssumptionChange(); });
+  $("cashBuffer").addEventListener("change", function () { A.cashBuffer = Math.max(0, +this.value || 0); onAssumptionChange(); });
+  $("inflRate").addEventListener("change", function () { A.inflRate = Math.max(0, +this.value || 0); onAssumptionChange(); });
+  $("showReal").addEventListener("change", function () { A.showReal = this.checked; onAssumptionChange(); });
+  $("resetAssumptions").addEventListener("click", function () {
+    A = defaultAssumptions();
+    lsSet(LS.assume, A);
+    bindStaticInputs();
+    renderAssumptionTables();
+    renderScenarios();
+  });
+  $("addAssetRow").addEventListener("click", addNewAssetRow);
+  $("saveSnap").addEventListener("click", saveSnapshot);
+  $("exportBtn").addEventListener("click", exportJSON);
+  $("importBtn").addEventListener("click", importJSON);
+}
+function bindStaticInputs() {
+  $("horizonYears").value = A.horizonYears;
+  $("horizonOut").textContent = A.horizonYears + " yr";
+  $("feeRate").value = A.feeRate;
+  $("feeFromPortfolio").checked = A.feeFromPortfolio;
+  $("sweepCash").checked = A.sweep;
+  $("cashBuffer").value = A.cashBuffer;
+  $("inflRate").value = A.inflRate;
+  $("showReal").checked = A.showReal;
+}
+
+function renderAll() {
+  renderKPIs();
+  renderHistory();
+  renderAssumptionTables();
+  renderScenarios();
+  renderSnapList();
+  renderNewSnapForm();
+}
+
+/* ------------------------------ boot ----------------------------------- */
+A = loadAssumptions();
+bindControls();
+
+/* ------------------------------ lock gate ------------------------------ */
+function unlock() {
+  $("lockScreen").hidden = true;
+  $("pageHeader").hidden = false;
+  $("pageMain").hidden = false;
+  renderAll();
+}
+function tryUnlock() {
+  var v = $("lockInput").value;
+  if (v === FAMILY_PASSWORD) {
+    try { localStorage.setItem(LS.unlock, "1"); } catch (e) {}
+    unlock();
+  } else {
+    $("lockErr").textContent = "That's not it — ask Dad.";
+    $("lockInput").select();
+  }
+}
+$("lockBtn").addEventListener("click", tryUnlock);
+$("lockInput").addEventListener("keydown", function (e) { if (e.key === "Enter") tryUnlock(); });
+
+var alreadyUnlocked = false;
+try { alreadyUnlocked = localStorage.getItem(LS.unlock) === "1"; } catch (e) {}
+if (alreadyUnlocked) unlock(); else $("lockInput").focus();
+
+var resizeTimer = null;
+window.addEventListener("resize", function () {
+  if (!$("pageMain").hidden) {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(renderAll, 180);
+  }
+});
+
+/* test hooks — the verify suite drives the engine directly through these */
+window.REI = {
+  DATA: DATA, SCENARIOS: SCENARIOS,
+  allSnapshots: allSnapshots, allAssets: allAssets, allFlows: allFlows,
+  snapTotal: snapTotal, classTotals: classTotals, flowsBetween: flowsBetween,
+  impliedAnnual: impliedAnnual, project: project, scenarioCfg: scenarioCfg,
+  defaultAssumptions: defaultAssumptions, trailingActuals: trailingActuals,
+  yearsBetween: yearsBetween, fmtUSD: fmtUSD, fmtUSDc: fmtUSDc,
+  getAssumptions: function () { return A; },
+  setAssumptions: function (a) { A = a; renderAll(); }
+};
+</script>
+</body>
+</html>
