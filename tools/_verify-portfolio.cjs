@@ -119,9 +119,10 @@ async function unlockPage(page) {
 }
 
 /* Independent re-statement of the documented quarter loop, written fresh here.
-   Order per quarter: grow at class rate^(1/4) → contribution in → withdrawal out
-   (cash first, then pro-rata) → fee = rate/4 × end-of-quarter total, deducted
-   pro-rata when feeFromPortfolio. */
+   Order per quarter: grow at class rate^(1/4) → distribution income (yield/4 of each
+   non-cash class's value) paid into cash → contribution in → withdrawal out
+   (cash first, then pro-rata) → sweep cash above the buffer into public →
+   fee = rate/4 × end-of-quarter total, deducted pro-rata when feeFromPortfolio. */
 function refProject(start, cfg) {
   const ids = Object.keys(start);
   const v = {};
@@ -130,6 +131,10 @@ function refProject(start, cfg) {
   const nq = Math.round(cfg.years * 4);
   for (let q = 1; q <= nq; q++) {
     ids.forEach((id) => { v[id] *= Math.pow(1 + (cfg.growth[id] || 0), 0.25); });
+    ids.forEach((id) => {
+      const yl = (cfg.yield && cfg.yield[id]) || 0;
+      if (yl && id !== "cash") v.cash += v[id] * yl / 4;
+    });
     if (cfg.contribAnnual) v[cfg.contribClass || "funds"] += cfg.contribAnnual / 4;
     if (cfg.withdrawAnnual) {
       let need = cfg.withdrawAnnual / 4;
@@ -140,6 +145,10 @@ function refProject(start, cfg) {
         const scale = Math.max(0, 1 - need / rest);
         ids.forEach((id) => { v[id] *= scale; });
       }
+    }
+    if (cfg.sweep) {
+      const excess = v.cash - (cfg.cashBuffer || 0);
+      if (excess > 0) { v.cash -= excess; v.public += excess; }
     }
     const tot = ids.reduce((s, id) => s + v[id], 0);
     const feeQ = tot * (cfg.feeAnnual || 0) / 4;
@@ -319,6 +328,10 @@ async function sectionEngine(browser) {
     const contrib = { years: 1, growth: Object.assign({}, zg), reval: {}, feeAnnual: 0, feeFromPortfolio: true, contribAnnual: 100000, contribClass: "funds" };
     const withdraw = { years: 1, growth: Object.assign({}, zg), reval: {}, feeAnnual: 0, feeFromPortfolio: true, withdrawAnnual: 200000 };
     const bigDraw = { years: 0.25, growth: Object.assign({}, zg), reval: {}, feeAnnual: 0, feeFromPortfolio: true, withdrawAnnual: 2000000 };
+    const yieldOnly = { years: 1, growth: Object.assign({}, zg), yield: { core: 0.04 }, reval: {}, feeAnnual: 0, feeFromPortfolio: true };
+    const sweepOnly = { years: 0.5, growth: Object.assign({}, zg), reval: {}, feeAnnual: 0, feeFromPortfolio: true, sweep: true, cashBuffer: 250000 };
+    const yieldSweep = { years: 0.25, growth: Object.assign({}, zg), yield: { core: 0.04 }, reval: {}, feeAnnual: 0, feeFromPortfolio: true, sweep: true, cashBuffer: 250000 };
+    const drawAndSweep = { years: 0.25, growth: Object.assign({}, zg), yield: { core: 0.04 }, reval: {}, feeAnnual: 0, feeFromPortfolio: true, withdrawAnnual: 400000, sweep: true, cashBuffer: 250000 };
     const A = R.defaultAssumptions();
     const baseCfg = R.scenarioCfg(A, "base");
     const bearCfg = R.scenarioCfg(A, "bear");
@@ -336,6 +349,11 @@ async function sectionEngine(browser) {
       contribEnd: run(contrib).points[4],
       withdrawEnd: run(withdraw).points[4],
       bigDrawQ1: run(bigDraw).points[1],
+      yieldOnlyRun: (() => { const o = run(yieldOnly); return { end: o.points[4], cumIncome: o.cumIncome, cumSwept: o.cumSwept }; })(),
+      sweepOnlyRun: (() => { const o = run(sweepOnly); return { q1: o.points[1], q2: o.points[2], cumSwept: o.cumSwept }; })(),
+      yieldSweepQ1: (() => { const o = run(yieldSweep); return { q1: o.points[1], cumSwept: o.cumSwept }; })(),
+      drawSweepQ1: (() => { const o = run(drawAndSweep); return { q1: o.points[1], cumSwept: o.cumSwept }; })(),
+      baseSwept: run(baseCfg).cumSwept,
       baseEnd: run(baseCfg).points[baseCfg.years * 4].total,
       bearEnd: run(bearCfg).points[bearCfg.years * 4].total,
       bullEnd: run(bullCfg).points[bullCfg.years * 4].total,
@@ -364,6 +382,34 @@ async function sectionEngine(browser) {
     "withdrawals come from cash first: −$200k/yr → cash 283,146 → 83,146");
   ok(approx(r.bigDrawQ1.total, TOTALS.s4 - 500000, 0.01) && approx(r.bigDrawQ1.byClass.cash, 0, 1e-6),
     "withdrawal beyond cash: cash floors at 0, remainder pro-rata, total −$500k in Q1");
+
+  // ---- distribution income + cash sweep (the RE → cash → Schwab mechanic) ----
+  // core 12,410,312 × 4%/yr, growth 0 → exactly 124,103.12/quarter into cash
+  const incQ = START_BY_CLASS.core * 0.04 / 4;
+  ok(approx(r.yieldOnlyRun.end.byClass.cash, START_BY_CLASS.cash + 4 * incQ, 0.01)
+     && approx(r.yieldOnlyRun.end.byClass.core, START_BY_CLASS.core, 1e-6)
+     && approx(r.yieldOnlyRun.end.total, TOTALS.s4 + 4 * incQ, 0.01),
+    "yield, no sweep: 4%/yr on core pays $124,103.12/qtr into cash; marks untouched; AUM up by the income");
+  ok(approx(r.yieldOnlyRun.cumIncome, 4 * incQ, 0.01) && r.yieldOnlyRun.cumSwept === 0,
+    "yield, no sweep: cumIncome tracked, nothing swept");
+  // sweep only: opening cash 283,146 vs 250,000 buffer → 33,146 to public in Q1, then nothing
+  ok(approx(r.sweepOnlyRun.q1.byClass.cash, 250000, 1e-6)
+     && approx(r.sweepOnlyRun.q1.byClass.public, START_BY_CLASS.public + 33146, 0.01)
+     && approx(r.sweepOnlyRun.q1.total, TOTALS.s4, 1e-6),
+    "sweep only: Q1 moves the $33,146 above the buffer to public; total unchanged");
+  ok(approx(r.sweepOnlyRun.q2.byClass.cash, 250000, 1e-6) && approx(r.sweepOnlyRun.cumSwept, 33146, 0.01),
+    "sweep only: at the buffer nothing more moves");
+  // income then sweep in one quarter: cash 283,146 + 124,103.12 − 250,000 = 157,249.12 swept
+  ok(approx(r.yieldSweepQ1.q1.byClass.cash, 250000, 1e-6)
+     && approx(r.yieldSweepQ1.q1.byClass.public, START_BY_CLASS.public + 283146 + incQ - 250000, 0.01)
+     && approx(r.yieldSweepQ1.cumSwept, 283146 + incQ - 250000, 0.01),
+    "income then sweep: $157,249.12 reinvested into public in Q1");
+  // withdrawal comes out before the sweep: 407,249.12 − 100,000 − 250,000 = 57,249.12 swept
+  ok(approx(r.drawSweepQ1.q1.byClass.cash, 250000, 1e-6)
+     && approx(r.drawSweepQ1.cumSwept, 283146 + incQ - 100000 - 250000, 0.01)
+     && approx(r.drawSweepQ1.q1.total, TOTALS.s4 + incQ - 100000, 0.01),
+    "withdrawal precedes sweep: only $57,249.12 left to reinvest");
+  ok(r.baseSwept > 0, "default Base scenario reinvests distributions into Schwab");
 
   // double-entry: independent reimplementation must agree with the page engine
   for (const [name, cfg, got] of [["base", r.baseCfg, r.baseEnd], ["bear", r.bearCfg, r.bearEnd], ["bull", r.bullCfg, r.bullEnd]]) {
@@ -437,6 +483,32 @@ async function sectionCharts(browser) {
   ok(rows5 === 7, "horizon 5y → projection table header + now + 5 rows");
   const out5 = await page.evaluate(() => document.getElementById("horizonOut").textContent);
   ok(out5 === "5 yr", "horizon readout tracks the slider");
+
+  // growth/yield/reval assumptions table + sweep controls
+  const gy = await page.evaluate(() => {
+    const sc = document.getElementById("sweepCash"), cb = document.getElementById("cashBuffer");
+    return {
+      headers: document.querySelectorAll("#growthTable th").length,
+      yieldInputs: Array.from(document.querySelectorAll("#growthTable input")).length,
+      sweepOn: sc ? sc.checked : null,
+      buffer: cb ? cb.value : null,
+    };
+  });
+  ok(gy.headers === 12, `growth table: class + now + trailing + 3×(growth, yield, reval) = 12 headers (got ${gy.headers})`);
+  // 3 scenarios × (6 growth + 5 yield + 6 reval) — cash has no yield input, it IS the cash
+  ok(gy.yieldInputs === 51, `growth table carries 51 inputs (got ${gy.yieldInputs})`);
+  ok(gy.sweepOn && gy.buffer === "250000", "sweep defaults: on, $250k buffer");
+  const sweepPersist = await page.evaluate(() => {
+    const cb = document.getElementById("sweepCash");
+    if (!cb) return "missing";
+    cb.checked = false;
+    cb.dispatchEvent(new Event("change", { bubbles: true }));
+    const v = window.REI.getAssumptions().sweep;
+    cb.checked = true;
+    cb.dispatchEvent(new Event("change", { bubbles: true }));
+    return v;
+  });
+  ok(sweepPersist === false, "sweep toggle persists into assumptions");
 
   // asset table spot value, whitespace-normalised
   const mimgRow = await page.evaluate(() => {

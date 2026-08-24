@@ -248,8 +248,10 @@ textarea.io {
       <h3>Assets</h3>
       <p class="chartnote">
         Implied annual growth is measured from the first to the latest snapshot holding out new
-        capital (BSSS +$50k on 4/1/26, HVG +$100k on 6/12/26). Cash and Schwab moves include
-        deposits and withdrawals the workbooks don't record, so no rate is shown for them.
+        capital (BSSS +$50k on 4/1/26, HVG +$100k on 6/12/26). No rate is shown for Cash or
+        Schwab: the real estate pays its distributions into cash and the cash is periodically
+        swept into Schwab, so those two rows move on internal transfers, not market growth —
+        that sweep is most of what took Schwab from $755k to $1.6M.
       </p>
       <div class="tscroll"><table class="data" id="assetTable"></table></div>
     </div>
@@ -260,9 +262,11 @@ textarea.io {
     <h2>Scenario model</h2>
     <p class="sectionnote">
       Projections start from the latest valuation and compound quarterly. Each quarter, in order:
-      growth at the class rate, contributions in, withdrawals out (from cash first), then the
-      management fee on the end-of-quarter balance — the same way the fee is billed in the
-      workbooks. Edit any assumption; everything recomputes and is saved on this device.
+      the marks grow at the class rate, the assets pay their distribution yield into cash,
+      contributions come in, withdrawals go out (from cash first), cash above the buffer is
+      swept into the Schwab account, then the management fee comes off the end-of-quarter
+      balance — the same way the fee is billed in the workbooks. Edit any assumption;
+      everything recomputes and is saved on this device.
     </p>
 
     <div class="card">
@@ -271,6 +275,9 @@ textarea.io {
         <label>Horizon <input type="range" id="horizonYears" min="1" max="20" step="1" value="10" /> <output id="horizonOut">10 yr</output></label>
         <label>Management fee %/yr <input type="number" id="feeRate" step="0.05" min="0" max="5" value="0.5" /></label>
         <label><input type="checkbox" id="feeFromPortfolio" checked /> deduct fee from portfolio</label>
+        <label><input type="checkbox" id="sweepCash" checked /> reinvest cash above
+          <input type="number" id="cashBuffer" step="25000" min="0" value="250000" style="width:100px;" />
+          into Public markets (Schwab)</label>
         <label>Inflation %/yr <input type="number" id="inflRate" step="0.1" min="0" max="15" value="2.5" /></label>
         <label><input type="checkbox" id="showReal" /> show real (today's dollars)</label>
         <button id="resetAssumptions" style="margin-left:auto;">Reset to defaults</button>
@@ -280,10 +287,14 @@ textarea.io {
         <table class="data assume" id="growthTable"></table>
       </div>
       <p class="chartnote" style="margin-top:8px;">
-        Growth is % per year by asset class. Revaluation is a one-time markup or markdown applied
-        on day one — use it for things the marks haven't caught up with, like the Forum deals the
-        7/26 workbook flags as probably underwater. “Trailing actual” is the flow-adjusted rate
-        observed 4/13/25 → 7/10/26, shown for reference.
+        Growth is appreciation of the marks, % per year. Yield is cash the assets pay out — it
+        lands in the cash account each quarter and the sweep reinvests it into Schwab. The two
+        are separate on purpose: MIMG's marks grew ~4%/yr while also distributing roughly 5%
+        (cash + Schwab grew $917k from 4/25 to 7/26, far more than Schwab's own market gains
+        explain). Revaluation is a one-time markup or markdown applied on day one — use it for
+        things the marks haven't caught up with, like the Forum deals the 7/26 workbook flags
+        as probably underwater. “Trailing actual” is the flow-adjusted appreciation observed
+        4/13/25 → 7/10/26, shown for reference.
       </p>
 
       <div class="tscroll">
@@ -450,10 +461,18 @@ function defaultAssumptions() {
   return {
     horizonYears: 10, feeRate: DATA.feeRateAnnual * 100, feeFromPortfolio: true,
     inflRate: 2.5, showReal: false,
-    growth: {  /* %/yr per class, per scenario */
+    sweep: true, cashBuffer: 250000,   /* reinvest cash above the buffer into Public markets */
+    growth: {  /* %/yr appreciation of the marks, per class, per scenario */
       base: { core: 4, public: 7,  funds: 8,  synd: 2,  cash: 3, credit: 8 },
       bear: { core: -2, public: -5, funds: -5, synd: 0,  cash: 2, credit: 4 },
       bull: { core: 7, public: 11, funds: 14, synd: 8,  cash: 4, credit: 10 }
+    },
+    yield: {   /* %/yr distributions paid into cash, per class, per scenario.
+                  Base core 5%: cash+Schwab grew $917k 4/25→7/26 (~$740k/yr combined),
+                  net of plausible Schwab market gains ≈ $600k/yr ≈ 5% of the MIMG base */
+      base: { core: 5, public: 0, funds: 0, synd: 0, cash: 0, credit: 0 },
+      bear: { core: 2, public: 0, funds: 0, synd: 0, cash: 0, credit: 0 },
+      bull: { core: 6, public: 0, funds: 0, synd: 2, cash: 0, credit: 0 }
     },
     reval: {   /* one-time day-one revaluation, % per class, per scenario */
       base: { core: 0, public: 0, funds: 0,   synd: 0,   cash: 0, credit: 0 },
@@ -560,10 +579,16 @@ function impliedAnnual(v0, v1, flows, yrs) {
 }
 
 /* Quarterly projection. cfg:
-   { years, growth:{cls:frac/yr}, reval:{cls:frac}, feeAnnual:frac, feeFromPortfolio:bool,
-     contribAnnual:$, contribClass, withdrawAnnual:$ }
-   Order each quarter: grow → contribute → withdraw (cash first) → fee on end balance.
-   Returns { points:[{t, total, byClass, feeQ, cumFee}], cumFee, cumContrib, cumWithdraw } */
+   { years, growth:{cls:frac/yr}, yield:{cls:frac/yr}, reval:{cls:frac},
+     feeAnnual:frac, feeFromPortfolio:bool, contribAnnual:$, contribClass,
+     withdrawAnnual:$, sweep:bool, cashBuffer:$ }
+   Growth is appreciation of the marks; yield is distributions the assets pay into
+   cash (yield/4 of the class's current value each quarter — how the real estate
+   actually funds the Schwab account). Order each quarter:
+   grow → income to cash → contribute → withdraw (cash first) → sweep cash above
+   the buffer into Public markets → fee on end balance.
+   Returns { points:[{t, total, byClass, feeQ, cumFee}],
+             cumFee, cumContrib, cumWithdraw, cumIncome, cumSwept } */
 function project(startByClass, cfg) {
   var v = {};
   DATA.classes.forEach(function (c) {
@@ -571,11 +596,18 @@ function project(startByClass, cfg) {
     v[c.id] = (startByClass[c.id] || 0) * (1 + rv);
   });
   var points = [{ t: 0, total: sumVals(v), byClass: clone(v), feeQ: 0, cumFee: 0 }];
-  var cumFee = 0, cumContrib = 0, cumWithdraw = 0;
+  var cumFee = 0, cumContrib = 0, cumWithdraw = 0, cumIncome = 0, cumSwept = 0;
   var nq = Math.round(cfg.years * 4);
   for (var q = 1; q <= nq; q++) {
     DATA.classes.forEach(function (c) {
       v[c.id] *= Math.pow(1 + (cfg.growth[c.id] || 0), 0.25);
+    });
+    DATA.classes.forEach(function (c) {
+      var yl = (cfg.yield && cfg.yield[c.id]) || 0;
+      if (yl && c.id !== "cash") {
+        var inc = v[c.id] * yl / 4;
+        v.cash += inc; cumIncome += inc;
+      }
     });
     if (cfg.contribAnnual) {
       v[cfg.contribClass || "funds"] += cfg.contribAnnual / 4;
@@ -593,6 +625,10 @@ function project(startByClass, cfg) {
       }
       cumWithdraw += cfg.withdrawAnnual / 4;
     }
+    if (cfg.sweep) {
+      var excess = v.cash - (cfg.cashBuffer || 0);
+      if (excess > 0) { v.cash -= excess; v.public += excess; cumSwept += excess; }
+    }
     var tot = sumVals(v);
     var feeQ = tot * (cfg.feeAnnual || 0) / 4;
     cumFee += feeQ;
@@ -601,22 +637,25 @@ function project(startByClass, cfg) {
     }
     points.push({ t: q / 4, total: sumVals(v), byClass: clone(v), feeQ: feeQ, cumFee: cumFee });
   }
-  return { points: points, cumFee: cumFee, cumContrib: cumContrib, cumWithdraw: cumWithdraw };
+  return { points: points, cumFee: cumFee, cumContrib: cumContrib, cumWithdraw: cumWithdraw,
+           cumIncome: cumIncome, cumSwept: cumSwept };
 }
 function sumVals(o) { var t = 0; for (var k in o) t += o[k]; return t; }
 function clone(o) { var r = {}; for (var k in o) r[k] = o[k]; return r; }
 
 function scenarioCfg(A, sid) {
-  var g = {}, rv = {};
+  var g = {}, yl = {}, rv = {};
   DATA.classes.forEach(function (c) {
     g[c.id] = (A.growth[sid][c.id] || 0) / 100;
+    yl[c.id] = ((A.yield && A.yield[sid] && A.yield[sid][c.id]) || 0) / 100;
     rv[c.id] = (A.reval[sid][c.id] || 0) / 100;
   });
   return {
-    years: A.horizonYears, growth: g, reval: rv,
+    years: A.horizonYears, growth: g, yield: yl, reval: rv,
     feeAnnual: A.feeRate / 100, feeFromPortfolio: A.feeFromPortfolio,
     contribAnnual: A.contrib[sid] || 0, contribClass: A.contribClass[sid] || "funds",
-    withdrawAnnual: A.withdraw[sid] || 0
+    withdrawAnnual: A.withdraw[sid] || 0,
+    sweep: !!A.sweep, cashBuffer: A.cashBuffer || 0
   };
 }
 
@@ -823,12 +862,13 @@ function loadAssumptions() {
   var saved = lsGet(LS.assume);
   if (!saved) return d;
   /* deep-merge saved over defaults so new fields survive old saves */
-  ["horizonYears","feeRate","feeFromPortfolio","inflRate","showReal"].forEach(function (k) {
+  ["horizonYears","feeRate","feeFromPortfolio","inflRate","showReal","sweep","cashBuffer"].forEach(function (k) {
     if (saved[k] != null) d[k] = saved[k];
   });
   SCENARIOS.forEach(function (s) {
     DATA.classes.forEach(function (c) {
       if (saved.growth && saved.growth[s.id] && saved.growth[s.id][c.id] != null) d.growth[s.id][c.id] = saved.growth[s.id][c.id];
+      if (saved.yield && saved.yield[s.id] && saved.yield[s.id][c.id] != null) d.yield[s.id][c.id] = saved.yield[s.id][c.id];
       if (saved.reval && saved.reval[s.id] && saved.reval[s.id][c.id] != null) d.reval[s.id][c.id] = saved.reval[s.id][c.id];
     });
     if (saved.contrib && saved.contrib[s.id] != null) d.contrib[s.id] = saved.contrib[s.id];
@@ -1022,8 +1062,11 @@ function renderAssumptionTables() {
   hr.appendChild(el("th", null, "Asset class"));
   hr.appendChild(el("th", null, "Now"));
   hr.appendChild(el("th", null, "Trailing actual"));
-  SCENARIOS.forEach(function (s) { hr.appendChild(el("th", null, s.name + " %/yr")); });
-  SCENARIOS.forEach(function (s) { hr.appendChild(el("th", null, s.name + " reval %")); });
+  SCENARIOS.forEach(function (s) {
+    hr.appendChild(el("th", null, s.name + " growth %"));
+    hr.appendChild(el("th", null, s.name + " yield %"));
+    hr.appendChild(el("th", null, s.name + " reval %"));
+  });
   gt.appendChild(hr);
   var lastBy = classTotals(allSnapshots()[allSnapshots().length - 1]);
   DATA.classes.forEach(function (c) {
@@ -1032,16 +1075,23 @@ function renderAssumptionTables() {
     r.appendChild(el("td", { class: "num" }, fmtUSDc(lastBy[c.id])));
     r.appendChild(el("td", { class: "num" }, actual[c.id] == null ? "n/a" : fmtPct(actual[c.id])));
     SCENARIOS.forEach(function (s) {
-      var td = el("td");
-      var inp = el("input", { type: "number", step: "0.5", value: A.growth[s.id][c.id] });
-      inp.addEventListener("change", function () { A.growth[s.id][c.id] = +inp.value || 0; onAssumptionChange(); });
-      td.appendChild(inp); r.appendChild(td);
-    });
-    SCENARIOS.forEach(function (s) {
-      var td = el("td");
-      var inp = el("input", { type: "number", step: "5", min: "-100", max: "100", value: A.reval[s.id][c.id] });
-      inp.addEventListener("change", function () { A.reval[s.id][c.id] = +inp.value || 0; onAssumptionChange(); });
-      td.appendChild(inp); r.appendChild(td);
+      var tdg = el("td");
+      var inpG = el("input", { type: "number", step: "0.5", value: A.growth[s.id][c.id] });
+      inpG.addEventListener("change", function () { A.growth[s.id][c.id] = +inpG.value || 0; onAssumptionChange(); });
+      tdg.appendChild(inpG); r.appendChild(tdg);
+      var tdy = el("td");
+      if (c.id === "cash") {
+        tdy.appendChild(el("span", { class: "subnote" }, "—"));
+      } else {
+        var inpY = el("input", { type: "number", step: "0.5", min: "0", value: A.yield[s.id][c.id] });
+        inpY.addEventListener("change", function () { A.yield[s.id][c.id] = Math.max(0, +inpY.value || 0); onAssumptionChange(); });
+        tdy.appendChild(inpY);
+      }
+      r.appendChild(tdy);
+      var tdr = el("td");
+      var inpR = el("input", { type: "number", step: "5", min: "-100", max: "100", value: A.reval[s.id][c.id] });
+      inpR.addEventListener("change", function () { A.reval[s.id][c.id] = +inpR.value || 0; onAssumptionChange(); });
+      tdr.appendChild(inpR); r.appendChild(tdr);
     });
     gt.appendChild(r);
   });
@@ -1172,7 +1222,9 @@ function renderScenarios() {
     var d = el("div", { class: "delta" });
     var dir = el("span", { class: "dir " + (cagr >= 0 ? "up" : "down") }, fmtPct(cagr));
     d.appendChild(dir);
-    d.appendChild(document.createTextNode("/yr nominal, " + fmtUSDc(res.cumFee) + " total fees"));
+    var extras = "/yr nominal, " + fmtUSDc(res.cumFee) + " fees";
+    if (res.cumSwept > 0) extras += ", " + fmtUSDc(res.cumSwept) + " swept to Schwab";
+    d.appendChild(document.createTextNode(extras));
     tile.appendChild(d);
     ht.appendChild(tile);
   });
@@ -1412,6 +1464,8 @@ function bindControls() {
   $("horizonOut").textContent = A.horizonYears + " yr";
   $("feeRate").value = A.feeRate;
   $("feeFromPortfolio").checked = A.feeFromPortfolio;
+  $("sweepCash").checked = A.sweep;
+  $("cashBuffer").value = A.cashBuffer;
   $("inflRate").value = A.inflRate;
   $("showReal").checked = A.showReal;
 
@@ -1422,6 +1476,8 @@ function bindControls() {
   });
   $("feeRate").addEventListener("change", function () { A.feeRate = Math.max(0, +this.value || 0); onAssumptionChange(); });
   $("feeFromPortfolio").addEventListener("change", function () { A.feeFromPortfolio = this.checked; onAssumptionChange(); });
+  $("sweepCash").addEventListener("change", function () { A.sweep = this.checked; onAssumptionChange(); });
+  $("cashBuffer").addEventListener("change", function () { A.cashBuffer = Math.max(0, +this.value || 0); onAssumptionChange(); });
   $("inflRate").addEventListener("change", function () { A.inflRate = Math.max(0, +this.value || 0); onAssumptionChange(); });
   $("showReal").addEventListener("change", function () { A.showReal = this.checked; onAssumptionChange(); });
   $("resetAssumptions").addEventListener("click", function () {
@@ -1441,6 +1497,8 @@ function bindStaticInputs() {
   $("horizonOut").textContent = A.horizonYears + " yr";
   $("feeRate").value = A.feeRate;
   $("feeFromPortfolio").checked = A.feeFromPortfolio;
+  $("sweepCash").checked = A.sweep;
+  $("cashBuffer").value = A.cashBuffer;
   $("inflRate").value = A.inflRate;
   $("showReal").checked = A.showReal;
 }
