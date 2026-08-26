@@ -5399,3 +5399,186 @@ for its mergeRow-adjacent checks, never `D.mergeRow` itself, so the tightening d
 of `D.score`/`normSlp` only; it never calls `mergeRow` and carries no conflict logic, so this
 batch doesn't touch it either.
 ---
+
+## 🏈 GFFL — THE SEASON-RESET BATCH: vacuous finality, the preseason re-target, and the real
+## stats bleed it uncovered (2026-08-26)
+
+The commissioner emptied every 2026 roster and deleted every preseason artifact on 2026-08-23
+(the entry above this one is the last thing that ran before the reset). Report, post-reset: "in
+the standings teams have ties for some reason, they should be at zero, and there shouldn't be a
+comment about provisional wins since the season hasn't started. the matchups should now reflect
+week 1 of the real season." Six items. Files: `assets/league/lg-{core,data,ui}.js` +
+`tools/_verify-gffl.cjs` (2887 → **2942**, restaged AI2-AI5, new section BC). No commits, no push.
+
+**ITEM 1/2 — VACUOUS FINALITY.** `LG.matchupDecided(sideA, sideB)` — `Array.prototype.every` on
+`[]` is `true` BY DEFINITION, so "every player is done" held vacuously for a side with nobody on
+it. An empty-vs-empty matchup therefore satisfied `aDone && bDone`, `totalOf` both sides read 0,
+and the function returned `{decided:true, winner:null}` — a DECIDED 0-0 TIE. The standings'
+provisional overlay (2026-08-20's own ruling) counted that tie for EVERY matchup in a freshly-
+reset league, and the "* Provisional — decided this week, not yet official" footnote rendered for
+a season that had not started. The theorem's own precondition — "every not-done player can only
+ever add" — was never violated; the bug was upstream of it: a side with nobody on it was never
+asked to prove anything, and the vacuous truth of `every()` answered for it anyway.
+
+**THE FIX has two halves, because the {pts,done} array's SHAPE was the actual blind spot.**
+`LG.matchupDecided` now checks `sideA.length + sideB.length === 0` FIRST and returns
+`{decided:false, winner:null}` — a side with nobody on it has made no claim at all, it isn't
+done. But `matchupSides` (lg-ui.js), the one caller, used to pad every unfilled starter slot with
+a `{pts:0, done:true}` placeholder — so even a genuinely empty roster produced an ARRAY OF NINE
+placeholders, never `[]`, and the new length check would never have fired. `matchupSides` was
+changed alongside it to push NOTHING for an unfilled slot instead of padding it. The two forms
+are mathematically identical to every summation below (`bankedOf`/`totalOf` never see the missing
+entry either way, and a `done:true` placeholder can never turn `every()` false either way) for
+ANY side with at least one real starter — a genuine bye/empty-slot on an otherwise-populated
+roster is still "done, contributes zero," pinned by the pre-existing (d) check in section AZ3.
+The two forms diverge ONLY when a side has NO starters at all, which is exactly the "nobody has
+been drafted yet" case this fix exists for. The genuine one-side-empty semantics are untouched
+and re-pinned with their own new checks: a real, banked side against a truly empty side (a bye,
+or an opponent who forfeits by having nobody) IS still decided — `bDone` is vacuously true for
+the EMPTY side specifically, which is the correct half of the same theorem, never disturbed.
+
+**ITEM 3 — THE PRESEASON SLATE RE-TARGET.** `D.pollScoreboard`'s bare `${ESPN}/scoreboard` always
+means "the current week" — preseason, in late August — so `D.S.games` (every game line, kickoff,
+and the Scores tab's own "NFL this week") kept showing exhibition football straight through the
+reset. Fixed: when the bare payload's season type normalizes to "pre," `pollScoreboard`
+immediately fetches the explicit regular slate — `${ESPN}/scoreboard?dates=${LG.SEASON}
+&seasontype=2&week=${LG.currentWeek()}`, the SAME URL family `D.fetchWeekSlate` has used for the
+Scores week cycler since 2026-08-13 — and builds `D.S.games`/`espnWeek`/`espnSeasonType` from
+THAT payload instead. A re-target failure falls back to the preseason payload already in hand
+(health/the board still update off something that tick) rather than throwing the whole poll away.
+When the bare payload is already regular/post the block is a genuine no-op: ONE fetch, byte-
+identical to before — MEASURED on the wire (`D.EP`'s own per-endpoint call counts), not assumed.
+
+**CONSEQUENCES, asserted rather than assumed** (section BC3): every game on the re-targeted board
+reads "pre" with a real future kickoff; `D.gameStarted` reads false for every re-targeted team,
+so nothing is locked; the matchup page's own game line shows the real kickoff text ("Sun 12:00
+PM"), never the old preseason game's live clock or Final state; the Scores tab's NFL half lists
+the SAME re-targeted week-1 slate. `finalizeWeek` still refuses — but MEASURED, not the mechanism
+first assumed. Once ESPN's own read becomes "regular" (via the re-target) while Sleeper's real
+`/state/nfl` stays genuinely "pre" (untouched — item 3 never touches the Sleeper side of
+anything), `D.engineSeasonType()` reads a provider DISAGREEMENT (null), not "pre." `finalizeWeek`
+refuses at the season-type gate with reason `"no-live-data"`, not `"preseason"` — a different gate
+than the original "every game must be Final" guard, reached earlier in the function, but the same
+outcome: nothing written, ever. This is exactly the Sleeper-side fail-closed posture staying
+intact — the guard still refuses on the strength of Sleeper's own honest preseason read, just by
+disagreement instead of agreement now that ESPN's own read has been deliberately re-targeted away
+from it.
+
+**RESTAGED, with the reversal named at every check (AI2-AI5, section AI, the 2026-08-09 entry):**
+that whole section's ORIGINAL point was proving the app followed the NFL into preseason ON
+PURPOSE, for a deliberate shakedown. This reset reverses that call outright — the league must
+look like real week 1 the instant the reset lands, not whenever the NFL calendar happens to catch
+up. AI2: `st.espn` was pinned `"pre"`, is now `"regular"` (re-targeted); `st.engine` was pinned
+`"pre"`, is now `null` (disagreement); the Sleeper-side assertions (`st.slp`, the STATS bucket
+URL) are UNCHANGED — item 4 gates what a preseason line may SCORE, never which bucket gets
+fetched. AI4: the "every game reads Final" staging is no longer reachable at ALL (the re-targeted
+slate is never final by construction) — replaced with the MEASURED disagreement path above. AI5:
+the "engine rolls to preseason week 2" trap can no longer occur — the re-target always asks ESPN
+for `LG.currentWeek()`, so `D.S.espnWeek` can never independently drift into a preseason week
+number again; `D.engineWeek()` now reads a flat disagreement (null) instead, and
+`staleFinalizeWeeks`' own "unknown is not stale" rule is what keeps week 1 quiet, a SHORTER path
+to the exact same safe silence the original test proved.
+
+**ITEM 4 — PRESEASON STATS BLEED, real and fixed.** Investigated before assuming: with rosters
+refilled after the Sep 6 draft but before Sep 10 kickoff, does a Sleeper preseason stats poll
+populate `row.pts`? YES — `D.pollSleeper`'s live stats fetch (`slpStatsUrl()`) picks its bucket
+off Sleeper's OWN `/state/nfl` reading, completely independent of item 3's ESPN-side re-target;
+it stays genuinely `"pre"` clear through real preseason. And `D.livePts` (the SCORE column's own
+funnel, and the one `liveTotal`/matchup-total summation reads) has NO game-state check of its own
+— unlike `D.liveProj`'s explicit pre/in/post branching, it returns `row.pts` verbatim whenever the
+row exists with a non-null value, regardless of whether that player's real week-1 game has
+kicked off. A drafted player's real preseason box score would therefore land directly on the
+"week 1" board as if it were live. **FIXED at the ingestion point** (RULE-1-style — "the funnel
+is at the READ, not the write" — except here the funnel IS the write, since nothing downstream
+can tell a suppressed merge from a genuinely-quiet one): `D.pollSleeper` now skips `applySide`
+entirely whenever `D.S.slpSeasonType === "pre"` — `row.pts`/`row.official` are never touched by a
+preseason line at all. Identity/injury registration (`rowFor`, `row.injury`) is deliberately NOT
+gated — the directory and injury report must not go blind just because the score is withheld.
+`n` (the "did this bucket carry real data" signal that locks `D.S.slpBucket` and marks
+`D.S.slpSeeded`) only counts an APPLIED player, so the guarded window never lies about holding a
+real baseline — the first genuine merge once the season is truly regular sees itself correctly as
+the first, not a live-play swing off a phantom zero. Pinned two ways: end-to-end (AI3, restaged —
+the exact preseason box AI3 hand-computes at 7.0/5.2/1.0 now reads 0/0/0, matchup totals both
+0.0, exactly like any pre-kickoff week) and at the mechanism itself (BC4 — `row.slp` is never
+even CREATED, not merged-then-discarded).
+
+**ITEM 5 — PROJECTIONS = REGULAR WEEK 1.** `D.projFor`'s priority: a Grok-adjusted
+`proj_<season>_w<week>` doc first (`LG.ensureAdjustedProj`, regenerated on every boot + a 20h
+TTL), then Sleeper's raw `D.S.slpProj` for everything the Grok adjuster doesn't touch (D/STs and
+every `slp_`-keyed free agent — the adjuster only ever adjusts numeric espn-id keys). **The
+Grok-adjusted doc's own ESPN "kona" anchor (`lg_espn_projections`) needed no fix**: it addresses
+ESPN's FANTASY `scoringPeriodId`, a concept the real NFL calendar's preseason has no part in at
+all (ESPN's fantasy game does not score preseason; `scoringPeriodId=1` already means real week 1,
+regardless of what the raw NFL scoreboard's `season.type` says). Confirmed live, not assumed: read
+the production `proj_2026_w1` doc directly (Firestore REST, GET-only) — generated 2026-08-26
+11:40 UTC (within the last two hours of this session, self-healed via the 20h TTL + boot-time
+regeneration), carrying sane, real week-1-caliber numbers for real 2026 players (Josh Allen
+19.9→16.9, Lamar Jackson 20, CMC 16.8, etc.) — genuinely NOT preseason-scoped. **No write made to
+it.** The FALLBACK (`D.S.slpProj`, from `D.initSleeper`'s own projections fetch) WAS genuinely
+preseason-scoped — same shape as item 4's bleed, one layer up: it asks Sleeper's own "current"
+bucket, which stays `"pre"` through real preseason. Fixed the same way item 3 re-targets the
+scoreboard: when Sleeper's own read is `"pre"`, the fetch asks for the explicit REGULAR week-1
+bucket instead (`/projections/nfl/regular/<season>/${LG.currentWeek()}`) — no second fetch needed
+here (unlike item 3's bare-vs-explicit scoreboard shapes, this endpoint already takes an explicit
+season/week/type triple, so the override is just which values get asked for). Pinned two ways:
+AI2 restaged (Sleeper's own preseason week happens to read 1 there, so old and new coincide) and
+BC5, new (Sleeper's own current week is deliberately 3 there — the fetch still asks for week 1,
+proving the WEEK is genuinely overridden, not just the season type).
+
+**THE proj_/projsnap_ STORE, READ LIVE (GET-only, no writes made anywhere in the store this
+session):** `proj_2026_w1` — fresh and correct, above. `projsnap_2025_w1` — historical, inert for
+the live 2026 season (`LG.loadProjSnap` always addresses `LG.SEASON`, which is 2026). **
+`projsnap_2026_w1` — STALE AND WRONG, FLAGGED BUT NOT TOUCHED.** Written 2026-08-07 19:57 UTC,
+weeks before this session, every one of its 30 rows carries `proj: 0`. `LG.snapshotProjections`
+is WRITE-ONCE (compare-and-swap, `if (existing) return existing`) — because this doc already
+exists, the pre-game accuracy snapshot `finalizeWeek` will read for week 1's Grok-accuracy grade
+can NEVER be recaptured; the season's own accuracy stat for week 1 will compare real week-1
+points against an all-zero snapshot the moment week 1 finalizes. This is real and worth a
+decision, but it is not the doc the brief authorized touching ("if the proj_ cache is preseason-
+scoped or stale, you may clear/refresh THAT ONE doc" — proj_, not projsnap_, and "touch nothing
+else in the store"). Left exactly as found; flagged here for the commissioner's own call.
+
+**ITEM 6 — THE POOL, VERIFIED, NOT LOCKED.** The commissioner's first message this batch proposed
+a deterministic pool-lock (refuse claims/adds/waiver-processing until real kickoff); the
+commissioner then OVERRULED that design mid-task, before any of it was built: draft is Sun Sep 6,
+anyone undrafted is simply a free agent, instantly addable first-come-first-served, no waiting
+period — players lock per the NORMAL started rules once their own real week-1 game kicks off
+(Thu Sep 10, per item 3's re-target). **No lock code exists anywhere in this diff.** Verified
+instead (section BC6, four checks, all pinning EXISTING behavior): (a) post-draft (Mon Sep 7),
+`LG.faAdd` of an undrafted free agent succeeds instantly and lands on the roster with no queued
+claim; the same player then refuses everywhere else as `"player-taken"`. (b) Nothing is locked
+before kickoff: with the item-3 re-targeted week-1 slate ("pre," real future kickoffs),
+`D.gameStarted` reads false for every re-targeted team, so a real starter stays freely droppable
+and a free-agent add still works, straight through the Wed Sep 9 8am waiver window. (c) That
+Wed 8am run, with zero claims queued, behaves exactly like any other quiet week —
+`LG.processWaivers` marks the week `processed:true` with empty `claims`/`results`, and neither
+team's roster moves a byte; PINNED, not changed, per the brief. (d) At the first real kickoff
+(one game forced `"in"`), that game's own STARTING-slot players lock via the pre-existing
+`LG.dropBlocked`/`D.gameStarted` pair exactly as they always have, while a starter on a team
+whose game hasn't kicked off yet — and the bench, always — stays fully droppable.
+
+**VERIFY**: `node tools/_verify-gffl.cjs --shots` **2942/2942**, 0 page errors. `node
+tools/_gffl_seams.cjs` **121/0, unrestaged** — it sets `D.S.espnSeasonType`/`slpSeasonType`
+directly in its own fixtures and never calls `D.pollScoreboard`/`D.pollSleeper`/`D.initSleeper`,
+so none of this batch's pollers are in its path at all; confirmed by grep before touching
+anything, and confirmed again by the empty-guard NOT breaking a single seam check.
+`netlify/functions/sports.mjs` was NOT touched — every re-target in this batch is client-side —
+so `_verify-sports.cjs` was not re-run.
+
+**PROOF OF BITE.** `assets/league/lg-{core,data,ui}.js` reverted to `HEAD`, the restaged/new test
+file kept, `node tools/_verify-gffl.cjs` run against that mix: **2874 pre-existing checks passed
+untouched**, and every one of the 13 restaged AI2-AI5 checks plus every new BC1-BC6 check failed
+— items 1/2's empty-vs-empty pure-function and all-empty-board checks (old code still returns a
+decided 0-0 tie and renders the footnote), item 3's fetch-count/game-state/finalize-reason checks
+(old code never re-targets, so the re-target endpoint is never created and the board still reads
+the bare preseason payload), item 4's stats-bleed checks (old code still merges the preseason
+line straight onto `row.pts`), item 5's projections checks (old code still asks the preseason
+bucket), item 6's checks passed even against old code (no lock was ever built, so nothing there
+COULD fail bite — noted rather than hidden: item 6 is a verification-only item, and its proof of
+bite is that it needed none). App files then restored from the scratchpad backup.
+
+Plates (scratchpad, throwaway review artifacts): `gffl_allempty_standings_390.png` (every team
+0-0-0, no asterisk, no footnote), `gffl_week1_matchup_390.png` (real week-1 game line, future
+kickoff), `gffl_scores_week1_390.png` (the Scores tab's re-targeted NFL slate).
+---
+---

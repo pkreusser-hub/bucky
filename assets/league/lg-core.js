@@ -1441,8 +1441,26 @@
   // player refuses decision no matter the gap: a live player has no upside bound, so nothing
   // about his side can be called fixed yet.
   LG.matchupDecided = function (sideA, sideB) {
-    const aDone = (sideA || []).every((p) => p.done);
-    const bDone = (sideB || []).every((p) => p.done);
+    const a = sideA || [], b = sideB || [];
+    // VACUOUS FINALITY, the season-reset fallout (2026-08-26). Array.prototype.every on an
+    // empty array is true BY DEFINITION — "every player is done" holds vacuously for a side
+    // with nobody on it. The commissioner emptied every 2026 roster on 2026-08-23, so every
+    // matchup this week is empty-vs-empty: aDone/bDone both went true for free, totalOf both
+    // sides read 0, and this returned {decided:true, winner:null} — a DECIDED 0-0 TIE. The
+    // provisional standings overlay (lg-ui.js) counted that tie for every matchup in the
+    // league, and the "* Provisional" footnote rendered for a season that hadn't started.
+    // A side with nobody on it hasn't gone 0-0 and finished — it has made no claim at all.
+    // matchupSides (lg-ui.js) was changed alongside this to OMIT an unfilled starter slot
+    // from the array entirely, rather than padding it with {pts:0, done:true} — the two forms
+    // are mathematically identical everywhere below (an omitted entry contributes nothing to
+    // bankedOf/totalOf and can never make every() false, exactly like a done/0 placeholder), so
+    // a REAL bye/empty-slot on an otherwise-populated side is still "done, contributes zero" —
+    // pinned by its own existing (d) check below. The two arrays can only BOTH come back empty
+    // when NEITHER side has a single rostered starter, which is exactly the nobody-plays case
+    // this guard exists for.
+    if (a.length + b.length === 0) return { decided: false, winner: null };
+    const aDone = a.every((p) => p.done);
+    const bDone = b.every((p) => p.done);
     if (aDone && bDone) {
       const totalA = LG.totalOf(sideA), totalB = LG.totalOf(sideB);
       if (totalA === totalB) return { decided: true, winner: null };

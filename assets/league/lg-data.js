@@ -506,10 +506,22 @@
       try { await fetchPlayerDirectory(); D.S.injDirRefreshedAt = Date.now(); }
       catch (e) { /* health carries it */ }
       try {
-        const seasonType = D.S.slpState?.season_type || "regular";
+        let seasonType = D.S.slpState?.season_type || "regular";
         const season = D.S.slpState?.season || String(LG.SEASON);
-        const wk = D.S.slpBucket.cands[0];
+        let wk = D.S.slpBucket.cands[0];
         if (!wk) return; // no authoritative week -> no projections either (never week 1's)
+        // PRESEASON PROJECTIONS RE-TARGET (2026-08-26, item 5 of the season-reset batch) — the
+        // same re-target D.pollScoreboard applies to the schedule (~1247). D.projFor's FIRST
+        // choice is the Grok-adjusted proj_<season>_w<week> doc (LG.ensureAdjustedProj, whose
+        // own ESPN "kona" baseline is already keyed by fantasy scoringPeriodId, a concept the
+        // real NFL preseason has no part in — that anchor was already correct). This Sleeper
+        // fetch is what D.projFor falls back to for every D/ST and slp_-keyed free agent — the
+        // Grok adjuster only ever touches numeric espn-id keys — and it is Sleeper's own
+        // "current" bucket by default, which stays genuinely preseason-scoped clear through real
+        // preseason. Left alone, those exact players would show a real week-1 board a preseason
+        // projection number. When Sleeper's own read is "pre", ask for the explicit REGULAR
+        // week-1 bucket instead.
+        if (seasonType === "pre") { seasonType = "regular"; wk = String(LG.currentWeek()); }
         const proj = await fx("sleeper projections", `${SLP}/projections/nfl/${seasonType}/${season}/${wk}`);
         if (proj && typeof proj === "object") D.S.slpProj = proj;
       } catch (e) { /* optional */ }
@@ -1224,19 +1236,44 @@
 
   // ---------------- pollers ----------------
   async function pollScoreboard() {
-    const j = await fx("espn scoreboard", `${ESPN}/scoreboard`);
-    // Which NFL week this slate IS (adversarial review 2026-08-08). The bare /scoreboard
-    // endpoint always means "the current week" and says so in `week.number` — recording it
-    // is what lets finalizeWeek refuse to stamp week N's permanent record with week N+1's
-    // numbers (findings 1/3/7).
-    const wkNum = Number(j?.week?.number);
-    D.S.espnWeek = wkNum >= 1 && wkNum <= 22 ? wkNum : null;
+    let j = await fx("espn scoreboard", `${ESPN}/scoreboard`);
     // …and WHICH PART of the season it is (ITEM 30). ESPN states this two ways on the same
     // payload — a numeric season.type (1 pre / 2 regular / 3-4 post) and a season.slug
     // ("preseason"/"regular-season"/"post-season") — and the older shape nests it under
     // leagues[0]. All three are read because the cost is nothing and the consequence of
     // reading none of them is a permanent record written from the wrong part of the season.
-    D.S.espnSeasonType = normSeasonType(j?.season?.type ?? j?.season?.slug ?? j?.leagues?.[0]?.season?.type?.type);
+    let seasonType = normSeasonType(j?.season?.type ?? j?.season?.slug ?? j?.leagues?.[0]?.season?.type?.type);
+    // PRESEASON SLATE RE-TARGET (2026-08-26, the season-reset batch). The bare /scoreboard
+    // always means "the current week" — which in late August, before the real Sep 10 opener,
+    // is preseason. Left alone, D.S.games (every game line/kickoff on the matchup, locker and
+    // Scores tab) would keep showing exhibition football clear through the reset, right up
+    // until the NFL's own calendar rolled over on its own. The commissioner's reset (2026-08-23,
+    // every 2026 roster emptied, every preseason artifact deleted) means this app must show the
+    // REAL week 1 regular slate NOW, not whenever ESPN's "current week" happens to catch up.
+    // Fetched the same way D.fetchWeekSlate already asks for an explicit week (~1596,
+    // established 2026-08-13 for the Scores week cycler) — dates=<season>&seasontype=2&week=N,
+    // regular season deliberately. A re-target failure falls back to the preseason payload
+    // already in hand rather than throwing pollScoreboard's whole poll away (health/board still
+    // update off SOMETHING this tick); when the bare payload is already regular/post this whole
+    // block is a no-op — one fetch, byte-identical to before.
+    if (seasonType === "pre") {
+      try {
+        const reg = await fx("espn scoreboard (regular re-target)",
+          `${ESPN}/scoreboard?dates=${LG.SEASON}&seasontype=2&week=${LG.currentWeek()}`);
+        if (reg && Array.isArray(reg.events)) {
+          j = reg;
+          seasonType = normSeasonType(j?.season?.type ?? j?.season?.slug ?? j?.leagues?.[0]?.season?.type?.type);
+        }
+      } catch (e) { /* re-target failed — the preseason payload already in hand stands */ }
+    }
+    // Which NFL week this slate IS (adversarial review 2026-08-08). The bare /scoreboard
+    // endpoint always means "the current week" and says so in `week.number` — recording it
+    // is what lets finalizeWeek refuse to stamp week N's permanent record with week N+1's
+    // numbers (findings 1/3/7). Read off `j` AFTER the re-target above, so a preseason poll
+    // records the REGULAR week it was re-targeted to, not the preseason week it started from.
+    const wkNum = Number(j?.week?.number);
+    D.S.espnWeek = wkNum >= 1 && wkNum <= 22 ? wkNum : null;
+    D.S.espnSeasonType = seasonType;
     // D.S.games is REBUILT, never merged into. It used to only ever .set(), so a tab left
     // open across the Tuesday rollover kept last week's "post" entries forever — which made
     // finalizeWeek's "is every game final?" guard pass for ANY past week, in any week, byes
@@ -1418,6 +1455,22 @@
     if (!url) throw new Error("sleeper week unknown");
     const j = await fx("sleeper stats", url);
     if (!j || typeof j !== "object") return;
+    // PRESEASON STATS BLEED GUARD (2026-08-26, item 4 of the season-reset batch). pollScoreboard
+    // (above) re-targets D.S.games to the real week-1 REGULAR slate the moment ESPN's bare
+    // scoreboard reads preseason — but THIS poll picks its own bucket independently, off
+    // Sleeper's own /state/nfl reading (slpStatsUrl), which stays genuinely "pre" clear through
+    // real preseason regardless of what the ESPN side now shows. Left alone, a player freshly
+    // drafted on Sep 6 would score real PRESEASON box-score points here days before his actual
+    // week-1 game has even kicked off — D.livePts reads row.pts with no game-state check of its
+    // own (unlike D.liveProj's explicit pre/in/post branching), so those numbers would land
+    // directly on the "week 1" board as if they were live. A preseason stat line is therefore
+    // never applied to row.pts/row.official at all; the player falls through to whatever else
+    // has him (nothing, pre-kickoff) — the exact same "no stats yet" state any genuinely future
+    // game already reads, and the same reason `n` only counts an APPLIED player: a side that
+    // never merged mustn't lock the bucket or mark itself seeded, or the first real merge once
+    // the guard lifts would misread itself as a live in-season CHANGE off a stats baseline that
+    // was never actually recorded.
+    const slpPre = D.S.slpSeasonType === "pre";
     let n = 0;
     for (const pid in j) {
       const st = j[pid]; if (!st || typeof st !== "object") continue;
@@ -1435,8 +1488,11 @@
       else key = D.S.keyByName.get(nameKey(meta.name, meta.team)) || meta.espn_id
         || D.S.espnKeyByName.get(nameKey(meta.name, meta.team)) || ("slp_" + pid);
       if (key === "slp_" + pid) D.S.slpRowKeyByName.set(nameKey(meta.name, meta.team), key);
+      // Identity/injury registration is NEVER gated — the directory, the injury report and IR
+      // eligibility must not go blind just because the score itself is withheld this week.
       const row = rowFor(key, { name: meta.name, pos: meta.pos === "DEF" ? "DST" : meta.pos, team: meta.team });
       row.injury = meta.injury || row.injury;
+      if (slpPre) continue; // see the guard note above — never reaches row.pts/row.official
       if (st.pts_ppr != null) row.official = st.pts_ppr;
       applySide("slp", key, {}, normSlp(st, meta.pos === "DEF"), st);
       n++;

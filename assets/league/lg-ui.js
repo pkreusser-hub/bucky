@@ -4011,22 +4011,35 @@
   // `d.demo.done` (armed only by ?demo=clinch) overrides the real D.gameDone clock at the
   // per-PLAYER level, the same shape ?demo=loot already uses to override livePts/projFor — the
   // clock itself (D.gameDone) is never touched, only what a specific demo-armed player reads as.
+  //
+  // 2026-08-26 (the season-reset fallout): an unfilled slot now pushes NOTHING onto the array,
+  // instead of the {pts:0, done:true} placeholder this used to pad every empty slot with. The
+  // two forms are identical to every consumer below — bankedOf/totalOf sum to the same number
+  // either way, and a done:true placeholder can never turn every() false either way — for any
+  // side that has AT LEAST ONE real starter; the only case they diverge is a side with NO
+  // starters at all, where the old padded form produced 9 fake "done" entries and the new form
+  // correctly produces []. That divergence is deliberate: LG.matchupDecided's own empty-side
+  // guard reads array LENGTH to tell "nobody has taken the field yet" (empty rosters, before a
+  // draft) apart from "every slot is legitimately spoken for" (a real bye/empty-slot mid-lineup),
+  // and only an omitted-not-padded array carries that distinction at all.
   function matchupSides(teamId) {
     const d = D();
     const ros = (UI._rosters && UI._rosters[teamId]) || [];
     const slots = starterSlotList();
     const taken = new Set();
-    return slots.map((s) => {
+    const out = [];
+    for (const s of slots) {
       const p = ros.find((r) => r.slot === s && !taken.has(r));
-      if (!p) return { pts: 0, done: true };
+      if (!p) continue; // unfilled slot: contributes nothing — see the note above
       taken.add(p);
       // Routed through the SAME D.demoGameView seam the display surfaces use (2026-08-20) —
       // one place decides "does this key have a demo override", not two independently-written
       // checks of D.demo.done that could quietly drift apart.
       const dv = d.demoGameView(p.key);
       const done = dv ? dv.state === "post" : d.gameDone(p.team);
-      return { pts: LG.n(d.livePts(p.key)), done };
-    });
+      out.push({ pts: LG.n(d.livePts(p.key)), done });
+    }
+    return out;
   }
   // home = side A, away = side B — the same convention LG.pushWeekRecap/bkResult use for a
   // matchup's two sides. Returns {decided, winner:"A"|"B"|null, totalH, totalA} — "A" means the

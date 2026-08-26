@@ -1513,6 +1513,13 @@ function fullSeed(opts) {
     team: opts.claim ? null : 1, who: opts.claim ? null : "Peter",
   };
 }
+// ---------------- section BC fixture (2026-08-26, the season-reset batch) ----------------
+// The real shape of the league the instant the commissioner's 2026-08-23 reset lands: 8 teams,
+// a real week-1 schedule, and NOT ONE roster doc for any team — exactly LG.ensureRoster's own
+// "nothing here, and nothing to fall back to" answer ([]), never a fabricated one.
+function seedAllEmpty() {
+  return { docs: { ...seedTeams(), ["sched_2026"]: seedSchedule() }, pass: "amenfarms", team: 1, who: "Peter" };
+}
 
 // ---------------- section AD fixtures (2026-08-09 playtest batch) ----------------
 // Item 8's check needs REALISTIC name lengths. The base fixture's players are all "P. Passer"
@@ -12649,10 +12656,18 @@ async function openDetails(page, id) {
       fixture.rich2025 = false;
     }
 
-    // ---- AI2 (ITEM 30): preseason is followed automatically — the STATS BUCKET is the proof.
-    // Both providers drive themselves off their own current-week state, so in principle the app
-    // follows the NFL into preseason with no code at all. This asserts the wire rather than
-    // assuming it: the bucket path has to carry /pre/, not /regular/.
+    // ---- AI2 (ITEM 30, RESTAGED 2026-08-26 — the season-reset batch, items 3/5). The ORIGINAL
+    // 2026-08-09 ruling was "follow the NFL into preseason, on purpose, for a shakedown" — this
+    // block proved the app did exactly that with no extra code. The commissioner's 2026-08-23
+    // reset (every 2026 roster emptied, every preseason artifact deleted) reverses that call:
+    // the league must look like real week 1 the instant the reset lands, not whenever the NFL's
+    // own calendar happens to catch up. D.pollScoreboard (item 3) now re-targets ESPN's bare
+    // "current week" read to the explicit regular week-1 slate the moment it comes back
+    // preseason, and D.initSleeper's projections fallback (item 5) does the same for Sleeper's
+    // own "current" bucket — so `st.espn` and the projections URL both flip below. Sleeper's raw
+    // STATS bucket is deliberately left UNTOUCHED (item 4 gates what a preseason stat line is
+    // allowed to SCORE, never which bucket gets fetched — the injury/identity read still wants
+    // Sleeper's real current bucket), so `st.slp` and statUrls are unchanged.
     {
       // depthCharts OFF, explicitly: the exact-number checks in AI2/AI3/AI4 are hand-computed
       // against PRE_WEEK1_BASE alone, and the drafted-backup lines must be provably absent.
@@ -12664,11 +12679,14 @@ async function openDetails(page, id) {
       await waitLiveOr(page);
       const statUrls = slpStatsUrls.slice(nStats), projUrls = slpProjUrls.slice(nProj);
       ok(statUrls.length > 0 && statUrls.every((u) => /\/stats\/nfl\/pre\/2026\/1(\?|$)/.test(u)),
-        "the live stats bucket resolves to the PRESEASON path — /stats/nfl/pre/2026/1 (" + (statUrls[0] || "none") + ")");
+        "Sleeper's live STATS bucket is still asked for by its own real current bucket — /stats/nfl/pre/2026/1 (item 4 withholds the SCORE, not the fetch) (" + (statUrls[0] || "none") + ")");
       ok(statUrls.every((u) => !/\/stats\/nfl\/regular\//.test(u)),
-        "…and never once asks for the regular-season bucket");
-      ok(projUrls.length > 0 && projUrls.every((u) => /\/projections\/nfl\/pre\/2026\/1(\?|$)/.test(u)),
-        "…projections follow the same season type (" + (projUrls[0] || "none") + ")");
+        "…and never once asks for the regular-season STATS bucket — item 4 only gates what a preseason line is allowed to score");
+      // RESTAGED 2026-08-26 (item 5): projections now RE-TARGET to the regular week-1 bucket the
+      // moment Sleeper's own read is preseason — was pinned the opposite way (…/pre/2026/1).
+      ok(projUrls.length > 0 && projUrls.every((u) => /\/projections\/nfl\/regular\/2026\/1(\?|$)/.test(u)),
+        "…but PROJECTIONS are re-targeted to the regular week-1 bucket (item 5) — never the preseason one (" + (projUrls[0] || "none") + ")");
+      ok(projUrls.every((u) => !/\/projections\/nfl\/pre\//.test(u)), "…and never once asks for the preseason projections bucket");
       const st = await evalOr(page, () => {
         const G = window.__GFFL__;
         return {
@@ -12678,18 +12696,34 @@ async function openDetails(page, id) {
           rosterId: G.LG.rosterId(G.LG.currentWeek(), 1),
         };
       }) || {};
-      ok(st.espn === "pre" && st.slp === "pre", "both providers are read as preseason (" + JSON.stringify([st.espn, st.slp]) + ")");
-      ok(st.engine === "pre" && st.regular === false, "…so the engine reports preseason and refuses to call itself regular");
+      // RESTAGED 2026-08-26 (item 3): ESPN's own read is now the RE-TARGETED regular slate, not
+      // the bare preseason one — was pinned "pre" here. Sleeper's own read is untouched (its real
+      // /state/nfl genuinely still says preseason) — the two now DISAGREE (regular vs pre), so
+      // D.engineSeasonType() reads null rather than "pre". engineRegular stays false either way
+      // (null !== "regular"), which is exactly the Sleeper-side fail-closed posture item 3's own
+      // comment names as unchanged — the guard still refuses, now on disagreement instead of
+      // agreement.
+      ok(st.espn === "regular" && st.slp === "pre",
+        "ESPN's read is now the RE-TARGETED regular slate; Sleeper's own read is untouched and still genuinely preseason (" + JSON.stringify([st.espn, st.slp]) + ")");
+      ok(st.engine === null && st.regular === false,
+        "…so the two providers DISAGREE and the engine reads null — still refuses to call itself regular, for a different, still-honest reason");
       // THE TRAP, stated out loud: before SEASON_START the league-week arithmetic goes negative
       // and clamps to 1, and preseason week 1 is also "1". The week is NOT provenance.
       ok(st.week === 1 && st.uiWeek === 1, "LG.currentWeek() clamps to 1 before SEASON_START, so the app opens on week 1 (" + st.week + ")");
-      ok(st.engineWeek === 1, "…and the ENGINE also says week 1 — the two agree exactly, which is why a week check cannot catch preseason");
+      ok(st.engineWeek === 1, "…and the ENGINE also says week 1 — the re-target explicitly asks for LG.currentWeek(), and Sleeper's own fixture week (1) happens to agree here too");
       ok(st.rosterId === "roster_2026_w1_t1", "…and the rosters/claims it addresses are the ones that exist (" + st.rosterId + ")");
       ok(errors.length === 0, "0 page errors in preseason");
       await ctx.close();
     }
 
-    // ---- AI3 (ITEM 30): preseason data actually POPULATES the board.
+    // ---- AI3 (ITEM 30, RESTAGED 2026-08-26 — items 3+4). The ORIGINAL point of this block was
+    // "preseason data actually POPULATES the board" — proving the 2026-08-09 decision to follow
+    // the NFL into preseason really worked. The commissioner's reset reverses that decision
+    // outright (item 4: "a 'pre' season type never contributes points to the board"). This block
+    // now proves the OPPOSITE: the SAME real preseason stat line, still arriving over the wire
+    // exactly as before (AI2 above just proved the fetch itself is untouched), reads as if
+    // nothing has happened yet — the same "no stats posted" state a genuinely future
+    // regular-season game already shows.
     {
       fixture.preseason = true; fixture.preseasonFinal = false; fixture.depthCharts = false;
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -12701,24 +12735,20 @@ async function openDetails(page, id) {
         rec: window.__GFFL__.D.livePts("4361741"),
         dst: window.__GFFL__.D.livePts("dst_PHI"),
       })) || {};
-      // Hand-computed from PRE_WEEK1 / sumAPreFix (which agree, as the two real providers do):
-      //   75 pass yd ×0.04 = 3 · 1 pass TD = 4          -> 7.0   (regular week 1 would be 10.0)
-      //   3 rec ×1 = 3 · 22 rec yd ×0.1 = 2.2           -> 5.2   (regular week 1 would be 9.0)
-      //   20 points allowed = 0 · 1 sack = 1            -> 1.0
-      ok(pts.passer === 7, "live scoring reads the PRESEASON line: P. Passer 7.0, not his regular-season 10.0 (" + pts.passer + ")");
-      ok(pts.rec === 5.2, "…W. Receiver 5.2 (" + pts.rec + ")");
-      ok(pts.dst === 1, "…and the D/ST derives from the preseason box too, 1.0 (" + pts.dst + ")");
+      // The wire still carries the SAME preseason box (PRE_WEEK1/sumAPreFix — P. Passer 7.0,
+      // W. Receiver 5.2, PHI D/ST 1.0, hand-computed in the 2026-08-09 entry this restages) —
+      // item 4's guard is what keeps it off row.pts now, not a change to the fixture or the feed.
+      ok(pts.passer === 0, "item 4's guard withholds the preseason line entirely: P. Passer reads 0, not his real preseason 7.0 (" + pts.passer + ")");
+      ok(pts.rec === 0, "…W. Receiver 0, not 5.2 (" + pts.rec + ")");
+      ok(pts.dst === 0, "…and PHI D/ST 0, not 1.0 (" + pts.dst + ")");
       await evalOr(page, () => window.__GFFL__.UI.show("matchup"));
       await waitFnOr(page, () => document.querySelector(".muhead"));
       const mu = await evalOr(page, () => ({
         scores: [...document.querySelectorAll(".muhscore .bigpts")].map((e) => e.textContent.trim()),
         body: document.body.textContent,
       })) || {};
-      // 7.0 + 5.2 + 1.0 = 13.2 for team 1; team 2's only scorer is DAL D/ST (PHI scored 13 ->
-      // dst_pa_7_13, RESTAGED 2026-08-22 — ESPN 2026 league settings sheet: every dst_pa_* is
-      // now 0, was 3.0). Both hand-computed above, both from preseason numbers.
-      ok((mu.scores || []).includes("13.2"), "the matchup page totals the preseason lines: 13.2 (" + JSON.stringify(mu.scores) + ")");
-      ok((mu.scores || []).includes("0.0"), "…and the opponent's own preseason total, 0.0 (was 3.0)");
+      ok((mu.scores || []).length === 2 && (mu.scores || []).every((s) => s === "0.0"),
+        "the matchup page totals read 0.0 on BOTH sides — exactly like any pre-kickoff week, not the preseason 13.2/0.0 split it used to show (" + JSON.stringify(mu.scores) + ")");
       ok(!/NaN/.test(mu.body || "NaN"), "…with no NaN anywhere on it");
       await evalOr(page, () => window.__GFFL__.UI.show("moves"));
       await waitFnOr(page, () => document.querySelector("#faResults tr"));
@@ -12727,18 +12757,33 @@ async function openDetails(page, id) {
         const agent = rows.find((r) => /F\. Agent/.test(r.textContent));
         return { n: rows.length, agent: agent ? agent.textContent.replace(/\s+/g, " ") : null, nan: /NaN/.test(document.body.textContent) };
       }) || {};
-      ok(tbl.n > 0, "the players table populates in preseason (" + tbl.n + " rows)");
-      // OPP resolves off the PRESEASON slate: F. Agent is KC, and KC's preseason game is at DEN.
-      ok(tbl.agent && /@\s*DEN/.test(tbl.agent), "…and OPP reads from the preseason slate (" + tbl.agent + ")");
+      ok(tbl.n > 0, "the players table still populates in preseason — identity/injury tracking is never gated, only the score (" + tbl.n + " rows)");
+      // RESTAGED 2026-08-26 (item 3): OPP now resolves off the RE-TARGETED regular week-1 slate
+      // — sbWeekFix's own SEA@KC pairing (KC home), not the preseason KC@DEN game the bare
+      // preseason payload used to carry. Was pinned "@ DEN"; now "vs SEA".
+      ok(tbl.agent && /vs\s*SEA/.test(tbl.agent), "…and OPP reads from the RE-TARGETED regular week-1 slate, not the preseason one (" + tbl.agent + ")");
       ok(tbl.nan === false, "…with no NaN on the players table either");
       ok(errors.length === 0, "0 page errors reading preseason data");
       await ctx.close();
     }
 
-    // ---- AI4 (ITEM 30): ⭐ NOTHING FINALIZES — and the MECHANISM, not just the outcome.
-    // Staged so every OTHER gate is satisfied: the engine's week equals the league's week, and
-    // every starter's game reads Final. The season-type guard is the only thing left standing
-    // between the app and a permanently-wrong write-once weekly doc.
+    // ---- AI4 (ITEM 30, RESTAGED 2026-08-26 — item 3's re-target). ⭐ NOTHING FINALIZES — and
+    // the MECHANISM changed along with it. The original staging tried to satisfy every OTHER
+    // gate (engine week = league week, every starter's game Final) and prove the season-type
+    // guard was the one thing standing in the way. That staging is no longer reachable at all:
+    // pollScoreboard now re-targets ANY preseason bare read to the real week-1 REGULAR slate
+    // (item 3), which has not kicked off — so "every starter's game reads Final" can no longer
+    // be staged while ESPN's bare feed is preseason, by construction; `fixture.preseasonFinal`
+    // has nothing left to flip (it only ever touched the bare payload this re-target replaces).
+    // What actually refuses now, MEASURED rather than assumed: ESPN's re-targeted read says
+    // "regular" while Sleeper's own read is untouched and still genuinely "pre" — the two
+    // DISAGREE, so D.engineSeasonType() reads null (not "pre"), and finalizeWeek's season-type
+    // guard refuses with reason "no-live-data" (an unknown season type), not "preseason". This
+    // is exactly the Sleeper-side fail-closed posture item 3's own comment names as unchanged:
+    // the guard still refuses on the strength of Sleeper's honest preseason read, just by
+    // disagreement instead of agreement. Had the every-game-final gate somehow been reached
+    // instead, it would have refused too (the re-targeted slate is all "pre") — either gate
+    // lands on the same place, nothing ever written.
     {
       fixture.preseason = true; fixture.preseasonFinal = true; fixture.depthCharts = false;
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -12751,14 +12796,20 @@ async function openDetails(page, id) {
           engineWeek: G.D.engineWeek(), leagueWeek: G.LG.currentWeek(),
           states: ["PHI", "DAL", "KC", "DEN"].map((ab) => (G.D.S.games.get(ab) || {}).state),
           seasonType: G.D.engineSeasonType(), regular: G.D.engineRegular(),
+          espnType: G.D.S.espnSeasonType, slpType: G.D.S.slpSeasonType,
         };
       }) || {};
       ok(gates.engineWeek === 1 && gates.leagueWeek === 1,
-        "STAGED: the week gate would have PASSED — engine week 1, league week 1 (" + gates.engineWeek + "/" + gates.leagueWeek + ")");
-      ok((gates.states || []).every((s) => s === "post"),
-        "STAGED: the every-game-final gate would have PASSED too — every starter's game reads Final (" + (gates.states || []).join(",") + ")");
-      ok(gates.seasonType === "pre" && gates.regular === false,
-        "…and the ONLY thing that refuses is the season type: pre, not regular");
+        "the week gate would have PASSED — the re-target explicitly asks for LG.currentWeek(), so engine week and league week still agree (" + gates.engineWeek + "/" + gates.leagueWeek + ")");
+      // RESTAGED: the re-targeted slate is the real, not-yet-kicked-off week 1 — PHI/KC (the
+      // only teams sbWeekFix's slate carries) read "pre" with real future kickoffs; DAL/DEN
+      // (never in that slate at all) are UNTRACKED — D.S.games.get() returns undefined for them,
+      // which (undefined || {}).state reads as `undefined` (join(",") prints it as "", but it is
+      // not the string "" — checked as `== null` here, not `=== ""`).
+      ok((gates.states || []).every((s) => s === "pre" || s == null),
+        "…the every-game-final gate could NOT have passed even if reached — the re-targeted slate is the real week 1, which hasn't kicked off (" + (gates.states || []).join(",") + ")");
+      ok(gates.espnType === "regular" && gates.slpType === "pre" && gates.seasonType === null && gates.regular === false,
+        "…and MEASURED, not assumed: ESPN's re-targeted read is regular while Sleeper's own untouched read is still genuinely preseason — they DISAGREE, so the engine reads null, not \"pre\" (" + JSON.stringify([gates.espnType, gates.slpType, gates.seasonType]) + ")");
       const fin = await evalOr(page, async () => {
         const G = window.__GFFL__;
         const plain = await G.LG.finalizeWeek(1);
@@ -12773,9 +12824,9 @@ async function openDetails(page, id) {
           bracket: localStorage.getItem("lg_gffl_test1_bracket_2026"),
         };
       }) || {};
-      ok(fin.plain && fin.plain.ok === false && fin.plain.reason === "preseason" && fin.plain.seasonType === "pre",
-        "LG.finalizeWeek refuses with reason 'preseason' and names the season type it read (" + JSON.stringify(fin.plain) + ")");
-      ok(fin.forced && fin.forced.ok === false && fin.forced.reason === "preseason",
+      ok(fin.plain && fin.plain.ok === false && fin.plain.reason === "no-live-data" && fin.plain.seasonType === null,
+        "LG.finalizeWeek refuses — reason 'no-live-data', the same refusal any provider disagreement always produces (the season type it read is null, not \"pre\") (" + JSON.stringify(fin.plain) + ")");
+      ok(fin.forced && fin.forced.ok === false && fin.forced.reason === "no-live-data",
         "…and FORCE does not bypass it — force only ever meant 'some games aren't final'");
       ok(fin.weekly === null && (fin.anyWeekly || []).length === 0,
         "…the auto-finalize chain writes NO weekly doc at all (" + JSON.stringify(fin.anyWeekly) + ")");
@@ -12802,9 +12853,17 @@ async function openDetails(page, id) {
       await ctx.close();
     }
 
-    // ---- AI5 (ITEM 30): once the engine rolls to preseason week 2, week 1 is still not stale.
-    // This is the second, subtler way preseason could have poisoned the record: the stale card's
-    // own button backfills from /stats/nfl/regular/<season>/<week>, a week nobody has played.
+    // ---- AI5 (ITEM 30, RESTAGED 2026-08-26 — item 3's re-target). Once Sleeper's own week rolls
+    // ahead of the league's (real preseason keeps its own week counter moving through August,
+    // independent of the league's SEASON_START clamp), week 1 must still never be listed stale.
+    // The ORIGINAL staging drove this through the ESPN side AGREEING with Sleeper at "preseason
+    // week 2" — no longer reachable, because pollScoreboard's re-target always asks ESPN for
+    // LG.currentWeek() (1), regardless of what Sleeper's own week says or what the bare payload's
+    // own week.number claims (`fixture.espnWeekNum` no longer reaches D.S.espnWeek at all — kept
+    // set here to prove exactly that). MEASURED: the two now simply DISAGREE (espnWeek 1, slpWeek
+    // 2) — D.engineWeek() reads null, not 2 — and staleFinalizeWeeks' own "UNKNOWN IS NOT STALE"
+    // rule (it lists nothing while the engine's week is unreadable) is what keeps week 1 quiet, a
+    // shorter path to the exact same safe silence the original test proved.
     {
       fixture.preseason = true; fixture.preseasonWeek = 2; fixture.preseasonFinal = true;
       fixture.espnWeekNum = 2;
@@ -12816,13 +12875,16 @@ async function openDetails(page, id) {
       await waitOr(page, ".mucard");
       const s2 = await evalOr(page, () => ({
         engineWeek: window.__GFFL__.D.engineWeek(), leagueWeek: window.__GFFL__.LG.currentWeek(),
+        espnWeek: window.__GFFL__.D.S.espnWeek, slpWeek: window.__GFFL__.D.S.slpWeek,
         stale: !!document.querySelector(".staleFinBtn"),
         nag: /needs? finalizing/i.test(document.body.textContent),
       })) || {};
-      ok(s2.engineWeek === 2 && s2.leagueWeek === 1,
-        "STAGED: the engine has rolled to preseason week 2 while the league still reads week 1 — the exact shape that lists a week as stale (" + s2.engineWeek + "/" + s2.leagueWeek + ")");
+      ok(s2.espnWeek === 1 && s2.slpWeek === 2,
+        "MEASURED: ESPN's re-targeted read stays LG.currentWeek() (1) no matter what the bare payload's own week.number claimed (2, via fixture.espnWeekNum); Sleeper's own week is untouched at 2 (" + s2.espnWeek + "/" + s2.slpWeek + ")");
+      ok(s2.engineWeek === null,
+        "…so the engine's own week is now a flat DISAGREEMENT (null), not \"preseason week 2\" — the trap this test used to stage can no longer occur at all (" + s2.engineWeek + ")");
       ok(s2.stale === false && s2.nag === false,
-        "…and week 1 is STILL not offered for finalizing: no regular-season week can be stale before the regular season starts");
+        "…and week 1 is STILL not offered for finalizing — staleFinalizeWeeks' own \"unknown is not stale\" rule fires before it would ever ask whether the season is regular");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
       fixture.espnWeekNum = null;
@@ -20190,6 +20252,374 @@ async function openDetails(page, id) {
       ok(r && r.d1.conflict === true, "mergeRow: both sides with stats, game post, ESPN 10.0 vs Sleeper 10.6 (diff 0.6 > 0.5) → conflict true");
       ok(r && r.d2.conflict === false, "…ESPN 10.0 vs Sleeper 10.3 (diff 0.3 ≤ 0.5) → conflict false — the rule doesn't over-fire");
       ok(r && r.e.conflict === false, "mergeRow: both sides with stats, game IN, same 0.6-pt gap as the post-game conflict case → conflict false regardless (live-play suppression, pinned)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+  }
+
+  section("BC · THE SEASON-RESET BATCH (2026-08-26) — commissioner-directed, items 1-6");
+  // THE COMMISSIONER'S REPORT, post-reset: "in the standings teams have ties for some reason,
+  // they should be at zero, and there shouldn't be a comment about provisional wins since the
+  // season hasn't started. the matchups should now reflect week 1 of the real season." The
+  // commissioner emptied every 2026 roster and deleted every preseason artifact on 2026-08-23;
+  // the live league now holds 8 empty rosters, and the real season opens with NFL week 1 on
+  // Sep 10. Six items: 1/2's root cause is LG.matchupDecided (lg-core.js) + matchupSides
+  // (lg-ui.js); 3's is D.pollScoreboard (lg-data.js); 4's is D.pollSleeper (lg-data.js); 5's is
+  // D.initSleeper's projections fetch (lg-data.js); 6 needed NO code change — see BC6.
+  {
+    // Local helpers, mirroring section AI's own (scoped there, unreachable here): a TOLERANT
+    // live-wait. Item 4's preseason guard means D.S.slpSeeded deliberately never flips true
+    // while ESPN's bare read is preseason (a poll that merges nothing must not lie about having
+    // a baseline) — the STRICT waitLive() used everywhere else would time out here BY DESIGN,
+    // not by bug, so every preseason-fixture check below waits tolerantly instead.
+    const waitLiveOr = async (page) => {
+      try {
+        await page.waitForFunction(() => { const d = window.__GFFL__.D; return d && d.S.players.size > 0 && d.S.espnSeeded; }, { timeout: 8000 });
+        return true;
+      } catch (e) { return false; }
+    };
+
+    // ---- BC1 (ITEMS 1/2) — VACUOUS FINALITY, the pure function. Array.prototype.every on []
+    // is true BY DEFINITION, so an empty side used to satisfy "every player done" for free —
+    // two empty sides resolved as a DECIDED 0-0 TIE. LG.matchupDecided([], []) now short-
+    // circuits to {decided:false, winner:null} FIRST; the genuine one-side-empty case (a real,
+    // banked side against a truly empty one) is pinned separately and untouched.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const r = await evalOr(page, () => {
+        const LG = window.__GFFL__.LG;
+        return {
+          bothEmpty: LG.matchupDecided([], []),
+          aOnlyDecided: LG.matchupDecided([{ pts: 10, done: true }], []),
+          bOnlyDecided: LG.matchupDecided([], [{ pts: 10, done: true }]),
+        };
+      }) || {};
+      ok(r.bothEmpty && r.bothEmpty.decided === false && r.bothEmpty.winner === null,
+        "LG.matchupDecided([], []) is NOT decided — nobody has taken the field on either side (" + JSON.stringify(r.bothEmpty) + ")");
+      ok(r.aOnlyDecided && r.aOnlyDecided.decided === true && r.aOnlyDecided.winner === "A",
+        "…but the GENUINE one-side-empty case is untouched: a real, banked side against a truly empty side IS decided (" + JSON.stringify(r.aOnlyDecided) + ")");
+      ok(r.bOnlyDecided && r.bOnlyDecided.decided === true && r.bOnlyDecided.winner === "B",
+        "…symmetric for the away side (" + JSON.stringify(r.bOnlyDecided) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BC2 (ITEMS 1/2) — THE ALL-EMPTY-ROSTERS BOARD, the reader side. 8 teams, a real
+    // week-1 schedule, nobody rostered — the actual shape of the league right now. Explicit
+    // regular-season fixture — item 1/2's fix is season-type-independent, and pinning it removes
+    // any dependence on whatever an earlier section in the same run left `fixture` holding.
+    {
+      fixture.preseason = false; fixture.preseasonFinal = false;
+      const { ctx, page, errors } = await newTestPage(browser, seedAllEmpty());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      // NOT the strict waitLive(): it requires D.S.espnSeeded, which only ever flips true once
+      // D.pollEspnGame fetches a summary for a TRACKED team's game — and D.S.tracked is built
+      // from ROSTERED players, of which this fixture genuinely has none. No rosters -> no
+      // tracked teams -> no summary ever fetched -> espnSeeded correctly stays false forever,
+      // which is honest behavior for this fixture, not a bug the wait should paper over.
+      try { await page.waitForFunction(() => window.__GFFL__.D.S.slpSeeded === true, { timeout: 8000 }); } catch (e) { /* tolerant — the assertions below are the real check */ }
+      await sleep(200); // let the just-seeded poll's own repaint land
+      // Read the RENDERED table, not LG.loadStandings() — the vacuous-finality bug lived ENTIRELY
+      // in renderLeague's provisional-overlay CLONE (lg-ui.js), never in loadStandings() itself
+      // (which only ever reads finalized "weekly" docs, none of which exist yet regardless of
+      // this bug) — calling loadStandings() directly would read 0-0-0-0 whether the bug were
+      // present or not, and prove nothing. Mobile layout: rank, team, W(+prov mark), L, PF, PA.
+      const board = await evalOr(page, () => {
+        const rows = [...document.querySelectorAll(".standtbl tbody tr")];
+        const wlpfpa = rows.map((tr) => [...tr.querySelectorAll("td")].slice(2, 6)
+          .map((td) => td.textContent.trim().replace(/\*$/, "")));
+        return {
+          rowCount: rows.length, wlpfpa,
+          starMarks: document.querySelectorAll(".standprov").length,
+          footnote: !!document.querySelector(".standprovnote"),
+          clinchStars: document.querySelectorAll(".clinchwrap, .clinchstar").length,
+          conflictBadges: document.querySelectorAll(".conflictflag").length,
+          conflictText: /CONFLICT/.test(document.body.textContent),
+        };
+      }) || {};
+      ok(board.rowCount === 8, "the standings table lists all 8 teams even with nobody rostered (" + board.rowCount + ")");
+      ok(board.wlpfpa && board.wlpfpa.length === 8 && board.wlpfpa.every(([w, l, pf, pa]) => w === "0" && l === "0" && pf === "0.0" && pa === "0.0"),
+        "every team's RENDERED row reads 0 W, 0 L, 0.0 PF, 0.0 PA — the provisional overlay counted nothing (" + JSON.stringify((board.wlpfpa || [])[0]) + ")");
+      ok(board.starMarks === 0, "…no row carries the provisional asterisk mark (" + board.starMarks + ")");
+      ok(board.footnote === false, "…and the '* Provisional' footnote does not render — zero provisional results were counted (the pre-existing AZ2/BA1 fixtures, which DO have a real decided matchup, still show it — unrestaged, still green)");
+      ok(board.clinchStars === 0, "…no clinch star renders on any empty-vs-empty matchup card either");
+      ok(board.conflictBadges === 0 && board.conflictText === false,
+        "…and no CONFLICT badge/text appears anywhere — an empty roster has no stat rows to ever disagree about");
+      ok(errors.length === 0, "0 page errors on the all-empty-rosters board");
+      if (SHOTS) {
+        const p = path.join(SCRATCH, "gffl_allempty_standings_390.png");
+        await page.screenshot({ path: p, fullPage: true });
+        console.log("  \u{1F4F8} " + p);
+      }
+      await ctx.close();
+    }
+
+    // ---- BC3 (ITEM 3) — THE PRESEASON SLATE RE-TARGET: mechanism (fetch count) + consequences.
+    {
+      // (a) Already regular/post: byte-identical, ONE fetch — the re-target endpoint must never
+      // even be created.
+      fixture.preseason = false; fixture.preseasonFinal = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLive(page);
+      const reg = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        return { bareN: (D.EP["espn scoreboard"] || {}).n || 0, retargetEp: D.EP["espn scoreboard (regular re-target)"] || null };
+      }) || {};
+      ok(reg.bareN >= 1 && reg.retargetEp === null,
+        "already-regular: the bare scoreboard polls as always, and the re-target endpoint is never even created — byte-identical, one fetch (" + JSON.stringify(reg) + ")");
+      ok(errors.length === 0, "0 page errors on a regular-season boot");
+      await ctx.close();
+    }
+    {
+      // (b) Preseason: the bare payload is still asked every tick (health/board update off
+      // SOMETHING), and every tick that comes back preseason pairs with exactly one re-target.
+      fixture.preseason = true; fixture.preseasonWeek = 1; fixture.preseasonFinal = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLiveOr(page);
+      const pre = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        return {
+          bareN: (D.EP["espn scoreboard"] || {}).n || 0,
+          retargetN: (D.EP["espn scoreboard (regular re-target)"] || {}).n || 0,
+          espnType: D.S.espnSeasonType, espnWeek: D.S.espnWeek,
+          games: [...D.S.games.entries()].map(([k, g]) => [k, g.state, g.kickoff]),
+        };
+      }) || {};
+      ok(pre.bareN >= 1 && pre.retargetN === pre.bareN,
+        "preseason: every bare-scoreboard tick pairs with exactly one re-target fetch — two fetches per tick, never one (bare " + pre.bareN + ", re-target " + pre.retargetN + ")");
+      ok(pre.espnType === "regular" && pre.espnWeek === 1,
+        "…D.S.espnSeasonType/espnWeek are built from the RE-TARGETED payload — regular, week 1 (" + pre.espnType + "/" + pre.espnWeek + ")");
+      // Consequences, ASSERTED not assumed: the re-targeted slate is sbWeekFix's own real
+      // SF@PHI/SEA@KC pairing — future kickoffs, every game "pre", nothing reads as locked.
+      ok(pre.games.length === 4 && pre.games.every(([, state]) => state === "pre"),
+        "…every game on the board reads 'pre' — the real week-1 slate, not yet kicked off (" + JSON.stringify(pre.games) + ")");
+      ok(pre.games.every(([, , kickoff]) => new Date(kickoff).getTime() > Date.now()),
+        "…with a real FUTURE kickoff on every game, not the old preseason fixture's live/near-term one");
+      const started = await evalOr(page, () => ["PHI", "KC"].map((ab) => window.__GFFL__.D.gameStarted(ab))) || [];
+      ok(started.length === 2 && started.every((s) => s === false),
+        "…and D.gameStarted reads false for the re-targeted teams — nothing is locked before real kickoff (" + JSON.stringify(started) + ")");
+      // The matchup page's own game line shows the RE-TARGETED opponent + a real computed
+      // kickoff time (gameLineHtml's own shortKick(), off g.kickoff — NOT the fixture's literal
+      // shortDetail string, and NOT pinned to a timezone, so only the environment-independent
+      // shape is asserted here), never the old preseason game's live clock or Final state.
+      // Scoped to P. Passer's OWN cell specifically (the same pattern AI1's original
+      // hand-computed checks used) rather than the whole page's textContent — a whole-page read
+      // can win on a race with the roster/lineup table's own async paint; waiting for his row's
+      // own .gline element is both the more targeted assertion and the more reliable wait.
+      await evalOr(page, () => window.__GFFL__.UI.show("matchup"));
+      await waitFnOr(page, () => document.querySelector(".muhead"));
+      await waitFnOr(page, () => [...document.querySelectorAll(".mutable .pcellgrid")].some((c) => c.textContent.includes("P. Passer") && c.querySelector(".gline")));
+      const passerGline = (await evalOr(page, () => {
+        const cell = [...document.querySelectorAll(".mutable .pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
+        const g = cell ? cell.querySelector(".gline") : null;
+        return g ? g.textContent : null;
+      })) || "";
+      ok(!/Q2 5:00/.test(passerGline) && !/\bFinal\b/.test(passerGline),
+        "…the matchup page's own game line never shows the old preseason game's live clock or Final state (" + passerGline + ")");
+      ok(/\bSF\b/.test(passerGline) && /\d{1,2}:\d{2}\s?(AM|PM)/i.test(passerGline),
+        "…and shows the RE-TARGETED opponent (SF, P. Passer's real week-1 opponent per sbWeekFix) with a real computed kickoff time — not the preseason fixture's DAL (" + passerGline + ")");
+      if (SHOTS) {
+        const p = path.join(SCRATCH, "gffl_week1_matchup_390.png");
+        await page.screenshot({ path: p, fullPage: true });
+        console.log("  \u{1F4F8} " + p);
+      }
+      // The Scores tab lists the week-1 slate too — the same D.S.nflEvents the matchup page
+      // reads. Its own kickoff time IS timezone-pinned (kickTimeStr, America/Chicago) — hand-
+      // computed off sbWeekFix's own kickoff (2026-09-20T17:00Z = 12:00 PM CT), so this one
+      // check for once is a byte-exact string, not just a shape.
+      await evalOr(page, () => window.__GFFL__.UI.show("scores"));
+      await waitFnOr(page, () => document.body.textContent.includes("NFL this week"));
+      const scores = (await evalOr(page, () => document.body.textContent)) || "";
+      ok(/Chiefs/.test(scores) && /Eagles/.test(scores) && /12:00 PM CT/.test(scores),
+        "…the Scores tab's NFL slate lists the RE-TARGETED week-1 games (Eagles/Chiefs) with their real, hand-computed kickoff time, 12:00 PM CT — not the preseason ones");
+      if (SHOTS) {
+        const p = path.join(SCRATCH, "gffl_scores_week1_390.png");
+        await page.screenshot({ path: p, fullPage: true });
+        console.log("  \u{1F4F8} " + p);
+      }
+      // finalizeWeek still refuses — the MECHANISM is AI4's own restaged proof (Sleeper's own
+      // read stays genuinely preseason, so the two providers disagree); pinned again here as
+      // item 3's own direct consequence.
+      const fin = (await evalOr(page, () => window.__GFFL__.LG.finalizeWeek(1))) || {};
+      ok(fin.ok === false && fin.reason === "no-live-data",
+        "…and finalizeWeek still refuses — reason 'no-live-data' (provider disagreement), never a written weekly doc (" + JSON.stringify(fin) + ")");
+      ok(errors.length === 0, "0 page errors through the preseason re-target");
+      await ctx.close();
+    }
+
+    // ---- BC4 (ITEM 4) — PRESEASON STATS BLEED, the mechanism directly. BC3/AI3 already prove
+    // the end-to-end outcome; this proves WHERE the guard sits — pollSleeper itself never merges
+    // a preseason stat line, so neither side of the row ever carries it, and the bucket/seeded
+    // flags never lie about holding a real baseline.
+    {
+      fixture.preseason = true; fixture.preseasonWeek = 1; fixture.preseasonFinal = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLiveOr(page);
+      await sleep(300); // let at least one live-poll tick land past the boot's own first paint
+      const before = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        const row = D.S.players.get("3915511"); // P. Passer, PHI — the same preseason box AI3 hand-computes at 7.0
+        return {
+          seasonType: D.S.slpSeasonType, rowExists: !!row,
+          slpSide: row ? row.slp : "no-row", pts: row ? row.pts : "no-row",
+          slpSeeded: D.S.slpSeeded, bucketLocked: D.S.slpBucket.locked,
+        };
+      }) || {};
+      ok(before.seasonType === "pre", "the fixture is genuinely preseason, by Sleeper's own read (" + before.seasonType + ")");
+      ok(before.rowExists === true, "…the player is still tracked/registered — identity is never gated");
+      ok(before.slpSide == null, "…but row.slp was NEVER CREATED — pollSleeper skipped applySide entirely rather than merging then discarding (" + JSON.stringify(before.slpSide) + ")");
+      ok(before.pts == null, "…so row.pts stays null — no preseason number ever reached it (" + before.pts + ")");
+      ok(before.slpSeeded === false && before.bucketLocked === false,
+        "…and the bucket never locks/marks itself seeded off a poll that merged nothing (" + JSON.stringify([before.slpSeeded, before.bucketLocked]) + ")");
+      const after = await evalOr(page, async () => {
+        const D = window.__GFFL__.D;
+        await D.pollSleeper(); // called again, directly — same guard, exercised explicitly
+        const row = D.S.players.get("3915511");
+        return { slpSide: row.slp, pts: row.pts, livePts: D.livePts("3915511") };
+      }) || {};
+      ok(after.slpSide == null && after.pts == null,
+        "…re-polling directly confirms it: still no row.slp, still no row.pts, from the SAME real preseason box (" + JSON.stringify(after) + ")");
+      ok(after.livePts === 0, "…D.livePts reads 0 — exactly the 'no stats yet' state any genuinely future game already shows (" + after.livePts + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BC5 (ITEM 5) — PROJECTIONS RE-TARGET, decoupled from Sleeper's own week. AI2 proves
+    // the mechanism when Sleeper's own preseason week already happens to read 1 (old and new
+    // week arguments coincide there); this proves the WEEK is genuinely overridden too, not just
+    // the season type — Sleeper's own current week is 3 here, and the fetch still asks for 1.
+    {
+      fixture.preseason = true; fixture.preseasonWeek = 3; fixture.preseasonFinal = false;
+      const nProj = slpProjUrls.length;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLiveOr(page);
+      const projUrls = slpProjUrls.slice(nProj);
+      ok(projUrls.length > 0 && projUrls.every((u) => /\/projections\/nfl\/regular\/2026\/1(\?|$)/.test(u)),
+        "Sleeper's own current week is 3 (preseason), but the projections re-target still asks for REGULAR week 1 — LG.currentWeek(), never Sleeper's own week (" + (projUrls[0] || "none") + ")");
+      ok(projUrls.every((u) => !/\/pre\//.test(u) && !/\/regular\/2026\/3(\?|$)/.test(u)),
+        "…never the preseason bucket, and never week 3");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      // Reset for BC6(a) below (fullSeed() + the strict waitLive(), which needs D.S.espnSeeded —
+      // left preseason, BC6(a) would inherit a re-target it has no reason to exercise).
+      fixture.preseason = false; fixture.preseasonWeek = 1;
+    }
+
+    // ---- BC6 (ITEM 6) — THE POOL, VERIFIED, NOT LOCKED. The commissioner's ruled flow: draft
+    // Sun Sep 6, anyone undrafted is a free agent immediately addable first-come-first-served
+    // (no pool lock, no waiting period), and players lock per the NORMAL started rules once
+    // their own real week-1 game kicks off (Thu Sep 10, per item 3's re-target). NO CODE CHANGE
+    // for this item — every check below pins EXISTING behavior.
+    const SEP7_MON = new Date("2026-09-07T15:00:00-05:00").getTime();   // post-draft, pre-SEASON_START
+    const SEP9_WED_8AM = new Date("2026-09-09T08:01:00-05:00").getTime(); // the Wed waiver run
+    {
+      // (a) Post-draft, Mon Sep 7: an undrafted free agent adds INSTANTLY for any team with
+      // roster room, first-come-first-served — then refuses everywhere else as already owned.
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, async (ts) => {
+        const LG = window.__GFFL__.LG;
+        LG.nowOverride = ts;
+        const player = { key: "9201", name: "F. Agent", pos: "WR", team: "KC" }; // fullSeed's own unowned free agent
+        const first = await LG.faAdd(1, 3, player); // team 3 — no roster doc, plenty of room
+        const rosterAfter = await LG.loadRoster(1, 3);
+        const second = await LG.faAdd(1, 4, player); // a DIFFERENT team, same player
+        LG.nowOverride = null;
+        return { first, gotIt: rosterAfter.some((p) => p.key === "9201"), second };
+      }, SEP7_MON) || {};
+      ok(r.first && r.first.ok === true, "post-draft (Mon Sep 7), before any waiver window: LG.faAdd of an undrafted free agent succeeds INSTANTLY (" + JSON.stringify(r.first) + ")");
+      ok(r.gotIt === true, "…and lands on the roster immediately — no queued claim, no waiting period");
+      ok(r.second && r.second.ok === false && r.second.reason === "player-taken",
+        "…the SAME player, now owned, refuses for every other team — first come, first served (" + JSON.stringify(r.second) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // (b) Nothing is locked before the first kickoff: the item-3 re-targeted week-1 slate is
+      // "pre" with real future kickoffs, so D.gameStarted is false for everyone — adds, drops
+      // and lineup swaps all work straight through Sep 9.
+      fixture.preseason = true; fixture.preseasonWeek = 1; fixture.preseasonFinal = false;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLiveOr(page);
+      const r = await evalOr(page, async (ts) => {
+        const LG = window.__GFFL__.LG;
+        LG.nowOverride = ts;
+        // A REAL starting-slot player on a re-targeted team (P. Passer, PHI, team1's own QB) —
+        // dropBlocked must read false pre-kickoff, matching D.gameStarted's own false.
+        const dropOk = !LG.dropBlocked({ slot: "QB", team: "PHI" });
+        const add = await LG.faAdd(1, 3, { key: "9202", name: "A. Vail", pos: "K", team: "DEN" });
+        LG.nowOverride = null;
+        return { dropOk, add };
+      }, SEP9_WED_8AM) || {};
+      ok(r.dropOk === true, "Wed Sep 9, before kickoff: a team1 STARTER is still freely droppable — his game hasn't started (dropBlocked false)");
+      ok(r.add && r.add.ok === true, "…and a free-agent ADD still works the same instant — nothing about this window blocks it (" + JSON.stringify(r.add) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      // Reset for (c)/(d) below, which are about the waiver run and the started-lock, not the
+      // preseason re-target — left set, they would inherit "preseason" into fullSeed()'s regular
+      // rostered teams for no reason this pair of checks cares about.
+      fixture.preseason = false; fixture.preseasonWeek = 1; fixture.preseasonFinal = false;
+    }
+    {
+      // (c) The Sep 9 8am waiver run, zero claims: exactly the existing quiet-week semantics
+      // (pinned, not changed) — the week is marked processed, nothing is written to any roster.
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, async (ts) => {
+        const LG = window.__GFFL__.LG;
+        LG.nowOverride = ts;
+        const before = { t1: await LG.loadRoster(1, 1), t2: await LG.loadRoster(1, 2) };
+        const result = await LG.processWaivers(1);
+        const after = { t1: await LG.loadRoster(1, 1), t2: await LG.loadRoster(1, 2) };
+        LG.nowOverride = null;
+        return { result, sameT1: JSON.stringify(before.t1) === JSON.stringify(after.t1), sameT2: JSON.stringify(before.t2) === JSON.stringify(after.t2) };
+      }, SEP9_WED_8AM) || {};
+      ok(r.result && r.result.processed === true && Array.isArray(r.result.claims) && r.result.claims.length === 0 && Array.isArray(r.result.results) && r.result.results.length === 0,
+        "the Wed 8am run with zero claims marks the week processed with empty claims/results — the SAME quiet-week shape as any other week (" + JSON.stringify(r.result) + ")");
+      ok(r.sameT1 === true && r.sameT2 === true, "…and neither team's roster moved even one byte — an empty run cannot harm a roster");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // (d) At the first kickoff (Thu Sep 10, one game "in"): that game's own starters lock per
+      // the NORMAL started rules; a starter on a team whose game hasn't kicked off yet stays
+      // fully droppable.
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D, LG = window.__GFFL__.LG;
+        D.S.games.set("PHI", { state: "in", period: 1, clock: "12:34", kickoff: "2026-09-10T20:20:00Z" });
+        D.S.games.set("DAL", { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+        return {
+          phiStarted: D.gameStarted("PHI"), dalStarted: D.gameStarted("DAL"),
+          phiLocked: LG.dropBlocked({ slot: "QB", team: "PHI" }),
+          dalLocked: LG.dropBlocked({ slot: "RB", team: "DAL" }),
+          phiBenchOk: !LG.dropBlocked({ slot: "BENCH", team: "PHI" }),
+        };
+      }) || {};
+      ok(r.phiStarted === true && r.dalStarted === false, "one game 'in' (PHI) vs. another still 'pre' (DAL) — D.gameStarted tells them apart (" + JSON.stringify([r.phiStarted, r.dalStarted]) + ")");
+      ok(r.phiLocked === true, "…the LIVE game's own STARTER locks per the normal started rules (dropBlocked true)");
+      ok(r.dalLocked === false, "…while a starter on a team whose game hasn't kicked off stays fully droppable");
+      ok(r.phiBenchOk === true, "…and the bench is never locked regardless — only a STARTING slot in a started game is (house rule, untouched)");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
