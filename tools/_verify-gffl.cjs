@@ -159,6 +159,16 @@ const fixture = {
   // success for 30 minutes in module scope — see startSportsFfUpstream's own note.
   ownershipDown: false,
   ownershipUpstreamDown: false,
+  // ---- Section BD (2026-08-26, the player card's season schedule + the moves-table OPP fix).
+  // teamSched: null by default -> the /schedule endpoint answers a genuinely empty schedule
+  // (byeWeek null, events []), the same "no data" shape D.teamSchedule already treats as a
+  // clean miss (graceful degrade to the old played-weeks log) — so every pre-existing section
+  // that happens to open a player card sees BYTE-IDENTICAL behavior to before this feature
+  // existed, never a new fetch failure or a stray schedule table. Section BD sets it to a real
+  // {PHI: {...}} map for its own scoped tests only. teamSchedDown: a SCOPED outage (503) for
+  // just the /schedule endpoint — mirrors espnSummariesDown's own scoped-failure pattern.
+  teamSched: null,
+  teamSchedDown: false,
 };
 
 // ---------------- section AC: production-shaped identity data (2026-08-09) ----------------
@@ -1034,6 +1044,41 @@ function sbFix() {
   out.season = { type: fixture.preseason ? 1 : 2, year: 2026 };
   return out;
 }
+// -- the player card's SEASON SCHEDULE (2026-08-26) — /teams/<ab>/schedule?season=&seasontype=2.
+// Real shape, from the live probe recorded in lg-data.js's D.teamSchedule comment: top-level
+// `team.abbreviation`/`byeWeek`, and `events[]` of {date, week:{number}, competitions:[
+// {competitors:[{homeAway, team:{abbreviation}}]}]}. PHI's hand-designed 17-event, one-bye
+// season (weeks 1-4 line up with seedWithWeeklyHistory()'s own finalized gameLog — 10/10/20/1
+// — so a played week's row can hand-check BOTH the schedule's opponent AND gameLog's points on
+// the same row; week 5 is the bye; week 6 is deliberately AWAY, the row section BD hand-checks
+// for the "@" format and — since it is also unplayed and not the current week — the kickoff
+// text). Weeks 7-18 just complete a realistic shape; nothing hand-checks them individually.
+const PHI_SCHED_WEEKS = [
+  [1, "DAL", true], [2, "KC", true], [3, "SEA", true], [4, "SF", true],
+  // week 5 = BYE (deliberately absent)
+  [6, "DEN", false], [7, "DAL", false], [8, "KC", true], [9, "SEA", false],
+  [10, "SF", true], [11, "DEN", true], [12, "DAL", true], [13, "KC", false],
+  [14, "SEA", true], [15, "SF", false], [16, "DEN", true], [17, "DAL", false], [18, "KC", true],
+];
+function teamSchedFix(ab, weeks, byeWeek) {
+  const events = weeks.map(([wk, oppAb, home]) => ({
+    id: "sched_" + ab + "_" + wk,
+    // Deliberately far in the future AND spread a week apart — shortKick's own rendering is
+    // asserted only by SHAPE (a weekday abbreviation), never an exact clock time, the same
+    // "not pinned to a timezone" rule section AI's re-target check already follows (its own
+    // note is beside D.gameStarted/gameLineHtml's shortKick call, the same helper this reuses).
+    date: new Date(Date.UTC(2026, 8, 6) + wk * 7 * 24 * 3600 * 1000).toISOString(),
+    week: { number: wk },
+    seasonType: { id: "2", type: 2, name: "Regular Season", abbreviation: "reg" },
+    competitions: [{
+      competitors: home
+        ? [{ homeAway: "home", team: { abbreviation: ab } }, { homeAway: "away", team: { abbreviation: oppAb } }]
+        : [{ homeAway: "away", team: { abbreviation: ab } }, { homeAway: "home", team: { abbreviation: oppAb } }],
+      status: { type: { state: "pre" } },
+    }],
+  }));
+  return { team: { id: NFL_TEAM_ID[ab] || "0", abbreviation: ab }, season: { year: 2026, type: 2 }, byeWeek, events };
+}
 // -- the 2025 SEASON REPLAY's historical slate (2026-08-08). The replay asks ESPN's own public
 // scoreboard for an EXPLICIT slate — dates=<season>&seasontype=2&week=1 — rather than the bare
 // "current week" endpoint sbFix() above answers. Every URL that carries `dates=` is recorded in
@@ -1844,6 +1889,20 @@ async function newTestPage(browser, seed, opts) {
           if (fixture.espnDown) return req.respond({ status: 503, headers: cors, body: "{}" });
           // Section AY: a SUMMARY-only blackout — the scoreboard (and sleeper) stay healthy.
           if (fixture.espnSummariesDown && u.includes("/summary")) return req.respond({ status: 503, headers: cors, body: "{}" });
+          // Section BD (2026-08-26): the player card's season-schedule fetch — D.teamSchedule's
+          // own /teams/<ab>/schedule call. teamSchedDown is a SCOPED outage (mirrors
+          // espnSummariesDown above) so a card's degrade path can be proven without taking the
+          // whole ESPN surface down. Unmatched by design when fixture.teamSched is null (every
+          // pre-existing section that happens to open a player card): answers a genuinely empty
+          // schedule, the same shape D.teamSchedule already treats as a clean no-data miss, so
+          // every OTHER section's card renders byte-identical to before this feature existed.
+          if (fixture.teamSchedDown && u.includes("/schedule")) return req.respond({ status: 503, headers: cors, body: "{}" });
+          if (u.includes("/schedule")) {
+            const sm = /\/teams\/([A-Za-z]+)\/schedule/.exec(u);
+            const ab = sm ? sm[1].toUpperCase() : "";
+            const sched = fixture.teamSched && fixture.teamSched[ab];
+            return json(sched || { team: { abbreviation: ab }, byeWeek: null, events: [] });
+          }
           if (u.includes("/scoreboard")) {
             // A BROWSED week (2026-08-13, the Scores week cycler): dates=2026&seasontype=2&week=N
             // — the CURRENT season addressed explicitly, which the 2025 replay never does, so
@@ -3374,17 +3433,28 @@ async function openDetails(page, id) {
     // RESTAGED 2026-08-09 (ITEM 22): the STATUS and SCORE halves of this block are gone with
     // their columns. The live clock and this week's points both survive in full on the
     // player's own stats card, which section Y already asserts and which any row opens.
+    // RESTAGED AGAIN 2026-08-26 (section BD, the season-reset batch's fallout): this column used
+    // to read D.oppForWeek(UI.week, p.team), gated on D.engineWeek() agreeing with the viewed
+    // week — true in THIS fixture (no season-reset re-target armed here), so the old values were
+    // real. But the season-reset batch's preseason re-target leaves D.engineWeek() permanently
+    // null in the real app (ESPN/Sleeper deliberately disagree until real kickoff), which made
+    // that same call return "—" for EVERY row unconditionally the instant the reset landed — the
+    // column was reported "missing" because it was silently dead, not absent. Migrated onto the
+    // new, ungated D.oppForTeam (reads D.S.games directly — see its own comment in lg-data.js)
+    // and reformatted to match the player card's new schedule table: bare abbrev home, "@ABBREV"
+    // away (no space) — was "vs DAL"/"@ DEN". The underlying FACTS this check pins are unchanged
+    // (PHI home vs DAL, KC away vs DEN); only the source function and the string format are.
     const passerOppStatus = await page.evaluate(() => {
       const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
       return { opp: tr.querySelector(".faopp").textContent.trim(), noStatus: !tr.querySelector(".fastatus"), noScore: !tr.querySelector(".fascore") };
     });
-    ok(passerOppStatus.opp === "vs DAL", "OPP renders '@'-prefixed correctly for the HOME side — P. Passer (PHI, home) reads 'vs DAL' (" + passerOppStatus.opp + ")");
+    ok(passerOppStatus.opp === "DAL", "OPP renders the bare abbrev for the HOME side — P. Passer (PHI, home) reads 'DAL' (" + passerOppStatus.opp + ")");
     ok(passerOppStatus.noStatus && passerOppStatus.noScore, "…and the dropped STATUS/SCORE cells really are gone from the row, not merely unlabelled");
     const tightRow = await page.evaluate(() => {
       const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("T. Tight"));
       return { opp: tr.querySelector(".faopp").textContent.trim() };
     });
-    ok(tightRow.opp === "@ DEN", "OPP renders '@'-prefixed correctly for the AWAY side — T. Tight (KC, away) reads '@ DEN' (" + tightRow.opp + ")");
+    ok(tightRow.opp === "@DEN", "OPP renders '@'-prefixed (no space) for the AWAY side — T. Tight (KC, away) reads '@DEN' (" + tightRow.opp + ")");
     // PROJ sort: T. Tight is the fixture's only player with a real Sleeper projection (8.5 —
     // same fixture value section M's own AI-read tests already hand-check). Sorting PROJ desc
     // must put him FIRST (every FA-only row has no projection -> -Infinity, tied); asc must
@@ -6884,6 +6954,12 @@ async function openDetails(page, id) {
     ok(/proj —/.test(y1.weekMuts[0]), "no Sleeper projection on file for this player -> an honest —, never a fabricated number (" + y1.weekMuts[0] + ")");
     ok(/Live — Q2 5:00/.test(y1.weekMuts[1] || ""), "…and the live game clock renders too (" + JSON.stringify(y1.weekMuts) + ")");
     ok(y1.tiles.join("|") === "41.0|10.3|20.0", "season total/avg/best, hand-computed from the 4 seeded finalized weeks (10+10+20+1=41, /4=10.25→\"10.3\", best 20) (" + y1.tiles.join("|") + ")");
+    // NOT restaged (2026-08-26, section BD): the player card now ALSO fetches a per-team NFL
+    // schedule and shows it instead of this played-weeks table when that fetch resolves real
+    // data. fixture.teamSched is null everywhere in this section (never armed here), so the
+    // fixture's /schedule endpoint answers the same "no data" shape D.teamSchedule always
+    // treats as a clean miss — this block is therefore the graceful-degrade path PROVEN, not
+    // merely assumed: byte-identical to the pre-BD card, unchanged on purpose.
     ok(y1.rows.length === 4, "4 finalized weeks in the game log (" + y1.rows.length + ")");
     ok(/Wk 4.*1\.0/.test(y1.rows[0]) && /Wk 3.*20\.0/.test(y1.rows[1]) && /Wk 2.*10\.0/.test(y1.rows[2]) && /Wk 1.*10\.0/.test(y1.rows[3]),
       "newest week first, every figure matching the seeded per-week Sleeper fixture exactly (wk4=25yd=1.0, wk3=300yd/2TD=20.0, wk1-2 generic=10.0) (" + JSON.stringify(y1.rows) + ")");
@@ -12761,7 +12837,15 @@ async function openDetails(page, id) {
       // RESTAGED 2026-08-26 (item 3): OPP now resolves off the RE-TARGETED regular week-1 slate
       // — sbWeekFix's own SEA@KC pairing (KC home), not the preseason KC@DEN game the bare
       // preseason payload used to carry. Was pinned "@ DEN"; now "vs SEA".
-      ok(tbl.agent && /vs\s*SEA/.test(tbl.agent), "…and OPP reads from the RE-TARGETED regular week-1 slate, not the preseason one (" + tbl.agent + ")");
+      // RESTAGED AGAIN, same session (section BD): the column moved from D.oppForWeek onto
+      // D.oppForTeam (see section I2's own restage for the full reason) — "vs SEA" -> bare
+      // "SEA". Note this fixture's engineWeek happens to AGREE (both providers say week 1 —
+      // fixture.preseasonWeek defaults to 1, matching LG.currentWeek()'s own clamp), which is
+      // exactly why the OLD D.oppForWeek-based column still passed here even though the SAME
+      // function reads permanently null in the real app, where Sleeper's real preseason week
+      // (2-3 in August) disagrees with the re-target's week-1 number — see section BC5's own
+      // "Sleeper's own current week is deliberately 3" fixture for that real-disagreement case.
+      ok(tbl.agent && /\bSEA\b/.test(tbl.agent) && !/vs SEA/.test(tbl.agent), "…and OPP reads from the RE-TARGETED regular week-1 slate, not the preseason one (" + tbl.agent + ")");
       ok(tbl.nan === false, "…with no NaN on the players table either");
       ok(errors.length === 0, "0 page errors reading preseason data");
       await ctx.close();
@@ -20623,6 +20707,113 @@ async function openDetails(page, id) {
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
+  }
+
+  // ---------------- section BD (2026-08-26) ----------------
+  // Two commissioner items: (1) the player card's "Game log" (played weeks only) becomes a full
+  // 18-week "Schedule" — opponent every week, points merged in for played ones, off a new
+  // per-NFL-team schedule fetch (D.teamSchedule, lg-data.js). (2) The moves-table OPP column,
+  // which D.oppForWeek's own if-known gate left reading "—" for EVERY row the instant the
+  // season-reset batch's preseason re-target landed (D.engineWeek() has read a deliberate
+  // ESPN/Sleeper disagreement, null, ever since — see that batch's own entry) — migrated onto
+  // the new, ungated D.oppForTeam.
+  section("BD · the player card's season schedule (D.teamSchedule) + the moves-table OPP column fix (D.oppForTeam)");
+  {
+    // BD1/BD2: the schedule table — 18 hand-computed rows — and the per-TEAM cache, in one page.
+    // seedWithWeeklyHistory() finalizes weeks 1-4 for P. Passer (PHI) at 10/10/20/1 — the exact
+    // numbers section Y's own card test already hand-checks, reused here so a played week's row
+    // can be verified against a real, independently-pinned gameLog fixture rather than a new one
+    // invented just for this section.
+    fixture.teamSched = { PHI: teamSchedFix("PHI", PHI_SCHED_WEEKS, 5) };
+    const { ctx, page, errors } = await newTestPage(browser, seedWithWeeklyHistory());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511")); // P. Passer, PHI
+    await page.waitForSelector(".pccard .pclog", { timeout: 5000 });
+    const bd1 = await page.evaluate(() => ({
+      heading: document.querySelector(".pclog h2").textContent.trim(),
+      rows: [...document.querySelectorAll(".pclog tbody tr")].map((tr) => tr.textContent.replace(/\s+/g, " ").trim()),
+    }));
+    ok(bd1.heading === "Schedule", "the section heading reads 'Schedule' once a real team schedule resolves, not 'Game log' (" + bd1.heading + ")");
+    ok(bd1.rows.length === 18, "…a full 18-row NFL season, not just the weeks the league itself has finalized (" + bd1.rows.length + ")");
+    ok(/^Wk 1.*DAL.*10\.0$/.test(bd1.rows[0]), "week 1 (HOME vs DAL, played): the schedule's own opponent AND gameLog's own 10.0, merged onto one row (" + bd1.rows[0] + ")");
+    ok(/^Wk 3.*SEA.*20\.0$/.test(bd1.rows[2]), "week 3 (HOME vs SEA, played): a DIFFERENT week's own points, 20.0 — proves the merge is per-week, not a repeat of week 1 (" + bd1.rows[2] + ")");
+    ok(/^Wk 5.*—.*Bye$/.test(bd1.rows[4]), "week 5, the fixture's own byeWeek: '—' opponent, 'Bye' value — never a guessed opponent (" + bd1.rows[4] + ")");
+    ok(/^Wk 6.*@DEN/.test(bd1.rows[5]), "week 6 (AWAY vs DEN, unplayed): the '@' away format, opponent abbrev with no space (" + bd1.rows[5] + ")");
+    ok(!/Bye/.test(bd1.rows[5]) && !/\d\.\d$/.test(bd1.rows[5]),
+      "…and — unplayed, not this week — its value is a kickoff, never 'Bye' and never a fabricated score (" + bd1.rows[5] + ")");
+    ok(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/.test(bd1.rows[5]),
+      "…specifically a real kickoff DAY, shortKick's own weekday abbreviation — shape only, never a clock time pinned to this machine's timezone (" + bd1.rows[5] + ")");
+    ok(errors.length === 0, "0 page errors rendering the 18-row schedule");
+    // BD2: the per-TEAM cache — a SECOND PHI player's card costs ZERO new fetches. Counted via
+    // D.EP bookkeeping, the same mechanism section W2 already used to prove D.weekStats' own
+    // per-week cache (D.teamSchedule follows that function's exact shape: fx() name = "espn
+    // team schedule "+ab, only a real result cached, in-flight dedupe keyed the same way).
+    const afterFirst = await page.evaluate(() => { const ep = window.__GFFL__.D.EP["espn team schedule PHI"]; return ep ? ep.n : 0; });
+    ok(afterFirst === 1, "opening P. Passer's card fired exactly ONE schedule fetch for PHI (" + afterFirst + ")");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+    await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("4361741")); // W. Receiver — ALSO PHI
+    await page.waitForSelector(".pccard .pclog", { timeout: 5000 });
+    const wrHeading = await page.evaluate(() => document.querySelector(".pclog h2").textContent.trim());
+    const afterSecond = await page.evaluate(() => { const ep = window.__GFFL__.D.EP["espn team schedule PHI"]; return ep ? ep.n : 0; });
+    ok(wrHeading === "Schedule", "a SECOND PHI player's card also gets the real schedule (" + wrHeading + ")");
+    ok(afterSecond === 1, "…and costs ZERO new fetches — proven a per-TEAM cache, not a per-player one (" + afterSecond + ")");
+    await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+    ok(errors.length === 0, "0 page errors through the two-card cache flow");
+    await ctx.close();
+    fixture.teamSched = null;
+  }
+  {
+    // BD3: fetch failure degrades — "the card must never be emptier than it is now because a
+    // new fetch failed." teamSchedDown fails ONLY the /schedule endpoint (scoped, mirrors
+    // espnSummariesDown's own pattern); the scoreboard/summary/Sleeper stay healthy, so a
+    // failure here can't be confused with a wider outage.
+    fixture.teamSched = { PHI: teamSchedFix("PHI", PHI_SCHED_WEEKS, 5) };
+    fixture.teamSchedDown = true;
+    const { ctx, page, errors } = await newTestPage(browser, seedWithWeeklyHistory());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511"));
+    await page.waitForSelector(".pccard .pclog", { timeout: 5000 });
+    const bd3 = await page.evaluate(() => ({
+      heading: document.querySelector(".pclog h2").textContent.trim(),
+      rows: [...document.querySelectorAll(".pclog tbody tr")].map((tr) => tr.textContent.replace(/\s+/g, " ").trim()),
+    }));
+    ok(bd3.heading === "Game log", "a failed schedule fetch falls back to the OLD 'Game log' heading, not an empty or broken card (" + bd3.heading + ")");
+    ok(bd3.rows.length === 4, "…the exact pre-existing 4-row played-weeks table, byte-identical to before this feature existed (" + bd3.rows.length + ")");
+    ok(errors.length === 0, "0 page errors on a schedule-fetch failure — it degrades, it does not throw");
+    await ctx.close();
+    fixture.teamSchedDown = false;
+    fixture.teamSched = null;
+  }
+  {
+    // BD4: D.oppForTeam, hand-computed straight off sbFix()'s own default slate — DAL@PHI (PHI
+    // home), KC@DEN (KC away) — the SAME pairing section I2's rendered-row check already
+    // hand-checks (restaged there onto this function's new "DAL"/"@DEN" format). BUF is on
+    // nobody's roster and nowhere on the slate — the bye/if-known case no rostered player in the
+    // base fixture can reach (every team in seedRosterT1/T2 happens to be one of the two teams
+    // actually playing this week).
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const opp = await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      // Guarded (typeof check, not a bare call): proof-of-bite reverts the app files to HEAD,
+      // where D.oppForTeam does not exist yet — a bare call there would throw INSIDE the page
+      // and crash the whole Node-side suite (an uncaught page.evaluate rejection), hiding every
+      // other section's own bite evidence behind one hard stop. Reading undefined here instead
+      // still fails the assertions below honestly; it just fails instead of crashing.
+      const f = typeof D.oppForTeam === "function" ? D.oppForTeam : () => undefined;
+      return { home: f("PHI"), away: f("KC"), bye: f("BUF") };
+    });
+    ok(opp.home && opp.home.oppAb === "DAL" && opp.home.home === true, "D.oppForTeam('PHI') reads DAL, home — sbFix()'s own DAL@PHI game (" + JSON.stringify(opp.home) + ")");
+    ok(opp.away && opp.away.oppAb === "DEN" && opp.away.home === false, "D.oppForTeam('KC') reads DEN, away — sbFix()'s own KC@DEN game (" + JSON.stringify(opp.away) + ")");
+    ok(opp.bye === null, "D.oppForTeam('BUF') — a team not on this week's slate at all — reads null, the same if-known honesty D.oppForWeek always kept (" + JSON.stringify(opp.bye) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
   }
 
   await browser.close();

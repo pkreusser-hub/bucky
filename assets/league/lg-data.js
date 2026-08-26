@@ -1085,6 +1085,80 @@
     return oppAb ? (isHome ? "vs " + oppAb : "@ " + oppAb) : null;
   };
 
+  // THIS WEEK's real NFL opponent for a team, read straight off D.S.games — the full-slate
+  // map pollScoreboard rebuilds every poll (2026-08-26, the moves-table OPP column). NOT
+  // gated on D.engineWeek() agreeing with the viewed week the way D.oppForWeek is: since the
+  // season-reset batch's preseason re-target, ESPN reads "regular" while Sleeper genuinely
+  // stays "pre" until real kickoff, so D.engineWeek() reads a deliberate disagreement (null)
+  // and D.oppForWeek(week, team) returns null for EVERY week — the moves table's OPP column
+  // went silently dead the instant that reset landed. D.S.games carries no "which week" of
+  // its own to disagree about — it is always rebuilt as "whichever slate pollScoreboard just
+  // re-targeted", so there is nothing here to gate: a team missing from it this week (a bye,
+  // or simply untracked) answers null, the same if-known honesty, off the map that is
+  // actually live right now instead of a comparison that can never fire post-reset.
+  D.oppForTeam = function (teamAbbrev) {
+    if (!teamAbbrev) return null;
+    const g = D.S.games.get(slpTeam(teamAbbrev));
+    if (!g || !g.oppAb) return null;
+    return { oppAb: g.oppAb, home: !!g.home };
+  };
+
+  // THE PLAYER CARD'S SEASON SCHEDULE (2026-08-26, commissioner: "when clicking a player the
+  // card should show their season schedule and their stats for each game"). One fetch per NFL
+  // TEAM (never per player — five PHI players opening their cards share one), on demand, the
+  // first time any card needs that team.
+  //
+  // PROBED LIVE before a line was written (curl, 2026-08-26): the same site.api.espn.com base
+  // this file already calls directly (ESPN, above) answers a team's schedule at
+  //   /teams/<abbrev>/schedule?season=<year>&seasontype=2
+  // — the bare endpoint (no seasontype) defaults to the CURRENT part of the season, which in
+  // late August is preseason (3 events), so seasontype=2 is required to get the real 18-week
+  // regular-season slate. Real shape confirmed against PHI/2026: top-level `team.abbreviation`,
+  // `byeWeek` (10 for PHI — the one week number missing from `events`), and `events[]` — 17
+  // entries for a bye team, each `{id, date (ISO kickoff), week:{number}, seasonType:{...},
+  // competitions:[{competitors:[{homeAway, team:{abbreviation,...}}], status:{...}}]}`. Home/
+  // away and the opponent's own abbrev are both read straight off `competitors`, the exact
+  // shape `pollScoreboard` already parses for the live slate above.
+  D._teamSchedCache = new Map();     // teamAb (slpTeam-normalized) -> {byWeek:Map<week,{oppAb,home,kickoff}>, byeWeek}
+  D._teamSchedInFlight = new Map();  // same key -> in-flight Promise<result|null>, cleared on settle
+  D.teamSchedule = async function (teamAbbrev) {
+    const ab = slpTeam(teamAbbrev);
+    if (!ab) return null;
+    const cached = D._teamSchedCache.get(ab);
+    if (cached) return cached;
+    if (D._teamSchedInFlight.has(ab)) return D._teamSchedInFlight.get(ab);
+    const p = (async () => {
+      let j;
+      try { j = await fx("espn team schedule " + ab, `${ESPN}/teams/${ab}/schedule?season=${LG.SEASON}&seasontype=2`); }
+      catch (e) { return null; }
+      if (!j || !Array.isArray(j.events)) return null;
+      const byWeek = new Map();
+      for (const ev of j.events) {
+        const wk = Number(ev && ev.week && ev.week.number);
+        if (!(wk >= 1 && wk <= 18)) continue;
+        const c = ev.competitions && ev.competitions[0]; if (!c) continue;
+        const comps = c.competitors || [];
+        const mine = comps.find((x) => x && x.team && slpTeam(x.team.abbreviation) === ab);
+        const opp = comps.find((x) => x && x !== mine);
+        if (!mine || !opp || !opp.team) continue;
+        byWeek.set(wk, { oppAb: opp.team.abbreviation || "", home: mine.homeAway === "home", kickoff: ev.date || "" });
+      }
+      // A genuine outage answers something malformed/empty far more often than a real team
+      // schedule ever legitimately has zero games — only a REAL result is cached, same
+      // "only cache success" rule D.weekStats already follows, so a transient failure can
+      // still retry on the next card open rather than being stuck empty for the session.
+      if (!byWeek.size) return null;
+      const byeWeek = Number(j.byeWeek);
+      const out = { byWeek, byeWeek: isFinite(byeWeek) ? byeWeek : null };
+      D._teamSchedCache.set(ab, out);
+      return out;
+    })();
+    D._teamSchedInFlight.set(ab, p);
+    let result;
+    try { result = await p; } finally { D._teamSchedInFlight.delete(ab); }
+    return result;
+  };
+
   // An NFL team's own crest, from the slate ALREADY IN MEMORY — never a new network call.
   // pollScoreboard and fetchSimSlate both record `logo` per competitor (2026-08-09), so the
   // whole map is derivable from D.S.nflEvents; it is rebuilt only when that array is REPLACED

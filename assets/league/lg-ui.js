@@ -970,10 +970,56 @@
       : g.state === "in" ? "Live — Q" + g.period + " " + g.clock
       : g.state === "post" ? "Final"
       : (g.kickoff ? "Kickoff " + shortKick(g) : "");
-    const log = await d.gameLog(key);
+    // SEASON SCHEDULE (2026-08-26, commissioner: "when clicking a player the card should show
+    // their season schedule and their stats for each game"). Fetched ALONGSIDE the game log,
+    // not after it — two independent requests, no reason to serialize them. D.teamSchedule
+    // caches per NFL TEAM (never per player) and never throws; the extra catch here is only
+    // for a truly unexpected bug in the merge below, so a schedule failure degrades this ONE
+    // section rather than the whole card (UI.openPlayerCard's own try/catch is the coarser,
+    // whole-card fallback — this is the finer one the spec asks for: "the card must never be
+    // emptier than it is now because a new fetch failed").
+    let log, sched = null;
+    try {
+      const pair = await Promise.all([d.gameLog(key), meta.team ? d.teamSchedule(meta.team) : Promise.resolve(null)]);
+      log = pair[0]; sched = pair[1];
+    } catch (e) { log = await d.gameLog(key).catch(() => ({ rows: [], total: null, avg: null, best: null })); sched = null; }
     const tile = (label, v) => `<div class="pctile"><div class="pctileval">${v}</div><div class="pctilelabel mut small">${esc(label)}</div></div>`;
+    // schedHtml: ONE row per real NFL week 1-18, regardless of how many the league itself has
+    // finalized — a full season shape, "with @ for away games", is the whole point of the ask.
+    //   · a played week (this player has a real gameLog row for it) shows the POINTS scored —
+    //     gameLog is the one honest source for a finalized week's per-player number, same as
+    //     the season tiles below.
+    //   · THIS week specifically (UI.week — the same week the "This week" line above already
+    //     labels) falls back to the live state text already computed above (Live/Final/
+    //     Kickoff) rather than a bare kickoff, so a game in progress reads as in progress here
+    //     too, not as if it hadn't started.
+    //   · every OTHER unplayed week shows its own kickoff (shortKick off the schedule fetch's
+    //     own date) — a static schedule fact, always safe to show whether the week is next
+    //     week or week 17.
+    //   · a week the schedule reports no game for (byeWeek, or simply absent from the fetch)
+    //     reads "Bye", muted — never a blank row, never a guessed opponent.
+    const schedHtml = (() => {
+      if (!sched) return null;
+      const ptsByWeek = new Map(log.rows.map((r) => [r.week, r.pts]));
+      const rows = [];
+      for (let wk = 1; wk <= 18; wk++) {
+        const ent = sched.byWeek.get(wk);
+        const isBye = sched.byeWeek === wk || !ent;
+        const oppTxt = isBye ? "—" : (ent.home ? ent.oppAb : "@" + ent.oppAb);
+        let valTxt, valNum = false;
+        if (isBye) valTxt = "Bye";
+        else if (ptsByWeek.has(wk)) { valTxt = LG.fmtPts(ptsByWeek.get(wk)); valNum = true; }
+        else if (wk === UI.week && state) valTxt = state;
+        else valTxt = (ent.kickoff && shortKick({ kickoff: ent.kickoff })) || "—";
+        rows.push(`<tr><td>Wk ${wk}</td><td class="mut">${esc(oppTxt)}</td><td class="${valNum ? "num" : "mut"}">${esc(valTxt)}</td></tr>`);
+      }
+      return rows.join("");
+    })();
     // Newest week first — the same "most recent first" convention the feed/tx-log/chat lists
-    // already use everywhere else in this app.
+    // already use everywhere else in this app. Fallback path only: a working schedule fetch
+    // (schedHtml above) replaces this entirely; this is the exact pre-existing table, reached
+    // only when the team is unknown or the schedule fetch failed — graceful degrade, never
+    // emptier than the card already was.
     const logRows = log.rows.slice().reverse().map((r) => {
       const opp = d.oppForWeek(r.week, meta.team); // "if-known" — see D.oppForWeek's own comment
       return `<tr><td>Wk ${r.week}</td><td class="mut">${esc(opp || "—")}</td><td class="num">${LG.fmtPts(r.pts)}</td></tr>`;
@@ -1009,9 +1055,10 @@
         ${tile("Avg / week", log.avg != null ? LG.fmtPts(log.avg) : "—")}
         ${tile("Best week", log.best != null ? LG.fmtPts(log.best) : "—")}
       </div>
-      <div class="pclog"><h2 class="small mut">Game log</h2>
-        ${log.rows.length ? `<div class="panner"><table class="tbl"><thead><tr><th>Wk</th><th>Opp</th><th class="num">Pts</th></tr></thead><tbody>${logRows}</tbody></table></div>`
-          : '<p class="mut">No games yet.</p>'}
+      <div class="pclog"><h2 class="small mut">${schedHtml ? "Schedule" : "Game log"}</h2>
+        ${schedHtml ? `<div class="panner"><table class="tbl"><thead><tr><th>Wk</th><th>Opp</th><th class="num">Pts</th></tr></thead><tbody>${schedHtml}</tbody></table></div>`
+          : (log.rows.length ? `<div class="panner"><table class="tbl"><thead><tr><th>Wk</th><th>Opp</th><th class="num">Pts</th></tr></thead><tbody>${logRows}</tbody></table></div>`
+          : '<p class="mut">No games yet.</p>')}
       </div>
     </div>`;
   }
@@ -5684,6 +5731,18 @@
       const T = LG.teamById(owningId);
       return (T && (T.abbrev || initials(T.name))) || "FA";
     }
+    // OPP column (2026-08-26, commissioner: "we need a column of who their opponent team is
+    // that week"). RESTAGED off D.oppForWeek onto D.oppForTeam: D.oppForWeek's if-known gate
+    // compares the viewed week against D.engineWeek(), which the season-reset batch's
+    // preseason re-target left permanently null (ESPN/Sleeper deliberately disagree until
+    // real kickoff) — so the OLD call here read "—" for every row, every player, unconditionally,
+    // the instant that reset landed. D.oppForTeam reads D.S.games directly with no such gate
+    // (see its own comment in lg-data.js), so the column is live again. "@DAL" away / bare
+    // "DAL" home / "—" bye — same convention the player card's new schedule table uses.
+    function faOppTxt(p) {
+      const o = D().oppForTeam(p.team);
+      return o ? (o.home ? o.oppAb : "@" + o.oppAb) : "";
+    }
     const myAbbrev = (T && (T.abbrev || initials(T.name))) || "";
     // ---- ITEM 22 (2026-08-09, user: "the first column should be add, then type, then
     // projection, then last, the opp, then avg"). PLAYER stays in front of all of it as the
@@ -5736,7 +5795,7 @@
       if (colId === "type") return faTypeText(p, ownerMap);
       // Addable first on desc — "who can I actually add" is the whole reason to sort on it.
       if (colId === "add") return faAddBlocked(p, faTypeText(p, ownerMap)) ? 0 : 1;
-      if (colId === "opp") return d.oppForWeek(UI.week, p.team) || "";
+      if (colId === "opp") return faOppTxt(p);
       if (colId === "proj") { const v = d.projFor(p.key); return v == null ? -Infinity : v; }
       // %ROST/%START sort on the RAW figure (more precision than the rounded cell text), and a
       // player ESPN has no ownership row for is -Infinity like every other missing number —
@@ -5782,7 +5841,7 @@
     function faRowHtml(p, i, ownerMap) {
       const d = D();
       const type = faTypeText(p, ownerMap);
-      const opp = d.oppForWeek(UI.week, p.team);
+      const opp = faOppTxt(p);
       const proj = d.projFor(p.key);
       const stats = UI._faStats.get(p.key); // undefined = still loading | null = no games | {total,avg,last}
       const seasonCell = (v) => stats === undefined ? "…" : (v != null ? LG.fmtPts(v) : "—");

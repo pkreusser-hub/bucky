@@ -5581,4 +5581,112 @@ Plates (scratchpad, throwaway review artifacts): `gffl_allempty_standings_390.pn
 0-0-0, no asterisk, no footnote), `gffl_week1_matchup_390.png` (real week-1 game line, future
 kickoff), `gffl_scores_week1_390.png` (the Scores tab's re-targeted NFL slate).
 ---
+
+## 🏈 GFFL — the player card's season schedule, and the moves-table OPP column's real bug
+## (2026-08-26, same day as the season-reset batch)
+
+Two commissioner asks. 1: "when clicking a player the card should show their season schedule
+and their stats for each game" — today's card shows a game log of PLAYED weeks only. 2: "in the
+moves page in the players section we need a column of who their opponent team is that week" —
+except that column already existed (item 22, 2026-08-09). Files: `assets/league/lg-{data,ui}.js`
++ `tools/_verify-gffl.cjs` (new section BD, 20 checks + 2 restaged). **2957/2957, 0 FAIL.**
+
+**THE REAL BUG BEHIND ITEM 2, found before writing a line**: the OPP column read
+`D.oppForWeek(week, team)`, which answers "if-known" by comparing the viewed week against
+`D.engineWeek()` — a genuine "not known yet" guard, not a display convenience. Reading it in
+isolation looked fine; the season-reset batch's own preseason re-target (the entry directly
+above this one) changed what that guard actually GUARDS. `D.engineWeek()` compares WEEK
+NUMBERS (`D.S.espnWeek === D.S.slpWeek`), not season types — so it still agrees in the unit
+tests, where `fixture.preseasonWeek` defaults to 1 and the re-target also asks for week 1. It
+does **not** agree in the real app: **verified live** (`curl https://api.sleeper.app/v1/state/nfl`
+just now) — Sleeper's own real preseason reads `week:3` in August, while ESPN's re-targeted
+slate asks for `LG.currentWeek()` = 1. Two different week numbers, genuine disagreement,
+`D.engineWeek()` = null, and `D.oppForWeek` returns null for every row, unconditionally, the
+instant the reset landed. The column wasn't missing — it went silently dead, and "we need a
+column" is exactly how a family member describes a column that never shows anything.
+
+**THE FIX**: a new `D.oppForTeam(teamAbbrev)` (lg-data.js, beside `D.oppForWeek`) reads
+`D.S.games` directly — no week-agreement gate at all. `D.S.games` is REBUILT every poll as
+"whichever slate `pollScoreboard` just re-targeted to," so there is no "which week" ambiguity
+for it to guard against; a team missing from it (a bye, or genuinely untracked) still answers
+null, the same if-known honesty, just off the map that is actually live right now. `D.oppForWeek`
+itself is UNCHANGED — it still backs the OLD game-log fallback and the Grok-adjuster's context
+(lg-core.js), neither of which this session touched. Reformatted to match item 1's new schedule
+table: bare abbrev home ("DAL"), "@ABBREV" away no space ("@DEN") — was "vs DAL"/"@ DEN".
+
+**ITEM 1 — THE SCHEDULE.** `playerCardHtml` now fetches the player's NFL team schedule ON
+DEMAND (`D.teamSchedule`, lg-data.js) and renders all 18 real NFL weeks, replacing the
+played-weeks-only log. **PROBED LIVE before a line was written** (curl, 2026-08-26):
+`site.api.espn.com/apis/site/v2/sports/football/nfl/teams/<ab>/schedule` — the SAME base this
+file already calls for the scoreboard — with the bare endpoint defaulting to PRESEASON (3
+events); `?season=2026&seasontype=2` is required for the real 18-week regular slate. Real shape
+against PHI: top-level `team.abbreviation`/`byeWeek` (10 for PHI, the one week number missing
+from `events`), and 17 `events[]` of `{date, week:{number}, seasonType, competitions:[
+{competitors:[{homeAway, team:{abbreviation}}]}]}` — the exact competitor shape
+`pollScoreboard` already parses for the live slate, so home/away and the opponent's own abbrev
+read the same way.
+- **Per-row logic**: a week already in `D.gameLog(key)`'s rows (finalized, real fantasy points)
+  shows the POINTS; the row matching `UI.week` specifically (this week) falls back to the
+  already-computed live state text (Live/Final/Kickoff — the same `gameStateText`-shaped value
+  the card's own header line uses); every other unplayed week shows its own kickoff
+  (`shortKick` off the schedule fetch's own date); a week with no event at all (the reported
+  `byeWeek`, or genuinely absent) reads "Bye", muted. D/ST cards get the same table — their
+  team IS the team, `D.metaForKey` already resolves it. A player whose team is unknown never
+  even attempts the fetch — the card renders exactly as it did yesterday.
+- **Cache: per NFL TEAM, not per player** (`D._teamSchedCache`/`D._teamSchedInFlight`, the
+  EXACT shape `D.weekStats`'s own perf fix already established — only a real result is cached,
+  concurrent callers for the same not-yet-cached team share one in-flight promise) — opening
+  five PHI players' cards costs one fetch. **Proven, not assumed**: two different PHI players'
+  cards, `D.EP["espn team schedule PHI"].n` stays 1.
+- **Graceful degrade, the spec's own words** ("the card must never be emptier than it is now
+  because a new fetch failed"): `D.teamSchedule` never throws (same try/catch-and-return-null
+  shape as `D.weekStats`); `playerCardHtml` wraps the whole fetch pair in one more catch of its
+  own, so a schedule failure downgrades ONLY this section, never the whole card. A fetch failure
+  (proven with a SCOPED endpoint-only 503, mirroring `espnSummariesDown`'s own pattern) falls
+  back to the exact pre-existing 4-row played-weeks table, byte for byte. Section Y's own
+  pre-existing card test (`fixture.teamSched` never armed there) now doubles as proof of the
+  SAME path for the ordinary "no fixture, no data" case — noted at the check rather than
+  restaged, since nothing about it needed to change.
+
+**SUITE**: new section BD (20 checks): the 18-row schedule hand-computed against
+`seedWithWeeklyHistory()`'s own P. Passer numbers (10/10/20/1) — a played week's points merged
+onto its own row, a DIFFERENT played week proving the merge isn't a repeat, the fixture's own
+bye week, an away week's "@" format, and a future kickoff's weekday shape (never a clock time —
+the same "not pinned to a timezone" rule section AI's re-target check already followed, since
+`shortKick`'s `toLocaleString` has no explicit zone); the per-team cache (two cards, one team,
+one fetch, via `D.EP` bookkeeping — the exact mechanism section W2 used for `D.weekStats`); a
+SCOPED fetch-failure degrade; `D.oppForTeam` hand-computed straight off `sbFix()`'s own slate,
+home/away/bye all three. **RESTAGED, reason at each check**: section I2's rendered-row OPP
+check ("vs DAL"/"@ DEN" -> "DAL"/"@DEN"); section BC's own AI3 restage of the SAME column
+("vs SEA" -> bare "SEA") — its own comment now also records why THIS fixture's `engineWeek`
+happened to agree (`fixture.preseasonWeek` defaults to 1, matching the re-target's own ask)
+even though the real app's does not, which is exactly why the old code passed this one unit
+test while still failing in production.
+
+`node tools/_gffl_seams.cjs` **121/0, unrestaged** — it sets `D.S.games` directly in its own
+fixtures and never calls `D.pollScoreboard`/`initSleeper`, so neither `D.oppForTeam` nor
+`D.teamSchedule` is anywhere in its path. `netlify/functions/sports.mjs` untouched — the
+schedule fetch is client-side, the same way the app's other ESPN calls already are — so
+`_verify-sports.cjs` was not re-run.
+
+**PROOF OF BITE.** `assets/league/lg-{data,ui}.js` reverted to `HEAD` (the restaged/new test
+file kept), full suite run against that mix: **2941 pre-existing checks passed untouched, and
+exactly the 16 checks this session's own changes touch failed** — the schedule's 18-row/bye/
+away/merge checks (old code renders the 4-row log, `undefined` past its bounds), the per-team
+cache checks (0 fetches, old code never calls the endpoint), both restaged OPP checks (old
+text: "vs DAL"/"@ DEN"/"vs SEA"), and all three direct `D.oppForTeam` checks (`undefined` —
+the function doesn't exist yet). **One page.evaluate call needed a `typeof` guard first**
+(`D.oppForTeam`/`D.EP[...]` called bare against code where they don't exist yet threw INSIDE
+the browser and crashed the whole Node-side suite rather than failing one check) — fixed by
+reading `undefined` instead of throwing, which still fails the assertions honestly. **One known
+gap, stated rather than hidden**: the "future week's value is never a fabricated score" check
+reads array index 5 of a 4-row old table (`undefined`, out of bounds) and passes vacuously
+there — harmless, since the row-count and heading checks in the same cluster fail hard for the
+identical reason, but not a strict indicator on its own. App files then restored from the
+scratchpad backup, confirmed byte-identical (`diff`) before the count above was taken.
+
+Plates (scratchpad): `gffl_playercard_schedule_390.png` (Jalen Hurts/PHI — two played weeks'
+real points, the bye row, an away "@DEN" row, several future kickoffs), `gffl_moves_opp_390.png`
+(the OPP column scrolled into frame: "@PHI"/"KC"/"@DEN"/"DAL"/"—"/"—"), `gffl_moves_opp_1280.png`
+(the same table, OPP in its normal desktop position, no panning needed).
 ---
