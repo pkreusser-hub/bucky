@@ -1112,7 +1112,24 @@ async function sectionCollege(browser) {
     ok(g.bigs.join(",") === "27,20", "away-first scores (VAN 27 @ UK 20)");
     ok(/College/.test(g.back), "the back button reads ‹ College");
     ok(g.boxTables === 6, "the college box score renders 3 groups × 2 teams");
-    await shot(page, "sports_cgame_390.png");
+    // The college FINAL dims exactly the loser (UK 20 lost to VAN 27) — same rule as NFL.
+    const cgFinal = await page.evaluate(() =>
+      [...document.querySelectorAll(".scorehead .big")].map((b) => b.classList.contains("losing")));
+    ok(cgFinal.join(",") === "false,true", "college FINAL: only the losing score (UK 20) is dimmed");
+
+    // The bug the user photographed (2026-08-20, JVST 7 grey at 1:53-2nd in the Fargodome):
+    // a LIVE college game greyed the trailing score. Same scoreheadHTML as NFL, but assert the
+    // college route specifically — this is the exact case that shipped.
+    await page.evaluate(() => { location.hash = "cgame=401820001"; });
+    await page.waitForFunction(() => window.__SPORTS__.state().gameId === "401820001" && window.__SPORTS__.state().hasGame, { timeout: 20000 });
+    const cgLive = await page.evaluate(() => ({
+      chip: document.getElementById("gameChip").textContent,
+      losing: [...document.querySelectorAll(".scorehead .big")].some((b) => b.classList.contains("losing")),
+      colors: [...document.querySelectorAll(".scorehead .big")].map((b) => getComputedStyle(b).color),
+    }));
+    ok(/LIVE/.test(cgLive.chip), "the live college game (UGA 17 @ ALA 13, 5:44-2nd) opens LIVE");
+    ok(!cgLive.losing && cgLive.colors.every((c) => c === "rgb(38, 51, 43)"),
+      "college LIVE: NEITHER score is grey — trailing (ALA 13) is not lost");
 
     // back returns to the college list with the filter intact
     await page.click("#gameBack");

@@ -592,7 +592,24 @@ function cfbSummaryFinal() {
   s.gameInfo = { venue: { fullName: "Kroger Field" } };
   return s;
 }
+// LIVE college game (UGA 17 @ ALA 13, 5:44-2nd) — matches scoreboard event 401820001. Added for
+// the score-ink checks: a LIVE game once greyed the trailing score (photographed on a real
+// Jax State @ NDSU game), so the suite needs a live college summary, not only a final.
+function cfbSummaryLive() {
+  const s = summaryLiveHome();
+  s.header.id = "401820001";
+  s.header.competitions[0].id = "401820001";
+  s.header.competitions[0].status = { type: { id: "2", name: "STATUS_IN_PROGRESS", state: "in", completed: false, description: "In Progress", detail: "5:44 - 2nd Quarter", shortDetail: "5:44 - 2nd" }, displayClock: "5:44", period: 2 };
+  s.header.competitions[0].competitors = [
+    sumCompetitor(CTEAMS.ALA, "home", 13, [3, 10]),
+    sumCompetitor(CTEAMS.UGA, "away", 17, [14, 3]),
+  ];
+  s.boxscore = boxscoreFor(CTEAMS.UGA, CTEAMS.ALA);
+  s.gameInfo = { venue: { fullName: "Bryant-Denny Stadium" } };
+  return s;
+}
 const CFB_SUMMARIES = {
+  "401820001": cfbSummaryLive,
   "401820004": cfbSummaryFinal,
 };
 
