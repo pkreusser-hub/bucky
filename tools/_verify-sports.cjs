@@ -272,12 +272,14 @@ async function sectionA() {
     && g.drives.previous[2].result === "Touchdown" && g.drives.previous[2].scoring === true,
     "previous drives are newest-first with results");
   // 2026-08-13 (the league app's drive dropdowns): each previous drive forwards its OWN
-  // slimmed plays — the KC TD drive's two, and an honest [] for a drive the raw payload
-  // carried none for.
+  // slimmed plays — both TD drives' two apiece, and an honest [] for the Punt the raw
+  // payload carried none for.
   ok(!!g && Array.isArray(g.drives.previous[2].plays) && g.drives.previous[2].plays.length === 2
     && /Worthy for 42/.test(g.drives.previous[2].plays[0].text) && g.drives.previous[2].plays[1].scoring === true
+    && Array.isArray(g.drives.previous[1].plays) && g.drives.previous[1].plays.length === 2
+    && /Shakir for 11/.test(g.drives.previous[1].plays[0].text) && g.drives.previous[1].plays[1].scoring === true
     && g.drives.previous[0].plays.length === 0,
-    "previous drives carry their own slimmed plays (2 on the TD drive, [] where the payload had none)");
+    "previous drives carry their own slimmed plays (2 on each TD drive, [] where the payload had none)");
   ok(!!g && g.winprob.length <= 81 && Math.abs(g.winprob[g.winprob.length - 1] - 0.68) < 0.001,
     `win probability is thinned (${g.winprob.length} pts) and keeps the final value`);
   const kcStats = g && g.boxscore.teams.find((t) => t.abbrev === "KC");
@@ -839,7 +841,10 @@ async function sectionWeekGame(browser) {
     const fd = lines.find((l) => l.getAttribute("stroke") === "var(--gold)");
     const band = svg ? [...svg.querySelectorAll("rect")].find((r) => r.getAttribute("opacity") === "0.16") : null;
     const ballG = svg ? [...svg.querySelectorAll("g")].find((x) => /^translate\(/.test(x.getAttribute("transform") || "") && x.querySelector("ellipse")) : null;
-    const plays = [...document.querySelectorAll(".play")];
+    // RESTAGED (2026-08-29, expandable previous drives): a previous drive's OWN plays now
+    // render as real (collapsed, display:none) ".play" DOM nodes too, so a bare ".play" query
+    // would double-count them here — this stays scoped to "This drive"'s own list.
+    const plays = [...document.querySelectorAll(".play")].filter((p) => !p.closest(".drvplays"));
     return {
       hidden: document.getElementById("weekView").hidden === true && document.getElementById("gameView").hidden === false,
       chip: document.getElementById("gameChip").textContent,
@@ -859,6 +864,7 @@ async function sectionWeekGame(browser) {
       playCount: plays.length,
       drvResults: [...document.querySelectorAll(".drv .res")].map((d) => d.textContent),
       wp: (document.querySelector(".wp .val b") || {}).textContent || "",
+      fieldWp: (document.querySelector(".fieldwp") || {}).textContent || "",
       statVals: (document.querySelector(".statbars") || {}).textContent || "",
       boxTables: document.querySelectorAll("table.box").length,
       boxHasQB: /P\. Mahomes/.test(document.getElementById("gameBody").textContent),
@@ -883,11 +889,132 @@ async function sectionWeekGame(browser) {
   ok(gm.playCount === 5 && /tackled by T\. Bernard/.test(gm.firstPlay), "this-drive plays list newest first");
   ok(gm.drvResults.length === 3 && gm.drvResults[0] === "Punt", "previous drives newest-first with results");
   ok(gm.wp === "KC 68%", "the win-probability sparkline names the leader");
+  ok(gm.fieldWp === gm.wp + " · win probability", "the field's own compact win-prob line agrees EXACTLY with the chart card — same helper, same leader, same pct");
   ok(/289/.test(gm.statVals) && /241/.test(gm.statVals), "team stat bars carry both totals");
   ok(gm.boxTables === 6 && gm.boxHasQB, "box score renders 3 groups × 2 teams with player rows");
   ok(gm.scRows === 5, "all 5 scoring plays listed");
   ok(gm.pollIv === 15000, "a live game polls every 15s");
+
+  // -- Expandable previous drives (2026-08-29). d1 (KC TD) and d2 (BUF TD) carry plays on
+  // the fixture; d3 (Punt) deliberately doesn't. previous[] is newest-first after the
+  // server's reverse, so the DOM order is d3(plain), d2(button), d1(button).
+  const drvInit = await page.evaluate(() => {
+    const togs = [...document.querySelectorAll(".drvtog")];
+    const plain = [...document.querySelectorAll(".drv:not(.drvtog)")];
+    return {
+      togCount: togs.length,
+      plainCount: plain.length,
+      plainIsDiv: plain.every((d) => d.tagName === "DIV" && !d.hasAttribute("aria-expanded")),
+      ariaInit: togs.map((t) => t.getAttribute("aria-expanded")),
+      // House rule: assert GEOMETRY (offsetParent === null), never the hidden/class attribute
+      // itself — a styled container's own display rule has outranked [hidden] here before.
+      collapsedInit: togs.map((t) => t.nextElementSibling.offsetParent === null),
+    };
+  });
+  ok(drvInit.togCount === 2, "both TD drives (with plays on file) are expandable buttons");
+  ok(drvInit.plainCount === 1 && drvInit.plainIsDiv, "the Punt drive (no plays on file) stays a plain, unclickable div — no button, no aria-expanded");
+  ok(drvInit.ariaInit.every((v) => v === "false"), "every expandable drive starts collapsed (aria-expanded=false)");
+  ok(drvInit.collapsedInit.every(Boolean), "…and its play list starts truly out of layout — no open-then-flash-shut on paint");
+
+  const drvOpen1 = await page.evaluate(() => {
+    const togs = [...document.querySelectorAll(".drvtog")];
+    togs[0].click();
+    return {
+      aria: togs.map((t) => t.getAttribute("aria-expanded")),
+      open0: togs[0].nextElementSibling.offsetParent !== null,
+      text0: togs[0].nextElementSibling.textContent,
+      open1: togs[1].nextElementSibling.offsetParent !== null,
+    };
+  });
+  ok(drvOpen1.aria[0] === "true" && drvOpen1.aria[1] === "false", "clicking one drive's row flips only ITS OWN aria-expanded");
+  ok(drvOpen1.open0 && /Shakir for 11 yards/.test(drvOpen1.text0), "…and reveals that drive's real play text from the fixture (BUF's TD drive)");
+  ok(!drvOpen1.open1, "the other (unclicked) drive is still collapsed");
+
+  const drvOpen2 = await page.evaluate(() => {
+    const togs = [...document.querySelectorAll(".drvtog")];
+    togs[1].click();
+    const plays1 = [...togs[1].nextElementSibling.querySelectorAll(".play")];
+    return {
+      open0: togs[0].nextElementSibling.offsetParent !== null,
+      open1: togs[1].nextElementSibling.offsetParent !== null,
+      text1: togs[1].nextElementSibling.textContent,
+      scoreMarks: plays1.map((p) => p.classList.contains("score")),
+    };
+  });
+  ok(drvOpen2.open0 && drvOpen2.open1, "a SECOND drive opens without closing the first — multiple can be open at once");
+  ok(/Worthy for 42 yards/.test(drvOpen2.text1), "…the second drive's own plays show too (KC's TD drive)");
+  ok(drvOpen2.scoreMarks.length === 2 && drvOpen2.scoreMarks[0] === false && drvOpen2.scoreMarks[1] === true,
+    "a scoring play inside an expanded drive gets the same .score treatment as This Drive's own plays");
+
+  const drvClose = await page.evaluate(() => {
+    const togs = [...document.querySelectorAll(".drvtog")];
+    togs[0].click();
+    return { aria0: togs[0].getAttribute("aria-expanded"), open0: togs[0].nextElementSibling.offsetParent !== null, open1: togs[1].nextElementSibling.offsetParent !== null };
+  });
+  ok(drvClose.aria0 === "false" && !drvClose.open0, "clicking an open drive collapses it again");
+  ok(drvClose.open1, "…without disturbing the other drive, which stays open");
+
+  const drvKbd = await page.evaluate(() => { document.querySelectorAll(".drvtog")[0].focus(); return document.activeElement === document.querySelectorAll(".drvtog")[0]; });
+  ok(drvKbd, "the collapsed drive's row is a real <button> that can receive focus");
+  await page.keyboard.press("Enter");
+  ok(await page.evaluate(() => document.querySelectorAll(".drvtog")[0].getAttribute("aria-expanded") === "true"),
+    "…and Enter on the focused button expands it — keyboard-activatable, not click-only");
+
+  const drvDead = await page.evaluate(() => {
+    const before = document.querySelectorAll(".drvplays.open").length;
+    document.querySelector(".drv:not(.drvtog)").click();
+    return { before, after: document.querySelectorAll(".drvplays.open").length };
+  });
+  ok(drvDead.before === drvDead.after, "clicking the no-plays Punt drive is a dead click — nothing opens or closes");
+
+  // -- Negative-stat bars (2026-08-29): turnovers INVERT (fewer = wider); a positive stat
+  // (Total Yards) stays proportional to each side's OWN count. Measured as rendered
+  // geometry, not parsed off the style attribute.
+  const bars = await page.evaluate(() => {
+    function rowFor(label) {
+      return [...document.querySelectorAll(".statbars .sb")].find((sb) => (sb.querySelector(".lbl span") || {}).textContent === label);
+    }
+    function widths(row) {
+      if (!row) return null;
+      const tr = row.querySelector(".tr"), i = row.querySelector(".tr i"), em = row.querySelector(".tr em");
+      const trW = tr.getBoundingClientRect().width;
+      return { away: i.getBoundingClientRect().width / trW, home: em.getBoundingClientRect().width / trW };
+    }
+    return { totalYards: widths(rowFor("Total Yards")), turnovers: widths(rowFor("Turnovers")) };
+  });
+  // Hand-computed from the fixture: BUF (away) 241 / KC (home) 289 total yards.
+  ok(!!bars.totalYards && near(bars.totalYards.away, 241 / 530, 0.02) && near(bars.totalYards.home, 289 / 530, 0.02),
+    `Total Yards (positive stat) bar is proportional to each side's OWN count, un-inverted (away=${bars.totalYards.away.toFixed(3)}, home=${bars.totalYards.home.toFixed(3)})`);
+  // Hand-computed: BUF (away) 1 turnover / KC (home) 0 — fewer wins, so KC draws (almost) the
+  // whole bar and BUF draws (almost) none. 0.02 tolerance is rendering/rounding slack only.
+  ok(!!bars.turnovers && bars.turnovers.away < 0.02 && bars.turnovers.home > 0.98,
+    `Turnovers (negative stat) bar is INVERTED — KC (0 turnovers) draws the long segment, BUF (1) the short one (away=${bars.turnovers.away.toFixed(3)}, home=${bars.turnovers.home.toFixed(3)})`);
+
   await shot(page, "sports_game_390.png");
+
+  // -- Tied turnovers + no win-prob feed yet (401770006, 2026-08-29): the divide-by-zero
+  // guard (0-0 => 50/50, never NaN) and the "no data, no line" guard, on one deep link that
+  // never appears in any scoreboard — proving the detail view opens straight off the hash.
+  await page.evaluate(() => { location.hash = "game=401770006"; });
+  await page.waitForFunction(() => window.__SPORTS__.state().gameId === "401770006" && window.__SPORTS__.state().hasGame, { timeout: 8000 });
+  const tied = await page.evaluate(() => {
+    const row = [...document.querySelectorAll(".statbars .sb")].find((sb) => (sb.querySelector(".lbl span") || {}).textContent === "Turnovers");
+    const tr = row.querySelector(".tr"), i = row.querySelector(".tr i"), em = row.querySelector(".tr em");
+    const trW = tr.getBoundingClientRect().width;
+    return {
+      away: i.getBoundingClientRect().width / trW,
+      home: em.getBoundingClientRect().width / trW,
+      hasWpChart: !!document.querySelector(".wp"),
+      hasFieldWp: !!document.querySelector(".fieldwp"),
+      hasField: !!document.querySelector(".fieldwrap"),
+      bodyHasUndefined: /undefined/i.test(document.getElementById("gameBody").textContent),
+    };
+  });
+  ok(near(tied.away, 0.5, 0.02) && near(tied.home, 0.5, 0.02), `0-0 turnovers renders an EXACT 50/50 split, never a collapsed/NaN bar (away=${tied.away.toFixed(3)}, home=${tied.home.toFixed(3)})`);
+  ok(tied.hasField, "the field itself still renders (the game is live)");
+  ok(!tied.hasWpChart && !tied.hasFieldWp, "…but neither win-probability UI renders when the feed carries none — same guard, chart AND the new field line");
+  ok(!tied.bodyHasUndefined, '…and nothing reads a literal "undefined%"');
+  await shot(page, "sports_game_tied_390.png");
 
   // hidden tab pauses polling; returning refreshes immediately
   const callsBeforeHide = upstream.calls;
@@ -960,11 +1087,13 @@ async function sectionWeekGame(browser) {
   const g4 = await page.evaluate(() => ({
     chip: document.getElementById("gameChip").textContent,
     field: !!document.querySelector(".fieldwrap"),
+    fieldWp: !!document.querySelector(".fieldwp"),
     losing: [...document.querySelectorAll(".scorehead .big")].map((b) => b.className),
     drvLabel: (document.querySelector("#gameBody .seclabel b") || {}).textContent || "",
     polled: window.__SPORTS__.state().pollScheduled,
   }));
   ok(/FINAL/.test(g4.chip) && !g4.field, "a final shows the FINAL chip and no live field");
+  ok(!g4.fieldWp, "…and no win-probability line either — it only ever renders inside the live field card");
   ok(g4.losing[0].indexOf("losing") < 0 && g4.losing[1].indexOf("losing") >= 0, "the loser's score is dimmed (HOU 31 beat IND 24)");
   ok(g4.polled === false, "a finished game stops polling entirely");
 
@@ -1130,6 +1259,43 @@ async function sectionCollege(browser) {
     ok(/LIVE/.test(cgLive.chip), "the live college game (UGA 17 @ ALA 13, 5:44-2nd) opens LIVE");
     ok(!cgLive.losing && cgLive.colors.every((c) => c === "rgb(38, 51, 43)"),
       "college LIVE: NEITHER score is grey — trailing (ALA 13) is not lost");
+
+    // -- Expandable previous drives + the field's win-prob line, on the COLLEGE route
+    // specifically (2026-08-29) — one shared renderer serves both sports, but a college-
+    // specific bug shipped here once already (the score-ink case just above), so this
+    // proves the feature rather than assuming it from the NFL fixture.
+    const cgDrv = await page.evaluate(() => {
+      const tog = document.querySelector(".drvtog");
+      return {
+        togCount: document.querySelectorAll(".drvtog").length,
+        plainCount: document.querySelectorAll(".drv:not(.drvtog)").length,
+        ariaInit: tog ? tog.getAttribute("aria-expanded") : null,
+      };
+    });
+    ok(cgDrv.togCount === 1 && cgDrv.plainCount === 1,
+      "college: UGA's TD drive (plays on file) is expandable, ALA's Punt (no plays) is not");
+    ok(cgDrv.ariaInit === "false", "collapsed by default on the college route too");
+    const cgOpen = await page.evaluate(() => {
+      const tog = document.querySelector(".drvtog");
+      tog.click();
+      return { aria: tog.getAttribute("aria-expanded"), open: tog.nextElementSibling.offsetParent !== null, text: tog.nextElementSibling.textContent };
+    });
+    ok(cgOpen.aria === "true" && cgOpen.open && /McConkey for 38 yards/.test(cgOpen.text),
+      "clicking it expands to the fixture's real college play text — proves the SAME renderer on #cgame=, not assumed from #game=");
+    const cgClosed = await page.evaluate(() => {
+      const tog = document.querySelector(".drvtog");
+      tog.click();
+      return { aria: tog.getAttribute("aria-expanded"), open: tog.nextElementSibling.offsetParent !== null };
+    });
+    ok(cgClosed.aria === "false" && !cgClosed.open, "…and collapses again on a second click, same as the NFL route");
+
+    const cgWp = await page.evaluate(() => ({
+      chart: (document.querySelector(".wp .val b") || {}).textContent || "",
+      field: (document.querySelector(".fieldwp") || {}).textContent || "",
+    }));
+    ok(!!cgWp.chart && cgWp.field === cgWp.chart + " · win probability",
+      `college: the field's win-probability line agrees with the chart card (chart="${cgWp.chart}")`);
+    await shot(page, "sports_cgame_390.png");
 
     // back returns to the college list with the filter intact
     await page.click("#gameBack");

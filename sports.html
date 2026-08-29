@@ -209,6 +209,19 @@
   .drv .res { font-weight: 700; min-width: 86px; }
   .drv .res.scored { color: var(--red); }
   .drv .meta { color: var(--muted); font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; text-align: right; }
+  /* Expandable previous drives (2026-08-29): a drive with plays on file becomes a <button>
+     row so it stays keyboard-activatable; a drive with none stays the old plain <div> — no
+     affordance, no dead click. */
+  button.drv.drvtog { width: 100%; background: none; border: 0; border-top: 1px solid var(--line); font: inherit; color: inherit; text-align: left; cursor: pointer; }
+  button.drv.drvtog:first-of-type { border-top: 0; }
+  button.drv.drvtog:hover { background: var(--surface-2); }
+  button.drv.drvtog:focus-visible { outline: 2px solid var(--red); outline-offset: -2px; }
+  .dvchev { flex: 0 0 auto; color: var(--muted); font-size: 13px; transition: transform .15s; }
+  .drvtog[aria-expanded="true"] .dvchev { transform: rotate(90deg); }
+  .drvplays { display: none; }
+  .drvplays.open { display: block; }
+  .drvplays .play:first-child { border-top: 0; }
+  .fieldwp { text-align: center; font-size: 11.5px; font-weight: 700; color: var(--muted); letter-spacing: .02em; margin: 6px 6px 0; }
 
   .wp { display: flex; gap: 12px; align-items: center; }
   .wp svg { flex: 1; height: 56px; min-width: 0; }
@@ -1129,9 +1142,19 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     return '<div class="card">' + html + "</div>";
   }
 
+  // Shared by the chart card AND the field's compact line (2026-08-29) — both must
+  // agree on the same leader/percent, off the SAME last winprob point.
+  function winProbLead(pts, home, away) {
+    var lastP = pts[pts.length - 1];
+    var leadHome = lastP >= 0.5;
+    return { team: leadHome ? home : away, pct: Math.round((leadHome ? lastP : 1 - lastP) * 100) };
+  }
+
   function paintGame() {
     var g = game;
     var live = g.status.state === "in", done = g.status.state === "post", pre = g.status.state === "pre";
+    var away = g.teams.find(function (t) { return t.homeAway === "away"; }) || g.teams[0] || {};
+    var home = g.teams.find(function (t) { return t.homeAway === "home"; }) || g.teams[1] || {};
     $("gameChip").innerHTML = live ? '<span class="chip live"><span class="dot"></span>LIVE</span>'
       : done ? '<span class="chip final">FINAL</span>' : "";
     $("gameMeta").textContent = [g.venue].filter(Boolean).join(" · ");
@@ -1146,6 +1169,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
     if (live) {
       html += '<div class="card fieldwrap">' + fieldSVG(g);
+      if (g.winprob && g.winprob.length > 1) {
+        var fwp = winProbLead(g.winprob, home, away);
+        html += '<div class="fieldwp">' + esc(fwp.team.abbrev) + " " + fwp.pct + "% · win probability</div>";
+      }
       if (g.situation && g.situation.downDistanceText) {
         html += '<div class="situline"><span class="dd">' + esc(g.situation.downDistanceText) + "</span>"
           + '<span class="sp">' + esc(g.situation.possessionAbbrev) + " ball · driving "
@@ -1172,21 +1199,31 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       html += "</div>";
     }
 
-    // Previous drives.
+    // Previous drives. A drive the payload carried plays for expands to the play list on
+    // tap (button + aria-expanded, so it's a11y- and keyboard-reachable); a drive with an
+    // empty plays array (an old cached payload, or ESPN just omitting them) stays the
+    // plain, unclickable row it always was.
     if (g.drives && g.drives.previous && g.drives.previous.length) {
       html += '<div class="card"><div class="seclabel"><b>' + (live ? "Previous drives" : "Drives") + "</b></div>";
       g.drives.previous.slice(0, 14).forEach(function (d) {
         var tc = hexColor((g.teams.find(function (t) { return String(t.id) === String(d.teamId); }) || {}).color);
-        html += '<div class="drv"><span class="mono sm" style="background:' + tc + '">' + esc(d.teamAbbrev || "") + "</span>"
+        var head = '<span class="mono sm" style="background:' + tc + '">' + esc(d.teamAbbrev || "") + "</span>"
           + '<span class="res' + (d.scoring ? " scored" : "") + '">' + esc(d.result || "Drive") + "</span>"
-          + '<span class="meta">' + esc(d.description || "") + "</span></div>";
+          + '<span class="meta">' + esc(d.description || "") + "</span>";
+        if (d.plays && d.plays.length) {
+          var plays = d.plays.map(function (p) {
+            return '<div class="play' + (p.scoring ? " score" : "") + '"><span class="dd">' + esc(p.downDistanceText || "—") + '</span><span>' + esc(p.text) + '</span><span class="ck">' + esc(p.clock) + "</span></div>";
+          }).join("");
+          html += '<button type="button" class="drv drvtog" aria-expanded="false">' + head + '<span class="dvchev" aria-hidden="true">›</span></button>'
+            + '<div class="drvplays">' + plays + "</div>";
+        } else {
+          html += '<div class="drv">' + head + "</div>";
+        }
       });
       html += "</div>";
     }
 
     // Win probability + team stat bars.
-    var away = g.teams.find(function (t) { return t.homeAway === "away"; }) || g.teams[0] || {};
-    var home = g.teams.find(function (t) { return t.homeAway === "home"; }) || g.teams[1] || {};
     var wpCard = "";
     if (g.winprob && g.winprob.length > 1 && !pre) {
       var pts = g.winprob;
@@ -1195,19 +1232,20 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         var y = 52 - Math.max(0, Math.min(1, p)) * 48;
         return x.toFixed(1) + "," + y.toFixed(1);
       }).join(" ");
-      var lastP = pts[pts.length - 1];
-      var leadHome = lastP >= 0.5;
-      var pct = Math.round((leadHome ? lastP : 1 - lastP) * 100);
-      var lead = leadHome ? home : away;
+      var lead = winProbLead(pts, home, away);
       wpCard += '<div class="wp"><svg viewBox="0 0 220 56" preserveAspectRatio="none" role="img" aria-label="Win probability">'
         + '<line x1="0" y1="28" x2="220" y2="28" stroke="var(--line)" stroke-width="1"/>'
         + '<polyline points="' + poly + '" fill="none" stroke="' + hexColor(home.color) + '" stroke-width="2"/>'
         + "</svg>"
-        + '<div class="val"><b>' + esc(lead.abbrev) + " " + pct + "%</b><small>win probability</small></div></div>";
+        + '<div class="val"><b>' + esc(lead.team.abbrev) + " " + lead.pct + "%</b><small>win probability</small></div></div>";
     }
     var statCard = "";
     if (g.boxscore && g.boxscore.teams && g.boxscore.teams.length === 2) {
       var WANT = ["totalYards", "netPassingYards", "rushingYards", "turnovers", "possessionTime", "thirdDownEff"];
+      // Stats where FEWER is better (turnovers today). One name added here is the whole
+      // change needed for the next one — the loop below inverts which side's OWN count
+      // decides ITS bar width.
+      var NEGATIVE_STATS = ["turnovers"];
       var a = g.boxscore.teams.find(function (t) { return t.abbrev === away.abbrev; }) || g.boxscore.teams[0];
       var h = g.boxscore.teams.find(function (t) { return t.abbrev === home.abbrev; }) || g.boxscore.teams[1];
       function statOf(t, name) { var s = (t.stats || []).find(function (x) { return x.name === name; }); return s ? s : null; }
@@ -1217,9 +1255,17 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         if (!sa || !sh) return;
         var na = parseFloat(String(sa.value).replace(/[^\d.]/g, "")) || 0;
         var nh = parseFloat(String(sh.value).replace(/[^\d.]/g, "")) || 0;
-        var tot = na + nh || 1;
+        var neg = NEGATIVE_STATS.indexOf(name) >= 0;
+        // Positive stat: each side's bar is proportional to its OWN count (more = wider).
+        // Negative stat: each side's bar is proportional to the OTHER side's count, so the
+        // team with FEWER draws the longer bar — reading as "winning" the stat it's winning.
+        var wa = neg ? nh : na, wh = neg ? na : nh;
+        var tot = wa + wh;
+        // A tied stat (0-0 included) is 50/50, never a divide-by-zero NaN.
+        var pctA = tot > 0 ? Math.round((wa / tot) * 100) : 50;
+        var pctH = tot > 0 ? Math.round((wh / tot) * 100) : 50;
         rows += '<div class="sb"><div class="lbl"><b>' + esc(sa.value) + "</b><span>" + esc(sa.label) + "</span><b>" + esc(sh.value) + "</b></div>"
-          + '<div class="tr"><i style="width:' + Math.round((na / tot) * 100) + "%;background:" + hexColor(away.color) + '"></i><em style="width:' + Math.round((nh / tot) * 100) + "%;background:" + hexColor(home.color) + '"></em></div></div>';
+          + '<div class="tr"><i style="width:' + pctA + "%;background:" + hexColor(away.color) + '"></i><em style="width:' + pctH + "%;background:" + hexColor(home.color) + '"></em></div></div>';
       });
       if (rows) statCard = '<div class="statbars">' + rows + "</div>";
     }
@@ -1324,8 +1370,15 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   // buttons open the game detail.
   document.addEventListener("click", function (ev) {
     var el = ev.target;
-    while (el && el !== document && !(el.classList && el.classList.contains("gbtn"))) el = el.parentNode;
+    while (el && el !== document && !(el.classList && (el.classList.contains("gbtn") || el.classList.contains("drvtog")))) el = el.parentNode;
     if (!el || el === document) return;
+    if (el.classList.contains("drvtog")) {
+      var wasOpen = el.getAttribute("aria-expanded") === "true";
+      el.setAttribute("aria-expanded", wasOpen ? "false" : "true");
+      var body = el.nextElementSibling;
+      if (body && body.classList.contains("drvplays")) body.classList.toggle("open", !wasOpen);
+      return;
+    }
     if (el.dataset.eid) {
       location.hash = (el.dataset.sport === "ncaa" ? "cgame=" : "game=") + el.dataset.eid;
     }

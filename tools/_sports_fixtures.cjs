@@ -166,7 +166,10 @@ function play(o) {
   };
 }
 
-function boxscoreFor(away, home) {
+// toAway/toHome (2026-08-29, negative-stat bars): default to the original 1-0 split so
+// every existing call site is byte-identical; a caller testing the divide-by-zero guard
+// passes 0, 0 for a tied (0-0) turnover battle.
+function boxscoreFor(away, home, toAway, toHome) {
   function teamStats(t, tot, pass, rush, to, poss, third) {
     return {
       team: { id: t.id, abbreviation: t.abbrev, displayName: t.full },
@@ -205,7 +208,7 @@ function boxscoreFor(away, home) {
     };
   }
   return {
-    teams: [teamStats(away, 241, 178, 63, 1, "19:08", "3-8"), teamStats(home, 289, 212, 77, 0, "24:10", "6-9")],
+    teams: [teamStats(away, 241, 178, 63, toAway == null ? 1 : toAway, "19:08", "3-8"), teamStats(home, 289, 212, 77, toHome == null ? 0 : toHome, "24:10", "6-9")],
     players: [players(away, "J. Allen", "15/22", 178, 1, 1, "J. Cook", 9, 41, "3918298", "4429795"),
       players(home, "P. Mahomes", "18/24", 212, 2, 0, "I. Pacheco", 11, 54, "3139477", "4429205")],
   };
@@ -244,9 +247,12 @@ function summaryLiveHome() {
         ],
       },
       previous: [
-        // d1 carries its own plays (2026-08-13: previous drives are DROPDOWNS in the league
-        // app, so the slimmer forwards per-drive plays now); d2/d3 deliberately carry none —
-        // the shape a thin payload really sends, which must slim to an empty array.
+        // d1 AND d2 carry their own plays (2026-08-13: previous drives are DROPDOWNS in the
+        // league app, so the slimmer forwards per-drive plays now; 2026-08-29: sports.html's
+        // OWN drives list grew the same expand/collapse, and needs TWO expandable drives on
+        // one game to prove "multiple can be open at once" rather than just one). d3
+        // deliberately carries none — the shape a thin payload really sends, which must slim
+        // to an empty array and stay a plain, unclickable row.
         { id: "d1", team: { id: "12", abbreviation: "KC" }, description: "9 plays, 75 yards, 4:41", displayResult: "Touchdown", isScore: true,
           plays: [
             { id: "p1", text: "P. Mahomes pass deep right to X. Worthy for 42 yards", clock: { displayValue: "6:10" }, period: { number: 1 },
@@ -254,7 +260,13 @@ function summaryLiveHome() {
             { id: "p2", text: "T. Kelce 12 Yd pass from P. Mahomes (H. Butker Kick)", clock: { displayValue: "3:22" }, period: { number: 1 },
               scoringPlay: true, start: { shortDownDistanceText: "2nd & 4" }, end: { down: 1, distance: 10, yardsToEndzone: 0, shortDownDistanceText: "2nd & 4" } },
           ] },
-        { id: "d2", team: { id: "2", abbreviation: "BUF" }, description: "6 plays, 70 yards, 3:05", displayResult: "Touchdown", isScore: true },
+        { id: "d2", team: { id: "2", abbreviation: "BUF" }, description: "6 plays, 70 yards, 3:05", displayResult: "Touchdown", isScore: true,
+          plays: [
+            { id: "q1", text: "J. Allen pass short right to K. Shakir for 11 yards.", clock: { displayValue: "9:40" }, period: { number: 2 },
+              start: { shortDownDistanceText: "1st & 10" }, end: { down: 1, distance: 10, yardsToEndzone: 59, shortDownDistanceText: "1st & 10" } },
+            { id: "q2", text: "J. Allen 3 Yd Run (T. Bass Kick)", clock: { displayValue: "4:18" }, period: { number: 2 },
+              scoringPlay: true, start: { shortDownDistanceText: "3rd & 2" }, end: { down: 1, distance: 10, yardsToEndzone: 0, shortDownDistanceText: "3rd & 2" } },
+          ] },
         { id: "d3", team: { id: "2", abbreviation: "BUF" }, description: "3 plays, 9 yards, 1:42", displayResult: "Punt", isScore: false },
       ],
     },
@@ -318,6 +330,22 @@ function summaryFinal() {
   return s;
 }
 
+// LIVE, TIED TURNOVERS + NO WIN-PROB YET (2026-08-29) — same shape as summaryLiveHome, but
+// 0-0 on the turnover stat specifically, so the negative-stat bar's divide-by-zero guard
+// (0/0 must render 50/50, never NaN) has a real fixture to prove itself against, not just a
+// reader's eyeball. winprobability is ALSO emptied — ESPN doesn't always carry the series
+// this early in a game — so the field's compact win-prob line proves its own "no data, no
+// line" guard on the same case (never "undefined%"). No scoreboard row on purpose — the
+// detail view opens straight off the hash, the same as any other #game=<id> deep link.
+function summaryLiveTiedTOs() {
+  const s = summaryLiveHome();
+  s.header.id = "401770006";
+  s.header.competitions[0].id = "401770006";
+  s.boxscore = boxscoreFor(TEAMS.BUF, TEAMS.KC, 0, 0);
+  s.winprobability = [];
+  return s;
+}
+
 // PREGAME — no drives, no boxscore stats yet.
 function summaryPre() {
   return {
@@ -345,6 +373,7 @@ const SUMMARIES = {
   "401770002": summaryLiveAway,
   "401770003": summaryPre,
   "401770004": summaryFinal,
+  "401770006": summaryLiveTiedTOs,
 };
 
 // ---------------- fantasy (ESPN v3, league 705063) ----------------
@@ -603,6 +632,20 @@ function cfbSummaryLive() {
   s.header.competitions[0].competitors = [
     sumCompetitor(CTEAMS.ALA, "home", 13, [3, 10]),
     sumCompetitor(CTEAMS.UGA, "away", 17, [14, 3]),
+  ];
+  // Previous drives, UGA/ALA (2026-08-29): summaryLiveHome's own KC/BUF drives don't belong
+  // to this matchup — overridden so the expandable-drives suite has a REAL college drive
+  // with plays to expand (gd1) and a real one without (gd2, the no-affordance case), proving
+  // the shared renderer on the college route rather than assuming it from the NFL fixture.
+  s.drives.previous = [
+    { id: "gd1", team: { id: CTEAMS.UGA.id, abbreviation: "UGA" }, description: "8 plays, 75 yards, 3:58", displayResult: "Touchdown", isScore: true,
+      plays: [
+        { id: "gp1", text: "C. Beck pass deep left to L. McConkey for 38 yards", clock: { displayValue: "9:02" }, period: { number: 1 },
+          start: { shortDownDistanceText: "1st & 10" }, end: { down: 1, distance: 10, yardsToEndzone: 37, shortDownDistanceText: "1st & 10" } },
+        { id: "gp2", text: "B. Bowers 9 Yd pass from C. Beck (D. Podlesny Kick)", clock: { displayValue: "5:04" }, period: { number: 1 },
+          scoringPlay: true, start: { shortDownDistanceText: "1st & Goal" }, end: { down: 1, distance: 10, yardsToEndzone: 0, shortDownDistanceText: "1st & Goal" } },
+      ] },
+    { id: "gd2", team: { id: CTEAMS.ALA.id, abbreviation: "ALA" }, description: "3 plays, 5 yards, 1:20", displayResult: "Punt", isScore: false },
   ];
   s.boxscore = boxscoreFor(CTEAMS.UGA, CTEAMS.ALA);
   s.gameInfo = { venue: { fullName: "Bryant-Denny Stadium" } };
