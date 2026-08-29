@@ -24,6 +24,10 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
   body {
+    /* overscroll: suppress the BROWSER's pull-to-refresh (it would reload the whole page — and
+       inside the Bucky embed, the whole app); the page implements its own against
+       refreshCurrentView() instead. See the pull-to-refresh block near the bottom. */
+    overscroll-behavior-y: contain;
     font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
     color: var(--ink);
     background: var(--bg);
@@ -115,7 +119,20 @@
   .g .tm .tn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .g .tm .score { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
   .g .tm.poss .score::after { content: "◂"; color: var(--red); font-size: 10px; margin-left: 5px; }
-  .g .tm.dim, .g .tm.dim .score { color: var(--muted); font-weight: 500; }
+  /* Final games: the LOSING SCORE alone goes muted — the name stays ink so finished games
+     scan the same as upcoming ones. Both scores stay ink until status.state is post. */
+  .g .tm.dim .score { color: var(--muted); font-weight: 500; }
+  /* Pull-to-refresh pill (see the touch handlers near the bottom). */
+  #ptrPill {
+    position: fixed; top: calc(env(safe-area-inset-top, 0px) + 54px); left: 50%;
+    transform: translateX(-50%) translateY(-10px); z-index: 60;
+    background: var(--card); border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 14px; font-size: 12px; font-weight: 700; color: var(--muted);
+    box-shadow: 0 3px 12px rgba(38, 51, 43, .12);
+    opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s;
+  }
+  #ptrPill.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #ptrPill.armed { color: var(--green); border-color: var(--green); }
   .mono {
     width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 9px; font-weight: 800;
     display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
@@ -1078,8 +1095,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     }
     var aScore = away.score === "" ? "–" : away.score;
     var hScore = home.score === "" ? "–" : home.score;
-    var aLosing = (live || done) && Number(away.score) < Number(home.score);
-    var hLosing = (live || done) && Number(home.score) < Number(away.score);
+    // Muted score = LOST, a settled fact — not "currently trailing". While the game is live both
+    // scores stay ink; a team down 3 in the 4th quarter has not lost yet.
+    var aLosing = done && Number(away.score) < Number(home.score);
+    var hLosing = done && Number(home.score) < Number(away.score);
     var mid;
     if (pre) {
       mid = '<span class="q done">' + esc(kickTime(g.date)) + "</span>";
@@ -1320,6 +1339,47 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   $("cfbPrev").addEventListener("click", function () { stepCfbWeek(-1); });
   $("cfbNext").addEventListener("click", function () { stepCfbWeek(1); });
   $("wkUpdated").addEventListener("click", function () { refreshCurrentView(); });
+
+  // ---------------- pull-to-refresh (2026-08-20) ----------------
+  // Swipe down from the top of any scores view = force refresh, same as tapping the ↻ stamp.
+  // Hand-rolled: the browser's native pull-to-refresh would reload the whole page (and inside
+  // the Bucky embed, the whole app) — overscroll-behavior in the CSS suppresses that, and this
+  // reimplements the gesture against refreshCurrentView() instead. Passive listeners only: we
+  // never preventDefault, so scrolling performance is untouched; the gesture simply arms when
+  // the pull STARTS at scrollY 0 and travels far enough downward.
+  var PTR_THRESHOLD_PX = 70;   // ~a thumb's length; matches the platform feel
+  var ptrStartY = null, ptrArmed = false, ptrRefreshes = 0, ptrHideT = null;
+  var ptrPill = document.createElement("div");
+  ptrPill.id = "ptrPill";
+  ptrPill.setAttribute("aria-hidden", "true");
+  document.body.appendChild(ptrPill);
+  function ptrShow(text, cls) {
+    ptrPill.textContent = text;
+    ptrPill.className = cls || "";
+    ptrPill.classList.add("show");
+    clearTimeout(ptrHideT);
+  }
+  function ptrHide(afterMs) { clearTimeout(ptrHideT); ptrHideT = setTimeout(function () { ptrPill.classList.remove("show"); }, afterMs || 0); }
+  document.addEventListener("touchstart", function (e) {
+    ptrStartY = (window.scrollY <= 0 && e.touches.length === 1) ? e.touches[0].clientY : null;
+    ptrArmed = false;
+  }, { passive: true });
+  document.addEventListener("touchmove", function (e) {
+    if (ptrStartY == null) return;
+    var dy = e.touches[0].clientY - ptrStartY;
+    if (window.scrollY > 0 || dy <= 0) { ptrStartY = null; ptrArmed = false; ptrHide(); return; }
+    ptrArmed = dy >= PTR_THRESHOLD_PX;
+    ptrShow(ptrArmed ? "Release to refresh" : "Pull to refresh", ptrArmed ? "armed" : "");
+  }, { passive: true });
+  document.addEventListener("touchend", function () {
+    if (ptrArmed) {
+      ptrRefreshes++;
+      ptrShow("Refreshing scores…", "armed");
+      refreshCurrentView();
+      ptrHide(900);
+    } else { ptrHide(); }
+    ptrStartY = null; ptrArmed = false;
+  }, { passive: true });
   $("pillNfl").addEventListener("click", function () {
     if (location.hash) location.hash = ""; else route();
   });
@@ -1354,6 +1414,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         // 🏆 badge's map, sourced from the GFFL roster now.
         ffMine: ffMine,
         pollScheduled: !!pollT, pollIv: lastIv,
+        ptrRefreshes: ptrRefreshes,   // pull-to-refresh completions (suite hook)
         events: sb ? sb.events.length : 0,
       };
     },

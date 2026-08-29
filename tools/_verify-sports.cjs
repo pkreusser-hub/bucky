@@ -728,6 +728,66 @@ async function sectionWeekGame(browser) {
   ok(/MIN -2\.5/.test(extras.preSitu), "an upcoming row shows the spread");
   ok(extras.liveSpreadless, "a live row shows the situation, not the stale pregame line");
 
+  // -- Score ink rules (2026-08-20). Muted = LOST, a settled fact — never "currently trailing".
+  // COMPUTED colors, not class names: the old bug was a CSS rule dimming the loser's whole row
+  // (name included), which a class assertion can't see. --ink: #26332b, --muted: #8b9184.
+  const INK = "rgb(38, 51, 43)", MUTED = "rgb(139, 145, 132)";
+  const ink = await page.evaluate(() => {
+    const colorsOf = (eid) => {
+      const row = [...document.querySelectorAll(".gbtn")].find((b) => b.dataset.eid === eid);
+      if (!row) return null;
+      return [...row.querySelectorAll(".tm")].map((t) => ({
+        team: (t.querySelector(".tn") || {}).textContent || "",
+        name: getComputedStyle(t.querySelector(".tn")).color,
+        score: t.querySelector(".score") ? getComputedStyle(t.querySelector(".score")).color : null,
+      }));
+    };
+    return { live: colorsOf("401770001"), fin: colorsOf("401770004") };
+  });
+  ok(!!ink.live && ink.live.every((t) => t.score === INK),
+    "LIVE: both scores are ink — a team down mid-game has not lost (BUF 14 @ KC 17)");
+  const finLoser = (ink.fin || []).find((t) => /Colts/.test(t.team));
+  const finWinner = (ink.fin || []).find((t) => /Texans/.test(t.team));
+  ok(!!finLoser && finLoser.score === MUTED, "FINAL: the losing score goes muted (IND 24)");
+  ok(!!finWinner && finWinner.score === INK, "FINAL: the winning score stays ink (HOU 31)");
+  ok(!!finLoser && finLoser.name === INK,
+    "FINAL: the losing team's NAME stays ink — only the score dims (the old rule muted the whole row)");
+
+  // -- Pull-to-refresh (2026-08-20). Swipe down from the top of a scores view = forced refresh.
+  // Synthetic TouchEvents drive the real handlers; the ptrRefreshes counter and the network
+  // request count prove a refetch actually happened, not just that a pill appeared.
+  const touchSeq = (drag) => page.evaluate(async (dy) => {
+    const t = (y) => new Touch({ identifier: 1, target: document.body, clientX: 200, clientY: y });
+    const ev = (type, y) => new TouchEvent(type, { touches: type === "touchend" ? [] : [t(y)], bubbles: true, cancelable: true });
+    window.scrollTo(0, 0);
+    document.body.dispatchEvent(ev("touchstart", 300));
+    document.body.dispatchEvent(ev("touchmove", 300 + dy / 2));
+    const midPill = { shown: document.getElementById("ptrPill").classList.contains("show"),
+                      armed: document.getElementById("ptrPill").classList.contains("armed"),
+                      text: document.getElementById("ptrPill").textContent };
+    document.body.dispatchEvent(ev("touchmove", 300 + dy));
+    const endPill = { armed: document.getElementById("ptrPill").classList.contains("armed"),
+                      text: document.getElementById("ptrPill").textContent };
+    document.body.dispatchEvent(ev("touchend", 300 + dy));
+    return { midPill, endPill, refreshes: window.__SPORTS__.state().ptrRefreshes };
+  }, drag);
+
+  const ptrBase = await page.evaluate(() => window.__SPORTS__.state().ptrRefreshes);
+  const shortPull = await touchSeq(40);   // under the 70px threshold
+  ok(shortPull.midPill.shown && !shortPull.midPill.armed && /Pull to refresh/.test(shortPull.midPill.text),
+    "a short pull shows the hint pill, un-armed");
+  ok(shortPull.refreshes === ptrBase, "…and releasing under the threshold refreshes NOTHING");
+  const svcBefore = await page.evaluate(() => performance.getEntriesByType("resource").filter((r) => r.name.includes("/.netlify/functions/sports")).length);
+  const fullPull = await touchSeq(120);   // well past the threshold
+  ok(fullPull.endPill.armed && /Release to refresh/.test(fullPull.endPill.text),
+    "a full pull arms the pill (Release to refresh)");
+  ok(fullPull.refreshes === ptrBase + 1, "releasing an armed pull fires exactly one forced refresh");
+  await sleep(700);
+  const svcAfter = await page.evaluate(() => performance.getEntriesByType("resource").filter((r) => r.name.includes("/.netlify/functions/sports")).length);
+  ok(svcAfter > svcBefore, `…and a real scoreboard refetch went out (${svcBefore} -> ${svcAfter} requests)`);
+  const overscroll = await page.evaluate(() => getComputedStyle(document.body).overscrollBehaviorY);
+  ok(overscroll === "contain", "overscroll-behavior-y: contain — the BROWSER's page-reload pull-to-refresh is suppressed");
+
   // RESTAGED (GFFL-CONNECT, 2026-08-13): the badge still exists but its SOURCE moved
   // — from the retired ESPN ff_matchup to MY GFFL roster doc, read straight from
   // Firestore. GFFL_ROSTER's arithmetic: DAL 2 starters + KC 1 + WAS 1; the DAL BENCH
@@ -785,6 +845,7 @@ async function sectionWeekGame(browser) {
       chip: document.getElementById("gameChip").textContent,
       venue: document.getElementById("gameMeta").textContent,
       bigs: [...document.querySelectorAll(".scorehead .big")].map((b) => b.textContent),
+      bigLosing: [...document.querySelectorAll(".scorehead .big")].some((b) => b.classList.contains("losing")),
       linescore: !!document.querySelector("table.line"),
       possdot: !!document.querySelector(".scorehead .possdot"),
       losX: los ? parseFloat(los.getAttribute("x1")) : null,
@@ -808,6 +869,9 @@ async function sectionWeekGame(browser) {
   ok(gm.hidden, "tapping a game swaps to the detail view");
   ok(/LIVE/.test(gm.chip) && /Arrowhead/.test(gm.venue), "the detail header shows LIVE + venue");
   ok(gm.bigs.join(",") === "14,17" && gm.linescore && gm.possdot, "score header: away-first scores, linescore, possession dot");
+  // Guards the fix for the LIVE-dim bug: the sheet used to grey the trailing team mid-game
+  // ((live || done) in scoreheadHTML). Trailing is not lost; nothing dims until Final.
+  ok(!gm.bigLosing, "score header: NEITHER score is dimmed while the game is live (BUF trails, hasn't lost)");
   // KC (home) possesses at the BUF 31 driving LEFT: ball 31yds from the left goal.
   ok(near(gm.losX, fx(31)), `line of scrimmage lands at the BUF 31 (x=${gm.losX} ≈ ${fx(31).toFixed(1)})`);
   ok(near(gm.fdX, fx(24)), `the gold first-down line is 7 yards on (x=${gm.fdX} ≈ ${fx(24).toFixed(1)})`);
