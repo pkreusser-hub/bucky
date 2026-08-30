@@ -12780,6 +12780,9 @@ function buildToggleRow(label, checked, onChange){
   const row = document.createElement("label");
   row.style.cssText = "display:flex;align-items:center;gap:9px;padding:7px 0;font-size:13.5px;";
   const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!checked;
+  // accent-color: the OS default checkbox is bright blue, which is nowhere in the Farmstead
+  // palette — this one property keeps the native control (hit target, a11y) in house green.
+  cb.style.cssText = "width:18px;height:18px;flex:0 0 auto;accent-color:var(--green);";
   cb.onchange = () => onChange(cb.checked);
   const span = document.createElement("span"); span.textContent = label;
   row.append(cb, span);
