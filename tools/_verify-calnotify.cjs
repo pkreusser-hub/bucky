@@ -442,8 +442,15 @@ async function sectionLifecycle(browser){
   const evs = await events(page);
   const savedEv = evs.find((e) => e.title === "Vet visit");
   ok(!!savedEv, "the created event is fetchable again (list re-ran after save)");
-  ok(JSON.stringify((savedEv.notify || []).slice().sort()) === JSON.stringify(["Eleanor", "Isaac", "Mom"]),
-    `the saved event carries the full ticked list as its persisted notify (got ${JSON.stringify(savedEv.notify)})`);
+  // RESTAGED 2026-08-30 (identity refactor, docs/identity.md): the persisted subscriber list
+  // now stores PIDS, not display names — this event's roster (ROSTER, above) has no pid/role
+  // yet, so migrateIdentity() mints one at boot (lowercase slug of the name; "Mom" -> "mom"),
+  // which is exactly what a real un-migrated family sees on its first load post-upgrade. The
+  // OLD rule here (asserting display names) no longer holds because the STORED identity form
+  // changed on purpose; the pre-tick and reminder-matching behavior it exists to prove is
+  // unchanged (see the reopen + re-save checks right below, still keyed by display name).
+  ok(JSON.stringify((savedEv.notify || []).slice().sort()) === JSON.stringify(["eleanor", "isaac", "mom"]),
+    `the saved event carries the full ticked list as its persisted notify, as pids (got ${JSON.stringify(savedEv.notify)})`);
   await openSheetFor(page, savedEv);
 
   ok((await checkedNames(page)).sort().join(",") === "Eleanor,Isaac,Mom",
@@ -459,8 +466,11 @@ async function sectionLifecycle(browser){
         them untouched must never re-blast "Event updated" at Isaac and Eleanor. -- */
   await save(page);
   ok(calMock.updateCalls === 1, "the re-save reached the (mocked) function as an update");
-  ok(JSON.stringify((calMock.store[1].notify || []).slice().sort()) === JSON.stringify(["Eleanor", "Isaac", "Mom"]),
-    "…and the persisted subscriber list is unchanged (still the same three)");
+  // RESTAGED 2026-08-30 (identity refactor) — see the same-reason comment above; the stored
+  // form is pids now, the "unchanged" property under test (re-saving an untouched pre-ticked
+  // list doesn't drop or reshuffle it) is what this check actually proves.
+  ok(JSON.stringify((calMock.store[1].notify || []).slice().sort()) === JSON.stringify(["eleanor", "isaac", "mom"]),
+    "…and the persisted subscriber list is unchanged (still the same three, as pids)");
   ok(calEntries(await inboxFor(page, "Isaac")).length === 1, "…but Isaac gets nothing MORE (nobody was NEWLY ticked)");
   ok(calEntries(await inboxFor(page, "Eleanor")).length === 1, "…nor does Eleanor");
   ok((await pushes(page)).filter((p) => /Vet visit|New event|Event updated/.test(p.title + " " + p.body)).length === 2,

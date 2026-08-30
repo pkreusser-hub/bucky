@@ -196,6 +196,14 @@ function tokenFields(token, user) {
   if (user != null) f.user = { stringValue: user };
   return f;
 }
+// IDENTITY (2026-08-30, docs/identity.md): a token doc can also carry `pid` — index.html's
+// BuckyPush.enable() writes it going forward. `user` stays optional/independent so a garbage
+// or absent display name never blocks a pid match.
+function tokenFieldsPid(token, user, pid) {
+  const f = tokenFields(token, user);
+  if (pid != null) f.pid = { stringValue: pid };
+  return f;
+}
 
 /* ================================= the module ========================================= */
 let handler = null;
@@ -447,6 +455,62 @@ async function main() {
     ok(/\d/.test(bodyForJanae.message.data.body), "the FCM body carries a formatted time");
     ok(bodyForJanae.message.webpush && bodyForJanae.message.webpush.headers && bodyForJanae.message.webpush.headers.Urgency === "high",
       "webpush urgency header set, matching the house convention");
+  }
+
+  /* ==================== 7b. identity refactor: pid-first matching, name fallback ==================== */
+  // docs/identity.md: index.html's Notify list stores pids going forward but must still tolerate
+  // legacy events that only ever stored names; push token docs likewise carry pid going forward
+  // but a device that registered before this refactor still has only `user`. Match by pid first,
+  // normalized name as fallback — covers all four combinations in one run so none of them could
+  // pass by accident against a different, simpler implementation.
+  section("7b. identity: pid-first matching, name fallback (docs/identity.md)");
+  {
+    resetFirestore(); resetFcm();
+    seedRows(`pushTokens_${FAM}`, [
+      // A token WITH a pid matches by pid EVEN THOUGH its `user` string is garbage — proves pid
+      // is checked, not just used as a tiebreak when the name already would have matched.
+      { docId: "tokIsaacPid", fields: tokenFieldsPid("TOK_ISAAC_PID", "some-stale-garbage-name", "isaac") },
+      // A legacy token — NO pid field at all, exactly what a device registered before this
+      // refactor still has — must still resolve by normalized name alone.
+      { docId: "tokMomLegacy", fields: tokenFields("TOK_MOM_LEGACY", "Mom") },
+      // A pid-carrying token for a DIFFERENT person, to prove pid matching doesn't cross-wire —
+      // this one must never fire on the "isaac" or "Mom" selections below.
+      { docId: "tokGrandpaPid", fields: tokenFieldsPid("TOK_GRANDPA_PID", "Grandpa", "grandpa") },
+    ]);
+    resetFcm([
+      ["TOK_ISAAC_PID", { status: 200, body: { name: "m1" } }],
+      ["TOK_MOM_LEGACY", { status: 200, body: { name: "m2" } }],
+      ["TOK_GRANDPA_PID", { status: 200, body: { name: "m3" } }],
+    ]);
+    // The notify list itself is a MIX — "isaac" is what index.html now writes (a pid); "Mom" is
+    // what an un-migrated event still carries (a legacy name) — plus one pid that resolves to
+    // nobody at all, proving pid-unmatched still reports instead of silently vanishing.
+    resetCalendar([timedEvent("identity1", NOW + 61 * 60000, "Identity Mix",
+      ["isaac", "Mom", "nobody-has-this-pid"])]);
+    const r = await callAt(NOW);
+    ok(r.body.remindersSent === 1, "the mixed-identity event still sends exactly once");
+
+    const pushed = fcmState.calls.map((c) => c.message.token).sort();
+    ok(JSON.stringify(pushed) === JSON.stringify(["TOK_ISAAC_PID", "TOK_MOM_LEGACY"].sort()),
+      `a pid entry ("isaac") matched TOK_ISAAC_PID by pid despite its garbage user string, and a legacy name ("Mom") matched TOK_MOM_LEGACY by normalized name — got ${JSON.stringify(pushed)}`);
+    ok(!pushed.includes("TOK_GRANDPA_PID"), "a pid-carrying token for someone NOT selected never fires — pid matching doesn't cross-wire");
+
+    ok(JSON.stringify((r.body.unmatchedNames || []).slice()) === JSON.stringify(["nobody-has-this-pid"]),
+      `a selected pid with no matching device is reported, exactly like an unmatched name always was — got ${JSON.stringify(r.body.unmatchedNames)}`);
+    ok(r.body.tokensNotified === 2, `both real matches sent — got ${r.body.tokensNotified}`);
+  }
+  {
+    // A second run, isolated: a token that has BOTH pid and a normal `user` still matches on
+    // pid alone when the notify entry is the pid — the name branch isn't needed to also agree.
+    resetFirestore(); resetFcm();
+    seedRows(`pushTokens_${FAM}`, [
+      { docId: "tokDadBoth", fields: tokenFieldsPid("TOK_DAD_BOTH", "Dad", "dad") },
+    ]);
+    resetFcm([["TOK_DAD_BOTH", { status: 200, body: { name: "m1" } }]]);
+    resetCalendar([timedEvent("identity2", NOW + 61 * 60000, "Pid Only Selected", ["dad"])]);
+    const r = await callAt(NOW);
+    ok(r.body.tokensNotified === 1 && fcmState.calls[0].message.token === "TOK_DAD_BOTH",
+      `a pid-only notify entry resolves a token that carries both pid and user — got ${JSON.stringify(r.body)}`);
   }
 
   /* ==================== 8. bell docs go only to selected people; empty selection sends NOTHING ==================== */

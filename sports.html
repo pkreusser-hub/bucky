@@ -778,8 +778,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   var GFFL_FS_KEY = "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU";
   var GFFL_SEASON = 2026, GFFL_SEASON_START = "2026-09-08";
   var GFFL_TEAM_BY_USER = { "isaac": 12, "grandpa": 3, "mom": 5 };  // GOAT Kids · Wyoming Cowboys · Nails For Breakfast
+  // chorePid first (identity — see docs/identity.md), lowercased choreUser as the fallback for
+  // a device that hasn't backfilled chorePid yet. pid is already a lowercase slug of the name
+  // at migration time, which for every current single-word name IS the old lowercased-name key
+  // this map has always used — so this reads identically today and just stops depending on a
+  // literal name once a device has a pid.
   function myGfflTeamId() {
-    var who = (localStorage.getItem("choreUser") || "").trim().toLowerCase();
+    var who = (localStorage.getItem("chorePid") || "").trim().toLowerCase()
+      || (localStorage.getItem("choreUser") || "").trim().toLowerCase();
     return GFFL_TEAM_BY_USER[who] || 1;  // default Battle Kreussers
   }
   // The league week, lg-core's own formula (weeks roll Tuesday 05:00 CT).

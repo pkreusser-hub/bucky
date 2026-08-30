@@ -1606,3 +1606,135 @@ a TypeError before Google is ever called.
 Regressions: calnotify **117** · calview **25** · chore-care **50** · news **200** · activity **147**.
 **STILL OPEN**: the live cause. Post-deploy the message names itself, and the Netlify function log
 now carries a `[calendar]` line for every failure.
+
+## 🪪 IDENTITY, PHASE 1: NAMES STOPPED BEING PERMISSIONS (2026-08-30)
+
+Every feature gate in this app was a literal string comparison against a family member's
+CURRENT display name — `BANK_ADMIN = "Dad"`, `BANK_KIDS = ["Isaac","Eleanor"]`,
+`FITNESS_USERS`, `isDadName()`, and eight more like them. That worked exactly until someone
+got renamed, and it meant "who can do X" lived scattered across a dozen constants instead of
+one place. Contract: **docs/identity.md**. Files: `index.html` · `push-client.js` ·
+`sports.html` · `netlify/functions/eventreminders.mjs` · NEW `tools/_verify-identity.cjs`
+(**169/169**) · extended `tools/_verify-eventreminders.mjs` (**62 → 68**).
+
+**THE THREE LAYERS.** Identity (`pid` — a name slugged at migration time, then frozen forever;
+`role` — parent/kid/extended/guest, assigned once) → Authorization (`can(capability)`, resolved
+from role plus per-profile `grant`/`deny` overrides) → Preference (unbuilt this phase). Every
+old name-gate became a capability: `seesFinance`, `kidBank`, `seesFit`, `fitLocked`,
+`seesMeals`, `seesChores`, `bankAdminUI`, `approvePayouts`. **`bankAdminUI` is one flag doing
+five jobs** — old `isDadName()` gated fitness editing, news-publication editing, the
+roster-edit PIN trigger, the boot auto-unlock prompt, AND the 3D-print-request admin alert, all
+off the same name check, so they now share the same capability rather than five near-identical
+new ones granted to the same single profile.
+
+**MIGRATION IS MERGE-ONLY AND RUNS FOREVER.** `migrateIdentity()` walks every profile doc on
+each authoritative (non-cached) data load and fills in `pid`/`role`/(Dad's) `grant` ONLY when
+absent — never overwrites an existing value, even when a profile's current name no longer
+matches its pid's slug (that's what a rename looks like, and it's supposed to happen). This
+also means a family that adds a NEW member six months from now gets it minted the same way, no
+redeploy required.
+
+**THE FALLBACK THAT MADE THIS SAFE TO SHIP: A NAME WITH NO PROFILE DOC STILL RESOLVES.**
+`resolveProfile()`/`me()` fall back to `syntheticProfile(name)` — the exact role + grants
+migration WOULD assign, computed on the fly from the same seed maps — whenever a name doesn't
+match any real profile doc. Without this, every existing suite that only ever sets `choreUser`
+in localStorage (no profile doc, because the old code never needed one) broke outright:
+`can()` had nothing to resolve against and returned false for everyone, which is exactly what
+`_verify-finance.cjs` caught first (`Isaac's shared nav area reads "Bank" (got "null")`). The
+fallback is what the CURRENT STATE inventory's "suites that set only choreUser MUST STILL
+WORK" requirement actually demanded — it's not a workaround, it's the compat mechanism.
+
+**ORDER-PRESERVING ITERATION, NOT JUST BOOLEAN GATES.** `FITNESS_USERS`/`BANK_KIDS`/
+`CHORE_USERS` weren't only gates — `fitDefaultView()` iterates them for a tie-break, bank-card
+rendering iterates them for display order. Naively deriving the list from `profiles().filter(p
+=> can(...))` would reorder it to whatever order profile docs happen to sort in (alphabetical
+by name), silently changing `fitDefaultView()`'s fallback pick. `fitUsers()`/`kidBankUsers()`/
+`choreUsers()` instead check `can()` against the HISTORICAL name order first (`FIT_ORDER` etc.,
+kept only as a tie-break, never as the authorization list itself), appending anyone newly
+granted after — so today's order is untouched and a future grant still shows up.
+
+**bankAdmin() KEEPS ITS PIN — CAPABILITY REPLACES ONLY THE NAME HALF.** `bankAdmin() =
+isDadName() && dadUnlocked()` became `can("approvePayouts") && dadUnlocked()`. The PIN session
+flag is unchanged; it now guards a capability instead of a name.
+
+**BANK_ADMIN THE STRING SURVIVES — AS DATA, NOT A GATE.** Ledger `by` fields and notification
+`to` targets (`addLedgerEntry(..., BANK_ADMIN, ...)`, `notifyPayoutPending`'s recipient) still
+address "Dad" literally. Converting these to "whoever currently holds bankAdminUI" was
+explicitly out of scope — today there's exactly one such profile either way, and resolving
+notification recipients by capability is a bigger, differently-shaped change than this phase's
+"replace the GATES" mandate.
+
+**PUSH TOKENS AND CALENDAR NOTIFY BOTH GAINED A PID, NAME STAYS THE FALLBACK.**
+`BuckyPush.enable()` gained a 5th (optional) `pid` argument — token docs now
+`{token, user, pid, ua, at}`, `user` untouched for legacy consumers. `eventreminders.mjs`
+matches a notify entry against a token by pid first, normalized name second (never name alone)
+— a token WITH a pid matches even if its `user` string is garbage; a legacy token with no pid
+still resolves by name. The calendar Notify checkboxes now persist PIDS
+(`payload.notify = checkedRows.map(r => r.pid || pidSlug(r.name))`), but the pre-tick
+(`notifyEntryMatches`) and the immediate email/push/bell pipeline (still name-addressed, kept
+that way deliberately — converting THAT to pid-addressing would ripple into `writeCloudNotif`/
+`sendEmail`/`addNotif`, all of which are per-user-data-keyed by name across the whole file, a
+change with a blast radius well outside this phase) both tolerate either form on read.
+**RESTAGED, with reason, in `_verify-calnotify.cjs`**: two assertions that checked
+`savedEv.notify` equalled `["Eleanor","Isaac","Mom"]` now expect `["eleanor","isaac","mom"]` —
+the STORED form legitimately changed; the anti-spam / pre-tick / delivery behavior those checks
+exist to prove did not, and the comment at each restaged check says so.
+
+**sports.html's GFFL_TEAM_BY_USER already matched the pid scheme by accident** — it was keyed
+by lowercased `choreUser`, which for every current single-word name IS the pid. Switched to
+`chorePid || lowercased choreUser`, unchanged output for the whole family today.
+`index.html`'s own `gfflMyTeamId()` (a near-duplicate, "keep the two in sync" per its own
+comment) was deliberately LEFT AS-IS — not in this phase's file list, and it wasn't the thing
+`_verify-sports.cjs` or the task actually asked to change.
+
+**editAnimalCareSchedule WAS NEVER GATED** — checked, not assumed: the Animal Care rota has no
+name check anywhere; anyone can edit it today. No capability was added for it, since adding one
+now would be a NEW restriction, not a preserved one.
+
+**A RENAME DOES NOT MIGRATE PER-NAME LEGACY DOCS, AND THIS PHASE DIDN'T CHANGE THAT.**
+`fitPlan_<Name>`/`stockWatch_<Name>`/kidbank `kid` fields are still keyed off the CURRENT
+display name (`myName()`), per the CURRENT STATE inventory's "most myName() call sites are
+DISPLAY or per-user data keys; only the GATES change layer." A profile renamed today still
+loses the app's OWN lookup of its old per-name docs (pre-existing behavior, not introduced
+here) — what the new suite proves instead is narrower and load-bearing: pid/role/grant survive
+a rename untouched, `can()` still resolves correctly by pid after one, and the rename never
+DELETES the old doc (Section G, `_verify-identity.cjs`). Making per-name docs rename-safe by
+re-keying them onto pid was explicitly out of scope (identity.md: pid-keyed docs are the ones
+"already deriving from the 2026-08 names" — retrofitting fitPlan/stockWatch onto pid would
+orphan every EXISTING doc immediately, the opposite of safe).
+
+**LOAD-BEARING PROOFS, each broken and confirmed failing before being reverted:**
+- `backfillChorePid()` turned into a no-op → the ONE check that exists for it fails
+  (`chorePid was backfilled... got "null"`); the app itself still half-worked (`me()` has its
+  own choreUser→name fallback independent of chorePid), proving the check isolates exactly
+  the mechanism it names.
+- `can()`'s `deny` branch removed → exactly the deny-override check fails (`got true`), the
+  grant-override check next to it still passes untouched.
+- `migrateIdentity()` made unconditional (`patch.pid = pidSlug(p.name)` always, no `!p.pid`
+  guard) → the renamed-profile check fails (pid rewritten "isaac" → "zack"); the OWN
+  "run twice, same result" check does NOT catch this on its own (an always-wrong value is
+  still self-consistent across two runs) — both checks are needed, they prove different
+  properties.
+
+**AMBIGUOUS CALLS, documented here rather than guessed silently:** `bankAdminUI` doing five
+jobs (above); `BANK_ADMIN`/`PRINT_ADMIN` kept as literal addressing values, not converted to
+capability-resolved recipients; `gfflMyTeamId()` in index.html left untouched; per-name legacy
+docs (fitPlan/stockWatch/kidbank) left name-keyed. `activity.html`'s own Dad-only gate (a
+self-contained duplicate `isDadName()`, per the app's no-shared-JS convention) was also left
+alone — it isn't in this phase's file list and has no capability layer of its own to plug into
+yet.
+
+**VERIFIED**: `_verify-identity.cjs` — migration idempotence (11 seeded profiles, exact
+pid/role for all 10 real family members hand-derived from the OLD constants, a renamed
+profile's pid untouched, two full reloads produce byte-identical profile docs); the full
+capability matrix for all 10 real profiles (9 capabilities × 10 people = 90 checks) against a
+real UI slice (Bank/Finance nav label, Fitness chip, Meals chip for 5 representative
+profiles); grant/deny overrides; "This is me" setting pid+name together; boot backfill; the
+zero-profile-docs synthetic-profile fallback; new-profile pid minting including a same-name
+collision (`sam`/`sam2`); a rename's identity stability. **169/169.**
+Regressions green: calnotify **122** · finance **117** · chore-care **50** · fitness **249** ·
+sports **273** · activity **147** · calview **25** · news **200** · minis-audio **38** ·
+arcade **23** · beacon-safety **96** · storyledger **854**. eventreminders extended
+**62 → 68** (pid-first matching: a garbage-`user` token still matches by pid; a legacy
+no-pid token still matches by name; a mixed pid+legacy-name notify list resolves both; a
+pid-and-user token matches on a pid-only selection).

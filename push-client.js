@@ -64,9 +64,14 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
 
   // The token doc, as one pure function so a caller's extra fields can be verified without
   // standing up FCM. `extra` is optional and ABSENT-BY-DEFAULT: a family-app enable() writes
-  // exactly the four fields it always did, so nothing that filters on `.user` is disturbed.
-  function buildTokenDoc(token, userName, extra) {
+  // exactly the four fields it always did (now five, with `pid`), so nothing that filters on
+  // `.user` is disturbed. `pid` (5th arg, optional) rides in as its own top-level field —
+  // identity, not an "extra" — so eventreminders.mjs can match by pid first, name as
+  // fallback (see docs/identity.md). Omitted entirely for a caller that doesn't have one yet
+  // (an un-migrated device), never written as "".
+  function buildTokenDoc(token, userName, extra, pid) {
     var doc = { token: token, user: userName, ua: deviceLabel(), at: Date.now() };
+    if (pid) doc.pid = pid;
     if (extra && typeof extra === "object") {
       for (var k in extra) {
         if (Object.prototype.hasOwnProperty.call(extra, k) && extra[k] != null) doc[k] = extra[k];
@@ -136,8 +141,9 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
 
   // `extra` (4th arg, optional) is merged into the token doc — S4 uses it for
   // {gfflTeam: <teamId>}, which is what notify.mjs's league-wide and owner-targeted sends
-  // select on. Every existing family call site passes 1-3 args and is byte-for-byte unaffected.
-  async function enable(userName, familyKey, firebaseConfigOverride, extra) {
+  // select on. `pid` (5th arg, optional) is index.html's chorePid — see buildTokenDoc. Every
+  // existing call site passes 1-4 args and is byte-for-byte unaffected.
+  async function enable(userName, familyKey, firebaseConfigOverride, extra, pid) {
     if (!isSupported()) {
       throw new Error("Push notifications are not supported in this browser.");
     }
@@ -179,7 +185,7 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
     // merge:true — a device that already had family alerts on and now turns LEAGUE alerts on
     // must keep its `user` (chore/bank targeting) and gain `gfflTeam`, not trade one for the
     // other. Same the other way round.
-    await mods.firestoreMod.setDoc(ref, buildTokenDoc(token, userName, extra), { merge: true });
+    await mods.firestoreMod.setDoc(ref, buildTokenDoc(token, userName, extra, pid), { merge: true });
 
     try {
       localStorage.setItem(

@@ -1733,6 +1733,12 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     <label for="famName" id="famFormLabel" style="margin-top:14px;">Add a family member</label>
     <input type="text" id="famName" placeholder="Name" autocomplete="off" />
     <input type="email" id="famEmail" placeholder="Email (for work-order alerts)" autocomplete="off" style="margin-top:8px;" />
+    <select id="famRole" style="margin-top:8px;">
+      <option value="parent">Parent</option>
+      <option value="kid">Kid</option>
+      <option value="extended" selected>Extended family</option>
+      <option value="guest">Guest</option>
+    </select>
     <div style="color:var(--muted);font-size:11.5px;margin-top:6px;">🔒 Dad's PIN is needed to change the family list</div>
     <div class="sheet-actions">
       <button class="btn ghost" id="famCloseBtn">Close</button>
@@ -2049,51 +2055,160 @@ const FAMILY_PASSWORD = "amenfarms";
    sheet / localStorage "choreUser"), or he won't get the bell + push alert. */
 const PRINT_ADMIN = "Dad";
 
+/* ============================================================================================
+   IDENTITY — pid, role, capabilities. Contract: docs/identity.md. Every "is this Dad / is
+   this a kid" gate in this file used to be a literal name comparison against a *_USERS/BANK_*
+   constant; those are gone (BANK_ADMIN survives, see below, but only as a notification
+   ADDRESS, never as a gate). What replaces them:
+
+     - pid: a profile's name AT MIGRATION TIME, slugged, frozen forever (pidSlug,
+       migrateIdentity below). A rename changes `name` only — pid never moves, because every
+       legacy keyed doc (fitPlan_Isaac, kidbank `kid` fields, ...) already derives from it.
+     - role: parent | kid | extended | guest, assigned ONCE at migration (IDENTITY_ROLE_SEED),
+       then owned entirely by the profile doc — the seed map is dead after that write lands.
+     - capability: what a role (or an individual profile's grant/deny override) may do —
+       resolved by can(capability, who). Code asks can("seesFit"), never myName() === "Dad".
+
+   FULL DERIVATION — every capability below, and exactly which OLD name-gate it replaces:
+
+     seesFinance    parent/extended/guest: true, kid: false — was seesFinance() = exclusion off
+                    BANK_KIDS, so a newly added non-kid still needs no code change here either.
+     kidBank        kid: true — was BANK_KIDS (has a Farm Bank account; gets "money added"
+                    bell + push alerts; BANK_NOTIFY_KIDS was just BANK_KIDS again).
+     seesFit        kid: true, PLUS a grant on the "dad" profile — was FITNESS_USERS
+                    (Isaac+Eleanor+Dad). Mom is also role `parent` but never saw Fitness, so
+                    this can't be a role default for parent — kid + one explicit grant.
+     fitLocked      kid: true — was FIT_LOCKED_USERS (Isaac+Eleanor locked to their own plan;
+                    Dad gets the whose-plan selector).
+     seesMeals      parent: true — was MEAL_USERS (Mom+Dad), exactly the parent role today, so
+                    no override is needed.
+     seesChores     kid: true — was CHORE_USERS (home-dashboard chore ring only; the Chores
+                    TAB itself has never been gated).
+     bankAdminUI    grant on "dad" only, no role default — was isDadName(): gates every
+                    Dad-only UI/copy that ISN'T itself the money-moving action — fitness +
+                    news publication editing, the roster-edit PIN trigger, the boot
+                    auto-unlock prompt, and the 3D-print-request admin alert. All of those
+                    piggyback on one name check today, so they piggyback on one capability now.
+     approvePayouts grant on "dad" only, no role default — was bankAdmin() = isDadName() &&
+                    dadUnlocked(); this capability replaces the isDadName() half, dadUnlocked()
+                    (the PIN session flag) still gates it at every call site exactly as before.
+
+   None of this changes who sees what TODAY — it changes what decides it.
+   ============================================================================================ */
+function pidSlug(name){ return String(name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+
+// One-time role assignment, read ONLY by migrateIdentity (below) and syntheticProfile's
+// no-profile-doc fallback (both need it — see there). Once a profile doc has a `role` field,
+// the DOC is the truth — never re-derive a role from this map again.
+const IDENTITY_ROLE_SEED = { dad: "parent", mom: "parent", isaac: "kid", eleanor: "kid" };
+function identitySeedRole(pid){ return IDENTITY_ROLE_SEED[pid] || "extended"; }
+// The per-profile grant overrides migration seeds once, at the same time as role (see
+// migrateIdentity) — the exceptions role alone can't express (Fit/bankAdminUI/approvePayouts
+// were Dad-by-name, and Dad is also role `parent`, same as Mom, who gets none of them).
+const IDENTITY_GRANT_SEED = { dad: ["seesFit", "bankAdminUI", "approvePayouts"] };
+
+const CAPS = {
+  parent:   { seesFinance: true, seesMeals: true },
+  kid:      { kidBank: true, seesFit: true, fitLocked: true, seesChores: true },
+  extended: { seesFinance: true },
+  guest:    { seesFinance: true },
+};
+
+function profiles(){ return familyMembers(); }
+function profileByPid(pid){ return pid ? profiles().find(p => p.pid === pid) : null; }
+function profileByName(name){ return name ? profiles().find(p => p.name === name) : null; }
+function roleOf(p){ return (p && p.role) || "extended"; }
+// A profile doc that doesn't exist yet — a device/suite that has only ever set choreUser, with
+// no Family-sheet profile ever created for that name — resolves to exactly what migration WOULD
+// write for it, computed on the fly from the same seed maps, so a family/test that never ran
+// the migration still sees today's behaviour. Real profile docs always win once they exist;
+// this is a fallback, not a second source of truth.
+function syntheticProfile(name){
+  if (!name) return null;
+  const pid = pidSlug(name);
+  return { name, pid, role: identitySeedRole(pid), grant: (IDENTITY_GRANT_SEED[pid] || []).slice() };
+}
+// Resolve `who` — a profile object, a pid, a display name, or omitted (the signed-in profile)
+// — to a profile doc, or null when it can't be resolved at all (nobody signed in yet). Every
+// can() call goes through this so callers can pass whichever identity form they already have
+// in hand.
+function resolveProfile(who){
+  if (who == null) return me();
+  if (typeof who === "object") return who;
+  return profileByPid(who) || profileByName(who) || syntheticProfile(who);
+}
+// The one gate function everything below funnels through. deny beats grant beats the role
+// default — never a name check.
+function can(cap, who){
+  const p = resolveProfile(who);
+  if (!p) return false;
+  if (Array.isArray(p.deny) && p.deny.includes(cap)) return false;
+  if (Array.isArray(p.grant) && p.grant.includes(cap)) return true;
+  return !!(CAPS[roleOf(p)] || {})[cap];
+}
+
 /* ---- Farm Bank: who's allowed to make deposits/withdrawals, and which kids have accounts.
-   Must match profile names EXACTLY (same rule as PRINT_ADMIN above). ---- */
+   BANK_ADMIN is kept as a plain name ONLY for notification addressing (who a payout-pending
+   alert / ledger "by" field names) — it is no longer a gate; every gate below goes through
+   can(). ---- */
 const BANK_ADMIN = "Dad";
-const BANK_KIDS = ["Isaac", "Eleanor"];
-// Who receives "money added to your bank!" alerts (bell + push) — Isaac + Eleanor only, never
-// Dad/Mom/guests. Declared here (not in the notification block) so the __BANK__ test hook, which
-// runs at module-eval time, can read it without a temporal-dead-zone error.
-const BANK_NOTIFY_KIDS = BANK_KIDS;   // ["Isaac", "Eleanor"]
+// Historical order (bank-card display, seed amounts, fitness defaulting used to iterate these
+// literal arrays) — kept ONLY as a tie-break for people who already have the capability; the
+// capability grant, not this list, decides WHO'S included, so a newly granted member still
+// shows up (appended after the known order) with no code change here.
+const KID_BANK_ORDER = ["Isaac", "Eleanor"];
+// can("kidBank", name) resolves through a REAL profile doc when one exists, and through
+// syntheticProfile's name-derived fallback when it doesn't (an un-migrated roster, or a suite
+// that only ever set choreUser with no profile docs at all) — so this returns the same two
+// names it always did even with zero profile docs seeded, and still honours a real deny/grant
+// override once a doc exists.
+function kidBankUsers(){
+  const known = KID_BANK_ORDER.filter(n => can("kidBank", n));
+  const extra = profiles().filter(p => can("kidBank", p) && !KID_BANK_ORDER.includes(p.name)).map(p => p.name);
+  return known.concat(extra);
+}
 // Farm Bank is the KIDS' side of the shared Bank/Finance nav area — their own savings
 // accounts, plus Dad who manages them. Gates the farmbank section + its bottom-nav chip.
-// Chores are visible to EVERYONE (2026-07-09 user decision, reversing the earlier chores
-// gate). Mom REMOVED 2026-08-xx (user ruling): kids get Bank, everyone else gets Finance
-// (see seesFinance() right below), Dad gets both. Must match profile names.
-const BANK_USERS = ["Eleanor", "Isaac", "Dad"];
-function seesBank(){ return BANK_USERS.includes(myName()); }
+function seesBank(){ return can("kidBank") || can("bankAdminUI"); }
 // Finance — a markets snapshot + a personal watchlist — is the "grown-up" side of the same
-// shared area: everyone EXCEPT the two kids (Dad, Mom, grandparents, any guest). Unlike
-// every other *_USERS gate in this file, this one is defined by EXCLUSION (off BANK_KIDS,
-// not a membership list) on purpose — a newly added family member sees Finance with no
-// code change, the same way a new publication doesn't need a News code change either.
-function seesFinance(){ return !BANK_KIDS.includes(myName()); }
+// shared area: everyone EXCEPT kidBank profiles (Dad, Mom, grandparents, any guest). Unlike
+// most other gates in this file, this one is defined by EXCLUSION (kid role defaults to
+// seesFinance:false, everything else defaults true) on purpose — a newly added family member
+// sees Finance with no code change, the same way a new publication doesn't need one either.
+function seesFinance(){ return can("seesFinance"); }
 // Chore tracking on the HOME page (hero ring + "Today's chores" card) is only for the kids
 // who have chores — everyone else gets a chore-free dashboard. The Chores TAB is unchanged.
-const CHORE_USERS = ["Isaac", "Eleanor"];
-function seesChores(){ return CHORE_USERS.includes(myName()); }
+const CHORE_ORDER = ["Isaac", "Eleanor"];
+function choreUsers(){
+  const known = CHORE_ORDER.filter(n => can("seesChores", n));
+  const extra = profiles().filter(p => can("seesChores", p) && !CHORE_ORDER.includes(p.name)).map(p => p.name);
+  return known.concat(extra);
+}
+function seesChores(){ return can("seesChores"); }
 
-/* ---- Meals (Mom-only calorie tracker, a 3rd member of the Plan area). Soft client gate,
-   consistent with the app's choreUser identity posture (same as the Farm Bank / Chores
-   gates). Only the "Mom" profile ever sees the Meals sub-nav chip or section. ---- */
-const MEAL_USERS = ["Mom", "Dad"];
-function seesMeals(){ return MEAL_USERS.includes(myName()); }
+/* ---- Meals (Mom/Dad calorie tracker, a 3rd member of the Plan area). Soft client gate,
+   consistent with the app's chorePid identity posture (same as the Farm Bank / Chores
+   gates). Only parent profiles ever see the Meals sub-nav chip or section. ---- */
+function seesMeals(){ return can("seesMeals"); }
 
-/* ---- Fitness. The SECTION is visible to everyone (Mom and Dad need to see and build the
-   week), and only EDITING is gated — behind the same Dad PIN as banking. FITNESS_USERS is
-   just who gets the Home dashboard card and a per-person completion log: the two kids it's
-   for. Anyone else can still open the tab and do the workout; nothing is logged for them. */
+/* ---- Fitness. The SECTION is visible to everyone with seesFit (Mom and Dad need to see and
+   build the week — wait, only Dad: Mom never had Fitness), and only EDITING is gated — behind
+   the same Dad PIN as banking. fitUsers() is just who gets the Home dashboard card and a
+   per-person completion log: the two kids it's for, plus Dad. Anyone else can still open the
+   tab and do the workout; nothing is logged for them. */
 /* Everyone with a workout of their own. There is NO shared/"everybody" plan — each of
    these people has their own, and anyone not listed simply has no plan (they can still
    open the tab and look at someone else's). */
-const FITNESS_USERS = ["Isaac", "Eleanor", "Dad"];
+const FIT_ORDER = ["Isaac", "Eleanor", "Dad"];
+function fitUsers(){
+  const known = FIT_ORDER.filter(n => can("seesFit", n));
+  const extra = profiles().filter(p => can("seesFit", p) && !FIT_ORDER.includes(p.name)).map(p => p.name);
+  return known.concat(extra);
+}
 /* The kids are LOCKED to their own plan: no whose-plan selector, no wandering into a
    sibling's. Everyone else gets the selector so Dad can build all three. */
-const FIT_LOCKED_USERS = ["Isaac", "Eleanor"];
-function seesFitness(){ return FITNESS_USERS.includes(myName()); }
-function fitLocked(){ return FIT_LOCKED_USERS.includes(myName()); }
+function seesFitness(){ return can("seesFit"); }
+function fitLocked(){ return can("fitLocked"); }
 
 /* ---- Work-order assignees (multi-capable, backward compatible) ----
    A work order may carry `assignees` (an ARRAY of names). Legacy docs (and other
@@ -2127,8 +2242,7 @@ const dadConfigured = () => !!dadPinHash();
 // profile switch). Roster mutations deliberately bypass this — see gateDadForRoster.
 const dadUnlocked   = () => sessionStorage.getItem("dadUnlocked") === "1" || localStorage.getItem("dadUnlockedDevice") === "1";
 function markDadUnlocked(){ sessionStorage.setItem("dadUnlocked", "1"); try { localStorage.setItem("dadUnlockedDevice", "1"); } catch {} }
-const isDadName     = () => (localStorage.getItem("choreUser") || "") === BANK_ADMIN;   // "Dad"
-const bankAdmin     = () => isDadName() && dadUnlocked();                                // gate for Dad-only UI
+const bankAdmin     = () => can("approvePayouts") && dadUnlocked();                      // gate for Dad-only UI
 async function setDadPin(pin){ const h = await sha256Hex(pin + ":" + FAMILY_PASSWORD); localStorage.setItem("dadPinHash", h); try { await backend?.setSetting?.("dadAuth", { pinHash: h }); } catch {} }
 async function syncDadPin(){ try { const s = await backend?.getSetting?.("dadAuth"); if (s && s.pinHash) localStorage.setItem("dadPinHash", s.pinHash); } catch {} }
 // Create-or-verify the Dad PIN; sets the session unlock on success. Returns true if unlocked.
@@ -2153,7 +2267,7 @@ async function gateDad(){
 async function gateDadForRoster(){
   const ok = await gateDad();   // gateDad ALWAYS prompts (never satisfied by a stored flag) — required here
   // A non-Dad who entered the PIN for a roster edit must NOT gain a device-wide Dad unlock.
-  if (ok && !isDadName()){ sessionStorage.removeItem("dadUnlocked"); try { localStorage.removeItem("dadUnlockedDevice"); } catch {} }
+  if (ok && !can("bankAdminUI")){ sessionStorage.removeItem("dadUnlocked"); try { localStorage.removeItem("dadUnlockedDevice"); } catch {} }
   return ok;
 }
 
@@ -2347,6 +2461,65 @@ function relTime(ms){
 }
 
 function myName(){ return localStorage.getItem("choreUser") || ""; }
+// myPid()/me() are IDENTITY (see the block above); myName() stays DISPLAY-ONLY — every existing
+// per-user data key (fitPlan_<name>, kidbank `kid` field, etc.) keeps reading/writing myName()
+// unchanged, per docs/identity.md's compat note.
+function myPid(){ return localStorage.getItem("chorePid") || ""; }
+// The full signed-in profile doc, or null before anyone's picked "This is me" (nothing in
+// localStorage at all). Looks up by chorePid first — the durable identity — falling back to
+// choreUser by name (a device that hasn't backfilled chorePid yet), then to a synthetic
+// profile computed straight from the name (see syntheticProfile) for a device/suite that has
+// only ever set choreUser and has NO profile doc for that name at all — that fallback is what
+// keeps every old choreUser-only suite (and a brand-new install with an empty roster) behaving
+// exactly as before this refactor.
+function me(){
+  const pid = myPid();
+  if (pid){ const p = profileByPid(pid); if (p) return p; }
+  const name = myName();
+  if (!name) return null;
+  return profileByName(name) || syntheticProfile(name);
+}
+// Boot-time compat: a device/suite that only ever set choreUser (no chorePid) gets backfilled
+// the instant its profile doc is known — this is what keeps every OLD suite (and every real
+// device that hasn't reopened the Family sheet since migration) working with zero action.
+// Never fires once chorePid is already set; never invents a pid — only copies one that's
+// already on the matching profile doc (migrateIdentity is what puts it there).
+function backfillChorePid(){
+  if (myPid()) return;
+  const name = myName();
+  if (!name) return;
+  const p = profileByName(name);
+  if (p && p.pid) localStorage.setItem("chorePid", p.pid);
+}
+
+// ---- Identity migration: merge-only, idempotent, never overwrites an existing pid/role/grant ----
+// Runs once per real data load (see afterBackendReady / the cloud onSnapshot handler below).
+// Writes go through the normal chores save path (backend.update) — these ARE chores docs
+// (frequency:"profile") — so cloud sync/dedupe already covers them; nothing new to build.
+let identityMigrationInFlight = false;
+async function migrateIdentity(){
+  if (!backend || identityMigrationInFlight) return;
+  identityMigrationInFlight = true;
+  try {
+    for (const p of profiles()){
+      const patch = {};
+      if (!p.pid) patch.pid = pidSlug(p.name);
+      if (!p.role) patch.role = identitySeedRole(patch.pid || p.pid);
+      // Grant overrides seed once too, same "never overwrite" rule — only when the doc has NO
+      // grant array yet at all (an empty [] you deliberately cleared stays cleared).
+      if (!Array.isArray(p.grant)){
+        const seedGrant = IDENTITY_GRANT_SEED[patch.pid || p.pid];
+        if (seedGrant && seedGrant.length) patch.grant = seedGrant.slice();
+      }
+      if (Object.keys(patch).length){
+        Object.assign(p, patch);   // fix the in-memory doc immediately — no window where can() sees neither
+        try { await backend.update(p.id, patch); } catch {}
+      }
+    }
+  } finally {
+    identityMigrationInFlight = false;
+  }
+}
 
 /* ============================================================
    NOTIFICATIONS — in-app inbox for work-order assignments/closures
@@ -2474,11 +2647,12 @@ function checkNotifications(){
     const prev = pstate[p.id];
     const done = p.status === "done";
     if (!prev){
-      // Never seen this request before: tell PRINT_ADMIN about new open requests from someone else.
-      if (user === PRINT_ADMIN && !done && p.requestedBy !== user && !printFirstRun){
+      // Never seen this request before: tell the print admin (bankAdminUI) about new open
+      // requests from someone else.
+      if (can("bankAdminUI", user) && !done && p.requestedBy !== user && !printFirstRun){
         const n = addNotif(user, "print_request", `🖨️ Print request: ${p.requestedBy || "Someone"} wants: ${p.item}`, p.id);
         if (n) fresh.push(n);
-      } else if (user === PRINT_ADMIN && !done && p.requestedBy !== user && printFirstRun){
+      } else if (can("bankAdminUI", user) && !done && p.requestedBy !== user && printFirstRun){
         // First-ever run: don't spam old history, but do surface currently-open requests.
         const n = addNotif(user, "print_request", `🖨️ Print request: ${p.requestedBy || "Someone"} wants: ${p.item}`, p.id);
         if (n) fresh.push(n);
@@ -2711,7 +2885,7 @@ async function toggleDesktopAlerts(){
     localStorage.setItem("buckyNotifDesktop", "1");
     // register this device for phone push — and SAY SO if it fails, don't fail silently
     if (window.BuckyPush && familyKey && myName()){
-      BuckyPush.enable(myName(), familyKey)
+      BuckyPush.enable(myName(), familyKey, undefined, undefined, myPid())
         .then(() => showToast("✅ This device will now get BUCKY alerts"))
         .catch(e => { console.warn("Push registration failed:", e); showToast("⚠️ Phone alerts issue: " + (e && e.message || e)); });
     }
@@ -2739,7 +2913,7 @@ function refreshPushRegistration(){
   if (!desktopAlertsEnabled()) return;
   if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
   if (!window.BuckyPush || !familyKey || !myName()) return;
-  BuckyPush.enable(myName(), familyKey).catch(e => console.warn("push refresh failed:", e && e.message || e));
+  BuckyPush.enable(myName(), familyKey, undefined, undefined, myPid()).catch(e => console.warn("push refresh failed:", e && e.message || e));
 }
 
 // Time since a completion: hours if under a day, days if over (minutes if under an hour).
@@ -4274,7 +4448,7 @@ function renderDashboard(){
   const showChores = seesChores();
   const CIRC = 2 * Math.PI * 30, pct = total ? done/total : 0;   // r=30
   const hero = document.createElement("button"); hero.className = "hero";
-  // Chore tracking (ring + encouragement subtext) only for CHORE_USERS; everyone else gets a
+  // Chore tracking (ring + encouragement subtext) only for seesChores() profiles; everyone else gets a
   // clean greeting without any chore UI.
   let sub = "";
   if (showChores){
@@ -5767,7 +5941,7 @@ async function markWorkOrderComplete(){
   const patch = { done: true, doneAt: Date.now(), doneBy: me, donePhoto: woDonePhoto || "" };
   // Kid work orders with a dollar value don't pay out automatically — Dad has to confirm first.
   const value = parseFloat(w.value);
-  if (BANK_KIDS.includes(me) && value > 0) patch.payoutPending = true;
+  if (can("kidBank", me) && value > 0) patch.payoutPending = true;
   Object.assign(w, patch);
   if (w.createdBy && w.createdBy !== me) notifyCreatorClosed(w);   // tell the creator it's done
   if (patch.payoutPending){ notifyPayoutPending(w); notifyPayoutSentToKids(w, value); }
@@ -5783,9 +5957,9 @@ async function reopenWorkOrder(w){
 // Who gets paid for a completed value>0 work order: the KID assignees. Falls back to the
 // person who completed it (doneBy) if it has no kid assignees on record (legacy single WOs).
 function payoutRecipients(w){
-  const kids = woAssignees(w).filter(n => BANK_KIDS.includes(n));
+  const kids = woAssignees(w).filter(n => can("kidBank", n));
   if (kids.length) return kids;
-  return BANK_KIDS.includes(w.doneBy) ? [w.doneBy] : (w.doneBy ? [w.doneBy] : []);
+  return can("kidBank", w.doneBy) ? [w.doneBy] : (w.doneBy ? [w.doneBy] : []);
 }
 // Split `value` (dollars) evenly into cents across n recipients; any odd cent(s) go to the first.
 function splitValue(value, n){
@@ -6060,7 +6234,7 @@ async function submitPrintRequest(){
     status: "open", doneBy: "", doneAt: 0
   };
   await backend.add(data);
-  if (me !== PRINT_ADMIN) notifyPrintAdmin(data);   // never self-notify
+  if (!can("bankAdminUI", me)) notifyPrintAdmin(data);   // never self-notify
   currentTab = "print3d"; syncTabsUI(); render();
 }
 
@@ -6115,7 +6289,7 @@ async function ensureKidSeeds(){
   if (!dataReady || !backend) return;
   sweepKidbankDuplicates("seed", d => d.kid, "seed");
   const seedAmounts = { Isaac: 0, Eleanor: 40 };
-  for (const kid of BANK_KIDS){
+  for (const kid of kidBankUsers()){
     const existing = chores.some(c => c.frequency === "kidbank" && c.kid === kid && c.kind === "seed");
     if (existing) continue;
     if (bankSeedAttempted.has(kid)) continue;   // write already in flight this session
@@ -6188,7 +6362,7 @@ async function ensureDailyAllowance(){
   sweepKidbankDuplicates("allowance", d => d.kid + "|" + d.day, "allowance");
   const day = todayKey();
   if (!allDailyChoresDone()) return;
-  for (const kid of BANK_KIDS){
+  for (const kid of kidBankUsers()){
     const memKey = kid + "|" + day;
     if (allowanceChecked.has(memKey)) continue;
     const existing = chores.some(c => c.frequency === "kidbank" && c.kid === kid && c.kind === "allowance" && c.day === day);
@@ -6321,10 +6495,10 @@ function renderFarmBank(){
   li.style.cssText = "background:transparent;border:0;box-shadow:none;padding:0;";
   // A kid logged in on this device sees only their OWN account; Dad (the banker) sees all.
   const me = myName();
-  const showKids = BANK_KIDS.includes(me) ? [me] : BANK_KIDS;
+  const showKids = can("kidBank") ? [me] : kidBankUsers();
   // ONE top row (not per-card): Dad-but-locked gets a tappable unlock row; everyone else who
   // can't bank gets a single gentle note.
-  if (isDadName() && !dadUnlocked()){
+  if (can("bankAdminUI") && !dadUnlocked()){
     const unlock = document.createElement("button");
     unlock.className = "bank-unlock-row";
     unlock.innerHTML = "🔒 Unlock to manage";
@@ -6491,7 +6665,10 @@ let calRepeatTouched = false;  // user changed the Repeats select this open (CUS
 let calEndTouched = false;     // user set the end time themselves (else it follows the start)
 // ---- Notify: subscriber list (persisted, ev.notify) vs. this-save action (see
 // renderCalNotifyList / saveCalEvent's notifyNames split for the full explanation) ----
-let calSheetInitialNotify = new Set();   // normalized names ticked on THIS event when the sheet opened
+// RAW ev.notify strings from when the sheet opened — each one is EITHER a pid (what saves
+// write going forward) OR a legacy display name (what an un-migrated event still carries, and
+// all this app ever wrote before 2026-08-30). notifyEntryMatches (below) is what tolerates both.
+let calSheetInitialNotify = [];
 let calCacheTs = 0;                            // when bucky_cal_cache was last written (Home-widget staleness check)
 try { const c = JSON.parse(localStorage.getItem("bucky_cal_cache")); if (Array.isArray(c)) calEvents = c; } catch {}
 try { const t = Number(localStorage.getItem("bucky_cal_cache_ts")); if (t > 0) calCacheTs = t; } catch {}
@@ -7277,7 +7454,7 @@ function openCalEventSheet(ev, opts){
   // calSheetInitialNotify records duty #1's starting point so saveCalEvent can compute duty #2's
   // diff. A brand-new event has no prior subscribers, so nothing is pre-ticked and everything
   // checked at Save counts as "newly ticked".
-  calSheetInitialNotify = new Set((ev && Array.isArray(ev.notify) ? ev.notify : []).map(normalizeNotifyName));
+  calSheetInitialNotify = (ev && Array.isArray(ev.notify)) ? ev.notify.slice() : [];
   renderCalNotifyList(ev);
   syncCalNotifiedLine(ev);
   document.getElementById("calOverlay").classList.add("open");
@@ -7397,16 +7574,20 @@ async function saveCalEvent(){
   // was pressed, and whether this save is (still) establishing a repeat rule — both read
   // straight off the payload we just built (or straight off the checkboxes, for notify) so
   // they can never disagree with what was actually sent to Google.
-  const notifyNames = getCheckedNotifyNames();
+  const checkedRows = getCheckedNotifyRows();
   // notify ALWAYS rides along, on every branch/every save — it IS the persisted subscriber
   // list from here on (calendar.mjs's applyNotify treats an explicit array, even [], as
   // "replace"; only an ABSENT key means "leave alone", and this sheet never sends that).
-  payload.notify = notifyNames;
+  // Stored as PIDS going forward (docs/identity.md) — eventreminders.mjs and this sheet's own
+  // pre-tick both tolerate legacy names already on old events (see notifyEntryMatches).
+  payload.notify = checkedRows.map(r => r.pid || pidSlug(r.name));
   // Duty #2 (this-save notification) is the DIFF against what was already subscribed when the
   // sheet opened — not the full checked list. Re-saving an untouched, pre-ticked subscription
-  // sends nobody anything; only names newly ticked THIS time count as "newly told". See the
-  // comment in openCalEventSheet for why the split exists.
-  const newlyTicked = notifyNames.filter(n => !calSheetInitialNotify.has(normalizeNotifyName(n)));
+  // sends nobody anything; only rows newly ticked THIS time count as "newly told" — the
+  // immediate email/push/bell pipeline (notifyCalEvent) still addresses people by NAME, so the
+  // diff is by identity (pid-or-name) but the result stays names. See the comment in
+  // openCalEventSheet for why the split exists.
+  const newlyTicked = checkedRows.filter(r => !notifyEntryMatches(r, calSheetInitialNotify)).map(r => r.name);
   const repeatInfo = (payload.repeat && payload.repeat.freq && payload.repeat.freq !== "NONE") ? payload.repeat : null;
   closeCalSheet();
   showToast(editing ? "Saving change…" : "Adding event…");
@@ -7564,6 +7745,19 @@ async function getPushDeviceNames(){
 // with no registered push device gets the equivalent warning for the 1-hour reminder, filled in
 // asynchronously once getPushDeviceNames() resolves (so opening the sheet is never blocked on a
 // network round trip).
+// True when `entry` ({pid, name}) is already present in `rawList` (raw ev.notify strings,
+// each EITHER a pid or a legacy display name — see calSheetInitialNotify above). Checks pid
+// first (exact, case-insensitive — pids are already lowercase slugs), normalized name second,
+// so a legacy event that only ever stored names still pre-ticks correctly.
+function notifyEntryMatches(entry, rawList){
+  const pidKey = (entry && entry.pid || "").trim().toLowerCase();
+  const nameKey = normalizeNotifyName(entry && entry.name || "");
+  return (rawList || []).some(s => {
+    const raw = String(s == null ? "" : s).trim();
+    if (!raw) return false;
+    return (pidKey && raw.toLowerCase() === pidKey) || normalizeNotifyName(raw) === nameKey;
+  });
+}
 function renderCalNotifyList(ev){
   const wrap = document.getElementById("calNotifyList");
   wrap.innerHTML = "";
@@ -7576,8 +7770,8 @@ function renderCalNotifyList(ev){
     const row = document.createElement("label");
     row.className = "cal-notify-row";
     const cb = document.createElement("input");
-    cb.type = "checkbox"; cb.dataset.name = m.name;
-    cb.checked = calSheetInitialNotify.has(normalizeNotifyName(m.name));
+    cb.type = "checkbox"; cb.dataset.name = m.name; cb.dataset.pid = m.pid || pidSlug(m.name);
+    cb.checked = notifyEntryMatches({ pid: cb.dataset.pid, name: m.name }, calSheetInitialNotify);
     const span = document.createElement("span");
     span.textContent = m.name;
     row.append(cb, span);
@@ -7604,6 +7798,11 @@ function renderCalNotifyList(ev){
 }
 function getCheckedNotifyNames(){
   return [...document.querySelectorAll("#calNotifyList input[type=checkbox]:checked")].map(cb => cb.dataset.name);
+}
+// Same rows, with both identity forms — {name, pid} — for saveCalEvent's pid-persisted list
+// and pid-or-name newlyTicked diff (see notifyEntryMatches).
+function getCheckedNotifyRows(){
+  return [...document.querySelectorAll("#calNotifyList input[type=checkbox]:checked")].map(cb => ({ name: cb.dataset.name, pid: cb.dataset.pid || "" }));
 }
 // Fires in-app + push + email for every ticked name (creator excluded, silently, even if
 // their own box is somehow ticked). Runs AFTER the event is already saved — everything here
@@ -8956,13 +9155,13 @@ function fitPlanOf(who){ return (fitHasOwnPlan(who) ? fitPlans[who] : null); }
 /** Where the selector starts: yourself if you have a plan, else the first person who does. */
 function fitDefaultView(){
   if (fitHasOwnPlan(myName())) return myName();
-  for (const k of FITNESS_USERS) if (fitHasOwnPlan(k)) return k;
-  return FITNESS_USERS[0];
+  for (const k of fitUsers()) if (fitHasOwnPlan(k)) return k;
+  return fitUsers()[0];
 }
 /** The selector's effective value: an explicit choice, else the sensible default. */
 function fitViewNow(){
   const v = fitPlanView === null ? fitDefaultView() : fitPlanView;
-  return FITNESS_USERS.includes(v) ? v : fitDefaultView();   // a stale saved name can't strand you
+  return fitUsers().includes(v) ? v : fitDefaultView();   // a stale saved name can't strand you
 }
 /** Whose workout is on screen — a kid always sees their own; anyone else uses the selector. */
 function fitWhose(){ return fitLocked() ? myName() : fitViewNow(); }
@@ -9082,9 +9281,9 @@ function fitStreak(kid){
 async function fitEnsureAll(){
   await Promise.all([
     fitEnsureLib(),
-    ...FITNESS_USERS.map((k) => fitEnsureBaked(k)),
+    ...fitUsers().map((k) => fitEnsureBaked(k)),
   ]);
-  await Promise.all(FITNESS_USERS.map((k) => fitEnsurePlan(k)));
+  await Promise.all(fitUsers().map((k) => fitEnsurePlan(k)));
   const kid = myName();
   if (kid){
     const today = fitToday();
@@ -9109,7 +9308,7 @@ function renderFitness(){
     const who = document.createElement("div"); who.className = "fitwho"; who.id = "fitWhoRow";
     const lab = document.createElement("span"); lab.className = "fitwho-l"; lab.textContent = "Plan for";
     who.appendChild(lab);
-    for (const [id, label] of FITNESS_USERS.map((k) => [k, k])){
+    for (const [id, label] of fitUsers().map((k) => [k, k])){
       const b = document.createElement("button"); b.type = "button"; b.className = "fitwho-b";
       b.dataset.who = id;
       b.textContent = label;
@@ -9271,7 +9470,7 @@ function fitAppendEditLink(body, key){
   link.id = "fitEditLink";
   // Be explicit about what an edit will touch — "edit this day" means something different
   // when you're looking at Isaac's plan than when you're looking at everyone's.
-  link.textContent = isDadName() ? `✏️  Edit ${who}'s plan for this day` : "✏️  Edit this day (Dad only)";
+  link.textContent = can("bankAdminUI") ? `✏️  Edit ${who}'s plan for this day` : "✏️  Edit this day (Dad only)";
   link.onclick = () => fitOpenBuilder(key);
   body.appendChild(link);
 }
@@ -9301,7 +9500,7 @@ function fitRenderWeek(body){
     // Completion ticks are per kid and read each kid's OWN plan — Isaac can be resting
     // on a day Eleanor is working, so a tick is only meaningful against their own week.
     const ticks = document.createElement("div"); ticks.className = "fitday-ticks";
-    const tickKids = fitLocked() ? [myName()] : FITNESS_USERS;
+    const tickKids = fitLocked() ? [myName()] : fitUsers();
     for (const k of tickKids){
       const kday = fitDayOf(key, k);
       if (!kday || kday.rest) continue;
@@ -9319,13 +9518,13 @@ function fitRenderWeek(body){
 
   const note = document.createElement("div"); note.className = "fitmeta";
   note.style.marginTop = "12px"; note.style.textAlign = "center";
-  note.textContent = isDadName() ? "Tap a day to edit it." : "Tap a day to see what's on it.";
+  note.textContent = can("bankAdminUI") ? "Tap a day to edit it." : "Tap a day to see what's on it.";
   body.appendChild(note);
 }
 
 function fitRenderProgress(body){
   const today = fitToday();
-  const kids = fitLocked() ? [myName()] : FITNESS_USERS.slice();
+  const kids = fitLocked() ? [myName()] : fitUsers();
 
   for (const kid of kids){
     if (!kid) continue;
@@ -9922,8 +10121,8 @@ function fitCloseSheet(){ document.getElementById("fitSheetOverlay").classList.r
 
 async function fitOpenBuilder(dayKey){
   await fitEnsureAll();
-  const readOnly = !isDadName() || !(dadUnlocked() || await gateDad());
-  if (!isDadName()){
+  const readOnly = !can("bankAdminUI") || !(dadUnlocked() || await gateDad());
+  if (!can("bankAdminUI")){
     // Not Dad at all — open the read-only view rather than nagging for a PIN they can't have.
     fitDraftRO = true;
   } else if (readOnly){
@@ -10418,6 +10617,18 @@ window.__CARE__ = {
   weekOffset: (n)=>{ careWeekOffset = n; if (currentTab === "animalcare") renderAnimalCare(); },
   reload: ()=>loadAnimalCare(),
 };
+// Identity test hook (docs/identity.md) — direct introspection for tools/_verify-identity.cjs,
+// on top of (never instead of) the real UI checks every other section of that suite also runs.
+window.__IDENTITY__ = {
+  pidSlug: (n)=>pidSlug(n),
+  can: (cap, who)=>can(cap, who),
+  me: ()=>me(),
+  myPid: ()=>myPid(),
+  profiles: ()=>profiles().map(p=>({ id:p.id, name:p.name, pid:p.pid||null, role:p.role||null, grant:(p.grant||[]).slice(), deny:(p.deny||[]).slice() })),
+  migrate: ()=>migrateIdentity(),
+  backfill: ()=>backfillChorePid(),
+  mintPid: (n)=>mintPid(n),
+};
 window.__NAV__ = { goTo, tab: ()=>currentTab };
 // Chore-rota hooks (the daily chores follow the animal-care schedule — see choreOnDuty).
 window.__CHORES__ = {
@@ -10484,7 +10695,7 @@ window.__FIT__ = {
   pickState: ()=>({ q: fitPickQuery, group: fitPickGroup, equip: fitPickEquip, target: fitPickTarget }),
   setPick: (o)=>{ if (o.q !== undefined) fitPickQuery = o.q; if (o.group) fitPickGroup = o.group; if (o.equip) fitPickEquip = o.equip; fitPaintPicker(); },
   closeSheet: ()=>fitCloseSheet(),
-  users: FITNESS_USERS.slice(),
+  get users(){ return fitUsers(); },
   band: FIT_BAND.slice(),
 };
 // Bank-notification test hooks (drive the real credit paths + read the resulting bell inbox).
@@ -10493,7 +10704,7 @@ window.__BANK__ = {
   addLedger: (kid, amt, desc, kind, extra)=>addLedgerEntry(kid, amt, desc, "TESTER", kind || "manual", extra),
   inbox: (kid)=>loadNotifInbox(kid).filter(n => n.type === "bank_credit"),
   balance: (kid)=>kidBalance(kid),
-  kids: BANK_NOTIFY_KIDS.slice(),
+  get kids(){ return kidBankUsers(); },
 };
 // Cross-device notification test hooks. Firebase is blocked in headless suites, so real
 // cross-device delivery can't be driven end-to-end against a live Firestore connection — these
@@ -11720,11 +11931,11 @@ function renderNews(){
     const e = document.createElement("div"); e.className = "newsempty";
     const h4 = document.createElement("h4"); h4.textContent = "No publications yet";
     const p = document.createElement("p");
-    p.textContent = isDadName()
+    p.textContent = can("bankAdminUI")
       ? "Add the websites you want to follow and Bucky will pull their headlines here every day, each with a short summary."
       : "Ask Dad to add some publications and the day's headlines will show up here.";
     e.appendChild(h4); e.appendChild(p);
-    if (isDadName()){
+    if (can("bankAdminUI")){
       const b = document.createElement("button"); b.className = "btn primary"; b.id = "newsAddFirstBtn";
       b.textContent = "Add a publication";
       b.onclick = () => newsOpenSources();
@@ -11852,7 +12063,7 @@ async function newsOpenSources(){
   await newsEnsureSources();
   // Dad only. Everyone else may look at the list but not change it — same shape as the
   // Fitness builder (read-only for non-Dad, PIN for Dad).
-  const readOnly = !isDadName() || !(dadUnlocked() || await gateDad());
+  const readOnly = !can("bankAdminUI") || !(dadUnlocked() || await gateDad());
   newsPaintSources(readOnly);
   document.getElementById("newsSheetOverlay").classList.add("open");
 }
@@ -12047,14 +12258,14 @@ window.__NEWS__ = {
 };
 
 // The shared Bank/Finance nav area reads differently depending on who's looking: the two
-// kids with real bank accounts (BANK_KIDS) see "Bank" 💰 — their own savings; everyone else
+// kids with real bank accounts (can("kidBank")) see "Bank" 💰 — their own savings; everyone else
 // (Dad, Mom, guests) sees "Finance" 📈 — a markets snapshot + a personal watchlist. Dad sees
 // BOTH members and gets the existing segmented sub-nav to switch between them (SUBNAV_LABEL:
 // farmbank->"Bank", finance->"Finance"). Centralized here — used by buildBottomNav AND
 // buildSideNav — so the branching is never duplicated between the two nav renderers.
-function navAreaLabel(g){ return g.id === "bank" ? (BANK_KIDS.includes(myName()) ? "Bank" : "Finance") : g.name; }
-function navAreaEmoji(g){ return g.id === "bank" ? (BANK_KIDS.includes(myName()) ? "💰" : "📈") : g.ico; }
-function navAreaIconPath(g){ return g.id === "bank" ? (BANK_KIDS.includes(myName()) ? NAV_PATHS.bank : NAV_PATHS.finance) : NAV_PATHS[g.id]; }
+function navAreaLabel(g){ return g.id === "bank" ? (can("kidBank") ? "Bank" : "Finance") : g.name; }
+function navAreaEmoji(g){ return g.id === "bank" ? (can("kidBank") ? "💰" : "📈") : g.ico; }
+function navAreaIconPath(g){ return g.id === "bank" ? (can("kidBank") ? NAV_PATHS.bank : NAV_PATHS.finance) : NAV_PATHS[g.id]; }
 
 // Build the fixed 5-area bottom bar from NAV_GROUPS.
 function buildBottomNav(){
@@ -12292,13 +12503,15 @@ function renderFamilyList(){
       // Becoming "Dad" requires the Dad PIN — but a device that's already been unlocked stays
       // unlocked (per-device persistence), so no re-prompt there. Profile switches never clear
       // the device flag (Part 3); the session flag is left alone too.
-      if (m.name === BANK_ADMIN && !dadUnlocked()){ if (!(await gateDad())) return; }
-      localStorage.setItem("choreUser", m.name); refreshName();
+      if (can("bankAdminUI", m) && !dadUnlocked()){ if (!(await gateDad())) return; }
+      localStorage.setItem("choreUser", m.name);
+      if (m.pid) localStorage.setItem("chorePid", m.pid); else localStorage.removeItem("chorePid");
+      refreshName();
       buildBottomNav(); syncTabsUI();   // Bank area + Chores chip visibility depends on who you are
       renderFamilyList(); render();
     };
     const ed = document.createElement("button"); ed.className = "iconbtn"; ed.innerHTML = "✎";
-    ed.onclick = async () => { if (!(await gateDadForRoster())) return; editingProfileId = m.id; document.getElementById("famName").value = m.name; document.getElementById("famEmail").value = m.email || ""; document.getElementById("famAddBtn").textContent = "Save"; document.getElementById("famFormLabel").textContent = "Edit family member"; };
+    ed.onclick = async () => { if (!(await gateDadForRoster())) return; editingProfileId = m.id; document.getElementById("famName").value = m.name; document.getElementById("famEmail").value = m.email || ""; document.getElementById("famRole").value = m.role || "extended"; document.getElementById("famAddBtn").textContent = "Save"; document.getElementById("famFormLabel").textContent = "Edit family member"; };
     const del = document.createElement("button"); del.className = "iconbtn"; del.innerHTML = "🗑";
     del.onclick = async () => { if (!(await gateDadForRoster())) return; chores = chores.filter(c=>c.id!==m.id); await backend.remove(m.id); renderFamilyList(); };
     row.append(info, meBtn, ed, del);
@@ -12309,30 +12522,45 @@ function openFamilySheet(){
   editingProfileId = null;
   document.getElementById("famName").value = "";
   document.getElementById("famEmail").value = "";
+  document.getElementById("famRole").value = "extended";
   document.getElementById("famAddBtn").textContent = "Add member";
   document.getElementById("famFormLabel").textContent = "Add a family member";
   renderFamilyList();
   document.getElementById("familyOverlay").classList.add("open");
 }
 function closeFamilySheet(){ document.getElementById("familyOverlay").classList.remove("open"); }
+// A brand-new profile's pid is minted from its name (pidSlug), with a numeric suffix on the
+// rare collision (two people who slug to the same thing) — never reused, never regenerated.
+function mintPid(name){
+  const base = pidSlug(name) || "member";
+  const taken = new Set(profiles().map(p => p.pid).filter(Boolean));
+  if (!taken.has(base)) return base;
+  let i = 2;
+  while (taken.has(base + i)) i++;
+  return base + i;
+}
 async function saveFamilyMember(){
   const name = document.getElementById("famName").value.trim();
   if (!name){ document.getElementById("famName").focus(); return; }
   if (!(await gateDadForRoster())) return;
   const email = document.getElementById("famEmail").value.trim();
+  const role = document.getElementById("famRole").value || "extended";
   if (editingProfileId){
     const p = chores.find(c=>c.id===editingProfileId);
     const oldName = p ? p.name : "";
-    if (p) Object.assign(p, { name, email });
-    await backend.update(editingProfileId, { name, email });
+    // pid is frozen forever — a rename or a role edit never touches it (see docs/identity.md).
+    if (p) Object.assign(p, { name, email, role });
+    await backend.update(editingProfileId, { name, email, role });
     if (oldName === myName()) { localStorage.setItem("choreUser", name); refreshName(); }
   } else {
-    await backend.add({ frequency: "profile", name, email, order: Date.now() });
-    if (!myName()) { localStorage.setItem("choreUser", name); refreshName(); }  // first member = you
+    const pid = mintPid(name);
+    await backend.add({ frequency: "profile", name, email, role, pid, order: Date.now() });
+    if (!myName()) { localStorage.setItem("choreUser", name); localStorage.setItem("chorePid", pid); refreshName(); }  // first member = you
   }
   editingProfileId = null;
   document.getElementById("famName").value = "";
   document.getElementById("famEmail").value = "";
+  document.getElementById("famRole").value = "extended";
   document.getElementById("famAddBtn").textContent = "Add member";
   document.getElementById("famFormLabel").textContent = "Add a family member";
   renderFamilyList();
@@ -12350,7 +12578,7 @@ document.getElementById("notifTestBtn").onclick = async () => {
   if (!window.BuckyPush || !familyKey || !myName()){ showToast("⚠️ Not ready — set your name first"); return; }
   try {
     // re-register first so a stale/missing token can't fail the test, then send to yourself
-    await BuckyPush.enable(myName(), familyKey);
+    await BuckyPush.enable(myName(), familyKey, undefined, undefined, myPid());
     const r = await BuckyPush.notify(FAMILY_PASSWORD, familyKey, myName(),
       "📳 Test from BUCKY", "If you can read this on your phone, alerts work!");
     if (r && r.sent >= 1) showToast("📳 Sent to " + r.sent + " device" + (r.sent > 1 ? "s" : "") + " — background the app to see it arrive");
@@ -12556,12 +12784,12 @@ function notifyProgressIncrease(wo, milestone){
   })();
 }
 
-// ---- Bank-deposit notifications (Isaac + Eleanor only) ----
-// Fires ONLY when money is ADDED (amount > 0) to a kid's Farm Bank balance, and ONLY for the
-// profiles in BANK_NOTIFY_KIDS. Every positive credit path (allowance auto-mint, work-order
-// payout confirmation, manual admin deposit) funnels through here so the gate + dedupe live in
-// ONE place. Deducts/spends (amount ≤ 0) and non-kid balances (Dad/Mom/guests) never notify.
-// BANK_NOTIFY_KIDS (= Isaac/Eleanor) is declared up by BANK_KIDS.
+// ---- Bank-deposit notifications (kidBank profiles only — Isaac + Eleanor today) ----
+// Fires ONLY when money is ADDED (amount > 0) to a kid's Farm Bank balance, and ONLY for
+// profiles with the kidBank capability. Every positive credit path (allowance auto-mint,
+// work-order payout confirmation, manual admin deposit) funnels through here so the gate +
+// dedupe live in ONE place. Deducts/spends (amount ≤ 0) and non-kid balances (Dad/Mom/guests)
+// never notify.
 function money2(v){ return (Number(v) || 0).toFixed(2); }
 // Shared cross-device notification writer. Posts into the notifs_<familyKey> Firestore
 // collection (the same mechanism the bell already merges in via initInvitesListener /
@@ -12597,7 +12825,7 @@ function writeBankNotif(kid, text, dedupeId, url){
 function notifyBankCredit(kid, amount, source, dedupeId){
   const amt = Number(amount) || 0;
   if (amt <= 0) return;                          // credits only — deducts/spends stay silent
-  if (!BANK_NOTIFY_KIDS.includes(kid)) return;   // never Dad/Mom/others
+  if (!can("kidBank", kid)) return;   // never Dad/Mom/others
   const text = `💰 $${money2(amt)} added to your bank!` + (source ? ` (${source})` : "");
   const url = "index.html#farmbank";
   writeBankNotif(kid, text, dedupeId, url);
@@ -12651,8 +12879,8 @@ function notifyPayoutSentToKids(wo, value){
   const amt = money(value);
   // Toast the person who just tapped complete (immediate feedback).
   showToast(`💰 Sent to Dad to confirm — $${amt} on the way once he approves!`);
-  const kids = woAssignees(wo).filter(n => BANK_KIDS.includes(n));
-  const recipients = kids.length ? kids : (BANK_KIDS.includes(wo.doneBy) ? [wo.doneBy] : []);
+  const kids = woAssignees(wo).filter(n => can("kidBank", n));
+  const recipients = kids.length ? kids : (can("kidBank", wo.doneBy) ? [wo.doneBy] : []);
   for (const kid of recipients){
     const n = addNotif(kid, "payout_sent", `💰 Sent to Dad to confirm — $${amt} on the way once he approves!`, wo.id + ":sent:" + kid);
     if (n && kid === myName()) liveNotify(n);
@@ -12746,6 +12974,10 @@ async function makeCloudBackend(){
     chores = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     dataReady = true;
     if (!snap.metadata.fromCache) serverConfirmed = true;   // we've now seen the real, server-side herd
+    // Identity migration (docs/identity.md) needs the AUTHORITATIVE roster, same reasoning as
+    // the herd seed below — never off a possibly-stale cached snapshot. A no-op after the
+    // first run (every profile already has pid/role), so this costs nothing on steady state.
+    if (!snap.metadata.fromCache){ await migrateIdentity(); backfillChorePid(); }
     render(); refreshGoatDetail();
     // A cached paint says so quietly (never "Connecting…" over real data); the
     // server snapshot that follows flips it to live, which tucks the line away.
@@ -12821,11 +13053,17 @@ async function afterBackendReady(){
   // The chore list and the allowance both depend on the animal-care rota now, so it has
   // to load at boot rather than only when someone opens the Animal Care tab.
   loadAnimalCare();
+  // Identity migration + device backfill FIRST — every can() gate below (and every gate the
+  // first render() paints) depends on profiles already having pid/role. Covers the local
+  // backend here (its data is ready synchronously); the cloud backend's real migration runs
+  // from its own onSnapshot handler once the authoritative roster actually arrives.
+  await migrateIdentity();
+  backfillChorePid();
   await syncDadPin();
-  if (isDadName() && !dadUnlocked()){
+  if (can("bankAdminUI") && !dadUnlocked()){
     await gateDad();
-    render();   // reflect the unlock in the banking UI
   }
+  render();   // reflect migration + any unlock in the UI
 }
 
 // ---- Family password gate ----

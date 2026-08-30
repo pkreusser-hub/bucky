@@ -62,6 +62,12 @@
 // case-insensitively (normalizeNotifyName, below) — that double-space "Perry  Kreusser" case is
 // real, and is exactly what this normalisation is for.
 //
+// IDENTITY UPDATE (2026-08-30): name matching is now the FALLBACK, not the only path. Both the
+// notify list and push token docs can carry a pid (see docs/identity.md) — match by pid first,
+// normalized name second. See resolveNotifyRecipients/getAllDeviceTokens below; nothing above
+// this note needed to change, since a name-only notify entry or token still resolves exactly as
+// it always did.
+//
 // Required env: FIREBASE_SERVICE_ACCOUNT, GOOGLE_CALENDAR_ID. Missing either -> clean no-op.
 // Optional: EVENTREMINDER_FAMILY_KEY (defaults to the production family key).
 // Test overrides (used only by tools/_verify-eventreminders.mjs's in-process harness):
@@ -210,10 +216,17 @@ function normalizeNotifyName(s) {
   return String(s == null ? "" : s).trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-// Selected names (deduped, original spelling kept for display/bell docs) -> which registered
-// device tokens they resolve to, and which selected names resolved to NO device at all.
-// selected/unmatchedNames use the ORIGINAL name text (bell docs and the response payload read
-// better that way); matching itself is done on the normalized form.
+// Selected entries (deduped, original spelling kept for display/bell docs) -> which registered
+// device tokens they resolve to, and which selected entries resolved to NO device at all.
+//
+// IDENTITY (2026-08-30, see docs/identity.md): an entry in the calendar's notify list is either
+// a pid (what index.html writes going forward) or a legacy display name (what it always wrote
+// before, and what an un-migrated event still carries). A token doc is either a new one — carries
+// BOTH `pid` and `user` — or a legacy one — `user` only. Match by pid first, normalized name as
+// fallback: a token WITH a pid matches on that even if its `user` string is garbage (a device
+// registered under a name that doesn't resolve to anyone); a legacy token with no pid can only
+// ever match by name. selected/unmatchedNames use the ORIGINAL entry text (bell docs and the
+// response payload read better that way); matching itself is done on the normalized/pid form.
 function resolveNotifyRecipients(notifyRaw, tokens) {
   const selected = [];
   const seenNorm = new Set();
@@ -223,9 +236,20 @@ function resolveNotifyRecipients(notifyRaw, tokens) {
     seenNorm.add(norm);
     selected.push(String(n).trim());
   }
-  const matchedTokens = tokens.filter((t) => t.user && seenNorm.has(normalizeNotifyName(t.user)));
-  const matchedNorm = new Set(matchedTokens.map((t) => normalizeNotifyName(t.user)));
-  const unmatchedNames = selected.filter((n) => !matchedNorm.has(normalizeNotifyName(n)));
+  const matchedTokens = [];
+  const matchedDocIds = new Set();
+  const unmatchedNames = [];
+  for (const raw of selected) {
+    const pidKey = raw.trim().toLowerCase();
+    const norm = normalizeNotifyName(raw);
+    const hits = tokens.filter(
+      (t) => (t.pid && t.pid.toLowerCase() === pidKey) || (t.user && normalizeNotifyName(t.user) === norm)
+    );
+    if (!hits.length) { unmatchedNames.push(raw); continue; }
+    for (const t of hits) {
+      if (!matchedDocIds.has(t.docId)) { matchedDocIds.add(t.docId); matchedTokens.push(t); }
+    }
+  }
   return { selected, matchedTokens, unmatchedNames };
 }
 
@@ -307,8 +331,9 @@ async function getAllDeviceTokens(accessToken, familyKey) {
     const token = doc.fields && doc.fields.token && doc.fields.token.stringValue;
     if (!token) continue;
     const user = doc.fields && doc.fields.user && doc.fields.user.stringValue;
+    const pid = doc.fields && doc.fields.pid && doc.fields.pid.stringValue;
     const parts = doc.name.split("/");
-    out.push({ docId: parts[parts.length - 1], token, user: user || null });
+    out.push({ docId: parts[parts.length - 1], token, user: user || null, pid: pid || null });
   }
   return out;
 }
