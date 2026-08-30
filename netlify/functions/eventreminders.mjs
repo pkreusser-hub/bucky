@@ -68,6 +68,16 @@
 // this note needed to change, since a name-only notify entry or token still resolves exactly as
 // it always did.
 //
+// IDENTITY PHASE 2 (2026-08-30): per-category notification mutes (docs/identity.md,
+// prefs.notifs on a profile doc). CORRECTION to the Phase 2 brief, which assumed this file
+// "already reads profile docs for its bell union" — it did not; there was no profile-doc read
+// anywhere in this file before this change (checked, not assumed — see git history). Below,
+// getProfileNotifPrefs is new: it reads the chores_<familyKey> collection's `frequency:"profile"`
+// docs and extracts pid/name/prefs.notifs, and isCalendarMuted filters a candidate's notify list
+// against it BEFORE resolveNotifyRecipients ever runs — one filter point covers BOTH push
+// (matchedTokens never sees a muted name) and bell (the `selected` loop never sees one either),
+// rather than two separate checks that could drift apart.
+//
 // Required env: FIREBASE_SERVICE_ACCOUNT, GOOGLE_CALENDAR_ID. Missing either -> clean no-op.
 // Optional: EVENTREMINDER_FAMILY_KEY (defaults to the production family key).
 // Test overrides (used only by tools/_verify-eventreminders.mjs's in-process harness):
@@ -337,6 +347,53 @@ async function getAllDeviceTokens(accessToken, familyKey) {
   }
   return out;
 }
+// ---- Profile docs: pid/name/prefs.notifs, for the calendar-mute filter (IDENTITY PHASE 2) ----
+// Targeted structuredQuery (frequency == "profile"), not a bare collection scan — the
+// chores_<familyKey> collection also holds every chore/work-order/goat doc in the family.
+async function getProfileNotifPrefs(accessToken, familyKey) {
+  const url = `${FIRESTORE_BASE()}:runQuery`;
+  const body = {
+    structuredQuery: {
+      from: [{ collectionId: `chores_${familyKey}` }],
+      where: { fieldFilter: { field: { fieldPath: "frequency" }, op: "EQUAL", value: { stringValue: "profile" } } },
+    },
+  };
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const rows = await resp.json().catch(() => []);
+  if (!resp.ok) throw new Error(`Firestore profile query failed: ${resp.status} ${JSON.stringify(rows)}`);
+  const out = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const doc = row.document;
+    if (!doc) continue;
+    const f = doc.fields || {};
+    const pid = (f.pid && f.pid.stringValue) || "";
+    const name = (f.name && f.name.stringValue) || "";
+    const notifsArr =
+      (f.prefs && f.prefs.mapValue && f.prefs.mapValue.fields &&
+       f.prefs.mapValue.fields.notifs && f.prefs.mapValue.fields.notifs.arrayValue &&
+       f.prefs.mapValue.fields.notifs.arrayValue.values) || [];
+    const muted = notifsArr.map((v) => v && v.stringValue).filter(Boolean);
+    out.push({ pid, name, muted });
+  }
+  return out;
+}
+// A notify entry (pid or legacy name, exactly like resolveNotifyRecipients matches) is
+// calendar-muted if it matches a profile (pid first, normalized name fallback — same order as
+// every other identity match in this file) whose prefs.notifs includes "calendar". A profile
+// with no prefs.notifs at all (or no matching profile — a name selected but no profile doc
+// exists) is UNMUTED — missing prefs means "everything on", per docs/identity.md.
+function isCalendarMuted(profiles, raw) {
+  const pidKey = String(raw || "").trim().toLowerCase();
+  const norm = normalizeNotifyName(raw);
+  const p = (profiles || []).find(
+    (pr) => (pr.pid && pr.pid.toLowerCase() === pidKey) || (pr.name && normalizeNotifyName(pr.name) === norm)
+  );
+  return !!(p && p.muted.includes("calendar"));
+}
 async function deleteTokenDoc(accessToken, familyKey, docId) {
   await fetch(`${FIRESTORE_BASE()}/pushTokens_${familyKey}/${docId}`, {
     method: "DELETE",
@@ -455,14 +512,27 @@ export default async () => {
   // must show up here, never just vanish.
   const selectedAgg = [], selectedSeen = new Set();
   const unmatchedAgg = [], unmatchedSeen = new Set();
+  // Calendar-muted selections (IDENTITY PHASE 2): reported for visibility, same discipline as
+  // selectedAgg/unmatchedAgg — a muted person is an intentional exclusion, not a silent drop.
+  const mutedAgg = [], mutedSeen = new Set();
 
   if (candidates.length) {
     let tokens = [];
+    let profilesForMute = [];
     try {
       tokens = await getAllDeviceTokens(accessToken, familyKey);
     } catch (err) {
       console.error("[eventreminders] Firestore read failed:", err && err.message);
       return json({ ok: true, skipped: "firestore-error", detail: String((err && err.message) || err).slice(0, 160) });
+    }
+    try {
+      profilesForMute = await getProfileNotifPrefs(accessToken, familyKey);
+    } catch (err) {
+      // Profile-prefs read is best-effort: a Firestore hiccup here must never block the whole
+      // reminder run — it just means nobody's mute is honoured THIS run (fail open, same
+      // philosophy as the marker-check catch above).
+      console.error("[eventreminders] profile-prefs read failed (muting skipped this run):", err && err.message);
+      profilesForMute = [];
     }
 
     for (const { ev, startMs } of candidates) {
@@ -475,7 +545,17 @@ export default async () => {
       }
       if (exists) { alreadyMarked++; continue; }
 
-      const notifyRaw = parseNotifyList(ev);
+      const notifyRawAll = parseNotifyList(ev);
+      // Filter OUT calendar-muted people BEFORE resolveNotifyRecipients ever runs — this single
+      // filter point is what makes the exclusion apply to both push (matchedTokens) and bell
+      // (the `selected` loop below) at once, and keeps a muted person out of unmatchedNames too
+      // (they were excluded on purpose, not a device-matching gap).
+      const notifyRaw = notifyRawAll.filter((n) => {
+        if (!isCalendarMuted(profilesForMute, n)) return true;
+        const norm = normalizeNotifyName(n);
+        if (!mutedSeen.has(norm)) { mutedSeen.add(norm); mutedAgg.push(String(n).trim()); }
+        return false;
+      });
       const { selected, matchedTokens, unmatchedNames } = resolveNotifyRecipients(notifyRaw, tokens);
       for (const n of selected) {
         const norm = normalizeNotifyName(n);
@@ -535,6 +615,8 @@ export default async () => {
     selected: selectedAgg,
     resolvedDevices: tokensNotified,
     unmatchedNames: unmatchedAgg,
+    // IDENTITY PHASE 2: who got excluded by their own calendar mute this run (never silent).
+    mutedNames: mutedAgg,
   });
 };
 

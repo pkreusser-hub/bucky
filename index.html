@@ -1563,6 +1563,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
          so "Bucky / Family Farm Hub" appears once, in the left rail. -->
     <div class="crumb" id="deskCrumb"></div>
     <button class="bell" id="bellBtn" title="Notifications">🔔<span class="bell-badge" id="bellBadge" style="display:none;">0</span></button>
+    <button class="who" id="myProfileBtn" title="My profile" aria-label="My profile">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20 C4 15 7.5 13 12 13 C16.5 13 20 15 20 20"/></svg>
+    </button>
     <button class="who" id="whoBtn">👤 <span id="whoName">Set name</span></button>
   </div>
   <div class="status" id="status"><span class="dot"></span><span id="statusText">Starting…</span><span style="display:none;">v43</span></div>
@@ -1745,6 +1748,20 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
       <button class="btn primary" id="famAddBtn">Add member</button>
     </div>
   </div>
+</div>
+
+<!-- Profile page (docs/identity.md Phase 2) — permitted vs visible nav areas, notification
+     categories, role. Content built entirely in JS per viewer/target (renderProfilePage). -->
+<div class="overlay" id="profileOverlay">
+  <div class="sheet" id="profileSheetInner"></div>
+</div>
+
+<!-- First-run identity gate (docs/identity.md Phase 2, feature C). Reuses the .lock/.lockcard
+     full-screen styling (same z-index tier as the password lock screen) so it sits ABOVE the
+     whole app — shown only when a device has no chorePid/choreUser after the family password
+     unlocks. Content built entirely in JS (renderIdentityGate). -->
+<div class="lock hidden" id="idGateOverlay">
+  <div class="lockcard" id="idGateInner" style="max-width:420px;max-height:calc(100dvh - 48px);overflow-y:auto;"></div>
 </div>
 
 <!-- Add / edit work order -->
@@ -2107,11 +2124,59 @@ function identitySeedRole(pid){ return IDENTITY_ROLE_SEED[pid] || "extended"; }
 // were Dad-by-name, and Dad is also role `parent`, same as Mom, who gets none of them).
 const IDENTITY_GRANT_SEED = { dad: ["seesFit", "bankAdminUI", "approvePayouts"] };
 
+/* ============================================================================================
+   IDENTITY PHASE 2 (2026-08-30) — the PERMITTED layer for nav areas. Contract: docs/identity.md.
+   Every bottom-nav AREA (NAV_GROUPS below) now resolves a "may this person even see this area"
+   capability, separate from (and a superset of) the section-level gates Phase 1 already had
+   (seesFit/seesBank/seesFinance/seesMeals). Two areas needed something NEW rather than reuse:
+
+     seesChoresArea   NEW. The Chores TAB itself was, on inspection (not assumed — the code was
+                      read), NEVER gated: navGroupVisible("tasks") had no special case and
+                      defaulted true for literally everyone. That's a DIFFERENT fact from what
+                      seesChores() gates (only the home-dashboard chore ring, kid-only). Reusing
+                      seesChores as the nav-area permission would have HIDDEN the Chores tab from
+                      Dad/Mom/extended today — a real behaviour change, not a preserved one — so
+                      this is a new capability, default true for parent/kid/extended (matches
+                      today's "everyone sees it"), false for guest (the one place today's
+                      universal visibility and the new tight guest default actually diverge).
+     seesPlan/seesNews/seesSports/seesGffl/seesJobs/seesShop/seesFarm/seesAi/seesPlay
+                      NEW. These areas (Plan, News, Sports, GFFL, Jobs, Shop, Farm, AI, Play)
+                      were likewise never gated — true for all today. Same treatment: default
+                      true for parent/kid/extended (no behaviour change for the 10 real
+                      profiles, none of whom are role `guest`), tightened per-area for guest.
+
+   guest defaults — table below, cross-referenced against the Phase 2 brief's "Plan/Meals/News/
+   Sports/Play/AI yes-ish, Bank/Finance/Jobs/Chores/Fit/Farm/Activity no" and DECIDED where the
+   brief left a gap (documented per area, not guessed silently):
+     seesPlan        true   — calendar is family-wide, a guest still needs to know what's on.
+     seesMeals       false  — unchanged from Phase 1 (guest never had it); parent-only feature.
+     seesNews        true   — per brief.
+     seesSports      true   — per brief.
+     seesGffl        false  — the brief names Sports but not GFFL; a family fantasy league is a
+                      standings/roster competition among family members, not general reading —
+                      DECISION: tight by default, same reasoning as Bank/Jobs, not "yes-ish".
+     seesPlay        true   — per brief.
+     seesAi          true   — per brief (AI = the `gpt` group, FarmGPT).
+     kidBank/seesFinance (bank)   false — per brief ("Bank/Finance ... no"). Phase 1 had
+                      guest.seesFinance:true (provisional — no profile used role guest yet, so
+                      changing it now breaks no real profile's byte-identical view).
+     seesJobs         false — per brief (Jobs = Work Orders + 3D Prints).
+     seesChoresArea    false — per brief.
+     seesFit           false — unchanged from Phase 1.
+     seesFarm          false — per brief (Farm = Goats + Goat Care).
+     seesShop           true  — the brief doesn't mention Shop at all. DECISION: a shopping list
+                      is low-sensitivity, family-logistics information (closer to News/Plan than
+                      to Bank/Jobs) — default visible, documented here rather than guessed
+                      silently.
+     Activity (activity.html) is OUT OF SCOPE — it isn't a NAV_GROUPS entry (no in-app nav gate
+     exists for it at all; it has its own self-contained Dad-only gate per Phase 1's own note)
+     and this phase's file list doesn't touch it.
+   ============================================================================================ */
 const CAPS = {
-  parent:   { seesFinance: true, seesMeals: true },
-  kid:      { kidBank: true, seesFit: true, fitLocked: true, seesChores: true },
-  extended: { seesFinance: true },
-  guest:    { seesFinance: true },
+  parent:   { seesFinance: true, seesMeals: true, seesPlan: true, seesChoresArea: true, seesNews: true, seesSports: true, seesGffl: true, seesJobs: true, seesShop: true, seesFarm: true, seesAi: true, seesPlay: true },
+  kid:      { kidBank: true, seesFit: true, fitLocked: true, seesChores: true, seesPlan: true, seesChoresArea: true, seesNews: true, seesSports: true, seesGffl: true, seesJobs: true, seesShop: true, seesFarm: true, seesAi: true, seesPlay: true },
+  extended: { seesFinance: true, seesPlan: true, seesChoresArea: true, seesNews: true, seesSports: true, seesGffl: true, seesJobs: true, seesShop: true, seesFarm: true, seesAi: true, seesPlay: true },
+  guest:    { seesPlan: true, seesNews: true, seesSports: true, seesShop: true, seesAi: true, seesPlay: true },
 };
 
 function profiles(){ return familyMembers(); }
@@ -2386,15 +2451,37 @@ function navKeyVisible(key){
   if (key === "fitness") return seesFitness();   // Isaac, Eleanor and Dad — nobody else runs it
   return true;
 }
+// PERMITTED layer (docs/identity.md's "Authorization — MAY") for a whole bottom-nav AREA,
+// resolved for `who` (default: the signed-in profile). This is parent-controlled — a deny
+// entry on the TARGET's own profile doc, same Phase 1 arrays, no new mechanism — and it is
+// what deep-link redirects (render(), below) and the profile page's "Permitted" checkboxes
+// both key off. It never looks at prefs.nav — that's the separate, self-controlled VISIBLE
+// layer (isNavHidden/navGroupVisible, right below).
+const NAV_GROUP_CAP = {
+  plan: "seesPlan", meals: "seesMeals", tasks: "seesChoresArea", fit: "seesFit",
+  news: "seesNews", sports: "seesSports", gffl: "seesGffl", wo: "seesJobs",
+  shop: "seesShop", farm: "seesFarm", gpt: "seesAi", play: "seesPlay",
+};
+function navGroupPermitted(gid, who){
+  if (gid === "home") return true;   // un-hideable, un-denyable — always permitted
+  if (gid === "bank") return can("kidBank", who) || can("bankAdminUI", who) || can("seesFinance", who);
+  const cap = NAV_GROUP_CAP[gid];
+  return cap ? can(cap, who) : true;
+}
+// VISIBLE layer (docs/identity.md's "Preference — WANTS") — prefs.nav is an array of area ids
+// this person has personally chosen to hide from THEIR OWN nav, among what they're permitted to
+// see. Preference narrows, never widens: isNavHidden is only ever consulted for a group that's
+// already navGroupPermitted (see navGroupVisible/render's redirect below, which check permitted
+// independently). Home can never appear in here (the profile page's own UI never offers it).
+function navPrefs(who){
+  const p = resolveProfile(who);
+  return (p && p.prefs && Array.isArray(p.prefs.nav)) ? p.prefs.nav : [];
+}
+function isNavHidden(gid, who){ return gid !== "home" && navPrefs(who).includes(gid); }
+// What the CURRENT signed-in user's nav actually shows: permitted AND not self-hidden.
 function navGroupVisible(gid){
-  // Everyone lands on one side or the other of the shared Bank/Finance area (a kid on
-  // Bank, everyone else on Finance, Dad on both) — spelled out as an OR rather than assumed
-  // "always true", so a future audience change here can't silently hide the whole area for
-  // someone who no longer qualifies for either half.
-  if (gid === "bank") return seesBank() || seesFinance();
-  if (gid === "fit") return seesFitness();
-  if (gid === "meals") return seesMeals();
-  return true;
+  if (gid === "home") return true;
+  return navGroupPermitted(gid) && !isNavHidden(gid);
 }
 let careView = "hooves";    // which activity the Goat Care tab is updating
 const expandedGoats = new Set();  // ids of goats expanded on the Goats tab
@@ -2859,8 +2946,12 @@ function liveNotify(n){
   }
 }
 
-// ---- Optional browser notifications toggle ----
-function desktopAlertsEnabled(){ return localStorage.getItem("buckyNotifDesktop") === "1"; }
+// ---- Browser notifications toggle. Phase 2 (docs/identity.md): DEFAULT ON — a fresh profile
+// (nothing ever written to buckyNotifDesktop) reads enabled; only an explicit "0" (the Settings
+// toggle, still the opt-OUT) turns it off. Browser permission is a separate gate (see
+// refreshPushRegistration/liveNotify below, and the identity gate's one requestPermission()
+// call at the end of pick/create-account) — this flag alone never triggers a permission prompt. ----
+function desktopAlertsEnabled(){ return localStorage.getItem("buckyNotifDesktop") !== "0"; }
 function updateNotifToggleUI(){
   const btn = document.getElementById("notifDesktopToggle");
   if (!btn) return;
@@ -2957,6 +3048,16 @@ function render(){
   if (!seesMeals() && currentTab === "mealplan") currentTab = "dashboard";
   // Same for Fitness, which only Isaac, Eleanor and Dad use.
   if (!seesFitness() && currentTab === "fitness") currentTab = "dashboard";
+  // Generic PERMITTED-layer bounce (docs/identity.md / Phase 2): any deep link or stale tab
+  // landing on a section whose whole AREA this person isn't permitted to see redirects Home —
+  // covers every area beyond the four hand-checked above (Plan/Chores/News/Sports/GFFL/Jobs/
+  // Shop/Farm/AI/Play), all of which were previously ungated. Deliberately checks PERMITTED
+  // only, never prefs.nav — a merely self-HIDDEN (not denied) area must still work when reached
+  // by deep link (docs/identity.md: preference narrows nav display, never authorization).
+  if (currentTab !== "dashboard"){
+    const gid = groupForTab(currentTab).id;
+    if (gid !== "home" && !navGroupPermitted(gid)) currentTab = "dashboard";
+  }
   renderSubnav();   // keep the Tasks/Farm sub-nav in sync no matter who changed currentTab
   // the month view's no-page-scroll mode must never leak onto other tabs
   document.body.classList.toggle("cal-fixed", currentTab === "calendar" && calView === "month");
@@ -7811,7 +7912,10 @@ function getCheckedNotifyRows(){
 function notifyCalEvent(ev, names, isUpdate, repeatInfo){
   if (!ev || !names || !names.length) return;
   const me = myName();
-  const targets = names.filter(n => n && n !== me);
+  // "calendar" category (feature B call-site inventory): one filter here covers all three
+  // delivery paths below (writeCloudNotif/bell, BuckyPush.notify, sendEmail) since they all
+  // iterate the same `targets` list.
+  const targets = names.filter(n => n && n !== me && !isNotifMuted(n, "calendar"));
   if (!targets.length) return;
   const verb = isUpdate ? "Event updated" : "New event";
   const title = ev.title || "(untitled)";
@@ -10624,12 +10728,17 @@ window.__IDENTITY__ = {
   can: (cap, who)=>can(cap, who),
   me: ()=>me(),
   myPid: ()=>myPid(),
-  profiles: ()=>profiles().map(p=>({ id:p.id, name:p.name, pid:p.pid||null, role:p.role||null, grant:(p.grant||[]).slice(), deny:(p.deny||[]).slice() })),
+  profiles: ()=>profiles().map(p=>({ id:p.id, name:p.name, pid:p.pid||null, role:p.role||null, grant:(p.grant||[]).slice(), deny:(p.deny||[]).slice(), prefs:p.prefs||null })),
   migrate: ()=>migrateIdentity(),
   backfill: ()=>backfillChorePid(),
   mintPid: (n)=>mintPid(n),
 };
-window.__NAV__ = { goTo, tab: ()=>currentTab };
+window.__NAV__ = {
+  goTo, tab: ()=>currentTab,
+  permitted: (gid, who)=>navGroupPermitted(gid, who),
+  hidden: (gid, who)=>isNavHidden(gid, who),
+  visible: (gid)=>navGroupVisible(gid),
+};
 // Chore-rota hooks (the daily chores follow the animal-care schedule — see choreOnDuty).
 window.__CHORES__ = {
   careLoaded: ()=>careLoaded,
@@ -12477,6 +12586,11 @@ function refreshName(){
   checkNotifications();   // user may have just switched profiles — recompute their badge/inbox
   // defer so push-client.js (deferred) and familyKey (set at unlock) are ready; no-ops when not
   setTimeout(refreshPushRegistration, 2500);
+  // Any path that just established an identity (gate, "This is me", roster add-self) closes
+  // the first-run gate if it happened to be open — a no-op when it wasn't (idGateOverlay may
+  // not exist this early on the very first synchronous call, hence the guard).
+  const gateEl = document.getElementById("idGateOverlay");
+  if (gateEl) gateEl.classList.add("hidden");
 }
 function familyMembers(){
   return chores.filter(c => c.frequency === "profile").sort((a,b)=> (a.name||"").localeCompare(b.name||""));
@@ -12510,11 +12624,13 @@ function renderFamilyList(){
       buildBottomNav(); syncTabsUI();   // Bank area + Chores chip visibility depends on who you are
       renderFamilyList(); render();
     };
+    const prof = document.createElement("button"); prof.className = "iconbtn"; prof.style.fontSize = "13px"; prof.textContent = "Profile";
+    prof.onclick = () => { closeFamilySheet(); openProfilePage(m.pid); };
     const ed = document.createElement("button"); ed.className = "iconbtn"; ed.innerHTML = "✎";
     ed.onclick = async () => { if (!(await gateDadForRoster())) return; editingProfileId = m.id; document.getElementById("famName").value = m.name; document.getElementById("famEmail").value = m.email || ""; document.getElementById("famRole").value = m.role || "extended"; document.getElementById("famAddBtn").textContent = "Save"; document.getElementById("famFormLabel").textContent = "Edit family member"; };
     const del = document.createElement("button"); del.className = "iconbtn"; del.innerHTML = "🗑";
     del.onclick = async () => { if (!(await gateDadForRoster())) return; chores = chores.filter(c=>c.id!==m.id); await backend.remove(m.id); renderFamilyList(); };
-    row.append(info, meBtn, ed, del);
+    row.append(info, meBtn, prof, ed, del);
     wrap.appendChild(row);
   }
 }
@@ -12589,6 +12705,407 @@ document.getElementById("notifTestBtn").onclick = async () => {
     showToast("⚠️ Test failed: " + (e && e.message || e));
   }
 };
+
+/* ============================================================================================
+   PROFILE PAGE (docs/identity.md Phase 2, feature A). Reachable from Settings (the "Profile"
+   button on each Family row) and from tapping your own avatar in the header (myProfileBtn).
+   Two layers, deliberately kept separate per the contract:
+     PERMITTED — parent-controlled (bankAdminUI + Dad-PIN), only shown on SOMEONE ELSE's page,
+       never your own (self-demotion/self-lockout guard — same reasoning as the role picker
+       below). Denies/un-denies the capability that drives navGroupPermitted for that area —
+       the Phase 1 grant/deny arrays, no new mechanism.
+     VISIBLE — self-controlled, only shown on YOUR OWN page, only offered for areas you're
+       already PERMITTED to see (can't widen by hiding-then-unhiding). Writes prefs.nav through
+       the normal chores save path (backend.update), same as every other profile field.
+   Notification category toggles (feature B) live here too, self-only, ALL DEFAULT ON — an
+   empty/absent prefs.notifs means nothing is muted.
+   ============================================================================================ */
+const ROLE_LABEL = { parent: "Parent", kid: "Kid", extended: "Extended family", guest: "Guest" };
+// The 5 notification categories (feature B's call-site inventory — see the comment block above
+// notifyCalEvent/notifyAssignee/notifyBankCredit for exactly which function each one gates).
+// "scores" has no call site yet anywhere in the app (checked: no BuckyPush.notify for game
+// scores exists in index.html or sports.html) — its toggle is still recorded here so it's ready
+// the moment one is added, per the Phase 2 brief.
+const NOTIF_CATEGORIES = [
+  { key: "calendar", label: "Calendar events & 1-hour reminders" },
+  { key: "jobs",      label: "Work orders & 3D prints" },
+  { key: "bank",      label: "Farm Bank" },
+  { key: "league",    label: "GFFL (fantasy league)" },
+  { key: "scores",    label: "Live scores (not wired up yet)" },
+];
+function isNotifMuted(who, cat){
+  const p = resolveProfile(who);
+  return !!(p && p.prefs && Array.isArray(p.prefs.notifs) && p.prefs.notifs.includes(cat));
+}
+// Which capabilities feed a given nav area's PERMITTED check (navGroupPermitted) — "bank" is
+// compound (kidBank OR bankAdminUI OR seesFinance), so denying/un-denying the Bank checkbox on
+// the profile page has to touch all three or a kidBank-holding kid's Bank tile would stay
+// visible despite the checkbox reading "off".
+function navAreaDenyCaps(gid){
+  if (gid === "bank") return ["kidBank", "bankAdminUI", "seesFinance"];
+  const cap = NAV_GROUP_CAP[gid];
+  return cap ? [cap] : [];
+}
+async function setAreaPermitted(target, gid, permitted){
+  const deny = Array.isArray(target.deny) ? target.deny.slice() : [];
+  for (const cap of navAreaDenyCaps(gid)){
+    const i = deny.indexOf(cap);
+    if (!permitted && i === -1) deny.push(cap);
+    if (permitted && i !== -1) deny.splice(i, 1);
+  }
+  target.deny = deny;
+  await backend.update(target.id, { deny });
+}
+async function setNavHidden(target, gid, hidden){
+  const nav = (target.prefs && Array.isArray(target.prefs.nav)) ? target.prefs.nav.slice() : [];
+  const i = nav.indexOf(gid);
+  if (hidden && i === -1) nav.push(gid);
+  if (!hidden && i !== -1) nav.splice(i, 1);
+  target.prefs = Object.assign({}, target.prefs || {}, { nav });
+  await backend.update(target.id, { prefs: target.prefs });
+}
+async function setNotifMuted(target, cat, muted){
+  const notifs = (target.prefs && Array.isArray(target.prefs.notifs)) ? target.prefs.notifs.slice() : [];
+  const i = notifs.indexOf(cat);
+  if (muted && i === -1) notifs.push(cat);
+  if (!muted && i !== -1) notifs.splice(i, 1);
+  target.prefs = Object.assign({}, target.prefs || {}, { notifs });
+  await backend.update(target.id, { prefs: target.prefs });
+}
+async function setProfileRole(target, role){
+  target.role = role;
+  await backend.update(target.id, { role });
+}
+function buildToggleRow(label, checked, onChange){
+  const row = document.createElement("label");
+  row.style.cssText = "display:flex;align-items:center;gap:9px;padding:7px 0;font-size:13.5px;";
+  const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!checked;
+  cb.onchange = () => onChange(cb.checked);
+  const span = document.createElement("span"); span.textContent = label;
+  row.append(cb, span);
+  return row;
+}
+let profilePageTargetPid = null;
+async function openProfilePage(pid){
+  profilePageTargetPid = pid || myPid();
+  const target = profileByPid(profilePageTargetPid);
+  const isSelf = !!target && target.pid === myPid();
+  // Entering the editor for SOMEONE ELSE's page requires the Dad PIN, same as every other
+  // bankAdminUI-gated tool — prompted here (not silently skipped) so the checkboxes below can
+  // trust dadUnlocked() without re-prompting per-toggle.
+  if (target && !isSelf && can("bankAdminUI") && !dadUnlocked()) await gateDad();
+  renderProfilePage();
+  document.getElementById("profileOverlay").classList.add("open");
+}
+function closeProfilePage(){ document.getElementById("profileOverlay").classList.remove("open"); }
+function renderProfilePage(){
+  const wrap = document.getElementById("profileSheetInner");
+  wrap.innerHTML = "";
+  const target = profileByPid(profilePageTargetPid) || me();
+  if (!target){
+    wrap.innerHTML = '<h2>Profile</h2><p style="color:var(--muted);font-size:13px;">No profile yet — set up family under 👤.</p>';
+    const actions0 = document.createElement("div"); actions0.className = "sheet-actions";
+    const closeBtn0 = document.createElement("button"); closeBtn0.className = "btn ghost"; closeBtn0.style.flex = "1"; closeBtn0.textContent = "Close"; closeBtn0.onclick = closeProfilePage;
+    actions0.appendChild(closeBtn0); wrap.appendChild(actions0);
+    return;
+  }
+  const isSelf = target.pid === myPid();
+  const editPermitted = !isSelf && can("bankAdminUI") && dadUnlocked();
+
+  const h2 = document.createElement("h2"); h2.textContent = target.name + (isSelf ? " (you)" : "");
+  wrap.appendChild(h2);
+  const roleRow = document.createElement("p");
+  roleRow.id = "profRoleRow";
+  roleRow.style.cssText = "color:var(--muted);font-size:13px;margin:0 0 12px;";
+  roleRow.textContent = "Role: " + (ROLE_LABEL[target.role] || target.role || "extended");
+  wrap.appendChild(roleRow);
+
+  // ---- Role picker: bankAdminUI holders only, NEVER on your own profile — a parent must not
+  // be able to demote/lock themselves out of admin tools by mis-clicking their own role. ----
+  if (editPermitted){
+    const roleLbl = document.createElement("label"); roleLbl.textContent = "Change role";
+    const roleSel = document.createElement("select"); roleSel.style.cssText = "margin:4px 0 14px;";
+    for (const r of ["parent", "kid", "extended", "guest"]){
+      const o = document.createElement("option"); o.value = r; o.textContent = ROLE_LABEL[r];
+      if (r === (target.role || "extended")) o.selected = true;
+      roleSel.appendChild(o);
+    }
+    roleSel.onchange = async () => {
+      await setProfileRole(target, roleSel.value);
+      roleRow.textContent = "Role: " + ROLE_LABEL[roleSel.value];
+    };
+    wrap.append(roleLbl, roleSel);
+  }
+
+  // ---- Permitted: parent-controlled, someone else's page only ----
+  if (editPermitted){
+    const permLbl = document.createElement("h3"); permLbl.textContent = "Areas " + target.name + " may see";
+    permLbl.style.cssText = "margin:10px 0 2px;font-size:14px;";
+    wrap.appendChild(permLbl);
+    const permList = document.createElement("div"); permList.id = "profPermList";
+    for (const g of NAV_GROUPS){
+      if (g.id === "home") continue;
+      const row = buildToggleRow(navAreaLabel(g), navGroupPermitted(g.id, target), async (checked) => {
+        await setAreaPermitted(target, g.id, checked);
+        if (target.pid === myPid()){ buildBottomNav(); syncTabsUI(); }
+      });
+      row.dataset.gid = g.id;
+      permList.appendChild(row);
+    }
+    wrap.appendChild(permList);
+  } else if (!isSelf){
+    const ro = document.createElement("p");
+    ro.style.cssText = "color:var(--muted);font-size:13px;";
+    ro.textContent = "Only Dad can change what " + target.name + " is permitted to see.";
+    wrap.appendChild(ro);
+  }
+
+  // ---- Visible + Notifications: self-only ----
+  if (isSelf){
+    const visLbl = document.createElement("h3"); visLbl.textContent = "Show in your nav";
+    visLbl.style.cssText = "margin:14px 0 2px;font-size:14px;";
+    wrap.appendChild(visLbl);
+    const visHint = document.createElement("p");
+    visHint.style.cssText = "color:var(--muted);font-size:12px;margin:0 0 4px;";
+    visHint.textContent = "Only areas you're permitted to see are listed. Hiding one just tidies your nav — a link to it still works.";
+    wrap.appendChild(visHint);
+    const visList = document.createElement("div"); visList.id = "profVisList";
+    for (const g of NAV_GROUPS){
+      if (g.id === "home") continue;
+      if (!navGroupPermitted(g.id, target)) continue;
+      const row = buildToggleRow(navAreaLabel(g), !isNavHidden(g.id, target), async (checked) => {
+        await setNavHidden(target, g.id, !checked);
+        buildBottomNav(); syncTabsUI();
+      });
+      row.dataset.gid = g.id;
+      visList.appendChild(row);
+    }
+    wrap.appendChild(visList);
+
+    const notifLbl = document.createElement("h3"); notifLbl.textContent = "Notifications";
+    notifLbl.style.cssText = "margin:14px 0 2px;font-size:14px;";
+    wrap.appendChild(notifLbl);
+    if (typeof Notification !== "undefined" && Notification.permission === "denied"){
+      const warn = document.createElement("p");
+      warn.id = "profPhoneOffNote";
+      warn.style.cssText = "color:var(--muted);font-size:12px;margin:0 0 4px;";
+      warn.textContent = "Phone alerts are off at the browser level on this device — the bell still works in-app.";
+      wrap.appendChild(warn);
+    }
+    const notifList = document.createElement("div"); notifList.id = "profNotifList";
+    for (const c of NOTIF_CATEGORIES){
+      const row = buildToggleRow(c.label, !isNotifMuted(target, c.key), async (checked) => {
+        await setNotifMuted(target, c.key, !checked);
+      });
+      row.dataset.cat = c.key;
+      notifList.appendChild(row);
+    }
+    wrap.appendChild(notifList);
+  } else if (!editPermitted){
+    const ro2 = document.createElement("p");
+    ro2.style.cssText = "color:var(--muted);font-size:13px;margin-top:14px;";
+    ro2.textContent = "Only " + target.name + " can change what shows in their own nav and notifications.";
+    wrap.appendChild(ro2);
+  }
+
+  const actions = document.createElement("div"); actions.className = "sheet-actions";
+  const closeBtn = document.createElement("button"); closeBtn.className = "btn ghost"; closeBtn.style.flex = "1"; closeBtn.textContent = "Close"; closeBtn.onclick = closeProfilePage;
+  actions.appendChild(closeBtn);
+  wrap.appendChild(actions);
+}
+document.getElementById("myProfileBtn").onclick = () => openProfilePage(myPid());
+document.getElementById("profileOverlay").onclick = (e) => { if (e.target.id === "profileOverlay") closeProfilePage(); };
+window.__PROFILE__ = {
+  open: openProfilePage, close: closeProfilePage,
+  isNotifMuted: (who, cat) => isNotifMuted(who, cat),
+};
+// Notification call-site test hook (tools/_verify-profilepage.cjs): direct access to the
+// module-scope notify functions so a suite can stub window.BuckyPush/sendEmail's dependencies
+// and assert a muted category's call site is a no-op, without driving the full work-order/
+// calendar/bank UI flow that would normally trigger each one.
+window.__NOTIFTEST__ = {
+  notifyAssignee, notifyCreatorClosed, notifyPrintAdmin, notifyPrintRequestorDone,
+  notifyProgressIncrease, notifyBankCredit, notifyPayoutPending, notifyPayoutConfirmed,
+  notifyPayoutSentToKids, notifyCalEvent,
+  desktopAlertsEnabled: () => desktopAlertsEnabled(),
+};
+
+/* ============================================================================================
+   FIRST-RUN IDENTITY GATE (docs/identity.md Phase 2, feature C). index.html ONLY — arcade.html
+   and games.html stay public, per the brief. Shown once, right after the family password
+   unlocks, on any device that has NEITHER chorePid NOR choreUser — i.e. one that has never had
+   anyone pick "This is me" or create an account. A device that already has an identity NEVER
+   sees this (needsIdentityGate() is false at the very first check), and the existing "This is
+   me" flow in the Family sheet is untouched — it's now the switch-user path for a device that
+   already got past the gate once.
+
+   checkIdentityGate() is called from exactly two places (both guarded by identityGateChecked so
+   it only ever fires once per page load): afterBackendReady() for the LOCAL backend (chores are
+   synchronous by then) and the cloud onSnapshot handler's non-cached branch for the CLOUD
+   backend (mirrors exactly where migrateIdentity()/backfillChorePid() already run, for the same
+   reason — this needs the AUTHORITATIVE roster, never a possibly-empty pre-snapshot one). ------ */
+let identityGateChecked = false;
+function needsIdentityGate(){ return !myPid() && !myName(); }
+function checkIdentityGate(){
+  if (identityGateChecked) return;
+  identityGateChecked = true;
+  if (needsIdentityGate()){ idGateMode = "pick"; idGateCollisionPid = null; showIdentityGate(); }
+}
+function showIdentityGate(){
+  renderIdentityGate();
+  document.getElementById("idGateOverlay").classList.remove("hidden");
+}
+function hideIdentityGate(){ document.getElementById("idGateOverlay").classList.add("hidden"); }
+let idGateMode = "pick";          // "pick" (roster) | "create" (new account form)
+let idGateCollisionPid = null;    // set when a typed name collides with an existing profile
+function renderIdentityGate(){
+  const wrap = document.getElementById("idGateInner");
+  wrap.innerHTML = "";
+  const title = document.createElement("div");
+  title.style.cssText = "font-size:21px;font-weight:800;margin-bottom:4px;";
+  title.textContent = "Who's this?";
+  const sub = document.createElement("div");
+  sub.style.cssText = "color:var(--muted);font-size:13.5px;margin-bottom:16px;";
+  sub.textContent = "Pick yourself from the family, or set up a new account.";
+  wrap.append(title, sub);
+
+  if (idGateMode === "pick"){
+    const list = document.createElement("div"); list.id = "idGateRoster";
+    const roster = profiles();
+    if (!roster.length){
+      const none = document.createElement("div");
+      none.style.cssText = "color:var(--muted);font-size:13px;margin-bottom:10px;";
+      none.textContent = "No family members yet.";
+      list.appendChild(none);
+    }
+    for (const m of roster){
+      const b = document.createElement("button");
+      b.className = "btn ghost"; b.dataset.pid = m.pid || "";
+      b.style.cssText = "display:block;width:100%;text-align:left;margin-bottom:8px;";
+      b.textContent = m.name;
+      b.onclick = () => pickIdentityGateProfile(m);
+      list.appendChild(b);
+    }
+    wrap.appendChild(list);
+
+    const newBtn = document.createElement("button");
+    newBtn.className = "btn primary"; newBtn.id = "idGateNewBtn";
+    newBtn.style.cssText = "width:100%;margin-top:6px;";
+    newBtn.textContent = "I'm new here — create my account";
+    newBtn.onclick = () => { idGateMode = "create"; idGateCollisionPid = null; renderIdentityGate(); };
+    wrap.appendChild(newBtn);
+  } else {
+    const nameLbl = document.createElement("label"); nameLbl.textContent = "Your name";
+    const nameInp = document.createElement("input");
+    nameInp.type = "text"; nameInp.id = "idGateName"; nameInp.autocomplete = "off";
+    nameInp.style.cssText = "margin:4px 0 8px;width:100%;";
+    const emailLbl = document.createElement("label"); emailLbl.textContent = "Email (optional)";
+    const emailInp = document.createElement("input");
+    emailInp.type = "email"; emailInp.id = "idGateEmail"; emailInp.autocomplete = "off";
+    emailInp.style.cssText = "margin:4px 0 10px;width:100%;";
+    wrap.append(nameLbl, nameInp, emailLbl, emailInp);
+
+    const err = document.createElement("div"); err.id = "idGateErr";
+    err.style.cssText = "color:#c0392b;font-size:12.5px;margin-bottom:6px;min-height:16px;";
+    wrap.appendChild(err);
+
+    if (idGateCollisionPid){
+      const match = profileByPid(idGateCollisionPid);
+      if (match){
+        const box = document.createElement("div");
+        box.id = "idGateCollisionBox";
+        box.style.cssText = "background:rgba(0,0,0,.05);border-radius:10px;padding:10px;margin-bottom:10px;font-size:13px;";
+        box.textContent = "That name is taken — is this you?";
+        const isMeBtn = document.createElement("button");
+        isMeBtn.className = "btn ghost"; isMeBtn.dataset.pid = match.pid || "";
+        isMeBtn.style.cssText = "display:block;width:100%;margin-top:8px;";
+        isMeBtn.textContent = match.name;
+        isMeBtn.onclick = () => pickIdentityGateProfile(match);
+        box.appendChild(isMeBtn);
+        wrap.appendChild(box);
+      }
+    }
+
+    const createBtn = document.createElement("button");
+    createBtn.className = "btn primary"; createBtn.id = "idGateCreateBtn";
+    createBtn.style.cssText = "width:100%;margin-top:2px;";
+    createBtn.textContent = "Create my account";
+    createBtn.onclick = createIdentityGateAccount;
+    const backBtn = document.createElement("button");
+    backBtn.className = "btn ghost"; backBtn.id = "idGateBackBtn";
+    backBtn.style.cssText = "width:100%;margin-top:8px;";
+    backBtn.textContent = "Back to the family list";
+    backBtn.onclick = () => { idGateMode = "pick"; idGateCollisionPid = null; renderIdentityGate(); };
+    wrap.append(createBtn, backBtn);
+  }
+}
+async function pickIdentityGateProfile(m){
+  localStorage.setItem("choreUser", m.name);
+  if (m.pid) localStorage.setItem("chorePid", m.pid); else localStorage.removeItem("chorePid");
+  await finishIdentityGate();
+}
+// Guest role per the contract: a device that mints itself here has no parent behind it yet, so
+// it gets the tight default set (see the CAPS doc block) until a bankAdminUI holder promotes it
+// from their profile page's role picker.
+async function createIdentityGateAccount(){
+  const nameInp = document.getElementById("idGateName");
+  const emailInp = document.getElementById("idGateEmail");
+  const err = document.getElementById("idGateErr");
+  const name = (nameInp.value || "").trim();
+  if (!name){ err.textContent = "Enter your name to continue."; nameInp.focus(); return; }
+  const email = (emailInp.value || "").trim();
+  const collide = profiles().find(p => p.name.trim().toLowerCase() === name.toLowerCase() || p.pid === pidSlug(name));
+  if (collide){
+    err.textContent = "";
+    idGateCollisionPid = collide.pid || null;
+    renderIdentityGate();
+    return;
+  }
+  const pid = mintPid(name);
+  const data = { frequency: "profile", name, email, role: "guest", pid, order: Date.now() };
+  const id = await backend.add(data);
+  chores.push(Object.assign({ id }, data));
+  localStorage.setItem("choreUser", name);
+  localStorage.setItem("chorePid", pid);
+  await finishIdentityGate();
+}
+async function finishIdentityGate(){
+  refreshName();               // also hides the gate (see refreshName)
+  buildBottomNav(); syncTabsUI();
+  render();
+  // The tap that just resolved the gate (pick / create) IS the user gesture the browser
+  // requires — this is the ONLY place index.html proactively calls Notification.
+  // requestPermission(). A device that's already granted/denied gets skipped (see the guard
+  // inside), so this never re-prompts on a later gate (there isn't one) or a later boot.
+  await requestNotifPermissionOnce();
+}
+// Guarded by a plain JS flag, not just Notification.permission — the permission-state guard
+// alone would still be race-prone (two triggers racing to read "default" before either one's
+// synchronous permission-flip lands), and this is the ONE call site allowed to prompt at all,
+// so it needs to be deterministically single-fire regardless of how it gets invoked.
+let notifPermissionRequestedThisLoad = false;
+async function requestNotifPermissionOnce(){
+  if (notifPermissionRequestedThisLoad) return;
+  notifPermissionRequestedThisLoad = true;
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission !== "default") return;   // already granted, denied, or unsupported — never nag
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm === "granted"){
+      localStorage.setItem("buckyNotifDesktop", "1");
+      updateNotifToggleUI();
+      if (window.BuckyPush && familyKey && myName()) BuckyPush.enable(myName(), familyKey, undefined, undefined, myPid()).catch(() => {});
+    }
+  } catch {}
+}
+document.getElementById("idGateOverlay").onclick = () => {};   // the gate is modal — no click-outside-to-dismiss
+window.__IDGATE__ = {
+  showing: () => !document.getElementById("idGateOverlay").classList.contains("hidden"),
+  mode: () => idGateMode,
+  needs: () => needsIdentityGate(),
+  check: () => checkIdentityGate(),
+};
+
 refreshName();
 
 // ---- Email HTML fragment builders (raw-HTML slots in email-template.html: progress_block,
@@ -12702,6 +13219,7 @@ async function sendEmail(toName, params){
 // (or the toast below) when someone reports "I never got the email".
 let lastEmailError = null;
 function notifyAssignee(name, wo){
+  if (isNotifMuted(name, "jobs")) return;   // "jobs" category — work-order assignment
   sendEmail(name, {
     subject: "New BUCKY job: " + wo.name,
     message: `You've been assigned a work order: "${wo.name}".`
@@ -12720,6 +13238,7 @@ function notifyAssignee(name, wo){
   }
 }
 async function notifyCreatorClosed(wo){
+  if (isNotifMuted(wo.createdBy, "jobs")) return;   // "jobs" category — work-order closed
   const photoBlock = wo.donePhoto ? await uploadPhotoForEmail(wo.donePhoto) : "";
   sendEmail(wo.createdBy, {
     subject: "✅ " + wo.name + " completed by " + (myName() || "someone"),
@@ -12743,6 +13262,7 @@ async function notifyCreatorClosed(wo){
 // requestor back when their print is marked done. Mirrors notifyAssignee/notifyCreatorClosed
 // but print requests don't have email templates, so this is push-only (fire-and-forget).
 function notifyPrintAdmin(p){
+  if (isNotifMuted(PRINT_ADMIN, "jobs")) return;   // "jobs" category — 3D print admin alert
   if (window.BuckyPush && familyKey){
     BuckyPush.notify(FAMILY_PASSWORD, familyKey, PRINT_ADMIN,
       "🖨️ Print request",
@@ -12750,6 +13270,7 @@ function notifyPrintAdmin(p){
   }
 }
 function notifyPrintRequestorDone(p){
+  if (isNotifMuted(p.requestedBy, "jobs")) return;   // "jobs" category — print ready
   if (window.BuckyPush && familyKey){
     BuckyPush.notify(FAMILY_PASSWORD, familyKey, p.requestedBy,
       "🎉 Print ready!",
@@ -12762,6 +13283,7 @@ function notifyPrintRequestorDone(p){
 // via addNotif's existing woId+type dedupe — using a composite id so each milestone % notifies
 // exactly once even if progress bounces up/down/up again to the same number later.
 function notifyProgressIncrease(wo, milestone){
+  if (isNotifMuted(wo.createdBy, "jobs")) return;   // "jobs" category — progress milestone
   const notifKey = wo.id + ":" + milestone.pct;
   const n = addNotif(wo.createdBy, "progress", `📈 "${wo.name}" is now ${milestone.pct}%${milestone.note ? " — " + milestone.note : ""}`, notifKey);
   if (n) liveNotify(n);
@@ -12826,6 +13348,7 @@ function notifyBankCredit(kid, amount, source, dedupeId){
   const amt = Number(amount) || 0;
   if (amt <= 0) return;                          // credits only — deducts/spends stay silent
   if (!can("kidBank", kid)) return;   // never Dad/Mom/others
+  if (isNotifMuted(kid, "bank")) return;   // "bank" category — money added
   const text = `💰 $${money2(amt)} added to your bank!` + (source ? ` (${source})` : "");
   const url = "index.html#farmbank";
   writeBankNotif(kid, text, dedupeId, url);
@@ -12836,6 +13359,7 @@ function notifyBankCredit(kid, amount, source, dedupeId){
 
 // ---- Kid Farm Account (payout) notifications ----
 function notifyPayoutPending(wo){
+  if (isNotifMuted(BANK_ADMIN, "bank")) return;   // "bank" category — payout confirmation needed
   const value = parseFloat(wo.value) || 0;
   const n = addNotif(BANK_ADMIN, "payout_pending", `💰 Confirm: ${wo.doneBy} finished "${wo.name}" ($${value})`, wo.id + ":payout");
   if (n) liveNotify(n);
@@ -12866,6 +13390,7 @@ function notifyPayoutConfirmed(wo, value, kid){
   // recipients (e.g. a doneBy who isn't Isaac/Eleanor) get no bank alert, per the Isaac/Eleanor-
   // only rule; the email below still goes out to whoever was paid.
   notifyBankCredit(kid, value, "Work order: " + wo.name, wo.id + ":confirmed:" + kid);
+  if (isNotifMuted(kid, "bank")) return;   // "bank" category — the confirmation email itself
   sendEmail(kid, {
     subject: `💰 $${amt} added to your Farm Bank!`,
     message: `Great work! $${amt} was added to your Farm Bank account for finishing "${wo.name}".`,
@@ -12882,6 +13407,7 @@ function notifyPayoutSentToKids(wo, value){
   const kids = woAssignees(wo).filter(n => can("kidBank", n));
   const recipients = kids.length ? kids : (can("kidBank", wo.doneBy) ? [wo.doneBy] : []);
   for (const kid of recipients){
+    if (isNotifMuted(kid, "bank")) continue;   // "bank" category — sent-to-Dad reassurance
     const n = addNotif(kid, "payout_sent", `💰 Sent to Dad to confirm — $${amt} on the way once he approves!`, wo.id + ":sent:" + kid);
     if (n && kid === myName()) liveNotify(n);
     if (window.BuckyPush && familyKey && kid !== myName()){
@@ -12977,7 +13503,7 @@ async function makeCloudBackend(){
     // Identity migration (docs/identity.md) needs the AUTHORITATIVE roster, same reasoning as
     // the herd seed below — never off a possibly-stale cached snapshot. A no-op after the
     // first run (every profile already has pid/role), so this costs nothing on steady state.
-    if (!snap.metadata.fromCache){ await migrateIdentity(); backfillChorePid(); }
+    if (!snap.metadata.fromCache){ await migrateIdentity(); backfillChorePid(); checkIdentityGate(); buildBottomNav(); syncTabsUI(); }
     render(); refreshGoatDetail();
     // A cached paint says so quietly (never "Connecting…" over real data); the
     // server snapshot that follows flips it to live, which tucks the line away.
@@ -13059,6 +13585,21 @@ async function afterBackendReady(){
   // from its own onSnapshot handler once the authoritative roster actually arrives.
   await migrateIdentity();
   backfillChorePid();
+  // Local backend: chores are synchronous by now, so the roster checkIdentityGate() needs is
+  // real — check here. Cloud backend: chores is still empty/pre-snapshot at this point
+  // (dataReady is false), so this is a no-op and the REAL check happens above, in the
+  // onSnapshot handler, once the authoritative roster actually arrives.
+  if (dataReady) checkIdentityGate();
+  // buildBottomNav()'s FIRST call (in the "Wire up UI" section, way above, executed at top-level
+  // script parse time) necessarily ran against chores=[] — before ANY backend had loaded real
+  // profile docs — so it resolved the signed-in profile via syntheticProfile()'s seed-only
+  // fallback. That fallback reproduces role + the ONE seeded grant correctly (which is why it
+  // was invisible pre-Phase-2), but it has no way to know about a real profile's deny array or a
+  // role a parent changed via the profile page — only the REAL doc has that. Rebuild the nav
+  // button SET now that real data is loaded (local backend: synchronous by this point; cloud
+  // backend gets the equivalent call from its own onSnapshot handler, right next to its
+  // migrateIdentity() call, for the same reason).
+  if (dataReady){ buildBottomNav(); syncTabsUI(); }
   await syncDadPin();
   if (can("bankAdminUI") && !dadUnlocked()){
     await gateDad();

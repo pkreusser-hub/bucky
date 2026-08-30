@@ -1738,3 +1738,156 @@ arcade **23** · beacon-safety **96** · storyledger **854**. eventreminders ext
 **62 → 68** (pid-first matching: a garbage-`user` token still matches by pid; a legacy
 no-pid token still matches by name; a mixed pid+legacy-name notify list resolves both; a
 pid-and-user token matches on a pid-only selection).
+
+## 🪪 IDENTITY, PHASE 2: PERMITTED, VISIBLE, NOTIFIED, AND A DOOR THAT ISN'T LOCKED FOREVER (2026-08-30)
+
+Three features on top of Phase 1's `pid`/`role`/`can()` layer. Contract unchanged:
+**docs/identity.md**. Files: `index.html` · `netlify/functions/eventreminders.mjs` · NEW
+`tools/_verify-profilepage.cjs` (**83/83**) · extended `tools/_verify-eventreminders.mjs`
+(**68 → 78**).
+
+**A. A PROFILE PAGE, WITH TWO LAYERS THAT NEVER TOUCH THE SAME SWITCH.** Permitted (parent-
+controlled, `can()`-resolved, lives in the target's `deny` array — the Phase 1 mechanism, no new
+one) decides which of the 13 non-Home nav areas a person MAY see; Visible (self-controlled,
+`prefs.nav`, a hidden-area-id array) decides which of the PERMITTED areas actually show in THEIR
+OWN nav. `navGroupPermitted(gid, who)` and `isNavHidden(gid, who)` are separate functions on
+purpose — `navGroupVisible(gid)` (nav-building, current user only) ANDs them together, but
+render()'s deep-link bounce checks PERMITTED ALONE, never VISIBLE: a denied area redirects Home,
+a merely-hidden one still opens. That asymmetry is the whole point of "preference narrows,
+never widens, authorization" — get it backwards (bounce on VISIBLE too) and a person who tidied
+their own nav loses working deep links, which is exactly what load-bearing proof #1 breaks and
+confirms fails (one check, cleanly isolated).
+
+**THE CHORES-TAB CORRECTION — checked, not assumed.** The brief for this phase said Chores was
+already "capability-gated" like Fit/Bank/Meals. Reading `navGroupVisible` (Phase 1) showed
+otherwise: the Chores TAB had no gate at all — `seesChores` only ever controlled the
+home-dashboard chore ring. Reusing `seesChores` as the nav-permission would have HIDDEN Chores
+from Dad/Mom/extended today, a real regression. `seesChoresArea` is a NEW capability instead —
+default true for parent/kid/extended (matches today), false for guest — documented at the CAPS
+block with the correction spelled out. The other 8 previously-ungated areas (Plan/News/Sports/
+GFFL/Jobs/Shop/Farm/AI/Play) got the same treatment: new `sees<Area>` capabilities, true for
+every role except guest.
+
+**GUEST DEFAULTS — the brief left three areas undecided; decided here, documented at the CAPS
+block, not guessed silently.** GFFL: tight (a family fantasy league is a standings competition
+among family, not general reading — closer to Bank/Jobs than to Sports). Shop: open (a shopping
+list is low-sensitivity family logistics, closer to Plan/News). Meals: already tight from Phase
+1 (parent-only role default, untouched). None of this touches the 10 REAL profiles' effective
+view — nobody has role `guest` yet, so changing `CAPS.guest` (Phase 1 had provisionally set
+`seesFinance:true` for guest; Phase 2 corrects it to the brief's "Bank/Finance...no") breaks no
+existing behaviour.
+
+**A LATENT STALENESS BUG, SURFACED BY THIS PHASE, FIXED IN THIS PHASE.** `buildBottomNav()`'s
+FIRST call happens at top-level script-parse time — BEFORE `unlock()`/`bootApp()` even runs —
+against `chores = []`. It resolves the signed-in profile through `syntheticProfile()`'s
+seed-only fallback, which reproduces ROLE and the one SEEDED grant correctly (why this was
+invisible through all of Phase 1 — no real profile had a custom deny), but has no way to know
+about a real profile's `deny` array or a role a parent changed via the new role picker. Caught by
+this phase's own suite (`Isaac's News is gone from HIS nav` failed against real nav DOM before
+the fix, passed after) — not a hunch, a measured failure. Fix: `buildBottomNav(); syncTabsUI();`
+now also runs once real data lands, in the SAME two places `migrateIdentity()` already does
+(`afterBackendReady()` for the local backend, the cloud `onSnapshot` handler's non-cached branch
+for the cloud one) — live permission/role changes now refresh a currently-open session's nav too,
+not just a future reload.
+
+**B. NOTIFICATIONS ON BY DEFAULT, PLUS FIVE CATEGORIES.** `desktopAlertsEnabled()` flipped from
+`=== "1"` (opt-in) to `!== "0"` (opt-out) — one line, and every existing consumer
+(`refreshPushRegistration`, `liveNotify`, the Settings toggle) already gates on it correctly, so
+nothing else needed to change. Browser permission is requested EXACTLY ONCE, at the end of the
+first-run gate's pick/create action (`requestNotifPermissionOnce()`, guarded by a plain JS flag
+set BEFORE any await — the permission-state check alone is race-prone, see below) — the tap that
+resolves the gate is the required user gesture. A device that already has permission granted
+gets registered silently on the next boot (no code change needed — `desktopAlertsEnabled()`
+being true by default plus the EXISTING `refreshPushRegistration()` scheduled calls in
+`unlock()`/`refreshName()` already do it). A device with permission denied gets one quiet line on
+the profile page and nothing else, ever.
+
+**CALL-SITE INVENTORY — every `BuckyPush.notify`/`sendEmail`/`writeCloudNotif` call site in
+`index.html`, mapped to its category, gated at the call site:**
+
+| category | call sites | gate |
+|---|---|---|
+| `calendar` | `notifyCalEvent` (writeCloudNotif + BuckyPush.notify + sendEmail, all three, one filter) | `targets = names.filter(n => !isNotifMuted(n, "calendar"))` |
+| `jobs` | `notifyAssignee`, `notifyCreatorClosed`, `notifyPrintAdmin`, `notifyPrintRequestorDone`, `notifyProgressIncrease` | early `if (isNotifMuted(recipient, "jobs")) return;` in each |
+| `bank` | `notifyBankCredit`, `notifyPayoutPending`, `notifyPayoutConfirmed` (its OWN extra `sendEmail`, separately from `notifyBankCredit`'s internal gate), `notifyPayoutSentToKids` (per-recipient `continue`) | same pattern |
+| `league` | none yet — no GFFL/fantasy-league push exists anywhere in `index.html` or `sports.html` (checked, not assumed) | toggle recorded in `NOTIF_CATEGORIES` for when one is added |
+| `scores` | none yet, same as league | same |
+
+The manual "Send test alert" button (`notifTestBtn`) is deliberately UNGATED — it's an explicit,
+self-addressed diagnostic action, not a category delivery.
+
+**PERMISSION REQUEST RACE — the guard has to be a plain flag, not just a permission-state
+check.** `push-client.js`'s `BuckyPush.enable()` unconditionally calls
+`Notification.requestPermission()` itself (pre-existing, shared by every OTHER `enable()` call
+site: `toggleDesktopAlerts`/`refreshPushRegistration`/`notifTestBtn` already all do "request, then
+enable()" too). `requestNotifPermissionOnce()` calls `enable()` on success, so
+`Notification.requestPermission()` legitimately gets called TWICE per gate resolution — a real
+browser makes the second call a no-op (permission already decided, no new UI), but a naive
+`Notification.permission !== "default"` guard is race-prone against that (both calls can pass the
+check before either's synchronous permission-flip lands). `notifPermissionRequestedThisLoad`
+(set synchronously, before any `await`) makes OUR side of the double-call deterministic
+regardless. The suite's fake `Notification` models the real one-prompt-then-idempotent behaviour
+precisely (counts a "prompt" only when permission was still `"default"` at call time) rather than
+raw call count, which is what actually matches the user-visible guarantee.
+
+**C. FIRST-RUN GATE — index.html only.** A device with neither `chorePid` nor `choreUser` after
+the family password unlocks sees a full-screen gate (reuses the `.lock`/`.lockcard` styling —
+same visual family as the password screen, same z-index tier) before the app: tap yourself from
+the roster, or "I'm new here — create my account" (name required, collision-checked
+case-insensitively against both name and pid, offering the matching profile instead of a
+duplicate). Create-account mints a real pid via the SAME `mintPid()` the Family sheet uses, and
+role `"guest"`. Both paths call `refreshName()` (which also closes the gate — one choke point,
+so ANY path that establishes an identity, not just the gate's own, closes it) then
+`requestNotifPermissionOnce()`. `checkIdentityGate()` is guarded to fire exactly once per page
+load, from the SAME two integration points as `migrateIdentity()`/`buildBottomNav()` above, for
+the same "needs the authoritative roster" reason. Existing suites are unaffected — checked, not
+assumed: none of the 13 suites in this phase's required battery boot with `choreUser` unset (all
+default to a real name in their `newPage()` signature), so the gate never triggers for them.
+
+**SELF-DEMOTION GUARD.** The role picker + Permitted editor render ONLY when `!isSelf &&
+can("bankAdminUI") && dadUnlocked()` — never on your own profile page, even for Dad. A
+bankAdminUI holder can promote/demote anyone else, never themselves, so nobody can mis-click
+their own way into a lockout.
+
+**LOAD-BEARING PROOFS, each broken and confirmed failing before being reverted:**
+- `eventreminders.mjs`'s calendar-mute filter disabled → exactly the 6 section-10 checks fail
+  (push got the muted token, bell got the muted pid, `mutedNames` came back empty); every other
+  check (window/idempotency/targeted-delivery/pid-matching) stayed green — the mute logic is
+  isolated from everything around it, not accidentally load-bearing for something else.
+- `render()`'s deep-link bounce switched from `navGroupPermitted` to `navGroupVisible` (the
+  narrow-only-rule violation: hiding an area would now ALSO block its deep link) → exactly the
+  "merely-hidden area still WORKS" check fails, nothing else moves.
+- `needsIdentityGate()` hardcoded to `true` → exactly the "existing identity never sees the
+  gate" check fails; every pick/create/collision check downstream still passes (they all
+  independently re-open the gate via their own flow, so they're not proof the gate-suppression
+  logic works — this one specific check is).
+
+**AMBIGUOUS CALLS, documented here rather than guessed silently:** guest GFFL/Shop defaults
+(above); `seesChoresArea` as a NEW capability rather than reusing `seesChores` (above, the
+"already gated" correction); the Bank area's Permitted checkbox denies/un-denies THREE
+capabilities at once (`kidBank`, `bankAdminUI`, `seesFinance`) rather than one, because
+`navGroupPermitted("bank")` is genuinely an OR of all three — a single-capability toggle would
+silently fail to hide Bank from a kidBank-holding kid; Visible/notification prefs are self-only
+(a parent cannot tidy a kid's own nav or mute their categories FOR them, even from the kid's
+profile page) — narrower than it had to be, chosen to keep "self-controlled" meaning exactly
+that; `chorereminders.mjs` stays a broadcast, untouched — it has no per-person model to hang a
+mute on, out of scope per the brief.
+
+**VERIFIED**: `_verify-profilepage.cjs` (**83/83**, NEW) — permitted-vs-visible separation with
+real nav DOM AND deep-link redirect behavior (both denied and merely-hidden cases, proven
+distinct); Home un-hideable in both the capability layer and the Visible UI; the full guest
+capability matrix (14 capabilities) plus real nav DOM for a representative guest profile;
+self-demotion guard; role-picker/Permitted-editor gating (a non-admin gets neither, a
+PIN-unlocked admin gets both, and using the picker actually persists through `backend.update`);
+prefs round-trip through a REAL page reload (not just in-memory); all 5 notification categories
+defaulting unmuted with zero prefs seeded; three real call sites (`notifyBankCredit`,
+`notifyAssignee`, `notifyCalEvent`) proven suppressed when muted AND still firing for an unmuted
+person in the SAME run; the notification default flip; the first-run gate's existing-identity
+suppression, roster listing, pick/create/collision paths (with the created guest's pid/role
+checked directly against the roster, not just toast text), and the one-prompt-per-flow guarantee.
+Regressions green: identity **169** (unmodified — the 10-profile parity table still passes
+byte-for-byte) · calnotify **122** · finance **117** · chore-care **50** · fitness **249** ·
+sports **273** · activity **147** · calview **25** · news **200** · arcade **23**.
+eventreminders extended **68 → 78** (calendar-mute excludes both push and bell together, an
+unmuted person on the SAME event unaffected, an empty `prefs.notifs` array reads identically to
+no prefs at all, and a missing/empty profile-docs read fails OPEN rather than blocking delivery).

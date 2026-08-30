@@ -204,6 +204,17 @@ function tokenFieldsPid(token, user, pid) {
   if (pid != null) f.pid = { stringValue: pid };
   return f;
 }
+// IDENTITY PHASE 2 (2026-08-30): a profile doc's Firestore REST shape — frequency:"profile",
+// name, pid, and prefs.notifs (a mapValue containing an arrayValue of stringValue), matching
+// exactly what index.html's backend.update({ prefs: {...} }) would actually write.
+function profileFields(name, pid, notifs) {
+  const f = { frequency: { stringValue: "profile" }, name: { stringValue: name } };
+  if (pid != null) f.pid = { stringValue: pid };
+  if (notifs) {
+    f.prefs = { mapValue: { fields: { notifs: { arrayValue: { values: notifs.map((n) => ({ stringValue: n })) } } } } };
+  }
+  return f;
+}
 
 /* ================================= the module ========================================= */
 let handler = null;
@@ -582,6 +593,82 @@ async function main() {
       "a Google Calendar outage (500) -> clean 200 no-op, never a throw");
     ok(fcmState.calls.length === 0, "…and nothing was sent during the outage");
     calState.outage = false;
+  }
+
+  /* ==================== 10. IDENTITY PHASE 2: calendar-muted people are excluded ==================== */
+  // docs/identity.md / Phase 2 brief: a profile's prefs.notifs may include "calendar" — that
+  // person must be excluded from BOTH push and bell, an unmuted person on the SAME event must be
+  // completely unaffected, and a profile with no prefs at all defaults to unmuted (missing prefs
+  // = everything on). All three asserted together so none of them could pass by accident against
+  // an implementation that only got one of push/bell/default right.
+  section("10. IDENTITY PHASE 2: prefs.notifs calendar mute excludes push AND bell, unmuted unaffected, missing prefs = unmuted");
+  {
+    resetFirestore(); resetFcm();
+    seedRows(`chores_${FAM}`, [
+      { docId: "profMuted", fields: profileFields("Muted Mom", "mutedmom", ["calendar"]) },
+      { docId: "profUnmuted", fields: profileFields("Loud Dad", "louddad", []) },
+      // "No Prefs Kid" has NO prefs field at all — the default-unmuted case.
+      { docId: "profNoPrefs", fields: profileFields("No Prefs Kid", "noprefskid") },
+    ]);
+    seedRows(`pushTokens_${FAM}`, [
+      { docId: "tokMuted", fields: tokenFieldsPid("TOK_MUTED", "Muted Mom", "mutedmom") },
+      { docId: "tokUnmuted", fields: tokenFieldsPid("TOK_UNMUTED", "Loud Dad", "louddad") },
+      { docId: "tokNoPrefs", fields: tokenFieldsPid("TOK_NOPREFS", "No Prefs Kid", "noprefskid") },
+    ]);
+    resetFcm([
+      ["TOK_MUTED", { status: 200, body: {} }],
+      ["TOK_UNMUTED", { status: 200, body: {} }],
+      ["TOK_NOPREFS", { status: 200, body: {} }],
+    ]);
+    resetCalendar([timedEvent("mutetest1", NOW + 61 * 60000, "Family Meeting",
+      ["mutedmom", "louddad", "noprefskid"])]);
+    const r = await callAt(NOW);
+    ok(r.body.remindersSent === 1, "the event still sends (not everyone selected is muted)");
+
+    const pushed = fcmState.calls.map((c) => c.message.token).sort();
+    ok(JSON.stringify(pushed) === JSON.stringify(["TOK_NOPREFS", "TOK_UNMUTED"].sort()),
+      `the muted profile's device gets NO push — got ${JSON.stringify(pushed)}`);
+    ok(!pushed.includes("TOK_MUTED"), "explicitly: Muted Mom's device was never pushed to");
+
+    const bellDocs = [...collOf(`notifs_${FAM}`).entries()];
+    const toNames = bellDocs.map(([, f]) => f.to.stringValue).sort();
+    ok(JSON.stringify(toNames) === JSON.stringify(["louddad", "noprefskid"].sort()),
+      `the muted profile gets NO bell doc either — got ${JSON.stringify(toNames)}`);
+    ok(!toNames.includes("mutedmom"), "explicitly: no bell doc addressed to the muted pid");
+
+    ok(JSON.stringify((r.body.mutedNames || []).slice()) === JSON.stringify(["mutedmom"]),
+      `the muted exclusion is reported, not silent — got ${JSON.stringify(r.body.mutedNames)}`);
+    ok(JSON.stringify((r.body.unmatchedNames || []).slice()) === JSON.stringify([]),
+      "the muted person is NOT reported as unmatched — it's an intentional exclusion, not a device-matching gap");
+    ok(r.body.tokensNotified === 2, `exactly the two unmuted devices were sent to — got ${r.body.tokensNotified}`);
+  }
+  {
+    // An empty prefs.notifs array (explicitly unmuted, not just absent) behaves identically to
+    // no prefs at all — proves the check is "does the array CONTAIN calendar", not "does prefs
+    // merely exist".
+    resetFirestore(); resetFcm();
+    seedRows(`chores_${FAM}`, [{ docId: "profEmptyPrefs", fields: profileFields("Empty Prefs", "emptyprefs", []) }]);
+    seedRows(`pushTokens_${FAM}`, [{ docId: "tokEmpty", fields: tokenFieldsPid("TOK_EMPTY", "Empty Prefs", "emptyprefs") }]);
+    resetFcm([["TOK_EMPTY", { status: 200, body: {} }]]);
+    resetCalendar([timedEvent("mutetest2", NOW + 61 * 60000, "Solo Event", ["emptyprefs"])]);
+    const r = await callAt(NOW);
+    ok(r.body.tokensNotified === 1 && (r.body.mutedNames || []).length === 0,
+      `an empty prefs.notifs array is treated as fully unmuted — got ${JSON.stringify(r.body)}`);
+  }
+  {
+    // A profile-prefs Firestore read failure must fail OPEN (never block the whole run) — the
+    // fake Firestore doesn't expose a "return 500 only for this query" knob, so this is proven
+    // structurally instead: with NO chores_<familyKey> collection seeded at all (an empty
+    // runQuery response, not a 500 — the realistic "nothing there yet" case, e.g. a family whose
+    // profiles haven't synced to this read path), reminders still send normally rather than
+    // silently dropping everyone.
+    resetFirestore(); resetFcm();
+    seedRows(`pushTokens_${FAM}`, [{ docId: "tokPlain", fields: tokenFields("TOK_PLAIN", "Plain Person") }]);
+    resetFcm([["TOK_PLAIN", { status: 200, body: {} }]]);
+    resetCalendar([timedEvent("mutetest3", NOW + 61 * 60000, "No Profiles At All", ["Plain Person"])]);
+    const r = await callAt(NOW);
+    ok(r.body.tokensNotified === 1 && r.body.remindersSent === 1,
+      `zero profile docs (nothing to match a mute against) still delivers normally — got ${JSON.stringify(r.body)}`);
   }
 
   /* ==================================== teardown ======================================== */
