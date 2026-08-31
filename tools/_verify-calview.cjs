@@ -129,10 +129,15 @@ const weekAnchorGap = (page) => page.evaluate(() => {
 
 async function run(){
   const srv = await serve();
+  // 2026-08-31: matched to the rest of the fleet's launch config (chore-care/finance/
+  // sports/etc. all use channel:"chrome" + swiftshader) — the old hardcoded
+  // "/opt/pw-browsers/chromium" fallback is a Linux sandbox path that doesn't resolve on
+  // every machine this suite gets run from; BUCKY_CHROME still overrides when set.
   const browser = await puppeteer.launch({
-    executablePath: process.env.BUCKY_CHROME || "/opt/pw-browsers/chromium",
+    channel: process.env.BUCKY_CHROME ? undefined : "chrome",
+    executablePath: process.env.BUCKY_CHROME || undefined,
     headless: "new",
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-sandbox", "--disable-dev-shm-usage"],
   });
   const TODAY = todayKey();
   const otherMonth = (() => {           // a month that is definitely not this one
@@ -192,6 +197,18 @@ async function run(){
       await gotoTab(page, "calendar");
       await page.evaluate(() => { window.__CAL__.setView("week"); });
       await sleep(300);
+      // RESTAGED (2026-08-31 Home rerank): the Home calendar entry point is now the
+      // single "Up next" accent card — present only when something is upcoming TODAY,
+      // not always-on like the old 7-day widget it replaced. This suite's route mock
+      // answers every calendar fetch with events:[], so the card would never exist to
+      // click; seed one real event for today (in the future, so it counts as upcoming)
+      // before leaving for Home, the same way section D seeds an event via __CAL__.
+      if (label.includes("widget")){
+        await page.evaluate(() => window.__CAL__.setEvents([
+          { id: "next1", title: "Church potluck", start: new Date(Date.now() + 3600e3).toISOString(),
+            end: new Date(Date.now() + 7200e3).toISOString(), allDay: false, notes: "" },
+        ]));
+      }
       // Leave to a sibling of the SAME area for the chip (that is how a chip is reached),
       // and to Home for the widget.
       await gotoTab(page, label.includes("chip") ? "animalcare" : "dashboard");

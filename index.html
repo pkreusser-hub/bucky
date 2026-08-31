@@ -538,6 +538,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .hero .htxt { flex: 1; min-width: 0; }
   .home2 .eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
   .home2 .hero h1 { margin: 3px 0 4px; font-size: 23px; font-weight: 800; letter-spacing: -.2px; text-wrap: balance; line-height: 1.1; color: var(--ink); }
+  /* Time-of-day icon beside the greeting (SVG, not the old ☀️/🌤️/🌙 emoji — house law). */
+  .home2 .hero h1 .hicon { display: inline-flex; vertical-align: -2px; margin-left: 5px; color: var(--amber); }
+  .home2 .hero h1 .hicon svg { display: block; }
   .home2 .hero .hsub { margin: 0; font-size: 13.5px; color: var(--ink-2); font-weight: 600; }
   .home2 .hero .hsub b { color: var(--green-d); }
   .home2 .ring { position: relative; width: 70px; height: 70px; flex: 0 0 auto; }
@@ -547,39 +550,67 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .ring .val span { display: flex; align-items: baseline; }
   .home2 .ring .val small { font-size: 10px; color: var(--muted); font-weight: 700; margin-left: 1px; }
 
-  /* Home calendar widget (replaces the old stat row; taps through to Plan → Calendar) */
+  /* Home calendar entry point — the "Up next" accent card (2026-08-31 rerank; source:
+     the commissioner's Claude Design canvas, section 1a). Replaces the old always-on
+     7-day event list: now it is the viewer's single next event TODAY, on a terracotta
+     accent, and it is ABSENT (hidden, not an empty state) when nothing is left today —
+     the mockup's accent works because there is exactly one on screen at a time. The
+     class stays "calwidget" (base rules below unchanged) both because it is still,
+     semantically, Home's calendar entry point, and because tools/_verify-calview.cjs's
+     entry-point check clicks it by that name. */
   .home2 .calwidget { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; }
   .home2 .calwidget:active { background: var(--done, #e7eefb); }
-  .home2 .cwhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-  .home2 .cwhead .cwdate { font-size: 13.5px; font-weight: 800; color: var(--ink); letter-spacing: -.1px; }
-  .home2 .cwhead .cwmore { flex: 0 0 auto; font-size: 12px; font-weight: 800; color: var(--red); }
-  .home2 .cwrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line-2); }
-  .home2 .cwrow:first-child { border-top: 0; }
-  .home2 .cwday { flex: 0 0 66px; font-size: 11px; font-weight: 800; text-align: center; padding: 4px 0; border-radius: 8px; background: var(--navy-soft); color: var(--green-d); white-space: nowrap; }
-  .home2 .cwday.today { background: var(--red-soft); color: var(--red); }
-  .home2 .cwtitle { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .home2 .cwtime { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .home2 .cwextra { font-size: 12px; font-weight: 700; color: var(--muted); border-top: 1px solid var(--line-2); padding-top: 7px; margin-top: 1px; }
-  .home2 .cwempty { font-size: 13px; color: var(--muted); font-weight: 600; padding: 5px 0 3px; }
+  .home2 .calwidget[hidden] { display: none; }   /* a button's own display outranks the UA [hidden] rule — CLAUDE.md #2 */
+  .home2 .accent-next { background: var(--red-soft); border-color: var(--red-soft-line); display: flex; align-items: center; gap: 12px; }
+  .home2 .accent-next .cn-time {
+    flex: 0 0 auto; width: 40px; height: 40px; border-radius: 12px; background: var(--red); color: #fff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800; line-height: 1.15; text-align: center;
+  }
+  .home2 .accent-next .cn-body { flex: 1; min-width: 0; }
+  .home2 .accent-next .cn-lab { font-size: 11px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: var(--red); }
+  .home2 .accent-next .cn-title { font-size: 15px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .home2 .accent-next .cn-more { flex: 0 0 auto; font-size: 12px; font-weight: 800; color: var(--red); }
 
-  /* Home animal-care widget (right below the calendar card; taps through to Plan → Care).
-     Horizontal 7-day grid: an emoji label column (🌅/🌙) + 7 day columns (today first).
-     Cells are single-LETTER group chips (K/J/G) — compact spans (the whole card is a
-     <button>, nested buttons are invalid HTML) in the Care tab's palette via the same
-     --chip custom property. Today = filled red header + a soft tint down its column. */
+  /* Two half-width "glance" cards per row (weather+GFFL, workout+animal-care). The
+     3-class selectors below outrank each card's own 2-class base rule (and the
+     farmstead theme's blanket padding override further down) regardless of source
+     order, so a card looks normal at full width everywhere else it might ever be
+     reused and only tightens up inside a glance row. */
+  .home2 .glancerow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* When the GFFL half is hidden (league unreachable / off-season / no fixture), let
+     weather take the row instead of sitting half-width next to blank space. Graceful
+     no-op in a browser without :has() — the row just keeps its empty second column. */
+  .home2 .glancerow:has(> .ffcard[hidden]) { grid-template-columns: 1fr; }
+  .home2 .glancerow .wxcard, .home2 .glancerow .ffcard,
+  .home2 .glancerow .fitcard, .home2 .glancerow .carewidget { padding: 11px 13px; margin-bottom: 0; }
+  .home2 .glancerow .fitc-top { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .home2 .glancerow .fitc-go { padding: 6px 12px; }
+  .home2 .glab { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+
+  /* Weather glance: condition + hi/lo + a one-line outlook (taps through to weather.html
+     for the full 7-day + radar — same wxCached/wxFetch data the old 5-day strip used). */
+  .home2 .wxg-row { display: flex; align-items: baseline; gap: 7px; margin-top: 5px; }
+  .home2 .wxg-ic { font-size: 22px; line-height: 1; }
+  .home2 .wxg-hi { font-size: 20px; font-weight: 800; color: var(--ink); }
+  .home2 .wxg-lo { font-size: 12px; font-weight: 700; color: var(--muted); }
+  .home2 .wxg-out { font-size: 11.5px; color: var(--muted); margin-top: 3px; font-weight: 600; }
+  .home2 .wxload { font-size: 12.5px; color: var(--muted); margin-top: 5px; }
+
+  /* Animal-care glance: who has morning/tonight, from the same rota careCoverNote()
+     already reads for the Chores tab and the hero ring. The old 7-day grid is gone from
+     Home — the Care tab itself ("Week ›") is where a whole week is worth seeing.
+     2026-08-31 BUG CAUGHT BY THE PLATE, not the suite: this base card rule (background/
+     border/etc.) got dropped when the 7-day grid's CSS was replaced, so the card silently
+     fell back to the browser's UA <button> style (grey, black border) — invisible to every
+     DOM-only assertion, obvious the moment a screenshot was actually looked at. */
   .home2 .carewidget { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; }
   .home2 .carewidget:active { background: var(--done, #e7eefb); }
-  .home2 .caregrid { display: grid; grid-template-columns: 22px repeat(7, minmax(0, 1fr)); gap: 3px; align-items: center; margin-top: 6px; }
-  .home2 .cg-day { display: flex; flex-direction: column; align-items: center; padding: 2px 0 3px; border-radius: 8px; line-height: 1.15; min-width: 0; }
-  .home2 .cg-day b { font-size: 9.5px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .2px; }
-  .home2 .cg-day i { font-style: normal; font-size: 11.5px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
-  .home2 .cg-day.today { background: var(--red); }
-  .home2 .cg-day.today b, .home2 .cg-day.today i { color: #fff; }
-  .home2 .cg-lab { font-size: 12px; text-align: center; line-height: 1; }
-  .home2 .cg-cell { display: flex; justify-content: center; padding: 2px; border-radius: 9px; min-width: 0; }
-  .home2 .cg-cell.today { background: var(--red-soft); }
-  .home2 .care-mini { width: 100%; max-width: 56px; min-width: 0; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; background: var(--chip, var(--green)); border-radius: 7px; white-space: nowrap; position: relative; }
-  .home2 .care-mini.ov::after { content: ""; position: absolute; top: -2px; right: -2px; width: 7px; height: 7px; border-radius: 50%; background: var(--red); border: 1.5px solid var(--card); }
+  .home2 .cc-row { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+  .home2 .cc-row + .cc-row { margin-top: 5px; }
+  .home2 .cc-chip { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 7px; background: var(--chip, var(--green)); color: #fff; display: grid; place-items: center; font-size: 10.5px; font-weight: 800; }
+  .home2 .cc-txt { font-size: 12.5px; font-weight: 700; color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home2 .cc-more { display: block; margin-top: 7px; font-size: 12px; font-weight: 800; color: var(--red); }
 
   /* Today's chores card */
   .home2 .card2 { background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
@@ -650,19 +681,14 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .ffhome.down, .ffhome.down .fhp { color: var(--muted); font-weight: 600; }
   .ffhsub { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11.5px; font-weight: 600; margin-top: 3px; }
   /* .ffwarnline removed (GFFL-CONNECT 2026-08-13) — the ESPN lineup guard retired with its league. */
-  .home2 .wxhead { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .home2 .wxhead .wxmore { color: var(--green); font-weight: 800; text-transform: none; letter-spacing: 0; font-size: 12px; }
-  .home2 .wxdays { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
-  .home2 .wxday { display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--surface-2); border-radius: 11px; padding: 8px 2px; }
-  .home2 .wxd { font-size: 11px; font-weight: 700; color: var(--ink); }
-  .home2 .wxi { font-size: 21px; line-height: 1; margin: 1px 0; }
-  .home2 .wxt { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .home2 .wxt b { color: var(--ink); font-weight: 800; }
-  .home2 .wxt span { color: var(--muted); margin-left: 3px; }
-  .home2 .wxp { font-size: 10.5px; font-weight: 700; color: #3574d4; font-variant-numeric: tabular-nums; }
-  .home2 .wxload { font-size: 13px; color: var(--muted); padding: 6px 0; }
+  /* The old 5-day wxhead/wxdays strip is gone (2026-08-31 rerank) — Home's weather card
+     is now the compact glance form (.wxg-* above); weather.html still has the full
+     7-day + radar this card links out to. */
 
-  /* Stock watchlist (bottom of the dashboard) */
+  /* Stock watchlist — STILL HERE, unchanged. It no longer paints on Home (see the
+     2026-08-31 rerank: stocks moved to the Bank/Finance tab, same per-account data),
+     but the code stays live — this CSS, paintStocks/stocksRefresh — because nothing
+     asked for the feature to be deleted, only relocated off Home. */
   .home2 .stockcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; }
   .home2 .stockhead { font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .home2 .stockhead .stadd { color: var(--green); font-weight: 800; text-transform: none; letter-spacing: 0; font-size: 13px; border: 0; background: transparent; cursor: pointer; padding: 2px 4px; }
@@ -696,13 +722,14 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .askbar .askgo { flex: 0 0 auto; width: 38px; height: 38px; border: 0; border-radius: 10px; background: var(--green); color: #fff; font-size: 18px; font-weight: 800; cursor: pointer; display: grid; place-items: center; }
   .home2 .askbar .askgo:active { transform: scale(.94); }
 
-  /* dad joke */
-  .home2 .joke2 { background: linear-gradient(150deg, var(--navy-soft), var(--card)); border: 1px solid var(--line); border-radius: 18px; padding: 15px 15px 13px; box-shadow: var(--shadow); }
-  .home2 .joke2 .lab { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--red); }
-  .home2 .joke2 .q { font-size: 15px; font-weight: 700; margin: 6px 0 3px; line-height: 1.35; text-wrap: balance; color: var(--ink); }
-  .home2 .joke2 .a { font-size: 14px; color: var(--ink-2); font-weight: 600; }
-  .home2 .joke2 .again { margin-top: 10px; font-size: 12.5px; font-weight: 800; color: var(--red); background: none; border: 0; cursor: pointer; padding: 0; }
+  /* 2026-08-31: renamed from the old .joke2 dad-joke card — see the farmstead-theme
+     override below for what actually ships (this base rule is the pre-farmstead look). */
+  .home2 .farmline { background: linear-gradient(150deg, var(--navy-soft), var(--card)); border: 1px solid var(--line); border-radius: 18px; padding: 15px 15px 13px; box-shadow: var(--shadow); }
+  .home2 .farmline .q { font-size: 15px; font-weight: 700; margin: 6px 0 3px; line-height: 1.35; text-wrap: balance; color: var(--ink); }
   .home2 .hfoot { text-align: center; font-size: 11px; color: var(--muted); padding: 4px 0 2px; font-weight: 600; }
+  /* The mockup's own note about where stocks/news went — ships as real copy, not just a
+     design-review annotation (2026-08-31). */
+  .home2 .homemoved { text-align: center; font-size: 11px; font-weight: 600; color: var(--muted); margin-top: -6px; }
 
   .fab {
     position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 82px);
@@ -1483,6 +1510,10 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     --good: #3e7d51; --good-d: #2f6440; --good-soft: #e4eee6;
     --amber: #c08a3e; --amber-soft: #f5ecdb;
     --purple: #7c6aa6; --purple-soft: #ece8f4;
+    /* 2026-08-31 Home rerank (commissioner's Design canvas, section 1a): the accent
+       card's border is a new shade — --red-soft is its fill, this is the line one step
+       darker, the way --line sits one step darker than --card. */
+    --red-soft-line: #e8cfc2;
   }
   body { font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif; }
   /* Header: light, wordmark in Fraunces green */
@@ -1514,11 +1545,11 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 .card2 { border-radius: 16px; }
   .home2 .chd { padding: 11px 14px 3px; }
   .home2 .crow { padding: 9px 14px; }
-  .home2 .joke2 { background: transparent; border: 0; box-shadow: none; padding: 4px 14px 2px; text-align: center; }
-  .home2 .joke2 .q, .home2 .joke2 .a { font-family: Fraunces, Georgia, serif; font-style: italic; font-weight: 500; display: inline; font-size: 13px; color: var(--muted); }
-  .home2 .joke2 .q::after { content: " "; }
-  .home2 .joke2 .lab { display: none; }
-  .home2 .joke2 .again { display: block; margin: 4px auto 0; }
+  /* Home: a small rotating farm one-liner (2026-08-31 rerank) replaces the old
+     interactive dad-joke card in this slot — italic Fraunces, centered, muted, no
+     label/button (a static day-seeded quip, not a "tell me another" feature). */
+  .home2 .farmline { background: transparent; border: 0; box-shadow: none; padding: 4px 14px 2px; text-align: center; }
+  .home2 .farmline .q { font-family: Fraunces, Georgia, serif; font-style: italic; font-weight: 500; font-size: 13px; color: var(--muted); }
   /* Section headers / sub-nav quieter */
   .subseg { border-radius: 999px; }
   .subseg button { border-radius: 999px; }
@@ -1562,7 +1593,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
     <!-- Desktop only (≥1024px): names the open section where the wordmark used to sit,
          so "Bucky / Family Farm Hub" appears once, in the left rail. -->
     <div class="crumb" id="deskCrumb"></div>
-    <button class="bell" id="bellBtn" title="Notifications">🔔<span class="bell-badge" id="bellBadge" style="display:none;">0</span></button>
+    <button class="bell" id="bellBtn" title="Notifications"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span class="bell-badge" id="bellBadge" style="display:none;">0</span></button>
     <button class="who" id="myProfileBtn" title="My profile" aria-label="My profile">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20 C4 15 7.5 13 12 13 C16.5 13 20 15 20 20"/></svg>
     </button>
@@ -3250,27 +3281,51 @@ function wxIcon(code){
   return "⛈️";   // 95-99 thunderstorm
 }
 function wxDayName(dateStr, i){ return i === 0 ? "Today" : new Date(dateStr + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" }); }
-const WX_HEAD = `<div class="wxhead"><span>🌤️ Woodville, AL · 5-day</span><span class="wxmore">Radar &amp; 7-day →</span></div>`;
+// A short WORD to pair with wxIcon's emoji in the one-line outlook — the icon itself
+// follows the existing weather section's own convention unchanged (wxIcon, still emoji).
+function wxLabel(code){
+  if (code === 0) return "Clear";
+  if (code <= 2) return "Mild";
+  if (code === 3) return "Cloudy";
+  if (code <= 48) return "Foggy";
+  if (code <= 67) return "Rain";
+  if (code <= 77) return "Snow";
+  if (code <= 82) return "Showers";
+  if (code <= 86) return "Snow";
+  return "Storms";
+}
+const WX_GLAB = `<div class="glab">Weather</div>`;
+// 2026-08-31 rerank: Home's weather card shrank from a 5-day strip to a glance —
+// condition + hi/lo + one line — same wxCached/wxFetch/wxIcon data source, weather.html
+// (opened on tap) is still the full 7-day + radar page. The outlook line names the
+// soonest day worth mentioning: notable rain/snow ahead this week, else today's own read.
 function paintWx(el, data){
-  el.innerHTML = WX_HEAD + `<div class="wxdays"></div>`;
-  const row = el.querySelector(".wxdays");
-  data.days.forEach((d, i) => {
-    const c = document.createElement("div"); c.className = "wxday";
-    c.innerHTML = `<div class="wxd"></div><div class="wxi">${wxIcon(d.code)}</div>`
-      + `<div class="wxt"><b>${d.hi}°</b><span>${d.lo}°</span></div>`
-      + `<div class="wxp">💧${d.pp || 0}%</div>`;
-    c.querySelector(".wxd").textContent = wxDayName(d.date, i);
-    row.appendChild(c);
-  });
+  const days = data.days || [];
+  const today = days[0];
+  if (!today){ el.innerHTML = WX_GLAB + `<div class="wxload">Forecast unavailable</div>`; return; }
+  const rainy = days.slice(1).find(d => (d.pp || 0) >= 40);
+  const outlook = rainy
+    ? `${wxLabel(rainy.code)} ${wxDayName(rainy.date, days.indexOf(rainy))} · ${rainy.pp}%`
+    : (today.pp || 0) >= 40
+      ? `${wxLabel(today.code)} today · ${today.pp}%`
+      : `${wxLabel(today.code)} near the farm`;
+  el.innerHTML =
+    `${WX_GLAB}
+     <div class="wxg-row"><span class="wxg-ic"></span><span class="wxg-hi"></span><span class="wxg-lo"></span></div>
+     <div class="wxg-out"></div>`;
+  el.querySelector(".wxg-ic").textContent = wxIcon(today.code);
+  el.querySelector(".wxg-hi").textContent = today.hi + "°";
+  el.querySelector(".wxg-lo").textContent = today.lo + "°";
+  el.querySelector(".wxg-out").textContent = outlook;
 }
 // Paint from cache immediately, then refresh in the background if the cache is stale (>3h).
 function renderWxInto(el){
   const cached = wxCached();
   if (cached) paintWx(el, cached);
-  else el.innerHTML = WX_HEAD + `<div class="wxload">Loading forecast…</div>`;
+  else el.innerHTML = WX_GLAB + `<div class="wxload">Loading forecast…</div>`;
   if (!cached || (Date.now() - cached.ts) > 3 * 3600 * 1000){
     wxFetch().then(d => { const cur = document.querySelector(".wxcard"); if (cur && currentTab === "dashboard") paintWx(cur, d); })
-      .catch(() => { if (!cached){ const cur = document.querySelector(".wxcard"); if (cur) cur.innerHTML = WX_HEAD + `<div class="wxload">Forecast unavailable</div>`; } });
+      .catch(() => { if (!cached){ const cur = document.querySelector(".wxcard"); if (cur) cur.innerHTML = WX_GLAB + `<div class="wxload">Forecast unavailable</div>`; } });
   }
 }
 
@@ -3482,6 +3537,9 @@ function sportsKick(iso){
   try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", hour: "numeric", minute: "2-digit" }); }
   catch { return ""; }
 }
+// Not called from Home since the 2026-08-31 rerank (the mockup's Home has no NFL card —
+// scores stay one tap away on the Sports tab); left in place, not deleted, the same way
+// paintStocks stays in place below Bank/Finance took over the Home stock card's job.
 function paintNflCard(el){
   const c = sportsHomeCached("bucky_nfl_home");
   const evs = c && Array.isArray(c.data.events) ? c.data.events : [];
@@ -3620,11 +3678,10 @@ function sportsHomeRefresh(force){
     })
     .finally(() => { sportsHomeFetching = false; });
 }
-function renderSportsCards(nflEl, ffEl){
-  paintNflCard(nflEl);
-  paintFfCard(ffEl);
-  sportsHomeRefresh();
-}
+// renderSportsCards(nflEl, ffEl) removed 2026-08-31 — its only caller was renderDashboard,
+// which now paints just the GFFL half directly (paintFfCard + sportsHomeRefresh); the NFL
+// scoreboard snapshot isn't part of the Home rerank (see the comment above paintNflCard).
+// paintNflCard itself is untouched and reachable again the moment something calls it.
 
 // ---- Stock watchlist (dashboard, 2026-07-23; moved to a per-ACCOUNT list 2026-08-xx) ----
 // Quotes (price/change/name) stay a per-device cache — refreshed in the background through
@@ -4487,7 +4544,16 @@ function renderFinance(){
   root.appendChild(finBuildMarkets());
   root.appendChild(finBuildWatchlist());
 
-  if (finStale(false)) finRefresh(false);
+  // 2026-08-31 bugfix (found by the Home rerank removing Home's own stocksEnsureAndRefresh
+  // call, which had been loading this person's list as an accidental side effect of
+  // boot — every visit to Finance used to land AFTER that had already resolved). Without
+  // it, a direct-to-Finance visit hits this before stockListsLoaded[who] is true:
+  // finSymbolSet() is missing the person's own picks, so a fetch fired HERE would grab
+  // only the 3 market symbols; finBuildWatchlist's own stockEnsureList(...).then() then
+  // re-renders once the real list arrives and fires a SECOND, now-complete request. Skip
+  // firing here while that load is still in flight — the re-render covers it once, whole.
+  const who = myName();
+  if ((!who || stockListsLoaded[who]) && finStale(false)) finRefresh(false);
 }
 
 window.__FIN__ = {
@@ -4512,6 +4578,47 @@ window.__FIN__ = {
   chartFailed: (sym, r) => !!finChartFailed[finChartKey(sym || finDetailSym, r || finChartRange)],
 };
 
+// ---- Small line-icon set for chrome the farmstead theme still had as emoji (2026-08-31
+// Home rerank — bell/greeting-sun/care-rota-sun-moon/camera). Same 24x24-viewBox, 2px
+// stroke, round-cap convention the bottom nav's own icons already use (see buildBottomNav).
+const LINE_ICONS = {
+  sun:   '<path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/><circle cx="12" cy="12" r="4"/>',
+  cloud: '<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>',
+  moon:  '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  camera:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+};
+function lineIcon(name, size){
+  size = size || 17;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" `
+       + `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LINE_ICONS[name]}</svg>`;
+}
+// Time-of-day part of the greeting: label + which line icon stands in for the old emoji.
+function greetingPart(h){
+  return h < 12 ? ["Morning","sun"] : h < 17 ? ["Afternoon","cloud"] : ["Evening","moon"];
+}
+
+// ---- Rotating farm one-liner (2026-08-31 rerank) — a small LOCAL list in the app's own
+// voice, seeded by day-of-year so it holds steady all day and changes the next. No network
+// call, no AI — replaces the old interactive "dad joke" card in this slot on Home (that
+// feature's own code — DAD_JOKES/jokeOfDay — is untouched; it's just not on Home any more).
+const FARM_LINES = [
+  "Why did the scarecrow win an award? He was outstanding in his field.",
+  "A goat's favorite shoe is a slipper — it lets them sneak up on the feed bucket.",
+  "The chickens held a meeting this morning. Nothing was resolved; there was a lot of pecking order.",
+  "Barn cats: management consultants who never actually manage anything.",
+  "Goats will eat almost anything except, somehow, the thing you actually wanted them to eat.",
+  "Morning chores build character. So does chasing a loose goat before coffee.",
+  "A quiet barn is either very good news or very bad news. Go check.",
+  "The rooster takes full credit for the sunrise every single day.",
+  "Hay today, gone tomorrow — feed the goats before they remind you.",
+  "The best fertilizer is the farmer's own shadow — someone has to keep showing up.",
+];
+function farmLineOfDay(){
+  const start = new Date(new Date().getFullYear(), 0, 0);
+  const doy = Math.floor((new Date() - start) / 86400000);
+  return FARM_LINES[((doy % FARM_LINES.length) + FARM_LINES.length) % FARM_LINES.length];
+}
+
 function renderDashboard(){
   document.querySelector(".bar").style.display = "none";
   document.getElementById("empty").style.display = "none";
@@ -4519,7 +4626,7 @@ function renderDashboard(){
 
   const who = myName();
   const h = new Date().getHours();
-  const part = h < 12 ? ["Morning","☀️"] : h < 17 ? ["Afternoon","🌤️"] : ["Evening","🌙"];
+  const part = greetingPart(h);
   const eyebrow = new Date().toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" }).toUpperCase();
 
   // ---- live data ----
@@ -4553,10 +4660,13 @@ function renderDashboard(){
   // clean greeting without any chore UI.
   let sub = "";
   if (showChores){
+    // 2026-08-31: emoji stripped from this sub-line (house law — Home's chrome/system
+    // messages use text or SVG, not emoji; this is chrome the rerank re-authored, unlike
+    // e.g. the weather icon or the GFFL card, which keep their pre-existing convention).
     const leftLbl = `<b>${left} chore${left>1?"s":""}</b> left`;
-    if (!total) sub = "No chores today 🌻";
-    else if (!left) sub = "<b>All done</b> — go play! 🎉";
-    else if (done === 0) sub = `${leftLbl} today — let's get started 💪`;
+    if (!total) sub = "No chores today";
+    else if (!left) sub = "<b>All done</b> — go play!";
+    else if (done === 0) sub = `${leftLbl} today — let's get started`;
     else if (done / total > 0.75) sub = `${leftLbl} — almost there!`;
     else sub = `${leftLbl} today — nice pace!`;
   }
@@ -4573,83 +4683,135 @@ function renderDashboard(){
   hero.innerHTML =
     `<div class="htxt">
        <div class="eyebrow"></div>
-       <h1></h1>
+       <h1><span class="htext"></span><span class="hicon"></span></h1>
        ${sub ? `<p class="hsub">${sub}</p>` : ""}
      </div>
      ${ringHtml}`;
   hero.querySelector(".eyebrow").textContent = eyebrow;
-  hero.querySelector("h1").textContent = `${part[0]}${who ? ", " + who : ""} ${part[1]}`;
+  hero.querySelector(".htext").textContent = `${part[0]}${who ? ", " + who : ""}`;
+  hero.querySelector(".hicon").innerHTML = lineIcon(part[1], 18);   // constant markup, not user data
   if (showChores) hero.onclick = () => goTo("chores");
   home.appendChild(hero);
   if (deskCols) home.append(mainCol, railCol);   // hero spans both; the columns follow it
 
-  // ---- calendar widget: today's date + the next few family events (universal — no
-  // audience gating). Whole card taps into Plan → Calendar; paints instantly from the
-  // bucky_cal_cache the calendar tab shares, then calHomeRefresh() quietly refreshes a
-  // stale cache in the background (weather-card pattern).
-  const calw = document.createElement("button"); calw.className = "calwidget"; calw.type = "button";
+  // ---- THE accent card: "Up next" — the viewer's next event TODAY, and only that
+  // (2026-08-31 Home rerank, source: the commissioner's Claude Design canvas, section
+  // 1a). Absent entirely (not an empty state) when nothing is left today — never two
+  // accent cards on screen at once. Paints from the same bucky_cal_cache the Plan tab
+  // shares, then calHomeRefresh() quietly refreshes a stale cache in the background
+  // (weather-card pattern) and repaints in place — the element always exists (hidden or
+  // not), so a late-arriving event can make it appear without a fresh navigation.
+  const calw = document.createElement("button"); calw.className = "calwidget accent-next"; calw.type = "button";
   calw.setAttribute("aria-label", "Open the family calendar");
   calw.onclick = () => goTo("calendar");
-  railCol.appendChild(calw);
-  paintCalWidget(calw);
+  mainCol.appendChild(calw);
+  paintCalNext(calw);
   calHomeRefresh();
 
-  // ---- animal-care widget: who's covering the next 7 days (universal — no audience
-  // gating). Whole card taps into Plan → Care; coverage resolution is 100% the Care
-  // tab's own helpers (careSlotValue et al — never duplicated here). Paints instantly
-  // (defaults if the setting hasn't loaded yet — never an error state), then
-  // careHomeRefresh() background-loads the setting and repaints in place only while
-  // the user is still on the dashboard (calwidget/wxcard pattern).
-  const carew = document.createElement("button"); carew.className = "carewidget"; carew.type = "button";
-  carew.setAttribute("aria-label", "Open animal care coverage");
-  carew.onclick = () => goTo("animalcare");
-  railCol.appendChild(carew);
-  paintCareWidget(carew);
-  careHomeRefresh();
-
-  // ---- today's workout (Isaac + Eleanor only — it's their daily thing). Paints a
-  // sensible placeholder immediately, then fitHomeRefresh() background-loads the
-  // library/plan/log and repaints in place, but only while still on the dashboard
-  // (calwidget/carewidget/wxcard pattern).
-  if (seesFitness()){
-    const fitw = document.createElement("button"); fitw.className = "fitcard"; fitw.type = "button";
-    fitw.setAttribute("aria-label", "Open today's workout");
-    fitw.onclick = () => goTo("fitness");
-    railCol.appendChild(fitw);
-    paintFitCard(fitw);
-    fitHomeRefresh();
+  // ---- Today's chores card, promoted to slot 2 (Isaac & Eleanor only). Only the FIRST
+  // THREE not-done chores show as rows (the hero ring above still counts done/total
+  // across ALL of today's chores) — sorted daily-by-time-of-day (morning→noon→night)
+  // first, then any weekly/monthly/yearly chores due today, then by c.order. Rows do
+  // exactly what the Chores tab's own rows do: tap toggles the chore via toggleHomeChore.
+  if (showChores){
+    const TOD_RANK = { morning: 0, noon: 1, night: 2 };
+    const visibleChores = dayChores.filter(c => !isDone(c)).sort((a, b) => {
+      const aDaily = a.frequency === "daily", bDaily = b.frequency === "daily";
+      if (aDaily !== bDaily) return aDaily ? -1 : 1;
+      if (aDaily){
+        const ar = TOD_RANK[a.timeOfDay || "morning"] ?? 0;
+        const br = TOD_RANK[b.timeOfDay || "morning"] ?? 0;
+        if (ar !== br) return ar - br;
+      }
+      return (a.order || 0) - (b.order || 0);
+    });
+    const shownChores = visibleChores.slice(0, 3);
+    const card2 = document.createElement("div"); card2.className = "card2";
+    const chd = document.createElement("div"); chd.className = "chd";
+    chd.innerHTML = `<h2>Today's chores</h2><button class="more">See all →</button>`;
+    chd.querySelector(".more").onclick = () => goTo("chores");
+    card2.appendChild(chd);
+    const rows = document.createElement("div"); rows.className = "rows";
+    if (!dayChores.length){
+      const e = document.createElement("div"); e.className = "empty2";
+      e.textContent = "No chores yet — tap + on Chores to add one.";
+      rows.appendChild(e);
+    } else if (!visibleChores.length){
+      const e = document.createElement("div"); e.className = "empty2";
+      e.textContent = "All done — go play!";   // 2026-08-31: emoji stripped, house law
+      rows.appendChild(e);
+    } else {
+      for (const c of shownChores){
+        const isD = isDone(c);
+        const r = document.createElement("button"); r.className = "crow" + (isD ? " checked" : "");
+        r.innerHTML =
+          `<div class="hcheck">${isD ? "✓" : ""}</div>
+           <div class="cbody"><div class="t${isD ? " done" : ""}"></div><div class="s"></div></div>`;
+        r.querySelector(".t").textContent = c.name;
+        r.querySelector(".s").textContent = homeChoreSub(c);
+        r.onclick = () => toggleHomeChore(c);
+        rows.appendChild(r);
+      }
+    }
+    card2.appendChild(rows);
+    mainCol.appendChild(card2);
   }
 
-  // ---- 5-day weather for the farm (opens full weather.html: 7-day + radar) ----
-  const wx = document.createElement("button"); wx.className = "wxcard";
-  wx.type = "button";
+  // ---- Glance row 1: weather (half card, opens weather.html) + GFFL (half card, opens
+  // the embedded GFFL tab). Weather reuses the SAME wxCached/wxFetch data source the old
+  // 5-day strip used, just painted compact. The GFFL half keeps paintFfCard/
+  // sportsHomeRefresh completely UNCHANGED — same data source, same quiet-repaint
+  // cadence — only its container is now half-width. The NFL scoreboard snapshot that
+  // used to sit beside it is not part of this rerank (the mockup's Home has no NFL
+  // card — NFL scores stay one tap away on the Sports tab); paintNflCard itself is left
+  // in place, unused from Home, the same way the stocks/news code stays in place below.
+  const glance1 = document.createElement("div"); glance1.className = "glancerow";
+  const wx = document.createElement("button"); wx.className = "wxcard"; wx.type = "button";
   wx.setAttribute("aria-label", "Open Woodville weather and radar");
   wx.onclick = () => { location.href = "weather.html"; };
-  railCol.appendChild(wx);
+  glance1.appendChild(wx);
   renderWxInto(wx);
-
-  // ---- Sports snapshots: this week's NFL + the family fantasy matchup (sports.html).
-  // Both start hidden and only appear once there's something to show.
-  const nflC = document.createElement("button"); nflC.className = "nflcard"; nflC.type = "button";
-  nflC.hidden = true;
-  nflC.setAttribute("aria-label", "Open NFL scores");
-  nflC.onclick = () => openSportsAt("");   // the embedded Sports tab, NFL week view
-  railCol.appendChild(nflC);
   const ffC = document.createElement("button"); ffC.className = "ffcard"; ffC.type = "button";
   ffC.hidden = true;
   ffC.setAttribute("aria-label", "Open the GFFL");
   ffC.onclick = () => goTo("gffl");   // the embedded GFFL tab (GFFL-CONNECT, 2026-08-13)
-  railCol.appendChild(ffC);
-  renderSportsCards(nflC, ffC);
+  glance1.appendChild(ffC);
+  paintFfCard(ffC);
+  sportsHomeRefresh();
+  railCol.appendChild(glance1);
+
+  // ---- Glance row 2: workout (Isaac/Eleanor/Dad only) + animal care. Workout reuses
+  // paintFitCard/fitHomeRefresh completely unchanged. When there's no workout card for
+  // this viewer, animal care simply runs full width rather than sit alone in a two-up
+  // grid with an empty neighbor.
+  const careEl = document.createElement("button"); careEl.className = "carewidget"; careEl.type = "button";
+  careEl.setAttribute("aria-label", "Open animal care coverage");
+  careEl.onclick = () => goTo("animalcare");
+  if (seesFitness()){
+    const glance2 = document.createElement("div"); glance2.className = "glancerow";
+    const fitw = document.createElement("button"); fitw.className = "fitcard"; fitw.type = "button";
+    fitw.setAttribute("aria-label", "Open today's workout");
+    fitw.onclick = () => goTo("fitness");
+    glance2.appendChild(fitw);
+    paintFitCard(fitw);
+    fitHomeRefresh();
+    glance2.appendChild(careEl);
+    railCol.appendChild(glance2);
+  } else {
+    railCol.appendChild(careEl);
+  }
+  paintCareWidget(careEl);
+  careHomeRefresh();
 
   // ---- FarmGPT research ask bar → hands the question (and optionally a photo) to
-  // farmgpt.html Research. The 📷 button snaps/picks a photo, downscales it client-side
-  // (reusing resizeImage — same helper the goat/work-order photo pickers use), stashes it
-  // in sessionStorage, then hands off via ?ask=<text>&photo=1 (farmgpt.html's
-  // handleAskParam pops + clears the sessionStorage key and cleans the URL after reading it).
+  // farmgpt.html Research. The camera button snaps/picks a photo, downscales it
+  // client-side (reusing resizeImage — same helper the goat/work-order photo pickers
+  // use), stashes it in sessionStorage, then hands off via ?ask=<text>&photo=1
+  // (farmgpt.html's handleAskParam pops + clears the sessionStorage key and cleans the
+  // URL after reading it).
   const ask = document.createElement("form"); ask.className = "askbar";
   ask.innerHTML =
-    `<button type="button" class="askcam" aria-label="Snap a photo for research">📷</button>
+    `<button type="button" class="askcam" aria-label="Snap a photo for research">${lineIcon("camera", 18)}</button>
      <input class="askphoto" type="file" accept="image/*" capture="environment" style="display:none" />
      <input class="askinput" type="text" placeholder="Ask FarmGPT research…" enterkeyhint="search" aria-label="Ask FarmGPT research" />
      <button class="askgo" type="submit" aria-label="Ask">→</button>`;
@@ -4672,76 +4834,20 @@ function renderDashboard(){
   });
   mainCol.appendChild(ask);
 
-  // ---- Today's chores card (Isaac & Eleanor only) ----
-  // Only NOT-done chores show here (the hero ring above still counts done/total across ALL of
-  // today's chores) — sorted daily-by-time-of-day (morning→noon→night) first, then any
-  // weekly/monthly/yearly chores due today, then by c.order within each group.
-  if (showChores){
-    const TOD_RANK = { morning: 0, noon: 1, night: 2 };
-    const visibleChores = dayChores.filter(c => !isDone(c)).sort((a, b) => {
-      const aDaily = a.frequency === "daily", bDaily = b.frequency === "daily";
-      if (aDaily !== bDaily) return aDaily ? -1 : 1;
-      if (aDaily){
-        const ar = TOD_RANK[a.timeOfDay || "morning"] ?? 0;
-        const br = TOD_RANK[b.timeOfDay || "morning"] ?? 0;
-        if (ar !== br) return ar - br;
-      }
-      return (a.order || 0) - (b.order || 0);
-    });
-    const card2 = document.createElement("div"); card2.className = "card2";
-    const chd = document.createElement("div"); chd.className = "chd";
-    chd.innerHTML = `<h2>Today's chores</h2><button class="more">See all →</button>`;
-    chd.querySelector(".more").onclick = () => goTo("chores");
-    card2.appendChild(chd);
-    const rows = document.createElement("div"); rows.className = "rows";
-    if (!dayChores.length){
-      const e = document.createElement("div"); e.className = "empty2";
-      e.textContent = "No chores yet — tap + on Chores to add one.";
-      rows.appendChild(e);
-    } else if (!visibleChores.length){
-      const e = document.createElement("div"); e.className = "empty2";
-      e.textContent = "All done — go play! 🎉";
-      rows.appendChild(e);
-    } else {
-      for (const c of visibleChores){   // scrolls (capped to ~4 rows tall in CSS)
-        const isD = isDone(c);
-        const r = document.createElement("button"); r.className = "crow" + (isD ? " checked" : "");
-        r.innerHTML =
-          `<div class="hcheck">${isD ? "✓" : ""}</div>
-           <div class="cbody"><div class="t${isD ? " done" : ""}"></div><div class="s"></div></div>`;
-        r.querySelector(".t").textContent = c.name;
-        r.querySelector(".s").textContent = homeChoreSub(c);
-        r.onclick = () => toggleHomeChore(c);
-        rows.appendChild(r);
-      }
-    }
-    card2.appendChild(rows);
-    mainCol.appendChild(card2);
-  }
+  // ---- rotating farm one-liner (replaces the old interactive dad-joke card here) ----
+  const farmline = document.createElement("div"); farmline.className = "farmline";
+  const flq = document.createElement("div"); flq.className = "q";
+  flq.textContent = farmLineOfDay();
+  farmline.appendChild(flq);
+  mainCol.appendChild(farmline);
 
-  // (Open work orders card removed from Home 2026-07-23 — see the Jobs tab.)
-
-  // ---- dad joke ----
-  const joke = document.createElement("div"); joke.className = "joke2";
-  const jl = document.createElement("div"); jl.className = "lab";
-  const jq = document.createElement("div"); jq.className = "q";
-  const ja = document.createElement("div"); ja.className = "a";
-  const jb = document.createElement("button"); jb.className = "again"; jb.textContent = "Tell me another →";
-  joke.append(jl, jq, ja, jb);
-  const showJoke = () => {
-    jl.textContent = jokeExtra ? "🌽 Bonus dad joke" : "🌽 Dad joke of the day";
-    const j = jokeOfDay();
-    jq.textContent = j.q; ja.textContent = j.a || "";
-  };
-  jb.onclick = () => { jokeExtra++; showJoke(); };
-  showJoke();
-  mainCol.appendChild(joke);
-
-  // ---- stock watchlist (bottom of the dashboard) ----
-  const stocks = document.createElement("div"); stocks.className = "stockcard";
-  railCol.appendChild(stocks);
-  paintStocks(stocks);         // instant paint from this person's own cache
-  stocksEnsureAndRefresh();    // background: reconcile/migrate their list, then refresh quotes
+  // (Open work orders card removed from Home 2026-07-23 — see the Jobs tab.) Stocks and
+  // news moved OFF Home entirely in the 2026-08-31 rerank — see Bank/Finance and News —
+  // their code (paintStocks/stocksRefresh, news.mjs, the News tab) is untouched, just no
+  // longer called from here. The mockup's own note about that move ships as real copy.
+  const movedNote = document.createElement("div"); movedNote.className = "homemoved";
+  movedNote.textContent = "Stocks & news moved to Bank · News tabs";
+  mainCol.appendChild(movedNote);
 
   const foot = document.createElement("div"); foot.className = "hfoot";
   foot.textContent = "Bucky · Family Farm Hub";
@@ -6887,13 +6993,15 @@ const CAL_HOME_DAYS = 8;               // widget window = today + the next 7 day
 let calHomeNowOverride = null;         // test hook: ms timestamp or null (real clock)
 let calHomeFetching = false;
 function calHomeNow(){ return calHomeNowOverride ? new Date(calHomeNowOverride) : new Date(); }
-// Up to `limit` events in the today→+7d window, soonest first (all-day ahead of timed on
-// ties, like the tab's agenda sort). A multi-day all-day event surfaces on its first
-// visible day, so one already running reads as "Today". Timed events keep showing for the
-// whole of their day (a 9 AM event is still today's plan at 3 PM).
-function calUpcoming(limit){
-  const min = startOfDay(calHomeNow());
-  const max = new Date(min.getTime() + CAL_HOME_DAYS * 86400000);
+// The viewer's next event TODAY only — not the old 7-day window (2026-08-31 rerank: the
+// "Up next" accent card replaces the old always-on multi-event list; the mockup's accent
+// works because there is exactly one card, so this is deliberately narrow). Already-past
+// timed events are excluded (an accent card titled "Up next" pointing backwards would be
+// wrong); an all-day event counts as "up next" for the whole day. All-day sorts ahead of
+// timed on the same day, same convention the old widget used.
+function calNextToday(){
+  const now = calHomeNow();
+  const min = startOfDay(now), max = new Date(min.getTime() + 86400000);
   const items = [];
   for (const e of calEvents){
     if (!e || !e.start) continue;
@@ -6901,46 +7009,42 @@ function calUpcoming(limit){
       const s = startOfDay(parseDateKey(e.start));
       const en = e.end ? startOfDay(parseDateKey(e.end)) : new Date(s.getTime() + 86400000);   // Google end is exclusive
       if (en <= min || s >= max) continue;
-      const day = s > min ? s : min;
-      items.push({ e, day, t: day.getTime(), timed: 0 });
+      items.push({ e, t: min.getTime(), timed: 0 });
     } else {
       const s = new Date(e.start);
-      if (s < min || s >= max) continue;
-      items.push({ e, day: startOfDay(s), t: s.getTime(), timed: 1 });
+      if (s < min || s >= max || s < now) continue;
+      items.push({ e, t: s.getTime(), timed: 1 });
     }
   }
   items.sort((a,b)=> a.t - b.t || a.timed - b.timed);
-  return { rows: items.slice(0, limit), extra: Math.max(0, items.length - limit) };
+  return items.length ? items[0].e : null;
 }
-function calHomeDayChip(day){
-  const diff = Math.round((day - startOfDay(calHomeNow())) / 86400000);
-  if (diff <= 0) return "Today";
-  if (diff === 1) return "Tomorrow";
-  return day.toLocaleDateString(undefined, { weekday: "short" });
+// The accent card's stacked time block ("11:30" / "AM", or "All" / "day").
+function calNextTimeBlock(e){
+  if (e.allDay) return ["All", "day"];
+  const d = new Date(e.start);
+  let hr = d.getHours(); const min = d.getMinutes();
+  const ap = hr >= 12 ? "PM" : "AM";
+  hr = hr % 12; if (hr === 0) hr = 12;
+  return [hr + (min ? ":" + String(min).padStart(2, "0") : ""), ap];
 }
-function paintCalWidget(el){
-  const { rows, extra } = calUpcoming(3);
+function paintCalNext(el){
+  const e = calNextToday();
+  el.hidden = !e;
+  if (!e) return;
+  const [l1, l2] = calNextTimeBlock(e);
   el.innerHTML =
-    `<div class="cwhead"><span class="cwdate"></span><span class="cwmore">Calendar ›</span></div>`
-    + (rows.length
-        ? `<div class="cwrows"></div>` + (extra ? `<div class="cwextra">+${extra} more this week</div>` : "")
-        : `<div class="cwempty">Nothing coming up this week — tap to add an event ➜</div>`);
-  el.querySelector(".cwdate").textContent =
-    "📅 " + calHomeNow().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
-  const rowsEl = el.querySelector(".cwrows");
-  if (rowsEl) for (const it of rows){
-    const r = document.createElement("div"); r.className = "cwrow";
-    r.innerHTML = `<span class="cwday"></span><span class="cwtitle"></span><span class="cwtime"></span>`;
-    const chip = calHomeDayChip(it.day);
-    const dc = r.querySelector(".cwday"); dc.textContent = chip; if (chip === "Today") dc.classList.add("today");
-    r.querySelector(".cwtitle").textContent = (it.e.seriesId ? "↻ " : "") + (it.e.title || "(untitled)");
-    r.querySelector(".cwtime").textContent = calTimeLabel(it.e);
-    rowsEl.appendChild(r);
-  }
+    `<div class="cn-time"><span></span><b></b></div>
+     <div class="cn-body"><div class="cn-lab">Up next</div><div class="cn-title"></div></div>
+     <span class="cn-more">Calendar ›</span>`;
+  el.querySelector(".cn-time span").textContent = l1;
+  el.querySelector(".cn-time b").textContent = l2;
+  el.querySelector(".cn-title").textContent = (e.seriesId ? "↻ " : "") + (e.title || "(untitled)");
 }
-// Missing/stale (>~10 min) cache → ONE quiet list fetch for the widget window; repaint
-// only if the user is still on the dashboard. Failures are silent — whatever painted
-// (cached rows / the friendly empty state) simply stands. Never an error state.
+// Missing/stale (>~10 min) cache → ONE quiet fetch for the widget window; repaint only
+// if the user is still on the dashboard. Failures are silent — whatever painted (a
+// cached event, or nothing) simply stands. The element always exists (hidden or not),
+// so a late-arriving event can make the card appear without a fresh navigation.
 function calHomeRefresh(){
   if (calHomeFetching) return;
   if (Date.now() - calCacheTs < CAL_HOME_TTL) return;
@@ -6948,7 +7052,7 @@ function calHomeRefresh(){
   calHomeFetching = true;
   const min = startOfDay(new Date()), max = new Date(min.getTime() + CAL_HOME_DAYS * 86400000);
   calFetchEvents(min, max)
-    .then(() => { const cur = document.querySelector(".home2 .calwidget"); if (cur && currentTab === "dashboard") paintCalWidget(cur); })
+    .then(() => { const cur = document.querySelector(".home2 .calwidget"); if (cur && currentTab === "dashboard") paintCalNext(cur); })
     .catch(() => {})
     .finally(() => { calHomeFetching = false; });
 }
@@ -8170,55 +8274,37 @@ document.getElementById("careSchedCancelBtn").onclick = closeCareSchedSheet;
 document.getElementById("careSchedSaveBtn").onclick = saveCareSched;
 document.getElementById("careSchedOverlay").onclick = (e)=>{ if (e.target.id === "careSchedOverlay") closeCareSchedSheet(); };
 
-// ---- Home dashboard care widget (2026-07-20) ----
-// The next CARE_HOME_DAYS days of coverage as a horizontal grid: header row of day
-// columns (today first, filled + column-tinted), one row per CARE_SLOTS entry (🌅/🌙),
-// cells = single-letter group chips (K/J/G). Per-date resolution is the Care tab's OWN
-// helpers (careSlotValue → defaults-unless-override, careGroupById for the palette) —
-// nothing re-derived here. "Now" comes from calHomeNow() so the calendar card's
-// deterministic-clock test hook drives this widget too.
-const CARE_HOME_DAYS = 7;
+// ---- Home dashboard care widget (2026-07-20; compacted 2026-08-31) ----
+// Per-date resolution is the Care tab's OWN helpers (careSlotValue → defaults-unless-
+// override, careGroupById for the palette) — nothing re-derived here. "Now" comes from
+// calHomeNow() so the calendar card's deterministic-clock test hook drives this widget too.
+//
+// 2026-08-31 rerank: this used to paint a 7-day grid; Home's glance card now shows only
+// TODAY's morning/tonight coverage (the same careCoverNote() personalization the Chores
+// tab already uses — "You're on" when it's ours, the other group's name when it isn't).
+// The 7-day view didn't go anywhere — it's what the Care tab's own "Week ›" opens.
 function paintCareWidget(el){
   if (!animalCareData) animalCareData = defaultCareData();   // same fallback renderAnimalCare uses
+  const today = startOfDay(calHomeNow());
   el.innerHTML =
-    `<div class="cwhead"><span class="cwdate">🐐 Animal care</span><span class="cwmore">Care ›</span></div>
-     <div class="caregrid"></div>`;
-  const grid = el.querySelector(".caregrid");
-  const base = startOfDay(calHomeNow());
-  const days = [];
-  for (let i = 0; i < CARE_HOME_DAYS; i++){
-    const d = new Date(base); d.setDate(base.getDate() + i);   // setDate = DST-safe local day step
-    days.push(d);
-  }
-  // Header row: spacer over the label column, then 7 day headers (2-letter weekday + date).
-  const corner = document.createElement("span"); corner.className = "cg-corner"; corner.setAttribute("aria-hidden", "true");
-  grid.appendChild(corner);
-  days.forEach((d, i) => {
-    const h = document.createElement("span"); h.className = "cg-day" + (i === 0 ? " today" : "");
-    const wd = document.createElement("b"); wd.textContent = d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2);
-    const num = document.createElement("i"); num.textContent = d.getDate();
-    h.append(wd, num);
-    grid.appendChild(h);
+    `<div class="glab">Animal care</div>
+     <div class="cc-row"></div>
+     <div class="cc-row"></div>
+     <span class="cc-more">Week ›</span>`;
+  const rows = el.querySelectorAll(".cc-row");
+  CARE_SLOTS.forEach((slot, i) => {
+    const { group } = careSlotValue(today, slot.id);
+    const g = careGroupById(group);
+    const mine = group === CARE_OWNER_GROUP;
+    const row = rows[i];
+    row.innerHTML = `<span class="cc-chip"></span><span class="cc-txt"></span><span class="cc-ic"></span>`;
+    const chip = row.querySelector(".cc-chip");
+    chip.style.setProperty("--chip", g.color);
+    chip.textContent = g.label[0];   // single letter: K / J / G
+    row.querySelector(".cc-txt").textContent = mine ? "You're on" : g.label;
+    row.querySelector(".cc-ic").innerHTML = lineIcon(slot.id === "am" ? "sun" : "moon", 14);
+    row.title = slot.label + ": " + (mine ? "us" : g.label);
   });
-  // One row per slot: emoji label, then 7 letter chips.
-  for (const slot of CARE_SLOTS){
-    const lab = document.createElement("span"); lab.className = "cg-lab";
-    lab.textContent = slot.ico; lab.title = slot.label; lab.setAttribute("aria-label", slot.label);
-    grid.appendChild(lab);
-    days.forEach((d, i) => {
-      const cell = document.createElement("span"); cell.className = "cg-cell" + (i === 0 ? " today" : "");
-      const { group, overridden } = careSlotValue(d, slot.id);
-      const g = careGroupById(group);
-      const mini = document.createElement("span");
-      mini.className = "care-mini" + (overridden ? " ov" : "");
-      mini.style.setProperty("--chip", g.color);
-      mini.dataset.group = g.id; mini.dataset.slot = slot.id; mini.dataset.date = dateKeyLocal(d);
-      mini.textContent = g.label[0];   // single letter: K / J / G
-      mini.title = slot.label + " " + d.toLocaleDateString(undefined, { weekday: "short" }) + " " + d.getDate() + ": " + g.label;
-      cell.appendChild(mini);
-      grid.appendChild(cell);
-    });
-  }
 }
 // Quiet background load (first boot / other-device edits) → repaint in place only if
 // the user is still on the dashboard. loadAnimalCare never throws (falls to defaults),
@@ -10615,17 +10701,21 @@ function paintFitCard(el){
   const t = document.createElement("div"); t.className = "fitc-title";
   const s = document.createElement("div"); s.className = "fitc-sub";
 
+  // 2026-08-31: the 💪/🌳/🔥 that used to prefix these lines were injected here, by this
+  // card's own code — never part of the plan JSON's title text — so house law (no emoji
+  // in Home chrome this rerank touches) means removing them, not keeping them as "existing
+  // data". Restaged fitness.cjs accordingly, with the same reason.
   if (!ready){
-    t.textContent = "💪 Today's workout";
+    t.textContent = "Today's workout";
     s.textContent = "About 10 minutes";
   } else if (isRest){
-    t.textContent = "💪 Rest day";
-    s.textContent = "No workout today — go play 🌳";
+    t.textContent = "Rest day";
+    s.textContent = "No workout today — go play";
   } else {
-    t.textContent = "💪 " + (day.title || "Workout");
+    t.textContent = day.title || "Workout";
     const streak = fitStreak(kid);
     s.textContent = (rec && rec.finished)
-      ? `Done today${streak > 1 ? ` · 🔥 ${streak}-day streak` : ""}`
+      ? `Done today${streak > 1 ? ` · ${streak}-day streak` : ""}`
       : `${fitDayItems(day).length} exercises · about ${Math.round(fitDuration(day, kid) / 60)} minutes`;
   }
   bd.appendChild(t); bd.appendChild(s);

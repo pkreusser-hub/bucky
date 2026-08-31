@@ -1618,35 +1618,31 @@ async function sectionHomeCards(browser) {
     const page = await newPage(ctx, { gffl: true });
     await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForFunction(() => {
-      const n = document.querySelector(".home2 .nflcard"), f = document.querySelector(".home2 .ffcard");
-      return n && !n.hidden && f && !f.hidden;
+      const f = document.querySelector(".home2 .ffcard");
+      return f && !f.hidden;
     }, { timeout: 20000 });
     const h = await page.evaluate(() => {
-      const n = document.querySelector(".home2 .nflcard"), f = document.querySelector(".home2 .ffcard");
-      const rows = [...n.querySelectorAll(".spg")];
+      const f = document.querySelector(".home2 .ffcard");
       const ffRows = [...f.querySelectorAll(".ffhome")];
+      const row = f.closest(".glancerow");
       return {
-        nflHead: n.querySelector(".sph").textContent,
-        rowCount: rows.length,
-        firstRow: rows[0] ? rows[0].textContent : "",
-        liveClock: n.querySelector(".sps.live") ? n.querySelector(".sps.live").textContent : "",
-        situ: n.querySelector(".spsitu") ? n.querySelector(".spsitu").textContent : "",
-        foot: n.querySelector(".spfoot") ? n.querySelector(".spfoot").textContent : "",
+        noNfl: !document.querySelector(".home2 .nflcard"),
+        inGlanceRowWithWeather: !!(row && row.querySelector(".wxcard")),
         ffHead: f.querySelector(".sph").textContent,
         ffNames: ffRows.map((r) => r.querySelector(".fhn").textContent),
         ffPts: ffRows.map((r) => r.querySelector(".fhp").textContent),
         oppDim: ffRows[1] ? ffRows[1].classList.contains("down") : false,
         ffSub: f.querySelector(".ffhsub") ? f.querySelector(".ffhsub").textContent : "",
-        afterWeather: n.previousElementSibling && n.previousElementSibling.classList.contains("wxcard"),
       };
     });
-    ok(/🏈 NFL · Week 1/.test(h.nflHead) && /LIVE/.test(h.nflHead), "the NFL card heads with the week + LIVE");
-    ok(h.rowCount === 2 && /BUF 14/.test(h.firstRow) && /KC 17/.test(h.firstRow) && /◂/.test(h.firstRow),
-      "live games render away @ home with scores + possession");
-    ok(/8:42 - 3rd/.test(h.liveClock), "the live clock is on the row");
-    ok(/2nd & 7/.test(h.situ), "the featured game carries its situation line");
-    ok(/\+ 3 more this week/.test(h.foot), "the rest of the week folds into the footer");
-    ok(h.afterWeather, "the cards slot in right after the weather card");
+    // RESTAGED (2026-08-31 Home rerank, source: the commissioner's Claude Design canvas,
+    // section 1a): the mockup's Home has no NFL scoreboard card at all — glance row 1 is
+    // weather + GFFL only, and NFL scores stay one tap away on the Sports tab. paintNflCard
+    // itself is untouched (see its own comment), just not called from renderDashboard any
+    // more, so every assertion that used to read the NFL card off Home is gone; what's left
+    // proves the GFFL card kept its OWN data/behavior unchanged and now sits beside weather.
+    ok(h.noNfl, "no NFL scoreboard card on Home — not part of the 1a rerank");
+    ok(h.inGlanceRowWithWeather, "the GFFL card shares a glance row with weather");
     // RESTAGED (GFFL-CONNECT, 2026-08-13): the fantasy card is the GFFL's now — read
     // from the league's own Firestore docs, not the ESPN cookie proxy. Live totals and
     // the lineup guard belonged to that proxy and are retired with it; what the card
@@ -1660,15 +1656,7 @@ async function sectionHomeCards(browser) {
       draftAhead ? `the draft countdown reads off settings.draftAt (${h.ffSub})`
                  : `past the draft, the sub-line names the week's state (${h.ffSub})`);
     await shot(page, "sports_home_390.png");
-
-    await page.click(".home2 .nflcard");
-    await page.waitForFunction(() => {
-      const w = document.getElementById("embed_sports");
-      return w && !w.hidden;
-    }, { timeout: 20000 });
-    ok(await page.evaluate(() => !location.pathname.endsWith("/sports.html")),
-      "tapping the NFL card opens the embedded Sports tab (no navigation)");
-    ok(page._errs.length === 0, "0 page errors with the cards live");
+    ok(page._errs.length === 0, "0 page errors with the card live");
     await ctx.close();
   }
   // RESTAGED: the fantasy card no longer opens the Sports tab's (retired) Fantasy
@@ -1703,20 +1691,22 @@ async function sectionHomeCards(browser) {
     await ctx.close();
   }
 
-  // RESTAGED: "fantasy unconfigured" used to mean missing ESPN cookies. The GFFL card's
-  // equivalent is a league its Firestore reads can't reach — the card simply isn't
-  // there, and the NFL card is untouched by it.
+  // RESTAGED (2026-08-13 GFFL-CONNECT, re-restaged 2026-08-31): "fantasy unconfigured"
+  // used to mean missing ESPN cookies; then it meant a league the Firestore reads can't
+  // reach. Either way the card simply isn't there — the NFL-card-untouched half of the
+  // old assertion is gone with the NFL card itself (see section G's first block).
   {
     const ctx = await browser.createBrowserContext();
     const page = await newPage(ctx);   // no gffl fixture -> the Firebase abort stands
     await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
-    await page.waitForFunction(() => { const n = document.querySelector(".home2 .nflcard"); return n && !n.hidden; }, { timeout: 20000 });
+    await page.waitForFunction(() => !!document.querySelector(".home2 .ffcard"), { timeout: 20000 });
+    await sleep(1200);
     ok(await page.evaluate(() => document.querySelector(".home2 .ffcard").hidden === true),
-      "an unreachable league leaves no fantasy card — the NFL card still paints");
+      "an unreachable league leaves no fantasy card");
     ok(page._errs.length === 0, "0 page errors with the league unreachable");
     await ctx.close();
   }
-  // Everything down + no cache -> no cards, no shells, no errors.
+  // Everything down + no cache -> no card, no shell, no errors.
   upstream.mode = "http500"; ffUp.mode = "http500";
   {
     const ctx = await browser.createBrowserContext();
@@ -1724,24 +1714,21 @@ async function sectionHomeCards(browser) {
     await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(1200);
     ok(await page.evaluate(() =>
-      document.querySelector(".home2 .nflcard").hidden === true
-      && document.querySelector(".home2 .ffcard").hidden === true
+      document.querySelector(".home2 .ffcard").hidden === true
       && !!document.querySelector(".home2 .hero")),
-      "with the API down and no cache, the dashboard simply has no sports cards");
+      "with the API down and no cache, the dashboard simply has no fantasy card");
     ok(page._errs.length === 0, "0 page errors with the API down");
     await ctx.close();
   }
   upstream.mode = "normal"; ffUp.mode = "normal";
-  // The other suites mock every function as 200 {} — cards must read that as nothing.
+  // The other suites mock every function as 200 {} — the card must read that as nothing.
   {
     const ctx = await browser.createBrowserContext();
     const page = await newPage(ctx, { sportsEmpty: true });
     await page.goto(BASE + "/index.html?n=" + Date.now(), { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(1200);
-    ok(await page.evaluate(() =>
-      document.querySelector(".home2 .nflcard").hidden === true
-      && document.querySelector(".home2 .ffcard").hidden === true),
-      "a blanket {} function mock (other suites' harness) hides the cards cleanly");
+    ok(await page.evaluate(() => document.querySelector(".home2 .ffcard").hidden === true),
+      "a blanket {} function mock (other suites' harness) hides the card cleanly");
     ok(page._errs.length === 0, "0 page errors under the {} mock");
     await ctx.close();
   }

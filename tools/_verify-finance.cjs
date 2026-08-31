@@ -722,32 +722,34 @@ async function sectionFinanceTab(browser, mock){
    C. Per-account proof — two profiles, two different lists, Home card + persistence
    ================================================================================== */
 async function sectionAccounts(browser, mock){
-  section("C. Per-account watchlist — different profiles, different lists, Home card, persistence");
+  section("C. Per-account watchlist — different profiles, different lists, Finance tab, persistence");
 
   mock.seriesCalls = 0;
 
-  /* -- Dad and Mom have DIFFERENT lists; the Home card shows the logged-in person's own -- */
+  /* -- Dad and Mom have DIFFERENT lists, each visible only in their OWN Finance tab.
+     RESTAGED (2026-08-31 Home rerank): the stock watchlist no longer paints on Home at
+     all (moved to Bank/Finance — same per-account data, same stockSymbols/stockEnsureList
+     storage, just no longer rendered by paintStocks from renderDashboard); the old
+     ".home2 .stockcard" assertions here are replaced with a Home-has-none check plus the
+     existing per-account Finance-tab proof for BOTH profiles, not just Mom. */
   {
     const { page: dadPage, errors: dadErr } = await newPage(browser, mock, { user: "Dad", watchlists: { Dad: ["AAPL"] } });
     await boot(dadPage);
-    await dadPage.waitForFunction(() => document.querySelector(".home2 .stockcard"), { timeout: 10000 });
-    await dadPage.waitForFunction(() => document.querySelector(".home2 .stockcard .stsym"), { timeout: 10000 });
-    const dadHome = await dadPage.evaluate(() => [...document.querySelectorAll(".home2 .stockcard .stsym")].map((e) => e.textContent));
-    ok(dadHome.includes("AAPL") && !dadHome.includes("MSFT"), `Dad's Home card shows only Dad's own picks (${dadHome.join(",")})`);
-    ok(dadErr.length === 0, "Dad Home: no page errors" + (dadErr.length ? ": " + dadErr[0] : ""));
+    ok(await dadPage.evaluate(() => !document.querySelector(".home2 .stockcard")),
+      "the stock watchlist no longer paints on Home at all");
+    await gotoFinance(dadPage);
+    await dadPage.waitForFunction(() => document.querySelectorAll(".finrow").length >= 1, { timeout: 10000 });
+    const dadFin = await dadPage.evaluate(() => [...document.querySelectorAll(".finrow")].map((r) => r.dataset.sym));
+    ok(dadFin.includes("AAPL") && !dadFin.includes("MSFT"), `Dad's Finance watchlist shows only his own picks (${dadFin.join(",")})`);
+    ok(dadErr.length === 0, "Dad: no page errors" + (dadErr.length ? ": " + dadErr[0] : ""));
 
     const { page: momPage, errors: momErr } = await newPage(browser, mock, { user: "Mom", watchlists: { Mom: ["MSFT"] } });
     await boot(momPage);
-    await momPage.waitForFunction(() => document.querySelector(".home2 .stockcard .stsym"), { timeout: 10000 });
-    const momHome = await momPage.evaluate(() => [...document.querySelectorAll(".home2 .stockcard .stsym")].map((e) => e.textContent));
-    ok(momHome.includes("MSFT") && !momHome.includes("AAPL"), `Mom's Home card shows a DIFFERENT list — her own (${momHome.join(",")})`);
-    ok(momErr.length === 0, "Mom Home: no page errors" + (momErr.length ? ": " + momErr[0] : ""));
-
-    // Same proof from the Finance tab side, for Mom.
     await gotoFinance(momPage);
     await momPage.waitForFunction(() => document.querySelectorAll(".finrow").length >= 1, { timeout: 10000 });
     const momFin = await momPage.evaluate(() => [...document.querySelectorAll(".finrow")].map((r) => r.dataset.sym));
     ok(momFin.includes("MSFT") && !momFin.includes("AAPL"), `Mom's Finance watchlist matches her account, not Dad's (${momFin.join(",")})`);
+    ok(momErr.length === 0, "Mom: no page errors" + (momErr.length ? ": " + momErr[0] : ""));
   }
 
   /* -- migration: a legacy per-DEVICE list seeds a person's first-ever cloud list -- */
