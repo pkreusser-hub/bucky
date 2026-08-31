@@ -268,11 +268,8 @@ async function sectionApp(browser){
              go: (c.querySelector(".fitc-go")||{}).textContent };
   });
   ok(card.tag === "BUTTON" && !!card.aria, "the Home card is a real button with an aria-label");
-  // RESTAGED (2026-08-31 Home rerank): the 💪 prefix was injected by paintFitCard itself,
-  // not the plan JSON — house law (no emoji in Home chrome) means the card lost it. The
-  // title just needs to actually name something now.
-  ok((card.title || "").trim().length > 3 && !/\p{Extended_Pictographic}/u.test(card.title || ""),
-     `Home card names today's workout, no emoji ("${card.title}")`);
+  ok((card.title || "").startsWith("💪") && (card.title || "").replace(/[💪\s]/g, "").length > 3,
+     `Home card names today's workout ("${card.title}")`);
   ok(today.isRest ? true : /START|RESUME|Done/.test(card.go || ""), "Home card offers a call to action");
 
   const goesTo = await page.evaluate(() => { document.querySelector(".home2 .fitcard").click(); return window.__NAV__.tab(); });
@@ -1081,9 +1078,7 @@ async function sectionPerKid(browser){
       return { there: !!c, title: c && (c.querySelector(".fitc-title") || {}).textContent };
     });
     ok(card.there, "Dad gets a Home workout card too");
-    // RESTAGED (2026-08-31 Home rerank): see the other 💪-prefix restage above.
-    ok(/\S/.test(card.title || "") && !/\p{Extended_Pictographic}/u.test(card.title || ""),
-       `…naming his own day, no emoji ("${card.title}")`);
+    ok(/\S/.test((card.title || "").replace(/[💪\s]/g, "")), `…naming his own day ("${card.title}")`);
     await d.close();
   }
 }

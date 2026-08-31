@@ -1891,182 +1891,22 @@ sports **273** · activity **147** · calview **25** · news **200** · arcade *
 eventreminders extended **68 → 78** (calendar-mute excludes both push and bell together, an
 unmuted person on the SAME event unaffected, an empty `prefs.notifs` array reads identically to
 no prefs at all, and a missing/empty profile-docs read fails OPEN rather than blocking delivery).
+
+## 🏠 HOME RERANK — REVERTED (2026-08-31, same day, commissioner: "revert to the previous bucky home design")
+
+The 1a re-rank above shipped and the commissioner reverted it on sight — the previous Home
+design is back exactly as it was (git revert of the whole commit, so the layout AND its
+restaged suite assertions moved together; the home-rerank suite left with the feature it
+asserted). Two things deliberately SURVIVED the revert:
+
+- **The finance double-fetch guard in renderFinance** — a PRE-EXISTING race the rerank
+  merely exposed (direct-to-Finance before the person's list loads → a 3-symbol fetch, then
+  the full re-fetch). The guard is correct in both worlds; with Home's boot preload back it
+  no-ops on the ordinary path and protects the direct-entry one. Comment at the guard says
+  the same.
+- **This record.** The 1a entry above stays as history; when two entries disagree, the lower
+  one wins, and this one says the rerank is gone.
+
+The design canvas (section 1a) remains the reference if any piece of it is wanted piecemeal
+later; the import pipeline (DesignSync) is documented in the entry above.
 ---
-
-## 🏠 HOME RERANK — "1a: Option A Re-ranked" (2026-08-31)
-
-Content-only pass over `renderDashboard()` (Home). Source: the commissioner's approved Claude
-Design canvas, artboard **1a "Bucky Home · Option A Re-ranked · mobile"** (390px static mockup).
-Everything else — the bottom nav, every other tab, the desktop rail's own mechanics — is
-unchanged; this is Home's card order and look only. Files: `index.html` (CSS + `renderDashboard`
-and its helpers) · NEW `tools/_verify-home-rerank.cjs` · restaged `tools/_verify-calview.cjs` /
-`_verify-finance.cjs` / `_verify-fitness.cjs` / `_verify-sports.cjs`.
-
-### The re-rank itself
-Top to bottom, mobile: hero (greeting + ring, unchanged data) → **"Up next" accent card**
-(NEW) → Today's chores (promoted to slot 2, capped to 3 rows) → **glance row 1** (weather +
-GFFL, half-cards) → **glance row 2** (workout + animal care, half-cards) → FarmGPT ask bar
-(unchanged) → a rotating farm one-liner (NEW, replaces the dad-joke card in this slot) → a
-small "Stocks & news moved to Bank · News tabs" note (ships as real copy, not just a
-mockup-review annotation) → footer. Desktop (≥1024px) keeps the established
-`home2-main`/`home2-rail` split (no new desktop system): main gets the actionable stack
-(accent/chores/ask/one-liner), rail gets the two glance rows — the same "actionable in the
-wide column, glance-y summaries in the narrow one" split the old calwidget/carewidget/wxcard/
-stockcard rail already used.
-
-**"Up next" accent card.** `calNextToday()` + `calNextTimeBlock()` (new) replace
-`calUpcoming()`/`calHomeDayChip()` (deleted — the old 7-day/3-event widget they served no
-longer exists). Narrowed on purpose: only the viewer's next event **today**, already-passed
-timed events excluded, all-day events count for the whole day. Painted by `paintCalNext()`
-(renamed from `paintCalWidget`) into an element that keeps the class `calwidget` — both because
-it is still, semantically, Home's calendar entry point, and because
-`tools/_verify-calview.cjs`'s entry-point check clicks it by that name (restaged: it now seeds
-one event via `__CAL__.setEvents` before checking the click, since the old assumption — a
-calendar widget on Home always exists regardless of data — is exactly what this rerank
-reverses). The element always exists in the DOM (`hidden` toggled, not created/destroyed) so a
-late-arriving event can make the card appear without a fresh navigation — same pattern
-nflcard/ffcard established, and `.home2 .calwidget[hidden]{display:none}` restates the CSS
-explicitly (a button's own `display` outranks the UA `[hidden]` rule — CLAUDE.md #2).
-
-**Today's chores, capped to 3.** `visibleChores.slice(0, 3)` — the ring above still counts
-done/total across ALL of today's chores, only the row list is capped. Rows are the exact same
-`toggleHomeChore`/`homeChoreSub` markup and click handler the old (uncapped, CSS-scroll-capped)
-list used — "these rows must DO what the chores tab rows do" holds unchanged.
-
-**Glance rows** are a new `.glancerow` 2-col CSS grid. Weather and GFFL/workout-and-care each
-share a row as half-cards — 3-class CSS selectors (`.home2 .glancerow .fitcard` etc.) override
-each card's own 2-class base rule and the farmstead theme's blanket padding rule regardless of
-source order, so a card looks normal everywhere else it might be reused and only tightens up
-inside a glance row. When there's no workout card for the viewer (not in `FITNESS_USERS`),
-animal care runs full width alone rather than sit in a two-up grid with an empty neighbor
-(a plain JS branch, not CSS). When the GFFL half is hidden (`paintFfCard`'s own pre-existing
-"no league to show — never paint a guess" rule — untouched), weather takes the row instead of
-sitting beside blank space: `.home2 .glancerow:has(> .ffcard[hidden]) { grid-template-columns: 1fr; }`
-(graceful no-op without `:has()` support — the row just keeps an empty second column).
-
-**Weather glance** — `paintWx`/`renderWxInto` rewritten in place (same function names, same
-`wxCached`/`wxFetch` data source weather.html's own 7-day+radar links out to): condition +
-hi/lo + a one-line outlook (`wxLabel()`, new — a short word paired with `wxIcon()`'s emoji,
-which is UNCHANGED, per the brief's own instruction that the weather icon follows the existing
-weather section's convention). Outlook picks the soonest day (of the rest of the week) with
-notable rain/snow, else today's own read. The old 5-day `wxhead`/`wxdays` strip and its CSS are
-gone — replaced, not left dead, since nothing else used them.
-
-**GFFL glance** — `paintFfCard`/`sportsHomeRefresh` called completely UNCHANGED (same data
-source, same quiet-repaint cadence, same "🏆" header — reused byte-for-byte, not new chrome).
-Only its container is now half-width. **The NFL scoreboard snapshot is DROPPED from Home** —
-the mockup's glance row 1 is weather + GFFL only, no NFL card anywhere in 1a, and NFL scores
-stay one tap away on the Sports tab. `paintNflCard`, `sportsHomeApi`, `sportsHomeAnyLive` are
-left completely in place, just unreachable from Home (`renderSportsCards`, whose only caller
-this was, is deleted — a genuinely dead 4-line wrapper, unlike the functions it called). This
-is a real deviation from a literal reading of "content-only pass" (the brief's 8 enumerated
-changes don't name NFL), justified by the mockup itself showing no such card and by "you are
-implementing its CONTENT ORDER" being the stated top-level mandate.
-
-**Animal care glance** — `paintCareWidget` rewritten in place (same function name, same Home
-selector `.home2 .carewidget`) from a 7-day grid to two lines: "You're on" (or the other
-group's name) + morning/evening, via `careCoverNote`'s existing null-means-ours convention —
-zero new resolution logic, same `careSlotValue`/`careGroupById` the Care tab itself uses. The
-7-day view didn't go anywhere; it is what the Care tab's own "Week ›" opens. **A real CSS bug
-was caught only by looking at the plate, not by any DOM assertion**: the base `.home2
-.carewidget{background:var(--card);border:...}` rule got deleted along with the old grid's CSS
-in the same edit, so the card silently fell back to the browser's UA `<button>` face (grey,
-black border) — every `.cc-row`/`.cc-chip` content check still passed, because none of them
-looked at computed style. Fixed, and `tools/_verify-home-rerank.cjs` Section G now asserts
-every glance card's `background-color`/`border-color` is NOT the browser default
-(`rgb(240,240,240)` / `rgb(0,0,0)`) — a check that would have caught it, proven by re-breaking
-the CSS and watching Section G fail with exactly that message before re-fixing it.
-
-**Dad joke → farm one-liner.** The old `.joke2` card (interactive, `jokeExtra` "tell me
-another →" button, 723-entry `DAD_JOKES` bank) is replaced in this slot by `farmLineOfDay()` —
-a NEW, small (10-entry), local, family-friendly, farm-voiced list, seeded by day-of-year (no
-network, no AI call, same as the joke bank always was — the difference is scope and no
-interaction). `DAD_JOKES`/`jokeOfDay()` are untouched, just not called from Home. CSS class
-renamed `.joke2` → `.farmline` (no test depended on the old name); the farmstead-theme override
-already styled `.joke2 .q`/`.a` as centered italic Fraunces with no label/button, which is
-exactly what the new one-liner needed — reused verbatim, nothing new to write there.
-
-**Stocks and news left Home entirely**, per the mockup's own "Stocks & news moved to Bank ·
-News tabs" note (now shipped as real copy under the one-liner, not just a design-review
-annotation). `paintStocks`/`stocksRefresh`/`stocksEnsureAndRefresh` and all `.stockcard`/
-`.strow`/etc. CSS are **untouched, not deleted** — the Bank/Finance tab (`renderFinance`) reads
-the same per-account `stockSymbols`/`stockEnsureList` storage and is where the feature actually
-lives now. News was already its own tab; nothing there changed.
-**A REAL BUG SURFACED BY REMOVING HOME'S PRELOAD**: `renderFinance()` used to be visited only
-after Home's `stocksEnsureAndRefresh()` had already resolved `stockEnsureList(who)` as a side
-effect of booting on Home first — so Finance's OWN `if (finStale(false)) finRefresh(false)` call
-always saw a complete symbol set. With that incidental preload gone, a direct-to-Finance visit
-now hits `finBuildWatchlist()`'s "Loading your watchlist…" branch first: the FIRST `finRefresh`
-fired with only the 3 market symbols (missing the person's own picks), then `stockEnsureList`
-resolved and re-rendered, firing a SECOND, now-complete request — two "series" calls instead of
-one, the second doing the first's job over. Fixed at the source (not by re-adding a Home-side
-preload, which would contradict "stocks leaves Home"): `renderFinance()` now skips its own
-`finRefresh` call while `!stockListsLoaded[who]`, since `finBuildWatchlist`'s own `.then()`
-re-render covers it once the list is actually ready. **Proven with a real before/after**: HEAD's
-`_verify-finance.cjs` against HEAD's `index.html` scored 117/117 (the bug was masked); the same
-test against this rerank's `index.html` (preload gone, fix not yet applied) failed exactly the
-two assertions the double-fetch predicts; after the fix, 117/117 again.
-
-### House-law adaptations (mockup emoji → the app's chrome conventions)
-| mockup element | shipped as |
-|---|---|
-| 🔔 bell + badge | inline SVG (Feather-style bell glyph) + the existing `.bell-badge` span |
-| greeting sun/cloud-sun/moon | inline SVG (`lineIcon("sun"\|"cloud"\|"moon")`), same 24×24-viewBox/2px-stroke/round-cap convention the bottom nav's own icons already use |
-| care rota 🌅/🌙 | inline SVG, same `lineIcon()` set as the greeting (not the Chores tab's own `CARE_SLOTS[].ico`, which stays emoji — out of scope, a different feature's existing convention) |
-| 📷 camera | inline SVG (`lineIcon("camera")`) |
-| weather condition icon | **unchanged** — `wxIcon()` stays emoji, per the brief's own instruction to follow the existing weather section's convention |
-| 🏆 GFFL header, 💪-adjacent icons on the nav | **unchanged** — pre-existing chrome this rerank doesn't touch |
-| "💪 " prefix + "🌳"/"🔥" on the workout card, "🌻"/"🎉"/"💪" on the greeting sub-line and chores-card empty state | **REMOVED** (2026-08-31, post-review) — these are injected by card code (`paintFitCard`, `renderDashboard`'s own `sub`/empty-state strings), not from any plan JSON's data, so house law means stripping them, not keeping them as "existing data." `fitness.cjs`'s two `startsWith("💪")` assertions restaged to check for the title existing and carrying NO emoji instead. |
-
-The no-emoji check itself was hardened after review: the first cut only inspected six
-hand-picked elements (bell/accent/care/greeting-icon/camera/one-liner) and missed `.hsub` and
-`.fitc-title`/`.fitc-sub` entirely — it passed while "let's get started 💪" and a 💪-prefixed
-workout title were both on screen. It now clones the WHOLE `.home2` subtree, removes exactly
-two documented exemptions (`.wxg-ic` — the weather glyph; `.ffcard` — the GFFL card, both
-explicitly kept per the table above), and scans everything else's `textContent` for
-`\p{Extended_Pictographic}`. **Proven to catch the real regression it was written for**: with
-the emoji manually restored, the hardened check failed with `found "💪"` / `found "🎉"`; with
-the fix back in place, clean.
-
-### New tokens (mockup hex → farmstead-theme CSS variables)
-Every mockup color mapped to an existing `--*` token from `#farmstead-theme`'s `:root`
-(`#f4f1e8`→`--bg`, `#3f5c46`→`--green`, `#8b9184`→`--muted`, `#b8552f`→`--red`, `#e3ded0`→
-`--line`, `#fffdf8`→`--card`, `#f3e4dc`→`--red-soft`) except one genuinely new shade: the
-accent card's border, `#e8cfc2`, one step darker than `--red-soft` the same way `--line` sits
-one step darker than `--card` — added as `--red-soft-line`.
-
-### Verify
-`node tools/_verify-home-rerank.cjs [--shots]` — **63/63**, 0 page errors. Section A: the
-greeting ring is hand-computed arithmetic (`stroke-dasharray` = circle circumference,
-`stroke-dashoffset` = `CIRC×(1−done/total)`, matched to within 0.5), plus the 0-left/all-done
-sub-line states and the SVG-not-emoji greeting icon. B: the accent card absent-not-emptied when
-nothing is upcoming today (measured via `offsetParent`/`display`, not just the `hidden`
-attribute — CLAUDE.md #2), present+correct+single when something is, an already-past event
-excluded. C: exactly 3 not-done rows out of 5, the right 3 by time-of-day/order, the ring
-counting all 5 regardless, a tap completing the chore for real (ring 0/5→1/5, the 4th chore
-sliding into the freed slot, the Chores tab's own Completed-group count agreeing), a non-chore
-profile getting neither card nor ring. D: stocks/news gone from Home, still reachable via
-`goTo('finance')`/`goTo('news')`. D2: the GFFL glance card WITH league fixture data
-(`bucky_gffl_home` seeded) actually renders two columns wide beside weather with the real
-matchup, and WITHOUT data collapses to weather-alone — both pinned so either regressing goes
-noticed. E: no emoji anywhere in Home's text outside the 2 documented exemptions (two fixture
-states: mid-progress and all-done). F: **the goat-herd law, proven live** — the harness counts
-every aborted Firebase-pattern request and asserts the count is >0 (index.html really did try,
-this harness really did block it), not just that the interceptor regex exists in source. G:
-desktop two-column split, actionable content in main / glance rows in rail, no horizontal
-scroll, every glance card themed (not UA-default), and the 390px flat order matches the
-mockup's (hero, accent, chores, glance×2, ask, one-liner).
-
-**PROOF OF BITE (whole suite)**: `index.html` swapped to `git show HEAD:index.html` (the
-pre-rerank baseline — Home had none of this), same suite re-run: **42/63**, and every one of
-the 21 failures is exactly the feature that baseline doesn't have (no 3-row cap, no farmline,
-stocks still on Home, no GFFL glance row, old inline weather emoji, main-column content missing
-from the desktop split). Restored, 63/63 again.
-
-**Regressions, fresh run, same tree**: chore-care **50/50** · activity **147/147** · fitness
-**253/253** · news **200/200** · beacon-safety **96/96** · calnotify **122/122** · calview
-**25/25** · finance **117/117** · sports **226/226**. **1,299 checks total, all green.**
-
-Shots (scratchpad, not `shots/` — plates for this pass, not permanent regression baselines):
-`home_rerank_mobile_390.png`, `home_rerank_desktop_1280.png`,
-`home_rerank_gffl_glancerow_390.png`.
