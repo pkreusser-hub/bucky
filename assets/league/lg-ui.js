@@ -1547,6 +1547,10 @@
       // The name may legitimately differ (a new device, a nickname) — keep the doc honest, but
       // don't write a doc just to store the value it already holds.
       if (T.claimedBy !== nm) { try { await LG.saveTeam({ teamId: tid, claimedBy: nm }); } catch (e) { /* offline: the local claim stands */ } }
+      // THE COMMISSIONER'S RULING (2026-08-31): this PIN entry IS the user gesture the browser
+      // demands before a permission prompt may fire — enroll right here, unawaited (see the
+      // function's own note: never let push delay or block the login it rides in on).
+      maybeEnrollPushOnLogin(T, nm);
       return true;
     }
     const nm = window.prompt("Your name:", LG.who() || T.owner || "");
@@ -1558,6 +1562,9 @@
     // in-memory team wrote this page's snapshot of every OTHER field back over good data.
     await LG.setTeamPin(tid, pin, { claimedBy: nm });
     LG.setWho(nm); LG.setMyTeamId(tid);
+    // Same gesture, same rule — the first-ever claim on this team is just as much a login as a
+    // returning owner's PIN entry above.
+    maybeEnrollPushOnLogin(T, nm);
     return true;
   }
   UI._claimTeam = claimTeam; // test hook
@@ -6862,6 +6869,48 @@
     const onTeam = st && st.extra && st.extra.gfflTeam != null ? Number(st.extra.gfflTeam) : null;
     return { iOS, standalone, supported, st, onTeam, has: !!P };
   }
+  // ---------------- S4.1: THE COMMISSIONER'S RULING — alerts default ON (2026-08-31) ----------
+  // The browser's own permission prompt cannot be skipped, and iOS will not fire it without a
+  // user gesture, so "on by default" cannot mean "silently enabled at boot" — it means enrolled
+  // automatically at the one tap that already IS a gesture: a successful team claim or PIN
+  // login (see claimTeam). PUSH_OPTOUT_KEY is this device's own memory of having said no —
+  // either a tap on "Turn off", or the browser itself refusing the permission prompt — and
+  // enrollment respects it forever until alerts are turned back on.
+  const PUSH_OPTOUT_KEY = "gffl_pushoptout";
+  function pushOptedOut() { try { return localStorage.getItem(PUSH_OPTOUT_KEY) === "1"; } catch (e) { return false; } }
+  function setPushOptedOut(v) {
+    try { if (v) localStorage.setItem(PUSH_OPTOUT_KEY, "1"); else localStorage.removeItem(PUSH_OPTOUT_KEY); }
+    catch (e) { /* private mode — the sticky flag just doesn't stick this session */ }
+  }
+  UI._pushOptedOut = pushOptedOut; // test hook
+  // Called from claimTeam, UNAWAITED — deliberately fire-and-forget, the same house rule S4's
+  // own producers already follow (notify calls never able to delay or break the action that
+  // triggered them). Awaiting this here would mean a slow FCM round trip — or a hung getToken()
+  // — delays the login it rides in on; the tap that resolved the claim/PIN flow already
+  // finished before this settles. Every early-out below is silent by design: a denial or a
+  // failure here is a fact for the Alerts card to show later, never an error the reader has to
+  // dismiss on their way into the league.
+  async function maybeEnrollPushOnLogin(T, nm) {
+    try {
+      const e = pushEnv();
+      // "push is supported in this context" folds in the iOS-tab case: real Safari can report
+      // PushManager present in a plain tab and still have no working subscription outside the
+      // installed app, so e.iOS && !e.standalone is excluded here rather than left to a thrown
+      // error from enable() itself — the ruling's "no enrollment attempt" is literal.
+      if (!e.has || !e.supported || (e.iOS && !e.standalone)) return;
+      const perm = typeof Notification !== "undefined" ? Notification.permission : "denied";
+      if (perm !== "default" && perm !== "granted") return; // already denied — never re-ask
+      if (e.onTeam != null) return; // this device already carries a gfflTeam enrollment (this
+                                     // team or another one) — cross-app courtesy point 4
+      if (pushOptedOut()) return;   // this device said "Turn off" (or the browser said no) before
+      await window.BuckyPush.enable(nm || LG.who() || T.name, LG.famKey, null, { gfflTeam: T.id });
+      toast("Alerts are on for " + (T.name || "your team") + " on this phone.");
+    } catch (err) {
+      // The one failure worth remembering: a real browser-level denial. Anything else (offline,
+      // a missing VAPID key, a slow getToken) is transient and deserves another try next login.
+      try { if (typeof Notification !== "undefined" && Notification.permission === "denied") setPushOptedOut(true); } catch (e) { /* ignore */ }
+    }
+  }
   const BELL_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="alertbell">' +
     '<path fill="currentColor" d="M12 22a2.05 2.05 0 0 0 2.05-2.05h-4.1A2.05 2.05 0 0 0 12 22zm6.2-6.2v-5.3a6.25 6.25 0 0 0-4.7-6.05V3.7a1.5 1.5 0 0 0-3 0v.75a6.25 6.25 0 0 0-4.7 6.05v5.3L4 17.5v.85h16v-.85z"/></svg>';
   function alertsCardHtml(T, isOwner) {
@@ -6886,6 +6935,14 @@
         <div class="alertrow"><button id="alertOff">Turn off</button>
           <span class="mut small">That turns off every Bucky alert on this phone.</span></div></div>`;
     }
+    // S4.1: this device explicitly said no (its own "Turn off", or the browser's own denial
+    // recorded at login) — say so plainly rather than reusing the "never asked yet" pitch below,
+    // which would read like the app forgot the reader's own choice.
+    if (pushOptedOut()) {
+      return `<div class="card alertcard" id="alertCard">${head}
+        <p class="small">Alerts are off on this phone.</p>
+        <div class="alertrow"><button id="alertOn" class="primary">Turn on league alerts</button></div></div>`;
+    }
     return `<div class="card alertcard" id="alertCard">${head}
       <p class="small">Get league alerts on this phone.</p>
       <p class="mut small">Trade offers, waiver results, week recaps and chat mentions. Nothing else.</p>
@@ -6900,6 +6957,7 @@
         // gets chore reminders as "Isaac" keeps getting them. gfflTeam is what every S4 send
         // selects on, and setDoc merges, so neither audience displaces the other.
         await window.BuckyPush.enable(LG.who() || T.name, LG.famKey, null, { gfflTeam: T.id });
+        setPushOptedOut(false); // an explicit "Turn on" clears any earlier "Turn off" or denial
         toast("Alerts are on for " + T.name + " on this phone.");
         renderLocker();
       } catch (err) {
@@ -6909,7 +6967,7 @@
     });
     if (off) off.addEventListener("click", async () => {
       off.disabled = true;
-      try { await window.BuckyPush.disable(); toast("Alerts are off on this phone."); renderLocker(); }
+      try { await window.BuckyPush.disable(); setPushOptedOut(true); toast("Alerts are off on this phone."); renderLocker(); }
       catch (err) { off.disabled = false; toast("Couldn't turn alerts off."); }
     });
   }

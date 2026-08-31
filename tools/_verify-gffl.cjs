@@ -16080,13 +16080,18 @@ async function openDetails(page, id) {
       ok(docs.league.gfflTeam === 5 && docs.league.user === "Peter",
         "a league enable() adds gfflTeam and keeps `user` — both audiences on one device");
       ok(!("gfflTeam" in docs.nully), "a null extra is dropped rather than written as a field that means nothing");
-      ok(docs.arity === 4, "enable()'s new 4th argument is optional — every 2-and-3-arg family call site is unchanged");
+      // RESTAGED 2026-08-31 (found running section BE's own battery, unrelated to this
+      // session's own change): `enable()`'s arity moved 4 -> 5 the moment Identity Phase 1
+      // (2026-08-30, commit 91573e2) added `pid` as a 5th, optional argument — push-client.js
+      // is the family app's shared helper, and that commit's own suite never re-ran this file's
+      // battery. The old assertion was simply stale, not wrong about the shape it once checked.
+      ok(docs.arity === 5, "enable()'s 4th (extra) AND 5th (pid) arguments are both optional — every 2/3/4-arg family call site is unchanged (" + docs.arity + ")");
       // The shipped source, not a paraphrase of it: the doc write MERGES, so a device that had
       // family alerts and now turns league alerts on gains gfflTeam rather than trading `user`
       // for it.
       const src = fs.readFileSync(path.join(ROOT, "push-client.js"), "utf8");
-      ok(/setDoc\(ref, buildTokenDoc\(token, userName, extra\), \{ merge: true \}\)/.test(src),
-        "…and the write is setDoc(..., {merge:true}) — turning one audience on never deletes the other");
+      ok(/setDoc\(ref, buildTokenDoc\(token, userName, extra, pid\), \{ merge: true \}\)/.test(src),
+        "…and the write is setDoc(..., {merge:true}) — turning one audience on never deletes the other, pid included since Identity Phase 1");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -20814,6 +20819,209 @@ async function openDetails(page, id) {
     ok(opp.bye === null, "D.oppForTeam('BUF') — a team not on this week's slate at all — reads null, the same if-known honesty D.oppForWeek always kept (" + JSON.stringify(opp.bye) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
+  }
+
+  // ================= BE · THE COMMISSIONER'S RULING (2026-08-31) — alerts default ON =========
+  // League push notifications are now ON BY DEFAULT. The browser's own permission prompt cannot
+  // be skipped and iOS demands a user gesture to fire it at all, so "on by default" means
+  // enrolled automatically at the ONE tap that already IS a gesture — a successful team claim
+  // or PIN login (claimTeam, section AK) — never a second ask nobody asked for. The Alerts card
+  // (section AN) gains a third state, a per-device sticky opt-out, and stops pitching "get
+  // alerts" to a device that already said no (its own, or the browser's).
+  section("BE · THE COMMISSIONER'S RULING (2026-08-31) — alerts default ON, enrolled at the login gesture");
+  {
+    // Same technique as AK's own armPrompts (section AK, above): log nothing here (this
+    // section only ever needs a fixed answer queue), "" once the queue is exhausted mirrors a
+    // reader pressing Cancel.
+    const armPrompts = (page, answers) => page.evaluateOnNewDocument((ans) => {
+      window.__answers = ans.slice();
+      window.prompt = () => (window.__answers.length ? window.__answers.shift() : null);
+      window.alert = () => {}; window.confirm = () => true;
+    }, answers);
+    // The push stub — installed AFTER boot, exactly like section AN5's own `stub()`: by the
+    // time the claim screen is up, push-client.js's unconditional `window.BuckyPush = {...}`
+    // has already run, so reassigning it here is what makes it stick. `state.team` is a real
+    // mutable close-over so a SECOND login on the SAME stubbed device sees what the FIRST one
+    // just enrolled — exactly how the real BuckyPush.status() behaves (it reads back what
+    // enable() itself last wrote).
+    //   o.startTeam — this "phone" already carries a gfflTeam enrollment before the test starts
+    //   o.deny      — enable() rejects, AND flips Notification.permission to "denied" the way
+    //                 the real helper's own requestPermission() would (permission is a getter-
+    //                 only accessor on the real Notification — redefined here, not assigned)
+    //   o.hang      — enable() returns a promise that never resolves (BE7's own point)
+    const stubPush = (page, opts) => page.evaluate((o) => {
+      window.__pushCalls = window.__pushCalls || [];
+      window.__pushState = window.__pushState || { team: o.startTeam != null ? o.startTeam : null };
+      const st = window.__pushState;
+      window.BuckyPush = {
+        isSupported: () => o.supported !== false,
+        status: () => ({
+          supported: o.supported !== false, permission: "granted", enabled: st.team != null,
+          user: "Someone", familyKey: "x", extra: st.team != null ? { gfflTeam: st.team } : null,
+        }),
+        enable: (u, f, sub, extra) => {
+          window.__pushCalls.push({ kind: "enable", u, f, extra: extra || null });
+          if (o.hang) return new Promise(() => {});
+          if (o.deny) {
+            try { Object.defineProperty(Notification, "permission", { configurable: true, get: () => "denied" }); } catch (e) {}
+            return Promise.reject(new Error("Notification permission was not granted (denied)."));
+          }
+          st.team = extra && extra.gfflTeam;
+          return Promise.resolve({ token: "T" });
+        },
+        disable: () => { window.__pushCalls.push({ kind: "disable" }); st.team = null; return Promise.resolve(true); },
+      };
+    }, opts || {});
+    const pushCalls = (page) => evalOr(page, () => window.__pushCalls || []);
+    const optOut = (page) => evalOr(page, () => localStorage.getItem("gffl_pushoptout"));
+    const openMine = async (page, tid) => {
+      await page.evaluate((id) => window.__GFFL__.UI.openLocker(id), tid);
+      await page.waitForSelector(".lockerhead", { timeout: 9000 });
+    };
+
+    // ---- BE1: a clean device's first successful PIN login, real un-prompted permission
+    // ("default") — enable() fires exactly once, stamping the team the reader just claimed,
+    // and the same toast the manual "Turn on" button shows lands. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed({ claim: true }));
+      await armPrompts(page, ["Isaac", "4444"]);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(page, ".teamrow", 9000), "a clean device lands on the claim screen");
+      const permBefore = await evalOr(page, () => Notification.permission);
+      ok(permBefore === "default", "…starting from a real, never-yet-asked permission state (" + permBefore + ")");
+      await stubPush(page, {});
+      ok(await clickIn(page, ".teamrow", "Battle Kreussers"), "tapped Battle Kreussers");
+      ok(await waitOr(page, ".mucard", 9000), "…claiming the team resolves the login on its own — nothing here waits on push");
+      ok(await waitFnOr(page, () => (window.__pushCalls || []).length > 0), "…and the enrollment call lands");
+      const calls = (await pushCalls(page)) || [];
+      ok(calls.length === 1, "enable() was called exactly once (" + calls.length + ")");
+      ok(!!calls[0] && !!calls[0].extra && calls[0].extra.gfflTeam === 1, "…stamping the team the reader just claimed (" + JSON.stringify(calls[0] && calls[0].extra) + ")");
+      ok(!!calls[0] && calls[0].u === "Isaac", "…and the name they just typed at the PIN prompt, not a stale one (" + (calls[0] && calls[0].u) + ")");
+      ok(await waitFnOr(page, () => /Alerts are on for Battle Kreussers on this phone/.test((document.getElementById("toast") || {}).textContent || "")),
+        "…and the reader sees the SAME toast the manual \"Turn on\" button shows");
+      ok((await optOut(page)) === null, "…and no sticky opt-out is recorded on a successful enrollment");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BE2: a device that already carries a gfflTeam enrollment (this team or another —
+    // the cross-app-courtesy point is "any", not "this one") never gets a second enable() call
+    // just because a login happens on it again. The login itself is untouched either way. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed({ claim: true }));
+      await armPrompts(page, ["Isaac", "4444"]);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".teamrow", 9000);
+      await stubPush(page, { startTeam: 4 }); // already enrolled for a DIFFERENT team
+      ok(await clickIn(page, ".teamrow", "Battle Kreussers"), "tapped Battle Kreussers on an already-enrolled phone");
+      ok(await waitOr(page, ".mucard", 9000), "…the claim still succeeds normally");
+      await sleep(700); // the same settle window BE1 needed for a call to land, given nothing to wait FOR here
+      ok((await pushCalls(page)).length === 0, "…but enable() is never called a second time on an already-enrolled device");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BE3: a device that has explicitly opted out (the sticky flag) gets no enrollment
+    // attempt at login, and the Alerts card says so plainly rather than repeating the "never
+    // asked yet" pitch. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed({ claim: true }));
+      await page.evaluateOnNewDocument(() => localStorage.setItem("gffl_pushoptout", "1"));
+      await armPrompts(page, ["Isaac", "4444"]);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".teamrow", 9000);
+      await stubPush(page, {});
+      ok(await clickIn(page, ".teamrow", "Battle Kreussers"), "tapped Battle Kreussers on a device that opted out before");
+      ok(await waitOr(page, ".mucard", 9000), "…the claim still succeeds normally");
+      await sleep(700);
+      ok((await pushCalls(page)).length === 0, "…and enable() is never called — the opt-out is sticky across a fresh login");
+      await openMine(page, 1);
+      const off = await evalOr(page, () => (document.getElementById("alertCard") || {}).textContent.replace(/\s+/g, " ").trim());
+      ok(/Alerts are off on this phone/.test(off || ""), "…and the Alerts card says so plainly (" + (off || "").slice(0, 60) + ")");
+      ok(!/Get league alerts/.test(off || ""), "…never the \"never asked\" pitch — that would read like the app forgot the reader's own choice");
+      ok(!!(await page.$("#alertOn")), "…still offering a way back in");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BE4: turning alerts back ON from the card clears the sticky flag — the ruling's own
+    // "turning alerts back on is what clears it." ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await page.evaluateOnNewDocument(() => localStorage.setItem("gffl_pushoptout", "1"));
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".mucard", 9000);
+      await stubPush(page, {});
+      await openMine(page, 1);
+      ok(!!(await page.$("#alertOn")) && !(await page.$("#alertOff")), "starts in the sticky-off state, offering Turn on");
+      await page.evaluate(() => document.getElementById("alertOn").click());
+      ok(await waitFnOr(page, () => (window.__pushCalls || []).length > 0), "the click reaches BuckyPush.enable()");
+      ok(await waitFnOr(page, () => localStorage.getItem("gffl_pushoptout") === null), "…and clears the sticky opt-out flag on success");
+      await waitOr(page, "#alertOff", 9000);
+      const on = await evalOr(page, () => (document.getElementById("alertCard") || {}).textContent.replace(/\s+/g, " ").trim());
+      ok(/Alerts are on for Battle Kreussers on this phone/.test(on || ""), "…and the card repaints to the ON state (" + (on || "").slice(0, 60) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BE5: a real browser-level denial during login enrollment is remembered (the sticky
+    // flag), the login is completely undisturbed, and nothing is surfaced as an error. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed({ claim: true }));
+      await armPrompts(page, ["Isaac", "4444"]);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".teamrow", 9000);
+      await stubPush(page, { deny: true });
+      ok(await clickIn(page, ".teamrow", "Battle Kreussers"), "tapped Battle Kreussers on a phone about to deny the prompt");
+      ok(await waitOr(page, ".mucard", 9000), "…the login is not held up waiting on the answer");
+      ok(await waitFnOr(page, () => (window.__pushCalls || []).length > 0), "…the attempt was made");
+      ok(await waitFnOr(page, () => localStorage.getItem("gffl_pushoptout") === "1"), "…and the denial is recorded as a sticky opt-out — never re-ask someone the browser already heard say no");
+      const toastState = await evalOr(page, () => { const t = document.getElementById("toast"); return { hidden: !t || t.hidden, txt: t ? t.textContent : "" }; });
+      ok(!!toastState && toastState.hidden === true, "…with nothing put in front of the reader to dismiss — a denial is silent beyond the card's own later state (toast: " + JSON.stringify(toastState) + ")");
+      ok(errors.length === 0, "0 page errors — a rejected enrollment promise never becomes an uncaught one");
+      await ctx.close();
+    }
+
+    // ---- BE6: iOS in a plain tab. Real Safari there can report PushManager present and still
+    // have no working subscription outside the installed app (section AN's own note) — the
+    // ruling's "no enrollment attempt" is literal, not "attempt and swallow the failure". ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed({ claim: true }));
+      await armPrompts(page, ["Isaac", "4444"]);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".teamrow", 9000);
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, "userAgent", { configurable: true, get: () => "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15" });
+      });
+      await stubPush(page, {});
+      ok(await clickIn(page, ".teamrow", "Battle Kreussers"), "tapped Battle Kreussers from an iPhone tab");
+      ok(await waitOr(page, ".mucard", 9000), "…the login itself doesn't care what device this is");
+      await sleep(700);
+      ok((await pushCalls(page)).length === 0, "…but no enrollment is even ATTEMPTED — the ruling's \"no enrollment attempt\" is literal");
+      await openMine(page, 1);
+      const ios = await evalOr(page, () => (document.getElementById("alertCard") || {}).textContent.replace(/\s+/g, " ").trim());
+      ok(/Home Screen/.test(ios || "") && /16\.4/.test(ios || ""), "…and the card is the SAME byte-identical iOS-tab card section AN's own test proves (" + (ios || "").slice(0, 70) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BE7: login is never blocked on push. A hung enable() (a slow FCM round trip, or a
+    // getToken() that never settles) must never keep the reader staring at the claim screen. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed({ claim: true }));
+      await armPrompts(page, ["Isaac", "4444"]);
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      await waitOr(page, ".teamrow", 9000);
+      await stubPush(page, { hang: true });
+      const t0 = Date.now();
+      ok(await clickIn(page, ".teamrow", "Battle Kreussers"), "tapped Battle Kreussers with a push call about to hang forever");
+      ok(await waitOr(page, ".mucard", 5000), "the locker/league still renders promptly — claimTeam does not await the enrollment it fired");
+      const ms = Date.now() - t0;
+      ok(ms < 4500, "…well under the timeout a synchronous wait on the hung call would have hit (" + ms + "ms)");
+      ok(await waitFnOr(page, () => (window.__pushCalls || []).length > 0), "…the call was genuinely made, not skipped — it's hanging, not absent");
+      ok(errors.length === 0, "0 page errors while a push call sits forever unresolved");
+      await ctx.close();
+    }
   }
 
   await browser.close();

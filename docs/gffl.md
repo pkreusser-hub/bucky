@@ -5690,3 +5690,93 @@ real points, the bye row, an away "@DEN" row, several future kickoffs), `gffl_mo
 (the OPP column scrolled into frame: "@PHI"/"KC"/"@DEN"/"DAL"/"—"/"—"), `gffl_moves_opp_1280.png`
 (the same table, OPP in its normal desktop position, no panning needed).
 ---
+
+## 🔔 GFFL — THE COMMISSIONER'S RULING: league alerts default ON, enrolled at the login gesture
+## (2026-08-31)
+
+League push notifications are now ON by default. A browser's own permission prompt cannot be
+skipped, and iOS refuses to fire it without a real user gesture — so "on by default" cannot mean
+"silently enabled at boot." It means enrolled automatically at the one tap that already IS a
+gesture: a successful team claim or PIN login (`claimTeam`, section AK). That tap resolves the
+login, THEN — same async chain, unawaited — fires `BuckyPush.enable(nm || LG.who() || T.name,
+LG.famKey, null, { gfflTeam: T.id })`, letting `enable()`'s own `Notification.requestPermission()`
+fall out of it naturally. Success shows the same `"Alerts are on for <team> on this phone."` toast
+the manual "Turn on" button always has.
+
+**UNAWAITED ON PURPOSE.** `maybeEnrollPushOnLogin` is fired, never `await`ed, from `claimTeam`.
+Awaiting it would mean a slow FCM round trip — a hung `getToken()`, a flaky service-worker
+register — delays the login it rides in on. Section BE7 stubs `enable()` to hang forever and
+proves the locker still renders on schedule (57ms, well inside the normal boot window); nothing
+about login ever waits on push.
+
+**THE GATE, all four conditions reusing `pushEnv()`** (the same helper the Alerts card's own
+render already used): push supported in this context — which folds in the iOS-tab case
+(`e.iOS && !e.standalone`) rather than leaving it to a thrown error, because real Safari can
+report `PushManager` present in a plain tab with no working subscription outside the installed
+app, and the ruling's "no enrollment attempt" is literal · `Notification.permission` is
+`"default"` or `"granted"` — never re-asks someone already denied · no device is enrolled for a
+`gfflTeam` yet (`BuckyPush.status().extra.gfflTeam`) — ANY existing league enrollment blocks a
+new one, not just a match on this team, which is what makes a device that changed hands or
+already alerts for a sibling's team a no-op rather than a second write · no sticky opt-out
+recorded.
+
+**THE STICKY OPT-OUT** — `localStorage["gffl_pushoptout"]`, following the file's existing
+one-key-no-suffix identity convention (`gffl_team`/`gffl_who`, S1's own note). "Turn off" in the
+Alerts card sets it; "Turn on" (manual, or a later successful login) clears it. A real browser
+denial during login enrollment ALSO sets it — recorded from `maybeEnrollPushOnLogin`'s own catch
+block, gated on `Notification.permission === "denied"` at catch time so a transient failure
+(offline, a slow `getToken()`, a missing VAPID key) never gets mistaken for a considered no and
+silently blocks every future login's attempt. The Alerts card gained a THIRD state for it: "Alerts
+are off on this phone." + Turn-on button, distinct from the original "Get league alerts on this
+phone." pitch a never-asked device still sees — reusing that pitch for an explicit opt-out would
+read like the app forgot the reader's own choice. The ON card and both byte-identical no-support
+cards (iOS-tab, unsupported browser) are untouched.
+
+**CROSS-APP COURTESY, unchanged**: the enrollment call carries the SAME `user`/`gfflTeam` merge
+shape the manual card's `enable()` call always has — `LG.who()`/name as `user` (family chore/bank
+targeting on this device stays live), `{ gfflTeam: T.id }` as `extra`, `setDoc(..., {merge:true})`
+underneath (push-client.js, untouched). Turning league alerts on at login never displaces family
+targeting, and vice versa.
+
+**A STALE ASSERTION, FOUND RUNNING THIS FEATURE'S OWN BATTERY, UNRELATED TO IT.** Section AN6
+(`enable()`'s arity, and a regex over push-client.js's own `setDoc` call) has read FAIL since
+Identity Phase 1 (2026-08-30, commit 91573e2) added `pid` as `enable()`'s 5th argument —
+push-client.js is the family app's shared helper, and that commit's own suite never re-ran this
+file's battery. Restaged with the reason at the check: arity 4 → 5, the `setDoc` regex now
+expects `buildTokenDoc(token, userName, extra, pid)`. Neither line was touched by this session's
+own feature.
+
+**SUITE**: `tools/_verify-gffl.cjs`, new section BE (7 sub-sections, 43 checks): BE1 first claim
+on a clean device, permission genuinely `"default"` (not stubbed — the real headless-Chrome
+default on a secure `127.0.0.1` context, confirmed empirically before writing the check) —
+`enable()` called once, right team, right name, the toast lands · BE2 a device already carrying
+ANY `gfflTeam` enrollment gets no second call on a further login (an honest limit: this one
+passes vacuously either side of the fix, since NEITHER a reverted `claimTeam` nor the new gate
+ever calls `enable()` here — BE1/BE5/BE7's own call-count assertions are what actually prove the
+gate fires at all) · BE3 the sticky flag blocks the attempt entirely and the card says so plainly
+· BE4 "Turn on" clears the flag and repaints the card · BE5 a simulated browser denial (the stub
+flips `Notification.permission` via a redefined getter — the real property is a read-only
+accessor, confirmed empirically — then rejects, mirroring what `enable()`'s own
+`requestPermission()` would do) records the sticky flag, never blocks the login, and puts nothing
+in front of the reader to dismiss (the toast stays hidden) · BE6 an iPhone in a plain Safari tab
+gets no enrollment attempt at all, and the byte-identical install-it card section AN already
+proved · BE7 a hung `enable()` never delays the locker rendering. Battery **2957 → 3000/3000, 0
+FAIL**. `node tools/_gffl_seams.cjs` **121/0, unrestaged** — it drives `lg-core`/`lg-data` directly
+through a fake-Firestore kit and never touches `claimTeam`, `lg-ui.js`, or push at all.
+
+**PROOF OF BITE.** `assets/league/lg-ui.js` reverted to `HEAD` (the new/restaged test file kept),
+full suite run against that mix: **2989 pre-existing checks passed untouched, and exactly 11
+checks — every one of them section BE's own (BE2 excepted, see its own note above) — failed**: no
+enrollment call ever fires from a reverted `claimTeam` (BE1's call-count/team/name/toast
+assertions, BE5's attempt/sticky-flag assertions, BE7's "call was genuinely made" assertion, all
+read 0/`undefined`/never), and the sticky-off card copy never renders since `alertsCardHtml` has
+no third branch — BE3's card-text checks fail, and BE4's "Turn on" never finds a flag to clear.
+App file then restored, confirmed byte-identical (`diff` against the pre-revert backup) before the
+after-count above was taken.
+
+Files: `assets/league/lg-ui.js` (`claimTeam`'s two success points, fire-and-forget; the S4.1
+block beside `pushEnv` — `PUSH_OPTOUT_KEY`/`pushOptedOut`/`setPushOptedOut`/
+`maybeEnrollPushOnLogin`; `alertsCardHtml`'s new sticky-off branch; `wireAlertsCard`'s on/off
+handlers now clear/set the flag) + `tools/_verify-gffl.cjs` (new section BE, and the AN6 restage
+above).
+---
