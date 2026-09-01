@@ -5812,3 +5812,23 @@ commissioner's iPhone. **If the float persists on-device after this ships, the h
 wrong**: next stops are (a) dropping the blur for a solid var(--tabbar) on iOS standalone,
 (b) a visualViewport-driven reposition. Report back either way — this entry is the ledger.
 ---
+
+## 🏆 GFFL — LAWS RULE: the franchise at slot 5 changes families (2026-08-31)
+
+Commissioner rulings, applied to production data only (backup → masked PATCH with CAS →
+canonical re-read, the fix_awards2 protocol; no code changed):
+- **Nails For Breakfast is renamed Laws Rule** (abbrev NF → LR), owner Sandy Laws
+  (set with her email + PIN reset earlier the same day). Renamed in the league team doc
+  AND the Draft Day doc.
+- **Its history is the IN-LAWS franchise.** History joins by ESPN team id, so per the
+  Dawn Treaders precedent (2026-08-13, defunct id 1904): every old-lineage id-5 row —
+  TNG Yellow Shirts / ST Red Shirts / The Scenic / Nails For Breakfast, hist_2012-2014
+  and 2018-2025 — re-id 5 → **1905** in teams[] AND matchups[] (177 references), so
+  eleven seasons go defunct-quiet but stay on disk; IN-LAWS re-id 1016 → **5** in
+  hist_2012-2015 (63 references), so Laws Rule's all-time record reads 2012-2015
+  IN-LAWS (5-10, 6-9, 6-9, 7-7) and nothing again until 2026.
+- **The silverware stays with the family that won it**: the 2009 points title and 2016
+  runner-up move to defunct-held 1905 rows (names preserved), and team_5's trophy case
+  is emptied — IN-LAWS won nothing. Re-admitting the old franchise under 1905 would
+  bring its whole record and both awards back, per the folded-franchise design.
+---
