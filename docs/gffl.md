@@ -5780,3 +5780,35 @@ block beside `pushEnv` — `PUSH_OPTOUT_KEY`/`pushOptedOut`/`setPushOptedOut`/
 handlers now clear/set the flag) + `tools/_verify-gffl.cjs` (new section BE, and the AN6 restage
 above).
 ---
+
+## 📱 GFFL — THE FLOATING BOTTOM BAR, AND THE REPO'S FIRST REAL-WEBKIT RIG (2026-08-31)
+
+Commissioner, from a real iPhone (the installed PWA): "the bottom button row is floating in
+the middle when I scroll down, on all pages." The diagnosis trail, in order: .bnav's own CSS
+is correct (position:fixed, bottom:0) and unchanged for weeks; no ancestor carries a
+transform/filter/contain that would demote fixed; no overflow-x on html/body; no runtime
+body style writes; no recent commit touches the bar. That left an ENGINE quirk, and the lead
+suspect is the bar's own backdrop-filter: iOS WebKit has a documented bug family where a
+backdrop-filtered position:fixed element's blur layer decouples from the viewport during
+scroll — which reads exactly as "floating in the middle".
+
+**THE RIG (new equipment):** scratchpad/bnav-rig — playwright-core@1.60.0 (scratchpad-
+installed, never in the repo) driving the LOCAL webkit-2287 build already present in
+%LOCALAPPDATA%/ms-playwright, iPhone-shaped context (390x844@3x, isMobile, hasTouch, iOS UA),
+network blocked per the house pattern, .bnav's rect measured against the viewport at seven
+scroll offsets plus wheel-cumulative scrolling. Result: 0.00px drift everywhere — COULD NOT
+REPRODUCE, and honestly should not have: webkit-2287 on Windows is the WinCairo build, a
+different compositor backend from the CoreAnimation pipeline an iPhone runs. A Windows rig
+can falsify layout theories (it did — ours were already falsified statically) but cannot
+prove or disprove an iOS compositing bug. The next iOS-only report starts from this rig
+anyway: it settles every non-engine explanation in minutes.
+
+**THE FIX, SPECULATIVE-BUT-SAFE:** .bnav is promoted to its own compositor layer up front
+(translateZ(0) + will-change:transform) — the documented mitigation for exactly this iOS
+class, a visual and layout no-op on every other platform (the rig's before/after numbers
+prove 0.00px displacement). The suite pins the PROPERTY, not the bug — losing the promotion
+in a refactor fails loudly, because the only machine that can prove it matters is the
+commissioner's iPhone. **If the float persists on-device after this ships, the hypothesis is
+wrong**: next stops are (a) dropping the blur for a solid var(--tabbar) on iOS standalone,
+(b) a visualViewport-driven reposition. Report back either way — this entry is the ledger.
+---

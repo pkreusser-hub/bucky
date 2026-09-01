@@ -1848,8 +1848,33 @@
   }
 
   /* ---------------- nav — mobile bottom bar / desktop top-nav row ---------------- */
+  /* 2026-08-31 (commissioner report, real iPhone PWA): "the bottom button row is floating in
+     the middle when I scroll down, on all pages." Static analysis first: no transformed or
+     filtered ancestor, no overflow-x on html/body, no runtime body style writes, no recent
+     commit touching this bar -- ruled out a layout bug on our end.
+     LEAD HYPOTHESIS: iOS WebKit's documented misbehavior where `backdrop-filter` on a
+     `position:fixed` element can decouple its blur layer from the viewport during scroll,
+     because the element never gets promoted to its own compositor layer up front -- the fixed
+     positioning and the blur end up negotiated frame-by-frame instead of pinned once.
+     BUILT A REAL-WEBKIT RIG to check before guessing (first one in this repo -- see
+     docs/gffl.md's dated entry for how to reuse it): Playwright's local webkit-2287 build
+     (scratchpad-installed playwright-core@1.60.0, the version whose browsers.json actually
+     matches revision 2287) driving league.html with an iPhone-shaped context (390x844 @3x,
+     isMobile, hasTouch, iOS Safari UA), scrolled both via window.scrollTo and wheel emulation.
+     Result: 0.00px drift between .bnav's rect.bottom and window.innerHeight at every offset
+     tested (0/200/500/900/1400/2000/3000 programmatic, 250-2000 wheel-cumulative). COULD NOT
+     REPRODUCE -- and honestly shouldn't have: webkit-2287 is Playwright's WinCairo Windows
+     build, a different compositor backend (Windows/ANGLE) from the CoreAnimation pipeline an
+     iPhone actually runs, so it was never going to hit an iOS-specific compositing bug.
+     Applying the standard fix anyway, SPECULATIVE-BUT-SAFE: forcing .bnav onto its own
+     compositor layer up front (`translateZ(0)` + `will-change:transform`) is the documented
+     mitigation for this exact iOS class of bug, is a visual no-op everywhere else (zero
+     displacement, zero layout change -- the rig's own before/after numbers below prove it),
+     and costs nothing if the real cause turns out to be something else. tools/_gffl_seams.cjs
+     pins the property so it can't be quietly lost in a later refactor. */
   .bnav { position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex;
           background:var(--tabbar); backdrop-filter:blur(8px); border-top:1px solid var(--border-card);
+          -webkit-transform:translateZ(0); transform:translateZ(0); will-change:transform;
           padding:6px calc(6px + env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) calc(6px + env(safe-area-inset-left)); }
   /* Polish pass (2026-08-08): the house [hidden]-override lesson, again — .bnav's own
      display:flex above beats the UA [hidden]{display:none} rule, so hideBnav()'s `hidden`

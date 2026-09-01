@@ -3072,6 +3072,19 @@ async function openDetails(page, id) {
         hMetaVisible: hMeta && getComputedStyle(hMeta).display !== "none" };
     });
     ok(geom.bnavPos === "sticky", "desktop nav reads as a persistent top strip (position:sticky), not the mobile fixed bottom bar");
+    // 2026-08-31 (iOS float report): the bar carries its own compositor layer everywhere —
+    // translateZ(0) + will-change:transform, the documented mitigation for iOS WebKit letting
+    // a backdrop-filtered fixed element's blur layer decouple from the viewport mid-scroll.
+    // Could not be reproduced in the Windows WebKit rig (different compositor backend — see
+    // league.html's comment at .bnav and docs/gffl.md), so this pins the SPECULATIVE-BUT-SAFE
+    // property rather than the bug: losing it in a refactor must fail loudly, because the only
+    // machine that can prove it matters is the commissioner's iPhone.
+    const bnavLayer = await page.evaluate(() => {
+      const cs = getComputedStyle(document.querySelector("#bnav"));
+      return { transform: cs.transform, willChange: cs.willChange };
+    });
+    ok(bnavLayer.transform !== "none" && /transform/.test(bnavLayer.willChange),
+      "the nav bar is promoted to its own compositor layer (transform " + bnavLayer.transform.slice(0, 24) + "…, will-change " + bnavLayer.willChange + ") — the iOS fixed+backdrop-filter mitigation");
     // RESTAGED 2026-08-11 (the desktop design pass, user: "it looks too much like an app"). This
     // used to assert `column-count >= 2` — a MASONRY, which deals cards into whichever column is
     // shortest, so nothing on the page meant anything by being where it was. That treatment is
