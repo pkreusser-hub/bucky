@@ -4544,6 +4544,32 @@ async function openDetails(page, id) {
       "finalizeWeek refuses while starters' games are still live (12 pending — team1's 9 + team2's 3)");
     ok(!(await page.evaluate(() => window.__GFFL__.LG.loadWeekly(1))), "…and no weekly doc was written");
 
+    // ⭐ A WEEK NOBODY PLAYED IS NOT A RESULT (2026-08-31 — the vacuous-finalize incident).
+    // On 2026-08-30 the live league wrote weekly_2026_w1 as four 0-0 ties: post-reset empty
+    // rosters made the every-starter-final gate vacuously true, the week-1 re-target made
+    // ESPN answer "regular", and Sleeper was unreachable so the one-sided season type was
+    // trusted. Reproduce the empty-roster half here and assert the new compute-phase guard —
+    // which force MUST NOT bypass, because it sits below the force branch on purpose.
+    const emptied = await page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      // Capture the seed's own lineups first, empty every roster, probe both paths, restore —
+      // the fixture has no week 0 to carry forward from, so a delete-and-reload would strand
+      // the rest of this section with empty teams.
+      const saved = [];
+      for (const t of LG.teams) saved.push([t.id, await LG.loadRoster(1, t.id, { fresh: true })]);
+      for (const t of LG.teams) await LG.saveRoster(1, t.id, []);
+      const plain = await LG.finalizeWeek(1);
+      const forcedEmpty = await LG.finalizeWeek(1, { force: true });
+      const wrote = await LG.loadWeekly(1);
+      for (const [id, ros] of saved) await LG.saveRoster(1, id, ros || []);
+      return { plain, forcedEmpty, wrote: !!wrote, restored: saved.map(([id, r]) => id + ":" + (r || []).length).join(",") };
+    });
+    ok(emptied.plain.ok === false && emptied.plain.reason === "empty-week",
+      "a week with ZERO starters anywhere refuses as empty-week — the every([]) gate cannot pass vacuously (" + JSON.stringify(emptied.plain) + ")");
+    ok(emptied.forcedEmpty.ok === false && emptied.forcedEmpty.reason === "empty-week",
+      "…and force does NOT bypass it — no path may record a week nobody played (" + JSON.stringify(emptied.forcedEmpty) + ")");
+    ok(!emptied.wrote, "…and no weekly doc was written by either attempt (rosters restored: " + emptied.restored + ")");
+
     // force:true bypasses the guard (still computes from whatever's currently on the board).
     const forced = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
     ok(forced.ok === true && forced.kind === "weekly", "force:true bypasses the guard and finalizes anyway");

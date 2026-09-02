@@ -5832,3 +5832,34 @@ canonical re-read, the fix_awards2 protocol; no code changed):
   is emptied — IN-LAWS won nothing. Re-admitting the old franchise under 1905 would
   bring its whole record and both awards back, per the folded-franchise design.
 ---
+
+## 🏈 GFFL — THE VACUOUS FINALIZE: weekly_2026_w1 written as four 0-0 ties (2026-08-31)
+
+Commissioner: "the standings are showing everyone with a tie but no games have been played
+yet." Not a display bug — a real, WRITE-ONCE weekly_2026_w1 existed, created 2026-08-30
+18:38Z by some device's boot auto-checks. THREE guards had to line up, and did:
+
+1. **The every([]) hole, one layer deeper than the clinch fix.** finalizeWeek's live gate
+   collects starters whose games aren't final and refuses if any are pending — over the
+   season-reset's EMPTY rosters, zero starters means zero pending means the gate passes
+   vacuously. Same disease matchupDecided was cured of on 2026-08-26; nobody checked the
+   floor below.
+2. **The week-1 re-target made ESPN answer "regular"** (by design — the board looks forward),
+   so the positively-regular season-type guard saw a regular-season payload in preseason.
+3. **Sleeper was unreachable at that moment**, and engineSeasonType trusts one-sided
+   knowledge (by design, so a normal-season Sleeper outage can't block finalize) — the
+   pre/regular contradiction that would have failed closed was never seen.
+
+**Repair**: the doc was backed up (scratchpad weekly_2026_w1_vacuous_backup.json) and
+deleted; standings read 0-0-0 again immediately. **Fix**: a compute-phase guard in
+finalizeWeek — a week in which no matchup fielded a single starter refuses as
+"empty-week", placed BELOW the force/backfill branching on purpose: no path, commissioner
+force included, may record a week nobody played. (An archived backfill of a real week
+always has starters, so this refuses nothing real.) The suite reproduces the empty-roster
+half and asserts both plain and forced refusal, with the fixture's rosters
+captured-and-restored around the probe. The one-sided season-type trust stays as designed
+and is now DOCUMENTED here as a contributing factor rather than silently load-bearing.
+
+If a bogus week-recap push went out on 2026-08-30, it cannot be unsent — the record it
+described no longer exists.
+---

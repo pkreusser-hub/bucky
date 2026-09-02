@@ -3280,6 +3280,21 @@
       if (pending.length) return { ok: false, reason: "not-final", pending };
     }
 
+    // ⭐ A WEEK NOBODY PLAYED IS NOT A RESULT (2026-08-31). The live gate above asks "is any
+    // starter's game still pending?" — and over ZERO starters that is vacuously satisfied,
+    // the same every-empty-list hole matchupDecided closed on 2026-08-26 one layer up. On
+    // 2026-08-30 the two remaining guards lined up behind it: the season-reset left every
+    // roster empty, the week-1 re-target made ESPN answer "regular", Sleeper happened to be
+    // unreachable so the one-sided season-type read was trusted — and a device's boot
+    // auto-checks wrote weekly_2026_w1 as four 0-0 ties into a WRITE-ONCE record. (Repaired
+    // by hand: backed up, deleted, this guard added the same hour.) The rule sits HERE, in
+    // the compute phase, deliberately below force/backfill branching: no path — commissioner
+    // force included — may record a week in which no matchup had a single starter. An
+    // archived backfill of a real week always has starters, so this refuses nothing real.
+    let fzStarterCount = 0;
+    for (const [h, a] of wkGames) for (const tid of [h, a]) fzStarterCount += (await fzStarters(week, tid, fzRosters)).length;
+    if (fzStarterCount === 0) return { ok: false, reason: "empty-week" };
+
     const pts = ptsOf || fzPts;
     const matchups = [];
     for (const [h, a] of wkGames) {
