@@ -45,6 +45,11 @@
 
 const ALLOWED_ORIGINS = new Set([
   "https://amenfarms.netlify.app",
+  // The GFFL league is the SAME Netlify site under a domain alias (notify.mjs precedent) —
+  // relative fetches make this inert today, but it keeps a future cross-origin call (a
+  // subdomain, a local alias) from being refused by surprise.
+  "https://goatfantasyleague.com",
+  "https://www.goatfantasyleague.com",
   "http://localhost:8080",
   "http://localhost:3000",
   "http://127.0.0.1:8080",
@@ -74,12 +79,40 @@ function json(obj, status, headers) {
   return new Response(JSON.stringify(obj), { status: status || 200, headers });
 }
 
-async function fetchUpstream(url) {
+// Every upstream fetch in this file goes through ONE wrapper with a deadline. Without it,
+// a slow/hung ESPN response runs past Netlify's ~10s function kill and comes back as a raw
+// 502 — breaking this file's own promise (header above: "a failure returns {ok:false,reason}
+// with HTTP 200"). FETCH_TIMEOUT_MS is the budget for an action that makes ONE upstream call.
+// FETCH_TIMEOUT_MS_SHORT is for the three actions that make TWO sequential calls (ff_matchup's
+// pro-game join at the bottom of ffMatchup, ff_draftinfo's bye-week read, ff_draftpool's
+// D/ST+K sweep) — both calls use the short budget so two worst-case timeouts still land under
+// Netlify's ceiling with room left for JSON parsing/slimming, rather than one 8s call leaving
+// the second no realistic room at all. Test hooks (tools/_verify-sports.cjs):
+// SPORTS_FETCH_TIMEOUT_MS / SPORTS_FETCH_TIMEOUT_MS_SHORT.
+const FETCH_TIMEOUT_MS = Number(process.env.SPORTS_FETCH_TIMEOUT_MS) || 7000;
+const FETCH_TIMEOUT_MS_SHORT = Number(process.env.SPORTS_FETCH_TIMEOUT_MS_SHORT) || 3500;
+
+async function timedFetch(url, opts, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms || FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...(opts || {}), signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+// AbortError means OUR deadline fired, not a real network failure — report it honestly as
+// "timeout" rather than folding it into the generic "unreachable" reason.
+function fetchFailReason(e) {
+  return (e && e.name === "AbortError") ? "timeout" : "unreachable";
+}
+
+async function fetchUpstream(url, ms) {
   let r;
   try {
-    r = await fetch(url, { headers: { "User-Agent": NFL_UA, accept: "*/*" } });
-  } catch {
-    return { err: "unreachable" };
+    r = await timedFetch(url, { headers: { "User-Agent": NFL_UA, accept: "*/*" } }, ms);
+  } catch (e) {
+    return { err: fetchFailReason(e) };
   }
   if (!r.ok) return { err: "http-" + r.status };
   try { return { data: await r.json() }; } catch { return { err: "bad-json" }; }
@@ -385,7 +418,20 @@ const SLOT_LABEL = {
   16: "D/ST", 17: "K", 20: "Bench", 21: "IR", 23: "FLEX",
 };
 const SLOT_ORDER = [0, 2, 3, 4, 5, 6, 23, 7, 16, 17, 20, 21];
-const POS_LABEL = { 1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "D/ST" };
+// Position 16 (D/ST) is "DST" here, NOT "D/ST" — league.mjs's own POS_LABEL (its importer,
+// mapRosterTeams) and the league app's own convention (assets/league/lg-ui.js
+// applyImportedRosters: `p.pos === "DST" ? "dst_"+team : ...`; LG.slotEligible compares pos
+// against the roster's OWN slot key, "DST") both already use "DST". The draft room sources its
+// player pool from THIS function (ff_draftpool/ff_matchup/ff_player/ff_pct_owned), so a "D/ST"
+// here reached the league as a pos the importer's `===` never matched: every drafted defense
+// got keyed by its raw ESPN id instead of dst_<team>, and LG.canFillLineup came back false for
+// every team post-import (2026-08-xx, the kickoff rehearsal suite, tools/_gffl_kickoff.cjs PART
+// A.4). SLOT_LABEL[16] below is left as "D/ST" on purpose — that's a DIFFERENT field (the
+// roster's own lineup-SLOT display name, not a player's position) and ffdraft.html's own
+// needsFor() reads it by that exact string (`sl["D/ST"]`) with no display-map indirection, so
+// renaming it here would silently zero out the draft room's D/ST roster-needs row with no
+// corresponding client-side fix possible from this file.
+const POS_LABEL = { 1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "DST" };
 
 function ffCookies() {
   // Read at call time (not module load) so an expired cookie can be replaced by
@@ -404,7 +450,7 @@ function ffSeason() {
   return d.getUTCMonth() < 2 ? d.getUTCFullYear() - 1 : d.getUTCFullYear();
 }
 
-async function ffFetch(views, extra, body, extraHeaders) {
+async function ffFetch(views, extra, body, extraHeaders, ms) {
   const cookie = ffCookies();
   if (!cookie) return { err: "fantasy-not-configured" };
   const year = Number(body?.year) >= 2000 && Number(body?.year) <= 2100 ? Number(body.year) : ffSeason();
@@ -412,9 +458,9 @@ async function ffFetch(views, extra, body, extraHeaders) {
     + "?" + views.map((v) => "view=" + v).join("&") + (extra || "");
   let r;
   try {
-    r = await fetch(url, { headers: { "User-Agent": UA, accept: "application/json", cookie, ...(extraHeaders || {}) } });
-  } catch {
-    return { err: "unreachable" };
+    r = await timedFetch(url, { headers: { "User-Agent": UA, accept: "application/json", cookie, ...(extraHeaders || {}) } }, ms);
+  } catch (e) {
+    return { err: fetchFailReason(e) };
   }
   if (r.status === 401 || r.status === 403) return { err: "fantasy-auth-expired" };
   if (!r.ok) return { err: "http-" + r.status };
@@ -528,8 +574,9 @@ async function ffMatchup(body) {
   const wanted = ffWantedName(body);
   // One call answers the whole family-matchup screen: both lineups with live
   // points + projections, PLUS each player's real NFL game state (joined from
-  // the site API's scoreboard, same upstream the NFL tab uses).
-  const { data: j, err, year } = await ffFetch(["mMatchupScore", "mBoxscore", "mTeam", "mSettings"], "", body);
+  // the site API's scoreboard, same upstream the NFL tab uses). TWO upstream calls in
+  // this action (this one + the scoreboard join below) -> both use the SHORT budget.
+  const { data: j, err, year } = await ffFetch(["mMatchupScore", "mBoxscore", "mTeam", "mSettings"], "", body, null, FETCH_TIMEOUT_MS_SHORT);
   if (err) return { ok: false, reason: err };
   try {
     const week = Number(body?.week) >= 1 && Number(body?.week) <= 30
@@ -545,7 +592,7 @@ async function ffMatchup(body) {
 
     // Pro-game states for the "yet to play / in play / done" dots.
     const proGames = {};
-    const sb = await fetchUpstream(`${NFL_BASE}/apis/site/v2/sports/football/nfl/scoreboard`);
+    const sb = await fetchUpstream(`${NFL_BASE}/apis/site/v2/sports/football/nfl/scoreboard`, FETCH_TIMEOUT_MS_SHORT);
     if (sb.data) {
       for (const ev of (sb.data.events || [])) {
         const comp = ev?.competitions?.[0] || {};
@@ -664,7 +711,9 @@ async function ffFreeAgents(body) {
 // the roster size (= draft rounds), the scoring format (which ESPN draft-rank
 // flavor to sort by), and every pro team's bye week.
 async function ffDraftInfo(body) {
-  const { data: j, err, year } = await ffFetch(["mTeam", "mSettings"], "", body);
+  // TWO upstream calls in this action (this one + the bye-week read below) -> both use
+  // the SHORT budget.
+  const { data: j, err, year } = await ffFetch(["mTeam", "mSettings"], "", body, null, FETCH_TIMEOUT_MS_SHORT);
   if (err) return { ok: false, reason: err };
   try {
     const teams = (Array.isArray(j?.teams) ? j.teams : []).map((t) => ({
@@ -693,8 +742,8 @@ async function ffDraftInfo(body) {
     // a failure just means the client shows no bye column.
     const byes = {};
     try {
-      const r = await fetch(FF_BASE + "/apis/v3/games/ffl/seasons/" + year + "?view=proTeamSchedules_wl",
-        { headers: { "User-Agent": UA, accept: "application/json" } });
+      const r = await timedFetch(FF_BASE + "/apis/v3/games/ffl/seasons/" + year + "?view=proTeamSchedules_wl",
+        { headers: { "User-Agent": UA, accept: "application/json" } }, FETCH_TIMEOUT_MS_SHORT);
       if (r.ok) {
         const s = await r.json();
         for (const pt of (Array.isArray(s?.settings?.proTeams) ? s.settings.proTeams : [])) {
@@ -759,8 +808,10 @@ async function ffDraftPool(body) {
       filterStatsForSplitTypeIds: { value: [0] },
     },
   };
+  // TWO upstream calls in this action (this one + the D/ST+K sweep below) -> both use
+  // the SHORT budget.
   const { data: j, err, year } = await ffFetch(["kona_player_info"], "", body,
-    { "x-fantasy-filter": JSON.stringify(filter) });
+    { "x-fantasy-filter": JSON.stringify(filter) }, FETCH_TIMEOUT_MS_SHORT);
   if (err) return { ok: false, reason: err };
   // D/ST + K sweep: the draft-rank-sorted fetch can EXCLUDE whole positions
   // that don't carry the requested rank type (reported live 2026-08-06 —
@@ -778,7 +829,7 @@ async function ffDraftPool(body) {
         filterStatsForSplitTypeIds: { value: [0] },
       },
     };
-    const r2 = await ffFetch(["kona_player_info"], "", body, { "x-fantasy-filter": JSON.stringify(sf) });
+    const r2 = await ffFetch(["kona_player_info"], "", body, { "x-fantasy-filter": JSON.stringify(sf) }, FETCH_TIMEOUT_MS_SHORT);
     if (!r2.err && Array.isArray(r2.data?.players)) sweep = r2.data.players;
   } catch { sweep = []; }
   try {
@@ -1056,11 +1107,11 @@ async function nflOwnership(body) {
   const filter = { filterActive: { value: true }, limit, sortPercOwned: { sortAsc: false, sortPriority: 1 } };
   let r;
   try {
-    r = await fetch(url, {
+    r = await timedFetch(url, {
       headers: { "User-Agent": UA, accept: "application/json", "x-fantasy-filter": JSON.stringify(filter) },
     });
-  } catch {
-    return { ok: false, reason: "unreachable" };
+  } catch (e) {
+    return { ok: false, reason: fetchFailReason(e) };
   }
   if (!r.ok) return { ok: false, reason: "http-" + r.status };
   let j;

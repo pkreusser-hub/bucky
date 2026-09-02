@@ -5863,3 +5863,886 @@ and is now DOCUMENTED here as a contributing factor rather than silently load-be
 If a bogus week-recap push went out on 2026-08-30, it cannot be unsent — the record it
 described no longer exists.
 ---
+
+## 🏈 GFFL — PRE-SEASON SERVERLESS HARDENING: timeouts, secrets, daily caps (2026-09-02)
+
+A pre-season review of `netlify/functions/{sports,league,farmgpt,audiogen-background}.mjs`
+found four gaps, all fixed here. Battery: `_verify-sports.cjs` 289/289, `_verify-ffai.cjs`
+39/39, `_verify-leaguecron.mjs` 45/45, `_verify-notify-url.mjs` 36/36 — all green.
+`_verify-ffdraft.cjs` is NOT green; see the D/ST finding below, which is the reason.
+
+1. **No upstream fetch had a deadline.** `sports.mjs` and `league.mjs` both hit ESPN with
+   plain `fetch()` — no `AbortController`, anywhere. Netlify kills a function at ~10s and
+   returns a raw 502, which breaks both files' own documented promise ("a failure returns
+   `{ok:false,reason}` at HTTP 200"). Both files now route every upstream call through one
+   shared `timedFetch()` wrapper (the `stocks.mjs`/`news.mjs`/`health.mjs` pattern already in
+   this repo). Single-call actions get a 7s budget (`FETCH_TIMEOUT_MS` / `LEAGUE_FETCH_TIMEOUT_MS`,
+   env-overridable); the three sports.mjs actions that make TWO sequential calls
+   (`ff_matchup`'s pro-game join, `ff_draftinfo`'s bye-week read, `ff_draftpool`'s D/ST+K sweep)
+   and league.mjs's URL-ladder actions (`lg_espn_rosters_season`, `lg_espn_kicker_audit`,
+   `lg_espn_history`) pass a SHORT budget (3.5s / 2.5s) on every call in the sequence, so a
+   worst-case double-timeout still lands under Netlify's ceiling instead of one slow call
+   eating the whole budget alone. `lg_espn_rules_audit`'s 6-slot diag loop (no suite fixture,
+   commissioner-only) gets its own tighter per-slot budget (1.2s) for the same reason.
+   `tools/_verify-sports.cjs` gained a "hang" fake-upstream mode (never responds, distinct from
+   the existing "drop" — immediate reset) and two new sections: **T** (sports.mjs, 10 checks)
+   and **L** (league.mjs — no dedicated function-level suite of its own exists; `_verify-gffl.cjs`
+   section A covers league.mjs but is a 20k-line, `league.html`-driving suite out of this
+   task's scope, so the coverage lives here instead, reusing the same fake fantasy upstream).
+   Both sections assert the abort fires near the CONFIGURED budget (elapsed > budget×0.5,
+   < budget+900ms) — proof it actually waited for the timeout, not a coincidental fast failure.
+   Bite: reverted to HEAD, the new checks don't just fail — they HANG (no deadline exists to
+   catch them), confirming the exact defect. `nflOwnership`'s catch also folds an AbortError into
+   the honest `"timeout"` reason instead of a blanket `"unreachable"`.
+
+2. **`audiogen-background.mjs` billed ElevenLabs credits behind the FAMILY password.** That
+   secret ships in every page's client JS; anyone who read `ffdraft.html`'s source could fire an
+   arbitrary batch of billed generation. It now gates on its OWN secret, `AUDIOGEN_SECRET`
+   (server env only, never shipped to a page, never falls back to `BUCKY_NOTIFY_SECRET`) —
+   unset or mismatched both refuse with 401, which is the correct default until an operator
+   sets it. **OPERATOR ACTION REQUIRED: set `AUDIOGEN_SECRET` in Netlify's environment, or this
+   function refuses every request.** `tools/_gen-draft-audio.mjs` now reads it from
+   `process.env.AUDIOGEN_SECRET` or `tools/.env` (never scrapes `ffdraft.html`) for its own
+   calls to this function specifically — its calls to `sports.mjs` (`ff_draftpool`/`ff_draftinfo`,
+   for the player pool and team names) are untouched and still use the scraped family password,
+   since that function's own gate wasn't part of this fix. The per-call job cap dropped from 220
+   (arbitrary headroom) to 200 — the largest real batch this generator ever sends
+   (`firePlayers()`'s `SAY_N` default, the 200-player announcement run); nothing else it fires
+   comes close.
+
+3. **The six gffl LLM modes had no server-side rate limit.** `fantasy`/`ffrecap`/`ffcommentary`/
+   `gfflproj`/`gffltrade`/`gffladjust` were gated on the same public family secret with nothing
+   bounding how many paid xAI/Anthropic calls a leaked or reused secret could trigger — unlike
+   story mode's own `STORY_DAILY_CAP`. Added `GFFL_DAILY_CAP` = 300/day, shared across all six
+   (the analyst on every trade suggestion, the adjuster per week, the booth every ~3rd draft
+   pick — ~60/draft — comfortably fits under 300 even on a heavy family day). Mirrors the story
+   cap's OWN mechanism exactly: a plain read-then-compare check before the model is ever called,
+   no CAS (the story cap has none either — it's a query-count, not an atomic increment, so
+   neither gets one). Rather than a second counter, it reads the field that ALREADY atomically
+   tracks these six modes: `w_req` in `logUsage`'s daily rollup doc (`farmgpt_usage/<date>`,
+   real Firestore `fieldTransforms.increment`, unrelated to CAS but genuinely atomic on write).
+   Checked AFTER `ffrecap`'s cached-column early return (an already-generated recap costs
+   nothing) and BEFORE any mode's messages are built. Fails OPEN on a Firestore read failure,
+   matching every other read in this file (`storyBonusToday`, `countStoryToday`) — the
+   alternative takes fantasy analysis off the site on any Firestore hiccup, worse than a bounded
+   burst risk during a rare outage window. `tools/_verify-ffai.cjs` gained section E (7 checks):
+   request #300 (counter at CAP−1) served normally and its OWN real usage-logging increment
+   carries the counter to exactly 300; request #301 refused `{ok:false,reason:"daily-cap"}` at
+   HTTP 200 with no model call; a DIFFERENT one of the six modes refused off the same shared
+   counter; a cached `ffrecap` still returns free; story mode untouched with the gffl counter
+   maxed; a reset counter (a new day's fresh doc) serves again. Bite: reverted to HEAD, exactly
+   the 2 cap-enforcement checks fail (37/39) — every other check, including "story cap
+   untouched," passes trivially with no cap at all, which is why only those 2 are the bite.
+
+4. **Minor**: `goatfantasyleague.com` / `www.goatfantasyleague.com` added to `sports.mjs`'s and
+   `farmgpt.mjs`'s `ALLOWED_ORIGINS`, matching `notify.mjs`'s existing set. Relative fetches make
+   this inert today; consistency for the next reader.
+
+### THE D/ST FINDING (urgent addition mid-task, FATAL) — and what it reopened
+
+Coordinator flag, proven by `tools/_gffl_kickoff.cjs` PART A.4: `sports.mjs`'s `POS_LABEL[16]`
+slimmed a drafted defense's `pos` to `"D/ST"`, while `league.mjs`'s own `POS_LABEL` and the
+league app's own convention (`assets/league/lg-ui.js` `applyImportedRosters`:
+`p.pos === "DST" ? "dst_"+team : ...`; `LG.slotEligible` compares `pos` against the roster's
+own slot key, `"DST"`) both already used `"DST"`. The draft room sources its whole player pool
+from `sports.mjs` (`ff_draftpool`/`ff_matchup`/`ff_player`/`ff_pct_owned`), so every drafted
+defense reached the league keyed by its raw ESPN id instead of `dst_<team>`, and
+`LG.canFillLineup` read false for all 8 teams post-import. Fixed: `POS_LABEL[16]` is `"DST"` in
+`sports.mjs` now. `SLOT_LABEL[16]` (a DIFFERENT field — the roster's lineup-SLOT display name,
+e.g. `ff_draftinfo`'s `slots` roster-needs object) is deliberately left `"D/ST"` — untouched, on
+purpose, because of what running the suites actually found next.
+
+**Running `tools/_verify-ffdraft.cjs` after the fix reopens a PREVIOUS incident (2026-08-06,
+same file's own comment at line ~899-901).** `ffdraft.html` never re-derives `pos` — it carries
+the pool's own string straight through into `D.picks[k].pos`, the position-filter chip, the
+roster-needs counter, and the mock-bot's need-targeting logic, all hardcoded to `"D/ST"` at the
+time each was fixed. Confirmed live by the suite itself, not by inspection alone: the D/ST
+filter chip shows zero rows (data-pos was fixed to `"D/ST"` in 2026-08-06 specifically to match
+the pool, `ffdraft.html:3070` `POS` array + `renderPlayers()`'s chip build), its CSS-color
+check fails as a cascade of the same empty result, the player-pool 24h cache stops caching at
+all (`poolHealthy()`, `ffdraft.html:~1216`, checks `pos === "D/ST"` to decide the fetched pool
+is real — now always concludes "no defenses," same false-negative the 2026-08-06 incident was
+originally about), and section B2's own `waitForFunction` on `pos === "D/ST"` times out and
+CRASHES the suite, so sections after it (cloud-unreachable banner, live/TV gate) never ran at
+all this pass. Worse: `tools/_gffl_kickoff.cjs`'s "0 of 8 teams drafted a D/ST" across 128 mock
+picks — first read as cross-agent noise — is this SAME bug: `ffdraft.html:~2466`'s bot logic
+filters `avail` by `pos === "D/ST"` to specifically target a defense, which now never matches,
+so the mock bots have no need-driven way to draft one at all.
+
+**Net effect of this fix alone: the FATAL post-draft import bug is solved, and a second, live,
+in-room bug is opened in its place** — the draft room's own D/ST chip/cache/needs-bar/bot-need
+targeting, broken from the moment this ships until `ffdraft.html` is patched to match.
+`ffdraft.html` is out of this task's file scope (another agent's domain, per this session's own
+restriction) and was not touched. The two files' idea of the position-16 label were ALREADY
+out of sync with each other in different eras (`ffdraft.html`'s 2026-08-06 fix pinned it to
+`"D/ST"`; `league.mjs`'s importer has apparently always expected `"DST"`) — sports.mjs can only
+emit one string and satisfy at most one side. **`ffdraft.html` needs a companion patch before
+the 2026-09-06 draft**: every `pos`-comparison site currently reading the literal `"D/ST"` needs
+`"DST"` instead — `POS` (line ~625, also drives the chip's `data-pos` AND its label text),
+`cssPos()` (~626, likely removable once `pos` is already CSS-safe), `poolHealthy()` (~1216),
+`teamPosCounts`'s `counts` seed object (~2336), `needsFor()`'s pair (~2353 — becomes an
+ASYMMETRIC `["D/ST", "DST"]`: the first element still indexes `info.slots`, which `sports.mjs`'s
+UNCHANGED `SLOT_LABEL` still emits as `"D/ST"`; only the second, which indexes the pos-keyed
+`counts`, needs to change), and the bot-targeting block (~2463-2477: `needSpecial`, the
+`avail.filter`, the `c["D/ST"] >= 1` guard). `SLOT_LABEL` in `sports.mjs` must stay `"D/ST"`
+unless `ffdraft.html`'s `needsFor()` first-element lookup is repointed too — the two label
+families (position vs. roster-slot-display) are independent and don't both need the same value.
+Restaged in `tools/_verify-sports.cjs` (a new pool-entry assertion, `pos === "DST"`) and
+`tools/_verify-ffdraft.cjs` (Section A's pure wire-value pool check, `"D/ST"` → `"DST"`, with
+this incident named at the change) — both are server-only checks unaffected by the client-side
+gap. The THREE client-dependent `_verify-ffdraft.cjs` failures (chip, its CSS-color cascade,
+pool caching) plus the section-B2 crash were left FAILING on purpose rather than restaged: they
+are real, reproduced regressions in `ffdraft.html`'s current behavior, not stale assertions —
+restaging them to pass would hide a live bug instead of documenting one.
+---
+
+## ffdraft.html — THE BACKDOOR PIN, NO GATE, and (mid-task) THE D/ST FINDING (2026-09-02)
+
+Security review, Build C. Files: `ffdraft.html`, `tools/_verify-ffdraft.cjs` (295 → **314**).
+File ownership was strict — only these two touched.
+
+### 1 — THE BACKDOOR PIN, deleted
+`var COMMISH_PIN = "14903"` shipped in every visitor's JS and `commishLogin` accepted
+`k === COMMISH_PIN || k === D.commishKey` — a literal, static PIN valid on **any** draft room,
+handing commissioner powers (rewrite picks, set keepers, pause/reorder) to anyone who read the
+page source. The constant and its branch are gone; `commishLogin` now accepts **only**
+`k === D.commishKey`. The inline PIN input (`#commishPinIn`, still there for a phone with no
+native prompt dialog) is relabeled "Commissioner key" (`type="text"`, was `type="tel"` — the
+key is alphanumeric, a numeric keypad was already wrong for it) since a short PIN doesn't exist
+to type anymore.
+
+**Commissioner-key recovery path (device changed, no PIN fallback left):** the room's own
+Commish tab already has this solved — `renderCommish()`'s "Share links" card shows the
+**Commissioner link** (`?c=<commishKey>`) with its own "Copy commissioner link" button, visible
+any time to a device already signed in as commissioner. The primary path: on the OLD device,
+open Commish → copy that link → send it to yourself → open it on the NEW device (the `?c=`
+query param is auto-adopted into `localStorage["ffd_ckey_<season>"]` on load, no length limit).
+The `#commishPinIn` field is the fallback for typing the raw key by hand (8 chars, fits its
+`maxlength="24"` fine) or pasting a short link into it. Nothing new was built here — it already
+existed; this fix only means it's now the *only* path, so it was worth confirming it actually
+works end to end (suite: typing the real key signs in; the pasted-link hook path signs in too).
+
+### 2 — NO GATE, closed
+The board (and the Firestore listener that streams live picks into it) rendered to anyone with
+the URL — no wall of any kind. Added the same one league.html already has: `LG.unlocked()`
+(`assets/league/lg-core.js`) reads `localStorage.getItem("choreUnlocked") === LG.PASS` OR
+`["thegoatleague","amenfarms"].includes(localStorage.getItem("gffl_pass"))`. `ffdraft.html`
+duplicates this verbatim as `familyUnlocked()` — same key (`"gffl_pass"`), same accepted values
+(`GATE_PASS = "thegoatleague"`, and `FAMILY_PASSWORD = "amenfarms"` for the family-app's own
+`choreUnlocked` legacy check) — so **a family member who already unlocked league.html is
+already unlocked here, one password, not two.** `GATE_PASS`/`GATE_KEY` are declared as their
+own constants (not borrowed from lg-core.js — this page stays self-contained per house
+convention) but `sectionGateStatic` in the suite reads both files' source and asserts the
+literals actually match, so this can't silently drift.
+
+Mechanically: a new `<section id="vGate" hidden>` (inside `<main>`, alongside `vLanding`/
+`vBoard`/etc.), and the whole boot chain — `initBackend()` (which opens the Firestore listener)
+plus `loadInfo/loadPool/loadLastDraft` — is now wrapped: `if (familyUnlocked()) startDraftApp();
+else renderFfdGate();`. Nothing else in the file calls `renderAll()` outside that chain (checked
+— every `watchPicks`/`watchMusic`/etc. only ever fires from inside `renderAll()`), so an
+unlocked visitor triggers **zero network calls**, not just a hidden DOM — stronger than a pure
+CSS gate. `renderFfdGate()` on success stores `gffl_pass = "thegoatleague"` (canonical value,
+same as `LG.tryUnlock`'s own behavior — case-insensitive typed input, canonical stored value)
+and calls `startDraftApp()` directly, no reload needed.
+
+**TV/spectator mode is NOT exempt** — `?tv=1` hits the exact same `familyUnlocked()` check
+before anything else runs, on purpose (a wall-mounted TV with no gate is a trap, same instinct
+already applied to TV mode's silent-audio design). Suite proves it explicitly.
+
+### 3 — Coordination note: FAMILY_PASSWORD untouched
+`var FAMILY_PASSWORD = "amenfarms"` (the server-secret literal `tools/_gen-draft-audio.mjs:323`
+regexes out of this file) was **not** renamed or moved — still the exact same `var
+FAMILY_PASSWORD = "([^"]+)"` shape. Nothing for that migration to reconcile against on this end.
+
+### 4 — (mid-task addition, FATAL, from the coordinator) THE D/ST FINDING
+`sports.mjs`'s `POS_LABEL[16]` changed from `"D/ST"` to `"DST"` (another agent, same day) to
+match `league.mjs`/`lg-ui.js`'s own convention — fixing the post-draft import (every drafted
+defense was landing keyed by raw ESPN id instead of `dst_<team>`). That flipped a *different*
+bug open here: `ffdraft.html` never re-derives `pos` — it carries the pool's string straight
+through — and every comparison site was hardcoded to the OLD `"D/ST"`, dead from the moment
+`sports.mjs` shipped: the D/ST filter chip (0 rows), the CSS-color check (cascading empty), the
+24h pool cache (`poolHealthy()` always "unhealthy" → never cached, the exact 2026-08-06
+incident reopened), the roster-needs bar, and the mock-bots' need-targeting (`tools/
+_gffl_kickoff.cjs` caught it live: 0 of 8 teams drafted a D/ST across 128 picks).
+
+**Fix, per the docs/gffl.md location list (read before touching anything):** every STORED-value
+comparison now reads `"DST"` — `POS` array (now `["QB","RB","WR","TE","K","DST"]`, itself
+CSS-safe so `cssPos()`'s slash-mapping was retired entirely, not just patched), `posClass`/
+`posColor` (use `pos` directly), `poolHealthy()`, `teamPosCounts`'s seed key, the bot-targeting
+block (`needSpecial`, the `avail.filter`, the `c.DST >= 1` guard), the position-filter chip's
+`data-pos`, and the custom-player `<select>`'s new explicit `value=` (its option TEXT and the
+`data-pos`/seed-key VALUE had been the same literal string doing double duty — they can't be
+anymore, since "DST" the stored value and "D/ST" the display label are now two different
+strings).
+
+**`needsFor()` is asymmetric on purpose** — and this is the one place the two label families
+genuinely diverge, not just a client-vs-server mismatch: `info.slots` (the roster-needs object,
+`sports.mjs`'s `SLOT_LABEL`) is a **different field**, deliberately left `"D/ST"` by the
+coordinator's fix (it's the ROSTER SLOT's display name, not a player's position), while
+`teamPosCounts`'s keys (a player's actual `pos`) are `"DST"`. `needsFor()`'s row objects now
+carry `{slot, key, label}` separately — `slot` indexes `info.slots` (stays `"D/ST"`), `key`
+indexes the pos-keyed `counts` and drives `neededPositions()`'s NEED-filter set (now `"DST"`),
+`label` is what the needs-bar chip actually renders (stays `"D/ST"` — unaffected, a pure display
+field all along).
+
+**"D/ST" survives everywhere else ONLY as a display label**, never a compared value — one new
+helper, `posLabel(pos)` (`pos === "DST" ? "D/ST" : pos`), wraps every remaining `esc(...pos...)`
+site that echoes a position as visible text: the pick-reveal card, TV ticker + spotlight, the
+player detail card, board cells, keeper cards + roster-candidate chips, the player-list row's
+colored dot, the confirm bar, the custom-position `<option>` text, and the team-roster
+round-by-round view. Net effect: **zero visible change** for a human looking at the page — every
+place that said "D/ST" before still says "D/ST" — only the underlying stored-value comparisons
+that were silently broken now match the real data.
+
+**Suite**: kept the other agent's already-restaged pure wire-value check in Section A (pool
+entries read `pos === "DST"` straight off the real handler — untouched by this task). Restaged,
+each with the finding named at the change: the D/ST-chip test's `data-pos` selector (now `===
+"DST"`, guarded — a missing chip reads as "the check failed," not a crash), and all five
+`p.pos === "D/ST"` reads in Section B2 (pool health) that check the REAL `window.__DRAFT__.pool`
+shape — these were checking genuine server data, not app logic, so once `sports.mjs` changed
+they were simply wrong regardless of anything in this file. Added: an assertion that the
+DST-chip test's actual filtered rows still read "D/ST" in the DOM (proves the display map, not
+just the comparison) and its CSS-color match (unchanged logic — passes once `posColor` resolves
+right). Added new: inside the existing mock-bot full-draft test, an assertion that both of the
+fixture's two D/ST players get drafted (the fixture pool only carries 2 defenses across 34
+players, so "every one of 8 teams" isn't provable at this scale — but with the room shrunk to 4
+rounds, a bot's very first pick already needs one, `needSpecial` trips from round 1, so both
+should be gone; this is the same `pos==="DST"` bot-filter mechanism `tools/_gffl_kickoff.cjs`
+proved dead at 8-team/128-pick scale, proven here at unit scale). "The chip lists defenses" is
+covered by the existing (now-fixed) chip-filter test itself — judged redundant to duplicate.
+
+Also fixed while in the neighborhood: three PIN/gate assertions that assumed the OLD, broken
+behavior would leave DOM elements in place (`#commishPinIn` disappearing once "14903" secretly
+succeeds; `#posChips [data-pos=DST]` simply not existing pre-fix; a pool-cache poisoning step
+assuming a cache exists) were made defensive (guarded booleans feeding `ok()`, not bare
+`.find(...).click()`/`JSON.parse(null)`) — a regression has to read as a failed check, not crash
+the ~150 checks after it. Proven necessary, not decorative: the combined bite-proof run below
+crashed twice before these guards existed.
+
+**PROOF OF BITE (both items, one combined run)**: `ffdraft.html` reverted to `HEAD` (test file
+kept at its fixed/restaged state) → `node tools/_verify-ffdraft.cjs` → **291 pass / 16 fail, 0
+page crashes**, every failure exactly one of: the 5 gate/PIN source-literal checks, the 2
+PIN-login checks, the 3 D/ST-chip checks, the D/ST bot-draft check, the 3 pool-cache checks, and
+2 of the 3 live-gate checks (the third — "a device carrying league.html's own key boots
+straight past this gate" — trivially passes on HEAD too, since HEAD has no gate to skip; not a
+meaningful bite point, noted rather than hidden). Restored → **314/314, 0 page errors**, clean
+process table (no orphaned Chrome/port squatters), re-run twice to confirm.
+
+Battery: `node tools/_verify-ffdraft.cjs` — **314/314**.
+
+**One incidental fix**, unrelated to security but blocking a green run today: `sectionPoolHealth`'s
+post-reload `waitForFunction` was pinned at 15s and intermittently timed out — reproduced
+identically on a fully pristine, untouched `HEAD` checkout of both files, so it predates this
+task and isn't a content bug. Bumped to 30s with the reason named at the change; the assertion
+itself is untouched.
+---
+
+## 🏈 GFFL — THE ENGINE REVIEW'S FIX BATCH: the money and auth paths, a week before kickoff (2026-09-02)
+
+Fourteen proven defects in `assets/league/lg-core.js`, every one of them reproduced first by a
+scratchpad probe (`lgsandbox.cjs` + `probe1..probe9b`) against the deployed engine, and every fix
+carrying a check in `tools/_gffl_seams.cjs` built from that probe's own reproduction. Files:
+`assets/league/lg-core.js` · `tools/_gffl_seams.cjs` (121 → **222**) · `tools/_gffl_season_sim.cjs`
+(restages only). `lg-data.js`, `lg-ui.js`, `league.html`, `netlify/*` and `tools/_verify-gffl.cjs`
+were NOT touched — three agents shared this worktree and the file ownership was strict.
+
+### F1 · A DELTA CANNOT BE COMPUTED AGAINST A DOCUMENT NOBODY READ
+`LG.saveTeam`'s offline fall-through called `build(null)` — and `null` goes straight to
+`opts.from`, so a FAAB deduction expressed as *"take $10 off whatever the purse really holds"*
+resolved `LG.teamFaab({})` to the RULES DEFAULT and wrote `budget − bid`. **Measured** (probe9b,
+with the failure injected at the CAS READ so the real branch is reached): a team that had already
+spent $60 took a $10 waiver hit and came out at **$90** — a $50 refund, silently, mid-run.
+The fix is one line and its reason: when `opts.from` is present, a failed read THROWS. The
+plain-field offline write survives for callers that pass no delta at all (a rename, a logo, a PIN,
+a trophy) — those genuinely do not care what the doc used to hold, and the seam suite pins both.
+processWaivers' own per-item handling (S1) is what records the throw by name.
+
+### F2 · ONE FAILED AUTH READ USED TO HAND OVER THE LEAGUE
+A null `LG.authDoc` meant two different things — *"the league has no commissioner PIN"* and
+*"we never heard back"* — and `gateCommish` could not tell them apart. **Measured** (probe3): with
+Dad's real hash on file and ONE `getFresh("auth")` failing, the gate offered **"Set a commissioner
+PIN (first time)"**, took whatever was typed, wrote it over the real hash, and unlocked. Three
+changes: (a) `LG.loadAuth` returns whether the read ANSWERED and latches `LG.authRead`, and
+`gateCommish` refuses outright on an unanswered read — **no prompt at all**, because a first-time
+prompt is itself the lie (a device carrying the legacy local hash is exempt, which is the pre-S1
+offline behaviour); (b) the first-time set is CREATE-ONLY (`LG.db.update(AUTH_DOC, cur =>
+(cur && cur.commishPinHash) ? null : {…})`) and an abort hands back the doc it refused against, so
+the typed PIN is judged against THAT instead of overwriting it; (c) a refused write never unlocks
+— the old code swallowed the failure and unlocked off a purely local hash, which on a read-only
+mirror handed the commissioner's controls to whoever tapped one. `LG.migrateCommishPin` took the
+same two guards: it is create-only now, and it will not migrate over an unanswered read (that path
+would have pushed a legacy hash over the league's own on one timeout).
+
+### F3 · A STARTER ON A BYE MADE THE WEEK PENDING FOREVER
+The live finality gate asked `fzGameState(team) !== "post"` — a raw `D.S.games` read — while RULE
+2's theorem (`LG.matchupDecided`, 2026-08-20) asks `D.gameDone(team)`. The two disagree on exactly
+the case that happens to eight teams every week: a bye team has no entry in `D.S.games`, so
+`fzGameState` returns null, `null !== "post"`, and the week never settles — while `D.gameDone` says
+a bye is done. **Measured** (probe1): eight teams, every tracked game `post`, ONE bye starter →
+`finalizeWeek` refused `not-final` naming him; the identical board without a bye starter finalized
+cleanly. Every week from week 5 on has byes. The gate reads `fzGameDone` now — the same function —
+and deliberately does not reimplement it, so it inherits the data layer's own concurrent tightening
+(an EMPTY games map is not a finished board; `post` now requires `completed !== false`). Fail-closed
+when the data layer is absent.
+
+### S1 · ONE FAILING WRITE MUST NOT TAKE THE REST OF THE LEAGUE DOWN
+Every write in `processWaivers`' tail was a bare `await` in a loop, so the first failure threw out
+of the run and skipped every team after it. **Measured** (probe4 case B, `saveTeam` throwing on the
+second dirty team): team 1's purse was never charged, **no transaction row was written for EITHER
+winner**, and the week was left unprocessed with two players already moved. Now: each roster write,
+each `logTx` and each `saveTeam` is attempted on its own, failures are collected by team and stage,
+and **the transactions are logged BEFORE the money** — a tx row is append-only and independent of
+the purse, so there is no reason for the only human-readable record of a move to depend on the
+money landing. A ROSTER write that fails abandons the run *before* the commit point (the commit is
+the point of no return for the money; the deltas are idempotent, so the next device simply re-runs
+it). Failures ride back on the run's result AND onto the week's own processing document, where a
+commissioner can find them.
+
+### S2 · TWO OWNERS VETOING AT ONCE, ONE VOTE RECORDED
+`LG.vetoTrade` was fresh-read → rebuild the array → BLIND whole-doc write: the read-modify-write
+shape the 2026-08-18 CAS rework closed everywhere else and missed here. Two owners voting within
+the same second is not a corner case for a veto — it is what a veto IS. **Measured** (probe7, the
+first write held on a gate until the second completed its whole read-modify-write): two votes cast,
+**one recorded**. With `vetoVotes` 4 of 6 eligible owners, a lost vote is a trade the league voted
+down that goes through anyway. Moved onto `LG.db.update` with the same shape `acceptTrade` uses;
+`logTx` and both pushes fire after a successful loop.
+
+### S3 · THE DEADLINE BINDS THE WHOLE TRADE, NOT JUST THE OFFER
+`LG.tradeDeadlinePassed()` was checked in `offerTrade` ONLY. **Measured** (probe6 §C): a NEW offer
+at week 17 was correctly refused `deadline-passed` while an offer made legally in week 10 was
+ACCEPTED and EXECUTED in the same breath. Both `acceptTrade` and `executeTrade` check it now, in
+`offerTrade`'s own `{ok:false, reason:"deadline-passed"}` shape. Deliberately a REFUSAL, not a
+cancellation — the trade stays visible and either party can cancel it. **Flagged, not hidden**:
+nothing expires such a trade automatically, so a stranded one is retried, and refused, on every boot.
+
+### S4 · THE LEAGUE RUNS ON CENTRAL TIME, NOT ON A FIXED OFFSET
+`LG.currentWeek` and `LG.waiverDeadline` anchored on `new Date(SEASON_START + "T05:00:00-05:00")`
+and then added whole 7-day and 24-hour spans — correct only while America/Chicago is on CDT. The US
+falls back **Sunday 2026-11-01**, and from the very next league week (week 9, Tuesday Nov 3) the
+Wednesday waiver deadline read **7:00 AM Central for the rest of the season** — an hour ahead of
+the cron that nudges the league to run it (`leaguecron.mjs` fires on an Intl-derived 8:00 Central
+band via a 13:00/14:00 UTC cross-product; the seam suite's own A4 already pins that). The engine and
+the cron would have disagreed about the deadline for the whole back half of the season, playoffs
+included. Both are derived in `America/Chicago` now, by the technique `leaguecron.mjs` and
+`chorereminders.mjs` already use — never a hand-rolled offset. `chiInstant(y,m,d,hh,mm)` is the
+inverse of `Intl`: the UTC instant at which Central's wall clock reads exactly that, resolved in two
+passes because the offset depends on the answer (05:00 and 08:00 are far from the 02:00 transition,
+so neither is ever ambiguous). Memoised — `currentWeek()` runs on every render and every poll tick.
+`LG.simClampAt` now reads `LG.weekStart(2)` rather than keeping a second, fixed-offset copy of the
+same boundary. **Hand-computed and asserted**: week 1 → `2026-09-09T13:00Z`, week 2 →
+`2026-09-16T13:00Z`, week 8 → `2026-10-28T13:00Z` (the last CDT one), week 9 → `2026-11-04T14:00Z`
+(the first CST one), week 10 → `2026-11-11T14:00Z`, week 14 → `2026-12-09T14:00Z` — every one of
+them 08:00 Central, before and after the shift; week 9 starts 7 days **and one hour** of real time
+after week 8, and `currentWeek()` still crosses cleanly on that real boundary.
+
+### S5 · advanceBracket — the last read-modify-write, closed
+Named as FOUND-NOT-FIXED by the 2026-08-18 CAS entry: it read the bracket through LG.db's CACHE,
+mutated that object IN PLACE, and ended on a blind whole-document `LG.db.set`. Two failures rode on
+it — `loadBracket` hands back the cache's own object, so every fill rewrote a document other readers
+on the page were still holding; and a device whose cached copy still had r3 null wrote those nulls
+over another device's resolved championship (the season sim's `writeOnce.bracket` sweep caught it as
+champ/third reverting from a real team id to null at w17, 2 of 2 runs on unmodified HEAD). Now a
+PURE `fill` over a clone, run inside `LG.db.update`; the trophy write and the `loadTeams` refresh
+moved OUT, below a successful loop, because a mutate can run six times and a trophy appended six
+times is six trophies. `fill` returning null when there is nothing to resolve means the common case
+(boot, every render, every finalize) still writes nothing at all.
+
+### S6 · A WEEK IS A UNIT
+The 2026-08-31 `empty-week` guard is LEAGUE-WIDE: it fires only when EVERY matchup is empty. A board
+where three matchups are ready and one pairing has nobody on either side sailed past it and recorded
+that pairing as a **0-0 TIE** in the same write-once doc — the identical `every([])` hole one level
+in. Refuse the WHOLE WEEK, naming the pairing in the teams' own names; force included, for the
+empty-week guard's own reason. The commissioner fixes the roster and re-finalizes.
+
+### S7 · ensureRoster's copy-forward was still a check-then-act
+The 2026-08-11 fix made it getFresh-before-write, which is two round trips with a window between
+them. Now one create-only compare-and-swap (`cur ? null : {the copied week}`): the server refuses the
+write if the doc exists and the abort hands back the roster this call should have adopted, so two
+devices copying the same week forward at the same instant produce ONE document and both get it.
+
+### S8 · THE IR VOCABULARY, WRITTEN OUT
+`LG.irEligible` was an EXACT-STRING `.includes()` over seven spellings, and the app reads two
+upstreams that agree on none of them. **Measured** (probe6 §A/§B): a genuinely hurt man parked on IR
+whose designation came through the ESPN import as `"OUT"` read HEALTHY — so `LG.illegalIR` flagged
+him as an illegal stash and **blocked that team from every acquisition** (`faAdd`, `addClaim`,
+`processWaivers`, `executeTrade` all refuse `ir-illegal`) for a stash that was perfectly legal. The
+table is now explicit, lowercased and trimmed: Sleeper's `Out/Doubtful/IR/PUP/NFI/Sus`, ESPN's
+`OUT/DOUBTFUL/INJURY_RESERVE/SUSPENSION`, and the `O`/`D` shorthands. **Deliberately NOT eligible**,
+and this is the anti-vacuity half: `Questionable` (a Q plays most weeks — parking him on IR is
+exactly the extra-roster-spot abuse the rule exists to stop), healthy/empty/null, and Sleeper's
+ambiguous `NA`/`COV`/`DNR`, which are not on the commissioner's list and are not reliably "out".
+
+### THE OWNERSHIP BELT · one man, two keys
+A GFFL roster keys a player by whichever id seeded it: the ESPN import writes his numeric ESPN id,
+and anything resolved through the Sleeper directory writes `slp_<pid>` (that prefix exists precisely
+because Sleeper carries an `espn_id` for only about half its directory — the 2026-08-09 identity
+batch). So the same footballer can sit on one roster as `4430807` and be offered on Moves as
+`slp_6813`, and every *"is he already owned?"* check compared RAW KEYS — which answers no, and hands
+two teams the same man. `LG.sameMan(a, b)` compares through `D.pidForKey`; **BOTH sides must
+resolve**, because an unresolved key means *"we do not know who this is"*, never *"he is somebody
+else"*, and treating a null as a match would collide every unknown key with every other one. Wired
+into `faAdd` (the ownership scan and both mutates), `faAddRefusal`, and `processWaivers`' owned /
+won-this-run sets.
+
+### THE MINORS, folded in
+- **`fzPts` coerces through `LG.n` first.** `LG.floorPts` is `Math.max(0, n)` and `Math.max(0, NaN)`
+  is NaN, so one non-finite `row.pts` propagated straight into the write-once weekly doc (where the
+  REST codec encodes it as `null`). Same at `fzTeamTotal`'s accumulation and the backfill's `ptsOf`.
+- **`ID_KIND` gains `proj` and `awards`.** Both doc kinds were minted long after that map was
+  written, so `kindOf` answered null for them and `knownAbsent` could never short-circuit their
+  reads — every miss was a real round trip, on every render. Purely the perf shortcut every other
+  kind already gets.
+- **The claim-refusal chain is four independent checks, first refusal wins.** The last link read
+  `if (!reason && overBudget) … else if (illegalIR)`, so when an EARLIER check had already set a
+  reason the `else if` RAN and overwrote it — a claim refused for `drop-gone` was reported to its
+  owner as `ir-illegal`, pointing them at a roster problem they did not have. The ORDER is unchanged
+  and still deliberate.
+- **`LG.DEFAULT_RULES` catches up with the live settings doc (v=8).** `roster` RB 2→3 and WR 2→3, so
+  eleven starting slots and `LG.rosterCap()` **19 → 21**; `scoring.dst_2pt_ret` 0→**4** and
+  `one_pt_safety` 0→**1**, the two rules the 2026-08-13 ESPN reconciliation found UNEXERCISED in the
+  real 2025 season and grounded through the settings sheet instead. This object is what a brand-new
+  league — and every fixture with no settings doc — starts from.
+- **`LG.toggleReaction` onto `LG.db.update`.** getFresh-then-set is a check-then-act, and two owners
+  tapping the same emoji within a second is what a reaction is.
+
+### ⭐ THE ZOMBIE WEEKLY DOC HEALS ITSELF
+Twice in one week (2026-08-30 and 2026-09-01) a family device still running a pre-guard build wrote
+`weekly_2026_w1` as four 0-0 ties out of its own boot auto-checks, over the season-reset's empty
+rosters. Both were backed up and deleted **by hand**. That repair does not scale and it does not
+close the hole: a phone that has not reloaded is still running the old engine, and the weekly doc is
+CREATE-ONLY — so a zombie written after the last manual cleanup would make the REAL finalize on
+Sep 14 bounce off it with *"already finalized"*, and the week's true result would be unrecoverable.
+- **`LG.weeklyIsVoid(doc)`** needs BOTH halves: every matchup 0-0 on both sides, AND every
+  power-ranking score 0 (score = 4·wins + 0.05·PF + 2·last3, so one real win puts a team at 4 and one
+  real point puts somebody above zero — a played week cannot have an all-zero power table). A doc
+  with no power table at all falls back to the matchup half, which is the shape both real zombies had.
+- **WHAT MAKES IT SAFE rather than a guess**: since the `empty-week` guard and S6's `empty-matchup`
+  guard beside it, no path in this file — commissioner force included — can WRITE an all-zero week.
+  The only documents that can now match the shape are zombies.
+- **Every weekly reader treats a void doc as absent**, through one funnel. `LG.loadWeeklyDocs()`
+  replaces `LG.db.list("weekly")` at all eight lg-core sites: `loadStandings`, `loadStreaks`,
+  `playoffOdds`, `powerRankings`, `seasonAccuracy`, `headToHead`, `recordBook`,
+  `ensureAdjustedProj`. `LG.loadWeekly(week)` returns null for one, which is what makes
+  `buildBracket`'s missing-weeks scan, `advanceBracket`'s three round reads and lg-ui's own week card
+  inherit the heal without knowing it exists. `LG.powerRanking(docs)` filters internally as well,
+  because it is a PURE function whose docs come from lg-ui's `UI._allWeekly`.
+- **`finalizeWeek` REPLACES a void doc** under the ordinary compare-and-swap, carrying
+  `replacedVoid: true` so the repair is on the record; a REAL record stays untouchable (the mutate
+  aborts and the caller gets it back, exactly as before). The idempotency guard at the top no longer
+  answers `ok:true` for a zombie either.
+- **KNOWN, and it belongs to lg-ui**: `staleFinalizeWeeks` builds its `have` set from
+  `UI._allWeekly`, read straight off `LG.db.list("weekly")` in a file this batch does not own — so a
+  void doc still counts as "have" there and no stale-week card is raised. That is the outcome the
+  commissioner asked for, reached by lg-ui's own route rather than by this filter; the more correct
+  behaviour (offer the archived backfill for a void week) is a one-line filter for whoever owns
+  lg-ui next.
+
+### VERIFY
+`node tools/_gffl_seams.cjs` — **222/0** (was 121; new section F, 100 checks). Race repros green:
+clobber **9/0** · doublespend **12/0** · dbltap **9/0**. `node tools/_gffl_season_sim.cjs` — 17
+weeks, 89 sweeps, **15,878 checks, 0 failures** (no `push.produced` or claims intermittents fired).
+
+**PROOF OF BITE.** `assets/league/lg-core.js` reverted to HEAD (the new/restaged suite kept), full
+run against that mix: **168 pass / 54 fail** — and the split is the evidence. Of the 122 checks in
+the pre-existing sections A–E, **120 pass in BOTH worlds** and the 2 that do not are exactly the two
+restaged for the `DEFAULT_RULES` slot-script change. Of the 100 new section-F checks, 52 fail
+pre-fix, each on-point, and the old code says it in its own numbers: the purse reads **$90** where
+$40 was correct (F1); the gate **unlocks and overwrites Dad's hash** with the sha of a typed 9999
+(F2); the week refuses `not-final` naming **Bye Guy** (F3); `processWaivers` **throws out of the
+run** with 0 transaction rows (F4); the vetoes array reads **`[3]`** where two votes were cast (F5);
+the post-deadline accept **executes** (F6); weeks 9/10/14 read **07:00 Central** (F7); device A's
+stale write puts champ and third back to **null** and the store refuses **0** writes (F8), and the
+object `loadBracket` handed out is mutated underneath its holder (F8b); the empty pairing is
+recorded as a **0-0 tie** alongside three real matchups (F9); **two** roster writes are accepted
+where one should have been refused (F10); `irEligible` matches **6 of 14** real spellings, `sameMan`
+does not exist and `faAdd` allows the double-own, `DEFAULT_RULES` reads cap 19 / `dst_2pt_ret` 0,
+`ID_KIND` costs **2** reads for two misses, and one of two reactions is lost (F11); the refusal reads
+**`ir-illegal`** where `drop-gone` was the real problem (F12); the void doc counts a **TIE** in the
+standings and `finalizeWeek` bounces off it (F13); a NaN reaches the stored record as **null** (F14).
+App file restored from the scratchpad backup, confirmed byte-identical before the after-count.
+
+### RESTAGED, each with its reason at the check
+- **`tightNine` → `tightEleven`** and `cap = 19` → `21` (`tools/_gffl_seams.cjs`, C3/C5): the slot
+  script gained two starting slots, so every fixture hand-built to exactly fill a lineup or to sit
+  exactly at cap had to move with it. C3a's arithmetic becomes 21 −1 +2 = 22; C3b's hand check names
+  eleven players; C3b-ii's naive-greedy trap is re-sized (and its `badOrder` with it); C3c's shortage
+  moves from *"1 RB where 2 are required"* to *"2 where 3 are"*. C3 also gained a runtime assertion
+  reading the booted engine's own `LG.rosterCap()`/`rules.roster`, so this file's constants can never
+  silently drift from the engine again — which is exactly what had happened.
+- **D4's fixture narrowed to a one-game week**: it finalized against the kit's 4-pairing schedule
+  while only teams 1 and 2 carried rosters, so three matchups had zero starters on both sides.
+  `finalizeWeek` now refuses the whole week for exactly that (S6) — the ruling working, not a
+  regression. The hand-computed 12.4 is untouched.
+- **`tools/_gffl_season_sim.cjs`: `ROSTER_SIZE`/`ROSTER_CAP` DERIVED**, not copied. Both were
+  hand-computed constants lifted from `LG.DEFAULT_RULES.roster` when they were written, and went
+  stale the moment that object moved. The sim now READS the roster block out of `lg-core.js` at
+  startup, throws loudly if it cannot find it, and uses that one object for the constants, for the
+  settings doc it seeds, and for `slotRoster`'s own script. `TEAM_COMP` grows by one RB and one WR —
+  the two positions that gained a starting slot — and is asserted against the derived draft size
+  rather than left to be re-derived by hand.
+- **`scoreOfKey` applies RULE 1's zero floor** (`tools/_gffl_season_sim.cjs`). The sim's independent
+  scorer has been a rule short since 2026-08-20: `nodeScore` mirrors the stats→points FORMULA only
+  (which is right — it is the same number `_gffl_rules_reconcile.mjs` proves against ESPN's real 2025
+  season, and that reads through no floor), but the value `weekly.totalsMatchRosters` compares
+  against a WRITTEN weekly doc has to be the value the engine actually writes, and that one is
+  floored. **Why it only surfaced now**: it needs a starter who genuinely scores negative, and seed
+  1's old universe had none — the `TEAM_COMP` change shifts every pid and therefore every
+  deterministic `hashRng` draw, and the new seed-1 universe has a kicker at −1.0 in week 2. The sweep
+  reported team 3 at exactly **Δ1.00**. The engine was right; the mirror was stale.
+
+### KNOWN / FLAGGED
+- **`LG.DEFAULT_RULES.roster` has a blast radius outside this batch.** `tools/_verify-gffl.cjs`
+  seeds no settings doc at all, so every one of its fixtures falls back to this object — cap 19→21,
+  nine starting slots→eleven. Stored roster docs carry their own explicit slots, so team TOTALS are
+  unaffected; what moves is `LG.rosterCap()` (roster-full refusals, the "N open spots" row),
+  `LG.canFillLineup` (a 2-RB fixture is now "already unfillable", which makes the trade LINEUP guard
+  inert rather than wrong), `fzOptimalTotal`'s Bench Blunder arithmetic (top-3 instead of top-2 at RB
+  and WR), and the locker's rendered starting-slot count. That suite was not run here by
+  arrangement — flagged for whoever does.
+- **The live league is unaffected by the roster change**: its settings doc (v=8) already carries
+  `{QB1 RB3 WR3 TE1 FLEX1 DST1 K1 BENCH7 IR3}`, which is where these values were read from.
+- `xp_miss` is `-1` in `DEFAULT_RULES` and `0` in the same 2026-08-13 reconciliation's
+  grounded-through-the-settings list. Observed, deliberately out of scope for this batch, not changed.
+- A trade stranded past the deadline (S3) stays `accepted` and is refused on every boot; nothing
+  expires it automatically.
+- **HARNESS NOTE**: two seam-suite runs aborted with Puppeteer's *"Navigating frame was detached"*
+  during a window in which another agent ran `taskkill /F /IM chrome.exe /T`. Both were re-run to
+  completion; nothing was restaged for them. Never `taskkill` all chrome/node — find the squatting PID.
+---
+
+## 🏈 GFFL — THE WEEK-BOUNDARY BATCH: what "done" means, what a week is, and the ruling on screen (2026-09-02, one week before kickoff)
+
+Twelve findings from a pre-kickoff review of the data layer and the UI, all landed together.
+Files: `assets/league/lg-data.js` + `assets/league/lg-ui.js` + `tools/_verify-gffl.cjs`
+(new section **BF**). `lg-core.js`, `league.html`, `netlify/functions/*` and `ffdraft.html`
+untouched by this build — the engine half of two of these findings (finalizeWeek reading
+`D.gameDone`) is a separate, concurrent piece of work.
+
+### ⭐ D-F1 · ESPN's week boundary is not the league's, and the board now follows the LEAGUE's
+
+`pollScoreboard`'s bare `/scoreboard` means "the current week" — **ESPN's** current week, which
+rolls on a Wednesday ~07:00Z and rolls EARLY once a week's last game finishes. This league's week
+runs Tue 05:00 America/Chicago → Tue. The two therefore disagree for several hours **every week,
+in both directions**, and the bare payload is the only thing that decides which week's rows land
+in `D.S.games` and `D.S.espnWeek`:
+
+- ESPN rolls FIRST → Monday night's auto-finalize of week N sees `espnWeek` N+1 and refuses with
+  `stale-week` for the whole window in which finalizing is actually correct;
+- ESPN rolls LATER → Tuesday morning the league is on week N+1 while the board still holds week
+  N's finals, and a finalize books last week's numbers into this week's **write-once** record —
+  the exact shape of the 2026-08-08 findings 1/3/7.
+
+The 2026-08-26 season-reset batch already re-targeted a PRESEASON payload to the explicit regular
+slate. That block is now **generalized**: whenever the bare payload states a regular-season week
+that is not `LG.currentWeek()`, the same explicit fetch is made
+(`?dates=<season>&seasontype=2&week=<LG.currentWeek()>`). `D.S.espnWeek === LG.currentWeek()` by
+construction rather than by luck. The week test is gated on a **finite stated week**, so a payload
+naming no week at all (most of this suite's own fixtures, and any future ESPN shape change) does
+not fire a second fetch on every tick — an unknown week is already handled, honestly, by
+`espnWeek` reading null and every permanent write refusing.
+
+**THE BELT** lives in `D.gameDone`, not in a second copy of the test: while
+`D.S.espnWeek != null && D.S.espnWeek !== LG.currentWeek()` it returns false for every team, so
+`matchupSides` → `LG.matchupDecided` refuses too and no gold clinch star can appear over a week
+the board is not holding. `D.boardWeekMismatch()` is the one predicate.
+
+### ⭐ D-S1 · An EMPTY board is not a finished one
+
+`D.gameDone` answered **true** for a team with no tracked game — correct for a bye, catastrophic
+for an empty map. `D.S.games` is empty on every cold boot until the first poll lands, and for the
+whole life of a tab whose ESPN reads fail. So every matchup painted itself a **decided 0-0 tie**,
+with a clinch star and a provisional standings row, before a single byte of the slate had been
+read. A bye is a fact ABOUT a slate we have; no slate at all is not a fact about anything.
+`D.S.games.size === 0` now returns false, and `D.remaining` already agreed (every starter reads
+"to play"), so the strip and the star cannot contradict each other.
+
+### D-S6 · Postponed and cancelled games
+
+ESPN moves them to state **"post" with `completed:false`** and `name:"STATUS_POSTPONED"` — the
+slate has passed the game, nobody played it. `pollScoreboard` recorded only `state`, so a
+postponement read to this app exactly like a final. Both fields are slimmed now;
+`D.gameDone` requires `state === "post" && completed !== false`, and `D.remaining` counts such a
+game as still to play. **`!== false` rather than `=== true` deliberately**: the field is recorded
+by `pollScoreboard` alone, so an entry written by any other producer (the 2025 replay's
+synthesized slate, a seam/suite fixture that sets `D.S.games` directly) carries `null` and keeps
+reading exactly as it did. This closes ESPN's own shape without inventing a refusal for everyone
+who never states the field.
+
+### D-S7 · `D.remaining` resolved a player's NFL team from a live row only
+
+A starter with no stat row — every starter until his first line lands, and permanently for anyone
+Sleeper's bucket never carries — counted as "still to play" with his game long over. That is what
+kept the matchup hero off "Final" and `D.winProb` off its 100/0 pin all afternoon. It now falls
+back to `D.metaForKey(key).team`, exactly as `D.liveProj` and `D.remainingProj` already did.
+
+### D-S3 · The poll loop doubled on every visibility toggle
+
+`D.S.running` cannot stop a chain already suspended inside its own `await D.pollOnce()`: `stop()`
+clears the pending timer and flips the flag, the in-flight tick resumes afterwards, and by then a
+`start()` has flipped the flag back. Each stop/start pair left the OLD chain running beside the
+new one and armed a second timer. The GFFL rides inside Bucky's home-screen iframe, whose
+visibility handler calls `D.stop()`/`D.start()` on **every tab hop** — so this doubled the whole
+upstream poll volume per hop, indefinitely and invisibly, because `D.S.loopStarts` only ever
+counted arms past the running guard and a resumed chain never passes through `start()`. Fixed with
+a generation token (`D.S.loopGen`), checked at the top of each tick **and again after the await**
+— the second check is the half that closes it. `D.S.timerArms` is the new counter that makes it
+provable.
+
+### ⭐ D-S4/S5 · The Tuesday rollover, on a tab that never reloads
+
+`D.initSleeper` is memoized once per session and **nothing anywhere cleared `D.S.players`**. A
+session is not a week. Across Tuesday 05:00 Central that tab kept polling last week's Sleeper
+bucket, showed last week's projections, and — worst, because it looks like real scoring rather
+than a stale number — kept every one of last week's stat ROWS in memory, so the new week's matchup
+opened with last Sunday's points on it and stayed that way.
+
+`readSleeperState()` and `loadSleeperProjections()` are split out of `initSleeper` (the directory
+and its hourly refresh are NOT week-scoped and are untouched). `D.maybeRollWeek()`, called first
+in `pollOnce`, clears the week-scoped memory — `players`, `events`, both seeded flags, the
+name→row maps, `fetchedFinal`, the stats bucket, `slpProj`, the browsed-week slates, and the two
+health `lastChange` markers — then re-reads `/state/nfl` and re-fetches projections at the new
+week. Identities, the id memo and the archived-week cache all survive, so a rollover costs no
+re-download of the 12,000-entry directory. The hourly injury-directory refresh now re-reads
+`/state/nfl` too, which is what catches **Sleeper's** own boundary (days apart from the league's
+in preseason) without a timer of its own.
+
+### D-S8 · The injury designation the IR rule needs is in the DIRECTORY
+
+`D.injuryFor` read `D.S.players` — which holds a row only for a player the stat poll has seen,
+i.e. only for players who have **played**. The IR rule turns on exactly the opposite population: a
+man ruled Out has no stat line by definition. So the read fell through to the roster doc's
+import-time snapshot and a player the league listed Out all week read healthy, and
+`LG.irEligible` refused the move the locker was offering him for. The Sleeper directory is where
+`injury_status` actually lives; it is already fetched and already refreshed hourly, and
+`D.pidForKey` resolves a roster key to its entry through all three methods, so this costs no
+network and reaches the espn_id-less half of the directory.
+**Narrowed deliberately**: only a NON-EMPTY directory designation wins. The directory states
+"healthy" and "not carried" with the same empty string, so treating empty as an authoritative
+all-clear would silently erase a designation a roster import legitimately carries for a player the
+dump does not describe.
+The locker's own two IR checks (`irOk`, and the IR candidate filter) read the live row **directly**
+and now go through `LG.injuryOf` — the seam whose whole stated purpose since 2026-08-15 was that
+"the RULE and the LOCKER can never disagree about whether a man is hurt". They had disagreed:
+`doMove` used the seam and correctly allowed the move the list refused to offer.
+
+### Washington: one team, two spellings
+
+`slpTeam()` rewrites ESPN's `WSH` to Sleeper's `WAS` — right for every lookup against
+Sleeper-keyed data, wrong for a URL addressed to ESPN, which answers `/teams/WSH/schedule` 200 and
+`/teams/WAS/schedule` **400**. `D.teamSchedule` built the URL from the normalised form, so every
+Washington player's card silently degraded to the old played-weeks log. There is now an inverse
+map (`D.espnTeam`): the URL speaks ESPN, the cache key and the endpoint-bookkeeping name speak
+Sleeper, so both spellings share one fetch.
+
+### Minors, data layer
+
+- **`applySide`'s feed delta** was the one multiply the 2026-08-09 NaN fix left open —
+  `(nv - ov) * (scoring[k] || 0)` catches a NaN and passes a truthy non-number through, and a
+  scoring table is commissioner-typed, Firestore-round-tripped data in which `"4 pts"` really does
+  land. Every factor goes through `num()` now.
+- **`normSlp`** normalises an EXTERNAL payload and used `x || 0` throughout: a string `"150"`
+  survived into the line, and the `fg_0_39` SUM turned three of them into `"110"` by
+  concatenation. Every field lands through `num()`.
+- **`D.fetchWeekSlate` books under its own endpoint name** (`"espn week slate"`). Booking a
+  browsed week under `"espn scoreboard"` made a reader idly paging through October count against
+  the live poll in `D.EP` — the health page's data source, and the mechanism sections W2/AY6
+  measure with.
+- **ESPN's `scoringPlays[].type` is an OBJECT** (`{id, text, abbreviation}`), not a string.
+  `String(p.type)` on the real payload is the literal `"[object Object]"`, so the app's own type
+  branch had never once matched in production — every FG reached the parser through its text
+  fallback alone, and the safety branch relied entirely on prose. Both shapes are read now.
+- **`parseEspnBox` reads a player's own defensive/return touchdowns** — the `defensive`,
+  `interceptions`, `kickReturns` and `puntReturns` categories all carry a TD column and this
+  parser read none of them, so in ESPN-only mode (a real Sleeper outage; preseason, when Sleeper's
+  bucket is thin) a pick-six scored the man who made it nothing. **De-duplicated, not summed**:
+  ESPN's `defensive` TD column is the umbrella count and `interceptions` TD is a subset of it, so
+  a pick-six appears in both — `max()` credits it once, and kick/punt returns add.
+
+### ⭐ U-F1 · A rostered player could be claimed onto a second team
+
+`D.searchFA` keyed each candidate `espn_id || "slp_" + pid`. Only ~55% of Sleeper's directory
+carries an `espn_id` (measured live 2026-08-09: 6,727 of 12,217), so for the other half this minted
+a key **no roster holds** — and the `owned` exclusion, which is the only thing making that pool a
+free-agent list rather than an NFL directory, missed him. `LG.faAdd`'s own "is he already owned"
+scan compares KEYS, so it did not catch it either: the two strings are different. Both `searchFA`
+and the Hot-pickups strip now use the expression both pollers already use —
+`D.S.keyByName.get(nameKey(name, team)) || espn_id || "slp_"+pid`.
+
+### U-S2/U-S5 · A background refresh ate what someone was typing
+
+`UI.quietRepaint`'s non-matchup branches end in `UI.show()`, whose first act is
+`dropOverlayDom()`. So `LG.db.onChange`'s ~15s background refresh **closed** an open claim sheet,
+swap sheet or player card and took the half-finished work with it: a typed FAAB bid, a chosen
+drop, the row being read. On Wednesday morning — the one moment of the week when everyone is
+typing a bid — the odds of losing one were even. `quietRepaint` now takes the reconnect seam's own
+rule (ITEM 8, 2026-08-22): **defer while `UI._overlayOpen() || lockerInteractionBusy()`**, and
+drain the moment the reader closes — deferring rather than dropping is what keeps it a repaint
+instead of a lost update. The trade note (`#mvTradeNote`) became session state
+(`UI._tradeNote`) like the AI analyst's panel beside it, since `renderMoves` runs on every
+background refresh and on every chip, sort and team tap.
+
+### U-S3 · Three money actions with no failure path
+
+Drop, Send offer and Add/Submit-claim all handled the ENGINE's own `{ok:false, reason}` refusals
+and let an **exception** — the Firestore 12s timeout, the offline mirror's read-only throw, a CAS
+exhaustion — escape as an uncaught rejection. No toast; and on the two paths that disable their
+own control first, a permanently dead button ("Dropping…") that only a page reload could clear.
+All three now: disable, `try`, name the failure through `failWords()` (an `offlineReadOnly`
+refusal degrades to the sentence `LG.onOfflineWrite` already toasts, never a second technical
+one), restore in `finally`.
+
+### U-S4 · The Matchup header announced "Final" over a week nobody played
+
+`!anyLive && left === 0` is **vacuously true** with zero starters. The league home's card was
+given a `counted > 0` guard on 2026-08-09 and the entry recorded the Matchup page's own copy of
+the expression as "KNOWN, deliberately not restaged". It is the same expression and it now takes
+the same guard — which matters because between the season reset and draft day it was true of
+every matchup in the league.
+
+### ⭐ U-S6 · The ruling and the screen disagreed
+
+Ruled 2026-08-26: the draft is Sun Sep 6 and "anyone undrafted is simply a free agent, instantly
+addable, first come first served, no waiting period". Section BC6 verified the ENGINE already
+behaved that way (`LG.faAdd` consults no clock). The **Moves page did not**: it decided the whole
+question on `LG.now() >= LG.waiverDeadline(week)` alone, so from the draft until Wednesday Sep 9
+08:00 every undrafted player was offered as a blind-bid CLAIM and the card read "Free agency
+Closed" — the ruling true of the code and false on screen.
+
+The missing half is *why* a waiver window exists: to protect an order of preference over players
+who became available during the week's games. **Before the season's first kickoff nothing has
+become available and there is no order to protect.** So free agency is open when EITHER the week's
+deadline has passed (unchanged) OR no game of the season has kicked off yet. "The season", not
+"this week" — in week 2 the board holds week 2's slate, every game of which is still `pre` on the
+Tuesday, and reading only that would reopen free agency every week and delete the waiver system.
+Any league week past the first means week 1 has been and gone; inside week 1 the live slate's own
+kickoffs answer it; a board with no slate in memory falls back to the ordinary deadline rule
+rather than declaring the season unstarted off a board nobody has read.
+
+### Minors, UI
+
+- **`REASON_LABEL` gained `empty-week`, `empty-matchup` and `not-final`** — three engine refusals
+  with no entry, so the RAW CODE reached the screen. `empty-week` reached the family's own board
+  on 2026-08-31.
+- **`tradeBlockLabel` shortens the player's name**, and the add/claim toasts do too — every other
+  name on screen has gone through `LG.shortName` since 2026-08-08.
+- **The stale-week card stops counting a ZOMBIE as a settled week.** Routed here from Build A's
+  engine work (`LG.weeklyIsVoid` / `LG.loadWeeklyDocs`): every other weekly reader goes through
+  `loadWeeklyDocs`, but `staleFinalizeWeeks` built its "already have it" set from the RAW
+  `UI._allWeekly` list — so the two real 0-0 docs the 2026-08-31 vacuous finalize wrote would
+  have kept their own weeks off the one screen that offers the archived-stats repair. The raw
+  list stays raw (its other reader, the power-rankings card, filters for itself); the SET is
+  what filters now.
+- **`reconnectAfterOffline` repaints Moves, Chat, Rules and the bracket** as well as the three
+  views it already handled — the four screens where a reconnect matters most (a waiver run that
+  landed while this device was dark, the messages it missed, a rules edit, a bracket that
+  advanced) were left showing the offline mirror's copy. They route through the now-guarded
+  `UI.quietRepaint`, which is safe here for exactly the reason that routine exists: it defers
+  while a sheet or an upload is open instead of wiping it.
+- **The Draft Day import confirms itself.** `runDraftImport` wrote its success card into
+  `#importOut` and then called `UI.show("rules")`, which rebuilds `main()` and destroys that node
+  in the same synchronous turn — so the most consequential action in the app (it replaces all
+  eight rosters) finished by looking like nothing had happened, on every run. The confirmation is
+  a toast now (a sibling of `main()`, which outlives the render) and the card is written back
+  afterwards.
+
+### Suite — new section BF, and the restages
+
+**RESTAGED, each with its reason at the check:**
+- **Section V's five week-provenance stagings (V1/V1b/V1c/V5a/V5c).** D-F1 means a mismatched
+  `D.S.espnWeek` can no longer arrive over the wire at all — which is the point of the fix. The
+  premise those blocks test ("the engine is holding week N while the league is on week M") is
+  still real: Sleeper's own `/state/nfl` says so independently, and the board really can be a week
+  behind between the rollover and the first re-targeted poll. So it is **staged directly**
+  (`pinEngineWeek`) instead of manufactured by the bare payload's own `week.number`, and the five
+  blocks arm `fixture.retargetSlate` so the re-targeted board is byte-identical to the one they
+  always had. Nothing they ASSERT moved, and the staging is equally true against the pre-fix
+  engine — which is what makes it a staging restage rather than a bent assertion.
+- **`sbFix`'s `status.type` gained `completed` and `name`**, which the real payload has always
+  sent and this fixture simply omitted. The omission is what made a postponement indistinguishable
+  from a final here, so the app could not have been tested against the difference.
+- **`sumAFix`'s `scoringPlays[].type` became the real OBJECT**, and its DAL box gained the
+  defensive/interceptions/kickReturns/puntReturns groups every real ESPN summary carries. The
+  defensive athlete (`999777`, D. Backer) is deliberately UNROSTERED, so the more realistic
+  fixture moves not one hand-computed team total anywhere in the file.
+- **AI14's `waitFnOr(/Draft imported/)` was a BARE wait** — the "a `waitFnOr` followed by nothing
+  asserts NOTHING" trap this file has already recorded twice. It could not have been asserted
+  before today either, because the confirmation was destroyed in the same turn it was written. It
+  is a real assertion now, plus the toast.
+
+**RESTAGED FOR BUILD A's ENGINE WORK, landing the same day.** `tools/_verify-gffl.cjs` is this
+build's file, so the suite-side consequences of the concurrent `lg-core.js` batch were absorbed
+here, each with its reason at the check:
+- **`LG.DEFAULT_RULES.roster` caught up with the live league** — RB2/WR2 → RB3/WR3, cap 19 → 21
+  (the settings doc has been RB3/WR3 since the ESPN import; the CODE default was the stale one).
+  Most fixtures seed no settings doc, so they fall back to the defaults: the starting lineup is
+  **eleven** slots, not nine (two checks), the Rules page's own plain-English summary reads
+  "1 QB, 3 RB, 3 WR…", and the **Bench Blunder** is re-derived by hand — optimal 135.0 → **140.0**
+  (top THREE RB/WR now: 25 + 50/10/8 + 15/6/3 + 5 + 2 + 9 + 7), actual unchanged at 87.0, so the
+  shortfall is **53.0**. The transaction-log block also needed one spare body on team 1: after
+  its waiver drop and executed trade, twelve players fill eleven slots exactly, and the veto
+  trade below gives away a WR — which now leaves FLEX unfillable and made `LG.acceptTrade`
+  refuse the trade whose VETO that block is about.
+- **`empty-matchup`: a week is a unit.** `finalizeWeek` now refuses the WHOLE week, force and
+  backfill included, when any pairing has nobody on either side. `fullSeed()` rosters teams 1
+  and 2 against a FOUR-pairing schedule, so nothing built on it could finalize at all any more.
+  A new `seedAllFielded()` gives the other six teams a lineup — keys and names the Sleeper
+  directory has never heard of, on a team that is on no fixture slate, so every one of them
+  scores a real 0, is invisible to the free-agent pool, and counts as done (a bye), leaving every
+  hand-computed number and every pending-count in those sections exactly where it was. Applied
+  to the finalize sections (M1, M2, the get-vs-getFresh idempotency block, the zero-floor block)
+  and to `seedWeekProvenance`/`seedFor7Playoffs`. The old check "an EMPTY-roster matchup
+  finalizes at 0-0, not an error" is **inverted** and split: a FIELDED pairing that simply scores
+  nothing still records an honest 0-0, and one empty pairing on an otherwise ready board refuses
+  the whole week by name, force included.
+- **`LG.weeklyIsVoid`**: two fixtures used `matchups: []` as shorthand for "this week is
+  settled" — the power-rankings card's seed and the Draft Day importer's finalized-week refusal.
+  A finalized week with no matchups at all is now (correctly) VOID, so both were handed real,
+  non-zero results instead.
+- **D-F1's own belt reached one staging**: the playoff block set the engine to week 15 while the
+  league clock still read week 1. Since the re-target that state cannot arise, and `D.gameDone`
+  refuses in exactly that window — so the block moves the LEAGUE clock to week 15 too, which is
+  what a real playoff week looks like.
+
+**New fixture knobs, all default OFF** so every pre-existing section sees exactly the fixture it
+always did: `retargetSlate`, `postponed`, `espnIdGap` (a third of the ROSTERED players lose their
+`espn_id` — the production shape), `safetyPlay` (a safety whose own prose never says the word, so
+only the object-shaped `type.abbreviation` identifies it), `dirOutOnly`.
+
+**Section BF, 15 blocks**, each built from its finding's own repro: the re-target and its belt
+(with a CONTROL proving a same-week board still decides); the empty board with FULL rosters (the
+anti-vacuity half); the postponement beside a genuine final on the same board; the row with no
+live line; the stop/start seam counted in timer arms; the rollover measured across the real
+Tuesday boundary (bucket, players, projections URL, and the stale 10.0 gone); the directory-only
+designation driven through the real locker; Washington's URL asserted **on the wire**; the five
+data minors hand-computed (DAL D/ST 1 sack + 1 int + PA 14 + 1 safety = **7.0**; D. Backer
+max(1,1)+1+0 = 2 TDs × 6 = **12.0**); the FA pool with zero rostered players and the All filter's
+own owner tag; the deferred repaint with a typed `$37` intact and drained on close; three money
+actions against a store that rejects every write; the vacuous Final with its filled-roster
+CONTROL; and the ruling read at three real instants — Mon Sep 7 (Open/Add, and the add really
+lands with no claim queued), Tue Sep 15 (Claim), Wed Sep 16 08:01 CT (Add).
+
+**VERIFY**: `node tools/_verify-gffl.cjs` — **3117 pass · 0 fail** on the real tree (Build A's
+`lg-core.js` in place). Proof of bite, same suite against `HEAD` copies of `lg-data.js` /
+`lg-ui.js` / `league.html`: **3043 pass · 67 fail** — 65 of them inside section BF, the other
+two the Draft Day import restage in AI14. The seam suite, the race kit and the season sim were
+NOT run from this build (a concurrent agent held those ports).
+
+Plates (390 px, reviewed): `plates_bf/bf_coldboot_standings_390.png` — a cold boot with no games
+on the board: four UPCOMING cards, 0-0-0 across the standings, no clinch star, no Provisional
+footnote. `plates_bf/bf_moves_mon_sep7_390.png` — Mon Sep 7, FREE AGENCY **Open … NOW**, the
+waiver strip greyed, every button reading ADD. `plates_bf/bf_matchup_empty_390.png` — the empty
+week's matchup: no "Final", no star, an empty probability track.
+
+**KNOWN / DEFERRED**
+- The **finalize half** of D-S1 and D-S6 rides on `LG.finalizeWeek`'s own game-state read
+  consulting `D.gameDone` — that is a concurrent `lg-core.js` change, not this build's, so BF3
+  asserts the data contract and the matchup header rather than the finalize refusal.
+- `D.injuryFor`'s narrowing means a player who **gets better** while his roster snapshot still
+  says Out keeps reading Out (the directory's empty value is not treated as an all-clear). That
+  direction was already broken independently — `pollSleeper`'s `row.injury = meta.injury || row.injury`
+  never clears a designation either — and is left for its own pass.
+- `D.maybeRollWeek` clears `D.S.players` wholesale, so a rollover that lands mid-Monday-night
+  (a game still running past the Tuesday boundary) drops that game's in-memory line until the next
+  poll re-reads it from the new week's bucket, where it will not be. Accepted: the league's week
+  has genuinely moved on, and the archived-stats backfill is the honest way to settle it.
+---

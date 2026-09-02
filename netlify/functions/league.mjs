@@ -34,6 +34,34 @@ function ffCookies() {
   return `espn_s2=${s2}; SWID=${braced}`;
 }
 
+// Every upstream fetch in this file goes through ONE wrapper with a deadline (sports.mjs's
+// same fix, same reason: Netlify kills a function at ~10s and returns a raw 502, breaking
+// this file's own promise — header above: "failures are { ok:false, reason } at HTTP 200").
+// LEAGUE_FETCH_TIMEOUT_MS is the budget for a single upstream call. LEAGUE_FETCH_TIMEOUT_MS_SHORT
+// is for actions that try MULTIPLE upstream calls in a loop (lgEspnRostersSeason and
+// lgEspnHistory each try up to 2 URL forms, lgEspnKickerAudit tries up to 3 filter attempts,
+// lgEspnRulesAudit — diag-only, no suite fixture, see its own header — loops 6 lineup slots) so
+// a worst case of every call in the loop timing out still lands close to Netlify's ceiling
+// instead of one call alone eating the whole budget. Test hooks: LEAGUE_FETCH_TIMEOUT_MS /
+// LEAGUE_FETCH_TIMEOUT_MS_SHORT (tools/_verify-sports.cjs's league.mjs coverage).
+const LEAGUE_FETCH_TIMEOUT_MS = Number(process.env.LEAGUE_FETCH_TIMEOUT_MS) || 7000;
+const LEAGUE_FETCH_TIMEOUT_MS_SHORT = Number(process.env.LEAGUE_FETCH_TIMEOUT_MS_SHORT) || 2500;
+
+async function timedFetch(url, opts, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms || LEAGUE_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...(opts || {}), signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+// AbortError means OUR deadline fired, not a real network failure — report it honestly
+// rather than folding it into the generic "fetch-failed" reason.
+function fetchFailReason(e) {
+  return (e && e.name === "AbortError") ? "timeout" : "fetch-failed";
+}
+
 // Fantasy league year: Jan/Feb still belong to the previous season.
 function ffSeason(body) {
   const y = Number(body?.season);
@@ -43,19 +71,19 @@ function ffSeason(body) {
   return chicago.getMonth() < 2 ? chicago.getFullYear() - 1 : chicago.getFullYear();
 }
 
-async function ffFetch(views, body) {
+async function ffFetch(views, body, ms) {
   const cookies = ffCookies();
   if (!cookies) return { err: "fantasy-not-configured" };
   const year = ffSeason(body);
   const vq = views.map((v) => "view=" + v).join("&");
   const url = `${FF_BASE}/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${FF_LEAGUE_ID}?${vq}`;
   try {
-    const r = await fetch(url, { headers: { "User-Agent": UA, accept: "application/json", Cookie: cookies } });
+    const r = await timedFetch(url, { headers: { "User-Agent": UA, accept: "application/json", Cookie: cookies } }, ms);
     if (r.status === 401 || r.status === 403) return { err: "fantasy-auth-expired" };
     if (!r.ok) return { err: "http-" + r.status };
     return { data: await r.json(), year };
   } catch (e) {
-    return { err: "fetch-failed" };
+    return { err: fetchFailReason(e) };
   }
 }
 
@@ -228,16 +256,18 @@ async function lgEspnRostersSeason(body) {
     `${FF_BASE}/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${FF_LEAGUE_ID}?scoringPeriodId=0&${vq}`,
   ];
   let j = null, lastErr = null;
+  // TWO URL forms tried in sequence -> the SHORT per-call budget, so a worst case of both
+  // hanging still lands well under Netlify's ~10s kill.
   for (const url of urls) {
     try {
-      const r = await fetch(url, { headers: { "User-Agent": UA, accept: "application/json", Cookie: cookies } });
+      const r = await timedFetch(url, { headers: { "User-Agent": UA, accept: "application/json", Cookie: cookies } }, LEAGUE_FETCH_TIMEOUT_MS_SHORT);
       if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
       if (!r.ok) { lastErr = "http-" + r.status; continue; }
       const data = await r.json();
       const hasRosters = Array.isArray(data?.teams) && data.teams.some((t) => (t?.roster?.entries || []).length > 0);
       if (hasRosters) { j = data; break; }
       lastErr = "no-rosters"; // a valid response, but nobody's roster has entries — try the other URL form
-    } catch (e) { lastErr = "fetch-failed"; }
+    } catch (e) { lastErr = fetchFailReason(e); }
   }
   if (!j) return { ok: false, reason: lastErr || "no-rosters" };
   try {
@@ -264,15 +294,17 @@ async function lgEspnKickerAudit(body) {
     { mode: "no-filter", filter: null },
   ];
   let j = null, filterMode = null, lastErr = null;
+  // Up to THREE attempts tried in sequence -> the SHORT per-call budget, so a worst case of
+  // every attempt hanging still lands under Netlify's ~10s kill.
   for (const a of attempts) {
     try {
       const headers = { "User-Agent": UA, accept: "application/json", Cookie: cookies };
       if (a.filter) headers["X-Fantasy-Filter"] = JSON.stringify(a.filter);
-      const r = await fetch(url, { headers });
+      const r = await timedFetch(url, { headers }, LEAGUE_FETCH_TIMEOUT_MS_SHORT);
       if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
       if (!r.ok) { lastErr = "http-" + r.status; continue; }
       j = await r.json(); filterMode = a.mode; break;
-    } catch { lastErr = "fetch-failed"; }
+    } catch (e) { lastErr = fetchFailReason(e); }
   }
   if (!j) return { ok: false, reason: lastErr || "fetch-failed" };
   try {
@@ -312,13 +344,18 @@ async function lgEspnRulesAudit(body) {
   const base = `${FF_BASE}/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${FF_LEAGUE_ID}?scoringPeriodId=0&view=kona_player_info`;
   const players = [];
   const perSlot = {};
+  // SIX slots, each its own upstream call -> a per-slot budget short enough that even every
+  // slot timing out (6 x RULES_AUDIT_SLOT_TIMEOUT_MS) still lands close to Netlify's ~10s
+  // kill rather than the old unbounded-per-call hang. Diag-only (see header above), so this
+  // trades individual-slot patience for keeping the whole audit inside the function's budget.
+  const RULES_AUDIT_SLOT_TIMEOUT_MS = Number(process.env.LEAGUE_FETCH_TIMEOUT_MS_SLOT) || 1200;
   for (const slot of [0, 2, 4, 6, 16, 17]) { // QB RB WR TE DST K
     let j = null;
     try {
-      const r = await fetch(base, { headers: {
+      const r = await timedFetch(base, { headers: {
         "User-Agent": UA, accept: "application/json", Cookie: cookies,
         "X-Fantasy-Filter": JSON.stringify({ players: { filterSlotIds: { value: [slot] }, limit: Number(body?.limit) > 0 ? Number(body.limit) : 40 } }),
-      } });
+      } }, RULES_AUDIT_SLOT_TIMEOUT_MS);
       if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
       if (r.ok) j = await r.json();
     } catch { /* one slot failing shouldn't sink the others */ }
@@ -356,12 +393,12 @@ async function lgEspnProbe(body) {
   const headers = { "User-Agent": UA, accept: "application/json", Cookie: cookies };
   if (body?.filter && typeof body.filter === "object") headers["X-Fantasy-Filter"] = JSON.stringify(body.filter).slice(0, 4000);
   try {
-    const r = await fetch(url, { headers });
+    const r = await timedFetch(url, { headers });
     if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
     const text = await r.text();
     return { ok: r.ok, status: r.status, bytes: text.length, body: text.slice(0, 900000) };
   } catch (e) {
-    return { ok: false, reason: "fetch-failed" };
+    return { ok: false, reason: fetchFailReason(e) };
   }
 }
 
@@ -384,7 +421,7 @@ async function lgEspnProjections(body) {
   const headers = { "User-Agent": UA, accept: "application/json", Cookie: cookies,
     "X-Fantasy-Filter": JSON.stringify({ players: { limit, sortPercOwned: { sortAsc: false, sortPriority: 1 } } }) };
   try {
-    const r = await fetch(url, { headers });
+    const r = await timedFetch(url, { headers });
     if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
     if (!r.ok) return { ok: false, reason: "http-" + r.status };
     const data = await r.json();
@@ -404,7 +441,7 @@ async function lgEspnProjections(body) {
     }
     return { ok: true, season: year, week, players };
   } catch (e) {
-    return { ok: false, reason: "fetch-failed" };
+    return { ok: false, reason: fetchFailReason(e) };
   }
 }
 
@@ -430,15 +467,17 @@ async function lgEspnHistory(body) {
     `${FF_BASE}/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${FF_LEAGUE_ID}?scoringPeriodId=0&${vq}`,
   ];
   let j = null, lastErr = null;
+  // TWO URL forms tried in sequence -> the SHORT per-call budget, so a worst case of both
+  // hanging still lands well under Netlify's ~10s kill.
   for (const url of urls) {
     try {
-      const r = await fetch(url, { headers: { "User-Agent": UA, accept: "application/json", Cookie: cookies } });
+      const r = await timedFetch(url, { headers: { "User-Agent": UA, accept: "application/json", Cookie: cookies } }, LEAGUE_FETCH_TIMEOUT_MS_SHORT);
       if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
       if (!r.ok) { lastErr = "http-" + r.status; continue; }
       const data = await r.json();
       if (Array.isArray(data?.teams) && data.teams.length) { j = data; break; }
       lastErr = "no-season"; // valid response, but nobody there — try the other URL form once more
-    } catch (e) { lastErr = "fetch-failed"; }
+    } catch (e) { lastErr = fetchFailReason(e); }
   }
   if (!j) return { ok: false, reason: lastErr || "no-season" };
   try {
@@ -493,7 +532,7 @@ async function lgGifSearch(body) {
     if (giphy) {
       const base = process.env.GIPHY_BASE_URL || "https://api.giphy.com";
       const url = `${base}/v1/gifs/search?api_key=${encodeURIComponent(giphy)}&q=${encodeURIComponent(q)}&limit=12&rating=pg&bundle=messaging_non_clips`;
-      const r = await fetch(url);
+      const r = await timedFetch(url);
       if (!r.ok) return { ok: false, reason: "http-" + r.status };
       const j = await r.json();
       const gifs = (Array.isArray(j?.data) ? j.data : []).map((res) => {
@@ -505,7 +544,7 @@ async function lgGifSearch(body) {
     }
     const base = process.env.KLIPY_BASE_URL || "https://api.klipy.com";
     const url = `${base}/api/v1/${encodeURIComponent(klipy)}/gifs/search?q=${encodeURIComponent(q)}&per_page=12&customer_id=gffl`;
-    const r = await fetch(url);
+    const r = await timedFetch(url);
     if (!r.ok) return { ok: false, reason: "http-" + r.status };
     const j = await r.json();
     const rows = Array.isArray(j?.data?.data) ? j.data.data : Array.isArray(j?.data) ? j.data : [];
@@ -516,7 +555,7 @@ async function lgGifSearch(body) {
     }).filter((g) => g.url);
     return { ok: true, gifs };
   } catch (e) {
-    return { ok: false, reason: "fetch-failed" };
+    return { ok: false, reason: fetchFailReason(e) };
   }
 }
 

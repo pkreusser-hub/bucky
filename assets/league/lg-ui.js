@@ -261,6 +261,15 @@
     } else if (UI.view === "locker") {
       if (lockerInteractionBusy()) UI._lockerRepaintPending = true;
       else await renderLocker().catch(() => {});
+    } else {
+      // ⭐ EVERY OTHER VIEW GETS ITS DATA BACK TOO (2026-09-02). Moves, Chat, Rules and the
+      // bracket were left showing whatever the OFFLINE mirror had held — the four screens where
+      // a reconnect matters most (a waiver run landed while this device was dark; the messages
+      // it missed; a rules edit; a bracket that advanced). paintLive() has nothing to say about
+      // them, so they route through UI.quietRepaint, which is now safe to call here for exactly
+      // the reason this routine exists: it DEFERS while a sheet or an upload is open (U-S2)
+      // instead of wiping it, and drains the moment the reader closes it.
+      UI.quietRepaint();
     }
     window.scrollTo(0, y);
     // (d) one quiet toast — never a banner, never a repeat of the outage chip's own wording.
@@ -667,6 +676,9 @@
     if (!ovlHide) return;
     ovlHide = null;
     try { if (history.state && history.state.gfflOverlay) history.back(); } catch (_) {}
+    // The reader has finished with the overlay — any background repaint that waited for them
+    // (U-S2/S5) runs now, so the page is never left showing data one refresh out of date.
+    drainQuietRepaint();
   };
   // Hide + consume in one go. league.html's Escape handler and its backdrop taps use this.
   UI.closeTopOverlay = function () {
@@ -789,7 +801,7 @@
   window.addEventListener("popstate", function (e) {
     // (1) An overlay was on top: Back closes it, and nothing else moves. The pop itself already
     // consumed the sentinel, so there is no history call to make here.
-    if (ovlHide) { const h = ovlHide; ovlHide = null; try { h(); } catch (_) {} return; }
+    if (ovlHide) { const h = ovlHide; ovlHide = null; try { h(); } catch (_) {} drainQuietRepaint(); return; }
     // (2) Only route when a real VIEW is on the page. UI.view is NOT the honest answer to
     // that — it defaults to "league" at module load and is only ever written by UI.show, so on
     // the gate, the claim screen, the outage card or the replay's setup card it still reads
@@ -831,9 +843,27 @@
   //     already painted (see its own note), so the ordinary call lands in paintScores' morph;
   //   · everything else keeps the full UI.show repaint it always had (league's own rebuild
   //     already preserves the rail composer; locker/moves are deliberately not live-repainted).
+  // ⭐ AND IT NEVER INTERRUPTS AN INTERACTION (2026-09-02, U-S2/S5). Every non-matchup branch
+  // below ends in UI.show(), whose first act is dropOverlayDom() — so a background refresh
+  // landing while somebody had a claim sheet, a swap sheet or a player card open CLOSED it, and
+  // took the half-finished work inside it with it: a typed FAAB bid, a chosen drop, the row
+  // they were reading. That refresh fires on a ~15s cadence, so on Wednesday morning — the one
+  // moment of the week when everyone is typing a bid — the odds of losing one were even.
+  // The rule is the reconnect seam's own (ITEM 8, 2026-08-22): a repaint waits for the reader
+  // to finish, and is drained the moment they do. Deferring rather than dropping is what keeps
+  // it a repaint instead of a lost update — the very next close paints the fresh data.
+  UI._quietRepaintPending = false;
+  function drainQuietRepaint() {
+    if (!UI._quietRepaintPending) return;
+    if (UI._overlayOpen() || lockerInteractionBusy()) return;
+    UI._quietRepaintPending = false;
+    UI.quietRepaint();
+  }
+  UI._drainQuietRepaint = drainQuietRepaint; // test hook
   UI.quietRepaint = function () {
     if (!UI.view) return;
     if (UI.view === "nflgame") return;
+    if (UI._overlayOpen() || lockerInteractionBusy()) { UI._quietRepaintPending = true; return; }
     if (UI.view === "matchup") {
       loadWeekRosters().then(() => { if (UI.view === "matchup") renderMatchup(true); }).catch(() => {});
       return;
@@ -1121,7 +1151,13 @@
       const m = d.S.slpPlayers.get(t.pid);
       if (!m || !m.name || !m.team) continue;
       const pos = m.pos === "DEF" ? "DST" : m.pos;
-      const key = m.pos === "DEF" ? "dst_" + t.pid : (m.espn_id || "slp_" + t.pid);
+      // The SAME key expression D.searchFA and both pollers use (2026-09-02, U-F1). Sleeper's
+      // espn_id is missing for roughly half the directory, so `espn_id || slp_<pid>` minted a
+      // key no roster holds for exactly those players — and the owned filter directly below,
+      // the one thing that makes this strip "who is genuinely free HERE" rather than an NFL
+      // news ticker, then let a player another team already rosters through it.
+      const key = d.S.keyByName.get(d.normName(m.name) + "|" + d.slpTeam(m.team))
+        || (m.pos === "DEF" ? "dst_" + t.pid : (m.espn_id || "slp_" + t.pid));
       if (ownedKeys.has(key)) continue;
       out.push(`<button type="button" class="hotpick" data-pk="${esc(key)}">
         <span class="posbadge" data-pos="${esc(pos)}">${esc(pos || "?")}</span>
@@ -1172,6 +1208,10 @@
       UI._lockerRepaintPending = false;
       renderLocker();
     }
+    // …and the background refresh that deferred for the same reason (U-S2/S5, 2026-09-02).
+    // This is the path a LOGO UPLOAD finishing takes — it is not an overlay, so overlayClosed
+    // never runs for it.
+    UI._drainQuietRepaint();
   }
   UI.closeRosterCard = function () { hideRosterCardDom(); UI.overlayClosed(); drainLockerRepaint(); };
   // ⚠ THE HIDE FUNCTION PASSED TO overlayOpened MUST BE A STABLE REFERENCE. That registrar
@@ -2152,7 +2192,16 @@
     // /stats/nfl/regular/<season>/1, a regular-season week nobody has played. No regular-season
     // week can be stale while the regular season hasn't started; the honest state is silence.
     if (!(d && d.engineRegular && d.engineRegular())) return [];
-    const have = new Set((UI._allWeekly || []).filter((w) => w && w.kind === "weekly").map((w) => w.week));
+    // ⭐ A VOID WEEK IS NOT A RESULT (2026-09-02). UI._allWeekly is the RAW list — every weekly
+    // doc on disk, zombies included — because its other readers (the power-rankings card) do
+    // their own filtering. This set is the "which weeks are already settled?" question, and a
+    // zombie 0-0 doc answered YES to it: the two real ones the 2026-08-31 vacuous finalize wrote
+    // would have kept their weeks off the stale card forever, so the one screen that offers the
+    // archived-stats repair would never have mentioned the weeks that need it most.
+    // LG.weeklyIsVoid is the ONE definition (lg-core), the same one LG.loadWeeklyDocs filters by.
+    const have = new Set((UI._allWeekly || [])
+      .filter((w) => w && w.kind === "weekly" && !LG.weeklyIsVoid(w))
+      .map((w) => w.week));
     const out = [];
     for (let w = 1; w <= cw; w++) {
       if (have.has(w) || ew === w) continue;
@@ -3834,7 +3883,17 @@
     // (The "owner · record" line and its loadStandings() read left with the 2026-08-11
     // cosmetic pass — the standings table remains the one place a record is stated.)
     const anyLive = hRem.playing > 0 || aRem.playing > 0;
-    const allDone = !anyLive && hRem.left === 0 && aRem.left === 0;
+    // ⭐ THE SAME `counted > 0` GUARD THE LEAGUE CARD ALREADY CARRIES (2026-09-02, U-S4). This
+    // is the "KNOWN, deliberately not restaged" the 2026-08-09 item-27 entry left on the record:
+    // `!anyLive && left === 0` is vacuously TRUE when both sides have ZERO starters, so the
+    // Matchup page's own header announced **Final** over a matchup nobody has played — which is
+    // every matchup in the league between the season reset and draft day, and every bye-week
+    // opponent after it. The league home's card was fixed then; this surface is reached one
+    // game at a time and was not. It is the same expression, so it takes the same guard.
+    // (named countedSlots — `counted` is already taken further down by the win bar's own
+    // both-sides-have-starters test, which is a stricter question than this one)
+    const countedSlots = hRem.played + hRem.playing + hRem.left + aRem.played + aRem.playing + aRem.left;
+    const allDone = countedSlots > 0 && !anyLive && hRem.left === 0 && aRem.left === 0;
     const liveIndicator = anyLive ? '<div class="mulive"><span class="dot"></span>Live</div>'
       : allDone ? '<div class="mulive done">Final</div>' : "";
     const rows = pairBySlots(as_, hs);
@@ -4099,6 +4158,10 @@
   // matchup's two sides. Returns {decided, winner:"A"|"B"|null, totalH, totalA} — "A" means the
   // HOME team; totalH/totalA are LG.totalOf each side (the live PF the standings' provisional
   // overlay needs), computed off the SAME side arrays the decision itself used.
+  // The D-F1 BELT lives in D.gameDone, not here (2026-09-02): matchupSides reads it for every
+  // starter, so an EMPTY board and a board whose week disagrees with the league's both come back
+  // "not done" from the one seam that knows, rather than from a second copy of the same test
+  // that could drift away from it.
   function matchupDecidedFor(h, a) {
     const hSide = matchupSides(h), aSide = matchupSides(a);
     const r = LG.matchupDecided(hSide, aSide);
@@ -4109,6 +4172,8 @@
   // instead. Absolutely positioned by its stylesheet rule so it can never add height to a row
   // (AD-star's own geometry check pins offsetHeight against a starless sibling). The title is
   // the accessible statement a colour alone can never make.
+  UI._matchupSides = matchupSides;         // test hooks (2026-09-02)
+  UI._matchupDecidedFor = matchupDecidedFor;
   function clinchStarHtml(cls) {
     return `<svg class="clinchstar${cls ? " " + cls : ""}" viewBox="0 0 24 24" aria-hidden="true">`
       + `<path fill="currentColor" d="M12 1.8l2.98 6.77 7.35.66-5.56 4.86 1.68 7.19L12 17.4l-6.45 3.88 1.68-7.19-5.56-4.86 7.35-.66z"/></svg>`;
@@ -5234,6 +5299,40 @@
   UI._tradeGive = new Set();
   UI._tradeGet = new Set();
   UI._counterOf = null; // S7 — the id of the offer the builder is currently answering, if any
+  UI._tradeNote = "";   // U-S5 (2026-09-02) — see the #mvTradeNote markup's own note
+  // ⭐ THE COMMISSIONER'S RULING vs THE SCREEN (2026-09-02, U-S6). Ruled 2026-08-26: the draft
+  // is Sun Sep 6, "anyone undrafted is simply a free agent, instantly addable, first come first
+  // served, no waiting period" — and section BC6 verified the ENGINE already behaves that way
+  // (LG.faAdd consults no clock at all). The MOVES PAGE did not: it decided the whole free
+  // agency / waivers question on `LG.now() >= LG.waiverDeadline(week)` alone, so between the
+  // draft and Wednesday Sep 9 08:00 every undrafted player was offered as a blind-bid CLAIM,
+  // the card read "Free agency Closed", and the ruling was true of the code and false on screen.
+  //
+  // The missing half is that a waiver window exists to protect an ORDER OF PREFERENCE over
+  // players who became available during the week's games. Before the season's first kickoff
+  // nothing has become available and there is no order to protect — the queue is guarding an
+  // empty room. So free agency is OPEN when EITHER the week's deadline has passed (unchanged)
+  // OR no game of the season has kicked off yet.
+  //
+  // "The season" is deliberately not "this week": in week 2 the board holds week 2's slate,
+  // every game of which is still `pre` on the Tuesday — reading only that would reopen free
+  // agency every single week and delete the waiver system. Any league week past the first means
+  // week 1 has been and gone; inside week 1 the live slate's own kickoffs answer it. A board
+  // with NO slate in memory at all (a cold boot, an ESPN outage) falls back to the ordinary
+  // deadline rule rather than declaring the season unstarted off a board nobody has read.
+  function seasonStarted() {
+    if (LG.currentWeek() > 1) return true;
+    const d = D(), now = LG.now();
+    let sawKickoff = false;
+    for (const g of d.S.games.values()) {
+      if (g.state === "in" || g.state === "post") return true;
+      if (g.kickoff) { sawKickoff = true; if (now >= new Date(g.kickoff).getTime()) return true; }
+    }
+    return !sawKickoff;
+  }
+  function faOpen(week) { return LG.now() >= LG.waiverDeadline(week) || !seasonStarted(); }
+  UI._faOpen = faOpen;               // test hooks
+  UI._seasonStarted = seasonStarted;
   function allOwnedKeys() {
     const s = new Set();
     for (const t of LG.teams) for (const p of ((UI._rosters && UI._rosters[t.id]) || [])) s.add(p.key);
@@ -5349,6 +5448,12 @@
     "already-processed": "this week's claims already processed", "drop-not-found": "that player isn't on your roster",
     "stale-week": "live scoring has moved on from that week", "no-live-data": "live scoring hasn't loaded yet",
     preseason: "the NFL is still in preseason — nothing counts yet",
+    // 2026-09-02: three engine refusals that had no entry here, so the RAW CODE reached the
+    // screen — "empty-week" arrived on the family's own board on 2026-08-31 (the vacuous
+    // finalize), and "not-final" is the single most common one there is.
+    "empty-week": "nobody fielded a lineup that week — there is nothing to score",
+    "empty-matchup": "neither team fielded a lineup in that game",
+    "not-final": "some games this week haven't finished yet",
     "no-archived-stats": "that week's archived stats aren't available", "bracket-unresolved": "an earlier playoff round hasn't been settled yet",
     "no-schedule": "there are no games on the board for that week",
     // S7 — the counter's own refusals. "deadline-passed" and "invalid-players" come back
@@ -5359,6 +5464,18 @@
     "not-pending": "that offer has already been answered",
   };
   function reasonLabel(r) { return REASON_LABEL[r] || r; }
+  // The words a THROWN write gets (2026-09-02, U-S3). Every money action on this page used to
+  // handle only the ENGINE's own `{ok:false, reason}` refusals and let an exception — the
+  // Firestore 12s timeout, the mirror's read-only throw, a CAS exhaustion — escape as an
+  // uncaught rejection: no toast, and (on the two paths that disable their own control first) a
+  // dead button the reader had to reload the page to get back. An offlineReadOnly refusal has
+  // already said its piece through LG.onOfflineWrite, so it degrades to that same sentence
+  // rather than a second, more technical one.
+  function failWords(e) {
+    if (e && e.offlineReadOnly) return "you're offline — try again when you're reconnected";
+    const m = String((e && e.message) || e || "").trim();
+    return m ? m.slice(0, 120) : "the write didn't go through — try again";
+  }
   // " (Josh Allen)" — the offenders, when the refusal carried them. A rule that only says no
   // makes the owner hunt; naming the man makes it a one-tap fix.
   const irWho = (r) => (r && r.players && r.players.length ? " (" + r.players.map(LG.shortName).join(", ") + ")" : "");
@@ -5371,9 +5488,14 @@
     const reason = r && r.reason, d = (r && r.detail) || {};
     if (reason === "over-cap") return "That trade would put " + (d.team || "that team") + " over the roster limit.";
     if (reason === "lineup-unfillable") return "That trade would leave " + (d.team || "that team") + " unable to field a full lineup.";
-    if (reason === "player-started") return (d.player || "That player") + "'s game has already started this week.";
+    // The player's name renders in the app's own "J. Surname" form (2026-09-02) — the guard's
+    // `detail` carries the roster's stored FULL name, and every other place a player is named
+    // on screen has gone through LG.shortName since 2026-08-08.
+    if (reason === "player-started") return (d.player ? LG.shortName(d.player) : "That player") + "'s game has already started this week.";
     return "That trade can't go through: " + reasonLabel(reason);
   }
+  UI._reasonLabel = reasonLabel;         // test hooks (2026-09-02) — the refusal copy is the
+  UI._tradeBlockLabel = tradeBlockLabel; // only thing standing between a raw code and a family
   // The standing warning. An owner should learn about this on THEIR OWN TEAM, before they go
   // shopping — finding out at the checkout that the league won't let them add is the worst
   // possible moment. Rendered on My Team (where the fix is) and on Moves (where the block
@@ -5418,7 +5540,10 @@
     UI._tx = await LG.loadTx();
     if (!T) { main().innerHTML = `<div class="card"><p class="mut">No team claimed.</p></div>`; return; }
 
-    const past = LG.now() >= LG.waiverDeadline(UI.week);
+    // `past` is "free agency is open" — see faOpen's own note (U-S6). The NAME is kept because
+    // a dozen call sites below read it and its meaning is unchanged wherever the deadline is
+    // the reason; what moved is that a pre-kickoff week now reaches the same state.
+    const past = faOpen(UI.week);
     const myClaims = (UI._claims.claims || []).filter((c) => c.teamId === tid);
     const myTrades = (UI._trades || []).filter((tr) => (tr.from === tid || tr.to === tid) && (tr.status === "offered" || tr.status === "accepted"));
     // S7 — the counter CHAIN. Every link is between the same two teams, so a chain I am in is
@@ -5610,7 +5735,11 @@
         <div id="mvGive" class="tradeside"></div>
         <h2 class="small mut">You get (up to 3)</h2>
         <div id="mvGet" class="tradeside"></div>
-        <input id="mvTradeNote" placeholder="Note (optional)">
+        ${/* SESSION STATE, like the AI analyst's panel above it (2026-09-02, U-S5): renderMoves
+              runs on every background refresh and on every chip/sort/team tap, and a bare input
+              lost whatever had been typed into it each time. The value is re-rendered from
+              UI._tradeNote, so the note survives every repaint and only a send clears it. */""}
+        <input id="mvTradeNote" placeholder="Note (optional)" value="${esc(UI._tradeNote || "")}">
         <button id="mvTradeSend" class="primary">${UI._counterOf ? "Send counter" : "Send offer"}</button>
       </div>
       <div class="card"><h2>Transaction log</h2><div id="mvLog">
@@ -6070,9 +6199,16 @@
         // after the close would silently be 0 on every claim.
         const rawBid = Number(($("#claimBid") || {}).value) || 0;
         UI.closeRosterCard();
+        // ⭐ AND A THROWN WRITE IS ANSWERED TOO (2026-09-02, U-S3). Both branches below write —
+        // faAdd through LG.db.update, addClaim through LG.db.set — so both can REJECT rather
+        // than return a refusal, and the old code awaited them bare: the card closed, nothing
+        // was added, no toast was raised, and the only trace was an uncaught rejection in a
+        // console no family member opens. On Wednesday morning that reads as "the app ate my
+        // claim". Same `finally` restore-the-control discipline as Drop and Send.
+        try {
         if (past) {
           const r = await LG.faAdd(UI.week, tid, fa, chosen ? chosen.key : null);
-          if (r.ok) { toast("Added " + fa.name + "."); UI._rosters = null; renderMoves(); }
+          if (r.ok) { toast("Added " + LG.shortName(fa.name) + "."); UI._rosters = null; renderMoves(); }
           else { toast("Couldn't add: " + reasonLabel(r.reason) + irWho(r)); rearm(); }
         } else {
           const bid = Math.max(0, Math.min(LG.teamFaab(T), rawBid));
@@ -6085,8 +6221,12 @@
           // back, so a refused claim looked accepted and simply never appeared in My pending.
           const r = await LG.addClaim(UI.week, claim);
           if (r && r.ok === false) { toast("Couldn't submit: " + reasonLabel(r.reason) + irWho(r)); rearm(); return; }
-          toast("Claim submitted: " + fa.name + " for $" + bid + ".");
+          toast("Claim submitted: " + LG.shortName(fa.name) + " for $" + bid + ".");
           renderMoves();
+        }
+        } catch (err) {
+          toast((past ? "Couldn't add " : "Couldn't submit a claim for ") + LG.shortName(fa.name) + ": " + failWords(err));
+          rearm();
         }
       });
     }
@@ -6246,6 +6386,7 @@
         await mathFallback($("#mvSuggestWhy"), "The AI analyst isn't available right now — here's the numbers-based suggestion.");
       } finally { btn.disabled = false; }
     });
+    $("#mvTradeNote").addEventListener("input", (e) => { UI._tradeNote = e.target.value; });
     $("#mvTradeSend").addEventListener("click", async () => {
       if (!UI._tradeGive.size || !UI._tradeGet.size) { toast("Pick at least one player on each side."); return; }
       // The three trade guards (2026-08-17 ruling) — early client-side refusal against the
@@ -6262,11 +6403,29 @@
       // a thread and terminates the offer it answers; everything else about the send (the
       // deadline check, the 1-3 validation, the doc write, the push) is the same path.
       const counterOf = UI._counterOf;
-      const r = counterOf
-        ? await LG.counterTrade(counterOf, tid, [...UI._tradeGive], [...UI._tradeGet], $("#mvTradeNote").value.trim())
-        : await LG.offerTrade(tid, UI._tradeCp, [...UI._tradeGive], [...UI._tradeGet], $("#mvTradeNote").value.trim());
-      if (r.ok) { toast(counterOf ? "Counter sent." : "Trade offer sent."); UI._tradeGive = new Set(); UI._tradeGet = new Set(); UI._counterOf = null; renderMoves(); }
-      else toast((counterOf ? "Couldn't send counter: " : "Couldn't send offer: ") + reasonLabel(r.reason));
+      // ⭐ A THROWN WRITE IS A FAILURE, NOT A SILENCE (2026-09-02, U-S3). LG.offerTrade writes a
+      // doc; a rejected write (a Firestore timeout, the offline mirror's own refusal, a CAS
+      // exhaustion) threw straight out of this handler as an UNCAUGHT rejection — no toast, no
+      // console line a family member could see, the button live again on the next repaint and
+      // the offer simply never sent. Every money control on this page now has the same shape:
+      // disable, try, name the failure, restore in `finally`.
+      const btn = $("#mvTradeSend");
+      const label = btn ? btn.textContent : "";
+      if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
+      try {
+        const note = ($("#mvTradeNote") ? $("#mvTradeNote").value : (UI._tradeNote || "")).trim();
+        const r = counterOf
+          ? await LG.counterTrade(counterOf, tid, [...UI._tradeGive], [...UI._tradeGet], note)
+          : await LG.offerTrade(tid, UI._tradeCp, [...UI._tradeGive], [...UI._tradeGet], note);
+        if (r.ok) { toast(counterOf ? "Counter sent." : "Trade offer sent."); UI._tradeGive = new Set(); UI._tradeGet = new Set(); UI._counterOf = null; UI._tradeNote = ""; renderMoves(); }
+        else toast((counterOf ? "Couldn't send counter: " : "Couldn't send offer: ") + reasonLabel(r.reason));
+      } catch (e) {
+        toast((counterOf ? "Couldn't send counter: " : "Couldn't send offer: ") + failWords(e));
+      } finally {
+        // isConnected, because the success path above re-rendered the whole card out from under
+        // this node — restoring a detached button is harmless but restoring a live one matters.
+        if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = label; }
+      }
     });
     wirePlayerCardTaps(); // FA table already covered by refreshFa() above; this catches the
                            // claim/trade "My pending" .pcinline names + the trade-builder chips
@@ -7215,13 +7374,26 @@
       const p = ros.find((x) => x.key === b.dataset.dropkey);
       if (!p) return;
       if (!confirm("Drop " + p.name + "?\n\nHe goes straight to free agency and anyone in the league can pick him up.")) return;
+      // ⭐ "Dropping…" MUST ALWAYS COME BACK (2026-09-02, U-S3). The engine's own `{ok:false}`
+      // refusals restored the button; a THROWN write did not — LG.dropPlayer goes through
+      // LG.db.update, which rejects on a Firestore timeout, on the offline mirror's read-only
+      // refusal and on CAS exhaustion — so a network blip left a permanently disabled control
+      // reading "Dropping…" with no toast and no way back short of reloading the page. The
+      // restore belongs in `finally`, where no failure shape can miss it.
+      const wasLabel = b.textContent;
       b.disabled = true; b.textContent = "Dropping…";
-      const r = await LG.dropPlayer(UI.week, tid, p.key);
-      if (!r.ok) { toast("Couldn't drop: " + reasonLabel(r.reason) + irWho(r)); b.disabled = false; b.textContent = "Drop"; return; }
-      toast("Dropped " + LG.shortName(p.name) + ".");
-      UI._rosters = null;
-      await loadWeekRosters();
-      renderLocker();
+      try {
+        const r = await LG.dropPlayer(UI.week, tid, p.key);
+        if (!r.ok) { toast("Couldn't drop: " + reasonLabel(r.reason) + irWho(r)); return; }
+        toast("Dropped " + LG.shortName(p.name) + ".");
+        UI._rosters = null;
+        await loadWeekRosters();
+        renderLocker();
+      } catch (err) {
+        toast("Couldn't drop " + LG.shortName(p.name) + ": " + failWords(err));
+      } finally {
+        if (b.isConnected) { b.disabled = false; b.textContent = wasLabel; }
+      }
     }));
     const slots = starterSlotList();
     const taken = new Set();
@@ -7249,7 +7421,7 @@
       // or ownership — there is no player on them to have any.
       if (slot === "BENCH" && cur) {
         const opts = starterSlotList().filter((s) => LG.slotEligible(cur.pos, s));
-        const irOk = ir.length < irMax && LG.irEligible((d.S.players.get(cur.key) || {}).injury || cur.injury);
+        const irOk = ir.length < irMax && LG.irEligible(LG.injuryOf(cur)); /* 2026-09-02, D-S8: through LG.injuryOf (D.injuryFor), the ONE seam — these two read the live row DIRECTLY, and a live row exists only for players who have PLAYED, so the man this rule is about (Out, therefore never on a stat line) always read healthy here while doMove below, which does use the seam, correctly called him eligible: a button the locker refused to offer for a move the engine would have allowed. */
         openRosterCard(`<div class="pccard rccard">
           <button type="button" class="pcclose" id="rcClose" aria-label="Close">✕</button>
           <div class="pchead"><h2 class="pcname">Move ${escn(cur.name)}</h2>
@@ -7274,7 +7446,7 @@
       // Swap button; the same answer belongs here. A disabled button fires no click, so the
       // `cands` indices the handler below reads stay aligned with what is rendered.
       let cands;
-      if (slot === "IR") cands = ros.filter((p) => p.slot !== "IR" && LG.irEligible((d.S.players.get(p.key) || {}).injury || p.injury));
+      if (slot === "IR") cands = ros.filter((p) => p.slot !== "IR" && LG.irEligible(LG.injuryOf(p))); /* 2026-09-02, D-S8: through LG.injuryOf (D.injuryFor), the ONE seam — these two read the live row DIRECTLY, and a live row exists only for players who have PLAYED, so the man this rule is about (Out, therefore never on a stat line) always read healthy here while doMove below, which does use the seam, correctly called him eligible: a button the locker refused to offer for a move the engine would have allowed. */
       else if (slot === "BENCH") cands = []; // bench taps: move the player somewhere else via their target slot instead
       else cands = ros.filter((p) => p !== cur && (p.slot === "BENCH" || p.slot === "IR") && LG.slotEligible(p.pos, slot));
       openRosterCard(`<div class="pccard rccard">
@@ -7603,9 +7775,16 @@
     const out = importOut();
     out.innerHTML = '<div class="card mut">Saving the drafted rosters…</div>';
     const n = await applyImportedRosters({ teams }, wk);
-    out.innerHTML = `<div class="card ok">Draft imported — week ${wk} rosters saved for ${n}
-      team${n === 1 ? "" : "s"}. Check My Team and set your lineup.</div>`;
+    const msg = `Draft imported — week ${wk} rosters saved for ${n} team${n === 1 ? "" : "s"}.`;
+    // ⭐ THE CONFIRMATION HAS TO SURVIVE THE REPAINT (2026-09-02). This wrote the success card
+    // into #importOut and then called UI.show("rules"), which rebuilds main() wholesale and
+    // DESTROYS the node it had just written — so the single most consequential action in the
+    // app (it replaces all eight rosters) finished by looking like nothing had happened at all,
+    // on every run. The toast is a sibling of main() and outlives the render; the card is
+    // written AFTER it, so the reader gets both when the repaint happens to leave one standing.
+    toast(msg + " Check My Team and set your lineup.");
     if (UI.view === "rules") UI.show("rules");
+    importOut().innerHTML = `<div class="card ok">${esc(msg)} Check My Team and set your lineup.</div>`;
   }
 
   // ---------------- ⭐ ITEM 31: fill every roster from the backup pool (2026-08-09) ----------

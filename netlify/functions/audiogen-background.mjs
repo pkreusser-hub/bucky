@@ -17,6 +17,15 @@
 // jobs: [{ name, kind:"sfx"|"music", prompt,
 //          duration_s?, prompt_influence?,   (sfx: 0.5-22s)
 //          length_ms? }]                     (music: 10s-300s)
+//
+// GATE (pre-season serverless review, SERIOUS/financial): this endpoint bills real
+// ElevenLabs credits per job and used to be gated on BUCKY_NOTIFY_SECRET — the SAME family
+// password every page ships in its client-side JS. Anyone who read ffdraft.html's source
+// (every visitor's browser) could fire an arbitrary batch of billed generation. It now
+// requires its OWN secret, AUDIOGEN_SECRET, set ONLY in Netlify's server environment — never
+// shipped to a page, never falls back to the family password. REQUIRED ENV: AUDIOGEN_SECRET
+// must be set in Netlify for this function to accept ANY request; unset or a mismatch both
+// refuse with 401, which is the correct default until an operator sets it.
 
 const XI = "https://api.elevenlabs.io/v1";
 const PROJECT_ID = "amen-farms-app";
@@ -74,12 +83,14 @@ async function fsExists(docId) {
 
 async function runJobs(body) {
   const key = process.env.ELEVENLABS_API_KEY;
-  // Cap raised from 12 for the 200-player announcement batch. Generation is
-  // sequential (one in-flight ElevenLabs request), and jobs whose result
-  // chunks already sit in Firestore are skipped — so if the 15-minute
-  // background window dies mid-batch, firing the SAME list again resumes
-  // where it stopped instead of paying for the first half twice.
-  const jobs = Array.isArray(body.jobs) ? body.jobs.slice(0, 220) : [];
+  // Cap raised from 12 for the 200-player announcement batch (tools/_gen-draft-audio.mjs
+  // firePlayers(), SAY_N default 200 — the largest real batch this generator sends; see
+  // JOBS/MUSIC2_JOBS/fireDst/fireTeams for the rest, all well under it). 200, not the 220 this
+  // used to allow — 220 was headroom with no batch that needed it. Generation is sequential
+  // (one in-flight ElevenLabs request), and jobs whose result chunks already sit in Firestore
+  // are skipped — so if the 15-minute background window dies mid-batch, firing the SAME list
+  // again resumes where it stopped instead of paying for the first half twice.
+  const jobs = Array.isArray(body.jobs) ? body.jobs.slice(0, 200) : [];
   const done = [], failed = [];
   const stamp = () => fsSet("audio_status", {
     done: done.join(","), failed: failed.map((f) => f.name + ": " + f.detail).join(" | "),
@@ -133,8 +144,11 @@ async function runJobs(body) {
 export default async (req) => {
   let body;
   try { body = await req.json(); } catch { return new Response("", { status: 400 }); }
-  const familySecret = process.env.BUCKY_NOTIFY_SECRET;
-  if (!familySecret || !body || body.secret !== familySecret) return new Response("", { status: 401 });
+  // OWN secret, never BUCKY_NOTIFY_SECRET (the family password every page ships client-side —
+  // see the header comment). Unset or mismatched both refuse: the safe default is "generates
+  // nothing" until an operator sets AUDIOGEN_SECRET in Netlify.
+  const audiogenSecret = process.env.AUDIOGEN_SECRET;
+  if (!audiogenSecret || !body || body.secret !== audiogenSecret) return new Response("", { status: 401 });
   await runJobs(body);
   return new Response("", { status: 202 });
 };

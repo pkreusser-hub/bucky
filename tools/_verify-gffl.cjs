@@ -169,6 +169,28 @@ const fixture = {
   // just the /schedule endpoint — mirrors espnSummariesDown's own scoped-failure pattern.
   teamSched: null,
   teamSchedDown: false,
+  // ---- Section BF (2026-09-02, the data/UI review batch). All default OFF.
+  // retargetSlate: the D-F1 re-target (dates=<season>&seasontype=2&week=<LG.currentWeek()>)
+  // answers the SAME board sbFix() serves, stamped with the asked week — which is exactly what
+  // the real endpoint does when the week asked for IS the live one. Armed by the sections that
+  // deliberately state a MISMATCHED bare week (section V's provenance stagings), so their board
+  // is byte-identical to the un-re-targeted one and only D.S.espnWeek moves.
+  retargetSlate: false,
+  // postponed: DAL@PHI reads ESPN's REAL postponement shape — state "post" with
+  // completed:false and name "STATUS_POSTPONED" — rather than a final (D-S6).
+  postponed: false,
+  // espnIdGap: a third of the ROSTERED players lose their espn_id in the Sleeper directory —
+  // the production shape (measured live 2026-08-09: only 6,727 of 12,217 entries carry one),
+  // and the state in which D.searchFA used to mint a key no roster holds (U-F1).
+  espnIdGap: false,
+  // safetyPlay: a SAFETY scoring play whose own text never says "safety" — only ESPN's
+  // object-shaped type.abbreviation ("SF") identifies it. Worth 4 to the DAL D/ST, so it is
+  // armed only where it is asserted.
+  safetyPlay: false,
+  // dirOutOnly: the Sleeper DIRECTORY lists H. Healthy as Out while his ROSTER row says nothing
+  // — the exact shape D-S8 is about (a designation that landed after the roster was imported,
+  // for a player with no live stat row because a man who is Out never plays).
+  dirOutOnly: false,
 };
 
 // ---------------- section AC: production-shaped identity data (2026-08-09) ----------------
@@ -980,10 +1002,17 @@ function sbFix() {
   // scoreboard fields netlify/functions/sports.mjs already reads for the standalone app's
   // score strip — the live game carries a network only (odds markets are commonly gone once
   // a game is underway), the upcoming one carries both a network and a spread.
+  // RESTAGED 2026-09-02 (D-S6): status.type now carries `completed` and `name`, which the REAL
+  // payload has always sent on every response and this fixture simply omitted — the omission is
+  // what made a postponement (state "post", completed FALSE, name STATUS_POSTPONED) look
+  // identical to a final here, so the app could not have been tested against the difference.
   const mk = (id, awayAb, homeAb, state, extra) => ({
     id, shortName: awayAb + " @ " + homeAb, date: extra.date,
     competitions: [{
-      status: { type: { state, shortDetail: extra.detail || "" }, period: extra.period || 0, displayClock: extra.clock || "" },
+      status: { type: { state, shortDetail: extra.detail || "",
+        name: extra.statusName || (state === "post" ? "STATUS_FINAL" : state === "in" ? "STATUS_IN_PROGRESS" : "STATUS_SCHEDULED"),
+        completed: extra.completed != null ? extra.completed : state === "post" },
+        period: extra.period || 0, displayClock: extra.clock || "" },
       broadcasts: extra.net ? [{ names: [extra.net] }] : [],
       odds: extra.spread ? [{ details: extra.spread }] : [],
       // Item 4 (2026-08-09): ESPN's own competitor.team.logo. DEN deliberately has NONE, so
@@ -1008,6 +1037,17 @@ function sbFix() {
   // every starter's game reads final — so it is the only state in which the season-type guard
   // is the one thing standing between the app and a permanently-wrong weekly doc. Default off.
   const done = fixture.preseasonFinal;
+  // D-S6 (2026-09-02): ESPN's postponed/cancelled games move to state "post" with
+  // completed:false — the slate has passed them, nobody played them. Same event, real shape.
+  if (fixture.postponed) {
+    return { events: [
+      mk("401900001", "DAL", "PHI", "post",
+        { date: "2026-08-07T00:15Z", detail: "Postponed", statusName: "STATUS_POSTPONED", completed: false,
+          period: 0, clock: "0:00", hs: "0", as: "0", net: "FOX" }),
+      mk("401900002", "KC", "DEN", "post",
+        { date: "2026-08-07T00:15Z", detail: "Final", hs: "17", as: "14", net: "CBS" }),
+    ], season: { type: 2, year: 2026 } };
+  }
   const events = [
     mk("401900001", "DAL", "PHI", done ? "post" : "in",
       { date: "2026-08-07T00:15Z", detail: done ? "Final" : "Q2 5:00", period: done ? 4 : 2, clock: done ? "0:00" : "5:00", hs: done ? "13" : "14", as: done ? "20" : "10", net: "FOX",
@@ -1091,6 +1131,8 @@ function teamSchedFix(ab, weeks, byeWeek) {
 // than a tautology.
 const simSbUrls = [];
 const weekSlateUrls = []; // 2026-08-13: every explicit current-season week the cycler asks for
+const schedUrls = [];     // 2026-09-02: every /teams/<ab>/schedule URL, so the Washington
+                          // ESPN-vs-Sleeper abbrev split is asserted on the wire, not inferred
 const konaUrls = [];      // 2026-08-13 (section AX): every lg_espn_projections kona call + its X-Fantasy-Filter
 // A future regular-season week's slate (the week cycler): two upcoming games with real
 // kickoffs, networks and colours — nothing live, nothing final, which is what "future" means.
@@ -1244,12 +1286,43 @@ function sumAFix() {
             athletes: [ath("4241457", "R. Rusher", "RB", ["9", "40", "4.4", "0"])] },
           { name: "kicking", labels: ["FG", "PCT", "LONG", "XP", "PTS"],
             athletes: [ath("2473037", "K. Kicker", "K", ["2/3", "66.7", "47", "1/1", "8"])] },
+          // 2026-09-02: the DEFENSIVE half of a real box, which this fixture simply did not
+          // have — every real ESPN summary carries defensive/interceptions/kickReturns/
+          // puntReturns groups, and parseEspnBox read none of them, so a pick-six scored the
+          // man who made it nothing at all in ESPN-only mode. D. Backer is deliberately
+          // UNROSTERED (id 999777 is on nobody's roster), so adding him moves not one
+          // hand-computed team total anywhere in this file while making the real shape testable.
+          // THE SAME pick-six appears in BOTH groups, which is how ESPN reports it (the
+          // "defensive" TD column is the umbrella count and "interceptions" TD is a subset) —
+          // that is what makes the de-duplication in parseEspnBox a real assertion:
+          //   max(defensive 1, interceptions 1) + kickReturns 1 + puntReturns 0 = 2 TDs
+          //   2 × dst_td 6 = 12.0
+          { name: "defensive", labels: ["TOT", "SOLO", "SACKS", "TFL", "PD", "QB HTS", "TD"],
+            athletes: [ath("999777", "D. Backer", "LB", ["7", "5", "1.0", "2", "1", "1", "1"])] },
+          { name: "interceptions", labels: ["INT", "YDS", "TD"],
+            athletes: [ath("999777", "D. Backer", "LB", ["1", "38", "1"])] },
+          { name: "kickReturns", labels: ["NO", "YDS", "AVG", "LONG", "TD"],
+            athletes: [ath("999777", "D. Backer", "LB", ["2", "61", "30.5", "42", "1"])] },
+          { name: "puntReturns", labels: ["NO", "YDS", "AVG", "LONG", "TD"],
+            athletes: [ath("999777", "D. Backer", "LB", ["1", "6", "6.0", "6", "0"])] },
         ] },
       ],
     },
+    // RESTAGED 2026-09-02: scoringPlays[].type is an OBJECT on the real wire —
+    // {id, text, abbreviation} — not the bare string this fixture invented. A fixture kinder
+    // than reality: `String(p.type)` on the real payload is the literal "[object Object]", so
+    // the app's own type branch had never once matched in production and every FG was reaching
+    // the parser through its text fallback alone.
     scoringPlays: [
-      { type: "FG", text: "K. Kicker 47 Yd Field Goal", team: { abbreviation: "DAL" } },
-      { type: "TD", text: "W. Receiver 12 Yd Pass From P. Passer (P. Passer Pass to W. Receiver for Two-Point Conversion)", team: { abbreviation: "PHI" } },
+      { type: { id: "59", text: "Field Goal Good", abbreviation: "FG" }, text: "K. Kicker 47 Yd Field Goal", team: { abbreviation: "DAL" } },
+      { type: { id: "67", text: "Passing Touchdown", abbreviation: "TD" }, text: "W. Receiver 12 Yd Pass From P. Passer (P. Passer Pass to W. Receiver for Two-Point Conversion)", team: { abbreviation: "PHI" } },
+      // fixture.safetyPlay (2026-09-02): a SAFETY whose own prose never says the word — ESPN's
+      // play text varies by feed and the `type.abbreviation` is the authoritative signal, which
+      // is the whole reason the app must read it rather than pattern-match a sentence. Behind a
+      // flag because it is worth 4 points to the DAL D/ST and would move hand-computed totals.
+      ...(fixture.safetyPlay
+        ? [{ type: { id: "8", text: "Safety", abbreviation: "SF" }, text: "R. Rusher tackled in the end zone by PHI", team: { abbreviation: "DAL" } }]
+        : []),
     ],
     drives: { current: { team: { abbreviation: "PHI" }, plays: [{ end: { yardsToEndzone: 12 } }] } },
   };
@@ -1316,6 +1389,20 @@ function slpDirectoryFix() {
     }
   }
   if (fixture.depthCharts) dir = { ...dir, ...depthDirectoryFix() };
+  // U-F1 (2026-09-02): the PRODUCTION shape — roughly one in three of the players these rosters
+  // actually hold carries NO espn_id in Sleeper's directory (measured live 2026-08-09: 6,727 of
+  // 12,217 entries have one). Every one of these five sits on team 1's or team 2's week-1
+  // roster under an ESPN id, so a candidate keyed `espn_id || slp_<pid>` mints a key no roster
+  // holds and the "already owned" filter misses him entirely.
+  if (fixture.espnIdGap) {
+    dir = { ...dir };
+    for (const pid of ["6904", "1266", "9003", "9006", "9102"]) {
+      if (dir[pid]) { const c = { ...dir[pid] }; delete c.espn_id; dir[pid] = c; }
+    }
+  }
+  // D-S8 (2026-09-02): the directory is where injury_status actually lives, and it moves after
+  // a roster is imported. H. Healthy's ROSTER row carries no designation at all.
+  if (fixture.dirOutOnly) dir = { ...dir, "9006": { ...dir["9006"], injury_status: "Out" } };
   return dir;
 }
 // ---- ITEM 31 fixtures (2026-08-09): NFL depth charts.
@@ -1558,6 +1645,34 @@ function fullSeed(opts) {
     team: opts.claim ? null : 1, who: opts.claim ? null : "Peter",
   };
 }
+// ⭐ RESTAGE FIXTURE (2026-09-02) — A WEEK IS A UNIT. Build A's `empty-matchup` guard refuses
+// the WHOLE week, force included, when ANY pairing has nobody on either side (see its own note
+// in lg-core.js). fullSeed() rosters teams 1 and 2 against a FOUR-pairing schedule, so three of
+// its four pairings are empty and no fixture built on it can finalize at all any more. Every
+// section whose subject is the ARITHMETIC of a real finalize therefore fields all eight teams.
+//
+// The filler lineups are chosen so they change NOTHING else that is measured:
+//   · their keys and names are unknown to the Sleeper directory, so D.pidForKey answers null,
+//     every slot scores a real 0, and Top Score / the power table / the Bench Blunder are
+//     untouched (and the free-agent pool never offers them, since searchFA reads the directory);
+//   · they play for BUF, which is on no fixture slate — so D.gameDone counts them done (a bye)
+//     and the "pending" counts the live-game guards assert stay exactly what they were.
+// The EMPTY case keeps its own dedicated checks beside these, on rosters emptied in place.
+function seedAllFielded() {
+  const base = fullSeed();
+  const docs = { ...base.docs };
+  const SLOTS = [["QB", "QB"], ["RB", "RB"], ["RB", "RB"], ["RB", "RB"], ["WR", "WR"], ["WR", "WR"],
+    ["WR", "WR"], ["TE", "TE"], ["FLEX", "RB"], ["DST", "DST"], ["K", "K"]];
+  for (let t = 3; t <= 8; t++) {
+    docs["roster_2026_w1_t" + t] = { kind: "roster", week: 1, teamId: t,
+      players: SLOTS.map(([slot, pos], i) => ({
+        key: "fill" + t + "_" + i, name: "Filler " + t + String.fromCharCode(65 + i),
+        pos, team: "BUF", slot,
+      })) };
+  }
+  return { ...base, docs };
+}
+
 // ---------------- section BC fixture (2026-08-26, the season-reset batch) ----------------
 // The real shape of the league the instant the commissioner's 2026-08-23 reset lands: 8 teams,
 // a real week-1 schedule, and NOT ONE roster doc for any team — exactly LG.ensureRoster's own
@@ -1710,22 +1825,37 @@ function regularSeasonWeeklyDocs() {
   return docs;
 }
 function seedFor7Playoffs() {
-  const base = fullSeed();
+  // RESTAGED 2026-09-02 fullSeed() → seedAllFielded(): the postseason weeks this seed drives
+  // pair teams the bracket picks (5 v 7, 3 v 4 …), and Build A's `empty-matchup` guard refuses
+  // the whole week when a pairing has nobody on either side — backfill included. Every team
+  // needs a lineup to carry forward, or the bracket can never be played out at all.
+  const base = seedAllFielded();
   return { ...base, docs: { ...base.docs, ...regularSeasonWeeklyDocs() } };
 }
 // Section V (findings 1/3/7): a 4-week schedule with a week-3 lineup of exactly ONE starter
 // per side, so each team's week-3 total IS that quarterback's score and the difference
 // between "scored from week 3" and "scored from week 4" is unmissable.
 function seedWeekProvenance() {
-  const base = fullSeed();
+  // RESTAGED 2026-09-02: built on seedAllFielded() rather than fullSeed(), and the WEEK-3
+  // rosters this section finalizes now cover all eight teams. Build A's `empty-matchup` guard
+  // refuses the whole week when any pairing has nobody on either side, force and backfill
+  // included — so a fixture that rostered only teams 1 and 2 against a four-pairing schedule
+  // could no longer reach the archived-stats path this section is actually about. The filler
+  // lineups score nothing (unknown keys, a team off every slate), so week 3's hand-computed
+  // 20.0 — 2.0 is untouched.
+  const base = seedAllFielded();
   const wk = [[1, 2], [3, 4], [5, 6], [7, 8]];
-  return { ...base, docs: { ...base.docs,
+  const docs = { ...base.docs,
     sched_2026: { kind: "sched", season: 2026, weeks: [wk, wk, wk, wk] },
     roster_2026_w3_t1: { kind: "roster", week: 3, teamId: 1, players: [
       { key: "3915511", name: "P. Passer", pos: "QB", team: "PHI", slot: "QB" }] },
     roster_2026_w3_t2: { kind: "roster", week: 3, teamId: 2, players: [
       { key: "222111", name: "Q. Rival", pos: "QB", team: "DAL", slot: "QB" }] },
-  } };
+  };
+  for (let t = 3; t <= 8; t++) {
+    docs["roster_2026_w3_t" + t] = { ...docs["roster_2026_w1_t" + t], week: 3 };
+  }
+  return { ...base, docs };
 }
 
 // ---------------- plumbing ----------------
@@ -1898,6 +2028,7 @@ async function newTestPage(browser, seed, opts) {
           // every OTHER section's card renders byte-identical to before this feature existed.
           if (fixture.teamSchedDown && u.includes("/schedule")) return req.respond({ status: 503, headers: cors, body: "{}" });
           if (u.includes("/schedule")) {
+            schedUrls.push(u); // 2026-09-02 — the Washington check asserts the ABBREV ON THE WIRE
             const sm = /\/teams\/([A-Za-z]+)\/schedule/.exec(u);
             const ab = sm ? sm[1].toUpperCase() : "";
             const sched = fixture.teamSched && fixture.teamSched[ab];
@@ -1911,6 +2042,15 @@ async function newTestPage(browser, seed, opts) {
             if (u.includes("dates=2026")) {
               weekSlateUrls.push(u);
               const wm = /[?&]week=(\d+)/.exec(u);
+              // fixture.retargetSlate (2026-09-02, D-F1): the LIVE board's own re-target asks
+              // this same URL family for LG.currentWeek()'s slate, and the real endpoint answers
+              // it with the very games the bare /scoreboard is already showing. Serving the
+              // sbFix board here (stamped with the asked week) is what lets a section state a
+              // MISMATCHED bare week without its whole board changing underneath it. Off by
+              // default, so the Scores week cycler still browses sbWeekFix's own two games.
+              if (fixture.retargetSlate) {
+                return json({ ...sbFix(), week: { number: wm ? Number(wm[1]) : 1 }, season: { type: 2, year: 2026 } });
+              }
               return json(sbWeekFix(wm ? Number(wm[1]) : 0));
             }
             // The 2025 replay asks for an EXPLICIT historical slate; everything else gets the
@@ -1970,6 +2110,25 @@ async function bootPage(page) {
   await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
   await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
 }
+// ⭐ RESTAGE HELPER (2026-09-02, D-F1). pollScoreboard now RE-TARGETS any regular-season slate
+// whose own week.number isn't LG.currentWeek()'s, so a mismatched D.S.espnWeek can no longer
+// arrive over the wire at all — the ESPN side reads the league's week by construction, which is
+// the whole point of the fix (ESPN's week boundary and the league's are hours apart every week,
+// in both directions, and the finalize gates hang on the difference).
+// Section V's premise — "the engine is holding week N while the league is on week M" — is still
+// a real state: Sleeper's own /state/nfl says so independently, and the board in memory really
+// can be a week behind between the league's Tuesday rollover and the first re-targeted poll. So
+// the premise is now STAGED DIRECTLY here instead of being manufactured by the bare payload's
+// own week.number. Nothing about what those sections ASSERT moved: finalizeWeek still has to
+// refuse, force still must not bypass it, the archived backfill still has to settle the week
+// correctly, and the league home still has to say so. This staging is equally true against the
+// PRE-FIX engine (where the fixture produced exactly these two values on its own), which is what
+// makes it a staging restage rather than a bent assertion.
+const pinEngineWeek = (page, wk) => page.evaluate((w) => {
+  const D = window.__GFFL__.D;
+  D.S.espnWeek = w; D.S.slpWeek = w;
+  D.S.espnSeasonType = "regular"; D.S.slpSeasonType = "regular";
+}, wk);
 const poll = (page) => page.evaluate(() => window.__GFFL__.D.pollOnce());
 const stopPolling = (page) => page.evaluate(() => window.__GFFL__.D.stop());
 async function waitLive(page) {
@@ -2526,7 +2685,12 @@ async function openDetails(page, id) {
     // the starters — that is the fix — so ".mutable tbody tr" is no longer "the starters"; it
     // is both tables. Scoped to the one that isn't the bench. The property under test (nine
     // starter slots) is unchanged.
-    ok((await page.$$eval(".mutable:not(.benchtable) tbody tr", (els) => els.length)) === 9, "9 slot rows (QB RB RB WR WR TE FLEX DST K)");
+    // RESTAGED 2026-09-02: LG.DEFAULT_RULES.roster caught up with the LIVE league — RB2/WR2 →
+    // RB3/WR3 (cap 19 → 21). The settings doc has been RB3/WR3 since the ESPN import; the CODE
+    // default was the stale one. Most fixtures here seed no settings doc at all, so they fall
+    // back to the defaults, and the starting lineup is ELEVEN slots now rather than nine. Same
+    // fact under test (every slot the rules define renders a row), new number.
+    ok((await page.$$eval(".mutable:not(.benchtable) tbody tr", (els) => els.length)) === 11, "11 slot rows (QB RB RB RB WR WR WR TE FLEX DST K)");
     const passerCell = await page.evaluate(() => {
       const tr = [...document.querySelectorAll(".mutable tbody tr")].find((r) => r.textContent.includes("P. Passer"));
       return tr ? tr.textContent : "";
@@ -2663,7 +2827,9 @@ async function openDetails(page, id) {
     ok(await page.evaluate(() => document.querySelector('.bnav button[data-v="team"]').classList.contains("on")),
       "the bottom-nav \"My Team\" button still lights up as active, even though the underlying view is \"locker\"");
     const starters = await page.$$eval("#lockerStarters .lrow", (els) => els.length);
-    ok(starters === 9, "9 starter slots rendered");
+    // RESTAGED 2026-09-02 — DEFAULT_RULES.roster caught up with the live league (RB2/WR2 →
+    // RB3/WR3). See the slot-row check in section D for the full reason.
+    ok(starters === 11, "11 starter slots rendered");
     // RESTAGED 2026-08-09 (playtest item 9: "we dont need the word locked we just need to gray
     // out the swap button"). The LOCKED word is gone — the marker IS the disabled Swap button
     // now, so the check reads the property that actually exists: five locked rows, every one
@@ -2783,9 +2949,10 @@ async function openDetails(page, id) {
     ok(/300-399 yd passing game bonus/.test(summary) === false, "a ZERO-valued scoring key (the 300-yd passing bonus, off by default) is hidden in view mode — noise");
     ok(/Passing/.test(summary) && /Rushing/.test(summary) && /Receiving/.test(summary) && /Kicking/.test(summary) && /Defense \/ Special Teams/.test(summary),
       "all the expected Scoring subgroup headings are present");
-    // Mirrors lg-ui.js's rosterSummaryLine() against DEFAULT_RULES.roster (QB1/RB2/WR2/TE1/
+    // Mirrors lg-ui.js's rosterSummaryLine() against DEFAULT_RULES.roster (QB1/RB3/WR3/TE1/
     // FLEX1/DST1/K1/BENCH7/IR3) — a plain substring check (no regex metachars in this string).
-    ok(summary.replace(/\s+/g, " ").includes("1 QB, 2 RB, 2 WR, 1 TE, 1 FLEX, 1 D/ST, 1 K · 7 bench · 3 IR"),
+    // RESTAGED 2026-09-02 from RB2/WR2: DEFAULT_RULES.roster caught up with the live league.
+    ok(summary.replace(/\s+/g, " ").includes("1 QB, 3 RB, 3 WR, 1 TE, 1 FLEX, 1 D/ST, 1 K · 7 bench · 3 IR"),
       "Roster renders as a derived plain-English lineup summary, not a key/value table");
     ok(/claims process Wednesday 8 AM, ties go to the worse record/.test(summary), "Waivers renders in plain English (day name + 12h clock + tie rule)");
     ok(/starts week 15, week-by-week single elimination/.test(summary), "Playoffs summary describes the week-by-week format");
@@ -4257,6 +4424,16 @@ async function openDetails(page, id) {
       // rather than the league clock (nowOverride no longer reaches it).
       await LG.saveTrade({ ...acc, reviewEndsAt: Date.now() - 1000 });
       await LG.executeTrade(off.trade.id);
+      // RESTAGED 2026-09-02: DEFAULT_RULES.roster caught up with the live league (RB2/WR2 →
+      // RB3/WR3), so after the waiver drop and the executed trade above, team 1's twelve players
+      // fill its eleven starting slots EXACTLY — and the veto trade below gives away a WR, which
+      // now leaves FLEX with no eligible body and makes LG.acceptTrade refuse it as
+      // `lineup-unfillable`. This block's subject is the TRANSACTION LOG, not the lineup guard
+      // (which has its own checks in section AS), so team 1 gets one spare body and the veto
+      // flow is reachable again. Deliberately a bench player the directory has never heard of,
+      // so he scores nothing and is invisible to every other read.
+      const ros1 = await LG.ensureRoster(1, 1, { fresh: true });
+      await LG.saveRoster(1, 1, [...ros1, { key: "txspare", name: "Spare Body", pos: "WR", team: "BUF", slot: "BENCH" }]);
       // Vetoed trade.
       const off2 = await LG.offerTrade(1, 2, ["111777"], ["dst_DAL"], "");
       await LG.acceptTrade(off2.trade.id, 2);
@@ -4527,7 +4704,11 @@ async function openDetails(page, id) {
   // to write is gone — item 15).
   {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
-    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    // RESTAGED 2026-09-02 fullSeed() → seedAllFielded(): Build A's `empty-matchup` guard refuses
+    // a week in which ANY pairing has nobody on either side, force included, and this section's
+    // subject is the ARITHMETIC of a real finalize. See seedAllFielded's own note for why the
+    // filler lineups move none of the numbers hand-computed below.
+    const { ctx, page, errors } = await newTestPage(browser, seedAllFielded());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     // Real fixture data loads, then polling STOPS (waitLive's own contract) — everything from
@@ -4562,13 +4743,34 @@ async function openDetails(page, id) {
       const forcedEmpty = await LG.finalizeWeek(1, { force: true });
       const wrote = await LG.loadWeekly(1);
       for (const [id, ros] of saved) await LG.saveRoster(1, id, ros || []);
-      return { plain, forcedEmpty, wrote: !!wrote, restored: saved.map(([id, r]) => id + ":" + (r || []).length).join(",") };
+      // ⭐ …AND A WEEK IS A UNIT (2026-09-02, Build A's `empty-matchup` guard). The guard above
+      // is LEAGUE-WIDE — it only fires when EVERY matchup is empty — so ONE empty pairing on an
+      // otherwise ready board used to sail past it and be recorded as a 0-0 tie in the same
+      // write-once doc. Emptied here in place, one pairing at a time, and restored.
+      await LG.saveRoster(1, 5, []); await LG.saveRoster(1, 6, []);
+      // The board has to read FINAL for this probe, or the `not-final` gate (which sits above
+      // the compute phase) answers first and the empty-pairing guard is never reached — that
+      // is the whole difference from the all-empty case above, where nobody is pending at all.
+      const D = window.__GFFL__.D;
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", period: 4, clock: "0:00" }));
+      const onePair = await LG.finalizeWeek(1);
+      const onePairForced = await LG.finalizeWeek(1, { force: true });
+      const wrote2 = await LG.loadWeekly(1);
+      ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "in", period: 3, clock: "5:00" }));
+      const s5 = saved.find(([id]) => id === 5), s6 = saved.find(([id]) => id === 6);
+      await LG.saveRoster(1, 5, (s5 && s5[1]) || []); await LG.saveRoster(1, 6, (s6 && s6[1]) || []);
+      return { plain, forcedEmpty, wrote: !!wrote, onePair, onePairForced, wrote2: !!wrote2,
+        restored: saved.map(([id, r]) => id + ":" + (r || []).length).join(",") };
     });
     ok(emptied.plain.ok === false && emptied.plain.reason === "empty-week",
       "a week with ZERO starters anywhere refuses as empty-week — the every([]) gate cannot pass vacuously (" + JSON.stringify(emptied.plain) + ")");
     ok(emptied.forcedEmpty.ok === false && emptied.forcedEmpty.reason === "empty-week",
       "…and force does NOT bypass it — no path may record a week nobody played (" + JSON.stringify(emptied.forcedEmpty) + ")");
     ok(!emptied.wrote, "…and no weekly doc was written by either attempt (rosters restored: " + emptied.restored + ")");
+    ok(emptied.onePair.ok === false && emptied.onePair.reason === "empty-matchup",
+      "ONE empty pairing on an otherwise ready board refuses the WHOLE week as empty-matchup, naming it (" + JSON.stringify(emptied.onePair.matchups) + ")");
+    ok(emptied.onePairForced.ok === false && emptied.onePairForced.reason === "empty-matchup" && !emptied.wrote2,
+      "…force included, with nothing written — a partial permanent record is exactly what the bracket findings ruled out");
 
     // force:true bypasses the guard (still computes from whatever's currently on the board).
     const forced = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
@@ -4624,15 +4826,31 @@ async function openDetails(page, id) {
     ok(r1.matchups.length === 4, "4 matchups written for week 1");
     const m1 = r1.matchups.find((m) => m.home === 1 && m.away === 2);
     ok(!!m1 && m1.homePts === 87 && m1.awayPts === 36, "hand-computed totals: team1 87.0, team2 36.0 (" + JSON.stringify(m1) + ")");
+    // RESTAGED 2026-09-02, and INVERTED in the half that matters. This used to read "an
+    // EMPTY-roster matchup finalizes at 0-0, not an error" — Build A's `empty-matchup` guard
+    // now says the opposite, and says it for a good reason (that 0-0 goes into a write-once
+    // doc and feeds standings, seeding and the record book forever). So the two halves are
+    // separated: a pairing that is genuinely FIELDED but scores nothing still records an
+    // honest 0-0…
     const m2 = r1.matchups.find((m) => m.home === 3);
-    ok(!!m2 && m2.homePts === 0 && m2.awayPts === 0, "an empty-roster matchup finalizes at 0-0, not an error");
+    ok(!!m2 && m2.homePts === 0 && m2.awayPts === 0,
+      "a FIELDED pairing that simply scores nothing still finalizes at 0-0, not an error (" + JSON.stringify(m2) + ")");
+    // (the other half — a pairing with NOBODY on either side refusing the whole week — is
+    // probed above, beside the empty-week guard it belongs with, on rosters emptied in place)
 
     ok(!!r1.awards.topScore && r1.awards.topScore.teamId === 1 && r1.awards.topScore.pts === 87,
       "🏅 Top Score: team1 (87.0)");
     ok(!!r1.awards.bust && r1.awards.bust.name === "F. Flexman" && r1.awards.bust.shortfall === 10,
       "💀 Bust of the Week: F. Flexman, proj 12 → actual 2, shortfall 10.0 — the biggest of anyone with proj ≥8 (" + JSON.stringify(r1.awards.bust) + ")");
-    ok(!!r1.awards.benchBlunder && r1.awards.benchBlunder.teamId === 1 && r1.awards.benchBlunder.diff === 48,
-      "🪑 Bench Blunder: team1 left 48.0 on the bench (optimal 135.0 vs actual 87.0 — B. Backup(50) should have started over F. Flexman(2))");
+    // RESTAGED 2026-09-02 — DEFAULT_RULES.roster caught up with the live league (RB2/WR2 →
+    // RB3/WR3), and fzOptimalTotal takes the top THREE at each of those now. Re-derived from
+    // the same fixture, by hand: QB 25 + RB(50 B.Backup, 10 R.Rusher, 8 S.Second) +
+    // WR(15 W.Receiver, 6 W.Two, 3 H.Healthy) + TE 5 + FLEX(2 F.Flexman, the best body left)
+    // + DST 9 + K 7 = 140. The ACTUAL is unchanged at 87 (the roster's stored slots are still
+    // the old 2-RB/2-WR shape, so the two extra starting slots simply go unfilled), so the
+    // shortfall is 140 − 87 = 53. Same award, same fixture, the arithmetic re-done.
+    ok(!!r1.awards.benchBlunder && r1.awards.benchBlunder.teamId === 1 && r1.awards.benchBlunder.diff === 53,
+      "🪑 Bench Blunder: team1 left 53.0 on the bench (optimal 140.0 vs actual 87.0 — B. Backup(50) should have started over F. Flexman(2))");
 
     ok(!!r1.accuracy && r1.accuracy.n === 4 && r1.accuracy.ours === 6.25,
       "📈 accuracy: mean |proj-actual| over the 4 snapshotted starters = 6.25 (" + JSON.stringify(r1.accuracy) + ")");
@@ -4656,7 +4874,7 @@ async function openDetails(page, id) {
     ok(chat1.length === chatBefore, "finalizing a week writes NO chat message at all (" + chat1.length + " vs " + chatBefore + ")");
     const wkDoc = await page.evaluate(() => window.__GFFL__.LG.loadWeekly(1));
     ok(wkDoc.awards.topScore.teamId === 1 && wkDoc.awards.topScore.pts === 87
-      && /F\. Flexman/.test(wkDoc.awards.bust.name) && wkDoc.awards.benchBlunder.diff === 48,
+      && /F\. Flexman/.test(wkDoc.awards.bust.name) && wkDoc.awards.benchBlunder.diff === 53,
       "…and the top score, the bust and the bench blunder all live on the weekly doc instead (" + JSON.stringify(wkDoc.awards) + ")");
 
     // Idempotent: a second call returns the SAME doc, untouched — no recomputation, no
@@ -4674,7 +4892,10 @@ async function openDetails(page, id) {
   // M2: auto-finalize on boot only ever touches a PAST week (week < currentWeek()) — never the
   // live/current one, even when that week's own data would otherwise pass the guard too.
   {
-    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    // RESTAGED 2026-09-02 fullSeed() → seedAllFielded() — see M1's own note (Build A's
+    // `empty-matchup` guard). Week 1 has to be genuinely finalizable for "it got auto-finalized"
+    // to mean anything.
+    const { ctx, page, errors } = await newTestPage(browser, seedAllFielded());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
@@ -4765,9 +4986,14 @@ async function openDetails(page, id) {
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await page.evaluate(async () => {
       const LG = window.__GFFL__.LG;
-      await LG.db.set(LG.weeklyId(2026, 1), { kind: "weekly", week: 1, matchups: [],
+      // RESTAGED 2026-09-02: `matchups: []` was a shortcut — this check is about the POWER
+      // table, not the scores — and Build A's LG.weeklyIsVoid now reads a finalized week with no
+      // matchups at all as VOID (correctly: it is not a result), so LG.powerRanking filters both
+      // of these out and the card never renders. Given real, non-zero matchups they are real
+      // weeks again; nothing else about the check moves.
+      await LG.db.set(LG.weeklyId(2026, 1), { kind: "weekly", week: 1, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 90 }],
         power: [{ teamId: 1, score: 10, rank: 1 }, { teamId: 2, score: 8, rank: 2 }, { teamId: 3, score: 5, rank: 3 }] });
-      await LG.db.set(LG.weeklyId(2026, 2), { kind: "weekly", week: 2, matchups: [],
+      await LG.db.set(LG.weeklyId(2026, 2), { kind: "weekly", week: 2, matchups: [{ home: 1, away: 2, homePts: 95, awayPts: 99 }],
         power: [{ teamId: 3, score: 20, rank: 1 }, { teamId: 1, score: 9, rank: 2 }, { teamId: 2, score: 8, rank: 3 }] });
     });
     await page.evaluate(() => { window.__GFFL__.UI.week = 2; });
@@ -5451,6 +5677,15 @@ async function openDetails(page, id) {
       // The fixture's providers say week 1; this section is finalizing week 15, so it must
       // say so. (Both providers are set: they must AGREE or the engine reports "unknown".)
       D.S.espnWeek = 15; D.S.slpWeek = 15;
+      // RESTAGED 2026-09-02 (D-F1's belt): the LEAGUE clock has to move with them. Since the
+      // week-identity re-target, D.S.espnWeek IS LG.currentWeek() by construction, and the one
+      // window in which they differ — between the league's Tuesday rollover and the first
+      // re-targeted poll — is precisely the window in which D.gameDone refuses to call anything
+      // done. So "the engine is on week 15 while the league clock still reads week 1" is a state
+      // that can no longer arise, and staging it made every starter read pending (`not-final`).
+      // A real playoff week has both clocks on week 15; that is what this now stages.
+      const LG = window.__GFFL__.LG;
+      LG.nowOverride = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime() + 14 * 7 * 24 * 3600 * 1000 + 3600000;
     });
     const r15 = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(15));
     ok(r15.ok === true, "finalizeWeek(15) succeeds on a REAL playoff week driven by the live engine");
@@ -5513,7 +5748,11 @@ async function openDetails(page, id) {
     // is precisely why the five idempotency guards use getFresh, so the point this section
     // makes is unchanged: below, the page's own list("weekly") snapshot still reports the doc
     // as absent while getFresh sees the truth.
-    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    // RESTAGED 2026-09-02 fullSeed() → seedAllFielded(). This block's subject is the
+    // get-vs-getFresh idempotency guard, which is reached DOWN the compute path — and Build A's
+    // `empty-matchup` guard now refuses before that path runs when any pairing has nobody on
+    // either side. Fielding all eight teams is what keeps the check about the thing it names.
+    const { ctx, page, errors } = await newTestPage(browser, seedAllFielded());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     const warmMissing = await page.evaluate(async () => {
@@ -6187,11 +6426,13 @@ async function openDetails(page, id) {
   // doc. The finding's repro verbatim: week-3 rosters, an engine sitting on week 4, and week
   // 4's numbers being the OPPOSITE result to week 3's.
   {
+    fixture.retargetSlate = true; // D-F1 restage (2026-09-02) - see pinEngineWeek own note
     fixture.espnWeekNum = 4; fixture.sleeperWeek = 4;
     const { ctx, page, errors } = await newTestPage(browser, seedWeekProvenance());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
+    await pinEngineWeek(page, 4); // RESTAGED 2026-09-02 (D-F1) — see pinEngineWeek's own note
     const ew = await page.evaluate(() => window.__GFFL__.D.engineWeek());
     ok(ew === 4, "the engine reports its OWN authoritative week (4) — the provenance finalization now refuses to guess at (" + ew + ")");
     // The board as it reads on the Tuesday of week 4: week 4's points, every game final.
@@ -6225,7 +6466,7 @@ async function openDetails(page, id) {
       "…so the standings credit the team that actually won week 3 (" + JSON.stringify({ t1: st[1], t2: st[2] }) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
-    fixture.espnWeekNum = null; fixture.sleeperWeek = null;
+    fixture.espnWeekNum = null; fixture.sleeperWeek = null; fixture.retargetSlate = false;
   }
 
   // V1b: the other side of the same gate — when the engine IS on the week being finalized,
@@ -6233,11 +6474,13 @@ async function openDetails(page, id) {
   // (it used to stop at currentWeek()-1, which is precisely why week N was only ever
   // finalizable after the engine had already rolled off it).
   {
+    fixture.retargetSlate = true; // D-F1 restage (2026-09-02) - see pinEngineWeek own note
     fixture.espnWeekNum = 3; fixture.sleeperWeek = 3;
     const { ctx, page, errors } = await newTestPage(browser, seedWeekProvenance());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
+    await pinEngineWeek(page, 3); // RESTAGED 2026-09-02 (D-F1) — see pinEngineWeek's own note
     await page.evaluate(() => {
       const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
       const setP = (key, name, team, pos, pts) =>
@@ -6272,17 +6515,19 @@ async function openDetails(page, id) {
     await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
-    fixture.espnWeekNum = null; fixture.sleeperWeek = null;
+    fixture.espnWeekNum = null; fixture.sleeperWeek = null; fixture.retargetSlate = false;
   }
 
   // V1c: the league home SAYS SO — a week the engine can no longer score is stated plainly,
   // and the commissioner settles it from that week's own archived stats, in the real UI.
   {
+    fixture.retargetSlate = true; // D-F1 restage (2026-09-02) - see pinEngineWeek own note
     fixture.espnWeekNum = 4; fixture.sleeperWeek = 4;
     const { ctx, page, errors } = await newTestPage(browser, seedWeekProvenance());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
+    await pinEngineWeek(page, 4); // RESTAGED 2026-09-02 (D-F1) — see pinEngineWeek's own note
     await page.evaluate(() => {
       const LG = window.__GFFL__.LG;
       const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
@@ -6309,7 +6554,7 @@ async function openDetails(page, id) {
     await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
-    fixture.espnWeekNum = null; fixture.sleeperWeek = null;
+    fixture.espnWeekNum = null; fixture.sleeperWeek = null; fixture.retargetSlate = false;
   }
 
   // V2: finding 1's widening note — pollScoreboard only ever .set() into D.S.games, so a tab
@@ -6420,6 +6665,7 @@ async function openDetails(page, id) {
   // advanced therefore deleted that semifinal from the official record permanently, and no
   // champion could ever be crowned.
   {
+    fixture.retargetSlate = true; // D-F1 restage (2026-09-02) - see pinEngineWeek own note
     fixture.espnWeekNum = 16; fixture.sleeperWeek = 16;
     const { ctx, page, errors } = await newTestPage(browser, seedFor7Playoffs());
     await bootPage(page);
@@ -6445,7 +6691,7 @@ async function openDetails(page, id) {
     await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
-    fixture.espnWeekNum = null; fixture.sleeperWeek = null;
+    fixture.espnWeekNum = null; fixture.sleeperWeek = null; fixture.retargetSlate = false;
   }
 
   // V5b: the season-sim outcome the finding measured — play the postseason out on the
@@ -6485,6 +6731,7 @@ async function openDetails(page, id) {
   // settles them from archived stats, and the bracket still walks all the way to a champion
   // because each week is advanced before the next one is written.
   {
+    fixture.retargetSlate = true; // D-F1 restage (2026-09-02) - see pinEngineWeek own note
     fixture.espnWeekNum = 18; fixture.sleeperWeek = 18;
     const { ctx, page, errors } = await newTestPage(browser, seedFor7Playoffs());
     await bootPage(page);
@@ -6514,7 +6761,7 @@ async function openDetails(page, id) {
     await page.evaluate(() => { window.__GFFL__.LG.nowOverride = null; });
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
-    fixture.espnWeekNum = null; fixture.sleeperWeek = null;
+    fixture.espnWeekNum = null; fixture.sleeperWeek = null; fixture.retargetSlate = false;
   }
 
   // V6: finding 9 — the Sleeper stats bucket rotated [week, week+1, "1"] and LOCKED on the
@@ -11403,6 +11650,17 @@ async function openDetails(page, id) {
       // Deliberately NO waitLive(): these rosters are hand-built with keys the Sleeper fixture
       // has never heard of, so no live row will ever land for them — and nothing here needs
       // one, since every value under test comes from the stubbed projFor below.
+      // RESTAGED 2026-09-02: these blocks' ARITHMETIC is written against a 2-RB / 2-WR lineup —
+      // "strength(pos) = the top N by value, N = that position's STARTING requirement", and
+      // every edge and tolerance figure in the tables above is derived from N=2. DEFAULT_RULES
+      // moved to RB3/WR3 to match the live league, which silently changed N and left the
+      // suggester with no legal pair at all (a 4-RB roster sending one now drops below the new
+      // minimum). The fixture's own lineup shape is STATED here rather than inherited from a
+      // code default that can move again: same rosters, same values, same right answer.
+      await evalOr(page, () => {
+        const LG = window.__GFFL__.LG;
+        LG.rules.roster = { ...LG.rules.roster, RB: 2, WR: 2 };
+      });
       await evalOr(page, () => window.__GFFL__.UI.show("moves"));
       await waitOr(page, "#mvSuggest");
       await evalOr(page, (v) => { window.__GFFL__.D.projFor = (k) => (k in v ? v[k] : null); }, VALS);
@@ -11502,6 +11760,17 @@ async function openDetails(page, id) {
       // Deliberately NO waitLive(): these rosters are hand-built with keys the Sleeper fixture
       // has never heard of, so no live row will ever land for them — and nothing here needs
       // one, since every value under test comes from the stubbed projFor below.
+      // RESTAGED 2026-09-02: these blocks' ARITHMETIC is written against a 2-RB / 2-WR lineup —
+      // "strength(pos) = the top N by value, N = that position's STARTING requirement", and
+      // every edge and tolerance figure in the tables above is derived from N=2. DEFAULT_RULES
+      // moved to RB3/WR3 to match the live league, which silently changed N and left the
+      // suggester with no legal pair at all (a 4-RB roster sending one now drops below the new
+      // minimum). The fixture's own lineup shape is STATED here rather than inherited from a
+      // code default that can move again: same rosters, same values, same right answer.
+      await evalOr(page, () => {
+        const LG = window.__GFFL__.LG;
+        LG.rules.roster = { ...LG.rules.roster, RB: 2, WR: 2 };
+      });
       await evalOr(page, () => window.__GFFL__.UI.show("moves"));
       await waitOr(page, "#mvSuggest");
       await evalOr(page, (v) => { window.__GFFL__.D.projFor = (k) => (k in v ? v[k] : null); }, VALS);
@@ -11656,6 +11925,17 @@ async function openDetails(page, id) {
       // Deliberately NO waitLive(): these rosters are hand-built with keys the Sleeper fixture
       // has never heard of, so no live row will ever land for them — and nothing here needs
       // one, since every value under test comes from the stubbed projFor below.
+      // RESTAGED 2026-09-02: these blocks' ARITHMETIC is written against a 2-RB / 2-WR lineup —
+      // "strength(pos) = the top N by value, N = that position's STARTING requirement", and
+      // every edge and tolerance figure in the tables above is derived from N=2. DEFAULT_RULES
+      // moved to RB3/WR3 to match the live league, which silently changed N and left the
+      // suggester with no legal pair at all (a 4-RB roster sending one now drops below the new
+      // minimum). The fixture's own lineup shape is STATED here rather than inherited from a
+      // code default that can move again: same rosters, same values, same right answer.
+      await evalOr(page, () => {
+        const LG = window.__GFFL__.LG;
+        LG.rules.roster = { ...LG.rules.roster, RB: 2, WR: 2 };
+      });
       await evalOr(page, () => window.__GFFL__.UI.show("moves"));
       await waitOr(page, "#mvSuggest");
       await evalOr(page, (v) => { window.__GFFL__.D.projFor = (k) => (k in v ? v[k] : null); }, VALS);
@@ -12704,8 +12984,12 @@ async function openDetails(page, id) {
     // readable list of missing guarantees it exists to produce. Reports rather than aborts; the
     // real assertions downstream are what fail.
     const waitLiveOr = async (page) => { try { await waitLive(page); return true; } catch (e) { return false; } };
-    const RULES_ROSTER = { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, DST: 1, K: 1, BENCH: 7 };
-    const ROSTER_SIZE = Object.values(RULES_ROSTER).reduce((a, b) => a + b, 0); // 16
+    // RESTAGED 2026-09-02: this mirrors LG.DEFAULT_RULES.roster (minus IR, which the backup
+    // fill never touches), and that caught up with the LIVE league — RB2/WR2 → RB3/WR3. A
+    // filled roster is ELEVEN starters plus seven bench = 18, not 16. Same rule under test
+    // ("every team gets exactly the slots the rules require"), re-derived from the new rules.
+    const RULES_ROSTER = { QB: 1, RB: 3, WR: 3, TE: 1, FLEX: 1, DST: 1, K: 1, BENCH: 7 };
+    const ROSTER_SIZE = Object.values(RULES_ROSTER).reduce((a, b) => a + b, 0); // 18
 
     // ---- AI1 (ITEM 29): no flag, no URL param — the app is the real 2026 season.
     {
@@ -13038,7 +13322,11 @@ async function openDetails(page, id) {
     // ---- AI7 (ITEM 30): the season-type reader itself, and the disagreement rule.
     {
       fixture.preseason = false; fixture.preseasonFinal = false;
-      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      // RESTAGED 2026-09-02 fullSeed() → seedAllFielded(): this block ends by proving the guard
+      // "costs the real season nothing" with a REAL finalize, and Build A's `empty-matchup`
+      // guard refuses a week in which any pairing has nobody on either side. See
+      // seedAllFielded's own note.
+      const { ctx, page, errors } = await newTestPage(browser, seedAllFielded());
       await bootReal(page);
       await waitOr(page, ".mucard", 12000);
       await waitLiveOr(page);
@@ -13167,7 +13455,8 @@ async function openDetails(page, id) {
       ok(await waitFnOr(page, () => /rosters filled from the depth charts/.test(document.body.textContent)),
         "the fill runs and reports what it did");
       const okTxt = ((await evalOr(page, () => document.querySelector("#importOut").textContent)) || "").replace(/\s+/g, " ");
-      ok(/8 teams · 16 players each/.test(okTxt), "…8 teams, 16 players each (" + okTxt.slice(0, 90) + ")");
+      // RESTAGED 2026-09-02 (16 → 18) — see RULES_ROSTER's own note above.
+      ok(/8 teams · 18 players each/.test(okTxt), "…8 teams, 18 players each (" + okTxt.slice(0, 90) + ")");
       ok(!/uneven/.test(okTxt) && !/ran out at/.test(okTxt), "…with no team short and no position exhausted");
       const dir = depthDirectoryFix();
       filledDocs = await evalOr(page, (pfx) => {
@@ -13380,7 +13669,22 @@ async function openDetails(page, id) {
         await clickIn(page, "#draftRostersImport");
         await waitOr(page, "#draftGo", 9000);
         await clickIn(page, "#draftGo");
-        await waitFnOr(page, () => /Draft imported/.test(document.body.textContent));
+        // RESTAGED 2026-09-02: this was a BARE waitFnOr — the "a waitFnOr followed by nothing
+        // asserts NOTHING" trap this file has already recorded twice. It could not have been
+        // asserted before today either: runDraftImport wrote its confirmation into #importOut
+        // and then called UI.show("rules"), which rebuilds main() and DESTROYS that node in the
+        // same synchronous turn, so the most consequential action in the app (it replaces all
+        // eight rosters) finished by looking like nothing had happened. The confirmation is a
+        // toast now — a sibling of main(), which outlives the render — and the card is written
+        // back afterwards, so both are assertable.
+        const sawConfirm = await waitFnOr(page, () => /Draft imported/.test(document.body.textContent));
+        ok(sawConfirm === true, "the import CONFIRMS on screen and the confirmation survives the repaint that follows it");
+        const confirmToast = await evalOr(page, () => {
+          const t = document.getElementById("toast");
+          return t && !t.hidden ? t.textContent.replace(/\s+/g, " ").trim() : "";
+        });
+        ok(/Draft imported/.test(confirmToast || "") && /Check My Team/.test(confirmToast || ""),
+          "…as a toast naming what happened and what to do next (" + confirmToast + ")");
         const t1 = await rosterOf(page, 1), t2 = await rosterOf(page, 2);
         ok((t1 || []).length === 4 && (t2 || []).length === 2,
           "week 1 rosters are written for the teams that drafted (" + (t1 || []).length + "/" + (t2 || []).length + ")");
@@ -13416,8 +13720,12 @@ async function openDetails(page, id) {
       {
         const { ctx, page, errors } = await newTestPage(browser, fullSeed());
         await page.evaluateOnNewDocument((k, v) => localStorage.setItem(k, v), DRAFT_KEY, draftDoc());
+        // RESTAGED 2026-09-02: `matchups: []` was shorthand for "week 1 is settled" — and Build
+        // A's LG.weeklyIsVoid now reads a finalized week with no matchups at all as VOID (it is
+        // not a result), so LG.loadWeekly answers null for it and the importer would see an
+        // UNsettled week. A real, non-zero result is what this check always meant.
         await page.evaluateOnNewDocument((k) => localStorage.setItem(k, JSON.stringify({
-          kind: "weekly", week: 1, season: 2026, matchups: [], finalizedAt: 1,
+          kind: "weekly", week: 1, season: 2026, matchups: [{ home: 1, away: 2, homePts: 101, awayPts: 88 }], finalizedAt: 1,
         })), LSPFX + "weekly_2026_w1");
         await openRules(page);
         const before = await rosterOf(page, 1);
@@ -15878,7 +16186,11 @@ async function openDetails(page, id) {
     // ---- AN3: the week recap — the one LEAGUE-WIDE send ----
     {
       await reset();
-      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      // RESTAGED 2026-09-02 fullSeed() → seedAllFielded(): the recap push is produced BY a real
+      // finalize, and Build A's `empty-matchup` guard refuses a week in which any pairing has
+      // nobody on either side. See seedAllFielded's own note — the filler lineups score nothing,
+      // so the two real scorelines this block reads off the body are unchanged.
+      const { ctx, page, errors } = await newTestPage(browser, seedAllFielded());
       await bootPage(page);
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await waitLive(page);
@@ -16374,7 +16686,12 @@ async function openDetails(page, id) {
     await waitLive(page);
     await page.evaluate(() => window.__GFFL__.UI.go("team"));
     await waitOr(page, ".lrow", 9000);
-    await clickIn(page, ".lswapfill");
+    // RESTAGED 2026-09-02: this used to click the FIRST empty slot, which under RB2/WR2 was the
+    // WR slot the staging above deliberately vacated. DEFAULT_RULES caught up with the live
+    // league (RB3/WR3), so the first empty slot is now the third RB — whose candidate list
+    // correctly offers no wide receivers, and every assertion below is about WRs. The slot this
+    // block has always been about is named explicitly now rather than being the first one left.
+    await clickIn(page, '.lrow[data-slot="WR"] .lswapfill');
     await waitOr(page, "#rosterCard .swaprow", 5000);
     await waitFnOr(page, () => [...document.querySelectorAll("#rosterCard .rcnum")].some((e) => /%/.test(e.textContent)));
     const swapCard = await page.evaluate(() => {
@@ -17698,7 +18015,11 @@ async function openDetails(page, id) {
     // Staged the same deterministic way as AS1: device A caches the lineup, device B changes
     // it, and only then does A finalize.
     {
-      const R = restFixture(fullSeed().docs);
+      // RESTAGED 2026-09-02 fullSeed() → seedAllFielded(): this block's whole point is that the
+      // finalize RUNS and scores the roster of record, and Build A's `empty-matchup` guard
+      // refuses a week in which any pairing has nobody on either side. See seedAllFielded's own
+      // note — the filler lineups score nothing, so team 1's re-derived total is unchanged.
+      const R = restFixture(seedAllFielded().docs);
       const seedA = { docs: {}, pass: "amenfarms", team: 1, who: "Peter" };
       const seedB = { docs: {}, pass: "amenfarms", team: 2, who: "Joy" };
       const { ctx: cA, page: pA, errors: eA } = await newTestPage(browser, seedA, { rest: R });
@@ -19534,7 +19855,11 @@ async function openDetails(page, id) {
   // AZ1 — THE ZERO FLOOR. The team1 QB's real stat line (2 INT, no yards) computes -4.0 under
   // the league's own default scoring (pass_int: -2 × 2 = -4.0) — the ruling's own example.
   {
-    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    // RESTAGED 2026-09-02 fullSeed() → seedAllFielded(): part (d) below drives a REAL
+    // finalizeWeek, and Build A's `empty-matchup` guard refuses a week in which any pairing has
+    // nobody on either side. See seedAllFielded's own note — the filler lineups score nothing,
+    // so the floored 62.0 this block hand-computes is untouched.
+    const { ctx, page, errors } = await newTestPage(browser, seedAllFielded());
     await bootPage(page);
     await waitOr(page, ".mucard");
     await waitLive(page);
@@ -21059,6 +21384,705 @@ async function openDetails(page, id) {
       ok(ms < 4500, "…well under the timeout a synchronous wait on the hung call would have hit (" + ms + "ms)");
       ok(await waitFnOr(page, () => (window.__pushCalls || []).length > 0), "…the call was genuinely made, not skipped — it's hanging, not absent");
       ok(errors.length === 0, "0 page errors while a push call sits forever unresolved");
+      await ctx.close();
+    }
+  }
+
+  // ---------------- section BF (2026-09-02) ----------------
+  // The pre-kickoff data/UI review batch. Every block is built from its own finding's
+  // reproduction: the board's week identity, the states that are not "done" (an empty board, a
+  // postponement), the rows a live-row-only lookup loses, the poll loop's stop/start seam, the
+  // Tuesday rollover, the injury designation the rule needs, Washington's two spellings, the
+  // free-agent key that let a rostered man be claimed twice, a background repaint that ate a
+  // typed bid, the money actions with no failure path, a vacuous "Final", and the commissioner's
+  // instant-free-agency ruling as it reads on screen.
+  section("BF · week identity · not-done states · the rollover · FA keying · the repaint · failure paths · the ruling");
+  {
+    // ---- BF1 (D-F1): ESPN's week boundary is not the league's, and the board follows the
+    // LEAGUE's. Bare payload says week 2; LG.currentWeek() is 1. ----
+    {
+      fixture.retargetSlate = true; fixture.espnWeekNum = 2;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D, LG = window.__GFFL__.LG;
+        return {
+          leagueWeek: LG.currentWeek(), espnWeek: D.S.espnWeek,
+          retarget: (D.EP["espn scoreboard (regular re-target)"] || {}).n || 0,
+          teams: [...D.S.games.keys()].sort().join(","),
+          mismatch: D.boardWeekMismatch ? D.boardWeekMismatch() : null,
+        };
+      }) || {};
+      ok(r.leagueWeek === 1 && r.espnWeek === 1,
+        "the bare scoreboard claims week 2 and the board is re-targeted to the LEAGUE's own week 1 — D.S.espnWeek === LG.currentWeek() by construction (" + r.espnWeek + "/" + r.leagueWeek + ")");
+      ok(r.retarget >= 1, "…via one explicit dates=/seasontype=2/week= fetch, the same endpoint the preseason re-target already used (" + r.retarget + ")");
+      ok(r.teams === "DAL,DEN,KC,PHI", "…and the games map holds that week's real slate, not the mismatched one (" + r.teams + ")");
+      ok(r.mismatch === false, "…so the board and the league agree about which week is in memory");
+      // THE BELT: the window between the league's Tuesday rollover and the first re-targeted
+      // poll, when the board in memory really is a week behind. Nothing may read "done" there.
+      // PRE-FIX TOLERANT (section AC's own discipline): every hook this block reads is NEW, and
+      // a bare call to a missing one aborts the whole run with one stack trace instead of the
+      // readable list a pre-fix verification exists to produce.
+      const belt = await evalOr(page, () => {
+        const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        const dec = () => (UI._matchupDecidedFor ? UI._matchupDecidedFor(1, 2).decided : null);
+        ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", completed: true, period: 4, clock: "0:00" }));
+        const before = { done: D.gameDone("PHI"), dec: dec() };
+        D.S.espnWeek = 2; // last week's finals, this week's league clock
+        return { before, mismatch: D.boardWeekMismatch ? D.boardWeekMismatch() : null, done: D.gameDone("PHI"), dec: dec() };
+      }) || {};
+      ok(belt.before && belt.before.done === true && belt.before.dec === true,
+        "CONTROL: with the board on the league's own week and every game final, PHI reads done and the matchup reads decided (" + JSON.stringify(belt.before) + ")");
+      ok(belt.mismatch === true && belt.done === false,
+        "…and with the SAME finals under a board a week behind, D.gameDone refuses (" + belt.done + ")");
+      ok(belt.dec === false, "…so the matchup is not decided either — a week's finals can never settle a different week (" + belt.dec + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.retargetSlate = false; fixture.espnWeekNum = null;
+    }
+
+    // ---- BF2 (D-S1): an EMPTY board is not a finished one. The cold-boot / ESPN-unreachable
+    // state, with real rosters on file — every matchup used to paint a decided 0-0 tie. ----
+    {
+      fixture.espnDown = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await sleep(600); // let the failing poll settle — the games map must genuinely stay empty
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        const ros = (UI._rosters && UI._rosters[1]) || [];
+        const starters = ros.filter((p) => p.slot !== "BENCH" && p.slot !== "IR").map((p) => p.key);
+        return {
+          games: D.S.games.size, starters: starters.length,
+          done: D.gameDone("PHI"), rem: D.remaining(starters),
+          dec: UI._matchupDecidedFor ? UI._matchupDecidedFor(1, 2).decided : null,
+          stars: document.querySelectorAll(".clinchstar").length,
+          prov: document.querySelectorAll(".standprov").length,
+          body: document.body.textContent.replace(/\s+/g, " "),
+        };
+      }) || {};
+      ok(r.games === 0, "the board is genuinely EMPTY — no slate has landed (" + r.games + " games)");
+      ok(r.starters === 9, "…while the rosters are genuinely FULL, which is what makes this non-vacuous (" + r.starters + " starters)");
+      ok(r.done === false, "D.gameDone refuses on an empty board rather than answering \"a bye, therefore done\" (" + r.done + ")");
+      ok(r.rem && r.rem.left === 9 && r.rem.played === 0,
+        "…and every starter still counts as TO PLAY, so D.remaining and D.gameDone agree (" + JSON.stringify(r.rem) + ")");
+      ok(r.dec === false, "the matchup is NOT decided — pre-fix this returned a decided 0-0 tie for every game in the league (" + r.dec + ")");
+      ok(r.stars === 0, "…so no gold clinch star is painted anywhere on the league home (" + r.stars + ")");
+      ok(r.prov === 0 && !/Provisional/.test(r.body || ""),
+        "…and the standings carry no provisional asterisk and no footnote on a season nobody has played");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.espnDown = false;
+    }
+
+    // ---- BF2b: a VOID weekly doc must not count as a week already settled. Routed here from
+    // Build A's engine work (LG.weeklyIsVoid / LG.loadWeeklyDocs, 2026-09-02): every OTHER
+    // weekly reader goes through loadWeeklyDocs, but the stale-week card built its "already
+    // have" set from the RAW list — so the two real zombie 0-0 docs the 2026-08-31 vacuous
+    // finalize wrote would have kept their own weeks off the one screen that offers the
+    // archived-stats repair. ----
+    {
+      const seed = fullSeed();
+      // A zombie exactly as the vacuous finalize minted it: finalized, four matchups, every
+      // score 0-0, an all-zero power table. LG.weeklyIsVoid is what recognises the shape.
+      seed.docs.weekly_2026_w1 = { kind: "weekly", week: 1,
+        matchups: [{ home: 1, away: 2, homePts: 0, awayPts: 0 }, { home: 3, away: 4, homePts: 0, awayPts: 0 }],
+        awards: {}, power: [{ teamId: 1, score: 0 }, { teamId: 2, score: 0 }], accuracy: null, finalizedAt: 1000 };
+      fixture.retargetSlate = true; fixture.espnWeekNum = 2; // so the engine's week (1) is knowable and != the week under test
+      const { ctx, page, errors } = await newTestPage(browser, seed);
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI, D = window.__GFFL__.D;
+        const doc = await LG.db.get("weekly_2026_w1");
+        // the engine must be able to say WHICH week it holds, or staleFinalizeWeeks is silent
+        // by its own "unknown is not stale" rule and this would pass for the wrong reason
+        D.S.espnWeek = 2; D.S.slpWeek = 2; D.S.espnSeasonType = "regular"; D.S.slpSeasonType = "regular";
+        LG.nowOverride = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime() + 7 * 24 * 3600 * 1000 + 3600000;
+        UI.week = LG.currentWeek();
+        await UI.renderLeague();
+        return {
+          onDisk: !!doc, isVoid: LG.weeklyIsVoid ? LG.weeklyIsVoid(doc) : null,
+          engineWeek: D.engineWeek(), leagueWeek: LG.currentWeek(),
+          stale: UI._staleWeeks || [], card: /needs? finalizing/i.test(document.body.textContent),
+        };
+      }) || {};
+      ok(r.onDisk === true && r.isVoid === true, "staged: a zombie weekly_2026_w1 really is on disk, and the engine calls it VOID (" + JSON.stringify([r.onDisk, r.isVoid]) + ")");
+      ok(r.engineWeek === 2 && r.leagueWeek === 2, "…with the engine's own week knowable, so the card is not silent for an unrelated reason (" + JSON.stringify([r.engineWeek, r.leagueWeek]) + ")");
+      ok(Array.isArray(r.stale) && r.stale.indexOf(1) >= 0,
+        "week 1 is listed as still needing finalizing — pre-fix the void doc answered \"already have it\" and the week the archived-stats repair exists for was the one week never offered (" + JSON.stringify(r.stale) + ")");
+      ok(r.card === true, "…and the league home really renders that card (" + r.card + ")");
+      await evalOr(page, () => { window.__GFFL__.LG.nowOverride = null; });
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.retargetSlate = false; fixture.espnWeekNum = null;
+    }
+
+    // ---- BF3 (D-S6): a POSTPONED game is state "post" with completed:false. ----
+    {
+      fixture.postponed = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        const g = D.S.games.get("PHI") || {};
+        return {
+          state: g.state, completed: g.completed, name: g.statusName,
+          donePHI: D.gameDone("PHI"), doneKC: D.gameDone("KC"),
+          remPHI: D.remaining(["3915511"]), remKC: D.remaining(["111222"]),
+        };
+      }) || {};
+      ok(r.state === "post" && r.completed === false && r.name === "STATUS_POSTPONED",
+        "the postponement is recorded as ESPN actually sends it — state post, completed FALSE, STATUS_POSTPONED (" + JSON.stringify([r.state, r.completed, r.name]) + ")");
+      ok(r.donePHI === false, "…so D.gameDone refuses it: the slate has passed the game, nobody played it (" + r.donePHI + ")");
+      ok(r.doneKC === true, "CONTROL: the genuine final on the same board still reads done (" + r.doneKC + ")");
+      ok(r.remPHI && r.remPHI.left === 1 && r.remPHI.played === 0,
+        "…and his starter still counts as TO PLAY, so the strip and the star cannot contradict each other (" + JSON.stringify(r.remPHI) + ")");
+      ok(r.remKC && r.remKC.played === 1, "CONTROL: the real final's own starter counts as played (" + JSON.stringify(r.remKC) + ")");
+      // …and the matchup hero refuses to badge it Final.
+      await evalOr(page, () => window.__GFFL__.UI.show("matchup"));
+      await waitOr(page, ".muhead");
+      const hero = await evalOr(page, () => (document.querySelector(".muhead") || {}).textContent || "");
+      ok(!/Final/.test(hero || ""), "…and the matchup header does not announce Final over a game nobody played (" + String(hero || "").replace(/\s+/g, " ").slice(0, 70) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.postponed = false;
+    }
+
+    // ---- BF4 (D-S7): D.remaining resolved a player's NFL team from a LIVE ROW only. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        D.S.players.delete("111222"); // T. Tight (KC) — the state of any board before his first stat lands
+        D.S.games.set("KC", { state: "post", completed: true, period: 4, clock: "0:00" });
+        return { hasRow: D.S.players.has("111222"), team: D.metaForKey("111222").team, rem: D.remaining(["111222"]) };
+      }) || {};
+      ok(r.hasRow === false, "staged: the starter has NO live stat row at all");
+      ok(r.team === "KC", "…but the roster still knows which NFL team he plays for (" + r.team + ")");
+      ok(r.rem && r.rem.played === 1 && r.rem.left === 0,
+        "…so with his game post he counts as PLAYED — pre-fix he was \"still to play\" forever, which is what kept the hero off Final and the win bar off its 100/0 pin (" + JSON.stringify(r.rem) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BF5 (D-S3): stop() during an in-flight poll, then start() — ONE chain, not two. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const r = await evalOr(page, async () => {
+        const D = window.__GFFL__.D;
+        D.stop();
+        const orig = D.pollOnce;
+        const releases = [];
+        D.pollOnce = () => new Promise((res) => releases.push(res));
+        D.S.timerArms = 0;
+        const loopsBefore = D.S.loopStarts;
+        D.start();                     // chain A enters pollOnce and suspends there
+        D.stop();                      // …and is stopped mid-poll, exactly as a tab hop does
+        D.start();                     // chain B starts while A is still suspended
+        releases.forEach((f) => f());  // both polls resolve
+        await new Promise((res) => setTimeout(res, 60));
+        const out = { arms: D.S.timerArms, polls: releases.length, loops: D.S.loopStarts - loopsBefore };
+        D.stop(); D.pollOnce = orig;
+        return out;
+      }) || {};
+      ok(r.polls === 2 && r.loops === 2, "staged: two start()s, each of which really entered a poll (" + JSON.stringify(r) + ")");
+      ok(r.arms === 1,
+        "exactly ONE chain arms the next tick — the retired chain's own resume finds its generation superseded and stops (" + r.arms + " timer arms; pre-fix 2, doubling the poll volume on every visibility toggle)");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BF6 (D-S4/S5): the Tuesday rollover, on a tab that never reloads. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const before = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        return { cands: D.S.slpBucket.cands.slice(), mark: D.S.leagueWeekMark, pts: D.livePts("3915511"), players: D.S.players.size };
+      }) || {};
+      ok((before.cands || [])[0] === "1" && before.mark === 1,
+        "week 1: the stats bucket and the in-memory week mark both read 1 (" + JSON.stringify(before.cands) + "/" + before.mark + ")");
+      ok(before.pts === 10 && before.players > 0,
+        "…and P. Passer carries week 1's hand-computed 10.0 (150 yd ×0.04 + 1 TD ×4 − 1 INT ×2 + 1 2pt ×2) (" + before.pts + ")");
+      fixture.sleeperWeek = 2; // Sleeper's own week rolls with the NFL's
+      const rolled = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
+        // one hour past Tuesday 05:00 Central of week 2 — the boundary LG.currentWeek() uses
+        LG.nowOverride = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime() + 7 * 24 * 3600 * 1000 + 3600000;
+        const did = typeof D.maybeRollWeek === "function" ? await D.maybeRollWeek() : null; // pre-fix tolerant
+        return {
+          did, leagueWeek: LG.currentWeek(), mark: D.S.leagueWeekMark, players: D.S.players.size,
+          cands: D.S.slpBucket.cands.slice(), slpWeek: D.S.slpWeek, pts: D.livePts("3915511"),
+          events: D.S.events.length, seeded: D.S.slpSeeded,
+        };
+      }) || {};
+      ok(rolled.leagueWeek === 2 && rolled.did === true, "the clock crosses into week 2 and the roll fires exactly once (" + JSON.stringify([rolled.leagueWeek, rolled.did]) + ")");
+      ok(rolled.players === 0 && rolled.events === 0 && rolled.seeded === false,
+        "…last week's stat rows, feed and seeded flag are all cleared, so the new week starts from a real baseline (" + JSON.stringify([rolled.players, rolled.events, rolled.seeded]) + ")");
+      ok(rolled.pts === 0, "…and P. Passer no longer reads last Sunday's 10.0 on this week's board (" + rolled.pts + ")");
+      ok((rolled.cands || [])[0] === "2" && rolled.slpWeek === 2 && rolled.mark === 2,
+        "…the Sleeper bucket is re-targeted at week 2 off a FRESH /state/nfl read, not the one memoized at boot (" + JSON.stringify(rolled.cands) + ")");
+      const projUrl = slpProjUrls[slpProjUrls.length - 1] || "";
+      ok(/\/projections\/nfl\/regular\/2026\/2$/.test(projUrl),
+        "…and the week's projections are re-fetched for week 2 rather than left on week 1's (" + projUrl + ")");
+      await evalOr(page, () => { window.__GFFL__.LG.nowOverride = null; });
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.sleeperWeek = null;
+    }
+
+    // ---- BF7 (D-S8): the injury designation the IR rule needs is in the DIRECTORY. ----
+    {
+      fixture.dirOutOnly = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D, LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+        const p = ((UI._rosters && UI._rosters[1]) || []).find((x) => x.key === "111777"); // H. Healthy, DEN, bench
+        return {
+          rosterSays: (p && p.injury) || "", hasLiveRow: D.S.players.has("111777"),
+          dir: D.directoryInjury ? D.directoryInjury("111777") : null, injuryFor: D.injuryFor("111777", (p && p.injury) || ""),
+          injuryOf: LG.injuryOf(p || { key: "111777" }), eligible: LG.irEligible(LG.injuryOf(p || { key: "111777" })),
+        };
+      }) || {};
+      ok(r.rosterSays === "" && r.hasLiveRow === false,
+        "staged the real shape: the roster row carries NO designation and there is no live stat row — a man who is Out never appears on one (" + JSON.stringify([r.rosterSays, r.hasLiveRow]) + ")");
+      ok(r.dir === "Out", "…while Sleeper's directory, already in memory, says Out (" + r.dir + ")");
+      ok(r.injuryFor === "Out" && r.injuryOf === "Out",
+        "D.injuryFor consults the directory first, so LG.injuryOf reads Out — pre-fix both read \"\" and the league believed him healthy (" + r.injuryFor + "/" + r.injuryOf + ")");
+      ok(r.eligible === true, "…so LG.irEligible allows the IR move (" + r.eligible + ")");
+      // …and the locker really offers him, through the real UI.
+      await evalOr(page, () => window.__GFFL__.UI.openLocker(1));
+      await waitOr(page, ".lrow");
+      // The route to IR is a BENCH row's own Swap → "Move him where?" (the IR card itself
+      // renders no tap-to-fill row when nobody is stashed), so that is the affordance driven.
+      const offered = await evalOr(page, async () => {
+        const rows = [...document.querySelectorAll('.lrow[data-slot="BENCH"]')];
+        const row = rows.find((x) => /H\. Healthy/.test(x.textContent));
+        const btn = row && row.querySelector(".lswap:not([disabled])");
+        if (!btn) return { found: !!row, opened: false, options: [] };
+        btn.click();
+        await new Promise((res) => setTimeout(res, 400));
+        const card = document.getElementById("rosterCard");
+        return {
+          found: true, opened: !!(card && !card.hidden),
+          options: [...(card ? card.querySelectorAll(".rclist .rcslot") : [])].map((b) => b.textContent.replace(/\s+/g, " ").trim()),
+        };
+      }) || {};
+      ok(offered.found === true && offered.opened === true, "his bench row's Swap opens the real move card (" + JSON.stringify([offered.found, offered.opened]) + ")");
+      ok((offered.options || []).some((n) => /→\s*IR/.test(n)),
+        "…and it offers → IR — pre-fix this branch read the live row directly, found nothing, and hid the move the engine (which does use the seam) would have allowed (" + JSON.stringify(offered.options) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.dirOutOnly = false;
+    }
+
+    // ---- BF8 (Washington): one team, two spellings — the URL speaks ESPN, the cache speaks
+    // Sleeper. ----
+    {
+      fixture.teamSched = { WSH: teamSchedFix("WSH", [[1, "DAL", true], [2, "KC", false]], 5) };
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const before = schedUrls.length;
+      const r = await evalOr(page, async () => {
+        const D = window.__GFFL__.D;
+        const a = await D.teamSchedule("WAS");   // the SLEEPER spelling every roster in this app carries
+        const b = await D.teamSchedule("WSH");   // …and ESPN's own
+        return { weeks: a ? a.byWeek.size : null, sameObject: a === b, ep: Object.keys(D.EP).filter((k) => /team schedule/.test(k)) };
+      }) || {};
+      const mine = schedUrls.slice(before);
+      ok(mine.some((u) => /\/teams\/WSH\/schedule/.test(u)),
+        "the request on the wire asks ESPN for WSH — the only spelling it answers (" + JSON.stringify(mine.map((u) => (/teams\/([A-Z]+)\//.exec(u) || [])[1])) + ")");
+      ok(!mine.some((u) => /\/teams\/WAS\/schedule/.test(u)),
+        "…and never WAS, which is the Sleeper-normalised form and answers 400 (probed live)");
+      ok(r.weeks === 2, "…so the schedule actually resolves rather than degrading to null (" + r.weeks + " weeks)");
+      ok(r.sameObject === true && mine.length === 1,
+        "…and both spellings share ONE cache entry and ONE fetch, keyed by the normalised form (" + mine.length + " requests)");
+      ok((r.ep || []).join(",") === "espn team schedule WAS",
+        "…including the endpoint-bookkeeping name, so the health page counts one team, not two (" + JSON.stringify(r.ep) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.teamSched = null;
+    }
+
+    // ---- BF9 (the data minors): the feed's own delta, normSlp's coercion, the browsed week's
+    // endpoint name, ESPN's object-shaped scoring-play type, and a player's own defensive TDs. ----
+    {
+      fixture.safetyPlay = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, async () => {
+        const D = window.__GFFL__.D, LG = window.__GFFL__.LG;
+        // (a) normSlp coerces an external payload's strings
+        const n = D.normSlp({ pass_yd: "150", pass_td: "1", fgm_0_19: "1", fgm_20_29: "1" }, false);
+        // (b) the feed's delta against a POISONED scoring table (the 2026-08-09 production shape)
+        LG.rules.scoring.pass_td = "4 pts";
+        D.S.espnSeeded = true; D.S.events.length = 0;
+        if (D.applySide) D.applySide("espn", "bf_poison", { name: "B. Poison", pos: "QB", team: "PHI" }, { pass_td: 1 });
+        const ev = D.S.events.find((e) => e.key === "bf_poison" && e.stat === "pass_td");
+        LG.rules.scoring.pass_td = 4;
+        // (c) a browsed week books under its OWN endpoint name
+        const sbBefore = (D.EP["espn scoreboard"] || {}).n || 0;
+        await D.fetchWeekSlate(5);
+        return {
+          passYd: n.pass_yd, passYdType: typeof n.pass_yd, fg: n.fg_0_39,
+          dPts: ev ? ev.dPts : null, dFinite: !!(ev && Number.isFinite(ev.dPts)),
+          sbAfter: (D.EP["espn scoreboard"] || {}).n || 0, sbBefore,
+          slateN: (D.EP["espn week slate"] || {}).n || 0,
+          // The ESPN SIDE's own score, not the merged one: mergeRow picks whichever feed is
+          // freshest, and Sleeper's DAL line (1 sack + 1 int + PA 14 = 3.0) knows nothing about
+          // a safety it never sent. This assertion is about what ESPN's own scoring plays
+          // derive, so it reads that side directly.
+          dstDAL: (() => { const r = D.S.players.get("dst_DAL"); return r && r.espn ? D.score(r.espn.stats) : null; })(),
+          backer: D.livePts("999777"),
+        };
+      }) || {};
+      ok(r.passYdType === "number" && r.passYd === 150, "normSlp coerces a string yardage to a real number (" + JSON.stringify([r.passYdType, r.passYd]) + ")");
+      ok(r.fg === 2, "…and its FG bucket SUMS rather than concatenating — pre-fix \"1\"+\"1\"+0 was the string \"110\" (" + r.fg + ")");
+      ok(r.dFinite === true && r.dPts === 0,
+        "a poisoned scoring table gives the feed a finite 0-point delta, never NaN — the one multiply the 2026-08-09 NaN fix left open (" + r.dPts + ")");
+      ok(r.slateN === 1 && r.sbAfter === r.sbBefore,
+        "a browsed week books under \"espn week slate\", leaving the LIVE poll's own \"espn scoreboard\" count untouched (" + r.slateN + " / " + r.sbBefore + "→" + r.sbAfter + ")");
+      ok(r.dstDAL === 7,
+        "the safety is scored off ESPN's OBJECT-shaped type.abbreviation, not the play's prose: DAL D/ST (ESPN side) 1 sack ×1 + 1 int ×2 + PA 14 (0) + 1 safety ×4 = 7.0 (" + r.dstDAL + ")");
+      ok(r.backer === 12,
+        "…and a player's own defensive/return TDs score: max(defensive 1, interceptions 1) + kick 1 + punt 0 = 2 × 6 = 12.0, the pick-six counted ONCE (" + r.backer + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.safetyPlay = false;
+    }
+
+    // ---- BF10 (U-F1): a rostered player must never appear in the free-agent pool. ----
+    {
+      fixture.espnIdGap = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#faResults");
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D, LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+        const owned = new Set();
+        for (const t of LG.teams) for (const p of ((UI._rosters && UI._rosters[t.id]) || [])) owned.add(p.key);
+        const gapPids = ["6904", "1266", "9003", "9006", "9102"];
+        const noEspnId = gapPids.filter((pid) => !(D.S.slpPlayers.get(pid) || {}).espn_id).length;
+        const pool = D.searchFA("", owned, { limit: 200 }) || [];
+        const names = new Set(pool.map((p) => p.name));
+        const rostered = [];
+        for (const t of LG.teams) for (const p of ((UI._rosters && UI._rosters[t.id]) || [])) if (names.has(p.name)) rostered.push(p.name);
+        return {
+          noEspnId, poolN: pool.length, rostered,
+          keyForPasser: (pool.find((p) => p.name === "P. Passer") || {}).key || null,
+          hotOffersRostered: [...document.querySelectorAll(".hotpick")].some((b) => /P\. Passer|K\. Kicker/.test(b.textContent)),
+        };
+      }) || {};
+      ok(r.noEspnId === 5, "staged: five of the players these rosters hold carry no espn_id in the directory (" + r.noEspnId + ")");
+      ok(r.poolN > 0, "…and the available pool is genuinely non-empty, so this cannot pass by finding nothing (" + r.poolN + ")");
+      ok((r.rostered || []).length === 0,
+        "ZERO rostered players are offered as free agents — pre-fix each espn_id-less one was keyed slp_<pid>, a key no roster holds, and sailed straight through the owned filter (" + JSON.stringify(r.rostered) + ")");
+      ok(r.keyForPasser === null, "…P. Passer specifically is absent from the pool (" + r.keyForPasser + ")");
+      ok(r.hotOffersRostered === false, "…and the Hot pickups strip, which keys candidates the same way, offers none of them either");
+      // Under the All filter he IS listed — with his real owner and no live ADD button.
+      const all = await evalOr(page, async () => {
+        const chip = [...document.querySelectorAll("#faFilterChips .poschip")].find((b) => b.dataset.filter === "all");
+        if (chip) chip.click();
+        await new Promise((res) => setTimeout(res, 400));
+        const row = [...document.querySelectorAll("#faResults tr[data-pk]")].find((tr) => /P\. Passer/.test(tr.textContent));
+        if (!row) return null;
+        const btn = row.querySelector(".faMoveBtn");
+        return { pk: row.dataset.pk, type: (row.querySelector(".fatype") || {}).textContent.trim(), blocked: !!(btn && btn.disabled), title: btn ? btn.getAttribute("title") : "" };
+      });
+      ok(all && all.pk === "3915511", "under the All filter he is keyed by the id his ROSTER holds, not a minted slp_ one (" + (all && all.pk) + ")");
+      ok(all && all.type === "T1" && all.blocked === true,
+        "…tagged with his owning team and with the ADD button really disabled (" + JSON.stringify(all) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+      fixture.espnIdGap = false;
+    }
+
+    // ---- BF11 (U-S2/U-S5): a background refresh must not eat what someone is typing. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, "#faResults");
+      const opened = await evalOr(page, async () => {
+        const btn = document.querySelector("#faResults .faMoveBtn:not([disabled])");
+        if (!btn) return null;
+        btn.click();
+        await new Promise((res) => setTimeout(res, 400));
+        const bid = document.getElementById("claimBid");
+        if (bid) { bid.value = "37"; bid.dispatchEvent(new Event("input", { bubbles: true })); }
+        const card = document.getElementById("rosterCard");
+        return { open: !!(card && !card.hidden), bid: bid ? bid.value : "(no bid field — free agency is open)" };
+      });
+      ok(opened && opened.open === true, "a claim/add card is open on Moves");
+      await evalOr(page, () => window.__GFFL__.LG.db.onChange("chat")); // the literal call lg-core makes
+      await sleep(700);
+      const after = await evalOr(page, () => {
+        const card = document.getElementById("rosterCard"), bid = document.getElementById("claimBid");
+        return { open: !!(card && !card.hidden), bid: bid ? bid.value : null, pending: window.__GFFL__.UI._quietRepaintPending };
+      }) || {};
+      ok(after.open === true, "…and a background refresh leaves it open — pre-fix UI.show's dropOverlayDom closed it outright (" + after.open + ")");
+      ok(opened.bid === "(no bid field — free agency is open)" || after.bid === "37",
+        "…with the typed FAAB bid intact (" + JSON.stringify([opened.bid, after.bid]) + ")");
+      ok(after.pending === true, "…the repaint is DEFERRED, not dropped — it is still owed (" + after.pending + ")");
+      const drained = await evalOr(page, async () => {
+        window.__GFFL__.UI.closeRosterCard();
+        await new Promise((res) => setTimeout(res, 500));
+        return { pending: window.__GFFL__.UI._quietRepaintPending, moves: !!document.querySelector("#faResults") };
+      }) || {};
+      ok(drained.pending === false && drained.moves === true,
+        "…and it runs the moment the card closes, so the page is never left a refresh behind (" + JSON.stringify(drained) + ")");
+      // The trade note is session state now.
+      const note = await evalOr(page, async () => {
+        const el = document.getElementById("mvTradeNote");
+        if (!el) return null;
+        el.value = "keeper for a 2nd"; el.dispatchEvent(new Event("input", { bubbles: true }));
+        window.__GFFL__.UI.show("moves");
+        await new Promise((res) => setTimeout(res, 500));
+        return (document.getElementById("mvTradeNote") || {}).value;
+      });
+      ok(note === "keeper for a 2nd", "the trade note survives a repaint of Moves, like the AI analyst's panel beside it (" + note + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BF12 (U-S3): every money action answers a THROWN write. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => {
+        window.__unhandled = [];
+        window.addEventListener("unhandledrejection", (e) => window.__unhandled.push(String((e.reason && e.reason.message) || e.reason)));
+        const db = window.__GFFL__.LG.db;
+        db.set = () => Promise.reject(new Error("Firestore write timed out after 12s"));
+        db.update = () => Promise.reject(new Error("Firestore write timed out after 12s"));
+      });
+      // (a) DROP, from My Team
+      await evalOr(page, () => window.__GFFL__.UI.openLocker(1));
+      await waitOr(page, ".lrow");
+      const drop = await evalOr(page, async () => {
+        window.confirm = () => true;
+        const b = document.querySelector(".ldrop:not([disabled])");
+        if (!b) return null;
+        b.click();
+        await new Promise((res) => setTimeout(res, 900));
+        const t = document.getElementById("toast");
+        return { toast: t && !t.hidden ? t.textContent.trim() : "", disabled: b.disabled, label: b.textContent.trim(), unhandled: window.__unhandled.length };
+      });
+      ok(drop && /Couldn't drop/.test(drop.toast || ""), "a rejected write raises a real toast naming the failure (" + (drop && drop.toast) + ")");
+      ok(drop && drop.disabled === false && !/Dropping/.test(drop.label || ""),
+        "…and the button comes back instead of sitting on \"Dropping…\" forever (" + JSON.stringify([drop && drop.disabled, drop && drop.label]) + ")");
+      ok(drop && drop.unhandled === 0, "…with no uncaught rejection left behind (" + (drop && drop.unhandled) + ")");
+      // (b) ADD / claim, from Moves
+      await evalOr(page, () => { window.__unhandled = []; window.__GFFL__.UI.show("moves"); });
+      await waitOr(page, "#faResults");
+      const add = await evalOr(page, async () => {
+        const btn = document.querySelector("#faResults .faMoveBtn:not([disabled])");
+        if (!btn) return null;
+        btn.click();
+        await new Promise((res) => setTimeout(res, 400));
+        const pick = document.querySelector("#rosterCard [data-di]");
+        if (pick) pick.click();
+        const go = document.getElementById("claimGo");
+        if (go) go.click();
+        await new Promise((res) => setTimeout(res, 900));
+        const t = document.getElementById("toast");
+        return { toast: t && !t.hidden ? t.textContent.trim() : "", unhandled: window.__unhandled.length };
+      });
+      ok(add && /Couldn't (add|submit)/.test(add.toast || ""), "the add/claim path says so too, naming the player (" + (add && add.toast) + ")");
+      ok(add && add.unhandled === 0, "…and swallows nothing into an uncaught rejection (" + (add && add.unhandled) + ")");
+      // (c) SEND a trade offer
+      const send = await evalOr(page, async () => {
+        window.__unhandled = [];
+        const UI = window.__GFFL__.UI, D = window.__GFFL__.D;
+        // Nothing has kicked off, and the two players are a BENCH RB for a WR — so none of
+        // LG.tradeBlockers' three guards (2026-08-17's ruling: over-cap, lineup-unfillable,
+        // player-started) refuses the offer before it can ever reach the write under test.
+        for (const [, g] of D.S.games) { g.state = "pre"; g.completed = null; g.kickoff = "2026-12-01T18:00:00Z"; }
+        UI._tradeGive = new Set(["111333"]); UI._tradeGet = new Set(["222333"]);
+        UI.show("moves");
+        await new Promise((res) => setTimeout(res, 500));
+        const b = document.getElementById("mvTradeSend");
+        if (!b) return null;
+        b.click();
+        await new Promise((res) => setTimeout(res, 900));
+        const t = document.getElementById("toast");
+        const live = document.getElementById("mvTradeSend");
+        return { toast: t && !t.hidden ? t.textContent.trim() : "", disabled: live ? live.disabled : null, label: live ? live.textContent.trim() : "", unhandled: window.__unhandled.length };
+      });
+      ok(send && /Couldn't send/.test(send.toast || ""), "Send offer answers a thrown write with a toast (" + (send && send.toast) + ")");
+      ok(send && send.disabled === false && !/Sending/.test(send.label || ""),
+        "…and restores its own control in `finally` (" + JSON.stringify([send && send.disabled, send && send.label]) + ")");
+      ok(send && send.unhandled === 0, "…no uncaught rejection (" + (send && send.unhandled) + ")");
+      ok(errors.length === 0, "0 page errors across all three failing money actions");
+      await ctx.close();
+    }
+
+    // ---- BF13 (U-S4): the Matchup page's own header cannot say Final over a week nobody
+    // fielded a lineup in. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, seedAllEmpty());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      // NOT waitLive: with no rosters there are no TRACKED teams, so no per-game summary is
+      // ever fetched and espnSeeded can never become true — the wait would time out and take
+      // the whole run with it rather than failing one check.
+      await sleep(900);
+      await evalOr(page, () => window.__GFFL__.UI.show("matchup"));
+      await waitOr(page, ".muhead");
+      const empty = await evalOr(page, () => {
+        const UI = window.__GFFL__.UI, D = window.__GFFL__.D;
+        const mu = UI.matchup || [];
+        return {
+          head: (document.querySelector(".muhead") || {}).textContent.replace(/\s+/g, " ").trim(),
+          rem: D.remaining([]), starters: ((UI._rosters && UI._rosters[mu[0]]) || []).length,
+        };
+      }) || {};
+      ok(empty.starters === 0, "staged: the reset league — not one team has a roster yet (" + empty.starters + ")");
+      ok(!/Final/.test(empty.head || ""),
+        "…and the matchup header does NOT announce Final — pre-fix `!anyLive && left === 0` was vacuously true with zero starters (" + String(empty.head || "").slice(0, 70) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      // …and the CONTROL half: a real, filled, all-post matchup still reads Final.
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "post", completed: true, period: 4, clock: "0:00" }));
+        window.__GFFL__.UI.show("matchup");
+      });
+      await waitOr(page, ".muhead");
+      const filled = await evalOr(page, () => (document.querySelector(".muhead") || {}).textContent.replace(/\s+/g, " ").trim());
+      ok(/Final/.test(filled || ""), "CONTROL: filled rosters with every game post DO read Final — the guard narrows nothing real (" + String(filled || "").slice(0, 70) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BF14 (U-S6): the commissioner's instant-free-agency ruling, on screen. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      // The board a week-1 Monday really shows: the whole slate upcoming, first kickoff Thursday.
+      const stage = (iso) => evalOr(page, async (ms) => {
+        const LG = window.__GFFL__.LG, D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        for (const [, g] of D.S.games) { g.state = "pre"; g.completed = null; g.kickoff = "2026-09-10T23:20:00Z"; }
+        LG.nowOverride = ms;
+        UI.week = LG.currentWeek();
+        // EMPTY main() FIRST. renderMoves awaits four backend reads before it paints, so the
+        // wait below has to be for a table that did not exist a moment ago — on the second and
+        // third call the PREVIOUS stage's table is still on screen, the wait is satisfied
+        // instantly, and every reading is one stage stale (which is exactly how this helper
+        // first reported Monday's card for Tuesday and Tuesday's for Wednesday).
+        const main = document.getElementById("main");
+        if (main) main.innerHTML = "";
+        UI.show("moves");
+        for (let i = 0; i < 60 && !document.querySelector("#faResults tr[data-pk]"); i++) await new Promise((res) => setTimeout(res, 100));
+        const fa = document.getElementById("mvBlkFa"), wv = document.getElementById("mvBlkWaiver");
+        const btn = document.querySelector("#faResults .faMoveBtn");
+        return {
+          week: LG.currentWeek(), open: UI._faOpen ? UI._faOpen(UI.week) : null, started: UI._seasonStarted ? UI._seasonStarted() : null,
+          fa: fa ? fa.textContent.replace(/\s+/g, " ").trim() : "(no card)", wvNow: !!(wv && wv.classList.contains("on")),
+          btn: btn ? btn.textContent.trim() : "(no button)",
+        };
+      }, Date.parse(iso));
+      const mon = await stage("2026-09-07T17:00:00Z");   // Mon Sep 7, noon CT — after the draft, before any kickoff
+      ok(mon && mon.week === 1 && mon.started === false,
+        "Mon Sep 7: the league is on week 1 and not one game of the season has kicked off (" + JSON.stringify([mon && mon.week, mon && mon.started]) + ")");
+      ok(mon && mon.open === true && /Free agency Open/.test(mon.fa || ""),
+        "…so free agency reads OPEN, as the commissioner ruled on 2026-08-26 — pre-fix it read Closed until Wednesday (" + (mon && mon.fa) + ")");
+      ok(mon && mon.btn === "Add", "…and the players table offers Add, not Claim (" + (mon && mon.btn) + ")");
+      ok(mon && mon.wvNow === false, "…with the blind-bid waiver block visibly stood down (" + (mon && mon.wvNow) + ")");
+      // …and it is the real instant-add path, not just the label.
+      const added = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+        const btn = document.querySelector("#faResults .faMoveBtn:not([disabled])");
+        if (!btn) return null;
+        const name = (btn.closest("tr").querySelector("b") || {}).textContent;
+        btn.click();
+        await new Promise((res) => setTimeout(res, 400));
+        const nodrop = document.querySelector("#rosterCard .rcnodrop") || document.querySelector("#rosterCard [data-di]");
+        if (nodrop) nodrop.click();
+        const go = document.getElementById("claimGo");
+        const label = go ? go.textContent.trim() : "";
+        if (go) go.click();
+        await new Promise((res) => setTimeout(res, 900));
+        const ros = await LG.ensureRoster(UI.week, 1, { fresh: true });
+        const claims = await LG.loadClaims(UI.week);
+        const t = document.getElementById("toast");
+        return { name, label, onRoster: ros.some((p) => (p.name || "").includes(name)), queued: (claims.claims || []).length, toast: t && !t.hidden ? t.textContent.trim() : "" };
+      });
+      ok(added && added.label === "Add", "the card's own submit button reads Add (" + (added && added.label) + ")");
+      ok(added && added.onRoster === true && added.queued === 0,
+        "…and the player lands on the roster IMMEDIATELY with no claim queued — LG.faAdd, first come first served (" + JSON.stringify([added && added.onRoster, added && added.queued]) + ")");
+      ok(added && /^Added /.test(added.toast || ""), "…confirmed by name (" + (added && added.toast) + ")");
+      const tue = await stage("2026-09-15T17:00:00Z");   // Tue Sep 15 — week 2, before its Wednesday
+      ok(tue && tue.week === 2 && tue.started === true,
+        "Tue Sep 15: week 2, and week 1 has been played — the season HAS started (" + JSON.stringify([tue && tue.week, tue && tue.started]) + ")");
+      ok(tue && tue.open === false && /Free agency Closed/.test(tue.fa || ""),
+        "…so the waiver window is back in force: free agency Closed (" + (tue && tue.fa) + ")");
+      ok(tue && tue.btn === "Claim", "…and the table offers a blind-bid Claim (" + (tue && tue.btn) + ")");
+      ok(tue && tue.wvNow === true, "…with the waiver block marked as the regime in force");
+      const wed = await stage("2026-09-16T13:01:00Z");   // Wed Sep 16 08:01 CT — one minute past
+      ok(wed && wed.open === true && wed.btn === "Add",
+        "Wed Sep 16 08:01 CT, one minute past week 2's own deadline: Add again (" + (wed && wed.btn) + ")");
+      await evalOr(page, () => { window.__GFFL__.LG.nowOverride = null; });
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BF15 (the UI minors): refusal copy, short names, and the Draft Day confirmation. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      const r = await evalOr(page, () => {
+        const UI = window.__GFFL__.UI;
+        const codes = ["empty-week", "empty-matchup", "not-final", "deadline-passed"];
+        return {
+          labels: UI._reasonLabel ? codes.map((c) => UI._reasonLabel(c)) : null,
+          codes,
+          blocked: UI._tradeBlockLabel ? UI._tradeBlockLabel({ reason: "player-started", detail: { player: "Marvin Harrison Jr." } }) : null,
+        };
+      }) || {};
+      ok(Array.isArray(r.labels) && r.labels.every((s, i) => s && s !== r.codes[i]),
+        "every one of the four refusal codes has plain-English copy — pre-fix \"empty-week\" reached the family verbatim, and it really did on 2026-08-31 (" + JSON.stringify(r.labels) + ")");
+      ok(Array.isArray(r.labels) && r.labels.every((s) => /^[a-z]/.test(s) && / /.test(s)),
+        "…and each one is a sentence fragment a person can act on, not a slug");
+      ok(typeof r.blocked === "string" && /M\. Harrison Jr\./.test(r.blocked) && !/Marvin/.test(r.blocked),
+        "a blocked trade names the player in the app's own \"J. Surname\" form, like every other name on screen (" + r.blocked + ")");
+      ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
   }

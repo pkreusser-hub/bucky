@@ -189,7 +189,12 @@ async function sectionServer() {
   // them, ranks intact, interleaved by rank.
   ok(ffUp.filters.some((f) => f.includes("filterSlotIds") && f.includes("16") && f.includes("17")),
     "a second fetch sweeps lineup slots 16 (D/ST) + 17 (K)");
-  const dsts = r.json.players.filter((p) => p.pos === "D/ST");
+  // RESTAGED (FATAL FINDING, coordinator + tools/_gffl_kickoff.cjs PART A.4): position 16 slims
+  // to "DST" now, not "D/ST" — league.mjs's own POS_LABEL and the league app's own convention
+  // (assets/league/lg-ui.js applyImportedRosters, LG.slotEligible) both already used "DST", and
+  // sports.mjs disagreeing meant every drafted defense reached the league keyed by its raw ESPN
+  // id instead of dst_<team>, failing LG.canFillLineup for every team post-import.
+  const dsts = r.json.players.filter((p) => p.pos === "DST");
   ok(dsts.length === 2 && dsts.some((p) => p.pid === 4034) && dsts.some((p) => p.pid === 4035),
     "both defenses are IN the pool even though the ranked fetch excluded them");
   ok(r.json.players.findIndex((p) => p.pid === 4034) === 33,
@@ -337,6 +342,14 @@ async function newPage(ctx, o) {
     window.alert = (m) => { window.__dlg.push("alert:" + m); };
     window.confirm = (m) => { window.__dlg.push("confirm:" + m); return false; };
   });
+  // Every page this harness drives starts past the family gate (security
+  // review, 2026-09-02) — the same wall league.html puts up — so the 290+
+  // pre-existing checks below keep testing the ROOM, not the gate.
+  // sectionGateStatic/sectionGateLive are the ones that opt out (o.gate:
+  // false) to prove the gate itself, on a page that never saw this.
+  if (o.gate !== false) {
+    await page.evaluateOnNewDocument((k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }, GATE_KEY, GATE_PASS);
+  }
   await page.setRequestInterception(true);
   page.on("request", async (req) => {
     const u = req.url();
@@ -379,6 +392,12 @@ async function shot(page, name) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   await page.screenshot({ path: path.join(dir, name), fullPage: false });
 }
+// The family gate's key/value — MUST match ffdraft.html's own GATE_KEY/
+// GATE_PASS (and, through those, lg-core.js's "gffl_pass" key and
+// LG.GATE_PASS) exactly; sectionGateStatic below reads all three files and
+// proves they agree rather than trusting this comment.
+const GATE_KEY = "gffl_pass";
+const GATE_PASS = "thegoatleague";
 const PAGE_URL = BASE + "/ffdraft.html?local=1&fam=famtest&season=2026";
 
 function hook(page, fn, ...args) { return page.evaluate(fn, ...args); }
@@ -416,6 +435,34 @@ function sectionAudioAssets() {
   const phs = Object.keys(say.phonetic || {});
   ok(phs.length >= 200 && phs.every((pid) => isMp3(fs2.readFileSync(path2.join(dir, "say", say.phonetic[pid].file)))),
     "…and " + phs.length + " phonetic alternate takes parked under say/ph/");
+}
+
+// ---------------- section A4: THE GATE, source-level (security review, 2026-09-02) ----
+// This page used to render the live board to anyone with the URL, and a
+// literal PIN ("14903") baked into every visitor's JS could sign ANY device
+// in as commissioner over the live draft — rewrite pick history, set
+// keepers, pause/reorder. Both are gone: a passphrase wall in front of the
+// board (the SAME one league.html puts up — same localStorage key, same
+// accepted value, read straight out of lg-core.js so this can't drift), and
+// commissioner sign-in now takes ONLY the per-draft random D.commishKey.
+function sectionGateStatic() {
+  section("A4 · the gate, source-level — no PIN left, keys match league.html's exactly");
+  const src = fs.readFileSync(path.join(ROOT, "ffdraft.html"), "utf8");
+  ok(!/14903/.test(src), "the old backdoor PIN literal appears nowhere in ffdraft.html's source");
+  ok(!/COMMISH_PIN/.test(src), "the COMMISH_PIN constant itself is gone, not just unused");
+  const km = /var GATE_KEY = "([^"]+)"/.exec(src);
+  const pm = /var GATE_PASS = "([^"]+)"/.exec(src);
+  ok(!!km && !!pm, "ffdraft.html declares its own GATE_KEY/GATE_PASS constants");
+  const lgSrc = fs.readFileSync(path.join(ROOT, "assets", "league", "lg-core.js"), "utf8");
+  const lgPassM = /LG\.GATE_PASS = "([^"]+)"/.exec(lgSrc);
+  ok(!!lgPassM, "lg-core.js still defines LG.GATE_PASS (league.html's own gate)");
+  ok(!!km && km[1] === "gffl_pass" && lgSrc.includes('localStorage.getItem("gffl_pass")'),
+    "ffdraft's gate key is exactly \"gffl_pass\" — the same key LG.unlocked() reads");
+  ok(!!pm && !!lgPassM && pm[1] === lgPassM[1] && pm[1] === "thegoatleague",
+    "ffdraft's gate password is exactly LG.GATE_PASS (\"thegoatleague\") — one unlock, not two");
+  const leagueSrc = fs.readFileSync(path.join(ROOT, "league.html"), "utf8");
+  ok(leagueSrc.includes('src="assets/league/lg-core.js"'),
+    "…and league.html is the page that loads lg-core.js — confirmed, not assumed");
 }
 
 // ---------------- section B: the draft room, end to end (local mode) ----------------
@@ -857,20 +904,34 @@ async function sectionRoom(browser) {
   // The D/ST chip — the filter nobody had ever exercised: the chip used to say
   // "DST" while every defense's pos is "D/ST", so the live pool's defenses
   // were invisible on EVERY device (reported 2026-08-06, two devices).
-  await page.evaluate(() => {
-    Array.from(document.querySelectorAll("#posChips button")).find((b) => b.dataset.pos === "D/ST").click();
+  // RESTAGED (security review, 2026-09-02, "THE D/ST FINDING" — docs/gffl.md):
+  // sports.mjs's stored pos for a defense is "DST" now, not "D/ST" (matching
+  // league.mjs's own convention); the chip's data-pos attribute follows the
+  // same STORED value so the filter keeps matching pool entries. "D/ST"
+  // still renders as the chip's own visible text (posLabel()) — the two
+  // checks right below, unchanged, are exactly what proves that.
+  // Guarded (not a bare .find(...).click()): a regression here means the
+  // "DST" chip no longer exists AT ALL, which must read as "the check
+  // failed," not crash the remaining ~150 checks after it.
+  const dstChipHit = await page.evaluate(() => {
+    const b = Array.from(document.querySelectorAll("#posChips button")).find((x) => x.dataset.pos === "DST");
+    if (!b) return false;
+    b.click();
+    return true;
   });
-  ok(await page.evaluate(() => {
+  ok(dstChipHit, "the DST filter chip exists (data-pos matches the pool's own stored value)");
+  ok(dstChipHit && await page.evaluate(() => {
     const rows = Array.from(document.querySelectorAll("#pList .prow"));
     return rows.length === 2 && rows.every((r) => /D\/ST/.test(r.textContent));
   }), "tapping the D/ST chip shows exactly the pool's defenses");
-  ok(await page.evaluate(() => {
+  ok(dstChipHit && await page.evaluate(() => {
     const dot = document.querySelector("#pList .prow .dot");
     const want = getComputedStyle(document.documentElement).getPropertyValue("--pos-DST").trim();
     return !!dot && dot.getAttribute("style").includes(want);
   }), "…colored with the D/ST position color, not the unknown-pos gray");
   await page.evaluate(() => {
-    Array.from(document.querySelectorAll("#posChips button")).find((b) => b.dataset.pos === "ALL").click();
+    const b = Array.from(document.querySelectorAll("#posChips button")).find((x) => x.dataset.pos === "ALL");
+    if (b) b.click();
   });
 
   // --- own scroll + richer rows + the detail card ---
@@ -992,16 +1053,31 @@ async function sectionRoom(browser) {
   ok(await page.evaluate(() => {
     const row = document.getElementById("commishPinRow");
     return !row.hidden && !!document.getElementById("commishPinIn");
-  }), "tapping it reveals a real PIN input (no native prompt dialog)");
+  }), "tapping it reveals a real key input (no native prompt dialog)");
   await page.type("#commishPinIn", "99999");
   await clickSafely(page, "#commishPinGo");
   ok(await page.evaluate(() => document.getElementById("tabCommish").hidden)
-    && (await toastText(page)).includes("not the commissioner PIN"), "a wrong PIN is refused");
-  await page.evaluate(() => { const i = document.getElementById("commishPinIn"); i.value = ""; });
-  await page.type("#commishPinIn", "14903");
-  await page.keyboard.press("Enter");
-  await page.waitForFunction(() => !document.getElementById("tabCommish").hidden, { timeout: 3000 });
-  ok(true, "typing PIN 14903 + Enter signs this device in as commissioner");
+    && (await toastText(page)).includes("not the commissioner key"), "a wrong key is refused");
+  // RESTAGED (security review, 2026-09-02): a literal PIN used to sit right
+  // in commishLogin's own comparison — accepted on ANY draft room, no
+  // per-draft secret required, so anyone with this page's JS could sign in
+  // as commissioner over a live draft. It's deleted from the source now
+  // (grepped for in sectionGateStatic below), so this asserts the OLD
+  // behavior is GONE: the same string that used to sign someone in is
+  // refused like any other wrong guess. Guarded against the element itself
+  // going missing: on the OLD code this device becomes commissioner and the
+  // whole login row disappears (isCommish(D) now hides it) — that has to
+  // read as "the check failed", not crash the rest of the suite.
+  await page.evaluate(() => { const i = document.getElementById("commishPinIn"); if (i) i.value = ""; });
+  if (await page.evaluate(() => !!document.getElementById("commishPinIn"))) {
+    await page.type("#commishPinIn", "14903");
+    await page.keyboard.press("Enter");
+    await sleep(150);
+  }
+  ok(await page.evaluate(() => { const t = document.getElementById("tabCommish"); return !!t && t.hidden; }),
+    "the old backdoor PIN 14903 is refused — commissioner sign-in has no literal shortcut left");
+  // Whatever state that just left the device in, force it back to a clean
+  // non-commissioner identity before the next check, same as it always did.
   await hook(page, () => window.__DRAFT__.setMe("Visitor2", "dev-v2", ""));
   await hook(page, (k) => window.__DRAFT__.commishLogin("https://site/ffdraft.html?c=" + k + "#x"), ckey);
   ok(await page.evaluate(() => !document.getElementById("tabCommish").hidden),
@@ -1105,6 +1181,18 @@ async function sectionRoom(browser) {
   d = await D(page);
   ok(d.phase === "done", "mock bots + the humans finish the whole draft");
   ok(Object.keys(d.picks).some((k) => d.picks[k].by === "MOCK"), "bot picks are labeled MOCK");
+  // NEW (security review, 2026-09-02, "THE D/ST FINDING" — docs/gffl.md):
+  // the bot-targeting block's own pos==="DST" filter is what tools/_gffl_
+  // kickoff.cjs caught cold — "0 of 8 teams drafted a D/ST" across 128 mock
+  // picks, because the OLD filter compared against "D/ST" while every real
+  // pool entry now arrives "DST". This fixture carries only 2 defenses
+  // (34-player pool, not the kickoff rehearsal's full ESPN-shaped one), so
+  // "every team" isn't provable here — but with only 4 rounds a bot's very
+  // first pick already needs one (needSpecial trips from round 1), so both
+  // should be gone: the exact mechanism the kickoff suite's fuller-scale run
+  // proves at 8-team scale, proven here at unit scale.
+  ok(Object.keys(d.picks).filter((k) => d.picks[k].pos === "DST").length === 2,
+    "mock bots successfully draft BOTH fixture defenses — the pos===\"DST\" bot filter actually matches pool entries");
   ok(await page.evaluate(() => document.getElementById("clockStrip").textContent.includes("wrap")),
     "the strip celebrates the finish");
   ok(await page.evaluate(() => window.__DRAFT__.sndLog.includes("done")),
@@ -1741,8 +1829,14 @@ async function sectionPoolHealth(browser) {
   let page = await newPage(ctx);
   await page.goto(BASE + "/ffdraft.html?local=1&fam=famhealth&season=2026", { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.pool.length > 0, { timeout: 15000 });
+  // RESTAGED throughout this section (security review, 2026-09-02, "THE D/ST
+  // FINDING" — docs/gffl.md): sports.mjs's real POS_LABEL[16] emits "DST"
+  // now, not "D/ST" — this is the actual shape window.__DRAFT__.pool carries
+  // through the REAL handler these tests run in-process, unchanged by this
+  // task. Only the stored-value comparisons move; poolHealthy()'s own DISPLAY
+  // of a defense still reads "D/ST" (posLabel()), proven by the chip test.
   ok(await page.evaluate(() => window.__DRAFT__.pool.length === 34
-    && !window.__DRAFT__.pool.some((p) => p.pos === "D/ST")), "sweep down → the pool arrives with no defenses");
+    && !window.__DRAFT__.pool.some((p) => p.pos === "DST")), "sweep down → the pool arrives with no defenses");
   ok(await page.evaluate(() => localStorage.getItem("ffd_pool3_2026") == null),
     "…and that pool is NOT written to the 24h cache");
   await page.evaluate(() => window.__DRAFT__.createDraft());
@@ -1752,23 +1846,35 @@ async function sectionPoolHealth(browser) {
   // Upstream heals → a plain reload refetches (no cache to stick on) and caches.
   ffUp.sweepDown = false;
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.pool.some((p) => p.pos === "D/ST"), { timeout: 15000 });
+  // 30s, not 15s (security review, 2026-09-02): this reload+refetch is correct
+  // on every timing — the content assertion below never changed — but this
+  // worktree is shared with other concurrent agent sessions, and a cold
+  // reload occasionally lands past 15s under their CPU load. Patience, not a
+  // loosened check.
+  await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.pool.some((p) => p.pos === "DST"), { timeout: 30000 });
   ok(true, "after the upstream heals, a plain reload brings the defenses in");
   ok(await page.evaluate(() => {
     const c = JSON.parse(localStorage.getItem("ffd_pool3_2026") || "null");
-    return !!c && c.players.some((p) => p.pos === "D/ST");
+    return !!c && c.players.some((p) => p.pos === "DST");
   }), "…and the healthy pool IS cached");
   // Read-side guard: a poisoned fresh-looking cache (the incident's leftover)
-  // is ignored and refetched over.
-  await page.evaluate(() => {
-    const c = JSON.parse(localStorage.getItem("ffd_pool3_2026"));
-    c.players = c.players.filter((p) => p.pos !== "D/ST");
+  // is ignored and refetched over. Guarded on a real cache existing — the
+  // check right above already failed and reported it if the previous step
+  // never wrote one; this one must not also crash the run over the same
+  // root cause.
+  const hadCache = await page.evaluate(() => {
+    const c = JSON.parse(localStorage.getItem("ffd_pool3_2026") || "null");
+    if (!c) return false;
+    c.players = c.players.filter((p) => p.pos !== "DST");
     c.ts = Date.now();
     localStorage.setItem("ffd_pool3_2026", JSON.stringify(c));
+    return true;
   });
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.pool.some((p) => p.pos === "D/ST"), { timeout: 15000 });
-  ok(true, "a poisoned defense-less cache is refetched over, even inside its 24h window");
+  if (hadCache) {
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.pool.some((p) => p.pos === "DST"), { timeout: 15000 });
+  }
+  ok(hadCache, "a poisoned defense-less cache is refetched over, even inside its 24h window");
   ok(page._errs.length === 0, "0 page errors" + (page._errs.length ? " — " + page._errs[0] : ""));
   await ctx.close();
 }
@@ -1789,6 +1895,70 @@ async function sectionCloudDead(browser) {
   await ctx.close();
 }
 
+// ---------------- section G: THE GATE, live (security review, 2026-09-02) ----------------
+// sectionGateStatic proved the source; this proves the BEHAVIOR — on pages
+// built with {gate:false}, which start with nothing in localStorage, the
+// literal "anyone with the URL" case every other section's newPage() no
+// longer tests (it presets the unlock so the 290+ pre-existing checks keep
+// testing the room, not the gate).
+async function sectionGateLive(browser) {
+  section("G · the gate, live — a fresh visitor sees it, an unlocked device and TV mode don't skip it for free");
+  const ctx = await browser.createBrowserContext();
+  const page = await newPage(ctx, { gate: false });
+  await page.goto(BASE + "/ffdraft.html?local=1&fam=famgate&season=2026", { waitUntil: "domcontentloaded", timeout: 60000 });
+  let gateUp = true;
+  try { await page.waitForSelector("#gatePassIn", { timeout: 5000 }); } catch (e) { gateUp = false; }
+  ok(gateUp, "a fresh visitor with no passphrase gets the gate, not the draft room");
+  if (gateUp) {
+    ok(await page.evaluate(() => !!window.__DRAFT__ && window.__DRAFT__.D === null),
+      "…and nothing was fetched — the gate blocks the boot itself, not just the paint");
+    ok(await page.evaluate(() => {
+      const board = document.getElementById("vBoard"), tabs = document.getElementById("tabs");
+      return board.offsetParent === null && tabs.offsetParent === null;
+    }), "the board and its nav are display:none behind the gate (geometry, not just the hidden attribute)");
+    ok(await page.evaluate(() => document.getElementById("vLanding").hidden),
+      "…and landing hasn't rendered either — nothing has, pre-gate");
+
+    await page.type("#gatePassIn", "wrongpass");
+    await clickSafely(page, "#gateGoBtn");
+    ok(await page.evaluate(() => !document.getElementById("gateErr").hidden), "a wrong passphrase is refused, in place");
+    ok(await page.evaluate(() => window.__DRAFT__.D === null), "…and still nothing has loaded");
+
+    await page.evaluate(() => { document.getElementById("gatePassIn").value = ""; });
+    await page.type("#gatePassIn", "ThEgOaTleague");   // case-insensitive, like LG.tryUnlock
+    await clickSafely(page, "#gateGoBtn");
+    let booted = true;
+    try {
+      await page.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.pool.length >= 30, { timeout: 20000 });
+    } catch (e) { booted = false; }
+    ok(booted, "the real passphrase (any case) unlocks — the board boots exactly like every other section's page");
+    ok(booted && await page.evaluate(() => localStorage.getItem("gffl_pass") === "thegoatleague"),
+      "…stored under the exact key/value league.html's own gate uses, so the same unlock covers both pages");
+  }
+  await ctx.close();
+
+  // A device that already unlocked league.html carries "gffl_pass" already
+  // — it should walk straight past this gate too, no second password.
+  const ctx2 = await browser.createBrowserContext();
+  const page2 = await newPage(ctx2, { gate: false });
+  await page2.evaluateOnNewDocument(() => { try { localStorage.setItem("gffl_pass", "thegoatleague"); } catch (e) {} });
+  await page2.goto(BASE + "/ffdraft.html?local=1&fam=famgate2&season=2026", { waitUntil: "domcontentloaded", timeout: 60000 });
+  let skippedGate = true;
+  try { await page2.waitForFunction(() => window.__DRAFT__ && window.__DRAFT__.pool.length >= 30, { timeout: 20000 }); }
+  catch (e) { skippedGate = false; }
+  ok(skippedGate, "a device carrying league.html's own gffl_pass boots straight past this gate — one unlock, not two");
+  await ctx2.close();
+
+  // TV/spectator mode gets no exemption — it still needs the family passphrase.
+  const ctx3 = await browser.createBrowserContext();
+  const page3 = await newPage(ctx3, { gate: false });
+  await page3.goto(BASE + "/ffdraft.html?local=1&fam=famgate3&season=2026&tv=1", { waitUntil: "domcontentloaded", timeout: 60000 });
+  let tvGated = true;
+  try { await page3.waitForSelector("#gatePassIn", { timeout: 5000 }); } catch (e) { tvGated = false; }
+  ok(tvGated, "TV/spectator mode (&tv=1) gets no exemption — the same passphrase gate shows there too");
+  await ctx3.close();
+}
+
 // ---------------- main ----------------
 (async () => {
   const up = await startUpstream();
@@ -1796,6 +1966,7 @@ async function sectionCloudDead(browser) {
   await initHandler();
   await sectionServer();
   sectionAudioAssets();
+  sectionGateStatic();
 
   const srv = await startStatic();
   const browser = await launchBrowser();
@@ -1804,6 +1975,7 @@ async function sectionCloudDead(browser) {
     await sectionRehearse(browser);
     await sectionPoolHealth(browser);
     await sectionCloudDead(browser);
+    await sectionGateLive(browser);
   } finally {
     await browser.close();
     srv.close(); up.close(); ffup.close();

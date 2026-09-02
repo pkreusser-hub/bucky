@@ -138,6 +138,12 @@ function startKeepalive(controller, encoder, hasContent, byte = " ", ms = KEEPAL
 
 const ALLOWED_ORIGINS = new Set([
   "https://amenfarms.netlify.app",
+  // The GFFL league is the SAME Netlify site under a domain alias (notify.mjs precedent) —
+  // relative fetches make this inert today, but it keeps a future cross-origin call (a
+  // subdomain, a local alias) from being refused by surprise. The six gffl modes live in
+  // THIS file, so they need it too.
+  "https://goatfantasyleague.com",
+  "https://www.goatfantasyleague.com",
   "http://localhost:8080",
   "http://localhost:3000",
   "http://127.0.0.1:8080",
@@ -2141,6 +2147,36 @@ async function countStoryToday(user) {
   } catch { return null; }
 }
 
+// ---------------- GFFL daily response cap (pre-season serverless review, SERIOUS/financial) ----------------
+// The six gffl modes (fantasy/ffrecap/ffcommentary/gfflproj/gffltrade/gffladjust) were gated on
+// only the PUBLIC family secret with no server-side ceiling — a leaked or reused secret could
+// hammer the paid xAI/Anthropic calls with nothing to stop it. Mirrors the story cap's own
+// approach above (a plain read-then-compare BEFORE the model is ever called, no CAS — the story
+// cap has none either, so none is added here) rather than inventing a second counter mechanism:
+// the six modes already share ONE real Firestore counter, bucket "w" in logUsage's daily rollup
+// doc (USAGE_COLLECTION/<farmDate()>, field w_req, atomically incremented by logUsage's own
+// fieldTransforms.increment after every completed call) — see modeName's "w" cases above. Reads
+// that SAME field rather than adding a new collection/write path. 300/day sized off this app's
+// real usage patterns (docs/gffl.md): the analyst on every trade suggestion, the adjuster per
+// week, the booth every ~3rd draft pick (~60/draft) — 300 comfortably covers a heavy family day
+// with room to spare, while a scripted flood still hits a real ceiling. Fails OPEN on a Firestore
+// read failure, same as every other read in this file (storyBonusToday, countStoryToday) — the
+// alternative (failing closed) would take fantasy analysis off the site on any Firestore hiccup,
+// worse for a family feature than a bounded burst risk during a rare outage window.
+const GFFL_MODES = new Set(["fantasy", "ffrecap", "ffcommentary", "gfflproj", "gffltrade", "gffladjust"]);
+const GFFL_DAILY_CAP = 300;
+async function gfflUsedToday() {
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return null;
+    const r = await fetch(`${FIRESTORE_BASE}/${USAGE_COLLECTION}/${farmDate()}`, { headers: { authorization: `Bearer ${token}` } });
+    if (r.status === 404) return 0;   // no usage logged yet today
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => null);
+    return parseInt((j && j.fields && j.fields.w_req && j.fields.w_req.integerValue) || "0", 10) || 0;
+  } catch { return null; }
+}
+
 // List every farmgpt_story_log doc (paginated) → [{id, date, user, storyId, title, idx, choice, scene}].
 async function listStoryLog(token) {
   const out = [];
@@ -3682,6 +3718,15 @@ export default async (req) => {
     if (hit && hit.text) {
       return new Response(JSON.stringify({ ok: true, cached: true, text: hit.text }),
         { status: 200, headers: jsonHeaders });
+    }
+  }
+
+  // GFFL daily cap — checked AFTER the cached-recap return above (an already-generated recap
+  // costs nothing and must never be blocked by this) and BEFORE any model is ever reached.
+  if (GFFL_MODES.has(body.mode)) {
+    const used = await gfflUsedToday();
+    if (used !== null && used >= GFFL_DAILY_CAP) {
+      return new Response(JSON.stringify({ ok: false, reason: "daily-cap" }), { status: 200, headers: jsonHeaders });
     }
   }
 

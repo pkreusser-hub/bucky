@@ -298,6 +298,60 @@ async function main() {
     ok(resp.status === 401, "a wrong family password is refused (401)");
   }
 
+  // ---------------- E · GFFL_DAILY_CAP — the six gffl modes' shared daily budget ----------------
+  section("E · GFFL_DAILY_CAP — shared budget across the six gffl modes");
+  {
+    const GFFL_DAILY_CAP = 300;   // netlify/functions/farmgpt.mjs's own constant — hand-matched
+    // farmDate()'s own key shape ("YYYY-MM-DD", America/Chicago, en-CA) — the same regex
+    // usageDoc() above uses to find today's doc.
+    const capKey = "farmgpt_usage/" + new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+    fakeDocs[capKey] = fakeDocs[capKey] || { fields: {} };
+
+    // the cap refuses the (N+1)th call: sit the real counter at CAP-1 (299), so the NEXT call
+    // is request #300 (the Nth, exactly at the cap) and must still be served —
+    fakeDocs[capKey].fields.w_req = { integerValue: String(GFFL_DAILY_CAP - 1) };
+    let xaiBeforeE = xaiReqs.length;
+    let r = await call({ mode: "fantasy", kind: "lineup", matchup: fixtureMatchup() });
+    ok(r.status === 200 && r.text.includes("bench Justin Jefferson") && xaiReqs.length === xaiBeforeE + 1,
+      "request #300 (w_req was 299, exactly CAP-1) is still served normally, a real Grok call");
+    // …and logUsage's REAL atomic increment (the fake's own :commit handler, not a manual set)
+    // carried w_req from 299 to 300 — so the VERY NEXT call is #301, the (N+1)th.
+    ok(parseInt((fakeDocs[capKey].fields.w_req || {}).integerValue || "0", 10) === GFFL_DAILY_CAP,
+      "…and that real call's own usage logging incremented w_req to exactly 300");
+    r = await call({ mode: "fantasy", kind: "lineup", matchup: fixtureMatchup() });
+    ok(r.status === 200 && r.json && r.json.ok === false && r.json.reason === "daily-cap" && xaiReqs.length === xaiBeforeE + 1,
+      `request #301 (the (N+1)th) is refused {ok:false,reason:"daily-cap"} at HTTP 200, with NO new model call (got ${r.text.slice(0, 120)})`);
+
+    // the budget is SHARED: a completely different one of the six modes is ALSO refused off
+    // the very same counter, with no per-mode allowance of its own.
+    const anthBeforeE = anthReqs.length;
+    r = await call({ mode: "ffcommentary" });
+    ok(r.status === 200 && r.json && r.json.ok === false && r.json.reason === "daily-cap"
+      && xaiReqs.length === xaiBeforeE + 1 && anthReqs.length === anthBeforeE,
+      "a DIFFERENT gffl mode (ffcommentary) is refused off the SAME shared counter — no model call either provider");
+
+    // an ALREADY-cached ffrecap costs nothing and must never be blocked by the cap.
+    r = await call({ mode: "ffrecap", season: 2026, week: 1, leagueName: "Nerd", matchups: decidedMatchups(), standings: standings() });
+    ok(r.status === 200 && r.json && r.json.cached === true && /Kreussers strike first/.test(r.json.text),
+      "an already-generated ffrecap still returns its cached column, never daily-cap");
+
+    // the story cap is untouched: story mode is not one of the six gffl modes, and keeps working
+    // normally even while the gffl counter reads AT the cap.
+    r = await call({ mode: "story", user: "TestKid", messages: [{ role: "user", content: "Once upon a time" }] });
+    ok(r.status === 200 && /Sonnet-fallback advice/.test(r.text) && !/daily-cap/.test(r.text),
+      "the story cap is untouched — mode \"story\" streams normally with the gffl counter maxed");
+
+    // resets on the next day: farmDate() names a FRESH calendar-day doc each day, so a new day
+    // starts exactly like a doc that was never written — simulated directly here (real wall-
+    // clock rollover isn't practical to drive in this harness) by clearing today's forced
+    // counter back to zero, the same state a brand-new day's key reads.
+    fakeDocs[capKey].fields.w_req = { integerValue: "0" };
+    xaiBeforeE = xaiReqs.length;
+    r = await call({ mode: "fantasy", kind: "lineup", matchup: fixtureMatchup() });
+    ok(r.status === 200 && r.text.includes("bench Justin Jefferson") && xaiReqs.length === xaiBeforeE + 1,
+      "a reset counter (a new day's fresh doc) serves fantasy mode again, not still capped");
+  }
+
   for (const s of servers) s.close();
   console.log(`\n${pass}/${pass + fail} checks passed`);
   if (fail) { console.log("FAILURES:\n  - " + failures.join("\n  - ")); process.exit(1); }

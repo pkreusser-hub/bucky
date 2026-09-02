@@ -148,7 +148,10 @@
     if (isFinite(ms) && ms > LG.SIM_LAST_KICKOFF) LG.SIM_LAST_KICKOFF = ms;
   };
   LG.simClampAt = function () {
-    const weekEnd = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime() + 7 * 24 * 3600 * 1000;
+    // weekStart(2) is the SAME Central-resolved boundary LG.currentWeek() uses (2026-09-02, S4)
+    // rather than a second, fixed-offset copy of it — the clamp's whole job is to keep
+    // currentWeek() at 1, so the two must be derived from one function or they can disagree.
+    const weekEnd = LG.weekStart(2);
     return Math.min(LG.SIM_LAST_KICKOFF + LG.SIM_CLAMP_PAD_MS, weekEnd - 3600 * 1000);
   };
   // The replay clock itself: where the phase started, plus real elapsed time × SIM_SPEED,
@@ -218,14 +221,24 @@
   // not devtools. Server enforcement would be a different product.
   const AUTH_DOC = "auth";
   LG.authDoc = null;
+  // ⭐ DID THE READ ANSWER? (2026-09-02, F2). A null authDoc used to mean two different things —
+  // "the league has no commissioner PIN on file" and "we never heard back" — and gateCommish
+  // below could not tell them apart, so ONE failed read on a device with no legacy hash offered
+  // "Set a commissioner PIN (first time)" and then overwrote the real hash with whatever a kid
+  // typed. Absence must be an ANSWER before anything acts on it: the same server-confirmed-
+  // emptiness law this file already applies to the team list, in the one place where getting it
+  // wrong hands over the league.
+  LG.authRead = false;
   // Never throws. This is called from boot's Promise.all alongside rules/teams, and an auth
   // read that rejected there would turn a readable league into the outage card — the PIN is not
-  // important enough to cost anyone the page. An unread auth doc simply falls back to the
-  // device-local hash below, which is exactly the pre-S1 behaviour.
+  // important enough to cost anyone the page. Returns TRUE iff the backend actually answered;
+  // LG.authDoc still carries whatever was read (or whatever we last knew, on a failure).
   LG.loadAuth = async function (fresh) {
-    try { LG.authDoc = (fresh ? await LG.db.getFresh(AUTH_DOC) : await LG.db.get(AUTH_DOC)) || null; }
-    catch (e) { /* leave whatever we last knew */ }
-    return LG.authDoc;
+    try {
+      LG.authDoc = (fresh ? await LG.db.getFresh(AUTH_DOC) : await LG.db.get(AUTH_DOC)) || null;
+      LG.authRead = true;
+    } catch (e) { LG.authRead = false; /* leave whatever we last knew */ }
+    return LG.authRead;
   };
   LG.commishPinHash = () => (LG.authDoc && LG.authDoc.commishPinHash) || "";
   const legacyPinHash = () => { try { return localStorage.getItem("dadPinHash") || ""; } catch (e) { return ""; } };
@@ -237,11 +250,19 @@
   // he happens to press a commissioner control.
   LG.migrateCommishPin = async function () {
     if (LG.commishPinHash()) return false;         // the league already has one — never overwrite
+    // ⭐ AND NEVER MIGRATE OVER AN UNANSWERED READ (2026-09-02, F2). commishPinHash() reads ""
+    // both when the league genuinely holds none AND when the auth read failed — so without this
+    // latch a single Firestore timeout on Dad's phone would push HIS legacy hash over whatever
+    // the league already had. Same rule as gateCommish below: absence has to be an answer.
+    if (!LG.authRead) return false;
     const legacy = legacyPinHash();
     if (!legacy) return false;
     if (LG.mirrorOffline) return false;            // a mirror is read-only; a write here would toast and fail
     try {
-      await LG.db.set(AUTH_DOC, { kind: "auth", commishPinHash: legacy });
+      // CREATE-ONLY, for the same reason the first-time set below is: a hash written between
+      // our read and this write is the league's, and a blind set would land on top of it.
+      const r = await LG.db.update(AUTH_DOC, (cur) => ((cur && cur.commishPinHash) ? null : { kind: "auth", commishPinHash: legacy }));
+      if (!r.ok) { LG.authDoc = r.doc || LG.authDoc; return false; } // somebody got there first — adopt theirs
       LG.authDoc = { ...(LG.authDoc || {}), kind: "auth", commishPinHash: legacy };
       return true;
     } catch (e) { return false; }
@@ -251,7 +272,20 @@
     if (LG.commishUnlocked()) return true;
     // FRESH, not cached: this is the security boundary, and a hash read once at boot and then
     // held for the life of the tab is a hash a commissioner reset can't take away. One read.
-    await LG.loadAuth(true);
+    const answered = await LG.loadAuth(true);
+    // ⭐ AN UNANSWERED READ IS A REFUSAL, NOT A FIRST TIME (2026-09-02, F2). Measured on the
+    // pre-fix engine (scratchpad probe3_auth.cjs): with Dad's real hash on file and ONE
+    // getFresh("auth") failing — a 12s Firestore timeout, one bad response mid-session — this
+    // function offered "Set a commissioner PIN (first time)", took whatever a kid typed, wrote
+    // it over DADS_REAL_HASH and unlocked the commissioner. The read failing tells us NOTHING
+    // about whether the league has a PIN, so the only honest answer is to stop: no prompt at
+    // all (a first-time prompt is itself the lie), nothing written, nothing unlocked. A device
+    // that carries the legacy local hash is exempt — it can still prove itself against that,
+    // which is the pre-S1 offline behaviour and costs nobody the page.
+    if (!answered && !legacyPinHash()) {
+      window.alert("Couldn't reach the league to check the commissioner PIN. Try again in a moment.");
+      return false;
+    }
     await LG.migrateCommishPin();
     // The cloud value WINS whenever there is one. A device-local hash is only consulted when
     // the league itself holds none — an offline session, or a genuine local backend (every
@@ -261,11 +295,40 @@
     if (!pin) return false;
     const h = await sha256Hex(pin + ":" + LG.PASS);
     if (!have) {
-      // First-time SET — legal only because neither the league nor this device holds a hash.
-      try { await LG.db.set(AUTH_DOC, { kind: "auth", commishPinHash: h }); LG.authDoc = { kind: "auth", commishPinHash: h }; } catch (e) { /* offline: the local copy below still works */ }
-      try { localStorage.setItem("dadPinHash", h); } catch (e) {}
-      sessionStorage.setItem("gfflCommish", "1");
-      return true;
+      // ⭐ FIRST-TIME SET IS CREATE-ONLY (2026-09-02, F2). It used to be an UNCONDITIONAL
+      // LG.db.set — so any path that reached it with `have` empty (an unanswered read, above;
+      // a doc written by another device in the seconds since our read) overwrote the league's
+      // real hash rather than discovering it. The mutate aborts the moment it sees a hash on
+      // file, and an abort hands back the doc it refused against, so this device can demand
+      // THAT PIN instead of silently becoming the commissioner.
+      let existing = null, wrote = false;
+      try {
+        const r = await LG.db.update(AUTH_DOC, (cur) => ((cur && cur.commishPinHash) ? null : { kind: "auth", commishPinHash: h }));
+        if (r.ok) { wrote = true; LG.authDoc = { kind: "auth", commishPinHash: h }; }
+        else { existing = (r.doc && r.doc.commishPinHash) || ""; LG.authDoc = r.doc || LG.authDoc; }
+      } catch (e) { wrote = false; }
+      if (wrote) {
+        try { localStorage.setItem("dadPinHash", h); } catch (e) {}
+        sessionStorage.setItem("gfflCommish", "1");
+        return true;
+      }
+      if (existing) {
+        // Somebody set one between our read and our write. The PIN just typed is judged against
+        // THEIRS — if it happens to match, this device is the commissioner after all.
+        if (h === existing) {
+          try { localStorage.setItem("dadPinHash", h); } catch (e) {}
+          sessionStorage.setItem("gfflCommish", "1");
+          return true;
+        }
+        window.alert("Wrong PIN.");
+        return false;
+      }
+      // ⭐ A REFUSED WRITE NEVER UNLOCKS (2026-09-02, F2, part c). The old code swallowed the
+      // failure and unlocked anyway off a purely local hash — which on a read-only mirror, or
+      // any offline session, handed the commissioner's controls to whoever tapped one. Nothing
+      // was stored, so nothing may be claimed.
+      window.alert("Couldn't save the commissioner PIN. Try again when the league is reachable.");
+      return false;
     }
     if (h === have) {
       // Mirror the verified hash onto this device so a later offline session still unlocks.
@@ -785,6 +848,13 @@
     trade: "trade", tx: "tx", hist: "hist", bracket: "bracket", sched: "sched",
     projsnap: "projsnap", settings: "settings",
     injstate: "injstate", injfeed: "injfeed", // S9
+    // 2026-09-02: `proj_<season>_w<week>` (the Grok adjuster's doc, kind "proj") and
+    // `awards_history` (kind "awards") were both minted long after this map was written and
+    // never added to it, so kindOf() answered null for them and knownAbsent() could never
+    // short-circuit their reads — every miss was a real round trip, on every render, forever.
+    // Adding them is purely the perf shortcut every other kind already gets; nothing else
+    // reads this map.
+    proj: "proj", awards: "awards",
   };
   function kindOf(id) {
     const s = String(id || "");
@@ -1066,7 +1136,14 @@
       fum_lost: -2,
       fg_0_39: 3, fg_40_49: 4, fg_50: 5, fg_miss: -1, xp_made: 1, xp_miss: -1,
       bonus_pass_300: 0, bonus_pass_400: 0, bonus_rush_100: 0, bonus_rush_200: 0,
-      bonus_rec_100: 0, bonus_rec_200: 0, off_fum_td: 0, fg_made_yd: 0, dst_2pt_ret: 0, one_pt_safety: 0,
+      // dst_2pt_ret 4 / one_pt_safety 1 (2026-09-02): both were left at 0 here because the
+      // 2026-08-13 ESPN reconciliation found them UNEXERCISED in the real 2025 season — no
+      // sample to reconcile against — so they were grounded through the league's own settings
+      // sheet instead ("Unexercised in 2025 and grounded through the settings: one_pt_safety 1,
+      // dst_2pt_ret 4, dst_td 6, xp_miss 0"). dst_td already read 6 here; these two did not.
+      // A default that scores a real rule at zero is a default that mis-scores the first
+      // league to start from it.
+      bonus_rec_100: 0, bonus_rec_200: 0, off_fum_td: 0, fg_made_yd: 0, dst_2pt_ret: 4, one_pt_safety: 1,
       // ESPN 2026 league settings sheet (commissioner, 2026-08-22): fum_rec 2→1, safety 2→4,
       // blk 2→3, dst_fum_forced added at 1, dst_kr_td added at 8 (KR/PR return TDs share one
       // bucket, matching the live doc and dst_pr_td). Points allowed is NOT scored at all —
@@ -1079,7 +1156,13 @@
       dst_pa_0: 0, dst_pa_1_6: 0, dst_pa_7_13: 0, dst_pa_14_17: 0,
       dst_pa_18_27: 0, dst_pa_28_34: 0, dst_pa_35_45: 0, dst_pa_46: 0,
     },
-    roster: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, DST: 1, K: 1, BENCH: 7, IR: 3 },
+    // ⭐ THE LIVE LEAGUE'S OWN SLOT SCRIPT (2026-09-02). RB 2→3 and WR 2→3, so the sum — which
+    // IS LG.rosterCap() — moves 19 → 21. Read off the live settings doc (v=8), the same doc the
+    // 2026-08-22 D/ST catch-up was reconciled against: {QB1 RB3 WR3 TE1 FLEX1 DST1 K1 BENCH7
+    // IR3} = 21. This object is what a brand-new league, and every fixture with no settings
+    // doc, starts from; leaving it two slots short of what the family actually plays meant the
+    // defaults could never field the league's own lineup.
+    roster: { QB: 1, RB: 3, WR: 3, TE: 1, FLEX: 1, DST: 1, K: 1, BENCH: 7, IR: 3 },
     waivers: { type: "faab", budget: 100, processDow: 3, processHour: 8 },
     trades: { reviewHours: 48, veto: "vote", vetoVotes: 4, deadlineWeek: 11 },
     keepers: { max: 3, costRoundsEarlier: 1, costFloor: 1, maxYears: 3, waiverCost: "last-round", mustBeOnFinalRoster: true },
@@ -1214,6 +1297,19 @@
       if (readOk) throw e;
       if (e && e.offlineReadOnly) throw e;                                  // mirror: refused, as always
       if (/^cas-unsupported:/.test(String((e && e.message) || ""))) throw e; // loud, never a silent downgrade
+      // ⭐⭐ A DELTA CANNOT BE COMPUTED AGAINST A DOCUMENT NOBODY READ (2026-09-02, F1).
+      // The offline fall-through below calls build(null) — and `null` is handed straight to
+      // opts.from, so a FAAB deduction expressed as "take $10 off whatever the purse really
+      // holds" resolves LG.teamFaab({}) to the RULES DEFAULT and writes budget − bid. Measured
+      // on the pre-fix engine (scratchpad probe9b_faab.cjs, failure injected at the CAS READ so
+      // the real branch is reached): a team that had already spent $60 (purse $40) took a $10
+      // waiver hit and came out at $90 — a $50 refund, silently, in the middle of processWaivers.
+      // A read that did not answer is not a zero balance. The only correct move is to THROW:
+      // processWaivers' own per-item handling (2026-09-02, S1) records it by name, the week's
+      // other deductions still land, and nobody is handed free money.
+      // The plain-field offline write survives for callers that pass no delta at all (a rename,
+      // a logo, a PIN, a trophy) — those genuinely do not care what the doc used to hold.
+      if (opts && opts.from) throw e;
       // Cloud unreachable — exactly the case the pre-CAS `try { getFresh }` swallowed. The
       // plain write is what this function has always done there, unchanged.
       return LG.db.set(docId, build(null));
@@ -1482,9 +1578,44 @@
   // the record book/head-to-head (LG.recordBook/headToHead read ALL weekly
   // docs) and, of course, LG.buildBracket's own seeding (which only ever
   // runs once weeks 1..seasonWeeks exist, before any playoff week does).
+  // ================= THE ZOMBIE WEEKLY DOC, AND HOW THE ENGINE HEALS ITSELF (2026-09-02) =====
+  // TWICE in one week (2026-08-30 and 2026-09-01) a family device still running a pre-guard
+  // build wrote `weekly_2026_w1` as four 0-0 ties out of its own boot auto-checks, off the
+  // season-reset's empty rosters. Both were backed up and deleted BY HAND. That repair does not
+  // scale and it does not close the hole: a phone that has not reloaded is still running the old
+  // engine, and the weekly doc is CREATE-ONLY — so a zombie written after the last manual
+  // cleanup would make the REAL finalize on Sep 14 bounce off it with "already finalized", and
+  // the week's true result would be unrecoverable.
+  //
+  // So the engine recognises the shape and treats it as ABSENT everywhere, and finalizeWeek
+  // REPLACES it rather than refusing. The test is deliberately narrow and needs BOTH halves:
+  //   · every matchup scored 0-0 on both sides, AND
+  //   · every power-ranking score is 0 (score = 4·wins + 0.05·PF + 2·last3, so a single real
+  //     win puts a team at 4 and a single real point puts somebody above zero — a genuinely
+  //     played week cannot have an all-zero power table).
+  // A doc that carries no power table at all falls back to the matchup half alone (that is the
+  // shape a hand-seeded fixture has, and the shape the two real zombies had).
+  // WHAT MAKES THIS SAFE rather than a guess: since the 2026-08-31 `empty-week` guard and the
+  // `empty-matchup` guard beside it (2026-09-02, S6), no path in this file — commissioner force
+  // included — can WRITE an all-zero week any more. The only documents that can now match this
+  // shape are the zombies, and any future one an un-reloaded device mints.
+  LG.weeklyIsVoid = function (doc) {
+    if (!doc || doc.kind !== "weekly") return false;
+    const ms = Array.isArray(doc.matchups) ? doc.matchups : [];
+    if (!ms.length) return true; // a "finalized" week with no matchups at all is not a result
+    if (!ms.every((m) => LG.n(m.homePts) === 0 && LG.n(m.awayPts) === 0)) return false;
+    const power = Array.isArray(doc.power) ? doc.power : [];
+    if (power.length && !power.every((p) => LG.n(p.score) === 0)) return false;
+    return true;
+  };
+  // Every weekly-doc reader in this file goes through here instead of LG.db.list("weekly"), so
+  // "treat a void doc as absent" is one rule in one place rather than eight copies.
+  LG.loadWeeklyDocs = async function () {
+    return (await LG.db.list("weekly")).filter((wd) => !LG.weeklyIsVoid(wd));
+  };
   LG.loadStandings = async function () {
     const sw = (LG.rules || LG.DEFAULT_RULES).seasonWeeks;
-    const weekly = (await LG.db.list("weekly")).filter((wd) => (wd.week || 0) <= sw);
+    const weekly = (await LG.loadWeeklyDocs()).filter((wd) => (wd.week || 0) <= sw);
     const st = {};
     for (const t of LG.teams) st[t.id] = { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
     for (const wd of weekly) {
@@ -1513,7 +1644,7 @@
   // semifinal win is not more regular-season record.
   LG.loadStreaks = async function () {
     const sw = (LG.rules || LG.DEFAULT_RULES).seasonWeeks;
-    const weekly = (await LG.db.list("weekly"))
+    const weekly = (await LG.loadWeeklyDocs())
       .filter((wd) => (wd.week || 0) <= sw)
       .sort((a, b) => (b.week || 0) - (a.week || 0)); // newest first — the run reads backwards
     const out = {};
@@ -1539,8 +1670,11 @@
   // the standings table's PWR column (desktop) can never disagree about a team's rank — one
   // computation, two readers. Null until at least one week carries a real `power` snapshot.
   LG.powerRanking = function (weeklyDocs) {
+    // The void filter is applied HERE as well as at every list() site, because this one is a
+    // PURE function whose docs come from the caller — lg-ui hands it UI._allWeekly, read
+    // straight off LG.db.list("weekly") in a file this change does not touch.
     const sorted = [...(weeklyDocs || [])]
-      .filter((w) => w && Array.isArray(w.power) && w.power.length)
+      .filter((w) => w && Array.isArray(w.power) && w.power.length && !LG.weeklyIsVoid(w))
       .sort((a, b) => b.week - a.week);
     const latest = sorted[0];
     if (!latest) return null;
@@ -1587,7 +1721,7 @@
     const ids = LG.teams.map((t) => t.id).sort((a, b) => a - b);
     const spots = Math.max(0, Math.min((rules.playoffs || {}).teams || 0, ids.length));
     if (!ids.length || !spots) return {};
-    const weekly = (await LG.db.list("weekly")).filter((wd) => (wd.week || 0) <= sw);
+    const weekly = (await LG.loadWeeklyDocs()).filter((wd) => (wd.week || 0) <= sw);
     const finalized = new Set(weekly.map((wd) => wd.week));
     const base = {};
     for (const id of ids) base[id] = { w: 0, pf: 0, g: 0 };
@@ -1843,10 +1977,21 @@
     // rest of the season. So the write takes the same getFresh-before-write guard the five
     // idempotency guards elsewhere in this file take. The cost is bounded to the WRITE path:
     // a roster that already exists returned at the top, from cache, for free.
+    //
+    // ⭐ …AND THE GUARD WAS STILL A CHECK-THEN-ACT (2026-09-02, S7). The getFresh above and the
+    // saveRoster below are two separate round trips: another device that creates this exact doc
+    // in the window between them is overwritten by the copy-forward anyway, which is the same
+    // lost update, narrowed. The primitive to close it has existed since 2026-08-18, so this is
+    // now ONE create-only compare-and-swap — `cur ? null : {the copied week}`. The server
+    // refuses the write if the doc exists, and the abort hands back the doc it refused against,
+    // which is the roster this call should have adopted in the first place. Two devices copying
+    // the same week forward at the same instant therefore produce ONE document, and both get it.
     if (p && !LG.mirrorOffline) {
-      const cur = await LG.loadRoster(week, teamId, { fresh: true });
-      if (cur) return cur; // it existed after all — adopt it, never overwrite it
-      await LG.saveRoster(week, teamId, p);
+      const r = await LG.db.update(LG.rosterId(week, teamId), (cur) => (cur ? null : { kind: "roster", week, teamId, players: p }));
+      if (!r.ok) {
+        const adopted = (r.doc && r.doc.players) || null;
+        if (adopted) return registerRoster(adopted); // it existed after all — adopt it, never overwrite it
+      } else registerRoster(p);
     }
     return p || [];
   };
@@ -1859,7 +2004,55 @@
     return pos === slot;
   };
   // The 3 IR spots take genuinely-out players only (standard rule).
-  LG.irEligible = (injury) => ["IR", "O", "Out", "PUP", "NFI", "SUS", "Doubtful"].includes(String(injury || ""));
+  //
+  // ⭐ THE VOCABULARY, WRITTEN OUT AND CASE-INSENSITIVE (2026-09-02, S8). The old form was an
+  // EXACT-STRING `.includes()` over seven spellings, and the app reads two upstreams that do not
+  // agree on any of them. Measured (scratchpad probe6_misc.cjs): a genuinely-hurt man parked on
+  // IR whose designation came through the ESPN import as "OUT" read HEALTHY — so LG.illegalIR
+  // flagged him as an illegal stash and BLOCKED that team from every acquisition (faAdd,
+  // addClaim, processWaivers, executeTrade all refuse "ir-illegal"), for a stash that was
+  // perfectly legal. The table below is every spelling the two feeds actually emit for "this man
+  // is not available", written explicitly rather than inferred:
+  //   Sleeper `injury_status`  : "Out", "Doubtful", "IR", "PUP", "NFI", "Sus"
+  //   ESPN    `injuryStatus`   : "OUT", "DOUBTFUL", "INJURY_RESERVE", "SUSPENSION"
+  //   single-letter shorthands : "O", "D" (what LG.injLabel renders, and what some rows carry raw)
+  // Everything is lowercased and trimmed before the lookup, so case and stray whitespace are
+  // irrelevant and a future feed's "Injury_Reserve" resolves the same way.
+  // DELIBERATELY NOT ELIGIBLE, and this is the anti-vacuity half: "Questionable" (a Q plays most
+  // weeks — parking him on IR is exactly the extra-roster-spot abuse the rule exists to stop),
+  // "ACTIVE"/"Healthy"/"" (nothing wrong with him at all), and Sleeper's ambiguous "NA"/"COV"/
+  // "DNR", which are not on the commissioner's list and are not reliably "out".
+  const IR_ELIGIBLE = new Set([
+    "out", "o",
+    "doubtful", "d",
+    "ir", "injury_reserve", "injuryreserve",
+    "pup",
+    "nfi",
+    "sus", "susp", "suspension", "suspended",
+  ]);
+  LG.irEligible = (injury) => IR_ELIGIBLE.has(String(injury == null ? "" : injury).trim().toLowerCase());
+  LG.IR_ELIGIBLE = IR_ELIGIBLE; // test hook — the suite asserts the table itself, not a re-derivation
+
+  // ⭐ ONE MAN, TWO KEYS (2026-09-02, the ownership belt). A GFFL roster keys a player by
+  // whichever id the source that seeded it had: the ESPN import writes his numeric ESPN id, and
+  // anything resolved through the Sleeper directory writes `slp_<pid>` (that prefix exists
+  // PRECISELY because Sleeper only carries an espn_id for about half its directory — see the
+  // 2026-08-09 identity batch). So the same footballer can sit on one roster as "4430807" and be
+  // offered on the Moves page as "slp_6813", and every "is he already owned?" check in this file
+  // compared RAW KEYS — which answers no, and hands two teams the same man.
+  // D.pidForKey is the app's one id resolver (prefix -> espn index -> name+team off the roster),
+  // and it is what makes the two spellings comparable. BOTH sides must resolve: an unresolved key
+  // means "we do not know who this is", never "he is somebody else", and treating a null as a
+  // match would collide every unknown key with every other one.
+  LG.sameMan = function (a, b) {
+    const ka = String(a == null ? "" : a), kb = String(b == null ? "" : b);
+    if (ka === kb) return true;
+    if (!ka || !kb) return false;
+    const d = LG.data;
+    if (!d || !d.pidForKey) return false;
+    const pa = d.pidForKey(ka), pb = d.pidForKey(kb);
+    return pa != null && pb != null && String(pa) === String(pb);
+  };
   // A player's CURRENT designation, live where the engine knows it (see D.injuryFor) and the
   // roster's own stored snapshot otherwise. lg-core has no player state of its own, so this is
   // the seam — and it means the RULE below and the LOCKER's own IR affordances judge a man by
@@ -2113,9 +2306,12 @@
     // FRESH roster above, so it can't be dodged by a stale cache.
     const stashed = LG.illegalIR(ros);
     if (stashed.length) return { ok: false, reason: "ir-illegal", players: stashed.map((p) => p.name) };
+    // THE OWNERSHIP BELT (2026-09-02): compared through LG.sameMan, not by raw key — a player
+    // keyed `slp_<pid>` on one roster and by his ESPN id on another is the SAME man, and a raw
+    // comparison happily puts him on two teams. See LG.sameMan for why both sides must resolve.
     for (const t of LG.teams) {
       const r = t.id === teamId ? ros : await LG.ensureRoster(week, t.id, { fresh: true });
-      if (r.some((p) => p.key === addPlayer.key)) return { ok: false, reason: "player-taken" };
+      if (r.some((p) => LG.sameMan(p.key, addPlayer.key))) return { ok: false, reason: "player-taken" };
     }
     const incoming = { key: addPlayer.key, name: addPlayer.name, pos: addPlayer.pos, team: addPlayer.team, slot: "BENCH" };
     // CAS (2026-08-18): the add is a DELTA re-applied to the roster as it stands at the
@@ -2134,7 +2330,7 @@
       const r = await rosterUpdate(week, teamId, (players) => {
         const cur = players || [];
         if (LG.illegalIR(cur).length) return null;
-        if (cur.some((p) => p.key === addPlayer.key)) return null;
+        if (cur.some((p) => LG.sameMan(p.key, addPlayer.key))) return null;
         if (!LG.rosterRoom(cur)) return null;
         return cur.concat([incoming]);
       });
@@ -2150,7 +2346,7 @@
     const r = await rosterUpdate(week, teamId, (players) => {
       const cur = players || [];
       if (LG.illegalIR(cur).length) return null;
-      if (cur.some((p) => p.key === addPlayer.key)) return null;
+      if (cur.some((p) => LG.sameMan(p.key, addPlayer.key))) return null;
       const i = cur.findIndex((p) => p.key === dropKey);
       if (i < 0 || LG.dropBlocked(cur[i])) return null;
       const next = cur.slice();
@@ -2169,7 +2365,7 @@
     const cur = (doc && doc.players) || [];
     const stashed = LG.illegalIR(cur);
     if (stashed.length) return { ok: false, reason: "ir-illegal", players: stashed.map((p) => p.name) };
-    if (cur.some((p) => p.key === addPlayer.key)) return { ok: false, reason: "player-taken" };
+    if (cur.some((p) => LG.sameMan(p.key, addPlayer.key))) return { ok: false, reason: "player-taken" };
     if (dropKey == null) return { ok: false, reason: "roster-full" };
     const i = cur.findIndex((p) => p.key === dropKey);
     if (i < 0) return { ok: false, reason: "drop-not-found" };
@@ -2244,20 +2440,45 @@
     const owned = new Set();
     for (const [, ros] of rosterMap) for (const p of ros) owned.add(p.key);
     const wonThisRun = new Set();
+    // THE OWNERSHIP BELT (2026-09-02). `owned` holds raw roster keys, and a claim's addKey can
+    // legitimately be the SAME man under a different spelling (`slp_<pid>` vs his ESPN id — see
+    // LG.sameMan). A raw `owned.has(addKey)` therefore answers "no" for a player somebody
+    // already has, and the claim WINS him onto a second roster. The scan below is O(roster) per
+    // check, which is nothing at league scale, and D.pidForKey memoises every positive.
+    const ownedByAnyone = (key) => {
+      if (owned.has(key)) return true;
+      for (const k of owned) if (LG.sameMan(k, key)) return true;
+      return false;
+    };
+    const wonAlready = (key) => {
+      if (wonThisRun.has(key)) return true;
+      for (const k of wonThisRun) if (LG.sameMan(k, key)) return true;
+      return false;
+    };
     const dirtyTeams = new Set();
     const results = [];
     const txs = [];
 
     for (const c of sorted) {
       let reason = null;
-      if (owned.has(c.addKey)) reason = wonThisRun.has(c.addKey) ? "outbid" : "player-taken";
+      if (ownedByAnyone(c.addKey)) reason = wonAlready(c.addKey) ? "outbid" : "player-taken";
       if (!reason) {
         const ros = rosterMap.get(c.teamId) || [];
-        // A claim may carry NO drop when the team had an open spot — see faAdd's own note.
-        // It still needs the spot to be there at RUN time, since another claim of theirs
-        // earlier in this same run may have filled it.
-        if (c.dropKey == null) { if (!LG.rosterRoom(ros)) reason = "roster-full"; }
-        else if (!ros.some((p) => p.key === c.dropKey)) reason = "drop-gone";
+        // ⭐ FOUR INDEPENDENT CHECKS, FIRST REFUSAL WINS (2026-09-02, the minor fold-in). These
+        // used to be an if/else-if chain whose LAST link read `if (!reason && overBudget) … else
+        // if (illegalIR)`. When an EARLIER check had already set a reason, `!reason` is false,
+        // so the `else if` RAN and OVERWROTE it — a claim refused for "drop-gone" was reported
+        // to its owner as "ir-illegal", pointing them at a roster problem they did not have.
+        // Written as four guarded, independent statements the order is explicit and the first
+        // refusal is the one that survives; the ORDER itself is unchanged and deliberate
+        // (drop-gone / insufficient-faab BEFORE ir-illegal — the 2026-08-15 IR entry's own note
+        // about the suite's staging depends on it).
+        //
+        // A claim may carry NO drop when the team had an open spot — see faAdd's own note. It
+        // still needs the spot to be there at RUN time, since another claim of theirs earlier in
+        // this same run may have filled it.
+        if (!reason && c.dropKey == null && !LG.rosterRoom(ros)) reason = "roster-full";
+        if (!reason && c.dropKey != null && !ros.some((p) => p.key === c.dropKey)) reason = "drop-gone";
         if (!reason && c.bid > (faabMap.get(c.teamId) ?? 0)) reason = "insufficient-faab";
         // ⚠ NO drop-started GATE HERE, DELIBERATELY, and the reason is the rule itself: a
         // claim's drop takes effect AT THE WAIVER RUN, which IS "once waivers clear". Dropping
@@ -2269,7 +2490,7 @@
         // out on Tuesday can be cleared by Wednesday's run, so the claim is re-judged here
         // against the rosters this run actually read. The claim LOSES rather than erroring —
         // it is one bid among many and the run must still resolve everyone else.
-        else if (LG.illegalIR(ros).length) reason = "ir-illegal";
+        if (!reason && LG.illegalIR(ros).length) reason = "ir-illegal";
       }
       if (!reason) {
         const ros = rosterMap.get(c.teamId);
@@ -2318,20 +2539,39 @@
     // being silently replaced by the other's whole-array write (seam C4's lost update).
     // Idempotent by construction: an op whose add is already there, or whose drop is already
     // gone, applies the half that is still missing and nothing else.
+    // ⭐ PER-ITEM, ALWAYS (2026-09-02, S1). Every write below used to be a bare `await` in a
+    // loop, so the FIRST failure threw out of processWaivers and skipped every team after it —
+    // one team's flaky roster write, or one team's FAAB write, silently abandoned the rest of
+    // the league's results mid-run. Measured on the pre-fix engine (scratchpad probe4_waivers.cjs
+    // case B, saveTeam throwing on the second dirty team): team 1's purse was never charged, no
+    // transaction row was written for EITHER winner, and the week was left unprocessed with two
+    // players already moved. Each write is now attempted on its own and a failure is RECORDED
+    // by team and stage rather than ending the run.
+    const failures = [];
     for (const tid of dirtyTeams) {
       const ops = rosterOps.get(tid) || [];
-      await rosterUpdate(week, tid, (players) => {
-        const next = (players || []).slice();
-        for (const op of ops) {
-          const i = op.dropKey == null ? -1 : next.findIndex((p) => p.key === op.dropKey);
-          const has = next.some((p) => p.key === op.incoming.key);
-          if (i < 0) { if (!has) next.push(op.incoming); }
-          else if (has) next.splice(i, 1);
-          else next.splice(i, 1, op.incoming); // in place, exactly as the resolution computed it
-        }
-        return next;
-      });
+      try {
+        await rosterUpdate(week, tid, (players) => {
+          const next = (players || []).slice();
+          for (const op of ops) {
+            const i = op.dropKey == null ? -1 : next.findIndex((p) => p.key === op.dropKey);
+            const has = next.some((p) => p.key === op.incoming.key);
+            if (i < 0) { if (!has) next.push(op.incoming); }
+            else if (has) next.splice(i, 1);
+            else next.splice(i, 1, op.incoming); // in place, exactly as the resolution computed it
+          }
+          return next;
+        });
+      } catch (e) {
+        failures.push({ teamId: tid, stage: "roster", error: String((e && e.message) || e) });
+      }
     }
+    // A ROSTER THIS RUN COULD NOT MOVE MUST NEVER BE PAID FOR. The commit below is the point of
+    // no return for the money, so a roster failure abandons the run BEFORE it — every other
+    // team's roster has still been attempted (that is the whole point of the per-item handling),
+    // the week stays unprocessed, and the next device to open the app simply re-runs it: the
+    // deltas above are idempotent, so replaying them costs nothing.
+    if (failures.length) return { kind: "claims", week, claims, processed: false, results, failures };
     // ⭐ THE COMMIT POINT (2026-08-18) — and it MOVED, in front of the money.
     // The week's processing record is written under a compare-and-swap that ABORTS if the doc
     // already says processed, so of two devices resolving the same week EXACTLY ONE gets past
@@ -2366,19 +2606,43 @@
     // deduction cannot be computed from a purse that moves before it lands.
     // Floored at 0: a purse can never go negative even if the affordability check upstream
     // was computed against a figure that has since moved.
+    //
+    // ⭐ THE TRANSACTIONS ARE LOGGED FIRST (2026-09-02, S1), and that ORDER is the point. The
+    // transaction log is this batch's only human-readable record of who won whom for how much —
+    // and it used to be written AFTER the deductions, so a single failing purse write took every
+    // remaining tx row down with it and the family was left with players who had moved and
+    // nothing at all explaining why. A tx row is append-only and independent of the money, so
+    // there is no reason for it to depend on the money landing. Each one is wrapped on its own.
+    // Item 15 (2026-08-09): the sys chat post that used to go here is GONE — this logTx is the
+    // event's real record, and it renders in Recent moves + each team's Transactions.
+    for (const tx of txs) {
+      try { await LG.logTx("waiver", week, tx.teamId, tx.detail); }
+      catch (e) { failures.push({ teamId: tx.teamId, stage: "tx", error: String((e && e.message) || e) }); }
+    }
+    // DELTA only — spreading the whole in-memory team here wrote this page's (possibly stale)
+    // name/logo/trophies back over good data. Per-item, so team 3's purse still gets charged
+    // when team 2's write fails; and since 2026-09-02 (F1) LG.saveTeam THROWS rather than
+    // falling through to a blind write when the CAS read fails on a delta caller, so a purse
+    // that could not be read is a recorded failure here instead of a silent full-budget refund.
     for (const tid of dirtyTeams) {
       const sp = spend.get(tid) || 0;
-      await LG.saveTeam({ teamId: tid }, { from: (cur) => ({ faab: Math.max(0, LG.teamFaab(cur || {}) - sp) }) });
+      try { await LG.saveTeam({ teamId: tid }, { from: (cur) => ({ faab: Math.max(0, LG.teamFaab(cur || {}) - sp) }) }); }
+      catch (e) { failures.push({ teamId: tid, stage: "faab", spend: sp, error: String((e && e.message) || e) }); }
     }
-    // Item 15 (2026-08-09): the sys chat post that used to go here is GONE — the logTx above
-    // is this event's real record, and it renders in Recent moves + each team's Transactions.
-    for (const tx of txs) await LG.logTx("waiver", week, tx.teamId, tx.detail);
-    await LG.loadTeams(); // refresh in-memory FAAB for the caller
+    // The week's record already says `processed` (the commit above), so the failures are written
+    // onto it as their own field rather than being lost: a commissioner can see exactly which
+    // team's purse or transaction did not land, by name, instead of discovering it in a
+    // conservation sweep weeks later. Best-effort — a failure to record failures is not worth
+    // taking the run down for.
+    if (failures.length) {
+      try { await LG.db.set(LG.claimsId(LG.SEASON, week), { failures }); } catch (e) { /* nothing more we can do */ }
+    }
+    try { await LG.loadTeams(); } catch (e) { /* refresh in-memory FAAB for the caller — a courtesy */ }
     // S4 producer. Sent by whichever client actually RAN the processing — the guard above is
     // what makes that exactly one client, so nobody gets the same results twice. Only owners
     // who bid hear anything at all, and each hears only their OWN claims resolve.
     LG.pushWaiverResults(week, claims, results);
-    return { kind: "claims", week, ...done };
+    return { kind: "claims", week, ...done, ...(failures.length ? { failures } : {}) };
   }
   // Split out so the suite can drive the message-building on its own, and so processWaivers
   // itself keeps reading as the engine rather than the engine plus a mailer.
@@ -2616,6 +2880,14 @@
   LG.acceptTrade = async function (id, byTeamId) {
     const doc = await LG.loadTrade(id, { fresh: true });
     if (!doc || doc.status !== "offered" || doc.to !== byTeamId) return null;
+    // ⭐ THE DEADLINE IS A DEADLINE ON THE WHOLE TRADE, NOT ON THE OFFER (2026-09-02, S3).
+    // LG.tradeDeadlinePassed() was checked in LG.offerTrade ONLY, so an offer made legally in
+    // week 10 could be ACCEPTED in week 12 — deep in the playoffs, weeks past the deadline the
+    // league voted for — and then execute on rosters that are seeding a bracket. Measured on the
+    // pre-fix engine (scratchpad probe6_misc.cjs section C): a NEW offer at week 17 was correctly
+    // refused "deadline-passed" while the OLD one accepted and executed in the same breath. Same
+    // refusal shape offerTrade uses, so every caller already knows how to read it.
+    if (LG.tradeDeadlinePassed()) return { ok: false, reason: "deadline-passed" };
     // Early UX refusal (2026-08-17 ruling) — same LG.tradeBlockers executeTrade runs
     // authoritatively, against the rosters as they stand right now. This is NOT the last word:
     // a roster can still change between accept and the review window closing, so executeTrade
@@ -2655,16 +2927,34 @@
   };
   // Any owner NOT a party to the trade may add one veto vote; enough votes
   // (rules.trades.vetoVotes, default 4) kills it before it ever executes.
+  // ⭐ A VOTE IS AN APPEND TO A SHARED ARRAY, SO IT NEEDS THE PRECONDITION (2026-09-02, S2).
+  // This was fresh-read → rebuild the array → BLIND whole-doc write: exactly the read-modify-
+  // write shape the 2026-08-18 CAS rework closed everywhere else and missed here. Two owners
+  // voting within the same second is not a corner case for a veto — a veto is a thing owners do
+  // when a trade lands, i.e. all at once, in a group chat — and the second write simply put the
+  // first vote back. Reproduced on the pre-fix engine (scratchpad probe7_veto.cjs, the first
+  // write held on a gate until the second had completed its whole read-modify-write): TWO votes
+  // cast, ONE recorded. With vetoVotes at 4 out of 6 eligible owners, a lost vote is a trade the
+  // league voted down that goes through anyway.
+  // Now the same shape as acceptTrade: one LG.db.update, the mutate re-tests every condition the
+  // pre-read tested against the doc as it stands at the instant of the write, and the logTx and
+  // the pushes fire AFTER a successful loop — never inside a mutate that can run six times.
   LG.vetoTrade = async function (id, byTeamId) {
-    const doc = await LG.loadTrade(id, { fresh: true }); // vetoes accumulate in an array — a stale read drops other owners' votes
+    const doc = await LG.loadTrade(id, { fresh: true }); // cheap early refusal; the loop re-judges
     if (!doc || doc.status !== "accepted") return doc;
     if (byTeamId === doc.from || byTeamId === doc.to) return doc;
     if ((doc.vetoes || []).includes(byTeamId)) return doc;
-    const vetoes = [...(doc.vetoes || []), byTeamId];
     const needed = (LG.rules && LG.rules.trades.vetoVotes) || 4;
-    const status = vetoes.length >= needed ? "vetoed" : "accepted";
-    const next = { ...doc, vetoes, status };
-    await LG.saveTrade(next);
+    const r = await LG.db.update(id, (cur) => {
+      if (!cur || cur.status !== "accepted") return null;               // executed/cancelled/already vetoed
+      if (byTeamId === cur.from || byTeamId === cur.to) return null;    // a party may not vote
+      if ((cur.vetoes || []).includes(byTeamId)) return null;           // this owner has already voted
+      const v = [...(cur.vetoes || []), byTeamId];
+      return { ...cur, vetoes: v, status: v.length >= needed ? "vetoed" : "accepted" };
+    });
+    if (!r.ok) return r.doc || doc; // somebody moved it under us — theirs is the record
+    const next = r.doc;
+    const status = next.status;
     if (status === "vetoed") {
       // Item 15 (2026-08-09): sys chat post removed — this logTx IS the veto's record.
       await LG.logTx("trade", LG.currentWeek(), doc.from, { tradeId: id, from: doc.from, to: doc.to, give: doc.give, get: doc.get, result: "vetoed" });
@@ -2682,6 +2972,13 @@
   LG.executeTrade = async function (id) {
     let doc = await LG.loadTrade(id, { fresh: true });
     if (!doc || doc.status !== "accepted") return doc;
+    // The same deadline check acceptTrade now runs (2026-09-02, S3), and it belongs here too:
+    // a trade accepted the day before the deadline whose 48-hour review window closes AFTER it
+    // would otherwise swap rosters past the deadline, with nobody having done anything wrong.
+    // A refusal, not a cancellation — the trade stays "accepted" and visible, and the
+    // commissioner or either party can cancel it. (Flagged rather than hidden: nothing expires
+    // it automatically, so a trade stranded this way is retried, and refused, on every boot.)
+    if (LG.tradeDeadlinePassed()) return { ok: false, reason: "deadline-passed" };
     if (Date.now() < (doc.reviewEndsAt ?? Infinity)) return doc; // wall time — see acceptTrade
     const fresh = await LG.loadTrade(id, { fresh: true });
     if (!fresh || fresh.status !== "accepted") return fresh;
@@ -2842,14 +3139,19 @@
   // chat (main channel or any thread) — house classics, not per-thread.
   // (LG.recentChatImages removed 2026-08-11 — it existed only to feed the chat composer's
   //  "Images" recent-images picker, which the user ordered gone in refinement 3.)
+  // Read-modify-write on a shared reactions map, so it takes the same precondition every other
+  // one in this file does (2026-09-02). getFresh-then-set is a check-then-act: two owners tapping
+  // the same emoji on the same message within a second — which is exactly what a reaction IS —
+  // and the second write puts the first one's toggle back. The mutate toggles against the doc as
+  // it stands at the instant of the write, so both taps land, in whichever order they arrive.
   LG.toggleReaction = async function (id, emoji, teamId) {
-    const doc = await LG.db.getFresh(id); // read-modify-write on a shared reactions map — must see other devices' taps
-    if (!doc || doc.kind !== "chat") return null;
-    const cur = new Set((doc.reactions && doc.reactions[emoji]) || []);
-    if (cur.has(teamId)) cur.delete(teamId); else cur.add(teamId);
-    const next = { ...doc, reactions: { ...(doc.reactions || {}), [emoji]: [...cur] } };
-    await LG.db.set(id, next);
-    return next;
+    const r = await LG.db.update(id, (cur) => {
+      if (!cur || cur.kind !== "chat") return null;
+      const set = new Set((cur.reactions && cur.reactions[emoji]) || []);
+      if (set.has(teamId)) set.delete(teamId); else set.add(teamId);
+      return { ...cur, reactions: { ...(cur.reactions || {}), [emoji]: [...set] } };
+    });
+    return r.ok ? r.doc : null;
   };
   // Delete-own, or commissioner-delete-any (plan §4.5's moderation posture —
   // no infrastructure beyond these two). allowCommish is the CALLER'S PIN
@@ -2869,24 +3171,92 @@
   // Off the replay it is the real wall clock, exactly as it always was. Precedence, highest
   // first: the test override, then the replay clock, then Date.now().
   LG.now = () => LG.nowOverride != null ? LG.nowOverride : (LG.SIM_2025 ? LG.simNow() : Date.now());
+
+  // ================= THE LEAGUE RUNS ON CENTRAL TIME, NOT ON A FIXED OFFSET (2026-09-02, S4) ==
+  // Both of the functions below used to anchor on `new Date(SEASON_START + "T05:00:00-05:00")`
+  // and then add whole 7-day and 24-hour spans — i.e. they lived in a FIXED -05:00 frame. That
+  // is correct only while America/Chicago happens to be on CDT. The US falls back on Sunday
+  // 2026-11-01, and from the very next league week (week 9, Tuesday Nov 3) every one of these
+  // instants slid an hour earlier in local terms: the Wednesday waiver deadline would have read
+  // 7:00 AM Central for the rest of the season, an hour AHEAD of the cron that nudges the league
+  // to run it (netlify/functions/leaguecron.mjs fires on an Intl-derived 8:00 AM Central band,
+  // via a 13:00/14:00 UTC cross-product — see the seam suite's own A4). The engine and the cron
+  // would have disagreed about the deadline for the whole back half of the season, playoffs
+  // included.
+  //
+  // The technique is the one leaguecron.mjs and chorereminders.mjs already use: never hand-roll
+  // an offset, ask Intl what the wall clock reads. `chiInstant` is the inverse — the UTC instant
+  // at which Central's wall clock reads exactly this date and time — resolved by two passes,
+  // because the offset itself depends on the answer. 05:00 and 08:00 are both far from the 02:00
+  // transition, so neither is ever ambiguous or non-existent.
+  const CHI_FMT = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago", hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  function chiOffsetMs(ms) {
+    const o = {};
+    for (const p of CHI_FMT.formatToParts(new Date(ms))) if (p.type !== "literal") o[p.type] = p.value;
+    let hh = Number(o.hour);
+    if (hh === 24) hh = 0; // some engines emit 24 for midnight
+    const asUtc = Date.UTC(Number(o.year), Number(o.month) - 1, Number(o.day), hh, Number(o.minute), Number(o.second));
+    return asUtc - Math.floor(ms / 1000) * 1000;
+  }
+  // Memoised: currentWeek() is called on every render and every poll tick, and formatToParts is
+  // not free. The key is the wall-clock reading being resolved, which is a pure function of its
+  // own arguments, so a cached answer can never go stale.
+  const chiCache = new Map();
+  function chiInstant(y, m, d, hh, mm) {
+    const key = y + "-" + m + "-" + d + "-" + hh + "-" + mm;
+    if (chiCache.has(key)) return chiCache.get(key);
+    const guess = Date.UTC(y, m - 1, d, hh, mm, 0);
+    let t = guess - chiOffsetMs(guess);
+    t = guess - chiOffsetMs(t); // second pass, in case the first landed on the other side of a shift
+    chiCache.set(key, t);
+    return t;
+  }
+  LG._chiInstant = chiInstant; // test hook — the seam suite hand-computes against the same fn
+  // SEASON_START + n CALENDAR days, as a y/m/d triple. The addition is done on a UTC-midnight
+  // stamp (UTC has no DST, so +7×86400000 always lands on the right calendar date) and only THEN
+  // resolved into a Central instant.
+  function seasonDay(nDays) {
+    const p = String(LG.SEASON_START).split("-").map(Number);
+    const dt = new Date(Date.UTC(p[0], p[1] - 1, p[2]) + nDays * 86400000);
+    return [dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate()];
+  }
+  const weekStartCache = new Map();
+  // The Tuesday that STARTS league week `week`, at 05:00 America/Chicago.
+  function weekStartMs(week) {
+    const key = LG.SEASON_START + "|" + week;
+    if (weekStartCache.has(key)) return weekStartCache.get(key);
+    const [y, m, d] = seasonDay((week - 1) * 7);
+    const t = chiInstant(y, m, d, 5, 0);
+    weekStartCache.set(key, t);
+    return t;
+  }
+  LG.weekStart = weekStartMs; // test hook
   LG.currentWeek = function () {
-    const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
-    const w = 1 + Math.floor((LG.now() - start) / (7 * 24 * 3600 * 1000));
+    const now = LG.now();
+    // A fixed-length estimate first (one subtraction), then confirmed against the REAL Central
+    // boundaries either side — the DST shift can only ever move a boundary by one hour, so at
+    // most one step in either direction is needed and every weekStartMs is memoised.
+    let w = 1 + Math.floor((now - weekStartMs(1)) / (7 * 24 * 3600 * 1000));
+    w = Math.max(1, Math.min(18, w));
+    while (w > 1 && now < weekStartMs(w)) w--;
+    while (w < 18 && now >= weekStartMs(w + 1)) w++;
     return Math.max(1, Math.min(18, w));
   };
-  // Waiver processing deadline for a given week, from rules.waivers.processDow
-  // /processHour (default Wed/8am — plan §4.3). SEASON_START anchors week N's
-  // Tuesday at the same "05:00 in a fixed -05:00 frame" clock reading
-  // currentWeek() uses; walk forward to the configured weekday+hour from there
-  // (Tuesday=dow 2, so the default Wed/8am is +1 day +3h).
+  // Waiver processing deadline for a given week, from rules.waivers.processDow/processHour
+  // (default Wed/8am — plan §4.3), resolved in America/Chicago so it reads the SAME wall-clock
+  // time every week of the season. Hand-checked instants (2026 rules defaults, SEASON_START
+  // 2026-09-08): week 1 -> Wed Sep 9 08:00 CDT = 13:00Z · week 2 -> Wed Sep 16 = 13:00Z ·
+  // week 9 -> Wed Nov 4, the first Wednesday past the Nov 1 fall-back, 08:00 CST = 14:00Z.
   LG.waiverDeadline = function (week) {
-    const start = new Date(LG.SEASON_START + "T05:00:00-05:00").getTime();
-    const wkStart = start + (week - 1) * 7 * 24 * 3600 * 1000; // that week's Tuesday, clock=05:00
     const TUESDAY = 2;
     const w = (LG.rules || LG.DEFAULT_RULES).waivers;
     const dowOffsetDays = ((w.processDow ?? 3) - TUESDAY + 7) % 7;
-    const hourOffset = (w.processHour ?? 8) - 5; // wkStart's own clock reads 05:00
-    return wkStart + dowOffsetDays * 24 * 3600 * 1000 + hourOffset * 3600 * 1000;
+    const [y, m, d] = seasonDay((week - 1) * 7 + dowOffsetDays);
+    return chiInstant(y, m, d, w.processHour ?? 8, 0);
   };
   // ⭐ THE DISPLAY BOUNDARY (2026-08-09). A family member must never be shown the string
   // "NaN" — if a number cannot be computed, the honest answer on screen is "—", the same thing
@@ -2962,7 +3332,14 @@
   // everything downstream (standings, power rankings, the accuracy scoreboard) is re-derived
   // from that doc forever — no single mutable doc whose loss loses the season (plan §8).
   LG.weeklyId = (season, week) => `weekly_${season}_w${week}`;
-  LG.loadWeekly = (week) => LG.db.get(LG.weeklyId(LG.SEASON, week));
+  // A VOID doc reads as ABSENT here too (see LG.weeklyIsVoid) — which is what makes the bracket
+  // builder's "is this week finalized?" scan, advanceBracket's three round reads and lg-ui's own
+  // week card all inherit the self-heal without knowing it exists. finalizeWeek deliberately
+  // does NOT read through this: it needs to SEE the zombie in order to replace it.
+  LG.loadWeekly = async (week) => {
+    const doc = await LG.db.get(LG.weeklyId(LG.SEASON, week));
+    return LG.weeklyIsVoid(doc) ? null : doc;
+  };
   LG.projSnapId = (season, week) => `projsnap_${season}_w${week}`;
   LG.loadProjSnap = (week) => LG.db.get(LG.projSnapId(LG.SEASON, week));
 
@@ -3002,7 +3379,13 @@
     // RULE 1 (2026-08-20): the write-once weekly record scores off the FLOORED number, same as
     // every other place a total reaches the family. `row.pts` itself stays raw in D.S — this
     // is the one funnel, not a second copy of the rule.
-    return row && row.pts != null ? LG.floorPts(row.pts) : 0;
+    // …and through LG.n FIRST (2026-09-02, the minor fold-in): floorPts is Math.max(0, n), and
+    // Math.max(0, NaN) is NaN — so a single non-finite row.pts (a poisoned scoring key, a
+    // provider field that arrived as a string) propagated straight into the WRITE-ONCE weekly
+    // doc, where LG.fmtPts then renders it "—" forever and every standings accumulation reading
+    // it has to defend itself. Coerce at the source, once. `null` still means "no row at all"
+    // and still scores 0, exactly as before.
+    return row && row.pts != null ? LG.floorPts(LG.n(row.pts)) : 0;
   }
   // The engine's own authoritative week, or null when unknown / the providers disagree.
   function fzEngineWeek() {
@@ -3020,10 +3403,31 @@
     const g = d.S.games.get(d.slpTeam(team));
     return g ? g.state : null;
   }
+  // ⭐ ONE CLOCK FOR "IS THIS MAN'S GAME OVER" (2026-09-02, F3). The live finality gate below
+  // used to ask fzGameState(team) !== "post" — a RAW read of D.S.games — while RULE 2's
+  // mathematical-finality theorem (LG.matchupDecided, 2026-08-20) asks D.gameDone(team). The two
+  // disagree on exactly the case that happens to eight teams every single week: a starter on a
+  // BYE has no entry in D.S.games at all, so fzGameState returns null, null !== "post", and the
+  // week is PENDING FOREVER — while D.gameDone says a bye is done (a team not on the slate can
+  // never add another point, which is what makes the theorem's floor hold). Measured on the
+  // pre-fix engine (scratchpad probe1_bye.cjs): eight teams, every tracked game "post", ONE
+  // starter on a bye -> finalizeWeek refused "not-final" naming him, while the identical board
+  // with no bye starter finalized cleanly. Every week from week 5 on has byes.
+  // So the gate reads the SAME function RULE 2 reads. It deliberately does NOT reimplement it:
+  // D.gameDone is simultaneously being tightened in lg-data.js (an EMPTY games map is not
+  // "everything is done", and "post" now requires the game to be genuinely completed) and this
+  // gate inherits both by calling it. Fail-CLOSED when the data layer is not there at all: no
+  // gameDone means nothing is provably done, which refuses rather than writes.
+  function fzGameDone(team) {
+    const d = LG.data;
+    return !!(d && d.gameDone && d.gameDone(team));
+  }
   async function fzTeamTotal(week, teamId, ptsOf, rosters) {
     const pts = ptsOf || fzPts;
     let total = 0;
-    for (const p of await fzStarters(week, teamId, rosters)) total += pts(p.key);
+    // LG.n at the accumulation as well as at fzPts' own source: `ptsOf` is caller-supplied on
+    // the backfill path, and one non-finite value would otherwise make the whole team total NaN.
+    for (const p of await fzStarters(week, teamId, rosters)) total += LG.n(pts(p.key));
     return Math.round(total * 100) / 100;
   }
   // The optimal LEGAL lineup's total — what LG.slotEligible would have allowed, at maximum —
@@ -3134,7 +3538,7 @@
   // doc exists). throughWeek filters to weeks at or before it; omit for "every finalized week".
   LG.powerRankings = async function (throughWeek, extraWeeklyDocs) {
     await LG.loadTeams();
-    const weekly = (await LG.db.list("weekly")).filter((w) => !throughWeek || (w.week || 0) <= throughWeek);
+    const weekly = (await LG.loadWeeklyDocs()).filter((w) => !throughWeek || (w.week || 0) <= throughWeek);
     const all = extraWeeklyDocs && extraWeeklyDocs.length ? [...weekly, ...extraWeeklyDocs] : weekly;
     const st = {};
     for (const t of LG.teams) st[t.id] = { w: 0, pf: 0, results: [] };
@@ -3162,7 +3566,7 @@
   // `accuracy` field — HONEST LABELING: this is our miss vs OUR OWN pre-game snapshot, never
   // framed as a comparison to ESPN (that data isn't logged yet — see the S5 plan entry).
   LG.seasonAccuracy = async function () {
-    const weekly = await LG.db.list("weekly");
+    const weekly = await LG.loadWeeklyDocs();
     let sum = 0, n = 0;
     for (const w of weekly) { if (w.accuracy && w.accuracy.n) { sum += w.accuracy.ours * w.accuracy.n; n += w.accuracy.n; } }
     return n ? { avg: Math.round((sum / n) * 100) / 100, n } : null;
@@ -3195,7 +3599,10 @@
     opts = opts || {};
     const id = LG.weeklyId(LG.SEASON, week);
     const existing = await LG.db.get(id);
-    if (existing && existing.kind === "weekly") return { ok: true, ...existing };
+    // ⭐ THE IDEMPOTENCY GUARD MUST NOT ANSWER FOR A ZOMBIE (2026-09-02). "A doc exists" used to
+    // be the whole test, so a void 0-0 record written by an un-reloaded device made every later
+    // finalize — the REAL one — return `ok:true` with the zombie, permanently. See LG.weeklyIsVoid.
+    if (existing && existing.kind === "weekly" && !LG.weeklyIsVoid(existing)) return { ok: true, ...existing };
     await LG.loadTeams();
     const sw = (LG.rules || LG.DEFAULT_RULES).seasonWeeks;
     if (week > sw) {
@@ -3222,7 +3629,7 @@
       // floors too — belt-and-suspenders alongside weekStatsMap's own floor (D.weekStats'
       // per-player values are already floored at the source; LG.floorPts here is idempotent
       // and keeps this site self-evidently compliant without relying on that other file).
-      ptsOf = (key) => LG.floorPts(map.has(key) ? map.get(key) : 0);
+      ptsOf = (key) => LG.floorPts(LG.n(map.has(key) ? map.get(key) : 0)); // LG.n: see fzPts
     } else {
       // Explicit belt-and-suspenders for the 2025 replay: its own poll path never sets
       // D.S.espnWeek/D.S.slpWeek, which already makes fzEngineWeek() return null and the check
@@ -3273,7 +3680,9 @@
       for (const [h, a] of wkGames) {
         for (const tid of [h, a]) {
           for (const p of await fzStarters(week, tid, fzRosters)) {
-            if (fzGameState(p.team) !== "post") pending.push(p.name);
+            // fzGameDone, not a raw "post" read — the two finality seams must agree. See the
+            // block comment at fzGameDone for the bye-week measurement that forced this.
+            if (!fzGameDone(p.team)) pending.push(p.name);
           }
         }
       }
@@ -3292,8 +3701,33 @@
     // force included — may record a week in which no matchup had a single starter. An
     // archived backfill of a real week always has starters, so this refuses nothing real.
     let fzStarterCount = 0;
-    for (const [h, a] of wkGames) for (const tid of [h, a]) fzStarterCount += (await fzStarters(week, tid, fzRosters)).length;
+    const emptyPairs = [];
+    for (const [h, a] of wkGames) {
+      const hn = (await fzStarters(week, h, fzRosters)).length;
+      const an = (await fzStarters(week, a, fzRosters)).length;
+      fzStarterCount += hn + an;
+      if (hn === 0 && an === 0) emptyPairs.push([h, a]);
+    }
     if (fzStarterCount === 0) return { ok: false, reason: "empty-week" };
+    // ⭐ …AND A WEEK IS A UNIT (2026-09-02, S6). The guard above is LEAGUE-WIDE: it only fires
+    // when EVERY matchup is empty, so a board where three real matchups are ready and ONE
+    // pairing has nobody on either side sails straight past it and records that pairing as a
+    // 0-0 TIE — into the same write-once doc, feeding standings, waiver priority, power
+    // rankings and playoff seeding forever, with no way back. That is the identical every([])
+    // hole one level further in, and the answer is the same one the empty-week guard gave: a
+    // week nobody played is not a result. Refuse the WHOLE WEEK and NAME the pairing, because a
+    // week is a unit — finalizing the other three and leaving this one out would write a
+    // partial permanent record, which is precisely what the bracket findings (6/8) already
+    // established must never happen. The commissioner fixes the roster and re-finalizes; the
+    // reason tells them which one. Force included, for the empty-week guard's own reason: no
+    // path may record a matchup nobody fielded.
+    if (emptyPairs.length) {
+      return {
+        ok: false, reason: "empty-matchup",
+        pairs: emptyPairs,
+        matchups: emptyPairs.map(([h, a]) => fzTeamName(h) + " vs " + fzTeamName(a)),
+      };
+    }
 
     const pts = ptsOf || fzPts;
     const matchups = [];
@@ -3325,7 +3759,24 @@
     // carries `currentDocument.exists=false`, so the SERVER refuses the second one. The mutate
     // aborts the moment it sees a weekly doc already there, and the caller answers exactly what
     // it answered before — ok:true with the record that exists, never an error.
-    const r = await LG.db.update(id, (cur) => (cur && cur.kind === "weekly" ? null : doc));
+    //
+    // ⭐ …WITH ONE EXCEPTION, AND IT IS THE SELF-HEAL (2026-09-02). Create-only cannot repair a
+    // week that a stale build already poisoned, and the two real zombies (2026-08-30 and
+    // 2026-09-01) had to be deleted by hand. So: a REAL record is still untouchable (the mutate
+    // aborts and the caller gets it back, exactly as before), and a VOID one is REPLACED under
+    // the ordinary compare-and-swap — carrying `replacedVoid: true` so the repair is on the
+    // record rather than invisible. LG.db.update sends `exists=false` when the doc is absent and
+    // `updateTime=<what we read>` when it is present, so the replacement is still refused if
+    // anybody else moves the doc between the read and the write.
+    const r = await LG.db.update(id, (cur) => {
+      if (cur && cur.kind === "weekly" && !LG.weeklyIsVoid(cur)) return null; // a real week is written once, forever
+      if (cur && cur.kind === "weekly") return { ...doc, replacedVoid: true };
+      return doc;
+    });
+    // ALWAYS the document the loop actually settled on — on an abort that is the record already
+    // there, and on a success it is what was written, `replacedVoid` included. Returning the
+    // locally-computed `doc` instead (as this did) silently dropped the repair stamp from the
+    // caller's view even though it was correctly persisted.
     if (!r.ok) return { ok: true, ...r.doc };
 
     // Item 15 (2026-08-09): the "week N is official" sys chat post is GONE. The weekly doc
@@ -3338,7 +3789,7 @@
     // definition, looking at the league right now.
     LG.pushWeekRecap(week, matchups);
 
-    return { ok: true, ...doc };
+    return { ok: true, ...r.doc };
   };
   // "Battle Kreussers 112.4 — 98.1 End Zone Goats · …", winner first in each pairing so the
   // line reads as results rather than as the schedule. Trimmed to two games plus a count,
@@ -3527,6 +3978,24 @@
   // cheap and self-limiting: nothing to fill -> nothing changes -> nothing is written. Sets
   // the champion + Toilet Bowl loser (and posts both, and awards the champion's trophy) the
   // moment week 3 finalizes.
+  //
+  // ⭐ THE BRACKET-CAS FINDING, CLOSED (2026-09-02, S5). This was the last read-modify-write in
+  // the file, and the 2026-08-18 CAS entry named it as FOUND-NOT-FIXED: it read the bracket
+  // through LG.db's CACHE, mutated that object IN PLACE, and ended on a BLIND whole-document
+  // LG.db.set. Two failures rode on that:
+  //   · loadBracket hands back the cache's OWN object, so every fill mutated a document other
+  //     readers on this page were still holding — the aliasing hazard cacheUpsert has a comment
+  //     about, one layer up;
+  //   · a device whose cached copy still had r3 null wrote those nulls over another device's
+  //     resolved championship. The season sim's writeOnce.bracket sweep catches it (champ/third
+  //     home and away reverting from a real team id to null at w17) and it reproduced 2 of 2
+  //     runs on unmodified HEAD.
+  // The fix is the shape every other adopter already has: a PURE `fill` over a CLONE, run inside
+  // LG.db.update so it re-applies to the document as it stands at the instant of the write, and
+  // the two side effects — the champion's trophy and the loadTeams refresh — moved OUT, below a
+  // successful loop, because a mutate can run six times and a trophy appended six times is six
+  // trophies. `fill` returning null when there is nothing to resolve means the common case (the
+  // boot/render/every-finalize call) writes NOTHING at all, exactly as before.
   LG.advanceBracket = async function () {
     const bracket = await LG.loadBracket();
     if (!bracket) return { ok: false, reason: "no-bracket" };
@@ -3536,77 +4005,91 @@
     const wk1doc = await LG.loadWeekly(sw + 1);
     const wk2doc = await LG.loadWeekly(sw + 2);
     const wk3doc = await LG.loadWeekly(sw + 3);
-    let changed = false;
 
-    const fillFrom = (games, weeklyDoc) => {
-      for (const g of games || []) {
-        if (g.home == null && g.homeFrom) {
-          const src = bkFindGame(bracket, g.homeFrom.game);
-          const r = src && src.home != null && src.away != null ? bkResult(weeklyDoc, src.home, src.away) : null;
-          if (r) { g.home = r[g.homeFrom.result]; changed = true; }
+    // PURE and REENTRANT (LG.db.update's own contract): it reads the three weekly docs captured
+    // above and its own argument, clones, fills, and returns — never touching `bracket`, never
+    // writing, never awaiting.
+    const fill = (cur) => {
+      if (!cur || cur.kind !== "bracket") return null;
+      const b = JSON.parse(JSON.stringify(cur));
+      let changed = false;
+      const fillFrom = (games, weeklyDoc) => {
+        for (const g of games || []) {
+          if (g.home == null && g.homeFrom) {
+            const src = bkFindGame(b, g.homeFrom.game);
+            const r = src && src.home != null && src.away != null ? bkResult(weeklyDoc, src.home, src.away) : null;
+            if (r) { g.home = r[g.homeFrom.result]; changed = true; }
+          }
+          if (g.away == null && g.awayFrom) {
+            const src = bkFindGame(b, g.awayFrom.game);
+            const r = src && src.home != null && src.away != null ? bkResult(weeklyDoc, src.home, src.away) : null;
+            if (r) { g.away = r[g.awayFrom.result]; changed = true; }
+          }
         }
-        if (g.away == null && g.awayFrom) {
-          const src = bkFindGame(bracket, g.awayFrom.game);
-          const r = src && src.home != null && src.away != null ? bkResult(weeklyDoc, src.home, src.away) : null;
-          if (r) { g.away = r[g.awayFrom.result]; changed = true; }
+      };
+      if (wk1doc) fillFrom(b.rounds.r2, wk1doc); // play-in winner -> the waiting semi
+      if (wk2doc) fillFrom(b.rounds.r3, wk2doc); // semi winners/losers -> champ + 3rd place
+
+      if (b.champion == null && wk3doc) {
+        const champG = bkFindGame(b, "champ");
+        if (champG && champG.home != null && champG.away != null) {
+          const r = bkResult(wk3doc, champG.home, champG.away);
+          if (r) {
+            b.champion = r.winner;
+            changed = true;
+            const thirdG = bkFindGame(b, "third");
+            if (thirdG && thirdG.home != null && thirdG.away != null) {
+              const r3 = bkResult(wk3doc, thirdG.home, thirdG.away);
+              if (r3) b.thirdPlace = r3.winner;
+            }
+            // Toilet Bowl: aggregate W/L across the 3 consolation round-robin games (one per
+            // playoff week); fewest wins loses it, tied by worse regular-season standing (later
+            // in b.seeds).
+            const consGames = [...(b.rounds.r1 || []), ...(b.rounds.r2 || []), ...(b.rounds.r3 || [])]
+              .filter((g) => g.kind === "consolation");
+            const byWeek = {}; byWeek[sw + 1] = wk1doc; byWeek[sw + 2] = wk2doc; byWeek[sw + 3] = wk3doc;
+            const rec = {};
+            for (const g of consGames) {
+              const res = bkResult(byWeek[g.week], g.home, g.away);
+              if (!res) continue;
+              (rec[res.winner] = rec[res.winner] || { w: 0, l: 0 }).w++;
+              (rec[res.loser] = rec[res.loser] || { w: 0, l: 0 }).l++;
+            }
+            let toiletId = null;
+            for (const tid of Object.keys(rec).map(Number)) {
+              if (toiletId == null || rec[tid].w < rec[toiletId].w) { toiletId = tid; continue; }
+              if (rec[tid].w === rec[toiletId].w && b.seeds.indexOf(tid) > b.seeds.indexOf(toiletId)) toiletId = tid;
+            }
+            b.toilet = toiletId;
+            // Item 15 (2026-08-09): sys chat posts removed — b.champion (plus the trophy saved
+            // onto the team below) and b.toilet are both stored here and both render as banners
+            // on the Bracket tab.
+          }
         }
       }
+      return changed ? b : null; // nothing to resolve -> abort, nothing written
     };
-    if (wk1doc) fillFrom(bracket.rounds.r2, wk1doc); // play-in winner -> the waiting semi
-    if (wk2doc) fillFrom(bracket.rounds.r3, wk2doc); // semi winners/losers -> champ + 3rd place
 
-    if (bracket.champion == null && wk3doc) {
-      const champG = bkFindGame(bracket, "champ");
-      if (champG && champG.home != null && champG.away != null) {
-        const r = bkResult(wk3doc, champG.home, champG.away);
-        if (r) {
-          bracket.champion = r.winner;
-          changed = true;
-          const thirdG = bkFindGame(bracket, "third");
-          if (thirdG && thirdG.home != null && thirdG.away != null) {
-            const r3 = bkResult(wk3doc, thirdG.home, thirdG.away);
-            if (r3) bracket.thirdPlace = r3.winner;
-          }
-          // Toilet Bowl: aggregate W/L across the 3 consolation round-robin games (one per
-          // playoff week); fewest wins loses it, tied by worse regular-season standing (later
-          // in bracket.seeds).
-          const consGames = [...(bracket.rounds.r1 || []), ...(bracket.rounds.r2 || []), ...(bracket.rounds.r3 || [])]
-            .filter((g) => g.kind === "consolation");
-          const byWeek = {}; byWeek[sw + 1] = wk1doc; byWeek[sw + 2] = wk2doc; byWeek[sw + 3] = wk3doc;
-          const rec = {};
-          for (const g of consGames) {
-            const res = bkResult(byWeek[g.week], g.home, g.away);
-            if (!res) continue;
-            (rec[res.winner] = rec[res.winner] || { w: 0, l: 0 }).w++;
-            (rec[res.loser] = rec[res.loser] || { w: 0, l: 0 }).l++;
-          }
-          let toiletId = null;
-          for (const tid of Object.keys(rec).map(Number)) {
-            if (toiletId == null || rec[tid].w < rec[toiletId].w) { toiletId = tid; continue; }
-            if (rec[tid].w === rec[toiletId].w && bracket.seeds.indexOf(tid) > bracket.seeds.indexOf(toiletId)) toiletId = tid;
-          }
-          bracket.toilet = toiletId;
-
-          // FRESH + DEDUPED + DELTA (adversarial review 2026-08-08, finding 10): this used to
-          // spread a possibly-stale in-memory team, rolling that team's FAAB and everything
-          // else back to whatever this page had cached, and could append a second trophy for
-          // the same season on a re-run.
-          const champDoc = await LG.db.getFresh("team_" + bracket.champion);
-          if (champDoc || LG.teamById(bracket.champion)) {
-            const have = (champDoc && champDoc.trophies) || [];
-            const trophies = have.some((t) => t.year === LG.SEASON && t.kind === "champion")
-              ? have : [...have, { year: LG.SEASON, kind: "champion" }];
-            await LG.saveTeam({ teamId: bracket.champion, trophies });
-            await LG.loadTeams(); // refresh the in-memory cache so the trophy shows immediately (same posture as processWaivers' FAAB refresh)
-          }
-          // Item 15 (2026-08-09): sys chat posts removed — bracket.champion (plus the
-          // trophy just saved onto the team) and bracket.toilet are both stored here and
-          // both render as banners on the Bracket tab.
-        }
+    const r = await LG.db.update(LG.bracketId(LG.SEASON), fill);
+    const next = (r.doc && r.doc.kind === "bracket") ? r.doc : bracket;
+    // THE SIDE EFFECTS, after a successful loop only, and only when THIS call is the one that
+    // crowned the champion — a second device advancing the same bracket aborts and gets the
+    // record back, so it neither re-writes the trophy nor re-reads the team list.
+    if (r.ok && next.champion != null && bracket.champion == null) {
+      // FRESH + DEDUPED + DELTA (adversarial review 2026-08-08, finding 10): this used to
+      // spread a possibly-stale in-memory team, rolling that team's FAAB and everything else
+      // back to whatever this page had cached, and could append a second trophy for the same
+      // season on a re-run.
+      const champDoc = await LG.db.getFresh("team_" + next.champion);
+      if (champDoc || LG.teamById(next.champion)) {
+        const have = (champDoc && champDoc.trophies) || [];
+        const trophies = have.some((t) => t.year === LG.SEASON && t.kind === "champion")
+          ? have : [...have, { year: LG.SEASON, kind: "champion" }];
+        await LG.saveTeam({ teamId: next.champion, trophies });
+        await LG.loadTeams(); // refresh the in-memory cache so the trophy shows immediately (same posture as processWaivers' FAAB refresh)
       }
     }
-    if (changed) await LG.db.set(LG.bracketId(LG.SEASON), bracket);
-    return { ok: true, ...bracket };
+    return { ok: true, ...next };
   };
 
   // ---------------- history + record book + rivalries (S6, plan §4.8) ----------------
@@ -3639,7 +4122,7 @@
       }
     };
     for (const h of await LG.loadHistory()) tally(h.matchups);
-    for (const w of await LG.db.list("weekly")) tally(w.matchups);
+    for (const w of await LG.loadWeeklyDocs()) tally(w.matchups);
     out.aPts = Math.round(out.aPts * 100) / 100;
     out.bPts = Math.round(out.bPts * 100) / 100;
     return out;
@@ -3661,7 +4144,7 @@
   // franchise — or simply widening this gate — brings its whole record back with it.
   LG.recordBook = async function () {
     const hist = await LG.loadHistory();
-    const weekly = await LG.db.list("weekly");
+    const weekly = await LG.loadWeeklyDocs();
     const live = (id) => !!LG.teamById(id);
     const nameOf = (id) => { const t = LG.teamById(id); return t ? t.name : null; };
     const histNameOf = (h, id) => { const t = (h.teams || []).find((x) => x.id === id); return t ? t.name : ("Team " + id); };
@@ -3953,7 +4436,7 @@
         }
         if (!keys.length) throw new Error("no-adjustable-keys");
         // 3 · each player's recent log, from the archived weeks already cached by D.weekStats
-        const weekly = (await LG.db.list("weekly")).filter((w) => w && w.kind === "weekly").sort((a, b) => (a.week || 0) - (b.week || 0)).slice(-5);
+        const weekly = (await LG.loadWeeklyDocs()).filter((w) => w && w.kind === "weekly").sort((a, b) => (a.week || 0) - (b.week || 0)).slice(-5);
         const maps = await Promise.all(weekly.map((w) => D.weekStats(w.week, { season: LG.SEASON, seasonType: "regular" }).catch(() => null)));
         const logFor = (k) => {
           const out = [];

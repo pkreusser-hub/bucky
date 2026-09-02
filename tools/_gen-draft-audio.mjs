@@ -12,8 +12,13 @@
 //   --direct    Straight to the ElevenLabs API with ELEVENLABS_API_KEY from
 //               tools/.env — the branch-manager pattern, for a human machine.
 //
-// The family secret for --fire is read out of ffdraft.html rather than
-// duplicated here; it is the same one every page ships to the browser.
+// Two DIFFERENT secrets travel with these jobs, on purpose (pre-season serverless review):
+//   - familySecret() — the shared family password, read out of ffdraft.html (the same one
+//     every page ships to the browser) — used ONLY for calls to SPORTS_FN (sports.mjs's own
+//     ff_draftpool/ff_draftinfo actions, gated the same way every other page's call is).
+//   - audiogenSecret() — audiogen-background.mjs's OWN secret, read from the environment
+//     (AUDIOGEN_SECRET), never scraped from a page — that endpoint bills real ElevenLabs
+//     credits per job and must never be reachable with a secret a browser can read.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -77,7 +82,7 @@ async function fireTts() {
   const res = await fetch(FN, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ secret: familySecret(), jobs: sayJobs(players) }),
+    body: JSON.stringify({ secret: audiogenSecret(), jobs: sayJobs(players) }),
   });
   console.log("fire ->", res.status, res.status === 202 ? "(generating in the background)" : await res.text());
   if (res.status !== 202) process.exit(1);
@@ -134,7 +139,7 @@ async function firePlayers() {
   const res = await fetch(FN, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ secret: familySecret(), jobs }),
+    body: JSON.stringify({ secret: audiogenSecret(), jobs }),
   });
   console.log("fire ->", res.status, res.status === 202 ? "(generating in the background; re-fire resumes if the window dies)" : await res.text());
   if (res.status !== 202) process.exit(1);
@@ -153,7 +158,7 @@ async function fireDst() {
   const res = await fetch(FN, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ secret: familySecret(), jobs }),
+    body: JSON.stringify({ secret: audiogenSecret(), jobs }),
   });
   console.log("fire ->", res.status, res.status === 202 ? "(generating)" : await res.text());
   if (res.status !== 202) process.exit(1);
@@ -192,7 +197,7 @@ async function fireTeams() {
   const res = await fetch(FN, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ secret: familySecret(), jobs }),
+    body: JSON.stringify({ secret: audiogenSecret(), jobs }),
   });
   console.log("fire ->", res.status, res.status === 202 ? "(generating)" : await res.text());
   if (res.status !== 202) process.exit(1);
@@ -209,7 +214,7 @@ async function fireAnnounceTest() {
   const res = await fetch(FN, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ secret: familySecret(), jobs: [job] }),
+    body: JSON.stringify({ secret: audiogenSecret(), jobs: [job] }),
   });
   console.log("fire ->", res.status, res.status === 202 ? "(generating)" : await res.text());
   if (res.status !== 202) process.exit(1);
@@ -281,7 +286,7 @@ async function fireMusic2() {
   const res = await fetch(FN, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ secret: familySecret(), jobs }),
+    body: JSON.stringify({ secret: audiogenSecret(), jobs }),
   });
   console.log("fire ->", res.status, res.status === 202 ? "(generating — music runs a few minutes a track)" : await res.text());
   if (res.status !== 202) process.exit(1);
@@ -325,11 +330,24 @@ function familySecret() {
   return m[1];
 }
 
+// audiogen-background.mjs's OWN secret (never scraped from a page): the environment first (a
+// GitHub Actions runner gets it as a workflow secret), falling back to tools/.env (the same
+// file --direct already reads ELEVENLABS_API_KEY from, for a human machine).
+function audiogenSecret() {
+  if (process.env.AUDIOGEN_SECRET) return process.env.AUDIOGEN_SECRET;
+  const envPath = path.join(ROOT, "tools", ".env");
+  if (fs.existsSync(envPath)) {
+    const line = fs.readFileSync(envPath, "utf8").split("\n").find((l) => l.startsWith("AUDIOGEN_SECRET="));
+    if (line) { const v = line.slice(line.indexOf("=") + 1).trim(); if (v) return v; }
+  }
+  throw new Error("AUDIOGEN_SECRET not set — set it in the environment (a GitHub Actions secret) or tools/.env");
+}
+
 async function fire() {
   const res = await fetch(FN, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ secret: familySecret(), jobs: JOBS }),
+    body: JSON.stringify({ secret: audiogenSecret(), jobs: JOBS }),
   });
   console.log("fire ->", res.status, res.status === 202 ? "(generating in the background)" : await res.text());
   if (res.status !== 202) process.exit(1);

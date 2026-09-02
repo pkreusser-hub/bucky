@@ -107,16 +107,41 @@ const PASS = "amenfarms";
 const SEASON = 2026;
 const SEASON_START = "2026-09-08";
 const SEASON_WEEKS = 14;
-const ROSTER_SIZE = 16;      // 9 starters + 7 bench (QB1 RB2 WR2 TE1 FLEX1 DST1 K1, BENCH 7) — the DRAFT size
+// ---------------- the slot script, DERIVED (restaged 2026-09-02) ----------------
 // RESTAGED 2026-08-17: rosters are no longer exactly ROSTER_SIZE for a whole season. The
-// 2026-08-15 add-without-drop feature legitimately grows a roster past 16 via no-drop adds,
-// up to the rules' true capacity: 16 slots + IR 3 = 19 (sum lg-core's DEFAULT_RULES.roster —
-// this constant is that sum hand-computed, and the sweep says the arithmetic in its message).
-// The old exact-16 check failed 82 times across a sim season for that one reason — every
-// failure was a roster at 19, none was a real leak. The invariant that still holds, and the
-// one now asserted, is a BAND: never below the draft size (this sim never drops without
-// adding — grep dropPlayer: 0 hits) and never above capacity.
-const ROSTER_CAP = 19;       // 16 + IR 3
+// 2026-08-15 add-without-drop feature legitimately grows a roster past the draft size via
+// no-drop adds, up to the rules' true capacity. The old exact-size check failed 82 times across
+// a sim season for that one reason — every failure was a roster at capacity, none was a real
+// leak. The invariant that still holds, and the one asserted, is a BAND: never below the draft
+// size (this sim never drops without adding — grep dropPlayer: 0 hits) and never above capacity.
+//
+// RESTAGED AGAIN 2026-09-02: both numbers were HAND-COMPUTED CONSTANTS (16 and 19) copied from
+// lg-core's LG.DEFAULT_RULES.roster at the time they were written — and when that object caught
+// up with the live settings sheet (RB 2->3, WR 2->3, so 11 starting slots and a cap of 21) the
+// sim went on asserting a band the engine had moved out from under it. A copied constant is a
+// constant that drifts, so they are DERIVED now: the roster script is READ OUT OF lg-core.js
+// itself at startup, one source of truth, and the same object is what the sim seeds into its
+// settings doc AND what slotRoster fills. A parse that cannot find it THROWS rather than falling
+// back to a guess — a silent fallback here would put the whole sim back on a stale copy.
+const ROSTER_RULES = (() => {
+  const src = fs.readFileSync(path.join(ROOT, "assets", "league", "lg-core.js"), "utf8");
+  const m = /LG\.DEFAULT_RULES\s*=\s*\{[\s\S]*?\n\s*roster:\s*\{([^}]*)\}/.exec(src);
+  if (!m) throw new Error("season sim: could not read LG.DEFAULT_RULES.roster out of lg-core.js");
+  const out = {};
+  for (const part of m[1].split(",")) {
+    const kv = /^\s*([A-Za-z_]+)\s*:\s*(\d+)\s*$/.exec(part);
+    if (kv) out[kv[1]] = Number(kv[2]);
+  }
+  for (const need of ["QB", "RB", "WR", "TE", "FLEX", "DST", "K", "BENCH", "IR"]) {
+    if (out[need] == null) throw new Error("season sim: LG.DEFAULT_RULES.roster is missing " + need);
+  }
+  return out;
+})();
+// The DRAFT size is every slot a drafted player can occupy — i.e. capacity minus IR, which takes
+// genuinely-out players only and is never drafted into (LG.buildBackupRosters says the same).
+const ROSTER_CAP = Object.values(ROSTER_RULES).reduce((s, n) => s + n, 0);
+const ROSTER_SIZE = ROSTER_CAP - ROSTER_RULES.IR;
+const N_STARTING = ROSTER_CAP - ROSTER_RULES.BENCH - ROSTER_RULES.IR;
 const FAAB_BUDGET = 100;
 const COMMISH_PIN = "9090";
 // The engine's reported week. Never equal to a week this season finalizes, which is what
@@ -347,7 +372,18 @@ const slist = (kind) => Object.entries(STORE.docs).filter(([, d]) => d && d.kind
 // ---------------- the player universe ----------------
 const NFL = ["KC", "BUF", "PHI", "DAL", "SF", "DET", "BAL", "MIA", "CIN", "GB", "LAR", "NYJ", "HOU", "MIN", "SEA", "TB"];
 // Roster composition: QB2 RB4 WR6 TE2 DST1 K1 = 16. Starters QB1 RB2 WR2 TE1 FLEX1 DST1 K1 = 9.
-const TEAM_COMP = [["QB", 2], ["RB", 4], ["WR", 6], ["TE", 2], ["DST", 1], ["K", 1]];
+// RESTAGED 2026-09-02 alongside ROSTER_RULES: this used to sum to 16, the old draft size. With
+// RB 2->3 and WR 2->3 in the live slot script the draft size is 18, so the composition grows by
+// exactly one RB and one WR — the two positions that gained a starting slot. Asserted below
+// against ROSTER_SIZE rather than left to be re-derived by hand.
+const TEAM_COMP = [["QB", 2], ["RB", 5], ["WR", 7], ["TE", 2], ["DST", 1], ["K", 1]];
+{
+  const n = TEAM_COMP.reduce((s, [, c]) => s + c, 0);
+  if (n !== ROSTER_SIZE) {
+    throw new Error("season sim: TEAM_COMP drafts " + n + " players but the slot script has room for " +
+      ROSTER_SIZE + " (" + JSON.stringify(ROSTER_RULES) + ") — adjust the composition, never the assertion");
+  }
+}
 const FA_COMP = [["QB", 4], ["RB", 10], ["WR", 14], ["TE", 6], ["K", 4]];
 
 const PLAYERS = new Map();   // pid -> {pid, name, team, pos, espnId, key, searchRank, injury}
@@ -391,9 +427,12 @@ function buildUniverse() {
     for (let i = 0; i < n; i++) makePlayer(pid++, nameAt(ni++), NFL[(pid * 3) % NFL.length], pos, 400 + rank++);
   }
 }
-// The slot script the app itself enforces (LG.DEFAULT_RULES.roster).
+// The slot script the app itself enforces — DERIVED from LG.DEFAULT_RULES.roster (restaged
+// 2026-09-02; it used to be a hand-typed copy that went stale the moment the engine's own script
+// moved). FLEX is filled after the dedicated slots, exactly as the app does it.
 function slotRoster(list) {
-  const want = [["QB", 1], ["RB", 2], ["WR", 2], ["TE", 1], ["DST", 1], ["K", 1]];
+  const want = [["QB", ROSTER_RULES.QB], ["RB", ROSTER_RULES.RB], ["WR", ROSTER_RULES.WR],
+    ["TE", ROSTER_RULES.TE], ["DST", ROSTER_RULES.DST], ["K", ROSTER_RULES.K]];
   const out = [], used = new Set();
   for (const [pos, n] of want) {
     let took = 0;
@@ -486,8 +525,25 @@ function nodeScore(st) {
   if (st.pts_allow != null) p += paPoints(st.pts_allow);
   return Math.round(p * 100) / 100;
 }
+// ⭐ RESTAGED 2026-09-02 — THE ZERO FLOOR WAS MISSING FROM THIS MIRROR SINCE 2026-08-20.
+// The commissioner's RULE 1 ("no player score may go below zero, ever", docs/gffl.md) is a
+// RULE-LAYER clamp the engine applies at every site a player's TOTAL becomes visible or
+// recorded — LG.floorPts at fzPts, at finalizeWeek's backfill ptsOf, and at lg-data's
+// weekStatsMap. `nodeScore` above deliberately mirrors the stats->points FORMULA only (that is
+// what keeps it an honest independent re-implementation, and it is the same number
+// tools/_gffl_rules_reconcile.mjs proves against ESPN's real 2025 season, which reads through no
+// floor either) — but the value this invariant compares against a WEEKLY DOC has to be the value
+// the engine actually WRITES, and that one is floored.
+// WHY IT ONLY SURFACED NOW, stated rather than hidden: it needs a starter who genuinely scores
+// NEGATIVE, and seed 1's old universe happened to contain none. This session's TEAM_COMP change
+// (RB 4->5, WR 6->7, so the draft fills the live league's 11-slot script) shifts every pid and
+// therefore every deterministic hashRng draw — the new seed-1 universe has a kicker at -1.0 in
+// week 2, and weekly.totalsMatchRosters reported team 3 at exactly Δ1.00. The ENGINE was right;
+// this mirror was a rule short. Floored here, at the one call site that compares against a
+// written record, rather than inside nodeScore — so the raw formula stays raw for anything that
+// wants it.
 const scoreOfKey = (key, week) => {
-  for (const p of PLAYERS.values()) if (p.key === key) return nodeScore(statRow(p.pid, week));
+  for (const p of PLAYERS.values()) if (p.key === key) return Math.max(0, nodeScore(statRow(p.pid, week)));
   return 0;
 };
 
@@ -570,7 +626,10 @@ function seedStore() {
       dst_pa_0: 5, dst_pa_1_6: 4, dst_pa_7_13: 3, dst_pa_14_17: 1,
       dst_pa_18_27: 0, dst_pa_28_34: -1, dst_pa_35_45: -3, dst_pa_46: -5,
     },
-    roster: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, DST: 1, K: 1, BENCH: 7, IR: 3 },
+    // The SAME object ROSTER_SIZE/ROSTER_CAP/slotRoster derive from, read out of lg-core's own
+    // LG.DEFAULT_RULES (restaged 2026-09-02) — a hand-typed copy here would let the sim seed a
+    // league whose slot script disagreed with the constants its own invariants assert against.
+    roster: { ...ROSTER_RULES },
     waivers: { type: "faab", budget: FAAB_BUDGET, processDow: 3, processHour: 8 },
     // reviewHours 0 / vetoVotes 2 — see design decision 5.
     trades: { reviewHours: 0, veto: "vote", vetoVotes: 2, deadlineWeek: 11 },
@@ -1000,7 +1059,9 @@ function sweepRosters(week) {
     if (!r) { fail("roster.exists", "team " + t + " has no roster at or before week " + week); continue; }
     check(r.players.length >= ROSTER_SIZE && r.players.length <= ROSTER_CAP, "roster.size",
       "team " + t + " carries " + r.players.length + " players at week " + week +
-      " (band is draft 16 ≤ n ≤ cap 19 = 16 slots + 3 IR; see the RESTAGED note at ROSTER_CAP)",
+      " (band is draft " + ROSTER_SIZE + " ≤ n ≤ cap " + ROSTER_CAP + " = " + ROSTER_SIZE +
+      " slots + " + ROSTER_RULES.IR + " IR, derived from lg-core's own LG.DEFAULT_RULES.roster " +
+      JSON.stringify(ROSTER_RULES) + "; see the RESTAGED note at ROSTER_RULES)",
       "read STORE roster_" + SEASON + "_w" + r.week + "_t" + t);
     const seen = new Set();
     for (const p of r.players) {
@@ -1150,7 +1211,8 @@ function sweepWeeklyTotals(week) {
               "] while the store's roster of record says [" + storeLineup.join(", ") + "]"
             : "The lineups agree, so the disagreement is in the SCORING, not the roster") +
           "; roster of record = roster_" + SEASON + "_w" + eff.week + "_t" + tid + "; starters: " + detail.join(" | "),
-          "sum nodeScore(statRow(pid, " + w + ")) over the non-bench slots of roster_" + SEASON + "_w" + eff.week + "_t" + tid);
+          "sum max(0, nodeScore(statRow(pid, " + w + "))) — RULE 1's zero floor included, see scoreOfKey — " +
+          "over the non-bench slots of roster_" + SEASON + "_w" + eff.week + "_t" + tid);
       }
     }
     Object.defineProperty(d, "checkedTotals", { value: true, enumerable: false });

@@ -178,7 +178,7 @@ main{max-width:1220px; margin:0 auto; padding:14px 12px}
 .btn.sm{padding:5px 11px; font-size:12px; border-radius:6px}
 .btn:disabled{opacity:.4; cursor:default}
 .row{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
-input[type=text],input[type=number],select{
+input[type=text],input[type=number],input[type=password],select{
   border:1px solid var(--line); border-radius:7px; padding:8px 10px; background:#0e131d; color:var(--ink);
 }
 input::placeholder{color:#5b6579}
@@ -416,12 +416,12 @@ input::placeholder{color:#5b6579}
 }
 .toast.err{border-left-color:var(--accent)}
 
-/* ---------- landing ---------- */
-#vLanding .hero{text-align:center; padding:44px 16px}
-#vLanding .hero h1{
+/* ---------- landing + gate ---------- */
+#vLanding .hero,#vGate .hero{text-align:center; padding:44px 16px}
+#vLanding .hero h1,#vGate .hero h1{
   font-size:44px; margin:0 0 8px; color:#fff; letter-spacing:3px; font-weight:700;
 }
-#vLanding .hero h1::after{content:""; display:block; width:64px; height:3px; background:var(--accent); margin:10px auto 0}
+#vLanding .hero h1::after,#vGate .hero h1::after{content:""; display:block; width:64px; height:3px; background:var(--accent); margin:10px auto 0}
 
 /* ---------- TV mode ---------- */
 body.tv{padding-bottom:64px}
@@ -547,6 +547,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
   <button data-v="commish" id="tabCommish" hidden>Commish</button>
 </nav>
 <main>
+  <section id="vGate" hidden></section>
   <section id="vLanding" hidden></section>
   <section id="vBoard" hidden>
     <div class="boardwrap">
@@ -609,10 +610,26 @@ body.tv #boothBar .btxt{font-size:16.5px}
   // The league's chosen name (the family renamed it; ESPN's own settings
   // may lag — the room always shows this).
   var LEAGUE_NAME = "Goat Fantasy Football League";
-  var COMMISH_PIN = "14903";   // commissioner sign-in PIN (any device)
-  var POS = ["QB", "RB", "WR", "TE", "K", "D/ST"];
-  // CSS class/var names can't carry a slash — "D/ST" maps to the DST token.
-  function cssPos(pos) { return pos === "D/ST" ? "DST" : pos; }
+  // THE FAMILY GATE (security review, 2026-09-02) — this page used to render
+  // the live board to anyone with the URL. Same wall league.html puts up:
+  // same localStorage key ("gffl_pass") and the same accepted value
+  // (LG.GATE_PASS in lg-core.js), so a device that already unlocked the
+  // league is already unlocked here — one password, not two. See
+  // familyUnlocked() below. A commissioner-only PIN literal used to live
+  // right here too, shipped in every visitor's JS and valid on ANY draft
+  // room — it's gone, on purpose, source and all (that string can't be
+  // grepped back in without breaking this comment's own claim). Commissioner
+  // sign-in now takes ONLY the per-draft D.commishKey; see commishLogin().
+  var GATE_KEY = "gffl_pass";
+  var GATE_PASS = "thegoatleague";
+  // sports.mjs's STORED position label for a defense became "DST" (was
+  // "D/ST") on 2026-09-02, to match league.mjs/lg-ui.js's own convention —
+  // see docs/gffl.md's "THE D/ST FINDING," same date. Every comparison in
+  // this file now reads/writes "DST" (POS is the canonical, already
+  // CSS-safe, stored-value list — no slash to map around anymore).
+  // "D/ST" survives ONLY as a human-facing label, through posLabel().
+  var POS = ["QB", "RB", "WR", "TE", "K", "DST"];
+  function posLabel(pos) { return pos === "DST" ? "D/ST" : pos; }
   var MAX_KEEPERS = 3;
   var MAX_KEEPS_OF_ONE_PLAYER = 3;   // "no player can be kept more than 3 times"
 
@@ -639,6 +656,17 @@ body.tv #boothBar .btxt{font-size:16.5px}
   var FAMILY_KEY = qs.get("fam") || roomId(FAMILY_PASSWORD);
   var DOC_COLL = "ffdraft_" + FAMILY_KEY;
   var DOC_ID = "draft_" + SEASON;
+
+  // Reads the exact same keys league.html's LG.unlocked() reads (lg-core.js)
+  // — nothing here is new state, so a family member who typed the league
+  // passphrase once on league.html (or is already inside the main Bucky app)
+  // never has to type it again for the draft room.
+  function familyUnlocked() {
+    try {
+      return localStorage.getItem("choreUnlocked") === FAMILY_PASSWORD ||
+        [GATE_PASS, FAMILY_PASSWORD].includes(localStorage.getItem(GATE_KEY));
+    } catch (e) { return false; }
+  }
 
   // Draft day: Sunday September 6, 3:00 PM Central (CDT = UTC-5). The header countdown
   // ticks toward this until the draft actually goes live, then gets out of the way.
@@ -1190,7 +1218,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
   // pool is fine to SHOW but never to trust for 24 hours.
   function poolHealthy(list) {
     if (!list || list.length < 20) return true;
-    for (var i = 0; i < list.length; i++) if (list[i].pos === "D/ST") return true;
+    for (var i = 0; i < list.length; i++) if (list[i].pos === "DST") return true;
     return false;
   }
   function loadPool(force) {
@@ -1466,23 +1494,25 @@ body.tv #boothBar .btxt{font-size:16.5px}
       return d;
     });
   }
-  // Sign in as the commissioner from any device with the PIN, typed into a
-  // real inline input — native prompt() dialogs get suppressed by some
-  // browsers. A pasted commissioner link still works too (the c= part is
-  // extracted); success stores the room's real key, same as the link.
+  // Sign in as the commissioner from any device with the room's real key,
+  // typed into a real inline input — native prompt() dialogs get suppressed
+  // by some browsers. A pasted commissioner link still works too (the c=
+  // part is extracted); success stores the room's real key, same as the
+  // link. No PIN shortcut exists anymore — see the GATE_KEY/GATE_PASS
+  // comment above for why.
   function commishLogin(key) {
     var k = key == null ? "" : String(key);
-    if (!k) { toast("Type the commissioner PIN first", true); return; }
+    if (!k) { toast("Type the commissioner key first", true); return; }
     k = k.trim();
     var m = k.match(/[?&]c=([^&#\s]+)/);
     if (m) k = m[1];
-    if (D && D.commishKey && (k === COMMISH_PIN || k === D.commishKey)) {
+    if (D && D.commishKey && k === D.commishKey) {
       me.ckey = D.commishKey;
       localStorage.setItem("ffd_ckey_" + SEASON, me.ckey);
       toast("You're the commissioner on this device now.");
       renderAll();
     } else {
-      toast("That's not the commissioner PIN", true);
+      toast("That's not the commissioner key", true);
     }
   }
   function armDeadline(d, extraMs) {
@@ -2120,7 +2150,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
       (p.keeper ? "KEEPER · ROUND " + esc(String((/^r(\d+)_/.exec(key) || [])[1] || "?"))
         : (slot ? "PICK " + esc(slot.label) : "")) + "</div>" +
       "<h3" + (prim ? ' style="color:' + esc(ink) + '"' : "") + ">" + esc(p.name) + "</h3>" +
-      '<div class="sub"' + (prim ? ' style="color:' + esc(ink) + ';opacity:.85"' : "") + ">" + teamLogoImg(p.proTeam) + "<span>" + esc(p.pos) +
+      '<div class="sub"' + (prim ? ' style="color:' + esc(ink) + ';opacity:.85"' : "") + ">" + teamLogoImg(p.proTeam) + "<span>" + esc(posLabel(p.pos)) +
       (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span></div>" +
       (t ? '<div class="team"' + (prim ? ' style="color:' + esc(ink) + ';opacity:.8"' : "") + ">" +
         (t.owner ? esc(t.owner.name) + " — " : "") + "<b" + (prim ? ' style="color:' + esc(ink) + '"' : "") + ">" +
@@ -2308,7 +2338,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
 
   // ---------------- roster needs (my starting slots vs my picks) ----------------
   function teamPosCounts(teamId) {
-    var counts = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, "D/ST": 0 };
+    var counts = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DST: 0 };
     if (!D) return counts;
     Object.keys(D.picks || {}).forEach(function (k) {
       if (k.split("_t")[1] !== String(teamId)) return;
@@ -2325,14 +2355,26 @@ body.tv #boothBar .btxt{font-size:16.5px}
     if (!sl || !D) return null;
     var c = teamPosCounts(teamId);
     var out = [], spill = 0;
-    [["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["D/ST", "D/ST"], ["K", "K"]].forEach(function (pair) {
-      var need = sl[pair[0]] || 0;
+    // ASYMMETRIC on purpose (2026-09-02, docs/gffl.md's "THE D/ST FINDING"):
+    // the roster-needs SLOT label (sports.mjs's SLOT_LABEL, keying `sl`) and
+    // a drafted PLAYER's stored pos (sports.mjs's POS_LABEL, keying `c`)
+    // parted ways that day — a defense's slot is still "D/ST", its pos is
+    // now "DST". `key` reads `c`/writes `label`; `slot` reads `sl`.
+    [
+      { slot: "QB", key: "QB", label: "QB" },
+      { slot: "RB", key: "RB", label: "RB" },
+      { slot: "WR", key: "WR", label: "WR" },
+      { slot: "TE", key: "TE", label: "TE" },
+      { slot: "D/ST", key: "DST", label: "D/ST" },
+      { slot: "K", key: "K", label: "K" },
+    ].forEach(function (row) {
+      var need = sl[row.slot] || 0;
       if (!need) return;
-      if (pair[1] === "RB" || pair[1] === "WR" || pair[1] === "TE") spill += Math.max(0, c[pair[1]] - need);
-      out.push({ label: pair[1], have: Math.min(c[pair[1]], need), need: need });
+      if (row.key === "RB" || row.key === "WR" || row.key === "TE") spill += Math.max(0, c[row.key] - need);
+      out.push({ label: row.label, key: row.key, have: Math.min(c[row.key], need), need: need });
     });
     var flexNeed = (sl["FLEX"] || 0) + (sl["OP"] || 0) + (sl["RB/WR"] || 0) + (sl["WR/TE"] || 0);
-    if (flexNeed) out.push({ label: "FLX", have: Math.min(spill, flexNeed), need: flexNeed });
+    if (flexNeed) out.push({ label: "FLX", key: "FLX", have: Math.min(spill, flexNeed), need: flexNeed });
     return out.length ? out : null;
   }
   function neededPositions() {
@@ -2343,8 +2385,8 @@ body.tv #boothBar .btxt{font-size:16.5px}
     var set = {};
     needs.forEach(function (n) {
       if (n.have >= n.need) return;
-      if (n.label === "FLX") { set.RB = 1; set.WR = 1; set.TE = 1; }
-      else set[n.label] = 1;
+      if (n.key === "FLX") { set.RB = 1; set.WR = 1; set.TE = 1; }
+      else set[n.key] = 1;
     });
     return set;
   }
@@ -2435,10 +2477,10 @@ body.tv #boothBar .btxt{font-size:16.5px}
     // waiver keeper already occupied R16 (both full-rehearsal findings).
     var mine = 0;
     Object.keys(D.picks || {}).forEach(function (k) { if (k.split("_t")[1] === String(teamId)) mine++; });
-    var needSpecial = (c["D/ST"] ? 0 : 1) + (c.K ? 0 : 1);
+    var needSpecial = (c.DST ? 0 : 1) + (c.K ? 0 : 1);
     if (needSpecial && D.rounds - mine <= needSpecial + 1) {
-      if (!c["D/ST"]) {
-        var dst = avail.filter(function (p) { return p.pos === "D/ST"; });
+      if (!c.DST) {
+        var dst = avail.filter(function (p) { return p.pos === "DST"; });
         if (dst.length) return dst[0];
       }
       if (!c.K) {
@@ -2447,9 +2489,9 @@ body.tv #boothBar .btxt{font-size:16.5px}
       }
     }
     var picks = avail.filter(function (p) {
-      if ((p.pos === "K" || p.pos === "D/ST") && !late) return false;
+      if ((p.pos === "K" || p.pos === "DST") && !late) return false;
       if (p.pos === "K" && c.K >= 1) return false;
-      if (p.pos === "D/ST" && c["D/ST"] >= 1) return false;
+      if (p.pos === "DST" && c.DST >= 1) return false;
       if (p.pos === "QB" && c.QB >= 2) return false;
       if (p.pos === "TE" && c.TE >= 2) return false;
       return true;
@@ -2489,7 +2531,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
       tick.innerHTML = hist.slice(-6).reverse().map(function (k) {
         var p = D.picks[k];
         if (!p) return "";
-        return '<span class="tvpick"><b>' + esc(labelByKey[k] || "") + "</b>" + esc(fmtName(p.name)) + " · " + esc(p.pos) + "</span>";
+        return '<span class="tvpick"><b>' + esc(labelByKey[k] || "") + "</b>" + esc(fmtName(p.name)) + " · " + esc(posLabel(p.pos)) + "</span>";
       }).join("");
       var n = hist.length;
       if (tvSeen != null && n > tvSeen) {
@@ -2504,7 +2546,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
     var el = $("tvSpot");
     el.hidden = false;
     el.innerHTML = '<div class="spin"><span class="spl">PICK ' + esc(label) + "</span><b>" + esc(p.name) + "</b><span>" +
-      esc(p.pos) + (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span></div>";
+      esc(posLabel(p.pos)) + (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span></div>";
     clearTimeout(spotT);
     spotT = setTimeout(function () { $("tvSpot").hidden = true; }, 4000);
   }
@@ -2576,7 +2618,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
     var taken = tk[pcPid];
     var h = '<div class="row" style="justify-content:space-between;align-items:flex-start">' +
       '<div class="row" style="gap:10px">' + teamLogoImg(base.proTeam) +
-      "<div><h2>" + esc(base.name) + "</h2><div class='mut'>" + esc(base.pos || "?") +
+      "<div><h2>" + esc(base.name) + "</h2><div class='mut'>" + esc(posLabel(base.pos) || "?") +
       (base.proTeam ? " · " + esc(base.proTeam) : "") + (bye ? " · bye " + bye : "") +
       (base.injury ? ' · <span class="inj">' + esc(base.injury) + "</span>" : "") + "</div></div></div>" +
       '<button class="btn ghost sm" id="pcClose">×</button></div>';
@@ -2751,6 +2793,34 @@ body.tv #boothBar .btxt{font-size:16.5px}
     if (b) b.onclick = function () { bkRestore(null); };
   }
 
+  // A spectator (?tv=1) still needs the family passphrase like everyone else
+  // — a TV mode with no gate is just a bigger unlocked board.
+  function renderFfdGate() {
+    var el = $("vGate");
+    el.hidden = false;
+    el.innerHTML =
+      '<div class="hero"><h1>DRAFT DAY</h1>' +
+      "<p>The league passphrase gets you in.</p>" +
+      '<div class="row" style="justify-content:center;margin-top:16px">' +
+      '<input type="password" id="gatePassIn" placeholder="league passphrase" autocomplete="off">' +
+      '<button class="btn" id="gateGoBtn">Enter</button></div>' +
+      '<p class="mut" id="gateErr" hidden style="margin-top:10px">That\'s not it.</p></div>';
+    function tryGate() {
+      var v = ($("gatePassIn").value || "").trim().toLowerCase();
+      if (v === GATE_PASS) {
+        localStorage.setItem(GATE_KEY, GATE_PASS);
+        el.hidden = true;
+        el.innerHTML = "";
+        startDraftApp();
+      } else {
+        $("gateErr").hidden = false;
+      }
+    }
+    $("gateGoBtn").onclick = tryGate;
+    $("gatePassIn").onkeydown = function (e) { if (e.key === "Enter") tryGate(); };
+    $("gatePassIn").focus();
+  }
+
   function renderLanding() {
     var el = $("vLanding");
     if (D) { el.hidden = true; return; }
@@ -2793,9 +2863,9 @@ body.tv #boothBar .btxt{font-size:16.5px}
     if (b) b.onclick = createDraft;
   }
 
-  function posClass(pos) { return POS.indexOf(pos) >= 0 ? "pos-" + cssPos(pos) : "pos-X"; }
+  function posClass(pos) { return POS.indexOf(pos) >= 0 ? "pos-" + pos : "pos-X"; }
   function posColor(pos) {
-    return getComputedStyle(document.documentElement).getPropertyValue("--" + (POS.indexOf(pos) >= 0 ? "pos-" + cssPos(pos) : "pos-X")) || "#4a4f5a";
+    return getComputedStyle(document.documentElement).getPropertyValue("--" + (POS.indexOf(pos) >= 0 ? "pos-" + pos : "pos-X")) || "#4a4f5a";
   }
 
   function renderBoard() {
@@ -2843,7 +2913,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
         h += '<div class="' + cls + '" data-key="' + key + '">' +
           '<span class="pn">' + esc(label) + "</span>" +
           (p ? ("<b>" + esc(fmtName(p.name)) + "</b>" +
-            '<span class="pt">' + esc(p.pos) + (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span>" +
+            '<span class="pt">' + esc(posLabel(p.pos)) + (p.proTeam ? " · " + esc(p.proTeam) : "") + "</span>" +
             (p.keeper ? '<span class="vbadge keeper">KEEPER</span>'
               : (vb ? '<span class="vbadge ' + vb + '">' + vb.toUpperCase() + "</span>" : "")))
             : "") +
@@ -2853,7 +2923,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
     g.innerHTML = h;
     $("boardLegend").innerHTML = POS.map(function (p) {
       return '<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:' +
-        posColor(p) + ';margin-right:4px"></span>' + p + "&nbsp;&nbsp;";
+        posColor(p) + ';margin-right:4px"></span>' + posLabel(p) + "&nbsp;&nbsp;";
     }).join("") + ' · <span class="vbadge keeper" style="position:static">KEEPER</span>' +
       ' <span class="vbadge steal" style="position:static">STEAL</span> fell 2+ rounds past ADP' +
       ' · <span class="vbadge reach" style="position:static">REACH</span> taken 2+ rounds early';
@@ -2894,7 +2964,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
       var overKept = (k.keptCount || 1) > MAX_KEEPS_OF_ONE_PLAYER;
       h += '<div class="krow" data-pid="' + esc(k.pid) + '">' +
         '<span class="cost">R' + k.finalRound + (k.bumped ? "*" : "") + "</span>" +
-        "<div style='flex:1'><b>" + esc(k.name) + "</b> <span class='mut'>" + esc(k.pos) + (k.proTeam ? " · " + esc(k.proTeam) : "") + "</span>" +
+        "<div style='flex:1'><b>" + esc(k.name) + "</b> <span class='mut'>" + esc(posLabel(k.pos)) + (k.proTeam ? " · " + esc(k.proTeam) : "") + "</span>" +
         '<div class="basis">' + esc(k.basis) + (k.bumped ? " · bumped (round taken by another keeper)" : "") +
         " · " + ordinal(k.keptCount || 1) + " straight keep" +
         ((k.keptCount || 1) === MAX_KEEPS_OF_ONE_PLAYER ? " (last time — back to the pool next year)" : "") +
@@ -2923,13 +2993,13 @@ body.tv #boothBar .btxt{font-size:16.5px}
           if (st.eligible) {
             h += '<button class="kQuick" data-pid="' + esc(p.pid) + '" title="' + esc(st.cost.basis) + '">' +
               '<span class="kcost">R' + st.cost.round + "</span>" + esc(fmtName(p.name)) +
-              " <span class='mut'>" + esc(p.pos) + "</span>" +
+              " <span class='mut'>" + esc(posLabel(p.pos)) + "</span>" +
               adpBadgeHTML(st.cost.round, p.pid, D) +
               (st.keptCount > 1 ? '<span class="kchain">' + ordinal(st.keptCount) + " straight</span>" : "") +
               "</button>";
           } else {
             h += '<span class="kQuick kNo" title="' + esc(st.reason) + '">' + KB_LOCK + esc(fmtName(p.name)) +
-              " <span class='mut'>" + esc(p.pos) + "</span>" +
+              " <span class='mut'>" + esc(posLabel(p.pos)) + "</span>" +
               adpBadgeHTML(st.cost.round, p.pid, D) +
               '<span class="kwhy">' + esc(st.reason) + "</span></span>";
           }
@@ -3017,7 +3087,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
     var chipList = ["ALL"].concat(POS);
     if (myTeam(D) && info && info.slots) chipList.push("NEED");
     chips.innerHTML = chipList.map(function (p) {
-      return '<button data-pos="' + p + '" class="' + (posFilter === p ? "on" : "") + '">' + p + "</button>";
+      return '<button data-pos="' + p + '" class="' + (posFilter === p ? "on" : "") + '">' + posLabel(p) + "</button>";
     }).join("");
     chips.querySelectorAll("button").forEach(function (b) {
       b.onclick = function () { posFilter = b.dataset.pos; renderPlayers(); };
@@ -3061,7 +3131,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
       }
       h += '<div class="prow' + (taken ? " taken" : "") + '" data-pid="' + esc(p.pid) + '" title="Tap for stats & outlook">' +
         '<span class="rk">' + (p.rank != null ? p.rank : "—") + "</span>" +
-        '<span class="dot" style="background:' + posColor(p.pos) + '">' + esc(p.pos || "?") + "</span>" +
+        '<span class="dot" style="background:' + posColor(p.pos) + '">' + esc(posLabel(p.pos) || "?") + "</span>" +
         teamLogoImg(p.proTeam) +
         '<span class="nm"><b>' + esc(p.name) + (p.injury ? ' <span class="inj">' + esc(p.injury[0]) + "</span>" : "") + "</b>" +
         '<span class="mut">' + esc(p.proTeam || "FA") + (bye ? " · bye " + bye : "") +
@@ -3143,12 +3213,15 @@ body.tv #boothBar .btxt{font-size:16.5px}
     } else {
       var cur = currentSlot(D);
       var ct = cur ? teamById(D, cur.teamId) : null;
-      h = '<span class="what">Draft <b>' + esc(p.name) + "</b> " + esc(p.pos || "") +
+      h = '<span class="what">Draft <b>' + esc(p.name) + "</b> " + esc(posLabel(p.pos) || "") +
         (cur ? " at pick <b>" + esc(cur.label) + "</b> for " + esc(ct ? ct.name : "?") : "") + "</span>";
     }
     if (p.custom) {
+      // value= is explicit: the option TEXT is the human "D/ST" label, but
+      // the stored pos this select hands back (cp.value below) must be the
+      // canonical "DST" POS carries — they're no longer the same string.
       h += '<select id="customPos">' + POS.map(function (x) {
-        return '<option' + (p.pos === x ? " selected" : "") + ">" + x + "</option>";
+        return '<option value="' + x + '"' + (p.pos === x ? " selected" : "") + ">" + posLabel(x) + "</option>";
       }).join("") + "</select>";
     }
     h += '<button class="btn" id="cbGo">' + (selPlayer.mode === "keep" ? "Keep him" : "Draft him") + "</button>" +
@@ -3202,7 +3275,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
     if (!isCommish(D)) {
       ch += '<p style="margin:6px 2px"><button class="btn ghost sm" id="commishLoginBtn">Commissioner login</button></p>' +
         '<div class="row" id="commishPinRow" hidden style="margin:4px 2px">' +
-        '<input type="tel" id="commishPinIn" placeholder="Commissioner PIN" maxlength="24" autocomplete="off" style="width:160px">' +
+        '<input type="text" id="commishPinIn" placeholder="Commissioner key" maxlength="24" autocomplete="off" style="width:160px">' +
         '<button class="btn sm" id="commishPinGo">Sign in</button></div>';
     }
     $("claimCard").innerHTML = ch;
@@ -3240,7 +3313,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
       if (resolved.length) {
         h += "<h3>Keepers</h3>";
         resolved.forEach(function (k) {
-          h += '<div class="rrow"><span class="rd">R' + k.finalRound + '</span><span class="pos" style="background:' + posColor(k.pos) + '">' + esc(k.pos) + "</span><b>" + esc(k.name) + "</b> <span class='mut'>" + esc(k.proTeam || "") + "</span></div>";
+          h += '<div class="rrow"><span class="rd">R' + k.finalRound + '</span><span class="pos" style="background:' + posColor(k.pos) + '">' + esc(posLabel(k.pos)) + "</span><b>" + esc(k.name) + "</b> <span class='mut'>" + esc(k.proTeam || "") + "</span></div>";
         });
       } else {
         h += '<p class="mut">No keepers picked yet.</p>';
@@ -3249,7 +3322,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
       for (var r = 1; r <= D.rounds; r++) {
         var p = D.picks["r" + r + "_t" + t.id];
         h += p
-          ? '<div class="rrow"><span class="rd">R' + r + '</span><span class="pos" style="background:' + posColor(p.pos) + '">' + esc(p.pos) + "</span><b>" + esc(p.name) + "</b><span class='mut'>" + esc(p.proTeam || "") + (p.keeper ? " · keeper" : "") + "</span></div>"
+          ? '<div class="rrow"><span class="rd">R' + r + '</span><span class="pos" style="background:' + posColor(p.pos) + '">' + esc(posLabel(p.pos)) + "</span><b>" + esc(p.name) + "</b><span class='mut'>" + esc(p.proTeam || "") + (p.keeper ? " · keeper" : "") + "</span></div>"
           : '<div class="rrow empty"><span class="rd">R' + r + "</span><span>—</span></div>";
       }
     }
@@ -3496,9 +3569,16 @@ body.tv #boothBar .btxt{font-size:16.5px}
 
   // ---------------- boot ----------------
   if (TV) { document.body.classList.add("tv"); view = "board"; }
-  backendReady = initBackend();
-  loadInfo().then(function () { return Promise.all([loadPool(), loadLastDraft()]); }).then(renderAll);
-  renderAll();
+  function startDraftApp() {
+    backendReady = initBackend();
+    loadInfo().then(function () { return Promise.all([loadPool(), loadLastDraft()]); }).then(renderAll);
+    renderAll();
+  }
+  // familyUnlocked() is a plain localStorage read — no backend touched, no
+  // pick data fetched, until the gate is past. This is what used to be
+  // missing: the board rendered (and Firestore streamed live picks into it)
+  // for anyone who had the URL, gate or no gate.
+  if (familyUnlocked()) startDraftApp(); else renderFfdGate();
 
   // Test hook (house convention).
   window.__DRAFT__ = {

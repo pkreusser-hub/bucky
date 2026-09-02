@@ -26,5 +26,10 @@ jobs:
       - uses: actions/checkout@v4
       - run: node tools/_gen-draft-audio.mjs ${{ inputs.mode || '--fire' }}
         env:
+          # 2026-09-02: audiogen-background.mjs is gated by its OWN secret now (never the
+          # family password that ships in client JS — that gate cost nothing to an outsider
+          # and each call is up to 200 billed ElevenLabs jobs). Set the same value in
+          # Netlify's env AND in this repo's Actions secrets, or --fire is refused 401.
+          AUDIOGEN_SECRET: ${{ secrets.AUDIOGEN_SECRET }}
           SAY_VOICE_ID: ${{ inputs.voice_id }}
           SAY_STYLE: ${{ inputs.say_style }}

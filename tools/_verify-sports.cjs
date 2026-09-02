@@ -50,6 +50,9 @@ function startUpstream() {
     if (upstream.mode === "http500") { res.writeHead(500); res.end("nope"); return; }
     if (upstream.mode === "badjson") { res.writeHead(200, { "Content-Type": "application/json" }); res.end("{oops"); return; }
     if (upstream.mode === "drop") { req.socket.destroy(); return; }
+    // "hang": never respond, never close — proves the ABORT fires (item 1's timeout hardening),
+    // as distinct from "drop"'s immediate connection-reset (already-existing "unreachable" path).
+    if (upstream.mode === "hang") { return; }
     const u = new URL(req.url, "http://x");
     const college = u.pathname.includes("/college-football/");
     if (u.pathname.endsWith("/scoreboard")) {
@@ -85,6 +88,8 @@ function startFfUpstream() {
     ffUp.lastUrl = req.url;
     ffUp.lastCookie = req.headers.cookie || "";
     if (ffUp.mode === "http500") { res.writeHead(500); res.end("nope"); return; }
+    // "hang": never respond — proves the ABORT fires (item 1's timeout hardening).
+    if (ffUp.mode === "hang") { return; }
     // A private league answers 401 unless BOTH cookies are the good pair.
     const okAuth = ffUp.lastCookie.includes("espn_s2=" + GOOD_S2) && ffUp.lastCookie.includes("SWID={" + GOOD_SWID + "}");
     if (!okAuth) { res.writeHead(401, { "Content-Type": "application/json" }); res.end('{"messages":["You are not authorized"]}'); return; }
@@ -186,6 +191,12 @@ async function initHandler() {
   process.env.BUCKY_NOTIFY_SECRET = "amenfarms";
   process.env.SPORTS_NFL_BASE_URL = "http://127.0.0.1:" + UP_PORT;
   process.env.SPORTS_FF_BASE_URL = "http://127.0.0.1:" + FF_PORT;
+  // SPORTS_FETCH_TIMEOUT_MS(_SHORT) set LOW for the WHOLE suite (the stocks-server pattern,
+  // tools/_verify-stocks-server.mjs): every "good"/http500/badjson/drop fixture above answers
+  // near-instantly, so a short timeout never trips any of the ordinary tests — only section T's
+  // dedicated "hang" mode deliberately never responds, past this budget.
+  process.env.SPORTS_FETCH_TIMEOUT_MS = "600";
+  process.env.SPORTS_FETCH_TIMEOUT_MS_SHORT = "200";
   const mod = await import(pathToFileURL(path.join(ROOT, "netlify", "functions", "sports.mjs")).href);
   handler = mod.default;
 }
@@ -482,6 +493,15 @@ async function sectionFantasy() {
   ok(spears.name === "Tyjae Spears" && spears.pos === "RB" && spears.proTeam === "TEN"
     && spears.pctOwned === 61.2 && spears.proj === 11.8 && spears.seasonProj === 152.4,
     "each player slims to {name,pos,proTeam,pctOwned,proj,seasonProj} with the pro-team abbrev resolved");
+  // FATAL FINDING (coordinator, kickoff rehearsal tools/_gffl_kickoff.cjs PART A.4): position 16
+  // (D/ST) used to slim to "D/ST" here, while league.mjs's OWN importer and the league app's own
+  // convention (assets/league/lg-ui.js applyImportedRosters, LG.slotEligible) both key off
+  // "DST" — every drafted defense reached the league keyed by its raw ESPN id instead of
+  // dst_<team>, and LG.canFillLineup came back false for every team post-import. POS_LABEL[16]
+  // is "DST" now; SLOT_LABEL[16] (a different field — the roster's lineup-SLOT display name,
+  // asserted "D/ST" a few lines up in this same file) is deliberately UNCHANGED.
+  const broncosDst = fa.players.find((p) => p.name === "Broncos D/ST");
+  ok(!!broncosDst && broncosDst.pos === "DST", "a D/ST free agent slims to pos \"DST\", matching league.mjs's own POS_LABEL — not \"D/ST\"");
   const mims = fa.players.find((p) => /Mims/.test(p.name));
   ok(!!mims && mims.injury === "QUESTIONABLE" && spears.injury === "",
     "injuries tag through; ACTIVE reads as no tag");
@@ -533,6 +553,141 @@ async function sectionFantasy() {
   r = await call({ secret: "amenfarms", action: "ff_league" });
   ok(!!r.json && r.json.ok === false && r.json.reason === "http-500", "an upstream 500 becomes ok:false http-500");
   ffUp.mode = "normal";
+}
+
+// ---------------- section T: upstream timeouts (item 1, pre-season serverless review) ----------------
+// initHandler() set SPORTS_FETCH_TIMEOUT_MS=600 / SPORTS_FETCH_TIMEOUT_MS_SHORT=200 for the
+// WHOLE suite — every other section's fixture answers near-instantly, so those low budgets
+// never trip anywhere else; only "hang" mode (never responds, never closes) deliberately runs
+// past them here. Before this fix, a hang from either upstream ran with NO deadline at all —
+// past Netlify's real ~10s function kill it would come back as a raw 502, breaking this file's
+// own promise ({ok:false,reason} at HTTP 200, see header). Timing asserted BOTH ways (house
+// convention, tools/_verify-stocks-server.mjs's own timeout section): > budget*0.5 proves it
+// really waited for the abort rather than failing fast for an unrelated reason, < budget+900ms
+// proves it did not wait out the fake's real, unbounded hang.
+async function sectionTimeouts() {
+  section("T · upstream timeouts (fake upstream that never responds)");
+  const NFL_BUDGET = 600, FF_BUDGET = 600, SHORT_BUDGET = 200;
+
+  // single-call action, NFL site-API upstream hangs
+  upstream.mode = "hang";
+  let t0 = Date.now();
+  let r = await call({ secret: "amenfarms", action: "nfl_scoreboard" });
+  let elapsed = Date.now() - t0;
+  ok(r.status === 200 && !!r.json && r.json.ok === false && r.json.reason === "timeout",
+    `nfl_scoreboard against a hung upstream: ok:false reason:"timeout" at HTTP 200, not a raw 502 (got status=${r.status} json=${JSON.stringify(r.json)})`);
+  ok(elapsed > NFL_BUDGET * 0.5 && elapsed < NFL_BUDGET + 900,
+    `…aborted around the configured ${NFL_BUDGET}ms budget (${elapsed}ms), not failing fast for an unrelated reason and not waiting out the real hang`);
+  upstream.mode = "normal";
+
+  // single-call action, fantasy upstream hangs
+  ffAuthGood();
+  ffUp.mode = "hang";
+  t0 = Date.now();
+  r = await call({ secret: "amenfarms", action: "ff_league" });
+  elapsed = Date.now() - t0;
+  ok(r.status === 200 && !!r.json && r.json.ok === false && r.json.reason === "timeout",
+    `ff_league against a hung fantasy upstream: ok:false reason:"timeout" at HTTP 200 (got status=${r.status} json=${JSON.stringify(r.json)})`);
+  ok(elapsed > FF_BUDGET * 0.5 && elapsed < FF_BUDGET + 900,
+    `…aborted around the configured ${FF_BUDGET}ms budget (${elapsed}ms)`);
+
+  // TWO-call action (ff_draftpool: main pool + the D/ST+K sweep) — both calls pass the SHORT
+  // budget explicitly, so the abort here lands near SHORT_BUDGET (200ms), not the single-call
+  // default (600ms) — proving the "multi-call actions get a shorter per-call budget so the
+  // worst case still fits under Netlify's ceiling" tuning actually took effect, not just that
+  // SOME timeout exists.
+  t0 = Date.now();
+  r = await call({ secret: "amenfarms", action: "ff_draftpool" });
+  elapsed = Date.now() - t0;
+  ok(r.status === 200 && !!r.json && r.json.ok === false && r.json.reason === "timeout",
+    `ff_draftpool (a two-upstream-call action) against a hung fantasy upstream: ok:false reason:"timeout" at HTTP 200 (got ${JSON.stringify(r.json)})`);
+  ok(elapsed > SHORT_BUDGET * 0.5 && elapsed < SHORT_BUDGET + 900,
+    `…aborted around the SHORT ${SHORT_BUDGET}ms budget (${elapsed}ms) — NOT the ${NFL_BUDGET}ms single-call default, proving ff_draftpool passes the short override`);
+  ffUp.mode = "normal";
+
+  // a matchup join whose FIRST call succeeds and whose SECOND (optional, best-effort) call
+  // hangs: ffMatchup tolerates a failed pro-game join (game state simply comes back null for
+  // every player) rather than failing the whole matchup — proving the short-budgeted second
+  // call is bounded too, not just the first.
+  upstream.mode = "hang";
+  t0 = Date.now();
+  r = await call({ secret: "amenfarms", action: "ff_matchup" });
+  elapsed = Date.now() - t0;
+  ok(r.status === 200 && !!r.json && r.json.ok === true && r.json.matchup,
+    `ff_matchup still succeeds when only the OPTIONAL pro-game join hangs (got ${JSON.stringify(r.json && r.json.ok)})`);
+  const anyGame = r.json && r.json.matchup && [...r.json.matchup.home.roster, ...r.json.matchup.away.roster].some((p) => p.game);
+  ok(!anyGame, "…with every player's game state absent (null), rather than the response hanging on the join");
+  ok(elapsed < SHORT_BUDGET + 900, `…and it returned within the short join budget (${elapsed}ms), not Netlify's real kill window`);
+  upstream.mode = "normal"; ffUp.mode = "normal";
+
+  // a fake that answers IN TIME is unchanged — every fixture-backed check elsewhere in this
+  // suite already proves this (they all run under the same low SPORTS_FETCH_TIMEOUT_MS budgets
+  // set in initHandler and pass), but assert it explicitly here too, right after exercising hang
+  // mode, so this section stands on its own.
+  t0 = Date.now();
+  r = await call({ secret: "amenfarms", action: "nfl_scoreboard" });
+  elapsed = Date.now() - t0;
+  ok(r.status === 200 && !!r.json && r.json.ok === true && r.json.events.length === 5 && elapsed < 300,
+    `a normal (fast) upstream is unaffected by the timeout budget (${elapsed}ms, ok=${r.json && r.json.ok})`);
+}
+
+// ---------------- section L: league.mjs upstream timeouts (item 1, same review) ----------------
+// league.mjs has no dedicated function-level verify suite of its own (tools/_verify-gffl.cjs's
+// section A covers league.mjs, but it is a 20k+-line, browser-driven suite built around
+// league.html — out of scope here, and not part of this task's required battery). Per the
+// review's own fallback instruction, league.mjs's timeout coverage lives HERE instead, reusing
+// the SAME fake fantasy upstream (ffUp/FF_PORT) sports.mjs's own section T drives — league.mjs
+// reads the identical SPORTS_FF_BASE_URL env var sports.mjs does, already pointed at FF_PORT by
+// initHandler() above. Covers a single-call action (lg_espn_settings, via league.mjs's own
+// ffFetch) and a TWO-attempt loop action (lg_espn_rosters_season) to prove both the default and
+// SHORT per-call budgets — lg_espn_kicker_audit (3-attempt loop), lg_espn_rules_audit (6-slot
+// loop, diag-only, no fixture even in the real suite), lg_espn_probe and lg_espn_history all
+// route through the SAME two functions (timedFetch/fetchFailReason) verified here, by code
+// inspection rather than a separate fixture apiece.
+async function sectionLeagueTimeouts() {
+  section("L · league.mjs upstream timeouts (fake fantasy upstream that never responds)");
+  process.env.LEAGUE_FETCH_TIMEOUT_MS = "600";
+  process.env.LEAGUE_FETCH_TIMEOUT_MS_SHORT = "200";
+  const mod = await import(pathToFileURL(path.join(ROOT, "netlify", "functions", "league.mjs")).href);
+  const leagueHandler = mod.default;
+  async function callLeague(body) {
+    const resp = await leagueHandler(new Request("http://localhost/.netlify/functions/league", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}),
+    }));
+    const text = await resp.text();
+    let j = null; try { j = JSON.parse(text); } catch (e) {}
+    return { status: resp.status, text, json: j };
+  }
+  ffAuthGood();
+
+  // single-call action (lg_espn_settings, via league.mjs's own ffFetch)
+  ffUp.mode = "hang";
+  let t0 = Date.now();
+  let r = await callLeague({ secret: "amenfarms", action: "lg_espn_settings" });
+  let elapsed = Date.now() - t0;
+  ok(r.status === 200 && !!r.json && r.json.ok === false && r.json.reason === "timeout",
+    `lg_espn_settings against a hung fantasy upstream: ok:false reason:"timeout" at HTTP 200, not a raw 502 (got status=${r.status} json=${JSON.stringify(r.json)})`);
+  ok(elapsed > 600 * 0.5 && elapsed < 600 + 900,
+    `…aborted around the configured 600ms budget (${elapsed}ms)`);
+
+  // TWO-attempt loop action (lg_espn_rosters_season tries the plain URL, then the
+  // scoringPeriodId=0 form) — both attempts pass the SHORT budget, so a hang on BOTH lands
+  // near 2*200=400ms, not 2*600=1200ms.
+  t0 = Date.now();
+  r = await callLeague({ secret: "amenfarms", action: "lg_espn_rosters_season", season: 2025 });
+  elapsed = Date.now() - t0;
+  ok(r.status === 200 && !!r.json && r.json.ok === false && (r.json.reason === "timeout" || r.json.reason === "no-rosters"),
+    `lg_espn_rosters_season against a hung upstream never hangs the function (got status=${r.status} json=${JSON.stringify(r.json)})`);
+  ok(elapsed < 200 * 2 + 900,
+    `…both attempts aborted around the SHORT 200ms budget rather than the 600ms default (${elapsed}ms for up to 2 attempts)`);
+  ffUp.mode = "normal";
+
+  // a fake that answers IN TIME is unchanged
+  t0 = Date.now();
+  r = await callLeague({ secret: "amenfarms", action: "lg_espn_settings" });
+  elapsed = Date.now() - t0;
+  ok(r.status === 200 && !!r.json && r.json.ok === true && elapsed < 300,
+    `a normal (fast) fantasy upstream is unaffected by the timeout budget (${elapsed}ms, ok=${r.json && r.json.ok})`);
 }
 
 // ---------------- static server ----------------
@@ -1755,6 +1910,8 @@ async function sectionHomeCards(browser) {
   try {
     await sectionA();
     await sectionFantasy();
+    await sectionTimeouts();
+    await sectionLeagueTimeouts();
   } catch (e) {
     fail++; failures.push("server sections crashed: " + e.message);
     console.log("\n✗ SERVER SECTION ERROR: " + (e && e.stack || e));

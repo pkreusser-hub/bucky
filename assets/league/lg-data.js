@@ -17,6 +17,12 @@
   // Sleeper team abbrevs differ from ESPN only for Washington.
   const slpTeam = (ab) => (ab === "WSH" ? "WAS" : ab || "");
   D.slpTeam = slpTeam;
+  // …and the inverse, for anything addressed AT ESPN (2026-09-02). Every abbrev inside this app
+  // is Sleeper-normalised, so a URL built straight from one asked ESPN for a team it does not
+  // have: /teams/WAS/schedule answers 400, /teams/WSH/schedule answers 200 (probed). One map,
+  // both directions, rather than a rewrite at each call site.
+  const espnTeam = (ab) => (ab === "WAS" ? "WSH" : ab || "");
+  D.espnTeam = espnTeam;
 
   // Nickname aliases (normalized espn name -> normalized sleeper name). The
   // HOF-game finding; extend as cases appear. Persisted overrides can join in S3.
@@ -107,43 +113,48 @@
   // 6-point key) and nothing else defensive. isDst comes from the caller (meta.pos === "DEF")
   // with the pts_allow heuristic as the backstop — Sleeper only puts points-allowed on
   // team-defense rows.
+  // EVERY field lands through num() (2026-09-02). `x || 0` guards a NaN and passes a truthy
+  // NON-NUMBER through untouched — and this is an EXTERNAL payload (Sleeper's own JSON), which
+  // is precisely the class of input D.num exists for. A string "150" used to survive into the
+  // normalized line, where the fg_0_39 SUM below turned three of them into "000" by
+  // concatenation and D.score then multiplied it. Same law as D.score/paPoints, one layer up.
   function normSlp(st, isDst) {
     if (isDst == null) isDst = st.pts_allow != null;
     const n = empty();
-    n.pass_yd = st.pass_yd || 0; n.pass_td = st.pass_td || 0; n.pass_int = st.pass_int || 0;
-    n.pass_2pt = st.pass_2pt || 0;
-    n.rush_yd = st.rush_yd || 0; n.rush_td = st.rush_td || 0; n.rush_2pt = st.rush_2pt || 0;
-    n.rec = st.rec || 0; n.rec_yd = st.rec_yd || 0; n.rec_td = st.rec_td || 0; n.rec_2pt = st.rec_2pt || 0;
-    n.fum_lost = st.fum_lost || 0;
-    n.fg_made_yd = st.fgm_yds || 0;
-    n.dst_2pt_ret = st.def_2pt || 0;
+    n.pass_yd = num(st.pass_yd); n.pass_td = num(st.pass_td); n.pass_int = num(st.pass_int);
+    n.pass_2pt = num(st.pass_2pt);
+    n.rush_yd = num(st.rush_yd); n.rush_td = num(st.rush_td); n.rush_2pt = num(st.rush_2pt);
+    n.rec = num(st.rec); n.rec_yd = num(st.rec_yd); n.rec_td = num(st.rec_td); n.rec_2pt = num(st.rec_2pt);
+    n.fum_lost = num(st.fum_lost);
+    n.fg_made_yd = num(st.fgm_yds);
+    n.dst_2pt_ret = num(st.def_2pt);
     // one_pt_safety: no Sleeper key exists — once-a-decade play, reads 0 here
     // (documented approximation; ESPN side doesn't parse it either).
-    n.fg_0_39 = (st.fgm_0_19 || 0) + (st.fgm_20_29 || 0) + (st.fgm_30_39 || 0);
-    n.fg_40_49 = st.fgm_40_49 || 0; n.fg_50 = st.fgm_50p || 0;
-    n.fg_miss = st.fgmiss || 0; n.xp_made = st.xpm || 0; n.xp_miss = st.xpmiss || 0;
+    n.fg_0_39 = num(st.fgm_0_19) + num(st.fgm_20_29) + num(st.fgm_30_39);
+    n.fg_40_49 = num(st.fgm_40_49); n.fg_50 = num(st.fgm_50p);
+    n.fg_miss = num(st.fgmiss); n.xp_made = num(st.xpm); n.xp_miss = num(st.xpmiss);
     if (isDst) {
-      n.dst_sack = st.sack ?? st.def_sack ?? 0;
-      n.dst_int = st.int ?? st.def_int ?? 0;
-      n.dst_fum_rec = st.fum_rec ?? st.def_fum_rec ?? 0;
+      n.dst_sack = num(st.sack ?? st.def_sack);
+      n.dst_int = num(st.int ?? st.def_int);
+      n.dst_fum_rec = num(st.fum_rec ?? st.def_fum_rec);
       // SPLIT, not combined (2026-08-13 reconciliation): defensive return TDs (def_td —
       // interception/fumble/blocked returns) pay 6; the unit's SPECIAL-TEAMS TDs (kick/punt
       // returns) pay 8. The old single bucket priced a punt-return TD at 6 — a real 2-point
       // drift ESPN's own 2025 boxscores exposed.
-      n.dst_td = st.def_td || 0;
-      n.dst_kr_td = (st.def_st_td || 0) + (st.st_td || 0);
+      n.dst_td = num(st.def_td);
+      n.dst_kr_td = num(st.def_st_td) + num(st.st_td);
       // Forced fumbles pay 1 — the reconciliation found this key entirely absent (86 paid
       // samples across 2025 that the app would have scored 0).
-      n.dst_fum_forced = st.ff ?? st.def_ff ?? 0;
-      n.dst_safety = st.safe ?? st.safety ?? 0;
-      n.dst_blk = st.blk_kick || 0;
+      n.dst_fum_forced = num(st.ff ?? st.def_ff);
+      n.dst_safety = num(st.safe ?? st.safety);
+      n.dst_blk = num(st.blk_kick);
     } else {
       // A PLAYER's return TD pays the BASE 6 (dst_td's rate), never the D/ST-group 8; his
       // fumble recoveries/sacks/etc. pay nothing at all — ESPN's own 2025 rows prove both.
-      n.dst_td = st.st_td || 0;
+      n.dst_td = num(st.st_td);
     }
-    n.off_fum_td = st.fum_rec_td || 0;
-    if (st.pts_allow != null) n.dst_pa = st.pts_allow;
+    n.off_fum_td = num(st.fum_rec_td);
+    if (st.pts_allow != null) n.dst_pa = num(st.pts_allow);
     return n;
   }
   D.normSlp = normSlp;
@@ -183,6 +194,24 @@
             const fg = String(g("FG") || ""), xp = String(g("XP") || "");
             if (fg.includes("/")) { const [m, at] = fg.split("/").map(Number); R.fg_made = m || 0; S.fg_miss = Math.max(0, (at || 0) - (m || 0)); }
             if (xp.includes("/")) { const [m, at] = xp.split("/").map(Number); S.xp_made = m || 0; S.xp_miss = Math.max(0, (at || 0) - (m || 0)); }
+          } else if (cat.name === "defensive" || cat.name === "interceptions"
+                     || cat.name === "kickReturns" || cat.name === "puntReturns") {
+            // ⭐ A PLAYER'S OWN DEFENSIVE / RETURN TOUCHDOWNS (2026-09-02). Four ESPN box
+            // categories carry a TD column and this parser read NONE of them, so in ESPN-only
+            // mode — a real Sleeper outage, and preseason, when Sleeper's live bucket is thin —
+            // a pick-six or a kick-return TD scored the man who made it exactly nothing.
+            // The 6-vs-8 split from the 2026-08-13 reconciliation is a fact about the D/ST SLOT,
+            // never about a player: an individual's return TD pays the base 6, which is dst_td's
+            // own rate, exactly as normSlp already maps a player's `st_td`.
+            // DE-DUPLICATED, not summed: ESPN's "defensive" TD column is the UMBRELLA count of
+            // defensive touchdowns and "interceptions" TD is a subset of it, so a pick-six shows
+            // up in both — max() credits it once. Kick and punt returns are genuinely disjoint
+            // from the defensive count and from each other, so those add.
+            R.td_def = cat.name === "defensive" ? num("TD") : (R.td_def || 0);
+            R.td_int = cat.name === "interceptions" ? num("TD") : (R.td_int || 0);
+            R.td_kr = cat.name === "kickReturns" ? num("TD") : (R.td_kr || 0);
+            R.td_pr = cat.name === "puntReturns" ? num("TD") : (R.td_pr || 0);
+            S.dst_td = Math.max(R.td_def || 0, R.td_int || 0) + (R.td_kr || 0) + (R.td_pr || 0);
           }
           out.set(id, rec);
         }
@@ -206,7 +235,14 @@
     };
     for (const p of plays) {
       const text = String(p?.text || "");
-      const type = String(p?.type || "");
+      // ESPN's scoringPlays[].type is an OBJECT — {id, text, abbreviation} ("FG", "TD", "SF") —
+      // not a string (2026-09-02). `String(p.type)` on it is the literal "[object Object]", so
+      // the type branch below had NEVER once matched on a real payload; every field goal was
+      // reaching the parser through the `/field goal/i` text fallback alone, and the SAFETY
+      // branch in deriveEspnDst (which has no text-only twin for the abbreviation form) simply
+      // never fired. Both shapes are read, so a payload that ever answers a bare string still
+      // works.
+      const type = String(p?.type?.abbreviation || p?.type || "");
       if (type === "FG" || /field goal/i.test(text)) {
         const m = text.match(/^(.*?)\s+(\d{1,2})\s*Yd\b/i);
         if (m) {
@@ -283,7 +319,8 @@
         // Sleeper side, the season's primary source, carries them).
         if (/punt return|kickoff return/i.test(text)) st.dst_kr_td++;
         else if (/interception return|fumble return|blocked .* (return|touchdown)/i.test(text)) st.dst_td++;
-        if (String(p?.type || "") === "SF" || /safety/i.test(text)) st.dst_safety++;
+        // …and the same object-shaped `type` (2026-09-02) — see applyScoringPlays' own note.
+        if (String(p?.type?.abbreviation || p?.type || "") === "SF" || /safety/i.test(text)) st.dst_safety++;
       }
       out.set("dst_" + slpTeam(myAb), { meta: { name: myAb + " D/ST", pos: "DST", team: myAb }, stats: st });
     }
@@ -477,9 +514,12 @@
     D.S.slpPlayers = byId; D.S.slpByEspn = byEspn; D.S.slpByName = byName;
     D.bumpPidGen(); // the directory is one of the two sources pidForKey resolves through
   }
-  D.initSleeper = function () {
-    if (D.slpReady) return D.slpReady;
-    D.slpReady = (async () => {
+  // Sleeper's own /state/nfl reading — WHICH week and WHICH part of the season its live stats
+  // bucket belongs to. Split out of initSleeper (2026-09-02, D-S4/S5) because it is the one
+  // piece of that bootstrap that genuinely EXPIRES: it is a fact about the NFL calendar, and
+  // the calendar rolls over every Tuesday underneath a tab that is still open. The directory
+  // (identities) and its hourly refresh are untouched — those are not week-scoped.
+  async function readSleeperState() {
       try {
         const st = await fx("sleeper state", `${SLP}/state/nfl`);
         D.S.slpState = st || {};
@@ -503,8 +543,10 @@
         else if (wk >= 1 && wk <= 22) { D.S.slpWeek = wk; D.S.slpBucket.cands = [String(wk)]; }
         else { D.S.slpWeek = null; D.S.slpBucket.cands = []; }
       } catch (e) { D.S.slpWeek = null; D.S.slpBucket.cands = []; }
-      try { await fetchPlayerDirectory(); D.S.injDirRefreshedAt = Date.now(); }
-      catch (e) { /* health carries it */ }
+  }
+  // The forward-projections fetch, split out for the same reason: the bucket it addresses is
+  // week-scoped, so it has to be re-runnable when the week rolls.
+  async function loadSleeperProjections() {
       try {
         let seasonType = D.S.slpState?.season_type || "regular";
         const season = D.S.slpState?.season || String(LG.SEASON);
@@ -525,8 +567,59 @@
         const proj = await fx("sleeper projections", `${SLP}/projections/nfl/${seasonType}/${season}/${wk}`);
         if (proj && typeof proj === "object") D.S.slpProj = proj;
       } catch (e) { /* optional */ }
+  }
+  D.initSleeper = function () {
+    if (D.slpReady) return D.slpReady;
+    D.slpReady = (async () => {
+      await readSleeperState();
+      try { await fetchPlayerDirectory(); D.S.injDirRefreshedAt = Date.now(); }
+      catch (e) { /* health carries it */ }
+      await loadSleeperProjections();
+      // The league week this in-memory state belongs to (2026-09-02, D-S4/S5) — stamped from
+      // the bootstrap itself so the very first poll after a rollover is the one that notices.
+      D.S.leagueWeekMark = LG.currentWeek();
     })();
     return D.slpReady;
+  };
+
+  // ---------------- ⭐ THE TUESDAY ROLLOVER (2026-09-02, D-S4/S5) ----------------
+  // D.initSleeper is memoized on D.slpReady and runs ONCE PER SESSION, and nothing anywhere
+  // cleared D.S.players. A session is not a week: the GFFL lives inside Bucky's home-screen
+  // iframe, which is exactly the tab a family leaves open for days. Across the Tuesday 05:00
+  // Central boundary that tab therefore kept polling LAST week's Sleeper stats bucket
+  // (slpBucket.cands, locked at boot), showed LAST week's projections (slpProj), and — worst,
+  // because it looks like real scoring rather than a stale number — kept every one of last
+  // week's stat ROWS in D.S.players, so the new week's matchup opened with last Sunday's points
+  // already on it and stayed that way until someone thought to reload.
+  //
+  // Everything cleared here is WEEK-SCOPED and nothing else is: identities (slpPlayers/
+  // slpByEspn/slpByName/keyByName/rosterMetaByKey), the id memo, the archived-week cache and
+  // the game slate (rebuilt every poll anyway) all survive untouched, so a rollover costs no
+  // re-download of the 12,000-entry directory and no loss of resolution.
+  D.S.leagueWeekMark = null;
+  D.maybeRollWeek = async function () {
+    const cw = LG.currentWeek();
+    if (D.S.leagueWeekMark == null) { D.S.leagueWeekMark = cw; return false; }
+    if (cw === D.S.leagueWeekMark) return false;
+    D.S.leagueWeekMark = cw;
+    // The week's own scoring memory. players AND the seeded flags together: the next poll must
+    // read itself as a fresh BASELINE (applySide emits no feed events on a baseline pass), or
+    // every stat in the new week would land as a delta off last week's total.
+    D.S.players.clear();
+    D.S.events.length = 0;
+    D.S.espnSeeded = false; D.S.slpSeeded = false;
+    D.S.espnKeyByName.clear(); D.S.slpRowKeyByName.clear();
+    D.S.fetchedFinal = new Set();
+    D.S.slpBucket = { cands: [], idx: 0, locked: false };
+    D.S.slpProj = null;
+    D.S.weekSlates = {};
+    // The health "when did this source last change" markers belong to the week that produced
+    // them; carrying them forward would make a brand-new, silent week look freshly updated.
+    D.S.health.espn.lastChange = 0; D.S.health.slp.lastChange = 0;
+    // …then ask Sleeper which week it is NOW and re-target the bucket + projections at it.
+    await readSleeperState();
+    await loadSleeperProjections();
+    return true;
   };
 
   // ---------------- S9's slow directory refresh (injury designations, 2026-08-11) ------------
@@ -552,6 +645,12 @@
     D.S.injDirRefreshedAt = Date.now();
     try { await fetchPlayerDirectory(); }
     catch (e) { /* best-effort — the live poll's own health tracking covers real outages; this is a courtesy refresh */ }
+    // …and Sleeper's own week/season-type with it (2026-09-02, D-S4/S5). LG.currentWeek() is
+    // derived from SEASON_START and rolls on the league's Tuesday; Sleeper's own reading rolls
+    // on ITS schedule, and the two are days apart in preseason. maybeRollWeek covers the
+    // league's boundary; this hourly tick is what catches Sleeper's, without a fetch of its own
+    // cadence — the state read is a few hundred bytes beside the directory dump it rides with.
+    try { await readSleeperState(); } catch (e) { /* same best-effort posture */ }
   };
 
   // ---------------- ⭐ ONE ID RESOLVER (2026-08-09, the "everything reads 0" production bug) --
@@ -862,7 +961,17 @@
       const mpos = m.pos === "DEF" ? "DST" : m.pos;
       if (pos && mpos !== pos) continue;
       if (needle && !normName(m.name).includes(needle)) continue;
-      const key = m.pos === "DEF" ? "dst_" + pid : (m.espn_id || "slp_" + pid);
+      // ⭐ THE ROSTER'S OWN KEY WINS (2026-09-02, U-F1) — the same expression both pollers use
+      // (see D.S.keyByName's own note). Keying a candidate by `espn_id || slp_<pid>` alone is
+      // the 2026-08-09 identity bug in its most dangerous place: only ~55% of the directory
+      // carries an espn_id, so for the other half this minted `slp_<pid>` while the ROSTER
+      // holds that man under his ESPN id — the `owned` exclusion below then missed him, and a
+      // player another team already rosters was offered in the free-agent pool, addable and
+      // claimable onto a second roster. (LG.faAdd's own "is he already owned" scan compares
+      // KEYS, so it did not catch it either: the two keys are different strings.) keyByName is
+      // registered from every roster load, so it answers before a single stat has landed.
+      const key = D.S.keyByName.get(nameKey(m.name, m.team))
+        || (m.pos === "DEF" ? "dst_" + pid : (m.espn_id || "slp_" + pid));
       if (owned.has(key)) continue;
       out.push({ key, name: m.name, pos: mpos, team: m.team, injury: m.injury || "", searchRank: m.searchRank });
     }
@@ -1121,15 +1230,23 @@
   // shape `pollScoreboard` already parses for the live slate above.
   D._teamSchedCache = new Map();     // teamAb (slpTeam-normalized) -> {byWeek:Map<week,{oppAb,home,kickoff}>, byeWeek}
   D._teamSchedInFlight = new Map();  // same key -> in-flight Promise<result|null>, cleared on settle
+  // ⭐ WASHINGTON (2026-09-02). slpTeam() rewrites ESPN's "WSH" to Sleeper's "WAS" — correct for
+  // every lookup this app makes against Sleeper-keyed data, and WRONG for a URL addressed to
+  // ESPN, which only answers /teams/WSH/schedule (probed: WSH 200, WAS 400). The two jobs are
+  // split: the caller's own ESPN spelling builds the URL, and slpTeam's normalised form is the
+  // CACHE key (and the endpoint-bookkeeping name), so both spellings of one team still share
+  // one fetch. The competitor match inside stays on the normalised form, which is what makes
+  // ESPN's own WSH competitors resolve against it.
   D.teamSchedule = async function (teamAbbrev) {
-    const ab = slpTeam(teamAbbrev);
+    const ab = slpTeam(String(teamAbbrev == null ? "" : teamAbbrev).toUpperCase());
     if (!ab) return null;
+    const urlAb = espnTeam(ab);
     const cached = D._teamSchedCache.get(ab);
     if (cached) return cached;
     if (D._teamSchedInFlight.has(ab)) return D._teamSchedInFlight.get(ab);
     const p = (async () => {
       let j;
-      try { j = await fx("espn team schedule " + ab, `${ESPN}/teams/${ab}/schedule?season=${LG.SEASON}&seasontype=2`); }
+      try { j = await fx("espn team schedule " + ab, `${ESPN}/teams/${urlAb}/schedule?season=${LG.SEASON}&seasontype=2`); }
       catch (e) { return null; }
       if (!j || !Array.isArray(j.events)) return null;
       const byWeek = new Map();
@@ -1233,9 +1350,15 @@
         side.last = Date.now();
         D.S.health[src].lastChange = Date.now();
         if (!baseline) {
+          // num() on EVERY factor (2026-09-02), the same guard D.score/paPoints already carry.
+          // `scoring[k] || 0` catches a NaN and passes a TRUTHY NON-NUMBER straight through —
+          // and a scoring table is persisted, commissioner-typed, Firestore-round-tripped data,
+          // so "4 pts" really does land in it (the 2026-08-09 production report). The score
+          // column was closed then; the FEED's own delta was the one multiply left open, and it
+          // renders straight through LG.fmtNum onto the matchup page.
           const dPts = k === "dst_pa"
             ? Math.round((paPoints(nv, scoring) - paPoints(ov, scoring)) * 10) / 10
-            : Math.round(((nv || 0) - (ov || 0)) * (scoring[k] || 0) * 10) / 10;
+            : Math.round((num(nv) - num(ov)) * num(scoring[k]) * 10) / 10;
           // LEAGUE time, not wall time. `t` is display-only (feedLine is its sole consumer),
           // and under the 2025 replay a feed entry on a Sunday-afternoon board has to read as a
           // Sunday afternoon rather than as whenever this device happened to poll. Off the
@@ -1248,6 +1371,9 @@
     }
     side.stats = stats; if (raw) side.raw = raw;
   }
+  D.applySide = applySide; // test hook (2026-09-02) — the feed-delta arithmetic is otherwise
+                           // only reachable through a whole poll cycle, which cannot stage a
+                           // poisoned scoring table between two ticks.
 
   // Freshest healthy side wins the display; disagreement > 0.5 pts flags ⚠.
   // Degraded modes pin to the surviving source (plan §7's display rule) — WITH the game-night
@@ -1330,7 +1456,28 @@
     // already in hand rather than throwing pollScoreboard's whole poll away (health/board still
     // update off SOMETHING this tick); when the bare payload is already regular/post this whole
     // block is a no-op — one fetch, byte-identical to before.
-    if (seasonType === "pre") {
+    //
+    // ⭐ GENERALIZED 2026-09-02 (D-F1, the week-identity seam) — the re-target is no longer only
+    // about preseason. ESPN's own week boundary is NOT the league's: ESPN rolls its "current
+    // week" on a Wednesday ~07:00Z, and rolls EARLY once the last game of a week finishes, while
+    // this league's week runs Tue 05:00 America/Chicago → Tue (LG.currentWeek). The two therefore
+    // disagree for several hours EVERY week, in both directions, and the bare /scoreboard is the
+    // only thing that decides which week's rows land in D.S.games:
+    //   · ESPN rolls FIRST → Monday night's auto-finalize of week N sees espnWeek N+1 and refuses
+    //     with "stale-week" for the whole window in which finalizing is actually correct;
+    //   · ESPN rolls LATER → Tuesday morning, the league is already on week N+1 while the board
+    //     still holds week N's finals, and a finalize would book last week's numbers as this
+    //     week's permanent, WRITE-ONCE record (the exact 2026-08-08 findings 1/3/7 shape).
+    // So: whenever the bare payload STATES a regular-season week that is not the league's own,
+    // ask for the league's week explicitly — the identical fetch the preseason branch already
+    // makes. D.S.espnWeek then equals LG.currentWeek() by construction rather than by luck.
+    // The week check is gated on a FINITE stated week: a payload that names no week at all
+    // (which is most of this suite's own fixtures, and any future ESPN shape change) must not
+    // trigger a second fetch on every single poll — an unknown week is already handled, honestly,
+    // by D.S.espnWeek reading null and every permanent write refusing.
+    const bareWk = Number(j?.week?.number);
+    const wkMismatch = seasonType === "regular" && Number.isFinite(bareWk) && bareWk !== LG.currentWeek();
+    if (seasonType === "pre" || wkMismatch) {
       try {
         const reg = await fx("espn scoreboard (regular re-target)",
           `${ESPN}/scoreboard?dates=${LG.SEASON}&seasontype=2&week=${LG.currentWeek()}`);
@@ -1436,6 +1583,16 @@
           : null;
         games.set(key, {
           eventId: String(ev.id), state: st.state || "pre",
+          // ⭐ POSTPONED / CANCELLED (2026-09-02, D-S6). ESPN's own status.type carries a
+          // `completed` boolean and a `name` (STATUS_FINAL / STATUS_POSTPONED / STATUS_CANCELED),
+          // and a postponed or cancelled game reads state "post" with **completed:false** — the
+          // slate has moved past it, but nobody played it. Recording only `state` meant a
+          // postponement read to this app exactly like a final: D.gameDone said yes, the matchup
+          // hero said Final, and finalizeWeek's "is every game final?" gate was satisfied for a
+          // week whose real points had not been scored yet. Both fields are slimmed here so the
+          // distinction exists at all; D.gameDone is what enforces it.
+          completed: st.completed === true ? true : st.completed === false ? false : null,
+          statusName: st.name || "",
           detail: st.shortDetail || "", period: c.status?.period || 0,
           clock: c.status?.displayClock || "", kickoff: ev.date || "",
           oppAb: opp?.team?.abbreviation || "",
@@ -1723,7 +1880,12 @@
     if (D._weekSlateInFlight[w]) return D._weekSlateInFlight[w];
     const run = (async () => {
       let j = null;
-      try { j = await fx("espn scoreboard", `${ESPN}/scoreboard?dates=${LG.SEASON}&seasontype=2&week=${w}`); } catch (e) { j = null; }
+      // Its OWN endpoint name (2026-09-02). Booking a browsed week's fetch under "espn
+      // scoreboard" made D.EP's per-endpoint bookkeeping — the health page's data source, and
+      // the mechanism sections W2/AY6 count live-poll calls with — attribute a reader idly
+      // paging through October to the LIVE scoreboard poll. One name per endpoint, so a count
+      // means what it says.
+      try { j = await fx("espn week slate", `${ESPN}/scoreboard?dates=${LG.SEASON}&seasontype=2&week=${w}`); } catch (e) { j = null; }
       const events = [];
       for (const ev of (j?.events || [])) {
         const c = ev.competitions && ev.competitions[0]; if (!c) continue;
@@ -1980,6 +2142,12 @@
     // light/full while live; a DIRECT pollOnce() call (tests, manual) is always FULL, so no
     // existing caller's semantics move.
     const light = !!(opts && opts.light);
+    // ⭐ THE WEEK BOUNDARY, FIRST (2026-09-02, D-S4/S5) — before any fetch, so the tick that
+    // crosses Tuesday 05:00 Central is the tick that clears last week's rows and re-points the
+    // stats bucket, rather than one that merges new numbers onto stale ones. A no-op on every
+    // other tick (one integer compare). Under the 2025 replay the clock is clamped inside week
+    // 1 by construction, so it never fires there either.
+    if (!LG.SIM_2025) await D.maybeRollWeek().catch(() => {});
     // S9's slow injury-directory refresh (2026-08-11) — see D.maybeRefreshInjuryDirectory's own
     // header note. Rides the SAME tick every other poll job already runs on (that is the whole
     // point: no separate timer, no separate loop), but internally no-ops unless real wall-clock
@@ -2073,6 +2241,19 @@
     for (const row of D.S.players.values()) mergeRow(row);
     if (D.onUpdate) D.onUpdate();
   };
+  // ⭐ THE GENERATION TOKEN (2026-09-02, D-S3). D.S.running alone cannot stop a chain that is
+  // ALREADY INSIDE its own `await D.pollOnce()` — stop() clears the pending timer and flips the
+  // flag, but the in-flight tick resumes afterwards, and the flag has by then been flipped back
+  // to true by a start() that ran in between. Each such stop/start pair therefore left the OLD
+  // chain running alongside the new one and armed a second timer. The GFFL rides inside Bucky's
+  // home-screen iframe, whose visibility handler calls D.stop()/D.start() on every tab hop, so
+  // this doubles the whole upstream poll volume per hop — indefinitely, and invisibly, because
+  // D.S.loopStarts (the existing single-instance hook) only ever counted arms past the running
+  // guard and a resumed chain never passes through start() at all.
+  // A chain checks its own generation at the top of every tick AND again after the await, so a
+  // stop that lands mid-poll is honoured before the timer is re-armed rather than a tick later.
+  D.S.loopGen = 0;
+  D.S.timerArms = 0; // test hook — how many times ANY chain has armed the next tick
   D.start = function (ms) {
     D.S.pollMs = ms || (anyLive() ? 8000 : 60000);
     if (D.S.running) return;
@@ -2081,8 +2262,9 @@
                        // most once even across a second full UI.boot() (e.g. re-claiming a
                        // team) or repeated tab navigation; a stacked second loop would show
                        // this go to 2 without D.S.running ever having gone false in between.
+    const gen = ++D.S.loopGen;
     const loop = async () => {
-      if (!D.S.running) return;
+      if (!D.S.running || gen !== D.S.loopGen) return;
       // While live: 8s ticks (the measured edge-cache floor of ESPN's own API — see
       // pollOnce's header note) alternating FULL/LIGHT, so the score/clock refreshes every
       // ~8s while the heavy half (Sleeper + per-game summaries) keeps its old ~16s cadence
@@ -2092,11 +2274,16 @@
       const n = D.S.tickN || 0; D.S.tickN = n + 1;
       const light = !ms && anyLive() && (n & 1) === 1;
       await D.pollOnce(light ? { light: true } : undefined).catch(() => {});
+      // …and again AFTER the await — this is the half that actually closes the doubling.
+      if (!D.S.running || gen !== D.S.loopGen) return;
+      D.S.timerArms++;
       D.S.timer = setTimeout(loop, anyLive() ? (ms || 8000) : 60000);
     };
     loop();
   };
-  D.stop = function () { D.S.running = false; clearTimeout(D.S.timer); };
+  // Bumping the generation is what retires any chain currently suspended inside a poll; the
+  // flag and the pending timer are cleared exactly as before.
+  D.stop = function () { D.S.running = false; D.S.loopGen++; clearTimeout(D.S.timer); };
 
   // ---------------- matchup math ----------------
   // Live-adjusted projection for one starter: post -> actual; pre -> weekly
@@ -2160,10 +2347,34 @@
   // untracked-because-not-yet-polled team reads the same as a bye here; LG.matchupDecided's
   // callers only ever ask this once the engine has a real slate in memory, same precondition
   // D.remaining/D.winProb already carry.
+  // ⭐ THE BOARD'S OWN WEEK vs THE LEAGUE'S (2026-09-02, D-F1's belt). pollScoreboard now
+  // re-targets any regular-season slate whose week isn't LG.currentWeek()'s, so this can only
+  // be true in the window BEFORE the first re-targeted poll of a new league week has landed —
+  // exactly the Tuesday-morning window in which the board in memory still holds LAST week's
+  // finals. Every "is it over?" answer refuses there rather than answering off the wrong week.
+  function boardWeekMismatch() {
+    return D.S.espnWeek != null && D.S.espnWeek !== LG.currentWeek();
+  }
+  D.boardWeekMismatch = boardWeekMismatch; // read by lg-ui's matchupSides (RULE 2's own belt)
   D.gameDone = function (team) {
+    // ⭐ AN EMPTY BOARD IS NOT A FINISHED ONE (2026-09-02, D-S1). D.S.games is empty on every
+    // COLD BOOT until the first poll lands (and for the whole life of a tab whose ESPN reads
+    // all fail), and the "no tracked game = a bye = done" rule above answered `true` for every
+    // player on it — so every matchup painted itself a DECIDED 0-0 tie, complete with a gold
+    // clinch star and a provisional standings row, before a single byte of the slate had been
+    // read. A bye is a fact ABOUT a slate we have; no slate at all is not a fact about anything.
+    if (D.S.games.size === 0) return false;
+    if (boardWeekMismatch()) return false;
     const g = D.S.games.get(slpTeam(team));
     if (!g) return true;
-    return g.state === "post";
+    // ⭐ POSTPONED / CANCELLED (2026-09-02, D-S6): ESPN moves those games to state "post" with
+    // `completed:false` — the slate has passed them, nobody played them. `!== false` rather than
+    // `=== true` deliberately: the field is recorded by pollScoreboard alone, so a game entry
+    // written by any OTHER producer (the 2025 replay's synthesized slate, a suite/seam fixture
+    // that sets D.S.games directly) carries `null` there and must keep reading exactly as it did
+    // — this closes ESPN's own postponed shape without inventing a refusal for everyone who
+    // never states the field at all.
+    return g.state === "post" && g.completed !== false;
   };
   // DEMO COHERENCE (2026-08-20, coordinator review). ?demo=clinch's per-player `done` map
   // decided RULE 2's arithmetic (matchupSides reads it via D.livePts/D.gameDone's own demo
@@ -2195,7 +2406,35 @@
   // The live poll row is the truth; the stored value is the fallback for a player the engine
   // has not seen. This is the seam lg-core reads through, so the rule and the UI can never
   // disagree about whether a man is hurt.
+  // ⭐ THE DIRECTORY COMES FIRST (2026-09-02, D-S8). D.S.players holds a row only for a player
+  // the STAT POLL has seen — i.e. only for players who have already PLAYED. The IR rule turns
+  // on exactly the opposite population: a man ruled Out has no stat line at all, by definition.
+  // So the live row could never answer for him, the read fell straight through to the roster
+  // doc's own import-time snapshot, and a player the league listed Out all week read healthy —
+  // which meant LG.irEligible refused the IR move the locker was offering him for.
+  // Sleeper's player DIRECTORY is where injury_status actually lives; it is already fetched at
+  // boot, already refreshed hourly, and D.pidForKey already resolves a roster key to its entry
+  // through all three methods (prefix / espn_id index / name+team) — so this costs no network
+  // and reaches the espn_id-less half of the directory the 2026-08-09 identity fix exists for.
+  // NARROWED DELIBERATELY: only a NON-EMPTY directory designation wins. The directory states
+  // "healthy" and "not carried" with the same empty string, so treating an empty value as an
+  // authoritative all-clear would silently erase a designation a roster import legitimately
+  // carries for a player the dump does not describe. Non-empty-wins fixes the reported
+  // direction (a designation the roster never heard about) without inventing the other.
+  function directoryInjury(key) {
+    if (!D.S.slpPlayers) return "";
+    const k = String(key == null ? "" : key);
+    if (!k) return "";
+    let m = null;
+    if (k.startsWith("dst_") || k.startsWith("slp_")) m = D.S.slpPlayers.get(k.slice(4));
+    else if (D.S.slpByEspn) m = D.S.slpByEspn.get(k);
+    if (!m) { const pid = D.pidForKey ? D.pidForKey(k) : null; if (pid != null) m = D.S.slpPlayers.get(pid); }
+    return (m && m.injury) || "";
+  }
+  D.directoryInjury = directoryInjury; // test hook
   D.injuryFor = function (key, fallback) {
+    const dir = directoryInjury(key);
+    if (dir) return dir;
     const row = D.S.players.get(key);
     return (row && row.injury != null && row.injury !== "" ? row.injury : fallback) || "";
   };
@@ -2208,8 +2447,21 @@
     let played = 0, playing = 0, left = 0;
     for (const k of keys) {
       const row = D.S.players.get(k);
-      const g = D.demoGameView(k) || (row ? D.S.games.get(slpTeam(row.team)) : null);
-      const st = g ? g.state : "pre";
+      // ⭐ THE SAME TEAM FALLBACK D.liveProj/D.remainingProj ALREADY MAKE (2026-09-02, D-S7).
+      // Resolving the NFL team from a live row alone meant a starter with no row yet — every
+      // starter, on every board, until his own stat line first lands, and permanently for
+      // anyone Sleeper's bucket never carries — read `left` (still to play) even with his game
+      // long over. That is what kept the matchup hero off "Final" and the win bar off its
+      // 100/0 pin all afternoon: D.winProb's own allDone test reads this function. The roster
+      // (and the Sleeper directory behind it) knows which team he plays for before a single
+      // stat exists — that is exactly what D.metaForKey is for.
+      const team = slpTeam((row && row.team) || (D.metaForKey ? D.metaForKey(k).team : ""));
+      const g = D.demoGameView(k) || (team ? D.S.games.get(team) : null);
+      // A POSTPONED game reads state "post" with completed:false (D-S6) — the slate moved past
+      // it, nobody played it. It belongs in `left`, or this function and D.gameDone would
+      // disagree on the same row: the hero would badge "Final" beside a star that (correctly)
+      // refuses to call the matchup decided.
+      const st = g ? (g.state === "post" && g.completed === false ? "pre" : g.state) : "pre";
       if (st === "post") played++; else if (st === "in") playing++; else left++;
     }
     return { played, playing, left };
