@@ -6,7 +6,8 @@
 // headlessly (?local=1, the same localStorage-doc mechanism tools/_verify-ffdraft.cjs's section
 // B uses) against a FAKE ESPN fantasy upstream carrying the REAL 8 GFFL team ids
 // (1,2,3,4,5,9,11,12 — names/abbrevs lifted verbatim from tools/_verify-gffl.cjs's own
-// REAL_TEAM_IDS fixture, section F2), 16 rounds, two keepers. The finished draft doc (the exact
+// REAL_TEAM_IDS fixture, section F2), 18 rounds (the live league's non-IR roster, restaged
+// 2026-09-03 from 16), two keepers. The finished draft doc (the exact
 // shape ffdraft.html would have written to Firestore doc ffdraft_<fam>/draft_<season>) is then
 // injected into a SECOND page — league.html, booted LOCAL-backend (the same
 // localStorage["lg_ffdraft_<fam>_draft_<season>"] injection tools/_verify-gffl.cjs's AI14
@@ -83,7 +84,7 @@ const GAME_LEN_MS = 190 * 60 * 1000; // 3h10m — long enough Thu stays "in" 1mi
 // short enough the Monday game (7:15pm CT) reads "post" by 10:30pm CT (7:15+3:10=10:25pm).
 
 // ================================================================== fixtures: the draft pool
-// 238 synthetic players, generously oversized for a 128-pick (16 rounds x 8 teams) draft with
+// 238 synthetic players, generously oversized for a 144-pick (18 rounds x 8 teams) draft with
 // caps on QB(2)/TE(2)/K(1)/D-ST(1) per mockChoice's own filter (ffdraft.html) so the pool can
 // never run dry. Ranked 1..238 in generation order (QB block first) — an unrealistic ADP shape
 // (every bot wants a top-ranked QB first) but harmless: it never blocks the draft, and this
@@ -196,7 +197,13 @@ function leagueInfoDoc() {
     status: { currentMatchupPeriod: 1, latestScoringPeriod: 1 },
     settings: {
       name: "Goat Fantasy Football League", size: 8,
-      rosterSettings: { lineupSlotCounts: { 0: 1, 2: 2, 4: 2, 6: 1, 23: 1, 16: 1, 17: 1, 20: 7, 21: 3 } },
+      // RESTAGED 2026-09-03: RB 3 / WR 3, not 2/2. The live league's settings doc has been
+      // RB3/WR3 since the ESPN import (data audit 2026-09-02: draft_2026.rounds is 18 = 21 - 3 IR),
+      // and LG.DEFAULT_RULES caught up with it in Build A — so a 2/2 fixture is now a league
+      // kinder than reality: a 16-round draft from it starves teams of the third RB/WR that
+      // LG.canFillLineup (11 starters) needs, which is exactly how teams 3 and 9 read
+      // "unfillable" on the first post-fix run. Model the real league: 18 non-IR slots.
+      rosterSettings: { lineupSlotCounts: { 0: 1, 2: 3, 4: 3, 6: 1, 23: 1, 16: 1, 17: 1, 20: 7, 21: 3 } },
       scoringSettings: { scoringItems: [{ statId: 53, points: 1 }] }, // PPR
     },
     members: [],
@@ -347,13 +354,13 @@ async function runDraft(browser) {
   const idsSeen = (loaded.info.teams || []).map((t) => t.id).slice().sort((a, b) => a - b);
   ok(JSON.stringify(idsSeen) === JSON.stringify(REAL_TEAM_IDS.slice().sort((a, b) => a - b)),
     "the REAL, non-contiguous GFFL team ids loaded: " + JSON.stringify(idsSeen));
-  ok(loaded.info.rosterSize === 16, "rosterSize (draft rounds) reads 16, matching the league's own non-IR roster total (" + loaded.info.rosterSize + ")");
+  ok(loaded.info.rosterSize === 18, "rosterSize (draft rounds) reads 18, matching the live league's non-IR roster total QB1 RB3 WR3 TE1 FLEX1 DST1 K1 BENCH7 (" + loaded.info.rosterSize + ")");
   ok(loaded.poolLen === POOL_RAW.length, "the full pool loaded (" + loaded.poolLen + "/" + POOL_RAW.length + ")");
   ok(loaded.lastDraft && loaded.lastDraft.ok === true, "ff_lastdraft answered ok (for the keeper costs)");
 
   await page.evaluate(() => window.__DRAFT__.createDraft());
   const created = await page.evaluate(() => ({ rounds: window.__DRAFT__.D.rounds, phase: window.__DRAFT__.D.phase }));
-  ok(created.rounds === 16, "the draft room opened at 16 rounds (" + created.rounds + ")");
+  ok(created.rounds === 18, "the draft room opened at 18 rounds (" + created.rounds + ")");
   ok(created.phase === "setup", "phase starts at setup");
 
   await page.evaluate(() => window.__DRAFT__.setPhase("keepers"));
@@ -399,12 +406,12 @@ async function runDraft(browser) {
   const draftDoc = await page.evaluate(() => window.__DRAFT__.D);
   ok(draftDoc.phase === "done", "draft phase reached done");
   const pickKeys = Object.keys(draftDoc.picks || {});
-  ok(pickKeys.length === 128, "128 total picks — 16 rounds x 8 teams (got " + pickKeys.length + ")");
+  ok(pickKeys.length === 144, "144 total picks — 18 rounds x 8 teams (got " + pickKeys.length + ")");
   const perTeam = {};
   for (const k of pickKeys) { const t = k.split("_t")[1]; perTeam[t] = (perTeam[t] || 0) + 1; }
-  ok(REAL_TEAM_IDS.every((id) => perTeam[String(id)] === 16), "every one of the 8 real teams has exactly 16 picks — " + JSON.stringify(perTeam));
+  ok(REAL_TEAM_IDS.every((id) => perTeam[String(id)] === 18), "every one of the 8 real teams has exactly 18 picks — " + JSON.stringify(perTeam));
   const botPicks = pickKeys.filter((k) => draftDoc.picks[k].by === "MOCK").length;
-  ok(botPicks === 126, "126 bot picks + 2 keepers = 128 (bot picks: " + botPicks + ")");
+  ok(botPicks === 142, "142 bot picks + 2 keepers = 144 (bot picks: " + botPicks + ")");
   ok(page._errs.length === 0, "0 page errors through the whole mock draft (" + page._errs.join(" | ") + ")");
 
   await ctx.close();
@@ -452,7 +459,7 @@ async function runImport(browser, draftDoc) {
   await page.evaluate(() => document.getElementById("draftRostersImport").click());
   await page.waitForSelector("#draftGo", { timeout: 10000 });
   const confirmTxt = (await page.evaluate(() => (document.querySelector("#importOut") || {}).textContent || "")).replace(/\s+/g, " ");
-  ok(/128 picks across 8 teams/.test(confirmTxt), "confirm names 128 picks across 8 teams (" + confirmTxt.slice(0, 90) + ")");
+  ok(/144 picks across 8 teams/.test(confirmTxt), "confirm names 144 picks across 8 teams (" + confirmTxt.slice(0, 90) + ")");
   ok(/week 1/.test(confirmTxt), "confirm names week 1");
 
   await page.evaluate(() => document.getElementById("draftGo").click());
@@ -495,15 +502,24 @@ function assertPartAResults(draftDoc, after) {
   }
   for (const id of REAL_TEAM_IDS) {
     const ros = after[id] || [];
-    ok(ros.length === 16, "team " + id + ": exactly 16 drafted players landed (" + ros.length + ")");
+    ok(ros.length === 18, "team " + id + ": exactly 18 drafted players landed (" + ros.length + ")");
     // Classified by PID identity from the draft doc (ground truth), not by re-deriving "is this
     // the DST" from the (possibly buggy) resulting key — that keeps this check isolated from
     // the D/ST keying finding asserted explicitly in PART A.4 below.
-    const dstPids = new Set(expected[id].filter((p) => p.pos === "D/ST").map((p) => String(p.pid)));
+    // RESTAGED 2026-09-03: the draft doc's defenses now carry pos "DST" — the fatal finding this
+    // suite raised was fixed at sports.mjs (the label the room stores) and in ffdraft.html — so
+    // matching only the OLD "D/ST" spelling classified zero defenses and expected every DST's
+    // raw pid among the "non-DST" keys. Accept either spelling: the classification is about
+    // identity, not the label under repair.
+    const dstPids = new Set(expected[id].filter((p) => p.pos === "DST" || p.pos === "D/ST").map((p) => String(p.pid)));
     const wantNonDst = expected[id].filter((p) => !dstPids.has(String(p.pid))).map((p) => String(p.pid)).sort();
-    const gotNonDst = ros.filter((p) => !dstPids.has(p.key)).map((p) => p.key).sort();
+    // RESTAGED 2026-09-03: exclude the defense by its ROSTER position, not by "is this key one of
+    // the DST pids" — a correctly imported defense is keyed dst_<team>, never by its pid, so the
+    // pid test excluded it only while the D/ST bug mis-keyed it by pid. The old expression
+    // silently depended on the very bug this suite was built to catch (18 got vs 17 wanted).
+    const gotNonDst = ros.filter((p) => p.pos !== "DST" && !dstPids.has(p.key)).map((p) => p.key).sort();
     ok(JSON.stringify(gotNonDst) === JSON.stringify(wantNonDst),
-      "team " + id + ": every non-DST player keyed by ESPN id, matching the draft exactly");
+      "team " + id + ": every non-DST player keyed by ESPN id, matching the draft exactly (want " + wantNonDst.length + " e.g. " + JSON.stringify(wantNonDst.slice(0, 3)) + " · got " + gotNonDst.length + " e.g. " + JSON.stringify(gotNonDst.slice(0, 3)) + ")");
   }
 
   // No player on two teams.
@@ -730,13 +746,22 @@ async function partB(page, lsPfx, draftDoc) {
       // standings render is built from) rather than a second, possibly-async UI helper.
       const rec = {};
       for (const m of fz.matchups) {
-        rec[m.home] = rec[m.home] || { w: 0, l: 0 };
-        rec[m.away] = rec[m.away] || { w: 0, l: 0 };
+        rec[m.home] = rec[m.home] || { w: 0, l: 0, t: 0 };
+        rec[m.away] = rec[m.away] || { w: 0, l: 0, t: 0 };
         if (m.homePts > m.awayPts) { rec[m.home].w++; rec[m.away].l++; }
         else if (m.awayPts > m.homePts) { rec[m.away].w++; rec[m.home].l++; }
+        else { rec[m.home].t++; rec[m.away].t++; }
       }
-      const allOneAndZero = Object.values(rec).every((r) => r.w + r.l === 1);
-      ok(allOneAndZero, "every team is 1-0 or 0-1 after week 1 (" + JSON.stringify(rec) + ")");
+      // RESTAGED 2026-09-03: the 18-round fixture's symmetric point pool produced an EXACT tie
+      // (3 v 4, 134-134), which the old tally ignored and then failed as "not 1-0 or 0-1". A
+      // regular-season tie is a legal result that the standings record as a symmetric T (the
+      // seam suite's D2 pins it), so the honest assertion is that every team carries exactly
+      // ONE result — win, loss OR tie — and that a tied pairing credits both sides a T.
+      const allOneResult = Object.values(rec).every((r) => r.w + r.l + r.t === 1);
+      ok(allOneResult, "every team carries exactly one week-1 result — W, L or T (" + JSON.stringify(rec) + ")");
+      const tiedPairs = (fz.matchups || []).filter((m) => m.homePts === m.awayPts);
+      ok(tiedPairs.every((m) => rec[m.home].t === 1 && rec[m.away].t === 1),
+        "…and a tied pairing credits BOTH sides a T (" + tiedPairs.length + " tie(s): " + JSON.stringify(tiedPairs.map((m) => m.home + "v" + m.away + " " + m.homePts)) + ")");
       const wroteDoc = await page.evaluate(async () => !!(await window.__GFFL__.LG.db.get("weekly_2026_w1")));
       ok(wroteDoc, "the write-once weekly doc exists");
       const fz2 = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1));
