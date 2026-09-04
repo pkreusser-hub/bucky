@@ -6746,3 +6746,187 @@ week's matchup: no "Final", no star, an empty probability track.
   poll re-reads it from the new week's bucket, where it will not be. Accepted: the league's week
   has genuinely moved on, and the archived-stats backfill is the honest way to settle it.
 ---
+
+## 📋 GFFL — THE ACTIVITY LEDGER AND THE COMMISSIONER'S DASHBOARD (2026-09-04)
+
+The transaction log answers "what happened to the rosters". Nothing in the app answered **"who is
+actually using this"** — which owner has never opened it, who sets a lineup every Sunday, who
+unlocked the commissioner tools, which device a kid is on. A week into a season that is the
+question the commissioner asks, and until today the honest answer was "no idea".
+
+Files: `assets/league/lg-core.js` (the ledger + the engine-side producers), `assets/league/lg-ui.js`
+(the UI-side producers + the dashboard), `league.html` (CSS), `tools/_verify-gffl.cjs` (new section
+**BG**). No commits, no push.
+
+### The ledger — a second append-only log, and a COURTESY
+
+`LG.logAct(type, teamId, detail)` writes one doc per event, id `act_<t>_<rand4>`, `kind:"act"`,
+beside `LG.logTx`'s own. Shape: `{kind, t, week, type, teamId, actorTeam, who, commish, dev,
+detail}` — the team the event is ABOUT and the team the device is acting AS are separate fields,
+because a commissioner editing somebody else's locker is one event with two answers to "whose".
+
+**It is a courtesy, on exactly `LG.pushNotify`'s terms.** `logAct` returns a promise that resolves
+to the doc id or to **null**, and can never reject: every field read (`currentWeek`, `myTeamId`,
+`who`, `commishUnlocked` — all localStorage or rules reads a locked-down device can throw from) is
+inside the try, and so is the write. Producers fire it unawaited after the action has committed.
+*The action is the product; the log is a courtesy* — a lineup change must never be lost because the
+record of it could not be written. **BG2 proves that end to end**: with the store rejecting every
+`act_` write, a real swap-sheet lineup change still lands in the roster doc, both directions, with
+zero page errors.
+
+**AND A MIRROR IS SKIPPED, NOT ATTEMPTED.** `LG.db.set` on an offline mirror calls
+`refuseMirrorWrite`, which raises the "You're offline" toast — and `LG.logOpen` fires at every
+boot. The first cut therefore made *simply opening the app on a mirror* toast a refusal for a write
+nobody asked for, and broke the 2026-08-08 check that says so by name. `logAct` returns early on
+`LG.mirrorOffline`, the same rule `migrateCommishPin` already follows.
+
+`LG.deviceTag()` is a five-word vocabulary — `ios` / `android` / `mac` / `win` / `other`, plus a
+`-pwa` suffix for standalone display-mode — not a user-agent string. The commissioner wants "the
+iPad or the phone", not 180 characters of Chrome version, and a stored UA per event is a
+fingerprint this family app has no business keeping. Safe with no `window` and no `navigator`.
+KNOWN: iPadOS 13+ reports itself as Macintosh, so an iPad reads `mac`. The alternative is
+touch-point sniffing, which is a guess wearing a fact's clothes.
+
+`LG.logOpen()` throttles to **one open per device per 30 minutes** (`gffl_actopen_t`). Without it
+this would be the noisiest row in the ledger by an order of magnitude — the league rides inside
+Bucky's home-screen iframe and re-boots on every tab hop. A stamp from the FUTURE (a corrected
+clock) logs rather than suppressing forever. An anonymous device logs with `teamId: null`:
+"somebody keeps opening this and never picks a team" is one of the things the dashboard is for.
+
+### What is logged, and what deliberately is not
+
+Engine (`lg-core.js`): `claim_placed`, `claim_cancel`, `trade_offer` / `trade_counter` (ONE
+producer — `counterTrade` routes through `offerTrade`, so logging the counter separately would put
+two rows in the ledger for one gesture; `opts.counterOf` tells them apart), `trade_cancel`,
+`trade_decline`, `trade_accept`, `trade_veto_vote` (**every vote, not only the killing one** — who
+voted and who did not is the whole question a veto raises, and the tx log records only the
+outcome), `commish_unlock` and `commish_pin_set`. Every one fires **after** the write and, on the
+CAS paths, **after the loop** — never inside a mutate that can run six times.
+
+UI (`lg-ui.js`): `open`, `login` / `claim` (two rows, not one: "signed in again" and "this team was
+picked up for the first time" are different facts, and collapsing them would hide the teams nobody
+has ever claimed), `pin_reset`, `lineup` / `ir`, `team_edit`, `chat_delete`, `finalize`, `import`,
+`sched_gen`, `bracket_build`, `waivers_run`.
+
+**The lineup diff lives in `persistLineup` and nowhere else** — it is the only place that still
+holds both sides: `fresh` is the roster as the store has it a moment before the write, `ros` is the
+locker's mutated copy. Both `doMove` and the swap sheet funnel through it, so one hook covers every
+lineup gesture. A change touching slot `IR` is typed `ir`, everything else `lineup`, and **zero
+changes logs nothing** — a repaint is not an activity.
+
+Four deliberate silences:
+- **The four tx types are NOT re-logged.** `fa_add` / `drop` / `waiver` / trade-executed-or-vetoed
+  are `logTx`'s, and the dashboard MERGES the two ledgers. An act for either would double-count
+  them in the one place where the count is the whole point.
+- **Rules changes are NOT re-logged.** `LG.saveRules` has written `log:[{t, who, changes}]` into the
+  settings doc since the Rules editor was written; the dashboard merges that too.
+- **`gateCommish`'s early return logs nothing.** It is the absence of an event, and logging it would
+  put a row in the ledger for every commissioner control pressed all afternoon.
+- **`maybeAutoFinalizeWeeks` logs only SUCCESS.** That loop runs on every boot of every device and
+  re-attempts every unfinalized week; logging its refusals would write a row per week per open and
+  drown the ledger it exists to fill. The two BUTTON paths log either way, because a commissioner
+  who tried and was refused is exactly as interesting as one who succeeded.
+
+Details record WHAT changed, never the content: a motto edit records `fields:["motto"]` and not the
+motto; a chat delete records the message id and whether commissioner authority was used, never the
+deleted text. A ledger that quotes deleted messages is not a deletion.
+
+`LG.actNames(keys)` resolves roster keys to names through `D.metaForKey`, falling back to the key
+itself rather than to `"?"` — a key at least identifies the man to anyone willing to look him up.
+
+### The dashboard — view `activity`, commissioner-only, nothing at boot
+
+A sub-view of Rules with no bottom-nav entry, reached from the commissioner button row ("Activity
+log"), the same posture the NFL game view has under Scores. It is in `REAL_VIEWS` and in
+`VIEW_HASHES`, so `#activity` survives a reload and a Back press like every other view; `navName`
+maps it to `rules`, which has had no tab since item 16, so nothing lights up — which is right, and
+is what mapping it to `league` would get wrong by lighting a tab the reader never pressed. A
+non-commissioner who reaches it by URL gets one card: "Commissioner only."
+
+⭐ **BOOT-SPEED RULE, RESTATED.** Nothing here is fetched at boot. The four ledgers are between them
+the largest read in the app, and the league home already went to considerable trouble to stop
+loading two of them up front. `renderActivity()` reads all four **in parallel on open**, each
+allowed to fail on its own. **BG7b measures it** rather than asserting it by inspection: a
+`LG.db.list` recorder armed through section W's nested-setter seam records 17 list reads at boot
+(`team`, `weekly`, `bracket`, `trade`, `roster`) and **not one `act`** — and then records one the
+moment the view opens.
+
+Layout, top to bottom: a header card with the event total and date range; a responsive
+`auto-fill/minmax(240px)` grid of per-owner cards (owner, team, "Last seen <relative>", and a count
+line of opens · lineup · moves · claims · trades · chats) that collapses to one column at 390px with
+no media query; a filter row (user / type / week selects plus a text search, combining, held in
+`UI._actFilter` — session only, because a filter is a reading position, not a setting); a
+newest-first timeline grouped under **America/Chicago** day headings, 100 rows then "Show more";
+and "Copy as text", guarded for a missing `navigator.clipboard`.
+
+Two small decisions worth the words. **The three selects and the search box repaint the TIMELINE
+ONLY** — rebuilding `main()` on every keystroke takes the focus out of the search box on the first
+character typed. And a team with **no events at all still gets a card**, reading "Last seen never":
+an owner who has *not* used the app is the finding, and leaving them off the grid would hide the
+one answer the commissioner came for. A second tap on the selected card clears the filter,
+otherwise the only way back to Everyone is a select the reader has stopped looking at.
+
+The "No team / anonymous" card holds every event with `teamId == null` — the anonymous opens AND
+the rules-change rows, which genuinely belong to no team. Slightly wider than the brief's "null and
+no `who`", and more coherent: the card's count and the rows its own tap reveals go through ONE
+bucketing rule (`actBucket`), so they cannot disagree.
+
+CSS follows the house conventions (`.card` / `.rowline` / `.mut` / `.small`), with the
+`[hidden]{display:none}` restatement for every new container that sets its own display — the lesson
+this file has now recorded five times.
+
+### Suite — new section BG, 87 checks, ZERO restages
+
+`node tools/_verify-gffl.cjs`: **3204 pass · 0 fail** (3117 → 3204). Every expectation
+hand-computed from the fixture. BG1 the primitive and its shape; BG2 the courtesy proven against a
+store that refuses; BG3 the throttle at both edges (two calls inside the window write ONE, a stamp
+aged 31 minutes writes a second, an unclaimed device logs `teamId: null`); BG4 the lineup diff
+(`B. Backup BENCH→FLEX` + `F. Flexman FLEX→BENCH` = exactly two changes, `I. Injured BENCH→IR`
+typed `ir`, and a repaint that moves nobody writing nothing); BG5 claims and trades through the
+engine; BG6 the gate (one unlock, one pin-set, and two already-unlocked calls logging nothing);
+BG7 the dashboard against seven hand-built events (5 acts + 1 tx + 1 chat) with every card count,
+every "last seen", every filter and the 390px overflow read off the page; BG7b the boot-speed
+measurement; BG8 the refusal by geometry plus the `#activity` reload; BG9/BG10 the emoji sweep and
+the entry point's own visibility, both by `offsetParent`.
+
+**Two pre-existing checks broke and BOTH were real bugs, not stale assertions** — neither was
+restaged: the mirror-offline toast (fixed in `logAct`, above) and section AM3's law that no render
+site in `lg-ui.js` reads `<team>.colors` directly (the logo handler's ledger detail read
+`delta.colors`; it reads a local `tookColors` flag now).
+
+**PROOF OF BITE.** `assets/league/lg-{core,ui}.js` and `league.html` reverted to `HEAD` with the new
+test file kept: **3144 pass · 59 fail** — every one of the 59 failures inside section BG, and all
+**3117 pre-existing checks still green** (3144 − 3117 = 27 BG checks that pass against `HEAD`
+because they are staging statements or "0 page errors" companions to an assertion that does fail).
+
+⭐ **AND THE PRE-FIX RUN CAUGHT A VACUOUS CHECK OF MY OWN**, which is exactly what that run is for.
+BG8's "`#activity` survives a reload" passed against `HEAD`, where the hash table does not contain
+`activity` at all — because the page was ALREADY sitting on that exact URL and puppeteer's `goto`
+to an identical address is a same-document navigation that reloads nothing. It carries `&n=` now,
+plus a second assertion that the ACTIVITY screen is what got painted rather than the league home
+the old table falls back to. A check that passes vacuously is the worst kind (rule 8).
+
+Rest of the battery, unchanged by this work: `node tools/_gffl_seams.cjs` **222/0** ·
+`node tools/_gffl_season_sim.cjs` **all invariants held across 89 sweeps** ·
+`node tools/_verify-ffdraft.cjs` **314/0** · `node tools/_gffl_kickoff.cjs` **125/1** — the one
+failure is `LG.canFillLineup` on one imported draft-room roster, and it fails **identically on
+`HEAD`** (on a different team each run, so it is non-deterministic and not this build's). Left for
+its own pass.
+
+Plate (390px, reviewed): `activity_plate.png` — nine owner cards over the filter row and a
+Fri Sep 4 timeline, `Peter · T1 opened the app  ios-pwa` at the top, the anonymous open at the
+bottom, no horizontal scroll.
+
+**KNOWN / DEFERRED**
+- The ledger has no retention policy. `LG.db.list("act")` pulls every row, and at roughly a hundred
+  events a week the read is trivial for a season and worth revisiting for a decade. When it
+  matters, the fix is the one the settings doc's own log already uses (`.slice(-200)`), applied at
+  read time rather than by deleting history.
+- `waivers_run` covers the **manual** "Process now" button only. `processWaivers` is also reached by
+  every device's auto-check chain past the deadline, and logging inside the engine would put a row
+  in the ledger for a Wednesday morning nobody touched.
+- The dashboard reads the ledger through `LG.db.list`, which is the CACHED layer. Re-entering the
+  view inside the 15-second cache window can show a fresh event a beat late. Deliberate: a
+  `listFresh` here would cost a full round trip on every open of a screen that is already the app's
+  largest read.
+---

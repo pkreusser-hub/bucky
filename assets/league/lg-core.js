@@ -310,6 +310,10 @@
       if (wrote) {
         try { localStorage.setItem("dadPinHash", h); } catch (e) {}
         sessionStorage.setItem("gfflCommish", "1");
+        // ACTIVITY LEDGER (2026-09-04). The one moment a league acquires a commissioner is
+        // worth a row of its own, beside the unlock it also is. Unawaited, and it cannot throw.
+        LG.logAct("commish_pin_set", LG.myTeamId(), { first: true });
+        LG.logAct("commish_unlock", LG.myTeamId(), { first: true });
         return true;
       }
       if (existing) {
@@ -318,6 +322,7 @@
         if (h === existing) {
           try { localStorage.setItem("dadPinHash", h); } catch (e) {}
           sessionStorage.setItem("gfflCommish", "1");
+          LG.logAct("commish_unlock", LG.myTeamId(), { raced: true });
           return true;
         }
         window.alert("Wrong PIN.");
@@ -335,6 +340,11 @@
       // It reveals nothing — a hash is not a PIN — and it is the same value the family app syncs.
       try { localStorage.setItem("dadPinHash", h); } catch (e) {}
       sessionStorage.setItem("gfflCommish", "1");
+      // ACTIVITY LEDGER (2026-09-04) — a PIN was typed and it was right. The EARLY return at
+      // the top of this function (already unlocked this session) deliberately logs nothing:
+      // it is not an event, it is the absence of one, and logging it would put a row in the
+      // ledger for every commissioner control pressed all afternoon.
+      LG.logAct("commish_unlock", LG.myTeamId(), {});
       return true;
     }
     window.alert("Wrong PIN.");
@@ -2147,6 +2157,116 @@
     return (await LG.db.list("tx")).sort((a, b) => b.t - a.t);
   };
 
+  // ---------------- THE ACTIVITY LEDGER (2026-09-04) ----------------
+  // The transaction log above answers "what happened to the rosters". It cannot answer "who is
+  // actually USING this thing" — which owner has never opened the app, who is setting a lineup
+  // every Sunday, which device a kid is on, who unlocked the commissioner tools. Those are the
+  // questions the commissioner asks a week into a season, and until now the only honest answer
+  // was "no idea". So: a SECOND append-only ledger, one doc per event, id act_<t>_<rand4>,
+  // kind:"act" so LG.db.list("act") pulls the whole thing and neither log can ever see the
+  // other's rows.
+  //
+  // ⭐ IT IS A COURTESY, EXACTLY LIKE LG.pushNotify (read its rules below). A ledger write is
+  // never the product; the ACTION is. So logAct swallows every failure — a thrown backend, a
+  // read-only mirror, a localStorage that refuses, a currentWeek() that blows up — and returns
+  // a promise that CANNOT reject. Callers fire it unawaited on the hot path; the two or three
+  // that do await it still cannot be hurt by it. A lineup change must never be lost because
+  // the log of it could not be written.
+  //
+  // Nothing here duplicates the tx log: fa_add / drop / waiver / trade-executed / trade-vetoed
+  // are logTx's four types, and the dashboard MERGES the two ledgers rather than double-
+  // counting them.
+  LG.actId = (t) => `act_${t}_${Math.random().toString(36).slice(2, 6)}`;
+  // A SHORT device tag, not a user-agent string. The commissioner wants "was that on the iPad
+  // or the phone", not 180 characters of Chrome version — and a full UA stored per event is a
+  // fingerprint this family app has no business keeping. Safe with no window and no navigator
+  // (jsdom, a node harness), because logAct is called from paths that run in both.
+  // KNOWN: iPadOS 13+ reports itself as "Macintosh", so an iPad reads "mac". Accepted — the
+  // alternative is touch-point sniffing, which is a guess wearing a fact's clothes.
+  LG.deviceTag = function () {
+    let ua = "", standalone = false;
+    try { ua = (typeof navigator !== "undefined" && navigator.userAgent) || ""; } catch (e) { ua = ""; }
+    try {
+      standalone = !!(typeof window !== "undefined" && window.matchMedia
+        && window.matchMedia("(display-mode: standalone)").matches);
+    } catch (e) { standalone = false; }
+    try { if (typeof navigator !== "undefined" && navigator.standalone) standalone = true; } catch (e) {}
+    let base = "other";
+    if (/iPhone|iPad|iPod/i.test(ua)) base = "ios";
+    else if (/Android/i.test(ua)) base = "android";
+    else if (/Macintosh|Mac OS X/i.test(ua)) base = "mac";
+    else if (/Windows/i.test(ua)) base = "win";
+    return base + (standalone ? "-pwa" : "");
+  };
+  // Returns a promise for the SUITE's benefit (a check can await the write having landed);
+  // it resolves to the doc id on success and to null on ANY failure, and never rejects.
+  LG.logAct = function (type, teamId, detail) {
+    let id = null, doc = null;
+    // ⭐ A MIRROR IS READ-ONLY, AND HOUSEKEEPING DOES NOT ANNOUNCE ITSELF. LG.db.set on an
+    // offline mirror calls refuseMirrorWrite, which raises the "You're offline" toast — and
+    // LG.logOpen fires at every boot, so without this line simply OPENING the app on a mirror
+    // would toast a refusal for a write nobody asked for. Skipped, not attempted: the rule this
+    // file already applies to migrateCommishPin, and the reason a suite check has said since
+    // 2026-08-08 that opening the app is not a mutation.
+    try { if (LG.mirrorOffline) return Promise.resolve(null); } catch (e) { /* fall through and try */ }
+    try {
+      const t = Date.now();
+      id = LG.actId(t);
+      // Every field is read inside the try: each one of these is a localStorage or a rules
+      // read, and any of them can throw on a locked-down device.
+      doc = {
+        kind: "act", t,
+        week: LG.currentWeek(),
+        type: String(type == null ? "" : type),
+        teamId: teamId == null ? null : Number(teamId),
+        actorTeam: LG.myTeamId(),
+        who: LG.who() || "",
+        commish: !!LG.commishUnlocked(),
+        dev: LG.deviceTag(),
+        detail: detail || {},
+      };
+    } catch (e) { return Promise.resolve(null); }
+    try {
+      return Promise.resolve(LG.db.set(id, doc)).then(() => id, () => null);
+    } catch (e) { return Promise.resolve(null); }
+  };
+  LG.loadAct = async function () {
+    return (await LG.db.list("act")).sort((a, b) => b.t - a.t);
+  };
+  // Roster KEYS are what a trade doc carries, and a key is unreadable in a sentence. This
+  // resolves each one to a name through the live directory when it is loaded and falls back to
+  // the key itself when it is not — never to "?", because a key at least identifies the man to
+  // anyone willing to look him up. Wrapped, like everything else here: a ledger detail may not
+  // be the thing that throws inside a trade.
+  LG.actNames = function (keys) {
+    return (keys || []).map((k) => {
+      try {
+        const m = LG.data && LG.data.metaForKey ? LG.data.metaForKey(k) : null;
+        return (m && m.name) || String(k);
+      } catch (e) { return String(k); }
+    });
+  };
+  // ONE "open" per device per half hour. Without the throttle this would be the noisiest row
+  // in the ledger by an order of magnitude — the app is an iframe inside the family home
+  // screen and a tab hop re-boots it — and "who has opened the app lately" is answered just as
+  // well by a half-hourly stamp as by every single paint.
+  LG.ACT_OPEN_MS = 30 * 60 * 1000;
+  LG.logOpen = function () {
+    try {
+      const now = Date.now();
+      let last = 0;
+      try { last = Number(localStorage.getItem("gffl_actopen_t")) || 0; } catch (e) { last = 0; }
+      // `last <= now` deliberately: a stamp from the FUTURE (a device whose clock was wrong and
+      // has since been corrected) would otherwise suppress this device's opens forever. A
+      // future stamp logs, and the write below replaces it with a sane one.
+      if (last && last <= now && now - last < LG.ACT_OPEN_MS) return Promise.resolve(null);
+      try { localStorage.setItem("gffl_actopen_t", String(now)); } catch (e) {}
+      // An anonymous device (nobody has claimed a team on it) still logs, with teamId null —
+      // "somebody opened this and never claimed a team" is itself worth knowing.
+      return LG.logAct("open", LG.myTeamId(), {});
+    } catch (e) { return Promise.resolve(null); }
+  };
+
   // ---------------- S4 · push notifications (plan "the one structural Sleeper gap") ----------
   // The whole FCM stack already exists for the family app — push-client.js writes a token doc,
   // notify.mjs sends. What is new here is only WHO a push is for and WHAT it says.
@@ -2282,6 +2402,11 @@
     }
     const { id: claimId, ...rest } = claim || {};
     await LG.db.set(LG.claimDocId(LG.SEASON, week, claimId), { kind: "claim", season: LG.SEASON, week, claimId, ...rest });
+    // ACTIVITY LEDGER (2026-09-04) — AFTER the write, never before: a refused claim is not an
+    // activity, and a row saying somebody claimed a player they did not get is a lie.
+    LG.logAct("claim_placed", rest.teamId, {
+      addKey: rest.addKey, addName: rest.addName, dropKey: rest.dropKey, dropName: rest.dropName, bid: rest.bid,
+    });
     return { ok: true };
   };
   LG.cancelClaim = async function (week, claimId, byTeamId) {
@@ -2289,11 +2414,16 @@
     if (wk && wk.processed) return { ok: false, reason: "already-processed" };
     const id = LG.claimDocId(LG.SEASON, week, claimId);
     const c = await LG.db.getFresh(id);
-    if (c && c.teamId === byTeamId) { await LG.db.del(id); return { ok: true }; }
+    if (c && c.teamId === byTeamId) {
+      await LG.db.del(id);
+      LG.logAct("claim_cancel", byTeamId, { addKey: c.addKey, addName: c.addName, bid: c.bid });
+      return { ok: true };
+    }
     // Legacy array-shaped week: fall back to rewriting it (single-doc, pre-split data only).
     const legacy = ((wk && wk.claims) || []).find((x) => x.id === claimId);
     if (!legacy || legacy.teamId !== byTeamId) return { ok: false, reason: "not-found" };
     await LG.saveClaims(week, { claims: wk.claims.filter((x) => x.id !== claimId), processed: false, results: null });
+    LG.logAct("claim_cancel", byTeamId, { addKey: legacy.addKey, addName: legacy.addName, bid: legacy.bid, legacy: true });
     return { ok: true };
   };
 
@@ -2829,6 +2959,12 @@
     // S4 producer — the offer's whole point is that the other owner doesn't know about it yet.
     const push = opts.push || { title: "Trade offer", body: LG.teamName(from) + " sent you a trade." };
     LG.pushTeam(to, push.title, push.body, LG.pushLink("#moves"));
+    // ACTIVITY LEDGER (2026-09-04). ONE producer for both shapes: LG.counterTrade below routes
+    // through this very function, so logging the counter separately there would put TWO rows in
+    // the ledger for one gesture. opts.counterOf is what tells them apart, and it is the same
+    // field the doc itself carries.
+    LG.logAct(opts.counterOf ? "trade_counter" : "trade_offer", from,
+      { tradeId: id, from, to, give: LG.actNames(give), get: LG.actNames(get), counterOf: opts.counterOf || null });
     return { ok: true, trade: doc };
   };
   // S7 — COUNTER-OFFER. The receiving owner answers an offer with their own, and the original
@@ -2868,6 +3004,7 @@
     if (!doc || doc.status !== "offered" || doc.from !== byTeamId) return null;
     const next = { ...doc, status: "cancelled" };
     await LG.saveTrade(next);
+    LG.logAct("trade_cancel", byTeamId, { tradeId: id, from: doc.from, to: doc.to, give: LG.actNames(doc.give), get: LG.actNames(doc.get) });
     return next;
   };
   LG.declineTrade = async function (id, byTeamId) {
@@ -2875,6 +3012,7 @@
     if (!doc || doc.status !== "offered" || doc.to !== byTeamId) return null;
     const next = { ...doc, status: "declined" };
     await LG.saveTrade(next);
+    LG.logAct("trade_decline", byTeamId, { tradeId: id, from: doc.from, to: doc.to, give: LG.actNames(doc.give), get: LG.actNames(doc.get) });
     return next;
   };
   LG.acceptTrade = async function (id, byTeamId) {
@@ -2923,6 +3061,9 @@
     // S4 producer — to the PROPOSER, who has been waiting on an answer. AFTER the loop: a push
     // fired inside a mutate would go out once per attempt.
     LG.pushTeam(doc.from, "Trade accepted", LG.teamName(doc.to) + " accepted your trade. It goes through after the review window.", LG.pushLink("#moves"));
+    // ACTIVITY LEDGER — same placement rule as the push above: after the CAS loop committed,
+    // never inside a mutate that can run six times.
+    LG.logAct("trade_accept", byTeamId, { tradeId: doc.id, from: doc.from, to: doc.to, give: LG.actNames(doc.give), get: LG.actNames(doc.get) });
     return r.doc;
   };
   // Any owner NOT a party to the trade may add one veto vote; enough votes
@@ -2955,6 +3096,10 @@
     if (!r.ok) return r.doc || doc; // somebody moved it under us — theirs is the record
     const next = r.doc;
     const status = next.status;
+    // ACTIVITY LEDGER — every VOTE, not only the one that kills the trade. Who voted and who
+    // did not is the whole question a veto raises, and the tx log records only the outcome.
+    // After the loop, for the same reason the pushes below are.
+    LG.logAct("trade_veto_vote", byTeamId, { tradeId: id, from: doc.from, to: doc.to, votes: (next.vetoes || []).length, needed, killed: status === "vetoed" });
     if (status === "vetoed") {
       // Item 15 (2026-08-09): sys chat post removed — this logTx IS the veto's record.
       await LG.logTx("trade", LG.currentWeek(), doc.from, { tradeId: id, from: doc.from, to: doc.to, give: doc.give, get: doc.get, result: "vetoed" });

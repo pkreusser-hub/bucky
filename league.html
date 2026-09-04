@@ -2032,6 +2032,51 @@
                  text-align:center; padding:6px 10px; }
   #offlineChip[hidden] { display:none; }
   @media (min-width:1024px) { #offlineChip { top:calc(46px + env(safe-area-inset-top)); } }
+
+  /* ---------------- THE ACTIVITY DASHBOARD (2026-09-04) ----------------
+     Commissioner-only sub-view of Rules. Phone-first: the per-owner cards are an auto-fill
+     grid whose minimum track (240px) is narrower than a 390px viewport's content box, so at
+     phone width the grid collapses to ONE column and stacks — no media query needed, and no
+     horizontal scroll at any width. Every long string inside a card wraps rather than pushing
+     the track wider (min-width:0 on the button, overflow-wrap on the owner line): a grid item
+     defaults to min-width:auto, which is what lets one long team name widen a whole column and
+     take the page sideways with it. */
+  .actgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:8px; margin-bottom:12px; }
+  .actcard { display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-width:0; width:100%;
+             text-align:left; text-transform:none; letter-spacing:normal; font-weight:400;
+             background:var(--card); border:1px solid var(--border-card); border-radius:var(--radius-card); padding:10px 12px; }
+  .actcard:hover { border-color:var(--border-hover); background:var(--row-hover2); }
+  .actcard.on { border-color:var(--accent); }
+  .actcard > * { max-width:100%; overflow-wrap:anywhere; }
+  .actowner { font:700 14px var(--font-display); letter-spacing:.5px; color:var(--ink); }
+  /* Team name and "last seen" share a row and push apart; at a narrow track the flex-wrap
+     lets the second half drop rather than squeezing either into an ellipsis. */
+  .actline { display:flex; flex-wrap:wrap; gap:4px 10px; width:100%; }
+  .actseen { color:var(--ink2); }
+  .actnums { line-height:1.5; }
+  /* The filter row: three selects that must fit side by side at 390px, so each takes an equal
+     share of the line and shrinks rather than wrapping into a ragged stack. */
+  .actfilters .rowline { flex-wrap:nowrap; }
+  .actfilters select { flex:1 1 0; min-width:0; font-size:13px; padding:8px 6px; }
+  .actfilters #actSearch { display:block; width:100%; box-sizing:border-box; margin:8px 0; }
+  .actfilters .rowline:last-child { flex-wrap:wrap; }
+  .actday { margin:14px 0 4px; }
+  .actday:first-child { margin-top:0; }
+  /* Time in its own fixed column so the sentences line up down the page; the body wraps under
+     itself rather than under the clock. */
+  .actrow { display:flex; gap:8px; align-items:baseline; padding:5px 0; border-bottom:1px dotted var(--divider2);
+            font-size:13.5px; }
+  .acttime { flex:0 0 58px; font-variant-numeric:tabular-nums; }
+  .actbody { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+  .actrwho { color:var(--ink); font-weight:600; }
+  .actdev { margin-left:4px; }
+  /* The commissioner tag. Gold and quiet, the same badge idiom .fteam uses — it marks a row,
+     it is not a warning. */
+  .actflag { display:inline-block; margin-left:4px; border:1px solid var(--gold); border-radius:var(--radius-badge);
+             color:var(--gold); font:700 10px var(--font-display); letter-spacing:.5px; padding:0 5px; }
+  /* The house [hidden]-override lesson, again: every one of these sets its own display, so the
+     UA's [hidden]{display:none} would lose the cascade the moment one of them is toggled. */
+  .actgrid[hidden], .actcard[hidden], .actrow[hidden], .actfilters[hidden] { display:none; }
 </style>
 </head>
 <body>

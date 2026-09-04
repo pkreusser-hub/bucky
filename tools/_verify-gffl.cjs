@@ -22087,6 +22087,557 @@ async function openDetails(page, id) {
     }
   }
 
+  // ==================================================================================
+  section("BG · the activity ledger + the commissioner's activity dashboard (2026-09-04)");
+  {
+    // Every act doc this section reads comes straight out of localStorage rather than through
+    // LG.loadAct, deliberately: LG.db.list() is a CACHED read, and a check that asks the app's
+    // own cache whether the app wrote something is asking the wrong witness. The local
+    // backend's version counters live under a different prefix ("lgv_"), so this scan sees
+    // documents only.
+    const actDocs = (page) => evalOr(page, (pfx) => {
+      const out = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(pfx + "act_")) { const d = JSON.parse(localStorage.getItem(k)); d.__id = k.slice(pfx.length); out.push(d); }
+      }
+      return out.sort((a, b) => a.t - b.t);
+    }, LSPFX);
+    const clearActs = (page) => evalOr(page, (pfx) => {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(pfx + "act_")) localStorage.removeItem(k);
+      }
+    }, LSPFX);
+
+    // ---- BG1: the primitive. One doc, the right kind, the right shape. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await clearActs(page); // boot's own logOpen already wrote one — this block is about logAct alone
+      const wrote = await evalOr(page, () => window.__GFFL__.LG.logAct("x", 1, { a: 1 }));
+      const docs = (await actDocs(page)) || [];
+      const d = docs[0] || {};
+      const wk = await evalOr(page, () => window.__GFFL__.LG.currentWeek());
+      const devNow = await evalOr(page, () => window.__GFFL__.LG.deviceTag());
+      ok(docs.length === 1, "LG.logAct writes exactly ONE document (" + docs.length + ")");
+      ok(typeof wrote === "string" && /^act_\d+_[a-z0-9]{1,4}$/.test(wrote) && wrote === d.__id,
+        "…under an id of the logTx family, act_<t>_<rand4>, and returns it (" + wrote + ")");
+      ok(d.kind === "act", "…kind \"act\", so LG.db.list(\"act\") and list(\"tx\") can never see each other's rows (" + d.kind + ")");
+      ok(d.type === "x" && d.teamId === 1, "…carrying the type and the team it was given (" + d.type + "/" + d.teamId + ")");
+      ok(typeof d.t === "number" && d.t > 1600000000000, "…a numeric wall-clock stamp (" + typeof d.t + ")");
+      ok(d.week === wk && wk === 1, "…the LEAGUE's own current week, hand-computed as 1 from the fixture's clock (" + d.week + "/" + wk + ")");
+      ok(typeof d.dev === "string" && /^(ios|android|mac|win|other)(-pwa)?$/.test(d.dev) && d.dev === devNow,
+        "…and a short device tag from the fixed vocabulary, never a raw user-agent string (" + d.dev + ")");
+      ok(JSON.stringify(d.detail) === '{"a":1}', "…with the caller's detail stored verbatim (" + JSON.stringify(d.detail) + ")");
+      ok(d.who === "Peter" && d.actorTeam === 1 && d.commish === false,
+        "…plus who this device is, which team it is acting as, and whether commissioner tools were unlocked (" + JSON.stringify([d.who, d.actorTeam, d.commish]) + ")");
+      // A ledger write may not be able to hurt anybody. Proven against a store that refuses.
+      const refused = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const orig = LG.db.set.bind(LG.db);
+        LG.db.set = (id, data) => (String(id).startsWith("act_") ? Promise.reject(new Error("ledger down")) : orig(id, data));
+        let threw = false, val = "unset";
+        try { val = await LG.logAct("y", 2, {}); } catch (e) { threw = true; }
+        LG.db.set = orig;
+        return { threw, val };
+      }) || {};
+      ok(refused.threw === false && refused.val === null,
+        "a REFUSED ledger write resolves to null and never rejects — the promise cannot be the thing that breaks a caller (" + JSON.stringify(refused) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BG2: the courtesy rule, end to end. With the act store throwing, a real lineup
+    // change made through the real swap sheet still lands in the roster doc. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => {
+        const LG = window.__GFFL__.LG;
+        const orig = LG.db.set.bind(LG.db);
+        window.__actAttempts = 0;
+        LG.db.set = (id, data) => {
+          if (String(id).startsWith("act_")) { window.__actAttempts++; return Promise.reject(new Error("ledger down")); }
+          return orig(id, data);
+        };
+      });
+      await clearActs(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("team"));
+      await waitOr(page, ".lrow");
+      await clickChildIn(page, ".lrow", ".lswap", "F. Flexman");
+      await waitOr(page, ".swaprow");
+      await evalOr(page, () => { [...document.querySelectorAll(".swaprow")].find((r) => r.textContent.includes("B. Backup")).click(); });
+      await waitFnOr(page, () => {
+        const flex = [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("FLEX"));
+        return flex && flex.textContent.includes("B. Backup");
+      });
+      const doc = await readDoc(page, "roster_2026_w1_t1");
+      const attempts = await evalOr(page, () => window.__actAttempts);
+      const acts = (await actDocs(page)) || [];
+      ok(attempts >= 1, "the ledger write really was attempted and really was refused (" + attempts + ")");
+      ok(acts.length === 0, "…so nothing landed in the ledger (" + acts.length + ")");
+      ok(!!doc && doc.players.find((p) => p.name === "B. Backup").slot === "FLEX"
+        && doc.players.find((p) => p.name === "F. Flexman").slot === "BENCH",
+        "…and the SWAP still committed, both directions, to the roster doc — the action is the product, the log is a courtesy");
+      ok(errors.length === 0, "0 page errors — a swallowed failure is not an unhandled rejection");
+      await ctx.close();
+    }
+
+    // ---- BG3: one "open" per device per half hour. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await clearActs(page);
+      const twice = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        localStorage.removeItem("gffl_actopen_t");
+        await LG.logOpen();
+        await LG.logOpen();
+        return localStorage.getItem("gffl_actopen_t");
+      });
+      let docs = (await actDocs(page)) || [];
+      ok(docs.length === 1 && docs[0].type === "open",
+        "two LG.logOpen() calls inside the throttle window write exactly ONE open — the app re-boots on every tab hop inside the family iframe (" + docs.length + ")");
+      ok(!!twice && Number(twice) > 0, "…and the stamp that suppresses the second is on this device, not in the league (" + twice + ")");
+      const aged = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        localStorage.setItem("gffl_actopen_t", String(Date.now() - 31 * 60 * 1000));
+        await LG.logOpen();
+        return true;
+      });
+      docs = (await actDocs(page)) || [];
+      ok(aged === true && docs.length === 2,
+        "…while a stamp aged 31 minutes — one minute past the 30-minute window — writes a second (" + docs.length + ")");
+      ok(docs.every((d) => d.type === "open" && d.teamId === 1),
+        "…both attributed to the team this device has claimed");
+      // An unclaimed device still logs, with teamId null: "somebody keeps opening this and
+      // never picks a team" is exactly the thing the dashboard exists to make visible.
+      const anon = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const team = localStorage.getItem("gffl_team");
+        localStorage.removeItem("gffl_team");
+        localStorage.setItem("gffl_actopen_t", String(Date.now() - 31 * 60 * 1000));
+        await LG.logOpen();
+        localStorage.setItem("gffl_team", team);
+        return true;
+      });
+      docs = (await actDocs(page)) || [];
+      ok(anon === true && docs.length === 3 && docs[2].teamId === null,
+        "an ANONYMOUS device logs its open too, with teamId null (" + JSON.stringify(docs.map((d) => d.teamId)) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BG4: the lineup diff. Hand-written from/to, computed against the stored roster. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clearActs(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("team"));
+      await waitOr(page, ".lrow");
+      // FLEX <-> BENCH, the same swap section E drives: F. Flexman leaves FLEX for the bench and
+      // B. Backup comes off it. Exactly TWO slots changed; nobody else's moved.
+      await clickChildIn(page, ".lrow", ".lswap", "F. Flexman");
+      await waitOr(page, ".swaprow");
+      await evalOr(page, () => { [...document.querySelectorAll(".swaprow")].find((r) => r.textContent.includes("B. Backup")).click(); });
+      await waitFnOr(page, () => {
+        const flex = [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes("FLEX"));
+        return flex && flex.textContent.includes("B. Backup");
+      });
+      let docs = (await actDocs(page)) || [];
+      const lin = docs.find((d) => d.type === "lineup" || d.type === "ir") || {};
+      ok(docs.length === 1 && lin.type === "lineup",
+        "one swap-sheet lineup change writes exactly ONE act, typed \"lineup\" (" + docs.length + "/" + lin.type + ")");
+      const ch = (lin.detail && lin.detail.changes) || [];
+      const byName = Object.fromEntries(ch.map((c) => [c.name, c.from + "->" + c.to]));
+      ok(ch.length === 2, "…carrying exactly TWO changes — one per slot that actually moved (" + ch.length + ")");
+      ok(byName["B. Backup"] === "BENCH->FLEX" && byName["F. Flexman"] === "FLEX->BENCH",
+        "…each with the slot it came from and the slot it went to, hand-written from the fixture (" + JSON.stringify(byName) + ")");
+      ok(ch.every((c) => !!c.key && !!c.name), "…and each names the player twice over, by key and by name (" + JSON.stringify(ch.map((c) => c.key)) + ")");
+      // A move into IR is the SAME gesture with a different meaning, and the dashboard has to
+      // be able to filter for it: I. Injured, ruled Out in the fixture, off the bench onto IR.
+      await clearActs(page);
+      await clickChildIn(page, ".lrow", ".lswap", "I. Injured");
+      await waitOr(page, ".swaprow");
+      await evalOr(page, () => { [...document.querySelectorAll(".swaprow")].find((r) => r.textContent.includes("→ IR")).click(); });
+      await waitFnOr(page, () => document.body.textContent.includes("1/3"));
+      docs = (await actDocs(page)) || [];
+      const irAct = docs[0] || {};
+      ok(docs.length === 1 && irAct.type === "ir",
+        "a change into slot IR is typed \"ir\", not \"lineup\" (" + docs.length + "/" + irAct.type + ")");
+      ok(((irAct.detail || {}).changes || []).length === 1
+        && irAct.detail.changes[0].name === "I. Injured" && irAct.detail.changes[0].from === "BENCH" && irAct.detail.changes[0].to === "IR",
+        "…with the one change it really made (" + JSON.stringify((irAct.detail || {}).changes) + ")");
+      // A tap that moves nobody is a repaint, not an activity.
+      await clearActs(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("team"));
+      await waitOr(page, ".lrow");
+      await evalOr(page, () => window.__GFFL__.UI.renderLocker && window.__GFFL__.UI.renderLocker());
+      await sleep(250);
+      docs = (await actDocs(page)) || [];
+      ok(docs.length === 0, "re-rendering the locker with nothing moved writes NOTHING (" + docs.length + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BG5: the money paths — claims and trades, logged by the engine itself. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      // The 2026-08-17 clock guard refuses any trade touching a player whose game has started,
+      // and this fixture's shared scoreboard has KC and PHI under way — the same rewind section
+      // J makes, for the same reason, scoped to this page.
+      await evalOr(page, () => {
+        const { D } = window.__GFFL__;
+        ["PHI", "KC", "DAL", "DEN"].forEach((ab) => D.S.games.set(ab, { state: "pre", kickoff: "2099-01-01T00:00:00Z" }));
+      });
+      await clearActs(page);
+      const r = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+        const claim = { id: "claim_bg_1", teamId: 1, addKey: "9201", addName: "F. Agent", addPos: "WR", addTeam: "KC",
+          dropKey: "111333", dropName: "B. Backup", bid: 12, t: Date.now() };
+        const added = await LG.addClaim(UI.week, claim);
+        const cancelled = await LG.cancelClaim(UI.week, "claim_bg_1", 1);
+        const off = await LG.offerTrade(1, 2, ["111333"], ["222333"], "");
+        const acc = off.ok ? await LG.acceptTrade(off.trade.id, 2) : null;
+        return { added, cancelled, tradeId: off.ok ? off.trade.id : null, accepted: acc && acc.status };
+      }) || {};
+      const docs = (await actDocs(page)) || [];
+      const byType = Object.fromEntries(docs.map((d) => [d.type, d]));
+      ok(r.added && r.added.ok === true && !!byType.claim_placed,
+        "LG.addClaim logs claim_placed, AFTER the write — a refused claim is not an activity (" + JSON.stringify(Object.keys(byType)) + ")");
+      ok(byType.claim_placed && byType.claim_placed.teamId === 1
+        && byType.claim_placed.detail.addName === "F. Agent" && byType.claim_placed.detail.bid === 12
+        && byType.claim_placed.detail.dropName === "B. Backup",
+        "…with the player added, the player dropped and the bid (" + JSON.stringify(byType.claim_placed && byType.claim_placed.detail) + ")");
+      ok(r.cancelled && r.cancelled.ok === true && !!byType.claim_cancel, "LG.cancelClaim logs claim_cancel");
+      ok(!!r.tradeId && !!byType.trade_offer && byType.trade_offer.teamId === 1,
+        "LG.offerTrade logs trade_offer against the ACTING team (" + (byType.trade_offer && byType.trade_offer.teamId) + ")");
+      ok(byType.trade_offer && byType.trade_offer.detail.tradeId === r.tradeId
+        && byType.trade_offer.detail.from === 1 && byType.trade_offer.detail.to === 2,
+        "…naming the trade and both sides of it (" + JSON.stringify(byType.trade_offer && byType.trade_offer.detail) + ")");
+      ok(byType.trade_offer && byType.trade_offer.detail.give.join() === "B. Backup"
+        && byType.trade_offer.detail.get.join() === "X. Wideout",
+        "…with the roster KEYS resolved to names a sentence can use (" + JSON.stringify(byType.trade_offer && [byType.trade_offer.detail.give, byType.trade_offer.detail.get]) + ")");
+      ok(r.accepted === "accepted" && !!byType.trade_accept && byType.trade_accept.teamId === 2,
+        "LG.acceptTrade logs trade_accept against the team that accepted (" + (byType.trade_accept && byType.trade_accept.teamId) + ")");
+      ok(!byType.trade_counter, "…and no phantom counter: one gesture, one row (" + Object.keys(byType).join(",") + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BG6: the commissioner gate. A typed PIN is an event; an already-unlocked session
+    // is the absence of one. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await clearActs(page);
+      // No auth doc in this fixture, so this is the first-time create path — the suite's own
+      // prompt stub answers "1234".
+      const first = await evalOr(page, () => window.__GFFL__.LG.gateCommish());
+      let docs = (await actDocs(page)) || [];
+      ok(first === true, "the commissioner gate opens on a typed PIN (" + first + ")");
+      ok(docs.filter((d) => d.type === "commish_unlock").length === 1,
+        "…and logs exactly one commish_unlock (" + docs.filter((d) => d.type === "commish_unlock").length + ")");
+      ok(docs.filter((d) => d.type === "commish_pin_set").length === 1,
+        "…plus a commish_pin_set, because this is the moment the league acquired a commissioner (" + docs.filter((d) => d.type === "commish_pin_set").length + ")");
+      ok(docs.every((d) => d.commish === true), "…both flagged commish, since the session is unlocked by the time they are written");
+      const again = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        return [await LG.gateCommish(), await LG.gateCommish()];
+      });
+      docs = (await actDocs(page)) || [];
+      ok(JSON.stringify(again) === "[true,true]" && docs.length === 2,
+        "two more calls on an ALREADY-unlocked session log NOTHING — the early return is not an event, and logging it would put a row in the ledger for every commissioner control pressed all afternoon (" + docs.length + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BG7: the dashboard, against a hand-built mix. ----
+    {
+      // Seven events, and only seven: boot's own logOpen is suppressed by a fresh stamp and the
+      // commissioner session is pre-unlocked, so nothing this page does on the way in can add a
+      // row to the fixture the counts below are computed from.
+      const NOW = Date.now();
+      const mk = (ms, id, o) => [["act_" + (NOW - ms) + "_" + id], { kind: "act", t: NOW - ms, week: 1,
+        teamId: null, actorTeam: null, who: "", commish: false, dev: "win", detail: {}, ...o }];
+      const acts = {};
+      for (const [k, v] of [
+        mk(5 * 3600e3, "a1", { type: "open", teamId: null, who: "" }),                                 // anonymous
+        mk(4 * 3600e3, "a2", { type: "claim_placed", teamId: 5, who: "Sam", detail: { addName: "N. Newman", bid: 7 } }),
+        mk(3 * 3600e3, "a3", { type: "open", teamId: 1, who: "Peter" }),
+        mk(60 * 60e3, "a4", { type: "lineup", teamId: 1, who: "Peter", dev: "ios-pwa",
+          detail: { week: 1, changes: [{ key: "111333", name: "B. Backup", from: "BENCH", to: "FLEX" }] } }),
+        mk(10 * 60e3, "a5", { type: "open", teamId: 1, who: "Peter", dev: "ios-pwa" }),
+      ]) acts[k[0]] = v;
+      const base = fullSeed();
+      const seed = { ...base, docs: { ...base.docs, ...acts,
+        tx_bg_1: { kind: "tx", t: NOW - 2 * 3600e3, week: 1, type: "fa_add", teamId: 1, detail: { addName: "F. Agent" } },
+        chat_bg_1: { kind: "chat", teamId: 1, who: "Peter", text: "anybody want a running back", t: NOW - 90 * 60e3, reactions: {} },
+      } };
+      const { ctx, page, errors } = await newTestPage(browser, seed);
+      await page.evaluateOnNewDocument((t) => {
+        try { localStorage.setItem("gffl_actopen_t", String(t)); } catch (e) {}
+        try { sessionStorage.setItem("gfflCommish", "1"); } catch (e) {}
+      }, NOW);
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await evalOr(page, () => window.__GFFL__.UI.go("activity"));
+      ok(await waitOr(page, ".actgrid"), "the Activity view paints");
+      const stored = (await actDocs(page)) || [];
+      ok(stored.length === 5, "staged: exactly the five act docs the fixture seeded, and no more (" + stored.length + ")");
+      const r = await evalOr(page, () => {
+        const cards = [...document.querySelectorAll(".actcard")].map((c) => ({
+          owner: (c.querySelector(".actowner") || {}).textContent.trim(),
+          team: (c.querySelector(".actteam") || {}).textContent.trim(),
+          seen: (c.querySelector(".actseen") || {}).textContent.replace(/\s+/g, " ").trim(),
+          nums: (c.querySelector(".actnums") || {}).textContent.replace(/\s+/g, " ").trim(),
+          key: c.dataset.actuser,
+        }));
+        return {
+          cards, rows: document.querySelectorAll(".actrow").length,
+          days: document.querySelectorAll(".actday").length,
+          head: (document.querySelector("#actHead") || {}).textContent.replace(/\s+/g, " ").trim(),
+          count: (document.querySelector("#actCount") || {}).textContent.trim(),
+          total: (window.__GFFL__.UI._actEvents || []).length,
+          first: (document.querySelector(".actrow .actbody") || {}).textContent.replace(/\s+/g, " ").trim(),
+          hscroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      }) || {};
+      const cardBy = Object.fromEntries((r.cards || []).map((c) => [c.key, c]));
+      ok(r.total === 7,
+        "the four ledgers merge to SEVEN events — 5 acts + 1 transaction + 1 chat message, hand-counted from the fixture (" + r.total + ")");
+      ok(r.rows === 7, "…and the timeline renders every one of them (" + r.rows + ")");
+      ok(/^7 events/.test(r.head || ""), "…with the header card stating the same total (" + r.head + ")");
+      ok((r.cards || []).length === 9,
+        "nine cards: one per team, plus the No team / anonymous bucket the anonymous open creates (" + (r.cards || []).length + ")");
+      ok(cardBy["1"] && cardBy["1"].nums === "2 opens · 1 lineup · 1 moves · 0 claims · 0 trades · 1 chats",
+        "team 1's counts are hand-computed exactly: 2 opens, 1 lineup, 1 tx move, 1 chat (" + (cardBy["1"] && cardBy["1"].nums) + ")");
+      ok(cardBy["5"] && cardBy["5"].nums === "0 opens · 0 lineup · 0 moves · 1 claims · 0 trades · 0 chats",
+        "team 5's single waiver claim is the only thing on its card (" + (cardBy["5"] && cardBy["5"].nums) + ")");
+      ok(cardBy.none && cardBy.none.nums === "1 opens · 0 lineup · 0 moves · 0 claims · 0 trades · 0 chats"
+        && /No team \/ anonymous/.test(cardBy.none.owner || ""),
+        "…and the anonymous open lands in its own bucket, attributed to nobody (" + JSON.stringify(cardBy.none) + ")");
+      ok(cardBy["2"] && /never/.test(cardBy["2"].seen) && cardBy["2"].nums === "0 opens · 0 lineup · 0 moves · 0 claims · 0 trades · 0 chats",
+        "a team with no events at all reads \"Last seen never\" rather than being left off the grid — an owner who has NOT used it is the finding (" + JSON.stringify(cardBy["2"]) + ")");
+      ok(cardBy["1"] && /10 min ago/.test(cardBy["1"].seen), "team 1 was last seen 10 minutes ago, its newest event (" + (cardBy["1"] && cardBy["1"].seen) + ")");
+      ok(cardBy["5"] && /4 h ago/.test(cardBy["5"].seen), "team 5, four hours ago (" + (cardBy["5"] && cardBy["5"].seen) + ")");
+      ok(cardBy.none && /5 h ago/.test(cardBy.none.seen), "the anonymous device, five (" + (cardBy.none && cardBy.none.seen) + ")");
+      ok(/opened the app/.test(r.first || "") && /Peter/.test(r.first || ""),
+        "the newest row is at the top: team 1's own most recent open (" + r.first + ")");
+      ok(r.days >= 1, "…grouped under at least one day heading (" + r.days + ")");
+      ok(r.hscroll <= 0, "…and the whole view fits a 390px phone with no horizontal scroll (" + r.hscroll + "px overflow)");
+      // The relative-time helper, pinned rather than measured against the wall clock.
+      const rel = await evalOr(page, () => {
+        const f = window.__GFFL__.UI._actRelTime, n = 1000000000000;
+        return [f(n, n), f(n - 30 * 1000, n), f(n - 5 * 60000, n), f(n - 3 * 3600000, n), f(n - 2 * 86400000, n)];
+      });
+      ok(JSON.stringify(rel) === '["just now","just now","5 min ago","3 h ago","2 d ago"]',
+        "the relative-time helper, hand-computed at five pinned instants (" + JSON.stringify(rel) + ")");
+      // The filters, each one counted by hand off the same seven events.
+      const filt = await evalOr(page, async () => {
+        const $ = (s) => document.querySelector(s);
+        const fire = (el, ev) => el.dispatchEvent(new Event(ev, { bubbles: true }));
+        const rows = () => document.querySelectorAll(".actrow").length;
+        const out = {};
+        $("#actUser").value = "5"; fire($("#actUser"), "change"); out.user5 = rows();
+        $("#actUser").value = "all"; fire($("#actUser"), "change"); out.userAll = rows();
+        $("#actType").value = "open"; fire($("#actType"), "change"); out.open = rows();
+        $("#actType").value = "all"; fire($("#actType"), "change");
+        $("#actSearch").value = "F. Agent"; fire($("#actSearch"), "input"); out.search = rows();
+        out.searchCount = ($("#actCount") || {}).textContent.trim();
+        $("#actSearch").value = ""; fire($("#actSearch"), "input");
+        // Week: the chat message and the transaction carry no league week of their own, so a
+        // week filter must not sweep them in.
+        $("#actWeek").value = "1"; fire($("#actWeek"), "change"); out.week1 = rows();
+        $("#actWeek").value = "all"; fire($("#actWeek"), "change"); out.back = rows();
+        return out;
+      }) || {};
+      ok(filt.user5 === 1, "the user filter on team 5 leaves exactly its one claim (" + filt.user5 + ")");
+      ok(filt.userAll === 7, "…and Everyone puts all seven back (" + filt.userAll + ")");
+      ok(filt.open === 3, "the type filter on \"open\" leaves three — two of team 1's and the anonymous one (" + filt.open + ")");
+      ok(filt.search === 1 && /^1 of 7 events$/.test(filt.searchCount || ""),
+        "a search for \"F. Agent\" finds the single transaction sentence that names him (" + filt.search + " · " + filt.searchCount + ")");
+      ok(filt.week1 === 6,
+        "the week filter keeps the six events that state a week and drops the chat message, which belongs to no league week (" + filt.week1 + ")");
+      ok(filt.back === 7, "…and clearing every filter restores all seven (" + filt.back + ")");
+      // Tapping a card is the same gesture as choosing that owner in the select.
+      const tapped = await evalOr(page, async () => {
+        document.querySelector('[data-actuser="5"]').click();
+        await new Promise((r2) => setTimeout(r2, 120));
+        return { rows: document.querySelectorAll(".actrow").length,
+          sel: (document.querySelector("#actUser") || {}).value,
+          on: document.querySelectorAll(".actcard.on").length };
+      }) || {};
+      ok(tapped.rows === 1 && tapped.sel === "5" && tapped.on === 1,
+        "tapping team 5's card filters the timeline to that owner and moves the select with it (" + JSON.stringify(tapped) + ")");
+      await evalOr(page, async () => {
+        document.querySelector('[data-actuser="5"]').click();
+        await new Promise((r2) => setTimeout(r2, 120));
+      });
+      // ⭐ THE PLATE. A suite that goes green on a screen nobody has looked at is how four of the
+      // bugs in these docs shipped.
+      try {
+        fs.mkdirSync(SCRATCH, { recursive: true });
+        await page.screenshot({ path: path.join(SCRATCH, "activity_plate.png"), fullPage: true });
+        console.log("  📸 " + path.join(SCRATCH, "activity_plate.png"));
+      } catch (e) { console.log("  (plate not written: " + e.message + ")"); }
+      // Nothing is fetched at boot — the boot-speed rule, measured rather than asserted by
+      // inspection. The four ledgers are read when the view OPENS and not before.
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BG7b: the boot-speed rule. The league home must not read the act ledger. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      // The nested-setter seam section W already uses for its boot measurements: window.LG is
+      // assigned first, then lg-core assigns LG.db onto it, so a setter on that object's "db"
+      // property catches the real cache layer with no race window — before backendReady's
+      // continuation or UI.boot() can read anything.
+      await page.evaluateOnNewDocument(() => {
+        window.__kinds = [];
+        let realLG = null;
+        Object.defineProperty(window, "LG", {
+          configurable: true,
+          get() { return realLG; },
+          set(v) {
+            realLG = v;
+            if (!v || v.__listHooked) return;
+            v.__listHooked = true;
+            let realDb;
+            Object.defineProperty(v, "db", {
+              configurable: true,
+              get() { return realDb; },
+              set(dbVal) {
+                realDb = dbVal;
+                if (!dbVal || dbVal.__listArmed) return;
+                dbVal.__listArmed = true;
+                const orig = dbVal.list.bind(dbVal);
+                dbVal.list = (kind) => { window.__kinds.push(kind); return orig(kind); };
+              },
+            });
+          },
+        });
+      });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await sleep(400);
+      const kinds = await evalOr(page, () => window.__kinds || []);
+      ok(Array.isArray(kinds) && kinds.length > 0, "the list() recorder is genuinely wired (" + (kinds || []).length + " list reads at boot)");
+      ok(Array.isArray(kinds) && kinds.indexOf("act") < 0,
+        "…and NOT ONE of them is the act ledger: the dashboard's four reads happen on open, never on the paint path (" + JSON.stringify([...new Set(kinds || [])]) + ")");
+      const after = await evalOr(page, async () => {
+        await window.__GFFL__.LG.gateCommish(); // the view reads nothing at all for anyone else
+        window.__GFFL__.UI.go("activity");
+        for (let i = 0; i < 60 && !document.querySelector(".actgrid"); i++) await new Promise((r2) => setTimeout(r2, 100));
+        return (window.__kinds || []).indexOf("act") >= 0;
+      });
+      ok(after === true, "…and it IS read the moment the view is opened (" + after + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BG8: commissioner only. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await evalOr(page, () => { sessionStorage.removeItem("gfflCommish"); window.__GFFL__.UI.go("activity"); });
+      await sleep(400);
+      const r = await evalOr(page, () => ({
+        view: window.__GFFL__.UI.view,
+        text: (document.querySelector("#main") || {}).textContent.replace(/\s+/g, " ").trim(),
+        timeline: document.querySelector("#actTimeline") ? 1 : 0,
+        rowsVisible: [...document.querySelectorAll(".actrow")].filter((e) => e.offsetParent !== null).length,
+        gridsVisible: [...document.querySelectorAll(".actgrid")].filter((e) => e.offsetParent !== null).length,
+        hash: location.hash,
+      })) || {};
+      ok(r.view === "activity", "a non-commissioner who reaches #activity still lands on the view (" + r.view + ")");
+      ok(/Commissioner only\./.test(r.text || ""), "…and is told, in one card: \"Commissioner only.\" (" + String(r.text).slice(0, 60) + ")");
+      ok(r.timeline === 0 && r.rowsVisible === 0 && r.gridsVisible === 0,
+        "…with no timeline and no per-owner grid on the page at all — measured by geometry, not by an attribute (" + JSON.stringify([r.timeline, r.rowsVisible, r.gridsVisible]) + ")");
+      ok(r.hash === "#activity", "…and the URL still describes what is painted (" + r.hash + ")");
+      // …and a reload of that URL survives, exactly as #nflgame does. `&n=` is load-bearing: the
+      // page is ALREADY sitting on this exact URL, and a goto to an identical address is a
+      // same-document navigation that reloads nothing — the state would simply persist and this
+      // check would pass without the hash ever being parsed. (It did, on the first cut.)
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "&n=" + Date.now() + "#activity", { waitUntil: "networkidle0" });
+      await waitFnOr(page, () => window.__GFFL__ && window.__GFFL__.UI.view);
+      await sleep(300);
+      const back = await evalOr(page, () => ({
+        view: window.__GFFL__.UI.view, hash: location.hash,
+        text: (document.querySelector("#main") || {}).textContent.replace(/\s+/g, " ").trim().slice(0, 40),
+      }));
+      ok(back && back.view === "activity" && back.hash === "#activity",
+        "#activity survives a genuine reload — it is a real view in the hash table, not a screen you can only reach by tapping (" + JSON.stringify(back && [back.view, back.hash]) + ")");
+      ok(back && /Activity/.test(back.text || "") && !/Standings|Matchup/.test(back.text || ""),
+        "…and the ACTIVITY screen is what gets painted, not the league home the old hash table would fall back to (" + (back && back.text) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- BG9/BG10: no emoji in the rendered view, and the entry point is commissioner-only. ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await evalOr(page, () => window.__GFFL__.UI.go("rules"));
+      await waitOr(page, "#rulesEdit");
+      const noCom = await evalOr(page, () => {
+        const b = document.querySelector("#activityLog");
+        return { there: !!b, visible: !!b && b.offsetParent !== null };
+      }) || {};
+      ok(noCom.there === true && noCom.visible === false,
+        "the \"Activity log\" button is on the Rules page but INVISIBLE to a non-commissioner — geometry, never the attribute (" + JSON.stringify(noCom) + ")");
+      const yes = await evalOr(page, async () => {
+        await window.__GFFL__.LG.gateCommish();
+        window.__GFFL__.UI.show("rules");
+        await new Promise((r2) => setTimeout(r2, 200));
+        const b = document.querySelector("#activityLog");
+        return { there: !!b, visible: !!b && b.offsetParent !== null, label: b ? b.textContent.trim() : "" };
+      }) || {};
+      ok(yes.there === true && yes.visible === true && yes.label === "Activity log",
+        "…and visible, by that name, once the commissioner has unlocked (" + JSON.stringify(yes) + ")");
+      // Reached through the REAL affordance, not by calling UI.show.
+      await clickIn(page, "#activityLog");
+      ok(await waitOr(page, ".actgrid"), "pressing it opens the dashboard");
+      const nav = await evalOr(page, () => ({
+        view: window.__GFFL__.UI.view,
+        lit: [...document.querySelectorAll(".bnav button.on")].map((b) => b.dataset.v),
+      })) || {};
+      ok(nav.view === "activity", "…as its own view (" + nav.view + ")");
+      ok(Array.isArray(nav.lit) && nav.lit.length === 0,
+        "…and no bottom-nav tab lights up, because Rules — its parent — has not had one since item 16 (" + JSON.stringify(nav.lit) + ")");
+      // The emoji sweep, section U's own method: strip user-typed containers and every team
+      // name by CONTENT, then scan for any Extended_Pictographic character.
+      const sweep = await evalOr(page, () => {
+        const clone = document.body.cloneNode(true);
+        clone.querySelectorAll("input, textarea, option").forEach((el) => el.remove());
+        let txt = clone.textContent || "";
+        for (const n of (window.__GFFL__.LG.teams || []).map((t) => t.name).filter(Boolean)) txt = txt.split(n).join(" ");
+        const m = txt.match(/\p{Extended_Pictographic}/gu) || [];
+        let sample = "";
+        if (m.length) { const i = txt.indexOf(m[0]); sample = txt.slice(Math.max(0, i - 40), i + 40); }
+        return { chars: m, sample };
+      }) || { chars: [] };
+      ok((sweep.chars || []).length === 0,
+        "activity dashboard: 0 pictographic characters in app chrome" + ((sweep.chars || []).length ? " — found " + JSON.stringify(sweep.chars) + ' near "' + sweep.sample + '"' : ""));
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

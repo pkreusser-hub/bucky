@@ -396,6 +396,13 @@
     // already holds the seeded season in its mirror; one that hasn't will run the setup the
     // moment it reconnects.
     if (LG.SIM_2025 && !LG.mirrorOffline && !UI._simSetupDone && await simNeedsSetup()) { renderSimSetup(); return; }
+    // ACTIVITY LEDGER (2026-09-04) — one "open" per device per half hour, written here because
+    // this is the first line at which the league is real AND this device's identity is known.
+    // BEFORE the unclaimed branch below on purpose: a device that has never claimed a team
+    // still logs, with teamId null, and "somebody keeps opening this and never picks a team"
+    // is one of the things the dashboard exists to show. UNAWAITED — nothing on the paint path
+    // may wait for a ledger write (the boot-speed rule), and LG.logOpen cannot reject anyway.
+    LG.logOpen();
     if (!LG.myTeamId() && LG.teams.length) {
       // No claimed team yet — nothing to paint early (renderClaim needs only the teams we
       // just loaded, which is instant), and there's no live view for auto-checks to catch
@@ -655,7 +662,10 @@
   // projections-just-landed repaint — keeps calling UI.show() and correctly leaves history
   // alone. Anything a PERSON did goes through UI.go(). Getting that backwards is what would
   // fill the stack with dozens of dead entries during a live game.
-  const VIEW_HASHES = ["league", "matchup", "team", "moves", "chat", "rules", "bracket", "scores"];
+  // "activity" (2026-09-04) is in here so #activity survives a reload and a Back press, exactly
+  // like every other view. It carries no subject, so — unlike #locker=/#nflgame= — a plain hash
+  // is the whole address and viewFromHash's default table is the right place for it.
+  const VIEW_HASHES = ["league", "matchup", "team", "moves", "chat", "rules", "bracket", "scores", "activity"];
   let navSeq = 0;
   // ---- overlays. ONE sentinel at a time (this app can only ever have one modal up: the player
   // card, the swap sheet, the claim sheet, the chat lightbox — none of them contains a control
@@ -699,7 +709,7 @@
 
   // Every screen that is a real VIEW — i.e. one this history layer may route to. The gate, the
   // claim screen, the outage card and the replay's setup card are NOT in here on purpose.
-  const REAL_VIEWS = ["league", "matchup", "moves", "chat", "rules", "bracket", "scores", "locker", "nflgame"];
+  const REAL_VIEWS = ["league", "matchup", "moves", "chat", "rules", "bracket", "scores", "locker", "nflgame", "activity"];
   // "My Team" is the owner's own locker (merged 2026-08-07) — kept as a distinct nav entry and
   // hash for muscle memory, but there is no separate team view any more. Resolved in ONE place
   // so the navigator, the first paint and a Back press can never disagree about it.
@@ -904,7 +914,12 @@
     // The NFL game view (item 28) is a SUB-VIEW of Scores — it has no nav entry of its own, so
     // the Scores tab stays lit while you're inside a game, the same way the own-locker case
     // keeps "My team" lit above.
-    const navName = name === "nflgame" ? "scores" : name;
+    // …and the Activity dashboard (2026-09-04) is a sub-view of RULES in exactly the same way:
+    // it is reached from the Rules page's commissioner row and has no tab of its own, so Rules
+    // stays lit while you are inside it. Rules itself has no bottom-nav button since item 16,
+    // so nothing lights up — which is correct, and is what "league" would get wrong by lighting
+    // a tab the reader did not press.
+    const navName = name === "nflgame" ? "scores" : (name === "activity" ? "rules" : name);
     document.querySelectorAll(".bnav button").forEach((b) =>
       b.classList.toggle("on", myLocker ? b.dataset.v === "team" : b.dataset.v === navName));
     // Marks which screen main() holds so CSS alone can special-case a view's
@@ -923,6 +938,7 @@
     else if (name === "bracket") renderBracket();
     else if (name === "scores") renderScores();
     else if (name === "nflgame") renderNflGame();
+    else if (name === "activity") renderActivity();
   };
   // Reachable from anywhere a team name is tapped (standings, matchup header,
   // "My locker" on the team page) — plan §4.7 says lockers need no nav entry
@@ -1591,6 +1607,11 @@
       // demands before a permission prompt may fire — enroll right here, unawaited (see the
       // function's own note: never let push delay or block the login it rides in on).
       maybeEnrollPushOnLogin(T, nm);
+      // ACTIVITY LEDGER (2026-09-04) — this PIN entry is the app's only real LOGIN gesture, and
+      // it is the one the commissioner's dashboard needs most: "has anyone ever signed in on a
+      // second device as this team". Unawaited and unthrowable, same posture as the push
+      // enrolment on the line above.
+      LG.logAct("login", tid, { name: nm, returning: true });
       return true;
     }
     const nm = window.prompt("Your name:", LG.who() || T.owner || "");
@@ -1605,6 +1626,10 @@
     // Same gesture, same rule — the first-ever claim on this team is just as much a login as a
     // returning owner's PIN entry above.
     maybeEnrollPushOnLogin(T, nm);
+    // …but a DIFFERENT ledger row: "this team was claimed for the first time" and "somebody
+    // logged in again" are not the same fact, and collapsing them would make the dashboard
+    // unable to say which teams have never been picked up at all.
+    LG.logAct("claim", tid, { name: nm });
     return true;
   }
   UI._claimTeam = claimTeam; // test hook
@@ -2540,10 +2565,12 @@
     $("#finalizeBtn") && $("#finalizeBtn").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       let r = await LG.finalizeWeek(UI.week);
+      let forced = false, backfilled = false; // which escalation the commissioner actually took (ledger detail)
       if (!r.ok && r.reason === "not-final") {
         const n = (r.pending || []).length;
         const msg = "Not every game is final yet (" + n + " starter" + (n === 1 ? "" : "s") + " still live or unresolved). Finalize anyway?";
         if (!window.confirm(msg)) return;
+        forced = true;
         r = await LG.finalizeWeek(UI.week, { force: true });
       }
       // The live board is on a DIFFERENT week — force would only score this week from that
@@ -2553,8 +2580,14 @@
         const wkNote = r.engineWeek ? " (it's showing week " + r.engineWeek + ")" : "";
         if (!window.confirm("Live scoring has already moved on from week " + UI.week + wkNote
           + ". Finalize it from week " + UI.week + "'s own archived stats instead?")) return;
+        backfilled = true;
         r = await LG.finalizeWeek(UI.week, { backfill: true });
       }
+      // ACTIVITY LEDGER (2026-09-04). Logged whichever way it went — a commissioner who TRIED
+      // to finalize and was refused is exactly as interesting as one who succeeded, and the
+      // refusal is what the dashboard is for. `force`/`backfill` say which of the three
+      // escalations above was actually taken.
+      LG.logAct("finalize", LG.myTeamId(), { week: UI.week, force: !!forced, backfill: !!backfilled, ok: !!r.ok, reason: r.ok ? null : r.reason || null });
       if (r.ok) {
         toast("Week " + UI.week + " finalized.");
         await LG.advanceBracket().catch(() => {}); // a playoff week just went final — walk the bracket forward right away
@@ -2568,6 +2601,7 @@
       if (!window.confirm("Finalize week " + w + " from its own archived stat lines? This is permanent.")) return;
       b.disabled = true;
       const r = await LG.finalizeWeek(w, { backfill: true });
+      LG.logAct("finalize", LG.myTeamId(), { week: w, force: false, backfill: true, ok: !!r.ok, reason: r.ok ? null : r.reason || null });
       if (r.ok) {
         toast("Week " + w + " finalized from archived stats.");
         // A playoff week must walk the bracket forward BEFORE the next week is finalized —
@@ -2580,6 +2614,7 @@
     $("#buildBracketBtn") && $("#buildBracketBtn").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       const r = await LG.buildBracket();
+      LG.logAct("bracket_build", LG.myTeamId(), { ok: !!r.ok, reason: r.ok ? null : r.reason || null });
       if (r.ok) { toast("Bracket built."); UI._bracket = null; renderLeague(); }
       else toast("Couldn't build bracket: " + (r.reason === "weeks-not-final" ? "week(s) " + (r.missing || []).join(", ") + " aren't final yet." : reasonLabel(r.reason)));
     });
@@ -5114,7 +5149,11 @@
     }));
     listEl.querySelectorAll(".chatDel").forEach((b) => b.addEventListener("click", async () => {
       const r = await LG.deleteChat(b.dataset.mid, LG.myTeamId(), isCommish());
-      if (r.ok) refreshChatList(idPfx, thread); else toast("Couldn't delete that.");
+      // ACTIVITY LEDGER (2026-09-04) — only when the delete actually landed, and it records the
+      // message ID and whether commissioner authority was used, never the deleted TEXT: a
+      // ledger that quotes deleted messages is not a deletion.
+      if (r.ok) { LG.logAct("chat_delete", LG.myTeamId(), { mid: b.dataset.mid, byCommish: isCommish() }); refreshChatList(idPfx, thread); }
+      else toast("Couldn't delete that.");
     }));
     listEl.querySelectorAll(".chatImg").forEach((img) => img.addEventListener("click", () => openImageOverlay(img.dataset.full)));
     // Player names inside message text (2026-08-11) — scoped to this list, the same narrow-root
@@ -5389,7 +5428,12 @@
       const doc = await LG.loadWeekly(w);
       if (doc && doc.kind === "weekly") continue;
       const r = await LG.finalizeWeek(w);
-      if (r && r.ok) { if (w > sw) await LG.advanceBracket().catch(() => {}); continue; }
+      // ACTIVITY LEDGER (2026-09-04) — ONLY on success. This loop runs on every boot of every
+      // device and re-attempts every unfinalized week, so logging its refusals would write a
+      // row per week per open and drown the ledger it is meant to fill. A successful automatic
+      // finalize happens once per week for the whole league, and it is worth recording that
+      // nobody pressed anything.
+      if (r && r.ok) { LG.logAct("finalize", LG.myTeamId(), { week: w, force: false, backfill: false, ok: true, auto: true }); if (w > sw) await LG.advanceBracket().catch(() => {}); continue; }
       if (r && r.reason === "stale-week") stale.push(w);
     }
     // Same SHAPE staleFinalizeWeeks() produces (plain week numbers) — renderLeague repaints
@@ -5801,6 +5845,10 @@
     $("#mvProcessNow") && $("#mvProcessNow").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       await LG.processWaivers(UI.week);
+      // ACTIVITY LEDGER (2026-09-04) — the MANUAL run only. processWaivers is also reached by
+      // every device's auto-check chain past the deadline, and logging inside the engine would
+      // put a row in the ledger for a Wednesday morning nobody touched.
+      LG.logAct("waivers_run", LG.myTeamId(), { week: UI.week, manual: true });
       toast("Waivers processed.");
       renderMoves();
     });
@@ -6579,6 +6627,7 @@
           <button id="testRostersImport" ${isCommish() && !editing ? "" : "hidden"}>Import 2025 rosters (test run)</button>
           <button id="backupsFill" ${isCommish() && !editing ? "" : "hidden"}>Fill rosters with backups</button>
           <button id="historyImport" ${isCommish() && !editing ? "" : "hidden"}>Import history</button>
+          <button id="activityLog" ${isCommish() && !editing ? "" : "hidden"}>Activity log</button>
         </span></div>
       ${isCommish() && !editing ? `<div class="card mut small">
         <b>Import from ESPN</b> — rules, scoring, and the 8 teams, from the real live league.<br>
@@ -6659,8 +6708,14 @@
       renderRules(true);
     });
     $("#rulesCancel") && $("#rulesCancel").addEventListener("click", () => renderRules(false));
+    // ACTIVITY LEDGER (2026-09-04). Every import is one `import` act carrying WHAT was
+    // imported, rather than seven near-identical types — the dashboard groups by type, and a
+    // type per button would make the type filter useless. Logged after the gate and before the
+    // work: an import that then fails is still a thing the commissioner did, and a run that
+    // hung halfway is exactly what someone reading this log is trying to explain.
     $("#rulesImport") && $("#rulesImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
+      LG.logAct("import", LG.myTeamId(), { what: "rules" });
       try { await importFromEspn(); } catch (e) { importFail(importOut(), "Import failed", e); }
     });
     $("#schedGen") && $("#schedGen").addEventListener("click", async () => {
@@ -6668,31 +6723,340 @@
       const weeks = LG.generateSchedule(LG.teams.map((t) => t.id), LG.rules.seasonWeeks);
       await LG.saveSchedule(weeks);
       schedule = weeks;
+      LG.logAct("sched_gen", LG.myTeamId(), { weeks: weeks.length, teams: LG.teams.length });
       toast("Schedule saved: " + weeks.length + " weeks.");
       renderRules();
     });
     $("#rostersImport") && $("#rostersImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
+      LG.logAct("import", LG.myTeamId(), { what: "rosters" });
       await importRosters();
     });
     $("#draftRostersImport") && $("#draftRostersImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
+      LG.logAct("import", LG.myTeamId(), { what: "draft day rosters" });
       try { await renderDraftImportConfirm(); } catch (e) { importFail(importOut(), "Couldn't read the draft room", e); }
     });
     $("#testRostersImport") && $("#testRostersImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
+      LG.logAct("import", LG.myTeamId(), { what: "2025 test rosters" });
       await importTestRosters();
     });
     $("#backupsFill") && $("#backupsFill").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
+      LG.logAct("import", LG.myTeamId(), { what: "backup-filled rosters" });
       try { await renderBackupFillConfirm(); } catch (e) { importFail(importOut(), "Couldn't read the current rosters", e); }
     });
     $("#historyImport") && $("#historyImport").addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
+      LG.logAct("import", LG.myTeamId(), { what: "history" });
       await importHistory();
     });
+    // The dashboard's entry point (2026-09-04). No bottom-nav entry — it is a sub-view of
+    // Rules, the same posture the NFL game view has under Scores.
+    $("#activityLog") && $("#activityLog").addEventListener("click", () => UI.go("activity"));
     wireSimPhaseCard();
   }
+
+  // ================= THE ACTIVITY DASHBOARD (2026-09-04) =================
+  // "Who is actually using this?" — the question the commissioner asked a week before kickoff,
+  // which the app had no way at all to answer. It is a SUB-VIEW of Rules (no bottom-nav entry,
+  // reached from the commissioner button row) and it is COMMISSIONER-ONLY: a league where every
+  // kid can read a per-owner usage log is a different, worse product.
+  //
+  // ⭐ BOOT-SPEED RULE (the 2026-08-08 pass, restated). NOTHING here is fetched at boot. The
+  // four ledgers this screen merges — acts, transactions, chat, the settings doc's own change
+  // log — are between them the largest read in the app, and the league home already went to
+  // considerable trouble to stop loading two of them up front. They are read HERE, on open, in
+  // parallel, and every one of them is allowed to fail on its own without costing the screen.
+  //
+  // The merge is deliberate rather than a fifth ledger: rules changes have been logged inside
+  // the settings doc since the day the Rules editor was written, and roster moves have had
+  // logTx since 2026-08-08. Writing an `act` for either would double-count them in the one
+  // place where the count is the whole point.
+  const ACT_TZ = "America/Chicago"; // the family's own clock — the same pin every other date on this app carries
+  const actDayKey = (t) => { try { return new Intl.DateTimeFormat("en-CA", { timeZone: ACT_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(t)); } catch (e) { return String(t); } };
+  const actDayLabel = (t) => { try { return new Intl.DateTimeFormat("en-US", { timeZone: ACT_TZ, weekday: "short", month: "short", day: "numeric" }).format(new Date(t)); } catch (e) { return ""; } };
+  const actClock = (t) => { try { return new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: ACT_TZ }); } catch (e) { return ""; } };
+  const actShortDate = (t) => { try { return new Intl.DateTimeFormat("en-US", { timeZone: ACT_TZ, month: "short", day: "numeric" }).format(new Date(t)); } catch (e) { return ""; } };
+  // "just now" / "N min ago" / "N h ago" / "N d ago" / a short date. `now` is a parameter so a
+  // check can pin it — a relative-time helper measured against the wall clock is untestable.
+  function actRelTime(t, now) {
+    if (!(t > 0)) return "never";
+    const d = (now == null ? Date.now() : now) - t;
+    if (d < 0) return "just now";              // a device with a fast clock; never "in -3 min"
+    if (d < 60000) return "just now";
+    if (d < 3600000) return Math.floor(d / 60000) + " min ago";
+    if (d < 86400000) return Math.floor(d / 3600000) + " h ago";
+    if (d < 7 * 86400000) return Math.floor(d / 86400000) + " d ago";
+    return actShortDate(t);
+  }
+  UI._actRelTime = actRelTime; // test hook
+  const actTeamName = (id) => { const t = LG.teamById(id); return (t && t.name) || (id == null ? "" : "Team " + id); };
+  // Plain-English sentences, one per act type. TEXT ONLY — app chrome carries no emoji (house
+  // law), and these lines are app-authored prose with at most a family-chosen name spliced in.
+  // A type with no entry falls through to its own name with the underscores opened out, which
+  // is ugly but never a lie; a missing entry is a bug to fix, not a row to hide.
+  const ACT_SENTENCE = {
+    open: () => "opened the app",
+    login: (d) => "logged in" + (d.name ? " as " + d.name : ""),
+    claim: (d) => "claimed the team" + (d.name ? " as " + d.name : ""),
+    pin_reset: () => "reset the team's owner PIN",
+    commish_unlock: () => "unlocked commissioner tools",
+    commish_pin_set: () => "set the league's commissioner PIN",
+    lineup: (d) => actChangeWords(d),
+    ir: (d) => actChangeWords(d),
+    claim_placed: (d) => "placed a waiver claim for " + (d.addName || d.addKey || "a player")
+      + (d.dropKey || d.dropName ? ", dropping " + (d.dropName || d.dropKey) : "")
+      + (d.bid != null ? ", bid $" + d.bid : ""),
+    claim_cancel: (d) => "cancelled a waiver claim for " + (d.addName || d.addKey || "a player"),
+    trade_offer: (d) => "offered " + actTeamName(d.to) + " a trade: " + actSides(d),
+    trade_counter: (d) => "countered " + actTeamName(d.to) + "'s trade: " + actSides(d),
+    trade_cancel: (d) => "cancelled a trade with " + actTeamName(d.to),
+    trade_decline: (d) => "declined a trade from " + actTeamName(d.from),
+    trade_accept: (d) => "accepted a trade from " + actTeamName(d.from),
+    trade_veto_vote: (d) => "voted to veto a trade between " + actTeamName(d.from) + " and " + actTeamName(d.to)
+      + (d.votes != null && d.needed != null ? " (" + d.votes + " of " + d.needed + ")" : "")
+      + (d.killed ? " — the vote that killed it" : ""),
+    team_edit: (d) => "changed the team's " + ((d.fields || []).join(" and ") || "details"),
+    chat_delete: (d) => "deleted a chat message" + (d.byCommish ? " as commissioner" : ""),
+    finalize: (d) => (d.ok ? "finalized week " + d.week : "tried to finalize week " + d.week + " and was refused"
+      + (d.reason ? " (" + reasonLabel(d.reason) + ")" : ""))
+      + (d.ok && d.auto ? ", automatically" : "") + (d.force ? ", forced" : "") + (d.backfill ? ", from archived stats" : ""),
+    import: (d) => "imported " + (d.what || "data"),
+    sched_gen: (d) => "generated the schedule" + (d.weeks != null ? " (" + d.weeks + " weeks)" : ""),
+    bracket_build: (d) => (d.ok ? "built the playoff bracket" : "tried to build the playoff bracket and was refused"),
+    waivers_run: (d) => "processed waivers for week " + d.week,
+  };
+  function actSides(d) {
+    const gave = (d.give || []).map(LG.shortName).join(", ") || "nobody";
+    const got = (d.get || []).map(LG.shortName).join(", ") || "nobody";
+    return gave + " for " + got;
+  }
+  // "moved Bijan Robinson from BENCH to RB and Kyren Williams from RB to BENCH" — every changed
+  // slot, in the order the diff found them. A lineup act is only ever written when there IS a
+  // change (see persistLineup), so the empty case is a defensive fallback, not a real state.
+  function actChangeWords(d) {
+    const ch = d.changes || [];
+    if (!ch.length) return "changed the lineup";
+    return "moved " + ch.map((c) => (c.name || c.key) + " from " + c.from + " to " + c.to).join(" and ");
+  }
+  function actSentence(a) {
+    const f = ACT_SENTENCE[a.type];
+    try { if (f) return f(a.detail || {}); } catch (e) { /* a malformed detail is not worth a blank screen */ }
+    return String(a.type || "did something").replace(/_/g, " ");
+  }
+  UI._actSentence = actSentence; // test hook
+  // The four sources, merged into ONE row shape. `source` survives the merge because the user
+  // cards count "moves" (the tx ledger) separately from everything else — that column is what
+  // makes a quiet owner distinguishable from an inactive one.
+  function actMergeEvents(acts, tx, chat, rlog) {
+    const out = [];
+    for (const a of acts || []) {
+      out.push({ t: a.t, type: a.type, teamId: a.teamId == null ? null : Number(a.teamId),
+        who: a.who || "", text: actSentence(a), dev: a.dev || "", commish: !!a.commish,
+        week: a.week == null ? null : Number(a.week), source: "act" });
+    }
+    for (const x of tx || []) {
+      out.push({ t: x.t, type: x.type, teamId: x.teamId == null ? null : Number(x.teamId),
+        who: "", text: txSentence(x), dev: "", commish: false,
+        week: x.week == null ? null : Number(x.week), source: "tx" });
+    }
+    for (const m of chat || []) {
+      if (m.sys) continue; // item 15: sys posts are not somebody's activity
+      const body = String(m.text || "").replace(/\s+/g, " ").trim();
+      // A picture-only message has no text at all, so the sentence has to be able to stop after
+      // "posted in chat" rather than trailing a colon with nothing behind it.
+      const snip = body.length > 80 ? body.slice(0, 80) + "…" : body;
+      out.push({ t: m.t, type: "chat", teamId: m.teamId == null ? null : Number(m.teamId),
+        who: m.who || "", text: snip ? "posted in chat: " + snip : "posted in chat",
+        dev: "", commish: false, week: null, source: "chat" });
+    }
+    for (const e of rlog || []) {
+      out.push({ t: e.t, type: "rules", teamId: null, who: e.who || "",
+        text: "changed rules: " + (e.changes || []).join(", "), dev: "", commish: true,
+        week: null, source: "rules" });
+    }
+    return out.sort((a, b) => b.t - a.t);
+  }
+  UI._actMergeEvents = actMergeEvents; // test hook
+  // ONE bucketing rule, shared by the cards and by the user filter, so a card's count and the
+  // rows the same card's tap reveals can never disagree.
+  const actBucket = (e) => (e.teamId == null ? "none" : String(e.teamId));
+  function actCounts(rows) {
+    const c = { opens: 0, lineup: 0, moves: 0, claims: 0, trades: 0, chats: 0, last: 0 };
+    for (const e of rows) {
+      if (e.t > c.last) c.last = e.t;
+      if (e.source === "tx") c.moves++;
+      else if (e.source === "chat") c.chats++;
+      else if (e.type === "open") c.opens++;
+      else if (e.type === "lineup" || e.type === "ir") c.lineup++;
+      else if (/^claim/.test(e.type)) c.claims++;
+      else if (/^trade/.test(e.type)) c.trades++;
+    }
+    return c;
+  }
+  UI._actCounts = actCounts; // test hook
+  UI._actFilter = null; // session-only, never storage: this is a reading position, not a setting
+  UI._actEvents = null;
+  UI._actShown = 100;
+  const ACT_PAGE = 100;
+  function actFilter() {
+    if (!UI._actFilter) UI._actFilter = { user: "all", type: "all", week: "all", q: "" };
+    return UI._actFilter;
+  }
+  function actFiltered() {
+    const f = actFilter();
+    const q = String(f.q || "").trim().toLowerCase();
+    return (UI._actEvents || []).filter((e) => {
+      if (f.user !== "all" && actBucket(e) !== f.user) return false;
+      if (f.type !== "all" && e.type !== f.type) return false;
+      // A week filter compares NUMBERS. `String(e.week) !== f.week` would be right too, but the
+      // null case has to be excluded explicitly — a chat message belongs to no league week, and
+      // "week 3" must not silently mean "week 3 plus everything undated".
+      if (f.week !== "all" && (e.week == null || String(e.week) !== f.week)) return false;
+      if (q && !(e.text + " " + e.who).toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }
+  UI._actFiltered = actFiltered; // test hook
+  async function renderActivity() {
+    if (!isCommish()) {
+      // Same shape the replay card's refusal uses — one card, one sentence, nothing else on the
+      // page. The view is reachable by URL (#activity), so this is a real gate, not decoration.
+      main().innerHTML = `<div class="card"><h2>Activity</h2><p class="mut">Commissioner only.</p></div>`;
+      return;
+    }
+    main().innerHTML = `<div class="card"><h2>Activity</h2><p class="mut">Reading the league's logs…</p></div>`;
+    // Independent reads, run together — four round trips stacked would be four times the wait,
+    // and each is allowed to fail alone rather than taking the screen down with it.
+    // `safe` wraps the CALL as well as the promise: a loader that throws synchronously would
+    // otherwise take the whole Promise.all down with it before it started.
+    const safe = (fn) => Promise.resolve().then(fn).then((v) => v, () => null);
+    // loadRules and loadTeams publish into LG.rulesDoc / LG.teams rather than returning what
+    // this function needs, so their slots are read back below rather than destructured here.
+    const [acts, tx, chat] = await Promise.all([
+      safe(() => LG.loadAct()),
+      safe(() => LG.loadTx()),
+      safe(() => LG.loadAllChat()),
+      safe(() => LG.loadRules()),
+      safe(() => LG.loadTeams()),
+    ]);
+    if (UI.view !== "activity") return; // the reader navigated away while we were reading
+    UI._actEvents = actMergeEvents(acts || [], tx || [], chat || [], (LG.rulesDoc && LG.rulesDoc.log) || []);
+    UI._actShown = ACT_PAGE;
+    paintActivity();
+  }
+  UI.renderActivity = renderActivity;
+  function paintActivity() {
+    const ev = UI._actEvents || [];
+    const f = actFilter();
+    const now = Date.now();
+    const span = ev.length
+      ? actShortDate(ev[ev.length - 1].t) + " – " + actShortDate(ev[0].t)
+      : "nothing yet";
+    // One card per team, plus the unattributed bucket when there is anything in it.
+    const buckets = [
+      ...LG.teams.map((t) => ({ key: String(t.id), team: t })),
+      ...(ev.some((e) => e.teamId == null) ? [{ key: "none", team: null }] : []),
+    ];
+    const cardHtml = buckets.map((b) => {
+      const rows = ev.filter((e) => actBucket(e) === b.key);
+      const c = actCounts(rows);
+      const owner = b.team ? (b.team.claimedBy || b.team.owner || "unclaimed") : "No team / anonymous";
+      const name = b.team ? b.team.name : "not tied to a team";
+      // THREE LINES, not four. With nine of these stacked above it on a 390px screen, every
+      // line a card spends is 9 lines between the reader and the timeline — the team name and
+      // "last seen" share a row for exactly that reason.
+      return `<button type="button" class="actcard${f.user === b.key ? " on" : ""}" data-actuser="${esc(b.key)}">
+        <b class="actowner">${esc(owner)}</b>
+        <span class="actline small"><span class="actteam mut">${esc(name)}</span>
+          <span class="actseen">Last seen ${esc(c.last ? actRelTime(c.last, now) : "never")}</span></span>
+        <span class="actnums mut small">${c.opens} opens · ${c.lineup} lineup · ${c.moves} moves ·
+          ${c.claims} claims · ${c.trades} trades · ${c.chats} chats</span>
+      </button>`;
+    }).join("");
+    const types = [...new Set(ev.map((e) => e.type))].sort();
+    const weeks = [...new Set(ev.map((e) => e.week).filter((w) => w != null))].sort((a, b) => a - b);
+    const userOpts = [`<option value="all">Everyone</option>`,
+      ...LG.teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`),
+      ...(ev.some((e) => e.teamId == null) ? [`<option value="none">No team / anonymous</option>`] : [])]
+      .join("");
+    main().innerHTML = `
+      <div class="card rowline"><h2>Activity</h2>
+        <button id="actBack" class="mut">Back to rules</button></div>
+      <div class="card"><p class="mut small" id="actHead">${ev.length} events · ${esc(span)}</p></div>
+      <div class="actgrid">${cardHtml}</div>
+      <div class="card actfilters">
+        <div class="rowline">
+          <select id="actUser">${userOpts}</select>
+          <select id="actType"><option value="all">All types</option>${types.map((t) => `<option value="${esc(t)}">${esc(String(t).replace(/_/g, " "))}</option>`).join("")}</select>
+          <select id="actWeek"><option value="all">All weeks</option>${weeks.map((w) => `<option value="${w}">Week ${w}</option>`).join("")}</select>
+        </div>
+        <input id="actSearch" placeholder="Search the log…" autocomplete="off" value="${esc(f.q)}">
+        <div class="rowline"><span class="mut small" id="actCount"></span>
+          <button type="button" id="actCopy">Copy as text</button></div>
+      </div>
+      <div class="card"><div id="actTimeline"></div></div>`;
+    $("#actUser").value = f.user; $("#actType").value = f.type; $("#actWeek").value = f.week;
+    $("#actBack").addEventListener("click", () => UI.go("rules"));
+    // The three selects and the search box repaint the TIMELINE ONLY — rebuilding main() on
+    // every keystroke would take the focus out of the search box on the first character typed.
+    $("#actUser").addEventListener("change", (e) => { f.user = e.target.value; UI._actShown = ACT_PAGE; paintActivity(); });
+    $("#actType").addEventListener("change", (e) => { f.type = e.target.value; UI._actShown = ACT_PAGE; paintTimeline(); });
+    $("#actWeek").addEventListener("change", (e) => { f.week = e.target.value; UI._actShown = ACT_PAGE; paintTimeline(); });
+    $("#actSearch").addEventListener("input", (e) => { f.q = e.target.value; UI._actShown = ACT_PAGE; paintTimeline(); });
+    document.querySelectorAll("[data-actuser]").forEach((b) => b.addEventListener("click", () => {
+      // Tapping a card is the same gesture as choosing them in the select, and a second tap on
+      // the card already selected clears it — otherwise the only way back to Everyone is the
+      // select the reader just stopped looking at.
+      f.user = (f.user === b.dataset.actuser) ? "all" : b.dataset.actuser;
+      UI._actShown = ACT_PAGE;
+      paintActivity(); // the cards' own selected state changes, so this one does repaint the page
+    }));
+    $("#actCopy").addEventListener("click", async () => {
+      const lines = actFiltered().map((e) => [actDayLabel(e.t), actClock(e.t), actWho(e), e.text].join("  ")).join("\n");
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(lines); toast("Copied " + actFiltered().length + " lines."); }
+        else toast("This browser won't let the app copy for you.");
+      } catch (err) { toast("Couldn't copy that."); }
+    });
+    paintTimeline();
+  }
+  // Who a row belongs to, in the form the timeline shows: the person's own name when the event
+  // carried one, otherwise the team's. Both, when they differ — "Peter · BK" is what makes a
+  // second device on somebody else's team visible at a glance.
+  function actWho(e) {
+    const t = e.teamId == null ? null : LG.teamById(e.teamId);
+    const ab = t ? (t.abbrev || t.name) : "";
+    const who = e.who || (t ? (t.claimedBy || t.owner || "") : "");
+    if (who && ab) return who + " · " + ab;
+    return who || ab || "anonymous";
+  }
+  function paintTimeline() {
+    const el = $("#actTimeline");
+    if (!el) return;
+    const rows = actFiltered();
+    const shown = rows.slice(0, UI._actShown);
+    const cnt = $("#actCount");
+    if (cnt) cnt.textContent = rows.length + " of " + (UI._actEvents || []).length + " events";
+    let html = "", day = null;
+    for (const e of shown) {
+      const k = actDayKey(e.t);
+      if (k !== day) { day = k; html += `<h2 class="small mut actday">${esc(actDayLabel(e.t))}</h2>`; }
+      html += `<div class="actrow">
+        <span class="acttime mut small">${esc(actClock(e.t))}</span>
+        <span class="actbody"><b class="actrwho">${esc(actWho(e))}</b> ${esc(e.text)}
+          ${e.dev ? `<span class="actdev mut small">${esc(e.dev)}</span>` : ""}
+          ${e.commish ? `<span class="actflag small">commish</span>` : ""}</span>
+      </div>`;
+    }
+    if (!shown.length) html = `<p class="mut">Nothing matches that filter.</p>`;
+    if (rows.length > shown.length) html += `<button type="button" id="actMore" class="mut">Show more (${rows.length - shown.length} left)</button>`;
+    el.innerHTML = html;
+    $("#actMore") && $("#actMore").addEventListener("click", () => { UI._actShown += ACT_PAGE; paintTimeline(); });
+  }
+  UI._paintTimeline = paintTimeline; // test hook
   // ---------------- 2025 replay: which moment of week 1 (2026-08-08) ----------------
   // Commissioner-gated, Rules page, hard reload on switch — the same posture every other
   // reload-y action here already uses (a phase change moves LG.now(), which every cached
@@ -6884,6 +7248,9 @@
       const name = v.trim().slice(0, 60);
       if (!name) return;
       await LG.saveTeam({ teamId: T.id, name }); // delta only — see the claim handler's note
+      // ACTIVITY LEDGER (2026-09-04) — WHICH field changed, never the whole team doc: the
+      // ledger is a record of activity, not a second copy of the league's data.
+      LG.logAct("team_edit", T.id, { fields: ["name"], name });
       await LG.loadTeams();
       UI.openLocker(T.id);
     });
@@ -6894,6 +7261,9 @@
       if (v == null) return;
       const motto = v.trim().slice(0, 80);
       await LG.saveTeam({ teamId: T.id, motto });
+      // The motto TEXT is deliberately not recorded — it is user-typed free text, and the
+      // dashboard is a list of who did what, not a transcript.
+      LG.logAct("team_edit", T.id, { fields: ["motto"] });
       await LG.loadTeams();
       UI.openLocker(T.id);
     });
@@ -6920,13 +7290,19 @@
           // scheme is theirs, and silently repainting the whole app off a re-upload would be
           // the app overruling a deliberate choice. "↺ from logo" is the way back.
           const delta = { teamId: T.id, logoData: dataUrl };
+          // A LOCAL FLAG, not a read of `delta.colors` — section AM3 forbids any
+          // `<something>.colors` read in this file (a render site outside the contrast law is
+          // the one way that whole batch can rot), and the ledger detail below needs the same
+          // fact the assignment already knows.
+          let tookColors = false;
           if (!T.colorsCustom) {
             try {
               const p = await extractPalette(dataUrl);
-              if (p && p.primary) delta.colors = { primary: p.primary, secondary: p.secondary || null, tertiary: p.tertiary || null };
+              if (p && p.primary) { delta.colors = { primary: p.primary, secondary: p.secondary || null, tertiary: p.tertiary || null }; tookColors = true; }
             } catch (e2) { /* keep whatever colours are already on file */ }
           }
           await LG.saveTeam(delta); // DELTA only — never a whole spread team (lg-core's saveTeam note)
+          LG.logAct("team_edit", T.id, { fields: tookColors ? ["logo", "colors"] : ["logo"] });
           await LG.loadTeams();
           toast(T.colorsCustom ? "Logo updated — your colours were kept." : "Logo updated.");
           UI.openLocker(T.id);
@@ -6973,6 +7349,7 @@
         // colorsCustom latches TRUE here and only here — the one place a human hand reaches a
         // colour. Written as part of the same delta so a save can never land half-latched.
         await LG.saveTeam({ teamId: T.id, colors, colorsCustom: true });
+        LG.logAct("team_edit", T.id, { fields: ["colors"], slot: which });
         await LG.loadTeams();
         toast("Team colours saved.");
         UI.openLocker(T.id);
@@ -6990,6 +7367,7 @@
       // FALSE explicitly rather than omitted — saveTeam merges onto the stored doc, so an
       // absent key would leave the old `true` sitting there.
       await LG.saveTeam({ teamId: T.id, colors: { primary: p.primary, secondary: p.secondary || null, tertiary: p.tertiary || null }, colorsCustom: false });
+      LG.logAct("team_edit", T.id, { fields: ["colors"], reset: true });
       await LG.loadTeams();
       toast("Colours re-read from the logo.");
       UI.openLocker(T.id);
@@ -7346,7 +7724,7 @@
     b.addEventListener("click", async () => {
       if (!(await LG.gateCommish())) return;
       if (!window.confirm("Reset the owner PIN for " + (T.name || "this team") + "? Whoever claims it next will set a new one.")) return;
-      try { await LG.clearTeamPin(T.id); await LG.loadTeams(); toast((T.name || "That team") + "'s owner PIN was reset."); }
+      try { await LG.clearTeamPin(T.id); LG.logAct("pin_reset", T.id, { teamId: T.id }); await LG.loadTeams(); toast((T.name || "That team") + "'s owner PIN was reset."); }
       catch (e) { toast("Couldn't reset that PIN."); }
     });
   }
@@ -7479,7 +7857,21 @@
       const fresh = await LG.loadRoster(UI.week, tid, { fresh: true });
       if (!fresh || !fresh.length) { await LG.saveRoster(UI.week, tid, ros); return; }
       const slotBy = new Map(ros.map((p) => [p.key, p.slot]));
+      // ACTIVITY LEDGER (2026-09-04). The DIFF is computed here and nowhere else, because this
+      // is the only place that still holds both sides of it: `fresh` is the roster as the store
+      // has it a moment before the write, and `ros` is this locker's mutated copy. Both doMove
+      // and the swap sheet funnel through here, so one hook covers every lineup gesture.
+      const changes = fresh
+        .filter((p) => slotBy.has(p.key) && slotBy.get(p.key) !== p.slot)
+        .map((p) => ({ key: p.key, name: p.name, from: p.slot, to: slotBy.get(p.key) }));
       await LG.saveRoster(UI.week, tid, fresh.map((p) => (slotBy.has(p.key) ? { ...p, slot: slotBy.get(p.key) } : p)));
+      // NOTHING is logged for a tap that moved nobody — a repaint is not an activity. AFTER the
+      // save, unawaited, and logAct cannot throw: a lineup change must never be lost because
+      // the record of it could not be written.
+      if (changes.length) {
+        const isIr = changes.some((c) => c.from === "IR" || c.to === "IR");
+        LG.logAct(isIr ? "ir" : "lineup", tid, { week: UI.week, changes });
+      }
     }
     async function doMove(p, toSlot) {
       if (toSlot === "IR" && ir.length >= irMax) { toast("IR is full (" + irMax + ")."); return; }
