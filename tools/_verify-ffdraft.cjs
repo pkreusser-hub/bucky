@@ -506,11 +506,51 @@ async function sectionRoom(browser) {
   await hook(page, () => window.__DRAFT__.claimTeam(1));
   await sleep(50);
   d = await D(page);
-  ok(d.teams[0].owner.name === "Paul", "a claimed team can't be stolen");
+  // RESTAGED 2026-09-06: a DIFFERENT name on a different device is still a
+  // steal, and a bare claimTeam() (no takeOver) still refuses it. What changed
+  // is the same person on a second device — that used to hit this same refuse
+  // and they could not pick. Name-match and an explicit takeOver flag are the
+  // new doors; this check pins that they did not become "anyone, one tap".
+  ok(d.teams[0].owner.name === "Paul" && d.teams[0].owner.dev === paulDev,
+    "a claimed team can't be stolen by a different name on a bare claimTeam()");
   ok((await toastText(page)).includes("already claimed"), "…and the thief is told why");
+  // Same person, new device — MUST run while the owner name is still Paul.
+  // After a take-over the name is Mike and this door would not apply.
+  await hook(page, (dev) => window.__DRAFT__.setMe("Paul", dev, ""), "dev-paul-laptop");
+  await hook(page, () => window.__DRAFT__.claimTeam(1));
+  await sleep(50);
+  d = await D(page);
+  ok(d.teams[0].owner.name === "Paul" && d.teams[0].owner.dev === "dev-paul-laptop",
+    "the same owner name on a new device takes the claim in one tap (no takeOver flag)");
+  await hook(page, (dev) => window.__DRAFT__.setMe("Paul", dev, ""), paulDev);
+  await hook(page, () => window.__DRAFT__.claimTeam(1));
+  d = await D(page);
+  ok(d.teams[0].owner.name === "Paul" && d.teams[0].owner.dev === paulDev,
+    "…and moving back onto the original device restores that device as the picker");
+  await hook(page, () => window.__DRAFT__.setMe("Mike", "dev-mike", ""));
+  await hook(page, () => window.__DRAFT__.claimTeam(1, { takeOver: true }));
+  await sleep(50);
+  d = await D(page);
+  ok(d.teams[0].owner && d.teams[0].owner.name === "Mike" && d.teams[0].owner.dev === "dev-mike",
+    "…but an explicit take-over (the UI's second tap) moves the claim to this device");
+  await hook(page, (dev) => {
+    window.__DRAFT__.setMe("Paul", dev, "");
+    return window.__DRAFT__.claimTeam(1, { takeOver: true });
+  }, paulDev);
+  d = await D(page);
+  ok(d.teams[0].owner.name === "Paul" && d.teams[0].owner.dev === paulDev,
+    "take-over the other way puts Paul's original device back before the rest of the room runs");
+  await hook(page, () => window.__DRAFT__.setMe("Mike", "dev-mike", ""));
   await hook(page, () => window.__DRAFT__.releaseTeam(1));
   d = await D(page);
   ok(d.teams[0].owner && d.teams[0].owner.name === "Paul", "nor can someone else release your claim");
+  // take-over is one-team-per-device, so Mike's Goat Kids claim dropped when he
+  // briefly held Battle Kreussers. Put it back so the keeper/clock checks below
+  // still see Mike on team 3, the same as they did before this ruling.
+  await hook(page, () => window.__DRAFT__.claimTeam(3));
+  d = await D(page);
+  ok((d.teams.find((t) => t.id === 3).owner || {}).name === "Mike",
+    "Mike is back on The Goat Kids after the take-over dance");
 
   // --- commish setup controls ---
   await hook(page, (k, dev) => window.__DRAFT__.setMe("Paul", dev, k), ckey, paulDev);
@@ -746,6 +786,25 @@ async function sectionRoom(browser) {
     && document.getElementById("clockStrip").className.includes("mine")
     && /YOUR PICK|Draft Day/.test(document.title)),
     "when the clock becomes yours the strip goes red and the tab title flashes");
+  // RESTAGED 2026-09-06 (live draft): Draft was keyed only to owner.dev, so a
+  // second device that typed the same name saw every Draft button disabled
+  // on their own clock. Name match has to enable the buttons and the clock.
+  await hook(page, () => window.__DRAFT__.setMe("Mike", "dev-mike-laptop", ""));
+  await hook(page, () => window.__DRAFT__.setView("players"));
+  ok(await page.evaluate(() => {
+    const enabled = document.querySelectorAll("#pList .pDraft:not([disabled])").length;
+    const hint = document.getElementById("draftNameHint");
+    return window.__DRAFT__.clockMine() && enabled > 0 && !hint
+      && document.getElementById("clockStrip").className.includes("mine");
+  }), "the same owner name on a new device gets live Draft buttons on their own clock");
+  await hook(page, () => window.__DRAFT__.setMe("NotMike", "dev-stranger", ""));
+  await hook(page, () => window.__DRAFT__.setView("players"));
+  ok(await page.evaluate(() => {
+    const enabled = document.querySelectorAll("#pList .pDraft:not([disabled])").length;
+    const hint = document.getElementById("draftNameHint");
+    return !window.__DRAFT__.clockMine() && enabled === 0 && !!(hint && /Mike/.test(hint.textContent));
+  }), "a different name still has Draft greyed, and is told to type the owner name");
+  await hook(page, () => window.__DRAFT__.setMe("Mike", "dev-mike", ""));
   await clickSafely(page, '#tabs button[data-v="players"]');
   await page.type("#pSearch", "Saquon");
   await page.waitForFunction(() => document.querySelectorAll("#pList .pDraft:not([disabled])").length === 1, { timeout: 3000 });
@@ -1045,6 +1104,46 @@ async function sectionRoom(browser) {
   await hook(page, () => window.__DRAFT__.setMe("Visitor", "dev-visitor", ""));
   ok(await page.evaluate(() => document.querySelectorAll("#claimCard .claimrow").length === 8
     && !!document.getElementById("nameIn")), "an unclaimed visitor still gets the full claim list");
+  // RESTAGED 2026-09-06: a claimed row used to drop That's me, so a second
+  // device had no control to press. The chip stays (who holds it) AND the
+  // button returns.
+  const claimedStillHasBtn = await page.evaluate(() => {
+    const btn = document.querySelector('.claimBtn[data-tid="1"]');
+    const row = btn && btn.closest(".claimrow");
+    return !!(btn && row && /Paul/.test(row.textContent) && btn.textContent.includes("That's me"));
+  });
+  ok(claimedStillHasBtn, "a team claimed on another device still offers That's me (chip + button)");
+  // Guarded: on the pre-fix page the button is absent and a bare clickSafely
+  // crashes the ~150 checks after it. A missing button is a failed check, not
+  // a suite abort (same posture as the 2026-09-02 PIN guards).
+  if (claimedStillHasBtn) {
+    await page.evaluate(() => { const i = document.getElementById("nameIn"); if (i) i.value = "Alex"; });
+    await clickSafely(page, '.claimBtn[data-tid="1"]');
+    d = await D(page);
+    ok(d.teams[0].owner.name === "Paul" && d.teams[0].owner.dev === paulDev,
+      "the first tap on someone else's team only arms Take over? — nothing is written");
+    ok(await page.evaluate(() => {
+      const b = document.querySelector('.claimBtn[data-tid="1"]');
+      return !!(b && b.dataset.armed === "1" && /Take over/.test(b.textContent));
+    }), "…and the button itself reads Take over?");
+    await clickSafely(page, '.claimBtn[data-tid="1"]');
+    await sleep(50);
+    d = await D(page);
+    ok(d.teams[0].owner.name === "Alex" && d.teams[0].owner.dev === "dev-visitor",
+      "the second tap takes the claim onto this device");
+    await hook(page, (dev) => {
+      window.__DRAFT__.setMe("Paul", dev, "");
+      return window.__DRAFT__.claimTeam(1, { takeOver: true });
+    }, paulDev);
+    d = await D(page);
+    ok(d.teams[0].owner.name === "Paul" && d.teams[0].owner.dev === paulDev,
+      "Paul take-over after the UI steal puts the original device back");
+  } else {
+    ok(false, "the first tap on someone else's team only arms Take over? — nothing is written");
+    ok(false, "…and the button itself reads Take over?");
+    ok(false, "the second tap takes the claim onto this device");
+    ok(false, "Paul take-over after the UI steal puts the original device back");
+  }
   ok(await page.evaluate(() => document.getElementById("lgName").textContent.includes("Goat Fantasy Football League")),
     "the header carries the league's chosen name");
   ok(await page.evaluate(() => !!document.getElementById("commishLoginBtn")),
@@ -1105,13 +1204,17 @@ async function sectionRoom(browser) {
   // --- draft-day countdown (pre-draft = visible and ticking toward Sep 6, 3PM CT) ---
   ok(await page.evaluate(() => window.__DRAFT__.draftAt === Date.UTC(2026, 8, 6, 20, 0, 0)),
     "the countdown targets Sunday Sep 6 2026, 3:00 PM CT (20:00 UTC)");
+  // RESTAGED 2026-09-06 (draft day, after 20:00 UTC): the strip correctly
+  // switches to IT'S DRAFT DAY once the pinned moment has passed, so the
+  // September 6 / 3:00 PM CT ticking copy is gone on the real clock. Pin a
+  // future target first — this check is about the labeled countdown, not
+  // whether the suite happens to run before or after 3:00 PM CT.
+  await hook(page, () => window.__DRAFT__.setDraftAt(Date.now() + (2 * 86400 + 3 * 3600 + 4 * 60 + 30) * 1000));
   ok(await page.evaluate(() => {
     const el = document.getElementById("countStrip");
-    const t = el.textContent.replace(/ /g, " ");
+    const t = el.textContent.replace(/\u00a0/g, " ");
     return !el.hidden && t.includes("September 6") && t.includes("3:00 PM CT");
   }), "pre-draft, the header counts down and names the date and time");
-  // Pin the target to a known distance so the segments are assertable (2d 3h 4m + slack).
-  await hook(page, () => window.__DRAFT__.setDraftAt(Date.now() + (2 * 86400 + 3 * 3600 + 4 * 60 + 30) * 1000));
   ok(await page.evaluate(() => {
     const segs = Array.from(document.querySelectorAll("#countStrip .seg"))
       .map((s) => s.querySelector("b").textContent + " " + s.querySelector("small").textContent);

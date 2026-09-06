@@ -6930,3 +6930,35 @@ bottom, no horizontal scroll.
   `listFresh` here would cost a full round trip on every open of a screen that is already the app's
   largest read.
 ---
+
+## ffdraft.html — CLAIM A TEAM FROM A SECOND DEVICE (2026-09-06, draft day)
+
+Owner opens the draft on a new phone or laptop and the team they already claimed is locked:
+"already claimed by Perry", and the claim list hid That's me behind the owner chip. A claim is
+per device token (`owner.dev`); the person is the typed name. Files: `ffdraft.html` +
+`tools/_verify-ffdraft.cjs`.
+
+**THE RULE.** Same typed name (trim, case-insensitive; empty never matches) takes the claim in
+one tap and rewrites `owner.dev` to this device. A different name still refuses a bare
+`claimTeam()` — that is still a steal. The UI keeps That's me on a claimed row; the first tap
+only arms "Take over?" (the room's second-tap confirm, not `window.confirm`, which this page
+already knows is suppressed); the second tap passes `{takeOver:true}`. Commissioner take-over
+stays one tap. One team per device is unchanged. Release is still owner-or-commish.
+
+**AND THE DRAFT BUTTON (same day, live room).** `canPickFor` / `myClockNow` were still
+`owner.dev === me.dev` only, so an owner who opened a second device — even after typing their
+name — had every Draft button disabled on their own clock. Name match now enables pick, the
+clock strip, and the title flash. Typing in Who are you? updates `me.name` on input (no Save
+required). A mismatched name still sees Draft greyed and a hint naming the owner.
+
+**RESTAGED** at the old "can't be stolen" check: it now names the remaining refuse (different
+name, no flag) and pins the two new doors. The visitor claim-list block gained the missing
+button + first-tap-writes-nothing + second-tap-moves-it, then Paul take-over-restores so later
+checks still see his original device.
+
+**VERIFY**: `node tools/_verify-ffdraft.cjs` **326/326**. Bite (app file at HEAD, new suite kept):
+same-name reclaim fails, explicit take-over fails, claimed row has no That's me. Same-name
+Draft-on-a-new-device fails (buttons stay disabled, clock is not mine). The steal-refuse
+and release-refuse checks pass in both worlds. The countdown date-copy check is pinned to a
+future `setDraftAt` so it does not flake after 3:00 PM CT on draft day.
+---

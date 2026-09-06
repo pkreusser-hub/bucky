@@ -361,8 +361,8 @@ input::placeholder{color:#5b6579}
 .rrow .rd{width:34px; color:var(--muted); font-weight:700; font-size:12px; text-align:right; font-variant-numeric:tabular-nums}
 .rrow .pos{width:34px; text-align:center; border-radius:4px; color:#fff; font-size:10px; font-weight:800; padding:3px 0; letter-spacing:.5px}
 .rrow.empty{color:#4b5570; font-style:italic}
-.claimrow{display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed var(--line)}
-.claimrow b{flex:1}
+.claimrow{display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed var(--line); flex-wrap:wrap}
+.claimrow b{flex:1; min-width:8ch}
 .ownchip{background:#1c2e4d; color:#9fc0f0; border-radius:5px; padding:3px 10px; font-size:12px; font-weight:700}
 
 /* ---------- commish ---------- */
@@ -1258,6 +1258,13 @@ body.tv #boothBar .btxt{font-size:16.5px}
     }
     return null;
   }
+  // Same owner, new phone/laptop: compare the typed name, not the device token.
+  // Empty names never match — that would let a nameless tap steal a claim.
+  function sameOwnerName(a, b) {
+    var x = String(a || "").trim().toLowerCase();
+    var y = String(b || "").trim().toLowerCase();
+    return !!x && x === y;
+  }
   function teamById(d, id) {
     for (var i = 0; i < d.teams.length; i++) if (d.teams[i].id === id) return d.teams[i];
     return null;
@@ -1310,7 +1317,14 @@ body.tv #boothBar .btxt{font-size:16.5px}
   function canPickFor(d, teamId) {
     if (isCommish(d)) return true;
     var t = teamById(d, teamId);
-    return !!(t && t.owner && t.owner.dev === me.dev);
+    if (!t || !t.owner) return false;
+    // Same person, new phone/laptop: the claim is stored on a device token,
+    // but Draft was greyed for anyone whose token did not match — even when
+    // they typed the owner name and it was their team's clock. Name match
+    // (the same rule as reclaiming) is enough to pick. Empty names never
+    // match, so a nameless guest cannot draft for a claimed team.
+    if (t.owner.dev === me.dev) return true;
+    return sameOwnerName(t.owner.name, me.name);
   }
 
   // ---------------- keeper costs (the family rule) ----------------
@@ -1442,13 +1456,24 @@ body.tv #boothBar .btxt{font-size:16.5px}
       return doc;
     }, "Draft room created — you're the commissioner.");
   }
-  function claimTeam(teamId) {
+  function claimTeam(teamId, opts) {
     if (!me.name) { toast("Type your name first", true); return; }
+    opts = opts || {};
     return act(function (d) {
       if (!d) throw new Error("No draft room yet");
       var t = teamById(d, teamId);
       if (!t) throw new Error("No such team");
-      if (t.owner && t.owner.dev !== me.dev && !isCommish(d)) {
+      // A claim is per DEVICE, but the owner is a person. Opening the draft on a
+      // second phone used to refuse ("already claimed by Perry") and hide the
+      // button, so the real owner could not pick. Take-over is allowed when:
+      //   · this device already holds it (re-tap / rename)
+      //   · the typed name matches the current owner (same person, new device)
+      //   · the commissioner is doing it
+      //   · the UI confirmed a take-over (second tap — a different name)
+      // A bare claimTeam() from another identity still refuses, so a mis-tap
+      // on a hook or a first tap on someone else's row cannot steal.
+      var taken = !!(t.owner && t.owner.dev !== me.dev);
+      if (taken && !isCommish(d) && !opts.takeOver && !sameOwnerName(t.owner.name, me.name)) {
         throw new Error(t.name + " is already claimed by " + t.owner.name);
       }
       // One team per device — release any previous claim.
@@ -2248,7 +2273,7 @@ body.tv #boothBar .btxt{font-size:16.5px}
     var cur = currentSlot(D);
     if (!cur) return { key: null, mine: false };
     var t = teamById(D, cur.teamId);
-    return { key: cur.key, mine: !!(t && t.owner && t.owner.dev === me.dev) };
+    return { key: cur.key, mine: !!(t && t.owner && (t.owner.dev === me.dev || sameOwnerName(t.owner.name, me.name))) };
   }
   function watchClock() {
     var st = myClockNow();
@@ -3112,6 +3137,13 @@ body.tv #boothBar .btxt{font-size:16.5px}
     var canDraftNow = !!(cur && canPickFor(D, cur.teamId) && !D.paused);
     var lastYr = "’" + String(SEASON - 1).slice(2);
     var h = "";
+    if (D.phase === "live" && cur && !canDraftNow && !D.paused) {
+      var onClock = teamById(D, cur.teamId);
+      if (onClock && onClock.owner && onClock.owner.name) {
+        h += '<p class="mut" id="draftNameHint">On the clock: ' + esc(onClock.name) + " (" +
+          esc(onClock.owner.name) + "). Type that name under Who are you? to draft from this device.</p>";
+      }
+    }
     list.forEach(function (p) {
       var taken = tk[p.pid];
       var bye = playerBye(p);
@@ -3257,14 +3289,15 @@ body.tv #boothBar .btxt{font-size:16.5px}
       ch = '<div class="card"><h2>Who are you?</h2>' +
         '<div class="row"><input type="text" id="nameIn" placeholder="Your name" value="' + esc(me.name) + '" maxlength="24">' +
         '<button class="btn ghost sm" id="nameSave">Save</button></div>' +
-        '<p class="mut">Type your name, then claim your team below.</p>';
+        '<p class="mut">Type your name, then claim your team. Already claimed on your phone? Claim it here too.</p>';
       D.teams.forEach(function (t) {
+        // A claimed team still offers That's me — the owner on a second device
+        // used to see only the chip, with no way to take the claim over.
         ch += '<div class="claimrow"><b>' + esc(t.name) + "</b>" +
           (t.espnOwner ? '<span class="mut">' + esc(t.espnOwner) + "</span>" : "") +
-          (t.owner
-            ? '<span class="ownchip">' + esc(t.owner.name) + "</span>" +
-              (isCommish(D) ? ' <button class="btn ghost sm relBtn" data-tid="' + t.id + '">release</button>' : "")
-            : '<button class="btn sm claimBtn" data-tid="' + t.id + '">That\'s me</button>') +
+          (t.owner ? '<span class="ownchip">' + esc(t.owner.name) + "</span>" : "") +
+          '<button class="btn sm claimBtn" data-tid="' + t.id + '">That\'s me</button>' +
+          (t.owner && isCommish(D) ? ' <button class="btn ghost sm relBtn" data-tid="' + t.id + '">release</button>' : "") +
           "</div>";
       });
       ch += "</div>";
@@ -3281,8 +3314,45 @@ body.tv #boothBar .btxt{font-size:16.5px}
     $("claimCard").innerHTML = ch;
     var ns = $("nameSave");
     if (ns) ns.onclick = function () { setMyName($("nameIn").value); toast("Hi, " + (me.name || "friend") + "!"); renderAll(); };
+    var niLive = $("nameIn");
+    if (niLive) niLive.oninput = function () {
+      // Live draft: typing the owner name must enable Draft without a Save
+      // tap. Assignment (not addEventListener) so each renderTeams replace
+      // does not stack another handler. Re-render only the clock and list
+      // so the input keeps focus.
+      setMyName(niLive.value);
+      renderClock();
+      renderPlayers();
+    };
     document.querySelectorAll(".claimBtn").forEach(function (b) {
-      b.onclick = function () { var ni = $("nameIn"); if (ni) setMyName(ni.value); claimTeam(Number(b.dataset.tid)); };
+      b.onclick = function () {
+        var ni = $("nameIn");
+        if (ni) setMyName(ni.value);
+        var tid = Number(b.dataset.tid);
+        var t = teamById(D, tid);
+        var taken = !!(t && t.owner && t.owner.dev !== me.dev);
+        // Same person (matching name) or the commissioner: one tap. A different
+        // name on a claimed team arms the button — second tap is the take-over
+        // confirm. Native confirm() is suppressed in this room (see armTap).
+        if (!taken || isCommish(D) || sameOwnerName(t.owner.name, me.name)) {
+          claimTeam(tid, taken ? { takeOver: true } : undefined);
+          return;
+        }
+        if (b.dataset.armed === "1") {
+          b.dataset.armed = "";
+          claimTeam(tid, { takeOver: true });
+          return;
+        }
+        b.dataset.armed = "1";
+        b.textContent = "Take over?";
+        b.className = "btn sm claimBtn warn";
+        setTimeout(function () {
+          if (b.dataset.armed !== "1") return;
+          b.dataset.armed = "";
+          b.textContent = "That's me";
+          b.className = "btn sm claimBtn";
+        }, 5000);
+      };
     });
     document.querySelectorAll(".relBtn").forEach(function (b) {
       b.onclick = function () { releaseTeam(Number(b.dataset.tid)); };
