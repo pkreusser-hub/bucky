@@ -7006,3 +7006,17 @@ the phone, after the desktop dashboard, never a movable desk card. One tap runs
 suite kept): **3206/3206** pre-existing still pass; the 9 failures are the new Log out
 placement/click checks, the restaged “last card” checks, and the Empty-swap checks.
 ---
+
+## lg-data.js — NO IDP ON PLAYERS / MOVES (2026-09-07)
+
+Sleeper's directory is the whole NFL. Browse-by-default on Moves therefore listed
+individual defenders (LB, DE, CB, S, …) that cannot start anywhere in this league —
+we only score team D/ST. `D.searchFA` and the Hot pickups strip now keep
+`D.LEAGUE_POS` only: QB, RB, WR, TE, K, DST. A typed search for an IDP name is
+"No matches.", same as a miss. Files: `assets/league/lg-data.js`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3222/3222**. Bite (app files at HEAD, new
+suite kept): **3217/3217** pre-existing still pass; the 5 failures are the IDP
+exclusion checks (browse pool, badges, names, Hot pickups, typed search).
+---

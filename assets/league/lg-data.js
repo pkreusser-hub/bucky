@@ -947,6 +947,14 @@
   // page has something to show before anyone types a letter. A genuinely
   // typed-but-too-short query (1-2 chars) still yields [] — unfiltered
   // substring matching on 1-2 letters is mostly noise.
+  //
+  // THIS LEAGUE DOES NOT USE IDP. Sleeper's directory is the whole NFL, so
+  // without an allowlist the browse table fills with LB/DE/CB/S (and punters,
+  // linemen, …) that cannot start anywhere. Same six positions the roster
+  // chips and TRADE_POS already speak.
+  D.LEAGUE_POS = ["QB", "RB", "WR", "TE", "K", "DST"];
+  D.leaguePos = function (pos) { return pos === "DEF" ? "DST" : pos; };
+  D.isLeaguePos = function (pos) { return D.LEAGUE_POS.includes(D.leaguePos(pos)); };
   D.searchFA = function (q, ownedKeys, opts) {
     if (!D.S.slpPlayers) return null;
     opts = opts || {};
@@ -958,7 +966,8 @@
     const out = [];
     for (const [pid, m] of D.S.slpPlayers) {
       if (!m.name || !m.team) continue;
-      const mpos = m.pos === "DEF" ? "DST" : m.pos;
+      const mpos = D.leaguePos(m.pos);
+      if (!D.LEAGUE_POS.includes(mpos)) continue;
       if (pos && mpos !== pos) continue;
       if (needle && !normName(m.name).includes(needle)) continue;
       // ⭐ THE ROSTER'S OWN KEY WINS (2026-09-02, U-F1) — the same expression both pollers use

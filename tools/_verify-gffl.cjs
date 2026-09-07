@@ -133,6 +133,9 @@ const fixture = {
   injMix: false,   // a spread of injury designations in the Sleeper directory (item 11)
   manyFa: false,   // 60 extra free agents, so the FA table's own 40-row limit is really hit
                    // and "Show more ↓" actually renders (item 12)
+  idp: false,      // four individual defenders (LB/DE/CB/S) at search_rank 1 — the production
+                   // Sleeper directory shape. Armed only by the IDP-exclusion checks so every
+                   // pre-existing "exactly 4 unowned FA" assertion stays honest.
   // Section AC (2026-08-09, the "everything reads 0 / NaN" production bug). When true the
   // Sleeper directory, the archived week-1 stats, the forward projections and the historical
   // slate are all swapped for PRODUCTION-SHAPED ones: real player names, roster keys that are
@@ -1387,6 +1390,17 @@ function slpDirectoryFix() {
     for (let i = 0; i < 60; i++) {
       dir["95" + (100 + i)] = { full_name: "Filler " + String.fromCharCode(65 + (i % 26)) + i, team: "KC", position: pos[i % 5], search_rank: 500 + i };
     }
+  }
+  // 2026-09-07: this league does not use IDP. Armed only when fixture.idp is on so
+  // every pre-existing "4 unowned free agents" check still sees the same directory.
+  // search_rank 1 would put them at the TOP of browse if searchFA did not drop them.
+  if (fixture.idp) {
+    dir = { ...dir,
+      "9301": { full_name: "L. Linebacker", team: "PHI", position: "LB", search_rank: 1 },
+      "9302": { full_name: "D. End", team: "DAL", position: "DE", search_rank: 1 },
+      "9303": { full_name: "C. Corner", team: "KC", position: "CB", search_rank: 1 },
+      "9304": { full_name: "S. Safety", team: "DEN", position: "S", search_rank: 1 },
+    };
   }
   if (fixture.depthCharts) dir = { ...dir, ...depthDirectoryFix() };
   // U-F1 (2026-09-02): the PRODUCTION shape — roughly one in three of the players these rosters
@@ -3432,6 +3446,57 @@ async function openDetails(page, id) {
     ok(errors.length === 0, "0 page errors through the browse/chip/ADD-and-CLAIM flow");
     if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_moves_fa_390.png"), fullPage: true }); console.log("  📸 shots/gffl_moves_fa_390.png"); }
     await ctx.close();
+  }
+  {
+    // I-IDP (2026-09-07): Sleeper's real directory is the whole NFL. This league
+    // only scores team D/ST, so individual defenders must not appear on Moves.
+    // Armed separately so every pre-existing "exactly 4 unowned FA" check still
+    // sees the directory it always did. Hand-computed: four IDP at search_rank 1
+    // plus the same four GFFL free agents — HEAD browse would be 8 and would
+    // lead with Linebacker; the filter keeps 4 and no LB/DE/CB/S badge.
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    fixture.idp = true;
+    fixture.trending = { add: [["9301", 9999], ["9201", 4210]], drop: [["9202", 1180]] };
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await waitOr(page, "#faResults [data-fi]", 9000);
+    const idpBrowse = await evalOr(page, () => {
+      const D = window.__GFFL__.D;
+      const allow = ["QB", "RB", "WR", "TE", "K", "DST"];
+      const owned = new Set();
+      const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+      for (const t of LG.teams) for (const p of ((UI._rosters && UI._rosters[t.id]) || [])) owned.add(p.key);
+      const pool = D.searchFA("", owned, { limit: 200 }) || [];
+      const rows = [...document.querySelectorAll("#faResults [data-fi]")].map((e) => e.textContent.replace(/\s+/g, " ").trim());
+      const badges = [...document.querySelectorAll("#faResults .posbadge")].map((e) => e.textContent.trim());
+      const hot = [...document.querySelectorAll(".hotpick")].map((b) => b.textContent.replace(/\s+/g, " ").trim());
+      return {
+        dirHasLB: !!(D.S.slpPlayers && D.S.slpPlayers.get("9301")),
+        poolN: pool.length,
+        idp: pool.filter((p) => !allow.includes(p.pos)).map((p) => p.pos + " " + p.name),
+        rows, badges, hot,
+      };
+    }) || {};
+    ok(idpBrowse.dirHasLB === true, "staged: the Sleeper directory contains L. Linebacker (LB)");
+    ok(idpBrowse.poolN === 4 && (idpBrowse.idp || []).length === 0,
+      "searchFA still returns only the 4 GFFL-position free agents (" + JSON.stringify({ n: idpBrowse.poolN, idp: idpBrowse.idp }) + ")");
+    ok((idpBrowse.rows || []).length === 4 && (idpBrowse.badges || []).every((p) => ["QB", "RB", "WR", "TE", "K", "DST"].includes(p)),
+      "the Moves table shows those 4 and no IDP badge (" + JSON.stringify(idpBrowse.badges) + ")");
+    ok(!(idpBrowse.rows || []).some((t) => /Linebacker|\. End\b|Corner|Safety/.test(t)),
+      "…and none of the fixture IDP names appear on the browse list");
+    ok(!(idpBrowse.hot || []).some((t) => /Linebacker|\bLB\b/.test(t)),
+      "Hot pickups skips the #1 trending add when he is an IDP (" + (idpBrowse.hot || []).join("|") + ")");
+    await page.$eval("#faSearch", (el) => { el.value = "Linebacker"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+    await waitFnOr(page, () => /No matches/.test((document.querySelector("#faResults") || {}).textContent || ""));
+    ok(/No matches/.test(await text(page, "#faResults")),
+      "searching an IDP name finds nobody — this league does not use individual defenders");
+    ok(errors.length === 0, "0 page errors through the IDP exclusion");
+    await ctx.close();
+    fixture.idp = false;
+    fixture.trending = null;
   }
   {
     // I1: claim → MY PENDING on the claiming device; the other team's own

@@ -1166,7 +1166,8 @@
     for (const t of d.trendingAdds(HOT_PICKUPS_N * 4)) {
       const m = d.S.slpPlayers.get(t.pid);
       if (!m || !m.name || !m.team) continue;
-      const pos = m.pos === "DEF" ? "DST" : m.pos;
+      const pos = d.leaguePos(m.pos);
+      if (!d.isLeaguePos(pos)) continue;
       // The SAME key expression D.searchFA and both pollers use (2026-09-02, U-F1). Sleeper's
       // espn_id is missing for roughly half the directory, so `espn_id || slp_<pid>` minted a
       // key no roster holds for exactly those players — and the owned filter directly below,
