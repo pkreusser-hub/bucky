@@ -2156,6 +2156,13 @@
       ${draftedLine}
     </div>`;
   }
+  function logoutHtml() {
+    if (!LG.myTeamId()) return "";
+    return `<div class="card logoutfoot">
+      <button type="button" id="btnLogout">Log out</button>
+      <p class="mut small">Clears this device so you can claim a different team.</p>
+    </div>`;
+  }
   //  League chat card — the last 6 main-channel messages, collapsed the same way the record
   // book is. Same lazy sentinel as recentMovesHtml above — `chat === undefined` means "not
   // loaded yet".
@@ -2505,7 +2512,7 @@
         el.innerHTML = `${deskBarHtml(lay, editing)}<div class="lgdesk${editing ? " editing" : ""}">
           <div class="lgmain">${colHtml("main")}</div>
           <aside class="lgrail">${colHtml("rail")}</aside>
-        </div>`;
+        </div>${logoutHtml()}`;
         wireDeskLayout();
         if (!lay.hidden.includes("chat")) {
           wireChat("chat", null);
@@ -2551,7 +2558,8 @@
         ${accuracyHtml(UI._accuracy)}
         ${recentChatHtml(UI._recentChat)}
         ${recordBookHtml(UI._recordBook)}
-        ${leagueLinksHtml(LG.rules)}`;
+        ${leagueLinksHtml(LG.rules)}
+        ${logoutHtml()}`;
     }
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       UI.matchup = el.dataset.mu.split("-").map(Number);
@@ -2560,6 +2568,10 @@
     // Item 16: the Rules link routes exactly like the tab did (UI.navTo), which also means it
     // does NOT clear UI.matchup — navTo only does that for the Matchup tab itself.
     $("#lnkRules") && $("#lnkRules").addEventListener("click", () => UI.navTo("rules"));
+    // onclick assignment — desktop live-repaint leaves this footer in place, so a
+    // stacked addEventListener would log the owner out twice (and boot twice).
+    const lo = document.getElementById("btnLogout");
+    if (lo) lo.onclick = () => { LG.clearMyTeam(); toast("Logged out — pick your team."); UI.boot(); };
     $("#recentMovesAll") && $("#recentMovesAll").addEventListener("click", () => UI.go("moves"));
     $("#recentChatOpen") && $("#recentChatOpen").addEventListener("click", () => UI.go("chat"));
     $("#finalizeBtn") && $("#finalizeBtn").addEventListener("click", async () => {
@@ -7623,7 +7635,8 @@
           </div>`;
       rosterHtml = `
         <div class="card"><h2>Lineup — week ${UI.week}</h2><p class="mut small">Tap a player for their stats,
-          Swap to change the lineup, or ${isOwner ? "✕" : "Drop"} to release him. A greyed-out Swap means that game
+          Swap to change the lineup, or pick Empty to bench him and leave the slot open.
+          ${isOwner ? "✕" : "Drop"} to release him. A greyed-out Swap means that game
           has started; you can still drop anyone on your bench, but a player you started waits until waivers clear.</p>
           <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i)).join("")}</div></div>
         <div class="card"><h2>Bench</h2><div id="lockerBench">${bench.length ? bench.map((p, i) => rowHtml("BENCH", p, i)).join("") : '<p class="mut">Empty bench.</p>'}</div></div>
@@ -7827,19 +7840,35 @@
       if (slot === "IR") cands = ros.filter((p) => p.slot !== "IR" && LG.irEligible(LG.injuryOf(p))); /* 2026-09-02, D-S8: through LG.injuryOf (D.injuryFor), the ONE seam — these two read the live row DIRECTLY, and a live row exists only for players who have PLAYED, so the man this rule is about (Out, therefore never on a stat line) always read healthy here while doMove below, which does use the seam, correctly called him eligible: a button the locker refused to offer for a move the engine would have allowed. */
       else if (slot === "BENCH") cands = []; // bench taps: move the player somewhere else via their target slot instead
       else cands = ros.filter((p) => p !== cur && (p.slot === "BENCH" || p.slot === "IR") && LG.slotEligible(p.pos, slot));
+      // A filled slot must be able to become Empty — bench the occupant and leave the
+      // spot open so it can be filled later. Without this, a TE (or K, or DST) with
+      // nobody eligible on the bench saw "Nobody eligible" and could not leave the slot.
+      // Filling an already-empty slot does not offer Empty again.
+      const emptyRow = cur
+        ? `<button type="button" class="swaprow" data-empty="1">
+            <span class="rcwho"><span class="rcwhotxt"><b>Empty</b>
+              <small class="mut">Bench ${escn(cur.name)} and leave this slot open</small></span></span>
+            <span class="rcnum">—</span>
+            <span class="rcnum mut">—</span>
+          </button>`
+        : "";
       openRosterCard(`<div class="pccard rccard">
         <button type="button" class="pcclose" id="rcClose" aria-label="Close">✕</button>
         <div class="pchead"><h2 class="pcname">${esc(slot)}</h2>
           <div class="pcmeta mut">${cur ? "Swap out " + escn(cur.name) : "Fill the slot"}</div></div>
         <h2 class="rcq">Who goes in?</h2>
-        ${cands.length ? rcHeadHtml() : ""}
-        <div class="rclist">${cands.length
+        ${(emptyRow || cands.length) ? rcHeadHtml() : ""}
+        <div class="rclist">${emptyRow}${cands.length
           ? cands.map((p, i) => rcRowHtml(p, `data-ci="${i}"`, { blocked: playerLocked(p) ? "Game started" : "" })).join("")
-          : '<p class="mut">Nobody eligible.</p>'}</div>
+          : (emptyRow ? "" : '<p class="mut">Nobody eligible.</p>')}</div>
         <div class="rcfoot"><button type="button" class="rcghost" data-ci="">Cancel</button></div>
       </div>`);
       // ONE batched percent-owned call per open, then a text-only repaint (never a rebuild).
       ensurePctOwned(cands.map((p) => p.key)).then(paintPctOwned).catch(() => {});
+      $("#rosterCard").querySelectorAll("[data-empty]").forEach((b) => b.addEventListener("click", async () => {
+        closeSwap();
+        await swap(cur, null, slot);
+      }));
       $("#rosterCard").querySelectorAll("[data-ci]").forEach((b) => b.addEventListener("click", async () => {
         closeSwap();
         if (b.dataset.ci === "") return;
@@ -7898,8 +7927,7 @@
       renderLocker();
     }
     async function swap(outP, inP, slot) {
-      if (inP.slot === "IR" && outP == null) { /* leaving IR into a starter slot directly */ }
-      inP.slot = slot;
+      if (inP) inP.slot = slot;
       if (outP) outP.slot = "BENCH";
       await persistLineup();
       await loadWeekRosters();

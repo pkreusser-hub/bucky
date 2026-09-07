@@ -1164,6 +1164,11 @@
   .navlinkbtn .small { font:400 11px var(--font-body); letter-spacing:0; text-transform:none; }
   /* S2's quiet "Drafted ✓" line — appended AFTER the two buttons above, on its own row. */
   .draftedline { flex:1 1 100%; margin:2px 0 0; }
+  /* Device-session footer — last card on league home, after Rules/Draft. Not a
+     desk-layout card: it stays at the page bottom on both widths. */
+  .logoutfoot { text-align:center; }
+  .logoutfoot button { min-height:44px; min-width:140px; }
+  .logoutfoot .small { margin:8px 0 0; }
 
   /* S2: the draft-day card, first on the league home while the draft is still ahead. Centered,
      a little larger than an ordinary card — this is the one thing on the page with a clock

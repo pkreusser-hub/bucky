@@ -6962,3 +6962,47 @@ Draft-on-a-new-device fails (buttons stay disabled, clock is not mine). The stea
 and release-refuse checks pass in both worlds. The countdown date-copy check is pinned to a
 future `setDraftAt` so it does not flake after 3:00 PM CT on draft day.
 ---
+
+## GFFL — 2026 Draft Day rosters imported to week 1 (2026-09-06, after the draft)
+
+The live room `ffdraft_fam2jan2g/draft_2026` finished (`phase: "done"`, 144 picks, 18 × 8, no
+hand-typed `c_*` picks). Week 1 was not finalized (`weekly_2026_w1` 404). The eight
+`roster_2026_w1_t*` stubs were empty arrays. Backup → masked PATCH of `kind`/`week`/`teamId`/
+`players` with CAS → re-read: **18 players on every team, all eight ESPN ids, every D/ST keyed
+`dst_<team>`** (Commanders `WSH` → `dst_WAS`). Slotting is the app's own Draft Day rule —
+starters greedily in round order, everyone else bench. Owners still need to set their own
+lineups (late-round keepers such as Rice, Kelce, Kyren, Chase Brown, Stafford landed on the
+bench because an earlier pick already filled that slot).
+---
+
+## lg-ui.js — SWAP WITH EMPTY (2026-09-06)
+
+A starter whose slot had nobody eligible on the bench (only TE, only K, only DST) saw
+"Nobody eligible" and could not leave the spot open. Swap on a filled slot now offers
+**Empty** first: benches him and leaves the slot vacant so it can be filled later. Filling
+an already-empty slot does not offer Empty again. Locked starters stay locked — Empty is a
+lineup move, same as any other swap. Files: `assets/league/lg-ui.js` + `tools/_verify-gffl.cjs`.
+**VERIFY** with the Log out entry below.
+
+## GFFL — Laws Rule owner PIN reset (2026-09-06)
+
+Sandy could not get back onto Laws Rule (`team_5`). Commissioner reset: backup → masked PATCH
+of `pinHash` to `""` (not deletion — `LG.db.set` merges) with CAS → re-read. `claimedBy` stays
+"Sandy Laws". Next claim on that team is the first-claim flow and sets a new PIN. A device
+that already has `gffl_team=5` still skips that until they tap **Log out**.
+---
+
+## lg-ui.js — LOG OUT at the bottom of league home (2026-09-06)
+
+Owners needed a way off a claimed device so they can pick a different team (or re-claim
+after a PIN reset). League home now ends with a **Log out** card — after Rules/Draft on
+the phone, after the desktop dashboard, never a movable desk card. One tap runs
+`LG.clearMyTeam()` (drops `gffl_team` and `gffl_who` only) and `UI.boot()` back to
+"Who are you?". The league gate and the team's `pinHash` stay put. Files:
+`assets/league/lg-core.js`, `assets/league/lg-ui.js`, `league.html`,
+`tools/_verify-gffl.cjs`.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3215/3215**. Bite (app files at HEAD, new
+suite kept): **3206/3206** pre-existing still pass; the 9 failures are the new Log out
+placement/click checks, the restaged “last card” checks, and the Empty-swap checks.
+---

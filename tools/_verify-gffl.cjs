@@ -2665,6 +2665,48 @@ async function openDetails(page, id) {
       return !e || e.hidden || !e.textContent.trim();
     });
     ok(chipHidden, "a healthy board says nothing — no health chip while both sources are fine");
+    // RESTAGED 2026-09-06 (user: "logout button at the bottom of the league page").
+    // Geometry, not the attribute: a styled card with only `hidden` has shipped
+    // visible here four times. Logout is the last card; Rules/Draft stays above it.
+    const logoutFoot = await page.evaluate(() => {
+      const btn = document.getElementById("btnLogout");
+      const cards = [...document.querySelectorAll("main > .card")];
+      const last = cards[cards.length - 1];
+      const prev = cards[cards.length - 2];
+      return {
+        visible: !!(btn && btn.offsetParent !== null),
+        last: !!(last && last.contains(btn)),
+        linksAbove: !!(prev && prev.querySelector("#lnkRules") && prev.querySelector("#lnkDraft")),
+        text: btn ? btn.textContent.trim() : "",
+        h: btn ? Math.round(btn.getBoundingClientRect().height) : 0,
+      };
+    });
+    ok(logoutFoot.visible && logoutFoot.last && logoutFoot.text === "Log out" && logoutFoot.h >= 44,
+      "Log out is a visible ≥44px control on the last card of league home (" + JSON.stringify(logoutFoot) + ")");
+    ok(logoutFoot.linksAbove, "…directly under the Rules/Draft row");
+    await clickIn(page, "#btnLogout");
+    // waitOr: against HEAD there is no button, so a hard waitForSelector aborts
+    // the suite before later sections can prove they still pass.
+    await waitOr(page, ".teamrow", 9000);
+    const afterOut = await evalOr(page, () => ({
+      rows: document.querySelectorAll(".teamrow").length,
+      team: localStorage.getItem("gffl_team"),
+      who: localStorage.getItem("gffl_who"),
+      gate: localStorage.getItem("gffl_pass"),
+      btn: !!document.getElementById("btnLogout"),
+      // #bnav is position:fixed — offsetParent is always null, so that
+      // geometry tell is worthless here. hidden + computed display is what
+      // hideBnav() actually does (and .bnav[hidden]{display:none} is the
+      // restated UA rule this page already needs).
+      bnav: (() => {
+        const el = document.getElementById("bnav");
+        return !el || !!el.hidden || getComputedStyle(el).display === "none";
+      })(),
+    })) || {};
+    ok(afterOut.rows === 8, "logout returns to the 8-team claim screen");
+    ok(!afterOut.team && !afterOut.who, "…and clears this device's gffl_team and gffl_who");
+    ok(afterOut.gate === "amenfarms", "…without locking the league gate");
+    ok(!afterOut.btn && afterOut.bnav, "…and the logout control is gone with the tab bar");
     ok(errors.length === 0, "0 page errors on league home");
     await ctx.close();
   }
@@ -2887,6 +2929,49 @@ async function openDetails(page, id) {
     // RESTAGED (S10, 2026-08-11): Cancel is the card's footer ghost button now, not a row in
     // the list — dismissing is what is under test, not which element carries it.
     await cancelRosterCard(page);
+    // RESTAGED 2026-09-06: T. Tight is the only TE. His swap sheet used to say
+    // "Nobody eligible" and the slot could not be vacated. Empty benches him so
+    // the spot can be filled later. Fixture: Tight is KC, unlocked (5 locked
+    // starters are PHI/DAL). Hand-computed: no bench TE, so Empty is the only
+    // tappable swap row.
+    await clickChildIn(page, ".lrow", ".lswap", "T. Tight");
+    // waitOr / waitFnOr / evalOr: HEAD's sheet says "Nobody eligible" with no
+    // .swaprow. A hard wait here used to abort the suite before FLEX and later
+    // sections could prove they still pass.
+    await waitOr(page, "#rosterCard", 5000);
+    const emptySheet = await evalOr(page, () => {
+      const rows = [...document.querySelectorAll("#rosterCard .swaprow")].map((r) => r.textContent.replace(/\s+/g, " ").trim());
+      const empty = document.querySelector("#rosterCard [data-empty]");
+      return {
+        rows,
+        hasEmpty: !!(empty && /^Empty\b/.test((empty.textContent || "").replace(/\s+/g, " ").trim())),
+        others: rows.filter((t) => !/^Empty\b/.test(t)),
+      };
+    }) || { rows: [], hasEmpty: false, others: [] };
+    ok(emptySheet.hasEmpty, "a filled slot with nobody eligible still offers Empty");
+    ok(emptySheet.others.length === 0, "…and T. Tight's sheet has no TE on the bench to swap with (" + JSON.stringify(emptySheet.others) + ")");
+    await clickIn(page, "#rosterCard [data-empty]", "Empty");
+    await waitFnOr(page, () => {
+      const te = document.querySelector('.lrow[data-slot="TE"]');
+      return !!(te && te.querySelector(".lswapfill") && /Empty/.test(te.textContent));
+    });
+    const afterEmpty = await evalOr(page, (k) => JSON.parse(localStorage.getItem(k)), LSPFX + "roster_2026_w1_t1") || { players: [] };
+    ok(afterEmpty.players.find((p) => p.name === "T. Tight") && afterEmpty.players.find((p) => p.name === "T. Tight").slot === "BENCH"
+      && afterEmpty.players.every((p) => p.slot !== "TE"),
+      "Empty benches him and leaves the TE slot vacant");
+    await clickIn(page, '.lrow[data-slot="TE"] .lswapfill');
+    await waitOr(page, "#rosterCard .swaprow", 5000);
+    const fillSheet = await evalOr(page, () => ({
+      hasTight: [...document.querySelectorAll("#rosterCard .swaprow")].some((r) => r.textContent.includes("T. Tight")),
+      hasEmpty: !!document.querySelector("#rosterCard [data-empty]"),
+    })) || {};
+    ok(fillSheet.hasTight && !fillSheet.hasEmpty,
+      "the empty slot can be filled later, and filling it does not offer Empty again");
+    await clickIn(page, "#rosterCard .swaprow", "T. Tight");
+    await waitFnOr(page, () => {
+      const te = document.querySelector('.lrow[data-slot="TE"]');
+      return !!(te && te.textContent.includes("T. Tight") && !te.querySelector(".lswapfill"));
+    });
     // FLEX swap: unlocked starter <-> eligible bench.
     await clickChildIn(page, ".lrow", ".lswap", "F. Flexman");
     await page.waitForSelector(".swaprow", { timeout: 5000 });
@@ -18923,7 +19008,12 @@ async function openDetails(page, id) {
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
-    // ---- AV2: the Rules/Draft links row is the LAST card, both widths, with the migration ----
+    // ---- AV2: logout is the LAST card; Rules/Draft closes league chrome above it ----
+    // RESTAGED 2026-09-06 (user: "logout button at the bottom of the league page").
+    // The 2026-08-13 order put Rules/Draft at the bottom of MAIN. Logout is a
+    // device-session footer after that row — not a desk-layout card — so the
+    // old "links is last" rule no longer holds on the phone, and desktop MAIN
+    // still ends with the links card.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -18931,9 +19021,11 @@ async function openDetails(page, id) {
       const phoneLast = await evalOr(page, () => {
         const cards = [...document.querySelectorAll("main > .card")];
         const last = cards[cards.length - 1];
-        return !!(last && last.querySelector("#lnkRules") && last.querySelector("#lnkDraft"));
+        const prev = cards[cards.length - 2];
+        return !!(last && last.querySelector("#btnLogout")
+          && prev && prev.querySelector("#lnkRules") && prev.querySelector("#lnkDraft"));
       });
-      ok(phoneLast === true, "phone league home: the Rules/Draft row is the LAST card on the page");
+      ok(phoneLast === true, "phone league home: Log out is the LAST card; Rules/Draft sits just above it");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -18946,6 +19038,19 @@ async function openDetails(page, id) {
         return { last: mainIds[mainIds.length - 1], ids: mainIds };
       }) || {};
       ok(desk.last === "links", "desktop default: links closes MAIN (" + (desk.ids || []).join(",") + ")");
+      const deskFoot = await evalOr(page, () => {
+        const desk = document.querySelector(".lgdesk");
+        const foot = document.querySelector(".logoutfoot");
+        const btn = document.getElementById("btnLogout");
+        return {
+          afterDesk: !!(desk && foot && desk.nextElementSibling === foot),
+          visible: !!(btn && btn.offsetParent !== null),
+          text: btn ? btn.textContent.trim() : "",
+          h: btn ? Math.round(btn.getBoundingClientRect().height) : 0,
+        };
+      }) || {};
+      ok(deskFoot.afterDesk && deskFoot.visible && deskFoot.text === "Log out" && deskFoot.h >= 44,
+        "desktop: Log out sits after the dashboard, visible and ≥44px (" + JSON.stringify(deskFoot) + ")");
       // THE MIGRATION: a layout saved under the OLD default (countdown, links, …) moves links
       // to the end; a layout where someone DELIBERATELY placed links keeps their choice.
       const mig = await evalOr(page, () => {

@@ -174,6 +174,14 @@
   LG.setWho = (n) => localStorage.setItem(whoKey(), n);
   LG.myTeamId = () => { const v = parseInt(localStorage.getItem(teamKey()) || "", 10); return v >= 1 ? v : null; };
   LG.setMyTeamId = (id) => localStorage.setItem(teamKey(), String(id));
+  // Logout is local-device only: drop the remembered team (and the name that
+  // pre-fills the claim prompt) so the next boot lands on "Who are you?". The
+  // league gate (`gffl_pass`) and the team's pinHash stay put — this is not a
+  // PIN reset, and it is not a league-password lockout.
+  LG.clearMyTeam = () => {
+    localStorage.removeItem(teamKey());
+    localStorage.removeItem(whoKey());
+  };
 
   // THE TYPED GATE PASSWORD IS ITS OWN THING (2026-08-13, user: "change the password to
   // access gffl from amenfarms to thegoatleague"). LG.PASS could NOT simply change with it —
