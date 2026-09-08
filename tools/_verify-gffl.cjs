@@ -23419,6 +23419,29 @@ async function openDetails(page, id) {
     ok(await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8), "cloud: the league home generates week 1's ranking in the background and paints it");
     const cloud = await evalOr(page, () => ({ backend: window.__GFFL__.LG.backendMode, stored: !!(window.__fakeCloud.store.get("aipower_2026_w1") || {}).ranking })) || {};
     ok(cloud.backend === "cloud" && cloud.stored === true && powerCalls() === n0 + 1, "…one Grok call, and the doc is in the cloud store (" + JSON.stringify(cloud) + ", calls " + (powerCalls() - n0) + ")");
+    // RESTAGED/NEW 2026-09-08: a tab that listed aipower while the doc was still missing
+    // cached [] and marked the week's id knownAbsent. get() then returned null forever
+    // (15s list TTL), so the card stayed empty with the ranking sitting in the store.
+    // loadAiPower get()-s first (warm paint stays a cache hit), then getFresh-es the
+    // week's own id when that miss or the cached doc is not current.
+    const hidden = await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+      const id = LG.aiPowerId(2026, 1);
+      const doc = window.__fakeCloud.store.get(id);
+      window.__fakeCloud.store.delete(id);
+      LG.db.clearCache();
+      await LG.db.list("aipower");
+      window.__fakeCloud.store.set(id, doc);
+      const viaGet = await LG.db.get(id);
+      const viaLoad = await LG.loadAiPower(1);
+      UI._aiPower = await LG.loadAiPowerDocs();
+      UI.renderLeague(true);
+      await new Promise((r) => setTimeout(r, 200));
+      const card = document.getElementById("powerCard");
+      return { getNull: viaGet == null, loadN: viaLoad && (viaLoad.ranking || []).length, painted: card ? card.querySelectorAll(".pwrow").length : -1 };
+    }) || {};
+    ok(hidden.getNull === true && hidden.loadN === 8 && hidden.painted === 8,
+      "a cached empty aipower list cannot hide the week's doc — getFresh still paints the eight rows (" + JSON.stringify(hidden) + ")");
     // Week 2 with week 1 NOT final: no generation (the standings would lag). Finalized: it runs.
     // TWO evaluates so the call-count assertion can sit BETWEEN them — a single eval that
     // ran both would already have spent the week-2 call by the time we asked "did early skip".

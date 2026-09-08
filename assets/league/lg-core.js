@@ -4688,12 +4688,23 @@
     });
   };
   LG.loadAiPower = async function (week) {
-    const doc = await LG.db.get(LG.aiPowerId(LG.SEASON, week));
+    // get() first (warm paint stays a cache hit). If that is empty or not current, getFresh
+    // — a cached list("aipower") that ran empty marks every aipower_* id knownAbsent, and
+    // get() then returns null without hitting the server. Caught live 2026-09-08: the
+    // week-1 doc was on file with eight current rows and the card said nothing was.
+    const id = LG.aiPowerId(LG.SEASON, week);
+    let doc = await LG.db.get(id);
+    if (!LG.aiPowerIsCurrent(doc)) doc = await LG.db.getFresh(id);
     return LG.aiPowerIsCurrent(doc) ? doc : null;
   };
   // Every ranking on file this season, newest week first — the card reads [0] and compares
-  // against [1] for last week's overall rank and the movement arrow.
+  // against [1] for last week's overall rank and the movement arrow. The current week (and
+  // last week, for the LW column) are pulled by id first so a stale empty list cannot hide
+  // a doc that is sitting at aipower_<season>_w<week>.
   LG.loadAiPowerDocs = async function () {
+    const week = LG.currentWeek();
+    await LG.loadAiPower(week);
+    if (week > 1) await LG.loadAiPower(week - 1);
     const docs = await LG.db.list("aipower");
     return (docs || []).filter((d) => d && d.season === LG.SEASON && LG.aiPowerIsCurrent(d))
       .sort((a, b) => (b.week || 0) - (a.week || 0));

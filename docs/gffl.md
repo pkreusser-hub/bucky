@@ -7188,3 +7188,27 @@ name the missing table (HEAD's system prompt still asks for blurbs, a leftover
 blurb-only doc still paints, no LW/QB/RB/WR/TE/BN columns, `validateAiPowerReply`
 still accepts a blurb-only reply). App files restored, hashes identical.
 ---
+
+## GFFL — the week's power ranking cannot hide behind an empty list cache (2026-09-08)
+
+Live: Grok 4.6 had already written `aipower_2026_w1` (eight current rows). The card
+still said "Nothing on file yet". First paint listed `aipower` while the cache was
+empty, `knownAbsent` then made every `get(aipower_*)` return null, and
+`ensureAiPower` thought there was nothing to show. `loadAiPower` now `get()`-s first
+(so a second League paint stays a cache hit) and `getFresh`-es the week's own id
+only when that miss or the cached doc is not current. `loadAiPowerDocs` pulls the
+current week (and last week, for the LW column) by id before `list("aipower")`, so
+a stale empty list cannot hide a ranking that is sitting in the store.
+
+Always-`getFresh` on every paint broke the existing warm-cache check (135ms against
+the same 60ms/call fake backend). That check was not restaged — the load path
+changed instead.
+
+Forced a fresh grok-4.6 write on the live week-1 doc the same turn (29s). Elanikan
+Skywalkers #1.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3345/3345**. Bite (`lg-core.js` at HEAD,
+new suite kept): **3344 pass / 1 fail** — the new check: `get()` stayed null and
+the card painted 0 rows with the week-1 doc sitting in the store. App file
+restored, hash identical.
+---
