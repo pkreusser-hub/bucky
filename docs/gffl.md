@@ -7255,3 +7255,27 @@ race / Score / tab checks all fire. One of the 29 is the existing warm-cache
 budget at 136ms (same tight 100ms line as this afternoon; not restaged). App
 files restored, hashes identical.
 ---
+
+## GFFL — a cached yesterday cannot hide today's power ranking (2026-09-08)
+
+Live, same evening as the two-board write: `aipower_2026_w1` was current (week +
+ros, scores, eight teams, Grok 4.6, stamped 22:39 UTC). The card was empty
+anyway. The phone still had this afternoon's `lg-core.js`, whose
+`aiPowerIsCurrent` requires `ranking` to be an array. The two-board doc failed
+that check, `loadAiPowerDocs` returned nothing, and the old validator also
+rejected Grok's new reply so a regenerate could not land.
+
+CDN already had the new file. The browser did not — `league.html` loaded
+`assets/league/lg-*.js` with no query, so yesterday's JS stayed. Script URLs
+now carry `?v=20260908p`. `loadAiPowerDocs` also prefers the week's own
+by-id read over `list("aipower")`, so a leftover one-board row in the list
+cache cannot hide a current get.
+
+Files: `league.html`, `assets/league/lg-core.js`, `tools/_verify-gffl.cjs`,
+`tools/_verify-ffdraft.cjs` (the "league.html loads lg-core.js" check now allows
+the query), this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3351/3351**. Bite (`league.html` +
+`lg-core.js` at HEAD, new suite kept): **3350 pass / 1 fail** — HEAD's script
+tags have no `?v=`. App files restored, hashes identical.
+---

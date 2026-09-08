@@ -461,7 +461,10 @@ function sectionGateStatic() {
   ok(!!pm && !!lgPassM && pm[1] === lgPassM[1] && pm[1] === "thegoatleague",
     "ffdraft's gate password is exactly LG.GATE_PASS (\"thegoatleague\") — one unlock, not two");
   const leagueSrc = fs.readFileSync(path.join(ROOT, "league.html"), "utf8");
-  ok(leagueSrc.includes('src="assets/league/lg-core.js"'),
+  // RESTAGED 2026-09-08 evening: league.html cache-busts lg-core.js (?v=) so a phone that
+  // cached yesterday's file cannot keep a validator that rejects today's ranking. The page
+  // that loads it is still league.html.
+  ok(/src="assets\/league\/lg-core\.js(?:\?[^"]*)?"/.test(leagueSrc),
     "…and league.html is the page that loads lg-core.js — confirmed, not assumed");
 }
 

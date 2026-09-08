@@ -4735,15 +4735,20 @@
   };
   // Every ranking on file this season, newest week first — the card reads [0] and compares
   // against [1] for last week's overall rank and the movement arrow. The current week (and
-  // last week, for the LW column) are pulled by id first so a stale empty list cannot hide
-  // a doc that is sitting at aipower_<season>_w<week>.
+  // last week, for the LW column) are loaded by id first; those docs WIN over list("aipower"),
+  // which can still be holding a leftover one-board row or an empty snapshot from first paint.
   LG.loadAiPowerDocs = async function () {
     const week = LG.currentWeek();
-    await LG.loadAiPower(week);
-    if (week > 1) await LG.loadAiPower(week - 1);
+    const cur = await LG.loadAiPower(week);
+    const prev = week > 1 ? await LG.loadAiPower(week - 1) : null;
     const docs = await LG.db.list("aipower");
-    return (docs || []).filter((d) => d && d.season === LG.SEASON && LG.aiPowerIsCurrent(d))
-      .sort((a, b) => (b.week || 0) - (a.week || 0));
+    const byWeek = new Map();
+    for (const d of docs || []) {
+      if (d && d.season === LG.SEASON && LG.aiPowerIsCurrent(d)) byWeek.set(Number(d.week), d);
+    }
+    if (cur) byWeek.set(Number(cur.week), cur);
+    if (prev) byWeek.set(Number(prev.week), prev);
+    return [...byWeek.values()].sort((a, b) => (b.week || 0) - (a.week || 0));
   };
   const POWER_RETRY_MS = 10 * 60e3;
   let powerInFlight = null, powerFailAt = 0;

@@ -23238,6 +23238,12 @@ async function openDetails(page, id) {
   }
   {
     // ---- TB3: the AI power rankings — the server mode, straight at the handler.
+    // NEW 2026-09-08 evening: a phone that cached yesterday's lg-core.js kept a validator
+    // that rejected the two-board doc sitting in the store, so the card stayed empty. The
+    // script URLs carry a query so that deploy is a new URL.
+    const htmlSrc = fs.readFileSync(path.join(__dirname, "..", "league.html"), "utf8");
+    ok(/src="assets\/league\/lg-core\.js\?v=/.test(htmlSrc) && /src="assets\/league\/lg-ui\.js\?v=/.test(htmlSrc) && /src="assets\/league\/lg-data\.js\?v=/.test(htmlSrc),
+      "league.html cache-busts lg-core / lg-data / lg-ui so a cached yesterday cannot hide today's ranking");
     fixture.powerPoison = null; fixture.powerFenced = false;
     const teams8 = (n) => Array.from({ length: n }, (_, i) => ({ teamId: i + 1, name: "Team " + (i + 1), w: 0, l: 0, t: 0, pf: 0, pa: 0, place: i + 1,
       roster: [{ slot: "QB", name: "Q. Back", pos: "QB", team: "KC" }, { slot: "BN", name: "B. Bench", pos: "RB", team: "DAL", inj: "Q" }] }));
