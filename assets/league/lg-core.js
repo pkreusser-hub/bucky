@@ -873,6 +873,7 @@
     // Adding them is purely the perf shortcut every other kind already gets; nothing else
     // reads this map.
     proj: "proj", awards: "awards",
+    aipower: "aipower", // the weekly Grok power ranking, `aipower_<season>_w<week>` (2026-09-08)
   };
   function kindOf(id) {
     const s = String(id || "");
@@ -4646,5 +4647,122 @@
       }
     })();
     try { return await adjInFlight; } finally { adjInFlight = null; }
+  };
+
+  // ---------------- THE AI POWER RANKINGS (2026-09-08) ----------------
+  // User: "beneath standings lets add Power Ranking, this will calculate each Tuesday and we
+  // should feed all the rosters to Grok 4.6 and ask for an AI ranking of each team considering
+  // their roster and current standings."
+  // ONE DOC PER WEEK, `aipower_<season>_w<week>` (kind "aipower"): {season, week, at, model,
+  // ranking:[{teamId, rank, blurb}], input:{<teamId>:{w,l,t,pf,place}}}. "Each Tuesday" is the
+  // league week itself — LG.currentWeek() rolls over on the Tuesday boundary (SEASON_START is a
+  // Tuesday), so the FIRST device to open the League page in a new week generates that week's
+  // ranking, and every other device adopts it. The doc is written CREATE-ONLY (LG.db.update with
+  // a `cur ? null : doc` mutate — the roster copy-forward's own CAS): two devices racing on a
+  // Tuesday morning produce ONE ranking, and both show it. This matters more here than for the
+  // adjuster, because a model's ranking is not deterministic — last-write-wins would have let
+  // two phones in one house disagree about who is #1.
+  // NOT BEFORE LAST WEEK IS FINAL: from week 2 on, generation waits until week N-1's weekly doc
+  // exists (auto-finalize lands it Tuesday morning once Monday night is official), so the
+  // standings the model weighs include last night's games rather than lagging a week. Until
+  // then the card shows the newest ranking on file. Week 1 has no such gate: rosters only.
+  // CLOUD ONLY (unless forced): a ranking generated into the local fallback store would be
+  // paid for and then lost with the cache. The 2025 replay and a read-only mirror never generate.
+  LG.aiPowerId = (season, week) => `aipower_${season}_w${week}`;
+  LG.loadAiPower = async function (week) {
+    const doc = await LG.db.get(LG.aiPowerId(LG.SEASON, week));
+    return doc && doc.kind === "aipower" && Array.isArray(doc.ranking) ? doc : null;
+  };
+  // Every ranking on file this season, newest week first — the card reads [0] and compares
+  // against [1] for its movement arrows.
+  LG.loadAiPowerDocs = async function () {
+    const docs = await LG.db.list("aipower");
+    return (docs || []).filter((d) => d && d.kind === "aipower" && d.season === LG.SEASON && Array.isArray(d.ranking))
+      .sort((a, b) => (b.week || 0) - (a.week || 0));
+  };
+  const POWER_RETRY_MS = 10 * 60e3;
+  let powerInFlight = null, powerFailAt = 0;
+  // Validates a model reply against the teams we sent: every team exactly once, ranks a clean
+  // 1..N. Returns the ranking sorted by rank, or null. Exported for the suite.
+  LG.validateAiPowerReply = function (text, teamIds) {
+    let obj = null;
+    const raw = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    try { obj = JSON.parse(raw); } catch (e) { return null; }
+    const arr = obj && Array.isArray(obj.ranking) ? obj.ranking : (Array.isArray(obj) ? obj : null);
+    if (!arr) return null;
+    const want = new Set(teamIds.map(Number));
+    const seen = new Set(), ranks = new Set();
+    const out = [];
+    for (const r of arr) {
+      const id = Number(r && r.teamId), rank = Number(r && r.rank);
+      if (!want.has(id) || seen.has(id) || !Number.isInteger(rank) || rank < 1 || rank > want.size || ranks.has(rank)) return null;
+      seen.add(id); ranks.add(rank);
+      out.push({ teamId: id, rank, blurb: String((r && r.blurb) || "").replace(/\s+/g, " ").trim().slice(0, 240) });
+    }
+    if (seen.size !== want.size) return null;
+    return out.sort((a, b) => a.rank - b.rank);
+  };
+  LG.ensureAiPower = async function (opts) {
+    const force = !!(opts && opts.force);
+    if (LG.SIM_2025 || LG.mirrorOffline) return null;
+    if (powerInFlight) return powerInFlight;
+    powerInFlight = (async () => {
+      const week = LG.currentWeek();
+      const existing = await LG.loadAiPower(week);
+      if (existing && !force) return existing;
+      if (!force && LG.backendMode !== "cloud") return null;
+      if (!force && Date.now() - powerFailAt < POWER_RETRY_MS) return null;
+      if (!force && week > 1 && !(await LG.loadWeekly(week - 1))) return null; // last week not final yet — see the note above
+      try {
+        const D = LG.data;
+        const st = await LG.loadStandings();
+        const teams = [...LG.teams].sort((a, b) => {
+          const A = st[a.id] || { w: 0, pf: 0 }, B = st[b.id] || { w: 0, pf: 0 };
+          return (B.w - A.w) || (B.pf - A.pf);
+        });
+        const input = {};
+        const payload = [];
+        for (let i = 0; i < teams.length; i++) {
+          const t = teams[i];
+          const s = st[t.id] || { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
+          const ros = await LG.ensureRoster(week, t.id).catch(() => null);
+          const roster = (ros || []).map((p) => {
+            const meta = (D && D.metaForKey && D.metaForKey(p.key)) || {};
+            const row = {
+              slot: p.slot === "BENCH" ? "BN" : String(p.slot || ""),
+              name: LG.shortName(p.name || meta.name || String(p.key)),
+              pos: D && D.leaguePos ? D.leaguePos(p.pos || meta.pos || "") : (p.pos || meta.pos || ""),
+              team: p.team || meta.team || "",
+            };
+            const inj = LG.injLabel ? LG.injLabel(meta.injury || p.injury || "") : "";
+            if (inj) row.inj = inj;
+            return row;
+          });
+          input[t.id] = { w: s.w, l: s.l, t: s.t, pf: Math.round(s.pf * 10) / 10, place: i + 1 };
+          const row = { teamId: t.id, name: t.name, w: s.w, l: s.l, t: s.t, pf: Math.round(s.pf * 10) / 10, pa: Math.round(s.pa * 10) / 10, place: i + 1, roster };
+          const owner = t.claimedBy || t.owner;
+          if (owner) row.owner = String(owner);
+          payload.push(row);
+        }
+        if (payload.length < 3) throw new Error("not-a-league");
+        const r = await fetch("/.netlify/functions/farmgpt", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ secret: LG.PASS, mode: "gfflpower", power: { week, teams: payload } }),
+        });
+        if (!r.ok) throw new Error("http-" + r.status);
+        const ranking = LG.validateAiPowerReply(await r.text(), teams.map((t) => t.id));
+        if (!ranking) throw new Error("bad-ranking");
+        const doc = { kind: "aipower", season: LG.SEASON, week, at: Date.now(), model: "grok-4.6", ranking, input };
+        const id = LG.aiPowerId(LG.SEASON, week);
+        if (force) { await LG.db.set(id, doc); powerFailAt = 0; return doc; }
+        const w = await LG.db.update(id, (cur) => (cur ? null : doc));
+        powerFailAt = 0;
+        return w.ok ? w.doc : (w.doc || doc); // lost the race → theirs is the ranking of record
+      } catch (e) {
+        powerFailAt = Date.now();
+        return existing || null;
+      }
+    })();
+    try { return await powerInFlight; } finally { powerInFlight = null; }
   };
 })();

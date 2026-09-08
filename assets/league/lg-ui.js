@@ -594,7 +594,7 @@
     };
     // Quiet repaint after a background (cloud-only) list() refresh notices new data — reruns
     // the current view's own full render, which now paints from the just-updated cache.
-    LG.db.onChange = () => UI.quietRepaint();
+    LG.db.onChange = (kind) => UI.quietRepaint(kind); // the kind gates the locker — see quietRepaint
     d.start();
   }
   // 2025 SEASON REPLAY only — the "repaint once it lands" idiom the real league already uses
@@ -871,12 +871,33 @@
     UI.quietRepaint();
   }
   UI._drainQuietRepaint = drainQuietRepaint; // test hook
-  UI.quietRepaint = function () {
+  // ⭐ THE LOCKER ONLY REPAINTS FOR ITS OWN DATA, AND IN PLACE (2026-09-08). User: "that page
+  // is refreshing on its own for some reason on mobile". Diagnosis: renderLocker reads the
+  // CHAT list (the team wall), the tx list and the weekly list, so LG.db's ~15s background
+  // refresh noticed every message anyone in the league posted — the busiest list in the app
+  // on a game day — and this function answered with UI.show("locker"): a FULL renderLocker,
+  // which wipes main() to "Loading locker…" and lands the reader back at the top of the page.
+  // "Neither locker nor Moves is live-repainted" (the note above) was true of the poll seam and
+  // false of this one. Two rules now: (1) the locker repaints only for a change of KIND
+  // "roster" or "team" — the two docs whose change it exists to show (a waiver landing, a
+  // rename, a new crest); chat/tx/weekly/claims changes are ignored here (the wall and the
+  // moves list refresh on the next visit, as they always did); (2) the repaint is IN PLACE —
+  // renderLocker skips its loading wipe when the same team is already painted, and the scroll
+  // position is put back. A kind-less call (ensureAdjustedProj's projections-landed repaint,
+  // the reconnect seam, the drains above) still repaints — those are the locker's own data too.
+  const LOCKER_REPAINT_KINDS = new Set(["roster", "team"]);
+  UI.quietRepaint = function (kind) {
     if (!UI.view) return;
     if (UI.view === "nflgame") return;
+    if (UI.view === "locker" && kind && !LOCKER_REPAINT_KINDS.has(kind)) return;
     if (UI._overlayOpen() || lockerInteractionBusy()) { UI._quietRepaintPending = true; return; }
     if (UI.view === "matchup") {
       loadWeekRosters().then(() => { if (UI.view === "matchup") renderMatchup(true); }).catch(() => {});
+      return;
+    }
+    if (UI.view === "locker") {
+      const y = window.scrollY;
+      renderLocker().then(() => { if (UI.view === "locker") window.scrollTo(0, y); }).catch(() => {});
       return;
     }
     UI.show(UI.view);
@@ -1732,27 +1753,62 @@
       try { await importFromEspn(); } catch (e) { importFail(importOut(), "Import failed", e); }
     });
   }
-  //  Power rankings card (plan §4.9): the LATEST finalized week's snapshot, ordered by rank,
-  // with a movement arrow against the PRIOR finalized week's own snapshot for the same team
-  // (blank on week 1 — nothing to move against). Renders nothing at all until at least one week
-  // is official — a ranking of an unplayed season would be meaningless.
-  // MOBILE ONLY since the desktop design pass (2026-08-11): on a desktop the rank is a column
-  // in the standings table (PWR), so a whole second card restating the same order is redundant
-  // chrome. The computation moved to LG.powerRanking() so the card and that column read from
-  // ONE list and can never disagree.
-  function powerRankingsHtml(weeklyDocs) {
-    const pr = LG.powerRanking(weeklyDocs);
-    if (!pr) return "";
-    const rows = pr.rows.map((r) => {
+  // The FORMULA power-rankings card (plan §4.9 — the finalize engine's own per-week score, mobile
+  // only since 2026-08-11) was REMOVED on 2026-09-08 in favour of the AI card below: two cards
+  // both titled "Power rankings" disagreeing on the same page is worse than either alone. The
+  // formula itself lives on — LG.powerRanking() still feeds the desktop standings' PWR column.
+  // ---------------- THE AI POWER RANKINGS CARD (2026-09-08) ----------------
+  // User: "beneath standings lets add Power Ranking … feed all the rosters to Grok 4.6 and ask
+  // for an AI ranking of each team considering their roster and current standings." Renders the
+  // newest `aipower` doc on file (LG.loadAiPowerDocs — newest week first): rank · crest · team ·
+  // record · movement against the PRIOR week's AI ranking · the model's one-line blurb. It
+  // SUPERSEDES the formula card above on the phone (powerRankingsHtml — the finalize engine's
+  // own score, which only ever rendered after a finalized week); that formula still feeds the
+  // desktop standings table's PWR column, so LG.powerRanking stays. With nothing on file the
+  // card still paints, saying what will happen — the standings-sorted phone page has a fixed
+  // slot for it and a card that appears from nowhere on Tuesday would be a surprise.
+  function aiPowerHtml(docs) {
+    const list = Array.isArray(docs) ? docs : [];
+    const cur = list[0] || null;
+    if (!cur) {
+      return `<div class="card powercard" id="powerCard"><h2>Power rankings</h2>
+        <p class="mut small">Grok ranks every roster each Tuesday, weighing the lineups and the standings. Nothing on file yet.</p></div>`;
+    }
+    const prev = list.find((d) => d.week === cur.week - 1) || null;
+    const prevRank = (id) => { if (!prev) return null; const r = prev.ranking.find((x) => Number(x.teamId) === Number(id)); return r ? r.rank : null; };
+    const rows = [...cur.ranking].sort((a, b) => a.rank - b.rank).map((r) => {
       const T = LG.teamById(r.teamId);
-      const move = r.prevRank == null ? '<span class="mut">–</span>'
-        : r.prevRank > r.rank ? `<span class="delta up">▲${r.prevRank - r.rank}</span>`
-        : r.prevRank < r.rank ? `<span class="delta down">▼${r.rank - r.prevRank}</span>`
+      if (!T) return "";
+      const st = (cur.input || {})[r.teamId] || {};
+      const rec = st.w != null ? `${st.w}-${st.l}${st.t ? "-" + st.t : ""}` : "";
+      const pr = prevRank(r.teamId);
+      const move = pr == null ? '<span class="mut">–</span>'
+        : pr > r.rank ? `<span class="delta up">▲${pr - r.rank}</span>`
+        : pr < r.rank ? `<span class="delta down">▼${r.rank - pr}</span>`
         : '<span class="mut">–</span>';
-      return `<div class="rowline"><span>#${r.rank} <span class="teamlink" data-locker="${r.teamId}">${logoTd(T)}${teamNameHtml(T)}</span></span>
-        <span>${move} <span class="mut small">${r.score}</span></span></div>`;
+      return `<div class="pwrow${T.id === LG.myTeamId() ? " mine" : ""}" data-team="${T.id}">
+        <span class="pwrank">${r.rank}</span>
+        <span class="pwteam teamlink" data-locker="${T.id}">${crestHtml(T, "tmini")}<span class="pwname">${teamNameHtml(T)}</span>${rec ? `<span class="pwrec mut">${esc(rec)}</span>` : ""}</span>
+        <span class="pwmove">${move}</span>
+        ${r.blurb ? `<p class="pwblurb">${esc(r.blurb)}</p>` : ""}
+      </div>`;
     }).join("");
-    return `<div class="card"><h2>Power rankings <span class="mut">— through week ${pr.week}</span></h2>${rows}</div>`;
+    const when = cur.at ? new Date(cur.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    return `<div class="card powercard" id="powerCard"><h2>Power rankings <span class="mut">— week ${cur.week}</span></h2>
+      <div class="pwrows">${rows}</div>
+      <p class="mut small pwfoot">Ranked by Grok from every roster and the standings${when ? ", " + esc(when) : ""}. Re-ranks each Tuesday.</p></div>`;
+  }
+  // Fires the week's generation (LG.ensureAiPower — adopt-first, create-only, cloud-only) after
+  // the league home has painted, and repaints the card in place if a NEW ranking came back.
+  // Detached: the page never waits on the model. Same shape as ensureAdjustedProj's boot hook.
+  function refreshAiPower() {
+    LG.ensureAiPower().then(async (doc) => {
+      if (!doc || UI.view !== "league") return;
+      const shown = (UI._aiPower || [])[0];
+      if (shown && shown.week === doc.week && shown.at === doc.at) return;
+      UI._aiPower = await LG.loadAiPowerDocs();
+      if (UI.view === "league") renderLeague(true);
+    }).catch(() => {});
   }
   // ---------------- standings (2026-08-11 desktop pass) ----------------
   // ONE builder, two shapes. MOBILE is byte-for-byte what it always was — # / Team / W / L /
@@ -1854,7 +1910,7 @@
   function deskMovesHtml(tx) {
     const recent = (tx || []).slice(0, 14); // 8 → 14 (2026-08-11 rail balance)
     return `<div class="card movespanel"><h2>Recent moves</h2>
-      ${recent.length ? recent.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${esc(txSentence(t))}</div>`).join("")
+      ${recent.length ? recent.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${txSentenceHtml(t)}</div>`).join("")
         : '<p class="mut">No moves yet.</p>'}
       <button id="recentMovesAll" class="mut">View all →</button></div>`;
   }
@@ -1880,11 +1936,14 @@
   const DESK_LAYOUT_KEY = "gffl_desklayout";
   // 2026-08-13 (user): the Rules/Draft links row moved from second to LAST in MAIN — it is
   // reference chrome, not league state, and it was costing the standings a fold position.
-  const DESK_MAIN = ["countdown", "stale", "week", "playoffs", "standings", "alltime", "links"];
+  // "power" (2026-09-08): the AI power rankings, directly beneath Standings — the user's own
+  // placement. A device with a SAVED layout from before this card lands it at the END of MAIN
+  // (deskLayout's append rule for unknown ids), where the pencil can move it up.
+  const DESK_MAIN = ["countdown", "stale", "week", "playoffs", "standings", "power", "alltime", "links"];
   const DESK_RAIL = ["chat", "injury", "hot", "accuracy", "moves"];
   const DESK_LABELS = {
     countdown: "Draft countdown", links: "Rules & Draft links", stale: "Unsettled weeks",
-    week: "This week's games", playoffs: "Playoffs", standings: "Standings", alltime: "All-time",
+    week: "This week's games", playoffs: "Playoffs", standings: "Standings", power: "Power rankings", alltime: "All-time",
     chat: "League chat", injury: "Injury report", hot: "Hot pickups",
     accuracy: "Projection accuracy", moves: "Recent moves",
   };
@@ -2122,16 +2181,23 @@
   // "loaded, and there are genuinely no moves") so the card renders instantly and only does
   // the real read once opened (wireLazyLeagueDetails). "View all →" needs no fetched data at
   // all — it's a plain nav link into the full Moves log — so it's present either way.
+  // OPEN BY DEFAULT since 2026-09-08 (user: "the recent moves section should be expanded by
+  // default"). It is still the boot-speed pass's lazy card in one respect that matters: the
+  // tx list is NOT awaited before the league home paints. The <details> paints `open` with a
+  // one-line "Loading moves…" body, and wireLazyLeagueDetails fires the same loader the toggle
+  // used to — after the first paint, so section W's paint budget is untouched. The reader can
+  // still fold it shut; the record book and the chat preview stay collapsed as before.
   function recentMovesHtml(tx) {
+    const open = UI._txFolded ? "" : " open"; // the reader's own fold survives the poll repaints
     if (tx === undefined) {
-      return `<div class="card"><details class="collapsecard" id="txDetails"><summary>Recent moves</summary>
-        <p class="mut small">Tap to load the latest waiver claims, drops and trades.</p>
+      return `<div class="card"><details class="collapsecard" id="txDetails"${open}><summary>Recent moves</summary>
+        <p class="mut small">Loading moves…</p>
         <button id="recentMovesAll" class="mut">View all →</button></details></div>`;
     }
     const recent = tx.slice(0, 8);
-    return `<div class="card"><details class="collapsecard" id="txDetails">
+    return `<div class="card"><details class="collapsecard" id="txDetails"${open}>
       <summary>Recent moves</summary>
-      ${recent.length ? recent.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${esc(txSentence(t))}</div>`).join("")
+      ${recent.length ? recent.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${txSentenceHtml(t)}</div>`).join("")
         : '<p class="mut">No moves yet.</p>'}
       <button id="recentMovesAll" class="mut">View all →</button>
     </details></div>`;
@@ -2365,7 +2431,10 @@
       // always-eager fetch gave (a real navigation back to League always shows what's
       // CURRENTLY true, once opened), it just no longer costs anything until you look.
       UI._recordBook = undefined; UI._tx = undefined; UI._recentChat = undefined;
-      [UI._allWeekly] = await Promise.all([LG.db.list("weekly"), LG.db.list("bracket")]);
+      // The AI power rankings list rides the FIRST batch (2026-09-08): one cached list() like
+      // "weekly" and "bracket", so the card paints with the rest of the page rather than popping
+      // in after it; generation (refreshAiPower) is post-paint and detached.
+      [UI._allWeekly, , UI._aiPower] = await Promise.all([LG.db.list("weekly"), LG.db.list("bracket"), LG.loadAiPowerDocs()]);
       const [, standings, weeklyDoc, accuracy, bracket, wkGames, staleWeeks, injFeed] = await Promise.all([
         loadWeekRosters(),
         LG.loadStandings(),
@@ -2475,6 +2544,7 @@
         week: () => weekCard,
         playoffs: () => playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish()),
         standings: () => standingsHtml(rows, st, { wide: true, streaks: UI._streaks, odds: UI._odds, power: LG.powerRanking(UI._allWeekly), provisional: provisionalTeams }),
+        power: () => aiPowerHtml(UI._aiPower),
         alltime: () => allTimeHtml(UI._recordBook),
         chat: () => deskChatPanelHtml(),
         injury: () => injuryFeedCardHtml(UI._injFeed),
@@ -2555,9 +2625,10 @@
         ${weekCard}
         ${recentMovesHtml(UI._tx)}
         ${standingsHtml(rows, st, { provisional: provisionalTeams })}
+        ${aiPowerHtml(UI._aiPower)}
         ${injuryFeedCardHtml(UI._injFeed)}
         ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
-        ${powerRankingsHtml(UI._allWeekly)}
+        ${"" /* powerRankingsHtml(UI._allWeekly) — the formula card is SUPERSEDED by the AI card under Standings (2026-09-08) */}
         ${accuracyHtml(UI._accuracy)}
         ${recentChatHtml(UI._recentChat)}
         ${recordBookHtml(UI._recordBook)}
@@ -2635,26 +2706,31 @@
     });
     $("#openBracketBtn") && $("#openBracketBtn").addEventListener("click", () => UI.openBracket());
     wireLockerTaps();
-    wirePlayerCardTaps(); // S9's injury feed rows — the league home's only [data-pk] elements
+    wirePlayerCardTaps(); // S9's injury feed rows + Recent moves' player names (txSentenceHtml, 2026-09-08)
     wireLazyLeagueDetails();
     paintHealth();
     startDraftCountdown();
+    if (!repaint) refreshAiPower(); // this week's Grok ranking, if it is not on file yet — post-paint, detached
   }
   // Boot-speed pass (2026-08-08): record book / recent moves / league chat each load their
   // real data only the moment their <details> is actually opened for the first time — see
   // recordBookHtml/recentMovesHtml/recentChatHtml above. Re-called after EVERY renderLeague()
   // (repaint or not — same convention as wireLockerTaps), since each render replaces main()'s
   // whole innerHTML and any listener bound to the old nodes goes with it.
+  const lazyLoading = new Set(); // keys with a loader in flight — a repaint mid-load must not start a second
   function wireLazyLeagueDetails() {
     const bind = (id, key, loader) => {
       const el = document.getElementById(id);
       if (!el) return;
-      el.addEventListener("toggle", async () => {
-        // Already loaded (a prior open — cached on UI, never re-fetched) or just closed:
-        // nothing to do. `UI[key] !== undefined` is the real "has this been fetched" test —
-        // every one of these loaders resolves to an array or a plain object, never undefined.
-        if (!el.open || UI[key] !== undefined) return;
-        UI[key] = await loader();
+      const load = async () => {
+        // Already loaded (a prior open — cached on UI, never re-fetched), mid-load, or just
+        // closed: nothing to do. `UI[key] !== undefined` is the real "has this been fetched"
+        // test — every one of these loaders resolves to an array or a plain object, never
+        // undefined.
+        if (!el.open || UI[key] !== undefined || lazyLoading.has(key)) return;
+        lazyLoading.add(key);
+        try { UI[key] = await loader(); } finally { lazyLoading.delete(key); }
+        if (UI.view !== "league") return; // the reader left League while the list was loading
         // A full repaint is the only way the new data reaches the page (renderLeague builds
         // one HTML string from UI.* — there's no per-card patch path), which regenerates
         // every <details> node from scratch (closed, per its own template). Capture whatever
@@ -2666,7 +2742,19 @@
         if (!openIds.includes(id)) openIds.push(id);
         renderLeague(true);
         openIds.forEach((oid) => { const fresh = document.getElementById(oid); if (fresh) fresh.open = true; });
+      };
+      el.addEventListener("toggle", () => {
+        // Recent moves is open by default (2026-09-08), so a reader who folds it shut has made
+        // a choice the live repaints (every poll tick rebuilds this HTML) must respect for the
+        // rest of the visit — recentMovesHtml reads UI._txFolded. The other two cards default
+        // closed and need no such memory.
+        if (id === "txDetails") UI._txFolded = !el.open;
+        load();
       });
+      // Open on first paint with nothing fetched yet (Recent moves): fire the loader now, AFTER
+      // the paint — the boot-speed pass's promise was "no round trip in front of the first
+      // pixel", not "no round trip until a tap".
+      load();
     };
     bind("rbDetails", "_recordBook", LG.recordBook);
     bind("txDetails", "_tx", LG.loadTx);
@@ -5585,6 +5673,40 @@
       return `Trade between ${nm(tx.detail.from)} and ${nm(tx.detail.to)} was vetoed by the league.`;
     return "Transaction.";
   }
+  // THE SAME SENTENCE, WITH TAPPABLE NAMES (2026-09-08; user: "the names of players in
+  // transactions should be able to be clicked"). Every player the log recorded a KEY for is
+  // wrapped in a `data-pk` span, which wirePlayerCardTaps already turns into the player card —
+  // the same affordance the injury report, hot pickups and Rosters rows use. txSentence stays
+  // the plain-text source (chat SYS posts, the AI read's context), so the two can never say
+  // different things: this function builds the identical string, escaping as it goes, and only
+  // ADDS markup around names. A log entry with a name but no key (old drops recorded only
+  // `dropName`) renders the name as plain text — there is nothing to open for it.
+  function txSentenceHtml(tx) {
+    const d = tx.detail || {};
+    const nm = (id) => esc((LG.teamById(id) || {}).name || ("Team " + id));
+    const ply = (name, key) => {
+      const label = escn(LG.shortName(name || key || "?"));
+      return key ? `<span class="txply" data-pk="${esc(String(key))}">${label}</span>` : label;
+    };
+    const list = (names, keys) => {
+      const ns = Array.isArray(names) ? names : [];
+      const ks = Array.isArray(keys) ? keys : [];
+      const n = Math.max(ns.length, ks.length);
+      const out = [];
+      for (let i = 0; i < n; i++) out.push(ply(ns[i] || ks[i], ks[i]));
+      return out.join(", ");
+    };
+    if (tx.type === "waiver") {
+      const dropped = d.dropName || d.dropKey;
+      return `${nm(tx.teamId)} won a waiver claim: added ${ply(d.addName, d.addKey)} ($${esc(String(d.bid))})`
+        + (dropped ? `, dropped ${ply(d.dropName, d.dropKey)}.` : " into an open spot.");
+    }
+    if (tx.type === "fa_add") return `${nm(tx.teamId)} added ${ply(d.addName, d.addKey)} (free agency).`;
+    if (tx.type === "drop") return `${nm(tx.teamId)} dropped ${ply(d.dropName, d.dropKey)}.`;
+    if (tx.type === "trade" && d.result === "executed")
+      return `Trade: ${nm(d.from)} sent ${list(d.giveNames, d.give)} to ${nm(d.to)} for ${list(d.getNames, d.get)}.`;
+    return esc(txSentence(tx));
+  }
   UI.renderMoves = renderMoves;
   async function renderMoves() {
     const tid = LG.myTeamId();
@@ -5802,7 +5924,7 @@
         <button id="mvTradeSend" class="primary">${UI._counterOf ? "Send counter" : "Send offer"}</button>
       </div>
       <div class="card"><h2>Transaction log</h2><div id="mvLog">
-        ${UI._tx.length ? UI._tx.map((tx) => `<div class="fline sys"><span class="mut">${new Date(tx.t).toLocaleString()}</span> ${esc(txSentence(tx))}</div>`).join("") : '<p class="mut">No moves yet.</p>'}
+        ${UI._tx.length ? UI._tx.map((tx) => `<div class="fline sys"><span class="mut">${new Date(tx.t).toLocaleString()}</span> ${txSentenceHtml(tx)}</div>`).join("") : '<p class="mut">No moves yet.</p>'}
       </div></div>`;
 
     document.querySelectorAll(".mvcancel").forEach((b) => b.addEventListener("click", async () => {
@@ -7623,7 +7745,12 @@
     const teamId = UI.lockerTeamId;
     const T = LG.teamById(teamId);
     if (!T) { main().innerHTML = `<div class="card"><p class="mut">Team not found.</p></div>`; return; }
-    main().innerHTML = `<div class="card mut">Loading locker…</div>`;
+    // No loading wipe when THIS team's locker is already on screen (2026-09-08): a background
+    // repaint (UI.quietRepaint) replaces the page in one go at the end instead, so the reader
+    // never sees "Loading locker…" flash over the lineup they were looking at. A different
+    // team, or a first paint, still gets the loading card.
+    const already = main().querySelector(".lockerpage") && Number(main().dataset.lockerTeam) === Number(teamId);
+    if (!already) main().innerHTML = `<div class="card mut">Loading locker…</div>`;
     const d = D();
     simProjEnsureAndRepaint("locker"); // 2025 season replay — see startData(); covers
                                                   // the lineup rows' "proj" figures below
@@ -7730,11 +7857,11 @@
             <span class="slotchip" data-pos="${slotPos(slot)}">${slot}</span>
             <button type="button" class="lswap lswapfill" data-slot="${slot}" data-idx="${idx}"><span class="mut">Empty — tap to fill</span></button>
           </div>`;
+      // 2026-09-08 (user: "get rid of the lineup instructions"): the how-to paragraph that sat
+      // under this heading is gone. Every rule it explained is still carried by the controls
+      // themselves — a locked Swap's title/aria-label, a blocked Drop's, "Empty — tap to fill".
       rosterHtml = `
-        <div class="card"><h2>Lineup — week ${UI.week}</h2><p class="mut small">Tap a player for their stats,
-          Swap to change the lineup, or pick Empty to bench him and leave the slot open.
-          ${isOwner ? "✕" : "Drop"} to release him. A greyed-out Swap means that game
-          has started; you can still drop anyone on your bench, but a player you started waits until waivers clear.</p>
+        <div class="card"><h2>Lineup — week ${UI.week}</h2>
           <div id="lockerStarters">${starters.map((s, i) => rowHtml(s.slot, s.p, i)).join("")}</div></div>
         <div class="card"><h2>Bench</h2><div id="lockerBench">${bench.length ? bench.map((p, i) => rowHtml("BENCH", p, i)).join("") : '<p class="mut">Empty bench.</p>'}</div></div>
         <div class="card"><h2>IR <span class="mut">(${ir.length}/${irMax})</span></h2>
@@ -7747,8 +7874,10 @@
       </tbody></table></div>` : '<p class="mut">No roster yet.</p>'}</div>`;
     }
 
+    if (UI.view !== "locker" || Number(UI.lockerTeamId) !== Number(teamId)) return; // the reader moved on mid-load — never paint over the new view
+    main().dataset.lockerTeam = String(teamId); // read by the no-wipe check at the top
     main().innerHTML = `
-      <div class="lockerhead" style="${esc(LG.palStyle(pal))}">
+      <div class="lockerhead lockerpage" style="${esc(LG.palStyle(pal))}">
         ${isOwner || isCommish() ? `<button id="lockerEditToggle" class="lockerpencil" aria-label="Edit team" aria-expanded="false" title="Edit team">
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
         </button>` : ""}
@@ -7784,7 +7913,7 @@
       <div class="card"><h2>Schedule</h2><div class="panner"><table class="tbl">
         <thead><tr><th>Wk</th><th>Opp</th><th class="num">Result</th></tr></thead>
         <tbody>${scheduleRows}</tbody></table></div></div>
-      <div class="card"><h2>Transactions</h2>${teamTx.length ? teamTx.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${esc(txSentence(t))}</div>`).join("") : '<p class="mut">No moves yet.</p>'}</div>
+      <div class="card"><h2>Transactions</h2>${teamTx.length ? teamTx.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${txSentenceHtml(t)}</div>`).join("") : '<p class="mut">No moves yet.</p>'}</div>
       ${"" /* the Championships card is SUPERSEDED by the Trophy case above (2026-08-12) */}
       <div class="card"><h2>Rivalries</h2>${rivalries.length ? `<div class="panner"><table class="tbl">
           <thead><tr><th>Opponent</th><th class="num">W</th><th class="num">L</th><th class="num">T</th></tr></thead>

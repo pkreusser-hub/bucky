@@ -2393,3 +2393,14 @@ between scenes pays the write again — worth watching on `s_claudesonnet5_cw` v
 week before anything is done about it. And Sonnet's write-in score was 9 of 16, not 16 of 16: the
 other 7 were not scored rather than failed, so "Sonnet honours write-ins better" is a comparison
 against grok-4.5, not a claim of perfection. Re-run the battery before the next narrator switch.
+
+## farmgpt.mjs — gfflpower, Grok 4.6 (2026-09-08)
+
+New GFFL mode `gfflpower`: the weekly power-rankings columnist. One call a week, the
+whole league in one turn (every team's record, points, and roster). Strict-JSON ranking
+the client validates before a word of it reaches a screen. **grok-4.6**
+(`GFFLPOWER_MODEL`) — the first mode in this file off `XAI_MODEL`; every other Grok
+mode stays on 4.5. Same "w" bucket and the 300/day ceiling as the other GFFL modes;
+keepalive space-byte like `gffltrade` / `gffladjust`. Named body field `power`, never
+`messages[]` from the client. See `docs/gffl.md` (the Tuesday batch) for the client
+side.

@@ -606,14 +606,9 @@
     .muhead.muhero .muhteam > .muhsub { display:none; } /* rendered in the lineup card instead */
     .muhead.muhero .mupbarrow { margin:3px 180px 0; } /* inset so the bar clears the slashes */
     .muplayline { display:flex; justify-content:space-between; }
-    /* My Team slot chips take the matchup slot band's position colours (handoff §2). */
-    .slotchip[data-pos="QB"] { background:var(--pos-QB); color:#fff; border-color:transparent; }
-    .slotchip[data-pos="RB"] { background:var(--pos-RB); color:#fff; border-color:transparent; }
-    .slotchip[data-pos="WR"] { background:var(--pos-WR); color:#fff; border-color:transparent; }
-    .slotchip[data-pos="TE"] { background:var(--pos-TE); color:#fff; border-color:transparent; }
-    .slotchip[data-pos="K"]  { background:var(--pos-K);  color:#fff; border-color:transparent; }
-    .slotchip[data-pos="DST"] { background:var(--pos-DST); color:#fff; border-color:transparent; }
-    .slotchip[data-pos="X"]  { background:var(--pos-X);  color:var(--ink2); border-color:transparent; }
+    /* The My Team slot-chip position colours used to live HERE, desktop-only (handoff §2).
+       Moved to the .slotchip rule below on 2026-09-08 — user: "apply the same colors to
+       positions in mobile that we have in desktop view." */
   }
   /* TUNE 2: with the Week label gone to the bar row, the centre column carries only the
      LIVE/Final indicator — its 84px claim collapses to a sliver and the two score blocks
@@ -998,6 +993,20 @@
   .lrow.locked { opacity:.72; }
   .slotchip { flex:0 0 52px; text-align:center; font:600 11px var(--font-display); letter-spacing:.5px; color:var(--mut);
               background:var(--nested); border:1px solid var(--border-card); border-radius:var(--radius-badge); padding:4px 0; }
+  /* Slot chips carry the position colours (--pos-*) at EVERY width (2026-09-08; user: "apply
+     the same colors to positions in mobile that we have in desktop view"). These seven rules
+     sat inside the 1024px desktop media block from the 2026-08-11 handoff, so a phone painted
+     every chip the neutral --nested grey. The matchup page's own slot badges stay neutral —
+     that removal (Refinement 3, "too much color clash… leave them on my team") was about the
+     matchup, and is untouched. Same rules also colour the Rosters tab's chips, which reuse
+     .slotchip. */
+  .slotchip[data-pos="QB"] { background:var(--pos-QB); color:#fff; border-color:transparent; }
+  .slotchip[data-pos="RB"] { background:var(--pos-RB); color:#fff; border-color:transparent; }
+  .slotchip[data-pos="WR"] { background:var(--pos-WR); color:#fff; border-color:transparent; }
+  .slotchip[data-pos="TE"] { background:var(--pos-TE); color:#fff; border-color:transparent; }
+  .slotchip[data-pos="K"]  { background:var(--pos-K);  color:#fff; border-color:transparent; }
+  .slotchip[data-pos="DST"] { background:var(--pos-DST); color:#fff; border-color:transparent; }
+  .slotchip[data-pos="X"]  { background:var(--pos-X);  color:var(--ink2); border-color:transparent; }
   .lname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-family:var(--font-body); }
   .lpts { font:700 14px var(--font-display); white-space:nowrap; }
   /* ITEM 24's other half: Q / D / OUT is the app's one genuine "this might not happen" flag,
@@ -1149,6 +1158,10 @@
   /* team-name tap targets -> locker */
   .teamlink { cursor:pointer; text-decoration:none; }
   .teamlink:hover, .teamlink:focus { text-decoration:underline; color:var(--accent); }
+  /* A player's name inside a transaction line (txSentenceHtml, 2026-09-08) opens his card.
+     Ink-coloured against the line's muted grey so the tappable words read as such. */
+  .txply { color:var(--ink); cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px; }
+  .txply:hover { color:var(--accent); }
 
   /* Item 16 (2026-08-09): the Rules / Draft pair that replaced their bottom-nav tabs. Two
      equal columns on one row (they stack under 380px, which no phone in this family has, but
@@ -1219,6 +1232,25 @@
     .rsgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:12px; align-items:start; }
     .rsteam { margin-bottom:0; }
   }
+
+  /* ---------------- THE AI POWER RANKINGS CARD (2026-09-08) ----------------
+     One row per team: rank · crest + name + record · movement, with the model's one-line blurb
+     wrapping beneath on its own grid row (grid-column 2 / -1 — it hangs under the name, never
+     under the rank digit). The blurb is 12-28 words, so at 13px it is two lines on a 390px phone
+     and one on the desktop main column. Own team gets the accent ring the standings row has. */
+  .powercard .pwrows { display:flex; flex-direction:column; }
+  .pwrow { display:grid; grid-template-columns:26px minmax(0,1fr) auto; column-gap:8px; align-items:center;
+           padding:7px 0; border-bottom:1px solid var(--divider); }
+  .pwrow:last-child { border-bottom:none; }
+  .pwrow.mine .pwname { color:var(--accent); }
+  .pwrank { font:700 16px var(--font-display); color:var(--ink2); text-align:center; font-variant-numeric:tabular-nums; }
+  .pwteam { display:flex; align-items:center; gap:6px; min-width:0; }
+  .pwteam .tmini { margin-right:0; flex:0 0 auto; }
+  .pwname { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+  .pwrec { flex:0 0 auto; font:500 11.5px var(--font-body); }
+  .pwmove { text-align:right; min-width:28px; }
+  .pwblurb { grid-column:2 / -1; margin:3px 0 0; font:400 13px/1.35 var(--font-body); color:var(--mut); }
+  .powercard .pwfoot { margin:8px 0 0; }
 
   /* S2: the draft-day card, first on the league home while the draft is still ahead. Centered,
      a little larger than an ordinary card — this is the one thing on the page with a clock

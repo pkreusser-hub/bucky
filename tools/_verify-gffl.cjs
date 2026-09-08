@@ -82,6 +82,7 @@ notify.reset = () => { notify.calls = []; notify.status = 200; notify.abort = fa
 // ---------------- fixtures ----------------
 const fixture = {
   phase: 1, sleeperDown: false, espnDown: false, tenorDown: false, farmgptDown: false,
+  powerPoison: null, powerFenced: false, // section PW's fake-Grok knobs (2026-09-08) — see startXaiUpstream
   // Section V knobs (adversarial review 2026-08-08) — every one defaults OFF, so sections
   // A-U see exactly the fixture they always did.
   espnWeekNum: null,      // what /scoreboard says its own week is (finding 1/3/7's provenance)
@@ -951,6 +952,29 @@ function startXaiUpstream() {
         : { key: p.key, proj: Math.round((p.inj ? p.base * 0.2 : p.base + 1.5) * 10) / 10, note: "echo-" + p.key });
       out.push({ key: "999999", proj: 40, note: "hallucinated" });
       res.end(xaiSse(JSON.stringify(out)));
+      return;
+    }
+    // THE POWER RANKINGS COLUMNIST (section PW, 2026-09-08) — told apart by ITS system prompt.
+    // The reply is derived from the request's OWN teams, in REVERSE standings order (the team
+    // the standings put last is ranked first), so the client-side assertion that the card shows
+    // the MODEL's order — not the standings' — is real. Plus the poisons the client must
+    // neutralize, armed by fixture.powerPoison: a teamId that was never sent, a duplicated team,
+    // or a rank collision — each of which must make the whole reply fail validation (a ranking
+    // with a hole in it is not a ranking). fixture.powerFenced wraps the JSON in ```json fences,
+    // which real models do despite "no fences", and the client must strip.
+    if (/power-rankings columnist/.test(sys)) {
+      const userTurn = (((b || {}).messages || []).find((m) => m.role === "user") || {}).content || "";
+      const jm = /TEAMS:\n([\s\S]*?)\n\nTASK:/.exec(userTurn);
+      let sent = [];
+      try { sent = JSON.parse(jm ? jm[1] : "[]"); } catch (e) { sent = []; }
+      const ordered = [...sent].sort((a, b) => b.place - a.place);
+      let ranking = ordered.map((t, i) => ({ teamId: t.teamId, rank: i + 1,
+        blurb: "Echo " + t.name + ": " + (t.roster || []).length + " rostered, " + t.w + "-" + t.l + ", the model's reason for #" + (i + 1) + "." }));
+      if (fixture.powerPoison === "unknown") ranking[0] = { teamId: "999", rank: 1, blurb: "never sent" };
+      if (fixture.powerPoison === "dup" && ranking.length > 1) ranking[1] = { ...ranking[0], rank: 2 };
+      if (fixture.powerPoison === "rankclash" && ranking.length > 1) ranking[1].rank = 1;
+      const text = JSON.stringify({ ranking });
+      res.end(xaiSse(fixture.powerFenced ? "```json\n" + text + "\n```" : text));
       return;
     }
     res.end(xaiSse(JSON.stringify({ players: [{ name: "T. Tight", mult: 1.25, why: "KC up big, feeding the tight end in garbage time" }] })));
@@ -2454,7 +2478,9 @@ async function openDetails(page, id) {
   await page.evaluate((id) => { const el = document.getElementById(id); if (el) el.open = true; }, id);
   await page.waitForFunction((id) => {
     const el = document.getElementById(id);
-    return !!el && !/Tap to load/.test(el.textContent);
+    // "Loading moves…" is Recent moves' open-by-default placeholder (2026-09-08) — its list
+    // loads post-paint, so "opened" means the rows are in, not just that the attribute is set.
+    return !!el && !/Tap to load|Loading moves/.test(el.textContent);
   }, { timeout: 9000 }, id);
 }
 
@@ -5147,29 +5173,28 @@ async function openDetails(page, id) {
         power: [{ teamId: 3, score: 20, rank: 1 }, { teamId: 1, score: 9, rank: 2 }, { teamId: 2, score: 8, rank: 3 }] });
     });
     await page.evaluate(() => { window.__GFFL__.UI.week = 2; });
+    // RESTAGED 2026-09-08: the FORMULA power-rankings card is gone from the phone — the AI card
+    // (section PW) took its slot under Standings, and two cards titled "Power rankings" that
+    // disagree on one page was the alternative. The formula itself still feeds the desktop
+    // standings' PWR column through LG.powerRanking, so THAT is what these checks now read: the
+    // same three teams, the same movement arithmetic, off the same two weekly docs.
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
-    await page.waitForFunction(() => document.body.textContent.includes("Power rankings"), { timeout: 5000 });
-    const rows = await page.evaluate(() => {
-      const h2 = [...document.querySelectorAll("h2")].find((h) => h.textContent.includes("Power rankings"));
-      const card = h2.closest(".card");
-      return [...card.querySelectorAll(".rowline")].map((el) => el.textContent.replace(/\s+/g, " ").trim());
-    });
-    ok(rows.length === 3, "power rankings card lists the 3 teams that have a snapshot for week 2 (" + rows.length + ")");
-    ok(/^#1/.test(rows[0]) && /Wyoming Cowboys/.test(rows[0]) && /▲2/.test(rows[0]), "team3 climbed #3→#1 — ▲2 shown (" + rows[0] + ")");
-    ok(/^#2/.test(rows[1]) && /Battle Kreussers/.test(rows[1]) && /▼1/.test(rows[1]), "team1 dropped #1→#2 — ▼1 shown (" + rows[1] + ")");
-    ok(/^#3/.test(rows[2]) && /End Zone Goats/.test(rows[2]) && /▼1/.test(rows[2]), "team2 dropped #2→#3 — ▼1 shown (" + rows[2] + ")");
-    ok(/through week 2/.test(await page.evaluate(() => document.body.textContent)), "the card labels which week it's through — always the LATEST finalized week, independent of which week you happen to be browsing");
-    // With only week 1 on file, there's no PRIOR week to compare against — a dash, not an arrow.
+    await page.waitForSelector(".standcard", { timeout: 5000 });
+    const powerCards = await page.evaluate(() => [...document.querySelectorAll("h2")].filter((h) => /Power rankings/.test(h.textContent)).map((h) => !!h.closest("#powerCard")));
+    ok(powerCards.length === 1 && powerCards[0] === true,
+      "exactly ONE Power rankings card on the phone, and it is the AI card — the formula card is gone (" + JSON.stringify(powerCards) + ")");
+    const pw = await page.evaluate(() => window.__GFFL__.LG.powerRanking(window.__GFFL__.UI._allWeekly));
+    const rows = (pw && pw.rows || []).map((r) => ({ id: r.teamId, rank: r.rank, prev: r.prevRank }));
+    ok(rows.length === 3, "LG.powerRanking lists the 3 teams that have a snapshot for week 2 (" + rows.length + ")");
+    ok(rows[0] && rows[0].id === 3 && rows[0].rank === 1 && rows[0].prev === 3, "team3 climbed #3→#1 (" + JSON.stringify(rows[0]) + ")");
+    ok(rows[1] && rows[1].id === 1 && rows[1].rank === 2 && rows[1].prev === 1, "team1 dropped #1→#2 (" + JSON.stringify(rows[1]) + ")");
+    ok(rows[2] && rows[2].id === 2 && rows[2].rank === 3 && rows[2].prev === 2, "team2 dropped #2→#3 (" + JSON.stringify(rows[2]) + ")");
+    ok(pw && pw.week === 2, "the ranking is THROUGH week 2 — always the LATEST finalized week, independent of which week you happen to be browsing (" + (pw || {}).week + ")");
+    // With only week 1 on file, there's no PRIOR week to compare against — no movement.
     await page.evaluate(() => window.__GFFL__.LG.db.del(window.__GFFL__.LG.weeklyId(2026, 2)));
-    await page.evaluate(() => window.__GFFL__.UI.renderLeague());
-    await page.waitForFunction(() => document.body.textContent.includes("through week 1"), { timeout: 5000 });
-    const rows1 = await page.evaluate(() => {
-      const h2 = [...document.querySelectorAll("h2")].find((h) => h.textContent.includes("Power rankings"));
-      const card = h2.closest(".card");
-      return [...card.querySelectorAll(".rowline")].map((el) => el.textContent.replace(/\s+/g, " ").trim());
-    });
-    ok(rows1.length === 3 && !rows1.some((r) => /[▲▼]/.test(r)),
-      "…and week 1 alone (no prior week on file) shows no movement arrows for anyone (" + JSON.stringify(rows1) + ")");
+    const pw1 = await page.evaluate(async () => { window.__GFFL__.UI._allWeekly = await window.__GFFL__.LG.db.list("weekly"); return window.__GFFL__.LG.powerRanking(window.__GFFL__.UI._allWeekly); });
+    ok(pw1 && pw1.week === 1 && pw1.rows.length === 3 && pw1.rows.every((r) => r.prevRank == null),
+      "…and week 1 alone (no prior week on file) shows no movement for anyone (" + JSON.stringify(pw1) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
@@ -10627,7 +10652,11 @@ async function openDetails(page, id) {
       ok(/started/.test(swap.title || "") && /started/.test(swap.aria || ""), "…and says why, for a pointer and for a screen reader");
       ok(swap.opacity < 0.6, "…rendering as greyed out, not merely inert (opacity " + swap.opacity + ")");
       ok(swap.h >= 30, "…at the same size it always was, so a kickoff never reflows the row (" + swap.h + "px)");
-      ok(swap.copy && !swap.lockWord, "…and the help line explains the greying instead of a LOCKED word");
+      // RESTAGED 2026-09-08: the lineup how-to paragraph is gone (user: "get rid of the lineup
+      // instructions"). The disabled Swap's own title/aria — asserted two checks up — is what
+      // explains the greying now. This check keeps the LOCKED-word ban and confirms the
+      // paragraph did not come back.
+      ok(!swap.lockWord && !swap.copy, "…no LOCKED word, and no how-to paragraph either — the button's own title/aria carry the reason");
       if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_myteam_390.png") }); console.log("  📸 shots/gffl_pt_myteam_390.png"); }
 
       // AD11b — the same rule at the players table and the player stats card.
@@ -18797,18 +18826,27 @@ async function openDetails(page, id) {
         sideways: document.documentElement.scrollWidth - window.innerWidth,
       }))) || {};
       ok(m.desk === false && m.rail === false, "AT9: no desktop grid and no rail on a phone");
-      ok((m.details || []).length === 3 && (m.details || []).every((d) => !d.open),
-        "…all three lazy cards are still collapsed <details> — the boot-speed pass survives intact (" + JSON.stringify(m.details) + ")");
+      // RESTAGED 2026-09-08 (user: "the recent moves section should be expanded by default"):
+      // Recent moves now paints OPEN; the record book and the chat preview stay collapsed. The
+      // boot-speed pass survives in the way that matters — see the fetch checks below.
+      const detOpen = Object.fromEntries((m.details || []).map((d) => [d.id, d.open]));
+      ok((m.details || []).length === 3 && detOpen.txDetails === true && detOpen.rbDetails === false && detOpen.chatDetails === false,
+        "…three <details> cards: Recent moves OPEN by default, record book and chat still collapsed (" + JSON.stringify(m.details) + ")");
       ok(m.standCols === 6 && m.panner === true, "…the standings table is the phone's own six columns, inside its scroller (" + m.standCols + ")");
       ok(m.power === true && m.allTime === false && m.chatPanel === false,
         "…the Power rankings card is still there, and neither the All-time card nor the chat rail is");
       ok(m.sideways <= 1, "…and nothing scrolls sideways (" + m.sideways + ")");
       // The lazy fetches are still LAZY: opening one is still what loads it.
-      const before = await evalOr(page, () => ({ tx: window.__GFFL__.UI._tx, rb: window.__GFFL__.UI._recordBook }));
-      ok(before && before.tx === undefined && before.rb === undefined,
-        "…and their data has genuinely NOT been fetched (the desktop eager-load must not leak onto the phone)");
-      await openDetails(page, "txDetails");
-      ok((await evalOr(page, () => Array.isArray(window.__GFFL__.UI._tx))) === true, "…opening one still loads it, exactly as before");
+      // RESTAGED 2026-09-08: Recent moves loads its list AFTER the first paint now (it is open by
+      // default), so UI._tx is an array shortly after boot; the record book — still a lazy card —
+      // stays unfetched until opened. The "no round trip in front of the first pixel" promise is
+      // section W's paint budget, unchanged.
+      await waitFnOr(page, () => Array.isArray(window.__GFFL__.UI._tx));
+      const before = await evalOr(page, () => ({ tx: Array.isArray(window.__GFFL__.UI._tx), rb: window.__GFFL__.UI._recordBook }));
+      ok(before && before.tx === true && before.rb === undefined,
+        "…Recent moves fetched post-paint (open by default); the record book has genuinely NOT been fetched (the desktop eager-load must not leak onto the phone)");
+      await openDetails(page, "rbDetails");
+      ok((await evalOr(page, () => window.__GFFL__.UI._recordBook !== undefined)) === true, "…opening the record book still loads it, exactly as before");
       ok(errors.length === 0, "0 page errors on the phone");
       await ctx.close();
     }
@@ -18877,8 +18915,9 @@ async function openDetails(page, id) {
         barBits: (document.querySelector(".lgdeskbar.editing") || {}).textContent || "",
       }))) || {};
       ok(edit.editingGrid === true, "…the grid enters edit mode");
-      ok(edit.strips === edit.wrappers && edit.wrappers === 12,
-        "…every registered card carries an edit strip — all 12, hidden none (" + edit.strips + "/" + edit.wrappers + ")");
+      // RESTAGED 2026-09-08: 12 → 13 — the AI power rankings card ("power") joined MAIN.
+      ok(edit.strips === edit.wrappers && edit.wrappers === 13,
+        "…every registered card carries an edit strip — all 13, hidden none (" + edit.strips + "/" + edit.wrappers + ")");
       ok(edit.empties >= 1, "…a self-hiding card renders as a labelled placeholder so it can still be positioned (" + edit.empties + ")");
       ok(/Text size/.test(edit.barBits) && /Spacing/.test(edit.barBits) && /Done/.test(edit.barBits),
         "…and the bar carries the global text-size and spacing controls");
@@ -18984,15 +19023,17 @@ async function openDetails(page, id) {
         const all = [...l.main, ...l.rail];
         return {
           bogusGone: !all.includes("bogusCard"), hiddenClean: l.hidden.length === 0,
-          complete: all.length === 12 && new Set(all).size === 12,
-          movesAppended: l.rail.includes("moves"), scale: l.scale, cz: Object.keys(l.cz).length,
-          rendered: document.querySelectorAll(".deskcard").length === 12 - l.hidden.length,
+          // RESTAGED 2026-09-08: 12 → 13 with the AI power rankings card; and "power" itself is
+          // the live case of the append rule — this saved layout predates it.
+          complete: all.length === 13 && new Set(all).size === 13,
+          movesAppended: l.rail.includes("moves"), powerAppended: l.main.includes("power"), scale: l.scale, cz: Object.keys(l.cz).length,
+          rendered: document.querySelectorAll(".deskcard").length === 13 - l.hidden.length,
         };
       });
-      ok(sane && sane.bogusGone && sane.hiddenClean && sane.complete && sane.movesAppended,
-        "AU9: unknown ids are dropped and every card the saved layout never heard of lands back in its default column — nothing can vanish");
+      ok(sane && sane.bogusGone && sane.hiddenClean && sane.complete && sane.movesAppended && sane.powerAppended,
+        "AU9: unknown ids are dropped and every card the saved layout never heard of lands back in its default column — nothing can vanish (power included)");
       ok(sane && sane.scale === 100 && sane.cz === 0, "…and an off-step scale or size snaps to 100% instead of rendering garbage");
-      ok(sane && sane.rendered === true, "…with all 12 wrappers on the page");
+      ok(sane && sane.rendered === true, "…with all 13 wrappers on the page");
       // THE CHAT CONTRACT, WHEREVER CHAT SITS: move it into MAIN, type, force a live repaint.
       await evalOr(page, () => { window.__GFFL__.UI.deskLayoutAction("side", "chat"); });
       await waitFnOr(page, () => [...document.querySelectorAll(".lgmain .deskcard")].some((w) => w.dataset.card === "chat"));
@@ -19006,7 +19047,8 @@ async function openDetails(page, id) {
       await waitFnOr(page, () => !!document.querySelector(".lgdeskbar.editing"));
       await evalOr(page, () => window.__GFFL__.UI.renderLeague(true));
       await new Promise((r) => setTimeout(r, 250));
-      ok((await evalOr(page, () => !!document.querySelector(".lgdeskbar.editing") && document.querySelectorAll(".deskedit").length === 12)) === true,
+      // RESTAGED 2026-09-08: 12 → 13 with the AI power rankings card.
+      ok((await evalOr(page, () => !!document.querySelector(".lgdeskbar.editing") && document.querySelectorAll(".deskedit").length === 13)) === true,
         "AU9c: a live repaint while the editor is open changes nothing — the strips stand");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
@@ -22407,8 +22449,12 @@ async function openDetails(page, id) {
         return true;
       });
       docs = (await actDocs(page)) || [];
-      ok(anon === true && docs.length === 3 && docs[2].teamId === null,
-        "an ANONYMOUS device logs its open too, with teamId null (" + JSON.stringify(docs.map((d) => d.teamId)) + ")");
+      // Sorted by `t`, not insertion. Three writes a few ms apart can land in any timestamp
+      // order (and a same-ms pair is not ordered at all), so "the last row is the anonymous
+      // one" was never what this check was about. Two claimed opens and one teamId-null is.
+      const ids = docs.map((d) => d.teamId);
+      ok(anon === true && docs.length === 3 && ids.filter((id) => id === 1).length === 2 && ids.filter((id) => id == null).length === 1,
+        "an ANONYMOUS device logs its open too, with teamId null (" + JSON.stringify(ids) + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -23037,6 +23083,360 @@ async function openDetails(page, id) {
     ok(dk.nameBudget >= 200, "…the name column keeps ≥200px in a 376px card (" + dk.nameBudget + "px)");
     ok(dk.clipped === 0, "…no name clipped (" + dk.clipped + ")");
     ok(dk.tabs === 7 && dk.lit === "rosters", "…seven tabs in the top strip, Rosters lit (" + dk.tabs + ", " + dk.lit + ")");
+    ok(errors.length === 0, "0 page errors on the desktop");
+    await ctx.close();
+  }
+
+  // ============ SECTION TB: the Tuesday batch (2026-09-08) ============
+  // User, one message: (1) "on the my team view, get rid of the lineup instructions" (2) "that
+  // page is refreshing on its own for some reason on mobile" (3) "apply the same colors to
+  // positions in mobile that we have in desktop view" (4) "the recent moves section should be
+  // expanded by default" (5) "the names of players in transactions should be able to be
+  // clicked" (6) "beneath standings lets add Power Ranking … feed all the rosters to Grok 4.6".
+  section("TB · the Tuesday batch — locker quiet, slot colours on phones, moves open + tappable, AI power rankings");
+  const powerCalls = () => xaiReqs.filter((r) => /power-rankings columnist/.test(JSON.stringify(r || ""))).length;
+  const lastPowerReq = () => xaiReqs.filter((r) => /power-rankings columnist/.test(JSON.stringify(r || ""))).pop();
+  {
+    // ---- TB1: My Team on a 390px phone — no instructions, coloured chips, no self-refresh.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await evalOr(page, () => window.__GFFL__.UI.show("team"));
+    ok(await waitOr(page, "#lockerStarters .lrow"), "My Team paints its lineup");
+    const lk = await evalOr(page, () => {
+      const card = document.querySelector("#lockerStarters").closest(".card");
+      const root = getComputedStyle(document.documentElement);
+      const hex = (c) => { const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c); return m ? "#" + [m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, "0")).join("") : String(c).trim().toLowerCase(); };
+      const want = {}; for (const p of ["QB", "RB", "WR", "TE", "K", "DST", "X"]) want[p] = hex(root.getPropertyValue("--pos-" + p).trim());
+      const chips = [...document.querySelectorAll("#lockerStarters .slotchip[data-pos]")].map((c) => ({ pos: c.dataset.pos, bg: hex(getComputedStyle(c).backgroundColor), want: want[c.dataset.pos] }));
+      return { vw: window.innerWidth, cardText: card.textContent.replace(/\s+/g, " "), paras: card.querySelectorAll("p").length, chips,
+        neutral: hex(root.getPropertyValue("--nested").trim()) };
+    }) || {};
+    ok(lk.vw === 390, "TB1 runs at the phone width, 390px (" + lk.vw + ")");
+    ok(!/Tap a player for their stats|pick Empty to bench|greyed-out Swap/.test(lk.cardText || "") && lk.paras === 0,
+      "the Lineup card carries NO instructions paragraph — heading and rows only (" + lk.paras + " <p>)");
+    ok(Array.isArray(lk.chips) && lk.chips.length >= 9 && lk.chips.every((c) => c.bg === c.want && c.bg !== lk.neutral),
+      "every starter slot chip wears its --pos-* colour on the phone — none the neutral grey (" + JSON.stringify((lk.chips || []).slice(0, 4)) + "…)");
+    const posSet = new Set((lk.chips || []).map((c) => c.pos));
+    ok(["QB", "RB", "WR", "TE", "K", "DST", "X"].every((p) => posSet.has(p)), "…all seven tokens are exercised, FLEX as X (" + [...posSet].join(",") + ")");
+    // The self-refresh. A CHAT change (the busiest list in the league on a game day) used to
+    // ride LG.db.onChange → UI.show("locker") → a full wipe to "Loading locker…" and a jump to
+    // the top. Armed the way AY5 arms its observers: BEFORE the change, so "never flashed" is a
+    // measured fact.
+    await evalOr(page, () => window.scrollTo(0, 240));
+    const quiet = await evalOr(page, async () => {
+      const head = document.querySelector(".lockerhead");
+      head.__probe = 1;
+      let sawLoading = false;
+      const mo = new MutationObserver(() => { if (/Loading locker/.test(document.querySelector("#main").textContent)) sawLoading = true; });
+      mo.observe(document.querySelector("#main"), { childList: true, subtree: true });
+      const y0 = window.scrollY;
+      for (const k of ["chat", "tx", "weekly", "claims"]) window.__GFFL__.LG.db.onChange(k);
+      await new Promise((r) => setTimeout(r, 600));
+      const h2 = document.querySelector(".lockerhead");
+      const out = { y0, same: !!(h2 && h2.__probe === 1 && h2.isConnected), sawLoading, y1: window.scrollY };
+      // A ROSTER change is the locker's own data — it must repaint, in place, scroll kept.
+      window.__GFFL__.LG.db.onChange("roster");
+      await new Promise((r) => setTimeout(r, 900));
+      const h3 = document.querySelector(".lockerhead");
+      out.repainted = !!(h3 && h3.isConnected && h3.__probe !== 1);
+      out.sawLoadingAfterRoster = sawLoading;
+      out.y2 = window.scrollY;
+      out.rows = document.querySelectorAll("#lockerStarters .lrow").length;
+      mo.disconnect();
+      return out;
+    }) || {};
+    ok(quiet.y0 === 240, "the reader is scrolled 240px into their locker (" + quiet.y0 + ")");
+    ok(quiet.same === true && quiet.sawLoading === false && quiet.y1 === 240,
+      "a background chat / tx / weekly / claims change leaves My Team UNTOUCHED — same nodes, no 'Loading locker…' flash, scroll kept (" + JSON.stringify({ same: quiet.same, sawLoading: quiet.sawLoading, y1: quiet.y1 }) + ")");
+    ok(quiet.repainted === true && quiet.sawLoadingAfterRoster === false && quiet.rows >= 9,
+      "…a ROSTER change DOES repaint the lineup — new nodes, still no loading wipe (" + JSON.stringify({ repainted: quiet.repainted, flash: quiet.sawLoadingAfterRoster, rows: quiet.rows }) + ")");
+    ok(quiet.y2 === 240, "…and the in-place repaint puts the scroll back where it was (" + quiet.y2 + ")");
+    ok(errors.length === 0, "0 page errors on My Team");
+    await ctx.close();
+  }
+  {
+    // ---- TB2: Recent moves — open by default, loaded post-paint, names tappable.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.logTx("drop", 1, 2, { dropName: "Old Timer" });                 // a name with NO key — plain text
+      await LG.logTx("trade", 1, 1, { tradeId: "tr1", from: 1, to: 2, give: ["111888"], get: ["4361741"],
+        giveNames: ["S. Second"], getNames: ["W. Receiver"], result: "executed" });
+      await LG.logTx("fa_add", 1, 1, { addKey: "4241457", addName: "R. Rusher" });
+      window.__GFFL__.UI.show("league");
+    });
+    await waitOr(page, ".mucard");
+    const first = await evalOr(page, () => {
+      const d = document.getElementById("txDetails");
+      return { open: !!(d && d.open), tx: window.__GFFL__.UI._tx === undefined ? "undefined" : "loaded", txt: d ? d.textContent.replace(/\s+/g, " ") : "" };
+    }) || {};
+    ok(first.open === true, "Recent moves is OPEN on the league home with no tap (" + first.open + ")");
+    ok(await waitFnOr(page, () => document.querySelectorAll("#txDetails .fline").length === 3), "…and its three moves arrive post-paint");
+    const mv = await evalOr(page, () => {
+      const d = document.getElementById("txDetails");
+      if (!d) return {};
+      const lines = [...d.querySelectorAll(".fline")].map((l) => ({ txt: l.textContent.replace(/\s+/g, " ").trim(), taps: [...l.querySelectorAll(".txply[data-pk]")].map((s) => s.dataset.pk + "=" + s.textContent) }));
+      const firstRow = d.querySelector(".fline");
+      return { open: d.open, visible: !!firstRow && firstRow.offsetParent !== null && firstRow.getBoundingClientRect().height > 0, lines };
+    }) || {};
+    ok(mv.open === true && mv.visible === true, "…the rows are on screen (open + geometry), not just the attribute");
+    const byTxt = (re) => (mv.lines || []).find((l) => re.test(l.txt)) || { txt: "", taps: [] };
+    // The date prefix rides the same line, so these match the sentence, not the start of the row.
+    // shortName("Old Timer") is "O. Timer" — the sentence uses the same helper the log always did.
+    const fa = byTxt(/added R\. Rusher/), tr = byTxt(/Trade: Battle Kreussers/), dr = byTxt(/dropped O\. Timer/);
+    ok(fa.taps.length === 1 && fa.taps[0] === "4241457=R. Rusher", "a free-agent add wraps the player in a data-pk tap (" + JSON.stringify(fa.taps) + ")");
+    ok(tr.taps.length === 2 && tr.taps.join("|") === "111888=S. Second|4361741=W. Receiver",
+      "a trade wraps BOTH sides' players, keys from give/get, names from giveNames/getNames (" + JSON.stringify(tr.taps) + ")");
+    ok(/End Zone Goats dropped O\. Timer\./.test(dr.txt) && dr.taps.length === 0,
+      "a move logged with a name but no key keeps the sentence and gets no tap — nothing to open (" + dr.txt + ")");
+    ok(/Trade: Battle Kreussers sent S\. Second to End Zone Goats for W\. Receiver\./.test(tr.txt),
+      "the tappable sentence reads word-for-word as the plain one always did (" + tr.txt + ")");
+    await evalOr(page, () => { const el = document.querySelector('#txDetails .txply[data-pk="4241457"]'); if (el) el.click(); });
+    const pc = await waitFnOr(page, () => { const el = document.getElementById("playerCard"); return !!el && !el.hidden && /Rusher/.test(el.textContent); });
+    ok(pc === true, "tapping a name in Recent moves opens that player's card");
+    await evalOr(page, () => window.__GFFL__.UI.closePlayerCard && window.__GFFL__.UI.closePlayerCard());
+    // The reader's fold survives the poll repaints; re-opening survives them too.
+    const fold = await evalOr(page, async () => {
+      const d = document.getElementById("txDetails");
+      if (!d) return {};
+      d.open = false;
+      await new Promise((r) => setTimeout(r, 50));
+      window.__GFFL__.UI.renderLeague(true);
+      await new Promise((r) => setTimeout(r, 200));
+      const afterFold = document.getElementById("txDetails").open;
+      document.getElementById("txDetails").open = true;
+      await new Promise((r) => setTimeout(r, 50));
+      window.__GFFL__.UI.renderLeague(true);
+      await new Promise((r) => setTimeout(r, 200));
+      return { afterFold, afterReopen: document.getElementById("txDetails").open, rows: document.querySelectorAll("#txDetails .fline").length };
+    }) || {};
+    ok(fold.afterFold === false, "a reader who folds Recent moves shut keeps it shut through a live repaint (" + fold.afterFold + ")");
+    ok(fold.afterReopen === true && fold.rows === 3, "…and re-opening it sticks through the next one, rows intact (" + JSON.stringify(fold) + ")");
+    // Moves page and the locker's Transactions card use the same tappable sentence.
+    await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+    await waitOr(page, "#faResults");
+    const mvPage = await evalOr(page, () => document.querySelectorAll('.fline .txply[data-pk="4241457"]').length);
+    ok(mvPage === 1, "the Moves page's full log carries the same tap (" + mvPage + ")");
+    await evalOr(page, () => window.__GFFL__.UI.show("team"));
+    await waitOr(page, "#lockerStarters .lrow");
+    const lkTx = await evalOr(page, () => document.querySelectorAll('.fline .txply[data-pk]').length);
+    ok(lkTx === 3, "…and so does My Team's Transactions card — the add and both trade names (" + lkTx + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    // ---- TB3: the AI power rankings — the server mode, straight at the handler.
+    fixture.powerPoison = null; fixture.powerFenced = false;
+    const teams8 = (n) => Array.from({ length: n }, (_, i) => ({ teamId: i + 1, name: "Team " + (i + 1), w: 0, l: 0, t: 0, pf: 0, pa: 0, place: i + 1,
+      roster: [{ slot: "QB", name: "Q. Back", pos: "QB", team: "KC" }, { slot: "BN", name: "B. Bench", pos: "RB", team: "DAL", inj: "Q" }] }));
+    const bad = await farmgptFn(new Request("http://fn/farmgpt", { method: "POST", body: JSON.stringify({ secret: "amenfarms", mode: "gfflpower", power: { week: 1, teams: teams8(2) } }) }));
+    ok(bad.status === 400 && /Bad power request/.test(await bad.text()), "two teams is not a league — 400 'Bad power request', no model call");
+    const n0 = powerCalls();
+    const good = await farmgptFn(new Request("http://fn/farmgpt", { method: "POST", body: JSON.stringify({ secret: "amenfarms", mode: "gfflpower", power: { week: 3, teams: teams8(8) } }) }));
+    const goodTxt = (await good.text()).trim();
+    ok(good.status === 200 && powerCalls() === n0 + 1, "a real request reaches Grok exactly once");
+    const wire = lastPowerReq() || {};
+    ok(wire.model === "grok-4.6", "…on grok-4.6 — the user's pick, and the first mode off XAI_MODEL (" + wire.model + ")");
+    ok(wire.reasoning_effort === "low" && wire.temperature === 0.2 && wire.max_tokens === 6000,
+      "…with the measured xAI recipe: reasoning low, temperature 0.2, 6000 tokens of headroom (" + JSON.stringify({ e: wire.reasoning_effort, t: wire.temperature, m: wire.max_tokens }) + ")");
+    const sysTurn = ((wire.messages || [])[0] || {}).content || "";
+    ok(/power-rankings columnist/.test(sysTurn) && /STRICT JSON/.test(sysTurn) && /Every team appears EXACTLY once/.test(sysTurn),
+      "GFFLPOWER_SYSTEM is stamped server-side — columnist, strict JSON, every team once");
+    const userTurn = ((wire.messages || []).find((m) => m.role === "user") || {}).content || "";
+    ok(/^WEEK 3 — 8 TEAMS:\n/.test(userTurn) && /"place":8/.test(userTurn) && /"slot":"BN"/.test(userTurn) && /"inj":"Q"/.test(userTurn) && /ranks 1\.\.8/.test(userTurn),
+      "…the user turn is the server-built named-field payload — week, places, slots, injuries, and the 1..8 contract");
+    let parsed = null; try { parsed = JSON.parse(goodTxt); } catch (e) { parsed = null; }
+    ok(parsed && Array.isArray(parsed.ranking) && parsed.ranking.length === 8, "…and the reply streams back as one JSON object of eight (" + goodTxt.slice(0, 60) + "…)");
+  }
+  {
+    // ---- TB4: the phone card, generation, validation, movement.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    const n0 = powerCalls();
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await sleep(400);
+    const empty = await evalOr(page, () => {
+      const card = document.getElementById("powerCard");
+      const prev = card && card.previousElementSibling;
+      return { present: !!card, text: card ? card.textContent.replace(/\s+/g, " ") : "", underStandings: !!(prev && prev.classList.contains("standcard")),
+        backend: window.__GFFL__.LG.backendMode, rows: card ? card.querySelectorAll(".pwrow").length : -1 };
+    }) || {};
+    ok(empty.present === true && empty.underStandings === true, "the Power rankings card sits DIRECTLY beneath Standings on the phone");
+    ok(/Nothing on file yet/.test(empty.text || "") && empty.rows === 0, "…and with no ranking on file it says so instead of vanishing (" + (empty.text || "").slice(0, 70) + ")");
+    ok(empty.backend === "local" && powerCalls() === n0, "the local fallback store never triggers a paid generation — no Grok call on this page (" + (powerCalls() - n0) + ")");
+    // Forced generation (the test/commissioner path) — the fake ranks in REVERSE standings order.
+    const gen = await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG;
+      const [a, b] = await Promise.all([LG.ensureAiPower({ force: true }), LG.ensureAiPower({ force: true })]);
+      const stored = await LG.db.get(LG.aiPowerId(2026, 1));
+      return { same: a === b, doc: a, stored };
+    }) || {};
+    ok(gen.same === true && powerCalls() === n0 + 1, "two concurrent ensures = ONE generation (single-flight) — one Grok call (" + (powerCalls() - n0) + ")");
+    const d1 = gen.doc || {};
+    ok(d1.kind === "aipower" && d1.week === 1 && d1.season === 2026 && d1.model === "grok-4.6" && Number(d1.at) > 0 && Array.isArray(d1.ranking) && d1.ranking.length === 8,
+      "the doc is the week's ranking record — kind/week/season/model/stamp + eight rows (" + JSON.stringify({ k: d1.kind, w: d1.week, m: d1.model, n: (d1.ranking || []).length }) + ")");
+    ok(gen.stored && gen.stored.at === d1.at, "…and it is written to aipower_2026_w1");
+    ok(Array.isArray(d1.ranking) && d1.ranking.length === 8 && d1.ranking[0].teamId === 8 && d1.ranking[7].teamId === 1 && d1.ranking.every((r, i) => r.rank === i + 1),
+      "the MODEL's order is kept, not the standings' — the fake ranked the standings' last team first (" + (d1.ranking || []).map((r) => r.teamId).join(",") + ")");
+    ok(d1.input && d1.input[1] && d1.input[1].place === 1 && d1.input[8] && d1.input[8].place === 8 && d1.input[1].w === 0,
+      "…with the standings snapshot the model was shown kept beside it (" + JSON.stringify(d1.input && d1.input[1]) + ")");
+    const req = lastPowerReq() || {};
+    const turn = ((req.messages || []).find((m) => m.role === "user") || {}).content || "";
+    ok(/^WEEK 1 — 8 TEAMS:/.test(turn) && /"name":"Battle Kreussers"/.test(turn) && /"name":"P\. Passer"/.test(turn) && /"slot":"BN"/.test(turn) && /"inj":"OUT"/.test(turn) && /"pos":"DST"/.test(turn),
+      "the wire carried every roster — names, BN for bench, I. Injured's OUT, the D/ST (" + turn.slice(0, 40) + "…)");
+    // The card, painted from the doc.
+    await evalOr(page, () => window.__GFFL__.UI.show("league"));
+    await waitOr(page, ".mucard");
+    ok(await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8), "the league home paints eight ranked rows");
+    const card = await evalOr(page, () => {
+      const c = document.getElementById("powerCard");
+      if (!c) return {};
+      const rows = [...c.querySelectorAll(".pwrow")].map((r) => ({ team: Number(r.dataset.team), rank: r.querySelector(".pwrank").textContent.trim(),
+        name: r.querySelector(".pwname").textContent.trim(), rec: (r.querySelector(".pwrec") || {}).textContent, move: r.querySelector(".pwmove").textContent.trim(),
+        blurb: (r.querySelector(".pwblurb") || {}).textContent || "", locker: (r.querySelector("[data-locker]") || {}).dataset && r.querySelector("[data-locker]").dataset.locker,
+        blurbLeft: Math.round(r.querySelector(".pwblurb").getBoundingClientRect().left), nameLeft: Math.round(r.querySelector(".pwteam").getBoundingClientRect().left) }));
+      return { h2: c.querySelector("h2").textContent.replace(/\s+/g, " ").trim(), rows, foot: (c.querySelector(".pwfoot") || {}).textContent || "",
+        mine: c.querySelectorAll(".pwrow.mine").length, sideways: document.documentElement.scrollWidth - window.innerWidth,
+        pict: (c.textContent.match(/\p{Extended_Pictographic}/gu) || []).length };
+    }) || {};
+    ok(/^Power rankings — week 1$/.test(card.h2), "the heading names the week (" + card.h2 + ")");
+    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows[0].team === 8 && card.rows[0].rank === "1" && card.rows[0].name === "The Goat Kids" && card.rows[7].team === 1 && card.rows[7].rank === "8",
+      "rows in the model's order: The Goat Kids #1 down to Battle Kreussers #8");
+    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows.every((r) => r.rec === "0-0" && r.move === "–" && /^Echo /.test(r.blurb) && String(r.locker) === String(r.team)),
+      "each row: record, a dash for movement (no prior week), the model's blurb, and the team opens its locker");
+    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows.every((r) => r.blurbLeft === r.nameLeft),
+      "the blurb hangs under the name, not under the rank digit (" + ((card.rows || [])[0] || {}).blurbLeft + " = " + ((card.rows || [])[0] || {}).nameLeft + ")");
+    ok(card.mine === 1 && /Ranked by Grok/.test(card.foot) && /each Tuesday/.test(card.foot), "own team ringed; the footer says who ranked it and when it re-ranks");
+    ok(card.sideways <= 1 && card.pict === 0, "nothing scrolls sideways at 390px and the card's chrome carries no pictographs");
+    // Movement: a week-2 ranking on file beside week 1's → arrows computed against week 1.
+    const mvw = await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+      if (!LG.aiPowerId) return {};
+      const w1 = await LG.db.get(LG.aiPowerId(2026, 1));
+      if (!w1 || !Array.isArray(w1.ranking) || w1.ranking.length !== 8) return {};
+      const r2 = w1.ranking.map((r) => ({ ...r }));
+      // team 1 (#8) climbs to #2, everyone from #2..#7 slides down one; team 8 stays #1.
+      const moved = [r2[0], r2[7], ...r2.slice(1, 7)].map((r, i) => ({ ...r, rank: i + 1 }));
+      await LG.db.set(LG.aiPowerId(2026, 2), { ...w1, week: 2, at: w1.at + 1000, ranking: moved });
+      UI._aiPower = await LG.loadAiPowerDocs();
+      UI.renderLeague(true);
+      await new Promise((r) => setTimeout(r, 200));
+      const c = document.getElementById("powerCard");
+      if (!c) return {};
+      return { h2: c.querySelector("h2").textContent.replace(/\s+/g, " ").trim(),
+        rows: [...c.querySelectorAll(".pwrow")].map((r) => r.dataset.team + ":" + r.querySelector(".pwmove").textContent.trim()) };
+    }) || {};
+    ok(/week 2$/.test(mvw.h2), "with two weeks on file the card shows the NEWEST (" + mvw.h2 + ")");
+    ok(mvw.rows && mvw.rows[0] === "8:–" && mvw.rows[1] === "1:▲6" && mvw.rows[2] === "7:▼1" && mvw.rows[7] === "2:▼1",
+      "movement is hand-checked against week 1: Battle Kreussers #8→#2 = ▲6, the slid teams ▼1, the #1 unchanged (" + (mvw.rows || []).join(" ") + ")");
+    // Validation: every poison makes the WHOLE reply fail, and the existing doc is kept.
+    const before = (await evalOr(page, () => window.__GFFL__.LG.db.get(window.__GFFL__.LG.aiPowerId(2026, 1)))) || {};
+    for (const poison of ["unknown", "dup", "rankclash"]) {
+      fixture.powerPoison = poison;
+      const r = await evalOr(page, () => window.__GFFL__.LG.ensureAiPower({ force: true }));
+      const after = (await evalOr(page, () => window.__GFFL__.LG.db.get(window.__GFFL__.LG.aiPowerId(2026, 1)))) || {};
+      ok(r && r.at === before.at && after.at === before.at,
+        "a reply with a " + (poison === "unknown" ? "team we never sent" : poison === "dup" ? "team listed twice" : "rank collision") + " is REJECTED whole — the ranking on file is untouched");
+    }
+    fixture.powerPoison = null;
+    fixture.powerFenced = true;
+    const fenced = await evalOr(page, () => window.__GFFL__.LG.ensureAiPower({ force: true }));
+    ok(fenced && fenced.at > before.at && Array.isArray(fenced.ranking) && fenced.ranking.length === 8, "a reply wrapped in ```json fences — which models do despite 'no fences' — is unwrapped and accepted");
+    fixture.powerFenced = false;
+    const unit = await evalOr(page, () => {
+      const v = window.__GFFL__.LG.validateAiPowerReply;
+      return {
+        arr: !!v(JSON.stringify([{ teamId: 1, rank: 2, blurb: "b" }, { teamId: 2, rank: 1, blurb: "a" }]), [1, 2]),
+        gap: v(JSON.stringify({ ranking: [{ teamId: 1, rank: 1 }, { teamId: 2, rank: 3 }] }), [1, 2]),
+        missing: v(JSON.stringify({ ranking: [{ teamId: 1, rank: 1 }] }), [1, 2]),
+        prose: v("Sure! Here you go: {}", [1, 2]),
+        sorted: (v(JSON.stringify({ ranking: [{ teamId: 1, rank: 2, blurb: "  two  words " }, { teamId: 2, rank: 1 }] }), [1, 2]) || []).map((r) => r.teamId + ":" + r.blurb).join("|"),
+      };
+    }) || {};
+    ok(unit.arr === true && unit.gap === null && unit.missing === null && unit.prose === null && unit.sorted === "2:|1:two words",
+      "validateAiPowerReply: a bare array is fine, a rank gap / a missing team / prose are not, output is rank-sorted with whitespace-squashed blurbs (" + JSON.stringify(unit) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    // ---- TB5: on the CLOUD, the first League open of the week generates on its own — and the
+    // write is create-only, so a device that loses the race adopts the winner's ranking.
+    fixture.powerPoison = null; fixture.powerFenced = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await armFakeCloud(page, fullSeed().docs);
+    const n0 = powerCalls();
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    ok(await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8), "cloud: the league home generates week 1's ranking in the background and paints it");
+    const cloud = await evalOr(page, () => ({ backend: window.__GFFL__.LG.backendMode, stored: !!(window.__fakeCloud.store.get("aipower_2026_w1") || {}).ranking })) || {};
+    ok(cloud.backend === "cloud" && cloud.stored === true && powerCalls() === n0 + 1, "…one Grok call, and the doc is in the cloud store (" + JSON.stringify(cloud) + ", calls " + (powerCalls() - n0) + ")");
+    // Week 2 with week 1 NOT final: no generation (the standings would lag). Finalized: it runs.
+    // TWO evaluates so the call-count assertion can sit BETWEEN them — a single eval that
+    // ran both would already have spent the week-2 call by the time we asked "did early skip".
+    const early = await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG;
+      window.__realWeek = LG.currentWeek;
+      LG.currentWeek = () => 2;
+      const got = await LG.ensureAiPower();
+      return { early: got, week: LG.currentWeek() };
+    }) || {};
+    ok(early.early === null && powerCalls() === n0 + 1, "week 2 before week 1 is finalized: NO generation — the model would rank on lagging standings (" + early.early + ")");
+    const ready = await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG;
+      window.__fakeCloud.store.set("weekly_2026_w1", { kind: "weekly", week: 1, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 90 }], power: [] });
+      LG.db.clearCache();
+      const got = await LG.ensureAiPower();
+      LG.currentWeek = window.__realWeek;
+      return { readyWeek: got && got.week, stored: !!(window.__fakeCloud.store.get("aipower_2026_w2") || {}).ranking };
+    }) || {};
+    ok(ready.readyWeek === 2 && ready.stored === true && powerCalls() === n0 + 2, "…the moment week 1's weekly doc exists, week 2's ranking generates (" + JSON.stringify(ready) + ")");
+    const w2turn = ((((lastPowerReq() || {}).messages) || []).find((m) => m.role === "user") || {}).content || "";
+    ok(/^WEEK 2 — 8 TEAMS:/.test(w2turn) && /"w":1,"l":0/.test(w2turn) && /"place":1/.test(w2turn),
+      "…and that request carries the finalized week's standings — Battle Kreussers 1-0 in first (" + w2turn.slice(0, 30) + "…)");
+    // The race: a rival device's doc lands while OUR model call is in flight → our create-only
+    // write is refused, and we adopt THEIRS rather than overwrite it.
+    const race = await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG;
+      LG.currentWeek = () => 3;
+      window.__fakeCloud.store.set("weekly_2026_w2", { kind: "weekly", week: 2, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 90 }], power: [] });
+      LG.db.clearCache();
+      const rival = { kind: "aipower", season: 2026, week: 3, at: 12345, model: "grok-4.6", input: {},
+        ranking: Array.from({ length: 8 }, (_, i) => ({ teamId: i + 1, rank: i + 1, blurb: "rival device's blurb " + (i + 1) })) };
+      const realFetch = window.fetch;
+      window.fetch = async function (u, o) {
+        const r = await realFetch.apply(this, arguments);
+        if (/farmgpt/.test(String(u))) window.__fakeCloud.store.set("aipower_2026_w3", rival); // lands between our read and our write
+        return r;
+      };
+      const got = await LG.ensureAiPower();
+      window.fetch = realFetch;
+      const stored = window.__fakeCloud.store.get("aipower_2026_w3");
+      return { gotAt: got && got.at, storedAt: stored && stored.at, firstBlurb: got && Array.isArray(got.ranking) && got.ranking[0] && got.ranking[0].blurb };
+    }) || {};
+    ok(race.gotAt === 12345 && race.storedAt === 12345 && /rival device/.test(race.firstBlurb || ""),
+      "losing the create-only race adopts the rival's ranking and leaves it in place — one ranking of record per week (" + JSON.stringify(race) + ")");
+    ok(errors.length === 0, "0 page errors on the cloud page");
+    await ctx.close();
+  }
+  {
+    // ---- TB6: the desktop — the card is a registry entry directly under Standings in MAIN.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 980 } });
+    await bootPage(page);
+    await waitOr(page, ".lgdesk");
+    const dk = await evalOr(page, () => {
+      const ids = [...document.querySelectorAll(".lgmain .deskcard")].map((w) => w.dataset.card);
+      const wrap = document.querySelector('.deskcard[data-card="power"]');
+      return { ids, hasCard: !!(wrap && wrap.querySelector("#powerCard")), label: (window.__GFFL__.UI.deskLayout().main || []).includes("power") };
+    }) || {};
+    ok(dk.ids && dk.ids.indexOf("power") === dk.ids.indexOf("standings") + 1, "desktop: 'power' follows 'standings' in MAIN (" + (dk.ids || []).join(",") + ")");
+    ok(dk.hasCard === true && dk.label === true, "…rendered through the registry, present in the default layout");
     ok(errors.length === 0, "0 page errors on the desktop");
     await ctx.close();
   }

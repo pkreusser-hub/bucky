@@ -7073,3 +7073,75 @@ tab or page (`League|Matchup|My Team|Moves|Chat|Scores`, 63px boxes, 0 cards, `#
 the 9 RS checks that pass on HEAD are the ones true of any bar (no clip, ≥44px, 0 page
 errors). App files restored from the scratchpad copy, hashes identical.
 ---
+
+## GFFL — the Tuesday batch (2026-09-08)
+
+User, one message: (1) drop the My Team lineup instructions (2) stop My Team refreshing
+on its own on a phone (3) colour the slot chips on a phone the way the desktop already
+does (4) Recent moves open by default (5) player names in transactions tappable (6) a
+Power Ranking card under Standings, Grok 4.6, each Tuesday, every roster plus the
+standings.
+
+**MY TEAM.** The how-to paragraph under "Lineup — week N" is gone. The controls still
+carry every rule it explained (a locked Swap's title, "Empty — tap to fill"). Slot chips
+wear `--pos-*` at every width — those seven rules sat inside the ≥1024px block from the
+2026-08-11 handoff, so a phone painted every chip the neutral `--nested` grey. The
+matchup page's own slot badges stay neutral (Refinement 3); Rosters reuses `.slotchip`
+and picks the colours up for free.
+
+**THE SELF-REFRESH.** `paintLive` already skipped the locker. `LG.db.onChange` did not —
+`renderLocker` reads chat (the wall), tx and weekly, so the ~15s background list refresh
+noticed every message in the league and answered with `UI.show("locker")`: a wipe to
+"Loading locker…" and a jump to the top. Two rules now: the locker only quiet-repaints
+for kind `roster` or `team`, and that repaint is in place (no loading wipe, scroll put
+back). Chat / tx / weekly / claims changes wait for the next visit.
+
+**RECENT MOVES.** The `<details>` paints `open`. The tx list is still fetched AFTER the
+first paint (`wireLazyLeagueDetails` fires `load()` when the card is already open), so
+section W's paint budget is untouched. A reader who folds it shut is remembered for the
+rest of the visit (`UI._txFolded`) through the poll repaints. Player names ride
+`txSentenceHtml` — the same sentence as `txSentence`, with a `data-pk` wrap when the log
+recorded a key. A name-only old drop stays plain text. Same markup on the Moves page and
+the locker's Transactions card.
+
+**POWER RANKINGS.** One doc per week, `aipower_<season>_w<week>`, create-only (two
+Tuesday-morning phones produce one ranking). First League open of a new week generates;
+from week 2 on it waits until week N-1 is finalized so the standings include Monday
+night. Cloud only, unless forced. Mode `gfflpower` in `farmgpt.mjs` on **grok-4.6**
+(every other Grok mode stays on `XAI_MODEL` / 4.5). The card sits under Standings on the
+phone and is a MAIN registry entry (`power`) on the desktop, with movement against the
+prior week's ranking. A missing doc still paints the card ("Nothing on file yet") so the
+slot does not appear from nowhere on Tuesday.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`, `netlify/functions/farmgpt.mjs`,
+`tools/_verify-gffl.cjs`, this file.
+
+**RESTAGED, reasons at the checks**: AU's 12 registered desktop cards → 13 (`power`
+joined MAIN); AU9's sanitizer complete-count 12 → 13, and `power` is the live case of
+the append rule (a saved layout from before this card); AD9 keeps the LOCKED-word ban
+and now also confirms the lineup how-to paragraph is gone; AT9's Recent moves paints
+`open` and fetches post-paint (record book still lazy); M4 reads `LG.powerRanking` and
+insists the phone has exactly one "Power rankings" card, the AI one — two cards that
+disagree was the alternative.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3339/3339**. New section TB (62 checks):
+no how-to `<p>` on My Team, `--pos-*` on every phone slot chip, a chat/tx/weekly/claims
+`onChange` that leaves the locker nodes and scroll alone and a roster `onChange` that
+repaints in place, Recent moves open with geometry and three tappable sentences (add,
+trade, name-only drop), the same taps on Moves and the locker's Transactions, `gfflpower`
+on grok-4.6 with the measured xAI recipe and a named-field payload, the phone card under
+Standings (empty state, model order, movement arrows hand-checked against week 1, every
+poison rejected whole, fenced JSON accepted), cloud generate + Tuesday gate + create-only
+race, desktop `power` immediately after `standings` in MAIN.
+
+Bite (`league.html` + `lg-core.js` + `lg-ui.js` + `farmgpt.mjs` at HEAD, new suite kept):
+**3279 pass / 60 fail** — the 60 are the restaged checks (formula card still on the phone,
+how-to paragraph still there, Recent moves still shut and unfetched, 12 desktop cards)
+plus the TB checks that name the missing feature (chips still `--nested` grey, locker
+still wipes to "Loading locker…", no `.txply`, HEAD `farmgpt` "mode must be story or
+research", no `#powerCard`, no `ensureAiPower`). The TB checks that pass on HEAD are the
+ones true without the feature (My Team paints, the seven pos tokens exist, 0 page errors,
+a local store never calls Grok). First bite crashed on `card.rows[0]` in an assertion
+message when HEAD had no rows; those messages are guarded now. App files restored from
+the scratchpad copy, hashes identical.
+---

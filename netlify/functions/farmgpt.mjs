@@ -41,6 +41,7 @@
 // Optional:
 //   STORY_PROVIDER       - "sonnet" (DEFAULT) | "grok" | "haiku" | "gemini" for story mode
 //   XAI_MODEL            - xAI model id (default "grok-4.5")
+//   GFFLPOWER_MODEL      - the weekly power-rankings mode's model id (default "grok-4.6")
 //   GEMINI_API_KEY       - Google AI Studio key — only needed when STORY_PROVIDER=gemini
 //   KEEPER_PROVIDER      - "haiku" (DEFAULT — see above) | "grok" | "sonnet" for the keeper
 //   KEEPER_MODEL         - override the keeper's model id within its provider
@@ -1573,6 +1574,41 @@ OUTPUT — STRICT JSON only, no markdown fences, no prose before or after:
 [{"key":"<verbatim>","proj":<number, one decimal>,"note":"<10 words max — the reason, or 'in line with ESPN' when unchanged>"}]
 Every input player appears EXACTLY once. Keys verbatim. Nobody invented, nobody dropped.`;
 
+// THE POWER RANKINGS ANALYST (2026-09-08, user: "beneath standings lets add Power Ranking, this
+// will calculate each Tuesday and we should feed all the rosters to Grok 4.6 and ask for an AI
+// ranking of each team considering their roster and current standings"). One call a week, the
+// whole league in one turn: every team's record, points, and full roster (slot, name, position,
+// NFL team, injury). The reply is a strict-JSON ranking with a one-line reason per team; the
+// client validates that every team appears exactly once and that ranks are 1..N before a word
+// of it reaches a screen. The model is grok-4.6 (GFFLPOWER_MODEL below), the user's pick — the
+// first mode in this file on it; every other Grok mode stays on XAI_MODEL.
+const GFFLPOWER_SYSTEM = `You are the power-rankings columnist for a family's private 8-team fantasy
+football league. You are given the current week, and a JSON list of teams, each with: "teamId"
+(an opaque id — echo it back VERBATIM), name, owner (first name, may be absent), record ("w",
+"l", "t"), points for and against ("pf", "pa"), current standings place ("place", 1 = first),
+and the full roster: "slot" (QB/RB/WR/TE/FLEX/K/DST are starters; BN = bench, IR = injured
+reserve), name, position, NFL team, and injury designation ("inj": Q / D / OUT / IR / SUS, or
+absent = healthy).
+
+TASK: rank every team from strongest to weakest for the REST OF THE SEASON, weighing (a) the
+actual quality and depth of the roster — use your real NFL knowledge of these players, their
+roles, offenses and health — and (b) the current standings and points scored. Early in the
+season the roster should dominate; as records accumulate they should count for more. A
+team's place in the standings is an input, not the answer — a 1-2 team with the best roster
+can rank first, and say why.
+
+RULES
+- Every team appears EXACTLY once. Ranks are 1..N with no gaps or ties. teamId verbatim.
+- One "blurb" per team: 12 to 28 words, plain text, no markdown, no emoji. It should sound
+  like a columnist with opinions — name the players and the reason. Tease the ROSTER or the
+  decisions, never the person; kids read this. No profanity.
+- Never invent players, trades, injuries or results that are not in the data or in your
+  genuine NFL knowledge.
+
+OUTPUT — STRICT JSON only, no markdown fences, no prose before or after:
+{"ranking":[{"teamId":<verbatim>,"rank":<1..N>,"blurb":"<12-28 words>"}]}`;
+const GFFLPOWER_MODEL = process.env.GFFLPOWER_MODEL || "grok-4.6";
+
 // ---------------- Billy in the Booth (ffdraft.html's robo commentator) ----------------
 // A goat in a headset calling the family's live draft: occasional one-liners on
 // the state of the board, a fresh pick, a steal/reach, or a team's build. Grok
@@ -1656,6 +1692,10 @@ const MODES = {
   // gffltrade lesson) — 6000 keeps a full batch's tail from ever being cut mid-JSON, and
   // output bills only for what is produced.
   gffladjust:  { system: GFFLADJUST_SYSTEM, maxTokens: 6000, thinking: { type: "disabled" }, cache: false },
+  // The weekly power rankings: 8 × {teamId, rank, blurb} is ~400 output tokens, but grok's
+  // reasoning bills against max_tokens on the xAI API (the gffltrade lesson) and this prompt
+  // asks it to weigh eight full rosters — 6000 keeps the JSON tail from ever being cut.
+  gfflpower:   { system: GFFLPOWER_SYSTEM,  maxTokens: 6000, thinking: { type: "disabled" }, cache: false },
 };
 const KID_ART_MODEL = RESEARCH_MODEL;   // Sonnet 5 — better at clean, readable vector art
 
@@ -1915,7 +1955,7 @@ async function logUsage(modeName, inTok, outTok, cacheWriteTok = 0, cacheReadTok
       : modeName === "storyseed" ? "f"
       : (modeName === "fantasy" || modeName === "ffrecap" || modeName === "ffcommentary") ? "w"
       // The live projection adjuster reuses "w" too — it's the same fantasy-AI spend.
-      : modeName === "gfflproj" || modeName === "gffltrade" || modeName === "gffladjust" ? "w"
+      : modeName === "gfflproj" || modeName === "gffltrade" || modeName === "gffladjust" || modeName === "gfflpower" ? "w"
       : modeName === "audit" ? "x" : "r";
     const base = `projects/${PROJECT_ID}/databases/(default)/documents`;
     const tf = (f, n) => ({ fieldPath: f, increment: { integerValue: String(n) } });
@@ -2148,12 +2188,12 @@ async function countStoryToday(user) {
 }
 
 // ---------------- GFFL daily response cap (pre-season serverless review, SERIOUS/financial) ----------------
-// The six gffl modes (fantasy/ffrecap/ffcommentary/gfflproj/gffltrade/gffladjust) were gated on
+// The seven gffl modes (fantasy/ffrecap/ffcommentary/gfflproj/gffltrade/gffladjust/gfflpower) were gated on
 // only the PUBLIC family secret with no server-side ceiling — a leaked or reused secret could
 // hammer the paid xAI/Anthropic calls with nothing to stop it. Mirrors the story cap's own
 // approach above (a plain read-then-compare BEFORE the model is ever called, no CAS — the story
 // cap has none either, so none is added here) rather than inventing a second counter mechanism:
-// the six modes already share ONE real Firestore counter, bucket "w" in logUsage's daily rollup
+// the seven modes already share ONE real Firestore counter, bucket "w" in logUsage's daily rollup
 // doc (USAGE_COLLECTION/<farmDate()>, field w_req, atomically incremented by logUsage's own
 // fieldTransforms.increment after every completed call) — see modeName's "w" cases above. Reads
 // that SAME field rather than adding a new collection/write path. 300/day sized off this app's
@@ -2163,7 +2203,8 @@ async function countStoryToday(user) {
 // read failure, same as every other read in this file (storyBonusToday, countStoryToday) — the
 // alternative (failing closed) would take fantasy analysis off the site on any Firestore hiccup,
 // worse for a family feature than a bounded burst risk during a rare outage window.
-const GFFL_MODES = new Set(["fantasy", "ffrecap", "ffcommentary", "gfflproj", "gffltrade", "gffladjust"]);
+// gfflpower joined 2026-09-08 — one call a week, under the same ceiling and the same "w" bucket.
+const GFFL_MODES = new Set(["fantasy", "ffrecap", "ffcommentary", "gfflproj", "gffltrade", "gffladjust", "gfflpower"]);
 const GFFL_DAILY_CAP = 300;
 async function gfflUsedToday() {
   try {
@@ -3216,6 +3257,42 @@ function buildGffladjustMessages(body) {
     + " PLAYERS:\n" + clipJson(players, 9000)
     + "\n\nTASK: return the strict-JSON adjusted-projections array per your instructions — every key exactly once, nothing but the JSON." }];
 }
+// THE POWER RANKINGS TURN (2026-09-08). Named body field `power` (the ledger lesson — league
+// data never rides messages[] from the client): { week, teams:[{teamId, name, owner, w, l, t,
+// pf, pa, place, roster:[{slot, name, pos, team, inj}]}] }. Every field is clipped server-side
+// — the client is untrusted — and the whole list is bounded: ≤12 teams, ≤24 players each,
+// ~14 KB of JSON. Two teams or fewer is not a league and is refused.
+function buildGfflPowerMessages(body) {
+  const pw = body.power && typeof body.power === "object" && !Array.isArray(body.power) ? body.power : null;
+  if (!pw || !Array.isArray(pw.teams) || pw.teams.length < 3) return null;
+  const num = (v, d) => (Number.isFinite(Number(v)) ? Math.round(Number(v) * 10) / 10 : d);
+  const teams = pw.teams.slice(0, 12).map((t) => {
+    const o = {
+      teamId: String((t && t.teamId) || ""),
+      name: String((t && t.name) || "").slice(0, 40),
+      w: num(t && t.w, 0), l: num(t && t.l, 0), t: num(t && t.t, 0),
+      pf: num(t && t.pf, 0), pa: num(t && t.pa, 0),
+      place: Number.isInteger(Number(t && t.place)) ? Number(t.place) : 0,
+      roster: (Array.isArray(t && t.roster) ? t.roster : []).slice(0, 24).map((p) => {
+        const r = {
+          slot: String((p && p.slot) || "").slice(0, 5),
+          name: String((p && p.name) || "").slice(0, 40),
+          pos: String((p && p.pos) || "").slice(0, 4),
+          team: String((p && p.team) || "").slice(0, 4),
+        };
+        if (p && p.inj) r.inj = String(p.inj).slice(0, 12);
+        return r;
+      }).filter((p) => p.name),
+    };
+    if (t && t.owner) o.owner = String(t.owner).slice(0, 24);
+    return o;
+  }).filter((t) => t.teamId && t.name);
+  if (teams.length < 3) return null;
+  const week = Number.isInteger(Number(pw.week)) ? Number(pw.week) : "?";
+  return [{ role: "user", content: "WEEK " + week + " — " + teams.length + " TEAMS:\n" + clipJson(teams, 14000)
+    + "\n\nTASK: return the strict-JSON ranking per your instructions — every teamId exactly once, ranks 1.."
+    + teams.length + ", one blurb each, nothing but the JSON." }];
+}
 // One column per completed week, family-shared: doc farmgpt_ffrecap/<season>_w<week>.
 const FFRECAP_COLLECTION = "farmgpt_ffrecap";
 async function fetchFfRecap(id) {
@@ -3740,6 +3817,7 @@ export default async (req) => {
   else if (body.mode === "gfflproj") messages = buildGfflProjMessages(body);
   else if (body.mode === "gffltrade") messages = buildGfflTradeMessages(body);
   else if (body.mode === "gffladjust") messages = buildGffladjustMessages(body);
+  else if (body.mode === "gfflpower") messages = buildGfflPowerMessages(body);
   else if (body.mode === "storyseed") {
     const built = buildSeedMessages(body);
     if (built) { messages = built.messages; seedHasPack = built.hasPack; }
@@ -3753,6 +3831,7 @@ export default async (req) => {
       : body.mode === "gfflproj" ? "Bad projection request"
       : body.mode === "gffltrade" ? "Bad trade request"
       : body.mode === "gffladjust" ? "Bad adjust request"
+      : body.mode === "gfflpower" ? "Bad power request"
       : body.mode === "storyseed" ? "Bad seed request" : "Bad messages array", jsonHeaders);
   }
 
@@ -3906,6 +3985,9 @@ export default async (req) => {
   else if (body.mode === "fantasy" || body.mode === "ffrecap" || body.mode === "ffcommentary") { provider = "xai"; model = XAI_MODEL; }
   // The live projection adjuster: same Grok pick, same reasoning as the analyst/columnist above.
   else if (body.mode === "gfflproj" || body.mode === "gffltrade" || body.mode === "gffladjust") { provider = "xai"; model = XAI_MODEL; }
+  // The power-rankings columnist: grok-4.6 by the user's own naming (2026-09-08) — the one mode
+  // not on XAI_MODEL, so the rest of the fantasy AI keeps its measured 4.5 recipe untouched.
+  else if (body.mode === "gfflpower") { provider = "xai"; model = GFFLPOWER_MODEL; }
 
   // DEGRADE BEFORE WE EVEN ASK. A site with no XAI_API_KEY is a working site: every xAI route
   // resolves back to its Anthropic equivalent here, so the reader gets a Haiku-narrated story
@@ -3920,7 +4002,7 @@ export default async (req) => {
   // doesn't know about it and would leave it on STORY_MODEL (Haiku) — wrong tier for advice. Correct
   // it here rather than touch that ternary: RESEARCH_MODEL is the fallback quality tier every other
   // Grok-backed mode (fantasy/ffrecap) already gets.
-  if ((body.mode === "gfflproj" || body.mode === "gffltrade" || body.mode === "gffladjust") && !process.env.XAI_API_KEY) { provider = "anthropic"; model = RESEARCH_MODEL; }
+  if ((body.mode === "gfflproj" || body.mode === "gffltrade" || body.mode === "gffladjust" || body.mode === "gfflpower") && !process.env.XAI_API_KEY) { provider = "anthropic"; model = RESEARCH_MODEL; }
 
   let upstream;
   // One attempt at one provider. Returns {ok:true, upstream} or {ok:false, status, msg} — an
@@ -3972,7 +4054,10 @@ export default async (req) => {
       // tail present and key-valid on every run, and 0.2 also curbed (not cured) grok's
       // fast-path name mangling. Mode-scoped: story/fantasy prompts never triggered long
       // reasoning and their prose should keep the default sampling.
-      if (body.mode === "gffltrade" || body.mode === "gffladjust") { xaiReq.reasoning_effort = "low"; xaiReq.temperature = 0.2; }
+      // gfflpower (2026-09-08) takes the same recipe: eight rosters is a longer read than the
+      // trade analyst's two, so the default-effort TTFB cliff is the same risk, and a ranking
+      // at 0.2 is one the family can compare week to week rather than a dice roll.
+      if (body.mode === "gffltrade" || body.mode === "gffladjust" || body.mode === "gfflpower") { xaiReq.reasoning_effort = "low"; xaiReq.temperature = 0.2; }
       try {
         resp = await fetch(`${xaiBase}/v1/chat/completions`, {
           method: "POST",
@@ -4074,7 +4159,7 @@ export default async (req) => {
     attempt = await openUpstream(provider, model);
   }
   // Same outage fallback, added separately for gfflproj so the condition above stays untouched.
-  if (!attempt.ok && provider !== "anthropic" && (body.mode === "gfflproj" || body.mode === "gffltrade" || body.mode === "gffladjust")) {
+  if (!attempt.ok && provider !== "anthropic" && (body.mode === "gfflproj" || body.mode === "gffltrade" || body.mode === "gffladjust" || body.mode === "gfflpower")) {
     provider = "anthropic";
     model = RESEARCH_MODEL;
     attempt = await openUpstream(provider, model);
@@ -4123,7 +4208,10 @@ export default async (req) => {
       // STILL DELIBERATELY NOT on `story`: grok reaches its first word there in ~5s, so there is
       // nothing to fix, and the chapter renderer's marker parsing must never see a byte the
       // model didn't write.
-      const KEEPALIVE_MODES = { gffltrade: " ", gffladjust: " ", storyseed: "\n", audit: "\n" };
+      // gfflpower (2026-09-08): a strict-JSON object parsed with JSON.parse after trim() — a
+      // leading space is harmless, and eight rosters at low effort is a longer read than the
+      // adjuster's 35-player batch, so the byte-less 30s cliff is a real risk here too.
+      const KEEPALIVE_MODES = { gffltrade: " ", gffladjust: " ", gfflpower: " ", storyseed: "\n", audit: "\n" };
       const stopHeartbeat = Object.prototype.hasOwnProperty.call(KEEPALIVE_MODES, body.mode)
         ? startKeepalive(controller, encoder, () => sentAnyText, KEEPALIVE_MODES[body.mode])
         : null;
