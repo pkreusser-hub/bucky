@@ -1578,11 +1578,12 @@ Every input player appears EXACTLY once. Keys verbatim. Nobody invented, nobody 
 // will calculate each Tuesday and we should feed all the rosters to Grok 4.6 and ask for an AI
 // ranking of each team considering their roster and current standings"). One call a week, the
 // whole league in one turn: every team's record, points, and full roster (slot, name, position,
-// NFL team, injury). The reply is a strict-JSON ranking: overall 1..N plus QB/RB/WR/TE/BN
-// category ranks (each their own 1..N permutation). The client validates that before a
-// number reaches a screen. No blurbs — those were the morning's contract, replaced the same
-// day. The model is grok-4.6 (GFFLPOWER_MODEL below), the user's pick — the first mode in
-// this file on it; every other Grok mode stays on XAI_MODEL.
+// NFL team, injury). The reply is TWO boards in one JSON object — this week and rest of
+// season — each with a 0..100 integer score, a unique 1..N rank, and QB/RB/WR/TE/BN category
+// ranks (each their own 1..N permutation). The client validates that before a number reaches
+// a screen. The one-board / no-score contract from earlier the same day is rejected as stale.
+// The model is grok-4.6 (GFFLPOWER_MODEL below), the user's pick — the first mode in this
+// file on it; every other Grok mode stays on XAI_MODEL.
 const GFFLPOWER_SYSTEM = `You are the power-rankings columnist for a family's private 8-team fantasy
 football league. You are given the current week, and a JSON list of teams, each with: "teamId"
 (an opaque id — echo it back VERBATIM), name, owner (first name, may be absent), record ("w",
@@ -1591,25 +1592,33 @@ and the full roster: "slot" (QB/RB/WR/TE/FLEX/K/DST are starters; BN = bench, IR
 reserve), name, position, NFL team, and injury designation ("inj": Q / D / OUT / IR / SUS, or
 absent = healthy).
 
-TASK: rank every team from strongest to weakest for the REST OF THE SEASON (the overall
-"rank"), AND independently rank every team's QB room, RB room, WR room, TE room, and bench
-("BN"). Weigh (a) the actual quality and depth of each room — use your real NFL knowledge of
-these players, their roles, offenses and health — and (b) the current standings and points
-scored. Early in the season the roster should dominate; as records accumulate they should
-count for more. A team's place in the standings is an input, not the answer — a 1-2 team
-with the best roster can rank first. FLEX players count in the room of their real position
-(RB/WR/TE), not as their own column. K and D/ST inform the overall rank only.
+TASK: produce TWO independent rankings of the same N teams.
+1. THIS WEEK ("week") — strongest for the current week's matchup. Weigh this week's injuries,
+   byes, and who is actually playing.
+2. REST OF SEASON ("ros") — strongest from here to the championship. Weigh roster quality,
+   depth, and the standings as they will matter over months.
+For EACH board, give every team an integer SCORE from 0 to 100 (100 = as strong as you would
+ever rate a roster; scores may tie) and a unique RANK 1..N (1 = highest score; break score
+ties yourself — no rank ties). Also independently rank each team's QB, RB, WR, TE and bench
+rooms 1..N for THAT horizon — this week's rooms can differ from rest-of-season rooms.
+Weigh (a) the actual quality and depth of each room — use your real NFL knowledge of these
+players, their roles, offenses and health — and (b) the current standings and points scored.
+Early in the season the roster should dominate; as records accumulate they should count for
+more. A team's place in the standings is an input, not the answer — a 1-2 team with the best
+roster can rank first. FLEX players count in the room of their real position (RB/WR/TE), not
+as their own column. K and D/ST inform the overall score only.
 
 RULES
-- Every team appears EXACTLY once. Overall ranks are 1..N with no gaps or ties. teamId verbatim.
-- Each of QB, RB, WR, TE, BN is its OWN 1..N ranking of the same N teams — no gaps, no ties,
-  no reused number inside a category. A team can be #1 overall and #6 at QB.
+- Every team appears EXACTLY once on EACH board. Ranks are 1..N with no gaps or ties. teamId verbatim.
+- Scores are integers 0..100. Rank order matches score order (higher score = better rank).
+- Each of QB, RB, WR, TE, BN is its OWN 1..N ranking of the same N teams on that board — no
+  gaps, no ties, no reused number inside a category. A team can be #1 overall and #6 at QB.
 - No blurbs, no prose, no markdown, no emoji. Kids read the table.
 - Never invent players, trades, injuries or results that are not in the data or in your
   genuine NFL knowledge.
 
 OUTPUT — STRICT JSON only, no markdown fences, no prose before or after:
-{"ranking":[{"teamId":<verbatim>,"rank":<1..N>,"cats":{"QB":<1..N>,"RB":<1..N>,"WR":<1..N>,"TE":<1..N>,"BN":<1..N>}}]}`;
+{"ranking":{"week":[{"teamId":<verbatim>,"rank":<1..N>,"score":<0..100>,"cats":{"QB":<1..N>,"RB":<1..N>,"WR":<1..N>,"TE":<1..N>,"BN":<1..N>}}],"ros":[<same shape>]}}`;
 const GFFLPOWER_MODEL = process.env.GFFLPOWER_MODEL || "grok-4.6";
 
 // ---------------- Billy in the Booth (ffdraft.html's robo commentator) ----------------
@@ -3293,8 +3302,8 @@ function buildGfflPowerMessages(body) {
   if (teams.length < 3) return null;
   const week = Number.isInteger(Number(pw.week)) ? Number(pw.week) : "?";
   return [{ role: "user", content: "WEEK " + week + " — " + teams.length + " TEAMS:\n" + clipJson(teams, 14000)
-    + "\n\nTASK: return the strict-JSON ranking per your instructions — every teamId exactly once, ranks 1.."
-    + teams.length + ", category ranks QB/RB/WR/TE/BN each 1.." + teams.length + ", nothing but the JSON." }];
+    + "\n\nTASK: return the strict-JSON two-board ranking per your instructions — ranking.week and ranking.ros, every teamId exactly once on each, ranks 1.."
+    + teams.length + ", scores 0..100, category ranks QB/RB/WR/TE/BN each 1.." + teams.length + ", nothing but the JSON." }];
 }
 // One column per completed week, family-shared: doc farmgpt_ffrecap/<season>_w<week>.
 const FFRECAP_COLLECTION = "farmgpt_ffrecap";

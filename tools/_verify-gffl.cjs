@@ -954,13 +954,15 @@ function startXaiUpstream() {
       res.end(xaiSse(JSON.stringify(out)));
       return;
     }
-    // THE POWER RANKINGS COLUMNIST (section PW, 2026-09-08; cats the same afternoon) — told
-    // apart by ITS system prompt. Overall order is REVERSE standings (the team the standings
-    // put last is ranked first), so the card-shows-the-MODEL assertion is real. Category ranks
-    // are a different permutation of the same teamIds (QB follows sorted id, RB the inverse,
-    // WR/TE rotated, BN copies overall) so a cell that matched overall-or-standings by accident
-    // would fail the hand-check. Poisons: unknown team, duplicated team, overall-rank collision.
-    // fixture.powerFenced wraps the JSON in ```json fences.
+    // THE POWER RANKINGS COLUMNIST (section PW, 2026-09-08; two boards + scores that evening)
+    // — told apart by ITS system prompt. THIS WEEK is REVERSE standings (last-place first) so
+    // the card-shows-the-MODEL assertion is real. REST OF SEASON is sorted teamId ascending
+    // (team 1 first) so the two tabs cannot agree by accident. Scores are 100−11i on the week
+    // board and 96−8i on ROS — integers 0..100, non-increasing. Category ranks are a different
+    // permutation of the same teamIds (QB follows sorted id, RB the inverse, WR/TE rotated,
+    // BN copies overall) so a cell that matched overall-or-standings by accident would fail
+    // the hand-check. Poisons: unknown team, duplicated team, overall-rank collision — they
+    // break the week board and the whole reply is rejected. fixture.powerFenced wraps fences.
     if (/power-rankings columnist/.test(sys)) {
       const userTurn = (((b || {}).messages || []).find((m) => m.role === "user") || {}).content || "";
       const jm = /TEAMS:\n([\s\S]*?)\n\nTASK:/.exec(userTurn);
@@ -971,12 +973,14 @@ function startXaiUpstream() {
       const byId = [...sent].sort((a, b) => Number(a.teamId) - Number(b.teamId));
       const idxOf = (id) => byId.findIndex((t) => Number(t.teamId) === Number(id));
       const rankAt = (id, shift) => { const i = idxOf(id); return i < 0 ? 0 : ((i + shift) % n + n) % n + 1; };
-      let ranking = ordered.map((t, i) => ({ teamId: t.teamId, rank: i + 1,
-        cats: { QB: rankAt(t.teamId, 0), RB: n - idxOf(t.teamId), WR: rankAt(t.teamId, 1), TE: rankAt(t.teamId, 3), BN: i + 1 } }));
-      if (fixture.powerPoison === "unknown") ranking[0] = { teamId: "999", rank: 1, cats: (ranking[0] && ranking[0].cats) || {} };
-      if (fixture.powerPoison === "dup" && ranking.length > 1) ranking[1] = { ...ranking[0], rank: 2 };
-      if (fixture.powerPoison === "rankclash" && ranking.length > 1) ranking[1].rank = 1;
-      const text = JSON.stringify({ ranking });
+      const catsFor = (t, i) => ({ QB: rankAt(t.teamId, 0), RB: n - idxOf(t.teamId), WR: rankAt(t.teamId, 1), TE: rankAt(t.teamId, 3), BN: i + 1 });
+      let week = ordered.map((t, i) => ({ teamId: t.teamId, rank: i + 1, score: 100 - i * 11, cats: catsFor(t, i) }));
+      let ros = byId.map((t, i) => ({ teamId: t.teamId, rank: i + 1, score: 96 - i * 8, cats: {
+        QB: rankAt(t.teamId, 2), RB: rankAt(t.teamId, 1), WR: n - idxOf(t.teamId), TE: rankAt(t.teamId, 0), BN: n - i } }));
+      if (fixture.powerPoison === "unknown") week[0] = { teamId: "999", rank: 1, score: 100, cats: (week[0] && week[0].cats) || {} };
+      if (fixture.powerPoison === "dup" && week.length > 1) week[1] = { ...week[0], rank: 2, score: 89 };
+      if (fixture.powerPoison === "rankclash" && week.length > 1) week[1].rank = 1;
+      const text = JSON.stringify({ ranking: { week, ros } });
       res.end(xaiSse(fixture.powerFenced ? "```json\n" + text + "\n```" : text));
       return;
     }
@@ -23248,15 +23252,21 @@ async function openDetails(page, id) {
     ok(wire.reasoning_effort === "low" && wire.temperature === 0.2 && wire.max_tokens === 6000,
       "…with the measured xAI recipe: reasoning low, temperature 0.2, 6000 tokens of headroom (" + JSON.stringify({ e: wire.reasoning_effort, t: wire.temperature, m: wire.max_tokens }) + ")");
     const sysTurn = ((wire.messages || [])[0] || {}).content || "";
-    ok(/power-rankings columnist/.test(sysTurn) && /STRICT JSON/.test(sysTurn) && /Every team appears EXACTLY once/.test(sysTurn) && /"QB"/.test(sysTurn) && /No blurbs/.test(sysTurn),
-      "GFFLPOWER_SYSTEM is stamped server-side — columnist, strict JSON, every team once, categories not blurbs");
+    ok(/power-rankings columnist/.test(sysTurn) && /STRICT JSON/.test(sysTurn) && /Every team appears EXACTLY once/.test(sysTurn) && /"QB"/.test(sysTurn) && /No blurbs/.test(sysTurn)
+      && /THIS WEEK/.test(sysTurn) && /REST OF SEASON/.test(sysTurn) && /0 to 100/.test(sysTurn),
+      "GFFLPOWER_SYSTEM is stamped server-side — columnist, two boards, scores 0-100, categories not blurbs");
     const userTurn = ((wire.messages || []).find((m) => m.role === "user") || {}).content || "";
-    ok(/^WEEK 3 — 8 TEAMS:\n/.test(userTurn) && /"place":8/.test(userTurn) && /"slot":"BN"/.test(userTurn) && /"inj":"Q"/.test(userTurn) && /ranks 1\.\.8/.test(userTurn) && /QB\/RB\/WR\/TE\/BN/.test(userTurn),
-      "…the user turn is the server-built named-field payload — week, places, slots, injuries, and the 1..8 contract");
+    ok(/^WEEK 3 — 8 TEAMS:\n/.test(userTurn) && /"place":8/.test(userTurn) && /"slot":"BN"/.test(userTurn) && /"inj":"Q"/.test(userTurn)
+      && /ranking\.week and ranking\.ros/.test(userTurn) && /scores 0\.\.100/.test(userTurn) && /QB\/RB\/WR\/TE\/BN/.test(userTurn),
+      "…the user turn is the server-built named-field payload — week, places, slots, injuries, two boards, 0..100");
     let parsed = null; try { parsed = JSON.parse(goodTxt); } catch (e) { parsed = null; }
-    const p0 = parsed && Array.isArray(parsed.ranking) && parsed.ranking[0];
-    ok(parsed && Array.isArray(parsed.ranking) && parsed.ranking.length === 8 && p0 && Number(p0.teamId) === 8 && p0.cats && p0.cats.QB === 8 && p0.cats.BN === 1 && p0.blurb == null,
-      "…and the reply is eight rows of overall + cats, last-place first, no blurb (" + goodTxt.slice(0, 80) + "…)");
+    const week0 = parsed && parsed.ranking && parsed.ranking.week && parsed.ranking.week[0];
+    const ros0 = parsed && parsed.ranking && parsed.ranking.ros && parsed.ranking.ros[0];
+    ok(parsed && parsed.ranking && Array.isArray(parsed.ranking.week) && parsed.ranking.week.length === 8
+      && Array.isArray(parsed.ranking.ros) && parsed.ranking.ros.length === 8
+      && week0 && Number(week0.teamId) === 8 && week0.score === 100 && week0.cats && week0.cats.QB === 8 && week0.cats.BN === 1 && week0.blurb == null
+      && ros0 && Number(ros0.teamId) === 1 && ros0.score === 96 && ros0.blurb == null,
+      "…and the reply is two boards of eight: week last-place first at 100, ROS team 1 first at 96 (" + goodTxt.slice(0, 80) + "…)");
   }
   {
     // ---- TB4: the phone card, generation, validation, movement.
@@ -23273,23 +23283,31 @@ async function openDetails(page, id) {
         backend: window.__GFFL__.LG.backendMode, rows: card ? card.querySelectorAll(".pwrow").length : -1 };
     }) || {};
     ok(empty.present === true && empty.underStandings === true, "the Power rankings card sits DIRECTLY beneath Standings on the phone");
-    ok(/Nothing on file yet/.test(empty.text || "") && empty.rows === 0, "…and with no ranking on file it says so instead of vanishing (" + (empty.text || "").slice(0, 70) + ")");
+    ok(/Nothing on file yet/.test(empty.text || "") && /this week/.test(empty.text || "") && /rest of the season/.test(empty.text || "") && empty.rows === 0,
+      "…and with no ranking on file it names both boards and says nothing is on file (" + (empty.text || "").slice(0, 80) + ")");
     ok(empty.backend === "local" && powerCalls() === n0, "the local fallback store never triggers a paid generation — no Grok call on this page (" + (powerCalls() - n0) + ")");
-    // RESTAGED 2026-09-08 afternoon: a blurb-only doc (this morning's contract) is not a ranking
-    // any more — the card stays on the empty state and loadAiPowerDocs does not surface it.
+    // RESTAGED 2026-09-08 evening: a blurb-only doc AND this afternoon's one-board cats
+    // table are not a ranking any more — the card stays empty and loadAiPowerDocs skips them.
     const stale = await evalOr(page, async () => {
       const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
-      await LG.db.set(LG.aiPowerId(2026, 1), { kind: "aipower", season: 2026, week: 1, at: 1, model: "grok-4.6",
-        ranking: [{ teamId: 1, rank: 1, blurb: "old contract" }] });
-      UI._aiPower = await LG.loadAiPowerDocs();
-      UI.renderLeague(true);
-      await new Promise((r) => setTimeout(r, 150));
-      const card = document.getElementById("powerCard");
-      return { n: (UI._aiPower || []).length, text: card ? card.textContent.replace(/\s+/g, " ") : "", rows: card ? card.querySelectorAll(".pwrow").length : -1,
-        current: LG.aiPowerIsCurrent && LG.aiPowerIsCurrent(await LG.db.get(LG.aiPowerId(2026, 1))) };
+      const probe = async (ranking) => {
+        await LG.db.set(LG.aiPowerId(2026, 1), { kind: "aipower", season: 2026, week: 1, at: 1, model: "grok-4.6", ranking });
+        UI._aiPower = await LG.loadAiPowerDocs();
+        UI.renderLeague(true);
+        await new Promise((r) => setTimeout(r, 120));
+        const card = document.getElementById("powerCard");
+        return { n: (UI._aiPower || []).length, text: card ? card.textContent.replace(/\s+/g, " ") : "", rows: card ? card.querySelectorAll(".pwrow").length : -1,
+          current: LG.aiPowerIsCurrent && LG.aiPowerIsCurrent(await LG.db.get(LG.aiPowerId(2026, 1))) };
+      };
+      const blurb = await probe([{ teamId: 1, rank: 1, blurb: "old contract" }]);
+      const oneBoard = await probe(Array.from({ length: 8 }, (_, i) => ({ teamId: i + 1, rank: i + 1,
+        cats: { QB: i + 1, RB: 8 - i, WR: ((i + 1) % 8) + 1, TE: ((i + 3) % 8) + 1, BN: i + 1 } })));
+      return { blurb, oneBoard };
     }) || {};
-    ok(stale.n === 0 && stale.current === false && /Nothing on file yet/.test(stale.text || "") && stale.rows === 0,
-      "a leftover blurb-only doc is not current — the card stays empty, no old prose (" + JSON.stringify({ n: stale.n, rows: stale.rows }) + ")");
+    ok(stale.blurb && stale.blurb.n === 0 && stale.blurb.current === false && /Nothing on file yet/.test(stale.blurb.text || "") && stale.blurb.rows === 0,
+      "a leftover blurb-only doc is not current — the card stays empty, no old prose (" + JSON.stringify(stale.blurb) + ")");
+    ok(stale.oneBoard && stale.oneBoard.n === 0 && stale.oneBoard.current === false && stale.oneBoard.rows === 0,
+      "this afternoon's one-board cats table is not current either — no scores, no ROS board (" + JSON.stringify({ n: stale.oneBoard && stale.oneBoard.n, current: stale.oneBoard && stale.oneBoard.current }) + ")");
     // Forced generation (the test/commissioner path) — the fake ranks in REVERSE standings order.
     const gen = await evalOr(page, async () => {
       const LG = window.__GFFL__.LG;
@@ -23299,14 +23317,19 @@ async function openDetails(page, id) {
     }) || {};
     ok(gen.same === true && powerCalls() === n0 + 1, "two concurrent ensures = ONE generation (single-flight) — one Grok call (" + (powerCalls() - n0) + ")");
     const d1 = gen.doc || {};
-    ok(d1.kind === "aipower" && d1.week === 1 && d1.season === 2026 && d1.model === "grok-4.6" && Number(d1.at) > 0 && Array.isArray(d1.ranking) && d1.ranking.length === 8,
-      "the doc is the week's ranking record — kind/week/season/model/stamp + eight rows (" + JSON.stringify({ k: d1.kind, w: d1.week, m: d1.model, n: (d1.ranking || []).length }) + ")");
+    const d1w = d1.ranking && d1.ranking.week;
+    const d1r = d1.ranking && d1.ranking.ros;
+    ok(d1.kind === "aipower" && d1.week === 1 && d1.season === 2026 && d1.model === "grok-4.6" && Number(d1.at) > 0
+      && Array.isArray(d1w) && d1w.length === 8 && Array.isArray(d1r) && d1r.length === 8,
+      "the doc is the week's two-board record — kind/week/season/model/stamp + week and ros of eight (" + JSON.stringify({ k: d1.kind, w: d1.week, m: d1.model, nw: (d1w || []).length, nr: (d1r || []).length }) + ")");
     ok(gen.stored && gen.stored.at === d1.at, "…and it is written to aipower_2026_w1");
-    ok(Array.isArray(d1.ranking) && d1.ranking.length === 8 && d1.ranking[0].teamId === 8 && d1.ranking[7].teamId === 1 && d1.ranking.every((r, i) => r.rank === i + 1),
-      "the MODEL's order is kept, not the standings' — the fake ranked the standings' last team first (" + (d1.ranking || []).map((r) => r.teamId).join(",") + ")");
-    const c8 = ((d1.ranking || [])[0] || {}).cats || {};
-    ok(c8.QB === 8 && c8.RB === 1 && c8.WR === 1 && c8.TE === 3 && c8.BN === 1 && !("blurb" in ((d1.ranking || [])[0] || {})),
-      "…and team 8's rooms are the fake's own permutation, not a copy of overall (QB 8 RB 1 WR 1 TE 3 BN 1)");
+    ok(Array.isArray(d1w) && d1w.length === 8 && d1w[0].teamId === 8 && d1w[0].score === 100 && d1w[7].teamId === 1 && d1w[7].score === 23 && d1w.every((r, i) => r.rank === i + 1),
+      "THIS WEEK keeps the MODEL's order — last-place first at 100, first-place last at 23 (" + (d1w || []).map((r) => r.teamId + ":" + r.score).join(",") + ")");
+    ok(Array.isArray(d1r) && d1r.length === 8 && d1r[0].teamId === 1 && d1r[0].score === 96 && d1r[7].teamId === 8 && d1r[7].score === 40 && d1r.every((r, i) => r.rank === i + 1),
+      "REST OF SEASON is its own order — team 1 first at 96, team 8 last at 40 (" + (d1r || []).map((r) => r.teamId + ":" + r.score).join(",") + ")");
+    const c8 = ((d1w || [])[0] || {}).cats || {};
+    ok(c8.QB === 8 && c8.RB === 1 && c8.WR === 1 && c8.TE === 3 && c8.BN === 1 && !("blurb" in ((d1w || [])[0] || {})),
+      "…and team 8's THIS WEEK rooms are the fake's own permutation, not a copy of overall (QB 8 RB 1 WR 1 TE 3 BN 1)");
     ok(d1.input && d1.input[1] && d1.input[1].place === 1 && d1.input[8] && d1.input[8].place === 8 && d1.input[1].w === 0,
       "…with the standings snapshot the model was shown kept beside it (" + JSON.stringify(d1.input && d1.input[1]) + ")");
     const req = lastPowerReq() || {};
@@ -23325,40 +23348,63 @@ async function openDetails(page, id) {
         const lockerEl = r.querySelector("[data-locker]");
         const cat = (k) => { const el = r.querySelector('.pwcat[data-pos="' + k + '"]'); return el ? el.textContent.trim() : ""; };
         return { team: Number(r.dataset.team), rank: ((r.querySelector(".pwrank") || {}).textContent || "").trim(),
-          name: nameEl ? nameEl.textContent.trim() : "", lw: ((r.querySelector(".pwlw") || {}).textContent || "").trim(),
+          name: nameEl ? nameEl.textContent.trim() : "", score: ((r.querySelector(".pwscore") || {}).textContent || "").trim(),
+          lw: ((r.querySelector(".pwlw") || {}).textContent || "").trim(),
           move: r.dataset.move || "", locker: lockerEl && lockerEl.dataset ? lockerEl.dataset.locker : "",
           QB: cat("QB"), RB: cat("RB"), WR: cat("WR"), TE: cat("TE"), BN: cat("BN") };
       });
       const panner = c.querySelector(".panner");
+      const tabs = [...c.querySelectorAll("#pwTabs [data-pw]")].map((b) => b.dataset.pw + (b.classList.contains("on") ? ":on" : ""));
       return { h2: ((c.querySelector("h2") || {}).textContent || "").replace(/\s+/g, " ").trim(), rows,
         heads: [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()),
         blurbs: c.querySelectorAll(".pwblurb").length, foot: ((c.querySelector(".pwfoot") || {}).textContent || ""),
         mine: c.querySelectorAll(".pwrow.mine").length, sideways: document.documentElement.scrollWidth - window.innerWidth,
         pict: (c.textContent.match(/\p{Extended_Pictographic}/gu) || []).length,
         pans: !!(panner && panner.scrollWidth > panner.clientWidth + 1),
-        pageWider: document.documentElement.scrollWidth > window.innerWidth + 1 };
+        pageWider: document.documentElement.scrollWidth > window.innerWidth + 1,
+        board: c.dataset.board || "", tabs };
     }) || {};
     ok(/^Power rankings — week 1$/.test(card.h2), "the heading names the week (" + card.h2 + ")");
-    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows[0].team === 8 && card.rows[0].rank === "1" && card.rows[0].name === "The Goat Kids" && card.rows[7].team === 1 && card.rows[7].rank === "8",
-      "rows in the model's order: The Goat Kids #1 down to Battle Kreussers #8");
-    ok(Array.isArray(card.heads) && card.heads.join("|") === "|Team|LW|QB|RB|WR|TE|BN" && card.blurbs === 0,
-      "the columns are Team, last week, and the five rooms — no blurb column (" + (card.heads || []).join("|") + ")");
+    ok(card.board === "week" && Array.isArray(card.tabs) && card.tabs.join("|") === "week:on|ros",
+      "the card opens on This week, with a Rest of season tab beside it (" + (card.tabs || []).join("|") + ")");
+    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows[0].team === 8 && card.rows[0].rank === "1" && card.rows[0].score === "100" && card.rows[0].name === "The Goat Kids" && card.rows[7].team === 1 && card.rows[7].rank === "8" && card.rows[7].score === "23",
+      "This week rows in the model's order: The Goat Kids #1 at 100 down to Battle Kreussers #8 at 23");
+    ok(Array.isArray(card.heads) && card.heads.join("|") === "|Team|Score|LW|QB|RB|WR|TE|BN" && card.blurbs === 0,
+      "the columns are Team, Score, last week, and the five rooms — no blurb column (" + (card.heads || []).join("|") + ")");
     ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows[0].QB === "8" && card.rows[0].RB === "1" && card.rows[0].WR === "1" && card.rows[0].TE === "3" && card.rows[0].BN === "1"
       && card.rows.every((r) => r.lw === "–" && r.move === "none" && String(r.locker) === String(r.team)),
       "week 1: last-week is a dash, rooms show the model's numbers, each name opens that locker");
-    ok(card.mine === 1 && /Ranked by Grok/.test(card.foot) && /each Tuesday/.test(card.foot), "own team ringed; the footer says who ranked it and when it re-ranks");
+    ok(card.mine === 1 && /Scored by Grok/.test(card.foot) && /0–100/.test(card.foot) && /each Tuesday/.test(card.foot),
+      "own team ringed; the footer says who scored it, the 0–100 scale, and when it re-ranks");
     ok(card.sideways <= 1 && card.pageWider !== true && card.pict === 0,
       "the extra columns pan INSIDE the card — the page itself does not scroll sideways, and the chrome carries no pictographs");
+    const rosTab = await evalOr(page, () => {
+      const b = document.querySelector('#pwTabs [data-pw="ros"]');
+      if (b) b.click();
+      const c = document.getElementById("powerCard");
+      if (!c) return {};
+      return { board: c.dataset.board || "", tabs: [...c.querySelectorAll("#pwTabs [data-pw]")].map((x) => x.dataset.pw + (x.classList.contains("on") ? ":on" : "")),
+        rows: [...c.querySelectorAll(".pwrow")].map((r) => ({ team: Number(r.dataset.team), rank: ((r.querySelector(".pwrank") || {}).textContent || "").trim(),
+          score: ((r.querySelector(".pwscore") || {}).textContent || "").trim() })) };
+    }) || {};
+    ok(rosTab.board === "ros" && (rosTab.tabs || []).join("|") === "week|ros:on"
+      && Array.isArray(rosTab.rows) && rosTab.rows.length === 8 && rosTab.rows[0].team === 1 && rosTab.rows[0].rank === "1" && rosTab.rows[0].score === "96"
+      && rosTab.rows[7].team === 8 && rosTab.rows[7].score === "40",
+      "Rest of season is its own order and scores — Battle Kreussers #1 at 96, The Goat Kids last at 40 (" + JSON.stringify({ board: rosTab.board, first: rosTab.rows && rosTab.rows[0] }) + ")");
+    await evalOr(page, () => { const b = document.querySelector('#pwTabs [data-pw="week"]'); if (b) b.click(); });
     // Movement: a week-2 ranking on file beside week 1's → arrows computed against week 1.
     const mvw = await evalOr(page, async () => {
       const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
       if (!LG.aiPowerId) return {};
       const w1 = await LG.db.get(LG.aiPowerId(2026, 1));
-      if (!w1 || !Array.isArray(w1.ranking) || w1.ranking.length !== 8) return {};
-      const r2 = w1.ranking.map((r) => ({ ...r }));
+      const wBoard = w1 && w1.ranking && w1.ranking.week;
+      const rBoard = w1 && w1.ranking && w1.ranking.ros;
+      if (!Array.isArray(wBoard) || wBoard.length !== 8 || !Array.isArray(rBoard)) return {};
+      const r2 = wBoard.map((r) => ({ ...r, cats: { ...r.cats } }));
       // team 1 (#8) climbs to #2, everyone from #2..#7 slides down one; team 8 stays #1.
-      const moved = [r2[0], r2[7], ...r2.slice(1, 7)].map((r, i) => ({ ...r, rank: i + 1 }));
-      await LG.db.set(LG.aiPowerId(2026, 2), { ...w1, week: 2, at: w1.at + 1000, ranking: moved });
+      // Re-stamp scores so rank order stays non-increasing (the leftover row scores would invert).
+      const moved = [r2[0], r2[7], ...r2.slice(1, 7)].map((r, i) => ({ ...r, rank: i + 1, score: 100 - i * 5 }));
+      await LG.db.set(LG.aiPowerId(2026, 2), { ...w1, week: 2, at: w1.at + 1000, ranking: { week: moved, ros: rBoard.map((r) => ({ ...r, cats: { ...r.cats } })) } });
       UI._aiPower = await LG.loadAiPowerDocs();
       UI.renderLeague(true);
       await new Promise((r) => setTimeout(r, 200));
@@ -23385,24 +23431,36 @@ async function openDetails(page, id) {
     fixture.powerPoison = null;
     fixture.powerFenced = true;
     const fenced = await evalOr(page, () => window.__GFFL__.LG.ensureAiPower({ force: true }));
-    ok(fenced && fenced.at > before.at && Array.isArray(fenced.ranking) && fenced.ranking.length === 8, "a reply wrapped in ```json fences — which models do despite 'no fences' — is unwrapped and accepted");
+    ok(fenced && fenced.at > before.at && fenced.ranking && Array.isArray(fenced.ranking.week) && fenced.ranking.week.length === 8 && Array.isArray(fenced.ranking.ros) && fenced.ranking.ros.length === 8,
+      "a reply wrapped in ```json fences — which models do despite 'no fences' — is unwrapped and accepted");
     fixture.powerFenced = false;
     const unit = await evalOr(page, () => {
       const v = window.__GFFL__.LG.validateAiPowerReply;
       const cats = (qb, rb, wr, te, bn) => ({ QB: qb, RB: rb, WR: wr, TE: te, BN: bn });
-      const pair = (a, b) => JSON.stringify({ ranking: [a, b] });
+      const row = (id, rank, score, c) => ({ teamId: id, rank, score, cats: c });
+      const weekOk = [row(1, 1, 90, cats(1, 2, 1, 2, 2)), row(2, 2, 70, cats(2, 1, 2, 1, 1))];
+      const rosOk = [row(2, 1, 88, cats(2, 1, 2, 1, 1)), row(1, 2, 60, cats(1, 2, 1, 2, 2))];
+      const pack = (week, ros) => JSON.stringify({ ranking: { week, ros } });
+      const got = v(pack(weekOk, rosOk), [1, 2]);
       return {
-        arr: !!v(JSON.stringify([{ teamId: 1, rank: 2, cats: cats(1, 2, 1, 2, 2) }, { teamId: 2, rank: 1, cats: cats(2, 1, 2, 1, 1) }]), [1, 2]),
-        gap: v(pair({ teamId: 1, rank: 1, cats: cats(1, 1, 1, 1, 1) }, { teamId: 2, rank: 3, cats: cats(2, 2, 2, 2, 2) }), [1, 2]),
-        missing: v(JSON.stringify({ ranking: [{ teamId: 1, rank: 1, cats: cats(1, 1, 1, 1, 1) }] }), [1, 2]),
+        ok: !!(got && got.week && got.ros && got.week.length === 2 && got.ros.length === 2),
+        arr: v(JSON.stringify([{ teamId: 1, rank: 1, score: 90, cats: cats(1, 2, 1, 2, 2) }, { teamId: 2, rank: 2, score: 70, cats: cats(2, 1, 2, 1, 1) }]), [1, 2]),
+        oneBoard: v(JSON.stringify({ ranking: weekOk }), [1, 2]),
+        gap: v(pack([row(1, 1, 90, cats(1, 1, 1, 1, 1)), row(2, 3, 70, cats(2, 2, 2, 2, 2))], rosOk), [1, 2]),
+        missing: v(pack([row(1, 1, 90, cats(1, 1, 1, 1, 1))], rosOk), [1, 2]),
         prose: v("Sure! Here you go: {}", [1, 2]),
-        blurb: v(pair({ teamId: 1, rank: 1, blurb: "old" }, { teamId: 2, rank: 2, blurb: "contract" }), [1, 2]),
-        catchash: v(pair({ teamId: 1, rank: 1, cats: cats(1, 1, 1, 1, 1) }, { teamId: 2, rank: 2, cats: cats(1, 2, 2, 2, 2) }), [1, 2]),
-        sorted: (v(JSON.stringify([{ teamId: 1, rank: 2, cats: cats(1, 2, 1, 2, 2) }, { teamId: 2, rank: 1, cats: cats(2, 1, 2, 1, 1) }]), [1, 2]) || []).map((r) => r.teamId + ":" + r.rank + ":" + r.cats.QB).join("|"),
+        blurb: v(pack([{ teamId: 1, rank: 1, blurb: "old" }, { teamId: 2, rank: 2, blurb: "contract" }], rosOk), [1, 2]),
+        catchash: v(pack([row(1, 1, 90, cats(1, 1, 1, 1, 1)), row(2, 2, 70, cats(1, 2, 2, 2, 2))], rosOk), [1, 2]),
+        scoreHi: v(pack([row(1, 1, 101, cats(1, 2, 1, 2, 2)), row(2, 2, 70, cats(2, 1, 2, 1, 1))], rosOk), [1, 2]),
+        invert: v(pack([row(1, 1, 50, cats(1, 2, 1, 2, 2)), row(2, 2, 80, cats(2, 1, 2, 1, 1))], rosOk), [1, 2]),
+        noRos: v(JSON.stringify({ ranking: { week: weekOk } }), [1, 2]),
+        sorted: got && got.week ? got.week.map((r) => r.teamId + ":" + r.rank + ":" + r.score + ":" + r.cats.QB).join("|") : "",
+        rosFirst: got && got.ros && got.ros[0] ? got.ros[0].teamId + ":" + got.ros[0].score : "",
       };
     }) || {};
-    ok(unit.arr === true && unit.gap === null && unit.missing === null && unit.prose === null && unit.blurb === null && unit.catchash === null && unit.sorted === "2:1:2|1:2:1",
-      "validateAiPowerReply: a bare array is fine; a rank gap / missing team / prose / blurb-only / category collision are not; output is rank-sorted with cats (" + JSON.stringify(unit) + ")");
+    ok(unit.ok === true && unit.arr == null && unit.oneBoard == null && unit.gap == null && unit.missing == null && unit.prose == null && unit.blurb == null && unit.catchash == null
+      && unit.scoreHi == null && unit.invert == null && unit.noRos == null && unit.sorted === "1:1:90:1|2:2:70:2" && unit.rosFirst === "2:88",
+      "validateAiPowerReply: two boards + scores pass; a bare array / one-board / rank gap / missing team / prose / blurb / cat clash / score 101 / inverted scores / missing ros do not (" + JSON.stringify(unit) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
@@ -23417,7 +23475,10 @@ async function openDetails(page, id) {
     await waitOr(page, ".mucard");
     await waitLive(page);
     ok(await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8), "cloud: the league home generates week 1's ranking in the background and paints it");
-    const cloud = await evalOr(page, () => ({ backend: window.__GFFL__.LG.backendMode, stored: !!(window.__fakeCloud.store.get("aipower_2026_w1") || {}).ranking })) || {};
+    const cloud = await evalOr(page, () => {
+      const d = window.__fakeCloud.store.get("aipower_2026_w1") || {};
+      return { backend: window.__GFFL__.LG.backendMode, stored: !!(d.ranking && d.ranking.week && d.ranking.week.length) };
+    }) || {};
     ok(cloud.backend === "cloud" && cloud.stored === true && powerCalls() === n0 + 1, "…one Grok call, and the doc is in the cloud store (" + JSON.stringify(cloud) + ", calls " + (powerCalls() - n0) + ")");
     // RESTAGED/NEW 2026-09-08: a tab that listed aipower while the doc was still missing
     // cached [] and marked the week's id knownAbsent. get() then returned null forever
@@ -23438,7 +23499,7 @@ async function openDetails(page, id) {
       UI.renderLeague(true);
       await new Promise((r) => setTimeout(r, 200));
       const card = document.getElementById("powerCard");
-      return { getNull: viaGet == null, loadN: viaLoad && (viaLoad.ranking || []).length, painted: card ? card.querySelectorAll(".pwrow").length : -1 };
+      return { getNull: viaGet == null, loadN: viaLoad && viaLoad.ranking && viaLoad.ranking.week && viaLoad.ranking.week.length, painted: card ? card.querySelectorAll(".pwrow").length : -1 };
     }) || {};
     ok(hidden.getNull === true && hidden.loadN === 8 && hidden.painted === 8,
       "a cached empty aipower list cannot hide the week's doc — getFresh still paints the eight rows (" + JSON.stringify(hidden) + ")");
@@ -23472,9 +23533,10 @@ async function openDetails(page, id) {
       LG.currentWeek = () => 3;
       window.__fakeCloud.store.set("weekly_2026_w2", { kind: "weekly", week: 2, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 90 }], power: [] });
       LG.db.clearCache();
-      const rival = { kind: "aipower", season: 2026, week: 3, at: 12345, model: "grok-4.6", input: {},
-        ranking: Array.from({ length: 8 }, (_, i) => ({ teamId: i + 1, rank: i + 1,
-          cats: { QB: i + 1, RB: 8 - i, WR: ((i + 1) % 8) + 1, TE: ((i + 3) % 8) + 1, BN: i + 1 } })) };
+      const catsOf = (i) => ({ QB: i + 1, RB: 8 - i, WR: ((i + 1) % 8) + 1, TE: ((i + 3) % 8) + 1, BN: i + 1 });
+      const week = Array.from({ length: 8 }, (_, i) => ({ teamId: i + 1, rank: i + 1, score: 100 - i * 5, cats: catsOf(i) }));
+      const ros = Array.from({ length: 8 }, (_, i) => ({ teamId: 8 - i, rank: i + 1, score: 99 - i * 5, cats: catsOf((i + 3) % 8) }));
+      const rival = { kind: "aipower", season: 2026, week: 3, at: 12345, model: "grok-4.6", input: {}, ranking: { week, ros } };
       const realFetch = window.fetch;
       window.fetch = async function (u, o) {
         const r = await realFetch.apply(this, arguments);
@@ -23484,7 +23546,7 @@ async function openDetails(page, id) {
       const got = await LG.ensureAiPower();
       window.fetch = realFetch;
       const stored = window.__fakeCloud.store.get("aipower_2026_w3");
-      return { gotAt: got && got.at, storedAt: stored && stored.at, firstTeam: got && got.ranking && got.ranking[0] && got.ranking[0].teamId };
+      return { gotAt: got && got.at, storedAt: stored && stored.at, firstTeam: got && got.ranking && got.ranking.week && got.ranking.week[0] && got.ranking.week[0].teamId };
     }) || {};
     ok(race.gotAt === 12345 && race.storedAt === 12345 && race.firstTeam === 1,
       "losing the create-only race adopts the rival's ranking and leaves it in place — one ranking of record per week (" + JSON.stringify(race) + ")");
@@ -23512,12 +23574,16 @@ async function openDetails(page, id) {
       return {
         heads: c ? [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()) : [],
         blurbs: c ? c.querySelectorAll(".pwblurb").length : -1,
+        tabs: c ? [...c.querySelectorAll("#pwTabs [data-pw]")].map((b) => b.dataset.pw + (b.classList.contains("on") ? ":on" : "")) : [],
+        board: c ? (c.dataset.board || "") : "",
         sideways: document.documentElement.scrollWidth - window.innerWidth,
         pans: !!(panner && panner.scrollWidth > panner.clientWidth + 1),
       };
     }) || {};
-    ok(Array.isArray(dkw.heads) && dkw.heads.join("|") === "|Team|LW|QB|RB|WR|TE|BN" && dkw.blurbs === 0,
-      "…desktop paints the same columns, still no blurb (" + (dkw.heads || []).join("|") + ")");
+    ok(Array.isArray(dkw.heads) && dkw.heads.join("|") === "|Team|Score|LW|QB|RB|WR|TE|BN" && dkw.blurbs === 0,
+      "…desktop paints the same columns (Score included), still no blurb (" + (dkw.heads || []).join("|") + ")");
+    ok(dkw.board === "week" && Array.isArray(dkw.tabs) && dkw.tabs.join("|") === "week:on|ros",
+      "…and the same two tabs, opening on This week (" + (dkw.tabs || []).join("|") + ")");
     ok(dkw.sideways <= 1 && dkw.pans !== true, "…and MAIN does not pan or scroll sideways for them");
     ok(errors.length === 0, "0 page errors on the desktop");
     await ctx.close();

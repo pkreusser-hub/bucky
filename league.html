@@ -1234,14 +1234,14 @@
   }
 
   /* ---------------- THE AI POWER RANKINGS CARD (2026-09-08) ----------------
-     Afternoon of the same day: the blurb is gone. A table — overall rank · team (sticky on a
-     phone so the name stays while the rooms pan) · last week's overall rank + ▲/▼ · QB RB WR
-     TE BN. The page itself must not scroll sideways (standings' own lesson): the extra columns
-     live inside .panner, min-width 420px, measured so a 390px card pans rather than stretching
-     the document. Desktop MAIN drops the pan (overflow:visible, width 100%) — eight columns
-     fit the same ~620px the standings table already pays for. Own-team name takes the accent. */
+     Evening: two tabs (This week / Rest of season) plus a 0–100 Score column. The extra
+     columns still live inside .panner so the page itself does not scroll sideways. min-width
+     480px for the ninth column (Score), measured so a 390px card pans. Desktop MAIN drops
+     the pan. Own-team name takes the accent. */
   .powercard .panner { overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  .pwtbl { min-width:420px; width:100%; border-collapse:collapse; }
+  .powercard .pwtabs { margin:0 0 8px; }
+  .powercard .pwtabs .poschip { letter-spacing:.4px; }
+  .pwtbl { min-width:480px; width:100%; border-collapse:collapse; }
   .pwtbl th, .pwtbl td { padding:6px 5px; vertical-align:middle; }
   .pwtbl th { font:700 11px var(--font-body); letter-spacing:.04em; color:var(--mut); text-transform:uppercase; }
   .pwtbl .num { text-align:right; font-variant-numeric:tabular-nums; }
@@ -1253,6 +1253,7 @@
   .pwteam { display:flex; align-items:center; gap:6px; min-width:0; }
   .pwteam .tmini { margin-right:0; flex:0 0 auto; }
   .pwname { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+  .pwscore { font:700 14px var(--font-display); }
   .pwlw { white-space:nowrap; }
   .pwlwrank { margin-right:2px; }
   .pwtbl th.pwcat[data-pos="QB"] { color:var(--pos-QB); }
@@ -2105,7 +2106,7 @@
        still fit at 1024px without it, so there is no reason to spend the one place in this app
        where most people meet most teams. */
     .standtbl .tname { font-size:13px; }
-    /* Power rankings: same MAIN width as standings — eight columns, no pan, name not sticky. */
+    /* Power rankings: same MAIN width as standings — nine columns, no pan, name not sticky. */
     .powercard .panner { overflow:visible; }
     .pwtbl { min-width:0; width:100%; }
     .pwtbl th:nth-child(2), .pwtbl td.pwteamcell { position:static; box-shadow:none; }

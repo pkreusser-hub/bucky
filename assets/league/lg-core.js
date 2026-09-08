@@ -4654,18 +4654,17 @@
   // should feed all the rosters to Grok 4.6 and ask for an AI ranking of each team considering
   // their roster and current standings."
   // ONE DOC PER WEEK, `aipower_<season>_w<week>` (kind "aipower"): {season, week, at, model,
-  // ranking:[{teamId, rank, cats:{QB,RB,WR,TE,BN}}], input:{<teamId>:{w,l,t,pf,place}}}.
-  // 2026-09-08 afternoon: the blurb column is gone — Grok ranks each position room 1..N
-  // instead. A doc without `cats` is not current and is regenerated (the morning's blurb
-  // docs would otherwise sit as the ranking of record forever, create-only). "Each Tuesday"
-  // is the league week itself — LG.currentWeek() rolls over on the Tuesday boundary
-  // (SEASON_START is a Tuesday), so the FIRST device to open the League page in a new week
-  // generates that week's ranking, and every other device adopts it. The doc is written
-  // CREATE-ONLY against a *current* doc (LG.db.update with `aiPowerIsCurrent(cur) ? null :
-  // doc`): two devices racing on a Tuesday morning produce ONE ranking, and both show it.
-  // This matters more here than for the adjuster, because a model's ranking is not
-  // deterministic — last-write-wins would have let two phones in one house disagree about
-  // who is #1.
+  // ranking:{week:[{teamId,rank,score,cats:{QB,RB,WR,TE,BN}}],ros:[…]}, input:{…}}.
+  // 2026-09-08 evening: two boards (this week + rest of season) and a 0..100 score per team
+  // on each. A leftover one-board / no-score / blurb doc is not current and is regenerated.
+  // "Each Tuesday" is the league week itself — LG.currentWeek() rolls over on the Tuesday
+  // boundary (SEASON_START is a Tuesday), so the FIRST device to open the League page in a
+  // new week generates that week's ranking, and every other device adopts it. The doc is
+  // written CREATE-ONLY against a *current* doc (LG.db.update with `aiPowerIsCurrent(cur) ?
+  // null : doc`): two devices racing on a Tuesday morning produce ONE ranking, and both
+  // show it. This matters more here than for the adjuster, because a model's ranking is
+  // not deterministic — last-write-wins would have let two phones in one house disagree
+  // about who is #1.
   // NOT BEFORE LAST WEEK IS FINAL: from week 2 on, generation waits until week N-1's weekly doc
   // exists (auto-finalize lands it Tuesday morning once Monday night is official), so the
   // standings the model weighs include last night's games rather than lagging a week. Until
@@ -4674,18 +4673,55 @@
   // paid for and then lost with the cache. The 2025 replay and a read-only mirror never generate.
   LG.aiPowerId = (season, week) => `aipower_${season}_w${week}`;
   LG.POWER_CATS = ["QB", "RB", "WR", "TE", "BN"];
-  // A stored ranking is current only when every row has a full 1..N category permutation.
-  // The morning's blurb-only docs fail this and are treated as absent.
+  LG.POWER_BOARDS = ["week", "ros"];
+  // One board of the two-board doc. A leftover one-board array (this afternoon) is not a board.
+  LG.powerBoard = function (doc, which) {
+    const key = which === "ros" ? "ros" : "week";
+    const r = doc && doc.ranking;
+    if (!r || typeof r !== "object" || Array.isArray(r) || !Array.isArray(r[key])) return null;
+    return r[key];
+  };
+  // A board is current only when every team appears once, ranks are 1..N, scores are integers
+  // 0..100 and non-increasing with rank, and each category is its own 1..N permutation.
+  // The morning's blurbs and the afternoon's one-board / no-score docs fail this.
+  LG.normalizePowerBoard = function (arr, teamIds) {
+    if (!Array.isArray(arr) || !Array.isArray(teamIds) || !teamIds.length) return null;
+    const n = teamIds.length;
+    const want = new Set(teamIds.map(Number));
+    const seen = new Set(), ranks = new Set();
+    const catSets = {};
+    for (const k of LG.POWER_CATS) catSets[k] = new Set();
+    const out = [];
+    for (const r of arr) {
+      const id = Number(r && r.teamId), rank = Number(r && r.rank), score = Number(r && r.score);
+      if (!want.has(id) || seen.has(id) || !Number.isInteger(rank) || rank < 1 || rank > n || ranks.has(rank)) return null;
+      if (!Number.isInteger(score) || score < 0 || score > 100) return null;
+      const src = r.cats && typeof r.cats === "object" ? r.cats : null;
+      if (!src) return null;
+      const cats = {};
+      for (const k of LG.POWER_CATS) {
+        const v = Number(src[k]);
+        if (!Number.isInteger(v) || v < 1 || v > n || catSets[k].has(v)) return null;
+        catSets[k].add(v);
+        cats[k] = v;
+      }
+      seen.add(id); ranks.add(rank);
+      out.push({ teamId: id, rank, score, cats });
+    }
+    if (seen.size !== n) return null;
+    for (const k of LG.POWER_CATS) if (catSets[k].size !== n) return null;
+    out.sort((a, b) => a.rank - b.rank);
+    for (let i = 1; i < out.length; i++) if (out[i].score > out[i - 1].score) return null;
+    return out;
+  };
   LG.aiPowerIsCurrent = function (doc) {
-    if (!doc || doc.kind !== "aipower" || !Array.isArray(doc.ranking) || !doc.ranking.length) return false;
-    const n = doc.ranking.length;
-    return doc.ranking.every((r) => {
-      if (!r || !Number.isInteger(Number(r.rank)) || !r.cats || typeof r.cats !== "object") return false;
-      return LG.POWER_CATS.every((k) => {
-        const v = Number(r.cats[k]);
-        return Number.isInteger(v) && v >= 1 && v <= n;
-      });
-    });
+    if (!doc || doc.kind !== "aipower") return false;
+    const week = LG.powerBoard(doc, "week");
+    const ros = LG.powerBoard(doc, "ros");
+    if (!week || !ros || week.length < 3) return false;
+    const ids = week.map((r) => Number(r && r.teamId));
+    if (new Set(ids).size !== ids.length) return false;
+    return !!(LG.normalizePowerBoard(week, ids) && LG.normalizePowerBoard(ros, ids));
   };
   LG.loadAiPower = async function (week) {
     // get() first (warm paint stays a cache hit). If that is empty or not current, getFresh
@@ -4711,39 +4747,20 @@
   };
   const POWER_RETRY_MS = 10 * 60e3;
   let powerInFlight = null, powerFailAt = 0;
-  // Validates a model reply against the teams we sent: every team exactly once, overall ranks
-  // a clean 1..N, and each of QB/RB/WR/TE/BN is its own 1..N permutation. Returns the ranking
-  // sorted by overall rank, or null. A blurb-only reply (this morning's contract) is rejected
-  // whole. Exported for the suite.
+  // Validates a model reply against the teams we sent: both boards, every team exactly once
+  // on each, ranks 1..N, scores 0..100 non-increasing with rank, and each of QB/RB/WR/TE/BN
+  // its own 1..N permutation. Returns {week, ros} sorted by rank, or null. A one-board
+  // array or a blurb-only reply is rejected whole. Exported for the suite.
   LG.validateAiPowerReply = function (text, teamIds) {
     let obj = null;
     const raw = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
     try { obj = JSON.parse(raw); } catch (e) { return null; }
-    const arr = obj && Array.isArray(obj.ranking) ? obj.ranking : (Array.isArray(obj) ? obj : null);
-    if (!arr) return null;
-    const n = teamIds.length;
-    const want = new Set(teamIds.map(Number));
-    const seen = new Set(), ranks = new Set();
-    const catSets = {};
-    for (const k of LG.POWER_CATS) catSets[k] = new Set();
-    const out = [];
-    for (const r of arr) {
-      const id = Number(r && r.teamId), rank = Number(r && r.rank);
-      if (!want.has(id) || seen.has(id) || !Number.isInteger(rank) || rank < 1 || rank > n || ranks.has(rank)) return null;
-      const src = r.cats && typeof r.cats === "object" ? r.cats : r;
-      const cats = {};
-      for (const k of LG.POWER_CATS) {
-        const v = Number(src[k]);
-        if (!Number.isInteger(v) || v < 1 || v > n || catSets[k].has(v)) return null;
-        catSets[k].add(v);
-        cats[k] = v;
-      }
-      seen.add(id); ranks.add(rank);
-      out.push({ teamId: id, rank, cats });
-    }
-    if (seen.size !== n) return null;
-    for (const k of LG.POWER_CATS) if (catSets[k].size !== n) return null;
-    return out.sort((a, b) => a.rank - b.rank);
+    const src = obj && obj.ranking;
+    if (!src || typeof src !== "object" || Array.isArray(src)) return null;
+    const week = LG.normalizePowerBoard(src.week, teamIds);
+    const ros = LG.normalizePowerBoard(src.ros, teamIds);
+    if (!week || !ros) return null;
+    return { week, ros };
   };
   LG.ensureAiPower = async function (opts) {
     const force = !!(opts && opts.force);

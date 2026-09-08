@@ -2404,3 +2404,12 @@ TE / BN (each their own 1..N permutation). No blurbs — replaced the same day. 
 mode stays on 4.5. Same "w" bucket and the 300/day ceiling as the other GFFL modes;
 keepalive space-byte like `gffltrade` / `gffladjust`. Named body field `power`, never
 `messages[]` from the client. See `docs/gffl.md` for the client side.
+
+## farmgpt.mjs — gfflpower two boards + 0–100 (2026-09-08)
+
+Same mode, same grok-4.6 call. The reply is now two boards in one object —
+`ranking.week` (this week's matchup) and `ranking.ros` (rest of season). Each row
+carries an integer `score` 0–100 plus the existing 1..N room ranks. The one-board
+/ no-score contract from earlier the same day is rejected as stale. User turn
+asks for both boards and the 0..100 scores; still a named `power` field, never
+`messages[]`.

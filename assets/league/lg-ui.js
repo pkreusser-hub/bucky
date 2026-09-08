@@ -1758,29 +1758,32 @@
   // both titled "Power rankings" disagreeing on the same page is worse than either alone. The
   // formula itself lives on — LG.powerRanking() still feeds the desktop standings' PWR column.
   // ---------------- THE AI POWER RANKINGS CARD (2026-09-08) ----------------
-  // User: "beneath standings lets add Power Ranking … feed all the rosters to Grok 4.6 and ask
-  // for an AI ranking of each team considering their roster and current standings." Afternoon
-  // of the same day: "rather than have a text blurb, create columns for QB, RB, WR, TE, BENCH
-  // and have Grok 4.6 give a ranking for each category, also a column for last week's ranking
-  // with an up or down arrow." Renders the newest `aipower` doc on file (LG.loadAiPowerDocs —
-  // newest week first): overall rank · crest · team · last week's overall rank + ▲/▼ · the
-  // five category ranks. It SUPERSEDES the formula card above on the phone (powerRankingsHtml);
-  // that formula still feeds the desktop standings table's PWR column, so LG.powerRanking
-  // stays. With nothing on file the card still paints — the standings-sorted phone page has a
-  // fixed slot for it and a card that appears from nowhere on Tuesday would be a surprise.
+  // Evening of the same day: two tabs — this week and rest of season — each with a 0–100
+  // score. The afternoon's one-board table (rank · team · LW · rooms) is still the row, plus
+  // Score. UI._pwTab is the visit's tab ("week" | "ros"); a tap swaps the table in place
+  // (wirePowerTabs) so a live poll does not throw the reader back to This week. Last week's
+  // rank is the same board on the prior week's doc. SUPERSEDES the formula card on the phone;
+  // that formula still feeds the desktop standings' PWR column. Empty card still paints.
   function aiPowerHtml(docs) {
     const list = Array.isArray(docs) ? docs : [];
     const cur = list[0] || null;
     if (!cur) {
       return `<div class="card powercard" id="powerCard"><h2>Power rankings</h2>
-        <p class="mut small">Grok ranks every roster each Tuesday — overall and by QB, RB, WR, TE and bench. Nothing on file yet.</p></div>`;
+        <p class="mut small">Grok scores every roster each Tuesday — this week and the rest of the season, 0 to 100. Nothing on file yet.</p></div>`;
     }
+    const tab = UI._pwTab === "ros" ? "ros" : "week";
+    const board = (LG.powerBoard && LG.powerBoard(cur, tab)) || [];
     const prev = list.find((d) => d.week === cur.week - 1) || null;
-    const prevRank = (id) => { if (!prev) return null; const r = (prev.ranking || []).find((x) => Number(x.teamId) === Number(id)); return r ? r.rank : null; };
+    const prevBoard = prev && LG.powerBoard ? LG.powerBoard(prev, tab) : null;
+    const prevRank = (id) => {
+      if (!prevBoard) return null;
+      const r = prevBoard.find((x) => Number(x.teamId) === Number(id));
+      return r ? r.rank : null;
+    };
     const cats = LG.POWER_CATS || ["QB", "RB", "WR", "TE", "BN"];
-    const head = `<tr><th class="num"></th><th>Team</th><th class="num" title="Last week">LW</th>${
+    const head = `<tr><th class="num"></th><th>Team</th><th class="num" title="0 to 100">Score</th><th class="num" title="Last week">LW</th>${
       cats.map((k) => `<th class="num pwcat" data-pos="${k}" title="${k === "BN" ? "Bench" : k}">${k}</th>`).join("")}</tr>`;
-    const rows = [...cur.ranking].sort((a, b) => a.rank - b.rank).map((r) => {
+    const rows = [...board].sort((a, b) => a.rank - b.rank).map((r) => {
       const T = LG.teamById(r.teamId);
       if (!T) return "";
       const pr = prevRank(r.teamId);
@@ -1790,17 +1793,44 @@
           : move === "down" ? '<span class="delta down">▼</span>'
           : '<span class="mut">–</span>'}`;
       const c = r.cats || {};
-      return `<tr class="pwrow${T.id === LG.myTeamId() ? " mine" : ""}" data-team="${T.id}" data-lw="${pr == null ? "" : pr}" data-move="${move}">
+      const score = Number.isInteger(Number(r.score)) ? Number(r.score) : "";
+      return `<tr class="pwrow${T.id === LG.myTeamId() ? " mine" : ""}" data-team="${T.id}" data-score="${score}" data-lw="${pr == null ? "" : pr}" data-move="${move}">
         <td class="pwrank num">${r.rank}</td>
         <td class="pwteamcell"><span class="pwteam teamlink" data-locker="${T.id}">${crestHtml(T, "tmini")}${teamNameHtml(T, { cls: "pwname" })}</span></td>
+        <td class="num pwscore">${score === "" ? "–" : score}</td>
         <td class="num pwlw">${lw}</td>
         ${cats.map((k) => `<td class="num pwcat" data-pos="${k}">${c[k] != null ? c[k] : "–"}</td>`).join("")}
       </tr>`;
     }).join("");
     const when = cur.at ? new Date(cur.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
-    return `<div class="card powercard" id="powerCard"><h2>Power rankings <span class="mut">— week ${cur.week}</span></h2>
+    const n = board.length;
+    const tabs = `<div class="poschips pwtabs" id="pwTabs">
+      <button type="button" class="poschip${tab === "week" ? " on" : ""}" data-pw="week" aria-pressed="${tab === "week" ? "true" : "false"}">This week</button>
+      <button type="button" class="poschip${tab === "ros" ? " on" : ""}" data-pw="ros" aria-pressed="${tab === "ros" ? "true" : "false"}">Rest of season</button>
+    </div>`;
+    return `<div class="card powercard" id="powerCard" data-board="${tab}"><h2>Power rankings <span class="mut">— week ${cur.week}</span></h2>
+      ${tabs}
       <div class="panner"><table class="tbl pwtbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>
-      <p class="mut small pwfoot">Ranked by Grok from every roster and the standings${when ? ", " + esc(when) : ""}. Numbers in a column are that room's 1–${cur.ranking.length}. Re-ranks each Tuesday.</p></div>`;
+      <p class="mut small pwfoot">Scored by Grok from every roster and the standings${when ? ", " + esc(when) : ""}. 0–100, then 1–${n} in each room. Re-ranks each Tuesday.</p></div>`;
+  }
+  function wirePowerTabs() {
+    const card = document.getElementById("powerCard");
+    if (!card || card.dataset.pwWired) return;
+    card.dataset.pwWired = "1";
+    card.querySelectorAll("[data-pw]").forEach((b) => {
+      b.addEventListener("click", () => {
+        const next = b.dataset.pw === "ros" ? "ros" : "week";
+        if ((UI._pwTab || "week") === next) return;
+        UI._pwTab = next;
+        const tmp = document.createElement("div");
+        tmp.innerHTML = aiPowerHtml(UI._aiPower);
+        const fresh = tmp.firstElementChild;
+        if (!fresh) return;
+        card.replaceWith(fresh);
+        wirePowerTabs();
+        wireLockerTaps(fresh);
+      });
+    });
   }
   // Fires the week's generation (LG.ensureAiPower — adopt-first, create-only, cloud-only) after
   // the league home has painted, and repaints the card in place if a NEW ranking came back.
@@ -2710,6 +2740,7 @@
     });
     $("#openBracketBtn") && $("#openBracketBtn").addEventListener("click", () => UI.openBracket());
     wireLockerTaps();
+    wirePowerTabs();
     wirePlayerCardTaps(); // S9's injury feed rows + Recent moves' player names (txSentenceHtml, 2026-09-08)
     wireLazyLeagueDetails();
     paintHealth();

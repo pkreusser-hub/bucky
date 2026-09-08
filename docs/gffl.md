@@ -7212,3 +7212,46 @@ new suite kept): **3344 pass / 1 fail** — the new check: `get()` stayed null a
 the card painted 0 rows with the week-1 doc sitting in the store. App file
 restored, hash identical.
 ---
+
+## GFFL — power rankings are two tabs, each team scored 0–100 (2026-09-08)
+
+User: "lets have the power rankings be two tabs, 1 is current week and 1 is rest
+of season, grok evaluates both each week, and assign a numerical score from 0-100
+for each team." Same Tuesday as the table.
+
+One Grok call still writes `aipower_<season>_w<week>`. The ranking is now two
+boards — `ranking.week` (this week's matchup) and `ranking.ros` (rest of season)
+— and every row carries an integer `score` 0–100 plus the existing 1..N room
+ranks. Rank order has to follow the scores (higher score = better rank; score
+ties are allowed, rank ties are not). A leftover one-board / no-score / blurb
+doc is not current and is regenerated; create-only still holds against a
+current two-board doc. The live week-1 table from this afternoon will be
+replaced the first time someone opens League after deploy.
+
+The card has This week / Rest of season chips (the same `.poschip` language as
+Moves). Last week's arrow is that board's rank on the prior week's doc. Score
+sits between Team and LW. Phone still pans inside the card (min-width 480px for
+the ninth column); desktop MAIN does not. The visit remembers the tab
+(`UI._pwTab`) so a poll does not throw the reader back to This week.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`, `netlify/functions/farmgpt.mjs`,
+`tools/_verify-gffl.cjs`, this file, `docs/farmgpt.md`.
+
+**RESTAGED, reasons at the checks**: TB3's system/user/reply now name both boards
+and 0–100, not a single ranking array; TB4's leftover is the afternoon's
+one-board cats table as well as a blurb; TB4's card geometry gains Score and the
+two tabs, and a tap on Rest of season must show a different order than This
+week; movement rewrites both boards and re-stamps scores so rank order stays
+non-increasing; `validateAiPowerReply` rejects a bare array, a one-board object,
+a score of 101, and inverted scores; TB5's create-only rival is a current
+two-board doc (a one-board rival would be overwritten as stale); TB6 asserts
+Score + the same two tabs on desktop MAIN.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3350/3350**. Bite (`league.html` +
+`lg-core.js` + `lg-ui.js` + `farmgpt.mjs` at HEAD, new suite kept): **3321 pass /
+29 fail** — HEAD's validator still accepts a one-board cats array and rejects
+the two-board reply, so generation never lands and the restaged card / cloud /
+race / Score / tab checks all fire. One of the 29 is the existing warm-cache
+budget at 136ms (same tight 100ms line as this afternoon; not restaged). App
+files restored, hashes identical.
+---
