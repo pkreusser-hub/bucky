@@ -7020,3 +7020,56 @@ we only score team D/ST. `D.searchFA` and the Hot pickups strip now keep
 suite kept): **3217/3217** pre-existing still pass; the 5 failures are the IDP
 exclusion checks (browse pool, badges, names, Hot pickups, typed search).
 ---
+
+## lg-ui.js — THE ROSTERS TAB, seven tabs (2026-09-08)
+
+User: "a new page/tab, Rosters, that lets you see all teams rosters in a fairly compact
+and viewable form for both mobile and desktop." `#rosters` is a real view (`VIEW_HASHES`,
+`REAL_VIEWS`, `UI.show`), the **seventh bottom-nav tab**, fourth in the row after My Team.
+`renderRosters()` paints one card per team in standings order (W, then PF — the standings
+card's sort), one line per player: slot chip · name · POS · NFL team · injury designation.
+Slot order is `renderLocker`'s own (starterSlotList, then BENCH as "BN", then IR); a player
+whose stored slot no longer exists lands at the end of the bench rather than off the page.
+A position-count line (`QB 1 · RB 4 …· 12 rostered`) heads each roster. **Read-only on
+purpose**: no Swap/Drop even on the reader's own card — lineups change in My Team only, so
+the lock rules live in one place. Rows open the player card (`data-pk`), heads open the
+locker (`data-locker`), so it is a hub, not a dead end.
+
+**Layout is CSS off one markup.** Phone: cards stack under a **sticky crest strip**
+(`.rsjump`, stuck at the header's 52px like `#offlineChip`) that scrolls a team's card to
+just below the strip — plain `scrollIntoView` would park it under it. Desktop: a
+`repeat(auto-fill, minmax(300px, 1fr))` grid, which at main's 1152px inner width is 3
+columns of 376px; 4 would leave a 13px body name ~110px, and "Christian McCaffrey" needs
+more. No headshots and no points anywhere on the page — eight rosters at a glance is the
+job, and either costs the height/width that job needs.
+
+**SEVEN TABS, MEASURED, NOT ASSUMED.** Item 16 (2026-08-09) cut the bar to six because eight
+clipped DRAFT on a real phone. At seven each 390px tab is (390 − 12) / 7 = **54px**. Range-
+measured ink for the widest label, MATCHUP, at the old type (600 11.5px / 1px tracking):
+**44.1px in Barlow Condensed** (what the family sees — measured on the live site) but
+**53.5px in Arial Narrow**, the fallback the harness renders because it blocks
+fonts.googleapis — over the 50px of room, so the nav's own no-clip check would have failed
+in the harness while passing on a phone. Phone type is now **600 11px / .5px tracking / 1px
+side padding**: worst ink 47.9px (harness) / ~39px (Barlow) inside 52px. Desktop's strip is
+`flex:0 0 auto` and untouched. The no-webfont Helvetica flash (63.7px) already clipped
+MATCHUP at SIX tabs; unchanged in kind. Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**RESTAGED, reasons at the checks**: section T's "six tabs" label string and desktop count
+→ seven with Rosters; T's no-clip message; AE5's `labels.length === 6` → 7. The no-clip
+check in T is no longer vacuous — at seven tabs the OLD type fails it in the harness.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3274/3274**. New section RS (52 checks):
+seven-tab ink vs room by Range, 54px boxes, tab paints/URL/lit, eight cards in order, own
+card ringed, team 1's rows hand-counted from the fixture (starters = rules slots, 12
+tappable, Empty rows = slots − 9, 3 BN, no IR), slot order, position line, injury chip,
+read-only, ≥150px name column at 390, no clipping, no-roster card, crest strip visible and
+scroll-lands below the strip, row → player card, head → locker → Back → Rosters, emoji
+sweep, deep link, desktop 1152px inner / 3 columns / 376px cards / strip gone / ≥200px
+names / 7 tabs, and a background `quietRepaint` that re-paints in place with the scroll
+kept. Bite (`league.html` + `lg-ui.js` at HEAD, new suite kept): **3228 pass / 46 fail** —
+the 46 are the 3 restaged tab-count checks plus 43 RS checks, every one naming the missing
+tab or page (`League|Matchup|My Team|Moves|Chat|Scores`, 63px boxes, 0 cards, `#league`);
+the 9 RS checks that pass on HEAD are the ones true of any bar (no clip, ≥44px, 0 page
+errors). App files restored from the scratchpad copy, hashes identical.
+---

@@ -1170,6 +1170,56 @@
   .logoutfoot button { min-height:44px; min-width:140px; }
   .logoutfoot .small { margin:8px 0 0; }
 
+  /* ---------------- ROSTERS (2026-09-08) ----------------
+     "see all teams rosters in a fairly compact and viewable form for both mobile and desktop."
+     One card per team, one line per player: slot chip · name · POS · NFL team. No headshots and
+     no points — this page is for scanning eight rosters at once (trade scouting, "who has the
+     backups"), and a face or a number per row is width and height spent against that.
+     PHONE: cards stack in standings order under a sticky crest strip (.rsjump) that scrolls to a
+     team; the strip sits under the 52px header, exactly where #offlineChip pins.
+     DESKTOP: a 3-column grid (minmax 300px — at main's 1200px cap, 4 columns would leave a
+     13px-body name ~110px, which truncates "Christian McCaffrey"; 3 leaves it ≥200px). */
+  .rsjump { position:sticky; top:calc(52px + env(safe-area-inset-top)); z-index:18; display:flex; gap:6px;
+            overflow-x:auto; padding:8px calc(12px + env(safe-area-inset-right)) 10px calc(12px + env(safe-area-inset-left));
+            margin:-12px calc(-12px - env(safe-area-inset-right)) 4px calc(-12px - env(safe-area-inset-left));
+            background:var(--tabbar); backdrop-filter:blur(8px); scrollbar-width:none; }
+  .rsjump::-webkit-scrollbar { display:none; }
+  .rsjump button { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; min-height:36px; padding:4px 10px 4px 5px;
+                   background:var(--nested); border:1px solid var(--border-card); border-radius:var(--radius-pill);
+                   font:700 11px var(--font-display); letter-spacing:.4px; text-transform:uppercase; color:var(--ink2); }
+  .rsjump button.mine { border-color:var(--accent); }
+  .rsjump .tcrest { margin:0; }
+  .rsgrid { display:block; }
+  .rsteam { padding:12px 14px 6px; }
+  .rsteam.mine { border-color:var(--accent); }
+  .rshead { display:flex; align-items:center; gap:10px; width:100%; margin:0 0 6px; padding:0; cursor:pointer;
+            background:none; border:none; border-radius:0; text-transform:none; letter-spacing:normal; text-align:left; }
+  .rshead:hover .tname { color:var(--accent); }
+  .rshead .tcrest { width:34px; height:34px; font-size:12px; }
+  .rsid { display:flex; flex-direction:column; min-width:0; gap:1px; text-align:left; }
+  .rsid .tname { font-size:16px; letter-spacing:.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rsid small { font:500 11.5px var(--font-body); }
+  .rspos { display:flex; flex-wrap:wrap; gap:4px 10px; margin:0 0 6px; font:600 10.5px var(--font-display); letter-spacing:.6px;
+           text-transform:uppercase; color:var(--mut); }
+  .rspos b { color:var(--ink2); }
+  .rssec { margin:8px 0 2px; font:600 10px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--faint); }
+  .rsrow { display:flex; align-items:center; gap:8px; width:100%; min-height:30px; padding:4px 0; text-align:left;
+           background:none; border:none; border-bottom:1px solid var(--divider); border-radius:0;
+           text-transform:none; letter-spacing:normal; color:var(--ink); }
+  .rsrow:last-child { border-bottom:none; }
+  button.rsrow:hover { background:var(--row-hover); }
+  .rsrow .slotchip { flex:0 0 40px; font-size:10px; padding:3px 0; }
+  .rsname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:500 13px var(--font-body); }
+  .rsempty .rsname { font-weight:400; }
+  .rsmeta { flex:0 0 auto; white-space:nowrap; font:400 11px var(--font-body); }
+  .rsmeta .inj { margin-left:4px; }
+  .rsteam .rsnone { margin:0 0 8px; }
+  @media (min-width:1024px) {
+    .rsjump { display:none; }
+    .rsgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:12px; align-items:start; }
+    .rsteam { margin-bottom:0; }
+  }
+
   /* S2: the draft-day card, first on the league home while the draft is still ahead. Centered,
      a little larger than an ordinary card — this is the one thing on the page with a clock
      running against it. LIVE reuses the app's existing LIVE colour language (var(--accent),
@@ -1892,10 +1942,18 @@
      box the border spans). Mobile's padding already is (2px/2px) — the border just needed to
      exist. `* { box-sizing:border-box }` (top of this stylesheet) means adding it never nudges
      the button's own size/height. */
+  /* SEVEN TABS (2026-09-08, the Rosters tab). Each tab's box at 390px is (390 − 12) / 7 = 54px.
+     The type was 600 11.5px / 1px tracking with 2px side padding; MEASURED ink at that setting:
+     MATCHUP 44.1px in Barlow Condensed (the font the family actually sees) but 53.5px in Arial
+     Narrow — the fallback the headless harness renders, since it blocks fonts.googleapis — which
+     is wider than the 50px of room and would clip. At 600 11px / .5px tracking / 1px padding the
+     worst label inks 47.9px (harness) / ~39px (Barlow) inside 52px of room. Desktop's strip is
+     flex:0 0 auto and needed nothing. The Helvetica Neue no-webfont flash (63.7px) already
+     clipped MATCHUP at SIX tabs and is unchanged in kind by this. */
   .bnav button, .bnav .bnavlink { flex:1 1 0; background:none; border:none; border-bottom:2px solid transparent;
                  color:var(--faint); min-height:44px; text-align:center;
-                 font:600 11.5px var(--font-display); letter-spacing:1px; text-transform:uppercase;
-                 padding:6px 2px; cursor:pointer; text-decoration:none; display:flex;
+                 font:600 11px var(--font-display); letter-spacing:.5px; text-transform:uppercase;
+                 padding:6px 1px; cursor:pointer; text-decoration:none; display:flex;
                  align-items:center; justify-content:center; box-sizing:border-box; }
   .bnav button.on { color:var(--accent); border-bottom-color:var(--accent); }
   .bnav button:hover, .bnav .bnavlink:hover { color:var(--ink2); }
@@ -2108,6 +2166,10 @@
     <button data-v="league">League</button>
     <button data-v="matchup">Matchup</button>
     <button data-v="team">My Team</button>
+    <!-- Rosters (2026-09-08, user: "a new page/tab … see all teams rosters in a fairly compact
+         and viewable form"). The SEVENTH tab. Item 16 below records why eight clipped; seven is
+         measured, not assumed — see the .bnav phone type note in the stylesheet. -->
+    <button data-v="rosters">Rosters</button>
     <button data-v="moves">Moves</button>
     <button data-v="chat">Chat</button>
     <button data-v="scores">Scores</button>

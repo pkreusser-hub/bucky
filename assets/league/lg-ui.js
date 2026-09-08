@@ -665,7 +665,8 @@
   // "activity" (2026-09-04) is in here so #activity survives a reload and a Back press, exactly
   // like every other view. It carries no subject, so — unlike #locker=/#nflgame= — a plain hash
   // is the whole address and viewFromHash's default table is the right place for it.
-  const VIEW_HASHES = ["league", "matchup", "team", "moves", "chat", "rules", "bracket", "scores", "activity"];
+  // "rosters" (2026-09-08) is the seventh tab — a plain hash, no subject, same as the rest.
+  const VIEW_HASHES = ["league", "matchup", "team", "moves", "chat", "rules", "bracket", "scores", "activity", "rosters"];
   let navSeq = 0;
   // ---- overlays. ONE sentinel at a time (this app can only ever have one modal up: the player
   // card, the swap sheet, the claim sheet, the chat lightbox — none of them contains a control
@@ -709,7 +710,7 @@
 
   // Every screen that is a real VIEW — i.e. one this history layer may route to. The gate, the
   // claim screen, the outage card and the replay's setup card are NOT in here on purpose.
-  const REAL_VIEWS = ["league", "matchup", "moves", "chat", "rules", "bracket", "scores", "locker", "nflgame", "activity"];
+  const REAL_VIEWS = ["league", "matchup", "moves", "chat", "rules", "bracket", "scores", "locker", "nflgame", "activity", "rosters"];
   // "My Team" is the owner's own locker (merged 2026-08-07) — kept as a distinct nav entry and
   // hash for muscle memory, but there is no separate team view any more. Resolved in ONE place
   // so the navigator, the first paint and a Back press can never disagree about it.
@@ -939,6 +940,7 @@
     else if (name === "scores") renderScores();
     else if (name === "nflgame") renderNflGame();
     else if (name === "activity") renderActivity();
+    else if (name === "rosters") renderRosters();
   };
   // Reachable from anywhere a team name is tapped (standings, matchup header,
   // "My locker" on the team page) — plan §4.7 says lockers need no nav entry
@@ -7523,6 +7525,100 @@
   }
 
   UI.renderLocker = renderLocker;
+  // ---------------- ROSTERS — every team, one page (2026-09-08) ----------------
+  // User: "a new page/tab to GFFL, 'Rosters', that lets you see all teams rosters in a fairly
+  // compact and viewable form for both mobile and desktop." The seventh tab.
+  // READ-ONLY, deliberately: the owner's own lineup is edited in My Team and nowhere else, so
+  // this page has no swap/drop affordance even on the reader's own card — one place to change a
+  // lineup means one set of lock rules. Every row still opens the player card (data-pk) and
+  // every team header opens that team's locker (data-locker), so it is a hub, not a dead end.
+  // ORDER is the standings order (W, then PF) — the same sort the standings card and the locker's
+  // "#place" use, so the page reads top-to-bottom the way the league table does. The reader's
+  // own card is ringed (.mine) but NOT hoisted: a page that lists everyone should keep one order.
+  // LAYOUT is CSS-only off the same markup: stacked cards under a sticky crest strip on a phone,
+  // a 3-column grid on a desktop (league.html's ROSTERS block has the width arithmetic).
+  // Slot order mirrors renderLocker's owner path exactly — starterSlotList() first, each slot
+  // taking the first unclaimed player who holds it, then BENCH, then IR — so a reader flipping
+  // between My Team and Rosters sees the same roster in the same order. A player whose slot
+  // matches nothing (a rules change that removed a slot after he was placed in it) is not
+  // dropped from the page; he lands at the end of the bench with his stored slot on the chip.
+  async function renderRosters() {
+    // A BACKGROUND repaint (LG.db.onChange after somebody's waiver lands) arrives through
+    // UI.show → here. Wiping to "Loading…" first would collapse the page and throw away the
+    // reader's scroll position every time; renderScores' rule applies — skip the wipe when the
+    // page is already painted, and put the scroll back after the swap.
+    const already = !!main().querySelector("#rsGrid");
+    const keepY = already ? window.scrollY : 0;
+    if (!already) main().innerHTML = `<div class="card mut">Loading rosters…</div>`;
+    const d = D();
+    const [standings] = await Promise.all([LG.loadStandings(), loadWeekRosters()]);
+    if (UI.view !== "rosters") return; // the reader moved on while the rosters were loading
+    const mine = LG.myTeamId();
+    const rank = (id) => standings[id] || { w: 0, l: 0, t: 0, pf: 0 };
+    const order = [...LG.teams].sort((a, b) => { const A = rank(a.id), B = rank(b.id); return (B.w - A.w) || (B.pf - A.pf); });
+    const slots = starterSlotList();
+    const POS_ORDER = d.LEAGUE_POS || ["QB", "RB", "WR", "TE", "K", "DST"];
+    const posOf = (p) => (d.leaguePos ? d.leaguePos(p.pos) : p.pos);
+    const rowHtml = (slot, p) => p
+      ? `<button type="button" class="rsrow" data-pk="${esc(p.key)}">
+          <span class="slotchip" data-pos="${slotPos(slot)}">${esc(slot)}</span>
+          <span class="rsname">${escn(p.name)}</span>
+          <span class="rsmeta mut">${esc(posOf(p))} · ${esc(p.team)}${injChip(d, p)}</span>
+        </button>`
+      : `<div class="rsrow rsempty">
+          <span class="slotchip" data-pos="${slotPos(slot)}">${esc(slot)}</span>
+          <span class="rsname mut">Empty</span>
+        </div>`;
+    const teamCard = (t, i) => {
+      const roster = UI._rosters[t.id] || [];
+      const st = rank(t.id);
+      const taken = new Set();
+      const starters = slots.map((s) => {
+        for (const p of roster) if (p.slot === s && !taken.has(p)) { taken.add(p); return { slot: s, p }; }
+        return { slot: s, p: null };
+      });
+      const ir = roster.filter((p) => p.slot === "IR");
+      ir.forEach((p) => taken.add(p));
+      // Bench is everyone the starting slots and IR did not claim — that is what puts an
+      // orphaned slot-holder at the end of the bench rather than off the page.
+      const bench = roster.filter((p) => !taken.has(p));
+      const counts = {};
+      for (const p of roster) { const k = posOf(p); counts[k] = (counts[k] || 0) + 1; }
+      const posLine = POS_ORDER.filter((k) => counts[k]).map((k) => `<span>${esc(k)} <b>${counts[k]}</b></span>`).join("");
+      const who = t.claimedBy || t.owner || "";
+      const rec = `${st.w}-${st.l}${st.t ? "-" + st.t : ""}`;
+      return `<section class="card rsteam${t.id === mine ? " mine" : ""}" id="rsteam-${t.id}" data-team="${t.id}">
+        <button type="button" class="rshead" data-locker="${t.id}" title="Open ${esc(t.name)}">
+          ${crestHtml(t)}
+          <span class="rsid">${teamNameHtml(t)} <small class="mut">#${i + 1} · ${rec}${who ? " · " + esc(who) : ""}</small></span>
+        </button>
+        ${roster.length ? `<div class="rspos">${posLine}<span class="mut">${roster.length} rostered</span></div>
+        <div class="rsrows rsstarters">${starters.map((s) => rowHtml(s.slot, s.p)).join("")}</div>
+        ${bench.length ? `<div class="rssec">Bench</div><div class="rsrows rsbench">${bench.map((p) => rowHtml(p.slot === "BENCH" ? "BN" : p.slot, p)).join("")}</div>` : ""}
+        ${ir.length ? `<div class="rssec">IR</div><div class="rsrows rsir">${ir.map((p) => rowHtml("IR", p)).join("")}</div>` : ""}`
+        : `<p class="mut rsnone">No roster yet.</p>`}
+      </section>`;
+    };
+    main().innerHTML = `
+      <div class="rsjump" id="rsJump" aria-label="Jump to a team">${order.map((t) =>
+        `<button type="button" data-jump="${t.id}"${t.id === mine ? ' class="mine"' : ""}>${crestHtml(t, "tmini")}${esc(t.abbrev || initials(t.name))}</button>`).join("")}</div>
+      <div class="rsgrid" id="rsGrid">${order.map(teamCard).join("")}</div>`;
+    if (already) window.scrollTo(0, keepY);
+    wireLockerTaps(main());
+    wirePlayerCardTaps(main());
+    // The crest strip is sticky under the header, so a plain scrollIntoView would park the
+    // card's top UNDER the strip. Land it just below the strip's stuck position instead.
+    const jump = $("#rsJump");
+    jump.querySelectorAll("[data-jump]").forEach((b) => b.addEventListener("click", () => {
+      const card = document.getElementById("rsteam-" + b.dataset.jump);
+      if (!card) return;
+      const stuckTop = parseFloat(getComputedStyle(jump).top) || 0;
+      const top = card.getBoundingClientRect().top + window.scrollY - stuckTop - jump.offsetHeight - 6;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    }));
+  }
+  UI.renderRosters = renderRosters;
+
   async function renderLocker() {
     const teamId = UI.lockerTeamId;
     const T = LG.teamById(teamId);

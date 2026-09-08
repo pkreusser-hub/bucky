@@ -6341,8 +6341,11 @@ async function openDetails(page, id) {
       labels: [...document.querySelectorAll(".bnav button")].map((b) => b.textContent.trim()),
       links: document.querySelectorAll(".bnav a, .bnav .bnavlink").length,
     }));
-    ok(bar.labels.join("|") === "League|Matchup|My Team|Moves|Chat|Scores",
-      "the bottom nav is six tabs — Rules and Draft have left it (" + bar.labels.join("|") + ")");
+    // RESTAGED 2026-09-08 (user: "add a new page/tab to GFFL, 'Rosters'"). Seven tabs now —
+    // Rosters sits after My Team. Item 16's "six" was the count that FIT, not a ceiling: the
+    // seventh was measured in (section RS has the ink widths) with the phone type tightened.
+    ok(bar.labels.join("|") === "League|Matchup|My Team|Rosters|Moves|Chat|Scores",
+      "the bottom nav is seven tabs — Rules and Draft are still out, Rosters is in (" + bar.labels.join("|") + ")");
     ok(bar.links === 0, "…and no link is left behind in the bar (" + bar.links + ")");
     // Item 6: for two DIFFERENT tabs (different label widths — "League" vs "My Team"), the
     // active-tab underline's own bounding box is centered under its label at 390px. The
@@ -6394,7 +6397,8 @@ async function openDetails(page, id) {
     const deskBar = await page.evaluate(() => ({
       n: document.querySelectorAll(".bnav button").length, links: document.querySelectorAll(".bnav a").length,
     }));
-    ok(deskBar.n === 6 && deskBar.links === 0, "desktop carries the same six tabs and no stray link (" + JSON.stringify(deskBar) + ")");
+    // RESTAGED 2026-09-08: seven, with Rosters (see the phone-side restage above).
+    ok(deskBar.n === 7 && deskBar.links === 0, "desktop carries the same seven tabs and no stray link (" + JSON.stringify(deskBar) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
@@ -6414,7 +6418,11 @@ async function openDetails(page, id) {
     // reported is a real-device rendering difference this headless font does not reproduce. So
     // it is a regression invariant, not evidence that item 16 fixed anything; the width figure
     // printed below is the honest measure of how much room six tabs bought.
-    ok(clipped.length === 0, "no clipped nav labels at 390px with six tabs (" + JSON.stringify(clipped) + ")");
+    // 2026-09-08: seven tabs. This check is no longer vacuous in the harness — at seven the OLD
+    // type (600 11.5px / 1px) inks MATCHUP at 53.5px in this harness's Arial Narrow against 50px
+    // of room, so it would fail here; the tightened phone type is what passes it (section RS
+    // prints the numbers).
+    ok(clipped.length === 0, "no clipped nav labels at 390px with seven tabs (" + JSON.stringify(clipped) + ")");
     const targets = await page.$$eval(".bnav button, .bnav .bnavlink", (els) => els.map((el) => el.getBoundingClientRect().height));
     ok(targets.every((h) => h >= 44), "every nav tab keeps a ≥44px touch target (" + targets.join(",") + ")");
     const widths = await page.$$eval(".bnav button", (els) => els.map((el) => Math.round(el.getBoundingClientRect().width)));
@@ -11295,7 +11303,9 @@ async function openDetails(page, id) {
         widths: [...document.querySelectorAll(".bnav button")].map((el) => Math.round(el.getBoundingClientRect().width)),
       }));
       ok(!nav.rules && !nav.draft, "the Rules tab and the Draft link are both gone from the nav");
-      ok(nav.labels.length === 6, "…six tabs remain (" + nav.labels.join("|") + ")");
+      // RESTAGED 2026-09-08: seven tabs — the Rosters tab joined (section RS). Rules and Draft
+      // are still links on the League page, which is what the rest of this block asserts.
+      ok(nav.labels.length === 7, "…seven tabs now, Rosters included (" + nav.labels.join("|") + ")");
       ok(nav.clipped.length === 0, "…and at 390px not one label clips — eight used to cut DRAFT to \"DR\" (" + JSON.stringify(nav.widths) + "px)");
 
       // Both links are on the League page, findable and tappable.
@@ -22806,6 +22816,229 @@ async function openDetails(page, id) {
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
+  }
+
+  // =========================================================================================
+  // RS · THE ROSTERS TAB (2026-09-08, user: "add a new page/tab to GFFL, 'Rosters', that lets
+  // you see all teams rosters in a fairly compact and viewable form for both mobile and
+  // desktop"). Every hook here is NEW, so the waits are the tolerant kind — against the pre-fix
+  // app the tab does not exist and this section must read as a list of failures, not a crash.
+  // =========================================================================================
+  section("RS · the Rosters tab — seventh tab, every team's roster, phone stack + desktop grid");
+  {
+    // ---- RS1: the phone. Seven tabs measured, then the page itself.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const nav = await evalOr(page, () => {
+      const btns = [...document.querySelectorAll(".bnav button")];
+      const ink = (b) => {
+        const tn = [...b.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+        if (!tn) return 0;
+        const r = document.createRange(); r.selectNodeContents(tn);
+        return r.getBoundingClientRect().width;
+      };
+      const cs = getComputedStyle(btns[0]);
+      return {
+        labels: btns.map((b) => b.dataset.v),
+        box: btns.map((b) => Math.round(b.getBoundingClientRect().width)),
+        room: btns.map((b) => b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)),
+        ink: btns.map((b) => +ink(b).toFixed(1)),
+        clipped: btns.filter((b) => b.scrollWidth > b.clientWidth + 1).map((b) => b.textContent.trim()),
+        heights: btns.map((b) => Math.round(b.getBoundingClientRect().height)),
+        fontSize: cs.fontSize, tracking: cs.letterSpacing,
+      };
+    }) || { labels: [], box: [], room: [], ink: [], clipped: [], heights: [] };
+    ok(nav.labels.join("|") === "league|matchup|team|rosters|moves|chat|scores",
+      "the seventh tab is Rosters, fourth in the row after My Team (" + nav.labels.join("|") + ")");
+    // Hand-computed: the bar is 390px wide with 6px of padding a side, seven equal flex items
+    // → (390 − 12) / 7 = 54px each.
+    ok(nav.box.length === 7 && nav.box.every((w) => w === 54),
+      "…each tab's box is (390 − 12) / 7 = 54px (" + nav.box.join("/") + ")");
+    const worst = nav.ink.length ? Math.max(...nav.ink) : 1e9;
+    const worstRoom = nav.room.length ? Math.min(...nav.room) : 0;
+    ok(worst <= worstRoom, "…and the widest label's INK fits its box's content room — a Range, not the button's box (worst ink " + worst + "px vs room " + worstRoom + "px)");
+    ok(nav.clipped.length === 0, "…no label clips at 390px with seven tabs (" + JSON.stringify(nav.clipped) + ")");
+    ok(nav.heights.every((h) => h >= 44), "…every tab still ≥44px tall (" + nav.heights.join(",") + ")");
+    console.log("    · seven-tab ink at 390px (" + nav.fontSize + " / " + nav.tracking + "): " + nav.labels.map((l, i) => l + " " + nav.ink[i]).join(", "));
+
+    await clickIn(page, '.bnav button[data-v="rosters"]');
+    ok(await waitOr(page, ".rsteam"), "tapping Rosters paints team cards");
+    const pg = await evalOr(page, () => {
+      const UI = window.__GFFL__.UI, LG = window.__GFFL__.LG;
+      const cards = [...document.querySelectorAll(".rsteam")];
+      const t1 = document.querySelector('.rsteam[data-team="1"]');
+      const t3 = document.querySelector('.rsteam[data-team="3"]');
+      const r = (LG.rules && LG.rules.roster) || {};
+      const slotCount = ["QB", "RB", "WR", "TE", "FLEX", "DST", "K"].reduce((n, k) => n + (r[k] || 0), 0);
+      const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+      return {
+        hash: location.hash, view: UI.view, dataView: document.querySelector("#main").dataset.view,
+        lit: [...document.querySelectorAll(".bnav button.on")].map((b) => b.dataset.v),
+        cards: cards.length, teams: LG.teams.length,
+        ids: cards.map((c) => c.dataset.team), mine: [...document.querySelectorAll(".rsteam.mine")].map((c) => c.dataset.team),
+        slotCount,
+        t1: t1 ? {
+          starters: [...t1.querySelectorAll(".rsstarters .rsrow")].length,
+          starterChips: [...t1.querySelectorAll(".rsstarters .slotchip")].map((c) => c.textContent.trim()),
+          filled: [...t1.querySelectorAll(".rsrow[data-pk]")].length,
+          empty: [...t1.querySelectorAll(".rsstarters .rsempty")].length,
+          bench: [...t1.querySelectorAll(".rsbench .rsrow")].length,
+          benchChips: [...new Set([...t1.querySelectorAll(".rsbench .slotchip")].map((c) => c.textContent.trim()))],
+          ir: t1.querySelectorAll(".rsir").length,
+          first: norm(t1.querySelector(".rsstarters .rsrow") && t1.querySelector(".rsstarters .rsrow").textContent),
+          pos: norm(t1.querySelector(".rspos") && t1.querySelector(".rspos").textContent),
+          inj: [...t1.querySelectorAll(".rsrow")].filter((row) => row.querySelector(".inj")).map((row) => norm(row.querySelector(".rsname").textContent) + ":" + norm(row.querySelector(".inj").textContent)),
+          head: norm(t1.querySelector(".rshead") && t1.querySelector(".rshead").textContent),
+          controls: t1.querySelectorAll(".lswap, .ldrop, button.primary").length,
+          nameBudget: (() => { const n = t1.querySelector(".rsrow[data-pk] .rsname"); return n ? n.clientWidth : 0; })(),
+          clippedNames: [...t1.querySelectorAll(".rsname")].filter((n) => n.scrollWidth > n.clientWidth + 1).map((n) => n.textContent),
+        } : null,
+        t3: t3 ? { rows: t3.querySelectorAll(".rsrow").length, txt: norm(t3.textContent) } : null,
+        jump: { n: document.querySelectorAll("#rsJump [data-jump]").length, visible: !!document.querySelector("#rsJump") && document.querySelector("#rsJump").offsetParent !== null },
+        cols: [...new Set(cards.map((c) => Math.round(c.getBoundingClientRect().left)))].length,
+        rosterLen: (UI._rosters && UI._rosters[1] || []).length,
+      };
+    }) || {};
+    ok(pg.hash === "#rosters" && pg.view === "rosters" && pg.dataView === "rosters",
+      "it is a real view: #rosters in the URL, UI.view and main's data-view all agree (" + pg.hash + "/" + pg.view + "/" + pg.dataView + ")");
+    ok(Array.isArray(pg.lit) && pg.lit.join() === "rosters", "…and the Rosters tab is the one lit (" + JSON.stringify(pg.lit) + ")");
+    ok(pg.cards === 8 && pg.cards === pg.teams, "one card per team — all eight (" + pg.cards + " of " + pg.teams + ")");
+    ok(Array.isArray(pg.ids) && [...pg.ids].sort().join() === "1,2,3,4,5,6,7,8" && pg.ids.join() === "1,2,3,4,5,6,7,8",
+      "…every team exactly once, in standings order (all 0-0 here, so the tie-break leaves the league's own order) (" + (pg.ids || []).join(",") + ")");
+    ok(Array.isArray(pg.mine) && pg.mine.join() === "1", "…the reader's own team is ringed, and only theirs (" + JSON.stringify(pg.mine) + ")");
+    ok(pg.cols === 1, "phone: cards stack in ONE column (" + pg.cols + ")");
+    const t1 = pg.t1 || {};
+    // Hand-computed from seedRosterT1: 9 starters placed (QB, RB, RB, WR, WR, TE, FLEX, DST, K),
+    // 3 on the bench, nobody on IR, 12 players. Empty starter rows = the rules' slot count − 9.
+    ok(t1.starters === pg.slotCount, "team 1's starter block has one row per rules slot (" + t1.starters + " = " + pg.slotCount + ")");
+    ok(t1.filled === 12 && t1.filled === pg.rosterLen, "…twelve tappable player rows, one per rostered player (" + t1.filled + " vs UI._rosters " + pg.rosterLen + ")");
+    ok(t1.empty === pg.slotCount - 9, "…and an Empty row for each unfilled starting slot (" + t1.empty + " = " + pg.slotCount + " − 9)");
+    ok(t1.bench === 3 && Array.isArray(t1.benchChips) && t1.benchChips.join() === "BN", "…three bench rows, chipped BN (" + t1.bench + ", " + JSON.stringify(t1.benchChips) + ")");
+    ok(t1.ir === 0, "…and no IR block when nobody is stashed (" + t1.ir + ")");
+    ok(Array.isArray(t1.starterChips) && t1.starterChips[0] === "QB" && t1.starterChips.indexOf("K") === t1.starterChips.length - 1
+      && t1.starterChips.indexOf("DST") === t1.starterChips.length - 2 && t1.starterChips.indexOf("FLEX") > t1.starterChips.lastIndexOf("TE"),
+      "…slots run QB → RB → WR → TE → FLEX → DST → K, the locker's own order (" + (t1.starterChips || []).join(" ") + ")");
+    ok(/^QB P\. Passer QB · PHI$/.test(t1.first || ""), "…the first row reads slot · name · POS · NFL team (\"" + t1.first + "\")");
+    ok(/QB 1.*RB 4.*WR 4.*TE 1.*K 1.*DST 1.*12 rostered/.test(t1.pos || ""), "…the position line is hand-counted from the fixture: QB 1 RB 4 WR 4 TE 1 K 1 DST 1, 12 rostered (\"" + t1.pos + "\")");
+    ok(Array.isArray(t1.inj) && t1.inj.join("|") === "I. Injured:OUT", "…the injury designation rides the row, and only on the injured man (" + JSON.stringify(t1.inj) + ")");
+    // The crest is initials ("BK") when the team has no logo, so it leads the head's text.
+    ok(/^BK Battle Kreussers #1 · 0-0$/.test(t1.head || ""), "…the card head is crest, name, place and record (\"" + t1.head + "\")");
+    ok(t1.controls === 0, "read-only: no Swap/Drop control anywhere on the reader's OWN card — lineups change in My Team only (" + t1.controls + ")");
+    // Width arithmetic at 390px: main pads 12 a side → the card is 366 wide, 14px padding and a
+    // 1px border a side → 336 of content; a 40px chip, two 8px gaps and the "RB · DAL" meta
+    // (~50px) leave the name ≥ 230px. Assert a floor well under that, and no name clipped.
+    ok(t1.nameBudget >= 150, "…the name column keeps ≥150px at 390px (" + t1.nameBudget + "px)");
+    ok(Array.isArray(t1.clippedNames) && t1.clippedNames.length === 0, "…and no name is clipped (" + JSON.stringify(t1.clippedNames) + ")");
+    ok(pg.t3 && pg.t3.rows === 0 && /No roster yet/.test(pg.t3.txt), "a team with no roster doc says so, with no rows (" + JSON.stringify(pg.t3) + ")");
+    ok(pg.jump && pg.jump.n === 8 && pg.jump.visible === true, "phone: the crest strip is on screen with one jump per team (" + JSON.stringify(pg.jump) + ")");
+
+    // The strip scrolls to a card and lands it BELOW the stuck strip, not under it. Team 2, not
+    // the last card: six roster-less cards are ~100px each, so the page cannot scroll far
+    // enough to bring team 8 up under the strip, and a clamped scroll would fail this for the
+    // wrong reason.
+    await clickIn(page, '#rsJump [data-jump="2"]');
+    await sleep(900); // smooth scroll settles
+    const jumped = await evalOr(page, () => {
+      const card = document.getElementById("rsteam-2"), strip = document.getElementById("rsJump");
+      if (!card || !strip) return null;
+      const c = card.getBoundingClientRect(), s = strip.getBoundingClientRect();
+      return { scrollY: Math.round(window.scrollY), cardTop: Math.round(c.top), stripBottom: Math.round(s.bottom), stripTop: Math.round(s.top),
+        headerBottom: Math.round(document.querySelector("header").getBoundingClientRect().bottom) };
+    }) || {};
+    ok(jumped.scrollY > 0, "tapping a crest scrolls the page (scrollY " + jumped.scrollY + ")");
+    // `!= null` first: against the pre-fix app both sides are undefined and `===` would pass vacuously.
+    ok(jumped.stripTop != null && jumped.stripTop === jumped.headerBottom, "…the strip is stuck directly under the header (" + jumped.stripTop + " = " + jumped.headerBottom + ")");
+    ok(jumped.cardTop >= jumped.stripBottom - 1 && jumped.cardTop <= jumped.stripBottom + 12,
+      "…and the target card's top sits just below the strip, not under it (card " + jumped.cardTop + " vs strip bottom " + jumped.stripBottom + ")");
+
+    // A background repaint (LG.db.onChange's route) lands in place: no "Loading…" wipe, and the
+    // scroll the reader just made survives it.
+    const qr = await evalOr(page, async () => {
+      const before = window.scrollY;
+      window.__GFFL__.UI.quietRepaint();
+      const wiped = /Loading rosters/.test(document.querySelector("#main").textContent);
+      await new Promise((r) => setTimeout(r, 500));
+      return { before, after: window.scrollY, wiped, cards: document.querySelectorAll(".rsteam").length };
+    }) || {};
+    ok(qr.before > 0 && qr.wiped === false && qr.cards === 8 && qr.after === qr.before,
+      "a background quiet repaint re-paints in place — no Loading wipe, scroll kept (" + JSON.stringify(qr) + ")");
+
+    // A row opens the player card; a head opens the locker; Back returns to Rosters.
+    await clickIn(page, '.rsteam[data-team="1"] .rsrow[data-pk="4241457"]');
+    await waitFnOr(page, () => { const el = document.getElementById("playerCard"); return el && !el.hidden && /Rusher/.test(el.textContent); });
+    const pc = await evalOr(page, () => {
+      const el = document.getElementById("playerCard");
+      return { open: !!el && !el.hidden, txt: (el && el.textContent) || "" };
+    }) || {};
+    ok(pc.open === true && /R\. Rusher|Rusher/.test(pc.txt), "tapping a row opens the player card for that player (" + pc.open + ")");
+    await evalOr(page, () => window.__GFFL__.UI.closeTopOverlay());
+    await clickIn(page, '.rsteam[data-team="2"] .rshead');
+    ok(await waitOr(page, ".lockerhead"), "tapping a card's head opens that team's locker");
+    const lk = await evalOr(page, () => ({ view: window.__GFFL__.UI.view, id: window.__GFFL__.UI.lockerTeamId, hash: location.hash })) || {};
+    ok(lk.view === "locker" && lk.id === 2 && lk.hash === "#locker=2", "…team 2's (" + JSON.stringify(lk) + ")");
+    await evalOr(page, () => history.back());
+    ok(await waitOr(page, ".rsteam"), "…and Back returns to Rosters");
+    ok((await evalOr(page, () => window.__GFFL__.UI.view + location.hash)) === "rosters#rosters", "…as the painted view and the URL");
+    // Section U's emoji sweep, on this page.
+    const sweep = await evalOr(page, () => {
+      const clone = document.querySelector("#main").cloneNode(true);
+      let txt = clone.textContent || "";
+      for (const n of (window.__GFFL__.LG.teams || []).map((t) => t.name).filter(Boolean)) txt = txt.split(n).join(" ");
+      return (txt.match(/\p{Extended_Pictographic}/gu) || []).length;
+    });
+    ok(sweep === 0, "0 pictographic characters in the Rosters page's chrome (" + sweep + ")");
+    ok(errors.length === 0, "0 page errors on the phone");
+    await ctx.close();
+  }
+  {
+    // ---- RS2: a deep link lands on the page.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "#rosters", { waitUntil: "networkidle0" });
+    await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
+    ok(await waitOr(page, ".rsteam"), "a reload on #rosters paints Rosters, not the league home");
+    const dl = await evalOr(page, () => ({ view: window.__GFFL__.UI.view, cards: document.querySelectorAll(".rsteam").length, lit: [...document.querySelectorAll(".bnav button.on")].map((b) => b.dataset.v).join() })) || {};
+    ok(dl.view === "rosters" && dl.cards === 8 && dl.lit === "rosters", "…with all eight cards and the tab lit (" + JSON.stringify(dl) + ")");
+    ok(errors.length === 0, "0 page errors on the deep link");
+    await ctx.close();
+  }
+  {
+    // ---- RS3: the desktop — a grid, no strip, the same seven tabs in the top strip.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1280, height: 900 } });
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await clickIn(page, '.bnav button[data-v="rosters"]');
+    ok(await waitOr(page, ".rsteam"), "desktop: the Rosters tab paints");
+    const dk = await evalOr(page, () => {
+      const cards = [...document.querySelectorAll(".rsteam")];
+      const lefts = [...new Set(cards.map((c) => Math.round(c.getBoundingClientRect().left)))];
+      const widths = [...new Set(cards.map((c) => Math.round(c.getBoundingClientRect().width)))];
+      const strip = document.getElementById("rsJump");
+      const n = document.querySelector('.rsteam[data-team="1"] .rsrow[data-pk] .rsname');
+      const main = document.querySelector("#main");
+      const mcs = getComputedStyle(main);
+      const inner = main.clientWidth - parseFloat(mcs.paddingLeft) - parseFloat(mcs.paddingRight);
+      return { cards: cards.length, cols: lefts.length, widths, stripVisible: !!strip && strip.offsetParent !== null,
+        nameBudget: n ? n.clientWidth : 0, inner, tabs: document.querySelectorAll(".bnav button").length,
+        lit: [...document.querySelectorAll(".bnav button.on")].map((b) => b.dataset.v).join(),
+        clipped: [...document.querySelectorAll(".rsname")].filter((el) => el.scrollWidth > el.clientWidth + 1).length,
+        firstRowTop: [...document.querySelectorAll(".rsteam")].slice(0, 3).map((c) => Math.round(c.getBoundingClientRect().top)) };
+    }) || {};
+    ok(dk.cards === 8, "…all eight cards (" + dk.cards + ")");
+    // Hand-computed: main caps at 1200px with 24px padding a side → 1152px inner; auto-fill at
+    // minmax(300px, 1fr) with 12px gaps fits floor((1152 + 12) / 312) = 3 columns of 376px.
+    ok(dk.inner === 1152, "…main's inner width is 1200 − 2×24 = 1152px (" + dk.inner + ")");
+    ok(dk.cols === 3, "…three columns — floor((1152 + 12) / 312) (" + dk.cols + ")");
+    ok(Array.isArray(dk.widths) && dk.widths.length === 1 && dk.widths[0] === 376, "…each card 376px wide, (1152 − 2×12) / 3 (" + JSON.stringify(dk.widths) + ")");
+    ok(Array.isArray(dk.firstRowTop) && new Set(dk.firstRowTop).size === 1, "…the first three cards share a row (tops " + JSON.stringify(dk.firstRowTop) + ")");
+    ok(dk.stripVisible === false, "…the crest strip is gone on a desktop — the grid shows everyone (offsetParent null)");
+    ok(dk.nameBudget >= 200, "…the name column keeps ≥200px in a 376px card (" + dk.nameBudget + "px)");
+    ok(dk.clipped === 0, "…no name clipped (" + dk.clipped + ")");
+    ok(dk.tabs === 7 && dk.lit === "rosters", "…seven tabs in the top strip, Rosters lit (" + dk.tabs + ", " + dk.lit + ")");
+    ok(errors.length === 0, "0 page errors on the desktop");
+    await ctx.close();
   }
 
   await browser.close();
