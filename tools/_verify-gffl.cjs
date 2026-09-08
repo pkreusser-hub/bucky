@@ -954,23 +954,26 @@ function startXaiUpstream() {
       res.end(xaiSse(JSON.stringify(out)));
       return;
     }
-    // THE POWER RANKINGS COLUMNIST (section PW, 2026-09-08) — told apart by ITS system prompt.
-    // The reply is derived from the request's OWN teams, in REVERSE standings order (the team
-    // the standings put last is ranked first), so the client-side assertion that the card shows
-    // the MODEL's order — not the standings' — is real. Plus the poisons the client must
-    // neutralize, armed by fixture.powerPoison: a teamId that was never sent, a duplicated team,
-    // or a rank collision — each of which must make the whole reply fail validation (a ranking
-    // with a hole in it is not a ranking). fixture.powerFenced wraps the JSON in ```json fences,
-    // which real models do despite "no fences", and the client must strip.
+    // THE POWER RANKINGS COLUMNIST (section PW, 2026-09-08; cats the same afternoon) — told
+    // apart by ITS system prompt. Overall order is REVERSE standings (the team the standings
+    // put last is ranked first), so the card-shows-the-MODEL assertion is real. Category ranks
+    // are a different permutation of the same teamIds (QB follows sorted id, RB the inverse,
+    // WR/TE rotated, BN copies overall) so a cell that matched overall-or-standings by accident
+    // would fail the hand-check. Poisons: unknown team, duplicated team, overall-rank collision.
+    // fixture.powerFenced wraps the JSON in ```json fences.
     if (/power-rankings columnist/.test(sys)) {
       const userTurn = (((b || {}).messages || []).find((m) => m.role === "user") || {}).content || "";
       const jm = /TEAMS:\n([\s\S]*?)\n\nTASK:/.exec(userTurn);
       let sent = [];
       try { sent = JSON.parse(jm ? jm[1] : "[]"); } catch (e) { sent = []; }
       const ordered = [...sent].sort((a, b) => b.place - a.place);
+      const n = ordered.length;
+      const byId = [...sent].sort((a, b) => Number(a.teamId) - Number(b.teamId));
+      const idxOf = (id) => byId.findIndex((t) => Number(t.teamId) === Number(id));
+      const rankAt = (id, shift) => { const i = idxOf(id); return i < 0 ? 0 : ((i + shift) % n + n) % n + 1; };
       let ranking = ordered.map((t, i) => ({ teamId: t.teamId, rank: i + 1,
-        blurb: "Echo " + t.name + ": " + (t.roster || []).length + " rostered, " + t.w + "-" + t.l + ", the model's reason for #" + (i + 1) + "." }));
-      if (fixture.powerPoison === "unknown") ranking[0] = { teamId: "999", rank: 1, blurb: "never sent" };
+        cats: { QB: rankAt(t.teamId, 0), RB: n - idxOf(t.teamId), WR: rankAt(t.teamId, 1), TE: rankAt(t.teamId, 3), BN: i + 1 } }));
+      if (fixture.powerPoison === "unknown") ranking[0] = { teamId: "999", rank: 1, cats: (ranking[0] && ranking[0].cats) || {} };
       if (fixture.powerPoison === "dup" && ranking.length > 1) ranking[1] = { ...ranking[0], rank: 2 };
       if (fixture.powerPoison === "rankclash" && ranking.length > 1) ranking[1].rank = 1;
       const text = JSON.stringify({ ranking });
@@ -23245,13 +23248,15 @@ async function openDetails(page, id) {
     ok(wire.reasoning_effort === "low" && wire.temperature === 0.2 && wire.max_tokens === 6000,
       "…with the measured xAI recipe: reasoning low, temperature 0.2, 6000 tokens of headroom (" + JSON.stringify({ e: wire.reasoning_effort, t: wire.temperature, m: wire.max_tokens }) + ")");
     const sysTurn = ((wire.messages || [])[0] || {}).content || "";
-    ok(/power-rankings columnist/.test(sysTurn) && /STRICT JSON/.test(sysTurn) && /Every team appears EXACTLY once/.test(sysTurn),
-      "GFFLPOWER_SYSTEM is stamped server-side — columnist, strict JSON, every team once");
+    ok(/power-rankings columnist/.test(sysTurn) && /STRICT JSON/.test(sysTurn) && /Every team appears EXACTLY once/.test(sysTurn) && /"QB"/.test(sysTurn) && /No blurbs/.test(sysTurn),
+      "GFFLPOWER_SYSTEM is stamped server-side — columnist, strict JSON, every team once, categories not blurbs");
     const userTurn = ((wire.messages || []).find((m) => m.role === "user") || {}).content || "";
-    ok(/^WEEK 3 — 8 TEAMS:\n/.test(userTurn) && /"place":8/.test(userTurn) && /"slot":"BN"/.test(userTurn) && /"inj":"Q"/.test(userTurn) && /ranks 1\.\.8/.test(userTurn),
+    ok(/^WEEK 3 — 8 TEAMS:\n/.test(userTurn) && /"place":8/.test(userTurn) && /"slot":"BN"/.test(userTurn) && /"inj":"Q"/.test(userTurn) && /ranks 1\.\.8/.test(userTurn) && /QB\/RB\/WR\/TE\/BN/.test(userTurn),
       "…the user turn is the server-built named-field payload — week, places, slots, injuries, and the 1..8 contract");
     let parsed = null; try { parsed = JSON.parse(goodTxt); } catch (e) { parsed = null; }
-    ok(parsed && Array.isArray(parsed.ranking) && parsed.ranking.length === 8, "…and the reply streams back as one JSON object of eight (" + goodTxt.slice(0, 60) + "…)");
+    const p0 = parsed && Array.isArray(parsed.ranking) && parsed.ranking[0];
+    ok(parsed && Array.isArray(parsed.ranking) && parsed.ranking.length === 8 && p0 && Number(p0.teamId) === 8 && p0.cats && p0.cats.QB === 8 && p0.cats.BN === 1 && p0.blurb == null,
+      "…and the reply is eight rows of overall + cats, last-place first, no blurb (" + goodTxt.slice(0, 80) + "…)");
   }
   {
     // ---- TB4: the phone card, generation, validation, movement.
@@ -23270,6 +23275,21 @@ async function openDetails(page, id) {
     ok(empty.present === true && empty.underStandings === true, "the Power rankings card sits DIRECTLY beneath Standings on the phone");
     ok(/Nothing on file yet/.test(empty.text || "") && empty.rows === 0, "…and with no ranking on file it says so instead of vanishing (" + (empty.text || "").slice(0, 70) + ")");
     ok(empty.backend === "local" && powerCalls() === n0, "the local fallback store never triggers a paid generation — no Grok call on this page (" + (powerCalls() - n0) + ")");
+    // RESTAGED 2026-09-08 afternoon: a blurb-only doc (this morning's contract) is not a ranking
+    // any more — the card stays on the empty state and loadAiPowerDocs does not surface it.
+    const stale = await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+      await LG.db.set(LG.aiPowerId(2026, 1), { kind: "aipower", season: 2026, week: 1, at: 1, model: "grok-4.6",
+        ranking: [{ teamId: 1, rank: 1, blurb: "old contract" }] });
+      UI._aiPower = await LG.loadAiPowerDocs();
+      UI.renderLeague(true);
+      await new Promise((r) => setTimeout(r, 150));
+      const card = document.getElementById("powerCard");
+      return { n: (UI._aiPower || []).length, text: card ? card.textContent.replace(/\s+/g, " ") : "", rows: card ? card.querySelectorAll(".pwrow").length : -1,
+        current: LG.aiPowerIsCurrent && LG.aiPowerIsCurrent(await LG.db.get(LG.aiPowerId(2026, 1))) };
+    }) || {};
+    ok(stale.n === 0 && stale.current === false && /Nothing on file yet/.test(stale.text || "") && stale.rows === 0,
+      "a leftover blurb-only doc is not current — the card stays empty, no old prose (" + JSON.stringify({ n: stale.n, rows: stale.rows }) + ")");
     // Forced generation (the test/commissioner path) — the fake ranks in REVERSE standings order.
     const gen = await evalOr(page, async () => {
       const LG = window.__GFFL__.LG;
@@ -23284,6 +23304,9 @@ async function openDetails(page, id) {
     ok(gen.stored && gen.stored.at === d1.at, "…and it is written to aipower_2026_w1");
     ok(Array.isArray(d1.ranking) && d1.ranking.length === 8 && d1.ranking[0].teamId === 8 && d1.ranking[7].teamId === 1 && d1.ranking.every((r, i) => r.rank === i + 1),
       "the MODEL's order is kept, not the standings' — the fake ranked the standings' last team first (" + (d1.ranking || []).map((r) => r.teamId).join(",") + ")");
+    const c8 = ((d1.ranking || [])[0] || {}).cats || {};
+    ok(c8.QB === 8 && c8.RB === 1 && c8.WR === 1 && c8.TE === 3 && c8.BN === 1 && !("blurb" in ((d1.ranking || [])[0] || {})),
+      "…and team 8's rooms are the fake's own permutation, not a copy of overall (QB 8 RB 1 WR 1 TE 3 BN 1)");
     ok(d1.input && d1.input[1] && d1.input[1].place === 1 && d1.input[8] && d1.input[8].place === 8 && d1.input[1].w === 0,
       "…with the standings snapshot the model was shown kept beside it (" + JSON.stringify(d1.input && d1.input[1]) + ")");
     const req = lastPowerReq() || {};
@@ -23297,23 +23320,35 @@ async function openDetails(page, id) {
     const card = await evalOr(page, () => {
       const c = document.getElementById("powerCard");
       if (!c) return {};
-      const rows = [...c.querySelectorAll(".pwrow")].map((r) => ({ team: Number(r.dataset.team), rank: r.querySelector(".pwrank").textContent.trim(),
-        name: r.querySelector(".pwname").textContent.trim(), rec: (r.querySelector(".pwrec") || {}).textContent, move: r.querySelector(".pwmove").textContent.trim(),
-        blurb: (r.querySelector(".pwblurb") || {}).textContent || "", locker: (r.querySelector("[data-locker]") || {}).dataset && r.querySelector("[data-locker]").dataset.locker,
-        blurbLeft: Math.round(r.querySelector(".pwblurb").getBoundingClientRect().left), nameLeft: Math.round(r.querySelector(".pwteam").getBoundingClientRect().left) }));
-      return { h2: c.querySelector("h2").textContent.replace(/\s+/g, " ").trim(), rows, foot: (c.querySelector(".pwfoot") || {}).textContent || "",
+      const rows = [...c.querySelectorAll(".pwrow")].map((r) => {
+        const nameEl = r.querySelector(".pwname") || r.querySelector(".tname");
+        const lockerEl = r.querySelector("[data-locker]");
+        const cat = (k) => { const el = r.querySelector('.pwcat[data-pos="' + k + '"]'); return el ? el.textContent.trim() : ""; };
+        return { team: Number(r.dataset.team), rank: ((r.querySelector(".pwrank") || {}).textContent || "").trim(),
+          name: nameEl ? nameEl.textContent.trim() : "", lw: ((r.querySelector(".pwlw") || {}).textContent || "").trim(),
+          move: r.dataset.move || "", locker: lockerEl && lockerEl.dataset ? lockerEl.dataset.locker : "",
+          QB: cat("QB"), RB: cat("RB"), WR: cat("WR"), TE: cat("TE"), BN: cat("BN") };
+      });
+      const panner = c.querySelector(".panner");
+      return { h2: ((c.querySelector("h2") || {}).textContent || "").replace(/\s+/g, " ").trim(), rows,
+        heads: [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()),
+        blurbs: c.querySelectorAll(".pwblurb").length, foot: ((c.querySelector(".pwfoot") || {}).textContent || ""),
         mine: c.querySelectorAll(".pwrow.mine").length, sideways: document.documentElement.scrollWidth - window.innerWidth,
-        pict: (c.textContent.match(/\p{Extended_Pictographic}/gu) || []).length };
+        pict: (c.textContent.match(/\p{Extended_Pictographic}/gu) || []).length,
+        pans: !!(panner && panner.scrollWidth > panner.clientWidth + 1),
+        pageWider: document.documentElement.scrollWidth > window.innerWidth + 1 };
     }) || {};
     ok(/^Power rankings — week 1$/.test(card.h2), "the heading names the week (" + card.h2 + ")");
     ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows[0].team === 8 && card.rows[0].rank === "1" && card.rows[0].name === "The Goat Kids" && card.rows[7].team === 1 && card.rows[7].rank === "8",
       "rows in the model's order: The Goat Kids #1 down to Battle Kreussers #8");
-    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows.every((r) => r.rec === "0-0" && r.move === "–" && /^Echo /.test(r.blurb) && String(r.locker) === String(r.team)),
-      "each row: record, a dash for movement (no prior week), the model's blurb, and the team opens its locker");
-    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows.every((r) => r.blurbLeft === r.nameLeft),
-      "the blurb hangs under the name, not under the rank digit (" + ((card.rows || [])[0] || {}).blurbLeft + " = " + ((card.rows || [])[0] || {}).nameLeft + ")");
+    ok(Array.isArray(card.heads) && card.heads.join("|") === "|Team|LW|QB|RB|WR|TE|BN" && card.blurbs === 0,
+      "the columns are Team, last week, and the five rooms — no blurb column (" + (card.heads || []).join("|") + ")");
+    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows[0].QB === "8" && card.rows[0].RB === "1" && card.rows[0].WR === "1" && card.rows[0].TE === "3" && card.rows[0].BN === "1"
+      && card.rows.every((r) => r.lw === "–" && r.move === "none" && String(r.locker) === String(r.team)),
+      "week 1: last-week is a dash, rooms show the model's numbers, each name opens that locker");
     ok(card.mine === 1 && /Ranked by Grok/.test(card.foot) && /each Tuesday/.test(card.foot), "own team ringed; the footer says who ranked it and when it re-ranks");
-    ok(card.sideways <= 1 && card.pict === 0, "nothing scrolls sideways at 390px and the card's chrome carries no pictographs");
+    ok(card.sideways <= 1 && card.pageWider !== true && card.pict === 0,
+      "the extra columns pan INSIDE the card — the page itself does not scroll sideways, and the chrome carries no pictographs");
     // Movement: a week-2 ranking on file beside week 1's → arrows computed against week 1.
     const mvw = await evalOr(page, async () => {
       const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
@@ -23329,12 +23364,15 @@ async function openDetails(page, id) {
       await new Promise((r) => setTimeout(r, 200));
       const c = document.getElementById("powerCard");
       if (!c) return {};
-      return { h2: c.querySelector("h2").textContent.replace(/\s+/g, " ").trim(),
-        rows: [...c.querySelectorAll(".pwrow")].map((r) => r.dataset.team + ":" + r.querySelector(".pwmove").textContent.trim()) };
+      return { h2: ((c.querySelector("h2") || {}).textContent || "").replace(/\s+/g, " ").trim(),
+        rows: [...c.querySelectorAll(".pwrow")].map((r) => r.dataset.team + ":" + (r.dataset.lw || "") + ":" + (r.dataset.move || "")),
+        lwText: [...c.querySelectorAll(".pwrow .pwlw")].map((el) => el.textContent.replace(/\s+/g, "")) };
     }) || {};
     ok(/week 2$/.test(mvw.h2), "with two weeks on file the card shows the NEWEST (" + mvw.h2 + ")");
-    ok(mvw.rows && mvw.rows[0] === "8:–" && mvw.rows[1] === "1:▲6" && mvw.rows[2] === "7:▼1" && mvw.rows[7] === "2:▼1",
-      "movement is hand-checked against week 1: Battle Kreussers #8→#2 = ▲6, the slid teams ▼1, the #1 unchanged (" + (mvw.rows || []).join(" ") + ")");
+    ok(mvw.rows && mvw.rows[0] === "8:1:same" && mvw.rows[1] === "1:8:up" && mvw.rows[2] === "7:2:down" && mvw.rows[7] === "2:7:down",
+      "LW column is last week's overall rank plus ▲/▼: team 1 was #8 now #2, team 8 stays #1, the slid teams down (" + (mvw.rows || []).join(" ") + ")");
+    ok(Array.isArray(mvw.lwText) && mvw.lwText[0] === "1–" && mvw.lwText[1] === "8▲" && /▼/.test(mvw.lwText[2] || ""),
+      "…and the painted LW cell is the number plus the arrow (" + (mvw.lwText || []).slice(0, 3).join(" ") + ")");
     // Validation: every poison makes the WHOLE reply fail, and the existing doc is kept.
     const before = (await evalOr(page, () => window.__GFFL__.LG.db.get(window.__GFFL__.LG.aiPowerId(2026, 1)))) || {};
     for (const poison of ["unknown", "dup", "rankclash"]) {
@@ -23351,16 +23389,20 @@ async function openDetails(page, id) {
     fixture.powerFenced = false;
     const unit = await evalOr(page, () => {
       const v = window.__GFFL__.LG.validateAiPowerReply;
+      const cats = (qb, rb, wr, te, bn) => ({ QB: qb, RB: rb, WR: wr, TE: te, BN: bn });
+      const pair = (a, b) => JSON.stringify({ ranking: [a, b] });
       return {
-        arr: !!v(JSON.stringify([{ teamId: 1, rank: 2, blurb: "b" }, { teamId: 2, rank: 1, blurb: "a" }]), [1, 2]),
-        gap: v(JSON.stringify({ ranking: [{ teamId: 1, rank: 1 }, { teamId: 2, rank: 3 }] }), [1, 2]),
-        missing: v(JSON.stringify({ ranking: [{ teamId: 1, rank: 1 }] }), [1, 2]),
+        arr: !!v(JSON.stringify([{ teamId: 1, rank: 2, cats: cats(1, 2, 1, 2, 2) }, { teamId: 2, rank: 1, cats: cats(2, 1, 2, 1, 1) }]), [1, 2]),
+        gap: v(pair({ teamId: 1, rank: 1, cats: cats(1, 1, 1, 1, 1) }, { teamId: 2, rank: 3, cats: cats(2, 2, 2, 2, 2) }), [1, 2]),
+        missing: v(JSON.stringify({ ranking: [{ teamId: 1, rank: 1, cats: cats(1, 1, 1, 1, 1) }] }), [1, 2]),
         prose: v("Sure! Here you go: {}", [1, 2]),
-        sorted: (v(JSON.stringify({ ranking: [{ teamId: 1, rank: 2, blurb: "  two  words " }, { teamId: 2, rank: 1 }] }), [1, 2]) || []).map((r) => r.teamId + ":" + r.blurb).join("|"),
+        blurb: v(pair({ teamId: 1, rank: 1, blurb: "old" }, { teamId: 2, rank: 2, blurb: "contract" }), [1, 2]),
+        catchash: v(pair({ teamId: 1, rank: 1, cats: cats(1, 1, 1, 1, 1) }, { teamId: 2, rank: 2, cats: cats(1, 2, 2, 2, 2) }), [1, 2]),
+        sorted: (v(JSON.stringify([{ teamId: 1, rank: 2, cats: cats(1, 2, 1, 2, 2) }, { teamId: 2, rank: 1, cats: cats(2, 1, 2, 1, 1) }]), [1, 2]) || []).map((r) => r.teamId + ":" + r.rank + ":" + r.cats.QB).join("|"),
       };
     }) || {};
-    ok(unit.arr === true && unit.gap === null && unit.missing === null && unit.prose === null && unit.sorted === "2:|1:two words",
-      "validateAiPowerReply: a bare array is fine, a rank gap / a missing team / prose are not, output is rank-sorted with whitespace-squashed blurbs (" + JSON.stringify(unit) + ")");
+    ok(unit.arr === true && unit.gap === null && unit.missing === null && unit.prose === null && unit.blurb === null && unit.catchash === null && unit.sorted === "2:1:2|1:2:1",
+      "validateAiPowerReply: a bare array is fine; a rank gap / missing team / prose / blurb-only / category collision are not; output is rank-sorted with cats (" + JSON.stringify(unit) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
@@ -23408,7 +23450,8 @@ async function openDetails(page, id) {
       window.__fakeCloud.store.set("weekly_2026_w2", { kind: "weekly", week: 2, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 90 }], power: [] });
       LG.db.clearCache();
       const rival = { kind: "aipower", season: 2026, week: 3, at: 12345, model: "grok-4.6", input: {},
-        ranking: Array.from({ length: 8 }, (_, i) => ({ teamId: i + 1, rank: i + 1, blurb: "rival device's blurb " + (i + 1) })) };
+        ranking: Array.from({ length: 8 }, (_, i) => ({ teamId: i + 1, rank: i + 1,
+          cats: { QB: i + 1, RB: 8 - i, WR: ((i + 1) % 8) + 1, TE: ((i + 3) % 8) + 1, BN: i + 1 } })) };
       const realFetch = window.fetch;
       window.fetch = async function (u, o) {
         const r = await realFetch.apply(this, arguments);
@@ -23418,9 +23461,9 @@ async function openDetails(page, id) {
       const got = await LG.ensureAiPower();
       window.fetch = realFetch;
       const stored = window.__fakeCloud.store.get("aipower_2026_w3");
-      return { gotAt: got && got.at, storedAt: stored && stored.at, firstBlurb: got && Array.isArray(got.ranking) && got.ranking[0] && got.ranking[0].blurb };
+      return { gotAt: got && got.at, storedAt: stored && stored.at, firstTeam: got && got.ranking && got.ranking[0] && got.ranking[0].teamId };
     }) || {};
-    ok(race.gotAt === 12345 && race.storedAt === 12345 && /rival device/.test(race.firstBlurb || ""),
+    ok(race.gotAt === 12345 && race.storedAt === 12345 && race.firstTeam === 1,
       "losing the create-only race adopts the rival's ranking and leaves it in place — one ranking of record per week (" + JSON.stringify(race) + ")");
     ok(errors.length === 0, "0 page errors on the cloud page");
     await ctx.close();
@@ -23437,6 +23480,22 @@ async function openDetails(page, id) {
     }) || {};
     ok(dk.ids && dk.ids.indexOf("power") === dk.ids.indexOf("standings") + 1, "desktop: 'power' follows 'standings' in MAIN (" + (dk.ids || []).join(",") + ")");
     ok(dk.hasCard === true && dk.label === true, "…rendered through the registry, present in the default layout");
+    await evalOr(page, () => window.__GFFL__.LG.ensureAiPower({ force: true }));
+    await evalOr(page, () => window.__GFFL__.UI.show("league"));
+    await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8);
+    const dkw = await evalOr(page, () => {
+      const c = document.getElementById("powerCard");
+      const panner = c && c.querySelector(".panner");
+      return {
+        heads: c ? [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()) : [],
+        blurbs: c ? c.querySelectorAll(".pwblurb").length : -1,
+        sideways: document.documentElement.scrollWidth - window.innerWidth,
+        pans: !!(panner && panner.scrollWidth > panner.clientWidth + 1),
+      };
+    }) || {};
+    ok(Array.isArray(dkw.heads) && dkw.heads.join("|") === "|Team|LW|QB|RB|WR|TE|BN" && dkw.blurbs === 0,
+      "…desktop paints the same columns, still no blurb (" + (dkw.heads || []).join("|") + ")");
+    ok(dkw.sideways <= 1 && dkw.pans !== true, "…and MAIN does not pan or scroll sideways for them");
     ok(errors.length === 0, "0 page errors on the desktop");
     await ctx.close();
   }

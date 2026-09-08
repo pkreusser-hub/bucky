@@ -7155,3 +7155,36 @@ there are new checks, count in the commit) is committed and pushed to `main` in 
 same turn. Unfinished or red work does not. Fast-forward only; never force-push.
 Non-GFFL pages still wait for an ask.
 ---
+
+## GFFL — power rankings are a table, not blurbs (2026-09-08)
+
+User: "rather than have a text blurb, create columns for QB, RB, WR, TE, BENCH and have
+Grok 4.6 give a ranking for each category, also a column for last week's ranking with
+an up or down arrow on movement for the week." Same Tuesday as the first AI card.
+
+The morning's `blurb` is gone. Each row is overall rank · team · last week's overall
+rank plus ▲/▼/– · Grok's 1..N for QB, RB, WR, TE, BN. A category rank is its own
+permutation — #1 overall can be #6 at QB. Last week is empty (a dash) until week 2.
+Phone: the extra columns pan inside the card (table min-width 420px, team column
+sticky); the page itself does not scroll sideways. Desktop MAIN does not pan.
+
+A stored doc without `cats` is not current (`LG.aiPowerIsCurrent`). The morning's
+blurb docs are treated as absent and regenerated; create-only still holds against a
+current-schema doc. Mode `gfflpower` / grok-4.6 otherwise unchanged.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`, `netlify/functions/farmgpt.mjs`,
+`tools/_verify-gffl.cjs`, this file, `docs/farmgpt.md`.
+
+**RESTAGED, reasons at the checks**: TB3's system/user/reply now name categories, not
+blurbs; TB4's card geometry (blurb-under-name) is the five room cells plus an LW
+column; TB4's movement hand-check reads last week's rank + ▲/▼ instead of a delta
+next to overall; `validateAiPowerReply` rejects a blurb-only reply and a category
+collision; TB5's create-only rival is a current-schema doc (a blurb rival would be
+overwritten as stale); TB6 asserts the same columns on desktop MAIN with no pan.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3344/3344**. Bite (`league.html` + `lg-core.js` +
+`lg-ui.js` + `farmgpt.mjs` at HEAD, new suite kept): **3334 pass / 10 fail** — the 10
+name the missing table (HEAD's system prompt still asks for blurbs, a leftover
+blurb-only doc still paints, no LW/QB/RB/WR/TE/BN columns, `validateAiPowerReply`
+still accepts a blurb-only reply). App files restored, hashes identical.
+---

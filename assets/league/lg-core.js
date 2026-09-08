@@ -4654,14 +4654,18 @@
   // should feed all the rosters to Grok 4.6 and ask for an AI ranking of each team considering
   // their roster and current standings."
   // ONE DOC PER WEEK, `aipower_<season>_w<week>` (kind "aipower"): {season, week, at, model,
-  // ranking:[{teamId, rank, blurb}], input:{<teamId>:{w,l,t,pf,place}}}. "Each Tuesday" is the
-  // league week itself — LG.currentWeek() rolls over on the Tuesday boundary (SEASON_START is a
-  // Tuesday), so the FIRST device to open the League page in a new week generates that week's
-  // ranking, and every other device adopts it. The doc is written CREATE-ONLY (LG.db.update with
-  // a `cur ? null : doc` mutate — the roster copy-forward's own CAS): two devices racing on a
-  // Tuesday morning produce ONE ranking, and both show it. This matters more here than for the
-  // adjuster, because a model's ranking is not deterministic — last-write-wins would have let
-  // two phones in one house disagree about who is #1.
+  // ranking:[{teamId, rank, cats:{QB,RB,WR,TE,BN}}], input:{<teamId>:{w,l,t,pf,place}}}.
+  // 2026-09-08 afternoon: the blurb column is gone — Grok ranks each position room 1..N
+  // instead. A doc without `cats` is not current and is regenerated (the morning's blurb
+  // docs would otherwise sit as the ranking of record forever, create-only). "Each Tuesday"
+  // is the league week itself — LG.currentWeek() rolls over on the Tuesday boundary
+  // (SEASON_START is a Tuesday), so the FIRST device to open the League page in a new week
+  // generates that week's ranking, and every other device adopts it. The doc is written
+  // CREATE-ONLY against a *current* doc (LG.db.update with `aiPowerIsCurrent(cur) ? null :
+  // doc`): two devices racing on a Tuesday morning produce ONE ranking, and both show it.
+  // This matters more here than for the adjuster, because a model's ranking is not
+  // deterministic — last-write-wins would have let two phones in one house disagree about
+  // who is #1.
   // NOT BEFORE LAST WEEK IS FINAL: from week 2 on, generation waits until week N-1's weekly doc
   // exists (auto-finalize lands it Tuesday morning once Monday night is official), so the
   // standings the model weighs include last night's games rather than lagging a week. Until
@@ -4669,37 +4673,65 @@
   // CLOUD ONLY (unless forced): a ranking generated into the local fallback store would be
   // paid for and then lost with the cache. The 2025 replay and a read-only mirror never generate.
   LG.aiPowerId = (season, week) => `aipower_${season}_w${week}`;
+  LG.POWER_CATS = ["QB", "RB", "WR", "TE", "BN"];
+  // A stored ranking is current only when every row has a full 1..N category permutation.
+  // The morning's blurb-only docs fail this and are treated as absent.
+  LG.aiPowerIsCurrent = function (doc) {
+    if (!doc || doc.kind !== "aipower" || !Array.isArray(doc.ranking) || !doc.ranking.length) return false;
+    const n = doc.ranking.length;
+    return doc.ranking.every((r) => {
+      if (!r || !Number.isInteger(Number(r.rank)) || !r.cats || typeof r.cats !== "object") return false;
+      return LG.POWER_CATS.every((k) => {
+        const v = Number(r.cats[k]);
+        return Number.isInteger(v) && v >= 1 && v <= n;
+      });
+    });
+  };
   LG.loadAiPower = async function (week) {
     const doc = await LG.db.get(LG.aiPowerId(LG.SEASON, week));
-    return doc && doc.kind === "aipower" && Array.isArray(doc.ranking) ? doc : null;
+    return LG.aiPowerIsCurrent(doc) ? doc : null;
   };
   // Every ranking on file this season, newest week first — the card reads [0] and compares
-  // against [1] for its movement arrows.
+  // against [1] for last week's overall rank and the movement arrow.
   LG.loadAiPowerDocs = async function () {
     const docs = await LG.db.list("aipower");
-    return (docs || []).filter((d) => d && d.kind === "aipower" && d.season === LG.SEASON && Array.isArray(d.ranking))
+    return (docs || []).filter((d) => d && d.season === LG.SEASON && LG.aiPowerIsCurrent(d))
       .sort((a, b) => (b.week || 0) - (a.week || 0));
   };
   const POWER_RETRY_MS = 10 * 60e3;
   let powerInFlight = null, powerFailAt = 0;
-  // Validates a model reply against the teams we sent: every team exactly once, ranks a clean
-  // 1..N. Returns the ranking sorted by rank, or null. Exported for the suite.
+  // Validates a model reply against the teams we sent: every team exactly once, overall ranks
+  // a clean 1..N, and each of QB/RB/WR/TE/BN is its own 1..N permutation. Returns the ranking
+  // sorted by overall rank, or null. A blurb-only reply (this morning's contract) is rejected
+  // whole. Exported for the suite.
   LG.validateAiPowerReply = function (text, teamIds) {
     let obj = null;
     const raw = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
     try { obj = JSON.parse(raw); } catch (e) { return null; }
     const arr = obj && Array.isArray(obj.ranking) ? obj.ranking : (Array.isArray(obj) ? obj : null);
     if (!arr) return null;
+    const n = teamIds.length;
     const want = new Set(teamIds.map(Number));
     const seen = new Set(), ranks = new Set();
+    const catSets = {};
+    for (const k of LG.POWER_CATS) catSets[k] = new Set();
     const out = [];
     for (const r of arr) {
       const id = Number(r && r.teamId), rank = Number(r && r.rank);
-      if (!want.has(id) || seen.has(id) || !Number.isInteger(rank) || rank < 1 || rank > want.size || ranks.has(rank)) return null;
+      if (!want.has(id) || seen.has(id) || !Number.isInteger(rank) || rank < 1 || rank > n || ranks.has(rank)) return null;
+      const src = r.cats && typeof r.cats === "object" ? r.cats : r;
+      const cats = {};
+      for (const k of LG.POWER_CATS) {
+        const v = Number(src[k]);
+        if (!Number.isInteger(v) || v < 1 || v > n || catSets[k].has(v)) return null;
+        catSets[k].add(v);
+        cats[k] = v;
+      }
       seen.add(id); ranks.add(rank);
-      out.push({ teamId: id, rank, blurb: String((r && r.blurb) || "").replace(/\s+/g, " ").trim().slice(0, 240) });
+      out.push({ teamId: id, rank, cats });
     }
-    if (seen.size !== want.size) return null;
+    if (seen.size !== n) return null;
+    for (const k of LG.POWER_CATS) if (catSets[k].size !== n) return null;
     return out.sort((a, b) => a.rank - b.rank);
   };
   LG.ensureAiPower = async function (opts) {
@@ -4755,7 +4787,7 @@
         const doc = { kind: "aipower", season: LG.SEASON, week, at: Date.now(), model: "grok-4.6", ranking, input };
         const id = LG.aiPowerId(LG.SEASON, week);
         if (force) { await LG.db.set(id, doc); powerFailAt = 0; return doc; }
-        const w = await LG.db.update(id, (cur) => (cur ? null : doc));
+        const w = await LG.db.update(id, (cur) => (LG.aiPowerIsCurrent(cur) ? null : doc));
         powerFailAt = 0;
         return w.ok ? w.doc : (w.doc || doc); // lost the race → theirs is the ranking of record
       } catch (e) {

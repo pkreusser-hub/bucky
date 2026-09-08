@@ -2398,9 +2398,9 @@ against grok-4.5, not a claim of perfection. Re-run the battery before the next 
 
 New GFFL mode `gfflpower`: the weekly power-rankings columnist. One call a week, the
 whole league in one turn (every team's record, points, and roster). Strict-JSON ranking
-the client validates before a word of it reaches a screen. **grok-4.6**
+the client validates before a number reaches a screen: overall 1..N plus QB / RB / WR /
+TE / BN (each their own 1..N permutation). No blurbs — replaced the same day. **grok-4.6**
 (`GFFLPOWER_MODEL`) — the first mode in this file off `XAI_MODEL`; every other Grok
 mode stays on 4.5. Same "w" bucket and the 300/day ceiling as the other GFFL modes;
 keepalive space-byte like `gffltrade` / `gffladjust`. Named body field `power`, never
-`messages[]` from the client. See `docs/gffl.md` (the Tuesday batch) for the client
-side.
+`messages[]` from the client. See `docs/gffl.md` for the client side.

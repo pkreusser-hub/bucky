@@ -1234,22 +1234,31 @@
   }
 
   /* ---------------- THE AI POWER RANKINGS CARD (2026-09-08) ----------------
-     One row per team: rank · crest + name + record · movement, with the model's one-line blurb
-     wrapping beneath on its own grid row (grid-column 2 / -1 — it hangs under the name, never
-     under the rank digit). The blurb is 12-28 words, so at 13px it is two lines on a 390px phone
-     and one on the desktop main column. Own team gets the accent ring the standings row has. */
-  .powercard .pwrows { display:flex; flex-direction:column; }
-  .pwrow { display:grid; grid-template-columns:26px minmax(0,1fr) auto; column-gap:8px; align-items:center;
-           padding:7px 0; border-bottom:1px solid var(--divider); }
-  .pwrow:last-child { border-bottom:none; }
+     Afternoon of the same day: the blurb is gone. A table — overall rank · team (sticky on a
+     phone so the name stays while the rooms pan) · last week's overall rank + ▲/▼ · QB RB WR
+     TE BN. The page itself must not scroll sideways (standings' own lesson): the extra columns
+     live inside .panner, min-width 420px, measured so a 390px card pans rather than stretching
+     the document. Desktop MAIN drops the pan (overflow:visible, width 100%) — eight columns
+     fit the same ~620px the standings table already pays for. Own-team name takes the accent. */
+  .powercard .panner { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .pwtbl { min-width:420px; width:100%; border-collapse:collapse; }
+  .pwtbl th, .pwtbl td { padding:6px 5px; vertical-align:middle; }
+  .pwtbl th { font:700 11px var(--font-body); letter-spacing:.04em; color:var(--mut); text-transform:uppercase; }
+  .pwtbl .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .pwtbl th:first-child, .pwtbl td:first-child { padding-left:2px; padding-right:6px; }
+  .pwtbl th:nth-child(2), .pwtbl td.pwteamcell { position:sticky; left:0; background:var(--card); z-index:1;
+    padding-left:4px; box-shadow:4px 0 6px -4px rgba(0,0,0,.18); }
   .pwrow.mine .pwname { color:var(--accent); }
-  .pwrank { font:700 16px var(--font-display); color:var(--ink2); text-align:center; font-variant-numeric:tabular-nums; }
+  .pwrank { font:700 15px var(--font-display); color:var(--ink2); text-align:center; }
   .pwteam { display:flex; align-items:center; gap:6px; min-width:0; }
   .pwteam .tmini { margin-right:0; flex:0 0 auto; }
-  .pwname { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
-  .pwrec { flex:0 0 auto; font:500 11.5px var(--font-body); }
-  .pwmove { text-align:right; min-width:28px; }
-  .pwblurb { grid-column:2 / -1; margin:3px 0 0; font:400 13px/1.35 var(--font-body); color:var(--mut); }
+  .pwname { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+  .pwlw { white-space:nowrap; }
+  .pwlwrank { margin-right:2px; }
+  .pwtbl th.pwcat[data-pos="QB"] { color:var(--pos-QB); }
+  .pwtbl th.pwcat[data-pos="RB"] { color:var(--pos-RB); }
+  .pwtbl th.pwcat[data-pos="WR"] { color:var(--pos-WR); }
+  .pwtbl th.pwcat[data-pos="TE"] { color:var(--pos-TE); }
   .powercard .pwfoot { margin:8px 0 0; }
 
   /* S2: the draft-day card, first on the league home while the draft is still ahead. Centered,
@@ -2096,6 +2105,10 @@
        still fit at 1024px without it, so there is no reason to spend the one place in this app
        where most people meet most teams. */
     .standtbl .tname { font-size:13px; }
+    /* Power rankings: same MAIN width as standings — eight columns, no pan, name not sticky. */
+    .powercard .panner { overflow:visible; }
+    .pwtbl { min-width:0; width:100%; }
+    .pwtbl th:nth-child(2), .pwtbl td.pwteamcell { position:static; box-shadow:none; }
   }
   @media (min-width:1360px) {
     .lgdesk { grid-template-columns:minmax(0,1fr) 380px; }
