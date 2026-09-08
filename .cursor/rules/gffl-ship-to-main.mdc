@@ -1,0 +1,16 @@
+---
+description: Finished GFFL work is committed and pushed to main without asking.
+alwaysApply: true
+---
+
+# GFFL ships to main when it's done
+
+When a **GFFL** change is finished, commit it and push to `main` in the same turn. Do not wait for "commit", "push", or a preview. This overrides the general "only commit when asked" and "don't push main without preview" rules **for GFFL only**.
+
+GFFL means `league.html`, `assets/league/lg-*.js`, `league.mjs`, `sports.html`, `ffdraft.html`, `tools/_verify-gffl.cjs`, GFFL modes in `netlify/functions/`, and `docs/gffl.md`.
+
+Finished means the suite is green, new checks have a bite against HEAD, and the commit quotes the count. Unfinished or red work stays off `main`.
+
+Push a fast-forward only (`git push origin HEAD:main` when this worktree cannot check out `main`). Never force-push `main`.
+
+Anything that is not GFFL still needs an explicit ask before commit or a `main` push.

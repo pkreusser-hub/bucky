@@ -7145,3 +7145,13 @@ a local store never calls Grok). First bite crashed on `card.rows[0]` in an asse
 message when HEAD had no rows; those messages are guarded now. App files restored from
 the scratchpad copy, hashes identical.
 ---
+
+## GFFL — finished work ships to main (2026-09-08)
+
+User: "from now on when you have completed a change to GFFL, go ahead and commit and
+push to main on your own." This inverts the preview-before-`main` rule **for GFFL
+only**. A finished change (green `node tools/_verify-gffl.cjs`, bite against HEAD when
+there are new checks, count in the commit) is committed and pushed to `main` in the
+same turn. Unfinished or red work does not. Fast-forward only; never force-push.
+Non-GFFL pages still wait for an ask.
+---

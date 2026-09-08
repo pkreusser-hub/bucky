@@ -7,9 +7,11 @@ self-contained — its own `<script>`, its own state, no shared JS between pages
 looks like it should be shared (the Firebase block, the family password) is duplicated per
 page on purpose; that is the house convention, not an oversight.
 
-**Pushing to `main` puts it in front of the family immediately.** Never push to `main`
-without the user's preview approval unless the request already granted it. Pushing a branch
-is free and safe.
+**Pushing to `main` puts it in front of the family immediately.** For **GFFL**, a
+finished change (suite green, bite if there are new checks) is committed and pushed to
+`main` without a second ask — that approval is standing; see the last entry in
+[docs/gffl.md](docs/gffl.md). Everything else still needs preview approval. Pushing a
+branch is free and safe. Never force-push `main`.
 
 ## Where the detail lives
 
