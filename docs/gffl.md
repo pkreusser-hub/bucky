@@ -7279,3 +7279,38 @@ the query), this file.
 `lg-core.js` at HEAD, new suite kept): **3350 pass / 1 fail** — HEAD's script
 tags have no `?v=`. App files restored, hashes identical.
 ---
+
+## GFFL — matchup feed: one line per play, no unused points-allowed (2026-09-09)
+
+Live week 1: every feed event painted twice, and D/ST points-allowed
+ticked as "pts allowed 7→14" with an empty delta. ESPN and Sleeper each
+call `applySide` on the same play, so `D.S.events` legitimately holds two
+rows; `UI._feedAll` used to paint both. Points-allowed still emitted even
+though every `dst_pa_*` rate in this league is 0.
+
+`applySide` skips a `dst_pa` emit when `dPts` is 0 (stats still update; a
+commissioner who turns PA scoring back on still gets a line when a
+bracket pays). The painted feed goes through `annotateFeed`: same
+matchup filter as before, drop a leftover 0-pt PA row, collapse
+identical `key|stat|from|to`, then cap 60. The audit log keeps both
+sources.
+
+Scripts cache-bust `?v=20260909f`.
+
+Suite restages, reasons at the checks: week 1's waiver deadline is Wed
+2026-09-09 08:00 America/Chicago. After that instant `maybeAutoProcessWaivers`
+fires on boot, so AS2's FAAB lost-update, AS3's single-flight, and AD13's
+populated "My pending" card (308px, not the post-process 360 with "Your
+results") pin `Date.now` one hour before the deadline. AT8 waits on
+`.pcname` instead of `#playerCard` merely visible — the overlay opens as
+"Loading…" and the name lands after `gameLog`.
+
+Files: `league.html`, `assets/league/lg-{data,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3356/3356**. Bite (`league.html` +
+`lg-data.js` + `lg-ui.js` at HEAD, new suite kept): **3353 pass / 3 fail** —
+HEAD paints the TD twice, emits a 0-pt PA tick, and shows leftover
+pts-allowed on the feed. Pre-existing checks still pass. App files
+restored, hashes identical.
+---

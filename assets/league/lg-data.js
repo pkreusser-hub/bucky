@@ -1368,6 +1368,12 @@
           const dPts = k === "dst_pa"
             ? Math.round((paPoints(nv, scoring) - paPoints(ov, scoring)) * 10) / 10
             : Math.round((num(nv) - num(ov)) * num(scoring[k]) * 10) / 10;
+          // Points-allowed is a scoring bracket, not a counting stat. This league's dst_pa_*
+          // rates are all 0, so a PA tick would otherwise land as "pts allowed 7→14" with an
+          // empty delta. Skip the line when the tick does not move the score (same-bracket, or
+          // every bracket is 0). A commissioner who turns PA scoring back on still sees the
+          // line the moment a bracket actually pays.
+          if (k === "dst_pa" && !dPts) continue;
           // LEAGUE time, not wall time. `t` is display-only (feedLine is its sole consumer),
           // and under the 2025 replay a feed entry on a Sunday-afternoon board has to read as a
           // Sunday afternoon rather than as whenever this device happened to poll. Off the

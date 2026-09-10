@@ -4082,10 +4082,7 @@
     // stashed so the Both/away/home filter is a pure re-render of what is already in memory:
     // picking a side must never refetch or recompute anything.
     const aSet = new Set(aKeys), hSet = new Set(hKeys);
-    UI._feedAll = d.S.events
-      .filter((e) => e.msg || hSet.has(e.key) || aSet.has(e.key))
-      .slice(0, 60)
-      .map((e) => ({ e, side: e.msg ? null : (aSet.has(e.key) ? "a" : "h") }));
+    UI._feedAll = annotateFeed(d.S.events, aSet, hSet);
     UI._feedTeams = { a: teamTag(A), h: teamTag(H) };
     // The filter is a per-matchup view control, persisted nowhere — opening a DIFFERENT
     // matchup starts on Both again rather than silently inheriting the last one's side.
@@ -4721,6 +4718,26 @@
     return `<div class="fline ${sideCls}"><span class="mut">${t}</span> ${chip}<b>${escn(e.name)}</b>
       ${esc(STAT_LABEL[e.stat] || e.stat)} ${e.from ?? 0}→${e.to ?? 0}
       <span class="delta ${cls}">${e.dPts ? sign + LG.fmtNum(e.dPts) : ""}</span></div>`;
+  }
+  // One painted line per play. Dual-source polling (ESPN + Sleeper) diffs the same tick
+  // independently, so D.S.events legitimately holds two rows for one catch. The family feed
+  // is the merged story, not the audit log — collapse identical key/stat/from/to and drop a
+  // points-allowed tick that did not move the score (this league's dst_pa_* rates are 0).
+  function annotateFeed(events, aSet, hSet) {
+    const seen = new Set();
+    const out = [];
+    for (const e of events) {
+      if (!(e.msg || hSet.has(e.key) || aSet.has(e.key))) continue;
+      if (e.stat === "dst_pa" && !e.dPts) continue;
+      const id = e.msg
+        ? "m\0" + e.t + "\0" + e.msg
+        : e.key + "\0" + e.stat + "\0" + String(e.from) + "\0" + String(e.to);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ e, side: e.msg ? null : (aSet.has(e.key) ? "a" : "h") });
+      if (out.length >= 60) break;
+    }
+    return out;
   }
   // Repaints #mufeed alone from the already-annotated UI._feedAll. Called once per matchup
   // render and again on every filter tap — no network, no recomputation, nothing else on the

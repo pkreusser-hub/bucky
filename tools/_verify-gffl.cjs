@@ -2175,6 +2175,16 @@ const pinEngineWeek = (page, wk) => page.evaluate((w) => {
   D.S.espnSeasonType = "regular"; D.S.slpSeasonType = "regular";
 }, wk);
 const poll = (page) => page.evaluate(() => window.__GFFL__.D.pollOnce());
+// Week 1's Wed 8:00 America/Chicago deadline is 2026-09-09T13:00:00Z
+// (LG.waiverDeadline(1) on DEFAULT_RULES). After that instant a claim
+// sheet reads "Add", maybeAutoProcessWaivers fires on boot, and AG's
+// WAIVERS block flips to Free agency. Sections that assert the
+// pre-deadline path pin one hour before it.
+const BEFORE_W1_WAIVERS_MS = Date.parse("2026-09-09T12:00:00Z");
+const armBeforeW1Waivers = (page) => page.evaluateOnNewDocument((ts) => { Date.now = () => ts; }, BEFORE_W1_WAIVERS_MS);
+const pinBeforeW1Waivers = (page) => page.evaluate(() => {
+  window.__GFFL__.LG.nowOverride = window.__GFFL__.LG.waiverDeadline(1) - 3600 * 1000;
+});
 const stopPolling = (page) => page.evaluate(() => window.__GFFL__.D.stop());
 async function waitLive(page) {
   try {
@@ -3418,6 +3428,14 @@ async function openDetails(page, id) {
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
+    // RESTAGED 2026-09-09: I0's "Claim" path is the PRE-deadline flow. Week 1's
+    // Wednesday 8:00 America/Chicago deadline is LG.waiverDeadline(1) (hand-checked
+    // 13:00Z). After that instant the same button reads "Add" and the card heading
+    // is "Add A. Vail", so a suite run on Wednesday evening of week 1 — the first
+    // live scoring night — used to fail this check for the wall clock, not the
+    // feature. Freeze one hour before that deadline so this half stays the claim
+    // path; the post-deadline half below still advances the clock itself.
+    await pinBeforeW1Waivers(page);
     await page.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page.waitForSelector("#faPosChips", { timeout: 9000 });
     // Browse mode: no query typed at all — the table is populated by DEFAULT, not empty until
@@ -3455,7 +3473,7 @@ async function openDetails(page, id) {
     // accent-outlined MOVE button (.faMoveBtn) instead.
     await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "A. Vail");
     await page.waitForSelector("#rosterCard [data-di]", { timeout: 5000 });
-    ok(/Claim A\. Vail/.test(await page.$eval("#rosterCard", (e) => e.textContent)), "tapping the MOVE button on a browsed row (no search typed) opens the claim sheet for that player");
+    ok(/Claim A\. Vail/.test(await page.$eval("#rosterCard", (e) => e.textContent)), "tapping the MOVE button on a browsed row (no search typed) opens the claim sheet for that player — RESTAGED 2026-09-09: clock pinned before week 1's Wed-8am deadline, or the same tap opens Add");
     await clickIn(page, "#rosterCard [data-di]", "B. Backup");
     await clickIn(page, "#claimGo");
     await page.waitForFunction(() => (document.querySelector("#mvMyClaims") || {}).textContent && document.querySelector("#mvMyClaims").textContent.includes("A. Vail"), { timeout: 5000 });
@@ -3540,6 +3558,7 @@ async function openDetails(page, id) {
     await bootPage(page1);
     await page1.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page1);
+    await pinBeforeW1Waivers(page1);
     await page1.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page1.waitForSelector("#faSearch", { timeout: 9000 });
     await page1.type("#faSearch", "dst");
@@ -3572,6 +3591,10 @@ async function openDetails(page, id) {
     const base2 = fullSeed();
     const { ctx: ctx2, page: page2, errors: err2 } = await newTestPage(browser,
       { docs: { ...base2.docs, ...Object.fromEntries(claimKeys.map((k) => [k, allDocs1[k]])) }, pass: "amenfarms", team: 2, who: "Rival" });
+    // RESTAGED 2026-09-09: page 2 must boot BEFORE the deadline too, or
+    // maybeAutoProcessWaivers resolves the seeded $25 claim and the bid
+    // lands in the results/tx the other owner can read.
+    await armBeforeW1Waivers(page2);
     await bootPage(page2);
     await page2.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page2);
@@ -3658,6 +3681,12 @@ async function openDetails(page, id) {
     ], processed: false, results: null };
     const base = fullSeed();
     const { ctx, page, errors } = await newTestPage(browser, { docs: { ...base.docs, claims_2026_w1: claimsSeed }, pass: base.pass, team: base.team, who: base.who });
+    // RESTAGED 2026-09-09: I3's first boot must happen BEFORE week 1's Wed-8am
+    // deadline, or maybeAutoProcessWaivers runs during UI.boot and the "left
+    // untouched" check fails for the wall clock. Date.now is pinned until
+    // nowOverride takes over for the past-deadline reboot below.
+    // Hand-checked: waiverDeadline(1) = 2026-09-09T13:00:00Z.
+    await armBeforeW1Waivers(page);
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     const pre = await page.evaluate(() => window.__GFFL__.LG.loadClaims(1));
@@ -3710,6 +3739,7 @@ async function openDetails(page, id) {
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
+    await pinBeforeW1Waivers(page);
     await page.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page.waitForSelector("#faSearch", { timeout: 9000 });
     await page.type("#faSearch", "dst");
@@ -7493,6 +7523,7 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
 
     // ---- Y3: Moves FA table — row = stats, an explicit accent-outlined MOVE button = add/claim ----
+    await pinBeforeW1Waivers(page);
     await page.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page.waitForSelector("#faPosChips", { timeout: 9000 });
     await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
@@ -10778,6 +10809,10 @@ async function openDetails(page, id) {
     }
     {
       const { ctx, page, errors } = await newTestPage(browser, seedPending());
+      // Arm BEFORE boot: after the week-1 deadline maybeAutoProcessWaivers settles
+      // the seeded claim and "Your results" lands under the three pending rows
+      // (measured 360). The card under test is the unprocessed pending list.
+      await armBeforeW1Waivers(page);
       await bootPage(page);
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await waitLive(page);
@@ -11668,6 +11703,7 @@ async function openDetails(page, id) {
       await waitOr(page, ".mucard");
       await waitLive(page);
       await evalOr(page, () => window.__GFFL__.LG.gateCommish()); // create-on-first-use, consumes the stub prompt
+      await pinBeforeW1Waivers(page);
       await evalOr(page, () => window.__GFFL__.UI.show("moves"));
       await waitOr(page, "#mvBlkFaab");
       // BEFORE this batch the card was: one FAAB line, then a "Claims process Wed 8:00 AM
@@ -14712,6 +14748,7 @@ async function openDetails(page, id) {
         "…so the following Back leaves the locker instead of doing nothing (now \"" + (outOfLocker || {}).view + "\", was \"" + (lockerBefore || {}).view + "\")");
 
       // The waiver claim sheet, on Moves.
+      await pinBeforeW1Waivers(page);
       await tapNav(page, "moves"); await waitView(page, "moves");
       await waitOr(page, "#faResults .faMoveBtn", 9000);
       await evalOr(page, () => { const b = [...document.querySelectorAll("#faResults .faMoveBtn")].find((x) => !x.disabled); if (b) b.click(); });
@@ -16781,6 +16818,7 @@ async function openDetails(page, id) {
     await bootPage(page);
     await waitOr(page, ".mucard");
     await waitLive(page);
+    await pinBeforeW1Waivers(page);
     await page.evaluate(() => window.__GFFL__.UI.show("moves"));
     await waitOr(page, "#faResults .faMoveBtn", 9000);
     // The bottom sheets are GONE — element, class and stylesheet rule.
@@ -16930,6 +16968,7 @@ async function openDetails(page, id) {
     await bootPage(page);
     await waitOr(page, ".mucard");
     await waitLive(page);
+    await pinBeforeW1Waivers(page);
     await page.evaluate(() => window.__GFFL__.UI.go("moves"));
     await waitOr(page, "#faResults .faMoveBtn", 9000);
     const openCard = async () => {
@@ -16977,6 +17016,7 @@ async function openDetails(page, id) {
     await bootPage(page);
     await waitOr(page, ".mucard");
     await waitLive(page);
+    await pinBeforeW1Waivers(page);
     await page.evaluate(() => window.__GFFL__.UI.show("moves"));
     await waitOr(page, "#faResults .faMoveBtn", 9000);
     await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "A. Vail");
@@ -17004,6 +17044,7 @@ async function openDetails(page, id) {
     await bootPage(page);
     await waitOr(page, ".mucard");
     await waitLive(page);
+    await pinBeforeW1Waivers(page);
     await page.evaluate(() => window.__GFFL__.UI.show("moves"));
     await waitOr(page, "#faResults .faMoveBtn", 9000);
     await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "A. Vail");
@@ -18142,9 +18183,11 @@ async function openDetails(page, id) {
       const seedA = { docs: {}, pass: "amenfarms", team: 1, who: "Peter" };
       const seedB = { docs: {}, pass: "amenfarms", team: 2, who: "Joy" };
       const { ctx: cA, page: pA, errors: eA } = await newTestPage(browser, seedA, { rest: R });
+      await armBeforeW1Waivers(pA);
       await pA.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
       await waitOr(pA, ".mucard", 15000); await waitLive(pA);
       const { ctx: cB, page: pB, errors: eB } = await newTestPage(browser, seedB, { rest: R });
+      await armBeforeW1Waivers(pB);
       await pB.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
       await waitOr(pB, ".mucard", 15000); await waitLive(pB);
 
@@ -18180,6 +18223,7 @@ async function openDetails(page, id) {
           dropKey: "111333", dropName: "B. Backup", bid: 25, t: 1 },
       };
       const { ctx, page, errors } = await newTestPage(browser, seed);
+      await armBeforeW1Waivers(page);
       await bootPage(page);
       await waitOr(page, ".mucard", 15000);
       await waitLive(page);
@@ -18279,6 +18323,7 @@ async function openDetails(page, id) {
       await bootPage(page);
       await waitOr(page, ".mucard", 15000);
       await waitLive(page);
+      await pinBeforeW1Waivers(page);
       await page.evaluate(() => window.__GFFL__.UI.show("moves"));
       await page.waitForSelector("#faResults [data-fi]", { timeout: 9000 });
       await clickChildIn(page, "#faResults [data-fi]", ".faMoveBtn", "F. Agent");
@@ -18780,7 +18825,10 @@ async function openDetails(page, id) {
         "…and the escaping is untouched — the script tag is still literal text and '&' is still an entity");
       // A tap really opens THAT player's card, and a plain word does not.
       await evalOr(page, () => { [...document.querySelectorAll(".lgrail #chatList .pcinline.chatname")].find((b) => /Joshua Passer/.test(b.textContent)).click(); });
-      await waitFnOr(page, () => { const o = document.querySelector("#playerCard"); return o && !o.hidden; });
+      // The overlay flips to visible with "Loading…" first; .pcname lands only after
+      // gameLog + teamSchedule resolve. Waiting on !hidden raced the fetch and
+      // read an empty name (2026-09-09).
+      await waitFnOr(page, () => { const n = document.querySelector("#playerCard .pcname"); return !!(n && /Passer/.test(n.textContent)); });
       const opened = await evalOr(page, () => (document.querySelector("#playerCard .pcname") || {}).textContent || "");
       ok(/Passer/.test(opened), "…tapping one opens THAT player's stats card (" + opened + ")");
       await evalOr(page, () => window.__GFFL__.UI.closePlayerCard());
@@ -23592,6 +23640,66 @@ async function openDetails(page, id) {
       "…and the same two tabs, opening on This week (" + (dkw.tabs || []).join("|") + ")");
     ok(dkw.sideways <= 1 && dkw.pans !== true, "…and MAIN does not pan or scroll sideways for them");
     ok(errors.length === 0, "0 page errors on the desktop");
+    await ctx.close();
+  }
+
+  // ================================================================================
+  //  TC · matchup feed — one line per play, unused points-allowed stays off the feed
+  // ================================================================================
+  // Live week 1: ESPN and Sleeper each call applySide on the same tick, so one catch
+  // became two feed rows. Points-allowed still emitted too, even though every dst_pa_*
+  // rate in this league is 0. The painted feed is the merged story: one row per
+  // key/stat/from/to, and a PA tick that did not move the score never lands.
+  section("TC · matchup feed — one line per play, no unused points-allowed");
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await clickIn(page, ".mucard.mine");
+    await page.waitForSelector("#mufeed", { timeout: 9000 });
+    const r = await page.evaluate(async () => {
+      const { D, UI } = window.__GFFL__;
+      const passer = D.S.players.get("3915511");
+      const eStats = { ...(passer.espn && passer.espn.stats || {}), pass_td: ((passer.espn && passer.espn.stats && passer.espn.stats.pass_td) || 0) + 1 };
+      const sStats = { ...(passer.slp && passer.slp.stats || {}), pass_td: ((passer.slp && passer.slp.stats && passer.slp.stats.pass_td) || 0) + 1 };
+      const fromE = passer.espn && passer.espn.stats ? passer.espn.stats.pass_td : 0;
+      const fromS = passer.slp && passer.slp.stats ? passer.slp.stats.pass_td : 0;
+      D.S.events.length = 0;
+      D.applySide("espn", "3915511", { name: "P. Passer", pos: "QB", team: "PHI" }, eStats);
+      D.applySide("slp", "3915511", { name: "P. Passer", pos: "QB", team: "PHI" }, sStats);
+      const stored = D.S.events.filter((e) => e.key === "3915511" && e.stat === "pass_td");
+      const dst = D.S.players.get("dst_PHI");
+      const dstStats = { ...(dst && dst.espn && dst.espn.stats || {}), dst_pa: 21 };
+      const paBefore = D.S.events.length;
+      D.applySide("espn", "dst_PHI", { name: "PHI D/ST", pos: "DST", team: "PHI" }, dstStats);
+      const paEmitted = D.S.events.filter((e) => e.stat === "dst_pa");
+      D.S.events.unshift({ t: Date.now(), src: "espn", key: "dst_PHI", name: "PHI D/ST",
+        stat: "dst_pa", from: 7, to: 14, dPts: 0 });
+      D.S.events.unshift({ t: Date.now(), src: "espn", key: "dst_PHI", name: "PHI D/ST",
+        stat: "dst_sack", from: 1, to: 2, dPts: 1 });
+      await UI.renderMatchup(true);
+      const lines = [...document.querySelectorAll("#mufeed .fline")].map((el) => el.textContent.replace(/\s+/g, " ").trim());
+      const tdLines = lines.filter((t) => /P\. Passer/.test(t) && /pass TD/.test(t));
+      const paLines = lines.filter((t) => /pts allowed/.test(t));
+      const sackLines = lines.filter((t) => /PHI D\/ST/.test(t) && /sack/.test(t));
+      return {
+        storedN: stored.length, fromE, fromS, toE: eStats.pass_td, toS: sStats.pass_td,
+        paEmitted: paEmitted.length, paBefore,
+        tdN: tdLines.length, tdSample: tdLines[0] || "",
+        paN: paLines.length, sackN: sackLines.length,
+        feedN: lines.length,
+      };
+    });
+    ok(r.storedN === 2 && r.fromE === r.fromS && r.toE === r.toS,
+      "both sources recorded the same TD tick (the audit log keeps both) (" + JSON.stringify({ n: r.storedN, fromE: r.fromE, fromS: r.fromS, toE: r.toE, toS: r.toS }) + ")");
+    ok(r.tdN === 1 && /pass TD/.test(r.tdSample) && r.tdSample.includes(String(r.fromE) + "→" + String(r.toE)),
+      "…but the painted feed shows that play ONCE (" + r.tdN + " lines: " + r.tdSample + ")");
+    ok(r.paEmitted === 0,
+      "applySide does not emit a points-allowed tick when every dst_pa_* rate is 0 (" + r.paEmitted + ")");
+    ok(r.paN === 0 && r.sackN === 1,
+      "…and a leftover pts-allowed row is hidden on the feed, while a sack that scores still shows (" + JSON.stringify({ pa: r.paN, sack: r.sackN }) + ")");
+    ok(errors.length === 0, "0 page errors on the de-duped feed");
     await ctx.close();
   }
 
