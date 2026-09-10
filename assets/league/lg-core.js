@@ -4583,6 +4583,127 @@
     } catch (e) { /* a producer may never cost the change it is announcing */ }
   };
 
+  // ---------------- matchup projected-win% graph (2026-09-10) ----------------
+  // The NFL game page already draws ESPN's winprob series as a sparkline. Fantasy has no
+  // upstream series, so this keeps one — a league-wide doc per week, one TOP-LEVEL array
+  // field per pairing (m_<home>_<away>), same updateMask reason as injstate. Each poll
+  // tick samples D.winProb for every matchup that has starters. The first point is the
+  // kickoff reading from D.winProbFromProj (live points a Sunday game already scored must
+  // not rewrite Thursday). Later points are the live model. The polyline uses sample
+  // index, same math as the NFL chart; "first game to last game" is WHEN we sample, not
+  // a 5-day X-axis that would squash Sunday into a dot next to a fixture's far-future
+  // kickoff. Cap 80, first and last kept. A read-only mirror never writes.
+  const WP_GRAPH_CAP = 80;
+  const WP_GRAPH_MIN_DP = 0.005;
+  const WP_GRAPH_MIN_MS = 90e3;
+  LG.wpGraphId = (week) => "wpgraph_" + LG.SEASON + "_w" + week;
+  LG.wpField = (hId, aId) => "m_" + hId + "_" + aId;
+  function starterKeysFor(teamId) {
+    const rows = (LG.ui && LG.ui._rosters && LG.ui._rosters[teamId]) || [];
+    const out = [];
+    for (const p of rows) {
+      if (!p || !p.key || p.slot === "BENCH" || p.slot === "IR") continue;
+      out.push(String(p.key));
+    }
+    return out;
+  }
+  LG._thinWpRows = function (rows, cap) {
+    const src = rows || [];
+    const n = src.length, lim = cap == null ? WP_GRAPH_CAP : cap;
+    if (n <= lim) return src.slice();
+    const out = new Array(lim);
+    for (let i = 0; i < lim; i++) out[i] = src[Math.round((i * (n - 1)) / (lim - 1))];
+    return out;
+  };
+  // Same coordinates the NFL sparkline uses: viewBox 220×56, p=0 at y=52, p=1 at y=4.
+  LG.wpPolyPoints = function (ps, width, height) {
+    const w = width == null ? 220 : width;
+    const pts = ps || [];
+    if (pts.length < 2) return "";
+    return pts.map((p, i) => {
+      const x = ((i / (pts.length - 1)) * w).toFixed(1);
+      const y = (52 - Math.max(0, Math.min(1, p)) * 48).toFixed(1);
+      return x + "," + y;
+    }).join(" ");
+  };
+  LG.loadWpGraph = async function (week) {
+    const w = week == null ? ((LG.ui && LG.ui.week) || LG.currentWeek()) : week;
+    const doc = await LG.db.get(LG.wpGraphId(w));
+    const out = doc && doc.kind === "wpgraph" ? doc : { kind: "wpgraph", season: LG.SEASON, week: w };
+    LG._wpGraph = { week: w, doc: out };
+    return out;
+  };
+  LG.wpSeries = function (hId, aId) {
+    const g = LG._wpGraph;
+    if (!g || !g.doc) return [];
+    const rows = g.doc[LG.wpField(hId, aId)];
+    return Array.isArray(rows) ? rows : [];
+  };
+  function mergeWpRows(a, b) {
+    const byT = new Map();
+    for (const r of (a || []).concat(b || [])) {
+      if (!r || !isFinite(Number(r.t)) || !isFinite(Number(r.p))) continue;
+      byT.set(Number(r.t), { t: Number(r.t), p: Number(r.p) });
+    }
+    return [...byT.values()].sort((x, y) => x.t - y.t);
+  }
+  LG.sampleMatchupWinProbs = async function () {
+    if (LG.mirrorOffline) return null;
+    const d = LG.data;
+    if (!d || !LG.ui || !LG.ui._rosters || !LG.teams.length) return null;
+    const week = LG.ui.week || LG.currentWeek();
+    const games = await LG.gamesForWeek(week);
+    if (!games.length) return null;
+    const win = d.slateWindow ? d.slateWindow() : null;
+    const now = Date.now();
+    const t0 = win && isFinite(win.t0) ? win.t0 : now;
+    const planned = [];
+    for (const pair of games) {
+      const hId = pair[0], aId = pair[1];
+      const hKeys = starterKeysFor(hId), aKeys = starterKeysFor(aId);
+      if (!hKeys.length || !aKeys.length) continue;
+      const p = d.winProb(aKeys, hKeys);
+      if (!Number.isFinite(p)) continue;
+      const p0 = d.winProbFromProj ? d.winProbFromProj(aKeys, hKeys) : p;
+      const remA = d.remaining(aKeys), remH = d.remaining(hKeys);
+      const counted = remA.played + remA.playing + remA.left + remH.played + remH.playing + remH.left;
+      const allDone = counted > 0 && remA.playing === 0 && remH.playing === 0 && remA.left === 0 && remH.left === 0;
+      const anyLive = remA.playing > 0 || remH.playing > 0;
+      planned.push({ field: LG.wpField(hId, aId), p, p0, allDone, anyLive });
+    }
+    if (!planned.length) return { added: 0 };
+
+    const fresh = await LG.db.getFresh(LG.wpGraphId(week));
+    const base = fresh && fresh.kind === "wpgraph" ? fresh : { kind: "wpgraph", season: LG.SEASON, week };
+    const write = { kind: "wpgraph", season: LG.SEASON, week };
+    let added = 0;
+    for (const s of planned) {
+      let rows = Array.isArray(base[s.field]) ? base[s.field].slice() : [];
+      if (!rows.length) {
+        rows.push({ t: t0, p: s.p0 });
+        added++;
+      }
+      const last = rows[rows.length - 1];
+      const moved = Math.abs(last.p - s.p) >= WP_GRAPH_MIN_DP;
+      const aged = (now - last.t) >= WP_GRAPH_MIN_MS;
+      const pin = s.allDone && Math.abs(last.p - s.p) > 1e-9;
+      if ((moved || pin || (aged && s.anyLive)) && !(last.t === now && Math.abs(last.p - s.p) < 1e-9)) {
+        rows.push({ t: now, p: s.p });
+        added++;
+      }
+      write[s.field] = LG._thinWpRows(rows, WP_GRAPH_CAP);
+    }
+    if (!added) {
+      LG._wpGraph = { week, doc: base };
+      return { added: 0 };
+    }
+    try { await LG.db.set(LG.wpGraphId(week), write); }
+    catch (e) { return { added: 0 }; }
+    const next = { ...base, ...write };
+    LG._wpGraph = { week, doc: next };
+    return { added, week };
+  };
+
   // ---------------- THE GROK PROJECTION ADJUSTER (2026-08-13) ----------------
   // User: "go with the grok adjusting from espn projection" — after both sources were MEASURED
   // on the family league's real 2025 season (ESPN and Sleeper both MAE ~5.5-6, everyone

@@ -23875,6 +23875,245 @@ async function openDetails(page, id) {
     await ctx.close();
   }
 
+  // ================= TF · matchup projected win-% graph =================================
+  // The NFL game page already draws ESPN's winprob series. Fantasy has no upstream series,
+  // so we sample D.winProb per pairing from first kickoff to the last game. HEAD has none
+  // of these hooks — every block guards typeof so a bite cannot SUITE CRASH.
+  section("TF · matchup projected win-% graph");
+  {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const A9 = ["3915511", "4241457", "111888", "4361741", "111555", "111222", "111444", "dst_PHI", "2473037"];
+    const B3 = ["222111", "222333", "dst_DAL"];
+
+    // ---- TF1: the kickoff reading is the projection-only model, and it AGREES with
+    // D.winProb when every game is still pre (same 90-vs-80 AQ1 edge).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await page.evaluate((A9, B3) => {
+        const D = window.__GFFL__.D, LG = window.__GFFL__.LG;
+        if (typeof D.winProbFromProj !== "function" || typeof D.slateWindow !== "function") {
+          return { hooks: false };
+        }
+        ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "pre" }));
+        const table = {}; A9.forEach((k) => (table[k] = 10));
+        table["222111"] = 30; table["222333"] = 30; table["dst_DAL"] = 20;
+        D.projFor = (key) => (key in table ? table[key] : null);
+        const from = D.winProbFromProj(A9, B3);
+        const live = D.winProb(A9, B3);
+        const win = D.slateWindow();
+        return {
+          hooks: true, from, live,
+          t0: win && win.t0, firstKick: Date.parse("2026-08-07T00:15:00Z"),
+          poly: typeof LG.wpPolyPoints === "function" ? LG.wpPolyPoints([0.25, 0.5, 0.75]) : null,
+        };
+      }, A9, B3);
+      ok(r.hooks === true, "D.winProbFromProj / D.slateWindow exist (" + JSON.stringify(r) + ")");
+      if (r.hooks) {
+        ok(Math.abs(r.from - r.live) < 1e-9, "…and the kickoff model equals D.winProb when every game is still pre (" + r.from + " vs " + r.live + ")");
+        ok(r.from > 0.5 && r.from < 0.95, "…the 90-vs-80 edge is the same sane favoritism AQ1 already pins (" + r.from + ")");
+        ok(r.t0 === r.firstKick, "slateWindow's first kickoff is DAL@PHI (2026-08-07T00:15Z) (" + r.t0 + ")");
+        ok(r.poly === "0.0,40.0 110.0,28.0 220.0,16.0",
+          "wpPolyPoints is the NFL sparkline's own 220×56 math — 0.25/0.5/0.75 → 0,40 / 110,28 / 220,16 (" + r.poly + ")");
+      }
+      ok(errors.length === 0, "0 page errors on the kickoff model");
+      await ctx.close();
+    }
+
+    // ---- TF2: all-pre seeds one silent point and hides the card; a real live move
+    // appends a second point, paints the polyline, and does not grow .muhead.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const hooks = await page.evaluate(() => typeof window.__GFFL__.LG.sampleMatchupWinProbs === "function");
+      ok(hooks, "LG.sampleMatchupWinProbs exists");
+      if (hooks) {
+        // RESTAGED 2026-09-10: waitLive's poll leaves real live pts on PHI/DAL rows.
+        // winProb = livePts + remaining; flipping only game.state to "pre" still
+        // adds those pts, so the first sample wrote seed+current (2 points) and
+        // the card appeared before any game had started. Clear the live rows and
+        // pin the AQ1 projection table so "all-pre" is actually all-pre.
+        await page.evaluate(async (A9, B3) => {
+          const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
+          await LG.db.del(LG.wpGraphId(1));
+          LG._wpGraph = null;
+          D.S.players.clear();
+          ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "pre", kickoff: "2026-08-07T00:15:00Z" }));
+          const table = {}; A9.forEach((k) => (table[k] = 10));
+          table["222111"] = 30; table["222333"] = 30; table["dst_DAL"] = 20;
+          D.projFor = (key) => (key in table ? table[key] : null);
+        }, A9, B3);
+        const seed = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
+        const series0 = await page.evaluate(() => {
+          const LG = window.__GFFL__.LG;
+          const rows = LG.wpSeries(1, 2);
+          return { added: null, n: rows.length, p0: rows[0] && rows[0].p };
+        });
+        ok(seed && seed.added >= 1 && series0.n === 1, "all-pre: the first sample seeds exactly one kickoff point (" + JSON.stringify({ seed, series0 }) + ")");
+        await page.evaluate(() => {
+          window.__GFFL__.UI.matchup = [1, 2];
+          window.__GFFL__.UI.go("matchup");
+        });
+        await waitOr(page, ".muhead");
+        const hidden = await page.evaluate(() => {
+          const el = document.getElementById("muWp");
+          return { exists: !!el, hidden: !!(el && el.hidden), parent: el && el.offsetParent === null };
+        });
+        ok(hidden.exists && hidden.parent === true, "…and the graph card is genuinely gone (offsetParent null) with only the seed (" + JSON.stringify(hidden) + ")");
+        const again = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
+        ok(again && again.added === 0, "…a second all-pre poll writes nothing further (" + JSON.stringify(again) + ")");
+        await page.evaluate((A9, B3) => {
+          const D = window.__GFFL__.D;
+          ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "in", period: 4, clock: "1:00" }));
+          const setP = (key, pts) => D.S.players.set(key, {
+            key, name: key, team: "PHI", pos: "QB", pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0,
+          });
+          A9.forEach((k, i) => setP(k, i === 0 ? 20 : 10));
+          B3.forEach((k, i) => setP(k, i === 0 ? 20 : 10));
+          D.projFor = () => 5;
+        }, A9, B3);
+        const moved = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
+        const series1 = await page.evaluate(() => {
+          const rows = window.__GFFL__.LG.wpSeries(1, 2);
+          return { n: rows.length, p0: rows[0] && rows[0].p, p1: rows[1] && rows[1].p };
+        });
+        ok(moved && moved.added >= 1 && series1.n >= 2, "a live 100-40 lead appends a second point (" + JSON.stringify({ moved, series1 }) + ")");
+        await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
+        await waitOr(page, "#muWp polyline");
+        const painted = await page.evaluate(() => {
+          const el = document.getElementById("muWp");
+          const poly = el && el.querySelector("polyline.muwpline");
+          const pts = (poly && poly.getAttribute("points") || "").trim().split(/\s+/);
+          const head = document.querySelector(".card.muhead");
+          const note = el && (el.textContent || "").replace(/\s+/g, " ");
+          return {
+            hidden: !!(el && el.hidden),
+            parent: el && el.offsetParent !== null,
+            n: pts.length,
+            firstX: pts[0] && pts[0].split(",")[0],
+            lastX: pts[pts.length - 1] && pts[pts.length - 1].split(",")[0],
+            headH: head ? Math.round(head.getBoundingClientRect().height) : 0,
+            note: note,
+            inHead: !!(head && head.querySelector("polyline")),
+          };
+        });
+        ok(painted.parent === true && painted.hidden === false, "…the card is visible (offsetParent set) (" + JSON.stringify(painted) + ")");
+        ok(painted.n >= 2 && painted.firstX === "0.0" && painted.lastX === "220.0",
+          "…polyline starts at x=0 and ends at x=220, NFL viewBox (" + JSON.stringify(painted) + ")");
+        ok(painted.inHead === false && painted.headH <= 148, "…and it is NOT inside .muhead, whose ceiling still holds (" + painted.headH + "px)");
+        ok(painted.note && /First kickoff to the last game/.test(painted.note) && /projected win %/i.test(painted.note),
+          "…copy names the week window and says projected win % (" + JSON.stringify(painted.note) + ")");
+      }
+      ok(errors.length === 0, "0 page errors on the seed-then-live graph");
+      await ctx.close();
+    }
+
+    // ---- TF3: each pairing is its own field — writing team1-vs-team2 does not invent
+    // a series for another matchup.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const hooks = await page.evaluate(() => typeof window.__GFFL__.LG.sampleMatchupWinProbs === "function");
+      ok(hooks, "sample hook exists for the per-matchup field check");
+      if (hooks) {
+        await page.evaluate(async () => {
+          const LG = window.__GFFL__.LG;
+          await LG.db.del(LG.wpGraphId(1));
+          LG._wpGraph = null;
+        });
+        await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
+        const fields = await page.evaluate(() => {
+          const doc = window.__GFFL__.LG._wpGraph && window.__GFFL__.LG._wpGraph.doc;
+          const keys = doc ? Object.keys(doc).filter((k) => k.startsWith("m_")) : [];
+          return { keys, n12: ((doc && doc.m_1_2) || []).length, n34: ((doc && doc.m_3_4) || []).length };
+        });
+        ok(fields.keys.indexOf("m_1_2") >= 0, "week 1's 1-vs-2 pairing has its own field (" + JSON.stringify(fields) + ")");
+        ok(fields.n12 >= 1, "…and that field holds the kickoff seed (" + fields.n12 + ")");
+      }
+      ok(errors.length === 0, "0 page errors on per-matchup fields");
+      await ctx.close();
+    }
+
+    // ---- TF4: a read-only mirror writes nothing.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const hooks = await page.evaluate(() => typeof window.__GFFL__.LG.sampleMatchupWinProbs === "function");
+      ok(hooks, "sample hook exists for the mirror check");
+      if (hooks) {
+        await page.evaluate(async () => {
+          const LG = window.__GFFL__.LG;
+          await LG.db.del(LG.wpGraphId(1));
+          LG._wpGraph = null;
+          LG.mirrorOffline = true;
+        });
+        const r = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
+        const doc = await page.evaluate(() => window.__GFFL__.LG.db.get(window.__GFFL__.LG.wpGraphId(1)));
+        ok(r === null, "sampleMatchupWinProbs refuses on a read-only mirror (" + JSON.stringify(r) + ")");
+        ok(!doc || doc.kind !== "wpgraph", "…and no wpgraph doc was written (" + JSON.stringify(doc && doc.kind) + ")");
+      }
+      ok(errors.length === 0, "0 page errors on the mirror");
+      await ctx.close();
+    }
+
+    // ---- TF5: the poll loop is wired — a real D.pollOnce() samples with no direct call.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const hooks = await page.evaluate(() => typeof window.__GFFL__.LG.sampleMatchupWinProbs === "function");
+      ok(hooks, "sample hook exists for the poll wiring check");
+      if (hooks) {
+        await page.evaluate(async () => {
+          const LG = window.__GFFL__.LG;
+          await LG.db.del(LG.wpGraphId(1));
+          LG._wpGraph = null;
+        });
+        await poll(page);
+        await sleep(400);
+        const after = await page.evaluate(async () => {
+          const LG = window.__GFFL__.LG;
+          const doc = await LG.db.getFresh(LG.wpGraphId(1));
+          return { kind: doc && doc.kind, n: doc && Array.isArray(doc.m_1_2) ? doc.m_1_2.length : 0 };
+        });
+        ok(after.kind === "wpgraph" && after.n >= 1, "a real D.pollOnce() tick writes the week's win-% series (" + JSON.stringify(after) + ")");
+      }
+      ok(errors.length === 0, "0 page errors on the poll path");
+      await ctx.close();
+    }
+
+    // ---- TF6: thinning keeps first and last, never more than 80.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await page.evaluate(() => {
+        const f = window.__GFFL__.LG._thinWpRows;
+        if (typeof f !== "function") return { hooks: false };
+        const rows = [];
+        for (let i = 0; i < 90; i++) rows.push({ t: i, p: i / 89 });
+        const out = f(rows, 80);
+        return { hooks: true, n: out.length, first: out[0] && out[0].t, last: out[out.length - 1] && out[out.length - 1].t };
+      });
+      ok(r.hooks === true, "LG._thinWpRows exists");
+      if (r.hooks) {
+        ok(r.n === 80 && r.first === 0 && r.last === 89, "90 samples thin to 80, first and last kept (" + JSON.stringify(r) + ")");
+      }
+      ok(errors.length === 0, "0 page errors on thinning");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

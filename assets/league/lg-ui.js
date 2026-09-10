@@ -591,6 +591,13 @@
           if (UI.view === "league") renderLeague(true);
         }
       }).catch(() => {});
+      // Matchup win-% graph — one sample per pairing per tick, same poll the bar already
+      // rides. Memory updates inside the sample; a real new point re-patches the card.
+      if (typeof LG.sampleMatchupWinProbs === "function") {
+        LG.sampleMatchupWinProbs().then((r) => {
+          if (r && r.added && UI.view === "matchup") renderMatchup(true);
+        }).catch(() => {});
+      }
     };
     // Quiet repaint after a background (cloud-only) list() refresh notices new data — reruns
     // the current view's own full render, which now paints from the just-updated cache.
@@ -4015,11 +4022,42 @@
   // survives as the header's own full-width win-probability bar (each end in its side's
   // primary), and the .nflsbt original still lives on the NFL game page where the box score
   // has no per-player restatement.
+  // The NFL game page's winprob sparkline, for a fantasy pairing. Series is the
+  // week-long sample LG.sampleMatchupWinProbs writes (kickoff seed + live ticks).
+  // Hidden until two points exist — a single kickoff seed is not a graph, same
+  // guard as the NFL chart (`length > 1`). Own card, never inside .muhead: the
+  // header's 148px ceiling is a measured law.
+  function matchupWinGraphHtml(hId, aId, wp, A, H) {
+    if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
+    const stored = LG.wpSeries(hId, aId);
+    const pts = stored.slice();
+    if (!pts.length || Math.abs(pts[pts.length - 1].p - wp) > 1e-6) pts.push({ t: Date.now(), p: wp });
+    if (pts.length < 2) return "";
+    const ps = pts.map((r) => r.p);
+    const poly = LG.wpPolyPoints(ps);
+    const last = ps[ps.length - 1];
+    const awayLead = last >= 0.5;
+    const lead = awayLead ? A : H;
+    const pct = Math.round((awayLead ? last : 1 - last) * 100);
+    const stroke = (LG.teamPalette(lead || {}) || {}).primary || "var(--accent)";
+    return `<div class="seclabel"><b>Projected win %</b></div>
+      <div class="nflwp">
+        <svg viewBox="0 0 220 56" preserveAspectRatio="none" role="img" aria-label="Projected win probability">
+          <line x1="0" y1="28" x2="220" y2="28" stroke="var(--divider)" stroke-width="1"/>
+          <polyline class="muwpline" points="${poly}" fill="none" stroke="${esc(stroke)}" stroke-width="2"/></svg>
+        <div class="nflwpv"><b>${esc(teamTag(lead))} ${pct}%</b><span class="mut small">projected win %</span></div>
+      </div>
+      <div class="mut small muwpnote">First kickoff to the last game this week</div>`;
+  }
   UI.renderMatchup = renderMatchup;
   async function renderMatchup(repaint) {
     if (!UI.matchup) UI.matchup = await myMatchupThisWeek();
     if (!UI.matchup) { main().innerHTML = `<div class="card"><p class="mut">No matchup — schedule missing.</p></div>`; return; }
-    if (!repaint) await loadWeekRosters();
+    if (!repaint) {
+      await loadWeekRosters();
+      if (typeof LG.sampleMatchupWinProbs === "function") await LG.sampleMatchupWinProbs().catch(() => {});
+      if (typeof LG.loadWpGraph === "function") await LG.loadWpGraph(UI.week).catch(() => {});
+    }
     const d = D();
     simProjEnsureAndRepaint("matchup"); // 2025 season replay — see startData()
     const [hId, aId] = UI.matchup;
@@ -4144,6 +4182,7 @@
           <td class="pcell right">${totalHalfCell(hTot, "right")}</td>
         </tr></tfoot>
       </table></div>`;
+    const muWpInner = matchupWinGraphHtml(hId, aId, wp, A, H);
     const muBenchInner = (aBench.length || hBench.length) ? `<h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
         ${benchRows.map(([pa, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
@@ -4152,6 +4191,12 @@
       </tbody></table></div>` : "";
     if (repaint && $("#muHead")) {
       patchInto($("#muHead"), muHeadInner);
+      const wpEl = $("#muWp");
+      if (wpEl) {
+        wpEl.hidden = !muWpInner;
+        if (muWpInner) patchInto(wpEl, muWpInner);
+        else wpEl.innerHTML = "";
+      }
       patchInto($("#muLineup"), muLineupInner);
       const mb = $("#muBench");
       if (mb && muBenchInner) patchInto(mb, muBenchInner);
@@ -4167,6 +4212,7 @@
     }
     main().innerHTML = `
       <div class="card muhead muhero" id="muHead" style="--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tta:${esc(pa.tertiary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)};--tth:${esc(ph.tertiary)}">${muHeadInner}</div>
+      <div class="card muwpcard" id="muWp"${muWpInner ? "" : " hidden"}>${muWpInner}</div>
       <div class="card lineupcard" id="muLineup">${muLineupInner}</div>
       ${muBenchInner ? `<div class="card lineupcard" id="muBench">${muBenchInner}</div>` : ""}
       ${h2hLine(UI._h2h, H, A) /* cosmetic pass 2026-08-11: the all-time series reads BELOW the player matchups now */}

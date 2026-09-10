@@ -7380,3 +7380,34 @@ sandwich, AR11's first-omit hold). One pre-existing cache-timing check
 also missed 100ms (117ms); the other 3367 still pass. App files restored,
 hashes identical.
 ---
+
+## GFFL — projected win-% graph on every fantasy matchup (2026-09-10)
+
+User: "lets create a projection win % graph like we have with the nfl
+games, but one for each fantasy team matchup that tracks projected win %
+starting with the first game and ending with the last game"
+
+The NFL game page already draws ESPN's `winprob` series. Fantasy has no
+upstream series, so each pairing now keeps one: `wpgraph_<season>_w<week>`,
+one top-level array field `m_<home>_<away>` (same updateMask reason as
+injstate). The first point is `D.winProbFromProj` at the slate's first
+kickoff — live points a Sunday opener already scored must not rewrite
+Thursday. Later points are the same `D.winProb` the bar already uses,
+sampled on every poll tick. The polyline is the NFL sparkline's own
+220×56 math (sample index, not a 5-day X-axis). Cap 80, first and last
+kept. A mirror never writes. The card sits under the header, never
+inside it — `.muhead`'s 148px ceiling is unchanged. Hidden until two
+points exist, same guard as the NFL chart.
+
+Scripts cache-bust `?v=20260910c`.
+
+Files: `league.html`, `assets/league/lg-{core,data,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3410/3410**. Bite (`league.html` +
+`lg-core.js` + `lg-data.js` + `lg-ui.js` at HEAD, new suite kept): **3386
+pass / 6 fail** — HEAD has no `winProbFromProj`, `sampleMatchupWinProbs`,
+or the thin/poly helpers. The inner TF checks are guarded and did not
+run; every pre-existing check still passed. App files restored, hashes
+identical.
+---

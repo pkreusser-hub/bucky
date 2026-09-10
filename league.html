@@ -1635,6 +1635,13 @@
   .nflwp svg { flex:1 1 auto; height:56px; min-width:0; }
   .nflwpv { flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; }
   .nflwpv b { font:700 15px var(--font-display); }
+  /* Fantasy matchup win-% graph — same sparkline language as .nflwp, own card so
+     .muhead's measured 148px ceiling does not move. .card sets no display, but
+     restate [hidden] anyway: an author rule on this card later must not unhide it. */
+  .muwpcard { padding:10px 12px 12px; }
+  .muwpcard[hidden] { display:none; }
+  .muwpcard .seclabel { margin-bottom:6px; }
+  .muwpnote { margin-top:6px; }
   .nflsplit { border-top:1px solid var(--divider); margin:12px 0; }
   .nflsb { margin:8px 0; }
   .nflsbl { display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:12.5px; }
@@ -2249,9 +2256,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260910b"></script>
-  <script src="assets/league/lg-data.js?v=20260910b"></script>
-  <script src="assets/league/lg-ui.js?v=20260910b"></script>
+  <script src="assets/league/lg-core.js?v=20260910c"></script>
+  <script src="assets/league/lg-data.js?v=20260910c"></script>
+  <script src="assets/league/lg-ui.js?v=20260910c"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

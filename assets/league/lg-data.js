@@ -2545,4 +2545,40 @@
     // would paint "width:NaN%" (an even-money 50% is the honest fallback).
     return Number.isFinite(p) ? p : 0.5;
   };
+  // The LEFT EDGE of the matchup win-% graph: what the model said at first kickoff, when
+  // every starter still had a full projection in front of them. Same logistic as D.winProb,
+  // but it reads only D.projFor — live points a Sunday opener already scored must not rewrite
+  // Thursday night. When every game is still "pre", this and D.winProb agree.
+  D.winProbFromProj = function (keysA, keysB) {
+    const tot = (keys) => keys.reduce((s, k) => s + num(D.projFor(k)), 0);
+    const a = tot(keysA || []), b = tot(keysB || []);
+    const sd = Math.max(WP_MIN_SPREAD, WP_K_SPREAD * Math.sqrt(Math.max(0, a + b)));
+    const p = 1 / (1 + Math.exp((-1.702 * (a - b)) / sd));
+    return Number.isFinite(p) ? p : 0.5;
+  };
+  // First and last kickoff on THIS week's slate. Unique events, not per-team rows — DAL@PHI
+  // is one game even though both sides sit in D.S.games. Used to stamp the graph's kickoff
+  // seed, not to space the polyline (that is sample-index, same as the NFL sparkline).
+  D.slateWindow = function () {
+    let t0 = Infinity, t1 = -Infinity;
+    const evs = D.S.nflEvents;
+    if (Array.isArray(evs)) {
+      for (const e of evs) {
+        const t = Date.parse((e && e.date) || "");
+        if (!isFinite(t)) continue;
+        if (t < t0) t0 = t;
+        if (t > t1) t1 = t;
+      }
+    }
+    if (!isFinite(t0)) {
+      for (const g of D.S.games.values()) {
+        const t = Date.parse((g && g.kickoff) || "");
+        if (!isFinite(t)) continue;
+        if (t < t0) t0 = t;
+        if (t > t1) t1 = t;
+      }
+    }
+    if (!isFinite(t0)) return null;
+    return { t0, t1 };
+  };
 })();
