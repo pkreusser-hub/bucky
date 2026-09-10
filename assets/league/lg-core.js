@@ -4419,11 +4419,28 @@
   // board when the tab opened": the FIRST time this league ever sees a player is seeded
   // silently (no feed line, no push). Present-and-different = a real transition. Present-and-
   // same = nothing to do — no write at all, not even a needless refresh.
+  //
+  // D-S8, THE DUMP FLAP (2026-09-10). Sleeper's directory states "healthy" and "not carried"
+  // with the same empty string. Believing an omitted field was an all-clear flipped a man
+  // Q → Healthy → Q on consecutive hourly refreshes and pushed the owner each time. An empty
+  // value with injuryCarried !== true is held: the committed designation stays put, and a
+  // later dump that still omits him (a new D.S.injDirGen) is what finally records Healthy.
+  // An explicit Active/Healthy/etc. is still immediate — that is a status Sleeper actually
+  // sent. A dump that puts the SAME designation back cancels the hold.
   LG.injStateId = () => "injstate_" + LG.SEASON;
   LG.injFeedId = () => "injfeed_" + LG.SEASON;
   const INJ_FIELD_PFX = "p_";
   const injField = (key) => INJ_FIELD_PFX + String(key);
   const INJ_FEED_CAP = 40;
+  function injuryDirAnswer(meta) {
+    const raw = meta && meta.injury != null ? String(meta.injury) : "";
+    const desig = LG.injLabel(raw);
+    // injuryCarried is set by fetchPlayerDirectory when Sleeper sent a non-empty
+    // injury_status. In-memory test mutations that assign a non-empty string count
+    // as carried too. Empty + no flag is the dump omitting the field (D-S8).
+    const carried = !!(meta && (meta.injuryCarried === true || raw.trim() !== ""));
+    return { desig, carried };
+  }
   LG.checkInjuryChanges = async function () {
     // A read-only mirror can't persist a thing, and this is a background convenience the next
     // genuinely-connected client will pick up anyway (LG.snapshotProjections' own posture) —
@@ -4434,7 +4451,7 @@
     if (!d || !d.S || !d.S.slpPlayers || !rosters || !LG.teams.length) return null; // not warm yet — next tick
 
     // Every currently-rostered key, with its owning team and the directory's CURRENT answer.
-    const live = new Map(); // key -> {desig, teamId, name}
+    const live = new Map(); // key -> {desig, carried, teamId, name}
     for (const t of LG.teams) {
       for (const p of (rosters[t.id] || [])) {
         if (!p || !p.key) continue;
@@ -4442,10 +4459,17 @@
         if (pid == null) continue; // can't resolve to a real Sleeper player -> nothing to compare
         const meta = d.S.slpPlayers.get(pid);
         if (!meta) continue;
-        live.set(String(p.key), { desig: LG.injLabel(meta.injury), teamId: t.id, name: p.name || meta.name || String(p.key) });
+        const ans = injuryDirAnswer(meta);
+        live.set(String(p.key), { desig: ans.desig, carried: ans.carried, teamId: t.id, name: p.name || meta.name || String(p.key) });
       }
     }
     if (!live.size) return null;
+
+    if (!LG._injPending) LG._injPending = new Map();
+    for (const k of [...LG._injPending.keys()]) {
+      if (!live.has(k)) LG._injPending.delete(k);
+    }
+    const dirGen = d.S.injDirGen || 0;
 
     const doc = await LG.db.get(LG.injStateId());
     const known = doc && doc.kind === "injstate" ? doc : null;
@@ -4455,9 +4479,33 @@
     for (const [key, info] of live) {
       const field = injField(key);
       const prior = known ? known[field] : undefined;
-      if (prior === undefined) { seed[field] = info.desig; continue; }
-      if (prior !== info.desig) changed.push({ key, field, from: prior, to: info.desig, teamId: info.teamId, name: info.name });
+      if (prior === undefined) {
+        seed[field] = info.desig;
+        LG._injPending.delete(key);
+        continue;
+      }
+      if (prior === info.desig) {
+        LG._injPending.delete(key);
+        continue;
+      }
+      // Dump omitted the field. D-S8: that is not an all-clear until a later
+      // directory generation still shows him omitted. A flicker of the same
+      // empty string, then the old designation back, cancels the hold.
+      if (info.desig === "" && !info.carried) {
+        const pend = LG._injPending.get(key);
+        if (pend && pend.from === prior && pend.to === "" && Number(pend.seenGen) < dirGen) {
+          changed.push({ key, field, from: prior, to: "", teamId: info.teamId, name: info.name });
+          LG._injPending.delete(key);
+        } else {
+          LG._injPending.set(key, { from: prior, to: "", teamId: info.teamId, name: info.name, seenGen: dirGen });
+        }
+        continue;
+      }
+      LG._injPending.delete(key);
+      changed.push({ key, field, from: prior, to: info.desig, teamId: info.teamId, name: info.name });
     }
+
+    const tally = (extra) => ({ seeded: Object.keys(seed).length, pending: LG._injPending.size, ...extra });
 
     // Seeding is race-tolerant on its own — two devices writing the SAME "first sighting"
     // value is a no-op either way — so it needs no fresh-read guard, unlike a real transition.
@@ -4468,7 +4516,7 @@
         catch (e) { /* best-effort — the next poll tick tries again */ }
       }
     }
-    if (!changed.length) return { seeded: Object.keys(seed).length, changed: 0 };
+    if (!changed.length) return tally({ changed: 0 });
 
     // MULTI-DEVICE DEDUPE: re-read right before writing. A field the fresh doc no longer shows
     // at OUR recorded "prior" value means another device already recorded this transition (or a
@@ -4477,17 +4525,17 @@
     // field only this device is touching can't be clobbered by anyone else's write.
     const fresh = await LG.db.getFresh(LG.injStateId());
     const winners = changed.filter((c) => (fresh ? fresh[c.field] : undefined) === c.from);
-    if (!winners.length) return { seeded: Object.keys(seed).length, changed: 0 };
+    if (!winners.length) return tally({ changed: 0 });
 
     const write = { kind: "injstate", season: LG.SEASON };
     for (const w of winners) write[w.field] = w.to;
     try { await LG.db.set(LG.injStateId(), write); }
-    catch (e) { return { seeded: Object.keys(seed).length, changed: 0 }; } // never break the poll loop
+    catch (e) { return tally({ changed: 0 }); } // never break the poll loop
 
     // Feed + push only for what THIS device actually won.
     await LG.appendInjuryFeed(winners);
     for (const w of winners) LG.pushInjuryChange(w);
-    return { seeded: Object.keys(seed).length, changed: winners.length, winners };
+    return tally({ changed: winners.length, winners });
   };
   // Splits an arbitrary field map into ≤`size`-field chunks — a league's FIRST-EVER seed can
   // carry every one of its ~100+ rostered players at once, and naming all of them as separate

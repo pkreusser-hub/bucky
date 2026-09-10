@@ -7347,3 +7347,36 @@ HEAD has no `addBlocked`, `faAdd`/`addClaim` of a live PHI free agent
 succeed, and the Add button is not greyed. Pre-existing checks still
 pass. App files restored, hashes identical.
 ---
+
+## GFFL — injury report no longer flaps the same designation (2026-09-10)
+
+User: "the injury report is spamming people coming off and on the same
+injury"
+
+Sleeper's player dump uses the same empty string for "healthy" and "not
+in this payload" (D-S8). `checkInjuryChanges` treated that blank as a
+real all-clear, so an hourly refresh that dropped and re-added
+Questionable wrote Healthy → Q → Healthy and pushed the owner each time.
+
+The directory now keeps `injuryCarried`: true only when the dump sent a
+status, including Active. An omitted field after a committed designation
+is held. The next directory generation (`D.S.injDirGen`) that still
+omits him is the all-clear; the same designation coming back cancels the
+hold. An explicit Active/Healthy is still immediate.
+
+AR4's clear is now `injury = "Active"` — empty string is the omit, not
+the clear. AR10 is the flap (Q → omit → Q writes nothing further). AR11
+is the confirmed omit (one later generation, one Healthy, one push).
+
+Scripts cache-bust `?v=20260910b`.
+
+Files: `league.html`, `assets/league/lg-{core,data}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3380/3380**. Bite (`league.html` +
+`lg-core.js` + `lg-data.js` at HEAD, new suite kept): **3370 pass / 10 fail**
+— HEAD treats the omit as Healthy and then the return as news (AR10's
+sandwich, AR11's first-omit hold). One pre-existing cache-timing check
+also missed 100ms (117ms); the other 3367 still pass. App files restored,
+hashes identical.
+---

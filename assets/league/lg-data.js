@@ -494,10 +494,14 @@
     const byEspn = new Map(), byName = new Map(), byId = new Map();
     for (const pid in dump) {
       const p = dump[pid]; if (!p || typeof p !== "object") continue;
+      const rawInj = p.injury_status == null ? "" : String(p.injury_status).trim();
       const meta = {
         pid, name: p.full_name || ((p.first_name || "") + " " + (p.last_name || "")).trim() || pid,
         team: p.team || "", pos: p.position || "", espn_id: p.espn_id != null ? String(p.espn_id) : null,
-        injury: p.injury_status || "", searchRank: p.search_rank != null ? p.search_rank : null,
+        // D-S8: Sleeper uses the same empty string for "healthy" and "not in this dump".
+        // injuryCarried is true only when the dump actually sent a status (including Active).
+        injury: rawInj, injuryCarried: rawInj !== "",
+        searchRank: p.search_rank != null ? p.search_rank : null,
         // ⭐ ITEM 31 (2026-08-09). The directory has carried these all along and nothing
         // read them. depth_chart_order is 1 = starter, 2 = backup, 3 = third string —
         // which is exactly the question "who actually plays in a preseason game". Two
@@ -512,6 +516,11 @@
       byId.set(pid, meta);
     }
     D.S.slpPlayers = byId; D.S.slpByEspn = byEspn; D.S.slpByName = byName;
+    // Each completed dump is a generation. checkInjuryChanges holds an omitted
+    // "healthy" until a later generation still omits him — a one-refresh flicker
+    // of the same empty string is how Sleeper drops and re-adds a designation,
+    // and that flap used to push the owner twice an hour.
+    D.S.injDirGen = (D.S.injDirGen || 0) + 1;
     D.bumpPidGen(); // the directory is one of the two sources pidForKey resolves through
   }
   // Sleeper's own /state/nfl reading — WHICH week and WHICH part of the season its live stats

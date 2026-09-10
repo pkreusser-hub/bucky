@@ -17907,7 +17907,12 @@ async function openDetails(page, id) {
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       await sleep(300); // drain the "Q -> D" push before resetting — see AR3's own note
       notify.reset();
-      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = ""; }); // cleared
+      // RESTAGED 2026-09-10: used to assign the empty string. That is how Sleeper
+      // OMITS a status (D-S8: "healthy" and "not carried" share ""), not how it
+      // reports a clear — and treating omit as Healthy is the flap that spammed
+      // the owner Q → Healthy → Q. A real all-clear is injury_status "Active"
+      // (injLabel maps it to ""), which Sleeper actually sends.
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Active"; });
       const r = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       ok(r && r.changed === 1, "clearing a real designation IS a reportable change (" + JSON.stringify(r) + ")");
       const feed = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
@@ -18100,6 +18105,86 @@ async function openDetails(page, id) {
       await sleep(300);
       ok(notify.calls.some((c) => c.gfflTeam === 2 && /Q\. Rival/.test(c.body || "")), "…and the poll-triggered path pushes the owner exactly like a direct call would (" + JSON.stringify(notify.calls) + ")");
       ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- AR10: Sleeper's dump uses the same empty string for "healthy" and "not
+    // carried" (D-S8). Treating omit as an all-clear is what flipped a man
+    // Questionable → Healthy → Questionable on every hourly refresh and pushed
+    // the owner each time. An omitted field after a real designation is held —
+    // no feed line, no push — and the same designation coming back is a no-op.
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Questionable"; });
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      await sleep(300);
+      notify.reset();
+      await page.evaluate(() => {
+        const row = window.__GFFL__.D.S.slpPlayers.get("9101");
+        row.injury = "";
+        row.injuryCarried = false;
+      });
+      const omit = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(omit && omit.changed === 0, "omitting the field is not an all-clear (" + JSON.stringify(omit) + ")");
+      const held = await page.evaluate(() => window.__GFFL__.LG.db.getFresh(window.__GFFL__.LG.injStateId()));
+      ok(held && held.p_222111 === "Q", "…the committed designation stays Questionable (" + JSON.stringify(held && held.p_222111) + ")");
+      const feedOmit = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feedOmit.length === 1 && feedOmit[0].to === "Q", "…the feed still has only the real Healthy → Q (" + JSON.stringify(feedOmit.map((f) => f.from + "->" + f.to)) + ")");
+      await sleep(300);
+      ok(notify.calls.length === 0, "…and nobody was pushed for the omit (" + notify.calls.length + ")");
+      await page.evaluate(() => {
+        const row = window.__GFFL__.D.S.slpPlayers.get("9101");
+        row.injury = "Questionable";
+        row.injuryCarried = true;
+        window.__GFFL__.D.S.injDirGen = (window.__GFFL__.D.S.injDirGen || 0) + 1;
+      });
+      const back = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(back && back.changed === 0, "…and the same Q coming back after the omit is not news (" + JSON.stringify(back) + ")");
+      const feedBack = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feedBack.length === 1, "…still exactly one feed line, not a Q → Healthy → Q sandwich (" + feedBack.length + ")");
+      await sleep(300);
+      ok(notify.calls.length === 0, "…still zero pushes for the flap");
+      ok(errors.length === 0, "0 page errors on the dump-flap hold");
+      await ctx.close();
+    }
+
+    // ---- AR11: a REAL clear that Sleeper only expresses by dropping the field
+    // still lands — but only after a later directory generation still shows
+    // omitted. One hour of the same empty dump is enough; a one-refresh flicker
+    // is not.
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Questionable"; });
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      await sleep(300);
+      notify.reset();
+      await page.evaluate(() => {
+        const row = window.__GFFL__.D.S.slpPlayers.get("9101");
+        row.injury = "";
+        row.injuryCarried = false;
+      });
+      const hold = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(hold && hold.changed === 0, "the first omitted dump is held, not announced (" + JSON.stringify(hold) + ")");
+      await page.evaluate(() => {
+        window.__GFFL__.D.S.injDirGen = (window.__GFFL__.D.S.injDirGen || 0) + 1;
+      });
+      const conf = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(conf && conf.changed === 1, "…a later directory generation that still omits him IS the all-clear (" + JSON.stringify(conf) + ")");
+      const feed = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feed[0] && feed[0].from === "Q" && feed[0].to === "", "…Q → Healthy is on the feed once (" + JSON.stringify(feed[0]) + ")");
+      await sleep(300);
+      ok(notify.calls.length === 1, "…and it pushes the owner exactly once (" + notify.calls.length + ")");
+      ok(errors.length === 0, "0 page errors on the confirmed-omit clear");
       await ctx.close();
     }
   }
