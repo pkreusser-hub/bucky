@@ -3480,7 +3480,13 @@ async function openDetails(page, id) {
     ok(true, "claiming straight from the browse table (pre-deadline) queues a claim exactly like a searched one");
     // Post-deadline: ADD (not Claim) instant-adds, same as the old search-driven flow — proven
     // once already for the search path in I1 below; here proven from browse mode specifically.
-    await page.evaluate((ts) => { window.__GFFL__.LG.nowOverride = ts; }, Date.now() + 365 * 24 * 3600 * 1000);
+    // RESTAGED 2026-09-10: +365d was a blunt "past the deadline" hammer. It also
+    // jumped past KICK_FUTURE (2027-01-01), so D.gameStarted flipped true for
+    // KC/DEN and the new add-lock greys F. Agent's Add — the sheet never opens.
+    // One hour after week 1's deadline is past waivers and still before that
+    // kickoff, which is the state this block actually tests.
+    const pastDl = await page.evaluate(() => window.__GFFL__.LG.waiverDeadline(1) + 3600 * 1000);
+    await page.evaluate((ts) => { window.__GFFL__.LG.nowOverride = ts; }, pastDl);
     await page.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page.waitForSelector("#faPosChips", { timeout: 9000 });
     await page.waitForFunction(() => document.querySelectorAll("#faResults [data-fi]").length > 0, { timeout: 5000 });
@@ -23700,6 +23706,87 @@ async function openDetails(page, id) {
     ok(r.paN === 0 && r.sackN === 1,
       "…and a leftover pts-allowed row is hidden on the feed, while a sack that scores still shows (" + JSON.stringify({ pa: r.paN, sack: r.sackN }) + ")");
     ok(errors.length === 0, "0 page errors on the de-duped feed");
+    await ctx.close();
+  }
+
+  // ================================================================================
+  //  TD · a started game locks the add until the next waiver window
+  // ================================================================================
+  // Live week 1, Thursday morning: last night's players were still instant-addable.
+  // The house rule is the same clock D.gameStarted already uses for drops and lineup
+  // locks — once that man's NFL game has kicked off this week he cannot be claimed
+  // or added until the week rolls and waivers open again. The UI greys the Add
+  // button; faAdd / addClaim are the gate.
+  section("TD · started-game lock on Add / Claim");
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const engine = await page.evaluate(async () => {
+      const { D, LG, UI } = window.__GFFL__;
+      const phi = { key: "slp_9301", name: "N. Ight", pos: "WR", team: "PHI" };
+      const kc = { key: "9201", name: "F. Agent", pos: "WR", team: "KC" };
+      // HEAD has no addBlocked — calling it threw and aborted the file (2026-09-10 bite).
+      const has = typeof LG.addBlocked === "function";
+      return {
+        has,
+        phiGame: D.gameStarted("PHI"),
+        kcGame: D.gameStarted("KC"),
+        phiBlocked: has ? LG.addBlocked(phi) : null,
+        kcBlocked: has ? LG.addBlocked(kc) : null,
+        phiAdd: await LG.faAdd(1, 3, phi),
+        kcAdd: await LG.faAdd(1, 4, kc),
+        phiClaim: await LG.addClaim(1, {
+          id: "td_phi", teamId: 1, addKey: phi.key, addName: phi.name,
+          addPos: phi.pos, addTeam: phi.team, dropKey: "111333", dropName: "B. Backup", bid: 1, t: 1,
+        }),
+        reason: UI._reasonLabel ? UI._reasonLabel("add-started") : "",
+      };
+    });
+    ok(engine.phiGame === true && engine.kcGame === false,
+      "the fixture has PHI underway and KC not kicked off (" + JSON.stringify({ phi: engine.phiGame, kc: engine.kcGame }) + ")");
+    ok(engine.has === true && engine.phiBlocked === true && engine.kcBlocked === false,
+      "LG.addBlocked follows that clock — PHI locked, KC free (" + JSON.stringify({ phi: engine.phiBlocked, kc: engine.kcBlocked }) + ")");
+    ok(engine.phiAdd && engine.phiAdd.ok === false && engine.phiAdd.reason === "add-started",
+      "faAdd REFUSES a free agent whose game has started (" + JSON.stringify(engine.phiAdd) + ")");
+    ok((engine.phiAdd.players || []).includes("N. Ight"), "…naming him");
+    ok(engine.kcAdd && engine.kcAdd.ok === true,
+      "…and still ADDS a free agent whose game has not (" + JSON.stringify(engine.kcAdd) + ")");
+    ok(engine.phiClaim && engine.phiClaim.ok === false && engine.phiClaim.reason === "add-started",
+      "addClaim refuses the same man — a queued bid is not a back door (" + JSON.stringify(engine.phiClaim) + ")");
+    ok(/waivers/.test(engine.reason || ""),
+      "the refusal copy names waivers, not a raw code (" + engine.reason + ")");
+
+    await page.evaluate(() => {
+      const D = window.__GFFL__.D;
+      D.S.slpPlayers.set("9301", {
+        pid: "9301", name: "N. Ight", team: "PHI", pos: "WR",
+        espn_id: null, injury: "", searchRank: 1,
+      });
+    });
+    await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+    await waitOr(page, "#faResults [data-fi]", 12000);
+    const ui = await page.evaluate(() => {
+      const row = (name) => {
+        const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes(name));
+        const b = tr && tr.querySelector(".faMoveBtn");
+        if (!b) return null;
+        const cs = getComputedStyle(b);
+        return {
+          txt: b.textContent.trim(), disabled: b.disabled, title: b.title,
+          opacity: Number(cs.opacity), color: cs.color,
+        };
+      };
+      return { night: row("N. Ight"), vail: row("A. Vail") };
+    });
+    ok(ui.night && ui.night.disabled === true && /Game started/.test(ui.night.title),
+      "Add on last-night's PHI player is disabled and says why (" + JSON.stringify(ui.night) + ")");
+    ok(ui.night && ui.night.opacity <= 0.45,
+      "…and the button is genuinely greyed — opacity " + (ui.night && ui.night.opacity));
+    ok(ui.vail && ui.vail.disabled === false,
+      "…while a DEN kicker whose game has not started is still addable (" + JSON.stringify(ui.vail) + ")");
+    ok(errors.length === 0, "0 page errors on the started-game add lock");
     await ctx.close();
   }
 

@@ -5497,7 +5497,8 @@
   // ⭐ THE COMMISSIONER'S RULING vs THE SCREEN (2026-09-02, U-S6). Ruled 2026-08-26: the draft
   // is Sun Sep 6, "anyone undrafted is simply a free agent, instantly addable, first come first
   // served, no waiting period" — and section BC6 verified the ENGINE already behaves that way
-  // (LG.faAdd consults no clock at all). The MOVES PAGE did not: it decided the whole free
+  // (LG.faAdd consults no weekly waiver clock; a player's own kickoff still locks the add —
+  // 2026-09-10). The MOVES PAGE did not: it decided the whole free
   // agency / waivers question on `LG.now() >= LG.waiverDeadline(week)` alone, so between the
   // draft and Wednesday Sep 9 08:00 every undrafted player was offered as a blind-bid CLAIM,
   // the card read "Free agency Closed", and the ruling was true of the code and false on screen.
@@ -5641,6 +5642,7 @@
     "ir-illegal": "somebody healthy is still on your IR — move or drop them first",
     // You started him and his game is underway. The bench is always droppable.
     "drop-started": "you started him and his game has begun — you can drop him once waivers clear",
+    "add-started": "his game has already started — you can add him once waivers open",
     "roster-full": "your roster is full — pick somebody to drop",
     outbid: "outbid by a higher blind bid", "player-taken": "taken by another claim",
     "drop-gone": "your drop player was gone", "insufficient-faab": "not enough FAAB",
@@ -6156,6 +6158,9 @@
       // add needs no drop at all. (Before the standalone Drop button the roster could never be
       // short, so "nobody to drop" and "no room" were the same sentence.)
       if (!myRoster.length && !LG.rosterRoom(myRoster)) return "You have nobody to drop";
+      // Same clock as LG.addBlocked / D.gameStarted — a man whose NFL game has kicked
+      // off this week cannot be claimed or instant-added until the next waiver window.
+      if (LG.addBlocked(p)) return "Game started — available after waivers";
       return "";
     }
     // Every value a column can be SORTED by — numeric columns return a number (missing ->

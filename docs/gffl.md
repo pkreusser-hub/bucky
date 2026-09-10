@@ -7314,3 +7314,36 @@ HEAD paints the TD twice, emits a 0-pt PA tick, and shows leftover
 pts-allowed on the feed. Pre-existing checks still pass. App files
 restored, hashes identical.
 ---
+
+## GFFL — a started game locks Add until the next waiver window (2026-09-10)
+
+User: "the players that played in last nights game should be locked from
+being claimed right now, players whose games have started should always
+be locked until waiver period and the add button should be greyed out."
+
+Free agency after Wednesday's run still let you instant-add a man whose
+NFL game was already underway. Lineup Swap and dropping a starter were
+already locked on `D.gameStarted`; the add path was not.
+
+`LG.addBlocked` is that same clock. `LG.faAdd` and `LG.addClaim` refuse
+`add-started`. The Moves Add/Claim button disables with "Game started —
+available after waivers" and stays grey on hover (the accent `.faMoveBtn:hover`
+was the same specificity as `:disabled` and sat later). A player whose
+game has not kicked off is unchanged. Tuesday the week rolls, the new
+slate is all `pre`, and he is claimable again until his next kickoff.
+
+Scripts cache-bust `?v=20260910a`.
+
+I0's post-deadline Add used `Date.now() + 365d`, which jumped past
+`KICK_FUTURE` (2027-01-01) and greys F. Agent too. Restaged to one hour
+after week 1's deadline — past waivers, still before that kickoff.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3367/3367**. Bite (`league.html` +
+`lg-core.js` + `lg-ui.js` at HEAD, new suite kept): **3360 pass / 7 fail** —
+HEAD has no `addBlocked`, `faAdd`/`addClaim` of a live PHI free agent
+succeed, and the Add button is not greyed. Pre-existing checks still
+pass. App files restored, hashes identical.
+---

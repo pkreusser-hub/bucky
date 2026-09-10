@@ -1893,6 +1893,12 @@
      its existing sizing rule above, this just adds the accent outline treatment. */
   .faMoveBtn { background:transparent; border-color:var(--accent); color:var(--accent); font-weight:700; }
   .faMoveBtn:hover { background:var(--accent); color:#fff; }
+  /* A started-game lock (2026-09-10) reuses the disabled Add button. .faMoveBtn:hover
+     is the same specificity as .faAddBtn:disabled and sits later, so without this a
+     greyed Add would flash accent on hover. */
+  .faMoveBtn:disabled, .faMoveBtn:disabled:hover {
+    background:transparent; border-color:var(--divider2); color:var(--mut);
+  }
 
   .pcoverlay { position:fixed; inset:0; z-index:68; background:rgba(6,7,8,.82); backdrop-filter:blur(3px);
                display:flex; align-items:center; justify-content:center;
@@ -2243,9 +2249,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260909f"></script>
-  <script src="assets/league/lg-data.js?v=20260909f"></script>
-  <script src="assets/league/lg-ui.js?v=20260909f"></script>
+  <script src="assets/league/lg-core.js?v=20260910a"></script>
+  <script src="assets/league/lg-data.js?v=20260910a"></script>
+  <script src="assets/league/lg-ui.js?v=20260910a"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

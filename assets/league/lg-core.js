@@ -2110,6 +2110,15 @@
   LG.dropBlocked = (p) => !!p && STARTING(p.slot)
     && !!(LG.data && LG.data.gameStarted && LG.data.gameStarted(p.team));
 
+  // ⭐ WHO CAN BE ADDED ONCE THE BALL IS IN THE AIR (2026-09-10, user: "players
+  // whose games have started should always be locked until waiver period").
+  // Instant add and a newly filed claim both refuse. The unlock is the week
+  // rolling: Tuesday D.gameStarted reads the NEW slate (all pre), and he is
+  // claimable again until his next kickoff. An untracked team is "not started"
+  // — the same safe answer D.gameStarted already gives the drop rule.
+  LG.addBlocked = (p) => !!p
+    && !!(LG.data && LG.data.gameStarted && LG.data.gameStarted(p.team));
+
   // How many players a roster may hold: the slot script's own total (2026-08-15). Until now
   // nothing needed it, because every add SPLICED one player out for the one coming in and the
   // roster could therefore never change size. A standalone drop makes size a real quantity.
@@ -2409,6 +2418,9 @@
       const stashed = LG.illegalIR(await LG.ensureRoster(week, claim.teamId, { fresh: true }));
       if (stashed.length) return { ok: false, reason: "ir-illegal", players: stashed.map((p) => p.name) };
     }
+    if (claim && LG.addBlocked({ team: claim.addTeam })) {
+      return { ok: false, reason: "add-started", players: claim.addName ? [claim.addName] : [] };
+    }
     const { id: claimId, ...rest } = claim || {};
     await LG.db.set(LG.claimDocId(LG.SEASON, week, claimId), { kind: "claim", season: LG.SEASON, week, claimId, ...rest });
     // ACTIVITY LEDGER (2026-09-04) — AFTER the write, never before: a refused claim is not an
@@ -2445,6 +2457,9 @@
     // FRESH roster above, so it can't be dodged by a stale cache.
     const stashed = LG.illegalIR(ros);
     if (stashed.length) return { ok: false, reason: "ir-illegal", players: stashed.map((p) => p.name) };
+    if (LG.addBlocked(addPlayer)) {
+      return { ok: false, reason: "add-started", players: addPlayer.name ? [addPlayer.name] : [] };
+    }
     // THE OWNERSHIP BELT (2026-09-02): compared through LG.sameMan, not by raw key — a player
     // keyed `slp_<pid>` on one roster and by his ESPN id on another is the SAME man, and a raw
     // comparison happily puts him on two teams. See LG.sameMan for why both sides must resolve.
