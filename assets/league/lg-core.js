@@ -4589,10 +4589,10 @@
   // field per pairing (m_<home>_<away>), same updateMask reason as injstate. Each poll
   // tick samples D.winProb for every matchup that has starters. The first point is the
   // kickoff reading from D.winProbFromProj (live points a Sunday game already scored must
-  // not rewrite Thursday). Later points are the live model. The polyline uses sample
-  // index, same math as the NFL chart; "first game to last game" is WHEN we sample, not
-  // a 5-day X-axis that would squash Sunday into a dot next to a fixture's far-future
-  // kickoff. Cap 80, first and last kept. A read-only mirror never writes.
+  // not rewrite Thursday). Later points are the live model. X is sample index. Y is a
+  // FIXED 100/50/100 axis: away 100% at the top, 50/50 on the mid line, home 100% at
+  // the bottom — never auto-fit to the week's min/max. Cap 80, first and last kept.
+  // A read-only mirror never writes.
   const WP_GRAPH_CAP = 80;
   const WP_GRAPH_MIN_DP = 0.005;
   const WP_GRAPH_MIN_MS = 90e3;
@@ -4615,14 +4615,25 @@
     for (let i = 0; i < lim; i++) out[i] = src[Math.round((i * (n - 1)) / (lim - 1))];
     return out;
   };
-  // Same coordinates the NFL sparkline uses: viewBox 220×56, p=0 at y=52, p=1 at y=4.
+  // Fixed Y: p is the AWAY win (0..1). p=1 sits on the top pad (away 100),
+  // p=0.5 on the mid line, p=0 on the bottom pad (home 100). The NFL 56px
+  // sparkline math is deliberately not reused — that chart has no team-100
+  // axis and a 56px box cannot carry one.
+  LG.WP_PLOT = { w: 220, h: 80, pad: 4 };
+  LG.wpY = function (p) {
+    const h = LG.WP_PLOT.h, pad = LG.WP_PLOT.pad;
+    return pad + (1 - Math.max(0, Math.min(1, Number(p) || 0))) * (h - pad * 2);
+  };
   LG.wpPolyPoints = function (ps, width, height) {
-    const w = width == null ? 220 : width;
+    const w = width == null ? LG.WP_PLOT.w : width;
+    const h = height == null ? LG.WP_PLOT.h : height;
+    const pad = LG.WP_PLOT.pad;
+    const span = h - pad * 2;
     const pts = ps || [];
     if (pts.length < 2) return "";
     return pts.map((p, i) => {
       const x = ((i / (pts.length - 1)) * w).toFixed(1);
-      const y = (52 - Math.max(0, Math.min(1, p)) * 48).toFixed(1);
+      const y = (pad + (1 - Math.max(0, Math.min(1, p))) * span).toFixed(1);
       return x + "," + y;
     }).join(" ");
   };

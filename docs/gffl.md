@@ -7411,3 +7411,29 @@ or the thin/poly helpers. The inner TF checks are guarded and did not
 run; every pre-existing check still passed. App files restored, hashes
 identical.
 ---
+
+## GFFL — matchup win-% graph is a fixed 100 / 50-50 / 100 axis (2026-09-10)
+
+User: "the sparkline should have a fixed y axis so the bottom is 100
+for one team, middle is 50/50, top is 100 for the other team"
+
+The first cut reused the NFL 56px sparkline math — a line with no
+team-100 scale, so a 70-to-90 week looked like it filled the box.
+Y is now a fixed plot: away 100 at the top, 50/50 on the mid line,
+home 100 at the bottom (`y = 4 + (1-p)*72` on a 220×80 viewBox).
+Axis labels name both teams. The card is still outside `.muhead`.
+
+TF1's polyline pin is restaged from the NFL 0.25→40 / 0.5→28 /
+0.75→16 numbers to 58 / 40 / 22, with the reason at the check.
+
+Scripts cache-bust `?v=20260910d`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3418/3418**. Bite (`league.html` +
+`lg-core.js` + `lg-ui.js` at HEAD, new suite kept): **3409 pass / 9 fail**
+— HEAD still uses the NFL 56px sparkline (`0.25/0.5/0.75` → y=40/28/16,
+viewBox `220×56`, lastY=52, no `.muwpy` labels). Every pre-existing check
+still passed. App files restored, hashes identical.
+---

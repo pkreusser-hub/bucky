@@ -4034,16 +4034,26 @@
     if (!pts.length || Math.abs(pts[pts.length - 1].p - wp) > 1e-6) pts.push({ t: Date.now(), p: wp });
     if (pts.length < 2) return "";
     const ps = pts.map((r) => r.p);
-    const poly = LG.wpPolyPoints(ps);
+    const plot = LG.WP_PLOT || { w: 220, h: 80 };
+    const poly = LG.wpPolyPoints(ps, plot.w, plot.h);
     const last = ps[ps.length - 1];
     const awayLead = last >= 0.5;
     const lead = awayLead ? A : H;
     const pct = Math.round((awayLead ? last : 1 - last) * 100);
+    const pa = LG.teamPalette(A || {}), ph = LG.teamPalette(H || {});
     const stroke = (LG.teamPalette(lead || {}) || {}).primary || "var(--accent)";
+    const midY = (plot.h / 2).toFixed(1);
     return `<div class="seclabel"><b>Projected win %</b></div>
-      <div class="nflwp">
-        <svg viewBox="0 0 220 56" preserveAspectRatio="none" role="img" aria-label="Projected win probability">
-          <line x1="0" y1="28" x2="220" y2="28" stroke="var(--divider)" stroke-width="1"/>
+      <div class="muwp">
+        <div class="muwpy" aria-hidden="true">
+          <span class="muwpyt"><b>${esc(teamTag(A))}</b> 100</span>
+          <span class="muwpym">50/50</span>
+          <span class="muwpyb"><b>${esc(teamTag(H))}</b> 100</span>
+        </div>
+        <svg class="muwpsvg" viewBox="0 0 ${plot.w} ${plot.h}" preserveAspectRatio="none" role="img" aria-label="Projected win probability, ${esc(teamTag(A))} 100 at the top, 50/50 in the middle, ${esc(teamTag(H))} 100 at the bottom">
+          <rect class="muwpband a" x="0" y="0" width="${plot.w}" height="${midY}" fill="${esc(pa.primary || "#888")}" opacity="0.14"/>
+          <rect class="muwpband h" x="0" y="${midY}" width="${plot.w}" height="${midY}" fill="${esc(ph.primary || "#888")}" opacity="0.14"/>
+          <line class="muwpmid" x1="0" y1="${midY}" x2="${plot.w}" y2="${midY}" stroke="var(--divider)" stroke-width="1"/>
           <polyline class="muwpline" points="${poly}" fill="none" stroke="${esc(stroke)}" stroke-width="2"/></svg>
         <div class="nflwpv"><b>${esc(teamTag(lead))} ${pct}%</b><span class="mut small">projected win %</span></div>
       </div>

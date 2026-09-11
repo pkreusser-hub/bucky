@@ -23908,6 +23908,10 @@ async function openDetails(page, id) {
           hooks: true, from, live,
           t0: win && win.t0, firstKick: Date.parse("2026-08-07T00:15:00Z"),
           poly: typeof LG.wpPolyPoints === "function" ? LG.wpPolyPoints([0.25, 0.5, 0.75]) : null,
+          axis: typeof LG.wpPolyPoints === "function" ? LG.wpPolyPoints([0, 0.5, 1]) : null,
+          y0: typeof LG.wpY === "function" ? LG.wpY(0) : null,
+          y50: typeof LG.wpY === "function" ? LG.wpY(0.5) : null,
+          y100: typeof LG.wpY === "function" ? LG.wpY(1) : null,
         };
       }, A9, B3);
       ok(r.hooks === true, "D.winProbFromProj / D.slateWindow exist (" + JSON.stringify(r) + ")");
@@ -23915,8 +23919,16 @@ async function openDetails(page, id) {
         ok(Math.abs(r.from - r.live) < 1e-9, "…and the kickoff model equals D.winProb when every game is still pre (" + r.from + " vs " + r.live + ")");
         ok(r.from > 0.5 && r.from < 0.95, "…the 90-vs-80 edge is the same sane favoritism AQ1 already pins (" + r.from + ")");
         ok(r.t0 === r.firstKick, "slateWindow's first kickoff is DAL@PHI (2026-08-07T00:15Z) (" + r.t0 + ")");
-        ok(r.poly === "0.0,40.0 110.0,28.0 220.0,16.0",
-          "wpPolyPoints is the NFL sparkline's own 220×56 math — 0.25/0.5/0.75 → 0,40 / 110,28 / 220,16 (" + r.poly + ")");
+        // RESTAGED 2026-09-10: used to pin the NFL 56px sparkline (0.25→40, 0.5→28, 0.75→16).
+        // That box has no team-100 axis. The matchup chart is a fixed 80-tall plot:
+        // away 100 at y=4, 50/50 at y=40, home 100 at y=76. Hand-computed:
+        // y = 4 + (1-p)*72.
+        ok(r.poly === "0.0,58.0 110.0,40.0 220.0,22.0",
+          "wpPolyPoints is the fixed 100/50/100 axis — 0.25/0.5/0.75 → y=58/40/22 (" + r.poly + ")");
+        ok(r.axis === "0.0,76.0 110.0,40.0 220.0,4.0",
+          "…home 100 is the bottom, 50/50 the mid line, away 100 the top (" + r.axis + ")");
+        ok(r.y100 === 4 && r.y50 === 40 && r.y0 === 76,
+          "…wpY(1) < wpY(0.5) < wpY(0) so away-100 is above home-100 (" + JSON.stringify({ y100: r.y100, y50: r.y50, y0: r.y0 }) + ")");
       }
       ok(errors.length === 0, "0 page errors on the kickoff model");
       await ctx.close();
@@ -23988,14 +24000,21 @@ async function openDetails(page, id) {
           const el = document.getElementById("muWp");
           const poly = el && el.querySelector("polyline.muwpline");
           const pts = (poly && poly.getAttribute("points") || "").trim().split(/\s+/);
+          const last = pts[pts.length - 1] ? pts[pts.length - 1].split(",") : [];
+          const mid = el && el.querySelector(".muwpmid");
           const head = document.querySelector(".card.muhead");
           const note = el && (el.textContent || "").replace(/\s+/g, " ");
+          const txt = (sel) => { const n = el && el.querySelector(sel); return n ? n.textContent.replace(/\s+/g, " ").trim() : ""; };
           return {
             hidden: !!(el && el.hidden),
             parent: el && el.offsetParent !== null,
             n: pts.length,
             firstX: pts[0] && pts[0].split(",")[0],
-            lastX: pts[pts.length - 1] && pts[pts.length - 1].split(",")[0],
+            lastX: last[0],
+            lastY: last[1] ? Number(last[1]) : null,
+            midY: mid ? Number(mid.getAttribute("y1")) : null,
+            vb: el && el.querySelector("svg") && el.querySelector("svg").getAttribute("viewBox"),
+            top: txt(".muwpyt"), mid: txt(".muwpym"), bot: txt(".muwpyb"),
             headH: head ? Math.round(head.getBoundingClientRect().height) : 0,
             note: note,
             inHead: !!(head && head.querySelector("polyline")),
@@ -24003,7 +24022,13 @@ async function openDetails(page, id) {
         });
         ok(painted.parent === true && painted.hidden === false, "…the card is visible (offsetParent set) (" + JSON.stringify(painted) + ")");
         ok(painted.n >= 2 && painted.firstX === "0.0" && painted.lastX === "220.0",
-          "…polyline starts at x=0 and ends at x=220, NFL viewBox (" + JSON.stringify(painted) + ")");
+          "…polyline starts at x=0 and ends at x=220 (" + JSON.stringify(painted) + ")");
+        ok(painted.vb === "0 0 220 80", "…on the fixed 220×80 plot, not the NFL 56px sparkline (" + painted.vb + ")");
+        ok(painted.midY === 40, "…the 50/50 line is the vertical midpoint (y=40) (" + painted.midY + ")");
+        ok(painted.lastY != null && painted.lastY > 70, "…a home lock sits near the BOTTOM (home 100), not auto-fit to the line (" + painted.lastY + ")");
+        ok(/T2/.test(painted.top) && /100/.test(painted.top), "…top of the axis is the away team at 100 (" + painted.top + ")");
+        ok(painted.mid === "50/50", "…middle reads 50/50 (" + painted.mid + ")");
+        ok(/T1/.test(painted.bot) && /100/.test(painted.bot), "…bottom of the axis is the home team at 100 (" + painted.bot + ")");
         ok(painted.inHead === false && painted.headH <= 148, "…and it is NOT inside .muhead, whose ceiling still holds (" + painted.headH + "px)");
         ok(painted.note && /First kickoff to the last game/.test(painted.note) && /projected win %/i.test(painted.note),
           "…copy names the week window and says projected win % (" + JSON.stringify(painted.note) + ")");
