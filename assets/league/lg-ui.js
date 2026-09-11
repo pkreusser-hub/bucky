@@ -2849,10 +2849,12 @@
   // clamped ON-DARK derivation, never the raw pick.
   function teamNameHtml(t, opts) {
     opts = opts || {};
-    const nm = (t && t.name) || "?";
+    const full = (t && t.name) || "?";
+    const nm = opts.tag ? teamTag(t) : full;
     const cls = "tname" + (opts.big ? " big" : "") + (opts.cls ? " " + opts.cls : "");
+    const title = opts.tag && full !== nm ? ` title="${esc(full)}"` : "";
     const attrs = opts.attrs || "";
-    return `<span class="${cls}" style="${esc(LG.teamStyle(t || {}))}"${attrs}>${esc(nm)}</span>`;
+    return `<span class="${cls}" style="${esc(LG.teamStyle(t || {}))}"${attrs}${title}>${esc(nm)}</span>`;
   }
   function logoTd(t) { return crestHtml(t, "tlogo"); }
   // A team NAMED inside a row of prose or controls (the Moves page's trade rows, the veto
@@ -2891,7 +2893,7 @@
       ${starWrap}
       <div class="muhtop">${avatarHtml(T, id === mine)}
         <div class="muhscore"><span class="bigpts">${LG.fmtPts(tot)}</span><span class="mut muhproj">${LG.fmtPts(proj)}</span></div></div>
-      <b class="teamlink muhname tname big" data-locker="${id}" title="${esc(T?.name || "?")}">${esc(T?.name || "?")}</b>
+      <b class="teamlink muhname tname big" data-locker="${id}" title="${esc(T?.name || "?")}">${esc(teamTag(T))}</b>
       <div class="mut muhsub">${rem.left} to play · ${rem.playing} live</div></div>`;
   }
   // FIT, DON'T CLIP (2026-08-11, user: "instead of cutting off text it adjusts text size…
@@ -2961,18 +2963,9 @@
     const hKeys = teamStarters(h).map((p) => p.key), aKeys = teamStarters(a).map((p) => p.key);
     const wp = d.winProb(aKeys, hKeys); // away perspective, same convention as the matchup page
     const hRem = d.remaining(hKeys), aRem = d.remaining(aKeys);
-    const anyLive = hRem.playing > 0 || aRem.playing > 0;
-    // "Nobody left to play" is only FINAL if anybody was ever counted. On the viewer's own card
-    // that was always true, so it never mattered; once EVERY card carries the strip (item 27) a
-    // matchup whose rosters aren't set — or that hasn't loaded yet — has zero starters on both
-    // sides and would announce itself as Final, which is a claim about a game nobody has played.
-    // Caught on the review plate: four 0.0-0.0 games, all reading FINAL.
-    // (The Matchup page's own header carries the same expression; it is left alone deliberately —
-    // a different surface, reached one game at a time, and not this batch's to restage.)
+    // Counted starters decide whether the bar may fill. Zero on both sides is an empty
+    // track, never an even-money claim about a game nobody has played.
     const counted = hRem.played + hRem.playing + hRem.left + aRem.played + aRem.playing + aRem.left;
-    const allDone = counted > 0 && !anyLive && hRem.left === 0 && aRem.left === 0;
-    const badge = anyLive ? '<span class="herobadge live"><span class="dot"></span>Live</span>'
-      : allDone ? '<span class="herobadge">Final</span>' : '<span class="herobadge">Upcoming</span>';
     // THE DESKTOP DESIGN PASS (2026-08-11, user: "the matchups should have the same color
     // probability bar from their logos"). The card's bar used to be one flat accent fill on a
     // grey track — the same colour on every card, saying nothing about WHO was ahead. It is now
@@ -2994,7 +2987,9 @@
       ? `<i style="width:${pct}%;background:${esc(pa.primary)}"></i><em style="width:${100 - pct}%;background:${esc(ph.primary)}"></em>`
       : "";
     const title = counted > 0 ? "" : ' title="No lineup data for this matchup yet"';
-    return `<span class="herorow">${badge}<span class="mupbar mini${counted > 0 ? "" : " unknown"}"${title}>${fill}</span></span>`;
+    // 2026-09-11: Upcoming/Live/Final left the strip — on a phone the label ate the
+    // names. The bar is the whole row now, centered.
+    return `<span class="herorow"><span class="mupbar mini${counted > 0 ? "" : " unknown"}"${title}>${fill}</span></span>`;
   }
   function matchupCard(h, a) {
     const H = LG.teamById(h), A = LG.teamById(a);
@@ -3016,9 +3011,9 @@
     const aStar = decided.winner === "B" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
     const hStar = decided.winner === "A" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
     return `<button class="mucard muslash ${isMine ? "mine" : ""}" data-mu="${h}-${a}" style="${slashVars}">
-      <span class="muteam">${aStar}${logoTd(A)}${teamNameHtml(A, { cls: "muteamname" })}</span>
+      <span class="muteam">${aStar}${logoTd(A)}${teamNameHtml(A, { cls: "muteamname", tag: true })}</span>
       <span class="muscore">${LG.fmtPts(liveTotal(a))} — ${LG.fmtPts(liveTotal(h))}</span>
-      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname" })}${logoTd(H)}${hStar}</span>
+      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname", tag: true })}${logoTd(H)}${hStar}</span>
       ${matchupHeroExtra(h, a)}</button>`;
   }
 
@@ -3346,9 +3341,9 @@
       const score = m ? `${LG.fmtPts(m.awayPts)} — ${LG.fmtPts(m.homePts)}` : "— vs —";
       const slashVars = `--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tta:${esc(pa.tertiary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)};--tth:${esc(ph.tertiary)}`;
       return `<div class="mucard muslash static" style="${slashVars}">
-        <span class="muteam">${logoTd(A)}${teamNameHtml(A, { cls: "muteamname" })}</span>
+        <span class="muteam">${logoTd(A)}${teamNameHtml(A, { cls: "muteamname", tag: true })}</span>
         <span class="muscore">${score}</span>
-        <span class="muteam right">${teamNameHtml(H, { cls: "muteamname" })}${logoTd(H)}</span>
+        <span class="muteam right">${teamNameHtml(H, { cls: "muteamname", tag: true })}${logoTd(H)}</span>
         <span class="herorow"></span></div>`;
     };
     return `<div class="card"><h2>GFFL — Week ${w}${weekly ? "" : ' <span class="mut small">upcoming</span>'}</h2><div class="mugrid">${games.map(card).join("")}</div></div>`;
@@ -4102,20 +4097,6 @@
     const mine = LG.myTeamId();
     // (The "owner · record" line and its loadStandings() read left with the 2026-08-11
     // cosmetic pass — the standings table remains the one place a record is stated.)
-    const anyLive = hRem.playing > 0 || aRem.playing > 0;
-    // ⭐ THE SAME `counted > 0` GUARD THE LEAGUE CARD ALREADY CARRIES (2026-09-02, U-S4). This
-    // is the "KNOWN, deliberately not restaged" the 2026-08-09 item-27 entry left on the record:
-    // `!anyLive && left === 0` is vacuously TRUE when both sides have ZERO starters, so the
-    // Matchup page's own header announced **Final** over a matchup nobody has played — which is
-    // every matchup in the league between the season reset and draft day, and every bye-week
-    // opponent after it. The league home's card was fixed then; this surface is reached one
-    // game at a time and was not. It is the same expression, so it takes the same guard.
-    // (named countedSlots — `counted` is already taken further down by the win bar's own
-    // both-sides-have-starters test, which is a stricter question than this one)
-    const countedSlots = hRem.played + hRem.playing + hRem.left + aRem.played + aRem.playing + aRem.left;
-    const allDone = countedSlots > 0 && !anyLive && hRem.left === 0 && aRem.left === 0;
-    const liveIndicator = anyLive ? '<div class="mulive"><span class="dot"></span>Live</div>'
-      : allDone ? '<div class="mulive done">Final</div>' : "";
     const rows = pairBySlots(as_, hs);
     // Item 3 (2026-08-08): bench, in the same symmetric two-sided layout as the starters —
     // paired by roster order (bench has no fixed slot names to line up by), padded to whichever
@@ -4169,9 +4150,7 @@
     const muHeadInner = `
         <div class="muhrow">
           ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "", aStar)}
-          <div class="muhmid">
-            ${liveIndicator}
-          </div>
+          <div class="muhmid"></div>
           ${muTeamHead(H, hId, mine, hTot, hProj, hRem, " right", hStar)}
         </div>
         <div class="mut small mupweek">Week ${UI.week}</div>

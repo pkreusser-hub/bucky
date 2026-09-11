@@ -5657,10 +5657,14 @@ async function openDetails(page, id) {
     // League home at week 15: both fully-known games show as ordinary matchup cards.
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
     await page.waitForSelector(".mucard", { timeout: 5000 });
-    const wk15cards = await page.$$eval(".mucard", (els) => els.map((e) => e.textContent.replace(/\s+/g, " ").trim()));
+    const wk15cards = await page.$$eval(".mucard", (els) => els.map((e) => ({
+      tags: [...e.querySelectorAll(".muteamname")].map((n) => n.textContent.trim()),
+    })));
     ok(wk15cards.length === 2, "week 15's matchup-card list: exactly the play-in + consolation A games (" + wk15cards.length + ")");
-    ok(wk15cards.some((t) => /Waffle House Warriors/.test(t) && /Wyoming Cowboys/.test(t)), "…the play-in game (team4 vs team3)");
-    ok(wk15cards.some((t) => /End Zone Goats/.test(t) && /The Goat Kids/.test(t)), "…the consolation game (team2 vs team8)");
+    // RESTAGED 2026-09-11: cards paint the abbrev. Read .muteamname — "T3" glued to
+    // "0.0" in the card's textContent is not a word boundary.
+    ok(wk15cards.some((c) => c.tags.includes("T4") && c.tags.includes("T3")), "…the play-in game (team4 vs team3)");
+    ok(wk15cards.some((c) => c.tags.includes("T2") && c.tags.includes("T8")), "…the consolation game (team2 vs team8)");
 
     // Week 16: semi2 was ALREADY fully known at build time (both bye seeds — #2 vs #3), so it
     // shows normally right alongside the consolation B game; semi1 (still waiting on the
@@ -5668,10 +5672,12 @@ async function openDetails(page, id) {
     await page.evaluate(() => { window.__GFFL__.UI.week = 16; });
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
     await page.waitForSelector(".mucard", { timeout: 5000 });
-    const wk16cards = await page.$$eval(".mucard", (els) => els.map((e) => e.textContent.replace(/\s+/g, " ").trim()));
+    const wk16cards = await page.$$eval(".mucard", (els) => els.map((e) => ({
+      tags: [...e.querySelectorAll(".muteamname")].map((n) => n.textContent.trim()),
+    })));
     ok(wk16cards.length === 2, "week 16's list: exactly semi2 (already known) + consolation B — semi1 is skipped, not guessed at (" + JSON.stringify(wk16cards) + ")");
-    ok(wk16cards.some((t) => /Battle Kreussers/.test(t) && /Team Seven/.test(t)), "…semi2, fully resolved (team7 vs team1)");
-    ok(wk16cards.some((t) => /Team Six/.test(t) && /End Zone Goats/.test(t)), "…the resolved consolation B game (team6 vs team2)");
+    ok(wk16cards.some((c) => c.tags.includes("T1") && c.tags.includes("T7")), "…semi2, fully resolved (team7 vs team1)");
+    ok(wk16cards.some((c) => c.tags.includes("T6") && c.tags.includes("T2")), "…the resolved consolation B game (team6 vs team2)");
 
     // The bracket page: byes, the "Winner of #4/#5" placeholder for the still-open semi.
     await page.evaluate(() => window.__GFFL__.UI.openBracket());
@@ -9996,7 +10002,7 @@ async function openDetails(page, id) {
           pts: [...h.querySelectorAll(".bigpts")].map((e) => e.textContent.trim()),
           proj: [...h.querySelectorAll(".muhproj")].map((e) => e.textContent.trim()),
           toPlay: /to play/.test(txt), live2: /live/.test(txt),
-          names: /Battle Kreussers/.test(txt) && /End Zone Goats/.test(txt),
+          names: /\bT1\b/.test(txt) && /\bT2\b/.test(txt),
         };
       });
       // MEASURED before this batch, same fixture, same viewport: 220px.
@@ -10010,8 +10016,10 @@ async function openDetails(page, id) {
       // wrap, so the ordered-layout ceiling moves 140 → 148. A short one-line name still
       // measures ~132; the probe pins the stress case (28 chars) at ≤146.
       ok(head.height <= 148, "the matchup header fits the two-row ceiling — 220px two batches ago, " + head.height + "px now");
-      ok(head.wp && head.live, "…with the win-probability bar and the live/Final indicator both still on it");
-      ok(head.avatars === 2 && head.names && head.pts.join("/") === "3.0/37.0", "…both crests, both names, both scores — RESTAGED 2026-08-22, ESPN 2026 D/ST rates");
+      // RESTAGED 2026-09-11: Upcoming/Live left the header — the bar is the state.
+      // Names are the team abbrev (T1/T2 in this fixture) so a 390px phone can read them.
+      ok(head.wp && !head.live, "…with the win-probability bar, and no Live/Upcoming label on it");
+      ok(head.avatars === 2 && head.names && head.pts.join("/") === "3.0/37.0", "…both crests, both abbreviations, both scores — RESTAGED 2026-08-22, ESPN 2026 D/ST rates");
       // RESTAGED 2026-08-09 (the ESPN header rebuild): the projection is still there, on both
       // sides, but as a BARE muted number under the score — the reference carries no "Proj"
       // label, so /proj/i is no longer the right way to ask whether it survived.
@@ -10445,7 +10453,8 @@ async function openDetails(page, id) {
       const mineNow = await page.evaluate(() => window.__GFFL__.UI.matchup);
       ok(JSON.stringify(mineNow) === "[1,2]", "…but pressing the Matchup TAB always returns to the user's own game (" + JSON.stringify(mineNow) + ")");
       const shown = await page.evaluate(() => document.querySelector(".muhead").textContent);
-      ok(/Battle Kreussers/.test(shown), "…and that is the game on screen, not merely the state variable");
+      // RESTAGED 2026-09-11: the header paints the abbrev (T1), not the full name.
+      ok(/\bT1\b/.test(shown), "…and that is the game on screen, not merely the state variable (" + JSON.stringify(shown.replace(/\s+/g, " ").trim()) + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -11115,12 +11124,14 @@ async function openDetails(page, id) {
       ok(head.a.projPx < head.a.bigPx, "…smaller than it (" + head.a.projPx + "px vs " + head.a.bigPx + "px)");
       ok(/^\d+(\.\d)?$/.test(head.a.proj || "") && /^\d+(\.\d)?$/.test(head.b.proj || ""),
         "…and a BARE number — the reference carries no 'Proj' label (" + JSON.stringify([head.a.proj, head.b.proj]) + ")");
-      ok(/Battle Kreussers/.test(head.b.name || "") && /End Zone Goats/.test(head.a.name || ""), "team names below the scores, both sides");
+      // RESTAGED 2026-09-11: header names are the abbrev so they always fit.
+      ok(/\bT1\b/.test(head.b.name || "") && /\bT2\b/.test(head.a.name || ""), "team abbreviations below the scores, both sides (" + JSON.stringify([head.a.name, head.b.name]) + ")");
       // RESTAGED (cosmetic pass 2026-08-11): the owner · record line this used to measure is
       // REMOVED by the user's order — the standings table is the one place a record is stated.
       // The check inverts: the line must be GONE.
       ok(head.ownerGone, "…and the owner · record line is gone (the record lives in the standings table)");
-      ok(head.wp && head.live && head.week, "…while the header keeps the live indicator, the week and the (now full-width) win-probability bar");
+      // RESTAGED 2026-09-11: Live/Upcoming left the centre column; the bar stays.
+      ok(head.wp && !head.live && head.week, "…while the header keeps the week and the win-probability bar, with no Live/Upcoming label");
 
       // -- the little crests.
       const crests = await page.evaluate(() => {
@@ -12644,7 +12655,12 @@ async function openDetails(page, id) {
           bars: cards.filter((c) => c.querySelector(".mupbar.mini")).length,
           fills: cards.filter((c) => c.querySelector(".mupbar.mini i")).length,
           unknown: cards.filter((c) => c.querySelector(".mupbar.mini.unknown")).length,
-          badgeText: cards.map((c) => (c.querySelector(".herobadge") || {}).textContent || ""),
+          names: cards.map((c) => [...c.querySelectorAll(".muteamname")].map((n) => (n.textContent || "").trim())),
+          nameFit: cards.every((c) => [...c.querySelectorAll(".muteamname")].every((n) => n.scrollWidth <= n.clientWidth + 1)),
+          scorePx: (() => {
+            const s = document.querySelector(".mucard.mine .muscore");
+            return s ? parseFloat(getComputedStyle(s).fontSize) : null;
+          })(),
           // Every strip must be genuinely VISIBLE, not merely in the DOM — the compact card is a
           // 3-column grid and the hero's explicit `grid-row:3` would have parked the strip in an
           // empty third row there (it is scoped under .mine for exactly that reason).
@@ -12666,18 +12682,15 @@ async function openDetails(page, id) {
       })) || {};
       ok(home.cards === 4, "the league home shows this week's 4 matchups (" + home.cards + ")");
       ok(home.strips === 4, "ITEM 27: EVERY matchup card carries the state strip, not just the viewer's own (" + home.strips + "/" + home.cards + ")");
-      ok(home.badges === 4 && home.bars === 4, "…each strip carries BOTH the Live/Final/Upcoming badge and the win-probability bar (" + home.badges + " badges, " + home.bars + " bars)");
+      // RESTAGED 2026-09-11: Upcoming/Live/Final left the strip so the bar can sit
+      // centered. The empty-roster case is the unknown track (already pinned below),
+      // not a Final label.
+      ok(home.badges === 0 && home.bars === 4, "…each strip is the projection bar alone, no Live/Upcoming label (" + home.badges + " badges, " + home.bars + " bars)");
       ok(home.mine === 1, "…and the viewer's own card is still marked .mine — 'this is your game' survives (" + home.mine + ")");
-      ok((home.badgeText || []).every((t) => /^(Live|Final|Upcoming)$/.test(String(t).trim())),
-        "every badge reads a real state, never blank — " + JSON.stringify(home.badgeText));
-      // Only teams 1 and 2 have rosters in this fixture, so the other three matchups have ZERO
-      // starters on both sides. "Nobody left to play" must NOT be read as Final there — that
-      // would be announcing a result for a game nobody has played. Found on the review plate,
-      // where all three read FINAL before the guard went in.
-      ok((home.badgeText || []).filter((t) => /Final/.test(String(t))).length === 0,
-        "a matchup with no roster data reads Upcoming, never Final — nothing has been played — " + JSON.stringify(home.badgeText));
-      ok((home.badgeText || []).some((t) => /Live/.test(String(t))),
-        "…while the matchup that DOES have players mid-game still reads Live");
+      ok((home.names || []).every((pair) => pair.length === 2 && pair.every((n) => /^T\d+$/.test(n))),
+        "every card paints the team abbreviation, not the full name (" + JSON.stringify(home.names) + ")");
+      ok(home.nameFit === true, "…and those abbreviations fit their box at 390px — no ellipsis");
+      ok(home.scorePx != null && home.scorePx <= 24, "…the hero score is small enough to keep the names (" + home.scorePx + "px)");
       ok(home.minH > 0 && home.inside === true,
         "every strip is genuinely visible and inside its own card (shortest " + home.minH + "px) — the hero's grid-row:3 does not leak onto the compact cards");
       // The bar has to be COMPUTED per game, and it must not CLAIM anything about a matchup it
@@ -14841,7 +14854,8 @@ async function openDetails(page, id) {
         head: (document.querySelector(".muhead") || {}).textContent || "" })) || {};
       ok(mine.view === "matchup" && JSON.stringify(mine.mu) === "[1,2]",
         "…and pressing the Matchup TAB still returns you to your OWN game (" + JSON.stringify(mine.mu) + ")");
-      ok(/Battle Kreussers/.test(mine.head), "…and that is the game on SCREEN, not merely the state variable");
+      // RESTAGED 2026-09-11: the header paints the abbrev (T1), not the full name.
+      ok(/\bT1\b/.test(mine.head), "…and that is the game on SCREEN, not merely the state variable");
       // Back/Forward across a card-opened matchup restores the same game — the pick is sticky
       // state, not part of the URL, so it rides in the history entry.
       await tapNav(page, "league"); await waitView(page, "league");
@@ -22339,7 +22353,8 @@ async function openDetails(page, id) {
       await ctx.close();
     }
     {
-      // …and the CONTROL half: a real, filled, all-post matchup still reads Final.
+      // …and the CONTROL half: a real, filled, all-post matchup still has the bar
+      // and no status word — the label is gone for everyone, not just the empty case.
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
       await waitOr(page, ".mucard");
@@ -22350,8 +22365,19 @@ async function openDetails(page, id) {
         window.__GFFL__.UI.show("matchup");
       });
       await waitOr(page, ".muhead");
-      const filled = await evalOr(page, () => (document.querySelector(".muhead") || {}).textContent.replace(/\s+/g, " ").trim());
-      ok(/Final/.test(filled || ""), "CONTROL: filled rosters with every game post DO read Final — the guard narrows nothing real (" + String(filled || "").slice(0, 70) + ")");
+      const filled = await evalOr(page, () => {
+        const h = document.querySelector(".muhead");
+        return {
+          txt: h ? h.textContent.replace(/\s+/g, " ").trim() : "",
+          badge: !!(h && (h.querySelector(".mulive") || h.querySelector(".herobadge"))),
+          bar: !!(h && h.querySelector(".mupbar")),
+        };
+      });
+      // RESTAGED 2026-09-11: Final/Live/Upcoming left the header. The empty-roster
+      // guard's job was "don't lie Final"; the label itself is gone, so a finished
+      // matchup is the same shape — scores + bar, no status word.
+      ok(filled && filled.bar && !filled.badge && !/Final/.test(filled.txt || ""),
+        "CONTROL: a finished matchup still has the bar and no status label (" + JSON.stringify(filled) + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }

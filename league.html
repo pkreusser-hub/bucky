@@ -369,13 +369,11 @@
             text-transform:none; letter-spacing:normal; } /* button's own uppercase must not inherit onto natural-case team names */
   .mucard:hover, .mucard:focus-visible { border-color:var(--border-hover); background:var(--row-hover2); }
   /* The hero ("mine") card can't keep the compact card's 3-column [name|score|name]
-     layout at its bigger type scale — a 32px combined "4.0 — 41.0" string in the middle
-     "auto" column leaves too little room either side and forces team names into an
-     ugly wrap-or-truncate fight. Reflowed into its own row-based grid instead: names
-     on row 1 (one per side, plenty of width each), the score centered full-width on
-     row 2, badge/win-prob full-width on row 3 — .muteam/.muscore keep their required
-     class names and text (data/tests are unaffected), only their grid placement differs
-     under .mine. */
+     layout at a large type scale — a fat combined score in the middle "auto" column
+     leaves too little room either side. Reflowed into its own row-based grid: names
+     on row 1, the score centered full-width on row 2, the win-prob bar on row 3.
+     Cards paint the team ABBREV (full name is the title) so a 390px phone never
+     ellipsizes "Battle Kreussers". */
   .mucard.mine { grid-column:1 / -1; order:-1; grid-template-columns:1fr 1fr; grid-template-rows:auto auto auto;
                  gap:4px 10px; border-color:var(--accent); border-radius:var(--radius-card);
                  padding:16px; background:var(--card); }
@@ -395,13 +393,13 @@
   .muteam.right .clinchwrap.sm { margin-right:0; margin-left:3px; }
   .mucard.mine .muteam { grid-row:1; font-size:14px; }
   .mucard.mine .muteam .muteamname { font-size:14px; }
-  .muscore { font:700 16px var(--font-num); font-variant-numeric:tabular-nums; }
-  .mucard.mine .muscore { grid-row:2; grid-column:1 / -1; text-align:center; font-size:32px; }
+  .muscore { font:700 14px var(--font-num); font-variant-numeric:tabular-nums; }
+  .mucard.mine .muscore { grid-row:2; grid-column:1 / -1; text-align:center; font-size:22px; }
   /* ITEM 27 (2026-08-09): the badge + win-prob bar now renders on EVERY matchup card, not just
      .mine. The explicit `grid-row:3` was written for the hero card's 3-row grid and had to move
      under .mine — on the compact card (a single implicit row) it would have forced an EMPTY row 2
      and dropped the strip to row 3. Full-width placement (grid-column:1/-1) is right for both. */
-  .herorow { grid-column:1 / -1; display:flex; align-items:center; gap:12px; margin-top:2px; }
+  .herorow { grid-column:1 / -1; display:flex; align-items:center; justify-content:center; gap:0; margin-top:2px; }
   .mucard.mine .herorow { grid-row:3; }
   /* The compact card's strip is quieter than the hero's — it sits under a 13px name row, so a
      full-size badge would out-shout the score it belongs to. */
@@ -499,7 +497,7 @@
      specificity, so source order decides) and repeated in the muhero block below, whose own
      selector is more specific than either. */
   .muavatar.cutout { box-shadow:none; }
-  .bigpts { font:800 30px/1.02 var(--font-num); font-variant-numeric:tabular-nums; }
+  .bigpts { font:800 22px/1.02 var(--font-num); font-variant-numeric:tabular-nums; }
   @media (min-width:700px) { .muavatar { width:62px; height:62px; font-size:20px; } }
   /* THE ESPN HEADER (2026-08-09, from the user's own screenshot of the real app): crest on the
      OUTER edge, score block on the INNER — mirrored, so the two big numbers face each other
@@ -598,7 +596,8 @@
     .muhead.muhero .muhteam .muhname { order:2; flex:1 1 auto; min-width:0; }
     .muhead.muhero .muhteam:not(.right) .muhname { padding-left:66px; }
     .muhead.muhero .muhteam.right .muhname { padding-right:66px; }
-    .muhead.muhero .muhname.tname.big { font-size:30px; }
+    .muhead.muhero .muhname.tname.big { font-size:22px; }
+    .muhead.muhero .bigpts { font-size:26px; }
     .muhead.muhero .muhteam .muhscore { order:3; margin-left:auto; }
     .muhead.muhero .muhteam.right .muhscore { order:1; margin-left:0; margin-right:auto; }
     .muhead.muhero .muhteam.right .muhname { order:2; }
@@ -2263,9 +2262,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260910e"></script>
-  <script src="assets/league/lg-data.js?v=20260910e"></script>
-  <script src="assets/league/lg-ui.js?v=20260910e"></script>
+  <script src="assets/league/lg-core.js?v=20260911a"></script>
+  <script src="assets/league/lg-data.js?v=20260911a"></script>
+  <script src="assets/league/lg-ui.js?v=20260911a"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

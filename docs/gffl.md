@@ -7467,3 +7467,32 @@ second point; the later `projFor` change wrote nothing), still paints
 2 shaded bands and a 2px stroke. Every pre-existing check still
 passed. App files restored, hashes identical.
 ---
+
+## GFFL — matchup cards use abbrevs, smaller scores, bar only (2026-09-11)
+
+User: "in mobile view, the team names are too long to read in the
+matchup page, lets use the team abbreviations and lets make the
+scoring text a bit smaller so you can always read the names and
+score or any device. also get rid of the upcoming/live text and
+just have the projection bar centered"
+
+League-home / Scores cards and the matchup header now paint
+`teamTag` (full name stays on `title`). Hero score 32→22, compact
+16→14, header `.bigpts` 30→22 (26 on desktop). Upcoming/Live/Final
+left the card strip and the header centre column — the projection
+bar is the whole row.
+
+AH1's badge pins are restaged to "bar alone + abbrev fits at
+390px"; AD6 / the ESPN-header name pins follow the abbrev.
+
+Scripts cache-bust `?v=20260911a`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3421/3421**. Bite (`league.html` +
+`lg-ui.js` at HEAD, new suite kept): **3406 pass / 15 fail** — HEAD still
+paints full names (they overflow at 390px), a 32px hero score, and
+Live/Upcoming/Final on the card strip and header. Every pre-existing
+check still passed. App files restored, hashes identical.
+---
