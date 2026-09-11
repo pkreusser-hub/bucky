@@ -4586,16 +4586,16 @@
   // ---------------- matchup projected-win% graph (2026-09-10) ----------------
   // The NFL game page already draws ESPN's winprob series as a sparkline. Fantasy has no
   // upstream series, so this keeps one — a league-wide doc per week, one TOP-LEVEL array
-  // field per pairing (m_<home>_<away>), same updateMask reason as injstate. Each poll
-  // tick samples D.winProb for every matchup that has starters. The first point is the
-  // kickoff reading from D.winProbFromProj (live points a Sunday game already scored must
-  // not rewrite Thursday). Later points are the live model. X is sample index. Y is a
-  // FIXED 100/50/100 axis: away 100% at the top, 50/50 on the mid line, home 100% at
-  // the bottom — never auto-fit to the week's min/max. Cap 80, first and last kept.
-  // A read-only mirror never writes.
+  // field per pairing (m_<home>_<away>), same updateMask reason as injstate. Every point
+  // is D.winProbFromProj — the same projection totals the matchup card already shows.
+  // Live scores and the clock move D.winProb (the header bar) without touching projFor;
+  // those must not grow the series, or the line crawls while the projection sits still.
+  // A new point is written only when that projection-win% itself moves. X is sample
+  // index. Y is a FIXED 100/50/100 axis: away 100% at the top, 50/50 on the mid line,
+  // home 100% at the bottom — never auto-fit to the week's min/max. Cap 80, first and
+  // last kept. A read-only mirror never writes.
   const WP_GRAPH_CAP = 80;
   const WP_GRAPH_MIN_DP = 0.005;
-  const WP_GRAPH_MIN_MS = 90e3;
   LG.wpGraphId = (week) => "wpgraph_" + LG.SEASON + "_w" + week;
   LG.wpField = (hId, aId) => "m_" + hId + "_" + aId;
   function starterKeysFor(teamId) {
@@ -4673,14 +4673,9 @@
       const hId = pair[0], aId = pair[1];
       const hKeys = starterKeysFor(hId), aKeys = starterKeysFor(aId);
       if (!hKeys.length || !aKeys.length) continue;
-      const p = d.winProb(aKeys, hKeys);
+      const p = d.winProbFromProj ? d.winProbFromProj(aKeys, hKeys) : d.winProb(aKeys, hKeys);
       if (!Number.isFinite(p)) continue;
-      const p0 = d.winProbFromProj ? d.winProbFromProj(aKeys, hKeys) : p;
-      const remA = d.remaining(aKeys), remH = d.remaining(hKeys);
-      const counted = remA.played + remA.playing + remA.left + remH.played + remH.playing + remH.left;
-      const allDone = counted > 0 && remA.playing === 0 && remH.playing === 0 && remA.left === 0 && remH.left === 0;
-      const anyLive = remA.playing > 0 || remH.playing > 0;
-      planned.push({ field: LG.wpField(hId, aId), p, p0, allDone, anyLive });
+      planned.push({ field: LG.wpField(hId, aId), p });
     }
     if (!planned.length) return { added: 0 };
 
@@ -4691,14 +4686,12 @@
     for (const s of planned) {
       let rows = Array.isArray(base[s.field]) ? base[s.field].slice() : [];
       if (!rows.length) {
-        rows.push({ t: t0, p: s.p0 });
+        rows.push({ t: t0, p: s.p });
         added++;
       }
       const last = rows[rows.length - 1];
       const moved = Math.abs(last.p - s.p) >= WP_GRAPH_MIN_DP;
-      const aged = (now - last.t) >= WP_GRAPH_MIN_MS;
-      const pin = s.allDone && Math.abs(last.p - s.p) > 1e-9;
-      if ((moved || pin || (aged && s.anyLive)) && !(last.t === now && Math.abs(last.p - s.p) < 1e-9)) {
+      if (moved && !(last.t === now && Math.abs(last.p - s.p) < 1e-9)) {
         rows.push({ t: now, p: s.p });
         added++;
       }

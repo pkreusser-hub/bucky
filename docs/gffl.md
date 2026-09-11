@@ -7437,3 +7437,33 @@ Files: `league.html`, `assets/league/lg-{core,ui}.js`,
 viewBox `220×56`, lastY=52, no `.muwpy` labels). Every pre-existing check
 still passed. App files restored, hashes identical.
 ---
+
+## GFFL — matchup win-% graph follows projections, thin unshaded line (2026-09-10)
+
+User: "dont shade the sparkline area and the line shouldnt be thick.
+also it seems like its moving a lot but the projection isnt moving"
+
+Later samples and the paint overlay used live `D.winProb` (scores +
+clock). The header bar is supposed to do that; the graph is projected
+win %. Every scoreboard tick appended a point or jumped the last
+vertex, so the line crawled while `projFor` sat still. Every point is
+now `D.winProbFromProj`. A live 100-40 with unchanged projections
+writes nothing. No team-color bands. Stroke is 1px
+(`vector-effect: non-scaling-stroke`) so the stretched 220×80 box
+does not fatten it.
+
+TF2's "live lead appends" pin is restaged to a `projFor` change, with
+the reason at the check.
+
+Scripts cache-bust `?v=20260910e`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3421/3421**. Bite (`league.html` +
+`lg-core.js` + `lg-ui.js` at HEAD, new suite kept): **3417 pass / 4 fail**
+— HEAD still samples live `D.winProb` (a 100-40 scoreboard wrote a
+second point; the later `projFor` change wrote nothing), still paints
+2 shaded bands and a 2px stroke. Every pre-existing check still
+passed. App files restored, hashes identical.
+---

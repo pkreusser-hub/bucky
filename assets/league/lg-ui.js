@@ -591,8 +591,8 @@
           if (UI.view === "league") renderLeague(true);
         }
       }).catch(() => {});
-      // Matchup win-% graph — one sample per pairing per tick, same poll the bar already
-      // rides. Memory updates inside the sample; a real new point re-patches the card.
+      // Matchup projected-win% graph — one fromProj sample per pairing per tick.
+      // Memory updates inside the sample; a real new point re-patches the card.
       if (typeof LG.sampleMatchupWinProbs === "function") {
         LG.sampleMatchupWinProbs().then((r) => {
           if (r && r.added && UI.view === "matchup") renderMatchup(true);
@@ -4023,15 +4023,17 @@
   // primary), and the .nflsbt original still lives on the NFL game page where the box score
   // has no per-player restatement.
   // The NFL game page's winprob sparkline, for a fantasy pairing. Series is the
-  // week-long sample LG.sampleMatchupWinProbs writes (kickoff seed + live ticks).
+  // week-long sample LG.sampleMatchupWinProbs writes (projection-only ticks).
   // Hidden until two points exist — a single kickoff seed is not a graph, same
   // guard as the NFL chart (`length > 1`). Own card, never inside .muhead: the
-  // header's 148px ceiling is a measured law.
+  // header's 148px ceiling is a measured law. `wp` is D.winProbFromProj, never
+  // the live bar — a 1e-6 overlay of D.winProb made the polyline jump on every
+  // scoreboard tick while the projection sat still.
   function matchupWinGraphHtml(hId, aId, wp, A, H) {
     if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
     const stored = LG.wpSeries(hId, aId);
     const pts = stored.slice();
-    if (!pts.length || Math.abs(pts[pts.length - 1].p - wp) > 1e-6) pts.push({ t: Date.now(), p: wp });
+    if (!pts.length || Math.abs(pts[pts.length - 1].p - wp) >= 0.005) pts.push({ t: Date.now(), p: wp });
     if (pts.length < 2) return "";
     const ps = pts.map((r) => r.p);
     const plot = LG.WP_PLOT || { w: 220, h: 80 };
@@ -4040,7 +4042,6 @@
     const awayLead = last >= 0.5;
     const lead = awayLead ? A : H;
     const pct = Math.round((awayLead ? last : 1 - last) * 100);
-    const pa = LG.teamPalette(A || {}), ph = LG.teamPalette(H || {});
     const stroke = (LG.teamPalette(lead || {}) || {}).primary || "var(--accent)";
     const midY = (plot.h / 2).toFixed(1);
     return `<div class="seclabel"><b>Projected win %</b></div>
@@ -4051,10 +4052,8 @@
           <span class="muwpyb"><b>${esc(teamTag(H))}</b> 100</span>
         </div>
         <svg class="muwpsvg" viewBox="0 0 ${plot.w} ${plot.h}" preserveAspectRatio="none" role="img" aria-label="Projected win probability, ${esc(teamTag(A))} 100 at the top, 50/50 in the middle, ${esc(teamTag(H))} 100 at the bottom">
-          <rect class="muwpband a" x="0" y="0" width="${plot.w}" height="${midY}" fill="${esc(pa.primary || "#888")}" opacity="0.14"/>
-          <rect class="muwpband h" x="0" y="${midY}" width="${plot.w}" height="${midY}" fill="${esc(ph.primary || "#888")}" opacity="0.14"/>
           <line class="muwpmid" x1="0" y1="${midY}" x2="${plot.w}" y2="${midY}" stroke="var(--divider)" stroke-width="1"/>
-          <polyline class="muwpline" points="${poly}" fill="none" stroke="${esc(stroke)}" stroke-width="2"/></svg>
+          <polyline class="muwpline" points="${poly}" fill="none" stroke="${esc(stroke)}" stroke-width="1"/></svg>
         <div class="nflwpv"><b>${esc(teamTag(lead))} ${pct}%</b><span class="mut small">projected win %</span></div>
       </div>
       <div class="mut small muwpnote">First kickoff to the last game this week</div>`;
@@ -4192,7 +4191,8 @@
           <td class="pcell right">${totalHalfCell(hTot, "right")}</td>
         </tr></tfoot>
       </table></div>`;
-    const muWpInner = matchupWinGraphHtml(hId, aId, wp, A, H);
+    const wpProj = d.winProbFromProj ? d.winProbFromProj(aKeys, hKeys) : wp;
+    const muWpInner = matchupWinGraphHtml(hId, aId, wpProj, A, H);
     const muBenchInner = (aBench.length || hBench.length) ? `<h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
         ${benchRows.map(([pa, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>

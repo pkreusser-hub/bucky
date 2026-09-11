@@ -23877,8 +23877,9 @@ async function openDetails(page, id) {
 
   // ================= TF · matchup projected win-% graph =================================
   // The NFL game page already draws ESPN's winprob series. Fantasy has no upstream series,
-  // so we sample D.winProb per pairing from first kickoff to the last game. HEAD has none
-  // of these hooks — every block guards typeof so a bite cannot SUITE CRASH.
+  // so we sample D.winProbFromProj per pairing from first kickoff to the last game. Live
+  // D.winProb is the header bar, not this line. HEAD of a bite may still sample the live
+  // model — every block guards typeof so a bite cannot SUITE CRASH.
   section("TF · matchup projected win-% graph");
   {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
@@ -23978,22 +23979,34 @@ async function openDetails(page, id) {
         ok(hidden.exists && hidden.parent === true, "…and the graph card is genuinely gone (offsetParent null) with only the seed (" + JSON.stringify(hidden) + ")");
         const again = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         ok(again && again.added === 0, "…a second all-pre poll writes nothing further (" + JSON.stringify(again) + ")");
+        // Live scores and the clock move D.winProb. The graph is projected win %, so
+        // that swing must not grow the series while projFor is unchanged.
         await page.evaluate((A9, B3) => {
           const D = window.__GFFL__.D;
-          ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "in", period: 4, clock: "1:00" }));
+          ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "in", period: 2, clock: "8:00" }));
           const setP = (key, pts) => D.S.players.set(key, {
             key, name: key, team: "PHI", pos: "QB", pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0,
           });
           A9.forEach((k, i) => setP(k, i === 0 ? 20 : 10));
           B3.forEach((k, i) => setP(k, i === 0 ? 20 : 10));
-          D.projFor = () => 5;
         }, A9, B3);
+        const liveSwing = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
+        const seriesLive = await page.evaluate(() => {
+          const rows = window.__GFFL__.LG.wpSeries(1, 2);
+          return { n: rows.length, p0: rows[0] && rows[0].p };
+        });
+        ok(liveSwing && liveSwing.added === 0 && seriesLive.n === 1,
+          "a live 100-40 scoreboard does not move the projection series (" + JSON.stringify({ liveSwing, seriesLive }) + ")");
+        // RESTAGED 2026-09-10: used to append on that live 100-40 lead (D.winProb).
+        // The line then crawled with every scoreboard tick while the projection
+        // totals sat still. The second point is a real projFor change.
+        await page.evaluate(() => { window.__GFFL__.D.projFor = () => 5; });
         const moved = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         const series1 = await page.evaluate(() => {
           const rows = window.__GFFL__.LG.wpSeries(1, 2);
           return { n: rows.length, p0: rows[0] && rows[0].p, p1: rows[1] && rows[1].p };
         });
-        ok(moved && moved.added >= 1 && series1.n >= 2, "a live 100-40 lead appends a second point (" + JSON.stringify({ moved, series1 }) + ")");
+        ok(moved && moved.added >= 1 && series1.n >= 2, "a projection change appends a second point (" + JSON.stringify({ moved, series1 }) + ")");
         await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
         await waitOr(page, "#muWp polyline");
         const painted = await page.evaluate(() => {
@@ -24015,6 +24028,8 @@ async function openDetails(page, id) {
             midY: mid ? Number(mid.getAttribute("y1")) : null,
             vb: el && el.querySelector("svg") && el.querySelector("svg").getAttribute("viewBox"),
             top: txt(".muwpyt"), mid: txt(".muwpym"), bot: txt(".muwpyb"),
+            bands: el ? el.querySelectorAll(".muwpband").length : -1,
+            sw: poly && poly.getAttribute("stroke-width"),
             headH: head ? Math.round(head.getBoundingClientRect().height) : 0,
             note: note,
             inHead: !!(head && head.querySelector("polyline")),
@@ -24029,6 +24044,8 @@ async function openDetails(page, id) {
         ok(/T2/.test(painted.top) && /100/.test(painted.top), "…top of the axis is the away team at 100 (" + painted.top + ")");
         ok(painted.mid === "50/50", "…middle reads 50/50 (" + painted.mid + ")");
         ok(/T1/.test(painted.bot) && /100/.test(painted.bot), "…bottom of the axis is the home team at 100 (" + painted.bot + ")");
+        ok(painted.bands === 0, "…the plot is not shaded (" + painted.bands + " bands)");
+        ok(painted.sw === "1", "…the line is 1px, not the NFL sparkline's 2 (" + painted.sw + ")");
         ok(painted.inHead === false && painted.headH <= 148, "…and it is NOT inside .muhead, whose ceiling still holds (" + painted.headH + "px)");
         ok(painted.note && /First kickoff to the last game/.test(painted.note) && /projected win %/i.test(painted.note),
           "…copy names the week window and says projected win % (" + JSON.stringify(painted.note) + ")");
