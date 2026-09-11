@@ -4590,12 +4590,15 @@
   // is D.winProbFromProj — the same projection totals the matchup card already shows.
   // Live scores and the clock move D.winProb (the header bar) without touching projFor;
   // those must not grow the series, or the line crawls while the projection sits still.
-  // A new point is written only when that projection-win% itself moves. X is sample
-  // index. Y is a FIXED 100/50/100 axis: away 100% at the top, 50/50 on the mid line,
-  // home 100% at the bottom — never auto-fit to the week's min/max. Cap 80, first and
-  // last kept. A read-only mirror never writes.
+  // A new point is written only when that projection-win% itself moves by 2pp.
+  // X is TIME from the slate's first kickoff to the last game — sample-index made a
+  // 45/55 day look wild because leftover live ticks filled the box. Y is a FIXED
+  // 100/50/100 axis: away 100% at the top, 50/50 on the mid line, home 100% at the
+  // bottom. Cap 80, first and last kept. A live-era tail (many points spanning ≥15pp)
+  // is clipped back to the kickoff seed so it cannot paint as a seismograph. A
+  // read-only mirror never writes.
   const WP_GRAPH_CAP = 80;
-  const WP_GRAPH_MIN_DP = 0.005;
+  const WP_GRAPH_MIN_DP = 0.02;
   LG.wpGraphId = (week) => "wpgraph_" + LG.SEASON + "_w" + week;
   LG.wpField = (hId, aId) => "m_" + hId + "_" + aId;
   function starterKeysFor(teamId) {
@@ -4615,25 +4618,56 @@
     for (let i = 0; i < lim; i++) out[i] = src[Math.round((i * (n - 1)) / (lim - 1))];
     return out;
   };
+  // Live-era samples (poll-every-tick D.winProb) span most of 0..1. A projection-only
+  // 45/55 week never does. Eight or more points covering ≥15pp is that tail — keep the
+  // kickoff seed, drop the rest. Shorter real projection moves (QB out, two ticks) stay.
+  LG._clipWpLiveTail = function (rows) {
+    const src = Array.isArray(rows) ? rows : [];
+    if (src.length < 8) return src.slice();
+    let lo = Infinity, hi = -Infinity;
+    for (const r of src) {
+      const p = Number(r && r.p);
+      if (!isFinite(p)) continue;
+      if (p < lo) lo = p;
+      if (p > hi) hi = p;
+    }
+    if (!(hi - lo >= 0.15)) return src.slice();
+    return [src[0]];
+  };
   // Fixed Y: p is the AWAY win (0..1). p=1 sits on the top pad (away 100),
-  // p=0.5 on the mid line, p=0 on the bottom pad (home 100). The NFL 56px
-  // sparkline math is deliberately not reused — that chart has no team-100
-  // axis and a 56px box cannot carry one.
+  // p=0.5 on the mid line, p=0 on the bottom pad (home 100).
+  // Bare number arrays keep sample-index X (the TF1 pin). Timestamped rows use
+  // time from t0 (first kickoff) to t1 (last game).
   LG.WP_PLOT = { w: 220, h: 80, pad: 4 };
   LG.wpY = function (p) {
     const h = LG.WP_PLOT.h, pad = LG.WP_PLOT.pad;
     return pad + (1 - Math.max(0, Math.min(1, Number(p) || 0))) * (h - pad * 2);
   };
-  LG.wpPolyPoints = function (ps, width, height) {
+  LG.wpPolyPoints = function (ps, width, height, t0, t1) {
     const w = width == null ? LG.WP_PLOT.w : width;
     const h = height == null ? LG.WP_PLOT.h : height;
     const pad = LG.WP_PLOT.pad;
     const span = h - pad * 2;
     const pts = ps || [];
     if (pts.length < 2) return "";
-    return pts.map((p, i) => {
-      const x = ((i / (pts.length - 1)) * w).toFixed(1);
-      const y = (pad + (1 - Math.max(0, Math.min(1, p))) * span).toFixed(1);
+    const numeric = typeof pts[0] === "number";
+    let xAt;
+    if (numeric) {
+      xAt = (i) => (i / (pts.length - 1)) * w;
+    } else {
+      const ts = pts.map((r) => Number(r.t));
+      const start = t0 != null && isFinite(t0) ? Number(t0) : ts[0];
+      let end = t1 != null && isFinite(t1) ? Number(t1) : ts[ts.length - 1];
+      if (!(end > start)) end = start + 1;
+      xAt = (i) => {
+        const x = ((ts[i] - start) / (end - start)) * w;
+        return Math.max(0, Math.min(w, x));
+      };
+    }
+    const pAt = (i) => numeric ? Number(pts[i]) : Number(pts[i].p);
+    return pts.map((_, i) => {
+      const x = xAt(i).toFixed(1);
+      const y = (pad + (1 - Math.max(0, Math.min(1, pAt(i)))) * span).toFixed(1);
       return x + "," + y;
     }).join(" ");
   };
@@ -4648,7 +4682,7 @@
     const g = LG._wpGraph;
     if (!g || !g.doc) return [];
     const rows = g.doc[LG.wpField(hId, aId)];
-    return Array.isArray(rows) ? rows : [];
+    return LG._clipWpLiveTail(Array.isArray(rows) ? rows : []);
   };
   function mergeWpRows(a, b) {
     const byT = new Map();
@@ -4681,10 +4715,12 @@
 
     const fresh = await LG.db.getFresh(LG.wpGraphId(week));
     const base = fresh && fresh.kind === "wpgraph" ? fresh : { kind: "wpgraph", season: LG.SEASON, week };
-    const write = { kind: "wpgraph", season: LG.SEASON, week };
+    const write = { ...base, kind: "wpgraph", season: LG.SEASON, week };
     let added = 0;
     for (const s of planned) {
-      let rows = Array.isArray(base[s.field]) ? base[s.field].slice() : [];
+      const raw = Array.isArray(base[s.field]) ? base[s.field].slice() : [];
+      let rows = LG._clipWpLiveTail(raw);
+      if (rows.length !== raw.length) added++;
       if (!rows.length) {
         rows.push({ t: t0, p: s.p });
         added++;

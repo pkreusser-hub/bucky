@@ -7496,3 +7496,34 @@ paints full names (they overflow at 390px), a 32px hero score, and
 Live/Upcoming/Final on the card strip and header. Every pre-existing
 check still passed. App files restored, hashes identical.
 ---
+
+## GFFL — full names on the matchup, abbrevs on Scores; win-% graph is time + clipped live tail (2026-09-11)
+
+User: "the abbreviated names should only be used on the scores page,
+on the actual matchup page it should be the full team name. the
+sparkline axis still isn't right, matchups that have been in the
+50/50 or 45/55 range for the last day are showing wild ups and downs"
+
+Abbrevs stay on the Scores GFFL cards (live and browsed weeks).
+League home and the matchup header go back to the full name.
+
+The wild line was leftover Thursday live ticks under sample-index X:
+those ticks were most of the vertices, so a 45/55 Friday filled the
+box. X is now time from the slate's first kickoff to the last game.
+A live-era tail (8+ points spanning ≥15pp) clips to the kickoff seed,
+on paint and on the next write. A seed still draws kickoff-to-now, so
+a 50/50 week is a flat line rather than an empty card. New stored
+points still need a 2pp projection move.
+
+Scripts cache-bust `?v=20260911b`.
+
+Files: `league.html`, `assets/league/lg-{core,data,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3431/3431**. Bite (`league.html` +
+`lg-core.js` + `lg-data.js` + `lg-ui.js` at HEAD, new suite kept):
+**3412 pass / 14 fail** — HEAD still paints abbrevs on league home and
+the matchup header, still uses sample-index X (seed card hidden, last
+vertex at x=220), and has no live-tail clip. Every pre-existing check
+still passed. App files restored, hashes identical.
+---

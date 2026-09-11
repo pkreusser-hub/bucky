@@ -5661,10 +5661,11 @@ async function openDetails(page, id) {
       tags: [...e.querySelectorAll(".muteamname")].map((n) => n.textContent.trim()),
     })));
     ok(wk15cards.length === 2, "week 15's matchup-card list: exactly the play-in + consolation A games (" + wk15cards.length + ")");
-    // RESTAGED 2026-09-11: cards paint the abbrev. Read .muteamname — "T3" glued to
-    // "0.0" in the card's textContent is not a word boundary.
-    ok(wk15cards.some((c) => c.tags.includes("T4") && c.tags.includes("T3")), "…the play-in game (team4 vs team3)");
-    ok(wk15cards.some((c) => c.tags.includes("T2") && c.tags.includes("T8")), "…the consolation game (team2 vs team8)");
+    // RESTAGED 2026-09-11: league-home cards paint the full name again. Scores is the
+    // one surface that uses the abbrev. Read .muteamname — a score glued to a name
+    // in the card's textContent is not a word boundary.
+    ok(wk15cards.some((c) => c.tags.includes("Waffle House Warriors") && c.tags.includes("Wyoming Cowboys")), "…the play-in game (team4 vs team3)");
+    ok(wk15cards.some((c) => c.tags.includes("End Zone Goats") && c.tags.includes("The Goat Kids")), "…the consolation game (team2 vs team8)");
 
     // Week 16: semi2 was ALREADY fully known at build time (both bye seeds — #2 vs #3), so it
     // shows normally right alongside the consolation B game; semi1 (still waiting on the
@@ -5676,8 +5677,8 @@ async function openDetails(page, id) {
       tags: [...e.querySelectorAll(".muteamname")].map((n) => n.textContent.trim()),
     })));
     ok(wk16cards.length === 2, "week 16's list: exactly semi2 (already known) + consolation B — semi1 is skipped, not guessed at (" + JSON.stringify(wk16cards) + ")");
-    ok(wk16cards.some((c) => c.tags.includes("T1") && c.tags.includes("T7")), "…semi2, fully resolved (team7 vs team1)");
-    ok(wk16cards.some((c) => c.tags.includes("T6") && c.tags.includes("T2")), "…the resolved consolation B game (team6 vs team2)");
+    ok(wk16cards.some((c) => c.tags.includes("Battle Kreussers") && c.tags.includes("Team Seven")), "…semi2, fully resolved (team7 vs team1)");
+    ok(wk16cards.some((c) => c.tags.includes("Team Six") && c.tags.includes("End Zone Goats")), "…the resolved consolation B game (team6 vs team2)");
 
     // The bracket page: byes, the "Winner of #4/#5" placeholder for the still-open semi.
     await page.evaluate(() => window.__GFFL__.UI.openBracket());
@@ -6274,6 +6275,9 @@ async function openDetails(page, id) {
     ok((await page.$$eval("main > .card:nth-child(2) .mucard", (els) => els.length)) === 4, "the GFFL card shows all 4 of this week's matchups");
     const gfflScore = await page.$eval("main > .card:nth-child(2) .mucard.mine .muscore", (e) => e.textContent);
     ok(gfflScore === "3.0 — 37.0", "my GFFL matchup's live total, hand-checked identically to the league home's own card — RESTAGED 2026-08-22, ESPN 2026 D/ST rates (away 3.0 — home 37.0, " + gfflScore + ")");
+    const gfflTags = await page.$$eval("main > .card:nth-child(2) .muteamname", (els) => els.map((n) => n.textContent.trim()));
+    ok(gfflTags.length === 8 && gfflTags.every((n) => /^T\d+$/.test(n)),
+      "Scores GFFL cards paint the abbreviation, not the full name (" + JSON.stringify(gfflTags) + ")");
     await clickIn(page, "main > .card:nth-child(2) .mucard.mine");
     await page.waitForSelector(".muhead", { timeout: 9000 });
     ok((await page.$$eval(".bigpts", (els) => els.map((e) => e.textContent))).join("/") === "3.0/37.0",
@@ -10002,7 +10006,7 @@ async function openDetails(page, id) {
           pts: [...h.querySelectorAll(".bigpts")].map((e) => e.textContent.trim()),
           proj: [...h.querySelectorAll(".muhproj")].map((e) => e.textContent.trim()),
           toPlay: /to play/.test(txt), live2: /live/.test(txt),
-          names: /\bT1\b/.test(txt) && /\bT2\b/.test(txt),
+          names: /Battle Kreussers/.test(txt) && /End Zone Goats/.test(txt),
         };
       });
       // MEASURED before this batch, same fixture, same viewport: 220px.
@@ -10017,9 +10021,10 @@ async function openDetails(page, id) {
       // measures ~132; the probe pins the stress case (28 chars) at ≤146.
       ok(head.height <= 148, "the matchup header fits the two-row ceiling — 220px two batches ago, " + head.height + "px now");
       // RESTAGED 2026-09-11: Upcoming/Live left the header — the bar is the state.
-      // Names are the team abbrev (T1/T2 in this fixture) so a 390px phone can read them.
+      // RESTAGED again the same day: the matchup page paints the full name; Scores
+      // is the surface that uses the abbrev.
       ok(head.wp && !head.live, "…with the win-probability bar, and no Live/Upcoming label on it");
-      ok(head.avatars === 2 && head.names && head.pts.join("/") === "3.0/37.0", "…both crests, both abbreviations, both scores — RESTAGED 2026-08-22, ESPN 2026 D/ST rates");
+      ok(head.avatars === 2 && head.names && head.pts.join("/") === "3.0/37.0", "…both crests, both full names, both scores — RESTAGED 2026-08-22, ESPN 2026 D/ST rates");
       // RESTAGED 2026-08-09 (the ESPN header rebuild): the projection is still there, on both
       // sides, but as a BARE muted number under the score — the reference carries no "Proj"
       // label, so /proj/i is no longer the right way to ask whether it survived.
@@ -10453,8 +10458,8 @@ async function openDetails(page, id) {
       const mineNow = await page.evaluate(() => window.__GFFL__.UI.matchup);
       ok(JSON.stringify(mineNow) === "[1,2]", "…but pressing the Matchup TAB always returns to the user's own game (" + JSON.stringify(mineNow) + ")");
       const shown = await page.evaluate(() => document.querySelector(".muhead").textContent);
-      // RESTAGED 2026-09-11: the header paints the abbrev (T1), not the full name.
-      ok(/\bT1\b/.test(shown), "…and that is the game on screen, not merely the state variable (" + JSON.stringify(shown.replace(/\s+/g, " ").trim()) + ")");
+      // RESTAGED 2026-09-11: the matchup header paints the full name again.
+      ok(/Battle Kreussers/.test(shown), "…and that is the game on screen, not merely the state variable (" + JSON.stringify(shown.replace(/\s+/g, " ").trim()) + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
@@ -11124,8 +11129,8 @@ async function openDetails(page, id) {
       ok(head.a.projPx < head.a.bigPx, "…smaller than it (" + head.a.projPx + "px vs " + head.a.bigPx + "px)");
       ok(/^\d+(\.\d)?$/.test(head.a.proj || "") && /^\d+(\.\d)?$/.test(head.b.proj || ""),
         "…and a BARE number — the reference carries no 'Proj' label (" + JSON.stringify([head.a.proj, head.b.proj]) + ")");
-      // RESTAGED 2026-09-11: header names are the abbrev so they always fit.
-      ok(/\bT1\b/.test(head.b.name || "") && /\bT2\b/.test(head.a.name || ""), "team abbreviations below the scores, both sides (" + JSON.stringify([head.a.name, head.b.name]) + ")");
+      // RESTAGED 2026-09-11: the matchup header paints the full name; Scores uses the abbrev.
+      ok(/Battle Kreussers/.test(head.b.name || "") && /End Zone Goats/.test(head.a.name || ""), "full team names below the scores, both sides (" + JSON.stringify([head.a.name, head.b.name]) + ")");
       // RESTAGED (cosmetic pass 2026-08-11): the owner · record line this used to measure is
       // REMOVED by the user's order — the standings table is the one place a record is stated.
       // The check inverts: the line must be GONE.
@@ -12687,9 +12692,10 @@ async function openDetails(page, id) {
       // not a Final label.
       ok(home.badges === 0 && home.bars === 4, "…each strip is the projection bar alone, no Live/Upcoming label (" + home.badges + " badges, " + home.bars + " bars)");
       ok(home.mine === 1, "…and the viewer's own card is still marked .mine — 'this is your game' survives (" + home.mine + ")");
-      ok((home.names || []).every((pair) => pair.length === 2 && pair.every((n) => /^T\d+$/.test(n))),
-        "every card paints the team abbreviation, not the full name (" + JSON.stringify(home.names) + ")");
-      ok(home.nameFit === true, "…and those abbreviations fit their box at 390px — no ellipsis");
+      ok((home.names || []).some((pair) => pair.includes("Battle Kreussers") && pair.includes("End Zone Goats")),
+        "league-home cards paint the full team name (" + JSON.stringify(home.names) + ")");
+      ok((home.names || []).every((pair) => pair.length === 2 && pair.every((n) => !/^T\d+$/.test(n))),
+        "…not the Scores-tab abbreviation");
       ok(home.scorePx != null && home.scorePx <= 24, "…the hero score is small enough to keep the names (" + home.scorePx + "px)");
       ok(home.minH > 0 && home.inside === true,
         "every strip is genuinely visible and inside its own card (shortest " + home.minH + "px) — the hero's grid-row:3 does not leak onto the compact cards");
@@ -14854,8 +14860,8 @@ async function openDetails(page, id) {
         head: (document.querySelector(".muhead") || {}).textContent || "" })) || {};
       ok(mine.view === "matchup" && JSON.stringify(mine.mu) === "[1,2]",
         "…and pressing the Matchup TAB still returns you to your OWN game (" + JSON.stringify(mine.mu) + ")");
-      // RESTAGED 2026-09-11: the header paints the abbrev (T1), not the full name.
-      ok(/\bT1\b/.test(mine.head), "…and that is the game on SCREEN, not merely the state variable");
+      // RESTAGED 2026-09-11: the matchup header paints the full name again.
+      ok(/Battle Kreussers/.test(mine.head), "…and that is the game on SCREEN, not merely the state variable");
       // Back/Forward across a card-opened matchup restores the same game — the pick is sticky
       // state, not part of the URL, so it rides in the history entry.
       await tapNav(page, "league"); await waitView(page, "league");
@@ -23936,6 +23942,7 @@ async function openDetails(page, id) {
           t0: win && win.t0, firstKick: Date.parse("2026-08-07T00:15:00Z"),
           poly: typeof LG.wpPolyPoints === "function" ? LG.wpPolyPoints([0.25, 0.5, 0.75]) : null,
           axis: typeof LG.wpPolyPoints === "function" ? LG.wpPolyPoints([0, 0.5, 1]) : null,
+          time: typeof LG.wpPolyPoints === "function" ? LG.wpPolyPoints([{ t: 0, p: 0.5 }, { t: 50, p: 0.5 }], 220, 80, 0, 100) : null,
           y0: typeof LG.wpY === "function" ? LG.wpY(0) : null,
           y50: typeof LG.wpY === "function" ? LG.wpY(0.5) : null,
           y100: typeof LG.wpY === "function" ? LG.wpY(1) : null,
@@ -23956,13 +23963,16 @@ async function openDetails(page, id) {
           "…home 100 is the bottom, 50/50 the mid line, away 100 the top (" + r.axis + ")");
         ok(r.y100 === 4 && r.y50 === 40 && r.y0 === 76,
           "…wpY(1) < wpY(0.5) < wpY(0) so away-100 is above home-100 (" + JSON.stringify({ y100: r.y100, y50: r.y50, y0: r.y0 }) + ")");
+        ok(r.time === "0.0,40.0 110.0,40.0",
+          "…timestamped rows use time for X — 0 and 50 of a 0–100 window sit at x=0 and x=110, both y=40 (" + r.time + ")");
       }
       ok(errors.length === 0, "0 page errors on the kickoff model");
       await ctx.close();
     }
 
-    // ---- TF2: all-pre seeds one silent point and hides the card; a real live move
-    // appends a second point, paints the polyline, and does not grow .muhead.
+    // ---- TF2: all-pre seeds one silent point; the card still draws kickoff-to-now
+    // so a 45/55 week is a flat line rather than an empty card. A live scoreboard
+    // swing does not grow the stored series; a real projFor change does.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -24000,9 +24010,14 @@ async function openDetails(page, id) {
         await waitOr(page, ".muhead");
         const hidden = await page.evaluate(() => {
           const el = document.getElementById("muWp");
-          return { exists: !!el, hidden: !!(el && el.hidden), parent: el && el.offsetParent === null };
+          const poly = el && el.querySelector("polyline.muwpline");
+          const pts = (poly && poly.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
+          return { exists: !!el, hidden: !!(el && el.hidden), parent: el && el.offsetParent !== null, n: pts.length };
         });
-        ok(hidden.exists && hidden.parent === true, "…and the graph card is genuinely gone (offsetParent null) with only the seed (" + JSON.stringify(hidden) + ")");
+        // RESTAGED 2026-09-11: a single kickoff seed used to hide the card. A 45/55
+        // week then looked empty. Kickoff-to-now at the current projection is a
+        // flat line, which is the truth.
+        ok(hidden.exists && hidden.parent === true && hidden.n >= 2, "…the graph card draws kickoff-to-now from the seed (" + JSON.stringify(hidden) + ")");
         const again = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         ok(again && again.added === 0, "…a second all-pre poll writes nothing further (" + JSON.stringify(again) + ")");
         // Live scores and the clock move D.winProb. The graph is projected win %, so
@@ -24062,8 +24077,10 @@ async function openDetails(page, id) {
           };
         });
         ok(painted.parent === true && painted.hidden === false, "…the card is visible (offsetParent set) (" + JSON.stringify(painted) + ")");
-        ok(painted.n >= 2 && painted.firstX === "0.0" && painted.lastX === "220.0",
-          "…polyline starts at x=0 and ends at x=220 (" + JSON.stringify(painted) + ")");
+        ok(painted.n >= 2 && painted.firstX === "0.0" && painted.lastX != null && Number(painted.lastX) >= 0 && Number(painted.lastX) <= 220,
+          "…polyline starts at x=0 and stays inside the 220-wide box (" + JSON.stringify(painted) + ")");
+        ok(Number(painted.lastX) < 220,
+          "…and the last vertex is NOW, not the right edge — last kickoff is still in the future (" + painted.lastX + ")");
         ok(painted.vb === "0 0 220 80", "…on the fixed 220×80 plot, not the NFL 56px sparkline (" + painted.vb + ")");
         ok(painted.midY === 40, "…the 50/50 line is the vertical midpoint (y=40) (" + painted.midY + ")");
         ok(painted.lastY != null && painted.lastY > 70, "…a home lock sits near the BOTTOM (home 100), not auto-fit to the line (" + painted.lastY + ")");
@@ -24178,6 +24195,80 @@ async function openDetails(page, id) {
         ok(r.n === 80 && r.first === 0 && r.last === 89, "90 samples thin to 80, first and last kept (" + JSON.stringify(r) + ")");
       }
       ok(errors.length === 0, "0 page errors on thinning");
+      await ctx.close();
+    }
+
+    // ---- TF7: a leftover live-era tail (many points spanning ≥15pp) cannot paint as a
+    // seismograph. Clip keeps the kickoff seed; kickoff-to-now at ~50/50 sits on the
+    // mid line. HEAD's sample-index + unclipped tail puts lastY near 4 or 76.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const hooks = await page.evaluate(() => typeof window.__GFFL__.LG._clipWpLiveTail === "function"
+        && typeof window.__GFFL__.LG.sampleMatchupWinProbs === "function");
+      ok(hooks, "LG._clipWpLiveTail exists");
+      if (hooks) {
+        const clip = await page.evaluate(() => {
+          const LG = window.__GFFL__.LG;
+          const t0 = Date.parse("2026-08-07T00:15:00Z");
+          const rows = [];
+          for (let i = 0; i < 12; i++) rows.push({ t: t0 + i * 60000, p: 0.5 + (i === 0 ? 0 : (i % 2 ? 0.4 : -0.4)) });
+          const out = LG._clipWpLiveTail(rows);
+          const span = Math.max(...rows.map((r) => r.p)) - Math.min(...rows.map((r) => r.p));
+          return { n: out.length, p0: out[0] && out[0].p, span, raw: rows.length };
+        });
+        ok(clip.raw === 12 && clip.span >= 0.15 && clip.n === 1 && clip.p0 === 0.5,
+          "eight-or-more points spanning ≥15pp clip to the kickoff seed (" + JSON.stringify(clip) + ")");
+        await page.evaluate(async (A9, B3) => {
+          const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
+          await LG.db.del(LG.wpGraphId(1));
+          const t0 = Date.parse("2026-08-07T00:15:00Z");
+          const tail = [];
+          for (let i = 0; i < 12; i++) tail.push({ t: t0 + i * 60000, p: 0.5 + (i === 0 ? 0 : (i % 2 ? 0.4 : -0.4)) });
+          const doc = { kind: "wpgraph", season: LG.SEASON, week: 1, m_1_2: tail };
+          await LG.db.set(LG.wpGraphId(1), doc);
+          LG._wpGraph = { week: 1, doc };
+          D.S.players.clear();
+          ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "pre", kickoff: "2026-08-07T00:15:00Z" }));
+          const table = {}; A9.forEach((k) => (table[k] = 10));
+          table["222111"] = 30; table["222333"] = 30; table["dst_DAL"] = 30;
+          D.projFor = (key) => (key in table ? table[key] : null);
+        }, A9, B3);
+        const sampled = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
+        const stored = await page.evaluate(() => {
+          const doc = window.__GFFL__.LG._wpGraph && window.__GFFL__.LG._wpGraph.doc;
+          const raw = (doc && doc.m_1_2) || [];
+          const view = window.__GFFL__.LG.wpSeries(1, 2);
+          return { rawN: raw.length, viewN: view.length, p0: view[0] && view[0].p };
+        });
+        ok(sampled && sampled.added >= 1 && stored.rawN <= 2 && stored.viewN === 1 && stored.p0 === 0.5,
+          "sampleMatchupWinProbs persists the clip (" + JSON.stringify({ sampled, stored }) + ")");
+        await page.evaluate(() => {
+          window.__GFFL__.UI.matchup = [1, 2];
+          window.__GFFL__.UI.go("matchup");
+        });
+        await waitOr(page, "#muWp polyline");
+        const painted = await page.evaluate(() => {
+          const el = document.getElementById("muWp");
+          const poly = el && el.querySelector("polyline.muwpline");
+          const pts = (poly && poly.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
+          const ys = pts.map((p) => Number((p.split(",")[1]) || NaN)).filter((y) => isFinite(y));
+          return {
+            n: pts.length,
+            minY: ys.length ? Math.min.apply(null, ys) : null,
+            maxY: ys.length ? Math.max.apply(null, ys) : null,
+            lastY: ys.length ? ys[ys.length - 1] : null,
+          };
+        });
+        ok(painted.n >= 2 && painted.n <= 3, "…paint is kickoff-to-now, not a 12-vertex tail (" + JSON.stringify(painted) + ")");
+        ok(painted.lastY != null && painted.lastY >= 36 && painted.lastY <= 44,
+          "…a 50/50 overlay sits on the mid line, not the top or bottom (" + JSON.stringify(painted) + ")");
+        ok(painted.maxY - painted.minY < 10,
+          "…the line does not swing across the box (" + JSON.stringify(painted) + ")");
+      }
+      ok(errors.length === 0, "0 page errors on the live-tail clip");
       await ctx.close();
     }
   }

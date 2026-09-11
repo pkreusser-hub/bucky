@@ -2893,7 +2893,7 @@
       ${starWrap}
       <div class="muhtop">${avatarHtml(T, id === mine)}
         <div class="muhscore"><span class="bigpts">${LG.fmtPts(tot)}</span><span class="mut muhproj">${LG.fmtPts(proj)}</span></div></div>
-      <b class="teamlink muhname tname big" data-locker="${id}" title="${esc(T?.name || "?")}">${esc(teamTag(T))}</b>
+      <b class="teamlink muhname tname big" data-locker="${id}" title="${esc(T?.name || "?")}">${esc(T?.name || "?")}</b>
       <div class="mut muhsub">${rem.left} to play · ${rem.playing} live</div></div>`;
   }
   // FIT, DON'T CLIP (2026-08-11, user: "instead of cutting off text it adjusts text size…
@@ -2991,7 +2991,9 @@
     // names. The bar is the whole row now, centered.
     return `<span class="herorow"><span class="mupbar mini${counted > 0 ? "" : " unknown"}"${title}>${fill}</span></span>`;
   }
-  function matchupCard(h, a) {
+  function matchupCard(h, a, opts) {
+    opts = opts || {};
+    const tag = !!opts.tag;
     const H = LG.teamById(h), A = LG.teamById(a);
     const mine = LG.myTeamId();
     const isMine = h === mine || a === mine;
@@ -3011,9 +3013,9 @@
     const aStar = decided.winner === "B" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
     const hStar = decided.winner === "A" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
     return `<button class="mucard muslash ${isMine ? "mine" : ""}" data-mu="${h}-${a}" style="${slashVars}">
-      <span class="muteam">${aStar}${logoTd(A)}${teamNameHtml(A, { cls: "muteamname", tag: true })}</span>
+      <span class="muteam">${aStar}${logoTd(A)}${teamNameHtml(A, { cls: "muteamname", tag })}</span>
       <span class="muscore">${LG.fmtPts(liveTotal(a))} — ${LG.fmtPts(liveTotal(h))}</span>
-      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname", tag: true })}${logoTd(H)}${hStar}</span>
+      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname", tag })}${logoTd(H)}${hStar}</span>
       ${matchupHeroExtra(h, a)}</button>`;
   }
 
@@ -3253,7 +3255,7 @@
   // computation that could disagree. Rendered ABOVE both the NFL slate and the ESPN card.
   function gfflScoresHtml(games) {
     if (!games || !games.length) return "";
-    return `<div class="card"><h2>GFFL — Week ${UI.week}</h2><div class="mugrid">${games.map(([h, a]) => matchupCard(h, a)).join("")}</div></div>`;
+    return `<div class="card"><h2>GFFL — Week ${UI.week}</h2><div class="mugrid">${games.map(([h, a]) => matchupCard(h, a, { tag: true })).join("")}</div></div>`;
   }
   // "Every matchup reads 0-0 with 0.0 points" — the exact preseason/pre-draft shape the
   // coordinator flagged from a live screenshot: nothing has been played yet, so the card has
@@ -4019,21 +4021,25 @@
   // has no per-player restatement.
   // The NFL game page's winprob sparkline, for a fantasy pairing. Series is the
   // week-long sample LG.sampleMatchupWinProbs writes (projection-only ticks).
-  // Hidden until two points exist — a single kickoff seed is not a graph, same
-  // guard as the NFL chart (`length > 1`). Own card, never inside .muhead: the
-  // header's 148px ceiling is a measured law. `wp` is D.winProbFromProj, never
-  // the live bar — a 1e-6 overlay of D.winProb made the polyline jump on every
-  // scoreboard tick while the projection sat still.
+  // A kickoff seed still draws kickoff-to-now, so a 45/55 week is a flat line
+  // rather than an empty card. Own card, never inside .muhead. `wp` is
+  // D.winProbFromProj. X is the slate window; Y is the fixed 100/50/100 axis.
   function matchupWinGraphHtml(hId, aId, wp, A, H) {
     if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
     const stored = LG.wpSeries(hId, aId);
+    const dnow = D();
+    const win = dnow && dnow.slateWindow ? dnow.slateWindow() : null;
+    const t0 = win && isFinite(win.t0) ? win.t0 : (stored[0] && stored[0].t) || Date.now();
+    const t1 = win && isFinite(win.t1) ? win.t1 : Date.now();
+    const now = Date.now();
     const pts = stored.slice();
-    if (!pts.length || Math.abs(pts[pts.length - 1].p - wp) >= 0.005) pts.push({ t: Date.now(), p: wp });
+    if (!pts.length) pts.push({ t: t0, p: wp });
+    const lastRow = pts[pts.length - 1];
+    if (Math.abs(lastRow.p - wp) >= 0.02 || (now - lastRow.t) > 1000) pts.push({ t: now, p: wp });
     if (pts.length < 2) return "";
-    const ps = pts.map((r) => r.p);
     const plot = LG.WP_PLOT || { w: 220, h: 80 };
-    const poly = LG.wpPolyPoints(ps, plot.w, plot.h);
-    const last = ps[ps.length - 1];
+    const poly = LG.wpPolyPoints(pts, plot.w, plot.h, t0, t1);
+    const last = pts[pts.length - 1].p;
     const awayLead = last >= 0.5;
     const lead = awayLead ? A : H;
     const pct = Math.round((awayLead ? last : 1 - last) * 100);
