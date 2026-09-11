@@ -2146,20 +2146,28 @@
   // past, not information. Each row opens the player's own stats card (data-pk, wired by
   // wirePlayerCardTaps at the end of renderLeague — the same convention as every other player
   // row in this app), so "what's actually wrong with him" is one tap away.
+  function injWhen(t) {
+    const n = Number(t);
+    if (!isFinite(n) || n <= 0) return "";
+    return new Date(n).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
+  }
   function injuryFeedCardHtml(rows) {
-    if (!rows || !rows.length) return "";
+    const shown = (typeof LG.collapseInjFeed === "function" ? LG.collapseInjFeed(rows) : rows || []).slice(0, 8);
+    if (!shown.length) return "";
     const line = (r) => {
       const from = injWord(r.from), to = injWord(r.to);
-      const t = LG.teamById(r.teamId);
+      const tm = LG.teamById(r.teamId);
       // "to Healthy" is good news — GREEN now (item 7, 2026-08-22; used to render plain).
       // An ongoing real designation still gets the accent-red .injto tint (matches .inj's own
       // "colour = needs your attention" convention elsewhere).
       const toHtml = to === "Healthy" ? `<b class="injok">${esc(to)}</b>` : `<b class="injto">${esc(to)}</b>`;
+      const when = injWhen(r.t);
+      const meta = [tm ? teamTag(tm) : "", when].filter(Boolean).map((s) => esc(s)).join(" · ");
       return `<button type="button" class="fline injline" data-pk="${esc(r.key)}">
-        <b>${escn(r.name)}</b>: ${esc(from)} → ${toHtml}${t ? ` <span class="mut small">· ${esc(teamTag(t))}</span>` : ""}
+        <b>${escn(r.name)}</b>: ${esc(from)} → ${toHtml}${meta ? ` <span class="mut small">· ${meta}</span>` : ""}
       </button>`;
     };
-    return `<div class="card"><h2>League injury report</h2>${rows.slice(0, 8).map(line).join("")}</div>`;
+    return `<div class="card"><h2>League injury report</h2>${shown.map(line).join("")}</div>`;
   }
   //  Record book card (plan §4.8): collapsed by default so it doesn't crowd the home page —
   // champions, the biggest single-week score/blowout ever, best season PF, and the all-time

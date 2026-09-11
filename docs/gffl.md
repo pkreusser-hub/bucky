@@ -7527,3 +7527,34 @@ the matchup header, still uses sample-index X (seed card hidden, last
 vertex at x=220), and has no live-tail clip. Every pre-existing check
 still passed. App files restored, hashes identical.
 ---
+
+## GFFL — injury report: one line per player, timestamped, no Q↔Out bounce (2026-09-11)
+
+User: "i still see a bunch of duplication on the injury report. also we
+need to timestamp injury updates"
+
+The empty-string hold from 2026-09-10 was the right shape for a
+missing field. Sleeper can still flip Questionable ↔ Out on consecutive
+hourly dumps (practice report vs inactive list). Each flip was a real
+transition, so one name ate the card.
+
+A reversal of the last committed pair is held the same way as the
+omit: the next directory generation that still shows it is news; a
+dump that puts the committed designation back cancels the hold. A new
+direction (Healthy → Q, then Q → Out) and an explicit Active are still
+immediate. The card paints newest-first, one row per player, with the
+weekday and time the row already stored.
+
+Scripts cache-bust `?v=20260911c`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3448/3448**. Bite (`league.html` +
+`lg-core.js` + `lg-ui.js` at HEAD, new suite kept): **3432 pass / 14 fail**
+— HEAD still writes every Q↔Out flip (feed grew to 3, then 4), still
+paints all seven ping-pong rows, and has no timestamp on the line.
+Three chat-order checks also missed at 0ms apart (same class as the
+2026-09-10 cache-timing miss); the other 3429 still pass. App files
+restored, hashes identical.
+---

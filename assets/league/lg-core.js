@@ -4427,11 +4427,30 @@
   // later dump that still omits him (a new D.S.injDirGen) is what finally records Healthy.
   // An explicit Active/Healthy/etc. is still immediate — that is a status Sleeper actually
   // sent. A dump that puts the SAME designation back cancels the hold.
+  //
+  // THE Q↔OUT BOUNCE (2026-09-11). Sleeper's injury_status for one man can flip
+  // Questionable ↔ Out on consecutive hourly dumps (practice report vs inactive
+  // list). Each flip was a "real" transition, so the card filled with the same
+  // name. A reversal of the last committed pair is held the same way as D-S8's
+  // omit: the next directory generation that still shows it is news; a dump that
+  // puts the committed designation back cancels the hold. A new direction
+  // (Healthy → Q, then Q → Out) is still immediate.
   LG.injStateId = () => "injstate_" + LG.SEASON;
   LG.injFeedId = () => "injfeed_" + LG.SEASON;
   const INJ_FIELD_PFX = "p_";
   const injField = (key) => INJ_FIELD_PFX + String(key);
   const INJ_FEED_CAP = 40;
+  // Newest-first, one row per player. The stored feed can still hold a ping-pong
+  // chain (AR3 keeps Healthy → D then D → Out); the card must not.
+  LG.collapseInjFeed = function (rows) {
+    const seen = new Set(), out = [];
+    for (const r of rows || []) {
+      if (!r || r.key == null || seen.has(r.key)) continue;
+      seen.add(r.key);
+      out.push(r);
+    }
+    return out;
+  };
   function injuryDirAnswer(meta) {
     const raw = meta && meta.injury != null ? String(meta.injury) : "";
     const desig = LG.injLabel(raw);
@@ -4469,6 +4488,13 @@
     for (const k of [...LG._injPending.keys()]) {
       if (!live.has(k)) LG._injPending.delete(k);
     }
+    if (!LG._injLast) {
+      LG._injLast = new Map();
+      const prev = await LG.loadInjuryFeed();
+      for (const r of prev) {
+        if (r && r.key && !LG._injLast.has(r.key)) LG._injLast.set(r.key, { from: r.from, to: r.to });
+      }
+    }
     const dirGen = d.S.injDirGen || 0;
 
     const doc = await LG.db.get(LG.injStateId());
@@ -4498,6 +4524,21 @@
           LG._injPending.delete(key);
         } else {
           LG._injPending.set(key, { from: prior, to: "", teamId: info.teamId, name: info.name, seenGen: dirGen });
+        }
+        continue;
+      }
+      // Reversal of the last committed pair (Q → Out, then Out → Q). Same hold
+      // as the omit: one later dump that still shows it is the real move. A
+      // return to Healthy is not this path — Active is still immediate, and an
+      // omitted field is D-S8 above.
+      const last = LG._injLast.get(key);
+      if (last && last.to === prior && last.from === info.desig && info.desig !== "" && last.from !== "") {
+        const pend = LG._injPending.get(key);
+        if (pend && pend.from === prior && pend.to === info.desig && Number(pend.seenGen) < dirGen) {
+          changed.push({ key, field, from: prior, to: info.desig, teamId: info.teamId, name: info.name });
+          LG._injPending.delete(key);
+        } else {
+          LG._injPending.set(key, { from: prior, to: info.desig, teamId: info.teamId, name: info.name, seenGen: dirGen });
         }
         continue;
       }
@@ -4534,7 +4575,10 @@
 
     // Feed + push only for what THIS device actually won.
     await LG.appendInjuryFeed(winners);
-    for (const w of winners) LG.pushInjuryChange(w);
+    for (const w of winners) {
+      if (LG._injLast) LG._injLast.set(w.key, { from: w.from, to: w.to });
+      LG.pushInjuryChange(w);
+    }
     return tally({ changed: winners.length, winners });
   };
   // Splits an arbitrary field map into ≤`size`-field chunks — a league's FIRST-EVER seed can

@@ -17962,6 +17962,8 @@ async function openDetails(page, id) {
         };
       });
       ok(row.text && /Doubtful → Healthy/.test(row.text), "…the card spells it out in words, 'Doubtful → Healthy' (" + JSON.stringify(row.text) + ")");
+      ok(/\b(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b/.test(row.text) && /\d{1,2}:\d{2}/.test(row.text),
+        "…and the row is timestamped (" + JSON.stringify(row.text) + ")");
       ok(row.hasOk === true && row.hasAccent === false, "…and 'Healthy' wears .injok (green) — never .injto's red, which is reserved for an ongoing designation");
       ok(row.contrast >= 4.5, "…and .injok clears AA 4.5:1 against the card it sits on (" + row.contrast.toFixed(2) + ":1)");
       if (SHOTS) {
@@ -18091,6 +18093,8 @@ async function openDetails(page, id) {
       ok(card.n === 1 && card.key === "222111", "…one row, keyed to the real player (" + card.key + ")");
       ok(card.text && /Q\. Rival/.test(card.text) && /Healthy → Questionable/.test(card.text),
         "…reading 'Q. Rival: Healthy → Questionable' (" + JSON.stringify(card.text) + ")");
+      ok(/\b(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b/.test(card.text) && /\d{1,2}:\d{2}/.test(card.text),
+        "…and that row is timestamped (" + JSON.stringify(card.text) + ")");
       await page.evaluate(() => document.querySelector(".injline").click());
       await waitOr(page, "#playerCard .pcname");
       const opened = await text(page, "#playerCard .pcname");
@@ -18205,6 +18209,103 @@ async function openDetails(page, id) {
       await sleep(300);
       ok(notify.calls.length === 1, "…and it pushes the owner exactly once (" + notify.calls.length + ")");
       ok(errors.length === 0, "0 page errors on the confirmed-omit clear");
+      await ctx.close();
+    }
+
+    // ---- AR12: Q ↔ Out on consecutive dumps is a bounce, not news. Sleeper's
+    // injury_status flips that way (practice report vs inactive list). HEAD treated
+    // each flip as a real transition and filled the card with the same name.
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Questionable"; });
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Out"; });
+      await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      await sleep(300);
+      notify.reset();
+      const feedBefore = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feedBefore.length === 2 && feedBefore[0].from === "Q" && feedBefore[0].to === "OUT",
+        "a new direction (Q → Out after Healthy → Q) still lands immediately (" + JSON.stringify(feedBefore.map((f) => f.from + "->" + f.to)) + ")");
+      await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Questionable"; });
+      const bounce = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(bounce && bounce.changed === 0, "Out → Q without a later dump is held, not announced (" + JSON.stringify(bounce) + ")");
+      const feedHold = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feedHold.length === 2, "…the feed still has only the two real moves (" + feedHold.length + ")");
+      await sleep(300);
+      ok(notify.calls.length === 0, "…and nobody was pushed for the bounce (" + notify.calls.length + ")");
+      await page.evaluate(() => {
+        window.__GFFL__.D.S.injDirGen = (window.__GFFL__.D.S.injDirGen || 0) + 1;
+        window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Out";
+      });
+      const back = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
+      ok(back && back.changed === 0, "…a dump that puts the committed Out back cancels the hold (" + JSON.stringify(back) + ")");
+      const feedBack = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feedBack.length === 2, "…still exactly two feed lines after the Q ↔ Out flap (" + feedBack.length + ")");
+      await sleep(300);
+      ok(notify.calls.length === 0, "…still zero pushes for the flap");
+      ok(errors.length === 0, "0 page errors on the Q↔Out bounce hold");
+      await ctx.close();
+    }
+
+    // ---- AR13: the card shows one row per player (newest) even when the stored
+    // feed still has a ping-pong chain, and that row is timestamped.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const coll = await page.evaluate(() => {
+        const f = window.__GFFL__.LG.collapseInjFeed;
+        if (typeof f !== "function") return { hooks: false };
+        const t = Date.now();
+        const rows = [];
+        for (let i = 0; i < 7; i++) {
+          rows.push({ t: t - i * 3600000, key: "222111", name: "Q. Rival",
+            from: i % 2 ? "Q" : "OUT", to: i % 2 ? "OUT" : "Q", teamId: 2 });
+        }
+        rows.push({ t: t - 8 * 3600000, key: "111666", name: "I. Injured", from: "", to: "OUT", teamId: 1 });
+        const out = f(rows);
+        return { hooks: true, n: out.length, keys: out.map((r) => r.key), first: out[0] && (out[0].from + "->" + out[0].to) };
+      });
+      ok(coll.hooks === true, "LG.collapseInjFeed exists");
+      if (coll.hooks) {
+        ok(coll.n === 2 && coll.keys[0] === "222111" && coll.keys[1] === "111666",
+          "…newest-first, one row per player (" + JSON.stringify(coll) + ")");
+        ok(coll.first === "OUT->Q", "…the newest Stribling-style flip is the one that stays (" + coll.first + ")");
+      }
+      await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const t = Date.now();
+        const rows = [];
+        for (let i = 0; i < 7; i++) {
+          rows.push({ t: t - i * 3600000, key: "222111", name: "Q. Rival",
+            from: i % 2 ? "Q" : "OUT", to: i % 2 ? "OUT" : "Q", teamId: 2 });
+        }
+        rows.push({ t: t - 8 * 3600000, key: "111666", name: "I. Injured", from: "", to: "OUT", teamId: 1 });
+        await LG.db.set(LG.injFeedId(), { kind: "injfeed", season: 2026, rows });
+      });
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".injline");
+      const card = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".injline")];
+        return {
+          n: rows.length,
+          keys: rows.map((r) => r.dataset.pk),
+          text: rows.map((r) => (r.textContent || "").replace(/\s+/g, " ").trim()),
+        };
+      });
+      ok(card.n === 2 && card.keys[0] === "222111" && card.keys[1] === "111666",
+        "the card paints one row per player, not the seven-flip chain (" + JSON.stringify(card) + ")");
+      ok(card.text[0] && /Q\. Rival/.test(card.text[0]) && /Out → Questionable/.test(card.text[0]),
+        "…the newest flip is the one on screen (" + JSON.stringify(card.text[0]) + ")");
+      ok(/\b(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b/.test(card.text[0] || "") && /\d{1,2}:\d{2}/.test(card.text[0] || ""),
+        "…and it is timestamped (" + JSON.stringify(card.text[0]) + ")");
+      ok(errors.length === 0, "0 page errors on the collapsed injury card");
       await ctx.close();
     }
   }
