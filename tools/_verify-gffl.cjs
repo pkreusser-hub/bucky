@@ -1,6 +1,12 @@
 // _verify-gffl.cjs — verification for GFFL S1+S2 (league.html + lg-*.js + league.mjs).
 //
 //   node tools/_verify-gffl.cjs [--shots]
+//   node tools/_verify-gffl.cjs --only AQ,TF
+//   node tools/_verify-gffl.cjs --list
+//
+// --only runs named sections after the shared harness (fixture servers,
+// static server, browser). Iteration, not the ship gate — a push to main
+// still needs the full battery.
 //
 // Section A runs the REAL netlify/functions/league.mjs in process against a
 // fake ESPN fantasy upstream. Sections B+ drive the REAL league.html in
@@ -44,12 +50,59 @@ const BASE = "http://127.0.0.1:" + SRV_PORT;
 const SIMOFF = "&sim=0";
 const SHOTS = process.argv.includes("--shots");
 
+function sectionKey(name) {
+  const m = String(name).match(/^([A-Z]{1,3}\d*)\b/);
+  return m ? m[1] : "";
+}
+function allSectionKeys() {
+  const src = fs.readFileSync(__filename, "utf8");
+  const keys = [], seen = new Set();
+  const re = /section\("((?:[A-Z]{1,3}\d*)[^"]*)"/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const k = sectionKey(m[1]);
+    if (k && !seen.has(k)) { seen.add(k); keys.push(k); }
+  }
+  return keys;
+}
+function parseOnly(argv) {
+  const list = argv.includes("--list");
+  const i = argv.indexOf("--only");
+  if (i < 0) return { list, only: null };
+  const raw = argv[i + 1];
+  if (!raw || raw.startsWith("-")) {
+    console.error("usage: node tools/_verify-gffl.cjs [--only AQ,TF] [--list] [--shots]");
+    process.exit(1);
+  }
+  return { list, only: new Set(raw.split(/[,+\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean)) };
+}
+const ARGV = parseOnly(process.argv);
+const ONLY = ARGV.only;
+const SECTION_KEYS = allSectionKeys();
+if (ONLY && ONLY.has("BB")) ONLY.add("BA");
+if (ARGV.list) {
+  console.log(SECTION_KEYS.join("\n"));
+  process.exit(0);
+}
+if (ONLY) {
+  const unknown = [...ONLY].filter((k) => !SECTION_KEYS.includes(k));
+  if (unknown.length) {
+    console.error("unknown --only section: " + unknown.join(", "));
+    console.error("known: " + SECTION_KEYS.join(", "));
+    process.exit(1);
+  }
+}
+
 let pass = 0, fail = 0; const failures = [];
 function ok(cond, msg) {
   if (cond) { pass++; console.log("  ✓ " + msg); }
   else { fail++; failures.push(msg); console.log("  ✗ " + msg); }
 }
-function section(name) { console.log("\n== " + name + " =="); }
+function section(name) {
+  const run = !ONLY || ONLY.has(sectionKey(name));
+  if (run) console.log("\n== " + name + " ==");
+  return run;
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Section X — a plain JSON.stringify comparison of two doc-collection snapshots is sensitive
 // to key INSERTION ORDER (localStorage iteration order can legitimately differ between two
@@ -2503,8 +2556,11 @@ async function openDetails(page, id) {
 
 // ---------------- main ----------------
 (async () => {
-  // Section A: the real function, in process, against the fake upstream.
-  section("A · league.mjs — ESPN import actions");
+  if (ONLY) {
+    console.log("running --only " + [...ONLY].join(",") + " (" +
+      SECTION_KEYS.filter((k) => !ONLY.has(k)).length + " sections skipped)");
+  }
+  // Harness always starts — --only only skips section bodies.
   const ffSrv = await startFfUpstream();
   const tenorSrv = await startTenorUpstream();
   const xaiSrv = await startXaiUpstream();
@@ -2533,7 +2589,7 @@ async function openDetails(page, id) {
   sportsFn = sportsMod.default;
   process.env.SPORTS_FF_BASE_URL = sportsFfBaseSaved;
   const call = async (body) => { const r = await leagueFn(new Request("http://fn/", { method: "POST", body: JSON.stringify(body) })); return { status: r.status, j: JSON.parse(await r.text()) }; };
-  {
+  if (section("A · league.mjs — ESPN import actions")) {
     const { j } = await call({ secret: "amenfarms", action: "lg_espn_settings" });
     ok(j.ok === true && j.leagueName === "Nerd Fantasy Football League", "settings import reaches the league (" + j.leagueName + ")");
     ok(j.scoring.rec === 1 && j.scoring.pass_yd === 0.04 && j.scoring.fg_50 === 5 && j.scoring.dst_sack === 1 && j.scoring.dst_pa_0 === 5,
@@ -2630,7 +2686,7 @@ async function openDetails(page, id) {
   const browser = await launchBrowser();
 
   // ---- B: gate + claim ----
-  section("B · gate + team claim");
+  if (section("B · gate + team claim")) {
   {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     const { ctx, page, errors } = await newTestPage(browser, fullSeed({ gate: true, claim: true }));
@@ -2671,7 +2727,8 @@ async function openDetails(page, id) {
   // (correctly) refuses to take an empty read from. The behaviour under test is unchanged;
   // only the premise is stated honestly. The "unconfirmed empty must NOT show this card" half
   // is section Z below.
-  section("B2 · first run — empty league → import → claim");
+  }
+  if (section("B2 · first run — empty league → import → claim")) {
   {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     const { ctx, page, errors } = await newTestPage(browser, { docs: {}, pass: "amenfarms", team: null, who: null });
@@ -2698,7 +2755,8 @@ async function openDetails(page, id) {
   }
 
   // ---- C: league home, live totals ----
-  section("C · league home — matchup cards + standings + hand-computed totals");
+  }
+  if (section("C · league home — matchup cards + standings + hand-computed totals")) {
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
@@ -2769,7 +2827,8 @@ async function openDetails(page, id) {
   }
 
   // ---- D: matchup page ----
-  section("D · matchup — the heart");
+  }
+  if (section("D · matchup — the heart")) {
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
@@ -2912,7 +2971,8 @@ async function openDetails(page, id) {
   // only the selector for "which card holds the starters" changed, since the header is now
   // .lockerhead (not a .card), so the old ".card:nth-of-type(2)" no longer points at the same
   // place. #lockerStarters is the new, explicit container id.
-  section("E · my team — lineup editing, kickoff locks, 3 IR spots (now the owner's own locker)");
+  }
+  if (section("E · my team — lineup editing, kickoff locks, 3 IR spots (now the owner's own locker)")) {
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
@@ -3051,7 +3111,8 @@ async function openDetails(page, id) {
   }
 
   // ---- F: rules — view, edit, versioning, import, schedule ----
-  section("F · rules — editable, versioned, ESPN-importable");
+  }
+  if (section("F · rules — editable, versioned, ESPN-importable")) {
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
@@ -3210,7 +3271,8 @@ async function openDetails(page, id) {
   // LG.generateSchedule is pure array-permutation over whatever ids it's given and works
   // fine with them; confirmed the schedule saves correctly with these ids under the LOCAL
   // backend too, isolating the bug to the cloud/local storage boundary specifically).
-  section("F2 · schedGen against a Firestore-faithful cloud backend — the live bug repro");
+  }
+  if (section("F2 · schedGen against a Firestore-faithful cloud backend — the live bug repro")) {
   {
     const REAL_TEAM_IDS = [1, 2, 3, 4, 5, 9, 11, 12]; // non-contiguous, exactly like the real league
     const names = ["Battle Kreussers", "End Zone Goats", "Wyoming Cowboys", "Waffle House Warriors",
@@ -3289,7 +3351,8 @@ async function openDetails(page, id) {
   }
 
   // ---- G: failover ----
-  section("G · resilience — either source alone runs the league");
+  }
+  if (section("G · resilience — either source alone runs the league")) {
   {
     // Sleeper down from the start -> espn-only, same hand-computed totals.
     fixture.phase = 1; fixture.sleeperDown = true; fixture.espnDown = false;
@@ -3346,7 +3409,8 @@ async function openDetails(page, id) {
   }
 
   // ---- H: desktop ----
-  section("H · desktop");
+  }
+  if (section("H · desktop")) {
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1280, height: 900 } });
     await bootPage(page);
@@ -3416,7 +3480,8 @@ async function openDetails(page, id) {
   }
 
   // ---- I: waivers (FAAB) — blind claims, tie-break, FAAB math, auto-process ----
-  section("I · waivers — blind claims, FAAB bids, deadline, idempotency");
+  }
+  if (section("I · waivers — blind claims, FAAB bids, deadline, idempotency")) {
   {
     // I0 (item 1, 2026-08-08): a real, browsable free-agent table — position chips + an
     // OPTIONAL search box, sorted by search_rank, both feeding one panner'd table. This
@@ -3767,7 +3832,8 @@ async function openDetails(page, id) {
   }
 
   // ---- I2: the players table rebuilt as an ESPN-style sortable stats table (2026-08-08) ----
-  section("I2 · players table — ESPN-style sortable stats (PLAYER/TYPE/OPP/STATUS/PROJ/SCORE/FPTS/AVG/LAST)");
+  }
+  if (section("I2 · players table — ESPN-style sortable stats (PLAYER/TYPE/OPP/STATUS/PROJ/SCORE/FPTS/AVG/LAST)")) {
   {
     // Column set + Available/All toggle. fullSeed() (real season, live-polled) — P. Passer
     // (team1, PHI) is a real rostered starter with a real live line (10.0, hand-checked in
@@ -4195,7 +4261,8 @@ async function openDetails(page, id) {
   }
 
   // ---- J: trades — offer/accept/review/execute, veto, decline/cancel, deadline ----
-  section("J · trades — offer/accept/review/execute, veto, decline/cancel, deadline");
+  }
+  if (section("J · trades — offer/accept/review/execute, veto, decline/cancel, deadline")) {
   {
     // J1: UI flow both directions — team1 proposes via the form, team2 (a
     // separate device) accepts via the form; review holds; past the window,
@@ -4375,7 +4442,8 @@ async function openDetails(page, id) {
   }
 
   // ---- K: chat — text/reactions/reply/delete/images/gifs/sys posts/threads ----
-  section("K · chat — gifs, memes, event posts, reactions, threads");
+  }
+  if (section("K · chat — gifs, memes, event posts, reactions, threads")) {
   {
     // K1: post text -> renders on the posting device + persists to the store.
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
@@ -4713,7 +4781,8 @@ async function openDetails(page, id) {
   }
 
   // ---- L: locker rooms — team pages ----
-  section("L · locker rooms — record, roster, schedule, transactions, the wall, owner editing, palette");
+  }
+  if (section("L · locker rooms — record, roster, schedule, transactions, the wall, owner editing, palette")) {
   {
     const seedWithExtras = () => {
       const base = fullSeed();
@@ -4916,7 +4985,8 @@ async function openDetails(page, id) {
   }
 
   // ---- M: weekly finalization + projections + power rankings + weekly awards (S5) ----
-  section("M · finalization — official scores, accuracy, power rankings, awards, AI read");
+  }
+  if (section("M · finalization — official scores, accuracy, power rankings, awards, AI read")) {
 
   // M1: the whole finalize flow, hand-computed end to end — guard, force, real numbers,
   // awards, accuracy, power snapshot, standings, and idempotency (the sys chat post it used
@@ -5311,7 +5381,8 @@ async function openDetails(page, id) {
   }
 
   // ---- N: ESPN history import + record book + rivalries (S6) ----
-  section("N · ESPN history import + record book + rivalries");
+  }
+  if (section("N · ESPN history import + record book + rivalries")) {
 
   // N1: the raw action, in process — slimming, the retry ladder, champion/place, the
   // 0-0-skip rule, and the no-season/out-of-range refusals. No browser needed.
@@ -5596,7 +5667,8 @@ async function openDetails(page, id) {
   }
 
   // ---- O: playoffs, bracket, trophies (S7) ----
-  section("O · playoffs — bracket build/advance, champion, Toilet Bowl, trophies");
+  }
+  if (section("O · playoffs — bracket build/advance, champion, Toilet Bowl, trophies")) {
 
   // O1: the whole chain, one context — auto-build off the hand-designed 14-week season, the
   // exact seed order (incl. the PF tiebreak), the play-in/semis/championship shape, byes, the
@@ -5927,7 +5999,8 @@ async function openDetails(page, id) {
   }
 
   // ---- P: performance — LG.db caching + throttled auto-checks (playtest: "laggy tabs") ----
-  section("P · performance — doc cache + throttled auto-checks");
+  }
+  if (section("P · performance — doc cache + throttled auto-checks")) {
   {
     // P1: a second full visit to a view makes ZERO additional real .get() calls (teams/rosters/
     // settings/weekly/bracket — everything a full renderLeague() reads) — the exact "tab switch
@@ -6089,7 +6162,8 @@ async function openDetails(page, id) {
   }
 
   // ---- Q: item 2 — the "🧪 Import 2025 rosters (test run)" commissioner button ----
-  section("Q · 2025 test-data import — commissioner button, coherent Rules presentation");
+  }
+  if (section("Q · 2025 test-data import — commissioner button, coherent Rules presentation")) {
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
@@ -6165,7 +6239,8 @@ async function openDetails(page, id) {
   }
 
   // ---- R: item 4 — league home additions (recent moves + league chat cards) ----
-  section("R · league home additions — recent moves + league chat");
+  }
+  if (section("R · league home additions — recent moves + league chat")) {
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
@@ -6245,7 +6320,8 @@ async function openDetails(page, id) {
   }
 
   // ---- S: item 5 — the Scores tab (NFL slate + ESPN fantasy scoreboard) ----
-  section("S · Scores tab — real NFL slate + family ESPN fantasy scoreboard");
+  }
+  if (section("S · Scores tab — real NFL slate + family ESPN fantasy scoreboard")) {
   {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -6404,7 +6480,8 @@ async function openDetails(page, id) {
   // there. The sandbox is gone; the same rule now keys on LG.SIM_2025, and the check moved to
   // the new section X, which boots the replay the way a family device actually will.
 
-  section("T · nav — active-tab indicator centering (item 6) + the six-tab bar (item 16)");
+  }
+  if (section("T · nav — active-tab indicator centering (item 6) + the six-tab bar (item 16)")) {
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
@@ -6509,7 +6586,8 @@ async function openDetails(page, id) {
     await ctx.close();
   }
 
-  section("U · app-chrome emoji sweep (item 10) — every view, both rules modes, zero Extended_Pictographic characters in app-authored text");
+  }
+  if (section("U · app-chrome emoji sweep (item 10) — every view, both rules modes, zero Extended_Pictographic characters in app-authored text")) {
   {
     // Renders each real view against a populated fixture and scans the rendered DOM text for
     // ANY Unicode Extended_Pictographic character (the same property class \p{Extended_
@@ -6655,7 +6733,8 @@ async function openDetails(page, id) {
   // check is a genuine pre-fix repro (it fails against the code as it stood before this
   // batch), the comment says so — those were verified by stashing the three app files and
   // re-running this section, not asserted from reasoning.
-  section("V · adversarial review 2026-08-08 — week provenance, cache lost-updates, playoff ordering, import scoring, poll fairness");
+  }
+  if (section("V · adversarial review 2026-08-08 — week provenance, cache lost-updates, playoff ordering, import scoring, poll fairness")) {
 
   // V1: findings 1/3/7 — finalizeWeek used to take `week` for the ROSTER lookup only and
   // multiply it by whatever the live engine happened to be holding, then write a WRITE-ONCE
@@ -7179,7 +7258,8 @@ async function openDetails(page, id) {
   // so the check isn't sensitive to this box's own noise, while still failing hard if the
   // fetch chain ever regresses back to a dozen serial round trips (which would take 960ms+
   // just from 12 × 80ms, before any fixed overhead).
-  section("W · boot speed — nav-to-league-home-painted budget (2026-08-08 boot-speed pass)");
+  }
+  if (section("W · boot speed — nav-to-league-home-painted budget (2026-08-08 boot-speed pass)")) {
   {
     const SLOW_MS = 80;
     const BUDGET_MS = 900;
@@ -7289,7 +7369,8 @@ async function openDetails(page, id) {
   // traced and found NOT to be stacking (D.start() is called from exactly one place, startData(),
   // itself called exactly once per successful UI.boot()), but the coordinator asked for a suite
   // counter and this is the direct, minimal one.
-  section("W2 · perf regression fix — archived week-stats caching/dedupe, boot hygiene, poll-loop non-stacking");
+  }
+  if (section("W2 · perf regression fix — archived week-stats caching/dedupe, boot hygiene, poll-loop non-stacking")) {
   {
     // Group 1: opening the SAME and then a DIFFERENT player's stats card reuses the cache —
     // this is the exact shape of the reported regression. seedWithWeeklyHistory() finalizes
@@ -7443,7 +7524,8 @@ async function openDetails(page, id) {
   // replacement is the NEW section X below (after Z), written against what actually ships.
 
   // ---------------- Y: player stats card + Moves MOVE-button split (2026-08-08) ----------------
-  section("Y · player stats card — matchup/locker/FA/trade-builder/claims, MOVE button, swap, Escape/backdrop");
+  }
+  if (section("Y · player stats card — matchup/locker/FA/trade-builder/claims, MOVE button, swap, Escape/backdrop")) {
   {
     const { ctx, page, errors } = await newTestPage(browser, seedWithWeeklyHistory());
     await bootPage(page);
@@ -7610,7 +7692,8 @@ async function openDetails(page, id) {
   // Every check in this section FAILS against the pre-fix code (verified by stashing the three
   // app files back to HEAD and re-running: 20 of these fail, and the pre-fix run shows the
   // first-run card in all three unconfirmed configurations).
-  section("Z · live bug — an EMPTY league is only ever the league's own answer");
+  }
+  if (section("Z · live bug — an EMPTY league is only ever the league's own answer")) {
   {
     const bigCloud = () => {
       const d = { ...fullSeed().docs };
@@ -7820,7 +7903,8 @@ async function openDetails(page, id) {
   // ---------------- X: the 2025 week-1 replay (2026-08-08) ----------------
   // The ONLY section that boots WITHOUT the ?sim=0 override — i.e. exactly as the family's own
   // devices will. Everything above runs the real 2026 league; everything here runs the replay.
-  section("X · the 2025 week-1 replay — pinned clock, auto-setup, historical slate, projections");
+  }
+  if (section("X · the 2025 week-1 replay — pinned clock, auto-setup, historical slate, projections")) {
   {
     // 2 teams, deliberately: the ESPN import fixture (rich2025) returns exactly these two, so
     // "every team has a week-1 roster" is genuinely reachable — which is what makes the
@@ -8873,7 +8957,8 @@ async function openDetails(page, id) {
   // written short ("P. Passer", "Q. Rival"), so the whole suite could pass with the formatter
   // doing nothing at all. These players carry FULL names, so the rendered short form is a real
   // assertion rather than a tautology.
-  section("N: player names render as first initial + last name");
+  }
+  if (section("N: player names render as first initial + last name")) {
   {
     const NAMED_T1 = { kind: "roster", week: 1, teamId: 1, players: [
       { key: "3915511", name: "Joshua Passer", pos: "QB", team: "PHI", slot: "QB" },
@@ -8979,7 +9064,8 @@ async function openDetails(page, id) {
   // The bug is only reachable through a real module boundary, and gstatic is blocked in every
   // suite page — so this drives it through LG._fbLoad, the import seam, with a fake Firestore
   // whose PERSISTENT handle throws the real assertion and whose MEMORY handle works.
-  section("AB · the Firestore REST transport + the snapshot mirror (the SDK is gone)");
+  }
+  if (section("AB · the Firestore REST transport + the snapshot mirror (the SDK is gone)")) {
   {
     const STAMP = "lg_snapstamp_" + FAM;
     const leagueDocs = () => fullSeed().docs;
@@ -9380,7 +9466,8 @@ async function openDetails(page, id) {
   //      stat. `paPoints`'s `sc.dst_pa_X ?? 0` was the second hole (?? does not catch NaN, and
   //      passes "" through, which turns the running total into a string). LG.fmtPts printed
   //      whatever it got, so a non-finite number reached the family as the literal text "NaN".
-  section("AC · production identity resolution + the NaN boundary");
+  }
+  if (section("AC · production identity resolution + the NaN boundary")) {
   {
     const prodSeed = () => ({ docs: prodSeedDocs(), pass: "amenfarms", team: 1, who: "Peter" });
     const bootProd = async (page, extra) => {
@@ -9774,7 +9861,8 @@ async function openDetails(page, id) {
   // half"), and a markup assertion cannot tell you whether a name fits.
   // The before-numbers quoted in the budgets are MEASURED, at 390x844, against the pre-batch
   // code (scratchpad probe, then re-confirmed by stashing the three app files back to HEAD).
-  section("AD · playtest batch 2026-08-09 — feed, slot colours, bench, logos, possession, headers, nav, locks, injuries, Moves");
+  }
+  if (section("AD · playtest batch 2026-08-09 — feed, slot colours, bench, logos, possession, headers, nav, locks, injuries, Moves")) {
   {
     // ---- AD1: the matchup feed is a bounded scroll box, attributed per team, filterable.
     {
@@ -10883,7 +10971,8 @@ async function openDetails(page, id) {
   // Every check here is GEOMETRY or behaviour: "exactly even height for every player" and
   // "team a hugs left, team b hugs right" are claims about pixels, and a markup assertion
   // cannot tell you whether they hold.
-  section("AE · ESPN matchup layout (mirrored, three even lines, crests, centre band, header) + chat pane + six-tab nav");
+  }
+  if (section("AE · ESPN matchup layout (mirrored, three even lines, crests, centre band, header) + chat pane + six-tab nav")) {
   {
     // ---- AE1: the lineup table — mirrored alignment, identical row heights, three lines.
     {
@@ -11509,7 +11598,8 @@ async function openDetails(page, id) {
   // therefore SIMULATES A SECOND DEVICE by rewriting LG.SIM_LOADED_AT — which is exactly what
   // a fresh page load does — and runs with the REPLAY ON at its real speed (every other
   // section boots ?sim=0, where LG.now() IS Date.now() and there is nothing to get wrong).
-  section("AF · the replay clock is per-device: persisted stamps must be wall time");
+  }
+  if (section("AF · the replay clock is per-device: persisted stamps must be wall time")) {
   {
     const MIN = 60000;
     // A device that has had the page open for `openedMinsAgo` real minutes.
@@ -11715,7 +11805,8 @@ async function openDetails(page, id) {
   // exercises is new, and a bare wait or a bare evaluate against HEAD aborts the run with one
   // stack trace instead of the readable list a pre-fix verification exists to produce — hence
   // waitOr / waitFnOr / evalOr and a default for every result they can answer null with.
-  section("AG · Moves: waiver blocks, collapsed trade builder, Suggest a trade, re-ordered players table · matchup: filled slot band, clock/injury colours, possession ring");
+  }
+  if (section("AG · Moves: waiver blocks, collapsed trade builder, Suggest a trade, re-ordered players table · matchup: filled slot band, clock/injury colours, possession ring")) {
   {
     // ---- AG1: the Waivers card is three data blocks and no prose, in BOTH regimes.
     {
@@ -12634,7 +12725,8 @@ async function openDetails(page, id) {
   // PRE-FIX TOLERANT (sections AC/AG's lesson): item 28's hooks are all new, so a bare wait or a
   // bare evaluate against HEAD would abort the run with one stack trace instead of the readable
   // list a pre-fix verification exists to produce — hence waitOr/waitFnOr/evalOr throughout.
-  section("AH · item 27 every card gets the state strip · item 28 the NFL game view (field, play-by-play, box scores)");
+  }
+  if (section("AH · item 27 every card gets the state strip · item 28 the NFL game view (field, play-by-play, box scores)")) {
   {
     // ---- AH1: the state strip is on EVERY card, and the viewer's own is still marked.
     {
@@ -13217,7 +13309,8 @@ async function openDetails(page, id) {
   // ITEMS 29-31. The ONLY section that boots with NO sim param at all — exactly as a family
   // device does — which is what makes "the app IS the 2026 season" a real assertion here rather
   // than a restatement of a URL override.
-  section("AI · the real 2026 season, a preseason shakedown, and rosters filled from the depth charts");
+  }
+  if (section("AI · the real 2026 season, a preseason shakedown, and rosters filled from the depth charts")) {
   {
     // No ?sim= of any kind. bootPage() carries SIMOFF and bootSim() carries ?sim=1; both state
     // an intent this section must NOT state, because the whole point is the default.
@@ -14584,7 +14677,8 @@ async function openDetails(page, id) {
   // PRE-FIX TOLERANT (the lesson sections AC/AG/AH each restate): every hook this section
   // reaches for is new, so a bare wait or a bare evaluate against HEAD would abort the run with
   // one stack trace instead of the readable list a pre-fix verification exists to produce.
-  section("AJ · item 32 Back walks the app (history, overlays, deep links) · item 33 standalone (manifest, safe areas)");
+  }
+  if (section("AJ · item 32 Back walks the app (history, overlays, deep links) · item 33 standalone (manifest, safe areas)")) {
   {
     // Tap a bottom-nav entry the way a thumb does — this is the gesture under test, and it is
     // deliberately NOT UI.go(): a check that calls the navigator directly would still pass if
@@ -15101,7 +15195,8 @@ async function openDetails(page, id) {
   // LG.gateCommish() prompt sequence, real locker buttons — never by calling a setter.
   // The cloud halves run against the REST wire fixture, because "the cloud hash wins over the
   // device's" is only a claim you can make about a session that genuinely has a cloud.
-  section("AK · S1 — the commissioner PIN lives in the league, and teams have owner PINs");
+  }
+  if (section("AK · S1 — the commissioner PIN lives in the league, and teams have owner PINs")) {
   {
     const crypto = require("crypto");
     const H = (pin) => crypto.createHash("sha256").update(pin + ":amenfarms").digest("hex");
@@ -15439,7 +15534,8 @@ async function openDetails(page, id) {
   // OFFSET added to the real Date.now() reading, so the fake "now" still advances on genuine
   // wall-clock ticks (proving the countdown actually ticks) while sitting wherever the test
   // wants it relative to draftAt.
-  section("AL · S2 — the draft countdown");
+  }
+  if (section("AL · S2 — the draft countdown")) {
   {
     // DEFAULT_RULES.draftAt, as an absolute instant — note 2026-09-06 is actually a SUNDAY (the
     // plan's own "Sat Sep 6" prose is off by a day); the card derives its weekday from THIS
@@ -15597,7 +15693,8 @@ async function openDetails(page, id) {
   // a contrast clamp that is the LAW rather than a suggestion. Every check below measures what
   // actually reaches the screen (computed styles, real palette output) rather than reading the
   // stylesheet's intentions.
-  section("AM · S3 — team colours, the contrast clamp, crests everywhere, split stat bars");
+  }
+  if (section("AM · S3 — team colours, the contrast clamp, crests everywhere, split stat bars")) {
   {
     // Three flat bands, so extraction has three genuinely separate hue buckets to find and the
     // "three shades of one red" failure would show up as a collapsed palette. Painted at 48px
@@ -16260,7 +16357,8 @@ async function openDetails(page, id) {
   // the recorded WIRE — target, title, body, deep link. That is deliberately the only thing
   // asserted: a producer's intention read off the source proves nothing about what a phone
   // would actually have received.
-  section("AN · S4 — push notifications: producers, targeting, deep links, and the enable card");
+  }
+  if (section("AN · S4 — push notifications: producers, targeting, deep links, and the enable card")) {
   {
     const LEAGUE = "https://goatfantasyleague.com/league.html";
     const last = () => notify.calls[notify.calls.length - 1] || {};
@@ -16711,7 +16809,8 @@ async function openDetails(page, id) {
   // S6's search box and position chips ALREADY EXISTED (item 1's players-table rework built
   // them); what this batch adds to them is the DEBOUNCE and the too-short-query answer, and
   // what is genuinely new is TRENDING. S10 replaces both bottom sheets with one centered card.
-  section("AO · S6 search + trending · S10 the centered drop/swap card");
+  }
+  if (section("AO · S6 search + trending · S10 the centered drop/swap card")) {
   {
     // ---- AO1: search. The pool is the same client-side list the chips already narrow. ----
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
@@ -17100,7 +17199,8 @@ async function openDetails(page, id) {
   // test here is that NOTHING was forked: the deadline check, the 1-3-player validation, the
   // fresh-read-before-write posture, accept/veto/execute and the S4 push all have to be the
   // paths they already were, reached through one more door.
-  section("AP · S7 — trade counter-offer (chain, thread, refusals) + the trade-executed push");
+  }
+  if (section("AP · S7 — trade counter-offer (chain, thread, refusals) + the trade-executed push")) {
   {
     const LEAGUE = "https://goatfantasyleague.com/league.html";
     const last = () => notify.calls[notify.calls.length - 1] || {};
@@ -17619,7 +17719,8 @@ async function openDetails(page, id) {
   // the exact same composed pieces (D.liveProj/D.remaining/D.projFor) an advancing replay
   // clock would, without the extra coupling. PROPERTY tests throughout, per the plan — no
   // exact percentage is asserted, only the shape the plan itself describes.
-  section("AQ · S8 — matchup win probability (est.)");
+  }
+  if (section("AQ · S8 — matchup win probability (est.)")) {
   {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     const A9 = ["3915511", "4241457", "111888", "4361741", "111555", "111222", "111444", "dst_PHI", "2473037"]; // team1's 9 starters
@@ -17800,6 +17901,68 @@ async function openDetails(page, id) {
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
+
+    // ---- AQ7: the muted header number is expected finish (sum of D.liveProj),
+    // the same estimate the win bar and the graph's current % already use.
+    // Weekly paper (D.projFor) can favor the other side after Thursday — those
+    // two used to sit on the same card and disagree about who was ahead.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await page.evaluate(() => { window.__GFFL__.UI.matchup = [1, 2]; window.__GFFL__.UI.go("matchup"); });
+      await waitOr(page, ".muhead");
+      const r = await page.evaluate(async () => {
+        const D = window.__GFFL__.D, LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+        const keysOf = (id) => (UI._rosters && UI._rosters[id] || [])
+          .filter((p) => p && p.key && p.slot !== "BENCH" && p.slot !== "IR")
+          .map((p) => String(p.key));
+        const aKeys = keysOf(2), hKeys = keysOf(1);
+        if (!aKeys.length || !hKeys.length) return { ok: false, aKeys: aKeys.length, hKeys: hKeys.length };
+        const setP = (key, team, pts) => D.S.players.set(key, {
+          key, name: key, team, pos: "QB", pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0,
+        });
+        // Away still pre: weekly paper 200, expected finish 200.
+        // Home Thursday-final: weekly paper 80, already scored 250.
+        D.S.games.set("KC", { state: "pre" });
+        D.S.games.set("PHI", { state: "post", period: 4, clock: "0:00" });
+        const table = {};
+        aKeys.forEach((k) => { table[k] = 200 / aKeys.length; setP(k, "KC", 0); });
+        hKeys.forEach((k) => { table[k] = 80 / hKeys.length; setP(k, "PHI", 250 / hKeys.length); });
+        D.projFor = (key) => (key in table ? table[key] : null);
+        await UI.renderMatchup(true);
+        const n = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
+        const liveSum = (keys) => keys.reduce((s, k) => s + n(D.liveProj(k)), 0);
+        const weekSum = (keys) => keys.reduce((s, k) => s + n(D.projFor(k)), 0);
+        const proj = [...document.querySelectorAll(".muhead .muhproj")].map((e) => e.textContent.trim());
+        const fill = document.querySelector(".muhead .mupbar i");
+        const awayPct = fill ? parseInt(fill.style.width, 10) : null;
+        const label = ((document.querySelector("#muWp .nflwpv b") || {}).textContent || "").replace(/\s+/g, " ").trim();
+        const weekAway = weekSum(aKeys), weekHome = weekSum(hKeys);
+        const liveAway = liveSum(aKeys), liveHome = liveSum(hKeys);
+        return {
+          ok: true, proj, awayPct, label,
+          weekAway, weekHome, liveAway, liveHome,
+          weekFavorsAway: weekAway > weekHome,
+          liveFavorsHome: liveHome > liveAway,
+          wantAway: LG.fmtPts(liveAway), wantHome: LG.fmtPts(liveHome),
+          wpAway: Math.round(D.winProb(aKeys, hKeys) * 100),
+        };
+      });
+      ok(r.ok === true && r.weekFavorsAway && r.liveFavorsHome,
+        "the fixture is the Thursday split: weekly paper favors away 200-80, expected finish favors home 200-250 (" + JSON.stringify(r) + ")");
+      ok(r.proj[0] === r.wantAway && r.proj[1] === r.wantHome,
+        "…the muted header numbers are expected finish, not weekly paper (" + JSON.stringify(r.proj) + " vs " + r.wantAway + "/" + r.wantHome + ")");
+      ok(r.awayPct != null && r.awayPct === r.wpAway && r.awayPct < 50,
+        "…the bar is the same live model, home favored (" + r.awayPct + " vs " + r.wpAway + ")");
+      ok((Number(r.proj[0]) > Number(r.proj[1])) === (r.awayPct > 50),
+        "…and the side with more projected points is the side the bar says is winning (" + JSON.stringify({ proj: r.proj, awayPct: r.awayPct }) + ")");
+      ok(/T1/.test(r.label) && !/T2/.test(r.label),
+        "…the graph's current % names the same home favorite, not the weekly-paper away side (" + JSON.stringify(r.label) + ")");
+      ok(errors.length === 0, "0 page errors on the header/bar/graph alignment");
+      await ctx.close();
+    }
   }
 
   // ================= AR · S9 — the injury-status-change feed ==============================
@@ -17810,7 +17973,8 @@ async function openDetails(page, id) {
   // into a feed line + a push to the OWNING team on a genuine change. The base fixture already
   // carries a real designation out of the box (I. Injured, "Out" — slpPlayersFix's own note),
   // which is what proves the FIRST-EVER run seeds silently rather than announcing it as news.
-  section("AR · S9 — injury-status-change feed");
+  }
+  if (section("AR · S9 — injury-status-change feed")) {
   {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
 
@@ -18311,7 +18475,8 @@ async function openDetails(page, id) {
   }
 
   // =========================================================================================
-  section("AS · the four production races the season sim found (2026-08-11)");
+  }
+  if (section("AS · the four production races the season sim found (2026-08-11)")) {
   // ---------------------------------------------------------------------------------------
   // WHY THESE ARE HERE AND NOT ONLY IN tools/_gffl_race_*.cjs. The three repro scripts are the
   // EVIDENCE — each stages one race in isolation and prints the mechanism — but a repro that
@@ -18577,7 +18742,8 @@ async function openDetails(page, id) {
   // The batch is a ≥1024px LAYOUT, so most of this section runs at desktop widths — and the LAST
   // block runs at 390px, because "the phone is untouched" is half of what was asked for and the
   // only way to know it is to look.
-  section("AT · the League tab's desktop redesign — dashboard, standings columns, chat rail");
+  }
+  if (section("AT · the League tab's desktop redesign — dashboard, standings columns, chat rail")) {
   {
     // A league with enough PAST for every new column to say something: two finalized weeks (so
     // a streak is a real run and the power snapshot has movement to report), a 14-week schedule
@@ -20339,7 +20505,8 @@ async function openDetails(page, id) {
   // never reads through any of these funnels. RULE 2 — mathematical finality: LG.matchupDecided
   // (pure, lg-core) + D.gameDone (the one new seam beside D.gameStarted, lg-data) + the UI's
   // clinch star (hero + matchup-list scale) + standings' provisional overlay + ?demo=clinch.
-  section("AZ · THE COMMISSIONER'S RULING (2026-08-20) — the zero floor + mathematical finality");
+  }
+  if (section("AZ · THE COMMISSIONER'S RULING (2026-08-20) — the zero floor + mathematical finality")) {
 
   // AZ1 — THE ZERO FLOOR. The team1 QB's real stat line (2 INT, no yards) computes -4.0 under
   // the league's own default scoring (pass_int: -2 × 2 = -4.0) — the ruling's own example.
@@ -20721,7 +20888,8 @@ async function openDetails(page, id) {
   }
 
   // ---------------- BA: THE PLAYTEST-6 BATCH (2026-08-22) — items 1, 4, 5, 6, 8 ----------------
-  section("BA · playtest-6 — matchup tap-to-live-game · scores live-now group · In this game · box-score owner tags · the reconnect seam");
+  }
+  if (section("BA · playtest-6 — matchup tap-to-live-game · scores live-now group · In this game · box-score owner tags · the reconnect seam")) {
   {
     // ---- BA1 (item 1): a LIVE player's matchup row opens the GAME, not the card; a
     // NOT-live player's row still opens the card exactly as before. Same fixture/game
@@ -21199,7 +21367,8 @@ async function openDetails(page, id) {
     }
   }
 
-  section("BC · THE SEASON-RESET BATCH (2026-08-26) — commissioner-directed, items 1-6");
+  }
+  if (section("BC · THE SEASON-RESET BATCH (2026-08-26) — commissioner-directed, items 1-6")) {
   // THE COMMISSIONER'S REPORT, post-reset: "in the standings teams have ties for some reason,
   // they should be at zero, and there shouldn't be a comment about provisional wins since the
   // season hasn't started. the matchups should now reflect week 1 of the real season." The
@@ -21575,7 +21744,8 @@ async function openDetails(page, id) {
   // season-reset batch's preseason re-target landed (D.engineWeek() has read a deliberate
   // ESPN/Sleeper disagreement, null, ever since — see that batch's own entry) — migrated onto
   // the new, ungated D.oppForTeam.
-  section("BD · the player card's season schedule (D.teamSchedule) + the moves-table OPP column fix (D.oppForTeam)");
+  }
+  if (section("BD · the player card's season schedule (D.teamSchedule) + the moves-table OPP column fix (D.oppForTeam)")) {
   {
     // BD1/BD2: the schedule table — 18 hand-computed rows — and the per-TEAM cache, in one page.
     // seedWithWeeklyHistory() finalizes weeks 1-4 for P. Passer (PHI) at 10/10/20/1 — the exact
@@ -21681,7 +21851,8 @@ async function openDetails(page, id) {
   // or PIN login (claimTeam, section AK) — never a second ask nobody asked for. The Alerts card
   // (section AN) gains a third state, a per-device sticky opt-out, and stops pitching "get
   // alerts" to a device that already said no (its own, or the browser's).
-  section("BE · THE COMMISSIONER'S RULING (2026-08-31) — alerts default ON, enrolled at the login gesture");
+  }
+  if (section("BE · THE COMMISSIONER'S RULING (2026-08-31) — alerts default ON, enrolled at the login gesture")) {
   {
     // Same technique as AK's own armPrompts (section AK, above): log nothing here (this
     // section only ever needs a fixed answer queue), "" once the queue is exhausted mirrors a
@@ -21885,7 +22056,8 @@ async function openDetails(page, id) {
   // free-agent key that let a rostered man be claimed twice, a background repaint that ate a
   // typed bid, the money actions with no failure path, a vacuous "Final", and the commissioner's
   // instant-free-agency ruling as it reads on screen.
-  section("BF · week identity · not-done states · the rollover · FA keying · the repaint · failure paths · the ruling");
+  }
+  if (section("BF · week identity · not-done states · the rollover · FA keying · the repaint · failure paths · the ruling")) {
   {
     // ---- BF1 (D-F1): ESPN's week boundary is not the league's, and the board follows the
     // LEAGUE's. Bare payload says week 2; LG.currentWeek() is 1. ----
@@ -22589,7 +22761,8 @@ async function openDetails(page, id) {
   }
 
   // ==================================================================================
-  section("BG · the activity ledger + the commissioner's activity dashboard (2026-09-04)");
+  }
+  if (section("BG · the activity ledger + the commissioner's activity dashboard (2026-09-04)")) {
   {
     // Every act doc this section reads comes straight out of localStorage rather than through
     // LG.loadAct, deliberately: LG.db.list() is a CACHED read, and a check that asks the app's
@@ -23149,7 +23322,8 @@ async function openDetails(page, id) {
   // desktop"). Every hook here is NEW, so the waits are the tolerant kind — against the pre-fix
   // app the tab does not exist and this section must read as a list of failures, not a crash.
   // =========================================================================================
-  section("RS · the Rosters tab — seventh tab, every team's roster, phone stack + desktop grid");
+  }
+  if (section("RS · the Rosters tab — seventh tab, every team's roster, phone stack + desktop grid")) {
   {
     // ---- RS1: the phone. Seven tabs measured, then the page itself.
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -23372,7 +23546,8 @@ async function openDetails(page, id) {
   // positions in mobile that we have in desktop view" (4) "the recent moves section should be
   // expanded by default" (5) "the names of players in transactions should be able to be
   // clicked" (6) "beneath standings lets add Power Ranking … feed all the rosters to Grok 4.6".
-  section("TB · the Tuesday batch — locker quiet, slot colours on phones, moves open + tappable, AI power rankings");
+  }
+  if (section("TB · the Tuesday batch — locker quiet, slot colours on phones, moves open + tappable, AI power rankings")) {
   const powerCalls = () => xaiReqs.filter((r) => /power-rankings columnist/.test(JSON.stringify(r || ""))).length;
   const lastPowerReq = () => xaiReqs.filter((r) => /power-rankings columnist/.test(JSON.stringify(r || ""))).pop();
   {
@@ -23874,7 +24049,8 @@ async function openDetails(page, id) {
   // became two feed rows. Points-allowed still emitted too, even though every dst_pa_*
   // rate in this league is 0. The painted feed is the merged story: one row per
   // key/stat/from/to, and a PA tick that did not move the score never lands.
-  section("TC · matchup feed — one line per play, no unused points-allowed");
+  }
+  if (section("TC · matchup feed — one line per play, no unused points-allowed")) {
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
@@ -23935,7 +24111,8 @@ async function openDetails(page, id) {
   // locks — once that man's NFL game has kicked off this week he cannot be claimed
   // or added until the week rolls and waivers open again. The UI greys the Add
   // button; faAdd / addClaim are the gate.
-  section("TD · started-game lock on Add / Claim");
+  }
+  if (section("TD · started-game lock on Add / Claim")) {
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
@@ -24013,7 +24190,8 @@ async function openDetails(page, id) {
   // so we sample D.winProbFromProj per pairing from first kickoff to the last game. Live
   // D.winProb is the header bar, not this line. HEAD of a bite may still sample the live
   // model — every block guards typeof so a bite cannot SUITE CRASH.
-  section("TF · matchup projected win-% graph");
+  }
+  if (section("TF · matchup projected win-% graph")) {
   {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     const A9 = ["3915511", "4241457", "111888", "4361741", "111555", "111222", "111444", "dst_PHI", "2473037"];
@@ -24374,9 +24552,10 @@ async function openDetails(page, id) {
     }
   }
 
+  }
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");
-  console.log(`PASS ${pass} · FAIL ${fail}`);
+  console.log(`PASS ${pass} · FAIL ${fail}` + (ONLY ? "  (--only " + [...ONLY].join(",") + ")" : ""));
   if (fail) { console.log("Failures:"); failures.forEach((f) => console.log("  - " + f)); process.exit(1); }
 })().catch((e) => { console.error("SUITE CRASH:", e); process.exit(1); });

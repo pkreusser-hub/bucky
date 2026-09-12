@@ -7558,3 +7558,35 @@ Three chat-order checks also missed at 0ms apart (same class as the
 2026-09-10 cache-timing miss); the other 3429 still pass. App files
 restored, hashes identical.
 ---
+
+## GFFL — header proj is expected finish; suite `--only` for iteration (2026-09-11)
+
+User: "the win projections dont line up with the projected points, for
+example wyoming cowboys is projected to score more points but SLN is
+projected to win, that makes no sense"
+
+The muted number under the score was weekly paper (`D.projFor`). The
+bar and the lineup's muted column were expected finish (`D.liveProj` /
+`D.winProb`). After Thursday, a side can be ahead on paper and behind
+on the board that decides the game. Header totals are `sum(liveProj)`
+now, and the graph's current % overlays `D.winProb` so the label names
+the same favorite. The stored series stays `winProbFromProj` so the
+line does not crawl with the clock.
+
+Same turn: `node tools/_verify-gffl.cjs --only AQ,TF` runs those
+sections after the shared harness (~22s). `--list` prints keys.
+Unknown keys exit 1. A push to main still needs the full battery.
+
+Scripts cache-bust `?v=20260911d`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3454/3454**. Bite
+(`league.html` + `lg-core.js` + `lg-ui.js` at HEAD, new suite kept,
+`--only AQ`): **24 pass / 3 fail** — HEAD still paints weekly paper
+200.0/80.0 under the scores while the bar is 2% away, and the graph
+says T2 100%. Every pre-existing AQ check still passed. App files
+restored, hashes identical. `node tools/_verify-gffl.cjs --only AQ,TF`
+**77/77** in 22s.
+---

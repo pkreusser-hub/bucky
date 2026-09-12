@@ -4028,11 +4028,14 @@
   // primary), and the .nflsbt original still lives on the NFL game page where the box score
   // has no per-player restatement.
   // The NFL game page's winprob sparkline, for a fantasy pairing. Series is the
-  // week-long sample LG.sampleMatchupWinProbs writes (projection-only ticks).
-  // A kickoff seed still draws kickoff-to-now, so a 45/55 week is a flat line
-  // rather than an empty card. Own card, never inside .muhead. `wp` is
-  // D.winProbFromProj. X is the slate window; Y is the fixed 100/50/100 axis.
-  function matchupWinGraphHtml(hId, aId, wp, A, H) {
+  // week-long sample LG.sampleMatchupWinProbs writes (projection-only ticks, so
+  // the line does not crawl with the scoreboard). A kickoff seed still draws
+  // kickoff-to-now, so a 45/55 week is a flat line rather than an empty card.
+  // Own card, never inside .muhead. `wp` is the CURRENT reading — D.winProb,
+  // the same expected-finish model as the muted header totals and the bar.
+  // `wpKick` (optional) is D.winProbFromProj, used only to seed an empty card
+  // at first kickoff. X is the slate window; Y is the fixed 100/50/100 axis.
+  function matchupWinGraphHtml(hId, aId, wp, A, H, wpKick) {
     if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
     const stored = LG.wpSeries(hId, aId);
     const dnow = D();
@@ -4041,7 +4044,8 @@
     const t1 = win && isFinite(win.t1) ? win.t1 : Date.now();
     const now = Date.now();
     const pts = stored.slice();
-    if (!pts.length) pts.push({ t: t0, p: wp });
+    const seed = Number.isFinite(wpKick) ? wpKick : wp;
+    if (!pts.length) pts.push({ t: t0, p: seed });
     const lastRow = pts[pts.length - 1];
     if (Math.abs(lastRow.p - wp) >= 0.02 || (now - lastRow.t) > 1000) pts.push({ t: now, p: wp });
     if (pts.length < 2) return "";
@@ -4106,7 +4110,10 @@
     const aStar = decided.winner === "B" ? clinchStarHtml() : "";
     const wp = d.winProb(aKeys, hKeys); // away perspective, bar shows both
     const hRem = d.remaining(hKeys), aRem = d.remaining(aKeys);
-    const projSum = (keys) => keys.reduce((s, k) => s + (d.projFor(k) || 0), 0);
+    // Expected finish — the same D.liveProj sum D.winProb already weighs. Weekly
+    // paper (D.projFor) can still favor the other side after Thursday; those two
+    // used to sit on the same card and disagree about who was ahead.
+    const projSum = (keys) => keys.reduce((s, k) => s + LG.n(d.liveProj(k)), 0);
     const hProj = projSum(hKeys), aProj = projSum(aKeys);
     const mine = LG.myTeamId();
     // (The "owner · record" line and its loadStandings() read left with the 2026-08-11
@@ -4185,7 +4192,7 @@
         </tr></tfoot>
       </table></div>`;
     const wpProj = d.winProbFromProj ? d.winProbFromProj(aKeys, hKeys) : wp;
-    const muWpInner = matchupWinGraphHtml(hId, aId, wpProj, A, H);
+    const muWpInner = matchupWinGraphHtml(hId, aId, wp, A, H, wpProj);
     const muBenchInner = (aBench.length || hBench.length) ? `<h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
         ${benchRows.map(([pa, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>

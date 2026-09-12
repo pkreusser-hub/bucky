@@ -4631,9 +4631,12 @@
   // The NFL game page already draws ESPN's winprob series as a sparkline. Fantasy has no
   // upstream series, so this keeps one — a league-wide doc per week, one TOP-LEVEL array
   // field per pairing (m_<home>_<away>), same updateMask reason as injstate. Every point
-  // is D.winProbFromProj — the same projection totals the matchup card already shows.
-  // Live scores and the clock move D.winProb (the header bar) without touching projFor;
-  // those must not grow the series, or the line crawls while the projection sits still.
+  // is D.winProbFromProj — weekly paper, so a Thursday scoreboard does not grow
+  // the series. The matchup card's muted totals and the current % label are
+  // expected finish (D.liveProj / D.winProb), the same estimate as the header
+  // bar; paint overlays that current reading without writing it back. Live
+  // scores and the clock move D.winProb without touching projFor; those must
+  // not grow the stored series, or the line crawls with every tick.
   // A new point is written only when that projection-win% itself moves by 2pp.
   // X is TIME from the slate's first kickoff to the last game — sample-index made a
   // 45/55 day look wild because leftover live ticks filled the box. Y is a FIXED
