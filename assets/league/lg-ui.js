@@ -4036,6 +4036,9 @@
   // `wpKick` (optional) is D.winProbFromProj, used only to seed an empty card
   // at first kickoff. X is the slate window. Paint is the NFL sparkline:
   // 220×56 line, mid rule, leading side's % on the right. No axis labels.
+  // Stroke follows the mid line: above is away's on-dark colour, below is
+  // home's. A 50/50 run stays muted. Colours come from LG.teamPalette, never
+  // a raw team.colors read.
   function matchupWinGraphHtml(hId, aId, wp, A, H, wpKick) {
     if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
     const stored = LG.wpSeries(hId, aId);
@@ -4051,18 +4054,29 @@
     if (Math.abs(lastRow.p - wp) >= 0.02 || (now - lastRow.t) > 1000) pts.push({ t: now, p: wp });
     if (pts.length < 2) return "";
     const plot = LG.WP_PLOT || { w: 220, h: 56 };
-    const poly = LG.wpPolyPoints(pts, plot.w, plot.h, t0, t1);
+    const segs = (typeof LG.wpPolySegments === "function"
+      ? LG.wpPolySegments(pts, plot.w, plot.h, t0, t1)
+      : [{ side: "mid", points: LG.wpPolyPoints(pts, plot.w, plot.h, t0, t1) }])
+      .filter((s) => s && s.points);
+    if (!segs.length) return "";
     const last = pts[pts.length - 1].p;
     const awayLead = last >= 0.5;
     const lead = awayLead ? A : H;
     const pct = Math.round((awayLead ? last : 1 - last) * 100);
     const midY = (plot.h / 2).toFixed(1);
+    const pal = (t) => (t && typeof LG.teamPalette === "function") ? LG.teamPalette(t) : null;
+    const awayC = (pal(A) || {}).onDark || "";
+    const homeC = (pal(H) || {}).onDark || "";
+    const strokeFor = (side) => (side === "away" && awayC) ? awayC : (side === "home" && homeC) ? homeC : "var(--mut)";
+    const lines = segs.map((s) =>
+      `<polyline class="muwpline" data-side="${s.side}" points="${s.points}" fill="none" stroke="${esc(strokeFor(s.side))}" stroke-width="2"/>`
+    ).join("");
     // Same card language as the NFL game sparkline: the line, a mid rule, and
     // the leading side's % on the right. No axis labels, no heading, no note.
     return `<div class="nflwp">
         <svg viewBox="0 0 ${plot.w} ${plot.h}" preserveAspectRatio="none" role="img" aria-label="Win probability">
           <line class="muwpmid" x1="0" y1="${midY}" x2="${plot.w}" y2="${midY}" stroke="var(--divider)" stroke-width="1"/>
-          <polyline class="muwpline" points="${poly}" fill="none" stroke="var(--accent)" stroke-width="2"/></svg>
+          ${lines}</svg>
         <div class="nflwpv"><b>${esc(teamTag(lead))} ${pct}%</b><span class="mut small">win probability</span></div></div>`;
   }
   UI.renderMatchup = renderMatchup;

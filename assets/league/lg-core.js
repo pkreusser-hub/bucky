@@ -4684,18 +4684,25 @@
   // Same 220×56 box as the NFL game sparkline: p=1 at y=4, 50/50 at y=28,
   // p=0 at y=52 (y = 4 + (1-p)*48). Bare number arrays keep sample-index X.
   // Timestamped rows use time from t0 (first kickoff) to t1 (last game).
+  // A crossing of 50/50 is split so each run can take that side's team colour:
+  // above the mid line is away, below is home, on the line is neither.
   LG.WP_PLOT = { w: 220, h: 56, pad: 4 };
   LG.wpY = function (p) {
     const h = LG.WP_PLOT.h, pad = LG.WP_PLOT.pad;
     return pad + (1 - Math.max(0, Math.min(1, Number(p) || 0))) * (h - pad * 2);
   };
-  LG.wpPolyPoints = function (ps, width, height, t0, t1) {
+  LG.wpSide = function (p) {
+    const n = Number(p);
+    if (!isFinite(n) || n === 0.5) return "mid";
+    return n > 0.5 ? "away" : "home";
+  };
+  function wpVerts(ps, width, height, t0, t1) {
     const w = width == null ? LG.WP_PLOT.w : width;
     const h = height == null ? LG.WP_PLOT.h : height;
     const pad = LG.WP_PLOT.pad;
     const span = h - pad * 2;
     const pts = ps || [];
-    if (pts.length < 2) return "";
+    if (pts.length < 2) return [];
     const numeric = typeof pts[0] === "number";
     let xAt;
     if (numeric) {
@@ -4712,10 +4719,52 @@
     }
     const pAt = (i) => numeric ? Number(pts[i]) : Number(pts[i].p);
     return pts.map((_, i) => {
-      const x = xAt(i).toFixed(1);
-      const y = (pad + (1 - Math.max(0, Math.min(1, pAt(i)))) * span).toFixed(1);
-      return x + "," + y;
-    }).join(" ");
+      const p = Math.max(0, Math.min(1, pAt(i)));
+      return { x: xAt(i), y: pad + (1 - p) * span, p };
+    });
+  }
+  LG.wpPolyPoints = function (ps, width, height, t0, t1) {
+    return wpVerts(ps, width, height, t0, t1).map((v) => v.x.toFixed(1) + "," + v.y.toFixed(1)).join(" ");
+  };
+  LG.wpPolySegments = function (ps, width, height, t0, t1) {
+    const verts = wpVerts(ps, width, height, t0, t1);
+    if (verts.length < 2) return [];
+    const h = height == null ? LG.WP_PLOT.h : height;
+    const midY = h / 2;
+    const fmt = (v) => v.x.toFixed(1) + "," + v.y.toFixed(1);
+    const segs = [];
+    let cur = [verts[0]];
+    let curSide = LG.wpSide(verts[0].p);
+    const flush = () => {
+      if (cur.length < 2) return;
+      segs.push({ side: curSide, points: cur.map(fmt).join(" ") });
+    };
+    for (let i = 1; i < verts.length; i++) {
+      const a = verts[i - 1], b = verts[i];
+      const sa = LG.wpSide(a.p) === "mid" ? curSide : LG.wpSide(a.p);
+      const sbRaw = LG.wpSide(b.p);
+      const sb = sbRaw === "mid" ? sa : sbRaw;
+      const dp = b.p - a.p;
+      let t = null;
+      if (dp !== 0 && sa !== "mid" && sb !== "mid" && sa !== sb) {
+        const frac = (0.5 - a.p) / dp;
+        if (frac > 0 && frac < 1) t = frac;
+      }
+      if (t != null) {
+        const mid = { x: a.x + (b.x - a.x) * t, y: midY, p: 0.5 };
+        cur.push(mid);
+        curSide = sa;
+        flush();
+        cur = [mid, b];
+        curSide = sb;
+      } else {
+        if (curSide === "mid" && sb !== "mid") curSide = sb;
+        cur.push(b);
+        if (sb !== "mid") curSide = sb;
+      }
+    }
+    flush();
+    return segs;
   };
   LG.loadWpGraph = async function (week) {
     const w = week == null ? ((LG.ui && LG.ui.week) || LG.currentWeek()) : week;

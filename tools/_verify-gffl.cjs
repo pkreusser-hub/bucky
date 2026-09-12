@@ -24225,6 +24225,8 @@ async function openDetails(page, id) {
           y0: typeof LG.wpY === "function" ? LG.wpY(0) : null,
           y50: typeof LG.wpY === "function" ? LG.wpY(0.5) : null,
           y100: typeof LG.wpY === "function" ? LG.wpY(1) : null,
+          segs: typeof LG.wpPolySegments === "function" ? LG.wpPolySegments([0.25, 0.75]) : null,
+          segsFlat: typeof LG.wpPolySegments === "function" ? LG.wpPolySegments([0.5, 0.5]) : null,
         };
       }, A9, B3);
       ok(r.hooks === true, "D.winProbFromProj / D.slateWindow exist (" + JSON.stringify(r) + ")");
@@ -24243,6 +24245,16 @@ async function openDetails(page, id) {
           "…wpY(1) < wpY(0.5) < wpY(0) so away-100 is above home-100 (" + JSON.stringify({ y100: r.y100, y50: r.y50, y0: r.y0 }) + ")");
         ok(r.time === "0.0,28.0 110.0,28.0",
           "…timestamped rows use time for X — 0 and 50 of a 0–100 window sit at x=0 and x=110, both y=28 (" + r.time + ")");
+        // RESTAGED 2026-09-11: a 0.25→0.75 hop crosses 50/50 at mid-box.
+        // y = 4+(1-p)*48 → 0.25=40, 0.5=28, 0.75=16. Sample-index X: 0 and 220,
+        // crossing at x=110. Below the mid line is home, above is away.
+        ok(Array.isArray(r.segs) && r.segs.length === 2
+          && r.segs[0].side === "home" && r.segs[0].points === "0.0,40.0 110.0,28.0"
+          && r.segs[1].side === "away" && r.segs[1].points === "110.0,28.0 220.0,16.0",
+          "…a hop across 50/50 splits on the mid line, home then away (" + JSON.stringify(r.segs) + ")");
+        ok(Array.isArray(r.segsFlat) && r.segsFlat.length === 1 && r.segsFlat[0].side === "mid"
+          && r.segsFlat[0].points === "0.0,28.0 220.0,28.0",
+          "…and a 50/50 run stays on the mid line (" + JSON.stringify(r.segsFlat) + ")");
       }
       ok(errors.length === 0, "0 page errors on the kickoff model");
       await ctx.close();
@@ -24337,6 +24349,12 @@ async function openDetails(page, id) {
           const head = document.querySelector(".card.muhead");
           const note = el && (el.textContent || "").replace(/\s+/g, " ");
           const txt = (sel) => { const n = el && el.querySelector(sel); return n ? n.textContent.replace(/\s+/g, " ").trim() : ""; };
+          const LG = window.__GFFL__.LG;
+          const polys = el ? [...el.querySelectorAll("polyline.muwpline")].map((p) => ({
+            side: p.getAttribute("data-side"),
+            stroke: p.getAttribute("stroke"),
+            sw: p.getAttribute("stroke-width"),
+          })) : [];
           return {
             hidden: !!(el && el.hidden),
             parent: el && el.offsetParent !== null,
@@ -24356,6 +24374,9 @@ async function openDetails(page, id) {
             heading: !!(el && el.querySelector(".seclabel")),
             axis: !!(el && el.querySelector(".muwpy")),
             weekNote: !!(el && el.querySelector(".muwpnote")),
+            polys,
+            homeC: LG.teamPalette(LG.teamById(1)).onDark,
+            awayC: LG.teamPalette(LG.teamById(2)).onDark,
           };
         });
         ok(painted.parent === true && painted.hidden === false, "…the card is visible (offsetParent set) (" + JSON.stringify(painted) + ")");
@@ -24374,6 +24395,39 @@ async function openDetails(page, id) {
           "…the card is the NFL sparkline — no heading, no Y labels, no week note (" + JSON.stringify(painted) + ")");
         ok(painted.note && /win probability/i.test(painted.note) && !/projected win %/i.test(painted.note) && !/First kickoff/.test(painted.note),
           "…the only copy is the NFL caption (" + JSON.stringify(painted.note) + ")");
+        // RESTAGED 2026-09-11: the line is no longer one accent stroke. A home
+        // lock sits below 50/50, so every run uses the home team's on-dark
+        // colour (the same token a team name uses on a dark card).
+        ok(painted.polys && painted.polys.length >= 1 && painted.polys.every((p) => p.side === "home"),
+          "…a home lock's stroke is on the home side of 50/50 (" + JSON.stringify(painted.polys) + ")");
+        ok(painted.homeC && painted.homeC !== painted.awayC
+          && painted.polys.every((p) => p.stroke === painted.homeC && p.stroke !== "var(--accent)"),
+          "…and that stroke is the home on-dark colour, not accent (" + JSON.stringify({ homeC: painted.homeC, awayC: painted.awayC, polys: painted.polys }) + ")");
+        await page.evaluate((B3) => {
+          const D = window.__GFFL__.D;
+          D.S.players.clear();
+          ["PHI", "DAL", "DEN", "KC"].forEach((ab) => D.S.games.set(ab, { state: "pre" }));
+          const table = {};
+          B3.forEach((k) => (table[k] = 80));
+          D.projFor = (key) => (key in table ? table[key] : 5);
+        }, B3);
+        await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
+        await waitOr(page, "#muWp polyline");
+        const crossed = await page.evaluate(() => {
+          const el = document.getElementById("muWp");
+          const LG = window.__GFFL__.LG;
+          return {
+            polys: [...el.querySelectorAll("polyline.muwpline")].map((p) => ({
+              side: p.getAttribute("data-side"),
+              stroke: p.getAttribute("stroke"),
+            })),
+            homeC: LG.teamPalette(LG.teamById(1)).onDark,
+            awayC: LG.teamPalette(LG.teamById(2)).onDark,
+          };
+        });
+        ok(crossed.polys.some((p) => p.side === "home" && p.stroke === crossed.homeC)
+          && crossed.polys.some((p) => p.side === "away" && p.stroke === crossed.awayC),
+          "…a line that crosses 50/50 uses each side's team colour (" + JSON.stringify(crossed) + ")");
       }
       ok(errors.length === 0, "0 page errors on the seed-then-live graph");
       await ctx.close();
@@ -24542,6 +24596,8 @@ async function openDetails(page, id) {
             minY: ys.length ? Math.min.apply(null, ys) : null,
             maxY: ys.length ? Math.max.apply(null, ys) : null,
             lastY: ys.length ? ys[ys.length - 1] : null,
+            side: poly && poly.getAttribute("data-side"),
+            stroke: poly && poly.getAttribute("stroke"),
           };
         });
         ok(painted.n >= 2 && painted.n <= 3, "…paint is kickoff-to-now, not a 12-vertex tail (" + JSON.stringify(painted) + ")");
@@ -24549,6 +24605,8 @@ async function openDetails(page, id) {
           "…a 50/50 overlay sits on the mid line, not the top or bottom (" + JSON.stringify(painted) + ")");
         ok(painted.maxY - painted.minY < 10,
           "…the line does not swing across the box (" + JSON.stringify(painted) + ")");
+        ok(painted.side === "mid" && painted.stroke === "var(--mut)",
+          "…and a line on the mid rule stays muted, not a team colour (" + JSON.stringify(painted) + ")");
       }
       ok(errors.length === 0, "0 page errors on the live-tail clip");
       await ctx.close();

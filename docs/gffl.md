@@ -7616,3 +7616,28 @@ labelled plot (Y at 58/40/22, mid at 40, heading, away/home 100,
 pre-existing TF check still passed. App files restored, hashes
 identical. `node tools/_verify-gffl.cjs --only AQ,TF` **76/76**.
 ---
+
+## GFFL — sparkline colour follows the 50/50 line (2026-09-11)
+
+User: "the color of the line should be based on what side of the y
+axis it is"
+
+One accent stroke treated the whole week as the same team. The line
+now splits where it crosses 50/50: above the mid rule is the away
+team's on-dark colour, below is home, and a run sitting on the rule
+stays muted. Colours come from `LG.teamPalette`, the same token a
+team name uses on a dark card.
+
+Scripts cache-bust `?v=20260911f`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3459/3459**. Bite
+(`league.html` + `lg-core.js` + `lg-ui.js` at HEAD, new suite kept,
+`--only TF`): **49 pass / 6 fail** — HEAD still paints one accent
+stroke with no side split (home lock, a 50/50 run, and a hop across
+mid all stay `var(--accent)`). Every pre-existing TF check still
+passed. App files restored, hashes identical.
+`node tools/_verify-gffl.cjs --only TF` **55/55**.
+---
