@@ -4034,7 +4034,8 @@
   // Own card, never inside .muhead. `wp` is the CURRENT reading — D.winProb,
   // the same expected-finish model as the muted header totals and the bar.
   // `wpKick` (optional) is D.winProbFromProj, used only to seed an empty card
-  // at first kickoff. X is the slate window; Y is the fixed 100/50/100 axis.
+  // at first kickoff. X is the slate window. Paint is the NFL sparkline:
+  // 220×56 line, mid rule, leading side's % on the right. No axis labels.
   function matchupWinGraphHtml(hId, aId, wp, A, H, wpKick) {
     if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
     const stored = LG.wpSeries(hId, aId);
@@ -4049,27 +4050,20 @@
     const lastRow = pts[pts.length - 1];
     if (Math.abs(lastRow.p - wp) >= 0.02 || (now - lastRow.t) > 1000) pts.push({ t: now, p: wp });
     if (pts.length < 2) return "";
-    const plot = LG.WP_PLOT || { w: 220, h: 80 };
+    const plot = LG.WP_PLOT || { w: 220, h: 56 };
     const poly = LG.wpPolyPoints(pts, plot.w, plot.h, t0, t1);
     const last = pts[pts.length - 1].p;
     const awayLead = last >= 0.5;
     const lead = awayLead ? A : H;
     const pct = Math.round((awayLead ? last : 1 - last) * 100);
-    const stroke = (LG.teamPalette(lead || {}) || {}).primary || "var(--accent)";
     const midY = (plot.h / 2).toFixed(1);
-    return `<div class="seclabel"><b>Projected win %</b></div>
-      <div class="muwp">
-        <div class="muwpy" aria-hidden="true">
-          <span class="muwpyt"><b>${esc(teamTag(A))}</b> 100</span>
-          <span class="muwpym">50/50</span>
-          <span class="muwpyb"><b>${esc(teamTag(H))}</b> 100</span>
-        </div>
-        <svg class="muwpsvg" viewBox="0 0 ${plot.w} ${plot.h}" preserveAspectRatio="none" role="img" aria-label="Projected win probability, ${esc(teamTag(A))} 100 at the top, 50/50 in the middle, ${esc(teamTag(H))} 100 at the bottom">
+    // Same card language as the NFL game sparkline: the line, a mid rule, and
+    // the leading side's % on the right. No axis labels, no heading, no note.
+    return `<div class="nflwp">
+        <svg viewBox="0 0 ${plot.w} ${plot.h}" preserveAspectRatio="none" role="img" aria-label="Win probability">
           <line class="muwpmid" x1="0" y1="${midY}" x2="${plot.w}" y2="${midY}" stroke="var(--divider)" stroke-width="1"/>
-          <polyline class="muwpline" points="${poly}" fill="none" stroke="${esc(stroke)}" stroke-width="1"/></svg>
-        <div class="nflwpv"><b>${esc(teamTag(lead))} ${pct}%</b><span class="mut small">projected win %</span></div>
-      </div>
-      <div class="mut small muwpnote">First kickoff to the last game this week</div>`;
+          <polyline class="muwpline" points="${poly}" fill="none" stroke="var(--accent)" stroke-width="2"/></svg>
+        <div class="nflwpv"><b>${esc(teamTag(lead))} ${pct}%</b><span class="mut small">win probability</span></div></div>`;
   }
   UI.renderMatchup = renderMatchup;
   async function renderMatchup(repaint) {

@@ -1635,19 +1635,9 @@
   .nflwpv { flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; }
   .nflwpv b { font:700 15px var(--font-display); }
   /* Fantasy matchup win-% graph — own card so .muhead's 148px ceiling does not
-     move. Fixed Y: away 100 at the top, 50/50 on the mid line, home 100 at the
-     bottom. Not .nflwp: that sparkline is 56px and has no team-100 axis. */
-  .muwpcard { padding:10px 12px 12px; }
+     move. Same .nflwp 56px sparkline as the NFL game page. */
+  .muwpcard { padding:10px 12px; }
   .muwpcard[hidden] { display:none; }
-  .muwpcard .seclabel { margin-bottom:6px; }
-  .muwp { display:flex; align-items:stretch; gap:8px; }
-  .muwpy { display:flex; flex-direction:column; justify-content:space-between;
-           flex:0 0 auto; text-align:right; min-width:3.4em; padding:1px 0;
-           font:600 11px var(--font-display); letter-spacing:.3px; color:var(--mut); }
-  .muwpy b { color:var(--ink2); }
-  .muwpsvg { flex:1 1 auto; height:88px; min-width:0; display:block; }
-  .muwpline { stroke-width:1; vector-effect:non-scaling-stroke; }
-  .muwpnote { margin-top:6px; }
   .nflsplit { border-top:1px solid var(--divider); margin:12px 0; }
   .nflsb { margin:8px 0; }
   .nflsbl { display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:12.5px; }
@@ -2262,9 +2252,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260911d"></script>
-  <script src="assets/league/lg-data.js?v=20260911d"></script>
-  <script src="assets/league/lg-ui.js?v=20260911d"></script>
+  <script src="assets/league/lg-core.js?v=20260911e"></script>
+  <script src="assets/league/lg-data.js?v=20260911e"></script>
+  <script src="assets/league/lg-ui.js?v=20260911e"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

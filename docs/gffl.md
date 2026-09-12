@@ -7590,3 +7590,29 @@ says T2 100%. Every pre-existing AQ check still passed. App files
 restored, hashes identical. `node tools/_verify-gffl.cjs --only AQ,TF`
 **77/77** in 22s.
 ---
+
+## GFFL — matchup win-% card is the NFL sparkline (2026-09-11)
+
+User: "remove all the labels and text in the sparkine line card and
+mirror the formatting of the nfl game sparkline, clean and simple"
+
+The labelled 80-tall plot (heading, away 100 / 50/50 / home 100,
+"First kickoff to the last game this week") is gone. The card is
+the same `.nflwp` 220×56 line as the NFL game page: mid rule, 2px
+accent stroke, leading side's % and "win probability" on the right.
+X is still first kickoff → last game. Overlay and stored series
+did not move.
+
+Scripts cache-bust `?v=20260911e`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3453/3453**. Bite
+(`league.html` + `lg-core.js` + `lg-ui.js` at HEAD, new suite kept,
+`--only TF`): **39 pass / 10 fail** — HEAD still paints the 80-tall
+labelled plot (Y at 58/40/22, mid at 40, heading, away/home 100,
+"First kickoff to the last game this week", 1px stroke). Every
+pre-existing TF check still passed. App files restored, hashes
+identical. `node tools/_verify-gffl.cjs --only AQ,TF` **76/76**.
+---

@@ -4640,8 +4640,8 @@
   // A new point is written only when that projection-win% itself moves by 2pp.
   // X is TIME from the slate's first kickoff to the last game — sample-index made a
   // 45/55 day look wild because leftover live ticks filled the box. Y is a FIXED
-  // 100/50/100 axis: away 100% at the top, 50/50 on the mid line, home 100% at the
-  // bottom. Cap 80, first and last kept. A live-era tail (many points spanning ≥15pp)
+  // Y matches the NFL 56px sparkline (away high, home low). Cap 80, first and last
+  // kept. A live-era tail (many points spanning ≥15pp)
   // is clipped back to the kickoff seed so it cannot paint as a seismograph. A
   // read-only mirror never writes.
   const WP_GRAPH_CAP = 80;
@@ -4681,11 +4681,10 @@
     if (!(hi - lo >= 0.15)) return src.slice();
     return [src[0]];
   };
-  // Fixed Y: p is the AWAY win (0..1). p=1 sits on the top pad (away 100),
-  // p=0.5 on the mid line, p=0 on the bottom pad (home 100).
-  // Bare number arrays keep sample-index X (the TF1 pin). Timestamped rows use
-  // time from t0 (first kickoff) to t1 (last game).
-  LG.WP_PLOT = { w: 220, h: 80, pad: 4 };
+  // Same 220×56 box as the NFL game sparkline: p=1 at y=4, 50/50 at y=28,
+  // p=0 at y=52 (y = 4 + (1-p)*48). Bare number arrays keep sample-index X.
+  // Timestamped rows use time from t0 (first kickoff) to t1 (last game).
+  LG.WP_PLOT = { w: 220, h: 56, pad: 4 };
   LG.wpY = function (p) {
     const h = LG.WP_PLOT.h, pad = LG.WP_PLOT.pad;
     return pad + (1 - Math.max(0, Math.min(1, Number(p) || 0))) * (h - pad * 2);
