@@ -17903,9 +17903,9 @@ async function openDetails(page, id) {
     }
 
     // ---- AQ7: the muted header number is expected finish (sum of D.liveProj),
-    // the same estimate the win bar already uses. The sparkline is the stored
-    // projection-% series (D.winProbFromProj) and is allowed to name the other
-    // side after Thursday — opening the card must not overlay live winProb.
+    // the same estimate the win bar and the graph caption use (D.winProb).
+    // Weekly paper (D.projFor) can favor the other side after Thursday — the
+    // line's tip is the bar, not that paper reading.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -17958,12 +17958,10 @@ async function openDetails(page, id) {
         "…the bar is the same live model, home favored (" + r.awayPct + " vs " + r.wpAway + ")");
       ok((Number(r.proj[0]) > Number(r.proj[1])) === (r.awayPct > 50),
         "…and the side with more projected points is the side the bar says is winning (" + JSON.stringify({ proj: r.proj, awayPct: r.awayPct }) + ")");
-      // RESTAGED 2026-09-13: the graph used to overlay live D.winProb on open so
-      // this label matched the bar (T1 98%). That invented a vertex the series
-      // never stored. This render is a Thursday split with no new paper sample,
-      // so the card stays empty.
-      ok(!r.label,
-        "…opening the card does not invent a live graph caption (" + JSON.stringify(r.label) + ")");
+      // RESTAGED 2026-09-13: weekly-paper sampling named T2 (or hid the card)
+      // while the bar said T1. The tip is D.winProb again.
+      ok(/T1/.test(r.label) && !/T2/.test(r.label),
+        "…the graph caption names the same home favorite as the bar (" + JSON.stringify(r.label) + ")");
       ok(errors.length === 0, "0 page errors on the header/bar/graph alignment");
       await ctx.close();
     }
@@ -24191,9 +24189,9 @@ async function openDetails(page, id) {
 
   // ================= TF · matchup projected win-% graph =================================
   // The NFL game page already draws ESPN's winprob series. Fantasy has no upstream series,
-  // so we sample D.winProbFromProj per pairing from first kickoff to the last game. Live
-  // D.winProb is the header bar, not this line. HEAD of a bite may still sample the live
-  // model — every block guards typeof so a bite cannot SUITE CRASH.
+  // so we sample D.winProb per pairing — the same expected-finish model as the header
+  // bar. HEAD of a bite may still sample weekly paper — every block guards typeof so a
+  // bite cannot SUITE CRASH.
   }
   if (section("TF · matchup projected win-% graph")) {
   {
@@ -24308,12 +24306,11 @@ async function openDetails(page, id) {
           const pts = (poly && poly.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
           return { exists: !!el, hidden: !!(el && el.hidden), parent: el && el.offsetParent !== null, n: pts.length };
         });
-        // RESTAGED 2026-09-13: kickoff-to-now invented a second vertex on open
-        // (live D.winProb at Date.now()). A single seed is not a projection
-        // change — the card stays empty until sampleMatchupWinProbs writes
-        // another tick.
-        ok(hidden.exists && hidden.n < 2 && (hidden.hidden || hidden.parent === false),
-          "…a single kickoff seed does not invent a kickoff-to-now line (" + JSON.stringify(hidden) + ")");
+        // RESTAGED 2026-09-13: hiding a one-seed card left the bar with no
+        // matching line. Kickoff-to-now at the current D.winProb (same p, all
+        // pre) is the bar's reading drawn across time so far.
+        ok(hidden.exists && hidden.parent === true && hidden.n >= 2,
+          "…a kickoff seed plus the current bar % draws kickoff-to-now (" + JSON.stringify(hidden) + ")");
         const again = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         ok(again && again.added === 0, "…a second all-pre poll writes nothing further (" + JSON.stringify(again) + ")");
         // Live scores and the clock move D.winProb. The graph is projected win %, so
@@ -24332,18 +24329,22 @@ async function openDetails(page, id) {
           const rows = window.__GFFL__.LG.wpSeries(1, 2);
           return { n: rows.length, p0: rows[0] && rows[0].p };
         });
-        ok(liveSwing && liveSwing.added === 0 && seriesLive.n === 1,
-          "a live 100-40 scoreboard does not move the projection series (" + JSON.stringify({ liveSwing, seriesLive }) + ")");
-        // RESTAGED 2026-09-10: used to append on that live 100-40 lead (D.winProb).
-        // The line then crawled with every scoreboard tick while the projection
-        // totals sat still. The second point is a real projFor change.
+        // RESTAGED 2026-09-13: weekly paper ignored this swing so the line and
+        // the bar named different favorites. The series is D.winProb now.
+        ok(liveSwing && liveSwing.added >= 1 && seriesLive.n >= 2,
+          "a live 100-40 scoreboard appends the same win% the bar just moved to (" + JSON.stringify({ liveSwing, seriesLive }) + ")");
+        // A further projFor change still writes — remaining projection is
+        // part of D.winProb.
         await page.evaluate(() => { window.__GFFL__.D.projFor = () => 5; });
         const moved = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         const series1 = await page.evaluate(() => {
           const rows = window.__GFFL__.LG.wpSeries(1, 2);
           return { n: rows.length, p0: rows[0] && rows[0].p, p1: rows[1] && rows[1].p };
         });
-        ok(moved && moved.added >= 1 && series1.n >= 2, "a projection change appends a second point (" + JSON.stringify({ moved, series1 }) + ")");
+        // RESTAGED 2026-09-13: the live 100-40 already wrote ~0. The next
+        // projFor tweak cannot move another 2pp from a lock. History stays.
+        ok(series1.n >= 2 && series1.p1 != null,
+          "…a further proj tweak does not wipe the live win% history (" + JSON.stringify({ moved, series1 }) + ")");
         await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
         await waitOr(page, "#muWp polyline");
         const painted = await page.evaluate(() => {
@@ -24389,7 +24390,7 @@ async function openDetails(page, id) {
         ok(painted.n >= 2 && painted.firstX === "0.0" && painted.lastX != null && Number(painted.lastX) >= 0 && Number(painted.lastX) <= 220,
           "…polyline starts at x=0 and stays inside the 220-wide box (" + JSON.stringify(painted) + ")");
         ok(Number(painted.lastX) < 220,
-          "…and the last vertex is the stored sample, not the right edge — last kickoff is still in the future (" + painted.lastX + ")");
+          "…and the last vertex is now, not the right edge — last kickoff is still in the future (" + painted.lastX + ")");
         ok(painted.vb === "0 0 220 56", "…on the NFL 220×56 sparkline, not the labelled 80-tall plot (" + painted.vb + ")");
         ok(painted.midY === 28, "…the mid rule is the NFL midpoint (y=28) (" + painted.midY + ")");
         ok(painted.lastY != null && painted.lastY > 48, "…a home lock sits near the BOTTOM (home 100), not auto-fit to the line (" + painted.lastY + ")");
@@ -24555,9 +24556,8 @@ async function openDetails(page, id) {
       await ctx.close();
     }
 
-    // ---- TF7: a leftover live-era tail (many points spanning ≥15pp) cannot paint as a
-    // seismograph. Clip keeps the kickoff seed; kickoff-to-now at ~50/50 sits on the
-    // mid line. HEAD's sample-index + unclipped tail puts lastY near 4 or 52.
+    // ---- TF7: _clipWpLiveTail still exists for the helper's own pin. Sample and
+    // paint keep a live win-% tail — that history is the bar, not a bug.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -24600,52 +24600,36 @@ async function openDetails(page, id) {
           const view = window.__GFFL__.LG.wpSeries(1, 2);
           return { rawN: raw.length, viewN: view.length, p0: view[0] && view[0].p };
         });
-        ok(sampled && sampled.added >= 1 && stored.rawN <= 2 && stored.viewN === 1 && stored.p0 === 0.5,
-          "sampleMatchupWinProbs persists the clip (" + JSON.stringify({ sampled, stored }) + ")");
+        // RESTAGED 2026-09-13: clipping the tail erased the bar's own history.
+        // The helper still clips when called; sample/paint keep the series.
+        ok(stored.rawN >= 8 && stored.viewN >= 8,
+          "sampleMatchupWinProbs keeps a live win-% tail (" + JSON.stringify({ sampled, stored }) + ")");
         await page.evaluate(() => {
           window.__GFFL__.UI.matchup = [1, 2];
           window.__GFFL__.UI.go("matchup");
         });
-        await waitOr(page, ".muhead");
-        const one = await page.evaluate(() => {
-          const el = document.getElementById("muWp");
-          const poly = el && el.querySelector("polyline.muwpline");
-          const pts = (poly && poly.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
-          return { hidden: !!(el && el.hidden), parent: el && el.offsetParent !== null, n: pts.length };
-        });
-        // RESTAGED 2026-09-13: a clipped live tail used to paint kickoff-to-now
-        // at the live overlay. One stored seed is not a projection change.
-        ok(one.n < 2 && (one.hidden || one.parent === false),
-          "…a single 50/50 seed does not draw a kickoff-to-now overlay (" + JSON.stringify(one) + ")");
-        await page.evaluate(() => {
-          const LG = window.__GFFL__.LG;
-          const t0 = Date.parse("2026-08-07T00:15:00Z");
-          const doc = LG._wpGraph && LG._wpGraph.doc;
-          if (doc) doc.m_1_2 = [{ t: t0, p: 0.5 }, { t: t0 + 3600000, p: 0.5 }];
-        });
-        await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
         await waitOr(page, "#muWp polyline");
         const painted = await page.evaluate(() => {
           const el = document.getElementById("muWp");
-          const poly = el && el.querySelector("polyline.muwpline");
-          const pts = (poly && poly.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
-          const ys = pts.map((p) => Number((p.split(",")[1]) || NaN)).filter((y) => isFinite(y));
+          const ys = [];
+          let n = 0;
+          for (const p of el.querySelectorAll("polyline.muwpline")) {
+            const pts = (p.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
+            n += pts.length;
+            for (const pt of pts) {
+              const y = Number((pt.split(",")[1]) || NaN);
+              if (isFinite(y)) ys.push(y);
+            }
+          }
           return {
-            n: pts.length,
+            n,
             minY: ys.length ? Math.min.apply(null, ys) : null,
             maxY: ys.length ? Math.max.apply(null, ys) : null,
-            lastY: ys.length ? ys[ys.length - 1] : null,
-            side: poly && poly.getAttribute("data-side"),
-            stroke: poly && poly.getAttribute("stroke"),
+            parent: el && el.offsetParent !== null,
           };
         });
-        ok(painted.n >= 2 && painted.n <= 3, "…two stored 50/50 ticks paint, not a 12-vertex tail (" + JSON.stringify(painted) + ")");
-        ok(painted.lastY != null && painted.lastY >= 26 && painted.lastY <= 30,
-          "…a stored 50/50 run sits on the mid line, not the top or bottom (" + JSON.stringify(painted) + ")");
-        ok(painted.maxY - painted.minY < 10,
-          "…the line does not swing across the box (" + JSON.stringify(painted) + ")");
-        ok(painted.side === "mid" && painted.stroke === "var(--mut)",
-          "…and a line on the mid rule stays muted, not a team colour (" + JSON.stringify(painted) + ")");
+        ok(painted.parent === true && painted.n >= 8 && painted.maxY - painted.minY > 10,
+          "…and paint draws that tail, not a clipped seed (" + JSON.stringify(painted) + ")");
       }
       ok(errors.length === 0, "0 page errors on the live-tail clip");
       await ctx.close();

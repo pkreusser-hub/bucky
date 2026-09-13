@@ -4631,18 +4631,14 @@
   // The NFL game page already draws ESPN's winprob series as a sparkline. Fantasy has no
   // upstream series, so this keeps one — a league-wide doc per week, one TOP-LEVEL array
   // field per pairing (m_<home>_<away>), same updateMask reason as injstate. Every point
-  // is D.winProbFromProj — weekly paper, so a Thursday scoreboard does not grow
-  // the series. Paint draws those stored ticks only; a live overlay used to
-  // append Date.now() at D.winProb whenever the card opened, which moved the
-  // line on view. Live scores and the clock still move the header bar
-  // (D.winProb) without touching this series.
-  // A new point is written only when that projection-win% itself moves by 2pp.
-  // X is TIME from the slate's first kickoff to the last game — sample-index made a
-  // 45/55 day look wild because leftover live ticks filled the box. Y is a FIXED
-  // Y matches the NFL 56px sparkline (away high, home low). Cap 80, first and last
-  // kept. A live-era tail (many points spanning ≥15pp)
-  // is clipped back to the kickoff seed so it cannot paint as a seismograph. A
-  // read-only mirror never writes.
+  // is D.winProb — the same expected-finish model as the header bar (live points +
+  // remaining projection). Weekly paper (winProbFromProj) used to be the series so
+  // Thursday would not move the line; the bar and the line then named different
+  // favorites. A new point is written when that win% moves by 2pp. X is TIME from
+  // the slate's first kickoff to the last game. Y matches the NFL 56px sparkline
+  // (away high, home low). Cap 80, first and last kept. A read-only mirror never
+  // writes. _clipWpLiveTail stays as a helper; the read/write path no longer
+  // applies it — a live tail is the bar's history, not a seismograph to erase.
   const WP_GRAPH_CAP = 80;
   const WP_GRAPH_MIN_DP = 0.02;
   LG.wpGraphId = (week) => "wpgraph_" + LG.SEASON + "_w" + week;
@@ -4776,7 +4772,7 @@
     const g = LG._wpGraph;
     if (!g || !g.doc) return [];
     const rows = g.doc[LG.wpField(hId, aId)];
-    return LG._clipWpLiveTail(Array.isArray(rows) ? rows : []);
+    return Array.isArray(rows) ? rows.slice() : [];
   };
   function mergeWpRows(a, b) {
     const byT = new Map();
@@ -4801,7 +4797,7 @@
       const hId = pair[0], aId = pair[1];
       const hKeys = starterKeysFor(hId), aKeys = starterKeysFor(aId);
       if (!hKeys.length || !aKeys.length) continue;
-      const p = d.winProbFromProj ? d.winProbFromProj(aKeys, hKeys) : d.winProb(aKeys, hKeys);
+      const p = d.winProb(aKeys, hKeys);
       if (!Number.isFinite(p)) continue;
       planned.push({ field: LG.wpField(hId, aId), p });
     }
@@ -4812,9 +4808,7 @@
     const write = { ...base, kind: "wpgraph", season: LG.SEASON, week };
     let added = 0;
     for (const s of planned) {
-      const raw = Array.isArray(base[s.field]) ? base[s.field].slice() : [];
-      let rows = LG._clipWpLiveTail(raw);
-      if (rows.length !== raw.length) added++;
+      const rows = Array.isArray(base[s.field]) ? base[s.field].slice() : [];
       if (!rows.length) {
         rows.push({ t: t0, p: s.p });
         added++;

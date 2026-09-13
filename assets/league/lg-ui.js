@@ -4028,30 +4028,38 @@
   // primary), and the .nflsbt original still lives on the NFL game page where the box score
   // has no per-player restatement.
   // The NFL game page's winprob sparkline, for a fantasy pairing. Series is the
-  // week-long sample LG.sampleMatchupWinProbs writes (projection-only ticks, so
-  // the line does not crawl with the scoreboard). Paint is those stored ticks
-  // only — opening the card must not append a live "now" vertex. A single
-  // kickoff seed is not a change, so the card stays empty until a second
-  // projection-% sample lands. Own card, never inside .muhead. Caption is
-  // the last stored reading. X is the slate window. Stroke follows the mid
-  // line: above is away's on-dark colour, below is home's. A 50/50 run stays
-  // muted. Colours come from LG.teamPalette, never a raw team.colors read.
+  // week-long sample LG.sampleMatchupWinProbs writes — the same D.winProb as
+  // the header bar. Paint is those ticks, with the current bar reading as the
+  // tip so the caption and the last vertex cannot disagree with the bar. A
+  // tip is appended only when it differs from the last stored p, or when a
+  // single seed needs a second vertex to draw. Own card, never inside .muhead.
+  // X is the slate window. Stroke follows the mid line: above is away's
+  // on-dark colour, below is home's. A 50/50 run stays muted. Colours come
+  // from LG.teamPalette, never a raw team.colors read.
   function matchupWinGraphHtml(hId, aId, wp, A, H, wpKick) {
     if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
     const stored = LG.wpSeries(hId, aId);
-    if (stored.length < 2) return "";
     const dnow = D();
     const win = dnow && dnow.slateWindow ? dnow.slateWindow() : null;
-    const t0 = win && isFinite(win.t0) ? win.t0 : stored[0].t;
-    const t1 = win && isFinite(win.t1) ? win.t1 : stored[stored.length - 1].t;
+    const t0 = win && isFinite(win.t0) ? win.t0 : (stored[0] && stored[0].t) || Date.now();
+    const t1 = win && isFinite(win.t1) ? win.t1 : Date.now();
     const pts = stored.slice();
+    const cur = Number.isFinite(wp) ? wp : (Number.isFinite(wpKick) ? wpKick : null);
+    if (!pts.length && Number.isFinite(cur)) pts.push({ t: t0, p: cur });
+    const lastRow = pts[pts.length - 1];
+    if (lastRow) {
+      const same = Number.isFinite(cur) && Math.abs(lastRow.p - cur) < 1e-9;
+      if (!same && Number.isFinite(cur)) pts.push({ t: Date.now(), p: cur });
+      else if (pts.length < 2) pts.push({ t: Date.now(), p: lastRow.p });
+    }
+    if (pts.length < 2) return "";
     const plot = LG.WP_PLOT || { w: 220, h: 56 };
     const segs = (typeof LG.wpPolySegments === "function"
       ? LG.wpPolySegments(pts, plot.w, plot.h, t0, t1)
       : [{ side: "mid", points: LG.wpPolyPoints(pts, plot.w, plot.h, t0, t1) }])
       .filter((s) => s && s.points);
     if (!segs.length) return "";
-    const last = pts[pts.length - 1].p;
+    const last = Number.isFinite(cur) ? cur : pts[pts.length - 1].p;
     const awayLead = last >= 0.5;
     const lead = awayLead ? A : H;
     const pct = Math.round((awayLead ? last : 1 - last) * 100);

@@ -7669,3 +7669,29 @@ winProb on open (caption T1 98%, seed card draws 2 vertices, clipped
 still passed. App files restored, hashes identical.
 `node tools/_verify-gffl.cjs --only AQ,TF` **84/84**.
 ---
+
+## GFFL — sparkline is the header bar's win% over time (2026-09-13)
+
+User: "the line is supposed to be a reflection of the change in the
+header bar % win, so they shouldn't ever be different"
+
+The series was weekly paper (`winProbFromProj`). The bar is expected
+finish (`winProb`: live points + remaining projection). After
+Thursday those disagree. Sample and caption are `D.winProb` again.
+The tip is the current bar reading when it differs from the last
+stored tick. A live scoreboard move writes a point. The live-tail
+clip no longer runs on read/write — that history is the bar.
+
+Scripts cache-bust `?v=20260913b`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3457/3457**. Bite
+(`league.html` + `lg-core.js` + `lg-ui.js` at HEAD, new suite kept,
+`--only AQ,TF`): **75 pass / 5 fail** — HEAD hides the Thursday
+split, hides a one-seed card, leaves a live 100-40 scoreboard
+unwritten (`fromProj` unchanged), and clips a 12-point tail to 1.
+Every pre-existing AQ/TF check still passed. App files restored,
+hashes identical. `node tools/_verify-gffl.cjs --only AQ,TF` **80/80**.
+---
