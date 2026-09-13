@@ -17903,9 +17903,9 @@ async function openDetails(page, id) {
     }
 
     // ---- AQ7: the muted header number is expected finish (sum of D.liveProj),
-    // the same estimate the win bar and the graph's current % already use.
-    // Weekly paper (D.projFor) can favor the other side after Thursday — those
-    // two used to sit on the same card and disagree about who was ahead.
+    // the same estimate the win bar already uses. The sparkline is the stored
+    // projection-% series (D.winProbFromProj) and is allowed to name the other
+    // side after Thursday — opening the card must not overlay live winProb.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -17958,8 +17958,12 @@ async function openDetails(page, id) {
         "…the bar is the same live model, home favored (" + r.awayPct + " vs " + r.wpAway + ")");
       ok((Number(r.proj[0]) > Number(r.proj[1])) === (r.awayPct > 50),
         "…and the side with more projected points is the side the bar says is winning (" + JSON.stringify({ proj: r.proj, awayPct: r.awayPct }) + ")");
-      ok(/T1/.test(r.label) && !/T2/.test(r.label),
-        "…the graph's current % names the same home favorite, not the weekly-paper away side (" + JSON.stringify(r.label) + ")");
+      // RESTAGED 2026-09-13: the graph used to overlay live D.winProb on open so
+      // this label matched the bar (T1 98%). That invented a vertex the series
+      // never stored. This render is a Thursday split with no new paper sample,
+      // so the card stays empty.
+      ok(!r.label,
+        "…opening the card does not invent a live graph caption (" + JSON.stringify(r.label) + ")");
       ok(errors.length === 0, "0 page errors on the header/bar/graph alignment");
       await ctx.close();
     }
@@ -24304,10 +24308,12 @@ async function openDetails(page, id) {
           const pts = (poly && poly.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
           return { exists: !!el, hidden: !!(el && el.hidden), parent: el && el.offsetParent !== null, n: pts.length };
         });
-        // RESTAGED 2026-09-11: a single kickoff seed used to hide the card. A 45/55
-        // week then looked empty. Kickoff-to-now at the current projection is a
-        // flat line, which is the truth.
-        ok(hidden.exists && hidden.parent === true && hidden.n >= 2, "…the graph card draws kickoff-to-now from the seed (" + JSON.stringify(hidden) + ")");
+        // RESTAGED 2026-09-13: kickoff-to-now invented a second vertex on open
+        // (live D.winProb at Date.now()). A single seed is not a projection
+        // change — the card stays empty until sampleMatchupWinProbs writes
+        // another tick.
+        ok(hidden.exists && hidden.n < 2 && (hidden.hidden || hidden.parent === false),
+          "…a single kickoff seed does not invent a kickoff-to-now line (" + JSON.stringify(hidden) + ")");
         const again = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         ok(again && again.added === 0, "…a second all-pre poll writes nothing further (" + JSON.stringify(again) + ")");
         // Live scores and the clock move D.winProb. The graph is projected win %, so
@@ -24383,7 +24389,7 @@ async function openDetails(page, id) {
         ok(painted.n >= 2 && painted.firstX === "0.0" && painted.lastX != null && Number(painted.lastX) >= 0 && Number(painted.lastX) <= 220,
           "…polyline starts at x=0 and stays inside the 220-wide box (" + JSON.stringify(painted) + ")");
         ok(Number(painted.lastX) < 220,
-          "…and the last vertex is NOW, not the right edge — last kickoff is still in the future (" + painted.lastX + ")");
+          "…and the last vertex is the stored sample, not the right edge — last kickoff is still in the future (" + painted.lastX + ")");
         ok(painted.vb === "0 0 220 56", "…on the NFL 220×56 sparkline, not the labelled 80-tall plot (" + painted.vb + ")");
         ok(painted.midY === 28, "…the mid rule is the NFL midpoint (y=28) (" + painted.midY + ")");
         ok(painted.lastY != null && painted.lastY > 48, "…a home lock sits near the BOTTOM (home 100), not auto-fit to the line (" + painted.lastY + ")");
@@ -24403,6 +24409,18 @@ async function openDetails(page, id) {
         ok(painted.homeC && painted.homeC !== painted.awayC
           && painted.polys.every((p) => p.stroke === painted.homeC && p.stroke !== "var(--accent)"),
           "…and that stroke is the home on-dark colour, not accent (" + JSON.stringify({ homeC: painted.homeC, awayC: painted.awayC, polys: painted.polys }) + ")");
+        const reopen = await page.evaluate(() => {
+          const pts = () => {
+            const poly = document.querySelector("#muWp polyline.muwpline");
+            return poly && poly.getAttribute("points");
+          };
+          window.__GFFL__.UI.renderMatchup(true);
+          const a = pts();
+          window.__GFFL__.UI.renderMatchup(true);
+          return { a, b: pts() };
+        });
+        ok(reopen.a && reopen.a === reopen.b,
+          "…reopening the card does not move a stored vertex (" + JSON.stringify(reopen) + ")");
         await page.evaluate((B3) => {
           const D = window.__GFFL__.D;
           D.S.players.clear();
@@ -24411,6 +24429,9 @@ async function openDetails(page, id) {
           B3.forEach((k) => (table[k] = 80));
           D.projFor = (key) => (key in table ? table[key] : 5);
         }, B3);
+        // RESTAGED 2026-09-13: a render-only overlay used to fake the crossing.
+        // The second colour must come from a real projection-% sample.
+        await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
         await waitOr(page, "#muWp polyline");
         const crossed = await page.evaluate(() => {
@@ -24585,6 +24606,24 @@ async function openDetails(page, id) {
           window.__GFFL__.UI.matchup = [1, 2];
           window.__GFFL__.UI.go("matchup");
         });
+        await waitOr(page, ".muhead");
+        const one = await page.evaluate(() => {
+          const el = document.getElementById("muWp");
+          const poly = el && el.querySelector("polyline.muwpline");
+          const pts = (poly && poly.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
+          return { hidden: !!(el && el.hidden), parent: el && el.offsetParent !== null, n: pts.length };
+        });
+        // RESTAGED 2026-09-13: a clipped live tail used to paint kickoff-to-now
+        // at the live overlay. One stored seed is not a projection change.
+        ok(one.n < 2 && (one.hidden || one.parent === false),
+          "…a single 50/50 seed does not draw a kickoff-to-now overlay (" + JSON.stringify(one) + ")");
+        await page.evaluate(() => {
+          const LG = window.__GFFL__.LG;
+          const t0 = Date.parse("2026-08-07T00:15:00Z");
+          const doc = LG._wpGraph && LG._wpGraph.doc;
+          if (doc) doc.m_1_2 = [{ t: t0, p: 0.5 }, { t: t0 + 3600000, p: 0.5 }];
+        });
+        await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
         await waitOr(page, "#muWp polyline");
         const painted = await page.evaluate(() => {
           const el = document.getElementById("muWp");
@@ -24600,9 +24639,9 @@ async function openDetails(page, id) {
             stroke: poly && poly.getAttribute("stroke"),
           };
         });
-        ok(painted.n >= 2 && painted.n <= 3, "…paint is kickoff-to-now, not a 12-vertex tail (" + JSON.stringify(painted) + ")");
+        ok(painted.n >= 2 && painted.n <= 3, "…two stored 50/50 ticks paint, not a 12-vertex tail (" + JSON.stringify(painted) + ")");
         ok(painted.lastY != null && painted.lastY >= 26 && painted.lastY <= 30,
-          "…a 50/50 overlay sits on the mid line, not the top or bottom (" + JSON.stringify(painted) + ")");
+          "…a stored 50/50 run sits on the mid line, not the top or bottom (" + JSON.stringify(painted) + ")");
         ok(painted.maxY - painted.minY < 10,
           "…the line does not swing across the box (" + JSON.stringify(painted) + ")");
         ok(painted.side === "mid" && painted.stroke === "var(--mut)",

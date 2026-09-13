@@ -7641,3 +7641,31 @@ mid all stay `var(--accent)`). Every pre-existing TF check still
 passed. App files restored, hashes identical.
 `node tools/_verify-gffl.cjs --only TF` **55/55**.
 ---
+
+## GFFL — sparkline is stored projection-% only, no open overlay (2026-09-13)
+
+User: "the sparkline should simply reflect exactly the movement of
+the projection %, it shouldnt change just because the user opens it.
+it should reflect the actual change in win % mapped over time based
+on updated projection values"
+
+Paint used to append Date.now() at live D.winProb whenever the
+matchup opened, so a one-seed card grew a kickoff-to-now line and
+the caption jumped to the bar. The card now draws only ticks
+sampleMatchupWinProbs already wrote (D.winProbFromProj, 2pp). A
+single kickoff seed stays hidden. Reopening does not move a vertex.
+The header bar is still expected finish.
+
+Scripts cache-bust `?v=20260913a`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3461/3461**. Bite
+(`league.html` + `lg-core.js` + `lg-ui.js` at HEAD, new suite kept,
+`--only AQ,TF`): **81 pass / 3 fail** — HEAD still overlays live
+winProb on open (caption T1 98%, seed card draws 2 vertices, clipped
+50/50 seed paints kickoff-to-now). Every pre-existing AQ/TF check
+still passed. App files restored, hashes identical.
+`node tools/_verify-gffl.cjs --only AQ,TF` **84/84**.
+---
