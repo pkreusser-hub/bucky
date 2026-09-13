@@ -24237,6 +24237,19 @@ async function openDetails(page, id) {
         const a1 = a0 ? LG.wpApplyTick(a0.rows, 0.5, tick0 + 30000) : null;
         const a2 = a1 ? LG.wpApplyTick(a1.rows, 0.7, tick0 + 30000) : null;
         const a3 = a2 ? LG.wpApplyTick(a2.rows, 0.7, tick0 + 60000) : null;
+        const messy = [
+          { t: hourNow - 30000, p: 0.54 },
+          { t: hourNow - 90000, p: 0.51 },
+          { t: hourNow - 20000, p: 0.59 },
+          { t: hourNow - 80000, p: 0.51 },
+        ];
+        const deduped = typeof LG.wpDedupeMinutes === "function" ? LG.wpDedupeMinutes(messy) : null;
+        const viewOpp = typeof LG.wpViewRows === "function"
+          ? LG.wpViewRows(messy, 0, hourNow, 0.43)
+          : null;
+        const segsOpp = viewOpp && typeof LG.wpPolySegments === "function"
+          ? LG.wpPolySegments(viewOpp, 220, 56, 0, hourNow)
+          : null;
         return {
           hooks: true, from, live,
           t0: win && win.t0, firstKick: Date.parse("2026-08-07T00:15:00Z"),
@@ -24252,6 +24265,11 @@ async function openDetails(page, id) {
           hourWin, hourPoly, oldPoly, oldN: oldPts && oldPts.length,
           tick: typeof LG.wpTick === "function" ? LG.wpTick(tick0 + 59999) : null,
           a0, a1, a2, a3,
+          dedupeN: deduped && deduped.length,
+          dedupeSorted: !!(deduped && deduped.length >= 2 && deduped.every((row, i) => !i || row.t > deduped[i - 1].t)),
+          viewMono: !!(viewOpp && viewOpp.length >= 2 && viewOpp.every((row, i) => !i || row.t >= viewOpp[i - 1].t)),
+          oppSides: segsOpp ? segsOpp.map((s) => s.side) : null,
+          oppCross: segsOpp ? segsOpp.some((s) => s.side === "away") && segsOpp.some((s) => s.side === "home") : null,
         };
       }, A9, B3);
       ok(r.hooks === true, "D.winProbFromProj / D.slateWindow exist (" + JSON.stringify(r) + ")");
@@ -24301,6 +24319,14 @@ async function openDetails(page, id) {
           "a point 30 minutes ago sits at mid-box; now is x=220 (" + r.hourPoly + ")");
         ok(r.oldN === 2 && r.oldPoly === "0.0,40.0 220.0,40.0",
           "a 2-hour-old tick is a left-edge hold, not its own vertex (" + JSON.stringify({ oldN: r.oldN, oldPoly: r.oldPoly }) + ")");
+        // RESTAGED 2026-09-13: live m_9_3 (Wyoming vs SLN) had 12 unsorted
+        // timestamps in two minutes. X walked backwards and the now-tip
+        // (SLN 57%) sat on the other side of 50/50 than the stored paper
+        // ticks, so the line flickered between teams while the bar did not.
+        ok(r.dedupeN === 2 && r.dedupeSorted === true,
+          "several timestamps in one minute collapse to one sorted tick (" + JSON.stringify({ n: r.dedupeN, sorted: r.dedupeSorted }) + ")");
+        ok(r.viewMono === true && r.oppCross === false && r.oppSides && r.oppSides.every((s) => s === "home"),
+          "an hour of the other favourite than the bar stays on the bar's side (" + JSON.stringify({ mono: r.viewMono, sides: r.oppSides, cross: r.oppCross }) + ")");
       }
       ok(errors.length === 0, "0 page errors on the kickoff model");
       await ctx.close();

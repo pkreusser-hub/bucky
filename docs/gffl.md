@@ -7723,3 +7723,32 @@ on the week-long axis. Every pre-existing TF check still passed.
 App files restored, hashes identical.
 `node tools/_verify-gffl.cjs --only TF` **64/64**.
 ---
+
+## GFFL — sparkline no longer sawtooths on one favourite (2026-09-13)
+
+User: "something is wrong with the sparkline, for example in the
+current game between wyoming cowboys and SLN, it is showing back
+and forth between the teams but SLN has been favored the whole
+time, so that doesnt make sense"
+
+Live `m_9_3` had 12 unsorted timestamps in two minutes (floored
+ticks mixed with raw Date.now()). X walked backwards, so the line
+drew teeth. Stored p sat on Wyoming (~51–59%) while the bar was
+SLN 57%; the now-tip then crossed 50/50. Paint sorts and keeps one
+tick per minute. If every stored tick in the hour names the other
+favourite than the bar, those ticks invert — that hour is the other
+perspective, not a flip the bar never showed.
+
+Scripts cache-bust `?v=20260913d`.
+
+Files: `league.html`, `assets/league/lg-core.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3470/3470**. Bite
+(`league.html` + `lg-core.js` at HEAD, new suite kept, `--only TF`):
+**64 pass / 2 fail** — HEAD keeps several timestamps in one minute
+and paints a 50/50 crossing when the stored hour names the other
+favourite than the bar. Every pre-existing TF check still passed.
+App files restored, hashes identical.
+`node tools/_verify-gffl.cjs --only TF` **66/66**.
+---

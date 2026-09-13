@@ -4691,6 +4691,20 @@
     const t1 = isFinite(Number(now)) ? Number(now) : Date.now();
     return { t0: t1 - LG.WP_WINDOW_MS, t1 };
   };
+  // One point per minute, time-sorted. Concurrent devices and the old 8s/2pp
+  // writer left several timestamps in the same minute, unsorted — paint then
+  // walked X backwards and the line sawtoothed on one favourite.
+  LG.wpDedupeMinutes = function (rows) {
+    const by = new Map();
+    const src = [];
+    for (const r of rows || []) {
+      if (!r || !isFinite(Number(r.t)) || !isFinite(Number(r.p))) continue;
+      src.push({ t: Number(r.t), p: Number(r.p) });
+    }
+    src.sort((a, b) => a.t - b.t);
+    for (const r of src) by.set(LG.wpTick(r.t), { t: LG.wpTick(r.t), p: r.p });
+    return [...by.values()];
+  };
   // Keep in-hour ticks plus the last pre-window point (carry-in).
   LG.wpKeepHour = function (rows, now) {
     const t0 = (isFinite(Number(now)) ? Number(now) : Date.now()) - LG.WP_WINDOW_MS;
@@ -4703,7 +4717,7 @@
       if (t < t0) lastPre = { t, p };
       else inWin.push({ t, p });
     }
-    return lastPre ? [lastPre].concat(inWin) : inWin;
+    return LG.wpDedupeMinutes(lastPre ? [lastPre].concat(inWin) : inWin);
   };
   LG.wpApplyTick = function (rows, p, now) {
     const tNow = isFinite(Number(now)) ? Number(now) : Date.now();
@@ -4722,18 +4736,34 @@
     return { rows: src.concat([{ t: tick, p: val }]), added: 1 };
   };
   // Paint series: hold at the left edge, in-hour ticks, current bar % at now.
+  // If every stored tick in the hour names the other favourite than the bar,
+  // invert them — that hour is the other perspective (paper vs live, or a
+  // swapped pairing), not a flip the bar never showed.
   LG.wpViewRows = function (rows, t0, t1, cur) {
     const start = Number(t0), end = Number(t1);
     if (!isFinite(start) || !isFinite(end) || !(end > start)) return [];
+    const cleaned = LG.wpDedupeMinutes(rows);
     let lastPre = null;
-    const inWin = [];
-    for (const r of (rows || [])) {
-      if (!r || !isFinite(Number(r.t)) || !isFinite(Number(r.p))) continue;
-      const t = Number(r.t), p = Number(r.p);
-      if (t < start) lastPre = p;
-      else if (t <= end) inWin.push({ t, p });
+    let inWin = [];
+    for (const r of cleaned) {
+      if (r.t < start) lastPre = r.p;
+      else if (r.t <= end) inWin.push({ t: r.t, p: r.p });
     }
     const tip = Number.isFinite(cur) ? Number(cur) : (inWin.length ? inWin[inWin.length - 1].p : lastPre);
+    if (Number.isFinite(tip) && tip !== 0.5 && inWin.length) {
+      const curAway = tip > 0.5;
+      const sided = inWin.filter((r) => r.p !== 0.5);
+      if (sided.length && sided.every((r) => (r.p > 0.5) !== curAway)) {
+        inWin = inWin.map((r) => r.p === 0.5 ? r : { t: r.t, p: 1 - r.p });
+        if (lastPre != null && lastPre !== 0.5 && (lastPre > 0.5) !== curAway) lastPre = 1 - lastPre;
+      }
+    }
+    const nowTick = LG.wpTick(end);
+    if (Number.isFinite(tip)) {
+      for (const r of inWin) {
+        if (r.t === nowTick) r.p = tip;
+      }
+    }
     const out = [];
     const leftP = lastPre != null ? lastPre : (inWin.length ? inWin[0].p : tip);
     if (Number.isFinite(leftP) && (!inWin.length || inWin[0].t > start)) out.push({ t: start, p: leftP });
