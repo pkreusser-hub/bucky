@@ -7695,3 +7695,31 @@ unwritten (`fromProj` unchanged), and clips a 12-point tail to 1.
 Every pre-existing AQ/TF check still passed. App files restored,
 hashes identical. `node tools/_verify-gffl.cjs --only AQ,TF` **80/80**.
 ---
+
+## GFFL — sparkline is a rolling 1-hour window, one tick a minute (2026-09-13)
+
+User: "sparkline x axis is now too long to actually be able to see
+anything. lets change it to a rolling 1 hour window with time now
+at the far right of the sparkline"
+User: "1 tick per 1 minute, updating each minute"
+
+X was first kickoff → last game (in the fixture, January 2027). A
+live move sat at x≈56 of 220. The plot is now the last hour, now at
+the right edge. One stored tick per minute; a same-minute poll
+overwrites that minute. Older than an hour drops except a left-edge
+hold. The header bar is still the same D.winProb.
+
+Scripts cache-bust `?v=20260913c`.
+
+Files: `league.html`, `assets/league/lg-{core,data,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3468/3468**. Bite
+(`league.html` + `lg-core.js` + `lg-ui.js` + `lg-data.js` at HEAD,
+new suite kept, `--only TF`): **50 pass / 14 fail** — HEAD has no
+hour window or minute tick, seeds the slate kickoff, appends a
+same-minute live swing as a second vertex, and paints now at x=56.4
+on the week-long axis. Every pre-existing TF check still passed.
+App files restored, hashes identical.
+`node tools/_verify-gffl.cjs --only TF` **64/64**.
+---

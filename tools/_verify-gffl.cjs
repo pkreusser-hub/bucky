@@ -24218,6 +24218,25 @@ async function openDetails(page, id) {
         const from = D.winProbFromProj(A9, B3);
         const live = D.winProb(A9, B3);
         const win = D.slateWindow();
+        const hourNow = 3600000;
+        const hourWin = typeof LG.wpPlotWindow === "function" ? LG.wpPlotWindow(hourNow) : null;
+        const hourPts = typeof LG.wpViewRows === "function"
+          ? LG.wpViewRows([{ t: hourNow - 1800000, p: 0.5 }, { t: hourNow, p: 0.5 }], hourNow - 3600000, hourNow, 0.5)
+          : null;
+        const hourPoly = hourPts && typeof LG.wpPolyPoints === "function"
+          ? LG.wpPolyPoints(hourPts, 220, 56, hourNow - 3600000, hourNow)
+          : null;
+        const oldPts = typeof LG.wpViewRows === "function"
+          ? LG.wpViewRows([{ t: hourNow - 7200000, p: 0.25 }], hourNow - 3600000, hourNow, 0.25)
+          : null;
+        const oldPoly = oldPts && typeof LG.wpPolyPoints === "function"
+          ? LG.wpPolyPoints(oldPts, 220, 56, hourNow - 3600000, hourNow)
+          : null;
+        const tick0 = 10 * 60000;
+        const a0 = typeof LG.wpApplyTick === "function" ? LG.wpApplyTick([], 0.5, tick0) : null;
+        const a1 = a0 ? LG.wpApplyTick(a0.rows, 0.5, tick0 + 30000) : null;
+        const a2 = a1 ? LG.wpApplyTick(a1.rows, 0.7, tick0 + 30000) : null;
+        const a3 = a2 ? LG.wpApplyTick(a2.rows, 0.7, tick0 + 60000) : null;
         return {
           hooks: true, from, live,
           t0: win && win.t0, firstKick: Date.parse("2026-08-07T00:15:00Z"),
@@ -24229,6 +24248,10 @@ async function openDetails(page, id) {
           y100: typeof LG.wpY === "function" ? LG.wpY(1) : null,
           segs: typeof LG.wpPolySegments === "function" ? LG.wpPolySegments([0.25, 0.75]) : null,
           segsFlat: typeof LG.wpPolySegments === "function" ? LG.wpPolySegments([0.5, 0.5]) : null,
+          windowMs: LG.WP_WINDOW_MS, tickMs: LG.WP_TICK_MS,
+          hourWin, hourPoly, oldPoly, oldN: oldPts && oldPts.length,
+          tick: typeof LG.wpTick === "function" ? LG.wpTick(tick0 + 59999) : null,
+          a0, a1, a2, a3,
         };
       }, A9, B3);
       ok(r.hooks === true, "D.winProbFromProj / D.slateWindow exist (" + JSON.stringify(r) + ")");
@@ -24257,14 +24280,35 @@ async function openDetails(page, id) {
         ok(Array.isArray(r.segsFlat) && r.segsFlat.length === 1 && r.segsFlat[0].side === "mid"
           && r.segsFlat[0].points === "0.0,28.0 220.0,28.0",
           "…and a 50/50 run stays on the mid line (" + JSON.stringify(r.segsFlat) + ")");
+        // RESTAGED 2026-09-13: X is the last hour, now at the right, one tick
+        // a minute. The slate first-kickoff→last-game axis hid a live move
+        // (last kickoff is 2027-01-01 in this fixture).
+        ok(r.windowMs === 3600000 && r.tickMs === 60000,
+          "the plot window is 1 hour and the tick is 1 minute (" + JSON.stringify({ windowMs: r.windowMs, tickMs: r.tickMs }) + ")");
+        ok(r.hourWin && r.hourWin.t0 === 0 && r.hourWin.t1 === 3600000,
+          "wpPlotWindow(1h) is [0, 1h] (" + JSON.stringify(r.hourWin) + ")");
+        ok(r.tick === 10 * 60000,
+          "wpTick floors to the minute (" + r.tick + ")");
+        ok(r.a0 && r.a0.added === 1 && r.a0.rows.length === 1 && r.a0.rows[0].t === 10 * 60000,
+          "an empty series takes the current minute (" + JSON.stringify(r.a0) + ")");
+        ok(r.a1 && r.a1.added === 0 && r.a1.rows.length === 1,
+          "…a same-minute poll at the same % writes nothing (" + JSON.stringify(r.a1) + ")");
+        ok(r.a2 && r.a2.added === 1 && r.a2.rows.length === 1 && r.a2.rows[0].p === 0.7,
+          "…a same-minute poll overwrites that minute when the bar moves (" + JSON.stringify(r.a2) + ")");
+        ok(r.a3 && r.a3.added === 1 && r.a3.rows.length === 2 && r.a3.rows[1].t === 11 * 60000,
+          "…the next minute appends a new tick (" + JSON.stringify(r.a3) + ")");
+        ok(r.hourPoly === "0.0,28.0 110.0,28.0 220.0,28.0",
+          "a point 30 minutes ago sits at mid-box; now is x=220 (" + r.hourPoly + ")");
+        ok(r.oldN === 2 && r.oldPoly === "0.0,40.0 220.0,40.0",
+          "a 2-hour-old tick is a left-edge hold, not its own vertex (" + JSON.stringify({ oldN: r.oldN, oldPoly: r.oldPoly }) + ")");
       }
       ok(errors.length === 0, "0 page errors on the kickoff model");
       await ctx.close();
     }
 
-    // ---- TF2: all-pre seeds one silent point; the card still draws kickoff-to-now
-    // so a 45/55 week is a flat line rather than an empty card. A live scoreboard
-    // swing does not grow the stored series; a real projFor change does.
+    // ---- TF2: all-pre seeds this minute; the card still draws the hour
+    // (left hold + now) so a quiet reading is a flat line rather than an
+    // empty card. A same-minute live swing overwrites that tick.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -24292,9 +24336,18 @@ async function openDetails(page, id) {
         const series0 = await page.evaluate(() => {
           const LG = window.__GFFL__.LG;
           const rows = LG.wpSeries(1, 2);
-          return { added: null, n: rows.length, p0: rows[0] && rows[0].p };
+          const now = Date.now();
+          return {
+            n: rows.length, p0: rows[0] && rows[0].p, t0: rows[0] && rows[0].t,
+            tick: typeof LG.wpTick === "function" ? LG.wpTick(now) : null,
+            kick: Date.parse("2026-08-07T00:15:00Z"),
+          };
         });
-        ok(seed && seed.added >= 1 && series0.n === 1, "all-pre: the first sample seeds exactly one kickoff point (" + JSON.stringify({ seed, series0 }) + ")");
+        ok(seed && seed.added >= 1 && series0.n === 1, "all-pre: the first sample seeds exactly one point (" + JSON.stringify({ seed, series0 }) + ")");
+        // RESTAGED 2026-09-13: the seed used to be slate first-kickoff (Aug 7),
+        // which sits off the left of a rolling hour. The first tick is now.
+        ok(series0.t0 === series0.tick && series0.t0 !== series0.kick,
+          "…and that point is this minute, not the slate kickoff (" + JSON.stringify(series0) + ")");
         await page.evaluate(() => {
           window.__GFFL__.UI.matchup = [1, 2];
           window.__GFFL__.UI.go("matchup");
@@ -24307,10 +24360,9 @@ async function openDetails(page, id) {
           return { exists: !!el, hidden: !!(el && el.hidden), parent: el && el.offsetParent !== null, n: pts.length };
         });
         // RESTAGED 2026-09-13: hiding a one-seed card left the bar with no
-        // matching line. Kickoff-to-now at the current D.winProb (same p, all
-        // pre) is the bar's reading drawn across time so far.
+        // matching line. One stored minute still draws the hour (left hold + now).
         ok(hidden.exists && hidden.parent === true && hidden.n >= 2,
-          "…a kickoff seed plus the current bar % draws kickoff-to-now (" + JSON.stringify(hidden) + ")");
+          "…a one-tick card still draws the hour (" + JSON.stringify(hidden) + ")");
         const again = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         ok(again && again.added === 0, "…a second all-pre poll writes nothing further (" + JSON.stringify(again) + ")");
         // Live scores and the clock move D.winProb. The graph is projected win %, so
@@ -24329,10 +24381,10 @@ async function openDetails(page, id) {
           const rows = window.__GFFL__.LG.wpSeries(1, 2);
           return { n: rows.length, p0: rows[0] && rows[0].p };
         });
-        // RESTAGED 2026-09-13: weekly paper ignored this swing so the line and
-        // the bar named different favorites. The series is D.winProb now.
-        ok(liveSwing && liveSwing.added >= 1 && seriesLive.n >= 2,
-          "a live 100-40 scoreboard appends the same win% the bar just moved to (" + JSON.stringify({ liveSwing, seriesLive }) + ")");
+        // RESTAGED 2026-09-13: one tick per minute — a same-minute live swing
+        // overwrites that minute rather than appending a second vertex.
+        ok(liveSwing && liveSwing.added >= 1 && seriesLive.n === 1 && seriesLive.p0 !== series0.p0,
+          "a live 100-40 scoreboard overwrites this minute with the bar's new win% (" + JSON.stringify({ liveSwing, seriesLive, p0: series0.p0 }) + ")");
         // A further projFor change still writes — remaining projection is
         // part of D.winProb.
         await page.evaluate(() => { window.__GFFL__.D.projFor = () => 5; });
@@ -24341,10 +24393,10 @@ async function openDetails(page, id) {
           const rows = window.__GFFL__.LG.wpSeries(1, 2);
           return { n: rows.length, p0: rows[0] && rows[0].p, p1: rows[1] && rows[1].p };
         });
-        // RESTAGED 2026-09-13: the live 100-40 already wrote ~0. The next
-        // projFor tweak cannot move another 2pp from a lock. History stays.
-        ok(series1.n >= 2 && series1.p1 != null,
-          "…a further proj tweak does not wipe the live win% history (" + JSON.stringify({ moved, series1 }) + ")");
+        // RESTAGED 2026-09-13: the live 100-40 already wrote this minute.
+        // A same-minute proj tweak cannot invent a second tick.
+        ok(series1.n === 1 && series1.p0 != null,
+          "…a further proj tweak does not invent a second same-minute tick (" + JSON.stringify({ moved, series1 }) + ")");
         await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
         await waitOr(page, "#muWp polyline");
         const painted = await page.evaluate(() => {
@@ -24389,8 +24441,12 @@ async function openDetails(page, id) {
         ok(painted.parent === true && painted.hidden === false, "…the card is visible (offsetParent set) (" + JSON.stringify(painted) + ")");
         ok(painted.n >= 2 && painted.firstX === "0.0" && painted.lastX != null && Number(painted.lastX) >= 0 && Number(painted.lastX) <= 220,
           "…polyline starts at x=0 and stays inside the 220-wide box (" + JSON.stringify(painted) + ")");
-        ok(Number(painted.lastX) < 220,
-          "…and the last vertex is now, not the right edge — last kickoff is still in the future (" + painted.lastX + ")");
+        // RESTAGED 2026-09-13: now is the far right of a rolling hour. The old
+        // pin (lastX < 220) was "last kickoff is still in the future" — that
+        // future (2027-01-01 here; Monday night in production) stretched X
+        // until a live move was invisible.
+        ok(painted.lastX === "220.0",
+          "…and the last vertex is now at the far right of the hour (" + painted.lastX + ")");
         ok(painted.vb === "0 0 220 56", "…on the NFL 220×56 sparkline, not the labelled 80-tall plot (" + painted.vb + ")");
         ok(painted.midY === 28, "…the mid rule is the NFL midpoint (y=28) (" + painted.midY + ")");
         ok(painted.lastY != null && painted.lastY > 48, "…a home lock sits near the BOTTOM (home 100), not auto-fit to the line (" + painted.lastY + ")");
@@ -24431,7 +24487,20 @@ async function openDetails(page, id) {
           D.projFor = (key) => (key in table ? table[key] : 5);
         }, B3);
         // RESTAGED 2026-09-13: a render-only overlay used to fake the crossing.
-        // The second colour must come from a real projection-% sample.
+        // The second colour must come from a real projection-% sample. Plant
+        // the home lock one minute back so this sample is a new tick, not an
+        // overwrite of the only vertex.
+        await page.evaluate(async () => {
+          const LG = window.__GFFL__.LG;
+          const field = LG.wpField(1, 2);
+          const doc = (LG._wpGraph && LG._wpGraph.doc) || { kind: "wpgraph", season: LG.SEASON, week: 1 };
+          const rows = (Array.isArray(doc[field]) ? doc[field] : []).slice();
+          const last = rows[rows.length - 1];
+          if (last) rows.unshift({ t: last.t - 60000, p: last.p });
+          const next = { ...doc, kind: "wpgraph", [field]: rows };
+          await LG.db.set(LG.wpGraphId(1), next);
+          LG._wpGraph = { week: 1, doc: next };
+        });
         await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
         await waitOr(page, "#muWp polyline");
@@ -24569,7 +24638,7 @@ async function openDetails(page, id) {
       if (hooks) {
         const clip = await page.evaluate(() => {
           const LG = window.__GFFL__.LG;
-          const t0 = Date.parse("2026-08-07T00:15:00Z");
+          const t0 = Date.now() - 11 * 60000;
           const rows = [];
           for (let i = 0; i < 12; i++) rows.push({ t: t0 + i * 60000, p: 0.5 + (i === 0 ? 0 : (i % 2 ? 0.4 : -0.4)) });
           const out = LG._clipWpLiveTail(rows);
@@ -24581,7 +24650,7 @@ async function openDetails(page, id) {
         await page.evaluate(async (A9, B3) => {
           const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
           await LG.db.del(LG.wpGraphId(1));
-          const t0 = Date.parse("2026-08-07T00:15:00Z");
+          const t0 = Date.now() - 11 * 60000;
           const tail = [];
           for (let i = 0; i < 12; i++) tail.push({ t: t0 + i * 60000, p: 0.5 + (i === 0 ? 0 : (i % 2 ? 0.4 : -0.4)) });
           const doc = { kind: "wpgraph", season: LG.SEASON, week: 1, m_1_2: tail };
@@ -24621,15 +24690,29 @@ async function openDetails(page, id) {
               if (isFinite(y)) ys.push(y);
             }
           }
+          let firstX = null, maxX = null;
+          for (const p of el.querySelectorAll("polyline.muwpline")) {
+            const pts = (p.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
+            for (const pt of pts) {
+              const x = Number((pt.split(",")[0]) || NaN);
+              if (!isFinite(x)) continue;
+              if (firstX == null) firstX = x;
+              if (maxX == null || x > maxX) maxX = x;
+            }
+          }
           return {
             n,
             minY: ys.length ? Math.min.apply(null, ys) : null,
             maxY: ys.length ? Math.max.apply(null, ys) : null,
             parent: el && el.offsetParent !== null,
+            firstX,
+            lastX: maxX,
           };
         });
         ok(painted.parent === true && painted.n >= 8 && painted.maxY - painted.minY > 10,
           "…and paint draws that tail, not a clipped seed (" + JSON.stringify(painted) + ")");
+        ok(painted.firstX === 0 && painted.lastX === 220,
+          "…across the rolling hour, now at the far right (" + JSON.stringify({ firstX: painted.firstX, lastX: painted.lastX }) + ")");
       }
       ok(errors.length === 0, "0 page errors on the live-tail clip");
       await ctx.close();

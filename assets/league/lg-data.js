@@ -2557,9 +2557,9 @@
     return Number.isFinite(p) ? p : 0.5;
   };
   // First and last kickoff on THIS week's slate. Unique events, not per-team rows — DAL@PHI
-  // is one game even though both sides sit in D.S.games. The graph stamps its kickoff seed
-  // at t0 and spaces X from t0 to t1, so a 45/55 day is a flat line instead of a box of
-  // leftover live ticks.
+  // is one game even though both sides sit in D.S.games. The sparkline no longer uses this
+  // as its X-axis (rolling last hour, now at the right); the window is still the week's
+  // first/last kickoff for anything that needs the slate itself.
   D.slateWindow = function () {
     let t0 = Infinity, t1 = -Infinity;
     const evs = D.S.nflEvents;

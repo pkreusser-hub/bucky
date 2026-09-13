@@ -4632,15 +4632,16 @@
   // upstream series, so this keeps one — a league-wide doc per week, one TOP-LEVEL array
   // field per pairing (m_<home>_<away>), same updateMask reason as injstate. Every point
   // is D.winProb — the same expected-finish model as the header bar (live points +
-  // remaining projection). Weekly paper (winProbFromProj) used to be the series so
-  // Thursday would not move the line; the bar and the line then named different
-  // favorites. A new point is written when that win% moves by 2pp. X is TIME from
-  // the slate's first kickoff to the last game. Y matches the NFL 56px sparkline
-  // (away high, home low). Cap 80, first and last kept. A read-only mirror never
-  // writes. _clipWpLiveTail stays as a helper; the read/write path no longer
-  // applies it — a live tail is the bar's history, not a seismograph to erase.
+  // remaining projection). X is a rolling 1-hour window with now at the right
+  // edge; one stored tick per minute (a same-minute poll overwrites that
+  // minute). Older than an hour is dropped except one carry-in so the left
+  // edge holds the value that entered the hour. The 2pp / slate-window /
+  // thin-to-80 path used to squash the last hour into a sliver of a Thu→Mon
+  // (or a January-2027 last kickoff) axis. Y matches the NFL 56px sparkline
+  // (away high, home low). A read-only mirror never writes.
   const WP_GRAPH_CAP = 80;
-  const WP_GRAPH_MIN_DP = 0.02;
+  LG.WP_WINDOW_MS = 60 * 60 * 1000;
+  LG.WP_TICK_MS = 60 * 1000;
   LG.wpGraphId = (week) => "wpgraph_" + LG.SEASON + "_w" + week;
   LG.wpField = (hId, aId) => "m_" + hId + "_" + aId;
   function starterKeysFor(teamId) {
@@ -4678,9 +4679,71 @@
   };
   // Same 220×56 box as the NFL game sparkline: p=1 at y=4, 50/50 at y=28,
   // p=0 at y=52 (y = 4 + (1-p)*48). Bare number arrays keep sample-index X.
-  // Timestamped rows use time from t0 (first kickoff) to t1 (last game).
+  // Timestamped rows use time from t0 to t1 — paint passes now−1h .. now.
   // A crossing of 50/50 is split so each run can take that side's team colour:
   // above the mid line is away, below is home, on the line is neither.
+  LG.wpTick = function (t) {
+    const n = Number(t);
+    if (!isFinite(n)) return 0;
+    return Math.floor(n / LG.WP_TICK_MS) * LG.WP_TICK_MS;
+  };
+  LG.wpPlotWindow = function (now) {
+    const t1 = isFinite(Number(now)) ? Number(now) : Date.now();
+    return { t0: t1 - LG.WP_WINDOW_MS, t1 };
+  };
+  // Keep in-hour ticks plus the last pre-window point (carry-in).
+  LG.wpKeepHour = function (rows, now) {
+    const t0 = (isFinite(Number(now)) ? Number(now) : Date.now()) - LG.WP_WINDOW_MS;
+    const src = Array.isArray(rows) ? rows : [];
+    let lastPre = null;
+    const inWin = [];
+    for (const r of src) {
+      if (!r || !isFinite(Number(r.t)) || !isFinite(Number(r.p))) continue;
+      const t = Number(r.t), p = Number(r.p);
+      if (t < t0) lastPre = { t, p };
+      else inWin.push({ t, p });
+    }
+    return lastPre ? [lastPre].concat(inWin) : inWin;
+  };
+  LG.wpApplyTick = function (rows, p, now) {
+    const tNow = isFinite(Number(now)) ? Number(now) : Date.now();
+    const tick = LG.wpTick(tNow);
+    const src = LG.wpKeepHour(rows, tNow);
+    const val = Number(p);
+    if (!isFinite(val)) return { rows: src, added: 0 };
+    const last = src[src.length - 1];
+    if (!last) return { rows: [{ t: tick, p: val }], added: 1 };
+    if (LG.wpTick(last.t) === tick) {
+      if (Math.abs(last.p - val) < 1e-9) return { rows: src, added: 0 };
+      const next = src.slice();
+      next[next.length - 1] = { t: tick, p: val };
+      return { rows: next, added: 1 };
+    }
+    return { rows: src.concat([{ t: tick, p: val }]), added: 1 };
+  };
+  // Paint series: hold at the left edge, in-hour ticks, current bar % at now.
+  LG.wpViewRows = function (rows, t0, t1, cur) {
+    const start = Number(t0), end = Number(t1);
+    if (!isFinite(start) || !isFinite(end) || !(end > start)) return [];
+    let lastPre = null;
+    const inWin = [];
+    for (const r of (rows || [])) {
+      if (!r || !isFinite(Number(r.t)) || !isFinite(Number(r.p))) continue;
+      const t = Number(r.t), p = Number(r.p);
+      if (t < start) lastPre = p;
+      else if (t <= end) inWin.push({ t, p });
+    }
+    const tip = Number.isFinite(cur) ? Number(cur) : (inWin.length ? inWin[inWin.length - 1].p : lastPre);
+    const out = [];
+    const leftP = lastPre != null ? lastPre : (inWin.length ? inWin[0].p : tip);
+    if (Number.isFinite(leftP) && (!inWin.length || inWin[0].t > start)) out.push({ t: start, p: leftP });
+    for (const r of inWin) out.push(r);
+    if (Number.isFinite(tip)) {
+      const last = out[out.length - 1];
+      if (!last || last.t < end || Math.abs(last.p - tip) >= 1e-9) out.push({ t: end, p: tip });
+    }
+    return out;
+  };
   LG.WP_PLOT = { w: 220, h: 56, pad: 4 };
   LG.wpY = function (p) {
     const h = LG.WP_PLOT.h, pad = LG.WP_PLOT.pad;
@@ -4789,9 +4852,7 @@
     const week = LG.ui.week || LG.currentWeek();
     const games = await LG.gamesForWeek(week);
     if (!games.length) return null;
-    const win = d.slateWindow ? d.slateWindow() : null;
     const now = Date.now();
-    const t0 = win && isFinite(win.t0) ? win.t0 : now;
     const planned = [];
     for (const pair of games) {
       const hId = pair[0], aId = pair[1];
@@ -4808,18 +4869,10 @@
     const write = { ...base, kind: "wpgraph", season: LG.SEASON, week };
     let added = 0;
     for (const s of planned) {
-      const rows = Array.isArray(base[s.field]) ? base[s.field].slice() : [];
-      if (!rows.length) {
-        rows.push({ t: t0, p: s.p });
-        added++;
-      }
-      const last = rows[rows.length - 1];
-      const moved = Math.abs(last.p - s.p) >= WP_GRAPH_MIN_DP;
-      if (moved && !(last.t === now && Math.abs(last.p - s.p) < 1e-9)) {
-        rows.push({ t: now, p: s.p });
-        added++;
-      }
-      write[s.field] = LG._thinWpRows(rows, WP_GRAPH_CAP);
+      const rows = Array.isArray(base[s.field]) ? base[s.field] : [];
+      const next = LG.wpApplyTick(rows, s.p, now);
+      if (next.added) added += next.added;
+      write[s.field] = next.rows;
     }
     if (!added) {
       LG._wpGraph = { week, doc: base };

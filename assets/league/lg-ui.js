@@ -591,7 +591,7 @@
           if (UI.view === "league") renderLeague(true);
         }
       }).catch(() => {});
-      // Matchup projected-win% graph — one fromProj sample per pairing per tick.
+      // Matchup win-% graph — one D.winProb tick per pairing per minute.
       // Memory updates inside the sample; a real new point re-patches the card.
       if (typeof LG.sampleMatchupWinProbs === "function") {
         LG.sampleMatchupWinProbs().then((r) => {
@@ -4027,31 +4027,22 @@
   // survives as the header's own full-width win-probability bar (each end in its side's
   // primary), and the .nflsbt original still lives on the NFL game page where the box score
   // has no per-player restatement.
-  // The NFL game page's winprob sparkline, for a fantasy pairing. Series is the
-  // week-long sample LG.sampleMatchupWinProbs writes — the same D.winProb as
-  // the header bar. Paint is those ticks, with the current bar reading as the
-  // tip so the caption and the last vertex cannot disagree with the bar. A
-  // tip is appended only when it differs from the last stored p, or when a
-  // single seed needs a second vertex to draw. Own card, never inside .muhead.
-  // X is the slate window. Stroke follows the mid line: above is away's
-  // on-dark colour, below is home's. A 50/50 run stays muted. Colours come
-  // from LG.teamPalette, never a raw team.colors read.
+  // The NFL game page's winprob sparkline, for a fantasy pairing. Series is
+  // D.winProb at one tick per minute. X is the last hour, now at the right
+  // edge, so a live move is not a sliver of a week-long slate. The current
+  // bar reading is the tip. Own card, never inside .muhead. Stroke follows
+  // the mid line: above is away's on-dark colour, below is home's. A 50/50
+  // run stays muted. Colours come from LG.teamPalette.
   function matchupWinGraphHtml(hId, aId, wp, A, H, wpKick) {
     if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
     const stored = LG.wpSeries(hId, aId);
-    const dnow = D();
-    const win = dnow && dnow.slateWindow ? dnow.slateWindow() : null;
-    const t0 = win && isFinite(win.t0) ? win.t0 : (stored[0] && stored[0].t) || Date.now();
-    const t1 = win && isFinite(win.t1) ? win.t1 : Date.now();
-    const pts = stored.slice();
+    const now = Date.now();
+    const win = typeof LG.wpPlotWindow === "function" ? LG.wpPlotWindow(now) : { t0: now - 3600000, t1: now };
+    const t0 = win.t0, t1 = win.t1;
     const cur = Number.isFinite(wp) ? wp : (Number.isFinite(wpKick) ? wpKick : null);
-    if (!pts.length && Number.isFinite(cur)) pts.push({ t: t0, p: cur });
-    const lastRow = pts[pts.length - 1];
-    if (lastRow) {
-      const same = Number.isFinite(cur) && Math.abs(lastRow.p - cur) < 1e-9;
-      if (!same && Number.isFinite(cur)) pts.push({ t: Date.now(), p: cur });
-      else if (pts.length < 2) pts.push({ t: Date.now(), p: lastRow.p });
-    }
+    const pts = typeof LG.wpViewRows === "function"
+      ? LG.wpViewRows(stored, t0, t1, cur)
+      : stored.slice();
     if (pts.length < 2) return "";
     const plot = LG.WP_PLOT || { w: 220, h: 56 };
     const segs = (typeof LG.wpPolySegments === "function"
