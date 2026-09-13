@@ -331,7 +331,8 @@
   // ---------------- state ----------------
   D.S = {
     players: new Map(),        // key -> {key,name,pos,team,espn:{stats,raw,last},slp:{stats,last,official},merged,pts,src,conflict}
-    events: [],                // newest first, {t,src,key,name,stat,from,to,dPts}
+    events: [],                // every fantasy-point tick this week, {t,src,key,name,stat,from,to,dPts}
+    feedClosed: new Set(),     // NFL abbrevs whose game is final — applySide still updates stats, the feed does not
     games: new Map(),          // slpTeam -> {eventId, state, period, clock, detail, kickoff, rz, oppAb}
     nflEvents: [],             // the FULL weekly slate, one row per game — feeds the Scores tab
     espnSeeded: false, slpSeeded: false,
@@ -616,6 +617,7 @@
     // every stat in the new week would land as a delta off last week's total.
     D.S.players.clear();
     D.S.events.length = 0;
+    D.S.feedClosed = new Set();
     D.S.espnSeeded = false; D.S.slpSeeded = false;
     D.S.espnKeyByName.clear(); D.S.slpRowKeyByName.clear();
     D.S.fetchedFinal = new Set();
@@ -1382,14 +1384,25 @@
           // empty delta. Skip the line when the tick does not move the score (same-bracket, or
           // every bracket is 0). A commissioner who turns PA scoring back on still sees the
           // line the moment a bracket actually pays.
+          // Points-allowed is a scoring bracket, not a counting stat. This league's dst_pa_*
+          // rates are all 0, so a PA tick would otherwise land as "pts allowed 7→14" with an
+          // empty delta. Skip the line when the tick does not move the score (same-bracket, or
+          // every bracket is 0). A commissioner who turns PA scoring back on still sees the
+          // line the moment a bracket actually pays. Other 0-point ticks stay in the audit
+          // log (the poisoned-table NaN guard reads them); annotateFeed hides them.
           if (k === "dst_pa" && !dPts) continue;
+          // Once the NFL game is final, the next full poll may still emit the
+          // last-play / official-box delta. After that, D.S.feedClosed has the
+          // team and Sleeper's weekly bucket (and any later ESPN re-read) cannot
+          // dump Thursday's box onto Sunday's feed again.
+          const ab = slpTeam(row.team);
+          if (ab && D.S.feedClosed && D.S.feedClosed.has(ab)) continue;
           // LEAGUE time, not wall time. `t` is display-only (feedLine is its sole consumer),
           // and under the 2025 replay a feed entry on a Sunday-afternoon board has to read as a
           // Sunday afternoon rather than as whenever this device happened to poll. Off the
           // replay LG.now() IS Date.now(), so the real league is unchanged. Everything that
           // compares FRESHNESS (side.last, health.lastChange) deliberately stays on Date.now().
           D.S.events.unshift({ t: LG.now(), src, key, name: row.name, stat: k, from: ov, to: nv, dPts });
-          if (D.S.events.length > 600) D.S.events.length = 600;
         }
       }
     }
@@ -1398,6 +1411,19 @@
   D.applySide = applySide; // test hook (2026-09-02) — the feed-delta arithmetic is otherwise
                            // only reachable through a whole poll cycle, which cannot stage a
                            // poisoned scoring table between two ticks.
+
+  // After a FULL poll, every NFL team whose game is genuinely final is closed
+  // for feed emits. Light ticks only refresh the scoreboard, so they must not
+  // close — that would freeze the feed before the last box is applied.
+  function closeFinishedFeeds() {
+    if (!D.S.feedClosed) D.S.feedClosed = new Set();
+    for (const [ab, g] of D.S.games) {
+      if (!g || g.state !== "post") continue;
+      if (g.completed === false) continue;
+      D.S.feedClosed.add(ab);
+    }
+  }
+  D.closeFinishedFeeds = closeFinishedFeeds;
 
   // Freshest healthy side wins the display; disagreement > 0.5 pts flags ⚠.
   // Degraded modes pin to the surviving source (plan §7's display rule) — WITH the game-night
@@ -2197,6 +2223,7 @@
       // — rather than painting an outage chip over a perfectly healthy replay.
       await pollSimSlate().catch(() => {});
       await pollSimStats().catch(() => {});
+      closeFinishedFeeds();
       for (const row of D.S.players.values()) mergeRow(row);
       if (D.onUpdate) D.onUpdate();
       return;
@@ -2262,6 +2289,7 @@
     await Promise.allSettled(sums);
     if (take.length && sumFails === take.length) D.S.health.espn.failN++;
     updateHealth();
+    closeFinishedFeeds();
     for (const row of D.S.players.values()) mergeRow(row);
     if (D.onUpdate) D.onUpdate();
   };

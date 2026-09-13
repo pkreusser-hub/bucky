@@ -24050,7 +24050,7 @@ async function openDetails(page, id) {
   // Live week 1: ESPN and Sleeper each call applySide on the same tick, so one catch
   // became two feed rows. Points-allowed still emitted too, even though every dst_pa_*
   // rate in this league is 0. The painted feed is the merged story: one row per
-  // key/stat/from/to, and a PA tick that did not move the score never lands.
+  // landing value (key/stat/to), and a tick that did not move the score never lands.
   }
   if (section("TC · matchup feed — one line per play, no unused points-allowed")) {
   {
@@ -24102,6 +24102,88 @@ async function openDetails(page, id) {
     ok(r.paN === 0 && r.sackN === 1,
       "…and a leftover pts-allowed row is hidden on the feed, while a sack that scores still shows (" + JSON.stringify({ pa: r.paN, sack: r.sackN }) + ")");
     ok(errors.length === 0, "0 page errors on the de-duped feed");
+    await ctx.close();
+  }
+
+  // ================================================================================
+  //  TE · matchup feed — every fantasy-point score, once, in time order
+  // ================================================================================
+  // Live Sunday: Thursday's box kept reappearing (Sleeper's weekly bucket still
+  // diffs a finished game every ~16s), and older scoring lines vanished once
+  // the painted list hit 60. The feed is every fantasy-point tick for this
+  // pairing, oldest first, one line per landing value, silent after the NFL
+  // game is closed.
+  }
+  if (section("TE · matchup feed — every score once, chronological, no finished-game reruns")) {
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await clickIn(page, ".mucard.mine");
+    await page.waitForSelector("#mufeed", { timeout: 9000 });
+    const r = await page.evaluate(async () => {
+      const { D, UI } = window.__GFFL__;
+      const empty = () => { const o = {}; for (const k of D.KEYS) o[k] = 0; o.dst_pa = null; return o; };
+      const bumpTd = (src) => {
+        const row = D.S.players.get("3915511");
+        const st = Object.assign(empty(), (row && row[src] && row[src].stats) || {});
+        st.pass_td = (Number(st.pass_td) || 0) + 1;
+        D.applySide(src, "3915511", { name: "P. Passer", pos: "QB", team: "PHI" }, st);
+      };
+      const g0 = D.S.games.get("PHI") || { eventId: "te-phi", kickoff: "2026-09-11T00:20:00Z" };
+      D.S.games.set("PHI", Object.assign({}, g0, { state: "in", completed: null }));
+      if (D.S.feedClosed && D.S.feedClosed.delete) D.S.feedClosed.delete("PHI");
+      D.S.espnSeeded = true; D.S.slpSeeded = true;
+      D.S.events.length = 0;
+      bumpTd("espn");
+      const liveN = D.S.events.filter((e) => e.key === "3915511" && e.stat === "pass_td").length;
+      D.S.games.set("PHI", Object.assign({}, D.S.games.get("PHI"), { state: "post", completed: true }));
+      bumpTd("espn");
+      const lastPlayN = D.S.events.filter((e) => e.key === "3915511" && e.stat === "pass_td").length;
+      if (typeof D.closeFinishedFeeds === "function") D.closeFinishedFeeds();
+      const closedHas = !!(D.S.feedClosed && D.S.feedClosed.has && D.S.feedClosed.has("PHI"));
+      bumpTd("espn");
+      bumpTd("slp");
+      const afterCloseN = D.S.events.filter((e) => e.key === "3915511" && e.stat === "pass_td").length;
+
+      D.S.events.length = 0;
+      const t0 = 1_700_000_000_000;
+      for (let i = 0; i < 70; i++) {
+        D.S.events.unshift({
+          t: t0 + i * 1000, key: "3915511", name: "P. Passer",
+          stat: "rec_yd", from: i, to: i + 1, dPts: 0.1,
+        });
+      }
+      D.S.events.unshift({
+        t: t0 + 71 * 1000, key: "3915511", name: "P. Passer",
+        stat: "pass_td", from: 0, to: 2, dPts: 8,
+      });
+      D.S.events.unshift({
+        t: t0 + 72 * 1000, key: "3915511", name: "P. Passer",
+        stat: "pass_td", from: 1, to: 2, dPts: 4,
+      });
+      await UI.renderMatchup(true);
+      const lines = [...document.querySelectorAll("#mufeed .fline")].map((el) => el.textContent.replace(/\s+/g, " ").trim());
+      const tdLines = lines.filter((t) => /pass TD/.test(t));
+      const ydLines = lines.filter((t) => /rec yds/.test(t));
+      return {
+        liveN, lastPlayN, afterCloseN, closedHas,
+        feedN: lines.length, tdN: tdLines.length, ydN: ydLines.length,
+        first: lines[0] || "", last: lines[lines.length - 1] || "",
+        firstIsFirstCatch: /rec yds 0→1/.test(lines[0] || ""),
+        lastIsTd: /pass TD/.test(lines[lines.length - 1] || ""),
+      };
+    });
+    ok(r.liveN === 1 && r.lastPlayN === 2,
+      "a live tick and the first final-box tick both land on the feed (" + JSON.stringify({ liveN: r.liveN, lastPlayN: r.lastPlayN }) + ")");
+    ok(r.closedHas === true && r.afterCloseN === r.lastPlayN,
+      "…and a later poll of a finished game — ESPN or Sleeper — does not add another line (" + JSON.stringify({ afterCloseN: r.afterCloseN, lastPlayN: r.lastPlayN, closedHas: r.closedHas }) + ")");
+    ok(r.ydN === 70 && r.feedN === 71,
+      "every scoring tick for this pairing stays on the feed — no 60-line chop (" + JSON.stringify({ ydN: r.ydN, feedN: r.feedN }) + ")");
+    ok(r.tdN === 1 && r.firstIsFirstCatch === true && r.lastIsTd === true,
+      "the same play is one line (0→2 and 1→2 collapse) and the list is oldest-first (" + JSON.stringify({ tdN: r.tdN, first: r.first, last: r.last }) + ")");
+    ok(errors.length === 0, "0 page errors on the chronological feed");
     await ctx.close();
   }
 
@@ -24250,6 +24332,17 @@ async function openDetails(page, id) {
         const segsOpp = viewOpp && typeof LG.wpPolySegments === "function"
           ? LG.wpPolySegments(viewOpp, 220, 56, 0, hourNow)
           : null;
+        const drop = typeof LG.wpViewRows === "function"
+          ? LG.wpViewRows([{ t: hourNow - 2 * 60000, p: 0.90 }, { t: hourNow, p: 0.80 }], 0, hourNow, 0.80)
+          : null;
+        const dropPs = drop ? drop.map((row) => row.p) : null;
+        const oneNow = typeof LG.wpViewRows === "function"
+          ? LG.wpViewRows([{ t: hourNow - 15000, p: 0.80 }], 0, hourNow, 0.80)
+          : null;
+        const onePoly = oneNow && typeof LG.wpPolyPoints === "function"
+          ? LG.wpPolyPoints(oneNow, 220, 56, 0, hourNow)
+          : null;
+        const oneFirstX = onePoly ? Number((onePoly.split(/\s+/)[0] || "").split(",")[0]) : null;
         return {
           hooks: true, from, live,
           t0: win && win.t0, firstKick: Date.parse("2026-08-07T00:15:00Z"),
@@ -24270,6 +24363,11 @@ async function openDetails(page, id) {
           viewMono: !!(viewOpp && viewOpp.length >= 2 && viewOpp.every((row, i) => !i || row.t >= viewOpp[i - 1].t)),
           oppSides: segsOpp ? segsOpp.map((s) => s.side) : null,
           oppCross: segsOpp ? segsOpp.some((s) => s.side === "away") && segsOpp.some((s) => s.side === "home") : null,
+          dropPs,
+          dropHas90: !!(dropPs && dropPs.some((p) => Math.abs(p - 0.90) < 1e-9)),
+          dropHas80: !!(dropPs && dropPs.some((p) => Math.abs(p - 0.80) < 1e-9)),
+          dropFlat: !!(dropPs && dropPs.length >= 2 && dropPs.every((p) => Math.abs(p - dropPs[dropPs.length - 1]) < 1e-9)),
+          oneFirstX,
         };
       }, A9, B3);
       ok(r.hooks === true, "D.winProbFromProj / D.slateWindow exist (" + JSON.stringify(r) + ")");
@@ -24311,30 +24409,32 @@ async function openDetails(page, id) {
           "an empty series takes the current minute (" + JSON.stringify(r.a0) + ")");
         ok(r.a1 && r.a1.added === 0 && r.a1.rows.length === 1,
           "…a same-minute poll at the same % writes nothing (" + JSON.stringify(r.a1) + ")");
-        ok(r.a2 && r.a2.added === 1 && r.a2.rows.length === 1 && r.a2.rows[0].p === 0.7,
-          "…a same-minute poll overwrites that minute when the bar moves (" + JSON.stringify(r.a2) + ")");
-        ok(r.a3 && r.a3.added === 1 && r.a3.rows.length === 2 && r.a3.rows[1].t === 11 * 60000,
+        // RESTAGED 2026-09-13: overwriting the only minute hid 90→80 as a
+        // flat 80% line. The old % parks on the previous minute.
+        ok(r.a2 && r.a2.added === 1 && r.a2.rows.length === 2 && r.a2.rows[0].p === 0.5 && r.a2.rows[1].p === 0.7,
+          "…a same-minute move keeps the old % on the previous minute (" + JSON.stringify(r.a2) + ")");
+        ok(r.a3 && r.a3.added === 1 && r.a3.rows.length === 3 && r.a3.rows[2].t === 11 * 60000,
           "…the next minute appends a new tick (" + JSON.stringify(r.a3) + ")");
-        ok(r.hourPoly === "0.0,28.0 110.0,28.0 220.0,28.0",
-          "a point 30 minutes ago sits at mid-box; now is x=220 (" + r.hourPoly + ")");
+        ok(r.hourPoly === "110.0,28.0 220.0,28.0",
+          "a point 30 minutes ago sits at mid-box; the hour is not filled with a hold of that value (" + r.hourPoly + ")");
         ok(r.oldN === 2 && r.oldPoly === "0.0,40.0 220.0,40.0",
           "a 2-hour-old tick is a left-edge hold, not its own vertex (" + JSON.stringify({ oldN: r.oldN, oldPoly: r.oldPoly }) + ")");
-        // RESTAGED 2026-09-13: live m_9_3 (Wyoming vs SLN) had 12 unsorted
-        // timestamps in two minutes. X walked backwards and the now-tip
-        // (SLN 57%) sat on the other side of 50/50 than the stored paper
-        // ticks, so the line flickered between teams while the bar did not.
         ok(r.dedupeN === 2 && r.dedupeSorted === true,
           "several timestamps in one minute collapse to one sorted tick (" + JSON.stringify({ n: r.dedupeN, sorted: r.dedupeSorted }) + ")");
-        ok(r.viewMono === true && r.oppCross === false && r.oppSides && r.oppSides.every((s) => s === "home"),
-          "an hour of the other favourite than the bar stays on the bar's side (" + JSON.stringify({ mono: r.viewMono, sides: r.oppSides, cross: r.oppCross }) + ")");
+        ok(r.viewMono === true,
+          "…and paint walks time forward (" + JSON.stringify({ mono: r.viewMono, sides: r.oppSides }) + ")");
+        ok(r.dropHas90 === true && r.dropHas80 === true && r.dropFlat === false,
+          "90% then 80% is a slope, not a flat 80% line (" + JSON.stringify(r.dropPs) + ")");
+        ok(r.oneFirstX != null && r.oneFirstX > 200,
+          "one current-minute tick does not invent an hour of that % (first x=" + r.oneFirstX + ")");
       }
       ok(errors.length === 0, "0 page errors on the kickoff model");
       await ctx.close();
     }
 
-    // ---- TF2: all-pre seeds this minute; the card still draws the hour
-    // (left hold + now) so a quiet reading is a flat line rather than an
-    // empty card. A same-minute live swing overwrites that tick.
+    // ---- TF2: all-pre seeds this minute; the card still draws (this
+    // minute → now) so a quiet reading is visible. A same-minute live
+    // swing parks the old % on the previous minute.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
@@ -24386,9 +24486,9 @@ async function openDetails(page, id) {
           return { exists: !!el, hidden: !!(el && el.hidden), parent: el && el.offsetParent !== null, n: pts.length };
         });
         // RESTAGED 2026-09-13: hiding a one-seed card left the bar with no
-        // matching line. One stored minute still draws the hour (left hold + now).
+        // matching line. One stored minute still draws this-minute→now.
         ok(hidden.exists && hidden.parent === true && hidden.n >= 2,
-          "…a one-tick card still draws the hour (" + JSON.stringify(hidden) + ")");
+          "…a one-tick card still draws a line (" + JSON.stringify(hidden) + ")");
         const again = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         ok(again && again.added === 0, "…a second all-pre poll writes nothing further (" + JSON.stringify(again) + ")");
         // Live scores and the clock move D.winProb. The graph is projected win %, so
@@ -24405,12 +24505,13 @@ async function openDetails(page, id) {
         const liveSwing = await page.evaluate(() => window.__GFFL__.LG.sampleMatchupWinProbs());
         const seriesLive = await page.evaluate(() => {
           const rows = window.__GFFL__.LG.wpSeries(1, 2);
-          return { n: rows.length, p0: rows[0] && rows[0].p };
+          return { n: rows.length, p0: rows[0] && rows[0].p, p1: rows[1] && rows[1].p };
         });
-        // RESTAGED 2026-09-13: one tick per minute — a same-minute live swing
-        // overwrites that minute rather than appending a second vertex.
-        ok(liveSwing && liveSwing.added >= 1 && seriesLive.n === 1 && seriesLive.p0 !== series0.p0,
-          "a live 100-40 scoreboard overwrites this minute with the bar's new win% (" + JSON.stringify({ liveSwing, seriesLive, p0: series0.p0 }) + ")");
+        // RESTAGED 2026-09-13: a same-minute live swing used to overwrite the
+        // only vertex, so 90→80 painted as a flat 80% hour. The old % stays
+        // on the previous minute.
+        ok(liveSwing && liveSwing.added >= 1 && seriesLive.n === 2 && seriesLive.p0 !== seriesLive.p1,
+          "a live 100-40 scoreboard keeps the old % and writes the new % (" + JSON.stringify({ liveSwing, seriesLive, p0: series0.p0 }) + ")");
         // A further projFor change still writes — remaining projection is
         // part of D.winProb.
         await page.evaluate(() => { window.__GFFL__.D.projFor = () => 5; });
@@ -24419,10 +24520,10 @@ async function openDetails(page, id) {
           const rows = window.__GFFL__.LG.wpSeries(1, 2);
           return { n: rows.length, p0: rows[0] && rows[0].p, p1: rows[1] && rows[1].p };
         });
-        // RESTAGED 2026-09-13: the live 100-40 already wrote this minute.
-        // A same-minute proj tweak cannot invent a second tick.
-        ok(series1.n === 1 && series1.p0 != null,
-          "…a further proj tweak does not invent a second same-minute tick (" + JSON.stringify({ moved, series1 }) + ")");
+        // RESTAGED 2026-09-13: the live 100-40 already wrote previous+now.
+        // A same-minute proj tweak overwrites now, it does not add a third.
+        ok(series1.n === 2 && series1.p1 != null,
+          "…a further proj tweak does not invent a third tick (" + JSON.stringify({ moved, series1 }) + ")");
         await page.evaluate(() => window.__GFFL__.UI.renderMatchup(true));
         await waitOr(page, "#muWp polyline");
         const painted = await page.evaluate(() => {
@@ -24465,8 +24566,10 @@ async function openDetails(page, id) {
           };
         });
         ok(painted.parent === true && painted.hidden === false, "…the card is visible (offsetParent set) (" + JSON.stringify(painted) + ")");
-        ok(painted.n >= 2 && painted.firstX === "0.0" && painted.lastX != null && Number(painted.lastX) >= 0 && Number(painted.lastX) <= 220,
-          "…polyline starts at x=0 and stays inside the 220-wide box (" + JSON.stringify(painted) + ")");
+        // RESTAGED 2026-09-13: the first vertex is the first recorded minute,
+        // not a fake hold at x=0 of the current %. Now is still x=220.
+        ok(painted.n >= 2 && painted.firstX != null && Number(painted.firstX) >= 0 && painted.lastX != null && Number(painted.lastX) <= 220,
+          "…polyline stays inside the 220-wide box (" + JSON.stringify(painted) + ")");
         // RESTAGED 2026-09-13: now is the far right of a rolling hour. The old
         // pin (lastX < 220) was "last kickoff is still in the future" — that
         // future (2027-01-01 here; Monday night in production) stretched X
@@ -24737,8 +24840,10 @@ async function openDetails(page, id) {
         });
         ok(painted.parent === true && painted.n >= 8 && painted.maxY - painted.minY > 10,
           "…and paint draws that tail, not a clipped seed (" + JSON.stringify(painted) + ")");
-        ok(painted.firstX === 0 && painted.lastX === 220,
-          "…across the rolling hour, now at the far right (" + JSON.stringify({ firstX: painted.firstX, lastX: painted.lastX }) + ")");
+        // RESTAGED 2026-09-13: stretching the first sample back to x=0
+        // painted an hour of a % that had only existed for 11 minutes.
+        ok(painted.lastX === 220 && painted.firstX > 150 && painted.firstX < 210,
+          "…now at the far right; the first recorded minute is not stretched to x=0 (" + JSON.stringify({ firstX: painted.firstX, lastX: painted.lastX }) + ")");
       }
       ok(errors.length === 0, "0 page errors on the live-tail clip");
       await ctx.close();

@@ -7752,3 +7752,66 @@ favourite than the bar. Every pre-existing TF check still passed.
 App files restored, hashes identical.
 `node tools/_verify-gffl.cjs --only TF` **66/66**.
 ---
+
+## GFFL — matchup feed is every fantasy-point score, once (2026-09-13)
+
+User: "something is wrong with the feed on the matchup page, it
+should be logging each scoring event once but I see scoring events
+popping up from finished games and scoring events falling off. the
+ideal state is a chronological feed of every single fantasy point
+score with no duplicates at all"
+
+The painted list stopped at 60, and `D.S.events` chopped at 600 —
+Sunday's ticks pushed Thursday's off. Sleeper still diffs every
+tracked player every full poll, so a finished box that revised by
+a yard (or arrived late) jumped back onto the top. Dual-source
+rows with the same landing value (`1→2` and `0→2`) painted twice.
+
+`applySide` skips a team once `closeFinishedFeeds` has seen it
+final (the full poll that first sees `post` may still emit the
+last-play box). `annotateFeed` keeps every remaining
+fantasy-point line for this pairing, oldest first, one line per
+`key|stat|to`. A 0-point tick stays in the audit log and stays
+off the painted feed.
+
+Scripts cache-bust `?v=20260913e`.
+
+Files: `league.html`, `assets/league/lg-{data,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: shipped with the sparkline minute-record fix below,
+`node tools/_verify-gffl.cjs` **3477/3477**. Bite (`league.html` +
+`lg-data.js` + `lg-ui.js` at HEAD, new suite kept, `--only TC,TE`):
+**7 pass / 3 fail** — HEAD still emits after a final (ESPN +
+Sleeper), caps the painted list at 60, and shows `0→2` and `1→2`
+as two lines newest-first. Every pre-existing TC check still
+passed. App files restored, hashes identical.
+---
+
+## GFFL — sparkline records each minute's win% (2026-09-13)
+
+User: "SLN was at 90% chance to win, then an event happened where
+Wyoming cowboys got 10% and now its 80/20, but the sparkline now
+shows the 80% line with no slope up when it went from 90 to 80.
+The sparkline is simply the graphing of the % to win for each
+team every minute"
+
+A same-minute overwrite replaced 90 with 80, then paint held that
+80% from the left edge of the hour. The line is the recorded
+minutes: a move in the current minute parks the old % on the
+previous minute, and the first sample is not stretched back to
+t0. History is not inverted to match the bar.
+
+Scripts cache-bust `?v=20260913f`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs` **3477/3477**. Bite
+(`lg-core.js` at HEAD, new suite kept, `--only TF`): **61 pass /
+7 fail** — HEAD overwrites the only minute (90 vanishes),
+stretches the current % back to x=0, and a live 100-40 swing
+leaves one vertex. Every pre-existing TF check still passed.
+App files restored, hashes identical.
+`node tools/_verify-gffl.cjs --only TF` **68/68**.
+---

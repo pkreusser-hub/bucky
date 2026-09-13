@@ -4633,9 +4633,11 @@
   // field per pairing (m_<home>_<away>), same updateMask reason as injstate. Every point
   // is D.winProb — the same expected-finish model as the header bar (live points +
   // remaining projection). X is a rolling 1-hour window with now at the right
-  // edge; one stored tick per minute (a same-minute poll overwrites that
-  // minute). Older than an hour is dropped except one carry-in so the left
-  // edge holds the value that entered the hour. The 2pp / slate-window /
+  // edge. One stored tick per minute: the bar's % at that minute. A same-minute
+  // move keeps the old % on the previous minute so 90→80 is a slope, not a
+  // flat overwrite. Older than an hour drops except one carry-in (a value that
+  // actually entered the hour). Paint does not invent an hour of the current
+  // % and does not invert history to match the bar. The 2pp / slate-window /
   // thin-to-80 path used to squash the last hour into a sliver of a Thu→Mon
   // (or a January-2027 last kickoff) axis. Y matches the NFL 56px sparkline
   // (away high, home low). A read-only mirror never writes.
@@ -4729,16 +4731,21 @@
     if (!last) return { rows: [{ t: tick, p: val }], added: 1 };
     if (LG.wpTick(last.t) === tick) {
       if (Math.abs(last.p - val) < 1e-9) return { rows: src, added: 0 };
-      const next = src.slice();
-      next[next.length - 1] = { t: tick, p: val };
-      return { rows: next, added: 1 };
+      // Same minute moved. Keep the old % on the previous minute so the
+      // graph has a from→to, not a single overwritten vertex.
+      const prevTick = tick - LG.WP_TICK_MS;
+      const next = src.filter((r) => LG.wpTick(r.t) !== tick);
+      if (!next.some((r) => LG.wpTick(r.t) === prevTick)) next.push({ t: prevTick, p: last.p });
+      next.push({ t: tick, p: val });
+      next.sort((a, b) => a.t - b.t);
+      return { rows: LG.wpKeepHour(next, tNow), added: 1 };
     }
     return { rows: src.concat([{ t: tick, p: val }]), added: 1 };
   };
-  // Paint series: hold at the left edge, in-hour ticks, current bar % at now.
-  // If every stored tick in the hour names the other favourite than the bar,
-  // invert them — that hour is the other perspective (paper vs live, or a
-  // swapped pairing), not a flip the bar never showed.
+  // Paint the recorded minutes. A real pre-window sample holds the left
+  // edge (the % that entered the hour). The first in-hour tick is NOT
+  // stretched back to t0 — that painted an hour of "now" after a 90→80
+  // overwrite. History is never inverted to match the bar.
   LG.wpViewRows = function (rows, t0, t1, cur) {
     const start = Number(t0), end = Number(t1);
     if (!isFinite(start) || !isFinite(end) || !(end > start)) return [];
@@ -4750,23 +4757,14 @@
       else if (r.t <= end) inWin.push({ t: r.t, p: r.p });
     }
     const tip = Number.isFinite(cur) ? Number(cur) : (inWin.length ? inWin[inWin.length - 1].p : lastPre);
-    if (Number.isFinite(tip) && tip !== 0.5 && inWin.length) {
-      const curAway = tip > 0.5;
-      const sided = inWin.filter((r) => r.p !== 0.5);
-      if (sided.length && sided.every((r) => (r.p > 0.5) !== curAway)) {
-        inWin = inWin.map((r) => r.p === 0.5 ? r : { t: r.t, p: 1 - r.p });
-        if (lastPre != null && lastPre !== 0.5 && (lastPre > 0.5) !== curAway) lastPre = 1 - lastPre;
-      }
-    }
     const nowTick = LG.wpTick(end);
     if (Number.isFinite(tip)) {
-      for (const r of inWin) {
-        if (r.t === nowTick) r.p = tip;
-      }
+      const idx = inWin.findIndex((r) => r.t === nowTick);
+      if (idx >= 0) inWin[idx] = { t: nowTick, p: tip };
+      else inWin.push({ t: nowTick, p: tip });
     }
     const out = [];
-    const leftP = lastPre != null ? lastPre : (inWin.length ? inWin[0].p : tip);
-    if (Number.isFinite(leftP) && (!inWin.length || inWin[0].t > start)) out.push({ t: start, p: leftP });
+    if (lastPre != null) out.push({ t: start, p: lastPre });
     for (const r of inWin) out.push(r);
     if (Number.isFinite(tip)) {
       const last = out[out.length - 1];

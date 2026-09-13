@@ -4028,11 +4028,11 @@
   // primary), and the .nflsbt original still lives on the NFL game page where the box score
   // has no per-player restatement.
   // The NFL game page's winprob sparkline, for a fantasy pairing. Series is
-  // D.winProb at one tick per minute. X is the last hour, now at the right
-  // edge, so a live move is not a sliver of a week-long slate. The current
-  // bar reading is the tip. Own card, never inside .muhead. Stroke follows
-  // the mid line: above is away's on-dark colour, below is home's. A 50/50
-  // run stays muted. Colours come from LG.teamPalette.
+  // D.winProb recorded each minute. X is the last hour, now at the right
+  // edge. The current bar reading is the tip. A 90→80 move keeps both
+  // minutes so the line slopes. Own card, never inside .muhead. Stroke
+  // follows the mid line: above is away's on-dark colour, below is home's.
+  // A 50/50 run stays muted. Colours come from LG.teamPalette.
   function matchupWinGraphHtml(hId, aId, wp, A, H, wpKick) {
     if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
     const stored = LG.wpSeries(hId, aId);
@@ -4124,11 +4124,14 @@
     const aBench = teamBench(aId), hBench = teamBench(hId);
     const benchRows = pairByIndex(aBench, hBench);
     // The feed (2026-08-09 playtest: "the feed needs to be a scrollable box and has to
-    // indicate which team each feed item is from, maybe the ability to pick the team"). Each
-    // event is ATTRIBUTED here, once, off the same starter-key sets the rest of the page is
-    // built from — a "msg" (system) event belongs to neither side. The annotated array is
-    // stashed so the Both/away/home filter is a pure re-render of what is already in memory:
-    // picking a side must never refetch or recompute anything.
+    // indicate which team each feed item is from, maybe the ability to pick the team").
+    // 2026-09-13: every fantasy-point score, once, oldest first — not a 60-line
+    // window, and not a second line when Sleeper restates ESPN's same landing
+    // value. Each event is ATTRIBUTED here, once, off the same starter-key sets
+    // the rest of the page is built from — a "msg" (system) event belongs to
+    // neither side. The annotated array is stashed so the Both/away/home filter
+    // is a pure re-render of what is already in memory: picking a side must
+    // never refetch or recompute anything.
     const aSet = new Set(aKeys), hSet = new Set(hKeys);
     UI._feedAll = annotateFeed(d.S.events, aSet, hSet);
     UI._feedTeams = { a: teamTag(A), h: teamTag(H) };
@@ -4774,29 +4777,55 @@
       ${esc(STAT_LABEL[e.stat] || e.stat)} ${e.from ?? 0}→${e.to ?? 0}
       <span class="delta ${cls}">${e.dPts ? sign + LG.fmtNum(e.dPts) : ""}</span></div>`;
   }
-  // One painted line per play. Dual-source polling (ESPN + Sleeper) diffs the same tick
-  // independently, so D.S.events legitimately holds two rows for one catch. The family feed
-  // is the merged story, not the audit log — collapse identical key/stat/from/to and drop a
-  // points-allowed tick that did not move the score (this league's dst_pa_* rates are 0).
+  // One painted line per fantasy-point score, oldest first. Dual-source polling
+  // (ESPN + Sleeper) diffs the same tick independently, so D.S.events holds two
+  // rows for one catch; the family feed is the merged story. Collapse the same
+  // landing value (key/stat/to) so 1→2 and 0→2 are one play, drop a tick that
+  // did not move the score, and keep every remaining line — the old 60-cap is
+  // why Thursday's scores vanished the moment Sunday got busy.
   function annotateFeed(events, aSet, hSet) {
-    const seen = new Set();
-    const out = [];
-    for (const e of events) {
+    const rows = [];
+    const src = events || [];
+    for (let i = 0; i < src.length; i++) {
+      const e = src[i];
+      if (!e) continue;
       if (!(e.msg || hSet.has(e.key) || aSet.has(e.key))) continue;
-      if (e.stat === "dst_pa" && !e.dPts) continue;
-      const id = e.msg
-        ? "m\0" + e.t + "\0" + e.msg
-        : e.key + "\0" + e.stat + "\0" + String(e.from) + "\0" + String(e.to);
-      if (seen.has(id)) continue;
-      seen.add(id);
-      out.push({ e, side: e.msg ? null : (aSet.has(e.key) ? "a" : "h") });
-      if (out.length >= 60) break;
+      if (!e.msg && !e.dPts) continue;
+      rows.push({ e, i, side: e.msg ? null : (aSet.has(e.key) ? "a" : "h") });
+    }
+    // Memory is newest-first; same-millisecond unshifts put the earlier emit
+    // at the higher index. Chronological = time, then earlier emit first.
+    rows.sort((a, b) => (Number(a.e.t) - Number(b.e.t)) || (b.i - a.i));
+    const seenTo = new Map();
+    const seenMsg = new Set();
+    const out = [];
+    for (const row of rows) {
+      const e = row.e;
+      if (e.msg) {
+        const id = "m\0" + e.t + "\0" + e.msg;
+        if (seenMsg.has(id)) continue;
+        seenMsg.add(id);
+        out.push({ e, side: null });
+        continue;
+      }
+      const id = e.key + "\0" + e.stat;
+      const set = seenTo.get(id) || new Set();
+      const to = e.to;
+      if (set.has(to)) continue;
+      if (Number(e.to) < Number(e.from)) {
+        for (const v of [...set]) if (v > to) set.delete(v);
+      }
+      set.add(to);
+      seenTo.set(id, set);
+      out.push({ e, side: row.side });
     }
     return out;
   }
+  UI.annotateFeed = annotateFeed;
   // Repaints #mufeed alone from the already-annotated UI._feedAll. Called once per matchup
   // render and again on every filter tap — no network, no recomputation, nothing else on the
   // page touched (so an open trash-talk composer or a mid-stream AI read survives a filter tap).
+  // The list is oldest-first; stay pinned to the newest line unless the reader has scrolled up.
   function paintFeed() {
     const box = $("#mufeed");
     if (!box) return;
@@ -4804,7 +4833,14 @@
     const tags = UI._feedTeams || { a: "?", h: "?" };
     const all = UI._feedAll || [];
     const rows = side === "both" ? all : all.filter((r) => r.side === side);
-    if (rows.length) { box.innerHTML = rows.map((r) => feedLine(r.e, r.side, tags)).join(""); return; }
+    const pin = box.scrollHeight <= box.clientHeight + 8
+      || box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+    const prevTop = box.scrollTop;
+    if (rows.length) {
+      box.innerHTML = rows.map((r) => feedLine(r.e, r.side, tags)).join("");
+      box.scrollTop = pin ? box.scrollHeight : prevTop;
+      return;
+    }
     box.innerHTML = side === "both"
       ? '<p class="mut">Quiet so far — events land here the moment a starter does anything.</p>'
       : `<p class="mut">Nothing from ${esc(side === "a" ? tags.a : tags.h)} yet.</p>`;
