@@ -24171,8 +24171,8 @@ async function openDetails(page, id) {
         liveN, lastPlayN, afterCloseN, closedHas,
         feedN: lines.length, tdN: tdLines.length, ydN: ydLines.length,
         first: lines[0] || "", last: lines[lines.length - 1] || "",
-        firstIsFirstCatch: /rec yds 0→1/.test(lines[0] || ""),
-        lastIsTd: /pass TD/.test(lines[lines.length - 1] || ""),
+        firstIsTd: /pass TD/.test(lines[0] || ""),
+        lastIsFirstCatch: /rec yds 0→1/.test(lines[lines.length - 1] || ""),
       };
     });
     ok(r.liveN === 1 && r.lastPlayN === 2,
@@ -24181,8 +24181,8 @@ async function openDetails(page, id) {
       "…and a later poll of a finished game — ESPN or Sleeper — does not add another line (" + JSON.stringify({ afterCloseN: r.afterCloseN, lastPlayN: r.lastPlayN, closedHas: r.closedHas }) + ")");
     ok(r.ydN === 70 && r.feedN === 71,
       "every scoring tick for this pairing stays on the feed — no 60-line chop (" + JSON.stringify({ ydN: r.ydN, feedN: r.feedN }) + ")");
-    ok(r.tdN === 1 && r.firstIsFirstCatch === true && r.lastIsTd === true,
-      "the same play is one line (0→2 and 1→2 collapse) and the list is oldest-first (" + JSON.stringify({ tdN: r.tdN, first: r.first, last: r.last }) + ")");
+    ok(r.tdN === 1 && r.firstIsTd === true && r.lastIsFirstCatch === true,
+      "the same play is one line (0→2 and 1→2 collapse) and the list is newest-first (" + JSON.stringify({ tdN: r.tdN, first: r.first, last: r.last }) + ")");
     ok(errors.length === 0, "0 page errors on the chronological feed");
     await ctx.close();
   }

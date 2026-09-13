@@ -4125,7 +4125,7 @@
     const benchRows = pairByIndex(aBench, hBench);
     // The feed (2026-08-09 playtest: "the feed needs to be a scrollable box and has to
     // indicate which team each feed item is from, maybe the ability to pick the team").
-    // 2026-09-13: every fantasy-point score, once, oldest first — not a 60-line
+    // 2026-09-13: every fantasy-point score, once, newest first — not a 60-line
     // window, and not a second line when Sleeper restates ESPN's same landing
     // value. Each event is ATTRIBUTED here, once, off the same starter-key sets
     // the rest of the page is built from — a "msg" (system) event belongs to
@@ -4777,7 +4777,7 @@
       ${esc(STAT_LABEL[e.stat] || e.stat)} ${e.from ?? 0}→${e.to ?? 0}
       <span class="delta ${cls}">${e.dPts ? sign + LG.fmtNum(e.dPts) : ""}</span></div>`;
   }
-  // One painted line per fantasy-point score, oldest first. Dual-source polling
+  // One painted line per fantasy-point score, newest first. Dual-source polling
   // (ESPN + Sleeper) diffs the same tick independently, so D.S.events holds two
   // rows for one catch; the family feed is the merged story. Collapse the same
   // landing value (key/stat/to) so 1→2 and 0→2 are one play, drop a tick that
@@ -4793,8 +4793,9 @@
       if (!e.msg && !e.dPts) continue;
       rows.push({ e, i, side: e.msg ? null : (aSet.has(e.key) ? "a" : "h") });
     }
-    // Memory is newest-first; same-millisecond unshifts put the earlier emit
-    // at the higher index. Chronological = time, then earlier emit first.
+    // Walk oldest-first so the first landing of a `to` wins the de-dup,
+    // then flip for paint (newest on top). Same-millisecond unshifts put
+    // the earlier emit at the higher index.
     rows.sort((a, b) => (Number(a.e.t) - Number(b.e.t)) || (b.i - a.i));
     const seenTo = new Map();
     const seenMsg = new Set();
@@ -4819,13 +4820,13 @@
       seenTo.set(id, set);
       out.push({ e, side: row.side });
     }
+    out.reverse();
     return out;
   }
   UI.annotateFeed = annotateFeed;
   // Repaints #mufeed alone from the already-annotated UI._feedAll. Called once per matchup
   // render and again on every filter tap — no network, no recomputation, nothing else on the
   // page touched (so an open trash-talk composer or a mid-stream AI read survives a filter tap).
-  // The list is oldest-first; stay pinned to the newest line unless the reader has scrolled up.
   function paintFeed() {
     const box = $("#mufeed");
     if (!box) return;
@@ -4833,14 +4834,7 @@
     const tags = UI._feedTeams || { a: "?", h: "?" };
     const all = UI._feedAll || [];
     const rows = side === "both" ? all : all.filter((r) => r.side === side);
-    const pin = box.scrollHeight <= box.clientHeight + 8
-      || box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
-    const prevTop = box.scrollTop;
-    if (rows.length) {
-      box.innerHTML = rows.map((r) => feedLine(r.e, r.side, tags)).join("");
-      box.scrollTop = pin ? box.scrollHeight : prevTop;
-      return;
-    }
+    if (rows.length) { box.innerHTML = rows.map((r) => feedLine(r.e, r.side, tags)).join(""); return; }
     box.innerHTML = side === "both"
       ? '<p class="mut">Quiet so far — events land here the moment a starter does anything.</p>'
       : `<p class="mut">Nothing from ${esc(side === "a" ? tags.a : tags.h)} yet.</p>`;

@@ -7815,3 +7815,16 @@ leaves one vertex. Every pre-existing TF check still passed.
 App files restored, hashes identical.
 `node tools/_verify-gffl.cjs --only TF` **68/68**.
 ---
+
+## GFFL — matchup feed is newest first (2026-09-13)
+
+User: "feed should sort newest to oldest"
+
+`annotateFeed` still de-dups oldest-first so the first landing
+of a `to` wins, then reverses for paint. Newest score is on top.
+
+Scripts cache-bust `?v=20260913g`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+---
