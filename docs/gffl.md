@@ -7770,7 +7770,7 @@ rows with the same landing value (`1→2` and `0→2`) painted twice.
 `applySide` skips a team once `closeFinishedFeeds` has seen it
 final (the full poll that first sees `post` may still emit the
 last-play box). `annotateFeed` keeps every remaining
-fantasy-point line for this pairing, oldest first, one line per
+fantasy-point line for this pairing, newest first, one line per
 `key|stat|to`. A 0-point tick stays in the audit log and stays
 off the painted feed.
 

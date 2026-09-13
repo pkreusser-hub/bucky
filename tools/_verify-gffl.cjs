@@ -24111,7 +24111,7 @@ async function openDetails(page, id) {
   // Live Sunday: Thursday's box kept reappearing (Sleeper's weekly bucket still
   // diffs a finished game every ~16s), and older scoring lines vanished once
   // the painted list hit 60. The feed is every fantasy-point tick for this
-  // pairing, oldest first, one line per landing value, silent after the NFL
+  // pairing, newest first, one line per landing value, silent after the NFL
   // game is closed.
   }
   if (section("TE · matchup feed — every score once, chronological, no finished-game reruns")) {
