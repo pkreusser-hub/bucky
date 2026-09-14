@@ -2885,11 +2885,14 @@ async function openDetails(page, id) {
     ok(!/class="conflictflag"/.test(passerHtml), "no conflict flag during ordinary live source lag");
     const remain = await page.evaluate(() => [...document.querySelectorAll(".muhteam")].map((e) => e.textContent).join("|"));
     ok(/4 to play · 5 live/.test(remain), "players-remaining clock: 4 to play · 5 live");
-    // RESTAGED AGAIN (cosmetic pass 2026-08-11): the header bar is the full-width .mupbar now
-    // — the away side's fill is its <i>, width = the away win %. Same property as ever: a big
-    // deficit reads as a low chance, not a coin flip.
+    // RESTAGED 2026-09-14: leftover-√remaining collapsed this 3-37 deficit
+    // under 15% because leftover projection dollars were small ("more
+    // decisive… since less remains to flip it"). Player-count σ still sees
+    // 4 to play + 5 live, so the trailer holds ~19% — a low chance, not a
+    // coin flip, and not a leftover-dollar lock. HEAD's leftover model
+    // still paints <15% and fails the new band.
     const wp = await page.$eval(".mupbar i", (e) => parseFloat(e.style.width));
-    ok(wp >= 0 && wp < 15, "win-prob bar: away side trailing 3.0-37.0 reads a LOW chance under the S8 upgrade — more decisive than the old flat-scale model, since less remains to flip it (" + wp + "%)");
+    ok(wp >= 15 && wp <= 25, "win-prob bar: away trailing 3.0-37.0 is a real underdog (~19%), not a leftover-dollar pin under 15% (" + wp + "%)");
     // Item 3 (2026-08-08): a strict, symmetric slot-paired grid — a TOTAL row at the bottom of
     // the starters table (matching the header's own totals), and a Bench section paired by
     // roster order. Team2 (away, "Rival") has NO bench players on file at all — that's the real

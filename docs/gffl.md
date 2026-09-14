@@ -7904,5 +7904,17 @@ Scripts cache-bust `?v=20260914b`.
 Files: `league.html`, `assets/league/lg-data.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY**: quoted after the suite and the HEAD bite.
+**VERIFY**: `node tools/_verify-gffl.cjs --only TH` **34/34**.
+`node tools/_verify-gffl.cjs --only D,AQ,TF,TH` **152/152**.
+Full battery **3540** checks (3506 + 34): **3535/3540** on this
+cloud box after restaging D's leftover-dollar `<15%` pin (19% now).
+The 5 fails are the same geometry/font measurements as `main` (I2
+`%START` clip, AD/AT name-column 133 vs 140, RS seven-tab 54px
+boxes).
+Bite (`lg-data.js` + `league.html` at `main`, new suite kept,
+`--only AQ,TF,TH`): **113 pass / 16 fail** — HEAD still reads the
+10-point paper edge as ~70%, pins 100-40 to 100%, jumps Q1→Q4 on
+leftover dollars (64%→89%), and paints Thursday 118-110 at 65%,
+Sunday 48-41 at 67%, Monday 112-109 at 77%. Every pre-existing
+AQ/TF/TH check still passed. App files restored, hashes identical.
 ---
