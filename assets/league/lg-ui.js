@@ -3135,6 +3135,7 @@
   }
   UI.sportsFn = sportsFn;
   UI._ffSb = null; // last ff_scoreboard payload (or {ok:false,reason} — the card just hides)
+  UI._ffSbLoads = 0; // test hook — how many times the Scores tab actually asked ff_scoreboard
   UI._scoresPoll = null;
 
   function kickTimeStr(iso) {
@@ -3333,6 +3334,7 @@
     }
   }
   async function loadFfScoreboard() {
+    UI._ffSbLoads++;
     const T = LG.teamById(LG.myTeamId());
     try { UI._ffSb = await sportsFn("ff_scoreboard", T ? { teamName: T.name } : {}); } catch (e) { UI._ffSb = { ok: false, reason: "fetch-failed" }; }
   }
@@ -3417,14 +3419,15 @@
     paintHealth();
   }
   UI.paintScores = paintScores; // called from paintLive() when this tab is open — NFL half only
-  function startScoresPoll() {
+  function startScoresPoll(immediate) {
     stopScoresPoll();
     const tick = async () => {
       await loadFfScoreboard();
       if (UI.view === "scores") paintScores();
       UI._scoresPoll = setTimeout(tick, D().anyLive() ? 25000 : 120000);
     };
-    UI._scoresPoll = setTimeout(tick, D().anyLive() ? 25000 : 120000);
+    if (immediate) tick();
+    else UI._scoresPoll = setTimeout(tick, D().anyLive() ? 25000 : 120000);
   }
   function stopScoresPoll() {
     if (UI._scoresPoll) { clearTimeout(UI._scoresPoll); UI._scoresPoll = null; }
@@ -3982,7 +3985,7 @@
   // "~30s behind ESPN's app"). One honest rule kept: a FINAL game is never polled at all,
   // because its payload cannot change again. A pre-game one is polled slowly so the view
   // notices kickoff on its own rather than sitting frozen until the reader backs out.
-  function startNflGamePoll() {
+  function startNflGamePoll(immediate) {
     stopNflGamePoll();
     const iv = nflGameLive() ? 12000 : nflGamePre() ? 120000 : 0;
     if (!iv) return;
@@ -3994,11 +3997,67 @@
       paintNflGame();
       startNflGamePoll(); // re-arms at the new state's cadence, or stops once the game is final
     };
-    UI._nflGamePoll = setTimeout(tick, iv);
+    if (immediate) tick();
+    else UI._nflGamePoll = setTimeout(tick, iv);
   }
   function stopNflGamePoll() {
     if (UI._nflGamePoll) { clearTimeout(UI._nflGamePoll); UI._nflGamePoll = null; }
   }
+
+  // ---------------- pull-up refresh (2026-09-14) ----------------
+  // iOS Safari / the installed PWA freeze JS when the app is backgrounded and often
+  // drop the poll timer while leaving D.S.running true. Coming back then painted
+  // the last in-memory board until the user killed the app (a cold boot). Sports
+  // already refreshes on visibilitychange; this is the same contract for GFFL:
+  // hide → pause every score poll; show / pageshow / resume / a freeze-gap →
+  // grab the latest immediately. Bucky's embed event rides the same two hooks.
+  const FORE_GAP_MS = 2500;
+  let lastAliveAt = Date.now();
+  function kickViewPollsNow() {
+    if (UI.view === "scores" && UI._scoresWeek == null) startScoresPoll(true);
+    else if (UI.view === "nflgame" && (nflGameLive() || nflGamePre())) startNflGamePoll(true);
+  }
+  UI.onBackground = function () {
+    const d = D();
+    if (d && d.S && d.S.running) d.stop();
+    stopScoresPoll();
+    stopNflGamePoll();
+  };
+  UI.onForeground = function () {
+    const d = D();
+    if (!d || typeof d.wake !== "function") return false;
+    const woke = d.wake();
+    if (woke) kickViewPollsNow();
+    return woke;
+  };
+  Object.defineProperty(UI, "_foreAliveAt", {
+    configurable: true,
+    get() { return lastAliveAt; },
+    set(v) { lastAliveAt = Number(v) || 0; },
+  });
+  UI._forePulse = function () {
+    const frozen = Date.now() - lastAliveAt > FORE_GAP_MS;
+    lastAliveAt = Date.now();
+    if (frozen && !(typeof document !== "undefined" && document.hidden)) UI.onForeground();
+    return frozen;
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) UI.onBackground();
+    else { lastAliveAt = Date.now(); UI.onForeground(); }
+  });
+  window.addEventListener("pageshow", (e) => {
+    if (e && e.persisted) { lastAliveAt = Date.now(); UI.onForeground(); }
+  });
+  document.addEventListener("resume", () => { lastAliveAt = Date.now(); UI.onForeground(); });
+  window.addEventListener("focus", () => {
+    if (Date.now() - lastAliveAt > FORE_GAP_MS) UI.onForeground();
+    lastAliveAt = Date.now();
+  });
+  document.addEventListener("touchstart", () => {
+    if (Date.now() - lastAliveAt > FORE_GAP_MS) UI.onForeground();
+    lastAliveAt = Date.now();
+  }, { passive: true });
+  setInterval(UI._forePulse, 1000);
 
   // ---------------- matchup (the heart) ----------------
   // LG.gamesForWeek, not the raw schedule directly — during a playoff week (S7) that's the

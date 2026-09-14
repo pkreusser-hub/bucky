@@ -2252,9 +2252,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260913g"></script>
-  <script src="assets/league/lg-data.js?v=20260913g"></script>
-  <script src="assets/league/lg-ui.js?v=20260913g"></script>
+  <script src="assets/league/lg-core.js?v=20260914a"></script>
+  <script src="assets/league/lg-data.js?v=20260914a"></script>
+  <script src="assets/league/lg-ui.js?v=20260914a"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing
@@ -2314,10 +2314,10 @@
     // can never arm a loop the boot hasn't started. Standalone (goatfantasyleague.com,
     // never framed) the event simply never fires and nothing here runs.
     window.addEventListener("bucky-embed-visibility", () => {
-      const D = LG.data;
-      if (!D || !D.S || !D.S.loopStarts) return;
-      if (window.__buckyEmbedVisible === false) D.stop();
-      else if (!D.S.running) { D.start(); }
+      const UI = LG.ui;
+      if (!UI) return;
+      if (window.__buckyEmbedVisible === false) UI.onBackground();
+      else UI.onForeground();
     });
   </script>
 </body>

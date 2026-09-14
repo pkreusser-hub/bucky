@@ -7828,3 +7828,35 @@ Scripts cache-bust `?v=20260913g`.
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 ---
+
+## GFFL — scores refresh when the iOS app is pulled up (2026-09-14)
+
+User: "in the GFFL app, when opening on an ios device the scores
+did not update to the latest until I manually closed the app
+completely and reopened, it should grab the latest scores each
+time the app is pulled up"
+
+iOS Safari and the installed PWA freeze JS when the app is
+backgrounded. The poll timer is often dropped while `D.S.running`
+stays true, so `D.start()` no-ops and the last in-memory board
+paints until a cold boot. Sports already refreshes on
+`visibilitychange`; GFFL only paused for Bucky's embed event.
+
+`D.wake()` is the one catch-up: a hidden or not-yet-booted page is
+a no-op, stacked resume events debounce, a dead timer is re-armed
+without a second loop, and the next tick is FULL (Sleeper +
+scoreboard). `stop()`+`start()` now resets `tickN` so the first
+tick after a Bucky/iOS resume cannot inherit an odd counter and
+come back LIGHT. Hide stops every score poll; show / persisted
+`pageshow` / Page Lifecycle `resume` / a freeze-gap pulse / first
+touch after a freeze all call `UI.onForeground()`.
+
+Scripts cache-bust `?v=20260914a`.
+
+Files: `league.html`, `assets/league/lg-{data,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: `node tools/_verify-gffl.cjs --only TG` (29 new
+checks). Full battery and bite against HEAD after the first green
+run.
+---

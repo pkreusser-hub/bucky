@@ -248,6 +248,11 @@ const fixture = {
   // — the exact shape D-S8 is about (a designation that landed after the roster was imported,
   // for a player with no live stat row because a man who is Out never plays).
   dirOutOnly: false,
+  // TG (2026-09-14): override the live DAL@PHI scoreboard numbers so a hide→show
+  // can prove the painted NFL score actually moved, not just that a fetch fired.
+  // Default null = the fixture's own 14–10 (live) / 13–20 (final).
+  sbLiveHome: null,
+  sbLiveAway: null,
 };
 
 // ---------------- section AC: production-shaped identity data (2026-08-09) ----------------
@@ -1137,7 +1142,9 @@ function sbFix() {
   }
   const events = [
     mk("401900001", "DAL", "PHI", done ? "post" : "in",
-      { date: "2026-08-07T00:15Z", detail: done ? "Final" : "Q2 5:00", period: done ? 4 : 2, clock: done ? "0:00" : "5:00", hs: done ? "13" : "14", as: done ? "20" : "10", net: "FOX",
+      { date: "2026-08-07T00:15Z", detail: done ? "Final" : "Q2 5:00", period: done ? 4 : 2, clock: done ? "0:00" : "5:00",
+        hs: fixture.sbLiveHome != null ? String(fixture.sbLiveHome) : (done ? "13" : "14"),
+        as: fixture.sbLiveAway != null ? String(fixture.sbLiveAway) : (done ? "20" : "10"), net: "FOX",
         // PHI (home, id 21) has the ball 12 yards out — the same story the summary fixture
         // tells, and inside the 20, so the RED-ZONE styling is a real case here rather than
         // an untested branch. A FINALIZED game correctly carries no situation at all.
@@ -24846,6 +24853,271 @@ async function openDetails(page, id) {
           "…now at the far right; the first recorded minute is not stretched to x=0 (" + JSON.stringify({ firstX: painted.firstX, lastX: painted.lastX }) + ")");
       }
       ok(errors.length === 0, "0 page errors on the live-tail clip");
+      await ctx.close();
+    }
+  }
+
+  // ================= TG · pull-up refresh ========================================
+  // User, from an iPhone: scores stayed stale until the app was killed and reopened.
+  // iOS freezes the page, often drops the poll timer, and leaves D.S.running true —
+  // so D.start() no-ops and nothing fetches until a cold boot. Sports already
+  // refreshes on visibilitychange; GFFL now does the same, plus pageshow/resume
+  // and a freeze-gap pulse for the cases iOS never fires hidden.
+  }
+  if (section("TG · pull-up refresh — iOS/Safari foreground catch-up")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    fixture.sbLiveHome = null; fixture.sbLiveAway = null;
+
+    const stubHid = (page, hid) => page.evaluate((h) => {
+      if (!window.__gfflHidStub) {
+        Object.defineProperty(document, "hidden", { configurable: true, get() { return window.__gfflHid === true; } });
+        window.__gfflHidStub = true;
+      }
+      window.__gfflHid = !!h;
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, hid);
+
+    const sbN = (page) => page.evaluate(() => {
+      const ep = window.__GFFL__.D.EP["espn scoreboard"];
+      return ep ? ep.n : 0;
+    });
+
+    // ---- TG1: hide stops the loop; show fetches the latest and paints it ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("scores"));
+      await waitOr(page, ".sccard");
+      await evalOr(page, () => window.__GFFL__.D.start());
+      const before = await evalOr(page, () => {
+        const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        const card = [...document.querySelectorAll(".sccard")].find((c) => /Eagles|PHI/.test(c.textContent));
+        const pts = card ? [...card.querySelectorAll(".scpts")].map((el) => el.textContent.trim()) : [];
+        return {
+          hooks: typeof D.wake === "function" && typeof UI.onForeground === "function",
+          running: !!(D.S && D.S.running),
+          phi: pts[1] || pts[0] || "",
+          sb: (D.EP["espn scoreboard"] && D.EP["espn scoreboard"].n) || 0,
+          ff: UI._ffSbLoads,
+        };
+      }) || {};
+      ok(before.running === true, "the live poll is running before the hide (waitLive had stopped it)");
+      ok(before.hooks === true, "D.wake / UI.onForeground exist (the pull-up path HEAD does not have)");
+      ok(before.phi === "14", "Scores paints the live PHI total from the fixture (" + before.phi + ")");
+      fixture.sbLiveHome = "21";
+      await stubHid(page, true);
+      const hid = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        return { running: !!(D.S && D.S.running), scoresPoll: window.__GFFL__.UI._scoresPoll != null };
+      }) || {};
+      ok(hid.running === false, "hiding the page STOPS the live poll loop (" + JSON.stringify(hid) + ")");
+      ok(hid.scoresPoll === false, "…and the Scores tab's own fantasy poll (" + JSON.stringify(hid) + ")");
+      const sbBeforeShow = await sbN(page);
+      const ffBeforeShow = before.ff;
+      await stubHid(page, false);
+      await page.waitForFunction((n) => {
+        const D = window.__GFFL__ && window.__GFFL__.D;
+        const ep = D && D.EP && D.EP["espn scoreboard"];
+        return !!(ep && ep.n > n);
+      }, { timeout: 8000 }, sbBeforeShow);
+      const after = await evalOr(page, () => {
+        const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        const card = [...document.querySelectorAll(".sccard")].find((c) => /Eagles|PHI/.test(c.textContent));
+        const pts = card ? [...card.querySelectorAll(".scpts")].map((el) => el.textContent.trim()) : [];
+        return {
+          running: !!(D.S && D.S.running),
+          timer: D.S.timer != null,
+          phi: pts[1] || "",
+          sb: (D.EP["espn scoreboard"] && D.EP["espn scoreboard"].n) || 0,
+          ff: UI._ffSbLoads,
+          wakeN: D.S.wakeN,
+        };
+      }) || {};
+      ok(after.sb > sbBeforeShow, "showing the page fetches the scoreboard immediately (" + sbBeforeShow + " → " + after.sb + ")");
+      ok(after.phi === "21", "…and the Scores card paints the new PHI total, not the frozen 14 (" + after.phi + ")");
+      ok(after.running === true && after.timer === true, "…and the poll loop is running with a timer re-armed");
+      ok(typeof ffBeforeShow === "number" && after.ff > ffBeforeShow,
+        "…and the Scores tab's fantasy board is fetched now, not after 25s/2min (" + ffBeforeShow + " → " + after.ff + ")");
+      ok(errors.length === 0, "0 page errors on hide→show paint");
+      await ctx.close();
+      fixture.sbLiveHome = null;
+    }
+
+    // ---- TG2: iOS drops the timer but leaves running true — visibility still catch-up polls ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const staged = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        if (typeof D.wake !== "function") return { hooks: false };
+        D.start();
+        const loops = D.S.loopStarts;
+        clearTimeout(D.S.timer);
+        D.S.timer = null;
+        return {
+          hooks: true,
+          running: D.S.running === true,
+          timer: D.S.timer,
+          loops,
+          sb: (D.EP["espn scoreboard"] && D.EP["espn scoreboard"].n) || 0,
+          wakeN: D.S.wakeN,
+        };
+      }) || {};
+      ok(staged.hooks === true && staged.running === true && staged.timer == null,
+        "staged: the loop flag is still true after iOS dropped the timer (" + JSON.stringify(staged) + ")");
+      await stubHid(page, false);
+      await page.waitForFunction((n) => {
+        const D = window.__GFFL__ && window.__GFFL__.D;
+        const ep = D && D.EP && D.EP["espn scoreboard"];
+        return !!(ep && ep.n > n);
+      }, { timeout: 8000 }, staged.sb);
+      const after = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        return {
+          running: D.S.running === true,
+          timer: D.S.timer != null,
+          loops: D.S.loopStarts,
+          sb: (D.EP["espn scoreboard"] && D.EP["espn scoreboard"].n) || 0,
+          wakeN: D.S.wakeN,
+        };
+      }) || {};
+      ok(after.sb > staged.sb, "a visible visibilitychange still catch-up polls when the timer is dead (" + staged.sb + " → " + after.sb + ")");
+      ok(after.running === true && after.timer === true, "…and re-arms the timer instead of leaving the loop dead");
+      ok(after.loops === staged.loops, "…without stacking a second loop (loopStarts stayed " + after.loops + ")");
+      ok(after.wakeN === staged.wakeN + 1, "…one wake, not a burst (" + staged.wakeN + " → " + after.wakeN + ")");
+      await evalOr(page, () => window.__GFFL__.D.stop());
+      ok(errors.length === 0, "0 page errors on the dropped-timer resume");
+      await ctx.close();
+    }
+
+    // ---- TG3: pageshow persisted (Safari bfcache) + freeze-gap pulse ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const staged = await evalOr(page, () => {
+        const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        if (typeof D.wake !== "function" || typeof UI._forePulse !== "function") return { hooks: false };
+        D.start();
+        clearTimeout(D.S.timer);
+        D.S.timer = null;
+        return { hooks: true, sb: (D.EP["espn scoreboard"] && D.EP["espn scoreboard"].n) || 0, wakeN: D.S.wakeN };
+      }) || {};
+      ok(staged.hooks === true, "pageshow / freeze-pulse hooks exist");
+      await page.evaluate(() => {
+        try {
+          window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+        } catch (e) {
+          const ev = new Event("pageshow");
+          Object.defineProperty(ev, "persisted", { value: true });
+          window.dispatchEvent(ev);
+        }
+      });
+      await page.waitForFunction((n) => {
+        const D = window.__GFFL__ && window.__GFFL__.D;
+        const ep = D && D.EP && D.EP["espn scoreboard"];
+        return !!(ep && ep.n > n);
+      }, { timeout: 8000 }, staged.sb);
+      const afterShow = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        return { sb: (D.EP["espn scoreboard"] && D.EP["espn scoreboard"].n) || 0, wakeN: D.S.wakeN };
+      }) || {};
+      ok(afterShow.sb > staged.sb, "a persisted pageshow catch-up polls (Safari back-forward cache) (" + staged.sb + " → " + afterShow.sb + ")");
+      await evalOr(page, () => {
+        const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        clearTimeout(D.S.timer);
+        D.S.timer = null;
+        D.S.wakeAt = 0;
+        UI._foreAliveAt = Date.now() - 10000;
+      });
+      const sbBeforePulse = await sbN(page);
+      const woke = await evalOr(page, () => window.__GFFL__.UI._forePulse());
+      await page.waitForFunction((n) => {
+        const D = window.__GFFL__ && window.__GFFL__.D;
+        const ep = D && D.EP && D.EP["espn scoreboard"];
+        return !!(ep && ep.n > n);
+      }, { timeout: 8000 }, sbBeforePulse);
+      ok(woke === true, "a freeze-gap pulse reports the page was frozen");
+      ok((await sbN(page)) > sbBeforePulse, "…and that pulse catch-up polls without a visibility event");
+      await evalOr(page, () => window.__GFFL__.D.stop());
+      ok(errors.length === 0, "0 page errors on pageshow + freeze pulse");
+      await ctx.close();
+    }
+
+    // ---- TG4: debounce stacked resume events; hidden wake is a no-op; pre-boot stays quiet ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        if (typeof D.wake !== "function") return { hooks: false };
+        D.start();
+        const loops = D.S.loopStarts;
+        const wake0 = D.S.wakeN;
+        UI.onForeground();
+        UI.onForeground();
+        try { window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })); } catch (e) {
+          const ev = new Event("pageshow");
+          Object.defineProperty(ev, "persisted", { value: true });
+          window.dispatchEvent(ev);
+        }
+        return { hooks: true, loops: D.S.loopStarts - loops, wakes: D.S.wakeN - wake0, running: D.S.running === true };
+      }) || {};
+      ok(r.hooks === true && r.wakes === 1, "stacked show + pageshow debounce to one wake (" + JSON.stringify(r) + ")");
+      ok(r.loops === 0, "…and do not stack a second poll loop");
+      await evalOr(page, () => window.__GFFL__.D.stop());
+      ok(errors.length === 0, "0 page errors on the debounce");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        if (typeof D.wake !== "function") return { hooks: false };
+        D.start();
+        const sb = (D.EP["espn scoreboard"] && D.EP["espn scoreboard"].n) || 0;
+        if (!window.__gfflHidStub) {
+          Object.defineProperty(document, "hidden", { configurable: true, get() { return window.__gfflHid === true; } });
+          window.__gfflHidStub = true;
+        }
+        window.__gfflHid = true;
+        D.S.wakeAt = 0;
+        const woke = D.wake();
+        return { hooks: true, woke, running: D.S.running === true, sb, sbAfter: (D.EP["espn scoreboard"] && D.EP["espn scoreboard"].n) || 0 };
+      }) || {};
+      ok(r.hooks === true && r.woke === false, "D.wake refuses while the page is hidden");
+      ok(r.sbAfter === r.sb, "…and does not fetch (" + JSON.stringify(r) + ")");
+      await evalOr(page, () => { window.__gfflHid = false; window.__GFFL__.D.stop(); });
+      ok(errors.length === 0, "0 page errors on the hidden-wake guard");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, { docs: {} });
+      await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "domcontentloaded" });
+      await sleep(400);
+      const r = await evalOr(page, () => {
+        if (!window.__gfflHidStub) {
+          Object.defineProperty(document, "hidden", { configurable: true, get() { return window.__gfflHid === true; } });
+          window.__gfflHidStub = true;
+        }
+        window.__gfflHid = false;
+        document.dispatchEvent(new Event("visibilitychange"));
+        const D = window.__GFFL__ && window.__GFFL__.D;
+        return { running: !!(D && D.S.running), loopStarts: D ? D.S.loopStarts : -1 };
+      }) || {};
+      ok(r.running === false && r.loopStarts === 0,
+        "a pre-boot visibility event never arms a poll loop the boot hasn't started (" + JSON.stringify(r) + ")");
+      ok(errors.length === 0, "0 page errors on the gate-screen visibility guard");
       await ctx.close();
     }
   }

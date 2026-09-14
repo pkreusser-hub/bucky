@@ -2314,28 +2314,81 @@
                        // most once even across a second full UI.boot() (e.g. re-claiming a
                        // team) or repeated tab navigation; a stacked second loop would show
                        // this go to 2 without D.S.running ever having gone false in between.
+    // A newly armed loop always starts at tick 0 (FULL). stop()+start() used to inherit
+    // the old odd/even counter, so the first tick after an iOS/Bucky resume could be
+    // LIGHT — scoreboard only, no Sleeper — and fantasy points stayed stale until the
+    // next full cycle, or until the app was killed and booted cold (tickN is 0 then).
+    D.S.tickN = 0;
     const gen = ++D.S.loopGen;
     const loop = async () => {
       if (!D.S.running || gen !== D.S.loopGen) return;
+      // Same-generation re-entry (D.wake during an in-flight tick) must not start a
+      // second poll — that would arm two timers the way a stop/start without the
+      // generation token used to. The in-flight tick finishes; wakeSoon runs the
+      // next one immediately, FULL.
+      if (D.S.tickBusy) { D.S.wakeSoon = true; return; }
+      D.S.tickBusy = true;
       // While live: 8s ticks (the measured edge-cache floor of ESPN's own API — see
       // pollOnce's header note) alternating FULL/LIGHT, so the score/clock refreshes every
       // ~8s while the heavy half (Sleeper + per-game summaries) keeps its old ~16s cadence
       // and total upstream volume. Tick 0 is always FULL (boot needs the Sleeper seed);
       // an explicit `ms` (tests/manual) keeps every tick full at that cadence. Idle: 60s,
-      // always full, exactly as before.
+      // always full, exactly as before. D.S.forceFull (set by D.wake) is the same contract
+      // for a loop that never stopped — iOS can drop the timer while leaving running true.
+      const forceFull = !!D.S.forceFull;
+      D.S.forceFull = false;
       const n = D.S.tickN || 0; D.S.tickN = n + 1;
-      const light = !ms && anyLive() && (n & 1) === 1;
-      await D.pollOnce(light ? { light: true } : undefined).catch(() => {});
+      const light = !ms && !forceFull && anyLive() && (n & 1) === 1;
+      try {
+        await D.pollOnce(light ? { light: true } : undefined).catch(() => {});
+      } finally {
+        D.S.tickBusy = false;
+      }
       // …and again AFTER the await — this is the half that actually closes the doubling.
       if (!D.S.running || gen !== D.S.loopGen) return;
       D.S.timerArms++;
-      D.S.timer = setTimeout(loop, anyLive() ? (ms || 8000) : 60000);
+      const delay = D.S.wakeSoon ? 0 : (anyLive() ? (ms || 8000) : 60000);
+      D.S.wakeSoon = false;
+      D.S.timer = setTimeout(loop, delay);
     };
+    D.S.loopFn = loop;
     loop();
+  };
+  // iOS standalone / Safari can freeze this page for minutes and then hand it back
+  // with D.S.running still true and the setTimeout gone or sitting out the rest of
+  // its 8–60s wait. Bucky's embed handler already stop()/start()s; standalone had
+  // no equivalent, so scores sat stale until the app was killed (a cold boot).
+  // wake() is the one catch-up: never arms a loop boot hasn't started, never polls
+  // a hidden/covered page, never stacks a second loop, and the next tick is FULL.
+  D.S.wakeN = 0;
+  D.S.wakeAt = 0;
+  D.wake = function () {
+    if (!D.S.loopStarts) return false;
+    if (typeof window !== "undefined" && window.__buckyEmbedVisible === false) return false;
+    if (typeof document !== "undefined" && document.hidden) return false;
+    const now = Date.now();
+    if (D.S.wakeAt && now - D.S.wakeAt < 1500) return false;
+    D.S.wakeAt = now;
+    D.S.wakeN++;
+    D.S.forceFull = true;
+    if (!D.S.running) {
+      D.start();
+      return true;
+    }
+    clearTimeout(D.S.timer);
+    D.S.timer = null;
+    if (typeof D.S.loopFn === "function") D.S.loopFn();
+    return true;
   };
   // Bumping the generation is what retires any chain currently suspended inside a poll; the
   // flag and the pending timer are cleared exactly as before.
-  D.stop = function () { D.S.running = false; D.S.loopGen++; clearTimeout(D.S.timer); };
+  D.stop = function () {
+    D.S.running = false;
+    D.S.loopGen++;
+    D.S.tickBusy = false;
+    D.S.wakeSoon = false;
+    clearTimeout(D.S.timer);
+  };
 
   // ---------------- matchup math ----------------
   // Live-adjusted projection for one starter: post -> actual; pre -> weekly
