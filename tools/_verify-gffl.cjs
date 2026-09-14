@@ -17717,15 +17717,14 @@ async function openDetails(page, id) {
   }
 
   // ================= AQ · S8 — matchup win probability (est.) ============================
-  // D.winProb was already composed out of D.liveProj (live pts + remaining fraction of
-  // projection) with a FIXED-SCALE logistic slope — the plan's upgrade is entirely in the
-  // SPREAD, which now shrinks with D.remainingProj (new) as the slate empties out, so the
-  // SAME point gap reads more decisive late than it does at kickoff. Every scenario below is
-  // DIRECT manipulation of D.S.games/D.S.players/D.projFor (section M's own technique) rather
-  // than the 2025 replay's fixture machinery — simpler, fully deterministic, and it exercises
-  // the exact same composed pieces (D.liveProj/D.remaining/D.projFor) an advancing replay
-  // clock would, without the extra coupling. PROPERTY tests throughout, per the plan — no
-  // exact percentage is asserted, only the shape the plan itself describes.
+  // D.winProb is composed out of D.liveProj (live pts + remaining fraction of
+  // projection). RESTAGED 2026-09-14: the spread used to shrink with leftover
+  // projection dollars (1.5√remaining, floor 4). That made a 10-point paper
+  // edge ~70% on this 9v3 board and a 100-40 Q4 lead a 100% pin while 12
+  // starters were still on the field. Spread is now remaining-starter σ
+  // (√n × 10) plus a 20% blend toward 50% while football remains. Property
+  // shape stays; the kickoff / late-game bands were rewritten so HEAD's
+  // leftover-√remaining numbers fail. Section TH pins the 11-on-11 feels.
   }
   if (section("AQ · S8 — matchup win probability (est.)")) {
   {
@@ -17749,8 +17748,13 @@ async function openDetails(page, id) {
         D.projFor = (key) => (key in table ? table[key] : null);
         return { ab: D.winProb(A9, B3), ba: D.winProb(B3, A9) };
       }, A9, B3);
-      ok(wp.ab > 0.5 && wp.ab < 0.95, "pre-game: a modest 10-point projected edge (90 vs 80) favors the leader without reading as a lock (" + wp.ab + ")");
-      ok(wp.ab > 0.05, "…comfortably inside the plan's 5%-95% sanity band (" + wp.ab + ")");
+      // RESTAGED 2026-09-14: leftover-√remaining read this 10-point paper
+      // edge (remaining dollars 170, sd ≈ 19.6) as ~70%. Player-count σ on
+      // 12 still-to-play + a 20% 50/50 blend is 0.596. Hand-computed:
+      // sd = 10√12 ≈ 34.64, raw = logistic(1.702×10/34.64) ≈ 0.620,
+      // p = 0.8×0.620 + 0.2×0.5 = 0.596.
+      ok(wp.ab > 0.57 && wp.ab < 0.62, "pre-game: a modest 10-point projected edge (90 vs 80) is a mild lean, not ~70% (" + wp.ab + ")");
+      ok(wp.ab > 0.05 && wp.ab < 0.95, "…still inside the 5%-95% sanity band (" + wp.ab + ")");
       ok(Math.abs(wp.ab + wp.ba - 1) < 1e-9, "…and the two directions are EXACT complements — the model is anti-symmetric in the point gap (" + wp.ab + " + " + wp.ba + " = " + (wp.ab + wp.ba) + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
@@ -17777,8 +17781,13 @@ async function openDetails(page, id) {
         D.projFor = () => 5; // small, so the remaining-fraction contribution stays tiny
         return D.winProb(A9, B3);
       }, A9, B3);
-      ok(direct > 0.85, "a 100-40 lead with 1:00 left in Q4 reads as near-certain, well past the plan's >85% bar (" + direct + ")");
-      ok(direct < 1, "…but it is NOT the same as a final — the game is still 'in', not 'post' (" + direct + ")");
+      // RESTAGED 2026-09-14: leftover-√remaining collapsed sd to the floor
+      // of 4 (12 × 5 × 1/60 leftover dollars), so 100-40 painted ~100%
+      // while 12 starters were still on the field. Player-count σ keeps
+      // that a real lead. Hand-computed liveProj lead 60.5, nStill=12:
+      // sd ≈ 34.64, raw ≈ 0.951, p = 0.8×0.951 + 0.2×0.5 = 0.861.
+      ok(direct > 0.82 && direct < 0.90, "a 100-40 lead with 1:00 left in Q4 is a real favorite (~86%), not a 100% pin (" + direct + ")");
+      ok(direct < 1, "…and it is NOT the same as a final — the game is still 'in', not 'post' (" + direct + ")");
       // The SAME scenario, read off the league home's compact card (matchupHeroExtra's own bar)
       // for the team1-vs-team2 game (week 1's [1,2] pairing). matchupCard(h,a) is
       // called (1,2) — home=team1(A9, the 100-pt leader), away=team2(B3) — and
@@ -17796,7 +17805,7 @@ async function openDetails(page, id) {
         const fill = el && el.querySelector(".mupbar.mini i");
         return { pct: fill ? parseInt(fill.style.width, 10) : null, awayPerspective: Math.round(D.winProb(B3, A9) * 100) };
       }, A9, B3);
-      ok(mini.pct != null && mini.pct < 15, "…and the compact card on the league home reads the SAME model, not a duplicated or stale one — team2's OWN (away) win% reads near-zero here (" + mini.pct + "%)");
+      ok(mini.pct != null && mini.pct > 8 && mini.pct < 20, "…and the compact card on the league home reads the SAME model, not a duplicated or stale one — team2's OWN (away) win% is the complement (~14%), not a 0% pin (" + mini.pct + "%)");
       ok(mini.pct === mini.awayPerspective, "…matching D.winProb(away,home) exactly, to the rendered percentage point (" + mini.pct + " vs " + mini.awayPerspective + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
@@ -24380,7 +24389,9 @@ async function openDetails(page, id) {
       ok(r.hooks === true, "D.winProbFromProj / D.slateWindow exist (" + JSON.stringify(r) + ")");
       if (r.hooks) {
         ok(Math.abs(r.from - r.live) < 1e-9, "…and the kickoff model equals D.winProb when every game is still pre (" + r.from + " vs " + r.live + ")");
-        ok(r.from > 0.5 && r.from < 0.95, "…the 90-vs-80 edge is the same sane favoritism AQ1 already pins (" + r.from + ")");
+        // RESTAGED 2026-09-14: same 90-vs-80 AQ1 edge, now the calmer
+        // player-count band (0.596), not leftover-√remaining's ~70%.
+        ok(r.from > 0.57 && r.from < 0.62, "…the 90-vs-80 edge is the same mild lean AQ1 already pins (" + r.from + ")");
         ok(r.t0 === r.firstKick, "slateWindow's first kickoff is DAL@PHI (2026-08-07T00:15Z) (" + r.t0 + ")");
         // RESTAGED 2026-09-11: the 80-tall labelled axis is gone — the card is
         // the NFL 56px sparkline again. Hand-computed: y = 4 + (1-p)*48.
@@ -25135,6 +25146,304 @@ async function openDetails(page, id) {
       ok(r.running === false && r.loopStarts === 0,
         "a pre-boot visibility event never arms a poll loop the boot hasn't started (" + JSON.stringify(r) + ")");
       ok(errors.length === 0, "0 page errors on the gate-screen visibility guard");
+      await ctx.close();
+    }
+  }
+
+  // ================= TH · calmer projected win% ========================================
+  // User: projected win % was overly reactive to a small projected-score lead.
+  // Leftover-√remaining treated a sitting player with 4 leftover proj as almost
+  // done and a 5-point paper edge as a real favorite. Spread is now remaining
+  // starters (σ = 10, combined √n) plus a 20% blend toward 50% while football
+  // is still on. 100/0 still pins only when every starter's game is post.
+  // Every number below is hand-computed from that formula against the fixture.
+  if (section("TH · calmer projected win% — remaining-starter σ + 50% blend")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+
+    const A11 = Array.from({ length: 11 }, (_, i) => "tha" + i);
+    const B11 = Array.from({ length: 11 }, (_, i) => "thb" + i);
+
+    const armWin = (page, spec) => page.evaluate((spec) => {
+      const D = window.__GFFL__.D;
+      const setP = (key, team, pts) => D.S.players.set(key, {
+        key, name: key, team, pos: "QB", pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0,
+      });
+      spec.rows.forEach((r) => {
+        D.S.games.set(r.team, r.game);
+        setP(r.key, r.team, r.pts);
+      });
+      const table = {};
+      spec.rows.forEach((r) => { table[r.key] = r.proj; });
+      D.projFor = (key) => (key in table ? table[key] : null);
+      const tot = (keys) => keys.reduce((s, k) => s + (Number(D.liveProj(k)) || 0), 0);
+      const still = (keys) => { const r = D.remaining(keys); return r.left + r.playing; };
+      return {
+        ab: D.winProb(spec.A, spec.B),
+        ba: D.winProb(spec.B, spec.A),
+        from: typeof D.winProbFromProj === "function" ? D.winProbFromProj(spec.A, spec.B) : null,
+        totA: tot(spec.A), totB: tot(spec.B),
+        nStill: still(spec.A) + still(spec.B),
+        nTotal: spec.A.length + spec.B.length,
+      };
+    }, spec);
+
+    const kickoff = (projA, projB) => ({
+      A: A11, B: B11,
+      rows: A11.map((k, i) => ({ key: k, team: "XA" + i, pts: 0, proj: projA[i], game: { state: "pre" } }))
+        .concat(B11.map((k, i) => ({ key: k, team: "XB" + i, pts: 0, proj: projB[i], game: { state: "pre" } }))),
+    });
+
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+
+      // ---- TH1: 5-point paper edge at kickoff, 11-on-11. Hand-computed:
+      // nStill=22, sd=10√22 ≈ 46.904, raw=logistic(1.702×5/46.904) ≈ 0.5452,
+      // p = 0.8×0.5452 + 0.2×0.5 = 0.5362. Leftover-√remaining on the same
+      // 269 remaining dollars was ~58.5%.
+      const five = await armWin(page, kickoff(
+        [17, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12],
+        [12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12]
+      ));
+      ok(five.totA === 137 && five.totB === 132 && five.nStill === 22,
+        "TH1 fixture is a 5-point kickoff edge on 22 remaining starters (" + JSON.stringify(five) + ")");
+      ok(five.ab > 0.525 && five.ab < 0.550,
+        "…5 points at kickoff is 52–55%, not leftover-√remaining's ~59% (" + five.ab + ")");
+
+      // ---- TH2: 18-point paper edge at kickoff. Hand-computed:
+      // raw=logistic(1.702×18/46.904) ≈ 0.6577, p = 0.8×0.6577 + 0.2×0.5 = 0.6262.
+      // Leftover-√remaining on ~282 remaining dollars was ~77%.
+      const eighteen = await armWin(page, kickoff(
+        [30, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12],
+        [12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12]
+      ));
+      ok(eighteen.totA === 150 && eighteen.totB === 132 && eighteen.nStill === 22,
+        "TH2 fixture is an 18-point kickoff edge on 22 remaining (" + JSON.stringify(eighteen) + ")");
+      ok(eighteen.ab > 0.60 && eighteen.ab < 0.66,
+        "…18 points at kickoff is ~63%, not leftover-√remaining's ~77% (" + eighteen.ab + ")");
+
+      // ---- TH3: Thursday 118 vs 110, nobody has played. Hand-computed:
+      // diff=8, raw=logistic(1.702×8/46.904) ≈ 0.5721, p = 0.5577.
+      const thu = await armWin(page, kickoff(
+        [18, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10],
+        [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
+      ));
+      ok(thu.totA === 118 && thu.totB === 110 && thu.nStill === 22,
+        "TH3 fixture is Thursday 118-110 with nobody played (" + JSON.stringify(thu) + ")");
+      ok(thu.ab > 0.54 && thu.ab < 0.58,
+        "…118-110 before kickoff is a mild lean (~56%), not a real favorite (" + thu.ab + ")");
+      ok(Math.abs(thu.from - thu.ab) < 1e-9,
+        "…and winProbFromProj agrees while every game is still pre (" + thu.from + ")");
+      ok(Math.abs(thu.ab + thu.ba - 1) < 1e-9,
+        "…the two directions are exact complements (" + thu.ab + " + " + thu.ba + ")");
+
+      // ---- TH4: Sunday 2pm, 48-41 live, 16 of 22 still playing. Leftover
+      // projection is equal on both sides so the expected-finish lead is the
+      // live 7. Hand-computed: sd=10√16=40, raw=logistic(1.702×7/40) ≈ 0.5739,
+      // w=0.20×16/22 ≈ 0.1455, p = 0.8545×0.5739 + 0.1455×0.5 = 0.5632.
+      // Leftover-√remaining on ~101 leftover dollars was ~65%.
+      const inGame = { state: "in", period: 2, clock: "8:00" };
+      const post = { state: "post", period: 4, clock: "0:00" };
+      const sun = await armWin(page, {
+        A: A11, B: B11,
+        rows: A11.map((k, i) => (i < 3
+          ? { key: k, team: "DA" + i, pts: 8, proj: 10, game: post }
+          : { key: k, team: "LA" + i, pts: 3, proj: 12, game: inGame }))
+          .concat(B11.map((k, i) => (i < 3
+            ? { key: k, team: "DB" + i, pts: 7, proj: 10, game: post }
+            : { key: k, team: "LB" + i, pts: 2.5, proj: 12, game: inGame }))),
+      });
+      ok(Math.abs(sun.totA - sun.totB - 7) < 1e-9 && sun.nStill === 16 && sun.nTotal === 22,
+        "TH4 fixture is a 7-point expected-finish lead with 16 still playing (" + JSON.stringify(sun) + ")");
+      ok(sun.ab > 0.53 && sun.ab < 0.59,
+        "…Sunday 48-41 with most of both lineups still in is basically even (~56%) (" + sun.ab + ")");
+
+      // ---- TH5: Monday night 112-109, one kicker left. Hand-computed:
+      // sd=10, raw=logistic(1.702×3/10) ≈ 0.6249, w=0.20/22 ≈ 0.0091,
+      // p = 0.6238. Leftover-√remaining with ~8 leftover dollars was ~88%.
+      const mon = await armWin(page, {
+        A: A11, B: B11,
+        rows: A11.map((k, i) => (i < 10
+          ? { key: k, team: "DA" + i, pts: i === 0 ? 14 : 10, proj: 10, game: post }
+          : { key: k, team: "KA", pts: 0, proj: 8, game: { state: "pre" } }))
+          .concat(B11.map((k, i) => ({
+            key: k, team: "DB" + i, pts: i === 0 ? 9 : 10, proj: 10, game: post,
+          }))),
+      });
+      ok(mon.totA === 112 && mon.totB === 109 && mon.nStill === 1,
+        "TH5 fixture is Monday 112-109 with one kicker left (" + JSON.stringify(mon) + ")");
+      ok(mon.ab > 0.58 && mon.ab < 0.68,
+        "…3 points with one kicker left is a real favorite (~62%), not ~90% (" + mon.ab + ")");
+
+      // ---- TH6: same 5-point lead, 8 still vs 1 still. Loudness comes from
+      // who has football left, not leftover projection dollars.
+      // 8 still: sd=10√8 ≈ 28.284, raw ≈ 0.5747, w=0.20×8/22 ≈ 0.0727, p ≈ 0.5692.
+      // 1 still: sd=10, raw ≈ 0.7008, w ≈ 0.0091, p ≈ 0.6990.
+      const eight = await armWin(page, {
+        A: A11, B: B11,
+        rows: A11.map((k, i) => (i < 7
+          ? { key: k, team: "DA" + i, pts: 8, proj: 10, game: post }
+          : { key: k, team: "LA" + i, pts: 0, proj: 12, game: { state: "pre" } }))
+          .concat(B11.map((k, i) => (i < 7
+            ? { key: k, team: "DB" + i, pts: i === 0 ? 9 : 7, proj: 10, game: post }
+            : { key: k, team: "LB" + i, pts: 0, proj: 12, game: { state: "pre" } }))),
+      });
+      const one = await armWin(page, {
+        A: A11, B: B11,
+        rows: A11.map((k, i) => (i < 10
+          ? { key: k, team: "DA" + i, pts: i === 0 ? 14 : 10, proj: 10, game: post }
+          : { key: k, team: "KA", pts: 0, proj: 12, game: { state: "pre" } }))
+          .concat(B11.map((k, i) => ({
+            key: k, team: "DB" + i, pts: i === 0 ? 11 : 10, proj: 10, game: post,
+          }))),
+      });
+      ok(Math.abs(eight.totA - eight.totB - 5) < 1e-9 && eight.nStill === 8,
+        "TH6a fixture is a 5-point lead with 8 still to play (" + JSON.stringify(eight) + ")");
+      ok(eight.ab > 0.54 && eight.ab < 0.60,
+        "…5 points with 8 still to play stays mid-50s (" + eight.ab + ")");
+      ok(Math.abs(one.totA - one.totB - 5) < 1e-9 && one.nStill === 1,
+        "TH6b fixture is the same 5-point lead with 1 still to play (" + JSON.stringify(one) + ")");
+      ok(one.ab > 0.66 && one.ab < 0.74,
+        "…and with one player left it is finally loud (~70%), not a lock (" + one.ab + ")");
+      ok(one.ab - eight.ab > 0.10,
+        "…the extra loudness is the missing football, not leftover dollars (" + (one.ab - eight.ab) + ")");
+
+      // ---- TH7: clock-only leftover-fraction must NOT move %. Same 5-point
+      // expected-finish lead, 8 still playing, Q1 15:00 vs Q4 1:00. Banked
+      // 56-51, live players pts=0 proj=12 so leftover shrinks but the lead
+      // does not. Leftover-√remaining jumped ~64% → ~89% on this fixture.
+      const clockRows = (game) => ({
+        A: A11, B: B11,
+        rows: A11.map((k, i) => (i < 7
+          ? { key: k, team: "DA" + i, pts: 8, proj: 10, game: post }
+          : { key: k, team: "LA", pts: 0, proj: 12, game }))
+          .concat(B11.map((k, i) => (i < 7
+            ? { key: k, team: "DB" + i, pts: i === 0 ? 9 : 7, proj: 10, game: post }
+            : { key: k, team: "LB", pts: 0, proj: 12, game }))),
+      });
+      const q1 = await armWin(page, clockRows({ state: "in", period: 1, clock: "15:00" }));
+      const q4 = await armWin(page, clockRows({ state: "in", period: 4, clock: "1:00" }));
+      ok(Math.abs(q1.totA - q1.totB - 5) < 1e-9 && Math.abs(q4.totA - q4.totB - 5) < 1e-9
+        && q1.nStill === 8 && q4.nStill === 8,
+        "TH7 fixture keeps a 5-point expected-finish lead while 8 play Q1 then Q4 (" + JSON.stringify({ q1, q4 }) + ")");
+      ok(Math.abs(q1.ab - q4.ab) < 0.01,
+        "…a clock-only leftover-fraction tick does not move win% (" + q1.ab + " → " + q4.ab + ")");
+
+      // ---- TH8: all-post still pins 100/0; a tie pins 50/50.
+      const done = await armWin(page, {
+        A: A11, B: B11,
+        rows: A11.map((k, i) => ({ key: k, team: "DA" + i, pts: i === 0 ? 20 : 10, proj: 40, game: post }))
+          .concat(B11.map((k, i) => ({ key: k, team: "DB" + i, pts: 10, proj: 40, game: post }))),
+      });
+      const tie = await armWin(page, {
+        A: A11, B: B11,
+        rows: A11.map((k, i) => ({ key: k, team: "DA" + i, pts: 10, proj: 40, game: post }))
+          .concat(B11.map((k, i) => ({ key: k, team: "DB" + i, pts: 10, proj: 40, game: post }))),
+      });
+      ok(done.ab === 1 && done.ba === 0,
+        "a final 120-110 still pins to exactly 100/0 (" + JSON.stringify(done) + ")");
+      ok(tie.ab === 0.5 && tie.ba === 0.5,
+        "…and a final tie still pins to 50/50 (" + JSON.stringify(tie) + ")");
+
+      const edge = await page.evaluate(() => {
+        const D = window.__GFFL__.D;
+        return { empty: D.winProb([], []), nobody: D.winProb(["no-a"], ["no-b"]) };
+      });
+      ok(edge.empty === 0.5 && edge.nobody === 0.5,
+        "empty / unresolvable keys still fall back to even money (" + JSON.stringify(edge) + ")");
+      ok(errors.length === 0, "0 page errors on the win% calibration");
+      await ctx.close();
+    }
+
+    // ---- TH9: the three family feels on the real matchup header (11-on-11).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, seedAllFielded());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await page.evaluate(() => { window.__GFFL__.UI.matchup = [3, 4]; window.__GFFL__.UI.go("matchup"); });
+      await waitOr(page, ".muhead");
+
+      const paint = (page, kind) => page.evaluate(async (kind) => {
+        const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        const keysOf = (id) => (UI._rosters && UI._rosters[id] || [])
+          .filter((p) => p && p.key && p.slot !== "BENCH" && p.slot !== "IR")
+          .map((p) => String(p.key));
+        const h = keysOf(3), a = keysOf(4);
+        if (h.length !== 11 || a.length !== 11) return { ok: false, h: h.length, a: a.length };
+        const setP = (key, team, pts) => D.S.players.set(key, {
+          key, name: key, team, pos: "QB", pts, espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0,
+        });
+        const post = { state: "post", period: 4, clock: "0:00" };
+        const pre = { state: "pre" };
+        const live = { state: "in", period: 2, clock: "8:00" };
+        const rows = [];
+        if (kind === "thu") {
+          a.forEach((k, i) => rows.push({ key: k, team: "AA" + i, pts: 0, proj: i === 0 ? 18 : 10, game: pre }));
+          h.forEach((k, i) => rows.push({ key: k, team: "HH" + i, pts: 0, proj: 10, game: pre }));
+        } else if (kind === "sun") {
+          a.forEach((k, i) => rows.push(i < 3
+            ? { key: k, team: "DA" + i, pts: 8, proj: 10, game: post }
+            : { key: k, team: "LA" + i, pts: 3, proj: 12, game: live }));
+          h.forEach((k, i) => rows.push(i < 3
+            ? { key: k, team: "DH" + i, pts: 7, proj: 10, game: post }
+            : { key: k, team: "LH" + i, pts: 2.5, proj: 12, game: live }));
+        } else {
+          a.forEach((k, i) => rows.push(i < 10
+            ? { key: k, team: "DA" + i, pts: i === 0 ? 14 : 10, proj: 10, game: post }
+            : { key: k, team: "KA", pts: 0, proj: 8, game: pre }));
+          h.forEach((k, i) => rows.push({ key: k, team: "DH" + i, pts: i === 0 ? 9 : 10, proj: 10, game: post }));
+        }
+        const table = {};
+        rows.forEach((r) => {
+          D.S.games.set(r.team, r.game);
+          setP(r.key, r.team, r.pts);
+          table[r.key] = r.proj;
+        });
+        D.projFor = (key) => (key in table ? table[key] : null);
+        await UI.renderMatchup(true);
+        const fill = document.querySelector(".muhead .mupbar i");
+        const pcts = [...document.querySelectorAll(".muhead .mupct")].map((el) => (el.textContent || "").replace(/\s+/g, " ").trim());
+        const proj = [...document.querySelectorAll(".muhead .muhproj")].map((el) => (el.textContent || "").replace(/\s+/g, " ").trim());
+        const names = [...document.querySelectorAll(".muhead .muhname")].map((el) => (el.textContent || "").replace(/\s+/g, " ").trim());
+        return {
+          ok: true,
+          awayPct: fill ? parseInt(fill.style.width, 10) : null,
+          pcts, proj, names,
+          wp: Math.round(D.winProb(a, h) * 100),
+          liveA: Math.round(a.reduce((s, k) => s + (Number(D.liveProj(k)) || 0), 0) * 10) / 10,
+          liveH: Math.round(h.reduce((s, k) => s + (Number(D.liveProj(k)) || 0), 0) * 10) / 10,
+        };
+      }, kind);
+
+      const ART = "/opt/cursor/artifacts";
+      fs.mkdirSync(ART, { recursive: true });
+      const shots = [];
+      for (const kind of ["thu", "sun", "mon"]) {
+        const r = await paint(page, kind);
+        ok(r.ok === true && r.awayPct === r.wp,
+          "TH9 " + kind + " paints the bar from D.winProb (" + JSON.stringify(r) + ")");
+        if (kind === "thu") {
+          ok(r.awayPct >= 54 && r.awayPct <= 58,
+            "…Thursday 118-110 paints a mild lean (" + r.awayPct + "%)");
+        } else if (kind === "sun") {
+          ok(r.awayPct >= 53 && r.awayPct <= 59,
+            "…Sunday 48-41 with most still in paints basically even (" + r.awayPct + "%)");
+        } else {
+          ok(r.awayPct >= 58 && r.awayPct <= 68,
+            "…Monday 112-109 with one kicker paints a real favorite, not 90 (" + r.awayPct + "%)");
+        }
+        const el = await page.$(".card.muhead");
+        if (el) {
+          const dest = path.join(ART, "gffl-winpct-" + kind + ".png");
+          await el.screenshot({ path: dest });
+          shots.push(dest);
+        }
+      }
+      ok(shots.length === 3, "TH9 wrote the three matchup-header plates (" + shots.join(", ") + ")");
+      ok(errors.length === 0, "0 page errors on the matchup-header feels");
       await ctx.close();
     }
   }

@@ -7869,3 +7869,40 @@ catch-up polls, and the Scores card stays at PHI 14. Every
 pre-existing-style TG check still passed (the fixture 14, the
 gate-screen guard, 0 page errors). App files restored.
 ---
+
+## GFFL — projected win% is calmer (2026-09-14)
+
+User: projected win % was overly reactive to a small lead in
+projected score.
+
+`D.winProb` still weighs expected finish (`D.liveProj`: live points
++ leftover weekly projection) so the bar, the muted header totals,
+and the graph stay on one number. The spread inverted.
+
+Leftover projection dollars used to drive `sd = 1.5√remaining`
+(floor 4). A sitting QB with 4 leftover proj looked almost done, a
+clock-only leftover-fraction tick moved the bar with no new score,
+and a 5-point paper edge at kickoff read ~59% (10 points ~67%)
+because √(250) is already a tight 24-point sd. Too loud for a
+~125-vs-~125 league.
+
+Spread is now who still has football. Each live/pre starter is 10
+points of σ, combined as independent √n. While anyone is still to
+play, the raw logistic blends 20% toward 50/50 in proportion to
+starters remaining. 100/0 still pins only when every starter's
+game is actually over. `D.winProbFromProj` uses the same formula
+with every starter still to play.
+
+Hand-computed 11-on-11: 5 pts at kickoff 53.6%; 18 pts 62.6%;
+Thursday 118-110 55.8%; Sunday 7-pt live with 16 still playing
+56.3%; Monday 112-109 with one kicker 62.4%; 5 pts / 8 left 56.9%;
+5 pts / 1 left 69.9%. A Q1→Q4 leftover-fraction tick on a frozen
+5-point lead no longer moves the bar.
+
+Scripts cache-bust `?v=20260914b`.
+
+Files: `league.html`, `assets/league/lg-data.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: quoted after the suite and the HEAD bite.
+---

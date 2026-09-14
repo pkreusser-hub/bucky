@@ -2572,15 +2572,31 @@
     return { played, playing, left };
   };
   // ---------------- S8 · matchup win probability (est.) ----------------
-  // The ESTIMATE is exactly what D.liveProj already sums for every card and the matchup
-  // header — live points + the remaining fraction of a starter's projection — so the model
-  // COMPOSES that, it doesn't invent a second one. What was missing was the SPREAD: the old
-  // model was a fixed-scale logistic (a flat ±25-point slope), so a 10-point lead read
-  // identically whether it was struck at kickoff — a whole slate still live, plenty of room
-  // for it to flip — or with the clock at 0:00 and nothing left to change it. D.remainingProj
-  // isolates the "still could happen" half of D.liveProj's own formula (0 once a game is
-  // final, the full projection pre-game, the remaining fraction mid-game) so the SPREAD can
-  // shrink as the slate empties out while the point ESTIMATE itself is untouched.
+  // The ESTIMATE is still D.liveProj — live points + leftover weekly projection —
+  // so the bar, the header totals, and the graph stay on one number. The SPREAD is
+  // what changed.
+  //
+  // INVERSION (2026-09-14): leftover projection dollars used to drive sd
+  // (1.5 × √remaining, floor 4). A sitting QB with 4 leftover proj then looked
+  // "almost done", a clock-only leftover-fraction tick moved the bar with no
+  // new score, and a 5-point paper lead at kickoff read ~59% (10 points ~67%)
+  // because √(250) is already a tight 24-point sd. That is too loud for a
+  // ~125-vs-~125 league: 8–12 points of projected finish is weekly noise.
+  //
+  // Spread is now who still has football. Each live/pre starter is a chunk of
+  // fantasy-point noise (WP_SIGMA, combined as independent √n). 100/0 still
+  // pins only when every starter's game is post. While anyone is still to
+  // play, the raw logistic is blended toward 50/50 in proportion to how many
+  // starters remain — Thursday stays a mild lean even if paper says 18;
+  // Monday night with one kicker left finally trusts the lead.
+  //
+  // Felt-right constants, documented rather than derived. There is no correct
+  // k, only what reads honestly. Hand-computed 11-on-11 (22 remaining) pins:
+  //   5 pts at kickoff  → 53.6%
+  //   15–20 pts kickoff → 60.6–63.9%
+  //   5 pts, 8 still    → 56.9%
+  //   5 pts, 1 still    → 69.9%
+  //   3 pts, 1 kicker   → 62.4%
   D.remainingProj = function (key) {
     const row = D.S.players.get(key);
     const team = slpTeam((row && row.team) || (D.metaForKey ? D.metaForKey(key).team : ""));
@@ -2594,48 +2610,50 @@
     const frac = Math.min(1, minLeft / 60);
     return num(proj) * frac;
   };
-  // K_SPREAD is a felt-right constant, documented rather than derived — there is no "correct"
-  // k, only one that reads honestly, and the property tests (S8 suite) are what actually pin
-  // its behaviour, not this comment. Calibrated against a "full slate remaining" reference: a
-  // typical starting lineup projects to roughly ~125-130 points a side (~250-260 combined), and
-  // the plan's own target is a 10-point PRE-GAME edge reading "roughly 65-70%" there. At
-  // K_SPREAD=1.5, combined remaining 250 -> sd = 1.5*sqrt(250) ~= 23.7, z = 10/23.7 ~= 0.42,
-  // logistic(1.702*z) ~= 67% — inside the target band.
-  const WP_K_SPREAD = 1.5;
-  // Floor so a near-final game (a real remaining projection near zero, but not YET the
-  // provably-decided allDone case below) never divides a real point gap by a near-zero spread
-  // into a knife-edge swing.
-  const WP_MIN_SPREAD = 4;
+  const WP_SIGMA = 10;     // σ per remaining starter, combined as √n
+  const WP_MIN_SD = 8;     // floor so a near-empty slate never divides by ~0
+  const WP_SHRINK = 0.20;  // blend weight toward 50% when the whole slate remains
+  const WP_LOGIT = 1.702;
+  function wpStill(keys) {
+    const r = D.remaining(keys || []);
+    return r.left + r.playing;
+  }
+  function wpFromLead(diff, nStill, nTotal) {
+    const sd = Math.max(WP_MIN_SD, WP_SIGMA * Math.sqrt(Math.max(0, nStill)));
+    const raw = 1 / (1 + Math.exp((-WP_LOGIT * diff) / sd));
+    const a = nStill / Math.max(nTotal, 1);
+    const w = WP_SHRINK * Math.min(1, Math.max(0, a));
+    const p = (1 - w) * raw + w * 0.5;
+    return Number.isFinite(p) ? p : 0.5;
+  }
   D.winProb = function (keysA, keysB) {
+    keysA = keysA || [];
+    keysB = keysB || [];
     const tot = (keys) => keys.reduce((s, k) => s + num(D.liveProj(k)), 0);
-    const rem = (keys) => keys.reduce((s, k) => s + num(D.remainingProj(k)), 0);
     const diff = tot(keysA) - tot(keysB);
     // FINAL pins to exactly 100/0 — decided by the same game-STATE test D.remaining already
     // answers everywhere else on the page (every starter's game is "post", nobody still
     // playing), never by "remaining projection happens to read ~0", which could just as
     // easily mean nobody here resolves to a real projection yet.
-    if ((keysA && keysA.length) && (keysB && keysB.length)) {
+    if (keysA.length && keysB.length) {
       const a = D.remaining(keysA), b = D.remaining(keysB);
       if (a.left === 0 && a.playing === 0 && b.left === 0 && b.playing === 0) {
         return diff > 0 ? 1 : diff < 0 ? 0 : 0.5;
       }
     }
-    const sd = Math.max(WP_MIN_SPREAD, WP_K_SPREAD * Math.sqrt(rem(keysA) + rem(keysB)));
-    const p = 1 / (1 + Math.exp((-1.702 * diff) / sd));
-    // The bar's width is Math.round(wp*100) straight into a style attribute — a non-finite p
-    // would paint "width:NaN%" (an even-money 50% is the honest fallback).
-    return Number.isFinite(p) ? p : 0.5;
+    return wpFromLead(diff, wpStill(keysA) + wpStill(keysB), keysA.length + keysB.length);
   };
   // The LEFT EDGE of the matchup win-% graph: what the model said at first kickoff, when
-  // every starter still had a full projection in front of them. Same logistic as D.winProb,
-  // but it reads only D.projFor — live points a Sunday opener already scored must not rewrite
-  // Thursday night. When every game is still "pre", this and D.winProb agree.
+  // every starter still had a full projection in front of them. Same logistic + blend as
+  // D.winProb, but it reads only D.projFor — live points a Sunday opener already scored
+  // must not rewrite Thursday night. When every game is still "pre", this and D.winProb
+  // agree (everyone still to play, estimate = weekly paper).
   D.winProbFromProj = function (keysA, keysB) {
+    keysA = keysA || [];
+    keysB = keysB || [];
     const tot = (keys) => keys.reduce((s, k) => s + num(D.projFor(k)), 0);
-    const a = tot(keysA || []), b = tot(keysB || []);
-    const sd = Math.max(WP_MIN_SPREAD, WP_K_SPREAD * Math.sqrt(Math.max(0, a + b)));
-    const p = 1 / (1 + Math.exp((-1.702 * (a - b)) / sd));
-    return Number.isFinite(p) ? p : 0.5;
+    const n = keysA.length + keysB.length;
+    return wpFromLead(tot(keysA) - tot(keysB), n, n);
   };
   // First and last kickoff on THIS week's slate. Unique events, not per-team rows — DAL@PHI
   // is one game even though both sides sit in D.S.games. The sparkline no longer uses this
