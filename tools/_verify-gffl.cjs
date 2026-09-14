@@ -24596,7 +24596,14 @@ async function openDetails(page, id) {
           "…and the last vertex is now at the far right of the hour (" + painted.lastX + ")");
         ok(painted.vb === "0 0 220 56", "…on the NFL 220×56 sparkline, not the labelled 80-tall plot (" + painted.vb + ")");
         ok(painted.midY === 28, "…the mid rule is the NFL midpoint (y=28) (" + painted.midY + ")");
-        ok(painted.lastY != null && painted.lastY > 48, "…a home lock sits near the BOTTOM (home 100), not auto-fit to the line (" + painted.lastY + ")");
+        // RESTAGED 2026-09-14: leftover-√remaining pinned this 100-40
+        // live lead to ~0% away (y ≈ 52, home 100) while 12 starters
+        // were still on the field. Player-count σ keeps that ~13% away
+        // / 87% home. y = 4+(1-p)*48 → p_away 0.13 → y ≈ 45.8, still
+        // clearly on the home side of the mid line (y=28), not a lock
+        // at the floor.
+        ok(painted.lastY != null && painted.lastY > 40 && painted.lastY < 50,
+          "…a 100-40 live lead sits on the home side of 50/50, not pinned to home 100 (" + painted.lastY + ")");
         ok(!painted.top && !painted.mid && !painted.bot, "…no Y-axis labels (" + JSON.stringify({ top: painted.top, mid: painted.mid, bot: painted.bot }) + ")");
         ok(painted.bands === 0, "…the plot is not shaded (" + painted.bands + " bands)");
         ok(painted.sw === "2", "…the line is the NFL sparkline's 2px (" + painted.sw + ")");
@@ -25403,15 +25410,24 @@ async function openDetails(page, id) {
           table[r.key] = r.proj;
         });
         D.projFor = (key) => (key in table ? table[key] : null);
+        // matchupSides reads roster.team via D.gameDone — BUF fillers are a
+        // bye (done) unless we retarget the roster row to the team we armed.
+        const teamOf = {};
+        rows.forEach((r) => { teamOf[r.key] = r.team; });
+        [3, 4].forEach((id) => (UI._rosters[id] || []).forEach((p) => {
+          if (p && p.key && teamOf[p.key]) p.team = teamOf[p.key];
+        }));
         await UI.renderMatchup(true);
         const fill = document.querySelector(".muhead .mupbar i");
         const pcts = [...document.querySelectorAll(".muhead .mupct")].map((el) => (el.textContent || "").replace(/\s+/g, " ").trim());
         const proj = [...document.querySelectorAll(".muhead .muhproj")].map((el) => (el.textContent || "").replace(/\s+/g, " ").trim());
         const names = [...document.querySelectorAll(".muhead .muhname")].map((el) => (el.textContent || "").replace(/\s+/g, " ").trim());
+        const sub = [...document.querySelectorAll(".muhead .muhsub")].map((el) => (el.textContent || "").replace(/\s+/g, " ").trim());
         return {
           ok: true,
           awayPct: fill ? parseInt(fill.style.width, 10) : null,
-          pcts, proj, names,
+          pcts, proj, names, sub,
+          stars: document.querySelectorAll(".muhead .clinchstar").length,
           wp: Math.round(D.winProb(a, h) * 100),
           liveA: Math.round(a.reduce((s, k) => s + (Number(D.liveProj(k)) || 0), 0) * 10) / 10,
           liveH: Math.round(h.reduce((s, k) => s + (Number(D.liveProj(k)) || 0), 0) * 10) / 10,
@@ -25425,6 +25441,8 @@ async function openDetails(page, id) {
         const r = await paint(page, kind);
         ok(r.ok === true && r.awayPct === r.wp,
           "TH9 " + kind + " paints the bar from D.winProb (" + JSON.stringify(r) + ")");
+        ok(r.stars === 0,
+          "…and no clinch star — football remains (" + JSON.stringify({ kind, stars: r.stars, sub: r.sub }) + ")");
         if (kind === "thu") {
           ok(r.awayPct >= 54 && r.awayPct <= 58,
             "…Thursday 118-110 paints a mild lean (" + r.awayPct + "%)");
