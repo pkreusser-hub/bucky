@@ -7856,7 +7856,11 @@ Scripts cache-bust `?v=20260914a`.
 Files: `league.html`, `assets/league/lg-{data,ui}.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY**: `node tools/_verify-gffl.cjs --only TG` (29 new
-checks). Full battery and bite against HEAD after the first green
-run.
+**VERIFY**: `node tools/_verify-gffl.cjs --only TG` **29/29**.
+Bite (`league.html` + `lg-data.js` + `lg-ui.js` at `main`, new
+suite kept, `--only TG`): **10 pass / 19 fail** — HEAD has no
+wake hook, hide leaves the loop running, a dropped timer never
+catch-up polls, and the Scores card stays at PHI 14. Every
+pre-existing-style TG check still passed (the fixture 14, the
+gate-screen guard, 0 page errors). App files restored.
 ---

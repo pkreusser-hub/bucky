@@ -24857,13 +24857,14 @@ async function openDetails(page, id) {
     }
   }
 
+  }
+
   // ================= TG · pull-up refresh ========================================
   // User, from an iPhone: scores stayed stale until the app was killed and reopened.
   // iOS freezes the page, often drops the poll timer, and leaves D.S.running true —
   // so D.start() no-ops and nothing fetches until a cold boot. Sports already
   // refreshes on visibilitychange; GFFL now does the same, plus pageshow/resume
   // and a freeze-gap pulse for the cases iOS never fires hidden.
-  }
   if (section("TG · pull-up refresh — iOS/Safari foreground catch-up")) {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     fixture.sbLiveHome = null; fixture.sbLiveAway = null;
@@ -24914,29 +24915,41 @@ async function openDetails(page, id) {
       }) || {};
       ok(hid.running === false, "hiding the page STOPS the live poll loop (" + JSON.stringify(hid) + ")");
       ok(hid.scoresPoll === false, "…and the Scores tab's own fantasy poll (" + JSON.stringify(hid) + ")");
+      // iOS often drops the timer while leaving running true. Do that here so a HEAD
+      // loop that ignored hide cannot sneak the next 8s tick and fake a pull-up fetch.
+      await evalOr(page, () => {
+        const D = window.__GFFL__.D;
+        if (D && D.S) { clearTimeout(D.S.timer); D.S.timer = null; }
+      });
       const sbBeforeShow = await sbN(page);
       const ffBeforeShow = before.ff;
       await stubHid(page, false);
-      await page.waitForFunction((n) => {
+      await waitFnOr(page, (n) => {
         const D = window.__GFFL__ && window.__GFFL__.D;
         const ep = D && D.EP && D.EP["espn scoreboard"];
-        return !!(ep && ep.n > n);
-      }, { timeout: 8000 }, sbBeforeShow);
+        const evs = (D && D.S && D.S.nflEvents) || [];
+        const e = evs.find((x) => x.home && x.home.abbrev === "PHI");
+        const card = [...document.querySelectorAll(".sccard")].find((c) => /Eagles/.test(c.textContent));
+        const pts = card ? [...card.querySelectorAll(".scpts")].map((el) => el.textContent.trim()) : [];
+        return !!(ep && ep.n > n && e && e.home.score === "21" && pts[1] === "21");
+      }, sbBeforeShow);
       const after = await evalOr(page, () => {
         const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
-        const card = [...document.querySelectorAll(".sccard")].find((c) => /Eagles|PHI/.test(c.textContent));
+        const card = [...document.querySelectorAll(".sccard")].find((c) => /Eagles/.test(c.textContent));
         const pts = card ? [...card.querySelectorAll(".scpts")].map((el) => el.textContent.trim()) : [];
+        const ev = ((D.S && D.S.nflEvents) || []).find((x) => x.home && x.home.abbrev === "PHI");
         return {
           running: !!(D.S && D.S.running),
           timer: D.S.timer != null,
           phi: pts[1] || "",
+          ev: ev && ev.home && ev.home.score,
           sb: (D.EP["espn scoreboard"] && D.EP["espn scoreboard"].n) || 0,
           ff: UI._ffSbLoads,
           wakeN: D.S.wakeN,
         };
       }) || {};
       ok(after.sb > sbBeforeShow, "showing the page fetches the scoreboard immediately (" + sbBeforeShow + " → " + after.sb + ")");
-      ok(after.phi === "21", "…and the Scores card paints the new PHI total, not the frozen 14 (" + after.phi + ")");
+      ok(after.ev === "21" && after.phi === "21", "…and the Scores card paints the new PHI total, not the frozen 14 (" + JSON.stringify({ ev: after.ev, phi: after.phi }) + ")");
       ok(after.running === true && after.timer === true, "…and the poll loop is running with a timer re-armed");
       ok(typeof ffBeforeShow === "number" && after.ff > ffBeforeShow,
         "…and the Scores tab's fantasy board is fetched now, not after 25s/2min (" + ffBeforeShow + " → " + after.ff + ")");
@@ -24970,11 +24983,11 @@ async function openDetails(page, id) {
       ok(staged.hooks === true && staged.running === true && staged.timer == null,
         "staged: the loop flag is still true after iOS dropped the timer (" + JSON.stringify(staged) + ")");
       await stubHid(page, false);
-      await page.waitForFunction((n) => {
+      await waitFnOr(page, (n) => {
         const D = window.__GFFL__ && window.__GFFL__.D;
         const ep = D && D.EP && D.EP["espn scoreboard"];
-        return !!(ep && ep.n > n);
-      }, { timeout: 8000 }, staged.sb);
+        return !!(ep && ep.n > n && D.S && D.S.running && D.S.timer != null);
+      }, staged.sb);
       const after = await evalOr(page, () => {
         const D = window.__GFFL__.D;
         return {
@@ -25018,11 +25031,11 @@ async function openDetails(page, id) {
           window.dispatchEvent(ev);
         }
       });
-      await page.waitForFunction((n) => {
+      await waitFnOr(page, (n) => {
         const D = window.__GFFL__ && window.__GFFL__.D;
         const ep = D && D.EP && D.EP["espn scoreboard"];
         return !!(ep && ep.n > n);
-      }, { timeout: 8000 }, staged.sb);
+      }, staged.sb);
       const afterShow = await evalOr(page, () => {
         const D = window.__GFFL__.D;
         return { sb: (D.EP["espn scoreboard"] && D.EP["espn scoreboard"].n) || 0, wakeN: D.S.wakeN };
@@ -25036,12 +25049,15 @@ async function openDetails(page, id) {
         UI._foreAliveAt = Date.now() - 10000;
       });
       const sbBeforePulse = await sbN(page);
-      const woke = await evalOr(page, () => window.__GFFL__.UI._forePulse());
-      await page.waitForFunction((n) => {
+      const woke = await evalOr(page, () => {
+        const UI = window.__GFFL__.UI;
+        return typeof UI._forePulse === "function" ? UI._forePulse() : false;
+      });
+      await waitFnOr(page, (n) => {
         const D = window.__GFFL__ && window.__GFFL__.D;
         const ep = D && D.EP && D.EP["espn scoreboard"];
         return !!(ep && ep.n > n);
-      }, { timeout: 8000 }, sbBeforePulse);
+      }, sbBeforePulse);
       ok(woke === true, "a freeze-gap pulse reports the page was frozen");
       ok((await sbN(page)) > sbBeforePulse, "…and that pulse catch-up polls without a visibility event");
       await evalOr(page, () => window.__GFFL__.D.stop());
@@ -25122,7 +25138,6 @@ async function openDetails(page, id) {
     }
   }
 
-  }
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");
