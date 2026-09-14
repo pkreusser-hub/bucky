@@ -7857,6 +7857,11 @@ Files: `league.html`, `assets/league/lg-{data,ui}.js`,
 `tools/_verify-gffl.cjs`, this file.
 
 **VERIFY**: `node tools/_verify-gffl.cjs --only TG` **29/29**.
+Full battery **3506** checks (3477 + 29): **3501/3506** on this
+cloud box. The 5 fails are geometry/font measurements (I2
+`%START` clip, AD/AT name-column 133 vs 140, RS seven-tab 54px
+boxes) — they fail the same way with `main`'s app files (I2+RS
+confirmed). AY7 / W2 / BF5 stayed green.
 Bite (`league.html` + `lg-data.js` + `lg-ui.js` at `main`, new
 suite kept, `--only TG`): **10 pass / 19 fail** — HEAD has no
 wake hook, hide leaves the loop running, a dropped timer never
