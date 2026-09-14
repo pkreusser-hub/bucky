@@ -24931,7 +24931,8 @@ async function openDetails(page, id) {
         const e = evs.find((x) => x.home && x.home.abbrev === "PHI");
         const card = [...document.querySelectorAll(".sccard")].find((c) => /Eagles/.test(c.textContent));
         const pts = card ? [...card.querySelectorAll(".scpts")].map((el) => el.textContent.trim()) : [];
-        return !!(ep && ep.n > n && e && e.home.score === "21" && pts[1] === "21");
+        return !!(ep && ep.n > n && e && e.home.score === "21" && pts[1] === "21"
+          && D.S.running && D.S.timer != null);
       }, sbBeforeShow);
       const after = await evalOr(page, () => {
         const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
