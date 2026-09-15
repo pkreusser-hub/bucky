@@ -2310,6 +2310,11 @@ async function pinSeedWeek1(page) {
     UI.week = 1;
   });
 }
+async function bootWeek1Home(page) {
+  await bootPage(page);
+  await pinSeedWeek1(page);
+  await page.evaluate(() => window.__GFFL__.UI.show("league"));
+}
 const stopPolling = (page) => page.evaluate(() => window.__GFFL__.D.stop());
 async function waitLive(page) {
   try {
@@ -6404,6 +6409,8 @@ async function openDetails(page, id) {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
+    await pinSeedWeek1(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
     ok(!!(await page.$('.bnav button[data-v="scores"]')), "bottom nav has a Scores tab");
@@ -6412,32 +6419,21 @@ async function openDetails(page, id) {
     ok((await page.evaluate(() => window.__GFFL__.UI.view)) === "scores", "nav click routes to the scores view");
     ok((await page.evaluate(() => document.querySelector('.bnav button[data-v="scores"]').classList.contains("on"))),
       "the Scores nav button highlights as active");
-    // Coordinator addendum (2026-08-08): a "GFFL — Week N" card, ABOVE everything else,
-    // showing OUR OWN league's current-week matchups with live totals — reusing the exact
-    // same data path (LG.gamesForWeek + matchupCard) as the league home, so these are
-    // provably the SAME numbers section C already hand-checked for this identical fixture
-    // (team1/home 41.0, team2/away 4.0).
-    // RESTAGED 2026-08-13: the week-cycling nav card (the same user batch) sits above it now,
-    // so "first" became "first CONTENT card, directly under the week nav" — the fact under
-    // test (GFFL above the NFL slate and the ESPN card) is unchanged.
+    // RESTAGED 2026-09-15: GFFL pairings left this tab when the matchup chips
+    // landed. Scores is the NFL board — week nav, then the selected-game /
+    // compact-slate split. Pairings are asserted on the Matchup tab (TL).
     const scTop = await page.evaluate(() => {
       const cards = [...document.querySelectorAll("main > .card")];
-      return { first: cards[0] && cards[0].className, secondH2: cards[1] && (cards[1].querySelector("h2") || {}).textContent };
+      const split = document.querySelector("#scSplit");
+      return {
+        first: cards[0] && cards[0].className,
+        split: !!(split && split.querySelector("#nflBody") && split.querySelector("#scSlate")),
+        gffl: !!document.querySelector("main .mugrid, main .mucard"),
+      };
     });
     ok(/scweeknav/.test(scTop.first || ""), "the week cycler heads the Scores tab (" + scTop.first + ")");
-    ok(scTop.secondH2 === "GFFL — Week 1", "the GFFL matchups card is the first CONTENT card, above the NFL slate (" + scTop.secondH2 + ")");
-    ok((await page.$$eval("main > .card:nth-child(2) .mucard", (els) => els.length)) === 4, "the GFFL card shows all 4 of this week's matchups");
-    const gfflScore = await page.$eval("main > .card:nth-child(2) .mucard.mine .muscore", (e) => e.textContent);
-    ok(gfflScore === "3.0 — 37.0", "my GFFL matchup's live total, hand-checked identically to the league home's own card — RESTAGED 2026-08-22, ESPN 2026 D/ST rates (away 3.0 — home 37.0, " + gfflScore + ")");
-    const gfflTags = await page.$$eval("main > .card:nth-child(2) .muteamname", (els) => els.map((n) => n.textContent.trim()));
-    ok(gfflTags.length === 8 && gfflTags.every((n) => /^T\d+$/.test(n)),
-      "Scores GFFL cards paint the abbreviation, not the full name (" + JSON.stringify(gfflTags) + ")");
-    await clickIn(page, "main > .card:nth-child(2) .mucard.mine");
-    await page.waitForSelector(".muhead", { timeout: 9000 });
-    ok((await page.$$eval(".bigpts", (els) => els.map((e) => e.textContent))).join("/") === "3.0/37.0",
-      "…and tapping the GFFL card's matchup opens the real matchup view with the same totals — RESTAGED 2026-08-22, ESPN 2026 D/ST rates");
-    await page.evaluate(() => window.__GFFL__.UI.show("scores"));
-    await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+    ok(scTop.split === true, "…then the NFL split — selected game + compact slate (" + JSON.stringify(scTop) + ")");
+    ok(scTop.gffl === false, "…and no GFFL pairing cards — those live on the Matchup tab");
     // NFL half: sbFix() has one LIVE game (DAL @ PHI) and one PRE game (KC @ DEN, next year) —
     // grouped into day-CARDS (item 2's redesign — restaged from .gmrow "plain rows" to .sccard,
     // the class/markup genuinely changed shape, the behaviors this section checks persist).
@@ -6515,19 +6511,32 @@ async function openDetails(page, id) {
     await ctx.close();
   }
   {
-    // Item 2: desktop (≥1024px) lays the day's games out as a genuine two-column card grid,
-    // not a single stacked column.
+    // RESTAGED 2026-09-15: desktop is no longer a 2-up card grid. The selected
+    // NFL game is the wide left column; the compact slate is a single column
+    // stuck to the right.
     const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
     await bootPage(page);
+    await pinSeedWeek1(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
     await clickIn(page, '.bnav button[data-v="scores"]');
     await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
     const cols = await page.evaluate(() => {
-      const g = document.querySelector(".scgrid");
-      return g ? getComputedStyle(g).gridTemplateColumns.split(" ").length : 0;
+      const split = document.querySelector("#scSplit");
+      const detail = document.querySelector("#nflBody");
+      const slate = document.querySelector("#scSlate");
+      if (!split || !detail || !slate) return { tracks: 0 };
+      const cs = getComputedStyle(split);
+      const dr = detail.getBoundingClientRect(), sr = slate.getBoundingClientRect();
+      return {
+        tracks: cs.gridTemplateColumns.split(" ").filter(Boolean).length,
+        detailLeft: dr.left < sr.left && dr.width > sr.width,
+        slateCols: getComputedStyle(slate.querySelector(".scgrid") || slate).gridTemplateColumns.split(" ").length,
+      };
     });
-    ok(cols === 2, "desktop scgrid lays out in a real 2-column grid (gridTemplateColumns reports " + cols + " track(s))");
+    ok(cols.tracks === 2 && cols.detailLeft === true && cols.slateCols === 1,
+      "desktop Scores is a wide detail column with a compact slate on the right (" + JSON.stringify(cols) + ")");
     const scroll = await page.evaluate(() => ({ b: document.body.scrollWidth, w: window.innerWidth }));
     ok(scroll.b <= scroll.w + 1, "no sideways scroll at 1440px (" + scroll.b + "/" + scroll.w + ")");
     ok(errors.length === 0, "0 page errors on desktop scores");
@@ -6536,19 +6545,21 @@ async function openDetails(page, id) {
   }
   {
     // Coordinator addendum: the ESPN card hides ENTIRELY when every matchup reads 0-0 with
-    // 0.0 points (preseason/pre-draft = no real signal) — while the GFFL card (our own live
-    // data, unrelated to the ESPN upstream) keeps rendering normally regardless.
+    // 0.0 points (preseason/pre-draft = no real signal). RESTAGED 2026-09-15: GFFL
+    // pairings are no longer on this tab, so the surviving card is the NFL slate.
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false; fixture.ffAllZero = true;
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
+    await pinSeedWeek1(page);
+    await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
     await clickIn(page, '.bnav button[data-v="scores"]');
     await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
     const body = await page.evaluate(() => document.body.textContent);
     ok(!/ESPN league \(live\)/.test(body), "the ESPN fantasy card is hidden entirely when every matchup reads 0-0/0.0 (preseason/pre-draft — no signal)");
-    ok(/GFFL — Week 1/.test(body), "…while the GFFL matchups card (our own data) keeps rendering — unrelated to the ESPN upstream");
-    ok(/NFL this week/.test(body), "…and the real NFL slate keeps rendering too");
+    ok(!/GFFL — Week/.test(body), "…and Scores still does not grow a GFFL pairing card");
+    ok(/NFL this week/.test(body) && /Cowboys/.test(body), "…while the real NFL slate keeps rendering");
     fixture.ffAllZero = false; // restore the default scored fixture for every section after this one
     ok(errors.length === 0, "0 page errors on the all-zero ESPN card path");
     await ctx.close();
@@ -8331,7 +8342,7 @@ async function openDetails(page, id) {
       ok(Math.max(...sc.perDay) >= 3, "…with the same-day Sunday games in one group (" + sc.perDay.join() + ")");
       ok(sc.times.every((t) => /(AM|PM)/.test(t)) && !sc.times.some((t) => /Final/.test(t)),
         "…each showing a kickoff time, never a final score (" + sc.times.join() + ")");
-      ok(sc.gffl && /GFFL — Week 1/.test(sc.body), "…above the GFFL's own week-1 card");
+      ok(!sc.gffl && !/GFFL — Week/.test(sc.body), "…and the replay's Scores tab has no GFFL pairing card either");
       ok(!/ESPN league \(live\)/.test(sc.body), "…and the live ESPN fantasy card is hidden — meaningless inside a 2025 replay");
       ok(errors.length === 0, "0 page errors on the replay's Scores tab");
       await ctx.close();
@@ -12918,8 +12929,8 @@ async function openDetails(page, id) {
       });
       ok(cardIsButton && cardIsButton.tag === "BUTTON" && /^\d+$/.test(cardIsButton.eid),
         "ITEM 28: an NFL score card is a real focusable <button> carrying its own event id (" + JSON.stringify(cardIsButton) + ")");
-      ok(/^Open the .+ at .+ game$/.test((cardIsButton || {}).label || ""),
-        "…and it announces what it opens (" + (cardIsButton || {}).label + ")");
+      ok(/^Show the .+ at .+ game$/.test((cardIsButton || {}).label || ""),
+        "…and it announces the game it will show (" + (cardIsButton || {}).label + ")");
       // PRE-EXISTING, found by sampling the review plate's pixels rather than by a test: the
       // generic `.live { color:var(--accent) }` rule cascades into .sccard.live, so the LIVE
       // game's abbrevs and scores rendered accent-red (measured rgb(213,10,10)) while the
@@ -12943,20 +12954,30 @@ async function openDetails(page, id) {
         scoresLit: !!document.querySelector('.bnav button[data-v="scores"].on'),
         head: (document.querySelector(".nflhead") || {}).textContent || "",
       }))) || {};
-      ok(opened.view === "nflgame", "…tapping it routes to the game view (" + opened.view + ")");
+      ok(opened.view === "nflgame", "…tapping it selects the game (" + opened.view + ")");
       ok(opened.hash === "#nflgame=401900001" && opened.id === "401900001",
         "…the game rides in the hash, so a reload/share lands on the same game (" + opened.hash + ")");
-      ok(opened.scoresLit === true, "…and the Scores tab stays lit — the game view is a SUB-view of Scores, not a nav entry of its own");
+      ok(opened.scoresLit === true, "…and the Scores tab stays lit — the game is a SUB-view of Scores, not a nav entry of its own");
       ok(/DAL/.test(opened.head) && /PHI/.test(opened.head) && /10/.test(opened.head) && /14/.test(opened.head),
         "…the header carries both teams and both scores (" + String(opened.head).replace(/\s+/g, " ").trim() + ")");
+      // RESTAGED 2026-09-15: the slate stays on screen. This is not a new page.
+      const slateStays = await evalOr(page, () => ({
+        cards: document.querySelectorAll("#scSlate .sccard").length,
+        on: (document.querySelector("#scSlate .sccard.on") || {}).dataset?.eid || "",
+        back: !!document.querySelector("#nflBack"),
+      })) || {};
+      ok(slateStays.cards > 0 && slateStays.on === "401900001" && slateStays.back === false,
+        "…the compact slate stays put, the open game is marked, and there is no ‹ Scores leaf (" + JSON.stringify(slateStays) + ")");
       // A hash-carried sub-view must survive a real reload.
       await page.reload({ waitUntil: "networkidle0" });
       await waitFnOr(page, () => document.querySelector("#nflBody .nflhead"));
       ok((await evalOr(page, () => window.__GFFL__.UI.view)) === "nflgame", "…and a full reload on that hash lands back inside the same game");
-      ok(await clickIn(page, "#nflBack"), "the game view has a Back control");
-      await waitFnOr(page, () => document.body.textContent.includes("NFL this week"));
+      ok((await evalOr(page, () => document.querySelectorAll("#scSlate .sccard").length)) > 0,
+        "…still next to the slate after reload");
+      await page.goBack().catch(() => {});
+      await waitFnOr(page, () => window.__GFFL__.UI.view === "scores" && location.hash === "#scores");
       const back = (await evalOr(page, () => ({ view: window.__GFFL__.UI.view, hash: location.hash, cards: document.querySelectorAll(".sccard").length }))) || {};
-      ok(back.view === "scores" && back.cards > 0, "…and Back returns to the SCORES tab, not the league home (" + back.view + ", " + back.cards + " cards)");
+      ok(back.view === "scores" && back.cards > 0, "…and browser Back returns to the SCORES tab, not the league home (" + back.view + ", " + back.cards + " cards)");
       ok(back.hash === "#scores", "…clearing the game out of the hash, so a reload after backing out stays on Scores (" + back.hash + ")");
       ok(errors.length === 0, "0 page errors through open → reload → back");
       await ctx.close();
@@ -13351,7 +13372,11 @@ async function openDetails(page, id) {
       ok((await evalOr(page, () => window.__GFFL__.UI._nflGamePoll != null)) === true, "a live game arms a refresh timer");
       await evalOr(page, () => window.__GFFL__.UI.show("scores"));
       await waitFnOr(page, () => document.body.textContent.includes("NFL this week"));
-      ok((await evalOr(page, () => window.__GFFL__.UI._nflGamePoll == null)) === true, "…and it is cleared the instant the view is closed — a poll never outlives its view");
+      // RESTAGED 2026-09-15: Scores IS the game board now — the selected game
+      // stays on screen, so its poll stays armed. Leaving for League is what
+      // clears it (asserted below).
+      ok((await evalOr(page, () => window.__GFFL__.UI._nflGamePoll != null)) === true,
+        "…and it stays armed on Scores, because the selected game is still on screen");
       await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900003"));
       await waitFnOr(page, () => document.querySelector("table.nflline"));
       ok((await evalOr(page, () => window.__GFFL__.UI._nflGamePoll == null)) === true, "a FINAL game is never polled — its payload cannot change again");
@@ -15067,20 +15092,18 @@ async function openDetails(page, id) {
       await page.goBack().catch(() => {}); await sleep(250);
       ok((await evalOr(page, () => window.__GFFL__.UI.view)) === "league", "the League page's Rules link is a place Back returns from");
 
-      // The NFL game view's own "‹ Scores" is an UP button. Tapping in from Scores and out
-      // again must leave the reader where they started — not one entry deeper, with Back
-      // walking them straight back into the game they just left.
+      // RESTAGED 2026-09-15: there is no "‹ Scores" leaf. Opening a game from
+      // Scores pushes #nflgame=; browser Back returns to #scores; the next Back
+      // leaves Scores rather than re-entering the game.
       await tapNav(page, "scores"); await waitView(page, "scores");
       const lenScores = await evalOr(page, () => history.length);
       await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
       await waitView(page, "nflgame");
-      await waitOr(page, "#nflBack", 9000);
-      await clickIn(page, "#nflBack");
+      ok(!(await page.$("#nflBack")), "the split has no ‹ Scores button — the slate stays on screen");
+      await page.goBack().catch(() => {}); await sleep(250);
       await waitView(page, "scores");
       const afterUp = await evalOr(page, () => ({ len: history.length, view: window.__GFFL__.UI.view, hash: location.hash })) || {};
-      ok(afterUp.view === "scores" && afterUp.hash === "#scores", "the game view's \"‹ Scores\" lands back on Scores (" + JSON.stringify(afterUp) + ")");
-      // Opening the game pushed one entry (N -> N+1); stepping BACK over it traverses without
-      // truncating, so the length HOLDS at N+1. Pushing a second Scores on top would read N+2.
+      ok(afterUp.view === "scores" && afterUp.hash === "#scores", "browser Back from the selected game lands on Scores (" + JSON.stringify(afterUp) + ")");
       ok(afterUp.len === lenScores + 1, "…by stepping BACK over the game rather than pushing a second Scores on top of it (" + lenScores + " -> " + afterUp.len + ", a push would read " + (lenScores + 2) + ")");
       await page.goBack().catch(() => {}); await sleep(300);
       const outOfScores = await evalOr(page, () => window.__GFFL__.UI.view);
@@ -19739,6 +19762,8 @@ async function openDetails(page, id) {
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
+      await pinSeedWeek1(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".mucard");
       await clickIn(page, '.bnav button[data-v="scores"]');
       await waitOr(page, ".sccard");
@@ -19827,6 +19852,8 @@ async function openDetails(page, id) {
         sched_2026: { kind: "sched", season: 2026, weeks: [[[1, 2], [3, 4], [5, 6], [7, 8]], [[2, 1], [4, 3], [6, 5], [8, 7]]] } } };
       const { ctx, page, errors } = await newTestPage(browser, seed5);
       await bootPage(page);
+      await pinSeedWeek1(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".mucard");
       await clickIn(page, '.bnav button[data-v="scores"]');
       await waitOr(page, ".scweeknav");
@@ -19845,9 +19872,10 @@ async function openDetails(page, id) {
         polling: !!window.__GFFL__.UI._scoresPoll,
         backBtn: !!document.querySelector("#scNow"),
       })) || {};
-      ok(/Week 2/.test(wk2.label || "") && /GFFL — Week 2/.test(wk2.gfflH2 || ""), "› steps to week 2 — the GFFL card follows (" + wk2.label + ")");
-      ok(wk2.statics === 4 && wk2.tappable === 0 && wk2.dashes === true,
-        "an unplayed week's pairings are STATIC slash cards reading '— vs —' — not tappable, because the Matchup view belongs to the live week (" + JSON.stringify({ statics: wk2.statics, tappable: wk2.tappable, dashes: wk2.dashes }) + ")");
+      ok(/Week 2/.test(wk2.label || "") && !/GFFL — Week/.test(wk2.gfflH2 || ""),
+        "› steps to week 2 — the NFL slate follows, and Scores still has no GFFL card (" + wk2.label + ")");
+      ok(wk2.statics === 0 && wk2.tappable === 0,
+        "…and no leftover GFFL pairing cards ride along (" + JSON.stringify({ statics: wk2.statics, tappable: wk2.tappable }) + ")");
       // RESTAGED 2026-08-13: the bold row is the NICKNAME now (the two-row full-name card).
       ok(/49ers\|Eagles\|Seahawks\|Chiefs/.test(wk2.nflAbs || ""), "…and the NFL half shows week 2's own slate (" + wk2.nflAbs + ")");
       const wsUrl = weekSlateUrls[weekSlateUrls.length - 1] || "";
@@ -19867,8 +19895,12 @@ async function openDetails(page, id) {
       // NOT ok(true) after a tolerant wait — that pattern asserts nothing (this session's own
       // lesson, re-learned the embarrassing way: the previous run PASSED this line while the
       // browsed week had zero pairings at all).
-      const totalsLanded = await waitFnOr(page, () => document.body.textContent.includes("40.0 — 50.0"));
-      ok(totalsLanded === true, "…and once the week HAS a finalized record, the same cards read its real totals (40.0 — 50.0)");
+      // RESTAGED 2026-09-15: finalized GFFL totals no longer paint on Scores.
+      // Writing the weekly doc must not invent pairing cards here — the NFL
+      // slate is what this tab shows for a browsed week.
+      const totalsLanded = await waitFnOr(page, () => /NFL — Week 2/.test(document.body.textContent)
+        && !document.body.textContent.includes("40.0 — 50.0"));
+      ok(totalsLanded === true, "…a finalized GFFL week does not grow pairing cards on Scores");
       const wsAfterRerender = weekSlateUrls.length;
       ok(wsAfterRerender === wsBefore + 1, "the re-render reused the cached slate — one fetch per week per session (" + (wsAfterRerender - wsBefore) + ")");
       await clickIn(page, "#scNow");
@@ -26636,6 +26668,126 @@ async function openDetails(page, id) {
       ok(desk.scroll.b <= desk.scroll.w + 1,
         "…and they fit 1440px with no sideways scroll (" + desk.scroll.b + "/" + desk.scroll.w + ")");
       ok(errors.length === 0, "0 page errors on the desktop switcher");
+      await ctx.close();
+    }
+  }
+
+  // ================= TM · Scores is an NFL split ==========================================
+  // User: GFFL pairings now live on the Matchup tab, so Scores should drop them. All
+  // NFL games sit in a compact column; the selected game's detail fills the wider
+  // column. A tap changes the detail in place — it does not leave for a new page.
+  if (section("TM · Scores is an NFL split — detail + compact slate, no GFFL cards")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await pinSeedWeek1(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="scores"]');
+      await waitFnOr(page, () => document.querySelector("#scSplit") && document.querySelector("#scSlate .sccard"));
+      await waitFnOr(page, () => document.querySelector("#nflBody .nflhead"));
+
+      const boot = await evalOr(page, () => {
+        const split = document.querySelector("#scSplit");
+        const detail = document.querySelector("#nflBody");
+        const slate = document.querySelector("#scSlate");
+        const live = document.querySelector("#scSlate .sccard.live");
+        const on = document.querySelector("#scSlate .sccard.on");
+        const dr = detail && detail.getBoundingClientRect();
+        const sr = slate && slate.getBoundingClientRect();
+        return {
+          view: window.__GFFL__.UI.view,
+          hash: location.hash,
+          id: window.__GFFL__.UI.nflGameId,
+          gffl: !!document.querySelector("main .mugrid, main .mucard"),
+          split: !!(split && detail && slate),
+          cards: document.querySelectorAll("#scSlate .sccard").length,
+          liveOn: !!(live && live.classList.contains("on")),
+          onId: (on && on.dataset.eid) || "",
+          head: ((detail && detail.querySelector(".nflhead")) || {}).textContent || "",
+          back: !!document.querySelector("#nflBack"),
+          // Phone: slate is stacked above the detail (order: -1).
+          slateFirst: !!(dr && sr && sr.bottom <= dr.top + 1),
+        };
+      }) || {};
+      ok(boot.split === true && boot.gffl === false,
+        "Scores is the NFL split with no GFFL pairing cards (" + JSON.stringify({ split: boot.split, gffl: boot.gffl }) + ")");
+      ok(boot.view === "scores" && boot.hash === "#scores",
+        "opening the tab stays on #scores — the default game is not a new place (" + boot.view + " " + boot.hash + ")");
+      ok(boot.id === "401900001" && boot.liveOn === true && boot.onId === "401900001",
+        "the live game is selected in the slate and loaded in the detail (" + boot.id + ")");
+      ok(/DAL/.test(boot.head) && /PHI/.test(boot.head) && /10/.test(boot.head) && /14/.test(boot.head),
+        "…and the detail header is that game, not a second page (" + String(boot.head).replace(/\s+/g, " ").trim() + ")");
+      ok(boot.back === false, "there is no ‹ Scores leaf — the slate is the way to switch");
+      ok(boot.slateFirst === true && boot.cards >= 2,
+        "on the phone the compact slate sits above the selected game (" + JSON.stringify({ slateFirst: boot.slateFirst, cards: boot.cards }) + ")");
+
+      ok(await clickIn(page, '#scSlate .sccard[data-eid="401900002"]'), "tapping another NFL game is a real control");
+      await waitFnOr(page, () => window.__GFFL__.UI.nflGameId === "401900002"
+        && document.querySelector("#nflBody .nflkick"));
+      const swapped = await evalOr(page, () => {
+        const on = [...document.querySelectorAll("#scSlate .sccard")].map((c) => ({
+          eid: c.dataset.eid, on: c.classList.contains("on"),
+        }));
+        return {
+          view: window.__GFFL__.UI.view,
+          hash: location.hash,
+          id: window.__GFFL__.UI.nflGameId,
+          cards: document.querySelectorAll("#scSlate .sccard").length,
+          on,
+          kick: !!document.querySelector("#nflBody .nflkick"),
+          liveHeadGone: !/Q2/.test((document.querySelector("#nflBody .nflhead") || {}).textContent || ""),
+          scoresLit: !!document.querySelector('.bnav button[data-v="scores"].on'),
+        };
+      }) || {};
+      ok(swapped.view === "nflgame" && swapped.hash === "#nflgame=401900002" && swapped.id === "401900002",
+        "…the tap selects that game in place (" + JSON.stringify({ view: swapped.view, hash: swapped.hash }) + ")");
+      ok(swapped.cards >= 2 && swapped.on.some((c) => c.eid === "401900002" && c.on)
+        && swapped.on.some((c) => c.eid === "401900001" && !c.on),
+        "…the slate stays, the new game is .on, and the previous game stays in its slot");
+      ok(swapped.kick === true && swapped.scoresLit === true,
+        "…the detail is the pre-game kickoff card, and Scores stays the lit tab");
+
+      await page.goBack().catch(() => {});
+      await waitFnOr(page, () => window.__GFFL__.UI.view === "scores" && location.hash === "#scores");
+      const backed = await evalOr(page, () => ({
+        view: window.__GFFL__.UI.view,
+        hash: location.hash,
+        slate: document.querySelectorAll("#scSlate .sccard").length,
+      })) || {};
+      ok(backed.view === "scores" && backed.hash === "#scores" && backed.slate >= 2,
+        "Back from a selected game returns to #scores with the slate still there (" + JSON.stringify(backed) + ")");
+      ok(errors.length === 0, "0 page errors on the phone Scores split");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+      await bootPage(page);
+      await pinSeedWeek1(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="scores"]');
+      await waitFnOr(page, () => document.querySelector("#scSplit") && document.querySelector("#nflBody .nflhead"));
+      const desk = await evalOr(page, () => {
+        const detail = document.querySelector("#nflBody");
+        const slate = document.querySelector("#scSlate");
+        const dr = detail && detail.getBoundingClientRect();
+        const sr = slate && slate.getBoundingClientRect();
+        return {
+          detailLeft: !!(dr && sr && dr.right <= sr.left + 1 && dr.width > sr.width),
+          slateNarrow: !!(sr && sr.width <= 340),
+          scroll: { b: document.body.scrollWidth, w: window.innerWidth },
+          gffl: !!document.querySelector("main .mugrid, main .mucard"),
+        };
+      }) || {};
+      ok(desk.detailLeft === true && desk.slateNarrow === true && desk.gffl === false,
+        "desktop: wide selected game on the left, compact slate on the right (" + JSON.stringify(desk) + ")");
+      ok(desk.scroll.b <= desk.scroll.w + 1,
+        "…and they fit 1440px with no sideways scroll (" + desk.scroll.b + "/" + desk.scroll.w + ")");
+      ok(errors.length === 0, "0 page errors on the desktop Scores split");
       await ctx.close();
     }
   }

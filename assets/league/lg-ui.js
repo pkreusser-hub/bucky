@@ -808,6 +808,13 @@
     // Setting UI.matchup first would make wasSig already describe the destination, so go()
     // would replace instead of push and Back would leave the page.
     if (opts.mu) UI.matchup = opts.mu;
+    // A slate-to-slate move (the compact NFL list on Scores) must land AFTER
+    // paintedSig, same reason as opts.mu: setting the id first would make
+    // wasSig already describe the destination and Back would leave the page.
+    if (opts.game != null) {
+      UI.nflGameId = String(opts.game);
+      UI._nflGame = null;
+    }
     name = applyView(name);
     const url = UI.hashFor(name);
     // Standing on an overlay sentinel? Navigating away means that overlay is gone, so REUSE its
@@ -1535,7 +1542,7 @@
     // path), and replacing main().innerHTML out from under an in-progress interaction (the swap
     // sheet open, a logo upload mid-flight) is a real regression, not just a perf one. The
     // lineup's points/proj simply refresh next time the locker is opened/re-opened.
-    else if (UI.view === "scores") paintScores(); // NFL half only — the fantasy half has its own poll (startScoresPoll)
+    else if (UI.view === "scores" || UI.view === "nflgame") paintScores(); // slate + selected game — both views share the split
     paintHealth();
   }
   function paintHealth() {
@@ -3234,13 +3241,14 @@
       : "";
     const mo = gameMineOppCounts(e);
     const moLine = mo ? `<div class="scmine mut small">MINE: ${mo.mine} player${mo.mine === 1 ? "" : "s"} · OPP: ${mo.opp} player${mo.opp === 1 ? "" : "s"}</div>` : "";
-    // Item 28 (2026-08-09): the card is a real <button> — tapping it opens the game view.
-    // A <div> with a click handler is unreachable by keyboard and announces nothing; the
-    // button's own uppercase/letter-spacing is cancelled in league.html the same way .mucard
-    // already cancels it, so the team abbrevs and times read exactly as they did.
-    return `<button type="button" class="sccard scslash ${live ? "live" : ""}" data-eid="${esc(e.id || "")}"
+    // Item 28 (2026-08-09): the card is a real <button>. Tapping it used to leave
+    // for a second page; now it selects this game in the Scores split (same
+    // in-place swap as the matchup chips). The open game stays in the slate
+    // and is marked .on.
+    const on = e.id != null && String(e.id) === String(UI.nflGameId || "");
+    return `<button type="button" class="sccard scslash ${live ? "live" : ""}${on ? " on" : ""}" data-eid="${esc(e.id || "")}"
         ${sv.length ? `style="${sv.join(";")}"` : ""}
-        aria-label="Open the ${esc((e.away && e.away.abbrev) || "?")} at ${esc((e.home && e.home.abbrev) || "?")} game">
+        aria-label="Show the ${esc((e.away && e.away.abbrev) || "?")} at ${esc((e.home && e.home.abbrev) || "?")} game">
       <div class="rowline scstaterow">${net}${stateHtml}</div>
       <div class="scteams">${teamHtml(e.away, false)}<span class="scat mut small">at</span>${teamHtml(e.home, true)}</div>
       ${situLine}${spread}${moLine}
@@ -3301,27 +3309,49 @@
   UI.renderScores = renderScores;
   // WEEK CYCLING (2026-08-13, user: "cycle to view future weeks for both the fantasy matchups
   // and nfl matchups"). UI._scoresWeek === null means NOW — the live board, polling as ever.
-  // Any other value is a BROWSED GFFL week: the fantasy pairings for that week (real totals
-  // when the week is finalized, an honest "—" when it hasn't been played) and that week's NFL
-  // regular-season slate through D.fetchWeekSlate — a page, not a feed, so browsing never
-  // polls and never touches the live board's own state.
+  // Any other value is a BROWSED NFL week through D.fetchWeekSlate — a page, not a feed, so
+  // browsing never polls and never touches the live board's own state. GFFL pairings left
+  // this tab when the matchup chips landed: Scores is the NFL board now.
   UI._scoresWeek = UI._scoresWeek === undefined ? null : UI._scoresWeek;
   function scoresTotalWeeks() { return ((LG.rules && LG.rules.seasonWeeks) || 14) + 3; }
   function scoresShownWeek() { return UI._scoresWeek == null ? UI.week : UI._scoresWeek; }
-  async function renderScores() {
-    // The loading card only when ARRIVING — a re-render of the already-painted Scores view
-    // (the week cycler, UI.quietRepaint's background refresh) must not wipe the tree, or the
-    // .scweeknav sentinel dies and paintScores' morph degrades to the full-flash innerHTML
-    // path it exists to replace.
-    if (!(main().dataset.view === "scores" && main().querySelector(".scweeknav"))) {
+  function onNflBoard() { return UI.view === "scores" || UI.view === "nflgame"; }
+  function nflEventsNow() {
+    if (UI._scoresWeek != null) return UI._scoresNflWeek || [];
+    const d = D();
+    return (d && d.S && d.S.nflEvents) || [];
+  }
+  // Live game first, else the next kickoff, else the first row. A tap that already
+  // picked a game in this slate wins, so Back / a week-cycler remount keep the choice.
+  function pickNflGameId(events) {
+    const list = events || [];
+    const want = UI.nflGameId ? String(UI.nflGameId) : "";
+    if (want && list.some((e) => e.id != null && String(e.id) === want)) return want;
+    // A deep link / openNflGame id that is not on this week's slate still
+    // wins while we are on the game view — a FINAL or a shared #nflgame=
+    // must not be replaced by the live row.
+    if (want && UI.view === "nflgame") return want;
+    const live = list.find((e) => e.state === "in" && e.id != null);
+    if (live) return String(live.id);
+    const pre = list.filter((e) => e.state === "pre" && e.id != null)
+      .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+    if (pre[0]) return String(pre[0].id);
+    const first = list.find((e) => e.id != null);
+    return first ? String(first.id) : null;
+  }
+  async function renderScores() { return renderScoreboard(); }
+  async function renderScoreboard() {
+    // The loading card only when ARRIVING — a re-render of the already-painted split
+    // (week cycler, live poll, a slate tap) must not wipe #scSplit, or the selected
+    // game's field / open drive dropdown dies and paintScores' morph degrades to a flash.
+    if (!main().querySelector("#scSplit")) {
       main().innerHTML = `<div class="card mut">Loading scores…</div>`;
     }
-    // Item 2's "mine/opp" line needs this week's rosters — load once per mount (cheap, cached),
-    // never on every poll repaint (paintScores stays a pure re-render off what's already loaded).
     if (!UI._rosters) await loadWeekRosters();
     const shown = scoresShownWeek();
-    // ONE fetch of the shown week's games serves BOTH the "mine/opp" NFL-game counts below AND
-    // the GFFL matchups card — same array, not two separate reads that could disagree.
+    // Still load this week's GFFL pairings — the compact NFL cards' MINE/OPP counts
+    // and the selected game's "In this game" list read them. They are not painted
+    // as GFFL cards any more.
     const wk = await LG.gamesForWeek(shown);
     UI._scoresGfflGames = wk;
     const mine = LG.myTeamId();
@@ -3333,16 +3363,30 @@
     if (UI._scoresWeek == null) {
       await loadFfScoreboard();
       UI._scoresWeekly = null; UI._scoresNflWeek = null;
-      paintScores();
-      startScoresPoll();
     } else {
-      stopScoresPoll(); // a browsed week is a page, not a feed
-      // A finalized week's REAL totals come off its own write-once record; an unplayed week
-      // has no number and never pretends to one.
+      stopScoresPoll();
       UI._scoresWeekly = await LG.loadWeekly(UI._scoresWeek);
       UI._scoresNflWeek = await D().fetchWeekSlate(UI._scoresWeek);
-      if (UI.view === "scores") paintScores();
     }
+    if (!onNflBoard()) return;
+    const events = nflEventsNow();
+    const id = pickNflGameId(events);
+    if (String(UI.nflGameId || "") !== String(id || "")) {
+      UI.nflGameId = id;
+      UI._nflGame = null;
+    }
+    if (UI.view === "nflgame") syncUrlToView("nflgame");
+    paintScores();
+    const needGame = id && !(UI._nflGame && UI._nflGame.ok);
+    await Promise.all([
+      needGame ? loadNflGame() : Promise.resolve(),
+      myMatchupThisWeekStrict().then((mu) => { UI._myMuGame = mu; }).catch(() => { UI._myMuGame = null; }),
+    ]);
+    if (!onNflBoard()) return;
+    if (String(UI.nflGameId || "") !== String(id || "")) return;
+    paintNflGame();
+    if (id) startNflGamePoll();
+    if (UI._scoresWeek == null) startScoresPoll();
   }
   async function loadFfScoreboard() {
     UI._ffSbLoads++;
@@ -3381,52 +3425,54 @@
       <button type="button" id="scNext" ${shown >= total ? "disabled" : ""} aria-label="Next week">›</button>
     </div></div>`;
   }
-  function paintScores() {
-    const d = D();
+  function slateInnerHtml(events) {
     const browsing = UI._scoresWeek != null;
-    const html = browsing ? `
+    const title = browsing ? "NFL — Week " + UI._scoresWeek : "NFL this week";
+    return `<div class="rowline"><h2>${title}</h2><span id="healthChip" class="health" hidden></span></div>
+      ${nflScoresHtml(events)}`;
+  }
+  function scoresDetailHtml() {
+    if (!UI.nflGameId) return `<div class="card mut">Pick a game from the slate.</div>`;
+    const g = UI._nflGame;
+    if (!g) return `<div class="card mut">Loading the game…</div>`;
+    if (!g.ok) {
+      return `<div class="card"><h2>Game unavailable</h2>
+        <p class="mut">${nflReasonLine(g && g.reason)}</p>
+        <p><button type="button" id="nflRetry" class="primary">Try again</button></p></div>`;
+    }
+    const st = (g.status || {}).state;
+    const chip = st === "in" ? "LIVE" : st === "post" ? "FINAL" : "";
+    const chipHtml = chip
+      ? `<div class="rowline nflstatus"><span id="nflChip" class="${st === "in" ? "nfllivechip" : "mut small"}">${chip}</span></div>`
+      : `<div class="rowline nflstatus"><span id="nflChip" class="mut small"></span></div>`;
+    return chipHtml + nflGameHtml(g);
+  }
+  function paintScores() {
+    const browsing = UI._scoresWeek != null;
+    const html = `
       ${scoresWeekNavHtml()}
-      ${gfflWeekStaticHtml(UI._scoresWeek, UI._scoresGfflGames, UI._scoresWeekly)}
-      <div class="card"><div class="rowline"><h2>NFL — Week ${UI._scoresWeek}</h2></div>
-        ${nflScoresHtml(UI._scoresNflWeek)}
-      </div>` : `
-      ${scoresWeekNavHtml()}
-      ${gfflScoresHtml(UI._scoresGfflGames)}
-      <div class="card"><div class="rowline"><h2>NFL this week</h2><span id="healthChip" class="health" hidden></span></div>
-        ${nflScoresHtml(d.S && d.S.nflEvents)}
+      <div class="scsplit" id="scSplit">
+        <div class="scdetail" id="nflBody">${scoresDetailHtml()}</div>
+        <aside class="card scslate" id="scSlate">${slateInnerHtml(nflEventsNow())}</aside>
       </div>
-      ${ffScoresHtml(UI._ffSb)}`;
-    // Same-view repaint → MORPH (the .scweeknav sentinel says this tree is already the Scores
-    // view's own), so the crests never flash and the reader's scroll survives a poll tick.
-    // A view change / first paint still replaces wholesale — morphing another view's tree
-    // would let its nodes (and their listeners) survive by shape coincidence.
-    if (main().querySelector(".scweeknav")) patchInto(main(), html);
+      ${browsing ? "" : ffScoresHtml(UI._ffSb)}`;
+    // Same-view repaint → MORPH (#scSplit says this tree is already the NFL board),
+    // so the selected game's crests never flash and an open drive dropdown survives.
+    if (main().querySelector("#scSplit")) patchInto(main(), html);
     else main().innerHTML = html;
     const step = (delta) => {
       const next = Math.max(1, Math.min(scoresTotalWeeks(), scoresShownWeek() + delta));
-      // Stepping ONTO the live week returns to the live board, never a frozen copy of it.
       UI._scoresWeek = next === UI.week ? null : next;
       renderScores();
     };
     wireOnce($("#scPrev"), () => step(-1));
     wireOnce($("#scNext"), () => step(1));
     wireOnce($("#scNow"), () => { UI._scoresWeek = null; renderScores(); });
-    // Handlers RE-READ their data-attribute at CLICK time, not at wire time: a morphed node
-    // SURVIVES a live↔browse repaint with its listener attached, and the morph may have
-    // removed the attribute that made it tappable (a live card becoming a static browse
-    // card) — the stale closure firing anyway was the regression the re-read prevents.
-    document.querySelectorAll("[data-mu]").forEach((el) => wireOnce(el, () => {
-      if (!el.dataset.mu) return;
-      UI.matchup = el.dataset.mu.split("-").map(Number);
-      UI.go("matchup");
-    }));
-    // Item 28: tapping an NFL card opens that game. An event with no id (a slate row the
-    // upstream gave us nothing to open) simply doesn't wire — better an inert card than a tap
-    // that lands on a "bad-event-id" error.
     document.querySelectorAll(".sccard[data-eid]").forEach((el) => {
       if (!el.dataset.eid) { el.disabled = true; return; }
       wireOnce(el, () => { if (el.dataset.eid) UI.openNflGame(el.dataset.eid); });
     });
+    wireNflDetail();
     paintHealth();
   }
   UI.paintScores = paintScores; // called from paintLive() when this tab is open — NFL half only
@@ -3434,7 +3480,7 @@
     stopScoresPoll();
     const tick = async () => {
       await loadFfScoreboard();
-      if (UI.view === "scores") paintScores();
+      if (onNflBoard()) paintScores();
       UI._scoresPoll = setTimeout(tick, D().anyLive() ? 25000 : 120000);
     };
     if (immediate) tick();
@@ -3467,8 +3513,17 @@
   UI._nflGamePoll = null;
 
   UI.openNflGame = function (eventId) {
-    UI.nflGameId = String(eventId);
-    UI._nflGame = null; // never show the PREVIOUS game's field while this one loads
+    const id = String(eventId || "");
+    if (!id) return;
+    // Already on the NFL board looking at this game as a real place — a second
+    // tap is a no-op, same as tapping the already-open matchup chip.
+    if (UI.view === "nflgame" && String(UI.nflGameId) === id && $("#nflBody .nflhead")) return;
+    if (onNflBoard()) {
+      UI.go("nflgame", { game: id });
+      return;
+    }
+    UI.nflGameId = id;
+    UI._nflGame = null;
     UI.go("nflgame");
   };
 
@@ -3921,30 +3976,13 @@
     // A #nflgame= URL with nothing to open is a bad address, not a place — REPLACE it, so Back
     // doesn't have to step over an entry the reader never chose.
     if (!UI.nflGameId) { UI.go("scores", { replace: true }); return; }
-    main().innerHTML = `<div class="rowline nflbar">
-        <button type="button" id="nflBack" class="nflback">&lsaquo; Scores</button>
-        <span id="nflChip" class="mut small"></span></div>
-      <div id="nflBody"><div class="card mut">Loading the game…</div></div>`;
-    $("#nflBack").addEventListener("click", nflBack);
-    const id = UI.nflGameId;
-    // ITEM 5 (2026-08-22, restaged same day): "In this game" needs the viewing user's OWN
-    // matchup this week (UI._myMuGame) and every roster to slot starters into it — both loaded
-    // ONCE at open, same as the matchup/locker convention; the 25s poll's own paintNflGame()
-    // re-reads the same cached state rather than re-fetching it.
-    await Promise.all([loadNflGame(), loadWeekRosters().catch(() => {}),
-      myMatchupThisWeekStrict().then((mu) => { UI._myMuGame = mu; }).catch(() => { UI._myMuGame = null; })]);
-    // The reader may have gone somewhere else (or opened a different game) while that was in
-    // flight — repainting then would drop a stale game over whatever they're now looking at.
-    if (UI.view !== "nflgame" || UI.nflGameId !== id) return;
-    paintNflGame();
-    startNflGamePoll();
+    // Same split as the Scores tab — the selected game is the left (wide) column,
+    // the week slate stays on the right. Not a second page.
+    return renderScoreboard();
   }
   function nflBack() {
-    // A real UP button (ITEM 32). If Scores is genuinely the entry behind this one, step BACK
-    // to it — that keeps the stack honest (tap in, tap out, and the reader is where they
-    // started) instead of pushing a SECOND Scores entry that Back would then walk straight back
-    // into the game they just left. Someone who deep-linked to #nflgame=<id> has no Scores
-    // behind them at all, so they get a real forward navigation instead of leaving the app.
+    // Kept for deep-link / history callers. The split no longer paints a "‹ Scores"
+    // button — the slate is the way back, and the browser Back stack walks games.
     const st = history.state || {};
     if (st.gfflView === "nflgame" && st.from === "scores") { history.back(); return; }
     UI.go("scores");
@@ -3956,36 +3994,27 @@
     if (UI.nflGameId !== id) return; // a different game was opened mid-flight — its own load owns the state
     UI._nflGame = (j && j.ok) ? j : { ok: false, reason: (j && j.reason) || "fetch-failed" };
   }
-  function paintNflGame() {
-    const body = $("#nflBody"), chip = $("#nflChip");
+  function wireNflDetail() {
+    const body = $("#nflBody");
     if (!body) return;
-    const g = UI._nflGame;
-    if (!g || !g.ok) {
-      // Honest and recoverable — never a blank card, never a thrown error.
-      if (chip) chip.textContent = "";
-      body.innerHTML = `<div class="card"><h2>Game unavailable</h2>
-        <p class="mut">${nflReasonLine(g && g.reason)}</p>
-        <p><button type="button" id="nflRetry" class="primary">Try again</button></p></div>`;
-      const r = $("#nflRetry");
-      if (r) r.addEventListener("click", async () => {
+    const r = $("#nflRetry");
+    if (r && !r.dataset.wired) {
+      r.dataset.wired = "1";
+      r.addEventListener("click", async () => {
         r.disabled = true; r.textContent = "Trying…";
         await loadNflGame();
-        if (UI.view === "nflgame") { paintNflGame(); startNflGamePoll(); }
+        if (onNflBoard()) { paintNflGame(); startNflGamePoll(); }
       });
-      return;
     }
-    const st = g.status || {};
-    // LIVE/FINAL only. The venue used to ride here too and simply repeated the kickoff card's
-    // own "Where" line one row above it (caught on the review plate).
-    if (chip) chip.textContent = st.state === "in" ? "LIVE" : st.state === "post" ? "FINAL" : "";
-    if (chip) chip.className = st.state === "in" ? "nfllivechip" : "mut small";
-    // Same-view repaint → MORPH (see patchInto's own note): the field redraws only where its
-    // numbers moved, the crests never flash, and a previous-drive <details> the reader opened
-    // STAYS open across the poll — its `open` is theirs, and the drives are keyed
-    // (data-mkey) so a newly completed drive prepending never slides that state onto a sibling.
-    if (body.querySelector(".nflhead")) patchInto(body, nflGameHtml(g));
-    else body.innerHTML = nflGameHtml(g);
-    wirePlayerCardTaps(body); // item 5's "In this game" rows — dataset-guarded, morph-safe
+    wirePlayerCardTaps(body);
+  }
+  function paintNflGame() {
+    const body = $("#nflBody");
+    if (!body) return;
+    const html = scoresDetailHtml();
+    if (body.querySelector(".nflhead") && UI._nflGame && UI._nflGame.ok) patchInto(body, html);
+    else body.innerHTML = html;
+    wireNflDetail();
   }
   UI.paintNflGame = paintNflGame;
   function nflGameLive() { const g = UI._nflGame; return !!(g && g.ok && g.status && g.status.state === "in"); }
@@ -4002,9 +4031,9 @@
     if (!iv) return;
     const tick = async () => {
       UI._nflGamePoll = null;
-      if (UI.view !== "nflgame") return; // the view closed between the arm and the fire
+      if (!onNflBoard()) return; // the board closed between the arm and the fire
       await loadNflGame();
-      if (UI.view !== "nflgame") return;
+      if (!onNflBoard()) return;
       paintNflGame();
       startNflGamePoll(); // re-arms at the new state's cadence, or stops once the game is final
     };
@@ -4026,7 +4055,7 @@
   let lastAliveAt = Date.now();
   function kickViewPollsNow() {
     if (UI.view === "scores" && UI._scoresWeek == null) startScoresPoll(true);
-    else if (UI.view === "nflgame" && (nflGameLive() || nflGamePre())) startNflGamePoll(true);
+    if (onNflBoard() && UI.nflGameId && (nflGameLive() || nflGamePre())) startNflGamePoll(true);
   }
   UI.onBackground = function () {
     const d = D();

@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260915f">
+<meta name="gffl-v" content="20260915g">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -1575,7 +1575,29 @@
             color:var(--ink); }
   .sccard:hover, .sccard:focus-visible { border-color:var(--border-hover); background:var(--row-hover2); }
   .sccard.live:hover, .sccard.live:focus-visible { border-color:var(--accent); }
+  .sccard.on { border-color:var(--gold); box-shadow:inset 0 0 0 1px var(--gold); }
+  .sccard.live.on { border-color:var(--accent); }
   .sccard:disabled { cursor:default; }
+
+  /* Scores is an NFL split now (2026-09-15): selected game on the left (wide),
+     compact slate on the right. GFFL pairings live on the Matchup tab. Phone
+     stacks the slate first so a tap still changes the detail below, the same
+     gesture as the matchup chips. */
+  .scsplit { display:flex; flex-direction:column; gap:12px; }
+  .scslate { order:-1; }
+  .scslate[hidden] { display:none; }
+  .scdetail { min-width:0; }
+  .scslate .sccard { padding:8px 10px; }
+  .scslate .sccity { display:none; }
+  .scslate .sclogo, .scslate .sclogo-none { width:28px; height:28px; }
+  .scslate .scnick { font-size:13px; }
+  .scslate .scpts { font-size:16px; }
+  .scslate .sccard.scslash .scteams { padding:0 22px; }
+  @media (min-width:1024px) {
+    .scsplit { display:grid; grid-template-columns:minmax(0,1fr) 300px; align-items:start; gap:16px; }
+    .scslate { order:0; position:sticky; top:12px; max-height:calc(100vh - 24px); overflow-y:auto; }
+    .scslate .scgrid { grid-template-columns:1fr; }
+  }
 
   /* ---------------- item 28 — the NFL game view (field · play-by-play · box scores) ----------------
      The STRUCTURE is ported from sports.html (same payload, same field maths); the DRESS is
@@ -1583,6 +1605,7 @@
      GFFL is broadcast-dark. --turf/--turf-2/--chalk are scoped to the field container rather
      than :root — nothing else in the league is a football pitch. */
   .nflbar { margin-bottom:10px; }
+  .nflstatus { justify-content:flex-end; margin:0 0 6px; }
   .nflback { background:var(--nested); }
   .nfllivechip { font:700 11px var(--font-display); letter-spacing:1px; text-transform:uppercase; color:var(--accent); }
   .seclabel { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;
@@ -1717,6 +1740,7 @@
      aspect ratio then caps its height at ~216px. */
   @media (min-width:1024px) {
     .nflbar, #nflBody { max-width:720px; margin-left:auto; margin-right:auto; }
+    .scsplit #nflBody { max-width:760px; margin:0; }
     .nflplay { grid-template-columns:66px 1fr auto; }
   }
 
@@ -2304,9 +2328,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260915f"></script>
-  <script src="assets/league/lg-data.js?v=20260915f"></script>
-  <script src="assets/league/lg-ui.js?v=20260915f"></script>
+  <script src="assets/league/lg-core.js?v=20260915g"></script>
+  <script src="assets/league/lg-data.js?v=20260915g"></script>
+  <script src="assets/league/lg-ui.js?v=20260915g"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

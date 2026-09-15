@@ -8211,3 +8211,36 @@ assertions fail there — `UI.isStandalone` is missing, a non-persisted
 home-screen `pageshow` never wakes, and the suite still expects that
 browser `onForeground` skip. Pre-existing TG checks stay green.
 ---
+
+## GFFL — Scores is an NFL split, not a GFFL list (2026-09-15)
+
+User: the Scores tab still listed GFFL matchups above the
+NFL slate, but the Matchup tab now shows every pairing.
+Clicking an NFL game left for a second page.
+
+Scores dropped the GFFL cards. The tab is a split: the
+selected NFL game (the existing gamecast) fills the wider
+column; a compact slate of every NFL game sits on the
+right (desktop) or above the detail (phone). Tapping a
+slate card calls `UI.go("nflgame", { game })` after
+`paintedSig`, so Back walks games the same way matchup
+chips walk pairings. The slate stays on screen and marks
+`.on`. There is no ‹ Scores leaf. Opening the tab stays
+on `#scores` and auto-selects the live game (else the
+next kickoff). `#nflgame=<id>` still shares/reloads that
+game next to the slate.
+
+Scripts cache-bust `?v=20260915g`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** 50/50 (`--only S,TM`). Bite vs `origin/main` (GFFL
+cards first, tap leaves for `#nflgame=` with no slate):
+36/14. The fourteen new/restaged split assertions fail
+there — HEAD still paints a GFFL pairing card, has no
+`#scSplit`, and a slate tap does not select in place.
+Pre-existing S NFL/ESPN checks stay green. Also green:
+AH 212/212, AJ (incl. the restaged Back-from-game walk),
+X 191/191. App files restored, hashes identical.
+---
