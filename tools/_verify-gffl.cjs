@@ -26302,6 +26302,10 @@ async function openDetails(page, id) {
           shown: !!(sw && sw.offsetParent),
           firstIsHead: !!(firstCard && firstCard.id === "muHead"),
           scroll: { b: document.body.scrollWidth, w: window.innerWidth },
+          // Four chips at 390px used to ellipsis the open game's tags
+          // (T1/T2 → "T..") when the score sat on the same line.
+          tagsFit: [...document.querySelectorAll("#muSwitch .musw-a, #muSwitch .musw-h")]
+            .every((el) => el.scrollWidth <= el.clientWidth + 1),
         };
       });
       ok(JSON.stringify(boot.mu) === "[1,2]",
@@ -26320,6 +26324,8 @@ async function openDetails(page, id) {
         "the strip is not a .card — the first card is still the header");
       ok(boot.scroll.b <= boot.scroll.w + 1,
         "four chips fit 390px with no sideways scroll (" + boot.scroll.b + "/" + boot.scroll.w + ")");
+      ok(boot.tagsFit === true,
+        "…and the abbreviations still fit in the chip, not T..");
 
       const lenBefore = await evalOr(page, () => history.length);
       await clickIn(page, '.muswitch[data-mu="3-4"]');

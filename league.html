@@ -456,23 +456,25 @@
      not reshuffle the row. .on is the open game; .mine is yours. */
   .muswitchrow { display:flex; gap:4px; margin:0 0 8px; }
   .muswitchrow[hidden] { display:none; }
-  .muswitch { flex:1 1 0; min-width:0; display:flex; align-items:center; justify-content:space-between;
-              gap:3px; padding:8px 4px; background:var(--card); border:1px solid var(--border-card);
-              border-radius:var(--radius-sm); cursor:pointer; color:var(--ink);
-              text-transform:none; letter-spacing:normal; }
+  .muswitch { flex:1 1 0; min-width:0; display:flex; flex-wrap:wrap; align-items:center;
+              justify-content:space-between; gap:1px 3px; padding:6px 4px; background:var(--card);
+              border:1px solid var(--border-card); border-radius:var(--radius-sm); cursor:pointer;
+              color:var(--ink); text-transform:none; letter-spacing:normal; }
   .muswitch:hover, .muswitch:focus-visible { border-color:var(--border-hover); background:var(--row-hover2); }
   .muswitch.on { border-color:var(--ink); background:var(--nested); }
   .muswitch.on:hover, .muswitch.on:focus-visible { border-color:var(--ink); background:var(--nested); }
   .muswitch.mine { border-color:var(--accent); }
   .muswitch.mine.on, .muswitch.mine.on:hover, .muswitch.mine.on:focus-visible { border-color:var(--accent); }
-  .musw-a, .musw-h { font:600 11px var(--font-display); overflow:hidden; text-overflow:ellipsis;
-                     white-space:nowrap; min-width:0; }
+  .musw-a, .musw-h { font:600 10px var(--font-display); overflow:hidden; text-overflow:ellipsis;
+                     white-space:nowrap; flex:1 1 auto; min-width:0; max-width:48%; }
   .musw-h { text-align:right; }
-  .musw-sc { font:700 11px var(--font-num); font-variant-numeric:tabular-nums; flex:0 0 auto; }
+  .musw-sc { font:700 12px var(--font-num); font-variant-numeric:tabular-nums; flex:1 1 100%;
+             order:3; text-align:center; }
   @media (min-width:1024px) {
     .muswitchrow { gap:6px; }
-    .muswitch { padding:10px 12px; }
-    .musw-a, .musw-h, .musw-sc { font-size:13px; }
+    .muswitch { flex-wrap:nowrap; padding:10px 12px; }
+    .musw-a, .musw-h { font-size:13px; flex:0 1 auto; max-width:none; }
+    .musw-sc { flex:1 1 auto; order:0; font-size:13px; }
   }
 
 
