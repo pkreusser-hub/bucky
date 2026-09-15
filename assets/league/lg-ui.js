@@ -245,7 +245,7 @@
       LG._markDegraded(e); // reconnect attempt genuinely failed after all — the retry loop covers it
       return;
     }
-    UI.week = LG.currentWeek() > (LG.rules.seasonWeeks + 3) ? LG.rules.seasonWeeks : LG.currentWeek();
+    UI.week = leagueNowWeek();
     await runAutoChecks(true).catch(() => {});
     // (c) scroll position survives any repaint this routine makes.
     const y = window.scrollY;
@@ -339,6 +339,13 @@
   UI._runAutoChecks = runAutoChecks; // test hook
 
   // ---------------- boot ----------------
+  // The week the family should be looking at right now — same cap boot has always used
+  // (regular season + the three playoff weeks, then sit on the last one).
+  function leagueNowWeek() {
+    const w = LG.currentWeek();
+    const sw = (LG.rules && LG.rules.seasonWeeks) || 14;
+    return w > sw + 3 ? sw : w;
+  }
   // Boot-speed pass (2026-08-08): league.html now calls UI.boot() immediately, WITHOUT
   // waiting on LG.backendReady first — the gate screen (an unauthenticated visitor) needs
   // no backend at all, and used to sit blocked behind the Firebase ESM import + reachability
@@ -364,7 +371,7 @@
       renderOffline();
       return;
     }
-    UI.week = LG.currentWeek() > (LG.rules.seasonWeeks + 3) ? LG.rules.seasonWeeks : LG.currentWeek();
+    UI.week = leagueNowWeek();
     // S1: if the league holds no commissioner hash yet and THIS device carries Dad's family-app
     // one, hand it up now — the sooner it lands, the smaller the window in which anyone else
     // could be offered "set a commissioner PIN (first time)". Fire-and-forget: it is one small
@@ -528,7 +535,7 @@
     }
     schedule = sched;
     report("Ready — week 1 is up next.");
-    UI.week = LG.currentWeek();
+    UI.week = leagueNowWeek();
     return { ok: true };
   }
   UI.runSimSetup = runSimSetup; // test hook
@@ -4027,12 +4034,79 @@
     stopScoresPoll();
     stopNflGamePoll();
   };
+  // iOS standalone often never re-requests league.html. Pull-up used to refresh
+  // scores only, so a tab left open over Tuesday stayed on last week's board
+  // and a new deploy (the chip row) never arrived. Advance the viewed week
+  // when the league clock moved, then compare the live HTML's cache-bust
+  // token and replace if this document is stale.
+  function readAppV(html) {
+    const meta = String(html || "").match(/name=["']gffl-v["'][^>]*content=["']([^"']+)["']/)
+      || String(html || "").match(/content=["']([^"']+)["'][^>]*name=["']gffl-v["']/);
+    if (meta) return meta[1];
+    const scr = String(html || "").match(/lg-ui\.js\?v=([A-Za-z0-9]+)/);
+    return scr ? scr[1] : "";
+  }
+  function haveAppV() {
+    const m = document.querySelector('meta[name="gffl-v"]');
+    if (m && m.content) return m.content;
+    const s = document.querySelector('script[src*="lg-ui.js"]');
+    const q = s && s.src && s.src.match(/[?&]v=([^&]+)/);
+    return q ? q[1] : "";
+  }
+  function typingInApp() {
+    const ae = document.activeElement;
+    return !!(ae && (ae.tagName === "TEXTAREA" || ae.tagName === "INPUT") && ae.type !== "button");
+  }
+  UI.syncLeagueWeek = function () {
+    if (!LG.rules || UI.week == null) return false;
+    if (UI._overlayOpen && UI._overlayOpen()) return false;
+    if (typingInApp()) return false;
+    const want = leagueNowWeek();
+    if (want === UI.week) return false;
+    UI.week = want;
+    UI.matchup = null;
+    UI._muWeekGames = null;
+    UI._scoresWeek = null;
+    if (UI.view) UI.show(UI.view);
+    return true;
+  };
+  UI._reloadApp = function () {
+    const u = new URL(location.href);
+    u.searchParams.set("n", String(Date.now()));
+    location.replace(u.pathname + u.search + u.hash);
+  };
+  UI.checkAppFresh = async function () {
+    if (UI._freshBusy) return false;
+    if (UI._freshAt && Date.now() - UI._freshAt < 60000) return false;
+    if (UI._overlayOpen && UI._overlayOpen()) return false;
+    if (typingInApp()) return false;
+    const have = haveAppV();
+    if (!have) return false;
+    UI._freshBusy = true;
+    try {
+      const r = await fetch("/league.html?n=" + Date.now(), { cache: "no-store" });
+      if (!r.ok) return false;
+      const live = readAppV(await r.text());
+      UI._freshAt = Date.now();
+      if (live && live !== have) {
+        UI._reloadApp();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    } finally {
+      UI._freshBusy = false;
+    }
+  };
   UI.onForeground = function () {
     const d = D();
     if (!d || typeof d.wake !== "function") return false;
+    const weekMoved = UI.syncLeagueWeek();
     const woke = d.wake();
     if (woke) kickViewPollsNow();
-    return woke;
+    UI.checkAppFresh();
+    return woke || weekMoved;
   };
   Object.defineProperty(UI, "_foreAliveAt", {
     configurable: true,

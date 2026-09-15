@@ -25014,6 +25014,8 @@ async function openDetails(page, id) {
   // so D.start() no-ops and nothing fetches until a cold boot. Sports already
   // refreshes on visibilitychange; GFFL now does the same, plus pageshow/resume
   // and a freeze-gap pulse for the cases iOS never fires hidden.
+  // 2026-09-15: pull-up also advances UI.week when the league clock rolled
+  // and reloads the document when league.html's gffl-v token moved.
   if (section("TG · pull-up refresh — iOS/Safari foreground catch-up")) {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     fixture.sbLiveHome = null; fixture.sbLiveAway = null;
@@ -25284,6 +25286,120 @@ async function openDetails(page, id) {
       ok(r.running === false && r.loopStarts === 0,
         "a pre-boot visibility event never arms a poll loop the boot hasn't started (" + JSON.stringify(r) + ")");
       ok(errors.length === 0, "0 page errors on the gate-screen visibility guard");
+      await ctx.close();
+    }
+
+    // ---- TG5: a Tuesday rollover while the iOS app stayed open must leave week 1 ----
+    // RESTAGED 2026-09-15: pull-up refreshed scores but UI.week was boot-only, so a
+    // phone left open over the week boundary kept painting last week's board.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await pinSeedWeek1(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const before = await evalOr(page, () => {
+        const { UI, LG } = window.__GFFL__;
+        return {
+          hooks: typeof UI.syncLeagueWeek === "function",
+          week: UI.week, now: LG.currentWeek(),
+          h2: ((document.querySelector("#main h2") || {}).textContent || "").replace(/\s+/g, " "),
+        };
+      }) || {};
+      ok(before.hooks === true, "UI.syncLeagueWeek exists (HEAD pull-up never advanced the week)");
+      ok(before.week === 1 && before.now === 1 && /Week 1/.test(before.h2),
+        "pinned on the week-1 board (" + JSON.stringify(before) + ")");
+      await page.evaluate(() => {
+        const { LG } = window.__GFFL__;
+        LG.nowOverride = LG.weekStart(2) + 3600 * 1000;
+      });
+      const moved = await evalOr(page, () => window.__GFFL__.UI.onForeground());
+      await waitFnOr(page, () => {
+        const UI = window.__GFFL__ && window.__GFFL__.UI;
+        const h2 = ((document.querySelector("#main h2") || {}).textContent || "");
+        return !!(UI && UI.week === 2 && /Week 2/.test(h2));
+      });
+      const after = await evalOr(page, () => {
+        const { UI, LG } = window.__GFFL__;
+        return {
+          week: UI.week, now: LG.currentWeek(),
+          mu: UI.matchup, scoresWk: UI._scoresWeek,
+          h2: ((document.querySelector("#main h2") || {}).textContent || "").replace(/\s+/g, " "),
+          body: ((document.getElementById("main") || {}).textContent || "").replace(/\s+/g, " ").slice(0, 160),
+        };
+      }) || {};
+      ok(moved === true && after.week === 2 && after.now === 2,
+        "pull-up advances the viewed week with the league clock (" + JSON.stringify({ moved, week: after.week, now: after.now }) + ")");
+      ok(/Week 2/.test(after.h2) && /No games this week/.test(after.body),
+        "…and the SCREEN left week 1 — fullSeed has no week-2 pairings (" + after.h2 + ")");
+      ok(after.mu == null && after.scoresWk == null,
+        "…the previous pairing and a Scores browse week do not ride along");
+      ok(errors.length === 0, "0 page errors on the week rollover");
+      await ctx.close();
+    }
+
+    // ---- TG6: a stale iOS document reloads when the live HTML has a new ?v= ----
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await pinSeedWeek1(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      const r = await evalOr(page, async () => {
+        const UI = window.__GFFL__.UI;
+        if (typeof UI.checkAppFresh !== "function") return { hooks: false };
+        window.__reloads = 0;
+        UI._reloadApp = () => { window.__reloads++; };
+        UI._freshAt = 0;
+        const orig = window.fetch;
+        window.fetch = async (u, o) => {
+          if (String(u).includes("/league.html")) {
+            return new Response('<meta name="gffl-v" content="stale99">',
+              { status: 200, headers: { "Content-Type": "text/html" } });
+          }
+          return orig(u, o);
+        };
+        const stale = await UI.checkAppFresh();
+        const nStale = window.__reloads;
+        UI._freshAt = 0;
+        window.fetch = async (u, o) => {
+          if (String(u).includes("/league.html")) {
+            const have = (document.querySelector('meta[name="gffl-v"]') || {}).content || "20260915e";
+            return new Response('<meta name="gffl-v" content="' + have + '">',
+              { status: 200, headers: { "Content-Type": "text/html" } });
+          }
+          return orig(u, o);
+        };
+        const same = await UI.checkAppFresh();
+        const nSame = window.__reloads;
+        UI._freshAt = 0;
+        const t = document.createElement("textarea");
+        t.id = "muThreadText";
+        document.body.appendChild(t);
+        t.focus();
+        window.fetch = async (u, o) => {
+          if (String(u).includes("/league.html")) {
+            return new Response('<meta name="gffl-v" content="stale99">',
+              { status: 200, headers: { "Content-Type": "text/html" } });
+          }
+          return orig(u, o);
+        };
+        const typing = await UI.checkAppFresh();
+        const nTyping = window.__reloads;
+        t.remove();
+        window.fetch = orig;
+        return { hooks: true, stale, nStale, same, nSame, typing, nTyping,
+          have: (document.querySelector('meta[name="gffl-v"]') || {}).content || "" };
+      }) || {};
+      ok(r.hooks === true, "UI.checkAppFresh exists (HEAD never compared the live HTML)");
+      ok(r.stale === true && r.nStale === 1,
+        "a newer gffl-v on the server reloads this document (" + JSON.stringify(r) + ")");
+      ok(r.same === false && r.nSame === 1,
+        "the current token does not reload again (" + JSON.stringify({ same: r.same, n: r.nSame }) + ")");
+      ok(r.typing === false && r.nTyping === 1,
+        "a focused composer is not yanked by a deploy check (" + JSON.stringify({ typing: r.typing, n: r.nTyping }) + ")");
+      ok(errors.length === 0, "0 page errors on the deploy freshness check");
       await ctx.close();
     }
   }

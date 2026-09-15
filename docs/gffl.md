@@ -8140,3 +8140,33 @@ history push, Back, composer-survives-morph, one-game
 hide, no-scroll, and 0 page errors still passed. App
 files restored, hashes identical.
 ---
+
+## GFFL — iOS pull-up leaves last week and last deploy (2026-09-15)
+
+User: iPhone still showed week 1 and not the new chip
+row — "seems like its not refreshing."
+
+iOS standalone freezes the document. `D.wake()` already
+catch-up polls scores on pull-up, but `UI.week` was set
+once at boot, so a phone left open over Tuesday kept
+last week's pairings, and a new deploy never arrived
+because the HTML was never re-requested.
+
+`UI.syncLeagueWeek` on foreground compares `UI.week` to
+`leagueNowWeek()` (the same cap boot uses). When the
+clock moved it clears the sticky pairing / Scores browse
+week and repaints. `UI.checkAppFresh` fetches
+`/league.html` with `cache: "no-store"` and reloads via
+`location.replace` + `n=` if `gffl-v` (or `lg-ui.js?v=`)
+differs. A focused composer or an open overlay skips
+both. `league.html` is `Cache-Control: no-cache, no-store,
+must-revalidate` so a killed-and-reopened app cannot
+reuse last week's document.
+
+Scripts cache-bust `?v=20260915e`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`netlify.toml`, `tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: quoted after the suite run.
+---

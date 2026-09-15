@@ -80,3 +80,13 @@
   to = "/league.html"
   status = 200
   force = true
+
+# iOS standalone often restores a frozen document and, when it does re-request
+# HTML, WebKit will reuse last week's league.html if the browser is allowed to
+# cache it. Script tags are already cache-busted (?v=); the document must not
+# be. Netlify's default is max-age=0 must-revalidate — restated here so a
+# future default change cannot stick a phone on an old deploy.
+[[headers]]
+  for = "/league.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
