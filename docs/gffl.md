@@ -8065,3 +8065,32 @@ Every pre-existing deterministic / sum / 1-0-above-0-1 /
 week-10 lock check still passed. App files restored,
 hashes identical.
 ---
+
+## GFFL — other matchups as chips above the header (2026-09-15)
+
+User: the Matchup tab should default to that person's
+pairing, and right above the header the other three this
+week should be buttons with the current score so you don't
+have to go to Scores to open them.
+
+`UI.navTo("matchup")` still clears `UI.matchup` and lands
+on `myMatchupThisWeek()`. A new `#muSwitch` row sits
+immediately above `#muHead` — not a `.card`, so the first
+card is still the header. One chip per other pairing from
+`LG.gamesForWeek` (regular season: three; playoffs: however
+many leftovers; a one-game week hides the strip). Each chip
+is abbrev + `liveTotal` (away–home), the same number the
+header and Scores cards already use. Tapping sets
+`UI.matchup` and `UI.go("matchup")` so history restores the
+pairing. A live morph patches the chip interiors; the
+trash-talk composer is not rebuilt. Your own pairing is
+marked `.mine` on the strip when you are looking at someone
+else.
+
+Scripts cache-bust `?v=20260915c`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: quoted after the suite run.
+---

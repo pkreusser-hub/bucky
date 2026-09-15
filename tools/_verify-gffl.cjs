@@ -26244,6 +26244,180 @@ async function openDetails(page, id) {
     }
   }
 
+  // ================= TL · matchup tab switcher chips =================================
+  // User: default to my pairing, and put the other three this week as score buttons
+  // above the header so you don't have to go to Scores to open them.
+  if (section("TL · matchup switcher — other pairings above the header")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="matchup"]');
+      await page.waitForSelector(".muhead", { timeout: 9000 });
+
+      const boot = await evalOr(page, () => {
+        const { UI, LG, D } = window.__GFFL__;
+        const tot = (id) => (UI._rosters[id] || [])
+          .filter((p) => p.slot !== "BENCH" && p.slot !== "IR")
+          .reduce((s, p) => s + LG.n(D.livePts(p.key)), 0);
+        const chips = [...document.querySelectorAll("#muSwitch .muswitch")].map((b) => ({
+          mu: b.dataset.mu,
+          mine: b.classList.contains("mine"),
+          text: b.textContent.replace(/\s+/g, " ").trim(),
+        }));
+        const sw = document.querySelector("#muSwitch");
+        const firstCard = document.querySelector("#main .card");
+        const want = [[3, 4], [5, 6], [7, 8]].map(([h, a]) => ({
+          mu: h + "-" + a,
+          sc: LG.fmtPts(tot(a)) + "–" + LG.fmtPts(tot(h)),
+        }));
+        return {
+          mu: UI.matchup,
+          chipN: chips.length,
+          mus: chips.map((c) => c.mu),
+          mineOn: chips.filter((c) => c.mine).map((c) => c.mu),
+          texts: chips.map((c) => c.text),
+          want,
+          match: want.every((w) => chips.some((c) => c.mu === w.mu && c.text.includes(w.sc))),
+          hidden: !!(sw && sw.hidden),
+          shown: !!(sw && sw.offsetParent),
+          firstIsHead: !!(firstCard && firstCard.id === "muHead"),
+          scroll: { b: document.body.scrollWidth, w: window.innerWidth },
+        };
+      });
+      ok(JSON.stringify(boot.mu) === "[1,2]",
+        "the Matchup tab still lands on the viewer's own pairing (" + JSON.stringify(boot.mu) + ")");
+      ok(boot.shown === true && boot.hidden === false && boot.chipN === 3,
+        "the other three pairings this week sit above the header (" + JSON.stringify({ n: boot.chipN, shown: boot.shown }) + ")");
+      ok(boot.mus.indexOf("1-2") < 0 && boot.mus.join() === "3-4,5-6,7-8",
+        "…and none of them is the open pairing (" + JSON.stringify(boot.mus) + ")");
+      ok(boot.match === true,
+        "each chip score is that pairing's liveTotal (" + JSON.stringify({ texts: boot.texts, want: boot.want }) + ")");
+      ok(boot.mineOn.length === 0,
+        "your own pairing is not a chip while it is on screen (" + JSON.stringify(boot.mineOn) + ")");
+      ok(boot.firstIsHead === true,
+        "the strip is not a .card — the first card is still the header");
+      ok(boot.scroll.b <= boot.scroll.w + 1,
+        "three chips fit 390px with no sideways scroll (" + boot.scroll.b + "/" + boot.scroll.w + ")");
+
+      await clickIn(page, '.muswitch[data-mu="3-4"]');
+      await waitFnOr(page, () => {
+        const h = document.querySelector(".muhead");
+        return !!(h && /Wyoming Cowboys/.test(h.textContent));
+      });
+      const swapped = await evalOr(page, () => {
+        const { UI } = window.__GFFL__;
+        const head = (document.querySelector(".muhead") || {}).textContent || "";
+        const chips = [...document.querySelectorAll("#muSwitch .muswitch")].map((b) => ({
+          mu: b.dataset.mu, mine: b.classList.contains("mine"),
+        }));
+        return { mu: UI.matchup, head: head.replace(/\s+/g, " "), mus: chips.map((c) => c.mu),
+          mineOn: chips.filter((c) => c.mine).map((c) => c.mu) };
+      });
+      ok(JSON.stringify(swapped.mu) === "[3,4]",
+        "tapping a chip opens THAT pairing (" + JSON.stringify(swapped.mu) + ")");
+      ok(/Wyoming Cowboys/.test(swapped.head) && /Waffle House Warriors/.test(swapped.head),
+        "…and that is the game on SCREEN (" + swapped.head.slice(0, 80) + ")");
+      ok(swapped.mus.indexOf("3-4") < 0 && swapped.mus.indexOf("1-2") >= 0,
+        "the previous pairing joins the strip (" + JSON.stringify(swapped.mus) + ")");
+      ok(swapped.mineOn.join() === "1-2",
+        "your own pairing is marked on the strip so you can get back (" + JSON.stringify(swapped.mineOn) + ")");
+
+      await page.goBack().catch(() => {});
+      await waitFnOr(page, () => {
+        const h = document.querySelector(".muhead");
+        return !!(h && /Battle Kreussers/.test(h.textContent)
+          && JSON.stringify(window.__GFFL__.UI.matchup) === "[1,2]");
+      });
+      ok(JSON.stringify(await evalOr(page, () => window.__GFFL__.UI.matchup)) === "[1,2]",
+        "Back restores the pairing the chip left");
+
+      await clickIn(page, '.muswitch[data-mu="3-4"]');
+      await waitFnOr(page, () => {
+        const h = document.querySelector(".muhead");
+        return !!(h && /Wyoming Cowboys/.test(h.textContent));
+      });
+      await clickIn(page, '.bnav button[data-v="matchup"]');
+      await waitFnOr(page, () => {
+        const h = document.querySelector(".muhead");
+        return !!(h && /Battle Kreussers/.test(h.textContent)
+          && JSON.stringify(window.__GFFL__.UI.matchup) === "[1,2]");
+      });
+      ok(JSON.stringify(await evalOr(page, () => window.__GFFL__.UI.matchup)) === "[1,2]",
+        "pressing the Matchup tab still returns you to your own game");
+
+      const morph = await evalOr(page, async () => {
+        const { UI, D } = window.__GFFL__;
+        const t = document.querySelector("#muThreadText");
+        if (t) t.value = "keep me";
+        UI._rosters[3] = [{ key: "tl3", name: "X", pos: "QB", slot: "QB" }];
+        D.S.players.set("tl3", { key: "tl3", name: "X", pts: 12.4 });
+        await UI.renderMatchup(true);
+        const chip = document.querySelector('.muswitch[data-mu="3-4"]');
+        const t2 = document.querySelector("#muThreadText");
+        return {
+          text: t2 ? t2.value : null,
+          sameNode: t === t2,
+          sc: chip ? chip.textContent.replace(/\s+/g, " ").trim() : "",
+        };
+      });
+      ok(morph && morph.text === "keep me" && morph.sameNode === true,
+        "a live morph leaves the trash-talk composer untouched (" + JSON.stringify({ text: morph && morph.text, same: morph && morph.sameNode }) + ")");
+      ok(morph && /12\.4/.test(morph.sc),
+        "…and the chip score moves with liveTotal (" + (morph && morph.sc) + ")");
+
+      const one = await evalOr(page, async () => {
+        const { UI } = window.__GFFL__;
+        UI._muWeekGames = { week: UI.week, games: [UI.matchup] };
+        await UI.renderMatchup();
+        const sw = document.querySelector("#muSwitch");
+        return { hidden: !!(sw && sw.hidden), shown: !!(sw && sw.offsetParent), n: sw ? sw.querySelectorAll(".muswitch").length : -1 };
+      });
+      ok(one && one.hidden === true && one.shown === false && one.n === 0,
+        "a one-game week hides the strip (" + JSON.stringify(one) + ")");
+
+      if (SHOTS) {
+        // Restore the four-game board so the plate shows the chips.
+        await evalOr(page, async () => {
+          const { UI } = window.__GFFL__;
+          UI._muWeekGames = null;
+          UI.matchup = null;
+          await UI.renderMatchup();
+        });
+        fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true });
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_mu_switch_390.png"), fullPage: false });
+        console.log("  📸 shots/gffl_mu_switch_390.png");
+      }
+      ok(errors.length === 0, "0 page errors on the matchup switcher");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 980 } });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="matchup"]');
+      await page.waitForSelector("#muSwitch .muswitch", { timeout: 9000 });
+      const desk = await evalOr(page, () => {
+        const chips = document.querySelectorAll("#muSwitch .muswitch");
+        const sw = document.querySelector("#muSwitch");
+        return {
+          n: chips.length,
+          shown: !!(sw && sw.offsetParent),
+          scroll: { b: document.body.scrollWidth, w: window.innerWidth },
+        };
+      });
+      ok(desk.n === 3 && desk.shown === true,
+        "desktop still paints the other three pairings (" + JSON.stringify(desk) + ")");
+      ok(desk.scroll.b <= desk.scroll.w + 1,
+        "…and they fit 1440px with no sideways scroll (" + desk.scroll.b + "/" + desk.scroll.w + ")");
+      ok(errors.length === 0, "0 page errors on the desktop switcher");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

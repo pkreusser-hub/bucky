@@ -450,6 +450,27 @@
   .mupbar.mini.unknown { background:var(--divider2); }
 
   /* ---------------- matchup page ---------------- */
+  /* Other-pairing chips above the header (2026-09-15). Not .card so the first
+     .card on the page stays .muhead. Not .mucard — three full slash cards would
+     eat the phone. Equal-width flex so 1–3 leftovers share the row. */
+  .muswitchrow { display:flex; gap:6px; margin:0 0 8px; }
+  .muswitchrow[hidden] { display:none; }
+  .muswitch { flex:1 1 0; min-width:0; display:flex; align-items:center; justify-content:space-between;
+              gap:4px; padding:8px 6px; background:var(--card); border:1px solid var(--border-card);
+              border-radius:var(--radius-sm); cursor:pointer; color:var(--ink);
+              text-transform:none; letter-spacing:normal; }
+  .muswitch:hover, .muswitch:focus-visible { border-color:var(--border-hover); background:var(--row-hover2); }
+  .muswitch.mine { border-color:var(--accent); }
+  .musw-a, .musw-h { font:600 12px var(--font-display); overflow:hidden; text-overflow:ellipsis;
+                     white-space:nowrap; min-width:0; }
+  .musw-h { text-align:right; }
+  .musw-sc { font:700 12px var(--font-num); font-variant-numeric:tabular-nums; flex:0 0 auto; }
+  @media (min-width:1024px) {
+    .muswitch { padding:10px 12px; }
+    .musw-a, .musw-h, .musw-sc { font-size:13px; }
+  }
+
+
   /* Item 6 (2026-08-09 playtest: "slim down the matchup card at the top by half so you can see
      more players below"). MEASURED at 390px: the header card was 220px tall — a third of the
      phone's viewport spent on two team names before a single lineup row. Halved by consolidating
@@ -2252,9 +2273,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260915b"></script>
-  <script src="assets/league/lg-data.js?v=20260915b"></script>
-  <script src="assets/league/lg-ui.js?v=20260915b"></script>
+  <script src="assets/league/lg-core.js?v=20260915c"></script>
+  <script src="assets/league/lg-data.js?v=20260915c"></script>
+  <script src="assets/league/lg-ui.js?v=20260915c"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

@@ -4079,6 +4079,47 @@
     const wk = await LG.gamesForWeek(UI.week);
     return wk.find(([h, a]) => h === mine || a === mine) || null;
   }
+  // The other pairings this week, for the chip row above the matchup header.
+  // Cached on the week so a live morph can patch scores without another gamesForWeek await
+  // in the poll tail (the clinch-demo note: an extra microtask there interleaved once).
+  async function weekPairings(force) {
+    if (!force && UI._muWeekGames && UI._muWeekGames.week === UI.week) return UI._muWeekGames.games;
+    const games = (await LG.gamesForWeek(UI.week)) || [];
+    UI._muWeekGames = { week: UI.week, games };
+    return games;
+  }
+  function muPairKey(h, a) { return h + "-" + a; }
+  function muSwitchInner(games, open) {
+    const openKey = open ? muPairKey(open[0], open[1]) : "";
+    const others = (games || []).filter((g) => muPairKey(g[0], g[1]) !== openKey);
+    if (!others.length) return "";
+    const mine = LG.myTeamId();
+    return others.map(([h, a]) => {
+      const H = LG.teamById(h), A = LG.teamById(a);
+      const isMine = mine && (h === mine || a === mine);
+      return `<button type="button" class="muswitch${isMine ? " mine" : ""}" data-mu="${h}-${a}">
+        <span class="musw-a">${esc(teamTag(A))}</span>
+        <span class="musw-sc">${LG.fmtPts(liveTotal(a))}–${LG.fmtPts(liveTotal(h))}</span>
+        <span class="musw-h">${esc(teamTag(H))}</span>
+      </button>`;
+    }).join("");
+  }
+  function wireMuSwitch() {
+    const root = $("#muSwitch");
+    if (!root || root.dataset.wired) return;
+    root.dataset.wired = "1";
+    root.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-mu]");
+      if (!b) return;
+      const parts = String(b.dataset.mu || "").split("-").map(Number);
+      if (parts.length !== 2 || !parts[0] || !parts[1]) return;
+      const cur = UI.matchup || [];
+      if (cur[0] === parts[0] && cur[1] === parts[1]) return;
+      UI.matchup = parts;
+      UI.go("matchup");
+    });
+  }
+  UI.muSwitchInner = muSwitchInner;
   // ---------------- (removed 2026-08-11) the "Head to head" split-bar card ----------------
   // S3 ported the NFL box score's split-bar mechanic here as an 8-row category card. The user's
   // cosmetic pass removed it: every one of those numbers is readable in the player matchups
@@ -4148,6 +4189,7 @@
       await loadWeekRosters();
       if (typeof LG.sampleMatchupWinProbs === "function") await LG.sampleMatchupWinProbs().catch(() => {});
       if (typeof LG.loadWpGraph === "function") await LG.loadWpGraph(UI.week).catch(() => {});
+      await weekPairings(true);
     }
     const d = D();
     simProjEnsureAndRepaint("matchup"); // 2025 season replay — see startData()
@@ -4240,6 +4282,8 @@
     // crests never flash, the trash-talk composer keeps its text and focus, and no listener is
     // ever bound twice (the repaint branch deliberately re-runs ONLY the dataset-guarded
     // wirePlayerCardTaps, for rows the morph genuinely created).
+    const weekGames = (UI._muWeekGames && UI._muWeekGames.week === UI.week) ? UI._muWeekGames.games : [];
+    const muSwitchHtml = muSwitchInner(weekGames, UI.matchup);
     const muHeadInner = `
         <div class="muhrow">
           ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "", aStar)}
@@ -4272,6 +4316,12 @@
           <td class="pcell right">${halfCell(ph, "right")}</td></tr>`).join("")}
       </tbody></table></div>` : "";
     if (repaint && $("#muHead")) {
+      const sw = $("#muSwitch");
+      if (sw) {
+        sw.hidden = !muSwitchHtml;
+        if (muSwitchHtml) patchInto(sw, muSwitchHtml);
+        else sw.innerHTML = "";
+      }
       patchInto($("#muHead"), muHeadInner);
       const wpEl = $("#muWp");
       if (wpEl) {
@@ -4293,6 +4343,7 @@
       return;
     }
     main().innerHTML = `
+      <div class="muswitchrow" id="muSwitch"${muSwitchHtml ? "" : " hidden"}>${muSwitchHtml}</div>
       <div class="card muhead muhero" id="muHead" style="--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tta:${esc(pa.tertiary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)};--tth:${esc(ph.tertiary)}">${muHeadInner}</div>
       <div class="card muwpcard" id="muWp"${muWpInner ? "" : " hidden"}>${muWpInner}</div>
       <div class="card lineupcard" id="muLineup">${muLineupInner}</div>
@@ -4309,6 +4360,7 @@
       </div>
       <div class="card"><h2>Trash talk</h2>${chatWidgetHtml("muThread")}</div>`;
     paintFeed();
+    wireMuSwitch();
     document.querySelectorAll("#mufeedFilter .poschip").forEach((b) => b.addEventListener("click", () => {
       UI._feedSide = b.dataset.fside;
       document.querySelectorAll("#mufeedFilter .poschip").forEach((x) => x.classList.toggle("on", x.dataset.fside === UI._feedSide));
