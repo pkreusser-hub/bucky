@@ -24417,13 +24417,13 @@ async function openDetails(page, id) {
         ok(Array.isArray(r.segsFlat) && r.segsFlat.length === 1 && r.segsFlat[0].side === "mid"
           && r.segsFlat[0].points === "0.0,28.0 220.0,28.0",
           "…and a 50/50 run stays on the mid line (" + JSON.stringify(r.segsFlat) + ")");
-        // RESTAGED 2026-09-13: X is the last hour, now at the right, one tick
-        // a minute. The slate first-kickoff→last-game axis hid a live move
-        // (last kickoff is 2027-01-01 in this fixture).
+        // RESTAGED 2026-09-14: X is playing-time for the pairing. The 1-hour
+        // clock window is only the pre-kickoff fallback (one-seed card,
+        // 11-minute tail). The tick is still 1 minute.
         ok(r.windowMs === 3600000 && r.tickMs === 60000,
-          "the plot window is 1 hour and the tick is 1 minute (" + JSON.stringify({ windowMs: r.windowMs, tickMs: r.tickMs }) + ")");
+          "the pre-kickoff fallback is 1 hour and the tick is 1 minute (" + JSON.stringify({ windowMs: r.windowMs, tickMs: r.tickMs }) + ")");
         ok(r.hourWin && r.hourWin.t0 === 0 && r.hourWin.t1 === 3600000,
-          "wpPlotWindow(1h) is [0, 1h] (" + JSON.stringify(r.hourWin) + ")");
+          "wpPlotWindow(1h) is still [0, 1h] — the clock fallback (" + JSON.stringify(r.hourWin) + ")");
         ok(r.tick === 10 * 60000,
           "wpTick floors to the minute (" + r.tick + ")");
         ok(r.a0 && r.a0.added === 1 && r.a0.rows.length === 1 && r.a0.rows[0].t === 10 * 60000,
@@ -24437,9 +24437,9 @@ async function openDetails(page, id) {
         ok(r.a3 && r.a3.added === 1 && r.a3.rows.length === 3 && r.a3.rows[2].t === 11 * 60000,
           "…the next minute appends a new tick (" + JSON.stringify(r.a3) + ")");
         ok(r.hourPoly === "110.0,28.0 220.0,28.0",
-          "a point 30 minutes ago sits at mid-box; the hour is not filled with a hold of that value (" + r.hourPoly + ")");
+          "explicit 1h view: a point 30 minutes ago sits at mid-box (" + r.hourPoly + ")");
         ok(r.oldN === 2 && r.oldPoly === "0.0,40.0 220.0,40.0",
-          "a 2-hour-old tick is a left-edge hold, not its own vertex (" + JSON.stringify({ oldN: r.oldN, oldPoly: r.oldPoly }) + ")");
+          "explicit 1h view: a 2-hour-old tick is a left-edge hold (" + JSON.stringify({ oldN: r.oldN, oldPoly: r.oldPoly }) + ")");
         ok(r.dedupeN === 2 && r.dedupeSorted === true,
           "several timestamps in one minute collapse to one sorted tick (" + JSON.stringify({ n: r.dedupeN, sorted: r.dedupeSorted }) + ")");
         ok(r.viewMono === true,
@@ -24591,12 +24591,11 @@ async function openDetails(page, id) {
         // not a fake hold at x=0 of the current %. Now is still x=220.
         ok(painted.n >= 2 && painted.firstX != null && Number(painted.firstX) >= 0 && painted.lastX != null && Number(painted.lastX) <= 220,
           "…polyline stays inside the 220-wide box (" + JSON.stringify(painted) + ")");
-        // RESTAGED 2026-09-13: now is the far right of a rolling hour. The old
-        // pin (lastX < 220) was "last kickoff is still in the future" — that
-        // future (2027-01-01 here; Monday night in production) stretched X
-        // until a live move was invisible.
+        // RESTAGED 2026-09-14: now is the far right of playing time (or the
+        // 1h clock fallback before anyone has kicked). The old pin
+        // (lastX < 220) was "last kickoff is still in the future".
         ok(painted.lastX === "220.0",
-          "…and the last vertex is now at the far right of the hour (" + painted.lastX + ")");
+          "…and the last vertex is now at the far right of the plot (" + painted.lastX + ")");
         ok(painted.vb === "0 0 220 56", "…on the NFL 220×56 sparkline, not the labelled 80-tall plot (" + painted.vb + ")");
         ok(painted.midY === 28, "…the mid rule is the NFL midpoint (y=28) (" + painted.midY + ")");
         // RESTAGED 2026-09-14: leftover-√remaining pinned this 100-40
@@ -24868,10 +24867,12 @@ async function openDetails(page, id) {
         });
         ok(painted.parent === true && painted.n >= 8 && painted.maxY - painted.minY > 10,
           "…and paint draws that tail, not a clipped seed (" + JSON.stringify(painted) + ")");
-        // RESTAGED 2026-09-13: stretching the first sample back to x=0
-        // painted an hour of a % that had only existed for 11 minutes.
+        // RESTAGED 2026-09-14: nothing on the pairing has kicked (pre + a
+        // days-old kickoff is not a span), so paint uses the 1h clock
+        // fallback. Stretching the first sample back to x=0 painted an
+        // hour of a % that had only existed for 11 minutes.
         ok(painted.lastX === 220 && painted.firstX > 150 && painted.firstX < 210,
-          "…now at the far right; the first recorded minute is not stretched to x=0 (" + JSON.stringify({ firstX: painted.firstX, lastX: painted.lastX }) + ")");
+          "…clock-fallback now at the far right; the first recorded minute is not stretched to x=0 (" + JSON.stringify({ firstX: painted.firstX, lastX: painted.lastX }) + ")");
       }
       ok(errors.length === 0, "0 page errors on the live-tail clip");
       await ctx.close();
@@ -25465,6 +25466,293 @@ async function openDetails(page, id) {
       }
       ok(shots.length === 3, "TH9 wrote the three matchup-header plates (" + shots.join(", ") + ")");
       ok(errors.length === 0, "0 page errors on the matchup-header feels");
+      await ctx.close();
+    }
+  }
+
+  // ================= TI · sparkline X is playing-time =================================
+  // User: NFL sparklines last one game; a fantasy pairing spans TNF + Sunday
+  // + SNF + MNF. Do not flatline the idle gaps. X is football-on time for
+  // this pairing — Thursday's last tick sits against Sunday's first.
+  if (section("TI · sparkline X is playing-time, idle gaps collapsed")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const A9 = ["3915511", "4241457", "111888", "4361741", "111555", "111222", "111444", "dst_PHI", "2473037"];
+    const B3 = ["222111", "222333", "dst_DAL"];
+    const H = 3600000, DAY = 86400000;
+
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+
+      // ---- TI1: merge + playingAt arithmetic. Hand-computed against
+      // spans [0, 3h] and [2d, 2d+2h].
+      const arith = await page.evaluate((H, DAY) => {
+        const LG = window.__GFFL__.LG;
+        if (typeof LG.wpMergeSpans !== "function" || typeof LG.wpPlayingAt !== "function") {
+          return { hooks: false };
+        }
+        const thuSun = [{ t0: 0, t1: 3 * H }, { t0: 2 * DAY, t1: 2 * DAY + 2 * H }];
+        const overlap = LG.wpMergeSpans([{ t0: 0, t1: 3 * H }, { t0: 2 * H, t1: 4 * H }]);
+        return {
+          hooks: true,
+          at3h: LG.wpPlayingAt(3 * H, thuSun),
+          at2d: LG.wpPlayingAt(2 * DAY, thuSun),
+          at2d1h: LG.wpPlayingAt(2 * DAY + H, thuSun),
+          friday: LG.wpPlayingAt(DAY, thuSun),
+          mergedN: overlap.length,
+          mergedT1: overlap[0] && overlap[0].t1,
+          postNone: typeof LG.wpGameSpan === "function"
+            ? LG.wpGameSpan({ state: "post", completed: false, kickoff: "2026-09-10T00:20:00Z" }, Date.parse("2026-09-12T18:00:00Z"))
+            : "missing",
+          stalePre: typeof LG.wpGameSpan === "function"
+            ? LG.wpGameSpan({ state: "pre", kickoff: "2026-08-07T00:15:00Z" }, Date.parse("2026-09-14T18:00:00Z"))
+            : "missing",
+        };
+      }, H, DAY);
+      ok(arith.hooks === true, "LG.wpMergeSpans / wpPlayingAt exist");
+      if (arith.hooks) {
+        ok(arith.at3h === 3 * H, "playingAt(end of Thursday) is 3h (" + arith.at3h + ")");
+        ok(arith.at2d === 3 * H, "playingAt(Sunday kickoff) is still 3h — the gap added nothing (" + arith.at2d + ")");
+        ok(arith.at2d1h === 4 * H, "playingAt(Sunday + 1h) is 4h (" + arith.at2d1h + ")");
+        ok(arith.friday === 3 * H, "playingAt(Friday in the gap) stays 3h — the clock is frozen (" + arith.friday + ")");
+        ok(arith.mergedN === 1 && arith.mergedT1 === 4 * H,
+          "overlapping Sunday windows merge into one span (" + JSON.stringify({ n: arith.mergedN, t1: arith.mergedT1 }) + ")");
+        ok(arith.postNone == null, "a postponed game (post + completed:false) is not a span (" + JSON.stringify(arith.postNone) + ")");
+        ok(arith.stalePre == null, "a days-old pre kickoff is not a span (" + JSON.stringify(arith.stalePre) + ")");
+      }
+
+      // ---- TI2: wpApplyTick keeps the week, not the hour. HEAD's
+      // keepHour drops now-3h and now-2h (and parks now-90m as the
+      // one carry-in).
+      const kept = await page.evaluate((H) => {
+        const LG = window.__GFFL__.LG;
+        if (typeof LG.wpApplyTick !== "function") return { hooks: false };
+        const now = 10 * H;
+        const times = [now - 3 * H, now - 2 * H, now - 90 * 60000, now];
+        let rows = [], added = 0;
+        times.forEach((t, i) => {
+          const r = LG.wpApplyTick(rows, 0.4 + i * 0.05, t);
+          rows = r.rows;
+          added += r.added;
+        });
+        return { hooks: true, n: rows.length, added, ts: rows.map((r) => r.t) };
+      }, H);
+      ok(kept.hooks === true, "LG.wpApplyTick exists for the week-keep check");
+      if (kept.hooks) {
+        ok(kept.n === 4 && kept.added === 4,
+          "ticks at now-3h / now-2h / now-90m / now are all kept (" + JSON.stringify(kept) + ")");
+      }
+
+      // ---- TI3: idle Friday + unchanged % writes nothing.
+      const idle = await page.evaluate(async (A9, B3) => {
+        const LG = window.__GFFL__.LG, D = window.__GFFL__.D;
+        const now = Date.now();
+        const thuKo = new Date(now - 2 * 86400000).toISOString();
+        const sunKo = new Date(now + 86400000).toISOString();
+        await LG.db.del(LG.wpGraphId(1));
+        D.S.players.clear();
+        D.S.games.set("PHI", { state: "post", completed: true, kickoff: thuKo, eventId: "thu" });
+        D.S.games.set("DAL", { state: "post", completed: true, kickoff: thuKo, eventId: "thu" });
+        D.S.games.set("KC", { state: "pre", kickoff: sunKo, eventId: "sun" });
+        D.S.games.set("DEN", { state: "pre", kickoff: sunKo, eventId: "sun2" });
+        const table = {}; A9.forEach((k) => (table[k] = 10));
+        table["222111"] = 30; table["222333"] = 30; table["dst_DAL"] = 20;
+        D.projFor = (key) => (key in table ? table[key] : null);
+        const p = D.winProb(B3, A9);
+        const field = LG.wpField(1, 2);
+        const planted = [{ t: now - 2 * 86400000 + 3 * 3600000, p }];
+        const doc = { kind: "wpgraph", season: LG.SEASON, week: 1, [field]: planted };
+        await LG.db.set(LG.wpGraphId(1), doc);
+        LG._wpGraph = { week: 1, doc };
+        const spans = typeof LG.wpSpansForPairing === "function" ? LG.wpSpansForPairing(1, 2, now) : [];
+        const active = typeof LG.wpIsActiveAt === "function" ? LG.wpIsActiveAt(now, spans) : null;
+        const sampled = await LG.sampleMatchupWinProbs();
+        const rows = LG.wpSeries(1, 2);
+        return {
+          p, active, spanN: spans.length,
+          added: sampled && sampled.added,
+          n: rows.length,
+          sampled,
+        };
+      }, A9, B3);
+      ok(idle.active === false && idle.spanN >= 1,
+        "Friday after Thursday is not an active window (" + JSON.stringify({ active: idle.active, spanN: idle.spanN }) + ")");
+      ok(idle.added === 0 && idle.n === 1,
+        "…and an unchanged % writes no Friday minute (" + JSON.stringify(idle) + ")");
+
+      // ---- TI4: Thursday last and Sunday first share playing-time.
+      // Wall gap is 2 days; X gap is one minute (the last Thursday minute
+      // → Sunday kickoff). HEAD's 1h window would drop Thursday entirely
+      // or hold it as a left-edge flat.
+      const adj = await page.evaluate((H, DAY) => {
+        const LG = window.__GFFL__.LG;
+        if (typeof LG.wpViewPlaying !== "function") return { hooks: false };
+        const spans = [{ t0: 0, t1: 3 * H }, { t0: 2 * DAY, t1: 2 * DAY + 2 * H }];
+        const thuLast = { t: 3 * H - 60000, p: 0.40 };
+        const sunFirst = { t: 2 * DAY, p: 0.60 };
+        const view = LG.wpViewPlaying([thuLast, sunFirst], spans, 2 * DAY + H, 0.60);
+        const wallGap = sunFirst.t - thuLast.t;
+        const playGap = view.rows.length >= 2 ? view.rows[1].t - view.rows[0].t : null;
+        const poly = typeof LG.wpPolyPoints === "function"
+          ? LG.wpPolyPoints(view.rows, 220, 56, view.t0, view.t1)
+          : "";
+        const xs = (poly || "").trim().split(/\s+/).map((pt) => Number((pt.split(",")[0]) || NaN)).filter((n) => isFinite(n));
+        return {
+          hooks: true, mode: view.mode, n: view.rows.length,
+          wallGap, playGap, t0: view.t0, t1: view.t1,
+          firstX: xs[0], sunX: xs[1], lastX: xs[xs.length - 1],
+          p0: view.rows[0] && view.rows[0].p,
+          p1: view.rows[1] && view.rows[1].p,
+        };
+      }, H, DAY);
+      ok(adj.hooks === true, "LG.wpViewPlaying exists");
+      if (adj.hooks) {
+        ok(adj.mode === "play" && adj.n >= 2 && adj.p0 === 0.40 && adj.p1 === 0.60,
+          "Thursday 40% and Sunday 60% both stay on the line (" + JSON.stringify(adj) + ")");
+        ok(adj.wallGap > DAY && adj.playGap != null && adj.playGap <= 60000,
+          "…the wall gap is 2 days and the playing-time gap is ≤1 minute (" + JSON.stringify({ wallGap: adj.wallGap, playGap: adj.playGap }) + ")");
+        ok(adj.sunX != null && adj.firstX != null && (adj.sunX - adj.firstX) < 10,
+          "…those two vertices sit next to each other on X (" + JSON.stringify({ firstX: adj.firstX, sunX: adj.sunX }) + ")");
+      }
+
+      ok(errors.length === 0, "0 page errors on the playing-time helpers");
+      await ctx.close();
+    }
+
+    // ---- TI5: Friday paint of Thursday's game is the game, not a 1h hold.
+    // Plant four Thursday vertices with a real slope. HEAD's hour window
+    // keeps only the last % as a left-edge hold (2 flat points).
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const painted = await page.evaluate(async (A9, B3) => {
+        const LG = window.__GFFL__.LG, D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        const now = Date.now();
+        const thuKo = now - 2 * 86400000;
+        const sunKo = now + 86400000;
+        D.S.players.clear();
+        D.S.games.set("PHI", { state: "post", completed: true, kickoff: new Date(thuKo).toISOString(), eventId: "thu" });
+        D.S.games.set("DAL", { state: "post", completed: true, kickoff: new Date(thuKo).toISOString(), eventId: "thu" });
+        D.S.games.set("KC", { state: "pre", kickoff: new Date(sunKo).toISOString(), eventId: "sun" });
+        D.S.games.set("DEN", { state: "pre", kickoff: new Date(sunKo).toISOString(), eventId: "sun2" });
+        const table = {}; A9.forEach((k) => (table[k] = 10));
+        table["222111"] = 30; table["222333"] = 30; table["dst_DAL"] = 20;
+        D.projFor = (key) => (key in table ? table[key] : null);
+        const rows = [0, 1, 2, 3].map((i) => ({ t: thuKo + i * 3600000, p: 0.30 + i * 0.10 }));
+        const field = LG.wpField(1, 2);
+        const doc = { kind: "wpgraph", season: LG.SEASON, week: 1, [field]: rows };
+        await LG.db.set(LG.wpGraphId(1), doc);
+        LG._wpGraph = { week: 1, doc };
+        UI.matchup = [1, 2];
+        await UI.renderMatchup(true);
+        const el = document.getElementById("muWp");
+        const xs = [], ys = [], ps = [];
+        for (const p of el ? el.querySelectorAll("polyline.muwpline") : []) {
+          const pts = (p.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
+          for (const pt of pts) {
+            const [x, y] = pt.split(",").map(Number);
+            if (isFinite(x)) xs.push(x);
+            if (isFinite(y)) ys.push(y);
+          }
+        }
+        const spans = typeof LG.wpSpansForPairing === "function" ? LG.wpSpansForPairing(1, 2, now) : [];
+        const view = typeof LG.wpViewPlaying === "function" ? LG.wpViewPlaying(rows, spans, now, rows[rows.length - 1].p) : null;
+        return {
+          parent: !!(el && el.offsetParent !== null),
+          n: xs.length,
+          firstX: xs[0],
+          lastX: xs[xs.length - 1],
+          minY: ys.length ? Math.min.apply(null, ys) : null,
+          maxY: ys.length ? Math.max.apply(null, ys) : null,
+          mode: view && view.mode,
+          viewN: view && view.rows.length,
+          spanN: spans.length,
+        };
+      }, A9, B3);
+      ok(painted.parent === true && painted.mode === "play",
+        "Friday paint uses playing-time, not the clock fallback (" + JSON.stringify(painted) + ")");
+      ok(painted.n >= 4 && painted.viewN >= 4,
+        "…Thursday's four vertices are still on the line (" + JSON.stringify({ n: painted.n, viewN: painted.viewN }) + ")");
+      ok(painted.firstX != null && painted.firstX < 20 && painted.lastX === 220,
+        "…first Thursday vertex is at the left, now at the right (" + JSON.stringify({ firstX: painted.firstX, lastX: painted.lastX }) + ")");
+      ok(painted.maxY != null && painted.minY != null && painted.maxY - painted.minY > 10,
+        "…and it is Thursday's slope, not a 1h hold of the last % (" + JSON.stringify({ minY: painted.minY, maxY: painted.maxY }) + ")");
+
+      // Two-span card: Thursday then Sunday, no Friday desert.
+      const twoSpan = await page.evaluate(async (A9, B3) => {
+        const LG = window.__GFFL__.LG, D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        const now = Date.now();
+        const thuKo = now - 2 * 86400000;
+        const sunKo = now - 3600000;
+        D.S.games.set("PHI", { state: "post", completed: true, kickoff: new Date(thuKo).toISOString(), eventId: "thu" });
+        D.S.games.set("DAL", { state: "post", completed: true, kickoff: new Date(thuKo).toISOString(), eventId: "thu" });
+        D.S.games.set("KC", { state: "in", kickoff: new Date(sunKo).toISOString(), eventId: "sun", period: 2, clock: "8:00" });
+        D.S.games.set("DEN", { state: "in", kickoff: new Date(sunKo).toISOString(), eventId: "sun", period: 2, clock: "8:00" });
+        const table = {}; A9.forEach((k) => (table[k] = 10));
+        table["222111"] = 30; table["222333"] = 30; table["dst_DAL"] = 20;
+        D.projFor = (key) => (key in table ? table[key] : null);
+        const rows = [
+          { t: thuKo, p: 0.35 },
+          { t: thuKo + 3600000, p: 0.42 },
+          { t: thuKo + 2 * 3600000, p: 0.48 },
+          { t: thuKo + 4 * 3600000, p: 0.40 },
+          { t: sunKo, p: 0.55 },
+          { t: sunKo + 30 * 60000, p: 0.58 },
+          { t: now, p: 0.62 },
+        ];
+        const field = LG.wpField(1, 2);
+        const doc = { kind: "wpgraph", season: LG.SEASON, week: 1, [field]: rows };
+        await LG.db.set(LG.wpGraphId(1), doc);
+        LG._wpGraph = { week: 1, doc };
+        UI.matchup = [1, 2];
+        await UI.renderMatchup(true);
+        const el = document.getElementById("muWp");
+        const xs = [];
+        for (const p of el ? el.querySelectorAll("polyline.muwpline") : []) {
+          const pts = (p.getAttribute("points") || "").trim().split(/\s+/).filter(Boolean);
+          for (const pt of pts) {
+            const x = Number((pt.split(",")[0]) || NaN);
+            if (isFinite(x)) xs.push(x);
+          }
+        }
+        const spans = LG.wpSpansForPairing(1, 2, now);
+        const view = LG.wpViewPlaying(rows, spans, now, 0.62);
+        const thuPlay = LG.wpPlayingAt(thuKo + 4 * 3600000, spans);
+        const sunPlay = LG.wpPlayingAt(sunKo, spans);
+        return {
+          parent: !!(el && el.offsetParent !== null),
+          n: xs.length,
+          firstX: xs[0],
+          lastX: xs[xs.length - 1],
+          spanN: spans.length,
+          mode: view.mode,
+          playGap: sunPlay - thuPlay,
+          wallGap: sunKo - (thuKo + 4 * 3600000),
+        };
+      }, A9, B3);
+      ok(twoSpan.parent === true && twoSpan.spanN >= 2 && twoSpan.mode === "play",
+        "Sunday-after-Thursday paint has two football spans (" + JSON.stringify(twoSpan) + ")");
+      ok(twoSpan.wallGap > 86400000 && twoSpan.playGap <= 60000,
+        "…Thursday's last tick sits against Sunday's first (" + JSON.stringify({ wallGap: twoSpan.wallGap, playGap: twoSpan.playGap }) + ")");
+      ok(twoSpan.firstX != null && twoSpan.firstX < 20 && twoSpan.lastX === 220,
+        "…the line starts at Thursday kickoff and ends at now (" + JSON.stringify({ firstX: twoSpan.firstX, lastX: twoSpan.lastX }) + ")");
+
+      const ART = "/opt/cursor/artifacts";
+      try { fs.mkdirSync(ART, { recursive: true }); } catch (e) { /* already there */ }
+      const card = await page.$("#muWp");
+      if (card) {
+        const dest = path.join(ART, "gffl-wp-playtime.png");
+        await card.screenshot({ path: dest });
+        ok(true, "TI wrote the two-span sparkline plate (" + dest + ")");
+      } else {
+        ok(false, "TI could not find #muWp for the two-span plate");
+      }
+
+      ok(errors.length === 0, "0 page errors on Friday / two-span paint");
       await ctx.close();
     }
   }

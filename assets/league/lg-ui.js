@@ -4087,21 +4087,32 @@
   // primary), and the .nflsbt original still lives on the NFL game page where the box score
   // has no per-player restatement.
   // The NFL game page's winprob sparkline, for a fantasy pairing. Series is
-  // D.winProb recorded each minute. X is the last hour, now at the right
-  // edge. The current bar reading is the tip. A 90→80 move keeps both
-  // minutes so the line slopes. Own card, never inside .muhead. Stroke
-  // follows the mid line: above is away's on-dark colour, below is home's.
-  // A 50/50 run stays muted. Colours come from LG.teamPalette.
+  // D.winProb recorded each minute. X is this pairing's football-on time
+  // (idle Fri/Sat gaps add no width); now at the right during a live
+  // window. Before anyone has kicked, the 1-hour clock fallback still
+  // draws a one-seed card. The current bar reading is the tip. A 90→80
+  // move keeps both minutes so the line slopes. Own card, never inside
+  // .muhead. Stroke follows the mid line: above is away's on-dark colour,
+  // below is home's. A 50/50 run stays muted. Colours come from
+  // LG.teamPalette.
   function matchupWinGraphHtml(hId, aId, wp, A, H, wpKick) {
     if (typeof LG.wpSeries !== "function" || typeof LG.wpPolyPoints !== "function") return "";
     const stored = LG.wpSeries(hId, aId);
     const now = Date.now();
-    const win = typeof LG.wpPlotWindow === "function" ? LG.wpPlotWindow(now) : { t0: now - 3600000, t1: now };
-    const t0 = win.t0, t1 = win.t1;
     const cur = Number.isFinite(wp) ? wp : (Number.isFinite(wpKick) ? wpKick : null);
-    const pts = typeof LG.wpViewRows === "function"
-      ? LG.wpViewRows(stored, t0, t1, cur)
-      : stored.slice();
+    let pts, t0, t1;
+    if (typeof LG.wpViewPlaying === "function") {
+      const spans = typeof LG.wpSpansForPairing === "function" ? LG.wpSpansForPairing(hId, aId, now) : [];
+      const view = LG.wpViewPlaying(stored, spans, now, cur);
+      pts = view.rows;
+      t0 = view.t0;
+      t1 = view.t1;
+    } else {
+      const win = typeof LG.wpPlotWindow === "function" ? LG.wpPlotWindow(now) : { t0: now - 3600000, t1: now };
+      t0 = win.t0;
+      t1 = win.t1;
+      pts = typeof LG.wpViewRows === "function" ? LG.wpViewRows(stored, t0, t1, cur) : stored.slice();
+    }
     if (pts.length < 2) return "";
     const plot = LG.WP_PLOT || { w: 220, h: 56 };
     const segs = (typeof LG.wpPolySegments === "function"

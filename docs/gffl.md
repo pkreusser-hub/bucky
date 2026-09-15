@@ -7918,3 +7918,40 @@ leftover dollars (64%→89%), and paints Thursday 118-110 at 65%,
 Sunday 48-41 at 67%, Monday 112-109 at 77%. Every pre-existing
 AQ/TF/TH check still passed. App files restored, hashes identical.
 ---
+
+## GFFL — sparkline X is playing-time, idle gaps collapsed (2026-09-14)
+
+User: NFL sparklines last the duration of one game. A fantasy
+matchup spans Thursday night + the Sunday slate + Sunday night +
+Monday night. Do not flatline between those periods; the line
+should look uninterrupted.
+
+The rolling 1-hour wall-clock window hid Thursday by Sunday and
+painted Friday as a flat hour of the last %. Week-long wall-clock
+(first kickoff → last game) was already rejected: the fixture's
+last kickoff is January 2027, and a live move sat at x≈56 of 220.
+
+X is now this pairing's football-on time. Wall-clock `{t,p}` ticks
+stay. Idle gaps (Fri/Sat, Sunday dinner, SNF→MNF) add zero width,
+so Thursday's last tick sits against Sunday's first. Overlapping
+Sunday windows merge. A closed game is 4 hours. `pre` with a
+days-old kickoff is not a span (stale fixture); `pre` inside the
+4-hour envelope is ESPN-late. Postponed (`post` +
+`completed:false`) is no span. `in` without a kickoff is a
+synthetic hour so a live board that never carried `date` still
+writes.
+
+`wpApplyTick` keeps the week (cap 400), not the hour.
+`sampleMatchupWinProbs` writes while the pairing is on, or if %
+moved ~0.5pp, or to seed an empty series — not Friday minutes of
+an unchanged %. Before anyone has kicked, paint still uses the
+1-hour clock fallback so a one-seed card and an 11-minute tail
+draw.
+
+Scripts cache-bust `?v=20260914c`.
+
+Files: `league.html`, `assets/league/lg-{core,data,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: pending suite + bite (this commit is the implementation).
+---

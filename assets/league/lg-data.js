@@ -2657,8 +2657,8 @@
   };
   // First and last kickoff on THIS week's slate. Unique events, not per-team rows — DAL@PHI
   // is one game even though both sides sit in D.S.games. The sparkline no longer uses this
-  // as its X-axis (rolling last hour, now at the right); the window is still the week's
-  // first/last kickoff for anything that needs the slate itself.
+  // as its X-axis (playing-time for the pairing, idle gaps collapsed); the window is still
+  // the week's first/last kickoff for anything that needs the slate itself.
   D.slateWindow = function () {
     let t0 = Infinity, t1 = -Infinity;
     const evs = D.S.nflEvents;

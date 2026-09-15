@@ -4632,18 +4632,26 @@
   // upstream series, so this keeps one — a league-wide doc per week, one TOP-LEVEL array
   // field per pairing (m_<home>_<away>), same updateMask reason as injstate. Every point
   // is D.winProb — the same expected-finish model as the header bar (live points +
-  // remaining projection). X is a rolling 1-hour window with now at the right
-  // edge. One stored tick per minute: the bar's % at that minute. A same-minute
-  // move keeps the old % on the previous minute so 90→80 is a slope, not a
-  // flat overwrite. Older than an hour drops except one carry-in (a value that
-  // actually entered the hour). Paint does not invent an hour of the current
-  // % and does not invert history to match the bar. The 2pp / slate-window /
-  // thin-to-80 path used to squash the last hour into a sliver of a Thu→Mon
-  // (or a January-2027 last kickoff) axis. Y matches the NFL 56px sparkline
-  // (away high, home low). A read-only mirror never writes.
-  const WP_GRAPH_CAP = 80;
-  LG.WP_WINDOW_MS = 60 * 60 * 1000;
+  // remaining projection).
+  //
+  // INVERSION (2026-09-14): X used to be a rolling wall-clock hour (now at the
+  // right). That hid Thursday by Sunday and painted Friday as a flat hour of
+  // the last %. A fantasy pairing spans TNF + the Sunday slate + SNF + MNF;
+  // the idle gaps (Fri/Sat, dinner, SNF→MNF) must add zero width so Thursday's
+  // last tick sits against Sunday's first. X is this pairing's football-on
+  // time. Wall-clock `{t,p}` ticks stay; idle minutes are not written. One
+  // stored tick per minute while a starter's game is on. A same-minute move
+  // keeps the old % on the previous minute so 90→80 is a slope. Older-than-
+  // an-hour ticks are kept (the week, not the hour). Paint does not invent
+  // an hour of the current % and does not invert history to match the bar.
+  // Before anyone on the pairing has kicked, the 1-hour clock window remains
+  // the fallback so a one-seed card still draws. Y matches the NFL 56px
+  // sparkline (away high, home low). A read-only mirror never writes.
+  const WP_GRAPH_CAP = 400;
+  LG.WP_WINDOW_MS = 60 * 60 * 1000;   // pre-kickoff fallback only
   LG.WP_TICK_MS = 60 * 1000;
+  LG.WP_GAME_MS = 4 * 60 * 60 * 1000; // closed-game length on X
+  LG.WP_MOVE = 0.005;                 // idle write if % moved ~0.5pp
   LG.wpGraphId = (week) => "wpgraph_" + LG.SEASON + "_w" + week;
   LG.wpField = (hId, aId) => "m_" + hId + "_" + aId;
   function starterKeysFor(teamId) {
@@ -4681,7 +4689,8 @@
   };
   // Same 220×56 box as the NFL game sparkline: p=1 at y=4, 50/50 at y=28,
   // p=0 at y=52 (y = 4 + (1-p)*48). Bare number arrays keep sample-index X.
-  // Timestamped rows use time from t0 to t1 — paint passes now−1h .. now.
+  // Timestamped rows use time from t0 to t1 — paint passes playing-time
+  // 0 .. playNow (or the 1-hour clock fallback before anyone has kicked).
   // A crossing of 50/50 is split so each run can take that side's team colour:
   // above the mid line is away, below is home, on the line is neither.
   LG.wpTick = function (t) {
@@ -4721,10 +4730,14 @@
     }
     return LG.wpDedupeMinutes(lastPre ? [lastPre].concat(inWin) : inWin);
   };
+  function wpCapRows(rows) {
+    const src = Array.isArray(rows) ? rows : [];
+    return src.length > WP_GRAPH_CAP ? LG._thinWpRows(src, WP_GRAPH_CAP) : src;
+  }
   LG.wpApplyTick = function (rows, p, now) {
     const tNow = isFinite(Number(now)) ? Number(now) : Date.now();
     const tick = LG.wpTick(tNow);
-    const src = LG.wpKeepHour(rows, tNow);
+    const src = LG.wpDedupeMinutes(rows);
     const val = Number(p);
     if (!isFinite(val)) return { rows: src, added: 0 };
     const last = src[src.length - 1];
@@ -4738,9 +4751,146 @@
       if (!next.some((r) => LG.wpTick(r.t) === prevTick)) next.push({ t: prevTick, p: last.p });
       next.push({ t: tick, p: val });
       next.sort((a, b) => a.t - b.t);
-      return { rows: LG.wpKeepHour(next, tNow), added: 1 };
+      return { rows: wpCapRows(next), added: 1 };
     }
-    return { rows: src.concat([{ t: tick, p: val }]), added: 1 };
+    return { rows: wpCapRows(src.concat([{ t: tick, p: val }])), added: 1 };
+  };
+  // Playing-time X. Idle gaps (Fri/Sat, dinner, SNF→MNF) add zero width.
+  // Overlapping Sunday windows merge into one span.
+  LG.wpMergeSpans = function (spans) {
+    const src = [];
+    for (const s of spans || []) {
+      const t0 = Number(s && s.t0), t1 = Number(s && s.t1);
+      if (!isFinite(t0) || !isFinite(t1) || !(t1 > t0)) continue;
+      src.push({ t0, t1 });
+    }
+    src.sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
+    const out = [];
+    for (const s of src) {
+      const last = out[out.length - 1];
+      if (last && s.t0 <= last.t1) last.t1 = Math.max(last.t1, s.t1);
+      else out.push({ t0: s.t0, t1: s.t1 });
+    }
+    return out;
+  };
+  LG.wpPlayingAt = function (t, spans) {
+    const x = Number(t);
+    if (!isFinite(x)) return 0;
+    const merged = LG.wpMergeSpans(spans);
+    let elapsed = 0;
+    for (const s of merged) {
+      if (x <= s.t0) return elapsed;
+      if (x < s.t1) return elapsed + (x - s.t0);
+      elapsed += s.t1 - s.t0;
+    }
+    return elapsed;
+  };
+  LG.wpIsActiveAt = function (t, spans) {
+    const x = Number(t);
+    if (!isFinite(x)) return false;
+    return LG.wpMergeSpans(spans).some((s) => x >= s.t0 && x <= s.t1);
+  };
+  // One NFL game → [kickoff, end]. `pre` with a kickoff still in the future
+  // is no span. `pre` with kickoff already passed but still inside the 4h
+  // envelope is ESPN-late (treat as live). A kickoff that is days old and
+  // still `pre` is a stale fixture, not Thursday. Postponed (`post` +
+  // completed:false) is no span. `in` without a kickoff is a synthetic hour
+  // so a live board that never carried `date` still writes.
+  LG.wpGameSpan = function (g, now) {
+    if (!g) return null;
+    const tNow = isFinite(Number(now)) ? Number(now) : Date.now();
+    const state = g.state === "post" && g.completed === false ? "pre" : (g.state || "pre");
+    const ko = Date.parse(g.kickoff || "");
+    const gameMs = LG.WP_GAME_MS;
+    if (state === "pre") {
+      if (isFinite(ko) && tNow >= ko && tNow <= ko + gameMs) return { t0: ko, t1: tNow };
+      return null;
+    }
+    if (state === "in") {
+      if (isFinite(ko)) return { t0: ko, t1: Math.min(tNow, ko + gameMs) };
+      return { t0: tNow - LG.WP_WINDOW_MS, t1: tNow };
+    }
+    if (state === "post") {
+      if (!isFinite(ko)) return null;
+      const end = ko + gameMs;
+      return { t0: ko, t1: tNow < end ? tNow : end };
+    }
+    return null;
+  };
+  function wpGameForKey(key) {
+    const d = LG.data;
+    if (!d) return null;
+    try {
+      if (typeof d.demoGameView === "function") {
+        const demo = d.demoGameView(key);
+        if (demo) return demo;
+      }
+    } catch (e) { /* fall through to the live board */ }
+    let team = "";
+    try {
+      const row = d.S && d.S.players && d.S.players.get(key);
+      team = (row && row.team) || "";
+      if (!team && typeof d.metaForKey === "function") {
+        const meta = d.metaForKey(key);
+        team = (meta && meta.team) || "";
+      }
+    } catch (e) { team = ""; }
+    if (typeof d.slpTeam === "function") team = d.slpTeam(team);
+    try { return (team && d.S && d.S.games) ? d.S.games.get(team) : null; }
+    catch (e) { return null; }
+  }
+  LG.wpSpansForKeys = function (keys, now) {
+    const seen = new Set();
+    const spans = [];
+    for (const k of keys || []) {
+      const g = wpGameForKey(k);
+      if (!g) continue;
+      const id = g.eventId != null && g.eventId !== ""
+        ? "ev:" + g.eventId
+        : "ko:" + (g.kickoff || "") + ":" + (g.oppAb || "");
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const sp = LG.wpGameSpan(g, now);
+      if (sp) spans.push(sp);
+    }
+    return LG.wpMergeSpans(spans);
+  };
+  LG.wpSpansForPairing = function (hId, aId, now) {
+    return LG.wpSpansForKeys(starterKeysFor(hId).concat(starterKeysFor(aId)), now);
+  };
+  // Map wall-clock ticks onto playing time. Same playing-t + a later wall
+  // tick (Friday jump, overnight) bumps +1ms so the step is a near-vertical
+  // rather than an overwrite. No spans yet → the 1-hour clock window, so a
+  // one-seed card and an 11-minute pre-kickoff tail still draw.
+  LG.wpViewPlaying = function (rows, spans, now, cur) {
+    const tNow = isFinite(Number(now)) ? Number(now) : Date.now();
+    const merged = LG.wpMergeSpans(spans);
+    if (!merged.length) {
+      const win = LG.wpPlotWindow(tNow);
+      return { rows: LG.wpViewRows(rows, win.t0, win.t1, cur), t0: win.t0, t1: win.t1, mode: "clock" };
+    }
+    const playNow = LG.wpPlayingAt(tNow, merged);
+    const cleaned = LG.wpDedupeMinutes(rows);
+    const out = [];
+    let lastPlay = null;
+    for (const r of cleaned) {
+      let pt = LG.wpPlayingAt(r.t, merged);
+      if (lastPlay != null && pt <= lastPlay) pt = lastPlay + 1;
+      out.push({ t: pt, p: r.p });
+      lastPlay = pt;
+    }
+    const tip = Number.isFinite(cur) ? Number(cur) : (out.length ? out[out.length - 1].p : null);
+    let t1 = Math.max(playNow, 1);
+    if (Number.isFinite(tip)) {
+      const last = out[out.length - 1];
+      if (!last || last.t < playNow || Math.abs(last.p - tip) >= 1e-9) {
+        let pt = playNow;
+        if (last && pt <= last.t) pt = last.t + 1;
+        out.push({ t: pt, p: tip });
+        t1 = Math.max(t1, pt);
+      }
+    }
+    return { rows: out, t0: 0, t1, mode: "play" };
   };
   // Paint the recorded minutes. A real pre-window sample holds the left
   // edge (the % that entered the hour). The first in-hour tick is NOT
@@ -4888,7 +5038,7 @@
       if (!hKeys.length || !aKeys.length) continue;
       const p = d.winProb(aKeys, hKeys);
       if (!Number.isFinite(p)) continue;
-      planned.push({ field: LG.wpField(hId, aId), p });
+      planned.push({ field: LG.wpField(hId, aId), hId, aId, p });
     }
     if (!planned.length) return { added: 0 };
 
@@ -4898,6 +5048,14 @@
     let added = 0;
     for (const s of planned) {
       const rows = Array.isArray(base[s.field]) ? base[s.field] : [];
+      const spans = LG.wpSpansForPairing(s.hId, s.aId, now);
+      const active = LG.wpIsActiveAt(now, spans);
+      const last = rows.length ? rows[rows.length - 1] : null;
+      const moved = last && Math.abs(Number(last.p) - s.p) >= LG.WP_MOVE;
+      if (rows.length && !active && !moved) {
+        write[s.field] = rows;
+        continue;
+      }
       const next = LG.wpApplyTick(rows, s.p, now);
       if (next.added) added += next.added;
       write[s.field] = next.rows;
