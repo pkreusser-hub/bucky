@@ -26421,7 +26421,9 @@ async function openDetails(page, id) {
       await waitOr(page, ".mucard");
       await waitLive(page);
       await clickIn(page, '.bnav button[data-v="matchup"]');
-      await page.waitForSelector("#muSwitch .muswitch", { timeout: 9000 });
+      // waitOr: HEAD has no #muSwitch, so a bare waitForSelector would abort
+      // the bite with one stack instead of the chip-count failures below.
+      await waitOr(page, "#muSwitch .muswitch");
       const desk = await evalOr(page, () => {
         const chips = document.querySelectorAll("#muSwitch .muswitch");
         const sw = document.querySelector("#muSwitch");
