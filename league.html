@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260915h">
+<meta name="gffl-v" content="20260915i">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -1595,8 +1595,9 @@
   .scslate .sccard.scslash .scteams { padding:0 22px; }
   /* Phone chip row: one short button per NFL game, scroll sideways.
      Sticky under the 52px header so switching games does not mean
-     scrolling back past the gamecast. Score on its own line so three-
-     letter abbrevs still read, same wrap as .muswitch. */
+     scrolling back past the gamecast. Three stacked facts — away @
+     home, score, clock/kickoff — so a live game still shows its
+     quarter and a pre-game still has a score slot. */
   .scchips { display:flex; flex-wrap:nowrap; gap:4px; margin:0 0 8px;
              overflow-x:auto; -webkit-overflow-scrolling:touch;
              overscroll-behavior-x:contain; scrollbar-width:thin;
@@ -1604,20 +1605,20 @@
              z-index:15; background:var(--bg);
              padding:6px 0 8px; }
   .scchips[hidden] { display:none; }
-  .scchip { flex:0 0 auto; min-width:72px; display:flex; flex-wrap:wrap; align-items:center;
-            justify-content:space-between; gap:1px 4px; padding:6px 8px; background:var(--card);
+  .scchip { flex:0 0 auto; min-width:84px; display:flex; flex-direction:column; align-items:center;
+            justify-content:center; gap:1px; padding:6px 8px; background:var(--card);
             border:1px solid var(--border-card); border-radius:var(--radius-sm); cursor:pointer;
             color:var(--ink); text-transform:none; letter-spacing:normal; }
   .scchip:hover, .scchip:focus-visible { border-color:var(--border-hover); background:var(--row-hover2); }
   .scchip.on { border-color:var(--gold); box-shadow:inset 0 0 0 1px var(--gold); }
   .scchip.live { border-color:var(--accent); color:var(--ink); }
   .scchip.live.on, .scchip.live.on:hover, .scchip.live.on:focus-visible { border-color:var(--accent); }
-  .scchip-a, .scchip-h { font:600 10px var(--font-display); overflow:hidden; text-overflow:ellipsis;
-                         white-space:nowrap; flex:1 1 auto; min-width:0; max-width:48%; }
-  .scchip-h { text-align:right; }
-  .scchip-sc { font:700 12px var(--font-num); font-variant-numeric:tabular-nums; flex:1 1 100%;
-               order:3; text-align:center; }
-  .scchip.live .scchip-sc { color:var(--accent); }
+  .scchip-vs { font:600 10px var(--font-display); white-space:nowrap; }
+  .scchip-at { font-weight:600; color:var(--mut); }
+  .scchip-sc { font:700 13px var(--font-num); font-variant-numeric:tabular-nums; }
+  .scchip-tm { font:600 10px var(--font-display); color:var(--mut); letter-spacing:.3px;
+               text-transform:uppercase; white-space:nowrap; }
+  .scchip.live .scchip-tm { color:var(--accent); }
   @media (min-width:1024px) {
     .scchips, .scchips[hidden] { display:none; }
     .scsplit { display:grid; grid-template-columns:minmax(0,1fr) 300px; align-items:start; gap:16px; }
@@ -2354,9 +2355,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260915h"></script>
-  <script src="assets/league/lg-data.js?v=20260915h"></script>
-  <script src="assets/league/lg-ui.js?v=20260915h"></script>
+  <script src="assets/league/lg-core.js?v=20260915i"></script>
+  <script src="assets/league/lg-data.js?v=20260915i"></script>
+  <script src="assets/league/lg-ui.js?v=20260915i"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

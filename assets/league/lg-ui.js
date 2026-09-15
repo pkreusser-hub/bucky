@@ -3435,14 +3435,22 @@
   // Phone Scores: a short chip per NFL game, date order (the same
   // stability as the matchup strip — live games do not jump to the
   // front). Desktop keeps the compact slate and hides this row.
-  function nflChipMid(e) {
+  // Each chip is three facts: away @ home, the score, and the clock
+  // (or kickoff). Score-or-time was not enough — a live game still
+  // needs its quarter, and a pre-game still needs a score slot.
+  function nflChipScore(e) {
     const live = e.state === "in", done = e.state === "post";
-    if (live || done) {
-      const as = (e.away && e.away.score !== "" && e.away.score != null) ? e.away.score : "0";
-      const hs = (e.home && e.home.score !== "" && e.home.score != null) ? e.home.score : "0";
-      return esc(as) + "–" + esc(hs);
+    if (!live && !done) return "–";
+    const as = (e.away && e.away.score !== "" && e.away.score != null) ? e.away.score : "0";
+    const hs = (e.home && e.home.score !== "" && e.home.score != null) ? e.home.score : "0";
+    return String(as) + "–" + String(hs);
+  }
+  function nflChipTime(e) {
+    if (e.state === "in") {
+      return (e.period != null && e.clock) ? ("Q" + e.period + " " + e.clock) : (e.detail || "Live");
     }
-    return esc((kickTimeStr(e.date) || "").replace(/\s*CT$/, ""));
+    if (e.state === "post") return "Final";
+    return (kickTimeStr(e.date) || "").replace(/\s*CT$/, "");
   }
   function nflChipHtml(e) {
     const live = e.state === "in";
@@ -3451,9 +3459,9 @@
     const home = (e.home && e.home.abbrev) || "?";
     return `<button type="button" class="scchip${live ? " live" : ""}${on ? " on" : ""}" data-eid="${esc(e.id || "")}"
       aria-label="Show the ${esc(away)} at ${esc(home)} game">
-      <span class="scchip-a">${esc(away)}</span>
-      <span class="scchip-sc">${nflChipMid(e)}</span>
-      <span class="scchip-h">${esc(home)}</span>
+      <span class="scchip-vs">${esc(away)} <span class="scchip-at">@</span> ${esc(home)}</span>
+      <span class="scchip-sc">${esc(nflChipScore(e))}</span>
+      <span class="scchip-tm">${esc(nflChipTime(e))}</span>
     </button>`;
   }
   function nflChipsHtml(events) {

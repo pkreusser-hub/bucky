@@ -8276,3 +8276,22 @@ Also green: AH 115/115 (AH2 taps `.scchip.live`;
 AH1/AH6 pin week 1 so "In this game" still has a
 pairing). App files restored, hashes identical.
 ---
+
+## GFFL — phone NFL chips are team @ team, score, and time (2026-09-15)
+
+User: the matchup chip needs to show team @ team,
+score, and time.
+
+The phone `#scChips` button is three stacked facts:
+away `@` home, the score (a dash before kickoff), and
+the clock (`Q2 5:00` live, kickoff time pre, `Final`
+after). The live clock keeps the accent; the score
+stays ink. Desktop slate is unchanged.
+
+Scripts cache-bust `?v=20260915i`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** pending suite + bite (filled after the run).
+---

@@ -26734,6 +26734,8 @@ async function openDetails(page, id) {
           chipH: cr ? Math.round(cr.height) : 0,
           wrap: cs.flexWrap || "",
           overflow: cs.overflowX || "",
+          liveTxt: ((live && live.textContent) || "").replace(/\s+/g, " ").trim(),
+          preTxt: (((chips && [...chips.querySelectorAll(".scchip")].find((c) => c.dataset.eid === "401900002")) || {}).textContent || "").replace(/\s+/g, " ").trim(),
         };
       }) || {};
       ok(boot.split === true && boot.gffl === false,
@@ -26747,8 +26749,16 @@ async function openDetails(page, id) {
       ok(boot.back === false, "there is no ‹ Scores leaf — the chips are the way to switch");
       ok(boot.chipsFirst === true && boot.chips >= 2 && boot.chipsShown === true && boot.slateGone === true,
         "on the phone a short chip row sits above the selected game and the tall slate is gone (" + JSON.stringify({ chipsFirst: boot.chipsFirst, chips: boot.chips, slateGone: boot.slateGone }) + ")");
-      ok(boot.chipH > 0 && boot.chipH <= 72 && boot.wrap === "nowrap" && /auto|scroll/.test(boot.overflow),
+      // RESTAGED 2026-09-15: each chip is away @ home, the score, and
+      // the clock (or kickoff). Two lines of "score XOR time" hid the
+      // quarter on a live game. Three stacked facts are taller than
+      // 72px; they must still be one nowrap row, not a card stack.
+      ok(boot.chipH > 0 && boot.chipH <= 96 && boot.wrap === "nowrap" && /auto|scroll/.test(boot.overflow),
         "…the chips are one short nowrap row that can scroll sideways (" + JSON.stringify({ chipH: boot.chipH, wrap: boot.wrap, overflow: boot.overflow }) + ")");
+      ok(/DAL\s*@\s*PHI/.test(boot.liveTxt || "") && /10\s*[–-]\s*14/.test(boot.liveTxt || "") && /Q2\s*5:00/.test(boot.liveTxt || ""),
+        "…the live chip is DAL @ PHI, 10–14, and Q2 5:00 (" + boot.liveTxt + ")");
+      ok(/KC\s*@\s*DEN/.test(boot.preTxt || "") && /[–-]/.test(boot.preTxt || "") && /7:00/.test(boot.preTxt || ""),
+        "…the upcoming chip is KC @ DEN, a score slot, and the kickoff time (" + boot.preTxt + ")");
 
       ok(await clickIn(page, '#scChips .scchip[data-eid="401900002"]'), "tapping another NFL chip is a real control");
       await waitFnOr(page, () => window.__GFFL__.UI.nflGameId === "401900002"
