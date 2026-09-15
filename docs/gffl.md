@@ -8005,5 +8005,18 @@ Scripts cache-bust `?v=20260915a`.
 Files: `league.html`, `assets/league/lg-{data,ui}.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY**: quoted after the suite run.
+**VERIFY**: `node tools/_verify-gffl.cjs --only TJ` **15/15**.
+`node tools/_verify-gffl.cjs --only D,TC,TE,TJ` **50/50**.
+Full battery **3582** checks (3566 + 16). This cloud box:
+**3565/3570** of the checks that ran (AZ's `?demo=clinch` boot
+hit Puppeteer `Promise was collected` — same crash against
+`main`'s app files). The 5 fails are the same geometry/font
+measurements as `main` (I2 `%START` clip, AD/AT name-column
+133 vs 140, RS seven-tab 54px boxes).
+Bite (`league.html` + `lg-data.js` + `lg-ui.js` at `main`, new
+suite kept, `--only D,TC,TE,TJ`): **31 pass / 9 fail** — HEAD
+still stamps poll time (no weekday), `applySide` still writes
+two source rows for one TD, and there is no play-feed hook or
+wallclock. Every pre-existing D/TE annotateFeed check still
+passed. App files restored, hashes identical.
 ---

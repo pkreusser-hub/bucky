@@ -25887,6 +25887,26 @@ async function openDetails(page, id) {
       await bootPage(page);
       await waitOr(page, ".mucard");
       await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await page.waitForSelector("#mufeed", { timeout: 9000 });
+      const painted = await page.evaluate(() => {
+        const { D } = window.__GFFL__;
+        const playEvs = (D.S.events || []).filter((e) => e.playId && !e.msg);
+        const lines = [...document.querySelectorAll("#mufeed .fline")].map((el) => el.textContent.replace(/\s+/g, " ").trim());
+        const sample = lines.find((t) => /P\. Passer/.test(t) && /pass TD|pass yds|catch|rec yds/.test(t)) || lines[0] || "";
+        const walls = [Date.parse("2026-09-13T18:08:00Z"), Date.parse("2026-09-13T18:14:00Z"), Date.parse("2026-09-13T18:24:00Z")];
+        return {
+          playN: playEvs.length,
+          wall: playEvs.some((e) => walls.includes(e.t)),
+          weekday: /\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b/.test(sample),
+          sample,
+          lineN: lines.length,
+        };
+      });
+      ok(painted.playN > 0 && painted.wall === true,
+        "the live DAL@PHI fixture poll produced wallclocked play events (" + JSON.stringify({ n: painted.playN, wall: painted.wall }) + ")");
+      ok(painted.weekday === true && painted.lineN > 0,
+        "the painted feed shows a weekday on the scored-at stamp (" + painted.sample + ")");
 
       const hooks = await page.evaluate(() => {
         const D = window.__GFFL__.D;
@@ -26064,27 +26084,6 @@ async function openDetails(page, id) {
         ok(arith.sackDst === true, "a sack credits the defending D/ST");
         ok(arith.rushYd === 0.2, "K.Walker 2-yd rush is +0.2 (" + arith.rushYd + ")");
       }
-
-      await clickIn(page, ".mucard.mine");
-      await page.waitForSelector("#mufeed", { timeout: 9000 });
-      const painted = await page.evaluate(async () => {
-        const { D, UI } = window.__GFFL__;
-        const playEvs = (D.S.events || []).filter((e) => e.playId && !e.msg);
-        await UI.renderMatchup(true);
-        const lines = [...document.querySelectorAll("#mufeed .fline")].map((el) => el.textContent.replace(/\s+/g, " ").trim());
-        const sample = lines.find((t) => /P\. Passer/.test(t) || /pass TD|pass yds|catch|rec yds/.test(t)) || lines[0] || "";
-        return {
-          playN: playEvs.length,
-          wall: playEvs.some((e) => e.t === Date.parse("2026-09-13T18:14:00Z") || e.t === Date.parse("2026-09-13T18:08:00Z")),
-          weekday: /\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b/.test(sample),
-          sample,
-          lineN: lines.length,
-        };
-      });
-      ok(painted.playN > 0 && painted.wall === true,
-        "the live DAL@PHI fixture poll produced wallclocked play events (" + JSON.stringify({ n: painted.playN, wall: painted.wall }) + ")");
-      ok(painted.weekday === true && painted.lineN > 0,
-        "the painted feed shows a weekday on the scored-at stamp (" + painted.sample + ")");
 
       ok(errors.length === 0, "0 page errors on the play feed");
       await ctx.close();
