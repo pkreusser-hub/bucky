@@ -8055,5 +8055,13 @@ Scripts cache-bust `?v=20260915b`.
 Files: `league.html`, `assets/league/lg-core.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY**: quoted after the suite run.
+**VERIFY**: `node tools/_verify-gffl.cjs --only TK` **19/19**.
+AT5 (2-0 vs 0-2 after two weeks) still holds:
+70% vs 53%, sum 502, pre-season still ~62.5%.
+Bite (`league.html` + `lg-core.js` at `main`, new suite
+kept, `--only TK`): **9 pass / 10 fail** — HEAD has no
+calm hooks, and week-1 paints 99/97/94/88 vs 56/35/19/12.
+Every pre-existing deterministic / sum / 1-0-above-0-1 /
+week-10 lock check still passed. App files restored,
+hashes identical.
 ---

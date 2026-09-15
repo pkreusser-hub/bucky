@@ -26213,6 +26213,13 @@ async function openDetails(page, id) {
         "the desktop Playoff column paints a percent for every team (" + JSON.stringify(painted && painted.cells) + ")");
       ok(!!painted && painted.min >= 55 && painted.max <= 67,
         "…and those percents are the calmed week-1 band, not 90%+ (" + painted.min + "–" + painted.max + ")");
+      if (SHOTS) {
+        fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true });
+        const stand = await page.$(".standcard");
+        if (stand) await stand.screenshot({ path: path.join(ROOT, "shots", "gffl_playoff_week1_calm.png") });
+        else await page.screenshot({ path: path.join(ROOT, "shots", "gffl_playoff_week1_calm.png"), fullPage: true });
+        console.log("  📸 shots/gffl_playoff_week1_calm.png");
+      }
       ok(errors.length === 0, "0 page errors on the week-1 standings");
       await ctx.close();
     }
