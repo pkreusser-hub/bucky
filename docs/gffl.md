@@ -8205,5 +8205,9 @@ Scripts cache-bust `?v=20260915f`.
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY**: quoted after the suite run.
+**VERIFY:** 46/46 (`--only TG`). Bite vs `origin/main` (15e, `checkAppFresh` on every
+browser pull-up, pageshow only when persisted): 41/5. The five new TG7
+assertions fail there — `UI.isStandalone` is missing, a non-persisted
+home-screen `pageshow` never wakes, and the suite still expects that
+browser `onForeground` skip. Pre-existing TG checks stay green.
 ---
