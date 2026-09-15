@@ -8266,5 +8266,13 @@ Scripts cache-bust `?v=20260915h`.
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY:** pending suite + bite (filled after the run).
+**VERIFY:** 56/56 (`--only S,TM`). Bite vs `origin/main`
+(phone still stacks the tall slate, no `#scChips`):
+44/12. The twelve new/restaged chip assertions fail
+there — HEAD has no chip row, the slate's
+`offsetParent` is still set, and a chip tap is a
+no-op. Pre-existing S NFL/ESPN checks stay green.
+Also green: AH 115/115 (AH2 taps `.scchip.live`;
+AH1/AH6 pin week 1 so "In this game" still has a
+pairing). App files restored, hashes identical.
 ---

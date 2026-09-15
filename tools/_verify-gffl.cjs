@@ -12830,7 +12830,7 @@ async function openDetails(page, id) {
     {
       fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false; fixture.nflGameDown = false;
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
-      await bootPage(page);
+      await bootWeek1Home(page);
       await waitOr(page, ".mucard");
       await waitLive(page);
       const home = (await evalOr(page, () => {
@@ -12957,7 +12957,10 @@ async function openDetails(page, id) {
       ok(/213, 10, 10/.test(cardInk.state || ""), "…while the live CLOCK keeps the accent, which is the one thing that should have it (" + cardInk.state + ")");
       ok(cardInk.buttonBox === "none", "…and the card being a <button> did not inherit the base button rule's uppercase");
       ok(await clickIn(page, ".scchip.live"), "the live game's chip is tappable");
-      await waitFnOr(page, () => document.querySelector("#nflBody .nflhead"));
+      await waitFnOr(page, () => {
+        const h = (document.querySelector("#nflBody .nflhead") || {}).textContent || "";
+        return /DAL/.test(h) && /PHI/.test(h) && /10/.test(h) && /14/.test(h);
+      });
       const opened = (await evalOr(page, () => ({
         view: window.__GFFL__.UI.view, hash: location.hash, id: window.__GFFL__.UI.nflGameId,
         scoresLit: !!document.querySelector('.bnav button[data-v="scores"].on'),
@@ -13229,7 +13232,10 @@ async function openDetails(page, id) {
     // this check exists to prevent.
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
-      await bootPage(page);
+      // fullSeed is week 1 only; after Tue 05:00 Chicago currentWeek() is 2
+      // and "In this game" has no pairing to list. Pin the seed week so the
+      // pre-game third card is still the KC@DEN starters, not a missing card.
+      await bootWeek1Home(page);
       await waitOr(page, ".mucard");
       await waitLive(page);
       const shapeOf = async (id, wait) => {
