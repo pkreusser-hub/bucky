@@ -21,14 +21,6 @@
 [functions."leaguecron"]
   schedule = "0 13,14 * * 3"
 
-# GFFL weekly recap newsletter. Two UTC fires (13:00 and 14:00) on Tue/Wed/Thu — one
-# candidate per DST state, same Central-08:00 guard as leaguecron. The handler sends only
-# after a real finalized weekly doc exists, so a Tuesday before Monday Night Football
-# settles is a no-op and Wednesday/Thursday are the backups. See
-# netlify/functions/gfflnewsletter.mjs. Activates only after deploy.
-[functions."gfflnewsletter"]
-  schedule = "0 13,14 * * 2,3,4"
-
 # Event reminders — fires every 5 minutes. The handler selects events whose start instant falls
 # in [55, 65) minutes from "now" (netlify/functions/eventreminders.mjs). The window is TWICE the
 # cadence on purpose: consecutive runs overlap, so each event is offered to two runs and a single
