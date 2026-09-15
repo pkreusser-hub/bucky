@@ -26256,9 +26256,11 @@ async function openDetails(page, id) {
   }
 
   // ================= TL · matchup tab switcher chips =================================
-  // User: default to my pairing, and put the other three this week as score buttons
+  // User: default to my pairing, and put this week's pairings as score buttons
   // above the header so you don't have to go to Scores to open them.
-  if (section("TL · matchup switcher — other pairings above the header")) {
+  // RESTAGED 2026-09-15: all four stay in schedule order, including the open
+  // game (marked .on). Dropping it reshuffled the row on every tap.
+  if (section("TL · matchup switcher — week pairings stay put above the header")) {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -26278,11 +26280,12 @@ async function openDetails(page, id) {
         const chips = [...document.querySelectorAll("#muSwitch .muswitch")].map((b) => ({
           mu: b.dataset.mu,
           mine: b.classList.contains("mine"),
+          on: b.classList.contains("on"),
           text: b.textContent.replace(/\s+/g, " ").trim(),
         }));
         const sw = document.querySelector("#muSwitch");
         const firstCard = document.querySelector("#main .card");
-        const want = [[3, 4], [5, 6], [7, 8]].map(([h, a]) => ({
+        const want = [[1, 2], [3, 4], [5, 6], [7, 8]].map(([h, a]) => ({
           mu: h + "-" + a,
           sc: LG.fmtPts(tot(a)) + "–" + LG.fmtPts(tot(h)),
         }));
@@ -26291,6 +26294,7 @@ async function openDetails(page, id) {
           chipN: chips.length,
           mus: chips.map((c) => c.mu),
           mineOn: chips.filter((c) => c.mine).map((c) => c.mu),
+          on: chips.filter((c) => c.on).map((c) => c.mu),
           texts: chips.map((c) => c.text),
           want,
           match: want.every((w) => chips.some((c) => c.mu === w.mu && c.text.includes(w.sc))),
@@ -26302,18 +26306,20 @@ async function openDetails(page, id) {
       });
       ok(JSON.stringify(boot.mu) === "[1,2]",
         "the Matchup tab still lands on the viewer's own pairing (" + JSON.stringify(boot.mu) + ")");
-      ok(boot.shown === true && boot.hidden === false && boot.chipN === 3,
-        "the other three pairings this week sit above the header (" + JSON.stringify({ n: boot.chipN, shown: boot.shown }) + ")");
-      ok(boot.mus.indexOf("1-2") < 0 && boot.mus.join() === "3-4,5-6,7-8",
-        "…and none of them is the open pairing (" + JSON.stringify(boot.mus) + ")");
+      // RESTAGED 2026-09-15: the open pairing stays in the row. Dropping it
+      // (the first cut: three leftovers) reshuffled the chips on every tap.
+      ok(boot.shown === true && boot.hidden === false && boot.chipN === 4,
+        "all four pairings this week sit above the header (" + JSON.stringify({ n: boot.chipN, shown: boot.shown }) + ")");
+      ok(boot.mus.join() === "1-2,3-4,5-6,7-8",
+        "…in schedule order, including the open game (" + JSON.stringify(boot.mus) + ")");
       ok(boot.match === true,
         "each chip score is that pairing's liveTotal (" + JSON.stringify({ texts: boot.texts, want: boot.want }) + ")");
-      ok(boot.mineOn.length === 0,
-        "your own pairing is not a chip while it is on screen (" + JSON.stringify(boot.mineOn) + ")");
+      ok(boot.on.join() === "1-2" && boot.mineOn.join() === "1-2",
+        "the open chip is marked, and so is your own pairing (" + JSON.stringify({ on: boot.on, mine: boot.mineOn }) + ")");
       ok(boot.firstIsHead === true,
         "the strip is not a .card — the first card is still the header");
       ok(boot.scroll.b <= boot.scroll.w + 1,
-        "three chips fit 390px with no sideways scroll (" + boot.scroll.b + "/" + boot.scroll.w + ")");
+        "four chips fit 390px with no sideways scroll (" + boot.scroll.b + "/" + boot.scroll.w + ")");
 
       const lenBefore = await evalOr(page, () => history.length);
       await clickIn(page, '.muswitch[data-mu="3-4"]');
@@ -26325,9 +26331,10 @@ async function openDetails(page, id) {
         const { UI } = window.__GFFL__;
         const head = (document.querySelector(".muhead") || {}).textContent || "";
         const chips = [...document.querySelectorAll("#muSwitch .muswitch")].map((b) => ({
-          mu: b.dataset.mu, mine: b.classList.contains("mine"),
+          mu: b.dataset.mu, mine: b.classList.contains("mine"), on: b.classList.contains("on"),
         }));
         return { mu: UI.matchup, head: head.replace(/\s+/g, " "), mus: chips.map((c) => c.mu),
+          on: chips.filter((c) => c.on).map((c) => c.mu),
           mineOn: chips.filter((c) => c.mine).map((c) => c.mu), len: history.length };
       });
       ok(JSON.stringify(swapped.mu) === "[3,4]",
@@ -26336,10 +26343,19 @@ async function openDetails(page, id) {
         "…as a real history place, not a same-view replace (" + lenBefore + " -> " + swapped.len + ")");
       ok(/Wyoming Cowboys/.test(swapped.head) && /Waffle House Warriors/.test(swapped.head),
         "…and that is the game on SCREEN (" + swapped.head.slice(0, 80) + ")");
-      ok(swapped.mus.indexOf("3-4") < 0 && swapped.mus.indexOf("1-2") >= 0,
-        "the previous pairing joins the strip (" + JSON.stringify(swapped.mus) + ")");
-      ok(swapped.mineOn.join() === "1-2",
-        "your own pairing is marked on the strip so you can get back (" + JSON.stringify(swapped.mineOn) + ")");
+      ok(swapped.mus.join() === "1-2,3-4,5-6,7-8",
+        "the four chips stay in the same slots (" + JSON.stringify(swapped.mus) + ")");
+      ok(swapped.on.join() === "3-4" && swapped.mineOn.join() === "1-2",
+        "…only the selected mark moves; yours stays findable (" + JSON.stringify({ on: swapped.on, mine: swapped.mineOn }) + ")");
+
+      const stay = await evalOr(page, () => history.length);
+      await clickIn(page, '.muswitch[data-mu="3-4"]');
+      const stayed = await evalOr(page, () => ({
+        mu: window.__GFFL__.UI.matchup, len: history.length,
+        head: ((document.querySelector(".muhead") || {}).textContent || ""),
+      }));
+      ok(JSON.stringify(stayed.mu) === "[3,4]" && stayed.len === stay && /Wyoming Cowboys/.test(stayed.head),
+        "tapping the already-open chip is a no-op (" + JSON.stringify({ mu: stayed.mu, len: stayed.len }) + ")");
 
       await page.goBack().catch(() => {});
       await waitFnOr(page, () => {
@@ -26433,8 +26449,8 @@ async function openDetails(page, id) {
           scroll: { b: document.body.scrollWidth, w: window.innerWidth },
         };
       });
-      ok(desk.n === 3 && desk.shown === true,
-        "desktop still paints the other three pairings (" + JSON.stringify(desk) + ")");
+      ok(desk.n === 4 && desk.shown === true,
+        "desktop still paints all four pairings (" + JSON.stringify(desk) + ")");
       ok(desk.scroll.b <= desk.scroll.w + 1,
         "…and they fit 1440px with no sideways scroll (" + desk.scroll.b + "/" + desk.scroll.w + ")");
       ok(errors.length === 0, "0 page errors on the desktop switcher");

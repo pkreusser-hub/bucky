@@ -8108,3 +8108,26 @@ reads `n=-1`. Tab-to-own-game, first-card-is-header,
 390/1440 no-scroll, composer-survives-morph, and 0 page
 errors still passed. App files restored, hashes identical.
 ---
+
+## GFFL — matchup chips stay in schedule order (2026-09-15)
+
+User: clicking a chip was disorienting because the
+row reshuffled — the open game dropped out and the
+others slid.
+
+`#muSwitch` now paints every pairing from
+`LG.gamesForWeek`, in that order. The open game stays
+in its slot and is marked `.on`. A tap only swaps the
+header / lineup / feed below. Your pairing is still
+`.mine` so it is findable when you are looking at
+someone else. Tapping the already-open chip is a no-op
+(no history push). A one-game week still hides the
+strip — there is nothing to switch to.
+
+Scripts cache-bust `?v=20260915d`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: quoted after the suite run.
+---

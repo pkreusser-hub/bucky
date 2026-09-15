@@ -4083,9 +4083,11 @@
     const wk = await LG.gamesForWeek(UI.week);
     return wk.find(([h, a]) => h === mine || a === mine) || null;
   }
-  // The other pairings this week, for the chip row above the matchup header.
-  // Cached on the week so a live morph can patch scores without another gamesForWeek await
-  // in the poll tail (the clinch-demo note: an extra microtask there interleaved once).
+  // Every pairing this week, in schedule order, for the chip row above the
+  // matchup header. The open game stays in its slot (marked .on) so a tap
+  // only swaps the details below — dropping it used to reshuffle the row.
+  // Cached on the week so a live morph can patch scores without another
+  // gamesForWeek await in the poll tail (the clinch-demo extra-microtask note).
   async function weekPairings(force) {
     if (!force && UI._muWeekGames && UI._muWeekGames.week === UI.week) return UI._muWeekGames.games;
     const games = (await LG.gamesForWeek(UI.week)) || [];
@@ -4094,14 +4096,16 @@
   }
   function muPairKey(h, a) { return h + "-" + a; }
   function muSwitchInner(games, open) {
+    const list = games || [];
+    if (list.length < 2) return "";
     const openKey = open ? muPairKey(open[0], open[1]) : "";
-    const others = (games || []).filter((g) => muPairKey(g[0], g[1]) !== openKey);
-    if (!others.length) return "";
     const mine = LG.myTeamId();
-    return others.map(([h, a]) => {
+    return list.map(([h, a]) => {
       const H = LG.teamById(h), A = LG.teamById(a);
+      const key = muPairKey(h, a);
+      const isOpen = key === openKey;
       const isMine = mine && (h === mine || a === mine);
-      return `<button type="button" class="muswitch${isMine ? " mine" : ""}" data-mu="${h}-${a}">
+      return `<button type="button" class="muswitch${isOpen ? " on" : ""}${isMine ? " mine" : ""}" data-mu="${h}-${a}">
         <span class="musw-a">${esc(teamTag(A))}</span>
         <span class="musw-sc">${LG.fmtPts(liveTotal(a))}–${LG.fmtPts(liveTotal(h))}</span>
         <span class="musw-h">${esc(teamTag(H))}</span>
