@@ -173,7 +173,12 @@
           const id = ath.id != null ? String(ath.id) : null;
           if (!id) continue;
           const rec = out.get(id) || {
-            meta: { name: ath.displayName || ath.shortName || id, pos: (ath.position || {}).abbreviation || "", team: teamAb },
+            meta: {
+              name: ath.displayName || ath.shortName || id,
+              shortName: ath.shortName || "",
+              pos: (ath.position || {}).abbreviation || "",
+              team: teamAb,
+            },
             stats: empty(), raw: {},
           };
           const v = a.stats || [];
@@ -331,8 +336,10 @@
   // ---------------- state ----------------
   D.S = {
     players: new Map(),        // key -> {key,name,pos,team,espn:{stats,raw,last},slp:{stats,last,official},merged,pts,src,conflict}
-    events: [],                // every fantasy-point tick this week, {t,src,key,name,stat,from,to,dPts}
-    feedClosed: new Set(),     // NFL abbrevs whose game is final — applySide still updates stats, the feed does not
+    events: [],                // fantasy-point ticks this week: ESPN play-stamped {t,src,key,name,stat,from,to,dPts,playId}
+    playFeedByEvent: new Map(), // eventId -> {seen:Set, running:Map} so a re-poll is idempotent
+    playFeedLive: false,       // first play ingest wipes poll-diff rows that have no playId
+    feedClosed: new Set(),     // NFL abbrevs whose game is final — box still updates, the feed does not
     games: new Map(),          // slpTeam -> {eventId, state, period, clock, detail, kickoff, rz, oppAb}
     nflEvents: [],             // the FULL weekly slate, one row per game — feeds the Scores tab
     espnSeeded: false, slpSeeded: false,
@@ -618,6 +625,8 @@
     D.S.players.clear();
     D.S.events.length = 0;
     D.S.feedClosed = new Set();
+    D.S.playFeedByEvent = new Map();
+    D.S.playFeedLive = false;
     D.S.espnSeeded = false; D.S.slpSeeded = false;
     D.S.espnKeyByName.clear(); D.S.slpRowKeyByName.clear();
     D.S.fetchedFinal = new Set();
@@ -1347,6 +1356,18 @@
   };
 
   // ---------------- diff engine ----------------
+  // Shared by the live play feed and the 2025 replay's applySide emits. A scoring
+  // table is persisted, commissioner-typed data, so every factor goes through num()
+  // — the 2026-08-09 NaN report was this multiply with a truthy non-number.
+  function feedDeltaPts(stat, from, to, scoring) {
+    const sc = scoring || (LG.rules && LG.rules.scoring) || {};
+    if (stat === "dst_pa") {
+      return Math.round((paPoints(to, sc) - paPoints(from, sc)) * 10) / 10;
+    }
+    return Math.round((num(to) - num(from)) * num(sc[stat]) * 10) / 10;
+  }
+  D.feedDeltaPts = feedDeltaPts;
+
   function rowFor(key, meta) {
     let row = D.S.players.get(key);
     if (!row) {
@@ -1376,14 +1397,7 @@
           // so "4 pts" really does land in it (the 2026-08-09 production report). The score
           // column was closed then; the FEED's own delta was the one multiply left open, and it
           // renders straight through LG.fmtNum onto the matchup page.
-          const dPts = k === "dst_pa"
-            ? Math.round((paPoints(nv, scoring) - paPoints(ov, scoring)) * 10) / 10
-            : Math.round((num(nv) - num(ov)) * num(scoring[k]) * 10) / 10;
-          // Points-allowed is a scoring bracket, not a counting stat. This league's dst_pa_*
-          // rates are all 0, so a PA tick would otherwise land as "pts allowed 7→14" with an
-          // empty delta. Skip the line when the tick does not move the score (same-bracket, or
-          // every bracket is 0). A commissioner who turns PA scoring back on still sees the
-          // line the moment a bracket actually pays.
+          const dPts = feedDeltaPts(k, ov, nv, scoring);
           // Points-allowed is a scoring bracket, not a counting stat. This league's dst_pa_*
           // rates are all 0, so a PA tick would otherwise land as "pts allowed 7→14" with an
           // empty delta. Skip the line when the tick does not move the score (same-bracket, or
@@ -1397,11 +1411,11 @@
           // dump Thursday's box onto Sunday's feed again.
           const ab = slpTeam(row.team);
           if (ab && D.S.feedClosed && D.S.feedClosed.has(ab)) continue;
-          // LEAGUE time, not wall time. `t` is display-only (feedLine is its sole consumer),
-          // and under the 2025 replay a feed entry on a Sunday-afternoon board has to read as a
-          // Sunday afternoon rather than as whenever this device happened to poll. Off the
-          // replay LG.now() IS Date.now(), so the real league is unchanged. Everything that
-          // compares FRESHNESS (side.last, health.lastChange) deliberately stays on Date.now().
+          // LIVE board: the matchup feed is ESPN play-by-play (applyEspnPlayFeed), stamped
+          // with the play's own wallclock — not this poll. applySide still owns the BOX
+          // totals that score the board. The 2025 replay has no drives, so it is the one
+          // path that still diffs consecutive polls into the feed, in LEAGUE time.
+          if (!LG.SIM_2025) continue;
           D.S.events.unshift({ t: LG.now(), src, key, name: row.name, stat: k, from: ov, to: nv, dPts });
         }
       }
@@ -1424,6 +1438,326 @@
     }
   }
   D.closeFinishedFeeds = closeFinishedFeeds;
+
+  // ---------------- ESPN play-by-play feed ----------------
+  // The matchup feed is a chronological record of fantasy points, stamped with
+  // the play's own wallclock — not the poll that first saw the box tick.
+  // Site summary `/summary?event=` carries wallclock + text + type + statYardage
+  // on every play and no athlete ids (probed live, DEN@KC 401872931: 92/92
+  // wallclock, 1/92 participants). Names come from the box we already parse:
+  // displayName "Bo Nix" → play-text "B.Nix". Sleeper never writes the feed.
+  // The 2025 replay has no drives; applySide still emits there.
+  function escapeRe(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function nameAliases(display, short) {
+    const aliases = [];
+    const seen = new Set();
+    const add = (s) => {
+      const t = String(s || "").trim();
+      if (t.length < 2) return;
+      const k = t.toLowerCase();
+      if (seen.has(k)) return;
+      seen.add(k);
+      aliases.push(t);
+    };
+    add(display);
+    add(short);
+    const stripped = String(display || "").replace(/\s+(Jr\.?|Sr\.?|II|III|IV|V)$/i, "").trim();
+    add(stripped);
+    const parts = stripped.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const first = parts[0];
+      const last = parts[parts.length - 1];
+      const letters = first.replace(/[^A-Za-z]/g, "");
+      if (letters && last) {
+        add(letters[0] + "." + last);
+        add(letters[0] + ". " + last);
+      }
+    }
+    return aliases;
+  }
+  function boxNameIndex(box) {
+    const entries = [];
+    if (!box) return entries;
+    for (const [id, rec] of box) {
+      const name = (rec.meta && rec.meta.name) || "";
+      const short = (rec.meta && rec.meta.shortName) || "";
+      const team = (rec.meta && rec.meta.team) || "";
+      entries.push({ id: String(id), name, team: slpTeam(team), aliases: nameAliases(name, short) });
+    }
+    return entries;
+  }
+  function matchAlias(frag, entries) {
+    if (!frag) return null;
+    const raw = String(frag);
+    let best = null;
+    for (const e of entries) {
+      for (const alias of e.aliases) {
+        const re = new RegExp("(?:^|[^A-Za-z])" + escapeRe(alias) + "(?![A-Za-z])", "i");
+        if (re.test(raw) && (!best || alias.length > best.alias.length)) best = { id: e.id, name: e.name, team: e.team, alias };
+      }
+    }
+    return best;
+  }
+  function stripPlayPreamble(text) {
+    return String(text || "")
+      .replace(/^\s*\([^)]*\)\s*/g, "")
+      .replace(/(?:[A-Z][A-Za-z.''-]+(?:,| and)?\s+)+reported in as eligible\.\s*/gi, "")
+      .trim();
+  }
+  function playTypeText(p) { return String(p?.type?.text || p?.type?.abbreviation || ""); }
+  function playYards(p) {
+    if (p?.statYardage != null && Number.isFinite(Number(p.statYardage))) return Number(p.statYardage);
+    const m = String(p?.text || "").match(/(-?\d+)\s*(?:yd|yard)/i);
+    return m ? Number(m[1]) : 0;
+  }
+  function playStamp(p) {
+    const t = Date.parse(p?.wallclock || "");
+    return Number.isFinite(t) ? t : 0;
+  }
+  function collectEspnPlays(summary) {
+    const out = [];
+    const seen = new Set();
+    const pushDrive = (d) => {
+      for (const p of (d?.plays || [])) {
+        if (!p) continue;
+        const id = p.id != null ? String(p.id) : "";
+        if (id && seen.has(id)) continue;
+        if (id) seen.add(id);
+        out.push({ play: p, drive: d || null });
+      }
+    };
+    for (const d of (summary?.drives?.previous || [])) pushDrive(d);
+    if (summary?.drives?.current) pushDrive(summary.drives.current);
+    out.sort((a, b) => {
+      const sa = Number(a.play.sequenceNumber) || 0;
+      const sb = Number(b.play.sequenceNumber) || 0;
+      if (sa && sb && sa !== sb) return sa - sb;
+      return playStamp(a.play) - playStamp(b.play);
+    });
+    return out;
+  }
+  D.collectEspnPlays = collectEspnPlays;
+  function headerTeams(summary) {
+    const comps = summary?.header?.competitions?.[0]?.competitors || [];
+    const byId = new Map();
+    let home = "", away = "";
+    for (const c of comps) {
+      const ab = slpTeam(c?.team?.abbreviation || "");
+      const id = String(c?.team?.id || c?.id || "");
+      if (id && ab) byId.set(id, ab);
+      if (c?.homeAway === "home") home = ab;
+      if (c?.homeAway === "away") away = ab;
+    }
+    return { byId, home, away };
+  }
+  function playOffenseAb(play, drive, teams) {
+    const parts = play?.teamParticipants || [];
+    const off = parts.find((p) => p && p.type === "offense");
+    if (off) {
+      const ab = teams.byId.get(String(off.id));
+      if (ab) return ab;
+    }
+    const playAb = slpTeam(play?.team?.abbreviation || "");
+    if (playAb) return playAb;
+    return slpTeam(drive?.team?.abbreviation || "");
+  }
+  function otherTeam(ab, teams) {
+    if (ab && ab === teams.home) return teams.away;
+    if (ab && ab === teams.away) return teams.home;
+    return "";
+  }
+  function fgBucket(yds) {
+    const y = Number(yds) || 0;
+    if (y >= 50) return "fg_50";
+    if (y >= 40) return "fg_40_49";
+    return "fg_0_39";
+  }
+  function creditEspnPlay(play, ctx) {
+    const text = String(play?.text || "");
+    const type = playTypeText(play);
+    const typeL = type.toLowerCase();
+    const textL = text.toLowerCase();
+    const body = stripPlayPreamble(text);
+    const yds = playYards(play);
+    const names = (ctx && ctx.names) || [];
+    const teams = (ctx && ctx.teams) || { byId: new Map(), home: "", away: "" };
+    const offense = playOffenseAb(play, ctx && ctx.drive, teams);
+    const defense = otherTeam(offense, teams);
+    const credits = [];
+    const add = (hit, stat, n) => {
+      if (!hit || !stat || !Number.isFinite(n) || n === 0) return;
+      credits.push({ key: hit.id, name: hit.name, team: hit.team, stat, n });
+    };
+    const addDst = (ab, stat, n) => {
+      if (!ab || !stat || !Number.isFinite(n) || n === 0) return;
+      credits.push({ key: "dst_" + slpTeam(ab), name: slpTeam(ab) + " D/ST", team: slpTeam(ab), stat, n });
+    };
+    if (!text && !type) return credits;
+    if (/timeout|end (of )?(quarter|half|game)|two-minute/i.test(type)) return credits;
+    if (/penalty/i.test(typeL) || /nullified/i.test(textL)) return credits;
+    if (/^kickoff$/i.test(type) && !/touchdown/i.test(type + text)) return credits;
+    if (/^punt$/i.test(type) && !/touchdown/i.test(type + text)) return credits;
+
+    const isTd = !!(play?.scoringPlay || /touchdown/i.test(type) || /,\s*touchdown\b/i.test(text))
+      && !/nullified/i.test(textL);
+    const isInt = /intercept/i.test(type + text);
+    const isSack = /^sack$/i.test(type) || /\bsacked\b/i.test(text);
+    const isSafety = /safety/i.test(type) || /\bsafety\b/i.test(textL);
+    const isFgMiss = /field goal/i.test(type + text) && /miss|no good|block/i.test(typeL + " " + textL);
+    const isFgGood = !isFgMiss && (/field goal/i.test(type) && /good|made/i.test(typeL)
+      || /\d+\s*yd(?:s|ards?)?\s+field goal/i.test(text));
+    const is2pt = /two[- ]point/i.test(type + text);
+    const isKrTd = /kick(?:off)? return/i.test(type + text) && isTd;
+    const isPrTd = /punt return/i.test(type + text) && isTd;
+    const isFumOpp = /fumble recovery \(opponent\)|fumble recovered by opponent|fumble return/i.test(typeL);
+    const isPass = /pass|reception/i.test(type) || /\bpass\b/i.test(body);
+    const isRush = /rush/i.test(type) || /\bscrambles?\b/i.test(body);
+
+    if (isFgGood || isFgMiss) {
+      const km = body.match(/^(.+?)\s+\d+\s*yd/i) || body.match(/^(.+?)\s+\d{1,2}\s/i);
+      const kicker = matchAlias(km ? km[1] : body, names);
+      if (isFgGood) {
+        const fgYd = yds || Number((body.match(/(\d+)\s*yd/i) || [])[1]) || 0;
+        add(kicker, fgBucket(fgYd), 1);
+        if (fgYd) add(kicker, "fg_made_yd", fgYd);
+      } else {
+        add(kicker, "fg_miss", 1);
+      }
+      return credits;
+    }
+
+    if (/extra point/i.test(text + " " + type)) {
+      const xm = text.match(/([A-Z][A-Za-z.''-]+(?:\s+[A-Z][A-Za-z.''-]+)?)\s+extra point/i);
+      const kicker = matchAlias(xm ? xm[1] : body, names);
+      add(kicker, /miss|no good|block/i.test(textL + " " + typeL) ? "xp_miss" : "xp_made", 1);
+      if (/^extra point/i.test(type) && !isTd) return credits;
+    }
+
+    if (isSafety) { addDst(defense || offense, "dst_safety", 1); return credits; }
+    if (isKrTd || isPrTd) { addDst(offense || defense, "dst_kr_td", 1); return credits; }
+
+    if (isInt) {
+      const pm = body.match(/^(.+?)\s+pass\b/i);
+      add(matchAlias(pm ? pm[1] : "", names), "pass_int", 1);
+      addDst(defense, "dst_int", 1);
+      if (isTd) addDst(defense, "dst_td", 1);
+      return credits;
+    }
+
+    if (isSack) {
+      const sm = body.match(/^(.+?)\s+sacked\b/i);
+      const qb = matchAlias(sm ? sm[1] : "", names);
+      if (yds) add(qb, "pass_yd", yds);
+      addDst(defense, "dst_sack", 1);
+      return credits;
+    }
+
+    if (isFumOpp) {
+      const first = matchAlias((body.match(/^([A-Z][A-Za-z.''-]+(?:\s+[A-Z][A-Za-z.''-]+)?)/) || [])[1] || body, names);
+      add(first, "fum_lost", 1);
+      addDst(defense, "dst_fum_rec", 1);
+      if (isTd) addDst(defense, "dst_td", 1);
+      return credits;
+    }
+
+    if (is2pt) {
+      const clause = ((text.match(/\(([^)]*two[- ]point[^)]*)\)/i) || [])[1]
+        || body.replace(/two[- ]point conversion attempt\.\s*/i, ""));
+      let m = clause.match(/([A-Za-z.''\- ]+?)\s+pass\s+to\s+([A-Za-z.''\- ]+?)(?:\s+for|\s+is\s+complete|$)/i);
+      if (m) {
+        add(matchAlias(m[1], names), "pass_2pt", 1);
+        add(matchAlias(m[2], names), "rec_2pt", 1);
+      } else {
+        m = clause.match(/([A-Za-z.''\- ]+?)\s+(run|rush|scrambles)\b/i);
+        if (m) add(matchAlias(m[1], names), "rush_2pt", 1);
+      }
+    }
+
+    if (isPass && !isInt && !isSack) {
+      const fromM = body.match(/^(.+?)\s+\d+\s*Yd\s+pass\s+from\s+(.+?)(?:\s*\(|,|$)/i);
+      let passer = null, recv = null;
+      if (fromM) {
+        recv = matchAlias(fromM[1], names);
+        passer = matchAlias(fromM[2], names);
+      } else {
+        const pm = body.match(/^(.+?)\s+pass\b/i);
+        passer = matchAlias(pm ? pm[1] : "", names);
+        const toM = body.match(/\bto\s+([A-Z][A-Za-z.''-]+(?:\s+[A-Z][A-Za-z.''-]+)?)\s+(?:to\s+[A-Z]{2,3}\s+\d+\s+)?(?:for\s+|for a touchdown|,)/i)
+          || body.match(/\bto\s+([A-Z][A-Za-z.''-]+(?:\s+[A-Z][A-Za-z.''-]+)?)\s+for\b/i);
+        recv = matchAlias(toM ? toM[1] : "", names);
+      }
+      const complete = !/incomplete/i.test(type + " " + text);
+      if (complete) {
+        if (yds) add(passer, "pass_yd", yds);
+        if (isTd) add(passer, "pass_td", 1);
+        if (recv) {
+          add(recv, "rec", 1);
+          if (yds) add(recv, "rec_yd", yds);
+          if (isTd) add(recv, "rec_td", 1);
+        }
+      }
+      return credits;
+    }
+
+    if (isRush || /\b(?:left|right|up the middle|scrambles)\b/i.test(body)) {
+      const rm = body.match(/^([A-Z][A-Za-z.''-]+(?:\s+[A-Z][A-Za-z.''-]+)?)\b/);
+      const rusher = matchAlias(rm ? rm[1] : body, names);
+      if (yds) add(rusher, "rush_yd", yds);
+      if (isTd) add(rusher, "rush_td", 1);
+      return credits;
+    }
+    return credits;
+  }
+  D.creditEspnPlay = creditEspnPlay;
+
+  function wipeLegacyFeed() {
+    if (D.S.playFeedLive) return;
+    for (let i = D.S.events.length - 1; i >= 0; i--) {
+      const e = D.S.events[i];
+      if (e && (e.msg || e.playId)) continue;
+      D.S.events.splice(i, 1);
+    }
+    D.S.playFeedLive = true;
+  }
+  D.wipeLegacyFeed = wipeLegacyFeed;
+
+  function applyEspnPlayFeed(eventId, summary, box) {
+    if (LG.SIM_2025) return;
+    const eid = String(eventId || "");
+    if (!eid || !summary) return;
+    wipeLegacyFeed();
+    const names = boxNameIndex(box || parseEspnBox(summary));
+    const teams = headerTeams(summary);
+    D.S.playFeedByEvent = D.S.playFeedByEvent || new Map();
+    const cache = D.S.playFeedByEvent.get(eid) || { seen: new Set(), running: new Map() };
+    const scoring = (LG.rules && LG.rules.scoring) || {};
+    for (const { play, drive } of collectEspnPlays(summary)) {
+      const playId = play.id != null ? String(play.id) : "";
+      if (!playId) continue;
+      const t = playStamp(play) || LG.now();
+      for (const c of creditEspnPlay(play, { names, teams, drive })) {
+        const sid = playId + "|" + c.key + "|" + c.stat;
+        if (cache.seen.has(sid)) continue;
+        const ab = slpTeam(c.team);
+        if (ab && D.S.feedClosed && D.S.feedClosed.has(ab)) continue;
+        const runKey = c.key + "\0" + c.stat;
+        const from = cache.running.has(runKey) ? cache.running.get(runKey) : 0;
+        const to = from + c.n;
+        const dPts = feedDeltaPts(c.stat, from, to, scoring);
+        cache.seen.add(sid);
+        cache.running.set(runKey, to);
+        if (!dPts) continue;
+        D.S.events.unshift({
+          t, src: "espn", key: c.key, name: c.name, stat: c.stat,
+          from, to, dPts, playId,
+        });
+      }
+    }
+    D.S.playFeedByEvent.set(eid, cache);
+  }
+  D.applyEspnPlayFeed = applyEspnPlayFeed;
 
   // Freshest healthy side wins the display; disagreement > 0.5 pts flags ⚠.
   // Degraded modes pin to the surviving source (plan §7's display rule) — WITH the game-night
@@ -1711,6 +2045,7 @@
         g.rz = inRz && g.poss;
       }
     }
+    if (!LG.SIM_2025) applyEspnPlayFeed(String(eventId), j, box);
     if (box.size) D.S.espnSeeded = true;
   }
   D.pollEspnGame = pollEspnGame;

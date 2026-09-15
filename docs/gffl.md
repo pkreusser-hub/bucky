@@ -7967,3 +7967,43 @@ now-2h ticks (2 of 4 kept), Friday idle writes a new minute, and
 paint has no two-span playing-time X. Every pre-existing TF check
 still passed. App files restored, hashes identical.
 ---
+
+## GFFL — matchup feed is ESPN play-by-play, scored-at wallclock (2026-09-15)
+
+User: the feed should be a chronological record of every fantasy
+point scored in the pairing, ESPN only, timestamped when the
+points were scored — not when we polled. Wipe the old poll-diff
+rows so the game on now is the story.
+
+`applySide` still owns the box totals that score the board.
+Sleeper never writes the feed. Live emits come from
+`applyEspnPlayFeed`, walking `drives.previous` then
+`drives.current` (deduped by `play.id`, ordered by
+`sequenceNumber`). `t` is `Date.parse(play.wallclock)`. Identity
+is `play.id|key|stat`. Running from→to accumulates per key/stat
+so a re-poll is idempotent. First ingest drops every in-memory
+event that has no `playId` (system notes stay).
+`closeFinishedFeeds` still silences a finished team's later
+plays. The 2025 replay has no drives, so `applySide` still emits
+there in league time.
+
+Site summary has wallclock + text + type + statYardage and no
+athlete ids (probed live, DEN@KC 401872931: 92/92 wallclock,
+1/92 participants). Names come from the box:
+`Bo Nix` / `Pat Bryant` / `Kenneth Walker III` match play-text
+`B.Nix` / `P.Bryant` / `K.Walker`. A 13-yd PPR catch is
++0.5 / +1.0 / +1.3. A TD play that embeds `extra point is GOOD`
+credits the kicker on the same stamp. Paint shows weekday + time.
+
+`sumAFix` drives now carry the phase-1 story (FG, TD+2pt, INT,
+two more catches = 4 rec / 50 yds) and phase 2 appends the 12-yd
+catch (50→62) and the second TD. Last phase-1 current play stays
+at the 12 so the red-zone dot still has a real YTE.
+
+Scripts cache-bust `?v=20260915a`.
+
+Files: `league.html`, `assets/league/lg-{data,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: quoted after the suite run.
+---

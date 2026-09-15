@@ -4833,9 +4833,14 @@
   // side is "a" (away) / "h" (home) / null (a system message, which belongs to neither team);
   // tags is {a,h} — the two teams' short tags, resolved once per render by the caller.
   function feedLine(e, side, tags) {
-    // e.t is stamped in LEAGUE time at the source (see applySide) — off the replay that IS
-    // wall time, and under it a Sunday-afternoon board's feed reads as a Sunday afternoon.
-    const t = new Date(e.t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    // Live: e.t is the play's ESPN wallclock (when the points were scored). Replay:
+    // applySide still stamps LEAGUE time. Weekday + time so TNF and Sunday don't
+    // collapse into the same hour:minute.
+    const d = new Date(e.t);
+    const t = Number.isFinite(d.getTime())
+      ? (d.toLocaleDateString("en-US", { weekday: "short" }) + " "
+        + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }))
+      : "";
     if (e.msg) return `<div class="fline sys"><span class="mut">${t}</span> ${esc(e.msg)}</div>`;
     const sign = e.dPts > 0 ? "+" : "";
     const cls = e.dPts > 0 ? "up" : e.dPts < 0 ? "down" : "flat";
@@ -4847,12 +4852,11 @@
       ${esc(STAT_LABEL[e.stat] || e.stat)} ${e.from ?? 0}→${e.to ?? 0}
       <span class="delta ${cls}">${e.dPts ? sign + LG.fmtNum(e.dPts) : ""}</span></div>`;
   }
-  // One painted line per fantasy-point score, newest first. Dual-source polling
-  // (ESPN + Sleeper) diffs the same tick independently, so D.S.events holds two
-  // rows for one catch; the family feed is the merged story. Collapse the same
-  // landing value (key/stat/to) so 1→2 and 0→2 are one play, drop a tick that
-  // did not move the score, and keep every remaining line — the old 60-cap is
-  // why Thursday's scores vanished the moment Sunday got busy.
+  // One painted line per fantasy-point score, newest first. Live events come
+  // from ESPN plays (one source, wallclock `t`, playId). Collapse the same
+  // landing value (key/stat/to) so a restated 0→2 and 1→2 are one play, drop a
+  // tick that did not move the score, and keep every remaining line — the old
+  // 60-cap is why Thursday's scores vanished the moment Sunday got busy.
   function annotateFeed(events, aSet, hSet) {
     const rows = [];
     const src = events || [];

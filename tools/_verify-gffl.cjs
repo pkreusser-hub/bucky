@@ -1418,7 +1418,61 @@ function sumAFix() {
         ? [{ type: { id: "8", text: "Safety", abbreviation: "SF" }, text: "R. Rusher tackled in the end zone by PHI", team: { abbreviation: "DAL" } }]
         : []),
     ],
-    drives: { current: { team: { abbreviation: "PHI" }, plays: [{ end: { yardsToEndzone: 12 } }] } },
+    // RESTAGED 2026-09-15: the matchup feed walks these drives. Phase 1 is the
+    // first-half story (FG + TD + INT + two more catches = 4 rec / 50 yds);
+    // phase 2 appends the 12-yd catch (50→62) and the second TD. Last current
+    // play in phase 1 stays at the 12 so the red-zone dot still has a real YTE.
+    drives: {
+      previous: [
+        { team: { abbreviation: "DAL" }, displayResult: "Field Goal", isScore: true, plays: [
+          { id: "s1", sequenceNumber: 100, wallclock: "2026-09-13T18:08:00Z",
+            text: "K. Kicker 47 Yd Field Goal", type: { text: "Field Goal Good" },
+            statYardage: 47, scoringPlay: true, end: { yardsToEndzone: 0 } },
+        ] },
+        { team: { abbreviation: "PHI" }, displayResult: "Touchdown", isScore: true, plays: [
+          { id: "s2", sequenceNumber: 200, wallclock: "2026-09-13T18:12:00Z",
+            text: "P. Passer pass short middle to W. Receiver for 21 yards",
+            type: { text: "Pass Reception" }, statYardage: 21, scoringPlay: false,
+            end: { yardsToEndzone: 54 } },
+          { id: "s3", sequenceNumber: 300, wallclock: "2026-09-13T18:14:00Z",
+            text: "W. Receiver 12 Yd pass from P. Passer (P. Passer pass to W. Receiver for Two-Point Conversion)",
+            type: { text: "Passing Touchdown" }, statYardage: 12, scoringPlay: true,
+            end: { yardsToEndzone: 0 } },
+        ] },
+        { team: { abbreviation: "DAL" }, displayResult: "Punt", plays: [
+          { id: "s4", sequenceNumber: 400, wallclock: "2026-09-13T18:16:00Z",
+            text: "R. Rusher left end to PHI 40 for 8 yards",
+            type: { text: "Rush" }, statYardage: 8, scoringPlay: false,
+            end: { yardsToEndzone: 60 } },
+        ] },
+        { team: { abbreviation: "PHI" }, displayResult: "Interception", plays: [
+          { id: "s5", sequenceNumber: 500, wallclock: "2026-09-13T18:18:00Z",
+            text: "P. Passer pass deep middle intended for W. Receiver INTERCEPTED by D. Backer at DAL 30.",
+            type: { text: "Pass Interception Return" }, statYardage: 5, scoringPlay: false,
+            end: { yardsToEndzone: 70 } },
+        ] },
+      ],
+      current: { team: { abbreviation: "PHI" }, plays: [
+        { id: "s6", sequenceNumber: 600, wallclock: "2026-09-13T18:22:00Z",
+          text: "P. Passer pass short right to W. Receiver for 9 yards",
+          type: { text: "Pass Reception" }, statYardage: 9, scoringPlay: false,
+          end: { yardsToEndzone: 20 } },
+        { id: "s7", sequenceNumber: 700, wallclock: "2026-09-13T18:24:00Z",
+          text: "P. Passer pass short left to W. Receiver to DAL 12 for 8 yards",
+          type: { text: "Pass Reception" }, statYardage: 8, scoringPlay: false,
+          end: { yardsToEndzone: 12 } },
+        ...(p2 ? [
+          { id: "s8", sequenceNumber: 800, wallclock: "2026-09-13T18:28:00Z",
+            text: "P. Passer pass short right to W. Receiver for 12 yards",
+            type: { text: "Pass Reception" }, statYardage: 12, scoringPlay: false,
+            end: { yardsToEndzone: 30 } },
+          { id: "s9", sequenceNumber: 900, wallclock: "2026-09-13T18:30:00Z",
+            text: "P. Passer pass deep left to W. Receiver for 25 yards, TOUCHDOWN. K. Kicker extra point is GOOD, Center-X. Long, Holder-Y. Hold.",
+            type: { text: "Passing Touchdown" }, statYardage: 25, scoringPlay: true,
+            end: { yardsToEndzone: 0 } },
+        ] : []),
+      ] },
+    },
   };
 }
 function sumBFix() {
@@ -2967,8 +3021,11 @@ async function openDetails(page, id) {
     ok(pts2[1] === "44.2", "totals move with the freshest source: home now 44.2 — RESTAGED 2026-08-22, ESPN 2026 D/ST rates");
     const feed = await text(page, "#mufeed");
     ok(/P\. Passer/.test(feed) && /pass TD 1→2/.test(feed) && /\+4\.0/.test(feed),
-      "feed logs the TD with its fantasy delta (+4.0)");
-    ok(/rec yds 50→62/.test(feed) && /\+1\.2/.test(feed), "feed logs the catch yardage (+1.2)");
+      "feed logs the second TD from the ESPN play, stamped with its fantasy delta (+4.0) — RESTAGED 2026-09-15, play wallclock not poll-diff");
+    ok(/rec yds 50→62/.test(feed) && /\+1\.2/.test(feed),
+      "feed logs the 12-yd catch as rec yds 50→62 (+1.2) — the play-walk total, not a box diff");
+    ok(/\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b/.test(feed),
+      "feed timestamps carry the weekday the points were scored (" + (feed.match(/\b(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b/) || [""])[0] + ")");
     ok(errors.length === 0, "0 page errors on the matchup page");
     if (SHOTS) { fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true }); await page.screenshot({ path: path.join(ROOT, "shots", "gffl_matchup_390.png"), fullPage: true }); console.log("  📸 shots/gffl_matchup_390.png"); }
     await ctx.close();
@@ -22419,6 +22476,7 @@ async function openDetails(page, id) {
         // (b) the feed's delta against a POISONED scoring table (the 2026-08-09 production shape)
         LG.rules.scoring.pass_td = "4 pts";
         D.S.espnSeeded = true; D.S.events.length = 0;
+        const dPtsPoison = D.feedDeltaPts ? D.feedDeltaPts("pass_td", 0, 1) : NaN;
         if (D.applySide) D.applySide("espn", "bf_poison", { name: "B. Poison", pos: "QB", team: "PHI" }, { pass_td: 1 });
         const ev = D.S.events.find((e) => e.key === "bf_poison" && e.stat === "pass_td");
         LG.rules.scoring.pass_td = 4;
@@ -22427,7 +22485,8 @@ async function openDetails(page, id) {
         await D.fetchWeekSlate(5);
         return {
           passYd: n.pass_yd, passYdType: typeof n.pass_yd, fg: n.fg_0_39,
-          dPts: ev ? ev.dPts : null, dFinite: !!(ev && Number.isFinite(ev.dPts)),
+          dPts: dPtsPoison, dFinite: Number.isFinite(dPtsPoison),
+          applySideSilent: !ev,
           sbAfter: (D.EP["espn scoreboard"] || {}).n || 0, sbBefore,
           slateN: (D.EP["espn week slate"] || {}).n || 0,
           // The ESPN SIDE's own score, not the merged one: mergeRow picks whichever feed is
@@ -24064,12 +24123,10 @@ async function openDetails(page, id) {
   }
 
   // ================================================================================
-  //  TC · matchup feed — one line per play, unused points-allowed stays off the feed
+  //  TC · matchup feed — ESPN plays only, unused points-allowed stays off the feed
   // ================================================================================
-  // Live week 1: ESPN and Sleeper each call applySide on the same tick, so one catch
-  // became two feed rows. Points-allowed still emitted too, even though every dst_pa_*
-  // rate in this league is 0. The painted feed is the merged story: one row per
-  // landing value (key/stat/to), and a tick that did not move the score never lands.
+  // RESTAGED 2026-09-15: applySide no longer produces the live feed (Sleeper
+  // especially). One ESPN play is one painted story; a 0-pt PA tick stays off.
   }
   if (section("TC · matchup feed — one line per play, no unused points-allowed")) {
   {
@@ -24084,17 +24141,34 @@ async function openDetails(page, id) {
       const passer = D.S.players.get("3915511");
       const eStats = { ...(passer.espn && passer.espn.stats || {}), pass_td: ((passer.espn && passer.espn.stats && passer.espn.stats.pass_td) || 0) + 1 };
       const sStats = { ...(passer.slp && passer.slp.stats || {}), pass_td: ((passer.slp && passer.slp.stats && passer.slp.stats.pass_td) || 0) + 1 };
-      const fromE = passer.espn && passer.espn.stats ? passer.espn.stats.pass_td : 0;
-      const fromS = passer.slp && passer.slp.stats ? passer.slp.stats.pass_td : 0;
+      D.S.playFeedLive = true;
       D.S.events.length = 0;
       D.applySide("espn", "3915511", { name: "P. Passer", pos: "QB", team: "PHI" }, eStats);
       D.applySide("slp", "3915511", { name: "P. Passer", pos: "QB", team: "PHI" }, sStats);
       const stored = D.S.events.filter((e) => e.key === "3915511" && e.stat === "pass_td");
       const dst = D.S.players.get("dst_PHI");
       const dstStats = { ...(dst && dst.espn && dst.espn.stats || {}), dst_pa: 21 };
-      const paBefore = D.S.events.length;
       D.applySide("espn", "dst_PHI", { name: "PHI D/ST", pos: "DST", team: "PHI" }, dstStats);
       const paEmitted = D.S.events.filter((e) => e.stat === "dst_pa");
+      const box = D.parseEspnBox({ boxscore: { players: [
+        { team: { abbreviation: "PHI" }, statistics: [
+          { name: "passing", labels: ["C/ATT", "YDS", "AVG", "TD", "INT"],
+            athletes: [{ athlete: { id: "3915511", displayName: "P. Passer" }, stats: ["1/1", "12", "12", "1", "0"] }] },
+        ] },
+      ] } });
+      const summary = {
+        header: { competitions: [{ competitors: [
+          { homeAway: "home", team: { abbreviation: "PHI", id: "21" } },
+          { homeAway: "away", team: { abbreviation: "DAL", id: "6" } },
+        ] }] },
+        drives: { current: { team: { abbreviation: "PHI" }, plays: [
+          { id: "tc-td", sequenceNumber: 1, wallclock: "2026-09-13T18:14:00Z",
+            text: "P. Passer pass short right to W. Receiver for 12 yards, TOUCHDOWN.",
+            type: { text: "Passing Touchdown" }, statYardage: 12, scoringPlay: true },
+        ] } },
+      };
+      if (typeof D.applyEspnPlayFeed === "function") D.applyEspnPlayFeed("tc-1", summary, box);
+      const playTds = D.S.events.filter((e) => e.key === "3915511" && e.stat === "pass_td" && e.playId);
       D.S.events.unshift({ t: Date.now(), src: "espn", key: "dst_PHI", name: "PHI D/ST",
         stat: "dst_pa", from: 7, to: 14, dPts: 0 });
       D.S.events.unshift({ t: Date.now(), src: "espn", key: "dst_PHI", name: "PHI D/ST",
@@ -24105,17 +24179,20 @@ async function openDetails(page, id) {
       const paLines = lines.filter((t) => /pts allowed/.test(t));
       const sackLines = lines.filter((t) => /PHI D\/ST/.test(t) && /sack/.test(t));
       return {
-        storedN: stored.length, fromE, fromS, toE: eStats.pass_td, toS: sStats.pass_td,
-        paEmitted: paEmitted.length, paBefore,
+        storedN: stored.length, playTdN: playTds.length,
+        playT: playTds[0] && playTds[0].t, wall: Date.parse("2026-09-13T18:14:00Z"),
+        paEmitted: paEmitted.length,
         tdN: tdLines.length, tdSample: tdLines[0] || "",
         paN: paLines.length, sackN: sackLines.length,
-        feedN: lines.length,
+        hook: typeof D.applyEspnPlayFeed === "function",
       };
     });
-    ok(r.storedN === 2 && r.fromE === r.fromS && r.toE === r.toS,
-      "both sources recorded the same TD tick (the audit log keeps both) (" + JSON.stringify({ n: r.storedN, fromE: r.fromE, fromS: r.fromS, toE: r.toE, toS: r.toS }) + ")");
-    ok(r.tdN === 1 && /pass TD/.test(r.tdSample) && r.tdSample.includes(String(r.fromE) + "→" + String(r.toE)),
-      "…but the painted feed shows that play ONCE (" + r.tdN + " lines: " + r.tdSample + ")");
+    ok(r.storedN === 0,
+      "applySide does not write the live feed — ESPN and Sleeper box diffs stay off it (" + r.storedN + ")");
+    ok(r.hook === true && r.playTdN === 1 && r.playT === r.wall,
+      "…an ESPN play writes the TD once, stamped with the play wallclock (" + JSON.stringify({ hook: r.hook, n: r.playTdN, t: r.playT, wall: r.wall }) + ")");
+    ok(r.tdN === 1 && /pass TD/.test(r.tdSample),
+      "…and the painted feed shows that play ONCE (" + r.tdN + " lines: " + r.tdSample + ")");
     ok(r.paEmitted === 0,
       "applySide does not emit a points-allowed tick when every dst_pa_* rate is 0 (" + r.paEmitted + ")");
     ok(r.paN === 0 && r.sackN === 1,
@@ -24127,11 +24204,10 @@ async function openDetails(page, id) {
   // ================================================================================
   //  TE · matchup feed — every fantasy-point score, once, in time order
   // ================================================================================
-  // Live Sunday: Thursday's box kept reappearing (Sleeper's weekly bucket still
-  // diffs a finished game every ~16s), and older scoring lines vanished once
-  // the painted list hit 60. The feed is every fantasy-point tick for this
-  // pairing, newest first, one line per landing value, silent after the NFL
-  // game is closed.
+  // RESTAGED 2026-09-15: a live play and the last play of a just-finished game
+  // both land; after closeFinishedFeeds a later ESPN or Sleeper poll does not.
+  // annotateFeed still keeps every pairing tick (no 60-cap) and collapses 0→2
+  // with 1→2.
   }
   if (section("TE · matchup feed — every score once, chronological, no finished-game reruns")) {
   {
@@ -24143,6 +24219,58 @@ async function openDetails(page, id) {
     await page.waitForSelector("#mufeed", { timeout: 9000 });
     const r = await page.evaluate(async () => {
       const { D, UI } = window.__GFFL__;
+      const box = D.parseEspnBox({ boxscore: { players: [
+        { team: { abbreviation: "PHI" }, statistics: [
+          { name: "passing", labels: ["C/ATT", "YDS", "AVG", "TD", "INT"],
+            athletes: [{ athlete: { id: "3915511", displayName: "P. Passer" }, stats: ["1/1", "12", "12", "1", "0"] }] },
+        ] },
+      ] } });
+      const playAt = (id, wall) => ({
+        header: { competitions: [{ competitors: [
+          { homeAway: "home", team: { abbreviation: "PHI", id: "21" } },
+          { homeAway: "away", team: { abbreviation: "DAL", id: "6" } },
+        ] }] },
+        drives: { previous: [], current: { team: { abbreviation: "PHI" }, plays: [
+          { id, sequenceNumber: Number(String(id).replace(/\D/g, "")) || 1,
+            wallclock: wall, text: "P. Passer pass short right for 1 yard, TOUCHDOWN.",
+            type: { text: "Passing Touchdown" }, statYardage: 1, scoringPlay: true },
+        ] } },
+      });
+      const feedTd = () => D.S.events.filter((e) => e.key === "3915511" && e.stat === "pass_td");
+      const g0 = D.S.games.get("PHI") || { eventId: "te-phi", kickoff: "2026-09-11T00:20:00Z" };
+      D.S.games.set("PHI", Object.assign({}, g0, { state: "in", completed: null, eventId: "te-phi" }));
+      if (D.S.feedClosed && D.S.feedClosed.delete) D.S.feedClosed.delete("PHI");
+      D.S.espnSeeded = true; D.S.slpSeeded = true;
+      D.S.playFeedLive = true;
+      D.S.events.length = 0;
+      if (D.S.playFeedByEvent && D.S.playFeedByEvent.clear) D.S.playFeedByEvent.clear();
+      if (typeof D.applyEspnPlayFeed === "function") {
+        D.applyEspnPlayFeed("te-phi", playAt("te1", "2026-09-13T18:10:00Z"), box);
+      }
+      const liveN = feedTd().length;
+      D.S.games.set("PHI", Object.assign({}, D.S.games.get("PHI"), { state: "post", completed: true }));
+      if (typeof D.applyEspnPlayFeed === "function") {
+        D.applyEspnPlayFeed("te-phi", {
+          header: playAt("te1", "2026-09-13T18:10:00Z").header,
+          drives: { current: { team: { abbreviation: "PHI" }, plays: [
+            playAt("te1", "2026-09-13T18:10:00Z").drives.current.plays[0],
+            playAt("te2", "2026-09-13T18:20:00Z").drives.current.plays[0],
+          ] } },
+        }, box);
+      }
+      const lastPlayN = feedTd().length;
+      if (typeof D.closeFinishedFeeds === "function") D.closeFinishedFeeds();
+      const closedHas = !!(D.S.feedClosed && D.S.feedClosed.has && D.S.feedClosed.has("PHI"));
+      if (typeof D.applyEspnPlayFeed === "function") {
+        D.applyEspnPlayFeed("te-phi", {
+          header: playAt("te1", "2026-09-13T18:10:00Z").header,
+          drives: { current: { team: { abbreviation: "PHI" }, plays: [
+            playAt("te1", "2026-09-13T18:10:00Z").drives.current.plays[0],
+            playAt("te2", "2026-09-13T18:20:00Z").drives.current.plays[0],
+            playAt("te3", "2026-09-13T18:30:00Z").drives.current.plays[0],
+          ] } },
+        }, box);
+      }
       const empty = () => { const o = {}; for (const k of D.KEYS) o[k] = 0; o.dst_pa = null; return o; };
       const bumpTd = (src) => {
         const row = D.S.players.get("3915511");
@@ -24150,21 +24278,9 @@ async function openDetails(page, id) {
         st.pass_td = (Number(st.pass_td) || 0) + 1;
         D.applySide(src, "3915511", { name: "P. Passer", pos: "QB", team: "PHI" }, st);
       };
-      const g0 = D.S.games.get("PHI") || { eventId: "te-phi", kickoff: "2026-09-11T00:20:00Z" };
-      D.S.games.set("PHI", Object.assign({}, g0, { state: "in", completed: null }));
-      if (D.S.feedClosed && D.S.feedClosed.delete) D.S.feedClosed.delete("PHI");
-      D.S.espnSeeded = true; D.S.slpSeeded = true;
-      D.S.events.length = 0;
-      bumpTd("espn");
-      const liveN = D.S.events.filter((e) => e.key === "3915511" && e.stat === "pass_td").length;
-      D.S.games.set("PHI", Object.assign({}, D.S.games.get("PHI"), { state: "post", completed: true }));
-      bumpTd("espn");
-      const lastPlayN = D.S.events.filter((e) => e.key === "3915511" && e.stat === "pass_td").length;
-      if (typeof D.closeFinishedFeeds === "function") D.closeFinishedFeeds();
-      const closedHas = !!(D.S.feedClosed && D.S.feedClosed.has && D.S.feedClosed.has("PHI"));
       bumpTd("espn");
       bumpTd("slp");
-      const afterCloseN = D.S.events.filter((e) => e.key === "3915511" && e.stat === "pass_td").length;
+      const afterCloseN = feedTd().length;
 
       D.S.events.length = 0;
       const t0 = 1_700_000_000_000;
@@ -25756,6 +25872,221 @@ async function openDetails(page, id) {
       }
 
       ok(errors.length === 0, "0 page errors on Friday / two-span paint");
+      await ctx.close();
+    }
+  }
+
+  // ================= TJ · ESPN play-by-play feed =================================
+  // User: the matchup feed is every fantasy point scored, ESPN only, stamped
+  // with when the points were scored — not when we polled. First ingest wipes
+  // poll-diff rows so the live game is the story.
+  if (section("TJ · ESPN play feed, scored-at wallclock, legacy wipe")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+
+      const hooks = await page.evaluate(() => {
+        const D = window.__GFFL__.D;
+        return {
+          apply: typeof D.applyEspnPlayFeed === "function",
+          credit: typeof D.creditEspnPlay === "function",
+          delta: typeof D.feedDeltaPts === "function",
+          wipe: typeof D.wipeLegacyFeed === "function",
+        };
+      });
+      ok(hooks.apply && hooks.credit && hooks.delta,
+        "play-feed hooks exist (" + JSON.stringify(hooks) + ")");
+
+      const arith = await page.evaluate(() => {
+        const D = window.__GFFL__.D, LG = window.__GFFL__.LG;
+        if (typeof D.applyEspnPlayFeed !== "function") return { hooks: false };
+        const box = D.parseEspnBox({ boxscore: { players: [
+          { team: { abbreviation: "DEN" }, statistics: [
+            { name: "passing", labels: ["C/ATT", "YDS", "AVG", "TD", "INT"],
+              athletes: [{ athlete: { id: "4426338", displayName: "Bo Nix" }, stats: ["1/1", "13", "13", "0", "0"] }] },
+            { name: "receiving", labels: ["REC", "YDS", "AVG", "TD", "LONG"],
+              athletes: [{ athlete: { id: "4600981", displayName: "Pat Bryant" }, stats: ["1", "13", "13", "0", "13"] }] },
+          ] },
+          { team: { abbreviation: "KC" }, statistics: [
+            { name: "passing", labels: ["C/ATT", "YDS", "AVG", "TD", "INT"],
+              athletes: [{ athlete: { id: "3139477", displayName: "Patrick Mahomes" }, stats: ["1/1", "13", "13", "1", "0"] }] },
+            { name: "receiving", labels: ["REC", "YDS", "AVG", "TD", "LONG"],
+              athletes: [{ athlete: { id: "4428331", displayName: "Rashee Rice" }, stats: ["1", "13", "13", "1", "13"] }] },
+            { name: "kicking", labels: ["FG", "PCT", "LONG", "XP", "PTS"],
+              athletes: [{ athlete: { id: "3055899", displayName: "Harrison Butker" }, stats: ["0/0", "0", "0", "1/1", "1"] }] },
+            { name: "rushing", labels: ["CAR", "YDS", "AVG", "TD"],
+              athletes: [{ athlete: { id: "4567048", displayName: "Kenneth Walker III" }, stats: ["1", "2", "2.0", "0"] }] },
+          ] },
+        ] } });
+        const header = { competitions: [{ competitors: [
+          { homeAway: "away", team: { abbreviation: "DEN", id: "7" } },
+          { homeAway: "home", team: { abbreviation: "KC", id: "12" } },
+        ] }] };
+        const wcCatch = "2026-09-15T00:35:10Z";
+        const catchPlay = {
+          id: "401872931516", sequenceNumber: 51600, wallclock: wcCatch,
+          text: "(Shotgun) B.Nix pass short right to P.Bryant to KC 43 for 13 yards (A.Gilman).",
+          type: { text: "Pass Reception", abbreviation: "REC" }, statYardage: 13, scoringPlay: false,
+          teamParticipants: [
+            { id: "7", type: "offense" },
+            { id: "12", type: "defense" },
+          ],
+        };
+        D.S.events.length = 0;
+        D.S.playFeedLive = false;
+        D.S.playFeedByEvent = new Map();
+        D.S.events.unshift({ t: Date.now(), src: "espn", key: "legacy", name: "Old Diff",
+          stat: "pass_td", from: 0, to: 1, dPts: 4 });
+        D.S.events.unshift({ t: Date.now(), src: "sys", msg: "keep me" });
+        D.applyEspnPlayFeed("401872931", {
+          header,
+          drives: { previous: [], current: { team: { abbreviation: "DEN" }, plays: [catchPlay] } },
+        }, box);
+        const afterWipe = {
+          legacy: D.S.events.some((e) => e.key === "legacy"),
+          sys: D.S.events.some((e) => e.msg === "keep me"),
+          wiped: D.S.playFeedLive === true,
+        };
+        const evs = D.S.events.filter((e) => e.playId === "401872931516");
+        const byStat = {};
+        for (const e of evs) byStat[e.key + ":" + e.stat] = e;
+        const n1 = evs.length;
+        D.applyEspnPlayFeed("401872931", {
+          header,
+          drives: { previous: [], current: { team: { abbreviation: "DEN" }, plays: [catchPlay] } },
+        }, box);
+        const n2 = D.S.events.filter((e) => e.playId === "401872931516").length;
+
+        D.S.espnSeeded = true;
+        const beforeSide = D.S.events.length;
+        D.applySide("espn", "4426338", { name: "Bo Nix", pos: "QB", team: "DEN" },
+          Object.assign((() => { const o = {}; for (const k of D.KEYS) o[k] = 0; o.dst_pa = null; o.pass_yd = 99; return o; })()));
+        D.applySide("slp", "4426338", { name: "Bo Nix", pos: "QB", team: "DEN" },
+          Object.assign((() => { const o = {}; for (const k of D.KEYS) o[k] = 0; o.dst_pa = null; o.pass_yd = 99; return o; })()));
+        const sideGrew = D.S.events.length - beforeSide;
+
+        const poison = (() => {
+          const prev = LG.rules.scoring.pass_td;
+          LG.rules.scoring.pass_td = "4 pts";
+          const d = D.feedDeltaPts("pass_td", 0, 1);
+          LG.rules.scoring.pass_td = prev;
+          return d;
+        })();
+
+        D.S.playFeedByEvent = new Map();
+        D.applyEspnPlayFeed("td1", {
+          header,
+          drives: { current: { team: { abbreviation: "KC" }, plays: [{
+            id: "td-rice", sequenceNumber: 900, wallclock: "2026-09-15T01:31:39Z",
+            text: "(Shotgun) P.Mahomes pass short right to R.Rice for 13 yards, TOUCHDOWN. H.Butker extra point is GOOD, Center-J.Winchester, Holder-M.Araiza.",
+            type: { text: "Passing Touchdown" }, statYardage: 13, scoringPlay: true,
+            teamParticipants: [{ id: "12", type: "offense" }, { id: "7", type: "defense" }],
+          }] } },
+        }, box);
+        const td = {};
+        for (const e of D.S.events.filter((e) => e.playId === "td-rice")) td[e.key + ":" + e.stat] = e;
+
+        D.S.playFeedByEvent = new Map();
+        D.applyEspnPlayFeed("int1", {
+          header,
+          drives: { current: { team: { abbreviation: "DEN" }, plays: [{
+            id: "int-nix", sequenceNumber: 99, wallclock: "2026-09-15T00:18:26Z",
+            text: "(Shotgun) B.Nix pass deep middle intended for C.Sutton INTERCEPTED by M.Delane at KC 49.",
+            type: { text: "Pass Interception Return" }, statYardage: 5, scoringPlay: false,
+            teamParticipants: [{ id: "12", type: "defense" }, { id: "7", type: "offense" }],
+          }] } },
+        }, box);
+        const ints = D.S.events.filter((e) => e.playId === "int-nix");
+
+        D.S.playFeedByEvent = new Map();
+        D.applyEspnPlayFeed("sack1", {
+          header,
+          drives: { current: { team: { abbreviation: "DEN" }, plays: [{
+            id: "sack-nix", sequenceNumber: 57, wallclock: "2026-09-15T00:17:05Z",
+            text: "(Shotgun) B.Nix sacked at DEN 32 for -3 yards (N.Williams).",
+            type: { text: "Sack" }, statYardage: -3, scoringPlay: false,
+            teamParticipants: [{ id: "7", type: "offense" }, { id: "12", type: "defense" }],
+          }] } },
+        }, box);
+        const sacks = D.S.events.filter((e) => e.playId === "sack-nix");
+
+        D.S.playFeedByEvent = new Map();
+        D.applyEspnPlayFeed("rush1", {
+          header,
+          drives: { current: { team: { abbreviation: "KC" }, plays: [{
+            id: "rush-kw", sequenceNumber: 126, wallclock: "2026-09-15T00:19:31Z",
+            text: "K.Walker left tackle to DEN 44 for 2 yards (N.Bonitto; A.Singleton).",
+            type: { text: "Rush" }, statYardage: 2, scoringPlay: false,
+            teamParticipants: [{ id: "12", type: "offense" }, { id: "7", type: "defense" }],
+          }] } },
+        }, box);
+        const rushes = D.S.events.filter((e) => e.playId === "rush-kw");
+
+        const catchE = byStat["4426338:pass_yd"];
+        return {
+          hooks: true,
+          afterWipe, n1, n2, sideGrew, poison,
+          catchT: catchE && catchE.t, catchWall: Date.parse(wcCatch),
+          catchPassYd: byStat["4426338:pass_yd"] && byStat["4426338:pass_yd"].dPts,
+          catchRec: byStat["4600981:rec"] && byStat["4600981:rec"].dPts,
+          catchRecYd: byStat["4600981:rec_yd"] && byStat["4600981:rec_yd"].dPts,
+          tdPass: td["3139477:pass_td"] && td["3139477:pass_td"].dPts,
+          tdRec: td["4428331:rec_td"] && td["4428331:rec_td"].dPts,
+          tdXp: td["3055899:xp_made"] && td["3055899:xp_made"].dPts,
+          intPasser: ints.some((e) => e.key === "4426338" && e.stat === "pass_int"),
+          intDst: ints.some((e) => e.key === "dst_KC" && e.stat === "dst_int"),
+          intRecv: ints.some((e) => e.stat === "rec" || e.stat === "rec_yd"),
+          sackDst: sacks.some((e) => e.key === "dst_KC" && e.stat === "dst_sack"),
+          rushYd: rushes[0] && rushes[0].stat === "rush_yd" && rushes[0].to === 2 && rushes[0].dPts,
+        };
+      });
+      ok(arith.hooks === true, "applyEspnPlayFeed ran against live-shaped DEN@KC plays");
+      if (arith.hooks) {
+        ok(arith.afterWipe.legacy === false && arith.afterWipe.sys === true && arith.afterWipe.wiped === true,
+          "first ingest wipes poll-diff rows and keeps system notes (" + JSON.stringify(arith.afterWipe) + ")");
+        ok(arith.catchT === arith.catchWall,
+          "catch is stamped with the play wallclock, not poll time (" + arith.catchT + " === " + arith.catchWall + ")");
+        ok(arith.catchPassYd === 0.5 && arith.catchRec === 1 && arith.catchRecYd === 1.3,
+          "13-yd PPR catch is +0.5 / +1.0 / +1.3 (" + JSON.stringify({ p: arith.catchPassYd, r: arith.catchRec, y: arith.catchRecYd }) + ")");
+        ok(arith.n1 === arith.n2 && arith.n1 >= 3,
+          "the same play id is idempotent on a second ingest (" + arith.n1 + " → " + arith.n2 + ")");
+        ok(arith.sideGrew === 0,
+          "applySide is silent on the live board (" + arith.sideGrew + ")");
+        ok(arith.poison === 0,
+          "a poisoned scoring table still yields a finite 0-point delta (" + arith.poison + ")");
+        ok(arith.tdPass === 4 && arith.tdRec === 6 && arith.tdXp === 1,
+          "TD play credits passer + receiver + the embedded XP (" + JSON.stringify({ p: arith.tdPass, r: arith.tdRec, xp: arith.tdXp }) + ")");
+        ok(arith.intPasser === true && arith.intDst === true && arith.intRecv === false,
+          "INT credits the passer and the other D/ST, not the intended receiver (" + JSON.stringify({ p: arith.intPasser, d: arith.intDst, r: arith.intRecv }) + ")");
+        ok(arith.sackDst === true, "a sack credits the defending D/ST");
+        ok(arith.rushYd === 0.2, "K.Walker 2-yd rush is +0.2 (" + arith.rushYd + ")");
+      }
+
+      await clickIn(page, ".mucard.mine");
+      await page.waitForSelector("#mufeed", { timeout: 9000 });
+      const painted = await page.evaluate(async () => {
+        const { D, UI } = window.__GFFL__;
+        const playEvs = (D.S.events || []).filter((e) => e.playId && !e.msg);
+        await UI.renderMatchup(true);
+        const lines = [...document.querySelectorAll("#mufeed .fline")].map((el) => el.textContent.replace(/\s+/g, " ").trim());
+        const sample = lines.find((t) => /P\. Passer/.test(t) || /pass TD|pass yds|catch|rec yds/.test(t)) || lines[0] || "";
+        return {
+          playN: playEvs.length,
+          wall: playEvs.some((e) => e.t === Date.parse("2026-09-13T18:14:00Z") || e.t === Date.parse("2026-09-13T18:08:00Z")),
+          weekday: /\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b/.test(sample),
+          sample,
+          lineN: lines.length,
+        };
+      });
+      ok(painted.playN > 0 && painted.wall === true,
+        "the live DAL@PHI fixture poll produced wallclocked play events (" + JSON.stringify({ n: painted.playN, wall: painted.wall }) + ")");
+      ok(painted.weekday === true && painted.lineN > 0,
+        "the painted feed shows a weekday on the scored-at stamp (" + painted.sample + ")");
+
+      ok(errors.length === 0, "0 page errors on the play feed");
       await ctx.close();
     }
   }
