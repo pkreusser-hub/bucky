@@ -8122,12 +8122,21 @@ header / lineup / feed below. Your pairing is still
 `.mine` so it is findable when you are looking at
 someone else. Tapping the already-open chip is a no-op
 (no history push). A one-game week still hides the
-strip — there is nothing to switch to.
+strip — there is nothing to switch to. On the phone the
+score sits on its own line so four chips do not ellipsis
+the abbreviations.
 
 Scripts cache-bust `?v=20260915d`.
 
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY**: quoted after the suite run.
+**VERIFY**: `node tools/_verify-gffl.cjs --only TL --shots` **23/23**.
+Bite (`league.html` + `lg-ui.js` at `main`, new suite
+kept, `--only TL`): **16 pass / 7 fail** — HEAD still
+drops the open pairing, so the row is three chips in
+reshuffled order and nothing is `.on`. Tab-to-own-game,
+history push, Back, composer-survives-morph, one-game
+hide, no-scroll, and 0 page errors still passed. App
+files restored, hashes identical.
 ---
