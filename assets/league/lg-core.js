@@ -1707,8 +1707,16 @@
   // PLAYOFF ODDS — a Monte Carlo over the games that are actually left, seeded so it can never
   // flicker. 1000 seasons; each remaining scheduled game is decided by an Elo-shaped coin
   // (P(i beats j) = 1/(1+10^-((s_i-s_j)/40))) whose strengths are each team's average points-for
-  // over its FINALIZED weeks, pulled toward the league mean by a one-game Bayesian prior so a
-  // single week-1 blowout can't declare a season.
+  // over its FINALIZED weeks, pulled toward the league mean by a half-season Bayesian prior.
+  //
+  // A one-game prior still let week-1 PF own half the strength and then applied that gap to
+  // every remaining game, so a 1-0 team in a 5-of-8 field read ~95%. The prior is now half
+  // the regular season (7 games on a 14-week board): week-1 PF is 1/8 of strength.
+  //
+  // DISPLAY is calmer still. The Monte Carlo's gap from the field rate (spots / teams) is
+  // trusted in proportion to games played over that same prior. After one week that is 1/8
+  // of the gap — a 1-0 team sits near 67%, not 95%. A lock (every simulated season agreed)
+  // is never blended. Pre-season is not blended; the MC is already the field.
   //
   // DETERMINISTIC BY CONSTRUCTION: the PRNG is seeded from a hash of the exact data state
   // (season, spots, every team's W-L-PF, how many games remain), and the answer is cached under
@@ -1718,7 +1726,28 @@
   // PRE-SEASON IS NOT A BUG: with nothing finalized every strength is the same prior, so every
   // game is a coin flip and eight teams chasing five spots land near 62% each. That is the
   // honest answer to "who makes the playoffs" before a ball is thrown.
-  const PO_SIMS = 1000, PO_PRIOR_W = 1, PO_PRIOR_PTS = 100, PO_SCALE = 40, PO_PF_NOISE = 20;
+  const PO_SIMS = 1000, PO_PRIOR_PTS = 100, PO_SCALE = 40, PO_PF_NOISE = 20;
+  function poPriorW(sw) {
+    return Math.max(1, Math.round((Number(sw) || 14) / 2));
+  }
+  function poFieldRate(spots, n) {
+    return n ? (100 * spots / n) : 0;
+  }
+  function poSampleWeight(games, sw, remN) {
+    const g = Number(games) || 0;
+    if (g <= 0) return 0;
+    if (!remN) return 1;
+    return g / (g + poPriorW(sw));
+  }
+  function poBlendToField(raw, field, w) {
+    if (raw === 100 || raw === 0) return raw;
+    const ww = w == null ? 1 : w;
+    return Math.min(99, Math.max(1, Math.round(field + (raw - field) * ww)));
+  }
+  LG.playoffPriorW = poPriorW;
+  LG.playoffFieldRate = poFieldRate;
+  LG.playoffSampleWeight = poSampleWeight;
+  LG.playoffBlendToField = poBlendToField;
   function poHash(s) {
     let h = 2166136261 >>> 0;
     for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
@@ -1764,9 +1793,13 @@
     let totPF = 0, totG = 0;
     for (const id of ids) { totPF += base[id].pf; totG += base[id].g; }
     const mean = totG ? totPF / totG : PO_PRIOR_PTS;
+    const priorW = poPriorW(sw);
+    const gBar = ids.length ? totG / ids.length : 0;
+    const field = poFieldRate(spots, ids.length);
+    const sample = poSampleWeight(gBar, sw, rem.length);
     const s = {};
-    for (const id of ids) s[id] = (base[id].pf + PO_PRIOR_W * mean) / (base[id].g + PO_PRIOR_W);
-    const key = [LG.SEASON, sw, spots, rem.length, ids.join(",")].concat(
+    for (const id of ids) s[id] = (base[id].pf + priorW * mean) / (base[id].g + priorW);
+    const key = ["poCalm1", LG.SEASON, sw, spots, rem.length, ids.join(",")].concat(
       ids.map((id) => id + ":" + base[id].w + ":" + Math.round(base[id].pf * 10) + ":" + base[id].g)).join("~");
     if (LG._poCache && LG._poCache.key === key) return LG._poCache.odds;
     const rnd = poRng(poHash(key));
@@ -1793,7 +1826,10 @@
       const c = counts[id];
       // A LOCK is only ever reported when EVERY simulated season agreed. 99.6% rounding up to
       // "100%" would be the app claiming a clinch it hasn't got.
-      odds[id] = c === PO_SIMS ? 100 : c === 0 ? 0 : Math.min(99, Math.max(1, Math.round((c / PO_SIMS) * 100)));
+      const raw = c === PO_SIMS ? 100 : c === 0 ? 0 : Math.min(99, Math.max(1, Math.round((c / PO_SIMS) * 100)));
+      // Pre-season is already the field. After games land, walk toward the Monte Carlo
+      // in proportion to the sample — a 1-0 record cannot look like a lock.
+      odds[id] = gBar === 0 ? raw : poBlendToField(raw, field, sample);
     }
     LG._poCache = { key, odds };
     return odds;

@@ -26090,6 +26090,153 @@ async function openDetails(page, id) {
     }
   }
 
+  // ================= TK · playoff % stays near the field after one week =================
+  // User: one win at the start of the season was reading as a very high playoff chance.
+  // The Monte Carlo still runs. Its gap from the field rate (5 of 8 = 62.5%) is trusted
+  // in proportion to games played over a half-season prior. After one week that is 1/8
+  // of the gap — a 1-0 team sits near 67%, not 95%. A real lock is never blended.
+  if (section("TK · playoff % is calmer after one week")) {
+    function tkSchedule() {
+      const ids = [1, 2, 3, 4, 5, 6, 7, 8];
+      const n = ids.length, rounds = n - 1, fixed = ids[0], rot = ids.slice(1), singles = [];
+      for (let r = 0; r < rounds; r++) {
+        const wk = [], row = [fixed, ...rot];
+        for (let i = 0; i < n / 2; i++) wk.push(r % 2 ? [row[i], row[n - 1 - i]] : [row[n - 1 - i], row[i]]);
+        singles.push(wk); rot.unshift(rot.pop());
+      }
+      const out = [];
+      for (let w = 0; w < 14; w++) {
+        const b = singles[w % rounds];
+        out.push(w < rounds ? b : b.map(([h, a]) => [a, h]));
+      }
+      return { kind: "sched", season: 2026, weeks: out.map((wk) => ({ g: wk.map(([h, a]) => ({ h, a })) })) };
+    }
+    const TK_SCHED = tkSchedule();
+    const tkPts = (wk, id) => 120 - (id - 1) * 7 + wk;
+    function tkWeekly(wk) {
+      const games = TK_SCHED.weeks[wk - 1].g.map((g) => ({
+        home: g.h, away: g.a, homePts: tkPts(wk, g.h), awayPts: tkPts(wk, g.a),
+      }));
+      return { kind: "weekly", week: wk, matchups: games, awards: {},
+        power: [1, 2, 3, 4, 5, 6, 7, 8].map((id, i) => ({ teamId: id, rank: i + 1, score: 100 - i * 4 })),
+        accuracy: null, finalizedAt: 1000 + wk };
+    }
+    function tkSeed(weeks) {
+      const s = fullSeed();
+      s.docs = { ...s.docs, sched_2026: TK_SCHED };
+      for (let w = 1; w <= weeks; w++) s.docs["weekly_2026_w" + w] = tkWeekly(w);
+      return s;
+    }
+    const DESK = { width: 1440, height: 980 };
+
+    {
+      fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+      const { ctx, page, errors } = await newTestPage(browser, tkSeed(1), { vw: DESK });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await evalOr(page, () => { window.__GFFL__.UI.week = 2; window.__GFFL__.UI.show("league"); });
+      await waitFnOr(page, () => !!document.querySelector(".lgdesk") || !!document.querySelector(".standcard"));
+
+      const arith = await evalOr(page, () => {
+        const LG = window.__GFFL__.LG;
+        return {
+          prior: typeof LG.playoffPriorW === "function" ? LG.playoffPriorW(14) : null,
+          field: typeof LG.playoffFieldRate === "function" ? LG.playoffFieldRate(5, 8) : null,
+          w1: typeof LG.playoffSampleWeight === "function" ? LG.playoffSampleWeight(1, 14, 52) : null,
+          w0: typeof LG.playoffSampleWeight === "function" ? LG.playoffSampleWeight(0, 14, 56) : null,
+          wDone: typeof LG.playoffSampleWeight === "function" ? LG.playoffSampleWeight(14, 14, 0) : null,
+          b98: typeof LG.playoffBlendToField === "function" ? LG.playoffBlendToField(98, 62.5, 1 / 8) : null,
+          b11: typeof LG.playoffBlendToField === "function" ? LG.playoffBlendToField(11, 62.5, 1 / 8) : null,
+          b100: typeof LG.playoffBlendToField === "function" ? LG.playoffBlendToField(100, 62.5, 1 / 8) : null,
+          b0: typeof LG.playoffBlendToField === "function" ? LG.playoffBlendToField(0, 62.5, 1 / 8) : null,
+        };
+      });
+      ok(arith.prior === 7, "half a 14-week season is a 7-game prior (" + arith.prior + ")");
+      ok(arith.field === 62.5, "five of eight is a 62.5% field rate (" + arith.field + ")");
+      ok(arith.w1 === 1 / 8, "after one week the sample weight is 1/8 (" + arith.w1 + ")");
+      ok(arith.w0 === 0, "pre-season sample weight is 0 (" + arith.w0 + ")");
+      ok(arith.wDone === 1, "a finished regular season is trusted in full (" + arith.wDone + ")");
+      // 62.5 + (98-62.5)/8 = 66.9375 → 67.  62.5 + (11-62.5)/8 = 56.0625 → 56.
+      ok(arith.b98 === 67, "a raw 98% after one week paints 67 (" + arith.b98 + ")");
+      ok(arith.b11 === 56, "a raw 11% after one week paints 56 (" + arith.b11 + ")");
+      ok(arith.b100 === 100 && arith.b0 === 0,
+        "a real lock / elimination is never blended (" + arith.b100 + "/" + arith.b0 + ")");
+
+      const po = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        if (!LG.playoffOdds) return null;
+        const a = await LG.playoffOdds();
+        LG._poCache = null;
+        const b = await LG.playoffOdds();
+        const st = await LG.loadStandings();
+        const vals = Object.values(a);
+        const w1 = [], l1 = [];
+        for (const id of Object.keys(a).map(Number)) {
+          const rec = st[id] || { w: 0, l: 0 };
+          if (rec.w === 1 && rec.l === 0) w1.push(a[id]);
+          if (rec.w === 0 && rec.l === 1) l1.push(a[id]);
+        }
+        return {
+          a, b, vals, w1, l1,
+          sum: vals.reduce((x, y) => x + y, 0),
+          min: Math.min(...vals), max: Math.max(...vals),
+          w1min: Math.min(...w1), w1max: Math.max(...w1),
+          l1min: Math.min(...l1), l1max: Math.max(...l1),
+        };
+      });
+      ok(!!po && JSON.stringify(po.a) === JSON.stringify(po.b),
+        "playoffOdds is still deterministic after the calm blend");
+      ok(!!po && po.w1.length === 4 && po.l1.length === 4,
+        "the week-1 board is four 1-0 teams and four 0-1 teams (" + JSON.stringify({ w: po && po.w1, l: po && po.l1 }) + ")");
+      ok(!!po && po.min >= 55 && po.max <= 67,
+        "after one week every team sits in 55–67% — 1/8 of the way from 62.5% toward the raw MC (" + JSON.stringify({ min: po && po.min, max: po && po.max, a: po && po.a }) + ")");
+      ok(!!po && po.w1min > po.l1max,
+        "a 1-0 record is still a real edge, just not a lock (" + (po && po.w1min) + "% vs " + (po && po.l1max) + "%)");
+      ok(!!po && Math.abs(po.sum - 500) <= 12,
+        "the field still adds up to about 500 (" + (po && po.sum) + ")");
+
+      const painted = await evalOr(page, () => {
+        const card = document.querySelector(".standcard");
+        const tbl = card && card.querySelector("table.standtbl");
+        if (!tbl) return null;
+        const heads = [...tbl.querySelectorAll("thead th")].map((t) => t.textContent.trim());
+        const playoffIdx = heads.findIndex((h) => /Playoff/i.test(h));
+        const cells = [...tbl.querySelectorAll("tbody tr")].map((r) => {
+          const tds = [...r.querySelectorAll("td")];
+          return tds[playoffIdx] ? tds[playoffIdx].textContent.replace(/\s+/g, " ").trim() : "";
+        });
+        const nums = cells.map((t) => parseInt(t, 10)).filter((n) => Number.isFinite(n));
+        return { heads, cells, nums, min: Math.min(...nums), max: Math.max(...nums) };
+      });
+      ok(!!painted && painted.nums.length === 8,
+        "the desktop Playoff column paints a percent for every team (" + JSON.stringify(painted && painted.cells) + ")");
+      ok(!!painted && painted.min >= 55 && painted.max <= 67,
+        "…and those percents are the calmed week-1 band, not 90%+ (" + painted.min + "–" + painted.max + ")");
+      ok(errors.length === 0, "0 page errors on the week-1 standings");
+      await ctx.close();
+    }
+
+    {
+      const { ctx, page, errors } = await newTestPage(browser, tkSeed(10), { vw: DESK });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const late = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.playoffOdds();
+        const st = await LG.loadStandings();
+        return { o, rec1: st[1], rec8: st[8] };
+      });
+      ok(late && late.rec1 && late.rec1.w === 10 && late.rec8 && late.rec8.w === 0,
+        "the week-10 fixture is 10-0 vs 0-10 (" + JSON.stringify({ a: late && late.rec1, b: late && late.rec8 }) + ")");
+      ok(late && late.o[1] === 100 && late.o[8] === 0,
+        "a real late-season lock and elimination still paint 100 / 0 (" + JSON.stringify(late && late.o) + ")");
+      ok(errors.length === 0, "0 page errors on the week-10 lock");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

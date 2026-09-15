@@ -8020,3 +8020,40 @@ two source rows for one TD, and there is no play-feed hook or
 wallclock. Every pre-existing D/TE annotateFeed check still
 passed. App files restored, hashes identical.
 ---
+
+## GFFL — playoff % stays near the field after one week (2026-09-15)
+
+User: the playoff prediction % was way too aggressive —
+one win at the start of the season read as a very high
+chance of making the playoffs.
+
+`LG.playoffOdds` still runs the same 1000-season Monte Carlo
+over remaining games (Elo coin from PF, deterministic seed,
+100/0 only when every sim agreed). Two knobs changed, both
+measured:
+
+1. The Bayesian PF prior is half a regular season (7 games
+   on a 14-week board), not one game. Week-1 PF is 1/8 of
+   strength instead of half. A 121-vs-72 week-1 blowout no
+   longer makes that winner an ~80% favorite in every
+   remaining game.
+2. Displayed odds blend toward the field rate
+   (5 of 8 = 62.5%) with weight `g / (g + prior)`. After
+   one week that is 1/8 of the Monte Carlo's gap. A raw
+   98% paints 67; a raw 11% paints 56. Hand-computed:
+   `round(62.5 + (raw - 62.5) / 8)`, band 55–67. A real
+   lock / elimination is never blended. Pre-season is not
+   blended — the MC is already the field.
+
+HEAD after one week on the AT-spread board: 1-0 teams
+90–98% (avg 95), 0-1 teams 11–58%. After the calm: every
+team in 55–67, 1-0 still above 0-1. Week 10 still locks
+10-0 at 100 and 0-10 at 0.
+
+Scripts cache-bust `?v=20260915b`.
+
+Files: `league.html`, `assets/league/lg-core.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: quoted after the suite run.
+---
