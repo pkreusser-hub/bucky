@@ -8088,7 +8088,10 @@ Back would leave the page. A live morph patches the chip
 interiors; the trash-talk composer is not rebuilt. Your
 own pairing is marked `.mine` on the strip when you are
 looking at someone else. The TL fixture pins the league
-clock to week 1 (`fullSeed`'s only scheduled week).
+clock to week 1 (`fullSeed`'s only scheduled week) and
+stubs `gamesForWeek` for the one-game hide — a full
+render refetches pairings, so a planted cache would not
+hold.
 
 Scripts cache-bust `?v=20260915c`.
 
