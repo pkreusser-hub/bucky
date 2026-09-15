@@ -4034,11 +4034,21 @@
     stopScoresPoll();
     stopNflGamePoll();
   };
-  // iOS standalone often never re-requests league.html. Pull-up used to refresh
-  // scores only, so a tab left open over Tuesday stayed on last week's board
-  // and a new deploy (the chip row) never arrived. Advance the viewed week
-  // when the league clock moved, then compare the live HTML's cache-bust
-  // token and replace if this document is stale.
+  // Home-screen iOS (Add to Home Screen, navigator.standalone) is the stuck
+  // case — Safari in a tab already re-requests the document. The installed
+  // WebView restores a frozen snapshot and often never fires visibilitychange
+  // when the icon is tapped; it may fire a normal (not persisted) pageshow.
+  // Pull-up used to refresh scores only, so a home-screen app left open over
+  // Tuesday stayed on last week's board and a new deploy never arrived.
+  function isStandalone() {
+    try { if (typeof navigator !== "undefined" && navigator.standalone) return true; } catch (e) {}
+    try {
+      if (typeof window !== "undefined" && window.matchMedia
+        && window.matchMedia("(display-mode: standalone)").matches) return true;
+    } catch (e) {}
+    return false;
+  }
+  UI.isStandalone = isStandalone;
   function readAppV(html) {
     const meta = String(html || "").match(/name=["']gffl-v["'][^>]*content=["']([^"']+)["']/)
       || String(html || "").match(/content=["']([^"']+)["'][^>]*name=["']gffl-v["']/);
@@ -4075,9 +4085,10 @@
     u.searchParams.set("n", String(Date.now()));
     location.replace(u.pathname + u.search + u.hash);
   };
-  UI.checkAppFresh = async function () {
+  UI.checkAppFresh = async function (opts) {
+    opts = opts || {};
     if (UI._freshBusy) return false;
-    if (UI._freshAt && Date.now() - UI._freshAt < 60000) return false;
+    if (!opts.force && UI._freshAt && Date.now() - UI._freshAt < 60000) return false;
     if (UI._overlayOpen && UI._overlayOpen()) return false;
     if (typingInApp()) return false;
     const have = haveAppV();
@@ -4105,7 +4116,10 @@
     const weekMoved = UI.syncLeagueWeek();
     const woke = d.wake();
     if (woke) kickViewPollsNow();
-    UI.checkAppFresh();
+    // Browser tabs pick up a new deploy on the next navigation. Only the
+    // home-screen WebView is stuck on a snapshot — force the HTML compare
+    // there, with no 60s debounce, every time the icon is tapped.
+    if (isStandalone()) UI.checkAppFresh({ force: true });
     return woke || weekMoved;
   };
   Object.defineProperty(UI, "_foreAliveAt", {
@@ -4124,7 +4138,10 @@
     else { lastAliveAt = Date.now(); UI.onForeground(); }
   });
   window.addEventListener("pageshow", (e) => {
-    if (e && e.persisted) { lastAliveAt = Date.now(); UI.onForeground(); }
+    // persisted = Safari bfcache. A home-screen icon tap is often a NORMAL
+    // pageshow with persisted=false — the first cut ignored those and the
+    // installed app never woke.
+    if ((e && e.persisted) || isStandalone()) { lastAliveAt = Date.now(); UI.onForeground(); }
   });
   document.addEventListener("resume", () => { lastAliveAt = Date.now(); UI.onForeground(); });
   window.addEventListener("focus", () => {

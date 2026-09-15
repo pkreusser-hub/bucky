@@ -25016,6 +25016,9 @@ async function openDetails(page, id) {
   // and a freeze-gap pulse for the cases iOS never fires hidden.
   // 2026-09-15: pull-up also advances UI.week when the league clock rolled
   // and reloads the document when league.html's gffl-v token moved.
+  // Same day, restaged: that reload and a non-persisted pageshow wake are
+  // HOME-SCREEN only (navigator.standalone). Safari in a tab already
+  // revalidates; the installed WebView is the one that never asks.
   if (section("TG · pull-up refresh — iOS/Safari foreground catch-up")) {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     fixture.sbLiveHome = null; fixture.sbLiveAway = null;
@@ -25400,6 +25403,63 @@ async function openDetails(page, id) {
       ok(r.typing === false && r.nTyping === 1,
         "a focused composer is not yanked by a deploy check (" + JSON.stringify({ typing: r.typing, n: r.nTyping }) + ")");
       ok(errors.length === 0, "0 page errors on the deploy freshness check");
+      await ctx.close();
+    }
+
+    // ---- TG7: home-screen iOS, not Safari-in-a-tab ----
+    // User: "It specifically impacts ios where the app has been added to home,
+    // not ios thru the browser." A home-screen icon tap is a normal pageshow
+    // (persisted=false) and often no visibilitychange. The first cut only
+    // woke on persisted pageshow, so the installed app never caught up.
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await pinSeedWeek1(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      const r = await evalOr(page, () => {
+        const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+        if (typeof UI.isStandalone !== "function") return { hooks: false };
+        D.start();
+        const fireShow = (persisted) => {
+          try { window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: !!persisted })); }
+          catch (e) {
+            const ev = new Event("pageshow");
+            Object.defineProperty(ev, "persisted", { value: !!persisted });
+            window.dispatchEvent(ev);
+          }
+        };
+        const wake0 = D.S.wakeN;
+        fireShow(false);
+        const browserShow = D.S.wakeN - wake0;
+        let freshN = 0;
+        const orig = UI.checkAppFresh;
+        UI.checkAppFresh = function () { freshN++; return Promise.resolve(false); };
+        UI.onForeground();
+        const browserFresh = freshN;
+        Object.defineProperty(navigator, "standalone", { configurable: true, get() { return true; } });
+        D.S.wakeAt = 0;
+        const wake1 = D.S.wakeN;
+        fireShow(false);
+        const homeShow = D.S.wakeN - wake1;
+        const homeFresh = freshN - browserFresh;
+        UI.checkAppFresh = orig;
+        return {
+          hooks: true, standalone: UI.isStandalone(),
+          browserShow, browserFresh, homeShow, homeFresh,
+        };
+      }) || {};
+      ok(r.hooks === true, "UI.isStandalone exists (the home-screen vs tab split HEAD does not have)");
+      ok(r.browserShow === 0,
+        "a browser pageshow that is not persisted does not wake (" + JSON.stringify(r) + ")");
+      ok(r.browserFresh === 0,
+        "a browser pull-up does not compare league.html — the tab already revalidates");
+      ok(r.standalone === true && r.homeShow === 1,
+        "a Home Screen pageshow wakes even when it is not persisted (" + JSON.stringify(r) + ")");
+      ok(r.homeFresh === 1,
+        "…and that is the only pull-up that compares the live HTML");
+      ok(errors.length === 0, "0 page errors on the home-screen pageshow");
       await ctx.close();
     }
   }

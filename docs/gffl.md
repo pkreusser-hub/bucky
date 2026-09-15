@@ -8177,3 +8177,33 @@ pre-existing hide/show / dropped-timer / pageshow /
 debounce / gate-screen check still passed. App files
 restored, hashes identical.
 ---
+
+## GFFL — home-screen iOS, not Safari-in-a-tab (2026-09-15)
+
+User: the stale week / missing chips "specifically
+impacts ios where the app has been added to home, not
+ios thru the browser."
+
+Safari in a tab already revalidates `league.html`. The
+Add-to-Home-Screen WebView restores a snapshot and
+often never fires `visibilitychange` when the icon is
+tapped. It may fire a normal `pageshow` with
+`persisted: false` — the first cut only woke on
+`persisted`, so the installed app never caught up, and
+it compared `gffl-v` on every browser pull-up too.
+
+`pageshow` now wakes whenever `navigator.standalone`
+(or `display-mode: standalone`) is set, persisted or
+not. `checkAppFresh` is kicked from `onForeground` only
+in that mode, with `{ force: true }` so the 60s debounce
+cannot skip an icon tap. An inline head script does the
+same compare as soon as a home-screen snapshot parses,
+before `lg-ui.js` runs. Browser tabs are unchanged.
+
+Scripts cache-bust `?v=20260915f`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY**: quoted after the suite run.
+---

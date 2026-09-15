@@ -27,7 +27,30 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260915e">
+<meta name="gffl-v" content="20260915f">
+<!-- Home-screen iOS restores this file from its own snapshot and never asks
+     the network. Compare gffl-v against a no-store copy and replace if this
+     snapshot is stale. Browser tabs skip — they already revalidate. -->
+<script>
+(function () {
+  var standalone = false;
+  try { standalone = !!(navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches)); } catch (e) {}
+  if (!standalone) return;
+  var haveEl = document.querySelector('meta[name="gffl-v"]');
+  var have = haveEl && haveEl.content;
+  if (!have) return;
+  fetch("/league.html?n=" + Date.now(), { cache: "no-store" }).then(function (r) {
+    return r.ok ? r.text() : "";
+  }).then(function (html) {
+    var m = html.match(/name=["']gffl-v["'][^>]*content=["']([^"']+)["']/) || html.match(/lg-ui\.js\?v=([A-Za-z0-9]+)/);
+    var live = m && m[1];
+    if (!live || live === have) return;
+    var u = new URL(location.href);
+    u.searchParams.set("n", String(Date.now()));
+    location.replace(u.pathname + u.search + u.hash);
+  }).catch(function () {});
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -2281,9 +2304,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260915e"></script>
-  <script src="assets/league/lg-data.js?v=20260915e"></script>
-  <script src="assets/league/lg-ui.js?v=20260915e"></script>
+  <script src="assets/league/lg-core.js?v=20260915f"></script>
+  <script src="assets/league/lg-data.js?v=20260915f"></script>
+  <script src="assets/league/lg-ui.js?v=20260915f"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing
