@@ -8168,5 +8168,12 @@ Scripts cache-bust `?v=20260915e`.
 Files: `league.html`, `assets/league/lg-ui.js`,
 `netlify.toml`, `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY**: quoted after the suite run.
+**VERIFY**: `node tools/_verify-gffl.cjs --only TG` **40/40**.
+Bite (`league.html` + `lg-ui.js` at `main`, new suite
+kept, `--only TG`): **33 pass / 7 fail** — HEAD pull-up
+still wakes scores but leaves `UI.week` at 1 after the
+clock moves to week 2, and has no `checkAppFresh`. Every
+pre-existing hide/show / dropped-timer / pageshow /
+debounce / gate-screen check still passed. App files
+restored, hashes identical.
 ---
