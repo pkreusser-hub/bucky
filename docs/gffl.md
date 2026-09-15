@@ -8080,12 +8080,15 @@ card is still the header. One chip per other pairing from
 `LG.gamesForWeek` (regular season: three; playoffs: however
 many leftovers; a one-game week hides the strip). Each chip
 is abbrev + `liveTotal` (away–home), the same number the
-header and Scores cards already use. Tapping sets
-`UI.matchup` and `UI.go("matchup")` so history restores the
-pairing. A live morph patches the chip interiors; the
-trash-talk composer is not rebuilt. Your own pairing is
-marked `.mine` on the strip when you are looking at someone
-else.
+header and Scores cards already use. Tapping calls
+`UI.go("matchup", { mu })` after `paintedSig`, so the
+navigator pushes a real place — setting the pick first
+would make wasSig already describe the destination and
+Back would leave the page. A live morph patches the chip
+interiors; the trash-talk composer is not rebuilt. Your
+own pairing is marked `.mine` on the strip when you are
+looking at someone else. The TL fixture pins the league
+clock to week 1 (`fullSeed`'s only scheduled week).
 
 Scripts cache-bust `?v=20260915c`.
 

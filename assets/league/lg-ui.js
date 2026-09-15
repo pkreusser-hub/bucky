@@ -797,6 +797,10 @@
     // reader the Back that should have returned them to the locker they came from.
     saveScrollState(); // capture the OUTGOING view's scroll before it changes (item 8)
     const wasSig = paintedSig();
+    // A matchup-to-matchup move (the chip row above the header) must land AFTER paintedSig.
+    // Setting UI.matchup first would make wasSig already describe the destination, so go()
+    // would replace instead of push and Back would leave the page.
+    if (opts.mu) UI.matchup = opts.mu;
     name = applyView(name);
     const url = UI.hashFor(name);
     // Standing on an overlay sentinel? Navigating away means that overlay is gone, so REUSE its
@@ -4115,8 +4119,7 @@
       if (parts.length !== 2 || !parts[0] || !parts[1]) return;
       const cur = UI.matchup || [];
       if (cur[0] === parts[0] && cur[1] === parts[1]) return;
-      UI.matchup = parts;
-      UI.go("matchup");
+      UI.go("matchup", { mu: parts });
     });
   }
   UI.muSwitchInner = muSwitchInner;

@@ -2299,6 +2299,17 @@ const armBeforeW1Waivers = (page) => page.evaluateOnNewDocument((ts) => { Date.n
 const pinBeforeW1Waivers = (page) => page.evaluate(() => {
   window.__GFFL__.LG.nowOverride = window.__GFFL__.LG.waiverDeadline(1) - 3600 * 1000;
 });
+// fullSeed()'s schedule is week 1 only. After Tue 2026-09-15 05:00 Chicago,
+// currentWeek() is 2 and the Matchup tab paints "No matchup — schedule missing"
+// (no .muhead). Pin the league clock — not Date.now — so chat stamps and
+// unique ids keep a running wall clock.
+async function pinSeedWeek1(page) {
+  await page.evaluate(() => {
+    const { LG, UI } = window.__GFFL__;
+    LG.nowOverride = LG.weekStart(1) + 3600 * 1000;
+    UI.week = 1;
+  });
+}
 const stopPolling = (page) => page.evaluate(() => window.__GFFL__.D.stop());
 async function waitLive(page) {
   try {
@@ -26252,6 +26263,8 @@ async function openDetails(page, id) {
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootPage(page);
+      await pinSeedWeek1(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".mucard");
       await waitLive(page);
       await clickIn(page, '.bnav button[data-v="matchup"]');
@@ -26302,6 +26315,7 @@ async function openDetails(page, id) {
       ok(boot.scroll.b <= boot.scroll.w + 1,
         "three chips fit 390px with no sideways scroll (" + boot.scroll.b + "/" + boot.scroll.w + ")");
 
+      const lenBefore = await evalOr(page, () => history.length);
       await clickIn(page, '.muswitch[data-mu="3-4"]');
       await waitFnOr(page, () => {
         const h = document.querySelector(".muhead");
@@ -26314,10 +26328,12 @@ async function openDetails(page, id) {
           mu: b.dataset.mu, mine: b.classList.contains("mine"),
         }));
         return { mu: UI.matchup, head: head.replace(/\s+/g, " "), mus: chips.map((c) => c.mu),
-          mineOn: chips.filter((c) => c.mine).map((c) => c.mu) };
+          mineOn: chips.filter((c) => c.mine).map((c) => c.mu), len: history.length };
       });
       ok(JSON.stringify(swapped.mu) === "[3,4]",
         "tapping a chip opens THAT pairing (" + JSON.stringify(swapped.mu) + ")");
+      ok(swapped.len === lenBefore + 1,
+        "…as a real history place, not a same-view replace (" + lenBefore + " -> " + swapped.len + ")");
       ok(/Wyoming Cowboys/.test(swapped.head) && /Waffle House Warriors/.test(swapped.head),
         "…and that is the game on SCREEN (" + swapped.head.slice(0, 80) + ")");
       ok(swapped.mus.indexOf("3-4") < 0 && swapped.mus.indexOf("1-2") >= 0,
@@ -26331,8 +26347,9 @@ async function openDetails(page, id) {
         return !!(h && /Battle Kreussers/.test(h.textContent)
           && JSON.stringify(window.__GFFL__.UI.matchup) === "[1,2]");
       });
-      ok(JSON.stringify(await evalOr(page, () => window.__GFFL__.UI.matchup)) === "[1,2]",
-        "Back restores the pairing the chip left");
+      ok((await evalOr(page, () => window.__GFFL__.UI.view)) === "matchup"
+        && JSON.stringify(await evalOr(page, () => window.__GFFL__.UI.matchup)) === "[1,2]",
+        "Back restores the pairing the chip left, still on Matchup");
 
       await clickIn(page, '.muswitch[data-mu="3-4"]');
       await waitFnOr(page, () => {
@@ -26396,6 +26413,8 @@ async function openDetails(page, id) {
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 980 } });
       await bootPage(page);
+      await pinSeedWeek1(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".mucard");
       await waitLive(page);
       await clickIn(page, '.bnav button[data-v="matchup"]');
