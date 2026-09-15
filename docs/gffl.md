@@ -8293,5 +8293,11 @@ Scripts cache-bust `?v=20260915i`.
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY:** pending suite + bite (filled after the run).
+**VERIFY:** 58/58 (`--only S,TM`). Bite vs `origin/main`
+(15h chips: score XOR time, no `@`): 56/2. The two
+new copy assertions fail there — HEAD's live chip
+reads `DAL 10–14 PHI` with no quarter, and the
+upcoming chip reads `KC 7:00 PM DEN` with no score
+slot. Pre-existing S/TM split and tap checks stay
+green. App files restored, hashes identical.
 ---
