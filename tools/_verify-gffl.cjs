@@ -25719,6 +25719,9 @@ async function openDetails(page, id) {
             if (isFinite(x)) xs.push(x);
           }
         }
+        if (typeof LG.wpSpansForPairing !== "function" || typeof LG.wpViewPlaying !== "function") {
+          return { parent: !!(el && el.offsetParent !== null), hooks: false, n: xs.length, firstX: xs[0], lastX: xs[xs.length - 1] };
+        }
         const spans = LG.wpSpansForPairing(1, 2, now);
         const view = LG.wpViewPlaying(rows, spans, now, 0.62);
         const thuPlay = LG.wpPlayingAt(thuKo + 4 * 3600000, spans);

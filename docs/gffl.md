@@ -7953,5 +7953,17 @@ Scripts cache-bust `?v=20260914c`.
 Files: `league.html`, `assets/league/lg-{core,data,ui}.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY**: pending suite + bite (this commit is the implementation).
+**VERIFY**: `node tools/_verify-gffl.cjs --only TI` **26/26**.
+`node tools/_verify-gffl.cjs --only TF,TI` **94/94**.
+`node tools/_verify-gffl.cjs --only D,AQ,TF,TH,TI` **178/178**.
+Full battery **3566** checks (3540 + 26): **3561/3566** on this
+cloud box. The 5 fails are the same geometry/font measurements as
+`main` (I2 `%START` clip, AD/AT name-column 133 vs 140, RS
+seven-tab 54px boxes).
+Bite (`league.html` + `lg-core.js` + `lg-ui.js` + `lg-data.js` at
+`main`, new suite kept, `--only TF,TI`): **75 pass / 9 fail** —
+HEAD has no playing-time helpers, `keepHour` drops the now-3h and
+now-2h ticks (2 of 4 kept), Friday idle writes a new minute, and
+paint has no two-span playing-time X. Every pre-existing TF check
+still passed. App files restored, hashes identical.
 ---
