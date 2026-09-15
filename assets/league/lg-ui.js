@@ -808,9 +808,10 @@
     // Setting UI.matchup first would make wasSig already describe the destination, so go()
     // would replace instead of push and Back would leave the page.
     if (opts.mu) UI.matchup = opts.mu;
-    // A slate-to-slate move (the compact NFL list on Scores) must land AFTER
-    // paintedSig, same reason as opts.mu: setting the id first would make
-    // wasSig already describe the destination and Back would leave the page.
+    // A slate-to-slate / chip-to-chip move (the NFL list on Scores) must
+    // land AFTER paintedSig, same reason as opts.mu: setting the id first
+    // would make wasSig already describe the destination and Back would
+    // leave the page.
     if (opts.game != null) {
       UI.nflGameId = String(opts.game);
       UI._nflGame = null;
@@ -3431,6 +3432,44 @@
     return `<div class="rowline"><h2>${title}</h2><span id="healthChip" class="health" hidden></span></div>
       ${nflScoresHtml(events)}`;
   }
+  // Phone Scores: a short chip per NFL game, date order (the same
+  // stability as the matchup strip — live games do not jump to the
+  // front). Desktop keeps the compact slate and hides this row.
+  function nflChipMid(e) {
+    const live = e.state === "in", done = e.state === "post";
+    if (live || done) {
+      const as = (e.away && e.away.score !== "" && e.away.score != null) ? e.away.score : "0";
+      const hs = (e.home && e.home.score !== "" && e.home.score != null) ? e.home.score : "0";
+      return esc(as) + "–" + esc(hs);
+    }
+    return esc((kickTimeStr(e.date) || "").replace(/\s*CT$/, ""));
+  }
+  function nflChipHtml(e) {
+    const live = e.state === "in";
+    const on = e.id != null && String(e.id) === String(UI.nflGameId || "");
+    const away = (e.away && e.away.abbrev) || "?";
+    const home = (e.home && e.home.abbrev) || "?";
+    return `<button type="button" class="scchip${live ? " live" : ""}${on ? " on" : ""}" data-eid="${esc(e.id || "")}"
+      aria-label="Show the ${esc(away)} at ${esc(home)} game">
+      <span class="scchip-a">${esc(away)}</span>
+      <span class="scchip-sc">${nflChipMid(e)}</span>
+      <span class="scchip-h">${esc(home)}</span>
+    </button>`;
+  }
+  function nflChipsHtml(events) {
+    const list = [...(events || [])].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+    if (list.length < 2) return "";
+    return list.map(nflChipHtml).join("");
+  }
+  function scrollSelectedNflChip() {
+    const row = $("#scChips");
+    const on = row && row.querySelector(".scchip.on");
+    if (!row || !on || !on.offsetParent) return;
+    const rr = row.getBoundingClientRect(), cr = on.getBoundingClientRect();
+    if (cr.left < rr.left - 1 || cr.right > rr.right + 1) {
+      on.scrollIntoView({ inline: "center", block: "nearest" });
+    }
+  }
   function scoresDetailHtml() {
     if (!UI.nflGameId) return `<div class="card mut">Pick a game from the slate.</div>`;
     const g = UI._nflGame;
@@ -3449,8 +3488,10 @@
   }
   function paintScores() {
     const browsing = UI._scoresWeek != null;
+    const chips = nflChipsHtml(nflEventsNow());
     const html = `
       ${scoresWeekNavHtml()}
+      <div class="scchips" id="scChips"${chips ? "" : " hidden"}>${chips}</div>
       <div class="scsplit" id="scSplit">
         <div class="scdetail" id="nflBody">${scoresDetailHtml()}</div>
         <aside class="card scslate" id="scSlate">${slateInnerHtml(nflEventsNow())}</aside>
@@ -3468,12 +3509,13 @@
     wireOnce($("#scPrev"), () => step(-1));
     wireOnce($("#scNext"), () => step(1));
     wireOnce($("#scNow"), () => { UI._scoresWeek = null; renderScores(); });
-    document.querySelectorAll(".sccard[data-eid]").forEach((el) => {
+    document.querySelectorAll(".sccard[data-eid], .scchip[data-eid]").forEach((el) => {
       if (!el.dataset.eid) { el.disabled = true; return; }
       wireOnce(el, () => { if (el.dataset.eid) UI.openNflGame(el.dataset.eid); });
     });
     wireNflDetail();
     paintHealth();
+    scrollSelectedNflChip();
   }
   UI.paintScores = paintScores; // called from paintLive() when this tab is open — NFL half only
   function startScoresPoll(immediate) {

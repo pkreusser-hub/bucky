@@ -6422,18 +6422,27 @@ async function openDetails(page, id) {
     // RESTAGED 2026-09-15: GFFL pairings left this tab when the matchup chips
     // landed. Scores is the NFL board — week nav, then the selected-game /
     // compact-slate split. Pairings are asserted on the Matchup tab (TL).
+    // RESTAGED 2026-09-15 (phone chips): the tall slate is desktop-only.
+    // A 390px Scores paints a short horizontal chip row; the slate's
+    // offsetParent is null (geometry, not the hidden attribute).
     const scTop = await page.evaluate(() => {
       const cards = [...document.querySelectorAll("main > .card")];
       const split = document.querySelector("#scSplit");
+      const chips = document.querySelector("#scChips");
+      const slate = document.querySelector("#scSlate");
       return {
         first: cards[0] && cards[0].className,
         split: !!(split && split.querySelector("#nflBody") && split.querySelector("#scSlate")),
         gffl: !!document.querySelector("main .mugrid, main .mucard"),
+        chips: !!(chips && chips.offsetParent && chips.querySelectorAll(".scchip").length >= 2),
+        slateGone: !!(slate && slate.offsetParent === null),
       };
     });
     ok(/scweeknav/.test(scTop.first || ""), "the week cycler heads the Scores tab (" + scTop.first + ")");
     ok(scTop.split === true, "…then the NFL split — selected game + compact slate (" + JSON.stringify(scTop) + ")");
     ok(scTop.gffl === false, "…and no GFFL pairing cards — those live on the Matchup tab");
+    ok(scTop.chips === true && scTop.slateGone === true,
+      "on the phone a short NFL chip row sits above the detail and the tall slate is gone (" + JSON.stringify(scTop) + ")");
     // NFL half: sbFix() has one LIVE game (DAL @ PHI) and one PRE game (KC @ DEN, next year) —
     // grouped into day-CARDS (item 2's redesign — restaged from .gmrow "plain rows" to .sccard,
     // the class/markup genuinely changed shape, the behaviors this section checks persist).
@@ -12947,7 +12956,7 @@ async function openDetails(page, id) {
       ok(!/213, 10, 10/.test(cardInk.livePts || ""), "…nor is its score (" + cardInk.livePts + ")");
       ok(/213, 10, 10/.test(cardInk.state || ""), "…while the live CLOCK keeps the accent, which is the one thing that should have it (" + cardInk.state + ")");
       ok(cardInk.buttonBox === "none", "…and the card being a <button> did not inherit the base button rule's uppercase");
-      ok(await clickIn(page, ".sccard.live"), "the live game's card is tappable");
+      ok(await clickIn(page, ".scchip.live"), "the live game's chip is tappable");
       await waitFnOr(page, () => document.querySelector("#nflBody .nflhead"));
       const opened = (await evalOr(page, () => ({
         view: window.__GFFL__.UI.view, hash: location.hash, id: window.__GFFL__.UI.nflGameId,
@@ -12960,20 +12969,23 @@ async function openDetails(page, id) {
       ok(opened.scoresLit === true, "…and the Scores tab stays lit — the game is a SUB-view of Scores, not a nav entry of its own");
       ok(/DAL/.test(opened.head) && /PHI/.test(opened.head) && /10/.test(opened.head) && /14/.test(opened.head),
         "…the header carries both teams and both scores (" + String(opened.head).replace(/\s+/g, " ").trim() + ")");
-      // RESTAGED 2026-09-15: the slate stays on screen. This is not a new page.
-      const slateStays = await evalOr(page, () => ({
-        cards: document.querySelectorAll("#scSlate .sccard").length,
-        on: (document.querySelector("#scSlate .sccard.on") || {}).dataset?.eid || "",
+      // RESTAGED 2026-09-15: phone Scores keeps the chip row, not a leaf page.
+      const chipStays = await evalOr(page, () => ({
+        chips: document.querySelectorAll("#scChips .scchip").length,
+        on: (document.querySelector("#scChips .scchip.on") || {}).dataset?.eid || "",
+        shown: !!(document.querySelector("#scChips") && document.querySelector("#scChips").offsetParent),
+        slateShown: !!(document.querySelector("#scSlate") && document.querySelector("#scSlate").offsetParent),
         back: !!document.querySelector("#nflBack"),
       })) || {};
-      ok(slateStays.cards > 0 && slateStays.on === "401900001" && slateStays.back === false,
-        "…the compact slate stays put, the open game is marked, and there is no ‹ Scores leaf (" + JSON.stringify(slateStays) + ")");
+      ok(chipStays.chips > 0 && chipStays.on === "401900001" && chipStays.shown === true
+        && chipStays.slateShown === false && chipStays.back === false,
+        "…the chip row stays put, the open game is marked, the tall slate is gone, and there is no ‹ Scores leaf (" + JSON.stringify(chipStays) + ")");
       // A hash-carried sub-view must survive a real reload.
       await page.reload({ waitUntil: "networkidle0" });
       await waitFnOr(page, () => document.querySelector("#nflBody .nflhead"));
       ok((await evalOr(page, () => window.__GFFL__.UI.view)) === "nflgame", "…and a full reload on that hash lands back inside the same game");
-      ok((await evalOr(page, () => document.querySelectorAll("#scSlate .sccard").length)) > 0,
-        "…still next to the slate after reload");
+      ok((await evalOr(page, () => document.querySelectorAll("#scChips .scchip").length)) > 0,
+        "…still next to the chip row after reload");
       await page.goBack().catch(() => {});
       await waitFnOr(page, () => window.__GFFL__.UI.view === "scores" && location.hash === "#scores");
       const back = (await evalOr(page, () => ({ view: window.__GFFL__.UI.view, hash: location.hash, cards: document.querySelectorAll(".sccard").length }))) || {};
@@ -26676,7 +26688,7 @@ async function openDetails(page, id) {
   // User: GFFL pairings now live on the Matchup tab, so Scores should drop them. All
   // NFL games sit in a compact column; the selected game's detail fills the wider
   // column. A tap changes the detail in place — it does not leave for a new page.
-  if (section("TM · Scores is an NFL split — detail + compact slate, no GFFL cards")) {
+  if (section("TM · Scores is an NFL split — phone chips + desktop slate, no GFFL cards")) {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -26686,30 +26698,36 @@ async function openDetails(page, id) {
       await waitOr(page, ".mucard");
       await waitLive(page);
       await clickIn(page, '.bnav button[data-v="scores"]');
-      await waitFnOr(page, () => document.querySelector("#scSplit") && document.querySelector("#scSlate .sccard"));
+      await waitFnOr(page, () => document.querySelector("#scSplit") && document.querySelector("#scChips .scchip"));
       await waitFnOr(page, () => document.querySelector("#nflBody .nflhead"));
 
       const boot = await evalOr(page, () => {
         const split = document.querySelector("#scSplit");
         const detail = document.querySelector("#nflBody");
         const slate = document.querySelector("#scSlate");
-        const live = document.querySelector("#scSlate .sccard.live");
-        const on = document.querySelector("#scSlate .sccard.on");
+        const chips = document.querySelector("#scChips");
+        const live = document.querySelector("#scChips .scchip.live");
+        const on = document.querySelector("#scChips .scchip.on");
         const dr = detail && detail.getBoundingClientRect();
-        const sr = slate && slate.getBoundingClientRect();
+        const cr = chips && chips.getBoundingClientRect();
+        const cs = chips ? getComputedStyle(chips) : {};
         return {
           view: window.__GFFL__.UI.view,
           hash: location.hash,
           id: window.__GFFL__.UI.nflGameId,
           gffl: !!document.querySelector("main .mugrid, main .mucard"),
           split: !!(split && detail && slate),
-          cards: document.querySelectorAll("#scSlate .sccard").length,
+          chips: chips ? chips.querySelectorAll(".scchip").length : 0,
           liveOn: !!(live && live.classList.contains("on")),
           onId: (on && on.dataset.eid) || "",
           head: ((detail && detail.querySelector(".nflhead")) || {}).textContent || "",
           back: !!document.querySelector("#nflBack"),
-          // Phone: slate is stacked above the detail (order: -1).
-          slateFirst: !!(dr && sr && sr.bottom <= dr.top + 1),
+          chipsFirst: !!(dr && cr && cr.bottom <= dr.top + 1),
+          chipsShown: !!(chips && chips.offsetParent),
+          slateGone: !!(slate && slate.offsetParent === null),
+          chipH: cr ? Math.round(cr.height) : 0,
+          wrap: cs.flexWrap || "",
+          overflow: cs.overflowX || "",
         };
       }) || {};
       ok(boot.split === true && boot.gffl === false,
@@ -26717,36 +26735,39 @@ async function openDetails(page, id) {
       ok(boot.view === "scores" && boot.hash === "#scores",
         "opening the tab stays on #scores — the default game is not a new place (" + boot.view + " " + boot.hash + ")");
       ok(boot.id === "401900001" && boot.liveOn === true && boot.onId === "401900001",
-        "the live game is selected in the slate and loaded in the detail (" + boot.id + ")");
+        "the live game is selected in the chip row and loaded in the detail (" + boot.id + ")");
       ok(/DAL/.test(boot.head) && /PHI/.test(boot.head) && /10/.test(boot.head) && /14/.test(boot.head),
         "…and the detail header is that game, not a second page (" + String(boot.head).replace(/\s+/g, " ").trim() + ")");
-      ok(boot.back === false, "there is no ‹ Scores leaf — the slate is the way to switch");
-      ok(boot.slateFirst === true && boot.cards >= 2,
-        "on the phone the compact slate sits above the selected game (" + JSON.stringify({ slateFirst: boot.slateFirst, cards: boot.cards }) + ")");
+      ok(boot.back === false, "there is no ‹ Scores leaf — the chips are the way to switch");
+      ok(boot.chipsFirst === true && boot.chips >= 2 && boot.chipsShown === true && boot.slateGone === true,
+        "on the phone a short chip row sits above the selected game and the tall slate is gone (" + JSON.stringify({ chipsFirst: boot.chipsFirst, chips: boot.chips, slateGone: boot.slateGone }) + ")");
+      ok(boot.chipH > 0 && boot.chipH <= 72 && boot.wrap === "nowrap" && /auto|scroll/.test(boot.overflow),
+        "…the chips are one short nowrap row that can scroll sideways (" + JSON.stringify({ chipH: boot.chipH, wrap: boot.wrap, overflow: boot.overflow }) + ")");
 
-      ok(await clickIn(page, '#scSlate .sccard[data-eid="401900002"]'), "tapping another NFL game is a real control");
+      ok(await clickIn(page, '#scChips .scchip[data-eid="401900002"]'), "tapping another NFL chip is a real control");
       await waitFnOr(page, () => window.__GFFL__.UI.nflGameId === "401900002"
         && document.querySelector("#nflBody .nflkick"));
       const swapped = await evalOr(page, () => {
-        const on = [...document.querySelectorAll("#scSlate .sccard")].map((c) => ({
+        const on = [...document.querySelectorAll("#scChips .scchip")].map((c) => ({
           eid: c.dataset.eid, on: c.classList.contains("on"),
         }));
         return {
           view: window.__GFFL__.UI.view,
           hash: location.hash,
           id: window.__GFFL__.UI.nflGameId,
-          cards: document.querySelectorAll("#scSlate .sccard").length,
+          chips: document.querySelectorAll("#scChips .scchip").length,
           on,
           kick: !!document.querySelector("#nflBody .nflkick"),
           liveHeadGone: !/Q2/.test((document.querySelector("#nflBody .nflhead") || {}).textContent || ""),
           scoresLit: !!document.querySelector('.bnav button[data-v="scores"].on'),
+          chipsShown: !!(document.querySelector("#scChips") && document.querySelector("#scChips").offsetParent),
         };
       }) || {};
       ok(swapped.view === "nflgame" && swapped.hash === "#nflgame=401900002" && swapped.id === "401900002",
         "…the tap selects that game in place (" + JSON.stringify({ view: swapped.view, hash: swapped.hash }) + ")");
-      ok(swapped.cards >= 2 && swapped.on.some((c) => c.eid === "401900002" && c.on)
+      ok(swapped.chips >= 2 && swapped.chipsShown === true && swapped.on.some((c) => c.eid === "401900002" && c.on)
         && swapped.on.some((c) => c.eid === "401900001" && !c.on),
-        "…the slate stays, the new game is .on, and the previous game stays in its slot");
+        "…the chip row stays, the new game is .on, and the previous game stays in its slot");
       ok(swapped.kick === true && swapped.scoresLit === true,
         "…the detail is the pre-game kickoff card, and Scores stays the lit tab");
 
@@ -26755,12 +26776,51 @@ async function openDetails(page, id) {
       const backed = await evalOr(page, () => ({
         view: window.__GFFL__.UI.view,
         hash: location.hash,
-        slate: document.querySelectorAll("#scSlate .sccard").length,
+        chips: document.querySelectorAll("#scChips .scchip").length,
       })) || {};
-      ok(backed.view === "scores" && backed.hash === "#scores" && backed.slate >= 2,
-        "Back from a selected game returns to #scores with the slate still there (" + JSON.stringify(backed) + ")");
+      ok(backed.view === "scores" && backed.hash === "#scores" && backed.chips >= 2,
+        "Back from a selected game returns to #scores with the chips still there (" + JSON.stringify(backed) + ")");
       ok(errors.length === 0, "0 page errors on the phone Scores split");
+      if (SHOTS) {
+        await page.screenshot({ path: path.join(ROOT, "shots", "gffl_scores_chips_390.png"), fullPage: true });
+        console.log("  📸 shots/gffl_scores_chips_390.png");
+      }
       await ctx.close();
+    }
+    {
+      // A real Sunday slate (12 extra live games) must overflow the 390px
+      // chip row sideways — that is the point of the strip. The default
+      // two-game fixture cannot prove scroll.
+      fixture.bigSlate = true;
+      try {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await bootPage(page);
+        await pinSeedWeek1(page);
+        await page.evaluate(() => window.__GFFL__.UI.show("league"));
+        await waitOr(page, ".mucard");
+        await waitLive(page);
+        await clickIn(page, '.bnav button[data-v="scores"]');
+        await waitFnOr(page, () => (document.querySelectorAll("#scChips .scchip") || []).length >= 10);
+        const pan = await evalOr(page, () => {
+          const row = document.querySelector("#scChips");
+          if (!row) return { n: 0 };
+          return {
+            n: row.querySelectorAll(".scchip").length,
+            scroll: row.scrollWidth,
+            view: row.clientWidth,
+            wrap: getComputedStyle(row).flexWrap,
+            page: { b: document.body.scrollWidth, w: window.innerWidth },
+          };
+        }) || {};
+        ok(pan.n >= 10 && pan.scroll > pan.view && pan.wrap === "nowrap",
+          "a full NFL slate pans sideways inside the chip row (" + JSON.stringify(pan) + ")");
+        ok(pan.page && pan.page.b <= pan.page.w + 1,
+          "…without taking the page sideways (" + (pan.page && pan.page.b) + "/" + (pan.page && pan.page.w) + ")");
+        ok(errors.length === 0, "0 page errors on a full-slate chip row");
+        await ctx.close();
+      } finally {
+        fixture.bigSlate = false;
+      }
     }
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
@@ -26774,17 +26834,22 @@ async function openDetails(page, id) {
       const desk = await evalOr(page, () => {
         const detail = document.querySelector("#nflBody");
         const slate = document.querySelector("#scSlate");
+        const chips = document.querySelector("#scChips");
         const dr = detail && detail.getBoundingClientRect();
         const sr = slate && slate.getBoundingClientRect();
         return {
           detailLeft: !!(dr && sr && dr.right <= sr.left + 1 && dr.width > sr.width),
           slateNarrow: !!(sr && sr.width <= 340),
+          chipsGone: !!(chips && chips.offsetParent === null),
+          slateShown: !!(slate && slate.offsetParent),
           scroll: { b: document.body.scrollWidth, w: window.innerWidth },
           gffl: !!document.querySelector("main .mugrid, main .mucard"),
         };
       }) || {};
       ok(desk.detailLeft === true && desk.slateNarrow === true && desk.gffl === false,
         "desktop: wide selected game on the left, compact slate on the right (" + JSON.stringify(desk) + ")");
+      ok(desk.chipsGone === true && desk.slateShown === true,
+        "…the phone chip row is hidden and the slate is the switcher (" + JSON.stringify({ chipsGone: desk.chipsGone, slateShown: desk.slateShown }) + ")");
       ok(desk.scroll.b <= desk.scroll.w + 1,
         "…and they fit 1440px with no sideways scroll (" + desk.scroll.b + "/" + desk.scroll.w + ")");
       ok(errors.length === 0, "0 page errors on the desktop Scores split");

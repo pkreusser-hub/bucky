@@ -8244,3 +8244,27 @@ Pre-existing S NFL/ESPN checks stay green. Also green:
 AH 212/212, AJ (incl. the restaged Back-from-game walk),
 X 191/191. App files restored, hashes identical.
 ---
+
+## GFFL — phone Scores is a chip strip, not a tall slate (2026-09-15)
+
+User: the desktop split is right, but on a phone you have
+to scroll too far past every NFL card to reach the
+selected game.
+
+Phone Scores (`<1024px`) hides the compact slate
+(`#scSlate` `offsetParent === null`) and paints a sticky
+horizontal `#scChips` row under the header — one short
+button per NFL game, date order, `.on` / `.live`, score
+or kickoff on its own line like `.muswitch`. A tap calls
+the same `UI.go("nflgame", { game })` as a desktop slate
+card. A full Sunday slate pans inside the row; the page
+itself does not go sideways. Desktop is unchanged: chips
+are hidden and the 300px slate stays on the right.
+
+Scripts cache-bust `?v=20260915h`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** pending suite + bite (filled after the run).
+---
