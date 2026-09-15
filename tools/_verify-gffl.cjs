@@ -26386,9 +26386,12 @@ async function openDetails(page, id) {
         "…and the chip score moves with liveTotal (" + (morph && morph.sc) + ")");
 
       const one = await evalOr(page, async () => {
-        const { UI } = window.__GFFL__;
-        UI._muWeekGames = { week: UI.week, games: [UI.matchup] };
-        await UI.renderMatchup();
+        const { UI, LG } = window.__GFFL__;
+        const orig = LG.gamesForWeek;
+        LG.gamesForWeek = async () => [UI.matchup];
+        UI._muWeekGames = null;
+        try { await UI.renderMatchup(); }
+        finally { LG.gamesForWeek = orig; }
         const sw = document.querySelector("#muSwitch");
         return { hidden: !!(sw && sw.hidden), shown: !!(sw && sw.offsetParent), n: sw ? sw.querySelectorAll(".muswitch").length : -1 };
       });
