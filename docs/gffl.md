@@ -8091,12 +8091,20 @@ looking at someone else. The TL fixture pins the league
 clock to week 1 (`fullSeed`'s only scheduled week) and
 stubs `gamesForWeek` for the one-game hide — a full
 render refetches pairings, so a planted cache would not
-hold.
+hold. Desktop waits for `#muSwitch` with `waitOr` so
+the HEAD bite is a list of missing-chip failures, not
+one timeout stack.
 
 Scripts cache-bust `?v=20260915c`.
 
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY**: quoted after the suite run.
+**VERIFY**: `node tools/_verify-gffl.cjs --only TL --shots` **21/21**.
+Bite (`league.html` + `lg-ui.js` at `main`, new suite
+kept, `--only TL`): **9 pass / 12 fail** — HEAD has no
+`#muSwitch`, a chip tap is a no-op, and the one-game hide
+reads `n=-1`. Tab-to-own-game, first-card-is-header,
+390/1440 no-scroll, composer-survives-morph, and 0 page
+errors still passed. App files restored, hashes identical.
 ---
