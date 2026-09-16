@@ -27498,7 +27498,7 @@ async function openDetails(page, id) {
       // min-height:0 share the leftover 70vh; on a short phone the tap target
       // crushed to a few pixels. Pin it above the scrolling names and measure
       // ink, not "the node exists".
-      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 390, height: 600 } });
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 390, height: 500 } });
       await bootWeek1Home(page);
       await waitOr(page, ".mucard", 12000);
       await waitLive(page);
@@ -27506,26 +27506,32 @@ async function openDetails(page, id) {
       await evalOr(page, () => window.__GFFL__.UI.show("moves"));
       await waitFnOr(page, () => !!document.querySelector("#faResults .faMoveBtn"));
       await clickChildIn(page, "#faResults tr", ".faMoveBtn", "F. Agent");
-      ok(await waitOr(page, "#rosterCard .rcnodrop", 9000), "the no-drop row exists on a 600px phone");
+      ok(await waitOr(page, "#rosterCard .rcnodrop", 9000), "the no-drop row exists on a short phone");
       const geo = await evalOr(page, () => {
         const card = document.querySelector("#rosterCard .rccard");
         const row = document.querySelector("#rosterCard .rcnodrop");
+        const go = document.querySelector("#claimGo");
         const lists = document.querySelectorAll("#rosterCard .rclist");
         if (!card || !row) return null;
         const cr = card.getBoundingClientRect();
         const rr = row.getBoundingClientRect();
+        const gr = go ? go.getBoundingClientRect() : { height: 0, top: 0, bottom: 0 };
+        const inside = (r) => r.height >= 44 && r.top + 1 >= cr.top && r.bottom - 1 <= cr.bottom;
         return {
           lists: lists.length,
+          inList: !!(row.closest && row.closest(".rclist")),
           h: Math.round(rr.height),
           w: Math.round(rr.width),
           parent: row.offsetParent !== null,
-          inCard: rr.top + 1 >= cr.top && rr.bottom - 1 <= cr.bottom && rr.left + 1 >= cr.left && rr.right - 1 <= cr.right,
-          clipped: rr.height < 40,
+          inCard: inside(rr),
+          goH: Math.round(gr.height),
+          goIn: !!(go && go.offsetParent && inside(gr)),
         };
       }) || {};
-      ok(geo.lists === 1, "⭐ one scrolling list — the no-drop row is not a second .rclist (" + geo.lists + ")");
-      ok(geo.parent === true && geo.h >= 44 && geo.w >= 120 && geo.inCard === true && geo.clipped === false,
-        "⭐ THE REPORT: the open-bench tap target is visible on a short phone (" + JSON.stringify(geo) + ")");
+      ok(geo.lists === 1 && geo.inList === false,
+        "⭐ one scrolling list — the no-drop row is pinned chrome, not a second .rclist (" + JSON.stringify({ lists: geo.lists, inList: geo.inList }) + ")");
+      ok(geo.parent === true && geo.h >= 44 && geo.w >= 120 && geo.inCard === true && geo.goIn === true,
+        "⭐ THE REPORT: the open-bench tap target and Add stay visible on a short phone (" + JSON.stringify(geo) + ")");
       await page.setViewport({ width: 1280, height: 700 });
       await sleep(200);
       const desk = await evalOr(page, () => {

@@ -8502,5 +8502,12 @@ Scripts cache-bust `?v=20260916e`.
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY:** counts filled after the suite.
+**VERIFY:** `--only TP,TQ` **35/35**. Bite vs `origin/main`
+(app files at main, new suite kept): **21/14**. The 14
+are the earlier open-bench / active-cap fails plus the
+new ones: the no-drop row still lives in a second
+`.rclist` on HEAD, and My pending still lists the claim
+(with Cancel) after `processWaivers` writes the snapshot.
+The 6-bench no-drop add itself still passes on HEAD
+(21 − 20 = 1). App files restored, hashes identical.
 
