@@ -1082,18 +1082,21 @@
     // section rather than the whole card (UI.openPlayerCard's own try/catch is the coarser,
     // whole-card fallback — this is the finer one the spec asks for: "the card must never be
     // emptier than it is now because a new fetch failed").
-    let log, sched = null, outlook = "";
+    let log, sched = null, weekOut = "", weekN = UI.week;
     try {
       const pid = await resolveEspnPid(key);
       const pair = await Promise.all([
         d.gameLog(key),
         meta.team ? d.teamSchedule(meta.team) : Promise.resolve(null),
-        pid ? sportsFn("ff_player", { pid: Number(pid) }).catch(() => null) : Promise.resolve(null),
+        pid ? sportsFn("ff_player", { pid: Number(pid), week: UI.week }).catch(() => null) : Promise.resolve(null),
       ]);
       log = pair[0]; sched = pair[1];
       const det = pair[2] && pair[2].ok && pair[2].player;
-      outlook = det && det.outlook ? String(det.outlook).trim() : "";
-    } catch (e) { log = await d.gameLog(key).catch(() => ({ rows: [], total: null, avg: null, best: null })); sched = null; outlook = ""; }
+      // Weekly writeup only — seasonOutlook is the draft blurb (ffdraft.html's
+      // "ESPN's outlook") and must not land on this in-season card.
+      weekOut = det && det.weekOutlook ? String(det.weekOutlook).trim() : "";
+      if (det && det.week != null) weekN = det.week;
+    } catch (e) { log = await d.gameLog(key).catch(() => ({ rows: [], total: null, avg: null, best: null })); sched = null; weekOut = ""; }
     const tile = (label, v) => `<div class="pctile"><div class="pctileval">${v}</div><div class="pctilelabel mut small">${esc(label)}</div></div>`;
     // schedHtml: ONE row per real NFL week 1-18, regardless of how many the league itself has
     // finalized — a full season shape, "with @ for away games", is the whole point of the ask.
@@ -1166,7 +1169,7 @@
         ${tile("Avg / week", log.avg != null ? LG.fmtPts(log.avg) : "—")}
         ${tile("Best week", log.best != null ? LG.fmtPts(log.best) : "—")}
       </div>
-      ${outlook ? `<div class="pcoutwrap"><h2 class="small mut">ESPN's outlook</h2><p class="pcout">${esc(outlook)}</p></div>` : ""}
+      ${weekOut ? `<div class="pcoutwrap"><h2 class="small mut">ESPN's week ${esc(String(weekN))}</h2><p class="pcout">${esc(weekOut)}</p></div>` : ""}
       <div class="pclog"><h2 class="small mut">${schedHtml ? "Schedule" : "Game log"}</h2>
         ${schedHtml ? `<div class="panner"><table class="tbl"><thead><tr><th>Wk</th><th>Opp</th><th class="num">Pts</th></tr></thead><tbody>${schedHtml}</tbody></table></div>`
           : (log.rows.length ? `<div class="panner"><table class="tbl"><thead><tr><th>Wk</th><th>Opp</th><th class="num">Pts</th></tr></thead><tbody>${logRows}</tbody></table></div>`

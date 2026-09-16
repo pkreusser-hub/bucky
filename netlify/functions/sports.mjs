@@ -940,11 +940,24 @@ async function ffLastDraft(body) {
   }
 }
 
+// Weekly writeup on a player object: ESPN's outlooks.outlooksByWeek[scoringPeriod],
+// the paragraph on the in-season player card (fflr's player_outlook; NOT
+// seasonOutlook, which is the draft/rest-of-season blurb). Absent or a
+// non-week ask is "" — never a silent copy of the season text.
+function weekOutlookOf(p, week) {
+  if (!Number.isInteger(week) || week < 1 || week > 18) return "";
+  const by = p && p.outlooks && p.outlooks.outlooksByWeek;
+  if (!by || typeof by !== "object") return "";
+  const raw = by[week] != null ? by[week] : by[String(week)];
+  return String(raw || "").trim().slice(0, 1500);
+}
+
 // One player's full picture, for the draft room's detail card: season stat
 // BREAKDOWN (last year actual vs this year projected, decoded through the
 // community-documented stat ids) + ESPN's own seasonOutlook analysis text.
 // Fetched on demand per click — the outlook paragraphs would triple the pool
-// payload if they rode along on every player.
+// payload if they rode along on every player. GFFL's in-season card asks for
+// `week` and reads weekOutlook (outlooksByWeek) instead of the draft blurb.
 const STAT_LINES = [
   [3, "Pass yds"], [4, "Pass TD"], [20, "INT"],
   [23, "Carries"], [24, "Rush yds"], [25, "Rush TD"],
@@ -971,6 +984,8 @@ async function ffPlayer(body) {
   // espn-api community library uses for player cards.
   const year = Number(body?.year) >= 2000 && Number(body?.year) <= 2100
     ? Number(body.year) : ffSeason();
+  const week = Number(body?.week);
+  const sp = Number.isInteger(week) && week >= 1 && week <= 18 ? week : 0;
   const filter = {
     players: {
       filterIds: { value: [pid] },
@@ -980,7 +995,8 @@ async function ffPlayer(body) {
       },
     },
   };
-  const { data: j, err } = await ffFetch(["kona_playercard"], "", { ...body, year },
+  const extra = sp ? "&scoringPeriodId=" + sp : "";
+  const { data: j, err } = await ffFetch(["kona_playercard"], extra, { ...body, year },
     { "x-fantasy-filter": JSON.stringify(filter) });
   if (err) return { ok: false, reason: err };
   try {
@@ -1003,6 +1019,8 @@ async function ffPlayer(body) {
         adp: r1(p?.ownership?.averageDraftPosition),
         rank: { ppr: rk?.PPR?.rank ?? null, standard: rk?.STANDARD?.rank ?? null },
         outlook: String(p?.seasonOutlook || "").slice(0, 1500),
+        weekOutlook: weekOutlookOf(p, sp),
+        week: sp || null,
         proj: statBundle(seasonStat(stats, year, 1)),
         last: Object.assign({ season: year - 1 },
           statBundle(seasonStat(stats, year - 1, 0)) || { total: null, avg: null, lines: [] }),

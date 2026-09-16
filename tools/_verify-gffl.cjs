@@ -675,13 +675,18 @@ function ffScoreboardFix() {
 // RAW kona_playercard document sports.mjs's own ffPctOwned() consumes, not the slim answer it
 // produces, so the fixture proves the real integration.
 const PCT_OWNED_FIX = { 111333: 42.5, 111777: 8.1 };
-// TR (2026-09-16): ESPN's seasonOutlook paragraph, the same field ffdraft.html already
-// renders. Distinctive sentences so the player-card assertion cannot pass on leftover
-// copy. 777001 is F. Agent — Sleeper carries no espn_id for him; the card resolves the
-// pid through nfl_ownership's name+team `who` map.
-const PLAYER_OUTLOOK_FIX = {
+// TR (2026-09-16, RESTAGED the same day): seasonOutlook is the DRAFT blurb
+// (ffdraft.html's "ESPN's outlook"). The in-season card must render
+// outlooks.outlooksByWeek[week] instead. Both ride the same kona_playercard
+// row so a client that still reads seasonOutlook would paint the draft
+// sentence — that collision is the bite. 777001 is F. Agent (no espn_id).
+const PLAYER_SEASON_OUTLOOK_FIX = {
   3915511: "P. Passer remains the engine of this offense. Volume holds even when the pocket collapses.",
   777001: "F. Agent is a late-week dart. The role is real; the floor is not.",
+};
+const PLAYER_WEEK_OUTLOOK_FIX = {
+  3915511: { "1": "P. Passer draws a soft secondary this week. Start him with confidence against the zone looks." },
+  777001: { "1": "F. Agent is the clear WR3 this week with the starter out. The targets are there." },
 };
 function ffPctOwnedDoc(ids) {
   const rows = [];
@@ -691,15 +696,17 @@ function ffPctOwnedDoc(ids) {
     if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
     seen.add(id);
     const own = PCT_OWNED_FIX[id];
-    const outlook = PLAYER_OUTLOOK_FIX[id] || "";
-    if (own == null && !outlook) continue;
+    const season = PLAYER_SEASON_OUTLOOK_FIX[id] || "";
+    const byWeek = PLAYER_WEEK_OUTLOOK_FIX[id] || null;
+    if (own == null && !season && !byWeek) continue;
     rows.push({
       id,
       player: {
         id,
         fullName: "P" + id,
         ownership: own != null ? { percentOwned: own } : {},
-        seasonOutlook: outlook,
+        seasonOutlook: season,
+        outlooks: byWeek ? { outlooksByWeek: byWeek } : undefined,
         stats: [],
       },
     });
@@ -27746,15 +27753,17 @@ async function openDetails(page, id) {
     }
   }
 
-  // ================= TR · Moves %ROST by name + ESPN outlook on the player card ============
+  // ================= TR · Moves %ROST by name + ESPN weekly writeup on the player card ============
   // User (2026-09-16): on Moves most % rostered / % start cells are blank; clicking a
-  // player should pull ESPN's paragraph analysis onto the card.
+  // player should pull ESPN's paragraph analysis onto the card. Same day: that
+  // paragraph is the WEEKLY writeup (outlooks.outlooksByWeek), not the draft
+  // seasonOutlook ffdraft.html already shows.
   //
   // Two seams, one cause: Sleeper's directory has no espn_id for about half the pool, so
   // those FAs are keyed slp_<pid> and espnIdForKey returned null. nfl_ownership now
   // ships a who[id]=[name,team] map; the client matches D.normName + D.slpTeam the same
-  // way the rest of the app already does. The card fetches ff_player (seasonOutlook,
-  // the same field ffdraft.html already renders) in parallel with the game log.
+  // way the rest of the app already does. The card fetches ff_player with this week's
+  // scoring period and renders weekOutlook only.
   if (section("TR · Moves %ROST by name and ESPN outlook on the player card")) {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     fixture.ownershipDown = false; fixture.ffPlayerDown = false;
@@ -27777,6 +27786,22 @@ async function openDetails(page, id) {
       ok(j && j.players && JSON.stringify(j.players["3915511"]) === "[92.4,88.1]"
         && JSON.stringify(j.players["777001"]) === "[33.4,8.2]",
         "…and players[id] stays [owned, started] — who is additive, not a shape break");
+      const callPlayer = async (extra) => {
+        const r = await sportsFn(new Request("http://fn/sports", {
+          method: "POST", body: JSON.stringify({ secret: "amenfarms", action: "ff_player", pid: 3915511, ...(extra || {}) }),
+        }));
+        return r.json();
+      };
+      const jp = await callPlayer({ week: 1 });
+      const weekTxt = jp && jp.player && jp.player.weekOutlook || "";
+      const seasonTxt = jp && jp.player && jp.player.outlook || "";
+      ok(/soft secondary/.test(weekTxt) && /zone looks/.test(weekTxt),
+        "ff_player(week:1) slims outlooks.outlooksByWeek[1] onto weekOutlook (" + String(weekTxt).slice(0, 80) + ")");
+      ok(/pocket collapses/.test(seasonTxt) && !/pocket collapses/.test(weekTxt) && !/soft secondary/.test(seasonTxt),
+        "…seasonOutlook stays on outlook for the draft room and is never copied into weekOutlook");
+      const jpNone = await callPlayer({});
+      ok(jpNone && jpNone.player && jpNone.player.weekOutlook === "" && /pocket collapses/.test(jpNone.player.outlook || ""),
+        "…a call with no week leaves weekOutlook empty — the draft blurb is not a fallback");
     }
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -27817,40 +27842,49 @@ async function openDetails(page, id) {
       ok(passer && passer.own === "92%" && passer.start === "88%",
         "…and an espn-id key still fills the same way it always did — P. Passer 92%/88%");
       await evalOr(page, () => window.__GFFL__.UI.openPlayerCard("3915511"));
+      // RESTAGED 2026-09-16: the first cut asserted seasonOutlook ("pocket collapses")
+      // because that is what ffdraft.html renders. The user wants the WEEKLY writeup
+      // (outlooksByWeek), and the draft sentence must not appear on this card.
       await waitFnOr(page, () => {
         const n = document.querySelector("#playerCard .pcname");
         const o = document.querySelector("#playerCard .pcout");
-        return !!(n && /Passer/.test(n.textContent) && o && /pocket collapses/.test(o.textContent));
+        return !!(n && /Passer/.test(n.textContent) && o && /soft secondary/.test(o.textContent));
       });
       const passCard = await evalOr(page, () => {
         const out = document.querySelector("#playerCard .pcout");
+        const txt = ((document.querySelector("#playerCard") || {}).textContent || "").replace(/\s+/g, " ");
         return {
           name: ((document.querySelector("#playerCard .pcname") || {}).textContent || "").trim(),
           outlook: out ? (out.textContent || "").replace(/\s+/g, " ").trim() : "",
-          heading: /ESPN's outlook/.test((document.querySelector("#playerCard") || {}).textContent || ""),
+          weekHead: /ESPN's week 1/.test(txt),
+          draftHead: /ESPN's outlook/.test(txt),
+          draftBlurb: /pocket collapses/.test(txt),
         };
-      }) || { name: "", outlook: "", heading: false };
-      ok(passCard.name === "P. Passer" && passCard.heading === true
-        && /P\. Passer remains the engine/.test(passCard.outlook)
-        && /pocket collapses/.test(passCard.outlook),
-        "the player card pulls ESPN's seasonOutlook paragraph — P. Passer (" + String(passCard.outlook || "").slice(0, 80) + ")");
+      }) || { name: "", outlook: "", weekHead: false, draftHead: false, draftBlurb: false };
+      ok(passCard.name === "P. Passer" && passCard.weekHead === true
+        && /soft secondary/.test(passCard.outlook) && /zone looks/.test(passCard.outlook),
+        "the player card pulls ESPN's WEEKLY writeup — P. Passer week 1 (" + String(passCard.outlook || "").slice(0, 80) + ")");
+      ok(passCard.draftHead === false && passCard.draftBlurb === false,
+        "…and the draft seasonOutlook never lands on the in-season card");
       await evalOr(page, () => window.__GFFL__.UI.closePlayerCard());
       await waitFnOr(page, () => document.getElementById("playerCard").hidden);
       await evalOr(page, () => window.__GFFL__.UI.openPlayerCard("slp_9201"));
       await waitFnOr(page, () => {
         const n = document.querySelector("#playerCard .pcname");
         const o = document.querySelector("#playerCard .pcout");
-        return !!(n && /F\. Agent/.test(n.textContent) && o && /late-week dart/.test(o.textContent));
+        return !!(n && /F\. Agent/.test(n.textContent) && o && /clear WR3/.test(o.textContent));
       });
       const agentCard = await evalOr(page, () => {
         const out = document.querySelector("#playerCard .pcout");
+        const txt = ((document.querySelector("#playerCard") || {}).textContent || "").replace(/\s+/g, " ");
         return {
           name: ((document.querySelector("#playerCard .pcname") || {}).textContent || "").trim(),
           outlook: out ? (out.textContent || "").replace(/\s+/g, " ").trim() : "",
+          draftBlurb: /late-week dart/.test(txt),
         };
-      }) || { name: "", outlook: "" };
-      ok(agentCard.name === "F. Agent" && /late-week dart/.test(agentCard.outlook),
-        "…and a slp_ key resolves the ESPN pid through who, so F. Agent gets a paragraph too");
+      }) || { name: "", outlook: "", draftBlurb: false };
+      ok(agentCard.name === "F. Agent" && /clear WR3/.test(agentCard.outlook) && agentCard.draftBlurb === false,
+        "…and a slp_ key resolves the ESPN pid through who, so F. Agent gets THIS week's writeup");
       await evalOr(page, () => window.__GFFL__.UI.closePlayerCard());
       await waitFnOr(page, () => document.getElementById("playerCard").hidden);
       await evalOr(page, () => window.__GFFL__.UI.openPlayerCard("slp_9202"));
