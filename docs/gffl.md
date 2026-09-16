@@ -8425,6 +8425,17 @@ Files: `league.html`, `assets/league/lg-{core,ui}.js`,
 `netlify/functions/notify.mjs`, `tools/_verify-gffl.cjs`,
 `tools/_verify-notify-url.mjs`, this file.
 
-**VERIFY:** pending suite + bite.
+**VERIFY:** `--only TN,AN,AP` **215/215**.
+`node tools/_verify-notify-url.mjs` **43/43**.
+Bite vs `origin/main` (app files at main, new
+suite kept): TN+AN+AP **198/17**; notify-url
+**41/43**. The 17 are the eight-kind card, the
+seeded `["moves"]` prefs, the logTx producer,
+and the restaged veto / waiver / execute
+counts. Pre-existing AN offer/accept/recap/
+mention and AP counter checks stay green. The
+two notify-url fails are default-off `moves`
+(missing field still delivered on HEAD). App
+files restored, hashes identical.
 ---
 

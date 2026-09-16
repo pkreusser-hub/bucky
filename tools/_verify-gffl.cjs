@@ -27231,14 +27231,21 @@ async function openDetails(page, id) {
       ok(!!sys && notify.calls.length === 0, "a system line still pushes nobody");
 
       await reset();
-      const line = await page.evaluate(() => window.__GFFL__.LG.movesLine("drop", 1, { dropName: "B. Backup" }));
-      const dropped = await page.evaluate(() => window.__GFFL__.LG.logTx("drop", 1, 1, { dropKey: "111333", dropName: "B. Backup" }));
+      // evalOr: HEAD has no LG.movesLine. A bare evaluate() throws and turns
+      // the bite into a suite crash instead of the remaining producer failures.
+      const moved = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const line = typeof LG.movesLine === "function"
+          ? LG.movesLine("drop", 1, { dropName: "B. Backup" }) : "";
+        const id = await LG.logTx("drop", 1, 1, { dropKey: "111333", dropName: "B. Backup" });
+        return { id, line };
+      });
       await drain(1);
-      ok(typeof dropped === "string" && notify.calls.length === 1 && last().kind === "moves"
+      ok(moved && typeof moved.id === "string" && notify.calls.length === 1 && last().kind === "moves"
         && last().gfflAll === true && last().excludeTeam === 1
         && last().title === "League move" && /dropped/.test(last().body || "")
         && (last().url || "").indexOf("#moves") >= 0
-        && /Battle Kreussers dropped B\. Backup/.test(line || last().body || ""),
+        && /Battle Kreussers dropped B\. Backup/.test(moved.line || last().body || ""),
         "a roster move pushes gfflAll minus the actor, kind=moves (" + JSON.stringify(last()) + ")");
 
       await page.evaluate(() => window.__GFFL__.D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" }));
