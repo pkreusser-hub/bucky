@@ -954,8 +954,9 @@ const sportsWebUrls = [];
 function startSportsNflUpstream() {
   const srv = http.createServer((req, res) => {
     nflSumUrls.push(req.url);
-    // Public athlete overview (site.web.api) — same fixture host in tests via
-    // SPORTS_WEB_BASE_URL. Live 2026 weekly writeups live here as rotowire.story.
+    // Public athlete overview — same fixture host in tests via
+    // SPORTS_WEB_BASE_URL / SPORTS_NFL_BASE_URL. Live 2026 weekly
+    // writeups live here as rotowire.story (site.api.espn.com + curl UA).
     const ov = /\/athletes\/(\d+)\/overview/.exec(req.url);
     if (ov) {
       sportsWebUrls.push(req.url);
@@ -12726,7 +12727,7 @@ async function openDetails(page, id) {
     {
       fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
       const { ctx, page, errors } = await newTestPage(browser, seedLongNames());
-      await bootPage(page);
+      await bootWeek1Home(page);
       await waitOr(page, ".mucard");
       await waitLive(page);
       await clickIn(page, ".mucard.mine");
@@ -27963,7 +27964,7 @@ async function openDetails(page, id) {
     fixture.injMix = true;
     {
       const { ctx, page, errors } = await newTestPage(browser, seedLongNames());
-      await bootPage(page);
+      await bootWeek1Home(page);
       await waitOr(page, ".mucard", 9000);
       await waitLive(page);
       await clickIn(page, '.bnav button[data-v="team"]');
@@ -27999,9 +28000,13 @@ async function openDetails(page, id) {
         if (p) p.injury = "";
       });
       await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
-      await waitOr(page, ".lrow", 9000);
+      await waitFnOr(page, () => {
+        const r = [...document.querySelectorAll(".lrow")].find((el) => /Nacua/.test(el.textContent));
+        const chip = r && r.querySelector(".lname .inj");
+        return !!(chip && chip.textContent.trim() === "OUT");
+      });
       const dirTeam = (await evalOr(page, () => {
-        const r = [...document.querySelectorAll(".lrow")].find((el) => /Puka Nacua|H\. Healthy/.test(el.textContent));
+        const r = [...document.querySelectorAll(".lrow")].find((el) => /Nacua/.test(el.textContent));
         const chip = r && r.querySelector(".lname .inj");
         const b = r && r.querySelector(".lname b");
         const small = r && r.querySelector(".lname small");
@@ -28015,10 +28020,11 @@ async function openDetails(page, id) {
       })) || {};
       ok(dirTeam.txt === "OUT" && dirTeam.afterName === true && dirTeam.inSmall === false && dirTeam.of === "Out",
         "My Team shows a directory-only Out next to the name — no live row, empty roster snapshot (" + JSON.stringify(dirTeam) + ")");
-      await page.evaluate(() => window.__GFFL__.UI.go("matchup"));
-      await waitOr(page, ".pcellgrid", 12000);
+      await page.evaluate(() => window.__GFFL__.UI.navTo("matchup"));
+      await waitOr(page, "td.slotcell", 15000);
+      await waitFnOr(page, () => document.querySelectorAll(".mutable .pcellgrid").length >= 4);
       const mu = (await evalOr(page, () => {
-        const cell = [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => /Puka Nacua|H\. Healthy/.test(e.textContent));
+        const cell = [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => /Nacua/.test(e.textContent));
         const chip = cell && cell.querySelector(".pname .inj");
         const b = cell && cell.querySelector(".pname b");
         return {

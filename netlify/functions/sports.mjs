@@ -23,7 +23,8 @@
 // projections + last-year points), ff_lastdraft (last season's draft +
 // rosters, for keeper costs), ff_player (one player's stat breakdown + ESPN's
 // seasonOutlook analysis, for the detail card; in-season weekOutlook is the
-// public RotoWire athlete-overview story, not outlooksByWeek).
+// public RotoWire athlete-overview story on site.api.espn.com, not
+// outlooksByWeek).
 //
 // THE GFFL (league.html) also reads two of these: ff_freeagents feeds its waiver
 // advice, and ff_pct_owned { ids:[espn player ids] } -> { ok, own:{id: pct} } is
@@ -945,10 +946,16 @@ async function ffLastDraft(body) {
 // kona_playercard / kona_player_info (probed 2026-09-16: 0 of 20 top-owned
 // players, and fflr's own player_outlook example is all NA). seasonOutlook
 // is still the draft/rest-of-season blurb. The paragraph on ESPN's in-season
-// player page is RotoWire: site.web.api.espn.com
+// player page is RotoWire on the public athlete overview
 // /apis/common/v3/sports/football/nfl/athletes/{id}/overview → rotowire.story.
-// outlooksByWeek is kept as a leftover fallback for an older season dump.
-// Absent or a non-week ask is "" — never a silent copy of the season text.
+// Live amenfarms ff_player(week:2) for Chase still returned weekOutlook ""
+// because that path read outlooksByWeek; the same pid's overview had a 539-
+// char rotowire.story the same evening. Fetch it from site.api.espn.com with
+// the curl UA — the pair the scoreboard already uses from Netlify. Browser
+// UA 403s that host from a datacenter (measured 2026-08-05). site.web.api
+// serves the same JSON but is a second host we don't need. outlooksByWeek
+// is kept as a leftover fallback for an older season dump. Absent or a
+// non-week ask is "" — never a silent copy of the season text.
 function weekOutlookOf(p, week) {
   if (!Number.isInteger(week) || week < 1 || week > 18) return "";
   const by = p && p.outlooks && p.outlooks.outlooksByWeek;
@@ -957,17 +964,10 @@ function weekOutlookOf(p, week) {
   return String(raw || "").trim().slice(0, 1500);
 }
 function webBase() {
-  return process.env.SPORTS_WEB_BASE_URL || "https://site.web.api.espn.com";
+  return process.env.SPORTS_WEB_BASE_URL || NFL_BASE;
 }
 async function fetchWebJson(url, ms) {
-  let r;
-  try {
-    r = await timedFetch(url, { headers: { "User-Agent": UA, accept: "application/json" } }, ms);
-  } catch (e) {
-    return { err: fetchFailReason(e) };
-  }
-  if (!r.ok) return { err: "http-" + r.status };
-  try { return { data: await r.json() }; } catch { return { err: "bad-json" }; }
+  return fetchUpstream(url, ms);
 }
 function rotowireStory(j) {
   const rw = j && j.rotowire;
@@ -1022,8 +1022,9 @@ async function ffPlayer(body) {
   const extra = sp ? "&scoringPeriodId=" + sp : "";
   const cardP = ffFetch(["kona_playercard"], extra, { ...body, year },
     { "x-fantasy-filter": JSON.stringify(filter) });
-  // Week writeup is a SECOND, public host (site.web.api). Failure here must
-  // not take down the card: name + tiles + draft-room stats still paint.
+  // Week writeup is a second public GET on the same site.api host as the
+  // scoreboard (curl UA). Failure here must not take down the card: name +
+  // tiles + draft-room stats still paint.
   const noteP = sp
     ? fetchWebJson(webBase() + "/apis/common/v3/sports/football/nfl/athletes/" + pid + "/overview", FETCH_TIMEOUT_MS_SHORT)
     : Promise.resolve({ data: null });

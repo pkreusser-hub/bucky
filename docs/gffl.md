@@ -8617,11 +8617,16 @@ player card.
 
 `outlooks.outlooksByWeek` is not on live 2026
 `kona_playercard` / `kona_player_info` (0 of 20 top-owned,
-probed). `seasonOutlook` is still the draft blurb. The
-in-season paragraph is RotoWire:
-`site.web.api.espn.com` athlete `overview` →
-`rotowire.story`. `ff_player` with a week fetches that in
-parallel; a miss is empty, never a copy of the draft text.
+probed). `seasonOutlook` is still the draft blurb. Live
+`ff_player` on amenfarms for Chase week 2 still returned
+`weekOutlook: ""` — that path read the missing kona field.
+The same pid's public athlete `overview` had a 539-char
+`rotowire.story` (Mahomes 1075, CMC 775). That is the
+in-season paragraph. `ff_player` with a week fetches it
+from `site.api.espn.com` with the curl UA (the scoreboard
+pair already proven from Netlify; browser UA 403s that
+host from a datacenter). A miss is empty, never a copy
+of the draft text.
 
 Injury chips sit next to the name on My Team and Matchup
 and read `LG.injuryOf` (directory first). A man ruled Out

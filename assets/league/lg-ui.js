@@ -1094,8 +1094,8 @@
       const det = pair[2] && pair[2].ok && pair[2].player;
       // Weekly writeup only — seasonOutlook is the draft blurb (ffdraft.html's
       // "ESPN's outlook") and must not land on this in-season card. weekOutlook
-      // is the RotoWire story on the public athlete overview (2026 ESPN no
-      // longer ships outlooks.outlooksByWeek on kona_playercard).
+      // is the RotoWire story on the public athlete overview via site.api
+      // (2026 ESPN no longer ships outlooks.outlooksByWeek on kona_playercard).
       weekOut = det && det.weekOutlook ? String(det.weekOutlook).trim() : "";
       if (det && det.week != null) weekN = det.week;
     } catch (e) { log = await d.gameLog(key).catch(() => ({ rows: [], total: null, avg: null, best: null })); sched = null; weekOut = ""; }
