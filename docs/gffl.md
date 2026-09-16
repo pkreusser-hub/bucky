@@ -8579,4 +8579,32 @@ the slp_ key, and both outlook paragraphs (HEAD never
 calls `ff_player`). The espn-id path (P. Passer 92%/88%)
 and the silent no-outlook degrade still pass on HEAD.
 App files restored.
+---
+
+## GFFL — player card uses the weekly writeup, not the draft outlook (2026-09-16)
+
+User: the paragraph on the player card should not be the
+draft outlook; it should be the writeup for that week.
+
+`seasonOutlook` is the draft-room blurb (`ffdraft.html`'s
+"ESPN's outlook"). The in-season card now asks `ff_player`
+for `week` and renders `outlooks.outlooksByWeek[week]` as
+`weekOutlook`. A missing week, or a missing writeup, is
+empty — never a silent copy of the season text. The draft
+room still reads `outlook`.
+
+Scripts cache-bust `?v=20260916h`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`netlify/functions/sports.mjs`, `tools/_verify-gffl.cjs`,
+this file.
+
+**VERIFY:** `--only TR` **15/15**. Bite vs `origin/main`
+(app files at main, new suite kept): **10/5**. The 5 are
+`weekOutlook` missing on HEAD, a no-week call that cannot
+assert the new empty field, the card still painting the
+draft "pocket collapses" blurb under "ESPN's outlook", and
+F. Agent still showing the draft dart line. The %ROST
+name-match path and the silent no-paragraph degrade still
+pass on HEAD. App files restored.
 
