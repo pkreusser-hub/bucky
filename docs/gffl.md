@@ -8640,3 +8640,13 @@ Files: `league.html`, `assets/league/lg-ui.js`,
 `netlify/functions/sports.mjs`, `tools/_verify-gffl.cjs`,
 this file.
 
+**VERIFY:** `--only TR,TS` **23/23**. Bite vs `8a146cc`
+(app files at main, new suite kept): **15/8**. The 8 are
+`rotowire.story` empty (HEAD never hits the athlete
+overview), the card still missing the week paragraph,
+F. Agent still without a writeup, My Team Q still inside
+`<small>`, directory-only Out missing on locker and
+matchup, and matchup Q not on line 1. Ownership /
+silent degrade / `ff_player`-down / healthy-no-chip /
+no-week-empty still pass on HEAD. App files restored.
+
