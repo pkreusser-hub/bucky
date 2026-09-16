@@ -8465,5 +8465,15 @@ Scripts cache-bust `?v=20260916d`.
 Files: `league.html`, `assets/league/lg-{core,ui}.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY:** counts filled after the suite.
+**VERIFY:** `--only TP` **24/24**. Bite vs `origin/main`
+(app files at main, new suite kept): **12/12**. The 12
+are the active cap, landing helper, full-18 refuse
+(HEAD room was 3 because empty IR counted), empty-K
+landing (HEAD threw — no `activeCount`), the 6-bench
+card heading / armed / picked / spot copy, and the
+full-18 card still demanding a drop. The 6-bench
+no-drop add itself still passes on HEAD (21 − 20 = 1).
+AI17(f) restaged: heading "No drop needed", submit
+armed, row picked. AO copy regex accepts
+"No drop needed".
 
