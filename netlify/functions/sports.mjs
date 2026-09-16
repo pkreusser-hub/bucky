@@ -22,7 +22,8 @@
 // scoring flavor + byes), ff_draftpool (ESPN-ranked draftable pool w/ season
 // projections + last-year points), ff_lastdraft (last season's draft +
 // rosters, for keeper costs), ff_player (one player's stat breakdown + ESPN's
-// seasonOutlook analysis, for the detail card).
+// seasonOutlook analysis, for the detail card; in-season weekOutlook is the
+// public RotoWire athlete-overview story, not outlooksByWeek).
 //
 // THE GFFL (league.html) also reads two of these: ff_freeagents feeds its waiver
 // advice, and ff_pct_owned { ids:[espn player ids] } -> { ok, own:{id: pct} } is
@@ -940,10 +941,14 @@ async function ffLastDraft(body) {
   }
 }
 
-// Weekly writeup on a player object: ESPN's outlooks.outlooksByWeek[scoringPeriod],
-// the paragraph on the in-season player card (fflr's player_outlook; NOT
-// seasonOutlook, which is the draft/rest-of-season blurb). Absent or a
-// non-week ask is "" — never a silent copy of the season text.
+// Weekly writeup: ESPN stopped shipping outlooks.outlooksByWeek on 2026
+// kona_playercard / kona_player_info (probed 2026-09-16: 0 of 20 top-owned
+// players, and fflr's own player_outlook example is all NA). seasonOutlook
+// is still the draft/rest-of-season blurb. The paragraph on ESPN's in-season
+// player page is RotoWire: site.web.api.espn.com
+// /apis/common/v3/sports/football/nfl/athletes/{id}/overview → rotowire.story.
+// outlooksByWeek is kept as a leftover fallback for an older season dump.
+// Absent or a non-week ask is "" — never a silent copy of the season text.
 function weekOutlookOf(p, week) {
   if (!Number.isInteger(week) || week < 1 || week > 18) return "";
   const by = p && p.outlooks && p.outlooks.outlooksByWeek;
@@ -951,13 +956,32 @@ function weekOutlookOf(p, week) {
   const raw = by[week] != null ? by[week] : by[String(week)];
   return String(raw || "").trim().slice(0, 1500);
 }
+function webBase() {
+  return process.env.SPORTS_WEB_BASE_URL || "https://site.web.api.espn.com";
+}
+async function fetchWebJson(url, ms) {
+  let r;
+  try {
+    r = await timedFetch(url, { headers: { "User-Agent": UA, accept: "application/json" } }, ms);
+  } catch (e) {
+    return { err: fetchFailReason(e) };
+  }
+  if (!r.ok) return { err: "http-" + r.status };
+  try { return { data: await r.json() }; } catch { return { err: "bad-json" }; }
+}
+function rotowireStory(j) {
+  const rw = j && j.rotowire;
+  if (!rw || typeof rw !== "object") return "";
+  return String(rw.story || "").trim().slice(0, 1500);
+}
 
 // One player's full picture, for the draft room's detail card: season stat
 // BREAKDOWN (last year actual vs this year projected, decoded through the
 // community-documented stat ids) + ESPN's own seasonOutlook analysis text.
 // Fetched on demand per click — the outlook paragraphs would triple the pool
 // payload if they rode along on every player. GFFL's in-season card asks for
-// `week` and reads weekOutlook (outlooksByWeek) instead of the draft blurb.
+// `week` and reads weekOutlook (RotoWire story on the public athlete
+// overview, not the draft blurb).
 const STAT_LINES = [
   [3, "Pass yds"], [4, "Pass TD"], [20, "INT"],
   [23, "Carries"], [24, "Rush yds"], [25, "Rush TD"],
@@ -996,8 +1020,14 @@ async function ffPlayer(body) {
     },
   };
   const extra = sp ? "&scoringPeriodId=" + sp : "";
-  const { data: j, err } = await ffFetch(["kona_playercard"], extra, { ...body, year },
+  const cardP = ffFetch(["kona_playercard"], extra, { ...body, year },
     { "x-fantasy-filter": JSON.stringify(filter) });
+  // Week writeup is a SECOND, public host (site.web.api). Failure here must
+  // not take down the card: name + tiles + draft-room stats still paint.
+  const noteP = sp
+    ? fetchWebJson(webBase() + "/apis/common/v3/sports/football/nfl/athletes/" + pid + "/overview", FETCH_TIMEOUT_MS_SHORT)
+    : Promise.resolve({ data: null });
+  const [{ data: j, err }, note] = await Promise.all([cardP, noteP]);
   if (err) return { ok: false, reason: err };
   try {
     const e = (Array.isArray(j?.players) ? j.players : []).find((x) => (x?.player?.id ?? x?.id) === pid);
@@ -1005,6 +1035,7 @@ async function ffPlayer(body) {
     if (!p || p.id !== pid) return { ok: false, reason: "not-found" };
     const stats = Array.isArray(p?.stats) ? p.stats : [];
     const rk = p?.draftRanksByRankType || {};
+    const weekTxt = rotowireStory(note && note.data) || weekOutlookOf(p, sp);
     return {
       ok: true,
       season: year,
@@ -1019,7 +1050,7 @@ async function ffPlayer(body) {
         adp: r1(p?.ownership?.averageDraftPosition),
         rank: { ppr: rk?.PPR?.rank ?? null, standard: rk?.STANDARD?.rank ?? null },
         outlook: String(p?.seasonOutlook || "").slice(0, 1500),
-        weekOutlook: weekOutlookOf(p, sp),
+        weekOutlook: weekTxt,
         week: sp || null,
         proj: statBundle(seasonStat(stats, year, 1)),
         last: Object.assign({ season: year - 1 },

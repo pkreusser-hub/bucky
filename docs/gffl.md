@@ -8607,4 +8607,31 @@ draft "pocket collapses" blurb under "ESPN's outlook", and
 F. Agent still showing the draft dart line. The %ROST
 name-match path and the silent no-paragraph degrade still
 pass on HEAD. App files restored.
+---
+
+## GFFL — injury chips next to names; week writeup is RotoWire (2026-09-16)
+
+User: show injury designations next to player names on My Team
+and the same on Matchup. Also no ESPN paragraph on any
+player card.
+
+`outlooks.outlooksByWeek` is not on live 2026
+`kona_playercard` / `kona_player_info` (0 of 20 top-owned,
+probed). `seasonOutlook` is still the draft blurb. The
+in-season paragraph is RotoWire:
+`site.web.api.espn.com` athlete `overview` →
+`rotowire.story`. `ff_player` with a week fetches that in
+parallel; a miss is empty, never a copy of the draft text.
+
+Injury chips sit next to the name on My Team and Matchup
+and read `LG.injuryOf` (directory first). A man ruled Out
+has no live stat row, so the old live-row-then-roster read
+painted him healthy. Matchup no longer hides the chip on
+line 2.
+
+Scripts cache-bust `?v=20260916i`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`netlify/functions/sports.mjs`, `tools/_verify-gffl.cjs`,
+this file.
 

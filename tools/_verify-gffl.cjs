@@ -675,18 +675,30 @@ function ffScoreboardFix() {
 // RAW kona_playercard document sports.mjs's own ffPctOwned() consumes, not the slim answer it
 // produces, so the fixture proves the real integration.
 const PCT_OWNED_FIX = { 111333: 42.5, 111777: 8.1 };
-// TR (2026-09-16, RESTAGED the same day): seasonOutlook is the DRAFT blurb
-// (ffdraft.html's "ESPN's outlook"). The in-season card must render
-// outlooks.outlooksByWeek[week] instead. Both ride the same kona_playercard
-// row so a client that still reads seasonOutlook would paint the draft
-// sentence — that collision is the bite. 777001 is F. Agent (no espn_id).
+// TR (2026-09-16, RESTAGED the same evening): seasonOutlook is the DRAFT
+// blurb (ffdraft.html's "ESPN's outlook"). The in-season card must NOT
+// render it. Live 2026 kona_playercard / kona_player_info do not ship
+// outlooks.outlooksByWeek at all (0 of 20 top-owned, probed 2026-09-16),
+// so a fixture that still put the week sentence on that field proved the
+// guessed path, not ESPN. The weekly paragraph is RotoWire
+// (`rotowire.story` on the public athlete overview). 777001 is F. Agent
+// (no espn_id). The draft sentence stays on kona so a client that still
+// reads seasonOutlook would paint it — that collision is the bite.
 const PLAYER_SEASON_OUTLOOK_FIX = {
   3915511: "P. Passer remains the engine of this offense. Volume holds even when the pocket collapses.",
   777001: "F. Agent is a late-week dart. The role is real; the floor is not.",
 };
-const PLAYER_WEEK_OUTLOOK_FIX = {
-  3915511: { "1": "P. Passer draws a soft secondary this week. Start him with confidence against the zone looks." },
-  777001: { "1": "F. Agent is the clear WR3 this week with the starter out. The targets are there." },
+const PLAYER_ROTOWIRE_FIX = {
+  3915511: {
+    headline: "P. Passer threw for 280 yards and two scores in the win.",
+    story: "P. Passer draws a soft secondary this week. Start him with confidence against the zone looks.",
+    published: "Sun Sep 13 14:01:56 PDT 2026",
+  },
+  777001: {
+    headline: "F. Agent caught four of six targets for 61 yards.",
+    story: "F. Agent is the clear WR3 this week with the starter out. The targets are there.",
+    published: "Sun Sep 13 16:22:01 PDT 2026",
+  },
 };
 function ffPctOwnedDoc(ids) {
   const rows = [];
@@ -697,8 +709,7 @@ function ffPctOwnedDoc(ids) {
     seen.add(id);
     const own = PCT_OWNED_FIX[id];
     const season = PLAYER_SEASON_OUTLOOK_FIX[id] || "";
-    const byWeek = PLAYER_WEEK_OUTLOOK_FIX[id] || null;
-    if (own == null && !season && !byWeek) continue;
+    if (own == null && !season) continue;
     rows.push({
       id,
       player: {
@@ -706,7 +717,6 @@ function ffPctOwnedDoc(ids) {
         fullName: "P" + id,
         ownership: own != null ? { percentOwned: own } : {},
         seasonOutlook: season,
-        outlooks: byWeek ? { outlooksByWeek: byWeek } : undefined,
         stats: [],
       },
     });
@@ -940,9 +950,21 @@ function nflSummaryFix(eventId, state) {
 // games so a tap from the Scores tab lands on a coherent game; 401900003 is the FINAL one.
 const NFL_SUM_STATE = { 401900001: "in", 401900002: "pre", 401900003: "post" };
 const nflSumUrls = [];
+const sportsWebUrls = [];
 function startSportsNflUpstream() {
   const srv = http.createServer((req, res) => {
     nflSumUrls.push(req.url);
+    // Public athlete overview (site.web.api) — same fixture host in tests via
+    // SPORTS_WEB_BASE_URL. Live 2026 weekly writeups live here as rotowire.story.
+    const ov = /\/athletes\/(\d+)\/overview/.exec(req.url);
+    if (ov) {
+      sportsWebUrls.push(req.url);
+      const rw = PLAYER_ROTOWIRE_FIX[Number(ov[1])];
+      if (!rw) { res.writeHead(404, { "Content-Type": "application/json" }); res.end("{}"); return; }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ rotowire: rw }));
+      return;
+    }
     if (fixture.nflGameDown) { res.writeHead(503, { "Content-Type": "application/json" }); res.end("{}"); return; }
     const id = (/[?&]event=(\d+)/.exec(req.url) || [])[1] || "";
     const state = NFL_SUM_STATE[id];
@@ -2712,6 +2734,7 @@ async function openDetails(page, id) {
   const sportsFfBaseSaved = process.env.SPORTS_FF_BASE_URL;
   process.env.SPORTS_FF_BASE_URL = "http://127.0.0.1:" + SPORTS_FF_PORT;
   process.env.SPORTS_NFL_BASE_URL = "http://127.0.0.1:" + SPORTS_NFL_PORT;
+  process.env.SPORTS_WEB_BASE_URL = "http://127.0.0.1:" + SPORTS_NFL_PORT;
   const sportsMod = await import(pathToFileURL(path.join(ROOT, "netlify/functions/sports.mjs")).href);
   sportsFn = sportsMod.default;
   process.env.SPORTS_FF_BASE_URL = sportsFfBaseSaved;
@@ -12679,10 +12702,10 @@ async function openDetails(page, id) {
     }
 
 
-    // ---- AG8 (ITEM 26): Q / D / OUT is ON THE MATCHUP, on line 2, in red, beside a clock
-    // that is not. Item 24 took red off the clock; the half of the same sentence that says
-    // what red is FOR had nothing to attach to on this page, so red was removed and nothing
-    // given back. This is the other half.
+    // ---- AG8 (ITEM 26, RESTAGED 2026-09-16): Q / D / OUT is ON THE MATCHUP, next to
+    // the name on line 1, in red. Item 26 put it on line 2 so a long name would not
+    // clip; the family could not find it there ("same thing for matchup page").
+    // The name ellipsises; the chip does not.
     //
     // PRE-FIX (app files stashed back to the items-19-25 commit): 13 of these 24 fail, plus
     // the 3 restaged AE line-2 reads that the .gline wrapper is part of. The 11 that pass
@@ -12715,38 +12738,39 @@ async function openDetails(page, id) {
         const read = (nm) => {
           const c = cellFor(nm);
           if (!c) return null;
-          const chip = c.querySelector(".pmeta .inj");
+          const chip = c.querySelector(".pname .inj");
           const gl = c.querySelector(".pmeta .gline");
           const clock = c.querySelector(".pmeta .gclock");
+          const nameTxt = c.querySelector(".pnametxt");
           return { txt: chip ? chip.textContent.trim() : null,
             col: chip ? getComputedStyle(chip).color : null,
-            // Line 2 is the ONE place this may live — never line 1, which is the width-
-            // constrained one two rounds of work went into fitting a real name into.
             onLine2: !!(chip && chip.closest(".pmeta")),
-            onLine1: !!c.querySelector(".pname .inj"),
-            // …and it LEADS the line: nowrap + ellipsis means whatever is last is what gets
-            // cut, and this is the one thing on the row that must never be cut.
-            leads: !!(chip && gl && (chip.compareDocumentPosition(gl) & Node.DOCUMENT_POSITION_FOLLOWING)),
+            onLine1: !!(chip && chip.closest(".pname")),
+            // Glued to the name: the chip is a sibling of <b> inside .pnametxt, and
+            // flex-shrink:0 so a long name ellipsises instead of eating the designation.
+            byName: !!(chip && nameTxt && nameTxt.contains(chip)),
+            chipClipped: chip ? chip.scrollWidth > chip.clientWidth + 1 : null,
             clock: clock ? getComputedStyle(clock).color : null,
             clockTxt: clock ? clock.textContent.trim() : null,
             gline: gl ? gl.textContent.trim() : null,
-            spans: c.querySelectorAll(".pmeta .inj").length,
+            spans: c.querySelectorAll(".pname .inj").length,
           };
         };
         const benchCell = [...document.querySelectorAll(".benchtable .pcellgrid")].find((e) => e.textContent.includes("L. McConkey"));
         return { accent: hex(root.getPropertyValue("--accent").trim()),
           q: read("A. St. Brown"), healthy: read("M. Harrison Jr."), d: read("C. McCaffrey"),
-          bench: benchCell ? { txt: (benchCell.querySelector(".pmeta .inj") || {}).textContent,
-            col: benchCell.querySelector(".pmeta .inj") ? getComputedStyle(benchCell.querySelector(".pmeta .inj")).color : null } : null,
+          bench: benchCell ? { txt: (benchCell.querySelector(".pname .inj") || {}).textContent,
+            col: benchCell.querySelector(".pname .inj") ? getComputedStyle(benchCell.querySelector(".pname .inj")).color : null } : null,
           // A healthy row must carry no empty span and no stray separator either — count the
           // designation spans across the WHOLE board against the four the fixture designates.
-          totalChips: document.querySelectorAll(".mutable .pmeta .inj").length,
+          totalChips: document.querySelectorAll(".mutable .pname .inj").length,
           activeWord: /\bActive\b/.test(document.querySelector(".lineupcard").textContent) };
       })) || { q: {}, healthy: {}, d: {}, bench: {} };
       ok(inj.q && inj.q.txt === "Q", "a Questionable STARTER carries a Q on the matchup itself (" + (inj.q || {}).txt + ")");
       ok(inj.q && inj.q.col === inj.accent, "…and it is the accent red — the one alarm on the row (" + (inj.q || {}).col + ")");
-      ok(inj.q && inj.q.onLine2 && !inj.q.onLine1, "…on LINE 2, never beside the name on line 1");
-      ok(inj.q && inj.q.leads, "…leading that line, so the ellipsis can only ever eat the kickoff time, never the designation");
+      ok(inj.q && inj.q.onLine1 && !inj.q.onLine2 && inj.q.byName,
+        "…next to the name on LINE 1, never buried on line 2");
+      ok(inj.q && inj.q.chipClipped === false, "…and the designation itself is never clipped");
       // THE POINT OF THE WHOLE CHANGE: the two must be visibly different on the SAME line.
       // Paired with the chip on purpose: on a page with no designation at all, "the clock is
       // not red" is free — and the claim being made is that the TWO are different on the SAME
@@ -12757,8 +12781,8 @@ async function openDetails(page, id) {
       ok(inj.healthy && inj.healthy.txt === null && inj.healthy.spans === 0 && inj.q && inj.q.txt === "Q",
         "a healthy team-mate in the SAME table carries no designation at all — not an empty span, not a separator");
       ok(inj.activeWord === false, "…and the word Active appears nowhere in the lineup");
-      ok(inj.d && inj.d.txt === "D" && /^KC /.test(inj.d.gline || ""),
-        "a Doubtful player on a PRE-GAME row reads 'D' ahead of his own opponent and kickoff (" + (inj.d || {}).txt + " / " + (inj.d || {}).gline + ")");
+      ok(inj.d && inj.d.txt === "D" && inj.d.byName && /^KC /.test(inj.d.gline || ""),
+        "a Doubtful player on a PRE-GAME row wears D next to his name, with opponent+kickoff on line 2 (" + (inj.d || {}).txt + " / " + (inj.d || {}).gline + ")");
       ok(inj.bench && (inj.bench.txt || "").trim() === "PUP" && inj.bench.col === inj.accent,
         "…and the bench gets it too, same half-cell, same rule (" + JSON.stringify(inj.bench) + ")");
       // FOUR, not three: the fixture designates two starters (Q, D) and two bench players
@@ -12769,9 +12793,9 @@ async function openDetails(page, id) {
       const geo = (await evalOr(page, () => {
         const cells = (sel) => [...document.querySelectorAll(sel + " .pcellgrid")].map((c) => Math.round(c.getBoundingClientRect().height));
         const metas = [...document.querySelectorAll(".mutable .pmeta")].map((m) => Math.round(m.getBoundingClientRect().height));
-        const withChip = [...document.querySelectorAll(".mutable .pcellgrid")].filter((c) => c.querySelector(".pmeta .inj"))
+        const withChip = [...document.querySelectorAll(".mutable .pcellgrid")].filter((c) => c.querySelector(".pname .inj"))
           .map((c) => Math.round(c.getBoundingClientRect().height));
-        const without = [...document.querySelectorAll(".mutable:not(.benchtable) .pcellgrid")].filter((c) => !c.querySelector(".pmeta .inj"))
+        const without = [...document.querySelectorAll(".mutable:not(.benchtable) .pcellgrid")].filter((c) => !c.querySelector(".pname .inj"))
           .map((c) => Math.round(c.getBoundingClientRect().height));
         const rows = [...document.querySelectorAll(".mutable tbody tr")].map((r) => Math.round(r.getBoundingClientRect().height));
         return { starters: cells(".mutable:not(.benchtable) tbody"), bench: cells(".benchtable tbody"),
@@ -12788,24 +12812,26 @@ async function openDetails(page, id) {
       ok((geo.withChip || []).length === 1 && (geo.without || []).length === 1 && geo.withChip[0] === geo.without[0],
         "…a row that carries a designation measures exactly the same as one that does not (" + (geo.withChip || []).join() + " vs " + (geo.without || []).join() + ")");
       ok((geo.metas || []).length === 1 && geo.metas[0] === 14, "…because line 2 keeps its own fixed 14px box (" + (geo.metas || []).join("/") + "px)");
-      // NO NAME MAY START TRUNCATING AGAIN — line 1 is untouched by this, and the measurement
-      // says so rather than the reasoning.
+      // RESTAGED 2026-09-16: the chip moved onto line 1. A long name may ellipsis so
+      // the designation stays fully visible — that is the trade the user asked for.
       const names = (await evalOr(page, () => {
         const b = [...document.querySelectorAll(".mutable .pname b")].map((e) => ({
           t: e.textContent.trim(), need: Math.ceil(e.scrollWidth), have: Math.floor(e.clientWidth),
           clipped: e.scrollWidth > e.clientWidth + 1 }));
-        return { all: b, worst: b.reduce((a, x) => (x.need > a.need ? x : a), { need: 0 }) };
-      })) || { all: [], worst: {} };
-      const clipped = (names.all || []).filter((n) => n.clipped);
-      ok(names.all.length >= 9 && clipped.length === 0,
-        "NOT ONE name is clipped at 390px with the designations in (" + clipped.length + " of " + names.all.length + ", worst \"" +
-        (names.worst.t || "") + "\" needs " + names.worst.need + " of " + names.worst.have + "px)");
+        const chips = [...document.querySelectorAll(".mutable .pname .inj")].map((e) => ({
+          t: e.textContent.trim(), clipped: e.scrollWidth > e.clientWidth + 1,
+          w: Math.round(e.getBoundingClientRect().width) }));
+        return { all: b, worst: b.reduce((a, x) => (x.need > a.need ? x : a), { need: 0 }), chips };
+      })) || { all: [], worst: {}, chips: [] };
+      ok(names.all.length >= 9, "the matchup still names every starter/bench half (" + names.all.length + ")");
+      ok((names.chips || []).length === 4 && (names.chips || []).every((c) => c.clipped === false && c.w > 0),
+        "every designation on the name line is fully visible — none clipped (" + JSON.stringify(names.chips) + ")");
       for (const want of ["J. Smith-Njigba", "M. Harrison Jr.", "C. McLaughlin"]) {
         const n = (names.all || []).find((x) => x.t === want);
-        ok(!!n && !n.clipped, "…including \"" + want + "\", the name the last two batches fought for (" + (n ? n.need + "/" + n.have + "px" : "missing") + ")");
+        ok(!!n, "…including \"" + want + "\", the name the last two batches fought for (" + (n ? n.need + "/" + n.have + "px" : "missing") + ")");
       }
-      // LINE 2's OWN BUDGET at 390px, worst case in the fixture: "PUP" + "@DEN Fri 1:00 AM",
-      // the longest opponent line on the board carrying the longest designation.
+      // LINE 2's OWN BUDGET at 390px. The designation left this line, so the worst
+      // remaining case is the longest opponent+kickoff string alone.
       const l2 = (await evalOr(page, () => {
         const rows = [...document.querySelectorAll(".pcellgrid")].filter((c) => c.querySelector(".pmeta"));
         // A RANGE over the line's own contents, not scrollWidth: .pmeta is a BLOCK, so its
@@ -12815,30 +12841,20 @@ async function openDetails(page, id) {
         const worst = rows.map((c) => {
           const m = c.querySelector(".pmeta");
           const r = document.createRange(); r.selectNodeContents(m);
-          const chip = m.querySelector(".inj");
-          // getBoundingClientRect (the union), NOT the sum of getClientRects — a Range over
-          // mixed inline content returns overlapping rects and summing them double-counts.
-          const inkW = Math.ceil(r.getBoundingClientRect().width) + (chip ? 3 : 0); // +3 = the chip's own margin
+          // RESTAGED 2026-09-16: the chip left line 2. Ink is the game text only.
+          const inkW = Math.ceil(r.getBoundingClientRect().width);
           return { txt: m.textContent.replace(/\s+/g, " ").trim(), ink: inkW,
-            need: Math.ceil(m.scrollWidth), have: Math.floor(m.clientWidth),
-            chip: !!chip, chipW: chip ? Math.ceil(chip.getBoundingClientRect().width) : 0 };
+            need: Math.ceil(m.scrollWidth), have: Math.floor(m.clientWidth) };
         }).filter((x) => x.txt);
         return { rows: worst, over: worst.filter((x) => x.need > x.have + 1) };
       })) || { rows: [], over: [] };
       const worst2 = (l2.rows || []).reduce((a, x) => (x.ink > a.ink ? x : a), { ink: 0, have: 0, txt: "" });
       ok((l2.over || []).length === 0,
         "…and no line 2 overflows its own box either — worst is \"" + worst2.txt + "\", " + worst2.ink + "px of ink in a " + worst2.have + "px line (" + (l2.over || []).length + " over)");
-      const chipRows = (l2.rows || []).filter((x) => x.chip);
-      ok(chipRows.length > 0 && chipRows.every((x) => x.need <= x.have + 1),
-        "…including every row that carries a designation, which costs it " + (chipRows[0] || {}).chipW + "px of the line (" + chipRows.length + " rows)");
-      // The tightest of them is a BENCH row: the longest designation (OUT) on the longest
-      // opponent line (@DEN Fri 1:00 AM). Called out on its own because it is the case that
-      // would break first, and because the designation LEADING the line means that even if it
-      // ever did, the ellipsis would eat the kickoff time and never the designation itself.
-      const benchTight = (l2.rows || []).find((x) => x.chip && /OUT/.test(x.txt));
-      ok(!!benchTight && benchTight.need <= benchTight.have + 1,
-        "…and the tightest case in the fixture — OUT on the longest opponent line — still fits (\"" +
-        (benchTight || {}).txt + "\", " + (benchTight || {}).ink + "px of ink in " + (benchTight || {}).have + "px)");
+      const denLine = (l2.rows || []).find((x) => /@DEN Fri/.test(x.txt || ""));
+      ok(!!denLine && denLine.need <= denLine.have + 1,
+        "…including the longest opponent line now that the designation is not on it (\"" +
+        (denLine || {}).txt + "\", " + (denLine || {}).ink + "px of ink in " + (denLine || {}).have + "px)");
       if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_matchup_390.png") }); console.log("  📸 shots/gffl_matchup_390.png"); }
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
@@ -27756,8 +27772,9 @@ async function openDetails(page, id) {
   // ================= TR · Moves %ROST by name + ESPN weekly writeup on the player card ============
   // User (2026-09-16): on Moves most % rostered / % start cells are blank; clicking a
   // player should pull ESPN's paragraph analysis onto the card. Same day: that
-  // paragraph is the WEEKLY writeup (outlooks.outlooksByWeek), not the draft
-  // seasonOutlook ffdraft.html already shows.
+  // paragraph is the WEEKLY writeup, not the draft seasonOutlook. Same evening:
+  // outlooks.outlooksByWeek is empty on live 2026 ESPN (probed); the paragraph
+  // is RotoWire on the public athlete overview.
   //
   // Two seams, one cause: Sleeper's directory has no espn_id for about half the pool, so
   // those FAs are keyed slp_<pid> and espnIdForKey returned null. nfl_ownership now
@@ -27792,16 +27809,22 @@ async function openDetails(page, id) {
         }));
         return r.json();
       };
+      sportsWebUrls.length = 0;
       const jp = await callPlayer({ week: 1 });
       const weekTxt = jp && jp.player && jp.player.weekOutlook || "";
       const seasonTxt = jp && jp.player && jp.player.outlook || "";
       ok(/soft secondary/.test(weekTxt) && /zone looks/.test(weekTxt),
-        "ff_player(week:1) slims outlooks.outlooksByWeek[1] onto weekOutlook (" + String(weekTxt).slice(0, 80) + ")");
+        "ff_player(week:1) slims rotowire.story onto weekOutlook (" + String(weekTxt).slice(0, 80) + ")");
+      ok(sportsWebUrls.some((u) => /\/athletes\/3915511\/overview/.test(u)),
+        "…from the public athlete overview, not outlooks.outlooksByWeek (" + sportsWebUrls.join(" | ") + ")");
       ok(/pocket collapses/.test(seasonTxt) && !/pocket collapses/.test(weekTxt) && !/soft secondary/.test(seasonTxt),
         "…seasonOutlook stays on outlook for the draft room and is never copied into weekOutlook");
+      const beforeNone = sportsWebUrls.length;
       const jpNone = await callPlayer({});
       ok(jpNone && jpNone.player && jpNone.player.weekOutlook === "" && /pocket collapses/.test(jpNone.player.outlook || ""),
         "…a call with no week leaves weekOutlook empty — the draft blurb is not a fallback");
+      ok(sportsWebUrls.length === beforeNone,
+        "…and a no-week call never hits the athlete overview (draft room must not pay for RotoWire)");
     }
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -27842,9 +27865,10 @@ async function openDetails(page, id) {
       ok(passer && passer.own === "92%" && passer.start === "88%",
         "…and an espn-id key still fills the same way it always did — P. Passer 92%/88%");
       await evalOr(page, () => window.__GFFL__.UI.openPlayerCard("3915511"));
-      // RESTAGED 2026-09-16: the first cut asserted seasonOutlook ("pocket collapses")
-      // because that is what ffdraft.html renders. The user wants the WEEKLY writeup
-      // (outlooksByWeek), and the draft sentence must not appear on this card.
+      // RESTAGED 2026-09-16 evening: first cut asserted seasonOutlook; the
+      // midday restage asserted outlooksByWeek. Live ESPN 2026 has neither
+      // weekly field on kona — the paragraph is RotoWire. The draft sentence
+      // must still never appear on this card.
       await waitFnOr(page, () => {
         const n = document.querySelector("#playerCard .pcname");
         const o = document.querySelector("#playerCard .pcout");
@@ -27926,6 +27950,97 @@ async function openDetails(page, id) {
       await ctx.close();
       fixture.ffPlayerDown = false;
     }
+  }
+
+  // ================= TS · injury chips next to names on My Team + Matchup =================
+  // User (2026-09-16): show injury designations next to player names on My Team,
+  // and the same on Matchup. The locker already had injChip, but it sat inside
+  // the muted POS · TEAM small and read the live stat row (a man ruled Out has
+  // none) then the roster snapshot. Matchup hid the chip on line 2. Both now
+  // sit next to the name and read LG.injuryOf (directory first).
+  if (section("TS · injury designations next to My Team and Matchup names")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    fixture.injMix = true;
+    {
+      const { ctx, page, errors } = await newTestPage(browser, seedLongNames());
+      await bootPage(page);
+      await waitOr(page, ".mucard", 9000);
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="team"]');
+      await waitOr(page, ".lrow", 9000);
+      const team = (await evalOr(page, () => {
+        const rowFor = (nm) => [...document.querySelectorAll(".lrow")].find((r) => r.textContent.includes(nm));
+        const read = (nm) => {
+          const r = rowFor(nm);
+          if (!r) return null;
+          const chip = r.querySelector(".lname .inj");
+          const small = r.querySelector(".lname small");
+          const b = r.querySelector(".lname b");
+          return {
+            txt: chip ? chip.textContent.trim() : null,
+            inSmall: !!(chip && small && small.contains(chip)),
+            afterName: !!(chip && b && (b.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING)),
+          };
+        };
+        return { q: read("A. St. Brown"), healthy: read("M. Harrison Jr.") };
+      })) || {};
+      ok(team.q && team.q.txt === "Q" && team.q.inSmall === false && team.q.afterName === true,
+        "My Team: Questionable sits next to the name, not buried in POS · TEAM (" + JSON.stringify(team.q) + ")");
+      ok(team.healthy && team.healthy.txt === null,
+        "…and a healthy teammate still carries no chip");
+      await page.evaluate(() => {
+        const d = window.__GFFL__.D;
+        const m = d.S.slpPlayers.get("9006");
+        if (m) { m.injury = "Out"; m.injuryCarried = true; }
+        d.S.injDirGen = (d.S.injDirGen || 0) + 1;
+        d.S.players.delete("111777");
+        const ros = window.__GFFL__.UI._rosters && window.__GFFL__.UI._rosters[1];
+        const p = (ros || []).find((x) => x && x.key === "111777");
+        if (p) p.injury = "";
+      });
+      await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+      await waitOr(page, ".lrow", 9000);
+      const dirTeam = (await evalOr(page, () => {
+        const r = [...document.querySelectorAll(".lrow")].find((el) => /Puka Nacua|H\. Healthy/.test(el.textContent));
+        const chip = r && r.querySelector(".lname .inj");
+        const b = r && r.querySelector(".lname b");
+        const small = r && r.querySelector(".lname small");
+        return {
+          name: b ? b.textContent.trim() : "",
+          txt: chip ? chip.textContent.trim() : null,
+          afterName: !!(chip && b && (b.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING)),
+          inSmall: !!(chip && small && small.contains(chip)),
+          of: window.__GFFL__.LG.injuryOf({ key: "111777", injury: "" }),
+        };
+      })) || {};
+      ok(dirTeam.txt === "OUT" && dirTeam.afterName === true && dirTeam.inSmall === false && dirTeam.of === "Out",
+        "My Team shows a directory-only Out next to the name — no live row, empty roster snapshot (" + JSON.stringify(dirTeam) + ")");
+      await page.evaluate(() => window.__GFFL__.UI.go("matchup"));
+      await waitOr(page, ".pcellgrid", 12000);
+      const mu = (await evalOr(page, () => {
+        const cell = [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => /Puka Nacua|H\. Healthy/.test(e.textContent));
+        const chip = cell && cell.querySelector(".pname .inj");
+        const b = cell && cell.querySelector(".pname b");
+        return {
+          name: b ? b.textContent.trim() : "",
+          txt: chip ? chip.textContent.trim() : null,
+          onLine1: !!(chip && chip.closest(".pname")),
+          onLine2: !!(chip && chip.closest(".pmeta")),
+        };
+      })) || {};
+      ok(mu.txt === "OUT" && mu.onLine1 === true && mu.onLine2 === false,
+        "Matchup: the same directory-only Out sits next to the name (" + JSON.stringify(mu) + ")");
+      const qMu = await evalOr(page, () => {
+        const cell = [...document.querySelectorAll(".mutable .pcellgrid")].find((e) => e.textContent.includes("A. St. Brown"));
+        const chip = cell && cell.querySelector(".pname .inj");
+        return chip ? { txt: chip.textContent.trim(), onLine1: !!chip.closest(".pname") } : null;
+      });
+      ok(qMu && qMu.txt === "Q" && qMu.onLine1 === true,
+        "…and a roster Questionable still reads Q next to the matchup name (" + JSON.stringify(qMu) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    fixture.injMix = false;
   }
 
   await browser.close();

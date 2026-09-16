@@ -1093,7 +1093,9 @@
       log = pair[0]; sched = pair[1];
       const det = pair[2] && pair[2].ok && pair[2].player;
       // Weekly writeup only — seasonOutlook is the draft blurb (ffdraft.html's
-      // "ESPN's outlook") and must not land on this in-season card.
+      // "ESPN's outlook") and must not land on this in-season card. weekOutlook
+      // is the RotoWire story on the public athlete overview (2026 ESPN no
+      // longer ships outlooks.outlooksByWeek on kona_playercard).
       weekOut = det && det.weekOutlook ? String(det.weekOutlook).trim() : "";
       if (det && det.week != null) weekN = det.week;
     } catch (e) { log = await d.gameLog(key).catch(() => ({ rows: [], total: null, avg: null, best: null })); sched = null; weekOut = ""; }
@@ -5111,7 +5113,16 @@
       // position and team ride on the name's own tooltip. The crest carries the team visually,
       // and the centre band carries the slot.
       titleAttr = ` title="${esc(LG.shortName(p.name) + " · " + p.pos + " · " + p.team)}"`;
-      nameHtml = `${plogoHtml(p.team)}<b${titleAttr}>${escn(p.name)}</b>`;
+      // 2026-09-16 (user: same injury designations next to names as My Team).
+      // ITEM 26 put Q/D/OUT on line 2 so a long name would not clip. The
+      // family could not find it there. The chip now rides line 1, glued to
+      // the name (.pnametxt, flex-shrink 0) so a long name ellipsises and
+      // the designation never does. Same LG.injuryOf seam as injChip — a
+      // man ruled Out has no live stat row, and the roster snapshot is
+      // often empty, so the directory is the one honest read.
+      const injTxt = injLabel(LG.injuryOf(p));
+      const injHtml = injTxt ? `<span class="inj">${esc(injTxt)}</span>` : "";
+      nameHtml = `${plogoHtml(p.team)}<span class="pnametxt"><b${titleAttr}>${escn(p.name)}</b>${injHtml}</span>`;
       // ITEM 17 (2026-08-09): the red-zone dot and the conflict flag ride on LINE 2, not beside
       // the name. They cost ~31px, and they appear on exactly the rows whose names are
       // longest-pressed — at 390px that was the difference between "J. Smith-Njigba" and
@@ -5120,21 +5131,7 @@
       // so they cost nothing there. (The possession pip that used to ride here with them is
       // gone — item 25 replaced it with the half-cell's own gold ring, which costs no width
       // at all, so the longest names gained that space back too.)
-      //
-      // ITEM 26 (2026-08-09): Q / D / OUT joins them, and LINE 2 is the only place it can go.
-      // Item 24 took red off the clock on this row; the half of the same sentence that says
-      // what red is FOR ("What should be red is Q, D, our OUT status for players") had nothing
-      // to attach to, because this row carries a name and nothing else on line 1 — and line 1
-      // is the width-constrained one that two rounds of work went into. Line 2 is short.
-      // It leads the line rather than trailing it: line 2 is nowrap + ellipsis, so whatever
-      // sits last is what gets cut, and the one thing on this row that must never be cut is
-      // "this man might not play". Same injLabel() every other surface reads, and the same
-      // live-row-then-roster precedence the locker's injChip uses, so a status can never
-      // render one way here and another way on My Team. A healthy player yields "" and gets
-      // no span at all — not an empty one, and not a stray separator.
-      const injTxt = injLabel((row && row.injury) || p.injury || "");
-      const injHtml = injTxt ? `<span class="inj">${esc(injTxt)}</span>` : "";
-      metaHtml = injHtml + gameLineHtml(g) + rz + conflict;
+      metaHtml = gameLineHtml(g) + rz + conflict;
       statHtml = sline ? esc(sline) : "";
       ptsHtml = `<span class="pts">${LG.fmtPts(pts)}</span>`;
       projHtml = LG.fmtPts(proj);
@@ -8227,8 +8224,11 @@
   // The locker lineup + the swap sheet. Routed through injLabel like every other site — an
   // ACTIVE player gets nothing at all here, not an "Active" chip.
   function injChip(d, p) {
-    const row = d.S.players.get(p.key);
-    const lab = injLabel((row && row.injury) || p.injury || "");
+    // Directory first via LG.injuryOf (D.injuryFor) — the same seam the IR
+    // rule already uses. A live stat row exists only for a man who has
+    // PLAYED, so reading S.players then the roster snapshot hid every Out
+    // designation the locker needed to show next to the name.
+    const lab = injLabel(LG.injuryOf(p));
     return lab ? ` <span class="inj">${esc(lab)}</span>` : "";
   }
   // ---------------- S4: the league-alerts card (My Team only) ----------------
@@ -8625,7 +8625,7 @@
             <span class="slotchip" data-pos="${slotPos(slot)}">${slot}</span>
             <button type="button" class="linfo" data-pk="${esc(p.key)}">
               ${pshotHtml(p.key, "lkshot")}
-              <span class="lname"><b>${escn(p.name)}</b> <small class="mut">${esc(p.pos)} · ${esc(p.team)}${injChip(d, p)}</small></span>
+              <span class="lname"><b>${escn(p.name)}</b>${injChip(d, p)} <small class="mut">${esc(p.pos)} · ${esc(p.team)}</small></span>
               <span class="lpts">${LG.fmtPts(d.livePts(p.key))}<small class="mut"> · proj ${LG.fmtPts(d.projFor(p.key))}</small></span>
             </button>
             <button type="button" class="lswap" data-slot="${slot}" data-idx="${idx}"${playerLocked(p)

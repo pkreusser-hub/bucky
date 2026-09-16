@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260916h">
+<meta name="gffl-v" content="20260916i">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -786,8 +786,12 @@
   .pcellgrid .pname { display:flex; align-items:center; gap:5px; }
   /* The name is the only thing in the row allowed to be long, so it — not its line box — is
      what ellipsises. It must NOT wrap: a two-line name would make its row taller than every
-     other row in the table, which is the whole property this layout exists to guarantee. */
+     other row in the table, which is the whole property this layout exists to guarantee.
+     2026-09-16: Q/D/OUT rides .pnametxt next to the name (flex-shrink 0) so a long name
+     ellipsises and the designation never does. */
+  .pcellgrid .pname .pnametxt { display:flex; align-items:center; gap:4px; flex:1 1 auto; min-width:0; overflow:hidden; }
   .pcellgrid .pname b { font:600 13px/17px var(--font-body); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pcellgrid .pname .inj { flex:0 0 auto; line-height:17px; }
   .pcellgrid .pname .plogo { flex:0 0 auto; width:14px; height:14px; object-fit:contain; }
   .pcellgrid .pname .plogoph { display:block; }
   .pcellgrid .ppts .pts { font:700 15px/17px var(--font-num); display:block; }
@@ -831,6 +835,7 @@
        not have to line up with the players' — both halves still match each other. */
     .totalrow .ppts { flex-basis:44px; }
     .pcellgrid .pname { gap:3px; }
+    .pcellgrid .pname .pnametxt { gap:3px; }
     .pcellgrid .pname b { font-size:11.5px; }
     .pcellgrid .pname .plogo { width:12px; height:12px; }
     .pcellgrid .pmeta, .pcellgrid .pstatline, .pcellgrid .pproj, .pcellgrid .pstatpad { font-size:9.5px; }
@@ -1072,6 +1077,7 @@
   .slotchip[data-pos="DST"] { background:var(--pos-DST); color:#fff; border-color:transparent; }
   .slotchip[data-pos="X"]  { background:var(--pos-X);  color:var(--ink2); border-color:transparent; }
   .lname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-family:var(--font-body); }
+  .lname .inj { margin-left:4px; }
   .lpts { font:700 14px var(--font-display); white-space:nowrap; }
   /* ITEM 24's other half: Q / D / OUT is the app's one genuine "this might not happen" flag,
      so it takes --accent, the alarm colour the live clock just gave up. It used to be
@@ -2390,9 +2396,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260916h"></script>
-  <script src="assets/league/lg-data.js?v=20260916h"></script>
-  <script src="assets/league/lg-ui.js?v=20260916h"></script>
+  <script src="assets/league/lg-core.js?v=20260916i"></script>
+  <script src="assets/league/lg-data.js?v=20260916i"></script>
+  <script src="assets/league/lg-ui.js?v=20260916i"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing
