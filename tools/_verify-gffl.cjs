@@ -14720,15 +14720,18 @@ async function openDetails(page, id) {
         ok(await waitOr(page, "#rosterCard", 9000), "the claim card opens");
         const card = await evalOr(page, () => ({
           nodrop: !!document.querySelector("#rosterCard .rcnodrop"),
+          picked: !!(document.querySelector("#rosterCard .rcnodrop") && document.querySelector("#rosterCard .rcnodrop").classList.contains("picked")),
           q: (document.querySelector("#rosterCard .rcq") || {}).textContent || "",
           armed: !((document.querySelector("#claimGo") || {}).disabled),
         })) || {};
         ok(card.nodrop === true, "…with a 'No drop needed' row, because this roster has open spots");
-        ok(/Drop anyone\?/.test(card.q), "…and the question softens to 'Drop anyone?' (" + card.q + ")");
-        ok(card.armed === false, "…submit starts disarmed");
-        await clickIn(page, "#rosterCard .rcnodrop");
-        ok(await waitFnOr(page, () => !((document.querySelector("#claimGo") || {}).disabled)),
-          "…and picking the no-drop row ARMS submit — ros[-1] is undefined, so this needed its own picked flag");
+        // RESTAGED 2026-09-16: an open spot used to soften the question to "Drop anyone?"
+        // and leave Submit dead until the no-drop row was tapped. That is the report —
+        // an unfilled bench still asked who to drop. The heading is now "No drop needed"
+        // and Add starts armed with the row already picked.
+        ok(/No drop needed/.test(card.q), "…and the question is 'No drop needed' when there is room (" + card.q + ")");
+        ok(card.armed === true, "…submit starts armed — a drop is optional, not a required pick");
+        ok(card.picked === true, "…and the no-drop row is pre-selected");
         ok(errors.length === 0, "0 page errors on the claim card");
         await ctx.close();
       }
@@ -17133,9 +17136,9 @@ async function openDetails(page, id) {
     ok(geo.minRow >= 44, "…and every row is a 44px touch target (" + geo.minRow + ")");
     const cardTxt = await text(page, "#rosterCard");
     // RESTAGED 2026-08-15: the question is "Who do you drop?" only when the roster is FULL.
-    // With an open spot it softens to "Drop anyone?", because a drop is no longer required —
-    // same fact under test (the card names the player and asks the drop question).
-    ok(/Claim A\. Vail/.test(cardTxt) && /(Who do you drop\?|Drop anyone\?)/.test(cardTxt),
+    // RESTAGED 2026-09-16: with an open spot the heading is "No drop needed" (not
+    // "Drop anyone?") so an owner with bench room is not asked who to cut.
+    ok(/Claim A\. Vail/.test(cardTxt) && /(Who do you drop\?|Drop anyone\?|No drop needed)/.test(cardTxt),
       "the card names the player being added and asks the question");
     const cols = await page.evaluate(() => {
       const row = (name) => {
@@ -27319,6 +27322,199 @@ async function openDetails(page, id) {
         "a full renderChat remount puts the draft back (" + remount + ")");
 
       ok(errors.length === 0, "0 page errors on the chat-draft refresh");
+      await ctx.close();
+    }
+  }
+
+  // ================= TP · open bench / starter spot does not demand a drop ============
+  // User: team has 6 on a 7-man bench but Add still asks who to drop.
+  // Room is the ACTIVE script (starters + bench), not empty IR, and the
+  // claim card arms Add with no-drop already picked.
+  if (section("TP · open bench / starter spot does not demand a drop")) {
+    const starterRow = (slot, pos, key, name, team) =>
+      ({ key, name, pos, team, slot, injury: "" });
+    const eleven = [
+      starterRow("QB", "QB", "tp_qb", "T. Qb", "PHI"),
+      starterRow("RB", "RB", "tp_rb1", "T. Rb1", "DAL"),
+      starterRow("RB", "RB", "tp_rb2", "T. Rb2", "SF"),
+      starterRow("RB", "RB", "tp_rb3", "T. Rb3", "KC"),
+      starterRow("WR", "WR", "tp_wr1", "T. Wr1", "PHI"),
+      starterRow("WR", "WR", "tp_wr2", "T. Wr2", "DAL"),
+      starterRow("WR", "WR", "tp_wr3", "T. Wr3", "SF"),
+      starterRow("TE", "TE", "tp_te", "T. Te", "KC"),
+      starterRow("FLEX", "WR", "tp_fx", "T. Flex", "DEN"),
+      starterRow("DST", "DST", "tp_dst", "PHI D/ST", "PHI"),
+      starterRow("K", "K", "tp_k", "T. Kick", "DAL"),
+    ];
+    const nBench = (n) => Array.from({ length: n }, (_, i) =>
+      starterRow("BENCH", "RB", "tp_bn" + i, "B. Ench" + i, "SF"));
+    const nIr = (n) => Array.from({ length: n }, (_, i) =>
+      ({ key: "tp_ir" + i, name: "I. Rman" + i, pos: "WR", team: "KC", slot: "IR", injury: "Out" }));
+    const writeRoster = (page, players) => page.evaluate(async (players) => {
+      const LG = window.__GFFL__.LG;
+      await LG.saveRoster(1, 1, players);
+      window.__GFFL__.UI._rosters = null;
+    }, players);
+
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 12000);
+      const math = await evalOr(page, () => {
+        const LG = window.__GFFL__.LG;
+        return {
+          cap: LG.rosterCap(),
+          active: typeof LG.activeCap === "function" ? LG.activeCap() : null,
+          roomFn: typeof LG.rosterRoom,
+          landFn: typeof LG.addLandingSlot,
+        };
+      }) || {};
+      ok(math.cap === 21 && math.active === 18,
+        "active cap is the 18-man script; rosterCap still includes IR (" + JSON.stringify(math) + ")");
+      ok(math.landFn === "function", "LG.addLandingSlot exists so an empty starter can take the add");
+      ok(errors.length === 0, "0 page errors on the cap helpers");
+      await ctx.close();
+    }
+
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 12000);
+      const sixBench = eleven.concat(nBench(6), nIr(3));
+      await writeRoster(page, sixBench);
+      const r = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const before = await LG.ensureRoster(1, 1, { fresh: true });
+        const add = await LG.faAdd(1, 1, { key: "tp_fa1", name: "N. Oneed", pos: "WR", team: "SF" }, null);
+        const after = await LG.ensureRoster(1, 1, { fresh: true });
+        return {
+          room: LG.rosterRoom(before),
+          add,
+          before: before.length,
+          after: after.length,
+          has: after.some((p) => p.key === "tp_fa1"),
+          kept: before.every((p) => after.some((q) => q.key === p.key)),
+          bench: after.filter((p) => p.slot === "BENCH").length,
+        };
+      }) || {};
+      ok(r.room === 1, "11 starters + 6 bench + 3 IR has 1 active spot (" + r.room + ")");
+      ok(r.add && r.add.ok === true, "a no-drop add succeeds into that bench spot (" + JSON.stringify(r.add) + ")");
+      ok(r.after === r.before + 1 && r.has === true && r.kept === true,
+        "…the roster grows by one and nobody was dropped (" + r.before + " → " + r.after + ")");
+      ok(r.bench === 7, "…and the incoming man sat on the bench (" + r.bench + ")");
+      ok(errors.length === 0, "0 page errors on the 6-bench add");
+      await ctx.close();
+    }
+
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 12000);
+      await writeRoster(page, eleven.concat(nBench(7)));
+      const r = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const before = await LG.ensureRoster(1, 1, { fresh: true });
+        const add = await LG.faAdd(1, 1, { key: "tp_fa2", name: "T. ooMany", pos: "WR", team: "SF" }, null);
+        const after = await LG.ensureRoster(1, 1, { fresh: true });
+        const claim = await LG.addClaim(1, {
+          id: "tp_c2", teamId: 1, addKey: "tp_fa2", addName: "T. ooMany",
+          addPos: "WR", addTeam: "SF", dropKey: null, bid: 1, t: Date.now(),
+        });
+        return { room: LG.rosterRoom(before), add, claim, n: after.length, has: after.some((p) => p.key === "tp_fa2") };
+      }) || {};
+      ok(r.room === 0, "11 starters + 7 bench is a full active roster (" + r.room + ")");
+      ok(r.add && r.add.ok === false && r.add.reason === "roster-full",
+        "⭐ a no-drop add refuses when the bench is full — empty IR is not a landing spot (" + JSON.stringify(r.add) + ")");
+      ok(r.claim && r.claim.ok === false && r.claim.reason === "roster-full",
+        "…and a drop-less claim is refused at submit, not parked until Wednesday");
+      ok(r.has === false && r.n === 18, "…and nothing was added (" + r.n + ")");
+      ok(errors.length === 0, "0 page errors on the full-active refuse");
+      await ctx.close();
+    }
+
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 12000);
+      const noK = eleven.filter((p) => p.slot !== "K").concat(nBench(7), nIr(1));
+      await writeRoster(page, noK);
+      const r = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const before = await LG.ensureRoster(1, 1, { fresh: true });
+        const add = await LG.faAdd(1, 1, { key: "tp_nk", name: "N. Kick", pos: "K", team: "SF" }, null);
+        const after = await LG.ensureRoster(1, 1, { fresh: true });
+        const man = after.find((p) => p.key === "tp_nk");
+        return {
+          room: LG.rosterRoom(before),
+          activeBefore: LG.activeCount(before),
+          add,
+          slot: man && man.slot,
+          bench: after.filter((p) => p.slot === "BENCH").length,
+          k: after.filter((p) => p.slot === "K").length,
+        };
+      }) || {};
+      ok(r.room === 1 && r.activeBefore === 17,
+        "empty K + 7 bench + 1 IR still has one active spot (" + JSON.stringify({ room: r.room, active: r.activeBefore }) + ")");
+      ok(r.add && r.add.ok === true && r.slot === "K" && r.k === 1 && r.bench === 7,
+        "…a kicker fills the empty K and does not become an 8th bench player (" + JSON.stringify(r) + ")");
+      ok(errors.length === 0, "0 page errors on the empty-K landing");
+      await ctx.close();
+    }
+
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLive(page);
+      await writeRoster(page, eleven.concat(nBench(6)));
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitFnOr(page, () => !!document.querySelector("#faResults .faMoveBtn"));
+      await clickChildIn(page, "#faResults tr", ".faMoveBtn", "F. Agent");
+      ok(await waitOr(page, "#rosterCard", 9000), "the claim card opens on a 6-bench roster");
+      const card = await evalOr(page, () => {
+        const q = (document.querySelector("#rosterCard .rcq") || {}).textContent || "";
+        const go = document.querySelector("#claimGo");
+        const row = document.querySelector("#rosterCard .rcnodrop");
+        return {
+          q,
+          armed: !!(go && !go.disabled),
+          nodrop: !!row,
+          picked: !!(row && row.classList.contains("picked")),
+          spot: row ? (row.textContent || "").replace(/\s+/g, " ").trim() : "",
+        };
+      }) || {};
+      ok(/No drop needed/.test(card.q) && !/Who do you drop/.test(card.q),
+        "⭐ THE REPORT: 6/7 bench does not ask who to drop (" + card.q + ")");
+      ok(card.armed === true && card.nodrop === true && card.picked === true,
+        "…Add is ready with no-drop already picked (" + JSON.stringify(card) + ")");
+      ok(/open bench spot/.test(card.spot),
+        "…and the row names the open bench spot (" + card.spot + ")");
+      ok(errors.length === 0, "0 page errors on the 6-bench card");
+      await ctx.close();
+    }
+
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLive(page);
+      await writeRoster(page, eleven.concat(nBench(7)));
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitFnOr(page, () => !!document.querySelector("#faResults .faMoveBtn"));
+      await clickChildIn(page, "#faResults tr", ".faMoveBtn", "F. Agent");
+      ok(await waitOr(page, "#rosterCard", 9000), "the claim card opens on a full 18-man roster");
+      const card = await evalOr(page, () => {
+        const q = (document.querySelector("#rosterCard .rcq") || {}).textContent || "";
+        const go = document.querySelector("#claimGo");
+        return {
+          q,
+          armed: !!(go && !go.disabled),
+          nodrop: !!document.querySelector("#rosterCard .rcnodrop"),
+        };
+      }) || {};
+      ok(/Who do you drop\?/.test(card.q) && card.nodrop === false && card.armed === false,
+        "a full active roster still demands a drop (" + JSON.stringify(card) + ")");
+      ok(errors.length === 0, "0 page errors on the full-active card");
       await ctx.close();
     }
   }

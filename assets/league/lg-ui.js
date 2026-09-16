@@ -6917,19 +6917,28 @@
     // it and leaves the reader on Moves; Cancel/Submit hand the sentinel back so the NEXT Back
     // is a real view change.
     //
-    // ⚠ THERE IS NO "NO DROP NEEDED" ROW, and that is a fact about the league rather than an
-    // omission: LG.faAdd SPLICES one player out for the one coming in (and refuses outright
-    // with `drop-not-found` otherwise), and processWaivers does the same for a won claim — the
-    // roster is a fixed-size slot script, so there is never a free spot to add into. A
-    // no-drop row would need roster-cap logic in BOTH of those core paths that doesn't exist.
-    // The one case where a drop is genuinely impossible (an empty roster) is already refused
-    // upstream, on the table's own ADD button ("You have nobody to drop").
+    // ⭐ OPEN SPOT = ADD IS READY (2026-09-16). An unfilled bench (or starter) spot
+    // means no drop is required — see LG.rosterRoom. The card used to list every
+    // teammate under "Who do you drop?" / "Drop anyone?" with Submit disarmed
+    // until a row was tapped, so an owner with room still had to pick someone
+    // (or find the no-drop row) before they could add. Room now pre-selects
+    // no-drop and arms Add; a drop stays optional.
     function openClaimCard(fa) {
       const ros = myRoster;
       const d = D();
-      let chosen = null, picked = false;
+      const room = LG.rosterRoom(ros);
+      const benchCap = Number((((LG.rules || LG.DEFAULT_RULES).roster) || {}).BENCH) || 0;
+      let benchN = 0;
+      for (let i = 0; i < ros.length; i++) if (ros[i] && ros[i].slot === "BENCH") benchN++;
+      const benchOpen = Math.max(0, benchCap - benchN);
+      let chosen = null, picked = room > 0;
       const faProj = d.projFor(fa.key);
       const faInj = injLabel(fa.injury);
+      const spotLine = !room ? ""
+        : benchOpen === 1 ? "1 open bench spot"
+        : benchOpen > 1 ? benchOpen + " open bench spots"
+        : room === 1 ? "1 open roster spot"
+        : room + " open roster spots";
       openRosterCard(`<div class="pccard rccard">
         <button type="button" class="pcclose" id="rcClose" aria-label="Close">✕</button>
         <div class="pchead pcheadshot">
@@ -6944,14 +6953,12 @@
         </div>
         ${!past ? `<label class="rcbid" for="claimBid">FAAB bid ($, up to ${LG.teamFaab(T)})
           <input id="claimBid" type="number" min="0" max="${LG.teamFaab(T)}" value="0"></label>` : ""}
-        <h2 class="rcq">${LG.rosterRoom(ros) ? "Drop anyone?" : "Who do you drop?"}</h2>
+        <h2 class="rcq">${room ? "No drop needed" : "Who do you drop?"}</h2>
         ${rcHeadHtml()}
-        ${/* An open spot means no drop is required — see faAdd. Before the standalone Drop
-              button existed the roster could never be short, which is why this row wasn't
-              here; now a team can genuinely be carrying fewer than its cap. */
-          LG.rosterRoom(ros) ? `<div class="rclist"><button type="button" class="swaprow rcnodrop" data-di="-1">
+        ${/* An open active spot means no drop is required — see faAdd / LG.rosterRoom. */
+          room ? `<div class="rclist"><button type="button" class="swaprow rcnodrop picked" data-di="-1">
             <span class="rcwho"><span class="rcwhotxt"><b>No drop needed</b>
-            <small class="mut">${LG.rosterRoom(ros)} open spot${LG.rosterRoom(ros) === 1 ? "" : "s"} on your roster</small></span></span>
+            <small class="mut">${esc(spotLine)}</small></span></span>
           </button></div>` : ""}
         <div class="rclist">${ros.length
           ? ros.map((p, i) => rcRowHtml(p, `data-di="${i}"`,
@@ -6966,7 +6973,7 @@
               { blocked: past && LG.dropBlocked(p) ? "Started — drop after waivers" : "" })).join("")
           : '<p class="mut">Nobody on the roster to drop.</p>'}</div>
         <div class="rcfoot">
-          <button id="claimGo" class="primary" disabled>${past ? "Add" : "Submit claim"}</button>
+          <button id="claimGo" class="primary"${room ? "" : " disabled"}>${past ? "Add" : "Submit claim"}</button>
           <button type="button" id="claimCancel" class="rcghost">Cancel</button>
         </div>
       </div>`);

@@ -8439,3 +8439,31 @@ two notify-url fails are default-off `moves`
 files restored, hashes identical.
 ---
 
+## GFFL — an open bench spot does not demand a drop (2026-09-16)
+
+User: team has 6 on a 7-man bench, but Add still asks who
+to drop.
+
+`LG.rosterRoom` was `rosterCap − length` (21 including IR).
+Empty IR counted as a free-agent pad, and a short bench
+could still look full. Room is now the **active** script
+(starters + bench = 18) minus non-IR players. Empty bench
+or an empty starter is a real spot; empty IR is not.
+`LG.rosterCap()` stays 21 (trades). A no-drop add lands
+in an empty starter the player can fill (empty K takes
+a kicker) and otherwise on the bench.
+
+The claim card no longer forces a pick: with room, the
+heading is "No drop needed", that row starts picked, and
+Add is armed. A full 18-man roster still asks who to drop.
+
+AI17(f) and AO restaged: submit starts armed, heading
+accepts "No drop needed".
+
+Scripts cache-bust `?v=20260916d`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** counts filled after the suite.
+

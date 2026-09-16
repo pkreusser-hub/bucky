@@ -2158,9 +2158,52 @@
   // How many players a roster may hold: the slot script's own total (2026-08-15). Until now
   // nothing needed it, because every add SPLICED one player out for the one coming in and the
   // roster could therefore never change size. A standalone drop makes size a real quantity.
+  // IR is in this number (21 today) because a legal IR stash is extra capacity on top of the
+  // 18-man active roster — trades use this as the hard ceiling.
   LG.rosterCap = () => Object.values(((LG.rules || LG.DEFAULT_RULES).roster) || {})
     .reduce((s, n) => s + (Number(n) || 0), 0);
-  LG.rosterRoom = (roster) => Math.max(0, LG.rosterCap() - (roster || []).length);
+  // ⭐ ROOM FOR AN ADD (2026-09-16, user: "if I have an unfilled bench spot, I should
+  // not have to drop someone"). The 2026-08-15 first cut measured room as
+  // rosterCap − length, so empty IR spots counted as free-agent landing pads.
+  // An add always used to land on BENCH; filling "IR capacity" with a healthy
+  // waiver was the extra-roster-spot abuse the IR rule exists to stop, and it
+  // also forced a drop on a team whose BENCH was short just because IR was full
+  // and the total hit 21. Room for a pickup is the ACTIVE script (starters +
+  // bench) minus the non-IR men already there: empty bench or an empty starter
+  // is a real spot; empty IR is not.
+  LG.activeCap = () => {
+    const roster = ((LG.rules || LG.DEFAULT_RULES).roster) || {};
+    let n = 0;
+    for (const slot of Object.keys(roster)) {
+      if (slot === "IR") continue;
+      n += Number(roster[slot]) || 0;
+    }
+    return n;
+  };
+  LG.activeCount = (roster) => (roster || []).filter((p) => p && p.slot !== "IR").length;
+  LG.rosterRoom = (roster) => Math.max(0, LG.activeCap() - LG.activeCount(roster));
+  // An incoming free agent fills an empty starter he is eligible for (empty K
+  // takes a kicker) and otherwise sits on BENCH. IR is never a landing spot.
+  LG.addLandingSlot = function (roster, pos) {
+    const rules = ((LG.rules || LG.DEFAULT_RULES).roster) || {};
+    const players = roster || [];
+    const order = ["QB", "RB", "WR", "TE", "FLEX", "DST", "K"];
+    for (const slot of Object.keys(rules)) {
+      if (slot !== "BENCH" && slot !== "IR" && order.indexOf(slot) < 0) order.push(slot);
+    }
+    for (let i = 0; i < order.length; i++) {
+      const slot = order[i];
+      const cap = Number(rules[slot]) || 0;
+      if (cap <= 0) continue;
+      if (!LG.slotEligible(pos, slot)) continue;
+      let n = 0;
+      for (let j = 0; j < players.length; j++) {
+        if (players[j] && players[j].slot === slot) n++;
+      }
+      if (n < cap) return slot;
+    }
+    return "BENCH";
+  };
 
   // ⭐ A STANDALONE DROP (2026-08-15, user: "the swap button wont let me drop a player that has
   // started, we need a dedicated drop button"). Swap is a LINEUP move and is correctly locked
@@ -2490,8 +2533,12 @@
     // well be ruled out on Tuesday and cleared on Wednesday morning, so checking only here
     // would let a legal claim become an illegal acquisition while it sat in the queue.
     if (claim && claim.teamId != null) {
-      const stashed = LG.illegalIR(await LG.ensureRoster(week, claim.teamId, { fresh: true }));
+      const ros = await LG.ensureRoster(week, claim.teamId, { fresh: true });
+      const stashed = LG.illegalIR(ros);
       if (stashed.length) return { ok: false, reason: "ir-illegal", players: stashed.map((p) => p.name) };
+      // Same room the waiver run and the claim card use — a drop-less claim
+      // filed against a full active roster can only lose on Wednesday.
+      if (claim.dropKey == null && !LG.rosterRoom(ros)) return { ok: false, reason: "roster-full" };
     }
     if (claim && LG.addBlocked({ team: claim.addTeam })) {
       return { ok: false, reason: "add-started", players: claim.addName ? [claim.addName] : [] };
@@ -2542,7 +2589,10 @@
       const r = t.id === teamId ? ros : await LG.ensureRoster(week, t.id, { fresh: true });
       if (r.some((p) => LG.sameMan(p.key, addPlayer.key))) return { ok: false, reason: "player-taken" };
     }
-    const incoming = { key: addPlayer.key, name: addPlayer.name, pos: addPlayer.pos, team: addPlayer.team, slot: "BENCH" };
+    const incoming = {
+      key: addPlayer.key, name: addPlayer.name, pos: addPlayer.pos, team: addPlayer.team,
+      slot: "BENCH",
+    };
     // CAS (2026-08-18): the add is a DELTA re-applied to the roster as it stands at the
     // instant of the write, and every guard that reads THIS roster — the IR stash, the cap,
     // the drop target, that target's kickoff — is re-judged inside the loop. The one guard
@@ -2561,7 +2611,7 @@
         if (LG.illegalIR(cur).length) return null;
         if (cur.some((p) => LG.sameMan(p.key, addPlayer.key))) return null;
         if (!LG.rosterRoom(cur)) return null;
-        return cur.concat([incoming]);
+        return cur.concat([{ ...incoming, slot: LG.addLandingSlot(cur, addPlayer.pos) }]);
       });
       if (!r.ok) return faAddRefusal(r.doc, addPlayer, null);
       await LG.logTx("fa_add", week, teamId, { addKey: addPlayer.key, addName: addPlayer.name });
@@ -2723,7 +2773,10 @@
       }
       if (!reason) {
         const ros = rosterMap.get(c.teamId);
-        const incoming = { key: c.addKey, name: c.addName, pos: c.addPos, team: c.addTeam, slot: "BENCH" };
+        const incoming = {
+          key: c.addKey, name: c.addName, pos: c.addPos, team: c.addTeam,
+          slot: c.dropKey == null ? LG.addLandingSlot(ros, c.addPos) : "BENCH",
+        };
         const dropIdx = c.dropKey == null ? -1 : ros.findIndex((p) => p.key === c.dropKey);
         const dropped = dropIdx < 0 ? null : ros[dropIdx];
         if (dropIdx < 0) ros.push(incoming); else ros.splice(dropIdx, 1, incoming);
