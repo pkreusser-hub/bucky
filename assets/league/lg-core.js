@@ -2344,9 +2344,13 @@
   // land in the chores list. /league.html, not /, because "/" on that host is the family app.
   LG.PUSH_ORIGIN = "https://goatfantasyleague.com";
   LG.pushLink = (hash) => LG.PUSH_ORIGIN + "/league.html" + (hash || "");
-  // opts: { toTeam } | { all: true } — plus title, body, link.
+  // opts: { toTeam } | { all: true } — plus title, body, link, and optional kind
+  // (trade / waivers / recap / injury / mention / chat / smack). Missing kind is
+  // a send that cannot be muted per-type (family-app callers, and any older
+  // producer). notify.mjs drops a token whose gfflMutes[] lists that kind.
   // Returns a promise for the SUITE's benefit (so a check can await the call having been made);
   // no producer awaits it, and it never rejects.
+  LG.PUSH_KINDS = ["trade", "waivers", "recap", "injury", "mention", "chat", "smack"];
   LG.pushNotify = function (opts) {
     opts = opts || {};
     const payload = {
@@ -2354,6 +2358,7 @@
       title: String(opts.title || ""), body: String(opts.body || ""),
       url: opts.link || LG.pushLink(),
     };
+    if (opts.kind) payload.kind = String(opts.kind);
     if (opts.all) { payload.gfflAll = true; if (opts.excludeTeam != null) payload.excludeTeam = opts.excludeTeam; }
     else if (opts.toTeam != null) payload.gfflTeam = opts.toTeam;
     else return Promise.resolve(null); // no audience — nothing to do, and never an error
@@ -2363,10 +2368,10 @@
   };
   // Every producer routes through here so "don't buzz the person who just did it" is ONE rule
   // in ONE place rather than a condition repeated at six call sites.
-  LG.pushTeam = function (teamId, title, body, link) {
+  LG.pushTeam = function (teamId, title, body, link, kind) {
     if (teamId == null) return Promise.resolve(null);
     if (Number(teamId) === Number(LG.myTeamId())) return Promise.resolve(null); // the actor
-    return LG.pushNotify({ toTeam: Number(teamId), title, body, link });
+    return LG.pushNotify({ toTeam: Number(teamId), title, body, link, kind });
   };
   LG.teamName = (id) => { if (id == null) return "Someone"; const t = LG.teamById(id); return (t && t.name) || ("Team " + id); };
 
@@ -2853,7 +2858,7 @@
         const parts = [];
         if (b.won.length) parts.push("Won " + b.won.join(", "));
         if (b.lost.length) parts.push("lost " + b.lost.join(", "));
-        LG.pushTeam(teamId, "Waivers — week " + week, parts.join(" · "), LG.pushLink("#moves"));
+        LG.pushTeam(teamId, "Waivers — week " + week, parts.join(" · "), LG.pushLink("#moves"), "waivers");
       }
     } catch (e) { /* a producer may never cost the run that produced it */ }
   };
@@ -3018,7 +3023,7 @@
     await LG.saveTrade(doc);
     // S4 producer — the offer's whole point is that the other owner doesn't know about it yet.
     const push = opts.push || { title: "Trade offer", body: LG.teamName(from) + " sent you a trade." };
-    LG.pushTeam(to, push.title, push.body, LG.pushLink("#moves"));
+    LG.pushTeam(to, push.title, push.body, LG.pushLink("#moves"), "trade");
     // ACTIVITY LEDGER (2026-09-04). ONE producer for both shapes: LG.counterTrade below routes
     // through this very function, so logging the counter separately there would put TWO rows in
     // the ledger for one gesture. opts.counterOf is what tells them apart, and it is the same
@@ -3120,7 +3125,7 @@
     if (!r.ok) return null;
     // S4 producer — to the PROPOSER, who has been waiting on an answer. AFTER the loop: a push
     // fired inside a mutate would go out once per attempt.
-    LG.pushTeam(doc.from, "Trade accepted", LG.teamName(doc.to) + " accepted your trade. It goes through after the review window.", LG.pushLink("#moves"));
+    LG.pushTeam(doc.from, "Trade accepted", LG.teamName(doc.to) + " accepted your trade. It goes through after the review window.", LG.pushLink("#moves"), "trade");
     // ACTIVITY LEDGER — same placement rule as the push above: after the CAS loop committed,
     // never inside a mutate that can run six times.
     LG.logAct("trade_accept", byTeamId, { tradeId: doc.id, from: doc.from, to: doc.to, give: LG.actNames(doc.give), get: LG.actNames(doc.get) });
@@ -3165,8 +3170,8 @@
       await LG.logTx("trade", LG.currentWeek(), doc.from, { tradeId: id, from: doc.from, to: doc.to, give: doc.give, get: doc.get, result: "vetoed" });
       // S4 producer — BOTH parties, because a trade they had both agreed to has just died.
       // Only on the vote that actually kills it: the earlier votes changed nothing.
-      LG.pushTeam(doc.from, "Trade vetoed", "The league voted down your trade with " + LG.teamName(doc.to) + ".", LG.pushLink("#moves"));
-      LG.pushTeam(doc.to, "Trade vetoed", "The league voted down your trade with " + LG.teamName(doc.from) + ".", LG.pushLink("#moves"));
+      LG.pushTeam(doc.from, "Trade vetoed", "The league voted down your trade with " + LG.teamName(doc.to) + ".", LG.pushLink("#moves"), "trade");
+      LG.pushTeam(doc.to, "Trade vetoed", "The league voted down your trade with " + LG.teamName(doc.from) + ".", LG.pushLink("#moves"), "trade");
     }
     return next;
   };
@@ -3275,8 +3280,8 @@
     try {
       const nm = (list) => list.map((p) => (p ? LG.shortName(p.name) : "?")).join(", ");
       const sent = nm(movedFrom), got = nm(movedTo);
-      LG.pushTeam(fresh.from, "Trade executed", "You sent " + sent + " to " + LG.teamName(fresh.to) + " for " + got + ".", LG.pushLink("#moves"));
-      LG.pushTeam(fresh.to, "Trade executed", "You sent " + got + " to " + LG.teamName(fresh.from) + " for " + sent + ".", LG.pushLink("#moves"));
+      LG.pushTeam(fresh.from, "Trade executed", "You sent " + sent + " to " + LG.teamName(fresh.to) + " for " + got + ".", LG.pushLink("#moves"), "trade");
+      LG.pushTeam(fresh.to, "Trade executed", "You sent " + got + " to " + LG.teamName(fresh.from) + " for " + sent + ".", LG.pushLink("#moves"), "trade");
     } catch (e) { /* a producer may never cost the swap that produced it */ }
     return executed;
   };
@@ -3308,17 +3313,46 @@
     if (opts.gif && opts.gif.url) doc.gif = { url: opts.gif.url, preview: opts.gif.preview || opts.gif.url };
     if (opts.replyTo) doc.replyTo = opts.replyTo;
     await LG.db.set(LG.chatId(t), doc);
-    // S4 producer — @mentions only. A message nobody was named in pushes nobody: chat is a
-    // room people drop into, and buzzing the whole league for every line would be the fastest
-    // possible way to get every owner to turn alerts off.
+    // Chat / trash-talk / @mention producers. League chat buzzes every enrolled
+    // device except the sender (kind=chat). A matchup thread buzzes both
+    // pairing's teams except the sender (kind=smack). @mentions stay their own
+    // send (kind=mention) so a reader who muted league chat still hears their
+    // name. postSys never reaches here — system lines stay silent.
     try {
       const from = LG.myTeamId() != null ? LG.teamName(LG.myTeamId()) : (LG.who() || "Someone");
+      const snippet = text ? text.slice(0, 140)
+        : (opts.img ? "sent a photo" : ((opts.gif && opts.gif.url) ? "sent a GIF" : ""));
+      const thread = doc.thread || null;
+      if (!thread) {
+        LG.pushNotify({
+          all: true, excludeTeam: LG.myTeamId(),
+          title: from + " in league chat",
+          body: snippet, link: LG.pushLink("#chat"), kind: "chat",
+        });
+      } else {
+        const pair = LG.matchupThreadTeams(thread);
+        if (pair) {
+          for (const tid of pair) {
+            LG.pushTeam(tid, from + " in your matchup", snippet, LG.pushLink("#matchup"), "smack");
+          }
+        }
+      }
       for (const tid of LG.mentionTargets(text)) {
         // pushTeam already drops the sender, so a self-mention is silent by construction.
-        LG.pushTeam(tid, from + " mentioned you", text.slice(0, 140), LG.pushLink("#chat"));
+        LG.pushTeam(tid, from + " mentioned you", text.slice(0, 140), LG.pushLink("#chat"), "mention");
       }
     } catch (e) { /* never costs the message */ }
     return { ok: true, msg: doc };
+  };
+  // thread:"w<week>_<home>-<away>" — the matchup page's trash-talk key. Used by
+  // the smack producer so a line in that thread reaches both sides, not the
+  // whole league.
+  LG.matchupThreadTeams = function (thread) {
+    const m = String(thread || "").match(/^w\d+_(\d+)-(\d+)$/);
+    if (!m) return null;
+    const home = Number(m[1]), away = Number(m[2]);
+    if (!home || !away) return null;
+    return [home, away];
   };
   // Every mode-"story"-style event post below routes through here. Wrapped so
   // a chat outage can NEVER break the flow it's narrating (waivers/trades/
@@ -4014,6 +4048,7 @@
         all: true, excludeTeam: LG.myTeamId(),
         title: "Week " + week + " is final",
         body: shown + more, link: LG.pushLink(),
+        kind: "recap",
       });
     } catch (e) { /* a producer may never cost the week it is announcing */ }
   };
@@ -4659,7 +4694,7 @@
   LG.pushInjuryChange = function (w) {
     try {
       LG.pushTeam(w.teamId, "Injury update",
-        LG.shortName(w.name) + " is now " + LG.injWord(w.to) + ".", LG.pushLink("#league"));
+        LG.shortName(w.name) + " is now " + LG.injWord(w.to) + ".", LG.pushLink("#league"), "injury");
     } catch (e) { /* a producer may never cost the change it is announcing */ }
   };
 

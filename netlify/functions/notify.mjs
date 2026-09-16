@@ -200,6 +200,22 @@ async function getDeviceTokens(accessToken, familyKey, sel) {
       if (team == null || Number.isNaN(team)) continue; // never enabled league alerts
       if (sel.excludeTeam != null && team === Number(sel.excludeTeam)) continue;
     }
+    // Per-type mute. Missing gfflMutes (every token written before this field
+    // existed) means ON — a new kind must not require a re-enroll. A send
+    // with no kind (the family app, and any older producer) cannot be muted
+    // this way. Parsed inline so the suite's extract of this function still
+    // runs without a sibling helper.
+    if (sel.kind) {
+      const rawMutes = fields.gfflMutes;
+      const muteVals = rawMutes && rawMutes.arrayValue && rawMutes.arrayValue.values;
+      const mutes = [];
+      if (Array.isArray(muteVals)) {
+        for (const v of muteVals) {
+          if (v && v.stringValue) mutes.push(v.stringValue);
+        }
+      }
+      if (mutes.indexOf(sel.kind) >= 0) continue;
+    }
     // doc.name looks like: projects/.../documents/pushTokens_fam123/<docId>
     const parts = doc.name.split("/");
     const docId = parts[parts.length - 1];
@@ -270,7 +286,7 @@ export default async (req) => {
     return new Response(JSON.stringify({ error: "Invalid JSON body" }), { status: 400, headers });
   }
 
-  const { secret, familyKey, targetUser, title, body, url, gfflTeam, gfflAll, excludeTeam } = payload || {};
+  const { secret, familyKey, targetUser, title, body, url, gfflTeam, gfflAll, excludeTeam, kind } = payload || {};
 
   if (!process.env.BUCKY_NOTIFY_SECRET || secret !== process.env.BUCKY_NOTIFY_SECRET) {
     return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers });
@@ -282,6 +298,7 @@ export default async (req) => {
     : gfflTeam != null ? { gfflTeam }
     : gfflAll ? { gfflAll: true, excludeTeam: excludeTeam == null ? null : excludeTeam }
     : null;
+  if (sel && kind) sel.kind = String(kind);
 
   if (!familyKey || !sel || !title) {
     return new Response(

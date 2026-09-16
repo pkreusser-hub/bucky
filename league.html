@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260915i">
+<meta name="gffl-v" content="20260916a">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -478,6 +478,19 @@
      .card on the page stays .muhead. Not .mucard — four full slash cards
      would eat the phone. Equal-width flex, schedule order, so a tap does
      not reshuffle the row. .on is the open game; .mine is yours. */
+  /* Week cycler (2026-09-16). Thin strip, not a .card — the first card
+     on the page must stay .muhead (section TL). Narrower than .scweeknav. */
+  .muweeknav { display:flex; align-items:center; justify-content:center; gap:8px;
+               margin:0 0 6px; padding:0; }
+  .muweeknav[hidden] { display:none; }
+  .muweeknav button { min-width:36px; min-height:28px; padding:2px 8px;
+    background:var(--nested2); border:1px solid var(--border-card);
+    border-radius:var(--radius-badge); color:var(--ink);
+    font:700 13px var(--font-display); cursor:pointer; }
+  .muweeknav button:disabled { opacity:.35; cursor:default; }
+  .muweeknav .muweeklabel { font:700 12px var(--font-display); letter-spacing:.4px;
+    text-transform:uppercase; }
+  #muNow { min-width:0; font:600 11px var(--font-display); letter-spacing:.3px; }
   .muswitchrow { display:flex; gap:4px; margin:0 0 8px; }
   .muswitchrow[hidden] { display:none; }
   .muswitch { flex:1 1 0; min-width:0; display:flex; flex-wrap:wrap; align-items:center;
@@ -1836,6 +1849,19 @@
   .alertcard p { margin:6px 0 0; }
   .alertrow { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; }
   .alertrow button { min-height:44px; }
+  /* Per-type mutes (2026-09-16). Compact switches, not a second card. */
+  .alertkinds { display:flex; flex-direction:column; gap:4px; margin-top:10px; }
+  .alertkind { display:flex; align-items:center; justify-content:space-between; gap:10px;
+    width:100%; min-height:36px; padding:6px 10px; text-align:left;
+    background:var(--nested2); border:1px solid var(--border-card);
+    border-radius:var(--radius-sm); color:var(--ink);
+    text-transform:none; letter-spacing:normal; cursor:pointer; }
+  .alertkind:hover, .alertkind:focus-visible { border-color:var(--border-hover); }
+  .alertkind.on { border-color:var(--ink); }
+  .alertkind-lab { font:600 13px var(--font-body); }
+  .alertkind-sw { font:700 11px var(--font-display); letter-spacing:.4px;
+    text-transform:uppercase; color:var(--mut); min-width:2.2em; text-align:right; }
+  .alertkind.on .alertkind-sw { color:var(--ink); }
   /* Design pass: the controls live in their own quiet FOOTER BAND under the identity row —
      full-bleed to the card's edges with a hairline on top, solid card colour, so the diagonal
      panel behind the hero can never run underneath a button or a label. Identity above the
@@ -2355,9 +2381,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260915i"></script>
-  <script src="assets/league/lg-data.js?v=20260915i"></script>
-  <script src="assets/league/lg-ui.js?v=20260915i"></script>
+  <script src="assets/league/lg-core.js?v=20260916a"></script>
+  <script src="assets/league/lg-data.js?v=20260916a"></script>
+  <script src="assets/league/lg-ui.js?v=20260916a"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

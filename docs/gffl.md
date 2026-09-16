@@ -8301,3 +8301,49 @@ upcoming chip reads `KC 7:00 PM DEN` with no score
 slot. Pre-existing S/TM split and tap checks stay
 green. App files restored, hashes identical.
 ---
+
+## GFFL — matchup week scroller + per-type alerts + chat/smack (2026-09-16)
+
+User: scroll the Matchup page back to prior weeks and forward to
+future weeks, like Scores but keep the control narrow. On My Team,
+make Alerts togglable per notification type. Add default-on pushes
+for league chat (everyone except the sender) and matchup trash talk
+(the pairing, except the sender).
+
+Matchup gained `UI._muWeek` (null = live), the same override
+pattern as `UI._scoresWeek`. Browsing never writes `UI.week`, so
+locker / Moves / waivers stay on the live week. Rosters for a
+peeked-at week are copy-forwarded in memory (`loadRostersFor`) —
+`ensureRoster` would have written a convenience doc for a page
+turn. Past weeks read `weekly_*` totals; future weeks show "—".
+The live feed, AI read, and win-% graph stay on the live week.
+`navTo("matchup")` and a league-home / bracket card tap reset the
+cycler. The strip is not a `.card`, so the first card is still
+`.muhead`.
+
+Alerts on an enrolled phone list seven kinds, all default on
+(missing `gfflMutes` = on). Toggles write `localStorage
+gffl_notifprefs` and `BuckyPush.updateExtra({ gfflMutes })` on the
+token doc. `notify.mjs` drops a token whose mutes list the
+payload's `kind`. `leaguecron` treats the Wednesday nudge as
+`waivers`. Producers stamp `kind`: trade, waivers, recap, injury,
+mention, chat, smack. League chat is `gfflAll` minus the sender;
+a `w<week>_<home>-<away>` thread is both pairing teams except the
+sender. Mentions stay their own send so a muted-chat owner still
+hears an `@`. `postSys` is still silent.
+
+AN4 restaged: a mention in league chat is now two pushes (the
+room blast plus the `@`); a line with no `@` still pushes the
+league. The old "plain chat is silent" rule is the inversion.
+
+Scripts cache-bust `?v=20260916a`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`push-client.js`, `netlify/functions/notify.mjs`,
+`netlify/functions/leaguecron.mjs`, `tools/_verify-gffl.cjs`,
+`tools/_verify-notify-url.mjs`, `tools/_verify-leaguecron.mjs`,
+this file.
+
+**VERIFY:** quoted after the suite run.
+---
+

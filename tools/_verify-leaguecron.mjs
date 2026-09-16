@@ -129,12 +129,15 @@ function serveFcm() {
 
 /* ============================ Firestore doc-row builder ============================ */
 let seq = 0;
-function tokenDoc({ token, user, gfflTeam }) {
+function tokenDoc({ token, user, gfflTeam, gfflMutes }) {
   const docId = "doc" + (++seq);
   const fields = { token: { stringValue: token } };
   if (user != null) fields.user = { stringValue: user };
   if (gfflTeam && gfflTeam.type === "int") fields.gfflTeam = { integerValue: String(gfflTeam.v) };
   else if (gfflTeam && gfflTeam.type === "double") fields.gfflTeam = { doubleValue: gfflTeam.v };
+  if (gfflMutes && gfflMutes.length) {
+    fields.gfflMutes = { arrayValue: { values: gfflMutes.map((k) => ({ stringValue: k })) } };
+  }
   return {
     docId,
     row: {
@@ -337,6 +340,26 @@ async function main() {
   ok(fsState.deleted.length === 2 && fsState.deleted.includes(dP.docId) && fsState.deleted.includes(dQ.docId),
     "the two DELETE calls named exactly dP's and dQ's docIds — no more, no fewer");
   ok(dupRun.body.sent === 0, "a token that turned out to be unregistered is never counted as sent");
+
+  /* =========================== E. per-type mute (waivers) ============================ */
+  section("E. a device that muted waivers is skipped; other mutes are not");
+  const dOn = tokenDoc({ token: "TOK_ON", gfflTeam: { type: "int", v: 1 } });
+  const dMuteW = tokenDoc({ token: "TOK_MUTE_W", gfflTeam: { type: "int", v: 2 }, gfflMutes: ["waivers"] });
+  const dMuteC = tokenDoc({ token: "TOK_MUTE_C", gfflTeam: { type: "int", v: 3 }, gfflMutes: ["chat"] });
+  resetFirestore([dOn.row, dMuteW.row, dMuteC.row]);
+  resetFcm([
+    ["TOK_ON", { status: 200, body: { name: "mOn" } }],
+    ["TOK_MUTE_W", { status: 200, body: { name: "mW" } }],
+    ["TOK_MUTE_C", { status: 200, body: { name: "mC" } }],
+  ]);
+  const muteRun = await callAt(SEP9_1300 + MS_WEEK);
+  const muteTokens = fcmState.calls.map((c) => c.message.token).sort();
+  ok(muteRun.status === 200, "a mute-filtered run still answers 200");
+  ok(!muteTokens.includes("TOK_MUTE_W"),
+    "the device that muted waivers is not sent the Wednesday waiver nudge");
+  ok(muteTokens.includes("TOK_ON") && muteTokens.includes("TOK_MUTE_C"),
+    "an unmuted device and a device that muted a DIFFERENT kind still get the nudge");
+  ok(muteRun.body.sent === 2, `sent is the two unmuted devices — got ${muteRun.body.sent}`);
 
   /* ================================== teardown ======================================= */
   for (const s of servers) s.close();

@@ -16748,37 +16748,51 @@ async function openDetails(page, id) {
         "prefix-tolerance runs ONE way: the typed mention must be a prefix of the handle, not the other way round");
 
       // The producer, at its real call site.
+      // RESTAGED 2026-09-16: league chat now also sends kind=chat to gfflAll
+      // (minus the sender). A mention in that room is TWO pushes — the room
+      // blast plus the @. The old "mention-only / plain chat is silent" rule
+      // is what this restage inverts; muted-chat owners still hear an @
+      // because mention stays its own kind.
       await reset();
       const posted = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@End Zone Goats you're up" }));
-      await drain(1);
+      await drain(2);
       ok(posted.ok === true, "the message posts (the action itself)");
-      ok(notify.calls.length === 1 && last().gfflTeam === 2, "…and pushes exactly the mentioned owner");
-      ok(/mentioned you/.test(last().title || "") && /Battle Kreussers/.test(last().title || ""),
-        "…titled with who mentioned them (" + last().title + ")");
-      ok(/you're up/.test(last().body || ""), "…carrying the message itself (" + last().body + ")");
-      ok(last().url === LEAGUE + "#chat", "…deep-linking Chat (" + last().url + ")");
+      const postedChat = notify.calls.find((c) => c.gfflAll);
+      const postedMention = notify.calls.find((c) => /mentioned you/.test(c.title || ""));
+      ok(notify.calls.length === 2 && postedChat && postedMention,
+        "…and sends the league-chat blast PLUS the mention (" + notify.calls.length + ")");
+      ok(postedMention && postedMention.gfflTeam === 2 && postedMention.kind === "mention",
+        "…the mention still targets exactly the named owner (gfflTeam " + (postedMention && postedMention.gfflTeam) + ")");
+      ok(postedMention && /mentioned you/.test(postedMention.title || "") && /Battle Kreussers/.test(postedMention.title || ""),
+        "…titled with who mentioned them (" + (postedMention && postedMention.title) + ")");
+      ok(postedMention && /you're up/.test(postedMention.body || ""), "…carrying the message itself (" + (postedMention && postedMention.body) + ")");
+      ok(postedMention && postedMention.url === LEAGUE + "#chat", "…deep-linking Chat (" + (postedMention && postedMention.url) + ")");
+      ok(postedChat && postedChat.excludeTeam === 1 && postedChat.kind === "chat",
+        "…and the room blast is gfflAll minus the sender, kind=chat");
 
       await reset();
       const plain = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "great week everyone" }));
-      await drain(0);
-      ok(plain.ok === true && notify.calls.length === 0, "a message mentioning nobody pushes nobody");
+      await drain(1);
+      ok(plain.ok === true && notify.calls.length === 1 && last().gfflAll === true && last().kind === "chat",
+        "a message mentioning nobody still pushes the league (kind=chat) — RESTAGED 2026-09-16, the old 0-push rule no longer holds");
 
       await reset();
       const selfie = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@Battle Kreussers is unstoppable" }));
-      await drain(0);
-      ok(selfie.ok === true && notify.calls.length === 0, "mentioning YOURSELF pushes nobody");
+      await drain(1);
+      ok(selfie.ok === true && notify.calls.length === 1 && last().gfflAll === true && last().kind === "chat",
+        "mentioning YOURSELF still pushes the league, but not the mention — RESTAGED 2026-09-16");
 
       await reset();
       const two = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@Wyoming and @The Goat Kids, trade?" }));
-      await drain(2);
-      ok(two.ok === true && notify.calls.length === 2 && targets().includes(3) && targets().includes(8),
-        "two mentions push two owners (" + JSON.stringify(targets()) + ")");
+      await drain(3);
+      ok(two.ok === true && notify.calls.length === 3 && targets().includes(3) && targets().includes(8) && targets().includes("ALL"),
+        "two mentions push two owners PLUS the league-chat blast (" + JSON.stringify(targets()) + ")");
 
       await reset(); notify.status = 500;
       const survived = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@Wyoming hello again" }));
-      await drain(1);
+      await drain(2);
       const chatDocs = await page.evaluate(() => window.__GFFL__.LG.loadChat(null));
-      ok(survived.ok === true && notify.calls.length === 1 && chatDocs.some((c) => /hello again/.test(c.text || "")),
+      ok(survived.ok === true && notify.calls.length === 2 && chatDocs.some((c) => /hello again/.test(c.text || "")),
         "notify answering 500 does not stop the message being posted (and the call really was attempted)");
       await reset();
       ok(errors.length === 0, "0 page errors across the chat producer");
@@ -16799,6 +16813,7 @@ async function openDetails(page, id) {
           status: () => ({ supported: c.supported !== false, permission: "granted", enabled: !!c.extra, user: "Peter", familyKey: "x", extra: c.extra || null }),
           enable: async (u, f, o, extra) => { window.__pushCalls.push({ kind: "enable", u, f, extra }); return { token: "T" }; },
           disable: async () => { window.__pushCalls.push({ kind: "disable" }); return true; },
+          updateExtra: async (extra) => { window.__pushCalls.push({ kind: "updateExtra", extra }); return true; },
         };
       }, cfg);
       const openMine = async (page) => {
@@ -22033,6 +22048,7 @@ async function openDetails(page, id) {
           return Promise.resolve({ token: "T" });
         },
         disable: () => { window.__pushCalls.push({ kind: "disable" }); st.team = null; return Promise.resolve(true); },
+        updateExtra: (extra) => { window.__pushCalls.push({ kind: "updateExtra", extra }); return Promise.resolve(true); },
       };
     }, opts || {});
     const pushCalls = (page) => evalOr(page, () => window.__pushCalls || []);
@@ -26869,6 +26885,302 @@ async function openDetails(page, id) {
       ok(desk.scroll.b <= desk.scroll.w + 1,
         "…and they fit 1440px with no sideways scroll (" + desk.scroll.b + "/" + desk.scroll.w + ")");
       ok(errors.length === 0, "0 page errors on the desktop Scores split");
+      await ctx.close();
+    }
+  }
+
+  // ================= TN · matchup week scroller + per-type alerts + chat/smack ============
+  // User: scroll matchup back/forward like Scores (but narrow); toggle alerts
+  // per kind; notify the league on chat and the pairing on matchup trash talk.
+  if (section("TN · matchup week scroller + per-type alerts + chat/smack")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const last = () => notify.calls[notify.calls.length - 1] || {};
+    const drain = async (n) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < 4000 && notify.calls.length < (n || 0)) await sleep(25);
+      await sleep(220);
+    };
+    const reset = async () => { await sleep(260); notify.reset(); };
+
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await pinSeedWeek1(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("league"));
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="matchup"]');
+      await waitOr(page, ".muhead");
+      await waitOr(page, "#muWeekNav");
+
+      const live = await evalOr(page, () => {
+        const nav = document.querySelector("#muWeekNav");
+        const firstCard = document.querySelector("#main .card");
+        const nr = nav && nav.getBoundingClientRect();
+        return {
+          label: nav ? nav.textContent.replace(/\s+/g, " ").trim() : "",
+          now: !!document.getElementById("muNow"),
+          prevOff: !!(document.getElementById("muPrev") && document.getElementById("muPrev").disabled),
+          nextOff: !!(document.getElementById("muNext") && document.getElementById("muNext").disabled),
+          isCard: !!(nav && nav.classList.contains("card")),
+          firstIsHead: !!(firstCard && firstCard.id === "muHead"),
+          h: nr ? Math.round(nr.height) : 0,
+          week: window.__GFFL__.UI.week,
+          muWeek: window.__GFFL__.UI._muWeek,
+          scroll: { b: document.body.scrollWidth, w: window.innerWidth },
+        };
+      }) || {};
+      ok(/Week 1/.test(live.label || "") && /live/.test(live.label || "") && live.now === false,
+        "Matchup opens on this week, marked live, with no Now button (" + live.label + ")");
+      ok(live.prevOff === true && live.nextOff === false,
+        "week 1 disables Previous and leaves Next open");
+      ok(live.isCard === false && live.firstIsHead === true,
+        "the cycler is not a .card — the first card is still the header");
+      ok(live.h > 0 && live.h <= 36,
+        "…and it stays narrow (" + live.h + "px)");
+      ok(live.week === 1 && live.muWeek == null,
+        "UI.week is untouched; _muWeek is null on the live board");
+      ok(live.scroll && live.scroll.b <= live.scroll.w + 1,
+        "the strip does not take the page sideways");
+
+      await evalOr(page, async () => {
+        const { LG, UI } = window.__GFFL__;
+        const wk = [[1, 2], [3, 4], [5, 6], [7, 8]];
+        await LG.saveSchedule([wk, wk, wk, wk]);
+        await LG.db.set(LG.weeklyId(LG.SEASON, 1), {
+          kind: "weekly", week: 1,
+          matchups: [
+            { home: 1, away: 2, homePts: 112.4, awayPts: 98.1 },
+            { home: 3, away: 4, homePts: 80, awayPts: 70 },
+            { home: 5, away: 6, homePts: 1, awayPts: 2 },
+            { home: 7, away: 8, homePts: 3, awayPts: 4 },
+          ],
+          awards: {},
+        });
+        UI.week = 2;
+        UI._muWeek = null;
+        UI.matchup = null;
+        UI._muWeekGames = null;
+        UI._muRosters = null;
+        UI._muWeekly = null;
+        await UI.renderMatchup();
+      });
+      await waitFnOr(page, () => /Week 2/.test((document.querySelector("#muWeekNav") || {}).textContent || ""));
+
+      const w2 = await evalOr(page, () => ({
+        label: ((document.querySelector("#muWeekNav") || {}).textContent || "").replace(/\s+/g, " ").trim(),
+        week: window.__GFFL__.UI.week,
+        muWeek: window.__GFFL__.UI._muWeek,
+        feed: !!document.getElementById("mufeed"),
+        ai: !!document.getElementById("aiReadCard"),
+      })) || {};
+      ok(/Week 2/.test(w2.label || "") && /live/.test(w2.label || "") && w2.week === 2 && w2.muWeek == null,
+        "after the league week moves, Matchup still paints the live week (" + w2.label + ")");
+      ok(w2.feed === true && w2.ai === true, "the live week still has the feed and the AI read");
+
+      await page.evaluate(() => document.getElementById("muPrev").click());
+      await waitFnOr(page, () => /Week 1/.test((document.querySelector("#muWeekNav") || {}).textContent || "")
+        && window.__GFFL__.UI._muWeek === 1);
+
+      const past = await evalOr(page, () => {
+        const nav = ((document.querySelector("#muWeekNav") || {}).textContent || "").replace(/\s+/g, " ").trim();
+        const pts = [...document.querySelectorAll(".bigpts")].map((e) => e.textContent);
+        const chip = ((document.querySelector('.muswitch[data-mu="1-2"]') || {}).textContent || "").replace(/\s+/g, " ");
+        return {
+          nav, pts, chip,
+          week: window.__GFFL__.UI.week,
+          muWeek: window.__GFFL__.UI._muWeek,
+          feed: !!document.getElementById("mufeed"),
+          ai: !!document.getElementById("aiReadCard"),
+          now: !!document.getElementById("muNow"),
+          final: /Final/.test((document.querySelector(".muhsub") || {}).textContent || ""),
+        };
+      }) || {};
+      ok(past.week === 2 && past.muWeek === 1,
+        "Previous browses week 1 without moving UI.week (" + JSON.stringify({ week: past.week, mu: past.muWeek }) + ")");
+      ok(/Week 1/.test(past.nav || "") && /final/.test(past.nav || "") && past.now === true,
+        "…labelled as a final week, with a Now button (" + past.nav + ")");
+      ok(past.pts && past.pts[0] === "98.1" && past.pts[1] === "112.4",
+        "…header totals are the weekly record, away then home (" + JSON.stringify(past.pts) + ")");
+      ok(/98\.1/.test(past.chip || "") && /112\.4/.test(past.chip || ""),
+        "…and the pairing chip uses the same weekly score (" + past.chip + ")");
+      ok(past.feed === false && past.ai === false,
+        "a browsed week hides the live feed and the AI read");
+      ok(past.final === true, "the to-play line reads Final, not a live remaining clock");
+
+      await page.evaluate(() => document.getElementById("muNext").click());
+      await waitFnOr(page, () => window.__GFFL__.UI._muWeek == null
+        && /Week 2/.test((document.querySelector("#muWeekNav") || {}).textContent || ""));
+      ok((await evalOr(page, () => window.__GFFL__.UI.week)) === 2
+        && (await evalOr(page, () => window.__GFFL__.UI._muWeek)) == null,
+        "Next from a past week lands back on the live week, still without moving UI.week");
+
+      await page.evaluate(() => document.getElementById("muNext").click());
+      await waitFnOr(page, () => window.__GFFL__.UI._muWeek === 3);
+      const fut = await evalOr(page, () => {
+        const nav = ((document.querySelector("#muWeekNav") || {}).textContent || "").replace(/\s+/g, " ").trim();
+        const pts = [...document.querySelectorAll(".bigpts")].map((e) => e.textContent);
+        return {
+          nav, pts,
+          week: window.__GFFL__.UI.week,
+          muWeek: window.__GFFL__.UI._muWeek,
+          feed: !!document.getElementById("mufeed"),
+          upcoming: /Upcoming/.test((document.querySelector(".muhsub") || {}).textContent || ""),
+        };
+      }) || {};
+      ok(fut.week === 2 && fut.muWeek === 3 && /upcoming/.test(fut.nav || ""),
+        "Next from live opens the future week (" + fut.nav + ")");
+      ok(fut.pts && fut.pts[0] === "—" && fut.pts[1] === "—",
+        "…future scores are dashes, never a fabricated live total (" + JSON.stringify(fut.pts) + ")");
+      ok(fut.feed === false && fut.upcoming === true,
+        "…no live feed, and the subtitle says Upcoming");
+
+      await page.evaluate(() => document.getElementById("muNow").click());
+      await waitFnOr(page, () => window.__GFFL__.UI._muWeek == null);
+      ok(/live/.test(await evalOr(page, () => ((document.querySelector("#muWeekNav") || {}).textContent || ""))),
+        "Now returns to the live week");
+
+      await page.evaluate(() => document.getElementById("muPrev").click());
+      await waitFnOr(page, () => window.__GFFL__.UI._muWeek === 1);
+      await page.evaluate(() => window.__GFFL__.UI.navTo("matchup"));
+      await waitFnOr(page, () => window.__GFFL__.UI._muWeek == null
+        && /Week 2/.test((document.querySelector("#muWeekNav") || {}).textContent || ""));
+      ok((await evalOr(page, () => window.__GFFL__.UI._muWeek)) == null,
+        "pressing the Matchup tab resets the cycler to the live week");
+
+      ok(errors.length === 0, "0 page errors on the matchup week cycler");
+      await ctx.close();
+    }
+
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await pinSeedWeek1(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+      await page.evaluate(() => {
+        window.__pushCalls = [];
+        window.BuckyPush = {
+          isSupported: () => true,
+          status: () => ({ supported: true, permission: "granted", enabled: true, user: "Peter", familyKey: "x", extra: { gfflTeam: 1 } }),
+          enable: async (u, f, o, extra) => { window.__pushCalls.push({ kind: "enable", u, f, extra }); return { token: "T" }; },
+          disable: async () => { window.__pushCalls.push({ kind: "disable" }); return true; },
+          updateExtra: async (extra) => { window.__pushCalls.push({ kind: "updateExtra", extra }); return true; },
+        };
+      });
+      await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+      await waitOr(page, "#alertCard");
+      const card = await evalOr(page, () => {
+        const kinds = [...document.querySelectorAll("#alertKinds .alertkind")].map((b) => ({
+          kind: b.dataset.kind,
+          on: b.classList.contains("on"),
+          checked: b.getAttribute("aria-checked"),
+          label: (b.querySelector(".alertkind-lab") || {}).textContent || "",
+          sw: (b.querySelector(".alertkind-sw") || {}).textContent || "",
+        }));
+        return {
+          kinds,
+          labels: kinds.map((k) => k.label),
+          emoji: /\p{Extended_Pictographic}/u.test((document.getElementById("alertCard") || {}).textContent || ""),
+        };
+      }) || {};
+      ok(card.kinds && card.kinds.length === 7 && card.kinds.every((k) => k.on && k.checked === "true" && k.sw === "On"),
+        "the ON card lists every kind, all default on (" + JSON.stringify(card.labels) + ")");
+      ok(card.labels && card.labels.includes("League chat") && card.labels.includes("Matchup trash talk"),
+        "…including league chat and matchup trash talk");
+      ok(card.emoji === false, "…with no emoji in the card");
+
+      await page.evaluate(() => {
+        const b = document.querySelector('.alertkind[data-kind="chat"]');
+        if (b) b.click();
+      });
+      const muted = await evalOr(page, () => {
+        const b = document.querySelector('.alertkind[data-kind="chat"]');
+        return {
+          on: b && b.classList.contains("on"),
+          sw: b && (b.querySelector(".alertkind-sw") || {}).textContent,
+          prefs: localStorage.getItem("gffl_notifprefs"),
+          calls: window.__pushCalls || [],
+        };
+      }) || {};
+      ok(muted.on === false && muted.sw === "Off" && muted.prefs === '["chat"]',
+        "turning League chat off flips the switch and writes gffl_notifprefs");
+      ok(muted.calls && muted.calls.some((c) => c.kind === "updateExtra" && c.extra && JSON.stringify(c.extra.gfflMutes) === '["chat"]'),
+        "…and BuckyPush.updateExtra stamps gfflMutes on the token doc");
+
+      await page.evaluate(() => {
+        const b = document.querySelector('.alertkind[data-kind="chat"]');
+        if (b) b.click();
+      });
+      const back = await evalOr(page, () => {
+        const b = document.querySelector('.alertkind[data-kind="chat"]');
+        const last = (window.__pushCalls || []).filter((c) => c.kind === "updateExtra").pop();
+        return {
+          on: b && b.classList.contains("on"),
+          prefs: localStorage.getItem("gffl_notifprefs"),
+          mutes: last && last.extra && last.extra.gfflMutes,
+        };
+      }) || {};
+      ok(back.on === true && back.prefs === "[]" && Array.isArray(back.mutes) && back.mutes.length === 0,
+        "turning it back on writes an empty mute list — missing/empty means every kind is on");
+
+      ok(errors.length === 0, "0 page errors on the per-type alert toggles");
+      await ctx.close();
+    }
+
+    {
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await pinSeedWeek1(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+
+      const parsed = await evalOr(page, () => ({
+        ok: JSON.stringify(window.__GFFL__.LG.matchupThreadTeams("w2_1-2")),
+        bad: window.__GFFL__.LG.matchupThreadTeams("league"),
+        kinds: window.__GFFL__.LG.PUSH_KINDS,
+      }));
+      ok(parsed && parsed.ok === "[1,2]" && parsed.bad == null,
+        "matchupThreadTeams reads w<week>_<home>-<away> and ignores the league room");
+      ok(parsed && Array.isArray(parsed.kinds) && parsed.kinds.includes("chat") && parsed.kinds.includes("smack"),
+        "PUSH_KINDS names chat and smack");
+
+      await reset();
+      const room = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "hello league" }));
+      await drain(1);
+      ok(room.ok === true && notify.calls.length === 1 && last().gfflAll === true && last().kind === "chat"
+        && last().excludeTeam === 1 && /in league chat/.test(last().title || ""),
+        "a league-chat line pushes gfflAll minus the sender, kind=chat (" + JSON.stringify(last()) + ")");
+
+      await reset();
+      const mine = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "you stink", thread: "w2_1-2" }));
+      await drain(1);
+      ok(mine.ok === true && notify.calls.length === 1 && last().gfflTeam === 2 && last().kind === "smack"
+        && /#matchup/.test(last().url || "") && /in your matchup/.test(last().title || ""),
+        "trash talk in MY pairing pushes the other side only, kind=smack, deep-link #matchup");
+
+      await reset();
+      const other = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "good luck", thread: "w2_3-4" }));
+      await drain(2);
+      const smackTo = notify.calls.map((c) => c.gfflTeam).sort();
+      ok(other.ok === true && notify.calls.length === 2 && smackTo.join() === "3,4"
+        && notify.calls.every((c) => c.kind === "smack"),
+        "trash talk in someone else's pairing pushes both sides (" + JSON.stringify(smackTo) + ")");
+
+      await reset();
+      const sys = await page.evaluate(() => window.__GFFL__.LG.postSys("Waivers processed"));
+      await drain(0);
+      ok(!!sys && notify.calls.length === 0, "a system line still pushes nobody");
+
+      await page.evaluate(() => window.__GFFL__.D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" }));
+      await reset();
+      const offered = await page.evaluate(() => window.__GFFL__.LG.offerTrade(1, 2, ["3915511"], ["222111"], ""));
+      await drain(1);
+      ok(offered.ok === true && last().kind === "trade",
+        "existing producers now stamp a kind (trade) so a mute can catch them");
+
+      ok(errors.length === 0, "0 page errors across the chat/smack producers");
       await ctx.close();
     }
   }

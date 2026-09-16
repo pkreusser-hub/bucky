@@ -84,5 +84,28 @@ ok(eq(await toks({ gfflAll: true, excludeTeam: 1 }), ["TB"]), "excludeTeam drops
 ok(eq(await toks({ user: "Dad" }), ["TA","TB","TC"]),
    "a family send filters SERVER-side (this fake returns every row), so it is unfiltered here — the family path is untouched");
 
+// Per-type mutes (2026-09-16). A second extract against rows that include
+// gfflMutes, so the original audience checks above stay byte-stable.
+const muteRows = rows.concat([
+  { document: { name: "p/d/pushTokens_fam/d", fields: {
+    token: { stringValue: "TD" }, user: { stringValue: "Isaac" },
+    gfflTeam: { integerValue: "1" },
+    gfflMutes: { arrayValue: { values: [{ stringValue: "chat" }] } },
+  } } },
+]);
+const getDeviceTokensMuted = new Function("FIRESTORE_BASE","fetch", gdBody + ";return getDeviceTokens;")(
+  FIRESTORE_BASE,
+  async () => ({ ok: true, json: async () => muteRows })
+);
+const toksM = async (sel) => (await getDeviceTokensMuted("tok","fam",sel)).map((r) => r.token).sort();
+ok(eq(await toksM({ gfflTeam: 1 }), ["TA","TD"]),
+   "a muted kind does not drop the device from an unkinded send — missing kind cannot be muted");
+ok(eq(await toksM({ gfflTeam: 1, kind: "chat" }), ["TA"]),
+   "kind:chat drops the device that muted chat");
+ok(eq(await toksM({ gfflTeam: 1, kind: "smack" }), ["TA","TD"]),
+   "a different kind still reaches them — mutes are per type, not a master off");
+ok(eq(await toksM({ gfflAll: true, kind: "chat" }), ["TB"]),
+   "gfflAll + kind=chat skips the muted league device and keeps the unmuted one");
+
 console.log(`\nresolveUrl + audience: ${pass}/${pass+fail} passed`);
 process.exit(fail?1:0);

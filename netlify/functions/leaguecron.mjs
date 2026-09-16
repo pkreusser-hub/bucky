@@ -138,6 +138,17 @@ async function getGfflDeviceTokens(accessToken, familyKey) {
     const raw = fields.gfflTeam;
     const hasTeam = !!raw && (raw.integerValue != null || raw.doubleValue != null || raw.stringValue != null);
     if (!hasTeam) continue; // family-only device (chores/bank alerts) — never in the GFFL audience
+    // Same mute rule as notify.mjs: missing gfflMutes means ON. This cron is
+    // the Wednesday waiver nudge, so a device that muted "waivers" is skipped.
+    const rawMutes = fields.gfflMutes;
+    const muteVals = rawMutes && rawMutes.arrayValue && rawMutes.arrayValue.values;
+    let mutedWaivers = false;
+    if (Array.isArray(muteVals)) {
+      for (const v of muteVals) {
+        if (v && v.stringValue === "waivers") { mutedWaivers = true; break; }
+      }
+    }
+    if (mutedWaivers) continue;
     const parts = doc.name.split("/");
     const docId = parts[parts.length - 1];
     if (!byToken.has(token)) byToken.set(token, []);

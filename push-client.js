@@ -237,6 +237,53 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
     return true;
   }
 
+  // Merge extra fields onto an already-enrolled token doc (GFFL per-type
+  // mutes: { gfflMutes: ["chat", ...] }). Does not re-request permission or
+  // rotate the FCM token. Empty arrays are written (they mean "nothing muted");
+  // undefined values are skipped. No-op-throws if this device was never
+  // enrolled — the league card only calls this from the ON state.
+  async function updateExtra(extra) {
+    var raw = null;
+    try {
+      raw = localStorage.getItem(STATE_KEY);
+    } catch (e) {
+      /* ignore */
+    }
+    if (!raw) throw new Error("No push enrollment on this device.");
+    var saved = JSON.parse(raw);
+    if (!saved.familyKey || !saved.docId) throw new Error("No push enrollment on this device.");
+
+    var mods = await loadFirebaseModules(DEFAULT_FIREBASE_CONFIG);
+    var db = mods.firestoreMod.getFirestore(_cache.app);
+    var ref = mods.firestoreMod.doc(db, "pushTokens_" + saved.familyKey, saved.docId);
+    var patch = {};
+    if (extra && typeof extra === "object") {
+      for (var k in extra) {
+        if (Object.prototype.hasOwnProperty.call(extra, k) && extra[k] !== undefined) {
+          patch[k] = extra[k];
+        }
+      }
+    }
+    await mods.firestoreMod.setDoc(ref, patch, { merge: true });
+
+    var nextExtra = {};
+    if (saved.extra && typeof saved.extra === "object") {
+      for (var ek in saved.extra) {
+        if (Object.prototype.hasOwnProperty.call(saved.extra, ek)) nextExtra[ek] = saved.extra[ek];
+      }
+    }
+    for (var pk in patch) {
+      if (Object.prototype.hasOwnProperty.call(patch, pk)) nextExtra[pk] = patch[pk];
+    }
+    saved.extra = nextExtra;
+    try {
+      localStorage.setItem(STATE_KEY, JSON.stringify(saved));
+    } catch (e) {
+      /* ignore storage failures */
+    }
+    return true;
+  }
+
   // Fire-and-forget notify call to the Netlify function. Never throws —
   // callers can just do `BuckyPush.notify(...)` without awaiting/catching.
   // `url` is optional (backward-compatible with existing 5-arg call sites) — when given,
@@ -265,6 +312,7 @@ window.BUCKY_VAPID_KEY = window.BUCKY_VAPID_KEY || "BM3TmG-fXYJUJfmuw1_WG7SjkwsK
   window.BuckyPush = {
     enable: enable,
     disable: disable,
+    updateExtra: updateExtra,
     isSupported: isSupported,
     status: status,
     notify: notify,

@@ -95,6 +95,7 @@
   UI.view = "league";
   UI.week = null;           // viewed league week
   UI.matchup = null;        // [homeTeamId, awayTeamId]
+  UI._muWeek = null;        // browsed matchup week; null = the live week (UI.week)
   UI.lockerTeamId = null;   // viewed locker
   UI._aiRead = null;        // {key, at, busy, error, mults:{name:{mult,why,proj,adj}}} — S5's AI read
   // ITEM 8 (2026-08-22): the locker's own interaction-state flags — a background reconnect
@@ -602,7 +603,7 @@
       // Memory updates inside the sample; a real new point re-patches the card.
       if (typeof LG.sampleMatchupWinProbs === "function") {
         LG.sampleMatchupWinProbs().then((r) => {
-          if (r && r.added && UI.view === "matchup") renderMatchup(true);
+          if (r && r.added && UI.view === "matchup" && UI._muWeek == null) renderMatchup(true);
         }).catch(() => {});
       }
     };
@@ -918,7 +919,8 @@
     if (UI.view === "locker" && kind && !LOCKER_REPAINT_KINDS.has(kind)) return;
     if (UI._overlayOpen() || lockerInteractionBusy()) { UI._quietRepaintPending = true; return; }
     if (UI.view === "matchup") {
-      loadWeekRosters().then(() => { if (UI.view === "matchup") renderMatchup(true); }).catch(() => {});
+      if (UI._muWeek != null) return; // a browsed week is a page, not a live feed
+      loadWeekRosters().then(() => { if (UI.view === "matchup" && UI._muWeek == null) renderMatchup(true); }).catch(() => {});
       return;
     }
     if (UI.view === "locker") {
@@ -1004,7 +1006,7 @@
   // the reset belongs on the NAV ENTRY specifically: pressing the Matchup tab is the one
   // gesture that means "take me to MY game", and it is the only thing that clears it.
   UI.navTo = function (name) {
-    if (name === "matchup") UI.matchup = null;
+    if (name === "matchup") { UI.matchup = null; UI._muWeek = null; }
     UI.go(name);
   };
   // Reachable from the league home's  Playoffs card (S7) — same no-nav-entry-needed
@@ -1535,7 +1537,9 @@
   }
 
   function paintLive() {
-    if (UI.view === "matchup") renderMatchup(true);
+    if (UI.view === "matchup") {
+      if (UI._muWeek == null) renderMatchup(true);
+    }
     else if (UI.view === "league") renderLeague(true);
     // "team" is gone (merged into locker — item 3). Deliberately NOT live-repainted on every poll
     // tick the way the old team page's points/proj were: renderLocker() has no lightweight
@@ -2704,6 +2708,7 @@
         ${logoutHtml()}`;
     }
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
+      UI._muWeek = null;
       UI.matchup = el.dataset.mu.split("-").map(Number);
       UI.go("matchup");
     }));
@@ -2909,19 +2914,22 @@
   // COSMETIC PASS (2026-08-11, user markup on a live screenshot): the owner-name · record
   // line is GONE — the header is crest, score, name, and the to-play line, nothing else —
   // and the freed space is spent on a bigger crest and a bigger score (the CSS side).
-  function muTeamHead(T, id, mine, tot, proj, rem, sideCls, star) {
+  function muTeamHead(T, id, mine, tot, proj, rem, sideCls, star, sub) {
     // S3: the whole side carries its team's palette (crest disc, the score block's tint band,
     // the name's ink). The LIVE/Final badge keeps the app's own verdict colours.
     // `star` (RULE 2, 2026-08-20) is the clinch star markup or "" — absolutely positioned by
     // its own stylesheet rule, so a clinched side's header is not one pixel taller than an
     // undecided one.
+    // `sub` is an optional override for the to-play line — a browsed past/future
+    // week has no live remaining clock, so the caller passes "Final" / "Upcoming".
     const starWrap = star ? `<span class="clinchwrap" title="Clinched — cannot be caught">${star}</span>` : "";
+    const subLine = sub != null ? sub : `${rem.left} to play · ${rem.playing} live`;
     return `<div class="muhteam${sideCls}" style="${esc(LG.teamStyle(T || {}))}">
       ${starWrap}
       <div class="muhtop">${avatarHtml(T, id === mine)}
         <div class="muhscore"><span class="bigpts">${LG.fmtPts(tot)}</span><span class="mut muhproj">${LG.fmtPts(proj)}</span></div></div>
       <b class="teamlink muhname tname big" data-locker="${id}" title="${esc(T?.name || "?")}">${esc(T?.name || "?")}</b>
-      <div class="mut muhsub">${rem.left} to play · ${rem.playing} live</div></div>`;
+      <div class="mut muhsub">${esc(subLine)}</div></div>`;
   }
   // FIT, DON'T CLIP (2026-08-11, user: "instead of cutting off text it adjusts text size…
   // two rows and centered, that way we can see even the long names"). A hero name starts at
@@ -3130,6 +3138,7 @@
     document.querySelectorAll("[data-mu]").forEach((el) => el.addEventListener("click", () => {
       const wk = Number(el.dataset.wk);
       if (wk) UI.week = wk;
+      UI._muWeek = null;
       UI.matchup = el.dataset.mu.split("-").map(Number);
       UI.go("matchup");
     }));
@@ -4154,7 +4163,10 @@
     if (want === UI.week) return false;
     UI.week = want;
     UI.matchup = null;
+    UI._muWeek = null;
     UI._muWeekGames = null;
+    UI._muRosters = null;
+    UI._muWeekly = null;
     UI._scoresWeek = null;
     if (UI.view) UI.show(UI.view);
     return true;
@@ -4234,6 +4246,68 @@
   setInterval(UI._forePulse, 1000);
 
   // ---------------- matchup (the heart) ----------------
+  // WEEK CYCLING (2026-09-16): UI._muWeek === null means NOW — this week's live
+  // pairing, polling as ever. Any other value is a BROWSED GFFL week. Browsing
+  // never writes UI.week (locker / Moves / waivers stay on the live week) and
+  // never polls. Past weeks read weekly totals when the record exists; future
+  // weeks show "—". The nav is a thin strip, not a .card, so the first card
+  // on the page stays .muhead (section TL).
+  function matchupTotalWeeks() { return ((LG.rules && LG.rules.seasonWeeks) || 14) + 3; }
+  function matchupShownWeek() { return UI._muWeek == null ? UI.week : UI._muWeek; }
+  function matchupBrowsing() { return UI._muWeek != null; }
+  // In-memory copy-forward — ensureRoster would WRITE a convenience roster
+  // doc for a week the reader only peeked at. A matchup browse is a page
+  // turn, not a lineup edit.
+  async function loadRostersFor(week) {
+    await LG.db.list("roster");
+    const out = {};
+    await Promise.all(LG.teams.map(async (t) => {
+      let p = await LG.loadRoster(week, t.id);
+      for (let w = week - 1; w >= 1 && !p; w--) p = await LG.loadRoster(w, t.id);
+      out[t.id] = p || [];
+    }));
+    return out;
+  }
+  function muRosterOf(teamId) {
+    if (matchupBrowsing() && UI._muRosters) return UI._muRosters[teamId] || [];
+    return (UI._rosters && UI._rosters[teamId]) || [];
+  }
+  function muStartersOf(teamId) {
+    return muRosterOf(teamId).filter((p) => p.slot !== "BENCH" && p.slot !== "IR");
+  }
+  function muBenchOf(teamId) {
+    return muRosterOf(teamId).filter((p) => p.slot === "BENCH");
+  }
+  function muWeekNavHtml() {
+    const shown = matchupShownWeek(), total = matchupTotalWeeks();
+    const browsing = matchupBrowsing();
+    const weekly = UI._muWeekly;
+    const tag = browsing
+      ? (weekly ? " · final" : (shown > UI.week ? " · upcoming" : ""))
+      : " · live";
+    return `<div class="muweeknav" id="muWeekNav">
+      <button type="button" id="muPrev" ${shown <= 1 ? "disabled" : ""} aria-label="Previous week">‹</button>
+      <b class="muweeklabel">Week ${shown}${tag}</b>
+      ${browsing ? '<button type="button" id="muNow">Now</button>' : ""}
+      <button type="button" id="muNext" ${shown >= total ? "disabled" : ""} aria-label="Next week">›</button>
+    </div>`;
+  }
+  function stepMuWeek(delta) {
+    const total = matchupTotalWeeks();
+    const next = Math.max(1, Math.min(total, matchupShownWeek() + delta));
+    UI._muWeek = next === UI.week ? null : next;
+    UI.matchup = null;
+    UI._muWeekGames = null;
+    UI._muRosters = null;
+    UI._muWeekly = null;
+    stopChatPoll();
+    renderMatchup();
+  }
+  function wireMuWeekNav() {
+    wireOnce($("#muPrev"), () => stepMuWeek(-1));
+    wireOnce($("#muNext"), () => stepMuWeek(1));
+    wireOnce($("#muNow"), () => { UI._muWeek = null; UI.matchup = null; UI._muWeekGames = null; UI._muRosters = null; UI._muWeekly = null; stopChatPoll(); renderMatchup(); });
+  }
   // LG.gamesForWeek, not the raw schedule directly — during a playoff week (S7) that's the
   // bracket's own resolved pairings (a bye seed, or a not-yet-resolved slot, genuinely has no
   // matchup this week, which the "no matchup" fallback below already renders honestly).
@@ -4241,6 +4315,13 @@
     const mine = LG.myTeamId();
     if (!mine) return null;
     const wk = await LG.gamesForWeek(UI.week);
+    return wk.find(([h, a]) => h === mine || a === mine) || wk[0] || null;
+  }
+  async function myMatchupFor(week) {
+    const wk = (await LG.gamesForWeek(week)) || [];
+    if (!wk.length) return null;
+    const mine = LG.myTeamId();
+    if (!mine) return wk[0] || null;
     return wk.find(([h, a]) => h === mine || a === mine) || wk[0] || null;
   }
   // STRICT variant for "In this game" (2026-08-22 restage): the Matchup TAB deliberately falls
@@ -4259,13 +4340,20 @@
   // Cached on the week so a live morph can patch scores without another
   // gamesForWeek await in the poll tail (the clinch-demo extra-microtask note).
   async function weekPairings(force) {
-    if (!force && UI._muWeekGames && UI._muWeekGames.week === UI.week) return UI._muWeekGames.games;
-    const games = (await LG.gamesForWeek(UI.week)) || [];
-    UI._muWeekGames = { week: UI.week, games };
+    const shown = matchupShownWeek();
+    if (!force && UI._muWeekGames && UI._muWeekGames.week === shown) return UI._muWeekGames.games;
+    const games = (await LG.gamesForWeek(shown)) || [];
+    UI._muWeekGames = { week: shown, games };
     return games;
   }
   function muPairKey(h, a) { return h + "-" + a; }
-  function muSwitchInner(games, open) {
+  function muPairScore(h, a, weekly) {
+    if (!matchupBrowsing()) return LG.fmtPts(liveTotal(a)) + "–" + LG.fmtPts(liveTotal(h));
+    const m = weekly && (weekly.matchups || []).find((x) => x.home === h && x.away === a);
+    if (m) return LG.fmtPts(m.awayPts) + "–" + LG.fmtPts(m.homePts);
+    return LG.fmtPts(null) + "–" + LG.fmtPts(null);
+  }
+  function muSwitchInner(games, open, weekly) {
     const list = games || [];
     if (list.length < 2) return "";
     const openKey = open ? muPairKey(open[0], open[1]) : "";
@@ -4277,7 +4365,7 @@
       const isMine = mine && (h === mine || a === mine);
       return `<button type="button" class="muswitch${isOpen ? " on" : ""}${isMine ? " mine" : ""}" data-mu="${h}-${a}">
         <span class="musw-a">${esc(teamTag(A))}</span>
-        <span class="musw-sc">${LG.fmtPts(liveTotal(a))}–${LG.fmtPts(liveTotal(h))}</span>
+        <span class="musw-sc">${muPairScore(h, a, weekly)}</span>
         <span class="musw-h">${esc(teamTag(H))}</span>
       </button>`;
     }).join("");
@@ -4360,27 +4448,40 @@
   }
   UI.renderMatchup = renderMatchup;
   async function renderMatchup(repaint) {
-    if (!UI.matchup) UI.matchup = await myMatchupThisWeek();
-    if (!UI.matchup) { main().innerHTML = `<div class="card"><p class="mut">No matchup — schedule missing.</p></div>`; return; }
+    const shown = matchupShownWeek();
+    const browsing = matchupBrowsing();
+    if (!repaint && browsing) {
+      UI._muRosters = await loadRostersFor(shown);
+      UI._muWeekly = await LG.loadWeekly(shown);
+    }
+    if (!UI.matchup) UI.matchup = await myMatchupFor(shown);
+    if (!UI.matchup) {
+      main().innerHTML = `${muWeekNavHtml()}<div class="card"><p class="mut">No matchup — schedule missing.</p></div>`;
+      wireMuWeekNav();
+      return;
+    }
     if (!repaint) {
-      await loadWeekRosters();
-      if (typeof LG.sampleMatchupWinProbs === "function") await LG.sampleMatchupWinProbs().catch(() => {});
-      if (typeof LG.loadWpGraph === "function") await LG.loadWpGraph(UI.week).catch(() => {});
+      if (!browsing) {
+        await loadWeekRosters();
+        if (typeof LG.sampleMatchupWinProbs === "function") await LG.sampleMatchupWinProbs().catch(() => {});
+        if (typeof LG.loadWpGraph === "function") await LG.loadWpGraph(UI.week).catch(() => {});
+      }
       await weekPairings(true);
     }
     const d = D();
-    simProjEnsureAndRepaint("matchup"); // 2025 season replay — see startData()
+    if (!browsing) simProjEnsureAndRepaint("matchup"); // 2025 season replay — see startData()
     const [hId, aId] = UI.matchup;
     const muKey = hId + "-" + aId;
     if (!repaint || UI._h2hKey !== muKey) { UI._h2h = await LG.headToHead(hId, aId); UI._h2hKey = muKey; }
     const H = LG.teamById(hId), A = LG.teamById(aId);
-    const hs = teamStarters(hId), as_ = teamStarters(aId);
+    const hs = browsing ? muStartersOf(hId) : teamStarters(hId);
+    const as_ = browsing ? muStartersOf(aId) : teamStarters(aId);
     const hKeys = hs.map((p) => p.key), aKeys = as_.map((p) => p.key);
     // ?demo=ember/loot — arm the look-only score override against the VIEWER'S OWN starters,
     // before the totals and the win bar are summed, so a demo big game moves the whole card the
     // way a real one would. A no-op without the URL param (or under ?demo=clinch, which arms
     // through ensureClinchDemo instead), and finalizeWeek refuses while either is set.
-    if (d.demoActive) { const own = LG.myTeamId(); d.demoArm(own === hId ? hKeys : own === aId ? aKeys : aKeys); }
+    if (!browsing && d.demoActive) { const own = LG.myTeamId(); d.demoArm(own === hId ? hKeys : own === aId ? aKeys : aKeys); }
     // ?demo=clinch only — the guard is read SYNCHRONOUSLY here, before ever reaching an `await`,
     // so an ordinary render (no demo active — the overwhelming majority) suspends NOWHERE new.
     // A render function that used to run its whole synchronous tail in one go (after its own
@@ -4388,29 +4489,37 @@
     // in that tail is what let a concurrent poll repaint interleave and corrupt shared state
     // (`UI._rosters`) mid-build — found empirically, not theorized (see the dated note on
     // ensureClinchDemo's own definition).
-    if (d.demoActive && d.demoActive() && d.demo && d.demo.kind === "clinch") await ensureClinchDemo();
-    const hTot = liveTotal(hId), aTot = liveTotal(aId);
+    if (!browsing && d.demoActive && d.demoActive() && d.demo && d.demo.kind === "clinch") await ensureClinchDemo();
+    const weeklyRow = browsing
+      ? ((UI._muWeekly && UI._muWeekly.matchups) || []).find((x) => x.home === hId && x.away === aId)
+      : null;
+    const hTot = browsing ? (weeklyRow ? weeklyRow.homePts : null) : liveTotal(hId);
+    const aTot = browsing ? (weeklyRow ? weeklyRow.awayPts : null) : liveTotal(aId);
     // RULE 2 — mathematical finality: "A" = home clinched, "B" = away clinched. Computed off the
     // same starter slots/D.livePts/D.gameDone the rest of this page already reads, so the star
     // can never disagree with the score it is standing next to.
-    const decided = matchupDecidedFor(hId, aId);
+    const decided = browsing ? { winner: null } : matchupDecidedFor(hId, aId);
     const hStar = decided.winner === "A" ? clinchStarHtml() : "";
     const aStar = decided.winner === "B" ? clinchStarHtml() : "";
-    const wp = d.winProb(aKeys, hKeys); // away perspective, bar shows both
-    const hRem = d.remaining(hKeys), aRem = d.remaining(aKeys);
+    const wp = browsing ? 0.5 : d.winProb(aKeys, hKeys); // away perspective, bar shows both
+    const hRem = browsing ? { left: 0, playing: 0 } : d.remaining(hKeys);
+    const aRem = browsing ? { left: 0, playing: 0 } : d.remaining(aKeys);
     // Expected finish — the same D.liveProj sum D.winProb already weighs. Weekly
     // paper (D.projFor) can still favor the other side after Thursday; those two
     // used to sit on the same card and disagree about who was ahead.
     const projSum = (keys) => keys.reduce((s, k) => s + LG.n(d.liveProj(k)), 0);
-    const hProj = projSum(hKeys), aProj = projSum(aKeys);
+    const hProj = browsing ? null : projSum(hKeys);
+    const aProj = browsing ? null : projSum(aKeys);
     const mine = LG.myTeamId();
+    const headSub = browsing ? (weeklyRow ? "Final" : (shown > UI.week ? "Upcoming" : "")) : null;
     // (The "owner · record" line and its loadStandings() read left with the 2026-08-11
     // cosmetic pass — the standings table remains the one place a record is stated.)
     const rows = pairBySlots(as_, hs);
     // Item 3 (2026-08-08): bench, in the same symmetric two-sided layout as the starters —
     // paired by roster order (bench has no fixed slot names to line up by), padded to whichever
     // side has more bench players so both columns stay the same length.
-    const aBench = teamBench(aId), hBench = teamBench(hId);
+    const aBench = browsing ? muBenchOf(aId) : teamBench(aId);
+    const hBench = browsing ? muBenchOf(hId) : teamBench(hId);
     const benchRows = pairByIndex(aBench, hBench);
     // The feed (2026-08-09 playtest: "the feed needs to be a scrollable box and has to
     // indicate which team each feed item is from, maybe the ability to pick the team").
@@ -4429,7 +4538,7 @@
     if (UI._feedKey !== muKey) { UI._feedKey = muKey; UI._feedSide = "both"; }
     const fside = UI._feedSide || "both";
     const fchip = (v, label) => `<button type="button" class="poschip ${fside === v ? "on" : ""}" data-fside="${v}">${esc(label)}</button>`;
-    const threadKey = `w${UI.week}_${hId}-${aId}`;
+    const threadKey = `w${shown}_${hId}-${aId}`;
     // COSMETIC PASS (2026-08-11, user markup): the win-probability bar leaves the narrow
     // middle column and stretches the FULL card width where the all-time-series line used to
     // sit, each end filled with THAT team's own primary meeting at the split — the one place
@@ -4439,7 +4548,7 @@
     const wpPct = Math.round(wp * 100);
     // "Known" needs BOTH rosters to exist — a probability against a side with no starters is
     // the half-and-half claim the .mini bar's unknown state was invented to refuse.
-    const counted = aKeys.length > 0 && hKeys.length > 0;
+    const counted = !browsing && aKeys.length > 0 && hKeys.length > 0;
     const pa = LG.teamPalette(A || {}), ph = LG.teamPalette(H || {});
     const wideBar = counted
       ? `<div class="mupbarrow"><b class="mupct">${wpPct}%</b>
@@ -4459,21 +4568,24 @@
     // crests never flash, the trash-talk composer keeps its text and focus, and no listener is
     // ever bound twice (the repaint branch deliberately re-runs ONLY the dataset-guarded
     // wirePlayerCardTaps, for rows the morph genuinely created).
-    const weekGames = (UI._muWeekGames && UI._muWeekGames.week === UI.week) ? UI._muWeekGames.games : [];
-    const muSwitchHtml = muSwitchInner(weekGames, UI.matchup);
+    const weekGames = (UI._muWeekGames && UI._muWeekGames.week === shown) ? UI._muWeekGames.games : [];
+    const muSwitchHtml = muSwitchInner(weekGames, UI.matchup, UI._muWeekly);
     const muHeadInner = `
         <div class="muhrow">
-          ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "", aStar)}
+          ${muTeamHead(A, aId, mine, aTot, aProj, aRem, "", aStar, headSub)}
           <div class="muhmid"></div>
-          ${muTeamHead(H, hId, mine, hTot, hProj, hRem, " right", hStar)}
+          ${muTeamHead(H, hId, mine, hTot, hProj, hRem, " right", hStar, headSub)}
         </div>
-        <div class="mut small mupweek">Week ${UI.week}</div>
+        <div class="mut small mupweek">Week ${shown}${browsing ? (weeklyRow ? " · final" : (shown > UI.week ? " · upcoming" : "")) : " · live"}</div>
         ${wideBar}
         <div class="rowline"><span id="healthChip" class="health" hidden></span></div>`;
-    const muLineupInner = `<div class="rowline muplayline">
+    const playLine = browsing
+      ? `<div class="rowline muplayline"><span class="mut muhsub">${esc(headSub || "")}</span><span class="mut muhsub">${esc(headSub || "")}</span></div>`
+      : `<div class="rowline muplayline">
           <span class="mut muhsub">${aRem.left} to play · ${aRem.playing} live</span>
           <span class="mut muhsub">${hRem.left} to play · ${hRem.playing} live</span>
-        </div><div class="panner"><table class="tbl slottable mutable">
+        </div>`;
+    const muLineupInner = `${playLine}<div class="panner"><table class="tbl slottable mutable">
         <tbody>${rows.map(([pa, slot, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
           <td class="slotcell" data-pos="${slotPos(slot)}">${slotBadge(slot)}</td>
@@ -4484,8 +4596,8 @@
           <td class="pcell right">${totalHalfCell(hTot, "right")}</td>
         </tr></tfoot>
       </table></div>`;
-    const wpProj = d.winProbFromProj ? d.winProbFromProj(aKeys, hKeys) : wp;
-    const muWpInner = matchupWinGraphHtml(hId, aId, wp, A, H, wpProj);
+    const wpProj = browsing ? null : (d.winProbFromProj ? d.winProbFromProj(aKeys, hKeys) : wp);
+    const muWpInner = browsing ? "" : matchupWinGraphHtml(hId, aId, wp, A, H, wpProj);
     const muBenchInner = (aBench.length || hBench.length) ? `<h2>Bench</h2><div class="panner"><table class="tbl slottable mutable benchtable"><tbody>
         ${benchRows.map(([pa, ph]) => `<tr>
           <td class="pcell">${halfCell(pa, "left")}</td>
@@ -4520,13 +4632,14 @@
       return;
     }
     main().innerHTML = `
+      ${muWeekNavHtml()}
       <div class="muswitchrow" id="muSwitch"${muSwitchHtml ? "" : " hidden"}>${muSwitchHtml}</div>
       <div class="card muhead muhero" id="muHead" style="--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tta:${esc(pa.tertiary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)};--tth:${esc(ph.tertiary)}">${muHeadInner}</div>
       <div class="card muwpcard" id="muWp"${muWpInner ? "" : " hidden"}>${muWpInner}</div>
       <div class="card lineupcard" id="muLineup">${muLineupInner}</div>
       ${muBenchInner ? `<div class="card lineupcard" id="muBench">${muBenchInner}</div>` : ""}
       ${h2hLine(UI._h2h, H, A) /* cosmetic pass 2026-08-11: the all-time series reads BELOW the player matchups now */}
-      <div class="card"><h2>The feed</h2>
+      ${browsing ? "" : `<div class="card"><h2>The feed</h2>
         <div class="poschips feedfilter" id="mufeedFilter">
           ${fchip("both", "Both")}${fchip("a", UI._feedTeams.a)}${fchip("h", UI._feedTeams.h)}
         </div>
@@ -4534,9 +4647,10 @@
       <div class="card" id="aiReadCard"><h2>AI read</h2>
         <button id="aiReadBtn" ${UI._aiRead && UI._aiRead.busy ? "disabled" : ""}>${UI._aiRead && UI._aiRead.busy ? "Reading the game…" : "Get an AI read"}</button>
         <div id="aiReadOut">${aiReadHtml()}</div>
-      </div>
+      </div>`}
       <div class="card"><h2>Trash talk</h2>${chatWidgetHtml("muThread")}</div>`;
-    paintFeed();
+    if (!browsing) paintFeed();
+    wireMuWeekNav();
     wireMuSwitch();
     document.querySelectorAll("#mufeedFilter .poschip").forEach((b) => b.addEventListener("click", () => {
       UI._feedSide = b.dataset.fside;
@@ -4877,6 +4991,12 @@
       // The empty half carries the crest's 14px slot too, so its "Empty" label starts at the
       // same x as every real name in the column — the point of the whole even-row rule.
       nameHtml = '<span class="plogo plogoph" aria-hidden="true"></span><b class="mut">Empty</b>';
+      metaHtml = ""; statHtml = "";
+      ptsHtml = '<span class="pts mut">—</span>'; projHtml = "";
+    } else if (matchupBrowsing()) {
+      // A browsed week is a page, not a feed — livePts / the NFL clock belong
+      // to THIS week's slate and would lie about a past or future lineup.
+      nameHtml = `${plogoHtml(p.team)}<b title="${esc(LG.shortName(p.name) + " · " + p.pos + " · " + p.team)}">${escn(p.name)}</b>`;
       metaHtml = ""; statHtml = "";
       ptsHtml = '<span class="pts mut">—</span>'; projHtml = "";
     } else {
@@ -7996,12 +8116,57 @@
   // either a tap on "Turn off", or the browser itself refusing the permission prompt — and
   // enrollment respects it forever until alerts are turned back on.
   const PUSH_OPTOUT_KEY = "gffl_pushoptout";
+  const NOTIF_PREFS_KEY = "gffl_notifprefs";
+  // Per-type mutes. Missing / [] = every kind ON (the default-on ruling). The
+  // same list is written onto the token doc as gfflMutes so notify.mjs can
+  // filter without a second round trip back to the phone.
+  const ALERT_KIND_ROWS = [
+    { kind: "trade", label: "Trades" },
+    { kind: "waivers", label: "Waivers" },
+    { kind: "recap", label: "Week recaps" },
+    { kind: "injury", label: "Injuries" },
+    { kind: "mention", label: "Chat mentions" },
+    { kind: "chat", label: "League chat" },
+    { kind: "smack", label: "Matchup trash talk" },
+  ];
+  function notifMutes() {
+    try {
+      const raw = localStorage.getItem(NOTIF_PREFS_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(arr)) return [];
+      const allow = new Set(ALERT_KIND_ROWS.map((r) => r.kind));
+      return arr.filter((k) => allow.has(k));
+    } catch (e) { return []; }
+  }
+  function setNotifMutes(arr) {
+    const next = Array.isArray(arr) ? arr.slice() : [];
+    try { localStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(next)); }
+    catch (e) { /* private mode — prefs live for this session only */ }
+    const P = window.BuckyPush;
+    if (P && typeof P.updateExtra === "function") {
+      P.updateExtra({ gfflMutes: next }).catch(() => {});
+    }
+    return next;
+  }
+  function toggleNotifMute(kind) {
+    const have = new Set(notifMutes());
+    if (have.has(kind)) have.delete(kind); else have.add(kind);
+    return setNotifMutes([...have]);
+  }
+  function leaguePushExtra(teamId) {
+    const extra = { gfflTeam: teamId };
+    const mutes = notifMutes();
+    if (mutes.length) extra.gfflMutes = mutes;
+    return extra;
+  }
   function pushOptedOut() { try { return localStorage.getItem(PUSH_OPTOUT_KEY) === "1"; } catch (e) { return false; } }
   function setPushOptedOut(v) {
     try { if (v) localStorage.setItem(PUSH_OPTOUT_KEY, "1"); else localStorage.removeItem(PUSH_OPTOUT_KEY); }
     catch (e) { /* private mode — the sticky flag just doesn't stick this session */ }
   }
   UI._pushOptedOut = pushOptedOut; // test hook
+  UI._notifMutes = notifMutes;
+  UI._toggleNotifMute = toggleNotifMute;
   // Called from claimTeam, UNAWAITED — deliberately fire-and-forget, the same house rule S4's
   // own producers already follow (notify calls never able to delay or break the action that
   // triggered them). Awaiting this here would mean a slow FCM round trip — or a hung getToken()
@@ -8022,7 +8187,7 @@
       if (e.onTeam != null) return; // this device already carries a gfflTeam enrollment (this
                                      // team or another one) — cross-app courtesy point 4
       if (pushOptedOut()) return;   // this device said "Turn off" (or the browser said no) before
-      await window.BuckyPush.enable(nm || LG.who() || T.name, LG.famKey, null, { gfflTeam: T.id });
+      await window.BuckyPush.enable(nm || LG.who() || T.name, LG.famKey, null, leaguePushExtra(T.id));
       toast("Alerts are on for " + (T.name || "your team") + " on this phone.");
     } catch (err) {
       // The one failure worth remembering: a real browser-level denial. Anything else (offline,
@@ -8048,9 +8213,17 @@
         <p class="mut small">This browser can't do push notifications.</p></div>`;
     }
     if (e.onTeam === T.id) {
+      const muted = new Set(notifMutes());
+      const rows = ALERT_KIND_ROWS.map((r) => {
+        const on = !muted.has(r.kind);
+        return `<button type="button" class="alertkind${on ? " on" : ""}" role="switch" aria-checked="${on ? "true" : "false"}" data-kind="${esc(r.kind)}">
+          <span class="alertkind-lab">${esc(r.label)}</span>
+          <span class="alertkind-sw" aria-hidden="true">${on ? "On" : "Off"}</span>
+        </button>`;
+      }).join("");
       return `<div class="card alertcard" id="alertCard">${head}
         <p class="small">Alerts are on for ${esc(T.name)} on this phone.</p>
-        <p class="mut small">Trade offers, waiver results, week recaps and chat mentions.</p>
+        <div class="alertkinds" id="alertKinds">${rows}</div>
         <div class="alertrow"><button id="alertOff">Turn off</button>
           <span class="mut small">That turns off every Bucky alert on this phone.</span></div></div>`;
     }
@@ -8064,7 +8237,7 @@
     }
     return `<div class="card alertcard" id="alertCard">${head}
       <p class="small">Get league alerts on this phone.</p>
-      <p class="mut small">Trade offers, waiver results, week recaps and chat mentions. Nothing else.</p>
+      <p class="mut small">Trades, waivers, recaps, injuries, mentions, league chat and matchup trash talk. Each kind can be turned off after you enroll.</p>
       <div class="alertrow"><button id="alertOn" class="primary">Turn on league alerts</button></div></div>`;
   }
   function wireAlertsCard(T) {
@@ -8075,7 +8248,7 @@
         // `user` keeps the family app's own targeting working on this device — a phone that
         // gets chore reminders as "Isaac" keeps getting them. gfflTeam is what every S4 send
         // selects on, and setDoc merges, so neither audience displaces the other.
-        await window.BuckyPush.enable(LG.who() || T.name, LG.famKey, null, { gfflTeam: T.id });
+        await window.BuckyPush.enable(LG.who() || T.name, LG.famKey, null, leaguePushExtra(T.id));
         setPushOptedOut(false); // an explicit "Turn on" clears any earlier "Turn off" or denial
         toast("Alerts are on for " + T.name + " on this phone.");
         renderLocker();
@@ -8088,6 +8261,18 @@
       off.disabled = true;
       try { await window.BuckyPush.disable(); setPushOptedOut(true); toast("Alerts are off on this phone."); renderLocker(); }
       catch (err) { off.disabled = false; toast("Couldn't turn alerts off."); }
+    });
+    document.querySelectorAll("#alertKinds .alertkind").forEach((b) => {
+      b.addEventListener("click", () => {
+        const kind = b.dataset.kind;
+        if (!kind) return;
+        const muted = new Set(toggleNotifMute(kind));
+        const isOn = !muted.has(kind);
+        b.classList.toggle("on", isOn);
+        b.setAttribute("aria-checked", isOn ? "true" : "false");
+        const sw = b.querySelector(".alertkind-sw");
+        if (sw) sw.textContent = isOn ? "On" : "Off";
+      });
     });
   }
 
