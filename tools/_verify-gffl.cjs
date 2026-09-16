@@ -27688,8 +27688,9 @@ async function openDetails(page, id) {
           claims: ((document.querySelector("#mvMyClaims") || {}).textContent || "").replace(/\s+/g, " ").trim(),
           cancel: !!document.querySelector(".pendcard .mvcancel"),
           heading: /Your waiver claims/.test(txt),
-          veleInPend: /Devaughn Vele|Kyler Murray/.test(txt),
-          won: !!(results && /Won Devaughn Vele/.test(results.textContent || "")),
+          veleInPend: /Devaughn Vele|Kyler Murray|D\.\s*Vele|K\.\s*Murray/.test(txt),
+          won: !!(results && /Won\s+(Devaughn Vele|D\.\s*Vele)/.test((results.textContent || "").replace(/\s+/g, " "))),
+          resultTxt: results ? (results.textContent || "").replace(/\s+/g, " ").trim() : "",
           resultsInPend: !!(card && card.querySelector("#mvResults")),
         };
       }) || {};

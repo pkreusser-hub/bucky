@@ -8536,5 +8536,10 @@ Scripts cache-bust `?v=20260916f`.
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY:** counts filled after the suite.
+**VERIFY:** `--only TP,TQ` **38/38**. Bite vs `origin/main`
+(app files at main, new suite kept): `--only TQ` **5/4**.
+The 4 are the quiet My pending line, results sitting
+under Waivers, and the live week-2 snapshot (HEAD still
+lists D. Vele with Cancel inside My pending). App files
+restored.
 
