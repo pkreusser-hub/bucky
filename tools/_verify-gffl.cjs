@@ -27226,10 +27226,10 @@ async function openDetails(page, id) {
 
       const incoming = await evalOr(page, async (draft) => {
         await window.__GFFL__.LG.postChat({ text: "someone else spoke" });
-        window.__GFFL__.UI.quietRepaint("chat");
+        await window.__GFFL__.UI.quietRepaint("chat");
         const t = document.getElementById("chatText");
-        const list = ((document.getElementById("chatList") || {}).textContent || "");
-        return { draft: t ? t.value : "", saw: /someone else spoke/.test(list) };
+        const list = ((document.getElementById("chatList") || {}).textContent || "").replace(/\s+/g, " ");
+        return { draft: t ? t.value : "", saw: /someone else spoke/.test(list), list };
       }, draft) || {};
       ok(incoming.draft === draft,
         "an incoming line still does not wipe the draft");

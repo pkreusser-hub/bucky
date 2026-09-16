@@ -933,8 +933,7 @@
     // in the league, every 15s doc sync — wiped a half-typed line. The 8s
     // chat poll already refreshes the LIST only. Ride that path.
     if (UI.view === "chat") {
-      refreshChatList("chat", null).catch(() => {});
-      return;
+      return refreshChatList("chat", null).catch(() => {});
     }
     UI.show(UI.view);
   };

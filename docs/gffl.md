@@ -8381,6 +8381,12 @@ Scripts cache-bust `?v=20260916b`.
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY:** quoted after the suite run.
+**VERIFY:** `--only TO` **7/7**. Bite vs `origin/main`
+(app files at main, new suite kept): **1/6**. The six
+new draft/list/remount assertions fail there —
+HEAD's `quietRepaint` rebuilds the textarea, so the
+typed line is gone and the node is new. The
+pre-existing 0-page-error check stays green. App
+files restored, hashes identical.
 ---
 
