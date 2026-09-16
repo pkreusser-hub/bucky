@@ -8179,9 +8179,11 @@
   // enrollment respects it forever until alerts are turned back on.
   const PUSH_OPTOUT_KEY = "gffl_pushoptout";
   const NOTIF_PREFS_KEY = "gffl_notifprefs";
-  // Per-type mutes. Missing / [] = every kind ON (the default-on ruling). The
-  // same list is written onto the token doc as gfflMutes so notify.mjs can
-  // filter without a second round trip back to the phone.
+  // Per-type mutes. Missing prefs seed every default-off kind (today: moves)
+  // so muting chat writes ["moves","chat"] and does not accidentally opt the
+  // phone into roster-move spam. Saved [] is the explicit all-on — they
+  // turned League moves on. The same list is written onto the token doc as
+  // gfflMutes so notify.mjs can filter without a second round trip.
   const ALERT_KIND_ROWS = [
     { kind: "trade", label: "Trades" },
     { kind: "waivers", label: "Waivers" },
@@ -8190,15 +8192,20 @@
     { kind: "mention", label: "Chat mentions" },
     { kind: "chat", label: "League chat" },
     { kind: "smack", label: "Matchup trash talk" },
+    { kind: "moves", label: "League moves", defaultOn: false },
   ];
+  function defaultOffKinds() {
+    return ALERT_KIND_ROWS.filter((r) => r.defaultOn === false).map((r) => r.kind);
+  }
   function notifMutes() {
     try {
       const raw = localStorage.getItem(NOTIF_PREFS_KEY);
-      const arr = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(arr)) return [];
+      if (raw == null || raw === "") return defaultOffKinds();
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return defaultOffKinds();
       const allow = new Set(ALERT_KIND_ROWS.map((r) => r.kind));
       return arr.filter((k) => allow.has(k));
-    } catch (e) { return []; }
+    } catch (e) { return defaultOffKinds(); }
   }
   function setNotifMutes(arr) {
     const next = Array.isArray(arr) ? arr.slice() : [];
@@ -8216,10 +8223,9 @@
     return setNotifMutes([...have]);
   }
   function leaguePushExtra(teamId) {
-    const extra = { gfflTeam: teamId };
-    const mutes = notifMutes();
-    if (mutes.length) extra.gfflMutes = mutes;
-    return extra;
+    // Always stamp gfflMutes, even []. notify.mjs treats a MISSING field as
+    // off for `moves`; an empty array is the opt-in.
+    return { gfflTeam: teamId, gfflMutes: notifMutes() };
   }
   function pushOptedOut() { try { return localStorage.getItem(PUSH_OPTOUT_KEY) === "1"; } catch (e) { return false; } }
   function setPushOptedOut(v) {
@@ -8299,7 +8305,7 @@
     }
     return `<div class="card alertcard" id="alertCard">${head}
       <p class="small">Get league alerts on this phone.</p>
-      <p class="mut small">Trades, waivers, recaps, injuries, mentions, league chat and matchup trash talk. Each kind can be turned off after you enroll.</p>
+      <p class="mut small">Trades, waivers, recaps, injuries, mentions, league chat and matchup trash talk. League moves stays off until you turn it on.</p>
       <div class="alertrow"><button id="alertOn" class="primary">Turn on league alerts</button></div></div>`;
   }
   function wireAlertsCard(T) {

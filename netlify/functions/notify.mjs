@@ -200,11 +200,11 @@ async function getDeviceTokens(accessToken, familyKey, sel) {
       if (team == null || Number.isNaN(team)) continue; // never enabled league alerts
       if (sel.excludeTeam != null && team === Number(sel.excludeTeam)) continue;
     }
-    // Per-type mute. Missing gfflMutes (every token written before this field
-    // existed) means ON — a new kind must not require a re-enroll. A send
-    // with no kind (the family app, and any older producer) cannot be muted
-    // this way. Parsed inline so the suite's extract of this function still
-    // runs without a sibling helper.
+    // Per-type mute. Missing gfflMutes means ON for every kind except `moves`
+    // (default-off: last night's tokens must not wake up to roster spam).
+    // Empty array is the moves opt-in. A send with no kind (the family app,
+    // and any older producer) cannot be muted this way. Parsed inline so the
+    // suite's extract of this function still runs without a sibling helper.
     if (sel.kind) {
       const rawMutes = fields.gfflMutes;
       const muteVals = rawMutes && rawMutes.arrayValue && rawMutes.arrayValue.values;
@@ -214,7 +214,12 @@ async function getDeviceTokens(accessToken, familyKey, sel) {
           if (v && v.stringValue) mutes.push(v.stringValue);
         }
       }
-      if (mutes.indexOf(sel.kind) >= 0) continue;
+      const defaultOff = sel.kind === "moves";
+      if (defaultOff) {
+        if (!rawMutes || mutes.indexOf(sel.kind) >= 0) continue;
+      } else if (mutes.indexOf(sel.kind) >= 0) {
+        continue;
+      }
     }
     // doc.name looks like: projects/.../documents/pushTokens_fam123/<docId>
     const parts = doc.name.split("/");

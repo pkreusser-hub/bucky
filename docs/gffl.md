@@ -8390,3 +8390,41 @@ pre-existing 0-page-error check stays green. App
 files restored, hashes identical.
 ---
 
+## GFFL — league-moves alerts, default off (2026-09-16)
+
+User: notify the league on any roster move; default is off.
+
+A new kind `moves` sits on the Alerts card as Off until they
+turn it on. `LG.logTx` (fa_add / drop / waiver / trade
+execute or veto) is the single producer: `gfflAll` minus the
+moving team, title "League move", body `LG.movesLine` (the
+core twin of `UI.txSentence`), deep-link `#moves`. Two
+`logTx`s (add + drop) are two pushes — default-off, so that
+is acceptable. Mentions, chat, smack, trades, waivers,
+recaps, and injuries stay default on.
+
+Missing `gfflMutes` cannot mean on for this kind — every
+token written before tonight would wake up to roster spam,
+and muting chat would write `["chat"]` and treat missing
+`moves` as on. Client: no saved prefs seeds `["moves"]`, so
+muting chat writes `["moves","chat"]`. Saved `[]` is the
+opt-in. `leaguePushExtra` always stamps `gfflMutes`, even
+empty — notify.mjs treats a missing field as off for
+`moves` only. Server filter stays inline inside
+`getDeviceTokens`.
+
+AN1 veto, AN2 waivers, and S7 execute restaged: each
+`logTx` adds a moves blast, so the old exact push counts
+are now trade/waivers-plus-moves. TN lists eight kinds,
+seven on, moves off. notify-url: empty-array token is the
+opt-in; a token with no field is skipped.
+
+Scripts cache-bust `?v=20260916c`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`netlify/functions/notify.mjs`, `tools/_verify-gffl.cjs`,
+`tools/_verify-notify-url.mjs`, this file.
+
+**VERIFY:** pending suite + bite.
+---
+

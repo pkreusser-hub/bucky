@@ -16566,21 +16566,32 @@ async function openDetails(page, id) {
       await drain(0);
       ok(notify.calls.length === 0, "three of the four votes needed pushes nobody — the trade is still alive");
       const killed = await page.evaluate((id) => window.__GFFL__.LG.vetoTrade(id, 6), other.trade.id);
-      await drain(2);
+      await drain(3);
       ok(killed && killed.status === "vetoed", "the fourth vote kills it (the action itself)");
-      ok(notify.calls.length === 2, "…and pushes BOTH parties (" + notify.calls.length + " calls)");
-      ok(targets().includes(3) && targets().includes(4), "…each by team id (" + JSON.stringify(targets()) + ")");
-      ok(notify.calls.every((c) => c.title === "Trade vetoed"), "…both titled \"Trade vetoed\"");
+      // RESTAGED 2026-09-16: logTx now also fires kind=moves (gfflAll minus the
+      // moving team). The two Trade-vetoed sends are unchanged.
+      const vetoTrade = notify.calls.filter((c) => c.kind === "trade" || c.title === "Trade vetoed");
+      const vetoMoves = notify.calls.filter((c) => c.kind === "moves");
+      ok(notify.calls.length === 3 && vetoTrade.length === 2 && vetoMoves.length === 1,
+        "…pushes BOTH parties plus the league-moves blast (" + notify.calls.length + " calls)");
+      ok(vetoTrade.some((c) => c.gfflTeam === 3) && vetoTrade.some((c) => c.gfflTeam === 4),
+        "…each party by team id (" + JSON.stringify(targets()) + ")");
+      ok(vetoTrade.every((c) => c.title === "Trade vetoed"), "…both titled \"Trade vetoed\"");
+      ok(vetoMoves[0] && vetoMoves[0].gfflAll === true && vetoMoves[0].excludeTeam === 3,
+        "…and the moves blast is gfflAll minus the from-team (the logTx actor)");
 
-      // …and the same veto on a trade this device IS a party to pushes only the OTHER party.
+      // …and the same veto on a trade this device IS a party to pushes only the OTHER party
+      // for the trade kind — plus the league-moves blast (excludeTeam = from = 2).
       await reset();
       await page.evaluate(async (id) => {
         const LG = window.__GFFL__.LG;
         for (const t of [3, 4, 5, 6]) await LG.vetoTrade(id, t);
       }, toMe.trade.id);
-      await drain(1);
-      ok(notify.calls.length === 1 && targets()[0] === 2,
-        "a veto on MY OWN trade pushes only the other party — self-suppression holds on a two-target send (" + JSON.stringify(targets()) + ")");
+      await drain(2);
+      ok(notify.calls.length === 2
+        && notify.calls.some((c) => (c.kind === "trade" || c.title === "Trade vetoed") && c.gfflTeam === 2)
+        && notify.calls.some((c) => c.kind === "moves" && c.gfflAll === true && c.excludeTeam === 2),
+        "a veto on MY OWN trade pushes the other party (trade) plus moves minus from — RESTAGED 2026-09-16 (" + JSON.stringify(targets()) + ")");
 
       // A failing notify may never cost the action. Both failure shapes: a 500 from the
       // function, and a request that never lands at all.
@@ -16617,11 +16628,17 @@ async function openDetails(page, id) {
       });
       await reset();
       const done = await page.evaluate(() => window.__GFFL__.LG.processWaivers(1));
-      await drain(1);
+      await drain(3);
       ok(done.processed === true, "waivers process (the action itself)");
-      ok(notify.calls.length === 1, "exactly ONE push goes out — one per owner WITH a claim, minus the actor (" + notify.calls.length + ")");
-      const w = last();
-      ok(w.gfflTeam === 2, "…to the only other owner who bid (gfflTeam " + w.gfflTeam + ")");
+      // RESTAGED 2026-09-16: two winning claims each logTx a kind=moves blast,
+      // plus the existing waivers sheet to the other owner. The old "exactly
+      // ONE push" rule counted only the sheet; logTx is now a producer too.
+      const waiverSheet = notify.calls.filter((c) => c.kind === "waivers" || (c.title || "").indexOf("Waivers") === 0);
+      const waiverMoves = notify.calls.filter((c) => c.kind === "moves");
+      ok(notify.calls.length === 3 && waiverSheet.length === 1 && waiverMoves.length === 2,
+        "two winning claims → two moves blasts + the waivers sheet (" + notify.calls.length + ")");
+      const w = waiverSheet[0] || {};
+      ok(w.gfflTeam === 2, "…the sheet goes to the only other owner who bid (gfflTeam " + w.gfflTeam + ")");
       ok(w.title === "Waivers — week 1", "…titled with the week (" + JSON.stringify(w.title) + ")");
       ok(/Won DEN D\/ST for \$5/.test(w.body || ""), "…naming what they WON and what it cost (" + w.body + ")");
       ok(/lost KC D\/ST/.test(w.body || ""), "…and what they lost, in the same line");
@@ -16653,9 +16670,9 @@ async function openDetails(page, id) {
         await LG.addClaim(3, { id: "n4", teamId: 2, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "222111", dropName: "Q. Rival", bid: 4, t: 4 });
       });
       const ran = await page.evaluate(() => window.__GFFL__.LG.processWaivers(3));
-      await drain(1);
-      ok(ran.processed === true && notify.calls.length === 1,
-        "notify answering 500 does not stop waivers from processing (and the call really was attempted)");
+      await drain(2);
+      ok(ran.processed === true && notify.calls.length === 2,
+        "notify answering 500 does not stop waivers from processing — RESTAGED 2026-09-16, one waivers sheet + one moves blast (" + notify.calls.length + ")");
       await reset();
       ok(errors.length === 0, "0 page errors across the waiver producer");
       await ctx.close();
@@ -17611,14 +17628,20 @@ async function openDetails(page, id) {
       const id = await setUp(page);
       await reset(); // the offer + accept pushes are AN's territory, not this check's
       const ex = await page.evaluate((i) => window.__GFFL__.LG.executeTrade(i), id);
-      await drain(2);
+      await drain(3);
       ok(ex && ex.status === "executed", "the trade executes (the action itself)");
-      ok(notify.calls.length === 2, "…and pushes BOTH parties — S4 deliberately left this producer out (" + notify.calls.length + " calls)");
-      ok(targets().includes(1) && targets().includes(2), "…each by team id (" + JSON.stringify(targets()) + ")");
-      ok(notify.calls.every((c) => c.title === "Trade executed"), "…both titled \"Trade executed\"");
-      ok(notify.calls.every((c) => c.url === LEAGUE + "#moves"), "…both deep-linking Moves");
-      const forOne = notify.calls.find((c) => c.gfflTeam === 1) || {};
-      const forTwo = notify.calls.find((c) => c.gfflTeam === 2) || {};
+      // RESTAGED 2026-09-16: execute still pushes both parties (kind=trade);
+      // logTx adds one kind=moves blast for the rest of the league.
+      const exTrade = notify.calls.filter((c) => c.kind === "trade" || c.title === "Trade executed");
+      const exMoves = notify.calls.filter((c) => c.kind === "moves");
+      ok(notify.calls.length === 3 && exTrade.length === 2 && exMoves.length === 1,
+        "…pushes BOTH parties plus the league-moves blast (" + notify.calls.length + " calls)");
+      ok(exTrade.some((c) => c.gfflTeam === 1) && exTrade.some((c) => c.gfflTeam === 2),
+        "…each by team id (" + JSON.stringify(targets()) + ")");
+      ok(exTrade.every((c) => c.title === "Trade executed"), "…both titled \"Trade executed\"");
+      ok(exTrade.every((c) => c.url === LEAGUE + "#moves"), "…both deep-linking Moves");
+      const forOne = exTrade.find((c) => c.gfflTeam === 1) || {};
+      const forTwo = exTrade.find((c) => c.gfflTeam === 2) || {};
       ok(/You sent B\. Backup to End Zone Goats for X\. Wideout\./.test(forOne.body || ""),
         "…and each body is written from THAT owner's side (" + forOne.body + ")");
       ok(/You sent X\. Wideout to Battle Kreussers for B\. Backup\./.test(forTwo.body || ""),
@@ -17644,7 +17667,7 @@ async function openDetails(page, id) {
       });
       await reset(); notify.status = 500;
       const ex2 = await page.evaluate((i) => window.__GFFL__.LG.executeTrade(i), id2);
-      await drain(2);
+      await drain(3);
       const roster = await page.evaluate(() => window.__GFFL__.LG.loadRoster(window.__GFFL__.LG.currentWeek(), 1, { fresh: true }));
       ok(ex2 && ex2.status === "executed" && roster.some((p) => p.key === "222111"),
         "notify answering 500 does not stop the rosters actually swapping (" + (ex2 && (ex2.cancelReason || ex2.status)) + ")");
@@ -17673,9 +17696,11 @@ async function openDetails(page, id) {
       });
       await reset();
       await page.evaluate((i) => window.__GFFL__.LG.executeTrade(i), id);
-      await drain(1);
-      ok(notify.calls.length === 1 && targets()[0] === 2,
-        "executed from a party's OWN device pushes only the other owner — self-suppression holds (" + JSON.stringify(targets()) + ")");
+      await drain(2);
+      ok(notify.calls.length === 2
+        && notify.calls.some((c) => (c.kind === "trade" || c.title === "Trade executed") && c.gfflTeam === 2)
+        && notify.calls.some((c) => c.kind === "moves" && c.gfflAll === true),
+        "executed from a party's OWN device pushes the other owner (trade) plus moves — RESTAGED 2026-09-16 (" + JSON.stringify(targets()) + ")");
       await reset();
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
@@ -26891,10 +26916,11 @@ async function openDetails(page, id) {
     }
   }
 
-  // ================= TN · matchup week scroller + per-type alerts + chat/smack ============
+  // ================= TN · matchup week scroller + per-type alerts + chat/smack + moves ============
   // User: scroll matchup back/forward like Scores (but narrow); toggle alerts
-  // per kind; notify the league on chat and the pairing on matchup trash talk.
-  if (section("TN · matchup week scroller + per-type alerts + chat/smack")) {
+  // per kind; notify the league on chat and the pairing on matchup trash talk;
+  // league-moves alerts default off.
+  if (section("TN · matchup week scroller + per-type alerts + chat/smack + moves")) {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     const last = () => notify.calls[notify.calls.length - 1] || {};
     const drain = async (n) => {
@@ -27088,11 +27114,19 @@ async function openDetails(page, id) {
           emoji: /\p{Extended_Pictographic}/u.test((document.getElementById("alertCard") || {}).textContent || ""),
         };
       }) || {};
-      ok(card.kinds && card.kinds.length === 7 && card.kinds.every((k) => k.on && k.checked === "true" && k.sw === "On"),
-        "the ON card lists every kind, all default on (" + JSON.stringify(card.labels) + ")");
-      ok(card.labels && card.labels.includes("League chat") && card.labels.includes("Matchup trash talk"),
-        "…including league chat and matchup trash talk");
+      const movesRow = (card.kinds || []).find((k) => k.kind === "moves");
+      const otherRows = (card.kinds || []).filter((k) => k.kind !== "moves");
+      ok(card.kinds && card.kinds.length === 8 && otherRows.every((k) => k.on && k.checked === "true" && k.sw === "On"),
+        "the ON card lists every kind, seven default on (" + JSON.stringify(card.labels) + ")");
+      ok(movesRow && movesRow.on === false && movesRow.checked === "false" && movesRow.sw === "Off",
+        "…and League moves is Off until they turn it on");
+      ok(card.labels && card.labels.includes("League chat") && card.labels.includes("Matchup trash talk")
+        && card.labels.includes("League moves"),
+        "…including league chat, matchup trash talk, and league moves");
       ok(card.emoji === false, "…with no emoji in the card");
+      const seeded = await evalOr(page, () => window.__GFFL__.UI._notifMutes());
+      ok(Array.isArray(seeded) && seeded.join() === "moves",
+        "a phone with no saved prefs seeds League moves as muted");
 
       await page.evaluate(() => {
         const b = document.querySelector('.alertkind[data-kind="chat"]');
@@ -27107,9 +27141,9 @@ async function openDetails(page, id) {
           calls: window.__pushCalls || [],
         };
       }) || {};
-      ok(muted.on === false && muted.sw === "Off" && muted.prefs === '["chat"]',
-        "turning League chat off flips the switch and writes gffl_notifprefs");
-      ok(muted.calls && muted.calls.some((c) => c.kind === "updateExtra" && c.extra && JSON.stringify(c.extra.gfflMutes) === '["chat"]'),
+      ok(muted.on === false && muted.sw === "Off" && muted.prefs === '["moves","chat"]',
+        "turning League chat off writes [moves,chat] — muting chat must not opt them into moves");
+      ok(muted.calls && muted.calls.some((c) => c.kind === "updateExtra" && c.extra && JSON.stringify(c.extra.gfflMutes) === '["moves","chat"]'),
         "…and BuckyPush.updateExtra stamps gfflMutes on the token doc");
 
       await page.evaluate(() => {
@@ -27125,8 +27159,26 @@ async function openDetails(page, id) {
           mutes: last && last.extra && last.extra.gfflMutes,
         };
       }) || {};
-      ok(back.on === true && back.prefs === "[]" && Array.isArray(back.mutes) && back.mutes.length === 0,
-        "turning it back on writes an empty mute list — missing/empty means every kind is on");
+      ok(back.on === true && back.prefs === '["moves"]' && Array.isArray(back.mutes) && back.mutes.join() === "moves",
+        "turning chat back on leaves [moves] — League moves stays default-off");
+
+      await page.evaluate(() => {
+        const b = document.querySelector('.alertkind[data-kind="moves"]');
+        if (b) b.click();
+      });
+      const movedOn = await evalOr(page, () => {
+        const b = document.querySelector('.alertkind[data-kind="moves"]');
+        const last = (window.__pushCalls || []).filter((c) => c.kind === "updateExtra").pop();
+        return {
+          on: b && b.classList.contains("on"),
+          sw: b && (b.querySelector(".alertkind-sw") || {}).textContent,
+          prefs: localStorage.getItem("gffl_notifprefs"),
+          mutes: last && last.extra && last.extra.gfflMutes,
+        };
+      }) || {};
+      ok(movedOn.on === true && movedOn.sw === "On" && movedOn.prefs === "[]"
+        && Array.isArray(movedOn.mutes) && movedOn.mutes.length === 0,
+        "turning League moves on writes an empty mute list — that is the opt-in");
 
       ok(errors.length === 0, "0 page errors on the per-type alert toggles");
       await ctx.close();
@@ -27147,8 +27199,9 @@ async function openDetails(page, id) {
       }));
       ok(parsed && parsed.ok === "[1,2]" && parsed.bad == null,
         "matchupThreadTeams reads w<week>_<home>-<away> and ignores the league room");
-      ok(parsed && Array.isArray(parsed.kinds) && parsed.kinds.includes("chat") && parsed.kinds.includes("smack"),
-        "PUSH_KINDS names chat and smack");
+      ok(parsed && Array.isArray(parsed.kinds) && parsed.kinds.includes("chat") && parsed.kinds.includes("smack")
+        && parsed.kinds.includes("moves"),
+        "PUSH_KINDS names chat, smack, and moves");
 
       await reset();
       const room = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "hello league" }));
@@ -27176,6 +27229,17 @@ async function openDetails(page, id) {
       const sys = await page.evaluate(() => window.__GFFL__.LG.postSys("Waivers processed"));
       await drain(0);
       ok(!!sys && notify.calls.length === 0, "a system line still pushes nobody");
+
+      await reset();
+      const line = await page.evaluate(() => window.__GFFL__.LG.movesLine("drop", 1, { dropName: "B. Backup" }));
+      const dropped = await page.evaluate(() => window.__GFFL__.LG.logTx("drop", 1, 1, { dropKey: "111333", dropName: "B. Backup" }));
+      await drain(1);
+      ok(typeof dropped === "string" && notify.calls.length === 1 && last().kind === "moves"
+        && last().gfflAll === true && last().excludeTeam === 1
+        && last().title === "League move" && /dropped/.test(last().body || "")
+        && (last().url || "").indexOf("#moves") >= 0
+        && /Battle Kreussers dropped B\. Backup/.test(line || last().body || ""),
+        "a roster move pushes gfflAll minus the actor, kind=moves (" + JSON.stringify(last()) + ")");
 
       await page.evaluate(() => window.__GFFL__.D.S.games.set("PHI", { state: "pre", kickoff: "2099-01-01T00:00:00Z" }));
       await reset();

@@ -92,6 +92,16 @@ const muteRows = rows.concat([
     gfflTeam: { integerValue: "1" },
     gfflMutes: { arrayValue: { values: [{ stringValue: "chat" }] } },
   } } },
+  { document: { name: "p/d/pushTokens_fam/e", fields: {
+    token: { stringValue: "TE" }, user: { stringValue: "Sam" },
+    gfflTeam: { integerValue: "3" },
+    gfflMutes: { arrayValue: { values: [] } },
+  } } },
+  { document: { name: "p/d/pushTokens_fam/f", fields: {
+    token: { stringValue: "TF" }, user: { stringValue: "Ada" },
+    gfflTeam: { integerValue: "4" },
+    gfflMutes: { arrayValue: { values: [{ stringValue: "moves" }] } },
+  } } },
 ]);
 const getDeviceTokensMuted = new Function("FIRESTORE_BASE","fetch", gdBody + ";return getDeviceTokens;")(
   FIRESTORE_BASE,
@@ -104,8 +114,14 @@ ok(eq(await toksM({ gfflTeam: 1, kind: "chat" }), ["TA"]),
    "kind:chat drops the device that muted chat");
 ok(eq(await toksM({ gfflTeam: 1, kind: "smack" }), ["TA","TD"]),
    "a different kind still reaches them — mutes are per type, not a master off");
-ok(eq(await toksM({ gfflAll: true, kind: "chat" }), ["TA","TB"]),
-   "gfflAll + kind=chat skips only the muted device — TA (same team, unmuted) and TB still get it");
+ok(eq(await toksM({ gfflAll: true, kind: "chat" }), ["TA","TB","TE","TF"]),
+   "gfflAll + kind=chat skips only the muted device — RESTAGED 2026-09-16, TE (empty mutes) and TF (muted moves, not chat) join TA/TB");
+ok(eq(await toksM({ gfflAll: true, kind: "moves" }), ["TD","TE"]),
+   "kind:moves is default-off: missing gfflMutes skips; empty array (TE) is the opt-in; TD muted chat not moves");
+ok(eq(await toksM({ gfflTeam: 1, kind: "moves" }), ["TD"]),
+   "kind:moves on team 1 skips TA (no field) and keeps TD (field present, moves not listed)");
+ok(eq(await toksM({ gfflTeam: 4, kind: "moves" }), []),
+   "kind:moves drops the device that muted moves");
 
 console.log(`\nresolveUrl + audience: ${pass}/${pass+fail} passed`);
 process.exit(fail?1:0);

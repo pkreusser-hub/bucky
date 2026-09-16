@@ -2204,8 +2204,40 @@
   LG.logTx = async function (type, week, teamId, detail) {
     const t = Date.now();
     const id = LG.txId(t);
-    await LG.db.set(id, { kind: "tx", t, week, type, teamId, detail: detail || {} });
+    const d = detail || {};
+    await LG.db.set(id, { kind: "tx", t, week, type, teamId, detail: d });
+    // League-moves blast. Default OFF on the token (see notifMutes / notify.mjs).
+    // Fire-and-forget: a notify outage may never cost the write that produced it.
+    try {
+      LG.pushNotify({
+        all: true, excludeTeam: teamId,
+        title: "League move", body: LG.movesLine(type, teamId, d),
+        link: LG.pushLink("#moves"), kind: "moves",
+      });
+    } catch (e) { /* courtesy */ }
     return id;
+  };
+  // Plain-text twin of UI.txSentence — logTx lives in core and cannot call UI.
+  // Keep the two sentences in lockstep when a new tx type lands.
+  LG.movesLine = function (type, teamId, detail) {
+    const d = detail || {};
+    const nm = (id) => LG.teamName(id);
+    const short = (n) => LG.shortName(n);
+    if (type === "waiver") {
+      const dropped = d.dropName || d.dropKey;
+      return nm(teamId) + " won a waiver claim: added " + short(d.addName) + " ($" + d.bid + ")"
+        + (dropped ? ", dropped " + short(dropped) + "." : " into an open spot.");
+    }
+    if (type === "fa_add") return nm(teamId) + " added " + short(d.addName) + " (free agency).";
+    if (type === "drop") return nm(teamId) + " dropped " + short(d.dropName || d.dropKey) + ".";
+    if (type === "trade" && d.result === "executed") {
+      return "Trade: " + nm(d.from) + " sent " + (d.giveNames || d.give || []).map(short).join(", ")
+        + " to " + nm(d.to) + " for " + (d.getNames || d.get || []).map(short).join(", ") + ".";
+    }
+    if (type === "trade" && d.result === "vetoed") {
+      return "Trade between " + nm(d.from) + " and " + nm(d.to) + " was vetoed by the league.";
+    }
+    return "League move.";
   };
   LG.loadTx = async function () {
     return (await LG.db.list("tx")).sort((a, b) => b.t - a.t);
@@ -2345,12 +2377,14 @@
   LG.PUSH_ORIGIN = "https://goatfantasyleague.com";
   LG.pushLink = (hash) => LG.PUSH_ORIGIN + "/league.html" + (hash || "");
   // opts: { toTeam } | { all: true } — plus title, body, link, and optional kind
-  // (trade / waivers / recap / injury / mention / chat / smack). Missing kind is
-  // a send that cannot be muted per-type (family-app callers, and any older
-  // producer). notify.mjs drops a token whose gfflMutes[] lists that kind.
+  // (trade / waivers / recap / injury / mention / chat / smack / moves). Missing
+  // kind is a send that cannot be muted per-type (family-app callers, and any
+  // older producer). notify.mjs drops a token whose gfflMutes[] lists that kind.
+  // `moves` is the one default-OFF kind: a token with no gfflMutes field is
+  // skipped, so last night's phones do not wake up to roster spam.
   // Returns a promise for the SUITE's benefit (so a check can await the call having been made);
   // no producer awaits it, and it never rejects.
-  LG.PUSH_KINDS = ["trade", "waivers", "recap", "injury", "mention", "chat", "smack"];
+  LG.PUSH_KINDS = ["trade", "waivers", "recap", "injury", "mention", "chat", "smack", "moves"];
   LG.pushNotify = function (opts) {
     opts = opts || {};
     const payload = {
