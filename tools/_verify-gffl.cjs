@@ -27189,6 +27189,69 @@ async function openDetails(page, id) {
     }
   }
 
+  // ================= TO · league chat composer survives a background refresh ============
+  // User: an occasional refresh on the Chat tab wipes a long message that
+  // hasn't been sent yet. quietRepaint used to UI.show("chat") → renderChat
+  // replaced the textarea. The list still has to update; the composer does not.
+  if (section("TO · league chat composer survives a background refresh")) {
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("chat"));
+      await waitOr(page, "#chatText");
+
+      const draft = "this is a long thought I have not finished yet";
+      const kept = await evalOr(page, async (draft) => {
+        const t = document.getElementById("chatText");
+        t.value = draft;
+        t.dispatchEvent(new Event("input", { bubbles: true }));
+        t.focus();
+        const before = t;
+        window.__GFFL__.UI.quietRepaint("chat");
+        const t2 = document.getElementById("chatText");
+        return {
+          text: t2 ? t2.value : "",
+          sameNode: t2 === before,
+          focused: document.activeElement === t2,
+        };
+      }, draft) || {};
+      ok(kept.text === draft,
+        "quietRepaint keeps the unsent line (" + kept.text + ")");
+      ok(kept.sameNode === true,
+        "…without replacing the composer node");
+      ok(kept.focused === true,
+        "…and the caret stays in the box");
+
+      const incoming = await evalOr(page, async (draft) => {
+        await window.__GFFL__.LG.postChat({ text: "someone else spoke" });
+        window.__GFFL__.UI.quietRepaint("chat");
+        const t = document.getElementById("chatText");
+        const list = ((document.getElementById("chatList") || {}).textContent || "");
+        return { draft: t ? t.value : "", saw: /someone else spoke/.test(list) };
+      }, draft) || {};
+      ok(incoming.draft === draft,
+        "an incoming line still does not wipe the draft");
+      ok(incoming.saw === true,
+        "…and the new message is on the list");
+
+      const remount = await evalOr(page, async () => {
+        const t = document.getElementById("chatText");
+        t.value = "still typing after a remount";
+        t.dispatchEvent(new Event("input", { bubbles: true }));
+        await window.__GFFL__.UI.renderChat();
+        const t2 = document.getElementById("chatText");
+        return t2 ? t2.value : "";
+      });
+      ok(remount === "still typing after a remount",
+        "a full renderChat remount puts the draft back (" + remount + ")");
+
+      ok(errors.length === 0, "0 page errors on the chat-draft refresh");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

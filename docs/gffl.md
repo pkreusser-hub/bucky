@@ -8362,3 +8362,25 @@ instead of aborting the bite. AN1–AN6 boot via
 restored, hashes identical.
 ---
 
+## GFFL — league chat keeps an unsent line (2026-09-16)
+
+User: the Chat tab occasionally refreshes and wipes a long
+message that has not been sent yet.
+
+`UI.quietRepaint` on the chat view used to call
+`UI.show("chat")` → `renderChat()`, which rebuilt `main()`
+and replaced the textarea. A new league message, or the
+~15s cloud sync, was enough. The 8s chat poll already
+refreshed the list only — quietRepaint now rides that
+path. A full remount (reconnect) snapshots the composer
+before the wipe and puts the text, caret, pending photo,
+and reply tray back.
+
+Scripts cache-bust `?v=20260916b`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** quoted after the suite run.
+---
+

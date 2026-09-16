@@ -928,6 +928,14 @@
       renderLocker().then(() => { if (UI.view === "locker") window.scrollTo(0, y); }).catch(() => {});
       return;
     }
+    // League Chat's composer is a <textarea> inside main(). UI.show("chat")
+    // rebuilds that node, so a background cloud refresh — every new message
+    // in the league, every 15s doc sync — wiped a half-typed line. The 8s
+    // chat poll already refreshes the LIST only. Ride that path.
+    if (UI.view === "chat") {
+      refreshChatList("chat", null).catch(() => {});
+      return;
+    }
     UI.show(UI.view);
   };
 
@@ -5479,7 +5487,56 @@
   // idPfx is "chat" for the league channel, "muThread" for a matchup thread.
   UI._chatState = {};
   function chatState(idPfx) {
-    return UI._chatState[idPfx] || (UI._chatState[idPfx] = { replyTo: null, pendingImg: null, pendingGif: null });
+    return UI._chatState[idPfx] || (UI._chatState[idPfx] = { replyTo: null, pendingImg: null, pendingGif: null, draft: "" });
+  }
+  // A background remount (reconnect, week-sync, a stray UI.show("chat")) must
+  // not empty the box. Snapshot the live composer BEFORE the innerHTML wipe
+  // and put it back after wireChat, which resets reply/pending on purpose
+  // (a new matchup thread must not inherit the last pairing's tray).
+  function snapshotChatComposer(idPfx) {
+    const t = $("#" + idPfx + "Text");
+    const st = UI._chatState[idPfx] || {};
+    const text = t ? t.value : (st.draft || "");
+    if (!text && !st.pendingImg && !st.pendingGif && !st.replyTo) return null;
+    return {
+      text,
+      start: t && t.selectionStart != null ? t.selectionStart : null,
+      end: t && t.selectionEnd != null ? t.selectionEnd : null,
+      focused: !!(t && document.activeElement === t),
+      pendingImg: st.pendingImg || null,
+      pendingGif: st.pendingGif || null,
+      replyTo: st.replyTo || null,
+    };
+  }
+  function restoreChatComposer(idPfx, snap) {
+    if (!snap) return;
+    const st = chatState(idPfx);
+    st.draft = snap.text || "";
+    st.pendingImg = snap.pendingImg || null;
+    st.pendingGif = snap.pendingGif || null;
+    st.replyTo = snap.replyTo || null;
+    const t = $("#" + idPfx + "Text");
+    if (t && st.draft) {
+      t.value = st.draft;
+      autoGrowChatText(t);
+      try {
+        if (snap.start != null) t.setSelectionRange(snap.start, snap.end == null ? snap.start : snap.end);
+      } catch (e) { /* a replaced node can refuse a stale range */ }
+      if (snap.focused) t.focus();
+    }
+    if (snap.pendingImg) showPendingPreview(idPfx, snap.pendingImg);
+    else if (snap.pendingGif) showPendingPreview(idPfx, snap.pendingGif.preview || snap.pendingGif.url || "");
+    if (snap.replyTo) {
+      const el = $("#" + idPfx + "ReplyPreview");
+      if (el) {
+        el.hidden = false;
+        const who = snap.replyTo.who || "?";
+        const snippet = snap.replyTo.text || "";
+        el.innerHTML = `<span class="mut small">Replying to <b>${esc(who)}</b>: ${esc(String(snippet).slice(0, 60))}</span> <button class="chatReplyX" type="button">✕</button>`;
+        const x = el.querySelector(".chatReplyX");
+        if (x) x.addEventListener("click", () => clearReplyPreview(idPfx));
+      }
+    }
   }
   // REFINEMENT 3 (2026-08-11, user): the "Images" (recent-images) button is GONE — its meme
   // library went with it — and a messenger-style EMOJI PICKER joins. The picker's trigger is
@@ -5884,6 +5941,7 @@
       const r = await LG.postChat(payload);
       if (!r || !r.ok) { toast("Couldn't send that."); return; }
       textEl.value = "";
+      s.draft = "";
       autoGrowChatText(textEl);
       clearPendingPreview(idPfx);
       clearReplyPreview(idPfx);
@@ -5894,7 +5952,10 @@
     // the textarea's own default keydown handling already does that, so Shift+Enter just
     // needs to NOT be intercepted here.
     textEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
-    textEl.addEventListener("input", () => autoGrowChatText(textEl));
+    textEl.addEventListener("input", () => {
+      autoGrowChatText(textEl);
+      chatState(idPfx).draft = textEl.value;
+    });
     autoGrowChatText(textEl);
     const imgBtn = $("#" + idPfx + "ImgBtn"), fileInput = $("#" + idPfx + "FileInput");
     if (imgBtn && fileInput) {
@@ -5990,8 +6051,10 @@
   UI.sizeChatList = sizeChatList;
   window.addEventListener("resize", () => { if (UI.view === "chat") sizeChatList(); });
   async function renderChat() {
+    const keep = snapshotChatComposer("chat");
     main().innerHTML = `<div class="card chatcard"><h2>League chat</h2>${chatWidgetHtml("chat")}</div>`;
     wireChat("chat", null);
+    restoreChatComposer("chat", keep);
     sizeChatList();
     await refreshChatList("chat", null);
     startChatPoll("chat", null);
