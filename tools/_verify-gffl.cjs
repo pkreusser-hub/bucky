@@ -216,6 +216,9 @@ const fixture = {
   // success for 30 minutes in module scope — see startSportsFfUpstream's own note.
   ownershipDown: false,
   ownershipUpstreamDown: false,
+  // TR (2026-09-16): fail ff_player at the FUNCTION boundary so the player card's outlook
+  // fetch dying cannot empty the rest of the card.
+  ffPlayerDown: false,
   // ---- Section BD (2026-08-26, the player card's season schedule + the moves-table OPP fix).
   // teamSched: null by default -> the /schedule endpoint answers a genuinely empty schedule
   // (byeWeek null, events []), the same "no data" shape D.teamSchedule already treats as a
@@ -672,11 +675,36 @@ function ffScoreboardFix() {
 // RAW kona_playercard document sports.mjs's own ffPctOwned() consumes, not the slim answer it
 // produces, so the fixture proves the real integration.
 const PCT_OWNED_FIX = { 111333: 42.5, 111777: 8.1 };
+// TR (2026-09-16): ESPN's seasonOutlook paragraph, the same field ffdraft.html already
+// renders. Distinctive sentences so the player-card assertion cannot pass on leftover
+// copy. 777001 is F. Agent — Sleeper carries no espn_id for him; the card resolves the
+// pid through nfl_ownership's name+team `who` map.
+const PLAYER_OUTLOOK_FIX = {
+  3915511: "P. Passer remains the engine of this offense. Volume holds even when the pocket collapses.",
+  777001: "F. Agent is a late-week dart. The role is real; the floor is not.",
+};
 function ffPctOwnedDoc(ids) {
-  return {
-    players: ids.filter((id) => PCT_OWNED_FIX[id] != null)
-      .map((id) => ({ id, player: { id, fullName: "P" + id, ownership: { percentOwned: PCT_OWNED_FIX[id] } } })),
-  };
+  const rows = [];
+  const seen = new Set();
+  for (const raw of (ids || [])) {
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    const own = PCT_OWNED_FIX[id];
+    const outlook = PLAYER_OUTLOOK_FIX[id] || "";
+    if (own == null && !outlook) continue;
+    rows.push({
+      id,
+      player: {
+        id,
+        fullName: "P" + id,
+        ownership: own != null ? { percentOwned: own } : {},
+        seasonOutlook: outlook,
+        stats: [],
+      },
+    });
+  }
+  return { players: rows };
 }
 // 2026-08-15: %ROST / %START for the Moves players table (sports.mjs's nfl_ownership).
 // PROBED LIVE against the real endpoint before this fixture was written, and the shape matters:
@@ -697,10 +725,22 @@ const OWNERSHIP_FIX = {
   3915511: [92.4, 88.1],
   222111: [61.8, 12.3],
   111222: [55.0, 44.0],
+  // slp_9201 F. Agent — no espn_id in the Sleeper directory. Name+team is the only
+  // way the Moves table can fill %ROST/%START for him (33.4 / 8.2 → 33% / 8%).
+  777001: [33.4, 8.2],
+};
+const OWNERSHIP_WHO = {
+  3915511: { fullName: "P. Passer", proTeamId: 21 },
+  222111: { fullName: "Q. Rival", proTeamId: 6 },
+  111222: { fullName: "T. Tight", proTeamId: 12 },
+  777001: { fullName: "F. Agent", proTeamId: 12 },
 };
 function ownershipDoc() {
   const rows = Object.keys(OWNERSHIP_FIX).map((id) => ({
-    id: Number(id), fullName: "Player " + id, defaultPositionId: 1, proTeamId: 21,
+    id: Number(id),
+    fullName: (OWNERSHIP_WHO[id] && OWNERSHIP_WHO[id].fullName) || ("Player " + id),
+    defaultPositionId: 1,
+    proTeamId: (OWNERSHIP_WHO[id] && OWNERSHIP_WHO[id].proTeamId) || 21,
     ownership: { percentOwned: OWNERSHIP_FIX[id][0], percentStarted: OWNERSHIP_FIX[id][1] },
   }));
   // Two rows the slimmer must DROP rather than pass through: a player ESPN carries with no
@@ -2122,6 +2162,9 @@ async function newTestPage(browser, seed, opts) {
           // startSportsFfUpstream's note on why failing the upstream instead would be answered
           // out of nflOwnership's own 30-minute cache and prove nothing about the client.
           if (fixture.ownershipDown && /"action"\s*:\s*"nfl_ownership"/.test(req.postData() || "")) {
+            return req.respond({ status: 200, contentType: "application/json", headers: cors, body: JSON.stringify({ ok: false, reason: "http-500" }) });
+          }
+          if (fixture.ffPlayerDown && /"action"\s*:\s*"ff_player"/.test(req.postData() || "")) {
             return req.respond({ status: 200, contentType: "application/json", headers: cors, body: JSON.stringify({ ok: false, reason: "http-500" }) });
           }
           const r = await sportsFn(new Request("http://fn/sports", { method: "POST", body: req.postData() || "{}" }));
@@ -27700,6 +27743,146 @@ async function openDetails(page, id) {
         "…Won Devaughn Vele sits under Waivers (" + JSON.stringify(live) + ")");
       ok(errors.length === 0, "0 page errors on the live processed snapshot");
       await ctx.close();
+    }
+  }
+
+  // ================= TR · Moves %ROST by name + ESPN outlook on the player card ============
+  // User (2026-09-16): on Moves most % rostered / % start cells are blank; clicking a
+  // player should pull ESPN's paragraph analysis onto the card.
+  //
+  // Two seams, one cause: Sleeper's directory has no espn_id for about half the pool, so
+  // those FAs are keyed slp_<pid> and espnIdForKey returned null. nfl_ownership now
+  // ships a who[id]=[name,team] map; the client matches D.normName + D.slpTeam the same
+  // way the rest of the app already does. The card fetches ff_player (seasonOutlook,
+  // the same field ffdraft.html already renders) in parallel with the game log.
+  if (section("TR · Moves %ROST by name and ESPN outlook on the player card")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    fixture.ownershipDown = false; fixture.ffPlayerDown = false;
+    {
+      const callOwn = async (extra) => {
+        const r = await sportsFn(new Request("http://fn/sports", {
+          method: "POST", body: JSON.stringify({ secret: "amenfarms", action: "nfl_ownership", ...(extra || {}) }),
+        }));
+        return r.json();
+      };
+      const j = await callOwn({ limit: 13 });
+      ok(j && j.ok === true && j.who && Array.isArray(j.who["3915511"])
+        && j.who["3915511"][0] === "P. Passer" && j.who["3915511"][1] === "PHI",
+        "nfl_ownership who[id] is [fullName, proTeam] so a slp_ key can resolve without espn_id ("
+        + JSON.stringify(j && j.who && j.who["3915511"]) + ")");
+      ok(j.who["777001"] && j.who["777001"][0] === "F. Agent" && j.who["777001"][1] === "KC",
+        "…including an unrostered FA ESPN knows by name that Sleeper carries with no espn_id");
+      ok(JSON.stringify(j.players["3915511"]) === "[92.4,88.1]"
+        && JSON.stringify(j.players["777001"]) === "[33.4,8.2]",
+        "…and players[id] stays [owned, started] — who is additive, not a shape break");
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.UI.show("moves"));
+      await page.waitForSelector("#faPosChips", { timeout: 9000 });
+      await clickIn(page, "#faFilterChips .poschip", "All");
+      await page.waitForFunction(() => {
+        const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("F. Agent"));
+        return tr && tr.querySelector(".faown") && tr.querySelector(".faown").textContent.trim() === "33%";
+      }, { timeout: 9000 });
+      const agent = await page.evaluate(() => {
+        const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("F. Agent"));
+        return tr ? {
+          key: tr.dataset.pk,
+          own: tr.querySelector(".faown").textContent.trim(),
+          start: tr.querySelector(".fastart").textContent.trim(),
+        } : null;
+      });
+      ok(agent && agent.key === "slp_9201" && agent.own === "33%" && agent.start === "8%",
+        "a slp_ free agent with no espn_id still renders %ROST/%START via name+team — F. Agent 33.4/8.2 ("
+        + JSON.stringify(agent) + ")");
+      const passer = await page.evaluate(() => {
+        const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
+        return tr ? {
+          own: tr.querySelector(".faown").textContent.trim(),
+          start: tr.querySelector(".fastart").textContent.trim(),
+        } : null;
+      });
+      ok(passer && passer.own === "92%" && passer.start === "88%",
+        "…and an espn-id key still fills the same way it always did — P. Passer 92%/88%");
+      await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511"));
+      await page.waitForFunction(() => {
+        const n = document.querySelector("#playerCard .pcname");
+        const o = document.querySelector("#playerCard .pcout");
+        return !!(n && /Passer/.test(n.textContent) && o && /pocket collapses/.test(o.textContent));
+      }, { timeout: 9000 });
+      const passCard = await page.evaluate(() => {
+        const out = document.querySelector("#playerCard .pcout");
+        return {
+          name: ((document.querySelector("#playerCard .pcname") || {}).textContent || "").trim(),
+          outlook: out ? (out.textContent || "").replace(/\s+/g, " ").trim() : "",
+          heading: /ESPN's outlook/.test((document.querySelector("#playerCard") || {}).textContent || ""),
+        };
+      });
+      ok(passCard.name === "P. Passer" && passCard.heading === true
+        && /P\. Passer remains the engine/.test(passCard.outlook)
+        && /pocket collapses/.test(passCard.outlook),
+        "the player card pulls ESPN's seasonOutlook paragraph — P. Passer (" + passCard.outlook.slice(0, 80) + ")");
+      await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+      await page.waitForFunction(() => document.getElementById("playerCard").hidden, { timeout: 3000 });
+      await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("slp_9201"));
+      await page.waitForFunction(() => {
+        const n = document.querySelector("#playerCard .pcname");
+        const o = document.querySelector("#playerCard .pcout");
+        return !!(n && /F\. Agent/.test(n.textContent) && o && /late-week dart/.test(o.textContent));
+      }, { timeout: 9000 });
+      const agentCard = await page.evaluate(() => {
+        const out = document.querySelector("#playerCard .pcout");
+        return {
+          name: ((document.querySelector("#playerCard .pcname") || {}).textContent || "").trim(),
+          outlook: out ? (out.textContent || "").replace(/\s+/g, " ").trim() : "",
+        };
+      });
+      ok(agentCard.name === "F. Agent" && /late-week dart/.test(agentCard.outlook),
+        "…and a slp_ key resolves the ESPN pid through who, so F. Agent gets a paragraph too");
+      await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
+      await page.waitForFunction(() => document.getElementById("playerCard").hidden, { timeout: 3000 });
+      await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("slp_9202"));
+      await page.waitForFunction(() => {
+        const n = document.querySelector("#playerCard .pcname");
+        return !!(n && /Vail/.test(n.textContent));
+      }, { timeout: 9000 });
+      const vail = await page.evaluate(() => ({
+        name: ((document.querySelector("#playerCard .pcname") || {}).textContent || "").trim(),
+        hasOut: !!document.querySelector("#playerCard .pcout"),
+        tiles: !!document.querySelector("#playerCard .pctiles"),
+      }));
+      ok(vail.name === "A. Vail" && vail.hasOut === false && vail.tiles === true,
+        "a player ESPN has no paragraph for degrades silently — name + tiles, no empty outlook block ("
+        + JSON.stringify(vail) + ")");
+      ok(errors.length === 0, "0 page errors through the name-match %ROST + outlook flow");
+      await ctx.close();
+    }
+    {
+      fixture.ffPlayerDown = true;
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await waitLive(page);
+      await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511"));
+      await page.waitForFunction(() => {
+        const n = document.querySelector("#playerCard .pcname");
+        return !!(n && /Passer/.test(n.textContent));
+      }, { timeout: 9000 });
+      const down = await page.evaluate(() => ({
+        name: ((document.querySelector("#playerCard .pcname") || {}).textContent || "").trim(),
+        hasOut: !!document.querySelector("#playerCard .pcout"),
+        tiles: !!document.querySelector("#playerCard .pctiles"),
+        loading: /Loading/.test((document.querySelector("#playerCard") || {}).textContent || ""),
+      }));
+      ok(down.name === "P. Passer" && down.hasOut === false && down.tiles === true && down.loading === false,
+        "ff_player down: the card still paints name + tiles, never an empty Loading… (" + JSON.stringify(down) + ")");
+      ok(errors.length === 0, "0 page errors with ff_player down — outlook is context, never a gate");
+      await ctx.close();
+      fixture.ffPlayerDown = false;
     }
   }
 

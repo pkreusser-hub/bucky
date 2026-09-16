@@ -1082,11 +1082,18 @@
     // section rather than the whole card (UI.openPlayerCard's own try/catch is the coarser,
     // whole-card fallback — this is the finer one the spec asks for: "the card must never be
     // emptier than it is now because a new fetch failed").
-    let log, sched = null;
+    let log, sched = null, outlook = "";
     try {
-      const pair = await Promise.all([d.gameLog(key), meta.team ? d.teamSchedule(meta.team) : Promise.resolve(null)]);
+      const pid = await resolveEspnPid(key);
+      const pair = await Promise.all([
+        d.gameLog(key),
+        meta.team ? d.teamSchedule(meta.team) : Promise.resolve(null),
+        pid ? sportsFn("ff_player", { pid: Number(pid) }).catch(() => null) : Promise.resolve(null),
+      ]);
       log = pair[0]; sched = pair[1];
-    } catch (e) { log = await d.gameLog(key).catch(() => ({ rows: [], total: null, avg: null, best: null })); sched = null; }
+      const det = pair[2] && pair[2].ok && pair[2].player;
+      outlook = det && det.outlook ? String(det.outlook).trim() : "";
+    } catch (e) { log = await d.gameLog(key).catch(() => ({ rows: [], total: null, avg: null, best: null })); sched = null; outlook = ""; }
     const tile = (label, v) => `<div class="pctile"><div class="pctileval">${v}</div><div class="pctilelabel mut small">${esc(label)}</div></div>`;
     // schedHtml: ONE row per real NFL week 1-18, regardless of how many the league itself has
     // finalized — a full season shape, "with @ for away games", is the whole point of the ask.
@@ -1159,6 +1166,7 @@
         ${tile("Avg / week", log.avg != null ? LG.fmtPts(log.avg) : "—")}
         ${tile("Best week", log.best != null ? LG.fmtPts(log.best) : "—")}
       </div>
+      ${outlook ? `<div class="pcoutwrap"><h2 class="small mut">ESPN's outlook</h2><p class="pcout">${esc(outlook)}</p></div>` : ""}
       <div class="pclog"><h2 class="small mut">${schedHtml ? "Schedule" : "Game log"}</h2>
         ${schedHtml ? `<div class="panner"><table class="tbl"><thead><tr><th>Wk</th><th>Opp</th><th class="num">Pts</th></tr></thead><tbody>${schedHtml}</tbody></table></div>`
           : (log.rows.length ? `<div class="panner"><table class="tbl"><thead><tr><th>Wk</th><th>Opp</th><th class="num">Pts</th></tr></thead><tbody>${logRows}</tbody></table></div>`
@@ -1375,8 +1383,10 @@
   // we don't recognise — leaves both columns reading "—" with the table fully usable, silently.
   const OWN_TTL_MS = 6 * 3600e3;
   const OWN_FAIL_FLOOR_MS = 10 * 60e3; // a failed ask is not retried on every repaint
-  const OWN_LS = "bucky_gffl_own";
-  UI._ownership = null;   // { at, players: { "<espnId>": [owned, started] } }
+  // 2026-09-16: bumped so a cached {players} map without `who` cannot keep slp_ rows blank
+  // for six hours after the name+team index shipped.
+  const OWN_LS = "bucky_gffl_own3";
+  UI._ownership = null;   // { at, players: { "<espnId>": [owned, started] }, who: { id: [name, team] } }
   UI._ownPending = false;
   UI._ownFailAt = 0;
   function ownReadLs() {
@@ -1386,17 +1396,61 @@
     } catch (e) {}
     return null;
   }
+  function ownNameKey(name, team) {
+    const d = D();
+    return d.normName(name) + "|" + d.slpTeam(team);
+  }
+  function ownNameMap(src) {
+    if (!src) return null;
+    if (src._byName instanceof Map) return src._byName;
+    const byName = new Map();
+    const who = src.who || {};
+    for (const id of Object.keys(who)) {
+      const pair = who[id];
+      if (!Array.isArray(pair) || !pair[0]) continue;
+      const nk = ownNameKey(pair[0], pair[1] || "");
+      if (!nk || nk.charAt(0) === "|") continue;
+      if (!byName.has(nk)) byName.set(nk, id);
+    }
+    src._byName = byName;
+    return byName;
+  }
+  function espnIdFromName(key) {
+    const map = ownNameMap(UI._ownership);
+    if (!map) return null;
+    const meta = D().metaForKey(key);
+    if (!meta || !meta.name || !meta.team) return null;
+    return map.get(ownNameKey(meta.name, meta.team)) || null;
+  }
+  async function resolveEspnPid(key) {
+    const direct = espnIdForKey(key);
+    if (direct) return direct;
+    if (!UI._ownership) UI._ownership = ownReadLs();
+    if (!(UI._ownership && Date.now() - (UI._ownership.at || 0) < OWN_TTL_MS)) {
+      await new Promise((res) => {
+        let settled = false;
+        const done = () => { if (!settled) { settled = true; res(); } };
+        ensureOwnership(done);
+        if (UI._ownership && Date.now() - (UI._ownership.at || 0) < OWN_TTL_MS) done();
+        else setTimeout(done, 2500);
+      });
+    }
+    return espnIdFromName(key);
+  }
   // A row's ESPN id resolves exactly the way the rest of the app resolves one — espnIdForKey
   // above: a numeric roster key IS the espn id, an slp_ key goes through the Sleeper directory's
-  // own espn_id, and a team defense has no ESPN player id at all. No id -> null -> "—".
+  // own espn_id, and a team defense has no ESPN player id at all. The name+team pass is the
+  // half Sleeper carries no espn_id for (~half the directory): nfl_ownership's `who` map
+  // is keyed the same way D.normName + D.slpTeam already key the rest of the app.
   function ownershipFor(key) {
     const src = UI._ownership && UI._ownership.players;
     if (!src) return null;
-    const id = espnIdForKey(key);
+    const id = espnIdForKey(key) || espnIdFromName(key);
     const row = id ? src[id] : null;
     return Array.isArray(row) ? { owned: row[0], started: row[1] } : null;
   }
   UI._ownershipFor = ownershipFor; // test hook
+  UI._resolveEspnPid = resolveEspnPid; // test hook
   function ensureOwnership(onLand) {
     if (!UI._ownership) UI._ownership = ownReadLs();
     if (UI._ownership && Date.now() - (UI._ownership.at || 0) < OWN_TTL_MS) return;
@@ -1405,8 +1459,8 @@
     sportsFn("nfl_ownership", {}).then((j) => {
       UI._ownPending = false;
       if (!j || j.ok !== true || !j.players) { UI._ownFailAt = Date.now(); return; }
-      UI._ownership = { at: Date.now(), players: j.players };
-      try { localStorage.setItem(OWN_LS, JSON.stringify(UI._ownership)); } catch (e) {}
+      UI._ownership = { at: Date.now(), players: j.players, who: j.who || {} };
+      try { localStorage.setItem(OWN_LS, JSON.stringify({ at: UI._ownership.at, players: UI._ownership.players, who: UI._ownership.who })); } catch (e) {}
       if (typeof onLand === "function") onLand();
     }).catch(() => { UI._ownPending = false; UI._ownFailAt = Date.now(); });
   }
@@ -6811,8 +6865,8 @@
       const seasonCell = (v) => stats === undefined ? "…" : (v != null ? LG.fmtPts(v) : "—");
       const own = ownershipFor(p.key);
       // Rounded to a whole percent — the column is 3-4 characters wide and "99.9%" buys nothing
-      // a manager acts on. Missing (no espn id, or a player outside ESPN's top-N pool) is "—",
-      // never a fabricated 0%: "nobody rosters him" and "we don't know" are different facts.
+      // a manager acts on. Missing (outside ESPN's top-N pool, or a name+team we cannot match)
+      // is "—", never a fabricated 0%: "nobody rosters him" and "we don't know" are different facts.
       const ownCell = (v) => (own && v != null ? Math.round(v) + "%" : "—");
       const blocked = faAddBlocked(p, type);
       const moveBtn = `<button type="button" class="faAddBtn faMoveBtn"${blocked

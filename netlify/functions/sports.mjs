@@ -1055,7 +1055,11 @@ async function ffPctOwned(body) {
       const p = e?.player || e || {};
       const id = p?.id ?? e?.id;
       if (!Number.isFinite(Number(id))) continue;
-      own[String(id)] = Math.round((p?.ownership?.percentOwned ?? 0) * 10) / 10;
+      // Same rule as nflOwnership: a player ESPN returned without a figure is ABSENT, never
+      // a fabricated 0. `?? 0` used to turn an outlook-only playercard row into "0% rostered".
+      const owned = r1(p?.ownership?.percentOwned);
+      if (owned == null) continue;
+      own[String(id)] = owned;
     }
     // An id ESPN simply doesn't know is ABSENT from `own`, never a fabricated 0 — the client
     // renders "—" for a missing entry, which is the honest answer.
@@ -1119,6 +1123,7 @@ async function nflOwnership(body) {
   try {
     const rows = Array.isArray(j) ? j : (Array.isArray(j?.players) ? j.players : []);
     const players = {};
+    const who = {};
     for (const e of rows) {
       const p = e?.player || e || {};
       const id = Number(p?.id);
@@ -1130,8 +1135,13 @@ async function nflOwnership(body) {
       const owned = r1(o.percentOwned), started = r1(o.percentStarted);
       if (owned == null && started == null) continue;
       players[String(id)] = [owned == null ? 0 : owned, started == null ? 0 : started];
+      // Name + NFL team ride along so a Sleeper-keyed FA (`slp_<pid>` with no espn_id —
+      // about half the directory) can still resolve a row. Additive: `players[id]` stays
+      // [owned, started], the shape the Moves table already caches and sorts on.
+      const name = String(p?.fullName || "").trim();
+      if (name) who[String(id)] = [name, PRO_ABBREV[p?.proTeamId] || ""];
     }
-    const payload = { ok: true, season: year, players };
+    const payload = { ok: true, season: year, players, who };
     ownCache = { key, at: Date.now(), payload };
     return payload;
   } catch {

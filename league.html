@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260916f">
+<meta name="gffl-v" content="20260916g">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -2062,6 +2062,9 @@
   .pctileval { font:700 18px var(--font-display); font-variant-numeric:tabular-nums; }
   .pctilelabel { margin-top:2px; text-transform:uppercase; letter-spacing:.5px; }
   .pclog table.tbl th, .pclog table.tbl td { padding:7px 8px; }
+  .pcoutwrap { margin:0 0 16px; }
+  .pcoutwrap h2 { margin-bottom:6px; }
+  .pcout { margin:0; font-size:13.5px; line-height:1.55; overflow-wrap:anywhere; color:var(--ink2); }
 
   /* ---- PLAYER HEADSHOTS (2026-08-13, user: "bring in player images") ----
      One circular fixed-size box (.pshot), ALWAYS rendered where a face belongs — the box is
@@ -2387,9 +2390,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260916f"></script>
-  <script src="assets/league/lg-data.js?v=20260916f"></script>
-  <script src="assets/league/lg-ui.js?v=20260916f"></script>
+  <script src="assets/league/lg-core.js?v=20260916g"></script>
+  <script src="assets/league/lg-data.js?v=20260916g"></script>
+  <script src="assets/league/lg-ui.js?v=20260916g"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing
