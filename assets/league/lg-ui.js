@@ -6349,7 +6349,13 @@
     // a dozen call sites below read it and its meaning is unchanged wherever the deadline is
     // the reason; what moved is that a pre-kickoff week now reaches the same state.
     const past = faOpen(UI.week);
-    const myClaims = (UI._claims.claims || []).filter((c) => c.teamId === tid);
+    // The weekly claims doc keeps the snapshot processWaivers resolved
+    // (`processed:true` + `claims` + `results`). Those rows are RESULTS, not
+    // a live queue — Cancel would no-op with already-processed, and the
+    // owner would still see "Your waiver claims" the morning after the run.
+    const myClaims = UI._claims.processed
+      ? []
+      : (UI._claims.claims || []).filter((c) => c.teamId === tid);
     const myTrades = (UI._trades || []).filter((tr) => (tr.from === tid || tr.to === tid) && (tr.status === "offered" || tr.status === "accepted"));
     // S7 — the counter CHAIN. Every link is between the same two teams, so a chain I am in is
     // entirely mine; walking `counterOf` up from a live offer gives its whole history, newest
@@ -6380,7 +6386,7 @@
     // links (.pcinline, wired generically by wirePlayerCardTaps below) while Cancel/Accept/
     // Decline/Veto stay exactly the buttons they always were.
     const pcName = (key, label) => `<button type="button" class="pcinline" data-pk="${esc(key)}">${escn(label)}</button>`;
-    const claimRow = (c) => `<div class="rowline"><span>${pcName(c.addKey, c.addName)} <span class="mut">(${esc(c.addPos)}·${esc(c.addTeam)})</span> ← drop ${pcName(c.dropKey, c.dropName || c.dropKey)} · $${c.bid}</span>
+    const claimRow = (c) => `<div class="rowline"><span>${pcName(c.addKey, c.addName)} <span class="mut">(${esc(c.addPos)}·${esc(c.addTeam)})</span>${c.dropKey ? " ← drop " + pcName(c.dropKey, c.dropName || c.dropKey) : " · no drop"} · $${c.bid}</span>
       <button class="mvcancel" data-cid="${esc(c.id)}">Cancel</button></div>`;
     // Both the live row and its quiet ancestors read from MY side of the deal, so a thread is
     // one consistent sentence all the way down: "You give … → get …", whichever end of the
@@ -6955,11 +6961,14 @@
           <input id="claimBid" type="number" min="0" max="${LG.teamFaab(T)}" value="0"></label>` : ""}
         <h2 class="rcq">${room ? "No drop needed" : "Who do you drop?"}</h2>
         ${rcHeadHtml()}
-        ${/* An open active spot means no drop is required — see faAdd / LG.rosterRoom. */
-          room ? `<div class="rclist"><button type="button" class="swaprow rcnodrop picked" data-di="-1">
+        ${/* Stay OUT of .rclist. A second flex list was crushed to 0px once
+              the card hit 70vh (full roster + bid + footer), so the tap target
+              for an open bench spot vanished on phone and desktop. Same
+              pinned-chrome rule as the heading and the footer. */
+          room ? `<button type="button" class="swaprow rcnodrop picked" data-di="-1">
             <span class="rcwho"><span class="rcwhotxt"><b>No drop needed</b>
             <small class="mut">${esc(spotLine)}</small></span></span>
-          </button></div>` : ""}
+          </button>` : ""}
         <div class="rclist">${ros.length
           ? ros.map((p, i) => rcRowHtml(p, `data-di="${i}"`,
               // SHOWN, DISABLED, WITH THE REASON — the same discipline the swap sheet uses.

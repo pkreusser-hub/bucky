@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260916d">
+<meta name="gffl-v" content="20260916e">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -1127,6 +1127,11 @@
   /* A destination-slot row carries no player, so it has no numbers to line up — it spans the
      whole grid instead of leaving two empty columns. */
   .swaprow.rcslot { display:block; font:600 13px var(--font-display); letter-spacing:.5px; }
+  .pccard.rccard > .pchead,
+  .pccard.rccard > .rcbid,
+  .pccard.rccard > .rcq,
+  .pccard.rccard > .rchead,
+  .pccard.rccard > .rcfoot { flex-shrink:0; }
   .rcfoot { display:flex; flex-direction:column; gap:6px; padding-top:10px; }
   .rcfoot button { min-height:44px; }
   /* Submit is disabled until a drop is picked, and the card's loudest element must not LOOK
@@ -1995,9 +2000,10 @@
     .ldrop .ldroptxt { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
     .ldrop::before { content:"\2715"; font-size:13px; line-height:1; }
   }
-  /* The claim card's "no drop needed" row — an affordance, not a player, so it carries no
-     projection/ownership columns and reads as a choice rather than a roster line. */
-  .rcnodrop { justify-content:flex-start; }
+  /* The claim card's "no drop needed" row — an affordance, not a player. display:block
+     like .rcslot so it doesn't leave two empty PROJ/OWN columns; flex 0 0 auto so the
+     70vh card cannot crush it the way a second .rclist did. */
+  .swaprow.rcnodrop { display:block; flex:0 0 auto; justify-content:flex-start; }
   .pcinfo { flex:1 1 auto; min-width:0; text-align:left; background:none; border:none; padding:0; margin:0;
             color:inherit; font:inherit; text-transform:none; letter-spacing:normal; cursor:pointer; }
   .pickchip.picked .pcpick { border-color:var(--accent); color:var(--accent); }
@@ -2381,9 +2387,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260916d"></script>
-  <script src="assets/league/lg-data.js?v=20260916d"></script>
-  <script src="assets/league/lg-ui.js?v=20260916d"></script>
+  <script src="assets/league/lg-core.js?v=20260916e"></script>
+  <script src="assets/league/lg-data.js?v=20260916e"></script>
+  <script src="assets/league/lg-ui.js?v=20260916e"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

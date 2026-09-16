@@ -8476,4 +8476,31 @@ no-drop add itself still passes on HEAD (21 − 20 = 1).
 AI17(f) restaged: heading "No drop needed", submit
 armed, row picked. AO copy regex accepts
 "No drop needed".
+---
+
+## GFFL — clear a resolved claim; keep the no-drop row visible (2026-09-16)
+
+User: waivers processed this morning but Moves still says
+there is a pending waiver claim. Also the tap target for
+adding straight to the bench is hidden on phone and desktop.
+
+`loadClaims` keeps the processing snapshot on a settled week
+(`processed` + `claims` + `results`). My pending treated that
+snapshot as a live queue, so Cancel sat on a claim the run
+had already resolved. Pending claims are now only the
+unprocessed queue; after the run the card shows the result
+and "No pending claims."
+
+The no-drop row lived in its own `.rclist`. Two flex lists
+with `min-height:0` share the leftover 70vh, and a full
+roster crushed that row to a few pixels. It now sits above
+the scrolling names (`display:block` like `.rcslot`,
+`flex: 0 0 auto`) so the open-bench tap target stays visible.
+
+Scripts cache-bust `?v=20260916e`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** counts filled after the suite.
 

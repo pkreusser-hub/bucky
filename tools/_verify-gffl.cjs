@@ -27494,6 +27494,60 @@ async function openDetails(page, id) {
     }
 
     {
+      // The no-drop row used to live in its own .rclist. Two flex lists with
+      // min-height:0 share the leftover 70vh; on a short phone the tap target
+      // crushed to a few pixels. Pin it above the scrolling names and measure
+      // ink, not "the node exists".
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 390, height: 600 } });
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLive(page);
+      await writeRoster(page, eleven.concat(nBench(6)));
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitFnOr(page, () => !!document.querySelector("#faResults .faMoveBtn"));
+      await clickChildIn(page, "#faResults tr", ".faMoveBtn", "F. Agent");
+      ok(await waitOr(page, "#rosterCard .rcnodrop", 9000), "the no-drop row exists on a 600px phone");
+      const geo = await evalOr(page, () => {
+        const card = document.querySelector("#rosterCard .rccard");
+        const row = document.querySelector("#rosterCard .rcnodrop");
+        const lists = document.querySelectorAll("#rosterCard .rclist");
+        if (!card || !row) return null;
+        const cr = card.getBoundingClientRect();
+        const rr = row.getBoundingClientRect();
+        return {
+          lists: lists.length,
+          h: Math.round(rr.height),
+          w: Math.round(rr.width),
+          parent: row.offsetParent !== null,
+          inCard: rr.top + 1 >= cr.top && rr.bottom - 1 <= cr.bottom && rr.left + 1 >= cr.left && rr.right - 1 <= cr.right,
+          clipped: rr.height < 40,
+        };
+      }) || {};
+      ok(geo.lists === 1, "⭐ one scrolling list — the no-drop row is not a second .rclist (" + geo.lists + ")");
+      ok(geo.parent === true && geo.h >= 44 && geo.w >= 120 && geo.inCard === true && geo.clipped === false,
+        "⭐ THE REPORT: the open-bench tap target is visible on a short phone (" + JSON.stringify(geo) + ")");
+      await page.setViewport({ width: 1280, height: 700 });
+      await sleep(200);
+      const desk = await evalOr(page, () => {
+        const card = document.querySelector("#rosterCard .rccard");
+        const row = document.querySelector("#rosterCard .rcnodrop");
+        if (!card || !row) return null;
+        const cr = card.getBoundingClientRect();
+        const rr = row.getBoundingClientRect();
+        return {
+          h: Math.round(rr.height),
+          w: Math.round(rr.width),
+          parent: row.offsetParent !== null,
+          inCard: rr.top + 1 >= cr.top && rr.bottom - 1 <= cr.bottom,
+        };
+      }) || {};
+      ok(desk.parent === true && desk.h >= 44 && desk.w >= 120 && desk.inCard === true,
+        "…and still visible on a short desktop window (" + JSON.stringify(desk) + ")");
+      ok(errors.length === 0, "0 page errors on the visible no-drop row");
+      await ctx.close();
+    }
+
+    {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
       await bootWeek1Home(page);
       await waitOr(page, ".mucard", 12000);
@@ -27515,6 +27569,76 @@ async function openDetails(page, id) {
       ok(/Who do you drop\?/.test(card.q) && card.nodrop === false && card.armed === false,
         "a full active roster still demands a drop (" + JSON.stringify(card) + ")");
       ok(errors.length === 0, "0 page errors on the full-active card");
+      await ctx.close();
+    }
+  }
+
+  // ================= TQ · a resolved waiver is not still pending ==========================
+  // User: waivers processed this morning but Moves still says there is a
+  // pending waiver claim. loadClaims returns the processing snapshot
+  // (processed + claims + results); My pending treated that snapshot as a
+  // live queue.
+  if (section("TQ · a resolved waiver is not still pending")) {
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLive(page);
+      await pinBeforeW1Waivers(page);
+      const queued = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const r = await LG.addClaim(1, {
+          id: "tq1", teamId: 1, addKey: "9201", addName: "F. Agent",
+          addPos: "WR", addTeam: "KC", dropKey: "111333", dropName: "B. Backup",
+          bid: 7, t: 1,
+        });
+        return r;
+      });
+      ok(queued && queued.ok === true, "a claim queues before the deadline (" + JSON.stringify(queued) + ")");
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitFnOr(page, () => /F\. Agent/.test((document.querySelector("#mvMyClaims") || {}).textContent || ""));
+      const before = await evalOr(page, () => {
+        const claims = document.querySelector("#mvMyClaims");
+        const card = document.querySelector(".pendcard");
+        return {
+          txt: claims ? (claims.textContent || "").replace(/\s+/g, " ").trim() : "",
+          cancel: !!document.querySelector("#mvMyClaims .mvcancel"),
+          heading: !!(card && /Your waiver claims/.test(card.textContent || "")),
+        };
+      }) || {};
+      ok(/F\. Agent/.test(before.txt) && before.cancel === true && before.heading === true,
+        "before the run, My pending names the claim and offers Cancel (" + JSON.stringify(before) + ")");
+      const ran = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const doc = await LG.processWaivers(1);
+        return {
+          processed: !!(doc && doc.processed),
+          n: ((doc && doc.claims) || []).length,
+          won: ((doc && doc.results) || []).some((r) => r.id === "tq1" && r.ok),
+        };
+      }) || {};
+      ok(ran.processed === true && ran.n >= 1 && ran.won === true,
+        "the run settles the week and keeps the snapshot on the record (" + JSON.stringify(ran) + ")");
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, ".pendcard", 9000);
+      const after = await evalOr(page, () => {
+        const claims = document.querySelector("#mvMyClaims");
+        const card = document.querySelector(".pendcard");
+        const results = document.querySelector("#mvResults");
+        const txt = card ? (card.textContent || "").replace(/\s+/g, " ") : "";
+        return {
+          claims: claims ? (claims.textContent || "").replace(/\s+/g, " ").trim() : "",
+          cancel: !!document.querySelector(".pendcard .mvcancel"),
+          heading: /Your waiver claims/.test(txt),
+          results: results ? (results.textContent || "").replace(/\s+/g, " ").trim() : "",
+          won: /Won F\. Agent/.test(txt),
+        };
+      }) || {};
+      ok(/No pending claims/.test(after.claims) && after.cancel === false && after.heading === false,
+        "⭐ THE REPORT: after the run, Moves does not keep a pending claim (" + JSON.stringify(after) + ")");
+      ok(after.won === true && /Won F\. Agent/.test(after.results),
+        "…the same card now shows the result instead (" + after.results + ")");
+      ok(errors.length === 0, "0 page errors on the resolved-claim card");
       await ctx.close();
     }
   }
