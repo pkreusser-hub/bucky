@@ -27637,14 +27637,67 @@ async function openDetails(page, id) {
           cancel: !!document.querySelector(".pendcard .mvcancel"),
           heading: /Your waiver claims/.test(txt),
           results: results ? (results.textContent || "").replace(/\s+/g, " ").trim() : "",
-          won: /Won F\. Agent/.test(txt),
+          won: !!(results && /Won F\. Agent/.test(results.textContent || "")),
+          resultsInPend: !!(card && card.querySelector("#mvResults")),
+          quiet: /No pending claims/.test(txt) && /No pending trades/.test(txt) && !/Won /.test(txt),
         };
       }) || {};
-      ok(/No pending claims/.test(after.claims) && after.cancel === false && after.heading === false,
-        "⭐ THE REPORT: after the run, Moves does not keep a pending claim (" + JSON.stringify(after) + ")");
-      ok(after.won === true && /Won F\. Agent/.test(after.results),
-        "…the same card now shows the result instead (" + after.results + ")");
+      ok(/No pending claims/.test(after.claims) && after.cancel === false && after.heading === false && after.quiet === true,
+        "⭐ THE REPORT: after the run, My pending is quiet — no live claim (" + JSON.stringify(after) + ")");
+      ok(after.won === true && after.resultsInPend === false,
+        "…the win lands under Waivers, not under My pending (" + after.results + ")");
       ok(errors.length === 0, "0 page errors on the resolved-claim card");
+      await ctx.close();
+    }
+
+    {
+      // Live Battle Kreussers week 2 (2026-09-16): claims_2026_w2 is
+      // processed:true, the snapshot still names Devaughn Vele, and the
+      // per-claim doc was never deleted. My pending treated that as a
+      // live queue. Seed the same shape on week 1 (suite clock).
+      const base = fullSeed();
+      const liveClaim = {
+        id: "claim_1789558302568_qjzd", teamId: 1,
+        addKey: "slp_11834", addName: "Devaughn Vele", addPos: "WR", addTeam: "DEN",
+        dropKey: "3917315", dropName: "Kyler Murray", bid: 20, t: 1789558302568,
+      };
+      const { ctx, page, errors } = await newTestPage(browser, {
+        ...base,
+        docs: {
+          ...base.docs,
+          claims_2026_w1: {
+            kind: "claims", week: 1, processed: true,
+            claims: [liveClaim],
+            results: [{ id: liveClaim.id, teamId: 1, ok: true, reason: "won" }],
+          },
+          ["claim_2026_w1_" + liveClaim.id]: {
+            kind: "claim", season: 2026, week: 1, claimId: liveClaim.id, ...liveClaim,
+          },
+        },
+      });
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 12000);
+      await waitLive(page);
+      await evalOr(page, () => window.__GFFL__.UI.show("moves"));
+      await waitOr(page, ".pendcard", 9000);
+      const live = await evalOr(page, () => {
+        const card = document.querySelector(".pendcard");
+        const results = document.querySelector("#mvResults");
+        const txt = card ? (card.textContent || "").replace(/\s+/g, " ") : "";
+        return {
+          claims: ((document.querySelector("#mvMyClaims") || {}).textContent || "").replace(/\s+/g, " ").trim(),
+          cancel: !!document.querySelector(".pendcard .mvcancel"),
+          heading: /Your waiver claims/.test(txt),
+          veleInPend: /Devaughn Vele|Kyler Murray/.test(txt),
+          won: !!(results && /Won Devaughn Vele/.test(results.textContent || "")),
+          resultsInPend: !!(card && card.querySelector("#mvResults")),
+        };
+      }) || {};
+      ok(/No pending claims/.test(live.claims) && live.cancel === false && live.heading === false && live.veleInPend === false,
+        "⭐ LIVE SHAPE: a processed week-2 snapshot does not keep Vele pending (" + JSON.stringify(live) + ")");
+      ok(live.won === true && live.resultsInPend === false,
+        "…Won Devaughn Vele sits under Waivers (" + JSON.stringify(live) + ")");
+      ok(errors.length === 0, "0 page errors on the live processed snapshot");
       await ctx.close();
     }
   }

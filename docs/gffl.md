@@ -8510,4 +8510,31 @@ new ones: the no-drop row still lives in a second
 (with Cancel) after `processWaivers` writes the snapshot.
 The 6-bench no-drop add itself still passes on HEAD
 (21 − 20 = 1). App files restored, hashes identical.
+---
+
+## GFFL — Battle Kreussers still showed a pending claim (2026-09-16)
+
+User: I still see a pending claim on Battle Kreussers.
+
+Live `claims_2026_w2` is `processed:true` with 8 snapshot
+rows and 8 results. Team 1 won Devaughn Vele ($20, dropped
+Kyler Murray). The per-claim docs were never deleted. The
+first cut hid the Cancel row when `processed`, but left
+"Your results" inside the **My pending** card, so the
+heading stayed up. Production was still on the pre-fix JS,
+so the snapshot row itself was still listed.
+
+My pending is only the live queue (claims / trades /
+reviews). Results move under Waivers. Moves and the
+auto-process boot read `loadClaims` fresh so a cached
+pre-run weekly doc cannot resurrect leftover `claim_*`
+rows. A claim that already has a result row is not pending
+even if `processed` missed the cache.
+
+Scripts cache-bust `?v=20260916f`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** counts filled after the suite.
 

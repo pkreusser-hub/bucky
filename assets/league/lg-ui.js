@@ -6114,7 +6114,7 @@
     if (!LG.teams.length) return;
     const wk = UI.week || LG.currentWeek();
     if (LG.now() < LG.waiverDeadline(wk)) return;
-    const doc = await LG.loadClaims(wk);
+    const doc = await LG.loadClaims(wk, { fresh: true });
     if (!doc.processed && (doc.claims || []).length) await LG.processWaivers(wk);
   }
   async function maybeAutoExecuteTrades() {
@@ -6341,7 +6341,11 @@
     await loadWeekRosters();
     await runAutoChecks(false).catch(() => {}); // throttled — see runAutoChecks' own note
     UI._trades = await LG.loadTrades();
-    UI._claims = await LG.loadClaims(UI.week);
+    // Fresh: another device (or this morning's cron) may have already
+    // settled the week. A cached pre-run weekly doc plus leftover claim_*
+    // rows is exactly how Battle Kreussers still showed Devaughn Vele as
+    // pending after Wednesday's run.
+    UI._claims = await LG.loadClaims(UI.week, { fresh: true });
     UI._tx = await LG.loadTx();
     if (!T) { main().innerHTML = `<div class="card"><p class="mut">No team claimed.</p></div>`; return; }
 
@@ -6353,9 +6357,12 @@
     // (`processed:true` + `claims` + `results`). Those rows are RESULTS, not
     // a live queue — Cancel would no-op with already-processed, and the
     // owner would still see "Your waiver claims" the morning after the run.
-    const myClaims = UI._claims.processed
+    // Also drop any claim that already has a result row, so a stale
+    // processed:false cache cannot resurrect a resolved bid.
+    const settledIds = new Set((UI._claims.results || []).map((r) => r.id));
+    const myClaims = (UI._claims.processed)
       ? []
-      : (UI._claims.claims || []).filter((c) => c.teamId === tid);
+      : (UI._claims.claims || []).filter((c) => c.teamId === tid && !settledIds.has(c.id));
     const myTrades = (UI._trades || []).filter((tr) => (tr.from === tid || tr.to === tid) && (tr.status === "offered" || tr.status === "accepted"));
     // S7 — the counter CHAIN. Every link is between the same two teams, so a chain I am in is
     // entirely mine; walking `counterOf` up from a live offer gives its whole history, newest
@@ -6505,7 +6512,10 @@
           wvDl.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }))}
       </div>`;
 
-    const pendEmpty = !myClaims.length && !tradeHeads.length && !reviewTrades.length && !myResultsHtml;
+    // Results are not pending. Leaving them inside this card kept the
+    // "My pending" heading up after Wednesday's run (Battle Kreussers
+    // still read as having a live claim). Only the live queue belongs here.
+    const pendEmpty = !myClaims.length && !tradeHeads.length && !reviewTrades.length;
     const pendHtml = pendEmpty
       ? `<div class="card pendcard"><h2>My pending</h2>
           <p class="pendnone mut small"><span id="mvMyClaims">No pending claims.</span> <span id="mvMyTrades">No pending trades.</span></p>
@@ -6516,7 +6526,6 @@
           ${tradeHeads.length ? '<h2 class="small mut">Your trades</h2>' : ""}
           <div id="mvMyTrades">${tradeHeads.length ? tradeHeads.map(tradeThread).join("") : '<p class="pendnone mut small">No pending trades.</p>'}</div>
           ${reviewTrades.length ? `<h2 class="small mut">Trades under review — league vote</h2><div id="mvReviewTrades">${reviewTrades.map(reviewRow).join("")}</div>` : ""}
-          ${myResultsHtml}
         </div>`;
     main().innerHTML = `
       <div id="hotStrip"></div>
@@ -6524,6 +6533,7 @@
       ${pendHtml}
       <div class="card"><h2>Waivers</h2>
         ${wvBlocksHtml}
+        ${myResultsHtml}
         ${isCommish() ? '<div class="rowline mvprow"><button id="mvProcessNow">Process now</button></div>' : ""}
         <div class="rowline"><span class="mut small">Filter:</span>
           <div class="poschips" id="faFilterChips">
