@@ -8542,4 +8542,41 @@ The 4 are the quiet My pending line, results sitting
 under Waivers, and the live week-2 snapshot (HEAD still
 lists D. Vele with Cancel inside My pending). App files
 restored.
+---
+
+## GFFL — Moves %ROST/%START blanks + ESPN outlook on the card (2026-09-16)
+
+User: on Moves most % rostered / % start cells are blank;
+clicking a player should pull ESPN's paragraph analysis
+onto the card.
+
+Sleeper's directory has no `espn_id` for about half the
+pool, so those FAs are keyed `slp_<pid>` and
+`espnIdForKey` returned null. `nfl_ownership` now ships
+`who[id]=[name,team]`. The client matches `D.normName` +
+`D.slpTeam` the same way the rest of the app already
+does. `players[id]` stays `[owned, started]`.
+
+The player card fetches `ff_player` in parallel with the
+game log and renders `seasonOutlook` — the same field
+`ffdraft.html` already shows. A missing or failed
+outlook degrades silently (name + tiles, no empty block).
+`ff_pct_owned` no longer fabricates 0% for an outlook-only
+playercard row.
+
+Scripts cache-bust `?v=20260916g`. Local ownership cache
+key is `bucky_gffl_own3` so a six-hour `{players}`-only
+copy cannot keep `slp_` rows blank.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`netlify/functions/sports.mjs`, `tools/_verify-gffl.cjs`,
+this file.
+
+**VERIFY:** `--only TR` **11/11**. Bite vs `origin/main`
+(app files at main, new suite kept): **6/5**. The 5 are
+the `who` map (HEAD has none), F. Agent still `—`/`—` on
+the slp_ key, and both outlook paragraphs (HEAD never
+calls `ff_player`). The espn-id path (P. Passer 92%/88%)
+and the silent no-outlook degrade still pass on HEAD.
+App files restored.
 

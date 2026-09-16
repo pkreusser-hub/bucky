@@ -27766,29 +27766,37 @@ async function openDetails(page, id) {
         return r.json();
       };
       const j = await callOwn({ limit: 13 });
-      ok(j && j.ok === true && j.who && Array.isArray(j.who["3915511"])
-        && j.who["3915511"][0] === "P. Passer" && j.who["3915511"][1] === "PHI",
+      const whoPasser = j && j.who && j.who["3915511"];
+      const whoAgent = j && j.who && j.who["777001"];
+      ok(j && j.ok === true && Array.isArray(whoPasser)
+        && whoPasser[0] === "P. Passer" && whoPasser[1] === "PHI",
         "nfl_ownership who[id] is [fullName, proTeam] so a slp_ key can resolve without espn_id ("
-        + JSON.stringify(j && j.who && j.who["3915511"]) + ")");
-      ok(j.who["777001"] && j.who["777001"][0] === "F. Agent" && j.who["777001"][1] === "KC",
+        + JSON.stringify(whoPasser) + ")");
+      ok(Array.isArray(whoAgent) && whoAgent[0] === "F. Agent" && whoAgent[1] === "KC",
         "…including an unrostered FA ESPN knows by name that Sleeper carries with no espn_id");
-      ok(JSON.stringify(j.players["3915511"]) === "[92.4,88.1]"
+      ok(j && j.players && JSON.stringify(j.players["3915511"]) === "[92.4,88.1]"
         && JSON.stringify(j.players["777001"]) === "[33.4,8.2]",
         "…and players[id] stays [owned, started] — who is additive, not a shape break");
     }
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
-      await bootPage(page);
-      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 12000);
       await waitLive(page);
       await page.evaluate(() => window.__GFFL__.UI.show("moves"));
-      await page.waitForSelector("#faPosChips", { timeout: 9000 });
+      await waitOr(page, "#faPosChips", 9000);
       await clickIn(page, "#faFilterChips .poschip", "All");
-      await page.waitForFunction(() => {
+      // Wait for the espn-id path first — that already works on HEAD — so the slp_ row's
+      // "—" is an honest miss, not a race before nfl_ownership lands.
+      await waitFnOr(page, () => {
+        const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
+        return !!(tr && tr.querySelector(".faown") && tr.querySelector(".faown").textContent.trim() === "92%");
+      });
+      await waitFnOr(page, () => {
         const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("F. Agent"));
-        return tr && tr.querySelector(".faown") && tr.querySelector(".faown").textContent.trim() === "33%";
-      }, { timeout: 9000 });
-      const agent = await page.evaluate(() => {
+        return !!(tr && tr.querySelector(".faown") && tr.querySelector(".faown").textContent.trim() === "33%");
+      });
+      const agent = await evalOr(page, () => {
         const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("F. Agent"));
         return tr ? {
           key: tr.dataset.pk,
@@ -27799,7 +27807,7 @@ async function openDetails(page, id) {
       ok(agent && agent.key === "slp_9201" && agent.own === "33%" && agent.start === "8%",
         "a slp_ free agent with no espn_id still renders %ROST/%START via name+team — F. Agent 33.4/8.2 ("
         + JSON.stringify(agent) + ")");
-      const passer = await page.evaluate(() => {
+      const passer = await evalOr(page, () => {
         const tr = [...document.querySelectorAll("#faResults tr")].find((r) => r.textContent.includes("P. Passer"));
         return tr ? {
           own: tr.querySelector(".faown").textContent.trim(),
@@ -27808,53 +27816,53 @@ async function openDetails(page, id) {
       });
       ok(passer && passer.own === "92%" && passer.start === "88%",
         "…and an espn-id key still fills the same way it always did — P. Passer 92%/88%");
-      await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511"));
-      await page.waitForFunction(() => {
+      await evalOr(page, () => window.__GFFL__.UI.openPlayerCard("3915511"));
+      await waitFnOr(page, () => {
         const n = document.querySelector("#playerCard .pcname");
         const o = document.querySelector("#playerCard .pcout");
         return !!(n && /Passer/.test(n.textContent) && o && /pocket collapses/.test(o.textContent));
-      }, { timeout: 9000 });
-      const passCard = await page.evaluate(() => {
+      });
+      const passCard = await evalOr(page, () => {
         const out = document.querySelector("#playerCard .pcout");
         return {
           name: ((document.querySelector("#playerCard .pcname") || {}).textContent || "").trim(),
           outlook: out ? (out.textContent || "").replace(/\s+/g, " ").trim() : "",
           heading: /ESPN's outlook/.test((document.querySelector("#playerCard") || {}).textContent || ""),
         };
-      });
+      }) || { name: "", outlook: "", heading: false };
       ok(passCard.name === "P. Passer" && passCard.heading === true
         && /P\. Passer remains the engine/.test(passCard.outlook)
         && /pocket collapses/.test(passCard.outlook),
-        "the player card pulls ESPN's seasonOutlook paragraph — P. Passer (" + passCard.outlook.slice(0, 80) + ")");
-      await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
-      await page.waitForFunction(() => document.getElementById("playerCard").hidden, { timeout: 3000 });
-      await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("slp_9201"));
-      await page.waitForFunction(() => {
+        "the player card pulls ESPN's seasonOutlook paragraph — P. Passer (" + String(passCard.outlook || "").slice(0, 80) + ")");
+      await evalOr(page, () => window.__GFFL__.UI.closePlayerCard());
+      await waitFnOr(page, () => document.getElementById("playerCard").hidden);
+      await evalOr(page, () => window.__GFFL__.UI.openPlayerCard("slp_9201"));
+      await waitFnOr(page, () => {
         const n = document.querySelector("#playerCard .pcname");
         const o = document.querySelector("#playerCard .pcout");
         return !!(n && /F\. Agent/.test(n.textContent) && o && /late-week dart/.test(o.textContent));
-      }, { timeout: 9000 });
-      const agentCard = await page.evaluate(() => {
+      });
+      const agentCard = await evalOr(page, () => {
         const out = document.querySelector("#playerCard .pcout");
         return {
           name: ((document.querySelector("#playerCard .pcname") || {}).textContent || "").trim(),
           outlook: out ? (out.textContent || "").replace(/\s+/g, " ").trim() : "",
         };
-      });
+      }) || { name: "", outlook: "" };
       ok(agentCard.name === "F. Agent" && /late-week dart/.test(agentCard.outlook),
         "…and a slp_ key resolves the ESPN pid through who, so F. Agent gets a paragraph too");
-      await page.evaluate(() => window.__GFFL__.UI.closePlayerCard());
-      await page.waitForFunction(() => document.getElementById("playerCard").hidden, { timeout: 3000 });
-      await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("slp_9202"));
-      await page.waitForFunction(() => {
+      await evalOr(page, () => window.__GFFL__.UI.closePlayerCard());
+      await waitFnOr(page, () => document.getElementById("playerCard").hidden);
+      await evalOr(page, () => window.__GFFL__.UI.openPlayerCard("slp_9202"));
+      await waitFnOr(page, () => {
         const n = document.querySelector("#playerCard .pcname");
         return !!(n && /Vail/.test(n.textContent));
-      }, { timeout: 9000 });
-      const vail = await page.evaluate(() => ({
+      });
+      const vail = await evalOr(page, () => ({
         name: ((document.querySelector("#playerCard .pcname") || {}).textContent || "").trim(),
         hasOut: !!document.querySelector("#playerCard .pcout"),
         tiles: !!document.querySelector("#playerCard .pctiles"),
-      }));
+      })) || { name: "", hasOut: false, tiles: false };
       ok(vail.name === "A. Vail" && vail.hasOut === false && vail.tiles === true,
         "a player ESPN has no paragraph for degrades silently — name + tiles, no empty outlook block ("
         + JSON.stringify(vail) + ")");
@@ -27864,20 +27872,20 @@ async function openDetails(page, id) {
     {
       fixture.ffPlayerDown = true;
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
-      await bootPage(page);
-      await page.waitForSelector(".mucard", { timeout: 9000 });
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 12000);
       await waitLive(page);
-      await page.evaluate(() => window.__GFFL__.UI.openPlayerCard("3915511"));
-      await page.waitForFunction(() => {
+      await evalOr(page, () => window.__GFFL__.UI.openPlayerCard("3915511"));
+      await waitFnOr(page, () => {
         const n = document.querySelector("#playerCard .pcname");
         return !!(n && /Passer/.test(n.textContent));
-      }, { timeout: 9000 });
-      const down = await page.evaluate(() => ({
+      });
+      const down = await evalOr(page, () => ({
         name: ((document.querySelector("#playerCard .pcname") || {}).textContent || "").trim(),
         hasOut: !!document.querySelector("#playerCard .pcout"),
         tiles: !!document.querySelector("#playerCard .pctiles"),
         loading: /Loading/.test((document.querySelector("#playerCard") || {}).textContent || ""),
-      }));
+      })) || { name: "", hasOut: false, tiles: false, loading: true };
       ok(down.name === "P. Passer" && down.hasOut === false && down.tiles === true && down.loading === false,
         "ff_player down: the card still paints name + tiles, never an empty Loading… (" + JSON.stringify(down) + ")");
       ok(errors.length === 0, "0 page errors with ff_player down — outlook is context, never a gate");
