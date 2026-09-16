@@ -104,8 +104,8 @@ ok(eq(await toksM({ gfflTeam: 1, kind: "chat" }), ["TA"]),
    "kind:chat drops the device that muted chat");
 ok(eq(await toksM({ gfflTeam: 1, kind: "smack" }), ["TA","TD"]),
    "a different kind still reaches them — mutes are per type, not a master off");
-ok(eq(await toksM({ gfflAll: true, kind: "chat" }), ["TB"]),
-   "gfflAll + kind=chat skips the muted league device and keeps the unmuted one");
+ok(eq(await toksM({ gfflAll: true, kind: "chat" }), ["TA","TB"]),
+   "gfflAll + kind=chat skips only the muted device — TA (same team, unmuted) and TB still get it");
 
 console.log(`\nresolveUrl + audience: ${pass}/${pass+fail} passed`);
 process.exit(fail?1:0);

@@ -16501,7 +16501,9 @@ async function openDetails(page, id) {
       await reset();
       fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
       const { ctx, page, errors } = await newTestPage(browser, fullSeed()); // team 1, "Peter"
-      await bootPage(page);
+      // RESTAGED 2026-09-16: week 2 has started; fullSeed's schedule is week 1
+      // only, so an unpinned boot paints no .mucard. Same pin TL/TN already use.
+      await bootWeek1Home(page);
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await stopPolling(page);
       // RESTAGED 2026-08-17 (ruling, same day): AN1's own "toMe"/"acc" trade below touches
@@ -16602,7 +16604,7 @@ async function openDetails(page, id) {
     {
       await reset();
       const { ctx, page, errors } = await newTestPage(browser, fullSeed()); // team 1 = the actor
-      await bootPage(page);
+      await bootWeek1Home(page);
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await stopPolling(page);
       // MY claim wins; team 2 loses the same player and wins a different one. Team 2's push
@@ -16667,7 +16669,7 @@ async function openDetails(page, id) {
       // nobody on either side. See seedAllFielded's own note — the filler lineups score nothing,
       // so the two real scorelines this block reads off the body are unchanged.
       const { ctx, page, errors } = await newTestPage(browser, seedAllFielded());
-      await bootPage(page);
+      await bootWeek1Home(page);
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await waitLive(page);
       // The same staging section M finalizes against: every relevant game final, real per-player
@@ -16723,7 +16725,7 @@ async function openDetails(page, id) {
     {
       await reset();
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
-      await bootPage(page);
+      await bootWeek1Home(page);
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await stopPolling(page);
       // Give one team a claimed-by name, so "people say @Peter as readily as @Battle Kreussers"
@@ -16821,7 +16823,7 @@ async function openDetails(page, id) {
         await page.waitForSelector(".lockerhead", { timeout: 9000 });
       };
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
-      await bootPage(page);
+      await bootWeek1Home(page);
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await stopPolling(page);
 
@@ -16909,7 +16911,7 @@ async function openDetails(page, id) {
     // ---- AN6: push-client.js still works with NO gfflTeam (family compatibility) ----
     {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed());
-      await bootPage(page);
+      await bootWeek1Home(page);
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await stopPolling(page);
       const docs = await page.evaluate(() => {
@@ -26978,7 +26980,9 @@ async function openDetails(page, id) {
         "after the league week moves, Matchup still paints the live week (" + w2.label + ")");
       ok(w2.feed === true && w2.ai === true, "the live week still has the feed and the AI read");
 
-      await page.evaluate(() => document.getElementById("muPrev").click());
+      // evalOr: HEAD has no #muPrev. A bare click() throws and turns the bite
+      // into one stack instead of the remaining week-cycler failures.
+      await evalOr(page, () => { const b = document.getElementById("muPrev"); if (b) b.click(); return !!b; });
       await waitFnOr(page, () => /Week 1/.test((document.querySelector("#muWeekNav") || {}).textContent || "")
         && window.__GFFL__.UI._muWeek === 1);
 
@@ -27008,14 +27012,14 @@ async function openDetails(page, id) {
         "a browsed week hides the live feed and the AI read");
       ok(past.final === true, "the to-play line reads Final, not a live remaining clock");
 
-      await page.evaluate(() => document.getElementById("muNext").click());
+      await evalOr(page, () => { const b = document.getElementById("muNext"); if (b) b.click(); return !!b; });
       await waitFnOr(page, () => window.__GFFL__.UI._muWeek == null
         && /Week 2/.test((document.querySelector("#muWeekNav") || {}).textContent || ""));
       ok((await evalOr(page, () => window.__GFFL__.UI.week)) === 2
         && (await evalOr(page, () => window.__GFFL__.UI._muWeek)) == null,
         "Next from a past week lands back on the live week, still without moving UI.week");
 
-      await page.evaluate(() => document.getElementById("muNext").click());
+      await evalOr(page, () => { const b = document.getElementById("muNext"); if (b) b.click(); return !!b; });
       await waitFnOr(page, () => window.__GFFL__.UI._muWeek === 3);
       const fut = await evalOr(page, () => {
         const nav = ((document.querySelector("#muWeekNav") || {}).textContent || "").replace(/\s+/g, " ").trim();
@@ -27035,12 +27039,12 @@ async function openDetails(page, id) {
       ok(fut.feed === false && fut.upcoming === true,
         "…no live feed, and the subtitle says Upcoming");
 
-      await page.evaluate(() => document.getElementById("muNow").click());
+      await evalOr(page, () => { const b = document.getElementById("muNow"); if (b) b.click(); return !!b; });
       await waitFnOr(page, () => window.__GFFL__.UI._muWeek == null);
       ok(/live/.test(await evalOr(page, () => ((document.querySelector("#muWeekNav") || {}).textContent || ""))),
         "Now returns to the live week");
 
-      await page.evaluate(() => document.getElementById("muPrev").click());
+      await evalOr(page, () => { const b = document.getElementById("muPrev"); if (b) b.click(); return !!b; });
       await waitFnOr(page, () => window.__GFFL__.UI._muWeek === 1);
       await page.evaluate(() => window.__GFFL__.UI.navTo("matchup"));
       await waitFnOr(page, () => window.__GFFL__.UI._muWeek == null

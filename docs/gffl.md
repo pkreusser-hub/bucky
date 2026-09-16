@@ -8344,6 +8344,21 @@ Files: `league.html`, `assets/league/lg-{core,ui}.js`,
 `tools/_verify-notify-url.mjs`, `tools/_verify-leaguecron.mjs`,
 this file.
 
-**VERIFY:** quoted after the suite run.
+**VERIFY:** `--only TN,AN,TL` **149/149**.
+`node tools/_verify-notify-url.mjs` **40/40**.
+`node tools/_verify-leaguecron.mjs` **49/49**.
+Bite vs `origin/main` (app files at main, new
+suite kept): TN+AN **94/32**; notify-url **38/40**;
+leaguecron **47/49**. The 32 are the new cycler,
+per-type switches, chat/smack producers, and the
+restaged mention-plus-room checks. Pre-existing
+AN1–AN3 / AN5–AN6 stay green. The two notify-url
+fails are the mute-row filters; the two leaguecron
+fails are the waivers mute. TN clicks go through
+`evalOr` so a missing strip fails those assertions
+instead of aborting the bite. AN1–AN6 boot via
+`bootWeek1Home` — week 2 has started and
+`fullSeed`'s schedule is week 1 only. App files
+restored, hashes identical.
 ---
 
