@@ -28081,7 +28081,10 @@ async function openDetails(page, id) {
         const goldWidth = (el) => {
           const sh = getComputedStyle(el).boxShadow || "";
           if (!goldRe.test(sh)) return 0;
-          const m = sh.match(/inset\s+(-?\d+(?:\.\d+)?)px/);
+          // Chrome serializes as "rgb(255, 182, 18) -3px 0px 0px 0px inset",
+          // not the authored "inset -3px 0 0 var(--gold)". The first px token
+          // is the bar's thickness either way.
+          const m = sh.match(/(-?\d+(?:\.\d+)?)px/);
           return m ? Math.abs(parseFloat(m[1])) : 0;
         };
         const read = (nm) => {
@@ -28103,8 +28106,12 @@ async function openDetails(page, id) {
             score: pts.textContent.trim(),
           };
         };
-        const passer = read("P. Passer");
-        const rusher = read("R. Rusher");
+        // seedLongNames remaps 3915511/4241457 off "P. Passer"/"R. Rusher"
+        // so the gold-gap read has to use the names that are actually on
+        // the row. Keys/teams/slots are unchanged: Harrison is still the
+        // PHI QB (has the ball), St. Brown is still the DAL RB (does not).
+        const passer = read("M. Harrison Jr.") || read("P. Passer");
+        const rusher = read("A. St. Brown") || read("R. Rusher");
         const names = [...document.querySelectorAll(".mutable .pname b")].map((b) => ({
           txt: b.textContent.trim(), clipped: b.scrollWidth > b.clientWidth + 1,
         }));
