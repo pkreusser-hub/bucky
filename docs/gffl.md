@@ -8742,8 +8742,13 @@ Scripts cache-bust `?v=20260917b`.
 Files: `league.html`, `assets/league/lg-data.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY:** `--only TV` (count quoted after the
-green run). Bite: new Out-cap checks fail on the
-pre-change app; healthy leftover / Q / unknown-null
-still pass.
+**VERIFY:** `--only TV` **15/15**. Related
+`--only TT,TU,TV` **39/39**. Bite vs `75009f6`
+(pre-cap `lg-data.js`, new suite kept): `--only TV`
+**10/5**. The 5 are the new Out caps (directory,
+O, 0-pts, live-row, painted 10.0). Healthy leftover
+20.5, teammate leftover, Q/D/IR leftover, pre-game
+weekly paper, post-game final, unknown-null, and
+healthy paint 20.5 still pass on that app. App
+files restored.
 
