@@ -881,6 +881,11 @@
      were hard to read. The extra outer gutter lives in the 1023px block below. */
   .pcellgrid { padding:2px 3px; border-radius:var(--radius-badge); }
   .pcellgrid.hasball .mushot, .lrow.hasball .lkshot { border-color:var(--gold); box-shadow:inset 0 0 0 2px var(--gold); }
+  /* 2026-09-17, user: "lets have the yellow highlight turn red if that
+     player's offense is in the redzone". Same --accent the score-card pip
+     already uses (.scposs.rz). Injury Q/D/OUT stays accent TEXT; this is
+     the ring, a different surface. */
+  .pcellgrid.hasball.rz .mushot, .lrow.hasball.rz .lkshot { border-color:var(--accent); box-shadow:inset 0 0 0 2px var(--accent); }
   /* Desktop: the gold rings the face, which sits just inside the score column.
      A little extra air on the score-facing side so the ring is not tight on
      the points stack (2026-09-17). */
@@ -1045,6 +1050,9 @@
     .pcellgrid.hasball.left  { box-shadow:inset 3px 0 0 var(--gold); }
     .pcellgrid.hasball.right { box-shadow:inset -3px 0 0 var(--gold); }
     .lrow.hasball { box-shadow:inset 3px 0 0 var(--gold); }
+    .pcellgrid.hasball.rz.left  { box-shadow:inset 3px 0 0 var(--accent); }
+    .pcellgrid.hasball.rz.right { box-shadow:inset -3px 0 0 var(--accent); }
+    .lrow.hasball.rz { box-shadow:inset 3px 0 0 var(--accent); }
     /* 2026-09-17, user: "the yellow highlight… is too close to the players
        score it makes it hard to read". The 3px gold edge is painted in the
        cell's own padding, and the score hugs that same outer edge, so 3px
@@ -2417,9 +2425,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260917"></script>
-  <script src="assets/league/lg-data.js?v=20260917"></script>
-  <script src="assets/league/lg-ui.js?v=20260917"></script>
+  <script src="assets/league/lg-core.js?v=20260917a"></script>
+  <script src="assets/league/lg-data.js?v=20260917a"></script>
+  <script src="assets/league/lg-ui.js?v=20260917a"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

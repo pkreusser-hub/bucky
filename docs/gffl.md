@@ -8682,4 +8682,27 @@ halves' outer inset 3px, desktop face-to-score-column
 10px. Gold still paints, names still fit, and the
 gutter is already equal on both halves (HEAD's 3px
 padding). App files restored.
+---
+
+## GFFL — possession highlight turns red in the red zone (2026-09-17)
+
+User: the yellow highlight should turn red if that
+player's offense is in the red zone.
+
+Gold still means "has the ball". `.pcellgrid.hasball.rz`
+/ `.lrow.hasball.rz` flip the same edge (phone) and
+picture ring (desktop) to `--accent` — the gold→red the
+score-card pip (`.scposs.rz`) already does. A D/ST is
+never on the field, so it never paints. Injury Q/D/OUT
+stays accent TEXT; the ring is a different surface.
+
+The fixture's PHI drive is 12 yards out, so possessing
+starters start red. Clearing `g.rz` and re-painting
+returns gold. Title is "Has the ball · red zone" only
+while `.rz` is on.
+
+Scripts cache-bust `?v=20260917a`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
 

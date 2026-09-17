@@ -10225,9 +10225,15 @@ async function openDetails(page, id) {
           // highlighted in yellow is too much — just highlight the player's picture in gold").
           // At DESKTOP the gold now rings the PICTURE (a fresh 1440px block, AD5b, covers
           // that); this 390px section has no headshot to ring, so the cell carries a quiet
-          // ball-side gold EDGE instead — still a gold box-shadow on the cell, so this read is
-          // unchanged and still proves "the possessing player is highlighted, the D/ST is not".
-          return g && { ball: g.classList.contains("hasball"), ring: /rgb\(255, 182, 18\)/.test(getComputedStyle(g).boxShadow || ""),
+          // ball-side EDGE instead.
+          // RESTAGED 2026-09-17: the fixture's PHI drive is inside the 20, so the edge is
+          // --accent (red zone), not gold. Gold still means "has the ball" when the drive
+          // is not in the red zone — TU owns that flip. The read is still "highlighted
+          // vs not", now against either hue.
+          const sh = getComputedStyle(g).boxShadow || "";
+          return g && { ball: g.classList.contains("hasball"),
+                        ring: /rgb\(255, 182, 18\)|rgb\(213, 10, 10\)/.test(sh),
+                        rz: g.classList.contains("rz"),
                         h: Math.round(g.getBoundingClientRect().height) };
         };
         return {
@@ -10238,7 +10244,8 @@ async function openDetails(page, id) {
         };
       });
       ok(poss.phi === true && poss.dal === false, "the drive's own team is recorded as having the ball, its opponent is not (PHI " + poss.phi + " / DAL " + poss.dal + ")");
-      ok(poss.passer && poss.passer.ball && poss.passer.ring, "a PHI starter's cell carries the gold possession cue (the ball-side edge at 390px; the picture-ring is the desktop cue — AD5b)");
+      ok(poss.passer && poss.passer.ball && poss.passer.ring, "a PHI starter's cell carries the possession cue (the ball-side edge at 390px; the picture-ring is the desktop cue — AD5b). RESTAGED 2026-09-17: fixture is in the red zone, so the edge is accent, not gold");
+      ok(poss.passer && poss.passer.rz, "…and because that drive is inside the 20 the cell is marked rz");
       ok(poss.receiver && poss.receiver.ball, "…so is his team-mate");
       ok(poss.phiDst && !poss.phiDst.ball && !poss.phiDst.ring, "…but PHI's D/ST is NOT — its side has the ball, so the defence is off the field");
       // The ring is PAINTED, not laid out — a highlighted half-cell measures exactly the same
@@ -10318,7 +10325,10 @@ async function openDetails(page, id) {
       await clickIn(page, ".mucard.mine");
       await page.waitForSelector(".muhead", { timeout: 9000 });
       const d = await page.evaluate(() => {
-        const gold = (s) => /rgb\(255, 182, 18\)/.test(s || "");
+        // RESTAGED 2026-09-17: fixture PHI is in the red zone, so the picture
+        // ring is --accent, not gold. Either hue still proves "the face is
+        // ringed, the card is not". TU owns the gold↔red flip.
+        const hl = (s) => /rgb\(255, 182, 18\)|rgb\(213, 10, 10\)/.test(s || "");
         const cellFor = (nm) => [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
         const read = (nm) => {
           const g = cellFor(nm); if (!g) return null;
@@ -10326,10 +10336,11 @@ async function openDetails(page, id) {
           const cs = getComputedStyle(g);
           return {
             ball: g.classList.contains("hasball"),
+            rz: g.classList.contains("rz"),
             shotShown: shot ? getComputedStyle(shot).display !== "none" : false,
-            shotRing: shot ? gold(getComputedStyle(shot).boxShadow) : false,
-            shotBorder: shot ? gold(getComputedStyle(shot).borderColor) : false,
-            cellRing: gold(cs.boxShadow),
+            shotRing: shot ? hl(getComputedStyle(shot).boxShadow) : false,
+            shotBorder: shot ? hl(getComputedStyle(shot).borderColor) : false,
+            cellRing: hl(cs.boxShadow),
             cellWash: cs.backgroundColor,
             h: Math.round(g.getBoundingClientRect().height),
           };
@@ -10337,7 +10348,7 @@ async function openDetails(page, id) {
         return { passer: read("P. Passer"), dst: read("PHI D/ST"), rusher: read("R. Rusher") };
       });
       ok(d.passer && d.passer.ball && d.passer.shotShown, "at desktop the possessing starter's headshot is on screen");
-      ok(d.passer && d.passer.shotRing && d.passer.shotBorder, "…and the PICTURE itself carries the gold ring + gold border (the requested change)");
+      ok(d.passer && d.passer.shotRing && d.passer.shotBorder && d.passer.rz, "…and the PICTURE itself carries the possession ring + border (RESTAGED 2026-09-17: fixture is in the red zone, so the ring is accent)");
       ok(d.passer && !d.passer.cellRing, "…while the whole CARD no longer carries a gold ring (the 'too much' is gone)");
       ok(d.passer && (d.passer.cellWash === "rgba(0, 0, 0, 0)" || d.passer.cellWash === "transparent"),
         "…and no yellow row wash either (" + (d.passer && d.passer.cellWash) + ")");
@@ -28071,19 +28082,21 @@ async function openDetails(page, id) {
       await clickIn(page, ".mucard.mine");
       await waitOr(page, ".muhead", 9000);
       const phone = (await evalOr(page, () => {
-        const goldRe = /rgb\(255, 182, 18\)/;
+        // RESTAGED 2026-09-17: the fixture's possessing PHI drive is in the
+        // red zone, so the bar is --accent, not gold. The gutter is about
+        // SPACE, not hue — either token still names the painted edge.
+        const hlRe = /rgb\(255, 182, 18\)|rgb\(213, 10, 10\)/;
         const inkRect = (el) => {
           const n = [...el.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim());
           if (!n) return null;
           const r = document.createRange(); r.selectNodeContents(n);
           return r.getBoundingClientRect();
         };
-        const goldWidth = (el) => {
+        const hlWidth = (el) => {
           const sh = getComputedStyle(el).boxShadow || "";
-          if (!goldRe.test(sh)) return 0;
-          // Chrome serializes as "rgb(255, 182, 18) -3px 0px 0px 0px inset",
-          // not the authored "inset -3px 0 0 var(--gold)". The first px token
-          // is the bar's thickness either way.
+          if (!hlRe.test(sh)) return 0;
+          // Chrome serializes as "rgb(...) -3px 0px 0px 0px inset",
+          // not the authored "inset -3px 0 0 var(--gold/--accent)".
           const m = sh.match(/(-?\d+(?:\.\d+)?)px/);
           return m ? Math.abs(parseFloat(m[1])) : 0;
         };
@@ -28095,13 +28108,13 @@ async function openDetails(page, id) {
           if (!ink) return null;
           const cell = g.getBoundingClientRect();
           const left = g.classList.contains("left");
-          const gw = goldWidth(g);
-          const goldInner = left ? cell.left + gw : cell.right - gw;
-          const gap = left ? ink.left - goldInner : goldInner - ink.right;
+          const hw = hlWidth(g);
+          const hlInner = left ? cell.left + hw : cell.right - hw;
+          const gap = left ? ink.left - hlInner : hlInner - ink.right;
           const inset = left ? ink.left - cell.left : cell.right - ink.right;
           return {
             name: nm, left, ball: g.classList.contains("hasball"),
-            gold: gw, gap: Math.round(gap * 10) / 10,
+            hl: hw, gap: Math.round(gap * 10) / 10,
             inset: Math.round(inset * 10) / 10,
             score: pts.textContent.trim(),
           };
@@ -28138,14 +28151,14 @@ async function openDetails(page, id) {
           }),
         };
       })) || {};
-      ok(phone.passer && phone.passer.ball && phone.passer.gold >= 3,
-        "at 390px a possessing starter still carries the gold ball-side edge (" + JSON.stringify(phone.passer) + ")");
+      ok(phone.passer && phone.passer.ball && phone.passer.hl >= 3,
+        "at 390px a possessing starter still carries the possession edge (" + JSON.stringify(phone.passer) + ")");
       ok(phone.passer && phone.passer.gap >= 5,
-        "…and the gold's inner edge sits at least 5px off the score ink (was flush; got "
+        "…and the highlight's inner edge sits at least 5px off the score ink (was flush; got "
         + (phone.passer && phone.passer.gap) + "px)");
       ok(phone.passer && phone.rusher
         && phone.passer.inset >= 8 && phone.rusher.inset >= 8,
-        "both halves keep an 8px outer gutter so the score never sits in the gold ("
+        "both halves keep an 8px outer gutter so the score never sits in the highlight ("
         + JSON.stringify({ pass: phone.passer && phone.passer.inset, rush: phone.rusher && phone.rusher.inset }) + ")");
       ok(phone.passer && phone.rusher
         && Math.abs(phone.passer.inset - phone.rusher.inset) < 2,
@@ -28174,7 +28187,9 @@ async function openDetails(page, id) {
       await clickIn(page, ".mucard.mine");
       await waitOr(page, ".muhead", 9000);
       const desk = (await evalOr(page, () => {
-        const gold = (s) => /rgb\(255, 182, 18\)/.test(s || "");
+        // RESTAGED 2026-09-17: fixture is in the red zone, so the face ring
+        // is accent. Either hue still proves "the picture is ringed, the card is not".
+        const hl = (s) => /rgb\(255, 182, 18\)|rgb\(213, 10, 10\)/.test(s || "");
         const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
         if (!g) return null;
         const shot = g.querySelector(".mushot");
@@ -28185,16 +28200,16 @@ async function openDetails(page, id) {
         const gap = left ? sr.left - pr.right : pr.left - sr.right;
         return {
           ball: g.classList.contains("hasball"),
-          shotRing: gold(getComputedStyle(shot).boxShadow),
-          cellRing: gold(getComputedStyle(g).boxShadow),
+          shotRing: hl(getComputedStyle(shot).boxShadow),
+          cellRing: hl(getComputedStyle(g).boxShadow),
           gap: Math.round(gap * 10) / 10,
           shotShown: getComputedStyle(shot).display !== "none",
         };
       })) || {};
       ok(desk.ball && desk.shotShown && desk.shotRing && !desk.cellRing,
-        "at 1440px the gold still rings the picture, not the card (" + JSON.stringify(desk) + ")");
+        "at 1440px the possession ring still rides the picture, not the card (" + JSON.stringify(desk) + ")");
       ok(desk.gap >= 14,
-        "…and the gold face sits at least 14px off the score column (was the 10px flex gap; got "
+        "…and the highlighted face sits at least 14px off the score column (was the 10px flex gap; got "
         + desk.gap + "px)");
       if (SHOTS) {
         const dest = process.env.GFFL_SHOTS || path.join(ROOT, "shots");
@@ -28202,6 +28217,137 @@ async function openDetails(page, id) {
         await page.screenshot({ path: path.join(dest, "gffl_possession_score_gap_desktop.png"), fullPage: false });
       }
       ok(errors.length === 0, "0 page errors at 1440px");
+      await ctx.close();
+    }
+  }
+
+  // ================= TU · possession highlight turns red in the red zone =================
+  // 2026-09-17, user: "lets have the yellow highlight turn red if that
+  // player's offense is in the redzone". The score-card pip already flips
+  // gold → --accent (.scposs.rz). The matchup / locker highlight now does
+  // the same. The fixture's PHI drive is 12 yards out (isRedZone), so the
+  // possessing starters start red; clearing g.rz and re-painting must
+  // return gold. A D/ST and the other team never get either hue.
+  if (section("TU · possession highlight turns red in the red zone")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 9000);
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await waitOr(page, ".muhead", 9000);
+      const phone = (await evalOr(page, () => {
+        const GOLD = /rgb\(255, 182, 18\)/;
+        const ACCENT = /rgb\(213, 10, 10\)/;
+        const read = (nm) => {
+          const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
+          if (!g) return null;
+          const sh = getComputedStyle(g).boxShadow || "";
+          return {
+            ball: g.classList.contains("hasball"),
+            rz: g.classList.contains("rz"),
+            gold: GOLD.test(sh),
+            accent: ACCENT.test(sh),
+            title: g.getAttribute("title") || "",
+          };
+        };
+        const phi = window.__GFFL__.D.S.games.get("PHI") || {};
+        return {
+          passer: read("P. Passer"),
+          receiver: read("W. Receiver"),
+          dst: read("PHI D/ST"),
+          rusher: read("R. Rusher"),
+          gameRz: !!phi.rz, gamePoss: !!phi.poss,
+        };
+      })) || {};
+      ok(phone.gamePoss === true && phone.gameRz === true,
+        "the fixture's PHI drive is on offense inside the 20 (" + JSON.stringify({ poss: phone.gamePoss, rz: phone.gameRz }) + ")");
+      ok(phone.passer && phone.passer.ball && phone.passer.rz && phone.passer.accent && !phone.passer.gold,
+        "at 390px a possessing PHI starter's edge is accent, not gold (" + JSON.stringify(phone.passer) + ")");
+      ok(phone.passer && /red zone/i.test(phone.passer.title),
+        "…and the title says red zone, not just has-the-ball (" + (phone.passer && phone.passer.title) + ")");
+      ok(phone.receiver && phone.receiver.ball && phone.receiver.rz && phone.receiver.accent,
+        "…his team-mate on offense is red too");
+      ok(phone.dst && !phone.dst.ball && !phone.dst.rz && !phone.dst.accent && !phone.dst.gold,
+        "PHI's D/ST stays unpainted — the defence is off the field");
+      ok(phone.rusher && !phone.rusher.ball && !phone.rusher.rz && !phone.rusher.accent,
+        "…and nobody on DAL is highlighted");
+      const afterClear = (await evalOr(page, () => {
+        const GOLD = /rgb\(255, 182, 18\)/;
+        const ACCENT = /rgb\(213, 10, 10\)/;
+        const g = window.__GFFL__.D.S.games.get("PHI");
+        g.rz = false;
+        window.__GFFL__.UI.renderMatchup(true);
+        const cell = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
+        const sh = cell ? getComputedStyle(cell).boxShadow || "" : "";
+        return cell && {
+          ball: cell.classList.contains("hasball"),
+          rz: cell.classList.contains("rz"),
+          gold: GOLD.test(sh),
+          accent: ACCENT.test(sh),
+          title: cell.getAttribute("title") || "",
+        };
+      })) || {};
+      ok(afterClear.ball && afterClear.rz === false && afterClear.gold && !afterClear.accent,
+        "clearing g.rz and re-painting returns the gold edge — red is only the red zone (" + JSON.stringify(afterClear) + ")");
+      ok(afterClear.title === "Has the ball",
+        "…and the title drops the red-zone half (" + afterClear.title + ")");
+      ok(errors.length === 0, "0 page errors at 390px");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 9000);
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await waitOr(page, ".muhead", 9000);
+      const desk = (await evalOr(page, () => {
+        const GOLD = /rgb\(255, 182, 18\)/;
+        const ACCENT = /rgb\(213, 10, 10\)/;
+        const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
+        if (!g) return null;
+        const shot = g.querySelector(".mushot");
+        const sh = shot ? getComputedStyle(shot).boxShadow || "" : "";
+        const bd = shot ? getComputedStyle(shot).borderColor || "" : "";
+        return {
+          ball: g.classList.contains("hasball"),
+          rz: g.classList.contains("rz"),
+          shotShown: shot ? getComputedStyle(shot).display !== "none" : false,
+          shotAccent: ACCENT.test(sh) && ACCENT.test(bd),
+          shotGold: GOLD.test(sh) || GOLD.test(bd),
+          cellAccent: ACCENT.test(getComputedStyle(g).boxShadow || ""),
+        };
+      })) || {};
+      ok(desk.ball && desk.rz && desk.shotShown && desk.shotAccent && !desk.shotGold && !desk.cellAccent,
+        "at 1440px the PICTURE ring is accent in the red zone, not gold, and the card stays unpainted (" + JSON.stringify(desk) + ")");
+      ok(errors.length === 0, "0 page errors at 1440px");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 9000);
+      await waitLive(page);
+      await clickIn(page, '.bnav button[data-v="team"]');
+      await waitOr(page, ".lrow", 9000);
+      const locker = (await evalOr(page, () => {
+        const GOLD = /rgb\(255, 182, 18\)/;
+        const ACCENT = /rgb\(213, 10, 10\)/;
+        const row = [...document.querySelectorAll(".lrow")].find((r) => /P\. Passer/.test(r.textContent));
+        if (!row) return null;
+        const sh = getComputedStyle(row).boxShadow || "";
+        return {
+          ball: row.classList.contains("hasball"),
+          rz: row.classList.contains("rz"),
+          accent: ACCENT.test(sh),
+          gold: GOLD.test(sh),
+        };
+      })) || {};
+      ok(locker && locker.ball && locker.rz && locker.accent && !locker.gold,
+        "My Team: a possessing PHI row's edge is accent in the red zone (" + JSON.stringify(locker) + ")");
+      ok(errors.length === 0, "0 page errors on My Team");
       await ctx.close();
     }
   }

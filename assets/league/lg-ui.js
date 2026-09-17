@@ -91,6 +91,16 @@
     const g = d.S.games.get(d.slpTeam(p.team));
     return !!(g && g.state === "in" && g.poss);
   }
+  // Same game read as hasBall. The possession highlight stays gold unless
+  // this man's offense is in the red zone — then it flips to --accent, the
+  // same gold→red the score-card pip (.scposs.rz) already does. A D/ST is
+  // never on the field, so hasBall is already false and this is too.
+  function inRedZone(p) {
+    if (!hasBall(p)) return false;
+    const d = D();
+    const g = d.S.games.get(d.slpTeam(p.team));
+    return !!(g && g.rz);
+  }
 
   UI.view = "league";
   UI.week = null;           // viewed league week
@@ -5052,7 +5062,7 @@
   UI._rarity = rarity;                       // test hook — the thresholds are asserted, not eyeballed
   UI._lootName = (t) => (LOOT[t - 1] || {}).name || "";
   function halfCell(p, side) {
-    let nameHtml, metaHtml, statHtml, ptsHtml, projHtml, ball = false, heat = 0, heatPts = null, titleAttr = "", liveEid = "";
+    let nameHtml, metaHtml, statHtml, ptsHtml, projHtml, ball = false, rzBall = false, heat = 0, heatPts = null, titleAttr = "", liveEid = "";
     if (!p) {
       // The empty half carries the crest's 14px slot too, so its "Empty" label starts at the
       // same x as every real name in the column — the point of the whole even-row rule.
@@ -5089,11 +5099,16 @@
       const rz = g && g.rz && g.state === "in" && p.pos !== "DST" ? '<span class="rzdot" title="Red zone"></span>' : "";
       // Possession (ITEM 25, 2026-08-09): a GOLD BORDER around the player's own half-cell.
       // It used to be a gold pip plus a faint row tint; the user asked for the border instead.
-      // Still gold and not red — red is spoken for by the injury designation (item 24) — and
-      // still only while that player's NFL team has the ball on offense, never a D/ST (a
-      // defence is off the field), never under the replay (there is no drive data to read).
-      // Drawn as an INSET ring (see .pcellgrid.hasball) so it costs the row no height.
+      // 2026-09-17: gold still means "has the ball"; it flips to --accent when that
+      // offense is in the red zone — the same gold→red the score-card pip already
+      // does. Injury Q/D/OUT stays accent TEXT (item 24); the ring is a different
+      // surface, so the two can share a hue without fighting. Still only while
+      // that player's NFL team has the ball on offense, never a D/ST, never under
+      // the replay. Drawn as an INSET ring so it costs the row no height.
       ball = hasBall(p);
+      // Same `g` the rzdot already reads (demo-coherent), AND hasBall so a
+      // defence / pre / replay row can never paint red.
+      rzBall = !!(ball && g && g.rz);
       // The denominator is the PRE-GAME projection (d.projFor), NOT `proj` above — `proj` is
       // liveProj, which is "what he'll finish on" and therefore ALREADY CONTAINS the points
       // he has scored. Dividing by it makes the ratio approach 1 from below and the effect
@@ -5179,7 +5194,7 @@
     // or no player in this half) → no attribute, and the tap keeps opening the card exactly
     // as before.
     const liveEidAttr = liveEid ? ` data-live-eid="${esc(liveEid)}"` : "";
-    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}${heat ? " loot" : ""}"${ball && !heat ? ' title="Has the ball"' : ""}${lootAttr}${p ? ` data-pk="${esc(p.key)}"` : ""}${liveEidAttr}>${embersHtml}${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
+    return `<div class="pcellgrid ${side}${ball ? " hasball" : ""}${rzBall ? " rz" : ""}${heat ? " loot" : ""}"${ball && !heat ? ` title="${rzBall ? "Has the ball · red zone" : "Has the ball"}"` : ""}${lootAttr}${p ? ` data-pk="${esc(p.key)}"` : ""}${liveEidAttr}>${embersHtml}${side === "right" ? infoDiv + shot + ptsDiv : ptsDiv + shot + infoDiv}</div>`;
   }
   // The ESPN-reference stat summary for a matchup row: a compact position-aware line built
   // from the stats of whichever source mergeRow() picked for display (row.src — the same
@@ -8621,7 +8636,7 @@
       // its gap costs exactly the width that bar protects. On a desktop the row has room to
       // spare.
       const rowHtml = (slot, p, idx) => p
-        ? `<div class="lrow ${playerLocked(p) ? "locked" : ""}${hasBall(p) ? " hasball" : ""}" data-slot="${slot}" data-idx="${idx}">
+        ? `<div class="lrow ${playerLocked(p) ? "locked" : ""}${hasBall(p) ? " hasball" : ""}${inRedZone(p) ? " rz" : ""}" data-slot="${slot}" data-idx="${idx}">
             <span class="slotchip" data-pos="${slotPos(slot)}">${slot}</span>
             <button type="button" class="linfo" data-pk="${esc(p.key)}">
               ${pshotHtml(p.key, "lkshot")}
