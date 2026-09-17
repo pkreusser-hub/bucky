@@ -821,7 +821,11 @@
        Nothing was taken from the name's own font, the crest, the band, the colours or either
        point value. Result: 106px for the name — "J. Smith-Njigba" fits with 8px to spare, and
        the opponent line ("@DEN Fri 1:00 AM", 97px) stops truncating as well. */
-    .card.lineupcard { padding:12px 6px; }
+    /* 2026-09-17: side padding 6 → 0. The 6px a side now sits INSIDE the
+       half-cell as the possession-score gutter (see .pcellgrid.left/right
+       below 1023px). Two halves × 6px = 12px, which is exactly what the
+       card hands back, so the name budget item 17 fought for does not move. */
+    .card.lineupcard { padding:12px 0; }
     .pcellgrid { gap:3px; padding:2px 2px; }
     /* ITEM 25 gave .pcellgrid 3px of horizontal padding (the gold ring has to sit somewhere),
        and item 17 had left the longest real name — "J. Smith-Njigba", 97px — fitting a 103px
@@ -871,10 +875,19 @@
      or shift the "exactly even height for every player" row layout. The picture only exists
      >=1024px, so this is inherently a desktop cue; MOBILE (no headshot) keeps a quiet
      ball-side gold edge in its place — far lighter than the old full-card wash.
-     The 2px of padding stays on EVERY .pcellgrid so the mobile edge has room without moving
-     the text when it appears. */
+     The padding stays on EVERY .pcellgrid so the mobile edge has room without moving
+     the text when it appears. 2026-09-17: that padding was 3px — the same width as
+     the gold bar — so the bar sat flush on the outer-edge score and the digits
+     were hard to read. The extra outer gutter lives in the 1023px block below. */
   .pcellgrid { padding:2px 3px; border-radius:var(--radius-badge); }
   .pcellgrid.hasball .mushot, .lrow.hasball .lkshot { border-color:var(--gold); box-shadow:inset 0 0 0 2px var(--gold); }
+  /* Desktop: the gold rings the face, which sits just inside the score column.
+     A little extra air on the score-facing side so the ring is not tight on
+     the points stack (2026-09-17). */
+  @media (min-width:1024px) {
+    .pcellgrid.left .mushot { margin-left:6px; }
+    .pcellgrid.right .mushot { margin-right:6px; }
+  }
   /* ---- LOOT RARITY (2026-08-15, user: "lets use the color convention for world of warcraft
      loot, where baseline is white, then green, blue, purple and then orange"). SUPERSEDES the
      2026-08-14 two-tier ember wash: five steps rather than two, on a scale the family already
@@ -1032,6 +1045,14 @@
     .pcellgrid.hasball.left  { box-shadow:inset 3px 0 0 var(--gold); }
     .pcellgrid.hasball.right { box-shadow:inset -3px 0 0 var(--gold); }
     .lrow.hasball { box-shadow:inset 3px 0 0 var(--gold); }
+    /* 2026-09-17, user: "the yellow highlight… is too close to the players
+       score it makes it hard to read". The 3px gold edge is painted in the
+       cell's own padding, and the score hugs that same outer edge, so 3px
+       of padding put the bar flush on the digits. 9px leaves a 6px gutter
+       between the bar's inner edge and the ink. On EVERY half — not only
+       .hasball — so the number does not jump when the ball changes hands. */
+    .pcellgrid.left { padding-left:9px; }
+    .pcellgrid.right { padding-right:9px; }
   }
   .fline { padding:6px 0; border-bottom:1px dotted var(--divider2); font-size:13.5px; }
   .fline.sys { color:var(--mut); }
@@ -2396,9 +2417,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260916i"></script>
-  <script src="assets/league/lg-data.js?v=20260916i"></script>
-  <script src="assets/league/lg-ui.js?v=20260916i"></script>
+  <script src="assets/league/lg-core.js?v=20260917"></script>
+  <script src="assets/league/lg-data.js?v=20260917"></script>
+  <script src="assets/league/lg-ui.js?v=20260917"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

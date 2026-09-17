@@ -28049,6 +28049,146 @@ async function openDetails(page, id) {
     fixture.injMix = false;
   }
 
+  // ================= TT · possession highlight sits off the score =================
+  // 2026-09-17, user: "the yellow highlight for players whose team's have the
+  // ball is too close to the players score it makes it hard to read lets add
+  // a little more space between that highlight and the player score."
+  // Phone/tablet: the gold is a 3px inset edge on the SAME outer side the
+  // score hugs. 3px of cell padding put that bar flush on the digits. The
+  // gutter is extra outer padding on EVERY half so the number does not jump
+  // when the ball changes hands. Desktop: the gold rings the face; a 6px
+  // margin on the score-facing side of .mushot is the equivalent air.
+  // Geometry, not pixels-of-screenshot: Range around the score's text node
+  // (the house ink lesson), and the gold's own inset width parsed from the
+  // computed box-shadow so a thinner bar cannot silently "make" the gap.
+  if (section("TT · possession highlight sits off the player score")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    {
+      const { ctx, page, errors } = await newTestPage(browser, seedLongNames());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 9000);
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await waitOr(page, ".muhead", 9000);
+      const phone = (await evalOr(page, () => {
+        const goldRe = /rgb\(255, 182, 18\)/;
+        const inkRect = (el) => {
+          const n = [...el.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim());
+          if (!n) return null;
+          const r = document.createRange(); r.selectNodeContents(n);
+          return r.getBoundingClientRect();
+        };
+        const goldWidth = (el) => {
+          const sh = getComputedStyle(el).boxShadow || "";
+          if (!goldRe.test(sh)) return 0;
+          const m = sh.match(/inset\s+(-?\d+(?:\.\d+)?)px/);
+          return m ? Math.abs(parseFloat(m[1])) : 0;
+        };
+        const read = (nm) => {
+          const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes(nm));
+          if (!g) return null;
+          const pts = g.querySelector(".ppts .pts");
+          const ink = pts && inkRect(pts);
+          if (!ink) return null;
+          const cell = g.getBoundingClientRect();
+          const left = g.classList.contains("left");
+          const gw = goldWidth(g);
+          const goldInner = left ? cell.left + gw : cell.right - gw;
+          const gap = left ? ink.left - goldInner : goldInner - ink.right;
+          const inset = left ? ink.left - cell.left : cell.right - ink.right;
+          return {
+            name: nm, left, ball: g.classList.contains("hasball"),
+            gold: gw, gap: Math.round(gap * 10) / 10,
+            inset: Math.round(inset * 10) / 10,
+            score: pts.textContent.trim(),
+          };
+        };
+        const passer = read("P. Passer");
+        const rusher = read("R. Rusher");
+        const names = [...document.querySelectorAll(".mutable .pname b")].map((b) => ({
+          txt: b.textContent.trim(), clipped: b.scrollWidth > b.clientWidth + 1,
+        }));
+        const textW = (el) => {
+          const n = [...el.childNodes].find((x) => x.nodeType === 3 && x.textContent.trim());
+          if (!n) return 0;
+          const r = document.createRange(); r.selectNodeContents(n);
+          return Math.ceil(r.getBoundingClientRect().width);
+        };
+        const sample = document.querySelector(".mutable:not(.benchtable) .pcellgrid .ppts .pts");
+        const before = sample ? sample.textContent : "";
+        if (sample) sample.textContent = "41.0";
+        const scoreNeed = sample ? textW(sample) : 0;
+        const scoreHave = sample ? Math.floor(sample.closest(".ppts").clientWidth
+          - parseFloat(getComputedStyle(sample.closest(".ppts")).paddingLeft)
+          - parseFloat(getComputedStyle(sample.closest(".ppts")).paddingRight)) : 0;
+        if (sample) sample.textContent = before;
+        return {
+          passer, rusher, names,
+          scoreNeed, scoreHave,
+          hard: ["J. Smith-Njigba", "M. Harrison Jr.", "C. McLaughlin"].map((h) => {
+            const n = names.find((x) => x.txt === h);
+            return n ? { txt: h, clipped: n.clipped } : { txt: h, clipped: true, missing: true };
+          }),
+        };
+      })) || {};
+      ok(phone.passer && phone.passer.ball && phone.passer.gold >= 3,
+        "at 390px a possessing starter still carries the gold ball-side edge (" + JSON.stringify(phone.passer) + ")");
+      ok(phone.passer && phone.passer.gap >= 5,
+        "…and the gold's inner edge sits at least 5px off the score ink (was flush; got "
+        + (phone.passer && phone.passer.gap) + "px)");
+      ok(phone.passer && phone.rusher
+        && phone.passer.inset >= 8 && phone.rusher.inset >= 8,
+        "both halves keep an 8px outer gutter so the score never sits in the gold ("
+        + JSON.stringify({ pass: phone.passer && phone.passer.inset, rush: phone.rusher && phone.rusher.inset }) + ")");
+      ok(phone.passer && phone.rusher
+        && Math.abs(phone.passer.inset - phone.rusher.inset) < 2,
+        "…and the gutter is on EVERY half, so the number does not jump when possession appears ("
+        + (phone.passer && phone.passer.inset) + " vs " + (phone.rusher && phone.rusher.inset) + ")");
+      ok(phone.rusher && phone.rusher.ball === false,
+        "the other team's score is not highlighted");
+      const clippedHard = (phone.hard || []).filter((n) => n.clipped);
+      ok(clippedHard.length === 0,
+        "the extra gutter did not clip the three names item 17 fought for (" + JSON.stringify(phone.hard) + ")");
+      ok(phone.scoreNeed > 0 && phone.scoreNeed <= phone.scoreHave,
+        "a 4-char player score still fits the points column (" + phone.scoreNeed + " into " + phone.scoreHave + "px)");
+      ok(errors.length === 0, "0 page errors at 390px");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 9000);
+      await waitLive(page);
+      await clickIn(page, ".mucard.mine");
+      await waitOr(page, ".muhead", 9000);
+      const desk = (await evalOr(page, () => {
+        const gold = (s) => /rgb\(255, 182, 18\)/.test(s || "");
+        const g = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
+        if (!g) return null;
+        const shot = g.querySelector(".mushot");
+        const pts = g.querySelector(".ppts");
+        if (!shot || !pts) return null;
+        const sr = shot.getBoundingClientRect(), pr = pts.getBoundingClientRect();
+        const left = g.classList.contains("left");
+        const gap = left ? sr.left - pr.right : pr.left - sr.right;
+        return {
+          ball: g.classList.contains("hasball"),
+          shotRing: gold(getComputedStyle(shot).boxShadow),
+          cellRing: gold(getComputedStyle(g).boxShadow),
+          gap: Math.round(gap * 10) / 10,
+          shotShown: getComputedStyle(shot).display !== "none",
+        };
+      })) || {};
+      ok(desk.ball && desk.shotShown && desk.shotRing && !desk.cellRing,
+        "at 1440px the gold still rings the picture, not the card (" + JSON.stringify(desk) + ")");
+      ok(desk.gap >= 14,
+        "…and the gold face sits at least 14px off the score column (was the 10px flex gap; got "
+        + desk.gap + "px)");
+      ok(errors.length === 0, "0 page errors at 1440px");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

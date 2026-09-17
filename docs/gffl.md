@@ -8649,4 +8649,29 @@ F. Agent still without a writeup, My Team Q still inside
 matchup, and matchup Q not on line 1. Ownership /
 silent degrade / `ff_player`-down / healthy-no-chip /
 no-week-empty still pass on HEAD. App files restored.
+---
+
+## GFFL — possession gold sits off the player score (2026-09-17)
+
+User: the yellow highlight for players whose team has the
+ball is too close to the player score and makes it hard
+to read; add a little more space between the highlight
+and the score.
+
+On the phone the gold is a 3px inset edge on the same
+outer side the score hugs. 3px of cell padding put that
+bar flush on the digits. Every half-cell now keeps 9px
+of outer padding — a 6px gutter between the bar and the
+ink — so the number does not jump when the ball changes
+hands. The 6px a side comes out of the lineup card's
+own side padding (6 → 0), so the name budget item 17
+fought for does not move.
+
+On desktop the gold rings the face. A 6px margin on the
+score-facing side of `.mushot` is the same air between
+the ring and the points column (the flex gap was 10px).
+
+Scripts cache-bust `?v=20260917`.
+
+Files: `league.html`, `tools/_verify-gffl.cjs`, this file.
 
