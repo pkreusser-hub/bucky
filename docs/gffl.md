@@ -8714,4 +8714,36 @@ Files: `league.html`, `assets/league/lg-ui.js`,
 My Team). DST-unpainted, DAL-unhighlighted, and
 "clearing rz stays gold" still pass on that app
 because it was always gold. App files restored.
+---
+
+## GFFL — Out mid-game caps expected finish at points scored (2026-09-17)
+
+User: if a player's injury status changes to Out
+mid-game, that player's projected score should
+reflect they will not score any more points than
+they already have.
+
+`D.liveProj` for an in-progress game was
+`pts + weeklyProj × (minutesLeft / 60)`. A designation
+flip to Out left that leftover paper on the expected
+finish, so the muted matchup column, the header total,
+and the win bar still counted points he cannot score.
+
+Mid-game Out (Out / O / OUT via `D.injuryFor`, the
+same letters `injLabel` already maps) now returns
+the score already on the board — `D.livePts`, so a
+real 0 stays 0. `D.remainingProj` is 0. Questionable,
+Doubtful, and IR still carry leftover; the ask was
+Out, not the whole IR list. Pre-game Out stays
+weekly paper.
+
+Scripts cache-bust `?v=20260917b`.
+
+Files: `league.html`, `assets/league/lg-data.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** `--only TV` (count quoted after the
+green run). Bite: new Out-cap checks fail on the
+pre-change app; healthy leftover / Q / unknown-null
+still pass.
 

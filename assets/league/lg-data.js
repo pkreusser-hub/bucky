@@ -2727,7 +2727,9 @@
 
   // ---------------- matchup math ----------------
   // Live-adjusted projection for one starter: post -> actual; pre -> weekly
-  // proj; in -> actual + remaining fraction of proj.
+  // proj; in -> actual + remaining fraction of proj — unless he is ruled Out
+  // mid-game, in which case leftover weekly paper is gone and expected finish
+  // is the points already on the board. He will not score any more.
   D.liveProj = function (key) {
     const row = D.S.players.get(key);
     const pts = row && row.pts != null ? row.pts : 0;
@@ -2748,6 +2750,12 @@
     if (!row && proj == null && D.pidForKey(key) == null) return null;
     if (!g || g.state === "post") return pts;
     if (g.state === "pre") return proj != null ? proj : pts;
+    if (ruledOut(key)) {
+      // Same number the score column already shows (floor included). A real 0
+      // is a real 0 — leftover paper must not sneak back through `x || leftover`.
+      const scored = D.livePts(key);
+      return scored == null ? num(pts) : scored;
+    }
     const period = num(g.period) || 1;
     const [mm, ss] = String(g.clock || "0:00").split(":").map(Number);
     const minLeft = Math.max(0, (4 - Math.min(period, 4)) * 15 + num(mm) + num(ss) / 60);
@@ -2878,6 +2886,16 @@
     const row = D.S.players.get(key);
     return (row && row.injury != null && row.injury !== "" ? row.injury : fallback) || "";
   };
+  // Narrow Out check — the same letters injLabel maps to OUT (Out / O / OUT),
+  // and nothing else. IR / PUP / Doubtful can still play or still have a
+  // leftover; the family asked for the mid-game Out flip, not the whole IR
+  // list. Independent of lg-ui so liveProj cannot wait on a later script.
+  function ruledOut(key) {
+    const raw = D.injuryFor(key);
+    const k = String(raw == null ? "" : raw).trim().toLowerCase().replace(/[^a-z]/g, "");
+    return k === "out" || k === "o";
+  }
+  D.ruledOut = ruledOut; // test hook
   // {played, playing, left} for a set of starters. Feeds the "N to play · N live" strips AND
   // (via D.winProb/the hero's allDone check) the Live/Final badge — demo-aware through the
   // SAME D.demoGameView seam every other display surface uses (2026-08-20), so a decided demo
@@ -2939,6 +2957,7 @@
     const proj = D.projFor(key);
     if (!g || g.state === "post" || proj == null) return 0;
     if (g.state === "pre") return num(proj);
+    if (ruledOut(key)) return 0;
     const period = num(g.period) || 1;
     const [mm, ss] = String(g.clock || "0:00").split(":").map(Number);
     const minLeft = Math.max(0, (4 - Math.min(period, 4)) * 15 + num(mm) + num(ss) / 60);

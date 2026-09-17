@@ -28352,6 +28352,152 @@ async function openDetails(page, id) {
     }
   }
 
+  // ================= TV · Out mid-game caps expected finish at points scored ==============
+  // 2026-09-17, user: "if a player has their injury status change to out
+  // mid-game, that players projected score should reflect that they will
+  // not score any more points than they already have."
+  // D.liveProj used to keep adding leftover weekly paper (proj × minutes
+  // left / 60) after the designation flipped. Expected finish is now the
+  // score already on the board. Hand-computed on a pinned Q2 5:00 clock:
+  //   minLeft = (4-2)*15 + 5 = 35, frac = 35/60
+  //   10 pts + 18 weekly → healthy 20.5 / leftover 10.5
+  //   Out → 10 / 0
+  //   0 pts + 18 weekly, Out → 0 (a real zero, not leftover sneaking back)
+  // Questionable / Doubtful / IR still carry leftover — Out only.
+  // Pre-game Out stays weekly paper (the ask is mid-game).
+  if (section("TV · Out mid-game caps expected finish at points scored")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 9000);
+      await waitLive(page);
+      await page.evaluate(() => {
+        window.__GFFL__.UI.matchup = [1, 2];
+        window.__GFFL__.UI.go("matchup");
+      });
+      await waitOr(page, ".muhead", 9000);
+      const math = (await evalOr(page, () => {
+        const D = window.__GFFL__.D, LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
+        const key = "3915511"; // P. Passer, PHI
+        const mate = "4361741"; // W. Receiver, PHI
+        const prev = D.S.games.get("PHI") || {};
+        D.S.games.set("PHI", { ...prev, state: "in", period: 2, clock: "5:00" });
+        const setP = (k, pts, injury) => {
+          const row = D.S.players.get(k) || { key: k, name: k, team: "PHI", pos: "QB" };
+          D.S.players.set(k, { ...row, team: "PHI", pts, injury: injury || "" });
+        };
+        setP(key, 10);
+        setP(mate, 6);
+        const table = {};
+        table[key] = 18;
+        table[mate] = 12;
+        const origProj = D.projFor.bind(D);
+        D.projFor = (k) => (k === key || k === mate ? table[k] : origProj(k));
+        const isRuled = (k) => (typeof D.ruledOut === "function" ? D.ruledOut(k) : false);
+        const dir = D.S.slpPlayers.get("6904");
+        const setDir = (inj) => {
+          if (!dir) return;
+          dir.injury = inj;
+          dir.injuryCarried = !!inj;
+        };
+        setDir("");
+        // Q2 5:00 → 35 min left / 60 = 7/12. 10 + 18*(35/60) = 20.5.
+        const healthy = {
+          pts: D.livePts(key),
+          live: D.liveProj(key),
+          rem: D.remainingProj(key),
+          inj: D.injuryFor(key),
+          ruled: isRuled(key),
+        };
+        const mateH = { live: D.liveProj(mate), rem: D.remainingProj(mate) };
+        setDir("Out");
+        const outed = {
+          pts: D.livePts(key),
+          live: D.liveProj(key),
+          rem: D.remainingProj(key),
+          inj: D.injuryFor(key),
+          ruled: isRuled(key),
+        };
+        const mateOut = { live: D.liveProj(mate), rem: D.remainingProj(mate) };
+        setDir("Questionable");
+        const qed = { live: D.liveProj(key), rem: D.remainingProj(key), ruled: isRuled(key) };
+        setDir("Doubtful");
+        const ded = { live: D.liveProj(key), rem: D.remainingProj(key), ruled: isRuled(key) };
+        setDir("IR");
+        const ired = { live: D.liveProj(key), rem: D.remainingProj(key), ruled: isRuled(key) };
+        setDir("O");
+        const oed = { live: D.liveProj(key), rem: D.remainingProj(key), inj: D.injuryFor(key), ruled: isRuled(key) };
+        setP(key, 0);
+        setDir("Out");
+        const zero = { pts: D.livePts(key), live: D.liveProj(key), rem: D.remainingProj(key) };
+        setP(key, 10);
+        D.S.games.set("PHI", { ...D.S.games.get("PHI"), state: "pre" });
+        const pre = { live: D.liveProj(key), rem: D.remainingProj(key) };
+        D.S.games.set("PHI", { ...D.S.games.get("PHI"), state: "post" });
+        const post = { live: D.liveProj(key), rem: D.remainingProj(key) };
+        D.S.games.set("PHI", { ...D.S.games.get("PHI"), state: "in", period: 2, clock: "5:00" });
+        setDir("");
+        setP(key, 10, "Out");
+        const rowOnly = { live: D.liveProj(key), rem: D.remainingProj(key), inj: D.injuryFor(key) };
+        setDir("Out");
+        setP(key, 10);
+        UI.renderMatchup(true);
+        const cell = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
+        const painted = cell && {
+          score: ((cell.querySelector(".pscore") || {}).textContent || "").trim(),
+          proj: ((cell.querySelector(".pproj") || {}).textContent || "").trim(),
+          chip: ((cell.querySelector(".pname .inj") || {}).textContent || "").trim(),
+        };
+        setDir("");
+        setP(key, 10);
+        UI.renderMatchup(true);
+        const cellH = [...document.querySelectorAll(".pcellgrid")].find((c) => c.textContent.includes("P. Passer"));
+        const paintedH = cellH && {
+          score: ((cellH.querySelector(".pscore") || {}).textContent || "").trim(),
+          proj: ((cellH.querySelector(".pproj") || {}).textContent || "").trim(),
+          chip: ((cellH.querySelector(".pname .inj") || {}).textContent || "").trim(),
+        };
+        return {
+          healthy, mateH, outed, mateOut, qed, ded, ired, oed, zero, pre, post, rowOnly,
+          painted, paintedH,
+          unknown: D.liveProj("totally-unknown-xyz"),
+          fmt10: LG.fmtPts(10),
+          fmt205: LG.fmtPts(20.5),
+        };
+      })) || {};
+      ok(math.healthy && math.healthy.live === 20.5 && math.healthy.rem === 10.5 && math.healthy.pts === 10,
+        "Q2 5:00 healthy: expected finish is 10 + 18×35/60 = 20.5, leftover 10.5 (" + JSON.stringify(math.healthy) + ")");
+      ok(math.outed && math.outed.live === 10 && math.outed.rem === 0 && math.outed.pts === 10 && math.outed.ruled === true,
+        "directory Out mid-game: expected finish is points already scored (10), leftover 0 (" + JSON.stringify(math.outed) + ")");
+      ok(math.mateOut && math.mateOut.live === 13 && math.mateOut.rem === 7,
+        "…a healthy teammate still has leftover (6 + 12×35/60 = 13) (" + JSON.stringify(math.mateOut) + ")");
+      ok(math.qed && math.qed.live === 20.5 && math.qed.rem === 10.5 && math.qed.ruled === false,
+        "Questionable still carries leftover paper (" + JSON.stringify(math.qed) + ")");
+      ok(math.ded && math.ded.live === 20.5 && math.ded.ruled === false,
+        "Doubtful still carries leftover paper (" + JSON.stringify(math.ded) + ")");
+      ok(math.ired && math.ired.live === 20.5 && math.ired.ruled === false,
+        "IR is not Out — leftover stays (the ask was Out, not the whole IR list) (" + JSON.stringify(math.ired) + ")");
+      ok(math.oed && math.oed.live === 10 && math.oed.rem === 0 && math.oed.ruled === true,
+        "the O shorthand caps the same way injLabel maps it to OUT (" + JSON.stringify(math.oed) + ")");
+      ok(math.zero && math.zero.pts === 0 && math.zero.live === 0 && math.zero.rem === 0,
+        "0 pts already scored + Out is 0, not leftover sneaking back through a truthy check (" + JSON.stringify(math.zero) + ")");
+      ok(math.pre && math.pre.live === 18 && math.pre.rem === 18,
+        "pre-game Out still uses weekly paper — the ask is mid-game (" + JSON.stringify(math.pre) + ")");
+      ok(math.post && math.post.live === 10 && math.post.rem === 0,
+        "post-game Out is the final (10), same as any other final (" + JSON.stringify(math.post) + ")");
+      ok(math.rowOnly && math.rowOnly.live === 10 && math.rowOnly.rem === 0 && math.rowOnly.inj === "Out",
+        "a live-row Out (empty directory) caps the same way (" + JSON.stringify(math.rowOnly) + ")");
+      ok(math.unknown === null, "an unknown key is still null, never a fabricated 0.0 (" + math.unknown + ")");
+      ok(math.painted && math.painted.score === math.fmt10 && math.painted.proj === math.fmt10 && math.painted.chip === "OUT",
+        "matchup paints expected finish = score when Out (" + JSON.stringify(math.painted) + ")");
+      ok(math.paintedH && math.paintedH.score === math.fmt10 && math.paintedH.proj === math.fmt205 && !math.paintedH.chip,
+        "…and flipping back to healthy restores leftover 20.5 in the muted column (" + JSON.stringify(math.paintedH) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");
