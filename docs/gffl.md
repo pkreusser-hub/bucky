@@ -8675,3 +8675,11 @@ Scripts cache-bust `?v=20260917`.
 
 Files: `league.html`, `tools/_verify-gffl.cjs`, this file.
 
+**VERIFY:** `--only TT` **11/11**. Bite vs `origin/main`
+(app files at main, new suite kept): **8/3**. The 3 are
+the new geometry: gold-to-ink gap 0px (flush), both
+halves' outer inset 3px, desktop face-to-score-column
+10px. Gold still paints, names still fit, and the
+gutter is already equal on both halves (HEAD's 3px
+padding). App files restored.
+

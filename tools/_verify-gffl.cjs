@@ -28158,6 +28158,11 @@ async function openDetails(page, id) {
         "the extra gutter did not clip the three names item 17 fought for (" + JSON.stringify(phone.hard) + ")");
       ok(phone.scoreNeed > 0 && phone.scoreNeed <= phone.scoreHave,
         "a 4-char player score still fits the points column (" + phone.scoreNeed + " into " + phone.scoreHave + "px)");
+      if (SHOTS) {
+        const dest = process.env.GFFL_SHOTS || path.join(ROOT, "shots");
+        fs.mkdirSync(dest, { recursive: true });
+        await page.screenshot({ path: path.join(dest, "gffl_possession_score_gap_390.png"), fullPage: false });
+      }
       ok(errors.length === 0, "0 page errors at 390px");
       await ctx.close();
     }
@@ -28191,6 +28196,11 @@ async function openDetails(page, id) {
       ok(desk.gap >= 14,
         "…and the gold face sits at least 14px off the score column (was the 10px flex gap; got "
         + desk.gap + "px)");
+      if (SHOTS) {
+        const dest = process.env.GFFL_SHOTS || path.join(ROOT, "shots");
+        fs.mkdirSync(dest, { recursive: true });
+        await page.screenshot({ path: path.join(dest, "gffl_possession_score_gap_desktop.png"), fullPage: false });
+      }
       ok(errors.length === 0, "0 page errors at 1440px");
       await ctx.close();
     }
