@@ -8706,3 +8706,12 @@ Scripts cache-bust `?v=20260917a`.
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 
+**VERIFY:** `--only TT,TU` **24/24**. Related
+`--only TS,TT,TU` **30/30**. Bite vs `38df4ea`
+(gutter-only app, new suite kept): `--only TU`
+**8/5**. The 5 are the new accent/rz/title reads
+(phone starter, title, teammate, desktop picture,
+My Team). DST-unpainted, DAL-unhighlighted, and
+"clearing rz stays gold" still pass on that app
+because it was always gold. App files restored.
+
