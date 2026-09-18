@@ -5707,6 +5707,7 @@ async function openDetails(page, id) {
   // ---- THE FULL TROPHY CASE (2026-08-12): all four shelves, from the team doc's own
   // trophies[] + a hist champion, grouped and ordered, icons SVG (zero-emoji chrome),
   // Points Champion carrying the award history's regular-season-only meaning.
+  // Placement restaged 2026-09-18: bottom of My Team, not under the hero.
   {
     const base = fullSeed();
     const seed = { ...base, docs: { ...base.docs,
@@ -5741,8 +5742,15 @@ async function openDetails(page, id) {
       return { shelves,
         anyCount: /×\d/.test(c.textContent),
         pictographs: /\p{Extended_Pictographic}/u.test(c.textContent),
-        aboveRoster: (() => { const r = [...document.querySelectorAll("h2")].find((h) => /Lineup|Roster/.test(h.textContent));
-          return r ? c.getBoundingClientRect().top < r.getBoundingClientRect().top : true; })(),
+        // RESTAGED 2026-09-18 (user: "Team history and trophy case should be
+        // at the bottom of the my team page"). The 2026-08-12 check required
+        // the case above Lineup/Roster, under the hero, "for showing off".
+        // That placement is the thing being reversed — measure against The
+        // wall, which is the last operational card, not a pixel guess.
+        belowWall: (() => { const w = [...document.querySelectorAll("h2")].find((h) => /The wall/.test(h.textContent));
+          return w ? c.getBoundingClientRect().top > w.getBoundingClientRect().top : false; })(),
+        belowRoster: (() => { const r = [...document.querySelectorAll("h2")].find((h) => /Lineup|Roster/.test(h.textContent));
+          return r ? c.getBoundingClientRect().top > r.getBoundingClientRect().top : false; })(),
       };
     });
     ok(tc.shelves.map((s) => s.label).join("|") === "League Champion|Runner-Up|Points Champion",
@@ -5754,7 +5762,8 @@ async function openDetails(page, id) {
       "…as THREE CUPS, one per title each wearing its year — no ×N count anywhere in the case");
     ok(tc.shelves[2].years.join() === "2019,2011", "the Points Champion shelf carries its own year tokens (" + tc.shelves[2].years.join() + ")");
     ok(tc.shelves.every((s) => s.svg) && !tc.pictographs, "every shelf icon is inline SVG — zero emoji in the app's own chrome");
-    ok(tc.aboveRoster, "the case sits at the TOP of the page, right under the hero — a trophy case is for showing off");
+    ok(tc.belowRoster && tc.belowWall,
+      "RESTAGED 2026-09-18: the case sits at the BOTTOM of My Team, below the roster and The wall — not under the hero (" + JSON.stringify({ belowRoster: tc.belowRoster, belowWall: tc.belowWall }) + ")");
     ok(errors.length === 0, "0 page errors on the full case");
     await ctx.close();
   }
@@ -28563,11 +28572,27 @@ async function openDetails(page, id) {
           title: t.getAttribute("title") || "",
         })) : [];
         const shelves = tc ? [...tc.querySelectorAll(".tclabel")].map((s) => s.textContent.trim()) : [];
+        const mainEl = document.getElementById("main");
+        const cards = [...(mainEl ? mainEl.children : [])].filter((el) => el.classList && el.classList.contains("card"));
+        const tail = cards.slice(-2).map((el) => el.classList.contains("trophycase") ? "case"
+          : el.classList.contains("histcard") ? "hist"
+          : ((el.querySelector("h2") || {}).textContent || "").trim());
+        const headingBox = (re) => {
+          const h = [...document.querySelectorAll("h2")].find((x) => re.test(x.textContent));
+          return h ? h.getBoundingClientRect() : null;
+        };
+        const rosterBox = headingBox(/Lineup|Roster/);
+        const wallBox = headingBox(/The wall/);
+        const tcBox = tc ? tc.getBoundingClientRect() : null;
+        const histBox = histCard ? histCard.getBoundingClientRect() : null;
         return {
           name: T && T.name, trophies: (T && T.trophies) || [],
           seasons, aka, aka1, hero, rec, histRows, tcAka, tokens, shelves,
           awardsN: awards.length,
           wonAs2014: ((awards.find((a) => Number(a.year) === 2014) || {}).name || ""),
+          tail, belowRoster: !!(tcBox && rosterBox && tcBox.top > rosterBox.top),
+          belowWall: !!(tcBox && wallBox && tcBox.top > wallBox.top),
+          histAfterCase: !!(histBox && tcBox && histBox.top > tcBox.top),
         };
       })) || {};
       ok(r.name === "Laws Rule" && Array.isArray(r.trophies) && r.trophies.length === 0,
@@ -28590,6 +28615,10 @@ async function openDetails(page, id) {
         "the case itself carries the former name (" + r.tcAka + ")");
       ok(r.aka1 && r.aka1.length === 0,
         "Battle Kreussers is not 'formerly' itself just because hist used the same name (" + JSON.stringify(r.aka1) + ")");
+      ok(r.tail && r.tail[0] === "case" && r.tail[1] === "hist",
+        "trophy case and History are the last two cards on My Team (" + JSON.stringify(r.tail) + ")");
+      ok(r.belowRoster && r.belowWall && r.histAfterCase,
+        "…below the roster and The wall, case then History (" + JSON.stringify({ belowRoster: r.belowRoster, belowWall: r.belowWall, histAfterCase: r.histAfterCase }) + ")");
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }

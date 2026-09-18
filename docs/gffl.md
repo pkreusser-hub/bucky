@@ -8793,3 +8793,31 @@ shape, hist 2013 6-9 / 2012 5-10, no empty
 cabinet, and 0 page errors still pass on that
 app. App files restored.
 
+---
+
+## GFFL — locker history and trophy case sit at the bottom (2026-09-18)
+
+User: Team history and trophy case should be
+at the bottom of the my team page.
+
+`renderLocker` had painted those two cards
+right under the hero, ahead of lineup and
+schedule — the 2026-08-12 "showing off"
+placement. They now follow The wall, case
+then History, so the operational locker
+(lineup, alerts, schedule, moves, rivalries,
+the wall) stays first.
+
+The 2026-08-12 suite check that required the
+case above Lineup/Roster is restaged at the
+check: below the roster and The wall. TW
+adds the last-two-cards + geometry bite.
+
+Scripts cache-bust `?v=20260918b`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** `--only TW` (count quoted after the
+green run).
+

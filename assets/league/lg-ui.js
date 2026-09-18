@@ -8576,6 +8576,8 @@
     // not hang (2026-08-13). A repeat winner is one icon per year. A team with
     // nothing on the shelf gets NO card, not an empty cabinet. Year chips title
     // the name they won under that season, so a rename does not rewrite the past.
+    // Placement (2026-09-18, user): the case and the History card sit at the
+    // BOTTOM of My Team — after lineup, schedule, the wall — not under the hero.
     const TROPHY_KINDS = [
       { kind: "champion", label: "League Champion", cls: "tk-champ",
         icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path fill="none" stroke="currentColor" stroke-width="1.6" d="M7 6H4.5a3 3 0 0 0 3 4M17 6h2.5a3 3 0 0 1-3 4"/><path fill="currentColor" d="M11 14h2v3h-2z"/><path fill="none" stroke="currentColor" stroke-width="1.7" d="M8 19.5h8"/></svg>' },
@@ -8740,21 +8742,21 @@
         </div>
       </div>
       ${isOwner ? irWarnHtml(roster, { here: true }) : ""}
-      ${trophyCaseHtml()}
-      ${historyCardHtml()}
       ${rosterHtml}
       ${alertsCardHtml(T, isOwner)}
       <div class="card"><h2>Schedule</h2><div class="panner"><table class="tbl">
         <thead><tr><th>Wk</th><th>Opp</th><th class="num">Result</th></tr></thead>
         <tbody>${scheduleRows}</tbody></table></div></div>
       <div class="card"><h2>Transactions</h2>${teamTx.length ? teamTx.map((t) => `<div class="fline sys"><span class="mut">${new Date(t.t).toLocaleDateString()}</span> ${txSentenceHtml(t)}</div>`).join("") : '<p class="mut">No moves yet.</p>'}</div>
-      ${"" /* the Championships card is SUPERSEDED by the Trophy case above (2026-08-12) */}
+      ${"" /* the Championships card is SUPERSEDED by the Trophy case (2026-08-12); case + History sit last (2026-09-18) */}
       <div class="card"><h2>Rivalries</h2>${rivalries.length ? `<div class="panner"><table class="tbl">
           <thead><tr><th>Opponent</th><th class="num">W</th><th class="num">L</th><th class="num">T</th></tr></thead>
           <tbody>${rivalries.map((r) => `<tr><td><span class="teamlink" data-locker="${r.id}">${esc(r.name)}</span></td>
             <td class="num">${r.w}</td><td class="num">${r.l}</td><td class="num">${r.t}</td></tr>`).join("")}</tbody></table></div>`
         : '<p class="mut">No history against current opponents yet.</p>'}</div>
-      <div class="card"><h2>The wall</h2>${wall.length ? wall.map((m) => chatMsgHtml(m, new Map(), LG.myTeamId())).join("") : "<p class=\"mut\">Nobody's mentioned them yet.</p>"}</div>`;
+      <div class="card"><h2>The wall</h2>${wall.length ? wall.map((m) => chatMsgHtml(m, new Map(), LG.myTeamId())).join("") : "<p class=\"mut\">Nobody's mentioned them yet.</p>"}</div>
+      ${trophyCaseHtml()}
+      ${historyCardHtml()}`;
     document.querySelectorAll(".chatImg").forEach((img) => img.addEventListener("click", () => openImageOverlay(img.dataset.full)));
     wireLockerTaps();
     wirePlayerCardTaps(); // owner's .linfo buttons + every other team's read-only roster rows
