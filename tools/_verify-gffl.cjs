@@ -28584,7 +28584,7 @@ async function openDetails(page, id) {
         "the History card lists those seasons as IN-LAWS (" + JSON.stringify(r.histRows) + ")");
       ok(r.shelves && r.shelves.join() === "Points Champion" && r.tokens && r.tokens.length === 1 && r.tokens[0].year === "2014",
         "the trophy case hangs the 2014 points title from awards_history, not team.trophies (" + JSON.stringify({ shelves: r.shelves, tokens: r.tokens }) + ")");
-      ok(r.tokens && /as IN-LAWS/.test(r.tokens[0].title) && /2014/.test(r.tokens[0].title),
+      ok(r.tokens && r.tokens[0] && /as IN-LAWS/.test(r.tokens[0].title) && /2014/.test(r.tokens[0].title),
         "…and the chip titles the name they won under (" + (r.tokens && r.tokens[0] && r.tokens[0].title) + ")");
       ok(r.tcAka === "formerly IN-LAWS",
         "the case itself carries the former name (" + r.tcAka + ")");
