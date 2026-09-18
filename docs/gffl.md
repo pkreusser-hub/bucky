@@ -8784,6 +8784,12 @@ Scripts cache-bust `?v=20260918`.
 Files: `league.html`, `assets/league/lg-{core,ui}.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY:** `--only TW` (count quoted after the
-green run).
+**VERIFY:** `--only TW` **12/12**. Bite against
+`origin/main` `f822d19` (suite kept, app files
+swapped): **6/12**, the six misses are the new
+UI — formerly, History card, awards_history
+case, "as IN-LAWS" chip, case aka. Live-team
+shape, hist 2013 6-9 / 2012 5-10, no empty
+cabinet, and 0 page errors still pass on that
+app. App files restored.
 
