@@ -28538,11 +28538,19 @@ async function openDetails(page, id) {
       const r = (await evalOr(page, async () => {
         const LG = window.__GFFL__.LG;
         const hist = await LG.loadHistory();
-        const awards = await LG.loadAwards();
+        const awards = typeof LG.loadAwards === "function" ? await LG.loadAwards()
+          : ((((await LG.db.get("awards_history")) || {}).awards) || []);
         const T = LG.teamById(5);
-        const seasons = LG.histSeasonsFor(5, hist);
-        const aka = LG.formerNames(5, T && T.name, hist);
-        const aka1 = LG.formerNames(1, (LG.teamById(1) || {}).name, hist);
+        // Walk hist here so the W-L assertion still bites the DATA on an
+        // older app that has no histSeasonsFor hook yet.
+        const seasons = hist.filter((h) => (h.teams || []).some((t) => Number(t.id) === 5))
+          .sort((a, b) => b.season - a.season)
+          .map((h) => {
+            const t = (h.teams || []).find((x) => Number(x.id) === 5);
+            return { season: h.season, name: t.name, w: t.w, l: t.l, t: t.t || 0, pf: t.pf };
+          });
+        const aka = typeof LG.formerNames === "function" ? LG.formerNames(5, T && T.name, hist) : [];
+        const aka1 = typeof LG.formerNames === "function" ? LG.formerNames(1, (LG.teamById(1) || {}).name, hist) : [];
         const hero = ((document.querySelector(".lockeraka") || {}).textContent || "").trim();
         const rec = ((document.querySelector(".lockerrec") || {}).textContent || "").trim();
         const histCard = document.querySelector(".histcard");
@@ -28559,7 +28567,7 @@ async function openDetails(page, id) {
           name: T && T.name, trophies: (T && T.trophies) || [],
           seasons, aka, aka1, hero, rec, histRows, tcAka, tokens, shelves,
           awardsN: awards.length,
-          wonAs2014: LG.histNameIn(5, 2014, hist) || ((awards.find((a) => a.year === 2014) || {}).name || ""),
+          wonAs2014: ((awards.find((a) => Number(a.year) === 2014) || {}).name || ""),
         };
       })) || {};
       ok(r.name === "Laws Rule" && Array.isArray(r.trophies) && r.trophies.length === 0,
