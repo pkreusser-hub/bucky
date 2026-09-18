@@ -8818,6 +8818,12 @@ Scripts cache-bust `?v=20260918b`.
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY:** `--only TW` (count quoted after the
-green run).
+**VERIFY:** `--only TW` **14/14**. Bite against
+`origin/main` `72fbd1e` (suite kept, app files
+swapped): **12/14**, the two misses are the new
+placement — last cards are still Rivalries /
+The wall, and the case is still above the
+roster and The wall. IN-LAWS content checks
+and the empty-cabinet check still pass on
+that app. App files restored.
 
