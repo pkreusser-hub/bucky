@@ -4431,6 +4431,58 @@
   LG.loadHistory = async function () {
     return (await LG.db.list("hist")).sort((a, b) => a.season - b.season);
   };
+  // The COMPLETE award table (kind "awards") — champions, runner-up, points,
+  // toilet — including defunct franchises. The trophy case used to read only
+  // team.trophies + hist.champion, so emptying a team doc hid silverware that
+  // still sat on this doc under the franchise id. Toilet stays off the case
+  // (2026-08-13); this loader does not filter.
+  LG.loadAwards = async function () {
+    const d = await LG.db.get("awards_history");
+    const rows = d && (d.awards || d.rows);
+    return Array.isArray(rows) ? rows : [];
+  };
+  // Compare franchise names without punctuation/spacing noise ("IN-LAWS"
+  // vs "IN Laws", "Nails  For Breakfast" vs "Nails For Breakfast").
+  function franchiseNameKey(n) {
+    return String(n == null ? "" : n).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  }
+  LG.franchiseNameKey = franchiseNameKey;
+  // Every imported season this live id played, newest first. The hist row's
+  // OWN name is what they were called that year — Laws Rule's 2012-2015
+  // rows are "IN-LAWS", which is the whole point of a rename.
+  LG.histSeasonsFor = function (teamId, hist) {
+    const id = Number(teamId);
+    const rows = [];
+    if (!Number.isFinite(id)) return rows;
+    for (const h of hist || []) {
+      const t = (h.teams || []).find((x) => Number(x.id) === id);
+      if (!t) continue;
+      rows.push({
+        season: h.season, name: t.name || "",
+        w: t.w || 0, l: t.l || 0, t: t.t || 0, pf: t.pf || 0,
+      });
+    }
+    rows.sort((a, b) => b.season - a.season);
+    return rows;
+  };
+  LG.histNameIn = function (teamId, season, hist) {
+    const want = Number(season);
+    const row = LG.histSeasonsFor(teamId, hist).find((r) => Number(r.season) === want);
+    return row && row.name ? row.name : "";
+  };
+  LG.formerNames = function (teamId, current, hist) {
+    const cur = franchiseNameKey(current);
+    const seen = new Set();
+    const out = [];
+    for (const r of LG.histSeasonsFor(teamId, hist)) {
+      const n = String(r.name || "").trim();
+      const k = franchiseNameKey(n);
+      if (!k || k === cur || seen.has(k)) continue;
+      seen.add(k);
+      out.push(n);
+    }
+    return out;
+  };
   // All-time head-to-head between two CURRENT team ids, from imported
   // history AND this season's own finalized ("weekly") matchups — so a
   // rivalry keeps growing the moment this season's games go official,
@@ -4475,7 +4527,16 @@
     const live = (id) => !!LG.teamById(id);
     const nameOf = (id) => { const t = LG.teamById(id); return t ? t.name : null; };
     const histNameOf = (h, id) => { const t = (h.teams || []).find((x) => x.id === id); return t ? t.name : ("Team " + id); };
-    const displayName = (id, h) => nameOf(id) || (h ? histNameOf(h, id) : ("Team " + id));
+    // A season fact keeps THAT year's name — Cruise Missiles 2009, IN-LAWS
+    // 2012 — rather than rewriting the past as today's Laws Rule / BK.
+    // All-time standings still use the live name (nameOf) so one franchise
+    // is one row. live() already dropped folded ids.
+    const displayName = (id, h) => {
+      const histN = h ? histNameOf(h, id) : null;
+      const liveN = nameOf(id);
+      if (histN && (!liveN || franchiseNameKey(histN) !== franchiseNameKey(liveN))) return histN;
+      return liveN || histN || ("Team " + id);
+    };
 
     const agg = new Map(); // teamId -> {w,l,t,pf,titles,fallbackName}
     const touch = (id, fallbackName) => {
@@ -4486,10 +4547,12 @@
 
     const champs = [];
     let highestWeek = null, biggestBlowout = null, bestSeasonPF = null;
-    const noteScore = (teamId, pts, week, season, fallbackName) => {
+    const noteScore = (teamId, pts, week, season, shown) => {
       if (!live(teamId)) return;
       if (!highestWeek || pts > highestWeek.pts) {
-        highestWeek = { teamId, name: nameOf(teamId) || fallbackName || ("Team " + teamId), pts, week, season };
+        const placeholder = shown && /^Team \d+$/.test(shown);
+        const name = (shown && !placeholder) ? shown : (nameOf(teamId) || shown || ("Team " + teamId));
+        highestWeek = { teamId, name, pts, week, season };
       }
     };
     const noteBlowout = (home, away, homePts, awayPts, week, season, homeName, awayName) => {
@@ -4514,8 +4577,8 @@
         if (rec) rec.titles++;
       }
       for (const m of (h.matchups || [])) {
-        noteScore(m.home, m.homePts, m.week, h.season, histNameOf(h, m.home));
-        noteScore(m.away, m.awayPts, m.week, h.season, histNameOf(h, m.away));
+        noteScore(m.home, m.homePts, m.week, h.season, displayName(m.home, h));
+        noteScore(m.away, m.awayPts, m.week, h.season, displayName(m.away, h));
         noteBlowout(m.home, m.away, m.homePts, m.awayPts, m.week, h.season, displayName(m.home, h), displayName(m.away, h));
       }
     }

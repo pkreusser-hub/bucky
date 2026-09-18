@@ -8751,4 +8751,39 @@ O, 0-pts, live-row, painted 10.0). Healthy leftover
 weekly paper, post-game final, unknown-null, and
 healthy paint 20.5 still pass on that app. App
 files restored.
+---
+
+## GFFL — Laws Rule is the former IN-LAWS (2026-09-18)
+
+User: Laws Rule is the former team IN Laws; its
+history has to reflect that, including the trophy
+case.
+
+The 2026-08-31 production remap already put
+hist_2012-2015 id 5 on IN-LAWS and emptied
+`team_5.trophies` (IN-LAWS won no cups; the Nails
+For Breakfast silverware stayed on defunct 1905).
+The locker still painted today's name only, and
+the trophy case read `team.trophies` + hist
+champions — never `awards_history` — so a
+franchise-id award would not hang after that
+emptying.
+
+The locker hero now says "formerly …" from the
+hist names that are not today's. A History card
+lists each imported season as they were called,
+with that year's W-L. The trophy case merges
+`awards_history` by team id, and a year chip
+titles the name they won under. Record-book
+season facts (champion / highest week / best PF)
+keep that year's name too; all-time standings
+stay the live name so one franchise is one row.
+
+Scripts cache-bust `?v=20260918`.
+
+Files: `league.html`, `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** `--only TW` (count quoted after the
+green run).
 

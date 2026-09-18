@@ -8551,9 +8551,9 @@
     simProjEnsureAndRepaint("locker"); // 2025 season replay — see startData(); covers
                                                   // the lineup rows' "proj" figures below
     const isOwner = LG.myTeamId() === teamId;
-    const [standings, tx, wall, scheduleRows, roster, rivalries, recordBook] = await Promise.all([
+    const [standings, tx, wall, scheduleRows, roster, rivalries, recordBook, hist, awards] = await Promise.all([
       LG.loadStandings(), LG.loadTx(), lockerWallMessages(T), lockerScheduleRows(teamId), LG.ensureRoster(UI.week, teamId),
-      lockerRivalries(teamId), LG.recordBook(),
+      lockerRivalries(teamId), LG.recordBook(), LG.loadHistory(), LG.loadAwards(),
     ]);
     // S7: the season's own GFFL playoff trophy lives on the team doc (advanceBracket writes it
     // the moment a champion's crowned — long before any January history import would pick it
@@ -8570,14 +8570,12 @@
     // Runner Up and Point total champion"). It SUPERSEDES the plain Championships card: the
     // champion shelf keeps reading the merged `banners` above (hist champions + live
     // trophies, deduped by season — so a January import and advanceBracket can never
-    // double-count), while the other shelves read the team doc's own trophies[]
-    // ({year, kind}). Every icon is inline SVG — the zero-emoji app-chrome rule. A team with
-    // nothing on the shelf gets NO card, not an empty cabinet. Points Champion is REGULAR
-    // SEASON points only (the award history's own rule; the data loader derives it that way).
-    // 2026-08-13 (user): the TOILET BOWL is deliberately NOT displayed — the rows stay on the
-    // team docs and in awards_history, the case just doesn't hang them. And a repeat winner
-    // gets ONE ICON PER YEAR ("rather than show x3, just make more trophy icons"), each icon
-    // wearing its own year, so four titles read as a row of four cups.
+    // double-count). Other shelves used to read ONLY team.trophies[] — emptying that
+    // array hid awards that still sit on awards_history under the same franchise id
+    // (Laws Rule / IN-LAWS, 2026-09-18). Both sources merge now. Toilet still does
+    // not hang (2026-08-13). A repeat winner is one icon per year. A team with
+    // nothing on the shelf gets NO card, not an empty cabinet. Year chips title
+    // the name they won under that season, so a rename does not rewrite the past.
     const TROPHY_KINDS = [
       { kind: "champion", label: "League Champion", cls: "tk-champ",
         icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path fill="none" stroke="currentColor" stroke-width="1.6" d="M7 6H4.5a3 3 0 0 0 3 4M17 6h2.5a3 3 0 0 1-3 4"/><path fill="currentColor" d="M11 14h2v3h-2z"/><path fill="none" stroke="currentColor" stroke-width="1.7" d="M8 19.5h8"/></svg>' },
@@ -8592,19 +8590,57 @@
         if (tr.kind === "champion") continue; // already merged into banners, deduped
         (byKind[tr.kind] = byKind[tr.kind] || []).push(tr.year);
       }
+      // awards_history is the franchise table. A team doc can be emptied
+      // (Laws Rule 2026-08-31) and the silverware still belongs to this id.
+      for (const a of (awards || [])) {
+        if (Number(a.teamId) !== Number(teamId) || !a.kind || a.kind === "toilet") continue;
+        const y = Number(a.year);
+        if (!Number.isFinite(y)) continue;
+        if (a.kind === "champion") {
+          if (!byKind.champion.includes(y)) byKind.champion.push(y);
+        } else {
+          (byKind[a.kind] = byKind[a.kind] || []).push(y);
+        }
+      }
+      const aka = LG.formerNames(teamId, T.name, hist);
+      const awardName = (kind, year) => {
+        const hit = (awards || []).find((a) => Number(a.teamId) === Number(teamId)
+          && a.kind === kind && Number(a.year) === Number(year) && a.name);
+        return hit ? String(hit.name) : "";
+      };
       const shelves = TROPHY_KINDS.filter((k) => (byKind[k.kind] || []).length).map((k) => {
         const years = [...new Set(byKind[k.kind])].sort((a, b) => b - a);
         return `<div class="tcshelf ${k.cls}"><b class="tclabel">${k.label}</b>
-          <span class="tcyears">${years.map((y) =>
-            `<span class="tctoken trophyline" title="${k.label} ${y}">${k.icon}<span class="tcyear">${y}</span></span>`).join("")}</span></div>`;
+          <span class="tcyears">${years.map((y) => {
+            const wonAs = LG.histNameIn(teamId, y, hist) || awardName(k.kind, y) || T.name;
+            const title = (wonAs && LG.franchiseNameKey(wonAs) !== LG.franchiseNameKey(T.name))
+              ? `${k.label} ${y} as ${wonAs}` : `${k.label} ${y}`;
+            return `<span class="tctoken trophyline" title="${esc(title)}">${k.icon}<span class="tcyear">${y}</span></span>`;
+          }).join("")}</span></div>`;
       });
-      return shelves.length ? `<div class="card trophycase"><h2>Trophy case</h2>${shelves.join("")}</div>` : "";
+      if (!shelves.length) return "";
+      const akaLine = aka.length ? `<p class="tcaka mut small">formerly ${esc(aka.join(", "))}</p>` : "";
+      return `<div class="card trophycase"><h2>Trophy case</h2>${akaLine}${shelves.join("")}</div>`;
+    };
+    const historyCardHtml = () => {
+      const rows = LG.histSeasonsFor(teamId, hist);
+      if (!rows.length) return "";
+      const body = rows.map((r) => {
+        const rec = `${r.w}-${r.l}${r.t ? "-" + r.t : ""}`;
+        return `<tr><td>${r.season}</td><td>${esc(r.name || T.name)}</td><td class="num">${esc(rec)}</td></tr>`;
+      }).join("");
+      return `<div class="card histcard"><h2>History</h2>
+        <div class="panner"><table class="tbl">
+          <thead><tr><th>Year</th><th>As</th><th class="num">W-L</th></tr></thead>
+          <tbody>${body}</tbody></table></div></div>`;
     };
     const teamTx = tx.filter((t) => t.teamId === teamId || (t.type === "trade" && (t.detail.from === teamId || t.detail.to === teamId)));
     // S3: NOTHING here reads T.colors. The one derivation clamps for contrast and hands back
     // both the raw picks (what the swatches must show) and the safe rendered set.
     const pal = LG.teamPalette(T);
     const logoSrc = teamSrc(T);
+    const akaNames = LG.formerNames(teamId, T.name, hist);
+    const akaHtml = akaNames.length ? `<p class="lockeraka mut small">formerly ${esc(akaNames.join(", "))}</p>` : "";
 
     // Owner-only editable lineup — the exact tap-to-swap mechanic the old "team" page had,
     // operating on the SAME `roster` array (mutated in place by doMove/swap below, then
@@ -8682,6 +8718,7 @@
           <div class="lockerid">
             <h1 class="lockername tname big">${esc(T.name)}</h1>
             <p class="lockermotto">${T.motto ? esc(T.motto) : (isOwner ? '<span class="mut">Add a motto →</span>' : "")}</p>
+            ${akaHtml}
             <p class="lockerrec">#${place} · ${st.w}-${st.l}${st.t ? "-" + st.t : ""} · ${LG.fmtNum(st.pf)} PF</p>
           </div>
         </div>
@@ -8704,6 +8741,7 @@
       </div>
       ${isOwner ? irWarnHtml(roster, { here: true }) : ""}
       ${trophyCaseHtml()}
+      ${historyCardHtml()}
       ${rosterHtml}
       ${alertsCardHtml(T, isOwner)}
       <div class="card"><h2>Schedule</h2><div class="panner"><table class="tbl">

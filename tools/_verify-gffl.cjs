@@ -28498,6 +28498,111 @@ async function openDetails(page, id) {
     }
   }
 
+  // ================= TW · Laws Rule keeps IN-LAWS history on the locker ==============
+  // 2026-09-18, user: "Laws rule is the former team IN Laws, need to ensure
+  // its history reflects that including the trophy case."
+  // Production already remapped hist_2012-2015 id 5 to IN-LAWS and emptied
+  // team_5.trophies (2026-08-31). The locker never said "formerly", never
+  // listed those seasons, and the trophy case ignored awards_history — so
+  // a points title that still sits on the franchise id did not hang.
+  // Hand-computed from the seeded rows: 2012 5-10, 2013 6-9; former name
+  // IN-LAWS; 2014 points from awards_history, not team.trophies.
+  if (section("TW · Laws Rule keeps IN-LAWS history on the locker")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const base = fullSeed();
+    const seed = { ...base, docs: { ...base.docs,
+      team_5: { ...base.docs.team_5, name: "Laws Rule", abbrev: "LR", owner: "Sandy Laws", trophies: [] },
+      hist_2012: { kind: "hist", season: 2012, leagueName: "GFFL",
+        teams: [
+          { id: 5, name: "IN-LAWS", w: 5, l: 10, t: 0, pf: 1503.8, pa: 1600, place: 18 },
+          { id: 1, name: "Battle Kreussers", w: 5, l: 9, t: 0, pf: 1728.6, pa: 1700, place: 17 },
+        ],
+        champion: { teamId: 1, name: "Battle Kreussers" }, matchups: [] },
+      hist_2013: { kind: "hist", season: 2013, leagueName: "GFFL",
+        teams: [
+          { id: 5, name: "IN-LAWS", w: 6, l: 9, t: 0, pf: 2039.9, pa: 2100, place: 17 },
+          { id: 1, name: "Battle Kreussers", w: 8, l: 6, t: 0, pf: 2044.5, pa: 1900, place: 8 },
+        ],
+        champion: { teamId: 1, name: "Battle Kreussers" }, matchups: [] },
+      awards_history: { kind: "awards", awards: [
+        { year: 2014, kind: "points", teamId: 5, name: "IN-LAWS" },
+        { year: 2011, kind: "champion", teamId: 1, name: "Battle Kreussers" },
+      ] },
+    } };
+    {
+      const { ctx, page, errors } = await newTestPage(browser, seed);
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 9000);
+      await page.evaluate(() => window.__GFFL__.UI.openLocker(5));
+      await waitOr(page, ".lockerhead", 9000);
+      const r = (await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const hist = await LG.loadHistory();
+        const awards = await LG.loadAwards();
+        const T = LG.teamById(5);
+        const seasons = LG.histSeasonsFor(5, hist);
+        const aka = LG.formerNames(5, T && T.name, hist);
+        const aka1 = LG.formerNames(1, (LG.teamById(1) || {}).name, hist);
+        const hero = ((document.querySelector(".lockeraka") || {}).textContent || "").trim();
+        const rec = ((document.querySelector(".lockerrec") || {}).textContent || "").trim();
+        const histCard = document.querySelector(".histcard");
+        const histRows = histCard ? [...histCard.querySelectorAll("tbody tr")].map((tr) =>
+          [...tr.querySelectorAll("td")].map((td) => td.textContent.trim())) : [];
+        const tc = document.querySelector(".trophycase");
+        const tcAka = tc ? ((tc.querySelector(".tcaka") || {}).textContent || "").trim() : "";
+        const tokens = tc ? [...tc.querySelectorAll(".tctoken")].map((t) => ({
+          year: ((t.querySelector(".tcyear") || {}).textContent || "").trim(),
+          title: t.getAttribute("title") || "",
+        })) : [];
+        const shelves = tc ? [...tc.querySelectorAll(".tclabel")].map((s) => s.textContent.trim()) : [];
+        return {
+          name: T && T.name, trophies: (T && T.trophies) || [],
+          seasons, aka, aka1, hero, rec, histRows, tcAka, tokens, shelves,
+          awardsN: awards.length,
+          wonAs2014: LG.histNameIn(5, 2014, hist) || ((awards.find((a) => a.year === 2014) || {}).name || ""),
+        };
+      })) || {};
+      ok(r.name === "Laws Rule" && Array.isArray(r.trophies) && r.trophies.length === 0,
+        "the live team is Laws Rule with an empty trophies[] — the 2026-08-31 shape (" + JSON.stringify({ name: r.name, trophies: r.trophies }) + ")");
+      ok(r.seasons && r.seasons.length === 2 && r.seasons[0].season === 2013 && r.seasons[0].w === 6 && r.seasons[0].l === 9
+        && r.seasons[1].season === 2012 && r.seasons[1].w === 5 && r.seasons[1].l === 10,
+        "hist seasons for id 5 are 2013 6-9 and 2012 5-10, newest first (" + JSON.stringify(r.seasons) + ")");
+      ok(r.aka && r.aka.length === 1 && r.aka[0] === "IN-LAWS",
+        "former name is IN-LAWS, not a second copy of Laws Rule (" + JSON.stringify(r.aka) + ")");
+      ok(r.hero === "formerly IN-LAWS",
+        "the locker hero says formerly IN-LAWS (" + r.hero + ")");
+      ok(r.histRows && r.histRows.length === 2 && r.histRows[0][0] === "2013" && r.histRows[0][1] === "IN-LAWS" && r.histRows[0][2] === "6-9"
+        && r.histRows[1][0] === "2012" && r.histRows[1][1] === "IN-LAWS" && r.histRows[1][2] === "5-10",
+        "the History card lists those seasons as IN-LAWS (" + JSON.stringify(r.histRows) + ")");
+      ok(r.shelves && r.shelves.join() === "Points Champion" && r.tokens && r.tokens.length === 1 && r.tokens[0].year === "2014",
+        "the trophy case hangs the 2014 points title from awards_history, not team.trophies (" + JSON.stringify({ shelves: r.shelves, tokens: r.tokens }) + ")");
+      ok(r.tokens && /as IN-LAWS/.test(r.tokens[0].title) && /2014/.test(r.tokens[0].title),
+        "…and the chip titles the name they won under (" + (r.tokens && r.tokens[0] && r.tokens[0].title) + ")");
+      ok(r.tcAka === "formerly IN-LAWS",
+        "the case itself carries the former name (" + r.tcAka + ")");
+      ok(r.aka1 && r.aka1.length === 0,
+        "Battle Kreussers is not 'formerly' itself just because hist used the same name (" + JSON.stringify(r.aka1) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 9000);
+      await page.evaluate(() => window.__GFFL__.UI.openLocker(1));
+      await waitOr(page, ".lockerhead", 9000);
+      const empty = (await evalOr(page, () => ({
+        aka: !!document.querySelector(".lockeraka"),
+        hist: !!document.querySelector(".histcard"),
+        case: !!document.querySelector(".trophycase"),
+      }))) || {};
+      ok(!empty.aka && !empty.hist && !empty.case,
+        "a franchise with no imported past and no awards still has no formerly line, no History card, and no empty cabinet (" + JSON.stringify(empty) + ")");
+      ok(errors.length === 0, "0 page errors on a team with no past");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");
