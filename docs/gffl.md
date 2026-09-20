@@ -8827,3 +8827,26 @@ roster and The wall. IN-LAWS content checks
 and the empty-cabinet check still pass on
 that app. App files restored.
 
+---
+
+## GFFL — Scores chips put live NFL games first (2026-09-20)
+
+User: On scores page, need to sort nfl games
+by live games first.
+
+The desktop slate already floats `state==="in"`
+into "Live now" (2026-08-22). The phone chip
+strip kept kickoff-date order on purpose
+(2026-09-15) so the row would not jump. A
+Thursday final then a Sunday live game buried
+the live chip. Chips now sort live first, then
+date, matching the slate.
+
+Scripts cache-bust `?v=20260920`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** `--only TX` (count quoted after the
+green run).
+

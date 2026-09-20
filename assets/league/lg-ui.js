@@ -3517,9 +3517,12 @@
     return `<div class="rowline"><h2>${title}</h2><span id="healthChip" class="health" hidden></span></div>
       ${nflScoresHtml(events)}`;
   }
-  // Phone Scores: a short chip per NFL game, date order (the same
-  // stability as the matchup strip — live games do not jump to the
-  // front). Desktop keeps the compact slate and hides this row.
+  // Phone Scores: a short chip per NFL game. Live games lead the
+  // strip (2026-09-20) — same idea as the desktop "Live now" group —
+  // then kickoff date. The 2026-09-15 chip row kept date order so
+  // the strip would not jump; a live game buried behind Thursday's
+  // final is the thing a family member is actually checking. Desktop
+  // still hides this row and uses the compact slate.
   // Each chip is three facts: away @ home, the score, and the clock
   // (or kickoff). Score-or-time was not enough — a live game still
   // needs its quarter, and a pre-game still needs a score slot.
@@ -3550,7 +3553,13 @@
     </button>`;
   }
   function nflChipsHtml(events) {
-    const list = [...(events || [])].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+    const liveFirst = (a, b) => {
+      const al = a && a.state === "in" ? 0 : 1;
+      const bl = b && b.state === "in" ? 0 : 1;
+      if (al !== bl) return al - bl;
+      return String((a && a.date) || "").localeCompare(String((b && b.date) || ""));
+    };
+    const list = [...(events || [])].sort(liveFirst);
     if (list.length < 2) return "";
     return list.map(nflChipHtml).join("");
   }

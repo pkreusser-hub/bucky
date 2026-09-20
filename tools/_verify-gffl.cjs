@@ -28640,6 +28640,54 @@ async function openDetails(page, id) {
     }
   }
 
+  // ================= TX · Scores chips put live NFL games first =================
+  // 2026-09-20, user: "On scores page, need to sort nfl games by live games first."
+  // The desktop slate already floats state==="in" into "Live now" (BA2, 2026-08-22).
+  // The phone chip strip kept kickoff-date order on purpose (2026-09-15) so the
+  // row would not jump. A Thursday final then a Sunday live game is the shape
+  // that made that choice wrong: date order buries the live chip. Hand-computed
+  // from the seeded dates: live 17:00 then 20:00, then the Thursday final, then
+  // Monday pre. Same four events, two orders.
+  if (section("TX · Scores chips put live NFL games first")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootWeek1Home(page);
+    await waitOr(page, ".mucard", 9000);
+    await page.evaluate(() => window.__GFFL__.UI.show("scores"));
+    await waitOr(page, "#scChips", 9000);
+    const r = (await evalOr(page, () => {
+      const D = window.__GFFL__.D, UI = window.__GFFL__.UI;
+      D.S.nflEvents = [
+        { id: "e-thu-final", date: "2026-09-03T00:15Z", state: "post", detail: "Final",
+          away: { abbrev: "AWY", score: "10" }, home: { abbrev: "HOM", score: "20" } },
+        { id: "e-sun-live", date: "2026-09-07T17:00Z", state: "in", period: 2, clock: "8:41", detail: "Q2 8:41",
+          away: { abbrev: "SUA", score: "7" }, home: { abbrev: "SUH", score: "3" } },
+        { id: "e-sun-live2", date: "2026-09-07T20:00Z", state: "in", period: 3, clock: "2:00", detail: "Q3 2:00",
+          away: { abbrev: "NDA", score: "14" }, home: { abbrev: "NDH", score: "17" } },
+        { id: "e-mon-up", date: "2026-09-08T00:15Z", state: "pre",
+          away: { abbrev: "MOA", score: "" }, home: { abbrev: "MOH", score: "" } },
+      ];
+      UI.paintScores();
+      const chips = [...document.querySelectorAll("#scChips .scchip")].map((c) => ({
+        id: c.dataset.eid, live: c.classList.contains("live"),
+      }));
+      const dateOrder = [...D.S.nflEvents].sort((a, b) => String(a.date).localeCompare(String(b.date))).map((e) => e.id);
+      const heads = [...document.querySelectorAll(".scoreday h2")].map((h) => h.textContent.trim());
+      const cards = [...document.querySelectorAll(".sccard")].map((c) => c.dataset.eid);
+      return { chips, dateOrder, heads, cards };
+    })) || {};
+    ok(r.dateOrder && r.dateOrder.join() === "e-thu-final,e-sun-live,e-sun-live2,e-mon-up",
+      "the seeded dates are Thursday final, then the two Sunday lives, then Monday pre (" + JSON.stringify(r.dateOrder) + ")");
+    ok(r.chips && r.chips.map((c) => c.id).join() === "e-sun-live,e-sun-live2,e-thu-final,e-mon-up",
+      "the phone chips lead with both live games (17:00 then 20:00), not the Thursday final (" + JSON.stringify(r.chips) + ")");
+    ok(r.chips && r.chips[0].live && r.chips[1].live && !r.chips[2].live && !r.chips[3].live,
+      "…and only those first two chips wear .live (" + JSON.stringify(r.chips) + ")");
+    ok(r.heads && r.heads[0] === "Live now" && r.cards && r.cards[0] === "e-sun-live" && r.cards[1] === "e-sun-live2",
+      "the desktop slate still pins Live now first, same live-then-date order (" + JSON.stringify({ heads: r.heads, cards: r.cards }) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");
