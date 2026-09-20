@@ -8847,6 +8847,11 @@ Scripts cache-bust `?v=20260920`.
 Files: `league.html`, `assets/league/lg-ui.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY:** `--only TX` (count quoted after the
-green run).
+**VERIFY:** `--only TX` **5/5**. Bite against
+`origin/main` `84958aa` (suite kept, app files
+swapped): **3/5**, the two misses are the phone
+chips still in kickoff-date order (Thursday
+final first). Seeded date order, the desktop
+Live now group, and 0 page errors still pass
+on that app. App files restored.
 
