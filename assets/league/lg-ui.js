@@ -4043,7 +4043,7 @@
       const lead = leadHome ? home : away;
       wp = `<div class="nflwp"><svg viewBox="0 0 220 56" preserveAspectRatio="none" role="img" aria-label="Win probability">
           <line x1="0" y1="28" x2="220" y2="28" stroke="var(--divider)" stroke-width="1"/>
-          <polyline points="${poly}" fill="none" stroke="var(--accent)" stroke-width="2"/></svg>
+          <polyline points="${poly}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>
         <div class="nflwpv"><b>${esc(lead.abbrev || "?")} ${Math.round((leadHome ? last : 1 - last) * 100)}%</b><span class="mut small">win probability</span></div></div>`;
     }
     let bars = "";
@@ -4520,8 +4520,12 @@
     const awayC = (pal(A) || {}).onDark || "";
     const homeC = (pal(H) || {}).onDark || "";
     const strokeFor = (side) => (side === "away" && awayC) ? awayC : (side === "home" && homeC) ? homeC : "var(--mut)";
+    // preserveAspectRatio="none" stretches the 220-unit box to the card's width (4x+ on a
+    // desktop), so a plain 2-unit stroke paints ~8px wide and 2px tall — every wiggle
+    // became a blob. non-scaling-stroke keeps it 2 screen px in both axes; round joins
+    // stop the minute-to-minute corners spiking.
     const lines = segs.map((s) =>
-      `<polyline class="muwpline" data-side="${s.side}" points="${s.points}" fill="none" stroke="${esc(strokeFor(s.side))}" stroke-width="2"/>`
+      `<polyline class="muwpline" data-side="${s.side}" points="${s.points}" fill="none" stroke="${esc(strokeFor(s.side))}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>`
     ).join("");
     // Same card language as the NFL game sparkline: the line, a mid rule, and
     // the leading side's % on the right. No axis labels, no heading, no note.

@@ -8892,3 +8892,52 @@ registration, the Bijan orphan migrate, and 0
 page errors still pass on that app. App files
 restored.
 
+
+## GFFL — sparkline stroke does not stretch with the box (2026-09-20)
+
+User: "the sparklines seem a little bunched, rather than a clean
+line, maybe the draw width of the line but it should look clean"
+
+Both `.nflwp` sparklines (NFL game page, matchup win-%) draw a
+220-unit viewBox with `preserveAspectRatio="none"`. On a desktop
+card that is a 4x+ horizontal stretch, so the 2-unit stroke painted
+~8px wide and 2px tall: every minute-to-minute wiggle was a blob.
+The 09-10 entry fixed exactly this with `non-scaling-stroke`; the
+09-11 "mirror the NFL card" rewrite copied the NFL polyline and
+dropped it. Both polylines now carry
+`vector-effect="non-scaling-stroke"` with round joins and caps.
+Stroke width stays 2 (TF still pins it).
+
+**Suite clock.** The fixture is week 1 and the app reads the wall
+clock for `LG.currentWeek()`, so the whole suite went red on Tue
+09-15 (home 0 matchups, no win-% field, section P crashed on
+`.mucard`). `newTestPage` (and section P's hand-built page) now
+shift the page's `Date.now` back by whole weeks into week 1 —
+same weekday, same time of day — and the suite's own `Date.now`
+shifts by the same amount so fixture stamps ("10 minutes ago", "2h
+past draftAt") and every armed fake clock keep their differences.
+Zero shift while the real clock is inside week 1.
+
+Section P's warm-render check now names the cloud calls it saw
+(one `injfeed_2026` read, 60ms of a 100ms budget) — that read
+predates this change and is why the check sits at 97–117ms.
+
+Scripts cache-bust `?v=20260921a`.
+**VERIFY**: on the pre-rebase base (b1b691e) the full suite ran
+**3481/3481**. Rebased onto `origin/main` (84958aa) the full run
+cannot complete on main's own terms: main's suite crashes at AD3's
+`.mucard` (week-2 clock); with the week-1 shift it gets to AD4 and
+crashes on `.sccard`, which main's phone chip-row commits
+(8e24bb0..a235d8a) removed from the 390px Scores tab. Those
+commits quoted only their own sections. AH2's "header carries both
+teams and both scores" also flaps on pure `origin/main` (passes
+and fails on consecutive runs, `.nflhead` still "Loading the
+game…" after 9s). Neither is touched here.
+`node tools/_verify-gffl.cjs --only P,AB,AF,AL,BC,BG,TF,TL,TG`
+**429/429**; `--only AH,TF` **186/187** (the AH2 flap). Bite
+(`league.html` + `lg-ui.js` at `origin/main`, new suite kept,
+`--only AH,TF`): **3 fail** — main's polylines read
+`vector-effect: none` / `stroke-linejoin: miter` on both cards.
+Every pre-existing AH/TF check still passed under the week-1 clock.
+App files restored, hashes identical.
+---

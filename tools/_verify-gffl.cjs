@@ -1831,6 +1831,26 @@ const slpProjNow = () => (fixture.projS10 ? { ...slpProjFix, ...slpProjS10 } : s
 // ---------------- seeds (the local backend's docs) ----------------
 const FAM = "test1";
 const LSPFX = "lg_gffl_" + FAM + "_";
+// Whole weeks between now and league week 1 (Tue 2026-09-08 05:00 CDT, LG.weekStart(1)).
+// 0 while the real clock is still inside week 1 or before it; 7 days × N afterwards. Every
+// test page's Date.now is shifted back by this much (see newTestPage) so the week-1 fixture
+// keeps meeting a week-1 clock for the rest of the season. Same weekday, same time of day.
+const WEEK1_START_MS = new Date("2026-09-08T05:00:00-05:00").getTime();
+const WEEK1_SHIFT_MS = Math.max(0, Math.floor((Date.now() - WEEK1_START_MS) / (7 * 86400000))) * 7 * 86400000;
+// The suite's OWN clock shifts by the same amount: fixtures stamp "10 minutes ago" and
+// "2h past draftAt" with Node's Date.now, and sections that arm a fake page clock compute
+// their offset from it. A constant shift on both sides leaves every difference intact.
+if (WEEK1_SHIFT_MS) {
+  const realNodeNow = Date.now.bind(Date);
+  Date.now = () => realNodeNow() - WEEK1_SHIFT_MS;
+}
+async function armWeek1Clock(page) {
+  if (!WEEK1_SHIFT_MS) return;
+  await page.evaluateOnNewDocument((off) => {
+    const realNow = Date.now.bind(Date);
+    Date.now = () => realNow() - off;
+  }, WEEK1_SHIFT_MS);
+}
 const SEED_RULES = null; // page defaults are used; suite reads them back via hook
 function seedTeams() {
   const names = ["Battle Kreussers", "End Zone Goats", "Wyoming Cowboys", "Waffle House Warriors",
@@ -2136,6 +2156,14 @@ async function newTestPage(browser, seed, opts) {
   await page.setViewport(opts.vw || { width: 390, height: 844 });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
+  // 2026-09-20: the fixture is week 1 (sched_2026 pairings, roster_2026_w1_*), and the app
+  // reads the real wall clock for LG.currentWeek(). The suite went red on Tue 2026-09-15 when
+  // the clock rolled into week 2 (home showed 0 matchups, the win-% series had no field). Shift
+  // the page's Date.now back by WHOLE WEEKS until it sits inside week 1 — same weekday, same
+  // time of day, so every relative expectation (waiver deadline passed, Sunday slate live,
+  // countdowns tick) holds exactly as it did on the last green run. Sections that arm their
+  // own clock install a later evaluateOnNewDocument and still win.
+  await armWeek1Clock(page);
   await page.evaluateOnNewDocument((seed, pfx) => {
     window.__prompts = ["Peter"]; // claim name; later prompts (PIN) fall to "1234"
     window.prompt = () => (window.__prompts.length ? window.__prompts.shift() : "1234");
@@ -6291,10 +6319,10 @@ async function openDetails(page, id) {
     await page.evaluate((docs) => {
       const LG = window.__GFFL__.LG;
       const store = new Map(Object.entries(docs));
-      window.__cloudCalls = 0;
+      window.__cloudCalls = 0; window.__cloudIds = [];
       const delay = (ms) => new Promise((r) => setTimeout(r, ms));
       LG.db._installFakeCloud({
-        async get(id) { window.__cloudCalls++; await delay(60); return store.get(id) || null; },
+        async get(id) { window.__cloudCalls++; window.__cloudIds.push(id); await delay(60); return store.get(id) || null; },
         async set(id, data) { const cur = store.get(id) || {}; store.set(id, { ...cur, ...data }); },
         async del(id) { store.delete(id); },
         async list(kind) {
@@ -6318,11 +6346,14 @@ async function openDetails(page, id) {
     // everything is now cached (the cold render above fully completed before this starts).
     await page.evaluate(() => window.__GFFL__.UI.show("moves"));
     await page.waitForSelector("#faSearch", { timeout: 9000 });
+    const calls0 = await page.evaluate(() => window.__cloudCalls);
     const t1 = Date.now();
     await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
     const warmMs = Date.now() - t1;
-    ok(warmMs < 100, "a second visit paints from cache almost instantly, even against the same 60ms/call backend (" + warmMs + "ms)");
+    const warmCalls = (await page.evaluate(() => window.__cloudCalls)) - calls0;
+    const warmIds = await page.evaluate((n) => window.__cloudIds.slice(-n), warmCalls);
+    ok(warmMs < 100, "a second visit paints from cache almost instantly, even against the same 60ms/call backend (" + warmMs + "ms, " + warmCalls + " cloud calls " + JSON.stringify(warmIds) + ")");
     ok(errors.length === 0, "0 page errors against the fake cloud backend");
     await ctx.close();
   }
@@ -7450,6 +7481,7 @@ async function openDetails(page, id) {
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     const seed = fullSeed();
+    await armWeek1Clock(page); // this section builds its own page; same week-1 clock as newTestPage
     await page.evaluateOnNewDocument((seed, pfx) => {
       window.__prompts = ["Peter"];
       window.prompt = () => (window.__prompts.length ? window.__prompts.shift() : "1234");
@@ -13300,6 +13332,11 @@ async function openDetails(page, id) {
         // Team stat bars + win probability, same card.
         bars: [...document.querySelectorAll(".nflsb .nflsbl span")].map((e) => e.textContent.trim()),
         wp: (document.querySelector(".nflwpv b") || {}).textContent || "",
+        wpStroke: (() => {
+          const p = document.querySelector(".nflwp polyline");
+          const cs = p && getComputedStyle(p);
+          return p ? { ve: cs.vectorEffect || p.getAttribute("vector-effect"), join: cs.strokeLinejoin, sw: p.getAttribute("stroke-width") } : null;
+        })(),
       }))) || {};
       ok((box.groups || []).some((g) => /^PHI PASSING$/.test(g)) && (box.groups || []).some((g) => /^DAL RUSHING$/.test(g)),
         "box scores render for BOTH teams (" + JSON.stringify(box.groups) + ")");
@@ -13310,6 +13347,9 @@ async function openDetails(page, id) {
       ok(/C\/ATT\|YDS\|AVG\|TD\|INT/.test(box.headers || ""), "…under the upstream's own column labels (" + box.headers + ")");
       ok((box.bars || []).includes("Total Yards"), "team stat bars render off boxscore.teams — " + JSON.stringify(box.bars));
       ok(/PHI 66%/.test(box.wp || ""), "win probability reads off the thinned series' last point (0.66 home) — " + box.wp);
+      // 2026-09-20: the same preserveAspectRatio="none" stretch fattens this line too.
+      ok(box.wpStroke && box.wpStroke.sw === "2" && box.wpStroke.ve === "non-scaling-stroke" && box.wpStroke.join === "round",
+        "…and its 2px stroke does not scale with the stretched 220-unit box (" + JSON.stringify(box.wpStroke) + ")");
       ok(errors.length === 0, "0 page errors rendering the box score");
       await ctx.close();
     }
@@ -24919,6 +24959,32 @@ async function openDetails(page, id) {
         ok(!painted.top && !painted.mid && !painted.bot, "…no Y-axis labels (" + JSON.stringify({ top: painted.top, mid: painted.mid, bot: painted.bot }) + ")");
         ok(painted.bands === 0, "…the plot is not shaded (" + painted.bands + " bands)");
         ok(painted.sw === "2", "…the line is the NFL sparkline's 2px (" + painted.sw + ")");
+        // 2026-09-20: the 09-11 "mirror the NFL card" rewrite dropped the 09-10
+        // non-scaling stroke. preserveAspectRatio="none" scales X by svgWidth/220
+        // (4x+ on desktop), so a 2-unit stroke painted ~8px wide — the line looked
+        // bunched. Measure the stretch (svg px / 220) so the check is about a real
+        // distortion, then require the computed vector-effect that cancels it.
+        const strokeGeom = await page.evaluate(() => {
+          const el = document.getElementById("muWp");
+          const svg = el && el.querySelector("svg");
+          const poly = el && el.querySelector("polyline.muwpline");
+          if (!svg || !poly) return null;
+          const sx = svg.getBoundingClientRect().width / 220;
+          const cs = getComputedStyle(poly);
+          return {
+            sx: +sx.toFixed(2),
+            ve: cs.vectorEffect || poly.getAttribute("vector-effect"),
+            join: cs.strokeLinejoin, cap: cs.strokeLinecap,
+          };
+        });
+        // 390px viewport → ~1.13×; a desktop card is 4×+. Any stretch >1 is enough to show
+        // the distortion is real here, not hypothetical.
+        ok(strokeGeom && strokeGeom.sx > 1.05,
+          "…the 220-unit box really is stretched wider than its viewBox here (x" + (strokeGeom && strokeGeom.sx) + ")");
+        ok(strokeGeom && strokeGeom.ve === "non-scaling-stroke",
+          "…and the stroke does not scale with that stretch (vector-effect=" + JSON.stringify(strokeGeom) + ")");
+        ok(strokeGeom && strokeGeom.join === "round" && strokeGeom.cap === "round",
+          "…with round joins so per-minute corners do not spike (" + JSON.stringify(strokeGeom) + ")");
         ok(painted.inHead === false && painted.headH <= 148, "…and it is NOT inside .muhead, whose ceiling still holds (" + painted.headH + "px)");
         ok(painted.nfl && !painted.heading && !painted.axis && !painted.weekNote,
           "…the card is the NFL sparkline — no heading, no Y labels, no week note (" + JSON.stringify(painted) + ")");
