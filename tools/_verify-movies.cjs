@@ -206,6 +206,20 @@ async function sectionServer() {
   ok(/Interests they named: family/.test(prompt41), "the prompt names the interest");
   ok(parsed.length === 5 && parsed[0].title === "The Iron Giant" && parsed.every((m) => m.title !== "Toy Story"),
     "parseGrokRecs keeps five picks and drops a title already owned");
+  const passed = mod.parseGrokRecs(GROK_JSON, [{ title: "Toy Story" }], [
+    { title: "Paddington 2" },
+    { title: "Luca" },
+  ]);
+  const passedPrompt = mod.buildRecommendPrompt(mod.sanitizeShelf([{ title: "Toy Story", rating: 5 }]), {
+    skipped: [{ title: "Paddington 2", director: "Paul King" }],
+    watched: [{ title: "The Iron Giant", director: "Brad Bird" }],
+  });
+  ok(/NOT INTERESTED/.test(passedPrompt) && /Paddington 2 — Paul King/.test(passedPrompt)
+    && /ALREADY WATCHED/.test(passedPrompt) && /The Iron Giant — Brad Bird/.test(passedPrompt),
+    "the Grok prompt names movies already watched and movies the viewer is not interested in");
+  ok(passed.length === 3 && passed[0].title === "The Iron Giant"
+    && passed.every((m) => m.title !== "Paddington 2" && m.title !== "Luca" && m.title !== "Toy Story"),
+    "parseGrokRecs drops a not-interested title and an already-watched title");
   ok(parsed[0] && parsed[0].summary.indexOf("robot") >= 0 && parsed[0].why.indexOf("animation") >= 0 && parsed[0].director === "Brad Bird",
     "each pick carries a director, a summary, and a why");
 
@@ -241,6 +255,23 @@ async function sectionServer() {
   ok((recBody.movies || []).length === 5 && recBody.movies[0].title === "The Iron Giant",
     "recommend returns the five Grok picks");
   ok(!(recBody.movies || []).some((m) => m.title === "Toy Story"), "recommend does not repeat an owned title");
+
+  xaiCalls = [];
+  const skipRec = await callHandler(handler, {
+    secret: SECRET,
+    action: "recommend",
+    shelf: [{ title: "Toy Story", rating: 5 }],
+    skipped: [{ title: "Paddington 2", director: "Paul King" }],
+    watched: [{ title: "Luca", director: "Enrico Casarosa" }],
+  });
+  const skipBody = readKeptJson(await skipRec.text());
+  const skipUser = xaiCalls[0] && xaiCalls[0].body && xaiCalls[0].body.messages.find((m) => m.role === "user");
+  ok(skipUser && /NOT INTERESTED/.test(skipUser.content) && /Paddington 2/.test(skipUser.content)
+    && /ALREADY WATCHED/.test(skipUser.content) && /Luca/.test(skipUser.content),
+    "recommend tells Grok which movies were passed on");
+  ok(!(skipBody.movies || []).some((m) => m.title === "Paddington 2" || m.title === "Luca")
+    && (skipBody.movies || []).some((m) => m.title === "The Iron Giant"),
+    "a passed movie is left out of the picks Grok sent back");
 
   const savedKey = process.env.XAI_API_KEY;
   delete process.env.XAI_API_KEY;
@@ -341,6 +372,7 @@ async function newPage(browser, user) {
     localStorage.setItem("choreUnlocked", "amenfarms");
     if (who) { if (!localStorage.getItem("choreUser")) localStorage.setItem("choreUser", who); }
     else localStorage.removeItem("choreUser");
+    window.__MOVIE_CALLS__ = [];
     const realFetch = window.fetch.bind(window);
     window.fetch = async function (url, init) {
       const href = String(url);
@@ -350,6 +382,7 @@ async function newPage(browser, user) {
       if (href.indexOf("/.netlify/functions/movies") !== -1) {
         let body = {};
         try { body = JSON.parse((init && init.body) || "{}"); } catch (e) { body = {}; }
+        window.__MOVIE_CALLS__.push(body);
         if (body.action === "search") {
           return new Response(JSON.stringify({
             movies: [{
@@ -367,7 +400,11 @@ async function newPage(browser, user) {
         }
         if (body.action === "recommend") {
           const text = " \n" + JSON.stringify({
-            movies: [{ title: "The Iron Giant", director: "Brad Bird", summary: "A boy hides a giant robot.", why: "Fits the family animation already owned." }],
+            movies: [
+              { title: "The Iron Giant", director: "Brad Bird", summary: "A boy hides a giant robot.", why: "Fits the family animation already owned." },
+              { title: "Paddington 2", director: "Paul King", summary: "A bear goes to prison for a theft he did not commit.", why: "Warm family comedy beside the ones they own." },
+              { title: "Luca", director: "Enrico Casarosa", summary: "Two sea monsters spend a summer on land.", why: "A Pixar they do not own." },
+            ],
           });
           return new Response(text, { status: 200, headers: { "Content-Type": "text/plain" } });
         }
@@ -480,13 +517,90 @@ async function sectionUi(browser) {
 
   await page.evaluate(() => document.getElementById("recBtn").click());
   await page.waitForFunction(() => document.querySelectorAll("#recs .movie").length >= 1, { timeout: 8000 });
+  // The fixture still returns The Iron Giant after it was added to Owned.
+  // The page now hides a pick that is owned, already watched, or not interested,
+  // so the first painted title is Paddington 2.
   ok(await page.evaluate(() => {
-    const sum = document.querySelector("#recs .summary");
-    const why = document.querySelector("#recs .why");
-    return document.querySelector("#recs .t").textContent === "The Iron Giant"
-      && sum && /robot/.test(sum.textContent)
-      && why && /animation/.test(why.textContent);
-  }), "Recommend paints the Grok pick with a summary and a why");
+    const titles = [...document.querySelectorAll("#recs .t")].map((el) => el.textContent);
+    const row = [...document.querySelectorAll("#recs .movie")].find((el) => el.querySelector(".t").textContent === "Paddington 2");
+    const sum = row && row.querySelector(".summary");
+    const why = row && row.querySelector(".why");
+    return titles.indexOf("The Iron Giant") < 0 && titles[0] === "Paddington 2"
+      && sum && /prison/.test(sum.textContent)
+      && why && /comedy/.test(why.textContent)
+      && !!row.querySelector("button") && [...row.querySelectorAll("button")].some((b) => b.textContent === "Already watched")
+      && [...row.querySelectorAll("button")].some((b) => b.textContent === "Not interested");
+  }), "Recommend paints a pick they do not own, with Already watched and Not interested");
+
+  const ownedBefore = await page.evaluate(() => window.__MOVIES__.current().shelf.length);
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#recs .movie")].find((el) => el.querySelector(".t").textContent === "Luca");
+    [...row.querySelectorAll("button")].find((b) => b.textContent === "Not interested").click();
+  });
+  await sleep(40);
+  ok(await page.evaluate((n) => {
+    const joy = window.__MOVIES__.current();
+    const titles = [...document.querySelectorAll("#recs .t")].map((el) => el.textContent);
+    return joy.skipped.some((m) => m.title === "Luca")
+      && titles.indexOf("Luca") < 0
+      && joy.shelf.length === n
+      && !joy.shelf.some((m) => m.title === "Luca");
+  }, ownedBefore), "Not interested drops the pick and does not add it to Owned");
+
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#recs .movie")].find((el) => el.querySelector(".t").textContent === "Paddington 2");
+    [...row.querySelectorAll("button")].find((b) => b.textContent === "Already watched").click();
+  });
+  await sleep(40);
+  ok(await page.evaluate((n) => {
+    const joy = window.__MOVIES__.current();
+    return joy.watched.some((m) => m.title === "Paddington 2")
+      && joy.shelf.length === n
+      && !joy.shelf.some((m) => m.title === "Paddington 2")
+      && document.querySelectorAll("#recs .movie").length === 0;
+  }, ownedBefore), "Already watched is remembered without counting as owned");
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => window.__MOVIES__ && document.querySelector("#shelfList .t"), { timeout: 15000 });
+  ok(await page.evaluate(() => {
+    const joy = window.__MOVIES__.current();
+    return joy.name === "Joy"
+      && joy.watched.some((m) => m.title === "Paddington 2")
+      && joy.skipped.some((m) => m.title === "Luca");
+  }), "watched and not-interested survive a reload on the same person");
+
+  await page.evaluate(() => {
+    const dad = [...document.querySelectorAll("#profileChips .chip")].find((b) => b.textContent === "Dad");
+    dad.click();
+  });
+  await sleep(40);
+  ok(await page.evaluate(() => {
+    const dad = window.__MOVIES__.current();
+    const skipped = dad.skipped || [];
+    const watched = dad.watched || [];
+    return dad.name === "Dad" && skipped.length === 0 && watched.length === 0;
+  }), "Dad does not inherit Joy's passed movies");
+
+  await page.evaluate(() => {
+    const joy = [...document.querySelectorAll("#profileChips .chip")].find((b) => b.textContent === "Joy");
+    joy.click();
+  });
+  await sleep(40);
+  await page.evaluate(() => document.getElementById("recBtn").click());
+  await page.waitForFunction(() => {
+    const calls = window.__MOVIE_CALLS__ || [];
+    return calls.some((c) => c.action === "recommend" && c.skipped && c.skipped.some((m) => m.title === "Luca"));
+  }, { timeout: 8000 });
+  ok(await page.evaluate(() => {
+    const calls = window.__MOVIE_CALLS__.filter((c) => c.action === "recommend");
+    const last = calls[calls.length - 1];
+    const titles = [...document.querySelectorAll("#recs .t")].map((el) => el.textContent);
+    return last.skipped.some((m) => m.title === "Luca")
+      && last.watched.some((m) => m.title === "Paddington 2")
+      && titles.indexOf("Luca") < 0
+      && titles.indexOf("Paddington 2") < 0
+      && titles.indexOf("The Iron Giant") < 0;
+  }), "the next recommend sends the passed titles and does not paint them");
 
   ok(errors.length === 0, "no page errors");
 

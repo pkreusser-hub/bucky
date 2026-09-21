@@ -84,6 +84,9 @@
   button.primary { background: var(--navy); color: #fff; }
   button.ghost { background: #efeadd; color: var(--navy); }
   button:disabled { opacity: .55; cursor: default; }
+  .recActs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .recActs button { padding: 8px 10px; font-size: 13px; }
+  .passHead { font-size: 12px; font-weight: 800; color: var(--navy); margin: 12px 0 6px; }
 
   .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 800; color: var(--navy); }
@@ -238,6 +241,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     <button type="button" class="primary" id="recBtn">Recommend</button>
     <div class="err" id="recErr"></div>
     <div id="recs"></div>
+    <div id="skipList"></div>
   </section>
 
   <section class="card" aria-labelledby="filLabel">
@@ -532,6 +536,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       name: name,
       interests: [],
       shelf: [],
+      skipped: [],
       maxPolitical: 5,
       maxWoke: 5,
     };
@@ -803,6 +808,109 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       box.appendChild(row);
     });
   }
+  var lastRecs = [];
+  function titleKey(title) {
+    return String(title || "").trim().toLowerCase().replace(/^(a|an|the)\s+/, "");
+  }
+  function shelfKey(book) {
+    return String(book.title || "").toLowerCase() + "::" + String(book.author || "").toLowerCase();
+  }
+  function visibleRecs(rows) {
+    var p = current();
+    var banned = {};
+    (p.shelf || []).forEach(function (b) { banned[titleKey(b.title)] = 1; });
+    (p.skipped || []).forEach(function (b) { banned[titleKey(b.title)] = 1; });
+    return (rows || []).filter(function (b) { return b && b.title && !banned[titleKey(b.title)]; });
+  }
+  function clearSkip(p, title) {
+    if (!Array.isArray(p.skipped)) return;
+    p.skipped = p.skipped.filter(function (b) { return titleKey(b.title) !== titleKey(title); });
+  }
+  function placeOnShelf(book) {
+    var p = current();
+    var key = shelfKey(book);
+    clearSkip(p, book.title);
+    if (p.shelf.some(function (b) { return shelfKey(b) === key; })) return false;
+    p.shelf.push({
+      id: book.id,
+      title: book.title,
+      author: book.author,
+      isbn: book.isbn,
+      cover: book.cover,
+      description: book.description || book.summary || "",
+      subjects: book.subjects || [],
+      rating: null,
+      communityRating: (book.rating == null || book.rating === "") ? null : (Number.isFinite(Number(book.rating)) ? Number(book.rating) : null),
+      political: Number.isFinite(Number(book.political)) ? Number(book.political) : 0,
+      woke: Number.isFinite(Number(book.woke)) ? Number(book.woke) : 0,
+      evidence: book.evidence || [],
+      goodreadsUrl: book.goodreadsUrl,
+      ratingSource: book.ratingSource,
+      ratingsCount: book.ratingsCount,
+    });
+    return true;
+  }
+  function recButton(label, fn) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "ghost";
+    b.textContent = label;
+    b.onclick = function (ev) {
+      ev.stopPropagation();
+      ev.preventDefault();
+      fn();
+    };
+    return b;
+  }
+  function paintPassed() {
+    var box = $("skipList");
+    if (!box) return;
+    box.innerHTML = "";
+    var p = current();
+    var rows = Array.isArray(p.skipped) ? p.skipped : [];
+    if (!rows.length) return;
+    var h = document.createElement("div");
+    h.className = "passHead";
+    h.textContent = "Not interested";
+    box.appendChild(h);
+    var chips = document.createElement("div");
+    chips.className = "chips";
+    rows.forEach(function (book) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.appendChild(document.createTextNode(book.title));
+      var x = document.createElement("span");
+      x.className = "x";
+      x.textContent = "x";
+      b.appendChild(x);
+      b.onclick = function () {
+        clearSkip(p, book.title);
+        saveState();
+        paintPassed();
+        paintRecs(visibleRecs(lastRecs));
+      };
+      chips.appendChild(b);
+    });
+    box.appendChild(chips);
+  }
+  function markRead(book) {
+    placeOnShelf(book);
+    saveState();
+    paintShelf();
+    paintRecs(visibleRecs(lastRecs));
+    paintPassed();
+  }
+  function markSkipped(book) {
+    var p = current();
+    if (!Array.isArray(p.skipped)) p.skipped = [];
+    if (!p.skipped.some(function (b) { return titleKey(b.title) === titleKey(book.title); })) {
+      p.skipped.push({ title: book.title, author: book.author || "" });
+    }
+    saveState();
+    paintRecs(visibleRecs(lastRecs));
+    paintPassed();
+  }
   function paintRecs(books) {
     var box = $("recs");
     box.innerHTML = "";
@@ -824,40 +932,30 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       row.querySelector(".meta").textContent = ratingLabel(book);
       row.querySelector(".summary").textContent = book.summary || book.description || "";
       row.querySelector(".why").textContent = book.why || (book.reasons || []).join(" · ");
-      row.onclick = function () { openDetail(book); };
+      var acts = document.createElement("div");
+      acts.className = "recActs";
+      acts.appendChild(recButton("Already read", function () { markRead(book); }));
+      acts.appendChild(recButton("Not interested", function () { markSkipped(book); }));
+      row.children[1].appendChild(acts);
+      row.onclick = function (ev) {
+        if (ev.target.closest("button")) return;
+        openDetail(book);
+      };
       box.appendChild(row);
     });
   }
 
   function addToShelf(book) {
-    var p = current();
-    var key = String(book.title || "").toLowerCase() + "::" + String(book.author || "").toLowerCase();
-    if (p.shelf.some(function (b) { return (String(b.title).toLowerCase() + "::" + String(b.author).toLowerCase()) === key; })) {
+    if (!placeOnShelf(book)) {
       $("searchErr").textContent = "Already on this shelf.";
       return;
     }
-    p.shelf.push({
-      id: book.id,
-      title: book.title,
-      author: book.author,
-      isbn: book.isbn,
-      cover: book.cover,
-      description: book.description,
-      subjects: book.subjects || [],
-      rating: null,
-      communityRating: (book.rating == null || book.rating === "") ? null : (Number.isFinite(Number(book.rating)) ? Number(book.rating) : null),
-      political: Number.isFinite(Number(book.political)) ? Number(book.political) : 0,
-      woke: Number.isFinite(Number(book.woke)) ? Number(book.woke) : 0,
-      evidence: book.evidence || [],
-      goodreadsUrl: book.goodreadsUrl,
-      ratingSource: book.ratingSource,
-      ratingsCount: book.ratingsCount,
-    });
     $("searchHits").innerHTML = "";
     $("searchQ").value = "";
     $("searchErr").textContent = "";
     saveState();
     paintShelf();
+    paintPassed();
   }
 
   function readBody(text) {
@@ -910,10 +1008,13 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         interests: p.interests,
         maxPolitical: p.maxPolitical,
         maxWoke: p.maxWoke,
+        skipped: p.skipped || [],
       });
-      paintRecs(res.books || []);
+      lastRecs = res.books || [];
+      var shown = visibleRecs(lastRecs);
+      paintRecs(shown);
       if (res.error) $("recErr").textContent = res.error;
-      else if (!(res.books || []).length) $("recErr").textContent = "No picks came back. Try again in a moment.";
+      else if (!shown.length) $("recErr").textContent = "No picks came back. Try again in a moment.";
       else $("recErr").textContent = "";
     } catch (e) {
       var msg = e && e.message || "";
@@ -1026,6 +1127,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     paintInterests();
     paintFilters();
     paintShelf();
+    lastRecs = [];
+    paintRecs([]);
+    paintPassed();
   }
   paint();
   paintRecs([]);

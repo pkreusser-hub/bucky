@@ -2035,3 +2035,20 @@ Suite: `node tools/_verify-movies.cjs` (**63/63**). Bite against `1cd08b8`
 kept): **53 passed, 7 failed** — the AI-tab card, the Home card, and the
 activity label. The click-through is skipped when `#cardMovies` is missing.
 ---
+
+# Already read, already watched, not interested (2026-09-21)
+
+Each Grok pick on Bookshelf and Movies has two buttons. **Already read**
+puts that book on the person's shelf, unrated, so the next recommend treats
+it as read. **Already watched** is stored on that person and is not added
+to Owned. **Not interested** is stored on that person only. The next
+Recommend sends those lists to grok-4.7. A title on either list is dropped
+if the model sends it back. Joy's passed titles do not apply to Dad. The
+chip under the picks has an x, which lets that title be recommended again.
+
+Suite: `node tools/_verify-movies.cjs` (**72/72**). Bite against `4ac262f`
+`movies.html` + `movies.mjs`: **56 passed, 6 failed** — the prompt, the
+parser, and the buttons. The click-through stops once the button is missing.
+`node tools/_verify-books.cjs` (**146/146**). Bite against `4ac262f`
+`books.html` + `books.mjs`: **110 passed, 5 failed** — the same split.
+---

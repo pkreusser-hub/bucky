@@ -281,8 +281,36 @@ function movieKey(title) {
   return normSpace(title).toLowerCase();
 }
 
+const MAX_PASSED = 80;
+
+export function sanitizePassed(raw) {
+  const out = [];
+  const seen = new Set();
+  for (const b of (Array.isArray(raw) ? raw : [])) {
+    const title = normSpace(b && b.title).slice(0, 200);
+    if (!title) continue;
+    const director = normSpace(b && (b.director || b.author)).slice(0, 120);
+    const k = movieKey(title);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ title, director });
+    if (out.length >= MAX_PASSED) break;
+  }
+  return out;
+}
+
+function blockKey(title) {
+  return movieKey(title).replace(/^(a|an|the)\s+/, "");
+}
+
+function passedLines(rows) {
+  return rows.map((b) => "- " + b.title + (b.director ? " — " + b.director : "")).join("\n");
+}
+
 export function buildRecommendPrompt(shelf, extras) {
   const interests = Array.isArray(extras && extras.interests) ? extras.interests : [];
+  const skipped = sanitizePassed(extras && extras.skipped);
+  const watched = sanitizePassed(extras && extras.watched);
   const lines = (Array.isArray(shelf) ? shelf : []).map((b) => {
     const r = asNum(b.rating);
     const stars = r == null ? "unrated" : r + "/5";
@@ -290,17 +318,22 @@ export function buildRecommendPrompt(shelf, extras) {
   });
   let extra = "";
   if (interests.length) extra += "\nInterests they named: " + interests.join(", ") + ".";
+  if (watched.length) extra += "\n\nALREADY WATCHED (do not recommend these):\n" + passedLines(watched);
+  if (skipped.length) extra += "\n\nNOT INTERESTED (do not recommend these):\n" + passedLines(skipped);
+  const ask = (watched.length || skipped.length)
+    ? "Recommend exactly 5 movies they do NOT already own, have not already watched, and are not in the not-interested list."
+    : "Recommend exactly 5 movies they do NOT already own.";
   return (
     "Here is every movie this household already owns, with this viewer's own star rating when they gave one (1-5). Unrated means they own it but have not scored it.\n\n"
     + "OWNED:\n" + (lines.length ? lines.join("\n") : "(none yet)") + "\n"
     + extra
-    + "\n\nRecommend exactly 5 movies they do NOT already own. For each, write a brief summary (two sentences) and why it fits this list.\n"
+    + "\n\n" + ask + " For each, write a brief summary (two sentences) and why it fits this list.\n"
     + "Reply with JSON only, no markdown:\n"
     + '{"movies":[{"title":"","director":"","summary":"","why":""}]}'
   );
 }
 
-export function parseGrokRecs(text, shelf) {
+export function parseGrokRecs(text, shelf, blocked) {
   const raw = String(text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   let parsed;
   try { parsed = JSON.parse(raw); } catch {
@@ -311,6 +344,7 @@ export function parseGrokRecs(text, shelf) {
   const rows = Array.isArray(parsed && parsed.movies) ? parsed.movies
     : (Array.isArray(parsed && parsed.books) ? parsed.books : (Array.isArray(parsed) ? parsed : []));
   const have = new Set((Array.isArray(shelf) ? shelf : []).map((b) => movieKey(b.title)));
+  const banned = new Set(sanitizePassed(blocked).map((b) => blockKey(b.title)));
   const out = [];
   const seen = new Set();
   for (const b of rows) {
@@ -318,7 +352,7 @@ export function parseGrokRecs(text, shelf) {
     const title = normSpace(b.title).slice(0, 200);
     const director = normSpace(b.director || b.author).slice(0, 120);
     const k = movieKey(title);
-    if (!title || have.has(k) || seen.has(k)) continue;
+    if (!title || have.has(k) || banned.has(blockKey(title)) || seen.has(k)) continue;
     seen.add(k);
     out.push({
       title,
@@ -374,7 +408,9 @@ async function recommend(body) {
     if (s) interests.push(s);
     if (interests.length >= MAX_INTERESTS) break;
   }
-  const prompt = buildRecommendPrompt(shelf, { interests });
+  const skipped = sanitizePassed(body.skipped);
+  const watched = sanitizePassed(body.watched);
+  const prompt = buildRecommendPrompt(shelf, { interests, skipped, watched });
   const got = await callGrokRecommend(prompt);
   if (!got.ok) {
     return {
@@ -384,7 +420,7 @@ async function recommend(body) {
       reason: got.reason,
     };
   }
-  return { movies: parseGrokRecs(got.text, shelf), model: got.model };
+  return { movies: parseGrokRecs(got.text, shelf, skipped.concat(watched)), model: got.model };
 }
 
 export default async (req) => {

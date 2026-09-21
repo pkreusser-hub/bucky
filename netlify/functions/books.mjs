@@ -598,10 +598,33 @@ export function sanitizeShelf(raw) {
   return out;
 }
 
+const MAX_PASSED = 80;
+
+export function sanitizePassed(raw) {
+  const out = [];
+  const seen = new Set();
+  for (const b of (Array.isArray(raw) ? raw : [])) {
+    const title = normSpace(b && b.title).slice(0, 200);
+    if (!title) continue;
+    const author = normSpace(b && b.author).slice(0, 120);
+    const k = normName(title);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ title, author });
+    if (out.length >= MAX_PASSED) break;
+  }
+  return out;
+}
+
+function blockKey(title) {
+  return normName(title).replace(/^(a|an|the)\s+/, "");
+}
+
 export function buildRecommendPrompt(shelf, extras) {
   const interests = Array.isArray(extras && extras.interests) ? extras.interests : [];
   const maxPolitical = extras && extras.maxPolitical;
   const maxWoke = extras && extras.maxWoke;
+  const skipped = sanitizePassed(extras && extras.skipped);
   const lines = (Array.isArray(shelf) ? shelf : []).map((b) => {
     const r = asNum(b.rating);
     const stars = r == null ? "unrated" : r + "/5";
@@ -611,17 +634,25 @@ export function buildRecommendPrompt(shelf, extras) {
   if (interests.length) extra += "\nInterests they named: " + interests.join(", ") + ".";
   if (Number.isFinite(Number(maxPolitical))) extra += "\nPolitical cap: " + Number(maxPolitical) + " of 5.";
   if (Number.isFinite(Number(maxWoke))) extra += "\nWoke cap: " + Number(maxWoke) + " of 5. Stay at or under those caps.";
+  if (skipped.length) {
+    extra += "\n\nNOT INTERESTED (do not recommend these):\n" + skipped.map((b) => {
+      return "- " + b.title + (b.author ? " — " + b.author : "");
+    }).join("\n");
+  }
+  const ask = skipped.length
+    ? "Recommend exactly 5 books they have NOT already read and that are not in the not-interested list."
+    : "Recommend exactly 5 books they have NOT already read.";
   return (
     "Here is everything this reader has already read, with their own star rating when they gave one (1-5). Unrated means they read it but have not scored it.\n\n"
     + "READ SO FAR:\n" + (lines.length ? lines.join("\n") : "(empty shelf)") + "\n"
     + extra
-    + "\n\nRecommend exactly 5 books they have NOT already read. For each, write a brief summary (two sentences) and why it fits this list.\n"
+    + "\n\n" + ask + " For each, write a brief summary (two sentences) and why it fits this list.\n"
     + "Reply with JSON only, no markdown:\n"
     + '{"books":[{"title":"","author":"","summary":"","why":""}]}'
   );
 }
 
-export function parseGrokRecs(text, shelf) {
+export function parseGrokRecs(text, shelf, blocked) {
   const raw = String(text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   let parsed;
   try { parsed = JSON.parse(raw); } catch {
@@ -631,6 +662,7 @@ export function parseGrokRecs(text, shelf) {
   }
   const rows = Array.isArray(parsed && parsed.books) ? parsed.books : (Array.isArray(parsed) ? parsed : []);
   const have = new Set((Array.isArray(shelf) ? shelf : []).map((b) => bookKey(b.title, b.author)));
+  const banned = new Set(sanitizePassed(blocked).map((b) => blockKey(b.title)));
   const out = [];
   const seen = new Set();
   for (const b of rows) {
@@ -638,7 +670,7 @@ export function parseGrokRecs(text, shelf) {
     const title = normSpace(b.title).slice(0, 200);
     const author = normSpace(b.author).slice(0, 120);
     const k = bookKey(title, author);
-    if (!title || have.has(k) || seen.has(k)) continue;
+    if (!title || have.has(k) || banned.has(blockKey(title)) || seen.has(k)) continue;
     seen.add(k);
     out.push({
       title,
@@ -707,17 +739,19 @@ async function recommend(body) {
   }
   const maxPolitical = Number(body.maxPolitical);
   const maxWoke = Number(body.maxWoke);
+  const skipped = sanitizePassed(body.skipped);
   const extras = {
     interests,
     maxPolitical: Number.isFinite(maxPolitical) ? maxPolitical : 5,
     maxWoke: Number.isFinite(maxWoke) ? maxWoke : 5,
+    skipped,
   };
   const prompt = buildRecommendPrompt(shelf, extras);
   const got = await callGrokRecommend(prompt);
   if (!got.ok) {
     return { books: [], model: got.model, error: got.reason === "no-key" ? "Recommendations need a Grok key." : "Could not recommend right now.", reason: got.reason };
   }
-  return { books: parseGrokRecs(got.text, shelf), model: got.model };
+  return { books: parseGrokRecs(got.text, shelf, skipped), model: got.model };
 }
 
 export default async (req) => {

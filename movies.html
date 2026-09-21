@@ -78,6 +78,9 @@
   button.primary { background: var(--navy); color: #fff; }
   button.ghost { background: #efeadd; color: var(--navy); }
   button:disabled { opacity: .55; cursor: default; }
+  .recActs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .recActs button { padding: 8px 10px; font-size: 13px; }
+  .passHead { font-size: 12px; font-weight: 800; color: var(--navy); margin: 12px 0 6px; }
   .movie {
     display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: start;
     padding: 10px 0; border-top: 1px solid var(--line);
@@ -193,6 +196,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     <button type="button" class="primary" id="recBtn">Recommend</button>
     <div class="err" id="recErr"></div>
     <div id="recs"></div>
+    <div id="watchedList"></div>
+    <div id="skipList"></div>
   </section>
 
   <section class="card" aria-labelledby="shelfLabel">
@@ -308,7 +313,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   function $(id) { return document.getElementById(id); }
   function uid() { return "p" + Math.random().toString(36).slice(2, 8); }
   function blankProfile(name) {
-    return { id: uid(), name: name, interests: [], shelf: [], removed: {} };
+    return { id: uid(), name: name, interests: [], shelf: [], removed: {}, skipped: [], watched: [] };
   }
   function loadState() {
     var fallbackName = localStorage.getItem("choreUser") || "Family";
@@ -501,6 +506,94 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       box.appendChild(row);
     });
   }
+  var lastRecs = [];
+  function titleKey(title) {
+    return String(title || "").trim().toLowerCase().replace(/^(a|an|the)\s+/, "");
+  }
+  function visibleRecs(rows) {
+    var p = current();
+    var banned = {};
+    (p.shelf || []).forEach(function (m) { banned[titleKey(m.title)] = 1; });
+    (p.skipped || []).forEach(function (m) { banned[titleKey(m.title)] = 1; });
+    (p.watched || []).forEach(function (m) { banned[titleKey(m.title)] = 1; });
+    return (rows || []).filter(function (m) { return m && m.title && !banned[titleKey(m.title)]; });
+  }
+  function dropFrom(list, title) {
+    return (list || []).filter(function (m) { return titleKey(m.title) !== titleKey(title); });
+  }
+  function recButton(label, fn) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "ghost";
+    b.textContent = label;
+    b.onclick = function (ev) {
+      ev.stopPropagation();
+      ev.preventDefault();
+      fn();
+    };
+    return b;
+  }
+  function paintChipList(box, heading, rows, onRemove) {
+    if (!box) return;
+    box.innerHTML = "";
+    if (!rows || !rows.length) return;
+    var h = document.createElement("div");
+    h.className = "passHead";
+    h.textContent = heading;
+    box.appendChild(h);
+    var chips = document.createElement("div");
+    chips.className = "chips";
+    rows.forEach(function (movie) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.appendChild(document.createTextNode(movie.title));
+      var x = document.createElement("span");
+      x.className = "x";
+      x.textContent = "x";
+      b.appendChild(x);
+      b.onclick = function () { onRemove(movie.title); };
+      chips.appendChild(b);
+    });
+    box.appendChild(chips);
+  }
+  function paintPassed() {
+    var p = current();
+    paintChipList($("watchedList"), "Already watched", p.watched || [], function (title) {
+      p.watched = dropFrom(p.watched, title);
+      saveState();
+      paintPassed();
+      paintRecs(visibleRecs(lastRecs));
+    });
+    paintChipList($("skipList"), "Not interested", p.skipped || [], function (title) {
+      p.skipped = dropFrom(p.skipped, title);
+      saveState();
+      paintPassed();
+      paintRecs(visibleRecs(lastRecs));
+    });
+  }
+  function markWatched(movie) {
+    var p = current();
+    if (!Array.isArray(p.watched)) p.watched = [];
+    p.skipped = dropFrom(p.skipped, movie.title);
+    if (!p.watched.some(function (m) { return titleKey(m.title) === titleKey(movie.title); })) {
+      p.watched.push({ title: movie.title, director: movie.director || "" });
+    }
+    saveState();
+    paintRecs(visibleRecs(lastRecs));
+    paintPassed();
+  }
+  function markSkipped(movie) {
+    var p = current();
+    if (!Array.isArray(p.skipped)) p.skipped = [];
+    p.watched = dropFrom(p.watched, movie.title);
+    if (!p.skipped.some(function (m) { return titleKey(m.title) === titleKey(movie.title); })) {
+      p.skipped.push({ title: movie.title, director: movie.director || "" });
+    }
+    saveState();
+    paintRecs(visibleRecs(lastRecs));
+    paintPassed();
+  }
   function paintRecs(movies) {
     var box = $("recs");
     box.innerHTML = "";
@@ -519,6 +612,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       row.querySelector(".a").textContent = movie.director || "";
       row.querySelector(".summary").textContent = movie.summary || "";
       row.querySelector(".why").textContent = movie.why || "";
+      var acts = document.createElement("div");
+      acts.className = "recActs";
+      acts.appendChild(recButton("Already watched", function () { markWatched(movie); }));
+      acts.appendChild(recButton("Not interested", function () { markSkipped(movie); }));
+      row.children[1].appendChild(acts);
       box.appendChild(row);
     });
   }
@@ -530,6 +628,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       return;
     }
     if (p.removed && p.removed[key]) delete p.removed[key];
+    p.skipped = dropFrom(p.skipped, movie.title);
     p.shelf.push({
       id: movie.id || ("add-" + key.replace(/[^a-z0-9]+/g, "-").slice(0, 40)),
       title: movie.title,
@@ -548,6 +647,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     $("searchErr").textContent = "";
     saveState();
     paintShelf();
+    paintPassed();
   }
   function readBody(text) {
     var raw = String(text || "");
@@ -591,10 +691,17 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var card = $("recLabel");
     if (card && card.scrollIntoView) card.scrollIntoView({ block: "start" });
     try {
-      var res = await api("recommend", { shelf: p.shelf, interests: p.interests || [] });
-      paintRecs(res.movies || []);
+      var res = await api("recommend", {
+        shelf: p.shelf,
+        interests: p.interests || [],
+        skipped: p.skipped || [],
+        watched: p.watched || [],
+      });
+      lastRecs = res.movies || [];
+      var shown = visibleRecs(lastRecs);
+      paintRecs(shown);
       if (res.error) $("recErr").textContent = res.error;
-      else if (!(res.movies || []).length) $("recErr").textContent = "No picks came back. Try again in a moment.";
+      else if (!shown.length) $("recErr").textContent = "No picks came back. Try again in a moment.";
       else $("recErr").textContent = "";
     } catch (e) {
       var msg = e && e.message || "";
@@ -610,6 +717,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     paintProfiles();
     paintInterests();
     paintShelf();
+    lastRecs = [];
+    paintRecs([]);
+    paintPassed();
   }
   $("addProfile").onclick = function () {
     var name = $("newProfile").value.trim();
