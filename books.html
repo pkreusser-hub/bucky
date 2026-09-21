@@ -138,6 +138,13 @@
   .err { color: var(--red); font-size: 13px; font-weight: 700; min-height: 18px; }
   .howto { font-size: 12.5px; font-weight: 600; color: var(--muted); line-height: 1.45; margin: 0; }
   a.out { color: var(--navy); font-weight: 800; }
+  .summary { font-size: 13.5px; line-height: 1.45; font-weight: 600; margin-top: 6px; }
+
+  /* Framed inside the AI tab the parent already paints #bnav. A second
+     #buckyNav here stacked the same icons on a phone. Hide ours when framed. */
+  .embedded #buckyNav, .embedded #sidenav { display: none !important; }
+  .embedded body { padding-bottom: 16px; padding-left: 0 !important; }
+  .embedded #backLink { display: none !important; }
 
   #buckyNav {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
@@ -191,6 +198,9 @@
   }
 </style>
 <script src="/assets/activity.js" data-feature="books" defer></script>
+<script>
+if (window.self !== window.top) document.documentElement.classList.add("embedded");
+</script>
 </head>
 <body>
 <nav id="sidenav" aria-label="BUCKY sections"></nav>
@@ -254,6 +264,7 @@
 
   <section class="card" aria-labelledby="recLabel">
     <h2 class="section-label" id="recLabel">Next to read</h2>
+    <p class="section-note">Five picks from the whole shelf and your stars, written by Grok.</p>
     <button type="button" class="primary" id="recBtn">Recommend</button>
     <div class="err" id="recErr"></div>
     <div id="recs"></div>
@@ -715,6 +726,23 @@
     }
     return wrap;
   }
+  function authorSortKey(book) {
+    var raw = String((book && book.author) || "").trim();
+    var title = String((book && book.title) || "").toLowerCase();
+    if (!raw) return "\uffff\0" + title;
+    var parts = raw.replace(/,/g, " ").split(/\s+/).filter(Boolean);
+    var last = parts[parts.length - 1] || raw;
+    if (/^(jr\.?|sr\.?|iii|ii|iv)$/i.test(last) && parts.length > 1) last = parts[parts.length - 2];
+    return last.toLowerCase() + "\0" + raw.toLowerCase() + "\0" + title;
+  }
+  function sortedShelf(shelf) {
+    return (shelf || []).slice().sort(function (a, b) {
+      var ka = authorSortKey(a), kb = authorSortKey(b);
+      if (ka < kb) return -1;
+      if (ka > kb) return 1;
+      return 0;
+    });
+  }
   function paintShelf() {
     var box = $("shelfList");
     box.innerHTML = "";
@@ -726,7 +754,7 @@
       box.appendChild(e);
       return;
     }
-    p.shelf.forEach(function (book, idx) {
+    sortedShelf(p.shelf).forEach(function (book) {
       var row = document.createElement("div");
       row.className = "book hit";
       row.innerHTML = coverHtml(book)
@@ -737,14 +765,20 @@
       row.querySelector(".meta").textContent = ratingLabel(book);
       var mid = row.children[1];
       mid.appendChild(starRow(book, function (n) {
-        p.shelf[idx].rating = n;
+        book.rating = n;
         saveState();
         paintShelf();
       }));
       var rm = document.createElement("button");
       rm.type = "button"; rm.className = "ghost"; rm.textContent = "Remove";
       rm.style.marginTop = "8px";
-      rm.onclick = function (ev) { ev.stopPropagation(); p.shelf.splice(idx, 1); saveState(); paintShelf(); };
+      rm.onclick = function (ev) {
+        ev.stopPropagation();
+        var i = p.shelf.indexOf(book);
+        if (i >= 0) p.shelf.splice(i, 1);
+        saveState();
+        paintShelf();
+      };
       mid.appendChild(rm);
       row.onclick = function (ev) {
         if (ev.target.closest("button")) return;
@@ -775,7 +809,7 @@
     if (!books || !books.length) {
       var e = document.createElement("div");
       e.className = "empty";
-      e.textContent = "No picks yet. Add a few books and an interest, then tap Recommend.";
+      e.textContent = "No picks yet. Add a few books, then tap Recommend.";
       box.appendChild(e);
       return;
     }
@@ -783,12 +817,13 @@
       var row = document.createElement("div");
       row.className = "book hit";
       row.innerHTML = coverHtml(book)
-        + '<div><div class="t"></div><div class="a"></div><div class="meta"></div><div class="why"></div></div>'
+        + '<div><div class="t"></div><div class="a"></div><div class="meta"></div><div class="summary"></div><div class="why"></div></div>'
         + meterHtml(book.political, book.woke);
       row.querySelector(".t").textContent = book.title;
       row.querySelector(".a").textContent = book.author || "";
       row.querySelector(".meta").textContent = ratingLabel(book);
-      row.querySelector(".why").textContent = (book.reasons || []).join(" · ");
+      row.querySelector(".summary").textContent = book.summary || book.description || "";
+      row.querySelector(".why").textContent = book.why || (book.reasons || []).join(" · ");
       row.onclick = function () { openDetail(book); };
       box.appendChild(row);
     });
@@ -866,9 +901,8 @@
         maxWoke: p.maxWoke,
       });
       paintRecs(res.books || []);
-      if (!(res.books || []).length) $("recErr").textContent = "No matches under those caps. Loosen a filter or add more shelf.";
-    } catch (e) {
-      $("recErr").textContent = "Could not recommend right now.";
+      if (res.error) $("recErr").textContent = res.error;
+      else if (!(res.books || []).length) $("recErr").textContent = "No picks came back. Try again in a moment.";
     } finally {
       $("recBtn").disabled = false;
     }
@@ -993,6 +1027,8 @@
     api: api,
     dadSeed: DAD_SEED,
     importDadSeed: importDadSeed,
+    authorSortKey: authorSortKey,
+    sortedShelf: sortedShelf,
   };
 })();
 </script>

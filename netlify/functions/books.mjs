@@ -18,7 +18,9 @@
 //     it never invents a rating.
 //
 //   { secret, action:"recommend", shelf, interests, maxPolitical?, maxWoke? }
-//     -> { books:[...same shape as search, plus recommendScore, reasons] }
+//     -> { books:[{ title, author, summary, why }], model, error? }
+//     The whole shelf (title / author / the reader's own stars) goes to grok-4.6.
+//     Catalog ranker recommendScore stays exported for the arithmetic suite.
 //
 //   { secret, action:"rate", title, author?, description?, subjects? }
 //     -> { political, woke, evidence, confidence }
@@ -31,7 +33,10 @@
 //
 // Required env: BUCKY_NOTIFY_SECRET
 // Optional env:
-//   BOOKS_OL_BASE / BOOKS_GB_BASE / BOOKS_GR_BASE  — point at fake servers in tests
+//   BOOKS_OL_BASE / BOOKS_GB_BASE / BOOKS_GR_BASE / BOOKS_XAI_BASE
+//                                                  — point at fake servers in tests
+//   BOOKS_GROK_MODEL                               — default grok-4.6
+//   XAI_API_KEY / XAI_BASE_URL                     — Grok recommend
 //   BOOKS_ALLOW_PRIVATE=1                          — unused; fetches only hit configured bases
 
 const ALLOWED_ORIGINS = new Set([
@@ -53,9 +58,11 @@ const FETCH_TIMEOUT_MS = 8000;
 const MAX_Q = 80;
 const MAX_RESULTS = 8;
 const MAX_REVIEWS = 5;
-const MAX_SHELF = 40;
+const MAX_SHELF = 200;
 const MAX_INTERESTS = 12;
 const MAX_RECOMMEND_QUERIES = 3;
+const GROK_TIMEOUT_MS = 20000;
+const GROK_MODEL = process.env.BOOKS_GROK_MODEL || "grok-4.6";
 
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
@@ -534,7 +541,7 @@ async function fetchReviews({ isbn, title, author }) {
   return parsed;
 }
 
-function sanitizeShelf(raw) {
+export function sanitizeShelf(raw) {
   const out = [];
   for (const b of (Array.isArray(raw) ? raw : [])) {
     if (!b || !b.title) continue;
@@ -551,6 +558,104 @@ function sanitizeShelf(raw) {
   return out;
 }
 
+export function buildRecommendPrompt(shelf, extras) {
+  const interests = Array.isArray(extras && extras.interests) ? extras.interests : [];
+  const maxPolitical = extras && extras.maxPolitical;
+  const maxWoke = extras && extras.maxWoke;
+  const lines = (Array.isArray(shelf) ? shelf : []).map((b) => {
+    const r = Number(b.rating);
+    const stars = Number.isFinite(r) ? r + "/5" : "unrated";
+    return "- " + (b.title || "Untitled") + " — " + (b.author || "unknown") + " — " + stars;
+  });
+  let extra = "";
+  if (interests.length) extra += "\nInterests they named: " + interests.join(", ") + ".";
+  if (Number.isFinite(Number(maxPolitical))) extra += "\nPolitical cap: " + Number(maxPolitical) + " of 5.";
+  if (Number.isFinite(Number(maxWoke))) extra += "\nWoke cap: " + Number(maxWoke) + " of 5. Stay at or under those caps.";
+  return (
+    "Here is everything this reader has already read, with their own star rating when they gave one (1-5). Unrated means they read it but have not scored it.\n\n"
+    + "READ SO FAR:\n" + (lines.length ? lines.join("\n") : "(empty shelf)") + "\n"
+    + extra
+    + "\n\nRecommend exactly 5 books they have NOT already read. For each, write a brief summary (two sentences) and why it fits this list.\n"
+    + "Reply with JSON only, no markdown:\n"
+    + '{"books":[{"title":"","author":"","summary":"","why":""}]}'
+  );
+}
+
+export function parseGrokRecs(text, shelf) {
+  const raw = String(text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch {
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return [];
+    try { parsed = JSON.parse(m[0]); } catch { return []; }
+  }
+  const rows = Array.isArray(parsed && parsed.books) ? parsed.books : (Array.isArray(parsed) ? parsed : []);
+  const have = new Set((Array.isArray(shelf) ? shelf : []).map((b) => bookKey(b.title, b.author)));
+  const out = [];
+  const seen = new Set();
+  for (const b of rows) {
+    if (!b || !b.title) continue;
+    const title = normSpace(b.title).slice(0, 200);
+    const author = normSpace(b.author).slice(0, 120);
+    const k = bookKey(title, author);
+    if (!title || have.has(k) || seen.has(k)) continue;
+    seen.add(k);
+    out.push({
+      title,
+      author,
+      summary: normSpace(b.summary).slice(0, 600),
+      why: normSpace(b.why).slice(0, 400),
+      reasons: [normSpace(b.why).slice(0, 400)].filter(Boolean),
+      description: normSpace(b.summary).slice(0, 600),
+      political: 0,
+      woke: 0,
+      evidence: [],
+      rating: null,
+      ratingsCount: null,
+      ratingSource: "",
+      cover: "",
+      isbn: "",
+      goodreadsUrl: goodreadsUrlFor("", title, author),
+    });
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+
+async function callGrokRecommend(prompt) {
+  const key = process.env.XAI_API_KEY || "";
+  const base = (process.env.BOOKS_XAI_BASE || process.env.XAI_BASE_URL || "https://api.x.ai").replace(/\/$/, "");
+  const model = process.env.BOOKS_GROK_MODEL || GROK_MODEL;
+  if (!key) return { ok: false, reason: "no-key", text: "", model };
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), GROK_TIMEOUT_MS);
+  try {
+    const r = await fetch(base + "/v1/chat/completions", {
+      method: "POST",
+      signal: ac.signal,
+      headers: { authorization: "Bearer " + key, "content-type": "application/json", "User-Agent": UA },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: "You recommend unread books from one reader's shelf. Reply with JSON only." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.4,
+        max_tokens: 1800,
+      }),
+    });
+    if (!r.ok) return { ok: false, reason: "http-" + r.status, text: "", model };
+    const j = await r.json();
+    const text = j && j.choices && j.choices[0] && j.choices[0].message ? String(j.choices[0].message.content || "") : "";
+    if (!text.trim()) return { ok: false, reason: "empty", text: "", model };
+    return { ok: true, reason: "", text, model };
+  } catch (e) {
+    return { ok: false, reason: e && e.name === "AbortError" ? "timeout" : "unreachable", text: "", model };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function recommend(body) {
   const shelf = sanitizeShelf(body.shelf);
   const interests = [];
@@ -561,45 +666,17 @@ async function recommend(body) {
   }
   const maxPolitical = Number(body.maxPolitical);
   const maxWoke = Number(body.maxWoke);
-  const profile = {
-    shelf,
+  const extras = {
     interests,
     maxPolitical: Number.isFinite(maxPolitical) ? maxPolitical : 5,
     maxWoke: Number.isFinite(maxWoke) ? maxWoke : 5,
   };
-
-  const queries = [];
-  for (const i of interests) {
-    if (queries.length >= MAX_RECOMMEND_QUERIES) break;
-    queries.push(i);
+  const prompt = buildRecommendPrompt(shelf, extras);
+  const got = await callGrokRecommend(prompt);
+  if (!got.ok) {
+    return { books: [], model: got.model, error: got.reason === "no-key" ? "Recommendations need a Grok key." : "Could not recommend right now.", reason: got.reason };
   }
-  for (const b of shelf) {
-    if (queries.length >= MAX_RECOMMEND_QUERIES) break;
-    if (Number(b.rating) >= 4 && b.author && !queries.includes(b.author)) queries.push(b.author);
-  }
-  if (!queries.length && body.q) queries.push(normSpace(body.q).slice(0, MAX_Q));
-
-  const bags = await Promise.all(queries.map((q) => searchCatalog(q)));
-  const seen = new Set();
-  const ranked = [];
-  for (const bag of bags) {
-    for (const book of bag) {
-      const k = bookKey(book.title, book.author);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      const rec = recommendScore(book, profile);
-      if (rec.excluded) continue;
-      ranked.push({ ...book, recommendScore: rec.score, reasons: rec.reasons });
-    }
-  }
-  ranked.sort((a, b) => {
-    const ds = (b.recommendScore || 0) - (a.recommendScore || 0);
-    if (ds) return ds;
-    const ar = a.rating == null ? -1 : a.rating;
-    const br = b.rating == null ? -1 : b.rating;
-    return br - ar;
-  });
-  return ranked.slice(0, MAX_RESULTS);
+  return { books: parseGrokRecs(got.text, shelf), model: got.model };
 }
 
 export default async (req) => {
@@ -629,8 +706,7 @@ export default async (req) => {
     return json(res, 200, headers);
   }
   if (action === "recommend") {
-    const books = await recommend(body);
-    return json({ books }, 200, headers);
+    return json(await recommend(body), 200, headers);
   }
   if (action === "rate") {
     return json(scorePolitics({

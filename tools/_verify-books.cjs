@@ -26,7 +26,7 @@ const puppeteer = require("puppeteer-core");
 const ROOT = path.resolve(__dirname, "..");
 const SHOTS = path.join(ROOT, "shots");
 const WANT_SHOTS = process.argv.includes("--shots");
-const PORT = 8894, OL_PORT = 8895, GB_PORT = 8896, GR_PORT = 8897;
+const PORT = 8894, OL_PORT = 8895, GB_PORT = 8896, GR_PORT = 8897, XAI_PORT = 8898;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SECRET = "amenfarms";
 
@@ -103,7 +103,18 @@ function gbVolume(id, title, author, extra) {
 let olCalls = [];
 let gbCalls = [];
 let grCalls = [];
+let xaiCalls = [];
 let grMode = "good";
+const GROK_JSON = JSON.stringify({
+  books: [
+    { title: "The Hobbit", author: "J.R.R. Tolkien", summary: "Already on the shelf.", why: "Must be dropped." },
+    { title: "The Priory of the Orange Tree", author: "Samantha Shannon", summary: "A standalone epic about a queendom and a dragon.", why: "You rated The Hobbit 5 stars." },
+    { title: "Lonesome Dove", author: "Larry McMurtry", summary: "Two aging Texas Rangers drive cattle north.", why: "A long road next to the naval set." },
+    { title: "The Lies of Locke Lamora", author: "Scott Lynch", summary: "Gentlemen bastards con a city.", why: "Abercrombie-adjacent grit." },
+    { title: "Children of Time", author: "Adrian Tchaikovsky", summary: "Spiders inherit a terraformed world.", why: "Fits the Howey and Corey stretch." },
+    { title: "Shardik", author: "Richard Adams", summary: "A giant bear becomes a god to a river people.", why: "A different Adams than Hitchhiker." },
+  ],
+});
 
 function serveOL() {
   return new Promise((resolve) => {
@@ -169,6 +180,24 @@ function serveGR() {
     srv.listen(GR_PORT, "127.0.0.1", () => resolve(srv));
   });
 }
+function serveXAI() {
+  return new Promise((resolve) => {
+    const srv = http.createServer((req, res) => {
+      let raw = "";
+      req.on("data", (c) => { raw += c; });
+      req.on("end", () => {
+        let body = {};
+        try { body = JSON.parse(raw || "{}"); } catch (e) { body = {}; }
+        xaiCalls.push({ url: req.url, body });
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({
+          choices: [{ message: { role: "assistant", content: GROK_JSON } }],
+        }));
+      });
+    });
+    srv.listen(XAI_PORT, "127.0.0.1", () => resolve(srv));
+  });
+}
 
 function callHandler(handler, body, method) {
   const req = new Request("http://127.0.0.1/.netlify/functions/books", {
@@ -186,6 +215,9 @@ async function sectionServer() {
   process.env.BOOKS_OL_BASE = `http://127.0.0.1:${OL_PORT}`;
   process.env.BOOKS_GB_BASE = `http://127.0.0.1:${GB_PORT}`;
   process.env.BOOKS_GR_BASE = `http://127.0.0.1:${GR_PORT}`;
+  process.env.BOOKS_XAI_BASE = `http://127.0.0.1:${XAI_PORT}`;
+  process.env.XAI_API_KEY = "test-xai";
+  process.env.BOOKS_GROK_MODEL = "grok-4.6";
 
   const mod = await import("file://" + path.join(ROOT, "netlify", "functions", "books.mjs").replace(/\\/g, "/"));
   const handler = mod.default;
@@ -193,6 +225,8 @@ async function sectionServer() {
   ok(typeof mod.scorePolitics === "function", "scorePolitics is exported");
   ok(typeof mod.recommendScore === "function", "recommendScore is exported");
   ok(typeof mod.parseGoodreadsHtml === "function", "parseGoodreadsHtml is exported");
+  ok(typeof mod.buildRecommendPrompt === "function" && typeof mod.parseGrokRecs === "function",
+    "the Grok recommend prompt and parser are exported");
 
   const src = fs.readFileSync(path.join(ROOT, "netlify", "functions", "books.mjs"), "utf8");
   ok(/civil rights/.test(src) && /deliberately absent/.test(src),
@@ -259,6 +293,18 @@ async function sectionServer() {
   ok(recZeroLike.score === 1 && recZeroLike.reasons.indexOf("same author as a book you liked") < 0,
     "a 0-star shelf rating is not a like (author bonus stays off; the shared subject still scores 1)");
 
+  const fortyOne = [];
+  for (let i = 1; i <= 41; i++) fortyOne.push({ title: "Book " + i, author: "Author " + i, rating: i === 1 ? 5 : null });
+  const prompt41 = mod.buildRecommendPrompt(mod.sanitizeShelf(fortyOne), { interests: ["fantasy"], maxPolitical: 5, maxWoke: 0 });
+  ok(/Book 41 — Author 41 — unrated/.test(prompt41) && /Book 1 — Author 1 — 5\/5/.test(prompt41),
+    "the Grok prompt keeps the 41st shelf row and a 5-star user rating (40 used to drop it)");
+  ok(/Woke cap: 0 of 5/.test(prompt41), "…and still states the woke cap of 0");
+  const parsedGrok = mod.parseGrokRecs(GROK_JSON, [{ title: "The Hobbit", author: "J.R.R. Tolkien" }]);
+  ok(parsedGrok.length === 5 && parsedGrok[0].title === "The Priory of the Orange Tree" && parsedGrok.every((b) => b.title !== "The Hobbit"),
+    "parseGrokRecs keeps five picks and drops a title already on the shelf");
+  ok(parsedGrok[0].summary.indexOf("queendom") >= 0 && parsedGrok[0].why.indexOf("Hobbit 5") >= 0,
+    "…and each pick carries a summary and a why");
+
   // --- Goodreads parse against the LIVE shape ---
   const parsed = mod.parseGoodreadsHtml(GR_HOBBIT_HTML);
   ok(parsed.ok && parsed.rating === 4.3, "JSON-LD aggregateRating 4.3 is read");
@@ -310,19 +356,38 @@ async function sectionServer() {
     "a Goodreads 403 is reported, not turned into a fake 0-star book");
   grMode = "good";
 
+  xaiCalls = [];
+  const recShelf = [{ title: "The Hobbit", author: "J.R.R. Tolkien", subjects: ["Fantasy"], rating: 5 }];
+  for (let i = 2; i <= 41; i++) recShelf.push({ title: "Book " + i, author: "Author " + i, rating: null });
   const rec = await callHandler(handler, {
     secret: SECRET, action: "recommend",
-    shelf: [{ title: "The Hobbit", author: "J.R.R. Tolkien", subjects: ["Fantasy"], rating: 5 }],
+    shelf: recShelf,
     interests: ["fantasy"],
     maxPolitical: 5,
     maxWoke: 0,
   });
   const recBody = await rec.json();
   ok(rec.status === 200, "recommend returns 200");
-  ok((recBody.books || []).every((b) => b.woke === 0), "maxWoke 0 keeps only woke-0 picks");
-  ok((recBody.books || []).some((b) => b.title === "The Silmarillion"), "…and still recommends the Silmarillion");
+  const grokReq = xaiCalls[0] && xaiCalls[0].body;
+  ok(!!grokReq && grokReq.model === "grok-4.6", "recommend asks grok-4.6, not the catalog ranker");
+  const grokUser = grokReq && grokReq.messages && grokReq.messages.find((m) => m.role === "user");
+  ok(grokUser && /The Hobbit — J\.R\.R\. Tolkien — 5\/5/.test(grokUser.content) && /Book 41 — Author 41 — unrated/.test(grokUser.content),
+    "the Grok turn includes the whole shelf and the reader's stars");
+  ok((recBody.books || []).length === 5 && recBody.books[0].title === "The Priory of the Orange Tree",
+    "…and returns the five Grok picks");
   ok(!(recBody.books || []).some((b) => b.title === "The Hobbit"), "…without repeating the shelf");
-  ok(!(recBody.books || []).some((b) => b.title === "White Fragility"), "…and the woke-5 book stays out");
+  ok((recBody.books || [])[0].summary && (recBody.books || [])[0].why, "…each pick has a summary and a why");
+
+  const savedKey = process.env.XAI_API_KEY;
+  delete process.env.XAI_API_KEY;
+  const noKey = await callHandler(handler, {
+    secret: SECRET, action: "recommend",
+    shelf: [{ title: "The Hobbit", author: "J.R.R. Tolkien", rating: 5 }],
+  });
+  const noKeyBody = await noKey.json();
+  process.env.XAI_API_KEY = savedKey;
+  ok(noKey.status === 200 && (noKeyBody.books || []).length === 0 && noKeyBody.reason === "no-key",
+    "a missing Grok key is an empty list, not a invented catalog pick");
 
   const pageSrc = fs.readFileSync(path.join(ROOT, "books.html"), "utf8");
   ok(/\[hidden\]\s*\{\s*display:\s*none\s*!important/i.test(pageSrc), "books.html restates [hidden]{display:none}");
@@ -354,6 +419,12 @@ async function sectionServer() {
     "…omits the Ask pile");
   ok(!/choreUser[\s\S]{0,160}state\.currentId = p\.id/.test(pageSrc),
     "importDadSeed does not switch the open profile to Dad when choreUser is Dad");
+  ok(/function authorSortKey/.test(pageSrc) && /sortedShelf\(p\.shelf\)/.test(pageSrc),
+    "the shelf is painted in author-last-name order, not seed order");
+  ok(/classList\.add\("embedded"\)/.test(pageSrc) && /\.embedded #buckyNav/.test(pageSrc),
+    "framed Bookshelf hides its own bottom nav so the AI tab does not double the icons");
+  ok(/grok-4\.6/.test(src) && /buildRecommendPrompt/.test(src),
+    "recommend sends the shelf to grok-4.6");
 
   const gptSrc = fs.readFileSync(path.join(ROOT, "farmgpt.html"), "utf8");
   ok(/id="cardBooks"/.test(gptSrc), "FarmGPT home has a Bookshelf card");
@@ -448,12 +519,14 @@ const MOCK_HOBBIT = {
   political: 0, woke: 0, evidence: [], confidence: "high",
 };
 const MOCK_SIL = {
-  id: "ol-sil", title: "The Silmarillion", author: "J.R.R. Tolkien", year: "1977",
-  isbn: "9780544338012", cover: "", description: "First Age.", subjects: ["Fantasy"],
-  rating: 3.9, ratingsCount: 400, ratingSource: "open-library",
-  goodreadsUrl: "https://www.goodreads.com/book/isbn/9780544338012",
+  id: "ol-sil", title: "The Priory of the Orange Tree", author: "Samantha Shannon", year: "2019",
+  isbn: "", cover: "", description: "A standalone epic about a queendom and a dragon.", subjects: ["Fantasy"],
+  rating: null, ratingsCount: null, ratingSource: "",
+  goodreadsUrl: "https://www.goodreads.com/search?q=The%20Priory%20of%20the%20Orange%20Tree",
   political: 0, woke: 0, evidence: [], confidence: "high",
-  recommendScore: 6, reasons: ["same author as a book you liked", "shares subjects with your shelf", "matches an interest"],
+  summary: "A standalone epic about a queendom and a dragon.",
+  why: "You rated The Hobbit 5 stars.",
+  reasons: ["You rated The Hobbit 5 stars."],
 };
 
 async function sectionUi(browser) {
@@ -476,7 +549,16 @@ async function sectionUi(browser) {
   await page.waitForFunction(() => window.__BOOKS__, { timeout: 15000 });
 
   ok(await page.evaluate(() => document.querySelector("#bar .t").textContent === "Bookshelf"), "the page titles itself Bookshelf");
+  ok(await page.evaluate(() => {
+    const el = document.getElementById("buckyNav");
+    const r = el && el.getBoundingClientRect();
+    return !!(el && getComputedStyle(el).display !== "none" && r && r.height > 0);
+  }), "standalone Bookshelf keeps the bottom nav");
   ok(await page.evaluate(() => window.__BOOKS__.current().name === "Dad"), "the default profile is the choreUser");
+  ok(await page.evaluate(() => {
+    const first = document.querySelector("#shelfList .book .t");
+    return first && first.textContent === "Before They Are Hanged";
+  }), "Dad's shelf opens sorted by author last name (Abercrombie before Sanderson)");
 
   await page.type("#newProfile", "Joy");
   await page.click("#addProfile");
@@ -514,8 +596,10 @@ async function sectionUi(browser) {
 
   await page.evaluate(() => { document.getElementById("recBtn").click(); });
   await page.waitForFunction(() => document.querySelectorAll("#recs .book").length >= 1, { timeout: 10000 });
-  ok(await page.evaluate(() => /Silmarillion/.test(document.querySelector("#recs .t").textContent)), "Recommend paints the pick");
-  ok(await page.evaluate(() => /same author/.test(document.querySelector("#recs .why").textContent)), "…and the reason line");
+  ok(await page.evaluate(() => /Priory of the Orange Tree/.test(document.querySelector("#recs .t").textContent)), "Recommend paints the Grok pick");
+  ok(await page.evaluate(() => /queendom/.test(document.querySelector("#recs .summary").textContent)
+    && /Hobbit 5/.test(document.querySelector("#recs .why").textContent)),
+    "…with a summary and a why from the reader's stars");
 
   await page.evaluate(() => { const b = document.querySelector("#recs .book"); if (b) b.click(); });
   await page.waitForFunction(() => document.getElementById("detail").hidden === false, { timeout: 10000 });
@@ -562,6 +646,10 @@ async function sectionUi(browser) {
     const metas = [...document.querySelectorAll("#shelfList .meta")].map((el) => el.textContent);
     return metas.some((t) => /4\.11 from Open Library \(19\)/.test(t));
   }), "…and We Are Legion paints 4.11 from Open Library (19)");
+  ok(await page.evaluate(() => {
+    const first = document.querySelector("#shelfList .book .t");
+    return first && first.textContent === "Before They Are Hanged";
+  }), "re-opening Dad still sorts Abercrombie ahead of Sanderson");
 
   await page.evaluate(() => {
     const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
@@ -619,6 +707,28 @@ async function sectionUi(browser) {
   }
 
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors[0] : ""));
+
+  const host = await newPage(browser, mock, { user: "Dad" });
+  await host.page.setContent(
+    "<!doctype html><title>host</title><iframe id=\"f\" src=\"" + BASE + "/books.html\" style=\"width:390px;height:844px;border:0\"></iframe>",
+    { waitUntil: "domcontentloaded" }
+  );
+  const framed = await host.page.waitForFunction(() => {
+    const f = document.getElementById("f");
+    try { return !!(f && f.contentWindow && f.contentWindow.__BOOKS__); } catch (e) { return false; }
+  }, { timeout: 15000 }).then(() => true).catch(() => false);
+  ok(framed, "Bookshelf loads inside a same-origin iframe");
+  if (framed) {
+    ok(await host.page.evaluate(() => {
+      const w = document.getElementById("f").contentWindow;
+      const nav = w.document.getElementById("buckyNav");
+      const r = nav && nav.getBoundingClientRect();
+      return w.document.documentElement.classList.contains("embedded")
+        && getComputedStyle(nav).display === "none"
+        && !(r && r.height > 0);
+    }), "…and hides #buckyNav so the parent tab does not show two icon rows");
+  }
+  await host.page.close();
 
   // Home card is asserted from source, not by booting index.html. That page's identity
   // gate + the live-Firebase-block dance is already owned by other suites; this one
@@ -689,6 +799,7 @@ async function sectionUi(browser) {
   const ol = await serveOL();
   const gb = await serveGB();
   const gr = await serveGR();
+  const xai = await serveXAI();
   try {
     await sectionServer();
   } catch (err) {
@@ -710,7 +821,7 @@ async function sectionUi(browser) {
     console.log("\n✗ SECTION B ERROR: " + (err && err.stack || err));
   } finally {
     if (browser) await browser.close();
-    srv.close(); ol.close(); gb.close(); gr.close();
+    srv.close(); ol.close(); gb.close(); gr.close(); xai.close();
   }
 
   console.log("\n" + pass + " passed, " + fail + " failed");

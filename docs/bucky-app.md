@@ -1916,11 +1916,17 @@ later; the import pipeline (DesignSync) is documented in the entry above.
 `books.html` + `netlify/functions/books.mjs`. A standalone family page (weather.html chrome:
 Farmstead header, two-row nav, desktop rail). Each person has their own profile — interests,
 shelf of books already read with a 1–5 rating, and two caps: max political / max woke.
-Recommend searches Open Library + Google Books from those interests and liked authors, then
-ranks with a hand-computable score (liked author +3, shared subject +1 each capped at 4,
-interest hit +2 each capped at 6). A book already on the shelf is dropped; a cap of 0 keeps
-a 0 and drops a 1 (`>` not `>=` — `maxWoke || 5` would have turned "no woke books" into
-"anything").
+Recommend used to search Open Library + Google Books and rank with a
+hand-computable score. The Recommend button now sends the **entire** shelf
+(title, author, the reader's own 1–5 stars) to grok-4.6 and asks for five
+unread books, each with a brief summary and a why. `MAX_SHELF` is 200 so
+Dad's 135 keepers are not cut at 40. A missing Grok key is an empty list,
+never a invented catalog pick. `recommendScore` stays exported for the
+old arithmetic. A book already on the shelf is dropped from the model's
+JSON. Caps still go in the prompt. The shelf paints in author-last-name
+order (Abercrombie before Sanderson), not seed order. Framed inside the
+AI tab, `books.html` adds `.embedded` and hides `#buckyNav` so the parent
+`#bnav` is the only icon row on a phone.
 
 Goodreads shut the public API. `action:"reviews"` fetches the public book page (ISBN URL,
 follows the 301 to `/book/show/…`) and reads the shape the live page actually ships
