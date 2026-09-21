@@ -199,6 +199,13 @@ function serveXAI() {
   });
 }
 
+function readKeptJson(text) {
+  const raw = String(text || "");
+  const cut = raw.lastIndexOf("\n");
+  const slice = (cut >= 0 ? raw.slice(cut + 1) : raw).trim();
+  return JSON.parse(slice || "{}");
+}
+
 function callHandler(handler, body, method) {
   const req = new Request("http://127.0.0.1/.netlify/functions/books", {
     method: method || "POST",
@@ -378,12 +385,17 @@ async function sectionServer() {
     maxPolitical: 5,
     maxWoke: 0,
   });
-  const recBody = await rec.json();
+  const recText = await rec.text();
+  const recBody = readKeptJson(recText);
   ok(rec.status === 200, "recommend returns 200");
+  ok(/^\s/.test(recText) && recText.indexOf("\n{") >= 0,
+    "recommend sends a keepalive byte before the JSON so a slow Grok call is not a 30s 504");
   const grokReq = xaiCalls[0] && xaiCalls[0].body;
   ok(!!grokReq && grokReq.model === "grok-4.7", "recommend asks grok-4.7, not the catalog ranker");
   ok(!!grokReq && grokReq.reasoning_effort === "low",
     "recommend asks grok-4.7 for low effort so a full shelf finishes inside the function");
+  ok(!!grokReq && grokReq.max_tokens === 6000,
+    "recommend leaves 6000 tokens so reasoning cannot eat the JSON");
   const grokUser = grokReq && grokReq.messages && grokReq.messages.find((m) => m.role === "user");
   ok(grokUser && /The Hobbit — J\.R\.R\. Tolkien — 5\/5/.test(grokUser.content) && /Book 41 — Author 41 — unrated/.test(grokUser.content),
     "the Grok turn includes the whole shelf and the reader's stars");
@@ -398,7 +410,7 @@ async function sectionServer() {
     secret: SECRET, action: "recommend",
     shelf: [{ title: "The Hobbit", author: "J.R.R. Tolkien", rating: 5 }],
   });
-  const noKeyBody = await noKey.json();
+  const noKeyBody = readKeptJson(await noKey.text());
   process.env.XAI_API_KEY = savedKey;
   ok(noKey.status === 200 && (noKeyBody.books || []).length === 0 && noKeyBody.reason === "no-key",
     "a missing Grok key is an empty list, not a invented catalog pick");
@@ -443,6 +455,15 @@ async function sectionServer() {
     "the Grok call waits 50s at low effort (20s aborted a full shelf)");
   ok(/A full shelf takes about half a minute/.test(pageSrc),
     "the button tells the reader a full shelf takes about half a minute");
+  ok(/KEEPALIVE_MS = 8000/.test(src) && /GROK_MAX_TOKENS = 6000/.test(src),
+    "the Grok call keeps the edge alive and leaves 6000 tokens of headroom");
+  const intAt = pageSrc.indexOf('id="intLabel"');
+  const recAt = pageSrc.indexOf('id="recLabel"');
+  const shelfAt = pageSrc.indexOf('id="shelfLabel"');
+  ok(intAt >= 0 && recAt > intAt && shelfAt > recAt,
+    "Next to read is under Interests and above the shelf in the page");
+  ok(/lastIndexOf\("\\n"\)/.test(pageSrc) && /Could not recommend right now\./.test(pageSrc),
+    "the page reads the JSON after the keepalive and shows a failure");
 
   const gptSrc = fs.readFileSync(path.join(ROOT, "farmgpt.html"), "utf8");
   ok(/id="cardBooks"/.test(gptSrc), "FarmGPT home has a Bookshelf card");
@@ -577,6 +598,12 @@ async function sectionUi(browser) {
     const first = document.querySelector("#shelfList .book .t");
     return first && first.textContent === "Before They Are Hanged";
   }), "Dad's shelf opens sorted by author last name (Abercrombie before Sanderson)");
+  ok(await page.evaluate(() => {
+    const rec = document.getElementById("recLabel").closest("section").getBoundingClientRect();
+    const ints = document.getElementById("intLabel").closest("section").getBoundingClientRect();
+    const shelf = document.getElementById("shelfLabel").closest("section").getBoundingClientRect();
+    return rec.top > ints.top && rec.top < shelf.top && rec.height > 0;
+  }), "Next to read sits under Interests and above the shelf");
 
   await page.type("#newProfile", "Joy");
   await page.click("#addProfile");

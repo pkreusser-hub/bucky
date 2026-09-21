@@ -1987,4 +1987,15 @@ Low effort on the 135-title shelf returned five books in 27s. While that
 runs, the button says a full shelf takes about half a minute.
 Suite: `node tools/_verify-books.cjs` (**133/133**). Bite against the 20s
 abort (`b6c1afb` `books.mjs` + `books.html`): **130 passed, 3 failed**.
+
+A buffered grok-4.7 call still dies when it sits silent past 30s: the edge
+504s with "Inactivity Timeout" and the page had no catch, so the button
+looked like it had done nothing. Recommend now writes a keepalive space
+immediately and puts the JSON on the last line (`KEEPALIVE_MS` 8000).
+Reasoning tokens bill against `max_tokens`; 1800 could eat the JSON, so the
+budget is 6000. The page reads that last line and shows a failure instead of
+staying blank. Next to read sits under Interests and above the shelf, so the
+picks are not under 135 books.
+Suite: `node tools/_verify-books.cjs` (**139/139**). Bite against the silent
+call (`963027a` `books.mjs` + `books.html`): **133 passed, 6 failed**.
 ---

@@ -66,6 +66,13 @@ const MAX_INTERESTS = 12;
 const MAX_RECOMMEND_QUERIES = 3;
 const GROK_TIMEOUT_MS = 50000;
 const GROK_MODEL = process.env.BOOKS_GROK_MODEL || "grok-4.7";
+// Netlify's edge 504s a response that has moved no bytes for 30s (measured on
+// this site). grok-4.7 at low effort is often 17–27s and sometimes slower, so
+// a buffered call dies and the button paints nothing. A leading space starts
+// the clock; the JSON is the last line. Reasoning tokens also bill against
+// max_tokens (the gffltrade lesson) — 1800 let a long think eat the JSON.
+const KEEPALIVE_MS = 8000;
+const GROK_MAX_TOKENS = 6000;
 
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
@@ -78,6 +85,37 @@ function corsHeaders(origin) {
 }
 function json(obj, status, headers) {
   return new Response(JSON.stringify(obj), { status: status || 200, headers });
+}
+
+function startKeepalive(controller, encoder) {
+  let timer = null;
+  const stop = () => { if (timer !== null) { clearInterval(timer); timer = null; } };
+  try { controller.enqueue(encoder.encode(" ")); } catch { return stop; }
+  timer = setInterval(() => {
+    try { controller.enqueue(encoder.encode(" ")); } catch { stop(); }
+  }, KEEPALIVE_MS);
+  return stop;
+}
+
+function recommendStream(pending, headers) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const stop = startKeepalive(controller, encoder);
+      let payload;
+      try {
+        payload = await pending;
+      } catch (e) {
+        payload = { books: [], error: "Could not recommend right now.", reason: "handler" };
+      } finally {
+        stop();
+      }
+      try { controller.enqueue(encoder.encode("\n" + JSON.stringify(payload))); } catch { /* closed */ }
+      try { controller.close(); } catch { /* closed */ }
+    },
+  });
+  const streamed = Object.assign({}, headers, { "Content-Type": "text/plain; charset=utf-8" });
+  return new Response(stream, { status: 200, headers: streamed });
 }
 
 function clamp5(n) {
@@ -643,7 +681,7 @@ async function callGrokRecommend(prompt) {
           { role: "user", content: prompt },
         ],
         temperature: 0.4,
-        max_tokens: 1800,
+        max_tokens: GROK_MAX_TOKENS,
         reasoning_effort: "low",
       }),
     });
@@ -709,7 +747,7 @@ export default async (req) => {
     return json(res, 200, headers);
   }
   if (action === "recommend") {
-    return json(await recommend(body), 200, headers);
+    return recommendStream(recommend(body), headers);
   }
   if (action === "rate") {
     return json(scorePolitics({

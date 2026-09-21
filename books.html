@@ -232,6 +232,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     </div>
   </section>
 
+  <section class="card" aria-labelledby="recLabel">
+    <h2 class="section-label" id="recLabel">Next to read</h2>
+    <p class="section-note">Five picks from the whole shelf and your stars, written by Grok.</p>
+    <button type="button" class="primary" id="recBtn">Recommend</button>
+    <div class="err" id="recErr"></div>
+    <div id="recs"></div>
+  </section>
+
   <section class="card" aria-labelledby="filLabel">
     <h2 class="section-label" id="filLabel">How political</h2>
     <p class="section-note">Caps on what a recommendation may carry. 0 means none of that axis.</p>
@@ -260,14 +268,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     <div class="err" id="searchErr"></div>
     <div id="searchHits"></div>
     <div id="shelfList"></div>
-  </section>
-
-  <section class="card" aria-labelledby="recLabel">
-    <h2 class="section-label" id="recLabel">Next to read</h2>
-    <p class="section-note">Five picks from the whole shelf and your stars, written by Grok.</p>
-    <button type="button" class="primary" id="recBtn">Recommend</button>
-    <div class="err" id="recErr"></div>
-    <div id="recs"></div>
   </section>
 </main>
 
@@ -860,6 +860,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     paintShelf();
   }
 
+  function readBody(text) {
+    var raw = String(text || "");
+    var cut = raw.lastIndexOf("\n");
+    var slice = (cut >= 0 ? raw.slice(cut + 1) : raw).trim();
+    if (!slice) return {};
+    return JSON.parse(slice);
+  }
+
   async function api(action, extra) {
     var body = Object.assign({ secret: FAMILY_PASSWORD, action: action }, extra || {});
     var r = await fetch(ENDPOINT, {
@@ -868,8 +876,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       body: JSON.stringify(body),
     });
     var data = {};
-    try { data = await r.json(); } catch (e) { data = { error: "Bad reply" }; }
-    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    try { data = readBody(await r.text()); } catch (e) { data = { error: "Bad reply" }; }
+    if (!r.ok) throw new Error((data && data.error && data.error !== "Bad reply") ? data.error : ("HTTP " + r.status));
+    if (data && data.error === "Bad reply") throw new Error("Bad reply");
     return data;
   }
 
@@ -893,6 +902,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var p = current();
     $("recErr").textContent = "Asking Grok. A full shelf takes about half a minute.";
     $("recBtn").disabled = true;
+    var card = $("recLabel");
+    if (card && card.scrollIntoView) card.scrollIntoView({ block: "start" });
     try {
       var res = await api("recommend", {
         shelf: p.shelf,
@@ -904,6 +915,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       if (res.error) $("recErr").textContent = res.error;
       else if (!(res.books || []).length) $("recErr").textContent = "No picks came back. Try again in a moment.";
       else $("recErr").textContent = "";
+    } catch (e) {
+      var msg = e && e.message || "";
+      $("recErr").textContent = (!msg || msg === "Bad reply" || msg.indexOf("HTTP ") === 0) ? "Could not recommend right now." : msg;
     } finally {
       $("recBtn").disabled = false;
     }
