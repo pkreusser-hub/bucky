@@ -19,7 +19,7 @@
 //
 //   { secret, action:"recommend", shelf, interests, maxPolitical?, maxWoke? }
 //     -> { books:[{ title, author, summary, why }], model, error? }
-//     The whole shelf (title / author / the reader's own stars) goes to grok-4.6.
+//     The whole shelf (title / author / the reader's own stars) goes to grok-4.7.
 //     Catalog ranker recommendScore stays exported for the arithmetic suite.
 //
 //   { secret, action:"rate", title, author?, description?, subjects? }
@@ -35,7 +35,7 @@
 // Optional env:
 //   BOOKS_OL_BASE / BOOKS_GB_BASE / BOOKS_GR_BASE / BOOKS_XAI_BASE
 //                                                  — point at fake servers in tests
-//   BOOKS_GROK_MODEL                               — default grok-4.6
+//   BOOKS_GROK_MODEL                               — default grok-4.7
 //   XAI_API_KEY / XAI_BASE_URL                     — Grok recommend
 //   BOOKS_ALLOW_PRIVATE=1                          — unused; fetches only hit configured bases
 
@@ -62,7 +62,7 @@ const MAX_SHELF = 200;
 const MAX_INTERESTS = 12;
 const MAX_RECOMMEND_QUERIES = 3;
 const GROK_TIMEOUT_MS = 20000;
-const GROK_MODEL = process.env.BOOKS_GROK_MODEL || "grok-4.6";
+const GROK_MODEL = process.env.BOOKS_GROK_MODEL || "grok-4.7";
 
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";

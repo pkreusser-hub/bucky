@@ -1918,7 +1918,7 @@ Farmstead header, two-row nav, desktop rail). Each person has their own profile 
 shelf of books already read with a 1–5 rating, and two caps: max political / max woke.
 Recommend used to search Open Library + Google Books and rank with a
 hand-computable score. The Recommend button now sends the **entire** shelf
-(title, author, the reader's own 1–5 stars) to grok-4.6 and asks for five
+(title, author, the reader's own 1–5 stars) to grok-4.7 and asks for five
 unread books, each with a brief summary and a why. `MAX_SHELF` is 200 so
 Dad's 135 keepers are not cut at 40. A missing Grok key is an empty list,
 never a invented catalog pick. `recommendScore` stays exported for the

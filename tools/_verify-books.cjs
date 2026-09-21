@@ -217,7 +217,7 @@ async function sectionServer() {
   process.env.BOOKS_GR_BASE = `http://127.0.0.1:${GR_PORT}`;
   process.env.BOOKS_XAI_BASE = `http://127.0.0.1:${XAI_PORT}`;
   process.env.XAI_API_KEY = "test-xai";
-  process.env.BOOKS_GROK_MODEL = "grok-4.6";
+  process.env.BOOKS_GROK_MODEL = "grok-4.7";
 
   const mod = await import("file://" + path.join(ROOT, "netlify", "functions", "books.mjs").replace(/\\/g, "/"));
   const handler = mod.default;
@@ -381,7 +381,7 @@ async function sectionServer() {
   const recBody = await rec.json();
   ok(rec.status === 200, "recommend returns 200");
   const grokReq = xaiCalls[0] && xaiCalls[0].body;
-  ok(!!grokReq && grokReq.model === "grok-4.6", "recommend asks grok-4.6, not the catalog ranker");
+  ok(!!grokReq && grokReq.model === "grok-4.7", "recommend asks grok-4.7, not the catalog ranker");
   const grokUser = grokReq && grokReq.messages && grokReq.messages.find((m) => m.role === "user");
   ok(grokUser && /The Hobbit — J\.R\.R\. Tolkien — 5\/5/.test(grokUser.content) && /Book 41 — Author 41 — unrated/.test(grokUser.content),
     "the Grok turn includes the whole shelf and the reader's stars");
@@ -435,8 +435,8 @@ async function sectionServer() {
     "the shelf is painted in author-last-name order, not seed order");
   ok(/classList\.add\("embedded"\)/.test(pageSrc) && /\.embedded #buckyNav/.test(pageSrc),
     "framed Bookshelf hides its own bottom nav so the AI tab does not double the icons");
-  ok(/grok-4\.6/.test(src) && /buildRecommendPrompt/.test(src),
-    "recommend sends the shelf to grok-4.6");
+  ok(/BOOKS_GROK_MODEL \|\| "grok-4\.7"/.test(src) && /buildRecommendPrompt/.test(src),
+    "recommend sends the shelf to grok-4.7");
 
   const gptSrc = fs.readFileSync(path.join(ROOT, "farmgpt.html"), "utf8");
   ok(/id="cardBooks"/.test(gptSrc), "FarmGPT home has a Bookshelf card");
