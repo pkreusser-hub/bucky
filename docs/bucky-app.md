@@ -1970,9 +1970,10 @@ on load. Tapping a shelf row opens the detail sheet (Goodreads reviews
 when the function can reach the public page). `importDadSeed` must not
 write `state.currentId` when `choreUser` is Dad; that assignment stole
 Joy after a reload.
-Suite: `node tools/_verify-books.cjs` (**114/114**). Bite against the
-pre-works-rating `books.html` (`b330c95`): **112 passed, 2 failed** —
-We Are Legion carries its Open Library work rating… We Are Legion paints
-4.11. A null user star rating must not paint as 0.00 (`Number(null)`);
-community ratings live in `communityRating` on the shelf.
+Suite: `node tools/_verify-books.cjs` (**130/130**). Bite against the
+pre-Grok page and function (`fae13b2` `books.html` + `books.mjs`):
+**112 passed, 18 failed** — the Grok prompt, author sort, and framed-nav
+checks. A missing star stays unrated in that prompt (`Number(null)` is 0;
+a real 0 stays 0/5). A null user star on the shelf must not paint as 0.00;
+community ratings live in `communityRating`.
 ---

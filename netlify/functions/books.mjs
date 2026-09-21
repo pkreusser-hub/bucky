@@ -545,13 +545,12 @@ export function sanitizeShelf(raw) {
   const out = [];
   for (const b of (Array.isArray(raw) ? raw : [])) {
     if (!b || !b.title) continue;
-    const rating = Number(b.rating);
     out.push({
       title: normSpace(b.title).slice(0, 200),
       author: normSpace(b.author).slice(0, 120),
       subjects: Array.isArray(b.subjects) ? b.subjects.map((s) => normSpace(s).slice(0, 60)).filter(Boolean).slice(0, 12) : [],
       description: normSpace(b.description).slice(0, 800),
-      rating: Number.isFinite(rating) ? rating : null,
+      rating: asNum(b.rating),
     });
     if (out.length >= MAX_SHELF) break;
   }
@@ -563,8 +562,8 @@ export function buildRecommendPrompt(shelf, extras) {
   const maxPolitical = extras && extras.maxPolitical;
   const maxWoke = extras && extras.maxWoke;
   const lines = (Array.isArray(shelf) ? shelf : []).map((b) => {
-    const r = Number(b.rating);
-    const stars = Number.isFinite(r) ? r + "/5" : "unrated";
+    const r = asNum(b.rating);
+    const stars = r == null ? "unrated" : r + "/5";
     return "- " + (b.title || "Untitled") + " — " + (b.author || "unknown") + " — " + stars;
   });
   let extra = "";

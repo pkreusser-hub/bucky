@@ -293,16 +293,28 @@ async function sectionServer() {
   ok(recZeroLike.score === 1 && recZeroLike.reasons.indexOf("same author as a book you liked") < 0,
     "a 0-star shelf rating is not a like (author bonus stays off; the shared subject still scores 1)");
 
-  const fortyOne = [];
-  for (let i = 1; i <= 41; i++) fortyOne.push({ title: "Book " + i, author: "Author " + i, rating: i === 1 ? 5 : null });
-  const prompt41 = mod.buildRecommendPrompt(mod.sanitizeShelf(fortyOne), { interests: ["fantasy"], maxPolitical: 5, maxWoke: 0 });
+  const canPrompt = typeof mod.buildRecommendPrompt === "function" && typeof mod.sanitizeShelf === "function" && typeof mod.parseGrokRecs === "function";
+  let prompt41 = "";
+  let ratedZero = "";
+  let parsedGrok = [];
+  if (canPrompt) {
+    const fortyOne = [];
+    for (let i = 1; i <= 41; i++) fortyOne.push({ title: "Book " + i, author: "Author " + i, rating: i === 1 ? 5 : null });
+    prompt41 = mod.buildRecommendPrompt(mod.sanitizeShelf(fortyOne), { interests: ["fantasy"], maxPolitical: 5, maxWoke: 0 });
+    ratedZero = mod.buildRecommendPrompt(mod.sanitizeShelf([
+      { title: "Zero", author: "Zed", rating: 0 },
+      { title: "Blank", author: "Bee", rating: null },
+    ]), {});
+    parsedGrok = mod.parseGrokRecs(GROK_JSON, [{ title: "The Hobbit", author: "J.R.R. Tolkien" }]);
+  }
   ok(/Book 41 — Author 41 — unrated/.test(prompt41) && /Book 1 — Author 1 — 5\/5/.test(prompt41),
     "the Grok prompt keeps the 41st shelf row and a 5-star user rating (40 used to drop it)");
+  ok(/Zero — Zed — 0\/5/.test(ratedZero) && /Blank — Bee — unrated/.test(ratedZero),
+    "a real 0-star review stays 0/5; a missing review stays unrated (Number(null) is 0)");
   ok(/Woke cap: 0 of 5/.test(prompt41), "…and still states the woke cap of 0");
-  const parsedGrok = mod.parseGrokRecs(GROK_JSON, [{ title: "The Hobbit", author: "J.R.R. Tolkien" }]);
   ok(parsedGrok.length === 5 && parsedGrok[0].title === "The Priory of the Orange Tree" && parsedGrok.every((b) => b.title !== "The Hobbit"),
     "parseGrokRecs keeps five picks and drops a title already on the shelf");
-  ok(parsedGrok[0].summary.indexOf("queendom") >= 0 && parsedGrok[0].why.indexOf("Hobbit 5") >= 0,
+  ok(parsedGrok[0] && parsedGrok[0].summary.indexOf("queendom") >= 0 && parsedGrok[0].why.indexOf("Hobbit 5") >= 0,
     "…and each pick carries a summary and a why");
 
   // --- Goodreads parse against the LIVE shape ---
@@ -597,9 +609,11 @@ async function sectionUi(browser) {
   await page.evaluate(() => { document.getElementById("recBtn").click(); });
   await page.waitForFunction(() => document.querySelectorAll("#recs .book").length >= 1, { timeout: 10000 });
   ok(await page.evaluate(() => /Priory of the Orange Tree/.test(document.querySelector("#recs .t").textContent)), "Recommend paints the Grok pick");
-  ok(await page.evaluate(() => /queendom/.test(document.querySelector("#recs .summary").textContent)
-    && /Hobbit 5/.test(document.querySelector("#recs .why").textContent)),
-    "…with a summary and a why from the reader's stars");
+  ok(await page.evaluate(() => {
+    const sum = document.querySelector("#recs .summary");
+    const why = document.querySelector("#recs .why");
+    return !!(sum && why && /queendom/.test(sum.textContent) && /Hobbit 5/.test(why.textContent));
+  }), "…with a summary and a why from the reader's stars");
 
   await page.evaluate(() => { const b = document.querySelector("#recs .book"); if (b) b.click(); });
   await page.waitForFunction(() => document.getElementById("detail").hidden === false, { timeout: 10000 });
@@ -709,10 +723,11 @@ async function sectionUi(browser) {
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors[0] : ""));
 
   const host = await newPage(browser, mock, { user: "Dad" });
-  await host.page.setContent(
-    "<!doctype html><title>host</title><iframe id=\"f\" src=\"" + BASE + "/books.html\" style=\"width:390px;height:844px;border:0\"></iframe>",
-    { waitUntil: "domcontentloaded" }
-  );
+  await host.page.goto(BASE + "/books.html", { waitUntil: "domcontentloaded", timeout: 60000 });
+  await host.page.evaluate((src) => {
+    document.documentElement.className = "";
+    document.body.innerHTML = "<iframe id=\"f\" src=\"" + src + "\" style=\"width:390px;height:844px;border:0\"></iframe>";
+  }, BASE + "/books.html");
   const framed = await host.page.waitForFunction(() => {
     const f = document.getElementById("f");
     try { return !!(f && f.contentWindow && f.contentWindow.__BOOKS__); } catch (e) { return false; }
