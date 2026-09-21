@@ -8882,6 +8882,13 @@ Scripts cache-bust `?v=20260921`.
 Files: `league.html`, `assets/league/lg-data.js`,
 `tools/_verify-gffl.cjs`, this file.
 
-**VERIFY:** `--only TY` (count filled after the
-suite run).
+**VERIFY:** `--only TY` **7/7**. Bite against
+`origin/main` `197347e` (suite kept, app files
+swapped): **3/7**, the four misses are the bug
+— ESPN still writes athlete 4683062 and deletes
+`slp_11624`, `livePts` is 0, the feed is keyed
+4683062, the matchup cell paints 0.0. Roster
+registration, the Bijan orphan migrate, and 0
+page errors still pass on that app. App files
+restored.
 
