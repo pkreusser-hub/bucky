@@ -894,12 +894,26 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     });
     box.appendChild(chips);
   }
+  function revealShelfRow(title) {
+    var rows = document.querySelectorAll("#shelfList .book");
+    var key = titleKey(title);
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i].querySelector(".t");
+      if (t && titleKey(t.textContent) === key) {
+        try { rows[i].scrollIntoView({ block: "center" }); } catch (e) { /* older webviews */ }
+        return;
+      }
+    }
+  }
   function markRead(book) {
     placeOnShelf(book);
     saveState();
     paintShelf();
     paintRecs(visibleRecs(lastRecs));
     paintPassed();
+    // The shelf is author-sorted, so a just-read title can land far down
+    // the list. Bring that row into view.
+    revealShelfRow(book.title);
   }
   function markSkipped(book) {
     var p = current();

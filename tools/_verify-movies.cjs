@@ -291,6 +291,8 @@ async function sectionServer() {
   ok(!/Bonus Material/.test(pageSrc) && !/Bonus Features/.test(pageSrc),
     "bonus-material discs are not a second copy of the feature");
   ok((pageSrc.match(/Cinderella III/g) || []).length === 1, "Cinderella III is one owned title, not the bonus duplicate");
+  ok(/function placeOnShelf/.test(pageSrc) && /function adoptWatched/.test(pageSrc) && !/id="watchedList"/.test(pageSrc),
+    "Already watched is placed on Owned, and a saved watched list is folded in on load");
   ok(/function titleSortKey/.test(pageSrc) && /sortedShelf\(p\.shelf\)/.test(pageSrc),
     "the owned list is painted in title order, ignoring a leading article");
   const importBody = pageSrc.split("function importOwned")[1].split("function titleSortKey")[0];
@@ -547,27 +549,47 @@ async function sectionUi(browser) {
       && !joy.shelf.some((m) => m.title === "Luca");
   }, ownedBefore), "Not interested drops the pick and does not add it to Owned");
 
+  // Already watched used to stay off Owned, because Owned was the purchase
+  // library. That rule no longer holds: a watched title joins Owned, which
+  // is the list Recommend already excludes, and that row is brought into view.
   await page.evaluate(() => {
+    window.__shelfScroll = [];
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (arg) {
+      const t = this.querySelector && this.querySelector(".t");
+      const onShelf = !!(this.closest && this.closest("#shelfList"));
+      if (t && onShelf) window.__shelfScroll.push(t.textContent);
+      return orig.call(this, arg);
+    };
     const row = [...document.querySelectorAll("#recs .movie")].find((el) => el.querySelector(".t").textContent === "Paddington 2");
     [...row.querySelectorAll("button")].find((b) => b.textContent === "Already watched").click();
   });
   await sleep(40);
   ok(await page.evaluate((n) => {
     const joy = window.__MOVIES__.current();
-    return joy.watched.some((m) => m.title === "Paddington 2")
-      && joy.shelf.length === n
-      && !joy.shelf.some((m) => m.title === "Paddington 2")
-      && document.querySelectorAll("#recs .movie").length === 0;
-  }, ownedBefore), "Already watched is remembered without counting as owned");
+    const painted = [...document.querySelectorAll("#shelfList .t")].map((el) => el.textContent);
+    const row = joy.shelf.find((m) => m.title === "Paddington 2");
+    return !(joy.watched || []).some((m) => m.title === "Paddington 2")
+      && joy.shelf.length === n + 1
+      && !!row && String(row.id || "").indexOf("add-") === 0 && row.director === "Paul King"
+      && painted.indexOf("Paddington 2") >= 0
+      && (window.__shelfScroll || []).indexOf("Paddington 2") >= 0
+      && document.querySelectorAll("#recs .movie").length === 0
+      && !document.getElementById("watchedList");
+  }, ownedBefore), "Already watched adds the pick to Owned and brings that row into view");
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => window.__MOVIES__ && document.querySelector("#shelfList .t"), { timeout: 15000 });
   ok(await page.evaluate(() => {
     const joy = window.__MOVIES__.current();
+    const painted = [...document.querySelectorAll("#shelfList .t")].map((el) => el.textContent);
     return joy.name === "Joy"
-      && joy.watched.some((m) => m.title === "Paddington 2")
-      && joy.skipped.some((m) => m.title === "Luca");
-  }), "watched and not-interested survive a reload on the same person");
+      && !(joy.watched || []).some((m) => m.title === "Paddington 2")
+      && joy.shelf.some((m) => m.title === "Paddington 2")
+      && painted.indexOf("Paddington 2") >= 0
+      && joy.skipped.some((m) => m.title === "Luca")
+      && !joy.shelf.some((m) => m.title === "Luca");
+  }), "an already-watched title stays in Owned after reload, and not-interested stays off it");
 
   await page.evaluate(() => {
     const dad = [...document.querySelectorAll("#profileChips .chip")].find((b) => b.textContent === "Dad");
@@ -596,11 +618,37 @@ async function sectionUi(browser) {
     const last = calls[calls.length - 1];
     const titles = [...document.querySelectorAll("#recs .t")].map((el) => el.textContent);
     return last.skipped.some((m) => m.title === "Luca")
-      && last.watched.some((m) => m.title === "Paddington 2")
+      && last.shelf.some((m) => m.title === "Paddington 2")
+      && !(last.watched || []).some((m) => m.title === "Paddington 2")
       && titles.indexOf("Luca") < 0
       && titles.indexOf("Paddington 2") < 0
       && titles.indexOf("The Iron Giant") < 0;
-  }), "the next recommend sends the passed titles and does not paint them");
+  }), "the next recommend sends the owned title and the not-interested title and does not paint them");
+
+  // Someone who already tapped Already watched, before that title joined
+  // Owned, still has it in watched[]. The next load moves it onto the shelf
+  // and clears the chip list. Not interested stays off Owned.
+  await page.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem("movies_profiles_v1"));
+    const joy = raw.profiles.find((p) => p.name === "Joy");
+    joy.watched = [{ title: "Spies in Disguise", director: "Troy Quane" }];
+    joy.shelf = joy.shelf.filter((m) => m.title !== "Spies in Disguise");
+    localStorage.setItem("movies_profiles_v1", JSON.stringify(raw));
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => window.__MOVIES__ && document.querySelector("#shelfList .t"), { timeout: 15000 });
+  ok(await page.evaluate(() => {
+    const joy = window.__MOVIES__.current();
+    const painted = [...document.querySelectorAll("#shelfList .t")].map((el) => el.textContent);
+    const row = joy.shelf.find((m) => m.title === "Spies in Disguise");
+    return joy.name === "Joy"
+      && !!row && row.director === "Troy Quane" && String(row.id || "").indexOf("add-") === 0
+      && painted.indexOf("Spies in Disguise") >= 0
+      && !(joy.watched || []).length
+      && joy.skipped.some((m) => m.title === "Luca")
+      && !joy.shelf.some((m) => m.title === "Luca")
+      && joy.shelf.some((m) => m.title === "Paddington 2");
+  }), "a saved Already watched list moves onto Owned on the next load");
 
   ok(errors.length === 0, "no page errors");
 

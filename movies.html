@@ -196,7 +196,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     <button type="button" class="primary" id="recBtn">Recommend</button>
     <div class="err" id="recErr"></div>
     <div id="recs"></div>
-    <div id="watchedList"></div>
     <div id="skipList"></div>
   </section>
 
@@ -559,12 +558,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   }
   function paintPassed() {
     var p = current();
-    paintChipList($("watchedList"), "Already watched", p.watched || [], function (title) {
-      p.watched = dropFrom(p.watched, title);
-      saveState();
-      paintPassed();
-      paintRecs(visibleRecs(lastRecs));
-    });
     paintChipList($("skipList"), "Not interested", p.skipped || [], function (title) {
       p.skipped = dropFrom(p.skipped, title);
       saveState();
@@ -572,16 +565,68 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       paintRecs(visibleRecs(lastRecs));
     });
   }
+  function revealShelfRow(title, selector) {
+    var rows = document.querySelectorAll(selector);
+    var key = titleKey(title);
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i].querySelector(".t");
+      if (t && titleKey(t.textContent) === key) {
+        try { rows[i].scrollIntoView({ block: "center" }); } catch (e) { /* older webviews */ }
+        return;
+      }
+    }
+  }
+  // Already watched used to sit in a chip list and stay off Owned, because
+  // Owned was the purchase library. It now joins Owned, which is the list
+  // Recommend already excludes. A saved watched[] from before that change
+  // is folded in on load.
+  function placeOnShelf(movie, profile) {
+    var p = profile || current();
+    if (!Array.isArray(p.shelf)) p.shelf = [];
+    var key = seedKey(movie && movie.title);
+    if (!key) return false;
+    if (p.shelf.some(function (m) { return seedKey(m.title) === key; })) return false;
+    if (p.removed && p.removed[key]) delete p.removed[key];
+    p.skipped = dropFrom(p.skipped, movie.title);
+    p.watched = dropFrom(p.watched, movie.title);
+    p.shelf.push({
+      id: movie.id || ("add-" + key.replace(/[^a-z0-9]+/g, "-").slice(0, 40)),
+      title: movie.title,
+      director: movie.director || "",
+      year: movie.year || null,
+      genre: movie.genre || "",
+      cover: movie.cover || "",
+      description: movie.description || movie.summary || "",
+      rating: null,
+      communityRating: (movie.communityRating == null || movie.communityRating === "") ? null : (Number.isFinite(Number(movie.communityRating)) ? Number(movie.communityRating) : null),
+      ratingsCount: Number.isFinite(Number(movie.ratingsCount)) ? Number(movie.ratingsCount) : null,
+      ratingSource: movie.ratingSource || "",
+    });
+    return true;
+  }
+  function adoptWatched(p) {
+    var rows = Array.isArray(p.watched) ? p.watched.slice() : [];
+    if (!rows.length) {
+      if (!Array.isArray(p.watched)) p.watched = [];
+      return 0;
+    }
+    rows.forEach(function (movie) {
+      placeOnShelf(movie, p);
+      p.skipped = dropFrom(p.skipped, movie.title);
+    });
+    p.watched = [];
+    return 1;
+  }
   function markWatched(movie) {
     var p = current();
-    if (!Array.isArray(p.watched)) p.watched = [];
+    placeOnShelf(movie, p);
+    p.watched = dropFrom(p.watched, movie.title);
     p.skipped = dropFrom(p.skipped, movie.title);
-    if (!p.watched.some(function (m) { return titleKey(m.title) === titleKey(movie.title); })) {
-      p.watched.push({ title: movie.title, director: movie.director || "" });
-    }
     saveState();
+    paintShelf();
     paintRecs(visibleRecs(lastRecs));
     paintPassed();
+    revealShelfRow(movie.title, "#shelfList .movie");
   }
   function markSkipped(movie) {
     var p = current();
@@ -621,27 +666,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     });
   }
   function addToShelf(movie) {
-    var p = current();
-    var key = seedKey(movie.title);
-    if (p.shelf.some(function (m) { return seedKey(m.title) === key; })) {
+    if (!placeOnShelf(movie)) {
       $("searchErr").textContent = "Already owned.";
       return;
     }
-    if (p.removed && p.removed[key]) delete p.removed[key];
-    p.skipped = dropFrom(p.skipped, movie.title);
-    p.shelf.push({
-      id: movie.id || ("add-" + key.replace(/[^a-z0-9]+/g, "-").slice(0, 40)),
-      title: movie.title,
-      director: movie.director || "",
-      year: movie.year || null,
-      genre: movie.genre || "",
-      cover: movie.cover || "",
-      description: movie.description || "",
-      rating: null,
-      communityRating: (movie.communityRating == null || movie.communityRating === "") ? null : (Number.isFinite(Number(movie.communityRating)) ? Number(movie.communityRating) : null),
-      ratingsCount: Number.isFinite(Number(movie.ratingsCount)) ? Number(movie.ratingsCount) : null,
-      ratingSource: movie.ratingSource || "",
-    });
     $("searchHits").innerHTML = "";
     $("searchQ").value = "";
     $("searchErr").textContent = "";
@@ -712,7 +740,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   }
   function paint() {
     var changed = 0;
-    state.profiles.forEach(function (p) { changed += importOwned(p); });
+    state.profiles.forEach(function (p) {
+      changed += adoptWatched(p);
+      changed += importOwned(p);
+    });
     if (changed) saveState();
     paintProfiles();
     paintInterests();

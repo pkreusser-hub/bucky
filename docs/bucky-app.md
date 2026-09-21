@@ -2052,3 +2052,25 @@ parser, and the buttons. The click-through stops once the button is missing.
 `node tools/_verify-books.cjs` (**146/146**). Bite against `4ac262f`
 `books.html` + `books.mjs`: **110 passed, 5 failed** — the same split.
 ---
+
+# Already watched and already read land on the shelf (2026-09-21)
+
+Already watched used to stay off Owned, because Owned was the purchase
+library. That rule no longer holds. **Already watched** adds the movie to
+Owned, unrated, and brings that row into view. Recommend already excludes
+Owned, so the next picks leave it out. **Not interested** still stays off
+the shelf.
+
+A person who already tapped Already watched still has those titles in
+`watched[]`. The next load moves them onto Owned and clears that list.
+
+**Already read** was already stored on the book shelf. Author order buried
+the new row, so the click paints it in the bookshelf and brings that row
+into view.
+
+Suite: `node tools/_verify-movies.cjs` (**74/74**). Bite against `4a92444`
+`movies.html`: **69 passed, 5 failed** — the Owned insert, the reload, the
+next recommend, and a saved watched list. `node tools/_verify-books.cjs`
+(**147/147**). Bite against `4a92444` `books.html`: **146 passed, 1 failed**
+— the bookshelf row is brought into view.
+---

@@ -705,6 +705,14 @@ async function sectionUi(browser) {
   }, joyShelfBefore), "Not interested drops the pick and does not put it on the shelf");
 
   await page.evaluate(() => {
+    window.__shelfScroll = [];
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (arg) {
+      const t = this.querySelector && this.querySelector(".t");
+      const onShelf = !!(this.closest && this.closest("#shelfList"));
+      if (t && onShelf) window.__shelfScroll.push(t.textContent);
+      return orig.call(this, arg);
+    };
     const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "The Priory of the Orange Tree");
     [...row.querySelectorAll("button")].find((b) => b.textContent === "Already read").click();
   });
@@ -715,6 +723,13 @@ async function sectionUi(browser) {
       && joy.shelf.some((b) => b.title === "The Hobbit")
       && document.querySelectorAll("#recs .book").length === 0;
   }), "Already read puts the pick on the shelf");
+  // The row was already stored on the shelf. Author order buried it, so the
+  // move has to paint that title in the bookshelf and bring the row into view.
+  ok(await page.evaluate(() => {
+    const painted = [...document.querySelectorAll("#shelfList .book .t")].map((el) => el.textContent);
+    return painted.indexOf("The Priory of the Orange Tree") >= 0
+      && (window.__shelfScroll || []).indexOf("The Priory of the Orange Tree") >= 0;
+  }), "Already read paints the title in the bookshelf and brings that row into view");
 
   await page.evaluate(() => document.getElementById("recBtn").click());
   await page.waitForFunction(() => {
