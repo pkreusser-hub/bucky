@@ -7,8 +7,9 @@
  *
  * Section A runs netlify/functions/movies.mjs against a fake Wikidata search
  * and a fake xAI chat completion. iTunes media=movie returned resultCount 0
- * for Inception, Toy Story, and The Iron Giant on 2026-09-21, so the catalog
- * checks are Wikidata, not iTunes. Section B drives movies.html and the
+ * for Inception, Toy Story, and The Iron Giant on 2026-09-21, so a live
+ * lookup is still Wikidata, not iTunes. Owned posters and scores are the
+ * saved file assets/movies/owned.json. Section B drives movies.html and the
  * FarmGPT card. Firebase hosts are not loaded.
  */
 
@@ -496,6 +497,49 @@ async function sectionServer() {
     "the user average is read from the Rotten Tomatoes scorecard");
   ok(/coverOnly:\s*true/.test(pageSrc) && /"rate-limit"/.test(src) && /coverOnly/.test(src),
     "the shelf loads posters without the scorecard, and a 429 is not a missing film");
+  ok(/assets\/movies\/owned\.json/.test(pageSrc) && /function absorbCatalog/.test(pageSrc) && /function loadCatalog/.test(pageSrc),
+    "owned posters and scores are painted from the saved catalog");
+  const catalog = JSON.parse(fs.readFileSync(path.join(ROOT, "assets/movies/owned.json"), "utf8"));
+  const ownedTitles = [...pageSrc.match(/var OWNED = \[([\s\S]*?)\];/)[1].matchAll(/"((?:\\.|[^"\\])*)"/g)].map((m) => JSON.parse('"' + m[1] + '"'));
+  ok(ownedTitles.length === 158 && ownedTitles.every((t) => catalog[t] && String(catalog[t].poster || "").indexOf("https://") === 0),
+    "all 158 owned titles have an https poster in the catalog");
+  ok(ownedTitles.every((t) => {
+    const row = catalog[t] || {};
+    const tomato = Number.isFinite(row.tomatoMeter) && Number.isFinite(row.tomatoAverage);
+    const user = Number.isFinite(row.userAverage);
+    const imdb = Number.isFinite(row.imdbRating);
+    return tomato || user || imdb;
+  }), "all 158 owned titles have a score in the catalog");
+  const toyStory = catalog["Toy Story"];
+  ok(!!toyStory && toyStory.year === 1995 && toyStory.tomatoMeter === 100 && toyStory.tomatoAverage === 9.4 && toyStory.userAverage === 3.8 && toyStory.rtPath === "m/toy_story",
+    "Toy Story is the 1995 film: Tomatometer 100, critic 9.4, user 3.8");
+  const lionKing = catalog["The Lion King"];
+  ok(!!lionKing && lionKing.year === 1994 && lionKing.tomatoMeter === 92 && lionKing.tomatoAverage === 8.7 && lionKing.userAverage === 4 && lionKing.rtPath === "m/the_lion_king",
+    "The Lion King is the 1994 film, not the 2019 remake");
+  const insideOut = catalog["Inside Out"];
+  ok(!!insideOut && insideOut.year === 2015 && insideOut.tomatoMeter === 98 && insideOut.tomatoAverage === 8.9 && insideOut.userAverage === 4.3 && insideOut.rtPath === "m/inside_out_2015",
+    "Inside Out is the 2015 film, not the unscored 2005 one");
+  const beauty = catalog["Beauty and the Beast"];
+  ok(!!beauty && beauty.year === 1991 && beauty.tomatoMeter === 95 && beauty.tomatoAverage === 9 && beauty.userAverage === 4.4 && beauty.rtPath === "m/beauty_and_the_beast_1991",
+    "Beauty and the Beast is the 1991 film");
+  const cloudy = catalog["Cloudy with a Chance of Meatballs"];
+  ok(!!cloudy && cloudy.year === 2009 && cloudy.tomatoMeter === 85 && cloudy.tomatoAverage === 7.3 && cloudy.userAverage === 3.7 && cloudy.rtPath === "m/1196077-cloudy_with_a_chance_of_meatballs",
+    "Cloudy with a Chance of Meatballs uses the scored page, not the empty duplicate");
+  const airBud = catalog["Air Bud"];
+  ok(!!airBud && airBud.tomatoMeter === 50 && airBud.tomatoAverage === 5 && airBud.userAverage === 3 && airBud.popcornMeter === 38 && airBud.rtPath === "m/air_bud",
+    "Air Bud is Tomatometer 50, critic 5, user 3, audience 38");
+  const father = catalog["Father of the Bride"];
+  ok(!!father && father.year === 1991 && father.tomatoMeter === 73 && father.userAverage === 3.7 && father.rtPath === "m/1037864-father_of_the_bride",
+    "Father of the Bride is the 1991 film that Part II follows");
+  const dozenRow = catalog["Cheaper By The Dozen (2003)"];
+  ok(!!dozenRow && dozenRow.year === 2003 && dozenRow.tomatoMeter === 25 && dozenRow.tomatoAverage === 4.6 && dozenRow.userAverage === 3.4,
+    "Cheaper By The Dozen (2003) keeps that year");
+  const superBuddies = catalog["Super Buddies"];
+  ok(!!superBuddies && superBuddies.userAverage === 3.2 && superBuddies.tomatoMeter == null && superBuddies.tomatoAverage == null && String(superBuddies.poster || "").indexOf("https://") === 0,
+    "Super Buddies keeps the user average and does not invent a critic score");
+  const pixie = catalog["Pixie Hollow Games, Disney Fairies"];
+  ok(!!pixie && pixie.imdbRating === 7.4 && pixie.year === 2011 && pixie.tomatoMeter == null && String(pixie.poster || "").indexOf("https://") === 0,
+    "Pixie Hollow Games has a poster and an IMDb score, because Rotten Tomatoes has no page");
   ok(/function titleSortKey/.test(pageSrc) && /sortedShelf\(p\.shelf\)/.test(pageSrc),
     "the owned list is painted in title order, ignoring a leading article");
   const importBody = pageSrc.split("function importOwned")[1].split("function titleSortKey")[0];
@@ -691,33 +735,56 @@ async function sectionUi(browser) {
   ok(await page.evaluate(() => window.__MOVIES__.current().shelf.find((m) => m.title === "Air Bud").rating === 5),
     "a 5-star rating sticks on Air Bud");
 
-  await page.evaluate(() => {
-    const shelf = document.getElementById("shelfLabel");
-    if (shelf && shelf.scrollIntoView) shelf.scrollIntoView({ block: "center" });
-  });
-  const retriedPoster = await page.waitForFunction(() => (window.__COVER_TRIES__ || 0) >= 2, { timeout: 8000 }).then(() => true).catch(() => false);
-  ok(retriedPoster, "a rate-limited poster is requested again instead of staying blank");
+  // A live lookup left every film but the first two without a poster, and a
+  // 429 was remembered as a miss. That rule no longer holds. The owned shelf
+  // is painted from assets/movies/owned.json, so these rows do not ask the
+  // function for a poster.
+  ok(await page.evaluate(() => {
+    const rows = [...document.querySelectorAll("#shelfList .movie")];
+    const calls = (window.__MOVIE_CALLS__ || []).filter((c) => c.action === "detail");
+    return rows.length === 158 && calls.length === 0 && (window.__COVER_TRIES__ || 0) === 0 && rows.every((row) => {
+      const img = row.querySelector("img");
+      const text = row.textContent;
+      const scored = /Tomatometer \d/.test(text) || /Users \d/.test(text) || /IMDb \d/.test(text);
+      return !!(img && String(img.getAttribute("src") || "").indexOf("https://") === 0 && scored);
+    });
+  }), "all 158 owned rows show a poster and a score without a live lookup");
 
   await page.evaluate(() => document.querySelector("#shelfList .movie").click());
   await sleep(400);
   ok(await page.evaluate(() => {
     const d = document.getElementById("detail");
     if (!d) return false;
-    const text = d.textContent.replace(/\s+/g, " ");
     const img = d.querySelector("img");
     const link = d.querySelector("#rtLink");
-    const row = document.querySelector("#shelfList .movie");
-    const rowImg = row && row.querySelector("img");
     const lines = [...d.querySelectorAll(".score")].map((el) => el.textContent);
+    const calls = (window.__MOVIE_CALLS__ || []).filter((c) => c.action === "detail");
     return d.hidden === false
-      && lines[0] === "Tomatometer 48%"
-      && lines[1] === "Critic average 4.8/10"
+      && calls.length === 0
+      && lines[0] === "Tomatometer 50%"
+      && lines[1] === "Critic average 5/10"
       && lines[2] === "User average 3/5"
-      && !/Audience/.test(text)
-      && img && img.getAttribute("src").indexOf("air_bud_poster.jpg") >= 0
-      && link && link.getAttribute("href") === "https://www.rottentomatoes.com/m/air_bud"
-      && rowImg && rowImg.getAttribute("src").indexOf("air_bud_poster.jpg") >= 0;
-  }), "clicking an owned movie shows its poster, the critic average, and the user average");
+      && lines[3] === "Audience 38%"
+      && img && img.getAttribute("src").indexOf("flixster.com") >= 0
+      && link && link.getAttribute("href") === "https://www.rottentomatoes.com/m/air_bud";
+  }), "clicking Air Bud opens the catalog poster and scores without a live lookup");
+  await page.evaluate(() => { const b = document.getElementById("detailClose"); if (b) b.click(); });
+  await sleep(40);
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#shelfList .movie")].find((el) => el.querySelector(".t").textContent === "The Lion King");
+    row.click();
+  });
+  await sleep(200);
+  ok(await page.evaluate(() => {
+    const d = document.getElementById("detail");
+    const lines = [...d.querySelectorAll(".score")].map((el) => el.textContent);
+    const link = d.querySelector("#rtLink");
+    return d.hidden === false
+      && lines[0] === "Tomatometer 92%"
+      && lines[1] === "Critic average 8.7/10"
+      && lines[2] === "User average 4/5"
+      && link && link.getAttribute("href") === "https://www.rottentomatoes.com/m/the_lion_king";
+  }), "clicking The Lion King shows the 1994 critic average and user average");
   await page.evaluate(() => { const b = document.getElementById("detailClose"); if (b) b.click(); });
   await sleep(40);
   ok(await page.evaluate(() => {

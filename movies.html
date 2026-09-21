@@ -404,9 +404,20 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       return 0;
     });
   }
+  function attrEscape(s) {
+    return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  }
   function coverHtml(movie) {
-    if (movie.cover) return '<img src="' + movie.cover + '" alt="">';
+    if (movie.cover) return '<img src="' + attrEscape(movie.cover) + '" alt="">';
     return '<div class="cover">No cover</div>';
+  }
+  function scoreBits(movie) {
+    var bits = [];
+    if (movie.tomatoMeter != null && movie.tomatoMeter !== "") bits.push("Tomatometer " + movie.tomatoMeter + "%");
+    if (movie.tomatoAverage != null && movie.tomatoAverage !== "") bits.push("Critics " + movie.tomatoAverage + "/10");
+    if (movie.userAverage != null && movie.userAverage !== "") bits.push("Users " + movie.userAverage + "/5");
+    if (!bits.length && movie.imdbRating != null && movie.imdbRating !== "") bits.push("IMDb " + movie.imdbRating + "/10");
+    return bits.join(" · ");
   }
   function metaLine(movie) {
     var bits = [];
@@ -488,6 +499,13 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       row.querySelector(".a").textContent = movie.director || "";
       row.querySelector(".meta").textContent = metaLine(movie);
       var mid = row.children[1];
+      var scores = scoreBits(movie);
+      if (scores) {
+        var line = document.createElement("div");
+        line.className = "meta";
+        line.textContent = scores;
+        mid.appendChild(line);
+      }
       mid.appendChild(starRow(movie, function (n) {
         movie.rating = n;
         saveState();
@@ -869,6 +887,53 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var d = $("detail");
     if (d) d.hidden = true;
   }
+  function fillDetail(inner, movie, res, token) {
+    if (token !== detailToken) return;
+    var poster = inner.querySelector("#detailPoster");
+    var scores = inner.querySelector("#detailScores");
+    scores.innerHTML = "";
+    scores.className = "";
+    if (res && res.cover) {
+      var img = document.createElement("img");
+      img.className = "poster";
+      img.alt = "";
+      img.src = res.cover;
+      poster.appendChild(img);
+      if (!movie.cover) movie.cover = res.cover;
+      var owned = (current().shelf || []).find(function (m) { return titleKey(m.title) === titleKey(movie.title); });
+      if (owned && !owned.cover) {
+        owned.cover = res.cover;
+        saveState();
+      }
+      paintCover(owned || movie);
+    }
+    if (!res || res.found === false) {
+      scores.className = "empty";
+      scores.textContent = res && res.reason === "rate-limit"
+        ? "Could not load the poster and scores."
+        : "No matching film for this title.";
+      return;
+    }
+    scoreLine(scores, "Tomatometer", res.tomatoMeter, "%");
+    scoreLine(scores, "Critic average", res.tomatoAverage, "/10");
+    scoreLine(scores, "User average", res.userAverage, "/5");
+    scoreLine(scores, "Audience", res.popcornMeter, "%");
+    if (res.tomatoMeter == null && res.tomatoAverage == null && res.userAverage == null && res.popcornMeter == null) {
+      if (res.imdbRating != null && res.imdbRating !== "") {
+        scoreLine(scores, "IMDb", res.imdbRating, "/10");
+      } else {
+        var miss = document.createElement("p");
+        miss.className = "empty";
+        miss.textContent = "No Rotten Tomatoes score for this title.";
+        scores.appendChild(miss);
+      }
+    }
+    if (res.rtPath && /^m\/[a-z0-9_-]+$/.test(res.rtPath)) {
+      var link = inner.querySelector("#rtLink");
+      link.href = "https://www.rottentomatoes.com/" + res.rtPath;
+      link.hidden = false;
+    }
+  }
   async function openDetail(movie) {
     var token = ++detailToken;
     var d = $("detail");
@@ -878,51 +943,25 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     inner.querySelector("#detailSub").textContent = [movie.director || "", movie.year || ""].filter(Boolean).join(" · ");
     inner.querySelector("#detailClose").onclick = closeDetail;
     d.hidden = false;
+    var local = CATALOG[movie.title];
+    if (local && (local.poster || local.tomatoMeter != null || local.tomatoAverage != null || local.userAverage != null || local.imdbRating != null)) {
+      fillDetail(inner, movie, {
+        found: true,
+        cover: local.poster || movie.cover || "",
+        tomatoMeter: local.tomatoMeter,
+        tomatoAverage: local.tomatoAverage,
+        userAverage: local.userAverage,
+        popcornMeter: local.popcornMeter,
+        imdbRating: local.imdbRating,
+        rtPath: local.rtPath || ""
+      }, token);
+      return;
+    }
     try {
       var res = await oneDetail(function () {
         return api("detail", { title: movie.title, year: movie.year || null });
       });
-      if (token !== detailToken) return;
-      var poster = inner.querySelector("#detailPoster");
-      var scores = inner.querySelector("#detailScores");
-      scores.innerHTML = "";
-      scores.className = "";
-      if (res && res.cover) {
-        var img = document.createElement("img");
-        img.className = "poster";
-        img.alt = "";
-        img.src = res.cover;
-        poster.appendChild(img);
-        if (!movie.cover) movie.cover = res.cover;
-        var owned = (current().shelf || []).find(function (m) { return titleKey(m.title) === titleKey(movie.title); });
-        if (owned && !owned.cover) {
-          owned.cover = res.cover;
-          saveState();
-        }
-        paintCover(owned || movie);
-      }
-      if (!res || res.found === false) {
-        scores.className = "empty";
-        scores.textContent = res && res.reason === "rate-limit"
-          ? "Could not load the poster and scores."
-          : "No matching film for this title.";
-        return;
-      }
-      scoreLine(scores, "Tomatometer", res.tomatoMeter, "%");
-      scoreLine(scores, "Critic average", res.tomatoAverage, "/10");
-      scoreLine(scores, "User average", res.userAverage, "/5");
-      scoreLine(scores, "Audience", res.popcornMeter, "%");
-      if (res.tomatoMeter == null && res.tomatoAverage == null && res.userAverage == null && res.popcornMeter == null) {
-        var miss = document.createElement("p");
-        miss.className = "empty";
-        miss.textContent = "No Rotten Tomatoes score for this title.";
-        scores.appendChild(miss);
-      }
-      if (res.rtPath && /^m\/[a-z0-9_]+$/.test(res.rtPath)) {
-        var link = inner.querySelector("#rtLink");
-        link.href = "https://www.rottentomatoes.com/" + res.rtPath;
-        link.hidden = false;
-      }
+      fillDetail(inner, movie, res, token);
     } catch (e) {
       if (token !== detailToken) return;
       var box = inner.querySelector("#detailScores");
@@ -932,12 +971,37 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       }
     }
   }
+  var CATALOG = {};
+  function absorbCatalog() {
+    var changed = 0;
+    state.profiles.forEach(function (p) {
+      (p.shelf || []).forEach(function (m) {
+        var row = CATALOG[m.title];
+        if (!row) return;
+        if (row.poster && m.cover !== row.poster) { m.cover = row.poster; changed++; }
+        ["tomatoMeter", "tomatoAverage", "userAverage", "popcornMeter", "rtPath", "imdbRating"].forEach(function (k) {
+          if (row[k] != null && row[k] !== "" && m[k] !== row[k]) { m[k] = row[k]; changed++; }
+        });
+        if (row.year && !m.year) { m.year = row.year; changed++; }
+      });
+    });
+    return changed;
+  }
+  function loadCatalog() {
+    return fetch("assets/movies/owned.json").then(function (r) {
+      if (!r.ok) throw new Error("catalog");
+      return r.json();
+    }).then(function (data) {
+      CATALOG = data && typeof data === "object" ? data : {};
+    }).catch(function () { CATALOG = {}; });
+  }
   function paint() {
     var changed = 0;
     state.profiles.forEach(function (p) {
       changed += adoptWatched(p);
       changed += importOwned(p);
     });
+    changed += absorbCatalog();
     if (changed) saveState();
     paintProfiles();
     paintInterests();
@@ -973,7 +1037,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   $("searchQ").addEventListener("keydown", function (ev) { if (ev.key === "Enter") doSearch(); });
   $("recBtn").onclick = doRecommend;
   $("detail").addEventListener("click", function (e) { if (e.target.id === "detail") closeDetail(); });
-  paint();
+  loadCatalog().then(function () { paint(); });
   window.__MOVIES__ = {
     current: current,
     titleSortKey: titleSortKey,

@@ -2151,3 +2151,34 @@ Suite: `node tools/_verify-movies.cjs` (**100/100**). Bite against `214d4cb`
 poster request that skips the scorecard, the remembered miss, and Toy Story
 with no English label.
 ---
+
+# Owned posters and scores from a saved catalog (2026-09-21)
+
+A live lookup still left almost every poster blank, and no score on the
+shelf. Wikidata answers 429 after a short burst, and each score needs a
+second fetch of the Rotten Tomatoes page. The owned shelf does not wait on
+either one.
+
+`assets/movies/owned.json` has one record for each of the 158 owned titles.
+The poster is the Rotten Tomatoes image at 300 by 450. The Tomatometer, the
+critic average out of 10, and the user average out of 5 come from that
+film's `mediaScorecard`. The page copies them onto the shelf before the
+first paint, and a tap opens the sheet from the same record.
+
+A duplicate page with the plot and no reviews is the wrong page. Cloudy
+with a Chance of Meatballs is
+`m/1196077-cloudy_with_a_chance_of_meatballs`: Tomatometer 85, critic 7.3,
+user 3.7. The Lion King is the 1994 film. Inside Out is 2015. Beauty and
+the Beast is 1991. Father of the Bride is 1991, the one Part II follows.
+Rudolph the Red-Nosed Reindeer is the 1964 special, Tomatometer 95. Air Bud
+is Tomatometer 50, critic 5, user 3, audience 38.
+
+Super Buddies has a user average of 3.2 and no critic average. The sheet
+does not invent one. Pixie Hollow Games, Larry-Boy and the Fib from Outer
+Space, and PAW Patrol: Jet to the Rescue are not on Rotten Tomatoes. Those
+three keep a poster and an IMDb rating.
+
+Suite: `node tools/_verify-movies.cjs` (**114/114**). Bite against `d09191d`
+`movies.html`: **110 passed, 4 failed** — the shelf is painted from the
+catalog, and Air Bud and The Lion King open from it.
+---
