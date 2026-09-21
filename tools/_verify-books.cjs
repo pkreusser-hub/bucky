@@ -382,6 +382,8 @@ async function sectionServer() {
   ok(rec.status === 200, "recommend returns 200");
   const grokReq = xaiCalls[0] && xaiCalls[0].body;
   ok(!!grokReq && grokReq.model === "grok-4.7", "recommend asks grok-4.7, not the catalog ranker");
+  ok(!!grokReq && grokReq.reasoning_effort === "low",
+    "recommend asks grok-4.7 for low effort so a full shelf finishes inside the function");
   const grokUser = grokReq && grokReq.messages && grokReq.messages.find((m) => m.role === "user");
   ok(grokUser && /The Hobbit — J\.R\.R\. Tolkien — 5\/5/.test(grokUser.content) && /Book 41 — Author 41 — unrated/.test(grokUser.content),
     "the Grok turn includes the whole shelf and the reader's stars");
@@ -437,6 +439,10 @@ async function sectionServer() {
     "framed Bookshelf hides its own bottom nav so the AI tab does not double the icons");
   ok(/BOOKS_GROK_MODEL \|\| "grok-4\.7"/.test(src) && /buildRecommendPrompt/.test(src),
     "recommend sends the shelf to grok-4.7");
+  ok(/GROK_TIMEOUT_MS = 50000/.test(src) && /reasoning_effort:\s*"low"/.test(src),
+    "the Grok call waits 50s at low effort (20s aborted a full shelf)");
+  ok(/A full shelf takes about half a minute/.test(pageSrc),
+    "the button tells the reader a full shelf takes about half a minute");
 
   const gptSrc = fs.readFileSync(path.join(ROOT, "farmgpt.html"), "utf8");
   ok(/id="cardBooks"/.test(gptSrc), "FarmGPT home has a Bookshelf card");

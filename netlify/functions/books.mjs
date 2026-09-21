@@ -19,7 +19,10 @@
 //
 //   { secret, action:"recommend", shelf, interests, maxPolitical?, maxWoke? }
 //     -> { books:[{ title, author, summary, why }], model, error? }
-//     The whole shelf (title / author / the reader's own stars) goes to grok-4.7.
+//     The whole shelf (title / author / the reader's own stars) goes to grok-4.7
+//     with reasoning_effort "low". High is the model default and ran past the
+//     old 20s abort (41s on a two-book shelf). Low returned five books for the
+//     135-title shelf in 27s. The wait is 50s, under the 60s synchronous limit.
 //     Catalog ranker recommendScore stays exported for the arithmetic suite.
 //
 //   { secret, action:"rate", title, author?, description?, subjects? }
@@ -61,7 +64,7 @@ const MAX_REVIEWS = 5;
 const MAX_SHELF = 200;
 const MAX_INTERESTS = 12;
 const MAX_RECOMMEND_QUERIES = 3;
-const GROK_TIMEOUT_MS = 20000;
+const GROK_TIMEOUT_MS = 50000;
 const GROK_MODEL = process.env.BOOKS_GROK_MODEL || "grok-4.7";
 
 function corsHeaders(origin) {
@@ -641,6 +644,7 @@ async function callGrokRecommend(prompt) {
         ],
         temperature: 0.4,
         max_tokens: 1800,
+        reasoning_effort: "low",
       }),
     });
     if (!r.ok) return { ok: false, reason: "http-" + r.status, text: "", model };

@@ -891,7 +891,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
   async function doRecommend() {
     var p = current();
-    $("recErr").textContent = "";
+    $("recErr").textContent = "Asking Grok. A full shelf takes about half a minute.";
     $("recBtn").disabled = true;
     try {
       var res = await api("recommend", {
@@ -903,6 +903,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       paintRecs(res.books || []);
       if (res.error) $("recErr").textContent = res.error;
       else if (!(res.books || []).length) $("recErr").textContent = "No picks came back. Try again in a moment.";
+      else $("recErr").textContent = "";
     } finally {
       $("recBtn").disabled = false;
     }

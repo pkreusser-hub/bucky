@@ -1979,4 +1979,12 @@ author sort, and framed-nav checks. Bite against the grok-4.6 default
 shelf to grok-4.7. A missing star stays unrated in that prompt
 (`Number(null)` is 0; a real 0 stays 0/5). A null user star on the shelf
 must not paint as 0.00; community ratings live in `communityRating`.
+
+grok-4.7 defaults to high reasoning. High on a two-book shelf took 41s and the
+20s abort returned "Could not recommend right now." The call now sends
+`reasoning_effort: "low"` and waits 50s (under the 60s synchronous limit).
+Low effort on the 135-title shelf returned five books in 27s. While that
+runs, the button says a full shelf takes about half a minute.
+Suite: `node tools/_verify-books.cjs` (**133/133**). Bite against the 20s
+abort (`b6c1afb` `books.mjs` + `books.html`): **130 passed, 3 failed**.
 ---
