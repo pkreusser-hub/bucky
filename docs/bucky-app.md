@@ -1943,5 +1943,6 @@ became 0 would have blocked Google Books from filling a real 4.0 (the Fragility 
 
 Home rail gets a Bookshelf card AFTER the sports cards, so the NFL card's previous sibling
 stays the weather card (sports suite asserts that slot). Activity label `books` → "Bookshelf".
-Suite: `node tools/_verify-books.cjs`.
+Suite: `node tools/_verify-books.cjs` — **74/74**. Bite against HEAD (app files removed,
+suite kept): 0 passed, both sections fail (no `books.mjs`, no `books.html`).
 ---
