@@ -28688,6 +28688,159 @@ async function openDetails(page, id) {
     await ctx.close();
   }
 
+  // ================= TY · slp_ roster keys keep ESPN TDs =================
+  // 2026-09-21, user: "Xavier worthy is on the nerfherders but its not
+  // showing his correct score, he has a touchdown and it isn't updating."
+  // Production week-2 FLEX is slp_11624 (Sleeper espn_id still null). ESPN
+  // athlete 4683062 has 4 rec / 27 yd / 1 TD. Hand-computed GFFL:
+  // 4×1 + 27×0.1 + 1×6 = 12.7. pollEspnGame applied that box to 4683062
+  // and deleted slp_11624 as an "orphan"; livePts reads the roster key.
+  // A true orphan (Bijan slp_8155, roster keyed 4430807) must still move.
+  if (section("TY · slp_ roster keys keep ESPN TDs")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const base = fullSeed();
+    const r1 = seedRosterT1();
+    const seed = { ...base, docs: { ...base.docs,
+      roster_2026_w1_t1: { ...r1, players: r1.players.map((p) => p.slot === "FLEX"
+        ? { key: "slp_11624", name: "Xavier Worthy", pos: "WR", team: "KC", slot: "FLEX" }
+        : p) },
+    } };
+    {
+      const { ctx, page, errors } = await newTestPage(browser, seed);
+      await bootWeek1Home(page);
+      await stopPolling(page);
+      await waitOr(page, ".mucard", 9000);
+      const rec = 4, recYd = 27, recTd = 1;
+      const expectPts = rec * 1 + recYd * 0.1 + recTd * 6;
+      const r = (await evalOr(page, async (expectPts, rec, recYd, recTd) => {
+        const D = window.__GFFL__.D;
+        const empty = () => { const o = {}; for (const k of D.KEYS) o[k] = 0; o.dst_pa = null; return o; };
+        const thin = empty(); thin.rec = 3; thin.rec_yd = 18;
+        D.applySide("slp", "slp_11624", { name: "Xavier Worthy", pos: "WR", team: "KC" }, thin);
+        const nk = [...D.S.keyByName.entries()].find((e) => e[1] === "slp_11624");
+        if (nk) D.S.slpRowKeyByName.set(nk[0], "slp_11624");
+        const before = D.S.players.get("slp_11624");
+        if (before) D.mergeRow(before);
+
+        const worthySummary = {
+          header: { competitions: [{ status: { type: { state: "in" } },
+            competitors: [
+              { homeAway: "home", team: { abbreviation: "KC", id: "12" }, score: "17" },
+              { homeAway: "away", team: { abbreviation: "IND", id: "11" }, score: "13" },
+            ] }] },
+          boxscore: {
+            players: [{ team: { abbreviation: "KC" }, statistics: [
+              { name: "receiving", labels: ["REC", "YDS", "AVG", "TD", "LONG", "TGTS"],
+                athletes: [{ athlete: { id: "4683062", displayName: "Xavier Worthy",
+                  position: { abbreviation: "WR" } },
+                  stats: [String(rec), String(recYd), "6.8", String(recTd), "16", "5"] }] },
+            ] }],
+            teams: [
+              { team: { abbreviation: "KC" }, statistics: [] },
+              { team: { abbreviation: "IND" }, statistics: [] },
+            ],
+          },
+          scoringPlays: [{
+            text: "Xavier Worthy 1 Yd pass from Patrick Mahomes (Harrison Butker Kick)",
+            type: { text: "Passing Touchdown", abbreviation: "TD" },
+            team: { abbreviation: "KC" },
+          }],
+          drives: { current: { team: { abbreviation: "KC" }, plays: [{
+            id: "4018729451782", wallclock: "2026-09-21T01:20:00Z",
+            text: "Xavier Worthy 1 Yd pass from Patrick Mahomes (Harrison Butker Kick)",
+            type: { text: "Passing Touchdown", abbreviation: "TD" },
+            statYardage: 1, scoringPlay: true,
+            teamParticipants: [
+              { id: "12", type: "offense" },
+              { id: "11", type: "defense" },
+            ],
+          }] } },
+        };
+        const bijanSummary = {
+          header: { competitions: [{ status: { type: { state: "in" } },
+            competitors: [
+              { homeAway: "home", team: { abbreviation: "ATL", id: "1" }, score: "7" },
+              { homeAway: "away", team: { abbreviation: "TB", id: "27" }, score: "3" },
+            ] }] },
+          boxscore: {
+            players: [{ team: { abbreviation: "ATL" }, statistics: [
+              { name: "rushing", labels: ["CAR", "YDS", "AVG", "TD"],
+                athletes: [{ athlete: { id: "4430807", displayName: "Bijan Robinson",
+                  position: { abbreviation: "RB" } }, stats: ["10", "40", "4.0", "1"] }] },
+            ] }],
+            teams: [
+              { team: { abbreviation: "ATL" }, statistics: [] },
+              { team: { abbreviation: "TB" }, statistics: [] },
+            ],
+          },
+        };
+        const realFx = D.fx;
+        D.fx = async (name, url) => {
+          const u = String(url || "");
+          if (u.includes("event=401872945")) return worthySummary;
+          if (u.includes("event=bijan-orphan")) return bijanSummary;
+          return realFx(name, url);
+        };
+        D.S.events = [];
+        D.S.playFeedLive = false;
+        D.S.playFeedByEvent = new Map();
+        await D.pollEspnGame("401872945");
+        const row = D.S.players.get("slp_11624");
+        if (row) D.mergeRow(row);
+        const worthyPts = D.livePts("slp_11624");
+        const espnTd = row && row.espn && row.espn.stats ? row.espn.stats.rec_td : null;
+        const feedTd = (D.S.events || []).filter((e) => e.playId === "4018729451782" && e.stat === "rec_td");
+
+        const orphanThin = empty(); orphanThin.rush_yd = 5;
+        D.applySide("slp", "slp_8155", { name: "Bijan Robinson", pos: "RB", team: "ATL" }, orphanThin);
+        D.S.slpRowKeyByName.set("bijan robinson|ATL", "slp_8155");
+        await D.pollEspnGame("bijan-orphan");
+        D.fx = realFx;
+
+        return {
+          rosterKey: [...D.S.keyByName.entries()].find((e) => e[1] === "slp_11624") ? true : false,
+          hasRosterRow: D.S.players.has("slp_11624"),
+          hasEspnIdRow: D.S.players.has("4683062"),
+          pts: worthyPts,
+          expectPts,
+          espnTd,
+          feedKeys: feedTd.map((e) => e.key),
+          bijanEspn: D.S.players.has("4430807"),
+          bijanOrphan: D.S.players.has("slp_8155"),
+        };
+      }, expectPts, rec, recYd, recTd)) || {};
+      ok(r.rosterKey === true,
+        "the week-1 FLEX registered as slp_11624 Xavier Worthy KC (" + JSON.stringify(r.rosterKey) + ")");
+      ok(r.hasRosterRow === true && r.hasEspnIdRow === false,
+        "ESPN's box lands on slp_11624, not athlete 4683062 (" + JSON.stringify({ has: r.hasRosterRow, espnId: r.hasEspnIdRow }) + ")");
+      ok(r.pts === r.expectPts && r.expectPts === 12.7 && r.espnTd === 1,
+        "livePts is the hand-computed 12.7 (4×1 + 27×0.1 + 6) with the receiving TD (" + JSON.stringify({ pts: r.pts, td: r.espnTd }) + ")");
+      ok(r.feedKeys && r.feedKeys.length === 1 && r.feedKeys[0] === "slp_11624",
+        "the play-feed TD is keyed slp_11624 so the matchup can show it (" + JSON.stringify(r.feedKeys) + ")");
+      ok(r.bijanEspn === true && r.bijanOrphan === false,
+        "a true orphan slp_8155 still migrates onto espn_id 4430807 (" + JSON.stringify({ espn: r.bijanEspn, orphan: r.bijanOrphan }) + ")");
+
+      await page.evaluate(() => window.__GFFL__.UI.show("home"));
+      await waitOr(page, ".mucard", 9000);
+      await clickIn(page, ".mucard.mine");
+      await waitOr(page, ".pcellgrid", 9000);
+      const painted = (await evalOr(page, () => {
+        const cell = document.querySelector('.pcellgrid[data-pk="slp_11624"]');
+        const pts = cell && cell.querySelector(".pts");
+        const stat = cell && cell.querySelector(".pstatline");
+        return {
+          pts: pts ? pts.textContent.trim() : null,
+          stat: stat ? stat.textContent.replace(/\s+/g, " ").trim() : null,
+          name: cell ? (cell.querySelector("b") || {}).textContent : null,
+        };
+      })) || {};
+      ok(painted.pts === "12.7" && /Worthy/i.test(String(painted.name || "")),
+        "the matchup FLEX cell paints 12.7 for Xavier Worthy (" + JSON.stringify(painted) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

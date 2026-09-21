@@ -1749,8 +1749,13 @@
         cache.seen.add(sid);
         cache.running.set(runKey, to);
         if (!dPts) continue;
+        // Seen/running stay on the ESPN athlete id so a re-poll stays
+        // idempotent even if the roster registry fills in later. The
+        // emitted key is the one the matchup already reads (slp_11624
+        // for Worthy, not athlete 4683062).
+        const evKey = D.S.keyByName.get(nameKey(c.name, c.team)) || c.key;
         D.S.events.unshift({
-          t, src: "espn", key: c.key, name: c.name, stat: c.stat,
+          t, src: "espn", key: evKey, name: c.name, stat: c.stat,
           from, to, dPts, playId,
         });
       }
@@ -2003,23 +2008,41 @@
   }
   D.pollScoreboard = pollScoreboard;
 
+  // ROSTER KEY WINS ON ESPN TOO (2026-09-21). pollSleeper already lands
+  // stats on D.S.keyByName — the key the roster actually holds. pollEspnGame
+  // used to always applySide onto the ESPN athlete id, then treat a slp_<pid>
+  // row as an "orphan" and DELETE it. That is correct when the roster is
+  // keyed by espn_id (Bijan, 4430807): a slp_8155 row minted before the
+  // roster loaded is garbage. It is wrong when Sleeper has no espn_id and
+  // the roster IS the slp_ key. Week-2 production: Xavier Worthy is
+  // Nerfherders FLEX as slp_11624 (Sleeper espn_id is still null). ESPN's
+  // box is athlete 4683062, 4 rec / 27 yd / 1 TD. The TD sat on 4683062;
+  // livePts("slp_11624") read 0. Same class as Josh Downs slp_9500.
+  function resolveEspnPlayerKey(id, meta) {
+    const nk = nameKey((meta && meta.name) || "", (meta && meta.team) || "");
+    D.S.espnKeyByName.set(nk, id);
+    const rosterKey = D.S.keyByName.get(nk);
+    const applyKey = rosterKey || id;
+    const orphan = D.S.slpRowKeyByName.get(nk);
+    if (orphan && orphan !== applyKey && D.S.players.has(orphan)) {
+      const old = D.S.players.get(orphan);
+      const dst = rowFor(applyKey, meta);
+      if (old.slp && !dst.slp) dst.slp = old.slp;
+      if (old.official != null) dst.official = old.official;
+      if (old.injury) dst.injury = old.injury;
+      D.S.players.delete(orphan);
+      D.S.slpRowKeyByName.delete(nk);
+    }
+    return applyKey;
+  }
+  D.resolveEspnPlayerKey = resolveEspnPlayerKey;
+
   async function pollEspnGame(eventId) {
     const j = await fx("espn summary " + eventId, `${ESPN}/summary?event=${eventId}`);
     const box = parseEspnBox(j);
     applyScoringPlays(j, box);
     for (const [id, rec] of box) {
-      D.S.espnKeyByName.set(nameKey(rec.meta.name, rec.meta.team), id);
-      const orphan = D.S.slpRowKeyByName.get(nameKey(rec.meta.name, rec.meta.team));
-      if (orphan && orphan !== id && D.S.players.has(orphan)) {
-        const old = D.S.players.get(orphan);
-        const dst = rowFor(id, rec.meta);
-        if (old.slp && !dst.slp) dst.slp = old.slp;
-        if (old.official != null) dst.official = old.official;
-        if (old.injury) dst.injury = old.injury;
-        D.S.players.delete(orphan);
-        D.S.slpRowKeyByName.delete(nameKey(rec.meta.name, rec.meta.team));
-      }
-      applySide("espn", id, rec.meta, rec.stats, rec.raw);
+      applySide("espn", resolveEspnPlayerKey(id, rec.meta), rec.meta, rec.stats, rec.raw);
     }
     // NEVER derive a D/ST line from a game that hasn't kicked off (finding 14). Before
     // kickoff ESPN reports the header score as "0", so dst_pa reads 0 -> paPoints(0) ->

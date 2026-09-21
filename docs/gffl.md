@@ -8855,3 +8855,33 @@ final first). Seeded date order, the desktop
 Live now group, and 0 page errors still pass
 on that app. App files restored.
 
+---
+
+## GFFL — slp_ roster keys keep ESPN TDs (2026-09-21)
+
+User: Xavier Worthy is on the Nerfherders but
+its not showing his correct score, he has a
+touchdown and it isn't updating.
+
+Week-2 FLEX is `slp_11624` — Sleeper still
+has no espn_id. ESPN's live box is athlete
+`4683062`, 4 rec / 27 yd / 1 TD (hand-computed
+4×1 + 27×0.1 + 6 = 12.7). pollSleeper already
+lands on the roster key. pollEspnGame applied
+the box to the athlete id, then deleted the
+`slp_` row as an "orphan". `livePts` reads the
+roster key, so the TD sat on a row nothing
+painted. ESPN now applies to `keyByName` when
+the roster holds that name; a `slp_` row is
+only migrated when no roster reads it (the
+Bijan 4430807 case). Play-feed events remap
+the same way.
+
+Scripts cache-bust `?v=20260921`.
+
+Files: `league.html`, `assets/league/lg-data.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** `--only TY` (count filled after the
+suite run).
+
