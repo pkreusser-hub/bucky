@@ -28774,17 +28774,24 @@ async function openDetails(page, id) {
             ],
           },
         };
-        const realFx = D.fx;
-        D.fx = async (name, url) => {
+        // pollEspnGame calls the closed-over fx(), not D.fx — stub fetch so
+        // HEAD and the fix both ingest this box (the orphan-delete bite).
+        const origFetch = window.fetch;
+        window.fetch = async (url, opts) => {
           const u = String(url || "");
-          if (u.includes("event=401872945")) return worthySummary;
-          if (u.includes("event=bijan-orphan")) return bijanSummary;
-          return realFx(name, url);
+          const ok = (obj) => new Response(JSON.stringify(obj), {
+            status: 200, headers: { "content-type": "application/json" },
+          });
+          if (u.includes("summary?event=401872945")) return ok(worthySummary);
+          if (u.includes("summary?event=bijan-orphan")) return ok(bijanSummary);
+          return origFetch(url, opts);
         };
         D.S.events = [];
         D.S.playFeedLive = false;
         D.S.playFeedByEvent = new Map();
-        await D.pollEspnGame("401872945");
+        try {
+          await D.pollEspnGame("401872945");
+        } catch (e) { /* keep going — assertions name the miss */ }
         const row = D.S.players.get("slp_11624");
         if (row) D.mergeRow(row);
         const worthyPts = D.livePts("slp_11624");
@@ -28794,8 +28801,8 @@ async function openDetails(page, id) {
         const orphanThin = empty(); orphanThin.rush_yd = 5;
         D.applySide("slp", "slp_8155", { name: "Bijan Robinson", pos: "RB", team: "ATL" }, orphanThin);
         D.S.slpRowKeyByName.set("bijan robinson|ATL", "slp_8155");
-        await D.pollEspnGame("bijan-orphan");
-        D.fx = realFx;
+        try { await D.pollEspnGame("bijan-orphan"); } catch (e) { /* same */ }
+        window.fetch = origFetch;
 
         return {
           rosterKey: [...D.S.keyByName.entries()].find((e) => e[1] === "slp_11624") ? true : false,
