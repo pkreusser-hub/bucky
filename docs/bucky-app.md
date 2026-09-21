@@ -2129,3 +2129,25 @@ Suite: `node tools/_verify-movies.cjs` (**93/93**). Bite against `56083ec`
 parser, the page replacing Wikidata, a refused page keeping the Wikidata
 Tomatometer, and the user-average line on the sheet.
 ---
+
+# Shelf posters after the first two (2026-09-21)
+
+Every owned film except the two Air Buds stayed on "No cover". The shelf
+asked Wikidata for a full detail, including the Rotten Tomatoes page, for
+each visible row. Wikidata answered 429 after the first two. Those two sort
+first. A miss was remembered, so the rest never tried again.
+
+A 429 is retried. If Wikidata still refuses, the answer is a rate limit, and
+the shelf asks again. It does not call the film missing. Background posters
+skip the scorecard page. A tap still loads the critic average and the user
+average.
+
+Toy Story's item Q171048 has no English label. `languages=en` came back
+with `labels: {}` on 2026-09-21. The search hit is still "Toy Story", and
+that is the name we match. The film-series item is not the film.
+
+Suite: `node tools/_verify-movies.cjs` (**100/100**). Bite against `214d4cb`
+`movies.html` + `movies.mjs`: **93 passed, 7 failed** — the 429 retry, the
+poster request that skips the scorecard, the remembered miss, and Toy Story
+with no English label.
+---

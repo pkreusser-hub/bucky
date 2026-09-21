@@ -766,10 +766,19 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     }
   }
   var coverSeen = {};
+  var coverQueued = {};
+  var coverTries = {};
   var coverQueue = [];
   var coverBusy = false;
   var coverObserver = null;
   var detailToken = 0;
+  var detailChain = Promise.resolve();
+  function wait(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+  function oneDetail(run) {
+    var next = detailChain.then(run, run);
+    detailChain = next.then(function () {}, function () {});
+    return next;
+  }
   function watchCover(row, movie) {
     if (!row || !movie || movie.cover || typeof IntersectionObserver !== "function") return;
     if (!coverObserver) {
@@ -803,8 +812,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   }
   function queueCover(movie) {
     var k = titleKey(movie && movie.title);
-    if (!k || movie.cover || coverSeen[k]) return;
-    coverSeen[k] = 1;
+    if (!k || movie.cover || coverSeen[k] || coverQueued[k]) return;
+    coverQueued[k] = 1;
     coverQueue.push(k);
     pumpCovers();
   }
@@ -814,16 +823,37 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     while (coverQueue.length) {
       var key = coverQueue.shift();
       var movie = (current().shelf || []).find(function (m) { return titleKey(m.title) === key; });
-      if (!movie || movie.cover) continue;
+      if (!movie || movie.cover || coverSeen[key]) {
+        coverQueued[key] = 0;
+        continue;
+      }
+      var res = null;
       try {
-        var res = await api("detail", { title: movie.title, year: movie.year || null });
-        var still = (current().shelf || []).find(function (m) { return titleKey(m.title) === key; });
-        if (still && res && res.cover && !still.cover) {
-          still.cover = res.cover;
-          saveState();
-          paintCover(still);
+        res = await oneDetail(function () {
+          return api("detail", { title: movie.title, year: movie.year || null, coverOnly: true });
+        });
+      } catch (e) { res = null; }
+      var still = (current().shelf || []).find(function (m) { return titleKey(m.title) === key; });
+      if (still && res && res.cover && !still.cover) {
+        still.cover = res.cover;
+        saveState();
+        paintCover(still);
+        coverSeen[key] = 1;
+        coverQueued[key] = 0;
+      } else if (res && (res.found === true || res.reason === "no-match")) {
+        coverSeen[key] = 1;
+        coverQueued[key] = 0;
+      } else {
+        var n = (coverTries[key] || 0) + 1;
+        coverTries[key] = n;
+        if (n < 4) {
+          coverQueue.push(key);
+          await wait(1500);
+        } else {
+          coverQueued[key] = 0;
         }
-      } catch (e) { /* the row keeps its placeholder */ }
+      }
+      await wait(400);
     }
     coverBusy = false;
   }
@@ -849,7 +879,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     inner.querySelector("#detailClose").onclick = closeDetail;
     d.hidden = false;
     try {
-      var res = await api("detail", { title: movie.title, year: movie.year || null });
+      var res = await oneDetail(function () {
+        return api("detail", { title: movie.title, year: movie.year || null });
+      });
       if (token !== detailToken) return;
       var poster = inner.querySelector("#detailPoster");
       var scores = inner.querySelector("#detailScores");
@@ -871,7 +903,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       }
       if (!res || res.found === false) {
         scores.className = "empty";
-        scores.textContent = "No matching film for this title.";
+        scores.textContent = res && res.reason === "rate-limit"
+          ? "Could not load the poster and scores."
+          : "No matching film for this title.";
         return;
       }
       scoreLine(scores, "Tomatometer", res.tomatoMeter, "%");

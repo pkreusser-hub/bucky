@@ -47,6 +47,7 @@ function ok(cond, name) {
 let wikiCalls = [];
 let xaiCalls = [];
 let rtCalls = [];
+let wiki429Left = 0;
 
 // Measured 2026-09-21 on the Iron Giant scorecard: user 4.3/5, popcorn 90,
 // critic 8.50/10, tomatometer 96. The fixture is the script, not the page.
@@ -86,6 +87,13 @@ function serveWiki() {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
       wikiCalls.push(req.url);
+      if (wiki429Left > 0) {
+        wiki429Left--;
+        res.statusCode = 429;
+        res.setHeader("retry-after", "0");
+        res.end("rate");
+        return;
+      }
       const u = new URL(req.url, "http://127.0.0.1");
       if (u.pathname.indexOf("/api/rest_v1/page/summary/") === 0) {
         const slug = decodeURIComponent(u.pathname.split("/api/rest_v1/page/summary/")[1] || "");
@@ -98,7 +106,14 @@ function serveWiki() {
       }
       let body = {};
       const searchQ = (u.searchParams.get("search") || "").toLowerCase();
-      if (u.searchParams.get("action") === "wbsearchentities" && searchQ === "cheaper by the dozen") {
+      if (u.searchParams.get("action") === "wbsearchentities" && searchQ === "toy story") {
+        body = {
+          search: [
+            { id: "Q2316015", label: "Toy Story", description: "CGI-animated film series and Disney media franchise" },
+            { id: "Q171048", label: "Toy Story", description: "1995 animated film directed by John Lasseter" },
+          ],
+        };
+      } else if (u.searchParams.get("action") === "wbsearchentities" && searchQ === "cheaper by the dozen") {
         body = {
           search: [
             { id: "Q1950", label: "Cheaper by the Dozen", description: "1950 film" },
@@ -129,6 +144,16 @@ function serveWiki() {
             }),
           },
         };
+      } else if ((u.searchParams.get("ids") || "").indexOf("Q171048") >= 0) {
+        // Q171048 had no English label on 2026-09-21. languages=en came back {}.
+        // The search hit is still "Toy Story". The series item is not a film.
+        const toy = qid("Q171048", "", "1995 animated film directed by John Lasseter", {
+          P31: [snakItem("Q202866")],
+          P577: [snakTime("+1995-11-22T00:00:00Z")],
+        });
+        toy.labels = {};
+        toy.sitelinks = { enwiki: { title: "Toy Story" } };
+        body = { entities: { Q171048: toy } };
       } else if ((u.searchParams.get("ids") || "").indexOf("Q310960") >= 0) {
         body = {
           entities: {
@@ -376,6 +401,37 @@ async function sectionServer() {
   ok(dozen.status === 200 && dozenBody.year === 2003 && dozenBody.tomatoMeter === 41 && dozenBody.userAverage === null,
     "a refused Rotten Tomatoes page keeps that film's Wikidata Tomatometer and does not invent a user average");
 
+  // Measured 2026-09-21: the shelf asked Wikidata for every visible film at
+  // once. After the first two (the Air Buds, which sort first) Wikidata
+  // answered 429 and those misses were stored as "no cover".
+  wiki429Left = 1;
+  const bounced = await callHandler(handler, { secret: SECRET, action: "detail", title: "The Iron Giant", year: 1999 });
+  const bouncedBody = await bounced.json();
+  ok(bounced.status === 200 && bouncedBody.found === true && bouncedBody.director === "Brad Bird" && bouncedBody.userAverage === 4.3 && wiki429Left === 0,
+    "one Wikidata 429 is retried and the film still resolves");
+  wiki429Left = 3;
+  const limited = await callHandler(handler, { secret: SECRET, action: "detail", title: "The Iron Giant", year: 1999 });
+  const limitedBody = await limited.json();
+  ok(limitedBody.found === false && limitedBody.reason === "rate-limit" && limitedBody.userAverage === null && limitedBody.cover === "",
+    "a Wikidata rate limit stays a rate limit, not a missing film and not a blank zero");
+  wiki429Left = 0;
+
+  rtCalls = [];
+  const posterOnly = await callHandler(handler, { secret: SECRET, action: "detail", title: "The Iron Giant", year: 1999, coverOnly: true });
+  const posterBody = await posterOnly.json();
+  ok(posterOnly.status === 200 && posterBody.found === true && !!posterBody.cover && posterBody.cover.indexOf("https://upload.wikimedia.org/") === 0
+    && posterBody.tomatoAverage === 8.2 && posterBody.popcornMeter === 88 && posterBody.userAverage === null && rtCalls.length === 0,
+    "a shelf poster skips the Rotten Tomatoes page and keeps the Wikidata scores");
+
+  const toy = await callHandler(handler, { secret: SECRET, action: "detail", title: "Toy Story", coverOnly: true });
+  const toyBody = await toy.json();
+  ok(toy.status === 200 && toyBody.found === true && toyBody.title === "Toy Story" && !!toyBody.cover && toyBody.cover.indexOf("Toy_Story") >= 0,
+    "Toy Story matches when its Wikidata item has no English label");
+  const toySearch = await callHandler(handler, { secret: SECRET, action: "search", q: "toy story" });
+  const toySearchBody = await toySearch.json();
+  ok((toySearchBody.movies || []).some((m) => m.title === "Toy Story") && !(toySearchBody.movies || []).some((m) => /series/.test(m.description || "")),
+    "search keeps the Toy Story film and drops the film series");
+
   xaiCalls = [];
   const shelf = [{ title: "Toy Story", rating: 5 }];
   for (let i = 2; i <= 41; i++) shelf.push({ title: "Movie " + i, rating: null });
@@ -438,6 +494,8 @@ async function sectionServer() {
     "clicking a movie opens a sheet for the Tomatometer and the user average");
   ok(/mediaScorecard/.test(src) && /MOVIES_RT_BASE/.test(src),
     "the user average is read from the Rotten Tomatoes scorecard");
+  ok(/coverOnly:\s*true/.test(pageSrc) && /"rate-limit"/.test(src) && /coverOnly/.test(src),
+    "the shelf loads posters without the scorecard, and a 429 is not a missing film");
   ok(/function titleSortKey/.test(pageSrc) && /sortedShelf\(p\.shelf\)/.test(pageSrc),
     "the owned list is painted in title order, ignoring a leading article");
   const importBody = pageSrc.split("function importOwned")[1].split("function titleSortKey")[0];
@@ -530,6 +588,22 @@ async function newPage(browser, user) {
         let body = {};
         try { body = JSON.parse((init && init.body) || "{}"); } catch (e) { body = {}; }
         window.__MOVIE_CALLS__.push(body);
+        if (body.action === "detail" && body.coverOnly) {
+          window.__COVER_TRIES__ = (window.__COVER_TRIES__ || 0) + 1;
+          if (window.__COVER_TRIES__ === 1) {
+            return new Response(JSON.stringify({ found: false, reason: "rate-limit", title: body.title, cover: "" }), { status: 200, headers: { "Content-Type": "application/json" } });
+          }
+          return new Response(JSON.stringify({
+            found: true,
+            title: body.title,
+            cover: "https://upload.wikimedia.org/wikipedia/en/2/2b/air_bud_poster.jpg",
+            tomatoMeter: null,
+            tomatoAverage: null,
+            userAverage: null,
+            popcornMeter: null,
+            rtPath: "",
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
         if (body.action === "detail") {
           return new Response(JSON.stringify({
             found: true,
@@ -617,6 +691,13 @@ async function sectionUi(browser) {
   ok(await page.evaluate(() => window.__MOVIES__.current().shelf.find((m) => m.title === "Air Bud").rating === 5),
     "a 5-star rating sticks on Air Bud");
 
+  await page.evaluate(() => {
+    const shelf = document.getElementById("shelfLabel");
+    if (shelf && shelf.scrollIntoView) shelf.scrollIntoView({ block: "center" });
+  });
+  const retriedPoster = await page.waitForFunction(() => (window.__COVER_TRIES__ || 0) >= 2, { timeout: 8000 }).then(() => true).catch(() => false);
+  ok(retriedPoster, "a rate-limited poster is requested again instead of staying blank");
+
   await page.evaluate(() => document.querySelector("#shelfList .movie").click());
   await sleep(400);
   ok(await page.evaluate(() => {
@@ -657,7 +738,12 @@ async function sectionUi(browser) {
     return window.__MOVIES__.current().name === "Joy" && titles.indexOf("Toy Story") < 0 && air && air.rating === 5;
   }), "Joy stays Joy after reload, the 5-star remains, and a removed title stays off");
 
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.type("#newProfile", "Dad");
+  await page.evaluate(() => {
+    const b = document.getElementById("addProfile");
+    if (b && b.scrollIntoView) b.scrollIntoView({ block: "center" });
+  });
   await page.click("#addProfile");
   await sleep(40);
   ok(await page.evaluate(() => {

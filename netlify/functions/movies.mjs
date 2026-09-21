@@ -67,6 +67,7 @@ const FILM_TYPES = new Set([
 ]);
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 BuckyMovies/1.0";
 const FETCH_TIMEOUT_MS = 8000;
+const FETCH_TRIES = 3;
 const MAX_Q = 80;
 const MAX_RESULTS = 8;
 const MAX_SHELF = 200;
@@ -145,21 +146,35 @@ async function fetchJson(url) {
   }
 }
 
+function retryWaitMs(res, attempt) {
+  const raw = res && res.headers && res.headers.get("retry-after");
+  const sec = Number(raw);
+  if (Number.isFinite(sec) && sec >= 0 && sec <= 2) return Math.round(sec * 1000);
+  return 800 * attempt;
+}
+
 async function fetchText(url, accept) {
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const r = await fetch(url, {
-      signal: ac.signal,
-      headers: { "User-Agent": UA, Accept: accept || "text/html" },
-    });
-    if (!r.ok) return { ok: false, reason: "http-" + r.status, text: "" };
-    return { ok: true, reason: "", text: await r.text() };
-  } catch (e) {
-    return { ok: false, reason: e && e.name === "AbortError" ? "timeout" : "unreachable", text: "" };
-  } finally {
-    clearTimeout(t);
+  for (let attempt = 1; attempt <= FETCH_TRIES; attempt++) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const r = await fetch(url, {
+        signal: ac.signal,
+        headers: { "User-Agent": UA, Accept: accept || "text/html" },
+      });
+      if (r.status === 429 && attempt < FETCH_TRIES) {
+        await new Promise((resolve) => setTimeout(resolve, retryWaitMs(r, attempt)));
+        continue;
+      }
+      if (!r.ok) return { ok: false, reason: "http-" + r.status, text: "" };
+      return { ok: true, reason: "", text: await r.text() };
+    } catch (e) {
+      return { ok: false, reason: e && e.name === "AbortError" ? "timeout" : "unreachable", text: "" };
+    } finally {
+      clearTimeout(t);
+    }
   }
+  return { ok: false, reason: "http-429", text: "" };
 }
 
 function entityDescription(entity) {
@@ -212,11 +227,10 @@ export function isFilmEntity(entity) {
   return looksLikeFilmBlurb(entityDescription(entity));
 }
 
-export function mapWikiFilm(entity, labelById) {
+export function mapWikiFilm(entity, labelById, searchLabels) {
   if (!entity || entity.missing) return null;
   if (!isFilmEntity(entity)) return null;
-  const label = entity.labels && entity.labels.en && entity.labels.en.value;
-  const title = normSpace(label).slice(0, 200);
+  const title = entityLabel(entity, searchLabels).slice(0, 200);
   if (!title) return null;
   const labels = labelById || {};
   const directors = claimIds(entity, "P57").map((id) => labels[id]).filter(Boolean).slice(0, 2);
@@ -240,33 +254,43 @@ export function mapWikiFilm(entity, labelById) {
   };
 }
 
-async function wikiSearchIds(q) {
+async function wikiSearch(q) {
   const query = normSpace(q).slice(0, MAX_Q);
-  if (!query) return [];
+  if (!query) return { ids: [], labels: {}, rateLimit: false };
   const searchUrl = joinUrl(WIKI_BASE, "/w/api.php")
     + "?action=wbsearchentities&search=" + encodeURIComponent(query)
     + "&language=en&type=item&limit=12&format=json";
   const found = await fetchJson(searchUrl);
+  if (!found.ok && found.reason === "http-429") return { ids: [], labels: {}, rateLimit: true };
   const hits = found.ok && found.data && Array.isArray(found.data.search) ? found.data.search : [];
   const ids = [];
+  const labels = {};
   for (const hit of hits) {
     const id = hit && hit.id;
     if (!/^Q\d+$/.test(id || "")) continue;
     const desc = normSpace(hit.description);
     if (desc && !looksLikeFilmBlurb(desc)) continue;
     ids.push(id);
+    labels[id] = normSpace(hit.label);
     if (ids.length >= MAX_RESULTS) break;
   }
-  return ids;
+  return { ids, labels, rateLimit: false };
+}
+
+async function wikiSearchIds(q) {
+  const got = await wikiSearch(q);
+  return got.ids;
 }
 
 async function wikiEntities(ids, props) {
-  if (!ids.length) return {};
+  if (!ids.length) return { map: {}, rateLimit: false };
   const got = await fetchJson(joinUrl(WIKI_BASE, "/w/api.php")
     + "?action=wbgetentities&ids=" + ids.join("%7C")
     + "&props=" + props
     + "&languages=en&format=json");
-  return got.ok && got.data && got.data.entities ? got.data.entities : {};
+  if (!got.ok && got.reason === "http-429") return { map: {}, rateLimit: true };
+  const map = got.ok && got.data && got.data.entities ? got.data.entities : {};
+  return { map, rateLimit: false };
 }
 
 function qualifierIds(statement, prop) {
@@ -361,13 +385,25 @@ export function titleQuery(title) {
   return { title: normSpace(m[1]), year: y };
 }
 
-export function pickFilm(entities, title, year) {
+// Q171048 (Toy Story, the 1995 film) had no English label on 2026-09-21.
+// wbgetentities languages=en returned labels: {}. The search hit is still
+// "Toy Story". The franchise item is a "film series" and is not used.
+function entityLabel(entity, searchLabels) {
+  const en = entity && entity.labels && entity.labels.en && entity.labels.en.value;
+  if (normSpace(en)) return normSpace(en);
+  const hinted = searchLabels && entity && searchLabels[entity.id];
+  if (normSpace(hinted)) return normSpace(hinted);
+  const wiki = entity && entity.sitelinks && entity.sitelinks.enwiki && entity.sitelinks.enwiki.title;
+  return normSpace(String(wiki || "").replace(/\s*\([^)]*\)\s*$/, ""));
+}
+
+export function pickFilm(entities, title, year, searchLabels) {
   const want = blockKey(title);
   if (!want) return null;
   let exact = null;
   for (const entity of entities) {
     if (!entity || !isFilmEntity(entity)) continue;
-    const label = entity.labels && entity.labels.en && entity.labels.en.value;
+    const label = entityLabel(entity, searchLabels);
     if (blockKey(label) !== want) continue;
     if (year && claimYear(entity, "P577") === year) return entity;
     if (!exact) exact = entity;
@@ -394,9 +430,12 @@ function rtPathOf(entity) {
 }
 
 export async function searchFilms(q) {
-  const ids = await wikiSearchIds(q);
+  const searched = await wikiSearch(q);
+  const ids = searched.ids;
   if (!ids.length) return [];
-  const entities = await wikiEntities(ids, "labels%7Cdescriptions%7Cclaims");
+  const loaded = await wikiEntities(ids, "labels%7Cdescriptions%7Cclaims");
+  if (loaded.rateLimit) return [];
+  const entities = loaded.map;
   const films = [];
   for (const id of ids) {
     const entity = entities[id];
@@ -425,7 +464,7 @@ export async function searchFilms(q) {
   }
   const out = [];
   for (const entity of films) {
-    const movie = mapWikiFilm(entity, labelById);
+    const movie = mapWikiFilm(entity, labelById, searched.labels);
     if (!movie) continue;
     out.push(movie);
     if (out.length >= MAX_RESULTS) break;
@@ -433,22 +472,31 @@ export async function searchFilms(q) {
   return out;
 }
 
-export async function filmDetail(rawTitle, rawYear) {
+function missedFilm(reason, title, year) {
+  return { found: false, reason: reason, title: title || "", year: year == null ? null : year, director: "", cover: "", tomatoMeter: null, tomatoAverage: null, userAverage: null, popcornMeter: null, rtPath: "" };
+}
+
+export async function filmDetail(rawTitle, rawYear, opts) {
+  const coverOnly = !!(opts && opts.coverOnly);
   const parsed = titleQuery(rawTitle);
   const year = asNum(rawYear) == null ? parsed.year : asNum(rawYear);
   const title = parsed.title;
-  if (!title) return { found: false, reason: "empty", title: "", year: null, director: "", cover: "", tomatoMeter: null, tomatoAverage: null, userAverage: null, popcornMeter: null, rtPath: "" };
-  const ids = await wikiSearchIds(title);
-  const entities = await wikiEntities(ids, "labels%7Cdescriptions%7Cclaims%7Csitelinks");
+  if (!title) return missedFilm("empty", "", null);
+  const searched = await wikiSearch(title);
+  if (searched.rateLimit) return missedFilm("rate-limit", title, year);
+  const ids = searched.ids;
+  const loaded = await wikiEntities(ids, "labels%7Cdescriptions%7Cclaims%7Csitelinks");
+  if (loaded.rateLimit) return missedFilm("rate-limit", title, year);
+  const entities = loaded.map;
   const films = ids.map((id) => entities[id]).filter(Boolean);
-  const entity = pickFilm(films, title, year);
-  if (!entity) return { found: false, reason: "no-match", title: title, year: year, director: "", cover: "", tomatoMeter: null, tomatoAverage: null, userAverage: null, popcornMeter: null, rtPath: "" };
+  const entity = pickFilm(films, title, year, searched.labels);
+  if (!entity) return missedFilm("no-match", title, year);
   const scores = parseRtScores(entity);
-  const label = entity.labels && entity.labels.en && entity.labels.en.value;
-  const directorIds = claimIds(entity, "P57").slice(0, 2);
+  const label = entityLabel(entity, searched.labels);
+  const directorIds = coverOnly ? [] : claimIds(entity, "P57").slice(0, 2);
   const named = await wikiEntities(directorIds, "labels");
-  const directors = directorIds.map((id) => {
-    const name = named[id] && named[id].labels && named[id].labels.en && named[id].labels.en.value;
+  const directors = named.rateLimit ? [] : directorIds.map((id) => {
+    const name = named.map[id] && named.map[id].labels && named.map[id].labels.en && named.map[id].labels.en.value;
     return name ? normSpace(name) : "";
   }).filter(Boolean);
   let cover = "";
@@ -464,7 +512,10 @@ export async function filmDetail(rawTitle, rawYear) {
   }
   const rtPath = rtPathOf(entity);
   let userAverage = null;
-  if (rtPath) {
+  // The shelf asks for the poster only. The scorecard page is a separate
+  // fetch, and pulling it for every visible row is what tripped Wikidata's
+  // rate limit after the first two titles.
+  if (!coverOnly && rtPath) {
     const page = await fetchText(joinUrl(RT_BASE, "/" + rtPath));
     const card = page.ok ? parseRtScorecard(page.text) : null;
     if (card) {
@@ -667,7 +718,7 @@ export default async (req) => {
     return json({ movies }, 200, headers);
   }
   if (action === "detail") {
-    const detail = await filmDetail(body.title, body.year);
+    const detail = await filmDetail(body.title, body.year, { coverOnly: body.coverOnly === true });
     return json(detail, 200, headers);
   }
   if (action === "recommend") {
