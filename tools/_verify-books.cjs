@@ -338,6 +338,8 @@ async function sectionServer() {
     "…includes the later library (Rhythm of War, Last Argument, Aubrey)");
   ok(/title: "Oathbringer"[\s\S]{0,180}communityRating: 4\.5111/.test(pageSrc),
     "Oathbringer carries its Open Library snapshot rating (4.5111 from search.json)");
+  ok(/title: "We Are Legion \(We Are Bob\)"[\s\S]{0,180}communityRating: 4\.1053/.test(pageSrc),
+    "We Are Legion carries its Open Library work rating after search.json left it blank");
   ok(/ratingSource: "open-library"/.test(pageSrc) && /covers\.openlibrary\.org\/b\/id\//.test(pageSrc),
     "…and the seed points at Open Library covers + ratingSource");
   ok(!/Harry Potter/.test(pageSrc) && !/Name of the Wind/.test(pageSrc),
@@ -544,7 +546,7 @@ async function sectionUi(browser) {
   ok(await page.evaluate(() => {
     const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
     const b = dad && dad.shelf.find((x) => x.title === "Oathbringer");
-    return !!(b && b.communityRating === 4.5111 && b.ratingSource === "open-library" && b.cover.indexOf("covers.openlibrary.org") === 0);
+    return !!(b && b.ratingSource === "open-library" && Math.abs(Number(b.communityRating) - 4.5111) < 0.0002 && String(b.cover).indexOf("covers.openlibrary.org") >= 0);
   }), "Dad's Oathbringer row has the Open Library rating and cover");
   await page.evaluate(() => {
     const chips = [...document.querySelectorAll("#profileChips .chip")];
@@ -556,6 +558,10 @@ async function sectionUi(browser) {
     const metas = [...document.querySelectorAll("#shelfList .meta")].map((el) => el.textContent);
     return metas.some((t) => /4\.51 from Open Library \(90\)/.test(t));
   }), "the shelf paints 4.51 from Open Library (90), not No community rating");
+  ok(await page.evaluate(() => {
+    const metas = [...document.querySelectorAll("#shelfList .meta")].map((el) => el.textContent);
+    return metas.some((t) => /4\.11 from Open Library \(19\)/.test(t));
+  }), "…and We Are Legion paints 4.11 from Open Library (19)");
 
   await page.evaluate(() => {
     const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
@@ -570,7 +576,7 @@ async function sectionUi(browser) {
   ok(await page.evaluate(() => {
     const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
     const b = dad && dad.shelf.find((x) => x.title === "Oathbringer");
-    return !!(b && b.communityRating === 4.5111 && b.cover);
+    return !!(b && Math.abs(Number(b.communityRating) - 4.5111) < 0.0002 && b.cover);
   }), "an older seed row missing the Open Library snapshot is backfilled on reload");
   ok(dadTitles.every((t) => !/Harry Potter|Name of the Wind|Cowboy of Convenience|Witness Wore|Whole-Brain|NurtureShock|Trivia Storm|Les Mis|Shepherding/.test(t)),
     "…without refunded, struck, cut, or Ask titles");

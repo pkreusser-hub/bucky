@@ -367,7 +367,8 @@
   // (matched by title) is not added again. Seed rows no longer in this
   // list are pruned so a confirmed cut does not survive a reload.
   // communityRating / cover / isbn are an Open Library snapshot (ratings
-  // from search.json). A 0-from-0 miss stays off — Number(null) is 0.
+  // from search.json, then works ratings.json when search left a 0-from-0).
+  // A still-empty miss stays off — Number(null) is 0.
   // Catalog fields also backfill a seed row that imported before the
   // snapshot. Keys already in IMPORT_KEYS are never re-added after a Remove.
   var DAD_SEED = [
@@ -385,8 +386,8 @@
     { title: "First Shift - Legacy", author: "Hugh Howey", cover: "https://covers.openlibrary.org/b/id/7516034-M.jpg", isbn: "9781475154771" },
     { title: "Second Shift - Order", author: "Hugh Howey", cover: "https://covers.openlibrary.org/b/id/14516042-M.jpg", isbn: "9781481056557" },
     { title: "Third Shift - Pact", author: "Hugh Howey", cover: "https://covers.openlibrary.org/b/id/14767133-M.jpg", isbn: "9781481983518" },
-    { title: "Sand Omnibus", author: "Hugh Howey", cover: "https://covers.openlibrary.org/b/id/8861458-M.jpg" },
-    { title: "Silo 49: Going Dark", author: "Ann Christy", cover: "https://covers.openlibrary.org/b/id/8910113-M.jpg" },
+    { title: "Sand Omnibus", author: "Hugh Howey", communityRating: 4.0, ratingsCount: 3, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8861458-M.jpg" },
+    { title: "Silo 49: Going Dark", author: "Ann Christy", communityRating: 2.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8910113-M.jpg" },
     { title: "Greatfall: A Silo Story (Part 1)", author: "Jason Gurley" },
     { title: "Greatfall: A Silo Story (Part 2)", author: "Jason Gurley" },
     { title: "Greatfall: A Silo Story (Part 3)", author: "Jason Gurley" },
@@ -449,7 +450,7 @@
     { title: "Endymion", author: "Dan Simmons", communityRating: 3.9333, ratingsCount: 30, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/975059-M.jpg", isbn: "9788498723588" },
     { title: "The Rise of Endymion", author: "Dan Simmons", communityRating: 4.0, ratingsCount: 21, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/4910012-M.jpg", isbn: "9782221086346" },
     { title: "Dune", author: "Frank Herbert", communityRating: 4.3018, ratingsCount: 444, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/11481354-M.jpg", isbn: "9788373017238" },
-    { title: "We Are Legion (We Are Bob)", author: "Dennis E. Taylor", cover: "https://covers.openlibrary.org/b/id/8421582-M.jpg" },
+    { title: "We Are Legion (We Are Bob)", author: "Dennis E. Taylor", communityRating: 4.1053, ratingsCount: 19, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8421582-M.jpg" },
     { title: "Columbus Day", author: "Craig Alanson", communityRating: 3.0, ratingsCount: 3, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/10543524-M.jpg", isbn: "9781520126241" },
     { title: "The Will of the Many", author: "James Islington", communityRating: 4.7, ratingsCount: 10, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/15247547-M.jpg", isbn: "9781922790910" },
     { title: "Glory Road", author: "Robert A. Heinlein", communityRating: 3.3333, ratingsCount: 6, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14632308-M.jpg", isbn: "9781455153695" },
@@ -460,9 +461,9 @@
     { title: "The Restaurant at the End of the Universe", author: "Douglas Adams", communityRating: 4.1951, ratingsCount: 41, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/12714921-M.jpg", isbn: "9781529034530" },
     { title: "Containment", author: "Christian Cantrell", cover: "https://covers.openlibrary.org/b/id/10743347-M.jpg", isbn: "9780557428236" },
     { title: "The Rookie", author: "Scott Sigler", communityRating: 5.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8002287-M.jpg", isbn: "9781939366900" },
-    { title: "The Beginning of the End", author: "Manel Loureiro", cover: "https://covers.openlibrary.org/b/id/7341016-M.jpg" },
-    { title: "Halo: The Fall of Reach", author: "Eric Nylund", cover: "https://covers.openlibrary.org/b/id/9173827-M.jpg", isbn: "9781508284871" },
-    { title: "Halo: First Strike", author: "Eric Nylund", cover: "https://covers.openlibrary.org/b/id/8598020-M.jpg", isbn: "9781982111663" },
+    { title: "The Beginning of the End", author: "Manel Loureiro", communityRating: 2.25, ratingsCount: 4, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/7341016-M.jpg" },
+    { title: "Halo: The Fall of Reach", author: "Eric Nylund", communityRating: 5.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/9173827-M.jpg", isbn: "9781508284871" },
+    { title: "Halo: First Strike", author: "Eric Nylund", communityRating: 3.8, ratingsCount: 5, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8598020-M.jpg", isbn: "9781982111663" },
     { title: "Master and Commander", author: "Patrick O'Brian", communityRating: 4.0833, ratingsCount: 24, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/13255048-M.jpg", isbn: "9780006141822" },
     { title: "Post Captain", author: "Patrick O'Brian", communityRating: 4.4375, ratingsCount: 16, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/225770-M.jpg", isbn: "9780007180844" },
     { title: "H.M.S. Surprise", author: "Patrick O'Brian", communityRating: 4.5, ratingsCount: 12, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/11645474-M.jpg", isbn: "9780006499176" },
@@ -476,7 +477,7 @@
     { title: "The Reverse of the Medal", author: "Patrick O'Brian", communityRating: 4.5714, ratingsCount: 7, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/226571-M.jpg", isbn: "9780786175338" },
     { title: "The Letter of Marque", author: "Patrick O'Brian", communityRating: 4.6667, ratingsCount: 9, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/226572-M.jpg", isbn: "9780754012962" },
     { title: "The Thirteen-Gun Salute", author: "Patrick O'Brian", communityRating: 4.1667, ratingsCount: 6, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/13454750-M.jpg", isbn: "9780007429394" },
-    { title: "The Nutmeg of Consolation", author: "Patrick O'Brian", cover: "https://covers.openlibrary.org/b/id/12285650-M.jpg" },
+    { title: "The Nutmeg of Consolation", author: "Patrick O'Brian", communityRating: 4.4286, ratingsCount: 7, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/12285650-M.jpg" },
     { title: "Mr Midshipman Hornblower", author: "C.S. Forester", communityRating: 4.2, ratingsCount: 10, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/6404300-M.jpg", isbn: "9780718102432" },
     { title: "Lieutenant Hornblower", author: "C.S. Forester", communityRating: 3.625, ratingsCount: 8, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/914262-M.jpg", isbn: "9798746720221" },
     { title: "Hornblower and the Hotspur", author: "C.S. Forester", communityRating: 3.5, ratingsCount: 4, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/2000803-M.jpg", isbn: "9781793360205" },
@@ -485,13 +486,13 @@
     { title: "The Grass Crown", author: "Colleen McCullough", communityRating: 4.1429, ratingsCount: 14, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/2204673-M.jpg", isbn: "9788408039990" },
     { title: "The Steel Wave", author: "Jeff Shaara", communityRating: 4.5, ratingsCount: 2, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/6985597-M.jpg", isbn: "9780345461421" },
     { title: "The Count of Monte Cristo", author: "Alexandre Dumas", communityRating: 4.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8851690-M.jpg", isbn: "9781467775298" },
-    { title: "Washington: A Life", author: "Ron Chernow", cover: "https://covers.openlibrary.org/b/id/11521277-M.jpg" },
+    { title: "Washington: A Life", author: "Ron Chernow", communityRating: 4.625, ratingsCount: 8, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/11521277-M.jpg" },
     { title: "Team of Rivals", author: "Doris Kearns Goodwin", communityRating: 3.9091, ratingsCount: 11, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/9286949-M.jpg", isbn: "9780141043722" },
     { title: "John Adams", author: "David McCullough", communityRating: 4.2, ratingsCount: 5, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/425398-M.jpg", isbn: "9780684813639" },
     { title: "Truman", author: "David McCullough", communityRating: 4.5714, ratingsCount: 7, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/405637-M.jpg", isbn: "9780743508063" },
-    { title: "Thomas Jefferson: The Art of Power", author: "Jon Meacham", cover: "https://covers.openlibrary.org/b/id/7248434-M.jpg" },
-    { title: "Benjamin Franklin: An American Life", author: "Walter Isaacson", cover: "https://covers.openlibrary.org/b/id/541092-M.jpg" },
-    { title: "Einstein: His Life and Universe", author: "Walter Isaacson", cover: "https://covers.openlibrary.org/b/id/474440-M.jpg" },
+    { title: "Thomas Jefferson: The Art of Power", author: "Jon Meacham", communityRating: 4.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/7248434-M.jpg" },
+    { title: "Benjamin Franklin: An American Life", author: "Walter Isaacson", communityRating: 4.0, ratingsCount: 10, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/541092-M.jpg" },
+    { title: "Einstein: His Life and Universe", author: "Walter Isaacson", communityRating: 4.2143, ratingsCount: 28, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/474440-M.jpg" },
     { title: "The Rise and Fall of the Third Reich", author: "William L. Shirer", communityRating: 4.1579, ratingsCount: 19, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/6558536-M.jpg", isbn: "9780449204955" },
     { title: "A World Undone", author: "G.J. Meyer", communityRating: 4.75, ratingsCount: 4, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/370061-M.jpg", isbn: "9781455153626" },
     { title: "The Civil War: A Narrative, Volume I", author: "Shelby Foote", cover: "https://covers.openlibrary.org/b/id/253655-M.jpg" },
@@ -500,7 +501,7 @@
     { title: "Liberal Fascism", author: "Jonah Goldberg", communityRating: 3.0, ratingsCount: 2, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/5547383-M.jpg", isbn: "9780385511841" },
     { title: "Atlas Shrugged", author: "Ayn Rand", communityRating: 3.2797, ratingsCount: 118, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/362277-M.jpg", isbn: "9781804221198" },
     { title: "Basic Economics", author: "Thomas Sowell", communityRating: 3.5556, ratingsCount: 9, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/1468594-M.jpg", isbn: "9780786146710" },
-    { title: "Sword and Scimitar", author: "Raymond Ibrahim", cover: "https://covers.openlibrary.org/b/id/8233580-M.jpg", isbn: "9781982587307" },
+    { title: "Sword and Scimitar", author: "Raymond Ibrahim", communityRating: 4.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8233580-M.jpg", isbn: "9781982587307" },
     { title: "The Art of War", author: "Sun Tzu", communityRating: 4.0614, ratingsCount: 163, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/4849549-M.jpg", isbn: "9781534793187" },
     { title: "The Terminal List", author: "Jack Carr", communityRating: 4.0, ratingsCount: 3, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/9211494-M.jpg", isbn: "9781501180835" },
     { title: "The Making of Star Wars", author: "J.W. Rinzler", communityRating: 5.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/212464-M.jpg", isbn: "9780345494764" },

@@ -1954,12 +1954,18 @@ receipts) seed onto the Dad profile (`DAD_SEED` + `books_imported_keys_v1`).
 He confirmed the grouping: romance, kids, and the Ask pile stay off, plus two
 memoirs, two parenting-science titles, and the quiz books. A Remove is
 remembered. Seed rows no longer in the list are pruned so a confirmed cut
-does not survive a reload. `importDadSeed` must not write `state.currentId`
-when `choreUser` is Dad; that assignment stole Joy after a reload.
-Suite: `node tools/_verify-books.cjs` — **107/107**. Bite (`books.html` at
-`c5ef77e`, new suite kept): **101 passed, 6 failed** — the later-library
-source and shelf checks, the cut-title omit checks, the expanded no-cut
-shelf check, and the prune-on-reload check. Every other pre-existing check
-still passed. A null user star rating must not paint as 0.00
-(`Number(null)`); community ratings live in `communityRating` on the shelf.
+does not survive a reload. Each seed row that Open Library rated keeps a
+snapshot (`communityRating`, `ratingsCount`, `ratingSource:"open-library"`,
+cover, isbn) from `search.json`, then the work's `ratings.json` when search
+left a 0-from-0 (We Are Legion 4.1053 from 19, Washington 4.625 from 8).
+A still-empty miss stays `null` (Greatfall, the Shift novellas, Obama
+satire). Already-imported seed rows missing the snapshot are backfilled
+on load. Tapping a shelf row opens the detail sheet (Goodreads reviews
+when the function can reach the public page). `importDadSeed` must not
+write `state.currentId` when `choreUser` is Dad; that assignment stole
+Joy after a reload.
+Suite: `node tools/_verify-books.cjs`. Quote the count after the run. Bite
+against the pre-works-rating `books.html` (HEAD `b330c95`). A
+null user star rating must not paint as 0.00 (`Number(null)`); community
+ratings live in `communityRating` on the shelf.
 ---
