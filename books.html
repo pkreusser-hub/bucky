@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#3f5c46" />
+<title>Bucky — Bookshelf</title>
+<link rel="icon" href="bucky.png" />
+<link rel="apple-touch-icon" href="bucky.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --navy: #3f5c46;
+    --navy-d: #2f4634;
+    --red: #b8552f;
+    --ink: #26332b;
+    --ink-2: #4b584e;
+    --muted: #8b9184;
+    --line: #e3ded0;
+    --card: #fffdf8;
+    --bg: #f4f1e8;
+    --done: #eee9dc;
+    --shadow: 0 1px 2px rgba(38,51,43,.06), 0 4px 12px rgba(38,51,43,.05);
+    --good: #3e7d51;
+    --amber: #c08a3e;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    min-height: 100dvh;
+    background: var(--bg);
+    padding-bottom: calc(env(safe-area-inset-bottom) + 118px);
+    -webkit-font-smoothing: antialiased;
+  }
+  [hidden] { display: none !important; }
+
+  header {
+    background: linear-gradient(160deg, var(--navy) 0%, var(--navy-d) 100%);
+    color: #fff;
+    padding: calc(env(safe-area-inset-top) + 14px) 16px 16px;
+    position: sticky; top: 0; z-index: 30;
+    box-shadow: 0 4px 20px rgba(24,35,59,.28);
+  }
+  #bar { display: flex; align-items: center; gap: 10px; }
+  #bar a {
+    color: #fff; text-decoration: none; font-weight: 800; font-size: 14px;
+    background: rgba(255,255,255,.16); padding: 7px 12px; border-radius: 9px; flex: 0 0 auto;
+  }
+  #bar .t { font-family: Fraunces, Georgia, serif; font-size: 20px; font-weight: 700; letter-spacing: .2px; }
+  .subloc { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: rgba(255,255,255,.78); }
+
+  main { max-width: 720px; margin: 0 auto; padding: 16px 14px 24px; display: flex; flex-direction: column; gap: 16px; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: var(--shadow); padding: 14px;
+  }
+  .section-label {
+    font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .55px;
+    color: var(--navy); margin: 0 0 4px;
+  }
+  .section-note { font-size: 12.5px; font-weight: 600; color: var(--muted); margin: 0 0 12px; line-height: 1.45; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    border: 1px solid var(--line); background: #efeadd; color: var(--ink);
+    font: inherit; font-size: 13px; font-weight: 700; padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  }
+  .chip.active { background: var(--navy); color: #fffdf8; border-color: var(--navy); }
+  .chip .x { margin-left: 6px; font-weight: 800; }
+
+  .row { display: flex; gap: 8px; }
+  .row input, .row select, .field {
+    flex: 1; min-width: 0; padding: 11px 12px; font: inherit; font-size: 15px;
+    border: 1px solid var(--line); border-radius: 12px; background: #fff;
+  }
+  button.primary, button.ghost {
+    border: 0; border-radius: 12px; font: inherit; font-weight: 800; padding: 11px 14px; cursor: pointer;
+  }
+  button.primary { background: var(--navy); color: #fff; }
+  button.ghost { background: #efeadd; color: var(--navy); }
+  button:disabled { opacity: .55; cursor: default; }
+
+  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 800; color: var(--navy); }
+  .filters input[type="range"] { width: 100%; }
+  .filter-val { font-variant-numeric: tabular-nums; color: var(--ink); }
+
+  .book {
+    display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: start;
+    padding: 10px 0; border-top: 1px solid var(--line);
+  }
+  .book:first-child { border-top: 0; padding-top: 0; }
+  .book img, .cover {
+    width: 56px; height: 80px; object-fit: cover; border-radius: 6px; background: #efeadd; color: var(--muted);
+    display: grid; place-items: center; font-size: 11px; font-weight: 700; text-align: center; padding: 4px;
+  }
+  .book .t { font-weight: 800; font-size: 15px; }
+  .book .a { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .book .meta { font-size: 12px; color: var(--ink-2); font-weight: 600; margin-top: 4px; }
+  .stars { display: flex; gap: 2px; margin-top: 6px; }
+  .stars button {
+    border: 0; background: transparent; color: var(--muted); font-size: 16px; font-weight: 800; cursor: pointer; padding: 0 2px;
+  }
+  .stars button.on { color: var(--amber); }
+
+  .meters { display: flex; flex-direction: column; gap: 4px; min-width: 88px; }
+  .meter { display: grid; grid-template-columns: 52px 1fr 14px; gap: 4px; align-items: center; font-size: 11px; font-weight: 800; color: var(--muted); }
+  .meter .bar { height: 7px; background: #efeadd; border-radius: 99px; overflow: hidden; }
+  .meter .bar > i { display: block; height: 100%; background: var(--navy); border-radius: 99px; }
+  .meter.woke .bar > i { background: var(--red); }
+  .meter .n { font-variant-numeric: tabular-nums; color: var(--ink); text-align: right; }
+
+  .hit { cursor: pointer; }
+  .empty { font-size: 13.5px; font-weight: 600; color: var(--muted); padding: 8px 2px; }
+
+  #recs .book { grid-template-columns: 56px 1fr; }
+  .why { font-size: 12.5px; color: var(--ink-2); font-weight: 600; margin-top: 4px; }
+
+  #detail {
+    position: fixed; inset: 0; z-index: 60; background: rgba(38,51,43,.45);
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  #detail[hidden] { display: none !important; }
+  #detailInner {
+    background: var(--card); width: 100%; max-width: 560px; max-height: min(88dvh, 760px);
+    overflow: auto; border-radius: 18px 18px 0 0; padding: 16px 16px 24px;
+    box-shadow: 0 -8px 32px rgba(38,51,43,.18);
+  }
+  #detailInner h2 { font-family: Fraunces, Georgia, serif; font-size: 22px; margin: 0 0 4px; }
+  .review { border-top: 1px solid var(--line); padding: 10px 0; }
+  .review .who { font-weight: 800; font-size: 13px; }
+  .review .body { font-size: 14px; line-height: 1.45; margin: 4px 0 0; }
+  .err { color: var(--red); font-size: 13px; font-weight: 700; min-height: 18px; }
+  .howto { font-size: 12.5px; font-weight: 600; color: var(--muted); line-height: 1.45; margin: 0; }
+  a.out { color: var(--navy); font-weight: 800; }
+
+  #buckyNav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(var(--bnav-cols, 6), minmax(0, 1fr));
+    gap: 2px 4px;
+    background: rgba(255,253,248,.94);
+    -webkit-backdrop-filter: saturate(1.3) blur(14px); backdrop-filter: saturate(1.3) blur(14px);
+    border-top: 1px solid #d7e0f0;
+    padding: 3px 6px calc(env(safe-area-inset-bottom) + 3px);
+    box-shadow: 0 -2px 16px rgba(35,51,87,.08);
+  }
+  #buckyNav a {
+    min-width: 0; text-decoration: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 5px 0 4px; border-radius: 12px; color: #5d6b86;
+  }
+  #buckyNav a .bico { font-size: 21px; line-height: 1; display: flex; align-items: center; justify-content: center; height: 20px; }
+  #buckyNav a .blabel { font-size: 10px; font-weight: 700; letter-spacing: .1px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #buckyNav a.active { color: #fffdf8; background: var(--navy); }
+  @media (min-width: 700px) and (max-width: 1023.98px) {
+    #buckyNav { grid-template-columns: repeat(var(--bnav-all, 12), minmax(0, 96px)); justify-content: center; gap: 6px; }
+  }
+
+  #sidenav { display: none; }
+  @media (min-width: 1024px) {
+    :root { --sidenav-w: 230px; }
+    body { padding-left: var(--sidenav-w); padding-bottom: 0; }
+    #sidenav {
+      display: flex; flex-direction: column;
+      position: fixed; top: 0; bottom: 0; left: 0; width: var(--sidenav-w); z-index: 50;
+      background: linear-gradient(180deg, #4a6b52 0%, var(--navy) 55%, var(--navy-d) 100%);
+      border-right: 1px solid rgba(255,255,255,.10);
+      overflow-y: auto;
+    }
+    .sn-brand {
+      display: block; width: 100%; text-align: left; text-decoration: none;
+      padding: 20px 18px 16px; border-bottom: 1px solid rgba(255,255,255,.12); color: #fff;
+    }
+    .sn-brand .sn-name { font-family: Fraunces, Georgia, serif; font-size: 22px; font-weight: 800; }
+    .sn-brand .sn-sub { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,.62); margin-top: 4px; }
+    .sn-list { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px 20px; }
+    .sn-item {
+      display: flex; align-items: center; gap: 11px; text-decoration: none; color: rgba(255,255,255,.80);
+      padding: 10px 12px; border-radius: 11px; border-left: 3px solid transparent; font-weight: 700;
+    }
+    .sn-item.active { background: rgba(255,255,255,.15); color: #fff; border-left-color: var(--red); }
+    #backLink { display: none; }
+    #buckyNav { display: none; }
+    main { max-width: 900px; padding: 20px 24px 32px; }
+  }
+</style>
+<script src="/assets/activity.js" data-feature="books" defer></script>
+</head>
+<body>
+<nav id="sidenav" aria-label="BUCKY sections"></nav>
+<header>
+  <div id="bar">
+    <a href="index.html" id="backLink">← Bucky</a>
+    <span class="t">Bookshelf</span>
+  </div>
+  <p class="subloc">Picks from what each person has read — plus how political a book is</p>
+</header>
+
+<main>
+  <section class="card" aria-labelledby="whoLabel">
+    <h2 class="section-label" id="whoLabel">Whose shelf</h2>
+    <p class="section-note">Each person has their own list, interests, and taste filters.</p>
+    <div class="chips" id="profileChips"></div>
+    <div class="row" style="margin-top:10px">
+      <input id="newProfile" type="text" maxlength="24" placeholder="Add a person" autocomplete="off" />
+      <button type="button" class="primary" id="addProfile">Add</button>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="intLabel">
+    <h2 class="section-label" id="intLabel">Interests</h2>
+    <div class="chips" id="interestChips"></div>
+    <div class="row" style="margin-top:10px">
+      <input id="newInterest" type="text" maxlength="40" placeholder="fantasy, farming, naval history" autocomplete="off" />
+      <button type="button" class="ghost" id="addInterest">Add</button>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="filLabel">
+    <h2 class="section-label" id="filLabel">How political</h2>
+    <p class="section-note">Caps on what a recommendation may carry. 0 means none of that axis.</p>
+    <div class="filters">
+      <label>Political max <span class="filter-val" id="maxPolVal">5</span>
+        <input id="maxPolitical" type="range" min="0" max="5" step="1" value="5" />
+      </label>
+      <label>Woke max <span class="filter-val" id="maxWokeVal">5</span>
+        <input id="maxWoke" type="range" min="0" max="5" step="1" value="5" />
+      </label>
+    </div>
+    <p class="howto" style="margin-top:10px">
+      Political is government, parties, ideology, activism. Woke is how central contemporary
+      identity-politics framing is — critical-race / privilege theory, gender-identity ideology
+      as the lesson, DEI as a moral framework. A Black or gay character, or a history of
+      slavery or civil rights, does not raise the woke score by itself.
+    </p>
+  </section>
+
+  <section class="card" aria-labelledby="shelfLabel">
+    <h2 class="section-label" id="shelfLabel">Read so far</h2>
+    <div class="row">
+      <input id="searchQ" type="text" maxlength="80" placeholder="Search a book to add" autocomplete="off" />
+      <button type="button" class="primary" id="searchBtn">Search</button>
+    </div>
+    <div class="err" id="searchErr"></div>
+    <div id="searchHits"></div>
+    <div id="shelfList"></div>
+  </section>
+
+  <section class="card" aria-labelledby="recLabel">
+    <h2 class="section-label" id="recLabel">Next to read</h2>
+    <button type="button" class="primary" id="recBtn">Recommend</button>
+    <div class="err" id="recErr"></div>
+    <div id="recs"></div>
+  </section>
+</main>
+
+<div id="detail" hidden>
+  <div id="detailInner" role="dialog" aria-modal="true" aria-labelledby="detailTitle"></div>
+</div>
+
+<nav id="buckyNav" aria-label="BUCKY sections"></nav>
+
+<script>
+(function () {
+  var BANK_KIDS = ["Isaac", "Eleanor"];
+  var BANK_USERS = ["Eleanor", "Isaac", "Dad"];
+  var MEAL_USERS = ["Mom", "Dad"];
+  var FITNESS_USERS = ["Isaac", "Eleanor", "Dad"];
+  var me = localStorage.getItem("choreUser") || "";
+  function seesBank(){ return BANK_USERS.indexOf(me) >= 0; }
+  function seesFinance(){ return BANK_KIDS.indexOf(me) < 0; }
+  function seesMeals(){ return MEAL_USERS.indexOf(me) >= 0; }
+  function seesFitness(){ return FITNESS_USERS.indexOf(me) >= 0; }
+  var NAV_PATHS = {
+    home:  "M3 11 L12 4 L21 11 M5 10 V20 H19 V10",
+    plan:  "M4 6 H20 V20 H4 Z M4 10 H20 M8 4 V8 M16 4 V8",
+    meals: "M4 12 A8 8 0 1 0 20 12 A8 8 0 1 0 4 12 M9 12 A3 3 0 1 0 15 12 A3 3 0 1 0 9 12",
+    tasks: "M4 12 A8 8 0 1 0 20 12 A8 8 0 1 0 4 12 M8.5 12.5 L11 15 L15.5 9.5",
+    fit:   "M7 8 V16 M4 10 V14 M17 8 V16 M20 10 V14 M7 12 H17",
+    news:  "M5 5 H19 V19 H5 Z M8 9 H16 M8 12 H16 M8 15 H13",
+    sports:"M4 20 C4 12 12 4 20 4 C20 12 12 20 4 20 Z M9 15 L15 9 M10 12 L12 14 M12 10 L14 12",
+    gffl:  "M8 4 H16 V10 A4 4 0 0 1 8 10 Z M8 5.5 H5 A3 3 0 0 0 8.5 9.5 M16 5.5 H19 A3 3 0 0 1 15.5 9.5 M12 14 V17 M9 20 H15 M10 17 H14 L15 20 M9 20 L10 17",
+    wo:    "M4 9 H20 V19 H4 Z M9 9 V7 A3 3 0 0 1 15 7 V9 M4 13 H20",
+    shop:  "M6 8 H18 L17 20 H7 Z M9 8 V6 A3 3 0 0 1 15 6 V8",
+    bank:  "M12 4 V20 M16 7 H10 A2.5 2.5 0 0 0 10 12 H14 A2.5 2.5 0 0 1 14 17 H8",
+    finance: "M23 6 L13.5 15.5 L8.5 10.5 L1 18 M17 6 L23 6 L23 12",
+    farm:  "M4 11 L12 4 L20 11 V20 H4 Z M10 20 V14 H14 V20",
+    gpt:   "M12 3 L14 10 L21 12 L14 14 L12 21 L10 14 L3 12 L10 10 Z",
+    play:  "M8 6 L18 12 L8 18 Z",
+  };
+  function svgIcon(path){
+    return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + path + '"/></svg>';
+  }
+  function navAreaLabel(g){ return g.gid === "bank" ? (BANK_KIDS.indexOf(me) >= 0 ? "Bank" : "Finance") : g.name; }
+  function navAreaIconPath(g){ return g.gid === "bank" ? (BANK_KIDS.indexOf(me) >= 0 ? NAV_PATHS.bank : NAV_PATHS.finance) : NAV_PATHS[g.gid]; }
+  function navAreaHref(g){ return g.gid === "bank" ? (BANK_KIDS.indexOf(me) >= 0 ? "index.html#farmbank" : "index.html#finance") : g.href; }
+  var NAV_GROUPS = [
+    { gid:"home",  name:"Home",  href:"index.html#dashboard" },
+    { gid:"plan",  name:"Plan",  href:"index.html#calendar", active:true },
+    { gid:"meals", name:"Meals", href:"index.html#mealplan", gate:seesMeals },
+    { gid:"tasks", name:"Chores",href:"index.html#chores" },
+    { gid:"fit",   name:"Fit",   href:"index.html#fitness",  gate:seesFitness },
+    { gid:"news",  name:"News",  href:"index.html#news" },
+    { gid:"sports",name:"Sports",href:"index.html#sports" },
+    { gid:"gffl",  name:"GFFL",  href:"index.html#gffl" },
+    { gid:"wo",    name:"Jobs",  href:"index.html#workorders" },
+    { gid:"shop",  name:"Shop",  href:"index.html#shopping" },
+    { gid:"bank",  name:"Bank",  href:"index.html#farmbank", gate:function(){ return seesBank() || seesFinance(); } },
+    { gid:"farm",  name:"Farm",  href:"index.html#goathooves" },
+    { gid:"gpt",   name:"AI",    href:"index.html#farmgpt" },
+    { gid:"play",  name:"Play",  href:"games.html" },
+  ];
+  var shown = NAV_GROUPS.filter(function (g) { return !g.gate || g.gate(); });
+  var bnav = document.getElementById("buckyNav");
+  bnav.style.setProperty("--bnav-cols", Math.ceil(shown.length / 2));
+  bnav.style.setProperty("--bnav-all", shown.length);
+  shown.forEach(function (g) {
+    var a = document.createElement("a");
+    a.href = navAreaHref(g);
+    if (g.active) a.className = "active";
+    var label = navAreaLabel(g);
+    var ico = document.createElement("span"); ico.className = "bico"; ico.innerHTML = svgIcon(navAreaIconPath(g));
+    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = label;
+    a.append(ico, lbl);
+    a.title = label;
+    a.setAttribute("aria-label", label);
+    bnav.appendChild(a);
+  });
+  var sn = document.getElementById("sidenav");
+  var brand = document.createElement("a");
+  brand.className = "sn-brand"; brand.href = "index.html#dashboard";
+  brand.setAttribute("aria-label", "Back to dashboard");
+  var bn = document.createElement("div"); bn.className = "sn-name"; bn.textContent = "Bucky";
+  var bs = document.createElement("div"); bs.className = "sn-sub"; bs.textContent = "Family Farm Hub";
+  brand.append(bn, bs);
+  sn.appendChild(brand);
+  var list = document.createElement("div"); list.className = "sn-list";
+  shown.forEach(function (g) {
+    var a = document.createElement("a");
+    a.className = "sn-item" + (g.active ? " active" : "");
+    a.href = navAreaHref(g);
+    var label = navAreaLabel(g);
+    var ico = document.createElement("span"); ico.className = "sn-ico"; ico.innerHTML = svgIcon(navAreaIconPath(g));
+    var lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = label;
+    a.append(ico, lbl);
+    list.appendChild(a);
+  });
+  sn.appendChild(list);
+})();
+</script>
+<script>
+(function () {
+  "use strict";
+  var FAMILY_PASSWORD = "amenfarms";
+  var ENDPOINT = "/.netlify/functions/books";
+  var STORE = "books_profiles_v1";
+
+  function $(id) { return document.getElementById(id); }
+  function uid() { return "p" + Math.random().toString(36).slice(2, 8); }
+  function blankProfile(name) {
+    return {
+      id: uid(),
+      name: name,
+      interests: [],
+      shelf: [],
+      maxPolitical: 5,
+      maxWoke: 5,
+    };
+  }
+  function loadState() {
+    var fallbackName = localStorage.getItem("choreUser") || "Reader";
+    try {
+      var raw = JSON.parse(localStorage.getItem(STORE) || "null");
+      if (raw && Array.isArray(raw.profiles) && raw.profiles.length) {
+        if (!raw.currentId || !raw.profiles.some(function (p) { return p.id === raw.currentId; })) {
+          raw.currentId = raw.profiles[0].id;
+        }
+        return raw;
+      }
+    } catch (e) { /* corrupt store → start clean */ }
+    var p = blankProfile(fallbackName);
+    return { version: 1, currentId: p.id, profiles: [p] };
+  }
+  function saveState() {
+    localStorage.setItem(STORE, JSON.stringify(state));
+  }
+  function current() {
+    return state.profiles.find(function (p) { return p.id === state.currentId; }) || state.profiles[0];
+  }
+
+  var state = loadState();
+
+  function meterHtml(political, woke) {
+    var p = Number.isFinite(Number(political)) ? Number(political) : 0;
+    var w = Number.isFinite(Number(woke)) ? Number(woke) : 0;
+    return '<div class="meters">'
+      + '<div class="meter"><span>Political</span><span class="bar"><i style="width:' + (p * 20) + '%"></i></span><span class="n">' + p + '</span></div>'
+      + '<div class="meter woke"><span>Woke</span><span class="bar"><i style="width:' + (w * 20) + '%"></i></span><span class="n">' + w + '</span></div>'
+      + "</div>";
+  }
+  function coverHtml(book) {
+    if (book.cover) return '<img src="' + book.cover + '" alt="">';
+    return '<div class="cover">No cover</div>';
+  }
+  function ratingLabel(book) {
+    if (!Number.isFinite(Number(book.rating))) return "No community rating yet";
+    var n = Number(book.ratingsCount);
+    var src = book.ratingSource === "goodreads" ? "Goodreads" : (book.ratingSource === "google-books" ? "Google Books" : "Open Library");
+    return Number(book.rating).toFixed(2) + " from " + src + (Number.isFinite(n) ? " (" + n + ")" : "");
+  }
+
+  function paintProfiles() {
+    var box = $("profileChips");
+    box.innerHTML = "";
+    state.profiles.forEach(function (p) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip" + (p.id === state.currentId ? " active" : "");
+      b.textContent = p.name;
+      b.onclick = function () { state.currentId = p.id; saveState(); paint(); };
+      box.appendChild(b);
+    });
+  }
+  function paintInterests() {
+    var box = $("interestChips");
+    box.innerHTML = "";
+    var p = current();
+    if (!p.interests.length) {
+      var e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "No interests yet.";
+      box.appendChild(e);
+      return;
+    }
+    p.interests.forEach(function (tag, i) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.appendChild(document.createTextNode(tag));
+      var x = document.createElement("span"); x.className = "x"; x.textContent = "x";
+      b.appendChild(x);
+      b.onclick = function () { p.interests.splice(i, 1); saveState(); paintInterests(); };
+      box.appendChild(b);
+    });
+  }
+  function paintFilters() {
+    var p = current();
+    $("maxPolitical").value = String(Number.isFinite(p.maxPolitical) ? p.maxPolitical : 5);
+    $("maxWoke").value = String(Number.isFinite(p.maxWoke) ? p.maxWoke : 5);
+    $("maxPolVal").textContent = $("maxPolitical").value;
+    $("maxWokeVal").textContent = $("maxWoke").value;
+  }
+  function starRow(book, onRate) {
+    var wrap = document.createElement("div");
+    wrap.className = "stars";
+    for (var i = 1; i <= 5; i++) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = i <= (Number(book.rating) || 0) ? "★" : "☆";
+      if (i <= (Number(book.rating) || 0)) b.className = "on";
+      b.setAttribute("aria-label", "Rate " + i);
+      (function (n) { b.onclick = function (ev) { ev.stopPropagation(); onRate(n); }; })(i);
+      wrap.appendChild(b);
+    }
+    return wrap;
+  }
+  function paintShelf() {
+    var box = $("shelfList");
+    box.innerHTML = "";
+    var p = current();
+    if (!p.shelf.length) {
+      var e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "Nothing on this shelf yet. Search a title above.";
+      box.appendChild(e);
+      return;
+    }
+    p.shelf.forEach(function (book, idx) {
+      var row = document.createElement("div");
+      row.className = "book";
+      row.innerHTML = coverHtml(book)
+        + '<div><div class="t"></div><div class="a"></div><div class="meta"></div></div>'
+        + meterHtml(book.political, book.woke);
+      row.querySelector(".t").textContent = book.title;
+      row.querySelector(".a").textContent = book.author || "";
+      row.querySelector(".meta").textContent = ratingLabel(book);
+      var mid = row.children[1];
+      mid.appendChild(starRow(book, function (n) {
+        p.shelf[idx].rating = n;
+        saveState();
+        paintShelf();
+      }));
+      var rm = document.createElement("button");
+      rm.type = "button"; rm.className = "ghost"; rm.textContent = "Remove";
+      rm.style.marginTop = "8px";
+      rm.onclick = function () { p.shelf.splice(idx, 1); saveState(); paintShelf(); };
+      mid.appendChild(rm);
+      box.appendChild(row);
+    });
+  }
+  function paintHits(books) {
+    var box = $("searchHits");
+    box.innerHTML = "";
+    (books || []).forEach(function (book) {
+      var row = document.createElement("div");
+      row.className = "book hit";
+      row.innerHTML = coverHtml(book)
+        + '<div><div class="t"></div><div class="a"></div><div class="meta"></div></div>'
+        + meterHtml(book.political, book.woke);
+      row.querySelector(".t").textContent = book.title;
+      row.querySelector(".a").textContent = book.author || "";
+      row.querySelector(".meta").textContent = ratingLabel(book);
+      row.onclick = function () { addToShelf(book); };
+      box.appendChild(row);
+    });
+  }
+  function paintRecs(books) {
+    var box = $("recs");
+    box.innerHTML = "";
+    if (!books || !books.length) {
+      var e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "No picks yet. Add a few books and an interest, then tap Recommend.";
+      box.appendChild(e);
+      return;
+    }
+    books.forEach(function (book) {
+      var row = document.createElement("div");
+      row.className = "book hit";
+      row.innerHTML = coverHtml(book)
+        + '<div><div class="t"></div><div class="a"></div><div class="meta"></div><div class="why"></div></div>'
+        + meterHtml(book.political, book.woke);
+      row.querySelector(".t").textContent = book.title;
+      row.querySelector(".a").textContent = book.author || "";
+      row.querySelector(".meta").textContent = ratingLabel(book);
+      row.querySelector(".why").textContent = (book.reasons || []).join(" · ");
+      row.onclick = function () { openDetail(book); };
+      box.appendChild(row);
+    });
+  }
+
+  function addToShelf(book) {
+    var p = current();
+    var key = String(book.title || "").toLowerCase() + "::" + String(book.author || "").toLowerCase();
+    if (p.shelf.some(function (b) { return (String(b.title).toLowerCase() + "::" + String(b.author).toLowerCase()) === key; })) {
+      $("searchErr").textContent = "Already on this shelf.";
+      return;
+    }
+    p.shelf.push({
+      id: book.id,
+      title: book.title,
+      author: book.author,
+      isbn: book.isbn,
+      cover: book.cover,
+      description: book.description,
+      subjects: book.subjects || [],
+      rating: null,
+      political: Number.isFinite(Number(book.political)) ? Number(book.political) : 0,
+      woke: Number.isFinite(Number(book.woke)) ? Number(book.woke) : 0,
+      evidence: book.evidence || [],
+      goodreadsUrl: book.goodreadsUrl,
+      ratingSource: book.ratingSource,
+      ratingsCount: book.ratingsCount,
+    });
+    $("searchHits").innerHTML = "";
+    $("searchQ").value = "";
+    $("searchErr").textContent = "";
+    saveState();
+    paintShelf();
+  }
+
+  async function api(action, extra) {
+    var body = Object.assign({ secret: FAMILY_PASSWORD, action: action }, extra || {});
+    var r = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    var data = {};
+    try { data = await r.json(); } catch (e) { data = { error: "Bad reply" }; }
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    return data;
+  }
+
+  async function doSearch() {
+    var q = $("searchQ").value.trim();
+    $("searchErr").textContent = "";
+    if (!q) { $("searchErr").textContent = "Type a title or author."; return; }
+    $("searchBtn").disabled = true;
+    try {
+      var res = await api("search", { q: q });
+      paintHits(res.books || []);
+      if (!(res.books || []).length) $("searchErr").textContent = "Nothing matched.";
+    } catch (e) {
+      $("searchErr").textContent = "Could not search right now.";
+    } finally {
+      $("searchBtn").disabled = false;
+    }
+  }
+
+  async function doRecommend() {
+    var p = current();
+    $("recErr").textContent = "";
+    $("recBtn").disabled = true;
+    try {
+      var res = await api("recommend", {
+        shelf: p.shelf,
+        interests: p.interests,
+        maxPolitical: p.maxPolitical,
+        maxWoke: p.maxWoke,
+      });
+      paintRecs(res.books || []);
+      if (!(res.books || []).length) $("recErr").textContent = "No matches under those caps. Loosen a filter or add more shelf.";
+    } catch (e) {
+      $("recErr").textContent = "Could not recommend right now.";
+    } finally {
+      $("recBtn").disabled = false;
+    }
+  }
+
+  async function openDetail(book) {
+    var d = $("detail");
+    var inner = $("detailInner");
+    inner.innerHTML = "<h2 id=\"detailTitle\"></h2><p class=\"a\"></p>"
+      + meterHtml(book.political, book.woke)
+      + "<p class=\"howto\" id=\"detailEvidence\"></p>"
+      + "<p id=\"detailDesc\"></p>"
+      + "<p><a class=\"out\" id=\"grLink\" target=\"_blank\" rel=\"noopener\">Open on Goodreads</a></p>"
+      + "<div id=\"detailReviews\" class=\"empty\">Loading Goodreads reviews…</div>"
+      + "<button type=\"button\" class=\"ghost\" id=\"detailClose\">Close</button>";
+    inner.querySelector("#detailTitle").textContent = book.title;
+    inner.querySelector(".a").textContent = book.author || "";
+    var ev = (book.evidence || []).join(", ");
+    inner.querySelector("#detailEvidence").textContent = ev
+      ? ("Matched: " + ev + (book.confidence ? " · " + book.confidence + " confidence" : ""))
+      : ("No political/woke markers in the catalog text" + (book.confidence ? " · " + book.confidence + " confidence" : "") + ".");
+    inner.querySelector("#detailDesc").textContent = book.description || "";
+    var gr = inner.querySelector("#grLink");
+    gr.href = book.goodreadsUrl || "https://www.goodreads.com/";
+    inner.querySelector("#detailClose").onclick = closeDetail;
+    d.hidden = false;
+    try {
+      var res = await api("reviews", { isbn: book.isbn || "", title: book.title, author: book.author });
+      var box = inner.querySelector("#detailReviews");
+      box.innerHTML = "";
+      if (res.rating != null) {
+        var sum = document.createElement("p");
+        sum.className = "meta";
+        var count = Number.isFinite(Number(res.ratingsCount)) ? " from " + res.ratingsCount + " ratings" : "";
+        sum.textContent = "Goodreads " + Number(res.rating).toFixed(2) + count;
+        box.appendChild(sum);
+      }
+      if (res.reviews && res.reviews.length) {
+        res.reviews.forEach(function (rv) {
+          var el = document.createElement("div");
+          el.className = "review";
+          var who = document.createElement("div"); who.className = "who";
+          who.textContent = (rv.author || "A reader") + (Number.isFinite(Number(rv.rating)) ? " · " + rv.rating + "/5" : "");
+          var body = document.createElement("div"); body.className = "body";
+          body.textContent = rv.body || "";
+          el.append(who, body);
+          box.appendChild(el);
+        });
+      } else {
+        var miss = document.createElement("p");
+        miss.className = "empty";
+        miss.textContent = res.reason === "no-reviews"
+          ? "Goodreads had no review text on the public page. The link above still opens the book."
+          : "Could not load Goodreads reviews. The link above still opens the book.";
+        box.appendChild(miss);
+      }
+    } catch (e) {
+      inner.querySelector("#detailReviews").textContent = "Could not load Goodreads reviews.";
+    }
+  }
+  function closeDetail() { $("detail").hidden = true; }
+  $("detail").addEventListener("click", function (e) { if (e.target.id === "detail") closeDetail(); });
+
+  $("addProfile").onclick = function () {
+    var name = $("newProfile").value.trim();
+    if (!name) return;
+    var p = blankProfile(name);
+    state.profiles.push(p);
+    state.currentId = p.id;
+    $("newProfile").value = "";
+    saveState();
+    paint();
+  };
+  $("addInterest").onclick = function () {
+    var tag = $("newInterest").value.trim();
+    if (!tag) return;
+    var p = current();
+    var key = tag.toLowerCase();
+    if (p.interests.some(function (t) { return t.toLowerCase() === key; })) {
+      $("newInterest").value = "";
+      return;
+    }
+    p.interests.push(tag);
+    $("newInterest").value = "";
+    saveState();
+    paintInterests();
+  };
+  $("maxPolitical").oninput = function () {
+    current().maxPolitical = Number($("maxPolitical").value);
+    $("maxPolVal").textContent = $("maxPolitical").value;
+    saveState();
+  };
+  $("maxWoke").oninput = function () {
+    current().maxWoke = Number($("maxWoke").value);
+    $("maxWokeVal").textContent = $("maxWoke").value;
+    saveState();
+  };
+  $("searchBtn").onclick = doSearch;
+  $("searchQ").addEventListener("keydown", function (e) { if (e.key === "Enter") doSearch(); });
+  $("newInterest").addEventListener("keydown", function (e) { if (e.key === "Enter") $("addInterest").click(); });
+  $("newProfile").addEventListener("keydown", function (e) { if (e.key === "Enter") $("addProfile").click(); });
+  $("recBtn").onclick = doRecommend;
+
+  function paint() {
+    paintProfiles();
+    paintInterests();
+    paintFilters();
+    paintShelf();
+  }
+  paint();
+  paintRecs([]);
+
+  window.__BOOKS__ = {
+    state: function () { return state; },
+    current: current,
+    paint: paint,
+    paintHits: paintHits,
+    paintRecs: paintRecs,
+    addToShelf: addToShelf,
+    openDetail: openDetail,
+    closeDetail: closeDetail,
+    api: api,
+  };
+})();
+</script>
+</body>
+</html>

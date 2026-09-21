@@ -1910,3 +1910,38 @@ asserted). Two things deliberately SURVIVED the revert:
 The design canvas (section 1a) remains the reference if any piece of it is wanted piecemeal
 later; the import pipeline (DesignSync) is documented in the entry above.
 ---
+
+# Bookshelf — per-person picks, Goodreads reviews, political / woke rating (2026-09-21)
+
+`books.html` + `netlify/functions/books.mjs`. A standalone family page (weather.html chrome:
+Farmstead header, two-row nav, desktop rail). Each person has their own profile — interests,
+shelf of books already read with a 1–5 rating, and two caps: max political / max woke.
+Recommend searches Open Library + Google Books from those interests and liked authors, then
+ranks with a hand-computable score (liked author +3, shared subject +1 each capped at 4,
+interest hit +2 each capped at 6). A book already on the shelf is dropped; a cap of 0 keeps
+a 0 and drops a 1 (`>` not `>=` — `maxWoke || 5` would have turned "no woke books" into
+"anything").
+
+Goodreads shut the public API. `action:"reviews"` fetches the public book page (ISBN URL,
+follows the 301 to `/book/show/…`) and reads the shape the live page actually ships
+(measured 2026-09-21 on The Hobbit): schema.org Book JSON-LD for the aggregate, plus
+`__NEXT_DATA__` `apolloState` `Review:*` objects for review text / stars / user name. A
+403 / captcha / empty page is `{ok:false}`, never a invented 0-star book. The page also
+keeps an outbound "Open on Goodreads" link.
+
+The political / woke pair is a phrase-sum capped at 5, computed on title + description +
+subjects. Political = government / parties / ideology / activism. Woke = contemporary
+identity-politics framing (critical-race / privilege theory, gender-identity ideology as
+the lesson, DEI as a moral framework). `race`, `gay`, `slavery`, `civil rights` are
+deliberately absent — representation or history is not this axis. The matched phrases are
+returned as `evidence` so the number is not a black box. A long unmarked description is
+high-confidence 0, not "unknown".
+
+Missing community ratings stay `null`. `Number(null)` is 0, and a first-source miss that
+became 0 would have blocked Google Books from filling a real 4.0 (the Fragility fixture).
+`asNum` is the only conversion.
+
+Home rail gets a Bookshelf card AFTER the sports cards, so the NFL card's previous sibling
+stays the weather card (sports suite asserts that slot). Activity label `books` → "Bookshelf".
+Suite: `node tools/_verify-books.cjs`.
+---

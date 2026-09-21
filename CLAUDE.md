@@ -23,7 +23,7 @@ ones in the same file.
 | working on | read first |
 |---|---|
 | `league.html`, `assets/league/lg-*.js`, `league.mjs`, `sports.html`, `ffdraft.html` | [docs/gffl.md](docs/gffl.md) |
-| `index.html` and its sections; `weather.html`, `status.html`, `activity.html` | [docs/bucky-app.md](docs/bucky-app.md) |
+| `index.html` and its sections; `weather.html`, `status.html`, `activity.html`, `books.html` | [docs/bucky-app.md](docs/bucky-app.md) |
 | `farmgpt.html`, `farmgpt.mjs`, `storytime.html`, `dungeon.html` | [docs/farmgpt.md](docs/farmgpt.md) |
 | `castlekruzer.html`, `assets/farmstead/fs-*.js` | [docs/castle-kruzer.md](docs/castle-kruzer.md) |
 | `farmkart.html`, `farmkart-editor.html`, `assets/farmkart-*.js` | [docs/farm-kart.md](docs/farm-kart.md) |
