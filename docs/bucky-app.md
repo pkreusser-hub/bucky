@@ -1970,10 +1970,13 @@ on load. Tapping a shelf row opens the detail sheet (Goodreads reviews
 when the function can reach the public page). `importDadSeed` must not
 write `state.currentId` when `choreUser` is Dad; that assignment stole
 Joy after a reload.
-Suite: `node tools/_verify-books.cjs` (**130/130**). Bite against the
-pre-Grok page and function (`fae13b2` `books.html` + `books.mjs`):
-**112 passed, 18 failed** — the Grok prompt, author sort, and framed-nav
-checks. A missing star stays unrated in that prompt (`Number(null)` is 0;
-a real 0 stays 0/5). A null user star on the shelf must not paint as 0.00;
-community ratings live in `communityRating`.
+The recommend model id is `grok-4.7` (`XAI_API_KEY` on the Netlify site;
+the key is not in the repo). Suite: `node tools/_verify-books.cjs`
+(**130/130**). Bite against the pre-Grok page and function (`fae13b2`
+`books.html` + `books.mjs`): **112 passed, 18 failed** — the Grok prompt,
+author sort, and framed-nav checks. Bite against the grok-4.6 default
+(`66d6682` `books.mjs`): **129 passed, 1 failed** — recommend sends the
+shelf to grok-4.7. A missing star stays unrated in that prompt
+(`Number(null)` is 0; a real 0 stays 0/5). A null user star on the shelf
+must not paint as 0.00; community ratings live in `communityRating`.
 ---
