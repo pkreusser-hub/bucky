@@ -1956,7 +1956,10 @@ memoirs, two parenting-science titles, and the quiz books. A Remove is
 remembered. Seed rows no longer in the list are pruned so a confirmed cut
 does not survive a reload. `importDadSeed` must not write `state.currentId`
 when `choreUser` is Dad; that assignment stole Joy after a reload.
-Suite: `node tools/_verify-books.cjs`. Quote the count after the run. A null
-user star rating must not paint as 0.00 (`Number(null)`); community ratings
-live in `communityRating` on the shelf.
+Suite: `node tools/_verify-books.cjs` — **107/107**. Bite (`books.html` at
+`c5ef77e`, new suite kept): **101 passed, 6 failed** — the later-library
+source and shelf checks, the cut-title omit checks, the expanded no-cut
+shelf check, and the prune-on-reload check. Every other pre-existing check
+still passed. A null user star rating must not paint as 0.00
+(`Number(null)`); community ratings live in `communityRating` on the shelf.
 ---
