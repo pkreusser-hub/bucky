@@ -529,7 +529,12 @@ async function sectionUi(browser) {
   // sit on the first screen at 390x844 (no scroll) and open books.html.
   const gpt = await newPage(browser, mock, { user: "Dad" });
   await gpt.page.goto(BASE + "/farmgpt.html", { waitUntil: "domcontentloaded", timeout: 60000 });
-  await gpt.page.waitForFunction(() => document.getElementById("cardBooks"), { timeout: 15000 });
+  const gptHasCard = await gpt.page.waitForFunction(() => document.getElementById("cardBooks"), { timeout: 4000 }).then(() => true).catch(() => false);
+  ok(gptHasCard, "FarmGPT home paints #cardBooks");
+  if (!gptHasCard) {
+    await gpt.page.close();
+    return;
+  }
   const gptGeom = await gpt.page.evaluate(() => {
     const cards = [...document.querySelectorAll("#homeCards .bigCard")].map((el) => {
       const r = el.getBoundingClientRect();

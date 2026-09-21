@@ -2424,4 +2424,6 @@ and the IIFE dies at `marked.setOptions` when that script is missing). Phone AI
 is this page in a persistent iframe; the inline handler sets
 `window.top.location.href` when framed so the frame stays `farmgpt.html` and
 `books.html` gets its own chrome. Four tiles fill a 2×2 on a 390-wide phone
-(the odd-last-child span is unused). Suite: `node tools/_verify-books.cjs`.
+(the odd-last-child span is unused). Suite: `node tools/_verify-books.cjs` —
+**87/87**. Bite (`farmgpt.html` at `origin/main`, suite kept): **76/5** — the
+new FarmGPT-card checks fail; the original 76 still pass.

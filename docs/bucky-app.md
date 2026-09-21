@@ -1949,7 +1949,9 @@ is a real `<a href="books.html">`. From the AI-tab iframe the inline handler
 sets `window.top.location` so the persistent FarmGPT frame is not replaced and a
 second nav does not nest. This is `books.html`, not Story Time's saved-story
 shelf (`renderBookshelf`).
-Suite: `node tools/_verify-books.cjs`. A null user
-star rating must not paint as 0.00 (`Number(null)`); community ratings live in
-`communityRating` on the shelf.
+Suite: `node tools/_verify-books.cjs` — **87/87**. Bite (`farmgpt.html` at
+`origin/main`, new suite kept): **76 passed, 5 failed** — the four FarmGPT-card
+source checks and "FarmGPT home paints #cardBooks". Every pre-existing check
+still passed. A null user star rating must not paint as 0.00 (`Number(null)`);
+community ratings live in `communityRating` on the shelf.
 ---
