@@ -11,16 +11,22 @@
 //
 //   { secret, action:"detail", title, year? }
 //     -> { found, title, year, director, cover, tomatoMeter, tomatoAverage,
-//          popcornMeter, rtPath, reason? }
+//          userAverage, popcornMeter, rtPath, reason? }
 //     The poster is the English Wikipedia page image for the film's sitelink.
 //     Guessing the article from the title is wrong: "Super Buddies" opened
 //     the DC team page on 2026-09-21, while the sitelink is
 //     "Super Buddies (film)" and that page image is the poster.
-//     Scores are Wikidata P444 claims reviewed by Rotten Tomatoes (Q105584):
-//     Tomatometer Q108403393 (a percent), Popcornmeter Q131100566 (a percent,
-//     only when the item has one), and the critic average Q108403540 (x/10).
-//     A missing claim stays null. A real 0% stays 0. OMDb returned 401
-//     "No API key provided" the same day, so it is not this lookup.
+//     Wikidata P444 claims reviewed by Rotten Tomatoes (Q105584) are the
+//     fallback: Tomatometer Q108403393 (a percent), Popcornmeter Q131100566
+//     (a percent, only when the item has one), and the critic average
+//     Q108403540 (x/10). Wikidata has no user average. When the film's
+//     Rotten Tomatoes page loads, its mediaScorecard replaces those numbers
+//     and adds the user average (audienceScore.averageRating, out of 5).
+//     The critic average on that card is criticsScore.averageRating, out of
+//     10. A 403 or a page with no scorecard leaves the Wikidata numbers and
+//     a null user average. A missing score stays null. A real 0 stays 0.
+//     OMDb returned 401 "No API key provided" the same day, so it is not
+//     this lookup.
 //
 //   { secret, action:"recommend", shelf, interests }
 //     -> { movies:[{ title, director, summary, why }], model, error? }
@@ -30,7 +36,7 @@
 //     budget is 6000. The JSON is the last line.
 //
 // Required env: BUCKY_NOTIFY_SECRET
-// Optional: MOVIES_WIKI_BASE, MOVIES_ENWIKI_BASE, MOVIES_XAI_BASE, XAI_BASE_URL, XAI_API_KEY, MOVIES_GROK_MODEL
+// Optional: MOVIES_WIKI_BASE, MOVIES_ENWIKI_BASE, MOVIES_RT_BASE, MOVIES_XAI_BASE, XAI_BASE_URL, XAI_API_KEY, MOVIES_GROK_MODEL
 
 const ALLOWED_ORIGINS = new Set([
   "https://amenfarms.netlify.app",
@@ -45,6 +51,7 @@ const ALLOWED_ORIGINS = new Set([
 
 const WIKI_BASE = process.env.MOVIES_WIKI_BASE || "https://www.wikidata.org";
 const ENWIKI_BASE = process.env.MOVIES_ENWIKI_BASE || "https://en.wikipedia.org";
+const RT_BASE = process.env.MOVIES_RT_BASE || "https://www.rottentomatoes.com";
 const RT_BY = "Q105584";
 const RT_TOMATOMETER = "Q108403393";
 const RT_POPCORN = "Q131100566";
@@ -129,17 +136,27 @@ function joinUrl(base, path) {
 }
 
 async function fetchJson(url) {
+  const got = await fetchText(url, "application/json");
+  if (!got.ok) return { ok: false, reason: got.reason, data: null };
+  try {
+    return { ok: true, reason: "", data: JSON.parse(got.text) };
+  } catch {
+    return { ok: false, reason: "bad-json", data: null };
+  }
+}
+
+async function fetchText(url, accept) {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
   try {
     const r = await fetch(url, {
       signal: ac.signal,
-      headers: { "User-Agent": UA, Accept: "application/json" },
+      headers: { "User-Agent": UA, Accept: accept || "text/html" },
     });
-    if (!r.ok) return { ok: false, reason: "http-" + r.status, data: null };
-    return { ok: true, reason: "", data: await r.json() };
+    if (!r.ok) return { ok: false, reason: "http-" + r.status, text: "" };
+    return { ok: true, reason: "", text: await r.text() };
   } catch (e) {
-    return { ok: false, reason: e && e.name === "AbortError" ? "timeout" : "unreachable", data: null };
+    return { ok: false, reason: e && e.name === "AbortError" ? "timeout" : "unreachable", text: "" };
   } finally {
     clearTimeout(t);
   }
@@ -279,6 +296,37 @@ function tenScore(text) {
   return n;
 }
 
+function boundedScore(raw, max) {
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > max) return null;
+  return n;
+}
+
+// The scorecard is a script, not a guessed host. audienceScore.averageRating
+// is out of 5. criticsScore.averageRating is out of 10. A 4.2 critic average
+// must not be read as the user average, and a number past its scale is dropped.
+export function parseRtScorecard(html) {
+  const text = String(html || "");
+  const mark = 'data-json="mediaScorecard"';
+  const at = text.indexOf(mark);
+  if (at < 0) return null;
+  const open = text.indexOf(">", at);
+  const close = text.indexOf("</script>", open);
+  if (open < 0 || close < 0) return null;
+  let data;
+  try { data = JSON.parse(text.slice(open + 1, close)); } catch { return null; }
+  if (!data || typeof data !== "object") return null;
+  const critics = data.criticsScore && typeof data.criticsScore === "object" ? data.criticsScore : {};
+  const audience = data.audienceScore && typeof data.audienceScore === "object" ? data.audienceScore : {};
+  return {
+    tomatoMeter: boundedScore(critics.score, 100),
+    tomatoAverage: boundedScore(critics.averageRating, 10),
+    popcornMeter: boundedScore(audience.score, 100),
+    userAverage: boundedScore(audience.averageRating, 5),
+  };
+}
+
 export function parseRtScores(entity) {
   const claims = entity && entity.claims && entity.claims.P444;
   let tomatoMeter = null;
@@ -389,12 +437,12 @@ export async function filmDetail(rawTitle, rawYear) {
   const parsed = titleQuery(rawTitle);
   const year = asNum(rawYear) == null ? parsed.year : asNum(rawYear);
   const title = parsed.title;
-  if (!title) return { found: false, reason: "empty", title: "", year: null, director: "", cover: "", tomatoMeter: null, tomatoAverage: null, popcornMeter: null, rtPath: "" };
+  if (!title) return { found: false, reason: "empty", title: "", year: null, director: "", cover: "", tomatoMeter: null, tomatoAverage: null, userAverage: null, popcornMeter: null, rtPath: "" };
   const ids = await wikiSearchIds(title);
   const entities = await wikiEntities(ids, "labels%7Cdescriptions%7Cclaims%7Csitelinks");
   const films = ids.map((id) => entities[id]).filter(Boolean);
   const entity = pickFilm(films, title, year);
-  if (!entity) return { found: false, reason: "no-match", title: title, year: year, director: "", cover: "", tomatoMeter: null, tomatoAverage: null, popcornMeter: null, rtPath: "" };
+  if (!entity) return { found: false, reason: "no-match", title: title, year: year, director: "", cover: "", tomatoMeter: null, tomatoAverage: null, userAverage: null, popcornMeter: null, rtPath: "" };
   const scores = parseRtScores(entity);
   const label = entity.labels && entity.labels.en && entity.labels.en.value;
   const directorIds = claimIds(entity, "P57").slice(0, 2);
@@ -414,6 +462,18 @@ export async function filmDetail(rawTitle, rawYear) {
     const file = claimString(entity, "P18");
     if (file) cover = ("https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(file) + "?width=400").slice(0, 400);
   }
+  const rtPath = rtPathOf(entity);
+  let userAverage = null;
+  if (rtPath) {
+    const page = await fetchText(joinUrl(RT_BASE, "/" + rtPath));
+    const card = page.ok ? parseRtScorecard(page.text) : null;
+    if (card) {
+      if (card.tomatoMeter != null) scores.tomatoMeter = card.tomatoMeter;
+      if (card.tomatoAverage != null) scores.tomatoAverage = card.tomatoAverage;
+      if (card.popcornMeter != null) scores.popcornMeter = card.popcornMeter;
+      userAverage = card.userAverage;
+    }
+  }
   return {
     found: true,
     title: normSpace(label).slice(0, 200),
@@ -422,8 +482,9 @@ export async function filmDetail(rawTitle, rawYear) {
     cover,
     tomatoMeter: scores.tomatoMeter,
     tomatoAverage: scores.tomatoAverage,
+    userAverage,
     popcornMeter: scores.popcornMeter,
-    rtPath: rtPathOf(entity),
+    rtPath,
   };
 }
 

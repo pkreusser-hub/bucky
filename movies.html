@@ -875,12 +875,13 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         return;
       }
       scoreLine(scores, "Tomatometer", res.tomatoMeter, "%");
-      scoreLine(scores, "Audience", res.popcornMeter, "%");
       scoreLine(scores, "Critic average", res.tomatoAverage, "/10");
-      if (res.tomatoMeter == null && res.popcornMeter == null && res.tomatoAverage == null) {
+      scoreLine(scores, "User average", res.userAverage, "/5");
+      scoreLine(scores, "Audience", res.popcornMeter, "%");
+      if (res.tomatoMeter == null && res.tomatoAverage == null && res.userAverage == null && res.popcornMeter == null) {
         var miss = document.createElement("p");
         miss.className = "empty";
-        miss.textContent = "Wikidata has no Rotten Tomatoes score for this title.";
+        miss.textContent = "No Rotten Tomatoes score for this title.";
         scores.appendChild(miss);
       }
       if (res.rtPath && /^m\/[a-z0-9_]+$/.test(res.rtPath)) {

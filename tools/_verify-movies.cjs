@@ -21,6 +21,7 @@ const ROOT = path.join(__dirname, "..");
 const SECRET = "amenfarms";
 const WIKI_PORT = 8905;
 const XAI_PORT = 8906;
+const RT_PORT = 8907;
 const STATIC_PORT = 8904;
 const BASE = "http://127.0.0.1:" + STATIC_PORT;
 
@@ -45,6 +46,13 @@ function ok(cond, name) {
 
 let wikiCalls = [];
 let xaiCalls = [];
+let rtCalls = [];
+
+// Measured 2026-09-21 on the Iron Giant scorecard: user 4.3/5, popcorn 90,
+// critic 8.50/10, tomatometer 96. The fixture is the script, not the page.
+const IRON_SCORECARD = '<!doctype html><script id="media-scorecard-json" data-json="mediaScorecard" type="application/json">'
+  + '{"audienceScore":{"averageRating":"4.3","score":"90"},"criticsScore":{"averageRating":"8.50","score":"96"}}'
+  + "</script>";
 
 function qid(id, label, description, claims) {
   return {
@@ -116,6 +124,7 @@ function serveWiki() {
             Q2003: qid("Q2003", "Cheaper by the Dozen", "2003 film", {
               P31: [snakItem("Q11424")],
               P577: [snakTime("+2003-12-25T00:00:00Z")],
+              P1258: [snakString("m/cheaper_by_the_dozen_2003")],
               P444: [rtClaim("41%", "Q108403393")],
             }),
           },
@@ -168,6 +177,23 @@ function serveWiki() {
   });
 }
 
+function serveRt() {
+  return new Promise((resolve) => {
+    const srv = http.createServer((req, res) => {
+      rtCalls.push(req.url);
+      const pathOnly = String(req.url || "").split("?")[0];
+      if (pathOnly !== "/m/iron_giant") {
+        res.statusCode = 403;
+        res.end("denied");
+        return;
+      }
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.end(IRON_SCORECARD);
+    });
+    srv.listen(RT_PORT, "127.0.0.1", () => resolve(srv));
+  });
+}
+
 function serveXAI() {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
@@ -206,6 +232,7 @@ async function sectionServer() {
   process.env.BUCKY_NOTIFY_SECRET = SECRET;
   process.env.MOVIES_WIKI_BASE = "http://127.0.0.1:" + WIKI_PORT;
   process.env.MOVIES_ENWIKI_BASE = "http://127.0.0.1:" + WIKI_PORT;
+  process.env.MOVIES_RT_BASE = "http://127.0.0.1:" + RT_PORT;
   process.env.MOVIES_XAI_BASE = "http://127.0.0.1:" + XAI_PORT;
   process.env.XAI_API_KEY = "test-xai";
   process.env.MOVIES_GROK_MODEL = "grok-4.7";
@@ -303,14 +330,36 @@ async function sectionServer() {
   ok(!!zeroRt && zeroRt.tomatoMeter === 0 && zeroRt.tomatoAverage === null && zeroRt.popcornMeter === null,
     "a real 0% Tomatometer stays 0; a missing average stays null");
 
+  const ironCard = typeof mod.parseRtScorecard === "function" ? mod.parseRtScorecard(IRON_SCORECARD) : null;
+  ok(!!ironCard && ironCard.userAverage === 4.3 && ironCard.tomatoAverage === 8.5 && ironCard.popcornMeter === 90 && ironCard.tomatoMeter === 96,
+    "the scorecard user average is out of 5 and the critic average is out of 10");
+  const zeroCard = typeof mod.parseRtScorecard === "function"
+    ? mod.parseRtScorecard('<script data-json="mediaScorecard" type="application/json">{"audienceScore":{"averageRating":"0","score":"0"},"criticsScore":{"averageRating":"0.0","score":"0"}}</script>')
+    : null;
+  ok(!!zeroCard && zeroCard.userAverage === 0 && zeroCard.tomatoAverage === 0 && zeroCard.tomatoMeter === 0 && zeroCard.popcornMeter === 0,
+    "a real 0 on the Rotten Tomatoes scorecard stays 0");
+  const deniedCard = typeof mod.parseRtScorecard === "function" ? mod.parseRtScorecard("<html>Access Denied</html>") : "missing";
+  ok(deniedCard === null, "a page with no scorecard does not invent scores");
+  const swapped = typeof mod.parseRtScorecard === "function"
+    ? mod.parseRtScorecard('<script data-json="mediaScorecard">{"audienceScore":{"averageRating":"8.5","score":"90"},"criticsScore":{"averageRating":"4.3","score":"96"}}</script>')
+    : null;
+  ok(!!swapped && swapped.userAverage === null && swapped.tomatoAverage === 4.3,
+    "a user average above 5 is dropped; a 4.3 critic average stays out of 10");
+
   wikiCalls = [];
+  rtCalls = [];
   const detail = await callHandler(handler, { secret: SECRET, action: "detail", title: "The Iron Giant", year: 1999 });
   const detailBody = await detail.json();
   ok(detail.status === 200 && detailBody.found === true && detailBody.director === "Brad Bird" && detailBody.year === 1999,
     "detail resolves The Iron Giant");
-  ok(detailBody.tomatoMeter === 96 && detailBody.tomatoAverage === 8.2 && detailBody.popcornMeter === 88,
-    "detail reads the Tomatometer, the critic average, and the Popcornmeter from their qualifiers");
-  ok(detailBody.tomatoAverage === 8.2 && detailBody.tomatoAverage !== 8.1, "an IMDb claim is not the Rotten Tomatoes average");
+  // Wikidata still says critic 8.2/10 and the fixture popcorn is 88.
+  // The page scorecard measured 2026-09-21 is 8.50/10, popcorn 90, user 4.3/5,
+  // tomatometer 96. Those page numbers replace Wikidata. 8.1/10 is IMDb.
+  ok(detailBody.tomatoMeter === 96 && detailBody.tomatoAverage === 8.5 && detailBody.popcornMeter === 90 && detailBody.userAverage === 4.3,
+    "the Rotten Tomatoes page replaces the Wikidata critic average and adds the user average");
+  ok(detailBody.tomatoAverage === 8.5, "an IMDb claim is not the Rotten Tomatoes average");
+  ok(rtCalls.length === 1 && rtCalls[0].split("?")[0] === "/m/iron_giant" && rtCalls[0].indexOf("http") < 0,
+    "the scorecard request is the film id, not a host from the title");
   ok(!!detailBody.cover && detailBody.cover.indexOf("https://upload.wikimedia.org/") === 0 && detailBody.cover.indexOf("The_Iron_Giant_poster") >= 0,
     "the poster is the Wikipedia sitelink image, not a host from the title");
   ok(detailBody.rtPath === "m/iron_giant", "the Rotten Tomatoes path is the film id");
@@ -319,13 +368,13 @@ async function sectionServer() {
 
   const plain = await callHandler(handler, { secret: SECRET, action: "detail", title: "Plain Film" });
   const plainBody = await plain.json();
-  ok(plain.status === 200 && plainBody.found === true && plainBody.tomatoMeter === null && plainBody.tomatoAverage === null && plainBody.popcornMeter === null && plainBody.cover === "",
+  ok(plain.status === 200 && plainBody.found === true && plainBody.tomatoMeter === null && plainBody.tomatoAverage === null && plainBody.userAverage === null && plainBody.popcornMeter === null && plainBody.cover === "",
     "a film with no Rotten Tomatoes claim stays null, not 0, and gets no invented poster");
 
   const dozen = await callHandler(handler, { secret: SECRET, action: "detail", title: "Cheaper By The Dozen (2003)" });
   const dozenBody = await dozen.json();
-  ok(dozen.status === 200 && dozenBody.year === 2003 && dozenBody.tomatoMeter === 41,
-    "a year in the title picks that film's Tomatometer, not the other film's 83%");
+  ok(dozen.status === 200 && dozenBody.year === 2003 && dozenBody.tomatoMeter === 41 && dozenBody.userAverage === null,
+    "a refused Rotten Tomatoes page keeps that film's Wikidata Tomatometer and does not invent a user average");
 
   xaiCalls = [];
   const shelf = [{ title: "Toy Story", rating: 5 }];
@@ -385,8 +434,10 @@ async function sectionServer() {
     "Already watched is placed on Owned, and a saved watched list is folded in on load");
   ok(/Q108403393/.test(src) && /Q131100566/.test(src) && /api\/rest_v1\/page\/summary/.test(src),
     "scores come from the Rotten Tomatoes claims and the poster from the Wikipedia sitelink");
-  ok(/id="detail"/.test(pageSrc) && /Tomatometer/.test(pageSrc) && /#detail\[hidden\]/.test(pageSrc),
-    "clicking a movie opens a sheet for the Tomatometer");
+  ok(/id="detail"/.test(pageSrc) && /Tomatometer/.test(pageSrc) && /User average/.test(pageSrc) && /#detail\[hidden\]/.test(pageSrc),
+    "clicking a movie opens a sheet for the Tomatometer and the user average");
+  ok(/mediaScorecard/.test(src) && /MOVIES_RT_BASE/.test(src),
+    "the user average is read from the Rotten Tomatoes scorecard");
   ok(/function titleSortKey/.test(pageSrc) && /sortedShelf\(p\.shelf\)/.test(pageSrc),
     "the owned list is painted in title order, ignoring a leading article");
   const importBody = pageSrc.split("function importOwned")[1].split("function titleSortKey")[0];
@@ -488,6 +539,7 @@ async function newPage(browser, user) {
             cover: "https://upload.wikimedia.org/wikipedia/en/2/2b/air_bud_poster.jpg",
             tomatoMeter: 48,
             tomatoAverage: 4.8,
+            userAverage: 3,
             popcornMeter: null,
             rtPath: "m/air_bud",
           }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -575,14 +627,16 @@ async function sectionUi(browser) {
     const link = d.querySelector("#rtLink");
     const row = document.querySelector("#shelfList .movie");
     const rowImg = row && row.querySelector("img");
+    const lines = [...d.querySelectorAll(".score")].map((el) => el.textContent);
     return d.hidden === false
-      && /Tomatometer 48%/.test(text)
-      && /Critic average 4\.8\/10/.test(text)
+      && lines[0] === "Tomatometer 48%"
+      && lines[1] === "Critic average 4.8/10"
+      && lines[2] === "User average 3/5"
       && !/Audience/.test(text)
       && img && img.getAttribute("src").indexOf("air_bud_poster.jpg") >= 0
       && link && link.getAttribute("href") === "https://www.rottentomatoes.com/m/air_bud"
       && rowImg && rowImg.getAttribute("src").indexOf("air_bud_poster.jpg") >= 0;
-  }), "clicking an owned movie shows its poster and Rotten Tomatoes scores");
+  }), "clicking an owned movie shows its poster, the critic average, and the user average");
   await page.evaluate(() => { const b = document.getElementById("detailClose"); if (b) b.click(); });
   await sleep(40);
   ok(await page.evaluate(() => {
@@ -829,6 +883,7 @@ async function sectionUi(browser) {
 (async () => {
   const wiki = await serveWiki();
   const xai = await serveXAI();
+  const rt = await serveRt();
   try {
     await sectionServer();
   } catch (err) {
@@ -852,6 +907,7 @@ async function sectionUi(browser) {
     srv.close();
     wiki.close();
     xai.close();
+    rt.close();
   }
   console.log("\n" + pass + " passed, " + fail + " failed");
   if (failures.length) {

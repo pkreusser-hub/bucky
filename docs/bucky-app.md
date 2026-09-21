@@ -2101,3 +2101,31 @@ Suite: `node tools/_verify-movies.cjs` (**87/87**). Bite against `999bfcc`
 `movies.html` + `movies.mjs`: **74 passed, 13 failed** — the score parser,
 the poster request, the year pick, and the sheet.
 ---
+
+# User average beside the critic average (2026-09-21)
+
+The sheet already showed the critic average. It now also shows the user
+average. Wikidata's critic average (Q108403540) is the fallback, and
+Wikidata has no user average. When the film's Rotten Tomatoes page loads,
+the `mediaScorecard` script replaces the Wikidata numbers. The user average
+is `audienceScore.averageRating`, out of 5. The critic average is
+`criticsScore.averageRating`, out of 10. A 4.2 critic average is not the
+user average, and a number past its scale is dropped. The Tomatometer and
+the Popcornmeter on that card replace the Wikidata percents when they are
+present. A 403 or a page with no scorecard leaves the Wikidata numbers and
+a null user average. A missing score stays blank. A real 0 stays 0.
+
+The sheet order is Tomatometer, critic average, user average, then the
+audience percent when the page has one.
+
+Measured the same day from the scorecard: Air Bud is user 3/5, audience
+38%, critic 5.00/10, Tomatometer 50%. The Iron Giant is user 4.3/5,
+audience 90%, critic 8.50/10, Tomatometer 96%. Toy Story is user 3.8/5 and
+critic 9.40/10. Paddington 2 is user 4.3/5 and critic 8.70/10. Super
+Buddies has a user average and no critic average.
+
+Suite: `node tools/_verify-movies.cjs` (**93/93**). Bite against `56083ec`
+`movies.html` + `movies.mjs`: **81 passed, 12 failed** — the scorecard
+parser, the page replacing Wikidata, a refused page keeping the Wikidata
+Tomatometer, and the user-average line on the sheet.
+---
