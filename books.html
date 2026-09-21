@@ -408,11 +408,20 @@
     if (book.cover) return '<img src="' + book.cover + '" alt="">';
     return '<div class="cover">No cover</div>';
   }
+  function communityScore(book) {
+    // User stars live in `rating`. A null there is "not rated yet", not 0.00 —
+    // Number(null) is 0, which painted a 4.20 Open Library book as 0.00 on the shelf.
+    var raw = (book.communityRating != null && book.communityRating !== "") ? book.communityRating : book.rating;
+    if (raw == null || raw === "") return null;
+    var n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
   function ratingLabel(book) {
-    if (!Number.isFinite(Number(book.rating))) return "No community rating yet";
+    var score = communityScore(book);
+    if (score == null) return "No community rating yet";
     var n = Number(book.ratingsCount);
     var src = book.ratingSource === "goodreads" ? "Goodreads" : (book.ratingSource === "google-books" ? "Google Books" : "Open Library");
-    return Number(book.rating).toFixed(2) + " from " + src + (Number.isFinite(n) ? " (" + n + ")" : "");
+    return score.toFixed(2) + " from " + src + (Number.isFinite(n) ? " (" + n + ")" : "");
   }
 
   function paintProfiles() {
@@ -561,6 +570,7 @@
       description: book.description,
       subjects: book.subjects || [],
       rating: null,
+      communityRating: (book.rating == null || book.rating === "") ? null : (Number.isFinite(Number(book.rating)) ? Number(book.rating) : null),
       political: Number.isFinite(Number(book.political)) ? Number(book.political) : 0,
       woke: Number.isFinite(Number(book.woke)) ? Number(book.woke) : 0,
       evidence: book.evidence || [],

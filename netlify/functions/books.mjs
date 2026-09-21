@@ -38,15 +38,18 @@ const ALLOWED_ORIGINS = new Set([
   "https://amenfarms.netlify.app",
   "http://localhost:8080",
   "http://localhost:3000",
+  "http://localhost:8791",
   "http://127.0.0.1:8080",
   "http://127.0.0.1:3000",
+  "http://127.0.0.1:8791",
+  "http://127.0.0.1:8894",
 ]);
 
 const OL_BASE = process.env.BOOKS_OL_BASE || "https://openlibrary.org";
 const GB_BASE = process.env.BOOKS_GB_BASE || "https://www.googleapis.com";
 const GR_BASE = process.env.BOOKS_GR_BASE || "https://www.goodreads.com";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 BuckyBooks/1.0";
-const FETCH_TIMEOUT_MS = 6000;
+const FETCH_TIMEOUT_MS = 8000;
 const MAX_Q = 80;
 const MAX_RESULTS = 8;
 const MAX_REVIEWS = 5;
@@ -170,15 +173,15 @@ export const WOKE_PHRASES = [
 ];
 
 function scoreAxis(hay, phrases) {
-  let raw = 0;
-  const evidence = [];
+  const hits = [];
   for (const { phrase, weight } of phrases) {
-    if (hay.includes(phrase)) {
-      raw += weight;
-      evidence.push(phrase);
-    }
+    if (hay.includes(phrase)) hits.push({ phrase, weight });
   }
-  return { raw, score: Math.min(5, raw), evidence };
+  // "privilege" is also inside "white privilege" — keep the longer hit only,
+  // so the shorter tag does not add a phantom extra point.
+  const kept = hits.filter((h) => !hits.some((o) => o.phrase !== h.phrase && o.phrase.includes(h.phrase)));
+  const raw = kept.reduce((s, h) => s + h.weight, 0);
+  return { raw, score: Math.min(5, raw), evidence: kept.map((h) => h.phrase) };
 }
 
 export function scorePolitics(book) {

@@ -212,6 +212,8 @@ async function sectionServer() {
   ok(frag.woke === 5 && frag.political === 0, "White Fragility is woke 5 / political 0 (3+3 capped)");
   ok(frag.evidence.indexOf("white fragility") >= 0 && frag.evidence.indexOf("white privilege") >= 0,
     "…and names the two phrases that produced it");
+  ok(frag.evidence.indexOf("privilege") < 0,
+    "…without also counting the shorter 'privilege' inside 'white privilege'");
   ok(frag.confidence === "high", "two hits / raw 6 is high confidence");
 
   const farm = mod.scorePolitics({ title: "Animal Farm", description: ANIMAL_DESC, subjects: [] });
@@ -468,6 +470,10 @@ async function sectionUi(browser) {
   await sleep(80);
   ok(await page.evaluate(() => window.__BOOKS__.current().shelf.length === 1), "tapping a hit adds it to the shelf");
   ok(await page.evaluate(() => window.__BOOKS__.current().shelf[0].woke === 0), "the shelf keeps the 0 woke score");
+  ok(await page.evaluate(() => {
+    const meta = document.querySelector("#shelfList .meta").textContent.replace(/\s+/g, " ");
+    return /4\.20/.test(meta) && !/0\.00/.test(meta);
+  }), "the shelf keeps the community 4.20; a null user rating is not Number(null)→0.00");
 
   await page.evaluate(() => { document.getElementById("recBtn").click(); });
   await page.waitForFunction(() => document.querySelectorAll("#recs .book").length >= 1, { timeout: 10000 });
