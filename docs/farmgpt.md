@@ -2427,3 +2427,12 @@ is this page in a persistent iframe; the inline handler sets
 (the odd-last-child span is unused). Suite: `node tools/_verify-books.cjs` —
 **87/87**. Bite (`farmgpt.html` at `origin/main`, suite kept): **76/5** — the
 new FarmGPT-card checks fail; the original 76 still pass.
+
+## FarmGPT home — Movies card (2026-09-21)
+
+`#cardMovies` follows `#cardBooks` and links to `movies.html`. The film mark
+is an inline SVG. On a 390-wide phone, Story / Research / Teacher / Bookshelf
+stay a 2×2 and Movies spans the row. From the AI-tab iframe the inline
+handler sets `window.top.location.href`. Suite: `node tools/_verify-movies.cjs`
+**63/63**. Books suite still **139/139**. Bite (`farmgpt.html` + `index.html`
++ `activity.html` at `1cd08b8`, movies page kept): **53 passed, 7 failed**.

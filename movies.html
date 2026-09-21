@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#3f5c46" />
+<title>Bucky — Movies</title>
+<link rel="icon" href="bucky.png" />
+<link rel="apple-touch-icon" href="bucky.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --navy: #3f5c46;
+    --navy-d: #2f4634;
+    --red: #b8552f;
+    --ink: #26332b;
+    --ink-2: #4b584e;
+    --muted: #8b9184;
+    --line: #e3ded0;
+    --card: #fffdf8;
+    --bg: #f4f1e8;
+    --done: #eee9dc;
+    --shadow: 0 1px 2px rgba(38,51,43,.06), 0 4px 12px rgba(38,51,43,.05);
+    --amber: #c08a3e;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    min-height: 100dvh;
+    background: var(--bg);
+    padding-bottom: calc(env(safe-area-inset-bottom) + 118px);
+    -webkit-font-smoothing: antialiased;
+  }
+  [hidden] { display: none !important; }
+  header {
+    background: linear-gradient(160deg, var(--navy) 0%, var(--navy-d) 100%);
+    color: #fff;
+    padding: calc(env(safe-area-inset-top) + 14px) 16px 16px;
+    position: sticky; top: 0; z-index: 30;
+    box-shadow: 0 4px 20px rgba(24,35,59,.28);
+  }
+  #bar { display: flex; align-items: center; gap: 10px; }
+  #bar a {
+    color: #fff; text-decoration: none; font-weight: 800; font-size: 14px;
+    background: rgba(255,255,255,.16); padding: 7px 12px; border-radius: 9px; flex: 0 0 auto;
+  }
+  #bar .t { font-family: Fraunces, Georgia, serif; font-size: 20px; font-weight: 700; letter-spacing: .2px; }
+  .subloc { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: rgba(255,255,255,.78); }
+  main { max-width: 720px; margin: 0 auto; padding: 16px 14px 24px; display: flex; flex-direction: column; gap: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: var(--shadow); padding: 14px;
+  }
+  .section-label {
+    font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .55px;
+    color: var(--navy); margin: 0 0 4px;
+  }
+  .section-note { font-size: 12.5px; font-weight: 600; color: var(--muted); margin: 0 0 12px; line-height: 1.45; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    border: 1px solid var(--line); background: #efeadd; color: var(--ink);
+    font: inherit; font-size: 13px; font-weight: 700; padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  }
+  .chip.active { background: var(--navy); color: #fffdf8; border-color: var(--navy); }
+  .chip .x { margin-left: 6px; font-weight: 800; }
+  .row { display: flex; gap: 8px; }
+  .row input {
+    flex: 1; min-width: 0; padding: 11px 12px; font: inherit; font-size: 15px;
+    border: 1px solid var(--line); border-radius: 12px; background: #fff;
+  }
+  button.primary, button.ghost {
+    border: 0; border-radius: 12px; font: inherit; font-weight: 800; padding: 11px 14px; cursor: pointer;
+  }
+  button.primary { background: var(--navy); color: #fff; }
+  button.ghost { background: #efeadd; color: var(--navy); }
+  button:disabled { opacity: .55; cursor: default; }
+  .movie {
+    display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: start;
+    padding: 10px 0; border-top: 1px solid var(--line);
+  }
+  .movie:first-child { border-top: 0; padding-top: 0; }
+  .movie img, .cover {
+    width: 56px; height: 80px; object-fit: cover; border-radius: 6px; background: #efeadd; color: var(--muted);
+    display: grid; place-items: center; font-size: 11px; font-weight: 700; text-align: center; padding: 4px;
+  }
+  .movie .t { font-weight: 800; font-size: 15px; }
+  .movie .a { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .movie .meta { font-size: 12px; color: var(--ink-2); font-weight: 600; margin-top: 4px; }
+  .stars { display: flex; gap: 2px; margin-top: 6px; }
+  .stars button {
+    border: 0; background: transparent; color: var(--muted); font-size: 16px; font-weight: 800; cursor: pointer; padding: 0 2px;
+  }
+  .stars button.on { color: var(--amber); }
+  .hit { cursor: pointer; }
+  .empty { font-size: 13.5px; font-weight: 600; color: var(--muted); padding: 8px 2px; }
+  .why { font-size: 12.5px; color: var(--ink-2); font-weight: 600; margin-top: 4px; }
+  .summary { font-size: 13.5px; line-height: 1.45; font-weight: 600; margin-top: 6px; }
+  .err { color: var(--red); font-size: 13px; font-weight: 700; min-height: 18px; }
+  .embedded #buckyNav, .embedded #sidenav { display: none !important; }
+  .embedded body { padding-bottom: 16px; padding-left: 0 !important; }
+  .embedded #backLink { display: none !important; }
+  #buckyNav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(var(--bnav-cols, 6), minmax(0, 1fr));
+    gap: 2px 4px;
+    background: rgba(255,253,248,.94);
+    -webkit-backdrop-filter: saturate(1.3) blur(14px); backdrop-filter: saturate(1.3) blur(14px);
+    border-top: 1px solid #d7e0f0;
+    padding: 3px 6px calc(env(safe-area-inset-bottom) + 3px);
+    box-shadow: 0 -2px 16px rgba(35,51,87,.08);
+  }
+  #buckyNav a {
+    min-width: 0; text-decoration: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 5px 0 4px; border-radius: 12px; color: #5d6b86;
+  }
+  #buckyNav a .bico { font-size: 21px; line-height: 1; display: flex; align-items: center; justify-content: center; height: 20px; }
+  #buckyNav a .blabel { font-size: 10px; font-weight: 700; letter-spacing: .1px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #buckyNav a.active { color: #fffdf8; background: var(--navy); }
+  @media (min-width: 700px) and (max-width: 1023.98px) {
+    #buckyNav { grid-template-columns: repeat(var(--bnav-all, 12), minmax(0, 96px)); justify-content: center; gap: 6px; }
+  }
+  #sidenav { display: none; }
+  @media (min-width: 1024px) {
+    :root { --sidenav-w: 230px; }
+    body { padding-left: var(--sidenav-w); padding-bottom: 0; }
+    #sidenav {
+      display: flex; flex-direction: column;
+      position: fixed; top: 0; bottom: 0; left: 0; width: var(--sidenav-w); z-index: 50;
+      background: linear-gradient(180deg, #4a6b52 0%, var(--navy) 55%, var(--navy-d) 100%);
+      border-right: 1px solid rgba(255,255,255,.10);
+      overflow-y: auto;
+    }
+    .sn-brand {
+      display: block; width: 100%; text-align: left; text-decoration: none;
+      padding: 20px 18px 16px; border-bottom: 1px solid rgba(255,255,255,.12); color: #fff;
+    }
+    .sn-brand .sn-name { font-family: Fraunces, Georgia, serif; font-size: 22px; font-weight: 800; }
+    .sn-brand .sn-sub { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,.62); margin-top: 4px; }
+    .sn-list { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px 20px; }
+    .sn-item {
+      display: flex; align-items: center; gap: 11px; text-decoration: none; color: rgba(255,255,255,.80);
+      padding: 10px 12px; border-radius: 11px; border-left: 3px solid transparent; font-weight: 700;
+    }
+    .sn-item.active { background: rgba(255,255,255,.15); color: #fff; border-left-color: var(--red); }
+    #backLink { display: none; }
+    #buckyNav { display: none; }
+    main { max-width: 900px; padding: 20px 24px 32px; }
+  }
+</style>
+<script src="/assets/activity.js" data-feature="movies" defer></script>
+<script>
+if (window.self !== window.top) document.documentElement.classList.add("embedded");
+</script>
+</head>
+<body>
+<nav id="sidenav" aria-label="BUCKY sections"></nav>
+<header>
+  <div id="bar">
+    <a href="index.html" id="backLink">← Bucky</a>
+    <span class="t">Movies</span>
+  </div>
+  <p class="subloc">What the family already owns, and five to watch next</p>
+</header>
+<main>
+  <section class="card" aria-labelledby="whoLabel">
+    <h2 class="section-label" id="whoLabel">Whose list</h2>
+    <p class="section-note">The owned library is the same on every person. Stars are theirs alone.</p>
+    <div class="chips" id="profileChips"></div>
+    <div class="row" style="margin-top:10px">
+      <input id="newProfile" type="text" maxlength="24" placeholder="Add a person" autocomplete="off" />
+      <button type="button" class="primary" id="addProfile">Add</button>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="intLabel">
+    <h2 class="section-label" id="intLabel">Interests</h2>
+    <div class="chips" id="interestChips"></div>
+    <div class="row" style="margin-top:10px">
+      <input id="newInterest" type="text" maxlength="40" placeholder="family, adventure, sports" autocomplete="off" />
+      <button type="button" class="ghost" id="addInterest">Add</button>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="recLabel">
+    <h2 class="section-label" id="recLabel">Next to watch</h2>
+    <p class="section-note">Five movies you do not already own, from this list and your stars, written by Grok.</p>
+    <button type="button" class="primary" id="recBtn">Recommend</button>
+    <div class="err" id="recErr"></div>
+    <div id="recs"></div>
+  </section>
+
+  <section class="card" aria-labelledby="shelfLabel">
+    <h2 class="section-label" id="shelfLabel">Owned</h2>
+    <div class="row">
+      <input id="searchQ" type="text" maxlength="80" placeholder="Search a movie to add" autocomplete="off" />
+      <button type="button" class="primary" id="searchBtn">Search</button>
+    </div>
+    <div class="err" id="searchErr"></div>
+    <div id="searchHits"></div>
+    <div id="shelfList"></div>
+  </section>
+</main>
+<nav id="buckyNav" aria-label="BUCKY sections"></nav>
+<script>
+(function () {
+  var BANK_KIDS = ["Isaac", "Eleanor"];
+  var BANK_USERS = ["Eleanor", "Isaac", "Dad"];
+  var MEAL_USERS = ["Mom", "Dad"];
+  var FITNESS_USERS = ["Isaac", "Eleanor", "Dad"];
+  var me = localStorage.getItem("choreUser") || "";
+  function seesBank(){ return BANK_USERS.indexOf(me) >= 0; }
+  function seesFinance(){ return BANK_KIDS.indexOf(me) < 0; }
+  function seesMeals(){ return MEAL_USERS.indexOf(me) >= 0; }
+  function seesFitness(){ return FITNESS_USERS.indexOf(me) >= 0; }
+  var NAV_PATHS = {
+    home:  "M3 11 L12 4 L21 11 M5 10 V20 H19 V10",
+    plan:  "M4 6 H20 V20 H4 Z M4 10 H20 M8 4 V8 M16 4 V8",
+    meals: "M4 12 A8 8 0 1 0 20 12 A8 8 0 1 0 4 12 M9 12 A3 3 0 1 0 15 12 A3 3 0 1 0 9 12",
+    tasks: "M4 12 A8 8 0 1 0 20 12 A8 8 0 1 0 4 12 M8.5 12.5 L11 15 L15.5 9.5",
+    fit:   "M7 8 V16 M4 10 V14 M17 8 V16 M20 10 V14 M7 12 H17",
+    news:  "M5 5 H19 V19 H5 Z M8 9 H16 M8 12 H16 M8 15 H13",
+    sports:"M4 20 C4 12 12 4 20 4 C20 12 12 20 4 20 Z M9 15 L15 9 M10 12 L12 14 M12 10 L14 12",
+    gffl:  "M8 4 H16 V10 A4 4 0 0 1 8 10 Z M8 5.5 H5 A3 3 0 0 0 8.5 9.5 M16 5.5 H19 A3 3 0 0 1 15.5 9.5 M12 14 V17 M9 20 H15 M10 17 H14 L15 20 M9 20 L10 17",
+    wo:    "M4 9 H20 V19 H4 Z M9 9 V7 A3 3 0 0 1 15 7 V9 M4 13 H20",
+    shop:  "M6 8 H18 L17 20 H7 Z M9 8 V6 A3 3 0 0 1 15 6 V8",
+    bank:  "M12 4 V20 M16 7 H10 A2.5 2.5 0 0 0 10 12 H14 A2.5 2.5 0 0 1 14 17 H8",
+    finance: "M23 6 L13.5 15.5 L8.5 10.5 L1 18 M17 6 L23 6 L23 12",
+    farm:  "M4 11 L12 4 L20 11 V20 H4 Z M10 20 V14 H14 V20",
+    gpt:   "M12 3 L14 10 L21 12 L14 14 L12 21 L10 14 L3 12 L10 10 Z",
+    play:  "M8 6 L18 12 L8 18 Z"
+  };
+  function svgIcon(path){
+    return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + path + '"/></svg>';
+  }
+  function navAreaLabel(g){ return g.gid === "bank" ? (BANK_KIDS.indexOf(me) >= 0 ? "Bank" : "Finance") : g.name; }
+  function navAreaIconPath(g){ return g.gid === "bank" ? (BANK_KIDS.indexOf(me) >= 0 ? NAV_PATHS.bank : NAV_PATHS.finance) : NAV_PATHS[g.gid]; }
+  function navAreaHref(g){ return g.gid === "bank" ? (BANK_KIDS.indexOf(me) >= 0 ? "index.html#farmbank" : "index.html#finance") : g.href; }
+  var NAV_GROUPS = [
+    { gid:"home",  name:"Home",  href:"index.html#dashboard" },
+    { gid:"plan",  name:"Plan",  href:"index.html#calendar" },
+    { gid:"meals", name:"Meals", href:"index.html#mealplan", gate:seesMeals },
+    { gid:"tasks", name:"Chores",href:"index.html#chores" },
+    { gid:"fit",   name:"Fit",   href:"index.html#fitness",  gate:seesFitness },
+    { gid:"news",  name:"News",  href:"index.html#news" },
+    { gid:"sports",name:"Sports",href:"index.html#sports" },
+    { gid:"gffl",  name:"GFFL",  href:"index.html#gffl" },
+    { gid:"wo",    name:"Jobs",  href:"index.html#workorders" },
+    { gid:"shop",  name:"Shop",  href:"index.html#shopping" },
+    { gid:"bank",  name:"Bank",  href:"index.html#farmbank", gate:function(){ return seesBank() || seesFinance(); } },
+    { gid:"farm",  name:"Farm",  href:"index.html#goathooves" },
+    { gid:"gpt",   name:"AI",    href:"index.html#farmgpt" },
+    { gid:"play",  name:"Play",  href:"games.html" }
+  ];
+  var shown = NAV_GROUPS.filter(function (g) { return !g.gate || g.gate(); });
+  var bnav = document.getElementById("buckyNav");
+  bnav.style.setProperty("--bnav-cols", Math.ceil(shown.length / 2));
+  bnav.style.setProperty("--bnav-all", shown.length);
+  shown.forEach(function (g) {
+    var a = document.createElement("a");
+    a.href = navAreaHref(g);
+    var label = navAreaLabel(g);
+    var ico = document.createElement("span"); ico.className = "bico"; ico.innerHTML = svgIcon(navAreaIconPath(g));
+    var lbl = document.createElement("span"); lbl.className = "blabel"; lbl.textContent = label;
+    a.append(ico, lbl);
+    a.title = label;
+    a.setAttribute("aria-label", label);
+    bnav.appendChild(a);
+  });
+  var sn = document.getElementById("sidenav");
+  var brand = document.createElement("a");
+  brand.className = "sn-brand"; brand.href = "index.html#dashboard";
+  brand.setAttribute("aria-label", "Back to dashboard");
+  var bn = document.createElement("div"); bn.className = "sn-name"; bn.textContent = "Bucky";
+  var bs = document.createElement("div"); bs.className = "sn-sub"; bs.textContent = "Family Farm Hub";
+  brand.append(bn, bs);
+  sn.appendChild(brand);
+  var list = document.createElement("div"); list.className = "sn-list";
+  shown.forEach(function (g) {
+    var a = document.createElement("a");
+    a.className = "sn-item";
+    a.href = navAreaHref(g);
+    var label = navAreaLabel(g);
+    var ico = document.createElement("span"); ico.className = "sn-ico"; ico.innerHTML = svgIcon(navAreaIconPath(g));
+    var lbl = document.createElement("span"); lbl.className = "sn-label"; lbl.textContent = label;
+    a.append(ico, lbl);
+    list.appendChild(a);
+  });
+  sn.appendChild(list);
+})();
+</script>
+<script>
+(function () {
+  "use strict";
+  var FAMILY_PASSWORD = "amenfarms";
+  var ENDPOINT = "/.netlify/functions/movies";
+  var STORE = "movies_profiles_v1";
+  // Purchases & Rentals export. Format tags and bonus-material discs are
+  // folded into the feature. A Remove is remembered on that person only.
+  // importOwned must not write state.currentId.
+  var OWNED = ["Star Wars: A New Hope","Despicable Me","Big Hero 6","Tinker Bell and the Legend of NeverBeast","Pride & Prejudice","Winnie The Pooh","The Santa Clause","Jingle All the Way","Monsters University","A Bug's Life","Monsters, Inc.","The LEGO Movie","Ice Age: The Meltdown","Ice Age","The Pirate Fairy","Cloudy with a Chance of Meatballs 2","Wreck-It Ralph","Cloudy with a Chance of Meatballs","Cars","Toy Story 3","Frozen","Toy Story 2","Toy Story","The Incredibles","Despicable Me 2","Love Actually","Home Alone","Finding Nemo","Groundhog Day","Home Alone 2: Lost in New York","The Holiday","Shaun the Sheep: The Flight Before Christmas","Master And Commander","Cheaper By The Dozen (2003)","Father of the Bride Part II","The Little Mermaid: Ariel's Beginning","The Lion King","Cinderella III: A Twist in Time","Beauty and the Beast","Tinker Bell and the Great Fairy Rescue","Snow White and the Seven Dwarfs","Curious George: A Very Monkey Christmas","Rudolph the Red-Nosed Reindeer","The Santa Clause 2","Pixie Hollow Games, Disney Fairies","Frosty the Snowman","Tinker Bell and the Lost Treasure","Cinderella II: Dreams Come True","Secret of the Wings","Tinker Bell","Cinderella","Air Bud: Seventh Inning Fetch","Franklin and the Turtle Lake Treasure","Spooky Buddies","The Martian","Air Buddies","The Sandlot","Franklin and the Green Knight","Super Buddies","Treasure Buddies","Air Bud: Golden Receiver","Air Bud","Snow Buddies","Madagascar","The Little Mermaid","Kung Fu Panda 2","Shrek","Finding Dory","Jonah: A VeggieTales Movie","VeggieTales: LarryBoy and the Fib from Outer Space","The Aristocats","A Charlie Brown Christmas","Elf","Up","Inside Out","Back to the Future","Star Wars: The Phantom Menace","Star Wars: The Empire Strikes Back","Star Wars: Revenge of the Sith","Star Wars: Return of the Jedi","Star Wars: Attack of the Clones","Titan A.E.","How to Train Your Dragon: The Hidden World","Sky High (2005)","Father of the Bride","Galaxy Quest","The Chronicles of Narnia: The Lion, the Witch and the Wardrobe","Angels in the Outfield","Miracle","Smart House","A Knight's Tale","Kung Fu Panda 3","National Lampoon's Christmas Vacation","National Treasure","The Santa Clause 3: The Escape Clause","Treasure Planet","The Lord of the Rings: The Two Towers","Turbo","The Lord of the Rings: The Fellowship of the Ring","Atlantis: The Lost Empire","Minions: The Rise of Gru","PAW Patrol: The Movie","The Princess Bride","The Lego Movie 2: The Second Part","How the Grinch Stole Christmas","The Muppet Christmas Carol","Muppet Treasure Island","Race for Your Life, Charlie Brown","Pirates of the Caribbean: The Curse of the Black Pearl","The Princess Diaries","PAW Patrol: Jet to the Rescue","Wimbledon","Ice Age: Collision Course","Cheaper By The Dozen 2","The Swan Princess","Ice Age: Continental Drift","Ice Age: Dawn of the Dinosaurs","Transformers","Night at the Museum","The Parent Trap (1998)","A League of Their Own","The Super Mario Bros. Movie","Kung Fu Panda","Failure to Launch","Mulan","Emma","Down Periscope","Mary Poppins","Tangled","The Secret Garden (1993)","Santa Claus Is Comin' to Town","Miracle On 34th Street","A Christmas Story","Space Buddies","Santa Buddies","The Polar Express","The Importance Of Being Earnest","Willy Wonka & the Chocolate Factory","Toy Story 4","Penguins of Madagascar","The Princess Diaries 2: Royal Engagement","How to Train Your Dragon 2","How to Train Your Dragon","Deepwater Horizon","Jumanji","Lilo & Stitch","The Big Short","Twister","Lady and the Tramp II: Scamp's Adventure","Little Mermaid II: Return to The Sea","The Emperor's New Groove","Two Weeks Notice","Sleeping Beauty","Lady and the Tramp","Phineas and Ferb The Movie: Across the 2nd Dimension","Hercules","Minions","Despicable Me 3"];
+
+  function $(id) { return document.getElementById(id); }
+  function uid() { return "p" + Math.random().toString(36).slice(2, 8); }
+  function blankProfile(name) {
+    return { id: uid(), name: name, interests: [], shelf: [], removed: {} };
+  }
+  function loadState() {
+    var fallbackName = localStorage.getItem("choreUser") || "Family";
+    try {
+      var raw = JSON.parse(localStorage.getItem(STORE) || "null");
+      if (raw && Array.isArray(raw.profiles) && raw.profiles.length) {
+        if (!raw.currentId || !raw.profiles.some(function (p) { return p.id === raw.currentId; })) {
+          raw.currentId = raw.profiles[0].id;
+        }
+        return raw;
+      }
+    } catch (e) { /* corrupt store → start clean */ }
+    var p = blankProfile(fallbackName);
+    return { version: 1, currentId: p.id, profiles: [p] };
+  }
+  function saveState() {
+    localStorage.setItem(STORE, JSON.stringify(state));
+  }
+  function current() {
+    return state.profiles.find(function (p) { return p.id === state.currentId; }) || state.profiles[0];
+  }
+  var state = loadState();
+
+  function seedKey(title) { return String(title || "").trim().toLowerCase(); }
+  function importOwned(p) {
+    if (!p.removed || typeof p.removed !== "object") p.removed = {};
+    if (!Array.isArray(p.shelf)) p.shelf = [];
+    var keep = {};
+    OWNED.forEach(function (title) { keep[seedKey(title)] = 1; });
+    var changed = 0;
+    p.shelf = p.shelf.filter(function (m) {
+      if (String(m.id || "").indexOf("own-") !== 0) return true;
+      if (keep[seedKey(m.title)]) return true;
+      changed++;
+      return false;
+    });
+    var have = {};
+    p.shelf.forEach(function (m) { have[seedKey(m.title)] = 1; });
+    OWNED.forEach(function (title) {
+      var k = seedKey(title);
+      if (p.removed[k] || have[k]) return;
+      p.shelf.push({
+        id: "own-" + k.replace(/[^a-z0-9]+/g, "-").slice(0, 40),
+        title: title,
+        director: "",
+        year: null,
+        genre: "",
+        cover: "",
+        description: "",
+        rating: null,
+        communityRating: null,
+        ratingsCount: null,
+        ratingSource: "",
+      });
+      have[k] = 1;
+      changed++;
+    });
+    return changed;
+  }
+
+  function titleSortKey(movie) {
+    var t = String((movie && movie.title) || "").trim().toLowerCase();
+    var stripped = t.replace(/^(a|an|the)\s+/, "");
+    return (stripped || "\uffff") + "\0" + t;
+  }
+  function sortedShelf(shelf) {
+    return (shelf || []).slice().sort(function (a, b) {
+      var ka = titleSortKey(a), kb = titleSortKey(b);
+      if (ka < kb) return -1;
+      if (ka > kb) return 1;
+      return 0;
+    });
+  }
+  function coverHtml(movie) {
+    if (movie.cover) return '<img src="' + movie.cover + '" alt="">';
+    return '<div class="cover">No cover</div>';
+  }
+  function metaLine(movie) {
+    var bits = [];
+    if (movie.year) bits.push(String(movie.year));
+    if (movie.genre) bits.push(movie.genre);
+    var score = movie.communityRating;
+    if (score != null && score !== "" && Number.isFinite(Number(score))) {
+      var n = Number(movie.ratingsCount);
+      var srcName = movie.ratingSource === "itunes" ? " from iTunes" : "";
+      bits.push(Number(score).toFixed(2) + srcName + (Number.isFinite(n) ? " (" + n + ")" : ""));
+    }
+    return bits.join(" · ");
+  }
+  function starRow(movie, onRate) {
+    var wrap = document.createElement("div");
+    wrap.className = "stars";
+    var filled = Number.isFinite(Number(movie.rating)) ? Number(movie.rating) : 0;
+    for (var i = 1; i <= 5; i++) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = i <= filled ? "\u2605" : "\u2606";
+      if (i <= filled) b.className = "on";
+      b.setAttribute("aria-label", "Rate " + i);
+      (function (n) { b.onclick = function (ev) { ev.stopPropagation(); onRate(n); }; })(i);
+      wrap.appendChild(b);
+    }
+    return wrap;
+  }
+  function paintProfiles() {
+    var box = $("profileChips");
+    box.innerHTML = "";
+    state.profiles.forEach(function (p) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip" + (p.id === state.currentId ? " active" : "");
+      b.textContent = p.name;
+      b.onclick = function () { state.currentId = p.id; saveState(); paint(); };
+      box.appendChild(b);
+    });
+  }
+  function paintInterests() {
+    var box = $("interestChips");
+    box.innerHTML = "";
+    var p = current();
+    if (!p.interests || !p.interests.length) {
+      var e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "No interests yet.";
+      box.appendChild(e);
+      return;
+    }
+    p.interests.forEach(function (tag, i) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.appendChild(document.createTextNode(tag));
+      var x = document.createElement("span"); x.className = "x"; x.textContent = "x";
+      b.appendChild(x);
+      b.onclick = function () { p.interests.splice(i, 1); saveState(); paintInterests(); };
+      box.appendChild(b);
+    });
+  }
+  function paintShelf() {
+    var box = $("shelfList");
+    box.innerHTML = "";
+    var p = current();
+    if (!p.shelf.length) {
+      var e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "Nothing owned yet. Search a title above.";
+      box.appendChild(e);
+      return;
+    }
+    sortedShelf(p.shelf).forEach(function (movie) {
+      var row = document.createElement("div");
+      row.className = "movie";
+      row.innerHTML = coverHtml(movie) + '<div><div class="t"></div><div class="a"></div><div class="meta"></div></div>';
+      row.querySelector(".t").textContent = movie.title;
+      row.querySelector(".a").textContent = movie.director || "";
+      row.querySelector(".meta").textContent = metaLine(movie);
+      var mid = row.children[1];
+      mid.appendChild(starRow(movie, function (n) {
+        movie.rating = n;
+        saveState();
+        paintShelf();
+      }));
+      var rm = document.createElement("button");
+      rm.type = "button"; rm.className = "ghost"; rm.textContent = "Remove";
+      rm.style.marginTop = "8px";
+      rm.onclick = function (ev) {
+        ev.stopPropagation();
+        var i = p.shelf.indexOf(movie);
+        if (i >= 0) p.shelf.splice(i, 1);
+        if (!p.removed || typeof p.removed !== "object") p.removed = {};
+        p.removed[seedKey(movie.title)] = 1;
+        saveState();
+        paintShelf();
+      };
+      mid.appendChild(rm);
+      box.appendChild(row);
+    });
+  }
+  function paintHits(movies) {
+    var box = $("searchHits");
+    box.innerHTML = "";
+    (movies || []).forEach(function (movie) {
+      var row = document.createElement("div");
+      row.className = "movie hit";
+      row.innerHTML = coverHtml(movie) + '<div><div class="t"></div><div class="a"></div><div class="meta"></div></div>';
+      row.querySelector(".t").textContent = movie.title;
+      row.querySelector(".a").textContent = movie.director || "";
+      row.querySelector(".meta").textContent = metaLine(movie);
+      row.onclick = function () { addToShelf(movie); };
+      box.appendChild(row);
+    });
+  }
+  function paintRecs(movies) {
+    var box = $("recs");
+    box.innerHTML = "";
+    if (!movies || !movies.length) {
+      var e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "No picks yet. Tap Recommend.";
+      box.appendChild(e);
+      return;
+    }
+    movies.forEach(function (movie) {
+      var row = document.createElement("div");
+      row.className = "movie";
+      row.innerHTML = coverHtml(movie) + '<div><div class="t"></div><div class="a"></div><div class="summary"></div><div class="why"></div></div>';
+      row.querySelector(".t").textContent = movie.title;
+      row.querySelector(".a").textContent = movie.director || "";
+      row.querySelector(".summary").textContent = movie.summary || "";
+      row.querySelector(".why").textContent = movie.why || "";
+      box.appendChild(row);
+    });
+  }
+  function addToShelf(movie) {
+    var p = current();
+    var key = seedKey(movie.title);
+    if (p.shelf.some(function (m) { return seedKey(m.title) === key; })) {
+      $("searchErr").textContent = "Already owned.";
+      return;
+    }
+    if (p.removed && p.removed[key]) delete p.removed[key];
+    p.shelf.push({
+      id: movie.id || ("add-" + key.replace(/[^a-z0-9]+/g, "-").slice(0, 40)),
+      title: movie.title,
+      director: movie.director || "",
+      year: movie.year || null,
+      genre: movie.genre || "",
+      cover: movie.cover || "",
+      description: movie.description || "",
+      rating: null,
+      communityRating: (movie.communityRating == null || movie.communityRating === "") ? null : (Number.isFinite(Number(movie.communityRating)) ? Number(movie.communityRating) : null),
+      ratingsCount: Number.isFinite(Number(movie.ratingsCount)) ? Number(movie.ratingsCount) : null,
+      ratingSource: movie.ratingSource || "",
+    });
+    $("searchHits").innerHTML = "";
+    $("searchQ").value = "";
+    $("searchErr").textContent = "";
+    saveState();
+    paintShelf();
+  }
+  function readBody(text) {
+    var raw = String(text || "");
+    var cut = raw.lastIndexOf("\n");
+    var slice = (cut >= 0 ? raw.slice(cut + 1) : raw).trim();
+    if (!slice) return {};
+    return JSON.parse(slice);
+  }
+  async function api(action, extra) {
+    var body = Object.assign({ secret: FAMILY_PASSWORD, action: action }, extra || {});
+    var r = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    var data = {};
+    try { data = readBody(await r.text()); } catch (e) { data = { error: "Bad reply" }; }
+    if (!r.ok) throw new Error((data && data.error && data.error !== "Bad reply") ? data.error : ("HTTP " + r.status));
+    if (data && data.error === "Bad reply") throw new Error("Bad reply");
+    return data;
+  }
+  async function doSearch() {
+    var q = $("searchQ").value.trim();
+    $("searchErr").textContent = "";
+    if (!q) { $("searchErr").textContent = "Type a title."; return; }
+    $("searchBtn").disabled = true;
+    try {
+      var res = await api("search", { q: q });
+      paintHits(res.movies || []);
+      if (!(res.movies || []).length) $("searchErr").textContent = "Nothing matched.";
+    } catch (e) {
+      $("searchErr").textContent = "Could not search right now.";
+    } finally {
+      $("searchBtn").disabled = false;
+    }
+  }
+  async function doRecommend() {
+    var p = current();
+    $("recErr").textContent = "Asking Grok. The whole library takes about half a minute.";
+    $("recBtn").disabled = true;
+    var card = $("recLabel");
+    if (card && card.scrollIntoView) card.scrollIntoView({ block: "start" });
+    try {
+      var res = await api("recommend", { shelf: p.shelf, interests: p.interests || [] });
+      paintRecs(res.movies || []);
+      if (res.error) $("recErr").textContent = res.error;
+      else if (!(res.movies || []).length) $("recErr").textContent = "No picks came back. Try again in a moment.";
+      else $("recErr").textContent = "";
+    } catch (e) {
+      var msg = e && e.message || "";
+      $("recErr").textContent = (!msg || msg === "Bad reply" || msg.indexOf("HTTP ") === 0) ? "Could not recommend right now." : msg;
+    } finally {
+      $("recBtn").disabled = false;
+    }
+  }
+  function paint() {
+    var changed = 0;
+    state.profiles.forEach(function (p) { changed += importOwned(p); });
+    if (changed) saveState();
+    paintProfiles();
+    paintInterests();
+    paintShelf();
+  }
+  $("addProfile").onclick = function () {
+    var name = $("newProfile").value.trim();
+    if (!name) return;
+    var p = blankProfile(name);
+    importOwned(p);
+    state.profiles.push(p);
+    state.currentId = p.id;
+    $("newProfile").value = "";
+    saveState();
+    paint();
+  };
+  $("addInterest").onclick = function () {
+    var tag = $("newInterest").value.trim();
+    if (!tag) return;
+    var p = current();
+    if (!p.interests) p.interests = [];
+    var key = tag.toLowerCase();
+    if (p.interests.some(function (t) { return t.toLowerCase() === key; })) return;
+    p.interests.push(tag);
+    $("newInterest").value = "";
+    saveState();
+    paintInterests();
+  };
+  $("searchBtn").onclick = doSearch;
+  $("searchQ").addEventListener("keydown", function (ev) { if (ev.key === "Enter") doSearch(); });
+  $("recBtn").onclick = doRecommend;
+  paint();
+  window.__MOVIES__ = {
+    current: current,
+    titleSortKey: titleSortKey,
+    sortedShelf: sortedShelf,
+    importOwned: importOwned,
+    state: function () { return state; },
+  };
+})();
+</script>
+</body>
+</html>

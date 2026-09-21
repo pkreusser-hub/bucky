@@ -1999,3 +1999,39 @@ picks are not under 135 books.
 Suite: `node tools/_verify-books.cjs` (**139/139**). Bite against the silent
 call (`963027a` `books.mjs` + `books.html`): **133 passed, 6 failed**.
 ---
+
+# Movies — owned library and five to watch next (2026-09-21)
+
+`movies.html` + `netlify/functions/movies.mjs`. Same shape as Bookshelf: a
+standalone page, a Home card after the Bookshelf card, and a FarmGPT tile
+`#cardMovies` after `#cardBooks`. The film mark is an inline SVG. On a phone
+the four earlier tiles stay a 2×2 and Movies spans the row
+(`#homeCards .bigCard:last-child:nth-child(odd)`). `tools/_verify-books.cjs`
+still **139/139** with that fifth tile.
+
+The owned list is the Purchases & Rentals export: 167 rows folded to 158
+features. Format tags, bonus-material discs, and edition duplicates are
+dropped. Years that tell two films apart stay (`Cheaper By The Dozen (2003)`,
+`Sky High (2005)`, `The Parent Trap (1998)`, `The Secret Garden (1993)`).
+`Bug's Life` is stored as `A Bug's Life`. The shelf paints by title with a
+leading a/an/the ignored, so Air Bud is first. Stars are per person. A Remove
+is remembered on that profile only (`profile.removed`), so Joy taking Toy
+Story off her list does not hide it from Dad. `importOwned` does not write
+`state.currentId`.
+
+Search uses Wikidata. iTunes Search `media=movie` returned `resultCount` 0
+for Inception, Toy Story, and The Iron Giant on 2026-09-21 (a music search
+on the same host still returned a track), so that catalog is not the add
+box. A film has no invented star rating. A novel that shares the words is
+dropped. Recommend posts the whole owned list (title and this
+viewer's stars via `asNum`) to grok-4.7 at low effort, `max_tokens` 6000,
+a keepalive byte immediately and every 8s, and a 50s abort. The reply is
+five movies they do not already own, each with a director, a summary, and a
+why. Next to watch sits under Interests and above Owned. Framed in the AI
+tab, `.embedded` hides `#buckyNav`. Activity label `movies` → "Movies".
+
+Suite: `node tools/_verify-movies.cjs` (**63/63**). Bite against `1cd08b8`
+`farmgpt.html` + `index.html` + `activity.html` (the movies page and function
+kept): **53 passed, 7 failed** — the AI-tab card, the Home card, and the
+activity label. The click-through is skipped when `#cardMovies` is missing.
+---

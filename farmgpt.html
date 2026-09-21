@@ -109,7 +109,7 @@
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
   /* An odd last card spans both columns on a 2-col phone grid so it isn't stranded alone.
-     Four cards (Story / Research / Teacher / Bookshelf) already fill a 2×2. */
+     Story / Research / Teacher / Bookshelf fill the 2×2. Movies is the odd fifth tile. */
   #homeCards .bigCard:last-child:nth-child(odd) { grid-column: 1 / -1; }
   @media (min-width: 640px) {
     #homeCards { grid-template-columns: repeat(2, 1fr); gap: 12px; }
@@ -789,6 +789,12 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         <div class="ico">📚</div>
         <div class="nm">Bookshelf</div>
         <div class="ds">What each person has read, and what to pick up next.</div>
+      </a>
+      <a class="bigCard" id="cardMovies" href="movies.html"
+         onclick="try{if(window.self!==window.top){event.preventDefault();window.top.location.href='movies.html';}}catch(e){}">
+        <div class="ico" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M7 6v4M12 6v4M17 6v4M2 10h20"/><path d="M10 13.2l4 2.3-4 2.3z" fill="currentColor" stroke="none"/></svg></div>
+        <div class="nm">Movies</div>
+        <div class="ds">What the family owns, and what to watch next.</div>
       </a>
     </div>
     <div id="dadRow">

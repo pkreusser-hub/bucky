@@ -617,9 +617,9 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   /* 5-day weather (taps through to weather.html full page) */
   .home2 .wxcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; }
   .home2 .wxcard:active { background: var(--done, #e7eefb); }
-  .home2 .bookcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; }
-  .home2 .bookcard:active { background: var(--done, #e7eefb); }
-  .home2 .bookcard-sub { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-top: 2px; }
+  .home2 .bookcard, .home2 .moviecard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; }
+  .home2 .bookcard:active, .home2 .moviecard:active { background: var(--done, #e7eefb); }
+  .home2 .bookcard-sub, .home2 .moviecard-sub { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-top: 2px; }
   /* Sports snapshot cards (NFL week + the family fantasy matchup) — wxcard family. */
   .home2 .nflcard, .home2 .ffcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px 14px; cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; display: block; }
   .home2 .nflcard:active, .home2 .ffcard:active { background: var(--done, #e7eefb); }
@@ -1512,7 +1512,7 @@ window.BUCKY_SEED = [{"id":"s1","name":"Feed the goats","frequency":"daily","tar
   .home2 { gap: 9px; }
   .home2 .hero { background: transparent; border: 0; box-shadow: none; border-radius: 0; padding: 6px 4px 2px; }
   .home2 .hero h1 { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 24px; letter-spacing: 0; }
-  .home2 .calwidget, .home2 .carewidget, .home2 .wxcard, .home2 .stockcard, .home2 .fitcard, .home2 .nflcard, .home2 .ffcard, .home2 .bookcard { padding: 10px 14px; border-radius: 16px; }
+  .home2 .calwidget, .home2 .carewidget, .home2 .wxcard, .home2 .stockcard, .home2 .fitcard, .home2 .nflcard, .home2 .ffcard, .home2 .bookcard, .home2 .moviecard { padding: 10px 14px; border-radius: 16px; }
   .home2 .fitcard { margin-bottom: 0; }
   .home2 .card2 { border-radius: 16px; }
   .home2 .chd { padding: 11px 14px 3px; }
@@ -4663,6 +4663,14 @@ function renderDashboard(){
   bookw.querySelector(".sph span").textContent = "Bookshelf";
   bookw.querySelector(".bookcard-sub").textContent = "Picks from what each person has read";
   railCol.appendChild(bookw);
+
+  const moview = document.createElement("button"); moview.className = "moviecard"; moview.type = "button";
+  moview.setAttribute("aria-label", "Open the family movies");
+  moview.onclick = () => { location.href = "movies.html"; };
+  moview.innerHTML = `<div class="sph"><span></span><span class="spmore">Open →</span></div><div class="moviecard-sub"></div>`;
+  moview.querySelector(".sph span").textContent = "Movies";
+  moview.querySelector(".moviecard-sub").textContent = "Picks from what the family owns";
+  railCol.appendChild(moview);
 
   // ---- FarmGPT research ask bar → hands the question (and optionally a photo) to
   // farmgpt.html Research. The 📷 button snaps/picks a photo, downscales it client-side
