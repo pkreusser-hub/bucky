@@ -1949,18 +1949,14 @@ is a real `<a href="books.html">`. From the AI-tab iframe the inline handler
 sets `window.top.location` so the persistent FarmGPT frame is not replaced and a
 second nav does not nest. This is `books.html`, not Story Time's saved-story
 shelf (`renderBookshelf`).
-Dad's Kindle + Audible purchases from the 2013–2019 receipts on
-`pkreusser@gmail.com` seed onto the Dad profile (`DAD_SEED` +
-`books_imported_keys_v1`). A Remove is remembered; romance titles and the two
-refunded Audible books stay off. The Sept 2014 Audible credit haul (order
-`002-9715476-8109869`) is on the seed — the mail snippet only named Team of
-Rivals, but the body listed ten titles including Two Towers, Isaacson, and
-Shirer. `importDadSeed` must not write `state.currentId` when `choreUser` is
-Dad; that assignment stole Joy after a reload.
-Suite: `node tools/_verify-books.cjs` — **101/101**. Bite (`books.html` at
-`1c1632e`, new suite kept): **97 passed, 4 failed** — the 2014-haul source
-and shelf checks, the currentId-steal source check, and the pre-existing
-reload-survives check that the steal itself broke. Every other pre-existing
-check still passed. A null user star rating must not paint as 0.00
-(`Number(null)`); community ratings live in `communityRating` on the shelf.
+Dad's Kindle + Audible libraries (the exported CSVs, not only the 2013–2019
+receipts) seed onto the Dad profile (`DAD_SEED` + `books_imported_keys_v1`).
+He confirmed the grouping: romance, kids, and the Ask pile stay off, plus two
+memoirs, two parenting-science titles, and the quiz books. A Remove is
+remembered. Seed rows no longer in the list are pruned so a confirmed cut
+does not survive a reload. `importDadSeed` must not write `state.currentId`
+when `choreUser` is Dad; that assignment stole Joy after a reload.
+Suite: `node tools/_verify-books.cjs`. Quote the count after the run. A null
+user star rating must not paint as 0.00 (`Number(null)`); community ratings
+live in `communityRating` on the shelf.
 ---

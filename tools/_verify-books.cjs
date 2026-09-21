@@ -334,10 +334,18 @@ async function sectionServer() {
     "…includes a Kindle Stormlight title and an Audible First Law title");
   ok(/title: "The Two Towers"/.test(pageSrc) && /title: "Benjamin Franklin: An American Life"/.test(pageSrc),
     "…includes the Sept 2014 Audible credit haul (Two Towers, Isaacson)");
+  ok(/title: "Rhythm of War"/.test(pageSrc) && /title: "Last Argument of Kings"/.test(pageSrc) && /title: "Master and Commander"/.test(pageSrc),
+    "…includes the later library (Rhythm of War, Last Argument, Aubrey)");
   ok(!/Harry Potter/.test(pageSrc) && !/Name of the Wind/.test(pageSrc),
     "…omits the two refunded Audible titles");
   ok(!/Cowboy of Convenience/.test(pageSrc) && !/Dakota Brides/.test(pageSrc),
     "…omits the struck romance titles");
+  ok(!/Witness Wore Red/.test(pageSrc) && !/Whole-Brain Child/.test(pageSrc) && !/NurtureShock/.test(pageSrc),
+    "…omits the two memoirs and two parenting-science titles Dad cut");
+  ok(!/Trivia Storm/.test(pageSrc) && !/Great Book of Trivia/.test(pageSrc) && !/Cash Cab/.test(pageSrc),
+    "…omits the quiz books Dad cut");
+  ok(!/Les Mis/.test(pageSrc) && !/Shepherding a Child/.test(pageSrc) && !/Chicken Health/.test(pageSrc),
+    "…omits the Ask pile");
   ok(!/choreUser[\s\S]{0,160}state\.currentId = p\.id/.test(pageSrc),
     "importDadSeed does not switch the open profile to Dad when choreUser is Dad");
 
@@ -527,8 +535,10 @@ async function sectionUi(browser) {
   ok(dadTitles.indexOf("The Mueller Report") >= 0, "…and the later Audible nonfiction");
   ok(dadTitles.indexOf("The Two Towers") >= 0 && dadTitles.indexOf("The Rise and Fall of the Third Reich") >= 0,
     "…and the Sept 2014 Audible credit haul");
-  ok(dadTitles.every((t) => !/Harry Potter|Name of the Wind|Cowboy of Convenience/.test(t)),
-    "…without refunded or struck titles");
+  ok(dadTitles.indexOf("Rhythm of War") >= 0 && dadTitles.indexOf("Last Argument of Kings") >= 0 && dadTitles.indexOf("Master and Commander") >= 0,
+    "…and the later Audible Stormlight, First Law, and Aubrey titles");
+  ok(dadTitles.every((t) => !/Harry Potter|Name of the Wind|Cowboy of Convenience|Witness Wore|Whole-Brain|NurtureShock|Trivia Storm|Les Mis|Shepherding/.test(t)),
+    "…without refunded, struck, cut, or Ask titles");
   ok(await page.evaluate(() => {
     const joy = window.__BOOKS__.state().profiles.find((p) => p.name === "Joy");
     return joy && joy.shelf.length === 1 && joy.shelf[0].title === "The Hobbit";
@@ -545,6 +555,22 @@ async function sectionUi(browser) {
     const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
     return dad && !dad.shelf.some((b) => b.title === "Oathbringer") && dad.shelf.some((b) => b.title === "The Blade Itself");
   }), "a removed seed title stays off after reload (import keys remember it)");
+
+  await page.evaluate(() => {
+    const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
+    dad.shelf.push({
+      id: "seed-cut-quiz", title: "Trivia Storm", author: "", isbn: "", cover: "",
+      description: "", subjects: [], rating: null, communityRating: null,
+      political: 0, woke: 0, evidence: [], goodreadsUrl: "", ratingSource: "", ratingsCount: null,
+    });
+    localStorage.setItem("books_profiles_v1", JSON.stringify(window.__BOOKS__.state()));
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => window.__BOOKS__, { timeout: 15000 });
+  ok(await page.evaluate(() => {
+    const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
+    return dad && !dad.shelf.some((b) => b.title === "Trivia Storm") && dad.shelf.some((b) => b.title === "The Blade Itself");
+  }), "a cut seed title is pruned on reload");
 
   if (WANT_SHOTS) {
     fs.mkdirSync(SHOTS, { recursive: true });

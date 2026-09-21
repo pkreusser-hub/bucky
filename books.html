@@ -361,76 +361,148 @@
   var ENDPOINT = "/.netlify/functions/books";
   var STORE = "books_profiles_v1";
   var IMPORT_KEYS = "books_imported_keys_v1";
-  // Dad's Kindle + Audible purchases from the Amazon/Audible receipts on
-  // pkreusser@gmail.com (2013–2019). Romance / Love Inspired titles were
-  // struck. Refunded Audible titles stay off. The Sept 2014 Audible credit
-  // haul (order 002-9715476-8109869) is included — its mail snippet only
-  // named Team of Rivals. Keys already in IMPORT_KEYS are never re-added
-  // after a Remove.
+  // Dad's Kindle + Audible libraries after he confirmed the grouping.
+  // Romance, kids, the Ask pile, two memoirs, two parenting-science
+  // titles, and the quiz books stay off. A seed row already on the shelf
+  // (matched by title) is not added again. Seed rows no longer in this
+  // list are pruned so a confirmed cut does not survive a reload.
+  // Keys already in IMPORT_KEYS are never re-added after a Remove.
   var DAD_SEED = [
     { title: "The Way of Kings", author: "Brandon Sanderson" },
     { title: "Words of Radiance", author: "Brandon Sanderson" },
     { title: "Oathbringer", author: "Brandon Sanderson" },
+    { title: "Rhythm of War", author: "Brandon Sanderson" },
     { title: "Warbreaker", author: "Brandon Sanderson" },
+    { title: "Tress of the Emerald Sea", author: "Brandon Sanderson" },
     { title: "The Final Empire", author: "Brandon Sanderson" },
     { title: "The Well of Ascension", author: "Brandon Sanderson" },
     { title: "The Hero of Ages", author: "Brandon Sanderson" },
+    { title: "Wool", author: "Hugh Howey" },
+    { title: "Dust", author: "Hugh Howey" },
+    { title: "First Shift - Legacy", author: "Hugh Howey" },
+    { title: "Second Shift - Order", author: "Hugh Howey" },
+    { title: "Third Shift - Pact", author: "Hugh Howey" },
     { title: "Sand Omnibus", author: "Hugh Howey" },
     { title: "Silo 49: Going Dark", author: "Ann Christy" },
-    { title: "Greatfall: A Silo Story (Part 1)", author: "Tim McVay" },
-    { title: "Greatfall: A Silo Story (Part 2)", author: "Tim McVay" },
-    { title: "Greatfall: A Silo Story (Part 3)", author: "Tim McVay" },
-    { title: "The Martian", author: "Andy Weir" },
+    { title: "Greatfall: A Silo Story (Part 1)", author: "Jason Gurley" },
+    { title: "Greatfall: A Silo Story (Part 2)", author: "Jason Gurley" },
+    { title: "Greatfall: A Silo Story (Part 3)", author: "Jason Gurley" },
     { title: "I, Robot", author: "Isaac Asimov" },
     { title: "The Caves of Steel", author: "Isaac Asimov" },
+    { title: "The Robots of Dawn", author: "Isaac Asimov" },
     { title: "Prelude to Foundation", author: "Isaac Asimov" },
-    { title: "Halo: The Fall of Reach", author: "Eric Nylund" },
-    { title: "Halo: First Strike", author: "Eric Nylund" },
-    { title: "The Making of Star Wars", author: "J.W. Rinzler" },
-    { title: "The Making of Star Wars: The Empire Strikes Back", author: "J.W. Rinzler" },
-    { title: "Liberal Fascism", author: "Jonah Goldberg" },
-    { title: "The Whole-Brain Child", author: "Daniel J. Siegel" },
-    { title: "NurtureShock", author: "Po Bronson" },
-    { title: "The Witness Wore Red", author: "Rebecca Musser" },
-    { title: "The Great Book of Trivia", author: "" },
-    { title: "What's the Best Trivia Book?", author: "" },
-    { title: "Trivia Storm", author: "" },
-    { title: "Trivia Madness Volume 3", author: "" },
-    { title: "The Great Book of Pub Trivia", author: "" },
-    { title: "American Pub Trivia: Volume II", author: "" },
-    { title: "Cash Cab: A Collection of the Best Trivia from the Hit Discovery Show", author: "" },
-    { title: "The Blade Itself", author: "Joe Abercrombie" },
-    { title: "Before They Are Hanged", author: "Joe Abercrombie" },
-    { title: "Best Served Cold", author: "Joe Abercrombie" },
+    { title: "Foundation", author: "Isaac Asimov" },
+    { title: "Foundation and Empire", author: "Isaac Asimov" },
+    { title: "The Martian", author: "Andy Weir" },
+    { title: "Project Hail Mary", author: "Andy Weir" },
+    { title: "Fahrenheit 451", author: "Ray Bradbury" },
     { title: "A Game of Thrones", author: "George R.R. Martin" },
     { title: "A Clash of Kings", author: "George R.R. Martin" },
     { title: "A Storm of Swords", author: "George R.R. Martin" },
     { title: "A Feast for Crows", author: "George R.R. Martin" },
     { title: "A Dance with Dragons", author: "George R.R. Martin" },
-    { title: "The Fellowship of the Ring", author: "J.R.R. Tolkien" },
-    { title: "The Two Towers", author: "J.R.R. Tolkien" },
-    { title: "The Return of the King", author: "J.R.R. Tolkien" },
-    { title: "The Hunger Games", author: "Suzanne Collins" },
-    { title: "Washington: A Life", author: "Ron Chernow" },
-    { title: "Team of Rivals", author: "Doris Kearns Goodwin" },
-    { title: "Conspiracy of Fools", author: "Kurt Eichenwald" },
-    { title: "The Mueller Report", author: "Robert S. Mueller III" },
-    { title: "The Rise and Fall of the Third Reich", author: "William L. Shirer" },
-    { title: "Benjamin Franklin: An American Life", author: "Walter Isaacson" },
-    { title: "Einstein: His Life and Universe", author: "Walter Isaacson" },
-    { title: "The Art of War", author: "Sun Tzu" },
-    { title: "A World Undone", author: "G.J. Meyer" },
-    { title: "The Civil War: A Narrative, Volume I", author: "Shelby Foote" },
+    { title: "The Blade Itself", author: "Joe Abercrombie" },
+    { title: "Before They Are Hanged", author: "Joe Abercrombie" },
+    { title: "Last Argument of Kings", author: "Joe Abercrombie" },
+    { title: "Best Served Cold", author: "Joe Abercrombie" },
+    { title: "The Eye of the World", author: "Robert Jordan" },
+    { title: "The Great Hunt", author: "Robert Jordan" },
+    { title: "The Dragon Reborn", author: "Robert Jordan" },
+    { title: "The Gathering Storm", author: "Robert Jordan" },
+    { title: "Towers of Midnight", author: "Robert Jordan" },
+    { title: "A Memory of Light", author: "Robert Jordan" },
+    { title: "Wizard's First Rule", author: "Terry Goodkind" },
+    { title: "Stone of Tears", author: "Terry Goodkind" },
+    { title: "Blood of the Fold", author: "Terry Goodkind" },
     { title: "His Majesty's Dragon", author: "Naomi Novik" },
     { title: "Throne of Jade", author: "Naomi Novik" },
     { title: "Black Powder War", author: "Naomi Novik" },
+    { title: "Empire of Ivory", author: "Naomi Novik" },
     { title: "Victory of Eagles", author: "Naomi Novik" },
+    { title: "Tongues of Serpents", author: "Naomi Novik" },
     { title: "Crucible of Gold", author: "Naomi Novik" },
-    { title: "The Count of Monte Cristo", author: "Alexandre Dumas" },
+    { title: "Blood of Tyrants", author: "Naomi Novik" },
+    { title: "League of Dragons", author: "Naomi Novik" },
+    { title: "The Hobbit", author: "J.R.R. Tolkien" },
+    { title: "The Fellowship of the Ring", author: "J.R.R. Tolkien" },
+    { title: "The Two Towers", author: "J.R.R. Tolkien" },
+    { title: "The Return of the King", author: "J.R.R. Tolkien" },
+    { title: "The Silmarillion", author: "J.R.R. Tolkien" },
+    { title: "The Hunger Games", author: "Suzanne Collins" },
     { title: "The Memory of Earth", author: "Orson Scott Card" },
     { title: "The Call of Earth", author: "Orson Scott Card" },
     { title: "The Ships of Earth", author: "Orson Scott Card" },
-    { title: "Earthfall", author: "Orson Scott Card" }
+    { title: "Earthfall", author: "Orson Scott Card" },
+    { title: "Ender's Shadow", author: "Orson Scott Card" },
+    { title: "Shadow of the Hegemon", author: "Orson Scott Card" },
+    { title: "Red Rising", author: "Pierce Brown" },
+    { title: "Golden Son", author: "Pierce Brown" },
+    { title: "Morning Star", author: "Pierce Brown" },
+    { title: "Leviathan Wakes", author: "James S.A. Corey" },
+    { title: "Caliban's War", author: "James S.A. Corey" },
+    { title: "Abaddon's Gate", author: "James S.A. Corey" },
+    { title: "Hyperion", author: "Dan Simmons" },
+    { title: "The Fall of Hyperion", author: "Dan Simmons" },
+    { title: "Endymion", author: "Dan Simmons" },
+    { title: "The Rise of Endymion", author: "Dan Simmons" },
+    { title: "Dune", author: "Frank Herbert" },
+    { title: "We Are Legion (We Are Bob)", author: "Dennis E. Taylor" },
+    { title: "Columbus Day", author: "Craig Alanson" },
+    { title: "The Will of the Many", author: "James Islington" },
+    { title: "Glory Road", author: "Robert A. Heinlein" },
+    { title: "The Forever War", author: "Joe Haldeman" },
+    { title: "Snow Crash", author: "Neal Stephenson" },
+    { title: "World War Z", author: "Max Brooks" },
+    { title: "The Hitchhiker's Guide to the Galaxy", author: "Douglas Adams" },
+    { title: "The Restaurant at the End of the Universe", author: "Douglas Adams" },
+    { title: "Containment", author: "Christian Cantrell" },
+    { title: "The Rookie", author: "Scott Sigler" },
+    { title: "The Beginning of the End", author: "Manel Loureiro" },
+    { title: "Halo: The Fall of Reach", author: "Eric Nylund" },
+    { title: "Halo: First Strike", author: "Eric Nylund" },
+    { title: "Master and Commander", author: "Patrick O'Brian" },
+    { title: "Post Captain", author: "Patrick O'Brian" },
+    { title: "H.M.S. Surprise", author: "Patrick O'Brian" },
+    { title: "The Mauritius Command", author: "Patrick O'Brian" },
+    { title: "Desolation Island", author: "Patrick O'Brian" },
+    { title: "The Surgeon's Mate", author: "Patrick O'Brian" },
+    { title: "The Fortune of War", author: "Patrick O'Brian" },
+    { title: "The Ionian Mission", author: "Patrick O'Brian" },
+    { title: "Treason's Harbour", author: "Patrick O'Brian" },
+    { title: "The Far Side of the World", author: "Patrick O'Brian" },
+    { title: "The Reverse of the Medal", author: "Patrick O'Brian" },
+    { title: "The Letter of Marque", author: "Patrick O'Brian" },
+    { title: "The Thirteen-Gun Salute", author: "Patrick O'Brian" },
+    { title: "The Nutmeg of Consolation", author: "Patrick O'Brian" },
+    { title: "Mr Midshipman Hornblower", author: "C.S. Forester" },
+    { title: "Lieutenant Hornblower", author: "C.S. Forester" },
+    { title: "Hornblower and the Hotspur", author: "C.S. Forester" },
+    { title: "Shogun", author: "James Clavell" },
+    { title: "The First Man in Rome", author: "Colleen McCullough" },
+    { title: "The Grass Crown", author: "Colleen McCullough" },
+    { title: "The Steel Wave", author: "Jeff Shaara" },
+    { title: "The Count of Monte Cristo", author: "Alexandre Dumas" },
+    { title: "Washington: A Life", author: "Ron Chernow" },
+    { title: "Team of Rivals", author: "Doris Kearns Goodwin" },
+    { title: "John Adams", author: "David McCullough" },
+    { title: "Truman", author: "David McCullough" },
+    { title: "Thomas Jefferson: The Art of Power", author: "Jon Meacham" },
+    { title: "Benjamin Franklin: An American Life", author: "Walter Isaacson" },
+    { title: "Einstein: His Life and Universe", author: "Walter Isaacson" },
+    { title: "The Rise and Fall of the Third Reich", author: "William L. Shirer" },
+    { title: "A World Undone", author: "G.J. Meyer" },
+    { title: "The Civil War: A Narrative, Volume I", author: "Shelby Foote" },
+    { title: "Conspiracy of Fools", author: "Kurt Eichenwald" },
+    { title: "The Mueller Report", author: "Robert S. Mueller III" },
+    { title: "Liberal Fascism", author: "Jonah Goldberg" },
+    { title: "Atlas Shrugged", author: "Ayn Rand" },
+    { title: "Basic Economics", author: "Thomas Sowell" },
+    { title: "Sword and Scimitar", author: "Raymond Ibrahim" },
+    { title: "The Art of War", author: "Sun Tzu" },
+    { title: "The Terminal List", author: "Jack Carr" },
+    { title: "The Making of Star Wars", author: "J.W. Rinzler" },
+    { title: "The Making of Star Wars: The Empire Strikes Back", author: "J.W. Rinzler" },
+    { title: "Obama: The Greatest President in the History of Everything", author: "Frank J. Fleming" }
   ];
   function seedKey(book) {
     return String(book.title || "").toLowerCase() + "::" + String(book.author || "").toLowerCase();
@@ -481,11 +553,21 @@
     var done = {};
     try { done = JSON.parse(localStorage.getItem(IMPORT_KEYS) || "{}") || {}; } catch (e) { done = {}; }
     var p = dadProfile();
-    var added = 0;
+    var keepTitle = {};
+    DAD_SEED.forEach(function (book) { keepTitle[String(book.title).toLowerCase()] = 1; });
+    var changed = 0;
+    p.shelf = p.shelf.filter(function (b) {
+      if (String(b.id || "").indexOf("seed-") !== 0) return true;
+      if (keepTitle[String(b.title).toLowerCase()]) return true;
+      changed++;
+      return false;
+    });
     DAD_SEED.forEach(function (book) {
       var k = seedKey(book);
       if (done[k]) return;
-      if (p.shelf.some(function (b) { return seedKey(b) === k; })) { done[k] = 1; return; }
+      if (p.shelf.some(function (b) {
+        return seedKey(b) === k || String(b.title).toLowerCase() === String(book.title).toLowerCase();
+      })) { done[k] = 1; return; }
       p.shelf.push({
         id: "seed-" + k.replace(/[^a-z0-9]+/g, "-").slice(0, 40),
         title: book.title,
@@ -504,11 +586,11 @@
         ratingsCount: null,
       });
       done[k] = 1;
-      added++;
+      changed++;
     });
     try { localStorage.setItem(IMPORT_KEYS, JSON.stringify(done)); } catch (e) {}
-    if (added) saveState();
-    return added;
+    if (changed) saveState();
+    return changed;
   }
   importDadSeed();
 
