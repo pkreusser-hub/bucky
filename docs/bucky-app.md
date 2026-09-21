@@ -1952,8 +1952,12 @@ shelf (`renderBookshelf`).
 Dad's Kindle + Audible purchases from the 2013–2019 receipts on
 `pkreusser@gmail.com` seed onto the Dad profile (`DAD_SEED` +
 `books_imported_keys_v1`). A Remove is remembered; romance titles and the two
-refunded Audible books stay off.
-Suite: `node tools/_verify-books.cjs`. A null user star rating must not paint
-as 0.00 (`Number(null)`); community ratings live in `communityRating` on the
-shelf.
+refunded Audible books stay off. The Sept 2014 Audible credit haul (order
+`002-9715476-8109869`) is on the seed — the mail snippet only named Team of
+Rivals, but the body listed ten titles including Two Towers, Isaacson, and
+Shirer. `importDadSeed` must not write `state.currentId` when `choreUser` is
+Dad; that assignment stole Joy after a reload.
+Suite: `node tools/_verify-books.cjs`. Quote the count after the run. A null
+user star rating must not paint as 0.00 (`Number(null)`); community ratings
+live in `communityRating` on the shelf.
 ---

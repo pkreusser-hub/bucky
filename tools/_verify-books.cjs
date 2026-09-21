@@ -332,10 +332,14 @@ async function sectionServer() {
   ok(/var DAD_SEED = \[/.test(pageSrc), "Dad's Kindle/Audible list is seeded in the page");
   ok(/title: "Oathbringer"/.test(pageSrc) && /title: "The Blade Itself"/.test(pageSrc),
     "…includes a Kindle Stormlight title and an Audible First Law title");
+  ok(/title: "The Two Towers"/.test(pageSrc) && /title: "Benjamin Franklin: An American Life"/.test(pageSrc),
+    "…includes the Sept 2014 Audible credit haul (Two Towers, Isaacson)");
   ok(!/Harry Potter/.test(pageSrc) && !/Name of the Wind/.test(pageSrc),
     "…omits the two refunded Audible titles");
   ok(!/Cowboy of Convenience/.test(pageSrc) && !/Dakota Brides/.test(pageSrc),
     "…omits the struck romance titles");
+  ok(!/choreUser[\s\S]{0,160}state\.currentId = p\.id/.test(pageSrc),
+    "importDadSeed does not switch the open profile to Dad when choreUser is Dad");
 
   const gptSrc = fs.readFileSync(path.join(ROOT, "farmgpt.html"), "utf8");
   ok(/id="cardBooks"/.test(gptSrc), "FarmGPT home has a Bookshelf card");
@@ -521,6 +525,8 @@ async function sectionUi(browser) {
   ok(dadTitles.indexOf("The Blade Itself") >= 0, "…and the Audible First Law books");
   ok(dadTitles.indexOf("A Game of Thrones") >= 0, "…and the Audible Ice and Fire set");
   ok(dadTitles.indexOf("The Mueller Report") >= 0, "…and the later Audible nonfiction");
+  ok(dadTitles.indexOf("The Two Towers") >= 0 && dadTitles.indexOf("The Rise and Fall of the Third Reich") >= 0,
+    "…and the Sept 2014 Audible credit haul");
   ok(dadTitles.every((t) => !/Harry Potter|Name of the Wind|Cowboy of Convenience/.test(t)),
     "…without refunded or struck titles");
   ok(await page.evaluate(() => {

@@ -363,8 +363,10 @@
   var IMPORT_KEYS = "books_imported_keys_v1";
   // Dad's Kindle + Audible purchases from the Amazon/Audible receipts on
   // pkreusser@gmail.com (2013–2019). Romance / Love Inspired titles were
-  // struck. Refunded Audible titles stay off. Keys already in IMPORT_KEYS
-  // are never re-added after a Remove.
+  // struck. Refunded Audible titles stay off. The Sept 2014 Audible credit
+  // haul (order 002-9715476-8109869) is included — its mail snippet only
+  // named Team of Rivals. Keys already in IMPORT_KEYS are never re-added
+  // after a Remove.
   var DAD_SEED = [
     { title: "The Way of Kings", author: "Brandon Sanderson" },
     { title: "Words of Radiance", author: "Brandon Sanderson" },
@@ -406,11 +408,19 @@
     { title: "A Feast for Crows", author: "George R.R. Martin" },
     { title: "A Dance with Dragons", author: "George R.R. Martin" },
     { title: "The Fellowship of the Ring", author: "J.R.R. Tolkien" },
+    { title: "The Two Towers", author: "J.R.R. Tolkien" },
+    { title: "The Return of the King", author: "J.R.R. Tolkien" },
     { title: "The Hunger Games", author: "Suzanne Collins" },
     { title: "Washington: A Life", author: "Ron Chernow" },
     { title: "Team of Rivals", author: "Doris Kearns Goodwin" },
     { title: "Conspiracy of Fools", author: "Kurt Eichenwald" },
     { title: "The Mueller Report", author: "Robert S. Mueller III" },
+    { title: "The Rise and Fall of the Third Reich", author: "William L. Shirer" },
+    { title: "Benjamin Franklin: An American Life", author: "Walter Isaacson" },
+    { title: "Einstein: His Life and Universe", author: "Walter Isaacson" },
+    { title: "The Art of War", author: "Sun Tzu" },
+    { title: "A World Undone", author: "G.J. Meyer" },
+    { title: "The Civil War: A Narrative, Volume I", author: "Shelby Foote" },
     { title: "His Majesty's Dragon", author: "Naomi Novik" },
     { title: "Throne of Jade", author: "Naomi Novik" },
     { title: "Black Powder War", author: "Naomi Novik" },
@@ -498,9 +508,6 @@
     });
     try { localStorage.setItem(IMPORT_KEYS, JSON.stringify(done)); } catch (e) {}
     if (added) saveState();
-    if (String(localStorage.getItem("choreUser") || "").toLowerCase() === "dad") {
-      state.currentId = p.id;
-    }
     return added;
   }
   importDadSeed();
