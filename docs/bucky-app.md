@@ -2074,3 +2074,30 @@ next recommend, and a saved watched list. `node tools/_verify-books.cjs`
 (**147/147**). Bite against `4a92444` `books.html`: **146 passed, 1 failed**
 — the bookshelf row is brought into view.
 ---
+
+# Movie posters and Rotten Tomatoes (2026-09-21)
+
+Click an owned movie or a recommendation. The sheet shows the poster and the
+Rotten Tomatoes numbers Wikidata has stored for that film. Visible owned
+rows fill their poster in the background and keep it on the shelf.
+
+OMDb returned 401 "No API key provided" on 2026-09-21, so it is not the
+lookup. The poster is the English Wikipedia page image for the film's
+sitelink. Guessing the article from the title is wrong: "Super Buddies"
+opened the DC team page, while the sitelink is "Super Buddies (film)" and
+that page image is the poster. Scores are Wikidata P444 claims reviewed by
+Rotten Tomatoes (Q105584). The Tomatometer is Q108403393, a percent. The
+critic average is Q108403540, out of 10. The Popcornmeter is Q131100566, a
+percent, and it is shown only when the item has one. A missing claim stays
+null. A real 0% stays 0. An IMDb claim is not the Rotten Tomatoes average.
+A year in the title, such as `Cheaper By The Dozen (2003)`, picks that
+film rather than the other one.
+
+Measured the same day: Air Bud is Tomatometer 48% and critic average 4.8/10.
+The Iron Giant is 96% and 8.2/10, with no Popcornmeter on the item.
+Paddington 2 is 99% and 8.7/10.
+
+Suite: `node tools/_verify-movies.cjs` (**87/87**). Bite against `999bfcc`
+`movies.html` + `movies.mjs`: **74 passed, 13 failed** — the score parser,
+the poster request, the year pick, and the sheet.
+---

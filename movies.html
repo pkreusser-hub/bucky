@@ -102,6 +102,21 @@
   .empty { font-size: 13.5px; font-weight: 600; color: var(--muted); padding: 8px 2px; }
   .why { font-size: 12.5px; color: var(--ink-2); font-weight: 600; margin-top: 4px; }
   .summary { font-size: 13.5px; line-height: 1.45; font-weight: 600; margin-top: 6px; }
+  #shelfList .movie, #recs .movie { cursor: pointer; }
+  #detail {
+    position: fixed; inset: 0; z-index: 60; background: rgba(38,51,43,.45);
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  #detail[hidden] { display: none !important; }
+  #detailInner {
+    background: var(--card); width: 100%; max-width: 560px; max-height: min(88dvh, 760px);
+    overflow: auto; border-radius: 18px 18px 0 0; padding: 16px 16px 24px;
+    box-shadow: 0 -8px 32px rgba(38,51,43,.18);
+  }
+  #detailInner h2 { font-family: Fraunces, Georgia, serif; font-size: 22px; margin: 0 0 4px; }
+  #detailInner .poster { width: 140px; height: auto; border-radius: 8px; display: block; margin: 10px 0; }
+  #detailInner .score { font-weight: 800; font-size: 16px; margin: 4px 0; }
+  a.out { color: var(--navy); font-weight: 800; }
   .err { color: var(--red); font-size: 13px; font-weight: 700; min-height: 18px; }
   .embedded #buckyNav, .embedded #sidenav { display: none !important; }
   .embedded body { padding-bottom: 16px; padding-left: 0 !important; }
@@ -210,6 +225,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     <div id="shelfList"></div>
   </section>
 </main>
+<div id="detail" hidden>
+  <div id="detailInner" role="dialog" aria-modal="true" aria-labelledby="detailTitle"></div>
+</div>
 <nav id="buckyNav" aria-label="BUCKY sections"></nav>
 <script>
 (function () {
@@ -488,7 +506,12 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         paintShelf();
       };
       mid.appendChild(rm);
+      row.onclick = function (ev) {
+        if (ev.target.closest("button")) return;
+        openDetail(movie);
+      };
       box.appendChild(row);
+      watchCover(row, movie);
     });
   }
   function paintHits(movies) {
@@ -662,6 +685,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       acts.appendChild(recButton("Already watched", function () { markWatched(movie); }));
       acts.appendChild(recButton("Not interested", function () { markSkipped(movie); }));
       row.children[1].appendChild(acts);
+      row.onclick = function (ev) {
+        if (ev.target.closest("button")) return;
+        openDetail(movie);
+      };
       box.appendChild(row);
     });
   }
@@ -738,6 +765,138 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       $("recBtn").disabled = false;
     }
   }
+  var coverSeen = {};
+  var coverQueue = [];
+  var coverBusy = false;
+  var coverObserver = null;
+  var detailToken = 0;
+  function watchCover(row, movie) {
+    if (!row || !movie || movie.cover || typeof IntersectionObserver !== "function") return;
+    if (!coverObserver) {
+      coverObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (!en.isIntersecting) return;
+          coverObserver.unobserve(en.target);
+          var title = en.target.getAttribute("data-title") || "";
+          var found = (current().shelf || []).find(function (m) { return titleKey(m.title) === titleKey(title); });
+          if (found) queueCover(found);
+        });
+      }, { rootMargin: "240px" });
+    }
+    row.setAttribute("data-title", movie.title);
+    coverObserver.observe(row);
+  }
+  function paintCover(movie) {
+    if (!movie || !movie.cover) return;
+    var rows = document.querySelectorAll("#shelfList .movie, #recs .movie");
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i].querySelector(".t");
+      if (!t || titleKey(t.textContent) !== titleKey(movie.title)) continue;
+      if (rows[i].querySelector("img")) continue;
+      var ph = rows[i].querySelector(".cover");
+      if (!ph) continue;
+      var img = document.createElement("img");
+      img.alt = "";
+      img.src = movie.cover;
+      ph.replaceWith(img);
+    }
+  }
+  function queueCover(movie) {
+    var k = titleKey(movie && movie.title);
+    if (!k || movie.cover || coverSeen[k]) return;
+    coverSeen[k] = 1;
+    coverQueue.push(k);
+    pumpCovers();
+  }
+  async function pumpCovers() {
+    if (coverBusy) return;
+    coverBusy = true;
+    while (coverQueue.length) {
+      var key = coverQueue.shift();
+      var movie = (current().shelf || []).find(function (m) { return titleKey(m.title) === key; });
+      if (!movie || movie.cover) continue;
+      try {
+        var res = await api("detail", { title: movie.title, year: movie.year || null });
+        var still = (current().shelf || []).find(function (m) { return titleKey(m.title) === key; });
+        if (still && res && res.cover && !still.cover) {
+          still.cover = res.cover;
+          saveState();
+          paintCover(still);
+        }
+      } catch (e) { /* the row keeps its placeholder */ }
+    }
+    coverBusy = false;
+  }
+  function scoreLine(box, label, value, suffix) {
+    if (value == null || value === "") return;
+    var p = document.createElement("p");
+    p.className = "score";
+    p.textContent = label + " " + value + suffix;
+    box.appendChild(p);
+  }
+  function closeDetail() {
+    detailToken++;
+    var d = $("detail");
+    if (d) d.hidden = true;
+  }
+  async function openDetail(movie) {
+    var token = ++detailToken;
+    var d = $("detail");
+    var inner = $("detailInner");
+    inner.innerHTML = "<h2 id=\"detailTitle\"></h2><p class=\"a\" id=\"detailSub\"></p><div id=\"detailPoster\"></div><div id=\"detailScores\" class=\"empty\">Loading the poster and scores.</div><p><a class=\"out\" id=\"rtLink\" target=\"_blank\" rel=\"noopener\" hidden>Open on Rotten Tomatoes</a></p><button type=\"button\" class=\"ghost\" id=\"detailClose\">Close</button>";
+    inner.querySelector("#detailTitle").textContent = movie.title || "";
+    inner.querySelector("#detailSub").textContent = [movie.director || "", movie.year || ""].filter(Boolean).join(" · ");
+    inner.querySelector("#detailClose").onclick = closeDetail;
+    d.hidden = false;
+    try {
+      var res = await api("detail", { title: movie.title, year: movie.year || null });
+      if (token !== detailToken) return;
+      var poster = inner.querySelector("#detailPoster");
+      var scores = inner.querySelector("#detailScores");
+      scores.innerHTML = "";
+      scores.className = "";
+      if (res && res.cover) {
+        var img = document.createElement("img");
+        img.className = "poster";
+        img.alt = "";
+        img.src = res.cover;
+        poster.appendChild(img);
+        if (!movie.cover) movie.cover = res.cover;
+        var owned = (current().shelf || []).find(function (m) { return titleKey(m.title) === titleKey(movie.title); });
+        if (owned && !owned.cover) {
+          owned.cover = res.cover;
+          saveState();
+        }
+        paintCover(owned || movie);
+      }
+      if (!res || res.found === false) {
+        scores.className = "empty";
+        scores.textContent = "No matching film for this title.";
+        return;
+      }
+      scoreLine(scores, "Tomatometer", res.tomatoMeter, "%");
+      scoreLine(scores, "Audience", res.popcornMeter, "%");
+      scoreLine(scores, "Critic average", res.tomatoAverage, "/10");
+      if (res.tomatoMeter == null && res.popcornMeter == null && res.tomatoAverage == null) {
+        var miss = document.createElement("p");
+        miss.className = "empty";
+        miss.textContent = "Wikidata has no Rotten Tomatoes score for this title.";
+        scores.appendChild(miss);
+      }
+      if (res.rtPath && /^m\/[a-z0-9_]+$/.test(res.rtPath)) {
+        var link = inner.querySelector("#rtLink");
+        link.href = "https://www.rottentomatoes.com/" + res.rtPath;
+        link.hidden = false;
+      }
+    } catch (e) {
+      if (token !== detailToken) return;
+      var box = inner.querySelector("#detailScores");
+      if (box) {
+        box.className = "empty";
+        box.textContent = "Could not load the poster and scores.";
+      }
+    }
+  }
   function paint() {
     var changed = 0;
     state.profiles.forEach(function (p) {
@@ -778,6 +937,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   $("searchBtn").onclick = doSearch;
   $("searchQ").addEventListener("keydown", function (ev) { if (ev.key === "Enter") doSearch(); });
   $("recBtn").onclick = doRecommend;
+  $("detail").addEventListener("click", function (e) { if (e.target.id === "detail") closeDetail(); });
   paint();
   window.__MOVIES__ = {
     current: current,

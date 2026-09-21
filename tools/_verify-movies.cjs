@@ -64,19 +64,61 @@ function snakString(value) {
   return { mainsnak: { datavalue: { value: value } } };
 }
 
+function rtClaim(score, method) {
+  return {
+    mainsnak: { datavalue: { value: score } },
+    qualifiers: {
+      P447: [{ datavalue: { value: { id: "Q105584" } } }],
+      P459: [{ datavalue: { value: { id: method } } }],
+    },
+  };
+}
+
 function serveWiki() {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
       wikiCalls.push(req.url);
       const u = new URL(req.url, "http://127.0.0.1");
+      if (u.pathname.indexOf("/api/rest_v1/page/summary/") === 0) {
+        const slug = decodeURIComponent(u.pathname.split("/api/rest_v1/page/summary/")[1] || "");
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({
+          title: slug.replace(/_/g, " "),
+          thumbnail: { source: "https://upload.wikimedia.org/wikipedia/en/d/d3/" + slug + "_poster.JPG" },
+        }));
+        return;
+      }
       let body = {};
-      if (u.searchParams.get("action") === "wbsearchentities") {
+      const searchQ = (u.searchParams.get("search") || "").toLowerCase();
+      if (u.searchParams.get("action") === "wbsearchentities" && searchQ === "cheaper by the dozen") {
+        body = {
+          search: [
+            { id: "Q1950", label: "Cheaper by the Dozen", description: "1950 film" },
+            { id: "Q2003", label: "Cheaper by the Dozen", description: "2003 film" },
+          ],
+        };
+      } else if (u.searchParams.get("action") === "wbsearchentities") {
         body = {
           search: [
             { id: "Q867283", label: "The Iron Giant", description: "1999 film by Brad Bird" },
             { id: "Q3820039", label: "The Iron Man", description: "novel by Ted Hughes" },
             { id: "Q2", label: "Plain Film", description: "2001 film" },
           ],
+        };
+      } else if ((u.searchParams.get("ids") || "").indexOf("Q2003") >= 0) {
+        body = {
+          entities: {
+            Q1950: qid("Q1950", "Cheaper by the Dozen", "1950 film", {
+              P31: [snakItem("Q11424")],
+              P577: [snakTime("+1950-04-01T00:00:00Z")],
+              P444: [rtClaim("83%", "Q108403393")],
+            }),
+            Q2003: qid("Q2003", "Cheaper by the Dozen", "2003 film", {
+              P31: [snakItem("Q11424")],
+              P577: [snakTime("+2003-12-25T00:00:00Z")],
+              P444: [rtClaim("41%", "Q108403393")],
+            }),
+          },
         };
       } else if ((u.searchParams.get("ids") || "").indexOf("Q310960") >= 0) {
         body = {
@@ -88,13 +130,30 @@ function serveWiki() {
       } else {
         body = {
           entities: {
-            Q867283: qid("Q867283", "The Iron Giant", "1999 film by Brad Bird", {
+            Q867283: Object.assign(qid("Q867283", "The Iron Giant", "1999 film by Brad Bird", {
               P31: [snakItem("Q11424")],
               P57: [snakItem("Q310960")],
               P577: [snakTime("+1999-07-31T00:00:00Z")],
               P136: [snakItem("Q188473")],
               P18: [snakString("Iron Giant.jpg")],
-            }),
+              P1258: [snakString("m/iron_giant")],
+              // 8.1/10 is IMDb (Q37312), not Rotten Tomatoes. 88% is the
+              // Popcornmeter qualifier. 96% and 8.2/10 are the Tomatometer
+              // and the critic average. Live Iron Giant on 2026-09-21 was
+              // 96% and 8.2/10 with no Popcornmeter; 88 is fixture-only.
+              P444: [
+                rtClaim("96%", "Q108403393"),
+                rtClaim("8.2/10", "Q108403540"),
+                rtClaim("88%", "Q131100566"),
+                {
+                  mainsnak: { datavalue: { value: "8.1/10" } },
+                  qualifiers: {
+                    P447: [{ datavalue: { value: { id: "Q37312" } } }],
+                    P459: [{ datavalue: { value: { id: "Q107218751" } } }],
+                  },
+                },
+              ],
+            }), { sitelinks: { enwiki: { title: "The Iron Giant" } } }),
             Q2: qid("Q2", "Plain Film", "2001 film", {
               P31: [snakItem("Q11424")],
               P577: [snakTime("+2001-01-01T00:00:00Z")],
@@ -146,6 +205,7 @@ async function sectionServer() {
   section("A. Search, prompt, recommend");
   process.env.BUCKY_NOTIFY_SECRET = SECRET;
   process.env.MOVIES_WIKI_BASE = "http://127.0.0.1:" + WIKI_PORT;
+  process.env.MOVIES_ENWIKI_BASE = "http://127.0.0.1:" + WIKI_PORT;
   process.env.MOVIES_XAI_BASE = "http://127.0.0.1:" + XAI_PORT;
   process.env.XAI_API_KEY = "test-xai";
   process.env.MOVIES_GROK_MODEL = "grok-4.7";
@@ -237,6 +297,36 @@ async function sectionServer() {
   ok(wikiCalls.some((u) => u.indexOf("/w/api.php") === 0 && /action=wbsearchentities/.test(u) && /search=iron%20giant/.test(u) && u.indexOf("http") < 0),
     "search hits the Wikidata search path, not a host from the query");
 
+  const zeroRt = typeof mod.parseRtScores === "function"
+    ? mod.parseRtScores({ claims: { P444: [rtClaim("0%", "Q108403393")] } })
+    : null;
+  ok(!!zeroRt && zeroRt.tomatoMeter === 0 && zeroRt.tomatoAverage === null && zeroRt.popcornMeter === null,
+    "a real 0% Tomatometer stays 0; a missing average stays null");
+
+  wikiCalls = [];
+  const detail = await callHandler(handler, { secret: SECRET, action: "detail", title: "The Iron Giant", year: 1999 });
+  const detailBody = await detail.json();
+  ok(detail.status === 200 && detailBody.found === true && detailBody.director === "Brad Bird" && detailBody.year === 1999,
+    "detail resolves The Iron Giant");
+  ok(detailBody.tomatoMeter === 96 && detailBody.tomatoAverage === 8.2 && detailBody.popcornMeter === 88,
+    "detail reads the Tomatometer, the critic average, and the Popcornmeter from their qualifiers");
+  ok(detailBody.tomatoAverage === 8.2 && detailBody.tomatoAverage !== 8.1, "an IMDb claim is not the Rotten Tomatoes average");
+  ok(!!detailBody.cover && detailBody.cover.indexOf("https://upload.wikimedia.org/") === 0 && detailBody.cover.indexOf("The_Iron_Giant_poster") >= 0,
+    "the poster is the Wikipedia sitelink image, not a host from the title");
+  ok(detailBody.rtPath === "m/iron_giant", "the Rotten Tomatoes path is the film id");
+  ok(wikiCalls.some((u) => u.indexOf("/api/rest_v1/page/summary/The_Iron_Giant") === 0) && wikiCalls.every((u) => u.indexOf("http") < 0),
+    "the poster request is the Wikipedia summary path");
+
+  const plain = await callHandler(handler, { secret: SECRET, action: "detail", title: "Plain Film" });
+  const plainBody = await plain.json();
+  ok(plain.status === 200 && plainBody.found === true && plainBody.tomatoMeter === null && plainBody.tomatoAverage === null && plainBody.popcornMeter === null && plainBody.cover === "",
+    "a film with no Rotten Tomatoes claim stays null, not 0, and gets no invented poster");
+
+  const dozen = await callHandler(handler, { secret: SECRET, action: "detail", title: "Cheaper By The Dozen (2003)" });
+  const dozenBody = await dozen.json();
+  ok(dozen.status === 200 && dozenBody.year === 2003 && dozenBody.tomatoMeter === 41,
+    "a year in the title picks that film's Tomatometer, not the other film's 83%");
+
   xaiCalls = [];
   const shelf = [{ title: "Toy Story", rating: 5 }];
   for (let i = 2; i <= 41; i++) shelf.push({ title: "Movie " + i, rating: null });
@@ -293,6 +383,10 @@ async function sectionServer() {
   ok((pageSrc.match(/Cinderella III/g) || []).length === 1, "Cinderella III is one owned title, not the bonus duplicate");
   ok(/function placeOnShelf/.test(pageSrc) && /function adoptWatched/.test(pageSrc) && !/id="watchedList"/.test(pageSrc),
     "Already watched is placed on Owned, and a saved watched list is folded in on load");
+  ok(/Q108403393/.test(src) && /Q131100566/.test(src) && /api\/rest_v1\/page\/summary/.test(src),
+    "scores come from the Rotten Tomatoes claims and the poster from the Wikipedia sitelink");
+  ok(/id="detail"/.test(pageSrc) && /Tomatometer/.test(pageSrc) && /#detail\[hidden\]/.test(pageSrc),
+    "clicking a movie opens a sheet for the Tomatometer");
   ok(/function titleSortKey/.test(pageSrc) && /sortedShelf\(p\.shelf\)/.test(pageSrc),
     "the owned list is painted in title order, ignoring a leading article");
   const importBody = pageSrc.split("function importOwned")[1].split("function titleSortKey")[0];
@@ -385,6 +479,19 @@ async function newPage(browser, user) {
         let body = {};
         try { body = JSON.parse((init && init.body) || "{}"); } catch (e) { body = {}; }
         window.__MOVIE_CALLS__.push(body);
+        if (body.action === "detail") {
+          return new Response(JSON.stringify({
+            found: true,
+            title: body.title,
+            year: 1997,
+            director: "Charles Martin Smith",
+            cover: "https://upload.wikimedia.org/wikipedia/en/2/2b/air_bud_poster.jpg",
+            tomatoMeter: 48,
+            tomatoAverage: 4.8,
+            popcornMeter: null,
+            rtPath: "m/air_bud",
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
         if (body.action === "search") {
           return new Response(JSON.stringify({
             movies: [{
@@ -457,6 +564,31 @@ async function sectionUi(browser) {
   await sleep(40);
   ok(await page.evaluate(() => window.__MOVIES__.current().shelf.find((m) => m.title === "Air Bud").rating === 5),
     "a 5-star rating sticks on Air Bud");
+
+  await page.evaluate(() => document.querySelector("#shelfList .movie").click());
+  await sleep(400);
+  ok(await page.evaluate(() => {
+    const d = document.getElementById("detail");
+    if (!d) return false;
+    const text = d.textContent.replace(/\s+/g, " ");
+    const img = d.querySelector("img");
+    const link = d.querySelector("#rtLink");
+    const row = document.querySelector("#shelfList .movie");
+    const rowImg = row && row.querySelector("img");
+    return d.hidden === false
+      && /Tomatometer 48%/.test(text)
+      && /Critic average 4\.8\/10/.test(text)
+      && !/Audience/.test(text)
+      && img && img.getAttribute("src").indexOf("air_bud_poster.jpg") >= 0
+      && link && link.getAttribute("href") === "https://www.rottentomatoes.com/m/air_bud"
+      && rowImg && rowImg.getAttribute("src").indexOf("air_bud_poster.jpg") >= 0;
+  }), "clicking an owned movie shows its poster and Rotten Tomatoes scores");
+  await page.evaluate(() => { const b = document.getElementById("detailClose"); if (b) b.click(); });
+  await sleep(40);
+  ok(await page.evaluate(() => {
+    const d = document.getElementById("detail");
+    return !!(d && d.hidden === true && d.offsetParent === null);
+  }), "Close hides the movie sheet (offsetParent null, not just a hidden attribute)");
 
   await page.evaluate(() => {
     const row = [...document.querySelectorAll("#shelfList .movie")].find((el) => el.querySelector(".t").textContent === "Toy Story");

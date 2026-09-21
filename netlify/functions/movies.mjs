@@ -9,6 +9,19 @@
 //     2026-09-21 (a music search on the same host still returned a track).
 //     A film has no invented star rating — communityRating stays null.
 //
+//   { secret, action:"detail", title, year? }
+//     -> { found, title, year, director, cover, tomatoMeter, tomatoAverage,
+//          popcornMeter, rtPath, reason? }
+//     The poster is the English Wikipedia page image for the film's sitelink.
+//     Guessing the article from the title is wrong: "Super Buddies" opened
+//     the DC team page on 2026-09-21, while the sitelink is
+//     "Super Buddies (film)" and that page image is the poster.
+//     Scores are Wikidata P444 claims reviewed by Rotten Tomatoes (Q105584):
+//     Tomatometer Q108403393 (a percent), Popcornmeter Q131100566 (a percent,
+//     only when the item has one), and the critic average Q108403540 (x/10).
+//     A missing claim stays null. A real 0% stays 0. OMDb returned 401
+//     "No API key provided" the same day, so it is not this lookup.
+//
 //   { secret, action:"recommend", shelf, interests }
 //     -> { movies:[{ title, director, summary, why }], model, error? }
 //     The whole owned list (title and the viewer's own stars) goes to grok-4.7
@@ -17,7 +30,7 @@
 //     budget is 6000. The JSON is the last line.
 //
 // Required env: BUCKY_NOTIFY_SECRET
-// Optional: MOVIES_WIKI_BASE, MOVIES_XAI_BASE, XAI_BASE_URL, XAI_API_KEY, MOVIES_GROK_MODEL
+// Optional: MOVIES_WIKI_BASE, MOVIES_ENWIKI_BASE, MOVIES_XAI_BASE, XAI_BASE_URL, XAI_API_KEY, MOVIES_GROK_MODEL
 
 const ALLOWED_ORIGINS = new Set([
   "https://amenfarms.netlify.app",
@@ -31,6 +44,11 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 const WIKI_BASE = process.env.MOVIES_WIKI_BASE || "https://www.wikidata.org";
+const ENWIKI_BASE = process.env.MOVIES_ENWIKI_BASE || "https://en.wikipedia.org";
+const RT_BY = "Q105584";
+const RT_TOMATOMETER = "Q108403393";
+const RT_POPCORN = "Q131100566";
+const RT_AVERAGE = "Q108403540";
 // P31 values that are a film. A novel or a soundtrack is not one of these.
 const FILM_TYPES = new Set([
   "Q11424",    // film
@@ -205,7 +223,7 @@ export function mapWikiFilm(entity, labelById) {
   };
 }
 
-export async function searchFilms(q) {
+async function wikiSearchIds(q) {
   const query = normSpace(q).slice(0, MAX_Q);
   if (!query) return [];
   const searchUrl = joinUrl(WIKI_BASE, "/w/api.php")
@@ -222,11 +240,115 @@ export async function searchFilms(q) {
     ids.push(id);
     if (ids.length >= MAX_RESULTS) break;
   }
-  if (!ids.length) return [];
+  return ids;
+}
+
+async function wikiEntities(ids, props) {
+  if (!ids.length) return {};
   const got = await fetchJson(joinUrl(WIKI_BASE, "/w/api.php")
     + "?action=wbgetentities&ids=" + ids.join("%7C")
-    + "&props=labels%7Cdescriptions%7Cclaims&languages=en&format=json");
-  const entities = got.ok && got.data && got.data.entities ? got.data.entities : {};
+    + "&props=" + props
+    + "&languages=en&format=json");
+  return got.ok && got.data && got.data.entities ? got.data.entities : {};
+}
+
+function qualifierIds(statement, prop) {
+  const list = statement && statement.qualifiers && statement.qualifiers[prop];
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const q of list) {
+    const v = q && q.datavalue && q.datavalue.value;
+    if (v && typeof v.id === "string" && /^Q\d+$/.test(v.id)) out.push(v.id);
+  }
+  return out;
+}
+
+function percentScore(text) {
+  const m = String(text || "").match(/(\d+(?:\.\d+)?)\s*%/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+  return n;
+}
+
+function tenScore(text) {
+  const m = String(text || "").match(/(\d+(?:\.\d+)?)\s*\/\s*10/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 0 || n > 10) return null;
+  return n;
+}
+
+export function parseRtScores(entity) {
+  const claims = entity && entity.claims && entity.claims.P444;
+  let tomatoMeter = null;
+  let tomatoAverage = null;
+  let popcornMeter = null;
+  if (!Array.isArray(claims)) return { tomatoMeter, tomatoAverage, popcornMeter };
+  for (const c of claims) {
+    if (!qualifierIds(c, "P447").includes(RT_BY)) continue;
+    const methods = qualifierIds(c, "P459");
+    const raw = c && c.mainsnak && c.mainsnak.datavalue && c.mainsnak.datavalue.value;
+    const text = normSpace(typeof raw === "string" ? raw : "");
+    if (methods.includes(RT_TOMATOMETER)) {
+      const n = percentScore(text);
+      if (n != null) tomatoMeter = n;
+    } else if (methods.includes(RT_POPCORN)) {
+      const n = percentScore(text);
+      if (n != null) popcornMeter = n;
+    } else if (methods.includes(RT_AVERAGE)) {
+      const n = tenScore(text);
+      if (n != null) tomatoAverage = n;
+    }
+  }
+  return { tomatoMeter, tomatoAverage, popcornMeter };
+}
+
+export function titleQuery(title) {
+  const raw = normSpace(title);
+  const m = raw.match(/^(.*)\((\d{4})\)\s*$/);
+  if (!m) return { title: raw, year: null };
+  const y = Number(m[2]);
+  if (!Number.isFinite(y) || y < 1880 || y > 2100) return { title: raw, year: null };
+  return { title: normSpace(m[1]), year: y };
+}
+
+export function pickFilm(entities, title, year) {
+  const want = blockKey(title);
+  if (!want) return null;
+  let exact = null;
+  for (const entity of entities) {
+    if (!entity || !isFilmEntity(entity)) continue;
+    const label = entity.labels && entity.labels.en && entity.labels.en.value;
+    if (blockKey(label) !== want) continue;
+    if (year && claimYear(entity, "P577") === year) return entity;
+    if (!exact) exact = entity;
+  }
+  return exact;
+}
+
+function wikiSlug(title) {
+  const t = normSpace(title);
+  if (!t || t.length > 180 || /[/?#]/.test(t)) return "";
+  return encodeURIComponent(t.replace(/ /g, "_"));
+}
+
+function posterFromSummary(data) {
+  const src = data && data.thumbnail && data.thumbnail.source;
+  if (typeof src !== "string" || src.indexOf("https://upload.wikimedia.org/") !== 0) return "";
+  return src.slice(0, 500);
+}
+
+function rtPathOf(entity) {
+  const id = claimString(entity, "P1258");
+  if (!/^m\/[a-z0-9_]+$/i.test(id)) return "";
+  return id.toLowerCase();
+}
+
+export async function searchFilms(q) {
+  const ids = await wikiSearchIds(q);
+  if (!ids.length) return [];
+  const entities = await wikiEntities(ids, "labels%7Cdescriptions%7Cclaims");
   const films = [];
   for (const id of ids) {
     const entity = entities[id];
@@ -261,6 +383,48 @@ export async function searchFilms(q) {
     if (out.length >= MAX_RESULTS) break;
   }
   return out;
+}
+
+export async function filmDetail(rawTitle, rawYear) {
+  const parsed = titleQuery(rawTitle);
+  const year = asNum(rawYear) == null ? parsed.year : asNum(rawYear);
+  const title = parsed.title;
+  if (!title) return { found: false, reason: "empty", title: "", year: null, director: "", cover: "", tomatoMeter: null, tomatoAverage: null, popcornMeter: null, rtPath: "" };
+  const ids = await wikiSearchIds(title);
+  const entities = await wikiEntities(ids, "labels%7Cdescriptions%7Cclaims%7Csitelinks");
+  const films = ids.map((id) => entities[id]).filter(Boolean);
+  const entity = pickFilm(films, title, year);
+  if (!entity) return { found: false, reason: "no-match", title: title, year: year, director: "", cover: "", tomatoMeter: null, tomatoAverage: null, popcornMeter: null, rtPath: "" };
+  const scores = parseRtScores(entity);
+  const label = entity.labels && entity.labels.en && entity.labels.en.value;
+  const directorIds = claimIds(entity, "P57").slice(0, 2);
+  const named = await wikiEntities(directorIds, "labels");
+  const directors = directorIds.map((id) => {
+    const name = named[id] && named[id].labels && named[id].labels.en && named[id].labels.en.value;
+    return name ? normSpace(name) : "";
+  }).filter(Boolean);
+  let cover = "";
+  const wikiTitle = entity.sitelinks && entity.sitelinks.enwiki && entity.sitelinks.enwiki.title;
+  const slug = wikiSlug(wikiTitle);
+  if (slug) {
+    const sum = await fetchJson(joinUrl(ENWIKI_BASE, "/api/rest_v1/page/summary/" + slug));
+    cover = posterFromSummary(sum.ok ? sum.data : null);
+  }
+  if (!cover) {
+    const file = claimString(entity, "P18");
+    if (file) cover = ("https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(file) + "?width=400").slice(0, 400);
+  }
+  return {
+    found: true,
+    title: normSpace(label).slice(0, 200),
+    year: claimYear(entity, "P577"),
+    director: directors.join(", ").slice(0, 120),
+    cover,
+    tomatoMeter: scores.tomatoMeter,
+    tomatoAverage: scores.tomatoAverage,
+    popcornMeter: scores.popcornMeter,
+    rtPath: rtPathOf(entity),
+  };
 }
 
 export function sanitizeShelf(raw) {
@@ -441,8 +605,12 @@ export default async (req) => {
     const movies = await searchFilms(body.q);
     return json({ movies }, 200, headers);
   }
+  if (action === "detail") {
+    const detail = await filmDetail(body.title, body.year);
+    return json(detail, 200, headers);
+  }
   if (action === "recommend") {
     return recommendStream(recommend(body), headers);
   }
-  return json({ error: 'action must be "search" or "recommend"' }, 400, headers);
+  return json({ error: 'action must be "search", "detail", or "recommend"' }, 400, headers);
 };
