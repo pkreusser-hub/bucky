@@ -12,8 +12,8 @@
  * apolloState Review:* objects), including a 403 refusal. Nothing here
  * touches the real internet.
  *
- * Section B drives books.html (and the Home card) in Chrome at 390x844 and
- * desktop with the function ROUTE-MOCKED.
+ * Section B drives books.html (the Home card, and the FarmGPT home card) in
+ * Chrome at 390x844 and desktop with the function ROUTE-MOCKED.
  *
  * FIREBASE IS BLOCKED on any index.html load (googleapis / firestore / firebase / gstatic).
  */
@@ -329,6 +329,15 @@ async function sectionServer() {
   ok(/Number\.isFinite\(Number\(political\)\)/.test(pageSrc) && /Number\.isFinite\(Number\(woke\)\)/.test(pageSrc),
     "the meters treat 0 as 0, not as missing");
   ok(/data-feature="books"/.test(pageSrc), "the activity beacon is on the page");
+
+  const gptSrc = fs.readFileSync(path.join(ROOT, "farmgpt.html"), "utf8");
+  ok(/id="cardBooks"/.test(gptSrc), "FarmGPT home has a Bookshelf card");
+  ok(/id="cardBooks"[\s\S]{0,400}<div class="nm">Bookshelf<\/div>/.test(gptSrc),
+    "…labeled Bookshelf, not the story-shelf renderer");
+  ok(/window\.top\.location\.href = \"books\.html\"/.test(gptSrc),
+    "the AI-tab card climbs to the top window so it does not nest inside the FarmGPT iframe");
+  ok(/location\.href = \"books\.html\"/.test(gptSrc),
+    "…and still opens books.html when FarmGPT is standalone");
 }
 
 function serveStatic() {
@@ -380,6 +389,9 @@ async function newPage(browser, mock, opts) {
     window.fetch = async function (url, init) {
       const href = String(url);
       if (href.indexOf("/.netlify/functions/activity") !== -1) {
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (href.indexOf("/.netlify/functions/farmgpt") !== -1) {
         return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (href.indexOf("/.netlify/functions/books") !== -1) {
@@ -512,6 +524,54 @@ async function sectionUi(browser) {
   ok(bookAt > sportsAt && sportsAt > 0, "Home Bookshelf card is created after the sports cards");
   ok(/location\.href = \"books\.html\"/.test(idx), "the Home card opens books.html");
   ok(/textContent = \"Bookshelf\"/.test(idx), "the Home card is labeled Bookshelf");
+
+  // Phone AI tab: FarmGPT home is the place people actually look. The card must
+  // sit on the first screen at 390x844 (no scroll) and open books.html.
+  const gpt = await newPage(browser, mock, { user: "Dad" });
+  await gpt.page.goto(BASE + "/farmgpt.html", { waitUntil: "domcontentloaded", timeout: 60000 });
+  await gpt.page.waitForFunction(() => document.getElementById("cardBooks"), { timeout: 15000 });
+  const gptGeom = await gpt.page.evaluate(() => {
+    const cards = [...document.querySelectorAll("#homeCards .bigCard")].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { id: el.id, top: Math.round(r.top), left: Math.round(r.left), bottom: Math.round(r.bottom), name: (el.querySelector(".nm") || {}).textContent || "" };
+    });
+    const books = cards.find((c) => c.id === "cardBooks");
+    const story = cards.find((c) => c.id === "cardStory");
+    const research = cards.find((c) => c.id === "cardResearch");
+    const teacher = cards.find((c) => c.id === "cardTeacher");
+    const el = document.getElementById("cardBooks");
+    return {
+      cards,
+      books,
+      story,
+      research,
+      teacher,
+      inLayout: !!(el && el.offsetParent),
+      onFirstScreen: !!(books && books.top >= 0 && books.bottom <= window.innerHeight && books.bottom > books.top),
+      twoByTwo: !!(story && research && teacher && books
+        && story.top === research.top
+        && teacher.top === books.top
+        && books.top > story.top
+        && story.left === teacher.left
+        && research.left === books.left),
+      label: books ? books.name : "",
+      homeOn: document.getElementById("viewHome").classList.contains("on"),
+    };
+  });
+  ok(gptGeom.homeOn, "FarmGPT opens on the home cards");
+  ok(gptGeom.inLayout && gptGeom.label === "Bookshelf", "the Bookshelf card is in the layout and labeled Bookshelf");
+  ok(gptGeom.onFirstScreen, "the Bookshelf card is on the first 390×844 screen (no scroll to find it)");
+  ok(gptGeom.twoByTwo, "Story/Research and Teacher/Bookshelf sit as a 2×2 on a phone");
+
+  await Promise.all([
+    gpt.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }),
+    gpt.page.evaluate(() => document.getElementById("cardBooks").click()),
+  ]);
+  ok(/\/books\.html$/.test(gpt.page.url()), "tapping Bookshelf on FarmGPT opens books.html");
+  await gpt.page.waitForFunction(() => window.__BOOKS__, { timeout: 15000 });
+  ok(await gpt.page.evaluate(() => document.querySelector("#bar .t").textContent === "Bookshelf"),
+    "…and that page is the family Bookshelf, not Story Time's shelf");
+  await gpt.page.close();
 }
 
 (async () => {

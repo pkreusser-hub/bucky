@@ -2413,3 +2413,13 @@ carries an integer `score` 0–100 plus the existing 1..N room ranks. The one-bo
 / no-score contract from earlier the same day is rejected as stale. User turn
 asks for both boards and the 0..100 scores; still a named `power` field, never
 `messages[]`.
+
+## FarmGPT home — Bookshelf card (2026-09-21)
+
+The family book tool (`books.html`) is a fourth `#homeCards` tile, `#cardBooks`,
+labeled Bookshelf. It is not Story Time's saved-story shelf (`#bookshelf` /
+`renderBookshelf`). Phone AI is this page in a persistent iframe; the tap sets
+`window.top.location.href = "books.html"` when `farmgptIsEmbedded()` so the
+frame stays `farmgpt.html` and `books.html` gets its own chrome. Standalone
+FarmGPT uses same-window `location.href`. Four tiles fill a 2×2 on a 390-wide
+phone (the odd-last-child span is unused). Suite: `node tools/_verify-books.cjs`.
