@@ -336,6 +336,10 @@ async function sectionServer() {
     "…includes the Sept 2014 Audible credit haul (Two Towers, Isaacson)");
   ok(/title: "Rhythm of War"/.test(pageSrc) && /title: "Last Argument of Kings"/.test(pageSrc) && /title: "Master and Commander"/.test(pageSrc),
     "…includes the later library (Rhythm of War, Last Argument, Aubrey)");
+  ok(/title: "Oathbringer"[\s\S]{0,180}communityRating: 4\.5111/.test(pageSrc),
+    "Oathbringer carries its Open Library snapshot rating (4.5111 from search.json)");
+  ok(/ratingSource: "open-library"/.test(pageSrc) && /covers\.openlibrary\.org\/b\/id\//.test(pageSrc),
+    "…and the seed points at Open Library covers + ratingSource");
   ok(!/Harry Potter/.test(pageSrc) && !/Name of the Wind/.test(pageSrc),
     "…omits the two refunded Audible titles");
   ok(!/Cowboy of Convenience/.test(pageSrc) && !/Dakota Brides/.test(pageSrc),
@@ -537,6 +541,37 @@ async function sectionUi(browser) {
     "…and the Sept 2014 Audible credit haul");
   ok(dadTitles.indexOf("Rhythm of War") >= 0 && dadTitles.indexOf("Last Argument of Kings") >= 0 && dadTitles.indexOf("Master and Commander") >= 0,
     "…and the later Audible Stormlight, First Law, and Aubrey titles");
+  ok(await page.evaluate(() => {
+    const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
+    const b = dad && dad.shelf.find((x) => x.title === "Oathbringer");
+    return !!(b && b.communityRating === 4.5111 && b.ratingSource === "open-library" && b.cover.indexOf("covers.openlibrary.org") === 0);
+  }), "Dad's Oathbringer row has the Open Library rating and cover");
+  await page.evaluate(() => {
+    const chips = [...document.querySelectorAll("#profileChips .chip")];
+    const dad = chips.find((c) => c.textContent === "Dad");
+    if (dad) dad.click();
+  });
+  await sleep(80);
+  ok(await page.evaluate(() => {
+    const metas = [...document.querySelectorAll("#shelfList .meta")].map((el) => el.textContent);
+    return metas.some((t) => /4\.51 from Open Library \(90\)/.test(t));
+  }), "the shelf paints 4.51 from Open Library (90), not No community rating");
+
+  await page.evaluate(() => {
+    const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
+    const b = dad.shelf.find((x) => x.title === "Oathbringer");
+    b.communityRating = null;
+    b.cover = "";
+    b.ratingSource = "";
+    localStorage.setItem("books_profiles_v1", JSON.stringify(window.__BOOKS__.state()));
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => window.__BOOKS__, { timeout: 15000 });
+  ok(await page.evaluate(() => {
+    const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
+    const b = dad && dad.shelf.find((x) => x.title === "Oathbringer");
+    return !!(b && b.communityRating === 4.5111 && b.cover);
+  }), "an older seed row missing the Open Library snapshot is backfilled on reload");
   ok(dadTitles.every((t) => !/Harry Potter|Name of the Wind|Cowboy of Convenience|Witness Wore|Whole-Brain|NurtureShock|Trivia Storm|Les Mis|Shepherding/.test(t)),
     "…without refunded, struck, cut, or Ask titles");
   ok(await page.evaluate(() => {

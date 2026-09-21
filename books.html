@@ -366,144 +366,148 @@
   // titles, and the quiz books stay off. A seed row already on the shelf
   // (matched by title) is not added again. Seed rows no longer in this
   // list are pruned so a confirmed cut does not survive a reload.
-  // Keys already in IMPORT_KEYS are never re-added after a Remove.
+  // communityRating / cover / isbn are an Open Library snapshot (ratings
+  // from search.json). A 0-from-0 miss stays off — Number(null) is 0.
+  // Catalog fields also backfill a seed row that imported before the
+  // snapshot. Keys already in IMPORT_KEYS are never re-added after a Remove.
   var DAD_SEED = [
-    { title: "The Way of Kings", author: "Brandon Sanderson" },
-    { title: "Words of Radiance", author: "Brandon Sanderson" },
-    { title: "Oathbringer", author: "Brandon Sanderson" },
-    { title: "Rhythm of War", author: "Brandon Sanderson" },
-    { title: "Warbreaker", author: "Brandon Sanderson" },
-    { title: "Tress of the Emerald Sea", author: "Brandon Sanderson" },
-    { title: "The Final Empire", author: "Brandon Sanderson" },
-    { title: "The Well of Ascension", author: "Brandon Sanderson" },
-    { title: "The Hero of Ages", author: "Brandon Sanderson" },
-    { title: "Wool", author: "Hugh Howey" },
-    { title: "Dust", author: "Hugh Howey" },
-    { title: "First Shift - Legacy", author: "Hugh Howey" },
-    { title: "Second Shift - Order", author: "Hugh Howey" },
-    { title: "Third Shift - Pact", author: "Hugh Howey" },
-    { title: "Sand Omnibus", author: "Hugh Howey" },
-    { title: "Silo 49: Going Dark", author: "Ann Christy" },
+    { title: "The Way of Kings", author: "Brandon Sanderson", communityRating: 4.5091, ratingsCount: 165, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14658316-M.jpg", isbn: "9782253191230" },
+    { title: "Words of Radiance", author: "Brandon Sanderson", communityRating: 4.6875, ratingsCount: 96, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14658334-M.jpg", isbn: "9788374806480" },
+    { title: "Oathbringer", author: "Brandon Sanderson", communityRating: 4.5111, ratingsCount: 90, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14658111-M.jpg", isbn: "9788374809122" },
+    { title: "Rhythm of War", author: "Brandon Sanderson", communityRating: 4.4318, ratingsCount: 44, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14658361-M.jpg", isbn: "9780575093393" },
+    { title: "Warbreaker", author: "Brandon Sanderson", communityRating: 4.3043, ratingsCount: 23, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14658347-M.jpg", isbn: "9783453321649" },
+    { title: "Tress of the Emerald Sea", author: "Brandon Sanderson", communityRating: 4.6, ratingsCount: 10, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/13143232-M.jpg", isbn: "9788418037818" },
+    { title: "The Final Empire", author: "Brandon Sanderson", communityRating: 4.4103, ratingsCount: 156, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14658160-M.jpg", isbn: "9788419260444" },
+    { title: "The Well of Ascension", author: "Brandon Sanderson", communityRating: 4.413, ratingsCount: 138, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14658341-M.jpg", isbn: "9780575097759" },
+    { title: "The Hero of Ages", author: "Brandon Sanderson", communityRating: 4.576, ratingsCount: 125, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14658094-M.jpg", isbn: "9780792776444" },
+    { title: "Wool", author: "Hugh Howey", communityRating: 4.4286, ratingsCount: 14, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14369537-M.jpg", isbn: "9780358447832" },
+    { title: "Dust", author: "Hugh Howey", communityRating: 3.8148, ratingsCount: 27, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/10054840-M.jpg", isbn: "9781490904382" },
+    { title: "First Shift - Legacy", author: "Hugh Howey", cover: "https://covers.openlibrary.org/b/id/7516034-M.jpg", isbn: "9781475154771" },
+    { title: "Second Shift - Order", author: "Hugh Howey", cover: "https://covers.openlibrary.org/b/id/14516042-M.jpg", isbn: "9781481056557" },
+    { title: "Third Shift - Pact", author: "Hugh Howey", cover: "https://covers.openlibrary.org/b/id/14767133-M.jpg", isbn: "9781481983518" },
+    { title: "Sand Omnibus", author: "Hugh Howey", cover: "https://covers.openlibrary.org/b/id/8861458-M.jpg" },
+    { title: "Silo 49: Going Dark", author: "Ann Christy", cover: "https://covers.openlibrary.org/b/id/8910113-M.jpg" },
     { title: "Greatfall: A Silo Story (Part 1)", author: "Jason Gurley" },
     { title: "Greatfall: A Silo Story (Part 2)", author: "Jason Gurley" },
     { title: "Greatfall: A Silo Story (Part 3)", author: "Jason Gurley" },
-    { title: "I, Robot", author: "Isaac Asimov" },
-    { title: "The Caves of Steel", author: "Isaac Asimov" },
-    { title: "The Robots of Dawn", author: "Isaac Asimov" },
-    { title: "Prelude to Foundation", author: "Isaac Asimov" },
-    { title: "Foundation", author: "Isaac Asimov" },
-    { title: "Foundation and Empire", author: "Isaac Asimov" },
-    { title: "The Martian", author: "Andy Weir" },
-    { title: "Project Hail Mary", author: "Andy Weir" },
-    { title: "Fahrenheit 451", author: "Ray Bradbury" },
-    { title: "A Game of Thrones", author: "George R.R. Martin" },
-    { title: "A Clash of Kings", author: "George R.R. Martin" },
-    { title: "A Storm of Swords", author: "George R.R. Martin" },
-    { title: "A Feast for Crows", author: "George R.R. Martin" },
-    { title: "A Dance with Dragons", author: "George R.R. Martin" },
-    { title: "The Blade Itself", author: "Joe Abercrombie" },
-    { title: "Before They Are Hanged", author: "Joe Abercrombie" },
-    { title: "Last Argument of Kings", author: "Joe Abercrombie" },
-    { title: "Best Served Cold", author: "Joe Abercrombie" },
-    { title: "The Eye of the World", author: "Robert Jordan" },
-    { title: "The Great Hunt", author: "Robert Jordan" },
-    { title: "The Dragon Reborn", author: "Robert Jordan" },
-    { title: "The Gathering Storm", author: "Robert Jordan" },
-    { title: "Towers of Midnight", author: "Robert Jordan" },
-    { title: "A Memory of Light", author: "Robert Jordan" },
-    { title: "Wizard's First Rule", author: "Terry Goodkind" },
-    { title: "Stone of Tears", author: "Terry Goodkind" },
-    { title: "Blood of the Fold", author: "Terry Goodkind" },
-    { title: "His Majesty's Dragon", author: "Naomi Novik" },
-    { title: "Throne of Jade", author: "Naomi Novik" },
-    { title: "Black Powder War", author: "Naomi Novik" },
-    { title: "Empire of Ivory", author: "Naomi Novik" },
-    { title: "Victory of Eagles", author: "Naomi Novik" },
-    { title: "Tongues of Serpents", author: "Naomi Novik" },
-    { title: "Crucible of Gold", author: "Naomi Novik" },
-    { title: "Blood of Tyrants", author: "Naomi Novik" },
-    { title: "League of Dragons", author: "Naomi Novik" },
-    { title: "The Hobbit", author: "J.R.R. Tolkien" },
-    { title: "The Fellowship of the Ring", author: "J.R.R. Tolkien" },
-    { title: "The Two Towers", author: "J.R.R. Tolkien" },
-    { title: "The Return of the King", author: "J.R.R. Tolkien" },
-    { title: "The Silmarillion", author: "J.R.R. Tolkien" },
-    { title: "The Hunger Games", author: "Suzanne Collins" },
-    { title: "The Memory of Earth", author: "Orson Scott Card" },
-    { title: "The Call of Earth", author: "Orson Scott Card" },
-    { title: "The Ships of Earth", author: "Orson Scott Card" },
-    { title: "Earthfall", author: "Orson Scott Card" },
-    { title: "Ender's Shadow", author: "Orson Scott Card" },
-    { title: "Shadow of the Hegemon", author: "Orson Scott Card" },
-    { title: "Red Rising", author: "Pierce Brown" },
-    { title: "Golden Son", author: "Pierce Brown" },
-    { title: "Morning Star", author: "Pierce Brown" },
-    { title: "Leviathan Wakes", author: "James S.A. Corey" },
-    { title: "Caliban's War", author: "James S.A. Corey" },
-    { title: "Abaddon's Gate", author: "James S.A. Corey" },
-    { title: "Hyperion", author: "Dan Simmons" },
-    { title: "The Fall of Hyperion", author: "Dan Simmons" },
-    { title: "Endymion", author: "Dan Simmons" },
-    { title: "The Rise of Endymion", author: "Dan Simmons" },
-    { title: "Dune", author: "Frank Herbert" },
-    { title: "We Are Legion (We Are Bob)", author: "Dennis E. Taylor" },
-    { title: "Columbus Day", author: "Craig Alanson" },
-    { title: "The Will of the Many", author: "James Islington" },
-    { title: "Glory Road", author: "Robert A. Heinlein" },
-    { title: "The Forever War", author: "Joe Haldeman" },
-    { title: "Snow Crash", author: "Neal Stephenson" },
-    { title: "World War Z", author: "Max Brooks" },
-    { title: "The Hitchhiker's Guide to the Galaxy", author: "Douglas Adams" },
-    { title: "The Restaurant at the End of the Universe", author: "Douglas Adams" },
-    { title: "Containment", author: "Christian Cantrell" },
-    { title: "The Rookie", author: "Scott Sigler" },
-    { title: "The Beginning of the End", author: "Manel Loureiro" },
-    { title: "Halo: The Fall of Reach", author: "Eric Nylund" },
-    { title: "Halo: First Strike", author: "Eric Nylund" },
-    { title: "Master and Commander", author: "Patrick O'Brian" },
-    { title: "Post Captain", author: "Patrick O'Brian" },
-    { title: "H.M.S. Surprise", author: "Patrick O'Brian" },
-    { title: "The Mauritius Command", author: "Patrick O'Brian" },
-    { title: "Desolation Island", author: "Patrick O'Brian" },
-    { title: "The Surgeon's Mate", author: "Patrick O'Brian" },
-    { title: "The Fortune of War", author: "Patrick O'Brian" },
-    { title: "The Ionian Mission", author: "Patrick O'Brian" },
-    { title: "Treason's Harbour", author: "Patrick O'Brian" },
-    { title: "The Far Side of the World", author: "Patrick O'Brian" },
-    { title: "The Reverse of the Medal", author: "Patrick O'Brian" },
-    { title: "The Letter of Marque", author: "Patrick O'Brian" },
-    { title: "The Thirteen-Gun Salute", author: "Patrick O'Brian" },
-    { title: "The Nutmeg of Consolation", author: "Patrick O'Brian" },
-    { title: "Mr Midshipman Hornblower", author: "C.S. Forester" },
-    { title: "Lieutenant Hornblower", author: "C.S. Forester" },
-    { title: "Hornblower and the Hotspur", author: "C.S. Forester" },
-    { title: "Shogun", author: "James Clavell" },
-    { title: "The First Man in Rome", author: "Colleen McCullough" },
-    { title: "The Grass Crown", author: "Colleen McCullough" },
-    { title: "The Steel Wave", author: "Jeff Shaara" },
-    { title: "The Count of Monte Cristo", author: "Alexandre Dumas" },
-    { title: "Washington: A Life", author: "Ron Chernow" },
-    { title: "Team of Rivals", author: "Doris Kearns Goodwin" },
-    { title: "John Adams", author: "David McCullough" },
-    { title: "Truman", author: "David McCullough" },
-    { title: "Thomas Jefferson: The Art of Power", author: "Jon Meacham" },
-    { title: "Benjamin Franklin: An American Life", author: "Walter Isaacson" },
-    { title: "Einstein: His Life and Universe", author: "Walter Isaacson" },
-    { title: "The Rise and Fall of the Third Reich", author: "William L. Shirer" },
-    { title: "A World Undone", author: "G.J. Meyer" },
-    { title: "The Civil War: A Narrative, Volume I", author: "Shelby Foote" },
-    { title: "Conspiracy of Fools", author: "Kurt Eichenwald" },
-    { title: "The Mueller Report", author: "Robert S. Mueller III" },
-    { title: "Liberal Fascism", author: "Jonah Goldberg" },
-    { title: "Atlas Shrugged", author: "Ayn Rand" },
-    { title: "Basic Economics", author: "Thomas Sowell" },
-    { title: "Sword and Scimitar", author: "Raymond Ibrahim" },
-    { title: "The Art of War", author: "Sun Tzu" },
-    { title: "The Terminal List", author: "Jack Carr" },
-    { title: "The Making of Star Wars", author: "J.W. Rinzler" },
-    { title: "The Making of Star Wars: The Empire Strikes Back", author: "J.W. Rinzler" },
+    { title: "I, Robot", author: "Isaac Asimov", communityRating: 4.2474, ratingsCount: 190, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/12385229-M.jpg", isbn: "9780812439250" },
+    { title: "The Caves of Steel", author: "Isaac Asimov", communityRating: 4.3448, ratingsCount: 29, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/13790511-M.jpg", isbn: "9782290004043" },
+    { title: "The Robots of Dawn", author: "Isaac Asimov", communityRating: 4.1333, ratingsCount: 45, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14372309-M.jpg", isbn: "9780898451429" },
+    { title: "Prelude to Foundation", author: "Isaac Asimov", communityRating: 3.7692, ratingsCount: 13, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/12816973-M.jpg", isbn: "9780833533074" },
+    { title: "Foundation", author: "Isaac Asimov", communityRating: 4.0942, ratingsCount: 308, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14612610-M.jpg", isbn: "9780007270422" },
+    { title: "Foundation and Empire", author: "Isaac Asimov", communityRating: 4.1046, ratingsCount: 153, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/9300695-M.jpg", isbn: "9788401496523" },
+    { title: "The Martian", author: "Andy Weir", communityRating: 4.3976, ratingsCount: 337, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/11447888-M.jpg", isbn: "9789045210841" },
+    { title: "Project Hail Mary", author: "Andy Weir", communityRating: 4.5, ratingsCount: 178, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/11200092-M.jpg", isbn: "9786064310996" },
+    { title: "Fahrenheit 451", author: "Ray Bradbury", communityRating: 3.9823, ratingsCount: 451, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/12993656-M.jpg", isbn: "9780965020596" },
+    { title: "A Game of Thrones", author: "George R.R. Martin", communityRating: 4.2218, ratingsCount: 762, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/9269962-M.jpg", isbn: "9789137139623" },
+    { title: "A Clash of Kings", author: "George R.R. Martin", communityRating: 4.2902, ratingsCount: 193, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8231751-M.jpg", isbn: "9781644735817" },
+    { title: "A Storm of Swords", author: "George R.R. Martin", communityRating: 4.4444, ratingsCount: 108, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/15124196-M.jpg", isbn: "9787229050979" },
+    { title: "A Feast for Crows", author: "George R.R. Martin", communityRating: 4.0719, ratingsCount: 153, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/6501256-M.jpg", isbn: "9788377856703" },
+    { title: "A Dance with Dragons", author: "George R.R. Martin", communityRating: 4.3488, ratingsCount: 43, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/11298743-M.jpg", isbn: "9780002247399" },
+    { title: "The Blade Itself", author: "Joe Abercrombie", communityRating: 4.0968, ratingsCount: 93, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14543422-M.jpg", isbn: "9780316387330" },
+    { title: "Before They Are Hanged", author: "Joe Abercrombie", communityRating: 4.1493, ratingsCount: 67, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14595640-M.jpg", isbn: "9788411480734" },
+    { title: "Last Argument of Kings", author: "Joe Abercrombie", communityRating: 4.1695, ratingsCount: 59, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/6901175-M.jpg", isbn: "9781478935872" },
+    { title: "Best Served Cold", author: "Joe Abercrombie", communityRating: 4.2727, ratingsCount: 33, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14543410-M.jpg", isbn: "9780575082489" },
+    { title: "The Eye of the World", author: "Robert Jordan", communityRating: 3.9221, ratingsCount: 231, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/980232-M.jpg", isbn: "9789024510559" },
+    { title: "The Great Hunt", author: "Robert Jordan", communityRating: 4.0103, ratingsCount: 97, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/182352-M.jpg", isbn: "9788372989833" },
+    { title: "The Dragon Reborn", author: "Robert Jordan", communityRating: 3.7333, ratingsCount: 15, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/603239-M.jpg", isbn: "9780356525235" },
+    { title: "The Gathering Storm", author: "Robert Jordan", communityRating: 4.15, ratingsCount: 60, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14658062-M.jpg", isbn: "9786053750321" },
+    { title: "Towers of Midnight", author: "Robert Jordan", communityRating: 4.0, ratingsCount: 35, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14658162-M.jpg", isbn: "9780356503943" },
+    { title: "A Memory of Light", author: "Robert Jordan", communityRating: 4.2727, ratingsCount: 11, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14658328-M.jpg", isbn: "9780765337856" },
+    { title: "Wizard's First Rule", author: "Terry Goodkind", communityRating: 4.1818, ratingsCount: 66, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/1005963-M.jpg", isbn: "9781593554989" },
+    { title: "Stone of Tears", author: "Terry Goodkind", communityRating: 4.1333, ratingsCount: 30, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/182448-M.jpg", isbn: "9780312857066" },
+    { title: "Blood of the Fold", author: "Terry Goodkind", communityRating: 3.88, ratingsCount: 25, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/183644-M.jpg", isbn: "9780812551471" },
+    { title: "His Majesty's Dragon", author: "Naomi Novik", communityRating: 3.9048, ratingsCount: 21, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8191809-M.jpg", isbn: "9781596061484" },
+    { title: "Throne of Jade", author: "Naomi Novik", communityRating: 3.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8191812-M.jpg" },
+    { title: "Black Powder War", author: "Naomi Novik", communityRating: 5.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/13732-M.jpg" },
+    { title: "Empire of Ivory", author: "Naomi Novik", communityRating: 4.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/6428274-M.jpg" },
+    { title: "Victory of Eagles", author: "Naomi Novik", communityRating: 4.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/6419701-M.jpg", isbn: "9780345496881" },
+    { title: "Tongues of Serpents", author: "Naomi Novik", communityRating: 2.6, ratingsCount: 5, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/6452163-M.jpg", isbn: "9780007256778" },
+    { title: "Crucible of Gold", author: "Naomi Novik", communityRating: 3.6667, ratingsCount: 3, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/10230267-M.jpg", isbn: "9780593359600" },
+    { title: "Blood of Tyrants", author: "Naomi Novik", communityRating: 3.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/7564034-M.jpg", isbn: "9781452665610" },
+    { title: "League of Dragons", author: "Naomi Novik", communityRating: 5.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/9142301-M.jpg", isbn: "9780008121150" },
+    { title: "The Hobbit", author: "J.R.R. Tolkien", communityRating: 4.29, ratingsCount: 500, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14627509-M.jpg", isbn: "9780563528807" },
+    { title: "The Fellowship of the Ring", author: "J.R.R. Tolkien", communityRating: 4.3416, ratingsCount: 404, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14627060-M.jpg", isbn: "9780788789816" },
+    { title: "The Two Towers", author: "J.R.R. Tolkien", communityRating: 4.3519, ratingsCount: 233, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14627564-M.jpg", isbn: "9782070501410" },
+    { title: "The Return of the King", author: "J.R.R. Tolkien", communityRating: 4.4486, ratingsCount: 107, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14627062-M.jpg", isbn: "9780345272607" },
+    { title: "The Silmarillion", author: "J.R.R. Tolkien", communityRating: 3.9504, ratingsCount: 121, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14627042-M.jpg", isbn: "9780061927638" },
+    { title: "The Hunger Games", author: "Suzanne Collins", communityRating: 4.1254, ratingsCount: 558, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/12646537-M.jpg", isbn: "9781407157863" },
+    { title: "The Memory of Earth", author: "Orson Scott Card", communityRating: 3.7273, ratingsCount: 11, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14478355-M.jpg", isbn: "9780712654166" },
+    { title: "The Call of Earth", author: "Orson Scott Card", communityRating: 3.5556, ratingsCount: 9, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/7135663-M.jpg", isbn: "9780812532616" },
+    { title: "The Ships of Earth", author: "Orson Scott Card", communityRating: 3.625, ratingsCount: 8, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/13613399-M.jpg", isbn: "9781429966139" },
+    { title: "Earthfall", author: "Orson Scott Card", communityRating: 3.625, ratingsCount: 8, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/10986125-M.jpg", isbn: "9780312930394" },
+    { title: "Ender's Shadow", author: "Orson Scott Card", communityRating: 4.0548, ratingsCount: 73, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/12009325-M.jpg", isbn: "9788498729597" },
+    { title: "Shadow of the Hegemon", author: "Orson Scott Card", communityRating: 3.973, ratingsCount: 37, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/9317130-M.jpg", isbn: "9780613671217" },
+    { title: "Red Rising", author: "Pierce Brown", communityRating: 3.9216, ratingsCount: 102, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/7316188-M.jpg", isbn: "9781444758993" },
+    { title: "Golden Son", author: "Pierce Brown", communityRating: 4.2407, ratingsCount: 54, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8454351-M.jpg", isbn: "9788364030680" },
+    { title: "Morning Star", author: "Pierce Brown", communityRating: 4.2923, ratingsCount: 65, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8566174-M.jpg", isbn: "9788427210233" },
+    { title: "Leviathan Wakes", author: "James S.A. Corey", communityRating: 4.2515, ratingsCount: 167, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/7314237-M.jpg", isbn: "9783453529311" },
+    { title: "Caliban's War", author: "James S.A. Corey", communityRating: 4.2605, ratingsCount: 119, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/7314238-M.jpg", isbn: "9781549153051" },
+    { title: "Abaddon's Gate", author: "James S.A. Corey", communityRating: 4.1571, ratingsCount: 70, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8624248-M.jpg", isbn: "9780748122981" },
+    { title: "Hyperion", author: "Dan Simmons", communityRating: 4.1731, ratingsCount: 156, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/380332-M.jpg", isbn: "9780575081147" },
+    { title: "The Fall of Hyperion", author: "Dan Simmons", communityRating: 4.0339, ratingsCount: 59, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/484900-M.jpg", isbn: "9783453156395" },
+    { title: "Endymion", author: "Dan Simmons", communityRating: 3.9333, ratingsCount: 30, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/975059-M.jpg", isbn: "9788498723588" },
+    { title: "The Rise of Endymion", author: "Dan Simmons", communityRating: 4.0, ratingsCount: 21, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/4910012-M.jpg", isbn: "9782221086346" },
+    { title: "Dune", author: "Frank Herbert", communityRating: 4.3018, ratingsCount: 444, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/11481354-M.jpg", isbn: "9788373017238" },
+    { title: "We Are Legion (We Are Bob)", author: "Dennis E. Taylor", cover: "https://covers.openlibrary.org/b/id/8421582-M.jpg" },
+    { title: "Columbus Day", author: "Craig Alanson", communityRating: 3.0, ratingsCount: 3, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/10543524-M.jpg", isbn: "9781520126241" },
+    { title: "The Will of the Many", author: "James Islington", communityRating: 4.7, ratingsCount: 10, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/15247547-M.jpg", isbn: "9781922790910" },
+    { title: "Glory Road", author: "Robert A. Heinlein", communityRating: 3.3333, ratingsCount: 6, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/14632308-M.jpg", isbn: "9781455153695" },
+    { title: "The Forever War", author: "Joe Haldeman", communityRating: 4.1011, ratingsCount: 89, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/10693768-M.jpg", isbn: "9780345310200" },
+    { title: "Snow Crash", author: "Neal Stephenson", communityRating: 4.07, ratingsCount: 200, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/392508-M.jpg", isbn: "9780593599730" },
+    { title: "World War Z", author: "Max Brooks", communityRating: 3.9065, ratingsCount: 139, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/168106-M.jpg", isbn: "9780715653739" },
+    { title: "The Hitchhiker's Guide to the Galaxy", author: "Douglas Adams", communityRating: 4.5112, ratingsCount: 178, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/12986869-M.jpg", isbn: "9786051715124" },
+    { title: "The Restaurant at the End of the Universe", author: "Douglas Adams", communityRating: 4.1951, ratingsCount: 41, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/12714921-M.jpg", isbn: "9781529034530" },
+    { title: "Containment", author: "Christian Cantrell", cover: "https://covers.openlibrary.org/b/id/10743347-M.jpg", isbn: "9780557428236" },
+    { title: "The Rookie", author: "Scott Sigler", communityRating: 5.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8002287-M.jpg", isbn: "9781939366900" },
+    { title: "The Beginning of the End", author: "Manel Loureiro", cover: "https://covers.openlibrary.org/b/id/7341016-M.jpg" },
+    { title: "Halo: The Fall of Reach", author: "Eric Nylund", cover: "https://covers.openlibrary.org/b/id/9173827-M.jpg", isbn: "9781508284871" },
+    { title: "Halo: First Strike", author: "Eric Nylund", cover: "https://covers.openlibrary.org/b/id/8598020-M.jpg", isbn: "9781982111663" },
+    { title: "Master and Commander", author: "Patrick O'Brian", communityRating: 4.0833, ratingsCount: 24, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/13255048-M.jpg", isbn: "9780006141822" },
+    { title: "Post Captain", author: "Patrick O'Brian", communityRating: 4.4375, ratingsCount: 16, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/225770-M.jpg", isbn: "9780007180844" },
+    { title: "H.M.S. Surprise", author: "Patrick O'Brian", communityRating: 4.5, ratingsCount: 12, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/11645474-M.jpg", isbn: "9780006499176" },
+    { title: "The Mauritius Command", author: "Patrick O'Brian", communityRating: 4.6, ratingsCount: 10, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/246877-M.jpg", isbn: "9789509009288" },
+    { title: "Desolation Island", author: "Patrick O'Brian", communityRating: 4.625, ratingsCount: 8, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/3327119-M.jpg", isbn: "9780393541625" },
+    { title: "The Surgeon's Mate", author: "Patrick O'Brian", communityRating: 4.625, ratingsCount: 8, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/246880-M.jpg", isbn: "9780786181841" },
+    { title: "The Fortune of War", author: "Patrick O'Brian", communityRating: 4.5, ratingsCount: 8, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/978053-M.jpg", isbn: "9780001054707" },
+    { title: "The Ionian Mission", author: "Patrick O'Brian", communityRating: 4.2222, ratingsCount: 9, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/1737838-M.jpg", isbn: "9781433271847" },
+    { title: "Treason's Harbour", author: "Patrick O'Brian", communityRating: 4.8571, ratingsCount: 7, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/1468494-M.jpg", isbn: "9785557107952" },
+    { title: "The Far Side of the World", author: "Patrick O'Brian", communityRating: 4.6667, ratingsCount: 9, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/1469345-M.jpg", isbn: "9788435006521" },
+    { title: "The Reverse of the Medal", author: "Patrick O'Brian", communityRating: 4.5714, ratingsCount: 7, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/226571-M.jpg", isbn: "9780786175338" },
+    { title: "The Letter of Marque", author: "Patrick O'Brian", communityRating: 4.6667, ratingsCount: 9, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/226572-M.jpg", isbn: "9780754012962" },
+    { title: "The Thirteen-Gun Salute", author: "Patrick O'Brian", communityRating: 4.1667, ratingsCount: 6, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/13454750-M.jpg", isbn: "9780007429394" },
+    { title: "The Nutmeg of Consolation", author: "Patrick O'Brian", cover: "https://covers.openlibrary.org/b/id/12285650-M.jpg" },
+    { title: "Mr Midshipman Hornblower", author: "C.S. Forester", communityRating: 4.2, ratingsCount: 10, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/6404300-M.jpg", isbn: "9780718102432" },
+    { title: "Lieutenant Hornblower", author: "C.S. Forester", communityRating: 3.625, ratingsCount: 8, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/914262-M.jpg", isbn: "9798746720221" },
+    { title: "Hornblower and the Hotspur", author: "C.S. Forester", communityRating: 3.5, ratingsCount: 4, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/2000803-M.jpg", isbn: "9781793360205" },
+    { title: "Shogun", author: "James Clavell", communityRating: 4.75, ratingsCount: 4, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/10231097-M.jpg", isbn: "9781982603847" },
+    { title: "The First Man in Rome", author: "Colleen McCullough", communityRating: 4.5, ratingsCount: 12, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/2204666-M.jpg", isbn: "9780061582417" },
+    { title: "The Grass Crown", author: "Colleen McCullough", communityRating: 4.1429, ratingsCount: 14, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/2204673-M.jpg", isbn: "9788408039990" },
+    { title: "The Steel Wave", author: "Jeff Shaara", communityRating: 4.5, ratingsCount: 2, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/6985597-M.jpg", isbn: "9780345461421" },
+    { title: "The Count of Monte Cristo", author: "Alexandre Dumas", communityRating: 4.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/8851690-M.jpg", isbn: "9781467775298" },
+    { title: "Washington: A Life", author: "Ron Chernow", cover: "https://covers.openlibrary.org/b/id/11521277-M.jpg" },
+    { title: "Team of Rivals", author: "Doris Kearns Goodwin", communityRating: 3.9091, ratingsCount: 11, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/9286949-M.jpg", isbn: "9780141043722" },
+    { title: "John Adams", author: "David McCullough", communityRating: 4.2, ratingsCount: 5, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/425398-M.jpg", isbn: "9780684813639" },
+    { title: "Truman", author: "David McCullough", communityRating: 4.5714, ratingsCount: 7, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/405637-M.jpg", isbn: "9780743508063" },
+    { title: "Thomas Jefferson: The Art of Power", author: "Jon Meacham", cover: "https://covers.openlibrary.org/b/id/7248434-M.jpg" },
+    { title: "Benjamin Franklin: An American Life", author: "Walter Isaacson", cover: "https://covers.openlibrary.org/b/id/541092-M.jpg" },
+    { title: "Einstein: His Life and Universe", author: "Walter Isaacson", cover: "https://covers.openlibrary.org/b/id/474440-M.jpg" },
+    { title: "The Rise and Fall of the Third Reich", author: "William L. Shirer", communityRating: 4.1579, ratingsCount: 19, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/6558536-M.jpg", isbn: "9780449204955" },
+    { title: "A World Undone", author: "G.J. Meyer", communityRating: 4.75, ratingsCount: 4, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/370061-M.jpg", isbn: "9781455153626" },
+    { title: "The Civil War: A Narrative, Volume I", author: "Shelby Foote", cover: "https://covers.openlibrary.org/b/id/253655-M.jpg" },
+    { title: "Conspiracy of Fools", author: "Kurt Eichenwald", cover: "https://covers.openlibrary.org/b/id/6805516-M.jpg", isbn: "9780375434495" },
+    { title: "The Mueller Report", author: "Robert S. Mueller III", cover: "https://covers.openlibrary.org/b/id/8793534-M.jpg", isbn: "9781612197814" },
+    { title: "Liberal Fascism", author: "Jonah Goldberg", communityRating: 3.0, ratingsCount: 2, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/5547383-M.jpg", isbn: "9780385511841" },
+    { title: "Atlas Shrugged", author: "Ayn Rand", communityRating: 3.2797, ratingsCount: 118, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/362277-M.jpg", isbn: "9781804221198" },
+    { title: "Basic Economics", author: "Thomas Sowell", communityRating: 3.5556, ratingsCount: 9, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/1468594-M.jpg", isbn: "9780786146710" },
+    { title: "Sword and Scimitar", author: "Raymond Ibrahim", cover: "https://covers.openlibrary.org/b/id/8233580-M.jpg", isbn: "9781982587307" },
+    { title: "The Art of War", author: "Sun Tzu", communityRating: 4.0614, ratingsCount: 163, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/4849549-M.jpg", isbn: "9781534793187" },
+    { title: "The Terminal List", author: "Jack Carr", communityRating: 4.0, ratingsCount: 3, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/9211494-M.jpg", isbn: "9781501180835" },
+    { title: "The Making of Star Wars", author: "J.W. Rinzler", communityRating: 5.0, ratingsCount: 1, ratingSource: "open-library", cover: "https://covers.openlibrary.org/b/id/212464-M.jpg", isbn: "9780345494764" },
+    { title: "The Making of Star Wars: The Empire Strikes Back", author: "J.W. Rinzler", communityRating: 5.0, ratingsCount: 1, ratingSource: "open-library", isbn: "9780345509611" },
     { title: "Obama: The Greatest President in the History of Everything", author: "Frank J. Fleming" }
   ];
+
   function seedKey(book) {
     return String(book.title || "").toLowerCase() + "::" + String(book.author || "").toLowerCase();
   }
@@ -549,6 +553,32 @@
     state.profiles.push(p);
     return p;
   }
+  function seedCatalogUrl(book) {
+    var isbn = String(book.isbn || "").replace(/[^0-9Xx]/g, "");
+    if (isbn.length >= 10) return "https://www.goodreads.com/book/isbn/" + isbn;
+    var q = String(book.title || "") + (book.author ? " " + book.author : "");
+    return q ? "https://www.goodreads.com/search?q=" + encodeURIComponent(q) : "https://www.goodreads.com/";
+  }
+  function applySeedCatalog(dest, seed) {
+    var n = 0;
+    if (dest.communityRating == null && seed.communityRating != null && Number.isFinite(Number(seed.communityRating))) {
+      dest.communityRating = Number(seed.communityRating);
+      dest.ratingSource = seed.ratingSource || "open-library";
+      dest.ratingsCount = Number.isFinite(Number(seed.ratingsCount)) ? Number(seed.ratingsCount) : dest.ratingsCount;
+      n++;
+    }
+    if (!dest.cover && seed.cover) { dest.cover = seed.cover; n++; }
+    if (!dest.isbn && seed.isbn) { dest.isbn = seed.isbn; n++; }
+    if (!dest.goodreadsUrl && (seed.isbn || dest.isbn || seed.title)) {
+      dest.goodreadsUrl = seedCatalogUrl(dest.isbn ? dest : seed);
+      n++;
+    }
+    if (!dest.ratingSource && dest.communityRating != null) {
+      dest.ratingSource = "open-library";
+      n++;
+    }
+    return n;
+  }
   function importDadSeed() {
     var done = {};
     try { done = JSON.parse(localStorage.getItem(IMPORT_KEYS) || "{}") || {}; } catch (e) { done = {}; }
@@ -564,27 +594,34 @@
     });
     DAD_SEED.forEach(function (book) {
       var k = seedKey(book);
-      if (done[k]) return;
-      if (p.shelf.some(function (b) {
+      var existing = p.shelf.find(function (b) {
         return seedKey(b) === k || String(b.title).toLowerCase() === String(book.title).toLowerCase();
-      })) { done[k] = 1; return; }
-      p.shelf.push({
+      });
+      if (existing) {
+        changed += applySeedCatalog(existing, book);
+        done[k] = 1;
+        return;
+      }
+      if (done[k]) return;
+      var row = {
         id: "seed-" + k.replace(/[^a-z0-9]+/g, "-").slice(0, 40),
         title: book.title,
         author: book.author,
-        isbn: "",
-        cover: "",
+        isbn: book.isbn || "",
+        cover: book.cover || "",
         description: "",
         subjects: [],
         rating: null,
-        communityRating: null,
+        communityRating: (book.communityRating == null || book.communityRating === "") ? null : (Number.isFinite(Number(book.communityRating)) ? Number(book.communityRating) : null),
         political: 0,
         woke: 0,
         evidence: [],
-        goodreadsUrl: "",
-        ratingSource: "",
-        ratingsCount: null,
-      });
+        goodreadsUrl: seedCatalogUrl(book),
+        ratingSource: book.ratingSource || "",
+        ratingsCount: Number.isFinite(Number(book.ratingsCount)) ? Number(book.ratingsCount) : null,
+      };
+      if (row.communityRating == null) row.ratingSource = "";
+      p.shelf.push(row);
       done[k] = 1;
       changed++;
     });
@@ -690,7 +727,7 @@
     }
     p.shelf.forEach(function (book, idx) {
       var row = document.createElement("div");
-      row.className = "book";
+      row.className = "book hit";
       row.innerHTML = coverHtml(book)
         + '<div><div class="t"></div><div class="a"></div><div class="meta"></div></div>'
         + meterHtml(book.political, book.woke);
@@ -706,8 +743,12 @@
       var rm = document.createElement("button");
       rm.type = "button"; rm.className = "ghost"; rm.textContent = "Remove";
       rm.style.marginTop = "8px";
-      rm.onclick = function () { p.shelf.splice(idx, 1); saveState(); paintShelf(); };
+      rm.onclick = function (ev) { ev.stopPropagation(); p.shelf.splice(idx, 1); saveState(); paintShelf(); };
       mid.appendChild(rm);
+      row.onclick = function (ev) {
+        if (ev.target.closest("button")) return;
+        openDetail(book);
+      };
       box.appendChild(row);
     });
   }
