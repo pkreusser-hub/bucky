@@ -1957,7 +1957,10 @@ refunded Audible books stay off. The Sept 2014 Audible credit haul (order
 Rivals, but the body listed ten titles including Two Towers, Isaacson, and
 Shirer. `importDadSeed` must not write `state.currentId` when `choreUser` is
 Dad; that assignment stole Joy after a reload.
-Suite: `node tools/_verify-books.cjs`. Quote the count after the run. A null
-user star rating must not paint as 0.00 (`Number(null)`); community ratings
-live in `communityRating` on the shelf.
+Suite: `node tools/_verify-books.cjs` — **101/101**. Bite (`books.html` at
+`1c1632e`, new suite kept): **97 passed, 4 failed** — the 2014-haul source
+and shelf checks, the currentId-steal source check, and the pre-existing
+reload-survives check that the steal itself broke. Every other pre-existing
+check still passed. A null user star rating must not paint as 0.00
+(`Number(null)`); community ratings live in `communityRating` on the shelf.
 ---
