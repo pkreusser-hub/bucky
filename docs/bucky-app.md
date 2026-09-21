@@ -1964,8 +1964,9 @@ on load. Tapping a shelf row opens the detail sheet (Goodreads reviews
 when the function can reach the public page). `importDadSeed` must not
 write `state.currentId` when `choreUser` is Dad; that assignment stole
 Joy after a reload.
-Suite: `node tools/_verify-books.cjs`. Quote the count after the run. Bite
-against the pre-works-rating `books.html` (HEAD `b330c95`). A
-null user star rating must not paint as 0.00 (`Number(null)`); community
-ratings live in `communityRating` on the shelf.
+Suite: `node tools/_verify-books.cjs` (**114/114**). Bite against the
+pre-works-rating `books.html` (`b330c95`): **112 passed, 2 failed** —
+We Are Legion carries its Open Library work rating… We Are Legion paints
+4.11. A null user star rating must not paint as 0.00 (`Number(null)`);
+community ratings live in `communityRating` on the shelf.
 ---
