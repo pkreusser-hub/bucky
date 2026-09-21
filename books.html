@@ -360,6 +360,71 @@
   var FAMILY_PASSWORD = "amenfarms";
   var ENDPOINT = "/.netlify/functions/books";
   var STORE = "books_profiles_v1";
+  var IMPORT_KEYS = "books_imported_keys_v1";
+  // Dad's Kindle + Audible purchases from the Amazon/Audible receipts on
+  // pkreusser@gmail.com (2013–2019). Romance / Love Inspired titles were
+  // struck. Refunded Audible titles stay off. Keys already in IMPORT_KEYS
+  // are never re-added after a Remove.
+  var DAD_SEED = [
+    { title: "The Way of Kings", author: "Brandon Sanderson" },
+    { title: "Words of Radiance", author: "Brandon Sanderson" },
+    { title: "Oathbringer", author: "Brandon Sanderson" },
+    { title: "Warbreaker", author: "Brandon Sanderson" },
+    { title: "The Final Empire", author: "Brandon Sanderson" },
+    { title: "The Well of Ascension", author: "Brandon Sanderson" },
+    { title: "The Hero of Ages", author: "Brandon Sanderson" },
+    { title: "Sand Omnibus", author: "Hugh Howey" },
+    { title: "Silo 49: Going Dark", author: "Ann Christy" },
+    { title: "Greatfall: A Silo Story (Part 1)", author: "Tim McVay" },
+    { title: "Greatfall: A Silo Story (Part 2)", author: "Tim McVay" },
+    { title: "Greatfall: A Silo Story (Part 3)", author: "Tim McVay" },
+    { title: "The Martian", author: "Andy Weir" },
+    { title: "I, Robot", author: "Isaac Asimov" },
+    { title: "The Caves of Steel", author: "Isaac Asimov" },
+    { title: "Prelude to Foundation", author: "Isaac Asimov" },
+    { title: "Halo: The Fall of Reach", author: "Eric Nylund" },
+    { title: "Halo: First Strike", author: "Eric Nylund" },
+    { title: "The Making of Star Wars", author: "J.W. Rinzler" },
+    { title: "The Making of Star Wars: The Empire Strikes Back", author: "J.W. Rinzler" },
+    { title: "Liberal Fascism", author: "Jonah Goldberg" },
+    { title: "The Whole-Brain Child", author: "Daniel J. Siegel" },
+    { title: "NurtureShock", author: "Po Bronson" },
+    { title: "The Witness Wore Red", author: "Rebecca Musser" },
+    { title: "The Great Book of Trivia", author: "" },
+    { title: "What's the Best Trivia Book?", author: "" },
+    { title: "Trivia Storm", author: "" },
+    { title: "Trivia Madness Volume 3", author: "" },
+    { title: "The Great Book of Pub Trivia", author: "" },
+    { title: "American Pub Trivia: Volume II", author: "" },
+    { title: "Cash Cab: A Collection of the Best Trivia from the Hit Discovery Show", author: "" },
+    { title: "The Blade Itself", author: "Joe Abercrombie" },
+    { title: "Before They Are Hanged", author: "Joe Abercrombie" },
+    { title: "Best Served Cold", author: "Joe Abercrombie" },
+    { title: "A Game of Thrones", author: "George R.R. Martin" },
+    { title: "A Clash of Kings", author: "George R.R. Martin" },
+    { title: "A Storm of Swords", author: "George R.R. Martin" },
+    { title: "A Feast for Crows", author: "George R.R. Martin" },
+    { title: "A Dance with Dragons", author: "George R.R. Martin" },
+    { title: "The Fellowship of the Ring", author: "J.R.R. Tolkien" },
+    { title: "The Hunger Games", author: "Suzanne Collins" },
+    { title: "Washington: A Life", author: "Ron Chernow" },
+    { title: "Team of Rivals", author: "Doris Kearns Goodwin" },
+    { title: "Conspiracy of Fools", author: "Kurt Eichenwald" },
+    { title: "The Mueller Report", author: "Robert S. Mueller III" },
+    { title: "His Majesty's Dragon", author: "Naomi Novik" },
+    { title: "Throne of Jade", author: "Naomi Novik" },
+    { title: "Black Powder War", author: "Naomi Novik" },
+    { title: "Victory of Eagles", author: "Naomi Novik" },
+    { title: "Crucible of Gold", author: "Naomi Novik" },
+    { title: "The Count of Monte Cristo", author: "Alexandre Dumas" },
+    { title: "The Memory of Earth", author: "Orson Scott Card" },
+    { title: "The Call of Earth", author: "Orson Scott Card" },
+    { title: "The Ships of Earth", author: "Orson Scott Card" },
+    { title: "Earthfall", author: "Orson Scott Card" }
+  ];
+  function seedKey(book) {
+    return String(book.title || "").toLowerCase() + "::" + String(book.author || "").toLowerCase();
+  }
 
   function $(id) { return document.getElementById(id); }
   function uid() { return "p" + Math.random().toString(36).slice(2, 8); }
@@ -395,6 +460,50 @@
   }
 
   var state = loadState();
+  function dadProfile() {
+    var p = state.profiles.find(function (x) { return String(x.name).toLowerCase() === "dad"; });
+    if (p) return p;
+    p = blankProfile("Dad");
+    state.profiles.push(p);
+    return p;
+  }
+  function importDadSeed() {
+    var done = {};
+    try { done = JSON.parse(localStorage.getItem(IMPORT_KEYS) || "{}") || {}; } catch (e) { done = {}; }
+    var p = dadProfile();
+    var added = 0;
+    DAD_SEED.forEach(function (book) {
+      var k = seedKey(book);
+      if (done[k]) return;
+      if (p.shelf.some(function (b) { return seedKey(b) === k; })) { done[k] = 1; return; }
+      p.shelf.push({
+        id: "seed-" + k.replace(/[^a-z0-9]+/g, "-").slice(0, 40),
+        title: book.title,
+        author: book.author,
+        isbn: "",
+        cover: "",
+        description: "",
+        subjects: [],
+        rating: null,
+        communityRating: null,
+        political: 0,
+        woke: 0,
+        evidence: [],
+        goodreadsUrl: "",
+        ratingSource: "",
+        ratingsCount: null,
+      });
+      done[k] = 1;
+      added++;
+    });
+    try { localStorage.setItem(IMPORT_KEYS, JSON.stringify(done)); } catch (e) {}
+    if (added) saveState();
+    if (String(localStorage.getItem("choreUser") || "").toLowerCase() === "dad") {
+      state.currentId = p.id;
+    }
+    return added;
+  }
+  importDadSeed();
 
   function meterHtml(political, woke) {
     var p = Number.isFinite(Number(political)) ? Number(political) : 0;
@@ -751,6 +860,8 @@
     openDetail: openDetail,
     closeDetail: closeDetail,
     api: api,
+    dadSeed: DAD_SEED,
+    importDadSeed: importDadSeed,
   };
 })();
 </script>

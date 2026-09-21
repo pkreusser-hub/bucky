@@ -329,6 +329,13 @@ async function sectionServer() {
   ok(/Number\.isFinite\(Number\(political\)\)/.test(pageSrc) && /Number\.isFinite\(Number\(woke\)\)/.test(pageSrc),
     "the meters treat 0 as 0, not as missing");
   ok(/data-feature="books"/.test(pageSrc), "the activity beacon is on the page");
+  ok(/var DAD_SEED = \[/.test(pageSrc), "Dad's Kindle/Audible list is seeded in the page");
+  ok(/title: "Oathbringer"/.test(pageSrc) && /title: "The Blade Itself"/.test(pageSrc),
+    "…includes a Kindle Stormlight title and an Audible First Law title");
+  ok(!/Harry Potter/.test(pageSrc) && !/Name of the Wind/.test(pageSrc),
+    "…omits the two refunded Audible titles");
+  ok(!/Cowboy of Convenience/.test(pageSrc) && !/Dakota Brides/.test(pageSrc),
+    "…omits the struck romance titles");
 
   const gptSrc = fs.readFileSync(path.join(ROOT, "farmgpt.html"), "utf8");
   ok(/id="cardBooks"/.test(gptSrc), "FarmGPT home has a Bookshelf card");
@@ -506,6 +513,32 @@ async function sectionUi(browser) {
   await page.waitForFunction(() => window.__BOOKS__, { timeout: 15000 });
   ok(await page.evaluate(() => window.__BOOKS__.current().name === "Joy" && window.__BOOKS__.current().shelf.length === 1),
     "profile, interest, and shelf survive a reload");
+  const dadTitles = await page.evaluate(() => {
+    const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
+    return dad ? dad.shelf.map((b) => b.title) : [];
+  });
+  ok(dadTitles.indexOf("Oathbringer") >= 0, "Dad's shelf received the Kindle Stormlight books");
+  ok(dadTitles.indexOf("The Blade Itself") >= 0, "…and the Audible First Law books");
+  ok(dadTitles.indexOf("A Game of Thrones") >= 0, "…and the Audible Ice and Fire set");
+  ok(dadTitles.indexOf("The Mueller Report") >= 0, "…and the later Audible nonfiction");
+  ok(dadTitles.every((t) => !/Harry Potter|Name of the Wind|Cowboy of Convenience/.test(t)),
+    "…without refunded or struck titles");
+  ok(await page.evaluate(() => {
+    const joy = window.__BOOKS__.state().profiles.find((p) => p.name === "Joy");
+    return joy && joy.shelf.length === 1 && joy.shelf[0].title === "The Hobbit";
+  }), "Joy's shelf is not filled with Dad's library");
+
+  await page.evaluate(() => {
+    const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
+    dad.shelf = dad.shelf.filter((b) => b.title !== "Oathbringer");
+    localStorage.setItem("books_profiles_v1", JSON.stringify(window.__BOOKS__.state()));
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => window.__BOOKS__, { timeout: 15000 });
+  ok(await page.evaluate(() => {
+    const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
+    return dad && !dad.shelf.some((b) => b.title === "Oathbringer") && dad.shelf.some((b) => b.title === "The Blade Itself");
+  }), "a removed seed title stays off after reload (import keys remember it)");
 
   if (WANT_SHOTS) {
     fs.mkdirSync(SHOTS, { recursive: true });
