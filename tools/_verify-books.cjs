@@ -334,10 +334,10 @@ async function sectionServer() {
   ok(/id="cardBooks"/.test(gptSrc), "FarmGPT home has a Bookshelf card");
   ok(/id="cardBooks"[\s\S]{0,400}<div class="nm">Bookshelf<\/div>/.test(gptSrc),
     "…labeled Bookshelf, not the story-shelf renderer");
-  ok(/window\.top\.location\.href = \"books\.html\"/.test(gptSrc),
+  ok(/<a class="bigCard" id="cardBooks" href="books\.html"/.test(gptSrc),
+    "the card is a real link to books.html so it works even if FarmGPT's script never finishes");
+  ok(/window\.top\.location\.href\s*=\s*['\"]books\.html['\"]/.test(gptSrc),
     "the AI-tab card climbs to the top window so it does not nest inside the FarmGPT iframe");
-  ok(/location\.href = \"books\.html\"/.test(gptSrc),
-    "…and still opens books.html when FarmGPT is standalone");
 }
 
 function serveStatic() {

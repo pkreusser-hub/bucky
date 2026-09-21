@@ -1944,10 +1944,10 @@ became 0 would have blocked Google Books from filling a real 4.0 (the Fragility 
 Home rail gets a Bookshelf card AFTER the sports cards, so the NFL card's previous sibling
 stays the weather card (sports suite asserts that slot). Activity label `books` → "Bookshelf".
 The Home card sits below weather and sports, so a phone misses it. FarmGPT home
-(`#cardBooks`, next to Story / Research / Teacher) is the mobile entry. Tapping it
-from the AI-tab iframe sets `window.top.location` to `books.html` so the persistent
-FarmGPT frame is not replaced and a second nav does not nest. Standalone FarmGPT
-uses same-window `location.href`. This is `books.html`, not Story Time's saved-story
+(`#cardBooks`, next to Story / Research / Teacher) is the mobile entry. The tile
+is a real `<a href="books.html">`. From the AI-tab iframe the inline handler
+sets `window.top.location` so the persistent FarmGPT frame is not replaced and a
+second nav does not nest. This is `books.html`, not Story Time's saved-story
 shelf (`renderBookshelf`).
 Suite: `node tools/_verify-books.cjs`. A null user
 star rating must not paint as 0.00 (`Number(null)`); community ratings live in

@@ -2418,8 +2418,10 @@ asks for both boards and the 0..100 scores; still a named `power` field, never
 
 The family book tool (`books.html`) is a fourth `#homeCards` tile, `#cardBooks`,
 labeled Bookshelf. It is not Story Time's saved-story shelf (`#bookshelf` /
-`renderBookshelf`). Phone AI is this page in a persistent iframe; the tap sets
-`window.top.location.href = "books.html"` when `farmgptIsEmbedded()` so the
-frame stays `farmgpt.html` and `books.html` gets its own chrome. Standalone
-FarmGPT uses same-window `location.href`. Four tiles fill a 2×2 on a 390-wide
-phone (the odd-last-child span is unused). Suite: `node tools/_verify-books.cjs`.
+`renderBookshelf`). The tile is a real `<a href="books.html">` so a tap works
+even if FarmGPT's later script never finishes (CDN `marked` is parser-blocking
+and the IIFE dies at `marked.setOptions` when that script is missing). Phone AI
+is this page in a persistent iframe; the inline handler sets
+`window.top.location.href` when framed so the frame stays `farmgpt.html` and
+`books.html` gets its own chrome. Four tiles fill a 2×2 on a 390-wide phone
+(the odd-last-child span is unused). Suite: `node tools/_verify-books.cjs`.
