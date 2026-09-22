@@ -351,6 +351,16 @@ async function sectionServer() {
     "parseGrokRecs drops a watch-list title even when Grok returns it");
   ok(/Watch 0 — Dir/.test(watchCapPrompt) && !/Watch 80 — Dir/.test(watchCapPrompt),
     "the watch list sent to Grok stops at 80");
+  ok(/Recommend exactly 10 movies they do NOT already own\./.test(ratedZero)
+    && /Recommend exactly 10 movies they do NOT already own, have not already watched, and are not in the not-interested list\./.test(passedPrompt)
+    && /Recommend exactly 10 movies they do NOT already own, have not already watched, are not in the not-interested list, and are not on the watch list\./.test(watchPrompt),
+    "every recommend ask asks for exactly 10 movies");
+  const dozenMovies = [];
+  for (let i = 1; i <= 12; i++) dozenMovies.push({ title: "Pick " + i, director: "Director " + i, summary: "A summary.", why: "A why." });
+  const dozenParsed = mod.parseGrokRecs(JSON.stringify({ movies: dozenMovies }), []);
+  ok(dozenParsed.length === 10 && dozenParsed[0].title === "Pick 1" && dozenParsed[9].title === "Pick 10"
+    && dozenParsed.every((m) => m.title !== "Pick 11" && m.title !== "Pick 12"),
+    "parseGrokRecs keeps ten picks and drops the eleventh and twelfth");
   ok(parsed[0] && parsed[0].summary.indexOf("robot") >= 0 && parsed[0].why.indexOf("animation") >= 0 && parsed[0].director === "Brad Bird",
     "each pick carries a director, a summary, and a why");
 
@@ -533,6 +543,8 @@ async function sectionServer() {
     "the shelf loads posters without the scorecard, and a 429 is not a missing film");
   ok(/assets\/movies\/owned\.json/.test(pageSrc) && /function absorbCatalog/.test(pageSrc) && /function loadCatalog/.test(pageSrc),
     "owned posters and scores are painted from the saved catalog");
+  ok(/Ten movies you do not already own/.test(pageSrc) && /ten to watch next/.test(pageSrc),
+    "the page asks for ten movies to watch next");
   const catalog = JSON.parse(fs.readFileSync(path.join(ROOT, "assets/movies/owned.json"), "utf8"));
   const ownedTitles = [...pageSrc.match(/var OWNED = \[([\s\S]*?)\];/)[1].matchAll(/"((?:\\.|[^"\\])*)"/g)].map((m) => JSON.parse('"' + m[1] + '"'));
   ok(ownedTitles.length === 158 && ownedTitles.every((t) => catalog[t] && String(catalog[t].poster || "").indexOf("https://") === 0),
@@ -1037,8 +1049,10 @@ async function sectionUi(browser) {
   }, ownedBefore), "Not interested drops the pick and does not add it to Owned");
 
   // Already watched used to stay off Owned, because Owned was the purchase
-  // library. That rule no longer holds: a watched title joins Owned, which
-  // is the list Recommend already excludes, and that row is brought into view.
+  // library. A watched title joins Owned, which Recommend already excludes.
+  // The click used to scroll that row into view. That jump moved the page,
+  // so it no longer holds. The title is still painted, and the click does
+  // not scroll the shelf row.
   await page.evaluate(() => {
     window.__shelfScroll = [];
     const orig = Element.prototype.scrollIntoView;
@@ -1060,10 +1074,10 @@ async function sectionUi(browser) {
       && joy.shelf.length === n + 1
       && !!row && String(row.id || "").indexOf("add-") === 0 && row.director === "Paul King"
       && painted.indexOf("Paddington 2") >= 0
-      && (window.__shelfScroll || []).indexOf("Paddington 2") >= 0
+      && (window.__shelfScroll || []).indexOf("Paddington 2") < 0
       && document.querySelectorAll("#recs .movie").length === 0
       && !document.getElementById("watchedList");
-  }, ownedBefore), "Already watched adds the pick to Owned and brings that row into view");
+  }, ownedBefore), "Already watched adds the pick to Owned and does not scroll to it");
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => window.__MOVIES__ && document.querySelector("#shelfList .t"), { timeout: 15000 });
@@ -1170,6 +1184,7 @@ async function sectionUi(browser) {
       && document.getElementById("detail").hidden === true;
   }), "Remove puts the title back in the picks and leaves the rest of the watch list");
 
+  // Same rule on the watch list: the title joins Owned and the page does not scroll.
   const watchedFromList = await page.evaluate(() => {
     window.__shelfScroll = [];
     const orig = Element.prototype.scrollIntoView;
@@ -1194,8 +1209,8 @@ async function sectionUi(browser) {
       && !(joy.watchlist || []).some((m) => m.title === "Soul")
       && painted.indexOf("Soul") >= 0
       && saved.indexOf("Soul") < 0
-      && (window.__shelfScroll || []).indexOf("Soul") >= 0;
-  }), "Already watched on the watch list moves that title to Owned");
+      && (window.__shelfScroll || []).indexOf("Soul") < 0;
+  }), "Already watched on the watch list moves that title to Owned and does not scroll");
 
   // Someone who already tapped Already watched, before that title joined
   // Owned, still has it in watched[]. The next load moves it onto the shelf

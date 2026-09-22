@@ -237,7 +237,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
   <section class="card" aria-labelledby="recLabel">
     <h2 class="section-label" id="recLabel">Next to read</h2>
-    <p class="section-note">Five picks from the whole shelf and your stars, written by Grok. A series on the shelf counts as the whole series. Books with LGBT characters are left out.</p>
+    <p class="section-note">Ten picks from the whole shelf and your stars, written by Grok. A series on the shelf counts as the whole series. Books with LGBT characters are left out.</p>
     <button type="button" class="primary" id="recBtn">Recommend</button>
     <div class="err" id="recErr"></div>
     <div id="recs"></div>
@@ -959,17 +959,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     });
     box.appendChild(chips);
   }
-  function revealShelfRow(title) {
-    var rows = document.querySelectorAll("#shelfList .book");
-    var key = titleKey(title);
-    for (var i = 0; i < rows.length; i++) {
-      var t = rows[i].querySelector(".t");
-      if (t && titleKey(t.textContent) === key) {
-        try { rows[i].scrollIntoView({ block: "center" }); } catch (e) { /* older webviews */ }
-        return;
-      }
-    }
-  }
   function markRead(book) {
     placeOnShelf(book);
     saveState();
@@ -977,9 +966,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     paintReadlist();
     paintRecs(visibleRecs(lastRecs));
     paintPassed();
-    // The shelf is author-sorted, so a just-read title can land far down
-    // the list. Bring that row into view.
-    revealShelfRow(book.title);
   }
   function markSkipped(book) {
     var p = current();

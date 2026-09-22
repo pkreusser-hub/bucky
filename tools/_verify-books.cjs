@@ -355,6 +355,16 @@ async function sectionServer() {
     "parseGrokRecs drops a read-list book even when Grok returns it");
   ok(/Read 0 — Author/.test(readCapPrompt) && !/Read 80 — Author/.test(readCapPrompt),
     "the read list sent to Grok stops at 80");
+  ok(/Recommend exactly 10 books they have NOT already read\./.test(ratedZero)
+    && /Recommend exactly 10 books they have NOT already read and that are not in the not-interested list\./.test(passedPrompt)
+    && /Recommend exactly 10 books they have NOT already read, that are not in the not-interested list, and that are not on the read list\./.test(readPrompt),
+    "every recommend ask asks for exactly 10 books");
+  const dozenBooks = [];
+  for (let i = 1; i <= 12; i++) dozenBooks.push({ title: "Pick " + i, author: "Author " + i, summary: "A summary.", why: "A why." });
+  const dozenParsed = mod.parseGrokRecs(JSON.stringify({ books: dozenBooks }), []);
+  ok(dozenParsed.length === 10 && dozenParsed[0].title === "Pick 1" && dozenParsed[9].title === "Pick 10"
+    && dozenParsed.every((b) => b.title !== "Pick 11" && b.title !== "Pick 12"),
+    "parseGrokRecs keeps ten picks and drops the eleventh and twelfth");
   ok(parsedGrok[0] && parsedGrok[0].summary.indexOf("queendom") >= 0 && parsedGrok[0].why.indexOf("Hobbit 5") >= 0,
     "…and each pick carries a summary and a why");
 
@@ -528,6 +538,8 @@ async function sectionServer() {
   ok(/A series on the shelf counts as the whole series/.test(pageSrc)
     && /Books with LGBT characters are left out/.test(pageSrc),
     "the Next to read note states the series rule and the LGBT rule");
+  ok(/Ten picks from the whole shelf/.test(pageSrc),
+    "the Next to read note asks for ten picks");
   ok(/KEEPALIVE_MS = 8000/.test(src) && /GROK_MAX_TOKENS = 6000/.test(src),
     "the Grok call keeps the edge alive and leaves 6000 tokens of headroom");
   const intAt = pageSrc.indexOf('id="intLabel"');
@@ -786,6 +798,9 @@ async function sectionUi(browser) {
   }), "a read-list row opens that book and does not add it");
   await page.evaluate(() => { const b = document.getElementById("detailClose"); if (b) b.click(); });
   await sleep(40);
+  // Already read used to scroll the new shelf row into view. That jump moved
+  // the page, so it no longer holds. The title is still painted, and the
+  // click does not scroll the shelf row.
   const readFromList = await page.evaluate(() => {
     window.__shelfScroll = [];
     const orig = Element.prototype.scrollIntoView;
@@ -809,8 +824,8 @@ async function sectionUi(browser) {
       && !(joy.readlist || []).some((b) => b.title === "Piranesi")
       && painted.indexOf("Piranesi") >= 0
       && document.getElementById("readList").textContent === "Nothing saved yet."
-      && (window.__shelfScroll || []).indexOf("Piranesi") >= 0;
-  }), "Already read on the read list moves that title onto the shelf");
+      && (window.__shelfScroll || []).indexOf("Piranesi") < 0;
+  }), "Already read on the read list moves that title onto the shelf and does not scroll");
 
   await page.evaluate(() => { document.getElementById("recBtn").click(); });
   await page.waitForFunction(() => document.querySelectorAll("#recs .book").length >= 1, { timeout: 10000 });
@@ -890,13 +905,14 @@ async function sectionUi(browser) {
       && joy.shelf.some((b) => b.title === "The Hobbit")
       && document.querySelectorAll("#recs .book").length === 0;
   }), "Already read puts the pick on the shelf");
-  // The row was already stored on the shelf. Author order buried it, so the
-  // move has to paint that title in the bookshelf and bring the row into view.
+  // Already read used to scroll the new shelf row into view. That jump moved
+  // the page, so it no longer holds. The title is still painted, and the
+  // click does not scroll the shelf row.
   ok(await page.evaluate(() => {
     const painted = [...document.querySelectorAll("#shelfList .book .t")].map((el) => el.textContent);
     return painted.indexOf("The Priory of the Orange Tree") >= 0
-      && (window.__shelfScroll || []).indexOf("The Priory of the Orange Tree") >= 0;
-  }), "Already read paints the title in the bookshelf and brings that row into view");
+      && (window.__shelfScroll || []).indexOf("The Priory of the Orange Tree") < 0;
+  }), "Already read paints the title in the bookshelf and does not scroll to it");
 
   await page.evaluate(() => document.getElementById("recBtn").click());
   await page.waitForFunction(() => {

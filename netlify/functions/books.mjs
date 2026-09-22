@@ -623,6 +623,7 @@ function blockKey(title) {
 // Standing recommend limits. The woke meter still does not score a gay
 // character. This ask is stricter, and it is on every recommend.
 const RECOMMEND_LIMITS = "If a book on the shelf is part of a series, assume they have read the whole series. Do not recommend the next book in that series, or any other book in it. Do not recommend a book with LGBT characters.";
+const REC_COUNT = 10;
 
 export function buildRecommendPrompt(shelf, extras) {
   const interests = Array.isArray(extras && extras.interests) ? extras.interests : [];
@@ -650,10 +651,10 @@ export function buildRecommendPrompt(shelf, extras) {
     }).join("\n");
   }
   const ask = readlist.length
-    ? "Recommend exactly 5 books they have NOT already read, that are not in the not-interested list, and that are not on the read list."
+    ? "Recommend exactly " + REC_COUNT + " books they have NOT already read, that are not in the not-interested list, and that are not on the read list."
     : (skipped.length
-      ? "Recommend exactly 5 books they have NOT already read and that are not in the not-interested list."
-      : "Recommend exactly 5 books they have NOT already read.");
+      ? "Recommend exactly " + REC_COUNT + " books they have NOT already read and that are not in the not-interested list."
+      : "Recommend exactly " + REC_COUNT + " books they have NOT already read.");
   return (
     "Here is everything this reader has already read, with their own star rating when they gave one (1-5). Unrated means they read it but have not scored it.\n\n"
     + "READ SO FAR:\n" + (lines.length ? lines.join("\n") : "(empty shelf)") + "\n"
@@ -702,7 +703,7 @@ export function parseGrokRecs(text, shelf, blocked) {
       isbn: "",
       goodreadsUrl: goodreadsUrlFor("", title, author),
     });
-    if (out.length >= 5) break;
+    if (out.length >= REC_COUNT) break;
   }
   return out;
 }

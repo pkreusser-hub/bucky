@@ -183,7 +183,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     <a href="index.html" id="backLink">← Bucky</a>
     <span class="t">Movies</span>
   </div>
-  <p class="subloc">What the family already owns, and five to watch next</p>
+  <p class="subloc">What the family already owns, and ten to watch next</p>
 </header>
 <main>
   <section class="card" aria-labelledby="whoLabel">
@@ -207,7 +207,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
   <section class="card" aria-labelledby="recLabel">
     <h2 class="section-label" id="recLabel">Next to watch</h2>
-    <p class="section-note">Five movies you do not already own, from this list and your stars, written by Grok.</p>
+    <p class="section-note">Ten movies you do not already own, from this list and your stars, written by Grok.</p>
     <button type="button" class="primary" id="recBtn">Recommend</button>
     <div class="err" id="recErr"></div>
     <div id="recs"></div>
@@ -668,17 +668,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       paintRecs(visibleRecs(lastRecs));
     });
   }
-  function revealShelfRow(title, selector) {
-    var rows = document.querySelectorAll(selector);
-    var key = titleKey(title);
-    for (var i = 0; i < rows.length; i++) {
-      var t = rows[i].querySelector(".t");
-      if (t && titleKey(t.textContent) === key) {
-        try { rows[i].scrollIntoView({ block: "center" }); } catch (e) { /* older webviews */ }
-        return;
-      }
-    }
-  }
   // Already watched used to sit in a chip list and stay off Owned, because
   // Owned was the purchase library. It now joins Owned, which is the list
   // Recommend already excludes. A saved watched[] from before that change
@@ -732,7 +721,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     paintWatchlist();
     paintRecs(visibleRecs(lastRecs));
     paintPassed();
-    revealShelfRow(movie.title, "#shelfList .movie");
   }
   function markSkipped(movie) {
     var p = current();

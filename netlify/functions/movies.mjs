@@ -579,6 +579,8 @@ function blockKey(title) {
   return movieKey(title).replace(/^(a|an|the)\s+/, "");
 }
 
+const REC_COUNT = 10;
+
 function passedLines(rows) {
   return rows.map((b) => "- " + b.title + (b.director ? " — " + b.director : "")).join("\n");
 }
@@ -599,10 +601,10 @@ export function buildRecommendPrompt(shelf, extras) {
   if (skipped.length) extra += "\n\nNOT INTERESTED (do not recommend these):\n" + passedLines(skipped);
   if (watchlist.length) extra += "\n\nWATCH LIST (do not recommend these):\n" + passedLines(watchlist);
   const ask = watchlist.length
-    ? "Recommend exactly 5 movies they do NOT already own, have not already watched, are not in the not-interested list, and are not on the watch list."
+    ? "Recommend exactly " + REC_COUNT + " movies they do NOT already own, have not already watched, are not in the not-interested list, and are not on the watch list."
     : ((watched.length || skipped.length)
-      ? "Recommend exactly 5 movies they do NOT already own, have not already watched, and are not in the not-interested list."
-      : "Recommend exactly 5 movies they do NOT already own.");
+      ? "Recommend exactly " + REC_COUNT + " movies they do NOT already own, have not already watched, and are not in the not-interested list."
+      : "Recommend exactly " + REC_COUNT + " movies they do NOT already own.");
   return (
     "Here is every movie this household already owns, with this viewer's own star rating when they gave one (1-5). Unrated means they own it but have not scored it.\n\n"
     + "OWNED:\n" + (lines.length ? lines.join("\n") : "(none yet)") + "\n"
@@ -640,7 +642,7 @@ export function parseGrokRecs(text, shelf, blocked) {
       summary: normSpace(b.summary).slice(0, 600),
       why: normSpace(b.why).slice(0, 400),
     });
-    if (out.length >= 5) break;
+    if (out.length >= REC_COUNT) break;
   }
   return out;
 }
