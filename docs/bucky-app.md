@@ -2223,3 +2223,23 @@ Suite: `node tools/_verify-books.cjs` (**170/170**). Bite against `ee685d3`
 `books.html` + `books.mjs`: **166 passed, 4 failed** — the prompt, the
 handler, and the note.
 ---
+
+# Ten recommendations, and no scroll on already read or watched (2026-09-22)
+
+Recommend asks for ten titles. The empty ask, the not-interested ask, and
+the watch-list or read-list ask all say exactly 10. The parser keeps ten
+and drops the eleventh and twelfth. The Next to read note says ten picks.
+The Movies note and the line under the title say ten movies. The series
+rule and the LGBT rule on Bookshelf are still in the ask.
+
+Already read and Already watched still paint the title on the shelf. They
+used to scroll that row into view. That jump moved the page, so it no
+longer holds. The click leaves the scroll where it was. The Recommend
+button still brings the picks card into view.
+
+Suite: `node tools/_verify-movies.cjs` (**136/136**). Bite against `91bcb40`
+`movies.html` + `movies.mjs`: **131 passed, 5 failed** — the ask, the
+parser cap, the note, and the two scroll checks. `node tools/_verify-books.cjs`
+(**173/173**). Bite against `91bcb40` `books.html` + `books.mjs`: **168
+passed, 5 failed** — the same split.
+---
