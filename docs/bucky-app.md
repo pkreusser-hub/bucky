@@ -2265,3 +2265,12 @@ A shelf of 80 or more starts `books-recommend-background` instead. That job has 
 
 Suite: `node tools/_verify-books.cjs` (**180/180**). Bite against `5ae0872` `books.html` + `books.mjs`: **175 passed, 5 failed** — the pending job, the saved picks, the minute note, the long-shelf path, and the cut-off reply.
 ---
+
+# Dad's background recommend was aborted at 50s (2026-09-22)
+
+The long shelf does start the background job, and the page does poll it. A one-book shelf came back with ten picks in about 42s. Dad's 135-title shelf was still running when the job aborted Grok at 50s. The poll then read `reason: "timeout"` and the page showed "Could not recommend right now."
+
+That 50s cap was the synchronous call's limit. The background job can run for minutes, so it now waits 180s. The page polls for 200s. The button says a full shelf takes about three minutes. The synchronous call is still 50s. The model, the token budget, and the series and LGBT rules are unchanged.
+
+Suite: `node tools/_verify-books.cjs` (**181/181**). Bite against `aeaac0a` `books.html` + `books.mjs`: **179 passed, 2 failed** — the 180s job wait, and the three-minute poll.
+---
