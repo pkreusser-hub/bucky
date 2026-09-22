@@ -244,6 +244,12 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     <div id="skipList"></div>
   </section>
 
+  <section class="card" aria-labelledby="readLabel">
+    <h2 class="section-label" id="readLabel">Read list</h2>
+    <p class="section-note">Save a title for later. It stays off the next picks until you remove it.</p>
+    <div id="readList"></div>
+  </section>
+
   <section class="card" aria-labelledby="filLabel">
     <h2 class="section-label" id="filLabel">How political</h2>
     <p class="section-note">Caps on what a recommendation may carry. 0 means none of that axis.</p>
@@ -537,6 +543,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       interests: [],
       shelf: [],
       skipped: [],
+      readlist: [],
       maxPolitical: 5,
       maxWoke: 5,
     };
@@ -804,7 +811,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       row.querySelector(".t").textContent = book.title;
       row.querySelector(".a").textContent = book.author || "";
       row.querySelector(".meta").textContent = ratingLabel(book);
-      row.onclick = function () { addToShelf(book); };
+      var acts = document.createElement("div");
+      acts.className = "recActs";
+      acts.appendChild(recButton("Read list", function () { saveFromSearch(book); }));
+      row.children[1].appendChild(acts);
+      row.onclick = function (ev) {
+        if (ev.target.closest("button")) return;
+        addToShelf(book);
+      };
       box.appendChild(row);
     });
   }
@@ -820,16 +834,67 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var banned = {};
     (p.shelf || []).forEach(function (b) { banned[titleKey(b.title)] = 1; });
     (p.skipped || []).forEach(function (b) { banned[titleKey(b.title)] = 1; });
+    (p.readlist || []).forEach(function (b) { banned[titleKey(b.title)] = 1; });
     return (rows || []).filter(function (b) { return b && b.title && !banned[titleKey(b.title)]; });
+  }
+  var MAX_LATER = 80;
+  function trimLater(list) {
+    var rows = (Array.isArray(list) ? list : []).filter(function (b) { return b && titleKey(b.title); });
+    var seen = {};
+    var out = [];
+    for (var i = rows.length - 1; i >= 0; i--) {
+      var k = titleKey(rows[i].title);
+      if (seen[k]) continue;
+      seen[k] = 1;
+      out.push(rows[i]);
+    }
+    out.reverse();
+    while (out.length > MAX_LATER) out.shift();
+    return out;
+  }
+  function adoptReadlist(p) {
+    var before = JSON.stringify(p.readlist || []);
+    p.readlist = trimLater(p.readlist);
+    return before === JSON.stringify(p.readlist) ? 0 : 1;
   }
   function clearSkip(p, title) {
     if (!Array.isArray(p.skipped)) return;
     p.skipped = p.skipped.filter(function (b) { return titleKey(b.title) !== titleKey(title); });
   }
+  function clearRead(p, title) {
+    if (!Array.isArray(p.readlist)) p.readlist = [];
+    p.readlist = p.readlist.filter(function (b) { return titleKey(b.title) !== titleKey(title); });
+  }
+  function readRow(book) {
+    return {
+      title: book.title,
+      author: book.author || "",
+      cover: book.cover || "",
+      summary: book.summary || book.description || "",
+      why: book.why || "",
+      isbn: book.isbn || "",
+      goodreadsUrl: book.goodreadsUrl || "",
+    };
+  }
+  function saveRead(book) {
+    var p = current();
+    if (!book || !titleKey(book.title)) return false;
+    if (!Array.isArray(p.readlist)) p.readlist = [];
+    if ((p.shelf || []).some(function (b) { return titleKey(b.title) === titleKey(book.title); })) return false;
+    clearSkip(p, book.title);
+    var row = readRow(book);
+    var i = -1;
+    p.readlist.forEach(function (b, n) { if (titleKey(b.title) === titleKey(book.title)) i = n; });
+    if (i >= 0) p.readlist[i] = row;
+    else p.readlist.push(row);
+    p.readlist = trimLater(p.readlist);
+    return true;
+  }
   function placeOnShelf(book) {
     var p = current();
     var key = shelfKey(book);
     clearSkip(p, book.title);
+    clearRead(p, book.title);
     if (p.shelf.some(function (b) { return shelfKey(b) === key; })) return false;
     p.shelf.push({
       id: book.id,
@@ -909,6 +974,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     placeOnShelf(book);
     saveState();
     paintShelf();
+    paintReadlist();
     paintRecs(visibleRecs(lastRecs));
     paintPassed();
     // The shelf is author-sorted, so a just-read title can land far down
@@ -918,10 +984,60 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   function markSkipped(book) {
     var p = current();
     if (!Array.isArray(p.skipped)) p.skipped = [];
+    clearRead(p, book.title);
     if (!p.skipped.some(function (b) { return titleKey(b.title) === titleKey(book.title); })) {
       p.skipped.push({ title: book.title, author: book.author || "" });
     }
     saveState();
+    paintReadlist();
+    paintRecs(visibleRecs(lastRecs));
+    paintPassed();
+  }
+  function paintReadlist() {
+    var box = $("readList");
+    if (!box) return;
+    box.innerHTML = "";
+    var p = current();
+    var rows = Array.isArray(p.readlist) ? p.readlist : [];
+    if (!rows.length) {
+      var e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "Nothing saved yet.";
+      box.appendChild(e);
+      return;
+    }
+    rows.forEach(function (book) {
+      var row = document.createElement("div");
+      row.className = "book";
+      row.innerHTML = coverHtml(book) + '<div><div class="t"></div><div class="a"></div><div class="summary"></div></div>';
+      row.querySelector(".t").textContent = book.title;
+      row.querySelector(".a").textContent = book.author || "";
+      row.querySelector(".summary").textContent = book.summary || "";
+      var acts = document.createElement("div");
+      acts.className = "recActs";
+      acts.appendChild(recButton("Already read", function () { markRead(book); }));
+      acts.appendChild(recButton("Remove", function () {
+        clearRead(p, book.title);
+        saveState();
+        paintReadlist();
+        paintRecs(visibleRecs(lastRecs));
+      }));
+      row.children[1].appendChild(acts);
+      row.onclick = function (ev) {
+        if (ev.target.closest("button")) return;
+        openDetail(book);
+      };
+      box.appendChild(row);
+    });
+  }
+  function saveFromSearch(book) {
+    if (!saveRead(book)) {
+      $("searchErr").textContent = "Already on this shelf.";
+      return;
+    }
+    $("searchErr").textContent = "";
+    saveState();
+    paintReadlist();
     paintRecs(visibleRecs(lastRecs));
     paintPassed();
   }
@@ -948,6 +1064,13 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       row.querySelector(".why").textContent = book.why || (book.reasons || []).join(" · ");
       var acts = document.createElement("div");
       acts.className = "recActs";
+      acts.appendChild(recButton("Read list", function () {
+        if (!saveRead(book)) return;
+        saveState();
+        paintReadlist();
+        paintRecs(visibleRecs(lastRecs));
+        paintPassed();
+      }));
       acts.appendChild(recButton("Already read", function () { markRead(book); }));
       acts.appendChild(recButton("Not interested", function () { markSkipped(book); }));
       row.children[1].appendChild(acts);
@@ -962,6 +1085,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   function addToShelf(book) {
     if (!placeOnShelf(book)) {
       $("searchErr").textContent = "Already on this shelf.";
+      saveState();
+      paintReadlist();
       return;
     }
     $("searchHits").innerHTML = "";
@@ -969,6 +1094,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     $("searchErr").textContent = "";
     saveState();
     paintShelf();
+    paintReadlist();
     paintPassed();
   }
 
@@ -1023,6 +1149,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         maxPolitical: p.maxPolitical,
         maxWoke: p.maxWoke,
         skipped: p.skipped || [],
+        readlist: p.readlist || [],
       });
       lastRecs = res.books || [];
       var shown = visibleRecs(lastRecs);
@@ -1137,10 +1264,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   $("recBtn").onclick = doRecommend;
 
   function paint() {
+    var changed = 0;
+    state.profiles.forEach(function (p) { changed += adoptReadlist(p); });
+    if (changed) saveState();
     paintProfiles();
     paintInterests();
     paintFilters();
     paintShelf();
+    paintReadlist();
     lastRecs = [];
     paintRecs([]);
     paintPassed();

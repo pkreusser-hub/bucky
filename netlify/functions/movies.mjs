@@ -587,6 +587,7 @@ export function buildRecommendPrompt(shelf, extras) {
   const interests = Array.isArray(extras && extras.interests) ? extras.interests : [];
   const skipped = sanitizePassed(extras && extras.skipped);
   const watched = sanitizePassed(extras && extras.watched);
+  const watchlist = sanitizePassed(extras && extras.watchlist);
   const lines = (Array.isArray(shelf) ? shelf : []).map((b) => {
     const r = asNum(b.rating);
     const stars = r == null ? "unrated" : r + "/5";
@@ -596,9 +597,12 @@ export function buildRecommendPrompt(shelf, extras) {
   if (interests.length) extra += "\nInterests they named: " + interests.join(", ") + ".";
   if (watched.length) extra += "\n\nALREADY WATCHED (do not recommend these):\n" + passedLines(watched);
   if (skipped.length) extra += "\n\nNOT INTERESTED (do not recommend these):\n" + passedLines(skipped);
-  const ask = (watched.length || skipped.length)
-    ? "Recommend exactly 5 movies they do NOT already own, have not already watched, and are not in the not-interested list."
-    : "Recommend exactly 5 movies they do NOT already own.";
+  if (watchlist.length) extra += "\n\nWATCH LIST (do not recommend these):\n" + passedLines(watchlist);
+  const ask = watchlist.length
+    ? "Recommend exactly 5 movies they do NOT already own, have not already watched, are not in the not-interested list, and are not on the watch list."
+    : ((watched.length || skipped.length)
+      ? "Recommend exactly 5 movies they do NOT already own, have not already watched, and are not in the not-interested list."
+      : "Recommend exactly 5 movies they do NOT already own.");
   return (
     "Here is every movie this household already owns, with this viewer's own star rating when they gave one (1-5). Unrated means they own it but have not scored it.\n\n"
     + "OWNED:\n" + (lines.length ? lines.join("\n") : "(none yet)") + "\n"
@@ -686,7 +690,8 @@ async function recommend(body) {
   }
   const skipped = sanitizePassed(body.skipped);
   const watched = sanitizePassed(body.watched);
-  const prompt = buildRecommendPrompt(shelf, { interests, skipped, watched });
+  const watchlist = sanitizePassed(body.watchlist);
+  const prompt = buildRecommendPrompt(shelf, { interests, skipped, watched, watchlist });
   const got = await callGrokRecommend(prompt);
   if (!got.ok) {
     return {
@@ -696,7 +701,7 @@ async function recommend(body) {
       reason: got.reason,
     };
   }
-  return { movies: parseGrokRecs(got.text, shelf, skipped.concat(watched)), model: got.model };
+  return { movies: parseGrokRecs(got.text, shelf, skipped.concat(watched, watchlist)), model: got.model };
 }
 
 export default async (req) => {

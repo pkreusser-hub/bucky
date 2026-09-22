@@ -331,6 +331,24 @@ async function sectionServer() {
     "the Grok prompt names books the reader is not interested in");
   ok(passedBooks.length === 4 && passedBooks.every((b) => b.title !== "Lonesome Dove" && b.title !== "The Hobbit"),
     "parseGrokRecs drops a not-interested book even when Grok returns it");
+  const readPrompt = mod.buildRecommendPrompt(mod.sanitizeShelf([{ title: "The Hobbit", author: "J.R.R. Tolkien", rating: 5 }]), {
+    readlist: [{ title: "Children of Time", author: "Adrian Tchaikovsky" }],
+  });
+  const readParsed = mod.parseGrokRecs(GROK_JSON, [{ title: "The Hobbit", author: "J.R.R. Tolkien" }], [
+    { title: "Children of Time", author: "Adrian Tchaikovsky" },
+  ]);
+  const readCapped = [];
+  for (let i = 0; i < 81; i++) readCapped.push({ title: "Read " + i, author: "Author" });
+  const readCapPrompt = mod.buildRecommendPrompt(mod.sanitizeShelf([]), { readlist: readCapped });
+  ok(/READ LIST \(do not recommend these\)/.test(readPrompt) && /Children of Time — Adrian Tchaikovsky/.test(readPrompt)
+    && /not on the read list/.test(readPrompt),
+    "the Grok prompt names a saved read-list book");
+  ok(!/READ LIST/.test(passedPrompt),
+    "an empty read list does not add a read-list block");
+  ok(readParsed.length === 4 && readParsed.every((b) => b.title !== "Children of Time" && b.title !== "The Hobbit"),
+    "parseGrokRecs drops a read-list book even when Grok returns it");
+  ok(/Read 0 — Author/.test(readCapPrompt) && !/Read 80 — Author/.test(readCapPrompt),
+    "the read list sent to Grok stops at 80");
   ok(parsedGrok[0] && parsedGrok[0].summary.indexOf("queendom") >= 0 && parsedGrok[0].why.indexOf("Hobbit 5") >= 0,
     "…and each pick carries a summary and a why");
 
@@ -427,6 +445,22 @@ async function sectionServer() {
   ok(!(skipBody.books || []).some((b) => b.title === "Lonesome Dove")
     && (skipBody.books || []).some((b) => b.title === "The Priory of the Orange Tree"),
     "a not-interested book is left out of the picks Grok sent back");
+
+  xaiCalls = [];
+  const readRec = await callHandler(handler, {
+    secret: SECRET,
+    action: "recommend",
+    shelf: [{ title: "The Hobbit", author: "J.R.R. Tolkien", rating: 5 }],
+    readlist: [{ title: "Children of Time", author: "Adrian Tchaikovsky" }],
+  });
+  const readBody = readKeptJson(await readRec.text());
+  const readUser = xaiCalls[0] && xaiCalls[0].body && xaiCalls[0].body.messages.find((m) => m.role === "user");
+  ok(readUser && /READ LIST/.test(readUser.content) && /Children of Time/.test(readUser.content)
+    && !/NOT INTERESTED/.test(readUser.content),
+    "recommend tells Grok which books are on the read list");
+  ok(!(readBody.books || []).some((b) => b.title === "Children of Time")
+    && (readBody.books || []).some((b) => b.title === "The Priory of the Orange Tree"),
+    "a read-list book is left out of the picks Grok sent back");
   ok((recBody.books || [])[0].summary && (recBody.books || [])[0].why, "…each pick has a summary and a why");
 
   const savedKey = process.env.XAI_API_KEY;
@@ -560,7 +594,13 @@ async function newPage(browser, mock, opts) {
         window.__BOOK_CALLS__.push(body);
         let data = { error: "unknown" };
         if (body.action === "search") data = { books: canned.searchBooks };
-        else if (body.action === "recommend") data = { books: canned.recBooks };
+        else if (body.action === "recommend") {
+          const books = (canned.recBooks || []).slice();
+          // Children of Time is only added when the page has a read list, so a
+          // page without that section still ends at zero picks after Already read.
+          if (document.getElementById("readLabel") && canned.laterBook) books.push(canned.laterBook);
+          data = { books: books };
+        }
         else if (body.action === "reviews") data = canned.reviews;
         else if (body.action === "rate") data = { political: 0, woke: 0, evidence: [], confidence: "high" };
         return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -570,6 +610,7 @@ async function newPage(browser, mock, opts) {
   }, opts.user || "Dad", {
     searchBooks: mock.searchBooks,
     recBooks: mock.recBooks,
+    laterBook: mock.laterBook || null,
     reviews: mock.reviews,
   });
   return { page, errors };
@@ -606,6 +647,13 @@ async function sectionUi(browser) {
       description: "A student chases the name of the wind.",
       political: 0, woke: 0, evidence: [],
     }],
+    laterBook: {
+      id: "ol-time", title: "Children of Time", author: "Adrian Tchaikovsky",
+      summary: "Spiders inherit a terraformed world.",
+      why: "Fits the Howey and Corey stretch.",
+      description: "Spiders inherit a terraformed world.",
+      political: 0, woke: 0, evidence: [],
+    },
     reviews: {
       ok: true, title: "The Hobbit", author: "J.R.R. Tolkien", rating: 4.3,
       ratingsCount: 4635081, reviewCount: 95173,
@@ -614,6 +662,11 @@ async function sectionUi(browser) {
     },
   };
 
+  mock.searchBooks = [MOCK_HOBBIT, {
+    id: "ol-piranesi", title: "Piranesi", author: "Susanna Clarke",
+    cover: "", description: "A house of tides and statues.",
+    political: 0, woke: 0, evidence: [], rating: null, ratingsCount: null, ratingSource: "",
+  }];
   const { page, errors } = await newPage(browser, mock, { user: "Dad" });
   await page.goto(BASE + "/books.html", { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForFunction(() => window.__BOOKS__, { timeout: 15000 });
@@ -635,6 +688,15 @@ async function sectionUi(browser) {
     const shelf = document.getElementById("shelfLabel").closest("section").getBoundingClientRect();
     return rec.top > ints.top && rec.top < shelf.top && rec.height > 0;
   }), "Next to read sits under Interests and above the shelf");
+  ok(await page.evaluate(() => {
+    const label = document.getElementById("readLabel");
+    if (!label) return false;
+    const read = label.closest("section").getBoundingClientRect();
+    const rec = document.getElementById("recLabel").closest("section").getBoundingClientRect();
+    const fil = document.getElementById("filLabel").closest("section").getBoundingClientRect();
+    return read.top > rec.top && read.top < fil.top
+      && document.getElementById("readList").textContent === "Nothing saved yet.";
+  }), "Read list sits under Next to read and starts empty");
 
   await page.type("#newProfile", "Joy");
   await page.click("#addProfile");
@@ -670,6 +732,72 @@ async function sectionUi(browser) {
     return /4\.20/.test(meta) && !/0\.00/.test(meta);
   }), "the shelf keeps the community 4.20; a null user rating is not Number(null)→0.00");
 
+  await page.evaluate(() => {
+    document.getElementById("searchQ").value = "piranesi";
+    document.getElementById("searchBtn").click();
+  });
+  await page.waitForFunction(() => [...document.querySelectorAll("#searchHits .t")].some((el) => el.textContent === "Piranesi"), { timeout: 10000 });
+  const savedSearch = await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#searchHits .book")].find((el) => el.querySelector(".t").textContent === "Piranesi");
+    const btn = row && [...row.querySelectorAll("button")].find((b) => b.textContent === "Read list");
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  await sleep(40);
+  ok(savedSearch && await page.evaluate(() => {
+    const joy = window.__BOOKS__.current();
+    const painted = [...document.querySelectorAll("#readList .t")].map((el) => el.textContent);
+    const onShelf = [...document.querySelectorAll("#shelfList .t")].map((el) => el.textContent);
+    const row = (joy.readlist || []).find((b) => b.title === "Piranesi");
+    return !!row && row.author === "Susanna Clarke"
+      && (joy.readlist || []).length === 1
+      && painted.indexOf("Piranesi") >= 0
+      && onShelf.indexOf("Piranesi") < 0
+      && joy.shelf.length === 1
+      && document.getElementById("detail").hidden === true;
+  }), "Read list on a search hit saves it without putting it on the shelf");
+  const openedRead = await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#readList .book")].find((el) => el.querySelector(".t") && el.querySelector(".t").textContent === "Piranesi");
+    if (!row) return false;
+    row.click();
+    return true;
+  });
+  if (openedRead) {
+    await page.waitForFunction(() => document.getElementById("detail").hidden === false, { timeout: 10000 });
+  }
+  ok(openedRead && await page.evaluate(() => {
+    return document.getElementById("detailTitle").textContent === "Piranesi"
+      && window.__BOOKS__.current().shelf.length === 1;
+  }), "a read-list row opens that book and does not add it");
+  await page.evaluate(() => { const b = document.getElementById("detailClose"); if (b) b.click(); });
+  await sleep(40);
+  const readFromList = await page.evaluate(() => {
+    window.__shelfScroll = [];
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (arg) {
+      const t = this.querySelector && this.querySelector(".t");
+      const onShelf = !!(this.closest && this.closest("#shelfList"));
+      if (t && onShelf) window.__shelfScroll.push(t.textContent);
+      return orig.call(this, arg);
+    };
+    const row = [...document.querySelectorAll("#readList .book")].find((el) => el.querySelector(".t") && el.querySelector(".t").textContent === "Piranesi");
+    const btn = row && [...row.querySelectorAll("button")].find((b) => b.textContent === "Already read");
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  await sleep(40);
+  ok(readFromList && await page.evaluate(() => {
+    const joy = window.__BOOKS__.current();
+    const painted = [...document.querySelectorAll("#shelfList .t")].map((el) => el.textContent);
+    return joy.shelf.some((b) => b.title === "Piranesi")
+      && !(joy.readlist || []).some((b) => b.title === "Piranesi")
+      && painted.indexOf("Piranesi") >= 0
+      && document.getElementById("readList").textContent === "Nothing saved yet."
+      && (window.__shelfScroll || []).indexOf("Piranesi") >= 0;
+  }), "Already read on the read list moves that title onto the shelf");
+
   await page.evaluate(() => { document.getElementById("recBtn").click(); });
   await page.waitForFunction(() => document.querySelectorAll("#recs .book").length >= 1, { timeout: 10000 });
   ok(await page.evaluate(() => /Priory of the Orange Tree/.test(document.querySelector("#recs .t").textContent)), "Recommend paints the Grok pick");
@@ -678,6 +806,10 @@ async function sectionUi(browser) {
     const why = document.querySelector("#recs .why");
     return !!(sum && why && /queendom/.test(sum.textContent) && /Hobbit 5/.test(why.textContent));
   }), "…with a summary and a why from the reader's stars");
+  ok(await page.evaluate(() => {
+    const row = document.querySelector("#recs .book");
+    return !!(row && [...row.querySelectorAll("button")].some((b) => b.textContent === "Read list"));
+  }), "a recommendation has a Read list button");
 
   await page.evaluate(() => { const b = document.querySelector("#recs .book"); if (b) b.click(); });
   await page.waitForFunction(() => document.getElementById("detail").hidden === false, { timeout: 10000 });
@@ -703,6 +835,27 @@ async function sectionUi(browser) {
       && titles.indexOf("The Priory of the Orange Tree") >= 0
       && joy.shelf.length === n;
   }, joyShelfBefore), "Not interested drops the pick and does not put it on the shelf");
+
+  const savedRec = await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "Children of Time");
+    const btn = row && [...row.querySelectorAll("button")].find((b) => b.textContent === "Read list");
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  await sleep(40);
+  ok(savedRec && await page.evaluate((n) => {
+    const joy = window.__BOOKS__.current();
+    const titles = [...document.querySelectorAll("#recs .t")].map((el) => el.textContent);
+    const saved = [...document.querySelectorAll("#readList .t")].map((el) => el.textContent);
+    const row = (joy.readlist || []).find((b) => b.title === "Children of Time");
+    return !!row && row.author === "Adrian Tchaikovsky"
+      && saved.indexOf("Children of Time") >= 0
+      && titles.indexOf("Children of Time") < 0
+      && titles.indexOf("The Priory of the Orange Tree") >= 0
+      && !joy.shelf.some((b) => b.title === "Children of Time")
+      && joy.shelf.length === n;
+  }, joyShelfBefore), "Read list saves the pick, hides it from Next to read, and leaves it off the shelf");
 
   await page.evaluate(() => {
     window.__shelfScroll = [];
@@ -747,6 +900,42 @@ async function sectionUi(browser) {
       && titles.indexOf("The Name of the Wind") < 0
       && titles.indexOf("The Priory of the Orange Tree") < 0;
   }), "the next recommend sends the passed book and does not paint it");
+  ok(await page.evaluate(() => {
+    const calls = window.__BOOK_CALLS__.filter((c) => c.action === "recommend");
+    const last = calls[calls.length - 1];
+    const titles = [...document.querySelectorAll("#recs .t")].map((el) => el.textContent);
+    const saved = (last.readlist || []).map((b) => b.title);
+    return saved.indexOf("Children of Time") >= 0 && titles.indexOf("Children of Time") < 0;
+  }), "the next recommend sends the read list and does not paint that book");
+
+  const removedRead = await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#readList .book")].find((el) => el.querySelector(".t") && el.querySelector(".t").textContent === "Children of Time");
+    const btn = row && [...row.querySelectorAll("button")].find((b) => b.textContent === "Remove");
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  await sleep(40);
+  ok(removedRead && await page.evaluate(() => {
+    const joy = window.__BOOKS__.current();
+    const recs = [...document.querySelectorAll("#recs .t")].map((el) => el.textContent);
+    return !(joy.readlist || []).some((b) => b.title === "Children of Time")
+      && recs.indexOf("Children of Time") >= 0
+      && document.getElementById("detail").hidden === true;
+  }), "Remove puts the book back in the picks");
+  const resaved = await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t") && el.querySelector(".t").textContent === "Children of Time");
+    const btn = row && [...row.querySelectorAll("button")].find((b) => b.textContent === "Read list");
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  await sleep(40);
+  ok(resaved && await page.evaluate(() => {
+    const joy = window.__BOOKS__.current();
+    return (joy.readlist || []).some((b) => b.title === "Children of Time")
+      && [...document.querySelectorAll("#recs .t")].every((el) => el.textContent !== "Children of Time");
+  }), "saving it again hides it from the picks");
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => window.__BOOKS__, { timeout: 15000 });
@@ -757,6 +946,14 @@ async function sectionUi(browser) {
       && joy.shelf.some((b) => b.title === "The Priory of the Orange Tree")
       && joy.skipped.some((b) => b.title === "The Name of the Wind");
   }), "profile, shelf, and not-interested survive a reload");
+  ok(await page.evaluate(() => {
+    const joy = window.__BOOKS__.current();
+    const painted = [...document.querySelectorAll("#readList .t")].map((el) => el.textContent);
+    const onShelf = [...document.querySelectorAll("#shelfList .t")].map((el) => el.textContent);
+    return (joy.readlist || []).some((b) => b.title === "Children of Time")
+      && painted.indexOf("Children of Time") >= 0
+      && onShelf.indexOf("Children of Time") < 0;
+  }), "the read list is still there after reload, and that title stays off the shelf");
   const dadTitles = await page.evaluate(() => {
     const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
     return dad ? dad.shelf.map((b) => b.title) : [];
@@ -784,6 +981,15 @@ async function sectionUi(browser) {
     const metas = [...document.querySelectorAll("#shelfList .meta")].map((el) => el.textContent);
     return metas.some((t) => /4\.51 from Open Library \(90\)/.test(t));
   }), "the shelf paints 4.51 from Open Library (90), not No community rating");
+  ok(await page.evaluate(() => {
+    const dad = window.__BOOKS__.current();
+    const joy = window.__BOOKS__.state().profiles.find((p) => p.name === "Joy");
+    return dad.name === "Dad"
+      && !(dad.readlist || []).length
+      && document.getElementById("readList")
+      && document.getElementById("readList").textContent === "Nothing saved yet."
+      && !!(joy && (joy.readlist || []).some((b) => b.title === "Children of Time"));
+  }), "Dad does not inherit Joy's read list");
   ok(await page.evaluate(() => {
     const metas = [...document.querySelectorAll("#shelfList .meta")].map((el) => el.textContent);
     return metas.some((t) => /4\.11 from Open Library \(19\)/.test(t));
@@ -818,6 +1024,13 @@ async function sectionUi(browser) {
       && titles.indexOf("Oathbringer") < 0
       && !(joy.skipped || []).some((b) => b.title === "Oathbringer");
   }), "Joy's shelf is not filled with Dad's library");
+  ok(await page.evaluate(() => {
+    const joy = window.__BOOKS__.state().profiles.find((p) => p.name === "Joy");
+    const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
+    return !!(joy && (joy.readlist || []).some((b) => b.title === "Children of Time"))
+      && !(dad && (dad.readlist || []).some((b) => b.title === "Children of Time"))
+      && !(joy.readlist || []).some((b) => b.title === "Oathbringer");
+  }), "Joy's read list stays hers");
 
   await page.evaluate(() => {
     const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
@@ -846,6 +1059,24 @@ async function sectionUi(browser) {
     const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
     return dad && !dad.shelf.some((b) => b.title === "Trivia Storm") && dad.shelf.some((b) => b.title === "The Blade Itself");
   }), "a cut seed title is pruned on reload");
+
+  await page.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem("books_profiles_v1"));
+    const joy = raw.profiles.find((p) => p.name === "Joy");
+    joy.readlist = [];
+    for (let i = 0; i < 81; i++) joy.readlist.push({ title: "Extra " + i, author: "Author" });
+    localStorage.setItem("books_profiles_v1", JSON.stringify(raw));
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => window.__BOOKS__, { timeout: 15000 });
+  ok(await page.evaluate(() => {
+    const joy = window.__BOOKS__.state().profiles.find((p) => p.name === "Joy");
+    const titles = (joy && joy.readlist || []).map((b) => b.title);
+    return titles.length === 80
+      && titles[0] === "Extra 1"
+      && titles.indexOf("Extra 0") < 0
+      && titles.indexOf("Extra 80") >= 0;
+  }), "a read list longer than 80 drops the oldest on the next load");
 
   if (WANT_SHOTS) {
     fs.mkdirSync(SHOTS, { recursive: true });

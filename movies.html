@@ -214,6 +214,12 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     <div id="skipList"></div>
   </section>
 
+  <section class="card" aria-labelledby="watchLabel">
+    <h2 class="section-label" id="watchLabel">Watch list</h2>
+    <p class="section-note">Save a title for later. It stays off the next picks until you remove it.</p>
+    <div id="watchList"></div>
+  </section>
+
   <section class="card" aria-labelledby="shelfLabel">
     <h2 class="section-label" id="shelfLabel">Owned</h2>
     <div class="row">
@@ -330,7 +336,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   function $(id) { return document.getElementById(id); }
   function uid() { return "p" + Math.random().toString(36).slice(2, 8); }
   function blankProfile(name) {
-    return { id: uid(), name: name, interests: [], shelf: [], removed: {}, skipped: [], watched: [] };
+    return { id: uid(), name: name, interests: [], shelf: [], removed: {}, skipped: [], watched: [], watchlist: [] };
   }
   function loadState() {
     var fallbackName = localStorage.getItem("choreUser") || "Family";
@@ -542,7 +548,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       row.querySelector(".t").textContent = movie.title;
       row.querySelector(".a").textContent = movie.director || "";
       row.querySelector(".meta").textContent = metaLine(movie);
-      row.onclick = function () { addToShelf(movie); };
+      var acts = document.createElement("div");
+      acts.className = "recActs";
+      acts.appendChild(recButton("Watch list", function () { saveFromSearch(movie); }));
+      row.children[1].appendChild(acts);
+      row.onclick = function (ev) {
+        if (ev.target.closest("button")) return;
+        addToShelf(movie);
+      };
       box.appendChild(row);
     });
   }
@@ -556,7 +569,56 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     (p.shelf || []).forEach(function (m) { banned[titleKey(m.title)] = 1; });
     (p.skipped || []).forEach(function (m) { banned[titleKey(m.title)] = 1; });
     (p.watched || []).forEach(function (m) { banned[titleKey(m.title)] = 1; });
+    (p.watchlist || []).forEach(function (m) { banned[titleKey(m.title)] = 1; });
     return (rows || []).filter(function (m) { return m && m.title && !banned[titleKey(m.title)]; });
+  }
+  var MAX_LATER = 80;
+  function trimLater(list) {
+    var rows = (Array.isArray(list) ? list : []).filter(function (m) { return m && titleKey(m.title); });
+    var seen = {};
+    var out = [];
+    for (var i = rows.length - 1; i >= 0; i--) {
+      var k = titleKey(rows[i].title);
+      if (seen[k]) continue;
+      seen[k] = 1;
+      out.push(rows[i]);
+    }
+    out.reverse();
+    while (out.length > MAX_LATER) out.shift();
+    return out;
+  }
+  function adoptWatchlist(p) {
+    var before = JSON.stringify(p.watchlist || []);
+    p.watchlist = trimLater(p.watchlist);
+    return before === JSON.stringify(p.watchlist) ? 0 : 1;
+  }
+  function onShelf(p, title) {
+    return (p.shelf || []).some(function (m) { return titleKey(m.title) === titleKey(title); });
+  }
+  function watchRow(movie) {
+    return {
+      title: movie.title,
+      director: movie.director || "",
+      year: movie.year || null,
+      cover: movie.cover || "",
+      summary: movie.summary || movie.description || "",
+      why: movie.why || "",
+    };
+  }
+  function saveWatch(movie) {
+    var p = current();
+    if (!movie || !titleKey(movie && movie.title)) return false;
+    if (!Array.isArray(p.watchlist)) p.watchlist = [];
+    if (onShelf(p, movie.title)) return false;
+    p.skipped = dropFrom(p.skipped, movie.title);
+    p.watched = dropFrom(p.watched, movie.title);
+    var row = watchRow(movie);
+    var i = -1;
+    p.watchlist.forEach(function (m, n) { if (titleKey(m.title) === titleKey(movie.title)) i = n; });
+    if (i >= 0) p.watchlist[i] = row;
+    else p.watchlist.push(row);
+    p.watchlist = trimLater(p.watchlist);
+    return true;
   }
   function dropFrom(list, title) {
     return (list || []).filter(function (m) { return titleKey(m.title) !== titleKey(title); });
@@ -626,10 +688,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     if (!Array.isArray(p.shelf)) p.shelf = [];
     var key = seedKey(movie && movie.title);
     if (!key) return false;
-    if (p.shelf.some(function (m) { return seedKey(m.title) === key; })) return false;
-    if (p.removed && p.removed[key]) delete p.removed[key];
     p.skipped = dropFrom(p.skipped, movie.title);
     p.watched = dropFrom(p.watched, movie.title);
+    p.watchlist = dropFrom(p.watchlist, movie.title);
+    if (p.shelf.some(function (m) { return seedKey(m.title) === key; })) return false;
+    if (p.removed && p.removed[key]) delete p.removed[key];
     p.shelf.push({
       id: movie.id || ("add-" + key.replace(/[^a-z0-9]+/g, "-").slice(0, 40)),
       title: movie.title,
@@ -663,8 +726,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     placeOnShelf(movie, p);
     p.watched = dropFrom(p.watched, movie.title);
     p.skipped = dropFrom(p.skipped, movie.title);
+    p.watchlist = dropFrom(p.watchlist, movie.title);
     saveState();
     paintShelf();
+    paintWatchlist();
     paintRecs(visibleRecs(lastRecs));
     paintPassed();
     revealShelfRow(movie.title, "#shelfList .movie");
@@ -673,10 +738,60 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var p = current();
     if (!Array.isArray(p.skipped)) p.skipped = [];
     p.watched = dropFrom(p.watched, movie.title);
+    p.watchlist = dropFrom(p.watchlist, movie.title);
     if (!p.skipped.some(function (m) { return titleKey(m.title) === titleKey(movie.title); })) {
       p.skipped.push({ title: movie.title, director: movie.director || "" });
     }
     saveState();
+    paintWatchlist();
+    paintRecs(visibleRecs(lastRecs));
+    paintPassed();
+  }
+  function paintWatchlist() {
+    var box = $("watchList");
+    if (!box) return;
+    box.innerHTML = "";
+    var p = current();
+    var rows = Array.isArray(p.watchlist) ? p.watchlist : [];
+    if (!rows.length) {
+      var e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "Nothing saved yet.";
+      box.appendChild(e);
+      return;
+    }
+    rows.forEach(function (movie) {
+      var row = document.createElement("div");
+      row.className = "movie";
+      row.innerHTML = coverHtml(movie) + '<div><div class="t"></div><div class="a"></div><div class="summary"></div></div>';
+      row.querySelector(".t").textContent = movie.title;
+      row.querySelector(".a").textContent = movie.director || "";
+      row.querySelector(".summary").textContent = movie.summary || "";
+      var acts = document.createElement("div");
+      acts.className = "recActs";
+      acts.appendChild(recButton("Already watched", function () { markWatched(movie); }));
+      acts.appendChild(recButton("Remove", function () {
+        p.watchlist = dropFrom(p.watchlist, movie.title);
+        saveState();
+        paintWatchlist();
+        paintRecs(visibleRecs(lastRecs));
+      }));
+      row.children[1].appendChild(acts);
+      row.onclick = function (ev) {
+        if (ev.target.closest("button")) return;
+        openDetail(movie);
+      };
+      box.appendChild(row);
+    });
+  }
+  function saveFromSearch(movie) {
+    if (!saveWatch(movie)) {
+      $("searchErr").textContent = "Already owned.";
+      return;
+    }
+    $("searchErr").textContent = "";
+    saveState();
+    paintWatchlist();
     paintRecs(visibleRecs(lastRecs));
     paintPassed();
   }
@@ -700,6 +815,13 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       row.querySelector(".why").textContent = movie.why || "";
       var acts = document.createElement("div");
       acts.className = "recActs";
+      acts.appendChild(recButton("Watch list", function () {
+        if (!saveWatch(movie)) return;
+        saveState();
+        paintWatchlist();
+        paintRecs(visibleRecs(lastRecs));
+        paintPassed();
+      }));
       acts.appendChild(recButton("Already watched", function () { markWatched(movie); }));
       acts.appendChild(recButton("Not interested", function () { markSkipped(movie); }));
       row.children[1].appendChild(acts);
@@ -713,6 +835,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   function addToShelf(movie) {
     if (!placeOnShelf(movie)) {
       $("searchErr").textContent = "Already owned.";
+      saveState();
+      paintWatchlist();
       return;
     }
     $("searchHits").innerHTML = "";
@@ -720,6 +844,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     $("searchErr").textContent = "";
     saveState();
     paintShelf();
+    paintWatchlist();
     paintPassed();
   }
   function readBody(text) {
@@ -769,6 +894,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         interests: p.interests || [],
         skipped: p.skipped || [],
         watched: p.watched || [],
+        watchlist: p.watchlist || [],
       });
       lastRecs = res.movies || [];
       var shown = visibleRecs(lastRecs);
@@ -999,6 +1125,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var changed = 0;
     state.profiles.forEach(function (p) {
       changed += adoptWatched(p);
+      changed += adoptWatchlist(p);
       changed += importOwned(p);
     });
     changed += absorbCatalog();
@@ -1006,6 +1133,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     paintProfiles();
     paintInterests();
     paintShelf();
+    paintWatchlist();
     lastRecs = [];
     paintRecs([]);
     paintPassed();

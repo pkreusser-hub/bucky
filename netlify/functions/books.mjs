@@ -625,6 +625,7 @@ export function buildRecommendPrompt(shelf, extras) {
   const maxPolitical = extras && extras.maxPolitical;
   const maxWoke = extras && extras.maxWoke;
   const skipped = sanitizePassed(extras && extras.skipped);
+  const readlist = sanitizePassed(extras && extras.readlist);
   const lines = (Array.isArray(shelf) ? shelf : []).map((b) => {
     const r = asNum(b.rating);
     const stars = r == null ? "unrated" : r + "/5";
@@ -639,9 +640,16 @@ export function buildRecommendPrompt(shelf, extras) {
       return "- " + b.title + (b.author ? " — " + b.author : "");
     }).join("\n");
   }
-  const ask = skipped.length
-    ? "Recommend exactly 5 books they have NOT already read and that are not in the not-interested list."
-    : "Recommend exactly 5 books they have NOT already read.";
+  if (readlist.length) {
+    extra += "\n\nREAD LIST (do not recommend these):\n" + readlist.map((b) => {
+      return "- " + b.title + (b.author ? " — " + b.author : "");
+    }).join("\n");
+  }
+  const ask = readlist.length
+    ? "Recommend exactly 5 books they have NOT already read, that are not in the not-interested list, and that are not on the read list."
+    : (skipped.length
+      ? "Recommend exactly 5 books they have NOT already read and that are not in the not-interested list."
+      : "Recommend exactly 5 books they have NOT already read.");
   return (
     "Here is everything this reader has already read, with their own star rating when they gave one (1-5). Unrated means they read it but have not scored it.\n\n"
     + "READ SO FAR:\n" + (lines.length ? lines.join("\n") : "(empty shelf)") + "\n"
@@ -740,18 +748,20 @@ async function recommend(body) {
   const maxPolitical = Number(body.maxPolitical);
   const maxWoke = Number(body.maxWoke);
   const skipped = sanitizePassed(body.skipped);
+  const readlist = sanitizePassed(body.readlist);
   const extras = {
     interests,
     maxPolitical: Number.isFinite(maxPolitical) ? maxPolitical : 5,
     maxWoke: Number.isFinite(maxWoke) ? maxWoke : 5,
     skipped,
+    readlist,
   };
   const prompt = buildRecommendPrompt(shelf, extras);
   const got = await callGrokRecommend(prompt);
   if (!got.ok) {
     return { books: [], model: got.model, error: got.reason === "no-key" ? "Recommendations need a Grok key." : "Could not recommend right now.", reason: got.reason };
   }
-  return { books: parseGrokRecs(got.text, shelf, skipped), model: got.model };
+  return { books: parseGrokRecs(got.text, shelf, skipped.concat(readlist)), model: got.model };
 }
 
 export default async (req) => {

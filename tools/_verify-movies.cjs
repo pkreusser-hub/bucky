@@ -333,6 +333,24 @@ async function sectionServer() {
   ok(passed.length === 3 && passed[0].title === "The Iron Giant"
     && passed.every((m) => m.title !== "Paddington 2" && m.title !== "Luca" && m.title !== "Toy Story"),
     "parseGrokRecs drops a not-interested title and an already-watched title");
+  const watchPrompt = mod.buildRecommendPrompt(mod.sanitizeShelf([{ title: "Toy Story", rating: 5 }]), {
+    watchlist: [{ title: "The Sandlot 2", director: "David Mickey Evans" }],
+  });
+  const watchParsed = mod.parseGrokRecs(GROK_JSON, [{ title: "Toy Story" }], [
+    { title: "The Sandlot 2", director: "David Mickey Evans" },
+  ]);
+  const watchCapped = [];
+  for (let i = 0; i < 81; i++) watchCapped.push({ title: "Watch " + i, director: "Dir" });
+  const watchCapPrompt = mod.buildRecommendPrompt(mod.sanitizeShelf([]), { watchlist: watchCapped });
+  ok(/WATCH LIST \(do not recommend these\)/.test(watchPrompt) && /The Sandlot 2 — David Mickey Evans/.test(watchPrompt)
+    && /not on the watch list/.test(watchPrompt),
+    "the Grok prompt names a saved watch-list movie");
+  ok(!/WATCH LIST/.test(passedPrompt),
+    "an empty watch list does not add a watch-list block");
+  ok(watchParsed.length === 4 && watchParsed.every((m) => m.title !== "The Sandlot 2" && m.title !== "Toy Story"),
+    "parseGrokRecs drops a watch-list title even when Grok returns it");
+  ok(/Watch 0 — Dir/.test(watchCapPrompt) && !/Watch 80 — Dir/.test(watchCapPrompt),
+    "the watch list sent to Grok stops at 80");
   ok(parsed[0] && parsed[0].summary.indexOf("robot") >= 0 && parsed[0].why.indexOf("animation") >= 0 && parsed[0].director === "Brad Bird",
     "each pick carries a director, a summary, and a why");
 
@@ -468,6 +486,22 @@ async function sectionServer() {
   ok(!(skipBody.movies || []).some((m) => m.title === "Paddington 2" || m.title === "Luca")
     && (skipBody.movies || []).some((m) => m.title === "The Iron Giant"),
     "a passed movie is left out of the picks Grok sent back");
+
+  xaiCalls = [];
+  const watchRec = await callHandler(handler, {
+    secret: SECRET,
+    action: "recommend",
+    shelf: [{ title: "Toy Story", rating: 5 }],
+    watchlist: [{ title: "The Sandlot 2", director: "David Mickey Evans" }],
+  });
+  const watchBody = readKeptJson(await watchRec.text());
+  const watchUser = xaiCalls[0] && xaiCalls[0].body && xaiCalls[0].body.messages.find((m) => m.role === "user");
+  ok(watchUser && /WATCH LIST/.test(watchUser.content) && /The Sandlot 2/.test(watchUser.content)
+    && !/NOT INTERESTED/.test(watchUser.content),
+    "recommend tells Grok which movies are on the watch list");
+  ok(!(watchBody.movies || []).some((m) => m.title === "The Sandlot 2")
+    && (watchBody.movies || []).some((m) => m.title === "The Iron Giant"),
+    "a watch-list movie is left out of the picks Grok sent back");
 
   const savedKey = process.env.XAI_API_KEY;
   delete process.env.XAI_API_KEY;
@@ -674,17 +708,35 @@ async function newPage(browser, user) {
               communityRating: 4.5,
               ratingsCount: 120,
               ratingSource: "itunes",
+            }, {
+              title: "Wolfwalkers",
+              director: "Tomm Moore",
+              year: 2020,
+              genre: "Kids & Family",
+              cover: "",
+              description: "A hunter's daughter runs with the wolves.",
+              communityRating: null,
+              ratingsCount: null,
+              ratingSource: "",
             }],
           }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         if (body.action === "recommend") {
-          const text = " \n" + JSON.stringify({
-            movies: [
-              { title: "The Iron Giant", director: "Brad Bird", summary: "A boy hides a giant robot.", why: "Fits the family animation already owned." },
-              { title: "Paddington 2", director: "Paul King", summary: "A bear goes to prison for a theft he did not commit.", why: "Warm family comedy beside the ones they own." },
-              { title: "Luca", director: "Enrico Casarosa", summary: "Two sea monsters spend a summer on land.", why: "A Pixar they do not own." },
-            ],
-          });
+          const movies = [
+            { title: "The Iron Giant", director: "Brad Bird", summary: "A boy hides a giant robot.", why: "Fits the family animation already owned." },
+            { title: "Paddington 2", director: "Paul King", summary: "A bear goes to prison for a theft he did not commit.", why: "Warm family comedy beside the ones they own." },
+            { title: "Luca", director: "Enrico Casarosa", summary: "Two sea monsters spend a summer on land.", why: "A Pixar they do not own." },
+          ];
+          // Coco and Soul exist so the watch-list checks have a title to save.
+          // A page without that section still gets the original three, so the
+          // "recs length === 0" check after Already watched still holds there.
+          if (document.getElementById("watchLabel")) {
+            movies.push(
+              { title: "Coco", director: "Lee Unkrich", summary: "A boy visits the land of the dead.", why: "A family musical beside the ones they own." },
+              { title: "Soul", director: "Pete Docter", summary: "A musician finds out what a soul is for.", why: "Another Pixar they do not own." },
+            );
+          }
+          const text = " \n" + JSON.stringify({ movies });
           return new Response(text, { status: 200, headers: { "Content-Type": "text/plain" } });
         }
         return new Response(JSON.stringify({ error: "unknown" }), { status: 400 });
@@ -721,6 +773,15 @@ async function sectionUi(browser) {
     const shelf = document.getElementById("shelfLabel").closest("section").getBoundingClientRect();
     return rec.top > ints.top && rec.top < shelf.top && rec.height > 0;
   }), "Next to watch sits under Interests and above Owned");
+  ok(await page.evaluate(() => {
+    const label = document.getElementById("watchLabel");
+    if (!label) return false;
+    const watch = label.closest("section").getBoundingClientRect();
+    const rec = document.getElementById("recLabel").closest("section").getBoundingClientRect();
+    const shelf = document.getElementById("shelfLabel").closest("section").getBoundingClientRect();
+    return watch.top > rec.top && watch.top < shelf.top
+      && document.getElementById("watchList").textContent === "Nothing saved yet.";
+  }), "Watch list sits under Next to watch and starts empty");
   ok(await page.evaluate(() => {
     const meta = document.querySelector("#shelfList .meta").textContent;
     return meta.indexOf("0.00") < 0;
@@ -851,6 +912,62 @@ async function sectionUi(browser) {
   ok(await page.evaluate((n) => document.getElementById("searchErr").textContent === "Already owned." && window.__MOVIES__.current().shelf.length === n, before),
     "tapping a movie already on the list does not add a second copy");
 
+  await page.evaluate(() => {
+    document.getElementById("searchQ").value = "wolfwalkers";
+    document.getElementById("searchBtn").click();
+  });
+  await page.waitForFunction(() => document.querySelectorAll("#searchHits .movie").length >= 2, { timeout: 8000 });
+  const shelfBeforeWatch = await page.evaluate(() => window.__MOVIES__.current().shelf.length);
+  const ownedWatch = await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#searchHits .movie")].find((el) => el.querySelector(".t").textContent === "The Iron Giant");
+    const btn = row && [...row.querySelectorAll("button")].find((b) => b.textContent === "Watch list");
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  await sleep(40);
+  ok(ownedWatch && await page.evaluate((n) => {
+    const joy = window.__MOVIES__.current();
+    return document.getElementById("searchErr").textContent === "Already owned."
+      && !(joy.watchlist || []).some((m) => m.title === "The Iron Giant")
+      && joy.shelf.length === n
+      && document.getElementById("detail").hidden === true;
+  }, shelfBeforeWatch), "Watch list does not save a movie already owned");
+  const savedSearch = await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#searchHits .movie")].find((el) => el.querySelector(".t").textContent === "Wolfwalkers");
+    const btn = row && [...row.querySelectorAll("button")].find((b) => b.textContent === "Watch list");
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  await sleep(40);
+  ok(savedSearch && await page.evaluate((n) => {
+    const joy = window.__MOVIES__.current();
+    const painted = [...document.querySelectorAll("#watchList .t")].map((el) => el.textContent);
+    const onShelf = [...document.querySelectorAll("#shelfList .t")].map((el) => el.textContent);
+    return joy.watchlist.some((m) => m.title === "Wolfwalkers" && m.director === "Tomm Moore")
+      && joy.watchlist.length === 1
+      && painted.indexOf("Wolfwalkers") >= 0
+      && onShelf.indexOf("Wolfwalkers") < 0
+      && joy.shelf.length === n
+      && document.getElementById("detail").hidden === true;
+  }, shelfBeforeWatch), "Watch list on a search hit saves it without owning it");
+  const shelvedWatch = await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#searchHits .movie")].find((el) => el.querySelector(".t").textContent === "Wolfwalkers");
+    if (!row || !(window.__MOVIES__.current().watchlist || []).some((m) => m.title === "Wolfwalkers")) return false;
+    row.click();
+    return true;
+  });
+  await sleep(40);
+  ok(shelvedWatch && await page.evaluate(() => {
+    const joy = window.__MOVIES__.current();
+    const painted = [...document.querySelectorAll("#shelfList .t")].map((el) => el.textContent);
+    return joy.shelf.some((m) => m.title === "Wolfwalkers")
+      && !(joy.watchlist || []).some((m) => m.title === "Wolfwalkers")
+      && painted.indexOf("Wolfwalkers") >= 0
+      && document.getElementById("watchList").textContent === "Nothing saved yet.";
+  }), "adding a saved title to Owned takes it off the watch list");
+
   await page.type("#newInterest", "family");
   await page.click("#addInterest");
   await sleep(40);
@@ -872,6 +989,37 @@ async function sectionUi(browser) {
       && !!row.querySelector("button") && [...row.querySelectorAll("button")].some((b) => b.textContent === "Already watched")
       && [...row.querySelectorAll("button")].some((b) => b.textContent === "Not interested");
   }), "Recommend paints a pick they do not own, with Already watched and Not interested");
+  ok(await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#recs .movie")].find((el) => el.querySelector(".t").textContent === "Paddington 2");
+    return !!(row && [...row.querySelectorAll("button")].some((b) => b.textContent === "Watch list"));
+  }), "a recommendation has a Watch list button");
+
+  const savedRecs = await page.evaluate(() => {
+    const titles = ["Coco", "Soul"];
+    for (let i = 0; i < titles.length; i++) {
+      const row = [...document.querySelectorAll("#recs .movie")].find((el) => el.querySelector(".t").textContent === titles[i]);
+      const btn = row && [...row.querySelectorAll("button")].find((b) => b.textContent === "Watch list");
+      if (!btn) return false;
+      btn.click();
+    }
+    return true;
+  });
+  await sleep(40);
+  const ownedAtSave = await page.evaluate(() => window.__MOVIES__.current().shelf.length);
+  ok(savedRecs && await page.evaluate((n) => {
+    const joy = window.__MOVIES__.current();
+    const recs = [...document.querySelectorAll("#recs .t")].map((el) => el.textContent);
+    const saved = [...document.querySelectorAll("#watchList .t")].map((el) => el.textContent);
+    const owned = [...document.querySelectorAll("#shelfList .t")].map((el) => el.textContent);
+    const coco = (joy.watchlist || []).find((m) => m.title === "Coco");
+    return (joy.watchlist || []).length === 2
+      && !!coco && coco.director === "Lee Unkrich"
+      && saved.indexOf("Coco") >= 0 && saved.indexOf("Soul") >= 0
+      && recs.indexOf("Coco") < 0 && recs.indexOf("Soul") < 0
+      && owned.indexOf("Coco") < 0 && owned.indexOf("Soul") < 0
+      && joy.shelf.length === n
+      && recs.indexOf("Paddington 2") >= 0 && recs.indexOf("Luca") >= 0;
+  }, ownedAtSave), "Watch list saves the pick, hides it from Next to watch, and leaves it off Owned");
 
   const ownedBefore = await page.evaluate(() => window.__MOVIES__.current().shelf.length);
   await page.evaluate(() => {
@@ -929,6 +1077,14 @@ async function sectionUi(browser) {
       && joy.skipped.some((m) => m.title === "Luca")
       && !joy.shelf.some((m) => m.title === "Luca");
   }), "an already-watched title stays in Owned after reload, and not-interested stays off it");
+  ok(await page.evaluate(() => {
+    const joy = window.__MOVIES__.current();
+    const painted = [...document.querySelectorAll("#watchList .t")].map((el) => el.textContent);
+    const owned = [...document.querySelectorAll("#shelfList .t")].map((el) => el.textContent);
+    return painted.indexOf("Coco") >= 0 && painted.indexOf("Soul") >= 0
+      && owned.indexOf("Coco") < 0 && owned.indexOf("Soul") < 0
+      && (joy.watchlist || []).length === 2;
+  }), "the watch list is still there after reload, and those titles stay off Owned");
 
   await page.evaluate(() => {
     const dad = [...document.querySelectorAll("#profileChips .chip")].find((b) => b.textContent === "Dad");
@@ -941,6 +1097,15 @@ async function sectionUi(browser) {
     const watched = dad.watched || [];
     return dad.name === "Dad" && skipped.length === 0 && watched.length === 0;
   }), "Dad does not inherit Joy's passed movies");
+  ok(await page.evaluate(() => {
+    const dad = window.__MOVIES__.current();
+    const joy = window.__MOVIES__.state().profiles.find((p) => p.name === "Joy");
+    return dad.name === "Dad"
+      && !(dad.watchlist || []).length
+      && document.getElementById("watchList")
+      && document.getElementById("watchList").textContent === "Nothing saved yet."
+      && !!(joy && (joy.watchlist || []).some((m) => m.title === "Coco"));
+  }), "Dad does not inherit Joy's watch list");
 
   await page.evaluate(() => {
     const joy = [...document.querySelectorAll("#profileChips .chip")].find((b) => b.textContent === "Joy");
@@ -963,6 +1128,74 @@ async function sectionUi(browser) {
       && titles.indexOf("Paddington 2") < 0
       && titles.indexOf("The Iron Giant") < 0;
   }), "the next recommend sends the owned title and the not-interested title and does not paint them");
+  ok(await page.evaluate(() => {
+    const calls = window.__MOVIE_CALLS__.filter((c) => c.action === "recommend");
+    const last = calls[calls.length - 1];
+    const titles = [...document.querySelectorAll("#recs .t")].map((el) => el.textContent);
+    const saved = (last.watchlist || []).map((m) => m.title);
+    return saved.indexOf("Coco") >= 0 && saved.indexOf("Soul") >= 0
+      && titles.indexOf("Coco") < 0 && titles.indexOf("Soul") < 0;
+  }), "the next recommend sends the watch list and does not paint those titles");
+
+  const openedWatch = await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#watchList .movie")].find((el) => el.querySelector(".t") && el.querySelector(".t").textContent === "Coco");
+    if (!row) return false;
+    row.click();
+    return true;
+  });
+  if (openedWatch) {
+    await page.waitForFunction(() => document.getElementById("detail").hidden === false, { timeout: 8000 });
+  }
+  ok(openedWatch && await page.evaluate(() => document.getElementById("detailTitle").textContent === "Coco"),
+    "a watch-list row opens that movie");
+  await page.evaluate(() => { const b = document.getElementById("detailClose"); if (b) b.click(); });
+  await sleep(40);
+
+  const removedWatch = await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#watchList .movie")].find((el) => el.querySelector(".t") && el.querySelector(".t").textContent === "Coco");
+    const btn = row && [...row.querySelectorAll("button")].find((b) => b.textContent === "Remove");
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  await sleep(40);
+  ok(removedWatch && await page.evaluate(() => {
+    const joy = window.__MOVIES__.current();
+    const recs = [...document.querySelectorAll("#recs .t")].map((el) => el.textContent);
+    const saved = [...document.querySelectorAll("#watchList .t")].map((el) => el.textContent);
+    return !(joy.watchlist || []).some((m) => m.title === "Coco")
+      && saved.indexOf("Coco") < 0
+      && recs.indexOf("Coco") >= 0
+      && saved.indexOf("Soul") >= 0
+      && document.getElementById("detail").hidden === true;
+  }), "Remove puts the title back in the picks and leaves the rest of the watch list");
+
+  const watchedFromList = await page.evaluate(() => {
+    window.__shelfScroll = [];
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (arg) {
+      const t = this.querySelector && this.querySelector(".t");
+      const onShelf = !!(this.closest && this.closest("#shelfList"));
+      if (t && onShelf) window.__shelfScroll.push(t.textContent);
+      return orig.call(this, arg);
+    };
+    const row = [...document.querySelectorAll("#watchList .movie")].find((el) => el.querySelector(".t") && el.querySelector(".t").textContent === "Soul");
+    const btn = row && [...row.querySelectorAll("button")].find((b) => b.textContent === "Already watched");
+    if (!btn) return false;
+    btn.click();
+    return true;
+  });
+  await sleep(40);
+  ok(watchedFromList && await page.evaluate(() => {
+    const joy = window.__MOVIES__.current();
+    const painted = [...document.querySelectorAll("#shelfList .t")].map((el) => el.textContent);
+    const saved = [...document.querySelectorAll("#watchList .t")].map((el) => el.textContent);
+    return joy.shelf.some((m) => m.title === "Soul")
+      && !(joy.watchlist || []).some((m) => m.title === "Soul")
+      && painted.indexOf("Soul") >= 0
+      && saved.indexOf("Soul") < 0
+      && (window.__shelfScroll || []).indexOf("Soul") >= 0;
+  }), "Already watched on the watch list moves that title to Owned");
 
   // Someone who already tapped Already watched, before that title joined
   // Owned, still has it in watched[]. The next load moves it onto the shelf
@@ -988,6 +1221,25 @@ async function sectionUi(browser) {
       && !joy.shelf.some((m) => m.title === "Luca")
       && joy.shelf.some((m) => m.title === "Paddington 2");
   }), "a saved Already watched list moves onto Owned on the next load");
+
+  await page.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem("movies_profiles_v1"));
+    const joy = raw.profiles.find((p) => p.name === "Joy");
+    joy.watchlist = [];
+    for (let i = 0; i < 81; i++) joy.watchlist.push({ title: "Extra " + i, director: "Dir" });
+    localStorage.setItem("movies_profiles_v1", JSON.stringify(raw));
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => window.__MOVIES__ && document.querySelector("#shelfList .t"), { timeout: 15000 });
+  ok(await page.evaluate(() => {
+    const joy = window.__MOVIES__.current();
+    const titles = (joy.watchlist || []).map((m) => m.title);
+    return joy.name === "Joy"
+      && titles.length === 80
+      && titles[0] === "Extra 1"
+      && titles.indexOf("Extra 0") < 0
+      && titles.indexOf("Extra 80") >= 0;
+  }), "a watch list longer than 80 drops the oldest on the next load");
 
   ok(errors.length === 0, "no page errors");
 

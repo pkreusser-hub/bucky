@@ -2182,3 +2182,27 @@ Suite: `node tools/_verify-movies.cjs` (**114/114**). Bite against `d09191d`
 `movies.html`: **110 passed, 4 failed** — the shelf is painted from the
 catalog, and Air Bud and The Lion King open from it.
 ---
+
+# Watch list and read list (2026-09-22)
+
+A recommendation can be saved for later. Movies calls that **Watch list**.
+Bookshelf calls it **Read list**. It is not Owned and not Read so far, and
+it is not Not interested. Not interested stays the list of titles that
+should not come back. The watch list and the read list are titles the
+person still wants.
+
+The button is on each recommendation and on a search hit. A title already
+on the shelf is not saved. Saving it takes it out of the current picks.
+**Already watched** or **Already read** on that row moves it onto the shelf
+and brings the row into view. **Remove** puts it back in the picks from the
+last recommend, so it can be suggested again. The next Recommend sends the
+list to grok-4.7 and drops the title if the model sends it back. An empty
+list does not change the ask. The list is capped at 80, and the oldest
+title past that is dropped. Joy's list is not Dad's.
+
+Suite: `node tools/_verify-movies.cjs` (**133/133**). Bite against `d3b08e9`
+`movies.html` + `movies.mjs`: **116 passed, 17 failed** — the watch-list
+prompt, the handler, and the buttons. `node tools/_verify-books.cjs`
+(**166/166**). Bite against `d3b08e9` `books.html` + `books.mjs`: **149
+passed, 17 failed** — the same split.
+---
