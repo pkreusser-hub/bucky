@@ -2243,3 +2243,14 @@ parser cap, the note, and the two scroll checks. `node tools/_verify-books.cjs`
 (**173/173**). Bite against `91bcb40` `books.html` + `books.mjs`: **168
 passed, 5 failed** — the same split.
 ---
+
+# Bookshelf recommend was blocked on the family domain, and the lists lived only in the browser (2026-09-22)
+
+A Bookshelf recommend from goatfantasyleague.com failed with "Could not recommend right now." Movies already listed that origin and www.goatfantasyleague.com. Books did not, so the function answered with amenfarms.netlify.app and the browser dropped the body. Those two origins are now allowed. The model, the token budget, and the series and LGBT rules are unchanged.
+
+Books and movies were stored in this browser only. Eleanor's books and an Already watched movie stayed on the phone that saved them. Both pages now write the family room in Firestore: `books_fam2jan2g/state` and `movies_fam2jan2g/state`. Opening either page on a live host merges the two copies. A title on one device is kept. An Already watched movie is a shelf row whose id starts with `add-`, and that row stays even when the other device never had it. A removed owned title stays off. A star that is a number, including 0, is not replaced by a blank. Interests, the skip list, and the watch or read list are unions, and a title on the shelf is dropped from those lists.
+
+The phone that still has Eleanor's books and the watched movies has to be opened once after this is live, so that copy uploads. If that phone already lost them, they have to be added again. A desktop that opens first does not erase the phone: the later merge keeps both. The cloud path runs only on amenfarms.netlify.app, goatfantasyleague.com, and www.goatfantasyleague.com, so the suite does not write Firestore.
+
+Suite: `node tools/_verify-books.cjs` (**176/176**). Bite against `97fa8c8` `books.html` + `books.mjs`: **173 passed, 3 failed** — the family domain, the family shelf, and Eleanor's books from the other device. `node tools/_verify-movies.cjs` (**138/138**). Bite against `97fa8c8` `movies.html`: **136 passed, 2 failed** — the family owned list, and an already-watched movie from the phone.
+---

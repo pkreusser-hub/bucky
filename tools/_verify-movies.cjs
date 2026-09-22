@@ -545,6 +545,8 @@ async function sectionServer() {
     "owned posters and scores are painted from the saved catalog");
   ok(/Ten movies you do not already own/.test(pageSrc) && /ten to watch next/.test(pageSrc),
     "the page asks for ten movies to watch next");
+  ok(/function mergeLibrary/.test(pageSrc) && /movies_" \+ familyRoom\(\)/.test(pageSrc),
+    "the owned list is stored for the family, not only in this browser");
   const catalog = JSON.parse(fs.readFileSync(path.join(ROOT, "assets/movies/owned.json"), "utf8"));
   const ownedTitles = [...pageSrc.match(/var OWNED = \[([\s\S]*?)\];/)[1].matchAll(/"((?:\\.|[^"\\])*)"/g)].map((m) => JSON.parse('"' + m[1] + '"'));
   ok(ownedTitles.length === 158 && ownedTitles.every((t) => catalog[t] && String(catalog[t].poster || "").indexOf("https://") === 0),
@@ -765,6 +767,38 @@ async function sectionUi(browser) {
   await page.goto(BASE + "/movies.html", { waitUntil: "domcontentloaded", timeout: 30000 });
   await page.waitForFunction(() => window.__MOVIES__ && document.querySelector("#shelfList .t"), { timeout: 15000 });
   ok(await page.evaluate(() => document.querySelector("#bar .t").textContent === "Movies"), "the page titles itself Movies");
+  ok(await page.evaluate(() => {
+    if (typeof window.__MOVIES__.mergeLibrary !== "function") return false;
+    const phone = {
+      version: 1, savedAt: 10, currentId: "phone",
+      profiles: [{
+        id: "phone", name: "Eleanor", interests: [],
+        shelf: [{ id: "add-paddington-2", title: "Paddington 2", director: "Paul King", rating: null }],
+        removed: {}, skipped: [], watched: [], watchlist: [],
+      }],
+    };
+    const desk = {
+      version: 1, savedAt: 5, currentId: "desk",
+      profiles: [{
+        id: "desk", name: "Eleanor", interests: [],
+        shelf: [
+          { id: "own-toy-story", title: "Toy Story", rating: 5 },
+          { id: "own-air-bud", title: "Air Bud", rating: null },
+        ],
+        removed: { "air bud": 1 },
+        skipped: [], watched: [], watchlist: [],
+      }],
+    };
+    const merged = window.__MOVIES__.mergeLibrary(phone, desk);
+    const el = merged.profiles.find((p) => p.name === "Eleanor");
+    const titles = (el.shelf || []).map((m) => m.title);
+    const toy = el.shelf.find((m) => m.title === "Toy Story");
+    return titles.indexOf("Paddington 2") >= 0
+      && titles.indexOf("Toy Story") >= 0
+      && titles.indexOf("Air Bud") < 0
+      && !!el.removed["air bud"]
+      && toy.rating === 5;
+  }), "an already-watched movie from the phone stays in the library, and a removed owned title stays off");
   ok(await page.evaluate(() => {
     const el = document.getElementById("buckyNav");
     const r = el && el.getBoundingClientRect();

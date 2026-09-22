@@ -42,8 +42,12 @@
 //   XAI_API_KEY / XAI_BASE_URL                     — Grok recommend
 //   BOOKS_ALLOW_PRIVATE=1                          — unused; fetches only hit configured bases
 
+// goatfantasyleague.com is the same site. Movies already allowed it. Without
+// these two, a Bookshelf recommend from that domain is blocked by the browser.
 const ALLOWED_ORIGINS = new Set([
   "https://amenfarms.netlify.app",
+  "https://goatfantasyleague.com",
+  "https://www.goatfantasyleague.com",
   "http://localhost:8080",
   "http://localhost:3000",
   "http://localhost:8791",

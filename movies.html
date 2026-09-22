@@ -328,6 +328,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   var FAMILY_PASSWORD = "amenfarms";
   var ENDPOINT = "/.netlify/functions/movies";
   var STORE = "movies_profiles_v1";
+  var firebaseConfig = {
+    apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
+    authDomain: "amen-farms-app.firebaseapp.com",
+    projectId: "amen-farms-app",
+    storageBucket: "amen-farms-app.firebasestorage.app",
+    messagingSenderId: "321230755979",
+    appId: "1:321230755979:web:d362c56aaf7e50b4ab5c8e"
+  };
   // Purchases & Rentals export. Format tags and bonus-material discs are
   // folded into the feature. A Remove is remembered on that person only.
   // importOwned must not write state.currentId.
@@ -353,7 +361,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     return { version: 1, currentId: p.id, profiles: [p] };
   }
   function saveState() {
-    localStorage.setItem(STORE, JSON.stringify(state));
+    state.savedAt = Date.now();
+    try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) {}
+    schedulePush();
   }
   function current() {
     return state.profiles.find(function (p) { return p.id === state.currentId; }) || state.profiles[0];
@@ -1153,13 +1163,213 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   $("searchQ").addEventListener("keydown", function (ev) { if (ev.key === "Enter") doSearch(); });
   $("recBtn").onclick = doRecommend;
   $("detail").addEventListener("click", function (e) { if (e.target.id === "detail") closeDetail(); });
-  loadCatalog().then(function () { paint(); });
+  function hasRating(v) {
+    return v != null && v !== "" && Number.isFinite(Number(v));
+  }
+  function preferRow(primary, secondary) {
+    var out = Object.assign({}, secondary || {}, primary || {});
+    var p = primary || {};
+    var s = secondary || {};
+    ["cover", "director", "author", "isbn", "description", "summary", "why", "genre", "ratingSource", "rtPath"].forEach(function (key) {
+      if ((p[key] == null || p[key] === "") && s[key]) out[key] = s[key];
+    });
+    ["year", "communityRating", "ratingsCount", "tomatoMeter", "tomatoAverage", "userAverage", "popcornMeter", "imdbRating"].forEach(function (key) {
+      if ((p[key] == null || p[key] === "") && s[key] != null && s[key] !== "") out[key] = s[key];
+    });
+    if (!hasRating(p.rating) && hasRating(s.rating)) out.rating = Number(s.rating);
+    else if (hasRating(p.rating)) out.rating = Number(p.rating);
+    else out.rating = null;
+    return out;
+  }
+  function unionRows(a, b, keyFn, preferB) {
+    var map = {};
+    var order = [];
+    function add(item, fromB) {
+      if (!item) return;
+      var k = keyFn(item);
+      if (!k) return;
+      if (!Object.prototype.hasOwnProperty.call(map, k)) {
+        order.push(k);
+        map[k] = item;
+        return;
+      }
+      map[k] = (fromB ? preferB : !preferB) ? preferRow(item, map[k]) : preferRow(map[k], item);
+    }
+    (a || []).forEach(function (item) { add(item, false); });
+    (b || []).forEach(function (item) { add(item, true); });
+    return order.map(function (k) { return map[k]; });
+  }
+  function unionInterests(a, b) {
+    var out = [];
+    var seen = {};
+    (a || []).concat(b || []).forEach(function (t) {
+      var s = String(t || "").trim();
+      var k = s.toLowerCase();
+      if (!k || seen[k]) return;
+      seen[k] = 1;
+      out.push(s);
+    });
+    return out;
+  }
+  function copyProfile(p) {
+    return {
+      id: p.id,
+      name: String(p.name || "").trim(),
+      interests: (p.interests || []).slice(),
+      shelf: (p.shelf || []).slice(),
+      removed: Object.assign({}, p.removed || {}),
+      skipped: (p.skipped || []).slice(),
+      watched: (p.watched || []).slice(),
+      watchlist: (p.watchlist || []).slice(),
+    };
+  }
+  // Already watched used to live only in this browser. A title added on the
+  // phone (id add-) stays on the shelf even when the other device never saw it.
+  // A removed owned title stays removed.
+  function mergeLibrary(local, remote) {
+    local = local || {};
+    remote = remote || {};
+    var remoteNewer = (Number(remote.savedAt) || 0) >= (Number(local.savedAt) || 0);
+    var byName = {};
+    function take(list, side) {
+      (list || []).forEach(function (p) {
+        if (!p || !String(p.name || "").trim()) return;
+        var k = String(p.name).trim().toLowerCase();
+        if (!byName[k]) byName[k] = { name: String(p.name).trim(), local: null, remote: null };
+        byName[k][side] = p;
+      });
+    }
+    take(local.profiles, "local");
+    take(remote.profiles, "remote");
+    var profiles = [];
+    Object.keys(byName).forEach(function (k) {
+      var pair = byName[k];
+      var a = pair.local;
+      var b = pair.remote;
+      if (!a || !b) {
+        profiles.push(copyProfile(a || b));
+        return;
+      }
+      var removed = Object.assign({}, a.removed || {}, b.removed || {});
+      [a, b].forEach(function (p) {
+        (p.shelf || []).forEach(function (m) {
+          if (String(m.id || "").indexOf("add-") === 0) delete removed[seedKey(m.title)];
+        });
+      });
+      var shelf = unionRows(a.shelf, b.shelf, function (m) { return seedKey(m.title); }, remoteNewer)
+        .filter(function (m) { return m && m.title && !removed[seedKey(m.title)]; });
+      var onShelf = {};
+      shelf.forEach(function (m) { onShelf[titleKey(m.title)] = 1; });
+      function later(listName) {
+        return unionRows(a[listName], b[listName], function (m) { return titleKey(m && m.title); }, remoteNewer)
+          .filter(function (m) { return m && m.title && !onShelf[titleKey(m.title)]; });
+      }
+      profiles.push({
+        id: a.id || b.id,
+        name: pair.name,
+        interests: unionInterests(a.interests, b.interests),
+        shelf: shelf,
+        removed: removed,
+        skipped: later("skipped"),
+        watched: later("watched"),
+        watchlist: later("watchlist"),
+      });
+    });
+    var currentId = local.currentId;
+    if (!profiles.some(function (p) { return p.id === currentId; })) {
+      currentId = profiles.some(function (p) { return p.id === remote.currentId; }) ? remote.currentId : (profiles[0] && profiles[0].id);
+    }
+    return {
+      version: 1,
+      savedAt: Math.max(Number(local.savedAt) || 0, Number(remote.savedAt) || 0),
+      currentId: currentId,
+      profiles: profiles,
+    };
+  }
+  var cloudReady = false;
+  var cloudFs = null;
+  var cloudRef = null;
+  var pushTimer = null;
+  function familyRoom() {
+    var pw = FAMILY_PASSWORD.toLowerCase();
+    var h = 0;
+    for (var i = 0; i < pw.length; i++) h = (h * 31 + pw.charCodeAt(i)) >>> 0;
+    return "fam" + h.toString(36);
+  }
+  function librarySig(obj) {
+    return JSON.stringify({ currentId: obj && obj.currentId, profiles: (obj && obj.profiles) || [] });
+  }
+  function schedulePush() {
+    if (!cloudReady || !cloudFs || !cloudRef) return;
+    if (pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(function () {
+      pushTimer = null;
+      pushCloud();
+    }, 400);
+  }
+  function pushCloud() {
+    if (!cloudFs || !cloudRef) return;
+    var payload = {
+      version: 1,
+      savedAt: Date.now(),
+      currentId: state.currentId,
+      profiles: state.profiles,
+    };
+    state.savedAt = payload.savedAt;
+    cloudFs.setDoc(cloudRef, { json: JSON.stringify(payload), savedAt: payload.savedAt }).catch(function () {});
+  }
+  function applyCloud(data) {
+    var remote = null;
+    if (data && data.json) {
+      try { remote = JSON.parse(data.json); } catch (e) { remote = null; }
+    }
+    if (!remote || !Array.isArray(remote.profiles)) {
+      cloudReady = true;
+      pushCloud();
+      return;
+    }
+    if (librarySig(remote) === librarySig(state)) {
+      state.savedAt = Number(remote.savedAt) || state.savedAt || 0;
+      cloudReady = true;
+      return;
+    }
+    var merged = mergeLibrary(state, remote);
+    var changed = librarySig(merged) !== librarySig(state);
+    state.version = 1;
+    state.savedAt = merged.savedAt;
+    state.currentId = merged.currentId;
+    state.profiles = merged.profiles;
+    if (changed) {
+      try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) {}
+      paint();
+    }
+    cloudReady = true;
+    if (librarySig(state) !== librarySig(remote)) pushCloud();
+  }
+  function startCloud() {
+    var host = location.hostname;
+    if (host !== "amenfarms.netlify.app" && host !== "goatfantasyleague.com" && host !== "www.goatfantasyleague.com") return;
+    import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js").then(function (appMod) {
+      return import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js").then(function (fs) {
+        var app;
+        try { app = appMod.getApp(); } catch (e) { app = appMod.initializeApp(firebaseConfig); }
+        cloudFs = fs;
+        cloudRef = fs.doc(fs.getFirestore(app), "movies_" + familyRoom(), "state");
+        fs.onSnapshot(cloudRef, function (snap) {
+          applyCloud(snap && snap.exists() ? snap.data() : null);
+        }, function () { cloudReady = true; });
+      });
+    }).catch(function () {});
+  }
+
+  loadCatalog().then(function () { paint(); startCloud(); });
   window.__MOVIES__ = {
     current: current,
     titleSortKey: titleSortKey,
     sortedShelf: sortedShelf,
     importOwned: importOwned,
     state: function () { return state; },
+    mergeLibrary: mergeLibrary,
   };
 })();
 </script>

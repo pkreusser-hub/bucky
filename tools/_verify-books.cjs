@@ -540,6 +540,10 @@ async function sectionServer() {
     "the Next to read note states the series rule and the LGBT rule");
   ok(/Ten picks from the whole shelf/.test(pageSrc),
     "the Next to read note asks for ten picks");
+  ok(/https:\/\/goatfantasyleague\.com/.test(src) && /https:\/\/www\.goatfantasyleague\.com/.test(src),
+    "bookshelf allows the family domain, same as Movies (that origin was answered as amenfarms and the browser blocked recommend)");
+  ok(/function mergeLibrary/.test(pageSrc) && /books_" \+ familyRoom\(\)/.test(pageSrc),
+    "the shelf is stored for the family, not only in this browser");
   ok(/KEEPALIVE_MS = 8000/.test(src) && /GROK_MAX_TOKENS = 6000/.test(src),
     "the Grok call keeps the edge alive and leaves 6000 tokens of headroom");
   const intAt = pageSrc.indexOf('id="intLabel"');
@@ -698,6 +702,34 @@ async function sectionUi(browser) {
   await page.waitForFunction(() => window.__BOOKS__, { timeout: 15000 });
 
   ok(await page.evaluate(() => document.querySelector("#bar .t").textContent === "Bookshelf"), "the page titles itself Bookshelf");
+  ok(await page.evaluate(() => {
+    if (typeof window.__BOOKS__.mergeLibrary !== "function") return false;
+    const local = {
+      version: 1, savedAt: 10, currentId: "phone",
+      profiles: [{
+        id: "phone", name: "Eleanor", interests: [], maxPolitical: 5, maxWoke: 5,
+        shelf: [{ id: "p", title: "Piranesi", author: "Susanna Clarke", rating: 4 }],
+        skipped: [], readlist: [],
+      }],
+    };
+    const remote = {
+      version: 1, savedAt: 20, currentId: "desk",
+      profiles: [{
+        id: "desk", name: "Eleanor", interests: ["myth"], maxPolitical: 5, maxWoke: 5,
+        shelf: [{ id: "c", title: "Circe", author: "Madeline Miller", rating: null }],
+        skipped: [], readlist: [{ title: "Circe", author: "Madeline Miller" }],
+      }],
+    };
+    const merged = window.__BOOKS__.mergeLibrary(local, remote);
+    const el = merged.profiles.find((p) => p.name === "Eleanor");
+    const titles = (el.shelf || []).map((b) => b.title);
+    const piranesi = el.shelf.find((b) => b.title === "Piranesi");
+    return titles.indexOf("Piranesi") >= 0 && titles.indexOf("Circe") >= 0
+      && piranesi.rating === 4
+      && el.interests.indexOf("myth") >= 0
+      && !(el.readlist || []).some((b) => b.title === "Circe")
+      && merged.currentId === "phone";
+  }), "Eleanor's books from another device join this one, and a star already given stays");
   ok(await page.evaluate(() => {
     const el = document.getElementById("buckyNav");
     const r = el && el.getBoundingClientRect();
