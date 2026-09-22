@@ -2272,5 +2272,7 @@ The long shelf does start the background job, and the page does poll it. A one-b
 
 That 50s cap was the synchronous call's limit. The background job can run for minutes, so it now waits 180s. The page polls for 200s. The button says a full shelf takes about three minutes. The synchronous call is still 50s. The model, the token budget, and the series and LGBT rules are unchanged.
 
+A live run of the 135-title shelf with that longer wait returned 10 picks in 95s. Elantris, The Lies of Locke Lamora, The Black Company, Legend, and On Basilisk Station were among them. None of those titles are on the seeded shelf.
+
 Suite: `node tools/_verify-books.cjs` (**181/181**). Bite against `aeaac0a` `books.html` + `books.mjs`: **179 passed, 2 failed** — the 180s job wait, and the three-minute poll.
 ---
