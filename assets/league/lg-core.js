@@ -3888,6 +3888,104 @@
     return rows;
   };
 
+  // The card under Standings used to publish a Grok board (aipower_*). The validator only
+  // checked shape — every team once, scores 0–100, a 1..N permutation per room — so a 2-0
+  // team that had scored the most points could be stored 8th in every column and still
+  // count as current. The card now shows THIS function's formula, which is the same one
+  // finalizeWeek snapshots onto the weekly doc. QB/RB/WR/TE/BN are ranked by points those
+  // players scored on finalized regular-season weeks (D.weekStats for that week, that
+  // week's roster). A flex starter counts at his own position. K and D/ST have no column.
+  // IR is not a room. A tie in a room goes to the lower team id, so the order is unique
+  // and does not copy the overall rank.
+  async function powerRosterAt(week, teamId) {
+    let p = await LG.loadRoster(week, teamId);
+    for (let w = week - 1; w >= 1 && !p; w--) p = await LG.loadRoster(w, teamId);
+    return p || [];
+  }
+  function powerRoom(p) {
+    const slot = String((p && p.slot) || "").toUpperCase();
+    if (slot === "IR") return null;
+    if (slot === "BENCH" || slot === "BN") return "BN";
+    const raw = (p && p.pos) || "";
+    const pos = (LG.data && LG.data.leaguePos ? LG.data.leaguePos(raw) : String(raw)).toUpperCase();
+    if (pos === "QB" || pos === "RB" || pos === "WR" || pos === "TE") return pos;
+    return null;
+  }
+  // opts.noFetch — rank from the weekly docs only, and score rooms solely from the
+  // stat archive already in memory. A miss leaves roomsPending so the card can fill
+  // the columns after paint. The archive download is the whole league's stat lines
+  // for each week; awaiting it inside the first paint is what dropped a caller's
+  // evaluate promise (Chrome: "Promise was collected") once a week was official.
+  LG.computePowerTable = async function (opts) {
+    await LG.loadTeams();
+    const sw = (LG.rules || LG.DEFAULT_RULES).seasonWeeks;
+    const regular = (await LG.loadWeeklyDocs())
+      .filter((w) => (w.week || 0) >= 1 && (w.week || 0) <= sw)
+      .sort((a, b) => (a.week || 0) - (b.week || 0));
+    if (!regular.length) return null;
+    const latest = regular[regular.length - 1].week;
+    const rows = await LG.powerRankings(latest);
+    const prior = regular.some((w) => (w.week || 0) < latest) ? await LG.powerRankings(latest - 1) : null;
+    const prevRank = {};
+    if (prior) for (const r of prior) prevRank[r.teamId] = r.rank;
+    const totals = {};
+    for (const t of LG.teams) totals[t.id] = { QB: 0, RB: 0, WR: 0, TE: 0, BN: 0 };
+    let roomsPending = false;
+    const D = LG.data;
+    const statOpts = { season: LG.SEASON, seasonType: "regular" };
+    const noFetch = !!(opts && opts.noFetch);
+    for (const wd of regular) {
+      let map = null;
+      if (D && (noFetch ? D.peekWeekStats : D.weekStats)) {
+        map = noFetch ? D.peekWeekStats(wd.week, statOpts) : await D.weekStats(wd.week, statOpts);
+        if (!map) roomsPending = true;
+      } else roomsPending = true;
+      if (!map) continue;
+      const rosters = {};
+      for (const t of LG.teams) rosters[t.id] = await powerRosterAt(wd.week, t.id);
+      for (const t of LG.teams) {
+        for (const p of rosters[t.id] || []) {
+          const room = powerRoom(p);
+          if (!room || !totals[t.id]) continue;
+          const pts = map && typeof map.has === "function" && map.has(p.key) ? LG.n(map.get(p.key)) : 0;
+          totals[t.id][room] += pts;
+        }
+      }
+    }
+    const catRank = {}, catPts = {};
+    for (const k of LG.POWER_CATS) {
+      catRank[k] = {};
+      catPts[k] = {};
+      const list = LG.teams.map((t) => ({
+        teamId: t.id,
+        pts: Math.round(LG.n(totals[t.id][k]) * 100) / 100,
+      }));
+      list.sort((a, b) => b.pts - a.pts || a.teamId - b.teamId);
+      list.forEach((r, i) => { catRank[k][r.teamId] = i + 1; catPts[k][r.teamId] = r.pts; });
+    }
+    return {
+      week: latest,
+      roomsPending: !!roomsPending,
+      rows: rows.map((r) => ({
+        teamId: r.teamId,
+        rank: r.rank,
+        score: r.score,
+        w: r.w,
+        pf: r.pf,
+        last3: r.last3,
+        prevRank: Object.prototype.hasOwnProperty.call(prevRank, r.teamId) ? prevRank[r.teamId] : null,
+        cats: {
+          QB: catRank.QB[r.teamId], RB: catRank.RB[r.teamId], WR: catRank.WR[r.teamId],
+          TE: catRank.TE[r.teamId], BN: catRank.BN[r.teamId],
+        },
+        catPts: {
+          QB: catPts.QB[r.teamId], RB: catPts.RB[r.teamId], WR: catPts.WR[r.teamId],
+          TE: catPts.TE[r.teamId], BN: catPts.BN[r.teamId],
+        },
+      })),
+    };
+  };
+
   // Season-to-date accuracy tally (plan §5), rolled up from every finalized week's own
   // `accuracy` field — HONEST LABELING: this is our miss vs OUR OWN pre-game snapshot, never
   // framed as a comparison to ESPN (that data isn't logged yet — see the S5 plan entry).

@@ -2436,3 +2436,9 @@ stay a 2×2 and Movies spans the row. From the AI-tab iframe the inline
 handler sets `window.top.location.href`. Suite: `node tools/_verify-movies.cjs`
 **63/63**. Books suite still **139/139**. Bite (`farmgpt.html` + `index.html`
 + `activity.html` at `1cd08b8`, movies page kept): **53 passed, 7 failed**.
+
+## farmgpt.mjs — gfflpower is no longer the league card (2026-09-22)
+
+Mode `gfflpower` is still in this file. The league page stopped calling it.
+The power-rankings card is the season formula in `lg-core.js`
+(`LG.computePowerTable`), not a Grok board. See `docs/gffl.md`.
