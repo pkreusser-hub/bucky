@@ -8941,3 +8941,40 @@ game…" after 9s). Neither is touched here.
 Every pre-existing AH/TF check still passed under the week-1 clock.
 App files restored, hashes identical.
 ---
+
+## GFFL — previous matchup weeks show each player's score (2026-09-22)
+
+User: previous weeks on the matchup page should show
+individual player scores, not just the top line.
+
+The weekly doc stores the team total only. Browsing a
+past week painted that total in the header and a dash
+on every lineup row, because the live board belongs to
+this week and would lie about a past lineup. Each row
+now reads that week's archived box (`D.weekStats`, the
+same source as the player card), after the week's
+rosters are loaded so the map is keyed on the roster's
+own ids. A player with no line for that week stays a
+dash — not the live score, and not a made-up 0. A
+future week stays dashes and does not fetch a box.
+The header and the total row stay the weekly record.
+
+Week 4's fixture box, on the default rules: P. Passer
+25 pass yd × 0.04 = 1.0, Q. Rival 400 × 0.04 + 3 TD × 4
+= 28.0, T. Tight 4 rec × 1 + 50 yd × 0.1 = 9.0. The
+header on that page is the seeded record, 98.1–112.4.
+
+Scripts cache-bust `?v=20260922`.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** `--only TZ` **10/10**. Related `--only TN`
+**40/40**. Bite vs `origin/main` `ee685d3` (suite kept,
+app files swapped): **6/10**. The four misses are the
+bug — Passer, Rival, and Tight still paint "—", and
+week 4's archive is never fetched. The weekly-record
+header, Receiver's honest dash (he has no week-4
+line), future-week dashes, and 0 page errors still
+pass on that app. App files restored.
+---

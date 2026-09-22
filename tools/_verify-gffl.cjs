@@ -29028,6 +29028,26 @@ async function openDetails(page, id) {
     ok(fut.w6 === 0 && (live.w6 || 0) === 0,
       "a future week does not fetch an archived box (" + fut.w6 + ")");
     ok(errors.length === 0, "0 page errors");
+    if (SHOTS) {
+      await evalOr(page, async () => {
+        const { UI } = window.__GFFL__;
+        UI._muWeek = 4;
+        UI.matchup = null;
+        UI._muWeekGames = null;
+        UI._muRosters = null;
+        UI._muWeekly = null;
+        UI._muPts = null;
+        UI._muPtsWeek = null;
+        await UI.renderMatchup();
+      });
+      await waitFnOr(page, () => {
+        const el = document.querySelector('.pcellgrid[data-pk="222111"] .pts');
+        return !!(el && el.textContent.trim() === "28.0");
+      });
+      fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true });
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_past_week_scores_390.png"), fullPage: true });
+      console.log("  📸 shots/gffl_past_week_scores_390.png");
+    }
     await ctx.close();
   }
 
