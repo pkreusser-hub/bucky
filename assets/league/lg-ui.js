@@ -1861,96 +1861,50 @@
       try { await importFromEspn(); } catch (e) { importFail(importOut(), "Import failed", e); }
     });
   }
-  // The FORMULA power-rankings card (plan §4.9 — the finalize engine's own per-week score, mobile
-  // only since 2026-08-11) was REMOVED on 2026-09-08 in favour of the AI card below: two cards
-  // both titled "Power rankings" disagreeing on the same page is worse than either alone. The
-  // formula itself lives on — LG.powerRanking() still feeds the desktop standings' PWR column.
-  // ---------------- THE AI POWER RANKINGS CARD (2026-09-08) ----------------
-  // Evening of the same day: two tabs — this week and rest of season — each with a 0–100
-  // score. The afternoon's one-board table (rank · team · LW · rooms) is still the row, plus
-  // Score. UI._pwTab is the visit's tab ("week" | "ros"); a tap swaps the table in place
-  // (wirePowerTabs) so a live poll does not throw the reader back to This week. Last week's
-  // rank is the same board on the prior week's doc. SUPERSEDES the formula card on the phone;
-  // that formula still feeds the desktop standings' PWR column. Empty card still paints.
-  function aiPowerHtml(docs) {
-    const list = Array.isArray(docs) ? docs : [];
-    const cur = list[0] || null;
+  // Power rankings card. One table, the season formula (LG.computePowerTable) — the same
+  // arithmetic finalizeWeek writes onto the weekly doc. A Grok board is not a ranking: its
+  // check only required a tidy shape, and the published week-3 board put the 2-0 points
+  // leader last in every column. Empty until a regular-season week is official.
+  function fmtPowerScore(n) {
+    const v = Math.round(LG.n(n) * 100) / 100;
+    return String(v);
+  }
+  function powerHtml(table) {
+    const cur = table && Array.isArray(table.rows) && table.rows.length ? table : null;
     if (!cur) {
       return `<div class="card powercard" id="powerCard"><h2>Power rankings</h2>
-        <p class="mut small">Grok scores every roster each Tuesday — this week and the rest of the season, 0 to 100. Nothing on file yet.</p></div>`;
+        <p class="mut small pwfoot">Ranks from the season once a week is official. Score is 4×wins + 0.05×points for + 2×wins in the last 3 games.</p></div>`;
     }
-    const tab = UI._pwTab === "ros" ? "ros" : "week";
-    const board = (LG.powerBoard && LG.powerBoard(cur, tab)) || [];
-    const prev = list.find((d) => d.week === cur.week - 1) || null;
-    const prevBoard = prev && LG.powerBoard ? LG.powerBoard(prev, tab) : null;
-    const prevRank = (id) => {
-      if (!prevBoard) return null;
-      const r = prevBoard.find((x) => Number(x.teamId) === Number(id));
-      return r ? r.rank : null;
-    };
     const cats = LG.POWER_CATS || ["QB", "RB", "WR", "TE", "BN"];
-    const head = `<tr><th class="num"></th><th>Team</th><th class="num" title="0 to 100">Score</th><th class="num" title="Last week">LW</th>${
-      cats.map((k) => `<th class="num pwcat" data-pos="${k}" title="${k === "BN" ? "Bench" : k}">${k}</th>`).join("")}</tr>`;
-    const rows = [...board].sort((a, b) => a.rank - b.rank).map((r) => {
+    const head = `<tr><th class="num"></th><th>Team</th><th class="num" title="4×wins + 0.05×points for + 2×wins in the last 3">Score</th><th class="num" title="Last week">LW</th>${
+      cats.map((k) => `<th class="num pwcat" data-pos="${k}" title="${k === "BN" ? "Bench points" : k + " points"}">${k}</th>`).join("")}</tr>`;
+    const rows = [...cur.rows].sort((a, b) => a.rank - b.rank).map((r) => {
       const T = LG.teamById(r.teamId);
       if (!T) return "";
-      const pr = prevRank(r.teamId);
+      const pr = r.prevRank == null ? null : r.prevRank;
       const move = pr == null ? "none" : pr > r.rank ? "up" : pr < r.rank ? "down" : "same";
       const lw = pr == null ? '<span class="mut">–</span>'
         : `<span class="pwlwrank">${pr}</span>${move === "up" ? '<span class="delta up">▲</span>'
           : move === "down" ? '<span class="delta down">▼</span>'
           : '<span class="mut">–</span>'}`;
       const c = r.cats || {};
-      const score = Number.isInteger(Number(r.score)) ? Number(r.score) : "";
+      const score = fmtPowerScore(r.score);
+      const roomCell = (k) => (cur.roomsPending || c[k] == null) ? "–" : c[k];
       return `<tr class="pwrow${T.id === LG.myTeamId() ? " mine" : ""}" data-team="${T.id}" data-score="${score}" data-lw="${pr == null ? "" : pr}" data-move="${move}">
         <td class="pwrank num">${r.rank}</td>
         <td class="pwteamcell"><span class="pwteam teamlink" data-locker="${T.id}">${crestHtml(T, "tmini")}${teamNameHtml(T, { cls: "pwname" })}</span></td>
-        <td class="num pwscore">${score === "" ? "–" : score}</td>
+        <td class="num pwscore">${score}</td>
         <td class="num pwlw">${lw}</td>
-        ${cats.map((k) => `<td class="num pwcat" data-pos="${k}">${c[k] != null ? c[k] : "–"}</td>`).join("")}
+        ${cats.map((k) => `<td class="num pwcat" data-pos="${k}">${roomCell(k)}</td>`).join("")}
       </tr>`;
     }).join("");
-    const when = cur.at ? new Date(cur.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
-    const n = board.length;
-    const tabs = `<div class="poschips pwtabs" id="pwTabs">
-      <button type="button" class="poschip${tab === "week" ? " on" : ""}" data-pw="week" aria-pressed="${tab === "week" ? "true" : "false"}">This week</button>
-      <button type="button" class="poschip${tab === "ros" ? " on" : ""}" data-pw="ros" aria-pressed="${tab === "ros" ? "true" : "false"}">Rest of season</button>
-    </div>`;
-    return `<div class="card powercard" id="powerCard" data-board="${tab}"><h2>Power rankings <span class="mut">— week ${cur.week}</span></h2>
-      ${tabs}
+    const roomNote = cur.roomsPending ? " Room columns fill in once the week's stats are in." : "";
+    return `<div class="card powercard" id="powerCard" data-board="season" data-rooms="${cur.roomsPending ? "pending" : "ready"}"><h2>Power rankings <span class="mut">— week ${cur.week}</span></h2>
       <div class="panner"><table class="tbl pwtbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>
-      <p class="mut small pwfoot">Scored by Grok from every roster and the standings${when ? ", " + esc(when) : ""}. 0–100, then 1–${n} in each room. Re-ranks each Tuesday.</p></div>`;
+      <p class="mut small pwfoot">Score is 4×wins + 0.05×points for + 2×wins in the last 3 games. Rooms are ranked by points those players have scored. A flex starter counts at his own position.${roomNote}</p></div>`;
   }
   function wirePowerTabs() {
-    const card = document.getElementById("powerCard");
-    if (!card || card.dataset.pwWired) return;
-    card.dataset.pwWired = "1";
-    card.querySelectorAll("[data-pw]").forEach((b) => {
-      b.addEventListener("click", () => {
-        const next = b.dataset.pw === "ros" ? "ros" : "week";
-        if ((UI._pwTab || "week") === next) return;
-        UI._pwTab = next;
-        const tmp = document.createElement("div");
-        tmp.innerHTML = aiPowerHtml(UI._aiPower);
-        const fresh = tmp.firstElementChild;
-        if (!fresh) return;
-        card.replaceWith(fresh);
-        wirePowerTabs();
-        wireLockerTaps(fresh);
-      });
-    });
-  }
-  // Fires the week's generation (LG.ensureAiPower — adopt-first, create-only, cloud-only) after
-  // the league home has painted, and repaints the card in place if a NEW ranking came back.
-  // Detached: the page never waits on the model. Same shape as ensureAdjustedProj's boot hook.
-  function refreshAiPower() {
-    LG.ensureAiPower().then(async (doc) => {
-      if (!doc || UI.view !== "league") return;
-      const shown = (UI._aiPower || [])[0];
-      if (shown && shown.week === doc.week && shown.at === doc.at) return;
-      UI._aiPower = await LG.loadAiPowerDocs();
-      if (UI.view === "league") renderLeague(true);
-    }).catch(() => {});
+    // The two Grok tabs are gone. Kept so a repaint that still calls this does not throw.
   }
   // ---------------- standings (2026-08-11 desktop pass) ----------------
   // ONE builder, two shapes. MOBILE is byte-for-byte what it always was — # / Team / W / L /
@@ -2581,10 +2535,12 @@
       // always-eager fetch gave (a real navigation back to League always shows what's
       // CURRENTLY true, once opened), it just no longer costs anything until you look.
       UI._recordBook = undefined; UI._tx = undefined; UI._recentChat = undefined;
-      // The AI power rankings list rides the FIRST batch (2026-09-08): one cached list() like
-      // "weekly" and "bracket", so the card paints with the rest of the page rather than popping
-      // in after it; generation (refreshAiPower) is post-paint and detached.
-      [UI._allWeekly, , UI._aiPower] = await Promise.all([LG.db.list("weekly"), LG.db.list("bracket"), LG.loadAiPowerDocs()]);
+      // Weekly list first (the formula reads it). The bracket list stays in the same batch so
+      // its cache is warm for the playoff card — the result itself is unused here.
+      [UI._allWeekly] = await Promise.all([LG.db.list("weekly"), LG.db.list("bracket")]);
+      // noFetch: formula ranks from the weekly docs already listed. Room points come
+      // from the stat archive if it is already in memory, otherwise after paint.
+      UI._powerTable = await LG.computePowerTable({ noFetch: true });
       const [, standings, weeklyDoc, accuracy, bracket, wkGames, staleWeeks, injFeed] = await Promise.all([
         loadWeekRosters(),
         LG.loadStandings(),
@@ -2694,7 +2650,7 @@
         week: () => weekCard,
         playoffs: () => playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish()),
         standings: () => standingsHtml(rows, st, { wide: true, streaks: UI._streaks, odds: UI._odds, power: LG.powerRanking(UI._allWeekly), provisional: provisionalTeams }),
-        power: () => aiPowerHtml(UI._aiPower),
+        power: () => powerHtml(UI._powerTable),
         alltime: () => allTimeHtml(UI._recordBook),
         chat: () => deskChatPanelHtml(),
         injury: () => injuryFeedCardHtml(UI._injFeed),
@@ -2775,10 +2731,10 @@
         ${weekCard}
         ${recentMovesHtml(UI._tx)}
         ${standingsHtml(rows, st, { provisional: provisionalTeams })}
-        ${aiPowerHtml(UI._aiPower)}
+        ${powerHtml(UI._powerTable)}
         ${injuryFeedCardHtml(UI._injFeed)}
         ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
-        ${"" /* powerRankingsHtml(UI._allWeekly) — the formula card is SUPERSEDED by the AI card under Standings (2026-09-08) */}
+        ${"" /* the formula IS the power card now (2026-09-22) — do not add a second one */}
         ${accuracyHtml(UI._accuracy)}
         ${recentChatHtml(UI._recentChat)}
         ${recordBookHtml(UI._recordBook)}
@@ -2862,7 +2818,25 @@
     wireLazyLeagueDetails();
     paintHealth();
     startDraftCountdown();
-    if (!repaint) refreshAiPower(); // this week's Grok ranking, if it is not on file yet — post-paint, detached
+    // Room points need the archived stat lines. That download stays OFF this render's
+    // promise: awaiting it here, then continuing the rest of the paint, is the shape
+    // that made Chrome collect the caller's evaluate promise once a week was official.
+    // The next turn fills the columns in place. One shot — a ready table does not ask again.
+    if (!repaint && UI._powerTable && UI._powerTable.roomsPending && LG.data && LG.data.initSleeper) {
+      const pendingWeek = UI._powerTable.week;
+      setTimeout(() => {
+        if (!document.getElementById("powerCard")) return;
+        LG.data.initSleeper().then(() => LG.computePowerTable()).then((again) => {
+          if (!again || again.roomsPending || again.week !== pendingWeek) return;
+          const cur = document.getElementById("powerCard");
+          if (!cur) return;
+          UI._powerTable = again;
+          cur.outerHTML = powerHtml(again);
+          const next = document.getElementById("powerCard");
+          if (next) wireLockerTaps(next);
+        }).catch(() => {});
+      }, 0);
+    }
   }
   // Boot-speed pass (2026-08-08): record book / recent moves / league chat each load their
   // real data only the moment their <details> is actually opened for the first time — see

@@ -880,6 +880,18 @@
     try { result = await p; } finally { D._weekStatsInFlight.delete(cacheKey); }
     return result;
   };
+  // The map already derived for this season/week, or null. Never fetches and never
+  // boots Sleeper — the league home asks this so the first paint is not gated on a
+  // whole-league stats download (that download, awaited inside the render, is also
+  // what made a test's evaluate promise get collected).
+  D.peekWeekStats = function (week, opts) {
+    const st = D.S.slpState || {};
+    const seasonType = (opts && opts.seasonType) || st.season_type || "regular";
+    const season = (opts && opts.season) || (LG.SIM_2025 ? String(LG.SEASON) : st.season) || String(LG.SEASON);
+    const entry = D._weekStatsCache.get(season + "|" + seasonType + "|" + week);
+    if (!entry || !D.S.slpPlayers) return null;
+    return weekStatsMap(entry);
+  };
   function weekStatsMap(entry) {
     if (entry.map && entry.gen === D._pidGen) return entry.map;
     const out = new Map();

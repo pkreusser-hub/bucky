@@ -8978,3 +8978,51 @@ header, Receiver's honest dash (he has no week-4
 line), future-week dashes, and 0 page errors still
 pass on that app. App files restored.
 ---
+
+## GFFL — power rankings follow the season (2026-09-22)
+
+The card under Standings was a Grok board. The check on that
+board only asked for a tidy shape: every team once, a score
+from 0 to 100, and a 1-to-N rank in each room. Week 3 of the
+real season stored the 2-0 points leader last in every column,
+including running back and wide receiver, and the page showed it.
+
+The card now uses the formula finalize already writes onto the
+weekly doc: 4×wins + 0.05×points for + 2×wins in the last 3
+games. QB, RB, WR, TE, and bench are ranked by the points those
+players scored in finalized regular-season weeks. A flex starter
+counts at his own position. Kickers and defenses have no column.
+A stored `aipower_*` doc is not read. Opening the league does
+not call Grok for a ranking.
+
+The two tabs (this week / rest of season) are gone. They were
+two opinions, and they did not have two calculations.
+
+The first paint ranks from the weekly docs already on the page.
+Room columns stay blank until the archived stat lines are in,
+then the card fills those cells in place. Awaiting that download
+inside the render is what made Chrome drop the caller's promise
+(`Promise was collected`) once a week was official.
+
+Scripts cache-bust `?v=20260922b`.
+
+Files: `league.html`, `assets/league/lg-core.js`,
+`assets/league/lg-data.js`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, `docs/farmgpt.md`, this file.
+
+**RESTAGED, reasons at the checks:** TB4's empty card names the
+formula; a stored Grok board does not paint. TB5's cloud open
+does not call Grok. TB6's desktop card is the same formula, with
+no tabs. M4 still wants exactly one `#powerCard`.
+
+**VERIFY:** `node tools/_verify-gffl.cjs --only V,UA,TB` **146/146**
+(V 69, TB 63, UA 14). Bite (`league.html` + `lg-core.js` +
+`lg-data.js` + `lg-ui.js` at HEAD, new suite kept, `--only UA`):
+**3 pass / 11 fail** — the old card still paints the inverted
+Grok board (team 8 at 100, Battle Kreussers 8th in every room).
+The three that passed do not read the formula. Full battery dies
+in AD4 on this Chrome and on HEAD's app files the same way:
+phone Scores hides `#scSlate`, and the lazy crests inside it
+never become `complete`. Not pushed to `main` while that wait
+is red.
+---

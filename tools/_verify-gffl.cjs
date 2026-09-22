@@ -5479,8 +5479,10 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
     await page.waitForSelector(".standcard", { timeout: 5000 });
     const powerCards = await page.evaluate(() => [...document.querySelectorAll("h2")].filter((h) => /Power rankings/.test(h.textContent)).map((h) => !!h.closest("#powerCard")));
+    // RESTAGED 2026-09-22: still exactly one card, and it is #powerCard. That card now
+    // IS the formula (section UA). Two cards titled "Power rankings" is still wrong.
     ok(powerCards.length === 1 && powerCards[0] === true,
-      "exactly ONE Power rankings card on the phone, and it is the AI card — the formula card is gone (" + JSON.stringify(powerCards) + ")");
+      "exactly ONE Power rankings card on the phone, and it is #powerCard (" + JSON.stringify(powerCards) + ")");
     const pw = await page.evaluate(() => window.__GFFL__.LG.powerRanking(window.__GFFL__.UI._allWeekly));
     const rows = (pw && pw.rows || []).map((r) => ({ id: r.teamId, rank: r.rank, prev: r.prevRank }));
     ok(rows.length === 3, "LG.powerRanking lists the 3 teams that have a snapshot for week 2 (" + rows.length + ")");
@@ -24047,11 +24049,16 @@ async function openDetails(page, id) {
       const card = document.getElementById("powerCard");
       const prev = card && card.previousElementSibling;
       return { present: !!card, text: card ? card.textContent.replace(/\s+/g, " ") : "", underStandings: !!(prev && prev.classList.contains("standcard")),
-        backend: window.__GFFL__.LG.backendMode, rows: card ? card.querySelectorAll(".pwrow").length : -1 };
+        backend: window.__GFFL__.LG.backendMode, rows: card ? card.querySelectorAll(".pwrow").length : -1,
+        tabs: card ? card.querySelectorAll("#pwTabs [data-pw]").length : -1 };
     }) || {};
     ok(empty.present === true && empty.underStandings === true, "the Power rankings card sits DIRECTLY beneath Standings on the phone");
-    ok(/Nothing on file yet/.test(empty.text || "") && /this week/.test(empty.text || "") && /rest of the season/.test(empty.text || "") && empty.rows === 0,
-      "…and with no ranking on file it names both boards and says nothing is on file (" + (empty.text || "").slice(0, 80) + ")");
+    // RESTAGED 2026-09-22: the card is the season formula, not a Grok board. With no
+    // official week it names that formula and paints no rows. It does not mention Grok,
+    // a 0–100 scale, or the two tabs — those were the board that ranked a 2-0 team last.
+    ok(/4×wins/.test(empty.text || "") && /0\.05×points for/.test(empty.text || "") && /last 3/.test(empty.text || "")
+      && !/Scored by Grok/.test(empty.text || "") && !/Nothing on file yet/.test(empty.text || "") && empty.rows === 0 && empty.tabs === 0,
+      "…and with no official week it names the formula and paints no rows (" + (empty.text || "").slice(0, 90) + ")");
     ok(empty.backend === "local" && powerCalls() === n0, "the local fallback store never triggers a paid generation — no Grok call on this page (" + (powerCalls() - n0) + ")");
     // RESTAGED 2026-09-08 evening: a blurb-only doc AND this afternoon's one-board cats
     // table are not a ranking any more — the card stays empty and loadAiPowerDocs skips them.
@@ -24071,8 +24078,11 @@ async function openDetails(page, id) {
         cats: { QB: i + 1, RB: 8 - i, WR: ((i + 1) % 8) + 1, TE: ((i + 3) % 8) + 1, BN: i + 1 } })));
       return { blurb, oneBoard };
     }) || {};
-    ok(stale.blurb && stale.blurb.n === 0 && stale.blurb.current === false && /Nothing on file yet/.test(stale.blurb.text || "") && stale.blurb.rows === 0,
-      "a leftover blurb-only doc is not current — the card stays empty, no old prose (" + JSON.stringify(stale.blurb) + ")");
+    // RESTAGED 2026-09-22: the card no longer reads aipower docs at all, so a leftover
+    // blurb stays off the screen because nothing paints it — not because the loader
+    // rejected it. The loader check (current === false, n === 0) is unchanged.
+    ok(stale.blurb && stale.blurb.n === 0 && stale.blurb.current === false && /4×wins/.test(stale.blurb.text || "") && stale.blurb.rows === 0,
+      "a leftover blurb-only doc is not current — the card stays on the formula, no old prose (" + JSON.stringify(stale.blurb) + ")");
     ok(stale.oneBoard && stale.oneBoard.n === 0 && stale.oneBoard.current === false && stale.oneBoard.rows === 0,
       "this afternoon's one-board cats table is not current either — no scores, no ROS board (" + JSON.stringify({ n: stale.oneBoard && stale.oneBoard.n, current: stale.oneBoard && stale.oneBoard.current }) + ")");
     // Forced generation (the test/commissioner path) — the fake ranks in REVERSE standings order.
@@ -24103,89 +24113,24 @@ async function openDetails(page, id) {
     const turn = ((req.messages || []).find((m) => m.role === "user") || {}).content || "";
     ok(/^WEEK 1 — 8 TEAMS:/.test(turn) && /"name":"Battle Kreussers"/.test(turn) && /"name":"P\. Passer"/.test(turn) && /"slot":"BN"/.test(turn) && /"inj":"OUT"/.test(turn) && /"pos":"DST"/.test(turn),
       "the wire carried every roster — names, BN for bench, I. Injured's OUT, the D/ST (" + turn.slice(0, 40) + "…)");
-    // The card, painted from the doc.
+    // RESTAGED 2026-09-22: the doc above is still the model's reply, and that reply
+    // still ranks last place first. The card does not paint it. No official week is
+    // on file here, so the card stays on the formula's empty state. Section UA is
+    // the arithmetic — order, score, rooms, movement — once weeks exist.
     await evalOr(page, () => window.__GFFL__.UI.show("league"));
     await waitOr(page, ".mucard");
-    ok(await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8), "the league home paints eight ranked rows");
     const card = await evalOr(page, () => {
       const c = document.getElementById("powerCard");
       if (!c) return {};
-      const rows = [...c.querySelectorAll(".pwrow")].map((r) => {
-        const nameEl = r.querySelector(".pwname") || r.querySelector(".tname");
-        const lockerEl = r.querySelector("[data-locker]");
-        const cat = (k) => { const el = r.querySelector('.pwcat[data-pos="' + k + '"]'); return el ? el.textContent.trim() : ""; };
-        return { team: Number(r.dataset.team), rank: ((r.querySelector(".pwrank") || {}).textContent || "").trim(),
-          name: nameEl ? nameEl.textContent.trim() : "", score: ((r.querySelector(".pwscore") || {}).textContent || "").trim(),
-          lw: ((r.querySelector(".pwlw") || {}).textContent || "").trim(),
-          move: r.dataset.move || "", locker: lockerEl && lockerEl.dataset ? lockerEl.dataset.locker : "",
-          QB: cat("QB"), RB: cat("RB"), WR: cat("WR"), TE: cat("TE"), BN: cat("BN") };
-      });
-      const panner = c.querySelector(".panner");
-      const tabs = [...c.querySelectorAll("#pwTabs [data-pw]")].map((b) => b.dataset.pw + (b.classList.contains("on") ? ":on" : ""));
-      return { h2: ((c.querySelector("h2") || {}).textContent || "").replace(/\s+/g, " ").trim(), rows,
-        heads: [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()),
-        blurbs: c.querySelectorAll(".pwblurb").length, foot: ((c.querySelector(".pwfoot") || {}).textContent || ""),
-        mine: c.querySelectorAll(".pwrow.mine").length, sideways: document.documentElement.scrollWidth - window.innerWidth,
-        pict: (c.textContent.match(/\p{Extended_Pictographic}/gu) || []).length,
-        pans: !!(panner && panner.scrollWidth > panner.clientWidth + 1),
-        pageWider: document.documentElement.scrollWidth > window.innerWidth + 1,
-        board: c.dataset.board || "", tabs };
+      return {
+        rows: c.querySelectorAll(".pwrow").length,
+        tabs: c.querySelectorAll("#pwTabs [data-pw]").length,
+        foot: ((c.querySelector(".pwfoot") || {}).textContent || ""),
+        text: c.textContent.replace(/\s+/g, " "),
+      };
     }) || {};
-    ok(/^Power rankings — week 1$/.test(card.h2), "the heading names the week (" + card.h2 + ")");
-    ok(card.board === "week" && Array.isArray(card.tabs) && card.tabs.join("|") === "week:on|ros",
-      "the card opens on This week, with a Rest of season tab beside it (" + (card.tabs || []).join("|") + ")");
-    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows[0].team === 8 && card.rows[0].rank === "1" && card.rows[0].score === "100" && card.rows[0].name === "The Goat Kids" && card.rows[7].team === 1 && card.rows[7].rank === "8" && card.rows[7].score === "23",
-      "This week rows in the model's order: The Goat Kids #1 at 100 down to Battle Kreussers #8 at 23");
-    ok(Array.isArray(card.heads) && card.heads.join("|") === "|Team|Score|LW|QB|RB|WR|TE|BN" && card.blurbs === 0,
-      "the columns are Team, Score, last week, and the five rooms — no blurb column (" + (card.heads || []).join("|") + ")");
-    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows[0].QB === "8" && card.rows[0].RB === "1" && card.rows[0].WR === "1" && card.rows[0].TE === "3" && card.rows[0].BN === "1"
-      && card.rows.every((r) => r.lw === "–" && r.move === "none" && String(r.locker) === String(r.team)),
-      "week 1: last-week is a dash, rooms show the model's numbers, each name opens that locker");
-    ok(card.mine === 1 && /Scored by Grok/.test(card.foot) && /0–100/.test(card.foot) && /each Tuesday/.test(card.foot),
-      "own team ringed; the footer says who scored it, the 0–100 scale, and when it re-ranks");
-    ok(card.sideways <= 1 && card.pageWider !== true && card.pict === 0,
-      "the extra columns pan INSIDE the card — the page itself does not scroll sideways, and the chrome carries no pictographs");
-    const rosTab = await evalOr(page, () => {
-      const b = document.querySelector('#pwTabs [data-pw="ros"]');
-      if (b) b.click();
-      const c = document.getElementById("powerCard");
-      if (!c) return {};
-      return { board: c.dataset.board || "", tabs: [...c.querySelectorAll("#pwTabs [data-pw]")].map((x) => x.dataset.pw + (x.classList.contains("on") ? ":on" : "")),
-        rows: [...c.querySelectorAll(".pwrow")].map((r) => ({ team: Number(r.dataset.team), rank: ((r.querySelector(".pwrank") || {}).textContent || "").trim(),
-          score: ((r.querySelector(".pwscore") || {}).textContent || "").trim() })) };
-    }) || {};
-    ok(rosTab.board === "ros" && (rosTab.tabs || []).join("|") === "week|ros:on"
-      && Array.isArray(rosTab.rows) && rosTab.rows.length === 8 && rosTab.rows[0].team === 1 && rosTab.rows[0].rank === "1" && rosTab.rows[0].score === "96"
-      && rosTab.rows[7].team === 8 && rosTab.rows[7].score === "40",
-      "Rest of season is its own order and scores — Battle Kreussers #1 at 96, The Goat Kids last at 40 (" + JSON.stringify({ board: rosTab.board, first: rosTab.rows && rosTab.rows[0] }) + ")");
-    await evalOr(page, () => { const b = document.querySelector('#pwTabs [data-pw="week"]'); if (b) b.click(); });
-    // Movement: a week-2 ranking on file beside week 1's → arrows computed against week 1.
-    const mvw = await evalOr(page, async () => {
-      const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
-      if (!LG.aiPowerId) return {};
-      const w1 = await LG.db.get(LG.aiPowerId(2026, 1));
-      const wBoard = w1 && w1.ranking && w1.ranking.week;
-      const rBoard = w1 && w1.ranking && w1.ranking.ros;
-      if (!Array.isArray(wBoard) || wBoard.length !== 8 || !Array.isArray(rBoard)) return {};
-      const r2 = wBoard.map((r) => ({ ...r, cats: { ...r.cats } }));
-      // team 1 (#8) climbs to #2, everyone from #2..#7 slides down one; team 8 stays #1.
-      // Re-stamp scores so rank order stays non-increasing (the leftover row scores would invert).
-      const moved = [r2[0], r2[7], ...r2.slice(1, 7)].map((r, i) => ({ ...r, rank: i + 1, score: 100 - i * 5 }));
-      await LG.db.set(LG.aiPowerId(2026, 2), { ...w1, week: 2, at: w1.at + 1000, ranking: { week: moved, ros: rBoard.map((r) => ({ ...r, cats: { ...r.cats } })) } });
-      UI._aiPower = await LG.loadAiPowerDocs();
-      UI.renderLeague(true);
-      await new Promise((r) => setTimeout(r, 200));
-      const c = document.getElementById("powerCard");
-      if (!c) return {};
-      return { h2: ((c.querySelector("h2") || {}).textContent || "").replace(/\s+/g, " ").trim(),
-        rows: [...c.querySelectorAll(".pwrow")].map((r) => r.dataset.team + ":" + (r.dataset.lw || "") + ":" + (r.dataset.move || "")),
-        lwText: [...c.querySelectorAll(".pwrow .pwlw")].map((el) => el.textContent.replace(/\s+/g, "")) };
-    }) || {};
-    ok(/week 2$/.test(mvw.h2), "with two weeks on file the card shows the NEWEST (" + mvw.h2 + ")");
-    ok(mvw.rows && mvw.rows[0] === "8:1:same" && mvw.rows[1] === "1:8:up" && mvw.rows[2] === "7:2:down" && mvw.rows[7] === "2:7:down",
-      "LW column is last week's overall rank plus ▲/▼: team 1 was #8 now #2, team 8 stays #1, the slid teams down (" + (mvw.rows || []).join(" ") + ")");
-    ok(Array.isArray(mvw.lwText) && mvw.lwText[0] === "1–" && mvw.lwText[1] === "8▲" && /▼/.test(mvw.lwText[2] || ""),
-      "…and the painted LW cell is the number plus the arrow (" + (mvw.lwText || []).slice(0, 3).join(" ") + ")");
+    ok(card.rows === 0 && card.tabs === 0 && /4×wins/.test(card.foot || "") && !/Scored by Grok/.test(card.text || "") && !/The Goat Kids/.test(card.text || ""),
+      "a stored Grok board does not paint — no official week, so the card stays the formula and never puts The Goat Kids first (" + JSON.stringify(card) + ")");
     // Validation: every poison makes the WHOLE reply fail, and the existing doc is kept.
     const before = (await evalOr(page, () => window.__GFFL__.LG.db.get(window.__GFFL__.LG.aiPowerId(2026, 1)))) || {};
     for (const poison of ["unknown", "dup", "rankclash"]) {
@@ -24241,21 +24186,32 @@ async function openDetails(page, id) {
     await bootPage(page);
     await waitOr(page, ".mucard");
     await waitLive(page);
-    ok(await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8), "cloud: the league home generates week 1's ranking in the background and paints it");
+    // RESTAGED 2026-09-22: opening the league no longer asks Grok. The card is empty
+    // until a week is official (this seed has none), and no aipower doc is written.
     const cloud = await evalOr(page, () => {
-      const d = window.__fakeCloud.store.get("aipower_2026_w1") || {};
-      return { backend: window.__GFFL__.LG.backendMode, stored: !!(d.ranking && d.ranking.week && d.ranking.week.length) };
+      const c = document.getElementById("powerCard");
+      const d = window.__fakeCloud.store.get("aipower_2026_w1") || null;
+      return { backend: window.__GFFL__.LG.backendMode, stored: !!d,
+        rows: c ? c.querySelectorAll(".pwrow").length : -1,
+        foot: c ? ((c.querySelector(".pwfoot") || {}).textContent || "") : "" };
     }) || {};
-    ok(cloud.backend === "cloud" && cloud.stored === true && powerCalls() === n0 + 1, "…one Grok call, and the doc is in the cloud store (" + JSON.stringify(cloud) + ", calls " + (powerCalls() - n0) + ")");
+    ok(cloud.backend === "cloud" && cloud.stored === false && cloud.rows === 0 && /4×wins/.test(cloud.foot || "") && powerCalls() === n0,
+      "cloud: opening the league does not call Grok and does not invent a ranking (" + JSON.stringify(cloud) + ", calls " + (powerCalls() - n0) + ")");
     // RESTAGED/NEW 2026-09-08: a tab that listed aipower while the doc was still missing
     // cached [] and marked the week's id knownAbsent. get() then returned null forever
     // (15s list TTL), so the card stayed empty with the ranking sitting in the store.
     // loadAiPower get()-s first (warm paint stays a cache hit), then getFresh-es the
     // week's own id when that miss or the cached doc is not current.
+    // RESTAGED 2026-09-22: opening the league no longer writes the doc, so this
+    // check plants one itself. The loader bug is unchanged — a list that ran
+    // while the id was missing must not hide the doc that lands a moment later.
     const hidden = await evalOr(page, async () => {
       const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
       const id = LG.aiPowerId(2026, 1);
-      const doc = window.__fakeCloud.store.get(id);
+      const catsOf = (i) => ({ QB: i + 1, RB: 8 - i, WR: ((i + 1) % 8) + 1, TE: ((i + 3) % 8) + 1, BN: i + 1 });
+      const week = Array.from({ length: 8 }, (_, i) => ({ teamId: i + 1, rank: i + 1, score: 100 - i * 5, cats: catsOf(i) }));
+      const ros = Array.from({ length: 8 }, (_, i) => ({ teamId: 8 - i, rank: i + 1, score: 99 - i * 5, cats: catsOf((i + 3) % 8) }));
+      const doc = { kind: "aipower", season: 2026, week: 1, at: 50, model: "grok-4.6", ranking: { week, ros } };
       window.__fakeCloud.store.delete(id);
       LG.db.clearCache();
       await LG.db.list("aipower");
@@ -24268,8 +24224,10 @@ async function openDetails(page, id) {
       const card = document.getElementById("powerCard");
       return { getNull: viaGet == null, loadN: viaLoad && viaLoad.ranking && viaLoad.ranking.week && viaLoad.ranking.week.length, painted: card ? card.querySelectorAll(".pwrow").length : -1 };
     }) || {};
-    ok(hidden.getNull === true && hidden.loadN === 8 && hidden.painted === 8,
-      "a cached empty aipower list cannot hide the week's doc — getFresh still paints the eight rows (" + JSON.stringify(hidden) + ")");
+    // RESTAGED 2026-09-22: getFresh still finds the eight-row doc (the loader bug this
+    // check was born for). The card does not paint it — a Grok doc is not the ranking.
+    ok(hidden.getNull === true && hidden.loadN === 8 && hidden.painted === 0,
+      "a cached empty aipower list cannot hide the week's doc from the loader — and the card still does not paint that doc (" + JSON.stringify(hidden) + ")");
     // Week 2 with week 1 NOT final: no generation (the standings would lag). Finalized: it runs.
     // TWO evaluates so the call-count assertion can sit BETWEEN them — a single eval that
     // ran both would already have spent the week-2 call by the time we asked "did early skip".
@@ -24280,7 +24238,7 @@ async function openDetails(page, id) {
       const got = await LG.ensureAiPower();
       return { early: got, week: LG.currentWeek() };
     }) || {};
-    ok(early.early === null && powerCalls() === n0 + 1, "week 2 before week 1 is finalized: NO generation — the model would rank on lagging standings (" + early.early + ")");
+    ok(early.early === null && powerCalls() === n0, "week 2 before week 1 is finalized: NO generation — the model would rank on lagging standings (" + early.early + ", calls " + (powerCalls() - n0) + ")");
     const ready = await evalOr(page, async () => {
       const LG = window.__GFFL__.LG;
       window.__fakeCloud.store.set("weekly_2026_w1", { kind: "weekly", week: 1, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 90 }], power: [] });
@@ -24289,7 +24247,7 @@ async function openDetails(page, id) {
       LG.currentWeek = window.__realWeek;
       return { readyWeek: got && got.week, stored: !!(window.__fakeCloud.store.get("aipower_2026_w2") || {}).ranking };
     }) || {};
-    ok(ready.readyWeek === 2 && ready.stored === true && powerCalls() === n0 + 2, "…the moment week 1's weekly doc exists, week 2's ranking generates (" + JSON.stringify(ready) + ")");
+    ok(ready.readyWeek === 2 && ready.stored === true && powerCalls() === n0 + 1, "…the moment week 1's weekly doc exists, week 2's ranking generates (" + JSON.stringify(ready) + ", calls " + (powerCalls() - n0) + ")");
     const w2turn = ((((lastPowerReq() || {}).messages) || []).find((m) => m.role === "user") || {}).content || "";
     ok(/^WEEK 2 — 8 TEAMS:/.test(w2turn) && /"w":1,"l":0/.test(w2turn) && /"place":1/.test(w2turn),
       "…and that request carries the finalized week's standings — Battle Kreussers 1-0 in first (" + w2turn.slice(0, 30) + "…)");
@@ -24332,26 +24290,26 @@ async function openDetails(page, id) {
     }) || {};
     ok(dk.ids && dk.ids.indexOf("power") === dk.ids.indexOf("standings") + 1, "desktop: 'power' follows 'standings' in MAIN (" + (dk.ids || []).join(",") + ")");
     ok(dk.hasCard === true && dk.label === true, "…rendered through the registry, present in the default layout");
+    // RESTAGED 2026-09-22: forcing a Grok write does not fill the desktop card. The
+    // columns and the formula order are section UA. Here, MAIN still must not grow a
+    // second ranking or a pair of tabs.
     await evalOr(page, () => window.__GFFL__.LG.ensureAiPower({ force: true }));
-    await evalOr(page, () => window.__GFFL__.UI.show("league"));
-    await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8);
+    await evalOr(page, () => window.__GFFL__.UI.renderLeague());
     const dkw = await evalOr(page, () => {
       const c = document.getElementById("powerCard");
       const panner = c && c.querySelector(".panner");
       return {
-        heads: c ? [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()) : [],
+        rows: c ? c.querySelectorAll(".pwrow").length : -1,
         blurbs: c ? c.querySelectorAll(".pwblurb").length : -1,
-        tabs: c ? [...c.querySelectorAll("#pwTabs [data-pw]")].map((b) => b.dataset.pw + (b.classList.contains("on") ? ":on" : "")) : [],
-        board: c ? (c.dataset.board || "") : "",
+        tabs: c ? c.querySelectorAll("#pwTabs [data-pw]").length : -1,
+        foot: c ? ((c.querySelector(".pwfoot") || {}).textContent || "") : "",
         sideways: document.documentElement.scrollWidth - window.innerWidth,
         pans: !!(panner && panner.scrollWidth > panner.clientWidth + 1),
       };
     }) || {};
-    ok(Array.isArray(dkw.heads) && dkw.heads.join("|") === "|Team|Score|LW|QB|RB|WR|TE|BN" && dkw.blurbs === 0,
-      "…desktop paints the same columns (Score included), still no blurb (" + (dkw.heads || []).join("|") + ")");
-    ok(dkw.board === "week" && Array.isArray(dkw.tabs) && dkw.tabs.join("|") === "week:on|ros",
-      "…and the same two tabs, opening on This week (" + (dkw.tabs || []).join("|") + ")");
-    ok(dkw.sideways <= 1 && dkw.pans !== true, "…and MAIN does not pan or scroll sideways for them");
+    ok(dkw.rows === 0 && dkw.blurbs === 0 && dkw.tabs === 0 && /4×wins/.test(dkw.foot || "") && !/Scored by Grok/.test(dkw.foot || ""),
+      "…a forced Grok doc does not paint — the desktop card stays the formula (" + JSON.stringify({ rows: dkw.rows, tabs: dkw.tabs, foot: (dkw.foot || "").slice(0, 40) }) + ")");
+    ok(dkw.sideways <= 1 && dkw.pans !== true, "…and MAIN does not pan or scroll sideways");
     ok(errors.length === 0, "0 page errors on the desktop");
     await ctx.close();
   }
@@ -29049,6 +29007,150 @@ async function openDetails(page, id) {
       console.log("  📸 shots/gffl_past_week_scores_390.png");
     }
     await ctx.close();
+  }
+
+  // ============ SECTION UA: the power card follows the season, not a Grok board ============
+  // The published card ranked whoever the model felt like ranking. Its validator checked
+  // shape only, so a 2-0 points leader could be 8th in every column and still be "current".
+  // The card is now LG.powerRankings (4×wins + 0.05×PF + 2×wins in the last 3) and the
+  // room columns are points those players scored. A stored Grok board is ignored.
+  if (section("UA · power rankings follow the season formula, rooms by points scored")) {
+  const powerN = () => xaiReqs.filter((r) => /power-rankings columnist/.test(JSON.stringify(r || ""))).length;
+  const n0 = powerN();
+  {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    const bare = await evalOr(page, () => {
+      const c = document.getElementById("powerCard");
+      const prev = c && c.previousElementSibling;
+      return { rows: c ? c.querySelectorAll(".pwrow").length : -1,
+        under: !!(prev && prev.classList.contains("standcard")),
+        text: c ? c.textContent.replace(/\s+/g, " ") : "" };
+    }) || {};
+    ok(bare.under === true && bare.rows === 0 && /4×wins/.test(bare.text || "") && /last 3/.test(bare.text || "") && !/Scored by Grok/.test(bare.text || ""),
+      "before any week is official the card sits under Standings, names the formula, and paints no ranking (" + (bare.text || "").slice(0, 70) + ")");
+
+    // Two finalized weeks, hand-scored, plus a Grok doc that inverts them (team 8 first
+    // at 100). The card must ignore that doc.
+    //   Week 1: 1>2 100-80, 3>4 90-70, 5>6 60-50, 7>8 40-30.
+    //     scores: t1 11, t3 10.5, t5 9, t7 8, t2 4, t4 3.5, t6 2.5, t8 1.5.
+    //   Week 2: 1>3 100-50, 2>4 90-40, 6>5 80-20, 8>7 70-10.
+    //     through week 2 (last 3 = both games): t1 2-0 PF 200 = 22, t2 1-1 PF 170 = 14.5,
+    //     t3 1-1 PF 140 = 13, t6 1-1 PF 130 = 12.5, t8 1-1 PF 100 = 11, t5 1-1 PF 80 = 10,
+    //     t7 1-1 PF 50 = 8.5, t4 0-2 PF 110 = 5.5.
+    //   Rooms, default week-1/2 box, both weeks, same lineup (week 2 falls back to week 1):
+    //     P. Passer 150×0.04 + 4 − 2 + 2 = 10, ×2 = 20 QB on team 1.
+    //     R. Rusher 40×0.1 = 4, ×2 = 8 RB on team 1. F. Flexman (FLEX, RB) has no line, +0.
+    //     W. Receiver 4×1 + 50×0.1 + 2 = 11, ×2 = 22 WR, and he is on team 2, not team 1.
+    //     Q. Rival has no week-1/2 line. K and D/ST are not rooms.
+    await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG;
+      const catsOf = (i) => ({ QB: i + 1, RB: i + 1, WR: i + 1, TE: i + 1, BN: i + 1 });
+      const order = [8, 7, 6, 5, 4, 3, 2, 1];
+      const board = order.map((id, i) => ({ teamId: id, rank: i + 1, score: 100 - i, cats: catsOf(i) }));
+      await LG.db.set(LG.aiPowerId(2026, 1), { kind: "aipower", season: 2026, week: 1, at: 1, model: "grok-4.6",
+        ranking: { week: board, ros: board.map((r) => ({ teamId: r.teamId, rank: r.rank, score: r.score, cats: { ...r.cats } })) } });
+      await LG.db.set(LG.weeklyId(2026, 1), { kind: "weekly", week: 1, matchups: [
+        { home: 1, away: 2, homePts: 100, awayPts: 80 },
+        { home: 3, away: 4, homePts: 90, awayPts: 70 },
+        { home: 5, away: 6, homePts: 60, awayPts: 50 },
+        { home: 7, away: 8, homePts: 40, awayPts: 30 },
+      ], power: [], finalizedAt: 1 });
+      await LG.db.set(LG.weeklyId(2026, 2), { kind: "weekly", week: 2, matchups: [
+        { home: 1, away: 3, homePts: 100, awayPts: 50 },
+        { home: 2, away: 4, homePts: 90, awayPts: 40 },
+        { home: 6, away: 5, homePts: 80, awayPts: 20 },
+        { home: 8, away: 7, homePts: 70, awayPts: 10 },
+      ], power: [], finalizedAt: 2 });
+      const t1 = await LG.loadRoster(1, 1);
+      await LG.db.set(LG.rosterId(1, 1), { kind: "roster", week: 1, teamId: 1,
+        players: (t1 || []).filter((p) => String(p.key) !== "4361741") });
+      await LG.db.set(LG.rosterId(1, 2), { kind: "roster", week: 1, teamId: 2, players: [
+        { key: "222111", name: "Q. Rival", pos: "QB", team: "DAL", slot: "QB" },
+        { key: "4361741", name: "W. Receiver", pos: "WR", team: "PHI", slot: "WR" },
+        { key: "dst_DAL", name: "DAL D/ST", pos: "DST", team: "DAL", slot: "DST" },
+      ] });
+      if (LG.db.clearCache) LG.db.clearCache();
+      await window.__GFFL__.UI.renderLeague();
+    });
+    ok(await waitFnOr(page, () => {
+      const row = document.querySelector("#powerCard .pwrow");
+      const qb = row && row.querySelector('.pwcat[data-pos="QB"]');
+      // Score is on the first paint. Room numbers arrive on the next turn, once the
+      // archived stat lines are in — waiting on the QB cell is what proves that fill-in.
+      return !!(row && row.dataset.team === "1" && row.dataset.score === "22" && qb && qb.textContent.trim() === "1");
+    }), "the card paints team 1 at 22, not the Grok doc's team 8 at 100");
+    const card = await evalOr(page, () => {
+      const c = document.getElementById("powerCard");
+      if (!c) return {};
+      const rows = [...c.querySelectorAll(".pwrow")].map((r) => {
+        const cat = (k) => { const el = r.querySelector('.pwcat[data-pos="' + k + '"]'); return el ? el.textContent.trim() : ""; };
+        return { team: Number(r.dataset.team), rank: ((r.querySelector(".pwrank") || {}).textContent || "").trim(),
+          name: ((r.querySelector(".pwname") || r.querySelector(".tname") || {}).textContent || "").trim(),
+          score: ((r.querySelector(".pwscore") || {}).textContent || "").trim(),
+          lw: r.dataset.lw || "", move: r.dataset.move || "",
+          QB: cat("QB"), RB: cat("RB"), WR: cat("WR"), TE: cat("TE"), BN: cat("BN") };
+      });
+      return { h2: ((c.querySelector("h2") || {}).textContent || "").replace(/\s+/g, " ").trim(),
+        heads: [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()),
+        foot: ((c.querySelector(".pwfoot") || {}).textContent || ""),
+        tabs: c.querySelectorAll("#pwTabs [data-pw]").length,
+        mine: c.querySelectorAll(".pwrow.mine").length,
+        rows, sideways: document.documentElement.scrollWidth - window.innerWidth,
+        pict: (c.textContent.match(/\p{Extended_Pictographic}/gu) || []).length };
+    }) || {};
+    const order = (card.rows || []).map((r) => r.team + ":" + r.score).join(",");
+    ok(/^Power rankings — week 2$/.test(card.h2 || ""), "the heading is the latest official week (" + card.h2 + ")");
+    ok(card.tabs === 0 && Array.isArray(card.heads) && card.heads.join("|") === "|Team|Score|LW|QB|RB|WR|TE|BN",
+      "one board, the five rooms, no This week / Rest of season tabs (" + (card.heads || []).join("|") + ")");
+    ok(order === "1:22,2:14.5,3:13,6:12.5,8:11,5:10,7:8.5,4:5.5",
+      "order is the formula, including 1-1 teams by points for, and the 0-2 team last (" + order + ")");
+    ok(card.rows && card.rows[0].name === "Battle Kreussers" && card.rows[0].rank === "1" && card.mine === 1
+      && !(card.rows || []).some((r) => r.score === "100"),
+      "Battle Kreussers are #1 — the inverted Grok score of 100 is not on the card");
+    const t1 = (card.rows || []).find((r) => r.team === 1) || {};
+    const t2 = (card.rows || []).find((r) => r.team === 2) || {};
+    ok(t1.QB === "1" && t1.RB === "1" && t1.WR === "2" && t2.WR === "1" && t2.QB === "2",
+      "rooms are points, not a copy of overall: team 1 is QB 1 and RB 1 but WR 2; team 2 (overall 2) is WR 1 (" + JSON.stringify({ t1, t2 }) + ")");
+    const t4 = (card.rows || []).find((r) => r.team === 4) || {};
+    ok(t2.lw === "5" && t2.move === "up" && t1.lw === "1" && t1.move === "same" && t4.lw === "6" && t4.move === "down",
+      "last week is the formula through week 1: team 2 climbed from 5th, team 1 stayed 1st, team 4 fell");
+    ok(/4×wins/.test(card.foot || "") && /flex starter/.test(card.foot || "") && !/Scored by Grok/.test(card.foot || "") && !/0–100/.test(card.foot || ""),
+      "the footer states the formula and that a flex counts at his own position");
+    ok(card.sideways <= 1 && card.pict === 0, "the room columns pan inside the card — the page itself does not scroll sideways");
+    const calc = await evalOr(page, () => {
+      const fn = window.__GFFL__.LG.computePowerTable;
+      return fn ? fn() : null;
+    }) || null;
+    const c1 = calc && calc.rows && calc.rows.find((r) => r.teamId === 1);
+    const c2 = calc && calc.rows && calc.rows.find((r) => r.teamId === 2);
+    ok(!!calc && calc.week === 2 && calc.roomsPending === false && c1 && c1.score === 22 && c1.catPts.QB === 20 && c1.catPts.RB === 8 && c1.catPts.WR === 0
+      && c2 && c2.catPts.WR === 22 && c2.catPts.QB === 0,
+      "the points behind the ranks: Passer 20 at QB, Rusher 8 at RB, Receiver 22 at WR on team 2 (" + JSON.stringify(c1 && c1.catPts) + " / " + JSON.stringify(c2 && c2.catPts) + ")");
+    ok(powerN() === n0, "painting the card does not call Grok (" + (powerN() - n0) + ")");
+    await page.setViewport({ width: 1440, height: 980 });
+    const desk = await evalOr(page, () => {
+      const c = document.getElementById("powerCard");
+      const panner = c && c.querySelector(".panner");
+      const first = c && c.querySelector(".pwrow");
+      return { first: first ? first.dataset.team + ":" + first.dataset.score : "",
+        pans: !!(panner && panner.scrollWidth > panner.clientWidth + 1),
+        sideways: document.documentElement.scrollWidth - window.innerWidth };
+    }) || {};
+    ok(desk.first === "1:22" && desk.pans !== true && desk.sideways <= 1,
+      "desktop MAIN shows the same #1 and does not pan (" + JSON.stringify(desk) + ")");
+    ok(errors.length === 0, "0 page errors");
+    if (SHOTS) {
+      await page.setViewport({ width: 390, height: 844 });
+      await evalOr(page, () => { const c = document.getElementById("powerCard"); if (c) c.scrollIntoView({ block: "start" }); });
+      fs.mkdirSync(path.join(ROOT, "shots"), { recursive: true });
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_power_rankings_390.png") });
+      console.log("  📸 shots/gffl_power_rankings_390.png");
+    }
+    await ctx.close();
+  }
   }
 
   await browser.close();
