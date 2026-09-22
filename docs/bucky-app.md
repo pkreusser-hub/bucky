@@ -2254,3 +2254,14 @@ The phone that still has Eleanor's books and the watched movies has to be opened
 
 Suite: `node tools/_verify-books.cjs` (**176/176**). Bite against `97fa8c8` `books.html` + `books.mjs`: **173 passed, 3 failed** — the family domain, the family shelf, and Eleanor's books from the other device. `node tools/_verify-movies.cjs` (**138/138**). Bite against `97fa8c8` `movies.html`: **136 passed, 2 failed** — the family owned list, and an already-watched movie from the phone.
 ---
+
+# Dad's Bookshelf recommend was cut off; Eleanor's still finished (2026-09-22)
+
+A Bookshelf recommend from goatfantasyleague.com now gets a reply. Eleanor's short shelf comes back. Dad's does not. His seeded shelf is 135 titles, and the ask is still ten picks with the series rule and the LGBT rule.
+
+Measured live against amenfarms: the function sends a keepalive space every 8s, then the stream closes. A two-book shelf and Dad's 135-title shelf both came back HTTP 200 with four spaces and no JSON line. The last space was at about 25s and the connection closed around 35–40s. The page read that as an empty success. A short shelf often finishes inside that window, which is why Eleanor works. Dad's shelf does not.
+
+A shelf of 80 or more starts `books-recommend-background` instead. That job has the 15-minute allowance, writes the picks to Firestore `books_rec_jobs/{id}`, and the page polls `recommend-result`. A shorter shelf still uses the synchronous call. If that call comes back as keepalive spaces with no JSON (`reason: "cut-off"`), or it times out, the page starts the same job. The model, the token budget, and the series and LGBT rules are unchanged. The button says a full shelf takes about a minute.
+
+Suite: `node tools/_verify-books.cjs` (**180/180**). Bite against `5ae0872` `books.html` + `books.mjs`: **175 passed, 5 failed** — the pending job, the saved picks, the minute note, the long-shelf path, and the cut-off reply.
+---

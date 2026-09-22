@@ -380,6 +380,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   "use strict";
   var FAMILY_PASSWORD = "amenfarms";
   var ENDPOINT = "/.netlify/functions/books";
+  // A synchronous recommend is closed at about 30s on this site, with only
+  // keepalive spaces left in the body. Eleanor's short shelf still finishes.
+  // Dad's seeded shelf (135 titles) does not, so a long shelf starts the
+  // background job instead of waiting on that closed stream.
+  var LONG_SHELF = 80;
   var STORE = "books_profiles_v1";
   var firebaseConfig = {
     apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
@@ -1098,8 +1103,45 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var raw = String(text || "");
     var cut = raw.lastIndexOf("\n");
     var slice = (cut >= 0 ? raw.slice(cut + 1) : raw).trim();
-    if (!slice) return {};
+    if (!slice) {
+      // The stream was closed after the keepalive spaces and before the JSON
+      // line. That is a failure, not an empty list of picks.
+      if (raw.indexOf("{") < 0 && /\s/.test(raw)) return { error: "Could not recommend right now.", reason: "cut-off" };
+      return {};
+    }
     return JSON.parse(slice);
+  }
+
+  function replyWasCut(res) {
+    if (!res) return true;
+    if (res.reason === "cut-off" || res.reason === "timeout") return true;
+    return !(res.books || []).length && !res.model && !res.error;
+  }
+
+  function newJobId() {
+    return ("b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).replace(/[^a-z0-9]/g, "").slice(0, 40);
+  }
+
+  async function pollRecommend(jobId) {
+    var deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      await new Promise(function (resolve) { setTimeout(resolve, 2000); });
+      var res = await api("recommend-result", { jobId: jobId });
+      if (res && res.pending) continue;
+      return res || { error: "Could not recommend right now." };
+    }
+    return { error: "Could not recommend right now.", reason: "timeout" };
+  }
+
+  async function startRecommendJob(extra) {
+    var jobId = newJobId();
+    var r = await fetch("/.netlify/functions/books-recommend-background", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ secret: FAMILY_PASSWORD, jobId: jobId }, extra)),
+    });
+    if (!r.ok && r.status !== 202) throw new Error("HTTP " + r.status);
+    return pollRecommend(jobId);
   }
 
   async function api(action, extra) {
@@ -1134,19 +1176,25 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
   async function doRecommend() {
     var p = current();
-    $("recErr").textContent = "Asking Grok. A full shelf takes about half a minute.";
+    $("recErr").textContent = "Asking Grok. A full shelf takes about a minute.";
     $("recBtn").disabled = true;
     var card = $("recLabel");
     if (card && card.scrollIntoView) card.scrollIntoView({ block: "start" });
     try {
-      var res = await api("recommend", {
+      var extra = {
         shelf: p.shelf,
         interests: p.interests,
         maxPolitical: p.maxPolitical,
         maxWoke: p.maxWoke,
         skipped: p.skipped || [],
         readlist: p.readlist || [],
-      });
+      };
+      var res;
+      if ((p.shelf || []).length >= LONG_SHELF) res = await startRecommendJob(extra);
+      else {
+        res = await api("recommend", extra);
+        if (replyWasCut(res)) res = await startRecommendJob(extra);
+      }
       lastRecs = res.books || [];
       var shown = visibleRecs(lastRecs);
       paintRecs(shown);

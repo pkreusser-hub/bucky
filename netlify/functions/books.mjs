@@ -22,7 +22,12 @@
 //     The whole shelf (title / author / the reader's own stars) goes to grok-4.7
 //     with reasoning_effort "low". High is the model default and ran past the
 //     old 20s abort (41s on a two-book shelf). Low returned five books for the
-//     135-title shelf in 27s. The wait is 50s, under the 60s synchronous limit.
+//     135-title shelf in 27s. The wait inside a background job is 50s.
+//     A synchronous streamed call on this site is closed at about 30s with only
+//     the keepalive spaces left in the body (measured 2026-09-22: last byte
+//     ~25s, HTTP 200, four spaces, no JSON). Eleanor's short shelf still
+//     finishes. Dad's seeded shelf does not, so that recommend is
+//     books-recommend-background plus action "recommend-result".
 //     Catalog ranker recommendScore stays exported for the arithmetic suite.
 //
 //   { secret, action:"rate", title, author?, description?, subjects? }
@@ -75,8 +80,13 @@ const GROK_MODEL = process.env.BOOKS_GROK_MODEL || "grok-4.7";
 // a buffered call dies and the button paints nothing. A leading space starts
 // the clock; the JSON is the last line. Reasoning tokens also bill against
 // max_tokens (the gffltrade lesson) — 1800 let a long think eat the JSON.
+// A call that HAS been sending spaces is still closed around 30s, before the
+// JSON line, when the shelf is Dad's. The background job is what finishes it.
 const KEEPALIVE_MS = 8000;
 const GROK_MAX_TOKENS = 6000;
+const JOB_COLLECTION = "books_rec_jobs";
+const JOB_ID = /^[a-z0-9]{6,40}$/i;
+const FIRESTORE_DOC_BASE = "projects/amen-farms-app/databases/(default)/documents";
 
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
@@ -774,6 +784,88 @@ async function recommend(body) {
   return { books: parseGrokRecs(got.text, shelf, skipped.concat(readlist)), model: got.model };
 }
 
+// Dad's shelf does not finish inside the synchronous call. The background
+// function runs this and the page polls recommend-result. Same shape as
+// TeacherGPT's job doc: one Firestore document, string payload.
+let cachedGoogleToken = null;
+
+function base64url(input) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function getGoogleAccessToken() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) return null;
+  if (cachedGoogleToken && Date.now() < cachedGoogleToken.exp - 60000) return cachedGoogleToken.token;
+  const sa = JSON.parse(raw);
+  const crypto = await import("node:crypto");
+  const nowSec = Math.floor(Date.now() / 1000);
+  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = base64url(JSON.stringify({
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/datastore",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: nowSec,
+    exp: nowSec + 3600,
+  }));
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(header + "." + claims);
+  const jwt = header + "." + claims + "." + base64url(signer.sign(sa.private_key));
+  const tokenUrl = process.env.BOOKS_GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token";
+  const resp = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }),
+  });
+  if (!resp.ok) return null;
+  const j = await resp.json();
+  cachedGoogleToken = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  return cachedGoogleToken.token;
+}
+
+function firestoreRoot() {
+  return process.env.BOOKS_FIRESTORE_BASE || `https://firestore.googleapis.com/v1/${FIRESTORE_DOC_BASE}`;
+}
+
+export async function runRecommendJob(body) {
+  if (!body || body.secret !== process.env.BUCKY_NOTIFY_SECRET) return;
+  const jobId = typeof body.jobId === "string" && JOB_ID.test(body.jobId) ? body.jobId : null;
+  if (!jobId) return;
+  let res;
+  try { res = await recommend(body); }
+  catch { res = { books: [], error: "Could not recommend right now.", reason: "handler" }; }
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return;
+    const fields = {
+      status: { stringValue: "done" },
+      payload: { stringValue: JSON.stringify(res) },
+    };
+    await fetch(`${firestoreRoot()}:commit`, {
+      method: "POST",
+      headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      body: JSON.stringify({
+        writes: [{ update: { name: `${FIRESTORE_DOC_BASE}/${JOB_COLLECTION}/${jobId}`, fields } }],
+      }),
+    });
+  } catch { /* the page's poll times out with the same failure line */ }
+}
+
+async function readRecommendJob(jobId) {
+  const token = await getGoogleAccessToken();
+  if (!token) return { error: "Could not recommend right now.", reason: "no-store" };
+  const r = await fetch(`${firestoreRoot()}/${JOB_COLLECTION}/${jobId}`, {
+    headers: { authorization: "Bearer " + token },
+  });
+  if (!r.ok) return { pending: true };
+  const j = await r.json().catch(() => null);
+  const payload = j && j.fields && j.fields.payload && j.fields.payload.stringValue;
+  if (!payload) return { pending: true };
+  try { return JSON.parse(payload); }
+  catch { return { error: "Could not recommend right now.", reason: "bad-job" }; }
+}
+
 export default async (req) => {
   const origin = req.headers.get("origin") || "";
   const headers = corsHeaders(origin);
@@ -803,6 +895,11 @@ export default async (req) => {
   if (action === "recommend") {
     return recommendStream(recommend(body), headers);
   }
+  if (action === "recommend-result") {
+    const jobId = typeof body.jobId === "string" && JOB_ID.test(body.jobId) ? body.jobId : "";
+    if (!jobId) return json({ error: "jobId required" }, 400, headers);
+    return json(await readRecommendJob(jobId), 200, headers);
+  }
   if (action === "rate") {
     return json(scorePolitics({
       title: String(body.title || "").slice(0, 200),
@@ -811,5 +908,5 @@ export default async (req) => {
       subjects: Array.isArray(body.subjects) ? body.subjects.slice(0, 20) : [],
     }), 200, headers);
   }
-  return json({ error: 'action must be "search", "reviews", "recommend" or "rate"' }, 400, headers);
+  return json({ error: 'action must be "search", "reviews", "recommend", "recommend-result" or "rate"' }, 400, headers);
 };

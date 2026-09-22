@@ -21,6 +21,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
+const crypto = require("crypto");
 const puppeteer = require("puppeteer-core");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -495,6 +496,78 @@ async function sectionServer() {
   ok(noKey.status === 200 && (noKeyBody.books || []).length === 0 && noKeyBody.reason === "no-key",
     "a missing Grok key is an empty list, not a invented catalog pick");
 
+  // Dad's 135-title shelf is closed at about 30s with only keepalive spaces.
+  // The background job writes the finished picks; the page polls them. A
+  // missing doc stays pending. The old handler has no recommend-result, so
+  // this check fails there instead of throwing.
+  {
+    const hasJob = typeof mod.runRecommendJob === "function";
+    if (!hasJob) {
+      ok(false, "a recommend job that has not finished stays pending");
+      ok(false, "a long shelf's recommend is saved for the page to poll");
+    } else {
+      const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+      const pem = privateKey.export({ type: "pkcs8", format: "pem" });
+      const docBase = "projects/amen-farms-app/databases/(default)/documents";
+      const store = new Map();
+      const readReq = (req) => new Promise((resolve) => {
+        let raw = "";
+        req.on("data", (c) => { raw += c; });
+        req.on("end", () => resolve(raw));
+      });
+      const tokenSrv = http.createServer(async (req, res) => {
+        await readReq(req);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ access_token: "t", expires_in: 3600 }));
+      });
+      const fsSrv = http.createServer(async (req, res) => {
+        const raw = await readReq(req);
+        const send = (code, obj) => {
+          res.writeHead(code, { "content-type": "application/json" });
+          res.end(JSON.stringify(obj));
+        };
+        if (req.url.indexOf(":commit") >= 0) {
+          try {
+            for (const w of (JSON.parse(raw).writes || [])) {
+              if (w.update && w.update.fields) store.set(w.update.name, w.update.fields);
+            }
+          } catch (e) { /* the assertion below is the failure */ }
+          return send(200, {});
+        }
+        if (req.method === "GET") {
+          const rel = req.url.split("?")[0].replace(/^.*documents\//, "");
+          const full = docBase + "/" + rel;
+          if (store.has(full)) return send(200, { name: full, fields: store.get(full) });
+          return send(404, { error: { code: 404 } });
+        }
+        return send(200, {});
+      });
+      await new Promise((resolve) => tokenSrv.listen(0, "127.0.0.1", resolve));
+      await new Promise((resolve) => fsSrv.listen(0, "127.0.0.1", resolve));
+      process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({ client_email: "t@t.iam.gserviceaccount.com", private_key: pem });
+      process.env.BOOKS_GOOGLE_TOKEN_URL = "http://127.0.0.1:" + tokenSrv.address().port + "/t";
+      process.env.BOOKS_FIRESTORE_BASE = "http://127.0.0.1:" + fsSrv.address().port + "/v1/" + docBase;
+      const pending = await callHandler(handler, { secret: SECRET, action: "recommend-result", jobId: "dadjob01" });
+      const pendingBody = await pending.json();
+      ok(pending.status === 200 && pendingBody.pending === true,
+        "a recommend job that has not finished stays pending");
+      await mod.runRecommendJob({
+        secret: SECRET,
+        jobId: "dadjob01",
+        shelf: [{ title: "The Way of Kings", author: "Brandon Sanderson", rating: 5 }],
+        interests: [],
+        maxPolitical: 5,
+        maxWoke: 5,
+      });
+      const done = await callHandler(handler, { secret: SECRET, action: "recommend-result", jobId: "dadjob01" });
+      const doneBody = await done.json();
+      ok(done.status === 200 && (doneBody.books || []).some((b) => b.title === "The Priory of the Orange Tree"),
+        "a long shelf's recommend is saved for the page to poll");
+      tokenSrv.close();
+      fsSrv.close();
+    }
+  }
+
   const pageSrc = fs.readFileSync(path.join(ROOT, "books.html"), "utf8");
   ok(/\[hidden\]\s*\{\s*display:\s*none\s*!important/i.test(pageSrc), "books.html restates [hidden]{display:none}");
   ok(/Number\.isFinite\(Number\(political\)\)/.test(pageSrc) && /Number\.isFinite\(Number\(woke\)\)/.test(pageSrc),
@@ -533,8 +606,12 @@ async function sectionServer() {
     "recommend sends the shelf to grok-4.7");
   ok(/GROK_TIMEOUT_MS = 50000/.test(src) && /reasoning_effort:\s*"low"/.test(src),
     "the Grok call waits 50s at low effort (20s aborted a full shelf)");
-  ok(/A full shelf takes about half a minute/.test(pageSrc),
-    "the button tells the reader a full shelf takes about half a minute");
+  ok(/A full shelf takes about a minute/.test(pageSrc),
+    "the button tells the reader a full shelf takes about a minute (the sync call was closed at about 30s, so a long shelf is a background job)");
+  ok(/LONG_SHELF = 80/.test(pageSrc) && /books-recommend-background/.test(pageSrc) && /recommend-result/.test(pageSrc),
+    "a shelf of 80 or more starts the background recommend instead of the call that was cut off");
+  ok(/reason: "cut-off"/.test(pageSrc) && /replyWasCut/.test(pageSrc),
+    "keepalive spaces with no JSON are a cut-off reply, and that reply starts the background job");
   ok(/A series on the shelf counts as the whole series/.test(pageSrc)
     && /Books with LGBT characters are left out/.test(pageSrc),
     "the Next to read note states the series rule and the LGBT rule");
