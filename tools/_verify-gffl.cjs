@@ -28914,6 +28914,123 @@ async function openDetails(page, id) {
     }
   }
 
+  // ================= TZ · previous matchup weeks show each player's score =================
+  // The weekly doc stores the team total only. Browsing a past week used to
+  // paint that total in the header and a dash on every lineup row. The row
+  // now reads Sleeper's archived box for THAT week (the same source as the
+  // player card), and a player with no line stays "—" — never the live
+  // board, never a made-up 0. Week 4's fixture box, hand-computed on the
+  // default rules:
+  //   P. Passer  25 pass yd × 0.04                         = 1.0
+  //   Q. Rival   400 pass yd × 0.04 + 3 TD × 4            = 28.0
+  //   T. Tight   4 rec × 1 + 50 rec yd × 0.1              = 9.0
+  // W. Receiver is not in that box. The header stays the weekly record
+  // (98.1–112.4), which is not the sum of those three lines.
+  if (section("TZ · previous matchup weeks show each player's score")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootWeek1Home(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await clickIn(page, '.bnav button[data-v="matchup"]');
+    await waitOr(page, ".muhead", 9000);
+    await waitFnOr(page, () => {
+      const el = document.querySelector('.pcellgrid[data-pk="3915511"] .pts');
+      return !!(el && el.textContent.trim() !== "—");
+    });
+    const live = await evalOr(page, () => {
+      const pts = (pk) => {
+        const el = document.querySelector('.pcellgrid[data-pk="' + pk + '"] .pts');
+        return el ? el.textContent.trim() : null;
+      };
+      const D = window.__GFFL__.D;
+      const n = (w) => ((D.EP["sleeper week stats " + w] || {}).n) || 0;
+      return { passer: pts("3915511"), receiver: pts("4361741"), rival: pts("222111"), w4: n(4), w6: n(6) };
+    }) || {};
+
+    await evalOr(page, async () => {
+      const { LG, UI } = window.__GFFL__;
+      const wk = [[1, 2], [3, 4], [5, 6], [7, 8]];
+      await LG.saveSchedule([wk, wk, wk, wk, wk, wk]);
+      await LG.db.set(LG.weeklyId(LG.SEASON, 4), {
+        kind: "weekly", week: 4,
+        matchups: [
+          { home: 1, away: 2, homePts: 112.4, awayPts: 98.1 },
+          { home: 3, away: 4, homePts: 80, awayPts: 70 },
+          { home: 5, away: 6, homePts: 1, awayPts: 2 },
+          { home: 7, away: 8, homePts: 3, awayPts: 4 },
+        ],
+        awards: {},
+      });
+      UI.week = 5;
+      UI._muWeek = 4;
+      UI.matchup = null;
+      UI._muWeekGames = null;
+      UI._muRosters = null;
+      UI._muWeekly = null;
+      UI._muPts = null;
+      UI._muPtsWeek = null;
+      await UI.renderMatchup();
+    });
+    await waitFnOr(page, () => /Week 4/.test((document.querySelector("#muWeekNav") || {}).textContent || ""));
+    const past = await evalOr(page, () => {
+      const pts = (pk) => {
+        const el = document.querySelector('.pcellgrid[data-pk="' + pk + '"] .pts');
+        return el ? el.textContent.trim() : null;
+      };
+      const D = window.__GFFL__.D;
+      const n = (w) => ((D.EP["sleeper week stats " + w] || {}).n) || 0;
+      return {
+        nav: ((document.querySelector("#muWeekNav") || {}).textContent || "").replace(/\s+/g, " ").trim(),
+        header: [...document.querySelectorAll(".bigpts")].map((e) => e.textContent.trim()),
+        total: [...document.querySelectorAll(".totalrow .pts")].map((e) => e.textContent.trim()),
+        passer: pts("3915511"),
+        rival: pts("222111"),
+        tight: pts("111222"),
+        receiver: pts("4361741"),
+        week: window.__GFFL__.UI.week,
+        muWeek: window.__GFFL__.UI._muWeek,
+        w4: n(4),
+      };
+    }) || {};
+    ok(past.week === 5 && past.muWeek === 4 && /Week 4/.test(past.nav || "") && /final/.test(past.nav || ""),
+      "browsing week 4 leaves the league on week 5 and labels the page final (" + past.nav + ")");
+    ok(past.header && past.header[0] === "98.1" && past.header[1] === "112.4"
+      && past.total && past.total[0] === "98.1" && past.total[1] === "112.4",
+      "the top line stays the weekly record, away then home (" + JSON.stringify({ header: past.header, total: past.total }) + ")");
+    ok(past.passer === "1.0" && live.passer && live.passer !== "1.0",
+      "P. Passer's week-4 row is the archived 1.0, not the live board (" + JSON.stringify({ live: live.passer, past: past.passer }) + ")");
+    ok(past.rival === "28.0" && past.rival !== live.rival,
+      "Q. Rival's week-4 row is the archived 28.0 (" + JSON.stringify({ live: live.rival, past: past.rival }) + ")");
+    ok(past.tight === "9.0",
+      "T. Tight's week-4 row is the archived 9.0 (" + past.tight + ")");
+    ok(past.receiver === "—" && live.receiver && live.receiver !== "—",
+      "W. Receiver has no week-4 line, so the row stays a dash instead of his live score (" + JSON.stringify({ live: live.receiver, past: past.receiver }) + ")");
+    ok(past.w4 > (live.w4 || 0),
+      "week 4's archived box was actually fetched (" + live.w4 + " → " + past.w4 + ")");
+
+    await evalOr(page, () => { const b = document.getElementById("muNext"); if (b) b.click(); return !!b; });
+    await waitFnOr(page, () => window.__GFFL__.UI._muWeek == null);
+    await evalOr(page, () => { const b = document.getElementById("muNext"); if (b) b.click(); return !!b; });
+    await waitFnOr(page, () => window.__GFFL__.UI._muWeek === 6);
+    const fut = await evalOr(page, () => {
+      const el = document.querySelector('.pcellgrid[data-pk="3915511"] .pts');
+      const D = window.__GFFL__.D;
+      return {
+        passer: el ? el.textContent.trim() : null,
+        muWeek: window.__GFFL__.UI._muWeek,
+        w6: ((D.EP["sleeper week stats 6"] || {}).n) || 0,
+        header: [...document.querySelectorAll(".bigpts")].map((e) => e.textContent.trim()),
+      };
+    }) || {};
+    ok(fut.muWeek === 6 && fut.passer === "—" && fut.header && fut.header[0] === "—" && fut.header[1] === "—",
+      "a future week still shows dashes for the players and the top line (" + JSON.stringify(fut) + ")");
+    ok(fut.w6 === 0 && (live.w6 || 0) === 0,
+      "a future week does not fetch an archived box (" + fut.w6 + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

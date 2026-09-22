@@ -106,6 +106,8 @@
   UI.week = null;           // viewed league week
   UI.matchup = null;        // [homeTeamId, awayTeamId]
   UI._muWeek = null;        // browsed matchup week; null = the live week (UI.week)
+  UI._muPts = null;         // archived per-player points for the browsed week (Map|null)
+  UI._muPtsWeek = null;
   UI.lockerTeamId = null;   // viewed locker
   UI._aiRead = null;        // {key, at, busy, error, mults:{name:{mult,why,proj,adj}}} — S5's AI read
   // ITEM 8 (2026-08-22): the locker's own interaction-state flags — a background reconnect
@@ -4252,6 +4254,8 @@
     UI._muWeekGames = null;
     UI._muRosters = null;
     UI._muWeekly = null;
+    UI._muPts = null;
+    UI._muPtsWeek = null;
     UI._scoresWeek = null;
     if (UI.view) UI.show(UI.view);
     return true;
@@ -4334,8 +4338,10 @@
   // WEEK CYCLING (2026-09-16): UI._muWeek === null means NOW — this week's live
   // pairing, polling as ever. Any other value is a BROWSED GFFL week. Browsing
   // never writes UI.week (locker / Moves / waivers stay on the live week) and
-  // never polls. Past weeks read weekly totals when the record exists; future
-  // weeks show "—". The nav is a thin strip, not a .card, so the first card
+  // never polls. Past weeks read weekly totals when the record exists, and
+  // each lineup row reads that week's archived player score (D.weekStats —
+  // the weekly doc itself only stores the team total). Future weeks show
+  // "—". The nav is a thin strip, not a .card, so the first card
   // on the page stays .muhead (section TL).
   function matchupTotalWeeks() { return ((LG.rules && LG.rules.seasonWeeks) || 14) + 3; }
   function matchupShownWeek() { return UI._muWeek == null ? UI.week : UI._muWeek; }
@@ -4385,13 +4391,46 @@
     UI._muWeekGames = null;
     UI._muRosters = null;
     UI._muWeekly = null;
+    UI._muPts = null;
+    UI._muPtsWeek = null;
     stopChatPoll();
     renderMatchup();
   }
   function wireMuWeekNav() {
     wireOnce($("#muPrev"), () => stepMuWeek(-1));
     wireOnce($("#muNext"), () => stepMuWeek(1));
-    wireOnce($("#muNow"), () => { UI._muWeek = null; UI.matchup = null; UI._muWeekGames = null; UI._muRosters = null; UI._muWeekly = null; stopChatPoll(); renderMatchup(); });
+    wireOnce($("#muNow"), () => { UI._muWeek = null; UI.matchup = null; UI._muWeekGames = null; UI._muRosters = null; UI._muWeekly = null; UI._muPts = null; UI._muPtsWeek = null; stopChatPoll(); renderMatchup(); });
+  }
+  // A past week's per-player points. The weekly doc stores only the team
+  // total; Sleeper's archived box for THAT week is the same source the
+  // player card's game log already trusts. Loaded after the week's rosters
+  // so the map is keyed on the roster's own ids. A future week, or a week
+  // the archive does not have, stays null — the row then reads "—", never
+  // this week's live board and never a fabricated 0.
+  async function loadMuArchivedPts(week) {
+    UI._muPts = null;
+    UI._muPtsWeek = week;
+    if (!(week < UI.week)) return;
+    const d = D();
+    if (!d.weekStats) return;
+    try {
+      UI._muPts = await d.weekStats(week, { season: LG.SEASON, seasonType: "regular" }) || null;
+    } catch (e) {
+      UI._muPts = null;
+    }
+  }
+  // undefined = no archived line (future week, archive miss, or this player
+  // was not in that week's box). A real 0 is a real 0 — `== null` is the
+  // only absence test, because 0 is a score.
+  function muArchivedPts(key) {
+    if (!matchupBrowsing()) return undefined;
+    const shown = matchupShownWeek();
+    if (!(shown < UI.week) || UI._muPtsWeek !== shown || !UI._muPts) return undefined;
+    const map = UI._muPts;
+    if (map.has(key)) return map.get(key);
+    const n = Number(key);
+    if (String(n) === String(key) && map.has(n)) return map.get(n);
+    return undefined;
   }
   // LG.gamesForWeek, not the raw schedule directly — during a playoff week (S7) that's the
   // bracket's own resolved pairings (a bye seed, or a not-yet-resolved slot, genuinely has no
@@ -4539,9 +4578,14 @@
   async function renderMatchup(repaint) {
     const shown = matchupShownWeek();
     const browsing = matchupBrowsing();
-    if (!repaint && browsing) {
-      UI._muRosters = await loadRostersFor(shown);
-      UI._muWeekly = await LG.loadWeekly(shown);
+    if (browsing) {
+      if (!repaint) {
+        UI._muRosters = await loadRostersFor(shown);
+        UI._muWeekly = await LG.loadWeekly(shown);
+      }
+      // Rosters first: weekStats keys through the roster registry those
+      // loads just filled. A repaint of the same week reuses the map.
+      if (UI._muPtsWeek !== shown) await loadMuArchivedPts(shown);
     }
     if (!UI.matchup) UI.matchup = await myMatchupFor(shown);
     if (!UI.matchup) {
@@ -5085,9 +5129,16 @@
     } else if (matchupBrowsing()) {
       // A browsed week is a page, not a feed — livePts / the NFL clock belong
       // to THIS week's slate and would lie about a past or future lineup.
+      // The number on the row is that week's own archived score (muArchivedPts).
+      // No line in the archive stays "—", including a future week; it is not
+      // filled in from the live board and it is not invented as 0.0.
       nameHtml = `${plogoHtml(p.team)}<b title="${esc(LG.shortName(p.name) + " · " + p.pos + " · " + p.team)}">${escn(p.name)}</b>`;
       metaHtml = ""; statHtml = "";
-      ptsHtml = '<span class="pts mut">—</span>'; projHtml = "";
+      const archived = muArchivedPts(p.key);
+      ptsHtml = archived == null
+        ? '<span class="pts mut">—</span>'
+        : `<span class="pts">${LG.fmtPts(archived)}</span>`;
+      projHtml = "";
     } else {
       const d = D();
       const row = d.S.players.get(p.key);
