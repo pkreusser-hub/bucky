@@ -385,6 +385,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   // Dad's seeded shelf (135 titles) does not, so a long shelf starts the
   // background job instead of waiting on that closed stream.
   var LONG_SHELF = 80;
+  // The background job used to abort Grok at 50s. Dad's shelf hit that and
+  // came back as "Could not recommend right now." The job now waits 180s.
+  var JOB_WAIT_MS = 200000;
   var STORE = "books_profiles_v1";
   var firebaseConfig = {
     apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
@@ -1123,7 +1126,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   }
 
   async function pollRecommend(jobId) {
-    var deadline = Date.now() + 90000;
+    var deadline = Date.now() + JOB_WAIT_MS;
     while (Date.now() < deadline) {
       await new Promise(function (resolve) { setTimeout(resolve, 2000); });
       var res = await api("recommend-result", { jobId: jobId });
@@ -1176,7 +1179,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
   async function doRecommend() {
     var p = current();
-    $("recErr").textContent = "Asking Grok. A full shelf takes about a minute.";
+    $("recErr").textContent = "Asking Grok. A full shelf takes about three minutes.";
     $("recBtn").disabled = true;
     var card = $("recLabel");
     if (card && card.scrollIntoView) card.scrollIntoView({ block: "start" });

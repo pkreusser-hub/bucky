@@ -606,8 +606,10 @@ async function sectionServer() {
     "recommend sends the shelf to grok-4.7");
   ok(/GROK_TIMEOUT_MS = 50000/.test(src) && /reasoning_effort:\s*"low"/.test(src),
     "the Grok call waits 50s at low effort (20s aborted a full shelf)");
-  ok(/A full shelf takes about a minute/.test(pageSrc),
-    "the button tells the reader a full shelf takes about a minute (the sync call was closed at about 30s, so a long shelf is a background job)");
+  ok(/GROK_JOB_TIMEOUT_MS = 180000/.test(src) && /recommend\(body, GROK_JOB_TIMEOUT_MS\)/.test(src),
+    "Dad's background recommend waits 180s (the 50s abort returned reason timeout on the 135-title shelf)");
+  ok(/A full shelf takes about three minutes/.test(pageSrc) && /JOB_WAIT_MS = 200000/.test(pageSrc),
+    "the page keeps polling for three minutes (the 50s abort showed Could not recommend on Dad's shelf)");
   ok(/LONG_SHELF = 80/.test(pageSrc) && /books-recommend-background/.test(pageSrc) && /recommend-result/.test(pageSrc),
     "a shelf of 80 or more starts the background recommend instead of the call that was cut off");
   ok(/reason: "cut-off"/.test(pageSrc) && /replyWasCut/.test(pageSrc),

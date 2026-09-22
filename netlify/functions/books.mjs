@@ -74,6 +74,10 @@ const MAX_SHELF = 200;
 const MAX_INTERESTS = 12;
 const MAX_RECOMMEND_QUERIES = 3;
 const GROK_TIMEOUT_MS = 50000;
+// Dad's 135-title shelf was still running when this 50s abort fired inside
+// the background job (measured 2026-09-22, reason "timeout"). The background
+// function is allowed minutes, so that job waits longer than the sync call.
+const GROK_JOB_TIMEOUT_MS = 180000;
 const GROK_MODEL = process.env.BOOKS_GROK_MODEL || "grok-4.7";
 // Netlify's edge 504s a response that has moved no bytes for 30s (measured on
 // this site). grok-4.7 at low effort is often 17–27s and sometimes slower, so
@@ -722,13 +726,13 @@ export function parseGrokRecs(text, shelf, blocked) {
   return out;
 }
 
-async function callGrokRecommend(prompt) {
+async function callGrokRecommend(prompt, timeoutMs) {
   const key = process.env.XAI_API_KEY || "";
   const base = (process.env.BOOKS_XAI_BASE || process.env.XAI_BASE_URL || "https://api.x.ai").replace(/\/$/, "");
   const model = process.env.BOOKS_GROK_MODEL || GROK_MODEL;
   if (!key) return { ok: false, reason: "no-key", text: "", model };
   const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), GROK_TIMEOUT_MS);
+  const t = setTimeout(() => ac.abort(), timeoutMs || GROK_TIMEOUT_MS);
   try {
     const r = await fetch(base + "/v1/chat/completions", {
       method: "POST",
@@ -757,7 +761,7 @@ async function callGrokRecommend(prompt) {
   }
 }
 
-async function recommend(body) {
+async function recommend(body, timeoutMs) {
   const shelf = sanitizeShelf(body.shelf);
   const interests = [];
   for (const i of (Array.isArray(body.interests) ? body.interests : [])) {
@@ -777,7 +781,7 @@ async function recommend(body) {
     readlist,
   };
   const prompt = buildRecommendPrompt(shelf, extras);
-  const got = await callGrokRecommend(prompt);
+  const got = await callGrokRecommend(prompt, timeoutMs || GROK_TIMEOUT_MS);
   if (!got.ok) {
     return { books: [], model: got.model, error: got.reason === "no-key" ? "Recommendations need a Grok key." : "Could not recommend right now.", reason: got.reason };
   }
@@ -833,7 +837,7 @@ export async function runRecommendJob(body) {
   const jobId = typeof body.jobId === "string" && JOB_ID.test(body.jobId) ? body.jobId : null;
   if (!jobId) return;
   let res;
-  try { res = await recommend(body); }
+  try { res = await recommend(body, GROK_JOB_TIMEOUT_MS); }
   catch { res = { books: [], error: "Could not recommend right now.", reason: "handler" }; }
   try {
     const token = await getGoogleAccessToken();
