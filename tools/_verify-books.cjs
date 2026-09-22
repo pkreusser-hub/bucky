@@ -319,6 +319,12 @@ async function sectionServer() {
   ok(/Zero — Zed — 0\/5/.test(ratedZero) && /Blank — Bee — unrated/.test(ratedZero),
     "a real 0-star review stays 0/5; a missing review stays unrated (Number(null) is 0)");
   ok(/Woke cap: 0 of 5/.test(prompt41), "…and still states the woke cap of 0");
+  ok(/assume they have read the whole series/.test(prompt41)
+    && /Do not recommend the next book in that series/.test(prompt41)
+    && /Do not recommend a book with LGBT characters/.test(prompt41),
+    "the Grok prompt skips the rest of a series and books with LGBT characters");
+  ok(/assume they have read the whole series/.test(ratedZero) && /LGBT characters/.test(ratedZero),
+    "those two rules are on the ask even when the shelf has no skip list and no read list");
   ok(parsedGrok.length === 5 && parsedGrok[0].title === "The Priory of the Orange Tree" && parsedGrok.every((b) => b.title !== "The Hobbit"),
     "parseGrokRecs keeps five picks and drops a title already on the shelf");
   const passedBooks = mod.parseGrokRecs(GROK_JSON, [{ title: "The Hobbit", author: "J.R.R. Tolkien" }], [
@@ -427,6 +433,11 @@ async function sectionServer() {
   const grokUser = grokReq && grokReq.messages && grokReq.messages.find((m) => m.role === "user");
   ok(grokUser && /The Hobbit — J\.R\.R\. Tolkien — 5\/5/.test(grokUser.content) && /Book 41 — Author 41 — unrated/.test(grokUser.content),
     "the Grok turn includes the whole shelf and the reader's stars");
+  const grokSys = grokReq && grokReq.messages && grokReq.messages.find((m) => m.role === "system");
+  ok(grokUser && /assume they have read the whole series/.test(grokUser.content)
+    && /Do not recommend a book with LGBT characters/.test(grokUser.content)
+    && grokSys && /whole series/.test(grokSys.content) && /LGBT characters/.test(grokSys.content),
+    "recommend tells Grok to skip the rest of a series and books with LGBT characters");
   ok((recBody.books || []).length === 5 && recBody.books[0].title === "The Priory of the Orange Tree",
     "…and returns the five Grok picks");
   ok(!(recBody.books || []).some((b) => b.title === "The Hobbit"), "…without repeating the shelf");
@@ -514,6 +525,9 @@ async function sectionServer() {
     "the Grok call waits 50s at low effort (20s aborted a full shelf)");
   ok(/A full shelf takes about half a minute/.test(pageSrc),
     "the button tells the reader a full shelf takes about half a minute");
+  ok(/A series on the shelf counts as the whole series/.test(pageSrc)
+    && /Books with LGBT characters are left out/.test(pageSrc),
+    "the Next to read note states the series rule and the LGBT rule");
   ok(/KEEPALIVE_MS = 8000/.test(src) && /GROK_MAX_TOKENS = 6000/.test(src),
     "the Grok call keeps the edge alive and leaves 6000 tokens of headroom");
   const intAt = pageSrc.indexOf('id="intLabel"');

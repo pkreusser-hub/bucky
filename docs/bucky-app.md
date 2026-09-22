@@ -2206,3 +2206,20 @@ prompt, the handler, and the buttons. `node tools/_verify-books.cjs`
 (**166/166**). Bite against `d3b08e9` `books.html` + `books.mjs`: **149
 passed, 17 failed** — the same split.
 ---
+
+# Recommend skips the rest of a series, and books with LGBT characters (2026-09-22)
+
+The woke meter still does not score a gay character. That rule still holds
+for the number on a search hit. The recommend request is a separate rule,
+and it is stricter.
+
+Grok is told that a series on the shelf counts as the whole series. It must
+not recommend the next book, or any other book in that series. It must not
+recommend a book with LGBT characters. The same sentences are in the system
+turn and in the user turn, on every recommend, including an empty skip list
+and an empty read list. The Next to read note says the same thing.
+
+Suite: `node tools/_verify-books.cjs` (**170/170**). Bite against `ee685d3`
+`books.html` + `books.mjs`: **166 passed, 4 failed** — the prompt, the
+handler, and the note.
+---

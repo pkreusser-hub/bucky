@@ -620,6 +620,10 @@ function blockKey(title) {
   return normName(title).replace(/^(a|an|the)\s+/, "");
 }
 
+// Standing recommend limits. The woke meter still does not score a gay
+// character. This ask is stricter, and it is on every recommend.
+const RECOMMEND_LIMITS = "If a book on the shelf is part of a series, assume they have read the whole series. Do not recommend the next book in that series, or any other book in it. Do not recommend a book with LGBT characters.";
+
 export function buildRecommendPrompt(shelf, extras) {
   const interests = Array.isArray(extras && extras.interests) ? extras.interests : [];
   const maxPolitical = extras && extras.maxPolitical;
@@ -654,6 +658,7 @@ export function buildRecommendPrompt(shelf, extras) {
     "Here is everything this reader has already read, with their own star rating when they gave one (1-5). Unrated means they read it but have not scored it.\n\n"
     + "READ SO FAR:\n" + (lines.length ? lines.join("\n") : "(empty shelf)") + "\n"
     + extra
+    + "\n\n" + RECOMMEND_LIMITS
     + "\n\n" + ask + " For each, write a brief summary (two sentences) and why it fits this list.\n"
     + "Reply with JSON only, no markdown:\n"
     + '{"books":[{"title":"","author":"","summary":"","why":""}]}'
@@ -717,7 +722,7 @@ async function callGrokRecommend(prompt) {
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: "You recommend unread books from one reader's shelf. Reply with JSON only." },
+          { role: "system", content: "You recommend unread books from one reader's shelf. " + RECOMMEND_LIMITS + " Reply with JSON only." },
           { role: "user", content: prompt },
         ],
         temperature: 0.4,
