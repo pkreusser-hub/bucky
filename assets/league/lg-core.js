@@ -2155,7 +2155,26 @@
   // moment. So every ACQUISITION is blocked until the stash is resolved, which forces the
   // honest choice: bench him (costing a real roster spot) or drop him.
   // Returns the offending players, so every caller can NAME them rather than just refusing.
-  LG.illegalIR = (roster) => (roster || []).filter((p) => p.slot === "IR" && !LG.irEligible(LG.injuryOf(p)));
+  // ⭐ ELIGIBLE BY DESIGNATION *OR* BY THE NFL'S OWN ROSTER STATUS (2026-09-23, user: "it says I
+  // have a player in IR that is healthy … my IR players are still on IR"). Sleeper keeps two
+  // fields: injury_status (Q / Out / IR …) and the roster `status` ("Injured Reserve",
+  // "Physically Unable to Perform", …). A man on the NFL's IR list can carry the second with the
+  // first left empty, and reading only injury_status called a real IR stash healthy. Either
+  // field saying he is out of action makes him eligible. One function, so the rule and the
+  // locker's three IR checks can never disagree.
+  function nflStatusDesig(raw) {
+    const s = String(raw == null ? "" : raw).trim().toLowerCase();
+    if (!s) return "";
+    if (s.includes("injured reserve") || s === "ir") return "IR";
+    if (s.includes("physically unable")) return "PUP";
+    if (s.includes("non football") || s.includes("non-football")) return "NFI";
+    if (s.includes("suspend")) return "Sus";
+    return "";
+  }
+  LG.nflStatusDesig = nflStatusDesig; // test hook
+  LG.irEligibleFor = (p) => !!p && (LG.irEligible(LG.injuryOf(p))
+    || LG.irEligible(nflStatusDesig(LG.data && LG.data.nflStatusFor ? LG.data.nflStatusFor(p.key) : "")));
+  LG.illegalIR = (roster) => (roster || []).filter((p) => p.slot === "IR" && !LG.irEligibleFor(p));
 
   // ⭐ WHO CAN BE DROPPED ONCE THE BALL IS IN THE AIR (2026-08-15, user: "lets make it so you
   // can drop players from your bench even if their game has started, but you still cant drop
@@ -2595,13 +2614,11 @@
   LG.addClaim = async function (week, claim) {
     const wk = await LG.db.getFresh(LG.claimsId(LG.SEASON, week));
     if (wk && wk.processed) return { ok: false, reason: "already-processed" };
-    // Refused at SUBMIT, and again at PROCESSING (see processWaivers) — a man can perfectly
-    // well be ruled out on Tuesday and cleared on Wednesday morning, so checking only here
-    // would let a legal claim become an illegal acquisition while it sat in the queue.
+    // RETIRED 2026-09-23 (user: "That should never stop a waiver claim"): the IR stash check
+    // no longer refuses a claim at submit or at the waiver run. It still guards the instant
+    // free-agent add and trades, and the My Team / Moves banner still says who is healthy.
     if (claim && claim.teamId != null) {
       const ros = await LG.ensureRoster(week, claim.teamId, { fresh: true });
-      const stashed = LG.illegalIR(ros);
-      if (stashed.length) return { ok: false, reason: "ir-illegal", players: stashed.map((p) => p.name) };
       // Same room the waiver run and the claim card use — a drop-less claim
       // filed against a full active roster can only lose on Wednesday.
       if (claim.dropKey == null && !LG.rosterRoom(ros)) return { ok: false, reason: "roster-full" };
@@ -2843,11 +2860,8 @@
         // is the instant free-agent add, which is where LG.faAdd blocks it. A first cut gated
         // this too and it contradicted the rule (and lost a claim for a commissioner's early
         // "Process now", punishing an owner for somebody else's timing).
-        // The second half of the IR gate: addClaim refused it at submit, but a player ruled
-        // out on Tuesday can be cleared by Wednesday's run, so the claim is re-judged here
-        // against the rosters this run actually read. The claim LOSES rather than erroring —
-        // it is one bid among many and the run must still resolve everyone else.
-        if (!reason && LG.illegalIR(ros).length) reason = "ir-illegal";
+        // RETIRED 2026-09-23: no IR stash check at the waiver run (see addClaim) — a claim is
+        // never lost to it.
       }
       if (!reason) {
         const ros = rosterMap.get(c.teamId);

@@ -510,6 +510,12 @@
         // D-S8: Sleeper uses the same empty string for "healthy" and "not in this dump".
         // injuryCarried is true only when the dump actually sent a status (including Active).
         injury: rawInj, injuryCarried: rawInj !== "",
+        // Sleeper's ROSTER status ("Active", "Injured Reserve", "Physically Unable to Perform",
+        // "Non Football Injury", "Suspended", …), a separate field from injury_status. Read only
+        // by the IR rule (LG.irEligibleFor, 2026-09-23): a man on the NFL's own IR list whose
+        // injury_status the dump left empty read healthy, so a real IR stash was called illegal.
+        // Never fed to the injury report — adding it there would announce every IR player.
+        nflStatus: p.status == null ? "" : String(p.status).trim(),
         searchRank: p.search_rank != null ? p.search_rank : null,
         // ⭐ ITEM 31 (2026-08-09). The directory has carried these all along and nothing
         // read them. depth_chart_order is 1 = starter, 2 = backup, 3 = third string —
@@ -2990,16 +2996,25 @@
   // authoritative all-clear would silently erase a designation a roster import legitimately
   // carries for a player the dump does not describe. Non-empty-wins fixes the reported
   // direction (a designation the roster never heard about) without inventing the other.
-  function directoryInjury(key) {
-    if (!D.S.slpPlayers) return "";
+  function directoryMeta(key) {
+    if (!D.S.slpPlayers) return null;
     const k = String(key == null ? "" : key);
-    if (!k) return "";
+    if (!k) return null;
     let m = null;
     if (k.startsWith("dst_") || k.startsWith("slp_")) m = D.S.slpPlayers.get(k.slice(4));
     else if (D.S.slpByEspn) m = D.S.slpByEspn.get(k);
     if (!m) { const pid = D.pidForKey ? D.pidForKey(k) : null; if (pid != null) m = D.S.slpPlayers.get(pid); }
+    return m || null;
+  }
+  function directoryInjury(key) {
+    const m = directoryMeta(key);
     return (m && m.injury) || "";
   }
+  // Sleeper's roster status for a key ("" when unknown) — see fetchPlayerDirectory's nflStatus.
+  D.nflStatusFor = function (key) {
+    const m = directoryMeta(key);
+    return (m && m.nflStatus) || "";
+  };
   D.directoryInjury = directoryInjury; // test hook
   D.injuryFor = function (key, fallback) {
     const dir = directoryInjury(key);

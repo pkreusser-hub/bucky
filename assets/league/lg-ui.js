@@ -6568,8 +6568,8 @@
     const who = bad.map((p) => LG.shortName(p.name)).join(", ");
     return `<div class="card bad"><b>${esc(who)}</b> ${bad.length === 1 ? "is" : "are"} healthy but still
       on your IR. ${(opts && opts.here) ? "Move " + (bad.length === 1 ? "him" : "them") + " to your bench or drop "
-        + (bad.length === 1 ? "him" : "them") + "" : "Fix it on My Team"} — until then you can't add anyone,
-      win a waiver claim, or complete a trade.</div>`;
+        + (bad.length === 1 ? "him" : "them") + "" : "Fix it on My Team"} — until then you can't add a free agent
+      or complete a trade. Waiver claims still go in.</div>`;
   }
   function txSentence(tx) {
     const nm = (id) => (LG.teamById(id) || {}).name || ("Team " + id);
@@ -9096,7 +9096,7 @@
       // or ownership — there is no player on them to have any.
       if (slot === "BENCH" && cur) {
         const opts = starterSlotList().filter((s) => LG.slotEligible(cur.pos, s));
-        const irOk = ir.length < irMax && LG.irEligible(LG.injuryOf(cur)); /* 2026-09-02, D-S8: through LG.injuryOf (D.injuryFor), the ONE seam — these two read the live row DIRECTLY, and a live row exists only for players who have PLAYED, so the man this rule is about (Out, therefore never on a stat line) always read healthy here while doMove below, which does use the seam, correctly called him eligible: a button the locker refused to offer for a move the engine would have allowed. */
+        const irOk = ir.length < irMax && LG.irEligibleFor(cur); /* 2026-09-02, D-S8: through LG.injuryOf (D.injuryFor), the ONE seam — these two read the live row DIRECTLY, and a live row exists only for players who have PLAYED, so the man this rule is about (Out, therefore never on a stat line) always read healthy here while doMove below, which does use the seam, correctly called him eligible: a button the locker refused to offer for a move the engine would have allowed. */
         openRosterCard(`<div class="pccard rccard">
           <button type="button" class="pcclose" id="rcClose" aria-label="Close">✕</button>
           <div class="pchead"><h2 class="pcname">Move ${escn(cur.name)}</h2>
@@ -9121,7 +9121,7 @@
       // Swap button; the same answer belongs here. A disabled button fires no click, so the
       // `cands` indices the handler below reads stay aligned with what is rendered.
       let cands;
-      if (slot === "IR") cands = ros.filter((p) => p.slot !== "IR" && LG.irEligible(LG.injuryOf(p))); /* 2026-09-02, D-S8: through LG.injuryOf (D.injuryFor), the ONE seam — these two read the live row DIRECTLY, and a live row exists only for players who have PLAYED, so the man this rule is about (Out, therefore never on a stat line) always read healthy here while doMove below, which does use the seam, correctly called him eligible: a button the locker refused to offer for a move the engine would have allowed. */
+      if (slot === "IR") cands = ros.filter((p) => p.slot !== "IR" && LG.irEligibleFor(p)); /* 2026-09-02, D-S8: through LG.injuryOf (D.injuryFor), the ONE seam — these two read the live row DIRECTLY, and a live row exists only for players who have PLAYED, so the man this rule is about (Out, therefore never on a stat line) always read healthy here while doMove below, which does use the seam, correctly called him eligible: a button the locker refused to offer for a move the engine would have allowed. */
       else if (slot === "BENCH") cands = []; // bench taps: move the player somewhere else via their target slot instead
       else cands = ros.filter((p) => p !== cur && (p.slot === "BENCH" || p.slot === "IR") && LG.slotEligible(p.pos, slot));
       // A filled slot must be able to become Empty — bench the occupant and leave the
@@ -9192,7 +9192,7 @@
       // thing stopping a healthy man going on IR was that the "→ IR" button wasn't rendered
       // and he wasn't offered in the IR slot's candidate list — a UI gate, not a rule. Same
       // designation the locker displays and the same one LG.illegalIR judges by.
-      if (toSlot === "IR" && !LG.irEligible(LG.injuryOf(p))) {
+      if (toSlot === "IR" && !LG.irEligibleFor(p)) {
         toast(LG.shortName(p.name) + " isn't Out, Doubtful or on IR — only injured players can take an IR spot.");
         return;
       }

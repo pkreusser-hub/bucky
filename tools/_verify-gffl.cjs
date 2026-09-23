@@ -14557,8 +14557,11 @@ async function openDetails(page, id) {
         ok(r.add && r.add.ok === false && r.add.reason === "ir-illegal",
           "a free-agent ADD is refused while a healthy man sits on IR (" + JSON.stringify(r.add) + ")");
         ok((r.add.players || []).includes("H. Healed"), "…and the refusal NAMES him, so the fix is one tap away");
-        ok(r.claim && r.claim.ok === false && r.claim.reason === "ir-illegal",
-          "a waiver CLAIM is refused at submit for the same reason (" + JSON.stringify(r.claim) + ")");
+        // RESTAGED 2026-09-23 (user: "That should never stop a waiver claim"): a claim is no
+        // longer refused over the IR stash, at submit or at the run. Free-agent adds and trades
+        // still are (above / AP).
+        ok(r.claim && r.claim.ok === true,
+          "a waiver CLAIM still goes in with a healthy man on IR (" + JSON.stringify(r.claim) + ")");
         ok(!(r.names || []).includes("F. Agent") && (r.names || []).includes("T. Tight"),
           "…and neither refusal changed the roster (" + (r.names || []).join(", ") + ")");
         ok(errors.length === 0, "0 page errors on the refusals");
@@ -14590,8 +14593,10 @@ async function openDetails(page, id) {
           return { sub, mine };
         }, healthyOnIr()) || {};
         ok(r.sub && r.sub.ok === true, "a claim submitted while the IR stash is LEGAL is accepted");
-        ok(r.mine && r.mine.ok === false && r.mine.reason === "ir-illegal",
-          "…and still LOSES at processing once the stash has appeared — the submit check is not the only gate (" + JSON.stringify(r.mine) + ")");
+        // RESTAGED 2026-09-23 (user: "That should never stop a waiver claim"): the waiver run no
+        // longer judges the IR stash, so the claim WINS even though he got healthy mid-week.
+        ok(r.mine && r.mine.ok === true,
+          "…and WINS at processing even though the stash turned healthy mid-week — no IR gate on claims (" + JSON.stringify(r.mine) + ")");
         ok(errors.length === 0, "0 page errors on the late-stash claim");
         await ctx.close();
       }
@@ -14606,7 +14611,9 @@ async function openDetails(page, id) {
         const locker = ((await evalOr(page, () => document.body.textContent)) || "").replace(/\s+/g, " ");
         ok(/H\. Healed is healthy but still on your IR/.test(locker),
           "My Team warns, by name, that a healthy player is stashed (" + (locker.match(/[^.]*still on your IR[^.]*/) || [""])[0].slice(0, 90) + ")");
-        ok(/can't add anyone/.test(locker), "…and says plainly what it costs until it is fixed");
+        // RESTAGED 2026-09-23: the cost is free-agent adds and trades now; claims still go in.
+        ok(/can't add a free agent or complete a trade/.test(locker) && /Waiver claims still go in/.test(locker),
+          "…and says plainly what it costs until it is fixed — and that claims still go in");
         await evalOr(page, () => window.__GFFL__.UI.show("moves"));
         await waitFnOr(page, () => /Waivers/.test(document.body.textContent));
         // NORMALISE FIRST. The warning's template literal wraps across source lines, so its
@@ -14639,6 +14646,49 @@ async function openDetails(page, id) {
         ok(r.add && r.add.ok === true && r.has === true,
           "…and an ordinary free-agent add still goes through (" + JSON.stringify(r.add) + ")");
         ok(errors.length === 0, "0 page errors on the clean path");
+        await ctx.close();
+      }
+      // (h) 2026-09-23, user: "it says I have a player in IR that is healthy … my IR players
+      // are still on IR". Sleeper carries the NFL roster status ("Injured Reserve", …) in a
+      // field separate from injury_status, and a man on real IR can have the second empty.
+      // Either one saying he is out of action makes the stash legal (LG.irEligibleFor).
+      {
+        const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+        await seedRoster(page, healthyOnIr());
+        await bootReal(page);
+        await waitOr(page, ".mucard", 12000);
+        const r = await evalOr(page, async () => {
+          const { LG, D } = window.__GFFL__;
+          const ros = await LG.ensureRoster(1, 1);
+          const setStatus = (status) => {
+            const meta = { pid: "990111", name: "H. Healed", team: "KC", pos: "WR", espn_id: "990111",
+              injury: "", injuryCarried: false, nflStatus: status, searchRank: null, depth: null, depthPos: "" };
+            D.S.slpPlayers.set("990111", meta);
+            if (D.S.slpByEspn) D.S.slpByEspn.set("990111", meta);
+            D.bumpPidGen && D.bumpPidGen();
+          };
+          const out = {};
+          for (const st of ["Injured Reserve", "Physically Unable to Perform", "Non Football Injury", "Suspended", "Active", "Inactive", ""]) {
+            setStatus(st);
+            out[st || "(none)"] = LG.illegalIR(ros).map((p) => p.name);
+          }
+          setStatus("Injured Reserve");
+          const heal = ros.find((p) => p.name === "H. Healed");
+          const inj = LG.injuryOf(heal);
+          // The injury REPORT never reads nflStatus: the designation it diffs stays empty.
+          return { out, inj, eligible: LG.irEligibleFor(heal) };
+        }) || {};
+        ok(r.out && ["Injured Reserve", "Physically Unable to Perform", "Non Football Injury", "Suspended"].every((k) => JSON.stringify(r.out[k]) === "[]"),
+          "a man whose injury_status is empty but whose NFL status is IR / PUP / NFI / Suspended is a LEGAL stash (" + JSON.stringify(r.out) + ")");
+        ok(r.out && ["Active", "Inactive", "(none)"].every((k) => JSON.stringify(r.out[k]) === '["H. Healed"]'),
+          "…while Active, Inactive or no status at all still reads healthy — the rule is not switched off");
+        ok(r.eligible === true && r.inj === "", "…through one seam (LG.irEligibleFor), with the injury designation itself untouched (\"" + r.inj + "\") so the report does not announce every IR player");
+        // The locker offers "→ IR" for him too — it asks the same function.
+        await evalOr(page, () => window.__GFFL__.UI.show("team"));
+        await waitFnOr(page, () => !!document.querySelector(".lrow"));
+        const warn = ((await evalOr(page, () => document.body.textContent)) || "").replace(/\s+/g, " ");
+        ok(!/H\. Healed is healthy but still on your IR/.test(warn), "…and My Team no longer warns about him");
+        ok(errors.length === 0, "0 page errors on the NFL-status stash");
         await ctx.close();
       }
     }
