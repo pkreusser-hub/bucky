@@ -2345,3 +2345,54 @@ tools/_verify-movies.cjs` (**150/150**). Bite against `44abbcf` `books.html`
 failures are the spinner shown, the spinner gone, and the heading below the
 header. Each check measures geometry (`offsetParent`, the bounding box), not
 the `hidden` attribute.
+
+# Political / woke rating removed; every book card shows its Open Library score (2026-09-23)
+
+The family asked for the political / woke rating to go. It is removed, not
+hidden. That covers the meters on every card, the "How political" caps card,
+the evidence line in the sheet, the caps in the recommend ask, `action:"rate"`,
+`scorePolitics` and its phrase lists, and `recommendScore`, which was only
+kept for its cap arithmetic. The series rule and the LGBT rule stay in the
+recommend ask. Those are part of the request, not a score, and the family
+did not ask to remove them. Movies never had this rating. Its only "meter" is
+the Rotten Tomatoes Tomatometer.
+
+The card is now two columns, cover and text. The third column held the meters.
+
+The score was already on most of Dad's shelf cards, 124 of his 135. It was
+missing from every recommendation, every Already read row, the read list,
+and the 11 seed rows Open Library search missed. Those cards showed "No
+community rating yet", and the only score was the Goodreads number in the
+sheet. `books.mjs` has a new `action:"ratings"` that takes up to 12 titles.
+Each one goes to `search.json` by title and author, then to the work's
+`ratings.json` when search shows a 0 count or no average. We Are Legion is
+4.1053 from 19 that way, the same number as Dad's seed snapshot. The page
+asks for each card that has no score, in batches of ten with one batch out
+at a time, and paints the answer in place. A shelf or read-list row keeps
+the score and syncs it to the family copy. A pick saved to the read list
+brings its score along. A miss shows "No Open Library rating" and is not
+asked again for a week (`olTried`). A failed call is not a miss.
+
+The title has to match exactly after the subtitle, the series tag, and the
+leading article are removed, and the author's last name has to be on the
+doc. The first version allowed a prefix match, and the suite caught "The
+Hobbit Cookbook" lending its 3.1 to The Hobbit. A miss shows no score; a
+wrong match shows a wrong one.
+
+Fixed on the way: `communityScore` fell back to `rating` when a book had no
+community score. On a shelf row, `rating` is the reader's own stars, so Dad's
+5 stars on an unscored book painted as "5.00 from Open Library". Only a
+search hit carries the community score in `rating`, and only the hit card
+passes `isHit`.
+
+Open Library could not be reached from the sandbox that built this (the proxy
+refused the CONNECT). The fixtures use the documented `search.json` and
+`ratings.json` shapes: no `ratings_average` on an unrated work, and
+`summary.average` null with `count` 0.
+
+Suite: `node tools/_verify-books.cjs` (**184/184**). Bite against `ebaf55f`
+`books.html` + `books.mjs`: **159 passed, 25 failed**. The failures are the
+removed rating (exports, `rate`, the caps, the meters, the column), the
+lookup (matching, the ratings.json fallback, the misses, the 12 cap), the
+cards (a pick, a miss, one ask per title, the read list), and the 5-stars
+bug. `node tools/_verify-movies.cjs` still **150/150**.
