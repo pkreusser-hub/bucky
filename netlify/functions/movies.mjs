@@ -1,4 +1,4 @@
-// BUCKY — the family movie shelf: search what to add, and ask grok-4.7
+// BUCKY — the family movie shelf: search what to add, and ask Claude Opus 5.5
 // what to watch next from the movies the household already owns.
 //
 //   { secret, action:"search", q }
@@ -30,13 +30,19 @@
 //
 //   { secret, action:"recommend", shelf, interests }
 //     -> { movies:[{ title, director, summary, why }], model, error? }
-//     The whole owned list (title and the viewer's own stars) goes to grok-4.7
-//     at low effort. A leading keepalive byte keeps the edge from 504ing a
-//     silent call at 30s. Reasoning tokens bill against max_tokens, so the
-//     budget is 6000. The JSON is the last line.
+//     The whole owned list (title and the viewer's own stars) goes to
+//     Claude Opus 5.5 at effort "low" (grok-4.7 until 2026-09-22). A leading
+//     keepalive byte keeps the edge from 504ing a silent call at 30s.
+//     Thinking bills against max_tokens, so the budget is 16000. The JSON is
+//     the last line. A long owned list runs as movies-recommend-background.
+//
+//   { secret, action:"recommend-result", jobId }
+//     -> { pending:true } until the background job writes movies_rec_jobs/{jobId}
 //
 // Required env: BUCKY_NOTIFY_SECRET
-// Optional: MOVIES_WIKI_BASE, MOVIES_ENWIKI_BASE, MOVIES_RT_BASE, MOVIES_XAI_BASE, XAI_BASE_URL, XAI_API_KEY, MOVIES_GROK_MODEL
+// Optional: MOVIES_WIKI_BASE, MOVIES_ENWIKI_BASE, MOVIES_RT_BASE, MOVIES_ANTHROPIC_BASE,
+//   ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY, MOVIES_RECOMMEND_MODEL,
+//   FIREBASE_SERVICE_ACCOUNT (the background job), MOVIES_FIRESTORE_BASE, MOVIES_GOOGLE_TOKEN_URL
 
 const ALLOWED_ORIGINS = new Set([
   "https://amenfarms.netlify.app",
@@ -72,10 +78,19 @@ const MAX_Q = 80;
 const MAX_RESULTS = 8;
 const MAX_SHELF = 200;
 const MAX_INTERESTS = 12;
-const GROK_TIMEOUT_MS = 50000;
-const GROK_MODEL = process.env.MOVIES_GROK_MODEL || "grok-4.7";
+const RECOMMEND_TIMEOUT_MS = 50000;
+// The background job has minutes. Bookshelf's 135-title shelf needed 95s on
+// grok-4.7 after its 50s abort fired; the owned list here is 158 titles.
+const RECOMMEND_JOB_TIMEOUT_MS = 180000;
+// Recommend moved from grok-4.7 to Claude Opus 5.5 on 2026-09-22.
+const RECOMMEND_MODEL = "claude-opus-5-5";
+const RECOMMEND_EFFORT = "low";
 const KEEPALIVE_MS = 8000;
-const GROK_MAX_TOKENS = 6000;
+// Opus 5.5 thinking bills against max_tokens; ten picks are ~1500 tokens.
+const RECOMMEND_MAX_TOKENS = 16000;
+const JOB_COLLECTION = "movies_rec_jobs";
+const JOB_ID = /^[a-z0-9]{6,40}$/i;
+const FIRESTORE_DOC_BASE = "projects/amen-farms-app/databases/(default)/documents";
 
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://amenfarms.netlify.app";
@@ -615,7 +630,7 @@ export function buildRecommendPrompt(shelf, extras) {
   );
 }
 
-export function parseGrokRecs(text, shelf, blocked) {
+export function parseRecs(text, shelf, blocked) {
   const raw = String(text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   let parsed;
   try { parsed = JSON.parse(raw); } catch {
@@ -647,34 +662,39 @@ export function parseGrokRecs(text, shelf, blocked) {
   return out;
 }
 
-async function callGrokRecommend(prompt) {
-  const key = process.env.XAI_API_KEY || "";
-  const base = (process.env.MOVIES_XAI_BASE || process.env.XAI_BASE_URL || "https://api.x.ai").replace(/\/$/, "");
-  const model = process.env.MOVIES_GROK_MODEL || GROK_MODEL;
+// The Anthropic Messages API, raw fetch like farmgpt.mjs. Same request as
+// books.mjs: Opus 5.5 at low effort, no temperature (400 on this model),
+// thinking billed inside max_tokens, reply read by block type, and a refusal
+// reported as a failure rather than an empty list.
+async function callClaudeRecommend(prompt, timeoutMs) {
+  const key = process.env.ANTHROPIC_API_KEY || "";
+  const base = (process.env.MOVIES_ANTHROPIC_BASE || process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/$/, "");
+  const model = process.env.MOVIES_RECOMMEND_MODEL || RECOMMEND_MODEL;
   if (!key) return { ok: false, reason: "no-key", text: "", model };
   const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), GROK_TIMEOUT_MS);
+  const t = setTimeout(() => ac.abort(), timeoutMs || RECOMMEND_TIMEOUT_MS);
   try {
-    const r = await fetch(base + "/v1/chat/completions", {
+    const r = await fetch(base + "/v1/messages", {
       method: "POST",
       signal: ac.signal,
-      headers: { authorization: "Bearer " + key, "content-type": "application/json", "User-Agent": UA },
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model,
-        messages: [
-          { role: "system", content: "You recommend movies this household does not already own. Reply with JSON only." },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.4,
-        max_tokens: GROK_MAX_TOKENS,
-        reasoning_effort: "low",
+        max_tokens: RECOMMEND_MAX_TOKENS,
+        system: "You recommend movies this household does not already own. Reply with JSON only.",
+        messages: [{ role: "user", content: prompt }],
+        output_config: { effort: RECOMMEND_EFFORT },
       }),
     });
     if (!r.ok) return { ok: false, reason: "http-" + r.status, text: "", model };
     const j = await r.json();
-    const text = j && j.choices && j.choices[0] && j.choices[0].message ? String(j.choices[0].message.content || "") : "";
-    if (!text.trim()) return { ok: false, reason: "empty", text: "", model };
-    return { ok: true, reason: "", text, model };
+    if (j && j.stop_reason === "refusal") return { ok: false, reason: "refusal", text: "", model };
+    const text = (Array.isArray(j && j.content) ? j.content : [])
+      .filter((b) => b && b.type === "text")
+      .map((b) => String(b.text || ""))
+      .join("");
+    if (!text.trim()) return { ok: false, reason: j && j.stop_reason === "max_tokens" ? "max-tokens" : "empty", text: "", model };
+    return { ok: true, reason: "", text, model: (j && j.model) || model };
   } catch (e) {
     return { ok: false, reason: e && e.name === "AbortError" ? "timeout" : "unreachable", text: "", model };
   } finally {
@@ -682,7 +702,7 @@ async function callGrokRecommend(prompt) {
   }
 }
 
-async function recommend(body) {
+async function recommend(body, timeoutMs) {
   const shelf = sanitizeShelf(body.shelf);
   const interests = [];
   for (const i of (Array.isArray(body.interests) ? body.interests : [])) {
@@ -694,16 +714,99 @@ async function recommend(body) {
   const watched = sanitizePassed(body.watched);
   const watchlist = sanitizePassed(body.watchlist);
   const prompt = buildRecommendPrompt(shelf, { interests, skipped, watched, watchlist });
-  const got = await callGrokRecommend(prompt);
+  const got = await callClaudeRecommend(prompt, timeoutMs || RECOMMEND_TIMEOUT_MS);
   if (!got.ok) {
     return {
       movies: [],
       model: got.model,
-      error: got.reason === "no-key" ? "Recommendations need a Grok key." : "Could not recommend right now.",
+      error: got.reason === "no-key" ? "Recommendations need an Anthropic key." : "Could not recommend right now.",
       reason: got.reason,
     };
   }
-  return { movies: parseGrokRecs(got.text, shelf, skipped.concat(watched, watchlist)), model: got.model };
+  return { movies: parseRecs(got.text, shelf, skipped.concat(watched, watchlist)), model: got.model };
+}
+
+// The owned list (158 titles) is past the length where Bookshelf's
+// synchronous call was cut off at 30-40s with only keepalive spaces. The
+// background function runs this and the page polls recommend-result. Same
+// shape as the Bookshelf job: one Firestore document, string payload.
+let cachedGoogleToken = null;
+
+function base64url(input) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function getGoogleAccessToken() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) return null;
+  if (cachedGoogleToken && Date.now() < cachedGoogleToken.exp - 60000) return cachedGoogleToken.token;
+  const sa = JSON.parse(raw);
+  const crypto = await import("node:crypto");
+  const nowSec = Math.floor(Date.now() / 1000);
+  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = base64url(JSON.stringify({
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/datastore",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: nowSec,
+    exp: nowSec + 3600,
+  }));
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(header + "." + claims);
+  const jwt = header + "." + claims + "." + base64url(signer.sign(sa.private_key));
+  const tokenUrl = process.env.MOVIES_GOOGLE_TOKEN_URL || "https://oauth2.googleapis.com/token";
+  const resp = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }),
+  });
+  if (!resp.ok) return null;
+  const j = await resp.json();
+  cachedGoogleToken = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  return cachedGoogleToken.token;
+}
+
+function firestoreRoot() {
+  return process.env.MOVIES_FIRESTORE_BASE || `https://firestore.googleapis.com/v1/${FIRESTORE_DOC_BASE}`;
+}
+
+export async function runRecommendJob(body) {
+  if (!body || body.secret !== process.env.BUCKY_NOTIFY_SECRET) return;
+  const jobId = typeof body.jobId === "string" && JOB_ID.test(body.jobId) ? body.jobId : null;
+  if (!jobId) return;
+  let res;
+  try { res = await recommend(body, RECOMMEND_JOB_TIMEOUT_MS); }
+  catch { res = { movies: [], error: "Could not recommend right now.", reason: "handler" }; }
+  try {
+    const token = await getGoogleAccessToken();
+    if (!token) return;
+    const fields = {
+      status: { stringValue: "done" },
+      payload: { stringValue: JSON.stringify(res) },
+    };
+    await fetch(`${firestoreRoot()}:commit`, {
+      method: "POST",
+      headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      body: JSON.stringify({
+        writes: [{ update: { name: `${FIRESTORE_DOC_BASE}/${JOB_COLLECTION}/${jobId}`, fields } }],
+      }),
+    });
+  } catch { /* the page's poll times out with the same failure line */ }
+}
+
+async function readRecommendJob(jobId) {
+  const token = await getGoogleAccessToken();
+  if (!token) return { error: "Could not recommend right now.", reason: "no-store" };
+  const r = await fetch(`${firestoreRoot()}/${JOB_COLLECTION}/${jobId}`, {
+    headers: { authorization: "Bearer " + token },
+  });
+  if (!r.ok) return { pending: true };
+  const j = await r.json().catch(() => null);
+  const payload = j && j.fields && j.fields.payload && j.fields.payload.stringValue;
+  if (!payload) return { pending: true };
+  try { return JSON.parse(payload); }
+  catch { return { error: "Could not recommend right now.", reason: "bad-job" }; }
 }
 
 export default async (req) => {
@@ -731,5 +834,10 @@ export default async (req) => {
   if (action === "recommend") {
     return recommendStream(recommend(body), headers);
   }
-  return json({ error: 'action must be "search", "detail", or "recommend"' }, 400, headers);
+  if (action === "recommend-result") {
+    const jobId = typeof body.jobId === "string" && JOB_ID.test(body.jobId) ? body.jobId : "";
+    if (!jobId) return json({ error: "jobId required" }, 400, headers);
+    return json(await readRecommendJob(jobId), 200, headers);
+  }
+  return json({ error: 'action must be "search", "detail", "recommend", or "recommend-result"' }, 400, headers);
 };

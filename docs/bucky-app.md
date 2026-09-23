@@ -2276,3 +2276,72 @@ A live run of the 135-title shelf with that longer wait returned 10 picks in 95s
 
 Suite: `node tools/_verify-books.cjs` (**181/181**). Bite against `aeaac0a` `books.html` + `books.mjs`: **179 passed, 2 failed** — the 180s job wait, and the three-minute poll.
 ---
+
+# Bookshelf and Movies recommend on Claude Opus 5.5; Movies gets the background job (2026-09-23)
+
+Recommend on both pages now calls Claude Opus 5.5 (`claude-opus-5-5`) on the
+Anthropic Messages API. It used to call grok-4.7. The key is
+`ANTHROPIC_API_KEY`, the same Netlify variable FarmGPT already reads, and
+`XAI_API_KEY` is no longer read by either function. The prompt, the ten
+picks, the series rule, and the LGBT rule are unchanged.
+
+The request is not the Grok request with a new model name. Opus 5.5 always
+thinks, and `output_config.effort` is the only dial. Its default is medium,
+so the call asks for `low`. It answers 400 to `temperature` and to disabled
+thinking, so neither is sent. Thinking bills against `max_tokens`, so the
+budget is 16000, not 6000. The reply starts with a thinking block, and the
+picks are read from the `text` blocks. A refusal comes back as HTTP 200 with
+`stop_reason: "refusal"` and no text. That is `reason: "refusal"` and the
+failure line, not an empty list of picks. The suites' fake server answers
+the same way, including the 400s, so a request carrying the Grok parameters
+fails there.
+
+Movies had no background path. The owned list is 158 titles, longer than
+Dad's 135-title shelf that the synchronous call could not finish, and
+`movies.html` read the cut-off stream as `{}`, so the page said "No picks
+came back." A list of 80 or more now starts `movies-recommend-background`,
+which writes `movies_rec_jobs/{id}` in Firestore, and the page polls
+`recommend-result`. A shorter list still tries the synchronous call and
+falls back to the job when that reply is cut off. A dropped poll is retried
+instead of ending the wait.
+
+Both pages remember whose recommend is running. When the chip changes
+before the picks come back, the picks are not painted under the other
+person.
+
+Not measured live: nobody has timed Opus 5.5 at low effort on Dad's shelf or
+the owned list yet. The 180s job wait and the 200s poll are kept from the
+Grok numbers.
+
+Suite: `node tools/_verify-books.cjs` (**185/185**). Bite against `5157c62`
+`books.html` + `books.mjs`: **164 passed, 21 failed**. The failures are the
+request shape, the refusal, the missing key, the source checks, the Claude
+credit, and the chip guard. The picks and list checks that go through the
+fake also fail, because the old function called xAI. `node
+tools/_verify-movies.cjs` (**147/147**). Bite against `5157c62`
+`movies.html` + `movies.mjs`, with the background function removed: **130
+passed, 17 failed**. That covers the same request split, the job and its
+poll, the cut-off reply, and the background path for the owned list.
+
+# A spinner while Recommend runs, and the picks heading no longer hides under the header (2026-09-23)
+
+Recommend can take one to three minutes, and the only sign it was still
+working was one line of text. The Recommend button now has a spinner and a
+running m:ss beside it on Bookshelf and Movies. Both go away when the picks,
+or a failure, come back, including the switch-person path that drops the
+picks. With reduced motion, the spinner turns at a third of the speed.
+
+The Recommend click scrolls the picks card to the top. The page header is
+sticky, so on a phone that scroll left "Next to read" and "Next to watch"
+under the header. The first fix measured `#bar`, but the sticky box is the
+whole `<header>`, which also holds the subtitle, and that header was still
+covering the heading. The card now gets a scroll margin equal to the measured
+`<header>` height plus 8px. The Bookshelf subtitle wraps to two lines on a
+phone, so the height is measured, not hard-coded.
+
+Suite: `node tools/_verify-books.cjs` (**188/188**). `node
+tools/_verify-movies.cjs` (**150/150**). Bite against `44abbcf` `books.html`
++ `movies.html`: **185 passed, 3 failed** and **147 passed, 3 failed**. The
+failures are the spinner shown, the spinner gone, and the heading below the
+header. Each check measures geometry (`offsetParent`, the bounding box), not
+the `hidden` attribute.

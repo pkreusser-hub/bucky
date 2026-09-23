@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 /**
- * BUCKY Movies suite — owned library, Wikidata search, Grok recommendations.
+ * BUCKY Movies suite — owned library, Wikidata search, Claude recommendations.
  *
  *   node tools/_verify-movies.cjs
  *
@@ -14,6 +14,7 @@
  */
 
 const fs = require("fs");
+const crypto = require("crypto");
 const path = require("path");
 const http = require("http");
 const puppeteer = require("puppeteer-core");
@@ -21,12 +22,12 @@ const puppeteer = require("puppeteer-core");
 const ROOT = path.join(__dirname, "..");
 const SECRET = "amenfarms";
 const WIKI_PORT = 8905;
-const XAI_PORT = 8906;
+const CLAUDE_PORT = 8906;
 const RT_PORT = 8907;
 const STATIC_PORT = 8904;
 const BASE = "http://127.0.0.1:" + STATIC_PORT;
 
-const GROK_JSON = JSON.stringify({
+const REC_JSON = JSON.stringify({
   movies: [
     { title: "The Iron Giant", director: "Brad Bird", summary: "A boy hides a giant robot from the army.", why: "Fits the family animation already owned." },
     { title: "Paddington 2", director: "Paul King", summary: "A bear goes to prison for a theft he did not commit.", why: "Warm family comedy beside the ones they own." },
@@ -46,7 +47,8 @@ function ok(cond, name) {
 }
 
 let wikiCalls = [];
-let xaiCalls = [];
+let claudeCalls = [];
+let claudeMode = "ok";
 let rtCalls = [];
 let wiki429Left = 0;
 
@@ -220,7 +222,7 @@ function serveRt() {
   });
 }
 
-function serveXAI() {
+function serveClaude() {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
       let raw = "";
@@ -228,12 +230,36 @@ function serveXAI() {
       req.on("end", () => {
         let body = {};
         try { body = JSON.parse(raw || "{}"); } catch (e) { body = {}; }
-        xaiCalls.push({ url: req.url, body });
+        claudeCalls.push({ url: req.url, body, headers: req.headers });
         res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: GROK_JSON } }] }));
+        const bad = (msg) => {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: msg } }));
+        };
+        if (req.url !== "/v1/messages") return bad("not found");
+        if (!req.headers["x-api-key"] || !req.headers["anthropic-version"]) return bad("missing auth or version header");
+        if (body.temperature !== undefined || body.top_p !== undefined) return bad("temperature is not supported for this model");
+        if (body.thinking && body.thinking.type !== "adaptive") return bad('"thinking.type.' + body.thinking.type + '" is not supported for this model.');
+        if (body.reasoning_effort !== undefined) return bad("reasoning_effort: Extra inputs are not permitted");
+        if (claudeMode === "refusal") {
+          return res.end(JSON.stringify({
+            id: "msg_ref", type: "message", role: "assistant", model: body.model, content: [],
+            stop_reason: "refusal", stop_details: { type: "refusal", category: "cyber", explanation: "declined" },
+            usage: { input_tokens: 900, output_tokens: 0 },
+          }));
+        }
+        res.end(JSON.stringify({
+          id: "msg_ok", type: "message", role: "assistant", model: body.model,
+          content: [
+            { type: "thinking", thinking: "", signature: "sig" },
+            { type: "text", text: REC_JSON },
+          ],
+          stop_reason: "end_turn", stop_details: null,
+          usage: { input_tokens: 900, output_tokens: 700 },
+        }));
       });
     });
-    srv.listen(XAI_PORT, "127.0.0.1", () => resolve(srv));
+    srv.listen(CLAUDE_PORT, "127.0.0.1", () => resolve(srv));
   });
 }
 
@@ -259,15 +285,21 @@ async function sectionServer() {
   process.env.MOVIES_WIKI_BASE = "http://127.0.0.1:" + WIKI_PORT;
   process.env.MOVIES_ENWIKI_BASE = "http://127.0.0.1:" + WIKI_PORT;
   process.env.MOVIES_RT_BASE = "http://127.0.0.1:" + RT_PORT;
-  process.env.MOVIES_XAI_BASE = "http://127.0.0.1:" + XAI_PORT;
-  process.env.XAI_API_KEY = "test-xai";
-  process.env.MOVIES_GROK_MODEL = "grok-4.7";
+  // MOVIES_ANTHROPIC_BASE wins over ANTHROPIC_BASE_URL, which can be set in
+  // the shell running this suite. The real key is never read here.
+  process.env.MOVIES_ANTHROPIC_BASE = "http://127.0.0.1:" + CLAUDE_PORT;
+  process.env.ANTHROPIC_API_KEY = "test-anthropic";
+  delete process.env.MOVIES_RECOMMEND_MODEL;
 
-  const mod = await import("file://" + path.join(ROOT, "netlify", "functions", "movies.mjs").replace(/\\/g, "/"));
+  // parseGrokRecs was renamed parseRecs when recommend moved to Claude. The
+  // old name is accepted so a run against the Grok-era function still reaches
+  // the request checks instead of stopping at a missing export.
+  const modNs = await import("file://" + path.join(ROOT, "netlify", "functions", "movies.mjs").replace(/\\/g, "/"));
+  const mod = Object.assign({}, modNs, { parseRecs: modNs.parseRecs || modNs.parseGrokRecs });
   const handler = mod.default;
   ok(typeof handler === "function", "movies.mjs exports a handler");
-  ok(typeof mod.buildRecommendPrompt === "function" && typeof mod.parseGrokRecs === "function" && typeof mod.sanitizeShelf === "function",
-    "the Grok prompt and parser are exported");
+  ok(typeof mod.buildRecommendPrompt === "function" && typeof mod.parseRecs === "function" && typeof mod.sanitizeShelf === "function",
+    "the recommend prompt and parser are exported");
   ok(typeof mod.mapWikiFilm === "function", "mapWikiFilm is exported");
 
   // iTunes media=movie returned resultCount 0 (measured 2026-09-21). Wikidata
@@ -298,7 +330,7 @@ async function sectionServer() {
   const noAct = await callHandler(handler, { secret: SECRET, action: "explode" });
   ok(noAct.status === 400, "unknown action is 400");
 
-  const canPrompt = typeof mod.buildRecommendPrompt === "function" && typeof mod.sanitizeShelf === "function" && typeof mod.parseGrokRecs === "function";
+  const canPrompt = typeof mod.buildRecommendPrompt === "function" && typeof mod.sanitizeShelf === "function" && typeof mod.parseRecs === "function";
   let prompt41 = "";
   let ratedZero = "";
   let parsed = [];
@@ -310,16 +342,16 @@ async function sectionServer() {
       { title: "Zero", rating: 0 },
       { title: "Blank", rating: null },
     ]), {});
-    parsed = mod.parseGrokRecs(GROK_JSON, [{ title: "Toy Story" }]);
+    parsed = mod.parseRecs(REC_JSON, [{ title: "Toy Story" }]);
   }
   ok(/Movie 41 — unrated/.test(prompt41) && /Movie 1 — 5\/5/.test(prompt41),
-    "the Grok prompt keeps the 41st owned movie and a 5-star rating");
+    "the recommend prompt keeps the 41st owned movie and a 5-star rating");
   ok(/Zero — 0\/5/.test(ratedZero) && /Blank — unrated/.test(ratedZero),
     "a real 0-star stays 0/5; a missing star stays unrated (Number(null) is 0)");
   ok(/Interests they named: family/.test(prompt41), "the prompt names the interest");
   ok(parsed.length === 5 && parsed[0].title === "The Iron Giant" && parsed.every((m) => m.title !== "Toy Story"),
-    "parseGrokRecs keeps five picks and drops a title already owned");
-  const passed = mod.parseGrokRecs(GROK_JSON, [{ title: "Toy Story" }], [
+    "parseRecs keeps five picks and drops a title already owned");
+  const passed = mod.parseRecs(REC_JSON, [{ title: "Toy Story" }], [
     { title: "Paddington 2" },
     { title: "Luca" },
   ]);
@@ -329,14 +361,14 @@ async function sectionServer() {
   });
   ok(/NOT INTERESTED/.test(passedPrompt) && /Paddington 2 — Paul King/.test(passedPrompt)
     && /ALREADY WATCHED/.test(passedPrompt) && /The Iron Giant — Brad Bird/.test(passedPrompt),
-    "the Grok prompt names movies already watched and movies the viewer is not interested in");
+    "the recommend prompt names movies already watched and movies the viewer is not interested in");
   ok(passed.length === 3 && passed[0].title === "The Iron Giant"
     && passed.every((m) => m.title !== "Paddington 2" && m.title !== "Luca" && m.title !== "Toy Story"),
-    "parseGrokRecs drops a not-interested title and an already-watched title");
+    "parseRecs drops a not-interested title and an already-watched title");
   const watchPrompt = mod.buildRecommendPrompt(mod.sanitizeShelf([{ title: "Toy Story", rating: 5 }]), {
     watchlist: [{ title: "The Sandlot 2", director: "David Mickey Evans" }],
   });
-  const watchParsed = mod.parseGrokRecs(GROK_JSON, [{ title: "Toy Story" }], [
+  const watchParsed = mod.parseRecs(REC_JSON, [{ title: "Toy Story" }], [
     { title: "The Sandlot 2", director: "David Mickey Evans" },
   ]);
   const watchCapped = [];
@@ -344,23 +376,23 @@ async function sectionServer() {
   const watchCapPrompt = mod.buildRecommendPrompt(mod.sanitizeShelf([]), { watchlist: watchCapped });
   ok(/WATCH LIST \(do not recommend these\)/.test(watchPrompt) && /The Sandlot 2 — David Mickey Evans/.test(watchPrompt)
     && /not on the watch list/.test(watchPrompt),
-    "the Grok prompt names a saved watch-list movie");
+    "the recommend prompt names a saved watch-list movie");
   ok(!/WATCH LIST/.test(passedPrompt),
     "an empty watch list does not add a watch-list block");
   ok(watchParsed.length === 4 && watchParsed.every((m) => m.title !== "The Sandlot 2" && m.title !== "Toy Story"),
-    "parseGrokRecs drops a watch-list title even when Grok returns it");
+    "parseRecs drops a watch-list title even when the model returns it");
   ok(/Watch 0 — Dir/.test(watchCapPrompt) && !/Watch 80 — Dir/.test(watchCapPrompt),
-    "the watch list sent to Grok stops at 80");
+    "the watch list sent to the model stops at 80");
   ok(/Recommend exactly 10 movies they do NOT already own\./.test(ratedZero)
     && /Recommend exactly 10 movies they do NOT already own, have not already watched, and are not in the not-interested list\./.test(passedPrompt)
     && /Recommend exactly 10 movies they do NOT already own, have not already watched, are not in the not-interested list, and are not on the watch list\./.test(watchPrompt),
     "every recommend ask asks for exactly 10 movies");
   const dozenMovies = [];
   for (let i = 1; i <= 12; i++) dozenMovies.push({ title: "Pick " + i, director: "Director " + i, summary: "A summary.", why: "A why." });
-  const dozenParsed = mod.parseGrokRecs(JSON.stringify({ movies: dozenMovies }), []);
+  const dozenParsed = mod.parseRecs(JSON.stringify({ movies: dozenMovies }), []);
   ok(dozenParsed.length === 10 && dozenParsed[0].title === "Pick 1" && dozenParsed[9].title === "Pick 10"
     && dozenParsed.every((m) => m.title !== "Pick 11" && m.title !== "Pick 12"),
-    "parseGrokRecs keeps ten picks and drops the eleventh and twelfth");
+    "parseRecs keeps ten picks and drops the eleventh and twelfth");
   ok(parsed[0] && parsed[0].summary.indexOf("robot") >= 0 && parsed[0].why.indexOf("animation") >= 0 && parsed[0].director === "Brad Bird",
     "each pick carries a director, a summary, and a why");
 
@@ -461,7 +493,7 @@ async function sectionServer() {
   ok((toySearchBody.movies || []).some((m) => m.title === "Toy Story") && !(toySearchBody.movies || []).some((m) => /series/.test(m.description || "")),
     "search keeps the Toy Story film and drops the film series");
 
-  xaiCalls = [];
+  claudeCalls = [];
   const shelf = [{ title: "Toy Story", rating: 5 }];
   for (let i = 2; i <= 41; i++) shelf.push({ title: "Movie " + i, rating: null });
   const rec = await callHandler(handler, { secret: SECRET, action: "recommend", shelf: shelf, interests: ["family"] });
@@ -470,17 +502,21 @@ async function sectionServer() {
   ok(rec.status === 200, "recommend returns 200");
   ok(/^\s/.test(recText) && recText.indexOf("\n{") >= 0,
     "recommend sends a keepalive byte before the JSON");
-  const grokReq = xaiCalls[0] && xaiCalls[0].body;
-  ok(!!grokReq && grokReq.model === "grok-4.7" && grokReq.reasoning_effort === "low" && grokReq.max_tokens === 6000,
-    "recommend asks grok-4.7 at low effort with 6000 tokens");
-  const grokUser = grokReq && grokReq.messages && grokReq.messages.find((m) => m.role === "user");
-  ok(grokUser && /Toy Story — 5\/5/.test(grokUser.content) && /Movie 41 — unrated/.test(grokUser.content),
-    "the Grok turn includes the whole owned list and the viewer's stars");
+  const recReq = claudeCalls[0] && claudeCalls[0].body;
+  // Restaged 2026-09-22: recommend moved from grok-4.7 (reasoning_effort
+  // "low", 6000 tokens, /v1/chat/completions) to Claude Opus 5.5.
+  ok(!!recReq && claudeCalls[0].url === "/v1/messages" && recReq.model === "claude-opus-5-5"
+    && recReq.output_config && recReq.output_config.effort === "low" && recReq.max_tokens === 16000
+    && recReq.temperature === undefined && typeof recReq.system === "string",
+    "recommend asks Claude Opus 5.5 at low effort with 16000 tokens and no temperature");
+  const recUser = recReq && recReq.messages && recReq.messages.find((m) => m.role === "user");
+  ok(recUser && /Toy Story — 5\/5/.test(recUser.content) && /Movie 41 — unrated/.test(recUser.content),
+    "the user turn includes the whole owned list and the viewer's stars");
   ok((recBody.movies || []).length === 5 && recBody.movies[0].title === "The Iron Giant",
-    "recommend returns the five Grok picks");
+    "recommend returns the five picks from the text block, past the thinking block");
   ok(!(recBody.movies || []).some((m) => m.title === "Toy Story"), "recommend does not repeat an owned title");
 
-  xaiCalls = [];
+  claudeCalls = [];
   const skipRec = await callHandler(handler, {
     secret: SECRET,
     action: "recommend",
@@ -489,15 +525,15 @@ async function sectionServer() {
     watched: [{ title: "Luca", director: "Enrico Casarosa" }],
   });
   const skipBody = readKeptJson(await skipRec.text());
-  const skipUser = xaiCalls[0] && xaiCalls[0].body && xaiCalls[0].body.messages.find((m) => m.role === "user");
+  const skipUser = claudeCalls[0] && claudeCalls[0].body && claudeCalls[0].body.messages.find((m) => m.role === "user");
   ok(skipUser && /NOT INTERESTED/.test(skipUser.content) && /Paddington 2/.test(skipUser.content)
     && /ALREADY WATCHED/.test(skipUser.content) && /Luca/.test(skipUser.content),
-    "recommend tells Grok which movies were passed on");
+    "recommend tells the model which movies were passed on");
   ok(!(skipBody.movies || []).some((m) => m.title === "Paddington 2" || m.title === "Luca")
     && (skipBody.movies || []).some((m) => m.title === "The Iron Giant"),
-    "a passed movie is left out of the picks Grok sent back");
+    "a passed movie is left out of the picks the model sent back");
 
-  xaiCalls = [];
+  claudeCalls = [];
   const watchRec = await callHandler(handler, {
     secret: SECRET,
     action: "recommend",
@@ -505,26 +541,112 @@ async function sectionServer() {
     watchlist: [{ title: "The Sandlot 2", director: "David Mickey Evans" }],
   });
   const watchBody = readKeptJson(await watchRec.text());
-  const watchUser = xaiCalls[0] && xaiCalls[0].body && xaiCalls[0].body.messages.find((m) => m.role === "user");
+  const watchUser = claudeCalls[0] && claudeCalls[0].body && claudeCalls[0].body.messages.find((m) => m.role === "user");
   ok(watchUser && /WATCH LIST/.test(watchUser.content) && /The Sandlot 2/.test(watchUser.content)
     && !/NOT INTERESTED/.test(watchUser.content),
-    "recommend tells Grok which movies are on the watch list");
+    "recommend tells the model which movies are on the watch list");
   ok(!(watchBody.movies || []).some((m) => m.title === "The Sandlot 2")
     && (watchBody.movies || []).some((m) => m.title === "The Iron Giant"),
-    "a watch-list movie is left out of the picks Grok sent back");
+    "a watch-list movie is left out of the picks the model sent back");
 
-  const savedKey = process.env.XAI_API_KEY;
-  delete process.env.XAI_API_KEY;
+  claudeMode = "refusal";
+  const refused = await callHandler(handler, { secret: SECRET, action: "recommend", shelf: [{ title: "Toy Story", rating: 5 }] });
+  const refusedBody = readKeptJson(await refused.text());
+  claudeMode = "ok";
+  ok(refused.status === 200 && (refusedBody.movies || []).length === 0 && refusedBody.reason === "refusal"
+    && refusedBody.error === "Could not recommend right now.",
+    "a refusal (HTTP 200, stop_reason refusal, no text) is a failure line, not an empty list of picks");
+
+  // The owned list is 158 titles; the synchronous call is cut off before
+  // that finishes (Bookshelf measured it on 135). The background job writes
+  // the picks to Firestore and the page polls recommend-result.
+  {
+    const hasJob = typeof mod.runRecommendJob === "function";
+    if (!hasJob) {
+      ok(false, "a movie recommend job that has not finished stays pending");
+      ok(false, "the whole owned list's recommend is saved for the page to poll");
+    } else {
+      const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+      const pem = privateKey.export({ type: "pkcs8", format: "pem" });
+      const docBase = "projects/amen-farms-app/databases/(default)/documents";
+      const store = new Map();
+      const readReq = (req) => new Promise((resolve) => {
+        let raw = "";
+        req.on("data", (c) => { raw += c; });
+        req.on("end", () => resolve(raw));
+      });
+      const tokenSrv = http.createServer(async (req, res) => {
+        await readReq(req);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ access_token: "t", expires_in: 3600 }));
+      });
+      const fsSrv = http.createServer(async (req, res) => {
+        const raw = await readReq(req);
+        const send = (code, obj) => {
+          res.writeHead(code, { "content-type": "application/json" });
+          res.end(JSON.stringify(obj));
+        };
+        if (req.url.indexOf(":commit") >= 0) {
+          try {
+            for (const w of (JSON.parse(raw).writes || [])) {
+              if (w.update && w.update.fields) store.set(w.update.name, w.update.fields);
+            }
+          } catch (e) { /* the assertion below is the failure */ }
+          return send(200, {});
+        }
+        if (req.method === "GET") {
+          const rel = req.url.split("?")[0].replace(/^.*documents\//, "");
+          const full = docBase + "/" + rel;
+          if (store.has(full)) return send(200, { name: full, fields: store.get(full) });
+          return send(404, { error: { code: 404 } });
+        }
+        return send(200, {});
+      });
+      await new Promise((resolve) => tokenSrv.listen(0, "127.0.0.1", resolve));
+      await new Promise((resolve) => fsSrv.listen(0, "127.0.0.1", resolve));
+      process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({ client_email: "t@t.iam.gserviceaccount.com", private_key: pem });
+      process.env.MOVIES_GOOGLE_TOKEN_URL = "http://127.0.0.1:" + tokenSrv.address().port + "/t";
+      process.env.MOVIES_FIRESTORE_BASE = "http://127.0.0.1:" + fsSrv.address().port + "/v1/" + docBase;
+      const pending = await callHandler(handler, { secret: SECRET, action: "recommend-result", jobId: "movjob01" });
+      const pendingBody = await pending.json();
+      ok(pending.status === 200 && pendingBody.pending === true,
+        "a movie recommend job that has not finished stays pending");
+      await mod.runRecommendJob({ secret: SECRET, jobId: "movjob01", shelf: [{ title: "Toy Story", rating: 5 }] });
+      await mod.runRecommendJob({ secret: "wrong", jobId: "movjob02", shelf: [{ title: "Toy Story", rating: 5 }] });
+      const done = await callHandler(handler, { secret: SECRET, action: "recommend-result", jobId: "movjob01" });
+      const doneBody = await done.json();
+      ok(done.status === 200 && (doneBody.movies || []).some((m) => m.title === "The Iron Giant")
+        && !store.has(docBase + "/movies_rec_jobs/movjob02"),
+        "the whole owned list's recommend is saved for the page to poll, and a wrong password writes nothing");
+      tokenSrv.close();
+      fsSrv.close();
+      delete process.env.FIREBASE_SERVICE_ACCOUNT;
+    }
+  }
+
+  const savedKey = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
   const noKey = await callHandler(handler, { secret: SECRET, action: "recommend", shelf: [{ title: "Toy Story", rating: 5 }] });
   const noKeyBody = readKeptJson(await noKey.text());
-  process.env.XAI_API_KEY = savedKey;
-  ok(noKey.status === 200 && (noKeyBody.movies || []).length === 0 && noKeyBody.reason === "no-key",
-    "a missing Grok key is an empty list, not a invented pick");
+  process.env.ANTHROPIC_API_KEY = savedKey;
+  ok(noKey.status === 200 && (noKeyBody.movies || []).length === 0 && noKeyBody.reason === "no-key"
+    && noKeyBody.error === "Recommendations need an Anthropic key.",
+    "a missing Anthropic key is an empty list, not a invented pick");
 
   const src = fs.readFileSync(path.join(ROOT, "netlify", "functions", "movies.mjs"), "utf8");
   const pageSrc = fs.readFileSync(path.join(ROOT, "movies.html"), "utf8");
-  ok(/MOVIES_GROK_MODEL \|\| "grok-4\.7"/.test(src) && /KEEPALIVE_MS = 8000/.test(src) && /GROK_MAX_TOKENS = 6000/.test(src),
-    "the function defaults to grok-4.7, a keepalive, and 6000 tokens");
+  ok(/RECOMMEND_MODEL = "claude-opus-5-5"/.test(src) && /KEEPALIVE_MS = 8000/.test(src)
+    && /RECOMMEND_MAX_TOKENS = 16000/.test(src) && !/api\.x\.ai/.test(src),
+    "the function defaults to Claude Opus 5.5, a keepalive, and 16000 tokens, and no longer calls xAI");
+  ok(fs.existsSync(path.join(ROOT, "netlify", "functions", "movies-recommend-background.mjs"))
+    && /LONG_SHELF = 80/.test(pageSrc) && /movies-recommend-background/.test(pageSrc) && /recommend-result/.test(pageSrc),
+    "a long owned list starts the background recommend instead of the call that is cut off");
+  ok(/reason: "cut-off"/.test(pageSrc) && /replyWasCut/.test(pageSrc),
+    "keepalive spaces with no JSON are a cut-off reply, not an empty list of picks");
+  ok(/written by Claude\./.test(pageSrc) && !/Grok/.test(pageSrc),
+    "the page credits Claude, not Grok");
+  ok(/var askedFor = p\.id;/.test(pageSrc) && /current\(\)\.id !== askedFor/.test(pageSrc),
+    "picks that land after the chip changed are not painted under the other viewer");
   ok(/\[hidden\]\s*\{\s*display:\s*none\s*!important/i.test(pageSrc), "movies.html restates [hidden]{display:none}");
   ok(/var OWNED = \[/.test(pageSrc) && /"Toy Story"/.test(pageSrc) && /"The Princess Bride"/.test(pageSrc) && /"A Bug's Life"/.test(pageSrc),
     "the owned library is seeded, including Toy Story, The Princess Bride, and A Bug's Life");
@@ -679,7 +801,14 @@ async function newPage(browser, user) {
       if (href.indexOf("/.netlify/functions/movies") !== -1) {
         let body = {};
         try { body = JSON.parse((init && init.body) || "{}"); } catch (e) { body = {}; }
+        const isJob = href.indexOf("/.netlify/functions/movies-recommend-background") !== -1;
+        if (isJob) body = Object.assign({}, body, { action: "recommend", via: "background" });
         window.__MOVIE_CALLS__.push(body);
+        if (body.action === "recommend-result") {
+          const done = (window.__MOVIE_JOBS__ || {})[body.jobId];
+          if (!done || Date.now() < done.at) return new Response(JSON.stringify({ pending: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ movies: done.movies, model: "claude-opus-5-5" }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
         if (body.action === "detail" && body.coverOnly) {
           window.__COVER_TRIES__ = (window.__COVER_TRIES__ || 0) + 1;
           if (window.__COVER_TRIES__ === 1) {
@@ -749,6 +878,11 @@ async function newPage(browser, user) {
               { title: "Coco", director: "Lee Unkrich", summary: "A boy visits the land of the dead.", why: "A family musical beside the ones they own." },
               { title: "Soul", director: "Pete Docter", summary: "A musician finds out what a soul is for.", why: "Another Pixar they do not own." },
             );
+          }
+          if (isJob) {
+            window.__MOVIE_JOBS__ = window.__MOVIE_JOBS__ || {};
+            window.__MOVIE_JOBS__[body.jobId] = { movies, at: Date.now() + (window.__REC_DELAY__ || 0) };
+            return new Response("", { status: 202 });
           }
           const text = " \n" + JSON.stringify({ movies });
           return new Response(text, { status: 200, headers: { "Content-Type": "text/plain" } });
@@ -1184,6 +1318,55 @@ async function sectionUi(browser) {
     return saved.indexOf("Coco") >= 0 && saved.indexOf("Soul") >= 0
       && titles.indexOf("Coco") < 0 && titles.indexOf("Soul") < 0;
   }), "the next recommend sends the watch list and does not paint those titles");
+  ok(await page.evaluate(() => {
+    const calls = window.__MOVIE_CALLS__.filter((c) => c.action === "recommend");
+    const last = calls[calls.length - 1];
+    return last.via === "background" && last.shelf.length >= 80 && /^[a-z0-9]{6,40}$/.test(last.jobId || "");
+  }), "the whole owned list goes to the background job, not the call that is cut off at 30-40s");
+
+  // A recommend for Joy that lands after the chip moved to Dad must not paint
+  // Joy's picks under Dad. The job answers 2.5s after it starts.
+  await page.evaluate(() => { window.__REC_DELAY__ = 2500; document.getElementById("recBtn").click(); });
+  await sleep(300);
+  // Geometry, not the attribute: a styled box toggled by [hidden] has shipped
+  // visible before. The wait can be minutes, so the spinner is the only sign.
+  ok(await page.evaluate(() => {
+    const spin = document.getElementById("recSpin");
+    const wait = document.getElementById("recWait");
+    return !!spin && spin.offsetParent !== null && spin.getBoundingClientRect().width > 0
+      && /^0:0\d$/.test(wait.textContent);
+  }), "a spinner and the elapsed time show while the recommend is out");
+  ok(await page.evaluate(() => {
+    const bar = document.querySelector("body > header").getBoundingClientRect();
+    const head = document.getElementById("recLabel").getBoundingClientRect();
+    return head.top >= bar.bottom - 1 && head.top < window.innerHeight;
+  }), "Recommend scrolls the picks heading into view below the sticky header, not under it");
+  await page.evaluate(() => {
+    const dad = [...document.querySelectorAll("#profileChips .chip")].find((b) => b.textContent === "Dad");
+    if (dad) dad.click();
+  });
+  await sleep(5000);
+  ok(await page.evaluate(() => {
+    const who = window.__MOVIES__.current().name;
+    return who === "Dad" && document.querySelectorAll("#recs .t").length === 0
+      && document.getElementById("recBtn").disabled === false;
+  }), "Joy's picks that land after switching to Dad are not painted under Dad, and the button comes back");
+  ok(await page.evaluate(() => {
+    const spin = document.getElementById("recSpin");
+    return !!spin && spin.offsetParent === null;
+  }), "the spinner is gone once the recommend comes back");
+  await page.evaluate(() => {
+    window.__REC_DELAY__ = 0;
+    const joy = [...document.querySelectorAll("#profileChips .chip")].find((b) => b.textContent === "Joy");
+    if (joy) joy.click();
+  });
+  await sleep(40);
+  // The chip switch cleared the picks. Ask again for Joy so the Remove check
+  // below has the last recommend's picks to put a title back into.
+  // Every pick is on a list by now, so nothing paints; wait for the button.
+  await page.evaluate(() => document.getElementById("recBtn").click());
+  await sleep(100);
+  await page.waitForFunction(() => document.getElementById("recBtn").disabled === false, { timeout: 8000 });
 
   const openedWatch = await page.evaluate(() => {
     const row = [...document.querySelectorAll("#watchList .movie")].find((el) => el.querySelector(".t") && el.querySelector(".t").textContent === "Coco");
@@ -1336,7 +1519,7 @@ async function sectionUi(browser) {
 
 (async () => {
   const wiki = await serveWiki();
-  const xai = await serveXAI();
+  const claude = await serveClaude();
   const rt = await serveRt();
   try {
     await sectionServer();
@@ -1360,7 +1543,7 @@ async function sectionUi(browser) {
     if (browser) await browser.close();
     srv.close();
     wiki.close();
-    xai.close();
+    claude.close();
     rt.close();
   }
   console.log("\n" + pass + " passed, " + fail + " failed");
