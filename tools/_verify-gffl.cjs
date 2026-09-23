@@ -13166,9 +13166,19 @@ async function openDetails(page, id) {
       ok(/213, 10, 10/.test(cardInk.state || ""), "…while the live CLOCK keeps the accent, which is the one thing that should have it (" + cardInk.state + ")");
       ok(cardInk.buttonBox === "none", "…and the card being a <button> did not inherit the base button rule's uppercase");
       ok(await clickIn(page, ".scchip.live"), "the live game's chip is tappable");
+      // RESTAGED 2026-09-23: this wait used to be satisfied by the header ALREADY on screen. Scores
+      // auto-selects the live game (DAL @ PHI) on arrival, so its .nflhead is painted before
+      // the tap; the tap's UI.go("nflgame", { game }) then nulls UI._nflGame (15ms) and the
+      // async re-render paints "Loading the game…" (~36ms, traced) while it refetches the same
+      // game. When the page's rAF poll landed in that gap the wait returned true on the OLD
+      // header and the read below caught the "Loading" card: head "" on 2 of 3 --only AH runs.
+      // Wait for the tap's own result instead — the view switched, the refetched payload is
+      // in, and the header painted from it. The assertion below is unchanged.
       await waitFnOr(page, () => {
+        const UI = window.__GFFL__.UI;
         const h = (document.querySelector("#nflBody .nflhead") || {}).textContent || "";
-        return /DAL/.test(h) && /PHI/.test(h) && /10/.test(h) && /14/.test(h);
+        return UI.view === "nflgame" && !!(UI._nflGame && UI._nflGame.ok)
+          && /DAL/.test(h) && /PHI/.test(h) && /10/.test(h) && /14/.test(h);
       });
       const opened = (await evalOr(page, () => ({
         view: window.__GFFL__.UI.view, hash: location.hash, id: window.__GFFL__.UI.nflGameId,
@@ -21293,7 +21303,7 @@ async function openDetails(page, id) {
   // the shape that produced an intermittent Puppeteer-level "Promise was collected" here —
   // booting directly avoids the double-navigation rather than chasing the flake itself.
   //
-  // 2026-09-23: that flake is NOT the navigation. On Chromium 141 it reproduced on every
+  // RESTAGED 2026-09-23: that flake is NOT the navigation. On Chromium 141 it reproduced on every
   // --only AZ run, and a CDP trace of the boot shows one real navigation (Page.frameNavigated
   // type=Navigation) and, ~150ms later, a Page.navigatedWithinDocument (navigationType
   // historyApi) — the #matchup route's own history.replaceState, same URL, same document,
