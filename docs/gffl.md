@@ -8978,3 +8978,630 @@ header, Receiver's honest dash (he has no week-4
 line), future-week dashes, and 0 page errors still
 pass on that app. App files restored.
 ---
+
+---
+
+## GFFL — the 2026-09-23 review batch (index)
+
+User: "do a review of GFFL, I made a lot of changes the last few
+weeks … also look into injury notifications because this weekend
+I got like 90 in the span of an hour for the same player", then
+"also look into why the projection sparklines randomly jump to 50%
+and then back". Five read-only reviewers (data layer, engine, UI,
+functions, ESPN-vs-Sleeper), then six fix agents in worktrees on
+their own suite ports, merged here. The entries below are the
+fixes, one per area. ESPN vs Sleeper was answered, not changed:
+they mostly do different jobs (Sleeper: directory, injuries,
+trending, archived stats; ESPN: play-by-play, headshots, %ROST,
+the scoreboard, the private-league import); the live-stat overlap
+is where every dual-source bug this season came from.
+
+**VERIFY (whole batch):** the full battery **4047/4047**, no
+crash, on real Inter/Barlow fonts — the first complete run since
+09-15. `node tools/_verify-leaguecron.mjs` **72/72**. Scripts
+cache-bust `?v=20260923`.
+
+---
+
+## GFFL — the full suite runs end to end again (2026-09-23)
+
+The 09-20 entry recorded that the full battery could not
+finish. Suite-only repairs, no app change:
+
+**AD4 crests.** The `.sccard` crest cards live only in the
+desktop slate since a235d8a / 8e24bb0 (09-15). At 390px the
+slate is display:none, its `loading="lazy"` crests never
+load, and the "every crest settled" wait crashed the run.
+Nothing after it in AD had run since. AD4 now runs at
+1440px at the slate's own sizes: 28x28 crest, 28px empty
+DEN box, city in the markup but hidden. At 390px it checks
+the chips: slate hidden, 2/2 chips, text only
+("DAL @ PHI", "KC @ DEN"), no crest.
+
+**AN2 n4.** n1 wins `dst_KC` for team 1 in week 1. Under
+the week-1 suite clock `ensureRoster(3, 1)` copies that
+roster forward, so a week-3 claim on KC loses
+"player-taken" and sends 1 push, not 2. That is correct
+app behaviour. n4 now bids on `dst_SF`, which is on no
+fixture roster, and the check asserts n4 won.
+
+**AZ_DEMO.** It crashed on every `--only AZ` run
+(Chromium 141). This was not a reload. A CDP trace shows one
+navigation, then `navigatedWithinDocument` (historyApi): the
+`#matchup` route's `replaceState`. The crash was in
+waitLive's `poll(page)`: CDP reported "Promise was
+collected" on `D.pollOnce()`, while the same call with a
+page-side `.then` still finished. The block now keeps its
+awaited app promises on `window` first.
+
+**AH2 header.** Scores auto-selects the live game, so its
+header is on screen before the tap. The tap nulls
+`UI._nflGame` and repaints "Loading the game…" while it
+refetches. The wait could pass on the old header, so the
+read got the loading card (2 of 3 runs). The wait now also
+needs `view === "nflgame"` and a loaded payload.
+
+**AV4 slash geometry.** It had the same 390px problem as AD4.
+The crest check read 0 and failed. The centering checks read
+|0 − 0| and passed without measuring anything. At 1440 the
+crest sits 63px in on a 266px card (the stripe reaches 43).
+
+**CanvasNoise.** Chromium 141 adds a few units of noise to
+`getImageData` on the SwiftShader canvas, and the noise
+changes per context. A #1f9d55 fill read back
+29,159,82,254 / 34,158,88,252. AM4b's alpha 255 read
+254 / 255 / 252 on three runs of the same code. The harness
+launches with `--disable-features=CanvasNoise`. The fill
+then reads back exactly 31,157,85,255.
+
+**Not fixed (app regression).** AE1 "every RIGHT name ENDS
+at one consistent x" is a real bug from 7d06b92 (09-16).
+The injury chip wraps the name in `.pnametxt`, a flex row
+that grows to fill the cell. `text-align:right` does not
+move flex items, so team B's names now start at x=219 and
+end ragged ([302,288,293,…]). The crest and meta line stay
+right-aligned. At 8a146cc every right name ended at 319.
+The check was left failing here; the "team B's player names end level" entry below fixes the app.
+
+Files: `tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** `--only AD` **162/162** (base: SUITE CRASH at
+AD4). `--only AN` **91/91** (with `dst_KC`: 90/1, "n4
+player-taken"). `--only AZ` **47/47** on 3 runs (base: crash
+2/2). `--only AH` **116/116** on 4 runs (base: 1/3 clean).
+`--only AT` **263/263** (base: crest check fails).
+`--only AM` **84/84** on 3 runs (without the flag: 2/3 fail).
+Full battery, `GFFL_PORT_BASE=8900`: **3855/3857**,
+no crash. The two ✗ are the AE1 regression above and P's
+warm-render budget (116ms against 100). That warm render
+still waits on one uncached `injfeed_2026` read (60ms), as
+the 09-20 entry recorded (97–117ms).
+
+---
+
+## GFFL suite — side-by-side runs, and the fonts it measures (2026-09-23)
+
+`GFFL_PORT_BASE` moves the six fixture ports (default 8843),
+and `GFFL_SCRATCH` moves the review-plate folder off the
+hard-coded Windows path. Unset, both are unchanged. Six fix
+agents ran their sections at once on 8850–8900.
+
+Text-width checks measure whatever font Chrome falls back to,
+because the suite blocks Google Fonts. On a Linux box that is
+DejaVu Sans, wide enough to fail a dozen width checks
+(%START, AE's names) that pass on Windows. Installing Inter and
+Barlow Condensed locally as TTF (fontconfig ignores the
+`.woff` files) gives the fonts the family actually sees, and
+those checks pass.
+
+---
+
+## GFFL — injury pushes ping-pong between devices (2026-09-23)
+
+User: "this weekend I got like 90 in the span of an hour
+for the same player."
+
+Every device runs `LG.checkInjuryChanges` on every live
+tick against one shared `injstate` doc. Each device has
+its own copy of Sleeper's directory, refreshed hourly at
+its own moment. Phone A's copy said Q and phone B's said
+Out. On each tick, one phone rewrote the doc to match its
+own copy and pushed the owner, and this went on until A's
+next hourly refresh. The Q↔Out hold could not stop it:
+`_injLast` is memory on one device, and it only records
+that device's own writes.
+
+Three stamps now sit next to `p_<key>`, as top-level fields
+for the same updateMask reason:
+- `a_<key>` is the `D.S.injDirAt` of the directory copy
+  behind the committed value. A move is allowed only from
+  a strictly newer copy. It is checked on the first read
+  and again on the fresh re-read. An older phone takes the
+  doc's value without writing or pushing, and drops any
+  hold it had started. A missing `a_` reads as 0, so the
+  first move after deploy stamps it.
+- `f_<key>` is where the last committed move started. The
+  Q↔Out hold reads it, so it holds a reversal of another
+  phone's move. `_injLast` is used only when `f_` is
+  missing.
+- `t_<key>` is the time of the last push. Another push
+  inside 10 minutes is skipped, but the feed line is still
+  written. It is written in the same PATCH as the move.
+`D.S.injDirAt` = `Date.now()` whenever a directory dump
+completes. It uses wall-clock time because it is compared
+across devices.
+`checkInjuryChanges` is now single-flight: a second call
+that arrives while one is still running returns `null`.
+
+Also: the live stat poll's
+`row.injury = meta.injury || row.injury` never cleared an
+Out, because Sleeper sends "" once a player is cleared.
+`liveProj` then held him at the points he had already
+scored for the rest of the week. Now a status that is
+present in the dump always replaces `row.injury`. An
+empty value with no status is held for the first
+generation that omits him, and cleared once a later
+generation still omits him (D-S8).
+
+Hand counts: UA1 runs 20 alternating ticks. A holds an
+older copy (base+1000, Q) and B a newer one (base+2000,
+Out). B's first tick commits Q→Out and sends 1 push; A
+adopts on all 10 of its ticks. UA6 pins Q2 5:00 with 10
+pts scored and 18 weekly:
+10 + 18×35/60 = 20.5 healthy, 10 Out.
+
+Files: `assets/league/lg-core.js`,
+`assets/league/lg-data.js`, `tools/_verify-gffl.cjs`.
+
+**VERIFY:** `--only UA,AR,TV,TS,BF` **244/244** (UA 31,
+AR 83). AR restaged: each in-memory directory change is
+now followed by the `injDirAt` stamp a real dump leaves,
+and the three second-push counts (AR3, AR4, AR11) move
+`t_` back 11 minutes. Bite on `ec79d3f` (suite kept,
+`--only UA,AR,TV`): **18/31 UA fail**, and every AR and
+TV check still passes. UA1 on the old code: **19 pushes**
+for Q. Rival and **20** for X. Wideout in 20 ticks, where
+the fix sends 1 and 0. UA4 on the old code: 2 pushes
+from overlapping calls. UA6 on the old code: still
+capped at 10 after two dumps that omit him. The "carried
+Active lifts the cap" check passes on the old code too,
+because `injuryFor` already reads a non-empty directory
+value first.
+
+---
+
+## GFFL — live feed keeps every final game; one poll chain; 2pt tries, sacks, return TDs, byes (2026-09-23)
+
+A review of lg-data.js's live half found five bugs.
+
+**Final games missing from the feed.** `closeFinishedFeeds`
+closed every team whose scoreboard row said `post` at the end of
+every full poll. A full poll reads at most 8 summaries. A
+Sunday-night cold boot with 12 finals showed 8 games' plays; the
+other 4 were skipped when their summaries arrived. A game that
+ended between two of its own reads lost its last plays. A team
+now closes only after `applyEspnPlayFeed` has applied a summary
+whose own header reads final (`D.S.feedFinalApplied`). Post games
+not yet read go to the front of the 8-summary window, and live
+and pre games rotate through the slots that are left. The 2025
+replay still closes on `post`.
+
+**Two poll chains.** `stop()` clears `tickBusy` for the next
+chain. The retired tick's `finally` cleared it again while the
+new chain's tick was in flight. The next `wake()` then started a
+second concurrent poll, and two timer chains ran from then on.
+Only the current `loopGen` can clear busy now.
+
+**Two-point tries.** ESPN appends the try to the TD play. Parsed
+as one sentence, a failed try credited a phantom
+pass_2pt/rec_2pt, and its "incomplete" dropped the TD itself.
+A rush TD with a pass try gave the QB a pass_td, and "rushes" was
+not read as a run. The TD and the try are now separate clauses. A
+try scores only on "ATTEMPT SUCCEEDS" / "is good", or in the
+summary's "(X pass to Y for Two-Point Conversion)" form. No live
+probe has recorded a try yet, so the gamebook wording is an
+assumption, written down at UC3.
+
+**Sacks.** The feed gave the QB a negative pass_yd line. The box,
+Sleeper and the score all use gross passing yards, so the sack
+line is gone. The D/ST sack stays.
+
+**Return TDs.** `offense` falls back to `drive.team`, and a punt
+ends the punting team's drive. The 8-point `dst_kr_td` went to the
+team that gave up the TD. It now goes to the other side from the
+kicker or punter (his box line, or "kicks … from KC 35"). If
+neither is known, it goes to the side that did not have the ball.
+
+**Byes.** `D.remaining` read a starter with no game on the slate as
+`pre`, and `D.gameDone` read him as a finished bye. With every
+game final, A up 3, and one bye starter, the win bar read 62.4%
+instead of 100%. `D.remaining` now uses the bye rule too: played
+on a loaded slate, still to play on an empty board or last week's
+board.
+
+Hand-computed (default rules):
+- UC1: 12 finals × (5 rush yd 0.5 + TD 6) = 78.0 on the feed,
+  8 plays and 16 closed teams after poll 1, 12 and 24 after poll
+  2. Game 5's late 3-yd TD = 0.3 + 6 = 6.3, once.
+- UC3: failed pass try = 0.5 + 4 + 1 + 1.2 + 6 = 12.7. Rush TD +
+  good pass try = 0.2 + 6 + 2 + 2 = 10.2. Pass TD + good rush try
+  = 14.7. "J.Cook 1 Yd Run (Two-Point Pass Conversion Failed)" =
+  6.1, with no pass line.
+- UC4: sd = max(8, 10·√1) = 10, raw = 0.62495, blend 0.2/22 →
+  62.4% before, 100% now.
+- UC5: punt/kick return TD = 8 for the returning D/ST.
+
+Files: `assets/league/lg-data.js`, `tools/_verify-gffl.cjs`.
+
+**VERIFY:** `--only UC1,UC2,UC3,UC4,UC5` **32/32**. Related
+`--only D,V,AC,AQ,AT,BF,TC,TE,TF,TG,TH,TI,TJ,TM,TV` **792/793** (the one miss is AT/AV's "crest sits OFF the slash" geometry check, which fails the same way on `ec79d3f`).
+Bite (`league.html` + `assets` + `netlify` at `ec79d3f`, suite
+kept, `--only UC1..UC5`): **11 pass / 21 fail**. The 21 are the bugs: 16 closed teams, 12 plays, 78.0 and game 5's 6.3 (UC1); busy during B, one poll in flight, one chain (UC2); every credit line (UC3); played 11, 100%, the strips and remaining (UC4); all three return TDs (UC5). The 11 that pass are staging, the empty-board control and 0 page errors.
+App files restored.
+
+---
+
+## GFFL — IR drops, late playoff %, late claims, doubled pushes (2026-09-23)
+
+Review of `lg-core.js`. Five engine faults, all fixed in core.
+
+**1. Dropping an IR man opened a 19th active spot.** The
+09-16 cap made room for a pickup the 18-man ACTIVE script.
+Only the no-drop path used it. An add or claim that
+dropped an IR man put the new man on BENCH: 18 active +
+1 IR became 19 active. Trades checked only the 21 total.
+New `LG.swapOverActive(roster, dropKey)`:
+`active − (drop is active ? 1 : 0) + 1 > 18`.
+IR drop at 18 → 19, refused. Bench drop at 18 → 18, fine.
+IR drop at 17 → 18, fine. `faAdd` refuses `active-full`
+(pre-read, inside the CAS loop, and in `faAddRefusal`).
+`addClaim` refuses it at submit. `processWaivers` loses
+the claim with `active-full` and resolves everyone else.
+`LG.tradeBlockers` adds the active count to the existing
+`over-cap` check: incoming men land on BENCH, an outgoing
+IR man frees only IR. 18 + 1 IR trading the IR man 1-for-1
+is 19 active → `over-cap` at the composer, accept, and
+execute (cancelled). New UI copy for `active-full`.
+
+**2. Playoff % late in the season.** Two faults:
+- `w = g / (g + 7)` never faded. With a week left it was
+  13/20, so a raw 1% painted 23%. Now
+  `w = g / (g + 7 · remG / 14)`, remG = games each team has
+  left. Week 1: 1 / (1 + 6.5) = 2/15 (was 1/8; the 55–67
+  band and the 98 → 67 / 11 → 56 pins still hold).
+  One week left: 13 / 13.5 = 26/27.
+- Undecided teams blended toward 5 of 8 = 62.5% while locks
+  stayed 100 / 0. Four clinched + four chasing one spot
+  painted 36/60/24/33 = 153%. The field is now
+  `100 · (spots − locked-in) / undecided` = 100 · 1 / 4 = 25.
+  Same board (13 weeks, fixed LCG scores): 21/58/4/17 = 100,
+  column 500. Hand-checked blend at 26/27: raws
+  40/30/20/10 → 39/30/20/11; raw 1 → 2. With no lock the
+  field is still 62.5, so early season is unchanged apart
+  from the weight.
+
+**3. A late waiver run could start a man mid-game.** The
+run is lazy (first open after the deadline). A no-drop
+claim used `addLandingSlot` with no clock check, so a
+Thursday kicker claimed onto an empty K after kickoff
+scored that game. If `LG.addBlocked` (his game has begun),
+he lands on BENCH.
+
+**4. Doubled pushes.** notify.mjs's `gfflAll` skips one
+team. An executed or vetoed trade's "League move" skipped
+only `from`, so `to` got it on top of "Trade executed" /
+"Trade vetoed". A league-chat @mention got the room push
+and the mention. New `LG.pushAllBut(ids, opts)`: one skip
+is the same single gfflAll send; more fans out one
+gfflTeam send per remaining team (trade: 8 − 2 = 6). A
+trade's `logTx` skips both parties; chat skips the sender
+and every mentioned team.
+
+**5.** `LG.wpKeepHour` removed. Nothing called it.
+
+Restaged: TK's weight pin (third argument is games left
+per team, 2/15 not 1/8); AN veto / own-veto / mention /
+two-mention / 500-chat counts and AP execute / own-device
+execute counts. Each says why at the check.
+
+Files: `assets/league/lg-{core,ui}.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** `--only UB1,UB2,UB3,UB4,UB5` **51/51**.
+`--only AN,AP,TK` 193/194. The one miss, AN's "notify
+answering 500 does not stop waivers from processing (1)",
+fails the same way with the app files at `ec79d3f`.
+Related sections (AE AF AI AM AS AT BC BG I J K L N R TB
+TD TN TO TP TQ U V Y) 1375/1378. The 3 misses (AE
+right-name x, AV crest-off-slash, and one AM logo-pixel
+check that passes 84/84 alone) also miss or flake with the
+app files at `ec79d3f`. Bite (app files at `ec79d3f`,
+suite kept): UB **24 pass / 27 fail**. Every fix bites: IR-drop add / claim / waiver,
+trade blockers / accept / execute, all weights and blends,
+the 153% board (36/60/24/33), the BENCH landing, the
+trade / veto / mention fan-outs, and `wpKeepHour`. The
+passes are fixtures, controls, and 0-page-error checks.
+
+---
+
+## GFFL — matchup, Scores and chat state races (2026-09-23)
+
+A UI review found eleven small bugs. Most are races between
+a slow load and something the reader did next.
+
+1. Two quick taps on the week arrow mixed weeks.
+   `loadMuArchivedPts` stamped `_muPtsWeek` before its await
+   and wrote `_muPts` after it, unchecked, so week 4's late
+   box landed under week 3. `renderMatchup` now takes a
+   sequence number on every full render (a live repaint
+   rides the one it found). After each await it returns
+   if a newer render started or the reader left the view.
+   Rosters, weekly, the archived map, the pairing and the
+   head-to-head are written only by the render still wanted.
+   Week 3 from `WEEK_STATS_FIX`: P. Passer 300 × 0.04 +
+   2 × 4 = 20.0, Q. Rival 50 × 0.04 = 2.0, T. Tight "—".
+   HEAD painted week 4's 1.0 / 28.0 / 9.0 on the week-3 page.
+2. The same check stops a slow matchup render from painting
+   over Rules (or any tab) and starting the muThread poll
+   behind it.
+3. History entries carry `muWeek` next to `mu`, and the
+   matchup sig includes it. Back restores both. A week step
+   replaces the current entry's week (pairing null, so the
+   render re-resolves it), so Back returns to what was on
+   screen. HEAD brought 3-4 back as "Week 5 · live".
+4. The Scores and NFL-game polls use a generation token.
+   Stop bumps it, and a tick that wakes from its fetch into
+   a newer generation re-arms nothing. HEAD re-armed after
+   a background stop, and two quick foregrounds left two
+   Scores chains, one of which outlived the tab.
+5. The phone chip strip centres the open chip only on a
+   fresh board or when the open game changes. paintLive's
+   repaint every ~8s used to pull a panned strip back.
+6. `kickViewPollsNow` restarts the fantasy-scoreboard poll
+   on `nflgame` too (renderScoreboard arms it there).
+7. `ensureOwnership(onLand, onIdle)` calls `onIdle` when no
+   fetch will land: already fresh, another ask out, inside
+   the 10-min failure floor, or the ask failed. The player
+   card for an `slp_` player waited the full 2500ms in all
+   of those. It now resolves at once (measured 2500 → under
+   500ms). A real fetch still waits, capped at 2.5s.
+8. `UI.syncLeagueWeek` repaints only a REAL_VIEWS screen
+   (popstate's rule). On the claim screen it advanced the
+   week and painted the league home over "Who are you?".
+9. Desktop keeps a league-chat draft across Chat → League →
+   Chat. The rail rebuild now runs `snapshotChatComposer` /
+   `restoreChatComposer` (live box, else the stored draft),
+   the same path the phone already used (2026-09-16).
+10. The Scores tab from the nav re-picks the live game (else
+    the next kickoff). A chip tap and Back still reopen the
+    game they name.
+11. Removed dead code: `gfflScoresHtml`,
+    `gfflWeekStaticHtml`, `matchupCard`'s `tag` option,
+    `nflBack`, the Scores week-browse `LG.loadWeekly` read
+    nothing painted, the empty `powerRankingsHtml`
+    placeholder, and `.muweeknav[hidden]`.
+
+Two AT/AH checks read a poll handle the instant "NFL this
+week" was on screen. The poll arms only after
+renderScoreboard's own awaits, so those reads were races.
+HEAD usually won them because a stale tick kept the handle
+truthy. Both now wait up to 9s, and the checks are marked
+RESTAGED.
+
+Files: `league.html`, `assets/league/lg-ui.js`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** `--only UD1..UD10` **52/52**. Related
+`--only AT,AH` 378/379 (the one miss is AT's "crest sits
+OFF the slash", which fails the same way on base
+`ec79d3f`; AH2's header flap also fails some runs on
+base). TO, TN, TL, TZ, TX, TG, TR, TQ, TS, TB, TK, TM, BA,
+BD, BG, AI, AJ, RS, K, W2, AB, S, Y, N, I2, H: all green.
+AD crashes at AD4 on both base and fix. Bite vs `ec79d3f`
+(app files at base, new suite kept): **28/24**. All 24
+misses are the bugs: week-4 map and rows on the week-3
+page, the matchup painted over Rules with muThread polling,
+Back landing 3-4 in week 5 · live, 1–2 stray Scores ticks
+and a re-armed game tick after stops, no Scores restart on
+nflgame, the strip yanked 510 → 0 and 0 → 510, four
+2500ms stalls, the league painted over the claim screen,
+two empty desktop drafts, the final re-opened instead of
+the live game, the dead code present, and a `loadWeekly(2)`
+read. The premises, controls and page-error checks still
+pass on base. App files restored.
+
+---
+
+## GFFL — leaguecron season-end guard, rules-customized skip, per-call timeouts (2026-09-23)
+
+User: three confirmed bugs in the Wednesday waiver-processing nudge (reviewer report).
+
+The season guard had a start but no end — LEAGUECRON_TEST_NOW_MS 2027-03-03 and
+2027-07-14 both sent "Waiver claims have processed" months into the offseason.
+LAST_WAIVER_WED_MS is derived the same auditable way FIRST_WAIVER_WED_MS already
+is: SEASON_START 2026-09-08 + 14-week regular season + 3 playoff weeks (lg-core.js's
+bracket, weeks 15-17) -> week 17's own waiver Wednesday, 2026-12-30 08:00 Central
+(CST by then), is the last one that matters. Every Wednesday after it now no-ops
+with reason "after-last-waiver-week".
+
+Separately, the nudge assumed Wed/8 forever even though the commissioner can move
+rules.waivers.processDow/processHour (lg-ui.js's rules editor, the engine's own
+LG.waiverDeadline). leaguecron.mjs now reads the league's settings doc (one GET,
+no query — never the season calendar the file's own comment already explains why
+it avoids) and skips with reason "waiver-schedule-customized" when the live
+schedule differs from Wed/8. Any read failure (missing doc, non-200, unparseable
+body) falls back to the old always-send behaviour, so a Firestore hiccup can never
+cause a false skip.
+
+Every upstream fetch in leaguecron.mjs had no timeout — one hung call could block
+the whole run. Each now carries AbortSignal.timeout(...) per call, and a failed
+prune/send no longer aborts the loop over the remaining devices. (notify.mjs had
+the same two faults; see its own entry below.)
+
+Files: `netlify/functions/leaguecron.mjs`, `tools/_verify-leaguecron.mjs`, this file.
+
+**VERIFY:** `node tools/_verify-leaguecron.mjs` **72/72** (49 pre-existing + 23 new,
+sections F/G/H). Bite vs `ec79d3f` (app file reverted, suite kept): F 3/9 fail
+(the season-end no-ops), G 4/9 fail (the customized-schedule skip + its
+"never sent a single FCM" corollary — the fallback-to-send checks correctly still
+pass on base, since base always sends once the old guards clear), H's
+hang-isolation case never completes on base at all (killed by a 30s watchdog) —
+stronger evidence than a normal failure, since base has no bound whatsoever. All
+pre-existing A-E checks (49) still passed on base. App files restored after the
+bite (`git status` clean vs the commit).
+
+---
+
+## GFFL — week-writeup freshness check + honest null ownership (2026-09-23)
+
+User: sports.mjs's ff_player week writeup had no date check (a preseason/offseason
+RotoWire story got labelled "ESPN's week N"), and percentOwned's `?? 0`/`|| 0` at
+three call sites turned "ESPN has no figure for this player" into a fabricated 0%.
+
+rotowireStory() now reads the athlete overview's published/lastModified stamp and
+only returns the story inside a rolling 14-day window (this NFL week + the
+trailing week); no parseable or future-dated stamp is treated as stale — omitted,
+same as no story at all. sports.mjs's ffFreeAgents/ffPlayer and league.mjs's
+lgEspnProjections now return null for a missing ownership figure via sports.mjs's
+existing null-safe `r1()` helper (the same fix the 2026-08-15 ffPctOwned change
+already made to the sibling action).
+
+Checked every client consumer before touching anything: ffFreeAgents has no
+client caller at all today (despite the file header's claim); lgEspnProjections's
+pctOwned is fetched by the Grok projection adjuster but never read (only `.proj`
+is); ff_player's pctOwned is read only by ffdraft.html, which already guards with
+`!= null`. No client file needed editing.
+
+Scripts unchanged (no cache-bust — this is a server function + suite change only,
+per the brief's file list).
+
+Files: `netlify/functions/sports.mjs`, `netlify/functions/league.mjs`,
+`tools/_verify-gffl.cjs`, this file.
+
+**VERIFY:** `--only UE` **12/12**. Related `--only TR,AT,TS` **285/286** (the one
+miss is a pre-existing "crest sits OFF the slash" flake in league.html/lg-ui.js,
+outside this brief's files — reproduces identically on `ec79d3f`, confirmed
+unrelated). Bite vs `ec79d3f` (app files reverted, suite kept, `--only UE,TR,AT`):
+**4/12** UE checks fail — exactly the 4 fake-0/no-date-check bugs (the stale-story
+omission, and pctOwned-null at all three call sites); the other 8 ("still works
+when the data IS present", and the shape checks) correctly still pass on base.
+All TR/AT pre-existing checks still passed on base. App files restored.
+
+---
+
+## GFFL — notify.mjs: one device's hung send skips only that device (2026-09-23)
+
+`notify.mjs` sent each push with a bare `fetch` and no timeout,
+and its token loop had no try/catch. One FCM call that never
+answered held the request until the platform killed it; one
+that threw ended the loop. Every device queued behind it
+missed that push. Each upstream call now carries
+`AbortSignal.timeout` (`NOTIFY_FETCH_TIMEOUT_MS`, default
+4000), and a throw skips that token only.
+
+New section UF runs the real handler in process with `fetch`
+stubbed: four league devices, FCM hangs on the first and
+throws on the second. Hand count 4 − 1 − 1 = 2 sent.
+
+Files: `netlify/functions/notify.mjs`, `tools/_verify-gffl.cjs`.
+
+**VERIFY:** `--only UF` **3/3**. Bite (notify.mjs at `ec79d3f`):
+**0/3** — the request never finished inside 5s and only device
+1 was ever tried.
+
+---
+
+## GFFL — a side @-mentioned in trash talk hears the mention only (2026-09-23)
+
+The league-chat fix above skips a mentioned owner from the room
+blast. A matchup thread had the same double: "@Wyoming you're
+toast" in 3-4 from team 1 sent smack to 3 and 4 plus a mention
+to 3. The smack loop now skips mentioned sides. Hand count:
+smack {3,4} − {3} = {4}, mention {3}: two sends.
+
+Files: `assets/league/lg-core.js`, `tools/_verify-gffl.cjs`.
+
+**VERIFY:** `--only TN,UB5` **53/53**. Bite (previous
+lg-core.js): TN's new check reads `mention:3, smack:3, smack:4`.
+
+---
+
+## GFFL — team B's player names end level against the crest again (2026-09-23)
+
+The 09-16 injury chips wrapped name + chip in `.pnametxt`, a
+forward flex row that fills the cell. On the right half
+`text-align:right` does not move flex items, so team B's names
+started level and ended ragged at 390px (AE1:
+[302,288,293,…] where every name used to end at 319). Found by
+the suite repair below; the current suite against `8a146cc`
+(the commit before the chips) passes AE 97/97. The right
+half's `.pnametxt` is now `row-reverse`: the name meets the
+crest at one x and the chip rides its outer side, mirroring the
+left half.
+
+Files: `league.html`.
+
+**VERIFY:** `--only AE,TR,TS,TT,TU` **144/144**. Plate
+reviewed: names end level against the crests, "OUT" sits
+outside I. Injured. Bite: HEAD's league.html fails AE1.
+
+---
+
+## GFFL — a return to League paints with the feed it already has (2026-09-23)
+
+Section P's warm-render budget read 97–117ms (09-20 entry). The
+one remaining cloud call was `injfeed_2026`: a league with no
+injury change yet has no feed doc, and `LG.db.get` never caches
+an absent doc, so every return to League awaited it before the
+first pixel. A feed this session already read now paints
+immediately; the re-read runs behind the paint and repaints
+only if it changed.
+
+Files: `assets/league/lg-ui.js`.
+
+**VERIFY:** `--only P,AR,UA,BF` **238/238**, P's warm visit
+**39ms** (1 cloud call, the background re-read). Before the
+change the full battery read 116ms against the 100ms
+budget.
+
+---
+
+## GFFL — the win-% sparkline records only from a warm device (2026-09-23)
+
+User: "the projection sparklines randomly jump to 50% and then
+back to their old spot again."
+
+Every open device samples `D.winProb` into one shared `wpgraph`
+doc. A phone that had just opened had no projections and no live
+stats: both sides totalled 0, the lead was 0, and `D.winProb`
+said exactly 50%. It wrote that for the current minute, and the
+next warm device wrote the real number back — the spike. A board
+still holding last week (the Tuesday window), a game under way
+before the first stats land, and the minute before this week's
+adjusted projections are looked up each wrote a wrong point the
+same way.
+
+`D.wpInputsReady()` gates the write: this week's board, a
+projection source (Sleeper's, or this week's adjusted doc), and
+once any game has kicked off, this device's first live stats.
+`LG.sampleMatchupWinProbs` also waits for
+`LG._adjCheckedWeek === LG.currentWeek()` (set when
+`ensureAdjustedProj` has looked the doc up, found or not) and
+asks for the lookup itself, so a tab that sat through Tuesday's
+rollover re-checks. The bar and header still read the live model
+on every device; only recording is gated.
+
+Points already written this season stay in their week's doc.
+Week 4 starts clean.
+
+Hand count (UG): pairing 1-2, all pre, team 1's 9 starters at
+10, team 2's 3 at 20. diff −30, sd 10·√12 = 34.64, raw 0.1864,
+p = 0.8·0.1864 + 0.1 = 0.2491.
+
+Files: `assets/league/lg-core.js`, `assets/league/lg-data.js`,
+`tools/_verify-gffl.cjs`.
+
+**VERIFY:** `--only UG` **8/8**; with `TF,TI,TV,UC4,AZ`
+**175/175**. Bite (previous app files): **5/8 fail** — each cold
+state writes 0.5 over the warm 0.2491; the warm point, the
+even-paper control and 0 page errors pass on both.
