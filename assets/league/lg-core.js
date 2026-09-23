@@ -3509,6 +3509,9 @@
         const pair = LG.matchupThreadTeams(thread);
         if (pair) {
           for (const tid of pair) {
+            // Same rule as the room blast above: a side that is @-mentioned hears the
+            // mention only, not the smack push for the same line.
+            if (mentioned.some((m) => Number(m) === Number(tid))) continue;
             LG.pushTeam(tid, from + " in your matchup", snippet, LG.pushLink("#matchup"), "smack");
           }
         }

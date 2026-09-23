@@ -27518,6 +27518,16 @@ async function openDetails(page, id) {
         && notify.calls.every((c) => c.kind === "smack"),
         "trash talk in someone else's pairing pushes both sides (" + JSON.stringify(smackTo) + ")");
 
+      // 2026-09-23: a side @-mentioned in the thread hears the mention, not the smack push
+      // too. Hand count for "@Wyoming …" in 3-4 from team 1: smack to {3,4} minus the
+      // mentioned 3 = {4}; mention to {3} — two sends, one per owner.
+      await reset();
+      const tagged = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@Wyoming you're toast", thread: "w2_3-4" }));
+      await drain(2);
+      const byKind = notify.calls.map((c) => c.kind + ":" + c.gfflTeam).sort();
+      ok(tagged.ok === true && byKind.join() === "mention:3,smack:4",
+        "a mentioned side in a trash-talk thread gets the mention only, the other side the smack (" + JSON.stringify(byKind) + ")");
+
       await reset();
       const sys = await page.evaluate(() => window.__GFFL__.LG.postSys("Waivers processed"));
       await drain(0);
