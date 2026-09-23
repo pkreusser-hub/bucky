@@ -19,10 +19,9 @@
 //
 //   { secret, action:"recommend", shelf, interests, maxPolitical?, maxWoke? }
 //     -> { books:[{ title, author, summary, why }], model, error? }
-//     The whole shelf (title / author / the reader's own stars) goes to grok-4.7
-//     with reasoning_effort "low". High is the model default and ran past the
-//     old 20s abort (41s on a two-book shelf). Low returned five books for the
-//     135-title shelf in 27s. The wait inside a background job is 50s.
+//     The whole shelf (title / author / the reader's own stars) goes to
+//     Claude Opus 5.5 (claude-opus-5-5) at effort "low". It was grok-4.7
+//     until 2026-09-22. The sync call waits 50s; the background job 180s.
 //     A synchronous streamed call on this site is closed at about 30s with only
 //     the keepalive spaces left in the body (measured 2026-09-22: last byte
 //     ~25s, HTTP 200, four spaces, no JSON). Eleanor's short shelf still
@@ -41,10 +40,10 @@
 //
 // Required env: BUCKY_NOTIFY_SECRET
 // Optional env:
-//   BOOKS_OL_BASE / BOOKS_GB_BASE / BOOKS_GR_BASE / BOOKS_XAI_BASE
+//   BOOKS_OL_BASE / BOOKS_GB_BASE / BOOKS_GR_BASE / BOOKS_ANTHROPIC_BASE
 //                                                  — point at fake servers in tests
-//   BOOKS_GROK_MODEL                               — default grok-4.7
-//   XAI_API_KEY / XAI_BASE_URL                     — Grok recommend
+//   BOOKS_RECOMMEND_MODEL                          — default claude-opus-5-5
+//   ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL         — Opus recommend
 //   BOOKS_ALLOW_PRIVATE=1                          — unused; fetches only hit configured bases
 
 // goatfantasyleague.com is the same site. Movies already allowed it. Without
@@ -73,21 +72,22 @@ const MAX_REVIEWS = 5;
 const MAX_SHELF = 200;
 const MAX_INTERESTS = 12;
 const MAX_RECOMMEND_QUERIES = 3;
-const GROK_TIMEOUT_MS = 50000;
+const RECOMMEND_TIMEOUT_MS = 50000;
 // Dad's 135-title shelf was still running when this 50s abort fired inside
-// the background job (measured 2026-09-22, reason "timeout"). The background
-// function is allowed minutes, so that job waits longer than the sync call.
-const GROK_JOB_TIMEOUT_MS = 180000;
-const GROK_MODEL = process.env.BOOKS_GROK_MODEL || "grok-4.7";
+// the background job (measured 2026-09-22 on grok-4.7, reason "timeout"). The
+// background function is allowed minutes, so that job waits longer.
+const RECOMMEND_JOB_TIMEOUT_MS = 180000;
+// Recommend moved from grok-4.7 to Claude Opus 5.5 on 2026-09-22.
+const RECOMMEND_MODEL = "claude-opus-5-5";
+const RECOMMEND_EFFORT = "low";
 // Netlify's edge 504s a response that has moved no bytes for 30s (measured on
-// this site). grok-4.7 at low effort is often 17–27s and sometimes slower, so
-// a buffered call dies and the button paints nothing. A leading space starts
-// the clock; the JSON is the last line. Reasoning tokens also bill against
-// max_tokens (the gffltrade lesson) — 1800 let a long think eat the JSON.
-// A call that HAS been sending spaces is still closed around 30s, before the
-// JSON line, when the shelf is Dad's. The background job is what finishes it.
+// this site). A leading space starts the clock; the JSON is the last line.
+// A call that HAS been sending spaces is still closed around 30-40s, before
+// the JSON line, when the shelf is Dad's. The background job finishes it.
 const KEEPALIVE_MS = 8000;
-const GROK_MAX_TOKENS = 6000;
+// Opus 5.5 thinking bills against max_tokens. Ten picks are about 1500
+// tokens of JSON; the rest is room to think at low effort.
+const RECOMMEND_MAX_TOKENS = 16000;
 const JOB_COLLECTION = "books_rec_jobs";
 const JOB_ID = /^[a-z0-9]{6,40}$/i;
 const FIRESTORE_DOC_BASE = "projects/amen-farms-app/databases/(default)/documents";
@@ -684,7 +684,7 @@ export function buildRecommendPrompt(shelf, extras) {
   );
 }
 
-export function parseGrokRecs(text, shelf, blocked) {
+export function parseRecs(text, shelf, blocked) {
   const raw = String(text || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   let parsed;
   try { parsed = JSON.parse(raw); } catch {
@@ -726,34 +726,42 @@ export function parseGrokRecs(text, shelf, blocked) {
   return out;
 }
 
-async function callGrokRecommend(prompt, timeoutMs) {
-  const key = process.env.XAI_API_KEY || "";
-  const base = (process.env.BOOKS_XAI_BASE || process.env.XAI_BASE_URL || "https://api.x.ai").replace(/\/$/, "");
-  const model = process.env.BOOKS_GROK_MODEL || GROK_MODEL;
+// The Anthropic Messages API, raw fetch like farmgpt.mjs. Opus 5.5 always
+// thinks; effort is the only dial, and its default is medium. Low keeps a
+// long shelf near the old Grok time. Thinking bills against max_tokens, so
+// the budget is 16000, not the 6000 that fit Grok. No temperature: this
+// model answers 400 to sampling parameters. The reply is read by block type,
+// because thinking blocks come first. A refusal is a failure with its own
+// reason, not an empty list of picks.
+async function callClaudeRecommend(prompt, timeoutMs) {
+  const key = process.env.ANTHROPIC_API_KEY || "";
+  const base = (process.env.BOOKS_ANTHROPIC_BASE || process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/$/, "");
+  const model = process.env.BOOKS_RECOMMEND_MODEL || RECOMMEND_MODEL;
   if (!key) return { ok: false, reason: "no-key", text: "", model };
   const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), timeoutMs || GROK_TIMEOUT_MS);
+  const t = setTimeout(() => ac.abort(), timeoutMs || RECOMMEND_TIMEOUT_MS);
   try {
-    const r = await fetch(base + "/v1/chat/completions", {
+    const r = await fetch(base + "/v1/messages", {
       method: "POST",
       signal: ac.signal,
-      headers: { authorization: "Bearer " + key, "content-type": "application/json", "User-Agent": UA },
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model,
-        messages: [
-          { role: "system", content: "You recommend unread books from one reader's shelf. " + RECOMMEND_LIMITS + " Reply with JSON only." },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.4,
-        max_tokens: GROK_MAX_TOKENS,
-        reasoning_effort: "low",
+        max_tokens: RECOMMEND_MAX_TOKENS,
+        system: "You recommend unread books from one reader's shelf. " + RECOMMEND_LIMITS + " Reply with JSON only.",
+        messages: [{ role: "user", content: prompt }],
+        output_config: { effort: RECOMMEND_EFFORT },
       }),
     });
     if (!r.ok) return { ok: false, reason: "http-" + r.status, text: "", model };
     const j = await r.json();
-    const text = j && j.choices && j.choices[0] && j.choices[0].message ? String(j.choices[0].message.content || "") : "";
-    if (!text.trim()) return { ok: false, reason: "empty", text: "", model };
-    return { ok: true, reason: "", text, model };
+    if (j && j.stop_reason === "refusal") return { ok: false, reason: "refusal", text: "", model };
+    const text = (Array.isArray(j && j.content) ? j.content : [])
+      .filter((b) => b && b.type === "text")
+      .map((b) => String(b.text || ""))
+      .join("");
+    if (!text.trim()) return { ok: false, reason: j && j.stop_reason === "max_tokens" ? "max-tokens" : "empty", text: "", model };
+    return { ok: true, reason: "", text, model: (j && j.model) || model };
   } catch (e) {
     return { ok: false, reason: e && e.name === "AbortError" ? "timeout" : "unreachable", text: "", model };
   } finally {
@@ -781,11 +789,11 @@ async function recommend(body, timeoutMs) {
     readlist,
   };
   const prompt = buildRecommendPrompt(shelf, extras);
-  const got = await callGrokRecommend(prompt, timeoutMs || GROK_TIMEOUT_MS);
+  const got = await callClaudeRecommend(prompt, timeoutMs || RECOMMEND_TIMEOUT_MS);
   if (!got.ok) {
-    return { books: [], model: got.model, error: got.reason === "no-key" ? "Recommendations need a Grok key." : "Could not recommend right now.", reason: got.reason };
+    return { books: [], model: got.model, error: got.reason === "no-key" ? "Recommendations need an Anthropic key." : "Could not recommend right now.", reason: got.reason };
   }
-  return { books: parseGrokRecs(got.text, shelf, skipped.concat(readlist)), model: got.model };
+  return { books: parseRecs(got.text, shelf, skipped.concat(readlist)), model: got.model };
 }
 
 // Dad's shelf does not finish inside the synchronous call. The background
@@ -837,7 +845,7 @@ export async function runRecommendJob(body) {
   const jobId = typeof body.jobId === "string" && JOB_ID.test(body.jobId) ? body.jobId : null;
   if (!jobId) return;
   let res;
-  try { res = await recommend(body, GROK_JOB_TIMEOUT_MS); }
+  try { res = await recommend(body, RECOMMEND_JOB_TIMEOUT_MS); }
   catch { res = { books: [], error: "Could not recommend right now.", reason: "handler" }; }
   try {
     const token = await getGoogleAccessToken();

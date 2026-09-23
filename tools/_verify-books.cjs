@@ -27,7 +27,7 @@ const puppeteer = require("puppeteer-core");
 const ROOT = path.resolve(__dirname, "..");
 const SHOTS = path.join(ROOT, "shots");
 const WANT_SHOTS = process.argv.includes("--shots");
-const PORT = 8894, OL_PORT = 8895, GB_PORT = 8896, GR_PORT = 8897, XAI_PORT = 8898;
+const PORT = 8894, OL_PORT = 8895, GB_PORT = 8896, GR_PORT = 8897, CLAUDE_PORT = 8898;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SECRET = "amenfarms";
 
@@ -104,9 +104,10 @@ function gbVolume(id, title, author, extra) {
 let olCalls = [];
 let gbCalls = [];
 let grCalls = [];
-let xaiCalls = [];
+let claudeCalls = [];
+let claudeMode = "ok";
 let grMode = "good";
-const GROK_JSON = JSON.stringify({
+const REC_JSON = JSON.stringify({
   books: [
     { title: "The Hobbit", author: "J.R.R. Tolkien", summary: "Already on the shelf.", why: "Must be dropped." },
     { title: "The Priory of the Orange Tree", author: "Samantha Shannon", summary: "A standalone epic about a queendom and a dragon.", why: "You rated The Hobbit 5 stars." },
@@ -181,7 +182,7 @@ function serveGR() {
     srv.listen(GR_PORT, "127.0.0.1", () => resolve(srv));
   });
 }
-function serveXAI() {
+function serveClaude() {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
       let raw = "";
@@ -189,14 +190,36 @@ function serveXAI() {
       req.on("end", () => {
         let body = {};
         try { body = JSON.parse(raw || "{}"); } catch (e) { body = {}; }
-        xaiCalls.push({ url: req.url, body });
+        claudeCalls.push({ url: req.url, body, headers: req.headers });
         res.setHeader("content-type", "application/json");
+        const bad = (msg) => {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: msg } }));
+        };
+        if (req.url !== "/v1/messages") return bad("not found");
+        if (!req.headers["x-api-key"] || !req.headers["anthropic-version"]) return bad("missing auth or version header");
+        if (body.temperature !== undefined || body.top_p !== undefined) return bad("temperature is not supported for this model");
+        if (body.thinking && body.thinking.type !== "adaptive") return bad('"thinking.type.' + body.thinking.type + '" is not supported for this model.');
+        if (body.reasoning_effort !== undefined) return bad("reasoning_effort: Extra inputs are not permitted");
+        if (claudeMode === "refusal") {
+          return res.end(JSON.stringify({
+            id: "msg_ref", type: "message", role: "assistant", model: body.model, content: [],
+            stop_reason: "refusal", stop_details: { type: "refusal", category: "cyber", explanation: "declined" },
+            usage: { input_tokens: 900, output_tokens: 0 },
+          }));
+        }
         res.end(JSON.stringify({
-          choices: [{ message: { role: "assistant", content: GROK_JSON } }],
+          id: "msg_ok", type: "message", role: "assistant", model: body.model,
+          content: [
+            { type: "thinking", thinking: "", signature: "sig" },
+            { type: "text", text: REC_JSON },
+          ],
+          stop_reason: "end_turn", stop_details: null,
+          usage: { input_tokens: 900, output_tokens: 700 },
         }));
       });
     });
-    srv.listen(XAI_PORT, "127.0.0.1", () => resolve(srv));
+    srv.listen(CLAUDE_PORT, "127.0.0.1", () => resolve(srv));
   });
 }
 
@@ -223,18 +246,24 @@ async function sectionServer() {
   process.env.BOOKS_OL_BASE = `http://127.0.0.1:${OL_PORT}`;
   process.env.BOOKS_GB_BASE = `http://127.0.0.1:${GB_PORT}`;
   process.env.BOOKS_GR_BASE = `http://127.0.0.1:${GR_PORT}`;
-  process.env.BOOKS_XAI_BASE = `http://127.0.0.1:${XAI_PORT}`;
-  process.env.XAI_API_KEY = "test-xai";
-  process.env.BOOKS_GROK_MODEL = "grok-4.7";
+  // BOOKS_ANTHROPIC_BASE wins over ANTHROPIC_BASE_URL, which can be set in
+  // the shell running this suite. The real key is never read here.
+  process.env.BOOKS_ANTHROPIC_BASE = `http://127.0.0.1:${CLAUDE_PORT}`;
+  process.env.ANTHROPIC_API_KEY = "test-anthropic";
+  delete process.env.BOOKS_RECOMMEND_MODEL;
 
-  const mod = await import("file://" + path.join(ROOT, "netlify", "functions", "books.mjs").replace(/\\/g, "/"));
+  // parseGrokRecs was renamed parseRecs when recommend moved to Claude. The
+  // old name is accepted so a run against the Grok-era function still reaches
+  // the request checks instead of stopping at a missing export.
+  const modNs = await import("file://" + path.join(ROOT, "netlify", "functions", "books.mjs").replace(/\\/g, "/"));
+  const mod = Object.assign({}, modNs, { parseRecs: modNs.parseRecs || modNs.parseGrokRecs });
   const handler = mod.default;
   ok(typeof handler === "function", "books.mjs exports a handler");
   ok(typeof mod.scorePolitics === "function", "scorePolitics is exported");
   ok(typeof mod.recommendScore === "function", "recommendScore is exported");
   ok(typeof mod.parseGoodreadsHtml === "function", "parseGoodreadsHtml is exported");
-  ok(typeof mod.buildRecommendPrompt === "function" && typeof mod.parseGrokRecs === "function",
-    "the Grok recommend prompt and parser are exported");
+  ok(typeof mod.buildRecommendPrompt === "function" && typeof mod.parseRecs === "function",
+    "the recommend prompt and parser are exported");
 
   const src = fs.readFileSync(path.join(ROOT, "netlify", "functions", "books.mjs"), "utf8");
   ok(/civil rights/.test(src) && /deliberately absent/.test(src),
@@ -301,10 +330,10 @@ async function sectionServer() {
   ok(recZeroLike.score === 1 && recZeroLike.reasons.indexOf("same author as a book you liked") < 0,
     "a 0-star shelf rating is not a like (author bonus stays off; the shared subject still scores 1)");
 
-  const canPrompt = typeof mod.buildRecommendPrompt === "function" && typeof mod.sanitizeShelf === "function" && typeof mod.parseGrokRecs === "function";
+  const canPrompt = typeof mod.buildRecommendPrompt === "function" && typeof mod.sanitizeShelf === "function" && typeof mod.parseRecs === "function";
   let prompt41 = "";
   let ratedZero = "";
-  let parsedGrok = [];
+  let parsedRecs = [];
   if (canPrompt) {
     const fortyOne = [];
     for (let i = 1; i <= 41; i++) fortyOne.push({ title: "Book " + i, author: "Author " + i, rating: i === 1 ? 5 : null });
@@ -313,35 +342,35 @@ async function sectionServer() {
       { title: "Zero", author: "Zed", rating: 0 },
       { title: "Blank", author: "Bee", rating: null },
     ]), {});
-    parsedGrok = mod.parseGrokRecs(GROK_JSON, [{ title: "The Hobbit", author: "J.R.R. Tolkien" }]);
+    parsedRecs = mod.parseRecs(REC_JSON, [{ title: "The Hobbit", author: "J.R.R. Tolkien" }]);
   }
   ok(/Book 41 — Author 41 — unrated/.test(prompt41) && /Book 1 — Author 1 — 5\/5/.test(prompt41),
-    "the Grok prompt keeps the 41st shelf row and a 5-star user rating (40 used to drop it)");
+    "the recommend prompt keeps the 41st shelf row and a 5-star user rating (40 used to drop it)");
   ok(/Zero — Zed — 0\/5/.test(ratedZero) && /Blank — Bee — unrated/.test(ratedZero),
     "a real 0-star review stays 0/5; a missing review stays unrated (Number(null) is 0)");
   ok(/Woke cap: 0 of 5/.test(prompt41), "…and still states the woke cap of 0");
   ok(/assume they have read the whole series/.test(prompt41)
     && /Do not recommend the next book in that series/.test(prompt41)
     && /Do not recommend a book with LGBT characters/.test(prompt41),
-    "the Grok prompt skips the rest of a series and books with LGBT characters");
+    "the recommend prompt skips the rest of a series and books with LGBT characters");
   ok(/assume they have read the whole series/.test(ratedZero) && /LGBT characters/.test(ratedZero),
     "those two rules are on the ask even when the shelf has no skip list and no read list");
-  ok(parsedGrok.length === 5 && parsedGrok[0].title === "The Priory of the Orange Tree" && parsedGrok.every((b) => b.title !== "The Hobbit"),
-    "parseGrokRecs keeps five picks and drops a title already on the shelf");
-  const passedBooks = mod.parseGrokRecs(GROK_JSON, [{ title: "The Hobbit", author: "J.R.R. Tolkien" }], [
+  ok(parsedRecs.length === 5 && parsedRecs[0].title === "The Priory of the Orange Tree" && parsedRecs.every((b) => b.title !== "The Hobbit"),
+    "parseRecs keeps five picks and drops a title already on the shelf");
+  const passedBooks = mod.parseRecs(REC_JSON, [{ title: "The Hobbit", author: "J.R.R. Tolkien" }], [
     { title: "Lonesome Dove", author: "Larry McMurtry" },
   ]);
   const passedPrompt = mod.buildRecommendPrompt(mod.sanitizeShelf([{ title: "The Hobbit", author: "J.R.R. Tolkien", rating: 5 }]), {
     skipped: [{ title: "Lonesome Dove", author: "Larry McMurtry" }],
   });
   ok(/NOT INTERESTED/.test(passedPrompt) && /Lonesome Dove — Larry McMurtry/.test(passedPrompt),
-    "the Grok prompt names books the reader is not interested in");
+    "the recommend prompt names books the reader is not interested in");
   ok(passedBooks.length === 4 && passedBooks.every((b) => b.title !== "Lonesome Dove" && b.title !== "The Hobbit"),
-    "parseGrokRecs drops a not-interested book even when Grok returns it");
+    "parseRecs drops a not-interested book even when the model returns it");
   const readPrompt = mod.buildRecommendPrompt(mod.sanitizeShelf([{ title: "The Hobbit", author: "J.R.R. Tolkien", rating: 5 }]), {
     readlist: [{ title: "Children of Time", author: "Adrian Tchaikovsky" }],
   });
-  const readParsed = mod.parseGrokRecs(GROK_JSON, [{ title: "The Hobbit", author: "J.R.R. Tolkien" }], [
+  const readParsed = mod.parseRecs(REC_JSON, [{ title: "The Hobbit", author: "J.R.R. Tolkien" }], [
     { title: "Children of Time", author: "Adrian Tchaikovsky" },
   ]);
   const readCapped = [];
@@ -349,24 +378,24 @@ async function sectionServer() {
   const readCapPrompt = mod.buildRecommendPrompt(mod.sanitizeShelf([]), { readlist: readCapped });
   ok(/READ LIST \(do not recommend these\)/.test(readPrompt) && /Children of Time — Adrian Tchaikovsky/.test(readPrompt)
     && /not on the read list/.test(readPrompt),
-    "the Grok prompt names a saved read-list book");
+    "the recommend prompt names a saved read-list book");
   ok(!/READ LIST/.test(passedPrompt),
     "an empty read list does not add a read-list block");
   ok(readParsed.length === 4 && readParsed.every((b) => b.title !== "Children of Time" && b.title !== "The Hobbit"),
-    "parseGrokRecs drops a read-list book even when Grok returns it");
+    "parseRecs drops a read-list book even when the model returns it");
   ok(/Read 0 — Author/.test(readCapPrompt) && !/Read 80 — Author/.test(readCapPrompt),
-    "the read list sent to Grok stops at 80");
+    "the read list sent to the model stops at 80");
   ok(/Recommend exactly 10 books they have NOT already read\./.test(ratedZero)
     && /Recommend exactly 10 books they have NOT already read and that are not in the not-interested list\./.test(passedPrompt)
     && /Recommend exactly 10 books they have NOT already read, that are not in the not-interested list, and that are not on the read list\./.test(readPrompt),
     "every recommend ask asks for exactly 10 books");
   const dozenBooks = [];
   for (let i = 1; i <= 12; i++) dozenBooks.push({ title: "Pick " + i, author: "Author " + i, summary: "A summary.", why: "A why." });
-  const dozenParsed = mod.parseGrokRecs(JSON.stringify({ books: dozenBooks }), []);
+  const dozenParsed = mod.parseRecs(JSON.stringify({ books: dozenBooks }), []);
   ok(dozenParsed.length === 10 && dozenParsed[0].title === "Pick 1" && dozenParsed[9].title === "Pick 10"
     && dozenParsed.every((b) => b.title !== "Pick 11" && b.title !== "Pick 12"),
-    "parseGrokRecs keeps ten picks and drops the eleventh and twelfth");
-  ok(parsedGrok[0] && parsedGrok[0].summary.indexOf("queendom") >= 0 && parsedGrok[0].why.indexOf("Hobbit 5") >= 0,
+    "parseRecs keeps ten picks and drops the eleventh and twelfth");
+  ok(parsedRecs[0] && parsedRecs[0].summary.indexOf("queendom") >= 0 && parsedRecs[0].why.indexOf("Hobbit 5") >= 0,
     "…and each pick carries a summary and a why");
 
   // --- Goodreads parse against the LIVE shape ---
@@ -420,7 +449,7 @@ async function sectionServer() {
     "a Goodreads 403 is reported, not turned into a fake 0-star book");
   grMode = "good";
 
-  xaiCalls = [];
+  claudeCalls = [];
   const recShelf = [{ title: "The Hobbit", author: "J.R.R. Tolkien", subjects: ["Fantasy"], rating: 5 }];
   for (let i = 2; i <= 41; i++) recShelf.push({ title: "Book " + i, author: "Author " + i, rating: null });
   const rec = await callHandler(handler, {
@@ -434,26 +463,32 @@ async function sectionServer() {
   const recBody = readKeptJson(recText);
   ok(rec.status === 200, "recommend returns 200");
   ok(/^\s/.test(recText) && recText.indexOf("\n{") >= 0,
-    "recommend sends a keepalive byte before the JSON so a slow Grok call is not a 30s 504");
-  const grokReq = xaiCalls[0] && xaiCalls[0].body;
-  ok(!!grokReq && grokReq.model === "grok-4.7", "recommend asks grok-4.7, not the catalog ranker");
-  ok(!!grokReq && grokReq.reasoning_effort === "low",
-    "recommend asks grok-4.7 for low effort so a full shelf finishes inside the function");
-  ok(!!grokReq && grokReq.max_tokens === 6000,
-    "recommend leaves 6000 tokens so reasoning cannot eat the JSON");
-  const grokUser = grokReq && grokReq.messages && grokReq.messages.find((m) => m.role === "user");
-  ok(grokUser && /The Hobbit — J\.R\.R\. Tolkien — 5\/5/.test(grokUser.content) && /Book 41 — Author 41 — unrated/.test(grokUser.content),
-    "the Grok turn includes the whole shelf and the reader's stars");
-  const grokSys = grokReq && grokReq.messages && grokReq.messages.find((m) => m.role === "system");
-  ok(grokUser && /assume they have read the whole series/.test(grokUser.content)
-    && /Do not recommend a book with LGBT characters/.test(grokUser.content)
-    && grokSys && /whole series/.test(grokSys.content) && /LGBT characters/.test(grokSys.content),
-    "recommend tells Grok to skip the rest of a series and books with LGBT characters");
+    "recommend sends a keepalive byte before the JSON so a slow model call is not a 30s 504");
+  const recReq = claudeCalls[0] && claudeCalls[0].body;
+  // Restaged 2026-09-22: recommend moved from grok-4.7 (reasoning_effort
+  // "low", 6000 tokens, /v1/chat/completions) to Claude Opus 5.5.
+  ok(!!recReq && claudeCalls[0].url === "/v1/messages" && recReq.model === "claude-opus-5-5",
+    "recommend asks Claude Opus 5.5 on the Messages API, not the catalog ranker");
+  ok(!!recReq && recReq.output_config && recReq.output_config.effort === "low"
+    && recReq.temperature === undefined && recReq.thinking === undefined,
+    "recommend asks for low effort, with no temperature and no disabled thinking (both 400 on Opus 5.5)");
+  ok(!!recReq && recReq.max_tokens === 16000,
+    "recommend leaves 16000 tokens so thinking cannot eat the JSON");
+  const recUser = recReq && recReq.messages && recReq.messages.find((m) => m.role === "user");
+  ok(recUser && /The Hobbit — J\.R\.R\. Tolkien — 5\/5/.test(recUser.content) && /Book 41 — Author 41 — unrated/.test(recUser.content),
+    "the user turn includes the whole shelf and the reader's stars");
+  // The Messages API takes the system turn as a top-level field, not a message.
+  const recSys = recReq && recReq.system;
+  ok(recUser && /assume they have read the whole series/.test(recUser.content)
+    && /Do not recommend a book with LGBT characters/.test(recUser.content)
+    && typeof recSys === "string" && /whole series/.test(recSys) && /LGBT characters/.test(recSys),
+    "recommend tells the model to skip the rest of a series and books with LGBT characters");
   ok((recBody.books || []).length === 5 && recBody.books[0].title === "The Priory of the Orange Tree",
-    "…and returns the five Grok picks");
+    "…and returns the five picks from the text block, past the thinking block");
+  ok(recBody.model === "claude-opus-5-5", "…and names the model that wrote them");
   ok(!(recBody.books || []).some((b) => b.title === "The Hobbit"), "…without repeating the shelf");
 
-  xaiCalls = [];
+  claudeCalls = [];
   const skipRec = await callHandler(handler, {
     secret: SECRET,
     action: "recommend",
@@ -461,14 +496,14 @@ async function sectionServer() {
     skipped: [{ title: "Lonesome Dove", author: "Larry McMurtry" }],
   });
   const skipBody = readKeptJson(await skipRec.text());
-  const skipUser = xaiCalls[0] && xaiCalls[0].body && xaiCalls[0].body.messages.find((m) => m.role === "user");
+  const skipUser = claudeCalls[0] && claudeCalls[0].body && claudeCalls[0].body.messages.find((m) => m.role === "user");
   ok(skipUser && /NOT INTERESTED/.test(skipUser.content) && /Lonesome Dove/.test(skipUser.content),
-    "recommend tells Grok which books were marked not interested");
+    "recommend tells the model which books were marked not interested");
   ok(!(skipBody.books || []).some((b) => b.title === "Lonesome Dove")
     && (skipBody.books || []).some((b) => b.title === "The Priory of the Orange Tree"),
-    "a not-interested book is left out of the picks Grok sent back");
+    "a not-interested book is left out of the picks the model sent back");
 
-  xaiCalls = [];
+  claudeCalls = [];
   const readRec = await callHandler(handler, {
     secret: SECRET,
     action: "recommend",
@@ -476,25 +511,37 @@ async function sectionServer() {
     readlist: [{ title: "Children of Time", author: "Adrian Tchaikovsky" }],
   });
   const readBody = readKeptJson(await readRec.text());
-  const readUser = xaiCalls[0] && xaiCalls[0].body && xaiCalls[0].body.messages.find((m) => m.role === "user");
+  const readUser = claudeCalls[0] && claudeCalls[0].body && claudeCalls[0].body.messages.find((m) => m.role === "user");
   ok(readUser && /READ LIST/.test(readUser.content) && /Children of Time/.test(readUser.content)
     && !/NOT INTERESTED/.test(readUser.content),
-    "recommend tells Grok which books are on the read list");
+    "recommend tells the model which books are on the read list");
   ok(!(readBody.books || []).some((b) => b.title === "Children of Time")
     && (readBody.books || []).some((b) => b.title === "The Priory of the Orange Tree"),
-    "a read-list book is left out of the picks Grok sent back");
-  ok((recBody.books || [])[0].summary && (recBody.books || [])[0].why, "…each pick has a summary and a why");
+    "a read-list book is left out of the picks the model sent back");
+  ok(((recBody.books || [])[0] || {}).summary && ((recBody.books || [])[0] || {}).why, "…each pick has a summary and a why");
 
-  const savedKey = process.env.XAI_API_KEY;
-  delete process.env.XAI_API_KEY;
+  claudeMode = "refusal";
+  const refused = await callHandler(handler, {
+    secret: SECRET, action: "recommend",
+    shelf: [{ title: "The Hobbit", author: "J.R.R. Tolkien", rating: 5 }],
+  });
+  const refusedBody = readKeptJson(await refused.text());
+  claudeMode = "ok";
+  ok(refused.status === 200 && (refusedBody.books || []).length === 0 && refusedBody.reason === "refusal"
+    && refusedBody.error === "Could not recommend right now.",
+    "a refusal (HTTP 200, stop_reason refusal, no text) is a failure line, not an empty list of picks");
+
+  const savedKey = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
   const noKey = await callHandler(handler, {
     secret: SECRET, action: "recommend",
     shelf: [{ title: "The Hobbit", author: "J.R.R. Tolkien", rating: 5 }],
   });
   const noKeyBody = readKeptJson(await noKey.text());
-  process.env.XAI_API_KEY = savedKey;
-  ok(noKey.status === 200 && (noKeyBody.books || []).length === 0 && noKeyBody.reason === "no-key",
-    "a missing Grok key is an empty list, not a invented catalog pick");
+  process.env.ANTHROPIC_API_KEY = savedKey;
+  ok(noKey.status === 200 && (noKeyBody.books || []).length === 0 && noKeyBody.reason === "no-key"
+    && noKeyBody.error === "Recommendations need an Anthropic key.",
+    "a missing Anthropic key is an empty list, not a invented catalog pick");
 
   // Dad's 135-title shelf is closed at about 30s with only keepalive spaces.
   // The background job writes the finished picks; the page polls them. A
@@ -602,11 +649,11 @@ async function sectionServer() {
     "the shelf is painted in author-last-name order, not seed order");
   ok(/classList\.add\("embedded"\)/.test(pageSrc) && /\.embedded #buckyNav/.test(pageSrc),
     "framed Bookshelf hides its own bottom nav so the AI tab does not double the icons");
-  ok(/BOOKS_GROK_MODEL \|\| "grok-4\.7"/.test(src) && /buildRecommendPrompt/.test(src),
-    "recommend sends the shelf to grok-4.7");
-  ok(/GROK_TIMEOUT_MS = 50000/.test(src) && /reasoning_effort:\s*"low"/.test(src),
-    "the Grok call waits 50s at low effort (20s aborted a full shelf)");
-  ok(/GROK_JOB_TIMEOUT_MS = 180000/.test(src) && /recommend\(body, GROK_JOB_TIMEOUT_MS\)/.test(src),
+  ok(/RECOMMEND_MODEL = "claude-opus-5-5"/.test(src) && /buildRecommendPrompt/.test(src) && !/api\.x\.ai/.test(src),
+    "recommend sends the shelf to Claude Opus 5.5, and no longer to xAI");
+  ok(/RECOMMEND_TIMEOUT_MS = 50000/.test(src) && /RECOMMEND_EFFORT = "low"/.test(src),
+    "the recommend call waits 50s at low effort (20s aborted a full shelf)");
+  ok(/RECOMMEND_JOB_TIMEOUT_MS = 180000/.test(src) && /recommend\(body, RECOMMEND_JOB_TIMEOUT_MS\)/.test(src),
     "Dad's background recommend waits 180s (the 50s abort returned reason timeout on the 135-title shelf)");
   ok(/A full shelf takes about three minutes/.test(pageSrc) && /JOB_WAIT_MS = 200000/.test(pageSrc),
     "the page keeps polling for three minutes (the 50s abort showed Could not recommend on Dad's shelf)");
@@ -623,8 +670,12 @@ async function sectionServer() {
     "bookshelf allows the family domain, same as Movies (that origin was answered as amenfarms and the browser blocked recommend)");
   ok(/function mergeLibrary/.test(pageSrc) && /books_" \+ familyRoom\(\)/.test(pageSrc),
     "the shelf is stored for the family, not only in this browser");
-  ok(/KEEPALIVE_MS = 8000/.test(src) && /GROK_MAX_TOKENS = 6000/.test(src),
-    "the Grok call keeps the edge alive and leaves 6000 tokens of headroom");
+  ok(/KEEPALIVE_MS = 8000/.test(src) && /RECOMMEND_MAX_TOKENS = 16000/.test(src),
+    "the recommend call keeps the edge alive and leaves 16000 tokens of headroom");
+  ok(/written by Claude\./.test(pageSrc) && !/Grok/.test(pageSrc),
+    "the page credits Claude, not Grok");
+  ok(/var askedFor = p\.id;/.test(pageSrc) && /current\(\)\.id !== askedFor/.test(pageSrc),
+    "picks that land after the chip changed are not painted under the other reader");
   const intAt = pageSrc.indexOf('id="intLabel"');
   const recAt = pageSrc.indexOf('id="recLabel"');
   const shelfAt = pageSrc.indexOf('id="shelfLabel"');
@@ -940,7 +991,7 @@ async function sectionUi(browser) {
 
   await page.evaluate(() => { document.getElementById("recBtn").click(); });
   await page.waitForFunction(() => document.querySelectorAll("#recs .book").length >= 1, { timeout: 10000 });
-  ok(await page.evaluate(() => /Priory of the Orange Tree/.test(document.querySelector("#recs .t").textContent)), "Recommend paints the Grok pick");
+  ok(await page.evaluate(() => /Priory of the Orange Tree/.test(document.querySelector("#recs .t").textContent)), "Recommend paints the recommended pick");
   ok(await page.evaluate(() => {
     const sum = document.querySelector("#recs .summary");
     const why = document.querySelector("#recs .why");
@@ -1318,7 +1369,7 @@ async function sectionUi(browser) {
   const ol = await serveOL();
   const gb = await serveGB();
   const gr = await serveGR();
-  const xai = await serveXAI();
+  const claude = await serveClaude();
   try {
     await sectionServer();
   } catch (err) {
@@ -1340,7 +1391,7 @@ async function sectionUi(browser) {
     console.log("\n✗ SECTION B ERROR: " + (err && err.stack || err));
   } finally {
     if (browser) await browser.close();
-    srv.close(); ol.close(); gb.close(); gr.close(); xai.close();
+    srv.close(); ol.close(); gb.close(); gr.close(); claude.close();
   }
 
   console.log("\n" + pass + " passed, " + fail + " failed");

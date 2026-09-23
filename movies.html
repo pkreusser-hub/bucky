@@ -207,7 +207,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
   <section class="card" aria-labelledby="recLabel">
     <h2 class="section-label" id="recLabel">Next to watch</h2>
-    <p class="section-note">Ten movies you do not already own, from this list and your stars, written by Grok.</p>
+    <p class="section-note">Ten movies you do not already own, from this list and your stars, written by Claude.</p>
     <button type="button" class="primary" id="recBtn">Recommend</button>
     <div class="err" id="recErr"></div>
     <div id="recs"></div>
@@ -327,6 +327,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   "use strict";
   var FAMILY_PASSWORD = "amenfarms";
   var ENDPOINT = "/.netlify/functions/movies";
+  // The owned list is 158 titles. Bookshelf's synchronous recommend was cut
+  // off at 30-40s with only keepalive spaces on a 135-title shelf, so a long
+  // list starts the background job and polls for it.
+  var LONG_SHELF = 80;
+  var JOB_WAIT_MS = 200000;
   var STORE = "movies_profiles_v1";
   var firebaseConfig = {
     apiKey: "AIzaSyAA1hn-j9_pPuXoaHIzcyyXYJN6EhUccJU",
@@ -849,8 +854,43 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var raw = String(text || "");
     var cut = raw.lastIndexOf("\n");
     var slice = (cut >= 0 ? raw.slice(cut + 1) : raw).trim();
-    if (!slice) return {};
+    if (!slice) {
+      // The stream was closed after the keepalive spaces and before the JSON
+      // line. That is a failure, not an empty list of picks.
+      if (raw.indexOf("{") < 0 && /\s/.test(raw)) return { error: "Could not recommend right now.", reason: "cut-off" };
+      return {};
+    }
     return JSON.parse(slice);
+  }
+  function replyWasCut(res) {
+    if (!res) return true;
+    if (res.reason === "cut-off" || res.reason === "timeout") return true;
+    return !(res.movies || []).length && !res.model && !res.error;
+  }
+  function newJobId() {
+    return ("m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).replace(/[^a-z0-9]/g, "").slice(0, 40);
+  }
+  async function pollRecommend(jobId) {
+    var deadline = Date.now() + JOB_WAIT_MS;
+    while (Date.now() < deadline) {
+      await new Promise(function (resolve) { setTimeout(resolve, 2000); });
+      var res;
+      // One dropped poll on a phone is not the end of the job.
+      try { res = await api("recommend-result", { jobId: jobId }); } catch (e) { continue; }
+      if (res && res.pending) continue;
+      return res || { error: "Could not recommend right now." };
+    }
+    return { error: "Could not recommend right now.", reason: "timeout" };
+  }
+  async function startRecommendJob(extra) {
+    var jobId = newJobId();
+    var r = await fetch("/.netlify/functions/movies-recommend-background", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ secret: FAMILY_PASSWORD, jobId: jobId }, extra)),
+    });
+    if (!r.ok && r.status !== 202) throw new Error("HTTP " + r.status);
+    return pollRecommend(jobId);
   }
   async function api(action, extra) {
     var body = Object.assign({ secret: FAMILY_PASSWORD, action: action }, extra || {});
@@ -882,18 +922,27 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   }
   async function doRecommend() {
     var p = current();
-    $("recErr").textContent = "Asking Grok. The whole library takes about half a minute.";
+    var askedFor = p.id;
+    $("recErr").textContent = "Asking Claude. The whole library takes a minute or two.";
     $("recBtn").disabled = true;
     var card = $("recLabel");
     if (card && card.scrollIntoView) card.scrollIntoView({ block: "start" });
     try {
-      var res = await api("recommend", {
+      var extra = {
         shelf: p.shelf,
         interests: p.interests || [],
         skipped: p.skipped || [],
         watched: p.watched || [],
         watchlist: p.watchlist || [],
-      });
+      };
+      var res;
+      if ((p.shelf || []).length >= LONG_SHELF) res = await startRecommendJob(extra);
+      else {
+        res = await api("recommend", extra);
+        if (replyWasCut(res)) res = await startRecommendJob(extra);
+      }
+      // Picks for Dad must not paint under Joy when the chip changed mid-wait.
+      if (current().id !== askedFor) { $("recErr").textContent = ""; return; }
       lastRecs = res.movies || [];
       var shown = visibleRecs(lastRecs);
       paintRecs(shown);

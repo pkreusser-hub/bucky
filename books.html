@@ -237,7 +237,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
   <section class="card" aria-labelledby="recLabel">
     <h2 class="section-label" id="recLabel">Next to read</h2>
-    <p class="section-note">Ten picks from the whole shelf and your stars, written by Grok. A series on the shelf counts as the whole series. Books with LGBT characters are left out.</p>
+    <p class="section-note">Ten picks from the whole shelf and your stars, written by Claude. A series on the shelf counts as the whole series. Books with LGBT characters are left out.</p>
     <button type="button" class="primary" id="recBtn">Recommend</button>
     <div class="err" id="recErr"></div>
     <div id="recs"></div>
@@ -385,7 +385,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   // Dad's seeded shelf (135 titles) does not, so a long shelf starts the
   // background job instead of waiting on that closed stream.
   var LONG_SHELF = 80;
-  // The background job used to abort Grok at 50s. Dad's shelf hit that and
+  // The background job used to abort the model at 50s. Dad's shelf hit that and
   // came back as "Could not recommend right now." The job now waits 180s.
   var JOB_WAIT_MS = 200000;
   var STORE = "books_profiles_v1";
@@ -1179,7 +1179,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
   async function doRecommend() {
     var p = current();
-    $("recErr").textContent = "Asking Grok. A full shelf takes about three minutes.";
+    var askedFor = p.id;
+    $("recErr").textContent = "Asking Claude. A full shelf takes about three minutes.";
     $("recBtn").disabled = true;
     var card = $("recLabel");
     if (card && card.scrollIntoView) card.scrollIntoView({ block: "start" });
@@ -1198,6 +1199,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         res = await api("recommend", extra);
         if (replyWasCut(res)) res = await startRecommendJob(extra);
       }
+      // Picks for Dad must not paint under Eleanor when the chip changed mid-wait.
+      if (current().id !== askedFor) { $("recErr").textContent = ""; return; }
       lastRecs = res.books || [];
       var shown = visibleRecs(lastRecs);
       paintRecs(shown);
