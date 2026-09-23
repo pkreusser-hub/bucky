@@ -530,6 +530,12 @@
     // of the same empty string is how Sleeper drops and re-adds a designation,
     // and that flap used to push the owner twice an hour.
     D.S.injDirGen = (D.S.injDirGen || 0) + 1;
+    // …and WHEN this copy was taken (2026-09-23), wall clock because it is
+    // compared across devices. Each device refreshes hourly at its own moment,
+    // so two phones can hold dumps an hour apart that disagree about one man.
+    // checkInjuryChanges lets only a copy NEWER than the one behind the
+    // committed value move it — the older phone adopts instead of arguing.
+    D.S.injDirAt = Date.now();
     D.bumpPidGen(); // the directory is one of the two sources pidForKey resolves through
   }
   // Sleeper's own /state/nfl reading — WHICH week and WHICH part of the season its live stats
@@ -2178,6 +2184,7 @@
     // the guard lifts would misread itself as a live in-season CHANGE off a stats baseline that
     // was never actually recorded.
     const slpPre = D.S.slpSeasonType === "pre";
+    const injOmit = D.S.injRowOmit || (D.S.injRowOmit = new Map()); // key -> generation that first omitted him
     let n = 0;
     for (const pid in j) {
       const st = j[pid]; if (!st || typeof st !== "object") continue;
@@ -2198,7 +2205,20 @@
       // Identity/injury registration is NEVER gated — the directory, the injury report and IR
       // eligibility must not go blind just because the score itself is withheld this week.
       const row = rowFor(key, { name: meta.name, pos: meta.pos === "DEF" ? "DST" : meta.pos, team: meta.team });
-      row.injury = meta.injury || row.injury;
+      // 2026-09-23: `meta.injury || row.injury` never let an Out go — Sleeper
+      // sends "" once he is cleared, and liveProj then capped him at points
+      // already scored for the rest of the week. A status the dump CARRIES
+      // always replaces the row. An empty, uncarried one is D-S8's omit: held
+      // for the generation that first shows it, cleared once a LATER
+      // generation still omits him (checkInjuryChanges' own rule).
+      if (meta.injuryCarried === true || String(meta.injury || "").trim() !== "") {
+        row.injury = meta.injury || "";
+        injOmit.delete(key);
+      } else if (row.injury) {
+        const gen = D.S.injDirGen || 0, seen = injOmit.get(key);
+        if (seen == null) injOmit.set(key, gen);
+        else if (seen < gen) { row.injury = ""; injOmit.delete(key); }
+      }
       if (slpPre) continue; // see the guard note above — never reaches row.pts/row.official
       if (st.pts_ppr != null) row.official = st.pts_ppr;
       applySide("slp", key, {}, normSlp(st, meta.pos === "DEF"), st);

@@ -4656,10 +4656,32 @@
   // omit: the next directory generation that still shows it is news; a dump that
   // puts the committed designation back cancels the hold. A new direction
   // (Healthy → Q, then Q → Out) is still immediate.
+  //
+  // THE CROSS-DEVICE PING-PONG (2026-09-23). "90 notifications in an hour for the
+  // same player." Every family device runs this on every live tick against ONE
+  // shared doc, but each holds its own directory copy, refreshed hourly at its
+  // own moment. Phone A's copy said Q, phone B's said Out: A wrote Out → Q and
+  // pushed, B's next tick wrote Q → Out and pushed, every tick, until A's hour
+  // came round. The Q↔Out hold could not stop it — _injLast is per-device and
+  // only saw that device's own writes. Three stamps now ride beside p_<key>,
+  // top-level for the same updateMask reason:
+  //   a_<key>  D.S.injDirAt of the directory copy behind the committed value.
+  //            Only a strictly NEWER copy may move it; an older phone adopts
+  //            the doc silently. Absent (a pre-fix doc) reads as 0.
+  //   f_<key>  what the last committed transition moved FROM, so the Q↔Out
+  //            hold reads the league's last move, not this phone's.
+  //   t_<key>  when he was last pushed. A second push inside 10 minutes is
+  //            dropped (the feed line still lands) — a backstop, not the fix.
+  // And one call at a time per device: a slow Firestore round trip longer than
+  // the tick let two calls both pass the fresh read and both push.
   LG.injStateId = () => "injstate_" + LG.SEASON;
   LG.injFeedId = () => "injfeed_" + LG.SEASON;
   const INJ_FIELD_PFX = "p_";
   const injField = (key) => INJ_FIELD_PFX + String(key);
+  const injAtField = (key) => "a_" + String(key);
+  const injFromField = (key) => "f_" + String(key);
+  const injPushField = (key) => "t_" + String(key);
+  const INJ_PUSH_COOLDOWN_MS = 10 * 60 * 1000;
   const INJ_FEED_CAP = 40;
   // Newest-first, one row per player. The stored feed can still hold a ping-pong
   // chain (AR3 keeps Healthy → D then D → Out); the card must not.
@@ -4681,11 +4703,18 @@
     const carried = !!(meta && (meta.injuryCarried === true || raw.trim() !== ""));
     return { desig, carried };
   }
+  let injBusy = false;
   LG.checkInjuryChanges = async function () {
     // A read-only mirror can't persist a thing, and this is a background convenience the next
     // genuinely-connected client will pick up anyway (LG.snapshotProjections' own posture) —
     // never a reason to raise the "you're offline" toast at a reader who only opened the app.
     if (LG.mirrorOffline) return null;
+    if (injBusy) return null; // the previous tick's call is still out — it covers this one
+    injBusy = true;
+    try { return await injCheckOnce(); }
+    finally { injBusy = false; }
+  };
+  async function injCheckOnce() {
     const d = LG.data;
     const rosters = LG.ui && LG.ui._rosters;
     if (!d || !d.S || !d.S.slpPlayers || !rosters || !LG.teams.length) return null; // not warm yet — next tick
@@ -4717,6 +4746,9 @@
       }
     }
     const dirGen = d.S.injDirGen || 0;
+    const dirAt = Number(d.S.injDirAt) || 0;
+    // Our directory copy is newer than the one behind the committed value.
+    const newerThan = (doc, key) => dirAt > (Number(doc && doc[injAtField(key)]) || 0);
 
     const doc = await LG.db.get(LG.injStateId());
     const known = doc && doc.kind === "injstate" ? doc : null;
@@ -4728,10 +4760,17 @@
       const prior = known ? known[field] : undefined;
       if (prior === undefined) {
         seed[field] = info.desig;
+        seed[injAtField(key)] = dirAt;
         LG._injPending.delete(key);
         continue;
       }
       if (prior === info.desig) {
+        LG._injPending.delete(key);
+        continue;
+      }
+      // An older copy than the committed one is not news — it is this phone
+      // being behind. Adopt: no write, no push, and drop any hold it started.
+      if (!newerThan(known, key)) {
         LG._injPending.delete(key);
         continue;
       }
@@ -4751,8 +4790,11 @@
       // Reversal of the last committed pair (Q → Out, then Out → Q). Same hold
       // as the omit: one later dump that still shows it is the real move. A
       // return to Healthy is not this path — Active is still immediate, and an
-      // omitted field is D-S8 above.
-      const last = LG._injLast.get(key);
+      // omitted field is D-S8 above. The pair is the DOC's (f_ → p_), so a
+      // reversal of another phone's move is held too; _injLast only answers
+      // for a doc written before f_ existed.
+      const from = known[injFromField(key)];
+      const last = from !== undefined ? { from, to: prior } : LG._injLast.get(key);
       if (last && last.to === prior && last.from === info.desig && info.desig !== "" && last.from !== "") {
         const pend = LG._injPending.get(key);
         if (pend && pend.from === prior && pend.to === info.desig && Number(pend.seenGen) < dirGen) {
@@ -4785,23 +4827,36 @@
     // later one) — skip it here. Worst case is a DUPLICATE feed line/push if two devices both
     // read stale and raced to write at the exact same instant; never a LOST one, because a
     // field only this device is touching can't be clobbered by anyone else's write.
+    // The stale-copy rule again on the fresh read: another phone may have
+    // committed from a newer copy since our first read.
     const fresh = await LG.db.getFresh(LG.injStateId());
-    const winners = changed.filter((c) => (fresh ? fresh[c.field] : undefined) === c.from);
+    const winners = changed.filter((c) => (fresh ? fresh[c.field] : undefined) === c.from && newerThan(fresh, c.key));
     if (!winners.length) return tally({ changed: 0 });
 
+    // Push stamp decided before the write so it lands in the same PATCH.
+    // Persisted and compared across devices -> Date.now(), never LG.now().
+    const now = Date.now(), toPush = [];
     const write = { kind: "injstate", season: LG.SEASON };
-    for (const w of winners) write[w.field] = w.to;
+    for (const w of winners) {
+      write[w.field] = w.to;
+      write[injAtField(w.key)] = dirAt;
+      write[injFromField(w.key)] = w.from;
+      if (now - (Number(fresh[injPushField(w.key)]) || 0) >= INJ_PUSH_COOLDOWN_MS) {
+        write[injPushField(w.key)] = now;
+        toPush.push(w);
+      }
+    }
     try { await LG.db.set(LG.injStateId(), write); }
     catch (e) { return tally({ changed: 0 }); } // never break the poll loop
 
-    // Feed + push only for what THIS device actually won.
+    // Feed for everything THIS device won; push only outside the cooldown.
     await LG.appendInjuryFeed(winners);
     for (const w of winners) {
       if (LG._injLast) LG._injLast.set(w.key, { from: w.from, to: w.to });
-      LG.pushInjuryChange(w);
     }
-    return tally({ changed: winners.length, winners });
-  };
+    for (const w of toPush) LG.pushInjuryChange(w);
+    return tally({ changed: winners.length, winners, pushed: toPush.length });
+  }
   // Splits an arbitrary field map into ≤`size`-field chunks — a league's FIRST-EVER seed can
   // carry every one of its ~100+ rostered players at once, and naming all of them as separate
   // updateMask.fieldPaths params in one PATCH risks an unreasonably long request URL. A failed

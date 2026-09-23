@@ -18283,6 +18283,26 @@ async function openDetails(page, id) {
   if (section("AR · S9 — injury-status-change feed")) {
   {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    // RESTAGED 2026-09-23 (UA, the cross-device ping-pong): a transition now
+    // needs a directory copy NEWER than the one behind the committed value
+    // (a_<key>) — an older copy adopts instead of writing. In the app a
+    // designation only ever changes with a completed dump, which stamps
+    // D.S.injDirAt. These checks change the directory in memory, so each
+    // change is now followed by the stamp a real dump would have left.
+    // Nothing they assert moves; without it every change here read as an
+    // out-of-date phone and was (correctly) adopted.
+    const injDump = (pg) => pg.evaluate(() => {
+      const S = window.__GFFL__.D.S;
+      S.injDirAt = Math.max(Date.now(), (Number(S.injDirAt) || 0) + 1);
+    });
+    // RESTAGED 2026-09-23 (UA5): a second push for the same player inside 10
+    // minutes is dropped (the feed line still lands). Checks here that make
+    // two moves seconds apart and count the second push move that player's
+    // last-push stamp back 11 minutes first — the cooldown is UA5's subject.
+    const injAgePush = (pg, key) => pg.evaluate((k) => {
+      const LG = window.__GFFL__.LG;
+      return LG.db.set(LG.injStateId(), { kind: "injstate", season: LG.SEASON, ["t_" + k]: Date.now() - 11 * 60000 });
+    }, key);
 
     // ---- AR1: the first-ever run seeds every rostered player's CURRENT designation silently
     // — no feed line, no push, even for I. Injured's real base-fixture "Out". A second call
@@ -18329,6 +18349,7 @@ async function openDetails(page, id) {
       await sleep(300);
       notify.reset();
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Doubtful"; }); // Q. Rival
+      await injDump(page);
       const r = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       ok(r && r.changed === 1, "exactly one real transition is detected (" + JSON.stringify(r) + ")");
       const state = await page.evaluate(() => window.__GFFL__.LG.db.getFresh(window.__GFFL__.LG.injStateId()));
@@ -18356,6 +18377,7 @@ async function openDetails(page, id) {
       await waitLive(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()); // seed baseline
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Doubtful"; });
+      await injDump(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()); // Q -> D lands
       // Producers are fire-and-forget (section AN's own rule): the promise above resolves with
       // the notify fetch still possibly in flight. Drain before resetting, or a late arrival
@@ -18366,6 +18388,8 @@ async function openDetails(page, id) {
       ok(still && still.changed === 0, "nothing changed since the last poll -> nothing to report (" + JSON.stringify(still) + ")");
       ok(notify.calls.length === 0, "…and no push for a no-op poll");
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Out"; });
+      await injDump(page);
+      await injAgePush(page, "222111"); // RESTAGED 2026-09-23: the Q -> D push was seconds ago — see injAgePush
       const r2 = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       ok(r2 && r2.changed === 1, "…but a REAL further change (Doubtful -> Out) is caught (" + JSON.stringify(r2) + ")");
       const feed = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
@@ -18394,6 +18418,7 @@ async function openDetails(page, id) {
       await waitLive(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Doubtful"; });
+      await injDump(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       await sleep(300); // drain the "Q -> D" push before resetting — see AR3's own note
       notify.reset();
@@ -18403,6 +18428,8 @@ async function openDetails(page, id) {
       // the owner Q → Healthy → Q. A real all-clear is injury_status "Active"
       // (injLabel maps it to ""), which Sleeper actually sends.
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Active"; });
+      await injDump(page);
+      await injAgePush(page, "222111"); // RESTAGED 2026-09-23: the Q -> D push was seconds ago — see injAgePush
       const r = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       ok(r && r.changed === 1, "clearing a real designation IS a reportable change (" + JSON.stringify(r) + ")");
       const feed = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
@@ -18481,6 +18508,7 @@ async function openDetails(page, id) {
       await waitLive(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()); // seed baseline
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9102").injury = "Questionable"; }); // X. Wideout
+      await injDump(page);
       // "Another device" already recorded this exact transition and pushed for it — written
       // straight into the shared local store, bypassing this page's LG.db entirely.
       await page.evaluate((k, doc) => localStorage.setItem(k, JSON.stringify(doc)), LSPFX + "injstate_2026", {
@@ -18519,7 +18547,9 @@ async function openDetails(page, id) {
       await p2.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       // Both devices now observe the SAME real-world change at roughly the same instant.
       await p1.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9102").injury = "Out"; });
+      await injDump(p1);
       await p2.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9102").injury = "Out"; });
+      await injDump(p2);
       notify.reset();
       await Promise.all([
         p1.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()),
@@ -18547,6 +18577,7 @@ async function openDetails(page, id) {
       ok(!/League injury report/.test(emptyState || ""), "a fresh league with no recorded CHANGES shows no injury card at all (not an empty shell)");
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges()); // seed
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Questionable"; }); // Q. Rival
+      await injDump(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       await page.evaluate(() => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".injline");
@@ -18583,6 +18614,7 @@ async function openDetails(page, id) {
       await waitLive(page); // stops the automatic loop; poll() below drives one tick by hand
       await poll(page); // baseline seed, via the REAL poll path (not a direct call)
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Out"; });
+      await injDump(page);
       notify.reset();
       await poll(page); // one real D.pollOnce() tick
       const ok1 = await waitFnOr(page, () => {
@@ -18615,6 +18647,7 @@ async function openDetails(page, id) {
       await waitLive(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Questionable"; });
+      await injDump(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       await sleep(300);
       notify.reset();
@@ -18623,6 +18656,7 @@ async function openDetails(page, id) {
         row.injury = "";
         row.injuryCarried = false;
       });
+      await injDump(page);
       const omit = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       ok(omit && omit.changed === 0, "omitting the field is not an all-clear (" + JSON.stringify(omit) + ")");
       const held = await page.evaluate(() => window.__GFFL__.LG.db.getFresh(window.__GFFL__.LG.injStateId()));
@@ -18637,6 +18671,7 @@ async function openDetails(page, id) {
         row.injuryCarried = true;
         window.__GFFL__.D.S.injDirGen = (window.__GFFL__.D.S.injDirGen || 0) + 1;
       });
+      await injDump(page);
       const back = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       ok(back && back.changed === 0, "…and the same Q coming back after the omit is not news (" + JSON.stringify(back) + ")");
       const feedBack = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
@@ -18659,6 +18694,7 @@ async function openDetails(page, id) {
       await waitLive(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Questionable"; });
+      await injDump(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       await sleep(300);
       notify.reset();
@@ -18667,11 +18703,14 @@ async function openDetails(page, id) {
         row.injury = "";
         row.injuryCarried = false;
       });
+      await injDump(page);
       const hold = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       ok(hold && hold.changed === 0, "the first omitted dump is held, not announced (" + JSON.stringify(hold) + ")");
       await page.evaluate(() => {
         window.__GFFL__.D.S.injDirGen = (window.__GFFL__.D.S.injDirGen || 0) + 1;
       });
+      await injDump(page);
+      await injAgePush(page, "222111"); // RESTAGED 2026-09-23: the Healthy -> Q push was seconds ago — see injAgePush
       const conf = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       ok(conf && conf.changed === 1, "…a later directory generation that still omits him IS the all-clear (" + JSON.stringify(conf) + ")");
       const feed = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
@@ -18693,8 +18732,10 @@ async function openDetails(page, id) {
       await waitLive(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Questionable"; });
+      await injDump(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Out"; });
+      await injDump(page);
       await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       await sleep(300);
       notify.reset();
@@ -18702,6 +18743,7 @@ async function openDetails(page, id) {
       ok(feedBefore.length === 2 && feedBefore[0].from === "Q" && feedBefore[0].to === "OUT",
         "a new direction (Q → Out after Healthy → Q) still lands immediately (" + JSON.stringify(feedBefore.map((f) => f.from + "->" + f.to)) + ")");
       await page.evaluate(() => { window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Questionable"; });
+      await injDump(page);
       const bounce = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       ok(bounce && bounce.changed === 0, "Out → Q without a later dump is held, not announced (" + JSON.stringify(bounce) + ")");
       const feedHold = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
@@ -18712,6 +18754,7 @@ async function openDetails(page, id) {
         window.__GFFL__.D.S.injDirGen = (window.__GFFL__.D.S.injDirGen || 0) + 1;
         window.__GFFL__.D.S.slpPlayers.get("9101").injury = "Out";
       });
+      await injDump(page);
       const back = await page.evaluate(() => window.__GFFL__.LG.checkInjuryChanges());
       ok(back && back.changed === 0, "…a dump that puts the committed Out back cancels the hold (" + JSON.stringify(back) + ")");
       const feedBack = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
@@ -29480,6 +29523,262 @@ async function openDetails(page, id) {
       "a kickoff return TD is the receiving DEN D/ST's, read from \"kicks … from KC 35\" (" + JSON.stringify(r.h) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
+  }
+
+  // ================= UA · injury pushes ping-pong between family devices ===================
+  // 2026-09-23, user: "this weekend I got like 90 in the span of an hour for
+  // the same player." Every device runs LG.checkInjuryChanges on every live
+  // tick against ONE shared injstate doc, but each holds its own directory
+  // copy, refreshed hourly at its own moment. Phone A's copy said Q, phone
+  // B's said Out, and each tick one of them "corrected" the doc and pushed.
+  // The fix stamps the doc with the age of the copy behind each value (a_),
+  // the last move's origin (f_), and the last push (t_); an older copy
+  // adopts instead of writing. Every stamp below is hand-set from `base`
+  // (the seed's own a_), so each expectation is arithmetic, not timing.
+  if (section("UA · injury pushes do not ping-pong between devices")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    // Production reads the doc through LG.db.get's 15s background refresh at
+    // an 8-16s tick, so each tick sees what the other phone left. A fresh
+    // read before each call stands in for that refresh.
+    const injTick = (page) => page.evaluate(async () => {
+      const LG = window.__GFFL__.LG;
+      await LG.db.getFresh(LG.injStateId());
+      return LG.checkInjuryChanges();
+    });
+    // One completed directory dump on one device: new designations, a new
+    // generation, and the copy's own wall-clock stamp (at).
+    const injDumpAt = (page, statuses, at) => page.evaluate((statuses, at) => {
+      const D = window.__GFFL__.D;
+      for (const pid of Object.keys(statuses)) {
+        const m = D.S.slpPlayers.get(pid);
+        m.injury = statuses[pid];
+        m.injuryCarried = statuses[pid] !== "";
+      }
+      D.S.injDirGen = (D.S.injDirGen || 0) + 1;
+      D.S.injDirAt = at != null ? at : Math.max(Date.now(), (Number(D.S.injDirAt) || 0) + 1);
+    }, statuses, at == null ? null : at);
+    const countInjWrites = (page) => page.evaluate(() => {
+      const LG = window.__GFFL__.LG;
+      window.__injWrites = 0;
+      const orig = LG.db.set;
+      LG.db.set = function (id, data) {
+        if (id === LG.injStateId()) window.__injWrites++;
+        return orig.call(this, id, data);
+      };
+    });
+    const injWrites = (page) => page.evaluate(() => window.__injWrites);
+    const pushesFor = (re) => notify.calls.filter((c) => c && c.gfflTeam === 2 && re.test(c.body || "")).length;
+
+    // ---- UA1-UA3: two real devices on one shared cloud doc.
+    {
+      notify.reset();
+      const R = restFixture(fullSeed().docs);
+      const seed2 = { docs: {}, pass: "amenfarms", team: 1, who: "Peter" };
+      const { ctx: cA, page: pA, errors: eA } = await newTestPage(browser, seed2, { rest: R });
+      await pA.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(pA, ".mucard", 15000), "device A boots against the shared cloud store");
+      await waitLive(pA);
+      const { ctx: cB, page: pB, errors: eB } = await newTestPage(browser, seed2, { rest: R });
+      await pB.goto(BASE + "/league.html?fam=" + FAM + SIMOFF, { waitUntil: "networkidle0" });
+      ok(await waitOr(pB, ".mucard", 15000), "device B boots against the SAME store");
+      await waitLive(pB);
+      await sleep(400); // the automatic first tick seeds; let its writes land
+      const st0 = R.docs.injstate_2026 || {};
+      ok(st0.p_222111 === "" && st0.p_222333 === "", "the first tick seeded Q. Rival and X. Wideout healthy (" + JSON.stringify({ q: st0.p_222111, x: st0.p_222333 }) + ")");
+      // Pre-fix seeds carry no a_; the bite run still needs a number to add to.
+      const base = Number(st0.a_222111) || Date.now();
+      ok(Number(st0.a_222111) > 0, "…and the seed stamped a_ with the seeding device's directory time (" + st0.a_222111 + ")");
+      const hourAgo = Date.now() - 3600000;
+      // Q. Rival: A's dump at base+1000 said Q and was committed an hour ago.
+      // X. Wideout: B's newer dump at base+2000 already moved him Q → Out.
+      Object.assign(R.docs.injstate_2026, {
+        p_222111: "Q", a_222111: base + 1000, f_222111: "", t_222111: hourAgo,
+        p_222333: "OUT", a_222333: base + 2000, f_222333: "Q", t_222333: hourAgo,
+      });
+      await injDumpAt(pA, { 9101: "Questionable", 9102: "Questionable" }, base + 1000); // A: the older copy
+      await injDumpAt(pB, { 9101: "Out", 9102: "Out" }, base + 2000);                   // B: the newer copy
+      await countInjWrites(pA);
+      await countInjWrites(pB);
+      notify.reset();
+      const feedLen0 = ((R.docs.injfeed_2026 || {}).rows || []).length;
+      // 20 ticks, A first. Hand count on the fix:
+      //   Q. Rival  — A1 Q = Q, nothing. B1 base+2000 > a_ base+1000: commits
+      //               Q → Out, 1 push. A2..A10 base+1000 < base+2000: adopt.
+      //               B2..B10 Out = Out, nothing.                    → 1 push
+      //   X. Wideout — A1..A10 base+1000 < a_ base+2000: adopt. B Out = Out.
+      //                                                             → 0 pushes
+      for (let i = 0; i < 10; i++) { await injTick(pA); await injTick(pB); }
+      await sleep(500);
+      const qPush = pushesFor(/Q\. Rival/), xPush = pushesFor(/X\. Wideout/);
+      console.log("  UA1 pushes over 20 ticks: Q. Rival " + qPush + ", X. Wideout " + xPush);
+      const st1 = R.docs.injstate_2026;
+      ok(qPush === 1, "UA1 older phone Q, newer phone Out, 20 alternating ticks: exactly ONE push for Q. Rival (" + qPush + ")");
+      ok(st1.p_222111 === "OUT" && st1.a_222111 === base + 2000 && st1.f_222111 === "Q",
+        "…the doc ends at Out, stamped with B's copy (base+2000) and moved from Q (" + JSON.stringify({ p: st1.p_222111, a: st1.a_222111 - base, f: st1.f_222111 }) + ")");
+      ok(await injWrites(pA) === 0, "…and the older phone never wrote the injury doc at all (" + await injWrites(pA) + ")");
+      const rows1 = ((R.docs.injfeed_2026 || {}).rows || []).slice(0, ((R.docs.injfeed_2026 || {}).rows || []).length - feedLen0);
+      ok(rows1.filter((r) => r.key === "222111").length === 1, "…one feed line for him, Q → Out (" + JSON.stringify(rows1.map((r) => r.key + ":" + r.from + "->" + r.to)) + ")");
+      ok(xPush === 0, "UA2 B committed Out first, then the older phone ticked first: no ping-pong, 0 pushes for X. Wideout (" + xPush + ")");
+      ok(st1.p_222333 === "OUT" && st1.a_222333 === base + 2000 && rows1.every((r) => r.key !== "222333"),
+        "…the doc still reads Out from B's copy and the feed gained nothing for him (" + JSON.stringify({ p: st1.p_222333, a: st1.a_222333 - base }) + ")");
+
+      // ---- UA3: a genuine LATER dump on A (base+3000, newer than B's) still
+      // says Q. That is newer information, so it may move the doc — but Out → Q
+      // reverses the doc's last move (f_ Q → p_ Out, which B made, not A), so
+      // the existing hold applies: held on the first newer dump, committed on
+      // the next generation that still says Q. Push stamps aged past the
+      // cooldown so UA5, not this, is what measures it.
+      R.docs.injstate_2026.t_222111 = hourAgo;
+      R.docs.injstate_2026.t_222333 = hourAgo;
+      notify.reset();
+      await injDumpAt(pA, { 9101: "Questionable", 9102: "Questionable" }, base + 3000);
+      const h1 = await injTick(pA);
+      const h2 = await injTick(pA);
+      await injTick(pB);
+      await sleep(300);
+      ok(h1 && h1.changed === 0 && h2 && h2.changed === 0 && R.docs.injstate_2026.p_222111 === "OUT",
+        "UA3 a newer copy reversing ANOTHER phone's Q → Out is held, reading f_ from the doc (" + JSON.stringify({ h1, h2, p: R.docs.injstate_2026.p_222111 }) + ")");
+      ok(notify.calls.length === 0, "…no push while held (" + notify.calls.length + ")");
+      await injDumpAt(pA, { 9101: "Questionable", 9102: "Questionable" }, base + 4000);
+      const c1 = await injTick(pA);
+      for (let i = 0; i < 3; i++) await injTick(pB);
+      await sleep(400);
+      const st3 = R.docs.injstate_2026;
+      ok(c1 && c1.changed === 2 && st3.p_222111 === "Q" && st3.a_222111 === base + 4000 && st3.f_222111 === "OUT",
+        "…the next generation still saying Q commits Out → Q, stamped base+4000 (" + JSON.stringify({ changed: c1 && c1.changed, p: st3.p_222111, a: st3.a_222111 - base, f: st3.f_222111 }) + ")");
+      ok(pushesFor(/Q\. Rival/) === 1 && pushesFor(/X\. Wideout/) === 1, "…one push per player, and B's older Out afterwards pushes nothing (" + JSON.stringify(notify.calls.map((c) => c.body)) + ")");
+      ok(await injWrites(pB) === 1 && st3.p_222333 === "Q", "…B wrote once in all of UA1-UA3 (its one real Q → Out) and did not put Out back (" + await injWrites(pB) + ")");
+      ok(eA.length === 0 && eB.length === 0, "0 page errors on both devices");
+      await cA.close(); await cB.close();
+    }
+
+    // ---- UA4: two overlapping calls on one device (a Firestore round trip
+    // longer than the tick). Both used to pass the fresh read before either
+    // wrote, and both pushed. The second call now returns at once.
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await sleep(400);
+      await injDumpAt(page, { 9101: "Doubtful" });
+      notify.reset();
+      const rs = await page.evaluate(async () => {
+        const LG = window.__GFFL__.LG;
+        const orig = LG.db.getFresh;
+        // The answer is read at request time and arrives 250ms later — a slow
+        // round trip, so both calls hold the pre-write doc when they decide.
+        LG.db.getFresh = async function (id) {
+          const v = await orig.call(this, id);
+          if (id === LG.injStateId()) await new Promise((r) => setTimeout(r, 250));
+          return v;
+        };
+        const both = await Promise.all([LG.checkInjuryChanges(), LG.checkInjuryChanges()]);
+        LG.db.getFresh = orig;
+        const after = await LG.checkInjuryChanges();
+        return { both, after };
+      });
+      await sleep(400);
+      const won = rs.both.filter((r) => r && r.changed === 1).length;
+      ok(won === 1 && rs.both.filter((r) => r === null).length === 1, "UA4 two overlapping calls: one records the move, the other returns at once (" + JSON.stringify(rs.both.map((r) => r && r.changed)) + ")");
+      ok(pushesFor(/Q\. Rival/) === 1, "…one push, not two (" + pushesFor(/Q\. Rival/) + ")");
+      const feed = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      ok(feed.filter((f) => f.key === "222111").length === 1, "…one feed line (" + feed.length + ")");
+      ok(rs.after && rs.after.changed === 0, "…and the busy flag is released: the next call runs (" + JSON.stringify(rs.after) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- UA5: the push cooldown. A real second move inside 10 minutes still
+    // lands in the doc and the feed; only the push is dropped. The page clock
+    // is moved forward, so the transitions really are 5 and 11 minutes apart.
+    //   Q. Rival:   Healthy → Q at T, Q → D at T+5m:  5 < 10  → 2 lines, 1 push
+    //   X. Wideout: Healthy → Q at T+5m, Q → D at T+16m: 11 ≥ 10 → 2 lines, 2 pushes
+    {
+      notify.reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await waitLive(page);
+      await sleep(400);
+      await page.evaluate(() => {
+        const real = Date.now;
+        window.__injShift = 0;
+        Date.now = () => real() + window.__injShift;
+      });
+      const later = (min) => page.evaluate((ms) => { window.__injShift += ms; }, min * 60000);
+      notify.reset();
+      await injDumpAt(page, { 9101: "Questionable" });
+      await injTick(page);
+      const t0 = (await page.evaluate(() => window.__GFFL__.LG.db.getFresh(window.__GFFL__.LG.injStateId()))).t_222111;
+      await later(5);
+      await injDumpAt(page, { 9101: "Doubtful", 9102: "Questionable" });
+      const r5 = await injTick(page);
+      await later(11);
+      await injDumpAt(page, { 9102: "Doubtful" });
+      await injTick(page);
+      await sleep(400);
+      const st = await page.evaluate(() => window.__GFFL__.LG.db.getFresh(window.__GFFL__.LG.injStateId()));
+      const feed = await page.evaluate(() => window.__GFFL__.LG.loadInjuryFeed());
+      const lines = (k) => feed.filter((f) => f.key === k).map((f) => f.from + "->" + f.to);
+      ok(JSON.stringify(lines("222111")) === JSON.stringify(["Q->D", "->Q"]) && st.p_222111 === "D",
+        "UA5 Q. Rival's two moves 5 minutes apart are both on the feed and in the doc (" + JSON.stringify(lines("222111")) + ")");
+      ok(pushesFor(/Q\. Rival/) === 1, "…but only the first pushed (" + pushesFor(/Q\. Rival/) + ")");
+      ok(r5 && r5.changed === 2 && r5.pushed === 1 && st.t_222111 === t0,
+        "…the muted move leaves t_ at the first push (" + JSON.stringify({ r5: r5 && { changed: r5.changed, pushed: r5.pushed }, same: st.t_222111 === t0 }) + ")");
+      ok(JSON.stringify(lines("222333")) === JSON.stringify(["Q->D", "->Q"]) && pushesFor(/X\. Wideout/) === 2,
+        "…X. Wideout's two moves 11 minutes apart push twice (" + JSON.stringify({ lines: lines("222333"), pushes: pushesFor(/X\. Wideout/) }) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+
+    // ---- UA6: the matchup cap after an Out clears. The live stat poll kept
+    // row.injury = meta.injury || row.injury, so once a dump said Out, the
+    // empty string Sleeper sends after he is cleared never replaced it, and
+    // D.liveProj capped him at points scored for the rest of the week.
+    // Pinned Q2 5:00, P. Passer 10 pts, 18 weekly (TV's numbers):
+    //   minLeft = (4-2)*15 + 5 = 35, frac 35/60
+    //   healthy → 10 + 18 × 35/60 = 20.5      Out → 10
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 9000);
+      await waitLive(page);
+      const r = (await evalOr(page, async () => {
+        const D = window.__GFFL__.D;
+        const key = "3915511", dir = D.S.slpPlayers.get("6904"); // P. Passer, PHI
+        const prev = D.S.games.get("PHI") || {};
+        D.S.games.set("PHI", { ...prev, state: "in", period: 2, clock: "5:00" });
+        const origProj = D.projFor.bind(D);
+        D.projFor = (k) => (k === key ? 18 : origProj(k));
+        const dump = (status) => {
+          dir.injury = status; dir.injuryCarried = status !== "";
+          D.S.injDirGen = (D.S.injDirGen || 0) + 1;
+        };
+        const step = async () => {
+          await D.pollSleeper();
+          const row = D.S.players.get(key);
+          row.pts = 10; // pin the score; injury is whatever the poll left
+          return { inj: row.injury, live: D.liveProj(key) };
+        };
+        const out = {};
+        dump("Out"); out.out = await step();
+        dump("Active"); out.active = await step();
+        dump("Out"); out.out2 = await step();
+        dump(""); out.omit1 = await step();
+        out.omit1b = await step();
+        dump(""); out.omit2 = await step();
+        return out;
+      })) || {};
+      ok(r.out && r.out.inj === "Out" && r.out.live === 10, "UA6 Out mid-game: the poll records Out and expected finish is the 10 already scored (" + JSON.stringify(r.out) + ")");
+      ok(r.active && r.active.inj === "Active" && r.active.live === 20.5, "…an explicit carried Active replaces it and the cap lifts: 10 + 18×35/60 = 20.5 (" + JSON.stringify(r.active) + ")");
+      ok(r.out2 && r.out2.live === 10 && r.omit1 && r.omit1.inj === "Out" && r.omit1.live === 10 && r.omit1b && r.omit1b.live === 10,
+        "…Out again, then the first dump that omits him is held (D-S8): still Out, still 10, across ticks (" + JSON.stringify({ out2: r.out2, omit1: r.omit1, omit1b: r.omit1b }) + ")");
+      ok(r.omit2 && r.omit2.inj === "" && r.omit2.live === 20.5, "…a LATER dump that still omits him clears it: 20.5 again, not capped all week (" + JSON.stringify(r.omit2) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
   }
 
   await browser.close();
