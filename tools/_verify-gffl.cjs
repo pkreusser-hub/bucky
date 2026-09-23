@@ -30975,6 +30975,19 @@ async function openDetails(page, id) {
   // weekly scores or opponents, and its Tuesday ranking disagreed with the matchup page by
   // Sunday. Decisions (final): no AI at all; keep a 0–100 score; rest of season blends
   // results with roster. Every number below is hand-computed from the fixture beside it.
+  // UH's pages must not run the Grok projection ADJUSTER (a separate, existing feature that
+  // rewrites D.projFor through farmgpt gffladjust). Whether it runs depends on ESPN_S2/ESPN_SWID,
+  // which earlier sections leave set, so a full battery and an --only UH run saw different
+  // projections and a farmgpt call the ranking never made. Each UH page section clears them
+  // for its own run (the adjuster then fails open) and puts them back.
+  function uhNoAdjuster() {
+    const s2 = process.env.ESPN_S2, sw = process.env.ESPN_SWID;
+    delete process.env.ESPN_S2; delete process.env.ESPN_SWID;
+    return () => {
+      if (s2 === undefined) delete process.env.ESPN_S2; else process.env.ESPN_S2 = s2;
+      if (sw === undefined) delete process.env.ESPN_SWID; else process.env.ESPN_SWID = sw;
+    };
+  }
   if (section("UH1 · This week board — the pure arithmetic")) {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
@@ -31120,6 +31133,8 @@ async function openDetails(page, id) {
     await ctx.close();
   }
   if (section("UH3 · the phone card — This week, hand-computed, from the live engine's own number")) {
+    const uhRestore = uhNoAdjuster();
+    try {
     // Eight teams (seedAllFielded), a two-week schedule, week 1 finalized, the board on week 2.
     // Each starter's expected finish (D.liveProj) is pinned to a table:
     //   T1  Passer 20 · Rusher 15 · Second 12 · Receiver 14 · Two 9 · Tight 8 · Flexman(RB, FLEX) 10 · PHI 6 · Kicker 7 = 101
@@ -31247,13 +31262,16 @@ async function openDetails(page, id) {
       await evalOr(page, () => { const p = document.querySelector("#powerCard .panner"); if (p) p.scrollLeft = p.scrollWidth; });
       if (el) await el.screenshot({ path: path.join(SCRATCH, "uh_power_week_390_panned.png") });
     }
-    ok(gpt.length === 0, "no /.netlify/functions/farmgpt call from the League page — no AI anywhere in the ranking (" + gpt.length + ")");
+    ok(gpt.length === 0, "no /.netlify/functions/farmgpt call from the League page — no AI anywhere in the ranking (" + gpt.length + " " + JSON.stringify(gpt.map((b) => { try { return JSON.parse(b).mode; } catch (e) { return "?"; } })) + ")");
     const snaps = await evalOr(page, () => Object.keys(localStorage).filter((k) => /powersnap_|aipower_/.test(k)).length);
     ok(snaps === 0, "…and a local fallback store writes no snapshot (cloud only)");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
+    } finally { uhRestore(); }
   }
   if (section("UH4 · This week is live — the matchup header's number, repainted every tick")) {
+    const uhRestore = uhNoAdjuster();
+    try {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await waitOr(page, ".mucard");
@@ -31295,8 +31313,11 @@ async function openDetails(page, id) {
       "…and a 7-point play lands on This week through the live repaint alone: " + live.before + " → " + live.after);
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
+    } finally { uhRestore(); }
   }
   if (section("UH5 · Rest of season in the app — averages, IR, the blend, PO%, LW from the snapshot")) {
+    const uhRestore = uhNoAdjuster();
+    try {
     // Eight teams, weeks 1–3 finalized, the board on week 4. W. Receiver is moved to IR.
     // Every week: 1v2 100–90, 3v4 80–120, 5v6 110–100, 7v8 95–105 → g = 3 for everyone, wR = 0.5.
     //   PF 300 / 270 / 240 / 360 / 330 / 300 / 285 / 315 → results 100 / 90 / 80 / 120 / 110 / 100 / 95 / 105.
@@ -31371,8 +31392,11 @@ async function openDetails(page, id) {
     }
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
+    } finally { uhRestore(); }
   }
   if (section("UH6 · the snapshot — cloud only, at most once an hour, and no Grok on the cloud")) {
+    const uhRestore = uhNoAdjuster();
+    try {
     const seed = fullSeed();
     const { ctx, page, errors } = await newTestPage(browser, seed);
     const gpt = [];
@@ -31418,11 +31442,14 @@ async function openDetails(page, id) {
     ok(thr.recent && thr.recent.reason === "recent" && thr.keptRecent === true, "…a snapshot another device stamped 10 minutes ago is left alone (" + JSON.stringify(thr.recent) + ")");
     ok(thr.stale && thr.stale.wrote === true && thr.over === true, "…one stamped two hours ago is overwritten, last write wins");
     ok(thr.next && thr.next.reason === "throttled", "…and the device holds off again for the next hour");
-    ok(gpt.length === 0, "…no farmgpt call on the cloud either — the old Tuesday generation is gone (" + gpt.length + ")");
+    ok(gpt.length === 0, "…no farmgpt call on the cloud either — the old Tuesday generation is gone (" + gpt.length + " " + JSON.stringify(gpt.map((b) => { try { return JSON.parse(b).mode; } catch (e) { return "?"; } })) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
+    } finally { uhRestore(); }
   }
   if (section("UH7 · desktop — the same card in MAIN, right after standings, no pan")) {
+    const uhRestore = uhNoAdjuster();
+    try {
     for (const vw of [{ width: 1440, height: 980 }, { width: 1024, height: 900 }]) {
       const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw });
       await bootPage(page);
@@ -31444,6 +31471,7 @@ async function openDetails(page, id) {
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
+    } finally { uhRestore(); }
   }
 
   await browser.close();
