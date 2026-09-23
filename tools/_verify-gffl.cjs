@@ -25,17 +25,21 @@ const puppeteer = require("puppeteer-core");
 const ROOT = path.join(__dirname, "..");
 // Review plates for the 2026-08-22 playtest-6 batch go to the session scratchpad, not shots/
 // (house rule: scratch/throwaway review artifacts never live in the repo).
-const SCRATCH = "C:\\Users\\pkreu\\AppData\\Local\\Temp\\claude\\C--Users-pkreu-OneDrive-Documents-BUCKY\\3975c6b5-997c-4420-be77-bbe51e7e6e8d\\scratchpad";
-const SRV_PORT = 8843;
-const FF_PORT = 8844;
-const TENOR_PORT = 8845;
-const XAI_PORT = 8846;
-const SPORTS_FF_PORT = 8847; // dedicated fantasy-upstream fixture for netlify/functions/sports.mjs
+// GFFL_SCRATCH / GFFL_PORT_BASE (2026-09-23): a second checkout (an agent worktree, a Linux
+// sandbox) can point plates at its own scratchpad and run on its own six ports, so two suites
+// can run side by side. Unset, both are exactly what they always were.
+const SCRATCH = process.env.GFFL_SCRATCH || "C:\\Users\\pkreu\\AppData\\Local\\Temp\\claude\\C--Users-pkreu-OneDrive-Documents-BUCKY\\3975c6b5-997c-4420-be77-bbe51e7e6e8d\\scratchpad";
+const PORT_BASE = Number(process.env.GFFL_PORT_BASE) || 8843;
+const SRV_PORT = PORT_BASE;
+const FF_PORT = PORT_BASE + 1;
+const TENOR_PORT = PORT_BASE + 2;
+const XAI_PORT = PORT_BASE + 3;
+const SPORTS_FF_PORT = PORT_BASE + 4; // dedicated fantasy-upstream fixture for netlify/functions/sports.mjs
                               // (item 5's Scores tab) — kept SEPARATE from FF_PORT above, which
                               // league.mjs's own history importer already uses for a differently-
                               // shaped fixture (mMatchupScore there means "a past season", not
                               // "this week's live matchups" — sharing a port would collide).
-const SPORTS_NFL_PORT = 8848; // item 28's fake site.api.espn.com for netlify/functions/sports.mjs.
+const SPORTS_NFL_PORT = PORT_BASE + 5; // item 28's fake site.api.espn.com for netlify/functions/sports.mjs.
                               // The page's own request interception can't answer this one: the
                               // nfl_game call runs the REAL sports.mjs handler IN NODE, so its
                               // upstream fetch never passes through the browser at all.
