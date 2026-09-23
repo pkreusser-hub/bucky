@@ -21292,11 +21292,29 @@ async function openDetails(page, id) {
   // already-live page (poll loop just stopped, a fresh target about to replace it) is exactly
   // the shape that produced an intermittent Puppeteer-level "Promise was collected" here —
   // booting directly avoids the double-navigation rather than chasing the flake itself.
+  //
+  // 2026-09-23: that flake is NOT the navigation. On Chromium 141 it reproduced on every
+  // --only AZ run, and a CDP trace of the boot shows one real navigation (Page.frameNavigated
+  // type=Navigation) and, ~150ms later, a Page.navigatedWithinDocument (navigationType
+  // historyApi) — the #matchup route's own history.replaceState, same URL, same document,
+  // no reload. The error came from waitLive's LAST step, `poll(page)`: CDP awaiting the
+  // pending promise D.pollOnce() returns, and the inspector reporting it "collected" mid-poll.
+  // The app is fine: the same call with a `.then` in the page still ran to completion
+  // (window flag set) while CDP threw, and a later identical bare call passed — so it is the
+  // inspector's weak hold on a returned promise meeting a GC, timing-dependent, not a hung
+  // poll. The block now pins the promise to `window` before handing it to CDP (strongly
+  // reachable, so there is nothing to collect); the seeded wait and D.stop() are waitLive's
+  // own, unchanged.
   {
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
     await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "&demo=clinch#matchup", { waitUntil: "networkidle0" });
     await page.waitForFunction(() => window.__GFFL__ && window.__GFFL__.LG.rules, { timeout: 9000 });
-    await waitLive(page);
+    await page.waitForFunction(() => {
+      const d = window.__GFFL__.D;
+      return d && d.S.players.size > 0 && d.S.slpSeeded && d.S.espnSeeded;
+    }, { timeout: 10000 });
+    await stopPolling(page);
+    await page.evaluate(() => { window.__azPoll = window.__GFFL__.D.pollOnce(); return window.__azPoll; });
     await page.waitForSelector(".muhead", { timeout: 9000 });
     const armed = await evalOr(page, () => ({
       kind: window.__GFFL__.D.demo && window.__GFFL__.D.demo.kind,
@@ -21359,14 +21377,14 @@ async function openDetails(page, id) {
       console.log("  📸 shots/gffl_democlinch_{390,1280}.png");
       await page.setViewport({ width: 390, height: 844 }); // back to default for the rest of this check
     }
-    const finOn = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1));
+    const finOn = await page.evaluate(() => { window.__azFin = window.__GFFL__.LG.finalizeWeek(1); return window.__azFin; });
     ok(finOn && finOn.ok === false && finOn.reason === "demo-board",
       "the demoActive() guard covers ?demo=clinch too — finalizeWeek still refuses (" + JSON.stringify(finOn) + ")");
-    const finForce = await page.evaluate(() => window.__GFFL__.LG.finalizeWeek(1, { force: true }));
+    const finForce = await page.evaluate(() => { window.__azFin = window.__GFFL__.LG.finalizeWeek(1, { force: true }); return window.__azFin; });
     ok(finForce && finForce.ok === false && finForce.reason === "demo-board", "…and force does not bypass it");
     const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => /demo|clinch/i.test(k)));
     ok(stored.length === 0, "…and it writes NOTHING to localStorage — closing the tab ends it (" + JSON.stringify(stored) + ")");
-    await page.evaluate(() => window.__GFFL__.UI.show("league"));
+    await page.evaluate(() => { window.__azShow = window.__GFFL__.UI.show("league"); return window.__azShow; });
     await page.waitForSelector(".standtbl", { timeout: 9000 });
     const standDemo = await evalOr(page, () => !!document.querySelector(".standprov"));
     ok(standDemo === true, "…and the demo's decided matchup shows up as a provisional standings row too, unprompted");
