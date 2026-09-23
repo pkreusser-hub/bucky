@@ -10831,13 +10831,21 @@ async function openDetails(page, id) {
     }
 
     // ---- AD4: NFL crests on the Scores tab, live board AND the 2025 replay.
+    // RESTAGED 2026-09-23: the crest cards (.sccard) only paint in the desktop slate now.
+    // a235d8a (2026-09-15, "Scores is an NFL split") made them a COMPACT slate — 28px crests
+    // (`.scslate .sclogo`), the city row hidden (`.scslate .sccity`) — and 8e24bb0 the same day
+    // hid that slate below 1024px for the #scChips row. At the old 390px the cards sit in a
+    // display:none aside, so their loading="lazy" crests never fetch and the "every crest
+    // settled" wait below timed out (SUITE CRASH — nothing after this block in AD had run in
+    // the full battery since 09-15). The crest facts are asserted where the cards are shown:
+    // 1440px. The phone's own fact is that its chips are text (away @ home), no crest.
     {
-      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
       await bootPage(page);
       await page.waitForSelector(".mucard", { timeout: 9000 });
       await waitLive(page);
       await page.evaluate(() => window.__GFFL__.UI.show("scores"));
-      await page.waitForSelector(".sccard", { timeout: 9000 });
+      await page.waitForSelector("#scSlate .sccard", { visible: true, timeout: 9000 });
       // The crest is a real (intercepted) network image, so "did it load?" cannot be SAMPLED
       // the instant the card appears — under load the request is still in flight and the read
       // comes back neither loaded nor errored (complete:false, visibility:visible, because
@@ -10875,8 +10883,8 @@ async function openDetails(page, id) {
           loaded: !!(img && img.complete && img.naturalWidth > 0),
           vis: img && getComputedStyle(img).visibility,
           phiCity: phi ? (phi.querySelector(".sccity") || {}).textContent : null,
-          cityAboveNick: phi ? (phi.querySelector(".sccity").getBoundingClientRect().bottom
-            <= phi.querySelector(".scnick").getBoundingClientRect().top + 2) : false,
+          phiCityShown: phi && phi.querySelector(".sccity") ? phi.querySelector(".sccity").offsetParent !== null : null,
+          phiNickShown: phi ? phi.querySelector(".scnick").offsetParent !== null : false,
           denImgs: den ? den.querySelectorAll("img.sclogo").length : -1,
           denBoxH: denBox ? Math.round(denBox.getBoundingClientRect().height) : -1,
           denCity: den ? den.querySelectorAll(".sccity").length : -1,
@@ -10901,16 +10909,44 @@ async function openDetails(page, id) {
       });
       ok(logos.total >= 3, "the NFL scoreboard renders team crests (" + logos.total + " on the board)");
       ok(/teamlogos\/nfl\/500\/phi\.png$/.test(logos.src || ""), "…from the slate's own team.logo URL (" + logos.src + ")");
-      ok(logos.size && logos.size[0] === 44 && logos.size[1] === 44, "…at a fixed 44x44 — 'much bigger', and still a fixed box so a slow crest can't shift the name rows (" + JSON.stringify(logos.size) + ")");
+      // RESTAGED 2026-09-23: 44 → 28. The 44px card (2026-08-13) is now the compact slate's
+      // card; `.scslate .sclogo, .scslate .sclogo-none { width:28px; height:28px }` (a235d8a).
+      // Still a FIXED box, which is the fact that matters.
+      ok(logos.size && logos.size[0] === 28 && logos.size[1] === 28, "…at the compact slate's fixed 28x28, still a fixed box so a slow crest can't shift the name rows (" + JSON.stringify(logos.size) + ")");
       ok(logos.loaded === true && logos.vis === "visible", "…and the image genuinely LOADED and is on screen, not a hidden broken box (" + logos.loaded + "/" + logos.vis + ")");
-      ok(logos.phiCity === "Philadelphia" && logos.cityAboveNick === true,
-        "the FULL team name reads over two centered rows — city above nickname (" + logos.phiCity + " / Eagles)");
+      // RESTAGED 2026-09-23: the two-row "city over nickname" column was the 44px card. The
+      // compact slate hides the city row on purpose (`.scslate .sccity { display:none }`,
+      // a235d8a) — the city is still in the markup from ESPN's slate, the card shows the
+      // nickname alone. Asserting the old "city above" geometry on a display:none row would
+      // pass vacuously (a 0x0 box is "above" anything).
+      ok(logos.phiCity === "Philadelphia" && logos.phiCityShown === false && logos.phiNickShown === true,
+        "the slate card carries ESPN's city but the compact slate shows the nickname alone (" + logos.phiCity + " hidden / Eagles shown)");
       ok(logos.centered === true, "…with crest and name sharing one center axis — a real column, not a row");
-      ok(logos.denImgs === 0 && logos.denBoxH === 44 && logos.kcImgs === 1,
-        "a team with NO crest renders no image — an EMPTY 44px placeholder keeps its column level (DEN imgs " + logos.denImgs + ", box " + logos.denBoxH + "px; KC " + logos.kcImgs + ")");
+      // RESTAGED 2026-09-23: 44 → 28, the same compact-slate box as the real crest above.
+      ok(logos.denImgs === 0 && logos.denBoxH === 28 && logos.kcImgs === 1,
+        "a team with NO crest renders no image — an EMPTY 28px placeholder keeps its column level (DEN imgs " + logos.denImgs + ", box " + logos.denBoxH + "px; KC " + logos.kcImgs + ")");
       ok(logos.denCity === 0, "…and a team ESPN sent no city for falls back to its bold abbrev alone — never an invented name");
       ok(logos.crestsLevel === true, "…and its empty box TOP-ALIGNS with its opponent's real crest — the columns stay level within the card");
-      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_scores_390.png") }); console.log("  📸 shots/gffl_pt_scores_390.png"); }
+      if (SHOTS) { await page.screenshot({ path: path.join(ROOT, "shots", "gffl_pt_scores_1440.png") }); console.log("  📸 shots/gffl_pt_scores_1440.png"); }
+      // The phone half (8e24bb0 / 503a66d): below 1024px the slate is display:none and the
+      // #scChips row carries the games as text — "away @ home", score, clock — no crest.
+      await page.setViewport({ width: 390, height: 844 });
+      await sleep(250);
+      const phone = await page.evaluate(() => {
+        const chips = [...document.querySelectorAll("#scChips .scchip")];
+        const slate = document.querySelector("#scSlate");
+        return {
+          chips: chips.length,
+          shown: chips.filter((c) => c.offsetParent !== null).length,
+          chipImgs: document.querySelectorAll("#scChips img").length,
+          slateHidden: !!slate && slate.offsetParent === null,
+          vs: chips.map((c) => (c.querySelector(".scchip-vs") || {}).textContent || "").map((t) => t.replace(/\s+/g, " ").trim()),
+        };
+      });
+      ok(phone.slateHidden === true && phone.chips >= 2 && phone.shown === phone.chips,
+        "at 390px the crest slate is hidden and the chip row carries every game (" + phone.shown + "/" + phone.chips + " chips shown)");
+      ok(phone.chipImgs === 0 && phone.vs.every((t) => /^[A-Z]{2,3} @ [A-Z]{2,3}$/.test(t)),
+        "…and a phone chip is text, away @ home, with no crest (" + JSON.stringify(phone.vs) + ", " + phone.chipImgs + " imgs)");
       ok(errors.length === 0, "0 page errors on the Scores tab");
       await ctx.close();
     }
@@ -16859,15 +16895,23 @@ async function openDetails(page, id) {
       ok(notify.calls.length === 0, "a week with no claims at all pushes nobody");
 
       // Failing notify vs. the waiver engine: the run is the product.
+      // RESTAGED 2026-09-23: n4 bids on SF D/ST, not KC D/ST. n1 above WON dst_KC onto team 1
+      // in week 1, and under the suite's week-1 clock (2026-09-20) LG.ensureRoster(3, 1) copies
+      // that roster forward — so a week-3 claim on dst_KC correctly LOSES "player-taken", the
+      // run sends the sheet but no moves blast, and this read 1. That is the app refusing a
+      // player somebody owns, not notify stopping the run. dst_SF is on no fixture roster (it
+      // only ever appears as a live-board row), so n4 genuinely wins and the check measures
+      // what it claims: a 500 on every push still leaves the claim processed and won.
       await reset(); notify.status = 500;
       await page.evaluate(async () => {
         const LG = window.__GFFL__.LG;
-        await LG.addClaim(3, { id: "n4", teamId: 2, addKey: "dst_KC", addName: "KC D/ST", addPos: "DST", addTeam: "KC", dropKey: "222111", dropName: "Q. Rival", bid: 4, t: 4 });
+        await LG.addClaim(3, { id: "n4", teamId: 2, addKey: "dst_SF", addName: "SF D/ST", addPos: "DST", addTeam: "SF", dropKey: "222111", dropName: "Q. Rival", bid: 4, t: 4 });
       });
       const ran = await page.evaluate(() => window.__GFFL__.LG.processWaivers(3));
       await drain(2);
-      ok(ran.processed === true && notify.calls.length === 2,
-        "notify answering 500 does not stop waivers from processing — RESTAGED 2026-09-16, one waivers sheet + one moves blast (" + notify.calls.length + ")");
+      const n4 = ((ran && ran.results) || []).find((r) => r.id === "n4") || {};
+      ok(ran.processed === true && n4.ok === true && notify.calls.length === 2,
+        "notify answering 500 does not stop waivers from processing — RESTAGED 2026-09-16, one waivers sheet + one moves blast (" + notify.calls.length + ", n4 " + (n4.reason || "?") + ")");
       await reset();
       ok(errors.length === 0, "0 page errors across the waiver producer");
       await ctx.close();
