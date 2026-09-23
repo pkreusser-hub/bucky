@@ -16755,32 +16755,38 @@ async function openDetails(page, id) {
       await drain(0);
       ok(notify.calls.length === 0, "three of the four votes needed pushes nobody — the trade is still alive");
       const killed = await page.evaluate((id) => window.__GFFL__.LG.vetoTrade(id, 6), other.trade.id);
-      await drain(3);
+      await drain(8);
       ok(killed && killed.status === "vetoed", "the fourth vote kills it (the action itself)");
       // RESTAGED 2026-09-16: logTx now also fires kind=moves (gfflAll minus the
       // moving team). The two Trade-vetoed sends are unchanged.
+      // RESTAGED 2026-09-23: that gfflAll blast skipped only `from`, so party 4 got "League
+      // move" about its own vetoed trade on top of "Trade vetoed". The moves push now skips
+      // BOTH parties, and notify.mjs's gfflAll can skip only one, so it fans out one gfflTeam
+      // send per other team: 8 − 2 = 6 (teams 1, 2, 5, 6, 7, 8). 2 + 6 = 8 calls.
       const vetoTrade = notify.calls.filter((c) => c.kind === "trade" || c.title === "Trade vetoed");
       const vetoMoves = notify.calls.filter((c) => c.kind === "moves");
-      ok(notify.calls.length === 3 && vetoTrade.length === 2 && vetoMoves.length === 1,
-        "…pushes BOTH parties plus the league-moves blast (" + notify.calls.length + " calls)");
+      ok(notify.calls.length === 8 && vetoTrade.length === 2 && vetoMoves.length === 6,
+        "…pushes BOTH parties plus the league move to the six others (" + notify.calls.length + " calls)");
       ok(vetoTrade.some((c) => c.gfflTeam === 3) && vetoTrade.some((c) => c.gfflTeam === 4),
         "…each party by team id (" + JSON.stringify(targets()) + ")");
       ok(vetoTrade.every((c) => c.title === "Trade vetoed"), "…both titled \"Trade vetoed\"");
-      ok(vetoMoves[0] && vetoMoves[0].gfflAll === true && vetoMoves[0].excludeTeam === 3,
-        "…and the moves blast is gfflAll minus the from-team (the logTx actor)");
+      ok(vetoMoves.map((c) => c.gfflTeam).sort().join() === "1,2,5,6,7,8" && vetoMoves.every((c) => !c.gfflAll),
+        "…and the moves push reaches every team but the two parties (" + JSON.stringify(vetoMoves.map((c) => c.gfflTeam)) + ")");
 
       // …and the same veto on a trade this device IS a party to pushes only the OTHER party
-      // for the trade kind — plus the league-moves blast (excludeTeam = from = 2).
+      // for the trade kind — plus the league move.
+      // RESTAGED 2026-09-23: the moves push skips both parties (2 and this device's 1), one
+      // send per other team — 3..8 — instead of one gfflAll minus 2. 1 + 6 = 7 calls.
       await reset();
       await page.evaluate(async (id) => {
         const LG = window.__GFFL__.LG;
         for (const t of [3, 4, 5, 6]) await LG.vetoTrade(id, t);
       }, toMe.trade.id);
-      await drain(2);
-      ok(notify.calls.length === 2
+      await drain(7);
+      ok(notify.calls.length === 7
         && notify.calls.some((c) => (c.kind === "trade" || c.title === "Trade vetoed") && c.gfflTeam === 2)
-        && notify.calls.some((c) => c.kind === "moves" && c.gfflAll === true && c.excludeTeam === 2),
-        "a veto on MY OWN trade pushes the other party (trade) plus moves minus from — RESTAGED 2026-09-16 (" + JSON.stringify(targets()) + ")");
+        && notify.calls.filter((c) => c.kind === "moves").map((c) => c.gfflTeam).sort().join() === "3,4,5,6,7,8",
+        "a veto on MY OWN trade pushes the other party (trade) plus moves to the six others — RESTAGED 2026-09-23 (" + JSON.stringify(targets()) + ")");
 
       // A failing notify may never cost the action. Both failure shapes: a 500 from the
       // function, and a request that never lands at all.
@@ -16961,22 +16967,29 @@ async function openDetails(page, id) {
       // blast plus the @. The old "mention-only / plain chat is silent" rule
       // is what this restage inverts; muted-chat owners still hear an @
       // because mention stays its own kind.
+      // RESTAGED 2026-09-23: "TWO pushes" meant the NAMED owner got both — the room blast
+      // (gfflAll skips only the sender) and the @. The mentioned team now gets only the
+      // mention; the room push fans out one gfflTeam send to each team but the sender and the
+      // mentioned: 8 − 2 = 6 room sends + 1 mention = 7 calls.
       await reset();
       const posted = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@End Zone Goats you're up" }));
-      await drain(2);
+      await drain(7);
       ok(posted.ok === true, "the message posts (the action itself)");
-      const postedChat = notify.calls.find((c) => c.gfflAll);
+      const roomSends = notify.calls.filter((c) => c.kind === "chat");
+      const postedChat = roomSends[0];
       const postedMention = notify.calls.find((c) => /mentioned you/.test(c.title || ""));
-      ok(notify.calls.length === 2 && postedChat && postedMention,
-        "…and sends the league-chat blast PLUS the mention (" + notify.calls.length + ")");
+      ok(notify.calls.length === 7 && roomSends.length === 6 && postedMention,
+        "…and sends the room push to the six others PLUS the mention (" + notify.calls.length + ")");
       ok(postedMention && postedMention.gfflTeam === 2 && postedMention.kind === "mention",
         "…the mention still targets exactly the named owner (gfflTeam " + (postedMention && postedMention.gfflTeam) + ")");
       ok(postedMention && /mentioned you/.test(postedMention.title || "") && /Battle Kreussers/.test(postedMention.title || ""),
         "…titled with who mentioned them (" + (postedMention && postedMention.title) + ")");
       ok(postedMention && /you're up/.test(postedMention.body || ""), "…carrying the message itself (" + (postedMention && postedMention.body) + ")");
       ok(postedMention && postedMention.url === LEAGUE + "#chat", "…deep-linking Chat (" + (postedMention && postedMention.url) + ")");
-      ok(postedChat && postedChat.excludeTeam === 1 && postedChat.kind === "chat",
-        "…and the room blast is gfflAll minus the sender, kind=chat");
+      ok(postedChat && postedChat.kind === "chat"
+        && roomSends.map((c) => c.gfflTeam).sort().join() === "3,4,5,6,7,8" && roomSends.every((c) => !c.gfflAll),
+        "…and the room push is kind=chat to every team but the sender and the mentioned — RESTAGED 2026-09-23 ("
+        + JSON.stringify(roomSends.map((c) => c.gfflTeam)) + ")");
 
       await reset();
       const plain = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "great week everyone" }));
@@ -16991,16 +17004,21 @@ async function openDetails(page, id) {
         "mentioning YOURSELF still pushes the league, but not the mention — RESTAGED 2026-09-16");
 
       await reset();
+      // RESTAGED 2026-09-23: the two named owners (3, 8) get their mention and no room push;
+      // the room goes to the other five (2, 4, 5, 6, 7) one send each. 2 + 5 = 7 calls.
       const two = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@Wyoming and @The Goat Kids, trade?" }));
-      await drain(3);
-      ok(two.ok === true && notify.calls.length === 3 && targets().includes(3) && targets().includes(8) && targets().includes("ALL"),
-        "two mentions push two owners PLUS the league-chat blast (" + JSON.stringify(targets()) + ")");
+      await drain(7);
+      const twoRoom = notify.calls.filter((c) => c.kind === "chat").map((c) => c.gfflTeam).sort().join();
+      const twoMent = notify.calls.filter((c) => c.kind === "mention").map((c) => c.gfflTeam).sort().join();
+      ok(two.ok === true && notify.calls.length === 7 && twoMent === "3,8" && twoRoom === "2,4,5,6,7",
+        "two mentions push two owners PLUS the room to the other five — RESTAGED 2026-09-23 (" + JSON.stringify(targets()) + ")");
 
+      // RESTAGED 2026-09-23: one mention (team 3) = 1 mention + 6 room sends = 7 attempts.
       await reset(); notify.status = 500;
       const survived = await page.evaluate(() => window.__GFFL__.LG.postChat({ text: "@Wyoming hello again" }));
-      await drain(2);
+      await drain(7);
       const chatDocs = await page.evaluate(() => window.__GFFL__.LG.loadChat(null));
-      ok(survived.ok === true && notify.calls.length === 2 && chatDocs.some((c) => /hello again/.test(c.text || "")),
+      ok(survived.ok === true && notify.calls.length === 7 && chatDocs.some((c) => /hello again/.test(c.text || "")),
         "notify answering 500 does not stop the message being posted (and the call really was attempted)");
       await reset();
       ok(errors.length === 0, "0 page errors across the chat producer");
@@ -17817,14 +17835,18 @@ async function openDetails(page, id) {
       const id = await setUp(page);
       await reset(); // the offer + accept pushes are AN's territory, not this check's
       const ex = await page.evaluate((i) => window.__GFFL__.LG.executeTrade(i), id);
-      await drain(3);
+      await drain(8);
       ok(ex && ex.status === "executed", "the trade executes (the action itself)");
       // RESTAGED 2026-09-16: execute still pushes both parties (kind=trade);
       // logTx adds one kind=moves blast for the rest of the league.
+      // RESTAGED 2026-09-23: that blast was gfflAll minus `from` only, so team 2 heard about
+      // its own trade twice. It now skips both parties, one gfflTeam send per other team
+      // (gfflAll can skip only one): 8 − 2 = 6 moves sends + 2 executed = 8 calls.
       const exTrade = notify.calls.filter((c) => c.kind === "trade" || c.title === "Trade executed");
       const exMoves = notify.calls.filter((c) => c.kind === "moves");
-      ok(notify.calls.length === 3 && exTrade.length === 2 && exMoves.length === 1,
-        "…pushes BOTH parties plus the league-moves blast (" + notify.calls.length + " calls)");
+      ok(notify.calls.length === 8 && exTrade.length === 2 && exMoves.length === 6
+        && exMoves.map((c) => c.gfflTeam).sort().join() === "3,4,5,6,7,8",
+        "…pushes BOTH parties plus the league move to the six others (" + notify.calls.length + " calls)");
       ok(exTrade.some((c) => c.gfflTeam === 1) && exTrade.some((c) => c.gfflTeam === 2),
         "…each by team id (" + JSON.stringify(targets()) + ")");
       ok(exTrade.every((c) => c.title === "Trade executed"), "…both titled \"Trade executed\"");
@@ -17885,11 +17907,13 @@ async function openDetails(page, id) {
       });
       await reset();
       await page.evaluate((i) => window.__GFFL__.LG.executeTrade(i), id);
-      await drain(2);
-      ok(notify.calls.length === 2
+      // RESTAGED 2026-09-23: the moves push skips both parties (1 and 2) and fans out to the
+      // six others, one gfflTeam send each, instead of one gfflAll minus 1. 1 + 6 = 7 calls.
+      await drain(7);
+      ok(notify.calls.length === 7
         && notify.calls.some((c) => (c.kind === "trade" || c.title === "Trade executed") && c.gfflTeam === 2)
-        && notify.calls.some((c) => c.kind === "moves" && c.gfflAll === true),
-        "executed from a party's OWN device pushes the other owner (trade) plus moves — RESTAGED 2026-09-16 (" + JSON.stringify(targets()) + ")");
+        && notify.calls.filter((c) => c.kind === "moves").map((c) => c.gfflTeam).sort().join() === "3,4,5,6,7,8",
+        "executed from a party's OWN device pushes the other owner (trade) plus moves to the six others — RESTAGED 2026-09-23 (" + JSON.stringify(targets()) + ")");
       await reset();
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
@@ -26687,21 +26711,26 @@ async function openDetails(page, id) {
         return {
           prior: typeof LG.playoffPriorW === "function" ? LG.playoffPriorW(14) : null,
           field: typeof LG.playoffFieldRate === "function" ? LG.playoffFieldRate(5, 8) : null,
-          w1: typeof LG.playoffSampleWeight === "function" ? LG.playoffSampleWeight(1, 14, 52) : null,
-          w0: typeof LG.playoffSampleWeight === "function" ? LG.playoffSampleWeight(0, 14, 56) : null,
+          // RESTAGED 2026-09-23: the third argument is now the games each team has LEFT (13
+          // after week 1), not the league's remaining matchups (52), and the prior fades with
+          // it — see UB3. 1 / (1 + 7 · 13/14) = 1 / 7.5 = 2/15, not 1/8.
+          w1: typeof LG.playoffSampleWeight === "function" ? LG.playoffSampleWeight(1, 14, 13) : null,
+          w0: typeof LG.playoffSampleWeight === "function" ? LG.playoffSampleWeight(0, 14, 14) : null,
           wDone: typeof LG.playoffSampleWeight === "function" ? LG.playoffSampleWeight(14, 14, 0) : null,
-          b98: typeof LG.playoffBlendToField === "function" ? LG.playoffBlendToField(98, 62.5, 1 / 8) : null,
-          b11: typeof LG.playoffBlendToField === "function" ? LG.playoffBlendToField(11, 62.5, 1 / 8) : null,
+          b98: typeof LG.playoffBlendToField === "function" ? LG.playoffBlendToField(98, 62.5, 2 / 15) : null,
+          b11: typeof LG.playoffBlendToField === "function" ? LG.playoffBlendToField(11, 62.5, 2 / 15) : null,
           b100: typeof LG.playoffBlendToField === "function" ? LG.playoffBlendToField(100, 62.5, 1 / 8) : null,
           b0: typeof LG.playoffBlendToField === "function" ? LG.playoffBlendToField(0, 62.5, 1 / 8) : null,
         };
       });
       ok(arith.prior === 7, "half a 14-week season is a 7-game prior (" + arith.prior + ")");
       ok(arith.field === 62.5, "five of eight is a 62.5% field rate (" + arith.field + ")");
-      ok(arith.w1 === 1 / 8, "after one week the sample weight is 1/8 (" + arith.w1 + ")");
+      ok(typeof arith.w1 === "number" && Math.abs(arith.w1 - 2 / 15) < 1e-12,
+        "after one week the sample weight is 2/15 — RESTAGED 2026-09-23, was 1/8 (" + arith.w1 + ")");
       ok(arith.w0 === 0, "pre-season sample weight is 0 (" + arith.w0 + ")");
       ok(arith.wDone === 1, "a finished regular season is trusted in full (" + arith.wDone + ")");
-      // 62.5 + (98-62.5)/8 = 66.9375 → 67.  62.5 + (11-62.5)/8 = 56.0625 → 56.
+      // RESTAGED 2026-09-23 at w = 2/15 (was 1/8); both still land on the same whole number.
+      // 62.5 + (98-62.5)·2/15 = 67.23 → 67.  62.5 + (11-62.5)·2/15 = 55.63 → 56.
       ok(arith.b98 === 67, "a raw 98% after one week paints 67 (" + arith.b98 + ")");
       ok(arith.b11 === 56, "a raw 11% after one week paints 56 (" + arith.b11 + ")");
       ok(arith.b100 === 100 && arith.b0 === 0,
@@ -30483,6 +30512,421 @@ async function openDetails(page, id) {
       "…T. Tight (no ownership.percentOwned in the fixture) reads null, not a fabricated 0 (" + JSON.stringify(tight && tight.pctOwned) + ")");
     const passer = proj.players.find((p) => p.espnId === 3915511);
     ok(!!passer && passer.pctOwned === 99, "…P. Passer, who DOES carry a figure, is unaffected (99)");
+  }
+
+  // ================= UB · lg-core review fixes (2026-09-23) =================
+  // Shared fixture for UB1/UB2/UB4. The 18-man active script is QB 1, RB 3, WR 3, TE 1,
+  // FLEX 1, DST 1, K 1 (11 starters) + BENCH 7. IR 3 sits on top (rosterCap 21).
+  const ubRow = (slot, pos, key, name, team) => ({ key, name, pos, team, slot, injury: "" });
+  const UB_ELEVEN = [
+    ubRow("QB", "QB", "ub_qb", "U. Qb", "SF"),
+    ubRow("RB", "RB", "ub_rb1", "U. Rb1", "SF"),
+    ubRow("RB", "RB", "ub_rb2", "U. Rb2", "SF"),
+    ubRow("RB", "RB", "ub_rb3", "U. Rb3", "SF"),
+    ubRow("WR", "WR", "ub_wr1", "U. Wr1", "SF"),
+    ubRow("WR", "WR", "ub_wr2", "U. Wr2", "SF"),
+    ubRow("WR", "WR", "ub_wr3", "U. Wr3", "SF"),
+    ubRow("TE", "TE", "ub_te", "U. Te", "SF"),
+    ubRow("FLEX", "WR", "ub_fx", "U. Flex", "SF"),
+    ubRow("DST", "DST", "ub_dst", "SF D/ST", "SF"),
+    ubRow("K", "K", "ub_k", "U. Kick", "SF"),
+  ];
+  const ubBench = (n) => Array.from({ length: n }, (_, i) => ubRow("BENCH", "RB", "ub_bn" + i, "B. Ench" + i, "SF"));
+  // A LEGAL IR stash (Out) — the illegal-IR block must not be what refuses anything here.
+  const ubIr = (n) => Array.from({ length: n }, (_, i) =>
+    ({ key: "ub_ir" + i, name: "I. Rman" + i, pos: "WR", team: "KC", slot: "IR", injury: "Out" }));
+  const ubWrite = (page, teamId, players) => page.evaluate(async ({ teamId, players }) => {
+    await window.__GFFL__.LG.saveRoster(1, teamId, players);
+    window.__GFFL__.UI._rosters = null;
+  }, { teamId, players });
+  // The shared scoreboard fixture has DAL@PHI in progress. Every team a UB trade/add touches is
+  // rewound to "pre" (polling stopped first, so it sticks) unless a check sets it "in" itself.
+  const ubGames = (page, states) => page.evaluate((states) => {
+    const { D } = window.__GFFL__;
+    for (const [t, st] of Object.entries(states)) D.S.games.set(t, st === "in"
+      ? { state: "in", kickoff: "2026-01-01T00:00:00Z" } : { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+  }, states);
+  const UB_PRE = { SF: "pre", KC: "pre", PHI: "pre", DAL: "pre", DEN: "pre" };
+  const ubOpen = async (seed) => {
+    const t = await newTestPage(browser, seed || fullSeed());
+    await bootWeek1Home(t.page);
+    await waitOr(t.page, ".mucard", 12000);
+    await waitLive(t.page);
+    await pinBeforeW1Waivers(t.page);
+    await stopPolling(t.page);
+    await ubGames(t.page, UB_PRE);
+    return t;
+  };
+
+  // UB1 · User rule (2026-09-16): 18 active; IR is extra room for injured men only. The
+  // drop path let a team drop its IR man for a pickup that lands on BENCH: 18 active + 1 IR
+  // → 19 active. Now refused ("active-full") in faAdd, at claim submit, and in the waiver run.
+  if (section("UB1 · dropping an IR man does not open an active spot")) {
+    const { ctx, page, errors } = await ubOpen();
+    // 11 starters + 7 bench + 1 IR = 18 active, 19 rows.
+    await ubWrite(page, 1, UB_ELEVEN.concat(ubBench(7), ubIr(1)));
+    const fa = await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG;
+      const before = await LG.ensureRoster(1, 1, { fresh: true });
+      const swap = typeof LG.swapOverActive === "function"
+        ? { ir: LG.swapOverActive(before, "ub_ir0"), bench: LG.swapOverActive(before, "ub_bn0") } : null;
+      const add = await LG.faAdd(1, 1, { key: "ub_fa1", name: "F. Ree", pos: "WR", team: "SF" }, "ub_ir0");
+      const after = await LG.ensureRoster(1, 1, { fresh: true });
+      const claim = await LG.addClaim(1, {
+        id: "ub_sub", teamId: 1, addKey: "ub_fa9", addName: "S. Ubmit", addPos: "WR", addTeam: "SF",
+        dropKey: "ub_ir0", dropName: "I. Rman0", bid: 1, t: Date.now(),
+      });
+      return {
+        activeBefore: LG.activeCount(before), rowsBefore: before.length, swap, add, claim,
+        activeAfter: LG.activeCount(after), rowsAfter: after.length,
+        has: after.some((p) => p.key === "ub_fa1"), irKept: after.some((p) => p.key === "ub_ir0"),
+        label: window.__GFFL__.UI._reasonLabel ? window.__GFFL__.UI._reasonLabel("active-full") : null,
+      };
+    }) || {};
+    ok(fa.activeBefore === 18 && fa.rowsBefore === 19,
+      "fixture: 11 starters + 7 bench = 18 active, + 1 IR = 19 rows (" + fa.activeBefore + "/" + fa.rowsBefore + ")");
+    // IR drop: 18 − 0 + 1 = 19 > 18.  Bench drop: 18 − 1 + 1 = 18.
+    ok(fa.swap && fa.swap.ir === true && fa.swap.bench === false,
+      "swapOverActive: an IR drop makes 19 active, a bench drop stays at 18 (" + JSON.stringify(fa.swap) + ")");
+    ok(fa.add && fa.add.ok === false && fa.add.reason === "active-full",
+      "⭐ a free-agent add that drops the IR man is refused (" + JSON.stringify(fa.add) + ")");
+    ok(fa.activeAfter === 18 && fa.rowsAfter === 19 && fa.has === false && fa.irKept === true,
+      "…and the roster is untouched: still 18 active + the IR man (" + fa.activeAfter + " active)");
+    ok(fa.claim && fa.claim.ok === false && fa.claim.reason === "active-full",
+      "…a claim dropping the IR man is refused at submit (" + JSON.stringify(fa.claim) + ")");
+    ok(typeof fa.label === "string" && fa.label !== "active-full" && /IR/.test(fa.label),
+      "…and the refusal reads as words, not the raw code (" + fa.label + ")");
+
+    // Controls: a BENCH drop at 18 is a straight swap; an IR drop with a bench spot open is fine.
+    const ctl = await evalOr(page, async ({ full, rows }) => {
+      const LG = window.__GFFL__.LG;
+      await LG.saveRoster(1, 1, full); // fresh 18 + IR, whatever the refused add above did
+      const a = await LG.faAdd(1, 1, { key: "ub_fa2", name: "B. Swap", pos: "WR", team: "SF" }, "ub_bn0");
+      const r1 = await LG.ensureRoster(1, 1, { fresh: true });
+      await LG.saveRoster(1, 1, rows);
+      const b = await LG.faAdd(1, 1, { key: "ub_fa3", name: "R. Oom", pos: "WR", team: "SF" }, "ub_ir0");
+      const r2 = await LG.ensureRoster(1, 1, { fresh: true });
+      return { a, activeA: LG.activeCount(r1), b, activeB: LG.activeCount(r2), irGone: !r2.some((p) => p.key === "ub_ir0") };
+    }, { full: UB_ELEVEN.concat(ubBench(7), ubIr(1)), rows: UB_ELEVEN.concat(ubBench(6), ubIr(1)) }) || {};
+    ok(ctl.a && ctl.a.ok === true && ctl.activeA === 18,
+      "control: dropping a BENCH man at 18 active still swaps (18 − 1 + 1 = 18) (" + JSON.stringify(ctl.a) + ")");
+    // 11 + 6 bench = 17 active; IR drop: 17 − 0 + 1 = 18 ≤ 18.
+    ok(ctl.b && ctl.b.ok === true && ctl.activeB === 18 && ctl.irGone === true,
+      "control: at 17 active an IR drop is allowed and lands the 18th (" + JSON.stringify(ctl.b) + ", " + ctl.activeB + ")");
+
+    // The waiver run: team 1 back at 18 + IR claims with the IR man as its drop, team 2
+    // (3 players) claims into open room. Written straight to the queue — the claim was filed
+    // before the rule, or the roster filled after it was filed; the RUN must judge it.
+    await ubWrite(page, 1, UB_ELEVEN.concat(ubBench(7), ubIr(1)));
+    const wv = await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG;
+      const base = { kind: "claim", season: LG.SEASON, week: 1 };
+      await LG.db.set(LG.claimDocId(LG.SEASON, 1, "ub_c1"), { ...base, claimId: "ub_c1", teamId: 1,
+        addKey: "ub_w1", addName: "W. Aiver", addPos: "WR", addTeam: "SF", dropKey: "ub_ir0", dropName: "I. Rman0", bid: 5, t: 1 });
+      await LG.db.set(LG.claimDocId(LG.SEASON, 1, "ub_c2"), { ...base, claimId: "ub_c2", teamId: 2,
+        addKey: "ub_w2", addName: "O. Pen", addPos: "WR", addTeam: "SF", dropKey: null, dropName: null, bid: 3, t: 2 });
+      let doc = null, threw = null;
+      try { doc = await LG.processWaivers(1); } catch (e) { threw = String(e && e.message || e); }
+      const r1 = await LG.ensureRoster(1, 1, { fresh: true });
+      const r2 = await LG.ensureRoster(1, 2, { fresh: true });
+      const res = (id) => ((doc && doc.results) || []).find((x) => x.id === id) || null;
+      return {
+        threw, processed: !!(doc && doc.processed), c1: res("ub_c1"), c2: res("ub_c2"),
+        active1: LG.activeCount(r1), has1: r1.some((p) => p.key === "ub_w1"), ir1: r1.some((p) => p.key === "ub_ir0"),
+        has2: r2.some((p) => p.key === "ub_w2"),
+      };
+    }) || {};
+    ok(wv.threw === null && wv.processed === true, "the waiver run completes (" + (wv.threw || "no throw") + ")");
+    ok(wv.c1 && wv.c1.ok === false && wv.c1.reason === "active-full",
+      "⭐ the claim that drops the IR man loses with a reason (" + JSON.stringify(wv.c1) + ")");
+    ok(wv.active1 === 18 && wv.has1 === false && wv.ir1 === true,
+      "…team 1 stays at 18 active with its IR man (" + wv.active1 + ")");
+    ok(wv.c2 && wv.c2.ok === true && wv.has2 === true,
+      "…and the rest of the run still resolves: team 2's open-room claim wins (" + JSON.stringify(wv.c2) + ")");
+    ok(errors.length === 0, "0 page errors (" + errors.slice(0, 2).join(" | ") + ")");
+    await ctx.close();
+  }
+
+  // UB2 · The same hole in trades: LG.tradeBlockers only checked the 21-man total. Incoming
+  // men land on BENCH; an outgoing IR man frees an IR spot. Same "over-cap" reason and copy.
+  if (section("UB2 · a trade may not push the active roster past 18")) {
+    const { ctx, page, errors } = await ubOpen();
+    await ubWrite(page, 1, UB_ELEVEN.concat(ubBench(7), ubIr(1)));
+    const pure = await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG;
+      const r1 = await LG.ensureRoster(1, 1, { fresh: true });
+      const r2 = await LG.ensureRoster(1, 2, { fresh: true });
+      const irOut = LG.tradeBlockers({ from: 1, to: 2, give: ["ub_ir0"], get: ["222333"] }, r1, r2);
+      const benchOut = LG.tradeBlockers({ from: 1, to: 2, give: ["ub_bn0"], get: ["222333"] }, r1, r2);
+      const o = await LG.offerTrade(1, 2, ["ub_ir0"], ["222333"], "");
+      const acc = await LG.acceptTrade(o.trade.id, 2);
+      return { n1: r1.length, n2: r2.length, irOut, benchOut, acc };
+    }) || {};
+    // Team 1: total 19 − 1 + 1 = 19 ≤ 21, but active 18 + 1 = 19 > 18. Team 2: 3 rows, fine.
+    ok(pure.n1 === 19 && Array.isArray(pure.irOut) && pure.irOut.length === 1 && pure.irOut[0].reason === "over-cap"
+      && pure.irOut[0].detail && pure.irOut[0].detail.team === "Battle Kreussers",
+      "⭐ trading the IR man for a healthy player is over the cap for team 1 (19 active) (" + JSON.stringify(pure.irOut) + ")");
+    ok(Array.isArray(pure.benchOut) && pure.benchOut.length === 0,
+      "control: trading a BENCH man 1-for-1 stays at 18 active and is clean (" + JSON.stringify(pure.benchOut) + ")");
+    ok(pure.acc && pure.acc.ok === false && pure.acc.reason === "over-cap",
+      "…accept refuses it the way the roster-size guard does (" + JSON.stringify(pure.acc && (pure.acc.reason || pure.acc.status)) + ")");
+
+    // Execute is the authoritative gate: accepted at 17 active (clean), then the bench fills
+    // to 18 inside the review window. Execute must cancel, not swap.
+    await ubWrite(page, 1, UB_ELEVEN.concat(ubBench(6), ubIr(1)));
+    const ex = await evalOr(page, async (full) => {
+      const LG = window.__GFFL__.LG;
+      const o = await LG.offerTrade(1, 2, ["ub_ir0"], ["222333"], "");
+      const acc = await LG.acceptTrade(o.trade.id, 2);
+      await LG.saveRoster(1, 1, full);
+      const d = await LG.loadTrade(o.trade.id, { fresh: true });
+      await LG.saveTrade({ ...d, reviewEndsAt: Date.now() - 1000 });
+      const out = await LG.executeTrade(o.trade.id);
+      const r1 = await LG.ensureRoster(1, 1, { fresh: true });
+      return { accStatus: acc && acc.status, out, active1: LG.activeCount(r1),
+        ir: r1.some((p) => p.key === "ub_ir0"), got: r1.some((p) => p.key === "222333") };
+    }, UB_ELEVEN.concat(ubBench(7), ubIr(1))) || {};
+    ok(ex.accStatus === "accepted", "at 17 active the same trade is accepted (17 + 1 = 18) (" + ex.accStatus + ")");
+    ok(ex.out && ex.out.status === "cancelled" && ex.out.cancelReason === "over-cap",
+      "⭐ …and cancelled at execute once the bench filled to 18 (" + JSON.stringify(ex.out && { s: ex.out.status, r: ex.out.cancelReason }) + ")");
+    ok(ex.active1 === 18 && ex.ir === true && ex.got === false,
+      "…rosters untouched: 18 active, IR man kept, nothing arrived (" + ex.active1 + ")");
+    ok(errors.length === 0, "0 page errors (" + errors.slice(0, 2).join(" | ") + ")");
+    await ctx.close();
+  }
+
+  // UB3 · Playoff % late in the season. Two faults in the 09-15 calm blend:
+  //   (a) w = g / (g + 7) never faded: with one week left it was 13/20, so a raw 1% painted 23%.
+  //       Now w = g / (g + 7 * remG / 14), remG = games each team has left.
+  //   (b) undecided teams blended toward 5 of 8 = 62.5% while locks stayed at 100 / 0. Four
+  //       clinched + four chasing ONE spot painted 36/60/24/33 = 153%. The field is now
+  //       100 * (spots − locked-in) / (teams still undecided).
+  if (section("UB3 · playoff % adds up late in the season")) {
+    const { ctx, page, errors } = await ubOpen();
+    const m = await evalOr(page, () => {
+      const LG = window.__GFFL__.LG;
+      const W = LG.playoffSampleWeight;
+      const D = typeof LG.playoffDisplayOdds === "function" ? LG.playoffDisplayOdds : null;
+      return {
+        wLate: W(13, 14, 1), wW1: W(1, 14, 13), wMid: W(7, 14, 7), wDone: W(14, 14, 0), wPre: W(0, 14, 14),
+        fourForOne: D && D({ 1: 100, 2: 100, 3: 100, 4: 100, 5: 40, 6: 30, 7: 20, 8: 10 }, 5, 26 / 27),
+        rawOne: D && D({ 1: 100, 2: 100, 3: 100, 4: 100, 5: 97, 6: 1, 7: 1, 8: 1 }, 5, 26 / 27),
+        withOut: D && D({ 1: 100, 2: 100, 3: 100, 4: 0, 5: 60, 6: 90, 7: 50, 8: 0 }, 5, 26 / 27),
+        noLock: D && D({ 1: 98, 2: 11, 3: 70, 4: 70, 5: 70, 6: 60, 7: 60, 8: 61 }, 5, 1 / 8),
+        wpKeepHour: typeof LG.wpKeepHour,
+      };
+    }) || {};
+    const near = (a, b) => typeof a === "number" && Math.abs(a - b) < 1e-12;
+    // 13 / (13 + 7 * 1/14) = 13 / 13.5 = 26/27.  1 / (1 + 7 * 13/14) = 1 / 7.5 = 2/15.
+    // 7 / (7 + 7 * 7/14) = 7 / 10.5 = 2/3.
+    ok(near(m.wLate, 26 / 27), "one week left: the sample weight is 26/27, not 13/20 (" + m.wLate + ")");
+    ok(near(m.wW1, 2 / 15) && near(m.wMid, 2 / 3) && m.wDone === 1 && m.wPre === 0,
+      "week 1 is 2/15, mid-season 2/3, a finished season 1, pre-season 0 (" + [m.wW1, m.wMid, m.wDone, m.wPre].join(", ") + ")");
+    // Field = 100 * (5 − 4) / 4 = 25. 25 + (40 − 25)·26/27 = 39.44 → 39; 30 → 29.81 → 30;
+    // 20 → 20.19 → 20; 10 → 10.56 → 11. Sum 100. (HEAD: 48/41/35/28 = 152.)
+    const ff = m.fourForOne || {};
+    ok(ff[1] === 100 && ff[4] === 100 && ff[5] === 39 && ff[6] === 30 && ff[7] === 20 && ff[8] === 11,
+      "⭐ four clinched + four chasing one spot paint 39/30/20/11 (" + JSON.stringify(ff) + ")");
+    ok([5, 6, 7, 8].reduce((s, id) => s + (ff[id] || 0), 0) === 100, "…which is 100% for the one open spot");
+    // 97 → 25 + 72·26/27 = 94.33 → 94.  1 → 25 − 24·26/27 = 1.89 → 2.
+    const r1 = m.rawOne || {};
+    ok(r1[5] === 94 && r1[6] === 2 && r1[7] === 2 && r1[8] === 2,
+      "a raw 1% with a week left paints 2, not 23 (" + JSON.stringify(r1) + ")");
+    // Two spots left, three undecided: field 200/3 = 66.67. 60 → 60.25 → 60, 90 → 89.14 → 89,
+    // 50 → 50.62 → 51. Sum 200. Locked-out teams stay 0.
+    const wo = m.withOut || {};
+    ok(wo[4] === 0 && wo[8] === 0 && wo[5] === 60 && wo[6] === 89 && wo[7] === 51,
+      "with teams locked out, the open spots are shared by the undecided only: 60/89/51 (" + JSON.stringify(wo) + ")");
+    // No lock: the field is still 5 of 8 = 62.5, so the 09-15 pins hold (98 → 67, 11 → 56).
+    const nl = m.noLock || {};
+    ok(nl[1] === 67 && nl[2] === 56, "with no lock the field is still 62.5% — 98 → 67, 11 → 56 (" + JSON.stringify(nl) + ")");
+    ok(m.wpKeepHour === "undefined", "dead code: LG.wpKeepHour is gone (nothing called it) (" + m.wpKeepHour + ")");
+    await ctx.close();
+
+    // The real board: 8 teams, 13 of 14 weeks final, scores from a fixed LCG. Four teams have
+    // clinched and four chase the fifth spot with a week left — the shape that painted 153%.
+    const ids = [1, 2, 3, 4, 5, 6, 7, 8];
+    const weeks = [];
+    for (let w = 0; w < 14; w++) {
+      const arr = [ids[0], ...ids.slice(1).map((_, i) => ids[1 + ((i + w) % 7)])];
+      const g = [];
+      for (let i = 0; i < 4; i++) g.push([arr[i], arr[7 - i]]);
+      weeks.push(g);
+    }
+    let lcg = 6;
+    const rnd = () => { lcg = (lcg * 16807) % 2147483647; return lcg / 2147483647; };
+    const s = fullSeed();
+    s.docs = { ...s.docs, sched_2026: { kind: "sched", season: 2026, weeks: weeks.map((wk) => ({ g: wk.map(([h, a]) => ({ h, a })) })) } };
+    const wins = {};
+    for (const id of ids) wins[id] = 0;
+    for (let w = 1; w <= 13; w++) {
+      const matchups = weeks[w - 1].map(([h, a]) => ({ home: h, away: a, homePts: 90 + rnd() * 40, awayPts: 90 + rnd() * 40 }));
+      for (const mu of matchups) wins[mu.homePts > mu.awayPts ? mu.home : mu.away]++;
+      s.docs["weekly_2026_w" + w] = { kind: "weekly", week: w, matchups, awards: {},
+        power: ids.map((id, i) => ({ teamId: id, rank: i + 1, score: 100 - i * 4 })), accuracy: null, finalizedAt: 1000 + w };
+    }
+    // Hand-tallied from the fixture: 7-8-6-8-6-5-7-5 after 13 weeks.
+    ok(JSON.stringify(wins) === JSON.stringify({ 1: 7, 2: 8, 3: 6, 4: 8, 5: 6, 6: 5, 7: 7, 8: 5 }),
+      "fixture: records after 13 weeks (" + JSON.stringify(wins) + ")");
+    {
+      const t = await newTestPage(browser, s, { vw: { width: 1440, height: 980 } });
+      await bootPage(t.page);
+      await waitOr(t.page, ".mucard");
+      const b = await evalOr(t.page, async () => {
+        const LG = window.__GFFL__.LG;
+        LG._poCache = null;
+        const o = await LG.playoffOdds();
+        return { o, spots: LG.rules.playoffs.teams, sw: LG.rules.seasonWeeks };
+      }) || {};
+      const o = b.o || {};
+      const locked = Object.keys(o).filter((k) => o[k] === 100).map(Number).sort((x, y) => x - y);
+      const open = Object.keys(o).filter((k) => o[k] !== 100 && o[k] !== 0).map(Number);
+      const openSum = open.reduce((x, k) => x + o[k], 0);
+      ok(b.spots === 5 && b.sw === 14 && locked.join() === "1,2,4,7" && open.length === 4,
+        "the board: teams 1, 2, 4, 7 clinched, four undecided for one spot (" + JSON.stringify(o) + ")");
+      // One spot open → the undecided must add to 100, give or take one point of rounding each.
+      ok(Math.abs(openSum - 100) <= open.length,
+        "⭐ the four chasers add up to one spot — " + openSum + "%, not 153% (" + open.map((k) => o[k]).join("/") + ")");
+      ok(Math.abs(Object.values(o).reduce((x, y) => x + y, 0) - 500) <= open.length,
+        "…and the whole column sums to five spots (" + Object.values(o).reduce((x, y) => x + y, 0) + ")");
+      ok(t.errors.length === 0, "0 page errors on the late-season board");
+      await t.ctx.close();
+    }
+    ok(errors.length === 0, "0 page errors (" + errors.slice(0, 2).join(" | ") + ")");
+  }
+
+  // UB4 · processWaivers is lazy — the first app open after the deadline runs it. A no-drop
+  // claim used LG.addLandingSlot with no clock check, so a claimed Thursday kicker could drop
+  // into an empty K after his kickoff and score. A started man now lands on BENCH.
+  if (section("UB4 · a claim processed after kickoff lands on the bench")) {
+    const { ctx, page, errors } = await ubOpen();
+    // Team 1: 10 starters (no K) + 7 bench + 1 IR = 17 active, room 1, K empty.
+    // Team 2: the seeded QB / WR / DST — K empty too.
+    await ubWrite(page, 1, UB_ELEVEN.filter((p) => p.slot !== "K").concat(ubBench(7), ubIr(1)));
+    await ubGames(page, { DAL: "in", DEN: "pre" });
+    const r = await evalOr(page, async () => {
+      const LG = window.__GFFL__.LG;
+      const base = { kind: "claim", season: LG.SEASON, week: 1, dropKey: null, dropName: null };
+      await LG.db.set(LG.claimDocId(LG.SEASON, 1, "ub_k1"), { ...base, claimId: "ub_k1", teamId: 1,
+        addKey: "ub_kdal", addName: "L. Atekick", addPos: "K", addTeam: "DAL", bid: 2, t: 1 });
+      await LG.db.set(LG.claimDocId(LG.SEASON, 1, "ub_k2"), { ...base, claimId: "ub_k2", teamId: 2,
+        addKey: "ub_kden", addName: "E. Arlykick", addPos: "K", addTeam: "DEN", bid: 1, t: 2 });
+      const started = { DAL: LG.addBlocked({ team: "DAL" }), DEN: LG.addBlocked({ team: "DEN" }) };
+      const doc = await LG.processWaivers(1);
+      const r1 = await LG.ensureRoster(1, 1, { fresh: true });
+      const r2 = await LG.ensureRoster(1, 2, { fresh: true });
+      const slotOf = (ros, k) => (ros.find((p) => p.key === k) || {}).slot || null;
+      return {
+        started, won: ((doc && doc.results) || []).filter((x) => x.ok).map((x) => x.id).sort(),
+        slot1: slotOf(r1, "ub_kdal"), k1: r1.filter((p) => p.slot === "K").length, bench1: r1.filter((p) => p.slot === "BENCH").length,
+        slot2: slotOf(r2, "ub_kden"),
+      };
+    }) || {};
+    ok(r.started && r.started.DAL === true && r.started.DEN === false,
+      "fixture: DAL has kicked off, DEN has not (" + JSON.stringify(r.started) + ")");
+    ok(Array.isArray(r.won) && r.won.join() === "ub_k1,ub_k2", "both claims win (" + JSON.stringify(r.won) + ")");
+    ok(r.slot1 === "BENCH" && r.k1 === 0 && r.bench1 === 8,
+      "⭐ the DAL kicker, whose game is on, sits on the BENCH — K stays empty, bench 7 → 8 (" + JSON.stringify(r) + ")");
+    ok(r.slot2 === "K", "control: the DEN kicker, not yet kicked off, still fills the empty K (" + r.slot2 + ")");
+    ok(errors.length === 0, "0 page errors (" + errors.slice(0, 2).join(" | ") + ")");
+    await ctx.close();
+  }
+
+  // UB5 · One push per event per owner. notify.mjs's gfflAll can skip ONE team, so:
+  //   · an executed / vetoed trade's "League move" blast skipped only `from` — `to` got it on
+  //     top of its own "Trade executed" / "Trade vetoed";
+  //   · a league-chat @mention sent the named owner the room's chat push AND the mention.
+  // Both now fan out one gfflTeam send per remaining team. 8 teams, so a trade's moves push is
+  // 8 − 2 = 6 sends and a one-mention chat line is 8 − 2 = 6 room sends + 1 mention.
+  if (section("UB5 · trade and @mention pushes are not doubled")) {
+    const LEAGUE = "https://goatfantasyleague.com/league.html";
+    const drain = async (n) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < 4000 && notify.calls.length < (n || 0)) await sleep(25);
+      await sleep(220);
+    };
+    const reset = async () => { await sleep(260); notify.reset(); };
+    const reach = (kind) => {
+      // Every team a call of this kind reaches: gfflTeam, or gfflAll minus excludeTeam.
+      const out = [];
+      for (const c of notify.calls.filter((x) => x.kind === kind)) {
+        if (c.gfflAll) { for (let t = 1; t <= 8; t++) if (t !== c.excludeTeam) out.push(t); } else out.push(c.gfflTeam);
+      }
+      return out.sort((a, b) => a - b);
+    };
+    {
+      await reset();
+      // Device is team 5 — neither party — so pushTeam's actor rule hides nothing.
+      const { ctx, page, errors } = await newTestPage(browser, { ...fullSeed(), team: 5, who: "Sixth" });
+      await bootPage(page);
+      await waitOr(page, ".mucard");
+      await stopPolling(page);
+      await ubGames(page, UB_PRE);
+      await drain(0);
+      const id = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(1, 2, ["111333"], ["222333"], "");
+        await LG.acceptTrade(o.trade.id, 2);
+        const d = await LG.loadTrade(o.trade.id, { fresh: true });
+        await LG.saveTrade({ ...d, reviewEndsAt: Date.now() - 1000 });
+        return o.trade.id;
+      });
+      await reset();
+      const ex = await evalOr(page, (i) => window.__GFFL__.LG.executeTrade(i), id);
+      await drain(8);
+      const moves = reach("moves");
+      const exec = notify.calls.filter((c) => c.title === "Trade executed").map((c) => c.gfflTeam).sort();
+      ok(ex && ex.status === "executed", "the trade executes (the action itself)");
+      ok(exec.join() === "1,2", "both parties get \"Trade executed\" (" + JSON.stringify(exec) + ")");
+      ok(moves.join() === "3,4,5,6,7,8",
+        "⭐ \"League move\" reaches the six other teams exactly once and neither party (" + JSON.stringify(moves) + ")");
+      ok(notify.calls.length === 8 && notify.calls.filter((c) => c.kind === "moves").every((c) => c.title === "League move" && c.url === LEAGUE + "#moves"),
+        "…8 sends in all: 2 executed + 6 league-move (" + notify.calls.length + ")");
+
+      // Veto: trade 3 ↔ 4, killed by the fourth vote. "Trade vetoed" goes to 3 and 4 only.
+      const vid = await evalOr(page, async () => {
+        const LG = window.__GFFL__.LG;
+        const o = await LG.offerTrade(3, 4, ["a1"], ["b1"], "");
+        await LG.acceptTrade(o.trade.id, 4);
+        return o.trade.id;
+      });
+      await reset();
+      await evalOr(page, async (i) => { const LG = window.__GFFL__.LG; for (const t of [1, 2, 5, 6]) await LG.vetoTrade(i, t); }, vid);
+      await drain(8);
+      const vMoves = reach("moves");
+      const vetoed = notify.calls.filter((c) => c.title === "Trade vetoed").map((c) => c.gfflTeam).sort();
+      ok(vetoed.join() === "3,4" && vMoves.join() === "1,2,5,6,7,8" && notify.calls.length === 8,
+        "⭐ a veto: \"Trade vetoed\" to 3 and 4, the league move to the other six only (" + JSON.stringify({ vetoed, vMoves, n: notify.calls.length }) + ")");
+      ok(errors.length === 0, "0 page errors (" + errors.slice(0, 2).join(" | ") + ")");
+      await ctx.close();
+    }
+    {
+      await reset();
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed()); // team 1, "Peter"
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 9000);
+      await stopPolling(page);
+      await drain(0);
+      await reset();
+      const posted = await evalOr(page, () => window.__GFFL__.LG.postChat({ text: "@End Zone Goats you're up" }));
+      await drain(7);
+      const chat = reach("chat");
+      const ment = notify.calls.filter((c) => c.kind === "mention").map((c) => c.gfflTeam);
+      ok(posted && posted.ok === true, "the message posts (the action itself)");
+      ok(ment.join() === "2", "the named owner (team 2) gets the mention (" + JSON.stringify(ment) + ")");
+      ok(chat.join() === "3,4,5,6,7,8",
+        "⭐ …and NOT the room's chat push too; the room is teams 3–8, once each (" + JSON.stringify(chat) + ")");
+      ok(notify.calls.length === 7, "7 sends: 6 room + 1 mention (" + notify.calls.length + ")");
+
+      await reset();
+      const plain = await evalOr(page, () => window.__GFFL__.LG.postChat({ text: "great week everyone" }));
+      await drain(1);
+      const only = notify.calls[0] || {};
+      ok(plain && plain.ok === true && notify.calls.length === 1 && only.gfflAll === true && only.excludeTeam === 1 && only.kind === "chat",
+        "control: a line with no mention is still ONE gfflAll send minus the sender (" + JSON.stringify(only) + ")");
+      ok(errors.length === 0, "0 page errors (" + errors.slice(0, 2).join(" | ") + ")");
+      await ctx.close();
+    }
   }
 
   await browser.close();

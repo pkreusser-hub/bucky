@@ -6403,6 +6403,8 @@
     "drop-started": "you started him and his game has begun — you can drop him once waivers clear",
     "add-started": "his game has already started — you can add him once waivers open",
     "roster-full": "your roster is full — pick somebody to drop",
+    // 2026-09-23: the drop was an IR man on a full 18 — the pickup would be a 19th active.
+    "active-full": "your lineup and bench are full, and dropping someone off IR doesn't free a spot",
     outbid: "outbid by a higher blind bid", "player-taken": "taken by another claim",
     "drop-gone": "your drop player was gone", "insufficient-faab": "not enough FAAB",
     "already-processed": "this week's claims already processed", "drop-not-found": "that player isn't on your roster",

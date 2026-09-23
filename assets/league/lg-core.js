@@ -1714,9 +1714,11 @@
   // the regular season (7 games on a 14-week board): week-1 PF is 1/8 of strength.
   //
   // DISPLAY is calmer still. The Monte Carlo's gap from the field rate (spots / teams) is
-  // trusted in proportion to games played over that same prior. After one week that is 1/8
+  // trusted in proportion to games played over that same prior. After one week that is 2/15
   // of the gap — a 1-0 team sits near 67%, not 95%. A lock (every simulated season agreed)
   // is never blended. Pre-season is not blended; the MC is already the field.
+  // 2026-09-23: the prior fades as the season runs out, and the field is the spots still open
+  // among the teams still undecided — see poSampleWeight / poDisplayOdds.
   //
   // DETERMINISTIC BY CONSTRUCTION: the PRNG is seeded from a hash of the exact data state
   // (season, spots, every team's W-L-PF, how many games remain), and the answer is cached under
@@ -1733,21 +1735,49 @@
   function poFieldRate(spots, n) {
     return n ? (100 * spots / n) : 0;
   }
-  function poSampleWeight(games, sw, remN) {
+  // ⭐ THE PRIOR FADES AS THE SEASON RUNS OUT (2026-09-23). `remG` is the games each team
+  // still has to play (not the league's matchup count). The 09-15 weight g / (g + prior)
+  // never reached 1 while a game was left: with one week to go it was 13/20, so a raw 1%
+  // painted 23%. The prior is now scaled by the share of the season still unplayed:
+  // g / (g + prior * remG / sw). Week 1 on a 14-week board: 1 / (1 + 7 * 13/14) = 2/15
+  // (was 1/8; the week-1 band is still 55–67). One week left: 13 / (13 + 7/14) = 26/27.
+  function poSampleWeight(games, sw, remG) {
     const g = Number(games) || 0;
     if (g <= 0) return 0;
-    if (!remN) return 1;
-    return g / (g + poPriorW(sw));
+    const r = Number(remG) || 0;
+    if (r <= 0) return 1;
+    const weeks = Number(sw) || 14;
+    return g / (g + poPriorW(sw) * Math.min(1, r / weeks));
   }
   function poBlendToField(raw, field, w) {
     if (raw === 100 || raw === 0) return raw;
     const ww = w == null ? 1 : w;
     return Math.min(99, Math.max(1, Math.round(field + (raw - field) * ww)));
   }
+  // ⭐ THE FIELD IS WHAT IS STILL OPEN (2026-09-23). Undecided teams used to blend toward the
+  // whole-league rate (5 of 8 = 62.5%) while the locks stayed at 100 / 0, so four clinched
+  // teams plus four chasing the last spot painted 36/60/24/33 — 153% for one place. An
+  // undecided team is now pulled toward the spots NOT yet clinched, shared by the teams NOT
+  // yet decided: 100 * (spots − locked-in) / (teams − locked-in − locked-out). The MC's own
+  // undecided raws add up to that same total, so the column still sums to the spots (to
+  // within rounding) at every stage of the season. With no lock it is the old 62.5%.
+  function poDisplayOdds(raw, spots, w) {
+    const ids = Object.keys(raw || {});
+    let lockedIn = 0, open = 0;
+    for (const id of ids) {
+      if (raw[id] === 100) lockedIn++;
+      else if (raw[id] !== 0) open++;
+    }
+    const field = open ? 100 * Math.max(0, spots - lockedIn) / open : 0;
+    const out = {};
+    for (const id of ids) out[id] = poBlendToField(raw[id], field, w);
+    return out;
+  }
   LG.playoffPriorW = poPriorW;
   LG.playoffFieldRate = poFieldRate;
   LG.playoffSampleWeight = poSampleWeight;
   LG.playoffBlendToField = poBlendToField;
+  LG.playoffDisplayOdds = poDisplayOdds;
   function poHash(s) {
     let h = 2166136261 >>> 0;
     for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
@@ -1795,8 +1825,8 @@
     const mean = totG ? totPF / totG : PO_PRIOR_PTS;
     const priorW = poPriorW(sw);
     const gBar = ids.length ? totG / ids.length : 0;
-    const field = poFieldRate(spots, ids.length);
-    const sample = poSampleWeight(gBar, sw, rem.length);
+    // Games left PER TEAM: every remaining matchup is two teams' game.
+    const sample = poSampleWeight(gBar, sw, ids.length ? 2 * rem.length / ids.length : 0);
     const s = {};
     for (const id of ids) s[id] = (base[id].pf + priorW * mean) / (base[id].g + priorW);
     const key = ["poCalm1", LG.SEASON, sw, spots, rem.length, ids.join(",")].concat(
@@ -1821,16 +1851,16 @@
       const order = ids.slice().sort((x, y) => (wSim[y] - wSim[x]) || (pfSim[y] - pfSim[x]) || (x - y));
       for (let i = 0; i < spots; i++) counts[order[i]]++;
     }
-    const odds = {};
+    const raws = {};
     for (const id of ids) {
       const c = counts[id];
       // A LOCK is only ever reported when EVERY simulated season agreed. 99.6% rounding up to
       // "100%" would be the app claiming a clinch it hasn't got.
-      const raw = c === PO_SIMS ? 100 : c === 0 ? 0 : Math.min(99, Math.max(1, Math.round((c / PO_SIMS) * 100)));
-      // Pre-season is already the field. After games land, walk toward the Monte Carlo
-      // in proportion to the sample — a 1-0 record cannot look like a lock.
-      odds[id] = gBar === 0 ? raw : poBlendToField(raw, field, sample);
+      raws[id] = c === PO_SIMS ? 100 : c === 0 ? 0 : Math.min(99, Math.max(1, Math.round((c / PO_SIMS) * 100)));
     }
+    // Pre-season is already the field. After games land, walk toward the Monte Carlo
+    // in proportion to the sample — a 1-0 record cannot look like a lock.
+    const odds = gBar === 0 ? raws : poDisplayOdds(raws, spots, sample);
     LG._poCache = { key, odds };
     return odds;
   };
@@ -2159,8 +2189,10 @@
   // nothing needed it, because every add SPLICED one player out for the one coming in and the
   // roster could therefore never change size. A standalone drop makes size a real quantity.
   // IR is in this number (21 today) because a legal IR stash is extra capacity on top of the
-  // 18-man active roster — trades use this as the hard ceiling.
-  LG.rosterCap = () => Object.values(((LG.rules || LG.DEFAULT_RULES).roster) || {})
+  // 18-man active roster. It is capacity for INJURED men only: since 2026-09-23 a trade must
+  // clear BOTH this total and LG.activeCap (see LG.tradeBlockers) — 18 active + 3 IR fits 21,
+  // but trading an IR man away for a healthy one would put 19 on the lineup and bench.
+  LG.rosterCap =() => Object.values(((LG.rules || LG.DEFAULT_RULES).roster) || {})
     .reduce((s, n) => s + (Number(n) || 0), 0);
   // ⭐ ROOM FOR AN ADD (2026-09-16, user: "if I have an unfilled bench spot, I should
   // not have to drop someone"). The 2026-08-15 first cut measured room as
@@ -2182,6 +2214,17 @@
   };
   LG.activeCount = (roster) => (roster || []).filter((p) => p && p.slot !== "IR").length;
   LG.rosterRoom = (roster) => Math.max(0, LG.activeCap() - LG.activeCount(roster));
+  // ⭐ AN IR DROP DOES NOT OPEN AN ACTIVE SPOT (2026-09-23). An add or claim WITH a drop used
+  // to be allowed whatever the drop was, and the incoming man lands active (BENCH). Dropping
+  // an IR man from a full 18 therefore made 19 active — the extra-spot abuse rosterRoom closed
+  // for the no-drop path, reopened through the drop path. True when swapping `dropKey` out
+  // for one incoming active player would leave more than LG.activeCap() active.
+  LG.swapOverActive = function (roster, dropKey) {
+    const ros = roster || [];
+    const out = dropKey == null ? null : ros.find((p) => p && p.key === dropKey);
+    const after = LG.activeCount(ros) - (out && out.slot !== "IR" ? 1 : 0) + 1;
+    return after > LG.activeCap();
+  };
   // An incoming free agent fills an empty starter he is eligible for (empty K
   // takes a kicker) and otherwise sits on BENCH. IR is never a landing spot.
   LG.addLandingSlot = function (roster, pos) {
@@ -2251,9 +2294,11 @@
     await LG.db.set(id, { kind: "tx", t, week, type, teamId, detail: d });
     // League-moves blast. Default OFF on the token (see notifMutes / notify.mjs).
     // Fire-and-forget: a notify outage may never cost the write that produced it.
+    // A trade row names both parties, and each already gets its own "Trade executed" /
+    // "Trade vetoed" push — so both are left out of the blast, not just the logging team.
     try {
-      LG.pushNotify({
-        all: true, excludeTeam: teamId,
+      const skip = type === "trade" ? [teamId, d.from, d.to] : [teamId];
+      LG.pushAllBut(skip, {
         title: "League move", body: LG.movesLine(type, teamId, d),
         link: LG.pushLink("#moves"), kind: "moves",
       });
@@ -2450,6 +2495,24 @@
     if (Number(teamId) === Number(LG.myTeamId())) return Promise.resolve(null); // the actor
     return LG.pushNotify({ toTeam: Number(teamId), title, body, link, kind });
   };
+  // ⭐ THE LEAGUE MINUS SEVERAL TEAMS (2026-09-23). notify.mjs's gfflAll takes ONE excludeTeam,
+  // so a blast could only skip the actor: both trade parties got "Trade executed" AND a
+  // "League move" about their own trade, and an @-mentioned owner got the room's chat push on
+  // top of the mention. With one team to skip this is the same single gfflAll send as before;
+  // with more it fans out one gfflTeam send per remaining team (a trade in an 8-team league
+  // is 6 sends), which reaches the same devices — gfflAll only ever reaches a token that
+  // carries a team — and needs no change to the server.
+  LG.pushAllBut = function (exclude, opts) {
+    const skip = [];
+    for (const x of (exclude || [])) if (x != null && skip.indexOf(Number(x)) < 0) skip.push(Number(x));
+    if (skip.length <= 1) return LG.pushNotify({ ...opts, all: true, excludeTeam: skip.length ? skip[0] : null });
+    const sends = [];
+    for (const t of (LG.teams || [])) {
+      if (skip.indexOf(Number(t.id)) >= 0) continue;
+      sends.push(LG.pushNotify({ ...opts, all: false, toTeam: Number(t.id) }));
+    }
+    return Promise.all(sends);
+  };
   LG.teamName = (id) => { if (id == null) return "Someone"; const t = LG.teamById(id); return (t && t.name) || ("Team " + id); };
 
   // @MENTION MATCHING. Deliberately simple and deliberately documented, because a matcher
@@ -2539,6 +2602,10 @@
       // Same room the waiver run and the claim card use — a drop-less claim
       // filed against a full active roster can only lose on Wednesday.
       if (claim.dropKey == null && !LG.rosterRoom(ros)) return { ok: false, reason: "roster-full" };
+      // …and a claim whose drop is an IR man on a full active roster (LG.swapOverActive).
+      if (claim.dropKey != null && ros.some((p) => p.key === claim.dropKey) && LG.swapOverActive(ros, claim.dropKey)) {
+        return { ok: false, reason: "active-full", players: claim.dropName ? [claim.dropName] : [] };
+      }
     }
     if (claim && LG.addBlocked({ team: claim.addTeam })) {
       return { ok: false, reason: "add-started", players: claim.addName ? [claim.addName] : [] };
@@ -2622,12 +2689,15 @@
     const dropped = ros[idx];
     // A man you STARTED, whose game is underway — see LG.dropBlocked. The bench is free.
     if (LG.dropBlocked(dropped)) return { ok: false, reason: "drop-started", players: [dropped.name] };
+    // Dropping an IR man frees an IR spot, not an active one — see LG.swapOverActive.
+    if (LG.swapOverActive(ros, dropKey)) return { ok: false, reason: "active-full", players: [dropped.name] };
     const r = await rosterUpdate(week, teamId, (players) => {
       const cur = players || [];
       if (LG.illegalIR(cur).length) return null;
       if (cur.some((p) => LG.sameMan(p.key, addPlayer.key))) return null;
       const i = cur.findIndex((p) => p.key === dropKey);
       if (i < 0 || LG.dropBlocked(cur[i])) return null;
+      if (LG.swapOverActive(cur, dropKey)) return null;
       const next = cur.slice();
       next.splice(i, 1, incoming); // the incoming man takes the dropped man's place, as before
       return next;
@@ -2648,7 +2718,8 @@
     if (dropKey == null) return { ok: false, reason: "roster-full" };
     const i = cur.findIndex((p) => p.key === dropKey);
     if (i < 0) return { ok: false, reason: "drop-not-found" };
-    return { ok: false, reason: "drop-started", players: [cur[i].name] };
+    if (LG.dropBlocked(cur[i])) return { ok: false, reason: "drop-started", players: [cur[i].name] };
+    return { ok: false, reason: "active-full", players: [cur[i].name] };
   }
 
   // Process one week's blind-bid claims. PURE (given the same claims/rosters/
@@ -2758,6 +2829,10 @@
         // this same run may have filled it.
         if (!reason && c.dropKey == null && !LG.rosterRoom(ros)) reason = "roster-full";
         if (!reason && c.dropKey != null && !ros.some((p) => p.key === c.dropKey)) reason = "drop-gone";
+        // 2026-09-23: a drop off IR frees no active spot, and the claimed man lands active. The
+        // claim loses (never errors the run) — judged against THIS run's roster, so an earlier
+        // winning claim of theirs that filled the last bench spot counts too.
+        if (!reason && c.dropKey != null && LG.swapOverActive(ros, c.dropKey)) reason = "active-full";
         if (!reason && c.bid > (faabMap.get(c.teamId) ?? 0)) reason = "insufficient-faab";
         // ⚠ NO drop-started GATE HERE, DELIBERATELY, and the reason is the rule itself: a
         // claim's drop takes effect AT THE WAIVER RUN, which IS "once waivers clear". Dropping
@@ -2773,9 +2848,14 @@
       }
       if (!reason) {
         const ros = rosterMap.get(c.teamId);
+        // ⭐ A STARTED MAN SITS (2026-09-23). The run is lazy — the first app open after the
+        // deadline — so a Thursday player can be claimed after his kickoff, and an empty K or
+        // any empty starter would score him for a game already under way. His game has begun
+        // (LG.addBlocked): he lands on BENCH, and the owner starts him next week.
+        const landEmpty = c.dropKey == null && !LG.addBlocked({ team: c.addTeam });
         const incoming = {
           key: c.addKey, name: c.addName, pos: c.addPos, team: c.addTeam,
-          slot: c.dropKey == null ? LG.addLandingSlot(ros, c.addPos) : "BENCH",
+          slot: landEmpty ? LG.addLandingSlot(ros, c.addPos) : "BENCH",
         };
         const dropIdx = c.dropKey == null ? -1 : ros.findIndex((p) => p.key === c.dropKey);
         const dropped = dropIdx < 0 ? null : ros[dropIdx];
@@ -2970,7 +3050,8 @@
   // actually happens. No caller re-derives the rule; they all ask the same function.
   //
   // CAP — a trade may not leave EITHER roster over LG.rosterCap() (the slot script's own
-  // total, incl. BENCH and IR — 19 today).
+  // total, incl. BENCH and IR — 21 today), NOR over LG.activeCap() (starters + bench, 18
+  // today; 2026-09-23 — an IR spot holds only an injured man, and traded players land active).
   //
   // LINEUP — a trade may not leave either roster unable to fill every STARTING slot (all of
   // rules.roster except BENCH/IR) with one player per slot. Judged as a TRANSITION (fillable
@@ -3040,8 +3121,14 @@
     const cap = LG.rosterCap();
     const fromSize = fromRoster.length - give.length + get.length;
     const toSize = toRoster.length - get.length + give.length;
-    if (fromSize > cap) blockers.push({ reason: "over-cap", detail: { team: LG.teamName(offerDoc.from) } });
-    if (toSize > cap) blockers.push({ reason: "over-cap", detail: { team: LG.teamName(offerDoc.to) } });
+    // 2026-09-23: AND the active count. Every incoming man lands on BENCH (active), while an
+    // outgoing IR man frees only an IR spot — so 18 active + 1 IR trading the IR man for a
+    // healthy one is 19 active inside a 21 total. Same reason and copy: it IS the roster limit.
+    const acap = LG.activeCap();
+    const fromActive = LG.activeCount(fromRoster.filter((p) => !give.includes(p.key))) + get.length;
+    const toActive = LG.activeCount(toRoster.filter((p) => !get.includes(p.key))) + give.length;
+    if (fromSize > cap || fromActive > acap) blockers.push({ reason: "over-cap", detail: { team: LG.teamName(offerDoc.from) } });
+    if (toSize > cap || toActive > acap) blockers.push({ reason: "over-cap", detail: { team: LG.teamName(offerDoc.to) } });
 
     // LINEUP — simulate the post-trade rosters the same way executeTrade actually builds them
     // (an incoming player lands on BENCH; the owner sets their own lineup afterwards).
@@ -3410,9 +3497,11 @@
       const snippet = text ? text.slice(0, 140)
         : (opts.img ? "sent a photo" : ((opts.gif && opts.gif.url) ? "sent a GIF" : ""));
       const thread = doc.thread || null;
+      const mentioned = LG.mentionTargets(text);
       if (!thread) {
-        LG.pushNotify({
-          all: true, excludeTeam: LG.myTeamId(),
+        // 2026-09-23: an @-mentioned owner gets the mention below and NOT the room blast too —
+        // two buzzes for one line. Skipped here alongside the sender (LG.pushAllBut).
+        LG.pushAllBut([LG.myTeamId()].concat(mentioned), {
           title: from + " in league chat",
           body: snippet, link: LG.pushLink("#chat"), kind: "chat",
         });
@@ -3424,7 +3513,7 @@
           }
         }
       }
-      for (const tid of LG.mentionTargets(text)) {
+      for (const tid of mentioned) {
         // pushTeam already drops the sender, so a self-mention is silent by construction.
         LG.pushTeam(tid, from + " mentioned you", text.slice(0, 140), LG.pushLink("#chat"), "mention");
       }
@@ -4991,20 +5080,6 @@
     src.sort((a, b) => a.t - b.t);
     for (const r of src) by.set(LG.wpTick(r.t), { t: LG.wpTick(r.t), p: r.p });
     return [...by.values()];
-  };
-  // Keep in-hour ticks plus the last pre-window point (carry-in).
-  LG.wpKeepHour = function (rows, now) {
-    const t0 = (isFinite(Number(now)) ? Number(now) : Date.now()) - LG.WP_WINDOW_MS;
-    const src = Array.isArray(rows) ? rows : [];
-    let lastPre = null;
-    const inWin = [];
-    for (const r of src) {
-      if (!r || !isFinite(Number(r.t)) || !isFinite(Number(r.p))) continue;
-      const t = Number(r.t), p = Number(r.p);
-      if (t < t0) lastPre = { t, p };
-      else inWin.push({ t, p });
-    }
-    return LG.wpDedupeMinutes(lastPre ? [lastPre].concat(inWin) : inWin);
   };
   function wpCapRows(rows) {
     const src = Array.isArray(rows) ? rows : [];
