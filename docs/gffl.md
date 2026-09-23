@@ -9605,3 +9605,118 @@ Files: `assets/league/lg-core.js`, `assets/league/lg-data.js`,
 **175/175**. Bite (previous app files): **5/8 fail** — each cold
 state writes 0.5 over the warm 0.2491; the warm point, the
 even-paper control and 0 page errors pass on both.
+
+---
+
+## GFFL — power rankings are computed from the app's own numbers (2026-09-23)
+
+User: the Grok rankings "don't make sense". Grok never saw the app's
+projections, weekly scores or opponents. It leaned on stale NFL
+knowledge (2026 rookies, trades), and the Tuesday result was frozen, so
+by Sunday it disagreed with the matchup page.
+
+Decisions (final): no AI at all; keep a 0–100 score; rest of season
+blends results with roster. This inverts the four 2026-09-08 power
+entries above (Grok 4.6, `aipower_<season>_w<week>`, create-only,
+Tuesday gate). Same shell: two tabs, table pans in the card on a phone,
+MAIN `power` entry after `standings` on the desktop, `UI._pwTab` kept
+through repaints.
+
+**THIS WEEK** (`LG.powerWeekBoard`), recomputed on every paint including
+the live repaint. Proj = sum of the starters' `LG.n(D.liveProj(key))`,
+the same `expectedFinish` helper the matchup header now calls. Score =
+round(100 × proj / best). Ties: season PF, then lower teamId (one
+tiebreak for every rank on the card). Opp from `UI._wkGames` (BYE when
+unpaired, — when nobody plays). Win% = `D.winProb(mine, theirs)`. Rooms:
+starters' proj by real position (FLEX counts in his own); BN = best 3
+bench. LW = rank by last week's actual points off its weekly doc.
+
+**REST OF SEASON** (`LG.powerRosBoard`). v = ½p + ½a; p = `D.projFor`,
+a = average over finalized weeks with a stat line (`D.weekStats`,
+`LG.seasonAverages`). p null/0 → a; no a → p; neither → 0. roster =
+`LG.optimalLineup` (the old fzOptimalTotal solver, made pure) over the
+non-IR roster. results = PF / games. wR = 3/(3+g), g = league-average
+games. Rooms = the optimal lineup's picks by real position; BN = next
+best 3. PO% = `LG.playoffOdds`, unchanged. LW = last week's
+`powersnap_<season>_w<week>` {ros:{teamId: rank}, at}, written by any
+cloud device that computes the board, at most hourly (the doc's `at`
+is the clock), last write wins.
+
+Loading: nothing new in the first batch (the aipower reads left it).
+Averages, last week's snapshot and phone odds load post-paint
+(`refreshPowerData`) and repaint once. Until averages land the ROS tab
+says "Adding up the season so far…". Section P warm visit 32ms.
+
+Removed: `ensureAiPower`, its post-paint trigger, `validateAiPowerReply`,
+`normalizePowerBoard`, `aiPowerIsCurrent`, `loadAiPower(Docs)`,
+`powerBoard`, `aipower` in ID_KIND, and farmgpt's `gfflpower` mode +
+`GFFLPOWER_SYSTEM` / `GFFLPOWER_MODEL`. Old aipower docs stay in
+Firestore, unread.
+
+Hand counts (UH):
+- UH1 four teams, proj 78 / 82 / 78 / 64, PF 300/250/250/200: T2 #1
+  100, T1 #2 95 (78–78 tie to PF), T3 95, T4 78. Last week 100/120/90/120
+  → LW 3/1/4/2.
+- UH2 rules QB/RB/WR/TE/FLEX 1: lineups 62 / 60 / 67 (T1 80 if its IR
+  man counted). g=0: wR 1 → T3 100, T1 93, T2 90. g=3: wR 0.5, results
+  110/120/90 → ratings 86 / 90 / 78.5 → T2 100, T1 96, T3 87.
+- UH3 phone, eight teams, week 2: T8 143 · T7 132 · T6 121 · T5 110 ·
+  T1 101 · T4 99 · T3 88 · T2 48 → 100/92/85/77/71/69/62/34. Win% 66/34
+  (diff 13, 9 of 20 still, sd 30, raw 0.6765, p 0.6606), 3/97, 0/100.
+- UH5 weeks 1–3 final, week 4: P. Passer a = (10+10+20)/3 = 13.33 with
+  no projection; T. Tight no history → p 8.5; W. Receiver on IR left out.
+  T1 lineup 37.83, rating 68.92; T7 and T2 tie at 47.5 → PF 285 > 270.
+  Scores 100/87/80/76/73/69/69/58.
+
+Files: `assets/league/lg-{core,ui}.js`, `league.html` (CSS only, min-width
+600px), `netlify/functions/farmgpt.mjs`, `docs/farmgpt.md`,
+`tools/_verify-gffl.cjs`.
+
+**RESTAGED / RETIRED, reasons at the checks**: TB3's gfflpower server
+checks retired (the cache-bust check kept, plus "farmgpt no longer knows
+gfflpower"); TB4 keeps placement, no-AI, heading, tabs, own-team ring,
+pan, ROS tab — columns now 12, no "Nothing on file yet", footer names the
+matchup page; the generation/validation/movement checks retired; TB5
+(cloud generation, race, Tuesday gate) retired; TB6 columns now 12, no
+forced generation. M4's message says the computed card. The fake xAI
+columnist in the harness retired with the mode. TB 74 → 42 ok() sites.
+
+**VERIFY:** `--only UH1..UH7` **60/60**; with `TB,M,P,AT` (AT runs
+AU–AY too) **441/441**; `AD,AE,AQ,TH,X,S,TV,UG` 570/570. Bite
+(`league.html`, `assets`, `netlify` at 1e68938, suite kept) on
+UH1–7,TB,M: **104 pass / 59 fail**. All 60 UH checks except those true
+without the change fail (the local store makes no AI call, no local
+snapshot, desktop placement, 0 page errors). TB's failures are the
+restaged checks. M and TB1/TB2 all pass on base.
+Plates: `uh_power_{week,ros}_390{,_mid,_panned}.png`.
+
+**PWR column.** The desktop standings' PWR column read the finalize
+formula (`LG.powerRanking`) and would have disagreed with the computed
+card beside it. It now reads the Rest of season board (`pwrColumn`),
+so pre-season it is the roster-only 1..8 (wR = 1). AT5 and AT5b are
+restaged with reasons. `LG.powerRanking` stays for the finalize
+snapshot only.
+
+**notify-url suite.** `tools/_verify-notify-url.mjs` slices
+`getDeviceTokens` out of notify.mjs and rebuilds it with only
+`FIRESTORE_BASE` and `fetch` in scope. The morning's timeout reads
+`FETCH_TIMEOUT_MS`, so the slice threw. The handler was fine (UF runs
+the real module); the harness now passes the constant, 43/43.
+Unrelated and pre-existing on `efd6b28`: `_verify-story-reminder`
+33/40 and `_verify-storylog-summary` crash; `_verify-news` and
+`_verify-storyledger` need Chrome at `/opt/google/chrome`.
+
+Scripts cache-bust `?v=20260923b`.
+
+**Suite isolation.** The first full battery read 4067/4073: UH saw a
+farmgpt call and different projections that `--only UH` never did. The
+Grok projection adjuster (the 08-13 feature that feeds `D.projFor`, so
+the card uses the same adjusted numbers as the matchup page) runs once
+earlier sections leave `ESPN_S2`/`ESPN_SWID` set. UH's page sections now
+clear those for their own run (`uhNoAdjuster`), so the adjuster fails
+open and the hand-computed numbers hold; the call checks name the mode.
+
+**VERIFY:** full battery **4073/4073**. `node tools/_verify-notify-url.mjs`
+**43/43**; farmgpt's server suites (calories 24, dnd 47, kidstory 54,
+parent-research 25, teachergpt 39) and ffai 39, ffdraft 326, sports 289,
+eventreminders 78 all green.
