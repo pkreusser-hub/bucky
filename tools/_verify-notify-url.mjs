@@ -69,9 +69,14 @@ const rows = [
   { document: {} }, // query metadata row
 ];
 const FIRESTORE_BASE = "https://fake";
-const getDeviceTokens = new Function("FIRESTORE_BASE","fetch", gdBody + ";return getDeviceTokens;")(
+// RESTAGED 2026-09-23: getDeviceTokens now bounds its Firestore read with
+// AbortSignal.timeout(FETCH_TIMEOUT_MS) (a hung upstream call used to hold the whole push), so
+// the sliced body needs that module constant in scope too. Same value as the module default.
+const FETCH_TIMEOUT_MS = 4000;
+const getDeviceTokens = new Function("FIRESTORE_BASE","fetch","FETCH_TIMEOUT_MS", gdBody + ";return getDeviceTokens;")(
   FIRESTORE_BASE,
-  async () => ({ ok: true, json: async () => rows })
+  async () => ({ ok: true, json: async () => rows }),
+  FETCH_TIMEOUT_MS
 );
 const toks = async (sel) => (await getDeviceTokens("tok","fam",sel)).map((r) => r.token).sort();
 const eq = (a,b) => JSON.stringify(a)===JSON.stringify(b);
@@ -103,9 +108,10 @@ const muteRows = rows.concat([
     gfflMutes: { arrayValue: { values: [{ stringValue: "moves" }] } },
   } } },
 ]);
-const getDeviceTokensMuted = new Function("FIRESTORE_BASE","fetch", gdBody + ";return getDeviceTokens;")(
+const getDeviceTokensMuted = new Function("FIRESTORE_BASE","fetch","FETCH_TIMEOUT_MS", gdBody + ";return getDeviceTokens;")(
   FIRESTORE_BASE,
-  async () => ({ ok: true, json: async () => muteRows })
+  async () => ({ ok: true, json: async () => muteRows }),
+  FETCH_TIMEOUT_MS
 );
 const toksM = async (sel) => (await getDeviceTokensMuted("tok","fam",sel)).map((r) => r.token).sort();
 ok(eq(await toksM({ gfflTeam: 1 }), ["TA","TD"]),
