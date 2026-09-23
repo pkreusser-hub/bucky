@@ -2195,7 +2195,15 @@ function chromeExe() {
 }
 async function launchBrowser() {
   const exe = chromeExe();
-  const opts = { headless: true, args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] };
+  // --disable-features=CanvasNoise (2026-09-23): Chromium 141 (/opt/pw-browsers) perturbs
+  // getImageData on the SwiftShader-accelerated 2D canvas by a few units per channel,
+  // alpha included, with a key that changes per browser context. Measured in a bare page
+  // with these same flags: a canvas filled #1f9d55 (31,157,85,255) read back 29,159,82,254 /
+  // 34,158,88,252 / 28,154,82,254 across launches, and exactly 31,157,85,255 with the
+  // feature off. AM4b's "mark survives intact" (alpha 255) read 254/255/252 on three runs of
+  // the same code. That is fingerprinting noise on the READBACK, not the app's pixels, so
+  // the harness turns it off rather than every canvas check learning a tolerance.
+  const opts = { headless: true, args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-features=CanvasNoise"] };
   if (exe) opts.executablePath = exe; else opts.channel = "chrome";
   return puppeteer.launch(opts);
 }
@@ -20129,14 +20137,21 @@ async function openDetails(page, id) {
     // "crest on the outer edge, mirrored" arrangement is SUPERSEDED — crests are big centered
     // columns OFF the slashes now, with the full name over two rows, and the time (with CT),
     // the vegas line and the player count all centered. The slash itself is unchanged.
+    // RESTAGED 2026-09-23: measured at 1440px. Since a235d8a / 8e24bb0 (2026-09-15) the
+    // .sccard slash cards live only in the desktop slate; below 1024px #scSlate is
+    // display:none. At 390px every rect here was 0x0, so "crest off the slash" read 0 >= 44
+    // and failed, while the three centering checks passed VACUOUSLY (|0 - 0| <= 3). At
+    // 1440 the slate is on screen and each geometry fact is a real measurement again. The
+    // 44px threshold is unchanged: the secondary stripe reaches 43px in from the card edge
+    // (`.scstaterow::before` clip-path 39px..43px at the top), which the slate keeps.
     {
-      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 900 } });
       await bootPage(page);
       await pinSeedWeek1(page);
       await page.evaluate(() => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".mucard");
       await clickIn(page, '.bnav button[data-v="scores"]');
-      await waitOr(page, ".sccard");
+      await waitOr(page, "#scSlate .sccard");
       const sc = await evalOr(page, () => {
         // Full names now: PHI's card reads "Philadelphia Eagles"; DEN (no city in the
         // fixture) still reads its bold abbrev — the deliberate fallback.
@@ -20160,6 +20175,8 @@ async function openDetails(page, id) {
           timeCT: /CT/.test((denCard.querySelector(".scstate") || {}).textContent || ""), // DEN@KC is the fixture's pre-game card
           stateCentered: stateRow ? Math.abs(mid(stateRow.getBoundingClientRect()) - mid(cardBox)) <= 3 : false,
           crestOffSlash: awayCrest ? awayCrest.getBoundingClientRect().left - cardBox.left >= 44 : false,
+          crestInset: awayCrest ? Math.round(awayCrest.getBoundingClientRect().left - cardBox.left) : null,
+          cardW: Math.round(cardBox.width),
           spreadCentered: spreadEl ? (() => { const r = document.createRange(); r.selectNodeContents(spreadEl);
             const c = spreadEl.closest(".sccard").getBoundingClientRect();
             return Math.abs(mid(r.getBoundingClientRect()) - mid(c)) <= 4; })() : null,
@@ -20172,7 +20189,7 @@ async function openDetails(page, id) {
       ok(sc.denHomeBand === "rgba(0, 0, 0, 0)", "a team ESPN sent no colour for paints NO band — transparent, never a wrong guess (" + sc.denHomeBand + ")");
       ok(sc.timeCT === true, "the kickoff time carries its timezone (… CT)");
       ok(sc.stateCentered === true, "…and the state row is CENTERED on the card");
-      ok(sc.crestOffSlash === true, "the crest sits OFF the slash — clear of the band's own reach, in its centered column");
+      ok(sc.crestOffSlash === true, "the crest sits OFF the slash — clear of the band's own reach, in its centered column (" + sc.crestInset + "px in on a " + sc.cardW + "px card)");
       ok(sc.spreadCentered === true, "the vegas line's INK is centered (Range-measured — a block always spans the card)");
       ok(sc.moCentered === true, "…and so is the MINE/OPP player count");
       // ---- DOWN · DISTANCE · POSSESSION on the live card (2026-08-14, the user's ask).
