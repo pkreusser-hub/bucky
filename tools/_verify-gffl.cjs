@@ -30929,6 +30929,67 @@ async function openDetails(page, id) {
     }
   }
 
+  // ================= UF · notify.mjs — one device's hung send never costs the rest =================
+  // 2026-09-23 review: notify.mjs sent each device's push with a bare fetch and no timeout, and
+  // its token loop had no try/catch. One FCM call that never answered ran the whole request into
+  // the platform's kill; one that threw (a reset socket) aborted the loop. Either way every
+  // device queued behind it missed the push. Real handler, in process; fetch stubbed so the
+  // token read returns four league devices and FCM hangs on the first and throws on the second.
+  // Hand count: 4 tokens − 1 hung − 1 thrown = 2 sent, 0 pruned.
+  if (section("UF · notify.mjs — a hung or failed FCM send skips that device only")) {
+    const realFetch = global.fetch;
+    const saved = { sa: process.env.FIREBASE_SERVICE_ACCOUNT, sec: process.env.BUCKY_NOTIFY_SECRET, to: process.env.NOTIFY_FETCH_TIMEOUT_MS };
+    const kp = require("crypto").generateKeyPairSync("rsa", { modulusLength: 2048 });
+    process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({
+      client_email: "test@amen-farms-app.iam.gserviceaccount.com",
+      private_key: kp.privateKey.export({ type: "pkcs8", format: "pem" }),
+    });
+    process.env.BUCKY_NOTIFY_SECRET = "uf-secret";
+    process.env.NOTIFY_FETCH_TIMEOUT_MS = "300"; // read at module load — set before the import
+    const fcmTried = [];
+    const row = (id, token, team) => ({ document: {
+      name: "projects/p/databases/(default)/documents/pushTokens_x/" + id,
+      fields: { token: { stringValue: token }, gfflTeam: { integerValue: String(team) } },
+    } });
+    const json = (o) => ({ ok: true, status: 200, json: async () => o });
+    global.fetch = (url, init) => {
+      const u = String(url);
+      if (u.includes("oauth2.googleapis.com")) return Promise.resolve(json({ access_token: "t", expires_in: 3600 }));
+      if (u.includes(":runQuery")) return Promise.resolve(json([row("d1", "tok-hang", 1), row("d2", "tok-throw", 2), row("d3", "tok-ok3", 3), row("d4", "tok-ok4", 4)]));
+      if (u.includes("fcm.googleapis.com")) {
+        const tok = JSON.parse(init.body).message.token;
+        fcmTried.push(tok);
+        if (tok === "tok-hang") {
+          return new Promise((_, rej) => {
+            if (init.signal) init.signal.addEventListener("abort", () => rej(new Error("aborted")));
+          });
+        }
+        if (tok === "tok-throw") return Promise.reject(new Error("socket hang up"));
+        return Promise.resolve(json({ name: "ok" }));
+      }
+      return Promise.resolve(json({}));
+    };
+    try {
+      const mod = await import(pathToFileURL(path.join(ROOT, "netlify", "functions", "notify.mjs")).href + "?uf=" + Date.now());
+      const req = new Request("http://x/.netlify/functions/notify", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ secret: "uf-secret", familyKey: "famuf", title: "League move", body: "b", gfflAll: true }),
+      });
+      const t0 = Date.now();
+      const res = await Promise.race([mod.default(req), new Promise((r) => setTimeout(() => r(null), 5000))]);
+      const ms = Date.now() - t0;
+      const out = res ? await res.json() : null;
+      ok(res !== null, "the request finishes even though FCM never answers device 1 (" + ms + "ms, bound 300ms per call)");
+      ok(out && out.sent === 2 && out.pruned === 0, "…and the two devices behind the hung and the thrown send still get the push — 4 − 1 − 1 = 2 (" + JSON.stringify(out) + ")");
+      ok(JSON.stringify(fcmTried) === JSON.stringify(["tok-hang", "tok-throw", "tok-ok3", "tok-ok4"]), "…every token was tried, in order (" + JSON.stringify(fcmTried) + ")");
+    } finally {
+      global.fetch = realFetch;
+      for (const [k, v] of [["FIREBASE_SERVICE_ACCOUNT", saved.sa], ["BUCKY_NOTIFY_SECRET", saved.sec], ["NOTIFY_FETCH_TIMEOUT_MS", saved.to]]) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+    }
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

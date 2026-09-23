@@ -38,6 +38,9 @@ const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_I
 // needs BOTH scopes: messaging to send pushes, datastore to read/prune token docs
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/datastore";
 const FCM_SEND_URL = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`;
+// Per upstream call (2026-09-23). A plain fetch had no bound, so one hung FCM or Firestore call
+// could run into the platform's own kill and drop every device still queued behind it.
+const FETCH_TIMEOUT_MS = Number(process.env.NOTIFY_FETCH_TIMEOUT_MS) || 4000;
 
 const DEFAULT_URL = "https://amenfarms.netlify.app";
 // The origin a BARE-RELATIVE deep link is resolved against. Every index.html call site passes
@@ -126,6 +129,7 @@ async function getGoogleAccessToken(serviceAccount) {
 
   const resp = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
@@ -168,6 +172,7 @@ async function getDeviceTokens(accessToken, familyKey, sel) {
 
   const resp = await fetch(url, {
     method: "POST",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
@@ -233,6 +238,7 @@ async function deleteTokenDoc(accessToken, familyKey, docId) {
   const url = `${FIRESTORE_BASE}/pushTokens_${familyKey}/${docId}`;
   await fetch(url, {
     method: "DELETE",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 }
@@ -255,6 +261,7 @@ async function sendFcmMessage(accessToken, token, title, body, url) {
 
   const resp = await fetch(FCM_SEND_URL, {
     method: "POST",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
@@ -336,14 +343,19 @@ export default async (req) => {
     let sent = 0;
     let pruned = 0;
 
+    // One device's hung or failed send is that device's problem, never the rest of the list's
+    // (2026-09-23 — leaguecron.mjs got the same guard): every upstream call has a timeout, and
+    // a throw here skips just that token.
     for (const { docId, token } of tokens) {
-      const result = await sendFcmMessage(accessToken, token, title, body || "", url);
-      if (result.ok) {
-        sent += 1;
-      } else if (isUnregistered(result)) {
-        await deleteTokenDoc(accessToken, familyKey, docId);
-        pruned += 1;
-      }
+      try {
+        const result = await sendFcmMessage(accessToken, token, title, body || "", url);
+        if (result.ok) {
+          sent += 1;
+        } else if (isUnregistered(result)) {
+          await deleteTokenDoc(accessToken, familyKey, docId);
+          pruned += 1;
+        }
+      } catch (e) { /* next token */ }
     }
 
     return new Response(JSON.stringify({ sent, pruned }), { status: 200, headers });
