@@ -19479,10 +19479,17 @@ async function openDetails(page, id) {
       const fmt = (await evalOr(page, () => (window.__GFFL__.LG.fmtStreak
         ? [window.__GFFL__.LG.fmtStreak(null), window.__GFFL__.LG.fmtStreak({ k: "W", n: 3 })] : []))) || [];
       ok(fmt[0] === "—" && fmt[1] === "W3", "…a team with no games reads '—', never 'W0' (" + JSON.stringify(fmt) + ")");
-      // PWR — the column and the (mobile) card must be reading ONE list.
+      // PWR — the column and the card must be reading ONE list.
+      // RESTAGED 2026-09-23: the power card is computed now (user: the Grok rankings "don't make
+      // sense"), and a PWR column still reading the finalize formula would disagree with the card
+      // beside it on the same desktop page. The column reads the card's Rest of season board.
+      // The averages behind that board load after the first paint, so wait for it to exist.
+      await page.waitForFunction(() => { const b = window.__GFFL__.UI._pwBoards; return !!(b && b.ros); }, { timeout: 9000 }).catch(() => {});
+      await page.evaluate(() => window.__GFFL__.UI.renderLeague(true));
+      await sleep(150);
       const pw = (await evalOr(page, () => {
-        if (!window.__GFFL__.LG.powerRanking) return null;
-        const pr = window.__GFFL__.LG.powerRanking(window.__GFFL__.UI._allWeekly);
+        const b = window.__GFFL__.UI._pwBoards;
+        const pr = b && b.ros ? { week: window.__GFFL__.UI.week, rows: b.ros.rows } : null;
         const cells = {};
         document.querySelectorAll(".standcard tbody tr").forEach((r) => {
           const tds = [...r.querySelectorAll("td")];
@@ -19490,7 +19497,9 @@ async function openDetails(page, id) {
         });
         return { week: pr && pr.week, byId: (pr ? pr.rows : []).map((r) => [r.teamId, r.rank]), cells };
       })) || { byId: [], cells: {} };
-      ok(pw && pw.week === 2, "…powerRanking reads the LATEST finalized week, not the first (" + (pw || {}).week + ")");
+      // RESTAGED 2026-09-23: "latest finalized week" was the formula's question; the Rest of
+      // season board is always the current week's, so this asserts the board exists at all.
+      ok(pw && pw.byId.length === 8, "…the Rest of season board is there to read, all eight teams (" + JSON.stringify(pw && { week: pw.week, n: pw.byId.length }) + ")");
       const rankOf = new Map((pw && pw.byId) || []);
       const teamName = await evalOr(page, () => Object.fromEntries(window.__GFFL__.LG.teams.map((t) => [t.id, t.name])));
       // The name cell reads "BKBattle Kreussers" — the crest's initials run straight into the
@@ -19538,8 +19547,17 @@ async function openDetails(page, id) {
       ok(pre.power === null, "…and there is no power ranking to report");
       const cells = (await evalOr(page, () => [...document.querySelectorAll(".standcard tbody tr")]
         .map((r) => { const t = [...r.querySelectorAll("td")]; return [t[t.length - 3].textContent.trim(), t[t.length - 2].textContent.trim()]; }))) || [];
-      ok(cells.length === 8 && cells.every(([stk, pwr]) => stk === "—" && pwr === "—"),
-        "…and the table says so with an em-dash rather than a zero (" + JSON.stringify(cells[0]) + ")");
+      // RESTAGED 2026-09-23: PWR reads the computed Rest of season board, which with nothing
+      // played is pure roster strength (wR = 3/(3+0) = 1) — the user chose "roster early" — so a
+      // pre-season PWR cell is a real rank 1..8. Streak still has nothing to say: an em-dash.
+      await page.waitForFunction(() => { const b = window.__GFFL__.UI._pwBoards; return !!(b && b.ros); }, { timeout: 9000 }).catch(() => {});
+      await page.evaluate(() => window.__GFFL__.UI.renderLeague(true));
+      await sleep(150);
+      const cells2 = (await evalOr(page, () => [...document.querySelectorAll(".standcard tbody tr")]
+        .map((r) => { const t = [...r.querySelectorAll("td")]; return [t[t.length - 3].textContent.trim(), t[t.length - 2].textContent.trim()]; }))) || [];
+      const pwrs = cells2.map((c) => c[1]).sort();
+      ok(cells2.length === 8 && cells2.every(([stk]) => stk === "—") && JSON.stringify(pwrs) === JSON.stringify(["#1", "#2", "#3", "#4", "#5", "#6", "#7", "#8"]),
+        "…streaks say so with an em-dash, and PWR is the roster-only board's 1..8 (" + JSON.stringify(cells2.map((c) => c[1])) + ")");
       ok(errors.length === 0, "0 page errors on a pre-season desktop board");
       await ctx.close();
     }

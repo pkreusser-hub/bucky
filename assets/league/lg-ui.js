@@ -1889,8 +1889,9 @@
   }
   // The FORMULA power-rankings card (plan §4.9 — the finalize engine's own per-week score, mobile
   // only since 2026-08-11) was REMOVED on 2026-09-08: two cards both titled "Power rankings"
-  // disagreeing on the same page is worse than either alone. The formula itself lives on —
-  // LG.powerRanking() still feeds the desktop standings' PWR column.
+  // disagreeing on the same page is worse than either alone. Since 2026-09-23 the desktop
+  // standings' PWR column reads the card's own Rest of season board (pwrColumn below) for the
+  // same reason; LG.powerRanking() remains for the finalize snapshot only.
   // ---------------- THE POWER RANKINGS CARD (2026-09-23: computed, no AI) ----------------
   // The 2026-09-08 Grok card is gone (user: the rankings "don't make sense" — Grok never saw
   // this app's projections, weekly scores or opponents, and its Tuesday ranking disagreed with
@@ -1940,6 +1941,13 @@
       odds: UI._odds || null, lastRanks: snap ? snap.ros : null,
     }) : null;
     return { week, ros };
+  }
+  // The desktop standings' PWR column: the Rest of season board's rank, so the column and the
+  // card beside it can never disagree. Null (a dash) until the season averages have loaded;
+  // refreshPowerData repaints the whole page when they land.
+  function pwrColumn() {
+    const ros = powerBoards().ros;
+    return ros ? { rows: ros.rows.map((r) => ({ teamId: r.teamId, rank: r.rank })) } : null;
   }
   function powerCardHtml() {
     const tab = UI._pwTab === "ros" ? "ros" : "week";
@@ -2805,7 +2813,7 @@
         stale: () => staleWeeksHtml(UI._staleWeeks, isCommish()),
         week: () => weekCard,
         playoffs: () => playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish()),
-        standings: () => standingsHtml(rows, st, { wide: true, streaks: UI._streaks, odds: UI._odds, power: LG.powerRanking(UI._allWeekly), provisional: provisionalTeams }),
+        standings: () => standingsHtml(rows, st, { wide: true, streaks: UI._streaks, odds: UI._odds, power: pwrColumn(), provisional: provisionalTeams }),
         power: () => powerCardHtml(),
         alltime: () => allTimeHtml(UI._recordBook),
         chat: () => deskChatPanelHtml(),
