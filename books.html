@@ -84,6 +84,17 @@
   button.primary { background: var(--navy); color: #fff; }
   button.ghost { background: #efeadd; color: var(--navy); }
   button:disabled { opacity: .55; cursor: default; }
+  /* Recommend can take one to three minutes. The spinner and the elapsed
+     time say it is still working. [hidden] above keeps it out of layout. */
+  .recRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .recSpin { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 800; color: var(--muted); }
+  .recSpin i {
+    width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto;
+    border: 3px solid #efeadd; border-top-color: var(--navy);
+    animation: recSpin .8s linear infinite;
+  }
+  @keyframes recSpin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .recSpin i { animation-duration: 2.4s; } }
   .recActs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .recActs button { padding: 8px 10px; font-size: 13px; }
   .passHead { font-size: 12px; font-weight: 800; color: var(--navy); margin: 12px 0 6px; }
@@ -238,7 +249,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   <section class="card" aria-labelledby="recLabel">
     <h2 class="section-label" id="recLabel">Next to read</h2>
     <p class="section-note">Ten picks from the whole shelf and your stars, written by Claude. A series on the shelf counts as the whole series. Books with LGBT characters are left out.</p>
-    <button type="button" class="primary" id="recBtn">Recommend</button>
+    <div class="recRow">
+      <button type="button" class="primary" id="recBtn">Recommend</button>
+      <span class="recSpin" id="recSpin" role="status" hidden><i aria-hidden="true"></i><span id="recWait">0:00</span></span>
+    </div>
     <div class="err" id="recErr"></div>
     <div id="recs"></div>
     <div id="skipList"></div>
@@ -1177,12 +1191,32 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     }
   }
 
+  // Shows the spinner and a running m:ss while a recommend is out; returns
+  // the function that hides it again.
+  function startRecSpinner() {
+    var box = $("recSpin");
+    var label = $("recWait");
+    var began = Date.now();
+    function tick() {
+      var sec = Math.floor((Date.now() - began) / 1000);
+      label.textContent = Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+    }
+    tick();
+    box.hidden = false;
+    var timer = setInterval(tick, 1000);
+    return function () { clearInterval(timer); box.hidden = true; };
+  }
   async function doRecommend() {
     var p = current();
     var askedFor = p.id;
     $("recErr").textContent = "Asking Claude. A full shelf takes about three minutes.";
     $("recBtn").disabled = true;
+    var stopSpin = startRecSpinner();
     var card = $("recLabel");
+    // The header is sticky. Without this margin the scroll parks the heading
+    // under it on a phone. Measured, because the subtitle wraps on a phone.
+    var head = document.querySelector("body > header");
+    if (card && head) card.style.scrollMarginTop = (head.getBoundingClientRect().height + 8) + "px";
     if (card && card.scrollIntoView) card.scrollIntoView({ block: "start" });
     try {
       var extra = {
@@ -1211,6 +1245,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       var msg = e && e.message || "";
       $("recErr").textContent = (!msg || msg === "Bad reply" || msg.indexOf("HTTP ") === 0) ? "Could not recommend right now." : msg;
     } finally {
+      stopSpin();
       $("recBtn").disabled = false;
     }
   }

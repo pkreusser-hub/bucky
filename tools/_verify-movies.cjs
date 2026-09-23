@@ -1328,6 +1328,19 @@ async function sectionUi(browser) {
   // Joy's picks under Dad. The job answers 2.5s after it starts.
   await page.evaluate(() => { window.__REC_DELAY__ = 2500; document.getElementById("recBtn").click(); });
   await sleep(300);
+  // Geometry, not the attribute: a styled box toggled by [hidden] has shipped
+  // visible before. The wait can be minutes, so the spinner is the only sign.
+  ok(await page.evaluate(() => {
+    const spin = document.getElementById("recSpin");
+    const wait = document.getElementById("recWait");
+    return !!spin && spin.offsetParent !== null && spin.getBoundingClientRect().width > 0
+      && /^0:0\d$/.test(wait.textContent);
+  }), "a spinner and the elapsed time show while the recommend is out");
+  ok(await page.evaluate(() => {
+    const bar = document.querySelector("body > header").getBoundingClientRect();
+    const head = document.getElementById("recLabel").getBoundingClientRect();
+    return head.top >= bar.bottom - 1 && head.top < window.innerHeight;
+  }), "Recommend scrolls the picks heading into view below the sticky header, not under it");
   await page.evaluate(() => {
     const dad = [...document.querySelectorAll("#profileChips .chip")].find((b) => b.textContent === "Dad");
     if (dad) dad.click();
@@ -1338,6 +1351,10 @@ async function sectionUi(browser) {
     return who === "Dad" && document.querySelectorAll("#recs .t").length === 0
       && document.getElementById("recBtn").disabled === false;
   }), "Joy's picks that land after switching to Dad are not painted under Dad, and the button comes back");
+  ok(await page.evaluate(() => {
+    const spin = document.getElementById("recSpin");
+    return !!spin && spin.offsetParent === null;
+  }), "the spinner is gone once the recommend comes back");
   await page.evaluate(() => {
     window.__REC_DELAY__ = 0;
     const joy = [...document.querySelectorAll("#profileChips .chip")].find((b) => b.textContent === "Joy");

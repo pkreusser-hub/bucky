@@ -2322,3 +2322,26 @@ tools/_verify-movies.cjs` (**147/147**). Bite against `5157c62`
 `movies.html` + `movies.mjs`, with the background function removed: **130
 passed, 17 failed**. That covers the same request split, the job and its
 poll, the cut-off reply, and the background path for the owned list.
+
+# A spinner while Recommend runs, and the picks heading no longer hides under the header (2026-09-23)
+
+Recommend can take one to three minutes, and the only sign it was still
+working was one line of text. The Recommend button now has a spinner and a
+running m:ss beside it on Bookshelf and Movies. Both go away when the picks,
+or a failure, come back, including the switch-person path that drops the
+picks. With reduced motion, the spinner turns at a third of the speed.
+
+The Recommend click scrolls the picks card to the top. The page header is
+sticky, so on a phone that scroll left "Next to read" and "Next to watch"
+under the header. The first fix measured `#bar`, but the sticky box is the
+whole `<header>`, which also holds the subtitle, and that header was still
+covering the heading. The card now gets a scroll margin equal to the measured
+`<header>` height plus 8px. The Bookshelf subtitle wraps to two lines on a
+phone, so the height is measured, not hard-coded.
+
+Suite: `node tools/_verify-books.cjs` (**188/188**). `node
+tools/_verify-movies.cjs` (**150/150**). Bite against `44abbcf` `books.html`
++ `movies.html`: **185 passed, 3 failed** and **147 passed, 3 failed**. The
+failures are the spinner shown, the spinner gone, and the heading below the
+header. Each check measures geometry (`offsetParent`, the bounding box), not
+the `hidden` attribute.

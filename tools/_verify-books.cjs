@@ -755,6 +755,7 @@ async function newPage(browser, mock, opts) {
         let data = { error: "unknown" };
         if (body.action === "search") data = { books: canned.searchBooks };
         else if (body.action === "recommend") {
+          if (window.__REC_DELAY__) await new Promise((r) => setTimeout(r, window.__REC_DELAY__));
           const books = (canned.recBooks || []).slice();
           // Children of Time is only added when the page has a read list, so a
           // page without that section still ends at zero picks after Already read.
@@ -988,6 +989,28 @@ async function sectionUi(browser) {
       && document.getElementById("readList").textContent === "Nothing saved yet."
       && (window.__shelfScroll || []).indexOf("Piranesi") < 0;
   }), "Already read on the read list moves that title onto the shelf and does not scroll");
+
+  // Geometry, not the attribute: a styled box toggled by [hidden] has shipped
+  // visible before. The wait can be minutes, so the spinner is the only sign.
+  await page.evaluate(() => { window.__REC_DELAY__ = 1500; document.getElementById("recBtn").click(); });
+  await sleep(300);
+  ok(await page.evaluate(() => {
+    const spin = document.getElementById("recSpin");
+    const wait = document.getElementById("recWait");
+    return !!spin && spin.offsetParent !== null && spin.getBoundingClientRect().width > 0
+      && /^0:0\d$/.test(wait.textContent);
+  }), "a spinner and the elapsed time show while the recommend is out");
+  ok(await page.evaluate(() => {
+    const bar = document.querySelector("body > header").getBoundingClientRect();
+    const head = document.getElementById("recLabel").getBoundingClientRect();
+    return head.top >= bar.bottom - 1 && head.top < window.innerHeight;
+  }), "Recommend scrolls the picks heading into view below the sticky header, not under it");
+  await page.waitForFunction(() => document.getElementById("recBtn").disabled === false, { timeout: 10000 });
+  ok(await page.evaluate(() => {
+    const spin = document.getElementById("recSpin");
+    return !!spin && spin.offsetParent === null;
+  }), "the spinner is gone once the recommend comes back");
+  await page.evaluate(() => { window.__REC_DELAY__ = 0; });
 
   await page.evaluate(() => { document.getElementById("recBtn").click(); });
   await page.waitForFunction(() => document.querySelectorAll("#recs .book").length >= 1, { timeout: 10000 });
