@@ -5382,6 +5382,16 @@
     const d = LG.data;
     if (!d || !LG.ui || !LG.ui._rosters || !LG.teams.length) return null;
     const week = LG.ui.week || LG.currentWeek();
+    // A cold device records nothing (see D.wpInputsReady): its 50/50 is "not loaded yet", not
+    // a forecast. The adjusted-projection doc counts as an input too — a phone still on the
+    // Sleeper fallback would write a different line for a minute — so until this week's doc
+    // has been looked up, ask for it (single-flight; a tab that sat through Tuesday's rollover
+    // re-checks here) and wait.
+    if (typeof d.wpInputsReady === "function" && !d.wpInputsReady()) return { added: 0, waiting: "inputs" };
+    if (!LG.SIM_2025 && !(d.demoActive && d.demoActive()) && LG._adjCheckedWeek !== LG.currentWeek()) {
+      LG.ensureAdjustedProj().catch(() => {});
+      return { added: 0, waiting: "adjusted-projections" };
+    }
     const games = await LG.gamesForWeek(week);
     if (!games.length) return null;
     const now = Date.now();
@@ -5465,6 +5475,7 @@
       // even a stale one is better on screen than nothing while the regeneration runs.
       const existing = await LG.loadAdjProj(week);
       if (existing) D.setAdjProj(existing);
+      LG._adjCheckedWeek = week; // looked up (found or not) — the win-% graph may record now
       const force = !!(opts && opts.force);
       if (existing && !force && Date.now() - (Number(existing.at) || 0) < ADJ_TTL_MS) return existing;
       if (!force && Date.now() - adjFailAt < ADJ_RETRY_MS) return existing || null;

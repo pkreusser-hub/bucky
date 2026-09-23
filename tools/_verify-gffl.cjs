@@ -31089,6 +31089,123 @@ async function openDetails(page, id) {
     }
   }
 
+  // ================= UG · the win-% sparkline records only from a warm device =================
+  // 2026-09-23, user: "the projection sparklines randomly jump to 50% and then back to their old
+  // spot again." Every open device samples D.winProb into ONE shared wpgraph doc. A phone that
+  // had just opened had no projections and no live stats: both sides totalled 0, the lead was
+  // 0, and D.winProb said exactly 50%, written for the current minute until the next warm
+  // device wrote the real number back. Staged here on one page: a warm sample, then each cold
+  // state, and the series' last point must still be the warm one.
+  //
+  // Hand count for the warm point (pairing 1-2, p = away team 2's chance): every starter's game
+  // pre, no live rows, team 1 starters project 10, team 2 starters 20. diff = 20·n2 − 10·n1,
+  // sd = 10·√(n1+n2), raw = 1/(1+e^(−1.702·diff/sd)), p = 0.8·raw + 0.1 (the whole slate remains,
+  // so the 50/50 blend is its full 0.20). The fixture's n1 = 9, n2 = 3: diff −30, sd 34.64,
+  // raw 0.1864, p 0.2491.
+  if (section("UG · the win-% sparkline records only from a warm device")) {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    // ensureAdjustedProj runs after boot; the gate waits for its lookup of this week's doc.
+    await page.waitForFunction(() => window.__GFFL__.LG._adjCheckedWeek != null || typeof window.__GFFL__.D.wpInputsReady !== "function", { timeout: 9000 }).catch(() => {});
+    const r = await evalOr(page, async () => {
+      const { LG, D, UI } = window.__GFFL__;
+      const realProj = D.projFor;
+      const saved = { slp: D.S.slpProj, adj: D.S.adjProj, espnWeek: D.S.espnWeek, es: D.S.espnSeeded, ss: D.S.slpSeeded };
+      const starters = (tid) => (UI._rosters[tid] || []).filter((p) => p && p.slot !== "BENCH" && p.slot !== "IR").map((p) => String(p.key));
+      const s1 = starters(1), s2 = starters(2);
+      const table = {}; s1.forEach((k) => (table[k] = 10)); s2.forEach((k) => (table[k] = 20));
+      // Even paper for the control: team 1 at 10 each, team 2 at 10·n1/n2 each — equal totals.
+      const even = {}; s1.forEach((k) => (even[k] = 10)); s2.forEach((k) => (even[k] = (10 * s1.length) / s2.length));
+      const allTen = (key) => (key in even ? even[key] : null);
+      const restore = () => {
+        D.projFor = (key) => (key in table ? table[key] : null);
+        D.S.slpProj = saved.slp; D.S.adjProj = saved.adj; D.S.espnWeek = saved.espnWeek;
+        D.S.espnSeeded = saved.es; D.S.slpSeeded = saved.ss;
+        // Every starter's NFL team gets a pre game: D.liveProj reads a team with no game as
+        // off this week (its live points, 0), not its projection — the fixture board carries
+        // only a few teams.
+        for (const tid of [1, 2]) for (const p of (UI._rosters[tid] || [])) {
+          const ab = D.slpTeam ? D.slpTeam(p && p.team || "") : (p && p.team || "");
+          if (ab && !D.S.games.has(ab)) D.S.games.set(ab, { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+        }
+        for (const ab of [...D.S.games.keys()]) D.S.games.set(ab, { ...D.S.games.get(ab), state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+      };
+      const last = () => { const rows = LG.wpSeries(1, 2); return rows.length ? rows[rows.length - 1].p : null; };
+      D.S.players.clear();
+      restore();
+      await LG.db.del(LG.wpGraphId(LG.currentWeek()));
+      LG._wpGraph = null;
+      const warm = await LG.sampleMatchupWinProbs();
+      const w = last();
+      const out = { n1: s1.length, n2: s2.length, warm, w, cases: {} };
+      // Each case starts from the warm point alone, so each one bites on its own.
+      const reseed = async () => {
+        restore();
+        await LG.db.del(LG.wpGraphId(LG.currentWeek()));
+        LG._wpGraph = null;
+        await LG.sampleMatchupWinProbs();
+      };
+      const cold = async (name, apply) => {
+        await reseed();
+        restore();
+        apply();
+        const res = await LG.sampleMatchupWinProbs();
+        out.cases[name] = { res, p: last() };
+      };
+      // A · just opened: no projection source at all, so projFor answers null for everyone.
+      await cold("noProj", () => { D.projFor = realProj; D.S.slpProj = null; D.S.adjProj = null; });
+      // B · the board in memory still holds last week (the Tuesday window).
+      await cold("lastWeekBoard", () => { D.projFor = allTen; D.S.espnWeek = LG.currentWeek() + 1; });
+      // C · a game is under way but this device has no live stats yet.
+      await cold("noStats", () => {
+        D.projFor = allTen; D.S.espnSeeded = false; D.S.slpSeeded = false;
+        const ab = [...D.S.games.keys()][0];
+        D.S.games.set(ab, { ...D.S.games.get(ab), state: "in", period: 1, clock: "10:00" });
+      });
+      // D · this week's adjusted-projection doc not looked up yet on this device.
+      await reseed();
+      restore(); D.projFor = allTen;
+      const checked0 = LG._adjCheckedWeek;
+      LG._adjCheckedWeek = null;
+      const resD = await LG.sampleMatchupWinProbs();
+      out.cases.adjUnchecked = { res: resD, p: last() };
+      for (let i = 0; i < 60 && LG._adjCheckedWeek == null; i++) await new Promise((x) => setTimeout(x, 50));
+      out.adjRechecked = LG._adjCheckedWeek;
+      out.checked0 = checked0;
+      // E · control: the same even inputs on a warm device DO write (a real 50/50).
+      await reseed();
+      restore(); D.projFor = allTen;
+      if (LG._adjCheckedWeek == null) LG._adjCheckedWeek = LG.currentWeek();
+      const resE = await LG.sampleMatchupWinProbs();
+      out.control = { res: resE, p: last() };
+      out.week = LG.currentWeek();
+      D.projFor = realProj; restore(); D.projFor = realProj;
+      return out;
+    });
+    const n = r && r.n1;
+    const expect = (() => {
+      if (!r || !r.n1 || !r.n2) return null;
+      const diff = 20 * r.n2 - 10 * r.n1, sd = 10 * Math.sqrt(r.n1 + r.n2);
+      const raw = 1 / (1 + Math.exp((-1.702 * diff) / sd));
+      return 0.8 * raw + 0.1;
+    })();
+    ok(r && expect != null && r.warm && r.warm.added >= 1 && Math.abs(r.w - expect) < 1e-9,
+      "a warm device records the hand-computed away chance: n=" + n + "/" + (r && r.n2) + " a side → " + (expect == null ? "?" : expect.toFixed(4)) + " (" + JSON.stringify(r && { warm: r.warm, w: r.w }) + ")");
+    const held = (c) => r && r.cases[c] && r.cases[c].p === r.w && r.cases[c].res && r.cases[c].res.added === 0;
+    ok(held("noProj"), "a phone that has just opened (no projections) writes nothing — the line keeps " + (r && r.w) + ", not 0.5 (" + JSON.stringify(r && r.cases.noProj) + ")");
+    ok(held("lastWeekBoard"), "…nor one whose NFL board still holds another week (" + JSON.stringify(r && r.cases.lastWeekBoard) + ")");
+    ok(held("noStats"), "…nor one with a game under way and no live stats yet (" + JSON.stringify(r && r.cases.noStats) + ")");
+    ok(held("adjUnchecked") && r.cases.adjUnchecked.res.waiting === "adjusted-projections",
+      "…nor one that has not looked up this week's adjusted projections (" + JSON.stringify(r && r.cases.adjUnchecked) + ")");
+    ok(r && r.adjRechecked === r.week, "…and that sample asks for the lookup, which lands for this week (" + JSON.stringify(r && { adjRechecked: r.adjRechecked, week: r.week }) + ")");
+    ok(r && r.control && r.control.res && r.control.res.added >= 1 && r.control.p === 0.5,
+      "control: the same even inputs on a warm device DO record a real 50/50 (" + JSON.stringify(r && r.control) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

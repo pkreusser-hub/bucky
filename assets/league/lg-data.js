@@ -3108,6 +3108,26 @@
     const p = (1 - w) * raw + w * 0.5;
     return Number.isFinite(p) ? p : 0.5;
   }
+  // IS THIS DEVICE'S MODEL WARM ENOUGH TO RECORD? (2026-09-23, user: "the projection
+  // sparklines randomly jump to 50% and then back"). Every open device samples D.winProb into
+  // ONE shared graph. A phone that has just opened has no projections and no live stats yet:
+  // both sides total 0, the lead is 0, and D.winProb answers exactly 50% — which it wrote for
+  // the current minute, until the next warm device wrote the real number back. The graph is
+  // only written from a device that holds this week's board, a projection source, and (once
+  // any game has kicked off) its first live stats. Reading the bar is unaffected.
+  D.wpInputsReady = function () {
+    if (D.demoActive && D.demoActive()) return true;
+    if (D.S.games.size === 0 || boardWeekMismatch()) return false;
+    const projIn = LG.SIM_2025 ? !!(D.S.simProj && D.S.simProj.map)
+      : !!(D.S.slpProj || (D.S.adjProj && D.S.adjProj.week === LG.currentWeek()));
+    if (!projIn) return false;
+    let started = false;
+    for (const g of D.S.games.values()) {
+      if (g && (g.state === "in" || (g.state === "post" && g.completed !== false))) { started = true; break; }
+    }
+    if (started && !D.S.espnSeeded && !D.S.slpSeeded) return false;
+    return true;
+  };
   D.winProb = function (keysA, keysB) {
     keysA = keysA || [];
     keysB = keysB || [];
