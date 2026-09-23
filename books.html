@@ -678,12 +678,13 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     return score.toFixed(2) + " from " + src + (Number.isFinite(n) ? " (" + n + ")" : "");
   }
 
-  // A card with no community score asks Open Library through books.mjs
-  // ("ratings"), so the score is on the card and not only in the sheet.
+  // A card with no community score, or no cover, asks Open Library through
+  // books.mjs ("ratings"), so the score and the cover are on the card and not
+  // only in the sheet. A pick comes back from the model with neither.
   // Picks, Already read rows, and the seed rows Open Library search missed
   // start without one. The answer is written onto the book, so a shelf or
-  // read-list row keeps it and the family copy syncs it. A miss is marked
-  // (olTried) and a kept row is not asked again for a week. One batch of ten
+  // read-list row keeps it and the family copy syncs it. Every answer is
+  // stamped (olTried) and a row is not asked again for a week. One batch of ten
   // is out at a time. A failed call leaves the row to be asked on a later
   // paint, not marked as a miss.
   var RATING_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
@@ -697,7 +698,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     return titleKey(book.title) + "|" + String(book.author || "").trim().toLowerCase();
   }
   function wantRating(book, meta, keep) {
-    if (!book || !titleKey(book.title) || communityScore(book) != null) return;
+    if (!book || !titleKey(book.title) || (communityScore(book) != null && book.cover)) return;
     if (Number(book.olTried) > Date.now() - RATING_RETRY_MS) return;
     var k = ratingKey(book);
     if (ratingCache[k]) { if (applyRating(book, meta, ratingCache[k]) && keep) saveState(); return; }
@@ -713,12 +714,21 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       book.communityRating = Number(r.rating);
       book.ratingsCount = hasRating(r.ratingsCount) ? Number(r.ratingsCount) : null;
       book.ratingSource = "open-library";
-      if (!book.cover && r.cover) book.cover = r.cover;
-      if (!book.isbn && r.isbn) book.isbn = r.isbn;
-    } else {
-      book.olTried = Date.now();
     }
-    if (meta && meta.isConnected) meta.textContent = ratingLabel(book);
+    // Open Library can have the book and its cover with no ratings yet.
+    if (!book.cover && r.cover) book.cover = r.cover;
+    if (!book.isbn && r.isbn) book.isbn = r.isbn;
+    book.olTried = Date.now();
+    if (meta && meta.isConnected) {
+      meta.textContent = ratingLabel(book);
+      var ph = meta.closest(".book") && meta.closest(".book").querySelector(".cover");
+      if (ph && book.cover) {
+        var img = document.createElement("img");
+        img.alt = "";
+        img.src = book.cover;
+        ph.replaceWith(img);
+      }
+    }
     return true;
   }
   async function sendRatings() {

@@ -803,7 +803,7 @@ async function newPage(browser, mock, opts) {
           data = { ratings: (body.books || []).map((b) => {
             const hit = (canned.ratings || {})[b.title];
             return hit
-              ? { title: b.title, author: b.author || "", rating: hit.rating, ratingsCount: hit.ratingsCount, ratingSource: "open-library", cover: "", isbn: "" }
+              ? { title: b.title, author: b.author || "", rating: hit.rating, ratingsCount: hit.ratingsCount, ratingSource: hit.rating == null ? "" : "open-library", cover: hit.cover || "", isbn: "", reason: hit.rating == null ? "no-ratings" : undefined }
               : { title: b.title, author: b.author || "", rating: null, ratingsCount: null, ratingSource: "", cover: "", isbn: "", reason: "not-found" };
           }) };
         }
@@ -820,6 +820,8 @@ async function newPage(browser, mock, opts) {
   });
   return { page, errors };
 }
+
+const WIND_COVER = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="56" height="80"><rect width="56" height="80" fill="#6a4"/></svg>');
 
 const MOCK_HOBBIT = {
   id: "ol-hobbit", title: "The Hobbit", author: "J.R.R. Tolkien", year: "1937",
@@ -856,7 +858,8 @@ async function sectionUi(browser) {
       description: "Spiders inherit a terraformed world.",
     },
     ratings: {
-      "The Name of the Wind": { rating: 4.52, ratingsCount: 900 },
+      // An inline image, so the cover check does not reach the internet.
+      "The Name of the Wind": { rating: 4.52, ratingsCount: 900, cover: WIND_COVER },
       "Children of Time": { rating: 4.3, ratingsCount: 250 },
     },
     reviews: {
@@ -1106,6 +1109,17 @@ async function sectionUi(browser) {
     const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "The Priory of the Orange Tree");
     return !!row && row.querySelector(".meta").textContent === "No Open Library rating";
   }), "a pick Open Library has no score for says so, and does not print 0.00");
+  // A pick comes back from the model with no cover. The same lookup brings
+  // the Open Library cover and paints it into the card.
+  ok(await page.evaluate((cover) => {
+    const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "The Name of the Wind");
+    const img = row && row.querySelector("img");
+    return !!img && img.getAttribute("src") === cover && !row.querySelector(".cover");
+  }, WIND_COVER), "a recommendation card shows the Open Library cover without a tap");
+  ok(await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "The Priory of the Orange Tree");
+    return !!row && !!row.querySelector(".cover") && !row.querySelector("img");
+  }), "a pick Open Library has no cover for keeps the No cover tile");
   ok(await page.evaluate(() => {
     const asked = (window.__BOOK_CALLS__ || []).filter((c) => c.action === "ratings");
     const titles = [].concat.apply([], asked.map((c) => (c.books || []).map((b) => b.title)));

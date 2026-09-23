@@ -2396,3 +2396,30 @@ removed rating (exports, `rate`, the caps, the meters, the column), the
 lookup (matching, the ratings.json fallback, the misses, the 12 cap), the
 cards (a pick, a miss, one ask per title, the read list), and the 5-stars
 bug. `node tools/_verify-movies.cjs` still **150/150**.
+
+# Covers and posters on recommendation cards (2026-09-23)
+
+A recommendation comes back from the model with a title, an author or
+director, a summary and a why. It has no image. Every pick card showed the
+"No cover" tile.
+
+Bookshelf: the Open Library lookup from the entry above already answers with
+the work's cover. The card now paints that cover in place of the tile. A
+card with a score and no cover asks too. Every answer is stamped `olTried`,
+so a row is asked at most once a week, even when Open Library has the book
+and no ratings.
+
+Movies: posters were fetched for Owned rows only. The poster queue looked the
+title up on the shelf, so a pick or a watch-list title never got one. The
+queue now also looks in the watch list and in the last recommend. Each pick
+asks the same `coverOnly` detail an Owned row uses (the Wikipedia page image
+from the Wikidata sitelink), one at a time with the existing 429 backoff. Only
+a kept row (Owned or the watch list) saves its poster. A pick's poster comes
+along when it is saved to the watch list or marked Already watched.
+
+Suite: `node tools/_verify-books.cjs` (**186/186**). `node
+tools/_verify-movies.cjs` (**152/152**). Bite against `834d17d` `books.html` +
+`movies.html`: **185 passed, 1 failed** and **150 passed, 2 failed**. The
+failures are the pick's cover, the pick's poster, and the watch-list poster.
+"A pick with no cover keeps the No cover tile" passes on both. It guards
+against painting a picture that isn't there.

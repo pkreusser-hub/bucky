@@ -1173,6 +1173,18 @@ async function sectionUi(browser) {
     const row = [...document.querySelectorAll("#recs .movie")].find((el) => el.querySelector(".t").textContent === "Paddington 2");
     return !!(row && [...row.querySelectorAll("button")].some((b) => b.textContent === "Watch list"));
   }), "a recommendation has a Watch list button");
+  // Posters used to be fetched for Owned rows only; a pick showed "No cover".
+  // Each pick now asks the same coverOnly detail an Owned row does.
+  await page.waitForFunction(() => {
+    const row = [...document.querySelectorAll("#recs .movie")].find((el) => el.querySelector(".t").textContent === "Paddington 2");
+    return row && row.querySelector("img");
+  }, { timeout: 12000 }).catch(() => {});
+  ok(await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#recs .movie")].find((el) => el.querySelector(".t").textContent === "Paddington 2");
+    const img = row && row.querySelector("img");
+    const asked = (window.__MOVIE_CALLS__ || []).some((c) => c.action === "detail" && c.coverOnly && c.title === "Paddington 2");
+    return !!img && /air_bud_poster\.jpg$/.test(img.getAttribute("src")) && !row.querySelector(".cover") && asked;
+  }), "a recommendation card gets its poster without a tap");
 
   const savedRecs = await page.evaluate(() => {
     const titles = ["Coco", "Soul"];
@@ -1200,6 +1212,15 @@ async function sectionUi(browser) {
       && joy.shelf.length === n
       && recs.indexOf("Paddington 2") >= 0 && recs.indexOf("Luca") >= 0;
   }, ownedAtSave), "Watch list saves the pick, hides it from Next to watch, and leaves it off Owned");
+  await page.waitForFunction(() => {
+    const row = [...document.querySelectorAll("#watchList .movie")].find((el) => el.querySelector(".t").textContent === "Coco");
+    return row && row.querySelector("img");
+  }, { timeout: 12000 }).catch(() => {});
+  ok(await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#watchList .movie")].find((el) => el.querySelector(".t").textContent === "Coco");
+    const saved = (window.__MOVIES__.current().watchlist || []).find((m) => m.title === "Coco");
+    return !!row && !!row.querySelector("img") && !!saved && /air_bud_poster\.jpg$/.test(saved.cover || "");
+  }), "a watch-list card shows its poster, and the saved row keeps it");
 
   const ownedBefore = await page.evaluate(() => window.__MOVIES__.current().shelf.length);
   await page.evaluate(() => {
