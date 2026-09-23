@@ -9720,3 +9720,53 @@ open and the hand-computed numbers hold; the call checks name the mode.
 **43/43**; farmgpt's server suites (calories 24, dnd 47, kidstory 54,
 parent-research 25, teachergpt 39) and ffai 39, ffdraft 326, sports 289,
 eventreminders 78 all green.
+
+---
+
+## GFFL — a waiver claim is never stopped by the IR stash (2026-09-23)
+
+User: "I got an error this morning where I couldnt add my waiver
+claim because it says I have a player in IR that is healthy. That
+should never stop a waiver claim, and also my IR players are still
+on IR."
+
+Two changes.
+
+**Claims.** `addClaim` (at submit) and `processWaivers` (at the
+run) no longer judge the IR stash. This inverts the 2026-08-15 rule
+for claims only: free-agent adds and trades still refuse
+`ir-illegal`, and the My Team / Moves banner still names the man —
+its copy now reads "you can't add a free agent or complete a trade.
+Waiver claims still go in."
+
+**Who is on IR.** Sleeper carries two fields: `injury_status` (Q,
+Out, IR …) and the NFL roster `status` ("Injured Reserve",
+"Physically Unable to Perform", "Non Football Injury",
+"Suspended"). The IR rule read only the first; a man on the NFL's IR
+list with it empty fell through to the roster's stored snapshot and
+read healthy. The directory now keeps `nflStatus`, and
+`LG.irEligibleFor(p)` accepts either field. It sits behind
+`LG.illegalIR` and the locker's three IR checks, so they cannot
+disagree. The injury report does not read `nflStatus` — feeding it
+there would announce every IR player at once.
+
+Not live-verified (Sleeper is blocked here): whether the family's
+IR players carry an empty `injury_status`. The claim change stands
+either way.
+
+Files: `assets/league/lg-{core,data,ui}.js`, `tools/_verify-gffl.cjs`.
+
+**VERIFY:** `--only AI` **216/216**. RESTAGED, reasons at the
+checks: AI (d) a claim with a healthy man on IR is accepted; AI (e)
+it wins at the run; AI (f) the banner's cost line. New AI (h): IR /
+PUP / NFI / Suspended status with an empty injury_status is a legal
+stash; Active, Inactive and no status still read healthy; the
+designation itself stays empty; My Team stops warning. Bite (previous
+app files): **7 fail** — the claim refused `ir-illegal` naming H.
+Healed, the run lost it the same way, and (h) finds no
+`irEligibleFor`.
+
+Scripts cache-bust `?v=20260923c`. Full battery **4078/4078** (one
+earlier full run crashed in section V's last block on the CDP
+"Promise was collected" error; V+W then passed 71/71 twice alone and
+the rerun was clean).
