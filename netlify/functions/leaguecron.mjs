@@ -28,8 +28,9 @@
 //   assets/league/lg-core.js derives as LG.famKey).
 // Test overrides (used only by tools/_verify-leaguecron.mjs's in-process harness):
 //   LEAGUECRON_TEST_NOW_MS   - fixed "now" in ms since epoch
-//   LEAGUECRON_FORCE         - "1" bypasses BOTH the scheduled-slot guard and the season guard
-//   LEAGUECRON_FIRESTORE_BASE, LEAGUECRON_TOKEN_URL, LEAGUECRON_FCM_BASE
+//   LEAGUECRON_FORCE         - "1" bypasses every guard (scheduled-slot, season start/end, and
+//                               the rules-customized skip below)
+//   LEAGUECRON_FIRESTORE_BASE, LEAGUECRON_TOKEN_URL, LEAGUECRON_FCM_BASE, LEAGUECRON_FETCH_TIMEOUT_MS
 
 const PROJECT_ID = "amen-farms-app";
 const DEFAULT_FAMILY_KEY = "fam2jan2g"; // roomId("amenfarms") — same default as chorereminders.mjs
@@ -44,6 +45,19 @@ const FCM_SEND_URL = () =>
 const FCM_SCOPE =
   "https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/datastore";
 
+// Every upstream fetch below carries this deadline (found in review, 2026-09-23: none of them
+// had one at all). Without it, one hung call — Google's token endpoint, the Firestore query, or
+// any single device's FCM send — blocks forever; the loop below never reaches the rest of the
+// tokens, and this scheduled function eventually gets force-killed by the platform having sent
+// nobody. Netlify's own function ceiling is the budget (sports.mjs's FETCH_TIMEOUT_MS states
+// the same "~10s function kill" reasoning); a dozen tokens sent SEQUENTIALLY means the per-call
+// budget has to be short enough that a few genuine hangs still leave room for the rest of the
+// run, not just short enough for one. 4s matches this file's OWN measured shape: one token
+// exchange + one Firestore query + (with fix 2) one rules-doc read + up to ~a dozen FCM sends +
+// the rare unregistered-token delete — a real call each of these makes finishes in well under a
+// second, so 4s is purely the hang ceiling, never a bound a healthy call would brush.
+const FETCH_TIMEOUT_MS = Number(process.env.LEAGUECRON_FETCH_TIMEOUT_MS) || 4000;
+
 // Absolute, on the LEAGUE's own installed-app origin — matches LG.pushLink() in
 // assets/league/lg-core.js exactly. A relative link would resolve against notify.mjs's family
 // origin and open the wrong installed PWA (see CLAUDE.md's "THE INSTALL COLLISION" entry — the
@@ -52,7 +66,7 @@ const DEEP_LINK = "https://goatfantasyleague.com/league.html#moves";
 const TITLE = "GFFL waivers";
 const BODY = "Waiver claims have processed — open the app for your results.";
 
-// ---- SEASON GUARD ----
+// ---- SEASON GUARD (start AND end) ----
 // DECISION (documented per the build brief's "your call"): a hardcoded instant, not a live read
 // of the league's `settings`/rules doc. Considered and rejected: the rules doc has no
 // season-start field at all — the only date it carries is `rules.draftAt`, buried two levels
@@ -69,6 +83,33 @@ const BODY = "Waiver claims have processed — open the app for your results.";
 // 8:00 AM Central, carrying its own UTC offset so the comparison is unambiguous regardless of
 // what timezone this function happens to run in.
 const FIRST_WAIVER_WED_MS = new Date("2026-09-09T08:00:00-05:00").getTime();
+
+// THE OTHER END OF THE SEASON (found in review, 2026-09-23): this guard had a start but no end
+// — with nothing to stop it, the Wednesday nudge would keep firing every week from January
+// clear through next preseason, telling the family "claims have processed" for a season that
+// finished months earlier. Same technique and the same source as above: LG.SEASON_START
+// (lg-core.js) + the league's DEFAULT_RULES (lg-core.js ~1141/1188), never a live rules read.
+//
+//   LG.SEASON_START            = 2026-09-08 (a Tuesday — week 1's own start)
+//   rules.seasonWeeks          = 14   -> the regular season is weeks 1..14
+//   rules.playoffs.startWeek   = 15, and the bracket (lg-core.js buildBracket, "Three playoff
+//                                 weeks, seasonWeeks+1..+3") runs weeks 15, 16, 17 — play-in,
+//                                 semis, the championship/3rd-place/consolation games
+//   -> the LAST league week whose rosters still score anything is week 17.
+//
+// Week N starts on SEASON_START + (N-1)*7 calendar days; its own waiver Wednesday is the day
+// after that Tuesday. For week 17: 2026-09-08 + 16*7 = 2026-09-08 + 112 days = 2026-12-29
+// (Tuesday) -> +1 day = 2026-12-30 (Wednesday). By late December the US is well past the
+// 2026-11-01 fall-back, so Central is on CST (-06:00), not the CDT (-05:00) the season-start
+// constant above uses.
+//
+//   LAST_WAIVER_WED_MS = week 17's waiver Wednesday, 8:00 AM Central = 2026-12-30T08:00-06:00
+//
+// The very next candidate Wednesday (2027-01-06) is the first with nothing left to process —
+// that, and every Wednesday after it, no-ops. AT the boundary instant itself the run still
+// proceeds (mirrors FIRST_WAIVER_WED_MS's own inclusive `>=` below) — the championship week's
+// own waivers still matter.
+const LAST_WAIVER_WED_MS = new Date("2026-12-30T08:00:00-06:00").getTime();
 
 // ---- Google token (hand-signed JWT, RS256) — identical technique to chorereminders.mjs ----
 function base64url(input) {
@@ -97,6 +138,7 @@ async function getGoogleAccessToken(serviceAccount) {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const data = await resp.json();
   if (!resp.ok || !data.access_token) {
@@ -125,6 +167,7 @@ async function getGfflDeviceTokens(accessToken, familyKey) {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const rows = await resp.json();
   if (!resp.ok) throw new Error(`Firestore token query failed: ${resp.status} ${JSON.stringify(rows)}`);
@@ -161,6 +204,7 @@ async function deleteTokenDoc(accessToken, familyKey, docId) {
   await fetch(`${FIRESTORE_BASE()}/pushTokens_${familyKey}/${docId}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
 }
 
@@ -180,6 +224,7 @@ async function sendFcmMessage(accessToken, token) {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify(message),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const data = await resp.json().catch(() => ({}));
   return { ok: resp.ok, status: resp.status, data };
@@ -237,6 +282,54 @@ function seasonStarted(now) {
   if (process.env.LEAGUECRON_FORCE === "1") return true;
   return now.getTime() >= FIRST_WAIVER_WED_MS;
 }
+// See LAST_WAIVER_WED_MS above for the arithmetic. `>` (not `>=`) so the boundary Wednesday
+// itself — the championship week's own waiver run — still sends, matching seasonStarted's own
+// inclusive boundary.
+function seasonEnded(now) {
+  if (process.env.LEAGUECRON_FORCE === "1") return false;
+  return now.getTime() > LAST_WAIVER_WED_MS;
+}
+
+// ---- RULES GUARD (found in review, 2026-09-23) ----
+// The season-guard comment above explains why this file avoids the rules doc for TIMING the
+// season's calendar — that reasoning still holds; nothing here decodes draftAt, seasonWeeks or
+// the playoff bracket from Firestore. This is a narrower, different read: the commissioner can
+// repoint WHEN waivers process at all (rules.waivers.processDow/processHour — lg-ui.js's rules
+// editor ~7439, the engine's own LG.waiverDeadline ~lg-core.js:3583), and this cron is
+// hardcoded to fire Wednesday 8 AM regardless (netlify.toml's cron string, unrelated to the
+// rules doc). If the family ever moves claims off Wed/8, this nudge would tell them "waivers
+// have processed" on a day that is no longer the real deadline — the one thing this courtesy
+// push must never do. That risk (a wrong, confident push) is worth the one extra Firestore GET
+// the risk of the OLD guard (a wrong season-length guess) was not: this read is a single
+// document by id, no query, no pagination, and its own failure mode is spelled out below —
+// never a reason to skip, only ever a reason to fall back to the old always-Wed/8 assumption.
+async function waiverScheduleCustomized(accessToken, familyKey) {
+  if (process.env.LEAGUECRON_FORCE === "1") return false;
+  try {
+    const url = `${FIRESTORE_BASE()}/gffl_${encodeURIComponent(familyKey)}/settings`;
+    const resp = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    // No settings doc yet, or a read that failed outright: nothing on record says the family
+    // customized anything, so the default Wed/8 stands and the nudge sends — the SAME "keep
+    // today's behaviour" fallback a thrown error (network, timeout, bad JSON) hits below.
+    if (resp.status === 404) return false;
+    if (!resp.ok) return false;
+    const j = await resp.json();
+    const wf = j && j.fields && j.fields.rules && j.fields.rules.mapValue
+      && j.fields.rules.mapValue.fields && j.fields.rules.mapValue.fields.waivers
+      && j.fields.rules.mapValue.fields.waivers.mapValue && j.fields.rules.mapValue.fields.waivers.mapValue.fields;
+    if (!wf) return false; // rules doc exists but carries no waivers override -> defaults apply
+    const numField = (f) => (f && f.integerValue != null) ? Number(f.integerValue)
+      : (f && f.doubleValue != null) ? Number(f.doubleValue) : null;
+    const dow = numField(wf.processDow);
+    const hour = numField(wf.processHour);
+    return (dow != null && dow !== 3) || (hour != null && hour !== 8);
+  } catch {
+    return false; // read failed (network, timeout, malformed JSON) -> keep today's behaviour: send
+  }
+}
 
 export default async () => {
   const now = new Date(nowMs());
@@ -248,6 +341,11 @@ export default async () => {
   }
   if (!seasonStarted(now)) {
     return new Response(JSON.stringify({ sent: 0, skipped: true, reason: "before-first-waiver-week" }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (seasonEnded(now)) {
+    return new Response(JSON.stringify({ sent: 0, skipped: true, reason: "after-last-waiver-week" }), {
       status: 200, headers: { "Content-Type": "application/json" },
     });
   }
@@ -270,6 +368,13 @@ export default async () => {
 
   try {
     const accessToken = await getGoogleAccessToken(serviceAccount);
+
+    if (await waiverScheduleCustomized(accessToken, familyKey)) {
+      return new Response(JSON.stringify({ sent: 0, skipped: true, reason: "waiver-schedule-customized" }), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const byToken = await getGfflDeviceTokens(accessToken, familyKey);
 
     let sent = 0, pruned = 0;
@@ -278,12 +383,15 @@ export default async () => {
       try {
         result = await sendFcmMessage(accessToken, token);
       } catch {
-        continue; // a single send's network failure never sinks the rest of the run
+        continue; // a single send's failure (network, or our own timeout) never sinks the rest of the run
       }
       if (result.ok) {
         sent += 1;
       } else if (isUnregistered(result)) {
-        for (const docId of docIds) await deleteTokenDoc(accessToken, familyKey, docId);
+        for (const docId of docIds) {
+          try { await deleteTokenDoc(accessToken, familyKey, docId); }
+          catch { /* a prune that fails to land is not fatal — the next run tries again */ }
+        }
         pruned += docIds.length;
       }
       // any other failure (rate limit, transient 5xx, malformed token, ...) is left alone —
