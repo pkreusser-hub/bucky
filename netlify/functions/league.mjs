@@ -431,11 +431,16 @@ async function lgEspnProjections(body) {
       const line = (pl.stats || []).find((s) => s && s.statSourceId === 1 && s.statSplitTypeId === 1
         && s.scoringPeriodId === week && s.seasonId === year);
       if (!line || line.appliedTotal == null) continue;
+      // Same fake-0 the sports.mjs ffPctOwned/ffFreeAgents/ffPlayer fix removed (2026-09-23):
+      // `|| 0` turned a player ESPN returned with no ownership figure into a fabricated
+      // "0% owned". Null for missing — the Grok adjuster doesn't currently read this field at
+      // all (only `.proj`), so nothing downstream needs to change to stay honest.
+      const own = pl.ownership && pl.ownership.percentOwned;
       players.push({
         espnId: pl.id,
         name: pl.fullName || "",
         posId: pl.defaultPositionId ?? null,
-        pctOwned: Math.round(((pl.ownership && pl.ownership.percentOwned) || 0) * 10) / 10,
+        pctOwned: typeof own === "number" && isFinite(own) ? Math.round(own * 10) / 10 : null,
         proj: Math.round(line.appliedTotal * 100) / 100,
       });
     }

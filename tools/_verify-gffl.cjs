@@ -571,12 +571,16 @@ const HIST_FIX = {
 // which is exactly what must flow through to a near-zero adjusted number.
 function espnProjFix() {
   const mk = (id, name, posId, pct, proj) => ({ player: { id, fullName: name, defaultPositionId: posId,
-    ownership: { percentOwned: pct },
+    ownership: pct == null ? {} : { percentOwned: pct },
     stats: [{ statSourceId: 1, statSplitTypeId: 1, scoringPeriodId: 1, seasonId: 2026, appliedTotal: proj }] } });
+  // UE (2026-09-23): fixture.espnProjMissingOwn drops T. Tight's percentOwned entirely — ESPN's
+  // real shape for a player it hasn't scored ownership on — armed only by the UE section's own
+  // null-pctOwned check. Off (T. Tight keeps pct 90) for every other caller, AX included.
+  const tightPct = fixture.espnProjMissingOwn ? null : 90;
   return { players: [
     mk(3915511, "P. Passer", 1, 99, 12.0),
     mk(4241457, "R. Rusher", 2, 95, 8.0),
-    mk(111222, "T. Tight", 4, 90, 8.5),
+    mk(111222, "T. Tight", 4, tightPct, 8.5),
     mk(111666, "I. Injured", 3, 80, 9.0),
     mk(222111, "Q. Rival", 1, 85, 11.0),
     mk(555999, "X. Tra", 3, 55, 7.5),
@@ -691,17 +695,40 @@ const PCT_OWNED_FIX = { 111333: 42.5, 111777: 8.1 };
 const PLAYER_SEASON_OUTLOOK_FIX = {
   3915511: "P. Passer remains the engine of this offense. Volume holds even when the pocket collapses.",
   777001: "F. Agent is a late-week dart. The role is real; the floor is not.",
+  // UE (2026-09-23): P. Stale — a player whose kona_playercard row exists (so ff_player finds
+  // him) but whose RotoWire story (below) is stale. seasonOutlook still has to render on the
+  // draft-room `outlook` field even when the weekly writeup is filtered out.
+  501001: "P. Stale is buried on the depth chart heading into the season.",
 };
+// UE (2026-09-23): `published` used to be a fixed 2026-09-13 calendar stamp. sports.mjs's
+// rotowireStory() now gates the story on how fresh that stamp is (see the UE section below), so
+// a fixed date would go stale the day this suite is run more than 14 days after 2026-09-13 —
+// AND (the trap that actually bit while writing this fix) this suite's OWN Date.now is globally
+// shifted back into week 1 a few hundred lines below (WEEK1_SHIFT_MS) for the rest of the
+// season, so a stamp computed HERE, at module load, against the REAL clock reads as
+// FUTURE-dated once sports.mjs later reads the SHIFTED Date.now() — rotowireStory's own
+// `age < 0` guard then (correctly) rejects it. `freshDaysAgo` defers the arithmetic to request
+// time, inside startSportsNflUpstream below, so it always reads off whichever Date.now() this
+// process is using at THAT moment — the same one sports.mjs itself reads a moment later.
 const PLAYER_ROTOWIRE_FIX = {
   3915511: {
     headline: "P. Passer threw for 280 yards and two scores in the win.",
     story: "P. Passer draws a soft secondary this week. Start him with confidence against the zone looks.",
-    published: "Sun Sep 13 14:01:56 PDT 2026",
+    freshDaysAgo: 3,
   },
   777001: {
     headline: "F. Agent caught four of six targets for 61 yards.",
     story: "F. Agent is the clear WR3 this week with the starter out. The targets are there.",
-    published: "Sun Sep 13 16:22:01 PDT 2026",
+    freshDaysAgo: 3,
+  },
+  // UE: P. Stale's "latest" RotoWire piece is really a preseason leftover — published back in
+  // August, well outside the 14-day freshness window. The exact shape of the bug being fixed:
+  // ESPN's endpoint answers with SOME story for almost any athlete id, dated or not. A FIXED
+  // date is safe here specifically because it is always in the past, shifted clock or not.
+  501001: {
+    headline: "P. Stale had a quiet preseason outing.",
+    story: "P. Stale barely saw the field in the preseason finale.",
+    published: "Sat Aug  1 09:00:00 PDT 2026",
   },
 };
 function ffPctOwnedDoc(ids) {
@@ -772,6 +799,21 @@ function ownershipDoc() {
   rows.push({ id: "not-an-id", fullName: "Bad Row", ownership: { percentOwned: 50, percentStarted: 50 } });
   return rows;
 }
+// UE (2026-09-23): ff_freeagents' own kona_player_info pool — no section read this view on
+// SPORTS_FF_PORT before (ff_freeagents had zero suite coverage). Z. Unowned deliberately
+// carries `ownership: {}` — ESPN hasn't scored a percentOwned figure for him yet — so a
+// passing "pctOwned is null, not a fabricated 0" check proves the real field is honestly
+// absent, not merely never asked for.
+function ffFreeAgentsFix() {
+  return { scoringPeriodId: 1, players: [
+    { player: { id: 401001, fullName: "W. Owned", defaultPositionId: 2, proTeamId: 21,
+      ownership: { percentOwned: 12.3 },
+      stats: [{ statSourceId: 1, statSplitTypeId: 1, scoringPeriodId: 1, appliedTotal: 3.2 }] } },
+    { player: { id: 401002, fullName: "Z. Unowned", defaultPositionId: 3, proTeamId: 6,
+      ownership: {},
+      stats: [{ statSourceId: 1, statSplitTypeId: 1, scoringPeriodId: 1, appliedTotal: 1.1 }] } },
+  ] };
+}
 const sportsFfUp = { lastUrl: "", lastFilter: "", calls: 0, ownCalls: 0, ownFilter: "", ownUrl: "" };
 function startSportsFfUpstream() {
   const srv = http.createServer((req, res) => {
@@ -800,6 +842,10 @@ function startSportsFfUpstream() {
       let ids = [];
       try { ids = (JSON.parse(sportsFfUp.lastFilter).players.filterIds.value || []).map(Number); } catch (e) {}
       res.end(JSON.stringify(ffPctOwnedDoc(ids)));
+      return;
+    }
+    if (req.url.includes("view=kona_player_info")) {
+      res.end(JSON.stringify(ffFreeAgentsFix()));
       return;
     }
     res.end(JSON.stringify(ffScoreboardFix()));
@@ -964,10 +1010,14 @@ function startSportsNflUpstream() {
     const ov = /\/athletes\/(\d+)\/overview/.exec(req.url);
     if (ov) {
       sportsWebUrls.push(req.url);
-      const rw = PLAYER_ROTOWIRE_FIX[Number(ov[1])];
-      if (!rw) { res.writeHead(404, { "Content-Type": "application/json" }); res.end("{}"); return; }
+      const fix = PLAYER_ROTOWIRE_FIX[Number(ov[1])];
+      if (!fix) { res.writeHead(404, { "Content-Type": "application/json" }); res.end("{}"); return; }
+      // freshDaysAgo resolves against Date.now() HERE, at request time — see the fixture's own
+      // note on why that has to be later than module load (the suite's global week-1 clock shift).
+      const published = fix.published != null ? fix.published
+        : new Date(Date.now() - (fix.freshDaysAgo || 0) * 86400000).toUTCString();
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ rotowire: rw }));
+      res.end(JSON.stringify({ rotowire: { headline: fix.headline, story: fix.story, published } }));
       return;
     }
     if (fixture.nflGameDown) { res.writeHead(503, { "Content-Type": "application/json" }); res.end("{}"); return; }
@@ -30367,6 +30417,72 @@ async function openDetails(page, id) {
       ok(errors.length === 0, "0 page errors");
       await ctx.close();
     }
+  }
+
+  // ================= UE · sports.mjs/league.mjs — week-writeup freshness + honest null ownership =========
+  // Fix 3: rotowireStory() had NO date check at all — whatever RotoWire's LATEST story for an
+  // athlete happened to be got labelled "ESPN's week N" by the client (lg-ui.js), preseason and
+  // offseason leftovers included. Fix 4 (same bite, three call sites): ffFreeAgents/ffPlayer
+  // (`?? 0`) and lg_espn_projections (`|| 0`) turned a player ESPN answered with NO ownership
+  // figure at all into a fabricated "0% owned" — the exact fake-0 the S10 ffPctOwned fix
+  // (2026-08-15) already removed from the sibling percent-owned action.
+  if (section("UE · week writeup freshness + null ownership, not a fabricated 0")) {
+    // ---- ff_player: a FRESH RotoWire story still renders, a STALE one does not ----
+    sportsWebUrls.length = 0;
+    const fresh = await (await sportsFn(new Request("http://fn/sports", {
+      method: "POST", body: JSON.stringify({ secret: "amenfarms", action: "ff_player", pid: 3915511, week: 1 }),
+    }))).json();
+    const freshTxt = (fresh && fresh.player && fresh.player.weekOutlook) || "";
+    ok(/soft secondary/.test(freshTxt),
+      "ff_player: a story published 3 days ago (inside the 14-day window) still renders (" + freshTxt.slice(0, 60) + ")");
+
+    const stale = await (await sportsFn(new Request("http://fn/sports", {
+      method: "POST", body: JSON.stringify({ secret: "amenfarms", action: "ff_player", pid: 501001, week: 1 }),
+    }))).json();
+    ok(stale && stale.ok === true && stale.player && stale.player.weekOutlook === "",
+      "…a story published Aug 1 (outside the 14-day window) is OMITTED, not shown as this week's writeup ("
+      + JSON.stringify(stale && stale.player && stale.player.weekOutlook) + ")");
+    ok(sportsWebUrls.some((u) => /\/athletes\/501001\/overview/.test(u)),
+      "…the stale case genuinely fetched the athlete overview — filtered AFTER the read, not skipped");
+    ok(/depth chart/.test((stale && stale.player && stale.player.outlook) || ""),
+      "…seasonOutlook (the draft blurb) is unaffected by the writeup date filter (" + JSON.stringify(stale && stale.player && stale.player.outlook) + ")");
+
+    // ---- ff_player pctOwned: missing ownership is null, never a fabricated 0 ----
+    ok(stale && stale.player && stale.player.pctOwned === null,
+      "ff_player: P. Stale carries no ownership.percentOwned at all → pctOwned is null, not 0 ("
+      + JSON.stringify(stale && stale.player && stale.player.pctOwned) + ")");
+    const owned = await (await sportsFn(new Request("http://fn/sports", {
+      method: "POST", body: JSON.stringify({ secret: "amenfarms", action: "ff_player", pid: 111333 }),
+    }))).json();
+    ok(owned && owned.ok === true && owned.player && owned.player.pctOwned === 42.5,
+      "…a player ESPN DOES carry a figure for is unaffected (42.5, " + JSON.stringify(owned && owned.player && owned.player.pctOwned) + ")");
+
+    // ---- ff_freeagents pctOwned: same rule, the batch-list action (zero prior suite coverage) ----
+    const fa = await (await sportsFn(new Request("http://fn/sports", {
+      method: "POST", body: JSON.stringify({ secret: "amenfarms", action: "ff_freeagents" }),
+    }))).json();
+    ok(fa && fa.ok === true && Array.isArray(fa.players) && fa.players.length === 2,
+      "ff_freeagents answers the fixture's 2-player pool (" + ((fa && fa.players) || []).length + ")");
+    const faOwned = fa.players.find((p) => p.name === "W. Owned");
+    const faUnowned = fa.players.find((p) => p.name === "Z. Unowned");
+    ok(!!faOwned && faOwned.pctOwned === 12.3, "…a player ESPN carries ownership for keeps the real figure (12.3)");
+    ok(!!faUnowned && faUnowned.pctOwned === null,
+      "…a player ESPN carries NO ownership for reads null, never a fabricated 0 (" + JSON.stringify(faUnowned && faUnowned.pctOwned) + ")");
+
+    // ---- lg_espn_projections (league.mjs) pctOwned: the third fake-0 site ----
+    fixture.espnProj = true;
+    fixture.espnProjMissingOwn = true;
+    const proj = await (await leagueFn(new Request("http://fn/league", {
+      method: "POST", body: JSON.stringify({ secret: "amenfarms", action: "lg_espn_projections", week: 1 }),
+    }))).json();
+    fixture.espnProjMissingOwn = false;
+    ok(proj.ok === true && Array.isArray(proj.players) && proj.players.length === 6,
+      "lg_espn_projections still returns all 6 rows when one player has no ownership figure");
+    const tight = proj.players.find((p) => p.espnId === 111222);
+    ok(!!tight && tight.pctOwned === null,
+      "…T. Tight (no ownership.percentOwned in the fixture) reads null, not a fabricated 0 (" + JSON.stringify(tight && tight.pctOwned) + ")");
+    const passer = proj.players.find((p) => p.espnId === 3915511);
+    ok(!!passer && passer.pctOwned === 99, "…P. Passer, who DOES carry a figure, is unaffected (99)");
   }
 
   await browser.close();

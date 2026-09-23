@@ -691,7 +691,10 @@ async function ffFreeAgents(body) {
           pos: POS_LABEL[p?.defaultPositionId] || "",
           proTeam: PRO_ABBREV[p?.proTeamId ?? 0] || "",
           injury: p?.injuryStatus && p.injuryStatus !== "ACTIVE" ? p.injuryStatus : "",
-          pctOwned: Math.round((p?.ownership?.percentOwned ?? 0) * 10) / 10,
+          // Same rule ffPctOwned already learned the hard way (S10): `?? 0` turned a player
+          // ESPN returned with no ownership figure into a fabricated "0% owned". r1() is
+          // null-safe — absent stays absent.
+          pctOwned: r1(p?.ownership?.percentOwned),
           proj: r1(proj),
           seasonProj: r1(seasonProj),
         };
@@ -969,10 +972,29 @@ function webBase() {
 async function fetchWebJson(url, ms) {
   return fetchUpstream(url, ms);
 }
+// UE (2026-09-23): the story above had no date check at all — whatever RotoWire's LATEST
+// piece on this athlete was got labelled "ESPN's week N" by the client (lg-ui.js), preseason
+// leftovers and bye-week notes included. The public athlete overview stamps `published` (and
+// sometimes `lastModified`) as a Date.parse-able string — probed live 2026-09-16:
+// "Sun Sep 13 14:01:56 PDT 2026" — same recipe every other upstream date in this file already
+// trusts, no hand-rolled parser needed. "Within this NFL week" has no exact boundary here (this
+// action never anchors a real NFL calendar), so the honest proxy is a rolling 14-day window —
+// the 7 days of the current week plus the 7 before it, so a Sunday recap read midweek still
+// counts and a story from last month or the offseason never does. No parseable date at all, or
+// a date in the future (clock skew, a malformed upstream field), is treated as stale: an honest
+// "" beats a guess, same rule weekOutlookOf already states above.
+const WRITEUP_MAX_AGE_MS = 14 * 24 * 3600 * 1000; // this NFL week (7d) + the trailing week
 function rotowireStory(j) {
   const rw = j && j.rotowire;
   if (!rw || typeof rw !== "object") return "";
-  return String(rw.story || "").trim().slice(0, 1500);
+  const story = String(rw.story || "").trim().slice(0, 1500);
+  if (!story) return "";
+  const stamp = rw.published || rw.lastModified;
+  const t = stamp ? Date.parse(stamp) : NaN;
+  if (!Number.isFinite(t)) return "";
+  const age = Date.now() - t;
+  if (age < 0 || age > WRITEUP_MAX_AGE_MS) return "";
+  return story;
 }
 
 // One player's full picture, for the draft room's detail card: season stat
@@ -1047,7 +1069,10 @@ async function ffPlayer(body) {
         proTeamId: p?.proTeamId ?? 0,
         proTeam: PRO_ABBREV[p?.proTeamId ?? 0] || "",
         injury: p?.injuryStatus && p.injuryStatus !== "ACTIVE" ? p.injuryStatus : "",
-        pctOwned: Math.round((p?.ownership?.percentOwned ?? 0) * 10) / 10,
+        // Same rule ffPctOwned already learned the hard way (S10): `?? 0` turned a player
+        // ESPN returned with no ownership figure into a fabricated "0% owned". r1() is
+        // null-safe — absent stays absent (ffdraft.html already guards with `!= null`).
+        pctOwned: r1(p?.ownership?.percentOwned),
         adp: r1(p?.ownership?.averageDraftPosition),
         rank: { ppr: rk?.PPR?.rank ?? null, standard: rk?.STANDARD?.rank ?? null },
         outlook: String(p?.seasonOutlook || "").slice(0, 1500),
