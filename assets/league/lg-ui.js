@@ -1788,6 +1788,11 @@
   UI._claimTeam = claimTeam; // test hook
 
   // ---------------- league home ----------------
+  // ONE per-player "what will he finish on": live points + the unplayed share of his weekly
+  // projection (D.liveProj). The matchup header's expected finish and the power rankings'
+  // This week board both sum exactly this, so the two can never disagree (2026-09-23).
+  const finishOf = (key) => LG.n(D().liveProj(key));
+  const expectedFinish = (keys) => keys.reduce((s, k) => s + finishOf(k), 0);
   function teamStarters(teamId) {
     return (UI._rosters && UI._rosters[teamId] || []).filter((p) => p.slot !== "BENCH" && p.slot !== "IR");
   }
@@ -1883,64 +1888,115 @@
     });
   }
   // The FORMULA power-rankings card (plan §4.9 — the finalize engine's own per-week score, mobile
-  // only since 2026-08-11) was REMOVED on 2026-09-08 in favour of the AI card below: two cards
-  // both titled "Power rankings" disagreeing on the same page is worse than either alone. The
-  // formula itself lives on — LG.powerRanking() still feeds the desktop standings' PWR column.
-  // ---------------- THE AI POWER RANKINGS CARD (2026-09-08) ----------------
-  // Evening of the same day: two tabs — this week and rest of season — each with a 0–100
-  // score. The afternoon's one-board table (rank · team · LW · rooms) is still the row, plus
-  // Score. UI._pwTab is the visit's tab ("week" | "ros"); a tap swaps the table in place
-  // (wirePowerTabs) so a live poll does not throw the reader back to This week. Last week's
-  // rank is the same board on the prior week's doc. SUPERSEDES the formula card on the phone;
-  // that formula still feeds the desktop standings' PWR column. Empty card still paints.
-  function aiPowerHtml(docs) {
-    const list = Array.isArray(docs) ? docs : [];
-    const cur = list[0] || null;
-    if (!cur) {
-      return `<div class="card powercard" id="powerCard"><h2>Power rankings</h2>
-        <p class="mut small">Grok scores every roster each Tuesday — this week and the rest of the season, 0 to 100. Nothing on file yet.</p></div>`;
+  // only since 2026-08-11) was REMOVED on 2026-09-08: two cards both titled "Power rankings"
+  // disagreeing on the same page is worse than either alone. The formula itself lives on —
+  // LG.powerRanking() still feeds the desktop standings' PWR column.
+  // ---------------- THE POWER RANKINGS CARD (2026-09-23: computed, no AI) ----------------
+  // The 2026-09-08 Grok card is gone (user: the rankings "don't make sense" — Grok never saw
+  // this app's projections, weekly scores or opponents, and its Tuesday ranking disagreed with
+  // the matchup page by Sunday). Both boards are now LG.powerWeekBoard / LG.powerRosBoard over
+  // the app's own numbers. Same shell as before: This week / Rest of season chips, the table
+  // pans inside the card on a phone, a MAIN registry entry (`power`) on the desktop, and the
+  // visit remembers the tab (UI._pwTab) through live repaints.
+  //   THIS WEEK is recomputed on EVERY paint, the live repaint included — Proj is each
+  //   starter's expected finish, the very number the matchup header sums (expectedFinish).
+  //   REST OF SEASON needs each player's season average (D.weekStats, one cached fetch per
+  //   finalized week), playoff odds on the phone, and last week's snapshot for LW. All three
+  //   load AFTER the first paint (refreshPowerData) and repaint the card once they land; until
+  //   the averages are in, that tab says so rather than ranking on half the numbers.
+  function powerAvgKey() {
+    return (UI._allWeekly || []).filter((w) => w && w.kind === "weekly" && !LG.weeklyIsVoid(w))
+      .map((w) => Number(w.week)).sort((a, b) => a - b).join(",");
+  }
+  function powerBoards() {
+    const d = D();
+    const st = UI._standings || {};
+    const teams = LG.teams.map((t) => {
+      const s = st[t.id] || {};
+      return { id: t.id, pf: LG.n(s.pf), w: LG.n(s.w), l: LG.n(s.l), t: LG.n(s.t) };
+    });
+    const pfOf = (id) => LG.n((st[id] || {}).pf);
+    const starters = {}, bench = {}, active = {};
+    for (const t of LG.teams) {
+      starters[t.id] = teamStarters(t.id);
+      bench[t.id] = teamBench(t.id);
+      active[t.id] = ((UI._rosters && UI._rosters[t.id]) || []).filter((p) => p && p.slot !== "IR");
     }
+    const lastDoc = UI.week > 1 ? (UI._allWeekly || []).find((w) => w && w.kind === "weekly" && Number(w.week) === UI.week - 1) : null;
+    const week = LG.powerWeekBoard({
+      teams, starters, bench, projOf: finishOf, pairs: UI._wkGames || [],
+      winOf: (id, o) => {
+        const a = (starters[id] || []).map((p) => p.key), b = (starters[o] || []).map((p) => p.key);
+        return a.length && b.length ? d.winProb(a, b) : null;
+      },
+      lastRanks: lastDoc ? LG.powerLastWeekRanks(lastDoc, pfOf) : null,
+    });
+    const key = powerAvgKey();
+    const avg = key === "" ? new Map() : (UI._pwAvg && UI._pwAvg.key === key ? UI._pwAvg.avg : null);
+    const snap = UI._pwPrevSnap && UI._pwPrevSnap.week === UI.week - 1 ? UI._pwPrevSnap.doc : null;
+    const ros = avg ? LG.powerRosBoard({
+      teams, active, rules: (LG.rules || LG.DEFAULT_RULES).roster,
+      valueOf: (k) => LG.rosValue(d.projFor(k), avg.get(String(k))),
+      odds: UI._odds || null, lastRanks: snap ? snap.ros : null,
+    }) : null;
+    return { week, ros };
+  }
+  function powerCardHtml() {
     const tab = UI._pwTab === "ros" ? "ros" : "week";
-    const board = (LG.powerBoard && LG.powerBoard(cur, tab)) || [];
-    const prev = list.find((d) => d.week === cur.week - 1) || null;
-    const prevBoard = prev && LG.powerBoard ? LG.powerBoard(prev, tab) : null;
-    const prevRank = (id) => {
-      if (!prevBoard) return null;
-      const r = prevBoard.find((x) => Number(x.teamId) === Number(id));
-      return r ? r.rank : null;
+    const boards = powerBoards();
+    UI._pwBoards = boards; // the suite reads the numbers behind the cells
+    const cats = LG.POWER_CATS;
+    const lwCell = (pr, rank) => {
+      const move = pr == null ? "none" : pr > rank ? "up" : pr < rank ? "down" : "same";
+      const html = pr == null ? '<span class="mut">–</span>'
+        : `<span class="pwlwrank">${pr}</span>${move === "up" ? '<span class="delta up">▲</span>'
+          : move === "down" ? '<span class="delta down">▼</span>' : '<span class="mut">–</span>'}`;
+      return { move, html };
     };
-    const cats = LG.POWER_CATS || ["QB", "RB", "WR", "TE", "BN"];
-    const head = `<tr><th class="num"></th><th>Team</th><th class="num" title="0 to 100">Score</th><th class="num" title="Last week">LW</th>${
+    const extra = tab === "week"
+      ? [["Proj", "Expected finish"], ["Opp", "Opponent"], ["Win%", "Chance to win"]]
+      : [["Rating", "Roster and results"], ["Rec", "Record"], ["PO%", "Playoff odds"]];
+    const head = `<tr><th class="num"></th><th>Team</th><th class="num" title="0 to 100">Score</th>${
+      extra.map(([k, t]) => `<th class="num pwx" title="${t}">${k}</th>`).join("")}<th class="num" title="Last week">LW</th>${
       cats.map((k) => `<th class="num pwcat" data-pos="${k}" title="${k === "BN" ? "Bench" : k}">${k}</th>`).join("")}</tr>`;
-    const rows = [...board].sort((a, b) => a.rank - b.rank).map((r) => {
+    const rowHtml = (r, extraCells) => {
       const T = LG.teamById(r.teamId);
       if (!T) return "";
-      const pr = prevRank(r.teamId);
-      const move = pr == null ? "none" : pr > r.rank ? "up" : pr < r.rank ? "down" : "same";
-      const lw = pr == null ? '<span class="mut">–</span>'
-        : `<span class="pwlwrank">${pr}</span>${move === "up" ? '<span class="delta up">▲</span>'
-          : move === "down" ? '<span class="delta down">▼</span>'
-          : '<span class="mut">–</span>'}`;
-      const c = r.cats || {};
-      const score = Number.isInteger(Number(r.score)) ? Number(r.score) : "";
-      return `<tr class="pwrow${T.id === LG.myTeamId() ? " mine" : ""}" data-team="${T.id}" data-score="${score}" data-lw="${pr == null ? "" : pr}" data-move="${move}">
+      const lw = lwCell(r.lw, r.rank);
+      return `<tr class="pwrow${T.id === LG.myTeamId() ? " mine" : ""}" data-team="${T.id}" data-score="${r.score}" data-lw="${r.lw == null ? "" : r.lw}" data-move="${lw.move}">
         <td class="pwrank num">${r.rank}</td>
         <td class="pwteamcell"><span class="pwteam teamlink" data-locker="${T.id}">${crestHtml(T, "tmini")}${teamNameHtml(T, { cls: "pwname" })}</span></td>
-        <td class="num pwscore">${score === "" ? "–" : score}</td>
-        <td class="num pwlw">${lw}</td>
-        ${cats.map((k) => `<td class="num pwcat" data-pos="${k}">${c[k] != null ? c[k] : "–"}</td>`).join("")}
+        <td class="num pwscore">${r.score}</td>
+        ${extraCells}
+        <td class="num pwlw">${lw.html}</td>
+        ${cats.map((k) => `<td class="num pwcat" data-pos="${k}">${r.cats[k]}</td>`).join("")}
       </tr>`;
-    }).join("");
-    const when = cur.at ? new Date(cur.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
-    const n = board.length;
+    };
+    let body = "";
+    if (tab === "week") {
+      body = boards.week.map((r) => {
+        const O = typeof r.opp === "number" ? LG.teamById(r.opp) : null;
+        const opp = O ? esc(teamTag(O)) : r.opp === "BYE" ? "BYE" : "—";
+        const win = r.win == null ? "—" : Math.round(r.win * 100) + "%";
+        return rowHtml(r, `<td class="num pwproj">${LG.fmtPts(r.proj)}</td><td class="num pwopp">${opp}</td><td class="num pwwin">${win}</td>`);
+      }).join("");
+    } else if (boards.ros) {
+      body = boards.ros.rows.map((r) => rowHtml(r, `<td class="num pwrating">${LG.fmtNum(r.rating, 1)}</td><td class="num pwrec">${esc(r.rec)}</td><td class="num pwpo">${r.po == null ? "—" : r.po + "%"}</td>`)).join("");
+    }
     const tabs = `<div class="poschips pwtabs" id="pwTabs">
       <button type="button" class="poschip${tab === "week" ? " on" : ""}" data-pw="week" aria-pressed="${tab === "week" ? "true" : "false"}">This week</button>
       <button type="button" class="poschip${tab === "ros" ? " on" : ""}" data-pw="ros" aria-pressed="${tab === "ros" ? "true" : "false"}">Rest of season</button>
     </div>`;
-    return `<div class="card powercard" id="powerCard" data-board="${tab}"><h2>Power rankings <span class="mut">— week ${cur.week}</span></h2>
+    const table = tab === "ros" && !boards.ros
+      ? '<p class="mut small pwwait">Adding up the season so far…</p>'
+      : `<div class="panner"><table class="tbl pwtbl"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+    const foot = tab === "week"
+      ? "Proj is each starter's expected finish, the same number as the matchup page, live. Score is out of 100 against the top team. Rooms rank 1–" + boards.week.length + "; BN is the best three on the bench."
+      : "Rating is each team's best legal lineup (this week's projection and season average, half each) blended with points per game. After three games the two count the same. Score is out of 100 against the top team.";
+    return `<div class="card powercard" id="powerCard" data-board="${tab}"><h2>Power rankings <span class="mut">— week ${UI.week}</span></h2>
       ${tabs}
-      <div class="panner"><table class="tbl pwtbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div>
-      <p class="mut small pwfoot">Scored by Grok from every roster and the standings${when ? ", " + esc(when) : ""}. 0–100, then 1–${n} in each room. Re-ranks each Tuesday.</p></div>`;
+      ${table}
+      <p class="mut small pwfoot">${foot}</p></div>`;
   }
   function wirePowerTabs() {
     const card = document.getElementById("powerCard");
@@ -1952,7 +2008,7 @@
         if ((UI._pwTab || "week") === next) return;
         UI._pwTab = next;
         const tmp = document.createElement("div");
-        tmp.innerHTML = aiPowerHtml(UI._aiPower);
+        tmp.innerHTML = powerCardHtml();
         const fresh = tmp.firstElementChild;
         if (!fresh) return;
         card.replaceWith(fresh);
@@ -1961,17 +2017,41 @@
       });
     });
   }
-  // Fires the week's generation (LG.ensureAiPower — adopt-first, create-only, cloud-only) after
-  // the league home has painted, and repaints the card in place if a NEW ranking came back.
-  // Detached: the page never waits on the model. Same shape as ensureAdjustedProj's boot hook.
-  function refreshAiPower() {
-    LG.ensureAiPower().then(async (doc) => {
-      if (!doc || UI.view !== "league") return;
-      const shown = (UI._aiPower || [])[0];
-      if (shown && shown.week === doc.week && shown.at === doc.at) return;
-      UI._aiPower = await LG.loadAiPowerDocs();
-      if (UI.view === "league") renderLeague(true);
-    }).catch(() => {});
+  // Post-paint, detached: season averages (past weeks' D.weekStats), last week's snapshot, and
+  // on the phone the playoff odds (the desktop's first batch already read them). Repaints once
+  // if any of it changed what the card shows. A warm return to League asks for nothing new.
+  let powerLoading = false;
+  function refreshPowerData() {
+    if (powerLoading) return;
+    const key = powerAvgKey();
+    const needAvg = key !== "" && !(UI._pwAvg && UI._pwAvg.key === key);
+    const prevWeek = UI.week - 1;
+    const needSnap = prevWeek >= 1 && !(UI._pwPrevSnap && UI._pwPrevSnap.week === prevWeek);
+    const needOdds = !isWide();
+    if (!needAvg && !needSnap && !needOdds) return;
+    powerLoading = true;
+    const weeks = key ? key.split(",").map(Number) : [];
+    Promise.all([
+      needAvg ? Promise.all(weeks.map((w) => D().weekStats(w, { season: LG.SEASON, seasonType: "regular" }).catch(() => null)))
+        .then((maps) => ({ key, avg: LG.seasonAverages(maps) })) : null,
+      needSnap ? LG.loadPowerSnap(prevWeek).catch(() => null) : null,
+      needOdds ? LG.playoffOdds().catch(() => null) : null,
+    ]).then(([avg, snap, odds]) => {
+      let changed = false;
+      if (avg) { UI._pwAvg = avg; changed = true; }
+      if (needSnap) { UI._pwPrevSnap = { week: prevWeek, doc: snap }; if (snap) changed = true; }
+      if (odds && JSON.stringify(odds) !== JSON.stringify(UI._odds)) { UI._odds = odds; changed = true; }
+      if (changed && UI.view === "league") renderLeague(true);
+    }).catch(() => {}).finally(() => { powerLoading = false; });
+  }
+  // This device computed a rest-of-season board for the league's own current week: offer it as
+  // that week's snapshot. LG.maybeWritePowerSnap keeps it to cloud stores and once an hour.
+  function writePowerSnap() {
+    const ros = UI._pwBoards && UI._pwBoards.ros;
+    if (!ros || !ros.rows.length || UI.week !== LG.currentWeek()) return;
+    const ranks = {};
+    for (const r of ros.rows) ranks[r.teamId] = r.rank;
+    LG.maybeWritePowerSnap(UI.week, ranks).catch(() => {});
   }
   // ---------------- standings (2026-08-11 desktop pass) ----------------
   // ONE builder, two shapes. MOBILE is byte-for-byte what it always was — # / Team / W / L /
@@ -2602,10 +2682,10 @@
       // always-eager fetch gave (a real navigation back to League always shows what's
       // CURRENTLY true, once opened), it just no longer costs anything until you look.
       UI._recordBook = undefined; UI._tx = undefined; UI._recentChat = undefined;
-      // The AI power rankings list rides the FIRST batch (2026-09-08): one cached list() like
-      // "weekly" and "bracket", so the card paints with the rest of the page rather than popping
-      // in after it; generation (refreshAiPower) is post-paint and detached.
-      [UI._allWeekly, , UI._aiPower] = await Promise.all([LG.db.list("weekly"), LG.db.list("bracket"), LG.loadAiPowerDocs()]);
+      // The power rankings card reads nothing of its own here (2026-09-23): This week is the
+      // rosters + live engine already in hand, and Rest of season's extras load post-paint
+      // (refreshPowerData). The retired Grok card's aipower reads left this batch with it.
+      [UI._allWeekly] = await Promise.all([LG.db.list("weekly"), LG.db.list("bracket")]);
       // A feed this session already read paints now and re-reads behind the paint (2026-09-23).
       // A league with no injury change yet has no injfeed doc, and an absent doc is never cached
       // (LG.db.get), so every return to League sat on that one round trip (section P, 116ms).
@@ -2726,7 +2806,7 @@
         week: () => weekCard,
         playoffs: () => playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish()),
         standings: () => standingsHtml(rows, st, { wide: true, streaks: UI._streaks, odds: UI._odds, power: LG.powerRanking(UI._allWeekly), provisional: provisionalTeams }),
-        power: () => aiPowerHtml(UI._aiPower),
+        power: () => powerCardHtml(),
         alltime: () => allTimeHtml(UI._recordBook),
         chat: () => deskChatPanelHtml(),
         injury: () => injuryFeedCardHtml(UI._injFeed),
@@ -2809,7 +2889,7 @@
         ${weekCard}
         ${recentMovesHtml(UI._tx)}
         ${standingsHtml(rows, st, { provisional: provisionalTeams })}
-        ${aiPowerHtml(UI._aiPower)}
+        ${powerCardHtml()}
         ${injuryFeedCardHtml(UI._injFeed)}
         ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
         ${accuracyHtml(UI._accuracy)}
@@ -2895,7 +2975,8 @@
     wireLazyLeagueDetails();
     paintHealth();
     startDraftCountdown();
-    if (!repaint) refreshAiPower(); // this week's Grok ranking, if it is not on file yet — post-paint, detached
+    if (!repaint) refreshPowerData(); // season averages / last week's snapshot / phone odds — post-paint, detached
+    writePowerSnap(); // cloud only, at most hourly — see LG.maybeWritePowerSnap
   }
   // Boot-speed pass (2026-08-08): record book / recent moves / league chat each load their
   // real data only the moment their <details> is actually opened for the first time — see
@@ -4706,10 +4787,10 @@
     const aRem = browsing ? { left: 0, playing: 0 } : d.remaining(aKeys);
     // Expected finish — the same D.liveProj sum D.winProb already weighs. Weekly
     // paper (D.projFor) can still favor the other side after Thursday; those two
-    // used to sit on the same card and disagree about who was ahead.
-    const projSum = (keys) => keys.reduce((s, k) => s + LG.n(d.liveProj(k)), 0);
-    const hProj = browsing ? null : projSum(hKeys);
-    const aProj = browsing ? null : projSum(aKeys);
+    // used to sit on the same card and disagree about who was ahead. The power
+    // rankings' This week Proj reads the same helper (2026-09-23).
+    const hProj = browsing ? null : expectedFinish(hKeys);
+    const aProj = browsing ? null : expectedFinish(aKeys);
     const mine = LG.myTeamId();
     const headSub = browsing ? (weeklyRow ? "Final" : (shown > UI.week ? "Upcoming" : "")) : null;
     // (The "owner · record" line and its loadStandings() read left with the 2026-08-11

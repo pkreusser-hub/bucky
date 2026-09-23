@@ -139,7 +139,6 @@ notify.reset = () => { notify.calls = []; notify.status = 200; notify.abort = fa
 // ---------------- fixtures ----------------
 const fixture = {
   phase: 1, sleeperDown: false, espnDown: false, tenorDown: false, farmgptDown: false,
-  powerPoison: null, powerFenced: false, // section PW's fake-Grok knobs (2026-09-08) — see startXaiUpstream
   // Section V knobs (adversarial review 2026-08-08) — every one defaults OFF, so sections
   // A-U see exactly the fixture they always did.
   espnWeekNum: null,      // what /scoreboard says its own week is (finding 1/3/7's provenance)
@@ -1136,36 +1135,8 @@ function startXaiUpstream() {
       res.end(xaiSse(JSON.stringify(out)));
       return;
     }
-    // THE POWER RANKINGS COLUMNIST (section PW, 2026-09-08; two boards + scores that evening)
-    // — told apart by ITS system prompt. THIS WEEK is REVERSE standings (last-place first) so
-    // the card-shows-the-MODEL assertion is real. REST OF SEASON is sorted teamId ascending
-    // (team 1 first) so the two tabs cannot agree by accident. Scores are 100−11i on the week
-    // board and 96−8i on ROS — integers 0..100, non-increasing. Category ranks are a different
-    // permutation of the same teamIds (QB follows sorted id, RB the inverse, WR/TE rotated,
-    // BN copies overall) so a cell that matched overall-or-standings by accident would fail
-    // the hand-check. Poisons: unknown team, duplicated team, overall-rank collision — they
-    // break the week board and the whole reply is rejected. fixture.powerFenced wraps fences.
-    if (/power-rankings columnist/.test(sys)) {
-      const userTurn = (((b || {}).messages || []).find((m) => m.role === "user") || {}).content || "";
-      const jm = /TEAMS:\n([\s\S]*?)\n\nTASK:/.exec(userTurn);
-      let sent = [];
-      try { sent = JSON.parse(jm ? jm[1] : "[]"); } catch (e) { sent = []; }
-      const ordered = [...sent].sort((a, b) => b.place - a.place);
-      const n = ordered.length;
-      const byId = [...sent].sort((a, b) => Number(a.teamId) - Number(b.teamId));
-      const idxOf = (id) => byId.findIndex((t) => Number(t.teamId) === Number(id));
-      const rankAt = (id, shift) => { const i = idxOf(id); return i < 0 ? 0 : ((i + shift) % n + n) % n + 1; };
-      const catsFor = (t, i) => ({ QB: rankAt(t.teamId, 0), RB: n - idxOf(t.teamId), WR: rankAt(t.teamId, 1), TE: rankAt(t.teamId, 3), BN: i + 1 });
-      let week = ordered.map((t, i) => ({ teamId: t.teamId, rank: i + 1, score: 100 - i * 11, cats: catsFor(t, i) }));
-      let ros = byId.map((t, i) => ({ teamId: t.teamId, rank: i + 1, score: 96 - i * 8, cats: {
-        QB: rankAt(t.teamId, 2), RB: rankAt(t.teamId, 1), WR: n - idxOf(t.teamId), TE: rankAt(t.teamId, 0), BN: n - i } }));
-      if (fixture.powerPoison === "unknown") week[0] = { teamId: "999", rank: 1, score: 100, cats: (week[0] && week[0].cats) || {} };
-      if (fixture.powerPoison === "dup" && week.length > 1) week[1] = { ...week[0], rank: 2, score: 89 };
-      if (fixture.powerPoison === "rankclash" && week.length > 1) week[1].rank = 1;
-      const text = JSON.stringify({ ranking: { week, ros } });
-      res.end(xaiSse(fixture.powerFenced ? "```json\n" + text + "\n```" : text));
-      return;
-    }
+    // RETIRED 2026-09-23: the fake power-rankings columnist (section PW / TB). The farmgpt
+    // `gfflpower` mode is gone — power rankings are computed in the app, no AI (user decision).
     res.end(xaiSse(JSON.stringify({ players: [{ name: "T. Tight", mult: 1.25, why: "KC up big, feeding the tight end in garbage time" }] })));
   });
   return new Promise((r) => srv.listen(XAI_PORT, "127.0.0.1", () => r(srv)));
@@ -5541,8 +5512,10 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.renderLeague());
     await page.waitForSelector(".standcard", { timeout: 5000 });
     const powerCards = await page.evaluate(() => [...document.querySelectorAll("h2")].filter((h) => /Power rankings/.test(h.textContent)).map((h) => !!h.closest("#powerCard")));
+    // RESTAGED 2026-09-23: the card under Standings is no longer the AI one — it is computed from
+    // the app's own numbers (user decision, no AI). Still exactly one card, still #powerCard.
     ok(powerCards.length === 1 && powerCards[0] === true,
-      "exactly ONE Power rankings card on the phone, and it is the AI card — the formula card is gone (" + JSON.stringify(powerCards) + ")");
+      "exactly ONE Power rankings card on the phone, and it is the computed #powerCard — the formula card is gone (" + JSON.stringify(powerCards) + ")");
     const pw = await page.evaluate(() => window.__GFFL__.LG.powerRanking(window.__GFFL__.UI._allWeekly));
     const rows = (pw && pw.rows || []).map((r) => ({ id: r.teamId, rank: r.rank, prev: r.prevRank }));
     ok(rows.length === 3, "LG.powerRanking lists the 3 teams that have a snapshot for week 2 (" + rows.length + ")");
@@ -24082,9 +24055,9 @@ async function openDetails(page, id) {
   // expanded by default" (5) "the names of players in transactions should be able to be
   // clicked" (6) "beneath standings lets add Power Ranking … feed all the rosters to Grok 4.6".
   }
-  if (section("TB · the Tuesday batch — locker quiet, slot colours on phones, moves open + tappable, AI power rankings")) {
-  const powerCalls = () => xaiReqs.filter((r) => /power-rankings columnist/.test(JSON.stringify(r || ""))).length;
-  const lastPowerReq = () => xaiReqs.filter((r) => /power-rankings columnist/.test(JSON.stringify(r || ""))).pop();
+  // RESTAGED 2026-09-23: "AI power rankings" in the title is now just "power rankings" — the
+  // Grok card became a computed one (user decision); the section key TB is unchanged.
+  if (section("TB · the Tuesday batch — locker quiet, slot colours on phones, moves open + tappable, power rankings")) {
   {
     // ---- TB1: My Team on a 390px phone — no instructions, coloured chips, no self-refresh.
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
@@ -24219,47 +24192,33 @@ async function openDetails(page, id) {
     await ctx.close();
   }
   {
-    // ---- TB3: the AI power rankings — the server mode, straight at the handler.
+    // ---- TB3: the cache-bust. The rest of the old TB3 is RETIRED.
     // NEW 2026-09-08 evening: a phone that cached yesterday's lg-core.js kept a validator
     // that rejected the two-board doc sitting in the store, so the card stayed empty. The
     // script URLs carry a query so that deploy is a new URL.
     const htmlSrc = fs.readFileSync(path.join(__dirname, "..", "league.html"), "utf8");
     ok(/src="assets\/league\/lg-core\.js\?v=/.test(htmlSrc) && /src="assets\/league\/lg-ui\.js\?v=/.test(htmlSrc) && /src="assets\/league\/lg-data\.js\?v=/.test(htmlSrc),
       "league.html cache-busts lg-core / lg-data / lg-ui so a cached yesterday cannot hide today's ranking");
-    fixture.powerPoison = null; fixture.powerFenced = false;
-    const teams8 = (n) => Array.from({ length: n }, (_, i) => ({ teamId: i + 1, name: "Team " + (i + 1), w: 0, l: 0, t: 0, pf: 0, pa: 0, place: i + 1,
-      roster: [{ slot: "QB", name: "Q. Back", pos: "QB", team: "KC" }, { slot: "BN", name: "B. Bench", pos: "RB", team: "DAL", inj: "Q" }] }));
-    const bad = await farmgptFn(new Request("http://fn/farmgpt", { method: "POST", body: JSON.stringify({ secret: "amenfarms", mode: "gfflpower", power: { week: 1, teams: teams8(2) } }) }));
-    ok(bad.status === 400 && /Bad power request/.test(await bad.text()), "two teams is not a league — 400 'Bad power request', no model call");
-    const n0 = powerCalls();
-    const good = await farmgptFn(new Request("http://fn/farmgpt", { method: "POST", body: JSON.stringify({ secret: "amenfarms", mode: "gfflpower", power: { week: 3, teams: teams8(8) } }) }));
-    const goodTxt = (await good.text()).trim();
-    ok(good.status === 200 && powerCalls() === n0 + 1, "a real request reaches Grok exactly once");
-    const wire = lastPowerReq() || {};
-    ok(wire.model === "grok-4.6", "…on grok-4.6 — the user's pick, and the first mode off XAI_MODEL (" + wire.model + ")");
-    ok(wire.reasoning_effort === "low" && wire.temperature === 0.2 && wire.max_tokens === 6000,
-      "…with the measured xAI recipe: reasoning low, temperature 0.2, 6000 tokens of headroom (" + JSON.stringify({ e: wire.reasoning_effort, t: wire.temperature, m: wire.max_tokens }) + ")");
-    const sysTurn = ((wire.messages || [])[0] || {}).content || "";
-    ok(/power-rankings columnist/.test(sysTurn) && /STRICT JSON/.test(sysTurn) && /Every team appears EXACTLY once/.test(sysTurn) && /"QB"/.test(sysTurn) && /No blurbs/.test(sysTurn)
-      && /THIS WEEK/.test(sysTurn) && /REST OF SEASON/.test(sysTurn) && /0 to 100/.test(sysTurn),
-      "GFFLPOWER_SYSTEM is stamped server-side — columnist, two boards, scores 0-100, categories not blurbs");
-    const userTurn = ((wire.messages || []).find((m) => m.role === "user") || {}).content || "";
-    ok(/^WEEK 3 — 8 TEAMS:\n/.test(userTurn) && /"place":8/.test(userTurn) && /"slot":"BN"/.test(userTurn) && /"inj":"Q"/.test(userTurn)
-      && /ranking\.week and ranking\.ros/.test(userTurn) && /scores 0\.\.100/.test(userTurn) && /QB\/RB\/WR\/TE\/BN/.test(userTurn),
-      "…the user turn is the server-built named-field payload — week, places, slots, injuries, two boards, 0..100");
-    let parsed = null; try { parsed = JSON.parse(goodTxt); } catch (e) { parsed = null; }
-    const week0 = parsed && parsed.ranking && parsed.ranking.week && parsed.ranking.week[0];
-    const ros0 = parsed && parsed.ranking && parsed.ranking.ros && parsed.ranking.ros[0];
-    ok(parsed && parsed.ranking && Array.isArray(parsed.ranking.week) && parsed.ranking.week.length === 8
-      && Array.isArray(parsed.ranking.ros) && parsed.ranking.ros.length === 8
-      && week0 && Number(week0.teamId) === 8 && week0.score === 100 && week0.cats && week0.cats.QB === 8 && week0.cats.BN === 1 && week0.blurb == null
-      && ros0 && Number(ros0.teamId) === 1 && ros0.score === 96 && ros0.blurb == null,
-      "…and the reply is two boards of eight: week last-place first at 100, ROS team 1 first at 96 (" + goodTxt.slice(0, 80) + "…)");
+    // RETIRED 2026-09-23: the farmgpt `gfflpower` mode (400 on two teams, one grok-4.6 call,
+    // the xAI recipe, GFFLPOWER_SYSTEM, the named-field user turn, the two-board reply). User:
+    // the Grok rankings "don't make sense"; decision: computed from the app's own numbers, no
+    // AI at all. The mode is gone from farmgpt.mjs; UH3 and UH6 assert no farmgpt call is made.
+    const gone = await farmgptFn(new Request("http://fn/farmgpt", { method: "POST", body: JSON.stringify({ secret: "amenfarms", mode: "gfflpower", power: { week: 3, teams: [] } }) }));
+    ok(gone.status === 400 && !/Bad power request/.test(await gone.text()), "RESTAGED 2026-09-23: farmgpt no longer knows a `gfflpower` mode — an unknown-mode 400, never a model call");
   }
   {
-    // ---- TB4: the phone card, generation, validation, movement.
+    // ---- TB4: the phone card. RESTAGED 2026-09-23 (user decision: power rankings computed from
+    // the app's own numbers, no AI). What still holds is kept: the card sits directly beneath
+    // Standings, a local store makes no AI call, the heading names the week, it opens on This
+    // week beside a Rest of season tab, own team ringed, the columns pan INSIDE the card, no
+    // pictographs, and Rest of season is its own order. RETIRED with the Grok card: the "Nothing
+    // on file yet" empty state (a board is always computed now), the stale blurb / one-board doc
+    // probes, forced generation + single-flight, the model's own order and scores, the
+    // input-snapshot and wire checks, movement against a second aipower doc (UH1/UH3/UH5 hand-
+    // check LW now), and validateAiPowerReply's poison list.
     const { ctx, page, errors } = await newTestPage(browser, fullSeed());
-    const n0 = powerCalls();
+    const gpt = [];
+    page.on("request", (q) => { if (q.url().includes("/.netlify/functions/farmgpt")) gpt.push(q.postData() || ""); });
     await bootPage(page);
     await waitOr(page, ".mucard");
     await waitLive(page);
@@ -24267,79 +24226,21 @@ async function openDetails(page, id) {
     const empty = await evalOr(page, () => {
       const card = document.getElementById("powerCard");
       const prev = card && card.previousElementSibling;
-      return { present: !!card, text: card ? card.textContent.replace(/\s+/g, " ") : "", underStandings: !!(prev && prev.classList.contains("standcard")),
+      return { present: !!card, underStandings: !!(prev && prev.classList.contains("standcard")),
         backend: window.__GFFL__.LG.backendMode, rows: card ? card.querySelectorAll(".pwrow").length : -1 };
     }) || {};
     ok(empty.present === true && empty.underStandings === true, "the Power rankings card sits DIRECTLY beneath Standings on the phone");
-    ok(/Nothing on file yet/.test(empty.text || "") && /this week/.test(empty.text || "") && /rest of the season/.test(empty.text || "") && empty.rows === 0,
-      "…and with no ranking on file it names both boards and says nothing is on file (" + (empty.text || "").slice(0, 80) + ")");
-    ok(empty.backend === "local" && powerCalls() === n0, "the local fallback store never triggers a paid generation — no Grok call on this page (" + (powerCalls() - n0) + ")");
-    // RESTAGED 2026-09-08 evening: a blurb-only doc AND this afternoon's one-board cats
-    // table are not a ranking any more — the card stays empty and loadAiPowerDocs skips them.
-    const stale = await evalOr(page, async () => {
-      const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
-      const probe = async (ranking) => {
-        await LG.db.set(LG.aiPowerId(2026, 1), { kind: "aipower", season: 2026, week: 1, at: 1, model: "grok-4.6", ranking });
-        UI._aiPower = await LG.loadAiPowerDocs();
-        UI.renderLeague(true);
-        await new Promise((r) => setTimeout(r, 120));
-        const card = document.getElementById("powerCard");
-        return { n: (UI._aiPower || []).length, text: card ? card.textContent.replace(/\s+/g, " ") : "", rows: card ? card.querySelectorAll(".pwrow").length : -1,
-          current: LG.aiPowerIsCurrent && LG.aiPowerIsCurrent(await LG.db.get(LG.aiPowerId(2026, 1))) };
-      };
-      const blurb = await probe([{ teamId: 1, rank: 1, blurb: "old contract" }]);
-      const oneBoard = await probe(Array.from({ length: 8 }, (_, i) => ({ teamId: i + 1, rank: i + 1,
-        cats: { QB: i + 1, RB: 8 - i, WR: ((i + 1) % 8) + 1, TE: ((i + 3) % 8) + 1, BN: i + 1 } })));
-      return { blurb, oneBoard };
-    }) || {};
-    ok(stale.blurb && stale.blurb.n === 0 && stale.blurb.current === false && /Nothing on file yet/.test(stale.blurb.text || "") && stale.blurb.rows === 0,
-      "a leftover blurb-only doc is not current — the card stays empty, no old prose (" + JSON.stringify(stale.blurb) + ")");
-    ok(stale.oneBoard && stale.oneBoard.n === 0 && stale.oneBoard.current === false && stale.oneBoard.rows === 0,
-      "this afternoon's one-board cats table is not current either — no scores, no ROS board (" + JSON.stringify({ n: stale.oneBoard && stale.oneBoard.n, current: stale.oneBoard && stale.oneBoard.current }) + ")");
-    // Forced generation (the test/commissioner path) — the fake ranks in REVERSE standings order.
-    const gen = await evalOr(page, async () => {
-      const LG = window.__GFFL__.LG;
-      const [a, b] = await Promise.all([LG.ensureAiPower({ force: true }), LG.ensureAiPower({ force: true })]);
-      const stored = await LG.db.get(LG.aiPowerId(2026, 1));
-      return { same: a === b, doc: a, stored };
-    }) || {};
-    ok(gen.same === true && powerCalls() === n0 + 1, "two concurrent ensures = ONE generation (single-flight) — one Grok call (" + (powerCalls() - n0) + ")");
-    const d1 = gen.doc || {};
-    const d1w = d1.ranking && d1.ranking.week;
-    const d1r = d1.ranking && d1.ranking.ros;
-    ok(d1.kind === "aipower" && d1.week === 1 && d1.season === 2026 && d1.model === "grok-4.6" && Number(d1.at) > 0
-      && Array.isArray(d1w) && d1w.length === 8 && Array.isArray(d1r) && d1r.length === 8,
-      "the doc is the week's two-board record — kind/week/season/model/stamp + week and ros of eight (" + JSON.stringify({ k: d1.kind, w: d1.week, m: d1.model, nw: (d1w || []).length, nr: (d1r || []).length }) + ")");
-    ok(gen.stored && gen.stored.at === d1.at, "…and it is written to aipower_2026_w1");
-    ok(Array.isArray(d1w) && d1w.length === 8 && d1w[0].teamId === 8 && d1w[0].score === 100 && d1w[7].teamId === 1 && d1w[7].score === 23 && d1w.every((r, i) => r.rank === i + 1),
-      "THIS WEEK keeps the MODEL's order — last-place first at 100, first-place last at 23 (" + (d1w || []).map((r) => r.teamId + ":" + r.score).join(",") + ")");
-    ok(Array.isArray(d1r) && d1r.length === 8 && d1r[0].teamId === 1 && d1r[0].score === 96 && d1r[7].teamId === 8 && d1r[7].score === 40 && d1r.every((r, i) => r.rank === i + 1),
-      "REST OF SEASON is its own order — team 1 first at 96, team 8 last at 40 (" + (d1r || []).map((r) => r.teamId + ":" + r.score).join(",") + ")");
-    const c8 = ((d1w || [])[0] || {}).cats || {};
-    ok(c8.QB === 8 && c8.RB === 1 && c8.WR === 1 && c8.TE === 3 && c8.BN === 1 && !("blurb" in ((d1w || [])[0] || {})),
-      "…and team 8's THIS WEEK rooms are the fake's own permutation, not a copy of overall (QB 8 RB 1 WR 1 TE 3 BN 1)");
-    ok(d1.input && d1.input[1] && d1.input[1].place === 1 && d1.input[8] && d1.input[8].place === 8 && d1.input[1].w === 0,
-      "…with the standings snapshot the model was shown kept beside it (" + JSON.stringify(d1.input && d1.input[1]) + ")");
-    const req = lastPowerReq() || {};
-    const turn = ((req.messages || []).find((m) => m.role === "user") || {}).content || "";
-    ok(/^WEEK 1 — 8 TEAMS:/.test(turn) && /"name":"Battle Kreussers"/.test(turn) && /"name":"P\. Passer"/.test(turn) && /"slot":"BN"/.test(turn) && /"inj":"OUT"/.test(turn) && /"pos":"DST"/.test(turn),
-      "the wire carried every roster — names, BN for bench, I. Injured's OUT, the D/ST (" + turn.slice(0, 40) + "…)");
-    // The card, painted from the doc.
-    await evalOr(page, () => window.__GFFL__.UI.show("league"));
-    await waitOr(page, ".mucard");
-    ok(await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8), "the league home paints eight ranked rows");
+    // RESTAGED 2026-09-23: "Nothing on file yet" is gone — there is always a computed board.
+    ok(empty.rows === 8, "…and it ranks all eight teams from the first paint — nothing to wait for (" + empty.rows + ")");
+    ok(empty.backend === "local" && gpt.length === 0, "the local fallback store makes no AI call on this page (" + gpt.length + ")");
     const card = await evalOr(page, () => {
       const c = document.getElementById("powerCard");
       if (!c) return {};
       const rows = [...c.querySelectorAll(".pwrow")].map((r) => {
-        const nameEl = r.querySelector(".pwname") || r.querySelector(".tname");
         const lockerEl = r.querySelector("[data-locker]");
-        const cat = (k) => { const el = r.querySelector('.pwcat[data-pos="' + k + '"]'); return el ? el.textContent.trim() : ""; };
         return { team: Number(r.dataset.team), rank: ((r.querySelector(".pwrank") || {}).textContent || "").trim(),
-          name: nameEl ? nameEl.textContent.trim() : "", score: ((r.querySelector(".pwscore") || {}).textContent || "").trim(),
-          lw: ((r.querySelector(".pwlw") || {}).textContent || "").trim(),
-          move: r.dataset.move || "", locker: lockerEl && lockerEl.dataset ? lockerEl.dataset.locker : "",
-          QB: cat("QB"), RB: cat("RB"), WR: cat("WR"), TE: cat("TE"), BN: cat("BN") };
+          score: ((r.querySelector(".pwscore") || {}).textContent || "").trim(), locker: lockerEl && lockerEl.dataset ? lockerEl.dataset.locker : "",
+          lw: ((r.querySelector(".pwlw") || {}).textContent || "").trim(), move: r.dataset.move || "" };
       });
       const panner = c.querySelector(".panner");
       const tabs = [...c.querySelectorAll("#pwTabs [data-pw]")].map((b) => b.dataset.pw + (b.classList.contains("on") ? ":on" : ""));
@@ -24355,192 +24256,35 @@ async function openDetails(page, id) {
     ok(/^Power rankings — week 1$/.test(card.h2), "the heading names the week (" + card.h2 + ")");
     ok(card.board === "week" && Array.isArray(card.tabs) && card.tabs.join("|") === "week:on|ros",
       "the card opens on This week, with a Rest of season tab beside it (" + (card.tabs || []).join("|") + ")");
-    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows[0].team === 8 && card.rows[0].rank === "1" && card.rows[0].score === "100" && card.rows[0].name === "The Goat Kids" && card.rows[7].team === 1 && card.rows[7].rank === "8" && card.rows[7].score === "23",
-      "This week rows in the model's order: The Goat Kids #1 at 100 down to Battle Kreussers #8 at 23");
-    ok(Array.isArray(card.heads) && card.heads.join("|") === "|Team|Score|LW|QB|RB|WR|TE|BN" && card.blurbs === 0,
-      "the columns are Team, Score, last week, and the five rooms — no blurb column (" + (card.heads || []).join("|") + ")");
-    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows[0].QB === "8" && card.rows[0].RB === "1" && card.rows[0].WR === "1" && card.rows[0].TE === "3" && card.rows[0].BN === "1"
-      && card.rows.every((r) => r.lw === "–" && r.move === "none" && String(r.locker) === String(r.team)),
-      "week 1: last-week is a dash, rooms show the model's numbers, each name opens that locker");
-    ok(card.mine === 1 && /Scored by Grok/.test(card.foot) && /0–100/.test(card.foot) && /each Tuesday/.test(card.foot),
-      "own team ringed; the footer says who scored it, the 0–100 scale, and when it re-ranks");
-    ok(card.sideways <= 1 && card.pageWider !== true && card.pict === 0,
+    // RESTAGED 2026-09-23: This week gains Proj / Opp / Win% between Score and LW.
+    ok(Array.isArray(card.heads) && card.heads.join("|") === "|Team|Score|Proj|Opp|Win%|LW|QB|RB|WR|TE|BN" && card.blurbs === 0,
+      "the columns are Team, Score, Proj, Opp, Win%, last week, and the five rooms — no blurb column (" + (card.heads || []).join("|") + ")");
+    ok(Array.isArray(card.rows) && card.rows.length === 8 && card.rows.every((r, i) => r.rank === String(i + 1) && r.lw === "–" && r.move === "none" && String(r.locker) === String(r.team)),
+      "week 1: ranks 1..8 in order, last-week is a dash, each name opens that locker");
+    // RESTAGED 2026-09-23: the footer no longer credits Grok or promises a Tuesday re-rank.
+    ok(card.mine === 1 && !/Grok/.test(card.foot) && /matchup page/.test(card.foot) && /out of 100/.test(card.foot),
+      "own team ringed; the footer says Proj is the matchup page's number and the 0–100 scale, no Grok");
+    ok(card.sideways <= 1 && card.pageWider !== true && card.pans === true && card.pict === 0,
       "the extra columns pan INSIDE the card — the page itself does not scroll sideways, and the chrome carries no pictographs");
-    const rosTab = await evalOr(page, () => {
+    const rosTab = await evalOr(page, async () => {
       const b = document.querySelector('#pwTabs [data-pw="ros"]');
       if (b) b.click();
+      for (let i = 0; i < 60 && !document.querySelector("#powerCard .pwrating"); i++) await new Promise((x) => setTimeout(x, 50));
       const c = document.getElementById("powerCard");
       if (!c) return {};
       return { board: c.dataset.board || "", tabs: [...c.querySelectorAll("#pwTabs [data-pw]")].map((x) => x.dataset.pw + (x.classList.contains("on") ? ":on" : "")),
-        rows: [...c.querySelectorAll(".pwrow")].map((r) => ({ team: Number(r.dataset.team), rank: ((r.querySelector(".pwrank") || {}).textContent || "").trim(),
-          score: ((r.querySelector(".pwscore") || {}).textContent || "").trim() })) };
+        rows: c.querySelectorAll(".pwrow").length, rating: c.querySelectorAll(".pwrating").length };
     }) || {};
-    ok(rosTab.board === "ros" && (rosTab.tabs || []).join("|") === "week|ros:on"
-      && Array.isArray(rosTab.rows) && rosTab.rows.length === 8 && rosTab.rows[0].team === 1 && rosTab.rows[0].rank === "1" && rosTab.rows[0].score === "96"
-      && rosTab.rows[7].team === 8 && rosTab.rows[7].score === "40",
-      "Rest of season is its own order and scores — Battle Kreussers #1 at 96, The Goat Kids last at 40 (" + JSON.stringify({ board: rosTab.board, first: rosTab.rows && rosTab.rows[0] }) + ")");
+    ok(rosTab.board === "ros" && (rosTab.tabs || []).join("|") === "week|ros:on" && rosTab.rows === 8 && rosTab.rating === 8,
+      "Rest of season is its own board of eight, with its own Rating column (" + JSON.stringify(rosTab) + ")");
     await evalOr(page, () => { const b = document.querySelector('#pwTabs [data-pw="week"]'); if (b) b.click(); });
-    // Movement: a week-2 ranking on file beside week 1's → arrows computed against week 1.
-    const mvw = await evalOr(page, async () => {
-      const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
-      if (!LG.aiPowerId) return {};
-      const w1 = await LG.db.get(LG.aiPowerId(2026, 1));
-      const wBoard = w1 && w1.ranking && w1.ranking.week;
-      const rBoard = w1 && w1.ranking && w1.ranking.ros;
-      if (!Array.isArray(wBoard) || wBoard.length !== 8 || !Array.isArray(rBoard)) return {};
-      const r2 = wBoard.map((r) => ({ ...r, cats: { ...r.cats } }));
-      // team 1 (#8) climbs to #2, everyone from #2..#7 slides down one; team 8 stays #1.
-      // Re-stamp scores so rank order stays non-increasing (the leftover row scores would invert).
-      const moved = [r2[0], r2[7], ...r2.slice(1, 7)].map((r, i) => ({ ...r, rank: i + 1, score: 100 - i * 5 }));
-      await LG.db.set(LG.aiPowerId(2026, 2), { ...w1, week: 2, at: w1.at + 1000, ranking: { week: moved, ros: rBoard.map((r) => ({ ...r, cats: { ...r.cats } })) } });
-      UI._aiPower = await LG.loadAiPowerDocs();
-      UI.renderLeague(true);
-      await new Promise((r) => setTimeout(r, 200));
-      const c = document.getElementById("powerCard");
-      if (!c) return {};
-      return { h2: ((c.querySelector("h2") || {}).textContent || "").replace(/\s+/g, " ").trim(),
-        rows: [...c.querySelectorAll(".pwrow")].map((r) => r.dataset.team + ":" + (r.dataset.lw || "") + ":" + (r.dataset.move || "")),
-        lwText: [...c.querySelectorAll(".pwrow .pwlw")].map((el) => el.textContent.replace(/\s+/g, "")) };
-    }) || {};
-    ok(/week 2$/.test(mvw.h2), "with two weeks on file the card shows the NEWEST (" + mvw.h2 + ")");
-    ok(mvw.rows && mvw.rows[0] === "8:1:same" && mvw.rows[1] === "1:8:up" && mvw.rows[2] === "7:2:down" && mvw.rows[7] === "2:7:down",
-      "LW column is last week's overall rank plus ▲/▼: team 1 was #8 now #2, team 8 stays #1, the slid teams down (" + (mvw.rows || []).join(" ") + ")");
-    ok(Array.isArray(mvw.lwText) && mvw.lwText[0] === "1–" && mvw.lwText[1] === "8▲" && /▼/.test(mvw.lwText[2] || ""),
-      "…and the painted LW cell is the number plus the arrow (" + (mvw.lwText || []).slice(0, 3).join(" ") + ")");
-    // Validation: every poison makes the WHOLE reply fail, and the existing doc is kept.
-    const before = (await evalOr(page, () => window.__GFFL__.LG.db.get(window.__GFFL__.LG.aiPowerId(2026, 1)))) || {};
-    for (const poison of ["unknown", "dup", "rankclash"]) {
-      fixture.powerPoison = poison;
-      const r = await evalOr(page, () => window.__GFFL__.LG.ensureAiPower({ force: true }));
-      const after = (await evalOr(page, () => window.__GFFL__.LG.db.get(window.__GFFL__.LG.aiPowerId(2026, 1)))) || {};
-      ok(r && r.at === before.at && after.at === before.at,
-        "a reply with a " + (poison === "unknown" ? "team we never sent" : poison === "dup" ? "team listed twice" : "rank collision") + " is REJECTED whole — the ranking on file is untouched");
-    }
-    fixture.powerPoison = null;
-    fixture.powerFenced = true;
-    const fenced = await evalOr(page, () => window.__GFFL__.LG.ensureAiPower({ force: true }));
-    ok(fenced && fenced.at > before.at && fenced.ranking && Array.isArray(fenced.ranking.week) && fenced.ranking.week.length === 8 && Array.isArray(fenced.ranking.ros) && fenced.ranking.ros.length === 8,
-      "a reply wrapped in ```json fences — which models do despite 'no fences' — is unwrapped and accepted");
-    fixture.powerFenced = false;
-    const unit = await evalOr(page, () => {
-      const v = window.__GFFL__.LG.validateAiPowerReply;
-      const cats = (qb, rb, wr, te, bn) => ({ QB: qb, RB: rb, WR: wr, TE: te, BN: bn });
-      const row = (id, rank, score, c) => ({ teamId: id, rank, score, cats: c });
-      const weekOk = [row(1, 1, 90, cats(1, 2, 1, 2, 2)), row(2, 2, 70, cats(2, 1, 2, 1, 1))];
-      const rosOk = [row(2, 1, 88, cats(2, 1, 2, 1, 1)), row(1, 2, 60, cats(1, 2, 1, 2, 2))];
-      const pack = (week, ros) => JSON.stringify({ ranking: { week, ros } });
-      const got = v(pack(weekOk, rosOk), [1, 2]);
-      return {
-        ok: !!(got && got.week && got.ros && got.week.length === 2 && got.ros.length === 2),
-        arr: v(JSON.stringify([{ teamId: 1, rank: 1, score: 90, cats: cats(1, 2, 1, 2, 2) }, { teamId: 2, rank: 2, score: 70, cats: cats(2, 1, 2, 1, 1) }]), [1, 2]),
-        oneBoard: v(JSON.stringify({ ranking: weekOk }), [1, 2]),
-        gap: v(pack([row(1, 1, 90, cats(1, 1, 1, 1, 1)), row(2, 3, 70, cats(2, 2, 2, 2, 2))], rosOk), [1, 2]),
-        missing: v(pack([row(1, 1, 90, cats(1, 1, 1, 1, 1))], rosOk), [1, 2]),
-        prose: v("Sure! Here you go: {}", [1, 2]),
-        blurb: v(pack([{ teamId: 1, rank: 1, blurb: "old" }, { teamId: 2, rank: 2, blurb: "contract" }], rosOk), [1, 2]),
-        catchash: v(pack([row(1, 1, 90, cats(1, 1, 1, 1, 1)), row(2, 2, 70, cats(1, 2, 2, 2, 2))], rosOk), [1, 2]),
-        scoreHi: v(pack([row(1, 1, 101, cats(1, 2, 1, 2, 2)), row(2, 2, 70, cats(2, 1, 2, 1, 1))], rosOk), [1, 2]),
-        invert: v(pack([row(1, 1, 50, cats(1, 2, 1, 2, 2)), row(2, 2, 80, cats(2, 1, 2, 1, 1))], rosOk), [1, 2]),
-        noRos: v(JSON.stringify({ ranking: { week: weekOk } }), [1, 2]),
-        sorted: got && got.week ? got.week.map((r) => r.teamId + ":" + r.rank + ":" + r.score + ":" + r.cats.QB).join("|") : "",
-        rosFirst: got && got.ros && got.ros[0] ? got.ros[0].teamId + ":" + got.ros[0].score : "",
-      };
-    }) || {};
-    ok(unit.ok === true && unit.arr == null && unit.oneBoard == null && unit.gap == null && unit.missing == null && unit.prose == null && unit.blurb == null && unit.catchash == null
-      && unit.scoreHi == null && unit.invert == null && unit.noRos == null && unit.sorted === "1:1:90:1|2:2:70:2" && unit.rosFirst === "2:88",
-      "validateAiPowerReply: two boards + scores pass; a bare array / one-board / rank gap / missing team / prose / blurb / cat clash / score 101 / inverted scores / missing ros do not (" + JSON.stringify(unit) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
-  {
-    // ---- TB5: on the CLOUD, the first League open of the week generates on its own — and the
-    // write is create-only, so a device that loses the race adopts the winner's ranking.
-    fixture.powerPoison = null; fixture.powerFenced = false;
-    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
-    await armFakeCloud(page, fullSeed().docs);
-    const n0 = powerCalls();
-    await bootPage(page);
-    await waitOr(page, ".mucard");
-    await waitLive(page);
-    ok(await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8), "cloud: the league home generates week 1's ranking in the background and paints it");
-    const cloud = await evalOr(page, () => {
-      const d = window.__fakeCloud.store.get("aipower_2026_w1") || {};
-      return { backend: window.__GFFL__.LG.backendMode, stored: !!(d.ranking && d.ranking.week && d.ranking.week.length) };
-    }) || {};
-    ok(cloud.backend === "cloud" && cloud.stored === true && powerCalls() === n0 + 1, "…one Grok call, and the doc is in the cloud store (" + JSON.stringify(cloud) + ", calls " + (powerCalls() - n0) + ")");
-    // RESTAGED/NEW 2026-09-08: a tab that listed aipower while the doc was still missing
-    // cached [] and marked the week's id knownAbsent. get() then returned null forever
-    // (15s list TTL), so the card stayed empty with the ranking sitting in the store.
-    // loadAiPower get()-s first (warm paint stays a cache hit), then getFresh-es the
-    // week's own id when that miss or the cached doc is not current.
-    const hidden = await evalOr(page, async () => {
-      const LG = window.__GFFL__.LG, UI = window.__GFFL__.UI;
-      const id = LG.aiPowerId(2026, 1);
-      const doc = window.__fakeCloud.store.get(id);
-      window.__fakeCloud.store.delete(id);
-      LG.db.clearCache();
-      await LG.db.list("aipower");
-      window.__fakeCloud.store.set(id, doc);
-      const viaGet = await LG.db.get(id);
-      const viaLoad = await LG.loadAiPower(1);
-      UI._aiPower = await LG.loadAiPowerDocs();
-      UI.renderLeague(true);
-      await new Promise((r) => setTimeout(r, 200));
-      const card = document.getElementById("powerCard");
-      return { getNull: viaGet == null, loadN: viaLoad && viaLoad.ranking && viaLoad.ranking.week && viaLoad.ranking.week.length, painted: card ? card.querySelectorAll(".pwrow").length : -1 };
-    }) || {};
-    ok(hidden.getNull === true && hidden.loadN === 8 && hidden.painted === 8,
-      "a cached empty aipower list cannot hide the week's doc — getFresh still paints the eight rows (" + JSON.stringify(hidden) + ")");
-    // Week 2 with week 1 NOT final: no generation (the standings would lag). Finalized: it runs.
-    // TWO evaluates so the call-count assertion can sit BETWEEN them — a single eval that
-    // ran both would already have spent the week-2 call by the time we asked "did early skip".
-    const early = await evalOr(page, async () => {
-      const LG = window.__GFFL__.LG;
-      window.__realWeek = LG.currentWeek;
-      LG.currentWeek = () => 2;
-      const got = await LG.ensureAiPower();
-      return { early: got, week: LG.currentWeek() };
-    }) || {};
-    ok(early.early === null && powerCalls() === n0 + 1, "week 2 before week 1 is finalized: NO generation — the model would rank on lagging standings (" + early.early + ")");
-    const ready = await evalOr(page, async () => {
-      const LG = window.__GFFL__.LG;
-      window.__fakeCloud.store.set("weekly_2026_w1", { kind: "weekly", week: 1, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 90 }], power: [] });
-      LG.db.clearCache();
-      const got = await LG.ensureAiPower();
-      LG.currentWeek = window.__realWeek;
-      return { readyWeek: got && got.week, stored: !!(window.__fakeCloud.store.get("aipower_2026_w2") || {}).ranking };
-    }) || {};
-    ok(ready.readyWeek === 2 && ready.stored === true && powerCalls() === n0 + 2, "…the moment week 1's weekly doc exists, week 2's ranking generates (" + JSON.stringify(ready) + ")");
-    const w2turn = ((((lastPowerReq() || {}).messages) || []).find((m) => m.role === "user") || {}).content || "";
-    ok(/^WEEK 2 — 8 TEAMS:/.test(w2turn) && /"w":1,"l":0/.test(w2turn) && /"place":1/.test(w2turn),
-      "…and that request carries the finalized week's standings — Battle Kreussers 1-0 in first (" + w2turn.slice(0, 30) + "…)");
-    // The race: a rival device's doc lands while OUR model call is in flight → our create-only
-    // write is refused, and we adopt THEIRS rather than overwrite it.
-    const race = await evalOr(page, async () => {
-      const LG = window.__GFFL__.LG;
-      LG.currentWeek = () => 3;
-      window.__fakeCloud.store.set("weekly_2026_w2", { kind: "weekly", week: 2, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 90 }], power: [] });
-      LG.db.clearCache();
-      const catsOf = (i) => ({ QB: i + 1, RB: 8 - i, WR: ((i + 1) % 8) + 1, TE: ((i + 3) % 8) + 1, BN: i + 1 });
-      const week = Array.from({ length: 8 }, (_, i) => ({ teamId: i + 1, rank: i + 1, score: 100 - i * 5, cats: catsOf(i) }));
-      const ros = Array.from({ length: 8 }, (_, i) => ({ teamId: 8 - i, rank: i + 1, score: 99 - i * 5, cats: catsOf((i + 3) % 8) }));
-      const rival = { kind: "aipower", season: 2026, week: 3, at: 12345, model: "grok-4.6", input: {}, ranking: { week, ros } };
-      const realFetch = window.fetch;
-      window.fetch = async function (u, o) {
-        const r = await realFetch.apply(this, arguments);
-        if (/farmgpt/.test(String(u))) window.__fakeCloud.store.set("aipower_2026_w3", rival); // lands between our read and our write
-        return r;
-      };
-      const got = await LG.ensureAiPower();
-      window.fetch = realFetch;
-      const stored = window.__fakeCloud.store.get("aipower_2026_w3");
-      return { gotAt: got && got.at, storedAt: stored && stored.at, firstTeam: got && got.ranking && got.ranking.week && got.ranking.week[0] && got.ranking.week[0].teamId };
-    }) || {};
-    ok(race.gotAt === 12345 && race.storedAt === 12345 && race.firstTeam === 1,
-      "losing the create-only race adopts the rival's ranking and leaves it in place — one ranking of record per week (" + JSON.stringify(race) + ")");
-    ok(errors.length === 0, "0 page errors on the cloud page");
-    await ctx.close();
-  }
+  // ---- TB5: RETIRED 2026-09-23 — the cloud's Tuesday generation, the knownAbsent getFresh
+  // for aipower docs, the week-N-1 finalize gate and the create-only race all belonged to the
+  // Grok ranking. User decision: computed from the app's own numbers, no AI at all. UH6 now
+  // proves a cloud League open makes no farmgpt call and writes only the hourly snapshot.
   {
     // ---- TB6: the desktop — the card is a registry entry directly under Standings in MAIN.
     const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1440, height: 980 } });
@@ -24553,8 +24297,7 @@ async function openDetails(page, id) {
     }) || {};
     ok(dk.ids && dk.ids.indexOf("power") === dk.ids.indexOf("standings") + 1, "desktop: 'power' follows 'standings' in MAIN (" + (dk.ids || []).join(",") + ")");
     ok(dk.hasCard === true && dk.label === true, "…rendered through the registry, present in the default layout");
-    await evalOr(page, () => window.__GFFL__.LG.ensureAiPower({ force: true }));
-    await evalOr(page, () => window.__GFFL__.UI.show("league"));
+    // RESTAGED 2026-09-23: no forced Grok generation first — the board is computed on paint.
     await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8);
     const dkw = await evalOr(page, () => {
       const c = document.getElementById("powerCard");
@@ -24568,8 +24311,9 @@ async function openDetails(page, id) {
         pans: !!(panner && panner.scrollWidth > panner.clientWidth + 1),
       };
     }) || {};
-    ok(Array.isArray(dkw.heads) && dkw.heads.join("|") === "|Team|Score|LW|QB|RB|WR|TE|BN" && dkw.blurbs === 0,
-      "…desktop paints the same columns (Score included), still no blurb (" + (dkw.heads || []).join("|") + ")");
+    // RESTAGED 2026-09-23: the same twelve columns as the phone's This week.
+    ok(Array.isArray(dkw.heads) && dkw.heads.join("|") === "|Team|Score|Proj|Opp|Win%|LW|QB|RB|WR|TE|BN" && dkw.blurbs === 0,
+      "…desktop paints the same columns (Score, Proj, Opp, Win% included), still no blurb (" + (dkw.heads || []).join("|") + ")");
     ok(dkw.board === "week" && Array.isArray(dkw.tabs) && dkw.tabs.join("|") === "week:on|ros",
       "…and the same two tabs, opening on This week (" + (dkw.tabs || []).join("|") + ")");
     ok(dkw.sideways <= 1 && dkw.pans !== true, "…and MAIN does not pan or scroll sideways for them");
@@ -31204,6 +30948,484 @@ async function openDetails(page, id) {
       "control: the same even inputs on a warm device DO record a real 50/50 (" + JSON.stringify(r && r.control) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
+  }
+
+  // ================================================================================
+  //  UH · power rankings computed from the app's own numbers (2026-09-23)
+  // ================================================================================
+  // User: the Grok rankings "don't make sense" — Grok never saw this app's projections,
+  // weekly scores or opponents, and its Tuesday ranking disagreed with the matchup page by
+  // Sunday. Decisions (final): no AI at all; keep a 0–100 score; rest of season blends
+  // results with roster. Every number below is hand-computed from the fixture beside it.
+  if (section("UH1 · This week board — the pure arithmetic")) {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    // Four teams. PF 300 / 250 / 250 / 200. Each starter's expected finish:
+    //   T1  QB 20 · RB 15 · WR 12 · TE 8 · FLEX(WR) 10 · K 7 · DST 6        = 78   bench 9,5,3,1 → top 3 = 17
+    //   T2  QB 18 · RB 20 · WR 14 · TE 6 · FLEX(RB) 11 · K 8 · DST 5        = 82   bench 4,4,9   → 17
+    //   T3  QB 25 · RB 10 · WR 16 · TE 9 · FLEX(TE) 4  · K 9 · DST 5        = 78   bench 12,2,2,2 → 16
+    //   T4  QB 15 · RB 12 · WR 18 · TE 5 · FLEX(WR) 8  · K 6 · DST null(0)  = 64   no bench → 0
+    // Rank by proj: T2 82 #1; T1 and T3 tie at 78 → season PF 300 > 250, T1 #2, T3 #3; T4 #4.
+    // Score = round(100·proj/82): T2 100, T1 95 (95.12), T3 95, T4 78 (78.05).
+    // Rooms (FLEX in his real position): QB 20/18/25/15 → T3 1, T1 2, T2 3, T4 4.
+    //   RB 15/31/10/12 → T2 1, T1 2, T4 3, T3 4.  WR 22/14/16/26 → T4 1, T1 2, T3 3, T2 4.
+    //   TE 8/6/13/5 → T3 1, T1 2, T2 3, T4 4.  BN 17/17/16/0 → T1 1 (PF 300 beats T2's 250), T2 2, T3 3, T4 4.
+    // Last week's actual points 100 / 120 / 90 / 120 → T2 and T4 tie at 120, PF 250 > 200:
+    //   T2 1, T4 2, T1 3, T3 4. Against today: T2 1→1 same, T1 3→2 up, T3 4→3 up, T4 2→4 down.
+    // Pairs [[1,2]] only: T1 opp T2, T2 opp T1, T3 and T4 BYE (Win% null). No pairs at all → opp null.
+    const r = await evalOr(page, () => {
+      const LG = window.__GFFL__.LG;
+      const P = { a1: 20, a2: 15, a3: 12, a4: 8, a5: 10, a6: 7, a7: 6, ab1: 9, ab2: 5, ab3: 3, ab4: 1,
+        b1: 18, b2: 20, b3: 14, b4: 6, b5: 11, b6: 8, b7: 5, bb1: 4, bb2: 4, bb3: 9,
+        c1: 25, c2: 10, c3: 16, c4: 9, c5: 4, c6: 9, c7: 5, cb1: 12, cb2: 2, cb3: 2, cb4: 2,
+        d1: 15, d2: 12, d3: 18, d4: 5, d5: 8, d6: 6, d7: null };
+      const lineup = (x, flex) => [["1", "QB"], ["2", "RB"], ["3", "WR"], ["4", "TE"], ["5", flex], ["6", "K"], ["7", "DST"]].map(([i, pos]) => ({ key: x + i, pos }));
+      const inp = {
+        teams: [{ id: 1, pf: 300 }, { id: 2, pf: 250 }, { id: 3, pf: 250 }, { id: 4, pf: 200 }],
+        starters: { 1: lineup("a", "WR"), 2: lineup("b", "RB"), 3: lineup("c", "TE"), 4: lineup("d", "WR") },
+        bench: { 1: ["ab1", "ab2", "ab3", "ab4"].map((key) => ({ key, pos: "RB" })), 2: ["bb1", "bb2", "bb3"].map((key) => ({ key, pos: "WR" })),
+          3: ["cb1", "cb2", "cb3", "cb4"].map((key) => ({ key, pos: "QB" })), 4: [] },
+        projOf: (k) => P[k],
+        pairs: [[1, 2]],
+        winOf: (id, o) => (id === 1 && o === 2 ? 0.4 : id === 2 && o === 1 ? 0.6 : null),
+        lastRanks: LG.powerLastWeekRanks({ kind: "weekly", week: 1, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 120 }, { home: 3, away: 4, homePts: 90, awayPts: 120 }] },
+          (id) => ({ 1: 300, 2: 250, 3: 250, 4: 200 })[id]),
+      };
+      const rows = LG.powerWeekBoard(inp);
+      const none = LG.powerWeekBoard({ ...inp, pairs: [], lastRanks: null });
+      return {
+        rows: rows.map((x) => ({ id: x.teamId, rank: x.rank, score: x.score, proj: x.proj, opp: x.opp, win: x.win, cats: x.cats, lw: x.lw })),
+        noneOpp: none.map((x) => x.opp), noneLw: none.map((x) => x.lw),
+        week1: LG.powerLastWeekRanks(null, () => 0),
+        voidDoc: LG.powerLastWeekRanks({ kind: "weekly", week: 1, matchups: [] }, () => 0),
+      };
+    }) || {};
+    const by = {}; for (const x of r.rows || []) by[x.id] = x;
+    ok((r.rows || []).map((x) => x.id).join(",") === "2,1,3,4" && [2, 1, 3, 4].every((id, i) => by[id].rank === i + 1),
+      "UH1: ranked by the sum of the starters' expected finish, a 78–78 tie broken by season PF: T2, T1, T3, T4 (" + (r.rows || []).map((x) => x.id + "#" + x.rank).join(" ") + ")");
+    ok(by[1] && by[1].proj === 78 && by[2].proj === 82 && by[3].proj === 78 && by[4].proj === 64,
+      "…Proj is the plain sum, K / D/ST included, a null finish counting 0: 78 / 82 / 78 / 64");
+    ok(by[2] && by[2].score === 100 && by[1].score === 95 && by[3].score === 95 && by[4].score === 78,
+      "…Score = round(100 × proj / 82): 100 / 95 / 95 / 78 (" + [1, 2, 3, 4].map((id) => by[id] && by[id].score).join("/") + ")");
+    const cat = (k) => [1, 2, 3, 4].map((id) => by[id] && by[id].cats[k]).join("");
+    ok(cat("QB") === "2314" && cat("RB") === "2143" && cat("WR") === "2431" && cat("TE") === "2314",
+      "…QB/RB/WR/TE rooms are each their own 1..4, a FLEX counted in his real position (T1..T4 QB " + cat("QB") + " RB " + cat("RB") + " WR " + cat("WR") + " TE " + cat("TE") + ")");
+    ok(cat("BN") === "1234", "…BN is the best three bench finishes (17 / 17 / 16 / 0), the 17–17 tie to the higher PF (" + cat("BN") + ")");
+    ok(by[1] && by[1].opp === 2 && by[2].opp === 1 && by[3].opp === "BYE" && by[4].opp === "BYE" && by[1].win === 0.4 && by[2].win === 0.6 && by[3].win === null,
+      "…Opp from the week's pairs, Win% from each team's own side, BYE for the unpaired (" + JSON.stringify([1, 2, 3, 4].map((id) => by[id] && [by[id].opp, by[id].win])) + ")");
+    ok((r.noneOpp || []).length === 4 && r.noneOpp.every((o) => o === null), "…and with nobody scheduled at all, no opponent is invented (" + JSON.stringify(r.noneOpp) + ")");
+    ok(by[1] && by[1].lw === 3 && by[2].lw === 1 && by[3].lw === 4 && by[4].lw === 2,
+      "…LW is last week's ACTUAL points rank, a 120–120 tie to the higher PF: T1 3, T2 1, T3 4, T4 2");
+    ok(r.week1 === null && r.voidDoc === null && (r.noneLw || []).length === 4 && r.noneLw.every((x) => x === null),
+      "…and no LW at all in week 1, or when last week's doc is missing or void");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  if (section("UH2 · Rest of season board — player value, optimal lineup, the results blend")) {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    // Roster rules for the fixture: QB 1, RB 1, WR 1, TE 1, FLEX 1 (no K / DST, to keep it short).
+    // v = ½p + ½a with both; Out (p 0 / null) → a; rookie (no a) → p; neither → 0.
+    //   T1  Q QB 20/16 → 18 · R1 RB 10/14 → 12 · R2 RB OUT 0/13 → 13 · W1 WR rookie 12/— → 12
+    //       T TE 6/8 → 7 · W2 WR on IR 30/30 (EXCLUDED) · R3 RB bench —/— → 0
+    //       lineup QB 18 + RB R2 13 + WR 12 + TE 7 + FLEX R1 12 = 62. Rooms QB 18, RB 25, WR 12, TE 7; BN 0.
+    //       (With the IR man counted the lineup would read 80: W2 30 in the WR slot, W1 12 at FLEX.)
+    //   T2  QB 15/17 → 16 · RB 16/12 → 14 · WR 14/16 → 15 · WR 9/11 → 10 · TE 5/5 → 5
+    //       bench TE 4/6 → 5 · bench RB rookie 3/— → 3
+    //       lineup 16 + 14 + 15 + 5 + FLEX WR 10 = 60. Rooms QB 16, RB 14, WR 25, TE 5; BN 5 + 3 = 8.
+    //   T3  QB 22/20 → 21 · RB 18/18 → 18 · WR 11/9 → 10 · TE 9/11 → 10 · RB 7/9 → 8
+    //       bench WR 6 · QB 10 · RB 2 · WR 1
+    //       lineup 21 + 18 + 10 + 10 + FLEX RB 8 = 67. Rooms QB 21, RB 26, WR 10, TE 10; BN 10 + 6 + 2 = 18.
+    // g = 0: wR = 3/3 = 1, rating = roster 62 / 60 / 67 → T3 #1 100, T1 #2 93 (92.54), T2 #3 90 (89.55).
+    // g = 3 (PF 330 / 360 / 270, W-L 2-1, 3-0, 1-1-1): wR = 3/6 = 0.5; results 110 / 120 / 90.
+    //   rating T1 31 + 55 = 86.0 · T2 30 + 60 = 90.0 · T3 33.5 + 45 = 78.5
+    //   → T2 #1 100, T1 #2 96 (95.56), T3 #3 87 (87.22).
+    // Rooms by v: QB T3 1, T1 2, T2 3 · RB T3 1, T1 2, T2 3 · WR T2 1, T1 2, T3 3 · TE T3 1, T1 2, T2 3 · BN T3 1, T2 2, T1 3.
+    // LW from a seeded snapshot {1: 3, 2: 1, 3: 2}: T2 1→1 same, T1 3→2 up, T3 2→3 down.
+    const r = await evalOr(page, () => {
+      const LG = window.__GFFL__.LG;
+      const V = {
+        q1: [20, 16], r1: [10, 14], r2: [0, 13], w1: [12, null], t1: [6, 8], w2: [30, 30], r3: [null, null],
+        q2: [15, 17], r4: [16, 12], w3: [14, 16], w4: [9, 11], t2: [5, 5], t3: [4, 6], r5: [3, null],
+        q3: [22, 20], r6: [18, 18], w5: [11, 9], t4: [9, 11], r7: [7, 9], w6: [6, 6], q4: [10, 10], r8: [2, 2], w7: [1, 1],
+      };
+      const pl = (key, pos, slot) => ({ key, pos, slot: slot || pos });
+      const active = {
+        1: [pl("q1", "QB"), pl("r1", "RB"), pl("r2", "RB", "BENCH"), pl("w1", "WR"), pl("t1", "TE"), pl("w2", "WR", "IR"), pl("r3", "RB", "BENCH")],
+        2: [pl("q2", "QB"), pl("r4", "RB"), pl("w3", "WR"), pl("w4", "WR", "FLEX"), pl("t2", "TE"), pl("t3", "TE", "BENCH"), pl("r5", "RB", "BENCH")],
+        3: [pl("q3", "QB"), pl("r6", "RB"), pl("w5", "WR"), pl("t4", "TE"), pl("r7", "RB", "FLEX"), pl("w6", "WR", "BENCH"), pl("q4", "QB", "BENCH"), pl("r8", "RB", "BENCH"), pl("w7", "WR", "BENCH")],
+      };
+      const rules = { QB: 1, RB: 1, WR: 1, TE: 1, FLEX: 1, DST: 0, K: 0 };
+      const valueOf = (k) => LG.rosValue(V[k][0], V[k][1]);
+      const vals = {}; for (const k of Object.keys(V)) vals[k] = valueOf(k);
+      const g0 = LG.powerRosBoard({ teams: [1, 2, 3].map((id) => ({ id, pf: 0, w: 0, l: 0, t: 0 })), active, valueOf, rules });
+      const g3 = LG.powerRosBoard({ teams: [{ id: 1, pf: 330, w: 2, l: 1, t: 0 }, { id: 2, pf: 360, w: 3, l: 0, t: 0 }, { id: 3, pf: 270, w: 1, l: 1, t: 1 }],
+        active, valueOf, rules, odds: { 1: 61, 2: 88, 3: 0 }, lastRanks: { 1: 3, 2: 1, 3: 2 } });
+      // LG.optimalLineup itself takes whatever it is handed (the caller filters IR, as
+      // fzOptimalTotal always did); handed T1 with the IR man it reads 80.
+      const irCounted = LG.optimalLineup(active[1], valueOf, rules).total;
+      const avg = LG.seasonAverages([new Map([["k1", 10], [3915511, 12]]), null, new Map([["k1", 20]])]);
+      const pack = (b) => ({ g: b.g, wR: b.wR, rows: b.rows.map((x) => ({ id: x.teamId, rank: x.rank, score: x.score, rating: x.rating, roster: x.roster, results: x.results, rec: x.rec, po: x.po, cats: x.cats, lw: x.lw })) });
+      return { vals, g0: pack(g0), g3: pack(g3), irCounted, avgK1: avg.get("k1"), avgNum: avg.get("3915511"),
+        odd: [LG.rosValue(-1, 5), LG.rosValue(null, null), LG.rosValue("x", 4), LG.rosValue(8, NaN)] };
+    }) || {};
+    const v = r.vals || {};
+    ok(v.q1 === 18 && v.r1 === 12 && v.t1 === 7 && v.q2 === 16 && v.q3 === 21,
+      "UH2: a player with both numbers is half this week's projection, half his season average (20/16 → 18, 10/14 → 12)");
+    ok(v.r2 === 13 && v.w1 === 12 && v.r5 === 3 && v.r3 === 0,
+      "…Out this week (p 0) uses his average 13; a rookie with no history uses his projection 12; neither is 0");
+    ok(Array.isArray(r.odd) && r.odd.join(",") === "5,0,4,8", "…a negative / non-number projection is treated as none, a non-finite average likewise (" + JSON.stringify(r.odd) + ")");
+    ok(r.avgK1 === 15 && r.avgNum === 12, "LG.seasonAverages skips a week with no line (and an unanswered week), keys as strings: (10+20)/2 = 15, espn id 12");
+    const g0 = r.g0 || { rows: [] }, g3 = r.g3 || { rows: [] };
+    const b0 = {}; for (const x of g0.rows) b0[x.id] = x;
+    ok(b0[1] && b0[1].roster === 62 && r.irCounted === 80, "T1's roster is its optimal legal lineup with the IR man left out, 62 (the same solver handed him reads 80)");
+    const b3 = {}; for (const x of g3.rows) b3[x.id] = x;
+    ok(g0.g === 0 && g0.wR === 1 && b0[1] && b0[1].roster === 62 && b0[2].roster === 60 && b0[3].roster === 67 && b0[1].rating === 62,
+      "g = 0: wR = 1, the rating IS the roster — 62 / 60 / 67");
+    ok(g0.rows.map((x) => x.id + ":" + x.rank + ":" + x.score).join(" ") === "3:1:100 1:2:93 2:3:90",
+      "…T3 #1 100, T1 #2 93, T2 #3 90 (" + g0.rows.map((x) => x.id + ":" + x.rank + ":" + x.score).join(" ") + ")");
+    ok(g3.g === 3 && g3.wR === 0.5 && b3[1] && b3[1].results === 110 && b3[2].results === 120 && b3[3].results === 90,
+      "g = 3: wR = 3/6 = 0.5, results = PF per game 110 / 120 / 90");
+    ok(b3[1] && b3[1].rating === 86 && b3[2].rating === 90 && b3[3].rating === 78.5
+      && g3.rows.map((x) => x.id + ":" + x.rank + ":" + x.score).join(" ") === "2:1:100 1:2:96 3:3:87",
+      "…rating ½·roster + ½·results = 86 / 90 / 78.5 → T2 #1 100, T1 #2 96, T3 #3 87 (" + g3.rows.map((x) => x.id + ":" + x.rating + ":" + x.score).join(" ") + ")");
+    const c3 = (k) => [1, 2, 3].map((id) => b3[id] && b3[id].cats[k]).join("");
+    ok(c3("QB") === "231" && c3("RB") === "231" && c3("WR") === "213" && c3("TE") === "231" && c3("BN") === "321",
+      "…rooms by value off the optimal lineup (FLEX in his real position), BN the next best three (QB " + c3("QB") + " RB " + c3("RB") + " WR " + c3("WR") + " TE " + c3("TE") + " BN " + c3("BN") + ")");
+    ok(b3[1] && b3[1].rec === "2-1" && b3[2].rec === "3-0" && b3[3].rec === "1-1-1" && b3[1].po === 61 && b3[3].po === 0,
+      "…Rec W-L with a tie only when there is one; PO% passed straight through, a real 0 kept");
+    ok(b3[1] && b3[1].lw === 3 && b3[2].lw === 1 && b3[3].lw === 2 && g0.rows.every((x) => x.lw === null),
+      "…LW is the snapshot's rank (T1 3, T2 1, T3 2), none without a snapshot");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  if (section("UH3 · the phone card — This week, hand-computed, from the live engine's own number")) {
+    // Eight teams (seedAllFielded), a two-week schedule, week 1 finalized, the board on week 2.
+    // Each starter's expected finish (D.liveProj) is pinned to a table:
+    //   T1  Passer 20 · Rusher 15 · Second 12 · Receiver 14 · Two 9 · Tight 8 · Flexman(RB, FLEX) 10 · PHI 6 · Kicker 7 = 101
+    //       bench Backup 5 · Injured 0 · Healthy 4 → BN 9
+    //   T2  Rival 25 · Wideout 18 · DAL 5 = 48
+    //   T3..T8 fillers: slot i (0..10) finishes t + i → 11t + 55 = 88 / 99 / 110 / 121 / 132 / 143
+    //       QB t · RB (t+1)+(t+2)+(t+3)+FLEX(t+8) = 4t+14 · WR 3t+15 · TE t+7 · no bench
+    // Rank: T8 143, T7 132, T6 121, T5 110, T1 101, T4 99, T3 88, T2 48.
+    // Score round(100·x/143): 100, 92, 85, 77, 71, 69, 62, 34.
+    // QB 20 / 25 / t → T2 1, T1 2, T8 3, T7 4, T6 5, T5 6, T4 7, T3 8.
+    // RB T1 15+12+10 = 37 sits between T6 38 and T5 34 → T8 1, T7 2, T6 3, T1 4, T5 5, T4 6, T3 7, T2 8.
+    // WR T1 23 below T3 24 → T8..T3 1..6, T1 7, T2 8.   TE T1 8 below T3 10 → T8..T3 1..6, T1 7, T2 8.
+    // BN: T1 9, everyone else 0 → by season PF (week 1: T4 130, T2 120, T5 110, T6 110, T8 95, T3 90, T7 80)
+    //   → T1 1, T4 2, T2 3, T5 4, T6 5, T8 6, T3 7, T7 8.
+    // LW = week 1's actual points (1v2 100–120, 3v4 90–130, 5v6 110–110, 7v8 80–95):
+    //   T4 1, T2 2, T5 3 (110 tie, same PF, lower id), T6 4, T1 5, T8 6, T3 7, T7 8.
+    //   Today vs LW: T8 6▲ · T7 8▲ · T6 4▲ · T5 3▼ · T1 5– · T4 1▼ · T3 7– · T2 2▼.
+    // Week 2 pairs 1v3, 2v4, 5v7 (T6, T8 BYE). Every game set "pre"; fillers play for BUF, off
+    // the slate, so they count as played (D.gameDone's bye rule).
+    //   T1 v T3: diff +13, 9 still of 20, sd 10·√9 = 30, raw 1/(1+e^(−1.702·13/30)) = 0.67645,
+    //            w = 0.2·9/20 = 0.09 → p = 0.91·0.67645 + 0.045 = 0.6606 → 66% / 34%.
+    //   T2 v T4: diff −51, 3 still of 14, sd 17.32, raw 0.00662, w = 0.0429 → 0.0278 → 3% / 97%.
+    //   T5 v T7: every starter played → pinned, 110 < 132 → 0% / 100%.
+    const base = seedAllFielded();
+    const docs = { ...base.docs,
+      sched_2026: { kind: "sched", season: 2026, weeks: [[[1, 2], [3, 4], [5, 6], [7, 8]], [[1, 3], [2, 4], [5, 7]]] },
+      weekly_2026_w1: { kind: "weekly", week: 1, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 120 }, { home: 3, away: 4, homePts: 90, awayPts: 130 },
+        { home: 5, away: 6, homePts: 110, awayPts: 110 }, { home: 7, away: 8, homePts: 80, awayPts: 95 }], awards: {}, power: [], accuracy: null, finalizedAt: 1001 } };
+    const { ctx, page, errors } = await newTestPage(browser, { ...base, docs });
+    const gpt = [];
+    page.on("request", (q) => { if (q.url().includes("/.netlify/functions/farmgpt")) gpt.push(q.postData() || ""); });
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await evalOr(page, async () => {
+      const { LG, D, UI } = window.__GFFL__;
+      const T1 = { "3915511": 20, "4241457": 15, "111888": 12, "4361741": 14, "111555": 9, "111222": 8, "111444": 10, dst_PHI: 6, "2473037": 7,
+        "111333": 5, "111666": 0, "111777": 4, "222111": 25, "222333": 18, dst_DAL: 5 };
+      D.liveProj = (key) => {
+        if (key in T1) return T1[key];
+        const m = /^fill(\d)_(\d+)$/.exec(String(key));
+        return m ? Number(m[1]) + Number(m[2]) : null;
+      };
+      for (const ab of ["PHI", "DAL", "DEN", "KC"]) if (!D.S.games.has(ab)) D.S.games.set(ab, { state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+      for (const ab of [...D.S.games.keys()]) D.S.games.set(ab, { ...D.S.games.get(ab), state: "pre", kickoff: "2099-01-01T00:00:00Z" });
+      UI._pwTab = "week";
+      UI.week = 2;
+      await UI.renderLeague();
+    });
+    await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8);
+    const card = await evalOr(page, () => {
+      const c = document.getElementById("powerCard");
+      if (!c) return {};
+      const txt = (el, sel) => ((el.querySelector(sel) || {}).textContent || "").replace(/\s+/g, "").trim();
+      const prev = c.previousElementSibling;
+      return {
+        h2: txt(c, "h2"), under: !!(prev && prev.classList.contains("standcard")),
+        heads: [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()),
+        rows: [...c.querySelectorAll(".pwrow")].map((r) => ({ team: Number(r.dataset.team), rank: txt(r, ".pwrank"), score: txt(r, ".pwscore"),
+          proj: txt(r, ".pwproj"), opp: txt(r, ".pwopp"), win: txt(r, ".pwwin"), lw: txt(r, ".pwlw"), move: r.dataset.move,
+          cats: ["QB", "RB", "WR", "TE", "BN"].map((k) => txt(r, '.pwcat[data-pos="' + k + '"]')).join(",") })),
+        tabs: [...c.querySelectorAll("#pwTabs [data-pw]")].map((b) => b.dataset.pw + (b.classList.contains("on") ? ":on" : "")),
+        foot: txt(c, ".pwfoot"),
+      };
+    }) || {};
+    const want = [
+      // team, rank, score, proj, opp, win, lw, cats QB,RB,WR,TE,BN
+      [8, 1, 100, "143.0", "BYE", "—", "6▲", "3,1,1,1,6"],
+      [7, 2, 92, "132.0", "T5", "100%", "8▲", "4,2,2,2,8"],
+      [6, 3, 85, "121.0", "BYE", "—", "4▲", "5,3,3,3,5"],
+      [5, 4, 77, "110.0", "T7", "0%", "3▼", "6,5,4,4,4"],
+      [1, 5, 71, "101.0", "T3", "66%", "5–", "2,4,7,7,1"],
+      [4, 6, 69, "99.0", "T2", "97%", "1▼", "7,6,5,5,2"],
+      [3, 7, 62, "88.0", "T1", "34%", "7–", "8,7,6,6,7"],
+      [2, 8, 34, "48.0", "T4", "3%", "2▼", "1,8,8,8,3"],
+    ];
+    const got = (card.rows || []).map((r) => [r.team, Number(r.rank), Number(r.score), r.proj, r.opp, r.win, r.lw, r.cats]);
+    ok(card.under === true && /^Powerrankings—week2$/.test(card.h2 || ""), "UH3: the card sits under Standings and names the week on the board (" + card.h2 + ")");
+    ok(Array.isArray(card.heads) && card.heads.join("|") === "|Team|Score|Proj|Opp|Win%|LW|QB|RB|WR|TE|BN",
+      "…This week columns: rank, Team, Score, Proj, Opp, Win%, LW, then the five rooms (" + (card.heads || []).join("|") + ")");
+    ok(got.length === 8 && got.every((g, i) => g[0] === want[i][0] && g[1] === want[i][1] && g[2] === want[i][2] && g[3] === want[i][3]),
+      "…rank, score and Proj match the hand count: T8 143 · T7 132 · T6 121 · T5 110 · T1 101 · T4 99 · T3 88 · T2 48 (" + got.map((g) => g[0] + ":" + g[2] + ":" + g[3]).join(" ") + ")");
+    ok(got.length === 8 && got.every((g, i) => g[4] === want[i][4] && g[5] === want[i][5]),
+      "…Opp from week 2's schedule (BYE for the unpaired) and Win% = D.winProb from each side: 66/34, 3/97, 0/100 (" + got.map((g) => g[0] + ":" + g[4] + ":" + g[5]).join(" ") + ")");
+    ok(got.length === 8 && got.every((g, i) => g[7] === want[i][7]),
+      "…room ranks match, a FLEX in his real position and BN's zero-ties to season PF (" + got.map((g) => g[0] + "=" + g[7]).join(" ") + ")");
+    ok(got.length === 8 && got.every((g, i) => g[6] === want[i][6]),
+      "…LW is week 1's actual-points rank with the arrow against today (" + got.map((g) => g[0] + ":" + g[6]).join(" ") + ")");
+    ok((card.tabs || []).join("|") === "week:on|ros" && /matchuppage/.test(card.foot || "") && !/Grok/i.test(card.foot || ""),
+      "…opens on This week; the footer says Proj is the matchup page's number and never mentions Grok");
+    // Rest of season: a tap swaps the table in place, different columns, and back again.
+    const ros = await evalOr(page, async () => {
+      const c0 = document.getElementById("powerCard");
+      const b = c0 && c0.querySelector('[data-pw="ros"]');
+      if (b) b.click();
+      for (let i = 0; i < 60 && !document.querySelector("#powerCard .pwrating"); i++) await new Promise((x) => setTimeout(x, 50));
+      const c = document.getElementById("powerCard");
+      const out = { board: c.dataset.board, heads: [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()), rows: c.querySelectorAll(".pwrow").length,
+        tab: window.__GFFL__.UI._pwTab };
+      window.__GFFL__.UI.renderLeague(true); // a live repaint keeps the reader's tab
+      out.afterRepaint = document.getElementById("powerCard").dataset.board;
+      const w = document.querySelector('#powerCard [data-pw="week"]');
+      if (w) w.click();
+      out.back = document.getElementById("powerCard").dataset.board;
+      return out;
+    }) || {};
+    ok(ros.board === "ros" && (ros.heads || []).join("|") === "|Team|Score|Rating|Rec|PO%|LW|QB|RB|WR|TE|BN" && ros.rows === 8,
+      "…Rest of season swaps in its own columns: Rating, Rec, PO% (" + (ros.heads || []).join("|") + ")");
+    ok(ros.afterRepaint === "ros" && ros.back === "week", "…a live repaint keeps the tab the reader chose; tapping This week goes back");
+    // Pan: the table is wider than the card, the page is not.
+    const pan = await evalOr(page, () => {
+      const p = document.querySelector("#powerCard .panner");
+      return { pans: !!(p && p.scrollWidth > p.clientWidth + 1), sideways: document.documentElement.scrollWidth - window.innerWidth,
+        pict: (document.getElementById("powerCard").textContent.match(/\p{Extended_Pictographic}/gu) || []).length };
+    }) || {};
+    ok(pan.pans === true && pan.sideways <= 1 && pan.pict === 0,
+      "…at 390px the twelve columns pan INSIDE the card, the page never scrolls sideways, no pictographs (" + JSON.stringify(pan) + ")");
+    if (SHOTS) {
+      fs.mkdirSync(SCRATCH, { recursive: true });
+      const el = await page.$("#powerCard");
+      if (el) await el.screenshot({ path: path.join(SCRATCH, "uh_power_week_390.png") });
+      // …and panned halfway and to the far edge, so every column is on a plate.
+      await evalOr(page, () => { const p = document.querySelector("#powerCard .panner"); if (p) p.scrollLeft = (p.scrollWidth - p.clientWidth) / 2; });
+      if (el) await el.screenshot({ path: path.join(SCRATCH, "uh_power_week_390_mid.png") });
+      await evalOr(page, () => { const p = document.querySelector("#powerCard .panner"); if (p) p.scrollLeft = p.scrollWidth; });
+      if (el) await el.screenshot({ path: path.join(SCRATCH, "uh_power_week_390_panned.png") });
+    }
+    ok(gpt.length === 0, "no /.netlify/functions/farmgpt call from the League page — no AI anywhere in the ranking (" + gpt.length + ")");
+    const snaps = await evalOr(page, () => Object.keys(localStorage).filter((k) => /powersnap_|aipower_/.test(k)).length);
+    ok(snaps === 0, "…and a local fallback store writes no snapshot (cloud only)");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  if (section("UH4 · This week is live — the matchup header's number, repainted every tick")) {
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8);
+    const cellOf = (id) => evalOr(page, (id) => {
+      const r = document.querySelector('#powerCard .pwrow[data-team="' + id + '"]');
+      return r ? r.querySelector(".pwproj").textContent.trim() : null;
+    }, id);
+    // The header's own expected finish, read off the real matchup page (1 is home, 2 away).
+    const t1Card = await cellOf(1), t2Card = await cellOf(2);
+    await evalOr(page, () => { window.__GFFL__.UI.matchup = [1, 2]; window.__GFFL__.UI.show("matchup"); });
+    await waitOr(page, ".muhproj");
+    const hdr = await evalOr(page, () => [...document.querySelectorAll(".muhproj")].map((e) => e.textContent.trim())) || [];
+    ok(t1Card && hdr.length === 2 && hdr[1] === t1Card && hdr[0] === t2Card,
+      "UH4: Proj on the card is the matchup header's expected finish, digit for digit (card " + t1Card + "/" + t2Card + ", header home " + hdr[1] + " away " + hdr[0] + ")");
+    await evalOr(page, () => window.__GFFL__.UI.show("league"));
+    await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8);
+    // The live path: a starter's points move in the engine and the poll's own onUpdate fires.
+    // P. Passer (PHI) in a game under way: liveProj = points + the unplayed share of his projection,
+    // so +7 points is exactly +7.0 on T1's Proj.
+    const live = await evalOr(page, async () => {
+      const { D } = window.__GFFL__;
+      const key = "3915511";
+      const g = D.S.games.get("PHI") || {};
+      D.S.games.set("PHI", { ...g, state: "in", period: 2, clock: "5:00" });
+      const row = D.S.players.get(key);
+      if (row) row.pts = (Number(row.pts) || 0);
+      else D.S.players.set(key, { key, name: "P. Passer", pos: "QB", team: "PHI", pts: 0 });
+      window.__GFFL__.UI.renderLeague(true);
+      const read = () => { const r = document.querySelector('#powerCard .pwrow[data-team="1"] .pwproj'); return r ? Number(r.textContent) : NaN; };
+      const before = read();
+      D.S.players.get(key).pts += 7;
+      D.onUpdate();
+      await new Promise((x) => setTimeout(x, 150));
+      return { before, after: read() };
+    }) || {};
+    ok(Number.isFinite(live.before) && Math.abs(live.after - live.before - 7) < 1e-9,
+      "…and a 7-point play lands on This week through the live repaint alone: " + live.before + " → " + live.after);
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  if (section("UH5 · Rest of season in the app — averages, IR, the blend, PO%, LW from the snapshot")) {
+    // Eight teams, weeks 1–3 finalized, the board on week 4. W. Receiver is moved to IR.
+    // Every week: 1v2 100–90, 3v4 80–120, 5v6 110–100, 7v8 95–105 → g = 3 for everyone, wR = 0.5.
+    //   PF 300 / 270 / 240 / 360 / 330 / 300 / 285 / 315 → results 100 / 90 / 80 / 120 / 110 / 100 / 95 / 105.
+    // Sleeper's archived weeks (slpStatsFix): weeks 1–2 the generic line, week 3 its override.
+    //   P. Passer 10, 10, 20 → a 13.33; no projection this week (Out-shaped) → v = a = 13.33
+    //   T. Tight has no line in weeks 1–3 → a rookie here → v = his projection 8.5
+    //   R. Rusher 4, 4 → 4 · PHI D/ST 2 sacks + INT + fumble = 5, 5 → 5 · K. Kicker 3 + 4 − 1 + 1 = 7, 7 → 7
+    //   W. Receiver 11, 11 → 11, but on IR: excluded.
+    //   T1 lineup 13.33 + 4 + 8.5 + 5 + 7 = 37.83 (48.83 if the IR man counted)
+    //   T2 Q. Rival week 3 only, 50 yds → 2 · DAL D/ST sack + INT = 3 → roster 5. Fillers are 0.
+    // rating = ½·roster + ½·results: T1 18.92 + 50 = 68.92 · T4 60 · T5 55 · T8 52.5 · T6 50
+    //   · T7 47.5 · T2 2.5 + 45 = 47.5 (tie with T7 → PF 285 > 270, T7 first) · T3 40.
+    // Score round(100·x/68.92): 100, 87, 80, 76, 73, 69, 69, 58.
+    // LW from the seeded powersnap_2026_w3 {1:2, 4:1, 5:3, 8:4, 6:6, 7:5, 2:8, 3:7}:
+    //   T1 2▲ · T4 1▼ · T5 3– · T8 4– · T6 6▲ · T7 5▼ · T2 8▲ · T3 7▼.
+    const base = seedAllFielded();
+    const docs = { ...base.docs,
+      sched_2026: { kind: "sched", season: 2026, weeks: [1, 2, 3, 4].map(() => [[1, 2], [3, 4], [5, 6], [7, 8]]) },
+      roster_2026_w1_t1: { ...base.docs.roster_2026_w1_t1, players: base.docs.roster_2026_w1_t1.players.map((p) => (p.key === "4361741" ? { ...p, slot: "IR" } : p)) },
+      powersnap_2026_w3: { kind: "powersnap", season: 2026, week: 3, ros: { 1: 2, 4: 1, 5: 3, 8: 4, 6: 6, 7: 5, 2: 8, 3: 7 }, at: 1 } };
+    for (let w = 1; w <= 3; w++) {
+      docs["weekly_2026_w" + w] = { kind: "weekly", week: w, matchups: [{ home: 1, away: 2, homePts: 100, awayPts: 90 }, { home: 3, away: 4, homePts: 80, awayPts: 120 },
+        { home: 5, away: 6, homePts: 110, awayPts: 100 }, { home: 7, away: 8, homePts: 95, awayPts: 105 }], awards: {}, power: [], accuracy: null, finalizedAt: 1000 + w };
+    }
+    const { ctx, page, errors } = await newTestPage(browser, { ...base, docs });
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    await evalOr(page, async () => { const UI = window.__GFFL__.UI; UI._pwTab = "ros"; UI.week = 4; await UI.renderLeague(); });
+    await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrating").length === 8);
+    const r = await evalOr(page, async () => {
+      const { LG, D, UI } = window.__GFFL__;
+      const c = document.getElementById("powerCard");
+      const txt = (el, sel) => ((el.querySelector(sel) || {}).textContent || "").replace(/\s+/g, "").trim();
+      const avg = UI._pwAvg ? UI._pwAvg.avg : new Map();
+      const odds = await LG.playoffOdds();
+      return {
+        avg: { passer: avg.get("3915511"), rusher: avg.get("4241457"), dst: avg.get("dst_PHI"), kicker: avg.get("2473037"), recv: avg.get("4361741"), tight: avg.get("111222"), rival: avg.get("222111"), dal: avg.get("dst_DAL") },
+        proj: { passer: D.projFor("3915511"), tight: D.projFor("111222") },
+        t1: (UI._pwBoards.ros.rows.find((x) => x.teamId === 1) || {}).roster,
+        wR: UI._pwBoards.ros.wR,
+        rows: [...c.querySelectorAll(".pwrow")].map((row) => ({ team: Number(row.dataset.team), rank: Number(txt(row, ".pwrank")), score: Number(txt(row, ".pwscore")),
+          rating: txt(row, ".pwrating"), rec: txt(row, ".pwrec"), po: txt(row, ".pwpo"), lw: txt(row, ".pwlw") })),
+        odds,
+      };
+    }) || {};
+    const a = r.avg || {};
+    ok(Math.abs(a.passer - 40 / 3) < 1e-9 && a.rusher === 4 && a.dst === 5 && a.kicker === 7 && a.recv === 11 && a.tight == null && a.rival === 2 && a.dal === 3,
+      "UH5: season averages from the finalized weeks' archived lines, a week with no line skipped: Passer 13.33, Rusher 4, PHI 5, Kicker 7, Receiver 11, Rival 2, DAL 3, Tight none (" + JSON.stringify(a) + ")");
+    ok(r.proj && r.proj.passer == null && r.proj.tight === 8.5, "…this week Passer has no projection (so his average rules) and T. Tight has 8.5 and no history (so it rules)");
+    ok(Math.abs(r.t1 - (40 / 3 + 4 + 8.5 + 5 + 7)) < 1e-9 && r.wR === 0.5,
+      "…T1's best legal lineup is 37.83 with W. Receiver on IR left out, and wR = 3/(3+3) = 0.5 (" + r.t1 + ", " + r.wR + ")");
+    const want = [[1, 1, 100, "68.9", "3-0", "2▲"], [4, 2, 87, "60.0", "3-0", "1▼"], [5, 3, 80, "55.0", "3-0", "3–"], [8, 4, 76, "52.5", "3-0", "4–"],
+      [6, 5, 73, "50.0", "0-3", "6▲"], [7, 6, 69, "47.5", "0-3", "5▼"], [2, 7, 69, "47.5", "0-3", "8▲"], [3, 8, 58, "40.0", "0-3", "7▼"]];
+    const got = (r.rows || []).map((x) => [x.team, x.rank, x.score, x.rating, x.rec, x.lw]);
+    ok(got.length === 8 && got.every((g, i) => g[0] === want[i][0] && g[1] === want[i][1] && g[2] === want[i][2] && g[3] === want[i][3]),
+      "…rank / Score / Rating: T1 68.9 · T4 60 · T5 55 · T8 52.5 · T6 50 · T7 47.5 · T2 47.5 (PF breaks it) · T3 40 (" + got.map((g) => g[0] + ":" + g[2] + ":" + g[3]).join(" ") + ")");
+    ok(got.length === 8 && got.every((g, i) => g[4] === want[i][4]), "…Rec is the standings record (" + got.map((g) => g[0] + ":" + g[4]).join(" ") + ")");
+    ok(got.length === 8 && got.every((g, i) => g[5] === want[i][5]), "…LW reads last week's snapshot, arrows against today (" + got.map((g) => g[0] + ":" + g[5]).join(" ") + ")");
+    const odds = r.odds || {};
+    ok((r.rows || []).length === 8 && r.rows.every((x) => x.po === (odds[x.team] == null ? "—" : odds[x.team] + "%")),
+      "…PO% is LG.playoffOdds, unchanged, on the phone too (" + (r.rows || []).map((x) => x.team + ":" + x.po).join(" ") + ")");
+    if (SHOTS) {
+      fs.mkdirSync(SCRATCH, { recursive: true });
+      const el = await page.$("#powerCard");
+      if (el) await el.screenshot({ path: path.join(SCRATCH, "uh_power_ros_390.png") });
+      // …and panned halfway and to the far edge, so every column is on a plate.
+      await evalOr(page, () => { const p = document.querySelector("#powerCard .panner"); if (p) p.scrollLeft = (p.scrollWidth - p.clientWidth) / 2; });
+      if (el) await el.screenshot({ path: path.join(SCRATCH, "uh_power_ros_390_mid.png") });
+      await evalOr(page, () => { const p = document.querySelector("#powerCard .panner"); if (p) p.scrollLeft = p.scrollWidth; });
+      if (el) await el.screenshot({ path: path.join(SCRATCH, "uh_power_ros_390_panned.png") });
+    }
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  if (section("UH6 · the snapshot — cloud only, at most once an hour, and no Grok on the cloud")) {
+    const seed = fullSeed();
+    const { ctx, page, errors } = await newTestPage(browser, seed);
+    const gpt = [];
+    page.on("request", (q) => { if (q.url().includes("/.netlify/functions/farmgpt")) gpt.push(q.postData() || ""); });
+    await armFakeCloud(page, seed.docs);
+    await bootPage(page);
+    await waitOr(page, ".mucard");
+    await waitLive(page);
+    const first = await waitFnOr(page, () => !!(window.__fakeCloud && window.__fakeCloud.store.get("powersnap_2026_w1")));
+    const s1 = await evalOr(page, () => {
+      const { UI } = window.__GFFL__;
+      const d = window.__fakeCloud.store.get("powersnap_2026_w1") || {};
+      const want = {}; for (const r of (UI._pwBoards && UI._pwBoards.ros ? UI._pwBoards.ros.rows : [])) want[r.teamId] = r.rank;
+      return { backend: window.__GFFL__.LG.backendMode, doc: d, want };
+    }) || {};
+    ok(first === true && s1.backend === "cloud" && s1.doc.kind === "powersnap" && s1.doc.week === 1 && s1.doc.season === 2026 && Number(s1.doc.at) > 0
+      && JSON.stringify(s1.doc.ros) === JSON.stringify(s1.want) && Object.keys(s1.doc.ros || {}).length === 8,
+      "UH6: a cloud device that computes Rest of season writes powersnap_2026_w1 = its eight ranks + a stamp (" + JSON.stringify(s1.doc.ros) + ")");
+    const thr = await evalOr(page, async () => {
+      const { LG, UI } = window.__GFFL__;
+      const store = window.__fakeCloud.store;
+      const id = "powersnap_2026_w1";
+      const at0 = store.get(id).at;
+      const out = {};
+      UI.renderLeague(true);
+      out.again = await LG.maybeWritePowerSnap(1, { 1: 8 });
+      out.sameAt = store.get(id).at === at0;
+      // Another device wrote 10 minutes ago: this device's memory is cleared, the doc's stamp rules.
+      LG._powerSnapReset();
+      store.set(id, { kind: "powersnap", season: 2026, week: 1, ros: { 1: 5 }, at: Date.now() - 10 * 60e3 });
+      out.recent = await LG.maybeWritePowerSnap(1, { 1: 8 });
+      out.keptRecent = store.get(id).ros[1] === 5;
+      // Two hours ago: stale — overwrite (last write wins).
+      LG._powerSnapReset();
+      store.set(id, { kind: "powersnap", season: 2026, week: 1, ros: { 1: 5 }, at: Date.now() - 2 * 3600e3 });
+      out.stale = await LG.maybeWritePowerSnap(1, { 1: 8, 2: 1 });
+      const d = store.get(id);
+      out.over = d.ros[1] === 8 && d.ros[2] === 1 && Date.now() - d.at < 60e3;
+      out.next = await LG.maybeWritePowerSnap(1, { 1: 3 });
+      return out;
+    }) || {};
+    ok(thr.again && thr.again.reason === "throttled" && thr.sameAt === true, "…a repaint and a second offer inside the hour write nothing (" + JSON.stringify(thr.again) + ")");
+    ok(thr.recent && thr.recent.reason === "recent" && thr.keptRecent === true, "…a snapshot another device stamped 10 minutes ago is left alone (" + JSON.stringify(thr.recent) + ")");
+    ok(thr.stale && thr.stale.wrote === true && thr.over === true, "…one stamped two hours ago is overwritten, last write wins");
+    ok(thr.next && thr.next.reason === "throttled", "…and the device holds off again for the next hour");
+    ok(gpt.length === 0, "…no farmgpt call on the cloud either — the old Tuesday generation is gone (" + gpt.length + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  if (section("UH7 · desktop — the same card in MAIN, right after standings, no pan")) {
+    for (const vw of [{ width: 1440, height: 980 }, { width: 1024, height: 900 }]) {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw });
+      await bootPage(page);
+      await waitOr(page, ".lgdesk");
+      await waitFnOr(page, () => document.querySelectorAll("#powerCard .pwrow").length === 8);
+      const m = await evalOr(page, () => {
+        const ids = [...document.querySelectorAll(".lgmain .deskcard")].map((w) => w.dataset.card);
+        const c = document.getElementById("powerCard");
+        const p = c && c.querySelector(".panner");
+        const t = c && c.querySelector("table");
+        return { ids, heads: c ? [...c.querySelectorAll("thead th")].map((th) => th.textContent.trim()).join("|") : "",
+          pans: !!(p && p.scrollWidth > p.clientWidth + 1), over: t && c ? Math.round(t.getBoundingClientRect().right - c.getBoundingClientRect().right) : null,
+          sideways: document.documentElement.scrollWidth - window.innerWidth };
+      }) || {};
+      ok(m.ids && m.ids.indexOf("power") === m.ids.indexOf("standings") + 1 && m.ids.indexOf("power") > 0,
+        "UH7 " + vw.width + "px: 'power' still follows 'standings' in MAIN (" + (m.ids || []).join(",") + ")");
+      ok(m.heads === "|Team|Score|Proj|Opp|Win%|LW|QB|RB|WR|TE|BN" && m.pans === false && m.over != null && m.over <= 0 && m.sideways <= 1,
+        "…twelve columns fit the MAIN card without a pan (" + JSON.stringify({ pans: m.pans, over: m.over, sideways: m.sideways }) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
   }
 
   await browser.close();

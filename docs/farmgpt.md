@@ -2414,6 +2414,11 @@ carries an integer `score` 0–100 plus the existing 1..N room ranks. The one-bo
 asks for both boards and the 0..100 scores; still a named `power` field, never
 `messages[]`.
 
+**Retired 2026-09-23.** `gfflpower`, `GFFLPOWER_SYSTEM` and `GFFLPOWER_MODEL` are
+gone from `farmgpt.mjs`; a request with that mode now gets the unknown-mode 400.
+GFFL power rankings are computed in the app from its own projections, scores and
+schedule, with no AI call. See `docs/gffl.md`.
+
 ## FarmGPT home — Bookshelf card (2026-09-21)
 
 The family book tool (`books.html`) is a fourth `#homeCards` tile, `#cardBooks`,

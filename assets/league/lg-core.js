@@ -873,7 +873,10 @@
     // Adding them is purely the perf shortcut every other kind already gets; nothing else
     // reads this map.
     proj: "proj", awards: "awards",
-    aipower: "aipower", // the weekly Grok power ranking, `aipower_<season>_w<week>` (2026-09-08)
+    // 2026-09-23: `powersnap_<season>_w<week>` — the computed power rankings' rest-of-season
+    // ranks, read back a week later for the LW column. (The retired `aipower` Grok docs are no
+    // longer read by anything, so their entry went with them.)
+    powersnap: "powersnap",
   };
   function kindOf(id) {
     const s = String(id || "");
@@ -3849,20 +3852,23 @@
     return Math.round(total * 100) / 100;
   }
   // The optimal LEGAL lineup's total — what LG.slotEligible would have allowed, at maximum —
-  // used only by the Bench Blunder award. Fill every dedicated position slot with its own top
-  // scorers first (dedicated slots never compete with each other, so that's always at least as
-  // good as any alternative), then FLEX with the single best REMAINING RB/WR/TE: provably
-  // optimal for this "one shared slot" roster shape (an exchange argument — swapping a worse
-  // player into a dedicated slot to "free up" a better one for FLEX can never help, since the
-  // vacated dedicated slot can only be re-filled by another player of that same position).
-  async function fzOptimalTotal(week, teamId, ptsOf, rosters) {
-    const fz = ptsOf || fzPts;
-    const ros = (await fzRosterOf(week, teamId, rosters)).filter((p) => p.slot !== "IR");
-    const r = (LG.rules || LG.DEFAULT_RULES).roster;
+  // used by the Bench Blunder award and (2026-09-23) the rest-of-season power ranking. Fill every
+  // dedicated position slot with its own top scorers first (dedicated slots never compete with
+  // each other, so that's always at least as good as any alternative), then FLEX with the single
+  // best REMAINING RB/WR/TE: provably optimal for this "one shared slot" roster shape (an
+  // exchange argument — swapping a worse player into a dedicated slot to "free up" a better one
+  // for FLEX can never help, since the vacated dedicated slot can only be re-filled by another
+  // player of that same position).
+  // PURE since 2026-09-23 (LG.optimalLineup): players in, `ptsOf` per key, the roster rules'
+  // slot counts; returns {total, picks:[{key, pos, pts, slot}]}. IR is the caller's to exclude.
+  // fzOptimalTotal is the same solver over the finalize snapshot's roster, rounded as before.
+  LG.optimalLineup = function (players, ptsOf, rosterRules) {
+    const r = rosterRules || (LG.rules || LG.DEFAULT_RULES).roster;
     const byPos = { QB: [], RB: [], WR: [], TE: [], DST: [], K: [] };
-    for (const p of ros) { if (byPos[p.pos]) byPos[p.pos].push({ key: p.key, pts: fz(p.key) }); }
+    for (const p of players || []) { if (p && byPos[p.pos]) byPos[p.pos].push({ key: p.key, pos: p.pos, pts: ptsOf(p.key) }); }
     for (const k of Object.keys(byPos)) byPos[k].sort((a, b) => b.pts - a.pts);
     const used = new Set();
+    const picks = [];
     let total = 0;
     const takeTop = (pos, n) => {
       let taken = 0;
@@ -3870,13 +3876,23 @@
         if (taken >= n) break;
         if (used.has(e.key)) continue;
         used.add(e.key); total += e.pts; taken++;
+        picks.push({ ...e, slot: pos });
       }
     };
     takeTop("QB", r.QB || 0); takeTop("RB", r.RB || 0); takeTop("WR", r.WR || 0);
     takeTop("TE", r.TE || 0); takeTop("DST", r.DST || 0); takeTop("K", r.K || 0);
     const flexPool = [...byPos.RB, ...byPos.WR, ...byPos.TE]
       .filter((e) => !used.has(e.key)).sort((a, b) => b.pts - a.pts);
-    for (let i = 0; i < (r.FLEX || 0) && i < flexPool.length; i++) { used.add(flexPool[i].key); total += flexPool[i].pts; }
+    for (let i = 0; i < (r.FLEX || 0) && i < flexPool.length; i++) {
+      used.add(flexPool[i].key); total += flexPool[i].pts;
+      picks.push({ ...flexPool[i], slot: "FLEX" });
+    }
+    return { total, picks };
+  };
+  async function fzOptimalTotal(week, teamId, ptsOf, rosters) {
+    const fz = ptsOf || fzPts;
+    const ros = (await fzRosterOf(week, teamId, rosters)).filter((p) => p.slot !== "IR");
+    const { total } = LG.optimalLineup(ros, fz, (LG.rules || LG.DEFAULT_RULES).roster);
     return Math.round(total * 100) / 100;
   }
   function fzTeamName(id) { return (LG.teamById(id) || {}).name || ("Team " + id); }
@@ -5565,185 +5581,205 @@
     try { return await adjInFlight; } finally { adjInFlight = null; }
   };
 
-  // ---------------- THE AI POWER RANKINGS (2026-09-08) ----------------
-  // User: "beneath standings lets add Power Ranking, this will calculate each Tuesday and we
-  // should feed all the rosters to Grok 4.6 and ask for an AI ranking of each team considering
-  // their roster and current standings."
-  // ONE DOC PER WEEK, `aipower_<season>_w<week>` (kind "aipower"): {season, week, at, model,
-  // ranking:{week:[{teamId,rank,score,cats:{QB,RB,WR,TE,BN}}],ros:[…]}, input:{…}}.
-  // 2026-09-08 evening: two boards (this week + rest of season) and a 0..100 score per team
-  // on each. A leftover one-board / no-score / blurb doc is not current and is regenerated.
-  // "Each Tuesday" is the league week itself — LG.currentWeek() rolls over on the Tuesday
-  // boundary (SEASON_START is a Tuesday), so the FIRST device to open the League page in a
-  // new week generates that week's ranking, and every other device adopts it. The doc is
-  // written CREATE-ONLY against a *current* doc (LG.db.update with `aiPowerIsCurrent(cur) ?
-  // null : doc`): two devices racing on a Tuesday morning produce ONE ranking, and both
-  // show it. This matters more here than for the adjuster, because a model's ranking is
-  // not deterministic — last-write-wins would have let two phones in one house disagree
-  // about who is #1.
-  // NOT BEFORE LAST WEEK IS FINAL: from week 2 on, generation waits until week N-1's weekly doc
-  // exists (auto-finalize lands it Tuesday morning once Monday night is official), so the
-  // standings the model weighs include last night's games rather than lagging a week. Until
-  // then the card shows the newest ranking on file. Week 1 has no such gate: rosters only.
-  // CLOUD ONLY (unless forced): a ranking generated into the local fallback store would be
-  // paid for and then lost with the cache. The 2025 replay and a read-only mirror never generate.
-  LG.aiPowerId = (season, week) => `aipower_${season}_w${week}`;
+  // ---------------- POWER RANKINGS, FROM THE APP'S OWN NUMBERS (2026-09-23) ----------------
+  // REPLACES the weekly Grok 4.6 ranking (2026-09-08: `aipower_<season>_w<week>`, farmgpt mode
+  // `gfflpower`). User: the rankings "don't make sense" — Grok never saw this app's projections,
+  // weekly scores or opponents, leaned on stale NFL knowledge (2026 rookies and trades), and the
+  // result froze on Tuesday, so it disagreed with the matchup page by Sunday. Decisions (final):
+  // computed here from the app's own numbers, no AI at all; a 0–100 score stays; rest of season
+  // blends results with roster. Old aipower docs in the store are simply never read again.
+  //
+  // Everything below is PURE (plain data in, rows out) so the suite can hand-compute it; lg-ui
+  // gathers the inputs (rosters, the matchup page's own per-player expected finish, schedule,
+  // standings, season averages) and paints the card.
+  //
+  // ONE TIEBREAK everywhere — overall rank, every room rank, last week's rank: higher value,
+  // then higher season points-for, then lower teamId. Returns {teamId: rank}.
   LG.POWER_CATS = ["QB", "RB", "WR", "TE", "BN"];
-  LG.POWER_BOARDS = ["week", "ros"];
-  // One board of the two-board doc. A leftover one-board array (this afternoon) is not a board.
-  LG.powerBoard = function (doc, which) {
-    const key = which === "ros" ? "ros" : "week";
-    const r = doc && doc.ranking;
-    if (!r || typeof r !== "object" || Array.isArray(r) || !Array.isArray(r[key])) return null;
-    return r[key];
-  };
-  // A board is current only when every team appears once, ranks are 1..N, scores are integers
-  // 0..100 and non-increasing with rank, and each category is its own 1..N permutation.
-  // The morning's blurbs and the afternoon's one-board / no-score docs fail this.
-  LG.normalizePowerBoard = function (arr, teamIds) {
-    if (!Array.isArray(arr) || !Array.isArray(teamIds) || !teamIds.length) return null;
-    const n = teamIds.length;
-    const want = new Set(teamIds.map(Number));
-    const seen = new Set(), ranks = new Set();
-    const catSets = {};
-    for (const k of LG.POWER_CATS) catSets[k] = new Set();
-    const out = [];
-    for (const r of arr) {
-      const id = Number(r && r.teamId), rank = Number(r && r.rank), score = Number(r && r.score);
-      if (!want.has(id) || seen.has(id) || !Number.isInteger(rank) || rank < 1 || rank > n || ranks.has(rank)) return null;
-      if (!Number.isInteger(score) || score < 0 || score > 100) return null;
-      const src = r.cats && typeof r.cats === "object" ? r.cats : null;
-      if (!src) return null;
-      const cats = {};
-      for (const k of LG.POWER_CATS) {
-        const v = Number(src[k]);
-        if (!Number.isInteger(v) || v < 1 || v > n || catSets[k].has(v)) return null;
-        catSets[k].add(v);
-        cats[k] = v;
-      }
-      seen.add(id); ranks.add(rank);
-      out.push({ teamId: id, rank, score, cats });
-    }
-    if (seen.size !== n) return null;
-    for (const k of LG.POWER_CATS) if (catSets[k].size !== n) return null;
-    out.sort((a, b) => a.rank - b.rank);
-    for (let i = 1; i < out.length; i++) if (out[i].score > out[i - 1].score) return null;
+  LG.POWER_BENCH_DEPTH = 3; // BN is the best three players NOT starting — depth, not the whole bench
+  LG.powerRankBy = function (ids, valOf, pfOf) {
+    const order = [...ids].sort((a, b) => (LG.n(valOf(b)) - LG.n(valOf(a)))
+      || (LG.n(pfOf(b)) - LG.n(pfOf(a))) || (Number(a) - Number(b)));
+    const out = {};
+    order.forEach((id, i) => { out[id] = i + 1; });
     return out;
   };
-  LG.aiPowerIsCurrent = function (doc) {
-    if (!doc || doc.kind !== "aipower") return false;
-    const week = LG.powerBoard(doc, "week");
-    const ros = LG.powerBoard(doc, "ros");
-    if (!week || !ros || week.length < 3) return false;
-    const ids = week.map((r) => Number(r && r.teamId));
-    if (new Set(ids).size !== ids.length) return false;
-    return !!(LG.normalizePowerBoard(week, ids) && LG.normalizePowerBoard(ros, ids));
-  };
-  LG.loadAiPower = async function (week) {
-    // get() first (warm paint stays a cache hit). If that is empty or not current, getFresh
-    // — a cached list("aipower") that ran empty marks every aipower_* id knownAbsent, and
-    // get() then returns null without hitting the server. Caught live 2026-09-08: the
-    // week-1 doc was on file with eight current rows and the card said nothing was.
-    const id = LG.aiPowerId(LG.SEASON, week);
-    let doc = await LG.db.get(id);
-    if (!LG.aiPowerIsCurrent(doc)) doc = await LG.db.getFresh(id);
-    return LG.aiPowerIsCurrent(doc) ? doc : null;
-  };
-  // Every ranking on file this season, newest week first — the card reads [0] and compares
-  // against [1] for last week's overall rank and the movement arrow. The current week (and
-  // last week, for the LW column) are loaded by id first; those docs WIN over list("aipower"),
-  // which can still be holding a leftover one-board row or an empty snapshot from first paint.
-  LG.loadAiPowerDocs = async function () {
-    const week = LG.currentWeek();
-    const cur = await LG.loadAiPower(week);
-    const prev = week > 1 ? await LG.loadAiPower(week - 1) : null;
-    const docs = await LG.db.list("aipower");
-    const byWeek = new Map();
-    for (const d of docs || []) {
-      if (d && d.season === LG.SEASON && LG.aiPowerIsCurrent(d)) byWeek.set(Number(d.week), d);
+  // score = round(100 × value / best value in the league), floored at 0. A league whose best
+  // value is 0 (nothing projected yet) scores everyone 0 rather than dividing by it.
+  LG.powerScore = (v, max) => (max > 0 ? Math.max(0, Math.round((100 * LG.n(v)) / max)) : 0);
+  const sumTop = (vals, n) => [...vals].sort((a, b) => b - a).slice(0, n).reduce((s, v) => s + v, 0);
+  function roomsFrom(picks) {
+    const out = { QB: 0, RB: 0, WR: 0, TE: 0 };
+    // A FLEX counts in his REAL position; K and D/ST only feed the total.
+    for (const e of picks) if (out[e.pos] != null) out[e.pos] += LG.n(e.pts);
+    return out;
+  }
+  // Rank each room 1..N on its own; returns {teamId: {QB, RB, WR, TE, BN}}.
+  function roomRanks(ids, rooms, pfOf) {
+    const out = {};
+    for (const id of ids) out[id] = {};
+    for (const k of LG.POWER_CATS) {
+      const r = LG.powerRankBy(ids, (id) => rooms[id][k], pfOf);
+      for (const id of ids) out[id][k] = r[id];
     }
-    if (cur) byWeek.set(Number(cur.week), cur);
-    if (prev) byWeek.set(Number(prev.week), prev);
-    return [...byWeek.values()].sort((a, b) => (b.week || 0) - (a.week || 0));
+    return out;
+  }
+  // Last week's rank by ACTUAL final points, off that week's finalized weekly doc. Null when
+  // there is no such doc (week 1, or last week not finalized yet) or it is void; a team absent
+  // from it (a playoff bye) gets no rank.
+  LG.powerLastWeekRanks = function (weeklyDoc, pfOf) {
+    if (!weeklyDoc || weeklyDoc.kind !== "weekly" || LG.weeklyIsVoid(weeklyDoc)) return null;
+    const pts = {};
+    for (const m of weeklyDoc.matchups || []) {
+      pts[m.home] = LG.n(m.homePts); pts[m.away] = LG.n(m.awayPts);
+    }
+    const ids = Object.keys(pts).map(Number);
+    return ids.length ? LG.powerRankBy(ids, (id) => pts[id], pfOf || (() => 0)) : null;
   };
-  const POWER_RETRY_MS = 10 * 60e3;
-  let powerInFlight = null, powerFailAt = 0;
-  // Validates a model reply against the teams we sent: both boards, every team exactly once
-  // on each, ranks 1..N, scores 0..100 non-increasing with rank, and each of QB/RB/WR/TE/BN
-  // its own 1..N permutation. Returns {week, ros} sorted by rank, or null. A one-board
-  // array or a blurb-only reply is rejected whole. Exported for the suite.
-  LG.validateAiPowerReply = function (text, teamIds) {
-    let obj = null;
-    const raw = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-    try { obj = JSON.parse(raw); } catch (e) { return null; }
-    const src = obj && obj.ranking;
-    if (!src || typeof src !== "object" || Array.isArray(src)) return null;
-    const week = LG.normalizePowerBoard(src.week, teamIds);
-    const ros = LG.normalizePowerBoard(src.ros, teamIds);
-    if (!week || !ros) return null;
-    return { week, ros };
+  // THIS WEEK — live, recomputed on every paint. `projOf` is the matchup page's own per-player
+  // expected finish (live points + the unplayed share of the projection), so a team's Proj here
+  // is the number its matchup header shows.
+  //   in: { teams:[{id, pf}], starters:{id:[{key,pos}]}, bench:{id:[{key,pos}]}, projOf(key),
+  //         pairs:[[h,a]], winOf(id, oppId) → 0..1 | null, lastRanks:{id: rank} | null }
+  //   out: rows sorted by rank — {teamId, rank, score, proj, opp, win, cats, rooms, lw}
+  //   opp: the opponent's teamId, "BYE" when others play and this team does not, null when
+  //   nobody is scheduled at all.
+  LG.powerWeekBoard = function (inp) {
+    const teams = inp.teams || [];
+    const ids = teams.map((t) => t.id);
+    const pf = {};
+    for (const t of teams) pf[t.id] = LG.n(t.pf);
+    const pfOf = (id) => pf[id];
+    const projOf = (key) => LG.n(inp.projOf(key));
+    const proj = {}, rooms = {};
+    for (const id of ids) {
+      const picks = ((inp.starters || {})[id] || []).map((p) => ({ key: p.key, pos: p.pos, pts: projOf(p.key) }));
+      proj[id] = picks.reduce((s, e) => s + e.pts, 0);
+      const bn = ((inp.bench || {})[id] || []).map((p) => projOf(p.key));
+      rooms[id] = { ...roomsFrom(picks), BN: sumTop(bn, LG.POWER_BENCH_DEPTH) };
+    }
+    const max = Math.max(0, ...ids.map((id) => proj[id]));
+    const rank = LG.powerRankBy(ids, (id) => proj[id], pfOf);
+    const cats = roomRanks(ids, rooms, pfOf);
+    const pairs = inp.pairs || [];
+    const opp = {};
+    for (const [h, a] of pairs) { opp[h] = a; opp[a] = h; }
+    const rows = ids.map((id) => {
+      const o = opp[id] != null ? opp[id] : (pairs.length ? "BYE" : null);
+      const w = typeof o === "number" && inp.winOf ? inp.winOf(id, o) : null;
+      const last = inp.lastRanks && inp.lastRanks[id] != null ? inp.lastRanks[id] : null;
+      return { teamId: id, rank: rank[id], score: LG.powerScore(proj[id], max), proj: proj[id],
+        opp: o, win: w != null && Number.isFinite(w) ? w : null, cats: cats[id], rooms: rooms[id], lw: last };
+    });
+    return rows.sort((a, b) => a.rank - b.rank);
   };
-  LG.ensureAiPower = async function (opts) {
-    const force = !!(opts && opts.force);
-    if (LG.SIM_2025 || LG.mirrorOffline) return null;
-    if (powerInFlight) return powerInFlight;
-    powerInFlight = (async () => {
-      const week = LG.currentWeek();
-      const existing = await LG.loadAiPower(week);
-      if (existing && !force) return existing;
-      if (!force && LG.backendMode !== "cloud") return null;
-      if (!force && Date.now() - powerFailAt < POWER_RETRY_MS) return null;
-      if (!force && week > 1 && !(await LG.loadWeekly(week - 1))) return null; // last week not final yet — see the note above
-      try {
-        const D = LG.data;
-        const st = await LG.loadStandings();
-        const teams = [...LG.teams].sort((a, b) => {
-          const A = st[a.id] || { w: 0, pf: 0 }, B = st[b.id] || { w: 0, pf: 0 };
-          return (B.w - A.w) || (B.pf - A.pf);
-        });
-        const input = {};
-        const payload = [];
-        for (let i = 0; i < teams.length; i++) {
-          const t = teams[i];
-          const s = st[t.id] || { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
-          const ros = await LG.ensureRoster(week, t.id).catch(() => null);
-          const roster = (ros || []).map((p) => {
-            const meta = (D && D.metaForKey && D.metaForKey(p.key)) || {};
-            const row = {
-              slot: p.slot === "BENCH" ? "BN" : String(p.slot || ""),
-              name: LG.shortName(p.name || meta.name || String(p.key)),
-              pos: D && D.leaguePos ? D.leaguePos(p.pos || meta.pos || "") : (p.pos || meta.pos || ""),
-              team: p.team || meta.team || "",
-            };
-            const inj = LG.injLabel ? LG.injLabel(meta.injury || p.injury || "") : "";
-            if (inj) row.inj = inj;
-            return row;
-          });
-          input[t.id] = { w: s.w, l: s.l, t: s.t, pf: Math.round(s.pf * 10) / 10, place: i + 1 };
-          const row = { teamId: t.id, name: t.name, w: s.w, l: s.l, t: s.t, pf: Math.round(s.pf * 10) / 10, pa: Math.round(s.pa * 10) / 10, place: i + 1, roster };
-          const owner = t.claimedBy || t.owner;
-          if (owner) row.owner = String(owner);
-          payload.push(row);
-        }
-        if (payload.length < 3) throw new Error("not-a-league");
-        const r = await fetch("/.netlify/functions/farmgpt", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ secret: LG.PASS, mode: "gfflpower", power: { week, teams: payload } }),
-        });
-        if (!r.ok) throw new Error("http-" + r.status);
-        const ranking = LG.validateAiPowerReply(await r.text(), teams.map((t) => t.id));
-        if (!ranking) throw new Error("bad-ranking");
-        const doc = { kind: "aipower", season: LG.SEASON, week, at: Date.now(), model: "grok-4.6", ranking, input };
-        const id = LG.aiPowerId(LG.SEASON, week);
-        if (force) { await LG.db.set(id, doc); powerFailAt = 0; return doc; }
-        const w = await LG.db.update(id, (cur) => (LG.aiPowerIsCurrent(cur) ? null : doc));
-        powerFailAt = 0;
-        return w.ok ? w.doc : (w.doc || doc); // lost the race → theirs is the ranking of record
-      } catch (e) {
-        powerFailAt = Date.now();
-        return existing || null;
+  // REST OF SEASON — one value per player: p = this week's projection, a = his average over the
+  // finalized weeks in which he has a stat line. Both → half each. Out or on bye this week (p
+  // null or 0) → a. No history (a rookie, a new signing) → p. Neither → 0.
+  LG.rosValue = function (p, a) {
+    const pn = p != null && Number.isFinite(Number(p)) && Number(p) > 0 ? Number(p) : null;
+    const an = a != null && Number.isFinite(Number(a)) ? Number(a) : null;
+    if (pn != null && an != null) return 0.5 * pn + 0.5 * an;
+    if (pn != null) return pn;
+    if (an != null) return an;
+    return 0;
+  };
+  // Each player's average over the maps D.weekStats returns (one Map per finalized week; a
+  // null map is a week the archive could not answer and counts for nobody). A week with no
+  // line for him is skipped, not a 0 — the same rule D.gameLog keeps. Keyed by String(key).
+  LG.seasonAverages = function (maps) {
+    const sum = new Map(), n = new Map();
+    for (const m of maps || []) {
+      if (!m || typeof m.forEach !== "function") continue;
+      // Keys as strings: a directory espn_id can arrive as a number, a roster key never does.
+      m.forEach((v, k0) => {
+        const k = String(k0);
+        sum.set(k, (sum.get(k) || 0) + LG.n(v)); n.set(k, (n.get(k) || 0) + 1);
+      });
+    }
+    const out = new Map();
+    sum.forEach((s, k) => out.set(k, s / n.get(k)));
+    return out;
+  };
+  // rating = wR·roster + (1 − wR)·results, wR = 3 / (3 + g). roster is the optimal LEGAL lineup
+  // of the ACTIVE roster (IR excluded) at rest-of-season values; results is points-for per
+  // finalized game; g is finalized games per team, league average. g = 0 is pure roster; three
+  // games in, the two weigh the same. A team with no game of its own yet falls back to roster.
+  //   in: { teams:[{id, pf, w, l, t}], active:{id:[{key,pos,slot}]}, valueOf(key), rules (slot
+  //         counts), odds:{id: pct} | null, lastRanks:{id: rank} | null }
+  //   out: { g, wR, rows sorted by rank — {teamId, rank, score, rating, roster, results, rec,
+  //         po, cats, rooms, lw} }
+  LG.powerRosWeight = (g) => 3 / (3 + Math.max(0, LG.n(g)));
+  LG.powerRosBoard = function (inp) {
+    const teams = inp.teams || [];
+    const ids = teams.map((t) => t.id);
+    const pf = {}, games = {};
+    for (const t of teams) { pf[t.id] = LG.n(t.pf); games[t.id] = LG.n(t.w) + LG.n(t.l) + LG.n(t.t); }
+    const pfOf = (id) => pf[id];
+    const g = ids.length ? ids.reduce((s, id) => s + games[id], 0) / ids.length : 0;
+    const wR = LG.powerRosWeight(g);
+    const valueOf = (key) => LG.n(inp.valueOf(key));
+    const roster = {}, results = {}, rating = {}, rooms = {};
+    for (const id of ids) {
+      const active = ((inp.active || {})[id] || []).filter((p) => p && p.slot !== "IR");
+      const lu = LG.optimalLineup(active, valueOf, inp.rules);
+      const inLineup = new Set(lu.picks.map((e) => e.key));
+      roster[id] = lu.total;
+      results[id] = games[id] > 0 ? pf[id] / games[id] : lu.total;
+      rating[id] = wR * roster[id] + (1 - wR) * results[id];
+      const rest = active.filter((p) => !inLineup.has(p.key)).map((p) => valueOf(p.key));
+      rooms[id] = { ...roomsFrom(lu.picks), BN: sumTop(rest, LG.POWER_BENCH_DEPTH) };
+    }
+    const max = Math.max(0, ...ids.map((id) => rating[id]));
+    const rank = LG.powerRankBy(ids, (id) => rating[id], pfOf);
+    const cats = roomRanks(ids, rooms, pfOf);
+    const rows = teams.map((t) => {
+      const id = t.id;
+      const rec = LG.n(t.w) + "-" + LG.n(t.l) + (LG.n(t.t) ? "-" + LG.n(t.t) : "");
+      const po = inp.odds && inp.odds[id] != null && Number.isFinite(Number(inp.odds[id])) ? Number(inp.odds[id]) : null;
+      const last = inp.lastRanks && inp.lastRanks[id] != null ? Number(inp.lastRanks[id]) : null;
+      return { teamId: id, rank: rank[id], score: LG.powerScore(rating[id], max), rating: rating[id],
+        roster: roster[id], results: results[id], rec, po, cats: cats[id], rooms: rooms[id], lw: last };
+    });
+    return { g, wR, rows: rows.sort((a, b) => a.rank - b.rank) };
+  };
+  // THE SNAPSHOT — the rest-of-season board has no stored history of its own, so its LW column
+  // needs one. `powersnap_<season>_w<week>` = {kind, season, week, ros:{teamId: rank}, at}.
+  // Any cloud device that computes the board writes the CURRENT week's snapshot, at most once
+  // an hour (the doc's own `at` is the clock, so every device shares it); last write wins, and
+  // the end-of-week state is what week N+1 reads. Local fallback stores, a read-only mirror and
+  // the 2025 replay never write.
+  LG.POWER_SNAP_MS = 3600e3;
+  LG.powerSnapId = (season, week) => `powersnap_${season}_w${week}`;
+  LG.loadPowerSnap = async function (week) {
+    if (!(week >= 1)) return null;
+    const d = await LG.db.get(LG.powerSnapId(LG.SEASON, week));
+    return d && d.kind === "powersnap" && d.ros && typeof d.ros === "object" ? d : null;
+  };
+  const snapSeen = new Map(); // week -> the newest `at` this device has written or read
+  let snapInFlight = null;
+  LG.maybeWritePowerSnap = async function (week, ranks) {
+    if (LG.SIM_2025 || LG.mirrorOffline || LG.backendMode !== "cloud") return { wrote: false, reason: "not-cloud" };
+    if (!(week >= 1) || !ranks || !Object.keys(ranks).length) return { wrote: false, reason: "empty" };
+    const now = Date.now();
+    const seen = snapSeen.get(week);
+    // The device's own memory first, so a live repaint every poll tick costs no read at all.
+    if (seen != null && now - seen < LG.POWER_SNAP_MS) return { wrote: false, reason: "throttled" };
+    if (snapInFlight) return snapInFlight;
+    snapInFlight = (async () => {
+      const id = LG.powerSnapId(LG.SEASON, week);
+      const cur = await LG.db.getFresh(id);
+      if (cur && cur.kind === "powersnap" && Number.isFinite(Number(cur.at)) && now - Number(cur.at) < LG.POWER_SNAP_MS) {
+        snapSeen.set(week, Number(cur.at));
+        return { wrote: false, reason: "recent" };
       }
+      const ros = {};
+      for (const k of Object.keys(ranks)) ros[k] = Number(ranks[k]);
+      await LG.db.set(id, { kind: "powersnap", season: LG.SEASON, week, ros, at: now });
+      snapSeen.set(week, now);
+      return { wrote: true };
     })();
-    try { return await powerInFlight; } finally { powerInFlight = null; }
+    try { return await snapInFlight; } catch (e) { return { wrote: false, reason: "error" }; } finally { snapInFlight = null; }
   };
+  LG._powerSnapReset = () => snapSeen.clear(); // test hook
 })();
