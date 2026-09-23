@@ -799,6 +799,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         openDetail(movie);
       };
       box.appendChild(row);
+      watchCover(row, movie);
     });
   }
   function saveFromSearch(movie) {
@@ -842,6 +843,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       acts.appendChild(recButton("Already watched", function () { markWatched(movie); }));
       acts.appendChild(recButton("Not interested", function () { markSkipped(movie); }));
       row.children[1].appendChild(acts);
+      queueCover(movie);
       row.onclick = function (ev) {
         if (ev.target.closest("button")) return;
         openDetail(movie);
@@ -1013,7 +1015,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
           if (!en.isIntersecting) return;
           coverObserver.unobserve(en.target);
           var title = en.target.getAttribute("data-title") || "";
-          var found = (current().shelf || []).find(function (m) { return titleKey(m.title) === titleKey(title); });
+          var found = findMovie(titleKey(title)).movie;
           if (found) queueCover(found);
         });
       }, { rootMargin: "240px" });
@@ -1023,7 +1025,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   }
   function paintCover(movie) {
     if (!movie || !movie.cover) return;
-    var rows = document.querySelectorAll("#shelfList .movie, #recs .movie");
+    var rows = document.querySelectorAll("#shelfList .movie, #recs .movie, #watchList .movie");
     for (var i = 0; i < rows.length; i++) {
       var t = rows[i].querySelector(".t");
       if (!t || titleKey(t.textContent) !== titleKey(movie.title)) continue;
@@ -1035,6 +1037,20 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       img.src = movie.cover;
       ph.replaceWith(img);
     }
+  }
+  // Posters were fetched for Owned rows only: the queue looked the title up on
+  // the shelf, so a recommendation or a watch-list title never got one. A pick
+  // is looked up in the last recommend too. Only a kept row (Owned or the
+  // watch list) saves its poster; a pick's poster rides along if it is saved.
+  function findMovie(key) {
+    var p = current();
+    var hit = null;
+    [p.shelf, p.watchlist].forEach(function (list) {
+      if (!hit) hit = (list || []).find(function (m) { return titleKey(m.title) === key; }) || null;
+    });
+    if (hit) return { movie: hit, kept: true };
+    var pick = (lastRecs || []).find(function (m) { return titleKey(m.title) === key; }) || null;
+    return { movie: pick, kept: false };
   }
   function queueCover(movie) {
     var k = titleKey(movie && movie.title);
@@ -1048,7 +1064,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     coverBusy = true;
     while (coverQueue.length) {
       var key = coverQueue.shift();
-      var movie = (current().shelf || []).find(function (m) { return titleKey(m.title) === key; });
+      var movie = findMovie(key).movie;
       if (!movie || movie.cover || coverSeen[key]) {
         coverQueued[key] = 0;
         continue;
@@ -1059,10 +1075,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
           return api("detail", { title: movie.title, year: movie.year || null, coverOnly: true });
         });
       } catch (e) { res = null; }
-      var still = (current().shelf || []).find(function (m) { return titleKey(m.title) === key; });
+      var again = findMovie(key);
+      var still = again.movie;
       if (still && res && res.cover && !still.cover) {
         still.cover = res.cover;
-        saveState();
+        if (again.kept) saveState();
         paintCover(still);
         coverSeen[key] = 1;
         coverQueued[key] = 0;

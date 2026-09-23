@@ -2,7 +2,7 @@
 "use strict";
 /**
  * BUCKY Bookshelf suite — profiles, catalog search, Goodreads reviews,
- * recommendations, and the political / woke rating.
+ * recommendations, and the Open Library rating on each card.
  *
  *   node tools/_verify-books.cjs [--shots]
  *
@@ -43,17 +43,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /* ============================ fixtures =================================== */
 const HOBBIT_DESC = "Bilbo Baggins is a hobbit who enjoys a comfortable, unambitious life, rarely traveling farther than his pantry.";
 const FRAGILITY_DESC = "Antiracist educator Robin DiAngelo examines white fragility and white privilege in the United States.";
-const ANIMAL_DESC = "A farm of animals overthrow their farmer in a revolution that becomes a totalitarian state. A political allegory.";
-const HATE_DESC = "A teenage girl speaks out after police shoot her unarmed friend, against systemic racism and in a wave of protest activism.";
-const MOCKINGBIRD_DESC = "A lawyer in a small town defends a Black man accused of rape. A story about justice, childhood, and racial prejudice in the American South.";
-const QUEER_DESC = "A memoir about gender identity.";
-
-// Hand-computed from POLITICAL_PHRASES / WOKE_PHRASES in books.mjs:
-// Fragility: "white fragility"(3) + "white privilege"(3) = 6 → woke 5, political 0
-// Animal Farm: revolution(1)+totalitarian(1)+political(1) = political 3, woke 0
-// Hate U Give: protest(1) political; systemic racism(2)+activism(1) woke 3
-// Queer: "gender queer"(3 from title)+ "gender identity"(2) = woke 5
-// Hobbit / Mockingbird: no listed phrases → 0 / 0
 
 const GR_HOBBIT_HTML = `<!doctype html><html><head>
 <meta property="og:title" content="The Hobbit"/>
@@ -75,6 +64,31 @@ const GR_HOBBIT_HTML = `<!doctype html><html><head>
 </head><body><div class="RatingStatistics__rating">4.30</div></body></html>`;
 
 const GR_CAPTCHA_HTML = `<!doctype html><html><head><title>Robot Check</title></head><body>Please confirm you are not a robot.</body></html>`;
+
+// Rating lookups (title= / author= on search.json, then /works/<key>/ratings.json).
+// A study guide that starts with the same title is listed first so the lookup
+// has to check the author. Hand-computed labels: 4.3 from 250 paints "4.30
+// from Open Library (250)"; 4.1053 from 19 paints "4.11 … (19)".
+const OL_RATING_DOCS = {
+  "children of time": [
+    { key: "/works/OL999001W", title: "Children of Time: Study Guide", author_name: ["SuperSummary"], ratings_average: 2.0, ratings_count: 3 },
+    { key: "/works/OL17800001W", title: "Children of Time", author_name: ["Adrian Tchaikovsky"], ratings_average: 4.3, ratings_count: 250, cover_i: 8888001, isbn: ["9781447273288"] },
+  ],
+  "we are legion": [
+    { key: "/works/OL17334140W", title: "We Are Legion (We Are Bob)", author_name: ["Dennis E. Taylor"], ratings_count: 0, cover_i: 8421582 },
+  ],
+  "unrated novella": [
+    { key: "/works/OL555W", title: "Unrated Novella", author_name: ["Jo Quiet"] },
+  ],
+  "hobbit": [
+    { key: "/works/OL777W", title: "The Hobbit Cookbook", author_name: ["J.R.R. Tolkien"], ratings_average: 3.1, ratings_count: 12 },
+  ],
+};
+const OL_WORK_RATINGS = {
+  "/works/OL17334140W": { summary: { average: 4.105263157894737, count: 19, sortable: 3.4 }, counts: { 1: 0, 2: 1, 3: 2, 4: 8, 5: 8 } },
+  "/works/OL555W": { summary: { average: null, count: 0, sortable: null }, counts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } },
+};
+let olRatingCalls = [];
 
 const OL_DOCS = {
   hobbit: { key: "/works/OL262758W", title: "The Hobbit", author_name: ["J.R.R. Tolkien"], first_publish_year: 1937, isbn: ["9780547928227"], subject: ["Fantasy", "Hobbits"], cover_i: 14625765, ratings_average: 4.2, ratings_count: 1200 },
@@ -122,8 +136,20 @@ function serveOL() {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
       const u = new URL(req.url, "http://127.0.0.1");
-      olCalls.push(u.searchParams.get("q") || "");
       res.setHeader("content-type", "application/json");
+      const work = u.pathname.match(/^(\/works\/OL\d+W)\/ratings\.json$/);
+      if (work) {
+        olRatingCalls.push(u.pathname);
+        if (!OL_WORK_RATINGS[work[1]]) { res.statusCode = 404; return res.end(JSON.stringify({ error: "notfound" })); }
+        return res.end(JSON.stringify(OL_WORK_RATINGS[work[1]]));
+      }
+      if (u.searchParams.has("title")) {
+        olRatingCalls.push(u.search);
+        const t = (u.searchParams.get("title") || "").toLowerCase();
+        const docs = OL_RATING_DOCS[t] || [];
+        return res.end(JSON.stringify({ numFound: docs.length, start: 0, docs }));
+      }
+      olCalls.push(u.searchParams.get("q") || "");
       const q = (u.searchParams.get("q") || "").toLowerCase();
       const docs = [];
       if (/hobbit|tolkien|fantasy/.test(q)) docs.push(OL_DOCS.hobbit, OL_DOCS.silmarillion);
@@ -259,15 +285,18 @@ async function sectionServer() {
   const mod = Object.assign({}, modNs, { parseRecs: modNs.parseRecs || modNs.parseGrokRecs });
   const handler = mod.default;
   ok(typeof handler === "function", "books.mjs exports a handler");
-  ok(typeof mod.scorePolitics === "function", "scorePolitics is exported");
-  ok(typeof mod.recommendScore === "function", "recommendScore is exported");
+  // Restaged 2026-09-23: the political / woke rating was removed from
+  // Bookshelf at the family's request. scorePolitics, the phrase lists, and
+  // recommendScore (kept only for its cap arithmetic) are gone, not dormant.
+  ok(typeof mod.scorePolitics === "undefined" && typeof mod.recommendScore === "undefined"
+    && typeof mod.POLITICAL_PHRASES === "undefined" && typeof mod.WOKE_PHRASES === "undefined",
+    "the political / woke rating is gone from books.mjs");
+  ok(typeof mod.pickRatingDoc === "function", "pickRatingDoc is exported");
   ok(typeof mod.parseGoodreadsHtml === "function", "parseGoodreadsHtml is exported");
   ok(typeof mod.buildRecommendPrompt === "function" && typeof mod.parseRecs === "function",
     "the recommend prompt and parser are exported");
 
   const src = fs.readFileSync(path.join(ROOT, "netlify", "functions", "books.mjs"), "utf8");
-  ok(/civil rights/.test(src) && /deliberately absent/.test(src),
-    "the rubric names the false-positives it refuses (civil rights / race-as-identity)");
   ok(/function asNum/.test(src) && /Number\(null\) is 0/.test(src),
     "missing community ratings go through asNum, not Number(null)");
 
@@ -278,57 +307,25 @@ async function sectionServer() {
   const noAct = await callHandler(handler, { secret: SECRET, action: "explode" });
   ok(noAct.status === 400, "unknown action is 400");
 
-  // --- politics: hand-computed ---
-  const frag = mod.scorePolitics({ title: "White Fragility", description: FRAGILITY_DESC, subjects: [] });
-  ok(frag.woke === 5 && frag.political === 0, "White Fragility is woke 5 / political 0 (3+3 capped)");
-  ok(frag.evidence.indexOf("white fragility") >= 0 && frag.evidence.indexOf("white privilege") >= 0,
-    "…and names the two phrases that produced it");
-  ok(frag.evidence.indexOf("privilege") < 0,
-    "…without also counting the shorter 'privilege' inside 'white privilege'");
-  ok(frag.confidence === "high", "two hits / raw 6 is high confidence");
+  // The political / woke arithmetic (White Fragility woke 5, Animal Farm
+  // political 3, the cap exclusions in recommendScore) was here. That
+  // feature was removed on 2026-09-23; the rating lookup below replaced it.
 
-  const farm = mod.scorePolitics({ title: "Animal Farm", description: ANIMAL_DESC, subjects: [] });
-  ok(farm.political === 3 && farm.woke === 0, "Animal Farm is political 3 / woke 0 (revolution+totalitarian+political)");
-
-  const hate = mod.scorePolitics({ title: "The Hate U Give", description: HATE_DESC, subjects: [] });
-  ok(hate.political === 1 && hate.woke === 3, "Hate U Give is political 1 (protest) / woke 3 (systemic racism+activism)");
-
-  const queer = mod.scorePolitics({ title: "Gender Queer", description: QUEER_DESC, subjects: [] });
-  ok(queer.woke === 5 && queer.political === 0, "Gender Queer is woke 5 (title 3 + gender identity 2)");
-
-  const hobbit = mod.scorePolitics({ title: "The Hobbit", description: HOBBIT_DESC, subjects: ["Fantasy", "Hobbits"] });
-  ok(hobbit.political === 0 && hobbit.woke === 0, "The Hobbit is 0 / 0 — a zero is a real score, not a miss");
-  ok(hobbit.confidence === "high", "a long unmarked description is high-confidence 0, not 'unknown'");
-
-  const mock = mod.scorePolitics({ title: "To Kill a Mockingbird", description: MOCKINGBIRD_DESC, subjects: ["Race relations"] });
-  ok(mock.political === 0 && mock.woke === 0, "Mockingbird is not woke: race/justice/slavery-adjacent history is not on the list");
-
-  const baby = mod.scorePolitics({ title: "Antiracist Baby", description: "A board book.", subjects: [] });
-  ok(baby.woke === 3, "Antiracist Baby title alone is woke 3");
-
-  // --- recommend arithmetic ---
-  const shelf = [{ title: "The Hobbit", author: "J.R.R. Tolkien", subjects: ["Fantasy", "Hobbits"], rating: 5 }];
-  const sil = { title: "The Silmarillion", author: "J.R.R. Tolkien", subjects: ["Fantasy"], description: "", political: 0, woke: 0 };
-  const recSil = mod.recommendScore(sil, { shelf, interests: ["fantasy"], maxPolitical: 5, maxWoke: 5 });
-  // author liked +3, one shared subject +1, interest "fantasy" in subjects +2 = 6
-  ok(recSil.score === 6 && !recSil.excluded, "Silmarillion scores 3+1+2=6 against a liked Hobbit + fantasy interest");
-  ok(recSil.reasons.length === 3, "…and states all three reasons");
-
-  const recSelf = mod.recommendScore({ title: "The Hobbit", author: "J.R.R. Tolkien", subjects: [], political: 0, woke: 0 }, { shelf, interests: [], maxPolitical: 5, maxWoke: 5 });
-  ok(recSelf.excluded && recSelf.excludeReason === "already-on-shelf", "a book already on the shelf is excluded");
-
-  const recWoke = mod.recommendScore({ title: "White Fragility", author: "Robin DiAngelo", subjects: [], political: 0, woke: 5 }, { shelf, interests: [], maxPolitical: 5, maxWoke: 2 });
-  ok(recWoke.excluded && recWoke.excludeReason === "over-woke", "maxWoke 2 drops a woke-5 book");
-
-  const keepZero = mod.recommendScore({ title: "Charlotte's Web", author: "E.B. White", subjects: ["Animals"], political: 0, woke: 0 }, { shelf: [], interests: [], maxPolitical: 0, maxWoke: 0 });
-  ok(!keepZero.excluded, "maxWoke 0 / maxPolitical 0 KEEPS a 0/0 book (`>` not `>=`, and 0 is not treated as unset)");
-  const dropOne = mod.recommendScore({ title: "A tract", author: "X", subjects: [], political: 0, woke: 1 }, { shelf: [], interests: [], maxPolitical: 0, maxWoke: 0 });
-  ok(dropOne.excluded && dropOne.excludeReason === "over-woke", "maxWoke 0 drops a woke-1 book");
-
-  const zeroRated = [{ title: "The Hobbit", author: "J.R.R. Tolkien", subjects: ["Fantasy"], rating: 0 }];
-  const recZeroLike = mod.recommendScore(sil, { shelf: zeroRated, interests: [], maxPolitical: 5, maxWoke: 5 });
-  ok(recZeroLike.score === 1 && recZeroLike.reasons.indexOf("same author as a book you liked") < 0,
-    "a 0-star shelf rating is not a like (author bonus stays off; the shared subject still scores 1)");
+  // --- Open Library rating lookup: which doc is this book ---
+  if (typeof mod.pickRatingDoc === "function") {
+    const guide = OL_RATING_DOCS["children of time"];
+    const pick = mod.pickRatingDoc(guide, "Children of Time", "Adrian Tchaikovsky");
+    ok(!!pick && pick.key === "/works/OL17800001W",
+      "the rating lookup skips a study guide by another author and takes Tchaikovsky's book");
+    ok(mod.pickRatingDoc(OL_RATING_DOCS["hobbit"], "The Hobbit", "J.R.R. Tolkien") === null,
+      "The Hobbit Cookbook is not The Hobbit, so its 3.1 is not borrowed");
+    const bob = mod.pickRatingDoc(OL_RATING_DOCS["we are legion"], "We Are Legion (We Are Bob)", "Dennis E. Taylor");
+    ok(!!bob && bob.key === "/works/OL17334140W", "a series tag in parentheses still matches the work");
+  } else {
+    ok(false, "the rating lookup skips a study guide by another author and takes Tchaikovsky's book");
+    ok(false, "The Hobbit Cookbook is not The Hobbit, so its 3.1 is not borrowed");
+    ok(false, "a series tag in parentheses still matches the work");
+  }
 
   const canPrompt = typeof mod.buildRecommendPrompt === "function" && typeof mod.sanitizeShelf === "function" && typeof mod.parseRecs === "function";
   let prompt41 = "";
@@ -337,6 +334,7 @@ async function sectionServer() {
   if (canPrompt) {
     const fortyOne = [];
     for (let i = 1; i <= 41; i++) fortyOne.push({ title: "Book " + i, author: "Author " + i, rating: i === 1 ? 5 : null });
+    // An older page can still send the caps; the prompt no longer states them.
     prompt41 = mod.buildRecommendPrompt(mod.sanitizeShelf(fortyOne), { interests: ["fantasy"], maxPolitical: 5, maxWoke: 0 });
     ratedZero = mod.buildRecommendPrompt(mod.sanitizeShelf([
       { title: "Zero", author: "Zed", rating: 0 },
@@ -348,7 +346,10 @@ async function sectionServer() {
     "the recommend prompt keeps the 41st shelf row and a 5-star user rating (40 used to drop it)");
   ok(/Zero — Zed — 0\/5/.test(ratedZero) && /Blank — Bee — unrated/.test(ratedZero),
     "a real 0-star review stays 0/5; a missing review stays unrated (Number(null) is 0)");
-  ok(/Woke cap: 0 of 5/.test(prompt41), "…and still states the woke cap of 0");
+  // Restaged 2026-09-23: this used to require "Woke cap: 0 of 5". The caps
+  // went with the political / woke rating; the series and LGBT rules below stay.
+  ok(!!prompt41 && !/cap/i.test(prompt41) && !/political|woke/i.test(prompt41),
+    "…and states no political or woke cap");
   ok(/assume they have read the whole series/.test(prompt41)
     && /Do not recommend the next book in that series/.test(prompt41)
     && /Do not recommend a book with LGBT characters/.test(prompt41),
@@ -417,7 +418,8 @@ async function sectionServer() {
   ok(!!foundHobbit, "search merges Open Library + Google Books onto The Hobbit");
   ok(foundHobbit && foundHobbit.isbn === "9780547928227", "…keeps the ISBN_13");
   ok(foundHobbit && /pantry/.test(foundHobbit.description), "…prefers the Google Books description when OL had none");
-  ok(foundHobbit && foundHobbit.political === 0 && foundHobbit.woke === 0, "search scores the Hobbit 0/0");
+  ok(foundHobbit && !("political" in foundHobbit) && !("woke" in foundHobbit) && !("evidence" in foundHobbit),
+    "search results carry no political / woke score");
   ok(foundHobbit && /isbn\/9780547928227/.test(foundHobbit.goodreadsUrl), "Goodreads URL is the ISBN form");
   ok(foundHobbit && foundHobbit.rating === 4.2, "OL rating (first) is kept when both sources rate — 4.2 is not dropped as falsy");
 
@@ -430,11 +432,41 @@ async function sectionServer() {
   const fragBody = await fragSearch.json();
   const foundFrag = (fragBody.books || []).find((b) => b.title === "White Fragility");
   ok(foundFrag && foundFrag.rating === 4, "when OL has no rating, the Google Books 4.0 is taken — not a sticky 0");
-  ok(foundFrag && foundFrag.woke === 5, "White Fragility search result is scored woke 5");
-
   const rate = await callHandler(handler, { secret: SECRET, action: "rate", title: "White Fragility", description: FRAGILITY_DESC });
-  const rateBody = await rate.json();
-  ok(rate.status === 200 && rateBody.woke === 5 && rateBody.political === 0, "action:rate returns the same hand-computed pair");
+  ok(rate.status === 400, "action:rate is gone (400), with the rest of the political / woke rating");
+
+  // --- Open Library ratings for cards that have none ---
+  olRatingCalls = [];
+  const lookup = await callHandler(handler, {
+    secret: SECRET, action: "ratings",
+    books: [
+      { title: "Children of Time", author: "Adrian Tchaikovsky" },
+      { title: "We Are Legion (We Are Bob)", author: "Dennis E. Taylor" },
+      { title: "Unrated Novella", author: "Jo Quiet" },
+      { title: "The Hobbit", author: "J.R.R. Tolkien" },
+      { title: "Nothing Like This", author: "Nobody" },
+    ],
+  });
+  const lookupBody = await lookup.json().catch(() => ({}));
+  const rs = Array.isArray(lookupBody.ratings) ? lookupBody.ratings : [];
+  ok(lookup.status === 200 && rs.length === 5, "ratings answers one row per book asked, in order");
+  ok(rs[0] && rs[0].rating === 4.3 && rs[0].ratingsCount === 250 && rs[0].ratingSource === "open-library"
+    && /8888001-M\.jpg$/.test(rs[0].cover) && rs[0].isbn === "9781447273288",
+    "Children of Time is 4.3 from 250 on Open Library, with its cover and ISBN");
+  ok(rs[1] && Math.abs(rs[1].rating - 4.105263157894737) < 1e-9 && rs[1].ratingsCount === 19
+    && olRatingCalls.indexOf("/works/OL17334140W/ratings.json") >= 0,
+    "a 0-count search hit falls through to the work's ratings.json (We Are Legion 4.1053 from 19)");
+  ok(rs[2] && rs[2].rating === null && rs[2].ratingsCount === null && rs[2].reason === "no-ratings",
+    "a work nobody rated is rating null, not 0 (ratings.json average null, count 0)");
+  ok(rs[3] && rs[3].rating === null && rs[3].reason === "not-found",
+    "a search that only finds a different book is a miss, not that book's score");
+  ok(rs[4] && rs[4].rating === null && rs[4].reason === "not-found", "an empty search is a miss");
+  const many = [];
+  for (let i = 0; i < 20; i++) many.push({ title: "Nothing Like This " + i, author: "Nobody" });
+  const capped = await callHandler(handler, { secret: SECRET, action: "ratings", books: many });
+  const cappedBody = await capped.json().catch(() => ({}));
+  ok(Array.isArray(cappedBody.ratings) && cappedBody.ratings.length === 12,
+    "one ratings call looks up at most 12 books");
 
   const reviews = await callHandler(handler, { secret: SECRET, action: "reviews", isbn: "9780547928227" });
   const revBody = await reviews.json();
@@ -475,6 +507,7 @@ async function sectionServer() {
   ok(!!recReq && recReq.max_tokens === 16000,
     "recommend leaves 16000 tokens so thinking cannot eat the JSON");
   const recUser = recReq && recReq.messages && recReq.messages.find((m) => m.role === "user");
+  ok(recUser && !/cap/i.test(recUser.content), "an old page's maxWoke 0 does not put a cap in the ask");
   ok(recUser && /The Hobbit — J\.R\.R\. Tolkien — 5\/5/.test(recUser.content) && /Book 41 — Author 41 — unrated/.test(recUser.content),
     "the user turn includes the whole shelf and the reader's stars");
   // The Messages API takes the system turn as a top-level field, not a message.
@@ -617,8 +650,10 @@ async function sectionServer() {
 
   const pageSrc = fs.readFileSync(path.join(ROOT, "books.html"), "utf8");
   ok(/\[hidden\]\s*\{\s*display:\s*none\s*!important/i.test(pageSrc), "books.html restates [hidden]{display:none}");
-  ok(/Number\.isFinite\(Number\(political\)\)/.test(pageSrc) && /Number\.isFinite\(Number\(woke\)\)/.test(pageSrc),
-    "the meters treat 0 as 0, not as missing");
+  // Restaged 2026-09-23: this checked that the political / woke meters
+  // treated 0 as 0. The meters, the caps card, and the evidence line are gone.
+  ok(!/meterHtml|maxPolitical|maxWoke|filLabel|How political|political a book/i.test(pageSrc),
+    "books.html has no political / woke meter, cap, or caption");
   ok(/data-feature="books"/.test(pageSrc), "the activity beacon is on the page");
   ok(/var DAD_SEED = \[/.test(pageSrc), "Dad's Kindle/Audible list is seeded in the page");
   ok(/title: "Oathbringer"/.test(pageSrc) && /title: "The Blade Itself"/.test(pageSrc),
@@ -763,7 +798,15 @@ async function newPage(browser, mock, opts) {
           data = { books: books };
         }
         else if (body.action === "reviews") data = canned.reviews;
-        else if (body.action === "rate") data = { political: 0, woke: 0, evidence: [], confidence: "high" };
+        else if (body.action === "ratings") {
+          // The shape books.mjs answers: one row per book asked, a miss is null.
+          data = { ratings: (body.books || []).map((b) => {
+            const hit = (canned.ratings || {})[b.title];
+            return hit
+              ? { title: b.title, author: b.author || "", rating: hit.rating, ratingsCount: hit.ratingsCount, ratingSource: hit.rating == null ? "" : "open-library", cover: hit.cover || "", isbn: "", reason: hit.rating == null ? "no-ratings" : undefined }
+              : { title: b.title, author: b.author || "", rating: null, ratingsCount: null, ratingSource: "", cover: "", isbn: "", reason: "not-found" };
+          }) };
+        }
         return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       return realFetch(url, init);
@@ -773,30 +816,31 @@ async function newPage(browser, mock, opts) {
     recBooks: mock.recBooks,
     laterBook: mock.laterBook || null,
     reviews: mock.reviews,
+    ratings: mock.ratings || {},
   });
   return { page, errors };
 }
+
+const WIND_COVER = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="56" height="80"><rect width="56" height="80" fill="#6a4"/></svg>');
 
 const MOCK_HOBBIT = {
   id: "ol-hobbit", title: "The Hobbit", author: "J.R.R. Tolkien", year: "1937",
   isbn: "9780547928227", cover: "", description: HOBBIT_DESC, subjects: ["Fantasy"],
   rating: 4.2, ratingsCount: 1200, ratingSource: "open-library",
   goodreadsUrl: "https://www.goodreads.com/book/isbn/9780547928227",
-  political: 0, woke: 0, evidence: [], confidence: "high",
 };
 const MOCK_SIL = {
   id: "ol-sil", title: "The Priory of the Orange Tree", author: "Samantha Shannon", year: "2019",
   isbn: "", cover: "", description: "A standalone epic about a queendom and a dragon.", subjects: ["Fantasy"],
   rating: null, ratingsCount: null, ratingSource: "",
   goodreadsUrl: "https://www.goodreads.com/search?q=The%20Priory%20of%20the%20Orange%20Tree",
-  political: 0, woke: 0, evidence: [], confidence: "high",
   summary: "A standalone epic about a queendom and a dragon.",
   why: "You rated The Hobbit 5 stars.",
   reasons: ["You rated The Hobbit 5 stars."],
 };
 
 async function sectionUi(browser) {
-  section("B. The page: profiles, shelf, recommend, meters");
+  section("B. The page: profiles, shelf, recommend, ratings on the cards");
 
   const mock = {
     calls: [],
@@ -806,14 +850,17 @@ async function sectionUi(browser) {
       summary: "A student chases the name of the wind.",
       why: "Fantasy next to the books already read.",
       description: "A student chases the name of the wind.",
-      political: 0, woke: 0, evidence: [],
     }],
     laterBook: {
       id: "ol-time", title: "Children of Time", author: "Adrian Tchaikovsky",
       summary: "Spiders inherit a terraformed world.",
       why: "Fits the Howey and Corey stretch.",
       description: "Spiders inherit a terraformed world.",
-      political: 0, woke: 0, evidence: [],
+    },
+    ratings: {
+      // An inline image, so the cover check does not reach the internet.
+      "The Name of the Wind": { rating: 4.52, ratingsCount: 900, cover: WIND_COVER },
+      "Children of Time": { rating: 4.3, ratingsCount: 250 },
     },
     reviews: {
       ok: true, title: "The Hobbit", author: "J.R.R. Tolkien", rating: 4.3,
@@ -826,7 +873,7 @@ async function sectionUi(browser) {
   mock.searchBooks = [MOCK_HOBBIT, {
     id: "ol-piranesi", title: "Piranesi", author: "Susanna Clarke",
     cover: "", description: "A house of tides and statues.",
-    political: 0, woke: 0, evidence: [], rating: null, ratingsCount: null, ratingSource: "",
+    rating: null, ratingsCount: null, ratingSource: "",
   }];
   const { page, errors } = await newPage(browser, mock, { user: "Dad" });
   await page.goto(BASE + "/books.html", { waitUntil: "domcontentloaded", timeout: 60000 });
@@ -838,7 +885,7 @@ async function sectionUi(browser) {
     const local = {
       version: 1, savedAt: 10, currentId: "phone",
       profiles: [{
-        id: "phone", name: "Eleanor", interests: [], maxPolitical: 5, maxWoke: 5,
+        id: "phone", name: "Eleanor", interests: [],
         shelf: [{ id: "p", title: "Piranesi", author: "Susanna Clarke", rating: 4 }],
         skipped: [], readlist: [],
       }],
@@ -846,7 +893,7 @@ async function sectionUi(browser) {
     const remote = {
       version: 1, savedAt: 20, currentId: "desk",
       profiles: [{
-        id: "desk", name: "Eleanor", interests: ["myth"], maxPolitical: 5, maxWoke: 5,
+        id: "desk", name: "Eleanor", interests: ["myth"],
         shelf: [{ id: "c", title: "Circe", author: "Madeline Miller", rating: null }],
         skipped: [], readlist: [{ title: "Circe", author: "Madeline Miller" }],
       }],
@@ -882,8 +929,9 @@ async function sectionUi(browser) {
     if (!label) return false;
     const read = label.closest("section").getBoundingClientRect();
     const rec = document.getElementById("recLabel").closest("section").getBoundingClientRect();
-    const fil = document.getElementById("filLabel").closest("section").getBoundingClientRect();
-    return read.top > rec.top && read.top < fil.top
+    // The caps card that used to sit under the read list is gone; the shelf is next.
+    const shelf = document.getElementById("shelfLabel").closest("section").getBoundingClientRect();
+    return read.top > rec.top && read.top < shelf.top
       && document.getElementById("readList").textContent === "Nothing saved yet.";
   }), "Read list sits under Next to read and starts empty");
 
@@ -897,25 +945,32 @@ async function sectionUi(browser) {
   await sleep(80);
   ok(await page.evaluate(() => window.__BOOKS__.current().interests.join() === "fantasy"), "an interest sticks on the current profile");
 
-  await page.$eval("#maxWoke", (el) => { el.value = "0"; el.dispatchEvent(new Event("input")); });
-  ok(await page.evaluate(() => window.__BOOKS__.current().maxWoke === 0), "woke-max 0 is stored as 0, not coerced to 5");
-  ok(await page.evaluate(() => document.getElementById("maxWokeVal").textContent === "0"), "…and the label shows 0");
+  // Restaged 2026-09-23: the woke-max slider (stored 0 as 0) is gone with the
+  // political / woke rating. Nothing on the page offers it now.
+  ok(await page.evaluate(() => !document.getElementById("maxWoke") && !document.getElementById("maxPolitical")
+    && !document.querySelector(".meter, .meters") && !/political/i.test(document.body.textContent)),
+    "no political / woke slider, meter, or caption on the page");
 
   await page.evaluate(() => {
     document.getElementById("searchQ").value = "hobbit";
     document.getElementById("searchBtn").click();
   });
   await page.waitForFunction(() => document.querySelectorAll("#searchHits .book").length >= 1, { timeout: 10000 });
-  const hitZero = await page.evaluate(() => {
-    const ns = [...document.querySelectorAll("#searchHits .meter .n")].map((n) => n.textContent);
-    return ns;
-  });
-  ok(hitZero.indexOf("0") >= 0, "a 0 political/woke score is printed as 0, not blank");
+  ok(await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#searchHits .book")].find((el) => el.querySelector(".t").textContent === "The Hobbit");
+    return !!row && /4\.20 from Open Library \(1200\)/.test(row.querySelector(".meta").textContent);
+  }), "a search hit card shows its Open Library 4.20 (1200)");
+  ok(await page.evaluate(() => {
+    // Two columns: cover and text. The third column held the meters.
+    const row = document.querySelector("#searchHits .book");
+    return !!row && getComputedStyle(row).gridTemplateColumns.trim().split(/\s+/).length === 2;
+  }), "the card is cover and text, with no empty meter column");
 
   await page.evaluate(() => { const b = document.querySelector("#searchHits .book"); if (b) b.click(); });
   await sleep(80);
   ok(await page.evaluate(() => window.__BOOKS__.current().shelf.length === 1), "tapping a hit adds it to the shelf");
-  ok(await page.evaluate(() => window.__BOOKS__.current().shelf[0].woke === 0), "the shelf keeps the 0 woke score");
+  ok(await page.evaluate(() => !("woke" in window.__BOOKS__.current().shelf[0]) && !("political" in window.__BOOKS__.current().shelf[0])),
+    "a new shelf row carries no political / woke score");
   ok(await page.evaluate(() => {
     const meta = document.querySelector("#shelfList .meta").textContent.replace(/\s+/g, " ");
     return /4\.20/.test(meta) && !/0\.00/.test(meta);
@@ -989,6 +1044,22 @@ async function sectionUi(browser) {
       && document.getElementById("readList").textContent === "Nothing saved yet."
       && (window.__shelfScroll || []).indexOf("Piranesi") < 0;
   }), "Already read on the read list moves that title onto the shelf and does not scroll");
+  // Piranesi came from a search hit with no score. Open Library (mock) has
+  // none either. Five of Joy's own stars must not become "5.00 from Open
+  // Library": communityScore used to fall back to the reader's stars.
+  await sleep(600);
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#shelfList .book")].find((el) => el.querySelector(".t").textContent === "Piranesi");
+    const five = row && row.querySelectorAll(".stars button")[4];
+    if (five) five.click();
+  });
+  await sleep(80);
+  ok(await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#shelfList .book")].find((el) => el.querySelector(".t").textContent === "Piranesi");
+    const b = window.__BOOKS__.current().shelf.find((x) => x.title === "Piranesi");
+    const meta = row && row.querySelector(".meta") ? row.querySelector(".meta").textContent : "";
+    return !!b && b.rating === 5 && !/5\.00/.test(meta) && meta === "No Open Library rating";
+  }), "a book's own 5 stars are not shown as a 5.00 Open Library score");
 
   // Geometry, not the attribute: a styled box toggled by [hidden] has shipped
   // visible before. The wait can be minutes, so the spinner is the only sign.
@@ -1024,6 +1095,38 @@ async function sectionUi(browser) {
     const row = document.querySelector("#recs .book");
     return !!(row && [...row.querySelectorAll("button")].some((b) => b.textContent === "Read list"));
   }), "a recommendation has a Read list button");
+  // A pick comes back with no community score. The card asks Open Library and
+  // paints it in place, so nobody has to open the sheet to see it.
+  await page.waitForFunction(() => {
+    const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "The Name of the Wind");
+    return row && /Open Library/.test(row.querySelector(".meta").textContent);
+  }, { timeout: 8000 }).catch(() => {});
+  ok(await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "The Name of the Wind");
+    return !!row && row.querySelector(".meta").textContent === "4.52 from Open Library (900)";
+  }), "a recommendation card shows its Open Library score (4.52 from 900) without a tap");
+  ok(await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "The Priory of the Orange Tree");
+    return !!row && row.querySelector(".meta").textContent === "No Open Library rating";
+  }), "a pick Open Library has no score for says so, and does not print 0.00");
+  // A pick comes back from the model with no cover. The same lookup brings
+  // the Open Library cover and paints it into the card.
+  ok(await page.evaluate((cover) => {
+    const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "The Name of the Wind");
+    const img = row && row.querySelector("img");
+    return !!img && img.getAttribute("src") === cover && !row.querySelector(".cover");
+  }, WIND_COVER), "a recommendation card shows the Open Library cover without a tap");
+  ok(await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "The Priory of the Orange Tree");
+    return !!row && !!row.querySelector(".cover") && !row.querySelector("img");
+  }), "a pick Open Library has no cover for keeps the No cover tile");
+  ok(await page.evaluate(() => {
+    const asked = (window.__BOOK_CALLS__ || []).filter((c) => c.action === "ratings");
+    const titles = [].concat.apply([], asked.map((c) => (c.books || []).map((b) => b.title)));
+    return titles.indexOf("The Name of the Wind") >= 0
+      && titles.filter((t) => t === "The Name of the Wind").length === 1
+      && asked.every((c) => (c.books || []).length <= 10);
+  }), "each pick is asked once, in batches of ten or fewer");
 
   await page.evaluate(() => { const b = document.querySelector("#recs .book"); if (b) b.click(); });
   await page.waitForFunction(() => document.getElementById("detail").hidden === false, { timeout: 10000 });
@@ -1070,6 +1173,12 @@ async function sectionUi(browser) {
       && !joy.shelf.some((b) => b.title === "Children of Time")
       && joy.shelf.length === n;
   }, joyShelfBefore), "Read list saves the pick, hides it from Next to read, and leaves it off the shelf");
+  ok(await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#readList .book")].find((el) => el.querySelector(".t").textContent === "Children of Time");
+    const saved = (window.__BOOKS__.current().readlist || []).find((b) => b.title === "Children of Time");
+    return !!row && !!row.querySelector(".meta") && row.querySelector(".meta").textContent === "4.30 from Open Library (250)"
+      && !!saved && saved.communityRating === 4.3;
+  }), "the read-list card keeps the Open Library 4.30 (250) the pick found");
 
   await page.evaluate(() => {
     window.__shelfScroll = [];
@@ -1264,7 +1373,7 @@ async function sectionUi(browser) {
     dad.shelf.push({
       id: "seed-cut-quiz", title: "Trivia Storm", author: "", isbn: "", cover: "",
       description: "", subjects: [], rating: null, communityRating: null,
-      political: 0, woke: 0, evidence: [], goodreadsUrl: "", ratingSource: "", ratingsCount: null,
+      goodreadsUrl: "", ratingSource: "", ratingsCount: null,
     });
     localStorage.setItem("books_profiles_v1", JSON.stringify(window.__BOOKS__.state()));
   });

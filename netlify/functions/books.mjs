@@ -1,12 +1,11 @@
 // BUCKY — the family bookshelf: search, Goodreads reviews, recommendations,
-// and a transparent political / woke rating.
+// and the Open Library community rating on each card.
 //
 // Netlify Function (ESM). POST JSON, secret-gated like every other function here.
 //
 //   { secret, action:"search", q }
 //     -> { books:[{ id, title, author, year, isbn, cover, description, subjects,
-//                   rating, ratingsCount, ratingSource, goodreadsUrl,
-//                   political, woke, evidence, confidence }] }
+//                   rating, ratingsCount, ratingSource, goodreadsUrl }] }
 //
 //   { secret, action:"reviews", isbn?, title?, author? }
 //     -> { ok, title, author, rating, ratingsCount, reviewCount, reviews:[{author,rating,body}],
@@ -17,7 +16,7 @@
 //     A blocked / empty / captcha page degrades to {ok:false} plus the outbound URL;
 //     it never invents a rating.
 //
-//   { secret, action:"recommend", shelf, interests, maxPolitical?, maxWoke? }
+//   { secret, action:"recommend", shelf, interests }
 //     -> { books:[{ title, author, summary, why }], model, error? }
 //     The whole shelf (title / author / the reader's own stars) goes to
 //     Claude Opus 5.5 (claude-opus-5-5) at effort "low". It was grok-4.7
@@ -27,14 +26,18 @@
 //     ~25s, HTTP 200, four spaces, no JSON). Eleanor's short shelf still
 //     finishes. Dad's seeded shelf does not, so that recommend is
 //     books-recommend-background plus action "recommend-result".
-//     Catalog ranker recommendScore stays exported for the arithmetic suite.
 //
-//   { secret, action:"rate", title, author?, description?, subjects? }
-//     -> { political, woke, evidence, confidence }
+//   { secret, action:"ratings", books:[{ title, author }] }
+//     -> { ratings:[{ title, author, rating, ratingsCount, ratingSource,
+//                     cover, isbn, reason? }] }
+//     The Open Library community rating for cards that do not have one yet:
+//     a recommendation, an Already read row, a seed row with no snapshot.
+//     search.json by title and author, then the work's ratings.json when
+//     search left no ratings. A title that does not match is a miss, never
+//     another book's score. A miss is rating null, never 0.
 //
 // WHY A SERVER PROXY. Open Library is CORS-open; Goodreads and often Google Books are
-// not. The ratings and review text have to be fetched here. The political score is
-// also computed here so the page cannot "help" a check by scoring in two places.
+// not. The ratings and review text have to be fetched here.
 //
 // Zero dependencies, hand-rolled fetch — same house convention as news.mjs / stocks.mjs.
 //
@@ -71,7 +74,9 @@ const MAX_RESULTS = 8;
 const MAX_REVIEWS = 5;
 const MAX_SHELF = 200;
 const MAX_INTERESTS = 12;
-const MAX_RECOMMEND_QUERIES = 3;
+// A page asks for the cards it is painting: ten picks, or a few shelf rows.
+const MAX_RATING_LOOKUPS = 12;
+const RATING_CONCURRENCY = 3;
 const RECOMMEND_TIMEOUT_MS = 50000;
 // Dad's 135-title shelf was still running when this 50s abort fired inside
 // the background job (measured 2026-09-22 on grok-4.7, reason "timeout"). The
@@ -136,13 +141,6 @@ function recommendStream(pending, headers) {
   return new Response(stream, { status: 200, headers: streamed });
 }
 
-function clamp5(n) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return 0;
-  if (x < 0) return 0;
-  if (x > 5) return 5;
-  return x;
-}
 // Number(null) is 0. A book with no community rating must stay `null`,
 // or a missing score and a real zero-star pile-on become the same number.
 function asNum(v) {
@@ -154,120 +152,8 @@ function asNum(v) {
 function normSpace(s) {
   return String(s || "").replace(/\s+/g, " ").trim();
 }
-function hayOf(parts) {
-  return normSpace(parts.filter(Boolean).join(" ")).toLowerCase();
-}
 function normName(s) {
   return normSpace(s).toLowerCase().replace(/[^a-z0-9 ]+/g, "");
-}
-
-/* ---------------------------------------------------------------------------
-   Political / woke rubric.
-
-   Two independent 0–5 axes, each the sum of unique phrase hits then capped at 5.
-   A hit is a literal lowercase substring of title + description + subjects.
-   Each phrase counts once. The number is hand-computable from the fixture text
-   and the lists below — the suite does that arithmetic, it does not trust this
-   function's own output as the expected value.
-
-   Political = how much the book is ABOUT government, parties, ideology, or
-   activism. "War" alone does not count (too many novels).
-
-   Woke = how central contemporary identity-politics / social-justice framing
-   is: critical-race / privilege theory, gender-identity ideology as the
-   lesson, DEI as a moral framework. A Black or gay character, a history of
-   slavery, or the civil rights movement does NOT add a point by itself —
-   those are representation or history, not this axis. That distinction is
-   the whole point of the list: "race" / "gay" / "slavery" / "civil rights"
-   are deliberately absent.
-   --------------------------------------------------------------------------- */
-export const POLITICAL_PHRASES = [
-  { phrase: "communist manifesto", weight: 3 },
-  { phrase: "federalist papers", weight: 3 },
-  { phrase: "political science", weight: 3 },
-  { phrase: "election", weight: 2 },
-  { phrase: "campaign", weight: 2 },
-  { phrase: "congress", weight: 2 },
-  { phrase: "democrat", weight: 2 },
-  { phrase: "republican", weight: 2 },
-  { phrase: "marxism", weight: 2 },
-  { phrase: "capitalism", weight: 2 },
-  { phrase: "libertarian", weight: 2 },
-  { phrase: "conservatism", weight: 2 },
-  { phrase: "liberalism", weight: 2 },
-  { phrase: "totalitarian", weight: 1 },
-  { phrase: "revolution", weight: 1 },
-  { phrase: "propaganda", weight: 1 },
-  { phrase: "dictator", weight: 1 },
-  { phrase: "government", weight: 1 },
-  { phrase: "political", weight: 1 },
-  { phrase: "protest", weight: 1 },
-];
-
-export const WOKE_PHRASES = [
-  { phrase: "white fragility", weight: 3 },
-  { phrase: "how to be an antiracist", weight: 3 },
-  { phrase: "antiracist baby", weight: 3 },
-  { phrase: "critical race theory", weight: 3 },
-  { phrase: "intersectionality", weight: 3 },
-  { phrase: "white privilege", weight: 3 },
-  { phrase: "queer theory", weight: 3 },
-  { phrase: "gender queer", weight: 3 },
-  { phrase: "antiracism", weight: 2 },
-  { phrase: "anti-racism", weight: 2 },
-  { phrase: "systemic racism", weight: 2 },
-  { phrase: "social justice", weight: 2 },
-  { phrase: "diversity equity inclusion", weight: 2 },
-  { phrase: "gender identity", weight: 2 },
-  { phrase: "assigned female at birth", weight: 2 },
-  { phrase: "assigned male at birth", weight: 2 },
-  { phrase: "cisgender", weight: 2 },
-  { phrase: "toxic masculinity", weight: 2 },
-  { phrase: "whiteness", weight: 2 },
-  { phrase: "settler colonial", weight: 2 },
-  { phrase: "decoloniz", weight: 2 },
-  { phrase: "climate justice", weight: 2 },
-  { phrase: "oppression", weight: 1 },
-  { phrase: "privilege", weight: 1 },
-  { phrase: "activism", weight: 1 },
-  { phrase: "equity", weight: 1 },
-  { phrase: "inclusion", weight: 1 },
-  { phrase: "microaggression", weight: 1 },
-  { phrase: "allyship", weight: 1 },
-  { phrase: "patriarchy", weight: 1 },
-  { phrase: "dei", weight: 1 },
-];
-
-function scoreAxis(hay, phrases) {
-  const hits = [];
-  for (const { phrase, weight } of phrases) {
-    if (hay.includes(phrase)) hits.push({ phrase, weight });
-  }
-  // "privilege" is also inside "white privilege" — keep the longer hit only,
-  // so the shorter tag does not add a phantom extra point.
-  const kept = hits.filter((h) => !hits.some((o) => o.phrase !== h.phrase && o.phrase.includes(h.phrase)));
-  const raw = kept.reduce((s, h) => s + h.weight, 0);
-  return { raw, score: Math.min(5, raw), evidence: kept.map((h) => h.phrase) };
-}
-
-export function scorePolitics(book) {
-  const title = normSpace(book && book.title);
-  const description = normSpace(book && book.description);
-  const subjects = Array.isArray(book && book.subjects) ? book.subjects.map(normSpace).filter(Boolean) : [];
-  const hay = hayOf([title, description, subjects.join(" ")]);
-  const pol = scoreAxis(hay, POLITICAL_PHRASES);
-  const woke = scoreAxis(hay, WOKE_PHRASES);
-  const evidence = pol.evidence.concat(woke.evidence);
-  const raw = pol.raw + woke.raw;
-  let confidence = "low";
-  if (evidence.length) confidence = (raw >= 3 || evidence.length >= 2) ? "high" : "medium";
-  else if (hay.length >= 80) confidence = "high";
-  return {
-    political: pol.score,
-    woke: woke.score,
-    evidence,
-    confidence,
-  };
 }
 
 export function goodreadsUrlFor(isbn, title, author) {
@@ -372,64 +258,6 @@ function bookKey(title, author) {
   return normName(title) + "::" + normName(author);
 }
 
-export function recommendScore(candidate, profile) {
-  const shelf = Array.isArray(profile && profile.shelf) ? profile.shelf : [];
-  const interests = Array.isArray(profile && profile.interests) ? profile.interests.map(normName).filter(Boolean) : [];
-  const maxPolitical = profile && profile.maxPolitical;
-  const maxWoke = profile && profile.maxWoke;
-  const title = normSpace(candidate && candidate.title);
-  const author = normSpace(candidate && candidate.author);
-  const subjects = Array.isArray(candidate && candidate.subjects) ? candidate.subjects : [];
-  const description = normSpace(candidate && candidate.description);
-  const political = clamp5(candidate && candidate.political);
-  const woke = clamp5(candidate && candidate.woke);
-  const key = bookKey(title, author);
-
-  if (shelf.some((b) => bookKey(b.title, b.author) === key)) {
-    return { score: 0, reasons: [], excluded: true, excludeReason: "already-on-shelf" };
-  }
-  // `>` not `>=`, and Number.isFinite — a max of 0 must keep a book scored 0
-  // and drop a book scored 1. `maxWoke || 5` would turn "no woke books" into "anything".
-  if (Number.isFinite(maxPolitical) && political > maxPolitical) {
-    return { score: 0, reasons: [], excluded: true, excludeReason: "over-political" };
-  }
-  if (Number.isFinite(maxWoke) && woke > maxWoke) {
-    return { score: 0, reasons: [], excluded: true, excludeReason: "over-woke" };
-  }
-
-  let score = 0;
-  const reasons = [];
-  const candAuthor = normName(author);
-  if (candAuthor && shelf.some((b) => normName(b.author) === candAuthor && Number(b.rating) >= 4)) {
-    score += 3;
-    reasons.push("same author as a book you liked");
-  }
-  const candSubs = new Set(subjects.map(normName).filter(Boolean));
-  let subHits = 0;
-  for (const b of shelf) {
-    const theirs = Array.isArray(b.subjects) ? b.subjects.map(normName) : [];
-    for (const s of theirs) {
-      if (s && candSubs.has(s)) subHits += 1;
-    }
-  }
-  const subScore = Math.min(4, subHits);
-  if (subScore) {
-    score += subScore;
-    reasons.push("shares subjects with your shelf");
-  }
-  const hay = hayOf([title, description, subjects.join(" ")]);
-  let intHits = 0;
-  for (const interest of interests) {
-    if (interest && hay.includes(interest)) intHits += 1;
-  }
-  const intScore = Math.min(6, intHits * 2);
-  if (intScore) {
-    score += intScore;
-    reasons.push("matches an interest");
-  }
-  return { score, reasons, excluded: false, excludeReason: "" };
-}
-
 function isbn13Of(list) {
   if (!Array.isArray(list)) return "";
   for (const x of list) {
@@ -442,7 +270,6 @@ function isbn13Of(list) {
 }
 
 function decorateBook(raw) {
-  const scored = scorePolitics(raw);
   return {
     id: raw.id || bookKey(raw.title, raw.author),
     title: normSpace(raw.title),
@@ -456,10 +283,6 @@ function decorateBook(raw) {
     ratingsCount: asNum(raw.ratingsCount),
     ratingSource: raw.ratingSource || "",
     goodreadsUrl: goodreadsUrlFor(raw.isbn, raw.title, raw.author),
-    political: scored.political,
-    woke: scored.woke,
-    evidence: scored.evidence,
-    confidence: scored.confidence,
   };
 }
 
@@ -528,11 +351,6 @@ export function mergeSearchHits(olDocs, gbItems) {
       prev.ratingSource = incoming.ratingSource;
     }
     if (!prev.subjects.length && incoming.subjects.length) prev.subjects = incoming.subjects;
-    const rescored = scorePolitics(prev);
-    prev.political = rescored.political;
-    prev.woke = rescored.woke;
-    prev.evidence = rescored.evidence;
-    prev.confidence = rescored.confidence;
     prev.goodreadsUrl = goodreadsUrlFor(prev.isbn, prev.title, prev.author);
     byKey.set(k, prev);
   }
@@ -584,6 +402,96 @@ async function searchCatalog(q) {
   const docs = ol.ok && ol.data && Array.isArray(ol.data.docs) ? ol.data.docs : [];
   const items = gb.ok && gb.data && Array.isArray(gb.data.items) ? gb.data.items : [];
   return mergeSearchHits(docs, items);
+}
+
+// A title from the shelf or from the model, reduced to what Open Library's
+// title field holds: no subtitle after a colon, no "(We Are Bob)" series tag,
+// no leading article.
+function titleCore(title) {
+  return normName(String(title || "").replace(/\([^)]*\)/g, " ").split(":")[0]).replace(/^(a|an|the)\s+/, "").trim();
+}
+function lastName(author) {
+  const parts = normName(author).split(" ").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : "";
+}
+// The doc has to be this book. The first search hit for a common title can be
+// a study guide or another author's book, and its score is not this one's.
+// The titles must match exactly once the subtitle and series tag are gone: a
+// prefix match took "The Hobbit Cookbook" for The Hobbit, and would take
+// "Dune Messiah" for Dune. A miss shows no score; a wrong match shows a
+// wrong one.
+export function pickRatingDoc(docs, title, author) {
+  const want = titleCore(title);
+  const last = lastName(author);
+  if (!want) return null;
+  for (const d of (Array.isArray(docs) ? docs : [])) {
+    const got = titleCore(d && d.title);
+    if (!got || got !== want) continue;
+    const names = Array.isArray(d.author_name) ? d.author_name : [];
+    if (last && !names.some((n) => normName(n).split(" ").includes(last))) continue;
+    return d;
+  }
+  return null;
+}
+
+// search.json leaves ratings_average off a work nobody rated, and can carry a
+// 0 count while the work's own ratings.json has votes (We Are Legion: 4.1053
+// from 19). A count of 0 is no rating, never a 0.00 book.
+async function openLibraryRating(title, author) {
+  const t = normSpace(title).slice(0, 200);
+  const a = normSpace(author).slice(0, 120);
+  const miss = (reason) => ({ title: t, author: a, rating: null, ratingsCount: null, ratingSource: "", cover: "", isbn: "", reason });
+  if (!titleCore(t)) return miss("no-title");
+  const q = "?title=" + encodeURIComponent(titleCore(t)) + (a ? "&author=" + encodeURIComponent(a) : "")
+    + "&fields=key,title,author_name,ratings_average,ratings_count,cover_i,isbn&limit=5";
+  const got = await fetchJson(joinUrl(OL_BASE, "/search.json") + q);
+  if (!got.ok) return miss(got.reason || "unavailable");
+  const doc = pickRatingDoc(got.data && got.data.docs, t, a);
+  if (!doc) return miss("not-found");
+  let rating = asNum(doc.ratings_average);
+  let count = asNum(doc.ratings_count);
+  if (rating == null || !count) {
+    rating = null;
+    count = null;
+    const key = String(doc.key || "");
+    if (/^\/works\/OL\d+W$/.test(key)) {
+      const work = await fetchJson(joinUrl(OL_BASE, key + "/ratings.json"));
+      const sum = work.ok && work.data && work.data.summary;
+      const avg = asNum(sum && sum.average);
+      const n = asNum(sum && sum.count);
+      if (avg != null && n) { rating = avg; count = n; }
+    }
+  }
+  const out = {
+    title: t,
+    author: a,
+    rating,
+    ratingsCount: count,
+    ratingSource: rating == null ? "" : "open-library",
+    cover: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg` : "",
+    isbn: isbn13Of(doc.isbn),
+  };
+  if (rating == null) out.reason = "no-ratings";
+  return out;
+}
+
+async function lookupRatings(raw) {
+  const list = [];
+  for (const b of (Array.isArray(raw) ? raw : [])) {
+    if (!b || !normSpace(b.title)) continue;
+    list.push({ title: b.title, author: b.author });
+    if (list.length >= MAX_RATING_LOOKUPS) break;
+  }
+  const out = new Array(list.length);
+  let next = 0;
+  async function worker() {
+    while (next < list.length) {
+      const i = next++;
+      out[i] = await openLibraryRating(list[i].title, list[i].author);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(RATING_CONCURRENCY, list.length) }, worker));
+  return out;
 }
 
 async function fetchReviews({ isbn, title, author }) {
@@ -638,15 +546,13 @@ function blockKey(title) {
   return normName(title).replace(/^(a|an|the)\s+/, "");
 }
 
-// Standing recommend limits. The woke meter still does not score a gay
-// character. This ask is stricter, and it is on every recommend.
+// Standing recommend limits, on every recommend. They are part of the ask,
+// not a score: the political / woke meter was removed on 2026-09-23.
 const RECOMMEND_LIMITS = "If a book on the shelf is part of a series, assume they have read the whole series. Do not recommend the next book in that series, or any other book in it. Do not recommend a book with LGBT characters.";
 const REC_COUNT = 10;
 
 export function buildRecommendPrompt(shelf, extras) {
   const interests = Array.isArray(extras && extras.interests) ? extras.interests : [];
-  const maxPolitical = extras && extras.maxPolitical;
-  const maxWoke = extras && extras.maxWoke;
   const skipped = sanitizePassed(extras && extras.skipped);
   const readlist = sanitizePassed(extras && extras.readlist);
   const lines = (Array.isArray(shelf) ? shelf : []).map((b) => {
@@ -656,8 +562,6 @@ export function buildRecommendPrompt(shelf, extras) {
   });
   let extra = "";
   if (interests.length) extra += "\nInterests they named: " + interests.join(", ") + ".";
-  if (Number.isFinite(Number(maxPolitical))) extra += "\nPolitical cap: " + Number(maxPolitical) + " of 5.";
-  if (Number.isFinite(Number(maxWoke))) extra += "\nWoke cap: " + Number(maxWoke) + " of 5. Stay at or under those caps.";
   if (skipped.length) {
     extra += "\n\nNOT INTERESTED (do not recommend these):\n" + skipped.map((b) => {
       return "- " + b.title + (b.author ? " — " + b.author : "");
@@ -711,9 +615,6 @@ export function parseRecs(text, shelf, blocked) {
       why: normSpace(b.why).slice(0, 400),
       reasons: [normSpace(b.why).slice(0, 400)].filter(Boolean),
       description: normSpace(b.summary).slice(0, 600),
-      political: 0,
-      woke: 0,
-      evidence: [],
       rating: null,
       ratingsCount: null,
       ratingSource: "",
@@ -777,14 +678,10 @@ async function recommend(body, timeoutMs) {
     if (s) interests.push(s);
     if (interests.length >= MAX_INTERESTS) break;
   }
-  const maxPolitical = Number(body.maxPolitical);
-  const maxWoke = Number(body.maxWoke);
   const skipped = sanitizePassed(body.skipped);
   const readlist = sanitizePassed(body.readlist);
   const extras = {
     interests,
-    maxPolitical: Number.isFinite(maxPolitical) ? maxPolitical : 5,
-    maxWoke: Number.isFinite(maxWoke) ? maxWoke : 5,
     skipped,
     readlist,
   };
@@ -912,13 +809,8 @@ export default async (req) => {
     if (!jobId) return json({ error: "jobId required" }, 400, headers);
     return json(await readRecommendJob(jobId), 200, headers);
   }
-  if (action === "rate") {
-    return json(scorePolitics({
-      title: String(body.title || "").slice(0, 200),
-      author: String(body.author || "").slice(0, 120),
-      description: String(body.description || "").slice(0, 2000),
-      subjects: Array.isArray(body.subjects) ? body.subjects.slice(0, 20) : [],
-    }), 200, headers);
+  if (action === "ratings") {
+    return json({ ratings: await lookupRatings(body.books) }, 200, headers);
   }
-  return json({ error: 'action must be "search", "reviews", "recommend", "recommend-result" or "rate"' }, 400, headers);
+  return json({ error: 'action must be "search", "reviews", "ratings", "recommend" or "recommend-result"' }, 400, headers);
 };

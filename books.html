@@ -99,13 +99,10 @@
   .recActs button { padding: 8px 10px; font-size: 13px; }
   .passHead { font-size: 12px; font-weight: 800; color: var(--navy); margin: 12px 0 6px; }
 
-  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 800; color: var(--navy); }
-  .filters input[type="range"] { width: 100%; }
   .filter-val { font-variant-numeric: tabular-nums; color: var(--ink); }
 
   .book {
-    display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: start;
+    display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: start;
     padding: 10px 0; border-top: 1px solid var(--line);
   }
   .book:first-child { border-top: 0; padding-top: 0; }
@@ -122,12 +119,6 @@
   }
   .stars button.on { color: var(--amber); }
 
-  .meters { display: flex; flex-direction: column; gap: 4px; min-width: 88px; }
-  .meter { display: grid; grid-template-columns: 52px 1fr 14px; gap: 4px; align-items: center; font-size: 11px; font-weight: 800; color: var(--muted); }
-  .meter .bar { height: 7px; background: #efeadd; border-radius: 99px; overflow: hidden; }
-  .meter .bar > i { display: block; height: 100%; background: var(--navy); border-radius: 99px; }
-  .meter.woke .bar > i { background: var(--red); }
-  .meter .n { font-variant-numeric: tabular-nums; color: var(--ink); text-align: right; }
 
   .hit { cursor: pointer; }
   .empty { font-size: 13.5px; font-weight: 600; color: var(--muted); padding: 8px 2px; }
@@ -223,13 +214,13 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     <a href="index.html" id="backLink">← Bucky</a>
     <span class="t">Bookshelf</span>
   </div>
-  <p class="subloc">Picks from what each person has read — plus how political a book is</p>
+  <p class="subloc">Picks from what each person has read</p>
 </header>
 
 <main>
   <section class="card" aria-labelledby="whoLabel">
     <h2 class="section-label" id="whoLabel">Whose shelf</h2>
-    <p class="section-note">Each person has their own list, interests, and taste filters.</p>
+    <p class="section-note">Each person has their own list and interests.</p>
     <div class="chips" id="profileChips"></div>
     <div class="row" style="margin-top:10px">
       <input id="newProfile" type="text" maxlength="24" placeholder="Add a person" autocomplete="off" />
@@ -262,25 +253,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     <h2 class="section-label" id="readLabel">Read list</h2>
     <p class="section-note">Save a title for later. It stays off the next picks until you remove it.</p>
     <div id="readList"></div>
-  </section>
-
-  <section class="card" aria-labelledby="filLabel">
-    <h2 class="section-label" id="filLabel">How political</h2>
-    <p class="section-note">Caps on what a recommendation may carry. 0 means none of that axis.</p>
-    <div class="filters">
-      <label>Political max <span class="filter-val" id="maxPolVal">5</span>
-        <input id="maxPolitical" type="range" min="0" max="5" step="1" value="5" />
-      </label>
-      <label>Woke max <span class="filter-val" id="maxWokeVal">5</span>
-        <input id="maxWoke" type="range" min="0" max="5" step="1" value="5" />
-      </label>
-    </div>
-    <p class="howto" style="margin-top:10px">
-      Political is government, parties, ideology, activism. Woke is how central contemporary
-      identity-politics framing is — critical-race / privilege theory, gender-identity ideology
-      as the lesson, DEI as a moral framework. A Black or gay character, or a history of
-      slavery or civil rights, does not raise the woke score by itself.
-    </p>
   </section>
 
   <section class="card" aria-labelledby="shelfLabel">
@@ -574,8 +546,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       shelf: [],
       skipped: [],
       readlist: [],
-      maxPolitical: 5,
-      maxWoke: 5,
     };
   }
   function loadState() {
@@ -669,9 +639,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         subjects: [],
         rating: null,
         communityRating: (book.communityRating == null || book.communityRating === "") ? null : (Number.isFinite(Number(book.communityRating)) ? Number(book.communityRating) : null),
-        political: 0,
-        woke: 0,
-        evidence: [],
         goodreadsUrl: seedCatalogUrl(book),
         ratingSource: book.ratingSource || "",
         ratingsCount: Number.isFinite(Number(book.ratingsCount)) ? Number(book.ratingsCount) : null,
@@ -687,34 +654,109 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   }
   importDadSeed();
 
-  function meterHtml(political, woke) {
-    var p = Number.isFinite(Number(political)) ? Number(political) : 0;
-    var w = Number.isFinite(Number(woke)) ? Number(woke) : 0;
-    return '<div class="meters">'
-      + '<div class="meter"><span>Political</span><span class="bar"><i style="width:' + (p * 20) + '%"></i></span><span class="n">' + p + '</span></div>'
-      + '<div class="meter woke"><span>Woke</span><span class="bar"><i style="width:' + (w * 20) + '%"></i></span><span class="n">' + w + '</span></div>'
-      + "</div>";
-  }
   function coverHtml(book) {
     if (book.cover) return '<img src="' + book.cover + '" alt="">';
     return '<div class="cover">No cover</div>';
   }
-  function communityScore(book) {
-    // User stars live in `rating`. A null there is "not rated yet", not 0.00 —
-    // Number(null) is 0, which painted a 4.20 Open Library book as 0.00 on the shelf.
-    var raw = (book.communityRating != null && book.communityRating !== "") ? book.communityRating : book.rating;
+  function communityScore(book, isHit) {
+    // On a shelf row `rating` is the reader's own stars, never the community
+    // score. Falling back to it painted Dad's 5 stars on an unscored book as
+    // "5.00 from Open Library". Only a search hit carries the community score
+    // in `rating`, so only the hit card says so. A null is "not rated yet",
+    // not 0.00: Number(null) is 0.
+    var raw = book.communityRating;
+    if ((raw == null || raw === "") && isHit) raw = book.rating;
     if (raw == null || raw === "") return null;
     var n = Number(raw);
     return Number.isFinite(n) ? n : null;
   }
-  function ratingLabel(book) {
-    var score = communityScore(book);
-    if (score == null) return "No community rating yet";
+  function ratingLabel(book, isHit) {
+    var score = communityScore(book, isHit);
+    if (score == null) return book.olTried ? "No Open Library rating" : "No community rating yet";
     var n = Number(book.ratingsCount);
     var src = book.ratingSource === "goodreads" ? "Goodreads" : (book.ratingSource === "google-books" ? "Google Books" : "Open Library");
     return score.toFixed(2) + " from " + src + (Number.isFinite(n) ? " (" + n + ")" : "");
   }
 
+  // A card with no community score, or no cover, asks Open Library through
+  // books.mjs ("ratings"), so the score and the cover are on the card and not
+  // only in the sheet. A pick comes back from the model with neither.
+  // Picks, Already read rows, and the seed rows Open Library search missed
+  // start without one. The answer is written onto the book, so a shelf or
+  // read-list row keeps it and the family copy syncs it. Every answer is
+  // stamped (olTried) and a row is not asked again for a week. One batch of ten
+  // is out at a time. A failed call leaves the row to be asked on a later
+  // paint, not marked as a miss.
+  var RATING_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
+  var RATING_BATCH = 10;
+  var ratingCache = {};
+  var ratingWait = {};
+  var ratingQueue = [];
+  var ratingBusy = false;
+  var ratingTimer = null;
+  function ratingKey(book) {
+    return titleKey(book.title) + "|" + String(book.author || "").trim().toLowerCase();
+  }
+  function wantRating(book, meta, keep) {
+    if (!book || !titleKey(book.title) || (communityScore(book) != null && book.cover)) return;
+    if (Number(book.olTried) > Date.now() - RATING_RETRY_MS) return;
+    var k = ratingKey(book);
+    if (ratingCache[k]) { if (applyRating(book, meta, ratingCache[k]) && keep) saveState(); return; }
+    if (!ratingWait[k]) {
+      ratingWait[k] = [];
+      ratingQueue.push({ key: k, title: book.title, author: book.author || "" });
+    }
+    ratingWait[k].push({ book: book, meta: meta, keep: keep });
+    if (!ratingTimer && !ratingBusy) ratingTimer = setTimeout(sendRatings, 250);
+  }
+  function applyRating(book, meta, r) {
+    if (hasRating(r.rating)) {
+      book.communityRating = Number(r.rating);
+      book.ratingsCount = hasRating(r.ratingsCount) ? Number(r.ratingsCount) : null;
+      book.ratingSource = "open-library";
+    }
+    // Open Library can have the book and its cover with no ratings yet.
+    if (!book.cover && r.cover) book.cover = r.cover;
+    if (!book.isbn && r.isbn) book.isbn = r.isbn;
+    book.olTried = Date.now();
+    if (meta && meta.isConnected) {
+      meta.textContent = ratingLabel(book);
+      var ph = meta.closest(".book") && meta.closest(".book").querySelector(".cover");
+      if (ph && book.cover) {
+        var img = document.createElement("img");
+        img.alt = "";
+        img.src = book.cover;
+        ph.replaceWith(img);
+      }
+    }
+    return true;
+  }
+  async function sendRatings() {
+    ratingTimer = null;
+    if (ratingBusy || !ratingQueue.length) return;
+    ratingBusy = true;
+    var batch = ratingQueue.splice(0, RATING_BATCH);
+    var list = [];
+    try {
+      var res = await api("ratings", { books: batch.map(function (b) { return { title: b.title, author: b.author }; }) });
+      if (res && Array.isArray(res.ratings)) list = res.ratings;
+    } catch (e) { list = []; }
+    var dirty = false;
+    batch.forEach(function (b, i) {
+      var waiters = ratingWait[b.key] || [];
+      delete ratingWait[b.key];
+      var r = list[i];
+      if (!r) return;
+      ratingCache[b.key] = r;
+      waiters.forEach(function (w) {
+        applyRating(w.book, w.meta, r);
+        if (w.keep) dirty = true;
+      });
+    });
+    if (dirty) saveState();
+    ratingBusy = false;
+    if (ratingQueue.length) sendRatings();
+  }
   function paintProfiles() {
     var box = $("profileChips");
     box.innerHTML = "";
@@ -748,13 +790,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       b.onclick = function () { p.interests.splice(i, 1); saveState(); paintInterests(); };
       box.appendChild(b);
     });
-  }
-  function paintFilters() {
-    var p = current();
-    $("maxPolitical").value = String(Number.isFinite(p.maxPolitical) ? p.maxPolitical : 5);
-    $("maxWoke").value = String(Number.isFinite(p.maxWoke) ? p.maxWoke : 5);
-    $("maxPolVal").textContent = $("maxPolitical").value;
-    $("maxWokeVal").textContent = $("maxWoke").value;
   }
   function starRow(book, onRate) {
     var wrap = document.createElement("div");
@@ -802,11 +837,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       var row = document.createElement("div");
       row.className = "book hit";
       row.innerHTML = coverHtml(book)
-        + '<div><div class="t"></div><div class="a"></div><div class="meta"></div></div>'
-        + meterHtml(book.political, book.woke);
+        + '<div><div class="t"></div><div class="a"></div><div class="meta"></div></div>';
       row.querySelector(".t").textContent = book.title;
       row.querySelector(".a").textContent = book.author || "";
       row.querySelector(".meta").textContent = ratingLabel(book);
+      wantRating(book, row.querySelector(".meta"), true);
       var mid = row.children[1];
       mid.appendChild(starRow(book, function (n) {
         book.rating = n;
@@ -838,11 +873,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       var row = document.createElement("div");
       row.className = "book hit";
       row.innerHTML = coverHtml(book)
-        + '<div><div class="t"></div><div class="a"></div><div class="meta"></div></div>'
-        + meterHtml(book.political, book.woke);
+        + '<div><div class="t"></div><div class="a"></div><div class="meta"></div></div>';
       row.querySelector(".t").textContent = book.title;
       row.querySelector(".a").textContent = book.author || "";
-      row.querySelector(".meta").textContent = ratingLabel(book);
+      row.querySelector(".meta").textContent = ratingLabel(book, true);
       var acts = document.createElement("div");
       acts.className = "recActs";
       acts.appendChild(recButton("Read list", function () { saveFromSearch(book); }));
@@ -906,6 +940,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       why: book.why || "",
       isbn: book.isbn || "",
       goodreadsUrl: book.goodreadsUrl || "",
+      communityRating: hasRating(book.communityRating) ? Number(book.communityRating) : null,
+      ratingsCount: hasRating(book.ratingsCount) ? Number(book.ratingsCount) : null,
+      ratingSource: hasRating(book.communityRating) ? (book.ratingSource || "") : "",
     };
   }
   function saveRead(book) {
@@ -937,10 +974,9 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       description: book.description || book.summary || "",
       subjects: book.subjects || [],
       rating: null,
-      communityRating: (book.rating == null || book.rating === "") ? null : (Number.isFinite(Number(book.rating)) ? Number(book.rating) : null),
-      political: Number.isFinite(Number(book.political)) ? Number(book.political) : 0,
-      woke: Number.isFinite(Number(book.woke)) ? Number(book.woke) : 0,
-      evidence: book.evidence || [],
+      // Called with a search hit, a pick, or a read-list row, never a shelf
+      // row, so `rating` here is a catalog score and not someone's stars.
+      communityRating: hasRating(book.communityRating) ? Number(book.communityRating) : (hasRating(book.rating) ? Number(book.rating) : null),
       goodreadsUrl: book.goodreadsUrl,
       ratingSource: book.ratingSource,
       ratingsCount: book.ratingsCount,
@@ -1027,9 +1063,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     rows.forEach(function (book) {
       var row = document.createElement("div");
       row.className = "book";
-      row.innerHTML = coverHtml(book) + '<div><div class="t"></div><div class="a"></div><div class="summary"></div></div>';
+      row.innerHTML = coverHtml(book) + '<div><div class="t"></div><div class="a"></div><div class="meta"></div><div class="summary"></div></div>';
       row.querySelector(".t").textContent = book.title;
       row.querySelector(".a").textContent = book.author || "";
+      row.querySelector(".meta").textContent = ratingLabel(book);
+      wantRating(book, row.querySelector(".meta"), true);
       row.querySelector(".summary").textContent = book.summary || "";
       var acts = document.createElement("div");
       acts.className = "recActs";
@@ -1073,11 +1111,11 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       var row = document.createElement("div");
       row.className = "book hit";
       row.innerHTML = coverHtml(book)
-        + '<div><div class="t"></div><div class="a"></div><div class="meta"></div><div class="summary"></div><div class="why"></div></div>'
-        + meterHtml(book.political, book.woke);
+        + '<div><div class="t"></div><div class="a"></div><div class="meta"></div><div class="summary"></div><div class="why"></div></div>';
       row.querySelector(".t").textContent = book.title;
       row.querySelector(".a").textContent = book.author || "";
       row.querySelector(".meta").textContent = ratingLabel(book);
+      wantRating(book, row.querySelector(".meta"), false);
       row.querySelector(".summary").textContent = book.summary || book.description || "";
       row.querySelector(".why").textContent = book.why || (book.reasons || []).join(" · ");
       var acts = document.createElement("div");
@@ -1222,8 +1260,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       var extra = {
         shelf: p.shelf,
         interests: p.interests,
-        maxPolitical: p.maxPolitical,
-        maxWoke: p.maxWoke,
         skipped: p.skipped || [],
         readlist: p.readlist || [],
       };
@@ -1254,18 +1290,12 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var d = $("detail");
     var inner = $("detailInner");
     inner.innerHTML = "<h2 id=\"detailTitle\"></h2><p class=\"a\"></p>"
-      + meterHtml(book.political, book.woke)
-      + "<p class=\"howto\" id=\"detailEvidence\"></p>"
       + "<p id=\"detailDesc\"></p>"
       + "<p><a class=\"out\" id=\"grLink\" target=\"_blank\" rel=\"noopener\">Open on Goodreads</a></p>"
       + "<div id=\"detailReviews\" class=\"empty\">Loading Goodreads reviews…</div>"
       + "<button type=\"button\" class=\"ghost\" id=\"detailClose\">Close</button>";
     inner.querySelector("#detailTitle").textContent = book.title;
     inner.querySelector(".a").textContent = book.author || "";
-    var ev = (book.evidence || []).join(", ");
-    inner.querySelector("#detailEvidence").textContent = ev
-      ? ("Matched: " + ev + (book.confidence ? " · " + book.confidence + " confidence" : ""))
-      : ("No political/woke markers in the catalog text" + (book.confidence ? " · " + book.confidence + " confidence" : "") + ".");
     inner.querySelector("#detailDesc").textContent = book.description || "";
     var gr = inner.querySelector("#grLink");
     gr.href = book.goodreadsUrl || "https://www.goodreads.com/";
@@ -1332,16 +1362,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     saveState();
     paintInterests();
   };
-  $("maxPolitical").oninput = function () {
-    current().maxPolitical = Number($("maxPolitical").value);
-    $("maxPolVal").textContent = $("maxPolitical").value;
-    saveState();
-  };
-  $("maxWoke").oninput = function () {
-    current().maxWoke = Number($("maxWoke").value);
-    $("maxWokeVal").textContent = $("maxWoke").value;
-    saveState();
-  };
   $("searchBtn").onclick = doSearch;
   $("searchQ").addEventListener("keydown", function (e) { if (e.key === "Enter") doSearch(); });
   $("newInterest").addEventListener("keydown", function (e) { if (e.key === "Enter") $("addInterest").click(); });
@@ -1354,7 +1374,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     if (changed) saveState();
     paintProfiles();
     paintInterests();
-    paintFilters();
     paintShelf();
     paintReadlist();
     lastRecs = [];
@@ -1371,7 +1390,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     ["cover", "director", "author", "isbn", "description", "summary", "why", "goodreadsUrl", "genre", "ratingSource"].forEach(function (key) {
       if ((p[key] == null || p[key] === "") && s[key]) out[key] = s[key];
     });
-    ["year", "communityRating", "ratingsCount", "political", "woke"].forEach(function (key) {
+    ["year", "communityRating", "ratingsCount", "olTried"].forEach(function (key) {
       if ((p[key] == null || p[key] === "") && s[key] != null && s[key] !== "") out[key] = s[key];
     });
     if (!hasRating(p.rating) && hasRating(s.rating)) out.rating = Number(s.rating);
@@ -1409,10 +1428,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     });
     return out;
   }
-  function capOf(p, key) {
-    var n = Number(p && p[key]);
-    return Number.isFinite(n) ? n : 5;
-  }
   function copyProfile(p) {
     return {
       id: p.id,
@@ -1421,8 +1436,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       shelf: (p.shelf || []).slice(),
       skipped: (p.skipped || []).slice(),
       readlist: (p.readlist || []).slice(),
-      maxPolitical: capOf(p, "maxPolitical"),
-      maxWoke: capOf(p, "maxWoke"),
     };
   }
   // A phone and a desktop each kept their own copy. Union the shelves so a
@@ -1451,7 +1464,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         profiles.push(copyProfile(a || b));
         return;
       }
-      var primary = remoteNewer ? b : a;
       var shelf = unionRows(a.shelf, b.shelf, shelfKey, remoteNewer);
       var onShelf = {};
       shelf.forEach(function (book) { onShelf[titleKey(book.title)] = 1; });
@@ -1464,8 +1476,6 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
           .filter(function (x) { return !onShelf[titleKey(x.title)]; }),
         readlist: unionRows(a.readlist, b.readlist, function (x) { return titleKey(x.title); }, remoteNewer)
           .filter(function (x) { return !onShelf[titleKey(x.title)]; }),
-        maxPolitical: capOf(primary, "maxPolitical"),
-        maxWoke: capOf(primary, "maxWoke"),
       });
     });
     var currentId = local.currentId;
@@ -1562,6 +1572,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   window.__BOOKS__ = {
     state: function () { return state; },
     current: current,
+    ratingLabel: ratingLabel,
     paint: paint,
     paintHits: paintHits,
     paintRecs: paintRecs,
