@@ -29055,6 +29055,433 @@ async function openDetails(page, id) {
     await ctx.close();
   }
 
+  // ================= UC · live data layer — feed closure, poll loop, play credits, byes =================
+  // Five confirmed bugs in lg-data.js's live half (2026-09-23 review). Every number below is
+  // hand-computed on the league's default rules (pass_yd 0.04, pass_td 4, rush_yd/rec_yd 0.1,
+  // rush_td/rec_td 6, rec 1, *_2pt 2, dst_sack 1, dst_kr_td 8), the same table TJ pins.
+
+  // ---- UC1: closeFinishedFeeds closed EVERY team whose scoreboard row read post at the end of
+  // every full poll, but a full poll reads at most 8 summaries. A final game past the eighth was
+  // closed before its final summary was read, and applyEspnPlayFeed skipped all of its plays.
+  // Scenario A, a Sunday-night cold boot: 12 games, all final, 24 tracked teams, one 5-yd
+  // rushing TD per game = rush_yd 5 × 0.1 (0.5) + rush_td 6 = 6.5 each; 12 × 6.5 = 78.0.
+  //   poll 1: 8 summaries → 8 plays, and ONLY those 8 games' 16 teams close
+  //   poll 2: the other 4 → 12 plays, 12 rush TD lines, 78.0 points, 24 teams closed
+  //   pre-fix: poll 1 closed all 24 and the feed stopped at 8 plays forever.
+  // Scenario B, a game ends between two of its own fetches: 12 live games, each with one 5-yd
+  // run. Poll 1 reads games 0-7. Game 5 then goes final with a 3-yd rushing TD appended
+  // (0.3 + 6 = 6.3). Pre-fix, poll 2's rotation (8,9,10,11,0,1,2,3) skipped game 5, the close
+  // still fired, and poll 3's read of it emitted nothing. Now a post game with no final read
+  // goes to the front of poll 2's window: the TD lands once and only then does game 5 close.
+  if (section("UC1 · a final game's plays land even when its summary waits a cycle")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await stopPolling(page);
+    const r = await evalOr(page, async () => {
+      const { D, LG } = window.__GFFL__;
+      const TEAMS = ["BUF", "MIA", "NYJ", "NE", "BAL", "PIT", "CIN", "CLE", "HOU", "IND", "JAX", "TEN",
+        "LAC", "LV", "DET", "GB", "MIN", "CHI", "ATL", "NO", "TB", "CAR", "SF", "SEA"];
+      const LAST = ["Adams", "Baker", "Clark", "Davis", "Evans", "Foster", "Grant", "Hayes", "Irwin", "Jones", "Kline", "Lopez"];
+      let G = []; // {eid, home, away, state, plays:[{id, yds, td}]}
+      const origFetch = window.fetch;
+      const ev = (g, i) => ({ id: g.eid, date: "2026-09-13T17:00Z", competitions: [{
+        status: { type: { state: g.state, completed: g.state === "post", shortDetail: g.state === "post" ? "Final" : "Q2 5:00" },
+          period: g.state === "post" ? 4 : 2, displayClock: g.state === "post" ? "0:00" : "5:00" },
+        competitors: [
+          { id: "h" + i, homeAway: "home", score: "21", team: { id: "h" + i, abbreviation: g.home } },
+          { id: "a" + i, homeAway: "away", score: "14", team: { id: "a" + i, abbreviation: g.away } },
+        ] }] });
+      const sum = (eid) => {
+        const i = G.findIndex((g) => g.eid === eid); if (i < 0) return null;
+        const g = G[i];
+        const yds = g.plays.reduce((s, p) => s + p.yds, 0), tds = g.plays.filter((p) => p.td).length;
+        return {
+          header: { competitions: [{ status: { type: { state: g.state, completed: g.state === "post" } }, competitors: [
+            { homeAway: "home", score: "21", team: { id: "h" + i, abbreviation: g.home } },
+            { homeAway: "away", score: "14", team: { id: "a" + i, abbreviation: g.away } },
+          ] }] },
+          boxscore: { players: [{ team: { abbreviation: g.home }, statistics: [{ name: "rushing", labels: ["CAR", "YDS", "AVG", "TD"],
+            athletes: [{ athlete: { id: "uc1-rb" + i, displayName: "Ucy " + LAST[i], shortName: "U. " + LAST[i] },
+              stats: [String(g.plays.length), String(yds), "4.0", String(tds)] }] }] }], teams: [] },
+          drives: { previous: [{ team: { abbreviation: g.home }, plays: g.plays.map((p, k) => ({
+            id: p.id, sequenceNumber: 100 + k, wallclock: "2026-09-13T18:" + String(10 + k) + ":00Z",
+            type: { text: p.td ? "Rushing Touchdown" : "Rush" }, scoringPlay: !!p.td, statYardage: p.yds,
+            text: "U." + LAST[i] + " left end for " + p.yds + " yards" + (p.td ? ", TOUCHDOWN." : "."),
+          })) }] },
+        };
+      };
+      window.fetch = async (url) => {
+        const u = String(url);
+        let body = null;
+        if (/\/scoreboard/.test(u)) body = { season: { type: 2 }, week: { number: LG.currentWeek() }, events: G.map(ev) };
+        else { const m = u.match(/summary\?event=([^&]+)/); if (m) body = sum(m[1]); }
+        return body ? new Response(JSON.stringify(body), { status: 200 }) : new Response("{}", { status: 404 });
+      };
+      const reset = () => {
+        D.S.events.length = 0; D.S.playFeedByEvent = new Map(); D.S.playFeedLive = false;
+        D.S.feedClosed = new Set(); D.S.feedFinalApplied = new Set(); D.S.fetchedFinal = new Set(); D.S.sumCursor = 0;
+        D.trackTeams(TEAMS);
+      };
+      const mine = (pre) => D.S.events.filter((e) => String(e.playId || "").startsWith(pre));
+      const closedN = () => TEAMS.filter((t) => D.S.feedClosed.has(t)).length;
+      const out = {};
+      try {
+        // Scenario A
+        G = LAST.map((_, i) => ({ eid: "uc1a" + i, home: TEAMS[2 * i], away: TEAMS[2 * i + 1], state: "post",
+          plays: [{ id: "uc1a-td" + i, yds: 5, td: true }] }));
+        reset();
+        await D.pollOnce();
+        out.a1 = { plays: new Set(mine("uc1a-").map((e) => e.playId)).size, closed: closedN() };
+        await D.pollOnce();
+        const a = mine("uc1a-");
+        out.a2 = { plays: new Set(a.map((e) => e.playId)).size, closed: closedN(),
+          tdLines: a.filter((e) => e.stat === "rush_td").length,
+          pts: Math.round(a.reduce((s, e) => s + Number(e.dPts || 0), 0) * 10) / 10 };
+        // Scenario B
+        G = LAST.map((_, i) => ({ eid: "uc1b" + i, home: TEAMS[2 * i], away: TEAMS[2 * i + 1], state: "in",
+          plays: [{ id: "uc1b-run" + i, yds: 5, td: false }] }));
+        reset();
+        await D.pollOnce();
+        out.b1 = { runs: new Set(mine("uc1b-run").map((e) => e.playId)).size };
+        G[5].state = "post";
+        G[5].plays.push({ id: "uc1b-td5", yds: 3, td: true });
+        await D.pollOnce();
+        await D.pollOnce();
+        const td = mine("uc1b-td5");
+        out.b3 = {
+          tdLines: td.filter((e) => e.stat === "rush_td").length,
+          ydLines: td.filter((e) => e.stat === "rush_yd").length,
+          pts: Math.round(td.reduce((s, e) => s + Number(e.dPts || 0), 0) * 10) / 10,
+          closed5: D.S.feedClosed.has(TEAMS[10]) && D.S.feedClosed.has(TEAMS[11]),
+          closedOthers: TEAMS.filter((t, k) => k !== 10 && k !== 11 && D.S.feedClosed.has(t)).length,
+        };
+      } finally {
+        window.fetch = origFetch;
+      }
+      return out;
+    }) || {};
+    const a1 = r.a1 || {}, a2 = r.a2 || {}, b3 = r.b3 || {};
+    ok(a1.plays === 8, "cold boot, 12 finals: the first full poll reads 8 summaries and their 8 plays land (" + JSON.stringify(a1) + ")");
+    ok(a1.closed === 16,
+      "…and only the 16 teams whose final summary was actually read are closed — not all 24 (" + a1.closed + ")");
+    ok(a2.plays === 12 && a2.tdLines === 12,
+      "the second poll reads the other 4 finals and every game's TD is on the feed: 12 plays, 12 rush TD lines (" + JSON.stringify(a2) + ")");
+    ok(a2.pts === 78 && a2.closed === 24,
+      "…hand-computed 12 × (0.5 + 6) = 78.0 feed points, and now all 24 teams are closed (" + JSON.stringify({ pts: a2.pts, closed: a2.closed }) + ")");
+    ok((r.b1 || {}).runs === 8, "staged: 12 live games, the first poll reads 8 of them (" + JSON.stringify(r.b1) + ")");
+    ok(b3.tdLines === 1 && b3.ydLines === 1 && b3.pts === 6.3,
+      "a game that ends between two of its own reads keeps its last play: game 5's 3-yd TD lands once, 0.3 + 6 = 6.3 (" + JSON.stringify(b3) + ")");
+    ok(b3.closed5 === true && b3.closedOthers === 0,
+      "…game 5 closes after that read, and no still-live game is closed (" + JSON.stringify({ closed5: b3.closed5, others: b3.closedOthers }) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- UC2: stop() clears tickBusy for the next chain, but the RETIRED tick's own finally used
+  // to clear it again while the new chain's tick was still in flight. The next wake() then saw
+  // "not busy", started a second concurrent poll, and two timer chains ran from then on (the
+  // repro measured 20 polls/s against 9). Staged exactly: start (tick A in flight) → stop →
+  // start (tick B in flight) → A resolves → wake. Only B's generation may clear busy, so the
+  // wake is queued behind B (wakeSoon) — one poll in flight, one timer armed.
+  if (section("UC2 · a retired poll tick cannot free the loop for a second chain")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard", 9000);
+    const r = await evalOr(page, async () => {
+      const D = window.__GFFL__.D;
+      D.stop();
+      const orig = D.pollOnce;
+      const pend = [];
+      let active = 0, maxActive = 0, calls = 0;
+      D.pollOnce = () => { calls++; active++; maxActive = Math.max(maxActive, active);
+        return new Promise((res) => pend.push(() => { active--; res(); })); };
+      const tick = () => new Promise((res) => setTimeout(res, 0));
+      // Count the chains by the timers they arm: a chain that finishes a tick re-arms itself at
+      // the 60s cadence; the one wake-queued re-run is armed at 0 and does not count.
+      const origST = window.setTimeout;
+      const longArms = [];
+      window.setTimeout = function (fn, ms, ...rest) {
+        if (fn === D.S.loopFn && Number(ms) > 0) longArms.push(ms);
+        return origST.call(window, fn, ms, ...rest);
+      };
+      const out = {};
+      try {
+        D.S.timerArms = 0;
+        D.start(60000);                 // tick A enters pollOnce
+        await tick();
+        D.stop();                       // hidden mid-poll
+        D.start(60000);                 // shown again → tick B enters pollOnce
+        await tick();
+        pend.shift()();                 // A resolves while B is still in flight
+        await tick(); await tick();
+        out.busyDuringB = D.S.tickBusy;
+        maxActive = active;             // A and B overlapping was the stop/start itself; count from here
+        D.S.wakeAt = 0;
+        out.woke = D.wake();            // a later foreground signal during B
+        await tick(); await tick();
+        out.activeAfterWake = active;
+        out.maxActive = maxActive;
+        out.callsBeforeB = calls;
+        pend.shift()();                 // B resolves; its chain re-runs at once (the wake was queued)
+        await tick(); await tick();
+        while (pend.length) pend.shift()(); // …and whatever else is in flight resolves too
+        await tick(); await tick();
+        out.chains = longArms.length;
+      } finally {
+        window.setTimeout = origST;
+        D.stop();
+        while (pend.length) pend.shift()();
+        D.pollOnce = orig;
+      }
+      return out;
+    }) || {};
+    ok(r.busyDuringB === true,
+      "after the retired tick A resolves, the loop still reads busy — tick B is in flight (" + r.busyDuringB + ")");
+    ok(r.woke === true && r.activeAfterWake === 1 && r.maxActive === 1 && r.callsBeforeB === 2,
+      "…so a wake during B queues behind it instead of starting a concurrent poll (" + JSON.stringify({ woke: r.woke, active: r.activeAfterWake, max: r.maxActive, calls: r.callsBeforeB }) + ")");
+    ok(r.chains === 1, "…and once everything in flight has resolved, exactly one chain holds a 60s timer (" + r.chains + "; pre-fix 2)");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- UC3: play-feed credits. ASSUMPTION, stated because no live probe in docs/gffl.md
+  // recorded a try: ESPN's drive text carries the NFL gamebook wording on the TD play itself —
+  // "…, TOUCHDOWN. TWO-POINT CONVERSION ATTEMPT. <play>. ATTEMPT SUCCEEDS|ATTEMPT FAILS." — with
+  // "rushes" as the gamebook's run verb; the scoring-summary form "(X pass to Y for Two-Point
+  // Conversion)" names players only on a good try and reads "(Two-Point Pass Conversion
+  // Failed)" on a miss. The live probes that ARE recorded (DEN@KC 401872931, 2026-09-15) fix the
+  // rest: "(Shotgun) B.Nix sacked at DEN 32 for -3 yards (N.Williams).", "… for 13 yards,
+  // TOUCHDOWN. H.Butker extra point is GOOD, …". BUF (home) vs MIA; one event per play so each
+  // running total starts at 0. Hand-computed per play:
+  //   a pass TD 12 yd, try FAILS (pass incomplete): Allen 0.5 + 4, Shakir 1 + 1.2 + 6 = 12.7;
+  //     Kincaid (the failed try's target) nothing, nobody gets a 2pt. Pre-fix: two phantom 2pts
+  //     (+4) and the TD dropped entirely ("incomplete" read as the TD pass's).
+  //   b rush TD 2 yd, try SUCCEEDS by pass: Cook 0.2 + 6, Allen pass_2pt 2, Shakir rec_2pt 2 =
+  //     10.2. Pre-fix: Allen also got pass_yd 2 and a phantom pass_td, Cook lost his rush TD.
+  //   c pass TD 12 yd, try SUCCEEDS by run ("J.Cook rushes up the middle"): 12.7 + Cook
+  //     rush_2pt 2 = 14.7. Pre-fix: the rush_2pt was missed ("rushes" ≠ rush\b).
+  //   d sack -7: MIA D/ST dst_sack 1, and NO pass_yd line for Allen — box, Sleeper and the
+  //     fantasy score all carry gross passing yards. Pre-fix: Allen pass_yd -7 (-0.3).
+  //   e "J.Cook 1 Yd Run (Two-Point Pass Conversion Failed)": Cook 0.1 + 6 = 6.1, no 2pt, no
+  //     pass line. Pre-fix: the word "Pass" in the try made Cook a passer — pass_yd + pass_td.
+  if (section("UC3 · play feed credits the TD and the two-point try as separate clauses")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await stopPolling(page);
+    const r = await evalOr(page, () => {
+      const D = window.__GFFL__.D;
+      const box = D.parseEspnBox({ boxscore: { players: [{ team: { abbreviation: "BUF" }, statistics: [
+        { name: "passing", labels: ["C/ATT", "YDS", "AVG", "TD", "INT"],
+          athletes: [{ athlete: { id: "uc3qb", displayName: "Josh Allen", shortName: "J. Allen" }, stats: ["1/2", "12", "6.0", "1", "0"] }] },
+        { name: "rushing", labels: ["CAR", "YDS", "AVG", "TD"],
+          athletes: [{ athlete: { id: "uc3rb", displayName: "James Cook", shortName: "J. Cook" }, stats: ["1", "2", "2.0", "1"] }] },
+        { name: "receiving", labels: ["REC", "YDS", "AVG", "TD", "LONG"],
+          athletes: [
+            { athlete: { id: "uc3wr", displayName: "Khalil Shakir", shortName: "K. Shakir" }, stats: ["1", "12", "12.0", "1", "12"] },
+            { athlete: { id: "uc3te", displayName: "Dalton Kincaid", shortName: "D. Kincaid" }, stats: ["0", "0", "0.0", "0", "0"] },
+          ] },
+      ] }] } });
+      const header = { competitions: [{ competitors: [
+        { homeAway: "home", team: { abbreviation: "BUF", id: "2" } },
+        { homeAway: "away", team: { abbreviation: "MIA", id: "15" } },
+      ] }] };
+      const plays = {
+        a: { type: "Passing Touchdown", yds: 12, td: true,
+          text: "(Shotgun) J.Allen pass short right to K.Shakir for 12 yards, TOUCHDOWN. TWO-POINT CONVERSION ATTEMPT. J.Allen pass to D.Kincaid is incomplete. ATTEMPT FAILS." },
+        b: { type: "Rushing Touchdown", yds: 2, td: true,
+          text: "J.Cook up the middle for 2 yards, TOUCHDOWN. TWO-POINT CONVERSION ATTEMPT. J.Allen pass to K.Shakir is complete. ATTEMPT SUCCEEDS." },
+        c: { type: "Passing Touchdown", yds: 12, td: true,
+          text: "(Shotgun) J.Allen pass short right to K.Shakir for 12 yards, TOUCHDOWN. TWO-POINT CONVERSION ATTEMPT. J.Cook rushes up the middle. ATTEMPT SUCCEEDS." },
+        d: { type: "Sack", yds: -7, td: false,
+          text: "(Shotgun) J.Allen sacked at BUF 30 for -7 yards (J.Phillips)." },
+        e: { type: "Rushing Touchdown", yds: 1, td: true,
+          text: "J.Cook 1 Yd Run (Two-Point Pass Conversion Failed)" },
+      };
+      D.S.events.length = 0; D.S.playFeedLive = true; D.S.playFeedByEvent = new Map();
+      const out = {};
+      for (const [k, p] of Object.entries(plays)) {
+        D.applyEspnPlayFeed("uc3-" + k, { header, drives: { previous: [{ team: { abbreviation: "BUF" }, plays: [{
+          id: "uc3p-" + k, sequenceNumber: 10, wallclock: "2026-09-13T18:00:00Z",
+          type: { text: p.type }, scoringPlay: p.td, statYardage: p.yds, text: p.text,
+        }] }] } }, box);
+        const evs = D.S.events.filter((e) => e.playId === "uc3p-" + k);
+        const m = {};
+        for (const e of evs) m[e.key + ":" + e.stat] = e.dPts;
+        out[k] = { m, sum: Math.round(evs.reduce((s, e) => s + Number(e.dPts || 0), 0) * 10) / 10, n: evs.length };
+      }
+      return out;
+    }) || {};
+    const pick = (k) => (r[k] || { m: {} });
+    const a = pick("a"), b = pick("b"), c = pick("c"), d = pick("d"), e = pick("e");
+    ok(a.m["uc3qb:pass_yd"] === 0.5 && a.m["uc3qb:pass_td"] === 4 && a.m["uc3wr:rec"] === 1
+      && a.m["uc3wr:rec_yd"] === 1.2 && a.m["uc3wr:rec_td"] === 6 && a.n === 5 && a.sum === 12.7,
+      "a failed pass try leaves the TD whole: Allen 0.5 + 4, Shakir 1 + 1.2 + 6 = 12.7, five lines (" + JSON.stringify(a) + ")");
+    ok(!("uc3qb:pass_2pt" in a.m) && !("uc3te:rec_2pt" in a.m),
+      "…and credits no two-pointer to the passer or the failed try's target (" + JSON.stringify(Object.keys(a.m)) + ")");
+    ok(b.m["uc3rb:rush_yd"] === 0.2 && b.m["uc3rb:rush_td"] === 6 && b.m["uc3qb:pass_2pt"] === 2
+      && b.m["uc3wr:rec_2pt"] === 2 && b.n === 4 && b.sum === 10.2,
+      "a rush TD with a good pass try: Cook 0.2 + 6, Allen pass_2pt 2, Shakir rec_2pt 2 = 10.2 (" + JSON.stringify(b) + ")");
+    ok(!("uc3qb:pass_td" in b.m) && !("uc3qb:pass_yd" in b.m),
+      "…and the QB who threw only the try gets no pass TD and no pass yards (" + JSON.stringify(Object.keys(b.m)) + ")");
+    ok(c.m["uc3rb:rush_2pt"] === 2 && c.m["uc3qb:pass_td"] === 4 && c.m["uc3wr:rec_td"] === 6 && c.n === 6 && c.sum === 14.7,
+      "a good try that \"rushes\" is a rush_2pt for Cook on top of the 12.7 pass TD = 14.7 (" + JSON.stringify(c) + ")");
+    ok(d.m["dst_MIA:dst_sack"] === 1 && !("uc3qb:pass_yd" in d.m) && d.n === 1,
+      "a sack is a MIA D/ST sack and never a pass-yards line for the QB (" + JSON.stringify(d) + ")");
+    ok(e.m["uc3rb:rush_yd"] === 0.1 && e.m["uc3rb:rush_td"] === 6 && e.n === 2 && e.sum === 6.1,
+      "the summary form of a failed try is a plain 1-yd rush TD, 0.1 + 6 = 6.1 — no pass line, no 2pt (" + JSON.stringify(e) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- UC4: D.remaining read a starter whose team has no game on the slate as `pre` (still to
+  // play), while D.gameDone reads that as a bye — done. Staged: KC and DEN final; side A is ten
+  // KC starters on 11.0 plus one SEA starter (SEA is off the slate: a bye, 0.0); side B is
+  // eleven DEN starters, ten on 10.7 and one on 0.0. A 110.0 − B 107.0 = +3, every game over.
+  //   now: A {played 11, left 0} → D.winProb pins 1 (100%).
+  //   pre-fix: A left 1 → nStill 1 of 22: sd = max(8, 10·√1) = 10, raw = 1/(1+e^(−1.702·3/10))
+  //   = 0.62495, blend w = 0.2 · 1/22 = 0.00909 → 0.99091·0.62495 + 0.00909·0.5 = 62.4%.
+  // The empty board (D-S1) still refuses: no slate, nobody played. Then the hero: every
+  // fixture game final and KC/DEN dropped off the slate — their starters are byes — so both
+  // "N to play" strips read 0 and the matchup is decided, agreeing with the star.
+  if (section("UC4 · a bye starter is played, not still to play")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await stopPolling(page);
+    const r = await evalOr(page, () => {
+      const { D, LG } = window.__GFFL__;
+      const savedGames = new Map(D.S.games), savedProj = D.projFor;
+      const out = {};
+      try {
+        D.S.espnWeek = LG.currentWeek();
+        D.S.games.clear();
+        D.S.games.set("KC", { state: "post", completed: true, eventId: "uc4" });
+        D.S.games.set("DEN", { state: "post", completed: true, eventId: "uc4" });
+        D.projFor = () => 10;
+        const setP = (key, team, pts) => D.S.players.set(key, { key, name: key, team, pos: "WR", pts,
+          espn: null, slp: null, official: null, injury: "", src: "", conflict: false, last: 0 });
+        const A = [], B = [];
+        for (let i = 0; i < 10; i++) { setP("uc4a" + i, "KC", 11); A.push("uc4a" + i); setP("uc4b" + i, "DEN", 10.7); B.push("uc4b" + i); }
+        setP("uc4bye", "SEA", 0); A.push("uc4bye");
+        setP("uc4b10", "DEN", 0); B.push("uc4b10");
+        out.remA = D.remaining(A); out.doneSEA = D.gameDone("SEA"); out.wp = D.winProb(A, B);
+        D.S.games.clear();
+        out.emptyRem = D.remaining(A); out.emptyDone = D.gameDone("SEA");
+      } finally {
+        D.S.games.clear(); for (const [k, v] of savedGames) D.S.games.set(k, v);
+        D.projFor = savedProj;
+      }
+      return out;
+    }) || {};
+    ok(r.doneSEA === true, "staged: SEA has no game on a loaded slate, and D.gameDone calls that a finished bye (" + r.doneSEA + ")");
+    ok(r.remA && r.remA.played === 11 && r.remA.left === 0 && r.remA.playing === 0,
+      "…so D.remaining agrees: the bye starter is PLAYED, 11 played / 0 left (" + JSON.stringify(r.remA) + ")");
+    ok(r.wp === 1, "every game final, A up 3: D.winProb pins 100% — pre-fix 62.4% (" + r.wp + ")");
+    ok(r.emptyRem && r.emptyRem.left === 11 && r.emptyDone === false,
+      "CONTROL: on an EMPTY board both still refuse — 11 to play, not done (" + JSON.stringify({ rem: r.emptyRem, done: r.emptyDone }) + ")");
+    await ctx.close();
+
+    const t2 = await newTestPage(browser, fullSeed());
+    await bootPage(t2.page);
+    await waitOr(t2.page, ".mucard", 9000);
+    await waitLive(t2.page);
+    await stopPolling(t2.page);
+    await clickIn(t2.page, ".mucard.mine");
+    await waitOr(t2.page, ".muhead", 9000);
+    const h = await evalOr(t2.page, async () => {
+      const { D, UI } = window.__GFFL__;
+      const [hId, aId] = UI.matchup || [];
+      const starters = (id) => ((UI._rosters && UI._rosters[id]) || []).filter((p) => p.slot !== "BENCH" && p.slot !== "IR");
+      for (const [ab, g] of [...D.S.games]) {
+        if (ab === "KC" || ab === "DEN") D.S.games.delete(ab);
+        else D.S.games.set(ab, Object.assign({}, g, { state: "post", completed: true, period: 4, clock: "0:00" }));
+      }
+      const byes = [...starters(hId), ...starters(aId)].filter((p) => p.team === "KC" || p.team === "DEN").length;
+      await UI.renderMatchup(true);
+      const dec = UI._matchupDecidedFor(hId, aId);
+      return {
+        games: D.S.games.size, byes, n: starters(hId).length + starters(aId).length,
+        strips: [...document.querySelectorAll(".muhsub")].map((el) => el.textContent.replace(/\s+/g, " ").trim()),
+        decided: dec.decided,
+        remH: D.remaining(starters(hId).map((p) => p.key)), remA: D.remaining(starters(aId).map((p) => p.key)),
+      };
+    }) || {};
+    ok(h.games === 2 && h.byes === 4 && h.n === 12,
+      "staged: a loaded slate (PHI/DAL), 12 starters (9 + the opponent's 3), 4 of them on KC/DEN — now off the slate (" + JSON.stringify({ games: h.games, byes: h.byes, n: h.n }) + ")");
+    // Four strips: each side's header line and the playline under the bar (two per side).
+    ok(Array.isArray(h.strips) && h.strips.length === 4 && h.strips.every((s) => s === "0 to play · 0 live"),
+      "every hero strip reads \"0 to play · 0 live\" — a bye is not still to play (" + JSON.stringify(h.strips) + ")");
+    ok(h.decided === true && h.remH && h.remA && h.remH.left === 0 && h.remA.left === 0,
+      "…and the strips agree with matchupDecided: decided, nobody left (" + JSON.stringify({ decided: h.decided, remH: h.remH, remA: h.remA }) + ")");
+    ok(errors.length === 0 && t2.errors.length === 0, "0 page errors");
+    await t2.ctx.close();
+  }
+
+  // ---- UC5: a return TD belongs to the RETURNING team's D/ST (dst_kr_td, 8 pts). The site
+  // summary almost never carries teamParticipants (1/92 plays on the DEN@KC probe), so `offense`
+  // falls back to drive.team — and a punt sits at the end of the PUNTING team's drive, so the 8
+  // points went to the team that gave the TD up. Now the kicker/punter who opens the play text
+  // decides it (the box knows his team); with no box line, a kickoff's "from KC 35" does; with
+  // neither, the side that did not have the ball.
+  //   f punt return, DAL punting, punter in the box      → dst_PHI 8, nothing for DAL
+  //   g the same play with an empty box                  → dst_PHI 8 (the side without the ball)
+  //   h kickoff return, "kicks 65 yards from KC 35", filed on KC's drive, empty box → dst_DEN 8
+  if (section("UC5 · a punt or kick return TD scores for the returning D/ST")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await stopPolling(page);
+    const r = await evalOr(page, () => {
+      const D = window.__GFFL__.D;
+      const hdr = (home, hid, away, aid) => ({ competitions: [{ competitors: [
+        { homeAway: "home", team: { abbreviation: home, id: hid } },
+        { homeAway: "away", team: { abbreviation: away, id: aid } },
+      ] }] });
+      const puntBox = D.parseEspnBox({ boxscore: { players: [
+        { team: { abbreviation: "DAL" }, statistics: [{ name: "punting", labels: ["NO", "YDS", "AVG", "TB", "In 20", "LONG"],
+          athletes: [{ athlete: { id: "uc5p", displayName: "Bryan Anger", shortName: "B. Anger" }, stats: ["1", "45", "45.0", "0", "0", "45"] }] }] },
+        { team: { abbreviation: "PHI" }, statistics: [{ name: "puntReturns", labels: ["NO", "YDS", "AVG", "LONG", "TD"],
+          athletes: [{ athlete: { id: "uc5r", displayName: "Kenneth Gainwell", shortName: "K. Gainwell" }, stats: ["1", "80", "80.0", "80", "1"] }] }] },
+      ] } });
+      const punt = "B.Anger punts 45 yards to PHI 20, Center-L.Ladouceur. K.Gainwell for 80 yards, TOUCHDOWN.";
+      const kick = "H.Butker kicks 65 yards from KC 35 to DEN 0. M.Mims to KC 0 for 100 yards, TOUCHDOWN.";
+      const run = (eid, header, driveAb, type, text, box) => {
+        D.applyEspnPlayFeed(eid, { header, drives: { previous: [{ team: { abbreviation: driveAb }, displayResult: "Punt", plays: [{
+          id: eid + "-p", sequenceNumber: 10, wallclock: "2026-09-13T18:00:00Z",
+          type: { text: type }, scoringPlay: true, statYardage: 0, text,
+        }] }] } }, box);
+        const m = {};
+        for (const e of D.S.events.filter((x) => x.playId === eid + "-p")) m[e.key + ":" + e.stat] = e.dPts;
+        return m;
+      };
+      D.S.events.length = 0; D.S.playFeedLive = true; D.S.playFeedByEvent = new Map();
+      return {
+        f: run("uc5f", hdr("DAL", "6", "PHI", "21"), "DAL", "Punt Return Touchdown", punt, puntBox),
+        g: run("uc5g", hdr("DAL", "6", "PHI", "21"), "DAL", "Punt Return Touchdown", punt, new Map()),
+        h: run("uc5h", hdr("KC", "12", "DEN", "7"), "KC", "Kickoff Return Touchdown", kick, new Map()),
+      };
+    }) || {};
+    ok(r.f && r.f["dst_PHI:dst_kr_td"] === 8 && !("dst_DAL:dst_kr_td" in r.f),
+      "a punt return TD off DAL's punt is PHI D/ST's 8 points, read from the punter's own box line (" + JSON.stringify(r.f) + ")");
+    ok(r.g && r.g["dst_PHI:dst_kr_td"] === 8 && !("dst_DAL:dst_kr_td" in r.g),
+      "…and still PHI's with no box line, as the side that did not have the ball (" + JSON.stringify(r.g) + ")");
+    ok(r.h && r.h["dst_DEN:dst_kr_td"] === 8 && !("dst_KC:dst_kr_td" in r.h),
+      "a kickoff return TD is the receiving DEN D/ST's, read from \"kicks … from KC 35\" (" + JSON.stringify(r.h) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
   await browser.close();
   srv.close(); ffSrv.close(); tenorSrv.close(); xaiSrv.close(); sportsFfSrv.close(); sportsNflSrv.close();
   console.log("\n================================");

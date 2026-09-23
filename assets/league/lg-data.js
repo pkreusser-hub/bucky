@@ -340,6 +340,7 @@
     playFeedByEvent: new Map(), // eventId -> {seen:Set, running:Map} so a re-poll is idempotent
     playFeedLive: false,       // first play ingest wipes poll-diff rows that have no playId
     feedClosed: new Set(),     // NFL abbrevs whose game is final — box still updates, the feed does not
+    feedFinalApplied: new Set(), // eventIds whose play feed was applied from a FINAL summary — only these may close
     games: new Map(),          // slpTeam -> {eventId, state, period, clock, detail, kickoff, rz, oppAb}
     nflEvents: [],             // the FULL weekly slate, one row per game — feeds the Scores tab
     espnSeeded: false, slpSeeded: false,
@@ -625,6 +626,7 @@
     D.S.players.clear();
     D.S.events.length = 0;
     D.S.feedClosed = new Set();
+    D.S.feedFinalApplied = new Set();
     D.S.playFeedByEvent = new Map();
     D.S.playFeedLive = false;
     D.S.espnSeeded = false; D.S.slpSeeded = false;
@@ -1429,11 +1431,20 @@
   // After a FULL poll, every NFL team whose game is genuinely final is closed
   // for feed emits. Light ticks only refresh the scoreboard, so they must not
   // close — that would freeze the feed before the last box is applied.
+  // NARROWED (2026-09-23): on the live board a team closes only once its game's play feed has
+  // been applied from a summary that itself read final (D.S.feedFinalApplied, written by
+  // applyEspnPlayFeed). "The scoreboard says post" was not enough: a full poll fetches at most
+  // 8 summaries, but this closed EVERY post team, so a Sunday-night cold boot with 12 finals
+  // showed 8 games' plays and the other 4 were skipped when their summaries finally arrived —
+  // and a game that ended between two of its own fetches lost its last plays. The 2025 replay
+  // has no summaries (its feed is applySide in the same tick), so it still closes on post.
   function closeFinishedFeeds() {
     if (!D.S.feedClosed) D.S.feedClosed = new Set();
+    const applied = D.S.feedFinalApplied || new Set();
     for (const [ab, g] of D.S.games) {
       if (!g || g.state !== "post") continue;
       if (g.completed === false) continue;
+      if (!LG.SIM_2025 && !applied.has(String(g.eventId))) continue;
       D.S.feedClosed.add(ab);
     }
   }
@@ -1574,8 +1585,52 @@
     if (y >= 40) return "fg_40_49";
     return "fg_0_39";
   }
+  // TWO CLAUSES, NOT ONE (2026-09-23). ESPN writes a try onto the TD play itself, in one of
+  // two forms: the NFL gamebook form in the drive text ("…for 12 yards, TOUCHDOWN. TWO-POINT
+  // CONVERSION ATTEMPT. J.Allen pass to D.Kincaid is incomplete. ATTEMPT FAILS.") and the
+  // scoring-summary form in parentheses, which only names a GOOD try ("(P. Passer pass to
+  // W. Receiver for Two-Point Conversion)"; a miss reads "(Two-Point Pass Conversion Failed)").
+  // Reading both clauses as one sentence credited a phantom pass_2pt/rec_2pt on a failed try,
+  // dropped the TD itself (the try's "incomplete" read as the TD pass's), and gave a QB whose
+  // RB ran it in a pass_td for throwing the try. Split first; each clause is credited alone.
+  function splitConversion(text, type) {
+    const at = text.search(/two[- ]point conversion attempt/i);
+    if (at >= 0) return { td: text.slice(0, at).trim(), conv: text.slice(at) };
+    const pm = text.match(/\(([^)]*two[- ]point[^)]*)\)/i);
+    if (pm) return { td: (text.slice(0, pm.index) + text.slice(pm.index + pm[0].length)).trim(), conv: pm[1] };
+    // A play that IS the try, with no TD clause in front of it.
+    if (/two[- ]point/i.test(type)) return { td: "", conv: text };
+    return { td: text, conv: "" };
+  }
+  function creditConversion(conv, names) {
+    const out = [];
+    // Only a GOOD try scores. "ATTEMPT SUCCEEDS" (gamebook) / "is good"; the parenthesised
+    // summary form names the players only when it was good, and says "Failed" when it was not.
+    const good = /attempt succeeds|\bis good\b/i.test(conv)
+      || (/for two[- ]point conversion/i.test(conv) && !/fail|no good/i.test(conv));
+    if (!good) return out;
+    const add = (hit, stat) => { if (hit) out.push({ key: hit.id, name: hit.name, team: hit.team, stat, n: 1 }); };
+    const c = String(conv).replace(/^\s*two[- ]point conversion attempt\.?\s*/i, "").replace(/^\s*\([^)]*\)\s*/, "");
+    const pm = c.match(/^(.+?)\s+pass\b(.*)$/i);
+    if (pm) {
+      const to = pm[2].match(/\bto\s+(.+)$/i);
+      add(matchAlias(pm[1], names), "pass_2pt");
+      add(matchAlias(to ? to[1] : "", names), "rec_2pt");
+      return out;
+    }
+    // "rushes" is the gamebook's verb (the old `rush\b` missed it); "Run" is the summary's.
+    const rm = c.match(/^(.+?)\s+(?:rush(?:es)?|runs?|scrambles?|left|right|up the middle)\b/i);
+    if (rm) add(matchAlias(rm[1], names), "rush_2pt");
+    return out;
+  }
   function creditEspnPlay(play, ctx) {
-    const text = String(play?.text || "");
+    const type = playTypeText(play);
+    const parts = splitConversion(String(play?.text || ""), type);
+    const credits = parts.td || !parts.conv ? creditPlayClause(play, parts.td, ctx) : [];
+    if (parts.conv) credits.push(...creditConversion(parts.conv, (ctx && ctx.names) || []));
+    return credits;
+  }
+  function creditPlayClause(play, text, ctx) {
     const type = playTypeText(play);
     const typeL = type.toLowerCase();
     const textL = text.toLowerCase();
@@ -1608,7 +1663,6 @@
     const isFgMiss = /field goal/i.test(type + text) && /miss|no good|block/i.test(typeL + " " + textL);
     const isFgGood = !isFgMiss && (/field goal/i.test(type) && /good|made/i.test(typeL)
       || /\d+\s*yd(?:s|ards?)?\s+field goal/i.test(text));
-    const is2pt = /two[- ]point/i.test(type + text);
     const isKrTd = /kick(?:off)? return/i.test(type + text) && isTd;
     const isPrTd = /punt return/i.test(type + text) && isTd;
     const isFumOpp = /fumble recovery \(opponent\)|fumble recovered by opponent|fumble return/i.test(typeL);
@@ -1636,7 +1690,22 @@
     }
 
     if (isSafety) { addDst(defense || offense, "dst_safety", 1); return credits; }
-    if (isKrTd || isPrTd) { addDst(offense || defense, "dst_kr_td", 1); return credits; }
+    if (isKrTd || isPrTd) {
+      // The RETURNING team scores (2026-09-23). `offense` is whoever had the ball at the snap —
+      // for a punt that is the punting team (its drive ends in the punt), so crediting it gave
+      // the 8-point return TD to the team that gave it up. The kicker/punter opens the play
+      // text and the box knows his team; a kickoff also says where it was kicked from ("from
+      // KC 35"). Failing both, the return belongs to the side that did not have the ball.
+      const km = body.match(/^(.+?)\s+(?:punts|kicks)\b/);
+      const kicker = km ? matchAlias(km[1], names) : null;
+      let kickAb = kicker && kicker.team ? kicker.team : "";
+      if (!kickAb) {
+        const fm = body.match(/\bkicks\s+-?\d+\s+yards?\s+from\s+([A-Z]{2,3})\s+\d/);
+        if (fm) kickAb = slpTeam(fm[1]);
+      }
+      addDst(otherTeam(kickAb, teams) || defense, "dst_kr_td", 1);
+      return credits;
+    }
 
     if (isInt) {
       const pm = body.match(/^(.+?)\s+pass\b/i);
@@ -1647,9 +1716,9 @@
     }
 
     if (isSack) {
-      const sm = body.match(/^(.+?)\s+sacked\b/i);
-      const qb = matchAlias(sm ? sm[1] : "", names);
-      if (yds) add(qb, "pass_yd", yds);
+      // No pass_yd line for the QB (2026-09-23). The box, Sleeper and the fantasy score all
+      // carry GROSS passing yards — a sack never moves them — so a -7 here was a feed line for
+      // points nobody lost, and the running pass_yd total drifted below the box's.
       addDst(defense, "dst_sack", 1);
       return credits;
     }
@@ -1660,19 +1729,6 @@
       addDst(defense, "dst_fum_rec", 1);
       if (isTd) addDst(defense, "dst_td", 1);
       return credits;
-    }
-
-    if (is2pt) {
-      const clause = ((text.match(/\(([^)]*two[- ]point[^)]*)\)/i) || [])[1]
-        || body.replace(/two[- ]point conversion attempt\.\s*/i, ""));
-      let m = clause.match(/([A-Za-z.''\- ]+?)\s+pass\s+to\s+([A-Za-z.''\- ]+?)(?:\s+for|\s+is\s+complete|$)/i);
-      if (m) {
-        add(matchAlias(m[1], names), "pass_2pt", 1);
-        add(matchAlias(m[2], names), "rec_2pt", 1);
-      } else {
-        m = clause.match(/([A-Za-z.''\- ]+?)\s+(run|rush|scrambles)\b/i);
-        if (m) add(matchAlias(m[1], names), "rush_2pt", 1);
-      }
     }
 
     if (isPass && !isInt && !isSack) {
@@ -1761,6 +1817,18 @@
       }
     }
     D.S.playFeedByEvent.set(eid, cache);
+    // This summary's plays are now on the feed. If the summary itself says the game is over
+    // (its own header first; the scoreboard row only when the header is silent), every play
+    // it will ever have has been walked, and closeFinishedFeeds may close its two teams.
+    const hdr = summary?.header?.competitions?.[0]?.status?.type || {};
+    let gSt = String(hdr.state || ""), gDone = hdr.completed;
+    if (!gSt) {
+      for (const g of D.S.games.values()) if (g && String(g.eventId) === eid) { gSt = String(g.state || ""); gDone = g.completed; break; }
+    }
+    if (gSt === "post" && gDone !== false) {
+      D.S.feedFinalApplied = D.S.feedFinalApplied || new Set();
+      D.S.feedFinalApplied.add(eid);
+    }
   }
   D.applyEspnPlayFeed = applyEspnPlayFeed;
 
@@ -2615,15 +2683,21 @@
     // since health only counts fetches that FAILED, not fetches never attempted. An 8-team
     // league's starters routinely span 10-14 NFL games on a Sunday. A rotating cursor
     // guarantees every tracked game is refreshed within ceil(n/8) cycles.
-    const eids = [...wanted.keys()];
+    // FINALS FIRST (2026-09-23): a game that reads post but whose final summary has not been
+    // read yet goes to the front of the window. Its feed stays open until that read lands
+    // (closeFinishedFeeds), and each one leaves `wanted` for good once it does, so the queue
+    // drains in ceil(finals/8) cycles instead of waiting its turn in the rotation. The rest
+    // (live and pre) rotate through whatever slots are left, exactly as before.
+    const finals = [], rest = [];
+    for (const [eid, g] of wanted) (g.state === "post" ? finals : rest).push(eid);
     const CAP = 8;
-    let take = eids;
-    if (eids.length > CAP) {
-      const start = D.S.sumCursor % eids.length;
-      take = [];
-      for (let i = 0; i < CAP; i++) take.push(eids[(start + i) % eids.length]);
-      D.S.sumCursor = (start + CAP) % eids.length;
-    } else { D.S.sumCursor = 0; }
+    let take = finals.slice(0, CAP);
+    const room = CAP - take.length;
+    if (rest.length > room) {
+      const start = (D.S.sumCursor || 0) % rest.length;
+      for (let i = 0; i < room; i++) take.push(rest[(start + i) % rest.length]);
+      D.S.sumCursor = (start + room) % rest.length;
+    } else { take = take.concat(rest); D.S.sumCursor = 0; }
     // PER-CYCLE summary accounting (2026-08-13, the zero-flicker's OTHER half). Each failed
     // summary used to bump failN individually — with six live games, ONE flaky cycle jumped
     // failN past the ≥3 threshold in a single pass, health flapped into sleeper-only, and
@@ -2700,7 +2774,11 @@
       try {
         await D.pollOnce(light ? { light: true } : undefined).catch(() => {});
       } finally {
-        D.S.tickBusy = false;
+        // Only the CURRENT generation owns the busy flag (2026-09-23). stop() already cleared it
+        // for the next chain; a retired tick resolving later used to clear it again while the
+        // new chain's tick was still in flight, so the next wake() started a concurrent poll
+        // and armed a second timer chain — the D-S3 doubling, one step removed.
+        if (gen === D.S.loopGen) D.S.tickBusy = false;
       }
       // …and again AFTER the await — this is the half that actually closes the doubling.
       if (!D.S.running || gen !== D.S.loopGen) return;
@@ -2942,7 +3020,14 @@
       // it, nobody played it. It belongs in `left`, or this function and D.gameDone would
       // disagree on the same row: the hero would badge "Final" beside a star that (correctly)
       // refuses to call the matchup decided.
-      const st = g ? (g.state === "post" && g.completed === false ? "pre" : g.state) : "pre";
+      // NO GAME for his team is D.gameDone's own bye rule (2026-09-23): on a loaded slate a team
+      // with no entry is off this week, his (floored) zero is final, so he is PLAYED. This read
+      // `pre` — every bye starter was "still to play" for the whole week, the hero never said
+      // Final, and D.winProb's spread kept a 3-point lead with every game final at 62.4%. An
+      // EMPTY board (cold boot, ESPN down — D-S1) or last week's board (D-F1) still reads `pre`,
+      // exactly where D.gameDone refuses too.
+      const bye = !g && D.S.games.size > 0 && !boardWeekMismatch();
+      const st = g ? (g.state === "post" && g.completed === false ? "pre" : g.state) : (bye ? "post" : "pre");
       if (st === "post") played++; else if (st === "in") playing++; else left++;
     }
     return { played, playing, left };
