@@ -13524,6 +13524,11 @@ async function openDetails(page, id) {
       // RESTAGED 2026-09-15: Scores IS the game board now — the selected game
       // stays on screen, so its poll stays armed. Leaving for League is what
       // clears it (asserted below).
+      // RESTAGED 2026-09-23 (UD4): UI.show stops the poll and renderScoreboard re-arms it only
+      // after its own awaits, while "NFL this week" is already on the page from the game view —
+      // the immediate read raced the re-arm. Wait (bounded, 9s) for it; a poll that never
+      // re-arms on Scores still fails.
+      await waitFnOr(page, () => window.__GFFL__.UI._nflGamePoll != null);
       ok((await evalOr(page, () => window.__GFFL__.UI._nflGamePoll != null)) === true,
         "…and it stays armed on Scores, because the selected game is still on screen");
       await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900003"));
@@ -20144,6 +20149,12 @@ async function openDetails(page, id) {
       await waitFnOr(page, () => document.body.textContent.includes("NFL this week"));
       ok((await evalOr(page, () => ({ l: document.querySelector(".scweeklabel").textContent, p: !!window.__GFFL__.UI._scoresPoll }))).l === "Week 1 · live",
         "Back to now restores the live board");
+      // RESTAGED 2026-09-23 (UD4): "NFL this week" paints BEFORE renderScoreboard awaits the
+      // re-picked game's nfl_game load, and the poll arms only after that. The immediate read
+      // raced it; HEAD usually won because a stale tick (the stacking bug UD4 fixes) or a fired
+      // tick's leftover handle kept _scoresPoll truthy. Wait (bounded, 9s) for it to arm — a
+      // board that never resumes still fails.
+      await waitFnOr(page, () => !!window.__GFFL__.UI._scoresPoll);
       ok((await evalOr(page, () => !!window.__GFFL__.UI._scoresPoll)) === true, "…and the live poll resumes");
       ok(errors.length === 0, "0 page errors across the cycler");
       await ctx.close();
@@ -29095,6 +29106,583 @@ async function openDetails(page, id) {
       await page.screenshot({ path: path.join(ROOT, "shots", "gffl_past_week_scores_390.png"), fullPage: true });
       console.log("  📸 shots/gffl_past_week_scores_390.png");
     }
+    await ctx.close();
+  }
+
+  // ================= UD · matchup / Scores / chat state races (2026-09-23) =================
+  // A UI review batch. Every one of these is a state or paint race, so each section stages the
+  // race on purpose (a slow read, a second tap, a stop while a fetch is out) rather than hoping
+  // the machine is slow enough to show it.
+  const udSleep = (page, ms) => page.evaluate((m) => new Promise((r) => setTimeout(r, m)), ms);
+  const udNav = (page) => evalOr(page, () => ((document.querySelector("#muWeekNav") || {}).textContent || "").replace(/\s+/g, " ").trim());
+  // Six identical week slates, the league on week 5 — TZ's staging. Past weeks read
+  // WEEK_STATS_FIX (week 3 and week 4 differ), week 6 is the future.
+  async function udSixWeeks(page) {
+    await evalOr(page, async () => {
+      const { LG, UI } = window.__GFFL__;
+      const wk = [[1, 2], [3, 4], [5, 6], [7, 8]];
+      await LG.saveSchedule([wk, wk, wk, wk, wk, wk]);
+      UI.week = 5;
+      UI._muWeek = null;
+      UI.matchup = null;
+      UI._muWeekGames = null;
+      UI._muRosters = null;
+      UI._muWeekly = null;
+      UI._muPts = null;
+      UI._muPtsWeek = null;
+    });
+  }
+
+  // ---- UD1: two quick taps on the week arrow paint ONE week ----
+  // 5 → 4 → 3 with week 4's archived box held for 900ms and week 3's instant. HEAD's
+  // loadMuArchivedPts stamped _muPtsWeek before the await and wrote _muPts after it, with no
+  // check, so week 4's late box landed under week 3's stamp and the late week-4 render painted.
+  // Hand-computed from WEEK_STATS_FIX[3] on the default rules:
+  //   P. Passer (6904)  300 pass yd × 0.04 + 2 TD × 4 = 12 + 8 = 20.0
+  //   Q. Rival  (9101)   50 pass yd × 0.04            = 2.0
+  //   T. Tight  (9001)  not in week 3's box           = "—"
+  // Week 4 would read 1.0 / 28.0 / 9.0 (TZ's numbers).
+  if (section("UD1 · a double week-arrow tap paints one week")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootWeek1Home(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await clickIn(page, '.bnav button[data-v="matchup"]');
+    await waitOr(page, ".muhead", 9000);
+    await udSixWeeks(page);
+    await evalOr(page, async () => {
+      const { LG, UI } = window.__GFFL__;
+      await LG.db.set(LG.weeklyId(LG.SEASON, 3), { kind: "weekly", week: 3, awards: {},
+        matchups: [{ home: 1, away: 2, homePts: 101.1, awayPts: 90.5 }] });
+      await LG.db.set(LG.weeklyId(LG.SEASON, 4), { kind: "weekly", week: 4, awards: {},
+        matchups: [{ home: 1, away: 2, homePts: 112.4, awayPts: 98.1 }] });
+      await UI.renderMatchup();
+    });
+    await waitFnOr(page, () => /Week 5/.test((document.querySelector("#muWeekNav") || {}).textContent || ""));
+    const r = (await evalOr(page, async () => {
+      const { UI, D } = window.__GFFL__;
+      const orig = D.weekStats;
+      const asked = [];
+      D.weekStats = async function (w, o) {
+        asked.push(w);
+        if (w === 4) await new Promise((res) => setTimeout(res, 900));
+        return orig.call(this, w, o);
+      };
+      const btn = document.getElementById("muPrev");
+      btn.click(); // 5 → 4
+      await new Promise((res) => setTimeout(res, 30));
+      btn.click(); // 4 → 3 on the same, not-yet-repainted button: the double tap
+      await new Promise((res) => setTimeout(res, 1800));
+      D.weekStats = orig;
+      const pts = (pk) => {
+        const el = document.querySelector('.pcellgrid[data-pk="' + pk + '"] .pts');
+        return el ? el.textContent.trim() : null;
+      };
+      return {
+        muWeek: UI._muWeek, ptsWeek: UI._muPtsWeek,
+        mapPasser: UI._muPts && UI._muPts.get ? UI._muPts.get("3915511") : null,
+        passer: pts("3915511"), rival: pts("222111"), tight: pts("111222"),
+        header: [...document.querySelectorAll(".bigpts")].map((e) => e.textContent.trim()),
+        navs: document.querySelectorAll("#muWeekNav").length,
+        asked,
+      };
+    })) || {};
+    const nav = await udNav(page);
+    ok(r.muWeek === 3 && /Week 3/.test(nav || "") && r.navs === 1,
+      "two arrow taps land on week 3, one nav strip (" + JSON.stringify({ muWeek: r.muWeek, nav, navs: r.navs }) + ")");
+    ok(r.header && r.header[0] === "90.5" && r.header[1] === "101.1",
+      "the top line is week 3's record, away then home (" + JSON.stringify(r.header) + ")");
+    ok(r.ptsWeek === 3 && r.mapPasser === 20,
+      "the archived map in memory is week 3's (P. Passer 20), not week 4's late one (" + JSON.stringify({ ptsWeek: r.ptsWeek, passer: r.mapPasser, asked: r.asked }) + ")");
+    ok(r.passer === "20.0" && r.rival === "2.0" && r.tight === "—",
+      "the painted rows are week 3's: 20.0 / 2.0 / — (week 4 would be 1.0 / 28.0 / 9.0) (" + JSON.stringify({ passer: r.passer, rival: r.rival, tight: r.tight }) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- UD2: a slow matchup render does not paint over the tab the reader moved to ----
+  // The head-to-head read is held for 700ms; the reader goes to Rules 60ms in. HEAD painted
+  // the matchup into main() over Rules and started the muThread chat poll behind it.
+  if (section("UD2 · a slow matchup render never paints over the next tab")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootWeek1Home(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await clickIn(page, '.bnav button[data-v="matchup"]');
+    await waitOr(page, ".muhead", 9000);
+    const r = (await evalOr(page, async () => {
+      const { LG, UI } = window.__GFFL__;
+      const orig = LG.headToHead;
+      LG.headToHead = async function () {
+        await new Promise((res) => setTimeout(res, 700));
+        return orig.apply(this, arguments);
+      };
+      UI.show("matchup"); // a full render, parked on the slow read
+      await new Promise((res) => setTimeout(res, 60));
+      UI.navTo("rules");
+      await new Promise((res) => setTimeout(res, 1500));
+      LG.headToHead = orig;
+      const m = document.querySelector("#main");
+      return {
+        view: UI.view, hash: location.hash, painted: m.dataset.view,
+        muHead: !!m.querySelector("#muHead"), lineup: !!m.querySelector(".mutable"),
+        chat: UI._chatTimer ? UI._chatTimer.pfx : null,
+      };
+    })) || {};
+    ok(r.view === "rules" && r.hash === "#rules" && r.painted === "rules",
+      "the reader is on Rules: view, hash and data-view agree (" + JSON.stringify({ view: r.view, hash: r.hash, painted: r.painted }) + ")");
+    ok(r.muHead === false && r.lineup === false,
+      "the late matchup render did not paint its header or lineup over Rules (" + JSON.stringify({ muHead: r.muHead, lineup: r.lineup }) + ")");
+    ok(r.chat !== "muThread",
+      "…and did not start the trash-talk poll behind Rules (" + JSON.stringify(r.chat) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- UD3: Back brings a pairing back in the week it was opened in ----
+  // Matchup tab (week 5, live) → ‹ ‹ to week 3 → chip 3-4 (a pushed entry) → League → the
+  // league-home card 5-6 (live week) → Back → Back. HEAD's entry carried the pairing only,
+  // and the league-home card had already reset the week, so 3-4 came back as week 5 · live.
+  if (section("UD3 · Back restores a browsed pairing in its own week")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootWeek1Home(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await udSixWeeks(page);
+    await evalOr(page, () => window.__GFFL__.UI.show("league"));
+    await waitOr(page, '.mucard[data-mu="5-6"]', 9000);
+    await evalOr(page, () => window.__GFFL__.UI.navTo("matchup"));
+    await waitFnOr(page, () => /Week 5/.test((document.querySelector("#muWeekNav") || {}).textContent || "") && !!document.querySelector("#muHead"));
+    await clickIn(page, "#muPrev");
+    await waitFnOr(page, () => window.__GFFL__.UI._muWeek === 4 && /Week 4/.test((document.querySelector("#muWeekNav") || {}).textContent || "") && !!document.querySelector('#muSwitch .muswitch[data-mu="3-4"]'));
+    await clickIn(page, "#muPrev");
+    await waitFnOr(page, () => window.__GFFL__.UI._muWeek === 3 && /Week 3/.test((document.querySelector("#muWeekNav") || {}).textContent || "") && !!document.querySelector('#muSwitch .muswitch[data-mu="3-4"]'));
+    await clickIn(page, '#muSwitch .muswitch[data-mu="3-4"]');
+    await waitFnOr(page, () => JSON.stringify(window.__GFFL__.UI.matchup) === "[3,4]" && !!document.querySelector('#muSwitch .muswitch.on[data-mu="3-4"]'));
+    const opened = (await evalOr(page, () => ({ mu: window.__GFFL__.UI.matchup, muWeek: window.__GFFL__.UI._muWeek, st: history.state }))) || {};
+    await evalOr(page, () => window.__GFFL__.UI.navTo("league"));
+    await waitOr(page, '.mucard[data-mu="5-6"]', 9000);
+    await clickIn(page, '.mucard[data-mu="5-6"]');
+    await waitFnOr(page, () => JSON.stringify(window.__GFFL__.UI.matchup) === "[5,6]" && /Week 5/.test((document.querySelector("#muWeekNav") || {}).textContent || ""));
+    await evalOr(page, () => history.back());
+    await waitFnOr(page, () => window.__GFFL__.UI.view === "league");
+    await evalOr(page, () => history.back());
+    await waitFnOr(page, () => window.__GFFL__.UI.view === "matchup" && JSON.stringify(window.__GFFL__.UI.matchup) === "[3,4]" && !!document.querySelector("#muHead"));
+    await udSleep(page, 400);
+    const back = (await evalOr(page, () => ({
+      mu: window.__GFFL__.UI.matchup, muWeek: window.__GFFL__.UI._muWeek, hash: location.hash,
+      on: [...document.querySelectorAll("#muSwitch .muswitch.on")].map((b) => b.dataset.mu),
+    }))) || {};
+    const backNav = await udNav(page);
+    ok(JSON.stringify(opened.mu) === "[3,4]" && opened.muWeek === 3 && opened.st && opened.st.muWeek === 3,
+      "the chip in week 3 pushed an entry that carries its week (" + JSON.stringify({ mu: opened.mu, muWeek: opened.muWeek, entry: opened.st && { mu: opened.st.mu, muWeek: opened.st.muWeek } }) + ")");
+    ok(JSON.stringify(back.mu) === "[3,4]" && back.hash === "#matchup",
+      "Back, Back lands on the 3-4 pairing (" + JSON.stringify({ mu: back.mu, hash: back.hash }) + ")");
+    ok(back.muWeek === 3 && /Week 3/.test(backNav || "") && !/live/.test(backNav || ""),
+      "…in week 3, the week it was opened in, not week 5 · live (" + JSON.stringify({ muWeek: back.muWeek, nav: backNav }) + ")");
+    await evalOr(page, () => history.forward());
+    await waitFnOr(page, () => window.__GFFL__.UI.view === "league");
+    await evalOr(page, () => history.forward());
+    await waitFnOr(page, () => window.__GFFL__.UI.view === "matchup" && JSON.stringify(window.__GFFL__.UI.matchup) === "[5,6]" && !!document.querySelector("#muHead"));
+    await udSleep(page, 400);
+    const fwd = (await evalOr(page, () => ({ mu: window.__GFFL__.UI.matchup, muWeek: window.__GFFL__.UI._muWeek }))) || {};
+    const fwdNav = await udNav(page);
+    ok(JSON.stringify(fwd.mu) === "[5,6]" && fwd.muWeek == null && /Week 5/.test(fwdNav || "") && /live/.test(fwdNav || ""),
+      "Forward, Forward returns 5-6 in the live week (" + JSON.stringify({ mu: fwd.mu, muWeek: fwd.muWeek, nav: fwdNav }) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- UD4: the Scores and NFL-game polls stop when told to, and never stack ----
+  // Every armed tick is counted by wrapping setTimeout/clearTimeout for the two tick bodies
+  // (the Scores tick reads loadFfScoreboard, the game tick loadNflGame). ff_scoreboard and
+  // nfl_game are held 500ms so a stop can land while a tick is inside its fetch.
+  if (section("UD4 · Scores and NFL-game polls stop when told and never stack")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootWeek1Home(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await evalOr(page, () => window.__GFFL__.UI.navTo("scores"));
+    await waitOr(page, "#scSplit", 9000);
+    await waitFnOr(page, () => !!window.__GFFL__.UI._scoresPoll);
+    await evalOr(page, () => {
+      const live = new Map();
+      const oST = window.setTimeout, oCT = window.clearTimeout;
+      window.setTimeout = function (fn, ms, ...rest) {
+        const src = typeof fn === "function" ? String(fn) : "";
+        const tag = /loadFfScoreboard/.test(src) ? "sc" : /loadNflGame/.test(src) ? "nfl" : "";
+        if (!tag) return oST.call(window, fn, ms, ...rest);
+        let id = null;
+        id = oST.call(window, function () { live.delete(id); return fn.apply(this, arguments); }, ms, ...rest);
+        live.set(id, tag);
+        return id;
+      };
+      window.clearTimeout = function (id) { live.delete(id); return oCT.call(window, id); };
+      window.__udTicks = (tag) => [...live.values()].filter((t) => t === tag).length;
+      const oFetch = window.fetch;
+      window.fetch = async function (u, o) {
+        const b = o && typeof o.body === "string" ? o.body : "";
+        if (/"action":"(ff_scoreboard|nfl_game)"/.test(b)) await new Promise((res) => oST.call(window, res, 500));
+        return oFetch.apply(this, arguments);
+      };
+    });
+    const fore = (page) => evalOr(page, () => { const { D, UI } = window.__GFFL__; D.S.wakeAt = 0; return UI.onForeground(); });
+    // (a) hidden again while the foreground tick's fetch is out
+    await evalOr(page, () => window.__GFFL__.UI.onBackground());
+    await fore(page);
+    await udSleep(page, 60);
+    await evalOr(page, () => window.__GFFL__.UI.onBackground());
+    await udSleep(page, 1000);
+    const a = (await evalOr(page, () => ({ sc: window.__udTicks("sc"), handle: !!window.__GFFL__.UI._scoresPoll }))) || {};
+    ok(a.sc === 0 && a.handle === false,
+      "a background stop that lands mid-fetch leaves no Scores tick armed (" + JSON.stringify(a) + ")");
+    // (b) two foregrounds 60ms apart: one chain, and a view change stops it
+    const loads0 = await evalOr(page, () => window.__GFFL__.UI._ffSbLoads);
+    await fore(page);
+    await udSleep(page, 60);
+    await fore(page);
+    await udSleep(page, 1100);
+    const b = (await evalOr(page, () => ({ sc: window.__udTicks("sc"), loads: window.__GFFL__.UI._ffSbLoads }))) || {};
+    ok(b.loads - loads0 === 2 && b.sc === 1,
+      "two quick foregrounds ask twice but leave ONE Scores tick armed (" + JSON.stringify({ asked: b.loads - loads0, armed: b.sc }) + ")");
+    await evalOr(page, () => window.__GFFL__.UI.navTo("rules"));
+    await udSleep(page, 200);
+    const c = (await evalOr(page, () => window.__udTicks("sc"))) ;
+    ok(c === 0, "…and leaving the tab leaves none behind (" + c + ")");
+    // (c) the NFL game view (a chip tap): foreground restarts BOTH polls, and a stop mid-fetch
+    // leaves neither armed. 401900001 is the fixture's live PHI game (Q2 5:00).
+    await evalOr(page, () => window.__GFFL__.UI.navTo("scores"));
+    await waitOr(page, "#scSplit", 9000);
+    await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
+    await waitFnOr(page, () => window.__GFFL__.UI.view === "nflgame" && !!document.querySelector("#nflBody .nflhead"));
+    await udSleep(page, 700);
+    await evalOr(page, () => window.__GFFL__.UI.onBackground());
+    const l1 = await evalOr(page, () => window.__GFFL__.UI._ffSbLoads);
+    await fore(page);
+    await udSleep(page, 1100);
+    const g1 = (await evalOr(page, () => ({ sc: window.__udTicks("sc"), nfl: window.__udTicks("nfl"), loads: window.__GFFL__.UI._ffSbLoads, view: window.__GFFL__.UI.view }))) || {};
+    ok(g1.view === "nflgame" && g1.loads - l1 === 1 && g1.sc === 1,
+      "on the NFL game view a foreground refreshes the fantasy scoreboard and re-arms its poll (" + JSON.stringify({ view: g1.view, asked: g1.loads - l1, armed: g1.sc }) + ")");
+    ok(g1.nfl === 1, "…and the live game's own poll, once (" + g1.nfl + ")");
+    await evalOr(page, () => window.__GFFL__.UI.onBackground());
+    await fore(page);
+    await udSleep(page, 60);
+    await evalOr(page, () => window.__GFFL__.UI.onBackground());
+    await udSleep(page, 1000);
+    const g2 = (await evalOr(page, () => ({ sc: window.__udTicks("sc"), nfl: window.__udTicks("nfl"), handle: !!window.__GFFL__.UI._nflGamePoll }))) || {};
+    ok(g2.nfl === 0 && g2.handle === false,
+      "a background stop mid-fetch leaves the NFL game poll disarmed (" + JSON.stringify(g2) + ")");
+    ok(g2.sc === 0, "…and the Scores poll too (" + g2.sc + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- UD5: the phone chip strip stays where the reader panned it ----
+  // Ten chips (one live, nine upcoming) overflow a 390px strip. paintLive repaints Scores on
+  // every poll; HEAD re-centred the open chip on each of those and yanked the strip back.
+  if (section("UD5 · the phone NFL chip strip keeps the reader's pan")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootWeek1Home(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await stopPolling(page);
+    await evalOr(page, () => {
+      const { D, UI } = window.__GFFL__;
+      const ev = [{ id: "c0", date: "2026-09-07T17:00Z", state: "in", period: 2, clock: "8:41", detail: "Q2 8:41",
+        away: { abbrev: "A0", score: "7" }, home: { abbrev: "H0", score: "3" } }];
+      for (let i = 1; i < 10; i++) {
+        ev.push({ id: "c" + i, date: "2026-09-07T2" + (i % 10) + ":00Z", state: "pre",
+          away: { abbrev: "A" + i, score: "" }, home: { abbrev: "H" + i, score: "" } });
+      }
+      D.S.nflEvents = ev;
+      UI.nflGameId = null;
+      UI.show("scores");
+    });
+    await waitFnOr(page, () => !!document.querySelector('#scChips .scchip.on[data-eid="c0"]'));
+    await udSleep(page, 300);
+    const geo = () => evalOr(page, () => {
+      const row = document.querySelector("#scChips");
+      const on = row && row.querySelector(".scchip.on");
+      const rr = row.getBoundingClientRect(), cr = on ? on.getBoundingClientRect() : null;
+      return { left: Math.round(row.scrollLeft), sw: row.scrollWidth, cw: row.clientWidth,
+        on: on ? on.dataset.eid : null, inView: !!cr && cr.left >= rr.left - 1 && cr.right <= rr.right + 1 };
+    });
+    const g0 = (await geo()) || {};
+    ok(g0.sw > g0.cw + 200 && g0.on === "c0" && g0.inView,
+      "premise: ten chips overflow the strip and the live chip opens in view (" + JSON.stringify(g0) + ")");
+    const g1 = (await evalOr(page, () => {
+      const row = document.querySelector("#scChips");
+      row.scrollLeft = row.scrollWidth; // the reader pans to the end
+      const panned = Math.round(row.scrollLeft);
+      window.__GFFL__.UI.paintScores(); // paintLive's data repaint
+      return { panned, after: Math.round(document.querySelector("#scChips").scrollLeft), same: row === document.querySelector("#scChips") };
+    })) || {};
+    ok(g1.panned > 0 && g1.after === g1.panned,
+      "a data repaint leaves the panned strip where it was (" + JSON.stringify(g1) + ")");
+    const g2 = (await evalOr(page, () => {
+      const { UI } = window.__GFFL__;
+      const row = document.querySelector("#scChips");
+      row.scrollLeft = 0;
+      UI.nflGameId = "c9"; // a different open game (the chip tap / Back path)
+      UI.paintScores();
+      const r2 = document.querySelector("#scChips");
+      const on = r2.querySelector(".scchip.on"), rr = r2.getBoundingClientRect(), cr = on.getBoundingClientRect();
+      return { on: on.dataset.eid, left: Math.round(r2.scrollLeft), inView: cr.left >= rr.left - 1 && cr.right <= rr.right + 1 };
+    })) || {};
+    ok(g2.on === "c9" && g2.left > 0 && g2.inView,
+      "a different open game still scrolls its chip into view (" + JSON.stringify(g2) + ")");
+    const g3 = (await evalOr(page, () => {
+      const row = document.querySelector("#scChips");
+      row.scrollLeft = 0; // the reader pans back to the live games
+      window.__GFFL__.UI.paintScores();
+      return { after: Math.round(document.querySelector("#scChips").scrollLeft) };
+    })) || {};
+    ok(g3.after === 0, "…and the next data repaint does not drag it back to that chip (" + JSON.stringify(g3) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- UD6: a player card for an slp_ player does not sit out the ownership cap ----
+  // The %ROST map is >6h old. When no fetch can start (a failure inside the 10-minute floor,
+  // another ask already out) or the fetch fails, ensureOwnership never called back and every
+  // card waited the fixed 2500ms. The Worthy staging is TY's (FLEX slp_11624, no espn_id).
+  if (section("UD6 · the player card does not wait out the ownership cap")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const base = fullSeed();
+    const r1 = seedRosterT1();
+    const seed = { ...base, docs: { ...base.docs,
+      roster_2026_w1_t1: { ...r1, players: r1.players.map((p) => p.slot === "FLEX"
+        ? { key: "slp_11624", name: "Xavier Worthy", pos: "WR", team: "KC", slot: "FLEX" }
+        : p) },
+    } };
+    const { ctx, page, errors } = await newTestPage(browser, seed);
+    await bootWeek1Home(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    const stage = (page, st) => evalOr(page, (st) => {
+      const UI = window.__GFFL__.UI;
+      try { localStorage.removeItem("bucky_gffl_own3"); } catch (e) {}
+      UI._ownership = { at: Date.now() - 7 * 3600e3, players: {}, who: {} };
+      UI._ownPending = !!st.pending;
+      UI._ownFailAt = st.failAgo == null ? 0 : Date.now() - st.failAgo;
+    }, st);
+    const timeResolve = (page) => evalOr(page, async () => {
+      const t0 = performance.now();
+      const pid = await window.__GFFL__.UI._resolveEspnPid("slp_11624");
+      return { ms: Math.round(performance.now() - t0), pid };
+    });
+    await stage(page, { failAgo: 60e3 });
+    const floor = (await timeResolve(page)) || {};
+    ok(floor.ms != null && floor.ms < 500,
+      "last ask failed a minute ago (inside the 10-min floor): the pid lookup returns at once, not after 2500ms (" + floor.ms + "ms)");
+    await stage(page, { pending: true });
+    const pending = (await timeResolve(page)) || {};
+    ok(pending.ms != null && pending.ms < 500,
+      "another ask already out: returns at once (" + pending.ms + "ms)");
+    await evalOr(page, () => { window.__GFFL__.UI._ownPending = false; });
+    fixture.ownershipDown = true;
+    await stage(page, {});
+    const failed = (await timeResolve(page)) || {};
+    fixture.ownershipDown = false;
+    ok(failed.ms != null && failed.ms < 1500,
+      "this ask fails (ok:false): returns when it fails, not at the cap (" + failed.ms + "ms)");
+    await stage(page, {});
+    const landed = (await timeResolve(page)) || {};
+    const fresh = await evalOr(page, () => Date.now() - (window.__GFFL__.UI._ownership || {}).at < 60e3);
+    ok(landed.ms != null && landed.ms < 2400 && fresh === true,
+      "a real fetch still lands before the card reads it (" + landed.ms + "ms, fresh " + fresh + ")");
+    await stage(page, { failAgo: 60e3 });
+    const card = (await evalOr(page, async () => {
+      const t0 = performance.now();
+      await window.__GFFL__.UI.openPlayerCard("slp_11624");
+      const ov = document.querySelector("#playerCard");
+      return { ms: Math.round(performance.now() - t0), loading: /Loading…/.test(ov ? ov.textContent : ""), name: /Worthy/.test(ov ? ov.textContent : "") };
+    })) || {};
+    ok(card.ms != null && card.ms < 1500 && card.name && !card.loading,
+      "the Worthy card itself paints without the 2500ms stall (" + JSON.stringify(card) + ")");
+    await evalOr(page, () => window.__GFFL__.UI.closePlayerCard && window.__GFFL__.UI.closePlayerCard());
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- UD7: a week rollover does not paint the league over the claim screen ----
+  // The clock moves into week 2 while an unclaimed device is on "Who are you?". UI.view still
+  // reads "league" there (only UI.show writes it); HEAD's syncLeagueWeek repainted it.
+  if (section("UD7 · a week rollover leaves the claim screen alone")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed({ claim: true }));
+      await bootPage(page);
+      await waitOr(page, "#claimList", 9000);
+      const r = (await evalOr(page, async () => {
+        const { LG, UI } = window.__GFFL__;
+        const m = document.querySelector("#main");
+        const before = { painted: m.dataset.view, view: UI.view, week: UI.week };
+        LG.nowOverride = LG.weekStart(2) + 3600 * 1000;
+        const moved = UI.syncLeagueWeek();
+        await new Promise((res) => setTimeout(res, 800));
+        return { before, moved, week: UI.week, painted: m.dataset.view, claim: !!document.querySelector("#claimList"),
+          league: !!m.querySelector(".mucard, .lgdesk") };
+      })) || {};
+      ok(r.before && r.before.painted === "claim" && r.before.view === "league" && r.before.week === 1,
+        "premise: the claim screen is painted while UI.view still reads league (" + JSON.stringify(r.before) + ")");
+      ok(r.moved === true && r.week === 2, "the week still advances to 2 in memory (" + JSON.stringify({ moved: r.moved, week: r.week }) + ")");
+      ok(r.painted === "claim" && r.claim === true && r.league === false,
+        "…but the claim screen stays on screen — no league home painted over it (" + JSON.stringify({ painted: r.painted, claim: r.claim, league: r.league }) + ")");
+      ok(errors.length === 0, "0 page errors");
+      await ctx.close();
+    }
+    {
+      const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+      await bootWeek1Home(page);
+      await waitOr(page, ".mucard", 9000);
+      const r = (await evalOr(page, async () => {
+        const { LG, UI } = window.__GFFL__;
+        const m = document.querySelector("#main");
+        const mark = document.createElement("i"); mark.id = "udMark"; m.appendChild(mark);
+        LG.nowOverride = LG.weekStart(2) + 3600 * 1000;
+        const moved = UI.syncLeagueWeek();
+        await new Promise((res) => setTimeout(res, 800));
+        return { moved, week: UI.week, painted: m.dataset.view, markGone: !document.querySelector("#udMark") };
+      })) || {};
+      ok(r.moved === true && r.week === 2 && r.painted === "league" && r.markGone === true,
+        "on a real view the rollover still repaints it (" + JSON.stringify(r) + ")");
+      ok(errors.length === 0, "0 page errors on the league home");
+      await ctx.close();
+    }
+  }
+
+  // ---- UD8: desktop keeps a league-chat draft across Chat → League → Chat ----
+  // The phone already did (TO, 2026-09-16). On desktop the league home's rail mounts the same
+  // "chat" composer; it rebuilt empty, and the Chat tab's snapshot then read that empty rail.
+  if (section("UD8 · desktop keeps a chat draft across Chat → League → Chat")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1280, height: 900 } });
+    await bootWeek1Home(page);
+    await waitOr(page, ".lgdesk #chatText", 9000);
+    await evalOr(page, () => window.__GFFL__.UI.navTo("chat"));
+    await waitFnOr(page, () => !document.querySelector(".lgdesk") && !!document.querySelector("#main .chatcard #chatText"));
+    const draft = "Goats by three, bet on it";
+    await page.focus("#chatText");
+    await page.keyboard.type(draft);
+    await evalOr(page, () => window.__GFFL__.UI.navTo("league"));
+    await waitOr(page, ".lgdesk #chatText", 9000);
+    const rail = await evalOr(page, () => document.querySelector(".lgdesk #chatText").value);
+    ok(rail === draft, "the league rail's composer comes up with the line typed on the Chat tab (" + JSON.stringify(rail) + ")");
+    await evalOr(page, () => window.__GFFL__.UI.navTo("chat"));
+    await waitFnOr(page, () => !document.querySelector(".lgdesk") && !!document.querySelector("#main .chatcard #chatText"));
+    const tab = await evalOr(page, () => document.querySelector("#chatText").value);
+    ok(tab === draft, "…and back on the Chat tab the line is still there (" + JSON.stringify(tab) + ")");
+    // A line typed in the rail itself still survives a full background rebuild (the old
+    // live-rail path, now through the same snapshot).
+    await evalOr(page, () => window.__GFFL__.UI.navTo("league"));
+    await waitOr(page, ".lgdesk #chatText", 9000);
+    await evalOr(page, () => { const t = document.querySelector(".lgdesk #chatText"); t.value = ""; t.dispatchEvent(new Event("input", { bubbles: true })); });
+    await page.focus(".lgdesk #chatText");
+    await page.keyboard.type("rail line");
+    await evalOr(page, () => window.__GFFL__.UI.show("league"));
+    await waitOr(page, ".lgdesk #chatText", 9000);
+    await udSleep(page, 300);
+    const kept = await evalOr(page, () => document.querySelector(".lgdesk #chatText").value);
+    ok(kept === "rail line", "a line typed in the rail survives a full league rebuild (" + JSON.stringify(kept) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- UD9: the Scores tab opens on the live game, not the last one tapped ----
+  // docs/gffl.md 2026-09-15: opening the tab picks the live game, else the next kickoff. HEAD
+  // kept the last UI.nflGameId whenever it was anywhere on this week's slate.
+  if (section("UD9 · the Scores tab re-picks the live game")) {
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootWeek1Home(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await stopPolling(page);
+    await evalOr(page, () => {
+      const D = window.__GFFL__.D;
+      D.S.nflEvents = [
+        { id: "401900002", date: "2026-09-04T00:15Z", state: "post", detail: "Final",
+          away: { abbrev: "AWY", score: "10" }, home: { abbrev: "HOM", score: "20" } },
+        { id: "401900001", date: "2026-09-07T17:00Z", state: "in", period: 2, clock: "5:00", detail: "Q2 5:00",
+          away: { abbrev: "DAL", score: "10" }, home: { abbrev: "PHI", score: "14" } },
+      ];
+    });
+    await evalOr(page, () => window.__GFFL__.UI.navTo("scores"));
+    await waitFnOr(page, () => !!document.querySelector("#scChips .scchip.on"));
+    const first = await evalOr(page, () => window.__GFFL__.UI.nflGameId);
+    ok(first === "401900001", "first open: the live game is picked (" + first + ")");
+    await clickIn(page, '#scChips .scchip[data-eid="401900002"]');
+    await waitFnOr(page, () => window.__GFFL__.UI.view === "nflgame" && window.__GFFL__.UI.nflGameId === "401900002");
+    const tapped = await evalOr(page, () => ({ view: window.__GFFL__.UI.view, id: window.__GFFL__.UI.nflGameId, hash: location.hash }));
+    ok(tapped && tapped.id === "401900002" && tapped.hash === "#nflgame=401900002",
+      "a chip tap opens the final it names (" + JSON.stringify(tapped) + ")");
+    await evalOr(page, () => window.__GFFL__.UI.navTo("league"));
+    await waitOr(page, ".mucard", 9000);
+    await evalOr(page, () => window.__GFFL__.UI.navTo("scores"));
+    await waitFnOr(page, () => window.__GFFL__.UI.view === "scores" && !!document.querySelector("#scChips .scchip.on"));
+    await udSleep(page, 300);
+    const again = (await evalOr(page, () => ({ id: window.__GFFL__.UI.nflGameId,
+      on: [...document.querySelectorAll("#scChips .scchip.on")].map((c) => c.dataset.eid) }))) || {};
+    ok(again.id === "401900001" && JSON.stringify(again.on) === '["401900001"]',
+      "the Scores tab from the nav re-picks the live game, not the final tapped last (" + JSON.stringify(again) + ")");
+    await evalOr(page, () => history.back());
+    await waitFnOr(page, () => window.__GFFL__.UI.view === "league");
+    await evalOr(page, () => history.back());
+    await waitFnOr(page, () => window.__GFFL__.UI.view === "nflgame");
+    await udSleep(page, 300);
+    const back = await evalOr(page, () => ({ id: window.__GFFL__.UI.nflGameId, hash: location.hash }));
+    ok(back && back.id === "401900002" && back.hash === "#nflgame=401900002",
+      "Back still returns to the game that was tapped (" + JSON.stringify(back) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+
+  // ---- UD10: dead code with no callers is gone ----
+  // Grepped across lg-*.js, league.html AND this suite before removal: none of these had a
+  // caller (the suite's "#nflBack" reads are a DOM id, not the function). The Scores week
+  // browse also stops paying for an LG.loadWeekly read nothing painted.
+  if (section("UD10 · uncalled Scores/matchup code is gone")) {
+    const ui = fs.readFileSync(path.join(ROOT, "assets", "league", "lg-ui.js"), "utf8");
+    const html = fs.readFileSync(path.join(ROOT, "league.html"), "utf8");
+    const gone = {
+      gfflScoresHtml: /function gfflScoresHtml\b/.test(ui),
+      gfflWeekStaticHtml: /function gfflWeekStaticHtml\b/.test(ui),
+      nflBack: /function nflBack\b/.test(ui),
+      scoresWeekly: /_scoresWeekly\b/.test(ui),
+      matchupCardTag: !/function matchupCard\(h, a\) \{/.test(ui),
+      powerPlaceholder: /powerRankingsHtml\(UI\._allWeekly\)/.test(ui),
+      muweeknavHidden: /\.muweeknav\[hidden\]/.test(html),
+    };
+    ok(Object.values(gone).every((v) => v === false),
+      "no uncalled helper, dead option, empty placeholder, or never-toggled [hidden] rule is left (" + JSON.stringify(gone) + ")");
+    fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootWeek1Home(page);
+    await waitOr(page, ".mucard", 9000);
+    await waitLive(page);
+    await evalOr(page, () => window.__GFFL__.UI.navTo("scores"));
+    await waitOr(page, "#scNext", 9000);
+    await evalOr(page, () => {
+      const LG = window.__GFFL__.LG;
+      const orig = LG.loadWeekly;
+      window.__udWeekly = [];
+      LG.loadWeekly = function (w) { window.__udWeekly.push(w); return orig.apply(this, arguments); };
+    });
+    await clickIn(page, "#scNext");
+    await waitFnOr(page, () => /Week 2/.test((document.querySelector(".scweeklabel") || {}).textContent || "")
+      && /NFL — Week 2/.test((document.querySelector("#scSlate") || {}).textContent || ""));
+    await udSleep(page, 300);
+    const r = (await evalOr(page, () => ({ weekly: window.__udWeekly, label: (document.querySelector(".scweeklabel") || {}).textContent }))) || {};
+    ok(/Week 2/.test(r.label || ""), "the Scores week browse still pages to week 2 (" + r.label + ")");
+    ok(Array.isArray(r.weekly) && r.weekly.length === 0,
+      "…without an LG.loadWeekly read nothing on that page shows (" + JSON.stringify(r.weekly) + ")");
+    ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
 

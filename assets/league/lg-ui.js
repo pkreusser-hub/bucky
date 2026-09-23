@@ -781,11 +781,13 @@
     ex = ex || {};
     if (name === "locker") return "locker:" + (ex.locker != null ? ex.locker : UI.lockerTeamId);
     if (name === "nflgame") return "nflgame:" + (ex.game != null ? ex.game : UI.nflGameId);
-    if (name === "matchup") return "matchup:" + ((ex.mu || []).join("-"));
+    // The browsed week is part of the place (2026-09-23): the same pairing in week 3 and in
+    // the live week are two screens, and Back must not land one in the other.
+    if (name === "matchup") return "matchup:" + ((ex.mu || []).join("-")) + "@" + (ex.muWeek == null ? "" : ex.muWeek);
     return name;
   }
   function paintedSig() {
-    return viewSig(UI.view, { locker: UI.lockerTeamId, game: UI.nflGameId, mu: UI.matchup || [] });
+    return viewSig(UI.view, { locker: UI.lockerTeamId, game: UI.nflGameId, mu: UI.matchup || [], muWeek: UI._muWeek });
   }
   // THE INVARIANT: the URL always describes what is PAINTED. UI.show() is the repaint
   // primitive and anything may call it — the live poll, LG.db.onChange's quiet refresh, a
@@ -798,11 +800,12 @@
   function syncUrlToView(name) {
     const url = UI.hashFor(name);
     if (location.hash === url) return;
-    const sig = viewSig(name, { mu: UI.matchup || [] });
+    const sig = viewSig(name, { mu: UI.matchup || [], muWeek: UI._muWeek });
     const prev = history.state;
     const st = prev && prev.gfflView
       ? Object.assign({}, prev, { gfflView: name, sig })
-      : { gfflView: name, sig, from: null, mu: name === "matchup" ? (UI.matchup || null) : null, n: ++navSeq };
+      : { gfflView: name, sig, from: null, mu: name === "matchup" ? (UI.matchup || null) : null,
+        muWeek: name === "matchup" ? UI._muWeek : null, n: ++navSeq };
     try { history.replaceState(st, "", url); } catch (_) {}
   }
   // THE navigator. Every gesture that means "take me somewhere" ends here.
@@ -836,10 +839,13 @@
     // sentinel for an overlay that no longer exists and appear to do nothing.
     const onSentinel = !!ovlHide;
     dropOverlayDom();
-    const sig = viewSig(name, { mu: UI.matchup || [] });
+    const sig = viewSig(name, { mu: UI.matchup || [], muWeek: UI._muWeek });
     // `from` is what lets a sub-view's own UP button (the NFL game's "‹ Scores") tell "the
     // reader tapped in from Scores" apart from "the reader deep-linked straight here".
-    const st = { gfflView: name, sig, from: UI.view || null, mu: name === "matchup" ? (UI.matchup || null) : null, n: ++navSeq };
+    // `muWeek` rides with `mu` (2026-09-23): a pairing opened from a browsed week is that
+    // week's pairing, and Back has to bring the week back with it.
+    const st = { gfflView: name, sig, from: UI.view || null, mu: name === "matchup" ? (UI.matchup || null) : null,
+      muWeek: name === "matchup" ? UI._muWeek : null, n: ++navSeq };
     try {
       // Re-selecting the screen you are already on is not a place in the history — replace, so
       // Back never has to be pressed twice to leave one view.
@@ -871,10 +877,14 @@
     // The matchup a card opened is sticky state, not part of the URL, so it rides in the entry.
     // Only an entry WE wrote may set it; anything else leaves the reader's current pick alone.
     const mu = st.gfflView === "matchup" ? (st.mu || null) : (name === "matchup" ? UI.matchup : null);
-    if (viewSig(name, { locker, game: v.game, mu: mu || [] }) === before) return;
+    // …and so does the week it was browsed in. null (or a week that has since gone live) is
+    // the live week.
+    let muWeek = st.gfflView === "matchup" ? (st.muWeek == null ? null : Number(st.muWeek)) : (name === "matchup" ? UI._muWeek : null);
+    if (muWeek === UI.week) muWeek = null;
+    if (viewSig(name, { locker, game: v.game, mu: mu || [], muWeek }) === before) return;
     if (locker != null) UI.lockerTeamId = locker;
     if (v.game != null) UI.nflGameId = v.game;
-    if (name === "matchup") UI.matchup = mu;
+    if (name === "matchup") { UI.matchup = mu; UI._muWeek = muWeek; }
     UI.show(name);
   });
 
@@ -1026,6 +1036,10 @@
   // gesture that means "take me to MY game", and it is the only thing that clears it.
   UI.navTo = function (name) {
     if (name === "matchup") { UI.matchup = null; UI._muWeek = null; }
+    // Same gesture on Scores (2026-09-23): the tab means "what is on now", so it re-picks
+    // (live game, else next kickoff — pickNflGameId) instead of reopening the last game
+    // tapped. A chip tap and Back still carry their own game through UI.go / the hash.
+    if (name === "scores") { UI.nflGameId = null; UI._nflGame = null; }
     UI.go(name);
   };
   // Reachable from the league home's  Playoffs card (S7) — same no-nav-entry-needed
@@ -1447,7 +1461,9 @@
       await new Promise((res) => {
         let settled = false;
         const done = () => { if (!settled) { settled = true; res(); } };
-        ensureOwnership(done);
+        // done twice (2026-09-23): on land, and on every "no fetch is coming" branch. Only
+        // an ask that is really out waits, and never past the 2.5s cap.
+        ensureOwnership(done, done);
         if (UI._ownership && Date.now() - (UI._ownership.at || 0) < OWN_TTL_MS) done();
         else setTimeout(done, 2500);
       });
@@ -1468,18 +1484,23 @@
   }
   UI._ownershipFor = ownershipFor; // test hook
   UI._resolveEspnPid = resolveEspnPid; // test hook
-  function ensureOwnership(onLand) {
+  // `onIdle` (2026-09-23): called when THIS ask will never land — the map is already fresh,
+  // another ask is out, the last one failed inside the floor, or this one failed. The player
+  // card waits on it; without it every card for an slp_ player sat out the full 2.5s cap
+  // whenever the map was stale and a fetch could not start.
+  function ensureOwnership(onLand, onIdle) {
+    const idle = () => { if (typeof onIdle === "function") onIdle(); };
     if (!UI._ownership) UI._ownership = ownReadLs();
-    if (UI._ownership && Date.now() - (UI._ownership.at || 0) < OWN_TTL_MS) return;
-    if (UI._ownPending || Date.now() - UI._ownFailAt < OWN_FAIL_FLOOR_MS) return;
+    if (UI._ownership && Date.now() - (UI._ownership.at || 0) < OWN_TTL_MS) { idle(); return; }
+    if (UI._ownPending || Date.now() - UI._ownFailAt < OWN_FAIL_FLOOR_MS) { idle(); return; }
     UI._ownPending = true;
     sportsFn("nfl_ownership", {}).then((j) => {
       UI._ownPending = false;
-      if (!j || j.ok !== true || !j.players) { UI._ownFailAt = Date.now(); return; }
+      if (!j || j.ok !== true || !j.players) { UI._ownFailAt = Date.now(); idle(); return; }
       UI._ownership = { at: Date.now(), players: j.players, who: j.who || {} };
       try { localStorage.setItem(OWN_LS, JSON.stringify({ at: UI._ownership.at, players: UI._ownership.players, who: UI._ownership.who })); } catch (e) {}
       if (typeof onLand === "function") onLand();
-    }).catch(() => { UI._ownPending = false; UI._ownFailAt = Date.now(); });
+    }).catch(() => { UI._ownPending = false; UI._ownFailAt = Date.now(); idle(); });
   }
   UI._ensureOwnership = ensureOwnership; // test hook
 
@@ -2731,7 +2752,12 @@
         // A FULL rebuild still preserves what the reader had typed — a background cloud refresh
         // (LG.db.onChange -> UI.show) is not their doing and must not cost them a sentence.
         const liveChat = el.querySelector(".lgdesk #chatText");
-        const keep = liveChat ? { text: liveChat.value, scroll: (el.querySelector("#chatList") || {}).scrollTop || 0 } : null;
+        const keep = liveChat ? { scroll: (el.querySelector("#chatList") || {}).scrollTop || 0 } : null;
+        // The draft itself goes through the Chat tab's own snapshot (2026-09-23): the live
+        // box wherever it is (this rail, or the Chat tab being left), else the stored draft.
+        // Reading only a live RAIL box lost a line typed on the Chat tab — the rail came up
+        // empty, and the Chat tab's snapshot then read that empty rail.
+        const draft = snapshotChatComposer("chat");
         el.innerHTML = `${deskBarHtml(lay, editing)}<div class="lgdesk${editing ? " editing" : ""}">
           <div class="lgmain">${colHtml("main")}</div>
           <aside class="lgrail">${colHtml("rail")}</aside>
@@ -2739,10 +2765,7 @@
         wireDeskLayout();
         if (!lay.hidden.includes("chat")) {
           wireChat("chat", null);
-          if (keep) {
-            const t = $("#chatText");
-            if (t) { t.value = keep.text; autoGrowChatText(t); }
-          }
+          restoreChatComposer("chat", draft);
           refreshChatList("chat", null).then(() => {
             const l = $("#chatList");
             if (l && keep && keep.scroll) l.scrollTop = keep.scroll;
@@ -2778,7 +2801,6 @@
         ${aiPowerHtml(UI._aiPower)}
         ${injuryFeedCardHtml(UI._injFeed)}
         ${playoffsCardHtml(UI._bracket, UI.week, seasonWeeks, isCommish())}
-        ${"" /* powerRankingsHtml(UI._allWeekly) — the formula card is SUPERSEDED by the AI card under Standings (2026-09-08) */}
         ${accuracyHtml(UI._accuracy)}
         ${recentChatHtml(UI._recentChat)}
         ${recordBookHtml(UI._recordBook)}
@@ -3104,9 +3126,7 @@
     // names. The bar is the whole row now, centered.
     return `<span class="herorow"><span class="mupbar mini${counted > 0 ? "" : " unknown"}"${title}>${fill}</span></span>`;
   }
-  function matchupCard(h, a, opts) {
-    opts = opts || {};
-    const tag = !!opts.tag;
+  function matchupCard(h, a) {
     const H = LG.teamById(h), A = LG.teamById(a);
     const mine = LG.myTeamId();
     const isMine = h === mine || a === mine;
@@ -3126,9 +3146,9 @@
     const aStar = decided.winner === "B" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
     const hStar = decided.winner === "A" ? `<span class="clinchwrap sm" title="Clinched — cannot be caught">${clinchStarHtml()}</span>` : "";
     return `<button class="mucard muslash ${isMine ? "mine" : ""}" data-mu="${h}-${a}" style="${slashVars}">
-      <span class="muteam">${aStar}${logoTd(A)}${teamNameHtml(A, { cls: "muteamname", tag })}</span>
+      <span class="muteam">${aStar}${logoTd(A)}${teamNameHtml(A, { cls: "muteamname" })}</span>
       <span class="muscore">${LG.fmtPts(liveTotal(a))} — ${LG.fmtPts(liveTotal(h))}</span>
-      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname", tag })}${logoTd(H)}${hStar}</span>
+      <span class="muteam right">${teamNameHtml(H, { cls: "muteamname" })}${logoTd(H)}${hStar}</span>
       ${matchupHeroExtra(h, a)}</button>`;
   }
 
@@ -3364,15 +3384,6 @@
       `<div class="scoreday"><h2 class="small mut">${esc(day)}</h2><div class="scgrid">${list.map(scoreCardHtml).join("")}</div></div>`).join("");
     return liveHtml + restHtml;
   }
-  // Our OWN league's current-week matchups (coordinator addendum, 2026-08-08 — the Scores tab
-  // showed nothing but a blank ESPN-fantasy card, no GFFL scores at all). Reuses the EXACT same
-  // data path + card renderer the league home already uses (LG.gamesForWeek + matchupCard,
-  // both defined above) — the numbers here are provably the same numbers, not a second
-  // computation that could disagree. Rendered ABOVE both the NFL slate and the ESPN card.
-  function gfflScoresHtml(games) {
-    if (!games || !games.length) return "";
-    return `<div class="card"><h2>GFFL — Week ${UI.week}</h2><div class="mugrid">${games.map(([h, a]) => matchupCard(h, a, { tag: true })).join("")}</div></div>`;
-  }
   // "Every matchup reads 0-0 with 0.0 points" — the exact preseason/pre-draft shape the
   // coordinator flagged from a live screenshot: nothing has been played yet, so the card has
   // no real signal to show. Meaningless inside the 2025 replay for the same reason (the family
@@ -3450,10 +3461,9 @@
     } else { UI._scoresMine = null; UI._scoresOpp = null; }
     if (UI._scoresWeek == null) {
       await loadFfScoreboard();
-      UI._scoresWeekly = null; UI._scoresNflWeek = null;
+      UI._scoresNflWeek = null;
     } else {
       stopScoresPoll();
-      UI._scoresWeekly = await LG.loadWeekly(UI._scoresWeek);
       UI._scoresNflWeek = await D().fetchWeekSlate(UI._scoresWeek);
     }
     if (!onNflBoard()) return;
@@ -3480,28 +3490,6 @@
     UI._ffSbLoads++;
     const T = LG.teamById(LG.myTeamId());
     try { UI._ffSb = await sportsFn("ff_scoreboard", T ? { teamName: T.name } : {}); } catch (e) { UI._ffSb = { ok: false, reason: "fetch-failed" }; }
-  }
-  // A browsed week's GFFL pairings: the same slash/crest card language, static — finalized
-  // totals when the record exists, "—" when the week hasn't been played. NOT tappable: the
-  // Matchup view is the LIVE week's lineups, and opening it from another week's pairing would
-  // silently show the wrong week's players.
-  function gfflWeekStaticHtml(w, games, weekly) {
-    if (!games || !games.length) return `<div class="card"><h2>GFFL — Week ${w}</h2><p class="mut">No matchups set for this week yet.</p></div>`;
-    const byPair = new Map();
-    for (const m of ((weekly && weekly.matchups) || [])) byPair.set(m.home + "-" + m.away, m);
-    const card = ([h, a]) => {
-      const H = LG.teamById(h), A = LG.teamById(a);
-      const pa = LG.teamPalette(A), ph = LG.teamPalette(H);
-      const m = byPair.get(h + "-" + a);
-      const score = m ? `${LG.fmtPts(m.awayPts)} — ${LG.fmtPts(m.homePts)}` : "— vs —";
-      const slashVars = `--tpa:${esc(pa.primary)};--tsa:${esc(pa.secondary)};--tta:${esc(pa.tertiary)};--tph:${esc(ph.primary)};--tsh:${esc(ph.secondary)};--tth:${esc(ph.tertiary)}`;
-      return `<div class="mucard muslash static" style="${slashVars}">
-        <span class="muteam">${logoTd(A)}${teamNameHtml(A, { cls: "muteamname", tag: true })}</span>
-        <span class="muscore">${score}</span>
-        <span class="muteam right">${teamNameHtml(H, { cls: "muteamname", tag: true })}${logoTd(H)}</span>
-        <span class="herorow"></span></div>`;
-    };
-    return `<div class="card"><h2>GFFL — Week ${w}${weekly ? "" : ' <span class="mut small">upcoming</span>'}</h2><div class="mugrid">${games.map(card).join("")}</div></div>`;
   }
   function scoresWeekNavHtml() {
     const shown = scoresShownWeek(), total = scoresTotalWeeks();
@@ -3568,11 +3556,12 @@
   function scrollSelectedNflChip() {
     const row = $("#scChips");
     const on = row && row.querySelector(".scchip.on");
-    if (!row || !on || !on.offsetParent) return;
+    if (!row || !on || !on.offsetParent) return false;
     const rr = row.getBoundingClientRect(), cr = on.getBoundingClientRect();
     if (cr.left < rr.left - 1 || cr.right > rr.right + 1) {
       on.scrollIntoView({ inline: "center", block: "nearest" });
     }
+    return true; // the open chip is on screen now — the strip is the reader's until it changes
   }
   function scoresDetailHtml() {
     if (!UI.nflGameId) return `<div class="card mut">Pick a game from the slate.</div>`;
@@ -3590,8 +3579,13 @@
       : `<div class="rowline nflstatus"><span id="nflChip" class="mut small"></span></div>`;
     return chipHtml + nflGameHtml(g);
   }
+  // The chip the strip last centred. paintLive repaints Scores every ~8s; re-centring on each
+  // of those yanked a reader who was panning the strip back to the open game (2026-09-23).
+  // Only a fresh board or a different open game scrolls now.
+  UI._scChipCentred = null;
   function paintScores() {
     const browsing = UI._scoresWeek != null;
+    const fresh = !main().querySelector("#scSplit");
     const chips = nflChipsHtml(nflEventsNow());
     const html = `
       ${scoresWeekNavHtml()}
@@ -3619,13 +3613,26 @@
     });
     wireNflDetail();
     paintHealth();
-    scrollSelectedNflChip();
+    const openId = String(UI.nflGameId || "");
+    if (fresh || UI._scChipCentred !== openId) {
+      if (scrollSelectedNflChip()) UI._scChipCentred = openId;
+    }
   }
   UI.paintScores = paintScores; // called from paintLive() when this tab is open — NFL half only
+  // GENERATION TOKEN (2026-09-23). stop bumps the generation; a tick that
+  // wakes from its fetch into a newer generation was stopped (a view change,
+  // the app going to the background) or superseded (a restart), and re-arms
+  // nothing. clearTimeout alone only reaches the latest handle — a tick
+  // already inside its await re-armed after the stop, so chains stacked and
+  // kept polling behind other tabs.
+  let scoresPollGen = 0;
   function startScoresPoll(immediate) {
     stopScoresPoll();
+    const gen = scoresPollGen;
     const tick = async () => {
+      UI._scoresPoll = null;
       await loadFfScoreboard();
+      if (gen !== scoresPollGen) return;
       if (onNflBoard()) paintScores();
       UI._scoresPoll = setTimeout(tick, D().anyLive() ? 25000 : 120000);
     };
@@ -3633,6 +3640,7 @@
     else UI._scoresPoll = setTimeout(tick, D().anyLive() ? 25000 : 120000);
   }
   function stopScoresPoll() {
+    scoresPollGen++;
     if (UI._scoresPoll) { clearTimeout(UI._scoresPoll); UI._scoresPoll = null; }
   }
 
@@ -4126,13 +4134,6 @@
     // the week slate stays on the right. Not a second page.
     return renderScoreboard();
   }
-  function nflBack() {
-    // Kept for deep-link / history callers. The split no longer paints a "‹ Scores"
-    // button — the slate is the way back, and the browser Back stack walks games.
-    const st = history.state || {};
-    if (st.gfflView === "nflgame" && st.from === "scores") { history.back(); return; }
-    UI.go("scores");
-  }
   async function loadNflGame() {
     const id = UI.nflGameId;
     let j = null;
@@ -4171,14 +4172,19 @@
   // "~30s behind ESPN's app"). One honest rule kept: a FINAL game is never polled at all,
   // because its payload cannot change again. A pre-game one is polled slowly so the view
   // notices kickoff on its own rather than sitting frozen until the reader backs out.
+  // Same generation token as the Scores poll: onBackground's stop lands while a tick is inside
+  // loadNflGame, and that tick used to paint and re-arm anyway — a poll that outlived the stop.
+  let nflGamePollGen = 0;
   function startNflGamePoll(immediate) {
     stopNflGamePoll();
     const iv = nflGameLive() ? 12000 : nflGamePre() ? 120000 : 0;
     if (!iv) return;
+    const gen = nflGamePollGen;
     const tick = async () => {
       UI._nflGamePoll = null;
       if (!onNflBoard()) return; // the board closed between the arm and the fire
       await loadNflGame();
+      if (gen !== nflGamePollGen) return; // stopped or restarted while the fetch was out
       if (!onNflBoard()) return;
       paintNflGame();
       startNflGamePoll(); // re-arms at the new state's cadence, or stops once the game is final
@@ -4187,6 +4193,7 @@
     else UI._nflGamePoll = setTimeout(tick, iv);
   }
   function stopNflGamePoll() {
+    nflGamePollGen++;
     if (UI._nflGamePoll) { clearTimeout(UI._nflGamePoll); UI._nflGamePoll = null; }
   }
 
@@ -4200,7 +4207,9 @@
   const FORE_GAP_MS = 2500;
   let lastAliveAt = Date.now();
   function kickViewPollsNow() {
-    if (UI.view === "scores" && UI._scoresWeek == null) startScoresPoll(true);
+    // Both halves of the NFL board run the fantasy-scoreboard poll (renderScoreboard arms it for
+    // #scores and #nflgame alike), so both restart it — a chip tap puts the reader on nflgame.
+    if (onNflBoard() && UI._scoresWeek == null) startScoresPoll(true);
     if (onNflBoard() && UI.nflGameId && (nflGameLive() || nflGamePre())) startNflGamePoll(true);
   }
   UI.onBackground = function () {
@@ -4257,7 +4266,11 @@
     UI._muPts = null;
     UI._muPtsWeek = null;
     UI._scoresWeek = null;
-    if (UI.view) UI.show(UI.view);
+    // Repaint only a real view — popstate's REAL_VIEWS rule. On the claim screen or the outage
+    // card UI.view still reads "league", and a week rollover used to paint the league home over
+    // a screen that deliberately has no app behind it yet.
+    const painted = main() && main().dataset ? main().dataset.view : "";
+    if (UI.view && REAL_VIEWS.indexOf(painted) >= 0) UI.show(UI.view);
     return true;
   };
   UI._reloadApp = function () {
@@ -4394,12 +4407,22 @@
     UI._muPts = null;
     UI._muPtsWeek = null;
     stopChatPoll();
+    noteMuWeekInEntry();
     renderMatchup();
+  }
+  // A week step is a page turn, not a place, so it REPLACES this entry's week (and drops its
+  // pairing, which the render re-resolves for the new week) — Back from a pairing opened in
+  // week 3 then returns to week 3, not to whatever week this entry was first written in.
+  function noteMuWeekInEntry() {
+    const prev = history.state;
+    if (!prev || prev.gfflView !== "matchup") return;
+    const sig = viewSig("matchup", { mu: [], muWeek: UI._muWeek });
+    try { history.replaceState(Object.assign({}, prev, { mu: null, muWeek: UI._muWeek, sig }), ""); } catch (_) {}
   }
   function wireMuWeekNav() {
     wireOnce($("#muPrev"), () => stepMuWeek(-1));
     wireOnce($("#muNext"), () => stepMuWeek(1));
-    wireOnce($("#muNow"), () => { UI._muWeek = null; UI.matchup = null; UI._muWeekGames = null; UI._muRosters = null; UI._muWeekly = null; UI._muPts = null; UI._muPtsWeek = null; stopChatPoll(); renderMatchup(); });
+    wireOnce($("#muNow"), () => { UI._muWeek = null; UI.matchup = null; UI._muWeekGames = null; UI._muRosters = null; UI._muWeekly = null; UI._muPts = null; UI._muPtsWeek = null; stopChatPoll(); noteMuWeekInEntry(); renderMatchup(); });
   }
   // A past week's per-player points. The weekly doc stores only the team
   // total; Sleeper's archived box for THAT week is the same source the
@@ -4407,17 +4430,20 @@
   // so the map is keyed on the roster's own ids. A future week, or a week
   // the archive does not have, stays null — the row then reads "—", never
   // this week's live board and never a fabricated 0.
-  async function loadMuArchivedPts(week) {
-    UI._muPts = null;
-    UI._muPtsWeek = week;
-    if (!(week < UI.week)) return;
+  // `stale` (2026-09-23): the map and its week land TOGETHER, after the
+  // await, and only while the render that asked is still wanted. Stamping
+  // the week before the fetch let a double arrow tap file week 3's box
+  // under week 4.
+  async function loadMuArchivedPts(week, stale) {
+    let map = null;
     const d = D();
-    if (!d.weekStats) return;
-    try {
-      UI._muPts = await d.weekStats(week, { season: LG.SEASON, seasonType: "regular" }) || null;
-    } catch (e) {
-      UI._muPts = null;
+    if (week < UI.week && d.weekStats) {
+      try { map = await d.weekStats(week, { season: LG.SEASON, seasonType: "regular" }) || null; }
+      catch (e) { map = null; }
     }
+    if (stale && stale()) return;
+    UI._muPts = map;
+    UI._muPtsWeek = week;
   }
   // undefined = no archived line (future week, archive miss, or this player
   // was not in that week's box). A real 0 is a real 0 — `== null` is the
@@ -4575,19 +4601,40 @@
         <div class="nflwpv"><b>${esc(teamTag(lead))} ${pct}%</b><span class="mut small">win probability</span></div></div>`;
   }
   UI.renderMatchup = renderMatchup;
+  // RENDER SEQUENCE (2026-09-23). Every FULL render takes a new number; a
+  // live repaint rides the number it found. After each await the render
+  // asks whether it is still wanted — a newer full render (a second arrow
+  // tap, Now, a pairing chip, Back) or the reader leaving the tab — and a
+  // superseded one returns without writing week state, the pairing, or
+  // main(). Two quick arrow taps used to let week 3's late loads land on
+  // the week-4 page, and a slow render painted the matchup over whatever
+  // tab the reader had moved to (and restarted its thread poll there).
+  let muRenderSeq = 0;
   async function renderMatchup(repaint) {
+    const seq = repaint ? muRenderSeq : ++muRenderSeq;
+    const view0 = UI.view;
+    const stale = () => seq !== muRenderSeq || UI.view !== view0;
     const shown = matchupShownWeek();
     const browsing = matchupBrowsing();
     if (browsing) {
       if (!repaint) {
-        UI._muRosters = await loadRostersFor(shown);
-        UI._muWeekly = await LG.loadWeekly(shown);
+        const rosters = await loadRostersFor(shown);
+        if (stale()) return;
+        UI._muRosters = rosters;
+        const weekly = await LG.loadWeekly(shown);
+        if (stale()) return;
+        UI._muWeekly = weekly;
       }
       // Rosters first: weekStats keys through the roster registry those
       // loads just filled. A repaint of the same week reuses the map.
-      if (UI._muPtsWeek !== shown) await loadMuArchivedPts(shown);
+      if (UI._muPtsWeek !== shown) await loadMuArchivedPts(shown, stale);
+      if (stale()) return;
     }
-    if (!UI.matchup) UI.matchup = await myMatchupFor(shown);
+    if (!UI.matchup) {
+      const mu = await myMatchupFor(shown);
+      if (stale()) return;
+      if (!UI.matchup) UI.matchup = mu;
+    }
     if (!UI.matchup) {
       main().innerHTML = `${muWeekNavHtml()}<div class="card"><p class="mut">No matchup — schedule missing.</p></div>`;
       wireMuWeekNav();
@@ -4598,14 +4645,20 @@
         await loadWeekRosters();
         if (typeof LG.sampleMatchupWinProbs === "function") await LG.sampleMatchupWinProbs().catch(() => {});
         if (typeof LG.loadWpGraph === "function") await LG.loadWpGraph(UI.week).catch(() => {});
+        if (stale()) return;
       }
       await weekPairings(true);
+      if (stale()) return;
     }
     const d = D();
     if (!browsing) simProjEnsureAndRepaint("matchup"); // 2025 season replay — see startData()
     const [hId, aId] = UI.matchup;
     const muKey = hId + "-" + aId;
-    if (!repaint || UI._h2hKey !== muKey) { UI._h2h = await LG.headToHead(hId, aId); UI._h2hKey = muKey; }
+    if (!repaint || UI._h2hKey !== muKey) {
+      const h2h = await LG.headToHead(hId, aId);
+      if (stale()) return;
+      UI._h2h = h2h; UI._h2hKey = muKey;
+    }
     const H = LG.teamById(hId), A = LG.teamById(aId);
     const hs = browsing ? muStartersOf(hId) : teamStarters(hId);
     const as_ = browsing ? muStartersOf(aId) : teamStarters(aId);
@@ -4622,7 +4675,10 @@
     // in that tail is what let a concurrent poll repaint interleave and corrupt shared state
     // (`UI._rosters`) mid-build — found empirically, not theorized (see the dated note on
     // ensureClinchDemo's own definition).
-    if (!browsing && d.demoActive && d.demoActive() && d.demo && d.demo.kind === "clinch") await ensureClinchDemo();
+    if (!browsing && d.demoActive && d.demoActive() && d.demo && d.demo.kind === "clinch") {
+      await ensureClinchDemo();
+      if (stale()) return;
+    }
     const weeklyRow = browsing
       ? ((UI._muWeekly && UI._muWeekly.matchups) || []).find((x) => x.home === hId && x.away === aId)
       : null;
