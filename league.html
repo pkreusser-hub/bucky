@@ -789,6 +789,10 @@
      2026-09-16: Q/D/OUT rides .pnametxt next to the name (flex-shrink 0) so a long name
      ellipsises and the designation never does. */
   .pcellgrid .pname .pnametxt { display:flex; align-items:center; gap:4px; flex:1 1 auto; min-width:0; overflow:hidden; }
+  /* 2026-09-23: the right half mirrors that too. .pnametxt fills the cell, and in a forward row
+     its name packed to the LEFT edge, so team B's names started level and ended ragged (AE1).
+     Reversed, the name sits against the crest at one x and the chip rides its outer side. */
+  .pcellgrid.right .pname .pnametxt { flex-direction:row-reverse; }
   .pcellgrid .pname b { font:600 13px/17px var(--font-body); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .pcellgrid .pname .inj { flex:0 0 auto; line-height:17px; }
   .pcellgrid .pname .plogo { flex:0 0 auto; width:14px; height:14px; object-fit:contain; }
