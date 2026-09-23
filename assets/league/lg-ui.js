@@ -2606,6 +2606,10 @@
       // "weekly" and "bracket", so the card paints with the rest of the page rather than popping
       // in after it; generation (refreshAiPower) is post-paint and detached.
       [UI._allWeekly, , UI._aiPower] = await Promise.all([LG.db.list("weekly"), LG.db.list("bracket"), LG.loadAiPowerDocs()]);
+      // A feed this session already read paints now and re-reads behind the paint (2026-09-23).
+      // A league with no injury change yet has no injfeed doc, and an absent doc is never cached
+      // (LG.db.get), so every return to League sat on that one round trip (section P, 116ms).
+      const injKnown = Array.isArray(UI._injFeed);
       const [, standings, weeklyDoc, accuracy, bracket, wkGames, staleWeeks, injFeed] = await Promise.all([
         loadWeekRosters(),
         LG.loadStandings(),
@@ -2619,11 +2623,18 @@
         // S9 — one small doc GET, eagerly fetched alongside the rest of this batch (unlike
         // record book/tx/chat below, which are genuinely expensive walks and stay lazy behind
         // a tap): the injury report is meant to be seen at a glance, not opened for.
-        LG.loadInjuryFeed(),
+        injKnown ? UI._injFeed : LG.loadInjuryFeed(),
       ]);
       UI._standings = standings; UI._weeklyDoc = weeklyDoc; UI._accuracy = accuracy;
       UI._bracket = bracket; UI._wkGames = wkGames; UI._staleWeeks = staleWeeks;
       UI._injFeed = injFeed;
+      if (injKnown) {
+        LG.loadInjuryFeed().then((f) => {
+          if (JSON.stringify(f) === JSON.stringify(UI._injFeed)) return;
+          UI._injFeed = f;
+          if (UI.view === "league") renderLeague(true);
+        }).catch(() => {});
+      }
       // DESKTOP EAGER-LOADS, in ONE more parallel batch (2026-08-11). The three lazy cards
       // above exist because most phone opens never look at them; on a desktop the record book
       // IS a card on the page (All-time) and the moves list is the right-hand rail, so there is
