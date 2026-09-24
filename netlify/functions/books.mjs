@@ -27,14 +27,19 @@
 //     finishes. Dad's seeded shelf does not, so that recommend is
 //     books-recommend-background plus action "recommend-result".
 //
-//   { secret, action:"ratings", books:[{ title, author }] }
+//   { secret, action:"ratings", books:[{ title, author, isbn?, needCover? }], skipGoodreads? }
 //     -> { ratings:[{ title, author, rating, ratingsCount, ratingSource,
-//                     cover, isbn, reason? }] }
-//     The Open Library community rating for cards that do not have one yet:
-//     a recommendation, an Already read row, a seed row with no snapshot.
-//     search.json by title and author, then the work's ratings.json when
-//     search left no ratings. A title that does not match is a miss, never
-//     another book's score. A miss is rating null, never 0.
+//                     cover, isbn, goodreadsUrl?, reason?, retry? }], goodreads }
+//     The community score for a card: Goodreads when its public book page
+//     has one, Open Library otherwise. A row with an ISBN goes to Goodreads
+//     first. Without one, Open Library search.json finds the book (and its
+//     ISBN and cover), then Goodreads is read by that ISBN. Open Library's own
+//     score (search, then the work's ratings.json) is the fallback. A title
+//     that does not match is a miss, never another book's score. A miss is
+//     rating null, never 0. `retry` marks a failure that says nothing about
+//     the book (a timeout, the call's time budget). `goodreads: "blocked"`
+//     means Goodreads answered 403 / 429 / a robot check, and the rest of the
+//     call used Open Library.
 //
 // WHY A SERVER PROXY. Open Library is CORS-open; Goodreads and often Google Books are
 // not. The ratings and review text have to be fetched here.
@@ -74,9 +79,13 @@ const MAX_RESULTS = 8;
 const MAX_REVIEWS = 5;
 const MAX_SHELF = 200;
 const MAX_INTERESTS = 12;
-// A page asks for the cards it is painting: ten picks, or a few shelf rows.
+// A page asks for the cards it is painting, five at a time.
 const MAX_RATING_LOOKUPS = 12;
 const RATING_CONCURRENCY = 3;
+// A Goodreads book page is a full page load. A call stops starting new
+// lookups after this long, so twelve slow books cannot run past the
+// function's limit; the rest come back `retry` and the page asks again.
+const RATING_BUDGET_MS = 15000;
 const RECOMMEND_TIMEOUT_MS = 50000;
 // Dad's 135-title shelf was still running when this 50s abort fired inside
 // the background job (measured 2026-09-22 on grok-4.7, reason "timeout"). The
@@ -475,23 +484,95 @@ async function openLibraryRating(title, author) {
   return out;
 }
 
-async function lookupRatings(raw) {
+function cleanIsbn(v) {
+  const s = String(v || "").replace(/[^0-9Xx]/g, "");
+  return s.length === 10 || s.length === 13 ? s : "";
+}
+// A read that failed for a reason that says nothing about the book.
+function transient(reason) {
+  return /^(timeout|fetch-failed|unavailable|busy|http-5\d\d|http-429)$/.test(String(reason || ""));
+}
+
+// Goodreads shut its API. The public page at /book/isbn/<isbn> carries a
+// schema.org Book JSON-LD aggregateRating (measured 2026-09-21 on The Hobbit:
+// 4.3 from 4,635,081). A 403, a 429, or a "Robot Check" page is Goodreads
+// refusing, not a book with no score.
+export async function goodreadsRating(isbn) {
+  const clean = cleanIsbn(isbn);
+  if (!clean) return { ok: false, reason: "no-isbn", blocked: false };
+  const url = goodreadsUrlFor(clean, "", "");
+  const got = await fetchText(url);
+  if (!got.ok) {
+    return { ok: false, reason: got.reason || "unavailable", blocked: got.reason === "http-403" || got.reason === "http-429" };
+  }
+  const parsed = parseGoodreadsHtml(got.text);
+  const rating = asNum(parsed.rating);
+  const count = asNum(parsed.ratingsCount);
+  if (rating == null || !count) {
+    const robot = /robot check|captcha|are you a robot|not a robot/i.test(String(got.text).slice(0, 5000));
+    return { ok: false, reason: robot ? "blocked" : "no-goodreads-rating", blocked: robot };
+  }
+  return { ok: true, rating, ratingsCount: count, goodreadsUrl: got.finalUrl || url };
+}
+
+async function bookRating(req, ctx) {
+  const t = normSpace(req.title).slice(0, 200);
+  const a = normSpace(req.author).slice(0, 120);
+  const known = cleanIsbn(req.isbn);
+  const over = () => Date.now() > ctx.deadline;
+  async function tryGoodreads(isbn) {
+    if (!isbn || ctx.grBlocked || over()) return null;
+    const r = await goodreadsRating(isbn);
+    if (r.blocked) ctx.grBlocked = true;
+    return r.ok ? r : null;
+  }
+  const fromGr = (gr, base) => Object.assign({}, base, {
+    rating: gr.rating,
+    ratingsCount: gr.ratingsCount,
+    ratingSource: "goodreads",
+    goodreadsUrl: gr.goodreadsUrl,
+  });
+
+  let gr = await tryGoodreads(known);
+  const bare = { title: t, author: a, rating: null, ratingsCount: null, ratingSource: "", cover: "", isbn: known };
+  // A row that has its ISBN and its cover needs nothing else once Goodreads answers.
+  if (gr && !req.needCover) return fromGr(gr, bare);
+  if (over()) {
+    return gr ? fromGr(gr, bare) : Object.assign(bare, { reason: "busy", retry: true });
+  }
+  const ol = await openLibraryRating(t, a);
+  if (!ol.isbn && known) ol.isbn = known;
+  if (!gr && ol.isbn && ol.isbn !== known) gr = await tryGoodreads(ol.isbn);
+  if (gr) {
+    const out = fromGr(gr, ol);
+    delete out.reason;
+    return out;
+  }
+  if (transient(ol.reason)) ol.retry = true;
+  return ol;
+}
+
+async function lookupRatings(raw, opts) {
   const list = [];
   for (const b of (Array.isArray(raw) ? raw : [])) {
     if (!b || !normSpace(b.title)) continue;
-    list.push({ title: b.title, author: b.author });
+    list.push({ title: b.title, author: b.author, isbn: b.isbn, needCover: b.needCover === true });
     if (list.length >= MAX_RATING_LOOKUPS) break;
   }
+  const ctx = {
+    deadline: Date.now() + RATING_BUDGET_MS,
+    grBlocked: !!(opts && opts.skipGoodreads),
+  };
   const out = new Array(list.length);
   let next = 0;
   async function worker() {
     while (next < list.length) {
       const i = next++;
-      out[i] = await openLibraryRating(list[i].title, list[i].author);
+      out[i] = await bookRating(list[i], ctx);
     }
   }
   await Promise.all(Array.from({ length: Math.min(RATING_CONCURRENCY, list.length) }, worker));
-  return out;
+  return { ratings: out, goodreads: (opts && opts.skipGoodreads) ? "skipped" : (ctx.grBlocked ? "blocked" : "ok") };
 }
 
 async function fetchReviews({ isbn, title, author }) {
@@ -810,7 +891,7 @@ export default async (req) => {
     return json(await readRecommendJob(jobId), 200, headers);
   }
   if (action === "ratings") {
-    return json({ ratings: await lookupRatings(body.books) }, 200, headers);
+    return json(await lookupRatings(body.books, { skipGoodreads: body.skipGoodreads === true }), 200, headers);
   }
   return json({ error: 'action must be "search", "reviews", "ratings", "recommend" or "recommend-result"' }, 400, headers);
 };

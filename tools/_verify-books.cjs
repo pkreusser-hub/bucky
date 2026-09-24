@@ -63,6 +63,12 @@ const GR_HOBBIT_HTML = `<!doctype html><html><head>
 })}</script>
 </head><body><div class="RatingStatistics__rating">4.30</div></body></html>`;
 
+// The same page shape as GR_HOBBIT_HTML (JSON-LD Book + aggregateRating),
+// for the ISBN Open Library returns for Children of Time.
+const GR_CHILDREN_HTML = `<!doctype html><html><head>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Book","name":"Children of Time","isbn":"9781447273288","author":[{"@type":"Person","name":"Adrian Tchaikovsky"}],"aggregateRating":{"@type":"AggregateRating","ratingValue":4.29,"ratingCount":312480,"reviewCount":28111}}</script>
+</head><body></body></html>`;
+
 const GR_CAPTCHA_HTML = `<!doctype html><html><head><title>Robot Check</title></head><body>Please confirm you are not a robot.</body></html>`;
 
 // Rating lookups (title= / author= on search.json, then /works/<key>/ratings.json).
@@ -146,6 +152,7 @@ function serveOL() {
       if (u.searchParams.has("title")) {
         olRatingCalls.push(u.search);
         const t = (u.searchParams.get("title") || "").toLowerCase();
+        if (t === "flaky book") { res.statusCode = 503; return res.end(JSON.stringify({ error: "busy" })); }
         const docs = OL_RATING_DOCS[t] || [];
         return res.end(JSON.stringify({ numFound: docs.length, start: 0, docs }));
       }
@@ -201,6 +208,10 @@ function serveGR() {
       if (/\/book\/isbn\/9780547928227/.test(req.url) || /\/book\/show\//.test(req.url)) {
         res.setHeader("content-type", "text/html");
         return res.end(GR_HOBBIT_HTML);
+      }
+      if (/\/book\/isbn\/9781447273288/.test(req.url)) {
+        res.setHeader("content-type", "text/html");
+        return res.end(GR_CHILDREN_HTML);
       }
       res.statusCode = 404;
       res.end("not found");
@@ -435,8 +446,8 @@ async function sectionServer() {
   const rate = await callHandler(handler, { secret: SECRET, action: "rate", title: "White Fragility", description: FRAGILITY_DESC });
   ok(rate.status === 400, "action:rate is gone (400), with the rest of the political / woke rating");
 
-  // --- Open Library ratings for cards that have none ---
-  olRatingCalls = [];
+  // --- Ratings for cards: Goodreads first, Open Library as the fallback ---
+  olRatingCalls = []; grCalls = []; grMode = "good";
   const lookup = await callHandler(handler, {
     secret: SECRET, action: "ratings",
     books: [
@@ -450,12 +461,20 @@ async function sectionServer() {
   const lookupBody = await lookup.json().catch(() => ({}));
   const rs = Array.isArray(lookupBody.ratings) ? lookupBody.ratings : [];
   ok(lookup.status === 200 && rs.length === 5, "ratings answers one row per book asked, in order");
-  ok(rs[0] && rs[0].rating === 4.3 && rs[0].ratingsCount === 250 && rs[0].ratingSource === "open-library"
-    && /8888001-M\.jpg$/.test(rs[0].cover) && rs[0].isbn === "9781447273288",
-    "Children of Time is 4.3 from 250 on Open Library, with its cover and ISBN");
+  // Restaged 2026-09-24: this was "4.3 from 250 on Open Library". The family
+  // asked for Goodreads scores. Open Library still finds the book, its ISBN
+  // and its cover; Goodreads is then read by that ISBN.
+  ok(rs[0] && rs[0].rating === 4.29 && rs[0].ratingsCount === 312480 && rs[0].ratingSource === "goodreads"
+    && /8888001-M\.jpg$/.test(rs[0].cover) && rs[0].isbn === "9781447273288" && !rs[0].reason
+    && /\/book\/isbn\/9781447273288/.test(rs[0].goodreadsUrl || ""),
+    "Children of Time is Goodreads 4.29 from 312,480, with the Open Library cover and ISBN");
+  ok(grCalls.some((u) => /\/book\/isbn\/9781447273288/.test(u)) && !grCalls.some((u) => /search/.test(u)),
+    "Goodreads is read by the ISBN Open Library found, never by a search page");
+  ok(lookupBody.goodreads === "ok", "the call reports Goodreads answered");
   ok(rs[1] && Math.abs(rs[1].rating - 4.105263157894737) < 1e-9 && rs[1].ratingsCount === 19
+    && rs[1].ratingSource === "open-library"
     && olRatingCalls.indexOf("/works/OL17334140W/ratings.json") >= 0,
-    "a 0-count search hit falls through to the work's ratings.json (We Are Legion 4.1053 from 19)");
+    "with no ISBN for Goodreads, a 0-count search hit falls through to ratings.json (We Are Legion 4.1053 from 19)");
   ok(rs[2] && rs[2].rating === null && rs[2].ratingsCount === null && rs[2].reason === "no-ratings",
     "a work nobody rated is rating null, not 0 (ratings.json average null, count 0)");
   ok(rs[3] && rs[3].rating === null && rs[3].reason === "not-found",
@@ -467,6 +486,75 @@ async function sectionServer() {
   const cappedBody = await capped.json().catch(() => ({}));
   ok(Array.isArray(cappedBody.ratings) && cappedBody.ratings.length === 12,
     "one ratings call looks up at most 12 books");
+
+  // A shelf row that already has its ISBN and its cover goes straight to
+  // Goodreads; Open Library is not asked at all.
+  olRatingCalls = []; grCalls = [];
+  const direct = await callHandler(handler, {
+    secret: SECRET, action: "ratings",
+    books: [{ title: "The Hobbit", author: "J.R.R. Tolkien", isbn: "978-0-547-92822-7", needCover: false }],
+  });
+  const directBody = await direct.json().catch(() => ({}));
+  const d0 = (directBody.ratings || [])[0];
+  ok(d0 && d0.rating === 4.3 && d0.ratingsCount === 4635081 && d0.ratingSource === "goodreads"
+    && olRatingCalls.length === 0 && grCalls.length === 1,
+    "a row with an ISBN and a cover reads Goodreads only (The Hobbit 4.3 from 4,635,081)");
+
+  // Goodreads refuses: 403. The book falls back to Open Library, the call says
+  // Goodreads is blocked, and no second Goodreads page is tried in that call.
+  // Three lookups run at once, so the first three Goodreads reads are already
+  // out when the 403s come back. None starts after: five ISBN rows and
+  // Children of Time make exactly three Goodreads reads.
+  grMode = "forbid"; grCalls = []; olRatingCalls = [];
+  const grRefused = await callHandler(handler, {
+    secret: SECRET, action: "ratings",
+    books: [
+      { title: "The Hobbit", author: "J.R.R. Tolkien", isbn: "9780547928227", needCover: false },
+      { title: "Probe One", author: "Nobody", isbn: "9780000000011", needCover: false },
+      { title: "Probe Two", author: "Nobody", isbn: "9780000000028", needCover: false },
+      { title: "Probe Three", author: "Nobody", isbn: "9780000000035", needCover: false },
+      { title: "Probe Four", author: "Nobody", isbn: "9780000000042", needCover: false },
+      { title: "Children of Time", author: "Adrian Tchaikovsky" },
+    ],
+  });
+  const grRefusedBody = await grRefused.json().catch(() => ({}));
+  const f1 = (grRefusedBody.ratings || [])[5];
+  ok(grRefusedBody.goodreads === "blocked" && f1 && f1.rating === 4.3 && f1.ratingsCount === 250
+    && f1.ratingSource === "open-library",
+    "a Goodreads 403 falls back to Open Library (Children of Time 4.3 from 250) and says blocked");
+  ok(grCalls.length === 3, "after the 403s, no new Goodreads read starts in that call (3 were already out)");
+
+  // Goodreads answers 200 with a robot check: that is a refusal too, not a
+  // book with no score.
+  grMode = "empty"; grCalls = [];
+  const robot = await callHandler(handler, {
+    secret: SECRET, action: "ratings",
+    books: [{ title: "The Hobbit", author: "J.R.R. Tolkien", isbn: "9780547928227", needCover: false }],
+  });
+  const robotBody = await robot.json().catch(() => ({}));
+  ok(robotBody.goodreads === "blocked", "a 200 robot-check page counts as Goodreads blocking");
+  grMode = "good";
+
+  // The page sends skipGoodreads once Goodreads has blocked it.
+  grCalls = [];
+  const skipped = await callHandler(handler, {
+    secret: SECRET, action: "ratings", skipGoodreads: true,
+    books: [{ title: "Children of Time", author: "Adrian Tchaikovsky" }],
+  });
+  const skippedBody = await skipped.json().catch(() => ({}));
+  const s0 = (skippedBody.ratings || [])[0];
+  ok(grCalls.length === 0 && s0 && s0.ratingSource === "open-library" && skippedBody.goodreads === "skipped",
+    "skipGoodreads reads Open Library only");
+
+  // Open Library 503 says nothing about the book: retry, not a miss.
+  const flaky = await callHandler(handler, {
+    secret: SECRET, action: "ratings",
+    books: [{ title: "Flaky Book", author: "Nobody" }, { title: "Nothing Like This", author: "Nobody" }],
+  });
+  const flakyBody = await flaky.json().catch(() => ({}));
+  const fl = flakyBody.ratings || [];
+  ok(fl[0] && fl[0].rating === null && fl[0].retry === true && fl[1] && fl[1].rating === null && !fl[1].retry,
+    "an Open Library 503 comes back retry; a real miss does not");
 
   const reviews = await callHandler(handler, { secret: SECRET, action: "reviews", isbn: "9780547928227" });
   const revBody = await reviews.json();
@@ -799,13 +887,22 @@ async function newPage(browser, mock, opts) {
         }
         else if (body.action === "reviews") data = canned.reviews;
         else if (body.action === "ratings") {
+          // Kept across reloads: a seed row is asked on the load that first paints it.
+          try {
+            const log = JSON.parse(localStorage.getItem("__test_rating_asks") || "[]");
+            localStorage.setItem("__test_rating_asks", JSON.stringify(log.concat(body.books || [])));
+          } catch (e) { /* the check below reads an empty log and fails */ }
           // The shape books.mjs answers: one row per book asked, a miss is null.
           data = { ratings: (body.books || []).map((b) => {
             const hit = (canned.ratings || {})[b.title];
             return hit
-              ? { title: b.title, author: b.author || "", rating: hit.rating, ratingsCount: hit.ratingsCount, ratingSource: hit.rating == null ? "" : "open-library", cover: hit.cover || "", isbn: "", reason: hit.rating == null ? "no-ratings" : undefined }
+              ? { title: b.title, author: b.author || "", rating: hit.rating, ratingsCount: hit.ratingsCount, ratingSource: hit.rating == null ? "" : (hit.source || "open-library"), cover: hit.cover || "", isbn: "", reason: hit.rating == null ? "no-ratings" : undefined }
               : { title: b.title, author: b.author || "", rating: null, ratingsCount: null, ratingSource: "", cover: "", isbn: "", reason: "not-found" };
           }) };
+          // Goodreads "refuses" once the Priory is asked, so the page's
+          // skipGoodreads on the next call can be checked.
+          if ((body.books || []).some((b) => b.title === "The Priory of the Orange Tree")) data.goodreads = "blocked";
+          else data.goodreads = body.skipGoodreads ? "skipped" : "ok";
         }
         return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -859,7 +956,9 @@ async function sectionUi(browser) {
     },
     ratings: {
       // An inline image, so the cover check does not reach the internet.
-      "The Name of the Wind": { rating: 4.52, ratingsCount: 900, cover: WIND_COVER },
+      "The Name of the Wind": { rating: 4.52, ratingsCount: 1000000, cover: WIND_COVER, source: "goodreads" },
+      // Dad's seed snapshot is Open Library 4.10 (93). Goodreads replaces it.
+      "The Blade Itself": { rating: 4.19, ratingsCount: 410233, source: "goodreads" },
       "Children of Time": { rating: 4.3, ratingsCount: 250 },
     },
     reviews: {
@@ -958,8 +1057,10 @@ async function sectionUi(browser) {
   await page.waitForFunction(() => document.querySelectorAll("#searchHits .book").length >= 1, { timeout: 10000 });
   ok(await page.evaluate(() => {
     const row = [...document.querySelectorAll("#searchHits .book")].find((el) => el.querySelector(".t").textContent === "The Hobbit");
-    return !!row && /4\.20 from Open Library \(1200\)/.test(row.querySelector(".meta").textContent);
-  }), "a search hit card shows its Open Library 4.20 (1200)");
+    // Restaged 2026-09-24: counts are grouped now ("(1200)" became "(1,200)"),
+    // because a Goodreads count runs to millions.
+    return !!row && /4\.20 from Open Library \(1,200\)/.test(row.querySelector(".meta").textContent);
+  }), "a search hit card shows its Open Library 4.20 (1,200)");
   ok(await page.evaluate(() => {
     // Two columns: cover and text. The third column held the meters.
     const row = document.querySelector("#searchHits .book");
@@ -1058,7 +1159,8 @@ async function sectionUi(browser) {
     const row = [...document.querySelectorAll("#shelfList .book")].find((el) => el.querySelector(".t").textContent === "Piranesi");
     const b = window.__BOOKS__.current().shelf.find((x) => x.title === "Piranesi");
     const meta = row && row.querySelector(".meta") ? row.querySelector(".meta").textContent : "";
-    return !!b && b.rating === 5 && !/5\.00/.test(meta) && meta === "No Open Library rating";
+    // Restaged 2026-09-24: the miss line names both sources now.
+    return !!b && b.rating === 5 && !/5\.00/.test(meta) && meta === "No Goodreads or Open Library rating";
   }), "a book's own 5 stars are not shown as a 5.00 Open Library score");
 
   // Geometry, not the attribute: a styled box toggled by [hidden] has shipped
@@ -1103,12 +1205,14 @@ async function sectionUi(browser) {
   }, { timeout: 8000 }).catch(() => {});
   ok(await page.evaluate(() => {
     const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "The Name of the Wind");
-    return !!row && row.querySelector(".meta").textContent === "4.52 from Open Library (900)";
-  }), "a recommendation card shows its Open Library score (4.52 from 900) without a tap");
+    // Restaged 2026-09-24: this pick was Open Library 4.52 (900). Goodreads
+    // is the score now when it has one.
+    return !!row && row.querySelector(".meta").textContent === "4.52 from Goodreads (1,000,000)";
+  }), "a recommendation card shows its Goodreads score (4.52 from 1,000,000) without a tap");
   ok(await page.evaluate(() => {
     const row = [...document.querySelectorAll("#recs .book")].find((el) => el.querySelector(".t").textContent === "The Priory of the Orange Tree");
-    return !!row && row.querySelector(".meta").textContent === "No Open Library rating";
-  }), "a pick Open Library has no score for says so, and does not print 0.00");
+    return !!row && row.querySelector(".meta").textContent === "No Goodreads or Open Library rating";
+  }), "a pick with no score anywhere says so, and does not print 0.00");
   // A pick comes back from the model with no cover. The same lookup brings
   // the Open Library cover and paints it into the card.
   ok(await page.evaluate((cover) => {
@@ -1125,8 +1229,31 @@ async function sectionUi(browser) {
     const titles = [].concat.apply([], asked.map((c) => (c.books || []).map((b) => b.title)));
     return titles.indexOf("The Name of the Wind") >= 0
       && titles.filter((t) => t === "The Name of the Wind").length === 1
-      && asked.every((c) => (c.books || []).length <= 10);
-  }), "each pick is asked once, in batches of ten or fewer");
+      && asked.every((c) => (c.books || []).length <= 5);
+  }), "each pick is asked once, in batches of five or fewer (a Goodreads book is a page load)");
+  // The mock said Goodreads blocked the call that asked for the Priory. A new
+  // card after that asks with skipGoodreads, so this visit stops hitting it.
+  await page.evaluate(() => {
+    const joy = window.__BOOKS__.current();
+    joy.readlist = (joy.readlist || []).concat([{ title: "Probe After Block", author: "Nobody" }]);
+    const chip = [...document.querySelectorAll("#profileChips .chip")].find((c) => c.classList.contains("active"));
+    if (chip) chip.click();
+  });
+  await page.waitForFunction(() => (window.__BOOK_CALLS__ || []).some((c) => c.action === "ratings"
+    && (c.books || []).some((b) => b.title === "Probe After Block")), { timeout: 8000 }).catch(() => {});
+  ok(await page.evaluate(() => {
+    const call = (window.__BOOK_CALLS__ || []).find((c) => c.action === "ratings"
+      && (c.books || []).some((b) => b.title === "Probe After Block"));
+    return !!call && call.skipGoodreads === true;
+  }), "after Goodreads blocks once, the page's next ask skips Goodreads");
+  await page.evaluate(() => {
+    const joy = window.__BOOKS__.current();
+    joy.readlist = (joy.readlist || []).filter((b) => b.title !== "Probe After Block");
+  });
+  // The chip repaint cleared the picks; ask again so the checks below have them.
+  await page.evaluate(() => document.getElementById("recBtn").click());
+  await page.waitForFunction(() => document.querySelectorAll("#recs .book").length >= 1
+    && document.getElementById("recBtn").disabled === false, { timeout: 10000 });
 
   await page.evaluate(() => { const b = document.querySelector("#recs .book"); if (b) b.click(); });
   await page.waitForFunction(() => document.getElementById("detail").hidden === false, { timeout: 10000 });
@@ -1305,6 +1432,24 @@ async function sectionUi(browser) {
     const metas = [...document.querySelectorAll("#shelfList .meta")].map((el) => el.textContent);
     return metas.some((t) => /4\.51 from Open Library \(90\)/.test(t));
   }), "the shelf paints 4.51 from Open Library (90), not No community rating");
+  // A seed row carries an Open Library snapshot. It asks once for Goodreads,
+  // sends its ISBN, and the Goodreads score replaces the snapshot.
+  await page.waitForFunction(() => [...document.querySelectorAll("#shelfList .book")].some((el) =>
+    el.querySelector(".t").textContent === "The Blade Itself" && /Goodreads/.test(el.querySelector(".meta").textContent)), { timeout: 20000 }).catch(() => {});
+  ok(await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#shelfList .book")].find((el) => el.querySelector(".t").textContent === "The Blade Itself");
+    const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
+    const b = dad && dad.shelf.find((x) => x.title === "The Blade Itself");
+    return !!row && row.querySelector(".meta").textContent === "4.19 from Goodreads (410,233)"
+      && !!b && b.ratingSource === "goodreads" && b.communityRating === 4.19;
+  }), "Dad's Blade Itself trades its Open Library 4.10 for Goodreads 4.19 (410,233), and keeps it");
+  ok(await page.evaluate(() => {
+    const rows = JSON.parse(localStorage.getItem("__test_rating_asks") || "[]");
+    const blade = rows.find((b) => b.title === "The Blade Itself");
+    const dad = window.__BOOKS__.state().profiles.find((p) => p.name === "Dad");
+    const seed = dad && dad.shelf.find((x) => x.title === "The Blade Itself");
+    return !!blade && !!seed && !!seed.isbn && blade.isbn === seed.isbn && blade.needCover === !seed.cover;
+  }), "the seed row sends its ISBN, so Goodreads can be read without a search");
   ok(await page.evaluate(() => {
     const dad = window.__BOOKS__.current();
     const joy = window.__BOOKS__.state().profiles.find((p) => p.name === "Joy");
