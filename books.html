@@ -672,23 +672,27 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   }
   function ratingLabel(book, isHit) {
     var score = communityScore(book, isHit);
-    if (score == null) return book.olTried ? "No Open Library rating" : "No community rating yet";
+    if (score == null) return book.olTried ? "No Goodreads or Open Library rating" : "No community rating yet";
     var n = Number(book.ratingsCount);
     var src = book.ratingSource === "goodreads" ? "Goodreads" : (book.ratingSource === "google-books" ? "Google Books" : "Open Library");
-    return score.toFixed(2) + " from " + src + (Number.isFinite(n) ? " (" + n + ")" : "");
+    // Goodreads counts run to millions; "(4635081)" is unreadable on a phone.
+    return score.toFixed(2) + " from " + src + (Number.isFinite(n) && book.ratingsCount != null && book.ratingsCount !== "" ? " (" + n.toLocaleString("en-US") + ")" : "");
   }
 
-  // A card with no community score, or no cover, asks Open Library through
-  // books.mjs ("ratings"), so the score and the cover are on the card and not
-  // only in the sheet. A pick comes back from the model with neither.
-  // Picks, Already read rows, and the seed rows Open Library search missed
-  // start without one. The answer is written onto the book, so a shelf or
-  // read-list row keeps it and the family copy syncs it. Every answer is
-  // stamped (olTried) and a row is not asked again for a week. One batch of ten
-  // is out at a time. A failed call leaves the row to be asked on a later
-  // paint, not marked as a miss.
+  // A card asks books.mjs ("ratings") until it has a Goodreads score and a
+  // cover, so both are on the card and not only in the sheet. Goodreads is the
+  // score the family asked for; Open Library is the fallback when Goodreads
+  // has none or refuses. A pick comes back from the model with neither. Dad's
+  // seed rows carry an Open Library snapshot, so each asks once for Goodreads.
+  // The answer is written onto the book, so a shelf or read-list row keeps it
+  // and the family copy syncs it. An answer is stamped (olTried) and the row
+  // is not asked again for a week. A `retry` answer (a timeout, the call's
+  // time budget) and a failed call are not stamped. One batch of five is out
+  // at a time: each Goodreads book is a full page load. Once Goodreads blocks
+  // a call, the rest of this visit skips it and takes Open Library.
   var RATING_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
-  var RATING_BATCH = 10;
+  var RATING_BATCH = 5;
+  var goodreadsBlocked = false;
   var ratingCache = {};
   var ratingWait = {};
   var ratingQueue = [];
@@ -698,27 +702,32 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     return titleKey(book.title) + "|" + String(book.author || "").trim().toLowerCase();
   }
   function wantRating(book, meta, keep) {
-    if (!book || !titleKey(book.title) || (communityScore(book) != null && book.cover)) return;
+    if (!book || !titleKey(book.title)) return;
+    if (book.ratingSource === "goodreads" && communityScore(book) != null && book.cover) return;
     if (Number(book.olTried) > Date.now() - RATING_RETRY_MS) return;
     var k = ratingKey(book);
     if (ratingCache[k]) { if (applyRating(book, meta, ratingCache[k]) && keep) saveState(); return; }
     if (!ratingWait[k]) {
       ratingWait[k] = [];
-      ratingQueue.push({ key: k, title: book.title, author: book.author || "" });
+      ratingQueue.push({ key: k, title: book.title, author: book.author || "", isbn: book.isbn || "", needCover: !book.cover });
     }
     ratingWait[k].push({ book: book, meta: meta, keep: keep });
     if (!ratingTimer && !ratingBusy) ratingTimer = setTimeout(sendRatings, 250);
   }
   function applyRating(book, meta, r) {
-    if (hasRating(r.rating)) {
+    var hadGoodreads = book.ratingSource === "goodreads" && communityScore(book) != null;
+    // A Goodreads score is never replaced by an Open Library one: that answer
+    // only means Goodreads refused this time.
+    if (hasRating(r.rating) && (r.ratingSource === "goodreads" || !hadGoodreads)) {
       book.communityRating = Number(r.rating);
       book.ratingsCount = hasRating(r.ratingsCount) ? Number(r.ratingsCount) : null;
-      book.ratingSource = "open-library";
+      book.ratingSource = r.ratingSource === "goodreads" ? "goodreads" : "open-library";
+      if (r.goodreadsUrl) book.goodreadsUrl = r.goodreadsUrl;
     }
     // Open Library can have the book and its cover with no ratings yet.
     if (!book.cover && r.cover) book.cover = r.cover;
     if (!book.isbn && r.isbn) book.isbn = r.isbn;
-    book.olTried = Date.now();
+    if (!r.retry) book.olTried = Date.now();
     if (meta && meta.isConnected) {
       meta.textContent = ratingLabel(book);
       var ph = meta.closest(".book") && meta.closest(".book").querySelector(".cover");
@@ -738,8 +747,12 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     var batch = ratingQueue.splice(0, RATING_BATCH);
     var list = [];
     try {
-      var res = await api("ratings", { books: batch.map(function (b) { return { title: b.title, author: b.author }; }) });
+      var res = await api("ratings", {
+        books: batch.map(function (b) { return { title: b.title, author: b.author, isbn: b.isbn, needCover: b.needCover }; }),
+        skipGoodreads: goodreadsBlocked,
+      });
       if (res && Array.isArray(res.ratings)) list = res.ratings;
+      if (res && res.goodreads === "blocked") goodreadsBlocked = true;
     } catch (e) { list = []; }
     var dirty = false;
     batch.forEach(function (b, i) {
@@ -747,7 +760,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       delete ratingWait[b.key];
       var r = list[i];
       if (!r) return;
-      ratingCache[b.key] = r;
+      // A retry answer is not remembered, so the next paint asks again.
+      if (!r.retry) ratingCache[b.key] = r;
       waiters.forEach(function (w) {
         applyRating(w.book, w.meta, r);
         if (w.keep) dirty = true;

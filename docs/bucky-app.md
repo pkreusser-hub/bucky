@@ -2423,3 +2423,47 @@ tools/_verify-movies.cjs` (**152/152**). Bite against `834d17d` `books.html` +
 failures are the pick's cover, the pick's poster, and the watch-list poster.
 "A pick with no cover keeps the No cover tile" passes on both. It guards
 against painting a picture that isn't there.
+
+# Goodreads score on book cards, Open Library as the fallback (2026-09-24)
+
+The family asked for Goodreads scores on the cards instead of Open Library.
+Goodreads has no API. `books.mjs` already read the public book page for the
+sheet (JSON-LD aggregateRating; The Hobbit was 4.3 from 4,635,081 on
+2026-09-21), so `action:"ratings"` now reads that page for each card.
+
+Goodreads is read by ISBN only (`/book/isbn/<isbn>`). Without an ISBN that URL
+is a search page, and the parser cannot use a search page. A row that already
+has an ISBN goes to Goodreads first. It also sends `needCover`, and a row that
+already has a cover skips Open Library. Any other row asks Open Library
+`search.json`, which finds the book, its ISBN and its cover. Goodreads is then
+read by that ISBN. Open Library's own score (search, then the work's
+`ratings.json`) is the fallback when Goodreads has no score for the book or
+refuses the read.
+
+A 403, a 429, or a 200 "Robot Check" page is Goodreads refusing, not a book
+with no score. Refusing sets `goodreads: "blocked"` on the answer. Lookups run
+three at a time, so up to three Goodreads reads can already be out when the
+refusals come back. No new Goodreads read starts after that in the same call.
+The page then sends `skipGoodreads` for the rest of the visit. A call stops
+starting lookups after 15s, and the rest come back `retry: true`. A timeout,
+a fetch failure and an Open Library 5xx are also `retry`. The page does not
+stamp or cache a `retry` row, so a later paint asks again.
+
+Page side, a card keeps asking until it has a Goodreads score and a cover,
+at most once a week (`olTried`). An Open Library answer never replaces a
+Goodreads score already on the card. Dad's seed rows carry an Open Library
+snapshot and an ISBN, so each asks Goodreads once. That is 135 page reads,
+five per call, one call at a time. Counts are grouped: "(4,635,081)", not
+"(4635081)". A miss reads "No Goodreads or Open Library rating".
+
+Not measured live: the sandbox that built this cannot reach Goodreads or
+Open Library. The Goodreads fixture is the 2026-09-21 page shape, and how
+soon Goodreads refuses a burst of reads from Netlify is unknown.
+
+Suite: `node tools/_verify-books.cjs` (**197/197**). Bite against `eb0802e`
+`books.html` + `books.mjs`: **180 passed, 17 failed**. The failures are
+Goodreads by the Open Library ISBN, a row going to Goodreads only, the 403
+fallback and the three reads already out, the robot check, `skipGoodreads`,
+`retry`, the grouped count, the new miss line, the Goodreads pick card, the
+batch of five, the page's skip after a block, and Dad's seed row upgraded
+with its ISBN sent.
