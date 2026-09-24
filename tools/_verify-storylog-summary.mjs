@@ -4,6 +4,7 @@
 // behave consistently across a whole test run).
 import http from "node:http";
 import crypto from "node:crypto";
+import fs from "node:fs";
 
 let pass = 0, fail = 0;
 const ok = (cond, name) => { if (cond) { pass++; console.log("  ✓ " + name); } else { fail++; console.log("  ✗ FAIL " + name); } };
@@ -199,8 +200,23 @@ const antSrv = http.createServer(async (req, res) => {
   res.end(JSON.stringify({ content: [{ type: "text", text: "ok" }], usage: { input_tokens: 1, output_tokens: 1 } }));
 });
 
-for (const srv of [tokenSrv, fsSrv, antSrv]) await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+// The universe packs, served from disk. Since the 2026-08-22 universe merge the function reads
+// assets/storytime/universes/<key>.json over HTTP from FARMGPT_PACK_BASE, which this suite never
+// set — so the function fell back to the LIVE site for its packs. That passed on a machine that
+// could reach amenfarms.netlify.app and failed everywhere else ("an HTTYD-story summary triggers
+// exactly one canon update", then a crash). A suite must not depend on production, so the packs
+// come from this checkout instead; the assertions are unchanged. (2026-09-24)
+const packSrv = http.createServer((req, res) => {
+  const m = /^\/assets\/storytime\/universes\/([a-z0-9]+)\.json$/.exec(req.url.split("?")[0]);
+  const file = m && new URL(`../assets/storytime/universes/${m[1]}.json`, import.meta.url);
+  if (!file || !fs.existsSync(file)) { res.writeHead(404); return res.end(); }
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(fs.readFileSync(file));
+});
 
+for (const srv of [tokenSrv, fsSrv, antSrv, packSrv]) await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+
+process.env.FARMGPT_PACK_BASE = `http://127.0.0.1:${packSrv.address().port}`;
 process.env.BUCKY_NOTIFY_SECRET = SECRET;
 process.env.ANTHROPIC_API_KEY = "fake-key";
 process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${antSrv.address().port}`;
@@ -265,6 +281,10 @@ console.log("— grouping + prompt content (pick vs write-in) + verdict round-tr
   ok(sreq.max_tokens === 600, "summarizer max_tokens 600");
   ok(/NEVER a\s+reason to flag/.test(sreq.system) && sreq.system.includes("lightsaber"), "flag rules: franchises/crossovers + fantasy combat are never flag-worthy");
   ok(sreq.system.includes("REPEATEDLY pushing") && sreq.system.includes("GRAPHIC"), "flag rules: graphic content or escalating-violence pattern IS flag-worthy");
+  // Dad's romance line (2026-09-24): crushes and kissing are fine, nothing more. The summarizer must
+  // flag what goes PAST a kiss and leave the allowed part alone, or the Story Log cries wolf.
+  ok(/romance that goes past a crush and a kiss/.test(sreq.system) && /NOT\s+flag-worthy/.test(sreq.system),
+    "flag rules: romance past a crush and a kiss IS flag-worthy; a crush or a kiss is not");
   ok(sreq.stream === undefined, "summarizer call is non-streaming");
   ok(typeof sreq.messages[0].content === "string" && sreq.messages[0].content.includes('Reader PICKED one of the offered choices: "Explore the cave"'),
     "prompt labels a picked choice as a PICK");
@@ -528,7 +548,6 @@ console.log("— family canon: kids' characters evolve the universe sheet —");
 {
   resetAll();
   const lastStream = () => anthropicReqs[anthropicReqs.length - 1];
-  const canonCommits = () => commits.flatMap((c) => c.writes || []).filter((w) => w.update && w.update.name.includes("/farmgpt_canon/")).length;
 
   await call({ mode: "summary", messages: [{ role: "user", content: "EARLIER NOTES:\n(none)\n\nNEWEST PART OF THE STORY:\nA plain story about a lighthouse keeper.\n\nRewrite the continuity notes now." }] });
   ok(canonReqs.length === 0, "a summary with no known universe never calls the canon bookkeeper");
@@ -544,15 +563,28 @@ console.log("— family canon: kids' characters evolve the universe sheet —");
   ok(doc && doc.canon && doc.canon.stringValue.includes("Bree"), "family canon doc written with the reader-created character");
 
   await call({ mode: "story", messages: [{ role: "user", content: "Bree lands at Dragon's Edge to meet Hiccup." }] });
-  const sys = lastStream().system || "";
-  ok(sys.includes("DRAGONS NEVER TALK") && sys.includes("FAMILY CANON"), "story prompt carries franchise facts + a family-canon block");
+  // RESTAGED (2026-09-24): since the 2026-08-22 cacheSystem change a story's `system` is sent as a
+  // one-element block array, and String.prototype.includes on that array matched nothing. The
+  // other story suites normalise it to its joined text at the recording point; this one was
+  // missed. The bytes are identical either way.
+  const rawSys = lastStream().system || "";
+  const sys = Array.isArray(rawSys) ? rawSys.map((b) => (b && b.text) || "").join("") : rawSys;
+  // RESTAGED (2026-09-24): the 2026-08-22 universe merge replaced the hard-coded HTTYD bible (whose
+  // line read "DRAGONS NEVER TALK") with a guide rendered from assets/storytime/universes/httyd.json,
+  // where the same rule is canon C1: "No dragon ever speaks words".
+  ok(sys.includes("No dragon ever speaks words") && sys.includes("FAMILY CANON"), "story prompt carries franchise facts + a family-canon block");
   ok(sys.includes("Bree: golden braid"), "…and Bree's evolving entry rides along for every future story");
 
-  const before = canonCommits();
+  const canonText = () => { const d = store.get(`${DOCBASE}/farmgpt_canon/httyd`); return d && d.canon ? d.canon.stringValue : null; };
+  const textBefore = canonText();
   canonBehavior = "nochanges";
   await call({ mode: "summary", messages: [{ role: "user", content: "EARLIER NOTES:\n- Bree exists\n\nNEWEST PART OF THE STORY:\nToothless napped at Dragon's Edge.\n\nRewrite the continuity notes now." }] });
   ok(canonReqs.length === 2 && canonReqs[1].messages[0].content.includes("Bree: golden braid"), "the next fold receives the CURRENT canon for merging");
-  ok(canonCommits() === before, "NO_CHANGES reply → nothing rewritten");
+  // RESTAGED (2026-09-24): was "nothing rewritten" (no commit at all). The 2026-08-22 batching rule
+  // deliberately writes on NO_CHANGES — it clears `pending` and stamps `lastMergeDay`, because the
+  // material HAS been looked at and re-paying for the same nothing tomorrow is what the rule
+  // prevents (mergeUniverseCanon in farmgpt.mjs). What must not move is the canon TEXT.
+  ok(textBefore !== null && canonText() === textBefore, "NO_CHANGES reply → the canon text is left exactly as it was");
   canonBehavior = "ok";
 }
 

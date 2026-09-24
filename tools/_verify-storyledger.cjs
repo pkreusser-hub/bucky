@@ -4053,6 +4053,21 @@ async function sectionDashboard(browser) {
     if (body.mode === "stats") return { json: { days: DAYS, hours: [] } };
     return { body: SCENE_OK };
   });
+  // THE PAGE'S CLOCK IS PINNED to the fixture's month (2026-09-24). The fixture above is an August
+  // 2026 month and the dashboard shows the CURRENT month, so from September 1 this section was
+  // quietly testing an empty month: four checks failed and the next line's crash took down every
+  // browser section after it (747 checks instead of the full run). Only "now" moves — `new Date(x)`,
+  // Date.UTC and Date.parse are the real ones — and not one assertion below changed.
+  await page.evaluateOnNewDocument((iso) => {
+    const RealDate = Date, PIN = new RealDate(iso).getTime();
+    function PinnedDate(...a) {
+      if (!new.target) return new RealDate(PIN).toString();
+      return a.length ? new RealDate(...a) : new RealDate(PIN);
+    }
+    PinnedDate.prototype = RealDate.prototype;
+    PinnedDate.now = () => PIN; PinnedDate.UTC = RealDate.UTC; PinnedDate.parse = RealDate.parse;
+    window.Date = PinnedDate;
+  }, "2026-08-24T17:00:00.000Z");
   // Open it the way Dad does — the button is Dad-gated, and driving it for real is also what
   // makes the screenshot show the dashboard rather than whatever view happened to be on.
   await page.evaluate(() => { localStorage.setItem("choreUser", "Dad"); sessionStorage.setItem("dadUnlocked", "1"); });
@@ -4705,6 +4720,157 @@ async function sectionKeepalive() {
 }
 
 // ---------------------------------------------------------------------------
+// SECTION T — third-person stories and story-text emphasis (2026-09-24)
+//
+// Two faults from a 30-day read of the family's real stories. (1) 14 of 25 stories were set up as
+// "3rd person, I'm not in it" and every one still went out with the reader as a "you" hero, so the
+// kids restated it 22 times. (2) The narrator writes *italics* in ~60% of scenes and this page
+// showed text verbatim, so the kids read literal asterisks. Everything below is a fixture — no
+// real story text is used.
+// ---------------------------------------------------------------------------
+const SCENE_EMPH = "You looked up. *Ah,* whispered the fog, and a **bell** rang twice. 5 * 3 stays maths.\n\n" +
+  "===CHOICES===\n1. Listen.\n2. Wait.\n3. Run.";
+async function sectionPovAndEmphasis(browser) {
+  section("T — third-person stories and story-text emphasis (2026-09-24)");
+  const { page, sent, errors } = await mockedPage(browser, (body) => {
+    if (body.mode === "story") return { body: SCENE_EMPH };
+    if (body.mode === "storylog_summaries") return { json: { pending: 0, summaries: [{
+      date: "2026-09-20", canon: "isaac", users: ["Isaac"], storyCount: 1, sceneCount: 1, titles: ["Fog"],
+      about: "A foggy harbour.", prompting: "Chose to listen.", flagged: false, flagNote: "" }] } };
+    if (body.mode === "storylog_scenes") return { json: { scenes: [{ user: "Isaac", storyId: "s9", title: "Fog",
+      idx: 1, choice: "Listen", scene: SCENE_EMPH }] } };
+    return { body: SCENE_OK };
+  });
+
+  // ---- the setup control ----------------------------------------------------------------
+  // Every probe below tolerates the thing it looks for being absent, so on a page without this
+  // change each check fails on its own instead of one missing element crashing the section.
+  const clickPov = (v) => page.evaluate((x) => { const b = document.querySelector('#povSeg button[data-v="' + x + '"]'); if (b) b.click(); }, v);
+  const heroFieldShown = () => page.evaluate(() => { const e = document.getElementById("heroNameField"); return !!e && e.offsetParent !== null; });
+  await page.evaluate(() => window.__STORY__.showView("storySetup"));
+  const s0 = await page.evaluate(() => ({
+    buttons: [...document.querySelectorAll("#povSeg button")].map((b) => ({ v: b.dataset.v, on: b.classList.contains("on"), text: b.textContent })),
+    label: (document.getElementById("povLabel") || {}).textContent || "",
+    pick: window.__STORY__.povPick,
+  }));
+  s0.heroVisible = await heroFieldShown();
+  ok(s0.buttons.length === 2 && s0.buttons[0].v === "second" && s0.buttons[1].v === "third" && /in the story/i.test(s0.label),
+    "the setup screen asks whether the reader is in the story, with two choices");
+  ok(s0.pick === "second" && s0.buttons[0].on && !s0.buttons[1].on, "…starting on \"Yes, I'm the hero\"");
+  ok(s0.heroVisible, "…with the hero-name field showing");
+  // Guarded so it cannot pass vacuously: with no control on the page there is nothing to be
+  // emoji-free, and that must read as a failure, not a pass.
+  ok(s0.buttons.length === 2 && !!s0.label && !/\p{Extended_Pictographic}/u.test(s0.label + s0.buttons.map((b) => b.text).join("")),
+    "the new control carries no emoji (house rule for app chrome)");
+  await clickPov("third");
+  const s1 = await page.evaluate(() => {
+    const b = document.querySelector('#povSeg button[data-v="third"]');
+    return { pick: window.__STORY__.povPick, on: !!b && b.classList.contains("on"), fieldExists: !!document.getElementById("heroNameField") };
+  });
+  s1.heroVisible = await heroFieldShown();
+  ok(s1.pick === "third" && s1.on, "tapping \"No, I'm not in it\" selects third person");
+  ok(s1.fieldExists && !s1.heroVisible, "…and hides the hero-name field (measured: offsetParent === null, not the attribute)");
+  await page.evaluate(() => document.getElementById("newStoryBtn").click());
+  ok(await page.evaluate(() => window.__STORY__.povPick) === "second", "a fresh New Story starts back on \"Yes, I'm the hero\"");
+  await page.evaluate(() => {
+    const w = document.getElementById("worldInput");
+    w.value = "New story in 3rd person, im not in it, in a harbour town";
+    w.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  ok(await page.evaluate(() => window.__STORY__.povPick) === "third",
+    "typing \"3rd person, im not in it\" into the setup flips the control, so what the child sees is what is sent");
+
+  // ---- the ledger a third-person story starts with --------------------------------------
+  const seeds = await page.evaluate(() => {
+    const S = window.__STORY__;
+    const t = S.seedLedger({ title: "T", universe: "original", heroName: "Sam", pov: "third" });
+    const s = S.seedLedger({ title: "T", universe: "original", heroName: "Sam" });
+    return { tv: t.meta.narrative_voice, tReader: t.characters.filter((c) => c.origin === "reader").length, tName: t.protagonist.name,
+      sv: s.meta.narrative_voice, sReader: s.characters.filter((c) => c.origin === "reader").length, sName: s.protagonist.name };
+  });
+  ok(seeds.tv === "third person, past tense" && seeds.tReader === 0 && seeds.tName === "",
+    "a third-person ledger records that voice and carries no reader sheet at all");
+  ok(seeds.sv === "second person, past tense" && seeds.sReader === 1 && seeds.sName === "Sam",
+    "…while a reader-hero ledger is exactly as before (second person, one reader sheet, the reader's name)");
+
+  // ---- which stories go out as third person ----------------------------------------------
+  const povs = await page.evaluate(() => {
+    const f = window.__STORY__.storyPovFor;
+    if (typeof f !== "function") return {};
+    return {
+      created: f({ pov: "third", messages: [{ role: "user", content: "A harbour story." }] }),
+      oldSave: f({ messages: [{ role: "user", content: "New story in 3rd person, im not in it, in a harbour town" }] }),
+      later: f({ messages: [{ role: "user", content: "Mario explores." }, { role: "assistant", content: "x" },
+        { role: "user", content: "keep going (I'm not in the story)" }] }),
+      narratorSaidIt: f({ messages: [{ role: "user", content: "I am a knight." },
+        { role: "assistant", content: "The bard sang \"I'm not in the story\" and bowed." }] }),
+      plain: f({ messages: [{ role: "user", content: "I am a knight." }] }),
+    };
+  });
+  ok(povs.created === "third", "a story created as third person is sent as third person");
+  ok(povs.oldSave === "third", "a story saved BEFORE this change is recognised from its own setup text");
+  ok(povs.later === "third", "a reader who says \"I'm not in the story\" later on flips that story to third person");
+  ok(povs.narratorSaidIt === "second" && povs.plain === "second", "…and only the READER's words count — the narrator quoting the phrase flips nothing");
+
+  // ---- the wire, and the emphasis in the story view ---------------------------------------
+  await page.evaluate(() => {
+    const s = { id: "p1", title: "Fog", created: 1, done: false, chapter: 1, sceneSeq: 1, pov: "third",
+      messages: [{ role: "user", content: "A story about a lighthouse keeper." },
+                 { role: "assistant", content: "The keeper waited.\n\n===CHOICES===\n1. a\n2. b\n3. c" }] };
+    localStorage.setItem("farmgpt_stories_v1", JSON.stringify([s]));
+    window.__STORY__.setStory(s);
+    window.__STORY__.showView("story");
+  });
+  const before = sent.length;
+  await page.evaluate(() => window.__STORY__.takeTurn("2 and she climbs the stairs"));
+  await page.waitForFunction(() => !window.__STORY__.busyNow, { timeout: 15000 });
+  const storyBody = sent.slice(before).find((b) => b.mode === "story");
+  ok(storyBody && storyBody.pov === "third", "the story request carries pov:\"third\" to the server");
+  const ph3 = await page.evaluate(() => document.getElementById("writeInput").placeholder);
+  await page.evaluate(() => { const s = window.__STORY__.story; s.pov = "second"; s.messages[0].content = "A story where I am the keeper.";
+    window.__STORY__.paintStoryControls(); });
+  const ph2 = await page.evaluate(() => document.getElementById("writeInput").placeholder);
+  ok(ph3 === "…or write what happens next!" && ph2 === "…or write what YOU do next!",
+    "the write-in box asks \"what happens next\" in a third-person story and \"what YOU do next\" otherwise: " + JSON.stringify([ph3, ph2]));
+  await page.evaluate(() => { const s = window.__STORY__.story; s.pov = "third"; window.__STORY__.paintStoryControls(); });
+  const shown = await page.evaluate(() => {
+    const els = [...document.querySelectorAll("#storyScroll .chapter")];
+    const el = els[els.length - 1];
+    return { em: [...el.querySelectorAll("em")].map((e) => e.textContent), strong: [...el.querySelectorAll("strong")].map((e) => e.textContent),
+      text: el.textContent };
+  });
+  ok(shown.em.join("|") === "Ah," && shown.strong.join("|") === "bell",
+    "a scene's *italics* and **bold** arrive as real emphasis: " + JSON.stringify({ em: shown.em, strong: shown.strong }));
+  ok(!/\*/.test(shown.text.replace("5 * 3", "")) && shown.text.includes("5 * 3 stays maths"),
+    "…no asterisk is left in the prose, and a lone \" * \" between words stays exactly as written");
+
+  // ---- the renderer never parses model text as HTML ------------------------------------------
+  const unit = await page.evaluate(() => {
+    const el = document.createElement("div");
+    if (typeof window.__STORY__.renderStoryText !== "function") return { imgs: -1, em: null, text: "", pwned: false };
+    window.__STORY__.renderStoryText(el, 'He read *<img src=x onerror="window.__pwned=1">* aloud, then *half a thought');
+    return { imgs: el.querySelectorAll("img").length, em: el.querySelector("em") ? el.querySelector("em").textContent : null,
+      text: el.textContent, pwned: !!window.__pwned };
+  });
+  ok(unit.imgs === 0 && !unit.pwned && unit.em === '<img src=x onerror="window.__pwned=1">',
+    "text inside asterisks is shown as TEXT, never parsed as HTML");
+  ok(/\*half a thought$/.test(unit.text), "an unpaired asterisk stays exactly as written");
+
+  // ---- Dad's Story Log transcript shows the same emphasis --------------------------------------
+  await page.evaluate(() => document.getElementById("storyLogBtn").click());
+  await page.waitForSelector(".slTransBtn", { timeout: 15000 });
+  await page.evaluate(() => document.querySelector(".slTransBtn").click());
+  await page.waitForSelector(".slTransScene", { timeout: 15000 });
+  const log = await page.evaluate(() => {
+    const el = document.querySelector(".slTransScene");
+    return { em: [...el.querySelectorAll("em")].map((e) => e.textContent).join("|"), text: el.textContent };
+  });
+  ok(log.em === "Ah," && !/\*Ah|\*\*bell/.test(log.text), "the Story Log transcript renders the same emphasis, not asterisks");
+  ok(errors.length === 0, "no page errors (third person + emphasis): " + errors.join(" | "));
+  await page.close();
+}
+
+// ---------------------------------------------------------------------------
 (async () => {
   // Shrink the keepalive so section S can watch it without a 24s test. Read at module scope in
   // farmgpt.mjs, so it has to be set BEFORE the first import of the function.
@@ -4745,6 +4911,7 @@ async function sectionKeepalive() {
     await sectionFinishGrant(browser);
     await sectionDashboard(browser);
     await sectionWorldWait(browser);
+    await sectionPovAndEmphasis(browser);
   } catch (err) {
     fail++; failures.push("browser suite crashed");
     console.log("\n✗ SUITE ERROR: " + (err && err.stack || err));

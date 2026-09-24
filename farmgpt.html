@@ -266,6 +266,7 @@
   }
   .orDiv::before, .orDiv::after { content: ""; flex: 1; height: 1px; background: var(--line); }
   .field { margin: 0 0 12px; }
+  .field[hidden] { display: none; }
   .fieldLabel { display: block; font-size: 13.5px; font-weight: 700; color: var(--ink); margin: 0 0 6px; }
   .fieldLabel .opt { font-weight: 500; color: var(--muted); font-size: 12px; }
   /* The one-line explanation under the universe chips (shown only for a packed world). */
@@ -877,6 +878,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       </div>
 
       <div class="field">
+        <div class="segLabel" id="povLabel">Are you in the story?</div>
+        <div class="seg" id="povSeg" role="group" aria-labelledby="povLabel">
+          <button type="button" data-v="second">Yes, I'm the hero</button>
+          <button type="button" data-v="third">No, I'm not in it</button>
+        </div>
+      </div>
+
+      <div class="field" id="heroNameField">
         <label class="fieldLabel" for="heroName">✍️ Your character's name <span class="opt">(optional)</span></label>
         <input id="heroName" class="fieldInput" maxlength="40"
           placeholder="you are the hero — what's your name?" />
@@ -1876,6 +1885,13 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
         }
       }
     }
+    // A story told about other characters says so in its recorded voice and gets no reader sheet:
+    // the reader is not in it (2026-09-24 — see storyPovFor).
+    if (opts.pov === "third") {
+      led.meta.narrative_voice = "third person, past tense";
+      compactLedger(led, LEDGER_MAX_CHARS);
+      return led;
+    }
     // The reader, in both places.
     const name = (opts.heroName || "").trim();
     led.protagonist.name = name;
@@ -2504,6 +2520,31 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     b.addEventListener("click", () => { localStorage.setItem(ILLUST_KEY, b.dataset.v); paintIllustSeg(); });
   }
   paintIllustSeg();
+
+  // "Are you in the story?" (2026-09-24). Fourteen of the family's last 25 stories were set up as
+  // "3rd person, I'm not in it", and every one went to the narrator as second person with the
+  // reader as a "you" hero, so the kids had to keep saying it. Third person = the story is about
+  // other characters. Typing it in the setup flips the control, so what the child sees is what is
+  // sent; a reader who says it later ("I'm not in the story") flips that story for good.
+  const THIRD_PERSON_RE = /\b(3rd|third)[ -]person\b|\b(i'?m|i am|im) not (in (it|this|the story)|a character)\b|\bnot a character\b/i;
+  let povPick = "second";
+  function paintPovSeg() {
+    for (const b of $("povSeg").children) b.classList.toggle("on", b.dataset.v === povPick);
+    $("heroNameField").hidden = povPick === "third";
+  }
+  for (const b of $("povSeg").children) b.addEventListener("click", () => { povPick = b.dataset.v; paintPovSeg(); });
+  $("worldInput").addEventListener("input", () => {
+    if (povPick !== "third" && THIRD_PERSON_RE.test($("worldInput").value)) { povPick = "third"; paintPovSeg(); }
+  });
+  paintPovSeg();
+  // The point of view a story is SENT with: third if it was created that way, or if the reader has
+  // said so in any turn of it (which also covers every story saved before this existed).
+  function storyPovFor(s) {
+    if (!s) return "second";
+    if (s.pov === "third") return "third";
+    return (s.messages || []).some((m) => m && m.role === "user" && THIRD_PERSON_RE.test(textOf(m.content)))
+      ? "third" : "second";
+  }
   // Decide whether to illustrate the chapter about to be requested. Chapter N = (assistant
   // messages so far) + 1; the current story.messages ends on the user turn we're sending.
   function shouldIllustrate() {
@@ -2572,9 +2613,10 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     if (world) opener += " set in the world of " + world;
     opener += ".";
     const parts = [opener];
-    if (hero) parts.push("I am " + hero + ".");
-    if (side) parts.push("My sidekick is " + side + ".");
-    if (quest) parts.push("Our goal: " + quest + ".");
+    const third = povPick === "third";   // a story about other characters never says "I am"
+    if (hero) parts.push(third ? "The main character is " + hero + "." : "I am " + hero + ".");
+    if (side) parts.push((third ? "Their" : "My") + " sidekick is " + side + ".");
+    if (quest) parts.push((third ? "Their" : "Our") + " goal: " + quest + ".");
     if (selectedGenre === "🎲 Surprise me") parts.push("Surprise me with the genre!");
     parts.push("Begin the very first chapter now.");
     return parts.join(" ");
@@ -2823,10 +2865,32 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     $("storyScroll").appendChild(el);
   }
 
+  // Story text with its *italics* and **bold** shown as real emphasis (2026-09-24). The narrator is
+  // told not to use Markdown and uses it anyway (asterisks in ~60% of scenes since Sonnet took
+  // over, against 2% before), and this view shows text verbatim — so the kids were reading literal
+  // asterisks. Built from text nodes and <em>/<strong>, NEVER innerHTML: model text is never parsed
+  // as HTML. A pair must open and close on one line and hug its words ("*word*", not "* word *");
+  // anything unpaired stays exactly as written. (The pattern lives inside the function so it can
+  // never be read before its declaration runs.)
+  function renderStoryText(el, text) {
+    const EMPH_RE = /\*\*(?=\S)([^*\n]*?\S)\*\*|\*(?=\S)([^*\n]*?\S)\*/g;
+    const s = String(text == null ? "" : text);
+    el.textContent = "";
+    let at = 0, m;
+    while ((m = EMPH_RE.exec(s))) {
+      if (m.index > at) el.appendChild(document.createTextNode(s.slice(at, m.index)));
+      const node = document.createElement(m[1] !== undefined ? "strong" : "em");
+      node.textContent = m[1] !== undefined ? m[1] : m[2];
+      el.appendChild(node);
+      at = EMPH_RE.lastIndex;
+    }
+    if (at < s.length) el.appendChild(document.createTextNode(s.slice(at)));
+  }
+
   function addChapterEl(text) {
     const el = document.createElement("div");
     el.className = "chapter";
-    el.textContent = text;
+    renderStoryText(el, text);
     $("storyScroll").appendChild(el);
     return el;
   }
@@ -2868,6 +2932,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
 
   function setStoryControls({ choices = [], ended = false, chapterEnd = false, busyNow = false }) {
     $("storyBusy").style.display = busyNow ? "block" : "none";
+    // A story the reader is not in shouldn't invite them to "do" anything in it (2026-09-24).
+    $("writeInput").placeholder = storyPovFor(story) === "third" ? "…or write what happens next!" : "…or write what YOU do next!";
     const btns = $("choiceBtns");
     btns.innerHTML = "";
     // Daily cap takes priority over everything except "busy"/"the story already ended": no more
@@ -3217,8 +3283,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       // Story Log. (The consequence, deliberately accepted: the parent log keeps the truncated
       // half, which is what the model genuinely produced.)
       const tail = await callFarmGPT("story", msgs, (sofar) => {
-        el.textContent = parseChapter(full).text + visibleDuringStream(sofar);
-      }, { repair: true, ...(hasLedger(story) ? { ledger: ledgerForSend(story.ledger) } : {}) });
+        renderStoryText(el, parseChapter(full).text + visibleDuringStream(sofar));
+      }, { repair: true, pov: storyPovFor(story), ...(hasLedger(story) ? { ledger: ledgerForSend(story.ledger) } : {}) });
       if (!tail || !tail.trim()) return full;
       // Join the halves: the tail completes an interrupted sentence, so no separator.
       const merged = full.replace(/\s+$/, "") + (/[\s]$/.test(full) ? " " : " ") + tail.replace(/^\s+/, "");
@@ -3272,12 +3338,13 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       let firstTokenSent = false;
       let full = await callFarmGPT("story", buildSendMessages(), (sofar) => {
         const vis = visibleDuringStream(sofar);
-        el.textContent = vis;
+        renderStoryText(el, vis);
         if (!firstTokenSent && vis.trim() && typeof opts.onFirstToken === "function") {
           firstTokenSent = true;
           try { opts.onFirstToken(); } catch {}
         }
       }, { illustrate: shouldIllustrate(), newChapter, endChapter, endChapterSoft,
+           pov: storyPovFor(story),   // "second" | "third" — the server's POV line keys off it
            // Ledger stories carry their memory in its own field (a 30KB ledger stuffed into a
            // message would be sliced mid-JSON by the server's per-message cap). Trimmed to fit
            // here so the server's cap stays a backstop. Legacy stories send nothing.
@@ -3285,7 +3352,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
            ...logOpts });
       full = await repairIfTruncated(full, el);
       const p = parseChapter(full);
-      el.textContent = p.text;
+      renderStoryText(el, p.text);
       if (divider) divider.querySelector(".ct").textContent = p.title || "";
       const cleanArt = sanitizeArt(p.art);
       if (cleanArt) {                              // art sits ABOVE this scene's text
@@ -3725,7 +3792,14 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       toast("Tell me your idea up top, or fill in a few boxes below!");
       return;
     }
-    if (heroName) seed += " My name is " + heroName + ".";
+    // Third person if the control says so OR the child wrote it. The reader's name is only asked
+    // for when they are in the story, and a third-person setup that doesn't already say so gets
+    // one plain line saying it, so the narrator, the world-builder and the child's own opening
+    // bubble all agree.
+    const pov = (povPick === "third" || THIRD_PERSON_RE.test(seed)) ? "third" : "second";
+    const heroForStory = pov === "third" ? "" : heroName;
+    if (heroForStory) seed += " My name is " + heroForStory + ".";
+    if (pov === "third" && !THIRD_PERSON_RE.test(seed)) seed += " Tell it in the third person: I'm not in the story.";
 
     // ---- the world-creation wait ----------------------------------------------------------
     // Stages are chosen from what will ACTUALLY happen: a world with no pack has no notes to
@@ -3762,7 +3836,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     const eraList = packEras(packRes.pack).map((e) => ({ id: e.id, label: e.label, timeline_point: e.timeline_point }));
     const buildBase = (era) => seedLedger({
       title, universe: packRes.pack ? universeForStory : "original",
-      genre: bldGenreWord(), heroName, pack: packRes.pack, era,
+      genre: bldGenreWord(), heroName: heroForStory, pack: packRes.pack, era, pov,
     });
     let ledger = buildBase(eraGuess);
     // The FAMILY CANON — the kids' own characters and lasting changes — is seeded straight into
@@ -3783,7 +3857,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       worldWait.begin("seed");
       const seedRes = await Promise.race([
         seedLedgerWithAI(ledger, {
-          setup: seed, heroName, pack: !!packRes.pack,
+          setup: seed, heroName: heroForStory, pack: !!packRes.pack,
           era: eraGuess, eras: eraList,
           // Rebuild the pack half in a different era, family canon and all, if the seeder picks one.
           rebase: (era) => {
@@ -3816,6 +3890,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
       title: title.length > 46 ? title.slice(0, 46) + "…" : title,
       created: Date.now(),
       messages: [{ role: "user", content: seed }],
+      pov,                 // "second" | "third" — see storyPovFor
       chapter: 1,          // current chapter number
       closing: false,      // latched true while we're asking the model to close the chapter
       done: false,
@@ -4183,6 +4258,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
   $("newStoryBtn").addEventListener("click", () => {
     $("worldInput").value = "";
     clearBuilder();
+    povPick = "second"; paintPovSeg();   // every new story starts from "Yes, I'm the hero"
     renderBookshelf();
     show("storySetup");
   });
@@ -4221,6 +4297,8 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
     setKeeperTimeout(ms) { KEEPER_TIMEOUT_MS = ms; },
     keeperBusy() { return keeping; },
     parseChapter,
+    // 2026-09-24 — third-person stories and the story-text emphasis renderer
+    storyPovFor, THIRD_PERSON_RE, get povPick() { return povPick; }, renderStoryText,
     showView(name) { show(name); },
     // Repaint the story controls from whatever the current story's last scene says — the same
     // thing every real code path does after a turn. Lets a test change the cap state and see
@@ -5159,7 +5237,7 @@ if (window.self !== window.top) document.documentElement.classList.add("embedded
           }
           const p = parseChapter(sc.scene || "");
           if (p.title) { const ct = document.createElement("div"); ct.className = "slTransChap"; ct.textContent = "— " + p.title + " —"; tBox.appendChild(ct); }
-          const tx = document.createElement("div"); tx.className = "slTransScene"; tx.textContent = p.text;
+          const tx = document.createElement("div"); tx.className = "slTransScene"; renderStoryText(tx, p.text);
           tBox.appendChild(tx);
         }
         tLoaded = true;

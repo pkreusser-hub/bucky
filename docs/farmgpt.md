@@ -2441,3 +2441,136 @@ stay a 2×2 and Movies spans the row. From the AI-tab iframe the inline
 handler sets `window.top.location.href`. Suite: `node tools/_verify-movies.cjs`
 **63/63**. Books suite still **139/139**. Bite (`farmgpt.html` + `index.html`
 + `activity.html` at `1cd08b8`, movies page kept): **53 passed, 7 failed**.
+
+# 2026-09-24 — STORY TIME: what a month of real stories showed, and what changed
+`netlify/functions/farmgpt.mjs` · `farmgpt.html` · `tools/_verify-story-reminder.mjs` (40 → **71**)
+· `tools/_verify-storyledger.cjs` (854 → **875**) · `tools/_verify-storylog-summary.mjs` (105 → **106**).
+Dad approved all of it, and set the romance line himself.
+
+**What was read.** Every logged scene from Aug 25 to Sep 23 (647 of them, Eleanor 426 and Isaac
+221), plus the Story Log summaries, read-only from `farmgpt_story_log` / `farmgpt_story_summary`
+with Dad's go-ahead. The text stayed in a session scratchpad and never touched the repo; the suites
+below use invented fixtures only. Seven reviewer passes read 402 scenes in full, 125 write-ins
+(85 flagged by word overlap, 40 random controls) and 179 rule-relevant scenes. Every violation
+named here was checked against the scene itself.
+
+**What held up.** Ordinary write-ins are followed: 37 of the 40 random controls exactly. Redo
+overwrites halved against the grok-4.5 fortnight (0.9% of scenes against 1.8%). No refusals, one
+truncated scene in 647, and almost no phrase repetition inside a story. The narrator choice of
+2026-08-22 stands.
+
+## 1. The captive-harm steer. REVERSES "the prompt assembly is untouched, deliberately" (2026-08-22)
+The 16-setup battery passed Sonnet at 0/16. Real use found **six scenes in four of Eleanor's stories**
+where a captive was deliberately hurt: punched through an interrogation (Sep 5), shocked with a
+device to make him talk, escalating over three scenes (Sep 12), struck as a punishment (Sep 16),
+and a device "demonstrated" on a captive (Sep 20). Every one was a continuation, one to three turns
+after a first ask that had been redirected correctly, and most ended "But nothing inappropriate I
+want details to his reaction". STORY_RULES_REMINDER already names that phrase; a general rule lost
+to a specific, recent request. The battery only ever tested first asks. The Story Log flagged three
+of the four days and missed Sep 5.
+
+`captiveHarmAsked(readerText, prevScene)` fires on captivity (in the reader's message or the scene
+before it) plus a harm ask, or on captivity after a scene that already showed a harm, so a bare "2"
+after a shock scene counts. When it fires, `STORY_CAPTIVE_HARM_STEER` rides inside the reminder
+block, after the reminder, naming the acts and what to do instead. The reminder block is still the
+last thing on the turn. **Measured on the real log**: it fires on 40 of 623 reader turns (6.4%),
+catches all seven verified asks (the six that broke through and the whipping that was held), and
+never fires on any of Isaac's 469 turns. Scenes it rode are counted as `s_steer`.
+
+NOT MEASURED: whether Sonnet now holds the line under escalation. That needs the live battery,
+re-run with multi-turn escalations (a first ask, then the method, then "at a higher severity"). This
+session had no API key. Run it before treating the steer as proven.
+
+## 2. Romance: Dad's line, 2026-09-24. Crushes and kissing, nothing more
+This replaces "No sexual or romantic content of any kind", which the narrator was not holding: a crush,
+"do you want to be my girlfriend?" and a kiss on the cheek were all written as asked. FAMILY_RULES
+now says what IS allowed in a story (a crush, asking someone out, boyfriend or girlfriend, holding
+hands, a kiss) and "Nothing more than a kiss: no making out, nothing sexual, no innuendo". The reminder
+carries the ceiling, and the Story Log summarizer flags only what goes past it. The decision was about
+stories, and FAMILY_RULES is shared with research mode, so the rule ends "Outside a story, no romantic
+or sexual content at all". Research keeps its old answer, and the suite checks that it does.
+
+## 3. Third-person stories. REFINES "Multi-POV retired" (single protagonist)
+Of the 25 stories started in the window, 14 were set up as "3rd person, I'm not in it". Every
+ledger still said `narrative_voice: "second person, past tense"` and labelled the reader as a hero
+to be written as "you", and STORY_SYSTEM pinned "in second person, every chapter". The kids restated
+the framing 22 times; in the follow-through sample about a third of such framing instructions were
+still broken, the reader turning back into an on-page "you". On Sep 8 a reply opened by
+explaining to a child that "the ledger's protagonist… is set as Hiccup… Per my instructions, I have
+to keep the same protagonist in second person".
+
+- The setup screen asks **Are you in the story?** (`#povSeg`, no emoji). "No, I'm not in it" hides
+  `#heroNameField` through `.field[hidden]`. Typing "3rd person" or "I'm not in it" flips the control.
+- `story.pov` is saved, and `storyPovFor()` sends third person when a story was created that way or
+  when the READER says so in any turn. That covers every story saved before this change.
+- `pov` rides every story request, including the repair pass. On the server, `storyPovOf()` checks
+  `body.pov`, then the ledger's recorded voice, then the reader's own words. `renderLedgerBlocks(led,
+  { pov })` reports the voice as third person, drops the empty reader placeholder sheet and names a
+  MAIN CHARACTER. `STORY_POV_THIRD` rides the reminder block.
+- The single-protagonist rule stands: the narrator still never switches whose eyes we follow on its
+  own. The chapter clause and `STORY_NEW_CHAPTER` stop hard-coding second person, and a
+  cutaway the READER asks for is followed, which the collaboration clause already required.
+
+## 4. Asterisks on the page
+Italics appear in 58–62% of Sonnet scenes, against 2% under grok-4.5. The story view set
+`textContent`, so the kids read literal asterisks, including bolded chat lines. `renderStoryText()`
+builds text nodes plus `<em>` and `<strong>`, never `innerHTML`, in the story view, both streaming
+paths and Dad's Story Log transcript. A pair must close on one line and hug its words; anything
+unpaired stays as written. The no-Markdown rule stays in the prompt.
+
+## 5. Two style lines
+Sonnet uses about 16 em dashes per 1,000 words, against 8 under grok. The new line: "at most two in
+a scene". Long stories dropped people in danger when they jumped to the next capture. The new
+line: "settle what happened to anyone the story left in danger or held captive".
+
+## Test harness repairs (pre-existing, found while baselining; no assertion bent)
+- **storyledger's dashboard section was a time bomb.** Its fixture is an August 2026 month and the
+  dashboard shows the current month. From Sep 1, four checks failed and the crash that followed
+  skipped the last browser section, so 747 checks ran instead of 854. The page clock is now pinned to
+  the fixture month for that section only.
+- **storylog-summary and story-reminder never set `FARMGPT_PACK_BASE`**, so the function fetched
+  the universe packs from the LIVE site. Both suites now serve `assets/storytime/universes` from the
+  checkout. Restaged, with the reason written at each check:
+  - The packs changed the wording of the old bibles: "No dragon ever speaks words", "poofs away",
+    "How To Train Your Dragon".
+  - `system` has been a block array since `cacheSystem`, so it is joined before matching.
+  - NO_CHANGES deliberately writes `pending` and `lastMergeDay`, so that check now asserts the canon
+    TEXT is unchanged.
+- `tools/_verify-farmgpt-retry.cjs` loads puppeteer-core from a hard-coded Windows path and cannot
+  run on Linux. Left as is.
+
+## Verified
+storyledger **876/876** (854 + 22 new) · story-reminder **71/71** (40 + 31 new) · storylog-summary
+**106/106** (105 + 1 new) · kidstory-server 54/54 · dnd-server 47/47 · news 200/200 · fitness 253/253 ·
+teachergpt 39/39 · calories-server 24/24 · parent-research 25/25 = **1,695 checks**, 0 page errors.
+One fitness run read 250/253, with an animation measured at 0px before it had loaded (`index.html`,
+untouched here); two reruns gave 253/253.
+
+**BEFORE/AFTER SPLIT**: `farmgpt.mjs` and `farmgpt.html` at `fb0dc0b`, new suites kept, taken
+through a throwaway WIP commit.
+- **storyledger 856/876.** 20 of the 22 new checks fail. The 2 that pass are the deliberate
+  "unchanged" checks (a reader-hero ledger is as before, and no page errors). All 854 pre-existing
+  checks pass.
+- **story-reminder 48/71.** The 23 positive new checks fail (including research keeping its old romance line). The 8 that pass are the negatives that
+  must hold on both sides: no steer on an ordinary battle, on captivity with no harm, on a negated
+  "doesn't hurt him" or on a crush; research is never steered; an ordinary scene is not counted; a
+  reader-hero story is unchanged; an ordinary story gets no POV line.
+- **storylog-summary 105/106.** The new romance flag check fails.
+
+The new detector, imported from the function itself and run over the real log in the session
+scratchpad, reproduces the numbers in §1. Setup "yes" and "no" and a rendered scene were
+screenshotted at 390px and looked at: the toggle matches the page, "no" hides the name field, and
+the italics and a bolded log line render with no asterisks. That review turned up one more fix: the
+write-in box now reads "…or write what happens next!" in a third-person story, not "…what YOU do
+next!".
+
+## KNOWN / DEFERRED (found in the same read; separate changes)
+- **Family canon has not merged since at least Aug 4.** No Sonnet `u_` calls at all. Ledger stories
+  only merge when a keeper diff marks something reader-created. The keeper's character schema
+  cannot say `origin: "reader"`, and reader canon appears only on asserted turns.
+- **10 of 24 new stories started without a world.** None of the 10 ever reached the seeder, so the
+  failures are on the device or connection side. The telemetry lumps them all into `fallback`.
+- **The keeper never retries.** 25 scenes (3.8%) lost their bookkeeping, 15 of them during the Sep 7
+  Anthropic incident when the narrator fell back to grok.
+- **The hourly usage chart has been stuck on Aug 9–19.** `readCollection` reads one 1,000-doc page
+  and never follows `nextPageToken`.
