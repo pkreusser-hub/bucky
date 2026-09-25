@@ -9770,3 +9770,27 @@ Scripts cache-bust `?v=20260923c`. Full battery **4078/4078** (one
 earlier full run crashed in section V's last block on the CDP
 "Promise was collected" error; V+W then passed 71/71 twice alone and
 the rerun was clean).
+
+---
+
+## GFFL — 2016 and 2017 seasons, third-place awards, Dawn Treaders 2018 (2026-09-25)
+
+User: 2016 is on ESPN with Laws Rule (then IN LAWS) as champion; verify
+2017–2025; pull 3rd place. `lg_espn_history` now falls back to ESPN's
+`leagueHistory/<id>?seasonId=<y>` (the per-season address 404s before
+2018 even with cookies). Checked against ESPN: 2018–2025 hist docs match
+exactly (every team's W-L-T, PF, PA, place; champion and runner-up).
+
+Rulings: Lucky Number Seven is Battle Kreussers; IN LAWS / In and Out
+Laws (Sandra Laws) is Laws Rule 5; Space City Rockets (2019–2021) IS the
+GOAT Kids, Dawn Treaders (2018) is not.
+
+Written with `tools/_gffl_load_history.mjs --apply` (backup, masked
+PATCH, canonical re-read; all four verified; backups in the session
+scratchpad): hist_2016 (12 teams, 90 games; OUT LAWS → 1024, Team
+Krucial → 1018, new defunct Team Jones 1037 and Numbskulls and Nutz
+1038), hist_2017 (8 teams, 60 games), hist_2018 Dawn Treaders 12 → 1904
+(1 team row, 14 game sides), awards_history 54 → 66 rows (2016 champion
++ points to 5; a `third` row per season 2016–2025). The trophy case's
+Third Place shelf (fb625e9) reads those rows. 2016 toilet bowl not
+recorded (unconfirmed).
