@@ -561,6 +561,21 @@ const HIST_FIX = {
   },
   // 2022 deliberately absent -> HIST_FIX[2022] undefined -> always empty/no-season below.
 };
+// 2026-09-23: a PRE-2018 season, served the way the real ESPN does — the per-season address
+// 404s (live-confirmed for 2016 with the cookies) and only leagueHistory/<id>?seasonId=2016
+// answers, as an ARRAY of season objects carrying their own seasonId.
+const HIST_OLD_FIX = {
+  2016: {
+    seasonId: 2016, settings: { name: "Nerd Fantasy Football League" }, members: [],
+    teams: ffHistTeams([
+      { id: 5, name: "IN-LAWS", abbrev: "INL", w: 10, l: 3, pf: 1502.5, pa: 1301.0, place: 1 },
+      { id: 7, name: "Nails For Breakfast", abbrev: "NAIL", w: 9, l: 4, pf: 1410.0, pa: 1350.5, place: 2 },
+    ]),
+    schedule: [
+      { matchupPeriodId: 1, home: { teamId: 5, totalPoints: 120.5 }, away: { teamId: 7, totalPoints: 99.0 } },
+    ],
+  },
+};
 // The lg_espn_projections baseline (section AX, 2026-08-13): a kona_player_info document in
 // the REAL wire shape — per-player stats array carrying the weekly PROJECTION line
 // (statSourceId 1, statSplitTypeId 1, appliedTotal = league-scored points). Ids align with the
@@ -588,6 +603,19 @@ function espnProjFix() {
 function startFfUpstream() {
   const srv = http.createServer((req, res) => {
     const u = req.url;
+    const oldSeasonM = /\/seasons\/(\d+)\//.exec(u);
+    if (oldSeasonM && HIST_OLD_FIX[Number(oldSeasonM[1])]) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ messages: ["Not Found"] }));
+      return;
+    }
+    const histM = /\/leagueHistory\/\d+\?seasonId=(\d+)/.exec(u);
+    if (histM) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      const doc = HIST_OLD_FIX[Number(histM[1])];
+      res.end(JSON.stringify(doc ? [doc] : []));
+      return;
+    }
     res.writeHead(200, { "Content-Type": "application/json" });
     if (u.includes("view=kona_player_info")) {
       konaUrls.push({ u, filter: String(req.headers["x-fantasy-filter"] || "") });
@@ -5628,6 +5656,10 @@ async function openDetails(page, id) {
     // just that the happy path works.
     const h2023 = await callHist(2023);
     ok(h2023.ok === true && h2023.champion.teamId === 1, "2023 import succeeds via the retry ladder — champion Battle Kreussers");
+    // 2026-09-23: 2016 404s at the per-season address and is read from leagueHistory's array.
+    const h2016 = await callHist(2016);
+    ok(h2016.ok === true && h2016.champion && h2016.champion.name === "IN-LAWS" && h2016.teams.length === 2 && h2016.matchups.length === 1,
+      "a pre-2018 season (2016) imports through leagueHistory when the per-season address 404s — champion IN-LAWS (" + JSON.stringify(h2016.champion) + ")");
     const noSeason = await callHist(2022);
     ok(noSeason.ok === false && noSeason.reason === "no-season", "an empty league season -> ok:false, reason:no-season");
     const badRange = await callHist(1999);

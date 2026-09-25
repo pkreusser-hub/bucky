@@ -470,6 +470,11 @@ async function lgEspnHistory(body) {
   const urls = [
     `${FF_BASE}/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${FF_LEAGUE_ID}?${vq}`,
     `${FF_BASE}/apis/v3/games/ffl/seasons/${season}/segments/0/leagues/${FF_LEAGUE_ID}?scoringPeriodId=0&${vq}`,
+    // THE LEAGUE-HISTORY FORM (2026-09-23, user: "I was able to login and go to the league
+    // history for 2016 just fine"). The per-season address 404s for this league before 2018 even
+    // with the cookies; ESPN's own site reads old years from leagueHistory/<id>?seasonId=<y>,
+    // which answers an ARRAY of season objects. Tried last, so 2018+ is unchanged.
+    `${FF_BASE}/apis/v3/games/ffl/leagueHistory/${FF_LEAGUE_ID}?seasonId=${season}&${vq}`,
   ];
   let j = null, lastErr = null;
   // TWO URL forms tried in sequence -> the SHORT per-call budget, so a worst case of both
@@ -479,7 +484,8 @@ async function lgEspnHistory(body) {
       const r = await timedFetch(url, { headers: { "User-Agent": UA, accept: "application/json", Cookie: cookies } }, LEAGUE_FETCH_TIMEOUT_MS_SHORT);
       if (r.status === 401 || r.status === 403) return { ok: false, reason: "fantasy-auth-expired" };
       if (!r.ok) { lastErr = "http-" + r.status; continue; }
-      const data = await r.json();
+      let data = await r.json();
+      if (Array.isArray(data)) data = data.find((x) => Number(x?.seasonId) === season) || data[0] || null;
       if (Array.isArray(data?.teams) && data.teams.length) { j = data; break; }
       lastErr = "no-season"; // valid response, but nobody there — try the other URL form once more
     } catch (e) { lastErr = fetchFailReason(e); }
