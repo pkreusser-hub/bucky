@@ -8805,6 +8805,9 @@
         icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path fill="none" stroke="currentColor" stroke-width="1.6" d="M7 6H4.5a3 3 0 0 0 3 4M17 6h2.5a3 3 0 0 1-3 4"/><path fill="currentColor" d="M11 14h2v3h-2z"/><path fill="none" stroke="currentColor" stroke-width="1.7" d="M8 19.5h8"/></svg>' },
       { kind: "runnerup", label: "Runner-Up", cls: "tk-silver",
         icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="14.5" r="5.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M8.5 10 6 3.5h4L12 8l2-4.5h4L15.5 10"/><path fill="currentColor" d="M11.2 17.5v-4.2l-1.4.9v-1.3l1.6-1h1.2v5.6z"/></svg>' },
+      // 2026-09-25, user: "add 3rd place trophies" — ESPN's final place 3, from awards_history.
+      { kind: "third", label: "Third Place", cls: "tk-bronze",
+        icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="14.5" r="5.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M8.5 10 6 3.5h4L12 8l2-4.5h4L15.5 10"/><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M10.4 12.6h3.1l-1.6 1.8a1.5 1.5 0 1 1-1.4 2.2"/></svg>' },
       { kind: "points", label: "Points Champion", cls: "tk-points",
         icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 19.5h16"/><path fill="currentColor" d="M5.5 13h3v4.5h-3zM10.5 9h3v8.5h-3zM15.5 5h3v12.5h-3z"/></svg>' },
     ];

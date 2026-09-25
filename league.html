@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260923c">
+<meta name="gffl-v" content="20260925">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -1436,7 +1436,7 @@
   .trophycase .tcshelf:last-child { border-bottom:0; padding-bottom:2px; }
   .trophycase svg { flex:0 0 auto; }
   .tk-champ svg { color:var(--gold); } .tk-silver svg { color:#c3cbdb; }
-  .tk-points svg { color:var(--green); }
+  .tk-points svg { color:var(--green); } .tk-bronze svg { color:#d08c55; }
   .trophycase .tclabel { font:700 13px var(--font-display); letter-spacing:.5px; text-transform:uppercase; color:var(--ink); }
   .trophycase .tcyears { display:flex; flex-wrap:wrap; gap:8px; margin-left:auto; }
   .trophycase .tctoken { display:inline-flex; flex-direction:column; align-items:center; gap:1px;
@@ -2432,9 +2432,9 @@
        it is 8KB of plain script that defines window.BuckyPush and does NOTHING else at parse
        time — every Firebase SDK it needs is dynamic-imported on the first enable(). -->
   <script src="push-client.js"></script>
-  <script src="assets/league/lg-core.js?v=20260923c"></script>
-  <script src="assets/league/lg-data.js?v=20260923c"></script>
-  <script src="assets/league/lg-ui.js?v=20260923c"></script>
+  <script src="assets/league/lg-core.js?v=20260925"></script>
+  <script src="assets/league/lg-data.js?v=20260925"></script>
+  <script src="assets/league/lg-ui.js?v=20260925"></script>
   <script>
     "use strict";
     // navTo, not show: pressing a nav tab is a distinct gesture from opening a specific thing

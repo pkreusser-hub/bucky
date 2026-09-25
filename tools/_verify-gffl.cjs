@@ -5815,6 +5815,13 @@ async function openDetails(page, id) {
       hist_2023x: { kind: "hist", season: 2023, leagueName: "GFFL",
         teams: [{ id: 1, name: "Battle Kreussers", w: 12, l: 2, t: 0, pf: 1700, pa: 1500, place: 1 }],
         champion: { teamId: 1, name: "Battle Kreussers" }, matchups: [] },
+      // 2026-09-25: third place comes from awards_history (ESPN's final place 3). Another
+      // franchise's third must not hang here.
+      awards_history: { kind: "awards", awards: [
+        { year: 2018, teamId: 1, name: "Battle Kreussers", kind: "third" },
+        { year: 2016, teamId: 1, name: "Lucky Number Seven", kind: "third" },
+        { year: 2020, teamId: 3, name: "Wyoming Cowboys", kind: "third" },
+      ] },
     } };
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     const { ctx, page, errors } = await newTestPage(browser, seed);
@@ -5848,14 +5855,18 @@ async function openDetails(page, id) {
           return r ? c.getBoundingClientRect().top > r.getBoundingClientRect().top : false; })(),
       };
     });
-    ok(tc.shelves.map((s) => s.label).join("|") === "League Champion|Runner-Up|Points Champion",
-      "THREE shelves, fixed order — the seeded Toilet Bowl trophy exists on the doc and hangs NOWHERE (" + tc.shelves.map((s) => s.label).join(", ") + ")");
+    // RESTAGED 2026-09-25 (user: "add 3rd place trophies"): a Third Place shelf sits between
+    // Runner-Up and Points Champion; toilet still hangs nowhere.
+    ok(tc.shelves.map((s) => s.label).join("|") === "League Champion|Runner-Up|Third Place|Points Champion",
+      "FOUR shelves, fixed order — the seeded Toilet Bowl trophy exists on the doc and hangs NOWHERE (" + tc.shelves.map((s) => s.label).join(", ") + ")");
     const champ = tc.shelves[0];
     ok(champ.years.join() === "2023,2020,2011",
       "the champion shelf MERGES the hist title with the live trophies, deduped, newest first (" + champ.years.join() + ")");
     ok(champ.years.length === 3 && champ.iconsPerToken && !tc.anyCount,
       "…as THREE CUPS, one per title each wearing its year — no ×N count anywhere in the case");
-    ok(tc.shelves[2].years.join() === "2019,2011", "the Points Champion shelf carries its own year tokens (" + tc.shelves[2].years.join() + ")");
+    ok(tc.shelves[3].years.join() === "2019,2011", "the Points Champion shelf carries its own year tokens (" + tc.shelves[3].years.join() + ")");
+    ok(tc.shelves[2].years.join() === "2018,2016",
+      "the Third Place shelf reads this franchise's awards_history thirds, newest first — not team 3's 2020 (" + tc.shelves[2].years.join() + ")");
     ok(tc.shelves.every((s) => s.svg) && !tc.pictographs, "every shelf icon is inline SVG — zero emoji in the app's own chrome");
     ok(tc.belowRoster && tc.belowWall,
       "RESTAGED 2026-09-18: the case sits at the BOTTOM of My Team, below the roster and The wall — not under the hero (" + JSON.stringify({ belowRoster: tc.belowRoster, belowWall: tc.belowWall }) + ")");
