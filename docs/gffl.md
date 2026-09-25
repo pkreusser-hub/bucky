@@ -9794,3 +9794,33 @@ Krucial → 1018, new defunct Team Jones 1037 and Numbskulls and Nutz
 + points to 5; a `third` row per season 2016–2025). The trophy case's
 Third Place shelf (fb625e9) reads those rows. 2016 toilet bowl not
 recorded (unconfirmed).
+
+---
+
+## GFFL — pre-2016 history checked against MFL; 2012–2015 records are regular season (2026-09-25)
+
+User: verify everything before 2016 against MyFantasyLeague (league 31940
+in 2015; its `history` lists 2010 54729, 2011 76788, 2012 79062, 2013
+44221, 2014 14653 — all public, read through `api.myfantasyleague.com`;
+the old wwwNN hosts are dead or carry expired certificates).
+
+Matches MFL: 2010 and 2011 records (W-L-T, PF, PA) exactly; champions
+and runners-up 2011–2015; toilet bowls 2012–2015 (winner of MFL's
+"Towlet Bowl Championship" bracket). Points champions agree under the
+app's regular-season rule (MFL's standings PF includes playoff weeks,
+which is why its leaders differ in 2012, 2014, 2015). Not checkable on
+MFL: 2009 (pre-MFL) and the 2010 champion/runner-up (no games after
+week 13 on MFL).
+
+Fixed (user: yes): hist_2012–2015 `teams[]` counted playoff and
+consolation games in W-L-T, PF and PA, unlike 2010–2011 and every
+ESPN year. Recomputed from each doc's own matchups, weeks 1–13; that
+reproduces MFL's h2hwlt and PA for all 76 teams. Matchups are
+untouched (highest week etc. still see playoff games). Added the 2014
+third place (Wyoming Cowboys, won MFL's 3rd Place Game); 2015's 3rd
+Place Game has no result on MFL, 2012–2013 had none.
+
+Backup → masked PATCH → canonical re-read, all five verified. The first
+run's re-read compared raw JSON and stopped on Firestore's field order
+after hist_2012 was already correct (CLAUDE.md bites #9); its backup
+holds the original hist_2012, the second run's the other four.
