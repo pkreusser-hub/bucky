@@ -6605,12 +6605,16 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
-    ok(!!(await page.$('.bnav button[data-v="scores"]')), "bottom nav has a Scores tab");
-    await clickIn(page, '.bnav button[data-v="scores"]');
+    // RESTAGED 2026-09-27 (Sunday replaces Scores): the in-app Scores tab is gone — the bar's
+    // last entry is now the .bnavlink to sunday.html (see section T/SU), so there is no button
+    // to find or to light. The view itself is unchanged and is reached below via UI.navTo,
+    // the same gesture the removed button used to trigger (see UI.navTo in lg-ui.js).
+    ok(!(await page.$('.bnav button[data-v="scores"]')), "no in-app Scores tab — the bar's Scores entry is the sunday.html link now");
+    await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
     await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
-    ok((await page.evaluate(() => window.__GFFL__.UI.view)) === "scores", "nav click routes to the scores view");
-    ok((await page.evaluate(() => document.querySelector('.bnav button[data-v="scores"]').classList.contains("on"))),
-      "the Scores nav button highlights as active");
+    ok((await page.evaluate(() => window.__GFFL__.UI.view)) === "scores", "UI.navTo(\"scores\") still routes to the scores view");
+    ok((await page.evaluate(() => !document.querySelector('.bnav button[data-v="scores"]'))),
+      "…and no bnav button exists to highlight for it — nothing in the bar lights for Scores now");
     // RESTAGED 2026-09-15: GFFL pairings left this tab when the matchup chips
     // landed. Scores is the NFL board — week nav, then the selected-game /
     // compact-slate split. Pairings are asserted on the Matchup tab (TL).
@@ -6721,7 +6725,7 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
-    await clickIn(page, '.bnav button[data-v="scores"]');
+    await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
     await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
     const cols = await page.evaluate(() => {
       const split = document.querySelector("#scSplit");
@@ -6755,7 +6759,7 @@ async function openDetails(page, id) {
     await page.evaluate(() => window.__GFFL__.UI.show("league"));
     await page.waitForSelector(".mucard", { timeout: 9000 });
     await waitLive(page);
-    await clickIn(page, '.bnav button[data-v="scores"]');
+    await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
     await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
     const body = await page.evaluate(() => document.body.textContent);
     ok(!/ESPN league \(live\)/.test(body), "the ESPN fantasy card is hidden entirely when every matchup reads 0-0/0.0 (preseason/pre-draft — no signal)");
@@ -6782,19 +6786,26 @@ async function openDetails(page, id) {
     // entirely — where it now lives, and that it still works, is section AE's business. What
     // this section keeps asserting is the bar itself: six tabs, exactly these six, and no
     // stray link left behind in it.
-    const bar = await page.evaluate(() => ({
-      labels: [...document.querySelectorAll(".bnav button")].map((b) => b.textContent.trim()),
-      links: document.querySelectorAll(".bnav a, .bnav .bnavlink").length,
-    }));
+    const bar = await page.evaluate(() => {
+      const link = document.querySelector(".bnav .bnavlink");
+      return {
+        labels: [...document.querySelectorAll(".bnav button")].map((b) => b.textContent.trim()),
+        links: document.querySelectorAll(".bnav a, .bnav .bnavlink").length,
+        linkText: link && link.textContent.trim(),
+        linkHref: link && link.getAttribute("href"),
+      };
+    });
     // RESTAGED 2026-09-08 (user: "add a new page/tab to GFFL, 'Rosters'"). Seven tabs now —
     // Rosters sits after My Team. Item 16's "six" was the count that FIT, not a ceiling: the
     // seventh was measured in (section RS has the ink widths) with the phone type tightened.
-    ok(bar.labels.join("|") === "League|Matchup|My Team|Rosters|Moves|Chat|Scores",
-      "the bottom nav is seven tabs — Rules and Draft are still out, Rosters is in (" + bar.labels.join("|") + ")");
-    // RESTAGED 2026-09-27 (user: "add a tab for Sunday on GFFL"). What this defended was "no
-    // link LEFT BEHIND" when Rules and Draft moved to the League page, not "no link, ever". The
-    // bar now carries exactly one <a>, the Sunday tab, which leaves for sunday.html (section SU).
-    ok(bar.links === 1, "…and the bar's one link is the Sunday tab, nothing left behind (" + bar.links + ")");
+    // RESTAGED 2026-09-27 (user: "lets have Sunday replace the Scores tab in GFFL … Rename it
+    // to 'Scores'"). The in-app Scores BUTTON is gone — six buttons now — and the bar's one
+    // link (still sunday.html, the way Draft once was a real <a href>) is relabeled "Scores"
+    // rather than "Sunday" so the family sees the same word in the same slot.
+    ok(bar.labels.join("|") === "League|Matchup|My Team|Rosters|Moves|Chat",
+      "the bottom nav is six BUTTONS — Rules, Draft and now Scores are out of the button row (" + bar.labels.join("|") + ")");
+    ok(bar.links === 1 && bar.linkText === "Scores" && bar.linkHref === "sunday.html",
+      "…and the bar's one link reads \"Scores\" and still points at sunday.html (" + bar.linkText + " → " + bar.linkHref + ")");
     // Item 6: for two DIFFERENT tabs (different label widths — "League" vs "My Team"), the
     // active-tab underline's own bounding box is centered under its label at 390px. The
     // underline is a border-bottom on the button's OWN box, so its rendered rect === the
@@ -6846,8 +6857,9 @@ async function openDetails(page, id) {
       n: document.querySelectorAll(".bnav button").length, links: document.querySelectorAll(".bnav a").length,
     }));
     // RESTAGED 2026-09-08: seven, with Rosters (see the phone-side restage above).
-    // RESTAGED 2026-09-27: seven tabs plus the one Sunday link (see the phone-side restage above).
-    ok(deskBar.n === 7 && deskBar.links === 1, "desktop carries the same seven tabs plus the Sunday link (" + JSON.stringify(deskBar) + ")");
+    // RESTAGED 2026-09-27: six buttons plus the one link (now labeled "Scores", still
+    // sunday.html) — see the phone-side restage above.
+    ok(deskBar.n === 6 && deskBar.links === 1, "desktop carries the same six buttons plus the Scores link (" + JSON.stringify(deskBar) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
@@ -6871,9 +6883,9 @@ async function openDetails(page, id) {
     // type (600 11.5px / 1px) inks MATCHUP at 53.5px in this harness's Arial Narrow against 50px
     // of room, so it would fail here; the tightened phone type is what passes it (section RS
     // prints the numbers).
-    // 2026-09-27: eight entries (the Sunday link). Same measurement, tighter budget; the phone
-    // type went to 10.5px / .3px so MATCHUP still fits this harness's Arial Narrow.
-    ok(clipped.length === 0, "no clipped nav labels at 390px with eight entries (" + JSON.stringify(clipped) + ")");
+    // 2026-09-27: seven entries again (Scores' in-app tab is gone; the bar's link is relabeled
+    // "Scores" in its place). Phone type reverts to 600 11px / .5px, the 2026-09-08 measurement.
+    ok(clipped.length === 0, "no clipped nav labels at 390px with seven entries (" + JSON.stringify(clipped) + ")");
     const targets = await page.$$eval(".bnav button, .bnav .bnavlink", (els) => els.map((el) => el.getBoundingClientRect().height));
     ok(targets.every((h) => h >= 44), "every nav tab keeps a ≥44px touch target (" + targets.join(",") + ")");
     const widths = await page.$$eval(".bnav button", (els) => els.map((el) => Math.round(el.getBoundingClientRect().width)));
@@ -6988,7 +7000,7 @@ async function openDetails(page, id) {
       await page.waitForSelector(".lockerhead", { timeout: 9000 });
       await sweep(page, "locker (someone else's team — read-only view)");
 
-      await clickIn(page, '.bnav button[data-v="scores"]');
+      await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
       await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
       await sweep(page, "scores (NFL slate + fantasy scoreboard/fallback card)");
 
@@ -8531,7 +8543,7 @@ async function openDetails(page, id) {
       ok(fin.weekly === null, "…no weekly doc is ever written from a slate nobody has played");
       ok(!fin.stale || fin.stale.length === 0, "…and no week is reported stale (" + JSON.stringify(fin.stale) + ")");
       // Scores tab.
-      await clickIn(page, '.bnav button[data-v="scores"]');
+      await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
       await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 15000 });
       const sc = await page.evaluate(() => ({
         days: [...document.querySelectorAll(".scoreday h2")].map((e) => e.textContent.trim()),
@@ -9232,7 +9244,12 @@ async function openDetails(page, id) {
       console.log("  📸 shots/gffl_sim25_league_390.png");
       await shot("matchup", "gffl_sim25_matchup_390.png");
       await shot("moves", "gffl_sim25_moves_390.png");
-      await shot("scores", "gffl_sim25_scores_390.png");
+      // RESTAGED 2026-09-27 (Sunday replaces Scores): shot()'s click helper has no button left
+      // to find for "scores" — go through UI.show directly, the same way liveShot() above does.
+      await page.evaluate(() => window.__GFFL__.UI.show("scores"));
+      await sleep(900);
+      await page.screenshot({ path: path.join(ROOT, "shots", "gffl_sim25_scores_390.png"), fullPage: true });
+      console.log("  📸 shots/gffl_sim25_scores_390.png");
       await page.setViewport({ width: 1440, height: 900 });
       await clickIn(page, '.bnav button[data-v="league"]');
       await sleep(900);
@@ -11833,7 +11850,10 @@ async function openDetails(page, id) {
       ok(!nav.rules && !nav.draft, "the Rules tab and the Draft link are both gone from the nav");
       // RESTAGED 2026-09-08: seven tabs — the Rosters tab joined (section RS). Rules and Draft
       // are still links on the League page, which is what the rest of this block asserts.
-      ok(nav.labels.length === 7, "…seven tabs now, Rosters included (" + nav.labels.join("|") + ")");
+      // RESTAGED 2026-09-27 (Sunday replaces Scores): the in-app Scores button is gone too —
+      // six BUTTONS now (the seventh bar entry is the .bnavlink to sunday.html, asserted in T
+      // and SU, not counted here since this selector is `.bnav button` only).
+      ok(nav.labels.length === 6, "…six buttons now, Scores' tab folded into the Scores link (" + nav.labels.join("|") + ")");
       ok(nav.clipped.length === 0, "…and at 390px not one label clips — eight used to cut DRAFT to \"DR\" (" + JSON.stringify(nav.widths) + "px)");
 
       // Both links are on the League page, findable and tappable.
@@ -13171,7 +13191,7 @@ async function openDetails(page, id) {
       await bootPage(page);
       await waitOr(page, ".mucard");
       await waitLive(page);
-      await clickIn(page, '.bnav button[data-v="scores"]');
+      await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
       await waitFnOr(page, () => document.body.textContent.includes("NFL this week"));
       const cardIsButton = await evalOr(page, () => {
         const c = document.querySelector(".sccard");
@@ -13220,7 +13240,12 @@ async function openDetails(page, id) {
       ok(opened.view === "nflgame", "…tapping it selects the game (" + opened.view + ")");
       ok(opened.hash === "#nflgame=401900001" && opened.id === "401900001",
         "…the game rides in the hash, so a reload/share lands on the same game (" + opened.hash + ")");
-      ok(opened.scoresLit === true, "…and the Scores tab stays lit — the game is a SUB-view of Scores, not a nav entry of its own");
+      // RESTAGED 2026-09-27 (Scores tab removed, replaced by the sunday.html link): no bnav
+      // button carries data-v="scores" any more, so this can never read true. The invariant it
+      // protected — opening a game is a SUB-view, not a nav entry of its own — still holds; it
+      // now shows up as "nothing in the bar lights", the same state a real nav entry would have
+      // to fake.
+      ok(opened.scoresLit === false, "…and no bnav button lights for the game view either — Scores (and its nflgame sub-view) has no tab now, only the sunday.html link");
       ok(/DAL/.test(opened.head) && /PHI/.test(opened.head) && /10/.test(opened.head) && /14/.test(opened.head),
         "…the header carries both teams and both scores (" + String(opened.head).replace(/\s+/g, " ").trim() + ")");
       // RESTAGED 2026-09-15: phone Scores keeps the chip row, not a leaf page.
@@ -15430,7 +15455,12 @@ async function openDetails(page, id) {
       // RESTAGED 2026-09-15: there is no "‹ Scores" leaf. Opening a game from
       // Scores pushes #nflgame=; browser Back returns to #scores; the next Back
       // leaves Scores rather than re-entering the game.
-      await tapNav(page, "scores"); await waitView(page, "scores");
+      // RESTAGED 2026-09-27 (Sunday replaces Scores): tapNav can't reach Scores any more — its
+      // bnav button is gone, replaced by the sunday.html link — so this one entry goes through
+      // UI.navTo("scores") directly, the same call the removed button used to make (see
+      // UI.navTo in lg-ui.js), rather than a tap. Every other gesture in this section is still a
+      // real tap; only the affordance for Scores itself no longer exists to tap.
+      await evalOr(page, () => window.__GFFL__.UI.navTo("scores")); await waitView(page, "scores");
       const lenScores = await evalOr(page, () => history.length);
       await evalOr(page, () => window.__GFFL__.UI.openNflGame("401900001"));
       await waitView(page, "nflgame");
@@ -20242,7 +20272,7 @@ async function openDetails(page, id) {
       await pinSeedWeek1(page);
       await page.evaluate(() => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".mucard");
-      await clickIn(page, '.bnav button[data-v="scores"]');
+      await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
       await waitOr(page, "#scSlate .sccard");
       const sc = await evalOr(page, () => {
         // Full names now: PHI's card reads "Philadelphia Eagles"; DEN (no city in the
@@ -20334,7 +20364,7 @@ async function openDetails(page, id) {
       await pinSeedWeek1(page);
       await page.evaluate(() => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".mucard");
-      await clickIn(page, '.bnav button[data-v="scores"]');
+      await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
       await waitOr(page, ".scweeknav");
       ok((await evalOr(page, () => document.querySelector(".scweeklabel").textContent)) === "Week 1 · live",
         "the Scores tab opens on the LIVE week, and says so");
@@ -20942,7 +20972,7 @@ async function openDetails(page, id) {
       await bootPage(page);
       await waitOr(page, ".mucard");
       await waitLive(page);
-      await clickIn(page, '.bnav button[data-v="scores"]');
+      await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
       await waitOr(page, ".sccard");
       const sc = (await evalOr(page, () => {
         const img = document.querySelector(".sccard .sclogo");
@@ -21000,7 +21030,7 @@ async function openDetails(page, id) {
       ok(mu.same === true && mu.view === "matchup",
         "…the matchup rides its morph branch on the same seam — same crest node through a background refresh");
       // Scores: renderScores must NOT wipe an already-painted board on this path.
-      await clickIn(page, '.bnav button[data-v="scores"]');
+      await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
       await waitOr(page, ".sccard");
       const sc2 = (await evalOr(page, async () => {
         const img = document.querySelector(".sccard .sclogo");
@@ -21558,7 +21588,7 @@ async function openDetails(page, id) {
     await bootPage(page2);
     await waitOr(page2, ".mucard");
     await waitLive(page2);
-    await clickIn(page2, '.bnav button[data-v="scores"]');
+    await page2.evaluate(() => window.__GFFL__.UI.navTo("scores"));
     await waitOr(page2, ".scweeknav");
     // 2026-08-22 (coordinator review, follow-up A): the first cut's live fixture carried NO
     // period/clock/detail — thinner than reality (ESPN always sends status.period,
@@ -23976,17 +24006,21 @@ async function openDetails(page, id) {
         fontSize: cs.fontSize, tracking: cs.letterSpacing,
       };
     }) || { labels: [], box: [], room: [], ink: [], clipped: [], heights: [] };
-    ok(nav.labels.join("|") === "league|matchup|team|rosters|moves|chat|scores",
-      "the seventh tab is Rosters, fourth in the row after My Team (" + nav.labels.join("|") + ")");
-    // RESTAGED 2026-09-27: the Sunday link is an eighth equal flex item in the same bar.
-    // Hand-computed: 390px wide, 6px of padding a side, eight items → (390 − 12) / 8 = 47.25px,
-    // which rounds to 47.
-    ok(nav.box.length === 7 && nav.box.every((w) => w === 47),
-      "…each tab's box is (390 − 12) / 8 = 47.25px (" + nav.box.join("/") + ")");
+    // RESTAGED 2026-09-27 (Sunday replaces Scores): the in-app Scores button is gone, so
+    // ".bnav button" is six again, not seven — the bar's seventh entry is now the .bnavlink to
+    // sunday.html (relabeled "Scores"), asserted in sections T and SU, not counted by this
+    // button-only selector.
+    ok(nav.labels.join("|") === "league|matchup|team|rosters|moves|chat",
+      "six buttons — Rosters fourth after My Team, Scores folded into the bnavlink (" + nav.labels.join("|") + ")");
+    // RESTAGED 2026-09-27: back to seven ENTRIES in the bar (six buttons + one link), the
+    // 2026-09-08 measurement restored: 390px wide, 6px of padding a side, seven items →
+    // (390 − 12) / 7 = 54px.
+    ok(nav.box.length === 6 && nav.box.every((w) => w === 54),
+      "…each button's box is (390 − 12) / 7 = 54px (" + nav.box.join("/") + ")");
     const worst = nav.ink.length ? Math.max(...nav.ink) : 1e9;
     const worstRoom = nav.room.length ? Math.min(...nav.room) : 0;
     ok(worst <= worstRoom, "…and the widest label's INK fits its box's content room — a Range, not the button's box (worst ink " + worst + "px vs room " + worstRoom + "px)");
-    ok(nav.clipped.length === 0, "…no label clips at 390px with seven tabs (" + JSON.stringify(nav.clipped) + ")");
+    ok(nav.clipped.length === 0, "…no label clips at 390px with seven entries (" + JSON.stringify(nav.clipped) + ")");
     ok(nav.heights.every((h) => h >= 44), "…every tab still ≥44px tall (" + nav.heights.join(",") + ")");
     console.log("    · seven-tab ink at 390px (" + nav.fontSize + " / " + nav.tracking + "): " + nav.labels.map((l, i) => l + " " + nav.ink[i]).join(", "));
 
@@ -24163,7 +24197,10 @@ async function openDetails(page, id) {
     ok(dk.stripVisible === false, "…the crest strip is gone on a desktop — the grid shows everyone (offsetParent null)");
     ok(dk.nameBudget >= 200, "…the name column keeps ≥200px in a 376px card (" + dk.nameBudget + "px)");
     ok(dk.clipped === 0, "…no name clipped (" + dk.clipped + ")");
-    ok(dk.tabs === 7 && dk.lit === "rosters", "…seven tabs in the top strip, Rosters lit (" + dk.tabs + ", " + dk.lit + ")");
+    // RESTAGED 2026-09-27 (Sunday replaces Scores): six BUTTONS now — the seventh bar entry is
+    // the .bnavlink to sunday.html (relabeled "Scores"), which this button-only selector never
+    // counted as a tab in the first place.
+    ok(dk.tabs === 6 && dk.lit === "rosters", "…six tabs in the top strip, Rosters lit (" + dk.tabs + ", " + dk.lit + ")");
     ok(errors.length === 0, "0 page errors on the desktop");
     await ctx.close();
   }
@@ -26992,7 +27029,7 @@ async function openDetails(page, id) {
       await page.evaluate(() => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".mucard");
       await waitLive(page);
-      await clickIn(page, '.bnav button[data-v="scores"]');
+      await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
       await waitFnOr(page, () => document.querySelector("#scSplit") && document.querySelector("#scChips .scchip"));
       await waitFnOr(page, () => document.querySelector("#nflBody .nflhead"));
 
@@ -27073,8 +27110,10 @@ async function openDetails(page, id) {
       ok(swapped.chips >= 2 && swapped.chipsShown === true && swapped.on.some((c) => c.eid === "401900002" && c.on)
         && swapped.on.some((c) => c.eid === "401900001" && !c.on),
         "…the chip row stays, the new game is .on, and the previous game stays in its slot");
-      ok(swapped.kick === true && swapped.scoresLit === true,
-        "…the detail is the pre-game kickoff card, and Scores stays the lit tab");
+      // RESTAGED 2026-09-27 (Scores tab removed, replaced by the sunday.html link): there is no
+      // bnav button left to stay lit — see the SU section for the entry's own (never-lit) state.
+      ok(swapped.kick === true && swapped.scoresLit === false,
+        "…the detail is the pre-game kickoff card, and no bnav button lights (Scores has no tab any more)");
 
       await page.goBack().catch(() => {});
       await waitFnOr(page, () => window.__GFFL__.UI.view === "scores" && location.hash === "#scores");
@@ -27104,7 +27143,7 @@ async function openDetails(page, id) {
         await page.evaluate(() => window.__GFFL__.UI.show("league"));
         await waitOr(page, ".mucard");
         await waitLive(page);
-        await clickIn(page, '.bnav button[data-v="scores"]');
+        await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
         await waitFnOr(page, () => (document.querySelectorAll("#scChips .scchip") || []).length >= 10);
         const pan = await evalOr(page, () => {
           const row = document.querySelector("#scChips");
@@ -27134,7 +27173,7 @@ async function openDetails(page, id) {
       await page.evaluate(() => window.__GFFL__.UI.show("league"));
       await waitOr(page, ".mucard");
       await waitLive(page);
-      await clickIn(page, '.bnav button[data-v="scores"]');
+      await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
       await waitFnOr(page, () => document.querySelector("#scSplit") && document.querySelector("#nflBody .nflhead"));
       const desk = await evalOr(page, () => {
         const detail = document.querySelector("#nflBody");
@@ -28145,9 +28184,15 @@ async function openDetails(page, id) {
   // the muted POS · TEAM small and read the live stat row (a man ruled Out has
   // none) then the roster snapshot. Matchup hid the chip on line 2. Both now
   // sit next to the name and read LG.injuryOf (directory first).
-  if (section("SU · the Sunday tab — an eighth nav entry that leaves for sunday.html")) {
+  if (section("SU · the Scores entry — sunday.html replaces the in-app Scores tab")) {
   {
-    // ---- SU1: phone. The link, its place, and the eight-entry type budget.
+    // ---- SU1: phone. The link, its place, and the seven-entry type budget.
+    // RESTAGED 2026-09-27 (user: "lets have Sunday replace the Scores tab in GFFL … Rename it
+    // to 'Scores'"). This section used to prove the Sunday link as an EIGHTH, added entry.
+    // The in-app Scores tab (button data-v="scores") is gone now, and this same link — still
+    // sunday.html — takes over the word "Scores" and the bar's last slot, back to SEVEN
+    // entries. The type and box arithmetic revert to the 2026-09-08 seven-tab measurement
+    // (600 11px / .5px, (390 − 12) / 7 = 54px) — see section T's restage for the numbers.
     const { ctx, page } = await newTestPage(browser, fullSeed());
     await bootPage(page);
     await page.waitForSelector(".mucard", { timeout: 9000 });
@@ -28169,18 +28214,18 @@ async function openDetails(page, id) {
         linkColor: a && getComputedStyle(a).color, tabColor: getComputedStyle(document.querySelector('.bnav button:not(.on)')).color,
       };
     }) || { box: [], room: [], ink: [], heights: [], clipped: [], labels: [] };
-    ok(r.tag === "A" && r.href === "sunday.html" && r.text === "Sunday",
-      "the nav carries a Sunday link to sunday.html (" + r.tag + " " + r.href + " " + JSON.stringify(r.text) + ")");
-    ok(r.last && r.n === 8, "…as the eighth and last entry, after Scores (" + r.labels.join("|") + ")");
-    // Hand-computed: (390 − 12) / 8 = 47.25px for every entry, the link included.
-    ok(r.box.length === 8 && r.box.every((w) => Math.abs(w - 47.25) <= 0.5),
-      "…every entry's box is (390 − 12) / 8 = 47.25px (" + r.box.join("/") + ")");
+    ok(r.tag === "A" && r.href === "sunday.html" && r.text === "Scores",
+      "the nav's last entry is a link reading \"Scores\", still pointing at sunday.html (" + r.tag + " " + r.href + " " + JSON.stringify(r.text) + ")");
+    ok(r.last && r.n === 7, "…as the seventh and last entry (" + r.labels.join("|") + ")");
+    // Hand-computed: (390 − 12) / 7 = 54px for every entry, the link included.
+    ok(r.box.length === 7 && r.box.every((w) => Math.abs(w - 54) <= 0.5),
+      "…every entry's box is (390 − 12) / 7 = 54px (" + r.box.join("/") + ")");
     const worst = r.ink.length ? Math.max(...r.ink) : 1e9, room = r.room.length ? Math.min(...r.room) : 0;
     ok(worst <= room, "…the widest label's INK (a Range) fits the tightest box's content room (ink " + worst + "px vs room " + room + "px at " + r.font + " / " + r.ls + ")");
     ok(r.clipped.length === 0 && r.heights.every((h) => h >= 44), "…nothing clips and every entry keeps a ≥44px target (" + r.heights.join(",") + ")");
     ok(!r.on && r.linkColor === r.tabColor, "…it reads as an unselected tab, never lit (" + r.linkColor + " vs " + r.tabColor + ")");
-    console.log("    · eight-entry ink at 390px (" + r.font + " / " + r.ls + "): " + r.labels.map((l, i) => l + " " + r.ink[i]).join(", "));
-    // Tapping it really leaves for Sunday.
+    console.log("    · seven-entry ink at 390px (" + r.font + " / " + r.ls + "): " + r.labels.map((l, i) => l + " " + r.ink[i]).join(", "));
+    // Tapping it really leaves for Sunday, same navigation as before the rename.
     await Promise.all([page.waitForNavigation({ timeout: 9000 }).catch(() => null), page.click(".bnav .bnavlink")]);
     let path = ""; try { path = new URL(page.url()).pathname; } catch (e) { /* keep "" */ }
     ok(/\/sunday\.html$/.test(path), "…and tapping it opens sunday.html (" + path + ")");
@@ -28197,8 +28242,39 @@ async function openDetails(page, id) {
       const ra = a.getBoundingClientRect(), rm = m.getBoundingClientRect();
       return { top: Math.round(ra.top), mTop: Math.round(rm.top), h: Math.round(ra.height), mh: Math.round(rm.height), w: Math.round(ra.width) };
     }) || {};
-    ok(d.w > 0 && d.top === d.mTop && d.h === d.mh, "desktop: the Sunday link sits in the top strip, level with the tabs (" + JSON.stringify(d) + ")");
+    ok(d.w > 0 && d.top === d.mTop && d.h === d.mh, "desktop: the Scores link sits in the top strip, level with the tabs (" + JSON.stringify(d) + ")");
     ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  {
+    // ---- SU3 (new, 2026-09-27): the Scores VIEW is still in the app, reachable by UI.navTo
+    // and by hash, even with no bnav tab left to press it. Removing the TAB must never mean
+    // removing the VIEW — GFFL's own Scores (NFL slate + fantasy scoreboard) still exists for
+    // #scores, #nflgame=<id>, and UI.openNflGame from matchup chips.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    await page.evaluate(() => window.__GFFL__.UI.navTo("scores"));
+    await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+    // Reuse section S's own selector for "the NFL split painted" (#scSplit + #scSlate).
+    const viaNav = await evalOr(page, () => ({
+      view: window.__GFFL__.UI.view, hash: location.hash,
+      slate: !!(document.querySelector("#scSplit") && document.querySelector("#scSlate")),
+      lit: !!document.querySelector(".bnav button.on"),
+    })) || {};
+    ok(viaNav.view === "scores" && viaNav.hash === "#scores",
+      "UI.navTo(\"scores\") still opens the view with no tab left to press it (" + JSON.stringify(viaNav) + ")");
+    ok(viaNav.slate === true, "…and it paints the same NFL split section S checks (" + JSON.stringify(viaNav) + ")");
+    ok(viaNav.lit === false, "…with no bnav button lit — the view has no nav entry of its own now");
+    // A bookmark/reload on #scores — the deep-link path AJ4 already proves for every other
+    // view — must still land here too, tab or no tab.
+    await page.goto(BASE + "/league.html?fam=" + FAM + SIMOFF + "#scores", { waitUntil: "networkidle0" });
+    await page.waitForFunction(() => document.body.textContent.includes("NFL this week"), { timeout: 9000 });
+    const viaHash = await evalOr(page, () => ({ view: window.__GFFL__.UI.view, hash: location.hash })) || {};
+    ok(viaHash.view === "scores" && viaHash.hash === "#scores",
+      "…and #scores by itself (a bookmark/reload) lands on the view too (" + JSON.stringify(viaHash) + ")");
+    ok(errors.length === 0, "0 page errors reaching Scores with no tab");
     await ctx.close();
   }
   }

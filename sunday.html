@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Sunday</title>
+<title>Scores</title>
 <meta name="description" content="Live NFL scores, play-by-play and drive charts.">
 <meta name="theme-color" content="#0c1017">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Sunday">
+<meta name="apple-mobile-web-app-title" content="Scores">
 <script>try{document.documentElement.dataset.theme=JSON.parse(localStorage.getItem('sun.theme'))||'dark'}catch(e){document.documentElement.dataset.theme='dark'}</script>
 <link rel="manifest" href="sunday.webmanifest">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
@@ -19,14 +19,15 @@
 <link rel="preconnect" href="https://site.api.espn.com" crossorigin>
 <link rel="preconnect" href="https://a.espncdn.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Press+Start+2P&display=swap">
-<link rel="stylesheet" href="assets/sunday/sd.css?v=20260927k">
-<link rel="stylesheet" href="assets/sunday/sd-ff.css?v=20260927k">
+<link rel="stylesheet" href="assets/sunday/sd.css?v=20260927l">
+<link rel="stylesheet" href="assets/sunday/sd-ff.css?v=20260927l">
 </head>
 <body>
 
 <!-- The GFFL bar (2026-09-27, user: "its hard to get back to the GFFL from Sunday … that way the
      gffl bar can be present when on the Sunday page"). The same eight entries as league.html's
-     #bnav, each a link into the league at its view's hash, with Sunday lit. Phone: fixed at the
+     #bnav, each a link into the league at its view's hash. The last entry is this page, lit,
+     labelled Scores: it replaced GFFL's own Scores tab (2026-09-27). Phone: fixed at the
      bottom, where Sunday's own tab bar used to be. Desktop: GFFL's top strip. -->
 <nav class="gnav" id="gnav" aria-label="GFFL">
   <a href="league.html#league">League</a>
@@ -35,14 +36,13 @@
   <a href="league.html#rosters">Rosters</a>
   <a href="league.html#moves">Moves</a>
   <a href="league.html#chat">Chat</a>
-  <a href="league.html#scores">Scores</a>
-  <a href="sunday.html" aria-current="page">Sunday</a>
+  <a href="sunday.html" aria-current="page">Scores</a>
 </nav>
 
 <div id="board-view">
   <header class="topbar" id="topbar">
     <div class="topbar-row">
-      <div class="wordmark" aria-label="Sunday">SUNDAY<a class="wm-tag" href="league.html" aria-label="Open GFFL">GFFL</a></div>
+      <div class="wordmark" aria-label="Scores">SCORES<a class="wm-tag" href="league.html" aria-label="Open GFFL">GFFL</a></div>
       <div class="week-nav">
         <button class="icon-btn" id="week-prev" aria-label="Previous week"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
         <button class="week-label" id="week-label" aria-haspopup="dialog">Week</button>
@@ -56,19 +56,10 @@
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
     </div>
-    <!-- Sunday's own sections, moved up from the bottom tab bar into the row the filter chips
-         (All / Upsets / My Teams / AFC / NFC / Division) used to hold; the filters are gone. -->
-    <nav class="sections" id="tabbar" aria-label="Sunday sections">
-      <a href="#" data-tab="scores" aria-current="page">Scores</a>
-      <a href="#matchups" data-tab="matchups">Matchups</a>
-      <a href="#standings" data-tab="standings">Standings</a>
-    </nav>
   </header>
   <div class="status-line" id="status-line"></div>
   <div id="ff-head"></div>
   <main id="board" class="board" aria-live="polite"></main>
-  <main id="fan-page" class="page" hidden aria-label="Matchups"></main>
-  <main id="stand-page" class="page" hidden aria-label="Standings"></main>
   <footer class="foot">Scores and play-by-play from ESPN's public feed. Updates automatically while this page is open.</footer>
 </div>
 
@@ -80,10 +71,10 @@
 <div id="toasts" class="toasts" aria-live="polite"></div>
 <div id="celebrate" class="celebrate" hidden></div>
 
-<script src="assets/sunday/sd-app.js?v=20260927k"></script>
-<script src="assets/sunday/sd-features.js?v=20260927k"></script>
-<script src="assets/sunday/sd-fantasy.js?v=20260927k"></script>
-<script src="assets/sunday/sd-ffui.js?v=20260927k"></script>
-<script src="assets/sunday/sd-reenact.js?v=20260927k"></script>
+<script src="assets/sunday/sd-app.js?v=20260927l"></script>
+<script src="assets/sunday/sd-features.js?v=20260927l"></script>
+<script src="assets/sunday/sd-fantasy.js?v=20260927l"></script>
+<script src="assets/sunday/sd-ffui.js?v=20260927l"></script>
+<script src="assets/sunday/sd-reenact.js?v=20260927l"></script>
 </body>
 </html>

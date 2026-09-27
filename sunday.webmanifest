@@ -1,6 +1,6 @@
 {
-  "name": "Sunday: GFFL Live",
-  "short_name": "Sunday",
+  "name": "GFFL Scores",
+  "short_name": "Scores",
   "id": "/sunday.html",
   "start_url": "/sunday.html",
   "scope": "/",

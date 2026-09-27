@@ -18,7 +18,6 @@ const FFUI = {
   box: new Map(),      // eventId -> {t, state} of the last box-score pull
   core: new Map(),     // eventId -> {busy, t, n, text: Map(playId -> text)}
   prev: new Map(),     // roster key -> points at the last swing check (toast baseline)
-  openMatch: new Set(),
   renderTimer: null,
   pollTimer: null,
 };
@@ -247,8 +246,6 @@ function ffRefresh() {
     if (!S.loaded) return;
     ffSwings();
     renderBoard();
-    const page = $('#fan-page');
-    if (page && !page.hidden) ffRenderMatchupsPage(page);
     if (G && G.sum && !G.gate) {
       if (G.tab === 'fantasy' || G.tab === 'plays') renderTabBody();
       renderLastPlay(false);
@@ -312,7 +309,8 @@ function ffBoardHeader() {
   const statusBits = [];
   if (live.length) statusBits.push(`<span class="ffm-live">Playing now</span> ${live.slice(0, 5).map((r) => `<span class="ffm-p ${r.side}">${esc(ffShort(r.name))} ${ffPts(r.pts)}</span>`).join('')}`);
   statusBits.push(`<span class="ffm-left">You: ${left(A)} to play · ${esc(ffTeam(opp)?.abbrev || 'Them')}: ${left(B)} to play</span>`);
-  return `<a class="ffm" href="#matchups" aria-label="Your GFFL matchup, week ${FF.week}">
+  // Tapping your matchup opens it in GFFL (Sunday's own Matchups page is gone, 2026-09-27).
+  return `<a class="ffm" href="league.html#matchup" aria-label="Your GFFL matchup, week ${FF.week}. Open it in GFFL">
     <div class="ffm-top"><span class="ffm-lbl">GFFL · Week ${FF.week}</span>${pct == null ? '' : `<span class="ffm-wp">${pct}% to win</span>`}</div>
     <div class="ffm-row">${team(me, A, 'me')}<span class="ffm-vs">vs</span>${team(opp, B, 'opp')}</div>
     ${pct == null ? '' : `<div class="ffm-bar" role="img" aria-label="${pct}% win probability"><i style="width:${pct}%;background:${ffColor(me)}"></i><i style="background:${ffColor(opp)}"></i></div>`}
@@ -418,44 +416,6 @@ function ffTabFantasy(ev) {
   return `<div class="ff-tab">${html}</div>`;
 }
 
-// The Matchups page: all of this week's GFFL games live, yours first. Tap one to see both
-// starting lineups with each player's game state and points.
-function ffRenderMatchupsPage(el) {
-  if (!el) return;
-  if (!FFUI.ok) { el.innerHTML = '<div class="page-in"><div class="empty">Fantasy matchups load here.</div></div>'; return; }
-  if (!FFUI.loaded) { el.innerHTML = `<div class="page-in"><div class="empty">${FFUI.err ? 'GFFL league data is unavailable right now.' : 'Loading GFFL matchups…'}</div></div>`; return; }
-  const ms = [...FF.matchups];
-  const my = FF.myTeamId;
-  ms.sort((a, b) => (b.home === my || b.away === my) - (a.home === my || a.away === my));
-  if (my != null && !FFUI.openMatch.size) { const m = ms.find((x) => x.home === my || x.away === my); if (m) FFUI.openMatch.add(`${m.away}-${m.home}`); }
-  const slotRank = (s) => { const i = FF_SLOTS.indexOf(s); return i < 0 ? 99 : i; };
-  const stateLabel = (r) => {
-    if (r.state === 'bye') return '<span class="ffs bye">Bye</span>';
-    const ev = r.eventId && S.byId?.get(r.eventId);
-    if (r.state === 'in') return `<span class="ffs live">${ev ? esc(statusText(ev)) : 'Live'}</span>`;
-    if (r.state === 'post') return '<span class="ffs">Final</span>';
-    return `<span class="ffs">${ev ? esc(`${fmtDay(ev.date).split(',')[0]} ${fmtTime(ev.date)}`) : ''}</span>`;
-  };
-  const lineup = (id, sc) => sc.starters.slice().sort((a, b) => slotRank(a.slot) - slotRank(b.slot)).map((r) => `<button class="ffl ${r.state}" ${r.eventId ? `data-ff-game="${r.eventId}"` : 'disabled'}>
-      <span class="ffl-s">${esc(r.slot)}</span><span class="ffl-n">${esc(ffShort(r.name))}<small>${esc(r.nfl || '')} · ${stateLabel(r)}</small></span><b>${r.state === 'pre' || r.state === 'bye' && !r.pts ? `<i>${ffPts(r.proj)}</i>` : ffPts(r.pts)}</b></button>`).join('');
-  const card = (m) => {
-    const id = `${m.away}-${m.home}`;
-    const A = FF.teamScore(m.away), H = FF.teamScore(m.home);
-    const wpA = FF.winProb(m.away);
-    const pct = wpA == null ? null : Math.round(wpA * 100);
-    const mine = m.home === my || m.away === my;
-    const side = (tid, sc, w) => `<div class="ffx-t">${ffCrest(tid, 30)}<div class="ffx-n"><b>${esc(ffTeam(tid)?.name || '')}</b><small>${esc(ffTeam(tid)?.ownerFirst || '')}${w == null ? '' : ` · ${w}%`}</small></div><div class="ffx-s"><b>${ffTotal(sc.pts)}</b><small>proj ${ffTotal(sc.proj)}</small></div></div>`;
-    return `<details class="ffx${mine ? ' mine' : ''}" data-ff-m="${id}"${FFUI.openMatch.has(id) ? ' open' : ''}>
-      <summary>${side(m.away, A, pct)}${side(m.home, H, pct == null ? null : 100 - pct)}
-        ${pct == null ? '' : `<div class="ffm-bar"><i style="width:${pct}%;background:${ffColor(m.away)}"></i><i style="background:${ffColor(m.home)}"></i></div>`}</summary>
-      <div class="ffx-lu"><div>${lineup(m.away, A)}</div><div>${lineup(m.home, H)}</div></div>
-    </details>`;
-  };
-  const pick = `<label class="ff-pick">Your team <select id="ff-team-pick"><option value="">Choose…</option>${[...FF.teams.values()].map((t) => `<option value="${t.id}"${t.id === my ? ' selected' : ''}>${esc(t.name)}</option>`).join('')}</select></label>`;
-  const wkNote = ffBoardWeek() == null ? '<div class="empty">GFFL plays in regular-season weeks only.</div>' : '';
-  el.innerHTML = `<div class="page-in"><div class="page-h"><h2>GFFL · Week ${FF.week}</h2>${pick}</div>${wkNote}${ms.map(card).join('')}<p class="ff-foot">Live points use the league’s scoring rules and ESPN box scores. Official results are in <a href="/league.html">GFFL</a>.</p></div>`;
-}
-
 function ffAfterRender() {}
 
 /* ───────────── clicks ───────────── */
@@ -469,19 +429,11 @@ document.addEventListener('click', (e) => {
     FF.setMyTeam(id);
     return;
   }
-  const g = e.target.closest('[data-ff-game]');
-  if (g) { location.hash = 'g' + g.dataset.ffGame; }
 });
 document.addEventListener('change', (e) => {
   if (e.target.id !== 'ff-team-pick' || !FFUI.ok) return;
   const id = e.target.value === '' ? null : +e.target.value;
   store.set('team', id);
   FFUI.prev.clear();
-  FFUI.openMatch.clear();
   FF.setMyTeam(id);
 });
-document.addEventListener('toggle', (e) => {
-  const d = e.target;
-  if (!(d instanceof HTMLDetailsElement) || !d.dataset.ffM) return;
-  if (d.open) FFUI.openMatch.add(d.dataset.ffM); else FFUI.openMatch.delete(d.dataset.ffM);
-}, true);

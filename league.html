@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260927s">
+<meta name="gffl-v" content="20260927t">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -2180,14 +2180,18 @@
      worst label inks 47.9px (harness) / ~39px (Barlow) inside 52px of room. Desktop's strip is
      flex:0 0 auto and needed nothing. The Helvetica Neue no-webfont flash (63.7px) already
      clipped MATCHUP at SIX tabs and is unchanged in kind by this. */
-  /* EIGHT ENTRIES (2026-09-27, the Sunday link). Each box at 390px is (390 − 12) / 8 = 47.25px,
-     room 45.25px inside the 1px side padding. MEASURED at the seven-tab type (600 11px / .5px):
-     MATCHUP inks 39.0px in Barlow Condensed but 47.9px in the harness's Arial Narrow, past the
-     room. At 600 10.5px / .3px it inks 36.0px (Barlow) and fits the harness too; section SU
-     asserts ink ≤ room with a Range. */
+  /* SEVEN ENTRIES AGAIN (2026-09-27, Scores replaced by the Sunday link). The 2026-09-27 Sunday
+     entry briefly made eight and dropped the type to 600 10.5px / .3px for that width. This
+     change removes the in-app Scores tab (button data-v="scores") and repoints the bar's last
+     entry — the Sunday link — to read "Scores" instead, so the bar is back to seven entries and
+     the 2026-09-08 seven-tab measurement applies again: each box at 390px is (390 − 12) / 7 =
+     54px, 52px of room. MEASURED at that setting (600 11px / .5px tracking / 1px padding):
+     MATCHUP inks ~39px in Barlow Condensed (what the family sees) and 47.9px in the harness's
+     Arial Narrow fallback (headless Chrome blocks fonts.googleapis) — both inside the 52px
+     room. */
   .bnav button, .bnav .bnavlink { flex:1 1 0; background:none; border:none; border-bottom:2px solid transparent;
                  color:var(--faint); min-height:44px; text-align:center;
-                 font:600 10.5px var(--font-display); letter-spacing:.3px; text-transform:uppercase;
+                 font:600 11px var(--font-display); letter-spacing:.5px; text-transform:uppercase;
                  padding:6px 1px; cursor:pointer; text-decoration:none; display:flex;
                  align-items:center; justify-content:center; box-sizing:border-box; }
   .bnav button.on { color:var(--accent); border-bottom-color:var(--accent); }
@@ -2411,13 +2415,16 @@
     <button data-v="rosters">Rosters</button>
     <button data-v="moves">Moves</button>
     <button data-v="chat">Chat</button>
-    <button data-v="scores">Scores</button>
-    <!-- Sunday (2026-09-27, user: "add a tab for Sunday on GFFL"). The EIGHTH entry in the bar,
-         and a real <a href> the way Draft once was: it leaves for sunday.html (live NFL scores
-         with every play's GFFL points), it is not an in-app view, so the .bnav button click
-         loop and the .on highlight never touch it. Sunday reads gffl_team from this origin's
-         localStorage, so it opens on the viewer's own matchup with no picker. -->
-    <a class="bnavlink" href="sunday.html">Sunday</a>
+    <!-- Scores (2026-09-27, user: "lets have Sunday replace the Scores tab in GFFL … Rename it
+         to 'Scores'"). This replaces the in-app Scores tab above (button data-v="scores",
+         removed): the bar's seventh and last entry is now a real <a href> to sunday.html, the
+         way Draft once was — it leaves the page rather than opening an in-app view, so the
+         .bnav button click loop and the .on highlight never touch it. Sunday reads gffl_team
+         from this origin's localStorage, so it opens on the viewer's own matchup with no
+         picker. GFFL's own Scores VIEW is unchanged and still reachable — #scores,
+         #nflgame=<id>, and UI.openNflGame from matchup chips all still open it — it simply has
+         no tab of its own now, so nothing in the bar ever lights for it. -->
+    <a class="bnavlink" href="sunday.html">Scores</a>
     <!-- Item 16 (2026-08-09, user: "lets remove the tabs for rules and draft, put a link to
          each in the league page instead"). Rules and Draft used to live here — eight entries
          in one row, which is why DRAFT clipped to "DR" at 390px. Both now live on the League

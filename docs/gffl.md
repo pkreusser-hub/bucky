@@ -9866,3 +9866,68 @@ Full battery **4088/4089**. The one failure is AG's "longest opponent
 line now that the designation is not on it" (every value `undefined`);
 it fails identically with this change's league.html and suite swapped
 back to HEAD, so it was already failing on main before this change. Left for its own fix.
+
+---
+
+## GFFL — Scores tab is now Sunday (2026-09-27)
+
+User: "lets have Sunday replace the Scores tab in GFFL … Rename it to
+'Scores'."
+
+Two weeks ago the Sunday link was added as an EIGHTH bar entry
+alongside the in-app Scores tab. This inverts that: the in-app Scores
+TAB (`<button data-v="scores">`) is gone, and the Sunday link — still a
+real `<a href="sunday.html">`, the way Draft has been since item 16 —
+takes over the word "Scores" and the bar's last slot. Seven entries
+again, not eight.
+
+GFFL's own Scores VIEW (the NFL slate + family ESPN fantasy
+scoreboard) is untouched — no view code was deleted. It is still
+reachable by `#scores`, by `#nflgame=<id>`, and by `UI.openNflGame`
+from a matchup chip; it simply has no bar entry of its own any more,
+so nothing in `.bnav` ever lights for it (`navName` "scores" lights
+nothing, same as Rules since item 16).
+
+Phone type, reverted. Eight entries had tightened the bar to `600
+10.5px` / `.3px` tracking, each box (390 − 12) / 8 = 47.25px. Seven
+entries restores the 2026-09-08 measurement: `600 11px` / `.5px`
+tracking, each box (390 − 12) / 7 = 54px, 52px of room. MATCHUP —
+still the worst label — inks ~39px in Barlow Condensed (what the
+family sees) and 47.9px in the harness's Arial Narrow fallback
+(headless Chrome blocks fonts.googleapis), both inside the 52px room.
+
+`gffl-v` → `20260927t` so installed copies pick up the new bar.
+
+Files: `league.html`, `tools/_verify-gffl.cjs`.
+
+RESTAGED, reasons at the checks — every place the suite asserted the
+Scores TAB exists or lights (section S's own boot into the view,
+`scoresLit` in AH2 and TM, the labels/count checks in T, AE5, RS1) now
+says the tab is gone and nothing lights, since the entry is the
+`.bnavlink` to sunday.html. The 18 `clickIn(page, '.bnav
+button[data-v="scores"]')` calls that only existed to REACH the view
+are now `UI.navTo("scores")` in a `page.evaluate` — the same call the
+removed button used to make (see `UI.navTo` in lg-ui.js) — including
+one more the grep for that selector missed: AJ's `tapNav` helper is
+deliberately not `UI.go`/`UI.navTo` for every other tab (the button
+click IS the gesture under test), but Scores no longer has a button
+for it to tap, so that one entry goes through `UI.navTo` directly, with
+a comment explaining why it is the exception. Section SU is now titled
+"the Scores entry" and asserts: link text "Scores", href sunday.html,
+last of SEVEN entries, every box 54px, ink ≤ room by Range at 11px /
+.5px, ≥44px targets, never lit, tapping it opens sunday.html, desktop
+level with the tabs. A new SU check proves the Scores view survives
+losing its tab: `UI.navTo("scores")` and a cold `#scores` deep link
+both still paint the same NFL split section S checks, with no bnav
+button lit either way.
+
+**VERIFY:** `--only S,T,AE,RS,SU,TM,AJ` **330/330** (S, TM and AJ
+weren't in the assignment's own list — TM's `scoresLit` assertions and
+AJ's `tapNav("scores")` both broke on the first pass and needed the
+same restage). Bite (HEAD league.html, suite unchanged): **14 fail** —
+the tab still there, eight-wide boxes, `scoresLit` reading true, the
+Sunday link still literally named "Sunday".
+
+Full battery **4093/4094**. The one failure is AG's pre-existing
+"longest opponent line" bug (every value `undefined`) — unchanged by
+this change, left for its own fix, same as the last two entries.

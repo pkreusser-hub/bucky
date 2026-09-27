@@ -1,6 +1,6 @@
 # Sunday — live NFL scores with GFFL fantasy points
 
-`sunday.html` (served at `/sunday`) is an NFL port of Saturday, the college-football scores app
+`sunday.html` (served at `/sunday`; called "Scores" on screen and in GFFL's nav since 2026-09-27) is an NFL port of Saturday, the college-football scores app
 built on 2026-09-26, with the GFFL league layered on top. It reads the league; it never writes it.
 
 ## Files
@@ -9,7 +9,7 @@ built on 2026-09-26, with the GFFL league layered on top. It reads the league; i
 |---|---|
 | `sunday.html`, `sunday.webmanifest` | page shell, home-screen manifest (reuses the GFFL icons) |
 | `assets/sunday/sd-app.js` | scoreboard, game view, SVG field, polling. Fantasy hook list at the top |
-| `assets/sunday/sd-features.js` | Matchups/Standings pages, team pages, settings sheet |
+| `assets/sunday/sd-features.js` | key moments, team pages, settings sheet (theme, your GFFL team) |
 | `assets/sunday/sd-reenact.js` | the 8-bit play re-enactment, parsing NFL play text |
 | `assets/sunday/sd-fantasy.js` | fantasy engine: league load, scoring, per-play credit, projections. No markup |
 | `assets/sunday/sd-ffui.js` | fantasy UI: implements the `ff*` hooks, box-score polling, swing toasts |
@@ -107,3 +107,17 @@ with Sunday's bar sticking under it. The game view (z-index 40) still covers it,
 tab bar. Cache-bust ?v=20260927k.
 
 VERIFY: sunday 62/62 (11 new checks), sunday-ff 53/53. Bite: the previous page fails 8.
+
+## 2026-09-27 — Sunday is GFFL's Scores; Matchups and Standings pages removed
+
+Perry: "lets have Sunday replace the Scores tab in GFFL, but lets ditch the matchup and standings
+pages in Sunday. Rename it to 'Scores'". The page is called Scores (title, wordmark, manifest; the
+file stays sunday.html). Its copy of the GFFL bar matches league.html's new seven entries, the last
+being this page, lit, as Scores, at GFFL's seven-tab type (600 11px / .5px; 54px boxes at 390px,
+MATCHUP ink 39px in 52px of room). The Matchups page (`ffRenderMatchupsPage`), the Standings page
+and the Scores/Matchups/Standings row are gone; an old `#matchups` / `#standings-*` link lands on
+the board with the hash cleared. The matchup header now opens `league.html#matchup`. "Your GFFL
+team" moved from the Matchups page to the Settings sheet. Cache-bust ?v=20260927l.
+
+VERIFY: sunday 65/65 (section "GFFL bar; one page" restaged, 3 new checks), sunday-ff 53/53. Bite:
+the previous Sunday files fail 7.

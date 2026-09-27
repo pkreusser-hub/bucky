@@ -344,7 +344,11 @@ async function main() {
     // standings to where the my teams, conferences are and get rid of those entirely, that way the
     // gffl bar can be present when on the Sunday page". A visitor who once picked "My Teams" must
     // not be stuck with a filtered board and no chips to clear it, so reload with one saved.
-    section("GFFL bar + sections row");
+    // RESTAGED 2026-09-27 (user: "lets have Sunday replace the Scores tab in GFFL, but lets ditch
+    // the matchup and standings pages in Sunday. Rename it to 'Scores'"). The bar is GFFL's seven
+    // entries now: GFFL's own Scores tab is gone and this page, lit, takes its place and name. The
+    // Scores/Matchups/Standings row is gone with the two pages it switched to.
+    section("GFFL bar; one page");
     await page.setViewport({ width: 390, height: 844 });
     await page.evaluate(() => localStorage.setItem("sun.filter", JSON.stringify("mine")));
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -355,7 +359,7 @@ async function main() {
       const links = g ? [...g.querySelectorAll("a")] : [];
       const cs = links[0] ? getComputedStyle(links[0]) : null;
       const ink = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().width; };
-      const secs = [...document.querySelectorAll("#topbar .sections a")];
+      const secs = [...document.querySelectorAll("#topbar .sections a, #tabbar a")];
       const gr = g && g.getBoundingClientRect();
       return {
         labels: links.map((a) => a.textContent.trim()), hrefs: links.map((a) => a.getAttribute("href")),
@@ -368,23 +372,48 @@ async function main() {
         sections: secs.map((a) => a.textContent.trim()), secHrefs: secs.map((a) => a.getAttribute("href")),
         chips: !!document.getElementById("chips"), oldTabbar: !!document.querySelector(".tabbar"),
         filter: S.filter,
+        pages: ["fan-page", "stand-page"].filter((id) => document.getElementById(id)),
+        title: document.title, wordmark: (document.querySelector(".wordmark")?.firstChild?.textContent || "").trim(),
       };
     });
-    ok(nav.labels.join("|") === "League|Matchup|My Team|Rosters|Moves|Chat|Scores|Sunday",
-      `the GFFL bar carries GFFL's eight entries in GFFL's order (${nav.labels.join("|")})`);
-    ok(nav.hrefs.slice(0, 7).join(" ") === "league.html#league league.html#matchup league.html#team league.html#rosters league.html#moves league.html#chat league.html#scores",
-      `…each league entry links to its GFFL view (${nav.hrefs.slice(0, 7).join(" ")})`);
-    ok(nav.current.join() === "Sunday", `…and Sunday is the lit one (${JSON.stringify(nav.current)})`);
+    ok(nav.labels.join("|") === "League|Matchup|My Team|Rosters|Moves|Chat|Scores",
+      `the GFFL bar carries GFFL's seven entries in GFFL's order (${nav.labels.join("|")})`);
+    ok(nav.hrefs.slice(0, 6).join(" ") === "league.html#league league.html#matchup league.html#team league.html#rosters league.html#moves league.html#chat",
+      `…each league entry links to its GFFL view, and none to GFFL's old Scores view (${nav.hrefs.join(" ")})`);
+    ok(nav.current.join() === "Scores" && nav.hrefs[6] === "sunday.html", `…and the lit one is this page, named Scores (${JSON.stringify(nav.current)} → ${nav.hrefs[6]})`);
+    ok(nav.title === "Scores" && nav.wordmark === "SCORES", `the page itself is called Scores (title ${JSON.stringify(nav.title)}, wordmark ${JSON.stringify(nav.wordmark)})`);
     ok(nav.position === "fixed" && nav.atBottom === 0, `phone: the bar is fixed to the bottom edge (${nav.position}, ${nav.atBottom}px from the bottom)`);
-    // Hand-computed: 390px wide, 6px padding a side, eight equal items → (390 − 12) / 8 = 47.25px.
-    ok(nav.box.length === 8 && nav.box.every((w) => Math.abs(w - 47.25) <= 0.5), `…every entry's box is (390 − 12) / 8 = 47.25px (${nav.box.join("/")})`);
+    // Hand-computed: 390px wide, 6px padding a side, seven equal items → (390 − 12) / 7 = 54px.
+    ok(nav.box.length === 7 && nav.box.every((w) => Math.abs(w - 54) <= 0.5), `…every entry's box is (390 − 12) / 7 = 54px (${nav.box.join("/")})`);
     const worstInk = Math.max(...nav.ink), leastRoom = Math.min(...nav.room);
     ok(nav.fontOk && worstInk <= leastRoom, `…the widest label's ink fits its box (Range: ${worstInk}px vs ${leastRoom}px room, Barlow loaded: ${nav.fontOk})`);
     ok(nav.heights.every((h) => h >= 44), `…every entry keeps a ≥44px target (${nav.heights.join(",")})`);
-    ok(nav.sections.join("|") === "Scores|Matchups|Standings" && nav.secHrefs.join(" ") === "# #matchups #standings",
-      `Scores / Matchups / Standings sit in the top bar (${nav.sections.join("|")})`);
+    ok(nav.sections.length === 0 && nav.pages.length === 0,
+      `no Matchups or Standings: no section row, no pages (${JSON.stringify(nav.sections)} ${JSON.stringify(nav.pages)})`);
     ok(!nav.chips && !nav.oldTabbar, `the filter chips and Sunday's old bottom tab bar are gone (chips ${nav.chips}, old bar ${nav.oldTabbar})`);
     ok(nav.filter === "all", `a filter saved by an earlier visit ("mine") no longer hides games (S.filter = ${JSON.stringify(nav.filter)})`);
+    // An old #matchups / #standings link (a bookmark, a home-screen shortcut) lands on the board.
+    const old = [];
+    for (const h of ["#matchups", "#standings-nfc-north"]) {
+      await page.evaluate((h) => { location.hash = h; }, h);
+      await new Promise((r) => setTimeout(r, 150));
+      old.push(await page.evaluate(() => ({ hash: location.hash, board: !!document.getElementById("board")?.offsetParent })));
+    }
+    ok(old.every((o) => o.hash === "" && o.board), `an old #matchups or #standings link shows the board, hash cleared (${JSON.stringify(old)})`);
+    // Changing your GFFL team moved to Settings with the Matchups page gone.
+    const pick = await page.evaluate(() => {
+      FF.setTeams([{ teamId: 1, name: "Battle Kreussers" }, { teamId: 9, name: "Scruffy Looking Nerfherders" }]);
+      FF.setMyTeam(9);
+      openSettings();
+      const sel = document.querySelector("#week-sheet #ff-team-pick");
+      const out = { opts: sel ? [...sel.options].map((o) => o.textContent) : null, chosen: sel && sel.value };
+      if (sel) { sel.value = "1"; sel.dispatchEvent(new Event("change", { bubbles: true })); }
+      out.after = FF.myTeamId; out.stored = localStorage.getItem("sun.team");
+      document.querySelector("#week-sheet [data-close]")?.click();
+      return out;
+    });
+    ok(pick.opts && pick.opts.join("|") === "Choose…|Battle Kreussers|Scruffy Looking Nerfherders" && pick.chosen === "9" && pick.after === 1 && pick.stored === "1",
+      `Settings carries "Your GFFL team"; picking one switches the page and remembers it (${JSON.stringify(pick)})`);
     await page.setViewport({ width: 1280, height: 900 });
     const desk = await page.evaluate(() => {
       const g = document.getElementById("gnav").getBoundingClientRect(), t = document.getElementById("topbar");

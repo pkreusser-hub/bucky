@@ -80,7 +80,7 @@
    see its own header comment; defined here so the two files snap together without either
    one importing the other):
      ffOnBoard(events), ffOnSummary(ev, rawSummary), ffTabFantasy(ev), ffCardExtra(ev),
-     ffPlayExtra(ev, play), ffBoardHeader(), ffGameWeight(ev), ffRenderMatchupsPage(el),
+     ffPlayExtra(ev, play), ffBoardHeader(), ffGameWeight(ev),
      ffAfterRender().
 */
 (function (root) {

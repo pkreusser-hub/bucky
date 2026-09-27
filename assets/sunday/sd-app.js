@@ -18,8 +18,7 @@
    ffTabFantasy(ev)          — if defined, a "Fantasy" tab is inserted FIRST in TABS and made the
                                default tab; its body is this function's HTML, re-rendered with the
                                other tabs on each summary update.
-   ffRenderMatchupsPage(el)  — renders the Matchups page (#fan-page); called again on each board
-                               poll while that page is visible.
+   (ffRenderMatchupsPage went with the Matchups page, 2026-09-27.)
    ffAfterRender()           — after renderBoard() and after each game-view render.
    Each call site guards with `typeof fn === 'function'`, so the page works with sd-fantasy.js
    absent or 404ing. */
@@ -1208,7 +1207,10 @@ function route() {
   if (G) closeGameView(false);
   if (t) { openTeamView(t[1]); return; }
   if (T) closeTeamView();
-  showTab(h === '#matchups' ? 'matchups' : h.startsWith('#standings') ? 'standings' : 'scores');
+  // The Matchups and Standings pages are gone (2026-09-27); an old #matchups / #standings link
+  // lands on the board with its hash cleared.
+  if (h === '#matchups' || h.startsWith('#standings')) history.replaceState(null, '', location.pathname + location.search);
+  showTab('scores');
 }
 
 /* The 8-bit view goes first. While it's on screen, a new play shows up there before anywhere

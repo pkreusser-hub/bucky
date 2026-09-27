@@ -1,5 +1,5 @@
 'use strict';
-/* Sunday, part 2: key moments + highlights, standings, team pages and settings.
+/* Sunday, part 2: key moments + highlights, team pages and settings.
    Loaded after sd-app.js and uses its globals (S, G, $, esc…). No rankings (the NFL has none)
    and no push alerts (see docs/tooling.md house rules for this port). */
 
@@ -73,93 +73,16 @@ document.addEventListener('click', (e) => {
   const vb = e.target.closest('[data-vid]');
   if (vb) { openVideo(+vb.dataset.vid); return; }
 });
-/* ═════════════ Sections: Scores / Matchups / Standings ═════════════ */
+/* ═════════════ One page: the scores board ═════════════
+   2026-09-27, user: "lets have Sunday replace the Scores tab in GFFL, but lets ditch the matchup and
+   standings pages in Sunday. Rename it to 'Scores'." GFFL's own Matchup view has the matchups;
+   showTab stays as the one place the board is shown from (route() calls it). */
 S.tab = 'scores';
-function showTab(tab) {
-  const changed = S.tab !== tab;
-  S.tab = tab;
-  const scores = tab === 'scores';
-  $('#board').hidden = !scores;
-  $('#status-line').hidden = !scores;
-  $('.week-nav').hidden = !scores;
-  $('.foot').hidden = !scores;
-  $('#fan-page').hidden = tab !== 'matchups';
-  $('#stand-page').hidden = tab !== 'standings';
-  document.querySelectorAll('#tabbar a').forEach((a) => (a.dataset.tab === tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
+function showTab() {
+  const changed = S.tab !== 'scores';
+  S.tab = 'scores';
   if (changed) window.scrollTo(0, 0);
-  if (tab === 'matchups') renderMatchupsPage();
-  if (tab === 'standings') loadStandings(location.hash.split('-')[1] || S.standConf || favDivision() || 'afc-east');
 }
-function favDivision() {
-  for (const id of S.favs) { const e = S.events.find((x) => x.home.id === id || x.away.id === id); if (e) return e.home.id === id ? e.home.conf : e.away.conf; }
-  return null;
-}
-function renderMatchupsPage() {
-  const el = $('#fan-page');
-  if (typeof ffRenderMatchupsPage === 'function') ffRenderMatchupsPage(el);
-  else if (!el.innerHTML) el.innerHTML = '<div class="page-in"><div class="empty"><h3>Fantasy matchups load here.</h3></div></div>';
-}
-function afterBoard() {
-  if (S.tab === 'matchups') renderMatchupsPage();
-  if (S.tab === 'standings' && S.stand) renderStandings();
-}
-
-/* Standings — NFL: 2 conferences of 4 divisions each. ?level=3 is what returns the division
-   groupings; the plain (no-level) endpoint only goes down to conference. */
-const CONFS = FILTERS.filter((f) => /^(afc|nfc)-/.test(f.id));
-async function loadStandings(conf) {
-  S.standConf = conf;
-  S.standCache = S.standCache || {};
-  const page = $('#stand-page');
-  const c = S.standCache[conf];
-  if (c && Date.now() - c.at < 10 * 60e3) { S.stand = c; renderStandings(); return; }
-  if (!page.innerHTML) page.innerHTML = '<div class="page-in"><div class="skel-card"><i class="hd"></i><i class="row"></i><i class="row"></i></div></div>';
-  try {
-    if (!S.standAll || Date.now() - S.standAllAt > 10 * 60e3) {
-      const d = await getJSON('https://site.api.espn.com/apis/v2/sports/football/nfl/standings?level=3');
-      const all = {};
-      for (const confG of d.children || []) {
-        for (const div of confG.children || []) {
-          // Key by our own division id (derived from a team already in the group), not ESPN's
-          // own naming, so it lines up with the FILTERS/TEAM_DIVISION table used everywhere else.
-          const key = TEAM_DIVISION[div.standings?.entries?.[0]?.team?.abbreviation] || div.name;
-          all[key] = { name: div.name, entries: div.standings?.entries || [] };
-        }
-      }
-      S.standAll = all;
-      S.standAllAt = Date.now();
-    }
-    const g = S.standAll[conf] || { name: DIVISION_LABEL[conf] || conf, entries: [] };
-    S.stand = S.standCache[conf] = { conf, name: DIVISION_LABEL[conf] || g.name, groups: [{ name: '', entries: g.entries }], at: Date.now() };
-    if (S.standConf === conf) renderStandings();
-  } catch { page.innerHTML = `<div class="page-in"><div class="empty"><h3>Can’t load standings</h3><button class="btn" data-conf-pick="${esc(conf)}">Try again</button></div></div>`; }
-}
-function renderStandings() {
-  const st = S.stand;
-  const val = (e, type) => e.stats.find((s) => s.type === type)?.displayValue ?? '';
-  const seed = (e) => +(e.stats.find((s) => s.type === 'playoffseed')?.value) || 99;
-  const liveIds = new Set(S.events.filter((x) => x.state === 'in').flatMap((x) => [x.home.id, x.away.id]));
-  const tables = st.groups.map((g) => {
-    const rows = [...g.entries].sort((a, b) => seed(a) - seed(b)).map((e, i) => {
-      const t = e.team;
-      const tm = { id: t.id, abbr: t.abbreviation, color: hex(t.color, '#555555'), logo: t.logos?.[0]?.href || '' };
-      return `<tr><td class="st-n">${i + 1}</td><td><a class="st-team" href="#t${t.id}">${logoImg(tm, 22)}<span>${esc(t.location || t.shortDisplayName || t.displayName)}</span>${liveIds.has(t.id) ? '<i class="ldot" title="Playing now"></i>' : ''}${S.favs.has(t.id) ? '<i class="fav-star" aria-label="Following">★</i>' : ''}</a></td>
-        <td>${esc(val(e, 'total'))}</td><td>${esc(val(e, 'divisionrecord'))}</td><td>${esc(val(e, 'winpercent'))}</td><td class="st-strk">${esc(val(e, 'streak'))}</td><td>${esc(val(e, 'pointsfor'))}-${esc(val(e, 'pointsagainst'))}</td></tr>`;
-    }).join('');
-    return `${g.name ? `<div class="box-t">${esc(g.name)}</div>` : ''}<div class="tscroll"><table class="st"><thead><tr><th></th><th>Team</th><th>Overall</th><th>Div</th><th>PCT</th><th class="st-strk">Streak</th><th>PF-PA</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  }).join('');
-  $('#stand-page').innerHTML = `<div class="page-in">
-    <div class="page-h"><h2>${esc(st.name || 'Standings')}</h2></div>
-    <nav class="chips conf-chips" aria-label="Division">${CONFS.map((c) => `<button class="chip" data-conf-pick="${c.id}" aria-pressed="${c.id === st.conf}">${esc(c.label)}</button>`).join('')}</nav>
-    ${tables}
-    <p class="page-sub">W-L-T, PCT, division record and streak. <i class="ldot"></i> playing now.</p>
-  </div>`;
-  requestAnimationFrame(() => $('#stand-page .conf-chips [aria-pressed="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
-}
-$('#stand-page').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-conf-pick]');
-  if (b) { history.replaceState(null, '', '#standings-' + b.dataset.confPick); loadStandings(b.dataset.confPick); }
-});
 
 /* ═════════════ Team pages ═════════════ */
 let T = null;
@@ -227,11 +150,19 @@ function renderTeam() {
 /* ═════════════ Settings: appearance only ═════════════ */
 // No push alerts, no service worker, no api/* calls in this port — the settings sheet keeps only
 // the Day/Night appearance control and a link out to the league.
+// "Your GFFL team" — changing it used to live on the Matchups page. GFFL's own login (gffl_team)
+// picks it on first visit; this overrides it for this device (sun.team, see sd-ffui.js).
+function ffTeamPickHtml() {
+  if (typeof FF === 'undefined' || !FF.teams || !FF.teams.size) return '';
+  const opts = [...FF.teams.values()].map((t) => `<option value="${t.id}"${t.id === FF.myTeamId ? ' selected' : ''}>${esc(t.name)}</option>`).join('');
+  return `<h5>Your GFFL team</h5><select id="ff-team-pick" class="set-select" aria-label="Your GFFL team"><option value="">Choose…</option>${opts}</select>`;
+}
 function openSettings() {
   const sh = $('#week-sheet');
   const theme = isDark() ? 'dark' : 'light';
   sh.innerHTML = `<div class="sheet-in" role="dialog" aria-modal="true" aria-labelledby="set-title"><div class="sheet-hd"><h4 id="set-title">Settings</h4><button class="icon-btn" data-close aria-label="Close">${ICON.close}</button></div>
     <h5>Appearance</h5><div class="seg" role="group" aria-label="Theme"><button data-theme-set="light" aria-pressed="${theme === 'light'}">Day</button><button data-theme-set="dark" aria-pressed="${theme === 'dark'}">Night</button></div>
+    ${ffTeamPickHtml()}
     <h5>GFFL</h5><a class="btn ghost" href="/league.html" style="display:block;text-align:center">Open GFFL</a>
   </div>`;
   sh.hidden = false;
