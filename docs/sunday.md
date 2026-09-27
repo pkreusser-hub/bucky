@@ -61,3 +61,14 @@ node tools/_verify-sunday-ff.cjs   # engine: arithmetic, per-play == box invaria
 Perry: "take the Saturday app we made and do the same thing for NFL, with the twist being that it
 is integrated with the GFFL app so it emphasizes fantasy scoring and impact". Chose a page on the
 GFFL site over a standalone app or rebuilding league.html's Scores tab; push alerts deferred.
+
+## 2026-09-27 — uploaded team crests
+
+Perry: "its pulling the old espn logos for the GFFL teams, not the new logos". An uploaded
+crest lives in the team doc's `logoData` (a data: URL; 7 of 8 teams have one), and the team
+query's field mask only asked for the old ESPN `logo`. Sunday now reads `logoData || logo`, the
+precedence GFFL uses everywhere (lg-ui.js `teamSrc`), and a transparent PNG sits uncropped on the
+team colour (GFFL's `isCutoutLogo`). About 470KB of crests on first load, same as GFFL.
+
+VERIFY: sunday-ff 53/53 (F5 mask includes logoData; F7 precedence). Bite: the previous engine
+fails both. sunday 42/42.

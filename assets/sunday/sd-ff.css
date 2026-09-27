@@ -40,6 +40,7 @@
 /* team crest: monogram underneath, logo on top (removed on error) */
 .ff-crest { position: relative; flex: none; display: inline-grid; place-items: center; border-radius: 50%; overflow: hidden; background: var(--c); color: var(--ci); font: 700 10px/1 var(--cond); letter-spacing: 0.04em; }
 .ff-crest img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--surface-2); }
+.ff-crest.cutout img { object-fit: contain; background: var(--c); }
 
 /* ── game cards: GFFL starters in this game ── */
 .ff-card { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-2); }

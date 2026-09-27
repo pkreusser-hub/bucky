@@ -695,7 +695,10 @@
       const owner = t.owner || "";
       FF.teams.set(t.teamId != null ? t.teamId : t.id, {
         id: t.teamId != null ? t.teamId : t.id, name: t.name || "", abbrev: t.abbrev || "",
-        owner, ownerFirst: owner.trim().split(/\s+/)[0] || "", colors: t.colors || null, logo: t.logo || "",
+        // logoData is the crest a family member uploaded in GFFL (a data: URL); logo is the old
+        // ESPN import. GFFL shows `logoData || logo` everywhere (lg-ui.js teamSrc), so this does
+        // too. Reading `logo` alone showed the stale ESPN art for every team that had uploaded.
+        owner, ownerFirst: owner.trim().split(/\s+/)[0] || "", colors: t.colors || null, logo: t.logoData || t.logo || "",
       });
     }
     fireChange({ type: "teams" });
@@ -991,7 +994,7 @@
         structuredQuery: {
           from: [{ collectionId: FS_COLL }],
           where: { fieldFilter: { field: { fieldPath: "kind" }, op: "EQUAL", value: { stringValue: "team" } } },
-          select: { fields: [{ fieldPath: "teamId" }, { fieldPath: "name" }, { fieldPath: "abbrev" }, { fieldPath: "owner" }, { fieldPath: "colors" }, { fieldPath: "logo" }] },
+          select: { fields: [{ fieldPath: "teamId" }, { fieldPath: "name" }, { fieldPath: "abbrev" }, { fieldPath: "owner" }, { fieldPath: "colors" }, { fieldPath: "logo" }, { fieldPath: "logoData" }] },
         },
       };
       const url = FS_BASE.replace(/\/documents$/, "/documents:runQuery") + "?key=" + FS_KEY;

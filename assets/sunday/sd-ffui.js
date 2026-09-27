@@ -53,7 +53,9 @@ function ffCrest(id, px = 28) {
   if (!t) return '';
   const col = ffColor(id);
   const img = t.logo ? `<img src="${esc(t.logo)}" alt="" width="${px}" height="${px}" loading="lazy" onerror="this.remove()">` : '';
-  return `<span class="ff-crest" style="--c:${col};--ci:${onColor(col)};width:${px}px;height:${px}px">${esc((t.abbrev || t.name || '?').slice(0, 4))}${img}</span>`;
+  // A transparent PNG sits straight on the team colour, uncropped (GFFL's isCutoutLogo rule).
+  const cut = /^data:image\/png/i.test(t.logo || '') || /\.png(\?|#|$)/i.test(t.logo || '');
+  return `<span class="ff-crest${cut ? ' cutout' : ''}" style="--c:${col};--ci:${onColor(col)};width:${px}px;height:${px}px">${esc((t.abbrev || t.name || '?').slice(0, 4))}${img}</span>`;
 }
 function ffTag(id, bench) {
   const t = ffTeam(id);

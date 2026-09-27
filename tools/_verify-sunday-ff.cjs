@@ -342,8 +342,12 @@ async function sectionF() {
   let slpResolve;
   const slpGate = new Promise((r) => { slpResolve = r; });
   const res = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+  let teamMask = [];
   const fakeFetch = async (url, init) => {
-    if (/documents:runQuery/.test(url)) return res(200, readJSON("fs-teams.json"));
+    if (/documents:runQuery/.test(url)) {
+      try { teamMask = JSON.parse(init.body).structuredQuery.select.fields.map((f) => f.fieldPath); } catch (e) { teamMask = []; }
+      return res(200, readJSON("fs-teams.json"));
+    }
     if (/api\.sleeper\.com\/projections/.test(url)) { await slpGate; return res(200, slp); }
     const id = decodeURIComponent((url.match(/gffl_fam2jan2g\/([^?]+)/) || [])[1] || "");
     if (id === "proj_2026_w3") return res(200, { fields: { players: { mapValue: { fields: { "4430807": { mapValue: { fields: { b: { doubleValue: 14.1 }, p: { doubleValue: 16.4 } } } } } } } } });
@@ -360,10 +364,22 @@ async function sectionF() {
   ok(FF.projFor("4430807") === 16.4, "F5 proj_ doc: the adjusted p (16.4) is used, not the baseline b (14.1) (got " + FF.projFor("4430807") + ")");
   ok(FF.myMatchup && FF.myMatchup.me === 1 && FF.myMatchup.opp === 9, "F5 week-3 schedule fixture: team 1 plays team 9 (" + JSON.stringify(FF.myMatchup) + ")");
   ok((FF.rostersByTeamId.get(1) || []).length === 21 && (FF.rostersByTeamId.get(2) || []).length === 0, "F5 rosters: t1 from its week-3 doc (21 players); a team with no doc at any week is empty, not an error");
+  // 2026-09-27, user: "its pulling the old espn logos for the GFFL teams, not the new logos".
+  // An uploaded crest lives in logoData (7 of the 8 live teams have one); the mask left it out.
+  ok(teamMask.includes("logoData") && teamMask.includes("logo"), "F5 the team query asks for logoData (the uploaded crest) as well as logo (" + teamMask.join(",") + ")");
   ok(FF.projFor("dst_PIT") == null, "F5 before Sleeper answers, dst_PIT has no projection yet");
   slpResolve();
   await new Promise((r) => setTimeout(r, 20));
   ok(near(FF.projFor("dst_PIT"), 5.90), "F5 once Sleeper answers, dst_PIT picks up its 5.90 (got " + FF.projFor("dst_PIT") + ")");
+
+  // F7 — which picture is the team's crest: the uploaded logoData wins over the ESPN-import
+  // logo, same precedence as GFFL's teamSrc (lg-ui.js); a team with no upload keeps its old one.
+  FF.setTeams([
+    { teamId: 1, name: "Battle Kreussers", logo: "https://g.espncdn.com/s/ffllm/logos/CrazyHelmets-ToddDetwiler/Helmets_04.svg", logoData: "data:image/jpeg;base64,/9j/4AAQ" },
+    { teamId: 4, name: "Chula Vista Jaguarrams", logo: "https://i.imgur.com/Bq9H8IS.gif" },
+  ]);
+  ok(FF.teams.get(1).logo === "data:image/jpeg;base64,/9j/4AAQ", "F7 an uploaded crest (logoData) wins over the old ESPN logo (" + FF.teams.get(1).logo.slice(0, 30) + ")");
+  ok(FF.teams.get(4).logo === "https://i.imgur.com/Bq9H8IS.gif", "F7 a team with no upload keeps its logo URL");
 
   // F6 — a live play rewritten after it first appeared (review, added penalty). ingestPlays is
   // idempotent by play id, so without forgetPlay the corrected version was skipped forever.
