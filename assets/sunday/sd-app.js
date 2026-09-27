@@ -496,7 +496,9 @@ const S = {
   calendar: [],
   cur: null,          // {st, wk} ESPN's current week
   week: null,         // {st, wk} when the viewer picked another week
-  filter: store.get('filter', 'all'),
+  // The filter chips are gone (2026-09-27): the board always shows every game. A 'mine' or
+  // division filter saved by an earlier visit must not keep hiding games with no way to clear it.
+  filter: 'all',
   favs: new Set(store.get('favs', [])),
   loaded: false,
   error: null,
@@ -705,6 +707,7 @@ function featuredScore(ev) {
   return s;
 }
 function renderChips() {
+  if (!$('#chips')) return; // no filter row on the page any more (see S.filter)
   const counts = {};
   for (const f of FILTERS) {
     const list = filterEvents(S.events, f.id);
@@ -2256,7 +2259,7 @@ function setFilter(f) {
   const b = $(`#chips [data-f="${f}"]`) || $('#chips [data-conf]');
   b?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
 }
-$('#chips').addEventListener('click', (e) => {
+$('#chips')?.addEventListener('click', (e) => {
   if (e.target.closest('[data-conf]')) { openConfSheet(); return; }
   const b = e.target.closest('[data-f]');
   if (!b) return;

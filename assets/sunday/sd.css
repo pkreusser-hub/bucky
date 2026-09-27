@@ -750,22 +750,48 @@ body.game-open { overflow: hidden; }
   .gv-side .sec { gap: 8px; }
 }
 
-/* ─────────────────────────  Sections: tab bar + pages  ───────────────────────── */
-body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
-.tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-  display: flex; justify-content: center;
-  padding: 4px 8px env(safe-area-inset-bottom, 0px);
-  background: var(--topbar-bg); backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px);
-  border-top: 1px solid var(--line);
+/* ─────────────────────────  Sections row + the GFFL bar + pages  ───────────────────────── */
+/* Scores / Matchups / Standings: three equal tabs in the top bar, where the filter chips were. */
+.sections {
+  display: flex; max-width: 760px; margin: 0 auto; padding: 0 var(--gutter);
 }
-.tabbar a {
-  flex: 1; max-width: 160px; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  font: 700 11px/1 var(--cond); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-radius: 10px;
+.sections a {
+  flex: 1; min-height: 40px; display: flex; align-items: center; justify-content: center;
+  font: 700 13px/1 var(--cond); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+  border-bottom: 2px solid transparent;
 }
-.tabbar a svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.tabbar a[aria-current="page"] { color: var(--ink); }
-.tabbar a[aria-current="page"] svg { stroke: var(--pylon); }
+.sections a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--pylon); }
+.sections a:hover { color: var(--ink-2); }
+
+/* The GFFL bar: league.html's #bnav, same eight entries, same type and sizing, so moving between
+   the two pages the bar does not jump. Phone: fixed at the bottom. Each box at 390px is
+   (390 − 12) / 8 = 47.25px; 600 10.5px / .3px Barlow Condensed is the size GFFL measured to fit
+   MATCHUP (36px of ink) in it. */
+body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
+.gnav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex;
+  padding: 6px calc(6px + env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) calc(6px + env(safe-area-inset-left, 0px));
+  background: var(--topbar-bg); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border-top: 1px solid var(--line-2);
+}
+.gnav a {
+  flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; align-items: center; justify-content: center;
+  padding: 6px 1px; font: 600 10.5px var(--cond); letter-spacing: 0.3px; text-transform: uppercase;
+  color: var(--faint); border-bottom: 2px solid transparent; white-space: nowrap;
+}
+.gnav a:hover { color: var(--ink-2); }
+.gnav a[aria-current="page"] { color: var(--pylon-text); border-bottom-color: var(--pylon); }
+/* Desktop: GFFL's own top strip, above Sunday's top bar, which now sticks just under it. */
+@media (min-width: 1024px) {
+  body { padding-bottom: 24px; }
+  .gnav {
+    position: sticky; top: 0; bottom: auto; height: 34px; padding: 0 24px; justify-content: center;
+    border-top: 0; border-bottom: 1px solid var(--line);
+  }
+  .gnav a { flex: 0 0 auto; min-height: 0; height: 100%; padding: 0 12px; font-size: 12.5px; letter-spacing: 1.5px; color: var(--muted); }
+  .gnav a[aria-current="page"] { color: var(--ink); }
+  .topbar { top: 34px; }
+}
 .badge-dot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--pylon); box-shadow: 0 0 0 2px var(--bg); }
 #settings-btn { position: relative; }
 #settings-btn svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

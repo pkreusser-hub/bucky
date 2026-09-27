@@ -339,6 +339,61 @@ async function main() {
       `…yours first, then your opponent's (${JSON.stringify(all.owners.slice(0, 2))})`);
     ok(!all.names.some((n) => /Folk/.test(n)), "…and a bench player is not a starter chip");
 
+    /* ===================== (f) the GFFL bar + the sections row ===================== */
+    // 2026-09-27, user: "its hard to get back to the GFFL from Sunday, move scores, matchups and
+    // standings to where the my teams, conferences are and get rid of those entirely, that way the
+    // gffl bar can be present when on the Sunday page". A visitor who once picked "My Teams" must
+    // not be stuck with a filtered board and no chips to clear it, so reload with one saved.
+    section("GFFL bar + sections row");
+    await page.setViewport({ width: 390, height: 844 });
+    await page.evaluate(() => localStorage.setItem("sun.filter", JSON.stringify("mine")));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => typeof renderBoard === "function" && document.fonts, { timeout: 10000 });
+    await page.evaluate(() => document.fonts.ready);
+    const nav = await page.evaluate(() => {
+      const g = document.getElementById("gnav");
+      const links = g ? [...g.querySelectorAll("a")] : [];
+      const cs = links[0] ? getComputedStyle(links[0]) : null;
+      const ink = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().width; };
+      const secs = [...document.querySelectorAll("#topbar .sections a")];
+      const gr = g && g.getBoundingClientRect();
+      return {
+        labels: links.map((a) => a.textContent.trim()), hrefs: links.map((a) => a.getAttribute("href")),
+        current: links.filter((a) => a.getAttribute("aria-current") === "page").map((a) => a.textContent.trim()),
+        box: links.map((a) => +a.getBoundingClientRect().width.toFixed(2)),
+        room: links.map((a) => a.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)),
+        ink: links.map((a) => +ink(a).toFixed(1)), heights: links.map((a) => Math.round(a.getBoundingClientRect().height)),
+        font: cs && cs.fontFamily.split(",")[0], fontOk: document.fonts.check("600 10.5px 'Barlow Condensed'"),
+        atBottom: gr ? Math.round(innerHeight - gr.bottom) : null, position: g && getComputedStyle(g).position,
+        sections: secs.map((a) => a.textContent.trim()), secHrefs: secs.map((a) => a.getAttribute("href")),
+        chips: !!document.getElementById("chips"), oldTabbar: !!document.querySelector(".tabbar"),
+        filter: S.filter,
+      };
+    });
+    ok(nav.labels.join("|") === "League|Matchup|My Team|Rosters|Moves|Chat|Scores|Sunday",
+      `the GFFL bar carries GFFL's eight entries in GFFL's order (${nav.labels.join("|")})`);
+    ok(nav.hrefs.slice(0, 7).join(" ") === "league.html#league league.html#matchup league.html#team league.html#rosters league.html#moves league.html#chat league.html#scores",
+      `…each league entry links to its GFFL view (${nav.hrefs.slice(0, 7).join(" ")})`);
+    ok(nav.current.join() === "Sunday", `…and Sunday is the lit one (${JSON.stringify(nav.current)})`);
+    ok(nav.position === "fixed" && nav.atBottom === 0, `phone: the bar is fixed to the bottom edge (${nav.position}, ${nav.atBottom}px from the bottom)`);
+    // Hand-computed: 390px wide, 6px padding a side, eight equal items → (390 − 12) / 8 = 47.25px.
+    ok(nav.box.length === 8 && nav.box.every((w) => Math.abs(w - 47.25) <= 0.5), `…every entry's box is (390 − 12) / 8 = 47.25px (${nav.box.join("/")})`);
+    const worstInk = Math.max(...nav.ink), leastRoom = Math.min(...nav.room);
+    ok(nav.fontOk && worstInk <= leastRoom, `…the widest label's ink fits its box (Range: ${worstInk}px vs ${leastRoom}px room, Barlow loaded: ${nav.fontOk})`);
+    ok(nav.heights.every((h) => h >= 44), `…every entry keeps a ≥44px target (${nav.heights.join(",")})`);
+    ok(nav.sections.join("|") === "Scores|Matchups|Standings" && nav.secHrefs.join(" ") === "# #matchups #standings",
+      `Scores / Matchups / Standings sit in the top bar (${nav.sections.join("|")})`);
+    ok(!nav.chips && !nav.oldTabbar, `the filter chips and Sunday's old bottom tab bar are gone (chips ${nav.chips}, old bar ${nav.oldTabbar})`);
+    ok(nav.filter === "all", `a filter saved by an earlier visit ("mine") no longer hides games (S.filter = ${JSON.stringify(nav.filter)})`);
+    await page.setViewport({ width: 1280, height: 900 });
+    const desk = await page.evaluate(() => {
+      const g = document.getElementById("gnav").getBoundingClientRect(), t = document.getElementById("topbar");
+      return { gTop: Math.round(g.top), gH: Math.round(g.height), pos: getComputedStyle(document.getElementById("gnav")).position, topbarTop: getComputedStyle(t).top };
+    });
+    ok(desk.pos === "sticky" && desk.gTop === 0 && desk.gH === 34 && desk.topbarTop === "34px",
+      `desktop: the bar is GFFL's 34px top strip and Sunday's top bar sticks under it (${JSON.stringify(desk)})`);
+    await page.setViewport({ width: 800, height: 600 });
+
     /* ===================== console sanity ===================== */
     section("Console");
     ok(consoleErrors.length === 0, `no uncaught page errors${consoleErrors.length ? " (" + consoleErrors.slice(0, 3).join(" | ") + ")" : ""}`);

@@ -81,7 +81,6 @@ function showTab(tab) {
   const scores = tab === 'scores';
   $('#board').hidden = !scores;
   $('#status-line').hidden = !scores;
-  $('#chips').hidden = !scores;
   $('.week-nav').hidden = !scores;
   $('.foot').hidden = !scores;
   $('#fan-page').hidden = tab !== 'matchups';

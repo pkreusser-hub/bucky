@@ -93,3 +93,17 @@ every GFFL starter in the game, yours and your opponent's first; the row wraps (
 live week-3 slate: up to 8 chips, all inside the card at 375px). Cache-bust ?v=20260927j.
 
 VERIFY: sunday 51/51 (3 new checks), sunday-ff 53/53. Bite: the previous sd-ffui.js shows 2 of 6.
+
+## 2026-09-27 — the GFFL bar on Sunday; filters removed
+
+Perry: "its hard to get back to the GFFL from Sunday, move scores, matchups and standings to where
+the my teams, conferences are and get rid of those entirely, that way the gffl bar can be present
+when on the Sunday page". Scores / Matchups / Standings are three tabs in the top bar (the row the
+filter chips held). The chips (All, Upsets, My Teams, AFC, NFC, Division) are gone and the board
+always shows every game; a filter saved by an earlier visit is ignored. The bottom slot is GFFL's
+bar (`#gnav`): league.html's eight entries linking to `league.html#<view>`, Sunday lit, the same
+10.5px / .3px type GFFL measured for eight entries at 390px; on desktop it is GFFL's 34px top strip
+with Sunday's bar sticking under it. The game view (z-index 40) still covers it, as it did the old
+tab bar. Cache-bust ?v=20260927k.
+
+VERIFY: sunday 62/62 (11 new checks), sunday-ff 53/53. Bite: the previous page fails 8.
