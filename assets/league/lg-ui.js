@@ -8829,7 +8829,6 @@
           (byKind[a.kind] = byKind[a.kind] || []).push(y);
         }
       }
-      const aka = LG.formerNames(teamId, T.name, hist);
       const awardName = (kind, year) => {
         const hit = (awards || []).find((a) => Number(a.teamId) === Number(teamId)
           && a.kind === kind && Number(a.year) === Number(year) && a.name);
@@ -8846,8 +8845,7 @@
           }).join("")}</span></div>`;
       });
       if (!shelves.length) return "";
-      const akaLine = aka.length ? `<p class="tcaka mut small">formerly ${esc(aka.join(", "))}</p>` : "";
-      return `<div class="card trophycase"><h2>Trophy case</h2>${akaLine}${shelves.join("")}</div>`;
+      return `<div class="card trophycase"><h2>Trophy case</h2>${shelves.join("")}</div>`;
     };
     const historyCardHtml = () => {
       const rows = LG.histSeasonsFor(teamId, hist);
@@ -8866,8 +8864,8 @@
     // both the raw picks (what the swatches must show) and the safe rendered set.
     const pal = LG.teamPalette(T);
     const logoSrc = teamSrc(T);
-    const akaNames = LG.formerNames(teamId, T.name, hist);
-    const akaHtml = akaNames.length ? `<p class="lockeraka mut small">formerly ${esc(akaNames.join(", "))}</p>` : "";
+    // No "formerly …" line (2026-09-27, user: "get rid of the 'formerly xxx team' in the team
+    // page for all the teams"). The History card still names each season as it was played.
 
     // Owner-only editable lineup — the exact tap-to-swap mechanic the old "team" page had,
     // operating on the SAME `roster` array (mutated in place by doMove/swap below, then
@@ -8945,7 +8943,6 @@
           <div class="lockerid">
             <h1 class="lockername tname big">${esc(T.name)}</h1>
             <p class="lockermotto">${T.motto ? esc(T.motto) : (isOwner ? '<span class="mut">Add a motto →</span>' : "")}</p>
-            ${akaHtml}
             <p class="lockerrec">#${place} · ${st.w}-${st.l}${st.t ? "-" + st.t : ""} · ${LG.fmtNum(st.pf)} PF</p>
           </div>
         </div>

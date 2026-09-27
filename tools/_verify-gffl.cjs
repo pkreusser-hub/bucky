@@ -28718,6 +28718,7 @@ async function openDetails(page, id) {
         const aka = typeof LG.formerNames === "function" ? LG.formerNames(5, T && T.name, hist) : [];
         const aka1 = typeof LG.formerNames === "function" ? LG.formerNames(1, (LG.teamById(1) || {}).name, hist) : [];
         const hero = ((document.querySelector(".lockeraka") || {}).textContent || "").trim();
+        const formerlyAnywhere = /formerly/i.test((document.getElementById("main") || document.body).textContent);
         const rec = ((document.querySelector(".lockerrec") || {}).textContent || "").trim();
         const histCard = document.querySelector(".histcard");
         const histRows = histCard ? [...histCard.querySelectorAll("tbody tr")].map((tr) =>
@@ -28744,7 +28745,7 @@ async function openDetails(page, id) {
         const histBox = histCard ? histCard.getBoundingClientRect() : null;
         return {
           name: T && T.name, trophies: (T && T.trophies) || [],
-          seasons, aka, aka1, hero, rec, histRows, tcAka, tokens, shelves,
+          seasons, aka, aka1, hero, formerlyAnywhere, rec, histRows, tcAka, tokens, shelves,
           awardsN: awards.length,
           wonAs2014: ((awards.find((a) => Number(a.year) === 2014) || {}).name || ""),
           tail, belowRoster: !!(tcBox && rosterBox && tcBox.top > rosterBox.top),
@@ -28759,8 +28760,11 @@ async function openDetails(page, id) {
         "hist seasons for id 5 are 2013 6-9 and 2012 5-10, newest first (" + JSON.stringify(r.seasons) + ")");
       ok(r.aka && r.aka.length === 1 && r.aka[0] === "IN-LAWS",
         "former name is IN-LAWS, not a second copy of Laws Rule (" + JSON.stringify(r.aka) + ")");
-      ok(r.hero === "formerly IN-LAWS",
-        "the locker hero says formerly IN-LAWS (" + r.hero + ")");
+      // RESTAGED 2026-09-27 (user: "get rid of the 'formerly xxx team' in the team page for all
+      // the teams"): the hero and the trophy case no longer carry a former name; the History
+      // card below still names each season as it was played.
+      ok(r.hero === "" && r.formerlyAnywhere === false,
+        "no 'formerly' line anywhere on the team page (" + JSON.stringify({ hero: r.hero, anywhere: r.formerlyAnywhere }) + ")");
       ok(r.histRows && r.histRows.length === 2 && r.histRows[0][0] === "2013" && r.histRows[0][1] === "IN-LAWS" && r.histRows[0][2] === "6-9"
         && r.histRows[1][0] === "2012" && r.histRows[1][1] === "IN-LAWS" && r.histRows[1][2] === "5-10",
         "the History card lists those seasons as IN-LAWS (" + JSON.stringify(r.histRows) + ")");
@@ -28768,8 +28772,8 @@ async function openDetails(page, id) {
         "the trophy case hangs the 2014 points title from awards_history, not team.trophies (" + JSON.stringify({ shelves: r.shelves, tokens: r.tokens }) + ")");
       ok(r.tokens && r.tokens[0] && /as IN-LAWS/.test(r.tokens[0].title) && /2014/.test(r.tokens[0].title),
         "…and the chip titles the name they won under (" + (r.tokens && r.tokens[0] && r.tokens[0].title) + ")");
-      ok(r.tcAka === "formerly IN-LAWS",
-        "the case itself carries the former name (" + r.tcAka + ")");
+      ok(r.tcAka === "",
+        "…and the trophy case does not carry one either (" + JSON.stringify(r.tcAka) + ")");
       ok(r.aka1 && r.aka1.length === 0,
         "Battle Kreussers is not 'formerly' itself just because hist used the same name (" + JSON.stringify(r.aka1) + ")");
       ok(r.tail && r.tail[0] === "case" && r.tail[1] === "hist",
