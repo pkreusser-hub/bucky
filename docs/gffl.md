@@ -9824,3 +9824,45 @@ Backup → masked PATCH → canonical re-read, all five verified. The first
 run's re-read compared raw JSON and stopped on Firestore's field order
 after hist_2012 was already correct (CLAUDE.md bites #9); its backup
 holds the original hist_2012, the second run's the other four.
+
+---
+
+## GFFL — Sunday tab: an eighth nav entry linking to sunday.html (2026-09-27)
+
+User: "push to main and add a tab for Sunday on GFFL".
+
+Sunday (`sunday.html`, docs/sunday.md) is the new live NFL page with
+GFFL points on every play. The bar gets an eighth entry after Scores:
+`<a class="bnavlink" href="sunday.html">Sunday</a>`. It is a real
+link, the way Draft was before item 16, because it leaves league.html
+rather than opening an in-app view, so the `.bnav button` click loop
+and the `.on` highlight never touch it. Sunday reads `gffl_team` from
+this origin, so it opens on the viewer's own matchup.
+
+Phone type, measured. Eight entries make each box (390 − 12) / 8 =
+47.25px, 45.25px of room. At the seven-tab type (600 11px / .5px)
+MATCHUP inks 39.0px in Barlow Condensed but 47.9px in the harness's
+Arial Narrow and clips. At 600 10.5px / .3px it inks 36.0px (Barlow)
+and 44.5px (harness). Desktop's strip is `flex:0 0 auto` and needed
+nothing.
+
+RESTAGED, reasons at the checks: T "no link left behind" is now
+"the bar's one link is Sunday" (phone and desktop); AE5 finds the
+Draft link by `href*="ffdraft"` instead of any link in the bar; RS1's
+box arithmetic is (390 − 12) / 8. New section SU: the link, its place,
+every box 47.25px, ink ≤ room by Range, ≥44px targets, never lit,
+tapping it opens sunday.html, and on desktop it sits level with the
+tabs.
+
+`gffl-v` → `20260927s` so installed copies pick up the new bar.
+
+Files: `league.html`, `tools/_verify-gffl.cjs`.
+
+**VERIFY:** `--only T,AE,RS,SU` **170/170**. Bite (HEAD league.html):
+**7 fail** (no link, 54px boxes). Bite (link kept, old 11px / .5px
+type): SU **2 fail**, MATCHUP ink 47.9px vs 44px room.
+
+Full battery **4088/4089**. The one failure is AG's "longest opponent
+line now that the designation is not on it" (every value `undefined`);
+it fails identically with this change's league.html and suite swapped
+back to HEAD, so it was already failing on main before this change. Left for its own fix.

@@ -27,7 +27,7 @@
 <meta name="apple-mobile-web-app-title" content="GFFL">
 <link rel="apple-touch-icon" href="icons/gffl-apple-touch.png">
 <link rel="icon" href="icons/gffl-192.png" type="image/png">
-<meta name="gffl-v" content="20260927">
+<meta name="gffl-v" content="20260927s">
 <!-- Home-screen iOS restores this file from its own snapshot and never asks
      the network. Compare gffl-v against a no-store copy and replace if this
      snapshot is stale. Browser tabs skip — they already revalidate. -->
@@ -2180,9 +2180,14 @@
      worst label inks 47.9px (harness) / ~39px (Barlow) inside 52px of room. Desktop's strip is
      flex:0 0 auto and needed nothing. The Helvetica Neue no-webfont flash (63.7px) already
      clipped MATCHUP at SIX tabs and is unchanged in kind by this. */
+  /* EIGHT ENTRIES (2026-09-27, the Sunday link). Each box at 390px is (390 − 12) / 8 = 47.25px,
+     room 45.25px inside the 1px side padding. MEASURED at the seven-tab type (600 11px / .5px):
+     MATCHUP inks 39.0px in Barlow Condensed but 47.9px in the harness's Arial Narrow, past the
+     room. At 600 10.5px / .3px it inks 36.0px (Barlow) and fits the harness too; section SU
+     asserts ink ≤ room with a Range. */
   .bnav button, .bnav .bnavlink { flex:1 1 0; background:none; border:none; border-bottom:2px solid transparent;
                  color:var(--faint); min-height:44px; text-align:center;
-                 font:600 11px var(--font-display); letter-spacing:.5px; text-transform:uppercase;
+                 font:600 10.5px var(--font-display); letter-spacing:.3px; text-transform:uppercase;
                  padding:6px 1px; cursor:pointer; text-decoration:none; display:flex;
                  align-items:center; justify-content:center; box-sizing:border-box; }
   .bnav button.on { color:var(--accent); border-bottom-color:var(--accent); }
@@ -2407,6 +2412,12 @@
     <button data-v="moves">Moves</button>
     <button data-v="chat">Chat</button>
     <button data-v="scores">Scores</button>
+    <!-- Sunday (2026-09-27, user: "add a tab for Sunday on GFFL"). The EIGHTH entry in the bar,
+         and a real <a href> the way Draft once was: it leaves for sunday.html (live NFL scores
+         with every play's GFFL points), it is not an in-app view, so the .bnav button click
+         loop and the .on highlight never touch it. Sunday reads gffl_team from this origin's
+         localStorage, so it opens on the viewer's own matchup with no picker. -->
+    <a class="bnavlink" href="sunday.html">Sunday</a>
     <!-- Item 16 (2026-08-09, user: "lets remove the tabs for rules and draft, put a link to
          each in the league page instead"). Rules and Draft used to live here — eight entries
          in one row, which is why DRAFT clipped to "DR" at 390px. Both now live on the League

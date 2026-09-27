@@ -175,7 +175,7 @@ svg { display: block; }
 .wm-tag {
   font: 700 11px/1 var(--cond); letter-spacing: 0.1em;
   color: var(--pylon-ink); background: var(--pylon);
-  padding: 3px 6px; border-radius: 4px; flex: none;
+  padding: 3px 6px; border-radius: 4px; flex: none; text-decoration: none;
 }
 @media (max-width: 430px) { .wm-tag { display: none; } }
 @media (max-width: 370px) { .wordmark { font-size: 22px; } }

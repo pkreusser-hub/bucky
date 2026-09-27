@@ -6791,7 +6791,10 @@ async function openDetails(page, id) {
     // seventh was measured in (section RS has the ink widths) with the phone type tightened.
     ok(bar.labels.join("|") === "League|Matchup|My Team|Rosters|Moves|Chat|Scores",
       "the bottom nav is seven tabs — Rules and Draft are still out, Rosters is in (" + bar.labels.join("|") + ")");
-    ok(bar.links === 0, "…and no link is left behind in the bar (" + bar.links + ")");
+    // RESTAGED 2026-09-27 (user: "add a tab for Sunday on GFFL"). What this defended was "no
+    // link LEFT BEHIND" when Rules and Draft moved to the League page, not "no link, ever". The
+    // bar now carries exactly one <a>, the Sunday tab, which leaves for sunday.html (section SU).
+    ok(bar.links === 1, "…and the bar's one link is the Sunday tab, nothing left behind (" + bar.links + ")");
     // Item 6: for two DIFFERENT tabs (different label widths — "League" vs "My Team"), the
     // active-tab underline's own bounding box is centered under its label at 390px. The
     // underline is a border-bottom on the button's OWN box, so its rendered rect === the
@@ -6843,7 +6846,8 @@ async function openDetails(page, id) {
       n: document.querySelectorAll(".bnav button").length, links: document.querySelectorAll(".bnav a").length,
     }));
     // RESTAGED 2026-09-08: seven, with Rosters (see the phone-side restage above).
-    ok(deskBar.n === 7 && deskBar.links === 0, "desktop carries the same seven tabs and no stray link (" + JSON.stringify(deskBar) + ")");
+    // RESTAGED 2026-09-27: seven tabs plus the one Sunday link (see the phone-side restage above).
+    ok(deskBar.n === 7 && deskBar.links === 1, "desktop carries the same seven tabs plus the Sunday link (" + JSON.stringify(deskBar) + ")");
     ok(errors.length === 0, "0 page errors");
     await ctx.close();
   }
@@ -6867,7 +6871,9 @@ async function openDetails(page, id) {
     // type (600 11.5px / 1px) inks MATCHUP at 53.5px in this harness's Arial Narrow against 50px
     // of room, so it would fail here; the tightened phone type is what passes it (section RS
     // prints the numbers).
-    ok(clipped.length === 0, "no clipped nav labels at 390px with seven tabs (" + JSON.stringify(clipped) + ")");
+    // 2026-09-27: eight entries (the Sunday link). Same measurement, tighter budget; the phone
+    // type went to 10.5px / .3px so MATCHUP still fits this harness's Arial Narrow.
+    ok(clipped.length === 0, "no clipped nav labels at 390px with eight entries (" + JSON.stringify(clipped) + ")");
     const targets = await page.$$eval(".bnav button, .bnav .bnavlink", (els) => els.map((el) => el.getBoundingClientRect().height));
     ok(targets.every((h) => h >= 44), "every nav tab keeps a ≥44px touch target (" + targets.join(",") + ")");
     const widths = await page.$$eval(".bnav button", (els) => els.map((el) => Math.round(el.getBoundingClientRect().width)));
@@ -11818,7 +11824,9 @@ async function openDetails(page, id) {
       const nav = await page.evaluate(() => ({
         labels: [...document.querySelectorAll(".bnav button")].map((b) => b.textContent.trim()),
         rules: !!document.querySelector('.bnav [data-v="rules"]'),
-        draft: !!document.querySelector('.bnav a, .bnav .bnavlink'),
+        // RESTAGED 2026-09-27: any-link-in-the-bar used to mean "the Draft link"; the Sunday tab is
+        // a link too now, so this asks for the Draft one by where it goes.
+        draft: !!document.querySelector('.bnav a[href*="ffdraft"]'),
         clipped: [...document.querySelectorAll(".bnav button")].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent.trim()),
         widths: [...document.querySelectorAll(".bnav button")].map((el) => Math.round(el.getBoundingClientRect().width)),
       }));
@@ -23970,10 +23978,11 @@ async function openDetails(page, id) {
     }) || { labels: [], box: [], room: [], ink: [], clipped: [], heights: [] };
     ok(nav.labels.join("|") === "league|matchup|team|rosters|moves|chat|scores",
       "the seventh tab is Rosters, fourth in the row after My Team (" + nav.labels.join("|") + ")");
-    // Hand-computed: the bar is 390px wide with 6px of padding a side, seven equal flex items
-    // → (390 − 12) / 7 = 54px each.
-    ok(nav.box.length === 7 && nav.box.every((w) => w === 54),
-      "…each tab's box is (390 − 12) / 7 = 54px (" + nav.box.join("/") + ")");
+    // RESTAGED 2026-09-27: the Sunday link is an eighth equal flex item in the same bar.
+    // Hand-computed: 390px wide, 6px of padding a side, eight items → (390 − 12) / 8 = 47.25px,
+    // which rounds to 47.
+    ok(nav.box.length === 7 && nav.box.every((w) => w === 47),
+      "…each tab's box is (390 − 12) / 8 = 47.25px (" + nav.box.join("/") + ")");
     const worst = nav.ink.length ? Math.max(...nav.ink) : 1e9;
     const worstRoom = nav.room.length ? Math.min(...nav.room) : 0;
     ok(worst <= worstRoom, "…and the widest label's INK fits its box's content room — a Range, not the button's box (worst ink " + worst + "px vs room " + worstRoom + "px)");
@@ -28136,6 +28145,63 @@ async function openDetails(page, id) {
   // the muted POS · TEAM small and read the live stat row (a man ruled Out has
   // none) then the roster snapshot. Matchup hid the chip on line 2. Both now
   // sit next to the name and read LG.injuryOf (directory first).
+  if (section("SU · the Sunday tab — an eighth nav entry that leaves for sunday.html")) {
+  {
+    // ---- SU1: phone. The link, its place, and the eight-entry type budget.
+    const { ctx, page } = await newTestPage(browser, fullSeed());
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const r = await evalOr(page, () => {
+      const a = document.querySelector(".bnav .bnavlink");
+      const all = [...document.querySelectorAll(".bnav button, .bnav .bnavlink")];
+      const cs = getComputedStyle(all[0]);
+      const ink = (el) => { const rg = document.createRange(); rg.selectNodeContents(el); return rg.getBoundingClientRect().width; };
+      return {
+        tag: a && a.tagName, href: a && a.getAttribute("href"), text: a && a.textContent.trim(),
+        last: all[all.length - 1] === a, n: all.length, on: !!(a && a.classList.contains("on")),
+        box: all.map((e) => +e.getBoundingClientRect().width.toFixed(2)),
+        room: all.map((e) => e.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)),
+        ink: all.map((e) => +ink(e).toFixed(1)), labels: all.map((e) => e.textContent.trim()),
+        heights: all.map((e) => Math.round(e.getBoundingClientRect().height)),
+        clipped: all.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent.trim()),
+        font: cs.fontSize, ls: cs.letterSpacing,
+        linkColor: a && getComputedStyle(a).color, tabColor: getComputedStyle(document.querySelector('.bnav button:not(.on)')).color,
+      };
+    }) || { box: [], room: [], ink: [], heights: [], clipped: [], labels: [] };
+    ok(r.tag === "A" && r.href === "sunday.html" && r.text === "Sunday",
+      "the nav carries a Sunday link to sunday.html (" + r.tag + " " + r.href + " " + JSON.stringify(r.text) + ")");
+    ok(r.last && r.n === 8, "…as the eighth and last entry, after Scores (" + r.labels.join("|") + ")");
+    // Hand-computed: (390 − 12) / 8 = 47.25px for every entry, the link included.
+    ok(r.box.length === 8 && r.box.every((w) => Math.abs(w - 47.25) <= 0.5),
+      "…every entry's box is (390 − 12) / 8 = 47.25px (" + r.box.join("/") + ")");
+    const worst = r.ink.length ? Math.max(...r.ink) : 1e9, room = r.room.length ? Math.min(...r.room) : 0;
+    ok(worst <= room, "…the widest label's INK (a Range) fits the tightest box's content room (ink " + worst + "px vs room " + room + "px at " + r.font + " / " + r.ls + ")");
+    ok(r.clipped.length === 0 && r.heights.every((h) => h >= 44), "…nothing clips and every entry keeps a ≥44px target (" + r.heights.join(",") + ")");
+    ok(!r.on && r.linkColor === r.tabColor, "…it reads as an unselected tab, never lit (" + r.linkColor + " vs " + r.tabColor + ")");
+    console.log("    · eight-entry ink at 390px (" + r.font + " / " + r.ls + "): " + r.labels.map((l, i) => l + " " + r.ink[i]).join(", "));
+    // Tapping it really leaves for Sunday.
+    await Promise.all([page.waitForNavigation({ timeout: 9000 }).catch(() => null), page.click(".bnav .bnavlink")]);
+    let path = ""; try { path = new URL(page.url()).pathname; } catch (e) { /* keep "" */ }
+    ok(/\/sunday\.html$/.test(path), "…and tapping it opens sunday.html (" + path + ")");
+    await ctx.close();
+  }
+  {
+    // ---- SU2: desktop. The same link sits in the top strip, level with the tabs.
+    const { ctx, page, errors } = await newTestPage(browser, fullSeed(), { vw: { width: 1280, height: 900 } });
+    await bootPage(page);
+    await page.waitForSelector(".mucard", { timeout: 9000 });
+    await waitLive(page);
+    const d = await evalOr(page, () => {
+      const a = document.querySelector(".bnav .bnavlink"), m = document.querySelector('.bnav button[data-v="matchup"]');
+      const ra = a.getBoundingClientRect(), rm = m.getBoundingClientRect();
+      return { top: Math.round(ra.top), mTop: Math.round(rm.top), h: Math.round(ra.height), mh: Math.round(rm.height), w: Math.round(ra.width) };
+    }) || {};
+    ok(d.w > 0 && d.top === d.mTop && d.h === d.mh, "desktop: the Sunday link sits in the top strip, level with the tabs (" + JSON.stringify(d) + ")");
+    ok(errors.length === 0, "0 page errors");
+    await ctx.close();
+  }
+  }
   if (section("TS · injury designations next to My Team and Matchup names")) {
     fixture.phase = 1; fixture.sleeperDown = false; fixture.espnDown = false;
     fixture.injMix = true;
