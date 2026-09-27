@@ -1,0 +1,295 @@
+{
+  "name": "projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/weekly_2026_w1",
+  "fields": {
+    "week": {
+      "integerValue": "1"
+    },
+    "matchups": {
+      "arrayValue": {
+        "values": [
+          {
+            "mapValue": {
+              "fields": {
+                "awayPts": {
+                  "doubleValue": 125.1
+                },
+                "away": {
+                  "integerValue": "1"
+                },
+                "home": {
+                  "integerValue": "12"
+                },
+                "homePts": {
+                  "doubleValue": 120.66
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "awayPts": {
+                  "doubleValue": 121.2
+                },
+                "homePts": {
+                  "doubleValue": 132.56
+                },
+                "home": {
+                  "integerValue": "11"
+                },
+                "away": {
+                  "integerValue": "2"
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "homePts": {
+                  "doubleValue": 165.26
+                },
+                "home": {
+                  "integerValue": "9"
+                },
+                "away": {
+                  "integerValue": "3"
+                },
+                "awayPts": {
+                  "doubleValue": 158.3
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "homePts": {
+                  "doubleValue": 128.36
+                },
+                "home": {
+                  "integerValue": "5"
+                },
+                "away": {
+                  "integerValue": "4"
+                },
+                "awayPts": {
+                  "doubleValue": 162.22
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "kind": {
+      "stringValue": "weekly"
+    },
+    "power": {
+      "arrayValue": {
+        "values": [
+          {
+            "mapValue": {
+              "fields": {
+                "rank": {
+                  "integerValue": "1"
+                },
+                "teamId": {
+                  "integerValue": "9"
+                },
+                "score": {
+                  "doubleValue": 14.26
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "rank": {
+                  "integerValue": "2"
+                },
+                "score": {
+                  "doubleValue": 14.11
+                },
+                "teamId": {
+                  "integerValue": "4"
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "teamId": {
+                  "integerValue": "11"
+                },
+                "score": {
+                  "doubleValue": 12.63
+                },
+                "rank": {
+                  "integerValue": "3"
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "score": {
+                  "doubleValue": 12.26
+                },
+                "rank": {
+                  "integerValue": "4"
+                },
+                "teamId": {
+                  "integerValue": "1"
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "score": {
+                  "doubleValue": 7.92
+                },
+                "rank": {
+                  "integerValue": "5"
+                },
+                "teamId": {
+                  "integerValue": "3"
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "score": {
+                  "doubleValue": 6.42
+                },
+                "teamId": {
+                  "integerValue": "5"
+                },
+                "rank": {
+                  "integerValue": "6"
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "rank": {
+                  "integerValue": "7"
+                },
+                "score": {
+                  "doubleValue": 6.06
+                },
+                "teamId": {
+                  "integerValue": "2"
+                }
+              }
+            }
+          },
+          {
+            "mapValue": {
+              "fields": {
+                "teamId": {
+                  "integerValue": "12"
+                },
+                "score": {
+                  "doubleValue": 6.03
+                },
+                "rank": {
+                  "integerValue": "8"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "accuracy": {
+      "mapValue": {
+        "fields": {
+          "ours": {
+            "doubleValue": 6.68
+          },
+          "n": {
+            "integerValue": "88"
+          }
+        }
+      }
+    },
+    "source": {
+      "stringValue": "live"
+    },
+    "finalizedAt": {
+      "integerValue": "1789442217909"
+    },
+    "awards": {
+      "mapValue": {
+        "fields": {
+          "bust": {
+            "mapValue": {
+              "fields": {
+                "shortfall": {
+                  "doubleValue": 15.8
+                },
+                "name": {
+                  "stringValue": "Ja'Marr Chase"
+                },
+                "proj": {
+                  "integerValue": "18"
+                },
+                "actual": {
+                  "doubleValue": 2.2
+                },
+                "key": {
+                  "stringValue": "4362628"
+                },
+                "teamId": {
+                  "integerValue": "11"
+                }
+              }
+            }
+          },
+          "benchBlunder": {
+            "mapValue": {
+              "fields": {
+                "optimal": {
+                  "doubleValue": 172.32
+                },
+                "diff": {
+                  "doubleValue": 47.22
+                },
+                "teamId": {
+                  "integerValue": "1"
+                },
+                "actual": {
+                  "doubleValue": 125.1
+                }
+              }
+            }
+          },
+          "topScore": {
+            "mapValue": {
+              "fields": {
+                "pts": {
+                  "doubleValue": 165.26
+                },
+                "teamId": {
+                  "integerValue": "9"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "createTime": "2026-09-15T03:16:58.430777Z",
+  "updateTime": "2026-09-15T03:16:58.430777Z"
+}

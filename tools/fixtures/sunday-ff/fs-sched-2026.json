@@ -1,0 +1,856 @@
+{
+ "fields": {
+  "weeks": {
+   "arrayValue": {
+    "values": [
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "12"
+              },
+              "a": {
+               "integerValue": "1"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "11"
+              },
+              "a": {
+               "integerValue": "2"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "9"
+              },
+              "a": {
+               "integerValue": "3"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "5"
+              },
+              "a": {
+               "integerValue": "4"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "1"
+              },
+              "a": {
+               "integerValue": "11"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "12"
+              },
+              "a": {
+               "integerValue": "9"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "2"
+              },
+              "a": {
+               "integerValue": "5"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "3"
+              },
+              "a": {
+               "integerValue": "4"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "9"
+              },
+              "a": {
+               "integerValue": "1"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "5"
+              },
+              "a": {
+               "integerValue": "11"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "4"
+              },
+              "a": {
+               "integerValue": "12"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "3"
+              },
+              "a": {
+               "integerValue": "2"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "1"
+              },
+              "a": {
+               "integerValue": "5"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "9"
+              },
+              "a": {
+               "integerValue": "4"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "11"
+              },
+              "a": {
+               "integerValue": "3"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "12"
+              },
+              "a": {
+               "integerValue": "2"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "4"
+              },
+              "a": {
+               "integerValue": "1"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "3"
+              },
+              "a": {
+               "integerValue": "5"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "2"
+              },
+              "a": {
+               "integerValue": "9"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "12"
+              },
+              "a": {
+               "integerValue": "11"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "1"
+              },
+              "a": {
+               "integerValue": "3"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "4"
+              },
+              "a": {
+               "integerValue": "2"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "5"
+              },
+              "a": {
+               "integerValue": "12"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "9"
+              },
+              "a": {
+               "integerValue": "11"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "2"
+              },
+              "a": {
+               "integerValue": "1"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "12"
+              },
+              "a": {
+               "integerValue": "3"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "11"
+              },
+              "a": {
+               "integerValue": "4"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "9"
+              },
+              "a": {
+               "integerValue": "5"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "1"
+              },
+              "a": {
+               "integerValue": "12"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "2"
+              },
+              "a": {
+               "integerValue": "11"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "3"
+              },
+              "a": {
+               "integerValue": "9"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "4"
+              },
+              "a": {
+               "integerValue": "5"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "11"
+              },
+              "a": {
+               "integerValue": "1"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "9"
+              },
+              "a": {
+               "integerValue": "12"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "5"
+              },
+              "a": {
+               "integerValue": "2"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "4"
+              },
+              "a": {
+               "integerValue": "3"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "1"
+              },
+              "a": {
+               "integerValue": "9"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "11"
+              },
+              "a": {
+               "integerValue": "5"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "12"
+              },
+              "a": {
+               "integerValue": "4"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "2"
+              },
+              "a": {
+               "integerValue": "3"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "5"
+              },
+              "a": {
+               "integerValue": "1"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "4"
+              },
+              "a": {
+               "integerValue": "9"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "3"
+              },
+              "a": {
+               "integerValue": "11"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "2"
+              },
+              "a": {
+               "integerValue": "12"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "1"
+              },
+              "a": {
+               "integerValue": "4"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "5"
+              },
+              "a": {
+               "integerValue": "3"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "9"
+              },
+              "a": {
+               "integerValue": "2"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "11"
+              },
+              "a": {
+               "integerValue": "12"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "3"
+              },
+              "a": {
+               "integerValue": "1"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "2"
+              },
+              "a": {
+               "integerValue": "4"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "12"
+              },
+              "a": {
+               "integerValue": "5"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "11"
+              },
+              "a": {
+               "integerValue": "9"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "mapValue": {
+       "fields": {
+        "g": {
+         "arrayValue": {
+          "values": [
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "1"
+              },
+              "a": {
+               "integerValue": "2"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "3"
+              },
+              "a": {
+               "integerValue": "12"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "4"
+              },
+              "a": {
+               "integerValue": "11"
+              }
+             }
+            }
+           },
+           {
+            "mapValue": {
+             "fields": {
+              "h": {
+               "integerValue": "5"
+              },
+              "a": {
+               "integerValue": "9"
+              }
+             }
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     }
+    ]
+   }
+  },
+  "season": {
+   "integerValue": "2026"
+  },
+  "kind": {
+   "stringValue": "sched"
+  }
+ }
+}
