@@ -72,3 +72,15 @@ team colour (GFFL's `isCutoutLogo`). About 470KB of crests on first load, same a
 
 VERIFY: sunday-ff 53/53 (F5 mask includes logoData; F7 precedence). Bite: the previous engine
 fails both. sunday 42/42.
+
+## 2026-09-27 — owner crests in place of team names
+
+Perry: "use the gffl logos in place of team names when it shows GFFL starters/benches". The
+Fantasy tab rows, the game-card starter chips and the per-play chips printed the owner's
+abbreviation ("KREU", "GOAT · BN"). `ffTag` now renders the owner's crest (the uploaded
+`logoData` first) with `role="img"` and the full team name as its label, BN beside a bench man,
+and a gold ring on your own. The abbreviation stays only as the aria-hidden monogram under the
+picture, shown if the image fails. Cache-bust ?v=20260927i.
+
+VERIFY: sunday 48/48 (new section "GFFL owner crests", 6 checks), sunday-ff 53/53. Bite: the
+previous sd-ffui.js/sd-ff.css fail all 6.

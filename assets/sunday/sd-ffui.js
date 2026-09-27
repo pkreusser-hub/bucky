@@ -55,13 +55,16 @@ function ffCrest(id, px = 28) {
   const img = t.logo ? `<img src="${esc(t.logo)}" alt="" width="${px}" height="${px}" loading="lazy" onerror="this.remove()">` : '';
   // A transparent PNG sits straight on the team colour, uncropped (GFFL's isCutoutLogo rule).
   const cut = /^data:image\/png/i.test(t.logo || '') || /\.png(\?|#|$)/i.test(t.logo || '');
-  return `<span class="ff-crest${cut ? ' cutout' : ''}" style="--c:${col};--ci:${onColor(col)};width:${px}px;height:${px}px">${esc((t.abbrev || t.name || '?').slice(0, 4))}${img}</span>`;
+  // The monogram under the picture scales with the crest so a 16px chip crest still fits "KREU".
+  const fs = Math.max(6, Math.round(px * 0.34));
+  return `<span class="ff-crest${cut ? ' cutout' : ''}" role="img" aria-label="${esc(t.name)}" title="${esc(t.name)}" style="--c:${col};--ci:${onColor(col)};width:${px}px;height:${px}px;font-size:${fs}px"><span aria-hidden="true">${esc((t.abbrev || t.name || '?').slice(0, 4))}</span>${img}</span>`;
 }
-function ffTag(id, bench) {
-  const t = ffTeam(id);
-  if (!t) return '';
-  const col = ffColor(id);
-  return `<span class="ff-tag${id === FF.myTeamId ? ' me' : ''}" style="--c:${col}">${esc(t.abbrev || t.name)}${bench ? ' · BN' : ''}</span>`;
+// Who owns a player, shown as the owner's GFFL crest rather than the team's name (2026-09-27,
+// user: "use the gffl logos in place of team names when it shows GFFL starters/benches").
+// A bench player keeps a small BN marker beside the crest; your own team's crest gets a ring.
+function ffTag(id, bench, px = 24) {
+  if (!ffTeam(id)) return '';
+  return `<span class="ff-own${id === FF.myTeamId ? ' me' : ''}">${ffCrest(id, px)}${bench ? '<span class="ff-bn">BN</span>' : ''}</span>`;
 }
 function ffHeadshot(key, ev, nfl) {
   if (String(key).startsWith('dst_')) {
@@ -331,7 +334,7 @@ function ffCardExtra(ev) {
   const chip = (p) => {
     const side = ffSide(p.teamId);
     const val = ev.state === 'pre' ? '' : ` <b>${ffPts(p.pts || 0)}</b>`;
-    return `<span class="ffc ${side}" style="--c:${ffColor(p.teamId)}">${esc(ffShort(p.name))}${val}</span>`;
+    return `<span class="ffc ${side}" style="--c:${ffColor(p.teamId)}">${ffTag(p.teamId, false, 16)}${esc(ffShort(p.name))}${val}</span>`;
   };
   return `<div class="ff-card">${shown.map(chip).join('')}${rest > 0 ? `<span class="ffc-more">+${rest} GFFL starter${rest === 1 ? '' : 's'}</span>` : ''}</div>`;
 }
@@ -344,7 +347,7 @@ function ffPlayExtra(ev, play) {
   if (!credits.length) return '';
   return `<div class="ff-play">${credits.map((c) => {
     const side = ffSide(c.teamId);
-    return `<span class="ffp ${side}${c.starter ? '' : ' bench'}" style="--c:${ffColor(c.teamId)}"><b>${c.label}</b> ${esc(ffShort(c.name))} <small>${esc(ffTeam(c.teamId)?.abbrev || '')}${c.starter ? '' : ' · BN'}</small></span>`;
+    return `<span class="ffp ${side}${c.starter ? '' : ' bench'}" style="--c:${ffColor(c.teamId)}">${ffTag(c.teamId, !c.starter, 16)}<b>${c.label}</b> ${esc(ffShort(c.name))}</span>`;
   }).join('')}</div>`;
 }
 

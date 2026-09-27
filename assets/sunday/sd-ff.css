@@ -38,14 +38,14 @@
 .ffm-pickb:hover { border-color: var(--flag); }
 
 /* team crest: monogram underneath, logo on top (removed on error) */
-.ff-crest { position: relative; flex: none; display: inline-grid; place-items: center; border-radius: 50%; overflow: hidden; background: var(--c); color: var(--ci); font: 700 10px/1 var(--cond); letter-spacing: 0.04em; }
+.ff-crest { position: relative; flex: none; display: inline-grid; place-items: center; border-radius: 50%; overflow: hidden; background: var(--c); color: var(--ci); font: 700 10px/1 var(--cond); letter-spacing: 0.02em; }
 .ff-crest img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--surface-2); }
 .ff-crest.cutout img { object-fit: contain; background: var(--c); }
 
 /* ── game cards: GFFL starters in this game ── */
 .ff-card { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-2); }
 .lrow .ff-card { margin-top: 4px; padding-top: 4px; border-top: 0; grid-column: 1 / -1; }
-.ffc { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px 2px 6px; border-radius: 4px; font-size: 11.5px; line-height: 1.5; background: var(--surface-2); color: var(--ink-2); border-left: 3px solid var(--c); white-space: nowrap; }
+.ffc { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px 2px 3px; border-radius: 999px; font-size: 11.5px; line-height: 1.5; background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
 .ffc b { font-variant-numeric: tabular-nums; color: var(--ink); }
 .ffc.me { color: var(--ink); font-weight: 600; background: color-mix(in srgb, var(--c) 18%, var(--surface-2)); }
 .ffc-more { font-size: 11px; color: var(--muted); align-self: center; }
@@ -54,9 +54,8 @@
 .ff-play { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 /* In a play row the chips sit under the play text, not across the down-and-distance column. */
 .play > .ff-play { grid-column: 2 / -1; margin-top: 0; }
-.ffp { display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 7px; border-radius: 4px; font-size: 12px; background: var(--surface-2); border-left: 3px solid var(--c); color: var(--ink-2); }
+.ffp { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 3px; border-radius: 999px; font-size: 12px; background: var(--surface-2); color: var(--ink-2); }
 .ffp b { font-variant-numeric: tabular-nums; color: var(--ink); }
-.ffp small { font-size: 10.5px; color: var(--muted); letter-spacing: 0.04em; }
 .ffp.me { background: color-mix(in srgb, var(--c) 20%, var(--surface-2)); color: var(--ink); }
 .ffp.me b { color: var(--flag); }
 .ffp.bench { opacity: 0.6; }
@@ -85,8 +84,13 @@ img.ff-hs.logo { object-fit: contain; width: 32px; height: 32px; justify-self: c
 .ffr-n small { font-weight: 400; font-size: 11px; color: var(--muted); margin-left: 2px; }
 .ffr-l { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ffr-p { font: 700 20px/1 var(--display); text-align: right; font-variant-numeric: tabular-nums; }
+/* owner crest (ffTag): the GFFL logo in place of the team name; BN beside it for a bench man,
+   a gold ring around your own crest */
+.ff-own { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.ff-own.me .ff-crest { box-shadow: 0 0 0 2px var(--flag); }
+.ff-bn { font: 700 10px/1 var(--cond); letter-spacing: 0.06em; color: var(--muted); padding: 2px 4px; border: 1px solid var(--line-2); border-radius: 3px; }
+.ffr .ff-own { justify-self: end; }
 .ff-tag { font: 600 11px/1 var(--cond); letter-spacing: 0.06em; padding: 3px 6px; border-radius: 3px; border: 1px solid var(--c); color: var(--ink-2); white-space: nowrap; }
-.ff-tag.me { background: var(--c); color: var(--bg); border-color: var(--c); }
 .ff-tag.fa { border-color: var(--line-2); color: var(--muted); }
 .ff-big { display: grid; gap: 6px; }
 .ffb { padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
