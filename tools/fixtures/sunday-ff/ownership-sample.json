@@ -1,0 +1,21 @@
+{
+  "_comment": "Small hand-built fixture for the ownership-index unit checks in tools/_verify-sunday-ff.cjs — NOT real production rosters (those are exercised for real in reconcile/rosters/*, which does carry a real dst_PIT key). This one exists purely to exercise the three key shapes the task calls out: a plain ESPN athlete id, dst_<ABBR> with the Sleeper-normalized abbreviation (WAS, never ESPN's WSH), and a slp_<sleeperId> player with no ESPN id at all, resolved by normalized name + NFL team against a game's box-score athletes.",
+  "teams": [
+    { "id": 101 },
+    { "id": 102 }
+  ],
+  "rosters": {
+    "101": [
+      { "key": "4046692", "name": "Patrick Mahomes", "pos": "QB", "team": "KC", "slot": "QB", "injury": "" },
+      { "key": "dst_WAS", "name": "Commanders D/ST", "pos": "DST", "team": "WAS", "slot": "DST", "injury": "" },
+      { "key": "slp_9999901", "name": "Fixture Only Player", "pos": "WR", "team": "KC", "slot": "WR", "injury": "" },
+      { "key": "9999", "name": "Bench Warmer", "pos": "RB", "team": "KC", "slot": "BENCH", "injury": "" }
+    ],
+    "102": [
+      { "key": "9998", "name": "Injured Reserve Guy", "pos": "TE", "team": "SF", "slot": "IR", "injury": "Knee" }
+    ]
+  },
+  "boxAthletes": [
+    { "id": "7777001", "name": "Fixture Only Player", "team": "KC" }
+  ]
+}

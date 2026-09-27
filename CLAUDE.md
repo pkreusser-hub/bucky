@@ -29,6 +29,7 @@ ones in the same file.
 | `farmkart.html`, `farmkart-editor.html`, `assets/farmkart-*.js` | [docs/farm-kart.md](docs/farm-kart.md) |
 | `barnyardbistro.html`, `farmparty.html`, `hayhem.html`, `farm3d.html`, `goatcare.html`, `games.html` | [docs/games.md](docs/games.md) |
 | anything under `assets/cast/` — Tripo, rigs, sprite bakes | [docs/cast-and-3d.md](docs/cast-and-3d.md) |
+| `sunday.html`, `assets/sunday/sd-*` | [docs/sunday.md](docs/sunday.md) |
 | preview servers, screenshot rigs | [docs/tooling.md](docs/tooling.md) |
 | starting or finishing an agent worktree | [WORKTREES.md](WORKTREES.md) |
 

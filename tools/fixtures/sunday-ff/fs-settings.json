@@ -1,0 +1,289 @@
+{
+ "fields": {
+  "kind": {
+   "stringValue": "settings"
+  },
+  "v": {
+   "integerValue": "8"
+  },
+  "rules": {
+   "mapValue": {
+    "fields": {
+     "name": {
+      "stringValue": "The Goat Fantasy Football League"
+     },
+     "playoffs": {
+      "mapValue": {
+       "fields": {
+        "byes": {
+         "integerValue": "3"
+        },
+        "teams": {
+         "integerValue": "5"
+        },
+        "startWeek": {
+         "integerValue": "15"
+        }
+       }
+      }
+     },
+     "roster": {
+      "mapValue": {
+       "fields": {
+        "RB": {
+         "integerValue": "3"
+        },
+        "IR": {
+         "integerValue": "3"
+        },
+        "BENCH": {
+         "integerValue": "7"
+        },
+        "DST": {
+         "integerValue": "1"
+        },
+        "FLEX": {
+         "integerValue": "1"
+        },
+        "WR": {
+         "integerValue": "3"
+        },
+        "TE": {
+         "integerValue": "1"
+        },
+        "QB": {
+         "integerValue": "1"
+        },
+        "K": {
+         "integerValue": "1"
+        }
+       }
+      }
+     },
+     "seasonWeeks": {
+      "integerValue": "14"
+     },
+     "scoring": {
+      "mapValue": {
+       "fields": {
+        "fg_made_yd": {
+         "doubleValue": 0.1
+        },
+        "rec_td": {
+         "integerValue": "6"
+        },
+        "dst_blk": {
+         "integerValue": "3"
+        },
+        "dst_pr_td": {
+         "integerValue": "8"
+        },
+        "dst_pa_35_45": {
+         "integerValue": "0"
+        },
+        "off_fum_td": {
+         "integerValue": "6"
+        },
+        "dst_blk_td": {
+         "integerValue": "6"
+        },
+        "rush_td": {
+         "integerValue": "6"
+        },
+        "fg_miss": {
+         "integerValue": "-1"
+        },
+        "rush_yd": {
+         "doubleValue": 0.1
+        },
+        "pass_td": {
+         "integerValue": "4"
+        },
+        "dst_kr_td": {
+         "integerValue": "8"
+        },
+        "rec_2pt": {
+         "integerValue": "2"
+        },
+        "dst_safety": {
+         "integerValue": "4"
+        },
+        "dst_pa_7_13": {
+         "integerValue": "0"
+        },
+        "xp_made": {
+         "integerValue": "1"
+        },
+        "rec": {
+         "doubleValue": 0.5
+        },
+        "dst_pa_46": {
+         "integerValue": "0"
+        },
+        "dst_fum_ret_td": {
+         "integerValue": "6"
+        },
+        "pass_2pt": {
+         "integerValue": "2"
+        },
+        "dst_pa_0": {
+         "integerValue": "0"
+        },
+        "dst_int": {
+         "integerValue": "2"
+        },
+        "fg_50": {
+         "integerValue": "0"
+        },
+        "one_pt_safety": {
+         "integerValue": "1"
+        },
+        "dst_fum_forced": {
+         "integerValue": "1"
+        },
+        "dst_2pt_ret": {
+         "integerValue": "4"
+        },
+        "dst_pa_18_27": {
+         "integerValue": "0"
+        },
+        "rec_yd": {
+         "doubleValue": 0.1
+        },
+        "bonus_rush_200": {
+         "integerValue": "4"
+        },
+        "rush_2pt": {
+         "integerValue": "2"
+        },
+        "fum_lost": {
+         "integerValue": "-2"
+        },
+        "bonus_rec_200": {
+         "integerValue": "4"
+        },
+        "dst_pa_1_6": {
+         "integerValue": "0"
+        },
+        "bonus_rec_100": {
+         "integerValue": "3"
+        },
+        "dst_fum_rec": {
+         "integerValue": "1"
+        },
+        "dst_int_ret_td": {
+         "integerValue": "6"
+        },
+        "dst_pa_28_34": {
+         "integerValue": "0"
+        },
+        "bonus_pass_400": {
+         "integerValue": "4"
+        },
+        "bonus_rush_100": {
+         "integerValue": "3"
+        },
+        "dst_td": {
+         "integerValue": "6"
+        },
+        "bonus_pass_300": {
+         "integerValue": "3"
+        },
+        "fg_40_49": {
+         "integerValue": "0"
+        },
+        "dst_pa_14_17": {
+         "integerValue": "0"
+        },
+        "pass_yd": {
+         "doubleValue": 0.04
+        },
+        "fg_0_39": {
+         "integerValue": "0"
+        },
+        "xp_miss": {
+         "integerValue": "0"
+        },
+        "dst_sack": {
+         "integerValue": "1"
+        },
+        "pass_int": {
+         "integerValue": "-2"
+        }
+       }
+      }
+     },
+     "keepers": {
+      "mapValue": {
+       "fields": {
+        "maxYears": {
+         "integerValue": "3"
+        },
+        "costFloor": {
+         "integerValue": "1"
+        },
+        "mustBeOnFinalRoster": {
+         "stringValue": "true"
+        },
+        "costRoundsEarlier": {
+         "integerValue": "1"
+        },
+        "max": {
+         "integerValue": "3"
+        },
+        "waiverCost": {
+         "stringValue": "last-round"
+        }
+       }
+      }
+     },
+     "season": {
+      "integerValue": "2026"
+     },
+     "abbrev": {
+      "stringValue": "GFFL"
+     },
+     "draftAt": {
+      "stringValue": "2026-09-06T15:00:00-05:00"
+     },
+     "waivers": {
+      "mapValue": {
+       "fields": {
+        "processHour": {
+         "integerValue": "8"
+        },
+        "type": {
+         "stringValue": "faab"
+        },
+        "processDow": {
+         "integerValue": "3"
+        },
+        "budget": {
+         "integerValue": "100"
+        }
+       }
+      }
+     },
+     "trades": {
+      "mapValue": {
+       "fields": {
+        "deadlineWeek": {
+         "integerValue": "11"
+        },
+        "vetoVotes": {
+         "integerValue": "4"
+        },
+        "veto": {
+         "stringValue": "vote"
+        },
+        "reviewHours": {
+         "integerValue": "24"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

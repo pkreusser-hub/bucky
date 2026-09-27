@@ -1,0 +1,322 @@
+[
+ {
+  "document": {
+   "name": "projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/team_1",
+   "fields": {
+    "teamId": {
+     "integerValue": "1"
+    },
+    "name": {
+     "stringValue": "Battle Kreussers"
+    },
+    "abbrev": {
+     "stringValue": "KREU"
+    },
+    "owner": {
+     "stringValue": "Perry  Kreusser"
+    },
+    "colors": {
+     "mapValue": {
+      "fields": {
+       "primary": {
+        "stringValue": "#001331"
+       },
+       "secondary": {
+        "stringValue": "#a81d20"
+       },
+       "tertiary": {
+        "stringValue": "#ffffff"
+       }
+      }
+     }
+    },
+    "logo": {
+     "stringValue": "https://g.espncdn.com/s/ffllm/logos/CrazyHelmets-ToddDetwiler/Helmets_04.svg"
+    },
+    "kind": {
+     "stringValue": "team"
+    }
+   }
+  }
+ },
+ {
+  "document": {
+   "name": "projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/team_11",
+   "fields": {
+    "teamId": {
+     "integerValue": "11"
+    },
+    "name": {
+     "stringValue": "Kruz Control"
+    },
+    "abbrev": {
+     "stringValue": "KRUZ"
+    },
+    "owner": {
+     "stringValue": "Calvin Kreusser"
+    },
+    "colors": {
+     "mapValue": {
+      "fields": {
+       "primary": {
+        "stringValue": "#00246e"
+       },
+       "secondary": {
+        "stringValue": "#df3801"
+       },
+       "tertiary": {
+        "stringValue": "#ffffff"
+       }
+      }
+     }
+    },
+    "logo": {
+     "stringValue": "https://g.espncdn.com/s/ffllm/logos/StarWarsTheForceAwakens-ToddDetwiler/ESPN_Star_Wars_15a.svg"
+    },
+    "kind": {
+     "stringValue": "team"
+    }
+   }
+  }
+ },
+ {
+  "document": {
+   "name": "projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/team_12",
+   "fields": {
+    "teamId": {
+     "integerValue": "12"
+    },
+    "name": {
+     "stringValue": "The GOAT Kids"
+    },
+    "abbrev": {
+     "stringValue": "GOAT"
+    },
+    "owner": {
+     "stringValue": "Isaac Kreusser"
+    },
+    "colors": {
+     "mapValue": {
+      "fields": {
+       "primary": {
+        "stringValue": "#b4101f"
+       },
+       "secondary": {
+        "stringValue": "#cd903d"
+       },
+       "tertiary": {
+        "stringValue": "#ffffff"
+       }
+      }
+     }
+    },
+    "logo": {
+     "stringValue": "https://g.espncdn.com/lm-static/logo-packs/ffl/HelmetAlphabet-ESPN/Helmet-G.svg"
+    },
+    "kind": {
+     "stringValue": "team"
+    }
+   }
+  }
+ },
+ {
+  "document": {
+   "name": "projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/team_2",
+   "fields": {
+    "teamId": {
+     "integerValue": "2"
+    },
+    "name": {
+     "stringValue": "Elanikan Skywalkers"
+    },
+    "abbrev": {
+     "stringValue": "ESKY"
+    },
+    "owner": {
+     "stringValue": "Elan Perry"
+    },
+    "colors": {
+     "mapValue": {
+      "fields": {
+       "primary": {
+        "stringValue": "#000000"
+       },
+       "secondary": {
+        "stringValue": "#ff0000"
+       },
+       "tertiary": {
+        "stringValue": "#363636"
+       }
+      }
+     }
+    },
+    "logo": {
+     "stringValue": "https://g.espncdn.com/s/ffllm/logos/StarWarsTheForceAwakens-ToddDetwiler/ESPN_Star_Wars_01a.svg"
+    },
+    "kind": {
+     "stringValue": "team"
+    }
+   }
+  }
+ },
+ {
+  "document": {
+   "name": "projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/team_3",
+   "fields": {
+    "teamId": {
+     "integerValue": "3"
+    },
+    "name": {
+     "stringValue": "Wyoming Cowboys"
+    },
+    "abbrev": {
+     "stringValue": "WYM"
+    },
+    "owner": {
+     "stringValue": "joe  adams"
+    },
+    "colors": {
+     "mapValue": {
+      "fields": {
+       "primary": {
+        "stringValue": "#cd9817"
+       },
+       "secondary": {
+        "stringValue": "#452d21"
+       },
+       "tertiary": {
+        "stringValue": "#ffffff"
+       }
+      }
+     }
+    },
+    "logo": {
+     "stringValue": "https://g.espncdn.com/lm-static/ffl/images/default_logos/6.svg"
+    },
+    "kind": {
+     "stringValue": "team"
+    }
+   }
+  }
+ },
+ {
+  "document": {
+   "name": "projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/team_4",
+   "fields": {
+    "teamId": {
+     "integerValue": "4"
+    },
+    "name": {
+     "stringValue": "Chula Vista Jaguarrams"
+    },
+    "abbrev": {
+     "stringValue": "CVJ"
+    },
+    "owner": {
+     "stringValue": "Tom Adams"
+    },
+    "colors": {
+     "mapValue": {
+      "fields": {
+       "primary": {
+        "stringValue": "#406254"
+       },
+       "secondary": {
+        "stringValue": "#ae6531"
+       },
+       "tertiary": {
+        "stringValue": "#e2ac74"
+       }
+      }
+     }
+    },
+    "logo": {
+     "stringValue": "https://i.imgur.com/Bq9H8IS.gif"
+    },
+    "kind": {
+     "stringValue": "team"
+    }
+   }
+  }
+ },
+ {
+  "document": {
+   "name": "projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/team_5",
+   "fields": {
+    "teamId": {
+     "integerValue": "5"
+    },
+    "name": {
+     "stringValue": "Laws Rule"
+    },
+    "abbrev": {
+     "stringValue": "LR"
+    },
+    "owner": {
+     "stringValue": "Sandy Laws"
+    },
+    "colors": {
+     "mapValue": {
+      "fields": {
+       "primary": {
+        "stringValue": "#ffffff"
+       },
+       "secondary": {
+        "stringValue": "#c9953f"
+       },
+       "tertiary": {
+        "stringValue": "#001938"
+       }
+      }
+     }
+    },
+    "logo": {
+     "stringValue": "https://g.espncdn.com/s/ffllm/logos/Xmas-AndrewJanik/XMas_02.svg"
+    },
+    "kind": {
+     "stringValue": "team"
+    }
+   }
+  }
+ },
+ {
+  "document": {
+   "name": "projects/amen-farms-app/databases/(default)/documents/gffl_fam2jan2g/team_9",
+   "fields": {
+    "teamId": {
+     "integerValue": "9"
+    },
+    "name": {
+     "stringValue": "Scruffy Looking Nerfherders"
+    },
+    "abbrev": {
+     "stringValue": "SLN"
+    },
+    "owner": {
+     "stringValue": "John Salnaitis"
+    },
+    "colors": {
+     "mapValue": {
+      "fields": {
+       "primary": {
+        "stringValue": "#f7f2ea"
+       },
+       "secondary": {
+        "stringValue": "#009fe4"
+       },
+       "tertiary": {
+        "stringValue": "#f10805"
+       }
+      }
+     }
+    },
+    "logo": {
+     "stringValue": "https://pm1.aminoapps.com/7265/2618b40b779518ba63b1e317c66c2973420afcffr1-225-225v2_128.jpg"
+    },
+    "kind": {
+     "stringValue": "team"
+    }
+   }
+  }
+ }
+]
