@@ -84,3 +84,12 @@ picture, shown if the image fails. Cache-bust ?v=20260927i.
 
 VERIFY: sunday 48/48 (new section "GFFL owner crests", 6 checks), sunday-ff 53/53. Bite: the
 previous sd-ffui.js/sd-ff.css fail all 6.
+
+## 2026-09-27 — every GFFL starter on the game card
+
+Perry: "show all GFFL starters instead of having '+2 GFFL'". The card chip row showed your
+matchup's starters (or the first four) and folded the rest into "+N GFFL starters". It now shows
+every GFFL starter in the game, yours and your opponent's first; the row wraps (measured on the
+live week-3 slate: up to 8 chips, all inside the card at 375px). Cache-bust ?v=20260927j.
+
+VERIFY: sunday 51/51 (3 new checks), sunday-ff 53/53. Bite: the previous sd-ffui.js shows 2 of 6.

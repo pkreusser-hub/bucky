@@ -328,15 +328,14 @@ function ffCardExtra(ev) {
   if (!all.length) return '';
   const rank = { me: 0, opp: 1, other: 2 };
   all.sort((a, b) => rank[ffSide(a.teamId)] - rank[ffSide(b.teamId)] || (b.pts || 0) - (a.pts || 0));
-  const key = all.filter((p) => ffSide(p.teamId) !== 'other');
-  const shown = (key.length ? key : all).slice(0, 4);
-  const rest = all.length - shown.length;
+  // Every GFFL starter in the game gets a chip, yours and your opponent's first (2026-09-27,
+  // user: "show all GFFL starters instead of having '+2 GFFL'"). The row wraps as needed.
   const chip = (p) => {
     const side = ffSide(p.teamId);
     const val = ev.state === 'pre' ? '' : ` <b>${ffPts(p.pts || 0)}</b>`;
     return `<span class="ffc ${side}" style="--c:${ffColor(p.teamId)}">${ffTag(p.teamId, false, 16)}${esc(ffShort(p.name))}${val}</span>`;
   };
-  return `<div class="ff-card">${shown.map(chip).join('')}${rest > 0 ? `<span class="ffc-more">+${rest} GFFL starter${rest === 1 ? '' : 's'}</span>` : ''}</div>`;
+  return `<div class="ff-card">${all.map(chip).join('')}</div>`;
 }
 
 // Under each play: the rostered players it scored for. Bench players show muted; players on no

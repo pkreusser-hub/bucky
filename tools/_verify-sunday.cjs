@@ -307,6 +307,38 @@ async function main() {
     ok(crest.play && crest.play.label === "Battle Kreussers" && /^\+6\.0 B\. Robinson$/.test(crest.playText),
       `a play chip shows the owner's crest, then "+6.0 B. Robinson", no abbreviation (${JSON.stringify(crest.play)} "${crest.playText}")`);
 
+    // 2026-09-27, user: "show all GFFL starters instead of having '+2 GFFL'". The card used to
+    // show your matchup's starters (or the first four) and fold the rest into "+N GFFL starters".
+    // Six starters in one game: yours, your opponent's, and four on two other GFFL teams.
+    const all = await page.evaluate(() => {
+      FF.setTeams([
+        { teamId: 1, name: "Battle Kreussers", abbrev: "KREU" }, { teamId: 9, name: "Scruffy Looking Nerfherders", abbrev: "SLN" },
+        { teamId: 2, name: "Elanikan Skywalkers", abbrev: "ESKY" }, { teamId: 12, name: "The GOAT Kids", abbrev: "GOAT" },
+      ]);
+      FF.setSchedule(3, [[9, 1], [12, 2]]);
+      FF.setMyTeam(1);
+      const ros = new Map([
+        [1, [{ key: "a1", name: "Bijan Robinson", team: "ATL", slot: "RB" }]],
+        [9, [{ key: "a2", name: "Christian Watson", team: "GB", slot: "WR" }]],
+        [2, [{ key: "a3", name: "Drake London", team: "ATL", slot: "WR" }, { key: "a4", name: "Jordan Love", team: "GB", slot: "QB" }]],
+        [12, [{ key: "a5", name: "Tucker Kraft", team: "GB", slot: "TE" }, { key: "a6", name: "Kyle Pitts", team: "ATL", slot: "TE" }, { key: "a7", name: "Nick Folk", team: "ATL", slot: "BENCH" }]],
+      ]);
+      FF.rostersByTeamId = ros;
+      FF.buildOwnerIndex([...ros.keys()].map((id) => ({ id })), ros);
+      const box = document.createElement("div");
+      box.innerHTML = ffCardExtra({ id: "401872948", state: "pre", home: { abbr: "GB" }, away: { abbr: "ATL" } });
+      return {
+        owners: [...box.querySelectorAll(".ffc .ff-crest")].map((c) => c.getAttribute("aria-label")),
+        names: [...box.querySelectorAll(".ffc")].map((c) => c.textContent.replace(/\s+/g, " ").trim()),
+        text: box.textContent.replace(/\s+/g, " ").trim(),
+      };
+    });
+    ok(all.owners.length === 6 && !/\+\d|GFFL starter/.test(all.text),
+      `a game with six GFFL starters shows all six chips, no "+N GFFL starters" (${all.owners.length}: ${JSON.stringify(all.names)})`);
+    ok(all.owners[0] === "Battle Kreussers" && all.owners[1] === "Scruffy Looking Nerfherders",
+      `…yours first, then your opponent's (${JSON.stringify(all.owners.slice(0, 2))})`);
+    ok(!all.names.some((n) => /Folk/.test(n)), "…and a bench player is not a starter chip");
+
     /* ===================== console sanity ===================== */
     section("Console");
     ok(consoleErrors.length === 0, `no uncaught page errors${consoleErrors.length ? " (" + consoleErrors.slice(0, 3).join(" | ") + ")" : ""}`);
