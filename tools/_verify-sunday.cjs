@@ -1784,6 +1784,46 @@ async function main() {
         ok(pf.tl === null && pf.shown && pf.title === "Postgame show" && pf.count === "coming up shortly", `with no postgame script, no canned lines: "${pf.title}", "${pf.count}" (${JSON.stringify(pf.tl)})`);
         await probe(() => localStorage.removeItem("sun.tecmoBig"));
       }
+      /* ===================== (q) live: polled every 2 s, plays cut to the snap ===================== */
+      // 2026-09-28, user: "is there anything we can do to decrease the time from when a play happens in
+      // real life to the time it is animated in GFFL?" … "lets just try the 2 changes for tonight".
+      // ATL @ GB moved to the 3rd quarter (the halftime cut of the summary, the scoreboard set live).
+      section("Live: polled every 2 s, plays cut to the snap");
+      {
+        const HFIX = path.join(__dirname, "fixtures", "halftime");
+        const halfSum = fs.readFileSync(path.join(HFIX, "sum-401872948-half.json"), "utf8");
+        const sbL = structuredClone(sbFixture), evL = sbL.events.find((e) => e.id === "401872948"), cL = evL.competitions[0];
+        cL.status = evL.status = { clock: 492, displayClock: "8:12", period: 3, type: { id: "2", name: "STATUS_IN_PROGRESS", state: "in", completed: false, description: "In Progress", detail: "8:12 - 3rd Quarter", shortDetail: "8:12 - 3rd" } };
+        for (const x of cL.competitors) x.score = x.homeAway === "away" ? "17" : "7";
+        const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
+        const evAsks = [];
+        MOCK = (u) => /site\.api\.espn\.com.*\/scoreboard\/401872948/.test(u) ? (evAsks.push(Date.now()), json(JSON.stringify(evL)))
+          : /site\.api\.espn\.com.*\/summary\?event=401872948/.test(u) ? json(halfSum)
+          : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(JSON.stringify(sbL))
+          : /\/\.netlify\/functions\//.test(u) ? json('{"ok":false,"reason":"none"}') : null;
+        await page.setViewport({ width: 390, height: 844 });
+        await page.evaluate(() => localStorage.setItem("sun.tecmoBig", "true"));
+        await page.goto(BASE + "/sunday.html?live=1#g401872948", { waitUntil: "domcontentloaded" });   // (a query, so the page really reloads)
+        try { await page.waitForFunction(() => G?.sum && G.ev?.state === "in" && SIDE.sc, { timeout: 15000 }); } catch {}
+        const t0 = Date.now(), n0 = evAsks.length;
+        await wait(6500);
+        const got = evAsks.filter((t) => t >= t0).length;
+        ok(got >= 3 && got <= 4, `a live game's feed is asked every 2 s, not every 5: ${got} asks in 6.5 s (every 5 s would be 1 or 2)`);
+        const cut = await probe(() => {
+          const l = raPlays(), prevP = l.at(-2), p = l.at(-1);
+          sidePlay(prevP); SIDE.t = SIDE.sc.T;                                      // the play before, finished
+          const full = raBuild(p, G.ev, raQBs(), sideFrom(p));                     // what the walk-up would have been
+          sidePlay(p);
+          const sc = SIDE.sc, still = (s) => s.actors.filter((a) => a.side === "o" || a.side === "d").every((a) => { const [x0, z0] = raPos(a, 0), [x1, z1] = raPos(a, 0.9); return Math.hypot(x1 - x0, z1 - z0) < 0.3; });
+          const px = (t) => { SIDE.t = t; raStep(SIDE, 0); const c = SIDE.cv, d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data; let v = 0; for (let i = 0; i < d.length; i += 64) v += d[i] + d[i + 1] + d[i + 2]; return Math.round(v / (d.length / 64) / 3); };
+          return { tS: sc.tS, cutIn: sc.cutIn, fullTS: full.tS, set: still(sc), fullSet: still(full), rNow: sideResultAt(sc), rFull: sideResultAt(full), dark: px(0), lit: px(0.45), id: String(SIDE.playId), want: String(p.id) };
+        });
+        ok(cut.id === cut.want && cut.tS === 1.1 && cut.cutIn === 0.3 && cut.set && cut.fullTS >= 4 && !cut.fullSet,
+          `a live play cuts straight to the snap: the players are already set (${cut.set}; with the walk-up they'd still be jogging: ${!cut.fullSet}), the snap at ${cut.tS} s instead of ${cut.fullTS} s`);
+        ok(cut.rFull - cut.rNow >= 2.9, `…so its result shows ${(cut.rFull - cut.rNow).toFixed(1)} s sooner (at ${cut.rNow?.toFixed?.(1)} s instead of ${cut.rFull?.toFixed?.(1)} s)`);
+        ok(cut.dark < 12 && cut.lit > 40, `…behind a quick fade from black, as TV cuts to the next snap (frame brightness ${cut.dark} at 0 s, ${cut.lit} at 0.45 s)`);
+        await probe(() => localStorage.removeItem("sun.tecmoBig"));
+      }
       await page.setViewport({ width: 800, height: 600 });
       MOCK = null;
     }
