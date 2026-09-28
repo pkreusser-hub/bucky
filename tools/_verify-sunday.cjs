@@ -69,8 +69,13 @@ async function main() {
   try {
     const page = await browser.newPage();
     await page.setRequestInterception(true);
+    // MOCK(url) → a response or null. The 8-bit replay section serves the fixture game through it, so
+    // the real game view opens with no live ESPN call.
+    let MOCK = null;
     page.on("request", (req) => {
       try {
+        const m = MOCK && MOCK(req.url());
+        if (m) return req.respond(m);
         const h = new URL(req.url()).hostname;
         if (ALLOWED_HOSTS.has(h)) req.continue(); else req.abort();
       } catch { req.abort(); }
@@ -878,6 +883,121 @@ async function main() {
       `No Play (744): the injury is still shown, after the flag is walked off, the result time unchanged (walk-off ends ${inj.noPlay.refEnd?.toFixed(2)}, trainers out ${inj.noPlay.tIn?.toFixed(2)})`]);
     IJ(() => [inj.kick.who === "T.Wallace" && inj.kick.medStart.every((y) => y > 53.33), `kickoff (3961): T.Wallace carried off to Cleveland's near sideline (${inj.kick.medStart.join(", ")})`]);
     IJ(() => [inj.try.tdCrews === 0 && inj.try.tryCrews === 1 && inj.try.who === "D.Lewis" && inj.try.team === "CAR", `two-point try (3922): the stretcher is on the try, not the touchdown (TD ${inj.try.tdCrews}, try ${inj.try.tryCrews} for ${inj.try.team}-${inj.try.who})`]);
+
+    /* ===================== (j) replay on the big 8-bit view ===================== */
+    // 2026-09-28, user: "On the gffl scores, the 8-bit animation feature, i want to give the option to
+    // hit replay like we have on the field view, and then replay gives the option for game start or
+    // this drive. Add a 2x and 3x option to replay". The real game view, opened on the ATL @ GB final
+    // with the 8-bit view picked. Hand-read from the fixture: the game opens with T.Smack's kickoff
+    // (40187294840), then Bi.Robinson's 4-yard run (40187294863); the last drive is ATL's two kneels
+    // (4018729484399 at Q4 1:11, 4018729484421 at 0:38) and "End of Game", so "This drive" starts at
+    // 4018729484399.
+    section("8-bit replay: game start or this drive, 1× 2× 3×");
+    {
+      const sbEvent = JSON.stringify(sbFixture.events.find((e) => e.id === "401872948"));
+      const sumBody = JSON.stringify(sumFixture), sbBody = JSON.stringify(sbFixture);
+      const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
+      MOCK = (u) => /site\.api\.espn\.com.*\/scoreboard\/401872948/.test(u) ? json(sbEvent)
+        : /site\.api\.espn\.com.*\/summary\?event=401872948/.test(u) ? json(sumBody)
+        : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(sbBody) : null;
+      await page.setViewport({ width: 390, height: 844 });
+      await page.evaluate(() => { localStorage.setItem("sun.tecmoBig", "true"); localStorage.removeItem("sun.tecmoSpeed"); });
+      await page.goto(BASE + "/sunday.html#g401872948", { waitUntil: "domcontentloaded" });
+      let opened = true;
+      try { await page.waitForFunction(() => G && G.sum && document.getElementById("bt-cv")?.offsetParent && SIDE.sc, { timeout: 15000 }); } catch { opened = false; }
+      ok(opened, "the fixture game opens on the big 8-bit view");
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      // Every probe reports instead of throwing, so the section runs (and fails check by check) against
+      // code without the feature.
+      const probe = (fn, arg) => page.evaluate(fn, arg).catch((e) => ({ err: e.message.split("\n")[0] }));
+      const vis = () => probe(() => {
+        const shown = (el) => !!el && el.offsetParent !== null && el.getBoundingClientRect().width > 0;
+        const bar = document.getElementById("bt-rp"), st = document.querySelector(".stadium");
+        return {
+          replayBtn: shown(document.querySelector("#f-cap .rp-start")), bar: shown(bar),
+          choices: bar ? [...bar.querySelectorAll("[data-btrp]")].filter(shown).map((b) => b.textContent.trim()) : [],
+          speeds: bar ? [...bar.querySelectorAll("[data-btspeed]")].filter(shown).map((b) => b.textContent.trim() + (b.getAttribute("aria-pressed") === "true" ? "*" : "")) : [],
+          label: bar?.querySelector(".bt-rp-l")?.textContent.replace(/\s+/g, " ").trim() || "",
+          rp: SIDE.rp ? { id: String(SIDE.rp.id), speed: SIDE.rp.speed, from: SIDE.rp.from } : null,
+          fieldReplay: { playing: !!G.playing, cursor: G.cursor ?? null, bar: shown(document.getElementById("replay")) },
+          tecmo: st.classList.contains("tecmo"), playId: String(SIDE.playId),
+        };
+      });
+      const click = (sel) => probe((sel) => { const el = document.querySelector(sel); if (!el) return { err: "no " + sel }; el.click(); return {}; }, sel);
+
+      const v0 = await vis();
+      ok(v0.tecmo && v0.replayBtn, `the 8-bit view shows a Replay button in the field caption, as the field view does (8-bit on ${v0.tecmo}, button shown ${v0.replayBtn})`);
+      await click("#f-cap .rp-start");
+      const v1 = await vis();
+      ok(v1.bar && v1.choices.join("|") === "Game start|This drive", `…tapping it offers Game start or This drive (${JSON.stringify(v1.choices)})`);
+      ok(v1.speeds.join("|") === "1×*|2×|3×", `…with 1×, 2× and 3×, 1× picked on a first visit (${JSON.stringify(v1.speeds)})`);
+      ok(!v1.fieldReplay.playing && v1.fieldReplay.cursor === null && !v1.fieldReplay.bar && !v1.rp, `…and it only asks: the field view's replay isn't started, nothing plays yet (${JSON.stringify(v1.fieldReplay)}, 8-bit replay ${JSON.stringify(v1.rp)})`);
+      const geo = await probe(() => {
+        const st = document.querySelector(".stadium").getBoundingClientRect();
+        const els = [...document.querySelectorAll("#bt-rp button")];
+        return { right: Math.max(...els.map((b) => b.getBoundingClientRect().right)), left: Math.min(...els.map((b) => b.getBoundingClientRect().left)), st: [st.left, st.right], h: els.map((b) => Math.round(b.getBoundingClientRect().height)), docW: document.documentElement.scrollWidth };
+      });
+      ok(!geo.err && geo.left >= geo.st[0] && geo.right <= geo.st[1] && geo.docW <= 390 && geo.h.every((h) => h >= 36),
+        `390px phone: every control sits inside the field box, no sideways scroll, each ≥36px tall (${JSON.stringify(geo)})`);
+
+      // Game start, at 3× picked from the menu.
+      await click('#bt-rp [data-btspeed="3"]');
+      const v2 = await vis();
+      const stored = await probe(() => localStorage.getItem("sun.tecmoSpeed"));
+      ok(v2.speeds.join("|") === "1×|2×|3×*" && stored === "3", `picking 3× marks it and remembers it (${JSON.stringify(v2.speeds)}, stored ${JSON.stringify(stored)})`);
+      await click('#bt-rp [data-btrp="game"]');
+      const g = await vis();
+      ok(g.rp && g.rp.id === "40187294840" && g.playId === "40187294840", `Game start plays the opening kickoff first (T.Smack from the GB 35: ${g.rp?.id})`);
+      ok(g.rp && g.rp.speed === 3 && g.label === "Replay · Q1 15:00", `…at 3×, the bar saying where the replay is (${g.rp?.speed}×, ${JSON.stringify(g.label)})`);
+      ok(!g.replayBtn && g.choices.join("|") === "Exit replay", `…the caption's Replay button steps aside for an Exit replay button on a final (${g.replayBtn}, ${JSON.stringify(g.choices)})`);
+      // Clock rate: scene seconds per wall second, sampled on the same scene at each speed.
+      const rate = async (v) => {
+        await click(`#bt-rp [data-btspeed="${v}"]`);
+        const a = await probe(() => ({ t: SIDE.t, w: performance.now(), sc: SIDE.sc }));
+        await wait(700);
+        return probe((a0) => ({ r: (SIDE.t - a0.t) / ((performance.now() - a0.w) / 1000), same: SIDE.playId === "40187294840" }), a);
+      };
+      await probe(() => { SIDE.t = 0.5; });
+      const r1 = await rate(1), r2 = await rate(2), r3 = await rate(3);
+      const k2 = r2.r / r1.r, k3 = r3.r / r1.r;
+      ok(r1.same && r3.same && Math.abs(k2 - 2) < 0.35 && Math.abs(k3 - 3) < 0.5,
+        `2× and 3× run the play's clock two and three times as fast as 1× (${r1.r?.toFixed(2)} / ${r2.r?.toFixed(2)} / ${r3.r?.toFixed(2)} scene s per s → ×${k2.toFixed(2)}, ×${k3.toFixed(2)})`);
+      // When a scene ends the next play follows: the kickoff, then Robinson's first run.
+      await probe(() => { SIDE.t = SIDE.sc.T; });
+      await wait(900);
+      const g2 = await vis();
+      ok(g2.rp && g2.rp.id === "40187294863", `…and when the kickoff is over the next play follows on its own (Bi.Robinson's run: ${g2.rp?.id})`);
+      const live = await probe(() => { const keep = G.ev; try { G.ev = { ...keep, state: "in" }; const during = sideLiveOn(); const r = SIDE.rp; SIDE.rp = null; const after = sideLiveOn(); SIDE.rp = r; return { during, after }; } finally { G.ev = keep; } });
+      ok(live.during === false && live.after === true, `in a live game the replay never holds the page's score back (gate on during the replay ${live.during}, without it ${live.after})`);
+      await click('#bt-rp [data-btrp="stop"]');
+      await wait(200);
+      const x = await vis();
+      ok(!x.rp && !x.bar && x.replayBtn && x.playId === "4018729484421", `Exit replay puts the final play back on the stage, the Replay button back in the caption (${x.playId}, bar ${x.bar}, button ${x.replayBtn})`);
+
+      // This drive: ATL's last drive, first play.
+      await click("#f-cap .rp-start");
+      const again = await vis();
+      ok(again.speeds.join("|") === "1×|2×|3×*", `the menu comes back with the speed last picked (${JSON.stringify(again.speeds)})`);
+      await click('#bt-rp [data-btrp="drive"]');
+      const d = await vis();
+      ok(d.rp && d.rp.id === "4018729484399" && d.label === "Replay · this drive · Q4 1:11", `This drive starts at the first play of the drive on the field (ATL's first kneel, Q4 1:11: ${d.rp?.id}, ${JSON.stringify(d.label)})`);
+      // Reaching the newest play hands the stage back: two kneels, then the replay is over.
+      for (let i = 0; i < 2; i++) { await probe(() => { SIDE.t = SIDE.sc.T; }); await wait(700); }
+      const e = await vis();
+      ok(!e.rp && !e.bar && e.replayBtn && e.playId === "4018729484421", `…and after the drive's last play it ends by itself, the newest play still on the stage (${e.playId}, replay ${JSON.stringify(e.rp)})`);
+
+      // The field view keeps its own replay: switching over drops an 8-bit replay, and its Replay
+      // button still runs the field replay.
+      await click("#f-cap .rp-start"); await click('#bt-rp [data-btrp="game"]');
+      await click("#f-cap [data-fview]");
+      const f = await vis();
+      ok(!f.tecmo && !f.rp && !f.bar, `switching to the field view ends the 8-bit replay (${JSON.stringify({ tecmo: f.tecmo, rp: f.rp, bar: f.bar })})`);
+      await click("#f-cap .rp-start");
+      const f2 = await vis();
+      ok(f2.fieldReplay.playing && !f2.bar, `…and the field view's Replay still starts the field replay (${JSON.stringify(f2.fieldReplay)})`);
+      await probe(() => { stopReplay(); localStorage.removeItem("sun.tecmoBig"); localStorage.removeItem("sun.tecmoSpeed"); });
+      MOCK = null;
+    }
 
     section("Console");
     ok(consoleErrors.length === 0, `no uncaught page errors${consoleErrors.length ? " (" + consoleErrors.slice(0, 3).join(" | ") + ")" : ""}`);

@@ -2369,7 +2369,8 @@ function sideTarget() {
 }
 function sideLiveOn() {
   const t = sideTarget();
-  return !!(G?.ev?.state === 'in' && t.cv && (bigTecmo() || isWide()) && !t.cv.closest('[hidden]') && !isHalftime(G.ev));
+  // Not during an 8-bit replay: the page shows the game as it is while the stage shows the past.
+  return !!(G?.ev?.state === 'in' && t.cv && (bigTecmo() || isWide()) && !t.cv.closest('[hidden]') && !isHalftime(G.ev) && !SIDE.rp);
 }
 function sideText(key, v, html) {
   for (const id of ['#sl-' + key, '#bt-' + key]) { const el = $(id); if (el) el[html ? 'innerHTML' : 'textContent'] = v; }
@@ -2386,9 +2387,13 @@ function sideUpdate() {
   const bt = $('#big-tecmo');
   if (bt) bt.hidden = !(ok && big);
   $('.stadium')?.classList.toggle('tecmo', ok && big);
+  // A replay (or its menu) belongs to the big stage it started on: switching to the field view,
+  // or a game view built afresh, drops it.
+  if ((SIDE.rp || SIDE.rpMenu) && !(ok && big && (SIDE.rp?.cv || SIDE.rpMenu) === tgt.cv)) { SIDE.rp = null; SIDE.rpMenu = null; tecmoRpBar(); }
   if (!ok) { sideStop(); if (G?.gate && typeof gateOpen === 'function') gateOpen(); return; }
-  if (SIDE.gameId !== G.id) { sideStop(); Object.assign(SIDE, { gameId: G.id, playId: null, setKey: '', timeoutId: null, sc: null, cv: tgt.cv }); }
+  if (SIDE.gameId !== G.id) { sideStop(); Object.assign(SIDE, { gameId: G.id, playId: null, setKey: '', timeoutId: null, sc: null, cv: tgt.cv, rp: null, rpMenu: null }); }
   if (SIDE.cv !== tgt.cv) { SIDE.cv = tgt.cv; SIDE.banner = tgt.banner; SIDE.cam = null; if (SIDE.sc) { raSizeCanvas(SIDE.cv, tgt.h); cancelAnimationFrame(SIDE.raf); sideResume(); } }
+  if (SIDE.rp) return;                                    // the replay runs its own sequence
   if (isHalftime(G.ev)) { if (!SIDE.sc?.halftime && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout)) sideHalftime(); return; }
   const latest = sideNext();
   if (!latest) return;
@@ -2418,25 +2423,13 @@ function sideUpdate() {
 function sidePlay(p) {
   clearTimeout(SIDE.idle); SIDE.idle = 0;
   SIDE.playId = p.id; SIDE.setKey = ''; SIDE.lastPlay = p;
-  // Out of the huddle when the teams are in one and the same offense has the ball.
-  // Every play starts from the scene before it: the players jog from wherever they were into the formation.
-  const prevSc = SIDE.sc?.gameId === G.id ? SIDE.sc : null;
-  let h = {};
-  if (prevSc) {
-    const offHome = p.offId === G.ev.home.id;
-    const pb = raBall(prevSc, SIDE.t);
-    const x0 = prevSc.noBall ? 0 : clamp(Math.round(pb.x * (prevSc.offHome === offHome ? 1 : -1) / 3.08) * 3.08, -3.08, 3.08);
-    h = { from: prevSc, fromT: SIDE.t, x0 };
-  }
   let sc = null;
-  try { sc = raBuild(p, G.ev, raQBs(), h); } catch (err) { console.error(err); }
+  try { sc = raBuild(p, G.ev, raQBs(), sideFrom(p)); } catch (err) { console.error(err); }
   if (SIDE.gatePlay != null && typeof gameGateRelease === 'function') { gameGateRelease(SIDE.gatePlay); SIDE.gatePlay = null; }   // an earlier play never showed its result
   if (sc) {
     sc.gameId = G.id;
-    // The moment the result shows: the first banner (a gain, "Touchdown", "Incomplete"…) or the whistle.
-    const firstBanner = sc.events.filter((e) => e.kind === 'banner').map((e) => e.t).sort((x, y) => x - y)[0];
     SIDE.gatePlay = p.id;
-    SIDE.resultAt = Math.min(firstBanner ?? Infinity, sc.tEnd ?? sc.T - 1.5);
+    SIDE.resultAt = sideResultAt(sc);
   }
   sideText('meta', `${periodLabel(p.period)}${p.clock ? ' ' + p.clock : ''}${p.sDD ? ' · ' + p.sDD : ''}`);
   sideText('tag', G.ev.state === 'post' ? 'Final play' : 'Live');
@@ -2453,6 +2446,21 @@ function sidePlay(p) {
       else sideHuddle();
     }, 1200);
   });
+}
+// Out of the huddle when the teams are in one and the same offense has the ball.
+// Every play starts from the scene before it: the players jog from wherever they were into the formation.
+function sideFrom(p) {
+  const prevSc = SIDE.sc?.gameId === G.id ? SIDE.sc : null;
+  if (!prevSc) return {};
+  const offHome = p.offId === G.ev.home.id;
+  const pb = raBall(prevSc, SIDE.t);
+  const x0 = prevSc.noBall ? 0 : clamp(Math.round(pb.x * (prevSc.offHome === offHome ? 1 : -1) / 3.08) * 3.08, -3.08, 3.08);
+  return { from: prevSc, fromT: SIDE.t, x0 };
+}
+// The moment a play's result shows: the first banner (a gain, "Touchdown", "Incomplete"…) or the whistle.
+function sideResultAt(sc) {
+  const firstBanner = sc.events.filter((e) => e.kind === 'banner').map((e) => e.t).sort((x, y) => x - y)[0];
+  return Math.min(firstBanner ?? Infinity, sc.tEnd ?? sc.T - 1.5);
 }
 // After a play (not a score, not a kick): both teams jog into their huddles at the next spot.
 function sideHuddle() {
@@ -2555,7 +2563,7 @@ function sideResume() {
   SIDE.last = performance.now();
   const tick = (now) => {
     if (!SIDE.cv?.isConnected || SIDE.cv.closest('[hidden]')) { SIDE.running = false; return; }
-    const dt = Math.min(0.05, (now - SIDE.last) / 1000);
+    const dt = Math.min(0.05, (now - SIDE.last) / 1000) * (SIDE.rp?.speed || 1);
     SIDE.last = now;
     SIDE.loop = true;
     raStep(SIDE, dt);
@@ -2579,6 +2587,107 @@ function sideRun(sc, onEnd) {
   SIDE.onEnd = onEnd;
   sideResume();
 }
+
+/* ═════════════ Replay on the big 8-bit view ═════════════ */
+// 2026-09-28, user: "give the option to hit replay like we have on the field view, and then replay
+// gives the option for game start or this drive. Add a 2x and 3x option to replay". The plays run
+// back to back on the big stage, each one starting from where the last left the players, at 1×, 2×
+// or 3× (remembered). New plays keep arriving while it runs; once the replay reaches the newest
+// play it hands the stage back to the live view.
+const RP_SPEEDS = [1, 2, 3];
+const tecmoRpPref = () => { const v = store.get('tecmoSpeed', 1); return RP_SPEEDS.includes(v) ? v : 1; };
+// The drive a play belongs to: a synthesised try goes with its touchdown, and the scoreboard's
+// newest play (not in the summary yet) with the drive on the field.
+function tecmoRpDrive(p) {
+  const id = String(p.id).replace(/-pat$/, '');
+  const f = (G?.sum?.flat || []).find((x) => String(x.p.id) === id);
+  return f ? f.di : (G?.sum?.drives.length ?? 1) - 1;
+}
+// Where each choice starts in the play list: the opening kickoff, or the first play of the drive
+// the newest play is in.
+function tecmoRpFrom(list, from) {
+  if (from !== 'drive') return 0;
+  const d = tecmoRpDrive(list[list.length - 1]);
+  const i = list.findIndex((p) => tecmoRpDrive(p) === d);
+  return i < 0 ? list.length - 1 : i;
+}
+function tecmoRpMenu() {
+  const cv = sideTarget().cv;
+  SIDE.rpMenu = SIDE.rpMenu ? null : cv;
+  tecmoRpBar();
+  if (SIDE.rpMenu) $('#bt-rp [data-btrp]')?.focus({ preventScroll: true });
+}
+function tecmoRpStart(from) {
+  const list = raPlays();
+  if (!G || !list.length) return;
+  const i = tecmoRpFrom(list, from);
+  sideStop();
+  SIDE.rp = { from, id: null, speed: tecmoRpPref(), cv: sideTarget().cv };
+  SIDE.rpMenu = null;
+  SIDE.sc = null;                              // the first play lines up fresh, not from wherever the live scene was
+  if (G.gate && typeof gateOpen === 'function') gateOpen();       // the page shows the game as it is
+  tecmoRpPlay(list[i]);
+}
+function tecmoRpPlay(p) {
+  const R = SIDE.rp;
+  clearTimeout(SIDE.idle); SIDE.idle = 0;
+  R.id = p.id;
+  SIDE.playId = p.id; SIDE.setKey = ''; SIDE.lastPlay = p;
+  let sc = null;
+  try { sc = raBuild(p, G.ev, raQBs(), sideFrom(p)); } catch (err) { console.error(err); }
+  sideText('tx', '');
+  SIDE.pendingTx = p.text;                     // the play's text shows with its result, as it does live
+  tecmoRpBar();
+  if (!sc) { SIDE.idle = setTimeout(tecmoRpNext, 400); return; }
+  sc.gameId = G.id;
+  SIDE.gatePlay = p.id;
+  SIDE.resultAt = sideResultAt(sc);
+  sideRun(sc, () => { SIDE.idle = setTimeout(tecmoRpNext, 900 / R.speed); });
+}
+function tecmoRpNext() {
+  SIDE.idle = 0;
+  const R = SIDE.rp;
+  if (!G || !R || !R.cv.isConnected) return;
+  const list = raPlays();                      // read again: plays that arrived during the replay are in it
+  const i = list.findIndex((p) => String(p.id) === String(R.id));
+  if (i < 0 || i >= list.length - 1) { tecmoRpEnd(false); return; }
+  tecmoRpPlay(list[i + 1]);
+}
+// Caught up (early = false): the live view carries on from the newest play just shown.
+// Left early: the live view starts over at the newest play.
+function tecmoRpEnd(early) {
+  SIDE.rp = null; SIDE.rpMenu = null;
+  clearTimeout(SIDE.idle); SIDE.idle = 0;
+  if (early) { sideStop(); SIDE.sc = null; SIDE.playId = null; SIDE.gatePlay = null; }
+  tecmoRpBar();
+  sideUpdate();
+}
+function tecmoRpBar() {
+  const R = SIDE.rp, bar = $('#bt-rp');
+  $('.stadium')?.classList.toggle('rp8', !!R);
+  if (!bar) return;
+  bar.hidden = !R && !SIDE.rpMenu;
+  if (bar.hidden) { bar.innerHTML = ''; return; }
+  const s = R ? R.speed : tecmoRpPref();
+  const speeds = `<span class="bt-sp" role="group" aria-label="Replay speed">${RP_SPEEDS.map((v) => `<button data-btspeed="${v}" aria-pressed="${v === s}">${v}×</button>`).join('')}</span>`;
+  if (!R) { bar.innerHTML = `<button class="ch" data-btrp="game">${ICON.play}Game start</button><button class="ch" data-btrp="drive">${ICON.play}This drive</button><span class="bt-spw"><span class="bt-rp-l">Speed</span>${speeds}</span>`; return; }
+  const p = raPlays().find((x) => String(x.id) === String(R.id));
+  const at = p ? `${periodLabel(p.period)}${p.clock ? ' ' + p.clock : ''}` : '';
+  bar.innerHTML = `<span class="bt-rp-l">Replay${R.from === 'drive' ? ' · this drive' : ''}${at ? ' · ' + esc(at) : ''}</span>${speeds}<button data-btrp="stop">${G.ev.state === 'in' ? 'Back to live' : 'Exit replay'}</button>`;
+}
+document.addEventListener('click', (e) => {
+  if (!G) return;
+  const rb = e.target.closest('[data-btrp]');
+  if (rb) { if (rb.dataset.btrp === 'stop') tecmoRpEnd(true); else tecmoRpStart(rb.dataset.btrp); return; }
+  const sp = e.target.closest('[data-btspeed]');
+  if (sp) {
+    const v = +sp.dataset.btspeed;
+    store.set('tecmoSpeed', v);
+    if (SIDE.rp) SIDE.rp.speed = v;
+    tecmoRpBar();
+    $(`#bt-rp [data-btspeed="${v}"]`)?.focus({ preventScroll: true });
+  }
+});
 document.addEventListener('click', (e) => {
   if (!G) return;
   if (e.target.closest('#side-live')) { openReenact(SIDE.playId); return; }
