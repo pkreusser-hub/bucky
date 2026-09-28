@@ -235,15 +235,24 @@ async function espnSummary(event) {
 }
 
 /* ── the model ── */
-async function writeScript(facts, post) {
+// TEMPORARY model trial (2026-09-28, user: "Try sonnet 5.5 on one game and opus 5.5 low effort on
+// another"): &trial= on a postgame request, stored apart as trial-<name>-post-<event>. Taken out
+// before merging.
+const TRIALS = {
+  sonnet55: { model: "claude-sonnet-5-5", effort: "high", thinking: { type: "between_tools" } },
+  opuslow: { model: "claude-opus-5-5", effort: "low" },
+};
+async function writeScript(facts, post, trial) {
+  const T = TRIALS[trial] || null;
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { error: "no-key" };
   const body = {
-    model: HALFTIME_MODEL,
+    model: T?.model || HALFTIME_MODEL,
     max_tokens: 16000,
     system: post ? SHOW.post : SHOW.half,
     messages: [{ role: "user", content: `${post ? "Final" : "First-half"} facts for ${facts.away.name} at ${facts.home.name}:\n${JSON.stringify(facts)}` }],
-    output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
+    output_config: { effort: T?.effort || "medium", format: { type: "json_schema", schema: SCHEMA } },
+    ...(T?.thinking ? { thinking: T.thinking } : {}),
     fallbacks: "default",
     // Streamed (2026-09-28): three of the week's postgame calls threw every try. A long answer sent
     // whole sends no headers until Opus finishes thinking, and Node's fetch gives up after 5 minutes
@@ -293,33 +302,34 @@ export async function runHalftimeJob(body) {
   if (!body || !process.env.BUCKY_NOTIFY_SECRET || body.secret !== process.env.BUCKY_NOTIFY_SECRET) return;
   const event = String(body.event || "");
   if (!/^\d{6,12}$/.test(event)) return;
-  const demo = body.demo === true, post = body.kind === "post";
+  const demo = body.demo === true, post = body.kind === "post", trial = post && TRIALS[body.trial] ? body.trial : null;
   const token = await googleToken();
   if (!token) return;
   let res;
   try {
     const sum = await espnSummary(event);
-    res = await writeScript(halftimeFacts(sum, post ? "post" : demo), post);
+    res = await writeScript(halftimeFacts(sum, post ? "post" : demo), post, trial);
   } catch (e) { res = { error: "job: " + String(e?.cause?.code || e?.message || e).slice(0, 80) }; }
   const tries = Number(body.tries) || 1;
   const fields = res.lines
     ? { status: S("done"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ cast: CAST, lines: res.lines, model: res.model, usage: res.usage || null })) }
     : { status: S("failed"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ error: res.error })) };
-  try { await writeDoc(token, (post ? "post-" : demo ? "demo-" : "") + event, fields); } catch { /* the page's poll gives up with the stand-in lines */ }
+  try { await writeDoc(token, (trial ? `trial-${trial}-` : "") + (post ? "post-" : demo ? "demo-" : "") + event, fields); } catch { /* the page's poll gives up with the stand-in lines */ }
 }
 
-async function startJob(url, event, tries, demo, kind) {
+async function startJob(url, event, tries, demo, kind, trial) {
   try {
-    await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: process.env.BUCKY_NOTIFY_SECRET, event, tries, demo, kind }) });
+    await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: process.env.BUCKY_NOTIFY_SECRET, event, tries, demo, kind, trial }) });
   } catch { /* the claim goes stale and the next poll retries */ }
 }
 
 // Make sure a script exists or is being written: serve the stored one, or claim the doc and start the
 // background job. Shared by a viewer's request and the scheduled sweep. -> { done: payload } |
 // { pending: true } | { reason }.
-async function ensureScript(token, event, mode, bgUrl) {
+async function ensureScript(token, event, mode, bgUrl, trial) {
   const post = mode === "post", demo = mode === "demo";
-  const docId = (post ? "post-" : demo ? "demo-" : "") + event;
+  if (trial && !(post && TRIALS[trial])) trial = null;
+  const docId = (trial ? `trial-${trial}-` : "") + (post ? "post-" : demo ? "demo-" : "") + event;
   let doc;
   try { doc = await readDoc(token, docId); } catch { return { reason: "upstream" }; }
   if (doc.status === "done") {
@@ -341,7 +351,7 @@ async function ensureScript(token, event, mode, bgUrl) {
   const tries = (doc.missing || rested ? 0 : doc.tries) + 1;
   const claimed = await writeDoc(token, docId, { status: S("pending"), at: I(Date.now()), tries: I(tries), payload: S("") },
     doc.missing ? { exists: false } : { updateTime: doc.updateTime }).catch(() => false);
-  if (claimed) await startJob(bgUrl, event, tries, demo, post ? "post" : "half");
+  if (claimed) await startJob(bgUrl, event, tries, demo, post ? "post" : "half", trial);
   return { pending: true };
 }
 
@@ -380,7 +390,7 @@ export default async (req) => {
   const token = await googleToken().catch(() => null);
   if (!token) return json({ ok: false, reason: "no-store" }, CACHE_NONE);
   const bgUrl = process.env.HALFTIME_BG_URL || new URL("/.netlify/functions/halftime-background", req.url).href;
-  const r = await ensureScript(token, event, post ? "post" : demo ? "demo" : "half", bgUrl);
+  const r = await ensureScript(token, event, post ? "post" : demo ? "demo" : "half", bgUrl, q.get("trial") || null);
   if (r.done) return json({ ok: true, event, cast: r.done.cast || CAST, lines: r.done.lines, model: r.done.model, usage: r.done.usage || null }, CACHE_DONE);
   if (r.pending) return json({ ok: false, pending: true }, CACHE_WAIT);
   return json({ ok: false, reason: r.reason, ...(r.detail ? { detail: r.detail } : {}) }, CACHE_NONE);   // (why the last try failed)
