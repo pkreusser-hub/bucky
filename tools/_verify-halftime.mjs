@@ -54,6 +54,7 @@ const SUMMARY = { "401872948": HALF, "401872949": FINAL };
 for (const id of ["401872950", "401872951", "401872952", "401872953", "401872954", "401872955", "401872956"]) SUMMARY[id] = HALF;
 // The sweep's week (section "The scheduled sweep"): 401872957 at the half, 401872958 final 3 hours
 // after kickoff, 401872959 final 30 hours after, 401872960 in the third quarter, 401872961 not started.
+SUMMARY["401872962"] = FINAL;                 // (section "Streamed, with its token counts")
 SUMMARY["401872957"] = HALF; SUMMARY["401872958"] = FINAL; SUMMARY["401872959"] = FINAL; SUMMARY["401872960"] = HALF;
 const NOW = Date.now(), H = 3600e3;
 const stat = (name, state, period, detail) => ({ clock: 0, displayClock: "0:00", period, type: { id: "1", name, state, completed: state === "post", description: detail, detail, shortDetail: detail } });
@@ -128,9 +129,28 @@ const srv = http.createServer(async (req, res) => {
   if (u.pathname === "/v1/messages") {
     const b = JSON.parse(await body(req));
     log.model.push({ body: b, headers: req.headers });
-    const reply = (text) => send(res, 200, { id: "msg_1", type: "message", role: "assistant", model: "claude-opus-5-5", content: [{ type: "thinking", thinking: "" }, { type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
+    // A streamed request gets the Messages API's event stream, shaped as the real one: message_start
+    // (input tokens), a thinking block, pings, the text in several deltas, message_delta (stop reason,
+    // output tokens), message_stop. A request that isn't streamed gets the whole message.
+    const sse = (text, stop = "end_turn", err) => {
+      res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8" });
+      const ev = (type, d) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...d })}\n\n`);
+      ev("message_start", { message: { id: "msg_1", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: null, usage: { input_tokens: 4512, output_tokens: 2 } } });
+      ev("content_block_start", { index: 0, content_block: { type: "thinking", thinking: "" } });
+      ev("ping", {});
+      ev("content_block_stop", { index: 0 });
+      if (err) { ev("error", { error: { type: err, message: "Overloaded" } }); return res.end(); }
+      ev("content_block_start", { index: 1, content_block: { type: "text", text: "" } });
+      for (let i = 0; i < text.length; i += 37) ev("content_block_delta", { index: 1, delta: { type: "text_delta", text: text.slice(i, i + 37) } });
+      ev("content_block_stop", { index: 1 });
+      ev("message_delta", { delta: { stop_reason: stop, stop_sequence: null }, usage: { output_tokens: 2841 } });
+      ev("message_stop", {});
+      res.end();
+    };
+    const reply = (text) => b.stream ? sse(text) : send(res, 200, { id: "msg_1", type: "message", role: "assistant", model: "claude-opus-5-5", content: [{ type: "thinking", thinking: "" }, { type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
     if (MODE === "fallback400" && b.fallbacks) return send(res, 400, { type: "error", error: { type: "invalid_request_error", message: "fallbacks: Extra inputs are not permitted" } });
-    if (MODE === "refusal") return send(res, 200, { id: "msg_2", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: null } });
+    if (MODE === "refusal") return b.stream ? sse("", "refusal") : send(res, 200, { id: "msg_2", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: null } });
+    if (MODE === "overloaded") return sse("", null, "overloaded_error");
     if (MODE === "post" || (MODE === "ok" && /postgame desk/.test(b.system))) return reply(JSON.stringify({ lines: POST_LINES }));
     if (MODE === "short") return reply(JSON.stringify({ lines: LINES.slice(0, 5) }));
     if (MODE === "badjson") return reply("Here is your script!");
@@ -328,6 +348,31 @@ try {
     const traits = [/Hal Brandt, the host: .*pun/, /Chuck Varney, former quarterback from West Texas: .*ranch-and-farm/, /Moose Tillman, former linebacker: loud.*grown-man football/, /Dot Keene, the numbers and fantasy analyst: deadpan.*zinger/, /never repeat the same catchphrase twice/];
     ok(!!half && !!post && traits.every((t) => t.test(half) && t.test(post)), "both shows give each of the four a voice of their own: the punning host, the folksy West Texas quarterback, the loud linebacker, the deadpan numbers analyst");
   }
+  section("Streamed, with its token counts; a rest after three failures");
+  {
+    // 2026-09-28: three of the week's postgame calls threw every try (the job's error was "job"): a
+    // long answer sent whole sends no headers until Opus finishes, and Node's fetch gives up after
+    // 5 minutes without them. The call is streamed now.
+    const m = log.model.find((x) => /postgame desk/.test(x.body.system));
+    ok(m && m.body.stream === true && log.model.every((x) => x.body.stream === true), `every call is streamed (${log.model.filter((x) => x.body.stream === true).length} of ${log.model.length})`);
+    const pd = JSON.parse(fsv("post-401872949", "payload") || "{}");
+    ok(JSON.stringify(pd.usage) === JSON.stringify({ input_tokens: 4512, output_tokens: 2841 }), `the stream's token counts are kept with the script, for costing (${JSON.stringify(pd.usage)})`);
+    const rs = !mod.readStream ? {} : mod.readStream('event: ping\ndata: {"type":"ping"}\n\nevent: message_start\ndata: {"type":"message_start","message":{"model":"claude-opus-5-5","usage":{"input_tokens":9}}}\n\nevent: content_block_delta\ndata: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"{\\"a\\":"}}\n\nevent: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}\n\nevent: content_block_delta\ndata: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"1}"}}\n\nevent: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}\n\n');
+    ok(rs.text === '{"a":1}' && rs.stop_reason === "end_turn" && rs.model === "claude-opus-5-5" && rs.usage.input_tokens === 9 && rs.usage.output_tokens === 5,
+      `the stream is folded back into one message: text deltas joined (thinking left out), stop reason, model, token counts (${JSON.stringify(rs)})`);
+    MODE = "overloaded";
+    await get("401872962&kind=post"); await drain();
+    ok(JSON.parse(fsv("post-401872962", "payload") || "{}").error === "api-overloaded_error", `an error inside the stream is a failed try, with its type (${fsv("post-401872962", "payload")})`);
+    MODE = "ok";
+    const d = doc("post-401872962");
+    d.fields.tries = { integerValue: "3" }; d.fields.at = { integerValue: String(Date.now() - 61 * 60 * 1000) };
+    const back = await get("401872962&kind=post");
+    ok(back.j.pending && fsv("post-401872962", "tries") === "1", `a game whose three tries all failed tries again after an hour's rest (${JSON.stringify(back.j)}, try ${fsv("post-401872962", "tries")})`);
+    await drain();
+    const held = await get("401872952");
+    ok(held.j.reason === "failed" && held.j.detail === "bad-script", `inside the hour it stays failed, and says why (${JSON.stringify(held.j)})`);
+  }
+
   section("The scheduled sweep (deskcron)");
   {
     // 2026-09-28, user: "we need to make it so that after the game ends it triggers the script

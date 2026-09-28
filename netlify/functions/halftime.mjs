@@ -47,6 +47,7 @@ const DOC_BASE = "projects/amen-farms-app/databases/(default)/documents";
 const COLL = "sunday_halftime";
 const STALE_MS = 4 * 60 * 1000;
 const MAX_TRIES = 3;
+const RETRY_MS = 3600e3;
 
 // The desk. Fixed people, so the show has regulars; the page draws them (suits, faces) in this order.
 export const CAST = ["Hal Brandt", "Chuck Varney", "Moose Tillman", "Dot Keene"];
@@ -244,6 +245,10 @@ async function writeScript(facts, post) {
     messages: [{ role: "user", content: `${post ? "Final" : "First-half"} facts for ${facts.away.name} at ${facts.home.name}:\n${JSON.stringify(facts)}` }],
     output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
     fallbacks: "default",
+    // Streamed (2026-09-28): three of the week's postgame calls threw every try. A long answer sent
+    // whole sends no headers until Opus finishes thinking, and Node's fetch gives up after 5 minutes
+    // without headers; a stream starts at once and keeps sending.
+    stream: true,
   };
   const call = (b, beta) => fetch(`${process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com"}/v1/messages`, {
     method: "POST",
@@ -256,13 +261,31 @@ async function writeScript(facts, post) {
     r = await call(plain, false);
   }
   if (!r.ok) return { error: "api-" + r.status };
-  const m = await r.json();
+  const m = readStream(await r.text());
+  if (m.error) return { error: "api-" + m.error };
   if (m.stop_reason === "refusal") return { error: "refusal" };
-  const text = (m.content || []).filter((c) => c.type === "text").map((c) => c.text).join("");
+  if (m.stop_reason === "max_tokens") return { error: "max-tokens" };
   let out;
-  try { out = JSON.parse(text); } catch { return { error: "bad-json" }; }
+  try { out = JSON.parse(m.text); } catch { return { error: "bad-json" }; }
   const lines = cleanScript(out, post);
-  return lines ? { lines, model: m.model || HALFTIME_MODEL } : { error: "bad-script" };
+  return lines ? { lines, model: m.model || HALFTIME_MODEL, usage: m.usage } : { error: "bad-script" };
+}
+// The Messages API's event stream, folded back into one message: the model, the text blocks' text,
+// the stop reason, the token counts (input from message_start, output from message_delta), or the
+// stream's own error event.
+export function readStream(raw) {
+  const m = { model: null, text: "", stop_reason: null, usage: {}, error: null };
+  for (const block of String(raw).split(/\r?\n\r?\n/)) {
+    const data = block.split(/\r?\n/).filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("");
+    if (!data) continue;
+    let e;
+    try { e = JSON.parse(data); } catch { continue; }
+    if (e.type === "message_start") { m.model = e.message?.model || null; Object.assign(m.usage, e.message?.usage || {}); }
+    else if (e.type === "content_block_delta" && e.delta?.type === "text_delta") m.text += e.delta.text || "";
+    else if (e.type === "message_delta") { if (e.delta?.stop_reason) m.stop_reason = e.delta.stop_reason; Object.assign(m.usage, e.usage || {}); }
+    else if (e.type === "error") m.error = e.error?.type || "stream";
+  }
+  return m;
 }
 
 // The background job: facts -> script -> the game's doc.
@@ -277,10 +300,10 @@ export async function runHalftimeJob(body) {
   try {
     const sum = await espnSummary(event);
     res = await writeScript(halftimeFacts(sum, post ? "post" : demo), post);
-  } catch (e) { res = { error: "job" }; }
+  } catch (e) { res = { error: "job: " + String(e?.cause?.code || e?.message || e).slice(0, 80) }; }
   const tries = Number(body.tries) || 1;
   const fields = res.lines
-    ? { status: S("done"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ cast: CAST, lines: res.lines, model: res.model })) }
+    ? { status: S("done"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ cast: CAST, lines: res.lines, model: res.model, usage: res.usage || null })) }
     : { status: S("failed"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ error: res.error })) };
   try { await writeDoc(token, (post ? "post-" : demo ? "demo-" : "") + event, fields); } catch { /* the page's poll gives up with the stand-in lines */ }
 }
@@ -305,14 +328,17 @@ async function ensureScript(token, event, mode, bgUrl) {
   }
   const stale = !doc.missing && (doc.status !== "pending" || Date.now() - doc.at > STALE_MS);
   if (!doc.missing && !stale) return { pending: true };
-  if (!doc.missing && doc.tries >= MAX_TRIES) { let detail = null; try { detail = JSON.parse(doc.payload).error || null; } catch {} return { reason: "failed", detail }; }
+  // Three tries, then a rest: a game whose tries all failed may try again after an hour (so a fix
+  // reaches it), still at most three calls an hour.
+  const rested = !doc.missing && doc.tries >= MAX_TRIES && Date.now() - doc.at > RETRY_MS;
+  if (!doc.missing && doc.tries >= MAX_TRIES && !rested) { let detail = null; try { detail = JSON.parse(doc.payload).error || null; } catch {} return { reason: "failed", detail }; }
   // Nothing written yet (or a dead try): only a game ESPN says is at halftime gets a script (a final,
   // for the postgame desk and the demo).
   let sum;
   try { sum = await espnSummary(event); } catch { return { reason: "upstream" }; }
   const final = sum?.header?.competitions?.[0]?.status?.type?.state === "post";
   if (post || demo ? !final : !atHalftime(sum)) return { reason: post || demo ? "not-final" : "not-halftime" };
-  const tries = (doc.missing ? 0 : doc.tries) + 1;
+  const tries = (doc.missing || rested ? 0 : doc.tries) + 1;
   const claimed = await writeDoc(token, docId, { status: S("pending"), at: I(Date.now()), tries: I(tries), payload: S("") },
     doc.missing ? { exists: false } : { updateTime: doc.updateTime }).catch(() => false);
   if (claimed) await startJob(bgUrl, event, tries, demo, post ? "post" : "half");
@@ -355,7 +381,7 @@ export default async (req) => {
   if (!token) return json({ ok: false, reason: "no-store" }, CACHE_NONE);
   const bgUrl = process.env.HALFTIME_BG_URL || new URL("/.netlify/functions/halftime-background", req.url).href;
   const r = await ensureScript(token, event, post ? "post" : demo ? "demo" : "half", bgUrl);
-  if (r.done) return json({ ok: true, event, cast: r.done.cast || CAST, lines: r.done.lines, model: r.done.model }, CACHE_DONE);
+  if (r.done) return json({ ok: true, event, cast: r.done.cast || CAST, lines: r.done.lines, model: r.done.model, usage: r.done.usage || null }, CACHE_DONE);
   if (r.pending) return json({ ok: false, pending: true }, CACHE_WAIT);
   return json({ ok: false, reason: r.reason, ...(r.detail ? { detail: r.detail } : {}) }, CACHE_NONE);   // (why the last try failed)
 };

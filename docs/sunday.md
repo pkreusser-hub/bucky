@@ -796,3 +796,14 @@ on the page the halftime and postgame jobs start for the right games; the final 
 game in progress and the unstarted one are left alone without a doc read; the report; the next sweep
 starts nothing; the first viewer gets the script at once; a quiet week is one scoreboard read). Bite:
 HEAD's halftime.mjs, without the sweep, fails all 7. No page files changed.
+
+**Streamed calls; a rest after three failures** (same day). Backfilling the week's finals, 12 of 15
+postgame scripts landed and 3 failed all three tries with the job's catch-all error: a long answer sent
+whole sends no headers until Opus finishes thinking, and Node's fetch gives up after 5 minutes without
+them. The call is streamed now (`stream: true`; `readStream` folds the event stream back into one
+message and records the token counts, kept with the script as `usage` for costing). A thrown error is
+recorded with its code, and a failure reply carries the last try's reason (`detail`). A game whose
+three tries all failed may try again after an hour's rest (`RETRY_MS`), still at most three calls an hour.
+
+VERIFY: halftime 60/60 (new section "Streamed, with its token counts; a rest after three failures", 6
+checks). Bite: the previous halftime.mjs fails 5 of them (the sixth, a failure saying why, came with it).
