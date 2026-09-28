@@ -1693,7 +1693,7 @@ async function main() {
         // first person opens the game, but it shows a post game / half time show starts soon with a
         // countdown"): it used to be the host's opener and the analysts "thinking" ("…"); now the desk
         // waits under a countdown card, timed from when the first viewer started the script (the
-        // function's `since`). Here that was 12 s ago, so of the halftime show's 30 s, 18 are left.
+        // function's `since`). Here that was 12 s ago, so of the halftime show's 15 s, 3 are left.
         let n = 0;
         reply = () => (++n === 1 ? JSON.stringify({ ok: false, pending: true, since: Date.now() - 12000 }) : JSON.stringify(script));
         await probe(() => { HT.clear(); sideHalftime(); });
@@ -1706,8 +1706,8 @@ async function main() {
             inside: !!r && r.left >= s.left && r.right <= s.right && r.top >= s.top, bub: !!b?.classList.contains("on") };
         });
         const pw = await soon();
-        ok(pw.waiting && pw.shown && pw.title === "Halftime show" && /^starts in 0:1[78]$/.test(pw.count || "") && pw.inside && !pw.bub,
-          `while Opus writes, the desk waits under a countdown: "${pw.title}", "${pw.count}" (30 s from the first viewer's start 12 s ago), inside the stage, no chat bubble yet`);
+        ok(pw.waiting && pw.shown && pw.title === "Halftime show" && /^starts in 0:0[23]$/.test(pw.count || "") && pw.inside && !pw.bub,
+          `while Opus writes, the desk waits under a countdown: "${pw.title}", "${pw.count}" (15 s from the first viewer's start 12 s ago), inside the stage, no chat bubble yet`);
         try { await page.waitForFunction(() => SIDE.sc && !SIDE.sc.waiting, { timeout: 9000 }); } catch {}
         const pd = await probe(() => ({ waiting: SIDE.sc.waiting, n: SIDE.sc.tl?.lines.length, first: SIDE.sc.tl?.lines[0].text, u: SIDE.t - SIDE.sc.t0, t0: SIDE.sc.t0, card: document.querySelector("#big-tecmo .ht-soon")?.offsetParent !== null }));
         ok(!pd.waiting && pd.n === script.lines.length && pd.first === script.lines[0].text && pd.u < 2 && pd.t0 > 2 && n === 2 && !pd.card,
@@ -1763,7 +1763,7 @@ async function main() {
         await probe(() => { HT.clear(); sideHalftime(true); });
         await wait(400);
         const ps = await probe(() => { raStep(SIDE, 0); const el = document.querySelector("#big-tecmo .ht-soon"); return { shown: !!el && el.offsetParent !== null, title: el?.querySelector("b")?.textContent, count: el?.querySelector("span")?.textContent }; });
-        ok(ps.shown && ps.title === "Postgame show" && /^starts in 0:3[45]$/.test(ps.count || ""), `the postgame show counts down too: "${ps.title}", "${ps.count}" (40 s from a start 5 s ago)`);
+        ok(ps.shown && ps.title === "Postgame show" && /^starts in 0:(19|20)$/.test(ps.count || ""), `the postgame show counts down too: "${ps.title}", "${ps.count}" (25 s from a start 5 s ago)`);
         reply = () => JSON.stringify({ ok: false, reason: "failed" });
         await probe(() => { HT.clear(); sideHalftime(true); });
         await wait(500);

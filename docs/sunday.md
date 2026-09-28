@@ -823,12 +823,14 @@ game at halftime or after the final, so an unwatched game costs nothing.
   Sonnet 5.5 with thinking off (Chargers at Bills, 5,575 in, 1,538 out, about 2.6 cents) ran 560 words
   against the 300-370 asked, said "grown-man football" four times and muddled an overturned touchdown.
 - **The countdown.** While the script is written the desk waits under a card over the monitor:
-  "Halftime show / starts in 0:30" (30 s) or "Postgame show / starts in 0:40" (40 s), counting from
+  "Halftime show / starts in 0:15" (15 s) or "Postgame show / starts in 0:25" (25 s), counting from
   when the first viewer's request started the job: the function's pending answer now carries `since`,
   the claim time, so a second viewer's countdown agrees with the first's. At zero it reads
   "Starting…" until the lines arrive; the page polls every 3 s, and the show runs from its top the
   moment they do. The host's opener and the analysts' "…" are gone. A finished script records `ms`,
-  claim to script, for tuning the 30/40.
+  claim to script, for tuning the 15/25. Measured on the preview: a low-effort halftime script (ARI @ SF,
+  the demo) took 11.5 s to write and reached the page at 13 s; 2,937 tokens in, 783 out, no thinking,
+  about 2.7 cents (263 words, over the 150-190 asked; the timeline's 0.8 squeeze holds it to about 70 s).
 
 VERIFY: sunday 246/247 (RESTAGED the two "still being written" checks to the countdown, with the reason
 at the check; 2 new: "Starting…" past the estimate, the postgame countdown; the one failure is the
