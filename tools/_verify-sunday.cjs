@@ -1689,18 +1689,34 @@ async function main() {
         const rv = await probe(() => ({ u: SIDE.t - SIDE.sc.t0, i: htAt(SIDE.sc, SIDE.t).i, lines: SIDE.sc.tl.lines.map((l) => l.text) }));
         ok(rv.u < 3 && rv.i <= 0 && JSON.stringify(rv.lines) === JSON.stringify(script.lines.map((l) => l.text)) && asks.length === 1,
           `a revisit during halftime replays the same dialogue from the top (${rv.u?.toFixed?.(1)} s in, line ${rv.i}; the same ${rv.lines?.length} lines; asked the function ${asks.length} time)`);
-        // Still being written: the host opens with the score, the analysts "think", then the script plays from its first line.
+        // Still being written. RESTAGED 2026-09-28 (user: "lets go back to the script generating when the
+        // first person opens the game, but it shows a post game / half time show starts soon with a
+        // countdown"): it used to be the host's opener and the analysts "thinking" ("…"); now the desk
+        // waits under a countdown card, timed from when the first viewer started the script (the
+        // function's `since`). Here that was 12 s ago, so of the halftime show's 30 s, 18 are left.
         let n = 0;
-        reply = () => (++n === 1 ? JSON.stringify({ ok: false, pending: true }) : JSON.stringify(script));
+        reply = () => (++n === 1 ? JSON.stringify({ ok: false, pending: true, since: Date.now() - 12000 }) : JSON.stringify(script));
         await probe(() => { HT.clear(); sideHalftime(); });
-        await wait(300);
-        const pw = await probe(() => ({ waiting: SIDE.sc.waiting, lines: SIDE.sc.tl.lines.map((l) => [l.who, l.text]), dots: htAt(SIDE.sc, SIDE.sc.t0 + SIDE.sc.tl.lines[0].t1 + 1).line }));
-        ok(pw.waiting && pw.lines.length === 1 && pw.lines[0][0] === 0 && /Falcons 17, .*Packers 7/.test(pw.lines[0][1]) && pw.dots?.dots && pw.dots.who >= 1,
-          `while Opus is still writing, the host opens with the score and the analysts think (${JSON.stringify(pw)})`);
+        await wait(400);
+        const soon = () => probe(() => {
+          raStep(SIDE, 0);
+          const stage = document.querySelector("#big-tecmo .bt-stage"), el = stage.querySelector(".ht-soon"), b = stage.querySelector(".ht-bub");
+          const s = stage.getBoundingClientRect(), r = el?.getBoundingClientRect();
+          return { waiting: !!SIDE.sc.waiting, shown: !!el && el.offsetParent !== null, title: el?.querySelector("b")?.textContent, count: el?.querySelector("span")?.textContent,
+            inside: !!r && r.left >= s.left && r.right <= s.right && r.top >= s.top, bub: !!b?.classList.contains("on") };
+        });
+        const pw = await soon();
+        ok(pw.waiting && pw.shown && pw.title === "Halftime show" && /^starts in 0:1[78]$/.test(pw.count || "") && pw.inside && !pw.bub,
+          `while Opus writes, the desk waits under a countdown: "${pw.title}", "${pw.count}" (30 s from the first viewer's start 12 s ago), inside the stage, no chat bubble yet`);
         try { await page.waitForFunction(() => SIDE.sc && !SIDE.sc.waiting, { timeout: 9000 }); } catch {}
-        const pd = await probe(() => ({ waiting: SIDE.sc.waiting, n: SIDE.sc.tl.lines.length, first: SIDE.sc.tl.lines[0].text, u: SIDE.t - SIDE.sc.t0, t0: SIDE.sc.t0 }));
-        ok(!pd.waiting && pd.n === script.lines.length && pd.first === script.lines[0].text && pd.u < 2 && pd.t0 > 3 && n === 2,
-          `…and once it's written, the script starts from its first line (${JSON.stringify(pd)}, ${n} asks)`);
+        const pd = await probe(() => ({ waiting: SIDE.sc.waiting, n: SIDE.sc.tl?.lines.length, first: SIDE.sc.tl?.lines[0].text, u: SIDE.t - SIDE.sc.t0, t0: SIDE.sc.t0, card: document.querySelector("#big-tecmo .ht-soon")?.offsetParent !== null }));
+        ok(!pd.waiting && pd.n === script.lines.length && pd.first === script.lines[0].text && pd.u < 2 && pd.t0 > 2 && n === 2 && !pd.card,
+          `…and once it's written, the card goes and the script starts from its first line (${JSON.stringify(pd)}, ${n} asks)`);
+        reply = () => JSON.stringify({ ok: false, pending: true, since: Date.now() - 60000 });
+        await probe(() => { HT.clear(); sideHalftime(); });
+        await wait(400);
+        const late = await soon();
+        ok(late.shown && late.count === "Starting…", `past the estimate it says "${late.count}" until the lines arrive`);
         reply = () => JSON.stringify({ ok: false, reason: "failed" });
         await probe(() => { HT.clear(); sideHalftime(); });
         await wait(500);
@@ -1743,6 +1759,11 @@ async function main() {
         const syn2 = await probe(() => { const tl = htTimeline(Array.from({ length: 30 }, (_, i) => ({ who: i % 4, text: "one two three four five six seven eight nine ten eleven" })), HT_POST_TARGET); return { end: tl.lines.at(-1).t1, T: tl.T }; });
         ok(Math.abs(syn2.end - 121.65) < 0.05 && Math.abs(syn2.T - 127.95) < 0.05 && pg.end >= 95 && pg.end <= 150,
           `the postgame show runs about two minutes: 30 lines of 11 words end at ${syn2.end?.toFixed?.(2)} s (hand-computed 121.65); the real script ends at ${pg.end?.toFixed?.(1)} s`);
+        reply = () => JSON.stringify({ ok: false, pending: true, since: Date.now() - 5000 });
+        await probe(() => { HT.clear(); sideHalftime(true); });
+        await wait(400);
+        const ps = await probe(() => { raStep(SIDE, 0); const el = document.querySelector("#big-tecmo .ht-soon"); return { shown: !!el && el.offsetParent !== null, title: el?.querySelector("b")?.textContent, count: el?.querySelector("span")?.textContent }; });
+        ok(ps.shown && ps.title === "Postgame show" && /^starts in 0:3[45]$/.test(ps.count || ""), `the postgame show counts down too: "${ps.title}", "${ps.count}" (40 s from a start 5 s ago)`);
         reply = () => JSON.stringify({ ok: false, reason: "failed" });
         await probe(() => { HT.clear(); sideHalftime(true); });
         await wait(500);

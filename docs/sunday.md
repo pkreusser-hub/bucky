@@ -807,3 +807,32 @@ three tries all failed may try again after an hour's rest (`RETRY_MS`), still at
 
 VERIFY: halftime 60/60 (new section "Streamed, with its token counts; a rest after three failures", 6
 checks). Bite: the previous halftime.mjs fails 5 of them (the sixth, a failure saying why, came with it).
+
+## 2026-09-28 — back to writing on first view, at low effort, behind a countdown
+
+Perry: "Lets try this, rather than pre generating the scripts, lets go back to the script generating
+when the first person opens the game, but it shows a post game / half time show starts soon with a
+countdown. That way we save cost if nobody watches them but the hope is that opus 5.5 low is quick".
+This REVERSES the scheduled sweep above (deskcron and its netlify.toml schedule are gone; its seven
+checks are replaced by one saying there is no schedule): a script is written only when someone opens a
+game at halftime or after the final, so an unwatched game costs nothing.
+
+- **Opus 5.5 at low effort.** Measured on one postgame script (Panthers at Browns): low effort skipped
+  thinking, 5,849 tokens in and 1,444 out, about 5 cents against medium's estimated 9 to 10, and
+  proportionally quicker. Its one slip in that trial was five field goals for four.
+  Sonnet 5.5 with thinking off (Chargers at Bills, 5,575 in, 1,538 out, about 2.6 cents) ran 560 words
+  against the 300-370 asked, said "grown-man football" four times and muddled an overturned touchdown.
+- **The countdown.** While the script is written the desk waits under a card over the monitor:
+  "Halftime show / starts in 0:30" (30 s) or "Postgame show / starts in 0:40" (40 s), counting from
+  when the first viewer's request started the job: the function's pending answer now carries `since`,
+  the claim time, so a second viewer's countdown agrees with the first's. At zero it reads
+  "Starting…" until the lines arrive; the page polls every 3 s, and the show runs from its top the
+  moment they do. The host's opener and the analysts' "…" are gone. A finished script records `ms`,
+  claim to script, for tuning the 30/40.
+
+VERIFY: sunday 246/247 (RESTAGED the two "still being written" checks to the countdown, with the reason
+at the check; 2 new: "Starting…" past the estimate, the postgame countdown; the one failure is the
+webfont ink check that fails the same way on HEAD in this container), halftime 57/57 (the sweep's 7
+checks replaced by 4: no schedule, low effort on every call, `since` shared, `ms` recorded). Bite: the
+previous sd-reenact.js and sd.css fail the 4 countdown checks; the previous halftime.mjs fails the 5
+new or restaged function checks.

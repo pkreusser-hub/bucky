@@ -243,7 +243,12 @@ async function writeScript(facts, post) {
     max_tokens: 16000,
     system: post ? SHOW.post : SHOW.half,
     messages: [{ role: "user", content: `${post ? "Final" : "First-half"} facts for ${facts.away.name} at ${facts.home.name}:\n${JSON.stringify(facts)}` }],
-    output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
+    // Low effort (2026-09-28, user: "lets go back to the script generating when the first person opens
+    // the game … the hope is that opus 5.5 low is quick"): measured on one postgame script, low
+    // skipped thinking (1,444 output tokens against medium's ~3-4k), so it writes in a fraction of
+    // the time, at about 5 cents instead of 10. The trial's one slip (five field goals for four)
+    // is the price; the prompt's facts-only rules stand.
+    output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
     fallbacks: "default",
     // Streamed (2026-09-28): three of the week's postgame calls threw every try. A long answer sent
     // whole sends no headers until Opus finishes thinking, and Node's fetch gives up after 5 minutes
@@ -302,20 +307,24 @@ export async function runHalftimeJob(body) {
     res = await writeScript(halftimeFacts(sum, post ? "post" : demo), post);
   } catch (e) { res = { error: "job: " + String(e?.cause?.code || e?.message || e).slice(0, 80) }; }
   const tries = Number(body.tries) || 1;
+  const ms = Number(body.at) > 0 ? Date.now() - Number(body.at) : null;      // how long it took, claim to script
   const fields = res.lines
-    ? { status: S("done"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ cast: CAST, lines: res.lines, model: res.model, usage: res.usage || null })) }
+    ? { status: S("done"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ cast: CAST, lines: res.lines, model: res.model, usage: res.usage || null, ms })) }
     : { status: S("failed"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ error: res.error })) };
   try { await writeDoc(token, (post ? "post-" : demo ? "demo-" : "") + event, fields); } catch { /* the page's poll gives up with the stand-in lines */ }
 }
 
-async function startJob(url, event, tries, demo, kind) {
+async function startJob(url, event, tries, demo, kind, at) {
   try {
-    await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: process.env.BUCKY_NOTIFY_SECRET, event, tries, demo, kind }) });
+    await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: process.env.BUCKY_NOTIFY_SECRET, event, tries, demo, kind, at }) });
   } catch { /* the claim goes stale and the next poll retries */ }
 }
 
 // Make sure a script exists or is being written: serve the stored one, or claim the doc and start the
-// background job. Shared by a viewer's request and the scheduled sweep. -> { done: payload } |
+// background job, on the first viewer's request (the scheduled sweep that pre-wrote scripts, deskcron,
+// was taken out 2026-09-28, user: "rather than pre generating the scripts, lets go back to the script
+// generating when the first person opens the game … That way we save cost if nobody watches them").
+// -> { done: payload } |
 // { pending: true } | { reason }.
 async function ensureScript(token, event, mode, bgUrl) {
   const post = mode === "post", demo = mode === "demo";
@@ -327,7 +336,7 @@ async function ensureScript(token, event, mode, bgUrl) {
     catch { /* a broken doc is re-written below like a failed one */ }
   }
   const stale = !doc.missing && (doc.status !== "pending" || Date.now() - doc.at > STALE_MS);
-  if (!doc.missing && !stale) return { pending: true };
+  if (!doc.missing && !stale) return { pending: true, since: doc.at };
   // Three tries, then a rest: a game whose tries all failed may try again after an hour (so a fix
   // reaches it), still at most three calls an hour.
   const rested = !doc.missing && doc.tries >= MAX_TRIES && Date.now() - doc.at > RETRY_MS;
@@ -339,39 +348,11 @@ async function ensureScript(token, event, mode, bgUrl) {
   const final = sum?.header?.competitions?.[0]?.status?.type?.state === "post";
   if (post || demo ? !final : !atHalftime(sum)) return { reason: post || demo ? "not-final" : "not-halftime" };
   const tries = (doc.missing || rested ? 0 : doc.tries) + 1;
-  const claimed = await writeDoc(token, docId, { status: S("pending"), at: I(Date.now()), tries: I(tries), payload: S("") },
+  const at = Date.now();
+  const claimed = await writeDoc(token, docId, { status: S("pending"), at: I(at), tries: I(tries), payload: S("") },
     doc.missing ? { exists: false } : { updateTime: doc.updateTime }).catch(() => false);
-  if (claimed) await startJob(bgUrl, event, tries, demo, post ? "post" : "half");
-  return { pending: true };
-}
-
-// The scheduled sweep (deskcron.mjs, every 2 minutes; 2026-09-28, user: "after the game ends it
-// triggers the script creation, not someone just opening it because then they just see '...'
-// instead of a script"). One scoreboard read; a game at halftime gets its halftime script started,
-// a game that went final gets its postgame one, so both are written before anyone opens the game.
-// Finals are swept only within 8 hours of kickoff (a game runs about 3 1/4 hours), so a finished
-// week's games cost no Firestore reads for the rest of the week.
-export const SWEEP_FINAL_MS = 8 * 3600e3;
-export async function sweepDesks(now = Date.now()) {
-  const bgUrl = process.env.HALFTIME_BG_URL || `${process.env.URL || "https://amenfarms.netlify.app"}/.netlify/functions/halftime-background`;
-  let sb;
-  try { const r = await fetch(`${ESPN()}/scoreboard`, { headers: { accept: "application/json" } }); if (!r.ok) return { reason: "upstream" }; sb = await r.json(); }
-  catch { return { reason: "upstream" }; }
-  const todo = [];
-  for (const e of sb.events || []) {
-    const st = e.competitions?.[0]?.status || e.status || {}, t = st.type || {};
-    const half = t.name === "STATUS_HALFTIME" || (t.state === "in" && Number(st.period) === 2 && /^end/i.test(t.detail || t.shortDetail || ""));
-    const fresh = t.state === "post" && now - Date.parse(e.date) < SWEEP_FINAL_MS;
-    if ((half || fresh) && /^\d{6,12}$/.test(String(e.id))) todo.push([String(e.id), half ? "half" : "post"]);
-  }
-  if (!todo.length) return { games: [] };
-  const token = await googleToken().catch(() => null);
-  if (!token) return { reason: "no-store" };
-  const games = await Promise.all(todo.map(async ([id, mode]) => {
-    const r = await ensureScript(token, id, mode, bgUrl);
-    return { id, mode, state: r.done ? "done" : r.pending ? "pending" : r.reason };
-  }));
-  return { games };
+  if (claimed) await startJob(bgUrl, event, tries, demo, post ? "post" : "half", at);
+  return { pending: true, since: at };
 }
 
 export default async (req) => {
@@ -381,7 +362,8 @@ export default async (req) => {
   if (!token) return json({ ok: false, reason: "no-store" }, CACHE_NONE);
   const bgUrl = process.env.HALFTIME_BG_URL || new URL("/.netlify/functions/halftime-background", req.url).href;
   const r = await ensureScript(token, event, post ? "post" : demo ? "demo" : "half", bgUrl);
-  if (r.done) return json({ ok: true, event, cast: r.done.cast || CAST, lines: r.done.lines, model: r.done.model, usage: r.done.usage || null }, CACHE_DONE);
-  if (r.pending) return json({ ok: false, pending: true }, CACHE_WAIT);
+  if (r.done) return json({ ok: true, event, cast: r.done.cast || CAST, lines: r.done.lines, model: r.done.model, usage: r.done.usage || null, ms: r.done.ms ?? null }, CACHE_DONE);
+  // `since`: when the first viewer's request started the job, so every viewer's countdown agrees.
+  if (r.pending) return json({ ok: false, pending: true, since: r.since || null }, CACHE_WAIT);
   return json({ ok: false, reason: r.reason, ...(r.detail ? { detail: r.detail } : {}) }, CACHE_NONE);   // (why the last try failed)
 };

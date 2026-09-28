@@ -52,20 +52,10 @@ const FINAL = fs.readFileSync(path.join(__dirname, "fixtures", "sunday", "sum-40
 // each scenario gets a fresh Firestore doc.
 const SUMMARY = { "401872948": HALF, "401872949": FINAL };
 for (const id of ["401872950", "401872951", "401872952", "401872953", "401872954", "401872955", "401872956"]) SUMMARY[id] = HALF;
-// The sweep's week (section "The scheduled sweep"): 401872957 at the half, 401872958 final 3 hours
-// after kickoff, 401872959 final 30 hours after, 401872960 in the third quarter, 401872961 not started.
+// More games for the later sections (401872957 at the half is the countdown's).
 SUMMARY["401872962"] = FINAL;                 // (section "Streamed, with its token counts")
 SUMMARY["401872957"] = HALF; SUMMARY["401872958"] = FINAL; SUMMARY["401872959"] = FINAL; SUMMARY["401872960"] = HALF;
-const NOW = Date.now(), H = 3600e3;
-const stat = (name, state, period, detail) => ({ clock: 0, displayClock: "0:00", period, type: { id: "1", name, state, completed: state === "post", description: detail, detail, shortDetail: detail } });
-const ev = (id, dt, st) => ({ id, date: new Date(NOW - dt).toISOString().replace(/:\d\d\.\d+Z$/, "Z"), status: st, competitions: [{ id, status: st }] });
-const SCOREBOARD = { events: [
-  ev("401872957", 1.6 * H, stat("STATUS_HALFTIME", "in", 2, "Halftime")),
-  ev("401872958", 3 * H, stat("STATUS_FINAL", "post", 4, "Final")),
-  ev("401872959", 30 * H, stat("STATUS_FINAL", "post", 4, "Final")),
-  ev("401872960", 2 * H, stat("STATUS_IN_PROGRESS", "in", 3, "8:12 - 3rd Quarter")),
-  ev("401872961", -2 * H, stat("STATUS_SCHEDULED", "pre", 0, "Sun, October 4th at 1:00 PM EDT")),
-] };
+
 
 const DOC_BASE = "projects/amen-farms-app/databases/(default)/documents";
 const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -91,7 +81,6 @@ const send = (res, code, obj) => { res.writeHead(code, { "content-type": "applic
 const body = (req) => new Promise((r) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => r(b)); });
 const srv = http.createServer(async (req, res) => {
   const u = new URL(req.url, "http://x");
-  if (u.pathname === "/espn/scoreboard") { log.sb = (log.sb || 0) + 1; return send(res, 200, SCOREBOARD); }
   if (u.pathname === "/espn/summary") {
     const ev = u.searchParams.get("event"); log.espn.push(ev);
     return SUMMARY[ev] ? (res.writeHead(200, { "content-type": "application/json" }), res.end(SUMMARY[ev])) : send(res, 404, { code: 404, message: "not found" });
@@ -233,8 +222,8 @@ try {
     const m = log.model[0];
     ok(m && m.body.model === "claude-opus-5-5" && m.headers["x-api-key"] === "sk-test" && m.headers["anthropic-version"] === "2023-06-01",
       `the job asks Opus 5.5 (${m?.body.model})`);
-    ok(m && m.body.output_config?.format?.type === "json_schema" && JSON.stringify(m.body.output_config.format.schema.properties.lines.items.properties.who.enum) === "[0,1,2,3]" && m.body.output_config.effort === "medium" && !("thinking" in m.body && m.body.thinking?.type !== "adaptive") && !JSON.stringify(m.body).includes("budget_tokens"),
-      `…for structured JSON lines, each by one of the four speakers, at medium effort with thinking left on (${JSON.stringify(m?.body.output_config?.format?.type)}, effort ${m?.body.output_config?.effort})`);
+    ok(m && m.body.output_config?.format?.type === "json_schema" && JSON.stringify(m.body.output_config.format.schema.properties.lines.items.properties.who.enum) === "[0,1,2,3]" && m.body.output_config.effort === "low" && !("thinking" in m.body && m.body.thinking?.type !== "adaptive") && !JSON.stringify(m.body).includes("budget_tokens"),
+      `…for structured JSON lines, each by one of the four speakers, at low effort, thinking left to the model (${JSON.stringify(m?.body.output_config?.format?.type)}, effort ${m?.body.output_config?.effort})`);
     ok(m && m.body.fallbacks === "default" && m.headers["anthropic-beta"] === "server-side-fallback-2026-07-01", `…with the server-side refusal fallback on (${m?.body.fallbacks}, ${m?.headers["anthropic-beta"]})`);
     const facts = m ? JSON.parse(m.body.messages[0].content.slice(m.body.messages[0].content.indexOf("\n") + 1)) : {};
     ok(["Hal Brandt", "Chuck Varney", "Moose Tillman", "Dot Keene"].every((n) => m?.body.system.includes(n)) && /about one minute/.test(m?.body.system) && /Do not invent/.test(m?.body.system),
@@ -373,38 +362,28 @@ try {
     ok(held.j.reason === "failed" && held.j.detail === "bad-script", `inside the hour it stays failed, and says why (${JSON.stringify(held.j)})`);
   }
 
-  section("The scheduled sweep (deskcron)");
+  section("Written on first view, at low effort, with a shared countdown");
   {
-    // 2026-09-28, user: "we need to make it so that after the game ends it triggers the script
-    // creation, not someone just opening it because then they just see '...' instead of a script".
+    // 2026-09-28, user: "rather than pre generating the scripts, lets go back to the script generating
+    // when the first person opens the game, but it shows a post game / half time show starts soon with
+    // a countdown. That way we save cost if nobody watches them but the hope is that opus 5.5 low is
+    // quick". This REVERSES the same day's scheduled sweep (deskcron, every 2 minutes), whose seven
+    // checks stood here: nothing is written unless someone opens the game.
     const toml = fs.readFileSync(path.join(__dirname, "..", "netlify.toml"), "utf8");
-    ok(/\[functions\."deskcron"\]\s*\n\s*schedule = "\*\/2 \* \* \* \*"/.test(toml) && fs.existsSync(path.join(path.dirname(FN), "deskcron.mjs")),
-      "netlify.toml runs deskcron every 2 minutes");
-    const reads0 = log.fsGet.length, bg0 = log.bg.length;
-    let out = {};
-    try {
-      const cron = (await import(pathToFileURL(path.join(path.dirname(FN), "deskcron.mjs")).href)).default;
-      out = await (await cron(new Request("https://amenfarms.netlify.app/.netlify/functions/deskcron", { method: "POST", body: JSON.stringify({ next_run: "x" }) }))).json();
-    } catch (e) { out = { err: String(e.message || e).slice(0, 120) }; }
-    const started = log.bg.slice(bg0).map((b) => `${b.event}:${b.kind}`).sort();
-    ok(JSON.stringify(started) === JSON.stringify(["401872957:half", "401872958:post"]) && doc("401872957") && doc("post-401872958"),
-      `with nobody on the page, the sweep starts the halftime script for the game at the half and the postgame one for the game just gone final (${JSON.stringify(started)})`);
-    const readIds = log.fsGet.slice(reads0).map((r) => r.split("/").pop()).sort();
-    ok(JSON.stringify(readIds) === JSON.stringify(["401872957", "post-401872958"]) && !doc("post-401872959") && !doc("401872960") && !doc("401872961"),
-      `…and leaves the rest alone, not even reading their docs: the final from 30 hours ago, the game in the 3rd quarter, the one not started (${JSON.stringify(readIds)})`);
-    ok(JSON.stringify(out.games?.map((g) => [g.id, g.mode, g.state])) === JSON.stringify([["401872957", "half", "pending"], ["401872958", "post", "pending"]]), `…and reports what it did (${JSON.stringify(out.games)})`);
-    await drain();
-    const bg1 = log.bg.length;
-    const again = mod.sweepDesks ? await mod.sweepDesks() : {};
-    ok(log.bg.length === bg1 && JSON.stringify(again.games?.map((g) => g.state)) === '["done","done"]' && fsv("post-401872958", "status") === "done",
-      `the next sweep finds both written and starts nothing (${JSON.stringify(again.games?.map((g) => g.state))})`);
-    const v = await get("401872958&kind=post");
-    ok(v.j.ok && v.j.lines.length === 30, `so the first viewer after the final gets the script at once, not "…" (${v.j.lines?.length} lines)`);
-    // Two days on: every game is long final.
-    for (const e of SCOREBOARD.events) e.status = e.competitions[0].status = stat("STATUS_FINAL", "post", 4, "Final");
-    const reads1 = log.fsGet.length, sb1 = log.sb;
-    const quiet = mod.sweepDesks ? await mod.sweepDesks(NOW + 40 * H) : {};
-    ok(JSON.stringify(quiet.games) === "[]" && log.fsGet.length === reads1 && log.sb === sb1 + 1, `long after the games, a sweep is one scoreboard read and nothing else (${log.fsGet.length - reads1} doc reads)`);
+    ok(!/deskcron/.test(toml) && !fs.existsSync(path.join(path.dirname(FN), "deskcron.mjs")) && !("sweepDesks" in mod), "no scheduled sweep: a script is written only when someone opens the game");
+    ok(log.model.length > 0 && log.model.every((x) => x.body.output_config?.effort === "low" && x.body.model === "claude-opus-5-5"), `every call is Opus 5.5 at low effort (${[...new Set(log.model.map((x) => x.body.model + "/" + x.body.output_config?.effort))]})`);
+    MODE = "ok";
+    const t0 = Date.now();
+    BG_DEAD = true;
+    const first = await get("401872957&kind=half");
+    BG_DEAD = false;
+    const claimAt = Number(doc("401872957")?.fields?.at?.integerValue);
+    const later = await get("401872957");
+    ok(first.j.pending && first.j.since >= t0 && first.j.since === claimAt && later.j.pending && later.j.since === claimAt,
+      `a pending answer says when the first viewer started the script, so every viewer's countdown agrees (${first.j.since - t0} ms after the request; the second viewer gets the same ${later.j.since === claimAt})`);
+    await mod.runHalftimeJob({ ...log.bg.at(-1), at: Date.now() - 31000 });
+    const done = await get("401872957");
+    ok(done.j.ok && done.j.ms >= 31000 && done.j.ms < 60000, `…and the finished script records how long it took to write, claim to script (${done.j.ms} ms)`);
   }
 } finally {
   srv.close();

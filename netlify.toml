@@ -31,12 +31,6 @@
 [functions."eventreminders"]
   schedule = "*/5 * * * *"
 
-# The Scores page's halftime and postgame desks (netlify/functions/deskcron.mjs): every 2 minutes it
-# reads ESPN's NFL scoreboard and starts the Opus script for any game at halftime or just gone final,
-# so the script is ready before anyone opens the game. Idle weeks cost one ESPN read per run.
-[functions."deskcron"]
-  schedule = "*/2 * * * *"
-
 # ---- GFFL custom domain: goatfantasyleague.com (bought 2026-08-10) ----
 # Netlify -> Domain management -> add goatfantasyleague.com to THIS site, then point the
 # registrar's DNS at Netlify (nameservers, or the A/ALIAS + www CNAME Netlify shows) and
