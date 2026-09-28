@@ -598,3 +598,17 @@ VERIFY: sunday 205/206 (5 new checks on ATL @ GB 1661 in "Touchbacks, kicks out 
 catches, facing"; the one failure is the webfont ink check that fails the same way on HEAD in this
 container), sunday-ff 53/53, pbpdetail 61/61; the week-3 audit is unchanged (the same 4
 checker-limit flags). Bite: HEAD's sd-reenact.js fails all 5.
+
+## 2026-09-28 — three notes removed
+
+Perry: "get rid of this text: Drawn from the play-by-play. The spots, yardage and named players are
+real; the other players and their routes are illustrative. / Play detail: nflverse. … and also: 5
+earlier snaps not drawn". The play viewer's note (`.ra-note`, CSS gone too), and the drive summary's
+"N earlier snaps not drawn" (the field view still draws the last 5 plays on a phone and 8 wider; it
+just no longer says so). The play-detail credit keeps only FTN's own line, "Charting: FTN Data via
+nflverse.", shown only once FTN has charted the game: its CC-BY-SA 4.0 licence requires the credit
+wherever its charting is used. RESTAGED the two credit checks. Cache-bust ?v=20260928m.
+
+VERIFY: sunday 207/208 (the two credit checks restaged, 2 new: no viewer note, no "not drawn"; the
+one failure is the webfont ink check that fails the same way on HEAD in this container),
+sunday-ff 53/53, pbpdetail 61/61. Bite: HEAD fails the 2 new and the 2 restaged.

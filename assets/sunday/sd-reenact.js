@@ -2627,7 +2627,9 @@ function raDetailLoad() {
 }
 // FTN's licence (CC-BY-SA 4.0) asks for the credit wherever its charting is used.
 function raCredit() {
-  const txt = G?.pbp ? `Play detail: nflverse${G.pbpFtn ? '. Charting: FTN Data via nflverse' : ''}.` : '';
+  // (Only FTN's credit: its CC-BY-SA licence requires it; the "Play detail: nflverse." line went, as
+  // did the viewer's "Drawn from the play-by-play…" note, 2026-09-28, user: "get rid of this text".)
+  const txt = G?.pbp && G.pbpFtn ? 'Charting: FTN Data via nflverse.' : '';
   for (const host of [$('#big-tecmo'), $('#ra .ra-in')]) {
     if (!host) continue;
     let el = host.querySelector('.ra-credit');
@@ -2667,7 +2669,6 @@ function openReenact(id) {
     </div>
     <div class="ra-tx" id="ra-tx"></div>
     ${G.ev.state === 'in' ? `<label class="sw-row ra-follow"><span><b>Play new snaps as they happen</b><small>Keep this open during the game</small></span><input type="checkbox" id="ra-follow" ${RA.follow ? 'checked' : ''}><i></i></label>` : ''}
-    <p class="ra-note">Drawn from the play-by-play. The spots, yardage and named players are real; the other players and their routes are illustrative.</p>
   </div>`;
   m.hidden = false;
   RA.open = true;

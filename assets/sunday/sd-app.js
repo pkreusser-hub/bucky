@@ -1691,7 +1691,7 @@ function renderFieldView(animate) {
   const back = $('#f-live');
   if (back) back.onclick = () => { stopReplay(); G.cursor = null; G.viewDrive = null; renderHero(); renderFieldView(true); renderLastPlay(); updateReplayBar(); renderTabBody(); };
 
-  sumEl.innerHTML = `${logoImg(drTeam, 18, 'logo')}<span><b>${esc(drTeam.abbr)}</b> ${esc(driveDesc(dr))}${hidden ? ` · ${hidden} earlier snap${hidden === 1 ? '' : 's'} not drawn` : ''}</span>
+  sumEl.innerHTML = `${logoImg(drTeam, 18, 'logo')}<span><b>${esc(drTeam.abbr)}</b> ${esc(driveDesc(dr))}</span>
     ${showLines ? '<span class="legend"><span><i style="background:#4aa3ff"></i>Scrimmage</span><span><i style="background:#ffd21f"></i>To gain</span></span>' : ''}`;
 
   if (animate && lastPath && st.anim && st.anim !== G.animatedId) { G.animatedId = st.anim; animateLast(); }

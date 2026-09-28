@@ -928,7 +928,6 @@ body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
 .ra-b:disabled { opacity: 0.35; cursor: default; }
 .ra-tx { font-size: 15px; line-height: 1.4; color: var(--ink-2); }
 .ra-follow { border-top: 1px solid var(--line); min-height: 52px; }
-.ra-note { margin: 0; font-size: 12px; line-height: 1.4; color: var(--faint); }
 @media (max-width: 520px) { .ra { padding: 0; place-items: end stretch; } .ra-in { border-radius: 18px 18px 0 0; max-height: 96dvh; padding-bottom: calc(12px + env(safe-area-inset-bottom)); } }
 
 /* Yardage inside play text */

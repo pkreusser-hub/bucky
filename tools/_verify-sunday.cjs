@@ -1443,11 +1443,20 @@ async function main() {
       const asks = pbpAsks.slice(asksBefore);
       ok(got && asks.length === 1 && /pbpdetail\?event=401872948$/.test(asks[0]) && pd.n === 168 && pd.air === -6 && pd.x0 === -3.08,
         `a finished game asks the pbpdetail function once for its detail and the plays use it (${asks.length} ask ${JSON.stringify(asks[0] || "")}, ${pd.n} plays, play 85 air ${pd.air}, hash x ${pd.x0})`);
-      ok(pd.credit === "Play detail: nflverse. Charting: FTN Data via nflverse.", `…and credits FTN under the 8-bit view, as its licence asks (${JSON.stringify(pd.credit)})`);
+      // RESTAGED 2026-09-28 (user: "get rid of this text: … Play detail: nflverse."): only FTN's own
+      // credit stays, which its CC-BY-SA licence requires wherever its charting is used.
+      ok(pd.credit === "Charting: FTN Data via nflverse.", `…and credits FTN under the 8-bit view, as its licence asks, and nothing else (${JSON.stringify(pd.credit)})`);
       await probe(() => openReenact("40187294885"));
       await wait(300);
-      const mc = await probe(() => { const c = document.querySelector("#ra .ra-credit"); return c && c.offsetParent !== null ? c.textContent : null; });
-      ok(mc === "Play detail: nflverse. Charting: FTN Data via nflverse.", `…and in the play viewer (${JSON.stringify(mc)})`);
+      const mc = await probe(() => { const c = document.querySelector("#ra .ra-credit"); return { credit: c && c.offsetParent !== null ? c.textContent : null, note: /Drawn from the play-by-play|illustrative/.test(document.querySelector("#ra").textContent) }; });
+      ok(mc.credit === "Charting: FTN Data via nflverse.", `…and in the play viewer (${JSON.stringify(mc.credit)})`);
+      // 2026-09-28, user: "get rid of this text: Drawn from the play-by-play. The spots, yardage and named
+      // players are real; the other players and their routes are illustrative. … and also: 5 earlier
+      // snaps not drawn".
+      ok(mc.note === false, `the play viewer no longer carries the "Drawn from the play-by-play … illustrative" note (${mc.note})`);
+      // Drive 19 of the fixture has 15 plays, more than the field view draws (5 on a phone, 8 wider).
+      const ds = await probe(() => { closeReenact(); G.viewDrive = 19; renderFieldView(true); const t = document.getElementById("f-sum")?.textContent || ""; G.viewDrive = null; renderFieldView(true); return t.replace(/\s+/g, " ").trim(); });
+      ok(ds && !/not drawn|earlier snap/.test(ds), `a long drive's summary no longer says "N earlier snaps not drawn" (${JSON.stringify(ds)})`);
       await probe(() => closeReenact());
       await probe(() => localStorage.removeItem("sun.tecmoBig"));
       MOCK = null;
