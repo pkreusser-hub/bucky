@@ -650,6 +650,7 @@ async function loadBoard() {
     renderBoard();
     fetchMissingLines();
     fillPossession();
+    ensureGame();
   } catch (e) {
     S.error = e;
     if (!S.loaded) renderBoard(); else renderStatus();
@@ -724,11 +725,15 @@ function renderChips() {
 function renderWeekLabel() {
   const w = S.week || S.cur;
   const e = w && S.calendar.find((c) => c.st === w.st && c.wk === w.wk);
-  $('#week-label').innerHTML = `${esc(e ? e.label.replace('Week ', 'Wk ') : 'Week')}${ICON.caret}`;
-  $('#week-label').setAttribute('aria-label', `${e ? e.label : 'Week'}. Choose a week`);
   const i = e ? S.calendar.indexOf(e) : -1;
-  $('#week-prev').disabled = i <= 0;
-  $('#week-next').disabled = i < 0 || i >= S.calendar.length - 1;
+  for (const pre of ['', 'gv-']) {                          // the board's header and the game view's
+    const lab = $(`#${pre}week-label`);
+    if (!lab) continue;
+    lab.innerHTML = `${esc(e ? e.label.replace('Week ', 'Wk ') : 'Week')}${ICON.caret}`;
+    lab.setAttribute('aria-label', `${e ? e.label : 'Week'}. Choose a week`);
+    $(`#${pre}week-prev`).disabled = i <= 0;
+    $(`#${pre}week-next`).disabled = i < 0 || i >= S.calendar.length - 1;
+  }
 }
 
 function renderStatus() {
@@ -975,6 +980,53 @@ function renderSide() {
   });
 }
 
+// Phones: this week's games in a row under the game view's header, the open one lit. Tapping one
+// swaps it in, as the desktop sidebar does. Live games first, then upcoming, then the finals, latest
+// first (the scoreboard's own order).
+function stripOrder(evs) {
+  const live = evs.filter((e) => e.state === 'in').sort((a, b) => excitement(b) - excitement(a));
+  const pre = evs.filter((e) => e.state === 'pre').sort((a, b) => a.date - b.date);
+  const post = evs.filter((e) => e.state === 'post').sort((a, b) => b.date - a.date);
+  return [...live, ...pre, ...post];
+}
+function renderStrip() {
+  const el = $('#g-strip');
+  if (!el || !G) return;
+  const evs = stripOrder(S.events);
+  el.hidden = evs.length < 2;
+  const side = (t, sc) => `<span class="gs-t">${logoImg(t, 16, 'logo')}<span>${esc(t.abbr)}</span><b>${sc ?? ''}</b></span>`;
+  setHTML(el, evs.map((e) => `<a class="gs-it${e.id === G.id ? ' current' : ''}${e.state === 'in' ? ' live' : ''}" href="#g${e.id}"${e.id === G.id ? ' aria-current="page"' : ''}>${side(e.away, e.state === 'pre' ? '' : e.away.score)}${side(e.home, e.state === 'pre' ? '' : e.home.score)}<small>${esc(e.state === 'pre' ? `${fmtDay(e.date).split(',')[0].slice(0, 3)} ${fmtTime(e.date)}` : statusText(e))}</small></a>`).join(''));
+  const cur = el.querySelector('.current');
+  if (cur && el.dataset.placed !== G.id) { el.scrollLeft = cur.offsetLeft - (el.clientWidth - cur.offsetWidth) / 2; el.dataset.placed = G.id; }
+}
+// The game the Scores tab opens on (2026-09-28, user: "just have it only be the detail page, we no
+// longer need this page"): the most exciting live game (your GFFL players and teams count most),
+// else a game kicking off within three hours, else the latest final, else the next game up.
+function defaultGameId(evs) {
+  if (!evs.length) return null;
+  const live = evs.filter((e) => e.state === 'in').sort((a, b) => excitement(b) - excitement(a));
+  if (live.length) return live[0].id;
+  const fav = (e) => (isFavGame(e) ? 1 : 0);
+  const pre = evs.filter((e) => e.state === 'pre').sort((a, b) => a.date - b.date || fav(b) - fav(a));
+  if (pre.length && pre[0].date - Date.now() < 3 * 3600e3) return pre[0].id;
+  const post = evs.filter((e) => e.state === 'post').sort((a, b) => b.date - a.date || fav(b) - fav(a));
+  if (post.length) return post[0].id;
+  return (pre[0] || evs[0]).id;
+}
+// With no game (or team) asked for, open the default one. After the viewer picks another week, the
+// open game gives way to that week's default.
+function ensureGame() {
+  if (!S.loaded || /^#t\d+$/.test(location.hash)) return;
+  const g = location.hash.match(/^#g(\d+)$/);
+  if (g && !(S.weekPicked && !S.byId.has(g[1]))) return;
+  S.weekPicked = false;
+  const id = defaultGameId(S.events);
+  document.body.classList.toggle('no-games', !id);
+  if (!id) { if (G) closeGameView(true); return; }
+  history.replaceState(null, '', location.pathname + location.search + '#g' + id);
+  route();
+}
+
 function renderBoard() {
   renderChips();
   renderWeekLabel();
@@ -996,7 +1048,7 @@ function renderBoard() {
       ? `<div class="empty"><h3>No teams followed yet</h3><p>Open any game and tap the <svg class="star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg> on a team’s logo. Their games show up here and jump to the top of every list.</p><button class="btn ghost" data-goto="all">Browse all games</button></div>`
       : `<div class="empty"><h3>No games here</h3><p>Nothing in this filter for the selected week.</p><button class="btn ghost" data-goto="all">Show all games</button></div>`;
   } else applySections(board, sections);
-  if (G) renderSide();
+  if (G) { renderSide(); renderStrip(); }
   if (typeof afterBoard === 'function') afterBoard();
   if (typeof ffAfterRender === 'function') ffAfterRender();
 
@@ -1109,20 +1161,20 @@ function openGameView(id) {
     id, ev: ev0, sum: null, tab: null, side: 'away', expanded: new Set(), viewDrive: null,
     cursor: null, playing: false, speed: 1, seen: null, hold: null, celebrated: new Set(), lastRenderKey: '', animId: null, wake: null,
   };
-  // On desktop the sidebar keeps the scoreboard live; on phones the board is hidden, so pause it.
-  if (isWide()) boardPoller.start(); else boardPoller.stop();
+  // The scoreboard keeps polling: it feeds the game strip (phones) and the sidebar (desktop).
+  boardPoller.start();
   const v = $('#game-view');
   v.classList.remove('closing');
-  v.classList.toggle('swap', swapping);
+  v.classList.add('swap');                                   // the detail is the page: no slide-in over a board
   v.hidden = false;
   v.scrollTop = 0;
   document.body.classList.add('game-open');
   v.innerHTML = `<div class="gv-wrap"><div class="gv-main">
     <header class="g-top" id="g-top"><div class="g-top-row">
-      <button class="back" id="g-back">${ICON.back}Scores</button>
+      <div class="gv-week"><button class="icon-btn" id="gv-week-prev" data-gvweek="-1" aria-label="Previous week">${$('#week-prev')?.innerHTML || ''}</button><button class="week-label" id="gv-week-label" data-gvweek="pick" aria-haspopup="dialog">Week</button><button class="icon-btn" id="gv-week-next" data-gvweek="1" aria-label="Next week">${$('#week-next')?.innerHTML || ''}</button></div>
       <div class="g-mini" id="g-mini"></div>
-      <div class="g-top-sp"></div>
-    </div></header>
+      <button class="icon-btn gv-set" id="gv-settings" aria-label="Settings" aria-haspopup="dialog">${$('#settings-btn')?.innerHTML || ''}</button>
+    </div><nav class="g-strip" id="g-strip" aria-label="This week's games"></nav></header>
     <div class="g-body">
       <div class="g-hero" id="g-hero"><div class="skel" style="height:150px;background:transparent;border:0"></div></div>
       <section class="field-sec"><div class="stadium">
@@ -1146,8 +1198,9 @@ function openGameView(id) {
     </div></div>
     <aside class="gv-side" aria-label="Other games"><div class="side-live" id="side-live" hidden role="button" tabindex="0" aria-label="Open the play animation"><div class="sl-h"><span class="sl-tag" id="sl-tag">Live</span><span id="sl-meta"></span></div><div class="sl-stage"><canvas id="sl-cv"></canvas><div class="ra-banner sl-banner" id="sl-banner"></div></div><div class="sl-tx" id="sl-tx"></div></div><div class="gv-side-h">Scores <span id="gv-side-f"></span></div><div class="gv-side-list" id="gv-side-list"></div></aside></div>`;
   renderSide();
+  renderStrip();
+  renderWeekLabel();
   if (sideScroll) $('.gv-side').scrollTop = sideScroll;
-  $('#g-back').onclick = goBack;
   const top = $('#g-top');
   const io = new IntersectionObserver(([e]) => top.classList.toggle('scrolled', !e.isIntersecting), { root: v, threshold: 0, rootMargin: '-60px 0px 0px 0px' });
   io.observe($('#g-hero'));
@@ -1157,7 +1210,6 @@ function openGameView(id) {
   $('#rp-prev').onclick = () => { stopReplay(); setCursor((G.cursor ?? G.sum.flat.length - 1) - 1); };
   $('#rp-next').onclick = () => { stopReplay(); setCursor((G.cursor ?? -1) + 1); };
   $('#rp-speed').onclick = () => { G.speed = G.speed === 2 ? 1 : 2; $('#rp-speed').textContent = G.speed + '×'; };
-  requestAnimationFrame(() => $('#g-back')?.focus({ preventScroll: true }));
   if (ev0) { renderHero(); drawFieldStatic(); }
   G.evPoller = makePoller(loadGameEvent, () => (G?.ev?.state === 'in' ? 5000 : G?.ev?.state === 'pre' ? 60000 : null));
   G.sumPoller = makePoller(loadSummary, () => (G?.ev?.state === 'in' ? 10000 : G?.ev?.state === 'pre' ? 120000 : null));
@@ -1190,7 +1242,7 @@ let cameFromBoard = false;
 document.addEventListener('click', (e) => { const a = e.target.closest('#board a[href^="#g"]'); if (a) S.lastCardKey = a.dataset.key; }, true);
 // Sidebar games swap into the detail without stacking history, so Back still returns to the scoreboard.
 document.addEventListener('click', (e) => {
-  const a = e.target.closest('.gv-side a[href^="#g"]');
+  const a = e.target.closest('.gv-side a[href^="#g"], .g-strip a[href^="#g"]');
   if (!a || e.metaKey || e.ctrlKey) return;
   e.preventDefault();
   history.replaceState(history.state, '', a.getAttribute('href'));
@@ -1211,6 +1263,7 @@ function route() {
   // lands on the board with its hash cleared.
   if (h === '#matchups' || h.startsWith('#standings')) history.replaceState(null, '', location.pathname + location.search);
   showTab('scores');
+  ensureGame();                                        // the Scores tab is the game detail; the board is only a loading screen
 }
 
 /* The 8-bit view goes first. While it's on screen, a new play shows up there before anywhere
@@ -1691,7 +1744,7 @@ function renderFieldView(animate) {
   const back = $('#f-live');
   if (back) back.onclick = () => { stopReplay(); G.cursor = null; G.viewDrive = null; renderHero(); renderFieldView(true); renderLastPlay(); updateReplayBar(); renderTabBody(); };
 
-  sumEl.innerHTML = `${logoImg(drTeam, 18, 'logo')}<span><b>${esc(drTeam.abbr)}</b> ${esc(driveDesc(dr))}${hidden ? ` · ${hidden} earlier snap${hidden === 1 ? '' : 's'} not drawn` : ''}</span>
+  sumEl.innerHTML = `${logoImg(drTeam, 18, 'logo')}<span><b>${esc(drTeam.abbr)}</b> ${esc(driveDesc(dr))}</span>
     ${showLines ? '<span class="legend"><span><i style="background:#4aa3ff"></i>Scrimmage</span><span><i style="background:#ffd21f"></i>To gain</span></span>' : ''}`;
 
   if (animate && lastPath && st.anim && st.anim !== G.animatedId) { G.animatedId = st.anim; animateLast(); }
@@ -2199,6 +2252,7 @@ function releaseWake() { try { G?.wake?.release(); } catch {} }
 
 /* ───────────── week picker ───────────── */
 function pickWeek(w) {
+  S.weekPicked = true;
   const isCur = S.cur && w.st === S.cur.st && w.wk === S.cur.wk;
   S.week = isCur ? null : { st: w.st, wk: w.wk };
   S.loaded = false;
@@ -2292,6 +2346,12 @@ $('#board').addEventListener('click', (e) => {
   if (g) { S.filter = g.dataset.goto; store.set('filter', S.filter); renderBoard(); ($(`#chips [data-f="${S.filter}"]`) || $('#chips [data-conf]'))?.scrollIntoView({ inline: 'center', block: 'nearest' }); }
 });
 $('#week-prev').addEventListener('click', () => stepWeek(-1));
+// The game view's own week buttons and settings (the board's header is hidden under it).
+document.addEventListener('click', (e) => {
+  const w = e.target.closest('[data-gvweek]');
+  if (w) { if (w.dataset.gvweek === 'pick') { openWeekSheet(); S.sheetReturn = w; S.sheetReturnSel = '#gv-week-label'; } else stepWeek(+w.dataset.gvweek); return; }
+  if (e.target.closest('#gv-settings') && typeof openSettings === 'function') { openSettings(); S.sheetReturn = $('#gv-settings'); S.sheetReturnSel = '#gv-settings'; }
+});
 $('#week-next').addEventListener('click', () => stepWeek(1));
 $('#week-label').addEventListener('click', openWeekSheet);
 window.addEventListener('hashchange', () => { cameFromBoard = true; route(); });
@@ -2308,7 +2368,7 @@ document.addEventListener('visibilitychange', () => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (!$('#week-sheet').hidden) closeWeekSheet();
-    else if (G || T) goBack();
+    else if (T) goBack();                               // (a game has nowhere to go back to: it is the page)
   }
 });
 

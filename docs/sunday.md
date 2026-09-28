@@ -598,3 +598,52 @@ VERIFY: sunday 205/206 (5 new checks on ATL @ GB 1661 in "Touchbacks, kicks out 
 catches, facing"; the one failure is the webfont ink check that fails the same way on HEAD in this
 container), sunday-ff 53/53, pbpdetail 61/61; the week-3 audit is unchanged (the same 4
 checker-limit flags). Bite: HEAD's sd-reenact.js fails all 5.
+
+## 2026-09-28 — three notes removed
+
+Perry: "get rid of this text: Drawn from the play-by-play. The spots, yardage and named players are
+real; the other players and their routes are illustrative. / Play detail: nflverse. … and also: 5
+earlier snaps not drawn". The play viewer's note (`.ra-note`, CSS gone too), and the drive summary's
+"N earlier snaps not drawn" (the field view still draws the last 5 plays on a phone and 8 wider; it
+just no longer says so). The play-detail credit keeps only FTN's own line, "Charting: FTN Data via
+nflverse.", shown only once FTN has charted the game: its CC-BY-SA 4.0 licence requires the credit
+wherever its charting is used. RESTAGED the two credit checks. Cache-bust ?v=20260928m.
+
+VERIFY: sunday 207/208 (the two credit checks restaged, 2 new: no viewer note, no "not drawn"; the
+one failure is the webfont ink check that fails the same way on HEAD in this container),
+sunday-ff 53/53, pbpdetail 61/61. Bite: HEAD fails the 2 new and the 2 restaged.
+
+## 2026-09-28 — the Scores tab is the game detail; the scoreboard page is gone
+
+Perry: "for the GFFL scores tab, just have it only be the detail page, we no longer need this page
+since all the relevant info is in the detail and the fantasy matchup is covered on its own tab".
+
+- **Landing.** With no game (or team) in the hash, `ensureGame()` opens `defaultGameId()` with
+  `replaceState`. It runs after every board load and at the end of `route()`. The default:
+  - the most exciting live game (`excitement()`: your followed teams +100, your GFFL starters by
+    `ffGameWeight`)
+  - else a game kicking off within 3 hours
+  - else the latest final
+  - else the next game
+  An old `#matchups` / `#standings` link lands there too. After the viewer picks another week, the
+  open game gives way to that week's default (`S.weekPicked`).
+- **The header.** The back button ("‹ Scores") is gone: there is no board to go back to, and Escape
+  no longer closes a game. In its place, the week picker (‹ Wk 3 ›, `#gv-week-*`, sharing
+  `renderWeekLabel`) and Settings (`#gv-settings`), which used to live only in the board's top bar.
+  Under them on phones is **the game strip** (`#g-strip`): this week's games, live, then upcoming,
+  then finals latest first, the open one lit and scrolled into view. Tapping one swaps it in with
+  `replaceState`, as the desktop sidebar already did (desktop keeps the sidebar and hides the strip).
+- **The GFFL bar stays visible.** The game view used to cover everything (z-index 40) over the board.
+  It now stops at the bar on phones (`bottom: 58px + safe area`) and starts under GFFL's 34px top
+  strip on desktop.
+- **The board** (`#board-view`) is only the loading screen now, and the page a week with no games
+  would show. It is hidden while a game is open. Its GFFL matchup card (`#ff-head`) and status line
+  are hidden for good. The board still loads and polls, always now (it used to pause on phones): it
+  feeds the strip, the sidebar and the default pick. Cache-bust ?v=20260928n.
+
+VERIFY: sunday 215/216 (new section "Scores is the game detail", 8 checks: the default rule on
+hand-built weeks, landing on it, the GFFL bar tappable on phone and desktop, the strip lit and in
+view, a strip tap swapping without history, the week picker and Settings in the header, #matchups
+landing on a game, the desktop sidebar; RESTAGED the no-data #matchups check, with the reason at the
+check; the one failure is the webfont ink check that fails the same way on HEAD in this container),
+sunday-ff 53/53, pbpdetail 61/61. Bite: HEAD's sd-app.js and sd.css fail all 8.
