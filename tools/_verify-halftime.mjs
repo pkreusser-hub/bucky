@@ -61,11 +61,13 @@ const DOC_BASE = "projects/amen-farms-app/databases/(default)/documents";
 const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
 const SA = { client_email: "bucky@amen-farms-app.iam.gserviceaccount.com", private_key: privateKey.export({ type: "pkcs8", format: "pem" }) };
 
+// Two replays, on plays the fixture's facts carry: McKinney's interception (401872948133, notable)
+// and Love's 45-yard throw to Golden (401872948472, notable), each over the line that calls for it.
 const LINES = [
-  { who: 0, text: "Falcons 17, Packers 7 at the half." }, { who: 1, text: "Penix threw a pick on the first series." },
-  { who: 2, text: "Deablo's sack at the three turned it." }, { who: 3, text: "Bijan's 55-yarder set up his own score." },
-  { who: 1, text: "Love hit Golden deep for 45." }, { who: 2, text: "The line has to hold up." },
-  { who: 3, text: "Four punts and a missed field goal since." }, { who: 0, text: "Second half is next." },
+  { who: 0, text: "Falcons 17, Packers 7 at the half.", replay: "" }, { who: 1, text: "Penix threw a pick on the first series.", replay: "401872948133" },
+  { who: 2, text: "Deablo's sack at the three turned it.", replay: "" }, { who: 3, text: "Bijan's 55-yarder set up his own score.", replay: "" },
+  { who: 1, text: "Love hit Golden deep for 45.", replay: "401872948472" }, { who: 2, text: "The line has to hold up.", replay: "" },
+  { who: 3, text: "Four punts and a missed field goal since.", replay: "" }, { who: 0, text: "Second half is next.", replay: "" },
 ];
 // A postgame reply: 30 lines (more than a halftime script may have), every speaker heard.
 const POST_LINES = Array.from({ length: 30 }, (_, i) => ({ who: i % 4, text: `Postgame line ${i + 1} about the final.` }));
@@ -164,7 +166,7 @@ const mod = await import(pathToFileURL(FN).href);
 bgHandler = (await import(pathToFileURL(BG).href)).default;
 const get = async (event) => { const r = await mod.default(new Request(`https://amenfarms.netlify.app/.netlify/functions/halftime?event=${event}`)); return { j: await r.json(), h: Object.fromEntries(r.headers) }; };
 const drain = async () => { while (bgJobs.length) await bgJobs.shift(); };
-const doc = (ev) => docs.get(`${DOC_BASE}/sunday_halftime/${ev}`);
+const doc = (ev) => docs.get(`${DOC_BASE}/sunday_desk2/${ev}`);
 const fsv = (ev, k) => { const f = doc(ev)?.fields?.[k]; return f ? f.stringValue ?? f.integerValue : undefined; };
 
 try {
@@ -211,7 +213,7 @@ try {
     ok(log.token === 1 && log.badJwt === 0, `the Firestore token comes from a correctly signed service-account JWT (${log.token} good, ${log.badJwt} bad)`);
     const first = await get("401872948");
     const claim = log.commits[0];
-    ok(first.j.pending && claim?.currentDocument?.exists === false && claim?.update?.name === `${DOC_BASE}/sunday_halftime/401872948` && fsv("401872948", "status") === "pending" && fsv("401872948", "tries") === "1",
+    ok(first.j.pending && claim?.currentDocument?.exists === false && claim?.update?.name === `${DOC_BASE}/sunday_desk2/401872948` && fsv("401872948", "status") === "pending" && fsv("401872948", "tries") === "1",
       `the first request at halftime claims the game's doc (create-only) and says pending (${JSON.stringify(first.j)}, ${JSON.stringify(claim?.currentDocument)})`);
     ok(log.bg.length === 1 && log.bg[0].secret === "fam-secret" && log.bg[0].event === "401872948" && log.model.length === 0,
       `…and starts the background job with the server's secret, writing nothing itself (${JSON.stringify(log.bg[0])})`);
@@ -226,12 +228,13 @@ try {
       `…for structured JSON lines, each by one of the four speakers, at low effort, thinking left to the model (${JSON.stringify(m?.body.output_config?.format?.type)}, effort ${m?.body.output_config?.effort})`);
     ok(m && m.body.fallbacks === "default" && m.headers["anthropic-beta"] === "server-side-fallback-2026-07-01", `…with the server-side refusal fallback on (${m?.body.fallbacks}, ${m?.headers["anthropic-beta"]})`);
     const facts = m ? JSON.parse(m.body.messages[0].content.slice(m.body.messages[0].content.indexOf("\n") + 1)) : {};
-    ok(["Hal Brandt", "Chuck Varney", "Moose Tillman", "Dot Keene"].every((n) => m?.body.system.includes(n)) && /about one minute/.test(m?.body.system) && /Do not invent/.test(m?.body.system),
+    // (RESTAGED 2026-09-28, user: "replace Dot Keene with RoboGoat, and chuck varney with Force Ghost John Madden".)
+    ok(["Hal Brandt", "Force Ghost John Madden", "Moose Tillman", "RoboGoat"].every((n) => m?.body.system.includes(n)) && /about one minute/.test(m?.body.system) && /Do not invent/.test(m?.body.system),
       "…the system prompt names the four at the desk, asks for about a minute and forbids inventing anything");
     ok(facts.away?.score === 17 && facts.home?.score === 7 && facts.scoring?.length === 4 && facts.scoring[3].play.startsWith("Austin Hooper 5 Yd pass"),
       `…and the message carries the half's facts, built from ESPN on the server (${facts.away?.abbr} ${facts.away?.score}-${facts.home?.score} ${facts.home?.abbr}, ${facts.scoring?.length} scoring plays)`);
     const done = await get("401872948");
-    ok(done.j.ok && JSON.stringify(done.j.lines) === JSON.stringify(LINES) && JSON.stringify(done.j.cast) === JSON.stringify(["Hal Brandt", "Chuck Varney", "Moose Tillman", "Dot Keene"]) && fsv("401872948", "status") === "done",
+    ok(done.j.ok && JSON.stringify(done.j.lines) === JSON.stringify(LINES) && JSON.stringify(done.j.cast) === JSON.stringify(["Hal Brandt", "Force Ghost John Madden", "Moose Tillman", "RoboGoat"]) && fsv("401872948", "status") === "done",
       `once written, the script is served: the model's ${done.j.lines?.length} lines and the cast`);
     ok(done.h["netlify-cdn-cache-control"] === "public, durable, s-maxage=2592000", `…cached for good at the edge (${done.h["netlify-cdn-cache-control"]})`);
     const again = await get("401872948");
@@ -291,7 +294,7 @@ try {
     const r = await mod.default(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime?event=401872949&demo=1"));
     const j = await r.json();
     const claim = log.commits.at(-1);
-    ok(j.pending && claim.update.name === `${DOC_BASE}/sunday_halftime/demo-401872949` && log.bg.at(-1).demo === true && !doc("401872949"),
+    ok(j.pending && claim.update.name === `${DOC_BASE}/sunday_desk2/demo-401872949` && log.bg.at(-1).demo === true && !doc("401872949"),
       `a final gets a demo script, stored apart from any real halftime one (${claim.update.name.split("/").pop()}, demo job ${log.bg.at(-1).demo})`);
     await drain();
     const m = log.model.at(-1), facts = JSON.parse(m.body.messages[0].content.slice(m.body.messages[0].content.indexOf("\n") + 1));
@@ -315,7 +318,7 @@ try {
     MODE = "post";
     const r = await mod.default(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime?event=401872949&kind=post"));
     const j = await r.json(), claim = log.commits.at(-1);
-    ok(j.pending && claim.update.name === `${DOC_BASE}/sunday_halftime/post-401872949` && claim.currentDocument?.exists === false && log.bg.at(-1).kind === "post",
+    ok(j.pending && claim.update.name === `${DOC_BASE}/sunday_desk2/post-401872949` && claim.currentDocument?.exists === false && log.bg.at(-1).kind === "post",
       `a final's first request claims its own postgame doc and starts a postgame job (${claim.update.name.split("/").pop()}, kind ${log.bg.at(-1).kind})`);
     await drain();
     const m = log.model.at(-1), facts = JSON.parse(m.body.messages[0].content.slice(m.body.messages[0].content.indexOf("\n") + 1));
@@ -334,9 +337,29 @@ try {
     // Both shows describe the same four people, each with habits of their own.
     const sys = log.model.map((x) => x.body.system);
     const half = sys.find((x) => /halftime desk/.test(x)), post = sys.find((x) => /postgame desk/.test(x));
-    const traits = [/Hal Brandt, the host: .*pun/, /Chuck Varney, former quarterback from West Texas: .*ranch-and-farm/, /Moose Tillman, former linebacker: loud.*grown-man football/, /Dot Keene, the numbers and fantasy analyst: deadpan.*zinger/, /never repeat the same catchphrase twice/];
-    ok(!!half && !!post && traits.every((t) => t.test(half) && t.test(post)), "both shows give each of the four a voice of their own: the punning host, the folksy West Texas quarterback, the loud linebacker, the deadpan numbers analyst");
+    // RESTAGED 2026-09-28: the new cast ("replace Dot Keene with RoboGoat, and chuck varney with Force
+    // Ghost John Madden"), the ghost kept kind, and the tape: two replays at halftime, three after.
+    const traits = [/Hal Brandt, the host: .*pun/, /Force Ghost John Madden: the late, great coach and broadcaster, back as a glowing blue Force ghost.*keep him kind/, /Moose Tillman, former linebacker: loud.*grown-man football.*RoboGoat/, /RoboGoat: the GFFL's robot goat.*beep or whirr.*zinger/, /never repeat the same catchphrase twice/, /Go to the tape .* "replay"/];
+    ok(!!half && !!post && traits.every((t) => t.test(half) && t.test(post)) && /Go to the tape twice/.test(half) && /Go to the tape three times/.test(post),
+      "both shows give the four their own voices (the punning host, the ghost of John Madden, the loud linebacker, RoboGoat), and ask for the tape twice at halftime, three times after the game");
   }
+  section("Replays: the plays the desk goes to the tape on");
+  {
+    const f = mod.halftimeFacts(JSON.parse(HALF));
+    // Hand-read from the fixture: Hooper's touchdown is play 4018729482018; McKinney's pick 401872948133.
+    ok(f.scoring[3].id === "4018729482018" && f.notable.find((p) => /INTERCEPTED by X\.McKinney/.test(p.play))?.id === "401872948133",
+      `every scoring and notable play in the facts carries its ESPN id, for the model to name (${f.scoring[3].id}, ${f.notable.find((p) => /McKinney/.test(p.play))?.id})`);
+    const m = log.model.find((x) => /halftime desk/.test(x.body.system));
+    ok(JSON.stringify(m?.body.output_config.format.schema.properties.lines.items.required) === '["who","text","replay"]', "every line of the model's answer says which play, if any, it is spoken over");
+    const ids = new Set(["a1", "b2", "c3", "d4"]);
+    const mk = (reps) => ({ lines: reps.map((r, i) => ({ who: i % 4, text: `line ${i}`, replay: r })) });
+    const c = mod.cleanScript(mk(["", "a1", "a1", "", "zz", "", "b2", "b2", "b2", "b2", "", "c3", "", "d4"]), false, ids);
+    ok(JSON.stringify(c.map((l) => l.replay)) === JSON.stringify(["", "a1", "a1", "", "", "", "b2", "b2", "b2", "", "", "c3", "", ""]),
+      `a replay is kept only for a play in the facts, three lines at most, three replays a show (${JSON.stringify(c.map((l) => l.replay || "-"))})`);
+    const served = await get("401872948");
+    ok(JSON.stringify(served.j.lines.filter((l) => l.replay).map((l) => l.replay)) === '["401872948133","401872948472"]', `the stored script keeps its replays (${JSON.stringify(served.j.lines.filter((l) => l.replay).map((l) => l.replay))})`);
+  }
+
   section("Streamed, with its token counts; a rest after three failures");
   {
     // 2026-09-28: three of the week's postgame calls threw every try (the job's error was "job"): a

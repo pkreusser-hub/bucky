@@ -1,18 +1,93 @@
-{"ok":true,"event":"401872948","cast":["Hal Brandt","Chuck Varney","Moose Tillman","Dot Keene"],"model":"fixture (hand-written in the model's output shape)","lines":[
-{"who":0,"text":"Welcome back to the desk. Falcons 17, Packers 7 at the half in Green Bay, and Atlanta has owned the second quarter."},
-{"who":1,"text":"It started rough for them. Penix threw a pick on the very first series, Xavier McKinney jumped that short middle throw."},
-{"who":2,"text":"And then the defense said, not today. Deablo sacks Love at the three, ball comes out, Henderson falls on it."},
-{"who":1,"text":"That sack was on the protection, Moose. Nobody picked up the blitz off the edge."},
-{"who":2,"text":"Protection, schmotection. Somebody made a play, Chuck. That is football."},
-{"who":3,"text":"Bijan Robinson broke a 55-yarder to set up his own touchdown. If he's in your lineup, you're smiling."},
-{"who":0,"text":"Green Bay struck first though. Jordan Love to Christian Watson from four yards out."},
-{"who":1,"text":"Love hit Matthew Golden deep for 45 on that drive. When he has time, he's dealing."},
-{"who":3,"text":"He just hasn't had time. Since that opening touchdown, the Packers have punted four times and missed a field goal."},
-{"who":2,"text":"Three and out, three and out. That offensive line needs a halftime pep talk and a sandwich."},
-{"who":0,"text":"Nick Folk added a 44-yard field goal, then Penix found Austin Hooper with 59 seconds left."},
-{"who":1,"text":"Great two-minute drive. Penix stood in there and put it right on Hooper's hands."},
-{"who":3,"text":"That touchdown swung more than the score. Seventeen straight points for Atlanta."},
-{"who":2,"text":"I'll say it now: the Falcons defense wins this game."},
-{"who":1,"text":"Bold. Green Bay gets the ball to start the half. Ten points is one good drive and a stop."},
-{"who":0,"text":"We'll find out. Second half kicking off right after this."}
-]}
+{
+"ok": true,
+"event": "401872948",
+"cast": [
+"Hal Brandt",
+"Force Ghost John Madden",
+"Moose Tillman",
+"RoboGoat"
+],
+"model": "fixture (hand-written in the model's output shape; replays on McKinney's pick, 401872948133, and Love to Golden for 45, 401872948472)",
+"lines": [
+{
+"who": 0,
+"text": "Welcome back to the desk. Falcons 17, Packers 7 at the half in Green Bay, and Atlanta has owned the second quarter.",
+"replay": ""
+},
+{
+"who": 1,
+"text": "It started rough for them. Penix threw a pick on the very first series, Xavier McKinney jumped that short middle throw.",
+"replay": "401872948133"
+},
+{
+"who": 2,
+"text": "And then the defense said, not today. Deablo sacks Love at the three, ball comes out, Henderson falls on it.",
+"replay": ""
+},
+{
+"who": 1,
+"text": "That sack was on the protection, Moose. Nobody picked up the blitz off the edge.",
+"replay": ""
+},
+{
+"who": 2,
+"text": "Protection, schmotection. Somebody made a play, Coach. That is football.",
+"replay": ""
+},
+{
+"who": 3,
+"text": "Bijan Robinson broke a 55-yarder to set up his own touchdown. If he's in your lineup, you're smiling.",
+"replay": ""
+},
+{
+"who": 0,
+"text": "Green Bay struck first though. Jordan Love to Christian Watson from four yards out.",
+"replay": ""
+},
+{
+"who": 1,
+"text": "Love hit Matthew Golden deep for 45 on that drive. When he has time, he's dealing.",
+"replay": "401872948472"
+},
+{
+"who": 3,
+"text": "He just hasn't had time. Since that opening touchdown, the Packers have punted four times and missed a field goal.",
+"replay": ""
+},
+{
+"who": 2,
+"text": "Three and out, three and out. That offensive line needs a halftime pep talk and a sandwich.",
+"replay": ""
+},
+{
+"who": 0,
+"text": "Nick Folk added a 44-yard field goal, then Penix found Austin Hooper with 59 seconds left.",
+"replay": ""
+},
+{
+"who": 1,
+"text": "Great two-minute drive. Penix stood in there and put it right on Hooper's hands.",
+"replay": ""
+},
+{
+"who": 3,
+"text": "That touchdown swung more than the score. Seventeen straight points for Atlanta.",
+"replay": ""
+},
+{
+"who": 2,
+"text": "I'll say it now: the Falcons defense wins this game.",
+"replay": ""
+},
+{
+"who": 1,
+"text": "Bold. Green Bay gets the ball to start the half. Ten points is one good drive and a stop.",
+"replay": ""
+},
+{
+"who": 0,
+"text": "We'll find out. Second half kicking off right after this.",
+"replay": ""
+}
+]
+}

@@ -1289,25 +1289,43 @@ async function main() {
 
       const v0 = await vis();
       ok(v0.tecmo && v0.replayBtn, `the 8-bit view shows a Replay button in the field caption, as the field view does (8-bit on ${v0.tecmo}, button shown ${v0.replayBtn})`);
+      // RESTAGED 2026-09-28 (user: "when users click replay, it should immediately default to either
+      // start of the game if the game is over, or current drive if the game is ongoing. then it should
+      // have a horizontal list of drives"): tapping Replay used to ask "Game start / This drive" first.
+      // Now it starts at once, and the bar carries a row of the game's drives. The fixture has 21 drives
+      // (hand-read): the first ATL's (ended by an interception), the last ATL's two kneels.
       await click("#f-cap .rp-start");
       const v1 = await vis();
-      ok(v1.bar && v1.choices.join("|") === "Game start|This drive", `…tapping it offers Game start or This drive (${JSON.stringify(v1.choices)})`);
+      const row = await probe(() => { const r = document.querySelector("#bt-rp .rp-drs"), cs = r && [...r.querySelectorAll("[data-btdrive]")]; const on = r?.querySelector(".on");
+        return { n: cs?.length, first: cs?.[0] && cs[0].querySelector("b").textContent + " " + cs[0].querySelector("span").textContent, last: cs?.at(-1) && cs.at(-1).querySelector("b").textContent + " " + cs.at(-1).querySelector("span").textContent, on: on?.dataset.btdrive, onSeen: !!on && on.getBoundingClientRect().left >= r.getBoundingClientRect().left - 1 && on.getBoundingClientRect().right <= r.getBoundingClientRect().right + 1, scrolls: r ? r.scrollWidth > r.clientWidth : null }; });
+      ok(v1.rp && v1.rp.from === "game" && v1.rp.id === "40187294840" && !v1.choices.includes("Game start") && !v1.choices.includes("This drive"),
+        `on a final, tapping Replay plays from the start at once, no menu: the opening kickoff (${JSON.stringify(v1.rp)}, buttons ${JSON.stringify(v1.choices)})`);
       ok(v1.speeds.join("|") === "1×*|2×|3×", `…with 1×, 2× and 3×, 1× picked on a first visit (${JSON.stringify(v1.speeds)})`);
-      ok(!v1.fieldReplay.playing && v1.fieldReplay.cursor === null && !v1.fieldReplay.bar && !v1.rp, `…and it only asks: the field view's replay isn't started, nothing plays yet (${JSON.stringify(v1.fieldReplay)}, 8-bit replay ${JSON.stringify(v1.rp)})`);
+      ok(row.n === 21 && row.first === "ATL Q1 · INT" && row.last === "ATL Q4 · End" && row.on === "0" && row.onSeen && row.scrolls,
+        `…and a sideways row of the game's 21 drives, each its team, quarter and result ("${row.first}" … "${row.last}"), the one playing lit and in view (drive ${row.on}, in view ${row.onSeen}, scrolls ${row.scrolls})`);
+      await click('#bt-rp [data-btdrive="19"]');
+      const dj = await vis();
+      const djOn = await probe(() => document.querySelector("#bt-rp .rp-drs .on")?.dataset.btdrive);
+      ok(dj.rp && dj.rp.id === "4018729484009" && djOn === "19", `tapping a drive jumps to its first play (GB's drive 19 opens with N.Folk's kickoff: ${dj.rp?.id}, lit ${djOn})`);
+      await click('#bt-rp [data-btrp="stop"]');
+      const lvd = await probe(() => { const keep = G.ev; G.ev = { ...keep, state: "in" }; document.querySelector("#f-cap .rp-start").click(); const r = SIDE.rp ? { from: SIDE.rp.from, id: String(SIDE.rp.id) } : null; G.ev = keep; tecmoRpEnd(true); return r; });
+      ok(lvd && lvd.from === "drive" && lvd.id === "4018729484399", `in a game still going, Replay starts at the current drive (the drive on the field, ATL's kneels from Q4 1:11: ${JSON.stringify(lvd)})`);
+      await click("#f-cap .rp-start");
       const geo = await probe(() => {
         const st = document.querySelector(".stadium").getBoundingClientRect();
-        const els = [...document.querySelectorAll("#bt-rp button")];
+        // (The drive chips scroll inside their own row, so the row is measured, not each chip.)
+        const els = [...document.querySelectorAll("#bt-rp button:not(.rp-dr), #bt-rp .rp-drs")];
         return { right: Math.max(...els.map((b) => b.getBoundingClientRect().right)), left: Math.min(...els.map((b) => b.getBoundingClientRect().left)), st: [st.left, st.right], h: els.map((b) => Math.round(b.getBoundingClientRect().height)), docW: document.documentElement.scrollWidth };
       });
       ok(!geo.err && geo.left >= geo.st[0] && geo.right <= geo.st[1] && geo.docW <= 390 && geo.h.every((h) => h >= 36),
         `390px phone: every control sits inside the field box, no sideways scroll, each ≥36px tall (${JSON.stringify(geo)})`);
 
-      // Game start, at 3× picked from the menu.
+      // Game start, at 3×.
       await click('#bt-rp [data-btspeed="3"]');
       const v2 = await vis();
       const stored = await probe(() => localStorage.getItem("sun.tecmoSpeed"));
       ok(v2.speeds.join("|") === "1×|2×|3×*" && stored === "3", `picking 3× marks it and remembers it (${JSON.stringify(v2.speeds)}, stored ${JSON.stringify(stored)})`);
-      await click('#bt-rp [data-btrp="game"]');
+      await probe(() => tecmoRpStart("game"));
       const g = await vis();
       ok(g.rp && g.rp.id === "40187294840" && g.playId === "40187294840", `Game start plays the opening kickoff first (T.Smack from the GB 35: ${g.rp?.id})`);
       ok(g.rp && g.rp.speed === 3 && g.label === "Replay · Q1 15:00", `…at 3×, the bar saying where the replay is (${g.rp?.speed}×, ${JSON.stringify(g.label)})`);
@@ -1339,13 +1357,11 @@ async function main() {
       const xd = await probe(() => ({ studio: !!SIDE.sc?.studio, post: !!SIDE.sc?.post }));
       ok(!x.rp && !x.bar && x.replayBtn && xd.studio && xd.post, `Exit replay puts the final's postgame desk back on the stage, the Replay button back in the caption (${JSON.stringify(xd)}, bar ${x.bar}, button ${x.replayBtn})`);
 
-      // This drive: ATL's last drive, first play.
-      await click("#f-cap .rp-start");
-      const again = await vis();
-      ok(again.speeds.join("|") === "1×|2×|3×*", `the menu comes back with the speed last picked (${JSON.stringify(again.speeds)})`);
-      await click('#bt-rp [data-btrp="drive"]');
+      // The current drive: ATL's last drive, first play. (RESTAGED 2026-09-28: no menu to come back
+      // with the speed; the replay keeps the speed last picked, and the bar no longer says "this drive".)
+      await probe(() => tecmoRpStart("drive"));
       const d = await vis();
-      ok(d.rp && d.rp.id === "4018729484399" && d.label === "Replay · this drive · Q4 1:11", `This drive starts at the first play of the drive on the field (ATL's first kneel, Q4 1:11: ${d.rp?.id}, ${JSON.stringify(d.label)})`);
+      ok(d.rp && d.rp.id === "4018729484399" && d.label === "Replay · Q4 1:11" && d.speeds.join("|") === "1×|2×|3×*", `the current drive starts at its first play, at the speed last picked (ATL's first kneel, Q4 1:11: ${d.rp?.id}, ${JSON.stringify(d.label)}, ${JSON.stringify(d.speeds)})`);
       // Reaching the newest play hands the stage back: two kneels, then the replay is over.
       for (let i = 0; i < 2; i++) { await probe(() => { SIDE.t = SIDE.sc.T; }); await wait(700); }
       const e = await vis();
@@ -1353,7 +1369,7 @@ async function main() {
 
       // The field view keeps its own replay: switching over drops an 8-bit replay, and its Replay
       // button still runs the field replay.
-      await click("#f-cap .rp-start"); await click('#bt-rp [data-btrp="game"]');
+      await click("#f-cap .rp-start");
       await click("#f-cap [data-fview]");
       const f = await vis();
       ok(!f.tecmo && !f.rp && !f.bar, `switching to the field view ends the 8-bit replay (${JSON.stringify({ tecmo: f.tecmo, rp: f.rp, bar: f.bar })})`);
@@ -1656,7 +1672,9 @@ async function main() {
         // break the show loops at 67.97 s.
         const syn = await probe(() => { const tl = htTimeline(Array.from({ length: 16 }, (_, i) => ({ who: i % 4, text: "one two three four five six seven eight nine ten eleven" }))); return { end: tl.lines.at(-1).t1, T: tl.T, first: tl.lines[0].t0 }; });
         ok(Math.abs(syn.end - 61.67) < 0.05 && Math.abs(syn.T - 67.97) < 0.05 && syn.first === 1.4, `a script of the length Opus is asked for (16 lines, 176 words) runs about a minute: the last line ends at ${syn.end?.toFixed?.(2)} s (hand-computed 61.67), the show loops at ${syn.T?.toFixed?.(2)} s (67.97)`);
-        ok(s0.first === 1.4 && s0.last >= 45 && s0.last <= 75, `…and the fixture's longer script (254 words) is held to the 1.25× squeeze: it ends at ${s0.last?.toFixed?.(1)} s`);
+        // (RESTAGED 2026-09-28: its two replays hold their lines until the play has run, so the bound
+        // went from 75 s to 90.)
+        ok(s0.first === 1.4 && s0.last >= 45 && s0.last <= 90, `…and the fixture's longer script (254 words, two replays) is held to the 1.25× squeeze: it ends at ${s0.last?.toFixed?.(1)} s`);
         const at = (t) => probe((t) => {
           SIDE.t = SIDE.sc.t0 + t; SIDE.htKey = null; raStep(SIDE, 0);
           const stage = document.querySelector("#big-tecmo .bt-stage"), b = stage.querySelector(".ht-bub");
@@ -1673,8 +1691,41 @@ async function main() {
         ok(b0.bug === "HALF", `…with the score bug still reading HALF under the desk (${b0.bug})`);
         const mid5 = await probe(() => { const l = SIDE.sc.tl.lines[5]; return (l.t0 + l.t1) / 2; });
         const b5 = await at(mid5);
-        ok(b5.on && b5.name === "Dot Keene" && b5.text === script.lines[5].text && Math.abs(b5.tail - b5.heads[3].x) < 2 && b5.box[2] <= b5.stW && b5.box[0] >= 0,
-          `the analysts take their turns: line 6 is Dot Keene's, over the fourth head and kept inside the stage (${JSON.stringify([b5.name, Math.round(b5.tail), Math.round(b5.heads?.[3]?.x), b5.box])})`);
+        ok(b5.on && b5.name === "RoboGoat" && b5.text === script.lines[5].text && Math.abs(b5.tail - b5.heads[3].x) < 2 && b5.box[2] <= b5.stW && b5.box[0] >= 0,
+          `the analysts take their turns: line 6 is RoboGoat's, over the fourth head and kept inside the stage (${JSON.stringify([b5.name, Math.round(b5.tail), Math.round(b5.heads?.[3]?.x), b5.box])})`);
+        // The replays (2026-09-28, user: "2-3 replays where an analyst brings up a specific play and it
+        // shows that replay along with the commentary words overlaid on top"). The fixture's line 2
+        // (the Ghost, on McKinney's pick) is spoken over play 401872948133.
+        const tape = await probe(() => { const l = SIDE.sc.tl.lines[1]; return { mid: (l.t0 + l.t1) / 2, len: l.t1 - l.t0, replay: l.replay }; });
+        const tp = await probe((t) => {
+          SIDE.t = SIDE.sc.t0 + t; SIDE.htCapKey = null; raStep(SIDE, 0.016); raStep(SIDE, 0.016);
+          const stage = document.querySelector("#big-tecmo .bt-stage"), cap = stage.querySelector(".ht-cap"), b = stage.querySelector(".ht-bub");
+          const R = SIDE.htRep, s = stage.getBoundingClientRect(), r = cap?.getBoundingClientRect();
+          return { id: R && String(R.sc.play.id), T: R?.sc.T, field: !!R && !R.sc.studio, cap: !!cap && !cap.hidden && cap.offsetParent !== null, tag: cap?.querySelector("i")?.textContent, name: cap?.querySelector("b")?.textContent, text: cap?.querySelector("span")?.textContent,
+            inside: !!r && r.left >= s.left - 1 && r.right <= s.right + 1 && r.top >= s.top - 1, bub: !!b?.classList.contains("on") };
+        }, tape.mid);
+        ok(tape.replay === "401872948133" && tp.id === "401872948133" && tp.field && tp.cap && tp.tag === "Replay" && tp.name === "Force Ghost John Madden" && tp.text === script.lines[1].text && tp.inside && !tp.bub,
+          `going to the tape: the desk cuts to the 8-bit replay of the play named (${tp.id}, McKinney's pick), the commentary across the top under a REPLAY tag ("${tp.name}": ${JSON.stringify((tp.text || "").slice(0, 40))}…), no chat bubble`);
+        ok(tape.len >= Math.min(tp.T, 9) + 0.6 - 0.01, `…and the line is held long enough for the play to play out under it (${tape.len?.toFixed?.(1)} s for a ${tp.T?.toFixed?.(1)} s play)`);
+        const back = await probe((t) => { SIDE.t = SIDE.sc.t0 + t; raStep(SIDE, 0.016); const cap = document.querySelector("#big-tecmo .ht-cap"); return { rep: !!SIDE.htRep, cap: !!cap && !cap.hidden }; }, await probe(() => { const l = SIDE.sc.tl.lines[2]; return (l.t0 + l.t1) / 2; }));
+        ok(!back.rep && !back.cap, `…then back to the desk for the next line (${JSON.stringify(back)})`);
+        // The new faces (2026-09-28, user: "replace Dot Keene with RoboGoat, and chuck varney with Force
+        // Ghost John Madden"): the ghost is see-through (no pixel of his suit is its solid colour; he
+        // is laid over the set) and glows pale blue; RoboGoat's LED eyes are the only green on the desk.
+        const faces = await probe(() => {
+          SIDE.t = SIDE.sc.t0 + 3; raStep(SIDE, 0.016);
+          const c = SIDE.htCv, d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+          let suit = 0, glow = 0, led = 0;
+          for (let i = 0; i < d.length; i += 4) {
+            const [r, g, b] = [d[i], d[i + 1], d[i + 2]];
+            if (r === 0x5a && g === 0xa9 && b === 0xe6) suit++;
+            if (b > 200 && g > 170 && r < 200 && b - r > 40) glow++;
+            if (r === 0x7c && g === 0xff && b === 0x6b) led++;
+          }
+          return { cast: SIDE.sc.cast, suit, glow, led };
+        });
+        ok(JSON.stringify(faces.cast) === JSON.stringify(["Hal Brandt", "Force Ghost John Madden", "Moose Tillman", "RoboGoat"]) && faces.suit === 0 && faces.glow > 40 && faces.led >= 2,
+          `the desk is Hal, Force Ghost John Madden, Moose and RoboGoat: the ghost see-through and glowing (${faces.suit} solid suit pixels, ${faces.glow} glow), RoboGoat's LED eyes lit (${faces.led} green pixels)`);
         const gap = await probe(() => { const l = SIDE.sc.tl.lines[5]; return l.t1 + 0.15; });
         const bg = await at(gap);
         const lp = await at(await probe(() => SIDE.sc.tl.T + 3));
