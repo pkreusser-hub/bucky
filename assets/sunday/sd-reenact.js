@@ -1527,6 +1527,15 @@ const HT_LOOK = [
   { suit: '#1f6f6a', shirt: '#f3e7cf', tie: null, skin: '#c68642', hair: '#241a14', style: 'long', w: 24, earrings: true },
 ];
 const HT = new Map();                               // game id -> { lines, cast, state: 'pending' | 'done' | 'failed', polls }
+// A test run of the desk on a finished game (2026-09-28, user: "give me a test link", with no game at
+// halftime): ?halftime=demo plays the game's first half at the desk, the score as it stood at the half.
+const htDemo = () => /[?&]halftime=demo\b/.test(location.search) && G?.ev?.state === 'post' && !!G.sum;
+function htDemoEv() {
+  const ev = { ...G.ev, away: { ...G.ev.away }, home: { ...G.ev.home }, state: 'in', name: 'STATUS_HALFTIME', period: 2 };
+  const last = (G.sum.flat || []).map((f) => f.p).filter((p) => p && p.period && p.period <= 2 && p.away != null).at(-1);
+  if (last) { ev.away.score = last.away; ev.home.score = last.home; }
+  return ev;
+}
 const HT_TARGET = 60, HT_INTRO = 1.4, HT_GAP = 0.3, HT_BREAK = 6;
 // The script as a timeline: each line gets reading time for its words, scaled so the show runs
 // about a minute (within 0.8x to 1.25x of natural pace).
@@ -1558,7 +1567,7 @@ function htLoad(ev) {
   if (!e) { e = { state: 'pending', lines: null, cast: HT_CAST, polls: 0 }; HT.set(id, e); }
   if (e.busy) return e;
   e.busy = true;
-  fetch(`/.netlify/functions/halftime?event=${encodeURIComponent(id)}`)
+  fetch(`/.netlify/functions/halftime?event=${encodeURIComponent(id)}${htDemo() ? '&demo=1' : ''}`)
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       e.busy = false;
@@ -1573,7 +1582,7 @@ function htLoad(ev) {
 function htScript(id) {
   const sc = SIDE.sc;
   if (!sc?.studio || sc.gameId !== id) return;
-  const e = HT.get(id), ev = G?.ev;
+  const e = HT.get(id), ev = sc.ev || G?.ev;
   if (!e || !ev) return;
   sc.cast = e.cast || HT_CAST;
   sc.tl = htTimeline(e.state === 'done' ? e.lines : htStandIn(ev, e.state === 'failed'));
@@ -1583,7 +1592,7 @@ function htScript(id) {
 function raHalftime(ev) {
   const pc = pair(ev.away, ev.home);
   const sc = { actors: [], ball: [], events: [], z0: 50, x0: 0, offHome: true, ltg: null, col: { o: pc.hRaw, d: pc.aRaw }, offT: ev.home, defT: ev.away,
-    tS: 0, timeout: true, halftime: true, studio: true, noBall: true, homeCol: pc.hRaw, cast: HT_CAST, t0: 0 };
+    tS: 0, timeout: true, halftime: true, studio: true, noBall: true, homeCol: pc.hRaw, cast: HT_CAST, t0: 0, ev };
   sc.tl = htTimeline(htStandIn(ev, false));
   sc.waiting = true;
   sc.T = 1e6;
@@ -1605,11 +1614,11 @@ function htAt(sc, t) {
 // The set, painted once per size: a navy studio with light columns in both teams' colours, a big
 // monitor with the score, the desk with its GFFL front, the floor.
 function htSet(aw, ah, sc) {
-  const key = `${aw}x${ah}|${sc.col.o}|${sc.col.d}|${G?.ev?.away?.score}|${G?.ev?.home?.score}`;
+  const ev = sc.ev || G?.ev;
+  const key = `${aw}x${ah}|${sc.col.o}|${sc.col.d}|${ev?.away?.score}|${ev?.home?.score}`;
   if (sc.htSetKey === key) return sc.htSetCv;
   const c = document.createElement('canvas'); c.width = aw; c.height = ah;
   const g = c.getContext('2d');
-  const ev = G?.ev;
   // Back wall: bands of navy, darkening toward the ceiling, with dithered seams.
   for (let y = 0; y < ah; y++) { const u = y / ah; g.fillStyle = mixHex('#0a1030', '#1e2d66', Math.min(1, u * 1.4)); g.fillRect(0, y, aw, 1); }
   for (let y = 0; y < ah * 0.7; y += 2) for (let x = (y / 2) % 2; x < aw; x += 2) if ((x * 7 + y * 3) % 11 === 0) { g.fillStyle = 'rgba(255,255,255,0.05)'; g.fillRect(x, y, 1, 1); }
@@ -2771,7 +2780,7 @@ function raBugImage(L) {
   return c;
 }
 function raBugDraw(g, W, H, st) {
-  const sc = st.sc, ev = G?.ev;
+  const sc = st.sc, ev = (sc?.studio && sc.ev) || G?.ev;
   if (!sc || !ev?.home?.abbr || !ev?.away?.abbr) return;
   const play = sc.play && sc.play.kind !== 'set' ? sc.play : null;
   if (play && !sc.bugP) { sc.bugP = raBugPlay(play); sc.bugAt = sideResultAt(sc); }
@@ -3093,7 +3102,7 @@ function sideUpdate() {
   if (SIDE.gameId !== G.id) { sideStop(); Object.assign(SIDE, { gameId: G.id, playId: null, setKey: '', timeoutId: null, sc: null, cv: tgt.cv, rp: null, rpMenu: null }); }
   if (SIDE.cv !== tgt.cv) { SIDE.cv = tgt.cv; SIDE.banner = tgt.banner; SIDE.cam = null; if (SIDE.sc) { raSizeCanvas(SIDE.cv, tgt.h); cancelAnimationFrame(SIDE.raf); sideResume(); } }
   if (SIDE.rp) return;                                    // the replay runs its own sequence
-  if (isHalftime(G.ev)) { if (!SIDE.sc?.halftime && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout)) sideHalftime(); return; }
+  if (isHalftime(G.ev) || htDemo()) { if (!SIDE.sc?.halftime && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout || htDemo())) sideHalftime(); return; }
   const latest = sideNext();
   if (!latest) return;
   // A timeout called since the last snap: clear the field and bring out the cheerleaders.
@@ -3232,7 +3241,7 @@ function sideCheer(p) {
   sideRun(sc);
 }
 function sideHalftime() {
-  const ev = G.ev;
+  const ev = htDemo() ? htDemoEv() : G.ev;
   sideStop();
   let sc = null;
   try { sc = raHalftime(ev); } catch (err) { console.error(err); return; }
@@ -3242,7 +3251,7 @@ function sideHalftime() {
   sideText('meta', `${ev.away.abbr} ${ev.away.score ?? 0} – ${ev.home.score ?? 0} ${ev.home.abbr}`);
   sideText('tx', 'The GFFL halftime desk');
   sideRun(sc);
-  htLoad(ev);
+  htLoad(G.ev);
   htScript(G.id);                                   // a script already here (a revisit) plays from its first line
 }
 function sideSet() {

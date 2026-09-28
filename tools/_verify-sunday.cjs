@@ -1705,6 +1705,19 @@ async function main() {
         ok(JSON.stringify(fl) === "[0,1,2,3,0]", `if no script can be written, a short stand-in keeps the desk talking: the host, each analyst, the host (${JSON.stringify(fl)})`);
         const after = await probe(() => { sideRun(raBuild(raPlays()[3], G.ev, raQBs())); raStep(SIDE, 0.016); return { studio: !!SIDE.sc.studio, bub: !!document.querySelector("#big-tecmo .ht-bub.on") }; });
         ok(!after.studio && !after.bub, `when play resumes, the desk and its bubble give way to the field (${JSON.stringify(after)})`);
+        // ?halftime=demo (2026-09-28, user: "give me a test link"): a finished game's first half at the
+        // desk. The final ATL @ GB fixture: at the break (its last Q2 play) it was ATL 17 - 7 GB.
+        asks.length = 0;
+        reply = () => JSON.stringify(script);
+        MOCK = (u) => /\/\.netlify\/functions\/halftime\?/.test(u) ? (asks.push(u), json(reply()))
+          : /site\.api\.espn\.com.*\/scoreboard\/401872948/.test(u) ? json(JSON.stringify(sbFixture.events.find((e) => e.id === "401872948")))
+          : /site\.api\.espn\.com.*\/summary\?event=401872948/.test(u) ? json(JSON.stringify(sumFixture))
+          : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(JSON.stringify(sbFixture)) : null;
+        await page.goto(BASE + "/sunday.html?halftime=demo#g401872948", { waitUntil: "domcontentloaded" });
+        try { await page.waitForFunction(() => G?.sum && SIDE.sc?.studio && SIDE.sc.tl?.lines.length > 5, { timeout: 15000 }); } catch {}
+        const dm = await probe(() => { raStep(SIDE, 0); return { state: G.ev.state, studio: !!SIDE.sc?.studio, score: [SIDE.sc?.ev?.away.score, SIDE.sc?.ev?.home.score], bug: [SIDE.bugState?.a, SIDE.bugState?.h, SIDE.bugState?.clock], n: SIDE.sc?.tl?.lines.length }; });
+        ok(dm.state === "post" && dm.studio && JSON.stringify(dm.score) === "[17,7]" && JSON.stringify(dm.bug) === '[17,7,"HALF"]' && dm.n === script.lines.length && asks.length === 1 && /event=401872948&demo=1$/.test(asks[0]),
+          `?halftime=demo plays a finished game's first half at the desk: the score as it stood at the break, the bug reading HALF, the demo script asked for (${JSON.stringify(dm)}, ${JSON.stringify(asks)})`);
         await probe(() => localStorage.removeItem("sun.tecmoBig"));
       }
       await page.setViewport({ width: 800, height: 600 });

@@ -726,3 +726,16 @@ precondition refusals / Anthropic / background runner). Bite: HEAD's app files f
 claim and race checks, one without the Q2 filter fails the facts check. No live Opus call was made from
 this container (no key here); the page's fixture script is hand-written in the model's output shape
 (tools/fixtures/halftime/script-401872948.json).
+
+**Test link: `?halftime=demo`** (Perry: "give me a test link", with no game at halftime). On a finished
+game, `sunday.html?halftime=demo#g<event>` plays its first half at the desk: the monitor and the bug
+show the score as it stood after the last Q2 play (`htDemoEv`), and the page asks the function with
+`&demo=1`. The function writes a real Opus script for a FINAL only (`not-final` otherwise), from the
+half's facts with the score at the break and no leaders or team stats (ESPN's are the full game's by
+then), stored apart as `sunday_halftime/demo-<event>`: one call per game at most. `Netlify-Vary` is
+now `query=event|demo`.
+
+VERIFY: sunday 240/241 (1 new: the demo on the ATL @ GB final shows 17-7 and HALF and asks for the demo
+script), halftime 40/40 (4 new demo checks; the Vary check restaged to `query=event|demo`). Bite: the
+previous sd-reenact.js fails the new page check; the previous halftime.mjs fails the 4 demo checks and
+the restaged Vary check.

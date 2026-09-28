@@ -11,6 +11,10 @@
 //   -> { ok:false, pending:true }       being written (the page polls every few seconds)
 //   -> { ok:false, reason }             bad-event | not-halftime | upstream | failed | no-store
 //   (HTTP 200 always.)
+//   &demo=1 (2026-09-28, user: "give me a test link", with no game at halftime to test on): the
+//   same, for a FINISHED game's first half, stored apart as sunday_halftime/demo-<event>. The facts
+//   are cut at the half: the score after the last Q2 play, and no leaders or team stats (ESPN's are
+//   the full game's by then). Only a final gets one, once, so it costs at most one call per game.
 //
 // ONE SCRIPT PER GAME. The first request at halftime claims Firestore doc sunday_halftime/<event>
 // (a create with precondition exists:false, so two phones opening the game together start ONE
@@ -76,7 +80,7 @@ const json = (body, cache) => new Response(JSON.stringify(body), {
     "access-control-allow-origin": "*",
     "cache-control": "public, max-age=0, must-revalidate",
     "netlify-cdn-cache-control": cache,
-    "netlify-vary": "query=event",
+    "netlify-vary": "query=event|demo",
   },
 });
 const CACHE_DONE = "public, durable, s-maxage=2592000";      // a finished script never changes
@@ -93,7 +97,7 @@ export function atHalftime(sum) {
 const clip = (s, n) => { s = String(s ?? "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
 const NOTABLE = /intercept|fumble|sack|touchdown|safety|blocked|field goal/i;
 // The first half as facts: everything the desk may talk about.
-export function halftimeFacts(sum) {
+export function halftimeFacts(sum, demo) {
   const comp = sum?.header?.competitions?.[0] || {};
   const cs = comp.competitors || [];
   const side = (ha) => {
@@ -139,6 +143,11 @@ export function halftimeFacts(sum) {
     }
   }
   facts.notable = facts.notable.slice(-16);
+  if (demo) {                                        // a final replayed at its half: the half's score, no full-game numbers
+    const last = (sum.drives?.previous || []).flatMap((d) => d.plays || []).filter((p) => Number(p.period?.number) <= 2).at(-1);
+    if (last) { away.score = Number(last.awayScore) || 0; home.score = Number(last.homeScore) || 0; }
+    facts.leaders = []; facts.teamStats = {}; facts.status = "Halftime";
+  }
   return facts;
 }
 
@@ -242,34 +251,36 @@ export async function runHalftimeJob(body) {
   if (!body || !process.env.BUCKY_NOTIFY_SECRET || body.secret !== process.env.BUCKY_NOTIFY_SECRET) return;
   const event = String(body.event || "");
   if (!/^\d{6,12}$/.test(event)) return;
+  const demo = body.demo === true;
   const token = await googleToken();
   if (!token) return;
   let res;
   try {
     const sum = await espnSummary(event);
-    res = await writeScript(halftimeFacts(sum));
+    res = await writeScript(halftimeFacts(sum, demo));
   } catch (e) { res = { error: "job" }; }
   const tries = Number(body.tries) || 1;
   const fields = res.lines
     ? { status: S("done"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ cast: CAST, lines: res.lines, model: res.model })) }
     : { status: S("failed"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ error: res.error })) };
-  try { await writeDoc(token, event, fields); } catch { /* the page's poll gives up with the stand-in lines */ }
+  try { await writeDoc(token, (demo ? "demo-" : "") + event, fields); } catch { /* the page's poll gives up with the stand-in lines */ }
 }
 
-async function startJob(req, event, tries) {
+async function startJob(req, event, tries, demo) {
   const url = process.env.HALFTIME_BG_URL || new URL("/.netlify/functions/halftime-background", req.url).href;
   try {
-    await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: process.env.BUCKY_NOTIFY_SECRET, event, tries }) });
+    await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: process.env.BUCKY_NOTIFY_SECRET, event, tries, demo }) });
   } catch { /* the claim goes stale and the next poll retries */ }
 }
 
 export default async (req) => {
-  const event = new URL(req.url).searchParams.get("event") || "";
+  const q = new URL(req.url).searchParams, event = q.get("event") || "", demo = q.get("demo") === "1";
   if (!/^\d{6,12}$/.test(event)) return json({ ok: false, reason: "bad-event" }, CACHE_NONE);
+  const docId = (demo ? "demo-" : "") + event;
   const token = await googleToken().catch(() => null);
   if (!token) return json({ ok: false, reason: "no-store" }, CACHE_NONE);
   let doc;
-  try { doc = await readDoc(token, event); } catch { return json({ ok: false, reason: "upstream" }, CACHE_NONE); }
+  try { doc = await readDoc(token, docId); } catch { return json({ ok: false, reason: "upstream" }, CACHE_NONE); }
   if (doc.status === "done") {
     try { const p = JSON.parse(doc.payload); return json({ ok: true, event, cast: p.cast || CAST, lines: p.lines, model: p.model }, CACHE_DONE); }
     catch { /* a broken doc is re-written below like a failed one */ }
@@ -280,10 +291,10 @@ export default async (req) => {
   // Nothing written yet (or a dead try): only a game ESPN says is at halftime gets a script.
   let sum;
   try { sum = await espnSummary(event); } catch { return json({ ok: false, reason: "upstream" }, CACHE_NONE); }
-  if (!atHalftime(sum)) return json({ ok: false, reason: "not-halftime" }, CACHE_NONE);
+  if (demo ? sum?.header?.competitions?.[0]?.status?.type?.state !== "post" : !atHalftime(sum)) return json({ ok: false, reason: demo ? "not-final" : "not-halftime" }, CACHE_NONE);
   const tries = (doc.missing ? 0 : doc.tries) + 1;
-  const claimed = await writeDoc(token, event, { status: S("pending"), at: I(Date.now()), tries: I(tries), payload: S("") },
+  const claimed = await writeDoc(token, docId, { status: S("pending"), at: I(Date.now()), tries: I(tries), payload: S("") },
     doc.missing ? { exists: false } : { updateTime: doc.updateTime }).catch(() => false);
-  if (claimed) await startJob(req, event, tries);
+  if (claimed) await startJob(req, event, tries, demo);
   return json({ ok: false, pending: true }, CACHE_WAIT);
 };

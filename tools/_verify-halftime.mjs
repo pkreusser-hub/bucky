@@ -189,7 +189,7 @@ try {
       `the first request at halftime claims the game's doc (create-only) and says pending (${JSON.stringify(first.j)}, ${JSON.stringify(claim?.currentDocument)})`);
     ok(log.bg.length === 1 && log.bg[0].secret === "fam-secret" && log.bg[0].event === "401872948" && log.model.length === 0,
       `…and starts the background job with the server's secret, writing nothing itself (${JSON.stringify(log.bg[0])})`);
-    ok(first.h["netlify-cdn-cache-control"] === "public, s-maxage=4" && first.h["netlify-vary"] === "query=event", `a pending answer is cached 4 s at the edge, per event (${first.h["netlify-cdn-cache-control"]}, ${first.h["netlify-vary"]})`);
+    ok(first.h["netlify-cdn-cache-control"] === "public, s-maxage=4" && first.h["netlify-vary"] === "query=event|demo", `a pending answer is cached 4 s at the edge, per event (${first.h["netlify-cdn-cache-control"]}, ${first.h["netlify-vary"]})`);
     const second = await get("401872948");
     ok(second.j.pending && log.bg.length === 1 && log.commits.length === 1, `a second viewer while it's being written waits on the same job (${log.bg.length} job, ${log.commits.length} write)`);
     await drain();
@@ -257,6 +257,25 @@ try {
     await get("401872956"); await drain();
     process.env.ANTHROPIC_API_KEY = key;
     ok(JSON.parse(fsv("401872956", "payload") || "{}").error === "no-key", `with no Anthropic key the try fails cleanly (${fsv("401872956", "payload")})`);
+  }
+  section("Demo: a finished game's first half (?demo=1)");
+  {
+    // 2026-09-28, user: "give me a test link" (no game at halftime to test on). The trimmed final of
+    // ATL @ GB (event 401872949 here): its last Q2 play (Penix's kneel, ATL 17 - 7 GB) sets the score.
+    const r = await mod.default(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime?event=401872949&demo=1"));
+    const j = await r.json();
+    const claim = log.commits.at(-1);
+    ok(j.pending && claim.update.name === `${DOC_BASE}/sunday_halftime/demo-401872949` && log.bg.at(-1).demo === true && !doc("401872949"),
+      `a final gets a demo script, stored apart from any real halftime one (${claim.update.name.split("/").pop()}, demo job ${log.bg.at(-1).demo})`);
+    await drain();
+    const m = log.model.at(-1), facts = JSON.parse(m.body.messages[0].content.slice(m.body.messages[0].content.indexOf("\n") + 1));
+    ok(facts.away.score === 17 && facts.home.score === 7 && facts.leaders.length === 0 && Object.keys(facts.teamStats).length === 0 && facts.scoring.length === 4,
+      `…from the half only: the score at the break (${facts.away.score}-${facts.home.score}, the final was 35-14), no full-game leaders or team stats, the half's 4 scoring plays`);
+    const d2 = await mod.default(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime?event=401872949&demo=1"));
+    const j2 = await d2.json();
+    ok(j2.ok && JSON.stringify(j2.lines) === JSON.stringify(LINES), `…and is served like any script (${j2.lines?.length} lines)`);
+    const nf = await mod.default(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime?event=401872950&demo=1"));
+    ok((await nf.json()).reason === "not-final", "a game still in progress gets no demo");
   }
 } finally {
   srv.close();
