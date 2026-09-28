@@ -665,6 +665,129 @@ async function main() {
     ok(staged.filter((q) => !q.pushed && q.named).every((q) => q.near > 0.9 && q.near <= 2.2), `"ran ob" with a named defender: he shadows him out a stride off, no contact (${JSON.stringify(staged.filter((q) => !q.pushed && q.named).map((q) => q.near))} yd)`);
     ok(staged.filter((q) => !q.pushed && !q.named).length >= 1 && staged.filter((q) => !q.pushed && !q.named).every((q) => q.near > 2.5), `"ran ob" with nobody named: he steps out alone, nobody within 2.5 yd (${JSON.stringify(staged.filter((q) => !q.pushed && !q.named).map((q) => q.near))} yd)`);
 
+    /* ===================== (h) injuries: the stretcher ===================== */
+    // 2026-09-28, user: "if there is an injury on the play, 2 medical staff with a stretcher should come
+    // out and take a guy off the field, show the guys name as he is carried off". ESPN writes it after
+    // the play: "ATL-J.Bates was injured during the play." A later "** Injury Update: ATL-J.Bates has
+    // returned to the game." is not an injury. Fixtures: ATL @ GB (Bates is a named tackler on 2505,
+    // Monk is not otherwise named on 4171; 2567 is the update) and inj-401872949.json, four real CAR @
+    // CLE plays (a No Play injury 744, the update 2378, an injury on a failed two-point try 3922, a
+    // kickoff injury 3961; ESPN writes Cleveland "CLV" in the text, "CLE" in the header).
+    section("Injuries: two trainers, a stretcher, his name");
+    const injFix = JSON.parse(fs.readFileSync(path.join(FIX, "inj-401872949.json"), "utf8"));
+    const inj = await page.evaluate((fixture, fx2) => {
+      const out = {};
+      const tryIt = (k, fn) => { try { fn(); } catch (e) { out[k] = { err: String(e.message || e) }; } };
+      const game = (fx) => {
+        const comp = fx.header.competitions[0];
+        const ev = { home: normTeam(comp.competitors.find((c) => c.homeAway === "home")), away: normTeam(comp.competitors.find((c) => c.homeAway === "away")) };
+        const byId = new Map();
+        for (const dr of fx.drives.previous || []) for (const raw of dr.plays || []) byId.set(raw.id, { raw, teamId: dr.team?.id });
+        const np = (id, text) => { const { raw, teamId } = byId.get(id); return normPlay(text == null ? raw : { ...raw, text }, ev.home.id, teamId, ev.home.abbr); };
+        return { ev, np, raw: (id) => byId.get(id).raw };
+      };
+      const A = game(fixture), B = game(fx2);
+      const names = (I) => (I.injured || []).map((x) => `${x.team.abbr}-${x.who.name}`);
+      // What the side card waits for before it lets the page show the result (sidePlay's resultAt).
+      const resultAt = (sc) => Math.min(sc.events.filter((e) => e.kind === "banner").map((e) => e.t).sort((x, y) => x - y)[0] ?? Infinity, sc.tEnd ?? sc.T - 1.5);
+      const acrossFromFar = (sc, x) => RAX + x * (sc.offHome ? -1 : 1);     // 0 = far sideline, 53.33 = near
+      const crewOf = (sc) => sc.injury?.crews || [];
+      tryIt("parse", () => {
+        out.parse = {
+          bates: names(raParse(A.np("4018729482505"), A.ev)), monk: names(raParse(A.np("4018729484171"), A.ev)), update: names(raParse(A.np("4018729482567"), A.ev)),
+          jackson: names(raParse(B.np("401872949744"), B.ev)), wallace: names(raParse(B.np("4018729493961"), B.ev)), update2: names(raParse(B.np("4018729492378"), B.ev)),
+          tdPlay: names(raParse(B.np("4018729493922"), B.ev)), cle: B.ev.home.abbr,
+        };
+        G = { ev: B.ev };
+        try { const pat = raPatFrom(B.np("4018729493922"), null); out.parse.tryPlay = names(raParse(pat, B.ev)); out.parse.tryKind = pat.kind; } finally { G = null; }
+      });
+      // ── 2505: J.Bates (ATL, away, on defense) was one of the two tacklers.
+      tryIt("bates", () => {
+        const p = A.np("4018729482505"), clean = A.np("4018729482505", A.raw("4018729482505").text.replace(/\s*ATL-J\.Bates was injured during the play\./, ""));
+        const sc = raBuild(p, A.ev, new Set()), sc0 = raBuild(clean, A.ev, new Set());
+        const cr = crewOf(sc)[0], a = cr.a;
+        const named0 = sc0.actors.findIndex((m) => m.who?.name === "J.Bates");
+        const tR = resultAt(sc);
+        const downAll = [], still = [];
+        const [xi, zi] = raPos(a, tR + 0.15);
+        for (let t = tR + 0.15; t < cr.tLoad - 0.5; t += 0.05) { downAll.push(raPoseAt(sc, a, t) === "down"); const [x, z] = raPos(a, t); still.push(Math.hypot(x - xi, z - zi)); }
+        const meds = sc.actors.filter((m) => m.role === "MED"), str = sc.actors.find((m) => m.role === "STR");
+        let reach = 1e9;
+        for (let t = cr.tIn; t <= cr.tLoad; t += 0.05) { const [sx, sz] = raPos(str, t); reach = Math.min(reach, Math.hypot(sx - xi, sz - zi)); }
+        // The tag: draw one frame mid-carry and one at the result, and read what raDraw writes.
+        const said = (t) => {
+          const cv = document.createElement("canvas"); cv.width = 600; cv.height = RA_H;
+          const orig = window.pixText, seen = [];
+          window.pixText = function (g, s, ...rest) { seen.push(String(s)); return orig.call(this, g, s, ...rest); };
+          try { const st = { sc, t, cam: null }; const f = sc.injury.focus(t); st.cam = { x: clamp(raSX(sc.offHome ? f.z : 100 - f.z) - 300, 0, RA_WORLD_W - 600), y: clamp(RA_TOP + (RAX + f.x * (sc.offHome ? -1 : 1)) * PY - RA_H * 0.55, 0, RA_WORLD_H - RA_H) }; raDraw(cv.getContext("2d"), 600, st); }
+          finally { window.pixText = orig; }
+          return seen;
+        };
+        out.bates = {
+          crews: crewOf(sc).length, who: a.who?.name, sameMan: sc.actors.indexOf(a) === named0 && named0 >= 0, side: a.side, atlSide: sc.offT.abbr === "ATL" ? "o" : "d",
+          tR, tR0: resultAt(sc0), tEnd: sc.tEnd, tEnd0: sc0.tEnd, banners: JSON.stringify(sc.events.filter((e) => e.kind === "banner").map((e) => [e.t, e.title])), banners0: JSON.stringify(sc0.events.filter((e) => e.kind === "banner").map((e) => [e.t, e.title])),
+          T: sc.T, T0: sc0.T, tIn: cr.tIn, tOff: cr.tOff, tLoad: cr.tLoad,
+          down: downAll.length > 0 && downAll.every(Boolean), stillMax: Math.max(...still),
+          nMed: meds.length, medStart: meds.map((m) => +acrossFromFar(sc, raPos(m, cr.tIn)[0]).toFixed(2)), reach,
+          end: [...meds, str, a].map((m) => +acrossFromFar(sc, raPos(m, sc.T)[0]).toFixed(2)),
+          tagCarry: said((cr.tUp + cr.tOff) / 2), tagResult: said(tR + 0.3),
+          huddle: raHuddle(sc, A.ev, { possession: sc.offT.id, yardLine: 50, down: 1, distance: 10 }).actors.length,
+        };
+      });
+      // ── 4171: GB-J.Monk, named nowhere else in the play; GB is at home and on offense.
+      tryIt("monk", () => {
+        const sc = raBuild(A.np("4018729484171"), A.ev, new Set()), cr = crewOf(sc)[0], a = cr.a;
+        const tR = sc.tEnd, bb = raBall(sc, tR), d = (m) => { const [x, z] = raPos(m, tR); return Math.hypot(x - bb.x, z - bb.z); };
+        const gb = sc.offT.abbr === "GB" ? "o" : "d";
+        const others = sc.actors.filter((m) => m.side === gb && m !== a && !m.who && m.role !== "K");
+        out.monk = { who: a.who?.name, side: a.side, gb, dist: d(a), nearestOther: Math.min(...others.map(d)),
+          medStart: sc.actors.filter((m) => m.role === "MED").map((m) => +acrossFromFar(sc, raPos(m, cr.tIn)[0]).toFixed(2)) };
+      });
+      // ── 744: an injury on a play wiped out by a flag. The stretcher comes after the walk-off.
+      tryIt("noPlay", () => {
+        const raw = B.raw("401872949744");
+        const sc = raBuild(B.np("401872949744"), B.ev, new Set()), sc0 = raBuild(B.np("401872949744", raw.text.replace(/\s*CAR-M\.Jackson was injured during the play\./, "")), B.ev, new Set());
+        const cr = crewOf(sc)[0];
+        out.noPlay = { crews: crewOf(sc).length, refEnd: sc.refEnd, tIn: cr?.tIn, tR: resultAt(sc), tR0: resultAt(sc0), who: cr?.a.who?.name };
+      });
+      // ── 3961: a Cleveland player hurt on the kickoff; Cleveland is at home, near side.
+      tryIt("kick", () => {
+        const sc = raBuild(B.np("4018729493961"), B.ev, new Set()), cr = crewOf(sc)[0];
+        out.kick = { who: cr?.a.who?.name, medStart: sc.actors.filter((m) => m.role === "MED").map((m) => +acrossFromFar(sc, raPos(m, cr.tIn)[0]).toFixed(2)) };
+      });
+      // ── 3922: the injury is on the failed two-point try, staged as its own play.
+      tryIt("try", () => {
+        G = { ev: B.ev };
+        let pat; try { pat = raPatFrom(B.np("4018729493922"), null); } finally { G = null; }
+        const td = raBuild(B.np("4018729493922"), B.ev, new Set()), sc = raBuild(pat, B.ev, new Set());
+        out.try = { tdCrews: crewOf(td).length, tryCrews: crewOf(sc).length, who: crewOf(sc)[0]?.a.who?.name, team: crewOf(sc)[0] && (crewOf(sc)[0].a.side === "o" ? sc.offT : sc.defT).abbr };
+      });
+      return out;
+    }, sumFixture, injFix);
+    const IJ = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${e.message})`]; } ok(r[0], r[1]); };
+    IJ(() => [inj.parse.bates.join() === "ATL-J.Bates" && inj.parse.monk.join() === "GB-J.Monk" && inj.parse.update.length === 0,
+      `parse: Bates on 2505, Monk on 4171, nobody on 2567's "Injury Update … returned" (${JSON.stringify([inj.parse.bates, inj.parse.monk, inj.parse.update])})`]);
+    IJ(() => [inj.parse.jackson.join() === "CAR-M.Jackson" && inj.parse.wallace.join() === `${inj.parse.cle}-T.Wallace` && inj.parse.update2.length === 0,
+      `parse: the No Play injury, a "CLV-" kickoff injury resolved to ${inj.parse.cle}, and no injury on the update (${JSON.stringify([inj.parse.jackson, inj.parse.wallace, inj.parse.update2])})`]);
+    IJ(() => [inj.parse.tdPlay.length === 0 && inj.parse.tryPlay.join() === "CAR-D.Lewis" && inj.parse.tryKind === "run",
+      `parse: an injury written after "TWO-POINT CONVERSION ATTEMPT" belongs to the try ("rushes up the middle" → a run), not the touchdown (TD ${JSON.stringify(inj.parse.tdPlay)}, try ${JSON.stringify(inj.parse.tryPlay)} ${inj.parse.tryKind})`]);
+    const IB = inj.bates;
+    IJ(() => [IB.crews === 1 && IB.who === "J.Bates" && IB.sameMan && IB.side === IB.atlSide, `2505: the man who goes down is the Bates already on the field as a tackler, an ATL defender (${IB.who}, same actor ${IB.sameMan}, side ${IB.side})`]);
+    IJ(() => [IB.tR === IB.tR0 && IB.tEnd === IB.tEnd0 && IB.banners === IB.banners0, `…the result shows at the same moment as the same play without the injury, banners untouched (${IB.tR.toFixed(3)} vs ${IB.tR0.toFixed(3)})`]);
+    IJ(() => [IB.down && IB.stillMax < 0.05 && IB.tIn >= IB.tR, `…he is on the ground, not moving, from the result until he is loaded; the trainers only come out after it (down ${IB.down}, moved ${IB.stillMax.toFixed(3)} yd, crew out ${(IB.tIn - IB.tR).toFixed(2)} s after the result)`]);
+    IJ(() => [IB.nMed === 2 && IB.medStart.every((y) => y < 0), `…exactly two trainers, starting beyond the far sideline, ATL's (away) side (${IB.nMed}; ${IB.medStart.join(", ")} yd from the far sideline)`]);
+    IJ(() => [IB.reach <= 1.5, `…the stretcher is set down within 1.5 yd of him (${IB.reach.toFixed(2)} yd)`]);
+    IJ(() => [IB.end.every((y) => y < 0), `…the trainers, the stretcher and Bates finish beyond the far sideline (${IB.end.join(", ")})`]);
+    IJ(() => [IB.tagCarry.includes("BATES") && !IB.tagResult.includes("BATES"), `…"BATES" is drawn over him while he is carried off, and not before (carry ${JSON.stringify(IB.tagCarry)}, at the result ${JSON.stringify(IB.tagResult)})`]);
+    IJ(() => [Math.abs(IB.T - Math.max(IB.T0, IB.tOff + 1)) < 1e-9 && IB.T > IB.T0, `…the scene runs until he is off (sc.T ${IB.T0.toFixed(2)} → ${IB.T.toFixed(2)} = carry-off at ${IB.tOff.toFixed(2)} + 1)`]);
+    IJ(() => [IB.huddle === 21, `…he doesn't come back for the next huddle (${IB.huddle} players; a substitute runs on for the next snap)`]);
+    IJ(() => [inj.monk.who === "J.Monk" && inj.monk.side === inj.monk.gb && inj.monk.dist <= inj.monk.nearestOther && inj.monk.medStart.every((y) => y > 53.33),
+      `4171: an unnamed man: the GB player nearest the ball becomes Monk, and the trainers come from GB's (home, near) sideline (${inj.monk.dist.toFixed(2)} vs next ${inj.monk.nearestOther.toFixed(2)} yd; start ${inj.monk.medStart.join(", ")})`]);
+    IJ(() => [inj.noPlay.crews === 1 && inj.noPlay.refEnd > 0 && inj.noPlay.tIn >= inj.noPlay.refEnd && inj.noPlay.tR === inj.noPlay.tR0,
+      `No Play (744): the injury is still shown, after the flag is walked off, the result time unchanged (walk-off ends ${inj.noPlay.refEnd?.toFixed(2)}, trainers out ${inj.noPlay.tIn?.toFixed(2)})`]);
+    IJ(() => [inj.kick.who === "T.Wallace" && inj.kick.medStart.every((y) => y > 53.33), `kickoff (3961): T.Wallace carried off to Cleveland's near sideline (${inj.kick.medStart.join(", ")})`]);
+    IJ(() => [inj.try.tdCrews === 0 && inj.try.tryCrews === 1 && inj.try.who === "D.Lewis" && inj.try.team === "CAR", `two-point try (3922): the stretcher is on the try, not the touchdown (TD ${inj.try.tdCrews}, try ${inj.try.tryCrews} for ${inj.try.team}-${inj.try.who})`]);
+
     section("Console");
     ok(consoleErrors.length === 0, `no uncaught page errors${consoleErrors.length ? " (" + consoleErrors.slice(0, 3).join(" | ") + ")" : ""}`);
 

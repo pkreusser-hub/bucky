@@ -150,7 +150,22 @@ function raParse(p, ev) {
     twoPt: /two[- ]point|2pt|conversion/i.test(tt + ' ' + t),
     firstDown: /1ST DOWN/i.test(t),
     onside: /onside/i.test(t),
+    injured: raInjured(p.pat ? t : t.replace(RA_TRY_RE, ''), sideOf, who),
   };
+}
+// "ATL-J.Bates was injured during the play." One or more per play. "** Injury Update: ATL-J.Bates has
+// returned to the game." on a later play is not an injury. On a touchdown, an injury written after
+// the try ("TWO-POINT CONVERSION ATTEMPT. … ATTEMPT FAILS. CAR-D.Lewis was injured") belongs to the
+// try, which raPatFrom stages as its own play.
+const RA_TRY_RE = /\b(?:TWO-POINT CONVERSION ATTEMPT|[A-Z][\w.'’-]+ (?:extra point|kick attempt))\b[\s\S]*$/;
+const RA_INJ_RE = /\b([A-Z]{2,4})-([A-Z][A-Za-z.'’-]*(?:\s(?:[A-Z][A-Za-z.'’-]*|III|II|IV))?)\s+was injured during the play/g;
+function raInjured(text, sideOf, who) {
+  const out = [];
+  for (const m of String(text).matchAll(RA_INJ_RE)) {
+    const team = sideOf(m[1]), w = who(null, m[2]);
+    if (team && w && !out.some((o) => o.who.name === w.name)) out.push({ team, who: w });
+  }
+  return out;
 }
 
 /* ═════════════ Staging a play ═════════════ */
@@ -500,6 +515,7 @@ function raBuild(p, ev, qbs, opts = {}) {
     r.k.push([tIn, rx, zA, 2], [tPick, rx, zA, 0], [tSpot, rx, zB, 0], [tSpot + 0.45, rx, zB, 0], [tOff, sx, zB + R(-2, 2), 0]);
     sc.ball.push({ t0: tPick, t1: tSpot, a: r });
     sc.ball.push({ t0: tSpot, t1: 1e9, from: [bx, zB, 0.15], to: [bx, zB, 0.15], apex: 0 });
+    sc.refEnd = Math.max(sc.refEnd || 0, tOff);
     return tOff;
   };
   const walkOff = (tFrom, zFrom = zPlay) => {
@@ -997,6 +1013,79 @@ function raBuild(p, ev, qbs, opts = {}) {
     banner(sc.tEnd ?? T - 1.5, I.good ? 'Two-point good' : 'Two-point no good', offT.name, I.good ? 'o' : 'd');
     sc.tdAt = undefined;
   }
+  // An injury ("ATL-J.Bates was injured during the play."): only after the result is on screen and
+  // any flag has been walked off. The man goes down where the play ended and stays down; a few
+  // teammates take a knee around him and anyone standing over him backs away; two trainers jog out
+  // from his team's sideline (home near, visitors far) with a stretcher, set it down beside him,
+  // load him and walk him off, his name over him. The banners and sc.tEnd (the gate's result moment)
+  // are not touched; only the scene's end, sc.T, moves out to cover the carry-off.
+  if (I.injured?.length && kind !== 'set') {
+    if (sc.tEnd == null) sc.tEnd = T - 1.5;
+    const tRes = sc.tEnd;
+    let tStart = Math.max(tRes + 1.2, (sc.refEnd ?? 0) + 0.3);
+    if (sc.tdAt != null) tStart = Math.max(tStart, sc.tdAt + 3.5);
+    const crews = [], hurt = new Set();
+    for (const [n, inj] of I.injured.slice(0, 2).entries()) {
+      const side = inj.team.id === offT.id ? 'o' : inj.team.id === defT.id ? 'd' : null;
+      if (!side) continue;
+      const mates = sc.actors.filter((m) => m.side === side && !hurt.has(m));
+      const bb = raBall(sc, tRes);
+      // The man himself if the play already has him (a tackler, the carrier, the target), otherwise
+      // the nearest unnamed teammate to where the ball ended up, who takes his name.
+      let a = mates.find((m) => m.who && m.who.name === inj.who.name) || mates.find((m) => m.who && m.who.last === inj.who.last);
+      if (!a) a = nearest(mates.filter((m) => !m.who && m.role !== 'K'), bb.x, bb.z, tRes)[0];
+      if (!a) continue;
+      hurt.add(a);
+      a.who = inj.who;
+      const tDown = a.downAt != null && a.downAt <= tRes ? a.downAt : tRes;
+      const [xi, zi] = raPos(a, tDown);
+      cut(a, tDown);
+      a.downAt = tDown; a.injured = true; a.gone = true; a.danceAt = a.jumpAt = null;
+      // The ball doesn't leave with him.
+      if (raBall(sc, tStart).held === a) sc.ball.push({ t0: tStart - 0.6, t1: 1e9, from: [xi, zi, 0.15], to: [xi, zi, 0.15], apex: 0 });
+      const home = inj.team.id === ev.home.id;
+      const sgn = (home ? 1 : -1) * (offHome ? -1 : 1);               // his sideline: home near, visitors far
+      const xSide = sgn * (RAX + 3), xArr = xi + sgn * 1.25, xOut = sgn * (RAX + 3.6);
+      const tIn = tStart + n * 0.7;
+      const tArr = tIn + Math.abs(xSide - xArr) / 6;                    // a jog with the stretcher
+      const tLoad = tArr + 1.5, tUp = tLoad + 0.7;
+      const tOff = tUp + Math.abs(xOut - xArr) / 4.2;                   // a brisk walk off
+      const crewPath = (dz) => [[0, xSide, zi + dz, 0], [tIn, xSide, zi + dz, 0], [tArr, xArr, zi + dz, 2], [tUp, xArr, zi + dz, 0], [tOff, xOut, zi + dz, 0]];
+      const str = { side: 'm', role: 'STR', showFrom: tIn, k: crewPath(0), hk: [[0, 0.8], [tArr, 0.8], [tArr + 0.35, 0.05], [tLoad + 0.2, 0.05], [tUp, 0.8]] };
+      const medics = [-1.45, 1.45].map((dz, i) => ({ side: 'm', role: 'MED', idx: 900 + n * 2 + i, showFrom: tIn, str, k: crewPath(dz), acts: [[tArr + 0.35, tLoad + 0.1, 'hold']] }));
+      sc.actors.push(str, ...medics);
+      a.k.push([tLoad - 0.45, xi, zi, 0], [tLoad, xArr, zi, 2], [tUp, xArr, zi, 0], [tOff, xOut, zi, 0]);
+      a.onStr = { str, from: tLoad - 0.2 };
+      a.injTag = [tLoad - 0.2, tOff + 0.8];
+      crews.push({ a, medics, str, tDown, tIn, tArr, tLoad, tUp, tOff, xi, zi, xSide, xOut, side });
+      T = Math.max(T, tOff + 1);
+    }
+    if (crews.length) {
+      const tAll = Math.max(...crews.map((c) => c.tUp));
+      // Anyone else still on the ground gets up.
+      for (const a of sc.actors) if (a.downAt != null && !a.injured) a.upAt = tRes + R(1.2, 2.2);
+      for (const c of crews) {
+        const t0 = tRes + 0.7;
+        const mates = nearest(sc.actors.filter((m) => m.side === c.side && !m.injured && m.role !== 'K'), c.xi, c.zi, t0).slice(0, 3);
+        mates.forEach((m, i) => {                                      // a few teammates kneel beside him
+          const ang = Math.PI * (0.35 + i * 0.55) * (c.xSide > 0 ? -1 : 1), tx = c.xi + Math.cos(ang) * 2.4, tz = c.zi + Math.sin(ang) * 2.2 - (i === 1 ? 0.8 : 0);
+          const tFrom = Math.max(lastT(m), t0);
+          hold(m, tFrom);
+          const tA = go(m, tFrom + Math.max(0.6, Math.hypot(tx - raPos(m, tFrom)[0], tz - raPos(m, tFrom)[1]) / 2.5), tx, tz, 2);
+          m.acts = [...(m.acts || []).filter((q) => q[1] <= tA), [tA + 0.2, tAll, 'hold']];
+        });
+        for (const m of sc.actors) {                                   // everyone else gives him room
+          if ((m.side !== 'o' && m.side !== 'd') || m.injured || mates.includes(m)) continue;
+          const tFrom = Math.max(lastT(m), t0), [mx, mz] = raPos(m, tFrom), d = Math.hypot(mx - c.xi, mz - c.zi);
+          if (d > 5.5) continue;
+          const ux = (mx - c.xi) / (d || 1), uz = (mz - c.zi) / (d || 1) || 1;
+          hold(m, tFrom);
+          go(m, tFrom + 2.2, c.xi + ux * R(6, 8), c.zi + uz * R(5, 7), 2);
+        }
+      }
+      sc.injury = { crews, tStart, focus: (t) => { const c = crews.find((q) => t < q.tOff + 0.5) || crews[crews.length - 1]; const [x, z] = raPos(c.str, t); return { x: x * 0.7 + c.xi * 0.3, z }; } };
+    }
+  }
   // Out of the huddle: every player starts in his huddle spot, jogs to his place in the formation,
   // and the line gets set before the snap.
   if (opts.from && sc.tS >= 4) {
@@ -1005,7 +1094,7 @@ function raBuild(p, ev, qbs, opts = {}) {
     const toHere = (a) => { const [px, pz] = raPos(a, tp); const H = prev.offHome ? pz : 100 - pz; return [px * flip, offHome ? H : 100 - H]; };
     const teamOf = (a, sce) => (a.side === 'o' ? sce.offT.id : a.side === 'd' ? sce.defT.id : null);
     const pools = new Map();
-    for (const a of prev.actors) { const tm = teamOf(a, prev); if (tm == null || a.side === 'r') continue; if (!pools.has(tm)) pools.set(tm, []); pools.get(tm).push(a); }
+    for (const a of prev.actors) { const tm = teamOf(a, prev); if (tm == null || a.side === 'r' || a.gone) continue; if (!pools.has(tm)) pools.set(tm, []); pools.get(tm).push(a); }
     const near = offHome ? -1 : 1;                                     // toward the near (home) sideline
     const tSet = sc.tS - 0.9;
     for (const a of sc.actors) {
@@ -1057,7 +1146,7 @@ function raHuddle(prev, ev, s) {
   const idx = { o: 0, d: 0 };
   let T = 1;
   for (const a of prev.actors) {
-    if (a.side !== 'o' && a.side !== 'd') continue;
+    if ((a.side !== 'o' && a.side !== 'd') || a.gone) continue;             // (a man carried off doesn't come back to the huddle)
     const team = a.side === 'o' ? prev.offT.id : prev.defT.id;
     const side = team === s.possession ? 'o' : 'd';
     const [px, pz] = raPos(a, prev.T);
@@ -1091,7 +1180,7 @@ function raTimeout(prev, tPrev, ev, possId, z0H, caller, title = 'Timeout', clea
   const rng = raRng('to' + tPrev + possId), R = (a, b) => a + (b - a) * rng();
   const sc = { actors: [], ball: [], events: [], z0, x0, offHome, ltg: null, col, offT, defT, tS: 0, timeout: true, homeCol: offHome ? col.o : col.d };
   for (const a of prev.actors) {
-    if (a.side !== 'o' && a.side !== 'd') continue;
+    if ((a.side !== 'o' && a.side !== 'd') || a.gone) continue;
     const team = a.side === 'o' ? prev.offT.id : prev.defT.id;
     const [px, pz] = raPos(a, tp);
     const H = prev.offHome ? pz : 100 - pz;
@@ -1283,6 +1372,10 @@ const RA_SKEL = {
 RA_SKEL.run3 = { ...RA_SKEL.run1, fa: RA_SKEL.run1.ba, ba: RA_SKEL.run1.fa, fl: RA_SKEL.run1.bl, bl: RA_SKEL.run1.fl, ff: RA_SKEL.run1.bf, bf: RA_SKEL.run1.ff };
 RA_SKEL.run4 = { ...RA_SKEL.run2, fa: RA_SKEL.run2.ba, ba: RA_SKEL.run2.fa, fl: RA_SKEL.run2.bl, bl: RA_SKEL.run2.fl, ff: RA_SKEL.run2.bf, bf: RA_SKEL.run2.ff };
 const RA_RUN = ['run1', 'run2', 'run3', 'run4'];
+// Trainers holding the stretcher's handles: standing, and a four-frame walk with the same arms.
+RA_SKEL.carry = { ...RA_SKEL.stand, fa: [[2, 22.5], [4, 18], [6.6, 15.5]], ba: [[-1, 22.5], [2.4, 18.2], [5.6, 15.6]] };
+['run1', 'run2', 'run3', 'run4'].forEach((r, i) => { RA_SKEL['crun' + (i + 1)] = { ...RA_SKEL[r], s: [RA_SKEL[r].s[0] * 0.4, RA_SKEL[r].s[1]], c: [RA_SKEL[r].c[0] * 0.4, RA_SKEL[r].c[1]], fa: RA_SKEL.carry.fa, ba: RA_SKEL.carry.ba }; });
+const RA_CRUN = ['crun1', 'crun2', 'crun3', 'crun4'];
 const RA_FW = 34, RA_FH = 40, RA_FAX = 17, RA_FAY = 38;   // sprite grid; the feet stand on (17, 38)
 const RA_FIG = new Map();
 function raFig(pose, variant = 'p') {
@@ -1357,7 +1450,14 @@ function raFig(pose, variant = 'p') {
   // get a face under a white cap with a brim.
   {
     const [cx, cy] = S.c;
-    if (variant === 'r') paint((x, y) => {
+    if (variant === 'm') paint((x, y) => {                          // trainers: bare head, short hair
+      const lx = x - cx, ly = y - cy, d = Math.hypot(lx / 3.3, ly / 3.7);
+      if (d > 1) return d <= 1.27 ? 1 : 0;
+      if (ly > 1.1 || (lx < -1.2 && ly > -1.2)) return tone(lx / 3.3 * 0.5 + ly / 3.7 * 0.5, ['C', 'c', 'C']);
+      if (lx > 1.6 && lx < 2.6 && ly > -0.6 && ly < 0.4) return 'e';
+      return tone((lx / 3.3) * Lx + (ly / 3.7) * Ly, TF);
+    });
+    else if (variant === 'r') paint((x, y) => {
       const lx = x - cx, ly = y - cy, d = Math.hypot(lx / 3.3, ly / 3.7);
       if (ly > 0.9 && ly < 2.1 && lx > 0.8 && lx < 5) return 'C';
       if (d > 1) return d <= 1.27 ? 1 : 0;
@@ -1453,6 +1553,13 @@ function raSprite(pose, pal, flip, num) {
         }
       }
     }
+    if (pal.cross && f.num && rgb.R) {
+      const cx0 = f.num[0], cy0 = f.num[1] + 2;
+      for (const [dx, dy] of [[0, -1], [-1, 0], [0, 0], [1, 0], [0, 1]]) {
+        const x = cx0 + dx, y = cy0 + dy, ch = f.g[y * f.W + x];
+        if (ch === 'J' || ch === 'j' || ch === 'L') set(flip ? f.W - 1 - x : x, y, rgb.R);
+      }
+    }
     g.putImageData(img, 0, 0);
     c.ax = flip ? f.W - f.ax : f.ax; c.ay = f.ay;
   }
@@ -1479,6 +1586,34 @@ function raBallSprite(k) {
   }
   g.putImageData(img, 0, 0);
   return (RA_BALL[k] = c);
+}
+
+// The stretcher, seen from the side and a little above: a canvas bed on two poles with handles at
+// each end, three tones and an outline like everything else. Its height off the ground is keyed.
+let RA_STRETCHER = null;
+function raStretcherSprite() {
+  if (RA_STRETCHER) return RA_STRETCHER;
+  const W = 46, H = 12, c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d'), img = g.createImageData(W, H), d = img.data;
+  const grid = Array.from({ length: H }, () => new Array(W).fill(''));
+  for (let y = 3; y <= 7; y++) for (let x = 4; x <= 41; x++) grid[y][x] = y === 3 ? 'l' : y === 7 ? 's' : 'b';   // the bed
+  for (const y of [2, 8]) for (let x = 0; x <= 45; x++) grid[y][x] = x < 3 || x > 42 ? 'h' : 'p';                 // poles and handles
+  for (const x of [6, 39]) for (let y = 9; y <= 10; y++) grid[y][x] = 'p';                                           // little feet
+  const col = { l: [250, 250, 246], b: [226, 223, 212], s: [178, 172, 160], p: [96, 100, 110], h: [40, 42, 48], o: [13, 14, 19] };
+  const put = (x, y, c3) => { const i = (y * W + x) * 4; d[i] = c3[0]; d[i + 1] = c3[1]; d[i + 2] = c3[2]; d[i + 3] = 255; };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (grid[y][x]) put(x, y, col[grid[y][x]]);
+    else if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => grid[y + dy]?.[x + dx])) put(x, y, col.o);
+  }
+  g.putImageData(img, 0, 0);
+  return (RA_STRETCHER = c);
+}
+function raStrH(a, t) {
+  const k = a.hk;
+  if (t <= k[0][0]) return k[0][1];
+  for (let i = 1; i < k.length; i++) if (t <= k[i][0]) { const u = (t - k[i - 1][0]) / (k[i][0] - k[i - 1][0] || 1); return k[i - 1][1] + (k[i][1] - k[i - 1][1]) * u; }
+  return k[k.length - 1][1];
 }
 
 // Team logos for midfield, drawn small and scaled up so they come out pixelated like everything else.
@@ -1657,6 +1792,13 @@ function raPalette(sc, a) {
     a.pal = { P: dm ? other : '#ffffff', H: dm ? '#ffffff' : J, F: RA_SKIN[sc.actors.indexOf(a) % RA_SKIN.length], J: dm ? '#ffffff' : J, W: dm ? J : '#ffffff', G: dm ? '#ffffff' : '#e8c547', K: dm ? J : '#f2f2f2', B: '#141414' };
     a.phase = 0;
   }
+  if (!a.pal && a.side === 'm') {
+    // Trainers: light grey shirt with a red cross, dark navy trousers, no helmet.
+    const F = RA_SKIN[(a.idx ?? 0) % RA_SKIN.length], hair = ['#2a1a10', '#4a3020', '#161616', '#6b5130'][(a.idx ?? 0) % 4];
+    a.pal = { variant: 'm', cross: 1, J: '#e4e7ec', j: '#aeb3bd', L: '#ffffff', R: '#d0202a', P: '#262b38', p: '#141722', Q: '#40465a', S: '#262b38', s: '#141722',
+      F, f: raShade(F), E: raLight(F), B: '#141414', b: '#3a3c44', C: hair, c: raShade(hair), e: '#141414', O: '#0d0e13' };
+    a.phase = 0;
+  }
   if (!a.pal && a.side === 'r') {
     // Officials: black-and-white stripes, black pants, a white cap.
     const F = RA_SKIN[2];
@@ -1715,7 +1857,7 @@ function raBench(sc) {
 function raPoseAt(sc, a, t) {
   const [x, z] = raPos(a, t), [ox, oz] = raPos(a, Math.max(0, t - 0.1));
   const speed = Math.hypot(x - ox, z - oz) / 0.1;
-  if (a.downAt != null && t > a.downAt + 0.1) return 'down';
+  if (a.downAt != null && t > a.downAt + 0.1 && !(a.upAt != null && t > a.upAt)) return 'down';
   if (a.acts) for (const [t0, t1, p] of a.acts) if (t >= t0 && t < t1) return p;
   if (a.set && speed < 0.5 && !sc.huddle && ((t < sc.tS && t > sc.tS - 1.2) || (sc.freeze && t < sc.freeze && t >= sc.tS))) return a.set;
   if (['OL', 'DL', 'TE'].includes(a.role) && t >= sc.tS && t < (sc.tEnd ?? sc.T) && speed < 3.2 && !sc.huddle && !sc.timeout) return 'block';
@@ -1783,9 +1925,19 @@ function raDraw(g, W, st) {
     items.push({ y: yN, draw: () => post(xn, yN - bar, yN - top) });
   }
   for (const a of sc.actors) {
+    if (a.showFrom != null && t < a.showFrom) continue;
     const [x, z] = raPos(a, t);
     const [sx, sy] = S(x, z);
     if (sx < -40 || sx > W + 40 || sy < -20 || sy > RA_H + 60) continue;
+    if (a.role === 'STR') {                                           // the stretcher, just behind the man on it
+      const h = raStrH(a, t);
+      items.push({ y: sy - 0.01, draw: () => {
+        const spr = raStretcherSprite(), X = Math.round(sx), Y = Math.round(sy);
+        g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(X - 22, Y - 2, 45, 5);
+        g.drawImage(spr, X - spr.width / 2, Y - spr.height + 2 - Math.round(h * HK));
+      } });
+      continue;
+    }
     const [ox, oz] = raPos(a, Math.max(0, t - 0.1));
     const speed = Math.hypot(x - ox, z - oz) / 0.1;
     const [px] = S(ox, oz);
@@ -1795,7 +1947,7 @@ function raDraw(g, W, st) {
       const pal = raPalette(sc, a);
       const X = Math.round(sx), Y = Math.round(sy);
       g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(X - 8, Y - 2, 17, 4); g.fillRect(X - 10, Y - 1, 21, 2);
-      const down = a.downAt != null && t > a.downAt + 0.1;
+      const down = a.downAt != null && t > a.downAt + 0.1 && !(a.upAt != null && t > a.upAt);
       let pose = raPoseAt(sc, a, t);
       let lift = 0, flip = a.face === 'l';
       if (a.jumpAt != null && t > a.jumpAt && t < a.jumpAt + 5) {
@@ -1820,6 +1972,13 @@ function raDraw(g, W, st) {
           flip = Math.floor(beat / 8) % 2 === 1;
         } else { pose = 'ch1'; lift = speed > 0.8 ? (Math.floor(t * 8) % 2) * 2 * K : 0; }
       }
+      if (a.side === 'm') {                                         // trainers face the stretcher between them
+        const [qx] = S(...raPos(a.str, t));
+        flip = qx < sx;
+        pose = pose === 'hold' ? 'hold' : speed > 0.6 ? RA_CRUN[Math.floor(t * 6 + a.idx) % 4] : 'carry';
+        lift = 0;
+      }
+      if (a.onStr && t >= a.onStr.from) lift = Math.round(raStrH(a.onStr.str, t) * HK) + 3;   // on the stretcher
       a.drawn = { pose, flip, lift };
       const spr = raSprite(pose, pal, flip, a.num);
       g.drawImage(spr, X - spr.ax, Y - spr.ay - lift);
@@ -1896,14 +2055,17 @@ function raDraw(g, W, st) {
   const order = [...sc.actors].sort((p, q) => (b.held === q) - (b.held === p));
   const withBall = b.held ? b.held.side : 'o';
   for (const a of order) {
-    if (!a.who || a.side !== withBall) continue;
-    if ((a.labelAt == null || t < a.labelAt) && b.held !== a) continue;
-    if (a.labelTo != null && t > a.labelTo && b.held !== a) continue;
-    const [sx, sy] = S(...raPos(a, t));
+    const hurtTag = a.injTag && t >= a.injTag[0] && t <= a.injTag[1];
+    if (!a.who || (a.side !== withBall && !hurtTag)) continue;
+    if (!hurtTag && (a.labelAt == null || t < a.labelAt) && b.held !== a) continue;
+    if (!hurtTag && a.labelTo != null && t > a.labelTo && b.held !== a) continue;
+    const [sx, sy0] = S(...raPos(a, t)), sy = sy0 - (hurtTag ? a.drawn?.lift || 0 : 0);
     const txt = a.who.last.toUpperCase();
     const w = pixW(txt, K) + 4 * K, h = 9 * K;
     const lx = clamp(Math.round(sx - w / 2), K, W - w - K);
     let ly = Math.round(sy) - 40 - h;
+    // Carried off along the far sideline he is at the top edge, under the banner: tag him from below.
+    if (hurtTag && ly < 28 * K) ly = Math.round(sy0) + 4 * K;
     for (let n = 0; n < 4; n++) { const hit = placed.find((r) => lx < r[0] + r[2] && lx + w > r[0] && ly < r[1] + r[3] && ly + h > r[1]); if (!hit) break; ly = hit[1] - h - K; }
     ly = clamp(ly, K, RA_H - h - K);
     placed.push([lx, ly, w, h]);
@@ -1924,6 +2086,9 @@ function raPatFrom(p, prev) {
   const team = homeScored ? G.ev.home.id : awayScored ? G.ev.away.id : p.offId;
   const home = team === G.ev.home.id;
   const sH = home ? 85 : 15;                        // a kicked try is snapped from the 15…
+  // Injuries written after the try belong to the try.
+  const tryTail = RA_TRY_RE.exec(t)?.[0] || '';
+  const injTx = [...tryTail.matchAll(RA_INJ_RE)].map((m) => ` ${m[0]}.`).join('');
   const base = { id: p.id + '-pat', period: p.period, clock: p.clock, away: p.away, home: p.home, offId: team, sH, eH: null, sDD: '', sPos: '', down: null, dist: null,
     parts: [], scoring: false, turnover: false, penYards: 0, endTeam: team, pat: true };
   // NFL: "T.Smack extra point is GOOD, Center-M.Orzech, Holder-D.Whelan." — "is" sits between
@@ -1933,18 +2098,18 @@ function raPatFrom(p, prev) {
   if (m) {
     const good = m.length > 3 ? /good/i.test(m[3]) && !/no good/i.test(m[3]) : /^kick$/i.test(m[2]);
     const who = m.length > 3 ? `${m[1] ? '#' + m[1] + ' ' : ''}${m[2]}` : m[1];
-    return { ...base, kind: 'fg', typeText: good ? 'Extra Point Good' : 'Extra Point Missed', text: `${who} extra point ${good ? 'GOOD' : 'NO GOOD'}`, yards: 20 };
+    return { ...base, kind: 'fg', typeText: good ? 'Extra Point Good' : 'Extra Point Missed', text: `${who} extra point ${good ? 'GOOD' : 'NO GOOD'}.${injTx}`, yards: 20 };
   }
   // NFL: "TWO-POINT CONVERSION ATTEMPT. M.Penix pass to C.Blair is complete. ATTEMPT SUCCEEDS."
   m = /TWO-POINT CONVERSION ATTEMPT\.([\s\S]*?)ATTEMPT (SUCCEEDS|FAILS)/i.exec(t);
   if (m) {
     const seg = m[1];
     const good = /SUCCEEDS/i.test(m[2]);
-    const how = /\b(?:rush|run)\b/i.test(seg) && !/\bpass\b/i.test(seg) ? 'rush' : 'pass';
+    const how = /\b(?:rush(?:es)?|runs?)\b/i.test(seg) && !/\bpass\b/i.test(seg) ? 'rush' : 'pass';   // ("C.Hubbard rushes up the middle")
     const nm = /(?:#(\d+)\s*)?([A-Z][\w.'’-]+(?: [A-Z][\w.'’-]+)?)\s+(?:pass|rush|run)/i.exec(seg);
     const who = nm ? `${nm[1] ? '#' + nm[1] + ' ' : ''}${nm[2]} ` : '';
     const text = how === 'pass' ? `${who}pass ${good ? 'complete' : 'incomplete'} short middle, two-point conversion ${good ? 'good' : 'failed'}` : `${who}rush middle, two-point conversion ${good ? 'good' : 'failed'}`;
-    return { ...base, sH: home ? 98 : 2, kind: how === 'pass' ? (good ? 'pass' : 'incomplete') : 'run', typeText: 'Two-Point Conversion', text, yards: good ? 2 : 0, eH: good ? (home ? 100 : 0) : (home ? 98 : 2) };   // …a two-point try from the 2
+    return { ...base, sH: home ? 98 : 2, kind: how === 'pass' ? (good ? 'pass' : 'incomplete') : 'run', typeText: 'Two-Point Conversion', text: text + injTx, yards: good ? 2 : 0, eH: good ? (home ? 100 : 0) : (home ? 98 : 2) };   // …a two-point try from the 2
   }
   // Older/alternate phrasing, kept as a fallback.
   m = /(?:#(\d+)\s*)?([A-Z][\w.'’-]+(?: [A-Z][\w.'’-]+)?)\s+(pass|rush|run)\s+(?:attempt|conversion)\s+(good|failed)/i.exec(t) || /two[- ]point (pass|rush|run)? ?conversion (good|failed)/i.exec(t);
@@ -1953,7 +2118,7 @@ function raPatFrom(p, prev) {
     const how = (m.length > 4 ? m[3] : m[1] || 'rush').toLowerCase() === 'pass' ? 'pass' : 'rush';
     const who = m.length > 4 && !/^two[- ]point$/i.test(m[2]) ? `${m[1] ? '#' + m[1] + ' ' : ''}${m[2]} ` : '';
     const text = how === 'pass' ? `${who}pass ${good ? 'complete' : 'incomplete'} short middle, two-point conversion ${good ? 'good' : 'failed'}` : `${who}rush middle, two-point conversion ${good ? 'good' : 'failed'}`;
-    return { ...base, sH: home ? 98 : 2, kind: how === 'pass' ? (good ? 'pass' : 'incomplete') : 'run', typeText: 'Two-Point Conversion', text, yards: good ? 2 : 0, eH: good ? (home ? 100 : 0) : (home ? 98 : 2) };   // …a two-point try from the 2
+    return { ...base, sH: home ? 98 : 2, kind: how === 'pass' ? (good ? 'pass' : 'incomplete') : 'run', typeText: 'Two-Point Conversion', text: text + injTx, yards: good ? 2 : 0, eH: good ? (home ? 100 : 0) : (home ? 98 : 2) };   // …a two-point try from the 2
   }
   return null;
 }
@@ -2064,6 +2229,7 @@ function raStep(st, dt) {
   let tx = pre ? raSX(Hb(sc.camZ ?? sc.z0 - 2)) - W / 2 : wx - W / 2 + clamp(vx * 0.3, -W * 0.25, W * 0.25);
   let ty = (pre ? Yb(sc.x0) : Yb(b.x) - Math.min(b.h * HK, 90 * RA_K) * 0.6) - RA_H * 0.55;
   if (sc.focusFn) { const f = sc.focusFn(st.t); tx = raSX(Hb(f.z)) - W / 2; ty = Yb(f.x) - RA_H * 0.55; }
+  else if (sc.injury && st.t > sc.injury.tStart - 0.4) { const f = sc.injury.focus(st.t); tx = raSX(Hb(f.z)) - W / 2; ty = Yb(f.x) - RA_H * 0.55; }
   else if (sc.focus && st.t > sc.focus.from) { tx = raSX(Hb(sc.focus.z)) - W / 2; ty = Yb(sc.focus.x) - RA_H * 0.55; }
   tx = clamp(tx, 0, RA_WORLD_W - W);
   ty = clamp(ty, 0, RA_WORLD_H - RA_H);

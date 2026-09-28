@@ -197,3 +197,34 @@ and "Shotgun". Cache-bust ?v=20260928b.
 
 VERIFY: sunday 101/101 (new section "Out of bounds", 10 checks), sunday-ff 53/53. Bite: the
 previous sd-reenact.js fails 8 of them.
+
+## 2026-09-28 — injuries: two trainers and a stretcher
+
+Perry: "if there is an injury on the play, 2 medical staff with a stretcher should come out and take a
+guy off the field, show the guys name as he is carried off".
+
+ESPN adds "ATL-J.Bates was injured during the play." after the play text (100 such plays across the
+16 games that day). `raParse` returns `injured: [{team, who}]` (up to two are staged). A later
+"** Injury Update: ATL-J.Bates has returned to the game." is not an injury. On a touchdown, an injury
+written after "TWO-POINT CONVERSION ATTEMPT" or the extra point belongs to the try, and `raPatFrom`
+carries it into the try it synthesises. That also fixed "C.Hubbard rushes up the middle", which the
+try parser used to read as a pass.
+
+In `raBuild`, after everything else: the man goes down where the play ended, at `sc.tEnd`. It is the
+actor already carrying his name (Bates is a named tackler on 2505), or else the nearest unnamed
+teammate to the ball, who takes it. Three teammates walk over and take a knee; anyone within 5.5 yd
+backs off; anyone else on the ground gets up (`upAt`). 1.2 s after the result, and after any
+walk-off on a No Play, two trainers (grey shirt with a red cross, navy trousers, bareheaded; side
+`m`, variant `m` in the sprite system) jog out from his team's sideline (home near, visitors far)
+with the stretcher between them. They set it down 1.25 yd from him, kneel, load him, lift and walk him
+off past the sideline, his name tag over him (under him along the far sideline, where the banner
+sits). The camera follows the stretcher. Banners and `sc.tEnd` are untouched, so the gate's result
+moment is identical; only `sc.T` grows, to the carry-off plus a second: about 17 s for Bates, who
+goes to the far side. The carried-off man is `gone`: the next huddle has 21 and a substitute runs on
+for the next snap. Cache-bust ?v=20260928c.
+
+New fixture `tools/fixtures/sunday/inj-401872949.json` (3.6 KB): four real CAR @ CLE plays (a No
+Play injury, a kickoff injury with "CLV-", an injury on a failed two-point try, an injury update).
+
+VERIFY: sunday 117/117 (section "Injuries: two trainers, a stretcher, his name", 16 new checks),
+sunday-ff 53/53. Bite: the previous sd-reenact.js fails all 16 and passes the other 101.
