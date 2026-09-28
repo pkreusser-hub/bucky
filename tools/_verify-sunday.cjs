@@ -1717,11 +1717,23 @@ async function main() {
         await wait(400);
         const late = await soon();
         ok(late.shown && late.count === "Starting…", `past the estimate it says "${late.count}" until the lines arrive`);
-        reply = () => JSON.stringify({ ok: false, reason: "failed" });
-        await probe(() => { HT.clear(); sideHalftime(); });
-        await wait(500);
-        const fl = await probe(() => SIDE.sc.tl.lines.map((l) => l.who));
-        ok(JSON.stringify(fl) === "[0,1,2,3,0]", `if no script can be written, a short stand-in keeps the desk talking: the host, each analyst, the host (${JSON.stringify(fl)})`);
+        // RESTAGED 2026-09-28 (user, of three games whose scripts had failed: "it took like 1 seconds to
+        // generate but it was super generic and very short"): a failed script used to get five canned
+        // stand-in lines. Now the desk waits under its card, "coming up shortly", no dialogue, and asks
+        // again (every minute; shortened here), and a script that lands on a retry plays from its top.
+        reply = () => JSON.stringify({ ok: false, reason: "failed", detail: "job" });
+        // (Timers left from the checks above are cleared first, so only this desk's own retry can fetch.)
+        await probe(() => { for (const e of HT.values()) clearTimeout(e.timer); if (typeof HT_TIMES === "object") HT_TIMES.retry = 600; HT.clear(); sideHalftime(); });
+        await wait(400);
+        const fl = await soon();
+        const flTl = await probe(() => SIDE.sc.tl);
+        ok(fl.shown && fl.title === "Halftime show" && fl.count === "coming up shortly" && !fl.bub && flTl === null,
+          `with no script to show, no canned dialogue: the desk waits under "${fl.title}", "${fl.count}" (lines: ${JSON.stringify(flTl)}, bubble ${fl.bub})`);
+        reply = () => JSON.stringify(script);
+        try { await page.waitForFunction(() => SIDE.sc?.tl?.lines?.length > 5, { timeout: 5000 }); } catch {}
+        const fr = await probe(() => { raStep(SIDE, 0); return { n: SIDE.sc.tl?.lines.length, first: SIDE.sc.tl?.lines[0].text, card: document.querySelector("#big-tecmo .ht-soon")?.offsetParent !== null }; });
+        ok(fr.n === script.lines.length && fr.first === script.lines[0].text && !fr.card, `…it asks again, and the script that comes plays from its top, the card gone (${JSON.stringify(fr)})`);
+        await probe(() => { if (typeof HT_TIMES === "object") HT_TIMES.retry = 60000; });
         const after = await probe(() => { sideRun(raBuild(raPlays()[3], G.ev, raQBs())); raStep(SIDE, 0.016); return { studio: !!SIDE.sc.studio, bub: !!document.querySelector("#big-tecmo .ht-bub.on") }; });
         ok(!after.studio && !after.bub, `when play resumes, the desk and its bubble give way to the field (${JSON.stringify(after)})`);
         // ?halftime=demo (2026-09-28, user: "give me a test link"): a finished game's first half at the
@@ -1764,12 +1776,12 @@ async function main() {
         await wait(400);
         const ps = await probe(() => { raStep(SIDE, 0); const el = document.querySelector("#big-tecmo .ht-soon"); return { shown: !!el && el.offsetParent !== null, title: el?.querySelector("b")?.textContent, count: el?.querySelector("span")?.textContent }; });
         ok(ps.shown && ps.title === "Postgame show" && /^starts in 0:(19|20)$/.test(ps.count || ""), `the postgame show counts down too: "${ps.title}", "${ps.count}" (25 s from a start 5 s ago)`);
-        reply = () => JSON.stringify({ ok: false, reason: "failed" });
+        // RESTAGED 2026-09-28 (as the halftime one above): no canned postgame lines either.
+        reply = () => JSON.stringify({ ok: false, reason: "failed", detail: "job" });
         await probe(() => { HT.clear(); sideHalftime(true); });
         await wait(500);
-        const pf = await probe(() => SIDE.sc.tl.lines.map((l) => [l.who, l.text]));
-        ok(pf.length === 5 && JSON.stringify(pf.map((l) => l[0])) === "[0,1,2,3,0]" && /postgame desk\. Final: .*Falcons 35, .*Packers 14\./.test(pf[0][1]),
-          `with no script, the postgame stand-in opens on the final score (${JSON.stringify(pf[0])})`);
+        const pf = await probe(() => { raStep(SIDE, 0); const el = document.querySelector("#big-tecmo .ht-soon"); return { tl: SIDE.sc.tl, shown: !!el && el.offsetParent !== null, title: el?.querySelector("b")?.textContent, count: el?.querySelector("span")?.textContent }; });
+        ok(pf.tl === null && pf.shown && pf.title === "Postgame show" && pf.count === "coming up shortly", `with no postgame script, no canned lines: "${pf.title}", "${pf.count}" (${JSON.stringify(pf.tl)})`);
         await probe(() => localStorage.removeItem("sun.tecmoBig"));
       }
       await page.setViewport({ width: 800, height: 600 });
