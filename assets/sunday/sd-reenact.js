@@ -1551,53 +1551,44 @@ function htTimeline(lines, target = HT_TARGET) {
   const out = lines.map((l, i) => { const t0 = t; t += d[i] * f; const q = { who: l.who, text: l.text, t0, t1: t }; t += HT_GAP; return q; });
   return { lines: out, T: t + HT_BREAK };
 }
-// While Opus writes (or if it can't), the host opens with the score; a failed script gets a short
-// stand-in so the desk is never silent.
-function htStandIn(ev, failed, post) {
-  const A = ev.away, H = ev.home, a = +(A.score || 0), h = +(H.score || 0);
-  const lead = a === h ? null : a > h ? A : H;
-  const open = { who: 0, text: post ? `Welcome to the GFFL postgame desk. Final: ${A.name || A.abbr} ${a}, ${H.name || H.abbr} ${h}.` : `Welcome to the GFFL halftime desk. At the break, it's ${A.name || A.abbr} ${a}, ${H.name || H.abbr} ${h}.` };
-  if (!failed) return [open];
-  if (post) return [open,
-    { who: 1, text: lead ? `${lead.name || lead.abbr} got it done. Not always pretty, but a win is a win.` : 'A tie. Nobody goes home happy, and nobody goes home sad.' },
-    { who: 2, text: 'I want to see that defense on film. That is where games like this are decided.' },
-    { who: 3, text: 'Check your fantasy scores, folks. Somebody in your league is celebrating right now.' },
-    { who: 0, text: 'That will do it from the desk. Good night, everybody.' }];
-  return [open,
-    { who: 1, text: lead ? `${lead.name || lead.abbr} have the edge, but thirty minutes is a long time in this league.` : 'Dead even. Whoever wins the first drive of the second half wins this thing.' },
-    { who: 2, text: 'Somebody on that defense has to take the ball away. That is where this game swings.' },
-    { who: 3, text: 'Keep an eye on your fantasy lineups, folks. The second half is where the points pile up.' },
-    { who: 0, text: 'Second half is coming up. Stay with us.' }];
-}
+// No stand-in dialogue (2026-09-28, user, of the games whose scripts had failed: "it took like 1
+// seconds to generate but it was super generic and very short"): the five canned lines it played
+// are gone. With no script to show, the desk waits under its card, "coming up shortly", and asks
+// again every minute while it is on screen; once a try is running the countdown takes over.
+const HT_TIMES = { poll: 3000, retry: 60000 };
 function htLoad(ev, post) {
   const id = ev.id, key = htKey(id, post);
   let e = HT.get(key);
-  if (e && e.state !== 'pending') return e;
+  if (e && (e.state === 'done' || e.busy || e.timer)) return e;
   if (!e) { e = { state: 'pending', lines: null, cast: HT_CAST, polls: 0 }; HT.set(key, e); }
-  if (e.busy) return e;
   e.busy = true;
+  const onStage = () => { const sc = SIDE.sc; return !!(sc?.studio && sc.gameId === id && !!sc.post === !!post); };
+  const again = (ms) => { e.timer = setTimeout(() => { e.timer = 0; if (onStage()) htLoad(ev, post); }, ms); };
+  const set = (state) => { const was = e.state; e.state = state; if (was !== state || state !== 'pending') htScript(id, post); };
   fetch(`/.netlify/functions/halftime?event=${encodeURIComponent(id)}${post ? '&kind=post' : htDemo() ? '&demo=1' : ''}`)
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       e.busy = false;
-      if (d?.ok && Array.isArray(d.lines) && d.lines.length) { Object.assign(e, { state: 'done', lines: d.lines, cast: d.cast || HT_CAST }); htScript(id, post); return; }
+      if (d?.ok && Array.isArray(d.lines) && d.lines.length) { Object.assign(e, { lines: d.lines, cast: d.cast || HT_CAST }); set('done'); return; }
       if (d?.pending && ++e.polls < 60) {
-        if (d.since > 0) { e.since = d.since; const sc = SIDE.sc; if (sc?.studio && sc.waiting && sc.gameId === id && !!sc.post === !!post) sc.since = d.since; }   // the first viewer's start
-        e.timer = setTimeout(() => htLoad(ev, post), 3000); return; }   // about 3 minutes of polls
-      e.state = 'failed'; htScript(id, post);
+        if (d.since > 0) { e.since = d.since; const sc = SIDE.sc; if (onStage() && sc.waiting) sc.since = d.since; }   // the first viewer's start
+        set('pending'); again(HT_TIMES.poll); return;                                                    // about 3 minutes of polls
+      }
+      e.polls = 0; set('failed'); again(HT_TIMES.retry);
     })
-    .catch(() => { e.busy = false; e.state = 'failed'; htScript(id, post); });
+    .catch(() => { e.busy = false; e.polls = 0; set('failed'); again(HT_TIMES.retry); });
   return e;
 }
-// The script (real or stand-in) onto the studio on screen, from the top.
+// The script onto the studio on screen, from the top (or the card: waiting on a try, or none yet).
 function htScript(id, post) {
   const sc = SIDE.sc;
   if (!sc?.studio || sc.gameId !== id || !!sc.post !== !!post) return;
   const e = HT.get(htKey(id, post)), ev = sc.ev || G?.ev;
   if (!e || !ev) return;
   sc.cast = e.cast || HT_CAST;
-  sc.tl = e.state === 'pending' ? null : htTimeline(e.state === 'done' ? e.lines : htStandIn(ev, true, post), post ? HT_POST_TARGET : HT_TARGET);
+  sc.tl = e.state === 'done' ? htTimeline(e.lines, post ? HT_POST_TARGET : HT_TARGET) : null;
   sc.waiting = e.state === 'pending';
+  sc.off = e.state === 'failed';
   sc.since = e.since || sc.since;
   sc.t0 = SIDE.t;
 }
@@ -1617,11 +1608,11 @@ function htSoon(st) {
   const sc = st.sc, stage = st.cv?.parentElement;
   if (!stage) return;
   let el = stage.querySelector('.ht-soon');
-  if (!sc.waiting) { if (el) el.hidden = true; st.htSoonOn = false; return; }
+  if (!sc.waiting && !sc.off) { if (el) el.hidden = true; st.htSoonOn = false; return; }
   if (!el) { el = document.createElement('div'); el.className = 'ht-soon'; el.setAttribute('role', 'status'); el.innerHTML = '<b></b><span></span>'; stage.appendChild(el); }
   el.hidden = false; st.htSoonOn = true;
   const left = htSoonLeft(sc), cw = st.cv.clientWidth || 300;
-  const txt = [sc.post ? 'Postgame show' : 'Halftime show', left > 0 ? `starts in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'Starting…'];
+  const txt = [sc.post ? 'Postgame show' : 'Halftime show', sc.off ? 'coming up shortly' : left > 0 ? `starts in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'Starting…'];
   if (el.dataset.k !== txt.join('|')) { el.querySelector('b').textContent = txt[0]; el.querySelector('span').textContent = txt[1]; el.dataset.k = txt.join('|'); }
   el.style.fontSize = `${clamp(Math.round(cw / 52), 9, 14)}px`;
 }
@@ -1638,7 +1629,7 @@ function raHalftime(ev, post) {
 // Where the show is at time t: the line being said (or null between lines), looping after the break.
 function htAt(sc, t) {
   const tl = sc.tl;
-  if (!tl || sc.waiting) return { line: null, i: -1, u: 0 };
+  if (!tl || sc.waiting || sc.off) return { line: null, i: -1, u: 0 };
   let u = t - (sc.t0 || 0);
   if (!sc.waiting) u = ((u % tl.T) + tl.T) % tl.T;
   const i = tl.lines.findIndex((l) => u >= l.t0 && u < l.t1);

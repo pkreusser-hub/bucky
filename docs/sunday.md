@@ -838,3 +838,20 @@ webfont ink check that fails the same way on HEAD in this container), halftime 5
 checks replaced by 4: no schedule, low effort on every call, `since` shared, `ms` recorded). Bite: the
 previous sd-reenact.js and sd.css fail the 4 countdown checks; the previous halftime.mjs fails the 5
 new or restaged function checks.
+
+## 2026-09-28 — no canned stand-in lines
+
+Perry, having opened the three games whose postgame scripts had failed: "it took like 1 seconds to
+generate but it was super generic and very short". That was the page's stand-in (five canned lines,
+`htStandIn`) for a failed script, not Opus: those docs had used their three tries under the old
+unstreamed call and were in their hour's rest. The stand-in is gone. With no script, the desk waits
+under its card, "Halftime show / coming up shortly" (or "Postgame show"), no dialogue, and the page
+asks again every minute while that desk is on screen (`HT_TIMES.retry`; polls stay every 3 s while a
+try runs). Once a retry is running the countdown takes over, and the script plays from its top the
+moment it lands. The three games were then written by hand, the streamed call working.
+Cache-bust ?v=20260928r.
+
+VERIFY: sunday 247/248 (RESTAGED the two stand-in checks to the card, with the reason at the check; 1
+new: a retry's script plays from its top, with earlier checks' timers cleared first so only the retry
+can fetch; the one failure is the webfont ink check that fails the same way on HEAD in this
+container). Bite: the live sd-reenact.js fails all 3.
