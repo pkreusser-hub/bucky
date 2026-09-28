@@ -305,7 +305,7 @@ async function ensureScript(token, event, mode, bgUrl) {
   }
   const stale = !doc.missing && (doc.status !== "pending" || Date.now() - doc.at > STALE_MS);
   if (!doc.missing && !stale) return { pending: true };
-  if (!doc.missing && doc.tries >= MAX_TRIES) return { reason: "failed" };
+  if (!doc.missing && doc.tries >= MAX_TRIES) { let detail = null; try { detail = JSON.parse(doc.payload).error || null; } catch {} return { reason: "failed", detail }; }
   // Nothing written yet (or a dead try): only a game ESPN says is at halftime gets a script (a final,
   // for the postgame desk and the demo).
   let sum;
@@ -357,5 +357,5 @@ export default async (req) => {
   const r = await ensureScript(token, event, post ? "post" : demo ? "demo" : "half", bgUrl);
   if (r.done) return json({ ok: true, event, cast: r.done.cast || CAST, lines: r.done.lines, model: r.done.model }, CACHE_DONE);
   if (r.pending) return json({ ok: false, pending: true }, CACHE_WAIT);
-  return json({ ok: false, reason: r.reason }, CACHE_NONE);
+  return json({ ok: false, reason: r.reason, ...(r.detail ? { detail: r.detail } : {}) }, CACHE_NONE);   // (why the last try failed)
 };
