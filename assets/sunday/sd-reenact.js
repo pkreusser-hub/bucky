@@ -1123,6 +1123,7 @@ function raBuild(p, ev, qbs, opts = {}) {
   }
   sc.T = T;
   sc.I = I;
+  sc.play = p;                                    // the score bug reads the score, clock and down from it
   return sc;
 }
 
@@ -1298,6 +1299,7 @@ const RA_BIG = {
   3: '####.....#....#.###.....#....#####.', 4: '...#...##..#.#.#..#.#####...#....#.', 5: '######....####.....#....##...#.###.',
   6: '..##..#...#....####.#...##...#.###.', 7: '#####....#...#...#...#....#....#...', 8: '.###.#...##...#.###.#...##...#.###.',
   9: '.###.#...##...#.####....#...#..##..',
+  ':': '............#.........#............', '-': '................###................',   // for the score bug's clock and "2-PT"
   A: '.###.#...##...#######...##...##...#', B: '####.#...##...#####.#...##...#####.', C: '.###.#...##....#....#....#...#.###.',
   D: '####.#...##...##...##...##...#####.', E: '######....#....####.#....#....#####', F: '######....#....####.#....#....#....',
   G: '.###.#...##....#.####...##...#.####', H: '#...##...##...#######...##...##...#', I: '.###...#....#....#....#....#...###.',
@@ -2129,6 +2131,106 @@ function raDraw(g, W, st) {
     g.fillStyle = bg; g.fillRect(lx + K, ly + K, w - 2 * K, h - 2 * K);
     pixText(g, txt, lx + 2 * K, ly + 2 * K, onColor(bg), K);
   }
+  try { raBugDraw(g, W, RA_H, st); } catch (err) { /* the bug never stops the play drawing */ }
+}
+
+/* ═════════════ Score bug ═════════════ */
+// 2026-09-28, user: "add a little SNF style (retro) score bug at the bottom of the 8 bit screen
+// showing score, time and down and distance". Drawn into the canvas in the scoreboard font, centred
+// along the bottom (just above the yard ruler where there is one): each team's abbreviation on its
+// colour with its score, a football by the team with the ball, the quarter and clock, and the down
+// and distance. A play shows the score before the snap until its result appears, then after it, so
+// the bug never gives a play away (and agrees with the page's held score). ESPN's score on a
+// touchdown already carries the try, which plays as its own scene: the touchdown shows the six, the
+// try the rest. Between plays (huddle, timeout, halftime) it shows the game as it is.
+const RA_BUG_NAVY = '#16235e', RA_BUG_GOLD = '#ffd21f', RA_BUG_INK = '#101010';
+function raBugPlay(p) {
+  const list = raPlays();
+  let cur = { a: 0, h: 0 }, hit = null;
+  for (let i = 0; i < list.length && !hit; i++) {
+    const q = list[i], pre = cur;
+    let post = q.away != null && q.home != null ? { a: +q.away, h: +q.home } : cur;
+    const nx = list[i + 1];
+    if (nx?.pat && String(nx.id) === `${q.id}-pat`) post = { a: post.a > pre.a ? Math.min(post.a, pre.a + 6) : post.a, h: post.h > pre.h ? Math.min(post.h, pre.h + 6) : post.h };
+    if (String(q.id) === String(p.id)) hit = { pre, post };
+    cur = post;
+  }
+  if (!hit) { const s = p.away != null && p.home != null ? { a: +p.away, h: +p.home } : { a: +(G.ev.away.score || 0), h: +(G.ev.home.score || 0) }; hit = { pre: s, post: s }; }
+  const dd = p.pat ? (/two/i.test(p.typeText) ? '2-PT TRY' : 'PAT') : p.kind === 'kickoff' ? 'KICKOFF' : String(p.sDD || '').split(' at ')[0];
+  return { ...hit, clock: p.period ? `${periodLabel(p.period)}${p.clock ? ' ' + p.clock : ''}` : '', dd: dd.toUpperCase(),
+    poss: p.offId === G.ev.home.id ? 'h' : p.offId === G.ev.away.id ? 'a' : null };
+}
+function raBugLive(ev) {
+  const s = ev.sit || {}, half = isHalftime(ev), sc = { a: +(ev.away.score || 0), h: +(ev.home.score || 0) };
+  const clock = ev.state === 'post' ? 'FINAL' : half ? 'HALF' : ev.state === 'in' ? `${periodLabel(ev.period)} ${ev.clock || ''}`.trim() : '';
+  const dd = ev.state === 'in' && !half ? s.shortDownDistanceText || String(s.downDistanceText || '').split(' at ')[0] : '';
+  return { pre: sc, post: sc, clock, dd: dd.toUpperCase(), poss: ev.state !== 'in' || half ? null : s.possession === ev.home.id ? 'h' : s.possession === ev.away.id ? 'a' : null };
+}
+// The bug's pieces and their widths at scale k: abbreviation boxes sized for the longer name, score
+// boxes for two digits and the football, a clock box for "Q4 15:00", a down box for "4TH & GOAL",
+// so the bug keeps one width from play to play.
+function raBugLayout(v, k) {
+  const pad = 2 * k, len = (s, n) => Math.max(n, String(s).length);
+  const abW = bigW('X'.repeat(len(v.aAb.length > v.hAb.length ? v.aAb : v.hAb, 2)), k) + 2 * pad;
+  const scW = bigW('0'.repeat(len(Math.max(v.a, v.h), 2)), k) + 2 * pad + 5 * k;
+  const segs = [
+    { w: abW, bg: v.aCol, fg: onColor(v.aCol), tx: v.aAb }, { w: scW, bg: RA_BUG_INK, fg: '#ffffff', tx: String(v.a), score: true, ball: v.poss === 'a' },
+    { gap: k },
+    { w: abW, bg: v.hCol, fg: onColor(v.hCol), tx: v.hAb }, { w: scW, bg: RA_BUG_INK, fg: '#ffffff', tx: String(v.h), score: true, ball: v.poss === 'h' },
+    { gap: k },
+    { w: bigW('X'.repeat(len(v.clock, 8)), k) + 2 * pad, bg: RA_BUG_NAVY, fg: '#ffffff', tx: v.clock, clock: true },
+    { gap: k },
+    { w: bigW('X'.repeat(len(v.dd, 10)), k) + 2 * pad, bg: RA_BUG_INK, fg: RA_BUG_GOLD, tx: v.dd, dd: true },
+  ];
+  const inner = segs.reduce((n, s) => n + (s.gap || s.w), 0);
+  return { segs, w: inner + 4 * k, h: 11 * k + 4 * k, k };
+}
+function raBugImage(L) {
+  const { k, segs } = L;
+  const c = document.createElement('canvas');
+  c.width = L.w + 2 * k; c.height = L.h + 2 * k;                   // room for the hard drop shadow
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(2 * k, 2 * k, L.w, L.h);
+  g.fillStyle = RA_BUG_INK; g.fillRect(0, 0, L.w, L.h);
+  g.fillStyle = '#ffffff'; g.fillRect(k, k, L.w - 2 * k, L.h - 2 * k);
+  let x = 2 * k;
+  const y = 2 * k, h = 11 * k;
+  for (const s of segs) {
+    if (s.gap) { x += s.gap; continue; }
+    s.x = x;
+    g.fillStyle = s.bg; g.fillRect(x, y, s.w, h);
+    const room = s.w - (s.score ? 6 * k : 0), tw = bigW(s.tx, k);
+    const tx = x + Math.round((room - tw) / 2 / k) * k;
+    if (s.tx) bigText(g, s.tx, tx, y + 2 * k, s.fg, k);
+    if (s.ball) {                                                    // the football, laces up
+      const bx = x + s.w - 6 * k, by = y + 4 * k;
+      g.fillStyle = '#b0642c'; g.fillRect(bx + k, by, 2 * k, 3 * k); g.fillRect(bx, by + k, 4 * k, k);
+      g.fillStyle = '#ffffff'; g.fillRect(bx + k, by + k, 2 * k, k);
+    }
+    x += s.w;
+  }
+  return c;
+}
+function raBugDraw(g, W, H, st) {
+  const sc = st.sc, ev = G?.ev;
+  if (!sc || !ev?.home?.abbr || !ev?.away?.abbr) return;
+  const play = sc.play && sc.play.kind !== 'set' ? sc.play : null;
+  if (play && !sc.bugP) { sc.bugP = raBugPlay(play); sc.bugAt = sideResultAt(sc); }
+  const s = play ? sc.bugP : raBugLive(ev);
+  const score = play && st.t >= sc.bugAt ? s.post : s.pre;
+  const pc = pair(ev.away, ev.home);
+  const v = { aAb: ev.away.abbr, hAb: ev.home.abbr, a: score.a, h: score.h, clock: s.clock, dd: s.dd, poss: s.poss, aCol: pc.aRaw, hCol: pc.hRaw };
+  const key = JSON.stringify(v) + `|${W}|${H}|${st.ruler ? 1 : 0}`;
+  if (st.bugKey !== key) {
+    // As large as fits in 90% of the width, between 2 and 4 canvas pixels to a glyph pixel.
+    const w1 = raBugLayout(v, 1).w, k = clamp(Math.floor((W * 0.9) / w1), 2, 2 * RA_K);
+    const L = raBugLayout(v, k);
+    const x = Math.round((W - L.w) / 2), y = H - (st.ruler ? 11 * RA_K : 0) - L.h - 2 * k;
+    st.bugKey = key; st.bugImg = raBugImage(L);
+    st.bugState = { ...v, k, rect: [x, y, L.w, L.h], segs: L.segs.filter((q) => !q.gap).map((q) => ({ x: x + q.x, w: q.w, tx: q.tx, bg: q.bg })) };
+  }
+  const [x, y] = st.bugState.rect;
+  g.drawImage(st.bugImg, x, y);
 }
 
 /* ═════════════ The viewer ═════════════ */

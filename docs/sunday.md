@@ -375,3 +375,32 @@ failure, "the widest label's ink fits its box", fails the same way on HEAD in a 
 the Barlow webfont (57.7 px ink against 52 px of room) and is not touched by this change. Bite: the
 previous files fail 16 of the 19 new checks; the three that pass are the game view opening and the
 two field-view regression guards.
+
+## 2026-09-28 — a retro score bug on the 8-bit screen
+
+Perry: "We need to add a little SNF style (retro) score bug at the bottom of the 8 bit screen
+showing score, time and and down and distance".
+
+`raBugDraw` (end of `raDraw`, so every 8-bit stage has it: the big view, the play viewer, the
+desktop side card) draws it into the canvas in the scoreboard font (`bigText`; `:` and `-` added to
+`RA_BIG`): each team's abbreviation on its colour (`pair()`'s raw colours, the ones the banners
+use) with its score, a football by the team with the ball, a navy clock box, and the down and
+distance in gold. It is centred along the bottom, just above the yard ruler where there is one, as
+large as fits in 90% of the width (2 to 4 canvas pixels per glyph pixel), and one width on every
+play: the boxes are sized for two digits, "Q4 15:00" and "4TH & GOAL". It is cached as an image and
+rebuilt only when what it says changes.
+
+What it says: on a play (`sc.play`, now set by `raBuild`), the score before the snap until the
+result shows, then after, so it never gives a play away and agrees with the page's held score. ESPN's
+score on a touchdown already counts the try, which plays as its own scene, so the touchdown shows
+the six and the try the rest (`raBugPlay` walks `raPlays()` once per scene). The clock and down are
+the snap's; kickoffs read KICKOFF, tries PAT or 2-PT TRY. Between plays (huddle, timeout, halftime,
+lined up for the next snap) it shows the game as it is (`raBugLive`): HALF at halftime, FINAL after.
+Cache-bust ?v=20260928g.
+
+VERIFY: sunday 153/154 (new section "Score bug on the 8-bit screen", 12 checks, all hand-read from
+the ATL @ GB fixture: the kickoff 0-0 at Q1 15:00; the GB touchdown 0-0 before its result, GB 6
+after, 7 after the kick; ATL's 27 → 33 → 35 two-point try; centred above the ruler; one width; box
+colours and gold pixels sampled off the canvas; the play viewer; the between-plays state), sunday-ff
+53/53. The one failure is the webfont ink check that fails the same way on HEAD in this container.
+Bite: the previous sd-reenact.js fails 11 of the 12; the game view opening passes.

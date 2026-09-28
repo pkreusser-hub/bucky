@@ -996,6 +996,85 @@ async function main() {
       const f2 = await vis();
       ok(f2.fieldReplay.playing && !f2.bar, `…and the field view's Replay still starts the field replay (${JSON.stringify(f2.fieldReplay)})`);
       await probe(() => { stopReplay(); localStorage.removeItem("sun.tecmoBig"); localStorage.removeItem("sun.tecmoSpeed"); });
+
+      /* ===================== (k) the retro score bug ===================== */
+      // 2026-09-28, user: "We need to add a little SNF style (retro) score bug at the bottom of the 8 bit
+      // screen showing score, time and and down and distance". Hand-read from the fixture: the kickoff
+      // (Q1 15:00, 0-0); Bi.Robinson's run (Q1 14:55, 1st & 10, ATL ball, 0-0); J.Love to C.Watson for
+      // the GB touchdown (Q1 5:13, 1st & Goal, 0-0 before; ESPN scores it 0-7 with the kick, so the
+      // touchdown shows GB 6 and the extra point 7); Bi.Robinson's touchdown and two-point try (Q4 3:33,
+      // 27-14 before, ESPN 35-14 after: 33 on the touchdown, 35 on the try).
+      section("Score bug on the 8-bit screen");
+      await page.evaluate(() => localStorage.setItem("sun.tecmoBig", "true"));
+      // A fresh load (the query string makes it one; the same URL with a hash would not reload).
+      await page.goto(BASE + "/sunday.html?bug#g401872948", { waitUntil: "domcontentloaded" });
+      let bugOpen = true;
+      try { await page.waitForFunction(() => G && G.sum && document.getElementById("bt-cv")?.offsetParent && SIDE.sc, { timeout: 15000 }); } catch { bugOpen = false; }
+      // Stage one play on the big view, hold its clock at `dt` seconds from its result, let a frame draw.
+      const bugAt = async (id, dt) => {
+        const r = await probe(({ id, dt }) => {
+          const l = raPlays(), p = l.find((q) => String(q.id) === id);
+          if (!p) return { err: "no play " + id };
+          if (!SIDE.rp) tecmoRpStart("game");
+          SIDE.rp.speed = 1e-6;                                          // the clock stands still
+          tecmoRpPlay(p);
+          SIDE.t = Math.max(0, sideResultAt(SIDE.sc) + dt);
+          return {};
+        }, { id, dt });
+        if (r.err) return r;
+        await wait(250);
+        return probe(() => {
+          const b = SIDE.bugState, cv = SIDE.cv;
+          if (!b) return { err: "no bug drawn" };
+          const g = cv.getContext("2d"), px = (x, y) => { const d = g.getImageData(x, y, 1, 1).data; return "#" + [d[0], d[1], d[2]].map((n) => n.toString(16).padStart(2, "0")).join(""); };
+          const [x, y, w, h] = b.rect, k = b.k, seg = b.segs;
+          // Box colours sampled inside each box's top-left padding, where no glyph pixel is drawn.
+          const inside = (s) => px(s.x + k, y + 2 * k + k);
+          let gold = 0;
+          for (let yy = y + 4 * k; yy < y + 11 * k; yy += k) for (let xx = seg[5].x + 2 * k; xx < seg[5].x + seg[5].w - 2 * k; xx += k) if (px(xx, yy) === "#ffd21f") gold++;
+          return { text: `${b.aAb} ${b.a} ${b.hAb} ${b.h} | ${b.clock} | ${b.dd}`, poss: b.poss, rect: b.rect, k, W: cv.width, H: cv.height, ruler: !!SIDE.ruler,
+            awayBox: inside(seg[0]), homeBox: inside(seg[2]), aCol: b.aCol, hCol: b.hCol, gold };
+        });
+      };
+      ok(bugOpen, "the fixture game opens on the big 8-bit view again");
+      const kick = await bugAt("40187294840", -0.5);
+      ok(kick.text === "ATL 0 GB 0 | Q1 15:00 | KICKOFF", `the opening kickoff: both teams, the score, the clock, "KICKOFF" (${kick.text || kick.err})`);
+      const run = await bugAt("40187294863", -0.5);
+      ok(run.text === "ATL 0 GB 0 | Q1 14:55 | 1ST & 10" && run.poss === "a", `Bi.Robinson's run: Q1 14:55, 1st & 10, the football by ATL (${run.text || run.err}, ball ${run.poss})`);
+      const tdPre = await bugAt("401872948682", -0.3), tdPost = await bugAt("401872948682", 0.3);
+      ok(tdPre.text === "ATL 0 GB 0 | Q1 5:13 | 1ST & GOAL" && tdPre.poss === "h", `GB's touchdown before its result: 0-0, 1st & Goal, GB ball — the bug doesn't give the play away (${tdPre.text || tdPre.err})`);
+      ok(tdPost.text === "ATL 0 GB 6 | Q1 5:13 | 1ST & GOAL", `…and at the result GB has 6, not ESPN's 7, which already counts the kick (${tdPost.text || tdPost.err})`);
+      const xpPre = await bugAt("401872948682-pat", -0.3), xpPost = await bugAt("401872948682-pat", 0.3);
+      ok(xpPre.text === "ATL 0 GB 6 | Q1 5:13 | PAT" && xpPost.text === "ATL 0 GB 7 | Q1 5:13 | PAT", `the extra point: 6 before, 7 after (${xpPre.text || xpPre.err} → ${xpPost.text || xpPost.err})`);
+      const two = await bugAt("4018729483956", -0.3), twoTd = await bugAt("4018729483956", 0.3), twoTry = await bugAt("4018729483956-pat", 0.3);
+      ok(two.text === "ATL 27 GB 14 | Q4 3:33 | 1ST & GOAL" && twoTd.text === "ATL 33 GB 14 | Q4 3:33 | 1ST & GOAL" && twoTry.text === "ATL 35 GB 14 | Q4 3:33 | 2-PT TRY",
+        `ATL's touchdown and two-point try: 27 → 33 → 35 (${[two, twoTd, twoTry].map((r) => r.text || r.err).join(" → ")})`);
+      const all = [kick, run, tdPre, tdPost, xpPre, two, twoTry];
+      ok(all.every((r) => r.rect && Math.abs(r.rect[0] + r.rect[2] / 2 - r.W / 2) <= r.k && r.rect[1] + r.rect[3] <= r.H - 11 * 2 && r.rect[1] >= r.H / 2 && r.rect[2] <= r.W * 0.9 && r.ruler),
+        `big view: centred along the bottom, above the yard ruler (22 px), no wider than 90% of the stage (${JSON.stringify(kick.rect)} in ${kick.W}×${kick.H}, k ${kick.k})`);
+      ok(all.every((r) => r.rect) && new Set(all.map((r) => r.rect[2])).size === 1, `…one width on every play, so it doesn't jump between "1ST & 10" and "1ST & GOAL" (${[...new Set(all.map((r) => r.rect && r.rect[2]))].join(", ")} px)`);
+      ok(run.awayBox === run.aCol && run.homeBox === run.hCol && run.gold > 20,
+        `…drawn on the canvas: ATL's box in ${run.aCol}, GB's in ${run.hCol}, the down in gold (sampled ${run.awayBox} / ${run.homeBox}, ${run.gold} gold pixels)`);
+      // The play viewer (no ruler there) carries it too.
+      await probe(() => { tecmoRpEnd(true); openReenact("4018729482018"); });
+      await wait(700);
+      const mv = await probe(() => { const b = RA.bugState; return b ? { text: `${b.aAb} ${b.a} ${b.hAb} ${b.h} | ${b.clock} | ${b.dd}`, rect: b.rect, W: RA.cv.width, H: RA.cv.height, k: b.k } : { err: "no bug in the viewer" }; });
+      ok(mv.text === "ATL 10 GB 7 | Q2 0:59 | 3RD & GOAL" && mv.rect && mv.rect[0] >= 0 && mv.rect[0] + mv.rect[2] <= mv.W && mv.rect[1] + mv.rect[3] <= mv.H,
+        `the play viewer shows it too, inside its stage (Penix to Hooper: ${mv.text || mv.err}, ${JSON.stringify(mv.rect)} in ${mv.W}×${mv.H})`);
+      await probe(() => closeReenact());
+      // Between plays the bug shows the game as it is.
+      const lv = await probe(() => {
+        const ev = G.ev, row = (e) => { const b = raBugLive(e); return `${b.pre.a}-${b.pre.h} | ${b.clock} | ${b.dd} | ${b.poss}`; };
+        return {
+          live: row({ ...ev, state: "in", period: 2, clock: "5:12", away: { ...ev.away, score: "10" }, home: { ...ev.home, score: "7" }, sit: { shortDownDistanceText: "3rd & 7", possession: ev.home.id } }),
+          half: row({ ...ev, state: "in", name: "STATUS_HALFTIME", period: 2, clock: "0:00", sit: { shortDownDistanceText: "1st & 10", possession: ev.home.id } }),
+          final: row(ev),
+        };
+      });
+      // The fixture's final is ATL 35, GB 14.
+      ok(lv.live === "10-7 | Q2 5:12 | 3RD & 7 | h" && lv.half === "35-14 | HALF |  | null" && lv.final === "35-14 | FINAL |  | null",
+        `between plays: the live score, quarter, clock, down and ball; HALF with no down at halftime; FINAL after (${JSON.stringify(lv)})`);
+      await probe(() => localStorage.removeItem("sun.tecmoBig"));
       MOCK = null;
     }
 
