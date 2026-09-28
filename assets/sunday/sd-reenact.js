@@ -194,6 +194,13 @@ function raPos(a, t) {
 
 function raBuild(p, ev, qbs, opts = {}) {
   const I = raParse(p, ev);
+  // What really happened, for a finished game (nflverse play-by-play and FTN charting, keyed by
+  // ESPN play id; see raDetailLoad). Every field is optional: without one the play is staged from
+  // its text as before. FTN's qb_location beats the text's formation tag, which ESPN leaves off
+  // some shotgun snaps.
+  const D = opts.detail !== undefined ? opts.detail || {} : raDetail(p);
+  if (/^[USP]$/.test(D.qbl || '')) I.form = D.qbl === 'U' ? 'under' : D.qbl === 'P' ? 'pistol' : 'gun';
+  else if (D.sg === 1 && I.form === 'under') I.form = 'gun';
   const rng = raRng(p.id);
   const R = (a, b) => a + (b - a) * rng();
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
@@ -220,7 +227,9 @@ function raBuild(p, ev, qbs, opts = {}) {
   const zPlay = p.yards != null && p.penYards ? z0 + p.yards : zEnd ?? z0 + (p.yards || 0);
   // NFL hash marks are 70'9" apart (~23.58 yd from each sideline on a 53.33-yd field), so a hash
   // snap spot sits +/-3.08 yd from the center (26.665 - 23.58), not college's +/-6.67.
-  const x0 = opts.x0 ?? pick([-3.08, 0, 0, 3.08]);
+  // FTN's starting_hash (L / M / R, taken from the offense's side of the ball) puts the snap on
+  // the hash it was really on.
+  const x0 = D.hash && RA_HASH[D.hash] != null ? RA_HASH[D.hash] : opts.x0 ?? pick([-3.08, 0, 0, 3.08]);
   // Gate on the FUMBLES keyword itself, not on successfully naming the fumbler — ESPN's NFL text
   // often omits the name ("...for -9 yards (D.Deablo). FUMBLES (D.Deablo)...") when it's the same
   // player just mentioned, and a missed name must never silently drop the fumble animation.
@@ -318,6 +327,14 @@ function raBuild(p, ev, qbs, opts = {}) {
       ? passy ? (r0 < 0.62 ? [3, 1, 1] : r0 < 0.86 ? [4, 0, 1] : r0 < 0.94 ? [2, 2, 1] : [4, 0, 0]) : (r0 < 0.72 ? [3, 1, 1] : [2, 2, 1])
       : (r0 < 0.45 ? [2, 1, 2] : r0 < 0.8 ? [2, 2, 1] : r0 < 0.92 ? [1, 2, 2] : [3, 1, 1]);
     if (form === 'pistol' && nB === 0) [nWR, nB] = [4, 1];
+    // FTN's count of backs (besides the QB) sets the backfield; the receivers make up the five
+    // skill players (with no back, the fifth is the back split out wide, as the empty set above).
+    if (D.bf != null && kind !== 'set') {
+      nB = clamp(D.bf, 0, 2);
+      const room = 5 - Math.max(nB, 1);
+      nTE = Math.min(nTE, room - 1);
+      nWR = room - nTE;
+    }
     const teSide = rng() < 0.5 ? -1 : 1;
     const deep = (d) => Math.min(z0 + d, 109.3);                      // nobody lines up past the end line
     const oSet = (a, s) => { a.set = s; return a; };
@@ -356,6 +373,8 @@ function raBuild(p, ev, qbs, opts = {}) {
       if (nB === 2) off.FB = oSet(P('o', 'FB', x0 + (rng() < 0.6 ? 0 : teSide * 1.5), z0 - 4.3), 'ready');
       off.RB = oSet(P('o', 'RB', x0, z0 - 7), 'ready');
     }
+    // Two backs out of the shotgun or pistol (only FTN's count asks for it): the second beside the QB.
+    if (nB === 2 && form !== 'under') { const rs = Math.sign(off.RB.k[0][1] - x0) || 1; off.FB = oSet(P('o', 'FB', x0 - rs * 1.6, z0 - (form === 'pistol' ? 4 : 5.1)), 'ready'); }
     off.rcv = [...off.WRs, ...off.TEs, ...(nB === 0 ? [off.RB] : [])];
     // Defense.
     const dSet = (a, s) => { a.set = s; return a; };
@@ -376,6 +395,26 @@ function raBuild(p, ev, qbs, opts = {}) {
     for (let i = def.man.size; i < nCB; i++) def.LB.push(dSet(P('d', 'LB', x0 + (i % 2 ? -5 : 5), deep(5.5)), 'ready'));
     def.CL = def.man.get(off.WL); def.CR = def.man.get(off.WR); def.NB = off.SL ? def.man.get(off.SL) : null;
     def.S = [-1, 1].map((s) => dSet(P('d', 'DB', x0 + s * R(7, 9.5), deep(R(10.5, 12.5))), 'ready'));
+    // FTN's box count (defenders in the box at the snap): safeties, then slot corners, walk down
+    // into it, or linebackers widen out of it, until the count is the real one.
+    if (D.box >= 4) {                                              // (FTN writes 0 on kicks)
+      const inBox = (a) => { const [x, z] = raPos(a, 0); return Math.abs(x - x0) <= 5.5 && z - z0 <= 8; };
+      const place = (a, x, z) => { a.k[0][1] = raX(x); a.k[0][2] = deep(z - z0); };
+      let n = allDef().filter(inBox).length, guard = 0;
+      while (n < D.box && guard++ < 6) {
+        const s = def.S.shift() || [...def.man.values()].filter((cb) => !inBox(cb) && !def.LB.includes(cb)).sort((a, b) => Math.abs(raPos(a, 0)[0] - x0) - Math.abs(raPos(b, 0)[0] - x0))[0];
+        if (!s) break;
+        place(s, x0 + (raPos(s, 0)[0] > x0 ? 1 : -1) * R(2.5, 4.5), z0 + R(5.5, 7.5));
+        if (!def.LB.includes(s)) def.LB.push(s);
+        n++;
+      }
+      while (n > D.box && guard++ < 12) {
+        const lb = def.LB.filter(inBox).sort((a, b) => Math.abs(raPos(b, 0)[0] - x0) - Math.abs(raPos(a, 0)[0] - x0))[0];
+        if (!lb) break;
+        place(lb, x0 + (raPos(lb, 0)[0] >= x0 ? 1 : -1) * R(7, 8.5), z0 + R(4.5, 6));
+        n--;
+      }
+    }
   };
   const snapTo = (a, t, dur = 0.3) => { ballHold(off.C, 0, t); const [x, z] = raPos(a, t + dur); ballFly(t, t + dur, [x0, z0 - 0.5, 0.3], [x, z, 1.1], 0.2); return t + dur; };
   const allDef = () => sc.actors.filter((a) => a.side === 'd');
@@ -419,7 +458,25 @@ function raBuild(p, ev, qbs, opts = {}) {
       for (let t = tS + 0.9; t <= tEnd + 0.01; t += 0.6) { const [x, z] = raPos(wr, Math.max(0, t - 0.25)); go(cb, t, x + R(-0.8, 0.8), Math.max(z + 1.2, z0 + 1), 1); }
     }
   };
-  const drop = (list, tEnd, depth) => { for (const a of list) { const [x, z] = raPos(a, 0); go(a, tS + 0.4, x, z - 0.4); go(a, tEnd, x + R(-3, 3), Math.max(z, z0 + depth + R(-2, 3)), 1); } };
+  // (On play action the short defenders bite: a step toward the line before they drop.)
+  const drop = (list, tEnd, depth) => { for (const a of list) { const [x, z] = raPos(a, 0); go(a, tS + 0.4, x, z - 0.4); if (D.pa && depth < 10) go(a, tS + 0.85, x, Math.max(z0 + 1.5, z - 1.8)); go(a, tEnd, x + R(-3, 3), Math.max(z, z0 + depth + R(-2, 3)), 1); } };
+  // The real pass rush (FTN: pass rushers and blitzers). Four linemen rush by default; blitzers come
+  // from the linebackers, then the slot corner and the safeties, nearest the QB first; a three-man
+  // rush drops the widest lineman into a short zone. Returns the blitzers, who then don't cover.
+  const passRush = (qb, tUntil) => {
+    if (D.rush == null && D.blitz == null) return [];
+    const nBl = Math.max(D.blitz ?? 0, (D.rush ?? 4) - 4);
+    const [qx, qz] = raPos(qb, tUntil);
+    const pool = [...def.LB, def.NB, ...def.S].filter(Boolean).sort((a, b) => Math.hypot(raPos(a, 0)[0] - qx, raPos(a, 0)[1] - qz) - Math.hypot(raPos(b, 0)[0] - qx, raPos(b, 0)[1] - qz));
+    const bl = pool.slice(0, nBl);
+    bl.forEach((a, i) => { const [x, z] = raPos(a, 0); go(a, tS + 0.1, x, z - 0.3); go(a, tUntil - 0.1, qx + (x > qx ? 1 : -1) * (1 + i * 0.5), qz + 1, 0); });
+    if (D.rush != null && D.rush < 4) {
+      const wide = [...def.DL].sort((a, b) => Math.abs(raPos(b, 0)[0] - x0) - Math.abs(raPos(a, 0)[0] - x0)).slice(0, 4 - Math.max(D.rush, 2));
+      for (const a of wide) { cut(a, tS + 0.5); const [x] = raPos(a, 0); go(a, tS + 1.6, x + (x > x0 ? 1.5 : -1.5), z0 + 5, 1); }
+    }
+    sc.blitz = bl;
+    return bl;
+  };
 
   // A score: the scorer dances in the end zone, his teammates run over and jump around him.
   // A score: the scorer dances, the whole offense runs into the end zone to mob him, and the
@@ -619,9 +676,19 @@ function raBuild(p, ev, qbs, opts = {}) {
     const gunSnap = I.form !== 'under';
     const tHand = snapTo(off.QB, tS, gunSnap ? 0.3 : 0.08);
     const [qx, qz] = raPos(off.QB, 0);
-    go(off.QB, tS + (gunSnap ? 0.7 : 1.1), qx, gunSnap ? qz - 1.6 : z0 - 7, 2);
+    // Play action (FTN): the QB turns and fakes the handoff to the back, who carries on into the
+    // line, then sets up deeper; the throw comes about half a second later.
+    const fake = D.pa && kind !== 'sack' && off.RB && !off.rcv.includes(off.RB) ? off.RB : null;
+    if (fake) {
+      const [bx, bz] = raPos(fake, 0), fs = Math.sign(bx - qx) || 1, under = I.form === 'under';
+      go(off.QB, tS + 0.45, qx + fs * 0.4, under ? z0 - 2.5 : qz);
+      go(fake, tS + 0.6, qx + fs * 0.9, (under ? z0 - 3 : qz) + 0.2, 1);
+      go(off.QB, tS + 1.35, qx - fs * 0.3, under ? z0 - 7.5 : qz - 2.2, 2);
+      go(fake, tS + 1.3, x0 + fs * 2.5, z0 - 0.4, 1);
+      sc.fake = fake;
+    } else go(off.QB, tS + (gunSnap ? 0.7 : 1.1), qx, gunSnap ? qz - 1.6 : z0 - 7, 2);
     // The backs stay in to block unless the ball goes to one of them.
-    for (const bk of [off.RB, off.FB]) if (bk && !off.rcv.includes(bk)) { const [bx, bz] = raPos(bk, 0); go(bk, tS + 0.6, bx + R(-1.2, 1.2), Math.max(bz + 0.8, raPos(off.QB, tS + 1)[1] + 1.2)); }
+    for (const bk of [off.RB, off.FB]) if (bk && bk !== fake && !off.rcv.includes(bk)) { const [bx, bz] = raPos(bk, 0); go(bk, tS + 0.6, bx + R(-1.2, 1.2), Math.max(bz + 0.8, raPos(off.QB, tS + 1)[1] + 1.2)); }
     ballHold(off.QB, tHand, 99);
     const deep = I.depth === 'deep';
     if (kind === 'sack') {
@@ -629,9 +696,10 @@ function raBuild(p, ev, qbs, opts = {}) {
       go(off.QB, tSack - 0.7, qx + R(-2.5, 2.5), raPos(off.QB, tS + 1)[1] - 0.6, 1);
       go(off.QB, tSack, raPos(off.QB, tSack - 0.7)[0] + R(-2, 2), Math.min(zFum ?? zPlay, z0 - 0.5), 2);
       linePlay(true, 0, off.QB, tSack - 0.4);
+      const bl = passRush(off.QB, tSack - 0.2);
       decoys([], tSack + 0.5);
-      cover([...def.man].map(([w, cb]) => [cb, w]), tSack + 0.5);
-      drop([...def.LB, ...def.S], tSack, 9);
+      cover([...def.man].filter(([, cb]) => !bl.includes(cb)).map(([w, cb]) => [cb, w]), tSack + 0.5);
+      drop([...def.LB, ...def.S].filter((a) => !bl.includes(a)), tSack, 9);
       sc.ball.at(-1).t1 = 99;
       if (zFum != null) { banner(tSack - 0.1, 'Sack', '', 'd'); T = fumble(off.QB, tSack) + 2; }
       else {
@@ -640,11 +708,14 @@ function raBuild(p, ev, qbs, opts = {}) {
         T = tSack + 2.2; sc.tEnd = tSack;
       }
     } else {
-      const tThrow = tS + (deep ? 2.35 : 1.55) + R(0, 0.35);
+      // A screen goes quickly; play action takes the fake first.
+      const tThrow = tS + (D.screen ? 1.05 : deep ? 2.35 : 1.55) + R(0, 0.35) + (fake ? 0.45 : 0);
       // A target this game has also run the ball is a back: the ball goes to the back out of the backfield,
       // caught near the line (most of the gain comes after the catch).
       const tgtBack = I.target && [off.RB, off.FB].find((b) => b && qbs.has(`rb:${p.offId}:${I.target.num || I.target.name}`));
-      const zT = Z(kind === 'int' ? I.intH : kind === 'incomplete' ? I.thrownH : I.catchH)
+      // nflverse's air yards put the catch (or the target, or the pick) where it really was; the rest
+      // of a completion's gain is then yards after the catch. Without them it is a guess from the text.
+      const zT = D.air != null ? clamp(z0 + D.air, -4, 109) : Z(kind === 'int' ? I.intH : kind === 'incomplete' ? I.thrownH : I.catchH)
         ?? z0 + (kind === 'pass' ? clamp((p.yards || 5) * (deep ? 0.85 : tgtBack ? 0.25 : 0.6), -3, 45) : deep ? R(22, 32) : R(6, 12));
       const lanes = { left: [-RAX + 4, x0 - 7], right: [x0 + 7, RAX - 4], middle: [x0 - 4, x0 + 4] };
       const lane = lanes[I.dir] || pick([lanes.left, lanes.right, lanes.middle]);
@@ -652,8 +723,12 @@ function raBuild(p, ev, qbs, opts = {}) {
       const cands = [...off.rcv, ...(zT - z0 < 4 ? [off.RB, off.FB].filter(Boolean) : [])];
       const rec = tgtBack || nearest(cands, xT, zT, 0)[0];
       who(rec, I.target);
+      // Out of the pocket (FTN): he rolls toward the side he throws to.
+      if (D.oop) go(off.QB, tThrow - 0.05, raX(x0 + (Math.sign(xT - x0) || 1) * R(5, 7.5)), raPos(off.QB, tS + 1.2)[1] + 0.5, 1);
       const [qtx, qtz] = raPos(off.QB, tThrow);
-      const dist = Math.hypot(xT - qtx, zT - qtz);
+      // A throwaway (FTN) sails out of bounds past the man it was near.
+      const xBall = D.ta && kind === 'incomplete' ? (Math.sign(xT) || 1) * (RAX + 4) : xT;
+      const dist = Math.hypot(xBall - qtx, zT - qtz);
       const tCatch = tThrow + 0.3 + dist * 0.03;
       const [rx, rz] = raPos(rec, 0);
       if (rec === off.RB || rec === off.FB) { go(rec, tS + 0.6, rx + Math.sign(xT - rx || 1) * 2, rz + 0.5); }
@@ -662,29 +737,54 @@ function raBuild(p, ev, qbs, opts = {}) {
       rec.labelAt = tThrow - 0.3;
       sc.ball.at(-1).t1 = tThrow;
       const apex = clamp(0.8 + dist * 0.07, 1, 7);
-      ballFly(tThrow, tCatch, [qtx, qtz, 2], [xT, zT, 1.2], apex);
+      ballFly(tThrow, tCatch, [qtx, qtz, 2], [xBall, zT, D.ta && kind === 'incomplete' ? 0.8 : 1.2], apex);
       linePlay(true, 0, off.QB, tThrow + 0.3);
+      const bl = passRush(off.QB, tThrow + 0.1);
+      // A screen (FTN): the linemen on his side let their men go and lead him upfield.
+      if (D.screen) {
+        const lead = [...off.OL].sort((a, b) => Math.abs(raPos(a, 0)[0] - xT) - Math.abs(raPos(b, 0)[0] - xT)).slice(0, 3);
+        lead.forEach((a, i) => { cut(a, tThrow - 0.5); go(a, tCatch + 0.5, raX(xT + (i - 1) * 2.2), Math.max(zT, z0) + 2 + i, 0); });
+      }
+      // A hit on the QB (nflverse): the nearest rusher gets to him as he lets it go, and they both go down.
+      if (D.hit && !D.oop) {
+        const [hx, hz] = raPos(off.QB, tThrow);
+        const hitter = nearest([...def.DL, ...bl], hx, hz, tThrow - 0.4)[0];
+        if (hitter) {
+          cut(hitter, tThrow - 0.4); go(hitter, tThrow + 0.25, hx + 0.4, hz + 0.6, 0);
+          hitter.downAt = tThrow + 0.3; hitter.upAt = tThrow + 1.9;
+          off.QB.downAt = tThrow + 0.3; off.QB.upAt = tThrow + 2.1;
+          sc.qbHit = hitter;
+        }
+      }
       decoys([rec], tCatch + 0.8);
       const cbFor = def.man;
       // The throw (arm cocked, then the release) and the catch, hands up.
       off.QB.acts = [[tThrow - 0.38, tThrow - 0.02, 'throw1'], [tThrow - 0.02, tThrow + 0.32, 'throw2']];
       if (kind !== 'int') rec.acts = [[tCatch - 0.28, tCatch + 0.12, 'catch']];
-      cover([...cbFor].filter(([w]) => w !== rec).map(([w, cb]) => [cb, w]), tCatch + 0.5);
-      const shadow = cbFor.get(rec) || def.LB[0];
+      cover([...cbFor].filter(([w, cb]) => w !== rec && !bl.includes(cb)).map(([w, cb]) => [cb, w]), tCatch + 0.5);
+      const shadow = [cbFor.get(rec), ...def.LB, ...def.S].find((a) => a && !bl.includes(a)) || def.LB[0];
       cover([[shadow, rec]], tCatch - 0.3);
-      drop(def.LB.filter((a) => a !== shadow), tThrow + 0.3, 6);
-      drop(def.S, tThrow, 14);
+      drop(def.LB.filter((a) => a !== shadow && !bl.includes(a)), tThrow + 0.3, 6);
+      drop(def.S.filter((a) => a !== shadow && !bl.includes(a)), tThrow, 14);
       if (kind === 'incomplete') {
         const pbu = nearest(allDef(), xT, zT, tCatch)[0];
-        who(pbu, I.breakup);
-        cut(pbu, tCatch - 0.6); go(pbu, tCatch - 0.02, xT + R(-0.8, 0.8), zT + 0.8, 0);
-        if (I.breakup) pbu.labelAt = tCatch - 0.5;
-        const fx = xT + (xT - qtx) / dist * 3, fz = zT + (zT - qtz) / dist * 3;
-        ballFly(tCatch, tCatch + 0.4, [xT, zT, 1.2], [fx, fz, 0], 0.3);
-        ballFly(tCatch + 0.4, tCatch + 0.8, [fx, fz, 0], [fx + (fx - xT) * 0.4, fz + (fz - zT) * 0.4, 0], 0.35);
+        const [bx0, bz0] = [xBall, zT];
+        if (D.ta) {                                                   // out of bounds, nobody near it
+          ballFly(tCatch, tCatch + 0.5, [bx0, bz0, 0.8], [bx0 + Math.sign(bx0) * 2, bz0 + 1.5, 0], 0.25);
+        } else if (D.drop) {                                          // it hits his hands and falls at his feet
+          cut(pbu, tCatch - 0.6); go(pbu, tCatch + 0.1, xT + R(-1.5, 1.5), zT + 1.8, 0);
+          ballFly(tCatch, tCatch + 0.5, [xT, zT, 1.2], [xT + 0.6, zT + 0.5, 0], 0.6);
+        } else {
+          who(pbu, I.breakup);
+          cut(pbu, tCatch - 0.6); go(pbu, tCatch - 0.02, xT + R(-0.8, 0.8), zT + 0.8, 0);
+          if (I.breakup) pbu.labelAt = tCatch - 0.5;
+          const fx = xT + (xT - qtx) / dist * 3, fz = zT + (zT - qtz) / dist * 3;
+          ballFly(tCatch, tCatch + 0.4, [xT, zT, 1.2], [fx, fz, 0], 0.3);
+          ballFly(tCatch + 0.4, tCatch + 0.8, [fx, fz, 0], [fx + (fx - xT) * 0.4, fz + (fz - zT) * 0.4, 0], 0.35);
+        }
         converge([rec, pbu], tCatch + 0.05, xT, zT + 1.5, tCatch + 0.8, 0.5, 2, 5);
         if (I.noPlay) { flag(tCatch - 0.4, raX(xT + R(-3, 3)), zT - 2); banner(tCatch + 0.3, 'Flag', `${I.penTeam ? I.penTeam.abbr + ' · ' : ''}${I.penName || 'Penalty'}`, I.penTeam?.id === p.offId ? 'd' : 'o'); }
-        else banner(tCatch + 0.2, 'Incomplete', I.target ? `Intended for ${I.target.last}` : '', 'd');
+        else banner(tCatch + 0.2, D.ta ? 'Thrown away' : D.drop ? 'Dropped' : 'Incomplete', I.target ? `Intended for ${I.target.last}` : '', 'd');
         sc.tEnd = tCatch + 0.8;
         T = walkOff(tCatch + 0.6, z0) + 1.8;
       } else if (kind === 'int') {
@@ -1086,6 +1186,19 @@ function raBuild(p, ev, qbs, opts = {}) {
       sc.injury = { crews, tStart, focus: (t) => { const c = crews.find((q) => t < q.tOff + 0.5) || crews[crews.length - 1]; const [x, z] = raPos(c.str, t); return { x: x * 0.7 + c.xi * 0.3, z }; } };
     }
   }
+  // Pre-snap motion (FTN): the slot (else a wide receiver) starts five yards inside his spot and
+  // goes in motion out to it in the second before the snap; the man over him follows. Done last so
+  // every route above is scripted from where he really is at the snap.
+  if (D.mot && off.WRs?.length && sc.tS < 1e8) {
+    const w = off.SL || off.WR || off.WL, cb = def.man?.get(w);
+    const dx = -(Math.sign(w.k[0][1] - x0) || 1) * 5;
+    for (const a of [w, cb].filter(Boolean)) {
+      const f = a.k[0];
+      a.k = [[0, f[1] + dx, f[2], 0], [tS - 0.95, f[1] + dx, f[2], 0], [tS - 0.1, f[1], f[2], 0], ...a.k.slice(1).filter((k) => k[0] >= tS - 0.1)];
+    }
+    sc.motion = w;
+  }
+  sc.detail = D;
   // Out of the huddle: every player starts in his huddle spot, jogs to his place in the formation,
   // and the line gets set before the snap.
   if (opts.from && sc.tS >= 4) {
@@ -2294,6 +2407,33 @@ function raPlays() {
   if (q && q.kind !== 'meta' && quickIsNewer(q.id, G.sum, G.ev.id)) { q.text = G.ev.sit?.lastPlay?.text || q.text; q.typeText = G.ev.sit?.lastPlay?.type?.text || ''; q.sDD = ''; list.push(q); }
   return list;
 }
+// What really happened on each play of a finished game: nflverse play-by-play (air yards, yards after
+// the catch, QB hits) and FTN charting (formation, hash, box count, pass rush, play action, motion,
+// screens), through netlify/functions/pbpdetail.mjs, keyed by ESPN play id. Asked for once per game
+// view, only once the game is over (nflverse posts a game the night it ends; FTN a day or two later).
+// Nothing breaks without it: plays are then staged from their text alone.
+const RA_HASH = { L: -3.08, M: 0, R: 3.08 };
+const raDetail = (p) => G?.pbp?.[String(p.id)] || {};
+function raDetailLoad() {
+  if (!G?.ev || G.ev.state !== 'post' || G.pbpAsked) return;
+  G.pbpAsked = true;
+  const id = G.id;
+  fetch(`/.netlify/functions/pbpdetail?event=${encodeURIComponent(id)}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => { if (G?.id === id && d?.ok && d.plays) { G.pbp = d.plays; G.pbpFtn = !!d.ftn; raCredit(); } })
+    .catch(() => {});
+}
+// FTN's licence (CC-BY-SA 4.0) asks for the credit wherever its charting is used.
+function raCredit() {
+  const txt = G?.pbp ? `Play detail: nflverse${G.pbpFtn ? '. Charting: FTN Data via nflverse' : ''}.` : '';
+  for (const host of [$('#big-tecmo'), $('#ra .ra-in')]) {
+    if (!host) continue;
+    let el = host.querySelector('.ra-credit');
+    if (!txt) { el?.remove(); continue; }
+    if (!el) { el = document.createElement('p'); el.className = 'ra-credit'; host.appendChild(el); }
+    el.textContent = txt;
+  }
+}
 // Who threw in this game ("offId:name"), and who carried it without ever throwing ("rb:offId:name"):
 // a pass to a man who also runs the ball goes to a back, not a wide receiver.
 function raQBs() {
@@ -2329,6 +2469,7 @@ function openReenact(id) {
   </div>`;
   m.hidden = false;
   RA.open = true;
+  raCredit();
   document.body.style.overflow = 'hidden';
   m.querySelector('#ra-follow')?.addEventListener('change', (e) => { RA.follow = e.target.checked; });
   raLoad(i);
@@ -2493,6 +2634,7 @@ function sideUpdate() {
   // or a game view built afresh, drops it.
   if ((SIDE.rp || SIDE.rpMenu) && !(ok && big && (SIDE.rp?.cv || SIDE.rpMenu) === tgt.cv)) { SIDE.rp = null; SIDE.rpMenu = null; tecmoRpBar(); }
   if (!ok) { sideStop(); if (G?.gate && typeof gateOpen === 'function') gateOpen(); return; }
+  raDetailLoad();
   if (SIDE.gameId !== G.id) { sideStop(); Object.assign(SIDE, { gameId: G.id, playId: null, setKey: '', timeoutId: null, sc: null, cv: tgt.cv, rp: null, rpMenu: null }); }
   if (SIDE.cv !== tgt.cv) { SIDE.cv = tgt.cv; SIDE.banner = tgt.banner; SIDE.cam = null; if (SIDE.sc) { raSizeCanvas(SIDE.cv, tgt.h); cancelAnimationFrame(SIDE.raf); sideResume(); } }
   if (SIDE.rp) return;                                    // the replay runs its own sequence

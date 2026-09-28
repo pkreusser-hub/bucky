@@ -978,3 +978,5 @@ body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
 .bt-spw { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .bt-rp .bt-sp button { min-width: 44px; padding: 0 10px; background: transparent; box-shadow: none; }
 .bt-rp .bt-sp button[aria-pressed="true"] { background: var(--stadium-ink); color: var(--stadium-on); }
+.ra-credit { margin: 6px 4px 0; font-size: 11px; line-height: 1.35; color: var(--stadium-ink-2); }
+.ra .ra-credit { margin: 0; color: var(--faint); }
