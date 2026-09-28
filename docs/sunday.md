@@ -778,3 +778,63 @@ play back" to the desk, with the reason at the check; the one failure is the web
 fails the same way on HEAD in this container), halftime 47/47 (7 new, the Vary check restaged to
 `query=event|demo|kind`), sunday-ff 53/53, pbpdetail 61/61. Bite: the previous sd-reenact.js fails the
 4 new page checks and the restaged one; the previous halftime.mjs fails all 8 new or restaged function checks.
+
+## 2026-09-28 — the desks' scripts are written when the game gets there, not when someone looks
+
+Perry: "We need to make it so that after the game ends it triggers the script creation, not someone
+just opening it because then they just see '...' instead of a script". `netlify/functions/deskcron.mjs`
+runs every 2 minutes (netlify.toml) and calls `sweepDesks()` in halftime.mjs: one ESPN scoreboard read;
+a game at halftime gets its halftime script started, a game gone final (within 8 hours of kickoff) its
+postgame one, through the same claim-and-background-job path a viewer's request uses
+(`ensureScript`, now shared). So a script is ready a minute or two after halftime or the final whistle,
+before anyone opens the game. Finals past the 8-hour window cost no Firestore reads for the rest of the
+week; an idle run is one scoreboard read. A viewer's request still starts a missing script (the week's
+older finals, a sweep that failed). The job's URL comes from Netlify's `URL` env.
+
+VERIFY: halftime 54/54 (new section "The scheduled sweep (deskcron)", 7 checks: the schedule; with nobody
+on the page the halftime and postgame jobs start for the right games; the final from 30 hours ago, the
+game in progress and the unstarted one are left alone without a doc read; the report; the next sweep
+starts nothing; the first viewer gets the script at once; a quiet week is one scoreboard read). Bite:
+HEAD's halftime.mjs, without the sweep, fails all 7. No page files changed.
+
+**Streamed calls; a rest after three failures** (same day). Backfilling the week's finals, 12 of 15
+postgame scripts landed and 3 failed all three tries with the job's catch-all error: a long answer sent
+whole sends no headers until Opus finishes thinking, and Node's fetch gives up after 5 minutes without
+them. The call is streamed now (`stream: true`; `readStream` folds the event stream back into one
+message and records the token counts, kept with the script as `usage` for costing). A thrown error is
+recorded with its code, and a failure reply carries the last try's reason (`detail`). A game whose
+three tries all failed may try again after an hour's rest (`RETRY_MS`), still at most three calls an hour.
+
+VERIFY: halftime 60/60 (new section "Streamed, with its token counts; a rest after three failures", 6
+checks). Bite: the previous halftime.mjs fails 5 of them (the sixth, a failure saying why, came with it).
+
+## 2026-09-28 — back to writing on first view, at low effort, behind a countdown
+
+Perry: "Lets try this, rather than pre generating the scripts, lets go back to the script generating
+when the first person opens the game, but it shows a post game / half time show starts soon with a
+countdown. That way we save cost if nobody watches them but the hope is that opus 5.5 low is quick".
+This REVERSES the scheduled sweep above (deskcron and its netlify.toml schedule are gone; its seven
+checks are replaced by one saying there is no schedule): a script is written only when someone opens a
+game at halftime or after the final, so an unwatched game costs nothing.
+
+- **Opus 5.5 at low effort.** Measured on one postgame script (Panthers at Browns): low effort skipped
+  thinking, 5,849 tokens in and 1,444 out, about 5 cents against medium's estimated 9 to 10, and
+  proportionally quicker. Its one slip in that trial was five field goals for four.
+  Sonnet 5.5 with thinking off (Chargers at Bills, 5,575 in, 1,538 out, about 2.6 cents) ran 560 words
+  against the 300-370 asked, said "grown-man football" four times and muddled an overturned touchdown.
+- **The countdown.** While the script is written the desk waits under a card over the monitor:
+  "Halftime show / starts in 0:15" (15 s) or "Postgame show / starts in 0:25" (25 s), counting from
+  when the first viewer's request started the job: the function's pending answer now carries `since`,
+  the claim time, so a second viewer's countdown agrees with the first's. At zero it reads
+  "Starting…" until the lines arrive; the page polls every 3 s, and the show runs from its top the
+  moment they do. The host's opener and the analysts' "…" are gone. A finished script records `ms`,
+  claim to script, for tuning the 15/25. Measured on the preview: a low-effort halftime script (ARI @ SF,
+  the demo) took 11.5 s to write and reached the page at 13 s; 2,937 tokens in, 783 out, no thinking,
+  about 2.7 cents (263 words, over the 150-190 asked; the timeline's 0.8 squeeze holds it to about 70 s).
+
+VERIFY: sunday 246/247 (RESTAGED the two "still being written" checks to the countdown, with the reason
+at the check; 2 new: "Starting…" past the estimate, the postgame countdown; the one failure is the
+webfont ink check that fails the same way on HEAD in this container), halftime 57/57 (the sweep's 7
+checks replaced by 4: no schedule, low effort on every call, `since` shared, `ms` recorded). Bite: the
+previous sd-reenact.js and sd.css fail the 4 countdown checks; the previous halftime.mjs fails the 5
+new or restaged function checks.

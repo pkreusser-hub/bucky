@@ -1581,7 +1581,9 @@ function htLoad(ev, post) {
     .then((d) => {
       e.busy = false;
       if (d?.ok && Array.isArray(d.lines) && d.lines.length) { Object.assign(e, { state: 'done', lines: d.lines, cast: d.cast || HT_CAST }); htScript(id, post); return; }
-      if (d?.pending && ++e.polls < 40) { e.timer = setTimeout(() => htLoad(ev, post), 5000); return; }   // about 3 minutes of polls
+      if (d?.pending && ++e.polls < 60) {
+        if (d.since > 0) { e.since = d.since; const sc = SIDE.sc; if (sc?.studio && sc.waiting && sc.gameId === id && !!sc.post === !!post) sc.since = d.since; }   // the first viewer's start
+        e.timer = setTimeout(() => htLoad(ev, post), 3000); return; }   // about 3 minutes of polls
       e.state = 'failed'; htScript(id, post);
     })
     .catch(() => { e.busy = false; e.state = 'failed'; htScript(id, post); });
@@ -1594,29 +1596,53 @@ function htScript(id, post) {
   const e = HT.get(htKey(id, post)), ev = sc.ev || G?.ev;
   if (!e || !ev) return;
   sc.cast = e.cast || HT_CAST;
-  sc.tl = htTimeline(e.state === 'done' ? e.lines : htStandIn(ev, e.state === 'failed', post), post ? HT_POST_TARGET : HT_TARGET);
+  sc.tl = e.state === 'pending' ? null : htTimeline(e.state === 'done' ? e.lines : htStandIn(ev, true, post), post ? HT_POST_TARGET : HT_TARGET);
   sc.waiting = e.state === 'pending';
+  sc.since = e.since || sc.since;
   sc.t0 = SIDE.t;
+}
+// While the script is written (2026-09-28, user: "lets go back to the script generating when the first
+// person opens the game, but it shows a post game / half time show starts soon with a countdown"):
+// the desk sits waiting under a "Halftime show / starts in 0:15" card. The countdown runs from when
+// the first viewer's request started the script (the function's `since`), so everyone sees the same
+// one; at zero it says "Starting…" until the lines arrive, and then the show runs from its top.
+// Seconds: measured on the preview, a low-effort halftime script took 11.5 s to write (seen by the
+// page at 13 s, 783 output tokens); a postgame one writes about twice as much.
+const HT_SOON = { half: 15, post: 25 };
+function htSoonLeft(sc, now = Date.now()) {
+  const est = HT_SOON[sc.post ? 'post' : 'half'];
+  return Math.max(0, Math.ceil(est - (now - (sc.since || now)) / 1000));
+}
+function htSoon(st) {
+  const sc = st.sc, stage = st.cv?.parentElement;
+  if (!stage) return;
+  let el = stage.querySelector('.ht-soon');
+  if (!sc.waiting) { if (el) el.hidden = true; st.htSoonOn = false; return; }
+  if (!el) { el = document.createElement('div'); el.className = 'ht-soon'; el.setAttribute('role', 'status'); el.innerHTML = '<b></b><span></span>'; stage.appendChild(el); }
+  el.hidden = false; st.htSoonOn = true;
+  const left = htSoonLeft(sc), cw = st.cv.clientWidth || 300;
+  const txt = [sc.post ? 'Postgame show' : 'Halftime show', left > 0 ? `starts in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'Starting…'];
+  if (el.dataset.k !== txt.join('|')) { el.querySelector('b').textContent = txt[0]; el.querySelector('span').textContent = txt[1]; el.dataset.k = txt.join('|'); }
+  el.style.fontSize = `${clamp(Math.round(cw / 52), 9, 14)}px`;
 }
 function raHalftime(ev, post) {
   const pc = pair(ev.away, ev.home);
   const sc = { actors: [], ball: [], events: [], z0: 50, x0: 0, offHome: true, ltg: null, col: { o: pc.hRaw, d: pc.aRaw }, offT: ev.home, defT: ev.away,
     tS: 0, timeout: true, halftime: true, studio: true, noBall: true, homeCol: pc.hRaw, cast: HT_CAST, t0: 0, ev, post: !!post };
-  sc.tl = htTimeline(htStandIn(ev, false, post), post ? HT_POST_TARGET : HT_TARGET);
+  sc.tl = null;                                            // (the countdown card until the script comes)
   sc.waiting = true;
+  sc.since = Date.now();
   sc.T = 1e6;
   return sc;
 }
 // Where the show is at time t: the line being said (or null between lines), looping after the break.
 function htAt(sc, t) {
   const tl = sc.tl;
-  if (!tl) return { line: null, i: -1, u: 0 };
+  if (!tl || sc.waiting) return { line: null, i: -1, u: 0 };
   let u = t - (sc.t0 || 0);
   if (!sc.waiting) u = ((u % tl.T) + tl.T) % tl.T;
   const i = tl.lines.findIndex((l) => u >= l.t0 && u < l.t1);
   if (i >= 0) return { line: tl.lines[i], i, u };
-  // Waiting on the script: after the host's opener, the analysts "think" in turn.
-  if (sc.waiting && u > (tl.lines.at(-1)?.t1 ?? 0) + 0.6) { const who = 1 + (Math.floor(u / 2.2) % 3); return { line: { who, text: '…', dots: true }, i: 100 + who, u }; }
   return { line: null, i: -1, u };
 }
 
@@ -1758,6 +1784,7 @@ function raStudioDraw(g, W, st) {
   try { raBugDraw(g, W, H, st); } catch (err) { /* the bug never stops the show */ }
   st.ruler = ruler;
   htBubble(st, now, heads, s, W, H);
+  htSoon(st);
 }
 // The chat bubble: HTML over the canvas (a pixel font that wraps), pinned over the speaker's head.
 function htBubble(st, now, heads, s, W, H) {
@@ -2985,6 +3012,7 @@ function raStep(st, dt) {
   const W = cv.width;
   if (sc.studio) { raStudioDraw(cv.getContext('2d'), W, st); return; }   // halftime: the desk, no field or camera
   if (st.htOn) { st.htOn = false; st.htKey = null; cv.parentElement?.querySelector('.ht-bub')?.classList.remove('on'); }
+  if (st.htSoonOn) { st.htSoonOn = false; const el = cv.parentElement?.querySelector('.ht-soon'); if (el) el.hidden = true; }
   const Hb = (z) => (sc.offHome ? z : 100 - z);
   const Yb = (x) => RA_TOP + (RAX + x * (sc.offHome ? -1 : 1)) * PY;
   const b = raBall(sc, st.t), b0 = raBall(sc, Math.max(0, st.t - 0.2));

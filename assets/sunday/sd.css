@@ -978,6 +978,10 @@ body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
    speaker's name in their suit colour, a tail down to their head (--tx from the bubble's left). */
 .ht-bub { position: absolute; z-index: 2; display: flex; flex-direction: column; gap: 0.5em; padding: 0.8em 0.9em; background: #fbfbf4; color: #101010; box-shadow: 0 0 0 2px #101010, 4px 4px 0 2px rgba(0,0,0,0.4); font: 400 9px/1.55 "Press Start 2P", monospace; pointer-events: none; opacity: 0; transition: opacity 0.1s steps(2); overflow-wrap: anywhere; }
 .ht-bub.on { opacity: 1; }
+/* "Halftime show / starts in 0:30" while the script is written (2026-09-28), over the monitor. */
+.ht-soon { position: absolute; z-index: 2; left: 50%; top: 9%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.7em; padding: 0.9em 1.3em; background: #0d1a3f; color: #ffd21f; box-shadow: 0 0 0 2px #fbfbf4, 0 0 0 4px #101010, 4px 6px 0 3px rgba(0,0,0,0.4); font: 400 11px/1.3 "Press Start 2P", monospace; text-transform: uppercase; white-space: nowrap; pointer-events: none; }
+.ht-soon[hidden] { display: none; }
+.ht-soon span { color: #fbfbf4; font-size: 0.8em; font-variant-numeric: tabular-nums; }
 .ht-bub b { font-weight: 400; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.02em; }
 .ht-bub.dots span { letter-spacing: 0.3em; }
 .ht-bub::after { content: ""; position: absolute; top: 100%; left: calc(var(--tx, 50%) - 6px); border: 6px solid transparent; border-top: 8px solid #101010; }
