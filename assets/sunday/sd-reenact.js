@@ -14,7 +14,8 @@ const RA_POST = 110, RA_UPRIGHT = 3.083, RA_BAR = 3.333, RA_POST_TOP = 15;
 // PENALTY, REVERSED, SAFETY) — without this a name greedily swallows a following marker word,
 // since an all-caps word is itself valid title-case-shaped text ("J.Dotson INTERCEPTED").
 const RA_PL = "(?:#(\\d{1,2})\\s*)?([A-Z][A-Za-z.'’-]*(?:\\s(?!(?:INTERCEPTED|TOUCHDOWN|FUMBLES|PENALTY|REVERSED|SAFETY)\\b)(?:[A-Z][A-Za-z.'’-]*|III|II|IV)){0,2})";
-const RA_SPOT = "(?:the\\s)?(?:([A-Z][A-Z&]{1,5})\\s?(\\d{1,2})\\b|(50)\\b)";
+// A spot in the end zone is written with a minus: "INTERCEPTED by T.Hufanga at DEN -1" is a yard deep.
+const RA_SPOT = "(?:the\\s)?(?:([A-Z][A-Z&]{1,5})\\s?(-?\\d{1,2})\\b|(50)\\b)";
 
 function raRng(seed) {
   let a = 7;
@@ -715,8 +716,11 @@ function raBuild(p, ev, qbs, opts = {}) {
       const tgtBack = I.target && [off.RB, off.FB].find((b) => b && qbs.has(`rb:${p.offId}:${I.target.num || I.target.name}`));
       // nflverse's air yards put the catch (or the target, or the pick) where it really was; the rest
       // of a completion's gain is then yards after the catch. Without them it is a guess from the text.
-      const zT = D.air != null ? clamp(z0 + D.air, -4, 109) : Z(kind === 'int' ? I.intH : kind === 'incomplete' ? I.thrownH : I.catchH)
+      let zT = D.air != null ? clamp(z0 + D.air, -4, 109) : Z(kind === 'int' ? I.intH : kind === 'incomplete' ? I.thrownH : I.catchH)
         ?? z0 + (kind === 'pass' ? clamp((p.yards || 5) * (deep ? 0.85 : tgtBack ? 0.25 : 0.6), -3, 45) : deep ? R(22, 32) : R(6, 12));
+      // An interception that ends in a touchback was caught (and downed) in the end zone.
+      const intTB = kind === 'int' && I.touchback && !I.td;
+      if (intTB) zT = clamp(Math.max(zT, 100.8), 100.8, 108.5);
       const lanes = { left: [-RAX + 4, x0 - 7], right: [x0 + 7, RAX - 4], middle: [x0 - 4, x0 + 4] };
       const lane = lanes[I.dir] || pick([lanes.left, lanes.right, lanes.middle]);
       const xT = raX(R(lane[0], lane[1]) * (zT - z0 < 2 && I.dir !== 'middle' ? 0.8 : 1));
@@ -784,7 +788,8 @@ function raBuild(p, ev, qbs, opts = {}) {
         }
         converge([rec, pbu], tCatch + 0.05, xT, zT + 1.5, tCatch + 0.8, 0.5, 2, 5);
         if (I.noPlay) { flag(tCatch - 0.4, raX(xT + R(-3, 3)), zT - 2); banner(tCatch + 0.3, 'Flag', `${I.penTeam ? I.penTeam.abbr + ' · ' : ''}${I.penName || 'Penalty'}`, I.penTeam?.id === p.offId ? 'd' : 'o'); }
-        else banner(tCatch + 0.2, D.ta ? 'Thrown away' : D.drop ? 'Dropped' : 'Incomplete', I.target ? `Intended for ${I.target.last}` : '', 'd');
+        // (In the offense's colour, like a completion: it is still the offense's play. 2026-09-28, user.)
+        else banner(tCatch + 0.2, D.ta ? 'Thrown away' : D.drop ? 'Dropped' : 'Incomplete', I.target ? `Intended for ${I.target.last}` : '', 'o');
         sc.tEnd = tCatch + 0.8;
         T = walkOff(tCatch + 0.6, z0) + 1.8;
       } else if (kind === 'int') {
@@ -794,6 +799,19 @@ function raBuild(p, ev, qbs, opts = {}) {
         cut(hawk, tCatch - 1.1); go(hawk, tCatch, xT + R(-0.5, 0.5), zT + 0.6, 0);
         hawk.labelAt = tCatch - 0.4;
         sc.ball.push({ t0: tCatch, t1: 99, a: hawk });
+        // 2026-09-28, user: "INTERCEPTED by Hufanga at DEN -1. Touchback. Our animation shows him
+        // catching the ball in the endzone but then running it to the 20 … that cant have happened".
+        // ESPN's end spot on a touchback is the 20 the ball comes out to, not where the play ended: he
+        // takes a knee where he caught it and nobody chases him.
+        if (intTB) {
+          const tE = go(hawk, tCatch + 0.45, raX(xT + R(-0.4, 0.4)), zT + 0.3, 2);
+          hawk.downAt = tE + 0.05;
+          converge(allOff().filter((a) => a !== off.C), tCatch + 0.3, xT, zT - 4, tCatch + 1.8, 2, 9, 6);
+          banner(tCatch + 0.1, 'Intercepted', I.interceptor ? I.interceptor.last : defT.name, 'd');
+          banner(tE + 0.6, 'Touchback', defT.name, 'd');
+          sc.intTB = true;
+          T = tE + 2.6; sc.tEnd = tE;
+        } else {
         const zR = pick6 ? -1.5 : zEnd ?? zT;
         const xR = raX(xT + R(-8, 8));
         const tE = run(hawk, tCatch, xR, zR, zT - zR > 25 ? 9.3 : 8, 0);
@@ -804,6 +822,7 @@ function raBuild(p, ev, qbs, opts = {}) {
         if (pick6) { sc.events.push({ t: tE, kind: 'banner', title: 'Pick six', sub: defT.name, side: 'd' }); celebrate(hawk, tE, allDef().filter((a) => a !== hawk), allOff()); }
         else if (Math.abs(zR - zT) > 1) tackle(hawk, tE, allOff().filter((a) => a !== off.C), I.tacklers.filter((w) => w.name !== I.interceptor?.name));
         T = tE + 2; sc.tEnd = tE;
+        }
       } else {
         sc.ball.push({ t0: tCatch, t1: 99, a: rec });
         const zF = I.td ? 101.5 : zFum ?? zPlay;
@@ -828,7 +847,12 @@ function raBuild(p, ev, qbs, opts = {}) {
     let zL = Z(I.landH);
     const yds = isFinite(I.kickYds) ? I.kickYds : punt ? 42 : 62;
     if (zL == null) zL = z0 + yds;
-    const xL = R(-9, 9);
+    // A kick that goes out of bounds ("punts 48 yards to ATL 11, Center-…, out of bounds") comes down
+    // by a sideline and bounces over it (2026-09-28, user: "If a punt or kick goes out of bounds
+    // animation should show that"). The runner's "ob" is a different thing (raParse's `oob`).
+    const kOob = !I.returner && !I.touchback && /out of bounds/i.test(I.text);
+    const oobSide = kOob ? (rng() < 0.5 ? -1 : 1) : 1;
+    const xL = kOob ? oobSide * R(19, 23) : R(-9, 9);
     let K, tK, kickFrom, cov, ret;
     const blockers = [];
     if (punt) {
@@ -913,6 +937,8 @@ function raBuild(p, ev, qbs, opts = {}) {
       for (const b of pool) run(b, tL, raX(xL + R(-5, 5)), Math.max(meet, Math.min(zL - 8, 99)), 6, 3);
     }
     ballFly(tK, tL, kickFrom, tb && !I.returner ? [xL, Math.min(zL, 106), 0.4] : [xL, zL, 1.3], apex, punt ? 'spiral' : 'end');
+    const landSeg = sc.ball[sc.ball.length - 1];
+    let caught = false;
     const tSet = punt ? go(ret, Math.max(tS + 1, tL - 0.9), xL, zL + 0.4, 1) : lastT(ret);
     ret.labelAt = tK;
     let tE = tL + 0.5;
@@ -934,10 +960,13 @@ function raBuild(p, ev, qbs, opts = {}) {
       sc.spotZ = spot;
       banner(tL - 0.2, 'Touchback', `${punt ? 'Punt' : 'Kickoff'} · ${yds} yds`, 'o');
     } else if (I.fair) {
+      caught = true;
+      hold(ret, tL + 0.9);                                             // he stands where he caught it
       sc.ball.push({ t0: tL, t1: 99, a: ret });
       converge(cov, tFree, xL, zL, tL + 0.4 + (punt ? 0 : 0.6), 2.5, 6);
       banner(tL + 0.1, 'Fair catch', `${punt ? 'Punt' : 'Kickoff'} · ${yds} yds`, 'o');
     } else if (I.returner && retZ != null) {
+      caught = true;
       sc.ball.push({ t0: tL, t1: 99, a: ret });
       ret.acts = [[tL - 0.3, tL + 0.1, 'catch']];
       hold(ret, tL);                                                   // he waits for it, then goes
@@ -957,6 +986,16 @@ function raBuild(p, ev, qbs, opts = {}) {
         converge(cov.filter((a) => !a.labelAt && !a.acts), Math.max(tFree, tE - 0.6), xR, zR, tE + 0.5, 2, 6);
         banner(tE + 0.1, `${punt ? 'Punt' : 'Kickoff'} · ${yds} yds`, `${I.returner.last} returns ${Math.round(Math.abs(zL - zR))}`, 'd');
       }
+    } else if (kOob) {
+      // Down by the sideline, one bounce, over it: the next snap is where it crossed.
+      const zD = retZ != null ? clamp(retZ, 1, 99) : zL;
+      const xO = oobSide * (RAX + 3);
+      ballFly(tL, tL + 0.7, [xL, zL, 1.3], [oobSide * (RAX - 1), zD, 0], 0.9);
+      ballFly(tL + 0.7, tL + 1.2, [oobSide * (RAX - 1), zD, 0], [xO, zD + R(-1, 1), 0], 0.5);
+      converge(cov, Math.max(tFree, tL - 0.4), oobSide * (RAX - 3), zD, tL + 1.2, 1, 4);
+      sc.kickOob = { side: oobSide, zD, tOut: tL + 0.95 };
+      banner(tL + 0.9, `${punt ? 'Punt' : 'Kickoff'} · ${yds} yds`, 'Out of bounds', 'o');
+      tE = tL + 1.2;
     } else {
       const zD = retZ != null ? Math.min(retZ, 99) : zL;
       ballFly(tL, tL + 0.8, [xL, zL, 1.3], [xL + R(-2, 2), zD, 0], 0.9);
@@ -965,6 +1004,10 @@ function raBuild(p, ev, qbs, opts = {}) {
       tE = tL + 1;
     }
     hold(ret, tSet);
+    // A caught kick (a fair catch, or a return) comes down on the returner wherever his legs got him,
+    // not on the text's landing spot a step away (2026-09-28, user: "if its a fair catch, ball should
+    // always land on the returner").
+    if (caught) sc.catchOn = { seg: landSeg, a: ret, t: tL };            // aimed at him last of all, below
     for (const a of sc.actors) if (a.acts?.[0]?.[2] === 'block') a.acts[0][1] = tE;
     K.labelTo = tK + 1.2;
     sc.kick = { tK, tL };
@@ -1210,6 +1253,12 @@ function raBuild(p, ev, qbs, opts = {}) {
     for (const a of prev.actors) { const tm = teamOf(a, prev); if (tm == null || a.side === 'r' || a.gone) continue; if (!pools.has(tm)) pools.set(tm, []); pools.get(tm).push(a); }
     const near = offHome ? -1 : 1;                                     // toward the near (home) sideline
     const tSet = sc.tS - 0.9;
+    if (prev.hud) {                                                    // still in the huddles for half a second
+      const mv = ([x, z]) => { const H = prev.offHome ? z : 100 - z; return [x * flip, offHome ? H : 100 - H]; };
+      const same = prev.offHome === offHome && prev.offT.id === offT.id;
+      sc.hud = same ? { o: mv(prev.hud.o), d: mv(prev.hud.d) } : { o: mv(prev.hud.d), d: mv(prev.hud.o) };
+      sc.hudUntil = 0.5;
+    }
     for (const a of sc.actors) {
       if (a.side !== 'o' && a.side !== 'd') continue;
       const tm = teamOf(a, sc), f = a.k[0];
@@ -1234,6 +1283,8 @@ function raBuild(p, ev, qbs, opts = {}) {
       if (d > max) { const f = max / d; k[1] = x0 + (k[1] - x0) * f; k[2] = z0 + (k[2] - z0) * f; }
     }
   }
+  // (After the speed cap above, which can shorten the returner's run to his spot.)
+  if (sc.catchOn) { const { seg, a, t } = sc.catchOn; const [rx, rz] = raPos(a, t); seg.to = [rx, rz, seg.to[2]]; }
   sc.T = T;
   sc.I = I;
   sc.play = p;                                    // the score bug reads the score, clock and down from it
@@ -1272,6 +1323,7 @@ function raHuddle(prev, ev, s) {
     T = Math.max(T, t1 + 0.3);
   }
   sc.ball.push({ t0: 0, t1: 1e9, from: [x0, z0 - 0.4, 0.15], to: [x0, z0 - 0.4, 0.15], apex: 0 });
+  sc.hud = { o: [raX(x0), z0 - 7.5], d: [raX(x0), z0 + 7] };        // each huddle's middle: they face it
   sc.arrived = T;
   sc.T = 1e6;                                     // they stay in the huddle, on their toes, until the snap
   return sc;
@@ -2093,6 +2145,7 @@ function raDraw(g, W, st) {
     } });
     items.push({ y: yN, draw: () => post(xn, yN - bar, yN - top) });
   }
+  const defBall = sc.ball.some((q) => q.a && q.a.side === 'd' && t >= q.t0);   // a turnover: the defense has it
   for (const a of sc.actors) {
     if (a.showFrom != null && t < a.showFrom) continue;
     const [x, z] = raPos(a, t);
@@ -2111,7 +2164,14 @@ function raDraw(g, W, st) {
     const speed = Math.hypot(x - ox, z - oz) / 0.1;
     const [px] = S(ox, oz);
     if (Math.abs(sx - px) > 0.25 * K) a.face = sx > px ? 'r' : 'l';
-    if (!a.face || (t < sc.tS && speed < 0.5 && !sc.huddle)) a.face = (a.side === 'o') === attackRight ? 'r' : 'l';
+    const inHuddle = sc.hud?.[a.side] && (sc.huddle || t < (sc.hudUntil ?? 0));
+    if (!a.face || (t < sc.tS && speed < 0.5 && !sc.huddle && !inHuddle)) a.face = (a.side === 'o') === attackRight ? 'r' : 'l';
+    // In a huddle everyone faces its middle (2026-09-28, user: "all players should face into the
+    // huddle, not out of it"); a man still jogging in faces where he's going.
+    if (inHuddle && speed < 0.5) { const [hx] = S(...sc.hud[a.side]); if (Math.abs(hx - sx) > K) a.face = hx > sx ? 'r' : 'l'; }
+    // The QB faces the line of scrimmage for the whole play, dropping back or rolling out included
+    // (2026-09-28, user), until the defense has the ball or the play is over.
+    if (a.role === 'QB' && a.side === 'o' && !sc.huddle && !sc.timeout && !sc.halftime && !inHuddle && t < (sc.tEnd ?? sc.T) && !defBall) a.face = attackRight ? 'r' : 'l';
     items.push({ y: sy, draw: () => {
       const pal = raPalette(sc, a);
       const X = Math.round(sx), Y = Math.round(sy);

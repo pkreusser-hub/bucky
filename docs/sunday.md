@@ -461,3 +461,38 @@ quote). sunday-ff 53/53. Bite: the previous sd-reenact.js fails 19 of the 23 new
 four that pass are invariants: the yards after the catch, 682 under center from its text, 11 a side,
 results unchanged); the function suite's bites (`PBP_FN=`) fail their checks — `x || 0`, a naive
 comma split, no early stop, and passing FTN's "0" through.
+
+## 2026-09-28 — touchback interceptions, kicks out of bounds, fair catches, facing
+
+Perry, on LAR @ DEN's last play ("Stafford pass deep right intended for Adams INTERCEPTED by
+Hufanga at DEN -1. Touchback."): "Our animation shows him catching the ball in the endzone but then
+running it to the 20 yard line and getting tackled … incomplete passes should use the same card
+color as complete ones … If a punt or kick goes out of bounds animation should show that. if its a
+fair catch, ball should always land on the returner. quarterback should always face towards the
+line of scrimmage. all players should face into the huddle, not out of it."
+
+- **Touchback interceptions.** ESPN's end spot on a touchback is the 20 the ball comes out to, and the
+  return ran there. Now the pick is made in the end zone and he takes a knee: "Intercepted", then
+  "Touchback". `RA_SPOT` also reads a minus ("DEN -1" is a yard deep), which it used to skip, so the
+  catch is a yard deep rather than wherever the text-free guess put it.
+- **Incomplete** (and "Thrown away" / "Dropped") cards are in the offense's colour, like a completion's.
+- **Kicks out of bounds** ("punts 48 yards to ATL 11, …, out of bounds"; `kOob`, not the runner's
+  `oob`): the ball comes down by a sideline and bounces over it where the next snap is spotted. The
+  banner reads "Out of bounds".
+- **Fair catches** came down 6.7 yd from the returner on all four in ATL @ GB. After he reached his
+  spot, the generic chase moved him along with the ball in the air. He now stands still from his spot
+  until after the catch, and every caught kick (fair or returned) is aimed at where he really is at
+  the landing (`sc.catchOn`, applied after the speed cap, which can shorten his run).
+- **The QB faces the line of scrimmage** for the whole play, drop-back and rollout included, until the
+  defense has the ball or the play is over. Before this, 240 of 511 frames across 14 pass plays had
+  him facing his own end zone.
+- **Huddles:** `raHuddle` records each huddle's middle (`sc.hud`); a player standing in a huddle
+  faces it, as he does in the first half-second of the next snap's scene before they break.
+  Cache-bust ?v=20260928i.
+
+New fixture `tools/fixtures/sunday/inttb-401872962.json` (10 KB): LAR @ DEN's real last drive.
+
+VERIFY: sunday 185/186 (new section "Touchbacks, kicks out of bounds, fair catches, facing", 9
+checks; the one failure is the webfont ink check that fails the same way on HEAD in this container),
+sunday-ff 53/53, pbpdetail 61/61. Bite: the previous sd-reenact.js fails 8 of the 9; McKinney's
+real 5-yard return (the guard that a return still runs) passes on both.

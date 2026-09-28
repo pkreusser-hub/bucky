@@ -884,6 +884,129 @@ async function main() {
     IJ(() => [inj.kick.who === "T.Wallace" && inj.kick.medStart.every((y) => y > 53.33), `kickoff (3961): T.Wallace carried off to Cleveland's near sideline (${inj.kick.medStart.join(", ")})`]);
     IJ(() => [inj.try.tdCrews === 0 && inj.try.tryCrews === 1 && inj.try.who === "D.Lewis" && inj.try.team === "CAR", `two-point try (3922): the stretcher is on the try, not the touchdown (TD ${inj.try.tdCrews}, try ${inj.try.tryCrews} for ${inj.try.team}-${inj.try.who})`]);
 
+    /* ===================== (i1) touchbacks, kicks out of bounds, fair catches, facing ===================== */
+    // 2026-09-28, user: "last play of the broncos game: Stafford pass deep right intended for Adams
+    // INTERCEPTED by Hufanga at DEN -1. Touchback. Our animation shows him catching the ball in the
+    // endzone but then running it to the 20 yard line and getting tackled … incomplete passes should
+    // use the same card color as complete ones … If a punt or kick goes out of bounds animation should
+    // show that. if its a fair catch, ball should always land on the returner. quarterback should
+    // always face towards the line of scrimmage. all players should face into the huddle, not out of
+    // it." inttb-401872962.json is LAR @ DEN's real last drive (5085 is that play; ESPN's end spot for
+    // it is the DEN 20, the touchback spot). From ATL @ GB: 133 is an interception really returned 5
+    // yards (to the GB 45); 2215 "punts 48 yards to ATL 11, … out of bounds"; 400, 1317, 1463 and 3166
+    // are fair catches.
+    section("Touchbacks, kicks out of bounds, fair catches, facing");
+    const tbFix = JSON.parse(fs.readFileSync(path.join(FIX, "inttb-401872962.json"), "utf8"));
+    const fx = await page.evaluate((fixture, den) => {
+      const out = {};
+      const keep = G;
+      const tryIt = (k, fn) => { try { fn(); } catch (e) { out[k] = { err: String(e.message || e) }; } };
+      const game = (f) => {
+        const comp = f.header.competitions[0];
+        const ev = { id: "x", home: normTeam(comp.competitors.find((c) => c.homeAway === "home")), away: normTeam(comp.competitors.find((c) => c.homeAway === "away")) };
+        const rows = [];
+        for (const dr of f.drives.previous || []) for (const raw of dr.plays || []) rows.push({ raw, teamId: dr.team?.id });
+        const np = (id) => { const r = rows.find((q) => q.raw.id === id); return normPlay(r.raw, ev.home.id, r.teamId, ev.home.abbr); };
+        return { ev, np, rows };
+      };
+      const A = game(fixture), B = game(den);
+      const pos = (a, t) => raPos(a, t);
+      // Frames drawn on a canvas as wide as the whole world, camera at 0, so nobody is culled and every
+      // player's facing is worked out each frame exactly as on screen.
+      const cv = document.createElement("canvas"); cv.width = RA_WORLD_W; cv.height = RA_WORLD_H;
+      const g = cv.getContext("2d");
+      const frames = (sc, t0, t1, fn, dt = 0.1) => { const st = { sc, t: 0, cam: { x: 0, y: 0 }, shown: new Set() }; for (let t = 0; t <= t1 + 1e-9; t += dt) { st.t = t; raDraw(g, cv.width, st); if (t >= t0) fn(t, st); } };
+      tryIt("intTB", () => {
+        G = { ev: B.ev };
+        const p = B.np("4018729625085"), sc = raBuild(p, B.ev, new Set());
+        const hawk = sc.actors.find((a) => a.who?.last === "Hufanga");
+        const zs = []; for (let t = sc.tS; t <= sc.T; t += 0.1) zs.push(pos(hawk, t)[1]);
+        const tCatch = sc.ball.find((q) => q.a === hawk)?.t0;
+        out.intTB = { found: !!hawk, zCatch: +pos(hawk, tCatch)[1].toFixed(2), minZafter: +Math.min(...zs.filter((_, i) => sc.tS + i * 0.1 >= tCatch)).toFixed(2), down: raPoseAt(sc, hawk, sc.tEnd + 0.4),
+          banners: sc.events.filter((e) => e.kind === "banner").map((e) => e.title).join("|"), zEndText: p.eH };
+      });
+      tryIt("intRet", () => {
+        G = { ev: A.ev };
+        const sc = raBuild(A.np("401872948133"), A.ev, new Set());
+        const hawk = sc.actors.find((a) => a.who?.last === "McKinney");
+        out.intRet = { endZ: +pos(hawk, sc.tEnd)[1].toFixed(2), z0: sc.z0, banners: sc.events.filter((e) => e.kind === "banner").map((e) => e.title).join("|") };
+      });
+      tryIt("incSide", () => {
+        G = { ev: A.ev };
+        const inc = A.rows.filter((r) => /pass incomplete/i.test(r.raw.text || "") && !/PENALTY/.test(r.raw.text));
+        const sides = inc.map((r) => raBuild(A.np(r.raw.id), A.ev, new Set()).events.find((e) => e.kind === "banner" && e.title === "Incomplete")?.side);
+        out.incSide = { n: inc.length, sides: [...new Set(sides)] };
+      });
+      tryIt("puntOob", () => {
+        G = { ev: A.ev };
+        const p = A.np("4018729482215"), sc = raBuild(p, A.ev, new Set());
+        const segs = sc.ball.filter((q) => q.from && q.t0 >= sc.kick.tL - 0.01);
+        const last = segs[segs.length - 1], land = sc.ball.find((q) => q.from && Math.abs(q.t1 - sc.kick.tL) < 1e-6);
+        out.puntOob = { landX: land ? +land.to[0].toFixed(2) : null, outX: last ? +last.to[0].toFixed(2) : null, outZ: last ? +last.to[1].toFixed(2) : null, spotZ: sc.offHome ? p.eH : 100 - p.eH,
+          sub: sc.events.filter((e) => e.kind === "banner").map((e) => e.sub).join("|") };
+      });
+      tryIt("fair", () => {
+        G = { ev: A.ev };
+        out.fair = ["401872948400", "4018729481317", "4018729481463", "4018729483166"].map((id) => {
+          const sc = raBuild(A.np(id), A.ev, new Set()), tL = sc.kick.tL;
+          const hold = sc.ball.find((q) => q.a && Math.abs(q.t0 - tL) < 1e-6), land = sc.ball.find((q) => q.from && Math.abs(q.t1 - tL) < 1e-6);
+          const [rx, rz] = pos(hold.a, tL);
+          return +Math.hypot(land.to[0] - rx, land.to[1] - rz).toFixed(3);
+        });
+      });
+      tryIt("qbFace", () => {
+        G = { ev: A.ev };
+        const passes = A.rows.filter((r) => /\bpass\b/.test(r.raw.text || "") && !/PENALTY|INTERCEPT|sacked/i.test(r.raw.text) && r.raw.type?.text !== "Two-point Conversion").slice(0, 14);
+        let frames_ = 0, wrong = 0; const bad = [];
+        for (const r of passes) {
+          const sc = raBuild(A.np(r.raw.id), A.ev, new Set()), qb = sc.actors.find((a) => a.role === "QB" && a.side === "o");
+          const attackRight = !sc.offHome;
+          frames(sc, sc.tS, (sc.tEnd ?? sc.T) - 0.05, () => { frames_++; if (qb.drawn && qb.drawn.flip !== !attackRight) { wrong++; if (bad.length < 3) bad.push(r.raw.id); } });
+        }
+        out.qbFace = { plays: passes.length, frames: frames_, wrong, bad: [...new Set(bad)] };
+      });
+      tryIt("huddle", () => {
+        G = { ev: A.ev };
+        const prev = raBuild(A.np("40187294863"), A.ev, new Set());          // Robinson's 4-yd run, then ATL huddle at its 34
+        const hs = raHuddle(prev, A.ev, { possession: A.ev.away.id, yardLine: 66, down: 2, distance: 6, downDistanceText: "2nd & 6" });
+        let n = 0, wrong = 0;
+        frames(hs, hs.arrived + 0.4, hs.arrived + 0.55, (t, st) => {
+          const cx = st.cam.x, cy = st.cam.y;
+          const S = (x, z) => raSX(hs.offHome ? z : 100 - z) - cx;
+          for (const a of hs.actors) {
+            const [x, z] = pos(a, t), sx = S(x, z), hx = S(...hs.hud[a.side]);
+            if (Math.abs(hx - sx) <= RA_K) continue;
+            n++; if (a.drawn.flip !== (hx < sx)) wrong++;
+          }
+        });
+        // The next snap starts from that huddle: still facing its middle for the first half second.
+        const next = raBuild(A.np("40187294885"), A.ev, new Set(), { from: hs, fromT: hs.arrived + 1 });
+        let n2 = 0, wrong2 = 0;
+        frames(next, 0.3, 0.36, (t, st) => {
+          for (const a of next.actors) {
+            if ((a.side !== "o" && a.side !== "d") || !next.hud) continue;
+            const [x, z] = pos(a, t), sx = raSX(next.offHome ? z : 100 - z), hx = raSX(next.offHome ? next.hud[a.side][1] : 100 - next.hud[a.side][1]);
+            if (Math.abs(hx - sx) <= RA_K) continue;
+            n2++; if (a.drawn.flip !== (hx < sx)) wrong2++;
+          }
+        });
+        out.huddle = { n, wrong, n2, wrong2, hasHud: !!next.hud };
+      });
+      G = keep;
+      return out;
+    }, sumFixture, tbFix);
+    const FX = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${e.message} ${JSON.stringify(fx).slice(0, 200)})`]; } ok(r[0], r[1]); };
+    FX(() => [fx.intTB.found && fx.intTB.zCatch >= 100 && fx.intTB.zCatch <= 102.5 && fx.intTB.minZafter >= 100, `LAR @ DEN 5085, a touchback: Hufanga catches it a yard deep in the end zone ("at DEN -1") and never leaves it (caught ${fx.intTB.zCatch}, lowest after ${fx.intTB.minZafter}; the goal line is 100, ESPN's end spot ${fx.intTB.zEndText} is the touchback's 20)${fx.intTB.err ? " " + fx.intTB.err : ""}`]);
+    FX(() => [fx.intTB.down === "down" && /Intercepted/.test(fx.intTB.banners) && /Touchback/.test(fx.intTB.banners), `…he takes a knee there and it reads Intercepted, then Touchback (${fx.intTB.down}; ${fx.intTB.banners})`]);
+    FX(() => [Math.abs(fx.intRet.endZ - (fx.intRet.z0 + 0)) >= 0 && /Intercepted/.test(fx.intRet.banners) && !/Touchback/.test(fx.intRet.banners) && fx.intRet.endZ < 100, `…a real return still runs: McKinney's 5 yards on 133 end at the GB 45 (z ${fx.intRet.endZ}), no touchback (${fx.intRet.banners})`]);
+    FX(() => [fx.incSide.n >= 10 && fx.incSide.sides.length === 1 && fx.incSide.sides[0] === "o", `every "Incomplete" card is in the offense's colour, as a completion's is (${fx.incSide.n} incompletions: ${JSON.stringify(fx.incSide.sides)})`]);
+    FX(() => [Math.abs(fx.puntOob.landX) >= 19 && Math.abs(fx.puntOob.outX) > 26.67 && Math.abs(fx.puntOob.outZ - fx.puntOob.spotZ) <= 1.01 && /Out of bounds/.test(fx.puntOob.sub),
+      `2215, punted out of bounds: it comes down by the sideline (x ${fx.puntOob.landX}) and goes over it (x ${fx.puntOob.outX}; the sideline is 26.67) at the ATL 11 (z ${fx.puntOob.outZ} vs ${fx.puntOob.spotZ})`]);
+    FX(() => [fx.fair.every((d) => d < 0.01), `a fair catch comes down on the returner, every time (400, 1317, 1463, 3166: ${fx.fair.join(", ")} yd from him)`]);
+    FX(() => [fx.qbFace.plays >= 10 && fx.qbFace.wrong === 0, `the QB faces the line of scrimmage through every pass play, drop-back included (${fx.qbFace.plays} plays, ${fx.qbFace.frames} frames, ${fx.qbFace.wrong} facing away${fx.qbFace.bad.length ? ": " + fx.qbFace.bad.join(", ") : ""})`]);
+    FX(() => [fx.huddle.n >= 18 && fx.huddle.wrong === 0, `in the huddles everyone faces its middle (${fx.huddle.n} players, ${fx.huddle.wrong} facing out)`]);
+    FX(() => [fx.huddle.hasHud && fx.huddle.n2 >= 15 && fx.huddle.wrong2 === 0, `…and still does as the next snap's scene starts, before they break (${fx.huddle.n2} players, ${fx.huddle.wrong2} facing out)`]);
+
     /* ===================== (i2) real play detail: nflverse + FTN ===================== */
     // 2026-09-28, user: "do some looking to see if there is play by play data available anywhere after
     // the game that gives us more fidelity on exactly what happened on a given play that we could
