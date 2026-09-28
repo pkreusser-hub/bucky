@@ -6,6 +6,9 @@
 /* ═════════════ Reading a play ═════════════ */
 const RAX = 26.67;                                   // half the field's width, in yards
 const raX = (x) => clamp(x, -RAX + 1, RAX - 1);
+// Goalposts: the uprights stand on the end line (10 yards behind the goal line), 18'6" apart, the
+// crossbar 10 ft up, the uprights reaching 35 ft above it.
+const RA_POST = 110, RA_UPRIGHT = 3.083, RA_BAR = 3.333, RA_POST_TOP = 15;
 // The continuation clause excludes ESPN's own ALL-CAPS markers (INTERCEPTED, TOUCHDOWN, FUMBLES,
 // PENALTY, REVERSED, SAFETY) — without this a name greedily swallows a following marker word,
 // since an all-caps word is itself valid title-case-shaped text ("J.Dotson INTERCEPTED").
@@ -27,6 +30,9 @@ function raRng(seed) {
 function raParse(p, ev) {
   let t = cleanText(p.text).replace(/\s+/g, ' ');
   const gun = /shotgun|pistol/i.test(t);
+  // The formation tag ESPN copies from the gamebook: "(Shotgun)", "(No Huddle, Shotgun)", "(Pistol)".
+  // NFL text never says "Under Center"; a snap with no tag is taken from under center.
+  const form = /\bpistol\b/i.test(t) ? 'pistol' : /shotgun/i.test(t) ? 'gun' : 'under';
   t = t.replace(/^(?:No Huddle[- ]?)?(?:Shotgun|Pistol|Under Center|Wildcat)?\s*/i, '');
   // ESPN sometimes glues the next few snaps onto a scoring play; keep only the first.
   t = t.replace(/\s\(\d{1,2}:\d{2}\)\s[\s\S]*$/, '');
@@ -80,7 +86,7 @@ function raParse(p, ev) {
   const tt = p.typeText || '';
   const hasFumble = /\bFUMBLES?\b/i.test(t);
   return {
-    text: t, gun,
+    text: t, gun, form,
     depth: dm[1] || '', dir: dm[2] === 'up the middle' ? 'middle' : dm[2] || '', gap: dm[3] || '',
     passer: get(RA_PL + ' pass\\b'),
     // "pass ... to X" (complete) or "pass ... intended for X" (incomplete/intercepted).
@@ -119,6 +125,9 @@ function raParse(p, ev) {
     fgYds: +(/field goal attempt from (\d+)|(\d+) (?:yd|yard) (?:field goal|FG)/.exec(t)?.slice(1).find(Boolean) ?? NaN),
     good: /\bgood\b/i.test(t + ' ' + tt) && !/no good|missed|blocked|failed/i.test(t + ' ' + tt),
     wide: /wide (left|right)/i.exec(t)?.[1]?.toLowerCase() || '',
+    short: /\bshort\b/i.test(t) && /field goal|extra point/i.test(t),
+    upright: /hit (?:the )?(left|right) upright|(left|right) upright/i.exec(t)?.slice(1).find(Boolean)?.toLowerCase() || (/crossbar/i.test(t) ? 'bar' : ''),
+    blocker: get('BLOCKED \\(' + RA_PL),
     blocked: /blocked/i.test(t + ' ' + tt),
     fair: /fair catch/i.test(t),
     touchback: /touchback/i.test(t),
@@ -179,8 +188,10 @@ function raBuild(p, ev, qbs, opts = {}) {
   if (I.kneel) kind = 'kneel';
   const isPAT = /extra point|kick attempt|pat\b/i.test(p.typeText) || (kind === 'fg' && p.sH == null);
   let z0 = Z(p.sH);
-  if (z0 == null) z0 = isPAT || I.twoPt ? 97 : kind === 'kickoff' ? 35 : 25;
-  if (isPAT && z0 < 80) z0 = 97;
+  if (z0 == null) z0 = kind === 'kickoff' ? 35 : 25;
+  // NFL tries: a kick is snapped from the 15 (a 33-yard kick), a two-point try from the 2.
+  if (isPAT && !I.twoPt) z0 = 85;
+  else if (I.twoPt && (p.pat || p.sH == null)) z0 = 98;       // (a TD whose text carries the try keeps its own spot)
   let zEnd = Z(p.eH);
   // The play's own end (the end spot less any penalty yards walked off afterwards).
   const zPlay = p.yards != null && p.penYards ? z0 + p.yards : zEnd ?? z0 + (p.yards || 0);
@@ -206,7 +217,7 @@ function raBuild(p, ev, qbs, opts = {}) {
   // Run to a point at a football speed; returns the arrival time.
   const run = (a, t0, x, z, v = 8, e = 0) => { hold(a, t0); const [ax, az] = raPos(a, t0); const t1 = Math.max(t0, lastT(a)) + Math.max(0.25, Math.hypot(x - ax, z - az) / v); go(a, t1, x, z, e); return t1; };
   const ballHold = (a, t0, t1) => sc.ball.push({ t0, t1, a });
-  const ballFly = (t0, t1, from, to, apex) => sc.ball.push({ t0, t1, from, to, apex });
+  const ballFly = (t0, t1, from, to, apex, roll) => sc.ball.push({ t0, t1, from, to, apex, roll });
   const banner = (t, title, sub, side) => sc.events.push({ t, kind: 'banner', title, sub, side });
   const off = {}, def = {};
   const who = (a, w) => { if (a && w) a.who = w; };
@@ -255,7 +266,7 @@ function raBuild(p, ev, qbs, opts = {}) {
       who(cand, w);
       const i = chosen.length - 1;
       const [cx, cz] = raPos(cand, tE - 0.8);
-      const lead = clamp(Math.hypot(cx - xE, cz - zE) / 8.5, 0.5, Math.max(0.5, tE - tS - 0.2));
+      const lead = clamp(Math.hypot(cx - xE, cz - zE) / 8.5, 0.5, Math.max(0.5, tE - Math.max(tS, sc.freeze ?? 0) - 0.2));
       chaseUntil(cand, tE - lead);
       cut(cand, tE - lead);
       const toward = Math.sign(cz - zE) || 1;
@@ -268,25 +279,78 @@ function raBuild(p, ev, qbs, opts = {}) {
   };
 
   /* Formations */
+  // Eleven a side, set the way the play text says. Offense: five linemen on the ball (center over
+  // it, ~1.35-yd splits, three-point stances); the QB under center (1.2 yd), in the shotgun (5) or
+  // the pistol (4, back behind him); the personnel from the formation: shotgun passes go 11, 10 or
+  // empty; under-center snaps go 21 (I or offset), 12 or 22. Defense: four down linemen just off
+  // the ball, LBs 4-5 deep, a corner over every wide receiver 5-7 off, two safeties 10-13 deep;
+  // nickel against three receivers, dime against four or more.
   const scrimmage = () => {
+    const form = kind === 'set' ? 'gun' : I.form;
+    const passy = ['pass', 'incomplete', 'int', 'sack'].includes(kind);
+    const r0 = rng();
+    let [nWR, nTE, nB] = form !== 'under'
+      ? passy ? (r0 < 0.62 ? [3, 1, 1] : r0 < 0.86 ? [4, 0, 1] : r0 < 0.94 ? [2, 2, 1] : [4, 0, 0]) : (r0 < 0.72 ? [3, 1, 1] : [2, 2, 1])
+      : (r0 < 0.45 ? [2, 1, 2] : r0 < 0.8 ? [2, 2, 1] : r0 < 0.92 ? [1, 2, 2] : [3, 1, 1]);
+    if (form === 'pistol' && nB === 0) [nWR, nB] = [4, 1];
     const teSide = rng() < 0.5 ? -1 : 1;
-    off.C = P('o', 'OL', x0, z0 - 0.8);
-    off.LG = P('o', 'OL', x0 - 1.9, z0 - 1); off.RG = P('o', 'OL', x0 + 1.9, z0 - 1);
-    off.LT = P('o', 'OL', x0 - 3.8, z0 - 1.2); off.RT = P('o', 'OL', x0 + 3.8, z0 - 1.2);
-    off.TE = P('o', 'TE', x0 + teSide * 5.9, z0 - 1.3);
-    off.QB = P('o', 'QB', x0, z0 - (I.gun ? 5 : 1.4));
-    off.RB = P('o', 'RB', x0 - (I.gun ? teSide * 1.8 : 0), z0 - (I.gun ? 5.2 : 6.8));
-    off.WL = P('o', 'WR', Math.min(x0 - 9, -18.5 + R(-2, 2)), z0 - 1);
-    off.WR = P('o', 'WR', Math.max(x0 + 9, 18.5 + R(-2, 2)), z0 - 1);
-    const slotX = -teSide > 0 ? (x0 + 5 + raPos(off.WR, 0)[0]) / 2 : (x0 - 5 + raPos(off.WL, 0)[0]) / 2;
-    off.SL = P('o', 'WR', slotX, z0 - 1.4);
-    def.DL = [-4.6, -1.2, 1.2, 4.6].map((dx) => P('d', 'DL', x0 + dx, z0 + 1));
-    def.LB = [-3.4, 3.4].map((dx) => P('d', 'LB', x0 + dx, z0 + 5));
-    def.NB = P('d', 'DB', raPos(off.SL, 0)[0], z0 + 5.5);
-    def.CL = P('d', 'DB', raPos(off.WL, 0)[0] + 0.5, z0 + 6.5);
-    def.CR = P('d', 'DB', raPos(off.WR, 0)[0] - 0.5, z0 + 6.5);
-    def.S = [-8, 8].map((dx) => P('d', 'DB', x0 + dx, Math.min(z0 + 13, 108)));
+    const deep = (d) => Math.min(z0 + d, 109.3);                      // nobody lines up past the end line
+    const oSet = (a, s) => { a.set = s; return a; };
+    off.C = oSet(P('o', 'OL', x0, z0 - 0.6), 'snap');
+    off.LG = oSet(P('o', 'OL', x0 - 1.35, z0 - 0.85), 'stance'); off.RG = oSet(P('o', 'OL', x0 + 1.35, z0 - 0.85), 'stance');
+    off.LT = oSet(P('o', 'OL', x0 - 2.7, z0 - 0.95), 'stance'); off.RT = oSet(P('o', 'OL', x0 + 2.7, z0 - 0.95), 'stance');
     off.OL = [off.LT, off.LG, off.C, off.RG, off.RT];
+    // Tight ends: inline beside a tackle, the second on the other side, a third as a wing.
+    off.TEs = [];
+    for (let i = 0; i < nTE; i++) {
+      const s = i === 1 ? -teSide : teSide, wing = i === 2;
+      off.TEs.push(oSet(P('o', 'TE', x0 + s * (wing ? 5.1 : 4.05), z0 - (wing ? 1.9 : 0.95)), wing ? 'ready' : 'stance'));
+    }
+    off.TE = off.TEs[0];
+    // Receivers: the widest on each side inside the numbers, slots between them and the box.
+    const strong = nTE ? -teSide : (rng() < 0.5 ? -1 : 1);             // the side with more receivers
+    const sides = [];
+    for (let i = 0; i < nWR; i++) sides.push(i === 0 ? strong : i === 1 ? -strong : i % 2 ? -strong : strong);
+    const onSide = { '-1': 0, '1': 0 };
+    off.WRs = sides.map((s) => {
+      const n = onSide[s]++;
+      const x = s * (n === 0 ? R(17, 20.5) : n === 1 ? R(9.5, 12) : 6.8);
+      return oSet(P('o', 'WR', x0 * 0.4 + x, z0 - (n === 0 && s === strong ? 0.9 : 1.6)), 'ready');
+    });
+    const wide = (s) => off.WRs.filter((w) => Math.sign(w.k[0][1] - x0) === s).sort((a, b) => Math.abs(b.k[0][1]) - Math.abs(a.k[0][1]))[0];
+    off.WL = wide(-1); off.WR = wide(1);
+    off.SL = off.WRs.find((w) => w !== off.WL && w !== off.WR);
+    // Backfield.
+    if (form === 'under') off.QB = oSet(P('o', 'QB', x0, z0 - 1.2), 'qbUnder');
+    else off.QB = oSet(P('o', 'QB', x0, z0 - (form === 'pistol' ? 4 : 5)), 'gun');
+    off.FB = null;
+    if (nB === 0) off.RB = oSet(P('o', 'RB', x0 + teSide * 7, z0 - 1.4), 'ready');          // empty: the back splits out
+    else if (form === 'pistol') off.RB = oSet(P('o', 'RB', x0, z0 - 7), 'ready');
+    else if (form !== 'under') off.RB = oSet(P('o', 'RB', x0 + (rng() < 0.5 ? -1 : 1) * 1.6, z0 - 5.1), 'ready');
+    else {
+      if (nB === 2) off.FB = oSet(P('o', 'FB', x0 + (rng() < 0.6 ? 0 : teSide * 1.5), z0 - 4.3), 'ready');
+      off.RB = oSet(P('o', 'RB', x0, z0 - 7), 'ready');
+    }
+    off.rcv = [...off.WRs, ...off.TEs, ...(nB === 0 ? [off.RB] : [])];
+    // Defense.
+    const dSet = (a, s) => { a.set = s; return a; };
+    const edge = Math.max(3.6, ...off.TEs.filter((t) => t.role === 'TE').map((t) => Math.abs(t.k[0][1] - x0) - 0.2));
+    def.DL = [-(edge + 1), -1.25, 1.25, edge + 1].map((dx) => dSet(P('d', 'DL', x0 + dx, z0 + 1.05), 'stance'));
+    const nRec = off.WRs.length + (nB === 0 ? 1 : 0);
+    const nLB = nRec >= 4 ? 1 : nRec === 3 ? 2 : 3;
+    def.LB = (nLB === 3 ? [-3.6, 0.3, 3.8] : nLB === 2 ? [-2.4, 2.4] : [0]).map((dx) => dSet(P('d', 'LB', x0 + dx, deep(R(4.2, 5))), 'ready'));
+    // One defensive back per receiver, widest first, up to the 11th man; the rest are the safeties.
+    def.man = new Map();
+    const outs = [...off.WRs, ...(nB === 0 ? [off.RB] : [])].sort((a, b) => Math.abs(b.k[0][1] - x0) - Math.abs(a.k[0][1] - x0));
+    const nCB = 11 - 4 - nLB - 2;
+    outs.slice(0, nCB).forEach((w) => {
+      const [wx] = w.k[0].slice(1), inside = -Math.sign(wx - x0) * 0.6;
+      const wideOut = Math.abs(wx - x0) > 14;
+      def.man.set(w, dSet(P('d', 'DB', wx + inside, deep(wideOut ? R(5, 7) : R(4.5, 5.5))), 'ready'));
+    });
+    for (let i = def.man.size; i < nCB; i++) def.LB.push(dSet(P('d', 'LB', x0 + (i % 2 ? -5 : 5), deep(5.5)), 'ready'));
+    def.CL = def.man.get(off.WL); def.CR = def.man.get(off.WR); def.NB = off.SL ? def.man.get(off.SL) : null;
+    def.S = [-1, 1].map((s) => dSet(P('d', 'DB', x0 + s * R(7, 9.5), deep(R(10.5, 12.5))), 'ready'));
   };
   const snapTo = (a, t, dur = 0.3) => { ballHold(off.C, 0, t); const [x, z] = raPos(a, t + dur); ballFly(t, t + dur, [x0, z0 - 0.5, 0.3], [x, z, 1.1], 0.2); return t + dur; };
   const allDef = () => sc.actors.filter((a) => a.side === 'd');
@@ -313,8 +377,8 @@ function raBuild(p, ev, qbs, opts = {}) {
   };
   // Receivers not involved run something believable; corners and safeties shadow them.
   const decoys = (skip, tEnd) => {
-    for (const w of [off.WL, off.WR, off.SL, off.TE]) {
-      if (skip.includes(w)) continue;
+    for (const w of off.rcv) {
+      if (!w || skip.includes(w)) continue;
       const [x, z] = raPos(w, 0);
       const route = pick(['go', 'out', 'in', 'curl']);
       const deep = route === 'go' ? R(18, 26) : R(8, 13);
@@ -442,7 +506,7 @@ function raBuild(p, ev, qbs, opts = {}) {
     const qbCarry = kind === 'kneel' || /scramble/.test(I.text) || (I.rusher && qbs.has(`${p.offId}:${I.rusher.num || I.rusher.name}`));
     const car = qbCarry ? off.QB : off.RB;
     who(car, I.rusher);
-    const tHand = snapTo(off.QB, tS, I.gun ? 0.3 : 0.08);
+    const tHand = snapTo(off.QB, tS, I.form !== 'under' ? 0.3 : 0.08);
     if (kind === 'kneel') {
       go(off.QB, tS + 0.5, x0, z0 - 1.6, 1); off.QB.downAt = tS + 0.6; ballHold(off.QB, tHand, 99);
       banner(tS + 0.8, 'Kneel', 'Clock running', 'o');
@@ -455,8 +519,9 @@ function raBuild(p, ev, qbs, opts = {}) {
       let t = tHand;
       if (!qbCarry) {
         const [qx, qz] = raPos(off.QB, 0);
-        const mesh = [qx + side * 0.9, qz + (I.gun ? 0 : -3)];
-        go(off.QB, tS + 0.45, qx + side * 0.4, qz + (I.gun ? 0 : -2.5));
+        const under = I.form === 'under', pistol = I.form === 'pistol';
+        const mesh = [qx + side * 0.9, qz + (under ? -3 : pistol ? -0.8 : 0)];
+        go(off.QB, tS + 0.45, qx + side * 0.4, qz + (under ? -2.5 : 0));
         t = go(car, tS + 0.55, mesh[0], mesh[1], 1);
         ballHold(off.QB, tHand, t); go(off.QB, tS + 1.6, qx - side * 3, qz - 1.2, 1);
       }
@@ -473,8 +538,10 @@ function raBuild(p, ev, qbs, opts = {}) {
         tE = go(car, tM + Math.hypot(xE - xM, zF - zM) / v, xE, zF, I.td ? 2 : 0);
       }
       linePlay(false, side, null, Math.min(tE, tS + 2.2));
-      const [tx] = raPos(off.TE, 0); go(off.TE, tS + 0.5, tx, z0 - 0.2); go(off.TE, tS + 2, tx + side, z0 + 1.6);
-      for (const [w, cb] of [[off.WL, def.CL], [off.WR, def.CR], [off.SL, def.NB]]) { const [wx] = raPos(w, 0); go(w, tS + 1.4, wx + R(-1, 1), z0 + R(4, 6)); const [cx] = raPos(cb, 0); go(cb, tS + 1.4, cx + R(-1, 1), z0 + R(5.5, 7.5)); }
+      for (const te of off.TEs) { const [tx, tz] = raPos(te, 0); go(te, tS + 0.5, tx, Math.max(tz, z0 - 0.2)); go(te, tS + 2, tx + side, z0 + 1.6); }
+      if (off.FB && off.FB !== car) { const [fx, fz] = raPos(off.FB, 0); go(off.FB, tS + 0.5, fx + (holeX - fx) * 0.5, fz + 2); go(off.FB, tS + 1.1, holeX + side * 0.6, z0 + 0.8, 2); }
+      // Receivers stalk-block the man over them.
+      for (const [w, cb] of def.man) { const [wx] = raPos(w, 0); go(w, tS + 1.4, wx + R(-1, 1), z0 + R(4, 6)); const [cx] = raPos(cb, 0); go(cb, tS + 1.4, cx + R(-1, 1), z0 + R(5.5, 7.5)); }
       def.LB.forEach((a) => { const [x] = raPos(a, 0); go(a, tS + 0.8, x + (holeX - x) * 0.5, z0 + 3.2); });
       def.S.forEach((a) => { const [x, z] = raPos(a, 0); go(a, tS + 1.2, x + (holeX - x) * 0.3, z - 2); });
       if (zFum != null) { T = fumble(car, tE) + 2; } else {
@@ -487,9 +554,12 @@ function raBuild(p, ev, qbs, opts = {}) {
   } else if (kind === 'pass' || kind === 'incomplete' || kind === 'int' || kind === 'sack') {
     scrimmage();
     who(off.QB, I.passer || I.sacked);
-    const tHand = snapTo(off.QB, tS, I.gun ? 0.3 : 0.08);
+    const gunSnap = I.form !== 'under';
+    const tHand = snapTo(off.QB, tS, gunSnap ? 0.3 : 0.08);
     const [qx, qz] = raPos(off.QB, 0);
-    go(off.QB, tS + (I.gun ? 0.7 : 1.1), qx, I.gun ? qz - 1.6 : z0 - 7, 2);
+    go(off.QB, tS + (gunSnap ? 0.7 : 1.1), qx, gunSnap ? qz - 1.6 : z0 - 7, 2);
+    // The backs stay in to block unless the ball goes to one of them.
+    for (const bk of [off.RB, off.FB]) if (bk && !off.rcv.includes(bk)) { const [bx, bz] = raPos(bk, 0); go(bk, tS + 0.6, bx + R(-1.2, 1.2), Math.max(bz + 0.8, raPos(off.QB, tS + 1)[1] + 1.2)); }
     ballHold(off.QB, tHand, 99);
     const deep = I.depth === 'deep';
     if (kind === 'sack') {
@@ -498,7 +568,7 @@ function raBuild(p, ev, qbs, opts = {}) {
       go(off.QB, tSack, raPos(off.QB, tSack - 0.7)[0] + R(-2, 2), Math.min(zFum ?? zPlay, z0 - 0.5), 2);
       linePlay(true, 0, off.QB, tSack - 0.4);
       decoys([], tSack + 0.5);
-      cover([[def.CL, off.WL], [def.CR, off.WR], [def.NB, off.SL]], tSack + 0.5);
+      cover([...def.man].map(([w, cb]) => [cb, w]), tSack + 0.5);
       drop([...def.LB, ...def.S], tSack, 9);
       sc.ball.at(-1).t1 = 99;
       if (zFum != null) { banner(tSack - 0.1, 'Sack', '', 'd'); T = fumble(off.QB, tSack) + 2; }
@@ -509,19 +579,22 @@ function raBuild(p, ev, qbs, opts = {}) {
       }
     } else {
       const tThrow = tS + (deep ? 2.35 : 1.55) + R(0, 0.35);
+      // A target this game has also run the ball is a back: the ball goes to the back out of the backfield,
+      // caught near the line (most of the gain comes after the catch).
+      const tgtBack = I.target && [off.RB, off.FB].find((b) => b && qbs.has(`rb:${p.offId}:${I.target.num || I.target.name}`));
       const zT = Z(kind === 'int' ? I.intH : kind === 'incomplete' ? I.thrownH : I.catchH)
-        ?? z0 + (kind === 'pass' ? clamp((p.yards || 5) * (deep ? 0.85 : 0.6), -3, 45) : deep ? R(22, 32) : R(6, 12));
+        ?? z0 + (kind === 'pass' ? clamp((p.yards || 5) * (deep ? 0.85 : tgtBack ? 0.25 : 0.6), -3, 45) : deep ? R(22, 32) : R(6, 12));
       const lanes = { left: [-RAX + 4, x0 - 7], right: [x0 + 7, RAX - 4], middle: [x0 - 4, x0 + 4] };
       const lane = lanes[I.dir] || pick([lanes.left, lanes.right, lanes.middle]);
       const xT = raX(R(lane[0], lane[1]) * (zT - z0 < 2 && I.dir !== 'middle' ? 0.8 : 1));
-      const cands = [off.WL, off.WR, off.SL, off.TE, ...(zT - z0 < 4 ? [off.RB] : [])];
-      const rec = nearest(cands, xT, zT, 0).find((a) => kind !== 'incomplete' || true);
+      const cands = [...off.rcv, ...(zT - z0 < 4 ? [off.RB, off.FB].filter(Boolean) : [])];
+      const rec = tgtBack || nearest(cands, xT, zT, 0)[0];
       who(rec, I.target);
       const [qtx, qtz] = raPos(off.QB, tThrow);
       const dist = Math.hypot(xT - qtx, zT - qtz);
       const tCatch = tThrow + 0.3 + dist * 0.03;
       const [rx, rz] = raPos(rec, 0);
-      if (rec === off.RB) { go(rec, tS + 0.6, rx + Math.sign(xT - rx || 1) * 2, rz + 0.5); }
+      if (rec === off.RB || rec === off.FB) { go(rec, tS + 0.6, rx + Math.sign(xT - rx || 1) * 2, rz + 0.5); }
       else go(rec, tS + (tCatch - tS) * 0.6, rx + (xT - rx) * 0.15, rz + (zT - rz) * 0.78, 0);
       go(rec, tCatch, xT, zT, 0);
       rec.labelAt = tThrow - 0.3;
@@ -529,9 +602,11 @@ function raBuild(p, ev, qbs, opts = {}) {
       const apex = clamp(0.8 + dist * 0.07, 1, 7);
       ballFly(tThrow, tCatch, [qtx, qtz, 2], [xT, zT, 1.2], apex);
       linePlay(true, 0, off.QB, tThrow + 0.3);
-      if (rec !== off.RB) { const [bx, bz] = raPos(off.RB, 0); go(off.RB, tS + 0.6, bx + R(-1.5, 1.5), bz + 0.8); }
       decoys([rec], tCatch + 0.8);
-      const cbFor = new Map([[off.WL, def.CL], [off.WR, def.CR], [off.SL, def.NB]]);
+      const cbFor = def.man;
+      // The throw (arm cocked, then the release) and the catch, hands up.
+      off.QB.acts = [[tThrow - 0.38, tThrow - 0.02, 'throw1'], [tThrow - 0.02, tThrow + 0.32, 'throw2']];
+      if (kind !== 'int') rec.acts = [[tCatch - 0.28, tCatch + 0.12, 'catch']];
       cover([...cbFor].filter(([w]) => w !== rec).map(([w, cb]) => [cb, w]), tCatch + 0.5);
       const shadow = cbFor.get(rec) || def.LB[0];
       cover([[shadow, rec]], tCatch - 0.3);
@@ -587,64 +662,123 @@ function raBuild(p, ev, qbs, opts = {}) {
     }
   } else if (kind === 'punt' || kind === 'kickoff') {
     const punt = kind === 'punt';
+    const setP = (a, s) => { a.set = s; return a; };
     let zL = Z(I.landH);
     const yds = isFinite(I.kickYds) ? I.kickYds : punt ? 42 : 62;
     if (zL == null) zL = z0 + yds;
     const xL = R(-9, 9);
-    let tK, kickFrom;
-    const K = punt ? P('o', 'K', x0, z0 - 14) : P('o', 'K', 0, z0 - 6);
+    let K, tK, kickFrom, cov, ret;
+    const blockers = [];
+    if (punt) {
+      // NFL spread punt: the long snapper and four linemen on the ball, three up-backs (the shield)
+      // five yards deep, two gunners split wide, the punter 15 deep. Return team: six in the box,
+      // two jammers on each gunner, the returner about 40 yards off the ball.
+      off.C = setP(P('o', 'OL', x0, z0 - 0.6), 'snap');
+      const line = [-2.8, -1.4, 1.4, 2.8].map((dx) => setP(P('o', 'OL', x0 + dx, z0 - 0.9), 'ready'));
+      const shield = [-1.4, 0, 1.4].map((dx) => setP(P('o', 'RB', x0 + dx, z0 - 5.3), 'ready'));
+      const gunners = [-1, 1].map((s) => setP(P('o', 'WR', s * R(20, 22.5), z0 - 0.9), 'ready'));
+      K = setP(P('o', 'K', x0, z0 - 15), 'gun');
+      cov = [...line, off.C, ...shield, ...gunners];
+      // The snap (0.72 s over 15 yards), two steps, the drop from his hands to his foot, the kick.
+      const tCatch = snapTo(K, tS, 0.72);
+      go(K, tCatch + 0.4, x0 + 0.1, z0 - 14.2, 0);
+      tK = go(K, tCatch + 1.0, x0 + 0.2, z0 - 13.3, 1);
+      ballHold(K, tCatch, tK - 0.14);
+      kickFrom = [x0 + 0.2, z0 - 12.75, 0.55];
+      ballFly(tK - 0.14, tK, [x0 + 0.5, z0 - 12.9, 1.05], kickFrom, 0);
+      K.acts = [[tK - 0.3, tK - 0.04, 'kick0'], [tK - 0.04, tK + 0.5, 'punt']];
+      const box = [-3.4, -1.2, 1.2, 3.4].map((dx) => setP(P('d', 'DL', x0 + dx, z0 + 1.05), 'stance'));
+      box.push(...[-2.6, 2.6].map((dx) => setP(P('d', 'LB', x0 + dx, z0 + 4.2), 'ready')));
+      box.forEach((a, i) => { const [x] = raPos(a, 0); go(a, tS + 0.9, x0 + (x - x0) * 0.6, i < 4 ? z0 - 2.5 : z0 + 1); });
+      // The jammers ride the gunners down the field.
+      gunners.forEach((gn) => [-1, 1].forEach((s) => {
+        const j = setP(P('d', 'DB', gn.k[0][1] + s * 1.1, z0 + 1.3), 'ready');
+        blockers.push([j, gn, s]);
+      }));
+      ret = setP(P('d', 'RB', xL + R(-3, 3), clamp(z0 + 40 + R(-2, 2), z0 + 25, 108)), 'ready');
+    } else {
+      // NFL dynamic kickoff (2024 rule; a touchback comes out to the 35 since 2025). The kicker alone at
+      // his 35, the ball on a tee; the other ten on the receiving team's 40, at least four each side;
+      // the receiving team's front nine in the setup zone (their 35 to their 30), seven of them on the
+      // 35; up to two returners in the landing zone (their goal line to their 20). Only the kicker may
+      // move until the ball comes down or is touched in the landing zone.
+      const zTee = z0, dz = z0 - 35;                                   // (a kick moved by a penalty moves the setup with it)
+      sc.camZ = zTee + 10.5;                                            // before the kick: the kicker and the line he kicks over
+      sc.kickoff = { tee: zTee, cover: 60 + dz, setup: [65 + dz, 70 + dz], landing: [80, 100], tbSpot: 65 };
+      K = setP(P('o', 'K', -1.5, zTee - 5), 'stand');
+      cov = [-21, -16.5, -12, -7.5, -3, 3, 7.5, 12, 16.5, 21].map((x) => setP(P('o', 'WR', x, 60 + dz), 'ready'));
+      const front = [-18, -12, -6, 0, 6, 12, 18].map((x) => setP(P('d', 'LB', x + R(-1, 1), 65.4 + dz), 'ready'));
+      const second = [-1, 1].map((s) => setP(P('d', 'DB', s * R(8, 11), R(67.5, 69.2) + dz), 'ready'));
+      ret = setP(P('d', 'RB', xL, clamp(zL + 0.4, 80.5, 108.5)), 'ready');
+      const ret2 = setP(P('d', 'RB', raX(xL + (xL > 0 ? -1 : 1) * R(7, 10)), clamp(Math.min(zL, 100) - R(5, 8), 80.5, 99)), 'ready');
+      ballFly(0, tS + 1.25, [0, zTee, 0.2], [0, zTee, 0.2], 0, 'tee');            // on the tee
+      go(K, tS + 0.55, -1, zTee - 2.8, 3);                               // the approach: a jog, then the last strides
+      tK = go(K, tS + 1.25, -0.35, zTee - 0.45, 0);
+      K.acts = [[tK - 0.22, tK - 0.03, 'kick0'], [tK - 0.03, tK + 0.45, 'kick']];
+      kickFrom = [0, zTee, 0.2];
+      go(K, tK + 1.3, -0.6, zTee + 3.5, 2);                              // his follow-through
+      front.concat(second, [ret2]).forEach((a) => blockers.push([a]));
+    }
     who(K, I.kicker);
     K.labelAt = 0;
-    const cov = [];
-    if (punt) {
-      const snapper = P('o', 'OL', x0, z0 - 0.8); off.C = snapper;
-      for (const dx of [-5.7, -3.8, -1.9, 1.9, 3.8, 5.7]) cov.push(P('o', 'OL', x0 + dx, z0 - 1));
-      const pp = P('o', 'RB', x0, z0 - 6);
-      const gunners = [-21.5, 21.5].map((x) => P('o', 'WR', x, z0 - 1));
-      cov.push(snapper, pp, ...gunners);
-      const tCatchSnap = snapTo(K, tS, 0.75);
-      go(K, tCatchSnap + 0.2, x0, z0 - 14);
-      tK = go(K, tCatchSnap + 1.05, x0 + 0.3, z0 - 12.2, 1);
-      ballHold(K, tCatchSnap, tK);
-      kickFrom = [x0 + 0.3, z0 - 11.6, 1.2];
-      for (const dx of [-8, -5.5, -3, -1, 1, 3, 5.5, 8]) { const a = P('d', 'DL', x0 + dx, z0 + 1); go(a, tS + 0.9, x0 + dx * 0.6, z0 - 2.5); }
-      [-21, 21].forEach((x, i) => { const j = P('d', 'DB', x, z0 + 2); go(j, tS + 1.5, gunners[i].k[0][1] + R(-1, 1), z0 + 8); });
-    } else {
-      ballFly(0, 0.01, [0, z0, 0], [0, z0, 0], 0);
-      tK = go(K, tS + 0.9, 0, z0 - 0.4, 0);
-      kickFrom = [0, z0, 0.2];
-      for (const x of [-23, -18, -13, -8.5, -4, 4, 8.5, 13, 18, 23]) { const a = P('o', 'WR', x, z0 - 1); go(a, tK, x, z0 - 0.2, 0); cov.push(a); }
-      for (const x of [-18, -9, 0, 9, 18]) P('d', 'DL', x, z0 + R(11, 15));
-      for (const x of [-15, -5, 5, 15]) P('d', 'LB', x, Math.min(z0 + 28, zL - 10));
-      P('d', 'DB', raX(-xL * 0.4), Math.min(zL - 5, 104));
-    }
-    const ret = P('d', 'RB', xL + R(-3, 3), Math.min(zL + R(1, 4), 108));
     who(ret, I.returner);
     const hang = (punt ? 0.9 : 0.8) + Math.abs(zL - kickFrom[1]) * (punt ? 0.055 : 0.05);
     const apex = punt ? 12 + yds * 0.2 : 16 + yds * 0.12;
     const tL = tK + hang;
+    if (!punt) sc.freeze = tL;                                         // nobody else moves until it comes down
     const tb = I.touchback || zL >= 100;
-    // Coverage team sprints down the field; gunners get there first.
     // Coverage sprints to where the return will end (or to the landing spot); gunners get there first.
     const meet = I.returner && zEnd != null && !I.fair && zEnd < zL ? zEnd : zL;
-    cov.forEach((a) => { const fast = a.role === 'WR'; run(a, tK - (punt ? 0.4 : 0), raX(xL + R(-13, 13)), Math.min(meet - (fast ? R(1, 5) : R(4, 12)), 99), fast ? 9 : 8, 0); });
-    sc.actors.filter((a) => a.side === 'd' && a !== ret).forEach((a) => { hold(a, tK + 0.2); const [x, z] = raPos(a, tK + 0.2); go(a, tL, x * 0.7 + xL * 0.3 + R(-3, 3), z + (zL - z) * 0.45, 1); });
-    ballFly(tK, tL, kickFrom, tb && !I.returner ? [xL, Math.min(zL, 106), 0.4] : [xL, zL, 1.3], apex);
-    const tSet = go(ret, Math.max(tS + 1, tL - 0.9), xL, zL + 0.4, 1);
+    if (punt) {
+      cov.forEach((a) => { const fast = a.role === 'WR'; run(a, fast ? tS + 0.15 : tK - 0.2, raX(xL + R(-13, 13)), Math.min(meet - (fast ? R(1, 5) : R(4, 12)), 99), fast ? 9 : 8, 0); });
+      for (const [j, gn, s] of blockers) for (let t = tS + 0.6; t < tL + 0.2; t += 0.5) { const [gx, gz] = raPos(gn, t - 0.15); go(j, t, gx + s * 0.9, gz + 0.8, 0); }
+      sc.actors.filter((a) => a.side === 'd' && a !== ret && !blockers.some((b) => b[0] === a)).forEach((a) => { hold(a, tK + 0.2); const [x, z] = raPos(a, tK + 0.2); go(a, tL, x * 0.7 + xL * 0.3 + R(-3, 3), z + (zL - z) * 0.45, 1); });
+    } else {
+      // At the landing the two lines meet: eight of the coverage are picked up by the front nine,
+      // the two nearest the ball get through to chase.
+      const free = [...cov].sort((a, b) => Math.abs(a.k[0][1] - xL) - Math.abs(b.k[0][1] - xL)).slice(0, 2);
+      const pool = blockers.map((b) => b[0]).filter((a) => a.role !== 'RB');
+      for (const c of cov) {
+        if (free.includes(c)) { run(c, tL, raX(xL + R(-4, 4)), Math.min(meet - R(2, 5), 99), 9, 0); continue; }
+        const [cx, cz] = c.k[0].slice(1);
+        const b = nearest(pool, cx, cz, tL)[0];
+        pool.splice(pool.indexOf(b), 1);
+        const mx = cx + (xL - cx) * 0.15 + R(-1, 1), mz = cz + R(2.5, 4.5);
+        run(c, tL, mx, mz, 7.5, 3);
+        run(b, tL, mx + R(-0.3, 0.3), mz + 1.05, 6, 3);
+        c.acts = b.acts = [[tL + 0.5, 1e9, 'block']];
+      }
+      for (const b of pool) run(b, tL, raX(xL + R(-5, 5)), Math.max(meet, Math.min(zL - 8, 99)), 6, 3);
+    }
+    ballFly(tK, tL, kickFrom, tb && !I.returner ? [xL, Math.min(zL, 106), 0.4] : [xL, zL, 1.3], apex, punt ? 'spiral' : 'end');
+    const tSet = punt ? go(ret, Math.max(tS + 1, tL - 0.9), xL, zL + 0.4, 1) : lastT(ret);
     ret.labelAt = tK;
     let tE = tL + 0.5;
     const retZ = zEnd;
+    const tFree = punt ? tL - 0.5 : tL;
     if (tb && !(I.returner && retZ != null && retZ < 100)) {
-      const bz = Math.min(zL + 4, 108);
-      ballFly(tL, tL + 0.6, [xL, zL, 0.4], [xL + 1, bz, 0], 0.8);
+      if (I.returner && !punt) {
+        // Caught in the end zone and taken down to a knee; the ball comes out to the 35.
+        sc.ball.push({ t0: tL, t1: tL + 1.4, a: ret });
+        ret.acts = [[tL + 0.35, tL + 1.6, 'hold']];
+      } else {
+        const bz = Math.min(zL + 4, 108);
+        ballFly(tL, tL + 0.6, [xL, zL, 0.4], [xL + 1, bz, 0], 0.8);
+      }
+      tE = tL + 1.4;
+      sc.noChase = true;                                               // a dead ball: everyone eases up
+      const spot = punt ? 80 : 65;                                     // the receiving team's 20 (punt) or 35 (kickoff)
+      sc.ball.push({ t0: tE, t1: 1e9, from: [0, spot, 0.15], to: [0, spot, 0.15], apex: 0 });
+      sc.spotZ = spot;
       banner(tL - 0.2, 'Touchback', `${punt ? 'Punt' : 'Kickoff'} · ${yds} yds`, 'o');
-      tE = tL + 1;
     } else if (I.fair) {
       sc.ball.push({ t0: tL, t1: 99, a: ret });
-      converge(cov, tL - 0.5, xL, zL, tL + 0.4, 2.5, 6);
+      converge(cov, tFree, xL, zL, tL + 0.4 + (punt ? 0 : 0.6), 2.5, 6);
       banner(tL + 0.1, 'Fair catch', `${punt ? 'Punt' : 'Kickoff'} · ${yds} yds`, 'o');
     } else if (I.returner && retZ != null) {
       sc.ball.push({ t0: tL, t1: 99, a: ret });
+      ret.acts = [[tL - 0.3, tL + 0.1, 'catch']];
+      hold(ret, tL);                                                   // he waits for it, then goes
       const retTD = I.td;
       const zR = retTD ? -1.5 : retZ;
       const xR = raX(xL + R(-10, 10));
@@ -654,54 +788,98 @@ function raBuild(p, ev, qbs, opts = {}) {
       if (retTD) { banner(tE, 'Touchdown', `${defT.name} return`, 'd'); celebrate(ret, tE, sc.actors.filter((a) => a.side === 'd' && a !== ret), cov); }
       else {
         tackle(ret, tE, cov, I.tacklers);
-        converge(cov.filter((a) => !a.labelAt), tE - 0.6, xR, zR, tE + 0.5, 2, 6);
+        converge(cov.filter((a) => !a.labelAt && !a.acts), Math.max(tFree, tE - 0.6), xR, zR, tE + 0.5, 2, 6);
         banner(tE + 0.1, `${punt ? 'Punt' : 'Kickoff'} · ${yds} yds`, `${I.returner.last} returns ${Math.round(Math.abs(zL - zR))}`, 'd');
       }
     } else {
       const zD = retZ != null ? Math.min(retZ, 99) : zL;
       ballFly(tL, tL + 0.8, [xL, zL, 1.3], [xL + R(-2, 2), zD, 0], 0.9);
-      converge(cov, tL - 0.4, xL, zD, tL + 0.9, 1, 4);
+      converge(cov, Math.max(tFree, tL - 0.4), xL, zD, tL + 0.9, 1, 4);
       banner(tL + 0.4, `${punt ? 'Punt' : 'Kickoff'} · ${yds} yds`, /downed/i.test(I.text) ? 'Downed' : /out of bounds/i.test(I.text) ? 'Out of bounds' : '', 'o');
       tE = tL + 1;
     }
     hold(ret, tSet);
+    for (const a of sc.actors) if (a.acts?.[0]?.[2] === 'block') a.acts[0][1] = tE;
     K.labelTo = tK + 1.2;
     sc.kick = { tK, tL };
     T = tE + 2; sc.tEnd = tE;
   } else if (kind === 'fg') {
-    const zHold = z0 - 7;
-    off.C = P('o', 'OL', x0, z0 - 0.8);
-    const line = [-7.4, -5.6, -3.8, -1.9, 1.9, 3.8, 5.6, 7.4].map((dx) => P('o', 'OL', x0 + dx, z0 - (Math.abs(dx) > 6 ? 1.6 : 1)));
-    const holder = P('o', 'QB', x0, zHold);
-    const K = P('o', 'K', x0 - 1.8, zHold - 2.6);
+    // Field goal / try unit: the long snapper and six more on the line, a wing outside each end, the
+    // holder kneeling where the text's distance puts the kick (a 44-yarder snapped at the 26 is held
+    // 44 − 10 − 26 = 8 yards back; a try, 33 − 10 − 15 = 8), the kicker two steps back and two to the
+    // side. Snap, catch, place, approach, swing: the ball leaves his foot about 1.3 s after the snap.
+    const setP = (a, s) => { a.set = s; return a; };
+    const hd = clamp(isFinite(I.fgYds) && !isPAT ? I.fgYds - 10 - (100 - z0) : 8, 6.5, 8.5);
+    const zHold = z0 - hd;
+    off.C = setP(P('o', 'OL', x0, z0 - 0.6), 'snap');
+    const line = [-3.9, -2.6, -1.3, 1.3, 2.6, 3.9].map((dx) => setP(P('o', 'OL', x0 + dx, z0 - 0.9), 'stance'));
+    const wings = [-1, 1].map((s) => setP(P('o', 'TE', x0 + s * 5, z0 - 1.9), 'ready'));
+    const holder = setP(P('o', 'QB', x0 - 0.55, zHold - 0.3), 'hold');
+    const K = setP(P('o', 'K', x0 - 2.2, zHold - 3.1), 'stand');
     who(K, I.kicker); K.labelAt = 0;
-    const rush = [-7, -5, -3, -1, 1, 3, 5, 7, 0].map((dx, i) => P('d', 'DL', x0 + dx, z0 + (i === 8 ? 3 : 1)));
-    [-4, 4].forEach((dx) => P('d', 'DB', x0 + dx, Math.min(z0 + 9, 106)));
-    const tSnap = snapTo(holder, tS, 0.35);
-    ballHold(holder, tSnap, tSnap + 0.45);
-    ballFly(tSnap + 0.45, tSnap + 0.5, [x0, zHold + 0.3, 0.3], [x0, zHold + 0.3, 0.2], 0);
-    const tK = go(K, tSnap + 0.5, x0 - 0.4, zHold - 0.3, 0);
-    for (const a of line) { const [x, z] = raPos(a, 0); go(a, tS + 0.4, x, z - 0.5); go(a, tK + 1, x, z - 1); }
+    const rush = [-4.6, -3.3, -2, -0.7, 0.7, 2, 3.3, 4.6].map((dx) => setP(P('d', 'DL', x0 + dx, z0 + 1.05), 'stance'));
+    rush.push(setP(P('d', 'LB', x0 + R(-1, 1), z0 + 3.4), 'ready'));
+    [-1, 1].forEach((s) => setP(P('d', 'DB', x0 + s * R(8, 10), Math.min(z0 + 8, 109)), 'ready'));
+    ballHold(off.C, 0, tS);
+    const tCatch = tS + 0.38, tPlace = tCatch + 0.22;
+    ballFly(tS, tCatch, [x0, z0 - 0.45, 0.3], [x0, zHold + 0.3, 0.85], 0.12);
+    ballFly(tCatch, tPlace, [x0, zHold + 0.3, 0.85], [x0, zHold, 0.28], 0);
+    go(K, tS + 0.55, x0 - 1.5, zHold - 2.1, 3);
+    const tK = go(K, tS + 1.28, x0 - 0.45, zHold - 0.5, 0);
+    ballFly(tPlace, tK, [x0, zHold, 0.28], [x0, zHold, 0.28], 0, 'tee');
+    K.acts = [[tK - 0.24, tK - 0.03, 'kick0'], [tK - 0.03, tK + 0.5, 'kick']];
+    holder.acts = [[0, tCatch, 'hold'], [tCatch, tK + 0.3, 'hold2'], [tK + 0.3, tK + 1.1, 'hold']];
+    for (const a of [...line, ...wings, off.C]) { const [x, z] = raPos(a, 0); go(a, tS + 0.4, x, z - 0.5); go(a, tK + 1, x, z - 1); }
     rush.forEach((a) => { const [x] = raPos(a, 0); go(a, tK - 0.1, x * 0.8 + x0 * 0.2, z0 - 1, 1); });
-    const dist = 110 - zHold;
+    const dist = RA_POST - zHold;
     const flight = 0.9 + dist * 0.024;
-    let xT = R(-1.4, 1.4), hT = 4.5 + R(0, 3);
-    if (!I.good) { if (I.wide) xT = (I.wide === 'left' ? -1 : 1) * R(3.9, 5.5); else if (!I.blocked) hT = R(1.2, 2.6); }
+    const kick0 = [x0, zHold, 0.28];
+    const apexK = 4 + dist * 0.09;
+    const yd = isFinite(I.fgYds) ? I.fgYds : Math.round(dist);
     if (I.blocked) {
-      const tB = tK + 0.25;
-      ballFly(tK, tB, [x0, zHold + 0.3, 0.3], [x0 + R(-1, 1), z0 - 0.5, 2.6], 0.5);
-      ballFly(tB, tB + 0.9, [x0, z0 - 0.5, 2.6], [x0 + R(-5, 5), z0 - R(2, 6), 0], 1.2);
-      banner(tB + 0.1, 'Blocked', `${isPAT ? 'Extra point' : `${I.fgYds || Math.round(dist + 10)}-yd field goal`}`, 'd');
+      const bl = nearest(rush, x0, zHold, tK)[0];
+      who(bl, I.blocker); bl.labelAt = tK - 0.2;
+      const bx = x0 + R(-0.4, 0.4), bz = zHold + 1.6;
+      cut(bl, tK - 0.5); go(bl, tK + 0.1, bx, bz + 0.3, 3);
+      bl.acts = [[tK - 0.2, tK + 0.45, 'catch']];
+      const tB = tK + 0.12;
+      ballFly(tK, tB, kick0, [bx, bz - 0.2, 2.3], 0.2, 'end');
+      ballFly(tB, tB + 0.9, [bx, bz - 0.2, 2.3], [x0 + R(-5, 5), zHold - R(1, 6), 0], 1.2, 'end');
+      banner(tB + 0.1, 'Blocked', `${isPAT ? 'Extra point' : `${yd}-yd field goal`}`, 'd');
       T = tB + 2.6; sc.tEnd = tB + 0.9;
+      sc.kick = { tK, tL: tB };
     } else {
-      ballFly(tK, tK + flight, [x0, zHold + 0.3, 0.3], [xT, 110, hT], hT * 0.5 + dist * 0.12);
-      ballFly(tK + flight, tK + flight + 0.5, [xT, 110, hT], [xT * 1.2, 115, Math.max(0, hT - 3)], 0.4);
-      const yd = isFinite(I.fgYds) ? I.fgYds : Math.round(dist + 10);
+      // Good: over the 10-ft crossbar between the uprights (18'6" apart) at the end line. The misses
+      // follow the text: wide left/right, short, off an upright or the crossbar.
+      let xT = x0 * 0.15 + R(-1.2, 1.2), hT = clamp(2.2 + dist * 0.12, 4.5, 9) + R(0, 1.5);
+      let after;
+      if (!I.good && (I.upright === 'left' || I.upright === 'right')) {
+        xT = (I.upright === 'left' ? -1 : 1) * RA_UPRIGHT; hT = R(5, 8);
+        after = [[xT * 0.7, RA_POST - R(4, 7), 0], 1.4];
+      } else if (!I.good && I.upright === 'bar') {
+        xT = R(-1, 1); hT = RA_BAR;
+        after = [[xT, RA_POST - R(2, 4), 0], 0.8];
+      } else if (!I.good && I.short) {
+        hT = 0; xT = R(-2, 2);
+      } else if (!I.good) {
+        const s = I.wide ? (I.wide === 'left' ? -1 : 1) : (rng() < 0.5 ? -1 : 1);
+        xT = s * R(4.3, 6.5);
+      }
+      if (hT === 0) {                                                  // short: it comes down in the end zone
+        const zS = RA_POST - R(2, 5);
+        ballFly(tK, tK + flight, kick0, [xT, zS, 0], apexK, 'end');
+        ballFly(tK + flight, tK + flight + 0.5, [xT, zS, 0], [xT, zS + 1.5, 0], 0.3, 'end');
+      } else {
+        ballFly(tK, tK + flight, kick0, [xT, RA_POST, hT], apexK, 'end');
+        if (after) ballFly(tK + flight, tK + flight + 0.7, [xT, RA_POST, hT], ...after, 'end');
+        else ballFly(tK + flight, tK + flight + 0.55, [xT, RA_POST, hT], [xT * 1.1, 114, Math.max(0, hT - 4)], 0.5, 'end');
+      }
       banner(tK + flight, I.good ? (isPAT ? 'Extra point good' : 'Field goal good') : (isPAT ? 'Extra point no good' : 'No good'), isPAT ? offT.name : `${yd} yards`, I.good ? 'o' : 'd');
       K.labelTo = tK + flight + 1.5;
       sc.kick = { tK, tL: tK + flight };
       T = tK + flight + 2.2; sc.tEnd = tK + flight;
     }
+    sc.noChase = true;                                                 // after a kick nobody chases the ball into the end zone
     sc.ltg = null;
   } else {
     // A flag before the snap: nobody moves, the flag comes in and the ball is walked off.
@@ -716,9 +894,10 @@ function raBuild(p, ev, qbs, opts = {}) {
   // Nobody stands around before the whistle: anyone whose scripted part ends early keeps working
   // toward the ball (linemen keep shoving, everyone else closes in), then coasts to a stop after it.
   const tEnd = sc.tEnd ?? T - 1.6;
-  for (const a of sc.actors) {
+  for (const a of sc.noChase ? [] : sc.actors) {
     if (a.downAt != null || a.side === 'r') continue;
     hold(a, tS);                                                    // nobody moves before the snap
+    if (sc.freeze) hold(a, sc.freeze);                              // (a kickoff: nor before the ball comes down)
     const t0 = lastT(a);
     if (t0 >= tEnd - 0.1) continue;
     const line = ['OL', 'DL', 'TE'].includes(a.role) && !sc.kick;
@@ -750,7 +929,7 @@ function raBuild(p, ev, qbs, opts = {}) {
     const out = [a.k[0]];
     for (let i = 1; i < a.k.length; i++) {
       const [t0, x0, z0] = a.k[i - 1], k1 = a.k[i], [t1, x1, z1] = k1;
-      const lo = Math.max(t0, tS + 0.2), hi = Math.min(t1 - 0.05, tEnd, a.downAt ?? Infinity);
+      const lo = Math.max(t0, tS + 0.2, sc.freeze ?? 0), hi = Math.min(t1 - 0.05, tEnd, a.downAt ?? Infinity);
       if (Math.hypot(x1 - x0, z1 - z0) / (t1 - t0 || 1) < 0.9 && hi - lo > 0.4) {
         const n = Math.floor((hi - lo) / 0.3);
         for (let j = 1; j <= n; j++) {
@@ -943,21 +1122,23 @@ function raBall(sc, t) {
   }
   const u = clamp((t - seg.t0) / (seg.t1 - seg.t0 || 1), 0, 1);
   const [x0, z0, h0] = seg.from, [x1, z1, h1] = seg.to;
-  return { x: x0 + (x1 - x0) * u, z: z0 + (z1 - z0) * u, h: h0 + (h1 - h0) * u + 4 * seg.apex * u * (1 - u), flying: u > 0 && u < 1 && seg.apex > 0.5, spin: u };
+  return { x: x0 + (x1 - x0) * u, z: z0 + (z1 - z0) * u, h: h0 + (h1 - h0) * u + 4 * seg.apex * u * (1 - u), flying: u > 0 && u < 1 && seg.apex > 0.5, roll: seg.roll };
 }
 
-/* Pixel renderer, in the spirit of 16-bit football games: a close, sideways camera that scrolls
-   both ways, shaded side-on sprites, linemen down in their stances, flat green turf and big
-   shadowed yard numbers. Drawn at console resolution (168px tall) and scaled up with hard edges.
-   The home end zone is on the right, as on the game page's field. All art is drawn here. */
-const PX = 9;                                    // pixels per yard along the field
-const PY = 7;                                    // pixels per yard across it
-const HK = 5;                                    // pixels per yard of height (the ball in the air)
-const RA_H = 168;                                // screen height
-const RA_STANDS = 60;                            // the stands
-const RA_TOP = RA_STANDS + 36;                   // + the far (visitors') sideline, down to the field
-const RA_FIELD_H = Math.round(53.33 * PY);       // 373
-const RA_WORLD_H = RA_TOP + RA_FIELD_H + 44;       // + the near sideline and benches
+/* Pixel renderer, in the spirit of 16- and 32-bit football games: a close, sideways camera that
+   scrolls both ways, shaded side-on sprites, linemen down in their stances, mowed turf and big
+   shadowed yard numbers. Drawn at twice the old console resolution (336px tall, every length below
+   is the 168px stage's times RA_K) and scaled up with hard edges. The home end zone is on the right,
+   as on the game page's field. All art is drawn here. */
+const RA_K = 2;                                  // the 168px stage's pixel, in this stage's pixels
+const PX = 9 * RA_K;                             // pixels per yard along the field
+const PY = 7 * RA_K;                             // pixels per yard across it
+const HK = 5 * RA_K;                             // pixels per yard of height (the ball in the air)
+const RA_H = 168 * RA_K;                         // screen height
+const RA_STANDS = 60 * RA_K;                     // the stands
+const RA_TOP = RA_STANDS + 36 * RA_K;            // + the far (visitors') sideline, down to the field
+const RA_FIELD_H = Math.round(53.33 * PY);       // 747
+const RA_WORLD_H = RA_TOP + RA_FIELD_H + 44 * RA_K;   // + the near sideline and benches
 const RA_WORLD_W = 130 * PX;                     // H from -15 to 115
 const raSX = (H) => Math.round((115 - H) * PX);
 
@@ -1018,56 +1199,236 @@ function bigLabel(s, k, col, shadow) {
   return c;
 }
 
-// Sprites, facing right. H helmet, h its shadow, w helmet stripe, m face mask, F skin, J jersey,
-// j its shadow, n number, P pants, p their shadow, S socks, B shoes.
-const RA_POSES = {
-  stand: ['...HHHH.....', '..HHHwwH....', '..HHHHHHm...', '..hHHHHFm...', '...hhhFF....', '..jJJJJJJ...', '.jJJJnJJJJ..', '.jJJJnJJJF..', '.FjJJJJJjF..', '.F.jJJJJj...',
-    '...pPPPPP...', '...pPPPPP...', '...pPP.pPP..', '...pP...pP..', '...SS...SS..', '...SS...SS..', '..BBB..BBB..'],
-  run1: ['....HHHH....', '...HHHwwH...', '...HHHHHHm..', '...hHHHHFm..', '....hhhFF...', '..jJJJJJJ...', '.jJJJnJJJF..', 'FjJJJnJJJF..', 'F.jJJJJJj...', '...jJJJJj...',
-    '...pPPPPPP..', '..pPPP.pPPP.', '.pPP....pPP.', '.SS......SS.', 'SS.......SS.', 'BB.......BBB', '............'],
-  stance: ['.........HHHH...', '..jjJJJJHHHwwH..', '.jJJJJJJJHHHHm..', '.jJJnnJJJhHHFm..', '.pjJJJJJJJhFF...', 'pPPjJJJJJJJ.F...', 'pPPP.jJJJ...F...', 'pPP...pP....F...',
-    '.SS...SS........', '.SS...SS........', 'BBB...BBB.......'],
-  down: ['...........HHHH...', '.pPPPjJJJJJHHwwH..', 'SpPPPjJJnJJHHHHm..', 'SpPPPjJJJJJhHHFm..', 'B.pp..jjjjj.hFF...', 'B.................'],
-  cheer: ['.F.......F..', '.F.HHHH..F..', '.FHHHwwH.F..', '.FHHHHHHmF..', '.FhHHHHFmF..', '.jjhhhFFjj..', '..jJJJJJJ...', '.jJJJnJJJJ..', '..jJJnJJJ...', '..jJJJJJj...', '...jJJJJj...',
-    '...pPPPPP...', '...pPPPPP...', '...pPP.pPP..', '...pP...pP..', '...SS...SS..', '...SS...SS..', '..BBB..BBB..'],
-  dance: ['.........F..', '...HHHH..F..', '..HHHwwH.F..', '..HHHHHHmF..', '..hHHHHFmF..', 'FFjhhhFFjj..', '..jJJJJJJ...', '.jJJJnJJJJ..', '..jJJnJJJ...', '..jJJJJJj...', '...jJJJJj...',
-    '...pPPPPP...', '..pPPPPPPP..', '.pPP...pPP..', '.pP.....pP..', '.SS.....SS..', '.SS.....SS..', 'BBB.....BBB.'],
+/* ── Players ──
+   Every player pose is a skeleton (hip, shoulder, head, and three points for each arm and leg, in
+   sprite pixels, y up from the ground, facing right) rasterised once into a 34×40 grid of shade
+   codes, then coloured per uniform. Each limb is a capsule lit from above and in front, so every
+   colour gets three tones (light / base / shadow); the near arm and leg carry their own dark edge so
+   they read over the body, and the whole figure gets a one-pixel outline.
+   Codes: J j L jersey (base, shadow, light), P p Q pants, S s socks, F f E skin, H h l helmet,
+   w helmet stripe, m face mask, e eye, B b cleats, C cap (officials), O outline. */
+const RA_SKEL = {
+  stand:  { h: [0, 15], s: [0.6, 23.5], c: [1.4, 29], fa: [[2.2, 22.5], [3.4, 17.5], [3.6, 13]], ba: [[-2.2, 22.5], [-3.2, 17.5], [-3.2, 13]], fl: [[1.3, 15], [2, 8.5], [2.1, 2]], bl: [[-1.3, 15], [-2, 8.5], [-2.3, 2]] },
+  run1:   { h: [0, 14.5], s: [1.8, 22.8], c: [3, 28.2], fa: [[2.3, 21.8], [-0.2, 18.2], [-1.5, 14.8]], ba: [[1.2, 21.8], [3.6, 18.5], [5.6, 20.5]], fl: [[0.5, 14.5], [4, 9.5], [5.5, 3]], bl: [[-0.5, 14.5], [-2.5, 8.5], [-6, 5]], bf: [-0.3, -1] },
+  run2:   { h: [0, 15.5], s: [1.8, 23.8], c: [3, 29.2], fa: [[2.3, 22.8], [1.8, 18], [3.4, 15.5]], ba: [[1.2, 22.8], [0.5, 18.2], [1.8, 15.8]], fl: [[0.5, 15.5], [0.8, 9], [-1.5, 3.5]], bl: [[-0.5, 15.5], [2.8, 11], [0.8, 6.5]], ff: [0.6, -0.8] },
+  stance: { h: [-3, 11.5], s: [4.5, 13.5], c: [8.5, 15], fa: [[4.5, 12.5], [5.5, 7], [6, 1.2]], ba: [[3.5, 12.5], [1.5, 9.5], [0, 8]], fl: [[-2.5, 11.5], [1.5, 6], [-0.5, 1.5]], bl: [[-3.5, 11.5], [-5, 5.5], [-6.5, 1.5]], noNum: 1 },
+  snap:   { h: [-3, 11.5], s: [4.5, 13.2], c: [8.2, 14.8], fa: [[4.5, 12.5], [6.2, 7.5], [7.2, 2]], ba: [[3.8, 12.5], [5.5, 7.5], [6.4, 2.2]], fl: [[-2.5, 11.5], [0.5, 6], [0, 1.5]], bl: [[-3.5, 11.5], [-4, 6], [-4.5, 1.5]], noNum: 1 },
+  ready:  { h: [-1.5, 12.5], s: [2.2, 20], c: [3.8, 25.4], fa: [[2.8, 19.2], [3.8, 14.8], [3.2, 10]], ba: [[1.5, 19.2], [2, 14.8], [1.6, 10]], fl: [[-1, 12.5], [2.2, 7.5], [1.2, 2]], bl: [[-2, 12.5], [-1, 7], [-3, 2]] },
+  qbUnder:{ h: [-1.5, 12], s: [2, 19.5], c: [3.6, 24.9], fa: [[2.6, 18.6], [4.8, 15.2], [6.2, 12.6]], ba: [[1.6, 18.6], [3.8, 15], [5.6, 12.2]], fl: [[-1, 12], [1.8, 7.2], [0.8, 2]], bl: [[-2, 12], [-1.2, 6.8], [-3.2, 2]] },
+  gun:    { h: [0, 14], s: [1.2, 22.2], c: [2.2, 27.7], fa: [[1.8, 21.2], [3, 17.5], [4.8, 17.8]], ba: [[1, 21.2], [2.3, 17.2], [4.3, 17.4]], fl: [[0.5, 14], [1.8, 8], [1.2, 2]], bl: [[-0.5, 14], [-1.2, 8], [-2, 2]] },
+  hold:   { h: [-0.5, 9], s: [1.5, 16.5], c: [2.8, 21.9], fa: [[2.2, 15.8], [4.5, 12.5], [6.5, 10]], ba: [[1.2, 15.8], [3.6, 12.2], [5.8, 9.6]], fl: [[0, 9], [3.2, 6.5], [3, 1.5]], bl: [[-1, 9], [-3.5, 1.4], [-7.2, 1.2]], bf: [-1, 0.1] },
+  hold2:  { h: [-0.5, 9], s: [2, 16], c: [3.6, 21.2], fa: [[2.6, 15.2], [5, 9.5], [6.4, 4.2]], ba: [[1.6, 15.2], [4, 9.3], [5.4, 4.6]], fl: [[0, 9], [3.2, 6.5], [3, 1.5]], bl: [[-1, 9], [-3.5, 1.4], [-7.2, 1.2]], bf: [-1, 0.1] },
+  kick0:  { h: [0, 15], s: [0.8, 23.2], c: [1.5, 28.7], fa: [[1.5, 22], [3.6, 19], [5.8, 19.6]], ba: [[0.2, 22], [-2.5, 19.5], [-4.8, 18.5]], fl: [[0.5, 15], [-2.4, 9.5], [-6, 11]], bl: [[-0.3, 15], [0.4, 8.5], [0.2, 2]], ff: [-0.2, -1] },
+  kick:   { h: [0, 15], s: [-1.2, 23], c: [-1, 28.5], fa: [[0, 22], [-2.8, 19.5], [-5.6, 19]], ba: [[0, 22], [2.8, 20.5], [5.4, 21.8]], fl: [[0.8, 15], [5, 16.5], [9.5, 18.5]], bl: [[-0.5, 15], [-0.2, 8.5], [-0.6, 2]], ff: [0.7, 0.7] },
+  punt:   { h: [0, 15], s: [-1.6, 22.8], c: [-1.8, 28.2], fa: [[-0.5, 22], [2.5, 21.5], [5.2, 23]], ba: [[-0.8, 22], [-3.6, 20.5], [-6.2, 20.2]], fl: [[0.8, 15], [4.6, 19.5], [8, 23.8]], bl: [[-0.5, 15], [-0.4, 8.5], [-0.8, 2]], ff: [0.6, 0.8] },
+  throw1: { h: [0, 14.5], s: [-0.5, 22.6], c: [0.6, 28.1], fa: [[0, 22], [3, 21.5], [5.6, 22]], ba: [[-1, 22], [-3.6, 24], [-3.2, 28.5]], fl: [[0.6, 14.5], [3.2, 8.5], [4.2, 2]], bl: [[-0.6, 14.5], [-2.6, 8.5], [-4.2, 2]] },
+  throw2: { h: [0.6, 14.5], s: [2.6, 22.4], c: [3.9, 27.7], fa: [[2.4, 21.5], [0.2, 18.5], [-1.4, 16.4]], ba: [[2.6, 21.5], [5.4, 20], [6.6, 16.8]], fl: [[1.2, 14.5], [3.8, 8.5], [4.6, 2]], bl: [[0, 14.5], [-1.6, 8.3], [-3.6, 3]], bf: [0.3, -1] },
+  catch:  { h: [0, 15], s: [0.8, 23.4], c: [1.6, 28.9], fa: [[1.4, 22.5], [3.4, 26.5], [5.2, 30.2]], ba: [[0.6, 22.5], [2.8, 26.8], [4.4, 30.8]], fl: [[0.6, 15], [2.4, 8.5], [2.2, 2]], bl: [[-0.6, 15], [-2, 8.5], [-3.4, 2.5]] },
+  block:  { h: [-1, 12.8], s: [3, 19.5], c: [5, 24], fa: [[3.4, 18.6], [5.8, 17.5], [8, 17.8]], ba: [[2.6, 18.6], [5, 16.8], [7.4, 17]], fl: [[-0.5, 12.8], [2.2, 7.5], [1.2, 2]], bl: [[-1.5, 12.8], [-3.2, 7.3], [-5.2, 2]] },
+  down:   { h: [-4, 3.5], s: [4, 3.8], c: [8.4, 4.4], fa: [[4.5, 3.5], [8, 2.2], [11.5, 2]], ba: [[3.5, 4], [6.8, 3.5], [10, 3.5]], fl: [[-4, 3.2], [-8.5, 2.4], [-12.5, 2]], bl: [[-4, 3.8], [-8.8, 3.4], [-12.8, 3.4]], ff: [-0.2, -1], bf: [-0.2, -1], noNum: 1 },
+  cheer:  { h: [0, 15], s: [0.3, 23.4], c: [0.8, 28.9], fa: [[1.6, 22.6], [3, 27.2], [3.8, 32]], ba: [[-1, 22.6], [-2.4, 27.2], [-3, 32]], fl: [[0.8, 15], [2.2, 8.5], [3, 2]], bl: [[-0.8, 15], [-2.2, 8.5], [-3, 2]] },
+  dance:  { h: [0, 14.5], s: [0.3, 22.9], c: [0.9, 28.4], fa: [[1.6, 22], [3.2, 26.5], [2.6, 31.5]], ba: [[-1, 22], [-3.6, 19], [-1.4, 16]], fl: [[0.8, 14.5], [3.2, 9], [3.6, 2]], bl: [[-0.8, 14.5], [-3, 9], [-4, 2]] },
+};
+// The other half of the stride: the same frames with the near and far limbs swapped.
+RA_SKEL.run3 = { ...RA_SKEL.run1, fa: RA_SKEL.run1.ba, ba: RA_SKEL.run1.fa, fl: RA_SKEL.run1.bl, bl: RA_SKEL.run1.fl, ff: RA_SKEL.run1.bf, bf: RA_SKEL.run1.ff };
+RA_SKEL.run4 = { ...RA_SKEL.run2, fa: RA_SKEL.run2.ba, ba: RA_SKEL.run2.fa, fl: RA_SKEL.run2.bl, bl: RA_SKEL.run2.fl, ff: RA_SKEL.run2.bf, bf: RA_SKEL.run2.ff };
+const RA_RUN = ['run1', 'run2', 'run3', 'run4'];
+const RA_FW = 34, RA_FH = 40, RA_FAX = 17, RA_FAY = 38;   // sprite grid; the feet stand on (17, 38)
+const RA_FIG = new Map();
+function raFig(pose, variant = 'p') {
+  const key = pose + '|' + variant;
+  let f = RA_FIG.get(key);
+  if (f) return f;
+  // The poses are written on a lankier frame; this shortens the legs and lengthens the body to
+  // football proportions (hips at 12.4 px, shoulder pads at 23, the helmet's centre at 28.3): the
+  // jersey, not the pants, has to be the colour a player reads as from across the field.
+  const LY = [[0, 0], [2, 2], [8.5, 6.9], [15, 12.4], [23.5, 23], [29, 28.3], [40, 39]];
+  const ry = (y) => { for (let i = 1; i < LY.length; i++) if (y <= LY[i][0]) { const [a, b] = LY[i - 1], [c, d] = LY[i]; return b + (d - b) * (y - a) / (c - a); } return y; };
+  const S0 = RA_SKEL[pose] || RA_SKEL.stand, S = {};
+  for (const [k, v] of Object.entries(S0)) S[k] = !Array.isArray(v) || k === 'ff' || k === 'bf' ? v : Array.isArray(v[0]) ? v.map(([x, y]) => [x, ry(y)]) : [v[0], ry(v[1])];
+  const W = RA_FW, H = RA_FH, AX = RA_FAX, AY = RA_FAY;
+  const g = new Array(W * H).fill('.');
+  const Lx = 0.5, Ly = 0.866;                                    // light: from above, a little in front
+  const tone = (d, t) => (d > 0.42 ? t[2] : d < -0.3 ? t[1] : t[0]);
+  const paint = (fn) => {
+    for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
+      const i = gy * W + gx, v = fn(gx + 0.5 - AX, AY - gy - 0.5);
+      if (v === 1) { if (g[i] !== '.') g[i] = 'O'; } else if (v) g[i] = v;
+    }
+  };
+  const near = (x, y, a, b) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1], u = clamp(((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1), 0, 1);
+    return [x - a[0] - dx * u, y - a[1] - dy * u];
+  };
+  // A capsule from a to b; `edge` gives it its own dark rim where it lies over something drawn earlier.
+  const limb = (a, b, r, t, edge) => paint((x, y) => {
+    const [dx, dy] = near(x, y, a, b), d = Math.hypot(dx, dy);
+    if (d <= r) return tone((dx * Lx + dy * Ly) / r, t);
+    return edge && d <= r + 0.9 ? 1 : 0;
+  });
+  const lerp = (a, b, u) => [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
+  const TJ = ['J', 'j', 'L'], TP = ['P', 'p', 'Q'], TS = ['S', 's', 'S'], TF = ['F', 'f', 'E'], TB = ['B', 'B', 'b'];
+  const back = (t) => [t[1], t[1], t[0]];
+  const arm = (A, far) => {
+    const [sh, el, hd] = A, mid = lerp(sh, el, 0.8);
+    limb(sh, mid, 1.85, far ? back(TJ) : TJ, !far);
+    limb(mid, el, 1.45, far ? back(TF) : TF, !far);
+    limb(el, hd, 1.3, far ? back(TF) : TF, !far);
+    limb(hd, hd, 1.45, far ? back(TF) : TF, false);
+  };
+  const leg = (A, fd, far) => {
+    const [hp, kn, an] = A;
+    const dir = fd || [1, 0], dl = Math.hypot(dir[0], dir[1]) || 1, ux = dir[0] / dl, uy = dir[1] / dl;
+    const sole = [-uy * 0.55, ux * 0.55];                          // toward the sole, off the foot's axis
+    limb([an[0] - ux * 0.7 - sole[0], an[1] - uy * 0.7 - sole[1]], [an[0] + ux * 2.6 - sole[0], an[1] + uy * 2.6 - sole[1]], 1.15, far ? ['B', 'B', 'B'] : TB, !far);
+    limb(kn, an, 1.75, far ? back(TS) : TS, !far);
+    limb(hp, lerp(kn, an, 0.22), 2.7, far ? back(TP) : TP, !far);
+  };
+  arm(S.ba, true);
+  leg(S.bl, S.bf, true);
+  limb(S.h, S.h, 3.6, TP, false);                                  // seat of the pants
+  // Torso: hips to shoulder pads along the spine, a waistband of pants at the bottom.
+  {
+    const [hx, hy] = S.h, [sx, sy] = S.s, ax = sx - hx, ay = sy - hy, len = Math.hypot(ax, ay) || 1;
+    const ux = ax / len, uy = ay / len, px = uy, py = -ux;
+    paint((x, y) => {
+      const rx = x - hx, ry = y - hy, v = (rx * ux + ry * uy) / len, u = rx * px + ry * py;
+      if (v < -0.12 || v > 1.14) return 0;
+      let hw = 4.5 + 2.2 * clamp(v, 0, 1);
+      if (v > 0.84) hw *= 1 - Math.pow((v - 0.84) / 0.3, 2) * 0.6;
+      if (v < 0) hw *= 1 + v * 2.5;
+      if (Math.abs(u) > hw) return 0;
+      return tone((u / hw) * 0.75 + (v - 0.45) * 0.6, v < 0.1 ? TP : TJ);
+    });
+  }
+  leg(S.fl, S.ff, false);
+  limb(lerp(S.s, S.c, 0.25), lerp(S.s, S.c, 0.6), 1.7, TF, false);  // neck
+  // Head: a helmet with its stripe, the face in the opening and the mask's bars in front; officials
+  // get a face under a white cap with a brim.
+  {
+    const [cx, cy] = S.c;
+    if (variant === 'r') paint((x, y) => {
+      const lx = x - cx, ly = y - cy, d = Math.hypot(lx / 3.3, ly / 3.7);
+      if (ly > 0.9 && ly < 2.1 && lx > 0.8 && lx < 5) return 'C';
+      if (d > 1) return d <= 1.27 ? 1 : 0;
+      if (ly > 0.9) return tone(lx / 3.3 * 0.5 + 0.5, ['C', 'c', 'C']);
+      if (lx > 1.6 && lx < 2.6 && ly > -0.6 && ly < 0.4) return 'e';
+      return tone((lx / 3.3) * Lx + (ly / 3.7) * Ly, TF);
+    });
+    else paint((x, y) => {
+      const lx = x - cx, ly = y - cy, nx = lx / 4.6, ny = ly / 4.3, d = Math.hypot(nx, ny);
+      if (lx > 3.3 && lx < 5.7 && ly > -3.7 && ly < 0.6 && (lx > 4.7 || (ly > -1.7 && ly < -0.8) || ly < -2.9)) return 'm';
+      if (d > 1) return d <= 1.22 ? 1 : 0;
+      if (lx > 1.2 && lx < 4.1 && ly > -3.3 && ly < 0.6) return lx > 2.1 && lx < 3.1 && ly > -0.6 && ly < 0.4 ? 'e' : ly < -2 ? 'f' : 'F';
+      if (ly > 2.9 && lx < 2.2 && lx > -3.4) return 'w';                          // the stripe over the crown
+      return tone(nx * Lx + ny * Ly, ['H', 'h', 'l']);
+    });
+  }
+  arm(S.fa, false);
+  // Outline: every empty cell touching the figure.
+  const out = g.slice();
+  for (let gy = 0; gy < H; gy++) for (let gx = 0; gx < W; gx++) {
+    const i = gy * W + gx;
+    if (g[i] !== '.') continue;
+    if ((gx > 0 && g[i - 1] !== '.') || (gx < W - 1 && g[i + 1] !== '.') || (gy > 0 && g[i - W] !== '.') || (gy < H - 1 && g[i + W] !== '.')) out[i] = 'O';
+  }
+  // Where the number goes: on the jersey, a little behind the middle of the back.
+  let num = null;
+  if (!S.noNum) { const c = lerp(S.h, S.s, 0.58); num = [Math.round(AX + c[0] - 0.9), Math.round(AY - c[1] - 2.5)]; }
+  f = { g: out, W, H, ax: AX, ay: AY, num };
+  RA_FIG.set(key, f);
+  return f;
+}
+
+// Cheerleaders and the band: drawn as 12-pixel maps and doubled.
+const RA_MAPS = {
   ch1: ['...RRRR.....', '..RRRRRR....', '..RFFFFR....', '..RFFFFR....', '...FFFF.....', '..JJJJJJ....', '.YJJJJJJY...', 'YYJJJJJJYY..', '.Y.JJJJ..Y..', '..KKKKKK....', '.KKKKKKKK...',
     '...FF.FF....', '...FF.FF....', '...FF.FF....', '...FF.FF....', '...WW.WW....'],
   ch2: ['YY.......YY.', 'YY.RRRR..YY.', '.FRRRRRR.F..', '.FRFFFFR.F..', '.FRFFFFRF...', '...FFFF.....', '..JJJJJJ....', '..JJJJJJ....', '...JJJJ.....', '..KKKKKK....', '.KKKKKKKK...',
     '...FF.FF....', '...FF.FF....', '...FF.FF....', '...FF.FF....', '...WW.WW....'],
   ch3: ['YY.......YY.', 'YY.RRRR..YY.', '.FRRRRRR.F..', '.FRFFFFR.F..', '..RFFFFRF...', '...FFFF.....', '..JJJJJJ....', '..JJJJJJ....', '...JJJJ.....', '..KKKKKKFFFW', '.KKKKKKKK...',
     '...FF.......', '...FF.......', '...FF.......', '...FF.......', '...WW.......'],
-  ref: ['...CCCC.....', '..CCCCCC....', '...FFFF.....', '...FFFF.....', '....FF......', '..QXQXQXQ...', '.FQXQXQXQF..', '.FQXQXQXQF..', '.F.QXQXQ.F..', '...QXQXQ....',
-    '...XXXXX....', '...XXXXX....', '...XX.XX....', '...XX.XX....', '...XX.XX....', '...XX.XX....', '..BBB.BBB...'],
-  ref2: ['...CCCC.....', '..CCCCCC....', '...FFFF.....', '...FFFF.....', '....FF......', '..QXQXQXQ...', '.FQXQXQXQF..', '.FQXQXQXQF..', '.F.QXQXQ.F..', '...QXQXQ....',
-    '...XXXXX....', '..XXX.XXX...', '.XX.....XX..', '.XX.....XX..', 'XX.......XX.', 'BB.......BBB', '............'],
   band1: ['....PP......', '...HHHH.....', '...HHHH.....', '...HHHH.....', '...FFFF.....', '...FFFF.GG..', '..JJJJJJGGG.', '.JJWJJWJJG..', '.JJJWWJJJ...', '.FJJJJJJ....', '..JJJJJJ....',
     '..KKKKKK....', '..KK..KK....', '..KK..KK....', '..KK..KK....', '..BB..BB....'],
   band2: ['....PP......', '...HHHH.....', '...HHHH.....', '...HHHH.....', '...FFFF.....', '...FFFF.GG..', '..JJJJJJGGG.', '.JJWJJWJJG..', '.JJJWWJJJ...', '.FJJJJJJ....', '..JJJJJJ....',
     '..KKKKKK....', '.KKK..KKK...', '.KK....KK...', 'KK......KK..', 'BB......BB..'],
-  ball: ['.BBB.', 'BbWbB', '.BBB.'],
-  ball2: ['.BB.', 'BWWB', '.BB.'],
 };
-// Second stride: the same runner with the legs swapped.
-RA_POSES.run2 = RA_POSES.run1.map((r, i) => (i >= 10 ? [...r].reverse().join('') : r));
 const RA_SPR = new Map();
 const RA_RULER = new Map();
-function raSprite(pose, pal, flip) {
-  const key = pose + '|' + Object.values(pal).join() + '|' + flip;
+const raRGB = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+function raSprite(pose, pal, flip, num) {
+  const key = pose + '|' + (pal.variant || 'p') + '|' + (pal.key || (pal.key = Object.entries(pal).filter(([k]) => k.length === 1).map((e) => e.join(':')).join())) + '|' + (flip ? 1 : 0) + '|' + (num ?? '');
   let c = RA_SPR.get(key);
   if (c) return c;
-  const rows = RA_POSES[pose], w = rows[0].length, h = rows.length;
   c = document.createElement('canvas');
-  c.width = w + 2; c.height = h + 2;
   const g = c.getContext('2d');
-  const at = (x, y) => rows[y]?.[flip ? w - 1 - x : x];
-  const on = (x, y) => { const v = at(x, y); return v && v !== '.'; };
-  g.fillStyle = '#0c0c0c';
-  for (let y = -1; y <= h; y++) for (let x = -1; x <= w; x++) if (!on(x, y) && (on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1))) g.fillRect(x + 1, y + 1, 1, 1);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const v = at(x, y); if (v && v !== '.') { g.fillStyle = pal[v] || '#f0f'; g.fillRect(x + 1, y + 1, 1, 1); } }
+  const map = RA_MAPS[pose];
+  if (map) {
+    const w = map[0].length, h = map.length, src = document.createElement('canvas');
+    src.width = w + 2; src.height = h + 2;
+    const s = src.getContext('2d');
+    const at = (x, y) => map[y]?.[flip ? w - 1 - x : x];
+    const on = (x, y) => { const v = at(x, y); return v && v !== '.'; };
+    s.fillStyle = '#0c0c0c';
+    for (let y = -1; y <= h; y++) for (let x = -1; x <= w; x++) if (!on(x, y) && (on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1))) s.fillRect(x + 1, y + 1, 1, 1);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const v = at(x, y); if (v && v !== '.') { s.fillStyle = pal[v] || '#f0f'; s.fillRect(x + 1, y + 1, 1, 1); } }
+    c.width = src.width * RA_K; c.height = src.height * RA_K;
+    g.imageSmoothingEnabled = false;
+    g.drawImage(src, 0, 0, c.width, c.height);
+    c.ax = c.width / 2; c.ay = c.height - RA_K;
+  } else {
+    const f = raFig(pose, pal.variant);
+    c.width = f.W; c.height = f.H;
+    const img = g.createImageData(f.W, f.H), d = img.data;
+    const rgb = pal.rgb || (pal.rgb = Object.fromEntries(Object.entries(pal).filter(([k, v]) => k.length === 1 && typeof v === 'string').map(([k, v]) => [k, raRGB(v)])));
+    const set = (x, y, col) => { const i = (y * f.W + x) * 4; d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2]; d[i + 3] = 255; };
+    for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) {
+      const ch = f.g[y * f.W + x];
+      if (ch === '.') continue;
+      let col = rgb[ch] || [255, 0, 255];
+      if (pal.stripe && (ch === 'J' || ch === 'j' || ch === 'L') && Math.floor(x / 2) % 2) col = rgb.X;
+      set(flip ? f.W - 1 - x : x, y, col);
+    }
+    // The number goes on after the flip so it never reads backwards, and only onto jersey cells.
+    if (num != null && f.num && rgb.n) {
+      const s = String(num), w = s.length * 4 - 1;
+      const x0 = f.num[0] - Math.floor(w / 2), fx0 = flip ? f.W - (x0 + w) : x0;
+      for (let k = 0; k < s.length; k++) {
+        const gl = RA_GLYPHS[s[k]];
+        for (let i = 0; i < 15; i++) {
+          if (gl[i] !== '1') continue;
+          const fx = fx0 + k * 4 + (i % 3), y = f.num[1] + Math.floor(i / 3);
+          const sx = flip ? f.W - 1 - fx : fx, ch = f.g[y * f.W + sx];
+          if (ch === 'J' || ch === 'j' || ch === 'L') set(fx, y, rgb.n);
+        }
+      }
+    }
+    g.putImageData(img, 0, 0);
+    c.ax = flip ? f.W - f.ax : f.ax; c.ay = f.ay;
+  }
   RA_SPR.set(key, c);
   return c;
+}
+// The football: an oval with laces, lit from above, in eight turns so a kick can tumble end over end.
+const RA_BALL = [];
+function raBallSprite(k) {
+  if (RA_BALL[k]) return RA_BALL[k];
+  const S = 16, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d'), img = g.createImageData(S, S), d = img.data;
+  const ang = (k * Math.PI) / 8, cs = Math.cos(ang), sn = Math.sin(ang), A = 4.8, B = 2.9;
+  const inside = (x, y) => { const u = x * cs + y * sn, v = -x * sn + y * cs; return (u / A) ** 2 + (v / B) ** 2 <= 1; };
+  const put = (i, c3) => { d[i] = c3[0]; d[i + 1] = c3[1]; d[i + 2] = c3[2]; d[i + 3] = 255; };
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const px = x + 0.5 - S / 2, py = y + 0.5 - S / 2, i = (y * S + x) * 4;
+    if (inside(px, py)) {
+      const u = px * cs + py * sn, v = -px * sn + py * cs;
+      const lace = Math.abs(u) < 2 && v < -B * 0.25 && v > -B * 0.85 && (Math.abs(u) < 0.5 || Math.floor(u + 2) % 2 === 0);
+      put(i, lace ? [244, 238, 226] : py < -1.2 ? [184, 104, 50] : py > 1.2 ? [92, 42, 14] : [140, 70, 26]);
+    } else if (inside(px - 1, py) || inside(px + 1, py) || inside(px, py - 1) || inside(px, py + 1)) put(i, [16, 10, 6]);
+  }
+  g.putImageData(img, 0, 0);
+  return (RA_BALL[k] = c);
 }
 
 // Team logos for midfield, drawn small and scaled up so they come out pixelated like everything else.
@@ -1085,61 +1446,83 @@ function raLogo(t) {
   }
   return e.ok ? e.img : null;
 }
+// The field is the same for every play of a game, so it is painted once per matchup (and again when
+// the home logo arrives).
+const RA_ART = new Map();
 function raFieldArt(sc) {
+  const homeCol = sc.offHome ? sc.col.o : sc.col.d, awayCol = sc.offHome ? sc.col.d : sc.col.o;
+  const homeT = sc.offHome ? sc.offT : sc.defT, awayT = sc.offHome ? sc.defT : sc.offT;
+  const logo = raLogo(homeT);
+  const key = [homeT.id, awayT.id, homeCol, awayCol, !!logo].join('|');
+  if (RA_ART.has(key)) return RA_ART.get(key);
+  const K = RA_K;
   const c = document.createElement('canvas');
   c.width = RA_WORLD_W; c.height = RA_WORLD_H;
   const g = c.getContext('2d');
-  const homeCol = sc.offHome ? sc.col.o : sc.col.d, awayCol = sc.offHome ? sc.col.d : sc.col.o;
-  const homeT = sc.offHome ? sc.offT : sc.defT, awayT = sc.offHome ? sc.defT : sc.offT;
   const rng = raRng('field' + homeT.id + awayT.id);
   const f0 = RA_TOP, f1 = RA_TOP + RA_FIELD_H;
   // Stands: rows of fans behind a padded wall in both teams' colours.
   g.fillStyle = '#262a33'; g.fillRect(0, 0, RA_WORLD_W, RA_TOP);
   const shirts = [homeCol, homeCol, awayCol, '#e9e4d4', '#9aa0a8', mixHex(homeCol, '#ffffff', 0.35), mixHex(awayCol, '#ffffff', 0.35)];
   const skin = ['#f1c27d', '#c68642', '#8d5524', '#e0ac69'];
-  const wall = RA_STANDS - 9;
-  for (let y = 1; y < wall - 5; y += 5) {
-    g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, y + 4, RA_WORLD_W, 1);             // the step of each row
-    for (let x = (y % 2) * 2; x < RA_WORLD_W; x += 3) {
+  const wall = RA_STANDS - 9 * K;
+  for (let y = K; y < wall - 5 * K; y += 5 * K) {
+    g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, y + 4 * K, RA_WORLD_W, K);          // the step of each row
+    for (let x = ((y / K) % 2) * 2 * K; x < RA_WORLD_W; x += 3 * K) {
       if (rng() < 0.1) continue;
-      g.fillStyle = skin[Math.floor(rng() * skin.length)]; g.fillRect(x, y, 2, 2);
-      g.fillStyle = shirts[Math.floor(rng() * shirts.length)]; g.fillRect(x, y + 2, 2, 3);
+      const sk = skin[Math.floor(rng() * skin.length)], sh = shirts[Math.floor(rng() * shirts.length)];
+      g.fillStyle = sk; g.fillRect(x, y, 2 * K, 2 * K);
+      g.fillStyle = mixHex(sk, '#000000', 0.25); g.fillRect(x + K, y + K, K, K);
+      g.fillStyle = sh; g.fillRect(x, y + 2 * K, 2 * K, 3 * K);
+      g.fillStyle = mixHex(sh, '#000000', 0.3); g.fillRect(x + K, y + 2 * K, K, 3 * K);
     }
   }
-  for (let x = 0; x < RA_WORLD_W; x += 24) { g.fillStyle = (x / 24) % 2 ? homeCol : awayCol; g.fillRect(x, wall, 24, 6); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x, wall + 5, 24, 1); }
-  g.fillStyle = '#0c0c0c'; g.fillRect(0, wall + 6, RA_WORLD_W, 1);
-  // Turf: flat green with a little grain; darker apron and bench area outside the lines.
-  g.fillStyle = '#1d7a2a'; g.fillRect(0, wall + 7, RA_WORLD_W, RA_WORLD_H - wall - 7);
-  g.fillStyle = '#228b2e'; g.fillRect(raSX(110), f0, raSX(-10) - raSX(110), RA_FIELD_H);
-  for (let i = 0; i < RA_WORLD_W * RA_FIELD_H * 0.035; i++) {
-    g.fillStyle = rng() < 0.55 ? '#1f8229' : '#279733';
-    g.fillRect(raSX(110) + Math.floor(rng() * (raSX(-10) - raSX(110))), f0 + Math.floor(rng() * RA_FIELD_H), 1, 1);
+  for (let x = 0; x < RA_WORLD_W; x += 24 * K) {
+    const col = (x / (24 * K)) % 2 ? homeCol : awayCol;
+    g.fillStyle = col; g.fillRect(x, wall, 24 * K, 6 * K);
+    g.fillStyle = mixHex(col, '#ffffff', 0.25); g.fillRect(x, wall, 24 * K, K);
+    g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x, wall + 5 * K, 24 * K, K);
+  }
+  g.fillStyle = '#0c0c0c'; g.fillRect(0, wall + 6 * K, RA_WORLD_W, K);
+  // Turf: mowed in five-yard bands with a little grain; a darker apron and bench area outside the lines.
+  g.fillStyle = '#1d7a2a'; g.fillRect(0, wall + 7 * K, RA_WORLD_W, RA_WORLD_H - wall - 7 * K);
+  for (let H = -10; H < 110; H += 5) {
+    g.fillStyle = (H / 5) % 2 ? '#248f30' : '#21862d';
+    g.fillRect(raSX(H + 5), f0, raSX(H) - raSX(H + 5), RA_FIELD_H);
+  }
+  const fx0 = raSX(110), fw = raSX(-10) - raSX(110);
+  for (let i = 0; i < (RA_WORLD_W * RA_FIELD_H * 0.035) / K; i++) {
+    g.fillStyle = rng() < 0.55 ? 'rgba(0,40,0,0.18)' : 'rgba(120,200,110,0.12)';
+    g.fillRect(fx0 + Math.floor(rng() * fw), f0 + Math.floor(rng() * RA_FIELD_H), K, K / 2 + (rng() < 0.3 ? K / 2 : 0));
   }
   // Team benches between the 25s: home on the near sideline, visitors across the field below the stands.
   const bx0 = raSX(75), bx1 = raSX(25);
-  for (const y of [f1 + 30, RA_STANDS + 4]) { g.fillStyle = '#16602a'; g.fillRect(bx0, y, bx1 - bx0, 6); g.fillStyle = '#0c0c0c'; g.fillRect(bx0, y + 6, bx1 - bx0, 1); }
+  for (const y of [f1 + 30 * K, RA_STANDS + 4 * K]) {
+    g.fillStyle = '#16602a'; g.fillRect(bx0, y, bx1 - bx0, 6 * K);
+    g.fillStyle = '#1d7535'; g.fillRect(bx0, y, bx1 - bx0, K);
+    g.fillStyle = '#0c0c0c'; g.fillRect(bx0, y + 6 * K, bx1 - bx0, K);
+  }
   g.fillStyle = 'rgba(255,255,255,0.55)';                                                  // the coaching-box lines
-  for (let x = raSX(110); x < raSX(-10); x += 6) { g.fillRect(x, f1 + 6, 3, 1); g.fillRect(x, f0 - 7, 3, 1); }
-  // End zones: team colour, a stripe texture and the school's name running along them.
+  for (let x = raSX(110); x < raSX(-10); x += 6 * K) { g.fillRect(x, f1 + 6 * K, 3 * K, K); g.fillRect(x, f0 - 7 * K, 3 * K, K); }
+  // End zones: team colour, a stripe texture and the team's name running along them.
   const zone = (Ha, Hb, col, t, rot) => {
     const x0 = raSX(Hb), w = raSX(Ha) - x0;
     g.fillStyle = col; g.fillRect(x0, f0, w, RA_FIELD_H);
     g.fillStyle = mixHex(col, '#000000', 0.16);
-    for (let y = f0; y < f1; y += 6) g.fillRect(x0, y, w, 2);
+    for (let y = f0; y < f1; y += 6 * K) g.fillRect(x0, y, w, 2 * K);
     let word = (t.name || t.abbr || '').toUpperCase().replace(/[^A-Z& ]/g, '');
     if (word.length > 11) word = (t.abbr || '').toUpperCase();
     const ink = onColor(col) === '#ffffff' ? '#ffffff' : '#141414';
-    const lab = bigLabel(word, 3, ink, ink === '#ffffff' ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.45)');
+    const lab = bigLabel(word, 3 * K, ink, ink === '#ffffff' ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.45)');
     g.save(); g.translate(x0 + w / 2, f0 + RA_FIELD_H / 2); g.rotate(rot);
     g.drawImage(lab, -Math.floor(lab.width / 2), -Math.floor(lab.height / 2)); g.restore();
   };
   zone(-10, 0, homeCol, homeT, Math.PI / 2);
   zone(100, 110, awayCol, awayT, -Math.PI / 2);
   // The home team's logo at midfield: 13 yards across, foreshortened like the rest of the turf.
-  const logo = raLogo(homeT);
   if (logo) {
-    const lo = document.createElement('canvas'); lo.width = 40; lo.height = 40;
-    lo.getContext('2d').drawImage(logo, 0, 0, 40, 40);
+    const n = 40 * K, lo = document.createElement('canvas'); lo.width = n; lo.height = n;
+    lo.getContext('2d').drawImage(logo, 0, 0, n, n);
     const lw = 13 * PX, lh = Math.round(lw * PY / PX);
     g.imageSmoothingEnabled = false; g.globalAlpha = 0.92;
     g.drawImage(lo, Math.round(raSX(50) - lw / 2), Math.round(f0 + RAX * PY - lh / 2), lw, lh);
@@ -1147,32 +1530,75 @@ function raFieldArt(sc) {
   }
   // Lines: sidelines, end lines, goal lines and every five yards; hash ticks every yard.
   g.fillStyle = '#ffffff';
-  g.fillRect(raSX(110), f0, raSX(-10) - raSX(110) + 2, 2);
-  g.fillRect(raSX(110), f1 - 2, raSX(-10) - raSX(110) + 2, 2);
-  for (const H of [-10, 110]) g.fillRect(raSX(H), f0, 2, RA_FIELD_H);
-  for (let H = 0; H <= 100; H += 5) g.fillRect(raSX(H), f0, H % 100 === 0 ? 2 : 1, RA_FIELD_H);
+  g.fillRect(raSX(110), f0, raSX(-10) - raSX(110) + 2 * K, 2 * K);
+  g.fillRect(raSX(110), f1 - 2 * K, raSX(-10) - raSX(110) + 2 * K, 2 * K);
+  for (const H of [-10, 110]) g.fillRect(raSX(H), f0, 2 * K, RA_FIELD_H);
+  for (let H = 0; H <= 100; H += 5) g.fillRect(raSX(H), f0, H % 100 === 0 ? 2 * K : K, RA_FIELD_H);
   for (let H = 1; H < 100; H++) {
     if (H % 5 === 0) continue;
     const x = raSX(H);
     // NFL hash rows sit 23.58 yd off each sideline (70'9" apart), not college's 20 yd.
-    for (const yy of [2, 23.58, 29.75, 51.33]) g.fillRect(x, Math.round(f0 + yy * PY) - 1, 1, 3);
+    for (const yy of [2, 23.58, 29.75, 51.33]) g.fillRect(x, Math.round(f0 + yy * PY) - K, K, 3 * K);
   }
   // Yard numbers with a dark drop shadow; the far side's read upside down, as on a real field.
   for (let H = 10; H <= 90; H += 10) {
     const n = String(H <= 50 ? H : 100 - H), x = raSX(H);
-    const lab = bigLabel(n, 2, '#f7f7f7', '#123d8a');
+    const lab = bigLabel(n, 2 * K, '#f7f7f7', '#123d8a');
     const near = f0 + Math.round((53.33 - 11) * PY);
     g.drawImage(lab, x - Math.floor(lab.width / 2), near);
     g.save(); g.translate(x, f0 + Math.round(11 * PY)); g.rotate(Math.PI);
     g.drawImage(lab, -Math.floor(lab.width / 2), -Math.floor(lab.height / 2)); g.restore();
     // The little arrow pointing to the nearer goal.
     const dir = H < 50 ? 1 : H > 50 ? -1 : 0;
-    if (dir) { g.fillStyle = '#f7f7f7'; const ax = x + dir * (lab.width / 2 + 4); g.fillRect(ax, near + 6, 1, 3); g.fillRect(ax + dir, near + 7, 1, 1); }
+    if (dir) { g.fillStyle = '#f7f7f7'; const ax = x + dir * (lab.width / 2 + 4 * K); g.fillRect(ax, near + 6 * K, K, 3 * K); g.fillRect(ax + dir * K, near + 7 * K, K, K); }
   }
+  // The goalposts' padded bases, two yards behind each end line (the posts are drawn with the players).
+  for (const H of [-12, 112]) {
+    const x = raSX(H), y = Math.round(f0 + RAX * PY);
+    g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(x - 3 * K, y - K, 7 * K, 3 * K);
+  }
+  RA_ART.set(key, c);
   return c;
 }
 
+// Official helmet shells for 2026, by ESPN abbreviation (a team's primary colour stands in for any
+// abbreviation not listed). Checked 2026-09-27 against the teams' own 2026 uniform announcements and
+// SportsLogos.net's 2026-27 preview: TEN moved to a white helmet with its Oilers-blue set (Mar 2026);
+// LAC's standard shell is white (navy is the "Super Chargers" alternate); NYJ's Legacy shell is green
+// (white is the 2026 "White Out" alternate); BAL stays black and WSH burgundy through their 2026
+// redesigns; CAR's standard shell is silver (black is a frequent alternate); the new teal JAX helmet
+// is a Rivalries alternate, the standard shell is black.
+const RA_HELMET = {
+  ARI: '#f2f2f0', ATL: '#101820', BAL: '#101014', BUF: '#f2f2f0', CAR: '#a5acaf', CHI: '#0b162a', CIN: '#101014', CLE: '#ff3c00',
+  DAL: '#8a98a8', DEN: '#0a2343', DET: '#b0b7bc', GB: '#ffb612', HOU: '#03202f', IND: '#f2f2f0', JAX: '#101820', KC: '#e31837',
+  LV: '#a5acaf', LAC: '#f2f2f0', LAR: '#003594', MIA: '#f2f2f0', MIN: '#4f2683', NE: '#b0b7bc', NO: '#d3bc8d', NYG: '#0b2265',
+  NYJ: '#115740', PHI: '#004c54', PIT: '#101014', SF: '#b3995d', SEA: '#002244', TB: '#3d3935', TEN: '#f2f2f0', WSH: '#5a1414',
+};
+const raContrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+const RA_WHITE = '#f2f2f0';
+// A team's uniform: at home the primary jersey over white pants, on the road a white jersey over
+// primary pants; the official helmet either way. Numbers in whichever of white or the second colour
+// stands out more on a home jersey, in the primary on a road one (the second colour, or near-black,
+// if the primary is too pale to read on white).
+function raKit(t, home) {
+  const prim = t.color, alt = t.alt;
+  const H = RA_HELMET[(t.abbr || '').toUpperCase()] || prim;
+  const J = home ? prim : RA_WHITE, P = home ? RA_WHITE : prim;
+  const n = home ? (raContrast(prim, '#ffffff') >= raContrast(prim, alt) ? '#ffffff' : alt)
+    : raContrast(prim, RA_WHITE) >= 2.2 ? prim : raContrast(alt, RA_WHITE) >= 2.2 ? alt : '#1a1a1a';
+  const w = [alt, prim, '#ffffff', '#111111'].find((c) => raContrast(c, H) >= 1.9) || '#ffffff';
+  return { J, P, H, n, w, S: prim };
+}
+const raShade = (c) => mixHex(c, '#0a0c18', lum(c) > 0.6 ? 0.26 : 0.42);
+const raLight = (c) => (lum(c) > 0.6 ? '#ffffff' : mixHex(c, '#ffffff', lum(c) < 0.03 ? 0.22 : 0.3));
 const RA_SKIN = ['#f1c27d', '#c68642', '#8d5524', '#e0ac69', '#6b4226'];
+const raIsHome = (sc, side) => (side === 'o') === sc.offHome;
+// A plausible number for the position, the same every time for the same man.
+function raNumber(role, seed) {
+  const r = raRng(seed)();
+  const pickIn = (ranges) => { const all = ranges.flatMap(([a, b]) => Array.from({ length: b - a + 1 }, (_, i) => a + i)); return all[Math.floor(r * all.length)]; };
+  return pickIn({ QB: [[1, 19]], K: [[1, 19]], RB: [[20, 39]], FB: [[40, 49]], WR: [[10, 19], [80, 88]], TE: [[80, 89]], OL: [[60, 79]], DL: [[90, 99], [50, 59]], LB: [[40, 58]], DB: [[20, 39]], BENCH: [[2, 99]] }[role] || [[10, 99]]);
+}
 function raPalette(sc, a) {
   if (!a.pal && a.side === 'b') {
     const J = sc.homeCol, home = sc.offT;
@@ -1181,7 +1607,12 @@ function raPalette(sc, a) {
     a.pal = { P: dm ? other : '#ffffff', H: dm ? '#ffffff' : J, F: RA_SKIN[sc.actors.indexOf(a) % RA_SKIN.length], J: dm ? '#ffffff' : J, W: dm ? J : '#ffffff', G: dm ? '#ffffff' : '#e8c547', K: dm ? J : '#f2f2f2', B: '#141414' };
     a.phase = 0;
   }
-  if (!a.pal && a.side === 'r') { a.pal = { C: '#f4f4f4', F: RA_SKIN[2], X: '#141414', Q: '#f4f4f4', B: '#141414' }; a.phase = 0; }
+  if (!a.pal && a.side === 'r') {
+    // Officials: black-and-white stripes, black pants, a white cap.
+    const F = RA_SKIN[2];
+    a.pal = { variant: 'r', stripe: 1, J: '#f4f4f4', j: '#c3c6cc', L: '#ffffff', X: '#141414', P: '#1c1c20', p: '#0e0e10', Q: '#3a3a42', S: '#141414', s: '#0b0b0d', F, f: raShade(F), E: raLight(F), B: '#141414', b: '#3a3c44', C: '#f4f4f4', c: '#c3c6cc', e: '#141414', O: '#0d0e13' };
+    a.phase = 0;
+  }
   if (!a.pal && a.side === 'c') {
     const idx = sc.actors.indexOf(a);
     const home = sc.offHome ? sc.offT : sc.defT;
@@ -1192,19 +1623,18 @@ function raPalette(sc, a) {
     a.phase = 0;
   }
   if (!a.pal) {
+    const home = raIsHome(sc, a.side);
     const t = a.side === 'o' ? sc.offT : sc.defT;
-    const J = sc.col[a.side];
-    let Hc = J.toLowerCase() === t.color.toLowerCase() ? t.alt : t.color;
-    if (cdist(Hc, J) < 60 || (lum(Hc) > 0.9 && lum(J) > 0.5)) Hc = mixHex(J, '#000000', 0.3);
+    const kit = sc.kits?.[a.side] || (sc.kits = { ...sc.kits, [a.side]: raKit(t, home) })[a.side];
     const idx = a.idx ?? sc.actors.indexOf(a);
-    const light = lum(J) > 0.45;
-    const P = a.side === 'o' ? '#f2f2f2' : '#d6d2c4';
+    const F = RA_SKIN[(idx * 7 + (a.side === 'o' ? 1 : 3)) % RA_SKIN.length];
+    const { J, P, H, S } = kit;
     a.pal = {
-      H: Hc, h: mixHex(Hc, '#000000', 0.4), w: lum(Hc) > 0.6 ? J : '#ffffff', m: '#8e8e8e',
-      F: RA_SKIN[(idx * 7 + (a.side === 'o' ? 1 : 3)) % RA_SKIN.length],
-      J, j: mixHex(J, '#000000', 0.38), n: light ? mixHex(J, '#000000', 0.6) : '#ffffff',
-      P, p: mixHex(P, '#3a3f55', 0.35), S: J, B: '#141414',
+      J, j: raShade(J), L: raLight(J), P, p: raShade(P), Q: raLight(P), H, h: raShade(H), l: raLight(H), w: kit.w,
+      m: raContrast('#9aa0a8', H) < 1.6 ? '#2b2f38' : '#9aa0a8', F, f: raShade(F), E: raLight(F), S, s: raShade(S),
+      B: '#17181d', b: '#44464e', e: '#141414', n: kit.n, O: '#0d0e13',
     };
+    a.num = raNumber(a.role, `${t.id}:${a.role}:${idx}`);
     a.phase = (idx * 0.37) % 1;
   }
   return a.pal;
@@ -1221,113 +1651,173 @@ function raBench(sc) {
     for (let i = 0; i < 30; i++) {
       const H = 24 + 52 * (i + rng() * 0.8) / 30;
       out.push({ side, role: 'BENCH', idx: 200 + out.length, wx: raSX(H), wy: y0 + rng() * (y1 - y0),
-        amp: rng() < 0.35 ? 3 + rng() * 9 : 0, w: 0.35 + rng() * 0.6, ph: rng() * 6.28, flipT: 2.5 + rng() * 5, k: [[0, 0, 0, 0]] });
+        amp: rng() < 0.35 ? (3 + rng() * 9) * RA_K : 0, w: 0.35 + rng() * 0.6, ph: rng() * 6.28, flipT: 2.5 + rng() * 5, k: [[0, 0, 0, 0]] });
     }
   };
-  add(home, f1 + 12, f1 + 26);
-  add(away, RA_STANDS + 18, RA_TOP - 9);
+  add(home, f1 + 12 * RA_K, f1 + 26 * RA_K);
+  add(away, RA_STANDS + 18 * RA_K, RA_TOP - 9 * RA_K);
   sc.bench = out;
   return out;
 }
+
+// What a player is doing at time t: a scripted action (the throw, the catch, the kick, the hold),
+// set in his stance before the snap, blocking, running (a four-frame stride) or standing.
+function raPoseAt(sc, a, t) {
+  const [x, z] = raPos(a, t), [ox, oz] = raPos(a, Math.max(0, t - 0.1));
+  const speed = Math.hypot(x - ox, z - oz) / 0.1;
+  if (a.downAt != null && t > a.downAt + 0.1) return 'down';
+  if (a.acts) for (const [t0, t1, p] of a.acts) if (t >= t0 && t < t1) return p;
+  if (a.set && speed < 0.5 && !sc.huddle && ((t < sc.tS && t > sc.tS - 1.2) || (sc.freeze && t < sc.freeze && t >= sc.tS))) return a.set;
+  if (['OL', 'DL', 'TE'].includes(a.role) && t >= sc.tS && t < (sc.tEnd ?? sc.T) && speed < 3.2 && !sc.huddle && !sc.timeout) return 'block';
+  if (speed > 0.8) return RA_RUN[Math.floor(t * (speed < 3.5 ? 5 : speed < 7 ? 8 : 10.5) + (a.phase || 0) * 4) % 4];
+  return 'stand';
+}
+// Where the ball sits in a man's hands, by pose (sprite pixels, facing right, up from the ground).
+const RA_HOLD = { stand: [4, 16], run1: [4.5, 16], run2: [4.5, 17], run3: [4.5, 16], run4: [4.5, 17], gun: [5, 17.6], qbUnder: [6.4, 12.6], throw1: [-3.4, 29], throw2: [6.8, 17],
+  catch: [5, 31], down: [11.5, 3], hold: [6.8, 10], hold2: [6.4, 4.2], snap: [8, 1.6], block: [6, 17], ready: [4, 11], stance: [6.5, 1.4], kick: [3, 17], kick0: [5.5, 18.5], punt: [4, 17],
+  dance: [2.6, 32], cheer: [3.8, 32.5] };
+// Goalposts in three pieces so the ball can pass between them: the far upright, the crossbar with
+// the offset post, the near upright. Seen from the side every part of the posts would stack on one
+// screen column, so the uprights are drawn in a little perspective (the far one shifted toward
+// midfield), and a kicked ball near the posts shifts with them.
+const RA_SHEAR = 0.35 * PX;                           // screen pixels per yard across the field
+const raPostShift = (H, across) => (H > 50 ? 1 : -1) * -across * RA_SHEAR;
 function raDraw(g, W, st) {
   const RA_H = g.canvas.height;                      // this stage's own height
+  const K = RA_K;
   const sc = st.sc, t = st.t;
   if (!sc.art) sc.art = raFieldArt(sc);
   const cx = Math.round(st.cam.x), cy = Math.round(st.cam.y);
   g.imageSmoothingEnabled = false;
   g.drawImage(sc.art, cx, cy, W, RA_H, 0, 0, W, RA_H);
-  const S = (x, z) => [raSX(sc.offHome ? z : 100 - z) - cx, RA_TOP + (RAX + x * (sc.offHome ? -1 : 1)) * PY - cy];
+  const flipX = sc.offHome ? -1 : 1;
+  const S = (x, z) => [raSX(sc.offHome ? z : 100 - z) - cx, RA_TOP + (RAX + x * flipX) * PY - cy];
   // Line of scrimmage and line to gain.
-  const vline = (z, col) => { const [x] = S(0, z); g.fillStyle = col; g.fillRect(Math.round(x), RA_TOP + 2 - cy, 1, RA_FIELD_H - 4); };
+  const vline = (z, col) => { const [x] = S(0, z); g.fillStyle = col; g.fillRect(Math.round(x), RA_TOP + 2 * K - cy, K, RA_FIELD_H - 4 * K); };
   g.globalAlpha = 0.75;
   vline(sc.z0, '#4aa8ff');
   if (sc.ltg) vline(sc.ltg, '#ffe000');
   g.globalAlpha = 1;
-  // Goal posts, seen from the side: a tall yellow post at the back of each end zone.
-  for (const H of [-10, 110]) {
-    const x = raSX(H) + (H < 0 ? 3 : -3) - cx, yc = RA_TOP + RAX * PY - cy;
-    if (x < -4 || x > W + 4) continue;
-    g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(x + 2, yc - 20, 2, 44);
-    g.fillStyle = '#0c0c0c'; g.fillRect(x - 1, yc - 3.08 * PY - 13.3 * HK - 1, 4, 3.08 * PY * 2 + 13.3 * HK - 3.33 * HK + 2); g.fillRect(x - 1, yc - 3.33 * HK - 1, 4, 3.33 * HK + 2);
-    g.fillStyle = '#f5d20a'; g.fillRect(x, yc - 3.08 * PY - 13.3 * HK, 2, 3.08 * PY * 2 + 13.3 * HK - 3.33 * HK); g.fillRect(x, yc - 3.33 * HK, 2, 3.33 * HK);
-  }
   const attackRight = !sc.offHome;
   const items = [];
+  // Goalposts: yellow, 18'6" between the uprights, the crossbar 10 ft up, the uprights 35 ft above it.
+  for (const H of [-10, 110]) {
+    const x = raSX(H) - cx, yc = RA_TOP + RAX * PY - cy;
+    if (x < -80 || x > W + 80) continue;
+    const bar = RA_BAR * HK, top = RA_POST_TOP * HK, d = RA_UPRIGHT * PY;
+    const xf = Math.round(x + raPostShift(H, -RA_UPRIGHT)), xn = Math.round(x + raPostShift(H, RA_UPRIGHT));
+    const yF = Math.round(yc - d), yN = Math.round(yc + d);
+    const post = (px, y0, y1) => {                    // a vertical tube: dark edge, shade, yellow, highlight
+      g.fillStyle = '#1a1405'; g.fillRect(px - 2, y1 - 1, 5, y0 - y1 + 2);
+      g.fillStyle = '#c9a400'; g.fillRect(px - 1, y1, 3, y0 - y1);
+      g.fillStyle = '#f7d417'; g.fillRect(px - 1, y1, 2, y0 - y1);
+      g.fillStyle = '#fff39a'; g.fillRect(px - 1, y1, 1, y0 - y1);
+    };
+    items.push({ y: yF, draw: () => post(xf, yF - bar, yF - top) });
+    items.push({ y: yc, draw: () => {
+      const xb = raSX(H < 0 ? -12 : 112) - cx;         // the offset post, two yards behind the end line
+      g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(Math.min(xb, x) - 2, yc - 1, Math.abs(xb - x) + 5, 3);
+      post(xb, yc, yc - bar + 3 * K);
+      const armY = yc - bar + 3 * K, x0a = Math.min(xb, x), x1a = Math.max(xb, x);
+      g.fillStyle = '#1a1405'; g.fillRect(x0a - 1, armY - 2, x1a - x0a + 3, 5);
+      g.fillStyle = '#f7d417'; g.fillRect(x0a, armY - 1, x1a - x0a + 1, 3);
+      g.fillStyle = '#1a1405'; g.fillRect(x - 2, yc - bar - 1, 5, 3 * K + 2);
+      g.fillStyle = '#f7d417'; g.fillRect(x - 1, yc - bar, 3, 3 * K);
+      // The crossbar, from the far upright to the near one.
+      const steps = Math.max(Math.abs(xn - xf), Math.abs(yN - yF));
+      for (const [col, w, o] of [['#1a1405', 5, -2], ['#c9a400', 3, -1], ['#f7d417', 2, -1]]) {
+        g.fillStyle = col;
+        for (let i = 0; i <= steps; i++) { const u = i / steps; g.fillRect(Math.round(xf + (xn - xf) * u) + o, Math.round(yF - bar + (yN - yF) * u) + o, w, w); }
+      }
+    } });
+    items.push({ y: yN, draw: () => post(xn, yN - bar, yN - top) });
+  }
   for (const a of sc.actors) {
     const [x, z] = raPos(a, t);
     const [sx, sy] = S(x, z);
-    if (sx < -20 || sx > W + 20 || sy < -10 || sy > RA_H + 30) continue;
+    if (sx < -40 || sx > W + 40 || sy < -20 || sy > RA_H + 60) continue;
     const [ox, oz] = raPos(a, Math.max(0, t - 0.1));
     const speed = Math.hypot(x - ox, z - oz) / 0.1;
     const [px] = S(ox, oz);
-    if (Math.abs(sx - px) > 0.25) a.face = sx > px ? 'r' : 'l';
+    if (Math.abs(sx - px) > 0.25 * K) a.face = sx > px ? 'r' : 'l';
     if (!a.face || (t < sc.tS && speed < 0.5 && !sc.huddle)) a.face = (a.side === 'o') === attackRight ? 'r' : 'l';
     items.push({ y: sy, draw: () => {
       const pal = raPalette(sc, a);
-      g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(Math.round(sx) - 5, Math.round(sy) - 1, 11, 2); g.fillRect(Math.round(sx) - 4, Math.round(sy) - 2, 9, 4);
+      const X = Math.round(sx), Y = Math.round(sy);
+      g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(X - 8, Y - 2, 17, 4); g.fillRect(X - 10, Y - 1, 21, 2);
       const down = a.downAt != null && t > a.downAt + 0.1;
-      const lineman = ['OL', 'DL', 'TE'].includes(a.role);
-      let pose;
-      if (down) pose = 'down';
-      else if (lineman && t < sc.tS && speed < 0.5 && t > sc.tS - 1.2) pose = 'stance';   // set in a stance just before the snap
-      else if (speed > 0.8) pose = ['run1', 'stand', 'run2', 'stand'][Math.floor(t * (speed < 3.5 ? 4.5 : 10) + a.phase * 4) % 4];   // walkers step slower
-      else pose = 'stand';
+      let pose = raPoseAt(sc, a, t);
       let lift = 0, flip = a.face === 'l';
       if (a.jumpAt != null && t > a.jumpAt && t < a.jumpAt + 5) {
-        lift = Math.round(Math.abs(Math.sin((t - a.jumpAt) * 7)) * 7);
-        if (a.cheer && lift > 1) pose = 'cheer';
+        lift = Math.round(Math.abs(Math.sin((t - a.jumpAt) * 7)) * 7 * K);
+        if (a.cheer && lift > K) pose = 'cheer';
       }
       if (a.danceAt != null && t > a.danceAt && !down) {       // the scorer's end-zone dance
         const ph = Math.floor((t - a.danceAt) * 4);
         pose = ph % 2 ? 'cheer' : 'dance';
         flip = Math.floor((t - a.danceAt) * 2) % 2 === 1;
-        lift = ph % 4 === 1 ? 3 : 0;
+        lift = ph % 4 === 1 ? 3 * K : 0;
       }
       if (a.side === 'b') { pose = Math.floor(t * 2.2) % 2 ? 'band1' : 'band2'; lift = 0; }   // everyone in step
-      if (sc.huddle && t > sc.arrived && !down) lift = Math.floor(t * 2.4 + a.phase * 3) % 2;   // bouncing on their toes
-      else if (!down && speed < 0.3 && (a.side === 'o' || a.side === 'd') && t > (sc.tEnd ?? sc.T) + 0.6 && !a.danceAt && !a.jumpAt) lift = Math.floor(t * 1.3 + a.phase * 5) % 3 === 0 ? 1 : 0;
-      if (a.side === 'r') { pose = speed > 0.8 ? (Math.floor(t * (speed < 3.5 ? 4.5 : 9)) % 2 ? 'ref2' : 'ref') : 'ref'; lift = 0; }
+      if (sc.huddle && t > sc.arrived && !down) lift = (Math.floor(t * 2.4 + a.phase * 3) % 2) * K;   // bouncing on their toes
+      else if (!down && speed < 0.3 && (a.side === 'o' || a.side === 'd') && t > (sc.tEnd ?? sc.T) + 0.6 && !a.danceAt && !a.jumpAt) lift = Math.floor(t * 1.3 + a.phase * 5) % 3 === 0 ? K : 0;
+      if (a.side === 'r') { pose = speed > 0.8 ? RA_RUN[Math.floor(t * (speed < 3.5 ? 5 : 9)) % 4] : 'stand'; lift = 0; }
       if (a.side === 'c') {
         if (a.danceFrom != null && t > a.danceFrom) {             // a synchronized routine
           const beat = Math.floor((t - a.danceFrom) / 0.32);
           pose = ['ch1', 'ch2', 'ch3', 'ch2'][beat % 4];
-          lift = beat % 4 === 1 ? 2 : 0;
+          lift = beat % 4 === 1 ? 2 * K : 0;
           flip = Math.floor(beat / 8) % 2 === 1;
-        } else { pose = 'ch1'; lift = speed > 0.8 ? (Math.floor(t * 8) % 2) * 2 : 0; }
+        } else { pose = 'ch1'; lift = speed > 0.8 ? (Math.floor(t * 8) % 2) * 2 * K : 0; }
       }
-      const spr = raSprite(pose, pal, flip);
-      g.drawImage(spr, Math.round(sx - spr.width / 2), Math.round(sy - spr.height + 1 - lift));
+      a.drawn = { pose, flip, lift };
+      const spr = raSprite(pose, pal, flip, a.num);
+      g.drawImage(spr, X - spr.ax, Y - spr.ay - lift);
     } });
   }
   for (const a of sc.halftime ? [] : raBench(sc)) {           // (the teams are in the locker room at halftime)
     const sx = a.wx + Math.sin(t * a.w + a.ph) * a.amp - cx, sy = a.wy - cy;
-    if (sx < -12 || sx > W + 12 || sy < -4 || sy > RA_H + 22) continue;
+    if (sx < -24 || sx > W + 24 || sy < -8 || sy > RA_H + 44) continue;
     const vx = Math.cos(t * a.w + a.ph) * a.amp * a.w;              // pixels a second
     items.push({ y: sy, draw: () => {
       const pal = raPalette(sc, a);
       const cheering = sc.tdAt != null && t > sc.tdAt + 0.3 && a.side === sc.tdSide;
-      let pose = Math.abs(vx) > 1.2 ? (Math.floor(t * 4 + a.ph) % 2 ? 'run1' : 'stand') : 'stand', lift = 0;
-      if (cheering) { lift = Math.round(Math.abs(Math.sin((t + a.ph) * 6)) * 5); if (lift > 1) pose = 'cheer'; }
+      let pose = Math.abs(vx) > 1.2 * K ? RA_RUN[Math.floor(t * 5 + a.ph) % 4] : 'stand', lift = 0;
+      if (cheering) { lift = Math.round(Math.abs(Math.sin((t + a.ph) * 6)) * 5 * K); if (lift > K) pose = 'cheer'; }
       const face = a.amp ? vx > 0 : Math.floor((t + a.ph) / a.flipT) % 2 === 0;
-      g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(Math.round(sx) - 4, Math.round(sy) - 1, 9, 2);
-      const spr = raSprite(pose, pal, !face);
-      g.drawImage(spr, Math.round(sx - spr.width / 2), Math.round(sy - spr.height + 1 - lift));
+      const X = Math.round(sx), Y = Math.round(sy);
+      g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(X - 8, Y - 1, 17, 2);
+      const spr = raSprite(pose, pal, !face, a.num);
+      g.drawImage(spr, X - spr.ax, Y - spr.ay - lift);
     } });
   }
   const b = raBall(sc, t);
-  const [bx, by] = S(b.x, b.z);
-  if (!sc.noBall) items.push({ y: by + 0.5, draw: () => {
-    let yb, xb = bx;
+  let [bx, by] = S(b.x, b.z);
+  const byKey = b.held ? S(...raPos(b.held, t))[1] + 0.5 : by + 0.5;
+  if (!sc.noBall) items.push({ y: byKey, draw: () => {
+    let yb, xb = bx, k = 0;
     if (b.held) {
-      const f = b.held.face === 'l' ? -1 : 1;
-      const down = b.held.downAt != null && t > b.held.downAt + 0.1;
+      const h = b.held.drawn || { pose: 'stand', flip: b.held.face === 'l', lift: 0 };
+      const o = RA_HOLD[h.pose] || RA_HOLD.stand;
       const [hx, hy] = S(...raPos(b.held, t));
-      xb = hx + f * 4; yb = hy - (down ? 4 : 10);
+      xb = Math.round(hx) + (h.flip ? -1 : 1) * o[0]; yb = Math.round(hy) - o[1] - h.lift;
     } else {
-      if (b.h > 0.4) { g.fillStyle = 'rgba(0,30,0,0.4)'; g.fillRect(Math.round(bx) - 2, Math.round(by) - 1, 5, 2); }
+      const Hb = sc.offHome ? b.z : 100 - b.z;
+      if (b.roll === 'end') {                          // a place kick: shifts with the posts as it nears them
+        const dPost = Math.min(Math.abs(Hb - 110), Math.abs(Hb + 10));
+        xb += raPostShift(Hb, b.x * flipX) * clamp(1 - (dPost - 3) / 9, 0, 1);
+      }
+      if (b.h > 0.4) { g.fillStyle = 'rgba(0,30,0,0.4)'; g.fillRect(Math.round(xb) - 4, Math.round(by) - 1, 9, 3); }
       yb = by - b.h * HK;
+      if (b.roll === 'tee') k = 4;
+      else if (b.flying && b.roll === 'end') k = Math.floor(t * 16) % 8;
+      else if (b.flying) {                             // a spiral points along its flight
+        const p = raBall(sc, t - 0.04), [qx, qy] = S(p.x, p.z);
+        const a = Math.atan2(yb - (qy - p.h * HK), xb - qx);
+        k = ((Math.round(a / (Math.PI / 8)) % 8) + 8) % 8;
+      }
     }
-    const spr = raSprite(b.flying && Math.floor(t * 12) % 2 ? 'ball2' : 'ball', { B: '#8a4418', b: '#5e2c0e', W: '#ffffff' }, false);
+    const spr = raBallSprite(k);
     g.drawImage(spr, Math.round(xb - spr.width / 2), Math.round(yb - spr.height / 2));
   } });
   for (const e of sc.events) {
@@ -1335,20 +1825,20 @@ function raDraw(g, W, st) {
     const u = clamp((t - e.t) / 0.7, 0, 1);
     const x = e.from[0] + (e.to[0] - e.from[0]) * u, z = e.from[1] + (e.to[1] - e.from[1]) * u;
     const [fx, fy] = S(x, z);
-    items.push({ y: fy, draw: () => { const yy = Math.round(fy - 4 * 10 * u * (1 - u)); g.fillStyle = '#0c0c0c'; g.fillRect(Math.round(fx) - 3, yy - 3, 6, 5); g.fillStyle = '#ffe000'; g.fillRect(Math.round(fx) - 2, yy - 2, 4, 3); } });
+    items.push({ y: fy, draw: () => { const yy = Math.round(fy - 4 * 10 * K * u * (1 - u)), X = Math.round(fx); g.fillStyle = '#0c0c0c'; g.fillRect(X - 3 * K, yy - 3 * K, 6 * K, 5 * K); g.fillStyle = '#ffe000'; g.fillRect(X - 2 * K, yy - 2 * K, 4 * K, 3 * K); g.fillStyle = '#fff6a0'; g.fillRect(X - 2 * K, yy - 2 * K, 4 * K, K); } });
   }
   items.sort((p, q) => p.y - q.y).forEach((it) => it.draw());
   if (st.ruler) {
-    g.fillStyle = 'rgba(8,24,12,0.55)'; g.fillRect(0, RA_H - 11, W, 11);
-    RA_RULER.size || [...Array(11)].forEach((_, i) => { const H = i * 10; const n = H === 0 || H === 100 ? 'G' : String(H <= 50 ? H : 100 - H); RA_RULER.set(H, bigLabel(n, 1, '#ffffff', '#123d8a')); });
+    g.fillStyle = 'rgba(8,24,12,0.55)'; g.fillRect(0, RA_H - 11 * K, W, 11 * K);
+    RA_RULER.size || [...Array(11)].forEach((_, i) => { const H = i * 10; const n = H === 0 || H === 100 ? 'G' : String(H <= 50 ? H : 100 - H); RA_RULER.set(H, bigLabel(n, K, '#ffffff', '#123d8a')); });
     for (let H = 0; H <= 100; H += 10) {
       const x = raSX(H) - cx;
-      if (x < -12 || x > W + 12) continue;
+      if (x < -24 || x > W + 24) continue;
       const lab = RA_RULER.get(H);
-      g.fillStyle = 'rgba(255,255,255,0.8)'; g.fillRect(Math.round(x), RA_H - 11, 1, 2);
-      g.drawImage(lab, Math.round(x - lab.width / 2), RA_H - 9);
+      g.fillStyle = 'rgba(255,255,255,0.8)'; g.fillRect(Math.round(x), RA_H - 11 * K, K, 2 * K);
+      g.drawImage(lab, Math.round(x - lab.width / 2), RA_H - 9 * K);
       const dir = H > 0 && H < 50 ? 1 : H > 50 && H < 100 ? -1 : 0;     // points toward the nearer goal
-      if (dir) { const ax = Math.round(x + dir * (lab.width / 2 + 3)); g.fillRect(ax, RA_H - 7, 1, 3); g.fillRect(ax + dir, RA_H - 6, 1, 1); }
+      if (dir) { const ax = Math.round(x + dir * (lab.width / 2 + 3 * K)); g.fillRect(ax, RA_H - 7 * K, K, 3 * K); g.fillRect(ax + dir * K, RA_H - 6 * K, K, K); }
     }
   }
   // Name tags for the players in the play text, stacked so none overlap.
@@ -1361,17 +1851,17 @@ function raDraw(g, W, st) {
     if (a.labelTo != null && t > a.labelTo && b.held !== a) continue;
     const [sx, sy] = S(...raPos(a, t));
     const txt = a.who.last.toUpperCase();
-    const w = pixW(txt) + 4, h = 9;
-    const lx = clamp(Math.round(sx - w / 2), 1, W - w - 1);
-    let ly = Math.round(sy) - 31;
-    for (let n = 0; n < 4; n++) { const hit = placed.find((r) => lx < r[0] + r[2] && lx + w > r[0] && ly < r[1] + r[3] && ly + h > r[1]); if (!hit) break; ly = hit[1] - h - 1; }
-    ly = clamp(ly, 1, RA_H - h - 1);
+    const w = pixW(txt, K) + 4 * K, h = 9 * K;
+    const lx = clamp(Math.round(sx - w / 2), K, W - w - K);
+    let ly = Math.round(sy) - 40 - h;
+    for (let n = 0; n < 4; n++) { const hit = placed.find((r) => lx < r[0] + r[2] && lx + w > r[0] && ly < r[1] + r[3] && ly + h > r[1]); if (!hit) break; ly = hit[1] - h - K; }
+    ly = clamp(ly, K, RA_H - h - K);
     placed.push([lx, ly, w, h]);
     const bg = sc.col[a.side];
-    g.fillStyle = '#0c0c0c'; g.fillRect(lx - 1, ly - 1, w + 2, h + 2);
+    g.fillStyle = '#0c0c0c'; g.fillRect(lx - K, ly - K, w + 2 * K, h + 2 * K);
     g.fillStyle = '#ffffff'; g.fillRect(lx, ly, w, h);
-    g.fillStyle = bg; g.fillRect(lx + 1, ly + 1, w - 2, h - 2);
-    pixText(g, txt, lx + 2, ly + 2, onColor(bg));
+    g.fillStyle = bg; g.fillRect(lx + K, ly + K, w - 2 * K, h - 2 * K);
+    pixText(g, txt, lx + 2 * K, ly + 2 * K, onColor(bg), K);
   }
 }
 
@@ -1382,7 +1872,8 @@ function raPatFrom(p, prev) {
   const homeScored = (p.home ?? 0) > (prev?.home ?? 0) && !((p.away ?? 0) > (prev?.away ?? 0));
   const awayScored = (p.away ?? 0) > (prev?.away ?? 0);
   const team = homeScored ? G.ev.home.id : awayScored ? G.ev.away.id : p.offId;
-  const sH = team === G.ev.home.id ? 97 : 3;
+  const home = team === G.ev.home.id;
+  const sH = home ? 85 : 15;                        // a kicked try is snapped from the 15…
   const base = { id: p.id + '-pat', period: p.period, clock: p.clock, away: p.away, home: p.home, offId: team, sH, eH: null, sDD: '', sPos: '', down: null, dist: null,
     parts: [], scoring: false, turnover: false, penYards: 0, endTeam: team, pat: true };
   // NFL: "T.Smack extra point is GOOD, Center-M.Orzech, Holder-D.Whelan." — "is" sits between
@@ -1403,7 +1894,7 @@ function raPatFrom(p, prev) {
     const nm = /(?:#(\d+)\s*)?([A-Z][\w.'’-]+(?: [A-Z][\w.'’-]+)?)\s+(?:pass|rush|run)/i.exec(seg);
     const who = nm ? `${nm[1] ? '#' + nm[1] + ' ' : ''}${nm[2]} ` : '';
     const text = how === 'pass' ? `${who}pass ${good ? 'complete' : 'incomplete'} short middle, two-point conversion ${good ? 'good' : 'failed'}` : `${who}rush middle, two-point conversion ${good ? 'good' : 'failed'}`;
-    return { ...base, kind: how === 'pass' ? (good ? 'pass' : 'incomplete') : 'run', typeText: 'Two-Point Conversion', text, yards: good ? 3 : 0, eH: good ? (team === G.ev.home.id ? 100 : 0) : sH };
+    return { ...base, sH: home ? 98 : 2, kind: how === 'pass' ? (good ? 'pass' : 'incomplete') : 'run', typeText: 'Two-Point Conversion', text, yards: good ? 2 : 0, eH: good ? (home ? 100 : 0) : (home ? 98 : 2) };   // …a two-point try from the 2
   }
   // Older/alternate phrasing, kept as a fallback.
   m = /(?:#(\d+)\s*)?([A-Z][\w.'’-]+(?: [A-Z][\w.'’-]+)?)\s+(pass|rush|run)\s+(?:attempt|conversion)\s+(good|failed)/i.exec(t) || /two[- ]point (pass|rush|run)? ?conversion (good|failed)/i.exec(t);
@@ -1412,7 +1903,7 @@ function raPatFrom(p, prev) {
     const how = (m.length > 4 ? m[3] : m[1] || 'rush').toLowerCase() === 'pass' ? 'pass' : 'rush';
     const who = m.length > 4 && !/^two[- ]point$/i.test(m[2]) ? `${m[1] ? '#' + m[1] + ' ' : ''}${m[2]} ` : '';
     const text = how === 'pass' ? `${who}pass ${good ? 'complete' : 'incomplete'} short middle, two-point conversion ${good ? 'good' : 'failed'}` : `${who}rush middle, two-point conversion ${good ? 'good' : 'failed'}`;
-    return { ...base, kind: how === 'pass' ? (good ? 'pass' : 'incomplete') : 'run', typeText: 'Two-Point Conversion', text, yards: good ? 3 : 0, eH: good ? (team === G.ev.home.id ? 100 : 0) : sH };
+    return { ...base, sH: home ? 98 : 2, kind: how === 'pass' ? (good ? 'pass' : 'incomplete') : 'run', typeText: 'Two-Point Conversion', text, yards: good ? 2 : 0, eH: good ? (home ? 100 : 0) : (home ? 98 : 2) };   // …a two-point try from the 2
   }
   return null;
 }
@@ -1432,12 +1923,17 @@ function raPlays() {
   if (q && q.kind !== 'meta' && quickIsNewer(q.id, G.sum, G.ev.id)) { q.text = G.ev.sit?.lastPlay?.text || q.text; q.typeText = G.ev.sit?.lastPlay?.type?.text || ''; q.sDD = ''; list.push(q); }
   return list;
 }
+// Who threw in this game ("offId:name"), and who carried it without ever throwing ("rb:offId:name"):
+// a pass to a man who also runs the ball goes to a back, not a wide receiver.
 function raQBs() {
-  const set = new Set();
+  const set = new Set(), runs = [];
   for (const f of G?.sum?.flat || []) {
-    const m = new RegExp(RA_PL + ' pass\\b').exec(cleanText(f.p.text).replace(/^(?:No Huddle[- ]?)?(?:Shotgun|Pistol|Under Center)?\s*/i, ''));
+    const tx = cleanText(f.p.text).replace(/^(?:No Huddle[- ]?)?(?:Shotgun|Pistol|Under Center)?\s*/i, '');
+    const m = new RegExp(RA_PL + ' pass\\b').exec(tx);
     if (m) set.add(`${f.p.offId}:${m[1] || m[2]}`);
+    else if (f.p.kind === 'run') { const r = new RegExp(RA_PL + '\\s+(?:left|right|up the middle)\\b').exec(tx); if (r) runs.push(`${f.p.offId}:${r[1] || r[2]}`); }
   }
+  for (const k of runs) if (!set.has(k)) set.add('rb:' + k);
   return set;
 }
 function openReenact(id) {
@@ -1492,9 +1988,14 @@ function raRestart() {
 function raSizeCanvas(cv, h = RA_H) {
   if (!cv) return;
   const r = cv.getBoundingClientRect();
-  if (h === 'auto') h = clamp(Math.round(r.height * (r.width > 560 ? 0.88 : 0.96)), 210, RA_WORLD_H);   // desktop: stands to benches; phone: a bit closer             // most of the field's width, the stands and the benches
+  if (h === 'auto') h = clamp(Math.round(r.height * (r.width > 560 ? 0.88 : 0.96) * RA_K), 210 * RA_K, RA_WORLD_H);   // desktop: stands to benches; phone: a bit closer             // most of the field's width, the stands and the benches
   cv.height = h;
   cv.width = Math.max(100, Math.round(h * r.width / (r.height || 1)));
+  // Hard pixel edges while every canvas pixel gets at least a screen pixel; on a stage drawn smaller
+  // than that (the sidebar card on a 1x screen), nearest-neighbour would drop whole rows and columns
+  // of the art, so the browser filters it instead.
+  const dev = r.height * (window.devicePixelRatio || 1);
+  cv.style.imageRendering = dev > 0 && dev < h * 0.95 ? 'auto' : '';
 }
 const raSize = () => raSizeCanvas($('#ra-cv'));
 // One frame for a stage (the full viewer or the sidebar card): advance the clock, move the camera
@@ -1510,8 +2011,8 @@ function raStep(st, dt) {
   const b = raBall(sc, st.t), b0 = raBall(sc, Math.max(0, st.t - 0.2));
   const wx = raSX(Hb(b.z)), vx = (wx - raSX(Hb(b0.z))) / 0.2;
   const pre = st.t < sc.tS;
-  let tx = pre ? raSX(Hb(sc.z0 - 2)) - W / 2 : wx - W / 2 + clamp(vx * 0.3, -W * 0.25, W * 0.25);
-  let ty = (pre ? Yb(sc.x0) : Yb(b.x) - Math.min(b.h * HK, 90) * 0.6) - RA_H * 0.55;
+  let tx = pre ? raSX(Hb(sc.camZ ?? sc.z0 - 2)) - W / 2 : wx - W / 2 + clamp(vx * 0.3, -W * 0.25, W * 0.25);
+  let ty = (pre ? Yb(sc.x0) : Yb(b.x) - Math.min(b.h * HK, 90 * RA_K) * 0.6) - RA_H * 0.55;
   if (sc.focusFn) { const f = sc.focusFn(st.t); tx = raSX(Hb(f.z)) - W / 2; ty = Yb(f.x) - RA_H * 0.55; }
   else if (sc.focus && st.t > sc.focus.from) { tx = raSX(Hb(sc.focus.z)) - W / 2; ty = Yb(sc.focus.x) - RA_H * 0.55; }
   tx = clamp(tx, 0, RA_WORLD_W - W);
@@ -1594,7 +2095,7 @@ const sideEl = () => document.getElementById('side-live');
 // The big 8-bit view swaps in for the tilted field when the viewer picks it (remembered).
 const bigTecmo = () => store.get('tecmoBig', false);
 function sideTarget() {
-  return bigTecmo() ? { cv: $('#bt-cv'), banner: $('#bt-banner'), h: 'auto' } : { cv: $('#sl-cv'), banner: $('#sl-banner'), h: 128 };
+  return bigTecmo() ? { cv: $('#bt-cv'), banner: $('#bt-banner'), h: 'auto' } : { cv: $('#sl-cv'), banner: $('#sl-banner'), h: 128 * RA_K };
 }
 function sideLiveOn() {
   const t = sideTarget();
@@ -1727,7 +2228,7 @@ function sideClear(p) {
   if (!prev) return;
   const scorer = prev.tdSide === 'd' ? prev.defT.id : prev.offT.id;
   let sc = null;
-  try { sc = raTimeout(prev, SIDE.t, ev, scorer, scorer === ev.home.id ? 97 : 3, '', null, true); } catch (err) { console.error(err); return; }
+  try { sc = raTimeout(prev, SIDE.t, ev, scorer, scorer === ev.home.id ? 85 : 15, '', null, true); } catch (err) { console.error(err); return; }
   sc.gameId = G.id;
   SIDE.huddleOff = scorer;
   sideText('tx', 'Lining up for the try');

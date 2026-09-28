@@ -250,7 +250,10 @@ async function main() {
     ok(picks.punt.returner === "O.Zaccheaus", `PUNT returner found even though the text never says "return" (got ${picks.punt.returner})`);
     ok(picks.fg.kind === "fg" && picks.fg.kicker === "N.Folk" && picks.fg.good === true && picks.fg.fgYds === 44, `FIELD GOAL kicker/result/distance (got ${JSON.stringify(picks.fg)})`);
     ok(picks.xp && picks.xp.kind === "fg" && /good/i.test(picks.xp.typeText), `EXTRA POINT synthesised from "extra point is GOOD" phrasing (got ${JSON.stringify(picks.xp)})`);
-    ok(picks.twoPt && picks.twoPt.kind === "pass" && picks.twoPt.yards === 3, `TWO-POINT CONVERSION synthesised from "ATTEMPT SUCCEEDS" phrasing (got ${JSON.stringify(picks.twoPt)})`);
+    // RESTAGED 2026-09-28: this used to expect 3 yards, the college try from the 3 that the port
+    // inherited. An NFL two-point try is snapped from the 2 (user, 2026-09-27: "get the formations
+    // matching"), so the synthesised play now starts at the 2 and a good try gains 2.
+    ok(picks.twoPt && picks.twoPt.kind === "pass" && picks.twoPt.yards === 2, `TWO-POINT CONVERSION synthesised from "ATTEMPT SUCCEEDS" phrasing, a 2-yard try (got ${JSON.stringify(picks.twoPt)})`);
     ok(picks.kickoff.kind === "kickoff" && picks.kickoff.kicker === "T.Smack" && picks.kickoff.kickYds === 59, `KICKOFF kicker/yards (got ${JSON.stringify(picks.kickoff)})`);
     ok(picks.kickoff.returner === "Br.Robinson" && !picks.kickoff.touchback, `KICKOFF returner found without the word "return" (got ${picks.kickoff.returner})`);
     ok(picks.touchback.touchback === true && picks.touchback.kickYds === 65, `KICKOFF TOUCHBACK detected (got ${JSON.stringify(picks.touchback)})`);
@@ -422,6 +425,179 @@ async function main() {
     ok(desk.pos === "sticky" && desk.gTop === 0 && desk.gH === 34 && desk.topbarTop === "34px",
       `desktop: the bar is GFFL's 34px top strip and Sunday's top bar sticks under it (${JSON.stringify(desk)})`);
     await page.setViewport({ width: 800, height: 600 });
+
+    /* ===================== (g) the 8-bit re-enactment: staging, uniforms, resolution ===================== */
+    // 2026-09-28, user: "lets start with accuracy, get the formations matching, kickoff alignment, field
+    // goals actually looking like field goals and ball getting kicked ... improving the pixel graphics
+    // of the players ... away teams should wear white jerseys, primary team color as the pants ...
+    // home teams should wear primary jersey color, white pants and their official helmet".
+    // Every number below is hand-computed from the fixture (GB home, ATL away) and the rulebook.
+    section("8-bit staging, uniforms, resolution");
+    const ra = await page.evaluate((fixture) => {
+      const comp = fixture.header.competitions[0];
+      const ev = { home: normTeam(comp.competitors.find((c) => c.homeAway === "home")), away: normTeam(comp.competitors.find((c) => c.homeAway === "away")) };
+      const byId = new Map();
+      for (const dr of fixture.drives.previous || []) for (const raw of dr.plays || []) byId.set(raw.id, { raw, teamId: dr.team?.id });
+      const np = (id) => { const { raw, teamId } = byId.get(id); return normPlay(raw, ev.home.id, teamId, ev.home.abbr); };
+      const synth = (base, text, extra = {}) => { const { raw, teamId } = byId.get(base); return normPlay({ ...raw, id: base + "-x", text, ...extra }, ev.home.id, teamId, ev.home.abbr); };
+      const at0 = (a) => raPos(a, 0);
+      const moved = (a, t0, t1) => { let m = 0; const [x0, z0] = raPos(a, t0); for (let t = t0; t <= t1; t += 0.02) { const [x, z] = raPos(a, t); m = Math.max(m, Math.hypot(x - x0, z - z0)); } return m; };
+      const segAt = (sc, t) => { let s = null; for (const b of sc.ball) if (t >= b.t0) s = b; return s; };
+      const out = {};
+      // Each block reports on its own, so code without one of these pieces fails its checks instead of
+      // crashing the section.
+      const tryIt = (k, fn) => { try { fn(); } catch (e) { out[k] = { err: String(e.message || e) }; } };
+      // ── Kickoff, GB kicks from its 35 (T.Smack 59 yards to ATL 6, returned 24)
+      tryIt("ko", () => {
+        const sc = raBuild(np("40187294840"), ev, new Set());
+        const K = sc.actors.find((a) => a.role === "K"), off = sc.actors.filter((a) => a.side === "o" && a !== K), def = sc.actors.filter((a) => a.side === "d");
+        const { tK, tL } = sc.kick;
+        out.ko = {
+          z0: sc.z0, tee: raBall(sc, 0).z, kickerAtKick: raPos(K, tK)[1], nOff: off.length + 1, nDef: def.length,
+          offZ: off.map((a) => +at0(a)[1].toFixed(2)),
+          inSetup: def.filter((a) => at0(a)[1] >= 65 && at0(a)[1] <= 70).length,
+          inLanding: def.filter((a) => at0(a)[1] >= 80 && at0(a)[1] <= 100).length,
+          beyondSetup: def.filter((a) => { const z = at0(a)[1]; return !(z >= 65 && z <= 70) && !(z >= 80 && z <= 110); }).length,
+          earlyMove: sc.actors.filter((a) => a !== K && (a.side === "o" || a.side === "d")).map((a) => moved(a, 0, tL - 0.01)).reduce((m, v) => Math.max(m, v), 0),
+          laterMove: off.map((a) => moved(a, tL, tL + 1.5)).reduce((m, v) => Math.max(m, v), 0),
+          kickPose: raPoseAt(sc, K, tK + 0.01), ballLeaves: +(raBall(sc, tK + 0.2).z - raBall(sc, tK).z).toFixed(2),
+        };
+        // …and the same on all ten kickoffs in the game.
+        const kos = [...byId.keys()].filter((id) => np(id).kind === "kickoff");
+        out.ko.all = kos.length;
+        out.ko.allEarly = Math.max(...kos.map((id) => { const s2 = raBuild(np(id), ev, new Set()), K2 = s2.actors.find((a) => a.role === "K"); return Math.max(...s2.actors.filter((a) => a !== K2).map((a) => moved(a, 0, s2.kick.tL - 0.01))); }));
+      });
+      // ── Kickoff touchback. ESPN puts an ATL kickoff's start at yardLine 65 (home-goal scale), as the
+      // real kicks in this fixture do (4018729481681), so the synthetic play carries the same shape.
+      tryIt("tb", () => {
+        const p = synth("4018729481681", "N.Folk kicks 65 yards from ATL 35 to end zone, Touchback to the GB 35.", { statYardage: 0, end: { yardLine: 35, team: { id: ev.home.id }, possessionText: "GB 35" } });
+        const sc = raBuild(p, ev, new Set());
+        const end = raBall(sc, sc.T);
+        out.tb = { endZ: end.z, endHome: 100 - end.z, carried: sc.ball.filter((b) => b.a && b.a.side === "d").length, tb: sc.I.touchback };
+      });
+      // ── Field goal: N.Folk 44 yards, snapped at GB 26 (ATL offense, so z0 = 100 − 26 = 74)
+      const fg = (p) => {
+        const sc = raBuild(p, ev, new Set());
+        const K = sc.actors.find((a) => a.role === "K"), holder = sc.actors.find((a) => a.set === "hold");
+        const tS = sc.tS, snap = segAt(sc, tS + 0.01);
+        // The first time the ball moves off the placed spot is the kick.
+        const kick = sc.ball.find((b) => b.from && b.t0 > tS && b.roll !== "tee" && (b.from[0] !== b.to[0] || b.from[1] !== b.to[1] || b.from[2] !== b.to[2]) && b.from[2] < 0.5);
+        const post = sc.ball.find((b) => b.to && b.to[1] === RA_POST && b.t0 >= (kick?.t0 ?? 0));
+        const place = sc.ball.find((b) => b.roll === "tee");
+        const [hx, hz] = raPos(holder, tS + 0.5);
+        return { z0: sc.z0, spotZ: place.to[1], holderToSpot: Math.hypot(hx - place.to[0], hz - place.to[1]),
+          snapEndsAtHolder: Math.hypot(snap.to[0] - hx, snap.to[1] - hz),
+          kickT: kick.t0, tK: sc.kick.tK, poseAtKick: raPoseAt(sc, K, kick.t0 + 0.01), poseBefore: raPoseAt(sc, K, kick.t0 - 0.5),
+          kickerToBall: Math.hypot(raPos(K, kick.t0)[0] - kick.from[0], raPos(K, kick.t0)[1] - kick.from[1]),
+          kickFromZ: kick.from[1], postX: post ? post.to[0] : null, postH: post ? post.to[2] : null, postZ: post ? post.to[1] : null,
+          landZ: kick.to[1], landH: kick.to[2], nOff: sc.actors.filter((a) => a.side === "o").length, nDef: sc.actors.filter((a) => a.side === "d").length };
+      };
+      tryIt("fg", () => { out.fg = fg(np("4018729481661")); });
+      tryIt("fgWide", () => { out.fgWide = fg(synth("4018729481661", "N.Folk 44 yard field goal is No Good, Wide Right, Center-L.McCullough, Holder-J.Bailey.", { type: { id: "60", text: "Field Goal Missed" } })); });
+      tryIt("fgShort", () => { out.fgShort = fg(synth("4018729481661", "N.Folk 44 yard field goal is No Good, Short, Center-L.McCullough, Holder-J.Bailey.", { type: { id: "60", text: "Field Goal Missed" } })); });
+      // ── The try: a kick from the 15, a two-point play from the 2 (both synthesised from the TD text)
+      tryIt("pat", () => {
+      let pat, two;
+      G = { ev };
+      try { pat = raPatFrom(np("401872948682"), null); two = raPatFrom(np("4018729483956"), null); } finally { G = null; }
+      out.pat = fg(pat);
+      out.two = (() => { const sc = raBuild(two, ev, new Set()); return { z0: sc.z0, nOff: sc.actors.filter((a) => a.side === "o").length, nDef: sc.actors.filter((a) => a.side === "d").length }; })(); });
+      // ── Formations on every play of the game
+      tryIt("form", () => { const qbs = new Set();
+      out.form = { plays: 0, not11: [], ol: [], gun: [], under: [], punt: [], gunN: 0, underN: 0, puntN: 0 };
+      for (const id of byId.keys()) {
+        const p = np(id);
+        let sc; try { sc = raBuild(p, ev, qbs); } catch (e) { continue; }
+        out.form.plays++;
+        const o = sc.actors.filter((a) => a.side === "o"), d = sc.actors.filter((a) => a.side === "d");
+        if (o.length !== 11 || d.length !== 11) out.form.not11.push(`${id}:${o.length}/${d.length}`);
+        const qb = o.find((a) => a.role === "QB"), K = o.find((a) => a.role === "K");
+        if (qb && !K && qb.set !== "hold") {
+          const ol = o.filter((a) => a.role === "OL");
+          const atLos = ol.filter((a) => Math.abs(at0(a)[1] - sc.z0) <= 1.5).length;
+          // Splits: neighbouring linemen 1-1.5 yd apart across the ball (centre to centre).
+          const xs = ol.map((a) => at0(a)[0]).sort((m, n) => m - n), gaps = xs.slice(1).map((x, i) => x - xs[i]);
+          if (ol.length !== 5 || atLos !== 5 || gaps.some((g) => g < 1 || g > 1.5)) out.form.ol.push(`${id}:${ol.length}/${atLos}/${gaps.map((g) => g.toFixed(2)).join(",")}`);
+          const back = sc.z0 - at0(qb)[1];
+          if (sc.I.form === "gun") { out.form.gunN++; if (back < 4 || back > 6) out.form.gun.push(`${id}:${back}`); }
+          else if (sc.I.form === "under") { out.form.underN++; if (back > 1.5 || back < 0.5) out.form.under.push(`${id}:${back}`); }
+        }
+        if (p.kind === "punt") {
+          out.form.puntN++;
+          const back = sc.z0 - at0(K)[1], shield = o.filter((a) => a !== K && sc.z0 - at0(a)[1] >= 4.5 && sc.z0 - at0(a)[1] <= 6).length;
+          if (back < 13 || back > 16 || shield !== 3) out.form.punt.push(`${id}:${back}/${shield}`);
+        }
+      } });
+      // ── Uniforms: GB at home, ATL on the road (ATL has the ball on this run)
+      tryIt("kit", () => {
+        const sc = raBuild(np("40187294863"), ev, new Set());
+        const o = raPalette(sc, sc.actors.find((a) => a.side === "o")), d = raPalette(sc, sc.actors.find((a) => a.side === "d"));
+        out.kit = { offHome: sc.offHome, away: { J: o.J, P: o.P, H: o.H, n: o.n }, home: { J: d.J, P: d.P, H: d.H, n: d.n },
+          nAway: raContrast(o.n, o.J), nHome: raContrast(d.n, d.J), ATL: ev.away.color, GB: ev.home.color, HATL: RA_HELMET.ATL, HGB: RA_HELMET.GB, white: RA_WHITE,
+          unknown: raKit({ abbr: "XYZ", color: "#123456", alt: "#654321" }, true).H };
+        // The bench players wear the same kits.
+        const bench = raBench(sc);
+        const bh = raPalette(sc, bench.find((b) => b.side === "d")), ba = raPalette(sc, bench.find((b) => b.side === "o"));
+        out.kit.bench = bh.J === d.J && bh.P === d.P && ba.J === o.J && ba.P === o.P;
+      });
+      tryIt("res", () => {
+        const sc = raBuild(np("40187294863"), ev, new Set()), o = raPalette(sc, sc.actors.find((a) => a.side === "o"));
+        const spr = raSprite("stand", o, false, 12), gg = spr.getContext("2d"), px = gg.getImageData(0, 0, spr.width, spr.height).data;
+        let top = 1e9, bot = -1, l = 1e9, r = -1;
+        for (let y = 0; y < spr.height; y++) for (let x = 0; x < spr.width; x++) if (px[(y * spr.width + x) * 4 + 3]) { top = Math.min(top, y); bot = Math.max(bot, y); l = Math.min(l, x); r = Math.max(r, x); }
+        out.res = { RA_H, PX, PY, HK, inkH: bot - top + 1, inkW: r - l + 1, poses: Object.keys(RA_SKEL).length };
+      });
+      tryIt("helmets", () => { out.helmets = { n: Object.keys(RA_HELMET).length, keys: Object.keys(RA_HELMET), bad: Object.entries(RA_HELMET).filter(([, v]) => !/^#[0-9a-f]{6}$/.test(v)).map(([k]) => k) }; });
+      tryIt("post", () => { out.post = { RA_POST, RA_UPRIGHT, RA_BAR }; });
+      return out;
+    }, sumFixture);
+    // A check whose inputs are missing (the section run against code without the feature) fails with
+    // the reason instead of throwing.
+    const chk = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${e.message})`]; } ok(r[0], r[1]); };
+    const nfl32 = [...new Set(sbFixture.events.flatMap((e) => e.competitions[0].competitors.map((c) => c.team.abbreviation)))];
+    // Kickoff geometry, from the rule: kicking team's 35 = z 35, the receiving team's 40 = z 60,
+    // their 35..30 = z 65..70, their 20..goal line = z 80..100.
+    chk(() => [ra.ko.z0 === 35 && ra.ko.tee === 35 && Math.abs(ra.ko.kickerAtKick - 35) <= 1, `kickoff: the ball on a tee at the kicking team's 35 and the kicker at it when he kicks (tee z ${ra.ko.tee}, kicker z ${ra.ko.kickerAtKick.toFixed(2)})`]);
+    chk(() => [ra.ko.offZ.length === 10 && ra.ko.offZ.every((z) => Math.abs(z - 60) <= 0.5), `kickoff: the other ten kicking-team players line up on the receiving team's 40, z 60 ±0.5 (${ra.ko.offZ.join(",")})`]);
+    chk(() => [ra.ko.inSetup >= 9 && ra.ko.inLanding >= 1 && ra.ko.inLanding <= 2 && ra.ko.beyondSetup === 0 && ra.ko.nDef === 11 && ra.ko.nOff === 11,
+      `kickoff: ≥9 receivers in the setup zone (their 35-30), 1-2 returners in the landing zone, nobody else, 11 a side (setup ${ra.ko.inSetup}, landing ${ra.ko.inLanding}, elsewhere ${ra.ko.beyondSetup}, ${ra.ko.nOff}/${ra.ko.nDef})`]);
+    chk(() => [ra.ko.earlyMove < 0.01 && ra.ko.laterMove > 2 && ra.ko.all === 10 && ra.ko.allEarly < 0.01,
+      `kickoff: nobody but the kicker moves until the ball comes down, then the coverage goes (max move before landing ${ra.ko.earlyMove.toFixed(3)} yd, after ${ra.ko.laterMove.toFixed(1)}; worst of all ${ra.ko.all} kickoffs ${ra.ko.allEarly.toFixed(3)})`]);
+    chk(() => [ra.ko.kickPose === "kick" && ra.ko.ballLeaves > 2, `kickoff: the kicker is in his kicking pose as the ball leaves the tee (${ra.ko.kickPose}, ball ${ra.ko.ballLeaves} yd downfield 0.2 s later)`]);
+    // ATL kicks toward the home goal: the receiving (GB) 35 is home-scale H 35, kicking-frame z 65.
+    chk(() => [ra.tb.tb && ra.tb.endZ === 65 && ra.tb.endHome === 35 && ra.tb.carried === 0,
+      `kickoff touchback: the ball ends at the receiving team's 35 (z ${ra.tb.endZ}, GB ${ra.tb.endHome}) and nobody returns it (${ra.tb.carried} carries)`]);
+    // Field goal: 44 yards from GB 26 → kick spot 44 − 10 − 26 = 8 yards behind the LOS (z 74 − 8 = 66), posts at z 110.
+    chk(() => [ra.fg.z0 === 74 && ra.fg.spotZ === 66 && ra.fg.z0 - ra.fg.spotZ >= 6 && ra.fg.z0 - ra.fg.spotZ <= 8 && ra.fg.holderToSpot < 1,
+      `FG: the holder kneels at the spot, 44 − 10 − 26 = 8 yd behind the LOS (LOS z ${ra.fg.z0}, spot ${ra.fg.spotZ}, holder ${ra.fg.holderToSpot.toFixed(2)} yd from it)`]);
+    chk(() => [ra.fg.snapEndsAtHolder < 1, `FG: the snap travels to the holder's hands (${ra.fg.snapEndsAtHolder.toFixed(2)} yd off)`]);
+    chk(() => [Math.abs(ra.fg.kickT - ra.fg.tK) < 1e-6 && ra.fg.poseAtKick === "kick" && ra.fg.poseBefore !== "kick" && ra.fg.kickerToBall < 1.2,
+      `FG: the ball's first move off the spot is the kicker's swing (pose ${ra.fg.poseAtKick}, before it ${ra.fg.poseBefore}, kicker ${ra.fg.kickerToBall.toFixed(2)} yd from the ball)`]);
+    chk(() => [ra.fg.postZ === ra.post.RA_POST && ra.post.RA_POST === 110 && ra.fg.postH > ra.post.RA_BAR && Math.abs(ra.post.RA_BAR - 10 / 3) < 0.01 && Math.abs(ra.fg.postX) < ra.post.RA_UPRIGHT,
+      `FG good: at the end line (z 110) the ball is over the 10-ft (3.33-yd) bar between the uprights (height ${ra.fg.postH?.toFixed(2)} yd, ${ra.fg.postX?.toFixed(2)} yd off centre, uprights ±${ra.post.RA_UPRIGHT})`]);
+    chk(() => [ra.post.RA_POST - ra.fg.kickFromZ === 44, `FG: 44 yards from the kick spot to the posts (110 − ${ra.fg.kickFromZ})`]);
+    chk(() => [ra.fgWide.postX > ra.post.RA_UPRIGHT && ra.fgWide.postZ === 110, `FG "No Good, Wide Right": the ball passes the end line outside the right upright (x ${ra.fgWide.postX?.toFixed(2)} > ${ra.post.RA_UPRIGHT})`]);
+    chk(() => [ra.fgShort.postZ == null && ra.fgShort.landH === 0 && ra.fgShort.landZ < 110, `FG "No Good, Short": the ball comes down before the end line (at z ${ra.fgShort.landZ?.toFixed(1)}, height ${ra.fgShort.landH})`]);
+    chk(() => [ra.pat.z0 === 85 && ra.post.RA_POST - ra.pat.kickFromZ === 33 && ra.pat.postH > ra.post.RA_BAR && ra.pat.nOff === 11 && ra.pat.nDef === 11,
+      `PAT: snapped at the 15 (z ${ra.pat.z0}), a 33-yard kick (110 − ${ra.pat.kickFromZ}), over the bar, 11 a side`]);
+    chk(() => [ra.two.z0 === 98 && ra.two.nOff === 11 && ra.two.nDef === 11, `two-point try: a scrimmage play from the 2 (z ${ra.two.z0}), 11 a side`]);
+    chk(() => [ra.form.plays === 184 && ra.form.not11.length === 0, `11 a side on every one of the ${ra.form.plays} plays${ra.form.not11.length ? " (" + ra.form.not11.slice(0, 6).join(" ") + ")" : ""}`]);
+    chk(() => [ra.form.ol.length === 0, `every scrimmage play: five offensive linemen, all within 1.5 yd of the LOS, 1-1.5 yd splits${ra.form.ol.length ? " (" + ra.form.ol.slice(0, 6).join(" ") + ")" : ""}`]);
+    chk(() => [ra.form.gunN >= 60 && ra.form.gun.length === 0, `shotgun snaps (${ra.form.gunN}): the QB 5±1 yd behind the ball${ra.form.gun.length ? " (" + ra.form.gun.slice(0, 5).join(" ") + ")" : ""}`]);
+    chk(() => [ra.form.underN >= 20 && ra.form.under.length === 0, `under-center snaps (${ra.form.underN}): the QB within 1.5 yd of the ball${ra.form.under.length ? " (" + ra.form.under.slice(0, 5).join(" ") + ")" : ""}`]);
+    chk(() => [ra.form.puntN === 7 && ra.form.punt.length === 0, `punts (${ra.form.puntN} in the game — 255, 400, 1117, 1317, 1463, 2215, 3166): the punter 13-16 yd behind the LOS, a three-man shield about 5 yd deep${ra.form.punt.length ? " (" + ra.form.punt.join(" ") + ")" : ""}`]);
+    chk(() => [ra.kit.offHome === false && ra.kit.away.J === ra.kit.white && ra.kit.away.P === ra.kit.ATL && ra.kit.away.H === ra.kit.HATL,
+      `away (ATL): white jersey, primary (${ra.kit.ATL}) pants, official helmet ${ra.kit.HATL} (${JSON.stringify(ra.kit.away)})`]);
+    chk(() => [ra.kit.home.J === ra.kit.GB && ra.kit.home.P === ra.kit.white && ra.kit.home.H === ra.kit.HGB,
+      `home (GB): primary (${ra.kit.GB}) jersey, white pants, official helmet ${ra.kit.HGB} (${JSON.stringify(ra.kit.home)})`]);
+    chk(() => [ra.kit.nAway >= 3 && ra.kit.nHome >= 3, `numbers contrast with the jersey (away ${ra.kit.nAway.toFixed(2)}:1, home ${ra.kit.nHome.toFixed(2)}:1)`]);
+    chk(() => [ra.kit.bench, "the sidelines wear the same kits as the teams on the field"]);
+    chk(() => [ra.helmets.n === 32 && nfl32.every((a) => ra.helmets.keys.includes(a)) && ["WSH", "LAR", "LAC", "JAX"].every((a) => ra.helmets.keys.includes(a)) && ra.helmets.bad.length === 0 && ra.kit.unknown === "#123456",
+      `RA_HELMET covers all 32 ESPN abbreviations with hex shells; an unknown team falls back to its primary (${ra.helmets.n}, missing ${nfl32.filter((a) => !ra.helmets.keys.includes(a)).join(",") || "none"})`]);
+    // Resolution: the 168px stage at RA_K = 2 → 336px, 18/14/10 px per yard; a standing player was
+    // 17 rows of ink plus outline (19); now he is at least 32 rows tall and 12 wide.
+    chk(() => [ra.res.RA_H === 336 && ra.res.PX === 18 && ra.res.PY === 14 && ra.res.HK === 10 && ra.res.inkH >= 32 && ra.res.inkH <= 40 && ra.res.inkW >= 12 && ra.res.poses >= 20,
+      `the stage is twice the old resolution and a standing player is drawn in ${ra.res.inkW}×${ra.res.inkH} px (${ra.res.poses} poses)`]);
 
     /* ===================== console sanity ===================== */
     section("Console");

@@ -121,3 +121,58 @@ team" moved from the Matchups page to the Settings sheet. Cache-bust ?v=20260927
 
 VERIFY: sunday 65/65 (section "GFFL bar; one page" restaged, 3 new checks), sunday-ff 53/53. Bite:
 the previous Sunday files fail 7.
+
+## 2026-09-28 — the 8-bit replay: real formations, real kicks, 32-bit players, home and road kits
+
+Perry: "lets start with accuracy, get the formations matching, kickoff alignment, field goals
+actually looking like field goals and ball getting kicked. lets also take a turn on improving the
+pixel graphics of the players to look a little clearer, more of a 32 bit look. Also, away teams
+should wear white jerseys, primary team color as the pants, and whatever the official helmet color
+of that team is. home teams should wear primary jersey color, white pants and their official helmet".
+
+All in `sd-reenact.js`.
+
+- **Formations** follow the play's tag: "(Shotgun)" puts the QB 5 yd back, "(Pistol)" 4 with the
+  back behind him, no tag means under center (1.2 yd). Five linemen on the ball at 1.35-yd splits,
+  the center over it. Personnel by formation: shotgun passes 11/10/empty, under-center snaps 21 (I or
+  offset), 12 or 22. Defense: four down linemen, a corner over every wide receiver, two safeties
+  10-13 deep, nickel against three receivers and dime against four. A pass to a man who also runs the
+  ball this game (`raQBs` now records rushers as `rb:offId:name`) goes to the back.
+- **Kickoffs** use the 2024 dynamic setup: kicker at his 35 with the ball on a tee, the other ten on
+  the receiving 40, nine receivers in the setup zone (seven on their 35), two returners in the
+  landing zone. `sc.freeze` holds everyone but the kicker until the ball comes down. A touchback
+  spots the ball at the receiving 35 (the 2025 rule).
+- **Punts**: snapper and four linemen, a three-man shield 5 yd deep, gunners wide with two jammers
+  each, the punter 15 deep; he catches, takes two steps, drops it to his foot and kicks.
+- **Field goals and tries**: snapper, six linemen, two wings, the holder kneeling where the text's
+  distance puts the kick (44 − 10 − 26 = 8 yd for Folk's 44-yarder), the kicker two steps back and to
+  the side. Snap to the holder, place, approach, swing; the ball leaves the foot 1.3 s after the
+  snap and tumbles end over end to the posts. Misses follow the text: wide left/right, short, off an
+  upright or the crossbar; a block bounces off the named rusher. Tries: kicks from the 15 (33 yd),
+  two-point plays from the 2. RESTAGED the old "two-point try gains 3" check to 2 yards.
+- **Goalposts** (`RA_POST`, `RA_UPRIGHT`, `RA_BAR`): uprights 18'6" apart on the end line, the
+  crossbar 10 ft up, 35 ft of upright above it, an offset post 2 yd behind. They are drawn in three
+  depth-sorted pieces with a small perspective shift (seen exactly side-on every part would stack on
+  one screen column), and a kicked ball near the posts shifts with them.
+- **Players**: the stage is twice the old resolution (`RA_K = 2`: 336 px tall, 18/14/10 px per yard;
+  every hard-coded pixel in the draw code, the 128-px side card and the big view's auto height scale
+  with it). Each pose is a skeleton rasterised to a 34×40 grid: capsule limbs with three tones per
+  colour, a dark rim on the near arm and leg, a one-pixel outline, a helmet with stripe and face mask,
+  a jersey number that never mirrors. 22 poses, among them a four-frame run, 3-point stance, snap,
+  QB under center, shotgun set, holder, kick wind-up and swing, punt, throw, catch and block.
+  `raPoseAt` picks the pose. Canvases smaller on screen than their pixel count (the side card on a 1x
+  monitor) are filtered instead of dropping rows.
+- **Uniforms** (`raKit`): home in the primary jersey and white pants, road in white with primary
+  pants, the official helmet from `RA_HELMET` (32 teams, sources in the comment: TEN is white since its
+  March 2026 redesign, LAC white, NYJ green, CAR silver) or the primary for an unknown team. Numbers
+  pick white or the second colour on a home jersey, the primary on a road one. Benches match.
+
+Frame time, headless Chrome, 240 frames through each of the sampled plays (mean / p95 ms, before →
+after): replay modal 0.12-0.21 / 0.3-0.4 → 0.11-0.37 / 0.2-0.9; side card 0.12-0.21 / 0.3-0.4 →
+0.18-0.36 / 0.4-1.0; big view 0.15-0.25 / 0.3-0.6 → 0.15-0.31 / 0.3-0.7. The worst single frame
+(first draw of a play, sprites being built) went from 6.6 to 7.8 ms. The field is painted once per matchup now
+(`RA_ART`), not once per play. Cache-bust ?v=20260928a.
+
+VERIFY: sunday 91/91 (section "8-bit staging, uniforms, resolution", 26 new checks, 1 restaged),
+sunday-ff 53/53. Bite: the previous sd-reenact.js fails 25 of the 26 new checks and the restaged
+one; "11 a side on every play" already held.
