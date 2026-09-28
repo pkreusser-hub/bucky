@@ -523,19 +523,53 @@ function raBuild(p, ev, qbs, opts = {}) {
       m.jumpAt = t1 + R(0, 0.4); m.cheer = true;
       last = Math.max(last, t1);
     }
-    for (const o of others) {
-      cut(o, Math.max(tE - 0.2, lastT(o)));
-      const t0 = lastT(o), [ox, oz] = raPos(o, t0), [px, pz] = raPos(o, Math.max(0, t0 - 0.2));
-      const x1 = ox + (ox - px) * 2, z1 = oz + (oz - pz) * 2;                // coast to a stop
-      go(o, t0 + 0.7, x1, z1, 2);
-      const theirs = scorer.side === 'o' ? defT.id : offT.id;                  // the team that gave up the score
-      const side = (theirs === ev.home.id ? 1 : -1) * (offHome ? -1 : 1);       // its own sideline: home near, visitors far
-      const tx = side * (RAX + 4), tz = z1 + R(-5, 5);
-      const walk = Math.hypot(tx - x1, tz - z1) / R(2.4, 3);                  // a slow walk, heads down
-      o.k.push([t0 + 1.2 + R(0, 0.8), x1, z1, 0], [t0 + 2 + walk, tx, tz, 0]); // allowed past the sideline
-    }
+    for (const o of others) slinkOff(o, tE - 0.2, scorer.side === 'o' ? defT.id : offT.id);   // the team that gave up the score
     sc.tdAt = tE;
     sc.tdEnd = last + 3.5;
+  };
+  // The field-goal celebration. Everyone on the kicking unit runs to the kicker; three of them get
+  // under him and lift him (a.hoist: onto their shoulders, two tosses in the air, down again, drawn in
+  // raDraw), then they walk him a few yards toward their own sideline. The camera stays on them.
+  const fgCelebrate = (kicker, tG) => {
+    const mates = allOff().filter((a) => a !== kicker);
+    hold(kicker, tG + 0.1);
+    const [kx, kz] = raPos(kicker, tG + 0.1);
+    kicker.acts = [...(kicker.acts || []), [tG + 0.1, tG + 1.4, 'cheer']];
+    const carriers = nearest(mates, kx, kz, tG).slice(0, 3);
+    let tIn = tG + 0.6;
+    const off3 = [[-0.55, -0.35], [0.55, -0.35], [0, 0.45]];
+    carriers.forEach((c, i) => { cut(c, Math.max(lastT(c), tG)); tIn = Math.max(tIn, run(c, Math.max(lastT(c), tG + 0.05), kx + off3[i][0], kz + off3[i][1], 7.5, 0)); });
+    for (const m of mates) {
+      if (carriers.includes(m)) continue;
+      cut(m, Math.max(lastT(m), tG));
+      const ang = R(0, Math.PI * 2), r = R(1.6, 3.6);
+      const t1 = run(m, Math.max(lastT(m), tG + R(0.05, 0.4)), kx + Math.cos(ang) * r, kz + Math.sin(ang) * r, R(6.5, 8), 0);
+      m.jumpAt = t1 + R(0, 0.5); m.cheer = true;
+    }
+    const tUp = tIn + 0.3, tosses = [tUp + 0.6, tUp + 1.5], tWalk = tUp + 2.2, tDown = tUp + 4.4;
+    const own = (offT.id === ev.home.id ? 1 : -1) * (offHome ? -1 : 1);            // their sideline: home near, visitors far
+    const cx = raX(kx + own * 5), cz = kz - 1;
+    hold(kicker, tWalk); go(kicker, tDown - 0.3, cx, cz, 1);
+    carriers.forEach((c, i) => { hold(c, tWalk); go(c, tDown - 0.3, cx + off3[i][0], cz + off3[i][1], 1); c.carrying = [tUp - 0.25, tDown]; });
+    kicker.hoist = { t0: tUp, t1: tDown, tosses };
+    kicker.labelTo = tDown + 0.6;
+    sc.fgCheer = { kicker, carriers, tUp, tDown, tosses, own };
+    sc.focus = { from: tG + 0.8, x: (kx + cx) / 2, z: kz };
+    for (const d of allDef()) slinkOff(d, tG + 0.2, defT.id);
+    return tDown + 1.4;
+  };
+  // Heads down: coast to a stop, stand a moment, then a slow walk off to their own sideline (home near,
+  // visitors far), past it. Shared by a score against them and a field goal.
+  const slinkOff = (o, tFrom, teamId) => {
+    cut(o, Math.max(tFrom, lastT(o)));
+    const t0 = lastT(o), [ox, oz] = raPos(o, t0), [px, pz] = raPos(o, Math.max(0, t0 - 0.2));
+    const x1 = ox + (ox - px) * 2, z1 = oz + (oz - pz) * 2;                 // coast to a stop
+    go(o, t0 + 0.7, x1, z1, 2);
+    const side = (teamId === ev.home.id ? 1 : -1) * (offHome ? -1 : 1);
+    const tx = side * (RAX + 4), tz = z1 + R(-5, 5);
+    const walk = Math.hypot(tx - x1, tz - z1) / R(2.4, 3);                   // a slow walk
+    o.k.push([t0 + 1.2 + R(0, 0.8), x1, z1, 0], [t0 + 2 + walk, tx, tz, 0]); // allowed past the sideline
+    o.slink = true;
   };
   // The carrier's path already ends a step past the sideline (OOB_X). "pushed ob": the named
   // defender meets him there and shoves him out; he stays on his feet. "ran ob": he steps out on his
@@ -1167,6 +1201,11 @@ function raBuild(p, ev, qbs, opts = {}) {
       K.labelTo = tK + flight + 1.5;
       sc.kick = { tK, tL: tK + flight };
       T = tK + flight + 2.2; sc.tEnd = tK + flight;
+      // A field goal (not a routine try): the kicking team mobs the kicker, hoists him onto their
+      // shoulders, tosses him up twice and carries him toward their sideline, Rudy-style; the defense
+      // slinks off (2026-09-28, user: "after a field goal the kicking team should celebrate and lift
+      // the kicker up and toss him in the air like rudy … and the defense should slink off the field").
+      if (I.good && !isPAT) T = Math.max(T, fgCelebrate(K, tK + flight));
     }
     sc.noChase = true;                                                 // after a kick nobody chases the ball into the end zone
     sc.ltg = null;
@@ -2164,6 +2203,14 @@ function raBench(sc) {
   return out;
 }
 
+// A kicker hoisted after a field goal: up onto the shoulders (13 sprite pixels) in 0.3 s, two tosses
+// half a body higher (0.6 s each), down again in the last 0.3 s. In sprite pixels, times RA_K on screen.
+function raHoistLift(h, t) {
+  const up = clamp((t - h.t0) / 0.3, 0, 1), down = clamp((h.t1 - t) / 0.3, 0, 1);
+  let y = 13 * Math.min(up, down);
+  for (const ts of h.tosses) { const u = (t - ts) / 0.6; if (u > 0 && u < 1) y += 18 * 4 * u * (1 - u); }
+  return y;
+}
 // What a player is doing at time t: a scripted action (the throw, the catch, the kick, the hold),
 // set in his stance before the snap, blocking, running (a four-frame stride) or standing.
 function raPoseAt(sc, a, t) {
@@ -2263,7 +2310,8 @@ function raDraw(g, W, st) {
     // The QB faces the line of scrimmage for the whole play, dropping back or rolling out included
     // (2026-09-28, user), until the defense has the ball or the play is over.
     if (a.role === 'QB' && a.side === 'o' && !sc.huddle && !sc.timeout && !sc.halftime && !inHuddle && t < (sc.tEnd ?? sc.T) && !defBall) a.face = attackRight ? 'r' : 'l';
-    items.push({ y: sy, draw: () => {
+    // (A hoisted kicker is drawn after the men under him.)
+    items.push({ y: sy + (a.hoist && t >= a.hoist.t0 - 0.3 && t <= a.hoist.t1 ? 40 : 0), draw: () => {
       const pal = raPalette(sc, a);
       const X = Math.round(sx), Y = Math.round(sy);
       g.fillStyle = 'rgba(0,30,0,0.35)'; g.fillRect(X - 8, Y - 2, 17, 4); g.fillRect(X - 10, Y - 1, 21, 2);
@@ -2299,6 +2347,9 @@ function raDraw(g, W, st) {
         lift = 0;
       }
       if (a.onStr && t >= a.onStr.from) lift = Math.round(raStrH(a.onStr.str, t) * HK) + 3;   // on the stretcher
+      // (Last, so no idle bounce or cheer overrides it.)
+      if (a.hoist && t >= a.hoist.t0 && t <= a.hoist.t1) { lift = Math.round(raHoistLift(a.hoist, t) * K); pose = 'cheer'; }
+      else if (a.carrying && t >= a.carrying[0] && t <= a.carrying[1]) { pose = 'cheer'; lift = 0; }   // arms up, holding him
       a.drawn = { pose, flip, lift };
       const spr = raSprite(pose, pal, flip, a.num);
       g.drawImage(spr, X - spr.ax, Y - spr.ay - lift);
@@ -2379,7 +2430,7 @@ function raDraw(g, W, st) {
     if (!a.who || (a.side !== withBall && !hurtTag)) continue;
     if (!hurtTag && (a.labelAt == null || t < a.labelAt) && b.held !== a) continue;
     if (!hurtTag && a.labelTo != null && t > a.labelTo && b.held !== a) continue;
-    const [sx, sy0] = S(...raPos(a, t)), sy = sy0 - (hurtTag ? a.drawn?.lift || 0 : 0);
+    const [sx, sy0] = S(...raPos(a, t)), sy = sy0 - (hurtTag || a.hoist ? a.drawn?.lift || 0 : 0);
     const txt = a.who.last.toUpperCase();
     const w = pixW(txt, K) + 4 * K, h = 9 * K;
     const lx = clamp(Math.round(sx - w / 2), K, W - w - K);

@@ -945,6 +945,29 @@ async function main() {
         const rcvMove = Math.max(...sc.actors.filter((a) => a.side === "o" && (a.role === "WR" || a.role === "TE")).map((a) => { let m = 0; for (let t = 0; t <= sc.tEnd; t += 0.1) m = Math.max(m, Math.hypot(raPos(a, t)[0] - raPos(a, 0)[0], raPos(a, t)[1] - raPos(a, 0)[1])); return m; }));
         out.spike = { titles: sc.events.filter((e) => e.kind === "banner").map((e) => e.title).join("|"), holders, afterSnap: +(tRel - sc.tS).toFixed(2), firstZ: +(flights[0].to[1] - qz).toFixed(2), firstH: flights[0].to[2], farthest: +farthest.toFixed(2), qbMove: +qbMove.toFixed(2), rcvMove: +rcvMove.toFixed(2), who: qb.who?.last };
       });
+      // ATL @ GB 1661, "N.Folk 44 yard field goal is GOOD" (2026-09-28, user: "after a field goal the
+      // kicking team should celebrate and lift the kicker up and toss him in the air like rudy … and
+      // the defense should slink off the field").
+      tryIt("fg", () => {
+        G = { ev: A.ev };
+        const sc = raBuild(A.np("4018729481661"), A.ev, new Set()), c = sc.fgCheer;
+        const k = c.kicker, mates = sc.actors.filter((a) => a.side === "o" && a !== k);
+        const d = (a, t) => Math.hypot(raPos(a, t)[0] - raPos(k, t)[0], raPos(a, t)[1] - raPos(k, t)[1]);
+        let under = 99; for (let t = c.tUp; t <= c.tDown; t += 0.1) under = Math.min(under, c.carriers.filter((q) => d(q, t) <= 1).length);
+        const lifts = []; frames(sc, c.tUp + 0.35, c.tosses[1] + 0.7, () => lifts.push(k.drawn?.lift ?? 0), 0.05);
+        const base = Math.round(13 * RA_K), top = Math.max(...lifts);
+        let peaks = 0; for (let i = 1; i < lifts.length - 1; i++) if (lifts[i] > base + 10 * RA_K && lifts[i] >= lifts[i - 1] && lifts[i] > lifts[i + 1]) peaks++;
+        const defSide = (A.ev.home.id === sc.defT.id ? 1 : -1) * (sc.offHome ? -1 : 1);
+        const defs = sc.actors.filter((a) => a.side === "d");
+        let fastest = 0; for (const a of defs) for (let t = c.tUp; t < sc.T - 0.05; t += 0.1) fastest = Math.max(fastest, Math.hypot(raPos(a, t + 0.1)[0] - raPos(a, t)[0], raPos(a, t + 0.1)[1] - raPos(a, t)[1]) / 0.1);
+        const good = sc.events.find((e) => e.kind === "banner" && /Field goal good/.test(e.title));
+        out.fg = { who: k.who?.last, mob: mates.filter((m) => d(m, c.tUp) <= 5).length, under, base, top, peaks, carriedToward: +((raPos(k, c.tDown)[0] - raPos(k, c.tUp)[0]) * c.own).toFixed(2),
+          // (A slow walk from mid-field takes ~10 s, longer than the celebration: at the end of the scene
+          // they are on their way, each heading past his own sideline and nearer it than at the hoist.)
+          defOff: defs.filter((a) => a.k.at(-1)[1] * defSide > RAX && raPos(a, sc.T - 0.05)[0] * defSide > raPos(a, c.tUp)[0] * defSide).length, nDef: defs.length, rk: RA_K, fastest: +fastest.toFixed(2), goodAt: good && +(good.t - sc.tEnd).toFixed(3), T: sc.T, tDown: c.tDown, focus: sc.focus && sc.focus.from > sc.tEnd };
+        const pat = raBuild(raPatFrom(A.np("401872948682"), null), A.ev, new Set());
+        out.fg.patCheer = !!pat.fgCheer;
+      });
       tryIt("intRet", () => {
         G = { ev: A.ev };
         const sc = raBuild(A.np("401872948133"), A.ev, new Set());
@@ -1018,6 +1041,11 @@ async function main() {
     const FX = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${e.message} ${JSON.stringify(fx).slice(0, 200)})`]; } ok(r[0], r[1]); };
     FX(() => [fx.intTB.found && fx.intTB.zCatch >= 100 && fx.intTB.zCatch <= 102.5 && fx.intTB.minZafter >= 100, `LAR @ DEN 5085, a touchback: Hufanga catches it a yard deep in the end zone ("at DEN -1") and never leaves it (caught ${fx.intTB.zCatch}, lowest after ${fx.intTB.minZafter}; the goal line is 100, ESPN's end spot ${fx.intTB.zEndText} is the touchback's 20)${fx.intTB.err ? " " + fx.intTB.err : ""}`]);
     FX(() => [fx.intTB.down === "down" && /Intercepted/.test(fx.intTB.banners) && /Touchback/.test(fx.intTB.banners), `…he takes a knee there and it reads Intercepted, then Touchback (${fx.intTB.down}; ${fx.intTB.banners})`]);
+    FX(() => [fx.fg.who === "Folk" && fx.fg.mob >= 8 && fx.fg.under === 3, `ATL @ GB 1661, Folk's 44-yard field goal: the kicking team mobs him (${fx.fg.mob} of 10 within 5 yd) and three of them are under him the whole time he's up (${fx.fg.under})`]);
+    FX(() => [fx.fg.top >= fx.fg.base + 16 * fx.fg.rk && fx.fg.peaks === 2, `…they hoist him onto their shoulders and toss him up twice, like Rudy (drawn ${fx.fg.base} px up on their shoulders, ${fx.fg.top} px at the top of a toss, ${fx.fg.peaks} tosses)`]);
+    FX(() => [fx.fg.carriedToward >= 3, `…and carry him ${fx.fg.carriedToward} yd toward their own sideline`]);
+    FX(() => [fx.fg.defOff === fx.fg.nDef && fx.fg.fastest <= 3.2, `…while the defense slinks off: all ${fx.fg.nDef} head off past their own sideline (${fx.fg.defOff} on their way, nearer it than at the hoist), never faster than a walk (${fx.fg.fastest} yd/s)`]);
+    FX(() => [fx.fg.goodAt === 0 && fx.fg.T >= fx.fg.tDown && fx.fg.focus && fx.fg.patCheer === false, `…the result card still comes when the ball goes through (${fx.fg.goodAt} s from the whistle), the camera stays on the celebration, and an extra point gets none of it (${fx.fg.patCheer})`]);
     FX(() => [/Spike/.test(fx.spike.titles) && !/Incomplete/.test(fx.spike.titles) && fx.spike.holders.join() === "OL,QB" && fx.spike.who === "Stafford",
       `LAR @ DEN 5022, Stafford's spike: a "Spike" card, not "Incomplete", and nobody but the center and Stafford ever has the ball (${fx.spike.titles}; held by ${fx.spike.holders.join(", ")})`]);
     FX(() => [fx.spike.afterSnap <= 0.8 && fx.spike.firstH === 0 && fx.spike.firstZ > 0 && fx.spike.firstZ < 2.5 && fx.spike.farthest <= 5,

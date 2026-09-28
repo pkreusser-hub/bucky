@@ -573,3 +573,28 @@ VERIFY: sunday 200/201 (3 new checks on LAR @ DEN 5022 in "Touchbacks, kicks out
 catches, facing"; the one failure is the webfont ink check that fails the same way on HEAD in this
 container), sunday-ff 53/53, pbpdetail 61/61. Bite: HEAD's sd-reenact.js fails all 3 (thrown 15 yd
 downfield 1.6 s after the snap, the QB 6.75 yd back, a receiver 12 yd downfield).
+
+## 2026-09-28 — the field-goal celebration: Rudy, and the defense slinks off
+
+Perry: "after a field goal the kicking team should celebrate and lift the kicker up and toss him in
+the air like rudy … and the defense should slink off the field".
+
+After a good field goal (not a try, which stays routine), `fgCelebrate`:
+- the ten other men on the kicking unit run to the kicker; three get under him, the rest jump
+  around him cheering
+- they hoist him onto their shoulders, toss him up twice and carry him 5 yards toward their own
+  sideline
+- `a.hoist` drives the drawing (`raHoistLift`): 13 sprite pixels up onto the shoulders, 18 more at
+  the top of each 0.6-s toss; he is drawn over the men holding him, arms up, name tag riding with
+  him
+- the camera stays on them (`sc.focus`)
+
+The defense slinks off: each coasts to a stop, stands a moment, then walks slowly (2.4–3 yd/s) past
+his own sideline. That walk is now `slinkOff`, shared with the team that gives up a touchdown.
+The "Field goal good" card and `sc.tEnd` are unchanged; only `sc.T` grows, by about 5 s.
+Cache-bust ?v=20260928l.
+
+VERIFY: sunday 205/206 (5 new checks on ATL @ GB 1661 in "Touchbacks, kicks out of bounds, fair
+catches, facing"; the one failure is the webfont ink check that fails the same way on HEAD in this
+container), sunday-ff 53/53, pbpdetail 61/61; the week-3 audit is unchanged (the same 4
+checker-limit flags). Bite: HEAD's sd-reenact.js fails all 5.
