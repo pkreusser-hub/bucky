@@ -1746,33 +1746,85 @@ function raFieldArt(sc) {
   return c;
 }
 
-// Official helmet shells for 2026, by ESPN abbreviation (a team's primary colour stands in for any
-// abbreviation not listed). Checked 2026-09-27 against the teams' own 2026 uniform announcements and
-// SportsLogos.net's 2026-27 preview: TEN moved to a white helmet with its Oilers-blue set (Mar 2026);
-// LAC's standard shell is white (navy is the "Super Chargers" alternate); NYJ's Legacy shell is green
-// (white is the 2026 "White Out" alternate); BAL stays black and WSH burgundy through their 2026
-// redesigns; CAR's standard shell is silver (black is a frequent alternate); the new teal JAX helmet
-// is a Rivalries alternate, the standard shell is black.
-const RA_HELMET = {
-  ARI: '#f2f2f0', ATL: '#101820', BAL: '#101014', BUF: '#f2f2f0', CAR: '#a5acaf', CHI: '#0b162a', CIN: '#101014', CLE: '#ff3c00',
-  DAL: '#8a98a8', DEN: '#0a2343', DET: '#b0b7bc', GB: '#ffb612', HOU: '#03202f', IND: '#f2f2f0', JAX: '#101820', KC: '#e31837',
-  LV: '#a5acaf', LAC: '#f2f2f0', LAR: '#003594', MIA: '#f2f2f0', MIN: '#4f2683', NE: '#b0b7bc', NO: '#d3bc8d', NYG: '#0b2265',
-  NYJ: '#115740', PHI: '#004c54', PIT: '#101014', SF: '#b3995d', SEA: '#002244', TB: '#3d3935', TEN: '#f2f2f0', WSH: '#5a1414',
-};
 const raContrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 const RA_WHITE = '#f2f2f0';
-// A team's uniform: at home the primary jersey over white pants, on the road a white jersey over
-// primary pants; the official helmet either way. Numbers in whichever of white or the second colour
-// stands out more on a home jersey, in the primary on a road one (the second colour, or near-black,
-// if the primary is too pale to read on white).
-function raKit(t, home) {
-  const prim = t.color, alt = t.alt;
-  const H = RA_HELMET[(t.abbr || '').toUpperCase()] || prim;
+// Real 2026-season primary home and road uniforms, researched 2026-09-28 (user: "get real kits...
+// away teams should wear white jerseys, primary team color as the pants... home teams should wear
+// primary jersey color, white pants and their official helmet" — then corrected on research: ESPN's
+// `team.color` is often not the jersey colour at all (Denver's is navy, but the home jersey is
+// orange), several teams (Dallas) wear white at HOME by tradition, and 2026 brought real uniform
+// redesigns (Atlanta's red jersey returns, Baltimore "Next Flight", Tennessee's Oilers-blue/white-
+// helmet rebrand, Washington's burgundy/gold rebrand, Houston's "Deep Steel Blue"). Sources and notes
+// per team: docs/sunday.md (2026-09-28 entry). jersey/pants/helmet/num are the standard, non-alternate
+// set; `homeWhite` marks a team whose own standard home jersey is white (so its `road` entry, below,
+// is the colored one it wears on the road).
+const RA_KITS = {
+  ARI: { home: { jersey: '#97233F', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#97233F', helmet: '#f2f2f0', num: '#97233F' } },
+  ATL: { home: { jersey: '#A71930', pants: '#FFFFFF', helmet: '#101820', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#FFFFFF', helmet: '#101820', num: '#A71930' } }, // 2026 redesign: red jersey returns as home primary
+  BAL: { home: { jersey: '#241773', pants: '#241773', helmet: '#101014', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#FFFFFF', helmet: '#101014', num: '#241773' } }, // "Next Flight" (Apr 2026): monochrome purple / monochrome white, matte-black helmet both ways
+  BUF: { home: { jersey: '#00338D', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#00338D', helmet: '#f2f2f0', num: '#00338D' } },
+  CAR: { home: { jersey: '#101820', pants: '#FFFFFF', helmet: '#a5acaf', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#101820', helmet: '#a5acaf', num: '#101820' } },
+  CHI: { home: { jersey: '#0B162A', pants: '#FFFFFF', helmet: '#0b162a', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#0B162A', helmet: '#0b162a', num: '#0B162A' } },
+  CIN: { home: { jersey: '#101820', pants: '#101820', helmet: '#101014', num: '#FB4F14' }, road: { jersey: '#FFFFFF', pants: '#101820', helmet: '#101014', num: '#101820' } }, // standard set is all-black, not the orange "Open in Orange" one-off
+  CLE: { home: { jersey: '#311D00', pants: '#FFFFFF', helmet: '#ff3c00', num: '#FF3C00' }, road: { jersey: '#FFFFFF', pants: '#311D00', helmet: '#ff3c00', num: '#311D00' } },
+  DAL: { home: { jersey: '#FFFFFF', pants: '#8a98a8', helmet: '#8a98a8', num: '#002244' }, road: { jersey: '#002244', pants: '#8a98a8', helmet: '#8a98a8', num: '#FFFFFF' }, homeWhite: true }, // white at home since the 1960s
+  DEN: { home: { jersey: '#FB4F14', pants: '#FFFFFF', helmet: '#0a2343', num: '#0a2343' }, road: { jersey: '#FFFFFF', pants: '#FFFFFF', helmet: '#0a2343', num: '#FB4F14' } }, // 2024 "Mile High": orange jersey/white pants at home, navy helmet — the case the user flagged
+  DET: { home: { jersey: '#0076B6', pants: '#b0b7bc', helmet: '#b0b7bc', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#b0b7bc', helmet: '#b0b7bc', num: '#0076B6' } },
+  GB: { home: { jersey: '#203731', pants: '#ffb612', helmet: '#ffb612', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#ffb612', helmet: '#ffb612', num: '#203731' } }, // never wears white pants
+  HOU: { home: { jersey: '#03202f', pants: '#FFFFFF', helmet: '#03202f', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#03202f', helmet: '#03202f', num: '#03202f' } }, // 2024 redesign: "Deep Steel Blue" jersey and helmet
+  IND: { home: { jersey: '#002C5F', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#002C5F', helmet: '#f2f2f0', num: '#002C5F' } },
+  JAX: { home: { jersey: '#006778', pants: '#101820', helmet: '#101820', num: '#D7A22A' }, road: { jersey: '#FFFFFF', pants: '#101820', helmet: '#101820', num: '#101820' } },
+  KC: { home: { jersey: '#E31837', pants: '#FFFFFF', helmet: '#e31837', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#E31837', helmet: '#e31837', num: '#E31837' } },
+  LV: { home: { jersey: '#101820', pants: '#101820', helmet: '#a5acaf', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#101820', helmet: '#a5acaf', num: '#101820' } }, // helmet is silver, not black
+  LAC: { home: { jersey: '#0080C6', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#FFC20E' }, road: { jersey: '#FFFFFF', pants: '#002A5E', helmet: '#f2f2f0', num: '#0080C6' } }, // powder blue is the standard home jersey, navy "Super Chargers" is the alternate
+  LAR: { home: { jersey: '#003594', pants: '#FFFFFF', helmet: '#003594', num: '#FFD100' }, road: { jersey: '#FFFFFF', pants: '#FFFFFF', helmet: '#003594', num: '#003594' } },
+  MIA: { home: { jersey: '#008E97', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#008E97', helmet: '#f2f2f0', num: '#008E97' } },
+  MIN: { home: { jersey: '#4F2683', pants: '#FFFFFF', helmet: '#4f2683', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#4F2683', helmet: '#4f2683', num: '#4F2683' } },
+  NE: { home: { jersey: '#002244', pants: '#b0b7bc', helmet: '#b0b7bc', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#b0b7bc', helmet: '#b0b7bc', num: '#002244' } },
+  NO: { home: { jersey: '#101820', pants: '#101820', helmet: '#d3bc8d', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#101820', helmet: '#d3bc8d', num: '#101820' } },
+  NYG: { home: { jersey: '#0B2265', pants: '#FFFFFF', helmet: '#0b2265', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#FFFFFF', helmet: '#0b2265', num: '#0B2265' } },
+  NYJ: { home: { jersey: '#115740', pants: '#FFFFFF', helmet: '#115740', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#115740', helmet: '#115740', num: '#115740' } }, // "Legacy" green shell is standard; the all-white shell is a 2026 special-game alternate
+  PHI: { home: { jersey: '#004C54', pants: '#FFFFFF', helmet: '#004c54', num: '#A5ACAF' }, road: { jersey: '#FFFFFF', pants: '#FFFFFF', helmet: '#004c54', num: '#004C54' } }, // home pants white, not black: onpattison.com 2025 uniform schedule (Week 1 vs DAL: midnight green / white / midnight green)
+  PIT: { home: { jersey: '#000000', pants: '#FFB612', helmet: '#101014', num: '#FFB612' }, road: { jersey: '#FFFFFF', pants: '#000000', helmet: '#101014', num: '#000000' } },
+  SF: { home: { jersey: '#AA0000', pants: '#b3995d', helmet: '#b3995d', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#b3995d', helmet: '#b3995d', num: '#AA0000' } },
+  SEA: { home: { jersey: '#002244', pants: '#002244', helmet: '#002244', num: '#69BE28' }, road: { jersey: '#FFFFFF', pants: '#002244', helmet: '#002244', num: '#002244' } }, // all college navy at home, pants included (seahawks.com uniform announcements, 2025)
+  TB: { home: { jersey: '#D50A0A', pants: '#3d3935', helmet: '#3d3935', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#3d3935', helmet: '#3d3935', num: '#D50A0A' } },
+  TEN: { home: { jersey: '#4495D2', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#FFFFFF', helmet: '#f2f2f0', num: '#4495D2' } }, // Mar 2026 Oilers-blue rebrand: white helmet (and facemask) for the first time
+  WSH: { home: { jersey: '#5A1414', pants: '#FFB612', helmet: '#5a1414', num: '#FFFFFF' }, road: { jersey: '#FFFFFF', pants: '#FFB612', helmet: '#5a1414', num: '#5A1414' } }, // Apr 2026 rebrand: gloss-burgundy helmet, gold facemask, gold pants both ways
+};
+// The helmet shell, by ESPN abbreviation, derived from RA_KITS so there is one source of truth (a
+// team's helmet doesn't change between its home and road sets). An abbreviation not in RA_KITS falls
+// back to its primary colour, same as raKit below.
+const RA_HELMET = Object.fromEntries(Object.entries(RA_KITS).map(([k, v]) => [k, v.home.helmet]));
+// The generic fallback for a team not in RA_KITS: primary jersey/white pants at home, white
+// jersey/primary pants on the road, primary colour for a helmet nobody researched.
+function raGenericKit(t, home) {
+  const prim = t.color, alt = t.alt, H = prim;
   const J = home ? prim : RA_WHITE, P = home ? RA_WHITE : prim;
   const n = home ? (raContrast(prim, '#ffffff') >= raContrast(prim, alt) ? '#ffffff' : alt)
     : raContrast(prim, RA_WHITE) >= 2.2 ? prim : raContrast(alt, RA_WHITE) >= 2.2 ? alt : '#1a1a1a';
-  const w = [alt, prim, '#ffffff', '#111111'].find((c) => raContrast(c, H) >= 1.9) || '#ffffff';
-  return { J, P, H, n, w, S: prim };
+  return { J, P, H, n };
+}
+// A number colour that reads on this pixel art even if the researched one is too close to the
+// jersey (the contrast the sprite's own outline pixel can't rescue).
+const raSafeNum = (num, jersey) => (raContrast(num, jersey) >= 2.2 ? num
+  : raContrast('#ffffff', jersey) >= 2.2 ? '#ffffff' : raContrast('#111111', jersey) >= 2.2 ? '#111111' : num);
+// Both teams' real kits for this game: the home team in its home set, the visitors in their road
+// set — unless that pairs two white (or near-identical) jerseys, in which case the visitors switch to
+// their own colour jersey (their `home` entry), same as the NFL does.
+function raKit(homeT, roadT) {
+  const upH = (homeT.abbr || '').toUpperCase(), upR = (roadT.abbr || '').toUpperCase();
+  const KH = RA_KITS[upH], KR = RA_KITS[upR];
+  const toEntry = (e, t) => ({ J: e.jersey, P: e.pants, H: e.helmet, n: raSafeNum(e.num, e.jersey) });
+  const home = KH ? toEntry(KH.home, homeT) : raGenericKit(homeT, true);
+  let road = KR ? toEntry(KR.road, roadT) : raGenericKit(roadT, false);
+  if (cdist(home.J, road.J) < 40) {
+    const swap = KR ? toEntry(KR.home, roadT) : raGenericKit(roadT, true);
+    if (cdist(home.J, swap.J) >= 40) road = swap;
+  }
+  const brand = (t, k) => (k ? k.home.jersey : t.color);
+  const withExtras = (e, t, k) => ({ ...e, w: [t.alt, e.J, '#ffffff', '#111111'].find((c) => raContrast(c, e.H) >= 1.9) || '#ffffff', S: brand(t, k) });
+  return { home: withExtras(home, homeT, KH), road: withExtras(road, roadT, KR) };
 }
 const raShade = (c) => mixHex(c, '#0a0c18', lum(c) > 0.6 ? 0.26 : 0.42);
 const raLight = (c) => (lum(c) > 0.6 ? '#ffffff' : mixHex(c, '#ffffff', lum(c) < 0.03 ? 0.22 : 0.3));
@@ -1817,7 +1869,8 @@ function raPalette(sc, a) {
   if (!a.pal) {
     const home = raIsHome(sc, a.side);
     const t = a.side === 'o' ? sc.offT : sc.defT;
-    const kit = sc.kits?.[a.side] || (sc.kits = { ...sc.kits, [a.side]: raKit(t, home) })[a.side];
+    if (!sc.kits) { const homeT = sc.offHome ? sc.offT : sc.defT, roadT = sc.offHome ? sc.defT : sc.offT; sc.kits = raKit(homeT, roadT); }
+    const kit = home ? sc.kits.home : sc.kits.road;
     const idx = a.idx ?? sc.actors.indexOf(a);
     const F = RA_SKIN[(idx * 7 + (a.side === 'o' ? 1 : 3)) % RA_SKIN.length];
     const { J, P, H, S } = kit;

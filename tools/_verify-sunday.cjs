@@ -528,17 +528,52 @@ async function main() {
           if (back < 13 || back > 16 || shield !== 3) out.form.punt.push(`${id}:${back}/${shield}`);
         }
       } });
-      // ── Uniforms: GB at home, ATL on the road (ATL has the ball on this run)
+      // ── Uniforms: GB at home, ATL on the road (ATL has the ball on this run). GB and ATL's real
+      // researched kits (RA_KITS), not ESPN's team.color, are the expected values here.
       tryIt("kit", () => {
         const sc = raBuild(np("40187294863"), ev, new Set());
         const o = raPalette(sc, sc.actors.find((a) => a.side === "o")), d = raPalette(sc, sc.actors.find((a) => a.side === "d"));
         out.kit = { offHome: sc.offHome, away: { J: o.J, P: o.P, H: o.H, n: o.n }, home: { J: d.J, P: d.P, H: d.H, n: d.n },
-          nAway: raContrast(o.n, o.J), nHome: raContrast(d.n, d.J), ATL: ev.away.color, GB: ev.home.color, HATL: RA_HELMET.ATL, HGB: RA_HELMET.GB, white: RA_WHITE,
-          unknown: raKit({ abbr: "XYZ", color: "#123456", alt: "#654321" }, true).H };
-        // The bench players wear the same kits.
+          nAway: raContrast(o.n, o.J), nHome: raContrast(d.n, d.J), ATLroad: RA_KITS.ATL.road, GBhome: RA_KITS.GB.home };
+        // The sidelines wear the same kits as the teams on the field.
         const bench = raBench(sc);
         const bh = raPalette(sc, bench.find((b) => b.side === "d")), ba = raPalette(sc, bench.find((b) => b.side === "o"));
         out.kit.bench = bh.J === d.J && bh.P === d.P && ba.J === o.J && ba.P === o.P;
+      });
+      // ── RA_KITS itself: all 32 teams, valid hex on every field, home/road/homeWhite shape.
+      tryIt("kits32", () => {
+        const bad = [];
+        for (const a of Object.keys(RA_KITS)) {
+          const k = RA_KITS[a];
+          if (!k) { bad.push(`${a}:missing`); continue; }
+          for (const side of ["home", "road"]) {
+            const e = k[side];
+            if (!e) { bad.push(`${a}.${side}:missing`); continue; }
+            for (const f of ["jersey", "pants", "helmet", "num"]) if (!/^#[0-9a-fA-F]{6}$/.test(e[f] || "")) bad.push(`${a}.${side}.${f}:${e[f]}`);
+          }
+        }
+        out.kits32 = { n: Object.keys(RA_KITS).length, bad };
+      });
+      // ── An unknown abbreviation on both sides falls back to the old generic rule.
+      tryIt("kitUnknown", () => {
+        const xt = { abbr: "XYZ", color: "#123456", alt: "#0a0a0a" }, yt = { abbr: "ZYX", color: "#654321", alt: "#f0f0f0" };
+        const k = raKit(xt, yt);
+        out.kitUnknown = { homeJ: k.home.J, homeP: k.home.P, homeH: k.home.H, roadJ: k.road.J, roadP: k.road.P, roadH: k.road.H };
+      });
+      // ── Denver: ESPN's team.color for DEN is navy, but the real home jersey is orange, white
+      // pants, navy helmet (the exact case the user flagged). Built directly from RA_KITS via raKit
+      // on synthetic competitors, normTeam-shaped, swapped in for the fixture's own teams.
+      tryIt("kitDen", () => {
+        const den = normTeam({ team: { id: "d1", abbreviation: "DEN", color: "002244", alternateColor: "fb4f14" } });
+        const kc = normTeam({ team: { id: "k1", abbreviation: "KC", color: "e31837", alternateColor: "ffb612" } });
+        out.kitDen = raKit(den, kc).home;
+      });
+      // ── A homeWhite team (Dallas, white at home) against a visitor whose own road jersey is also
+      // white: the visitors switch to their colour (home) jersey instead of clashing white-on-white.
+      tryIt("kitClash", () => {
+        const dal = normTeam({ team: { id: "dl1", abbreviation: "DAL", color: "002244", alternateColor: "8a98a8" } });
+        const nyg = normTeam({ team: { id: "ng1", abbreviation: "NYG", color: "0b2265", alternateColor: "a71930" } });
+        out.kitClash = raKit(dal, nyg);
       });
       tryIt("res", () => {
         const sc = raBuild(np("40187294863"), ev, new Set()), o = raPalette(sc, sc.actors.find((a) => a.side === "o"));
@@ -586,14 +621,33 @@ async function main() {
     chk(() => [ra.form.gunN >= 60 && ra.form.gun.length === 0, `shotgun snaps (${ra.form.gunN}): the QB 5±1 yd behind the ball${ra.form.gun.length ? " (" + ra.form.gun.slice(0, 5).join(" ") + ")" : ""}`]);
     chk(() => [ra.form.underN >= 20 && ra.form.under.length === 0, `under-center snaps (${ra.form.underN}): the QB within 1.5 yd of the ball${ra.form.under.length ? " (" + ra.form.under.slice(0, 5).join(" ") + ")" : ""}`]);
     chk(() => [ra.form.puntN === 7 && ra.form.punt.length === 0, `punts (${ra.form.puntN} in the game — 255, 400, 1117, 1317, 1463, 2215, 3166): the punter 13-16 yd behind the LOS, a three-man shield about 5 yd deep${ra.form.punt.length ? " (" + ra.form.punt.join(" ") + ")" : ""}`]);
-    chk(() => [ra.kit.offHome === false && ra.kit.away.J === ra.kit.white && ra.kit.away.P === ra.kit.ATL && ra.kit.away.H === ra.kit.HATL,
-      `away (ATL): white jersey, primary (${ra.kit.ATL}) pants, official helmet ${ra.kit.HATL} (${JSON.stringify(ra.kit.away)})`]);
-    chk(() => [ra.kit.home.J === ra.kit.GB && ra.kit.home.P === ra.kit.white && ra.kit.home.H === ra.kit.HGB,
-      `home (GB): primary (${ra.kit.GB}) jersey, white pants, official helmet ${ra.kit.HGB} (${JSON.stringify(ra.kit.home)})`]);
+    // RESTAGED 2026-09-28: the old checks here encoded the generic "home jersey = ESPN primary,
+    // white pants; away white jersey, primary pants" rule. The user asked for each team's real,
+    // researched kit instead (Denver's ESPN team.color is navy but its actual jersey is orange, and
+    // several teams like Dallas wear white at home) — the expected values below are GB's and ATL's
+    // real researched RA_KITS entries, not ev.away.color/ev.home.color.
+    chk(() => [ra.kit.offHome === false && ra.kit.away.J === ra.kit.ATLroad.jersey && ra.kit.away.P === ra.kit.ATLroad.pants && ra.kit.away.H === ra.kit.ATLroad.helmet,
+      `away (ATL): its researched road kit, jersey ${ra.kit.ATLroad.jersey} pants ${ra.kit.ATLroad.pants} helmet ${ra.kit.ATLroad.helmet} (${JSON.stringify(ra.kit.away)})`]);
+    chk(() => [ra.kit.home.J === ra.kit.GBhome.jersey && ra.kit.home.P === ra.kit.GBhome.pants && ra.kit.home.H === ra.kit.GBhome.helmet,
+      `home (GB): its researched home kit, jersey ${ra.kit.GBhome.jersey} pants ${ra.kit.GBhome.pants} helmet ${ra.kit.GBhome.helmet} (${JSON.stringify(ra.kit.home)})`]);
     chk(() => [ra.kit.nAway >= 3 && ra.kit.nHome >= 3, `numbers contrast with the jersey (away ${ra.kit.nAway.toFixed(2)}:1, home ${ra.kit.nHome.toFixed(2)}:1)`]);
     chk(() => [ra.kit.bench, "the sidelines wear the same kits as the teams on the field"]);
-    chk(() => [ra.helmets.n === 32 && nfl32.every((a) => ra.helmets.keys.includes(a)) && ["WSH", "LAR", "LAC", "JAX"].every((a) => ra.helmets.keys.includes(a)) && ra.helmets.bad.length === 0 && ra.kit.unknown === "#123456",
-      `RA_HELMET covers all 32 ESPN abbreviations with hex shells; an unknown team falls back to its primary (${ra.helmets.n}, missing ${nfl32.filter((a) => !ra.helmets.keys.includes(a)).join(",") || "none"})`]);
+    chk(() => [ra.helmets.n === 32 && nfl32.every((a) => ra.helmets.keys.includes(a)) && ["WSH", "LAR", "LAC", "JAX"].every((a) => ra.helmets.keys.includes(a)) && ra.helmets.bad.length === 0,
+      `RA_HELMET (now derived from RA_KITS) covers all 32 ESPN abbreviations with hex shells (${ra.helmets.n}, missing ${nfl32.filter((a) => !ra.helmets.keys.includes(a)).join(",") || "none"})`]);
+    // RA_KITS itself: all 32 teams, every field on both sides a valid hex.
+    chk(() => [ra.kits32.n === 32 && ra.kits32.bad.length === 0, `RA_KITS has all 32 teams with valid hex on every field${ra.kits32.bad.length ? " (bad: " + ra.kits32.bad.slice(0, 8).join(", ") + ")" : ""}`]);
+    // An unknown abbreviation on both sides still falls back to the old generic rule (primary
+    // jersey/white pants at home, white jersey/primary pants on the road, primary-colour helmet).
+    chk(() => [ra.kitUnknown.homeJ === "#123456" && ra.kitUnknown.homeP === "#f2f2f0" && ra.kitUnknown.homeH === "#123456" && ra.kitUnknown.roadJ === "#f2f2f0" && ra.kitUnknown.roadP === "#654321" && ra.kitUnknown.roadH === "#654321",
+      `an unrecognised abbreviation falls back to the generic rule (${JSON.stringify(ra.kitUnknown)})`]);
+    // Denver: the case the user named — ESPN's team.color is navy, but the real home jersey is
+    // orange, worn with white pants, under the navy helmet.
+    chk(() => [ra.kitDen.J === "#FB4F14" && ra.kitDen.P === "#FFFFFF" && ra.kitDen.H === "#0a2343",
+      `DEN home: orange jersey, white pants, navy helmet, not ESPN's navy team.color (${JSON.stringify(ra.kitDen)})`]);
+    // Dallas (white at home) vs. a visitor whose own road jersey is also white: they'd clash, so the
+    // visitors wear their own colour (home) jersey instead, same as the real NFL does.
+    chk(() => [ra.kitClash.home.J === "#FFFFFF" && ra.kitClash.road.J === "#0B2265",
+      `white-vs-white clash: Dallas stays in its white home jersey, the visitors (NYG) switch to their own colour jersey instead of also wearing white (${JSON.stringify(ra.kitClash.home)} / ${JSON.stringify(ra.kitClash.road)})`]);
     // Resolution: the 168px stage at RA_K = 2 → 336px, 18/14/10 px per yard; a standing player was
     // 17 rows of ink plus outline (19); now he is at least 32 rows tall and 12 wide.
     chk(() => [ra.res.RA_H === 336 && ra.res.PX === 18 && ra.res.PY === 14 && ra.res.HK === 10 && ra.res.inkH >= 32 && ra.res.inkH <= 40 && ra.res.inkW >= 12 && ra.res.poses >= 20,

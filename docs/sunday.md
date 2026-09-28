@@ -228,3 +228,100 @@ Play injury, a kickoff injury with "CLV-", an injury on a failed two-point try, 
 
 VERIFY: sunday 117/117 (section "Injuries: two trainers, a stretcher, his name", 16 new checks),
 sunday-ff 53/53. Bite: the previous sd-reenact.js fails all 16 and passes the other 101.
+
+## 2026-09-28 — real NFL kits, researched team by team
+
+Perry: "do some research on each nfl team's primary kit, for example broncos should be white
+pants, orange jersey, blue helmet". `raKit`'s generic rule (home = jersey in ESPN's `team.color`,
+white pants; away = white jersey, pants in `team.color`) is wrong for a lot of teams — ESPN's
+`team.color` is often not the jersey colour at all (Denver's is navy, but the actual home jersey is
+orange), several teams (Dallas, and Carolina's schedule this year) don't wear their colour jersey
+at home, and 2026 brought several real redesigns.
+
+`RA_KITS` (in `sd-reenact.js`) replaces it: 32 ESPN abbreviations, each a `home` and `road` entry
+(jersey/pants/helmet/num, all hex), plus `homeWhite: true` on Dallas. `RA_HELMET` is now *derived*
+from `RA_KITS` (`v.home.helmet` per team) instead of being a second table that could disagree with
+it. `raKit(homeTeam, roadTeam)` builds both sides for a game at once: the home team gets its `home`
+entry, the visitors get their `road` entry — unless that pairs two white (or near-identical)
+jerseys, in which case the visitors switch to their own colour (`home`) jersey instead, same as the
+real NFL does (checked against a synthetic Dallas-at-home-vs-Giants-visiting case). An abbreviation
+not in the table still falls back to the old generic rule. Numbers run through the existing
+contrast fallback (`raSafeNum`) so a researched number colour that doesn't read on the sprite gets
+swapped for white/black.
+
+Sources are cited per team below; where the standard kit isn't a 2025-26 change I relied on the
+teams' own long-standing identity (colour codes cross-checked against usbrandcolors.com /
+teamcolorcodes.com / Wikipedia's `Module:Gridiron color/data`) rather than searching every team
+individually. This session's scratchpad `kits.json` has the full per-team `note`/`sources` fields;
+the highlights are below.
+
+2025-26 redesigns found and applied: Atlanta (Apr 2026 — red jersey returns as home primary, white
+pants, black helmet); Baltimore "Next Flight" (Apr 2026 — monochrome purple home / monochrome white
+road, matte-black helmet both ways); Denver "Mile High" (2024 — orange jersey/white pants at home,
+navy helmet: the exact case the user named); Houston (2024 — "Deep Steel Blue" jersey *and* helmet,
+white pants); Tennessee (Mar 2026 — Oilers-blue home jersey, white road, and a white helmet/facemask
+for the first time in franchise history); Washington (Apr 2026 — gloss-burgundy helmet with a gold
+facemask, gold pants both ways). Confirmed unchanged this session (no error in the previous
+RA_HELMET table): Indianapolis (white shell, not blue), Las Vegas (silver shell, not black),
+Jacksonville (black shell is still standard, teal is the alternate), the Jets' green "Legacy"
+shell, the Chargers' white shell.
+
+| team | home (jersey/pants/helmet) | road (jersey/pants/helmet) | note |
+|---|---|---|---|
+| ARI | #97233F / white / white | white / #97233F / white | |
+| ATL | #A71930 / white / black | white / white / black | 2026 redesign, red jersey returns |
+| BAL | #241773 / #241773 / black | white / white / black | "Next Flight" Apr 2026 |
+| BUF | #00338D / white / white | white / #00338D / white | |
+| CAR | black / white / silver | white / black / silver | 2026: no white pants at home this year (schedule, not kit) |
+| CHI | #0B162A / white / navy | white / #0B162A / navy | |
+| CIN | black / black / black | white / black / black | standard is all-black, not "Open in Orange" |
+| CLE | #311D00 / white / orange | white / #311D00 / orange | |
+| DAL | white / silver / silver | #002244 / silver / silver | `homeWhite`: white at home since the 1960s |
+| DEN | #FB4F14 / white / navy | white / white / navy | 2024 "Mile High"; the case the user named |
+| DET | #0076B6 / silver / silver | white / silver / silver | |
+| GB | #203731 / gold / gold | white / gold / gold | never wears white pants |
+| HOU | #03202F / white / #03202F | white / #03202F / #03202F | 2024: "Deep Steel Blue" jersey+helmet |
+| IND | #002C5F / white / white | white / #002C5F / white | white shell confirmed, not blue |
+| JAX | #006778 / black / black | white / black / black | black shell confirmed standard |
+| KC | #E31837 / white / red | white / #E31837 / red | |
+| LV | black / black / silver | white / black / silver | silver shell confirmed, not black |
+| LAC | #0080C6 / white / white | white / #002A5E / white | white shell confirmed, powder blue is standard home |
+| LAR | #003594 / white / blue | white / white / blue | |
+| MIA | #008E97 / white / white | white / #008E97 / white | |
+| MIN | #4F2683 / white / purple | white / #4F2683 / purple | |
+| NE | #002244 / silver / silver | white / silver / silver | |
+| NO | black / black / gold | white / black / gold | |
+| NYG | #0B2265 / white / blue | white / white / blue | |
+| NYJ | #115740 / white / green | white / #115740 / green | green shell confirmed standard |
+| PHI | #004C54 / white / green | white / white / green | home pants corrected black → white on review (onpattison.com) |
+| PIT | black / gold / black | white / black / black | |
+| SF | #AA0000 / gold / gold | white / gold / gold | |
+| SEA | #002244 / navy / navy | white / navy / navy | home pants corrected grey → navy on review (seahawks.com) |
+| TB | #D50A0A / pewter / pewter | white / pewter / pewter | |
+| TEN | #4495D2 / white / white | white / white / white | Mar 2026 Oilers rebrand, white helmet |
+| WSH | #5A1414 / gold / burgundy | white / gold / burgundy | Apr 2026 rebrand |
+
+Sources (spot-checked, not exhaustive — the full list with a URL per team is in the scratchpad
+`kits.json`): [Falcons 2026 uniforms](https://www.espn.com/nfl/story/_/id/48378096/atlanta-falcons-new-uniforms-2026),
+[Ravens "Next Flight"](https://www.baltimoreravens.com/news/ravens-new-uniforms-jerseys-helmets-next-flight-collection-midnight-purple-matte-black-wings-talon-stripes),
+[Broncos 2024 uniforms](https://www.espn.com/nfl/story/_/id/39997084/denver-broncos-new-uniforms-mile-high-nfl-2024),
+[Texans 2024 redesign](https://www.nfl.com/news/houston-texans-unveil-first-uniform-redesign-since-franchise-s-inception-in-2000),
+[Titans 2026 uniforms](https://www.espn.com/nfl/story/_/id/48189440/tennessee-titans-nfl-new-uniforms-2026),
+[Commanders 2026 uniforms](https://www.commanders.com/news/commanders-2026-uniform-inspired-franchise-history),
+[Colts helmet](https://www.sportslogos.net/logos/view/15866112023/Indianapolis-Colts-Logo/2023/Helmet-),
+[Raiders helmet](https://www.riddell.com/riddell/en/Open-Catalogue/Collectibles/NFL/Authentic-Full-Size/Las-Vegas-Raiders-Authentic-SpeedFlex/p/000000000008055805),
+[Jaguars 2026 jerseys ranked](https://www.colorwaysports.com/stories/jaguars-jerseys-2026-ranked),
+[Chargers 2026 schedule](https://sports.yahoo.com/articles/chargers-2026-uniform-schedule-la-212338497.html),
+[Cowboys white at home](https://www.wfaa.com/article/sports/nfl/cowboys/why-the-dallas-cowboys-almost-always-wear-white/287-4fb08ca5-c939-430d-b44a-b25a1ec67a23).
+
+Verified with screenshots: GB(home)/ATL(away) — GB's green/gold/gold kit and ATL's white/white/
+black road kit both render correctly at the LOS; a synthetic DEN-home scene close-up confirms the
+orange jersey/white pants/navy helmet combo pixel for pixel; a synthetic Dallas(home)-vs-Giants
+scene confirms the white-vs-white clash rule (the Giants switch to their navy home jersey rather
+than also wearing white). Cache-bust ?v=20260928d.
+
+VERIFY: sunday 121/121 (section "8-bit staging, uniforms, resolution" restaged — the old checks
+encoded the generic rule the user asked to replace — plus 8 new checks: RA_KITS shape/hex, the
+GB/ATL real-kit assertions, an unknown-team fallback, the DEN case, the white-vs-white clash),
+sunday-ff 53/53. Bite: restoring HEAD's sd-reenact.js against the new tests fails exactly those 8
+(all other 113 checks, including the untouched RA_HELMET-coverage check, still pass).
