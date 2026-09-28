@@ -153,6 +153,9 @@ function raParse(p, ev) {
     penTeam: pen ? sideOf(pen[1]) : null,
     penName: pen ? pen[2].trim().replace(/\b\w/g, (c) => c.toUpperCase()) : '',
     kneel: /kneel/i.test(t),
+    // "(No Huddle) M.Stafford spiked the ball to stop the clock." ESPN files it as a Pass Incompletion.
+    spike: /\bspiked? the ball\b|\bspikes\b/i.test(t),
+    spiker: get(RA_PL + '\\s+spike'),
     // Only a try is a try: a touchdown whose text carries "TWO-POINT CONVERSION ATTEMPT …" is still the
     // touchdown (raPatFrom stages the try as its own play). 2026-09-28 audit: three of those were drawn
     // as a two-point attempt from the 2 reading "Two-point no good", no touchdown at all.
@@ -225,6 +228,7 @@ function raBuild(p, ev, qbs, opts = {}) {
   if (kind === 'penalty' && !I.noPlay) kind = /pass/.test(I.text) ? (/incomplete/.test(I.text) ? 'incomplete' : 'pass') : /rush|run/.test(I.text) ? 'run' : 'penalty';
   if ((kind === 'pass' || kind === 'incomplete') && /intercept/i.test(p.typeText + I.text)) kind = 'int';
   if (I.kneel) kind = 'kneel';
+  if (I.spike) kind = 'spike';
   const isPAT = /extra point|kick attempt|pat\b/i.test(p.typeText) || (kind === 'fg' && p.sH == null);
   let z0 = Z(p.sH);
   if (z0 == null) z0 = kind === 'kickoff' ? 35 : 25;
@@ -642,6 +646,31 @@ function raBuild(p, ev, qbs, opts = {}) {
     ballHold(off.C, 0, 1e9);
     sc.tS = 1e9;
     T = 0.4;
+  } else if (kind === 'spike') {
+    // A spike (2026-09-28, user: "Stafford spiked the ball to stop the clock, but it was animated like
+    // he thru an actual route, when it should be him stepping back and tossing the ball at the
+    // ground"): the snap, one step back, the ball thrown straight into the turf in front of him. The
+    // line fires out and stops; nobody runs a route; the whistle is on the spike.
+    scrimmage();
+    who(off.QB, I.passer || I.spiker);
+    const under = I.form === 'under';
+    const tHand = snapTo(off.QB, tS, under ? 0.08 : 0.3);
+    const [qx, qz] = raPos(off.QB, 0);
+    const tSpike = tHand + (under ? 0.45 : 0.3);
+    go(off.QB, tSpike - 0.1, qx, qz - (under ? 0.9 : 0.4), 1);
+    ballHold(off.QB, tHand, tSpike);
+    off.QB.acts = [[tSpike - 0.22, tSpike, 'throw1'], [tSpike, tSpike + 0.35, 'throw2']];
+    const [sx, sz] = raPos(off.QB, tSpike);
+    const bounce = [sx + R(-0.6, 0.6), sz + 1.4, 0];
+    ballFly(tSpike, tSpike + 0.12, [sx, sz, 2], bounce, 0);                        // straight down, just in front of him
+    ballFly(tSpike + 0.12, tSpike + 0.7, bounce, [bounce[0] + R(-1.5, 1.5), sz + R(2.5, 4), 0], 0.8);  // one bounce, and it rolls
+    for (const a of off.OL) { const [x, z] = raPos(a, 0); go(a, tS + 0.4, x, z - 0.5); }
+    for (const a of def.DL) { const [x, z] = raPos(a, 0); go(a, tS + 0.4, x, z0 - 0.2); }
+    for (const w of off.rcv) { if (!w) continue; const [x, z] = raPos(w, 0); go(w, tS + 0.6, x, z + R(0.8, 2)); }
+    for (const a of allDef().filter((d) => !def.DL.includes(d))) { const [x, z] = raPos(a, 0); go(a, tS + 0.6, x, z - R(0, 0.8)); }
+    banner(tSpike + 0.25, 'Spike', 'Clock stopped', 'o');
+    sc.tEnd = tSpike + 0.2;
+    T = tSpike + 2.2;
   } else if (kind === 'run' || kind === 'kneel') {
     scrimmage();
     const qbCarry = kind === 'kneel' || /scramble/.test(I.text) || (I.rusher && qbs.has(`${p.offId}:${I.rusher.num || I.rusher.name}`));

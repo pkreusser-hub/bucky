@@ -555,3 +555,21 @@ plays behind the fixes, with their nflverse detail.
 VERIFY: sunday 197/198 (new section "Week-3 Sunday audit", 12 checks; 4 restaged; the one failure is
 the webfont ink check that fails the same way on HEAD in this container), sunday-ff 53/53, pbpdetail
 61/61. Bite: HEAD's sd-reenact.js fails all 12 new checks and the 4 restaged ones.
+
+## 2026-09-28 — spikes
+
+Perry: "in the rams final drive Stafford spiked the ball to stop the clock, but it was animated like
+he thru an actual route, when it should be him stepping back and tossing the ball at the ground".
+ESPN files "(No Huddle) M.Stafford spiked the ball to stop the clock." as a Pass Incompletion, so it
+was staged as a full incomplete pass: a 7-yard drop, routes, a throw 15 yards downfield. `raParse`
+now reads `spike` (and `spiker`, since there is no "pass" to find the passer by), and raBuild has a
+`spike` kind beside `kneel`. The snap, one step back, the ball thrown straight into the turf about a
+yard in front of him, one bounce and a short roll. The line fires out and stops, receivers take a
+step, and nobody runs a route. The card reads "Spike · Clock stopped" in the offense's colour, and
+the whistle is on the spike. The three spikes in the audited week-3 games (two by Stafford, one by
+Lawrence) all draw this way. Cache-bust ?v=20260928k.
+
+VERIFY: sunday 200/201 (3 new checks on LAR @ DEN 5022 in "Touchbacks, kicks out of bounds, fair
+catches, facing"; the one failure is the webfont ink check that fails the same way on HEAD in this
+container), sunday-ff 53/53, pbpdetail 61/61. Bite: HEAD's sd-reenact.js fails all 3 (thrown 15 yd
+downfield 1.6 s after the snap, the QB 6.75 yd back, a receiver 12 yd downfield).

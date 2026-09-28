@@ -929,6 +929,22 @@ async function main() {
         out.intTB = { found: !!hawk, zCatch: +pos(hawk, tCatch)[1].toFixed(2), minZafter: +Math.min(...zs.filter((_, i) => sc.tS + i * 0.1 >= tCatch)).toFixed(2), down: raPoseAt(sc, hawk, sc.tEnd + 0.4),
           banners: sc.events.filter((e) => e.kind === "banner").map((e) => e.title).join("|"), zEndText: p.eH };
       });
+      // LAR @ DEN 5022, "(No Huddle) M.Stafford spiked the ball to stop the clock.", filed by ESPN as
+      // a Pass Incompletion (2026-09-28, user: "it was animated like he thru an actual route").
+      tryIt("spike", () => {
+        G = { ev: B.ev };
+        const sc = raBuild(B.np("4018729625022"), B.ev, new Set());
+        const qb = sc.actors.find((a) => a.role === "QB" && a.side === "o");
+        const holders = [...new Set(sc.ball.filter((q) => q.a).map((q) => q.a.role))];
+        const tRel = sc.ball.find((q) => q.a === qb)?.t1;
+        const flights = sc.ball.filter((q) => q.from && q.t0 >= tRel - 1e-6);
+        const [qx, qz] = raPos(qb, tRel);
+        const farthest = Math.max(...flights.map((q) => Math.hypot(q.to[0] - qx, q.to[1] - qz)));
+        // (Up to the whistle: after it everyone walks in toward the ball, as after any play.)
+        const qbMove = Math.hypot(raPos(qb, sc.tEnd)[0] - raPos(qb, 0)[0], raPos(qb, sc.tEnd)[1] - raPos(qb, 0)[1]);
+        const rcvMove = Math.max(...sc.actors.filter((a) => a.side === "o" && (a.role === "WR" || a.role === "TE")).map((a) => { let m = 0; for (let t = 0; t <= sc.tEnd; t += 0.1) m = Math.max(m, Math.hypot(raPos(a, t)[0] - raPos(a, 0)[0], raPos(a, t)[1] - raPos(a, 0)[1])); return m; }));
+        out.spike = { titles: sc.events.filter((e) => e.kind === "banner").map((e) => e.title).join("|"), holders, afterSnap: +(tRel - sc.tS).toFixed(2), firstZ: +(flights[0].to[1] - qz).toFixed(2), firstH: flights[0].to[2], farthest: +farthest.toFixed(2), qbMove: +qbMove.toFixed(2), rcvMove: +rcvMove.toFixed(2), who: qb.who?.last };
+      });
       tryIt("intRet", () => {
         G = { ev: A.ev };
         const sc = raBuild(A.np("401872948133"), A.ev, new Set());
@@ -1002,6 +1018,11 @@ async function main() {
     const FX = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${e.message} ${JSON.stringify(fx).slice(0, 200)})`]; } ok(r[0], r[1]); };
     FX(() => [fx.intTB.found && fx.intTB.zCatch >= 100 && fx.intTB.zCatch <= 102.5 && fx.intTB.minZafter >= 100, `LAR @ DEN 5085, a touchback: Hufanga catches it a yard deep in the end zone ("at DEN -1") and never leaves it (caught ${fx.intTB.zCatch}, lowest after ${fx.intTB.minZafter}; the goal line is 100, ESPN's end spot ${fx.intTB.zEndText} is the touchback's 20)${fx.intTB.err ? " " + fx.intTB.err : ""}`]);
     FX(() => [fx.intTB.down === "down" && /Intercepted/.test(fx.intTB.banners) && /Touchback/.test(fx.intTB.banners), `…he takes a knee there and it reads Intercepted, then Touchback (${fx.intTB.down}; ${fx.intTB.banners})`]);
+    FX(() => [/Spike/.test(fx.spike.titles) && !/Incomplete/.test(fx.spike.titles) && fx.spike.holders.join() === "OL,QB" && fx.spike.who === "Stafford",
+      `LAR @ DEN 5022, Stafford's spike: a "Spike" card, not "Incomplete", and nobody but the center and Stafford ever has the ball (${fx.spike.titles}; held by ${fx.spike.holders.join(", ")})`]);
+    FX(() => [fx.spike.afterSnap <= 0.8 && fx.spike.firstH === 0 && fx.spike.firstZ > 0 && fx.spike.firstZ < 2.5 && fx.spike.farthest <= 5,
+      `…he throws it into the turf just in front of him as soon as he has it (${fx.spike.afterSnap} s after the snap, lands ${fx.spike.firstZ} yd in front, rolls to ${fx.spike.farthest} yd at most)`]);
+    FX(() => [fx.spike.qbMove <= 1.5 && fx.spike.rcvMove <= 3, `…one step back, and nobody runs a route (up to the whistle the QB moves ${fx.spike.qbMove} yd; the farthest a receiver goes is ${fx.spike.rcvMove} yd)`]);
     FX(() => [Math.abs(fx.intRet.endZ - (fx.intRet.z0 + 0)) >= 0 && /Intercepted/.test(fx.intRet.banners) && !/Touchback/.test(fx.intRet.banners) && fx.intRet.endZ < 100, `…a real return still runs: McKinney's 5 yards on 133 end at the GB 45 (z ${fx.intRet.endZ}), no touchback (${fx.intRet.banners})`]);
     FX(() => [fx.incSide.n >= 10 && fx.incSide.sides.length === 1 && fx.incSide.sides[0] === "o", `every "Incomplete" card is in the offense's colour, as a completion's is (${fx.incSide.n} incompletions: ${JSON.stringify(fx.incSide.sides)})`]);
     FX(() => [Math.abs(fx.puntOob.landX) >= 19 && Math.abs(fx.puntOob.outX) > 26.67 && Math.abs(fx.puntOob.outZ - fx.puntOob.spotZ) <= 1.01 && /Out of bounds/.test(fx.puntOob.sub),
