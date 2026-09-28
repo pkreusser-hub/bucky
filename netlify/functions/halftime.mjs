@@ -15,6 +15,10 @@
 //   same, for a FINISHED game's first half, stored apart as sunday_halftime/demo-<event>. The facts
 //   are cut at the half: the score after the last Q2 play, and no leaders or team stats (ESPN's are
 //   the full game's by then). Only a final gets one, once, so it costs at most one call per game.
+//   &kind=post (2026-09-28, user: "ok now we need a post game version and this can be about 2
+//   minutes long, can differentiate the commentators a bit with more personality"): the postgame
+//   desk for a FINAL, about two minutes on the whole game, stored as sunday_halftime/post-<event>.
+//   One call per final, the first time anyone opens it.
 //
 // ONE SCRIPT PER GAME. The first request at halftime claims Firestore doc sunday_halftime/<event>
 // (a create with precondition exists:false, so two phones opening the game together start ONE
@@ -46,15 +50,27 @@ const MAX_TRIES = 3;
 
 // The desk. Fixed people, so the show has regulars; the page draws them (suits, faces) in this order.
 export const CAST = ["Hal Brandt", "Chuck Varney", "Moose Tillman", "Dot Keene"];
-const SYSTEM = `You write the halftime desk segment for a retro, 16-bit style NFL broadcast shown inside a family fantasy football app (the GFFL). Four regulars sit at the desk:
-0. ${CAST[0]}, the host: smooth, keeps it moving, opens with the score and closes by sending it back to the second half.
-1. ${CAST[1]}, former quarterback: X's and O's, reads coverages and protections, a little folksy.
-2. ${CAST[2]}, former linebacker: loud, loves hits, sacks and turnovers, needles Chuck.
-3. ${CAST[3]}, the numbers analyst: stats and trends, what the leaders' days mean for fantasy lineups, dry wit.
+// Who they are, for both shows (2026-09-28: "differentiate the commentators a bit with more
+// personality").
+const PEOPLE = `Four regulars sit at the desk, each with their own voice:
+0. ${CAST[0]}, the host: a silver-haired pro, smooth as a late-night radio DJ. He loves a groan-worthy pun, keeps the peace when the other two go at it, and hands off to people by name.
+1. ${CAST[1]}, former quarterback from West Texas: folksy and unhurried, reaches for ranch-and-farm comparisons, always sticks up for the quarterback, and gets misty about how football used to be played.
+2. ${CAST[2]}, former linebacker: loud and all energy, lives for hits, sacks and takeaways, calls a big play "grown-man football", and needles Chuck every chance he gets.
+3. ${CAST[3]}, the numbers and fantasy analyst: deadpan and precise, settles arguments with a stat from the facts, talks straight to fantasy managers about who helped or hurt their lineups, and gets in one dry zinger at the boys.
+Give each of them their own rhythm and habits, but never repeat the same catchphrase twice. They react to each other, tease and disagree a little; every line should sound like only its speaker could have said it.`;
+const RULES = `Use only the facts you are given: the score, the scoring plays, the leaders, the big plays and turnovers, the drives, the team numbers. Do not invent stats, injuries, quotes, records or storylines that are not in the facts. Name players as the facts do (full name the first time, last name after). Keep it family friendly. Plain spoken sentences only: no emoji, no stage directions, no hashtags, and do not start a line with a speaker's name.`;
+const SHOW = {
+  half: `You write the halftime desk segment for a retro, 16-bit style NFL broadcast shown inside a family fantasy football app (the GFFL). ${PEOPLE}
 
-Write about one minute of back-and-forth: 14 to 18 lines, 150 to 190 words in all, no line over 24 words. The host speaks first and last, and each analyst speaks at least 3 times. They react to each other and disagree a little; each line should sound like its speaker.
+Write about one minute of back-and-forth on this game's FIRST HALF: 14 to 18 lines, 150 to 190 words in all, no line over 24 words. The host opens with the score and closes by sending it back to the second half; each analyst speaks at least 3 times.
 
-Talk about what actually happened in this first half, using only the facts you are given: the score, the scoring plays, the leaders, the big plays and turnovers, the team numbers. Do not invent stats, injuries, quotes, records or storylines that are not in the facts. Name players as the facts do (full name the first time, last name after). Keep it family friendly. Plain spoken sentences only: no emoji, no stage directions, no hashtags, and do not start a line with a speaker's name.`;
+${RULES}`,
+  post: `You write the postgame desk segment for a retro, 16-bit style NFL broadcast shown inside a family fantasy football app (the GFFL). ${PEOPLE}
+
+Write about two minutes of back-and-forth on this FINISHED game: 26 to 32 lines, 300 to 370 words in all, no line over 26 words. The host opens with the final score and signs the show off at the end; each analyst speaks at least 6 times. Cover how the game was won and lost, the turning point, the player of the game, a play each analyst loved, and the fantasy fallout for the leaders. Give it some shape: a first take, an argument, a verdict.
+
+${RULES}`,
+};
 
 const SCHEMA = {
   type: "object",
@@ -80,7 +96,7 @@ const json = (body, cache) => new Response(JSON.stringify(body), {
     "access-control-allow-origin": "*",
     "cache-control": "public, max-age=0, must-revalidate",
     "netlify-cdn-cache-control": cache,
-    "netlify-vary": "query=event|demo",
+    "netlify-vary": "query=event|demo|kind",
   },
 });
 const CACHE_DONE = "public, durable, s-maxage=2592000";      // a finished script never changes
@@ -96,8 +112,10 @@ export function atHalftime(sum) {
 
 const clip = (s, n) => { s = String(s ?? "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
 const NOTABLE = /intercept|fumble|sack|touchdown|safety|blocked|field goal/i;
-// The first half as facts: everything the desk may talk about.
-export function halftimeFacts(sum, demo) {
+// The first half as facts (or, for the postgame desk, the whole game): everything the desk may talk
+// about. `mode`: true / "demo" (a final cut at its half), "post" (the whole final), else the half.
+export function halftimeFacts(sum, mode) {
+  const demo = mode === true || mode === "demo", maxQ = mode === "post" ? 99 : 2;
   const comp = sum?.header?.competitions?.[0] || {};
   const cs = comp.competitors || [];
   const side = (ha) => {
@@ -108,7 +126,7 @@ export function halftimeFacts(sum, demo) {
   const home = side("home"), away = side("away");
   const byId = { [home.id]: home.abbr, [away.id]: away.abbr };
   const facts = { away, home, status: comp.status?.type?.detail || "Halftime" };
-  facts.scoring = (sum.scoringPlays || []).filter((p) => Number(p.period?.number) <= 2).map((p) => ({
+  facts.scoring = (sum.scoringPlays || []).filter((p) => Number(p.period?.number) <= maxQ).map((p) => ({
     q: Number(p.period?.number), clock: p.clock?.displayValue || "", team: p.team?.abbreviation || byId[String(p.team?.id)] || "", play: clip(p.text, 160), score: `${away.abbr} ${p.awayScore} - ${p.homeScore} ${home.abbr}`,
   }));
   facts.leaders = [];
@@ -130,7 +148,7 @@ export function halftimeFacts(sum, demo) {
   facts.drives = [];
   facts.notable = [];
   for (const d of sum.drives?.previous || []) {
-    const plays = (d.plays || []).filter((p) => Number(p.period?.number) <= 2);
+    const plays = (d.plays || []).filter((p) => Number(p.period?.number) <= maxQ);
     if (!plays.length) continue;
     const team = d.team?.abbreviation || byId[String(d.team?.id)] || "";
     facts.drives.push({ team, result: d.displayResult || d.result || "", summary: d.description || "" });
@@ -142,7 +160,7 @@ export function halftimeFacts(sum, demo) {
       }
     }
   }
-  facts.notable = facts.notable.slice(-16);
+  facts.notable = facts.notable.slice(maxQ > 2 ? -28 : -16);
   if (demo) {                                        // a final replayed at its half: the half's score, no full-game numbers
     const last = (sum.drives?.previous || []).flatMap((d) => d.plays || []).filter((p) => Number(p.period?.number) <= 2).at(-1);
     if (last) { away.score = Number(last.awayScore) || 0; home.score = Number(last.homeScore) || 0; }
@@ -151,13 +169,14 @@ export function halftimeFacts(sum, demo) {
   return facts;
 }
 
-// The model's lines, checked: 8 to 24 of them, a known speaker each, sane lengths, everyone heard.
-export function cleanScript(out) {
+// The model's lines, checked: 8 to 24 of them (16 to 40 for the postgame show), a known speaker
+// each, sane lengths, everyone heard.
+export function cleanScript(out, post) {
   const lines = Array.isArray(out?.lines) ? out.lines : [];
   const ok = lines
     .map((l) => ({ who: Number(l?.who), text: clip(String(l?.text || "").replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/gu, ""), 220) }))
     .filter((l) => Number.isInteger(l.who) && l.who >= 0 && l.who <= 3 && l.text.length >= 2);
-  if (ok.length < 8 || ok.length > 24) return null;
+  if (post ? ok.length < 16 || ok.length > 40 : ok.length < 8 || ok.length > 24) return null;
   if (new Set(ok.map((l) => l.who)).size < 4) return null;
   return ok;
 }
@@ -215,14 +234,14 @@ async function espnSummary(event) {
 }
 
 /* ── the model ── */
-async function writeScript(facts) {
+async function writeScript(facts, post) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { error: "no-key" };
   const body = {
     model: HALFTIME_MODEL,
     max_tokens: 16000,
-    system: SYSTEM,
-    messages: [{ role: "user", content: `First-half facts for ${facts.away.name} at ${facts.home.name}:\n${JSON.stringify(facts)}` }],
+    system: post ? SHOW.post : SHOW.half,
+    messages: [{ role: "user", content: `${post ? "Final" : "First-half"} facts for ${facts.away.name} at ${facts.home.name}:\n${JSON.stringify(facts)}` }],
     output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
     fallbacks: "default",
   };
@@ -242,7 +261,7 @@ async function writeScript(facts) {
   const text = (m.content || []).filter((c) => c.type === "text").map((c) => c.text).join("");
   let out;
   try { out = JSON.parse(text); } catch { return { error: "bad-json" }; }
-  const lines = cleanScript(out);
+  const lines = cleanScript(out, post);
   return lines ? { lines, model: m.model || HALFTIME_MODEL } : { error: "bad-script" };
 }
 
@@ -251,32 +270,32 @@ export async function runHalftimeJob(body) {
   if (!body || !process.env.BUCKY_NOTIFY_SECRET || body.secret !== process.env.BUCKY_NOTIFY_SECRET) return;
   const event = String(body.event || "");
   if (!/^\d{6,12}$/.test(event)) return;
-  const demo = body.demo === true;
+  const demo = body.demo === true, post = body.kind === "post";
   const token = await googleToken();
   if (!token) return;
   let res;
   try {
     const sum = await espnSummary(event);
-    res = await writeScript(halftimeFacts(sum, demo));
+    res = await writeScript(halftimeFacts(sum, post ? "post" : demo), post);
   } catch (e) { res = { error: "job" }; }
   const tries = Number(body.tries) || 1;
   const fields = res.lines
     ? { status: S("done"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ cast: CAST, lines: res.lines, model: res.model })) }
     : { status: S("failed"), at: I(Date.now()), tries: I(tries), payload: S(JSON.stringify({ error: res.error })) };
-  try { await writeDoc(token, (demo ? "demo-" : "") + event, fields); } catch { /* the page's poll gives up with the stand-in lines */ }
+  try { await writeDoc(token, (post ? "post-" : demo ? "demo-" : "") + event, fields); } catch { /* the page's poll gives up with the stand-in lines */ }
 }
 
-async function startJob(req, event, tries, demo) {
+async function startJob(req, event, tries, demo, kind) {
   const url = process.env.HALFTIME_BG_URL || new URL("/.netlify/functions/halftime-background", req.url).href;
   try {
-    await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: process.env.BUCKY_NOTIFY_SECRET, event, tries, demo }) });
+    await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: process.env.BUCKY_NOTIFY_SECRET, event, tries, demo, kind }) });
   } catch { /* the claim goes stale and the next poll retries */ }
 }
 
 export default async (req) => {
-  const q = new URL(req.url).searchParams, event = q.get("event") || "", demo = q.get("demo") === "1";
+  const q = new URL(req.url).searchParams, event = q.get("event") || "", post = q.get("kind") === "post", demo = !post && q.get("demo") === "1";
   if (!/^\d{6,12}$/.test(event)) return json({ ok: false, reason: "bad-event" }, CACHE_NONE);
-  const docId = (demo ? "demo-" : "") + event;
+  const docId = (post ? "post-" : demo ? "demo-" : "") + event;
   const token = await googleToken().catch(() => null);
   if (!token) return json({ ok: false, reason: "no-store" }, CACHE_NONE);
   let doc;
@@ -288,13 +307,15 @@ export default async (req) => {
   const stale = !doc.missing && (doc.status !== "pending" || Date.now() - doc.at > STALE_MS);
   if (!doc.missing && !stale) return json({ ok: false, pending: true }, CACHE_WAIT);
   if (!doc.missing && doc.tries >= MAX_TRIES) return json({ ok: false, reason: "failed" }, CACHE_NONE);
-  // Nothing written yet (or a dead try): only a game ESPN says is at halftime gets a script.
+  // Nothing written yet (or a dead try): only a game ESPN says is at halftime gets a script (a final,
+  // for the postgame desk and the demo).
   let sum;
   try { sum = await espnSummary(event); } catch { return json({ ok: false, reason: "upstream" }, CACHE_NONE); }
-  if (demo ? sum?.header?.competitions?.[0]?.status?.type?.state !== "post" : !atHalftime(sum)) return json({ ok: false, reason: demo ? "not-final" : "not-halftime" }, CACHE_NONE);
+  const final = sum?.header?.competitions?.[0]?.status?.type?.state === "post";
+  if (post || demo ? !final : !atHalftime(sum)) return json({ ok: false, reason: post || demo ? "not-final" : "not-halftime" }, CACHE_NONE);
   const tries = (doc.missing ? 0 : doc.tries) + 1;
   const claimed = await writeDoc(token, docId, { status: S("pending"), at: I(Date.now()), tries: I(tries), payload: S("") },
     doc.missing ? { exists: false } : { updateTime: doc.updateTime }).catch(() => false);
-  if (claimed) await startJob(req, event, tries, demo);
+  if (claimed) await startJob(req, event, tries, demo, post ? "post" : "half");
   return json({ ok: false, pending: true }, CACHE_WAIT);
 };

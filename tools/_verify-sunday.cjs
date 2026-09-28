@@ -1334,7 +1334,10 @@ async function main() {
       await click('#bt-rp [data-btrp="stop"]');
       await wait(200);
       const x = await vis();
-      ok(!x.rp && !x.bar && x.replayBtn && x.playId === "4018729484421", `Exit replay puts the final play back on the stage, the Replay button back in the caption (${x.playId}, bar ${x.bar}, button ${x.replayBtn})`);
+      // RESTAGED 2026-09-28 (user: "ok now we need a post game version"): a final's 8-bit stage now
+      // rests on the postgame desk, not its last play, so Exit replay hands the stage back to the desk.
+      const xd = await probe(() => ({ studio: !!SIDE.sc?.studio, post: !!SIDE.sc?.post }));
+      ok(!x.rp && !x.bar && x.replayBtn && xd.studio && xd.post, `Exit replay puts the final's postgame desk back on the stage, the Replay button back in the caption (${JSON.stringify(xd)}, bar ${x.bar}, button ${x.replayBtn})`);
 
       // This drive: ATL's last drive, first play.
       await click("#f-cap .rp-start");
@@ -1718,6 +1721,34 @@ async function main() {
         const dm = await probe(() => { raStep(SIDE, 0); return { state: G.ev.state, studio: !!SIDE.sc?.studio, score: [SIDE.sc?.ev?.away.score, SIDE.sc?.ev?.home.score], bug: [SIDE.bugState?.a, SIDE.bugState?.h, SIDE.bugState?.clock], n: SIDE.sc?.tl?.lines.length }; });
         ok(dm.state === "post" && dm.studio && JSON.stringify(dm.score) === "[17,7]" && JSON.stringify(dm.bug) === '[17,7,"HALF"]' && dm.n === script.lines.length && asks.length === 1 && /event=401872948&demo=1$/.test(asks[0]),
           `?halftime=demo plays a finished game's first half at the desk: the score as it stood at the break, the bug reading HALF, the demo script asked for (${JSON.stringify(dm)}, ${JSON.stringify(asks)})`);
+        /* ===================== (p) the postgame desk ===================== */
+        // 2026-09-28, user: "ok now we need a post game version and this can be about 2 minutes long,
+        // can differentiate the commentators a bit with more personality". The ATL @ GB final (35-14),
+        // its script the function's real kind=post reply from the deploy preview
+        // (tools/fixtures/halftime/script-post-401872948.json, written by claude-opus-5-5).
+        section("The postgame desk");
+        const post = JSON.parse(fs.readFileSync(path.join(HFIX, "script-post-401872948.json"), "utf8"));
+        asks.length = 0;
+        reply = () => JSON.stringify(post);
+        await page.goto(BASE + "/sunday.html#g401872948", { waitUntil: "domcontentloaded" });
+        try { await page.waitForFunction(() => G?.sum && SIDE.sc?.studio && SIDE.sc.tl?.lines.length > 5, { timeout: 15000 }); } catch {}
+        const pg = await probe(() => { raStep(SIDE, 0); return { state: G.ev.state, studio: !!SIDE.sc?.studio, post: !!SIDE.sc?.post, bug: [SIDE.bugState?.a, SIDE.bugState?.h, SIDE.bugState?.clock], lines: SIDE.sc?.tl?.lines.map((l) => [l.who, l.text]), end: SIDE.sc?.tl?.lines.at(-1)?.t1, tag: document.getElementById("bt-tag")?.textContent || document.getElementById("sl-tag")?.textContent, tx: document.getElementById("bt-tx")?.textContent }; });
+        ok(pg.state === "post" && pg.studio && pg.post && JSON.stringify(pg.bug) === '[35,14,"FINAL"]' && asks.length === 1 && /event=401872948&kind=post$/.test(asks[0] || ""),
+          `a final's 8-bit view is the postgame desk: the bug reads FINAL 35-14, and it asks for the postgame script (${JSON.stringify({ studio: pg.studio, post: pg.post, bug: pg.bug })}, ${JSON.stringify(asks)})`);
+        ok(JSON.stringify(pg.lines) === JSON.stringify(post.lines.map((l) => [l.who, l.text])) && pg.tx === "The GFFL postgame desk",
+          `…playing that script's ${post.lines.length} lines in order, under "${pg.tx}"`);
+        // About two minutes. By hand for 30 lines of 11 words: 30 × 3.96 s + 30 × 0.3 s = 127.8 s natural,
+        // scaled by 120 / 127.8 = 0.93897 to 3.718 s a line: the last ends at 1.4 + 30 × 3.718 + 29 × 0.3
+        // = 121.65 s, and the show loops at 127.95 s.
+        const syn2 = await probe(() => { const tl = htTimeline(Array.from({ length: 30 }, (_, i) => ({ who: i % 4, text: "one two three four five six seven eight nine ten eleven" })), HT_POST_TARGET); return { end: tl.lines.at(-1).t1, T: tl.T }; });
+        ok(Math.abs(syn2.end - 121.65) < 0.05 && Math.abs(syn2.T - 127.95) < 0.05 && pg.end >= 95 && pg.end <= 150,
+          `the postgame show runs about two minutes: 30 lines of 11 words end at ${syn2.end?.toFixed?.(2)} s (hand-computed 121.65); the real script ends at ${pg.end?.toFixed?.(1)} s`);
+        reply = () => JSON.stringify({ ok: false, reason: "failed" });
+        await probe(() => { HT.clear(); sideHalftime(true); });
+        await wait(500);
+        const pf = await probe(() => SIDE.sc.tl.lines.map((l) => [l.who, l.text]));
+        ok(pf.length === 5 && JSON.stringify(pf.map((l) => l[0])) === "[0,1,2,3,0]" && /postgame desk\. Final: .*Falcons 35, .*Packers 14\./.test(pf[0][1]),
+          `with no script, the postgame stand-in opens on the final score (${JSON.stringify(pf[0])})`);
         await probe(() => localStorage.removeItem("sun.tecmoBig"));
       }
       await page.setViewport({ width: 800, height: 600 });

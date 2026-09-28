@@ -63,6 +63,8 @@ const LINES = [
   { who: 1, text: "Love hit Golden deep for 45." }, { who: 2, text: "The line has to hold up." },
   { who: 3, text: "Four punts and a missed field goal since." }, { who: 0, text: "Second half is next." },
 ];
+// A postgame reply: 30 lines (more than a halftime script may have), every speaker heard.
+const POST_LINES = Array.from({ length: 30 }, (_, i) => ({ who: i % 4, text: `Postgame line ${i + 1} about the final.` }));
 const log = { espn: [], token: 0, badJwt: 0, fsGet: [], commits: [], model: [], bg: [] };
 const docs = new Map();              // doc path -> { fields, updateTime }
 let clock = 0;
@@ -115,6 +117,7 @@ const srv = http.createServer(async (req, res) => {
     const reply = (text) => send(res, 200, { id: "msg_1", type: "message", role: "assistant", model: "claude-opus-5-5", content: [{ type: "thinking", thinking: "" }, { type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
     if (MODE === "fallback400" && b.fallbacks) return send(res, 400, { type: "error", error: { type: "invalid_request_error", message: "fallbacks: Extra inputs are not permitted" } });
     if (MODE === "refusal") return send(res, 200, { id: "msg_2", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: null } });
+    if (MODE === "post") return reply(JSON.stringify({ lines: POST_LINES }));
     if (MODE === "short") return reply(JSON.stringify({ lines: LINES.slice(0, 5) }));
     if (MODE === "badjson") return reply("Here is your script!");
     return reply(JSON.stringify({ lines: LINES }));
@@ -189,7 +192,7 @@ try {
       `the first request at halftime claims the game's doc (create-only) and says pending (${JSON.stringify(first.j)}, ${JSON.stringify(claim?.currentDocument)})`);
     ok(log.bg.length === 1 && log.bg[0].secret === "fam-secret" && log.bg[0].event === "401872948" && log.model.length === 0,
       `…and starts the background job with the server's secret, writing nothing itself (${JSON.stringify(log.bg[0])})`);
-    ok(first.h["netlify-cdn-cache-control"] === "public, s-maxage=4" && first.h["netlify-vary"] === "query=event|demo", `a pending answer is cached 4 s at the edge, per event (${first.h["netlify-cdn-cache-control"]}, ${first.h["netlify-vary"]})`);
+    ok(first.h["netlify-cdn-cache-control"] === "public, s-maxage=4" && first.h["netlify-vary"] === "query=event|demo|kind", `a pending answer is cached 4 s at the edge, per event (${first.h["netlify-cdn-cache-control"]}, ${first.h["netlify-vary"]})`);
     const second = await get("401872948");
     ok(second.j.pending && log.bg.length === 1 && log.commits.length === 1, `a second viewer while it's being written waits on the same job (${log.bg.length} job, ${log.commits.length} write)`);
     await drain();
@@ -276,6 +279,40 @@ try {
     ok(j2.ok && JSON.stringify(j2.lines) === JSON.stringify(LINES), `…and is served like any script (${j2.lines?.length} lines)`);
     const nf = await mod.default(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime?event=401872950&demo=1"));
     ok((await nf.json()).reason === "not-final", "a game still in progress gets no demo");
+  }
+  section("The postgame desk (?kind=post)");
+  {
+    // 2026-09-28, user: "ok now we need a post game version and this can be about 2 minutes long, can
+    // differentiate the commentators a bit with more personality". The trimmed final (401872949):
+    // eight scoring plays, the last Bijan Robinson's two-yard run with a two-point try in Q4.
+    ok(mod.cleanScript({ lines: POST_LINES }, true)?.length === 30 && mod.cleanScript({ lines: LINES }, true) === null && mod.cleanScript({ lines: POST_LINES }) === null,
+      "a postgame script is 16 to 40 lines (30 kept; the halftime show's 8 too few); a halftime one stays 8 to 24 (30 too many)");
+    const nf = await mod.default(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime?event=401872948&kind=post"));
+    ok((await nf.json()).reason === "not-final", "a game at halftime gets no postgame show");
+    MODE = "post";
+    const r = await mod.default(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime?event=401872949&kind=post"));
+    const j = await r.json(), claim = log.commits.at(-1);
+    ok(j.pending && claim.update.name === `${DOC_BASE}/sunday_halftime/post-401872949` && claim.currentDocument?.exists === false && log.bg.at(-1).kind === "post",
+      `a final's first request claims its own postgame doc and starts a postgame job (${claim.update.name.split("/").pop()}, kind ${log.bg.at(-1).kind})`);
+    await drain();
+    const m = log.model.at(-1), facts = JSON.parse(m.body.messages[0].content.slice(m.body.messages[0].content.indexOf("\n") + 1));
+    ok(/postgame desk/.test(m.body.system) && /about two minutes/.test(m.body.system) && /26 to 32 lines, 300 to 370 words/.test(m.body.system) && /signs the show off/.test(m.body.system) && m.body.messages[0].content.startsWith("Final facts"),
+      "…asking for about two minutes on the finished game (26 to 32 lines, 300 to 370 words), the host signing off");
+    const want = ["Christian Watson 4 Yd pass from Jordan Love (Trey Smack Kick)", "Bijan Robinson 3 Yd Rush (Nick Folk Kick)", "Nick Folk 44 Yd Field Goal", "Austin Hooper 5 Yd pass from Michael Penix Jr. (Nick Folk Kick)", "Brian Robinson Jr. 7 Yd Rush (Nick Folk Kick)", "Nick Folk 31 Yd Field Goal", "Matthew Golden 15 Yd pass from Jordan Love (Trey Smack Kick)", "Bijan Robinson 2 Yd Rush (Michael Penix Jr. Pass to Chris Blair for Two-Point Conversion)"];
+    ok(JSON.stringify(facts.scoring.map((x) => x.play)) === JSON.stringify(want) && facts.away.score === 35 && facts.home.score === 14 && facts.notable.some((p) => p.q === 4),
+      `…with the whole game's facts: the final score (${facts.away.score}-${facts.home.score}), all eight scoring plays through Q4, the late big plays`);
+    const d = await (await mod.default(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime?event=401872949&kind=post"))).json();
+    ok(d.ok && d.lines.length === 30 && fsv("401872949", "status") === undefined, `…served to everyone after, apart from any halftime script (${d.lines?.length} lines)`);
+    MODE = "ok";
+  }
+
+  section("Four voices");
+  {
+    // Both shows describe the same four people, each with habits of their own.
+    const sys = log.model.map((x) => x.body.system);
+    const half = sys.find((x) => /halftime desk/.test(x)), post = sys.find((x) => /postgame desk/.test(x));
+    const traits = [/Hal Brandt, the host: .*pun/, /Chuck Varney, former quarterback from West Texas: .*ranch-and-farm/, /Moose Tillman, former linebacker: loud.*grown-man football/, /Dot Keene, the numbers and fantasy analyst: deadpan.*zinger/, /never repeat the same catchphrase twice/];
+    ok(!!half && !!post && traits.every((t) => t.test(half) && t.test(post)), "both shows give each of the four a voice of their own: the punning host, the folksy West Texas quarterback, the loud linebacker, the deadpan numbers analyst");
   }
 } finally {
   srv.close();

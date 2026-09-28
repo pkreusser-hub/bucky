@@ -739,3 +739,42 @@ VERIFY: sunday 240/241 (1 new: the demo on the ATL @ GB final shows 17-7 and HAL
 script), halftime 40/40 (4 new demo checks; the Vary check restaged to `query=event|demo`). Bite: the
 previous sd-reenact.js fails the new page check; the previous halftime.mjs fails the 4 demo checks and
 the restaged Vary check.
+
+## 2026-09-28 — the postgame desk; four sharper voices
+
+Perry: "ok now we need a post game version and this can be about 2 minutes long, can differentiate
+the commentators a bit with more personality".
+
+- **Where.** A final's 8-bit view (the big stage, and the desktop sidebar card) now rests on the
+  postgame desk instead of the game's last play. The monitor reads FINAL, the bug FINAL and the final
+  score, the caption "The GFFL postgame desk". Replay still runs the game or a drive, and Exit replay
+  hands the stage back to the desk. A game that ends while you watch plays its last play out first.
+  `?halftime=demo` still shows the halftime desk on a final.
+- **The script.** The halftime function's `&kind=post`: a FINAL only (`not-final` otherwise), the whole
+  game's facts (every scoring play through Q4, ESPN's leaders and team stats, all drives, the last 28
+  big plays and turnovers), stored as `sunday_halftime/post-<event>`, once per final, the first time
+  anyone opens it. Opus is asked for about two minutes: 26 to 32 lines, 300 to 370 words, each analyst
+  at least 6 times, the host opening on the final score and signing off, with some shape (a first take,
+  an argument, a verdict) and the turning point, the player of the game, a play each analyst loved,
+  and the fantasy fallout. `cleanScript` keeps 16 to 40 postgame lines. The page times it to 120 s
+  (`HT_POST_TARGET`, same 0.8× to 1.25× squeeze) and keys it apart (`htKey`, `post:<id>`).
+  `Netlify-Vary` is now `query=event|demo|kind`.
+- **Four voices** (both shows, one `PEOPLE` block in the prompt):
+  - Hal Brandt, host: silver-haired pro, smooth as a late-night radio DJ, groan-worthy puns, keeps the
+    peace, hands off by name.
+  - Chuck Varney, ex-quarterback from West Texas: folksy, ranch-and-farm comparisons, sticks up for
+    the quarterback, misty about how football used to be played.
+  - Moose Tillman, ex-linebacker: loud, lives for hits, sacks and takeaways, "grown-man football",
+    needles Chuck.
+  - Dot Keene, numbers and fantasy: deadpan, settles arguments with a stat, talks to fantasy managers,
+    one dry zinger a show.
+  They must never repeat a catchphrase, and each line should sound like only its speaker could say it.
+- **Fixture:** the page's postgame script (tools/fixtures/halftime/script-post-401872948.json) is the
+  deploy preview's real reply for ATL @ GB, written by claude-opus-5-5: 28 lines, 369 words, 122 s.
+  Cache-bust ?v=20260928p.
+
+VERIFY: sunday 244/245 (new section "The postgame desk", 4 checks; RESTAGED "Exit replay puts the final
+play back" to the desk, with the reason at the check; the one failure is the webfont ink check that
+fails the same way on HEAD in this container), halftime 47/47 (7 new, the Vary check restaged to
+`query=event|demo|kind`), sunday-ff 53/53, pbpdetail 61/61. Bite: the previous sd-reenact.js fails the
+4 new page checks and the restaged one; the previous halftime.mjs fails all 8 new or restaged function checks.

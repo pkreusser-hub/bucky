@@ -1536,64 +1536,73 @@ function htDemoEv() {
   if (last) { ev.away.score = last.away; ev.home.score = last.home; }
   return ev;
 }
-const HT_TARGET = 60, HT_INTRO = 1.4, HT_GAP = 0.3, HT_BREAK = 6;
+const HT_TARGET = 60, HT_POST_TARGET = 120, HT_INTRO = 1.4, HT_GAP = 0.3, HT_BREAK = 6;
+// The postgame desk (2026-09-28, user: "ok now we need a post game version and this can be about 2
+// minutes long, can differentiate the commentators a bit with more personality"): the same four, on
+// a final's 8-bit view, about two minutes on the whole game. Its script is the function's kind=post.
+const htKey = (id, post) => (post ? 'post:' : '') + id;
 // The script as a timeline: each line gets reading time for its words, scaled so the show runs
-// about a minute (within 0.8x to 1.25x of natural pace).
-function htTimeline(lines) {
+// about a minute (two for the postgame desk), within 0.8x to 1.25x of natural pace.
+function htTimeline(lines, target = HT_TARGET) {
   const d = lines.map((l) => 1.1 + 0.26 * String(l.text).split(/\s+/).filter(Boolean).length);
   const raw = d.reduce((x, y) => x + y, 0) + HT_GAP * lines.length;
-  const f = lines.length > 2 ? clamp(HT_TARGET / raw, 0.8, 1.25) : 1;
+  const f = lines.length > 2 ? clamp(target / raw, 0.8, 1.25) : 1;
   let t = HT_INTRO;
   const out = lines.map((l, i) => { const t0 = t; t += d[i] * f; const q = { who: l.who, text: l.text, t0, t1: t }; t += HT_GAP; return q; });
   return { lines: out, T: t + HT_BREAK };
 }
 // While Opus writes (or if it can't), the host opens with the score; a failed script gets a short
 // stand-in so the desk is never silent.
-function htStandIn(ev, failed) {
+function htStandIn(ev, failed, post) {
   const A = ev.away, H = ev.home, a = +(A.score || 0), h = +(H.score || 0);
   const lead = a === h ? null : a > h ? A : H;
-  const open = { who: 0, text: `Welcome to the GFFL halftime desk. At the break, it's ${A.name || A.abbr} ${a}, ${H.name || H.abbr} ${h}.` };
+  const open = { who: 0, text: post ? `Welcome to the GFFL postgame desk. Final: ${A.name || A.abbr} ${a}, ${H.name || H.abbr} ${h}.` : `Welcome to the GFFL halftime desk. At the break, it's ${A.name || A.abbr} ${a}, ${H.name || H.abbr} ${h}.` };
   if (!failed) return [open];
+  if (post) return [open,
+    { who: 1, text: lead ? `${lead.name || lead.abbr} got it done. Not always pretty, but a win is a win.` : 'A tie. Nobody goes home happy, and nobody goes home sad.' },
+    { who: 2, text: 'I want to see that defense on film. That is where games like this are decided.' },
+    { who: 3, text: 'Check your fantasy scores, folks. Somebody in your league is celebrating right now.' },
+    { who: 0, text: 'That will do it from the desk. Good night, everybody.' }];
   return [open,
     { who: 1, text: lead ? `${lead.name || lead.abbr} have the edge, but thirty minutes is a long time in this league.` : 'Dead even. Whoever wins the first drive of the second half wins this thing.' },
     { who: 2, text: 'Somebody on that defense has to take the ball away. That is where this game swings.' },
     { who: 3, text: 'Keep an eye on your fantasy lineups, folks. The second half is where the points pile up.' },
     { who: 0, text: 'Second half is coming up. Stay with us.' }];
 }
-function htLoad(ev) {
-  const id = ev.id;
-  let e = HT.get(id);
+function htLoad(ev, post) {
+  const id = ev.id, key = htKey(id, post);
+  let e = HT.get(key);
   if (e && e.state !== 'pending') return e;
-  if (!e) { e = { state: 'pending', lines: null, cast: HT_CAST, polls: 0 }; HT.set(id, e); }
+  if (!e) { e = { state: 'pending', lines: null, cast: HT_CAST, polls: 0 }; HT.set(key, e); }
   if (e.busy) return e;
   e.busy = true;
-  fetch(`/.netlify/functions/halftime?event=${encodeURIComponent(id)}${htDemo() ? '&demo=1' : ''}`)
+  fetch(`/.netlify/functions/halftime?event=${encodeURIComponent(id)}${post ? '&kind=post' : htDemo() ? '&demo=1' : ''}`)
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       e.busy = false;
-      if (d?.ok && Array.isArray(d.lines) && d.lines.length) { Object.assign(e, { state: 'done', lines: d.lines, cast: d.cast || HT_CAST }); htScript(id); return; }
-      if (d?.pending && ++e.polls < 40) { e.timer = setTimeout(() => htLoad(ev), 5000); return; }   // about 3 minutes of polls
-      e.state = 'failed'; htScript(id);
+      if (d?.ok && Array.isArray(d.lines) && d.lines.length) { Object.assign(e, { state: 'done', lines: d.lines, cast: d.cast || HT_CAST }); htScript(id, post); return; }
+      if (d?.pending && ++e.polls < 40) { e.timer = setTimeout(() => htLoad(ev, post), 5000); return; }   // about 3 minutes of polls
+      e.state = 'failed'; htScript(id, post);
     })
-    .catch(() => { e.busy = false; e.state = 'failed'; htScript(id); });
+    .catch(() => { e.busy = false; e.state = 'failed'; htScript(id, post); });
   return e;
 }
 // The script (real or stand-in) onto the studio on screen, from the top.
-function htScript(id) {
+function htScript(id, post) {
   const sc = SIDE.sc;
-  if (!sc?.studio || sc.gameId !== id) return;
-  const e = HT.get(id), ev = sc.ev || G?.ev;
+  if (!sc?.studio || sc.gameId !== id || !!sc.post !== !!post) return;
+  const e = HT.get(htKey(id, post)), ev = sc.ev || G?.ev;
   if (!e || !ev) return;
   sc.cast = e.cast || HT_CAST;
-  sc.tl = htTimeline(e.state === 'done' ? e.lines : htStandIn(ev, e.state === 'failed'));
+  sc.tl = htTimeline(e.state === 'done' ? e.lines : htStandIn(ev, e.state === 'failed', post), post ? HT_POST_TARGET : HT_TARGET);
   sc.waiting = e.state === 'pending';
   sc.t0 = SIDE.t;
 }
-function raHalftime(ev) {
+function raHalftime(ev, post) {
   const pc = pair(ev.away, ev.home);
   const sc = { actors: [], ball: [], events: [], z0: 50, x0: 0, offHome: true, ltg: null, col: { o: pc.hRaw, d: pc.aRaw }, offT: ev.home, defT: ev.away,
-    tS: 0, timeout: true, halftime: true, studio: true, noBall: true, homeCol: pc.hRaw, cast: HT_CAST, t0: 0, ev };
-  sc.tl = htTimeline(htStandIn(ev, false));
+    tS: 0, timeout: true, halftime: true, studio: true, noBall: true, homeCol: pc.hRaw, cast: HT_CAST, t0: 0, ev, post: !!post };
+  sc.tl = htTimeline(htStandIn(ev, false, post), post ? HT_POST_TARGET : HT_TARGET);
   sc.waiting = true;
   sc.T = 1e6;
   return sc;
@@ -1615,7 +1624,7 @@ function htAt(sc, t) {
 // monitor with the score, the desk with its GFFL front, the floor.
 function htSet(aw, ah, sc) {
   const ev = sc.ev || G?.ev;
-  const key = `${aw}x${ah}|${sc.col.o}|${sc.col.d}|${ev?.away?.score}|${ev?.home?.score}`;
+  const key = `${aw}x${ah}|${sc.col.o}|${sc.col.d}|${ev?.away?.score}|${ev?.home?.score}|${sc.post ? 1 : 0}`;
   if (sc.htSetKey === key) return sc.htSetCv;
   const c = document.createElement('canvas'); c.width = aw; c.height = ah;
   const g = c.getContext('2d');
@@ -1638,7 +1647,7 @@ function htSet(aw, ah, sc) {
   g.fillStyle = '#39414f'; g.fillRect(mx - 2, my - 2, mw + 4, mh + 4);
   g.fillStyle = '#0d1a3f'; g.fillRect(mx, my, mw, mh);
   for (let y = my; y < my + mh; y += 2) { g.fillStyle = 'rgba(255,255,255,0.035)'; g.fillRect(mx, y, mw, 1); }
-  const title = 'HALFTIME', tk = mw >= 110 ? 2 : 1;
+  const title = sc.post ? 'FINAL' : 'HALFTIME', tk = mw >= 110 ? 2 : 1;
   bigText(g, title, Math.round(mx + (mw - bigW(title, tk)) / 2), my + 4, '#ffd21f', tk);
   if (ev) {
     const rowY = my + 4 + 8 * tk + 4, half = Math.floor(mw / 2) - 4;
@@ -3103,6 +3112,8 @@ function sideUpdate() {
   if (SIDE.cv !== tgt.cv) { SIDE.cv = tgt.cv; SIDE.banner = tgt.banner; SIDE.cam = null; if (SIDE.sc) { raSizeCanvas(SIDE.cv, tgt.h); cancelAnimationFrame(SIDE.raf); sideResume(); } }
   if (SIDE.rp) return;                                    // the replay runs its own sequence
   if (isHalftime(G.ev) || htDemo()) { if (!SIDE.sc?.halftime && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout || htDemo())) sideHalftime(); return; }
+  // A final: the postgame desk (a game that ends while you watch finishes its last play first).
+  if (G.ev.state === 'post') { if (!SIDE.sc?.post && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout || SIDE.sc?.studio)) sideHalftime(true); return; }
   const latest = sideNext();
   if (!latest) return;
   // A timeout called since the last snap: clear the field and bring out the cheerleaders.
@@ -3240,19 +3251,20 @@ function sideCheer(p) {
   sideText('tx', 'Kickoff next');
   sideRun(sc);
 }
-function sideHalftime() {
-  const ev = htDemo() ? htDemoEv() : G.ev;
+// The desk: halftime, or with `post` the postgame show on a final.
+function sideHalftime(post) {
+  const ev = !post && htDemo() ? htDemoEv() : G.ev;
   sideStop();
   let sc = null;
-  try { sc = raHalftime(ev); } catch (err) { console.error(err); return; }
+  try { sc = raHalftime(ev, post); } catch (err) { console.error(err); return; }
   sc.gameId = G.id;
   SIDE.playId = SIDE.playId || null;
-  sideText('tag', 'Halftime');
+  sideText('tag', post ? 'Final' : 'Halftime');
   sideText('meta', `${ev.away.abbr} ${ev.away.score ?? 0} – ${ev.home.score ?? 0} ${ev.home.abbr}`);
-  sideText('tx', 'The GFFL halftime desk');
+  sideText('tx', post ? 'The GFFL postgame desk' : 'The GFFL halftime desk');
   sideRun(sc);
-  htLoad(G.ev);
-  htScript(G.id);                                   // a script already here (a revisit) plays from its first line
+  htLoad(G.ev, post);
+  htScript(G.id, post);                             // a script already here (a revisit) plays from its first line
 }
 function sideSet() {
   const ev = G?.ev, s = ev?.sit;
