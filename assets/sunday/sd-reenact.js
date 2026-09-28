@@ -64,8 +64,8 @@ function raParse(p, ev) {
     const hits = teams.filter((tm) => { const full = `${tm.abbr} ${tm.loc} ${tm.name}`.toUpperCase(); return full.includes(u[0]) && subseq(u, full) && (tm.abbr[0] === u[0] || (tm.loc || '')[0] === u[0]); });
     return hits.length === 1 ? hits[0] : null;
   };
-  const spot = (re) => {
-    const m = new RegExp(re + '\\s*' + RA_SPOT).exec(t);
+  const spot = (re, on = t) => {
+    const m = new RegExp(re + '\\s*' + RA_SPOT).exec(on);
     if (!m) return null;
     const [ab, n, fifty] = m.slice(-3);
     if (fifty) return 50;
@@ -115,7 +115,10 @@ function raParse(p, ev) {
     // below still gates the animation so a fumble is never silently dropped.
     fumbler: get(RA_PL + '\\s+FUMBLES') || get('fumbled? by ' + RA_PL),
     recoverer: get('(?:recovered|RECOVERED) by (?:[A-Z&]{2,5}-)?' + RA_PL) || get('(?:recovered|RECOVERED) by (?:[A-Z&]{2,5} )?' + RA_PL),
-    recTeam: recBy ? sideOf(recBy[1]) : null,
+    // "FUMBLES (D.Hamilton), and recovers at JAX 5": no "RECOVERED by" — the man who fumbled fell
+    // on it himself, so his own team keeps it (a returner's team on a kick, else the offense).
+    recTeam: recBy ? sideOf(recBy[1]) : /FUMBLES\b.{0,60}?\band recovers at\b/.test(t)
+      ? (['punt', 'kickoff'].includes(p.kind) ? (p.offId === ev.home.id ? ev.away : ev.home) : (p.offId === ev.home.id ? ev.home : ev.away)) : null,
     breakup: get('broken up by ' + RA_PL),
     tacklers,
     hasFumble,
@@ -125,6 +128,8 @@ function raParse(p, ev) {
     fumH: spot('fumbled? by ' + RA_PL + ' at') ?? spot('FUMBLES\\s*(?:\\([^)]*\\))?\\s*(?:\\[[^\\]]*\\])?,?\\s*at'),
     recH: spot('(?:recovered|RECOVERED) by (?:[A-Z&]{2,5}-)?' + RA_PL + ' at') ?? spot('(?:recovered|RECOVERED) by (?:[A-Z&]{2,5} )?' + RA_PL + ' at'),
     landH: spot('(?:kicks|punts|kickoff|punt) -?\\d+ yards? (?:from [A-Z&]{2,5} \\d{1,2} )?to'),
+    // Where a kick return itself ended ("J.Cameron to JAX 29"), before any penalty moves the ball.
+    retH: p.kind === 'kickoff' || p.kind === 'punt' ? spot('\\.\\s+' + RA_PL + '\\s+(?:to|(?:pushed|ran)\\s+ob\\s+at)', t.replace(/,?\s*(?:Center|Holder)-[A-Za-z.'’-]+\.?/g, '')) : null,
     kickYds: +(/(?:kicks|punts|kickoff|punt) (-?\d+) yards?/i.exec(t)?.[1] ?? NaN),
     fgYds: +(/field goal attempt from (\d+)|(\d+) (?:yd|yard) (?:field goal|FG)/.exec(t)?.slice(1).find(Boolean) ?? NaN),
     good: /\bgood\b/i.test(t + ' ' + tt) && !/no good|missed|blocked|failed/i.test(t + ' ' + tt),
@@ -148,7 +153,10 @@ function raParse(p, ev) {
     penTeam: pen ? sideOf(pen[1]) : null,
     penName: pen ? pen[2].trim().replace(/\b\w/g, (c) => c.toUpperCase()) : '',
     kneel: /kneel/i.test(t),
-    twoPt: /two[- ]point|2pt|conversion/i.test(tt + ' ' + t),
+    // Only a try is a try: a touchdown whose text carries "TWO-POINT CONVERSION ATTEMPT …" is still the
+    // touchdown (raPatFrom stages the try as its own play). 2026-09-28 audit: three of those were drawn
+    // as a two-point attempt from the 2 reading "Two-point no good", no touchdown at all.
+    twoPt: /two[- ]point|2pt|conversion/i.test(tt + ' ' + (p.pat ? t : t.replace(RA_TRY_RE, ''))),
     firstDown: /1ST DOWN/i.test(t),
     onside: /onside/i.test(t),
     injured: raInjured(p.pat ? t : t.replace(RA_TRY_RE, ''), sideOf, who),
@@ -301,11 +309,24 @@ function raBuild(p, ev, qbs, opts = {}) {
       who(cand, w);
       const i = chosen.length - 1;
       const [cx, cz] = raPos(cand, tE - 0.8);
-      const lead = clamp(Math.hypot(cx - xE, cz - zE) / 8.5, 0.5, Math.max(0.5, tE - Math.max(tS, sc.freeze ?? 0) - 0.2));
-      chaseUntil(cand, tE - lead);
+      const maxLead = Math.max(0.5, tE - Math.max(tS, sc.freeze ?? 0) - 0.2);
+      let lead = clamp(Math.hypot(cx - xE, cz - zE) / 8.5, 0.5, maxLead);
+      // Long enough from where he really is once he has chased the play: a returner who runs past
+      // him leaves him yards behind, and a last run in that needs more than ~9.5 yd/s is cut short by
+      // the speed cap (2026-09-28 audit: a punt's tackler 6.6 yd off the man he tackled).
+      const saved = cand.k.map((k) => [...k]);
+      for (let n = 0; n < 4; n++) {
+        chaseUntil(cand, tE - lead);
+        const [lx, lz] = raPos(cand, tE - lead), need = Math.hypot(lx - xE, lz - zE) / 9.5;
+        if (need <= lead + 0.05 || lead >= maxLead) break;
+        cand.k = saved.map((k) => [...k]); lead = Math.min(maxLead, need + 0.15);
+      }
       cut(cand, tE - lead);
       const toward = Math.sign(cz - zE) || 1;
-      go(cand, tE, xE + (i === 1 ? -0.8 : i === 2 ? 0.8 : R(-0.4, 0.4)), zE + toward * (0.7 + i * 0.3), 3);
+      // A flat-out last run in (easing 0) unless he's already on him: raBuild's speed cap allows an
+      // easing's peak only 11 yd/s, so an eased approach from 8 yd away stopped yards short of the
+      // man he tackles (2026-09-28 audit: up to 9 yd).
+      go(cand, tE, xE + (i === 1 ? -0.8 : i === 2 ? 0.8 : R(-0.4, 0.4)), zE + toward * (0.7 + i * 0.3), Math.hypot(cx - xE, cz - zE) > 2.5 ? 0 : 3);
       if (i === 0 && carDown) cand.downAt = tE + 0.08;
       cand.labelAt = tE - 0.4;
     }
@@ -648,14 +669,18 @@ function raBuild(p, ev, qbs, opts = {}) {
       ballHold(car, t, 99);
       const tHole = go(car, t + 0.55, holeX, z0 - (gain < 0 ? 1 : 0.1), 0);
       let tE;
-      if (gain <= 0.5) tE = go(car, tHole + 0.3 + Math.abs(gain) * 0.08, holeX + R(-1, 1), zStop, 2);
+      if (gain <= 0.5 && I.oob && !I.td) {
+        // "right end pushed ob at DAL 4 for -1 yards": he bounces outside and is put over the sideline.
+        const sd = dirSign || Math.sign(holeX - x0) || 1;
+        tE = go(car, tHole + Math.abs(sd * OOB_X - holeX) / 7.5, sd * OOB_X, zStop, 0, true);
+      } else if (gain <= 0.5) tE = go(car, tHole + 0.3 + Math.abs(gain) * 0.08, holeX + R(-1, 1), zStop, 2);
       else {
         const v = gain > 25 ? 9.3 : 8;
         const zF = I.td ? 101.5 : zStop;
         const xE = I.oob ? side * OOB_X : raX(holeX + (gain > 12 ? side * Math.min(14, gain * 0.3) : R(-2.5, 2.5)));
         const xM = holeX + (xE - holeX) * 0.35 + R(-1.5, 1.5), zM = z0 + (zF - z0) * 0.45;
         const tM = go(car, tHole + Math.hypot(xM - holeX, zM - z0) / v, xM, zM, 0);
-        tE = go(car, tM + Math.hypot(xE - xM, zF - zM) / v, xE, zF, I.td ? 2 : 0, I.oob && !I.td);
+        tE = go(car, tM + Math.hypot(xE - xM, zF - zM) / v, xE, zF, 0, I.oob && !I.td);   // (easing 0: see the catch below)
       }
       linePlay(false, side, null, Math.min(tE, tS + 2.2));
       for (const te of off.TEs) { const [tx, tz] = raPos(te, 0); go(te, tS + 0.5, tx, Math.max(tz, z0 - 0.2)); go(te, tS + 2, tx + side, z0 + 1.6); }
@@ -694,8 +719,12 @@ function raBuild(p, ev, qbs, opts = {}) {
     const deep = I.depth === 'deep';
     if (kind === 'sack') {
       const tSack = tS + R(2.2, 2.9);
-      go(off.QB, tSack - 0.7, qx + R(-2.5, 2.5), raPos(off.QB, tS + 1)[1] - 0.6, 1);
-      go(off.QB, tSack, raPos(off.QB, tSack - 0.7)[0] + R(-2, 2), Math.min(zFum ?? zPlay, z0 - 0.5), 2);
+      // Sacked where the text says. Deeper than his drop: he's driven back into it. Up near the line
+      // ("sacked at NE 27 for 0 yards"): he climbs the pocket into it, at a pace the speed cap allows
+      // (the old drop-then-lunge ended three yards behind the spot).
+      const zS = Math.min(zFum ?? zPlay, z0 - 0.5), zDrop = raPos(off.QB, tS + 1)[1] - 0.6;
+      go(off.QB, tSack - 0.7, qx + R(-2.5, 2.5), zS > zDrop ? Math.max(zDrop, zS - 3.5) : zDrop, 1);
+      go(off.QB, tSack, raPos(off.QB, tSack - 0.7)[0] + R(-2, 2), zS, 0);
       linePlay(true, 0, off.QB, tSack - 0.4);
       const bl = passRush(off.QB, tSack - 0.2);
       decoys([], tSack + 0.5);
@@ -794,7 +823,9 @@ function raBuild(p, ev, qbs, opts = {}) {
         T = walkOff(tCatch + 0.6, z0) + 1.8;
       } else if (kind === 'int') {
         const pick6 = I.td || (zEnd != null && zEnd <= 0);
-        const hawk = nearest([def.CL, def.CR, def.NB, ...def.S, ...def.LB], xT, zT, tCatch)[0];
+        // (No slot receiver means no nickel: def.NB is null, and nearest() of a null crashed the whole
+        // play — Medrano's pick six against two receivers, 2026-09-28 audit.)
+        const hawk = nearest([def.CL, def.CR, def.NB, ...def.S, ...def.LB].filter(Boolean), xT, zT, tCatch)[0];
         who(hawk, I.interceptor);
         cut(hawk, tCatch - 1.1); go(hawk, tCatch, xT + R(-0.5, 0.5), zT + 0.6, 0);
         hawk.labelAt = tCatch - 0.4;
@@ -813,14 +844,23 @@ function raBuild(p, ev, qbs, opts = {}) {
           T = tE + 2.6; sc.tEnd = tE;
         } else {
         const zR = pick6 ? -1.5 : zEnd ?? zT;
-        const xR = raX(xT + R(-8, 8));
-        const tE = run(hawk, tCatch, xR, zR, zT - zR > 25 ? 9.3 : 8, 0);
+        // A return that ends "pushed ob" / "ran ob" finishes over the nearer sideline, as a run does.
+        const retOob = I.oob && !pick6;
+        const xR = retOob ? (Math.sign(xT) || 1) * OOB_X : raX(xT + R(-8, 8));
+        const tE = retOob ? go(hawk, tCatch + 0.2 + Math.hypot(xR - xT, zR - zT) / 8.3, xR, zR, 0, true) : run(hawk, tCatch, xR, zR, zT - zR > 25 ? 9.3 : 8, 0);
         converge([rec], tCatch, xR, zR, tE, 1, 3, 8.5);
         converge(allOff().filter((a) => a !== rec && a !== off.C), tCatch + 0.3, xR, zR, tE, 2, 12, 8.3);
         converge(allDef().filter((a) => a !== hawk), tCatch + 0.2, xR, zR + 6, tE, 3, 10, 8);
         banner(tCatch + 0.1, 'Intercepted', I.interceptor ? `${I.interceptor.last}${pick6 ? '' : ''}` : defT.name, 'd');
         if (pick6) { sc.events.push({ t: tE, kind: 'banner', title: 'Pick six', sub: defT.name, side: 'd' }); celebrate(hawk, tE, allDef().filter((a) => a !== hawk), allOff()); }
-        else if (Math.abs(zR - zT) > 1) tackle(hawk, tE, allOff().filter((a) => a !== off.C), I.tacklers.filter((w) => w.name !== I.interceptor?.name));
+        else if (retOob) outOfBounds(hawk, tE, allOff().filter((a) => a !== off.C));
+        // Only the names after the pick are the return's tacklers: "INTERCEPTED by J.Wallace (K.Turner)"
+        // credits K.Turner with the tip, and naming an offensive player after him stole the intended
+        // receiver's label (2026-09-28 audit).
+        else if (Math.abs(zR - zT) > 1) {
+          const tail = (/INTERCEPTED by .*?\bat (?:[A-Z]{2,5} ?-?\d{1,2}|50)\b(.*)$/.exec(I.text) || [])[1] ?? I.text;
+          tackle(hawk, tE, allOff().filter((a) => a !== off.C && a !== rec), I.tacklers.filter((w) => w.name !== I.interceptor?.name && tail.includes(w.name)));
+        }
         T = tE + 2; sc.tEnd = tE;
         }
       } else {
@@ -831,7 +871,14 @@ function raBuild(p, ev, qbs, opts = {}) {
         if (yac > 1) {
           const side = Math.sign(xT) || 1;
           const xE = I.oob ? side * OOB_X : raX(xT + (yac > 12 ? side * Math.min(10, yac * 0.3) : R(-3, 3)));
-          tE = go(rec, tCatch + Math.hypot(xE - xT, yac) / (yac > 25 ? 9.2 : 8), xE, zF, I.td ? 2 : 0, I.oob && !I.td);
+          // Easing 0 all the way: an eased run (the old easing 2 on a touchdown) was capped at 5.5 yd/s
+          // and stopped short — a 48-yard TD with 18 after the catch ended at the 4 (2026-09-28 audit).
+          tE = go(rec, tCatch + Math.hypot(xE - xT, yac) / (yac > 25 ? 9.2 : 8), xE, zF, 0, I.oob && !I.td);
+        } else if (I.oob && !I.td) {
+          // Caught and put straight out of bounds ("pushed ob … for 9 yards" with nothing after the
+          // catch): he's taken over the nearer sideline where he caught it.
+          const side = Math.sign(xT) || 1;
+          tE = go(rec, tCatch + 0.3 + Math.abs(side * OOB_X - xT) / 7, side * OOB_X, zF, 0, true);
         } else go(rec, tE, xT + R(-0.5, 0.5), zT + Math.max(0, yac), 2);
         if (zFum != null) T = fumble(rec, tE) + 2; else {
         finishCarry(rec, tE, allDef());
@@ -942,7 +989,9 @@ function raBuild(p, ev, qbs, opts = {}) {
     const tSet = punt ? go(ret, Math.max(tS + 1, tL - 0.9), xL, zL + 0.4, 1) : lastT(ret);
     ret.labelAt = tK;
     let tE = tL + 0.5;
-    const retZ = zEnd;
+    // With a penalty on the return, the text's spot is where he was tackled; zEnd is where the ball
+    // went after the flag (2026-09-28 audit: a return run 10 yards past its tackler).
+    const retZ = /PENALTY/.test(I.text) && I.retH != null ? Z(I.retH) : zEnd;
     const tFree = punt ? tL - 0.5 : tL;
     if (tb && !(I.returner && retZ != null && retZ < 100)) {
       if (I.returner && !punt) {
@@ -955,9 +1004,9 @@ function raBuild(p, ev, qbs, opts = {}) {
       }
       tE = tL + 1.4;
       sc.noChase = true;                                               // a dead ball: everyone eases up
-      const spot = punt ? 80 : 65;                                     // the receiving team's 20 (punt) or 35 (kickoff)
-      sc.ball.push({ t0: tE, t1: 1e9, from: [0, spot, 0.15], to: [0, spot, 0.15], apex: 0 });
-      sc.spotZ = spot;
+      // (The ball stays where it died; the next snap is set at the 20 or the 35. It used to be put
+      // there at the whistle, a 25-to-40-yard jump across the screen: 2026-09-28 audit.)
+      sc.spotZ = punt ? 80 : 65;                                       // the receiving team's 20 (punt) or 35 (kickoff)
       banner(tL - 0.2, 'Touchback', `${punt ? 'Punt' : 'Kickoff'} · ${yds} yds`, 'o');
     } else if (I.fair) {
       caught = true;
@@ -988,7 +1037,9 @@ function raBuild(p, ev, qbs, opts = {}) {
       }
     } else if (kOob) {
       // Down by the sideline, one bounce, over it: the next snap is where it crossed.
-      const zD = retZ != null ? clamp(retZ, 1, 99) : zL;
+      // Where the text lands it is where it went out ("kicks 61 yards … to SEA 4, out of bounds"); the
+      // next snap can be somewhere else entirely (a kickoff out of bounds is spotted at the 40).
+      const zD = clamp(zL, 1, 99);
       const xO = oobSide * (RAX + 3);
       ballFly(tL, tL + 0.7, [xL, zL, 1.3], [oobSide * (RAX - 1), zD, 0], 0.9);
       ballFly(tL + 0.7, tL + 1.2, [oobSide * (RAX - 1), zD, 0], [xO, zD + R(-1, 1), 0], 0.5);
@@ -1285,6 +1336,17 @@ function raBuild(p, ev, qbs, opts = {}) {
   }
   // (After the speed cap above, which can shorten the returner's run to his spot.)
   if (sc.catchOn) { const { seg, a, t } = sc.catchOn; const [rx, rz] = raPos(a, t); seg.to = [rx, rz, seg.to[2]]; }
+  // Every ball in the air starts from the hands it leaves and ends in the hands that take it, where
+  // those players really are once the speed cap has had its say: a catch, a snap, a pick. Aimed at the
+  // scripted spot instead, the ball jumped 3 to 9 yards the frame it was caught (2026-09-28 audit).
+  const heldAt = (a) => { const [x, z] = raPos(a.a, a.t0); return [x + 0.35, z + 0.25]; };
+  for (const seg of sc.ball) {
+    if (!seg.from || seg.a) continue;
+    const next = sc.ball.find((q) => q.a && Math.abs(q.t0 - seg.t1) < 0.02);
+    if (next) { const [x, z] = heldAt(next); seg.to = [x, z, seg.to[2]]; }
+    const prev = sc.ball.find((q) => q.a && q.t1 != null && Math.abs(q.t1 - seg.t0) < 0.02 && q.t0 < seg.t0);
+    if (prev && seg.t0 > 0) { const [x, z] = raPos(prev.a, seg.t0); seg.from = [x + 0.35, z + 0.25, seg.from[2]]; }
+  }
   sc.T = T;
   sc.I = I;
   sc.play = p;                                    // the score bug reads the score, clock and down from it
@@ -2772,8 +2834,8 @@ function sideHuddle() {
   let s = ev?.sit;
   if (!prev || prev.huddle || prev.timeout || prev.tdAt != null || !ev || ev.state !== 'in' || isHalftime(ev)) return;
   if (!s?.possession || s.yardLine == null || !(s.down > 0)) {
-    const lp = SIDE.lastPlay, pb = raBall(prev, prev.T);
-    const H = prev.offHome ? pb.z : 100 - pb.z;
+    const lp = SIDE.lastPlay, pb = raBall(prev, prev.T), bz = prev.spotZ ?? pb.z;     // (a touchback's ball lies in the end zone; the snap is at spotZ)
+    const H = prev.offHome ? bz : 100 - bz;
     if (!lp || !(H > 1 && H < 99)) return;
     s = { possession: lp.endTeam || lp.offId, yardLine: Math.round(H), down: 1, distance: null, downDistanceText: '' };
   }

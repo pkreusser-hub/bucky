@@ -496,3 +496,62 @@ VERIFY: sunday 185/186 (new section "Touchbacks, kicks out of bounds, fair catch
 checks; the one failure is the webfont ink check that fails the same way on HEAD in this container),
 sunday-ff 53/53, pbpdetail 61/61. Bite: the previous sd-reenact.js fails 8 of the 9; McKinney's
 real 5-yard return (the guard that a return still runs) passes on both.
+
+## 2026-09-28 — the week-3 Sunday audit: every play drawn against its text
+
+Perry: "pick a few games from yesterday and review each plays animation against the description to
+see if we've fixed all the disconnects". LAR @ DEN, NE @ JAX, SEA @ WSH and BAL @ DAL (690 plays,
+with their nflverse detail; FTN hadn't charted them yet). A scratchpad audit built every play with
+the real sd-reenact.js and checked:
+- end spot against ESPN's, and the result cards against the text
+- who holds the ball at the end, and whether the named players are labelled
+- named tacklers reach the carrier, and runners marked "ob" go out of bounds
+- kicks: fair catches, touchbacks, out of bounds, returns
+- 11 a side, player speed over 13 yd/s, the ball moving more than 2.6 yd in 0.05 s
+- QB facing (3,260 drawn frames, all correct)
+
+It flagged 137 plays; after the fixes 4, all of them the checker's own limits. Contact sheets of
+the fixed plays were reviewed by eye.
+
+**The biggest cause was one mechanism.** raBuild's last pass caps every leg's speed at 11 yd/s
+divided by its easing's peak, shortening the leg. Anything scripted to meet a point with an eased
+leg stopped short of it:
+- a 48-yd TD's run after the catch ended at the 4
+- sacks ended 3 yd behind their spot
+- tacklers ended up to 9 yd off the man they tackled
+- catches: the ball jumped 3–9 yd to the receiver as he caught it
+
+The fixes:
+- Last legs into a tackle and runs after the catch are flat-out (easing 0).
+- A sack at or ahead of the QB's drop has him climb the pocket into it.
+- A tackler's lead time is measured after his chase is scripted, and redone with a longer lead if he
+  still needs over 9.5 yd/s.
+- After the cap, every ball in the air starts from the hands it leaves and ends in the hands that
+  take it, at the held ball's +0.35/+0.25 yd.
+
+Other fixes:
+- **A touchdown carrying its two-point try was drawn as the try** ("Two-point no good", no touchdown):
+  `twoPt` reads only the play's own text, and the try is its own scene (raPatFrom).
+- **A pick six against two receivers crashed the play** (no nickel, so `def.NB` was null inside
+  nearest()).
+- **"FUMBLES (X), and recovers at …"** (the fumbler falls on it) went to the defense; `recTeam` is now
+  his own team.
+- **"pushed ob" / "ran ob" with nothing after the catch, on a run for no gain or a loss, and on an
+  interception return** now go over the sideline (22 plays in the four games).
+- **A kick return with a penalty** ran to the enforced spot; it ends at the text's return spot
+  (`retH`).
+- **A kickoff out of bounds** rolled to the 40 the penalty spots it at; it goes out where it landed.
+- **Kick touchbacks** no longer put the ball on the 20/35 in one frame (a 25–40 yd jump). It stays
+  where it died, and `sc.spotZ` still carries the next snap's spot (sideHuddle reads it).
+  RESTAGED: the suite's "the ball ends at the receiving team's 35" check.
+- **"INTERCEPTED by X (K.Turner)"** credits the tipper; his name was handed to an offensive player
+  (stealing the intended receiver's label). Only names after the pick tackle the return.
+
+RESTAGED as well: four checks measured the ball's end point at a catch exactly. It is now aimed at
+the catcher's hands, hypot(0.35, 0.25) = 0.43 yd off his feet. Each check says so at the check.
+Cache-bust ?v=20260928j. New fixture `tools/fixtures/sunday/audit-20260927.json` (19 KB): the 16 real
+plays behind the fixes, with their nflverse detail.
+
+VERIFY: sunday 197/198 (new section "Week-3 Sunday audit", 12 checks; 4 restaged; the one failure is
+the webfont ink check that fails the same way on HEAD in this container), sunday-ff 53/53, pbpdetail
+61/61. Bite: HEAD's sd-reenact.js fails all 12 new checks and the 4 restaged ones.
