@@ -407,7 +407,10 @@ async function main() {
       await new Promise((r) => setTimeout(r, 150));
       old.push(await page.evaluate(() => ({ hash: location.hash, board: !!document.getElementById("board")?.offsetParent })));
     }
-    ok(old.every((o) => o.hash === "" && o.board), `an old #matchups or #standings link shows the board, hash cleared (${JSON.stringify(old)})`);
+    // RESTAGED 2026-09-28 (user: "just have it only be the detail page"): the board is now only the
+    // loading screen. Here no games have loaded (ESPN isn't served), so the link clears its hash and
+    // shows that; with games it lands on a game's detail (section "Scores is the game detail").
+    ok(old.every((o) => o.hash === "" && o.board), `an old #matchups or #standings link clears its hash and, with no games loaded yet, shows the loading board (${JSON.stringify(old)})`);
     // Changing your GFFL team moved to Settings with the Matchups page gone.
     const pick = await page.evaluate(() => {
       FF.setTeams([{ teamId: 1, name: "Battle Kreussers" }, { teamId: 9, name: "Scruffy Looking Nerfherders" }]);
@@ -1459,6 +1462,64 @@ async function main() {
       ok(ds && !/not drawn|earlier snap/.test(ds), `a long drive's summary no longer says "N earlier snaps not drawn" (${JSON.stringify(ds)})`);
       await probe(() => closeReenact());
       await probe(() => localStorage.removeItem("sun.tecmoBig"));
+
+      /* ===================== (l) the Scores tab is the game detail ===================== */
+      // 2026-09-28, user: "for the GFFL scores tab, just have it only be the detail page, we no longer
+      // need this page since all the relevant info is in the detail and the fantasy matchup is covered
+      // on its own tab". The fixture scoreboard (16 games) is served through MOCK.
+      section("Scores is the game detail");
+      // The rule, on hand-built weeks (real normalised games with their state, clock and kickoff moved).
+      const rule = await probe(() => {
+        const base = S.events.slice(0, 6).map((e) => structuredClone(e));
+        const now = Date.now(), H = 3600e3;
+        const mk = (i, state, dt, sa, sh, period) => Object.assign(base[i], { state, date: new Date(now + dt), period: period ?? base[i].period, away: { ...base[i].away, score: sa }, home: { ...base[i].home, score: sh } });
+        const A = mk(0, "post", -20 * H, 10, 31), B = mk(1, "post", -2 * H, 24, 21), C = mk(2, "pre", 5 * H), D = mk(3, "pre", 1 * H), E = mk(4, "in", -1 * H, 35, 3, 3), F = mk(5, "in", -1 * H, 20, 17, 4);
+        return { live: defaultGameId([A, B, C, D, E, F]) === F.id, soon: defaultGameId([A, B, C, D]) === D.id, final: defaultGameId([A, B, C]) === B.id, next: defaultGameId([C]) === C.id, none: defaultGameId([]) === null };
+      });
+      ok(rule.live && rule.soon && rule.final && rule.next && rule.none,
+        `it opens on the closest live game; else one kicking off within 3 hours; else the latest final; else the next game (${JSON.stringify(rule)})`);
+      await page.setViewport({ width: 390, height: 844 });
+      await page.goto(BASE + "/sunday.html?land", { waitUntil: "domcontentloaded" });
+      let landed = true;
+      try { await page.waitForFunction(() => /^#g\d+$/.test(location.hash) && G && G.ev && S.loaded, { timeout: 15000 }); } catch { landed = false; }
+      await wait(400);
+      const L = await probe(() => {
+        const gv = document.getElementById("game-view"), nav = document.getElementById("gnav"), link = nav.querySelector("a");
+        const lr = link.getBoundingClientRect(), hit = document.elementFromPoint(lr.left + lr.width / 2, lr.top + lr.height / 2);
+        const strip = document.getElementById("g-strip"), items = [...strip.querySelectorAll("a")], cur = strip.querySelector(".current");
+        const sr = strip.getBoundingClientRect(), cr = cur?.getBoundingClientRect();
+        return { hash: location.hash, id: G.id, want: defaultGameId(S.events), n: S.events.length, gvShown: !gv.hidden && gv.offsetParent !== null || getComputedStyle(gv).position === "fixed" && !gv.hidden,
+          board: getComputedStyle(document.getElementById("board-view")).visibility, back: !!document.getElementById("g-back"),
+          barHit: nav.contains(hit), gvBottom: Math.round(gv.getBoundingClientRect().bottom), barTop: Math.round(nav.getBoundingClientRect().top),
+          items: items.length, curId: cur?.getAttribute("href"), curInView: !!cr && cr.left >= sr.left - 1 && cr.right <= sr.right + 1, stripShown: strip.offsetParent !== null,
+          week: document.getElementById("gv-week-label")?.textContent.trim(), histLen: history.length, sideOther: items.find((a) => !a.classList.contains("current"))?.getAttribute("href") };
+      });
+      ok(landed && L.hash === "#g" + L.want && L.id === L.want && L.gvShown && L.board === "hidden" && !L.back,
+        `the Scores tab opens straight on a game's detail, the default one (${L.hash}, wanted #g${L.want}); the scoreboard is gone from view (${L.board}) and there is no "Scores" back button (${L.back})`);
+      ok(L.barHit && L.gvBottom <= L.barTop, `phone: the GFFL bar stays on screen and tappable under the detail (a tap on "League" reaches the bar: ${L.barHit}; detail ends at ${L.gvBottom}px, the bar starts at ${L.barTop}px)`);
+      ok(L.stripShown && L.items === L.n && L.curId === L.hash && L.curInView, `phone: a strip of this week's games under the header, the open one lit and scrolled into view (${L.items} of ${L.n} games, lit ${L.curId}, in view ${L.curInView})`);
+      await click(`#g-strip a[href="${L.sideOther}"]`);
+      await wait(400);
+      const sw = await probe(() => ({ hash: location.hash, id: "#g" + G.id, histLen: history.length, lit: document.querySelector("#g-strip .current")?.getAttribute("href") }));
+      ok(/^#g\d+$/.test(L.sideOther || "") && sw.hash === L.sideOther && sw.id === L.sideOther && sw.lit === L.sideOther && sw.histLen === L.histLen, `tapping another game in the strip opens it in place, lit, without stacking history (${JSON.stringify(sw)} from ${L.histLen})`);
+      await click("#gv-settings");
+      await wait(200);
+      // (The league isn't served here, so the sheet's "Your GFFL team" picker has no teams; the sheet itself is the check.)
+      const set = await probe(() => { const sh = document.getElementById("week-sheet"); const open = !sh.hidden && !!sh.querySelector('[role="dialog"]') && /settings/i.test(sh.textContent); sh.querySelector("[data-close]")?.click(); return { open, week: document.getElementById("gv-week-label")?.textContent.trim() }; });
+      ok(set.open && /^Wk \d+/.test(set.week), `the week picker and Settings moved into the detail's header (week ${JSON.stringify(set.week)}, Settings opens its sheet: ${set.open})`);
+      await probe(() => { location.hash = "#matchups"; });
+      await wait(400);
+      const mh = await probe(() => location.hash);
+      ok(/^#g\d+$/.test(mh), `an old #matchups link, with games loaded, lands on a game's detail (${mh})`);
+      await page.setViewport({ width: 1280, height: 900 });
+      await wait(300);
+      const D = await probe(() => {
+        const gv = document.getElementById("game-view"), nav = document.getElementById("gnav"), link = nav.querySelector("a");
+        const lr = link.getBoundingClientRect(), hit = document.elementFromPoint(lr.left + lr.width / 2, lr.top + lr.height / 2);
+        return { barHit: nav.contains(hit), gvTop: Math.round(gv.getBoundingClientRect().top), side: document.querySelector(".gv-side")?.offsetParent !== null, strip: document.getElementById("g-strip").offsetParent !== null };
+      });
+      ok(D.barHit && D.gvTop === 34 && D.side && !D.strip, `desktop: GFFL's 34px top strip stays above the detail (tappable: ${D.barHit}, detail starts at ${D.gvTop}px) and the games list is the sidebar, not the strip (${D.side}, ${D.strip})`);
+      await page.setViewport({ width: 800, height: 600 });
       MOCK = null;
     }
 

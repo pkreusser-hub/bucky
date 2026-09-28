@@ -420,6 +420,28 @@ svg { display: block; }
   animation: slide-in 0.32s cubic-bezier(.2,.8,.2,1);
 }
 .game-view.closing { animation: slide-out 0.24s ease-in forwards; }
+/* The game view is the Scores page (2026-09-28): it stops at the GFFL bar (phone, fixed at the
+   bottom) and starts under GFFL's 34px top strip (desktop), so the bar is always there. */
+.game-view { bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 1024px) { .game-view { top: 34px; bottom: 0; } }
+/* The board is now only a loading screen, and the page for a week with no games. */
+body.game-open #board-view { visibility: hidden; }
+#ff-head, #status-line { display: none; }
+.gv-week { display: flex; align-items: center; flex: none; }
+.gv-week .week-label { min-height: 40px; }
+.gv-set { flex: none; }
+.gv-set svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.g-strip { display: flex; gap: 6px; overflow-x: auto; padding: 2px 10px 8px; max-width: 760px; margin: 0 auto; scrollbar-width: none; }
+.g-strip::-webkit-scrollbar { display: none; }
+.g-strip[hidden] { display: none; }
+.gs-it { flex: none; display: grid; gap: 2px; min-width: 88px; padding: 6px 9px; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-2); }
+.gs-it.current { box-shadow: inset 0 0 0 2px var(--pylon); color: var(--ink); background: var(--surface-2); }
+.gs-t { display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 6px; font: 700 13px/1.15 var(--cond); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+.gs-t img, .gs-t .logo { width: 16px; height: 16px; }
+.gs-t b { font-weight: 800; color: var(--ink); }
+.gs-it small { font: 600 11px/1.2 var(--cond); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.gs-it.live small { color: var(--pylon-text); }
+@media (min-width: 1080px) { .g-strip { display: none; } }
 @keyframes slide-in { from { transform: translateX(100%); } to { transform: none; } }
 @keyframes slide-out { to { transform: translateX(100%); } }
 body.game-open { overflow: hidden; }
