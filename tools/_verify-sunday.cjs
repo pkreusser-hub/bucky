@@ -600,6 +600,71 @@ async function main() {
       `the stage is twice the old resolution and a standing player is drawn in ${ra.res.inkW}×${ra.res.inkH} px (${ra.res.poses} poses)`]);
 
     /* ===================== console sanity ===================== */
+    // 2026-09-28, user: "when a play includes 'push ob' or 'ob' that means the ball carrier finishes
+    // the play crossing out of bounds, so our animation should use that". raParse only knew "out of
+    // bounds", which NFL text never says of a runner, so every "pushed ob" play in the game ended in a
+    // tackle in the field. Real plays from the fixture: 12 "pushed ob", 4 "ran ob" (runs, catches, a
+    // punt return), a punt that went "out of bounds" on its own (the ball, not a runner), and the
+    // reversed Kraft fumble whose "ball out of bounds" was overturned.
+    section("Out of bounds");
+    const oob = await page.evaluate((fixture) => {
+      const comp = fixture.header.competitions[0];
+      const ev = { home: normTeam(comp.competitors.find((c) => c.homeAway === "home")), away: normTeam(comp.competitors.find((c) => c.homeAway === "away")) };
+      const rows = [];
+      for (const dr of fixture.drives.previous || []) for (const raw of dr.plays || []) rows.push({ raw, teamId: dr.team?.id });
+      const np = (r) => normPlay(r.raw, ev.home.id, r.teamId, ev.home.abbr);
+      const flags = (r) => { const I = raParse(np(r), ev); return { oob: !!I.oob, pushed: !!I.pushedOb }; };
+      const find = (id) => rows.find((r) => r.raw.id === id);
+      const out = { parse: {}, plays: [] };
+      out.parse.puntKickOob = flags(find("4018729482215"));      // "punts 48 yards to ATL 11, … out of bounds"
+      out.parse.reversed = flags(find("4018729482154"));         // "ball out of bounds" overturned → incomplete
+      // "(No Huddle, Shotgun) J.Love pass … ran ob at ATL 18 for 11 yards." names nobody; the formation
+      // tag used to be read as two tacklers, "No Huddle" and "Shotgun".
+      out.parse.tagTacklers = raParse(np(find("4018729483652")), ev).tacklers.map((w) => w.name || w);
+      out.parse.realTacklers = raParse(np(find("4018729483042")), ev).tacklers.map((w) => w.name || w);
+      out.parse.counts = { pushed: 0, ran: 0 };
+      for (const r of rows) { const f = flags(r); if (f.pushed) out.parse.counts.pushed++; else if (f.oob) out.parse.counts.ran++; }
+      // Stage every "ob" play that actually ran (skip the No Play one), find the carrier (the last
+      // actor to hold the ball) and the moment he crosses the sideline.
+      for (const r of rows) {
+        if (!/\bob\b/i.test(r.raw.text) || /no play/i.test(r.raw.text)) continue;
+        const p = np(r), I = raParse(p, ev), sc = raBuild(p, ev, new Set());
+        // The last PLAYER to hold it: after the whistle an official picks the ball up to spot it.
+        const held = sc.ball.filter((b) => b.a && (b.a.side === "o" || b.a.side === "d"));
+        const car = held.length ? held[held.length - 1].a : null;
+        if (!car) { out.plays.push({ id: r.raw.id, err: "no carrier" }); continue; }
+        let tX = null;
+        for (let t = 0; t < 20; t += 0.02) if (Math.abs(raPos(car, t)[0]) >= RAX) { tX = t; break; }
+        const others = sc.actors.filter((a) => a !== car && a.side === (car.side === "o" ? "d" : "o"));
+        let near = 1e9;
+        if (tX != null) for (let t = tX - 0.3; t <= tX + 0.3; t += 0.02) { const [cx, cz] = raPos(car, t); for (const a of others) { const [x, z] = raPos(a, t); near = Math.min(near, Math.hypot(x - cx, z - cz)); } }
+        out.plays.push({
+          id: r.raw.id, pushed: !!I.pushedOb, named: I.tacklers.length > 0, crossed: tX != null,
+          drift: tX != null ? +Math.abs(raPos(car, tX + 1)[0]).toFixed(2) : null,
+          down: car.downAt != null, near: +near.toFixed(2),
+        });
+      }
+      return out;
+    }, sumFixture);
+    const RA_SIDELINE_CHECK = 26.67 + 1.5; // half the field's width plus a stride and a half
+    // Hand count from the fixture text: 13 "pushed ob" (one of them wiped out by a penalty, No Play,
+    // which raParse still reads; staging skips it) and 4 "ran ob".
+    ok(oob.parse.counts.pushed === 13 && oob.parse.counts.ran === 4,
+      `raParse reads NFL's "pushed ob" and "ran ob" (13 pushed, 4 ran in the game; got ${JSON.stringify(oob.parse.counts)})`);
+    ok(oob.parse.tagTacklers.length === 0 && oob.parse.realTacklers.length === 1,
+      `a formation tag "(No Huddle, Shotgun)" is not a tackler list; "(J.Bates)" is (${JSON.stringify(oob.parse)})`.slice(0, 400));
+    ok(!oob.parse.puntKickOob.oob, `a punt that goes "out of bounds" on its own is not a runner going out (${JSON.stringify(oob.parse.puntKickOob)})`);
+    ok(!oob.parse.reversed.oob, `the reversed Kraft fumble ("ball out of bounds", overturned to incomplete) is not out of bounds (${JSON.stringify(oob.parse.reversed)})`);
+    const staged = oob.plays.filter((q) => !q.err);
+    ok(staged.length >= 15 && staged.every((q) => q.crossed), `every staged "ob" play's carrier crosses the sideline (${staged.filter((q) => q.crossed).length}/${oob.plays.length}: ${JSON.stringify(oob.plays.filter((q) => q.err || !q.crossed))})`);
+    ok(staged.every((q) => q.drift > RA_SIDELINE_CHECK), `…and keeps going a step or two past it, out of the field (min ${Math.min(...staged.map((q) => q.drift))} yd from the middle vs ${RA_SIDELINE_CHECK})`);
+    ok(staged.every((q) => !q.down), `…on his feet: nobody tackles a man who went out of bounds (${JSON.stringify(staged.filter((q) => q.down).map((q) => q.id))})`);
+    ok(staged.filter((q) => q.pushed).every((q) => q.near <= 1.2), `"pushed ob": a defender is on him as he crosses (${JSON.stringify(staged.filter((q) => q.pushed).map((q) => q.near))} yd)`);
+    // "ran ob (B.Cisse)": ESPN names the defender who forced him out, so that one shadows him a stride
+    // off; with no name he is alone. (3 named, 1 unnamed in the game.)
+    ok(staged.filter((q) => !q.pushed && q.named).every((q) => q.near > 0.9 && q.near <= 2.2), `"ran ob" with a named defender: he shadows him out a stride off, no contact (${JSON.stringify(staged.filter((q) => !q.pushed && q.named).map((q) => q.near))} yd)`);
+    ok(staged.filter((q) => !q.pushed && !q.named).length >= 1 && staged.filter((q) => !q.pushed && !q.named).every((q) => q.near > 2.5), `"ran ob" with nobody named: he steps out alone, nobody within 2.5 yd (${JSON.stringify(staged.filter((q) => !q.pushed && !q.named).map((q) => q.near))} yd)`);
+
     section("Console");
     ok(consoleErrors.length === 0, `no uncaught page errors${consoleErrors.length ? " (" + consoleErrors.slice(0, 3).join(" | ") + ")" : ""}`);
 

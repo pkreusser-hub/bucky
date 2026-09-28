@@ -5,6 +5,7 @@
 
 /* ═════════════ Reading a play ═════════════ */
 const RAX = 26.67;                                   // half the field's width, in yards
+const OOB_X = RAX + 0.8;                             // where a carrier who goes out of bounds crosses: a step past the sideline
 const raX = (x) => clamp(x, -RAX + 1, RAX - 1);
 // Goalposts: the uprights stand on the end line (10 yards behind the goal line), 18'6" apart, the
 // crossbar 10 ft up, the uprights reaching 35 ft above it.
@@ -73,7 +74,9 @@ function raParse(p, ev) {
   const dm = /\b(?:pass(?: complete| incomplete)?|rush|run|scramble)\s+(?:(short|deep)\s+)?(left|middle|right|up the middle)?(?:\s+(end|tackle|guard))?/.exec(t) || [];
   const tacklers = [];
   for (const g of t.matchAll(/\(([^()]*)\)/g)) {
-    if (/H:|LS:|Original|clock/i.test(g[1])) continue;
+    // A formation tag is not a tackler list: "(No Huddle, Shotgun) J.Love pass …" used to name two
+    // tacklers called "No Huddle" and "Shotgun".
+    if (/H:|LS:|Original|clock|shotgun|huddle|pistol|formation|wildcat|under center/i.test(g[1])) continue;
     for (const it of g[1].split(/[;,]/)) { const m = /^\s*(?:#(\d{1,2})\s*)?(.+?)\s*$/.exec(it); const w = m && who(m[1], m[2]); if (w) tacklers.push(w); }
     break;
   }
@@ -104,7 +107,7 @@ function raParse(p, ev) {
     // returner clause; RA_PL's own char class allows the hyphen and the initial's period, so
     // without stripping these first, "Center-M.Orzech. O.Zaccheaus" merges into one false name.
     returner: get(RA_PL + ' return(?:s|ed)?\\b') || get('fair catch by ' + RA_PL) || (p.kind === 'kickoff' || p.kind === 'punt'
-      ? getOn(t.replace(/,?\s*(?:Center|Holder)-[A-Za-z.'’-]+\.?/g, ''), RA_PL + '\\s+to\\s+(?:[A-Z][A-Z&]{1,5}\\s?\\d{1,2}\\b|50\\b)')
+      ? getOn(t.replace(/,?\s*(?:Center|Holder)-[A-Za-z.'’-]+\.?/g, ''), RA_PL + '\\s+(?:to|(?:pushed|ran)\\s+ob\\s+at)\\s+(?:[A-Z][A-Z&]{1,5}\\s?\\d{1,2}\\b|50\\b)')
       : null),
     // The fumbler is usually named right before "FUMBLES" ("J.Love FUMBLES"); when the clause
     // omits the name (it's the player just mentioned — the rusher/target/sacked player), `hasFumble`
@@ -131,7 +134,12 @@ function raParse(p, ev) {
     blocked: /blocked/i.test(t + ' ' + tt),
     fair: /fair catch/i.test(t),
     touchback: /touchback/i.test(t),
-    oob: /out of bounds/i.test(t),
+    // The ball carrier finished out of bounds. NFL text says "ob": "pushed ob at GB 16", "ran ob
+    // at ATL 10" (2026-09-28, user: "when a play includes 'push ob' or 'ob' that means the ball
+    // carrier finishes the play crossing out of bounds"). "out of bounds" on a kick ("punts 45
+    // yards to NO 20, out of bounds") is the ball, not a runner, so it doesn't count here.
+    oob: /\bob\b/i.test(t) || (/out of bounds/i.test(t) && !/\b(?:punts|kicks|kickoff)\b/i.test(t)),
+    pushedOb: /\bpushed (?:ob|out of bounds)\b/i.test(t),
     td: /TOUCHDOWN/.test(t) || (p.scoring && /touchdown/i.test(tt)),
     safety: /SAFETY/.test(t) || /safety/i.test(tt),
     noPlay: /no play/i.test(t),
@@ -209,9 +217,11 @@ function raBuild(p, ev, qbs, opts = {}) {
   const tS = sc.tS;
   const P = (side, role, x, z) => { const a = { side, role, k: [[0, raX(x), z, 0]] }; sc.actors.push(a); return a; };
   const lastT = (a) => a.k[a.k.length - 1][0];
-  const go = (a, t, x, z, e = 1) => {
+  // Everyone stays a yard inside the sidelines, except a move marked `out`: a carrier going out of
+  // bounds, who has to cross the line (and may drift up to 5 yd past it).
+  const go = (a, t, x, z, e = 1, out = false) => {
     if (a.k.length === 1 && t > tS + 0.05) a.k.push([tS, a.k[0][1], a.k[0][2], 0]);   // set until the snap, then move
-    if (t <= lastT(a)) t = lastT(a) + 0.04; a.k.push([t, raX(x), clamp(z, -12, 112), e]); return t; };
+    if (t <= lastT(a)) t = lastT(a) + 0.04; a.k.push([t, out ? clamp(x, -RAX - 5, RAX + 5) : raX(x), clamp(z, -12, 112), e]); return t; };
   const hold = (a, t) => { if (t > lastT(a)) { const [x, z] = raPos(a, lastT(a)); a.k.push([t, x, z, 0]); } };
   const cut = (a, t) => { const [x, z] = raPos(a, t); a.k = a.k.filter((k) => k[0] < t); if (!a.k.length) a.k.push([0, x, z, 0]); a.k.push([t, x, z, 0]); };
   // Run to a point at a football speed; returns the arrival time.
@@ -429,13 +439,49 @@ function raBuild(p, ev, qbs, opts = {}) {
     sc.tdAt = tE;
     sc.tdEnd = last + 3.5;
   };
+  // The carrier's path already ends a step past the sideline (OOB_X). "pushed ob": the named
+  // defender meets him there and shoves him out; he stays on his feet. "ran ob": he steps out on his
+  // own and the defense pulls up short of him. Either way he drifts a few yards out, slowing.
+  const outOfBounds = (car, tE, pool) => {
+    const [xE, zE] = raPos(car, tE);
+    const side = Math.sign(xE) || 1;
+    // A defender named in the text is the one who got him there. "pushed ob": he meets him on the
+    // line and follows through past it. "ran ob (B.Cisse)": he shadows him out, a stride off, no
+    // contact. "ran ob" with no name: nobody near, the defense pulls up short.
+    const named = I.pushedOb || I.tacklers.length > 0;
+    let escort = null;
+    if (named) {
+      // He takes his angle early enough to get there even on a long gain. The approach is a
+      // flat-out run (easing 0): raBuild's last pass caps speed at 11 yd/s ÷ the easing's peak, so a
+      // long approach eased like a lunge was cut to half pace and he arrived yards short.
+      const tLead = Math.max(tS + 0.3, tE - 3.2);
+      escort = nearest(pool.filter((a) => a !== car), xE, zE, tLead)[0];
+      if (escort) {
+        who(escort, I.tacklers[0]);
+        chaseUntil(escort, tLead);
+        cut(escort, tLead);
+        if (I.pushedOb) {
+          go(escort, tE - 0.3, xE - side * 1.8, zE - 0.6, 0, true);
+          go(escort, tE, xE - side * 0.6, zE + 0.5, 1, true);
+        } else {
+          // A stride behind him and just inside, off his own path, so there's no contact.
+          go(escort, tE - 0.3, xE - side * 2.2, zE - 2.6, 0, true);
+          go(escort, tE, xE - side * 0.9, zE - 1.7, 1, true);
+        }
+        if (I.pushedOb) go(escort, tE + 0.5, side * (RAX + 1.8), zE + 1.1, 2, true);
+        escort.labelAt = tE - 0.4;
+      }
+    }
+    converge(pool.filter((a) => a !== escort), tE - 0.9, xE - side * 4.5, zE - 1, tE + 0.4, 2, 6);  // the rest pull up short
+    go(car, tE + 0.7, side * (RAX + 3.2), zE + 1.2, 2, true);
+  };
   const finishCarry = (car, tE, tacklePool) => {
     if (I.td && zPlay >= 99) {
       banner(tE - 0.1, 'Touchdown', offT.name, 'o');
       celebrate(car, tE, allOff().filter((a) => a !== car), allDef());
       return;
     }
-    if (I.oob) { converge(tacklePool, tE - 0.7, ...raPos(car, tE), tE + 0.2, 1, 5); return; }
+    if (I.oob) { outOfBounds(car, tE, tacklePool); return; }
     tackle(car, tE, tacklePool, I.tacklers);
     converge(tacklePool.filter((a) => !a.labelAt), tE - 0.5, ...raPos(car, tE), tE + 0.6, 1.8, 6);
   };
@@ -532,10 +578,10 @@ function raBuild(p, ev, qbs, opts = {}) {
       else {
         const v = gain > 25 ? 9.3 : 8;
         const zF = I.td ? 101.5 : zStop;
-        const xE = I.oob ? side * RAX : raX(holeX + (gain > 12 ? side * Math.min(14, gain * 0.3) : R(-2.5, 2.5)));
+        const xE = I.oob ? side * OOB_X : raX(holeX + (gain > 12 ? side * Math.min(14, gain * 0.3) : R(-2.5, 2.5)));
         const xM = holeX + (xE - holeX) * 0.35 + R(-1.5, 1.5), zM = z0 + (zF - z0) * 0.45;
         const tM = go(car, tHole + Math.hypot(xM - holeX, zM - z0) / v, xM, zM, 0);
-        tE = go(car, tM + Math.hypot(xE - xM, zF - zM) / v, xE, zF, I.td ? 2 : 0);
+        tE = go(car, tM + Math.hypot(xE - xM, zF - zM) / v, xE, zF, I.td ? 2 : 0, I.oob && !I.td);
       }
       linePlay(false, side, null, Math.min(tE, tS + 2.2));
       for (const te of off.TEs) { const [tx, tz] = raPos(te, 0); go(te, tS + 0.5, tx, Math.max(tz, z0 - 0.2)); go(te, tS + 2, tx + side, z0 + 1.6); }
@@ -649,8 +695,8 @@ function raBuild(p, ev, qbs, opts = {}) {
         let tE = tCatch + 0.35;
         if (yac > 1) {
           const side = Math.sign(xT) || 1;
-          const xE = I.oob ? side * RAX : raX(xT + (yac > 12 ? side * Math.min(10, yac * 0.3) : R(-3, 3)));
-          tE = go(rec, tCatch + Math.hypot(xE - xT, yac) / (yac > 25 ? 9.2 : 8), xE, zF, I.td ? 2 : 0);
+          const xE = I.oob ? side * OOB_X : raX(xT + (yac > 12 ? side * Math.min(10, yac * 0.3) : R(-3, 3)));
+          tE = go(rec, tCatch + Math.hypot(xE - xT, yac) / (yac > 25 ? 9.2 : 8), xE, zF, I.td ? 2 : 0, I.oob && !I.td);
         } else go(rec, tE, xT + R(-0.5, 0.5), zT + Math.max(0, yac), 2);
         if (zFum != null) T = fumble(rec, tE) + 2; else {
         finishCarry(rec, tE, allDef());
@@ -781,12 +827,16 @@ function raBuild(p, ev, qbs, opts = {}) {
       hold(ret, tL);                                                   // he waits for it, then goes
       const retTD = I.td;
       const zR = retTD ? -1.5 : retZ;
-      const xR = raX(xL + R(-10, 10));
+      // A return that ends "pushed ob" / "ran ob" finishes over the nearer sideline.
+      const xR = I.oob && !retTD ? (Math.sign(xL) || 1) * OOB_X : raX(xL + R(-10, 10));
       const xM = raX(xL + (xR - xL) * 0.4 + R(-4, 4)), zM = zL + (zR - zL) * 0.4;
       const tM = go(ret, tL + 0.2 + Math.hypot(xM - xL, zM - zL) / 8.3, xM, zM, 0);
-      tE = go(ret, tM + Math.hypot(xR - xM, zR - zM) / 8.6, xR, zR, retTD ? 2 : 0);
+      tE = go(ret, tM + Math.hypot(xR - xM, zR - zM) / 8.6, xR, zR, retTD ? 2 : 0, I.oob && !retTD);
       if (retTD) { banner(tE, 'Touchdown', `${defT.name} return`, 'd'); celebrate(ret, tE, sc.actors.filter((a) => a.side === 'd' && a !== ret), cov); }
-      else {
+      else if (I.oob) {
+        outOfBounds(ret, tE, cov);
+        banner(tE + 0.1, `${punt ? 'Punt' : 'Kickoff'} · ${yds} yds`, `${I.returner.last} returns ${Math.round(Math.abs(zL - zR))}`, 'd');
+      } else {
         tackle(ret, tE, cov, I.tacklers);
         converge(cov.filter((a) => !a.labelAt && !a.acts), Math.max(tFree, tE - 0.6), xR, zR, tE + 0.5, 2, 6);
         banner(tE + 0.1, `${punt ? 'Punt' : 'Kickoff'} · ${yds} yds`, `${I.returner.last} returns ${Math.round(Math.abs(zL - zR))}`, 'd');

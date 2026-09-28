@@ -176,3 +176,24 @@ after): replay modal 0.12-0.21 / 0.3-0.4 → 0.11-0.37 / 0.2-0.9; side card 0.12
 VERIFY: sunday 91/91 (section "8-bit staging, uniforms, resolution", 26 new checks, 1 restaged),
 sunday-ff 53/53. Bite: the previous sd-reenact.js fails 25 of the 26 new checks and the restaged
 one; "11 a side on every play" already held.
+
+## 2026-09-28 — out of bounds ("pushed ob", "ran ob")
+
+Perry: "when a play includes 'push ob' or 'ob' that means the ball carrier finishes the play
+crossing out of bounds, so our animation should use that". raParse only knew "out of bounds", which
+NFL text never says of a runner, so all 17 "ob" plays in the ATL @ GB fixture ended in a tackle in
+the field. Now `oob` reads `ob` (a kick "out of bounds" is the ball, not a runner) and
+`pushedOb` reads "pushed ob". The carrier's path ends a step past the sideline (`OOB_X`) and drifts
+out; nobody tackles him. "pushed ob": the named defender (else the nearest) meets him on the line
+and follows through. "ran ob (B.Cisse)": the named defender shadows him a stride off. "ran ob" with
+no name: he steps out alone. Punt/kick returns do the same; the returner is now found in
+"Z.Branch pushed ob at ATL 17".
+
+Two things that bit: `go()` clamps every position a yard inside the field (a new `out` flag lets
+an out-of-bounds move cross), and raBuild's last pass caps speed at 11 yd/s ÷ the easing's peak, so
+a long pursuit eased like a lunge arrived yards short (the approach is now easing 0). Also fixed:
+the tackler parse read the first parenthesis, so "(No Huddle, Shotgun)" named tacklers "No Huddle"
+and "Shotgun". Cache-bust ?v=20260928b.
+
+VERIFY: sunday 101/101 (new section "Out of bounds", 10 checks), sunday-ff 53/53. Bite: the
+previous sd-reenact.js fails 8 of them.
