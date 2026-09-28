@@ -915,3 +915,7 @@ the webfont ink check that fails the same way on HEAD in this container), halfti
 cast and personality checks; 4 new: ids in the facts, `replay` required, `cleanScript`'s replay rules,
 the stored replays). Bite: HEAD's page files fail the 8 new or restaged page checks; HEAD's halftime.mjs
 fails the new cast, collection and replay checks.
+Checked on the preview: Opus 5.5 at low effort wrote ATL @ GB's postgame show in 25.8 s (6,095 tokens
+in, 1,927 out, about 6 cents), 27 lines and 510 words, with three replays on real plays (Bijan
+Robinson's 55-yard run, Zach Harrison's blocked field goal, Drake London's 68-yard catch). The
+postgame countdown went from 25 s to 30.

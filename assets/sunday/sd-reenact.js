@@ -1628,7 +1628,7 @@ function htScript(id, post) {
 // one; at zero it says "Starting…" until the lines arrive, and then the show runs from its top.
 // Seconds: measured on the preview, a low-effort halftime script took 11.5 s to write (seen by the
 // page at 13 s, 783 output tokens); a postgame one writes about twice as much.
-const HT_SOON = { half: 15, post: 25 };
+const HT_SOON = { half: 15, post: 30 };                     // (post 25 -> 30: a postgame script with replays took 25.8 s on the preview)
 function htSoonLeft(sc, now = Date.now()) {
   const est = HT_SOON[sc.post ? 'post' : 'half'];
   return Math.max(0, Math.ceil(est - (now - (sc.since || now)) / 1000));

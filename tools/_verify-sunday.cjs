@@ -1826,7 +1826,7 @@ async function main() {
         await probe(() => { HT.clear(); sideHalftime(true); });
         await wait(400);
         const ps = await probe(() => { raStep(SIDE, 0); const el = document.querySelector("#big-tecmo .ht-soon"); return { shown: !!el && el.offsetParent !== null, title: el?.querySelector("b")?.textContent, count: el?.querySelector("span")?.textContent }; });
-        ok(ps.shown && ps.title === "Postgame show" && /^starts in 0:(19|20)$/.test(ps.count || ""), `the postgame show counts down too: "${ps.title}", "${ps.count}" (25 s from a start 5 s ago)`);
+        ok(ps.shown && ps.title === "Postgame show" && /^starts in 0:(24|25)$/.test(ps.count || ""), `the postgame show counts down too: "${ps.title}", "${ps.count}" (30 s from a start 5 s ago)`);
         // RESTAGED 2026-09-28 (as the halftime one above): no canned postgame lines either.
         reply = () => JSON.stringify({ ok: false, reason: "failed", detail: "job" });
         await probe(() => { HT.clear(); sideHalftime(true); });
