@@ -1128,7 +1128,7 @@ function openGameView(id) {
       <section class="field-sec"><div class="stadium">
         <div class="field-cap" id="f-cap"></div>
         <div class="field-3d"><svg id="field" class="field-svg" viewBox="0 0 1200 533" role="img" aria-label="Field view of the current drive"></svg></div>
-        <div class="big-tecmo" id="big-tecmo" hidden><div class="sl-stage bt-stage"><canvas id="bt-cv"></canvas><div class="ra-banner" id="bt-banner"></div></div><div class="sl-tx bt-tx" id="bt-tx"></div></div>
+        <div class="big-tecmo" id="big-tecmo" hidden><div class="sl-stage bt-stage"><canvas id="bt-cv"></canvas><div class="ra-banner" id="bt-banner"></div></div><div class="sl-tx bt-tx" id="bt-tx"></div><div class="bt-rp" id="bt-rp" role="group" aria-label="8-bit replay" hidden></div></div>
         <div class="drive-sum" id="f-sum"></div>
         <div class="replay" id="replay" hidden>
           <button class="sq" id="rp-prev" aria-label="Previous play">${ICON.prev}</button>
@@ -1433,7 +1433,12 @@ document.fonts?.ready.then(() => { if (G) fitHeroNames(); });
 function bumpEl(sel) { const n = $(sel); if (n) { n.classList.remove('bump'); void n.offsetWidth; n.classList.add('bump'); } }
 
 document.addEventListener('click', (e) => {
-  if (G && e.target.closest('.rp-start')) { toggleReplay(); return; }
+  if (G && e.target.closest('.rp-start')) {
+    // On the big 8-bit view, Replay asks where to start (game start or this drive) instead.
+    if ($('.stadium')?.classList.contains('tecmo') && typeof tecmoRpMenu === 'function') tecmoRpMenu();
+    else toggleReplay();
+    return;
+  }
   const f = e.target.closest('[data-follow]');
   if (!f) return;
   e.preventDefault();

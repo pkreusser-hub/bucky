@@ -343,3 +343,35 @@ flat `H`: no stripe, no shadow/highlight tones. Cache-bust ?v=20260928e.
 
 VERIFY: sunday 123/123 (2 new: head pixels are all shell, 0 of 50 other tones where HEAD had 30;
 sideNext jumps when 2 or 5 behind), sunday-ff 53/53. Bite: HEAD fails both.
+
+## 2026-09-28 — Replay on the 8-bit view: game start or this drive, at 1×, 2× or 3×
+
+Perry: "On the gffl scores, the 8-bit animation feature, i want to give the option to hit replay like
+we have on the field view, and then replay gives the option for game start or this drive. Add a 2x
+and 3x option to replay".
+
+The field caption's Replay button used to be hidden on the big 8-bit view (`.stadium.tecmo
+.rp-start`). It now shows there, and on the 8-bit view it opens a row under the stage (`#bt-rp`)
+instead of starting the field replay: **Game start**, **This drive**, and a 1× / 2× / 3× speed
+picker (remembered as `sun.tecmoSpeed`). Game start begins at the opening kickoff; This drive at the
+first play of the drive the newest play is in (a synthesised try goes with its touchdown's drive).
+The field view's own Replay and its 1× / 2× button are unchanged.
+
+In `sd-reenact.js` (`tecmoRp*`): the plays run back to back on the big stage through the same
+`sideRun` as the live view, each built from the scene before it (`sideFrom`, pulled out of
+`sidePlay`), so the players jog from one play into the next formation. The speed multiplies the
+stage clock in `sideResume`, and the pause between plays is 900 ms divided by the speed. The play's
+text shows when its result does, as it does live. The bar reads "Replay · Q1 15:00", with Back to
+live (Exit replay on a final). While a replay runs `sideLiveOn()` is false, so the page's score is
+never held back for the stage. `sideUpdate` leaves the stage to the replay, and drops the replay if
+the viewer switches to the field view or the game view is rebuilt. Plays that come in during a
+replay join the list. When the replay reaches the newest play it ends and the live view carries on
+from there (the huddle at the next spot). Leaving early replays the newest play fresh. Cache-bust
+?v=20260928f.
+
+VERIFY: sunday 141/142 (new section "8-bit replay: game start or this drive, 1× 2× 3×", 19 checks;
+it opens the real game view on the ATL @ GB fixture through a request mock), sunday-ff 53/53. The one
+failure, "the widest label's ink fits its box", fails the same way on HEAD in a container without
+the Barlow webfont (57.7 px ink against 52 px of room) and is not touched by this change. Bite: the
+previous files fail 16 of the 19 new checks; the three that pass are the game view opening and the
+two field-view regression guards.
