@@ -52,6 +52,19 @@ const FINAL = fs.readFileSync(path.join(__dirname, "fixtures", "sunday", "sum-40
 // each scenario gets a fresh Firestore doc.
 const SUMMARY = { "401872948": HALF, "401872949": FINAL };
 for (const id of ["401872950", "401872951", "401872952", "401872953", "401872954", "401872955", "401872956"]) SUMMARY[id] = HALF;
+// The sweep's week (section "The scheduled sweep"): 401872957 at the half, 401872958 final 3 hours
+// after kickoff, 401872959 final 30 hours after, 401872960 in the third quarter, 401872961 not started.
+SUMMARY["401872957"] = HALF; SUMMARY["401872958"] = FINAL; SUMMARY["401872959"] = FINAL; SUMMARY["401872960"] = HALF;
+const NOW = Date.now(), H = 3600e3;
+const stat = (name, state, period, detail) => ({ clock: 0, displayClock: "0:00", period, type: { id: "1", name, state, completed: state === "post", description: detail, detail, shortDetail: detail } });
+const ev = (id, dt, st) => ({ id, date: new Date(NOW - dt).toISOString().replace(/:\d\d\.\d+Z$/, "Z"), status: st, competitions: [{ id, status: st }] });
+const SCOREBOARD = { events: [
+  ev("401872957", 1.6 * H, stat("STATUS_HALFTIME", "in", 2, "Halftime")),
+  ev("401872958", 3 * H, stat("STATUS_FINAL", "post", 4, "Final")),
+  ev("401872959", 30 * H, stat("STATUS_FINAL", "post", 4, "Final")),
+  ev("401872960", 2 * H, stat("STATUS_IN_PROGRESS", "in", 3, "8:12 - 3rd Quarter")),
+  ev("401872961", -2 * H, stat("STATUS_SCHEDULED", "pre", 0, "Sun, October 4th at 1:00 PM EDT")),
+] };
 
 const DOC_BASE = "projects/amen-farms-app/databases/(default)/documents";
 const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -77,6 +90,7 @@ const send = (res, code, obj) => { res.writeHead(code, { "content-type": "applic
 const body = (req) => new Promise((r) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => r(b)); });
 const srv = http.createServer(async (req, res) => {
   const u = new URL(req.url, "http://x");
+  if (u.pathname === "/espn/scoreboard") { log.sb = (log.sb || 0) + 1; return send(res, 200, SCOREBOARD); }
   if (u.pathname === "/espn/summary") {
     const ev = u.searchParams.get("event"); log.espn.push(ev);
     return SUMMARY[ev] ? (res.writeHead(200, { "content-type": "application/json" }), res.end(SUMMARY[ev])) : send(res, 404, { code: 404, message: "not found" });
@@ -117,7 +131,7 @@ const srv = http.createServer(async (req, res) => {
     const reply = (text) => send(res, 200, { id: "msg_1", type: "message", role: "assistant", model: "claude-opus-5-5", content: [{ type: "thinking", thinking: "" }, { type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
     if (MODE === "fallback400" && b.fallbacks) return send(res, 400, { type: "error", error: { type: "invalid_request_error", message: "fallbacks: Extra inputs are not permitted" } });
     if (MODE === "refusal") return send(res, 200, { id: "msg_2", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: null } });
-    if (MODE === "post") return reply(JSON.stringify({ lines: POST_LINES }));
+    if (MODE === "post" || (MODE === "ok" && /postgame desk/.test(b.system))) return reply(JSON.stringify({ lines: POST_LINES }));
     if (MODE === "short") return reply(JSON.stringify({ lines: LINES.slice(0, 5) }));
     if (MODE === "badjson") return reply("Here is your script!");
     return reply(JSON.stringify({ lines: LINES }));
@@ -313,6 +327,39 @@ try {
     const half = sys.find((x) => /halftime desk/.test(x)), post = sys.find((x) => /postgame desk/.test(x));
     const traits = [/Hal Brandt, the host: .*pun/, /Chuck Varney, former quarterback from West Texas: .*ranch-and-farm/, /Moose Tillman, former linebacker: loud.*grown-man football/, /Dot Keene, the numbers and fantasy analyst: deadpan.*zinger/, /never repeat the same catchphrase twice/];
     ok(!!half && !!post && traits.every((t) => t.test(half) && t.test(post)), "both shows give each of the four a voice of their own: the punning host, the folksy West Texas quarterback, the loud linebacker, the deadpan numbers analyst");
+  }
+  section("The scheduled sweep (deskcron)");
+  {
+    // 2026-09-28, user: "we need to make it so that after the game ends it triggers the script
+    // creation, not someone just opening it because then they just see '...' instead of a script".
+    const toml = fs.readFileSync(path.join(__dirname, "..", "netlify.toml"), "utf8");
+    ok(/\[functions\."deskcron"\]\s*\n\s*schedule = "\*\/2 \* \* \* \*"/.test(toml) && fs.existsSync(path.join(path.dirname(FN), "deskcron.mjs")),
+      "netlify.toml runs deskcron every 2 minutes");
+    const reads0 = log.fsGet.length, bg0 = log.bg.length;
+    let out = {};
+    try {
+      const cron = (await import(pathToFileURL(path.join(path.dirname(FN), "deskcron.mjs")).href)).default;
+      out = await (await cron(new Request("https://amenfarms.netlify.app/.netlify/functions/deskcron", { method: "POST", body: JSON.stringify({ next_run: "x" }) }))).json();
+    } catch (e) { out = { err: String(e.message || e).slice(0, 120) }; }
+    const started = log.bg.slice(bg0).map((b) => `${b.event}:${b.kind}`).sort();
+    ok(JSON.stringify(started) === JSON.stringify(["401872957:half", "401872958:post"]) && doc("401872957") && doc("post-401872958"),
+      `with nobody on the page, the sweep starts the halftime script for the game at the half and the postgame one for the game just gone final (${JSON.stringify(started)})`);
+    const readIds = log.fsGet.slice(reads0).map((r) => r.split("/").pop()).sort();
+    ok(JSON.stringify(readIds) === JSON.stringify(["401872957", "post-401872958"]) && !doc("post-401872959") && !doc("401872960") && !doc("401872961"),
+      `…and leaves the rest alone, not even reading their docs: the final from 30 hours ago, the game in the 3rd quarter, the one not started (${JSON.stringify(readIds)})`);
+    ok(JSON.stringify(out.games?.map((g) => [g.id, g.mode, g.state])) === JSON.stringify([["401872957", "half", "pending"], ["401872958", "post", "pending"]]), `…and reports what it did (${JSON.stringify(out.games)})`);
+    await drain();
+    const bg1 = log.bg.length;
+    const again = mod.sweepDesks ? await mod.sweepDesks() : {};
+    ok(log.bg.length === bg1 && JSON.stringify(again.games?.map((g) => g.state)) === '["done","done"]' && fsv("post-401872958", "status") === "done",
+      `the next sweep finds both written and starts nothing (${JSON.stringify(again.games?.map((g) => g.state))})`);
+    const v = await get("401872958&kind=post");
+    ok(v.j.ok && v.j.lines.length === 30, `so the first viewer after the final gets the script at once, not "…" (${v.j.lines?.length} lines)`);
+    // Two days on: every game is long final.
+    for (const e of SCOREBOARD.events) e.status = e.competitions[0].status = stat("STATUS_FINAL", "post", 4, "Final");
+    const reads1 = log.fsGet.length, sb1 = log.sb;
+    const quiet = mod.sweepDesks ? await mod.sweepDesks(NOW + 40 * H) : {};
+    ok(JSON.stringify(quiet.games) === "[]" && log.fsGet.length === reads1 && log.sb === sb1 + 1, `long after the games, a sweep is one scoreboard read and nothing else (${log.fsGet.length - reads1} doc reads)`);
   }
 } finally {
   srv.close();

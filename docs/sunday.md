@@ -778,3 +778,21 @@ play back" to the desk, with the reason at the check; the one failure is the web
 fails the same way on HEAD in this container), halftime 47/47 (7 new, the Vary check restaged to
 `query=event|demo|kind`), sunday-ff 53/53, pbpdetail 61/61. Bite: the previous sd-reenact.js fails the
 4 new page checks and the restaged one; the previous halftime.mjs fails all 8 new or restaged function checks.
+
+## 2026-09-28 — the desks' scripts are written when the game gets there, not when someone looks
+
+Perry: "We need to make it so that after the game ends it triggers the script creation, not someone
+just opening it because then they just see '...' instead of a script". `netlify/functions/deskcron.mjs`
+runs every 2 minutes (netlify.toml) and calls `sweepDesks()` in halftime.mjs: one ESPN scoreboard read;
+a game at halftime gets its halftime script started, a game gone final (within 8 hours of kickoff) its
+postgame one, through the same claim-and-background-job path a viewer's request uses
+(`ensureScript`, now shared). So a script is ready a minute or two after halftime or the final whistle,
+before anyone opens the game. Finals past the 8-hour window cost no Firestore reads for the rest of the
+week; an idle run is one scoreboard read. A viewer's request still starts a missing script (the week's
+older finals, a sweep that failed). The job's URL comes from Netlify's `URL` env.
+
+VERIFY: halftime 54/54 (new section "The scheduled sweep (deskcron)", 7 checks: the schedule; with nobody
+on the page the halftime and postgame jobs start for the right games; the final from 30 hours ago, the
+game in progress and the unstarted one are left alone without a doc read; the report; the next sweep
+starts nothing; the first viewer gets the script at once; a quiet week is one scoreboard read). Bite:
+HEAD's halftime.mjs, without the sweep, fails all 7. No page files changed.

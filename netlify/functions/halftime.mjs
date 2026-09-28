@@ -285,37 +285,77 @@ export async function runHalftimeJob(body) {
   try { await writeDoc(token, (post ? "post-" : demo ? "demo-" : "") + event, fields); } catch { /* the page's poll gives up with the stand-in lines */ }
 }
 
-async function startJob(req, event, tries, demo, kind) {
-  const url = process.env.HALFTIME_BG_URL || new URL("/.netlify/functions/halftime-background", req.url).href;
+async function startJob(url, event, tries, demo, kind) {
   try {
     await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: process.env.BUCKY_NOTIFY_SECRET, event, tries, demo, kind }) });
   } catch { /* the claim goes stale and the next poll retries */ }
 }
 
-export default async (req) => {
-  const q = new URL(req.url).searchParams, event = q.get("event") || "", post = q.get("kind") === "post", demo = !post && q.get("demo") === "1";
-  if (!/^\d{6,12}$/.test(event)) return json({ ok: false, reason: "bad-event" }, CACHE_NONE);
+// Make sure a script exists or is being written: serve the stored one, or claim the doc and start the
+// background job. Shared by a viewer's request and the scheduled sweep. -> { done: payload } |
+// { pending: true } | { reason }.
+async function ensureScript(token, event, mode, bgUrl) {
+  const post = mode === "post", demo = mode === "demo";
   const docId = (post ? "post-" : demo ? "demo-" : "") + event;
-  const token = await googleToken().catch(() => null);
-  if (!token) return json({ ok: false, reason: "no-store" }, CACHE_NONE);
   let doc;
-  try { doc = await readDoc(token, docId); } catch { return json({ ok: false, reason: "upstream" }, CACHE_NONE); }
+  try { doc = await readDoc(token, docId); } catch { return { reason: "upstream" }; }
   if (doc.status === "done") {
-    try { const p = JSON.parse(doc.payload); return json({ ok: true, event, cast: p.cast || CAST, lines: p.lines, model: p.model }, CACHE_DONE); }
+    try { return { done: JSON.parse(doc.payload) }; }
     catch { /* a broken doc is re-written below like a failed one */ }
   }
   const stale = !doc.missing && (doc.status !== "pending" || Date.now() - doc.at > STALE_MS);
-  if (!doc.missing && !stale) return json({ ok: false, pending: true }, CACHE_WAIT);
-  if (!doc.missing && doc.tries >= MAX_TRIES) return json({ ok: false, reason: "failed" }, CACHE_NONE);
+  if (!doc.missing && !stale) return { pending: true };
+  if (!doc.missing && doc.tries >= MAX_TRIES) return { reason: "failed" };
   // Nothing written yet (or a dead try): only a game ESPN says is at halftime gets a script (a final,
   // for the postgame desk and the demo).
   let sum;
-  try { sum = await espnSummary(event); } catch { return json({ ok: false, reason: "upstream" }, CACHE_NONE); }
+  try { sum = await espnSummary(event); } catch { return { reason: "upstream" }; }
   const final = sum?.header?.competitions?.[0]?.status?.type?.state === "post";
-  if (post || demo ? !final : !atHalftime(sum)) return json({ ok: false, reason: post || demo ? "not-final" : "not-halftime" }, CACHE_NONE);
+  if (post || demo ? !final : !atHalftime(sum)) return { reason: post || demo ? "not-final" : "not-halftime" };
   const tries = (doc.missing ? 0 : doc.tries) + 1;
   const claimed = await writeDoc(token, docId, { status: S("pending"), at: I(Date.now()), tries: I(tries), payload: S("") },
     doc.missing ? { exists: false } : { updateTime: doc.updateTime }).catch(() => false);
-  if (claimed) await startJob(req, event, tries, demo, post ? "post" : "half");
-  return json({ ok: false, pending: true }, CACHE_WAIT);
+  if (claimed) await startJob(bgUrl, event, tries, demo, post ? "post" : "half");
+  return { pending: true };
+}
+
+// The scheduled sweep (deskcron.mjs, every 2 minutes; 2026-09-28, user: "after the game ends it
+// triggers the script creation, not someone just opening it because then they just see '...'
+// instead of a script"). One scoreboard read; a game at halftime gets its halftime script started,
+// a game that went final gets its postgame one, so both are written before anyone opens the game.
+// Finals are swept only within 8 hours of kickoff (a game runs about 3 1/4 hours), so a finished
+// week's games cost no Firestore reads for the rest of the week.
+export const SWEEP_FINAL_MS = 8 * 3600e3;
+export async function sweepDesks(now = Date.now()) {
+  const bgUrl = process.env.HALFTIME_BG_URL || `${process.env.URL || "https://amenfarms.netlify.app"}/.netlify/functions/halftime-background`;
+  let sb;
+  try { const r = await fetch(`${ESPN()}/scoreboard`, { headers: { accept: "application/json" } }); if (!r.ok) return { reason: "upstream" }; sb = await r.json(); }
+  catch { return { reason: "upstream" }; }
+  const todo = [];
+  for (const e of sb.events || []) {
+    const st = e.competitions?.[0]?.status || e.status || {}, t = st.type || {};
+    const half = t.name === "STATUS_HALFTIME" || (t.state === "in" && Number(st.period) === 2 && /^end/i.test(t.detail || t.shortDetail || ""));
+    const fresh = t.state === "post" && now - Date.parse(e.date) < SWEEP_FINAL_MS;
+    if ((half || fresh) && /^\d{6,12}$/.test(String(e.id))) todo.push([String(e.id), half ? "half" : "post"]);
+  }
+  if (!todo.length) return { games: [] };
+  const token = await googleToken().catch(() => null);
+  if (!token) return { reason: "no-store" };
+  const games = await Promise.all(todo.map(async ([id, mode]) => {
+    const r = await ensureScript(token, id, mode, bgUrl);
+    return { id, mode, state: r.done ? "done" : r.pending ? "pending" : r.reason };
+  }));
+  return { games };
+}
+
+export default async (req) => {
+  const q = new URL(req.url).searchParams, event = q.get("event") || "", post = q.get("kind") === "post", demo = !post && q.get("demo") === "1";
+  if (!/^\d{6,12}$/.test(event)) return json({ ok: false, reason: "bad-event" }, CACHE_NONE);
+  const token = await googleToken().catch(() => null);
+  if (!token) return json({ ok: false, reason: "no-store" }, CACHE_NONE);
+  const bgUrl = process.env.HALFTIME_BG_URL || new URL("/.netlify/functions/halftime-background", req.url).href;
+  const r = await ensureScript(token, event, post ? "post" : demo ? "demo" : "half", bgUrl);
+  if (r.done) return json({ ok: true, event, cast: r.done.cast || CAST, lines: r.done.lines, model: r.done.model }, CACHE_DONE);
+  if (r.pending) return json({ ok: false, pending: true }, CACHE_WAIT);
+  return json({ ok: false, reason: r.reason }, CACHE_NONE);
 };
