@@ -478,7 +478,8 @@ async function main() {
         const p = synth("4018729481681", "N.Folk kicks 65 yards from ATL 35 to end zone, Touchback to the GB 35.", { statYardage: 0, end: { yardLine: 35, team: { id: ev.home.id }, possessionText: "GB 35" } });
         const sc = raBuild(p, ev, new Set());
         const end = raBall(sc, sc.T);
-        out.tb = { endZ: end.z, endHome: 100 - end.z, carried: sc.ball.filter((b) => b.a && b.a.side === "d").length, tb: sc.I.touchback };
+        let jump = 0; for (let t = 0.05; t <= sc.T; t += 0.05) { const a = raBall(sc, t - 0.05), c = raBall(sc, t); jump = Math.max(jump, Math.hypot(c.x - a.x, c.z - a.z)); }
+        out.tb = { endZ: end.z, spotZ: sc.spotZ, endHome: 100 - sc.spotZ, carried: sc.ball.filter((b) => b.a && b.a.side === "d").length, tb: sc.I.touchback, jump: +jump.toFixed(2) };
       });
       // ── Field goal: N.Folk 44 yards, snapped at GB 26 (ATL offense, so z0 = 100 − 26 = 74)
       const fg = (p) => {
@@ -638,8 +639,11 @@ async function main() {
       `kickoff: nobody but the kicker moves until the ball comes down, then the coverage goes (max move before landing ${ra.ko.earlyMove.toFixed(3)} yd, after ${ra.ko.laterMove.toFixed(1)}; worst of all ${ra.ko.all} kickoffs ${ra.ko.allEarly.toFixed(3)})`]);
     chk(() => [ra.ko.kickPose === "kick" && ra.ko.ballLeaves > 2, `kickoff: the kicker is in his kicking pose as the ball leaves the tee (${ra.ko.kickPose}, ball ${ra.ko.ballLeaves} yd downfield 0.2 s later)`]);
     // ATL kicks toward the home goal: the receiving (GB) 35 is home-scale H 35, kicking-frame z 65.
-    chk(() => [ra.tb.tb && ra.tb.endZ === 65 && ra.tb.endHome === 35 && ra.tb.carried === 0,
-      `kickoff touchback: the ball ends at the receiving team's 35 (z ${ra.tb.endZ}, GB ${ra.tb.endHome}) and nobody returns it (${ra.tb.carried} carries)`]);
+    // RESTAGED 2026-09-28 (the week-3 audit): this asserted the ball itself ends on the 35, and it got
+    // there by being put on it in one frame at the whistle, a 40-yard jump across the screen. The ball
+    // now stays in the end zone where it died; the 35 is the spot the next snap is set at (sc.spotZ).
+    chk(() => [ra.tb.tb && ra.tb.spotZ === 65 && ra.tb.endHome === 35 && ra.tb.endZ >= 100 && ra.tb.carried === 0 && ra.tb.jump <= 2.6,
+      `kickoff touchback: the next snap is spotted at the receiving team's 35 (z ${ra.tb.spotZ}, GB ${ra.tb.endHome}), the ball stays in the end zone (z ${ra.tb.endZ?.toFixed?.(1)}) with no jump (${ra.tb.jump} yd per 0.05 s) and nobody returns it (${ra.tb.carried} carries)`]);
     // Field goal: 44 yards from GB 26 → kick spot 44 − 10 − 26 = 8 yards behind the LOS (z 74 − 8 = 66), posts at z 110.
     chk(() => [ra.fg.z0 === 74 && ra.fg.spotZ === 66 && ra.fg.z0 - ra.fg.spotZ >= 6 && ra.fg.z0 - ra.fg.spotZ <= 8 && ra.fg.holderToSpot < 1,
       `FG: the holder kneels at the spot, 44 − 10 − 26 = 8 yd behind the LOS (LOS z ${ra.fg.z0}, spot ${ra.fg.spotZ}, holder ${ra.fg.holderToSpot.toFixed(2)} yd from it)`]);
@@ -884,6 +888,203 @@ async function main() {
     IJ(() => [inj.kick.who === "T.Wallace" && inj.kick.medStart.every((y) => y > 53.33), `kickoff (3961): T.Wallace carried off to Cleveland's near sideline (${inj.kick.medStart.join(", ")})`]);
     IJ(() => [inj.try.tdCrews === 0 && inj.try.tryCrews === 1 && inj.try.who === "D.Lewis" && inj.try.team === "CAR", `two-point try (3922): the stretcher is on the try, not the touchdown (TD ${inj.try.tdCrews}, try ${inj.try.tryCrews} for ${inj.try.team}-${inj.try.who})`]);
 
+    /* ===================== (i1) touchbacks, kicks out of bounds, fair catches, facing ===================== */
+    // 2026-09-28, user: "last play of the broncos game: Stafford pass deep right intended for Adams
+    // INTERCEPTED by Hufanga at DEN -1. Touchback. Our animation shows him catching the ball in the
+    // endzone but then running it to the 20 yard line and getting tackled … incomplete passes should
+    // use the same card color as complete ones … If a punt or kick goes out of bounds animation should
+    // show that. if its a fair catch, ball should always land on the returner. quarterback should
+    // always face towards the line of scrimmage. all players should face into the huddle, not out of
+    // it." inttb-401872962.json is LAR @ DEN's real last drive (5085 is that play; ESPN's end spot for
+    // it is the DEN 20, the touchback spot). From ATL @ GB: 133 is an interception really returned 5
+    // yards (to the GB 45); 2215 "punts 48 yards to ATL 11, … out of bounds"; 400, 1317, 1463 and 3166
+    // are fair catches.
+    section("Touchbacks, kicks out of bounds, fair catches, facing");
+    const tbFix = JSON.parse(fs.readFileSync(path.join(FIX, "inttb-401872962.json"), "utf8"));
+    const fx = await page.evaluate((fixture, den) => {
+      const out = {};
+      const keep = G;
+      const tryIt = (k, fn) => { try { fn(); } catch (e) { out[k] = { err: String(e.message || e) }; } };
+      const game = (f) => {
+        const comp = f.header.competitions[0];
+        const ev = { id: "x", home: normTeam(comp.competitors.find((c) => c.homeAway === "home")), away: normTeam(comp.competitors.find((c) => c.homeAway === "away")) };
+        const rows = [];
+        for (const dr of f.drives.previous || []) for (const raw of dr.plays || []) rows.push({ raw, teamId: dr.team?.id });
+        const np = (id) => { const r = rows.find((q) => q.raw.id === id); return normPlay(r.raw, ev.home.id, r.teamId, ev.home.abbr); };
+        return { ev, np, rows };
+      };
+      const A = game(fixture), B = game(den);
+      const pos = (a, t) => raPos(a, t);
+      // Frames drawn on a canvas as wide as the whole world, camera at 0, so nobody is culled and every
+      // player's facing is worked out each frame exactly as on screen.
+      const cv = document.createElement("canvas"); cv.width = RA_WORLD_W; cv.height = RA_WORLD_H;
+      const g = cv.getContext("2d");
+      const frames = (sc, t0, t1, fn, dt = 0.1) => { const st = { sc, t: 0, cam: { x: 0, y: 0 }, shown: new Set() }; for (let t = 0; t <= t1 + 1e-9; t += dt) { st.t = t; raDraw(g, cv.width, st); if (t >= t0) fn(t, st); } };
+      tryIt("intTB", () => {
+        G = { ev: B.ev };
+        const p = B.np("4018729625085"), sc = raBuild(p, B.ev, new Set());
+        const hawk = sc.actors.find((a) => a.who?.last === "Hufanga");
+        const zs = []; for (let t = sc.tS; t <= sc.T; t += 0.1) zs.push(pos(hawk, t)[1]);
+        const tCatch = sc.ball.find((q) => q.a === hawk)?.t0;
+        out.intTB = { found: !!hawk, zCatch: +pos(hawk, tCatch)[1].toFixed(2), minZafter: +Math.min(...zs.filter((_, i) => sc.tS + i * 0.1 >= tCatch)).toFixed(2), down: raPoseAt(sc, hawk, sc.tEnd + 0.4),
+          banners: sc.events.filter((e) => e.kind === "banner").map((e) => e.title).join("|"), zEndText: p.eH };
+      });
+      tryIt("intRet", () => {
+        G = { ev: A.ev };
+        const sc = raBuild(A.np("401872948133"), A.ev, new Set());
+        const hawk = sc.actors.find((a) => a.who?.last === "McKinney");
+        out.intRet = { endZ: +pos(hawk, sc.tEnd)[1].toFixed(2), z0: sc.z0, banners: sc.events.filter((e) => e.kind === "banner").map((e) => e.title).join("|") };
+      });
+      tryIt("incSide", () => {
+        G = { ev: A.ev };
+        const inc = A.rows.filter((r) => /pass incomplete/i.test(r.raw.text || "") && !/PENALTY/.test(r.raw.text));
+        const sides = inc.map((r) => raBuild(A.np(r.raw.id), A.ev, new Set()).events.find((e) => e.kind === "banner" && e.title === "Incomplete")?.side);
+        out.incSide = { n: inc.length, sides: [...new Set(sides)] };
+      });
+      tryIt("puntOob", () => {
+        G = { ev: A.ev };
+        const p = A.np("4018729482215"), sc = raBuild(p, A.ev, new Set());
+        const segs = sc.ball.filter((q) => q.from && q.t0 >= sc.kick.tL - 0.01);
+        const last = segs[segs.length - 1], land = sc.ball.find((q) => q.from && Math.abs(q.t1 - sc.kick.tL) < 1e-6);
+        out.puntOob = { landX: land ? +land.to[0].toFixed(2) : null, outX: last ? +last.to[0].toFixed(2) : null, outZ: last ? +last.to[1].toFixed(2) : null, spotZ: sc.offHome ? p.eH : 100 - p.eH,
+          sub: sc.events.filter((e) => e.kind === "banner").map((e) => e.sub).join("|") };
+      });
+      tryIt("fair", () => {
+        G = { ev: A.ev };
+        out.fair = ["401872948400", "4018729481317", "4018729481463", "4018729483166"].map((id) => {
+          const sc = raBuild(A.np(id), A.ev, new Set()), tL = sc.kick.tL;
+          const hold = sc.ball.find((q) => q.a && Math.abs(q.t0 - tL) < 1e-6), land = sc.ball.find((q) => q.from && Math.abs(q.t1 - tL) < 1e-6);
+          const [rx, rz] = pos(hold.a, tL);
+          return +Math.hypot(land.to[0] - rx, land.to[1] - rz).toFixed(3);
+        });
+      });
+      tryIt("qbFace", () => {
+        G = { ev: A.ev };
+        const passes = A.rows.filter((r) => /\bpass\b/.test(r.raw.text || "") && !/PENALTY|INTERCEPT|sacked/i.test(r.raw.text) && r.raw.type?.text !== "Two-point Conversion").slice(0, 14);
+        let frames_ = 0, wrong = 0; const bad = [];
+        for (const r of passes) {
+          const sc = raBuild(A.np(r.raw.id), A.ev, new Set()), qb = sc.actors.find((a) => a.role === "QB" && a.side === "o");
+          const attackRight = !sc.offHome;
+          frames(sc, sc.tS, (sc.tEnd ?? sc.T) - 0.05, () => { frames_++; if (qb.drawn && qb.drawn.flip !== !attackRight) { wrong++; if (bad.length < 3) bad.push(r.raw.id); } });
+        }
+        out.qbFace = { plays: passes.length, frames: frames_, wrong, bad: [...new Set(bad)] };
+      });
+      tryIt("huddle", () => {
+        G = { ev: A.ev };
+        const prev = raBuild(A.np("40187294863"), A.ev, new Set());          // Robinson's 4-yd run, then ATL huddle at its 34
+        const hs = raHuddle(prev, A.ev, { possession: A.ev.away.id, yardLine: 66, down: 2, distance: 6, downDistanceText: "2nd & 6" });
+        let n = 0, wrong = 0;
+        frames(hs, hs.arrived + 0.4, hs.arrived + 0.55, (t, st) => {
+          const cx = st.cam.x, cy = st.cam.y;
+          const S = (x, z) => raSX(hs.offHome ? z : 100 - z) - cx;
+          for (const a of hs.actors) {
+            const [x, z] = pos(a, t), sx = S(x, z), hx = S(...hs.hud[a.side]);
+            if (Math.abs(hx - sx) <= RA_K) continue;
+            n++; if (a.drawn.flip !== (hx < sx)) wrong++;
+          }
+        });
+        // The next snap starts from that huddle: still facing its middle for the first half second.
+        const next = raBuild(A.np("40187294885"), A.ev, new Set(), { from: hs, fromT: hs.arrived + 1 });
+        let n2 = 0, wrong2 = 0;
+        frames(next, 0.3, 0.36, (t, st) => {
+          for (const a of next.actors) {
+            if ((a.side !== "o" && a.side !== "d") || !next.hud) continue;
+            const [x, z] = pos(a, t), sx = raSX(next.offHome ? z : 100 - z), hx = raSX(next.offHome ? next.hud[a.side][1] : 100 - next.hud[a.side][1]);
+            if (Math.abs(hx - sx) <= RA_K) continue;
+            n2++; if (a.drawn.flip !== (hx < sx)) wrong2++;
+          }
+        });
+        out.huddle = { n, wrong, n2, wrong2, hasHud: !!next.hud };
+      });
+      G = keep;
+      return out;
+    }, sumFixture, tbFix);
+    const FX = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${e.message} ${JSON.stringify(fx).slice(0, 200)})`]; } ok(r[0], r[1]); };
+    FX(() => [fx.intTB.found && fx.intTB.zCatch >= 100 && fx.intTB.zCatch <= 102.5 && fx.intTB.minZafter >= 100, `LAR @ DEN 5085, a touchback: Hufanga catches it a yard deep in the end zone ("at DEN -1") and never leaves it (caught ${fx.intTB.zCatch}, lowest after ${fx.intTB.minZafter}; the goal line is 100, ESPN's end spot ${fx.intTB.zEndText} is the touchback's 20)${fx.intTB.err ? " " + fx.intTB.err : ""}`]);
+    FX(() => [fx.intTB.down === "down" && /Intercepted/.test(fx.intTB.banners) && /Touchback/.test(fx.intTB.banners), `…he takes a knee there and it reads Intercepted, then Touchback (${fx.intTB.down}; ${fx.intTB.banners})`]);
+    FX(() => [Math.abs(fx.intRet.endZ - (fx.intRet.z0 + 0)) >= 0 && /Intercepted/.test(fx.intRet.banners) && !/Touchback/.test(fx.intRet.banners) && fx.intRet.endZ < 100, `…a real return still runs: McKinney's 5 yards on 133 end at the GB 45 (z ${fx.intRet.endZ}), no touchback (${fx.intRet.banners})`]);
+    FX(() => [fx.incSide.n >= 10 && fx.incSide.sides.length === 1 && fx.incSide.sides[0] === "o", `every "Incomplete" card is in the offense's colour, as a completion's is (${fx.incSide.n} incompletions: ${JSON.stringify(fx.incSide.sides)})`]);
+    FX(() => [Math.abs(fx.puntOob.landX) >= 19 && Math.abs(fx.puntOob.outX) > 26.67 && Math.abs(fx.puntOob.outZ - fx.puntOob.spotZ) <= 1.01 && /Out of bounds/.test(fx.puntOob.sub),
+      `2215, punted out of bounds: it comes down by the sideline (x ${fx.puntOob.landX}) and goes over it (x ${fx.puntOob.outX}; the sideline is 26.67) at the ATL 11 (z ${fx.puntOob.outZ} vs ${fx.puntOob.spotZ})`]);
+    // RESTAGED 2026-09-28 (the week-3 audit): every caught ball is now aimed at the catcher's hands, the
+    // held ball's own +0.35 / +0.25 yd offset from his feet (raBall), so it no longer jumps that last
+    // bit as he takes it. 0.43 yd = hypot(0.35, 0.25) is the hands, not a miss.
+    FX(() => [fx.fair.every((d) => Math.abs(d - Math.hypot(0.35, 0.25)) < 0.01), `a fair catch comes down on the returner, every time: in his hands, hypot(0.35, 0.25) = 0.43 yd off his feet (400, 1317, 1463, 3166: ${fx.fair.join(", ")} yd)`]);
+    FX(() => [fx.qbFace.plays >= 10 && fx.qbFace.wrong === 0, `the QB faces the line of scrimmage through every pass play, drop-back included (${fx.qbFace.plays} plays, ${fx.qbFace.frames} frames, ${fx.qbFace.wrong} facing away${fx.qbFace.bad.length ? ": " + fx.qbFace.bad.join(", ") : ""})`]);
+    FX(() => [fx.huddle.n >= 18 && fx.huddle.wrong === 0, `in the huddles everyone faces its middle (${fx.huddle.n} players, ${fx.huddle.wrong} facing out)`]);
+    FX(() => [fx.huddle.hasHud && fx.huddle.n2 >= 15 && fx.huddle.wrong2 === 0, `…and still does as the next snap's scene starts, before they break (${fx.huddle.n2} players, ${fx.huddle.wrong2} facing out)`]);
+
+    /* ===================== (i1b) the week-3 Sunday audit ===================== */
+    // 2026-09-28, user: "pick a few games from yesterday and review each plays animation against the
+    // description to see if we've fixed all the disconnects". A headless audit built all 690 plays of
+    // LAR @ DEN, NE @ JAX, SEA @ WSH and BAL @ DAL (with their nflverse detail) and compared each with
+    // its text: end spot, result cards, who has the ball, named players, tacklers, out of bounds,
+    // kicks, 11 a side, teleports, QB facing. 137 were flagged; these 16 real plays
+    // (audit-20260927.json) are the causes, each checked here against what its text says.
+    section("Week-3 Sunday audit: plays drawn against their text");
+    const audFix = JSON.parse(fs.readFileSync(path.join(FIX, "audit-20260927.json"), "utf8"));
+    const au = await page.evaluate((fx) => {
+      const out = {};
+      const keep = G;
+      const tryIt = (k, fn) => { try { fn(); } catch (e) { out[k] = { err: String(e.message || e) }; } };
+      const games = {};
+      for (const [e, gm] of Object.entries(fx.games)) {
+        const comp = gm.header.competitions[0];
+        const ev = { id: e, home: normTeam(comp.competitors.find((c) => c.homeAway === "home")), away: normTeam(comp.competitors.find((c) => c.homeAway === "away")) };
+        const rows = [];
+        for (const dr of gm.drives.previous) for (const raw of dr.plays) rows.push({ raw, teamId: dr.team?.id });
+        games[e] = { ev, rows, pbp: gm.pbp };
+      }
+      const build = (id) => {
+        const e = Object.keys(games).find((k) => id.startsWith(k) && games[k].rows.some((r) => r.raw.id === id));
+        const gm = games[e], r = gm.rows.find((q) => q.raw.id === id);
+        G = { ev: gm.ev };
+        const p = normPlay(r.raw, gm.ev.home.id, r.teamId, gm.ev.home.abbr);
+        const sc = raBuild(p, gm.ev, new Set(), { detail: gm.pbp[id] || null });
+        return { p, sc, Z: (H) => (sc.offHome ? H : 100 - H) };
+      };
+      const who = (sc, last) => sc.actors.find((a) => a.who?.last === last);
+      const titles = (sc) => sc.events.filter((e) => e.kind === "banner").map((e) => e.title).join("|");
+      const jump = (sc) => { let m = 0; for (let t = 0.05; t <= sc.T && t < 60; t += 0.05) { const a = raBall(sc, t - 0.05), b = raBall(sc, t); m = Math.max(m, Math.hypot(b.x - a.x, b.z - a.z)); } return +m.toFixed(2); };
+      const gap = (a, b, t) => { const [ax, az] = raPos(a, t), [bx, bz] = raPos(b, t); return +Math.hypot(ax - bx, az - bz).toFixed(2); };
+      tryIt("td48", () => { const { sc } = build("4018729624246"); const r = who(sc, "Mumpfield"); out.td48 = { z: +raPos(r, sc.tEnd)[1].toFixed(2), jump: jump(sc) }; });
+      tryIt("sack0", () => { const { sc, p, Z } = build("4018729571096"); out.sack0 = { z: +raPos(who(sc, "Maye"), sc.tEnd)[1].toFixed(2), want: Z(p.eH) }; });
+      tryIt("oob", () => {
+        out.oob = ["401872955140", "4018729603246", "4018729573110"].map((id) => { const { sc } = build(id); const b = raBall(sc, sc.tEnd); return +Math.abs(raPos(b.held, sc.tEnd + 0.4)[0]).toFixed(2); });
+      });
+      tryIt("twoPtTD", () => {
+        out.twoPtTD = ["4018729622890", "4018729603063"].map((id) => {
+          const { sc, p } = build(id); const pat = raPatFrom(p, null);
+          return { titles: titles(sc), scoredZ: +raBall(sc, sc.tEnd + 0.05).z.toFixed(1), pat: pat && pat.typeText };
+        });
+      });
+      tryIt("pick6", () => { const { sc } = build("4018729554262"); out.pick6 = { titles: titles(sc), z: +raBall(sc, sc.tEnd + 0.05).z.toFixed(1) }; });
+      tryIt("ownFumble", () => { out.ownFumble = ["4018729571859", "4018729601436"].map((id) => { const { sc } = build(id); return raBall(sc, sc.T - 0.1).held?.side || "none"; }); });
+      tryIt("retPen", () => { const { sc, Z } = build("40187295740"); const r = who(sc, "Cameron"), t = who(sc, "Ramirez"); out.retPen = { z: +raPos(r, sc.tEnd)[1].toFixed(2), want: Z(29), gap: t ? gap(t, r, sc.tEnd) : null }; });
+      tryIt("tacklers", () => { out.tacklers = [["4018729551008", "Chaisson", "Barner"], ["4018729574116", "Cameron", "Chism"]].map(([id, tk, car]) => { const { sc } = build(id); const a = who(sc, tk), c = who(sc, car); return a && c ? gap(a, c, sc.tEnd) : null; }); });
+      tryIt("kickJump", () => { out.kickJump = ["401872955486", "4018729552780"].map((id) => jump(build(id).sc)); });
+      // (SEA, the receiving team, is the visitor: its 4 is home-scale H 96.)
+      tryIt("kickOob", () => { const { sc, Z } = build("4018729552780"); const last = sc.ball.filter((q) => q.from).at(-1); out.kickOob = { x: +Math.abs(last.to[0]).toFixed(2), z: +last.to[1].toFixed(1), want: Z(96) }; });
+      tryIt("tip", () => { const { sc } = build("4018729623719"); const s = who(sc, "Sutton"), k = who(sc, "Turner"); out.tip = { sutton: s?.side || null, turner: k?.side || null }; });
+      tryIt("allJump", () => { out.allJump = Object.values(games).flatMap((g) => g.rows.map((r) => [r.raw.id, jump(build(r.raw.id).sc)])).filter(([, j]) => j > 2.6); });
+      G = keep;
+      return out;
+    }, audFix);
+    const AU = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${e.message} ${JSON.stringify(au).slice(0, 240)})`]; } ok(r[0], r[1]); };
+    AU(() => [au.td48.z >= 100, `LAR @ DEN 4246, Stafford to Mumpfield for 48 and a touchdown: he gets into the end zone (z ${au.td48.z}; the old eased run after the catch was capped short and stopped at the 4)`]);
+    AU(() => [Math.abs(au.sack0.z - au.sack0.want) <= 1, `NE @ JAX 1096, "sacked at NE 27 for 0 yards": he goes down at the NE 27 (z ${au.sack0.z} vs ${au.sack0.want}; he used to drop back 7 and be caught 3 yards behind it)`]);
+    AU(() => [au.oob.every((x) => x > 26.67), `"pushed ob" with nothing after the catch (140), on a run for -1 (BAL 3246) and on an interception return (NE 3110): each goes over the sideline (|x| ${au.oob.join(", ")}; the sideline is 26.67)`]);
+    AU(() => [au.twoPtTD.every((r) => /Touchdown/.test(r.titles) && !/Two-point/.test(r.titles) && r.scoredZ >= 100 && /Two-Point/i.test(r.pat || "")),
+      `a touchdown whose text carries its two-point try is drawn as the touchdown, the try as its own play (DEN 2890, DAL 3063: ${JSON.stringify(au.twoPtTD)})`]);
+    AU(() => [/Pick six/.test(au.pick6.titles) && au.pick6.z <= 0, `SEA @ WSH 4262, Medrano's 50-yard pick six against two receivers draws (it threw: no nickel on the field) and scores (${au.pick6.titles}, z ${au.pick6.z})`]);
+    AU(() => [au.ownFumble.every((s) => s === "o"), `"FUMBLES (D.Hamilton), and recovers at JAX 5": the man who fumbled keeps it for his team (NE 1859, BAL 1436: ${au.ownFumble.join(", ")})`]);
+    AU(() => [Math.abs(au.retPen.z - au.retPen.want) <= 1 && au.retPen.gap != null && au.retPen.gap <= 2.5, `a return with a penalty after it ends where the text tackles him, "J.Cameron to JAX 29", not at the penalty's spot, his tackler on him (z ${au.retPen.z} vs ${au.retPen.want}, Ramirez ${au.retPen.gap} yd)`]);
+    AU(() => [au.tacklers.every((d) => d != null && d <= 2.5), `named tacklers reach the man they tackle, from 20 yards off or behind the play (Chaisson on Barner, Cameron on the punt returner: ${au.tacklers.join(", ")} yd; up to 9 before)`]);
+    AU(() => [au.kickJump.every((j) => j <= 2.6), `a kickoff touchback and a kickoff out of bounds: the ball never jumps (largest step ${au.kickJump.join(", ")} yd in 0.05 s; a touchback used to put it on the 35 in one frame, 40 yards)`]);
+    AU(() => [au.kickOob.x > 26.67 && Math.abs(au.kickOob.z - au.kickOob.want) <= 1.5, `"kicks 61 yards … to SEA 4, out of bounds": it goes out at the SEA 4 (x ${au.kickOob.x}, z ${au.kickOob.z} vs ${au.kickOob.want}), not rolling up to the 40 the penalty spots it at`]);
+    AU(() => [au.tip.sutton === "o" && au.tip.turner !== "o", `"intended for C.Sutton INTERCEPTED by J.Wallace (K.Turner)": Sutton keeps his name; the tipper's name isn't handed to an offensive player (Sutton ${au.tip.sutton}, Turner ${au.tip.turner})`]);
+    AU(() => [au.allJump.length === 0, `across all 16 audit plays the ball never jumps more than 2.6 yd in 0.05 s: catches, snaps and picks meet the hands that take them (${JSON.stringify(au.allJump)})`]);
+
     /* ===================== (i2) real play detail: nflverse + FTN ===================== */
     // 2026-09-28, user: "do some looking to see if there is play by play data available anywhere after
     // the game that gives us more fidelity on exactly what happened on a given play that we could
@@ -960,7 +1161,9 @@ async function main() {
     }, sumFixture, pbpFixture);
     const RD = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${rd.err || e.message})`]; } ok(r[0], r[1]); };
     RD(() => [rd.screen.x0 === -3.08 && rd.pa.x0 === 0, `the snap is on FTN's hash: play 85 on the left hash (x ${rd.screen.x0}), 682 in the middle (x ${rd.pa.x0})`]);
-    RD(() => [rd.screen.catchZ === rd.screen.z0 - 6 && rd.screen.catchZ0 !== rd.screen.catchZ, `the screen is caught where it was: 6 yd behind the line (air yards -6: caught at ${rd.screen.catchZ}, line ${rd.screen.z0}; from the text alone ${rd.screen.catchZ0?.toFixed(1)})`]);
+    // (RESTAGED 2026-09-28: the catch is aimed at his hands, 0.25 yd up the field from his feet — see the
+    // fair-catch check above — so the catch point reads air yards + 0.25.)
+    RD(() => [Math.abs(rd.screen.catchZ - (rd.screen.z0 - 6 + 0.25)) < 0.01 && rd.screen.catchZ0 !== rd.screen.catchZ, `the screen is caught where it was: 6 yd behind the line (air yards -6: caught at ${rd.screen.catchZ}, line ${rd.screen.z0}; from the text alone ${rd.screen.catchZ0?.toFixed(1)})`]);
     RD(() => [rd.screen.endZ != null && Math.abs(rd.screen.endZ - (rd.screen.z0 + 17)) < 0.05, `…and the other 23 are after the catch: he is brought down 17 yd past the line (${(rd.screen.endZ - rd.screen.z0).toFixed(2)} yd)`]);
     RD(() => [rd.screen.tThrow < 1.45 && rd.screen.olDownfield >= 2, `…thrown quickly (${rd.screen.tThrow.toFixed(2)} s after the snap), linemen out in front of him (${rd.screen.olDownfield} past the line)`]);
     RD(() => [rd.pa.qbDepth === 1.2, `682: under center, as FTN charts it (QB ${rd.pa.qbDepth} yd off the ball)`]);
@@ -970,7 +1173,7 @@ async function main() {
     RD(() => [rd.pa.qbRoll >= 4.5, `…out of the pocket: the QB throws from ${rd.pa.qbRoll} yd outside the ball`]);
     RD(() => [rd.pa.blitz === 1 && rd.pa.blitzNear[0] < 2.5, `…five rushers: the four linemen and one blitzer, who gets to within ${rd.pa.blitzNear[0]} yd of the QB by the throw`]);
     RD(() => [rd.pa.box === 8, `…eight in the box at the snap, as charted (${rd.pa.box})`]);
-    RD(() => [rd.pa.catchZ === rd.pa.z0 + 4, `…and Watson catches it 4 yd past the line, in the end zone (air yards 4: ${rd.pa.catchZ - rd.pa.z0})`]);
+    RD(() => [Math.abs(rd.pa.catchZ - (rd.pa.z0 + 4 + 0.25)) < 0.01, `…and Watson catches it 4 yd past the line, in the end zone (air yards 4, + 0.25 to his hands: ${(rd.pa.catchZ - rd.pa.z0).toFixed(2)})`]);
     RD(() => [rd.hit.hitter && rd.hit.near < 1.6 && rd.hit.before !== "down" && rd.hit.downAfter === "down" && rd.hit.upLater !== "down",
       `160: the QB is hit as he throws — a rusher on him (${rd.hit.near} yd), down after the throw (${rd.hit.before} → ${rd.hit.downAfter}), back up later (${rd.hit.upLater})`]);
     RD(() => [Math.abs(rd.ta.landX) > 26.67 && /Thrown away/.test(rd.ta.banners), `332: the throwaway lands past the sideline (x ${rd.ta.landX}, the sideline is 26.67) and reads "Thrown away" (${rd.ta.banners})`]);
