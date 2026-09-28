@@ -97,7 +97,7 @@ const json = (body, cache) => new Response(JSON.stringify(body), {
     "access-control-allow-origin": "*",
     "cache-control": "public, max-age=0, must-revalidate",
     "netlify-cdn-cache-control": cache,
-    "netlify-vary": "query=event|demo|kind",
+    "netlify-vary": "query=event|demo|kind|trial",
   },
 });
 const CACHE_DONE = "public, durable, s-maxage=2592000";      // a finished script never changes
