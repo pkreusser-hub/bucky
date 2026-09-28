@@ -1509,38 +1509,284 @@ function raTimeout(prev, tPrev, ev, possId, z0H, caller, title = 'Timeout', clea
   return sc;
 }
 
-function raHalftime(ev) {
+/* ═════════════ Halftime: the studio desk ═════════════ */
+// 2026-09-28, user: "for half time, since nfl doesnt have marching bands, lets have the view change
+// to 4 people around a desk like you would see on a pre-game or post game NFL broadcast, wearing
+// suits (this is all still retro) and going back and forth with chat bubbles analyzing the half.
+// have opus 5.5 write some dialogue … so that the whole thing lasts around a minute, and if you
+// revisit the page while its half time it just replays the same dialogue". (It replaces the home
+// band, 2026-09-28, which marched a stadium loop.) The script comes from the halftime function,
+// written once per game by Opus 5.5 and served to everyone; it runs from its first line on every
+// visit, about a minute, then again after a short break.
+const HT_CAST = ['Hal Brandt', 'Chuck Varney', 'Moose Tillman', 'Dot Keene'];
+// Suit, shirt, tie (null: none), skin, hair, hair style, build. Drawn in this order, left to right.
+const HT_LOOK = [
+  { suit: '#1f2f5c', shirt: '#f4f4f0', tie: '#c8102e', skin: '#f1c27d', hair: '#3b2a1d', style: 'part', w: 26 },
+  { suit: '#4a4f58', shirt: '#dfe8f5', tie: '#d9a520', skin: '#e0ac69', hair: '#c9c9c9', style: 'swept', w: 26 },
+  { suit: '#5a2630', shirt: '#f4f4f0', tie: '#2a4a8a', skin: '#8d5524', hair: '#1a1410', style: 'crop', w: 30, beard: true },
+  { suit: '#1f6f6a', shirt: '#f3e7cf', tie: null, skin: '#c68642', hair: '#241a14', style: 'long', w: 24, earrings: true },
+];
+const HT = new Map();                               // game id -> { lines, cast, state: 'pending' | 'done' | 'failed', polls }
+// A test run of the desk on a finished game (2026-09-28, user: "give me a test link", with no game at
+// halftime): ?halftime=demo plays the game's first half at the desk, the score as it stood at the half.
+const htDemo = () => /[?&]halftime=demo\b/.test(location.search) && G?.ev?.state === 'post' && !!G.sum;
+function htDemoEv() {
+  const ev = { ...G.ev, away: { ...G.ev.away }, home: { ...G.ev.home }, state: 'in', name: 'STATUS_HALFTIME', period: 2 };
+  const last = (G.sum.flat || []).map((f) => f.p).filter((p) => p && p.period && p.period <= 2 && p.away != null).at(-1);
+  if (last) { ev.away.score = last.away; ev.home.score = last.home; }
+  return ev;
+}
+const HT_TARGET = 60, HT_POST_TARGET = 120, HT_INTRO = 1.4, HT_GAP = 0.3, HT_BREAK = 6;
+// The postgame desk (2026-09-28, user: "ok now we need a post game version and this can be about 2
+// minutes long, can differentiate the commentators a bit with more personality"): the same four, on
+// a final's 8-bit view, about two minutes on the whole game. Its script is the function's kind=post.
+const htKey = (id, post) => (post ? 'post:' : '') + id;
+// The script as a timeline: each line gets reading time for its words, scaled so the show runs
+// about a minute (two for the postgame desk), within 0.8x to 1.25x of natural pace.
+function htTimeline(lines, target = HT_TARGET) {
+  const d = lines.map((l) => 1.1 + 0.26 * String(l.text).split(/\s+/).filter(Boolean).length);
+  const raw = d.reduce((x, y) => x + y, 0) + HT_GAP * lines.length;
+  const f = lines.length > 2 ? clamp(target / raw, 0.8, 1.25) : 1;
+  let t = HT_INTRO;
+  const out = lines.map((l, i) => { const t0 = t; t += d[i] * f; const q = { who: l.who, text: l.text, t0, t1: t }; t += HT_GAP; return q; });
+  return { lines: out, T: t + HT_BREAK };
+}
+// While Opus writes (or if it can't), the host opens with the score; a failed script gets a short
+// stand-in so the desk is never silent.
+function htStandIn(ev, failed, post) {
+  const A = ev.away, H = ev.home, a = +(A.score || 0), h = +(H.score || 0);
+  const lead = a === h ? null : a > h ? A : H;
+  const open = { who: 0, text: post ? `Welcome to the GFFL postgame desk. Final: ${A.name || A.abbr} ${a}, ${H.name || H.abbr} ${h}.` : `Welcome to the GFFL halftime desk. At the break, it's ${A.name || A.abbr} ${a}, ${H.name || H.abbr} ${h}.` };
+  if (!failed) return [open];
+  if (post) return [open,
+    { who: 1, text: lead ? `${lead.name || lead.abbr} got it done. Not always pretty, but a win is a win.` : 'A tie. Nobody goes home happy, and nobody goes home sad.' },
+    { who: 2, text: 'I want to see that defense on film. That is where games like this are decided.' },
+    { who: 3, text: 'Check your fantasy scores, folks. Somebody in your league is celebrating right now.' },
+    { who: 0, text: 'That will do it from the desk. Good night, everybody.' }];
+  return [open,
+    { who: 1, text: lead ? `${lead.name || lead.abbr} have the edge, but thirty minutes is a long time in this league.` : 'Dead even. Whoever wins the first drive of the second half wins this thing.' },
+    { who: 2, text: 'Somebody on that defense has to take the ball away. That is where this game swings.' },
+    { who: 3, text: 'Keep an eye on your fantasy lineups, folks. The second half is where the points pile up.' },
+    { who: 0, text: 'Second half is coming up. Stay with us.' }];
+}
+function htLoad(ev, post) {
+  const id = ev.id, key = htKey(id, post);
+  let e = HT.get(key);
+  if (e && e.state !== 'pending') return e;
+  if (!e) { e = { state: 'pending', lines: null, cast: HT_CAST, polls: 0 }; HT.set(key, e); }
+  if (e.busy) return e;
+  e.busy = true;
+  fetch(`/.netlify/functions/halftime?event=${encodeURIComponent(id)}${post ? '&kind=post' : htDemo() ? '&demo=1' : ''}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      e.busy = false;
+      if (d?.ok && Array.isArray(d.lines) && d.lines.length) { Object.assign(e, { state: 'done', lines: d.lines, cast: d.cast || HT_CAST }); htScript(id, post); return; }
+      if (d?.pending && ++e.polls < 40) { e.timer = setTimeout(() => htLoad(ev, post), 5000); return; }   // about 3 minutes of polls
+      e.state = 'failed'; htScript(id, post);
+    })
+    .catch(() => { e.busy = false; e.state = 'failed'; htScript(id, post); });
+  return e;
+}
+// The script (real or stand-in) onto the studio on screen, from the top.
+function htScript(id, post) {
+  const sc = SIDE.sc;
+  if (!sc?.studio || sc.gameId !== id || !!sc.post !== !!post) return;
+  const e = HT.get(htKey(id, post)), ev = sc.ev || G?.ev;
+  if (!e || !ev) return;
+  sc.cast = e.cast || HT_CAST;
+  sc.tl = htTimeline(e.state === 'done' ? e.lines : htStandIn(ev, e.state === 'failed', post), post ? HT_POST_TARGET : HT_TARGET);
+  sc.waiting = e.state === 'pending';
+  sc.t0 = SIDE.t;
+}
+function raHalftime(ev, post) {
   const pc = pair(ev.away, ev.home);
   const sc = { actors: [], ball: [], events: [], z0: 50, x0: 0, offHome: true, ltg: null, col: { o: pc.hRaw, d: pc.aRaw }, offT: ev.home, defT: ev.away,
-    tS: 0, timeout: true, halftime: true, noBall: true, homeCol: pc.hRaw };
-  // A stadium-shaped route: two 40-yard straights joined by half circles, four files abreast.
-  const L = 40, r = 9, P = 2 * L + 2 * Math.PI * r, v = 2.2;
-  const fix = (d) => {
-    d = ((d % P) + P) % P;
-    if (d < L) return { x: -r, z: 30 + d, dx: 0, dz: 1 };                      // up the near straight
-    d -= L;
-    if (d < Math.PI * r) { const a = Math.PI - d / r; return { x: r * Math.cos(a), z: 70 + r * Math.sin(a), dx: Math.sin(a), dz: -Math.cos(a) }; }
-    d -= Math.PI * r;
-    if (d < L) return { x: r, z: 70 - d, dx: 0, dz: -1 };                      // back down the far straight
-    d -= L;
-    const a = -d / r;
-    return { x: r * Math.cos(a), z: 30 + r * Math.sin(a), dx: Math.sin(a), dz: -Math.cos(a) };
-  };
-  const rows = 5, files = 4;
-  const lead = 6;                                                     // the drum major walks ahead of the block
-  const member = (row, file) => (t) => {
-    const d = t * v - row * 2.2;
-    const q = fix(d);
-    const nx = q.dz, nz = -q.dx;                                        // across the direction of travel
-    const off = (file - (files - 1) / 2) * 2.1;
-    return [q.x + nx * off, q.z + nz * off];
-  };
-  for (let row = 0; row < rows; row++) for (let file = 0; file < files; file++) sc.actors.push({ side: 'b', role: 'BAND', posFn: member(row, file), k: [[0, 0, 0, 0]] });
-  sc.actors.push({ side: 'b', role: 'DM', posFn: (t) => { const q = fix(t * v + lead); return [q.x, q.z]; }, k: [[0, 0, 0, 0]] });
-  sc.focusFn = (t) => { const q = fix(t * v - 3); return { x: q.x, z: q.z }; };
-  sc.events.push({ t: 0.3, kind: 'banner', title: 'Halftime', sub: `${ev.away.abbr} ${ev.away.score ?? 0} – ${ev.home.score ?? 0} ${ev.home.abbr}`, side: 'o' });
+    tS: 0, timeout: true, halftime: true, studio: true, noBall: true, homeCol: pc.hRaw, cast: HT_CAST, t0: 0, ev, post: !!post };
+  sc.tl = htTimeline(htStandIn(ev, false, post), post ? HT_POST_TARGET : HT_TARGET);
+  sc.waiting = true;
   sc.T = 1e6;
   return sc;
+}
+// Where the show is at time t: the line being said (or null between lines), looping after the break.
+function htAt(sc, t) {
+  const tl = sc.tl;
+  if (!tl) return { line: null, i: -1, u: 0 };
+  let u = t - (sc.t0 || 0);
+  if (!sc.waiting) u = ((u % tl.T) + tl.T) % tl.T;
+  const i = tl.lines.findIndex((l) => u >= l.t0 && u < l.t1);
+  if (i >= 0) return { line: tl.lines[i], i, u };
+  // Waiting on the script: after the host's opener, the analysts "think" in turn.
+  if (sc.waiting && u > (tl.lines.at(-1)?.t1 ?? 0) + 0.6) { const who = 1 + (Math.floor(u / 2.2) % 3); return { line: { who, text: '…', dots: true }, i: 100 + who, u }; }
+  return { line: null, i: -1, u };
+}
+
+// The set, painted once per size: a navy studio with light columns in both teams' colours, a big
+// monitor with the score, the desk with its GFFL front, the floor.
+function htSet(aw, ah, sc) {
+  const ev = sc.ev || G?.ev;
+  const key = `${aw}x${ah}|${sc.col.o}|${sc.col.d}|${ev?.away?.score}|${ev?.home?.score}|${sc.post ? 1 : 0}`;
+  if (sc.htSetKey === key) return sc.htSetCv;
+  const c = document.createElement('canvas'); c.width = aw; c.height = ah;
+  const g = c.getContext('2d');
+  // Back wall: bands of navy, darkening toward the ceiling, with dithered seams.
+  for (let y = 0; y < ah; y++) { const u = y / ah; g.fillStyle = mixHex('#0a1030', '#1e2d66', Math.min(1, u * 1.4)); g.fillRect(0, y, aw, 1); }
+  for (let y = 0; y < ah * 0.7; y += 2) for (let x = (y / 2) % 2; x < aw; x += 2) if ((x * 7 + y * 3) % 11 === 0) { g.fillStyle = 'rgba(255,255,255,0.05)'; g.fillRect(x, y, 1, 1); }
+  // Light columns: away colour on the left, home on the right, each with a glow.
+  const colW = Math.max(6, Math.round(aw * 0.035));
+  for (const [x, col] of [[Math.round(aw * 0.1), sc.col.d], [Math.round(aw * 0.9) - colW, sc.col.o], [Math.round(aw * 0.22), sc.col.d], [Math.round(aw * 0.78) - colW, sc.col.o]]) {
+    g.fillStyle = mixHex(col, '#0a1030', 0.55); g.fillRect(x - 2, 0, colW + 4, ah * 0.64);
+    g.fillStyle = col; g.fillRect(x, 0, colW, ah * 0.64);
+    g.fillStyle = mixHex(col, '#ffffff', 0.35); g.fillRect(x + 1, 0, 1, ah * 0.64);
+  }
+  // Ceiling rig: a truss and a row of lamps.
+  g.fillStyle = '#05070f'; g.fillRect(0, 0, aw, 5);
+  for (let x = 4; x < aw; x += 14) { g.fillStyle = '#2a3140'; g.fillRect(x, 5, 6, 3); g.fillStyle = '#ffe9a8'; g.fillRect(x + 1, 8, 4, 1); }
+  // The monitor: HALFTIME over the score, both teams' colours.
+  const mw = Math.min(Math.round(aw * 0.44), 150), mh = Math.round(ah * 0.3), mx = Math.round((aw - mw) / 2), my = Math.round(ah * 0.09);
+  g.fillStyle = '#05070f'; g.fillRect(mx - 3, my - 3, mw + 6, mh + 6);
+  g.fillStyle = '#39414f'; g.fillRect(mx - 2, my - 2, mw + 4, mh + 4);
+  g.fillStyle = '#0d1a3f'; g.fillRect(mx, my, mw, mh);
+  for (let y = my; y < my + mh; y += 2) { g.fillStyle = 'rgba(255,255,255,0.035)'; g.fillRect(mx, y, mw, 1); }
+  const title = sc.post ? 'FINAL' : 'HALFTIME', tk = mw >= 110 ? 2 : 1;
+  bigText(g, title, Math.round(mx + (mw - bigW(title, tk)) / 2), my + 4, '#ffd21f', tk);
+  if (ev) {
+    const rowY = my + 4 + 8 * tk + 4, half = Math.floor(mw / 2) - 4;
+    for (const [i, t, col] of [[0, ev.away, sc.col.d], [1, ev.home, sc.col.o]]) {
+      const x0 = mx + 3 + i * (half + 2);
+      g.fillStyle = col; g.fillRect(x0, rowY, half, Math.max(9, mh - (rowY - my) - 4));
+      const lab = `${t.abbr} ${t.score ?? 0}`, k = bigW(lab, 1) <= half - 4 ? 1 : 0;
+      if (k) bigText(g, lab, x0 + Math.round((half - bigW(lab, 1)) / 2), rowY + Math.round((Math.max(9, mh - (rowY - my) - 4) - 7) / 2), onColor(col), 1);
+      else pixText(g, lab, x0 + 2, rowY + 2, onColor(col), 1);
+    }
+  }
+  // Floor: a glossy stage under the desk.
+  const fy = Math.round(ah * 0.8);
+  g.fillStyle = '#0b0f1c'; g.fillRect(0, fy, aw, ah - fy);
+  for (let x = 0; x < aw; x += 8) { g.fillStyle = 'rgba(120,150,255,0.07)'; g.fillRect(x, fy, 1, ah - fy); }
+  sc.htSetKey = key; sc.htSetCv = c;
+  return c;
+}
+// The desk top's height: lower on a squarer stage (a phone's, made 4:3 for the desk) so a long line's
+// bubble fits over the heads.
+const htDeskY = (aw, ah) => Math.round(ah * (aw / ah < 1.5 ? 0.66 : 0.6));
+// The desk (drawn over the people's laps): a long glossy top, the red GFFL rule, the front panel.
+function htDesk(g, aw, ah) {
+  const dw = Math.min(Math.round(aw * 0.88), 264), dx = Math.round((aw - dw) / 2), dy = htDeskY(aw, ah), dh = Math.round(ah * (aw / ah < 1.5 ? 0.2 : 0.22));
+  g.fillStyle = '#05070f'; g.fillRect(dx - 1, dy - 1, dw + 2, dh + 2);
+  g.fillStyle = '#c9ccd6'; g.fillRect(dx, dy, dw, 4);                                 // the top
+  g.fillStyle = '#eef0f6'; g.fillRect(dx, dy, dw, 1);
+  g.fillStyle = '#d50a0a'; g.fillRect(dx, dy + 4, dw, 2);                             // GFFL red
+  g.fillStyle = '#18224a'; g.fillRect(dx, dy + 6, dw, dh - 6);                         // the front
+  g.fillStyle = '#223066'; g.fillRect(dx, dy + 6, dw, 1);
+  for (let x = dx + 12; x < dx + dw - 8; x += 24) { g.fillStyle = 'rgba(255,255,255,0.05)'; g.fillRect(x, dy + 8, 1, dh - 10); }
+  const w1 = 'GFFL', k = dh >= 26 ? 2 : 1;
+  bigText(g, w1, Math.round(aw / 2 - bigW(w1, k) / 2), dy + 6 + Math.round((dh - 6 - 7 * k) / 2), '#ffffff', k);
+  return { dx, dy, dw };
+}
+// One analyst, waist up behind the desk. `talk`: this one is speaking (mouth moving, a gesture);
+// `look`: -1 / 0 / 1, where the eyes point (at whoever is talking).
+function htPerson(g, cx, dy, L, t, i, talk, look) {
+  const bob = talk && Math.floor(t * 6) % 2 ? -1 : 0;
+  const w = L.w, top = dy - 24 + bob, x0 = cx - Math.floor(w / 2);
+  const dark = mixHex(L.suit, '#000000', 0.35), lite = mixHex(L.suit, '#ffffff', 0.18);
+  // Jacket: square shoulders with the corners taken off, a shaded right side, lapels.
+  g.fillStyle = L.suit; g.fillRect(x0, top + 2, w, dy - top);
+  g.fillRect(x0 + 2, top, w - 4, 2);
+  g.fillStyle = lite; g.fillRect(x0 + 2, top, w - 6, 1);
+  g.fillStyle = dark; g.fillRect(x0 + w - 3, top + 2, 3, dy - top);
+  g.fillStyle = L.shirt; for (let r = 0; r < 9; r++) g.fillRect(cx - 4 + Math.floor(r / 2), top + r, 9 - Math.floor(r / 2) * 2, 1);
+  if (L.tie) { g.fillStyle = L.tie; g.fillRect(cx - 1, top + 1, 3, 2); g.fillRect(cx, top + 3, 1, 1); g.fillRect(cx - 1, top + 4, 3, 7); g.fillStyle = mixHex(L.tie, '#000000', 0.3); g.fillRect(cx + 1, top + 4, 1, 7); }
+  else { g.fillStyle = '#e6c15a'; g.fillRect(cx - 2, top + 3, 1, 1); g.fillRect(cx + 2, top + 3, 1, 1); g.fillRect(cx - 1, top + 4, 3, 1); }   // a necklace
+  g.fillStyle = dark; for (let r = 0; r < 8; r++) { g.fillRect(cx - 5 + Math.floor(r / 2), top + r, 1, 1); g.fillRect(cx + 5 - Math.floor(r / 2), top + r, 1, 1); }
+  // Arms on the desk; the speaker lifts a hand now and then to make the point.
+  const gest = talk && Math.floor(t / 1.7 + i) % 3 === 0;
+  g.fillStyle = dark; g.fillRect(x0 - 2, top + 5, 3, dy - top - 5); g.fillRect(x0 + w - 1, top + 5, 3, dy - top - 5);
+  g.fillStyle = L.skin;
+  g.fillRect(x0 - 1, dy - 1, 4, 3);
+  if (gest) { g.fillStyle = dark; g.fillRect(x0 + w, top + 3, 3, 8); g.fillStyle = L.skin; g.fillRect(x0 + w, top, 4, 4); g.fillStyle = mixHex(L.skin, '#000000', 0.25); g.fillRect(x0 + w, top + 3, 4, 1); }
+  else g.fillRect(x0 + w - 3, dy - 1, 4, 3);
+  // Neck and head.
+  const hw = L.w >= 30 ? 12 : 11, hh = 12, hx = cx - Math.floor(hw / 2), hy = top - hh - 2;
+  g.fillStyle = mixHex(L.skin, '#000000', 0.2); g.fillRect(cx - 2, top - 3, 5, 3);
+  g.fillStyle = L.skin; g.fillRect(hx, hy + 1, hw, hh - 1); g.fillRect(hx + 1, hy, hw - 2, 1);
+  g.fillStyle = mixHex(L.skin, '#000000', 0.18); g.fillRect(hx + hw - 1, hy + 2, 1, hh - 3); g.fillRect(hx + 1, hy + hh - 1, hw - 2, 1);
+  g.fillStyle = L.skin; g.fillRect(hx - 1, hy + 5, 1, 3); g.fillRect(hx + hw, hy + 5, 1, 3);        // ears
+  if (L.earrings) { g.fillStyle = '#e6c15a'; g.fillRect(hx - 1, hy + 8, 1, 1); g.fillRect(hx + hw, hy + 8, 1, 1); }
+  // Hair.
+  g.fillStyle = L.hair;
+  if (L.style === 'crop') { g.fillRect(hx, hy, hw, 2); g.fillRect(hx, hy + 2, 1, 2); g.fillRect(hx + hw - 1, hy + 2, 1, 2); }
+  else if (L.style === 'long') { g.fillRect(hx - 1, hy - 1, hw + 2, 3); g.fillRect(hx - 2, hy + 1, 2, hh + 3); g.fillRect(hx + hw, hy + 1, 2, hh + 3); g.fillRect(hx, hy + 2, 3, 1); }
+  else if (L.style === 'swept') { g.fillRect(hx, hy - 1, hw, 3); g.fillRect(hx, hy + 2, 2, 3); g.fillRect(hx + hw - 1, hy + 2, 1, 3); g.fillStyle = mixHex(L.hair, '#ffffff', 0.4); g.fillRect(hx + 2, hy - 1, 5, 1); }
+  else { g.fillRect(hx, hy - 1, hw, 3); g.fillRect(hx, hy + 2, 1, 3); g.fillRect(hx + hw - 1, hy + 2, 1, 2); g.fillStyle = mixHex(L.hair, '#000000', 0.4); g.fillRect(hx + 3, hy, 1, 2); }
+  if (L.beard) { g.fillStyle = L.hair; g.fillRect(hx, hy + 8, 1, 3); g.fillRect(hx + hw - 1, hy + 8, 1, 3); g.fillRect(hx + 1, hy + 10, hw - 2, 2); }
+  // Eyes (they blink every few seconds, each at their own time) and brows.
+  const blink = ((t + i * 1.3) % 4.1) < 0.13;
+  const ex = hx + 3 + (look > 0 ? 1 : 0) - (look < 0 ? 1 : 0), ey = hy + 5;
+  g.fillStyle = mixHex(L.hair, '#000000', 0.2); g.fillRect(hx + 2, ey - 2, 3, 1); g.fillRect(hx + hw - 5, ey - 2, 3, 1);
+  if (blink) { g.fillStyle = mixHex(L.skin, '#000000', 0.3); g.fillRect(hx + 2, ey, 3, 1); g.fillRect(hx + hw - 5, ey, 3, 1); }
+  else { g.fillStyle = '#ffffff'; g.fillRect(hx + 2, ey, 3, 2); g.fillRect(hx + hw - 5, ey, 3, 2); g.fillStyle = '#141414'; g.fillRect(ex, ey, 1, 2); g.fillRect(ex + hw - 7, ey, 1, 2); }
+  g.fillStyle = mixHex(L.skin, '#000000', 0.25); g.fillRect(cx, hy + 7, 1, 1);          // nose
+  // Mouth: open and shut while talking.
+  const open = talk && Math.floor(t * 8 + i) % 3 !== 0;
+  const my = hy + 9 + (L.beard ? -0 : 0);
+  if (open) { g.fillStyle = '#3a0d0d'; g.fillRect(cx - 2, my, 5, 2); g.fillStyle = '#b8484a'; g.fillRect(cx - 1, my + 1, 3, 1); }
+  else { g.fillStyle = mixHex(L.skin, '#000000', 0.45); g.fillRect(cx - 2, my, 5, 1); }
+  return { headX: cx, headTop: hy - 2 };
+}
+function raStudioDraw(g, W, st) {
+  const sc = st.sc, H = g.canvas.height;
+  const s = Math.max(1, Math.round(H / 150)), aw = Math.ceil(W / s), ah = Math.ceil(H / s);
+  if (!st.htCv || st.htCv.width !== aw || st.htCv.height !== ah) { st.htCv = document.createElement('canvas'); st.htCv.width = aw; st.htCv.height = ah; }
+  const o = st.htCv.getContext('2d');
+  o.imageSmoothingEnabled = false;
+  o.drawImage(htSet(aw, ah, sc), 0, 0);
+  const now = htAt(sc, st.t);
+  const dw = Math.min(Math.round(aw * 0.88), 264), dx = Math.round((aw - dw) / 2), dy = htDeskY(aw, ah);
+  const heads = [];
+  for (let i = 0; i < 4; i++) {
+    const cx = Math.round(dx + dw * (i + 0.5) / 4);
+    const who = now.line?.who;
+    const look = who == null || who === i ? 0 : who > i ? 1 : -1;
+    heads.push(htPerson(o, cx, dy, HT_LOOK[i], st.t, i, who === i && !now.line?.dots, look));
+  }
+  htDesk(o, aw, ah);
+  // Papers and mugs on the desk top.
+  for (let i = 0; i < 4; i++) { const cx = Math.round(dx + dw * (i + 0.5) / 4); o.fillStyle = '#f4f4f0'; o.fillRect(cx - 7, dy + 1, 6, 2); o.fillStyle = i % 2 ? '#d50a0a' : '#ffd21f'; o.fillRect(cx + 8, dy - 3, 3, 4); }
+  g.imageSmoothingEnabled = false;
+  g.drawImage(st.htCv, 0, 0, aw * s, ah * s);
+  const ruler = st.ruler; st.ruler = false;
+  try { raBugDraw(g, W, H, st); } catch (err) { /* the bug never stops the show */ }
+  st.ruler = ruler;
+  htBubble(st, now, heads, s, W, H);
+}
+// The chat bubble: HTML over the canvas (a pixel font that wraps), pinned over the speaker's head.
+function htBubble(st, now, heads, s, W, H) {
+  const stage = st.cv?.parentElement;
+  if (!stage) return;
+  let b = stage.querySelector('.ht-bub');
+  if (!b) { b = document.createElement('div'); b.className = 'ht-bub'; b.innerHTML = '<b></b><span></span>'; stage.appendChild(b); }
+  const line = now.line;
+  const cw = st.cv.clientWidth || W, ch = st.cv.clientHeight || H, fx = cw / W, fy = ch / H;
+  st.htHeads = heads.map((h) => ({ x: h.headX * s * fx, top: h.headTop * s * fy }));   // on-screen, for the bubble (and the suite)
+  if (!line) { if (b.classList.contains('on')) b.classList.remove('on'); st.htKey = null; return; }
+  st.htOn = true;
+  const key = `${now.i}|${cw}|${ch}`;
+  if (st.htKey === key) return;
+  st.htKey = key;
+  const cast = st.sc.cast || HT_CAST;
+  b.querySelector('b').textContent = cast[line.who] || '';
+  b.querySelector('b').style.color = mixHex(HT_LOOK[line.who].suit, '#000000', 0.1);
+  b.querySelector('span').textContent = line.text;
+  b.classList.toggle('dots', !!line.dots);
+  b.style.fontSize = `${clamp(Math.round(cw / 64), 8, 11)}px`;
+  b.style.maxWidth = `${Math.round(cw * (cw < 600 ? 0.94 : 0.46))}px`;   // a phone: nearly full width, so a long line takes fewer rows
+  b.style.left = '0px'; b.style.top = '0px';
+  const hx = st.htHeads[line.who].x, hy = st.htHeads[line.who].top;
+  const bw = b.offsetWidth, bh = b.offsetHeight;
+  const x = clamp(hx - bw / 2, 4, cw - bw - 4), y = Math.max(4, hy - bh - 8);
+  b.style.left = `${Math.round(x)}px`; b.style.top = `${Math.round(y)}px`;
+  b.style.setProperty('--tx', `${Math.round(clamp(hx - x, 10, bw - 10))}px`);
+  b.classList.add('on');
 }
 
 /* ═════════════ Drawing ═════════════ */
@@ -1625,6 +1871,19 @@ function bigText(g, s, x, y, col, k = 1) {
   }
 }
 const bigW = (s, k = 1) => String(s).length * 6 * k - k;
+// End-zone lettering: the team's letter colour inside its outline colour (one glyph pixel wide), with
+// a hard drop shadow, on its own canvas so it can be turned.
+function raOutlined(s, k, col, edge) {
+  const o = edge ? Math.max(1, Math.round(k / 3)) : 0;                 // a third of a glyph pixel: thick enough to read, thin enough to keep the counters open
+  const c = document.createElement('canvas');
+  c.width = bigW(s, k) + 2 * o + k; c.height = 7 * k + 2 * o + k;
+  const g = c.getContext('2d');
+  const sh = onColor(col) === '#ffffff' ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.5)';
+  if (edge) { for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]) bigText(g, s, o + dx * o + k, o + dy * o + k, 'rgba(0,0,0,0.45)', k); for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]) bigText(g, s, o + dx * o, o + dy * o, edge, k); }
+  else bigText(g, s, k, k, sh, k);
+  bigText(g, s, o, o, col, k);
+  return c;
+}
 // Text with a hard drop shadow, drawn on its own canvas so it can be turned 90° or 180°.
 function bigLabel(s, k, col, shadow) {
   const c = document.createElement('canvas');
@@ -1788,7 +2047,7 @@ function raFig(pose, variant = 'p') {
   return f;
 }
 
-// Cheerleaders and the band: drawn as 12-pixel maps and doubled.
+// Cheerleaders: drawn as 12-pixel maps and doubled.
 const RA_MAPS = {
   ch1: ['...RRRR.....', '..RRRRRR....', '..RFFFFR....', '..RFFFFR....', '...FFFF.....', '..JJJJJJ....', '.YJJJJJJY...', 'YYJJJJJJYY..', '.Y.JJJJ..Y..', '..KKKKKK....', '.KKKKKKKK...',
     '...FF.FF....', '...FF.FF....', '...FF.FF....', '...FF.FF....', '...WW.WW....'],
@@ -1796,10 +2055,6 @@ const RA_MAPS = {
     '...FF.FF....', '...FF.FF....', '...FF.FF....', '...FF.FF....', '...WW.WW....'],
   ch3: ['YY.......YY.', 'YY.RRRR..YY.', '.FRRRRRR.F..', '.FRFFFFR.F..', '..RFFFFRF...', '...FFFF.....', '..JJJJJJ....', '..JJJJJJ....', '...JJJJ.....', '..KKKKKKFFFW', '.KKKKKKKK...',
     '...FF.......', '...FF.......', '...FF.......', '...FF.......', '...WW.......'],
-  band1: ['....PP......', '...HHHH.....', '...HHHH.....', '...HHHH.....', '...FFFF.....', '...FFFF.GG..', '..JJJJJJGGG.', '.JJWJJWJJG..', '.JJJWWJJJ...', '.FJJJJJJ....', '..JJJJJJ....',
-    '..KKKKKK....', '..KK..KK....', '..KK..KK....', '..KK..KK....', '..BB..BB....'],
-  band2: ['....PP......', '...HHHH.....', '...HHHH.....', '...HHHH.....', '...FFFF.....', '...FFFF.GG..', '..JJJJJJGGG.', '.JJWJJWJJG..', '.JJJWWJJJ...', '.FJJJJJJ....', '..JJJJJJ....',
-    '..KKKKKK....', '.KKK..KKK...', '.KK....KK...', 'KK......KK..', 'BB......BB..'],
 };
 const RA_SPR = new Map();
 const RA_RULER = new Map();
@@ -1987,21 +2242,36 @@ function raFieldArt(sc) {
   }
   g.fillStyle = 'rgba(255,255,255,0.55)';                                                  // the coaching-box lines
   for (let x = raSX(110); x < raSX(-10); x += 6 * K) { g.fillRect(x, f1 + 6 * K, 3 * K, K); g.fillRect(x, f0 - 7 * K, 3 * K, K); }
-  // End zones: team colour, a stripe texture and the team's name running along them.
-  const zone = (Ha, Hb, col, t, rot) => {
+  // End zones: both in the home team's own paint (2026-09-28, user: "the endzones should always
+  // reflect the home team, not be different on either side"; they used to be one team's each), from
+  // the researched table (EZ, sd-app.js): the fill, a hatch where the team paints stripes, the words
+  // (often the nickname at one end and the city at the other) in the team's lettering colour with its
+  // outline, and the logo either side of the word where the team paints one.
+  const Z = typeof ezStyle === 'function' ? ezStyle(homeT) : { fill: homeCol, words: [homeT.abbr, homeT.abbr], ink: onColor(homeCol), edge: null };
+  const zone = (Ha, Hb, word, rot) => {
     const x0 = raSX(Hb), w = raSX(Ha) - x0;
-    g.fillStyle = col; g.fillRect(x0, f0, w, RA_FIELD_H);
-    g.fillStyle = mixHex(col, '#000000', 0.16);
-    for (let y = f0; y < f1; y += 6 * K) g.fillRect(x0, y, w, 2 * K);
-    let word = (t.name || t.abbr || '').toUpperCase().replace(/[^A-Z& ]/g, '');
-    if (word.length > 11) word = (t.abbr || '').toUpperCase();
-    const ink = onColor(col) === '#ffffff' ? '#ffffff' : '#141414';
-    const lab = bigLabel(word, 3 * K, ink, ink === '#ffffff' ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.45)');
+    g.fillStyle = Z.fill; g.fillRect(x0, f0, w, RA_FIELD_H);
+    if (Z.pattern) {                                                                      // a diagonal hatch
+      g.fillStyle = Z.pattern;
+      for (let y = f0; y < f1; y += K) for (let x = x0; x < x0 + w; x += K) if (((x - x0 + y - f0) / K) % (12) < 3) g.fillRect(x, y, K, K);
+    } else {                                                                              // the turf's grain through the paint
+      g.fillStyle = mixHex(Z.fill, '#000000', 0.12);
+      for (let y = f0; y < f1; y += 6 * K) g.fillRect(x0, y, w, K);
+    }
+    word = String(word || '').toUpperCase().replace(/[^A-Z0-9& ]/g, '');
+    const k = Math.max(K, Math.min(3 * K, Math.floor((RA_FIELD_H * 0.84) / (word.length * 6))));
+    const lab = raOutlined(word, k, Z.ink, Z.edge);
+    const logoOk = Z.logo && logo && lab.width + 2 * (w * 0.62 + 6 * K) < RA_FIELD_H * 0.94;
     g.save(); g.translate(x0 + w / 2, f0 + RA_FIELD_H / 2); g.rotate(rot);
-    g.drawImage(lab, -Math.floor(lab.width / 2), -Math.floor(lab.height / 2)); g.restore();
+    g.drawImage(lab, -Math.floor(lab.width / 2), -Math.floor(lab.height / 2));
+    if (logoOk) {
+      const n = Math.round(w * 0.62);
+      for (const d of [-1, 1]) g.drawImage(logo, Math.round(d * (lab.width / 2 + 4 * K + n / 2) - n / 2), -Math.round(n / 2), n, n);
+    }
+    g.restore();
   };
-  zone(-10, 0, homeCol, homeT, Math.PI / 2);
-  zone(100, 110, awayCol, awayT, -Math.PI / 2);
+  zone(-10, 0, Z.words[0], Math.PI / 2);                    // the right-hand end zone (the home team's own, H −10 to 0)
+  zone(100, 110, Z.words[1], -Math.PI / 2);
   // The home team's logo at midfield: 13 yards across, foreshortened like the rest of the turf.
   if (logo) {
     const n = 40 * K, lo = document.createElement('canvas'); lo.width = n; lo.height = n;
@@ -2135,13 +2405,6 @@ function raNumber(role, seed) {
   return pickIn({ QB: [[1, 19]], K: [[1, 19]], RB: [[20, 39]], FB: [[40, 49]], WR: [[10, 19], [80, 88]], TE: [[80, 89]], OL: [[60, 79]], DL: [[90, 99], [50, 59]], LB: [[40, 58]], DB: [[20, 39]], BENCH: [[2, 99]] }[role] || [[10, 99]]);
 }
 function raPalette(sc, a) {
-  if (!a.pal && a.side === 'b') {
-    const J = sc.homeCol, home = sc.offT;
-    const other = J.toLowerCase() === home.color.toLowerCase() ? home.alt : home.color;
-    const dm = a.role === 'DM';
-    a.pal = { P: dm ? other : '#ffffff', H: dm ? '#ffffff' : J, F: RA_SKIN[sc.actors.indexOf(a) % RA_SKIN.length], J: dm ? '#ffffff' : J, W: dm ? J : '#ffffff', G: dm ? '#ffffff' : '#e8c547', K: dm ? J : '#f2f2f2', B: '#141414' };
-    a.phase = 0;
-  }
   if (!a.pal && a.side === 'm') {
     // Trainers: light grey shirt with a red cross, dark navy trousers, no helmet.
     const F = RA_SKIN[(a.idx ?? 0) % RA_SKIN.length], hair = ['#2a1a10', '#4a3020', '#161616', '#6b5130'][(a.idx ?? 0) % 4];
@@ -2328,7 +2591,6 @@ function raDraw(g, W, st) {
         flip = Math.floor((t - a.danceAt) * 2) % 2 === 1;
         lift = ph % 4 === 1 ? 3 * K : 0;
       }
-      if (a.side === 'b') { pose = Math.floor(t * 2.2) % 2 ? 'band1' : 'band2'; lift = 0; }   // everyone in step
       if (sc.huddle && t > sc.arrived && !down) lift = (Math.floor(t * 2.4 + a.phase * 3) % 2) * K;   // bouncing on their toes
       else if (!down && speed < 0.3 && (a.side === 'o' || a.side === 'd') && t > (sc.tEnd ?? sc.T) + 0.6 && !a.danceAt && !a.jumpAt) lift = Math.floor(t * 1.3 + a.phase * 5) % 3 === 0 ? K : 0;
       if (a.side === 'r') { pose = speed > 0.8 ? RA_RUN[Math.floor(t * (speed < 3.5 ? 5 : 9)) % 4] : 'stand'; lift = 0; }
@@ -2527,7 +2789,7 @@ function raBugImage(L) {
   return c;
 }
 function raBugDraw(g, W, H, st) {
-  const sc = st.sc, ev = G?.ev;
+  const sc = st.sc, ev = (sc?.studio && sc.ev) || G?.ev;
   if (!sc || !ev?.home?.abbr || !ev?.away?.abbr) return;
   const play = sc.play && sc.play.kind !== 'set' ? sc.play : null;
   if (play && !sc.bugP) { sc.bugP = raBugPlay(play); sc.bugAt = sideResultAt(sc); }
@@ -2721,6 +2983,8 @@ function raStep(st, dt) {
   st.t = st.loop ? st.t + dt : Math.min(sc.T, st.t + dt);     // the live views keep their clock running
   const cv = st.cv;
   const W = cv.width;
+  if (sc.studio) { raStudioDraw(cv.getContext('2d'), W, st); return; }   // halftime: the desk, no field or camera
+  if (st.htOn) { st.htOn = false; st.htKey = null; cv.parentElement?.querySelector('.ht-bub')?.classList.remove('on'); }
   const Hb = (z) => (sc.offHome ? z : 100 - z);
   const Yb = (x) => RA_TOP + (RAX + x * (sc.offHome ? -1 : 1)) * PY;
   const b = raBall(sc, st.t), b0 = raBall(sc, Math.max(0, st.t - 0.2));
@@ -2811,7 +3075,10 @@ const sideEl = () => document.getElementById('side-live');
 // The big 8-bit view swaps in for the tilted field when the viewer picks it (remembered).
 const bigTecmo = () => store.get('tecmoBig', false);
 function sideTarget() {
-  return bigTecmo() ? { cv: $('#bt-cv'), banner: $('#bt-banner'), h: 'auto' } : { cv: $('#sl-cv'), banner: $('#sl-banner'), h: 128 * RA_K };
+  // (The sidebar card's fixed-height canvas grows by the 1.2 the halftime desk's 4:3 frame takes from
+  // its width, so it stays wide enough for the score bug at its smallest.)
+  const cv = $('#sl-cv'), tall = cv?.parentElement?.classList.contains('studio-tall');
+  return bigTecmo() ? { cv: $('#bt-cv'), banner: $('#bt-banner'), h: 'auto' } : { cv, banner: $('#sl-banner'), h: Math.round(128 * RA_K * (tall ? 1.2 : 1)) };
 }
 function sideLiveOn() {
   const t = sideTarget();
@@ -2838,10 +3105,15 @@ function sideUpdate() {
   if ((SIDE.rp || SIDE.rpMenu) && !(ok && big && (SIDE.rp?.cv || SIDE.rpMenu) === tgt.cv)) { SIDE.rp = null; SIDE.rpMenu = null; tecmoRpBar(); }
   if (!ok) { sideStop(); if (G?.gate && typeof gateOpen === 'function') gateOpen(); return; }
   raDetailLoad();
+  // The halftime desk starts over on every visit to the game (a game view opened afresh is a new G):
+  // "if you revisit the page while its half time it just replays the same dialogue".
+  if (SIDE.gRef !== G) { if (SIDE.sc?.studio) { sideStop(); SIDE.sc = null; } SIDE.gRef = G; }
   if (SIDE.gameId !== G.id) { sideStop(); Object.assign(SIDE, { gameId: G.id, playId: null, setKey: '', timeoutId: null, sc: null, cv: tgt.cv, rp: null, rpMenu: null }); }
   if (SIDE.cv !== tgt.cv) { SIDE.cv = tgt.cv; SIDE.banner = tgt.banner; SIDE.cam = null; if (SIDE.sc) { raSizeCanvas(SIDE.cv, tgt.h); cancelAnimationFrame(SIDE.raf); sideResume(); } }
   if (SIDE.rp) return;                                    // the replay runs its own sequence
-  if (isHalftime(G.ev)) { if (!SIDE.sc?.halftime && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout)) sideHalftime(); return; }
+  if (isHalftime(G.ev) || htDemo()) { if (!SIDE.sc?.halftime && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout || htDemo())) sideHalftime(); return; }
+  // A final: the postgame desk (a game that ends while you watch finishes its last play first).
+  if (G.ev.state === 'post') { if (!SIDE.sc?.post && (!SIDE.running || SIDE.sc?.huddle || SIDE.sc?.timeout || SIDE.sc?.studio)) sideHalftime(true); return; }
   const latest = sideNext();
   if (!latest) return;
   // A timeout called since the last snap: clear the field and bring out the cheerleaders.
@@ -2979,17 +3251,20 @@ function sideCheer(p) {
   sideText('tx', 'Kickoff next');
   sideRun(sc);
 }
-function sideHalftime() {
-  const ev = G.ev;
+// The desk: halftime, or with `post` the postgame show on a final.
+function sideHalftime(post) {
+  const ev = !post && htDemo() ? htDemoEv() : G.ev;
   sideStop();
   let sc = null;
-  try { sc = raHalftime(ev); } catch (err) { console.error(err); return; }
+  try { sc = raHalftime(ev, post); } catch (err) { console.error(err); return; }
   sc.gameId = G.id;
   SIDE.playId = SIDE.playId || null;
-  sideText('tag', 'Halftime');
+  sideText('tag', post ? 'Final' : 'Halftime');
   sideText('meta', `${ev.away.abbr} ${ev.away.score ?? 0} – ${ev.home.score ?? 0} ${ev.home.abbr}`);
-  sideText('tx', `The ${ev.home.name} band takes the field`);
+  sideText('tx', post ? 'The GFFL postgame desk' : 'The GFFL halftime desk');
   sideRun(sc);
+  htLoad(G.ev, post);
+  htScript(G.id, post);                             // a script already here (a revisit) plays from its first line
 }
 function sideSet() {
   const ev = G?.ev, s = ev?.sit;
@@ -3029,8 +3304,13 @@ function sideRun(sc, onEnd) {
   cancelAnimationFrame(SIDE.raf);
   const tgt = sideTarget();
   Object.assign(SIDE, { sc, t: 0, cam: null, shown: new Set(), running: true, ruler: true, cv: tgt.cv, banner: tgt.banner });
+  // The halftime desk on a narrow stage takes a 4:3 frame (a 16:10 phone stage leaves a long line's
+  // bubble no room above the heads); set before the canvas is sized to it.
+  const stg = SIDE.cv?.parentElement;
+  if (stg) stg.classList.toggle('studio-tall', !!sc.studio && stg.clientWidth < 600);
+
   if (SIDE.banner) { SIDE.banner.classList.remove('on'); SIDE.banner.innerHTML = ''; }
-  raSizeCanvas(SIDE.cv, tgt.h);                      // the small card gets a closer camera
+  raSizeCanvas(SIDE.cv, sideTarget().h);             // the small card gets a closer camera
   SIDE.onEnd = onEnd;
   sideResume();
 }

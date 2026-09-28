@@ -255,9 +255,21 @@ function ffRefresh() {
 if (FFUI.ok) {
   FF.onChange((w) => {
     if (!w || ['summary', 'plays', 'myTeam', 'proj'].includes(w.type)) ffRefresh();
+    if (!w || ['teams', 'myTeam'].includes(w.type)) ffHeaderAvatar();
   });
   FFUI.pollTimer = setInterval(() => ffPollBoxes(false), 15000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) ffPollBoxes(false); });
+}
+
+// GFFL's header avatar (desktop): your team's crest, as league.html's header wears it, linking to
+// My Team. Hidden until the league says which team is yours.
+function ffHeaderAvatar() {
+  const a = $('#gh-av');
+  if (!a) return;
+  const t = FF.myTeamId != null && ffTeam(FF.myTeamId);
+  a.hidden = !t;
+  a.innerHTML = t ? ffCrest(FF.myTeamId, 32) : '';
+  a.setAttribute('aria-label', t ? `My team: ${t.name}` : 'My team');
 }
 
 /* ───────────── hooks called by sd-app.js ───────────── */

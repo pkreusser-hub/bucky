@@ -1,0 +1,125 @@
+{
+"ok": true,
+"event": "401872948",
+"cast": [
+"Hal Brandt",
+"Chuck Varney",
+"Moose Tillman",
+"Dot Keene"
+],
+"lines": [
+{
+"who": 0,
+"text": "Final from Green Bay: Falcons 35, Packers 14. Atlanta flew off with the cheese. Chuck?"
+},
+{
+"who": 1,
+"text": "Atlanta plowed that field row by row, Hal. Bijan Robinson ran like a mule smelling supper."
+},
+{
+"who": 2,
+"text": "Plowed? They ran Green Bay over! That's grown-man football up front, Chuck."
+},
+{
+"who": 3,
+"text": "Robinson had 29 carries, 194 yards, two touchdowns. Atlanta rushed for 242. Green Bay, 17."
+},
+{
+"who": 1,
+"text": "Seventeen yards. You can't ask Jordan Love to throw 53 times and win."
+},
+{
+"who": 2,
+"text": "He threw 53 times and lost by three scores! Quit protecting him."
+},
+{
+"who": 0,
+"text": "Easy, fellas, no ruffled feathers. Dot, the turning point?"
+},
+{
+"who": 3,
+"text": "Late second quarter. Z. Harrison blocked a Packers field goal, then Austin Hooper caught a touchdown. Seventeen to seven."
+},
+{
+"who": 2,
+"text": "That block was my favorite! Harrison got a paw on it!"
+},
+{
+"who": 1,
+"text": "Mine was Michael Penix Jr. hitting Drake London deep for 68. Found him like a horse finds the barn."
+},
+{
+"who": 3,
+"text": "London finished with nine catches for 194 yards, matching Robinson's rushing total."
+},
+{
+"who": 2,
+"text": "Leave it to Dot to find matching socks in a blowout."
+},
+{
+"who": 3,
+"text": "My pick: the 92-yard, 6:18 third-quarter drive, finished by Brian Robinson Jr."
+},
+{
+"who": 1,
+"text": "Right after Green Bay got stopped on downs. That's when the gate swung shut."
+},
+{
+"who": 0,
+"text": "Moose, surely the defense gave you something else."
+},
+{
+"who": 2,
+"text": "Cameron Thomas got a sack, and X. Watts picked Love late. Lights out!"
+},
+{
+"who": 1,
+"text": "Hold on. Love still threw for 312 and two scores. The boy kept swinging."
+},
+{
+"who": 3,
+"text": "Green Bay held the ball 22:55. Atlanta, 37:05. Hard to swing from the bench, Chuck."
+},
+{
+"who": 0,
+"text": "Player of the game, Dot. Make it official."
+},
+{
+"who": 3,
+"text": "Bijan Robinson. His 55-yard run set up his first touchdown. His fantasy managers are grinning."
+},
+{
+"who": 2,
+"text": "He ran through them like they owed him lunch money!"
+},
+{
+"who": 3,
+"text": "Fantasy fallout: London and Penix delivered. Love gave 312 and two scores, minus a pick. MarShawn Lloyd? Eleven yards."
+},
+{
+"who": 1,
+"text": "Don't sleep on Matthew Golden: five catches, 100 yards, a touchdown."
+},
+{
+"who": 0,
+"text": "The verdict, then: Atlanta ran, Green Bay couldn't. Chuck, last word?"
+},
+{
+"who": 1,
+"text": "Back in my day, you won running the ball. Atlanta did it the old way."
+},
+{
+"who": 2,
+"text": "Your day? Chuck, your helmet was a leather cereal bowl!"
+},
+{
+"who": 3,
+"text": "For the record, Chuck's stories and Moose's jokes are both older than that helmet."
+},
+{
+"who": 0,
+"text": "On that note, we'll pack it up, unlike Green Bay's run game. Goodnight from the GFFL."
+}
+],
+"model": "claude-opus-5-5"
+}
