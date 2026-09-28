@@ -855,3 +855,26 @@ VERIFY: sunday 247/248 (RESTAGED the two stand-in checks to the card, with the r
 new: a retry's script plays from its top, with earlier checks' timers cleared first so only the retry
 can fetch; the one failure is the webfont ink check that fails the same way on HEAD in this
 container). Bite: the live sd-reenact.js fails all 3.
+
+## 2026-09-28 — live plays reach the 8-bit view sooner
+
+Perry: "is there anything we can do to decrease the time from when a play happens in real life to the
+time it is animated in GFFL?" … "lets just try the 2 changes for tonight and see how it feels".
+Measured first: ESPN caches the per-game scoreboard feed (the one the 8-bit view animates from) for
+1 s (`max-age=1`); summary 5 s, core API 8-10 s, cdn.espn.com 94 s, so the source was already the
+freshest. ESPN's own entry lag can't be read after the fact (a play's `modified` is rewritten after the
+game), and isn't ours to change.
+
+- **Polled every 2 s** in a live game (was 5): about 1.5 s sooner on average. The phone fetches ESPN
+  directly, so our functions don't see it.
+- **Live plays cut to the snap.** By the time ESPN has a play it is over, so the 4-6 s jog from the
+  huddle into the formation only added delay (it can't be squeezed: a wide receiver's walk-out already
+  needs about 3 s at the 11 yd/s speed cap). In a live game `sidePlay` builds the play as a fresh one
+  (players set, snap at 1.1 s, the hash kept) behind a 0.3 s fade from black, the way TV cuts to the
+  next snap; the result shows about 3.4 s sooner (measured on the fixture: 2.5 s against 5.9 s). A
+  replay keeps the walk-up. Cache-bust ?v=20260928s.
+
+VERIFY: sunday 251/252 (new section "Live: polled every 2 s, plays cut to the snap", 4 checks: 3 feed
+requests in 6.5 s on a live game; the players set at t=0 and the snap at 1.1 s instead of 4.5; the
+result 3.4 s sooner; the frame black at 0 s and lit at 0.45 s; the one failure is the webfont ink check
+that fails the same way on HEAD in this container). Bite: HEAD's sd-app.js and sd-reenact.js fail all 4.

@@ -1261,7 +1261,9 @@ function openGameView(id) {
   $('#rp-next').onclick = () => { stopReplay(); setCursor((G.cursor ?? -1) + 1); };
   $('#rp-speed').onclick = () => { G.speed = G.speed === 2 ? 1 : 2; $('#rp-speed').textContent = G.speed + '×'; };
   if (ev0) { renderHero(); drawFieldStatic(); }
-  G.evPoller = makePoller(loadGameEvent, () => (G?.ev?.state === 'in' ? 5000 : G?.ev?.state === 'pre' ? 60000 : null));
+  // Every 2 s in a live game (2026-09-28; it was 5): ESPN caches this per-game feed for 1 s, and the
+  // 8-bit view animates from its latest play, so the page sees a new play 1.5 s sooner on average.
+  G.evPoller = makePoller(loadGameEvent, () => (G?.ev?.state === 'in' ? 2000 : G?.ev?.state === 'pre' ? 60000 : null));
   G.sumPoller = makePoller(loadSummary, () => (G?.ev?.state === 'in' ? 10000 : G?.ev?.state === 'pre' ? 120000 : null));
   G.evPoller.start();
   G.sumPoller.start();
