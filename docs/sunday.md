@@ -375,3 +375,89 @@ failure, "the widest label's ink fits its box", fails the same way on HEAD in a 
 the Barlow webfont (57.7 px ink against 52 px of room) and is not touched by this change. Bite: the
 previous files fail 16 of the 19 new checks; the three that pass are the game view opening and the
 two field-view regression guards.
+
+## 2026-09-28 — a retro score bug on the 8-bit screen
+
+Perry: "We need to add a little SNF style (retro) score bug at the bottom of the 8 bit screen
+showing score, time and and down and distance".
+
+`raBugDraw` (end of `raDraw`, so every 8-bit stage has it: the big view, the play viewer, the
+desktop side card) draws it into the canvas in the scoreboard font (`bigText`; `:` and `-` added to
+`RA_BIG`): each team's abbreviation on its colour (`pair()`'s raw colours, the ones the banners
+use) with its score, a football by the team with the ball, a navy clock box, and the down and
+distance in gold. It is centred along the bottom, just above the yard ruler where there is one, as
+large as fits in 90% of the width (2 to 4 canvas pixels per glyph pixel), and one width on every
+play: the boxes are sized for two digits, "Q4 15:00" and "4TH & GOAL". It is cached as an image and
+rebuilt only when what it says changes.
+
+What it says: on a play (`sc.play`, now set by `raBuild`), the score before the snap until the
+result shows, then after, so it never gives a play away and agrees with the page's held score. ESPN's
+score on a touchdown already counts the try, which plays as its own scene, so the touchdown shows
+the six and the try the rest (`raBugPlay` walks `raPlays()` once per scene). The clock and down are
+the snap's; kickoffs read KICKOFF, tries PAT or 2-PT TRY. Between plays (huddle, timeout, halftime,
+lined up for the next snap) it shows the game as it is (`raBugLive`): HALF at halftime, FINAL after.
+Cache-bust ?v=20260928g.
+
+VERIFY: sunday 153/154 (new section "Score bug on the 8-bit screen", 12 checks, all hand-read from
+the ATL @ GB fixture: the kickoff 0-0 at Q1 15:00; the GB touchdown 0-0 before its result, GB 6
+after, 7 after the kick; ATL's 27 → 33 → 35 two-point try; centred above the ruler; one width; box
+colours and gold pixels sampled off the canvas; the play viewer; the between-plays state), sunday-ff
+53/53. The one failure is the webfont ink check that fails the same way on HEAD in this container.
+Bite: the previous sd-reenact.js fails 11 of the 12; the game view opening passes.
+
+## 2026-09-28 — replays of finished games use what really happened (nflverse + FTN)
+
+Perry: "do some looking to see if there is play by play data available anywhere after the game that
+gives us more fidelity on exactly what happened on a given play that we could apply to replays" →
+"Do it". Survey (sources tested from the container, ATL @ GB): nflverse play-by-play is free and
+has a finished game the same night (air yards, yards after the catch, QB hits, pass location);
+FTN's charting, also through nflverse, follows in a day or two (hash, QB alignment, backfield
+count, box count, pass rushers and blitzers, play action, motion, screens, out of the pocket,
+throwaways, drops). Participation (routes, coverage, all 22 players) only appears after the Super
+Bowl; NGS tracking and api.nfl.com need tokens; Sportradar and PFF are paid.
+
+**`netlify/functions/pbpdetail.mjs`** — `GET /.netlify/functions/pbpdetail?event=<ESPN id>`. GitHub
+release assets send no CORS headers, hence the function. games.csv's `espn` column gives the
+nflverse game_id; the season's pbp .csv.gz is streamed and the game's rows kept (stops at the next
+game); FTN's rows are merged on play_id when charted. ESPN play id = event id + nflverse play_id
+(162 of 162 real plays matched on ATL @ GB). Other games' rows are cut into records but never split
+into fields: 2025's Super Bowl, the worst case (last in a 98 MB file), takes 1.2 s locally, down
+from 3.5 s with a character-at-a-time parser; ATL @ GB from the real upstream 0.9 s, 42 KB of JSON.
+CDN-cached per event (`Netlify-Vary: query=event`, durable): 30 days once FTN has charted the game,
+an hour before that, 10 minutes for `not-yet`. FTN writes "0" for a kick's hash and QB alignment;
+only L/M/R and U/S/P go out. `NA` is treated as missing.
+
+**Client (`sd-reenact.js`)** — `raDetailLoad` asks once per game view, only for a finished game;
+`raBuild` reads `raDetail(p)` (or `opts.detail`). Every field is optional and the text-only staging is
+unchanged without it. What each field does:
+- `air` → the catch point (or target, or pick) is the line + air yards; a completion's gain after it is
+  the yards after the catch. The screen on play 85 is caught 6 yd behind the line, not 10 in front.
+- `qbl` → under center / shotgun / pistol, over the text's tag (ESPN writes "(Shotgun)" on six pistol
+  snaps in ATL @ GB). `bf` → the number of backs (a second back beside the QB out of the gun/pistol).
+- `hash` → the snap spot on the L / M / R hash. **Assumed to be from the offense's side of the ball**
+  (FTN's dictionary doesn't say; unverified).
+- `box` → safeties, then the nearest corners, walk down into the box, or linebackers widen out, until
+  the count is FTN's (all 127 charted runs and passes in ATL @ GB match).
+- `rush` / `blitz` → blitzers from the linebackers, slot corner and safeties go at the QB and don't
+  cover; a three-man rush drops the widest lineman.
+- `pa` → the QB and back mesh for the fake, the back carries on into the line, the short defenders
+  bite, the throw comes 0.45 s later. `mot` → the slot starts 5 yd inside his spot and motions out in
+  the second before the snap; the man over him follows. `screen` → a quick throw, three linemen lead
+  upfield. `oop` → the QB rolls toward his throw. `hit` → a rusher reaches him at the release and both
+  go down. `ta` → the ball sails past the sideline ("Thrown away"); `drop` → it falls at the
+  receiver's feet ("Dropped").
+- The result never moves: every banner reads the same with and without the detail (save "Thrown
+  away" / "Dropped" for "Incomplete"). The credit "Play detail: nflverse. Charting: FTN Data via
+  nflverse." shows under the big 8-bit view and in the play viewer whenever the detail is in use
+  (FTN's CC-BY-SA 4.0 licence asks for it). Cache-bust ?v=20260928h.
+
+VERIFY: sunday 176/177 — new section "Real play detail" (20 checks, every number read off
+`tools/fixtures/sunday/pbp-401872948.json`, the function's real output for ATL @ GB, cross-checked
+against an independent Python cut: identical save the unused `dur` rounding on three plays) and 3
+checks in the game view (asked once, used, credited); the one failure is the webfont ink check that
+fails the same way on HEAD. pbpdetail 61/61 (`node tools/_verify-pbpdetail.mjs`; fixtures cut from
+the real files in `tools/fixtures/pbpdetail/`, one desc edited to carry a comma and an escaped
+quote). sunday-ff 53/53. Bite: the previous sd-reenact.js fails 19 of the 23 new Scores checks (the
+four that pass are invariants: the yards after the catch, 682 under center from its text, 11 a side,
+results unchanged); the function suite's bites (`PBP_FN=`) fail their checks — `x || 0`, a naive
+comma split, no early stop, and passing FTN's "0" through.

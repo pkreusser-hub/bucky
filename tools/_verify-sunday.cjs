@@ -884,6 +884,104 @@ async function main() {
     IJ(() => [inj.kick.who === "T.Wallace" && inj.kick.medStart.every((y) => y > 53.33), `kickoff (3961): T.Wallace carried off to Cleveland's near sideline (${inj.kick.medStart.join(", ")})`]);
     IJ(() => [inj.try.tdCrews === 0 && inj.try.tryCrews === 1 && inj.try.who === "D.Lewis" && inj.try.team === "CAR", `two-point try (3922): the stretcher is on the try, not the touchdown (TD ${inj.try.tdCrews}, try ${inj.try.tryCrews} for ${inj.try.team}-${inj.try.who})`]);
 
+    /* ===================== (i2) real play detail: nflverse + FTN ===================== */
+    // 2026-09-28, user: "do some looking to see if there is play by play data available anywhere after
+    // the game that gives us more fidelity on exactly what happened on a given play that we could
+    // apply to replays" → "Do it". tools/fixtures/sunday/pbp-401872948.json is the per-play detail for
+    // ATL @ GB exactly as netlify/functions/pbpdetail.mjs returned it from the real nflverse files on
+    // 2026-09-28, cross-checked against an independent Python cut of the same files (all 168 plays
+    // identical save the unused snap-to-whistle `dur` rounding at .x5 on three).
+    // Every expected number is read off that file: play 85 (Penix screen to Bi.Robinson, 17 yds) has
+    // air -6, yac 23, hash L, screen; play 682 (Love to Watson, 4-yd TD) has hash M, under center,
+    // play action, motion, out of the pocket, 5 rushers with 1 blitzer, 8 in the box; 160 a QB hit;
+    // 332 a throwaway; 2101 a drop; 281 is "(Shotgun)" in ESPN's text but pistol in FTN's charting,
+    // with two backs; 2018 has no back; 1242 a three-man rush.
+    section("Real play detail (nflverse play-by-play, FTN charting)");
+    const pbpFixture = JSON.parse(fs.readFileSync(path.join(FIX, "pbp-401872948.json"), "utf8"));
+    const rd = await page.evaluate((fixture, det) => {
+      const out = {};
+      const keep = G;
+      try {
+        const comp = fixture.header.competitions[0];
+        const gev = normEvent({ ...fixture.header, date: comp.date, status: comp.status });
+        G = { ev: gev, sum: normSummary(fixture, gev) };
+        const list = raPlays(), qbs = raQBs();
+        const P = (id) => list.find((q) => String(q.id) === id);
+        const build = (id, withDet = true) => raBuild(P(id), G.ev, qbs, { detail: withDet ? det.plays[id] || null : null });
+        const throwSeg = (sc) => sc.ball.filter((b) => b.from && b.t0 > sc.tS + 0.2)[0];
+        const roleAt = (sc, role) => sc.actors.filter((a) => a.side === "o" && a.role === role);
+        const dist = (a, b, t) => { const [ax, az] = raPos(a, t), [bx, bz] = raPos(b, t); return Math.hypot(ax - bx, az - bz); };
+        const banners = (sc) => sc.events.filter((e) => e.kind === "banner").map((e) => e.title).join("|");
+        // Play 85: the screen.
+        { const sc = build("40187294885"), sc0 = build("40187294885", false), th = throwSeg(sc), th0 = throwSeg(sc0);
+          const rec = sc.ball.find((b) => b.a && b.t0 >= th.t1 - 0.01)?.a;
+          const ol = roleAt(sc, "OL").filter((a) => raPos(a, th.t1 + 0.5)[1] > sc.z0 + 1).length;
+          out.screen = { x0: sc.x0, z0: sc.z0, catchZ: th.to[1], catchZ0: th0.to[1], tThrow: th.t0 - sc.tS, endZ: rec ? raPos(rec, sc.tEnd)[1] : null, olDownfield: ol }; }
+        // Play 682: play action, motion, out of the pocket, the blitz, the box, under center.
+        { const sc = build("401872948682"), th = throwSeg(sc), qb = roleAt(sc, "QB")[0], rb = sc.fake;
+          const m = sc.motion, tS = sc.tS;
+          const lbBite = sc.actors.filter((a) => a.side === "d" && a.role === "LB").some((a) => raPos(a, tS + 0.85)[1] < raPos(a, 0)[1] - 1);
+          const box = sc.actors.filter((a) => a.side === "d").filter((a) => { const [x, z] = raPos(a, tS - 0.05); return Math.abs(x - sc.x0) <= 5.5 && z - sc.z0 <= 8; }).length;
+          out.pa = { x0: sc.x0, qbDepth: +(sc.z0 - raPos(qb, 0)[1]).toFixed(2), fake: !!rb, mesh: rb ? +dist(rb, qb, tS + 0.6).toFixed(2) : null, rbToLine: rb ? +(raPos(rb, tS + 1.3)[1] - sc.z0).toFixed(2) : null,
+            tThrow: +(th.t0 - tS).toFixed(2), lbBite, motion: m ? +Math.abs(raPos(m, tS - 0.1)[0] - raPos(m, tS - 0.95)[0]).toFixed(2) : null, still: m ? +Math.abs(raPos(m, tS)[0] - raPos(m, tS - 0.1)[0]).toFixed(3) : null,
+            shadowMoved: m ? (() => { const cb = sc.actors.find((a) => a.side === "d" && Math.abs(raPos(a, tS - 0.95)[0] - raPos(a, tS - 0.1)[0]) > 4); return !!cb; })() : false,
+            qbRoll: +Math.abs(raPos(qb, th.t0)[0] - sc.x0).toFixed(2), blitz: (sc.blitz || []).length, blitzNear: (sc.blitz || []).map((a) => { let m = 1e9; for (let t = tS; t <= th.t0 + 0.05; t += 0.05) m = Math.min(m, dist(a, qb, t)); return +m.toFixed(2); }), box,
+            catchZ: th.to[1], z0: sc.z0 }; }
+        // Play 160: the QB hit.
+        { const sc = build("401872948160"), th = throwSeg(sc), qb = roleAt(sc, "QB")[0], h = sc.qbHit;
+          out.hit = { hitter: !!h, near: h ? +dist(h, qb, th.t0 + 0.25).toFixed(2) : null, downAfter: raPoseAt(sc, qb, th.t0 + 0.8), upLater: raPoseAt(sc, qb, th.t0 + 2.4), before: raPoseAt(sc, qb, th.t0 - 0.2) }; }
+        // Play 332: the throwaway; 2101: the drop.
+        { const sc = build("401872948332"), th = throwSeg(sc); out.ta = { landX: +th.to[0].toFixed(2), banners: banners(sc) }; }
+        { const sc = build("4018729482101"), th = throwSeg(sc), fall = sc.ball.filter((b) => b.from && b.t0 >= th.t1 - 0.01)[0];
+          out.drop = { banners: banners(sc), fell: fall ? +Math.hypot(fall.to[0] - th.to[0], fall.to[1] - th.to[1]).toFixed(2) : null }; }
+        // Play 281: ESPN says shotgun, FTN pistol with two backs; 2018: no back.
+        { const sc = build("401872948281"), qb = roleAt(sc, "QB")[0], backs = sc.actors.filter((a) => a.side === "o" && (a.role === "RB" || a.role === "FB"));
+          out.pistol = { qbDepth: +(sc.z0 - raPos(qb, 0)[1]).toFixed(2), backs: backs.length, behind: backs.filter((b) => sc.z0 - raPos(b, 0)[1] > 3).length }; }
+        { const sc = build("4018729482018"), rb = sc.actors.find((a) => a.side === "o" && a.role === "RB");
+          out.empty = { rbWide: rb ? +Math.abs(raPos(rb, 0)[0] - sc.x0).toFixed(2) : null, backs: sc.actors.filter((a) => a.side === "o" && a.role === "FB").length }; }
+        // Play 1242: three rushers: one lineman drops into a short zone.
+        { const sc = build("4018729481242"), th = throwSeg(sc);
+          out.three = { dropped: sc.actors.filter((a) => a.role === "DL" && raPos(a, th.t0)[1] > sc.z0 + 3).length }; }
+        // Across the game: every play builds, 11 a side, the box count is FTN's, and the result never moves.
+        const rows = [];
+        for (const p of list) {
+          const D = det.plays[String(p.id)];
+          const sc = raBuild(p, G.ev, qbs, { detail: D || null }), sc0 = raBuild(p, G.ev, qbs, { detail: null });
+          const o = sc.actors.filter((a) => a.side === "o").length, d = sc.actors.filter((a) => a.side === "d").length;
+          let box = null;
+          if (D && D.box >= 4 && ["pass", "run"].includes(D.type) && !p.pat) box = [D.box, sc.actors.filter((a) => a.side === "d").filter((a) => { const [x, z] = raPos(a, sc.tS - 0.05); return Math.abs(x - sc.x0) <= 5.5 && z - sc.z0 <= 8; }).length];
+          const sub = (t) => t.replace("Thrown away", "Incomplete").replace("Dropped", "Incomplete");
+          rows.push({ id: p.id, has: !!D, o, d, box, sameResult: sub(banners(sc)) === banners(sc0), sameEnd: Math.abs((sc.tEnd ?? 0) - (sc0.tEnd ?? 0)) < 60 });
+        }
+        out.rows = { n: rows.length, withDetail: rows.filter((r) => r.has).length, not11: rows.filter((r) => r.has && (r.o !== 11 || r.d !== 11) && r.d > 0).map((r) => `${r.id}:${r.o}/${r.d}`),
+          boxN: rows.filter((r) => r.box).length, boxOff: rows.filter((r) => r.box && r.box[0] !== r.box[1]).map((r) => `${r.id}:${r.box.join("→")}`), resultMoved: rows.filter((r) => !r.sameResult).map((r) => r.id) };
+      } catch (e) { out.err = e.message + " " + (e.stack || "").split("\n")[1]; } finally { G = keep; }
+      return out;
+    }, sumFixture, pbpFixture);
+    const RD = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${rd.err || e.message})`]; } ok(r[0], r[1]); };
+    RD(() => [rd.screen.x0 === -3.08 && rd.pa.x0 === 0, `the snap is on FTN's hash: play 85 on the left hash (x ${rd.screen.x0}), 682 in the middle (x ${rd.pa.x0})`]);
+    RD(() => [rd.screen.catchZ === rd.screen.z0 - 6 && rd.screen.catchZ0 !== rd.screen.catchZ, `the screen is caught where it was: 6 yd behind the line (air yards -6: caught at ${rd.screen.catchZ}, line ${rd.screen.z0}; from the text alone ${rd.screen.catchZ0?.toFixed(1)})`]);
+    RD(() => [rd.screen.endZ != null && Math.abs(rd.screen.endZ - (rd.screen.z0 + 17)) < 0.05, `…and the other 23 are after the catch: he is brought down 17 yd past the line (${(rd.screen.endZ - rd.screen.z0).toFixed(2)} yd)`]);
+    RD(() => [rd.screen.tThrow < 1.45 && rd.screen.olDownfield >= 2, `…thrown quickly (${rd.screen.tThrow.toFixed(2)} s after the snap), linemen out in front of him (${rd.screen.olDownfield} past the line)`]);
+    RD(() => [rd.pa.qbDepth === 1.2, `682: under center, as FTN charts it (QB ${rd.pa.qbDepth} yd off the ball)`]);
+    RD(() => [rd.pa.fake && rd.pa.mesh < 1.5 && rd.pa.rbToLine > -1.5 && rd.pa.tThrow >= 2.0 && rd.pa.lbBite,
+      `…play action: the back meets the QB for the fake (${rd.pa.mesh} yd apart), carries on to the line (${rd.pa.rbToLine} yd), a linebacker bites, the throw comes later (${rd.pa.tThrow} s)`]);
+    RD(() => [rd.pa.motion >= 4.5 && rd.pa.still < 0.01 && rd.pa.shadowMoved, `…motion: a receiver moves ${rd.pa.motion} yd across in the second before the snap and is set at it (${rd.pa.still} yd), the man over him goes with him`]);
+    RD(() => [rd.pa.qbRoll >= 4.5, `…out of the pocket: the QB throws from ${rd.pa.qbRoll} yd outside the ball`]);
+    RD(() => [rd.pa.blitz === 1 && rd.pa.blitzNear[0] < 2.5, `…five rushers: the four linemen and one blitzer, who gets to within ${rd.pa.blitzNear[0]} yd of the QB by the throw`]);
+    RD(() => [rd.pa.box === 8, `…eight in the box at the snap, as charted (${rd.pa.box})`]);
+    RD(() => [rd.pa.catchZ === rd.pa.z0 + 4, `…and Watson catches it 4 yd past the line, in the end zone (air yards 4: ${rd.pa.catchZ - rd.pa.z0})`]);
+    RD(() => [rd.hit.hitter && rd.hit.near < 1.6 && rd.hit.before !== "down" && rd.hit.downAfter === "down" && rd.hit.upLater !== "down",
+      `160: the QB is hit as he throws — a rusher on him (${rd.hit.near} yd), down after the throw (${rd.hit.before} → ${rd.hit.downAfter}), back up later (${rd.hit.upLater})`]);
+    RD(() => [Math.abs(rd.ta.landX) > 26.67 && /Thrown away/.test(rd.ta.banners), `332: the throwaway lands past the sideline (x ${rd.ta.landX}, the sideline is 26.67) and reads "Thrown away" (${rd.ta.banners})`]);
+    RD(() => [/Dropped/.test(rd.drop.banners) && rd.drop.fell != null && rd.drop.fell < 1, `2101: the drop falls at the receiver's feet (${rd.drop.fell} yd from the catch point) and reads "Dropped" (${rd.drop.banners})`]);
+    RD(() => [rd.pistol.qbDepth === 4 && rd.pistol.backs === 2 && rd.pistol.behind >= 2, `281: "(Shotgun)" in ESPN's text, pistol in FTN's charting — the QB 4 yd back, two backs (${JSON.stringify(rd.pistol)})`]);
+    RD(() => [rd.empty.rbWide > 5 && rd.empty.backs === 0, `2018: no back — the back is split out wide (${rd.empty.rbWide} yd), no fullback`]);
+    RD(() => [rd.three.dropped >= 1, `1242: a three-man rush drops a lineman into coverage (${rd.three.dropped} past the line at the throw)`]);
+    RD(() => [rd.rows.withDetail >= 150 && rd.rows.not11.length === 0, `every play of the game builds with its detail, 11 a side (${rd.rows.withDetail} of ${rd.rows.n} plays have detail; off: ${JSON.stringify(rd.rows.not11)})`]);
+    RD(() => [rd.rows.boxN > 80 && rd.rows.boxOff.length === 0, `the box count is FTN's on every charted run and pass (${rd.rows.boxN} plays; off: ${JSON.stringify(rd.rows.boxOff.slice(0, 6))})`]);
+    RD(() => [rd.rows.resultMoved.length === 0, `the detail never changes a result: every banner reads the same with and without it, save "Thrown away" / "Dropped" for "Incomplete" (${JSON.stringify(rd.rows.resultMoved.slice(0, 6))})`]);
+
     /* ===================== (j) replay on the big 8-bit view ===================== */
     // 2026-09-28, user: "On the gffl scores, the 8-bit animation feature, i want to give the option to
     // hit replay like we have on the field view, and then replay gives the option for game start or
@@ -897,7 +995,11 @@ async function main() {
       const sbEvent = JSON.stringify(sbFixture.events.find((e) => e.id === "401872948"));
       const sumBody = JSON.stringify(sumFixture), sbBody = JSON.stringify(sbFixture);
       const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
-      MOCK = (u) => /site\.api\.espn\.com.*\/scoreboard\/401872948/.test(u) ? json(sbEvent)
+      // The page asks netlify/functions/pbpdetail.mjs for a finished game's play detail; served here
+      // from the same fixture the section above reads.
+      const pbpBody = JSON.stringify(pbpFixture), pbpAsks = [];
+      MOCK = (u) => /\/\.netlify\/functions\/pbpdetail\?/.test(u) ? (pbpAsks.push(u), json(pbpBody))
+        : /site\.api\.espn\.com.*\/scoreboard\/401872948/.test(u) ? json(sbEvent)
         : /site\.api\.espn\.com.*\/summary\?event=401872948/.test(u) ? json(sumBody)
         : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(sbBody) : null;
       await page.setViewport({ width: 390, height: 844 });
@@ -996,6 +1098,106 @@ async function main() {
       const f2 = await vis();
       ok(f2.fieldReplay.playing && !f2.bar, `…and the field view's Replay still starts the field replay (${JSON.stringify(f2.fieldReplay)})`);
       await probe(() => { stopReplay(); localStorage.removeItem("sun.tecmoBig"); localStorage.removeItem("sun.tecmoSpeed"); });
+
+      /* ===================== (k) the retro score bug ===================== */
+      // 2026-09-28, user: "We need to add a little SNF style (retro) score bug at the bottom of the 8 bit
+      // screen showing score, time and and down and distance". Hand-read from the fixture: the kickoff
+      // (Q1 15:00, 0-0); Bi.Robinson's run (Q1 14:55, 1st & 10, ATL ball, 0-0); J.Love to C.Watson for
+      // the GB touchdown (Q1 5:13, 1st & Goal, 0-0 before; ESPN scores it 0-7 with the kick, so the
+      // touchdown shows GB 6 and the extra point 7); Bi.Robinson's touchdown and two-point try (Q4 3:33,
+      // 27-14 before, ESPN 35-14 after: 33 on the touchdown, 35 on the try).
+      section("Score bug on the 8-bit screen");
+      await page.evaluate(() => localStorage.setItem("sun.tecmoBig", "true"));
+      // A fresh load (the query string makes it one; the same URL with a hash would not reload).
+      await page.goto(BASE + "/sunday.html?bug#g401872948", { waitUntil: "domcontentloaded" });
+      let bugOpen = true;
+      try { await page.waitForFunction(() => G && G.sum && document.getElementById("bt-cv")?.offsetParent && SIDE.sc, { timeout: 15000 }); } catch { bugOpen = false; }
+      // Stage one play on the big view, hold its clock at `dt` seconds from its result, let a frame draw.
+      const bugAt = async (id, dt) => {
+        const r = await probe(({ id, dt }) => {
+          const l = raPlays(), p = l.find((q) => String(q.id) === id);
+          if (!p) return { err: "no play " + id };
+          if (!SIDE.rp) tecmoRpStart("game");
+          SIDE.rp.speed = 1e-6;                                          // the clock stands still
+          tecmoRpPlay(p);
+          SIDE.t = Math.max(0, sideResultAt(SIDE.sc) + dt);
+          return {};
+        }, { id, dt });
+        if (r.err) return r;
+        await wait(250);
+        return probe(() => {
+          const b = SIDE.bugState, cv = SIDE.cv;
+          if (!b) return { err: "no bug drawn" };
+          const g = cv.getContext("2d"), px = (x, y) => { const d = g.getImageData(x, y, 1, 1).data; return "#" + [d[0], d[1], d[2]].map((n) => n.toString(16).padStart(2, "0")).join(""); };
+          const [x, y, w, h] = b.rect, k = b.k, seg = b.segs;
+          // Box colours sampled inside each box's top-left padding, where no glyph pixel is drawn.
+          const inside = (s) => px(s.x + k, y + 2 * k + k);
+          let gold = 0;
+          for (let yy = y + 4 * k; yy < y + 11 * k; yy += k) for (let xx = seg[5].x + 2 * k; xx < seg[5].x + seg[5].w - 2 * k; xx += k) if (px(xx, yy) === "#ffd21f") gold++;
+          return { text: `${b.aAb} ${b.a} ${b.hAb} ${b.h} | ${b.clock} | ${b.dd}`, poss: b.poss, rect: b.rect, k, W: cv.width, H: cv.height, ruler: !!SIDE.ruler,
+            awayBox: inside(seg[0]), homeBox: inside(seg[2]), aCol: b.aCol, hCol: b.hCol, gold };
+        });
+      };
+      ok(bugOpen, "the fixture game opens on the big 8-bit view again");
+      const kick = await bugAt("40187294840", -0.5);
+      ok(kick.text === "ATL 0 GB 0 | Q1 15:00 | KICKOFF", `the opening kickoff: both teams, the score, the clock, "KICKOFF" (${kick.text || kick.err})`);
+      const run = await bugAt("40187294863", -0.5);
+      ok(run.text === "ATL 0 GB 0 | Q1 14:55 | 1ST & 10" && run.poss === "a", `Bi.Robinson's run: Q1 14:55, 1st & 10, the football by ATL (${run.text || run.err}, ball ${run.poss})`);
+      const tdPre = await bugAt("401872948682", -0.3), tdPost = await bugAt("401872948682", 0.3);
+      ok(tdPre.text === "ATL 0 GB 0 | Q1 5:13 | 1ST & GOAL" && tdPre.poss === "h", `GB's touchdown before its result: 0-0, 1st & Goal, GB ball — the bug doesn't give the play away (${tdPre.text || tdPre.err})`);
+      ok(tdPost.text === "ATL 0 GB 6 | Q1 5:13 | 1ST & GOAL", `…and at the result GB has 6, not ESPN's 7, which already counts the kick (${tdPost.text || tdPost.err})`);
+      const xpPre = await bugAt("401872948682-pat", -0.3), xpPost = await bugAt("401872948682-pat", 0.3);
+      ok(xpPre.text === "ATL 0 GB 6 | Q1 5:13 | PAT" && xpPost.text === "ATL 0 GB 7 | Q1 5:13 | PAT", `the extra point: 6 before, 7 after (${xpPre.text || xpPre.err} → ${xpPost.text || xpPost.err})`);
+      const two = await bugAt("4018729483956", -0.3), twoTd = await bugAt("4018729483956", 0.3), twoTry = await bugAt("4018729483956-pat", 0.3);
+      ok(two.text === "ATL 27 GB 14 | Q4 3:33 | 1ST & GOAL" && twoTd.text === "ATL 33 GB 14 | Q4 3:33 | 1ST & GOAL" && twoTry.text === "ATL 35 GB 14 | Q4 3:33 | 2-PT TRY",
+        `ATL's touchdown and two-point try: 27 → 33 → 35 (${[two, twoTd, twoTry].map((r) => r.text || r.err).join(" → ")})`);
+      const all = [kick, run, tdPre, tdPost, xpPre, two, twoTry];
+      ok(all.every((r) => r.rect && Math.abs(r.rect[0] + r.rect[2] / 2 - r.W / 2) <= r.k && r.rect[1] + r.rect[3] <= r.H - 11 * 2 && r.rect[1] >= r.H / 2 && r.rect[2] <= r.W * 0.9 && r.ruler),
+        `big view: centred along the bottom, above the yard ruler (22 px), no wider than 90% of the stage (${JSON.stringify(kick.rect)} in ${kick.W}×${kick.H}, k ${kick.k})`);
+      ok(all.every((r) => r.rect) && new Set(all.map((r) => r.rect[2])).size === 1, `…one width on every play, so it doesn't jump between "1ST & 10" and "1ST & GOAL" (${[...new Set(all.map((r) => r.rect && r.rect[2]))].join(", ")} px)`);
+      ok(run.awayBox === run.aCol && run.homeBox === run.hCol && run.gold > 20,
+        `…drawn on the canvas: ATL's box in ${run.aCol}, GB's in ${run.hCol}, the down in gold (sampled ${run.awayBox} / ${run.homeBox}, ${run.gold} gold pixels)`);
+      // The play viewer (no ruler there) carries it too.
+      await probe(() => { tecmoRpEnd(true); openReenact("4018729482018"); });
+      await wait(700);
+      const mv = await probe(() => { const b = RA.bugState; return b ? { text: `${b.aAb} ${b.a} ${b.hAb} ${b.h} | ${b.clock} | ${b.dd}`, rect: b.rect, W: RA.cv.width, H: RA.cv.height, k: b.k } : { err: "no bug in the viewer" }; });
+      ok(mv.text === "ATL 10 GB 7 | Q2 0:59 | 3RD & GOAL" && mv.rect && mv.rect[0] >= 0 && mv.rect[0] + mv.rect[2] <= mv.W && mv.rect[1] + mv.rect[3] <= mv.H,
+        `the play viewer shows it too, inside its stage (Penix to Hooper: ${mv.text || mv.err}, ${JSON.stringify(mv.rect)} in ${mv.W}×${mv.H})`);
+      await probe(() => closeReenact());
+      // Between plays the bug shows the game as it is.
+      const lv = await probe(() => {
+        const ev = G.ev, row = (e) => { const b = raBugLive(e); return `${b.pre.a}-${b.pre.h} | ${b.clock} | ${b.dd} | ${b.poss}`; };
+        return {
+          live: row({ ...ev, state: "in", period: 2, clock: "5:12", away: { ...ev.away, score: "10" }, home: { ...ev.home, score: "7" }, sit: { shortDownDistanceText: "3rd & 7", possession: ev.home.id } }),
+          half: row({ ...ev, state: "in", name: "STATUS_HALFTIME", period: 2, clock: "0:00", sit: { shortDownDistanceText: "1st & 10", possession: ev.home.id } }),
+          final: row(ev),
+        };
+      });
+      // The fixture's final is ATL 35, GB 14.
+      ok(lv.live === "10-7 | Q2 5:12 | 3RD & 7 | h" && lv.half === "35-14 | HALF |  | null" && lv.final === "35-14 | FINAL |  | null",
+        `between plays: the live score, quarter, clock, down and ball; HALF with no down at halftime; FINAL after (${JSON.stringify(lv)})`);
+      // The finished game's detail: asked for once per game view, used, and credited.
+      const asksBefore = pbpAsks.length;
+      await page.evaluate(() => localStorage.setItem("sun.tecmoBig", "true"));
+      await page.goto(BASE + "/sunday.html?pbp#g401872948", { waitUntil: "domcontentloaded" });
+      let got = true;
+      try { await page.waitForFunction(() => G && G.pbp, { timeout: 10000 }); } catch { got = false; }
+      await wait(600);
+      const pd = await probe(() => {
+        const c = document.querySelector("#big-tecmo .ra-credit");
+        const sc = raBuild(raPlays().find((q) => String(q.id) === "40187294885"), G.ev, raQBs());
+        return { n: G.pbp ? Object.keys(G.pbp).length : 0, ftn: G.pbpFtn, credit: c && c.offsetParent !== null ? c.textContent : null, air: sc.detail?.air, x0: sc.x0 };
+      });
+      const asks = pbpAsks.slice(asksBefore);
+      ok(got && asks.length === 1 && /pbpdetail\?event=401872948$/.test(asks[0]) && pd.n === 168 && pd.air === -6 && pd.x0 === -3.08,
+        `a finished game asks the pbpdetail function once for its detail and the plays use it (${asks.length} ask ${JSON.stringify(asks[0] || "")}, ${pd.n} plays, play 85 air ${pd.air}, hash x ${pd.x0})`);
+      ok(pd.credit === "Play detail: nflverse. Charting: FTN Data via nflverse.", `…and credits FTN under the 8-bit view, as its licence asks (${JSON.stringify(pd.credit)})`);
+      await probe(() => openReenact("40187294885"));
+      await wait(300);
+      const mc = await probe(() => { const c = document.querySelector("#ra .ra-credit"); return c && c.offsetParent !== null ? c.textContent : null; });
+      ok(mc === "Play detail: nflverse. Charting: FTN Data via nflverse.", `…and in the play viewer (${JSON.stringify(mc)})`);
+      await probe(() => closeReenact());
+      await probe(() => localStorage.removeItem("sun.tecmoBig"));
       MOCK = null;
     }
 
