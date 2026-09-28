@@ -1345,7 +1345,7 @@ function bigLabel(s, k, col, shadow) {
    colour gets three tones (light / base / shadow); the near arm and leg carry their own dark edge so
    they read over the body, and the whole figure gets a one-pixel outline.
    Codes: J j L jersey (base, shadow, light), P p Q pants, S s socks, F f E skin, H h l helmet,
-   w helmet stripe, m face mask, e eye, B b cleats, C cap (officials), O outline. */
+   w (unused since helmets went one solid colour), m face mask, e eye, B b cleats, C cap (officials), O outline. */
 const RA_SKEL = {
   stand:  { h: [0, 15], s: [0.6, 23.5], c: [1.4, 29], fa: [[2.2, 22.5], [3.4, 17.5], [3.6, 13]], ba: [[-2.2, 22.5], [-3.2, 17.5], [-3.2, 13]], fl: [[1.3, 15], [2, 8.5], [2.1, 2]], bl: [[-1.3, 15], [-2, 8.5], [-2.3, 2]] },
   run1:   { h: [0, 14.5], s: [1.8, 22.8], c: [3, 28.2], fa: [[2.3, 21.8], [-0.2, 18.2], [-1.5, 14.8]], ba: [[1.2, 21.8], [3.6, 18.5], [5.6, 20.5]], fl: [[0.5, 14.5], [4, 9.5], [5.5, 3]], bl: [[-0.5, 14.5], [-2.5, 8.5], [-6, 5]], bf: [-0.3, -1] },
@@ -1470,8 +1470,9 @@ function raFig(pose, variant = 'p') {
       if (lx > 3.3 && lx < 5.7 && ly > -3.7 && ly < 0.6 && (lx > 4.7 || (ly > -1.7 && ly < -0.8) || ly < -2.9)) return 'm';
       if (d > 1) return d <= 1.22 ? 1 : 0;
       if (lx > 1.2 && lx < 4.1 && ly > -3.3 && ly < 0.6) return lx > 2.1 && lx < 3.1 && ly > -0.6 && ly < 0.4 ? 'e' : ly < -2 ? 'f' : 'F';
-      if (ly > 2.9 && lx < 2.2 && lx > -3.4) return 'w';                          // the stripe over the crown
-      return tone(nx * Lx + ny * Ly, ['H', 'h', 'l']);
+      // One solid shell colour: no stripe, no light/shadow tones (2026-09-28, user: "the players have
+      // two colors on their helmet, make the helmet 1 solid color"). The mask and outline stay.
+      return 'H';
     });
   }
   arm(S.fa, false);
@@ -2406,7 +2407,12 @@ function sideUpdate() {
   if (lastAny && lastAny.kind === 'meta' && /timeout/i.test(lastAny.typeText + ' ' + lastAny.text) && G.ev.state === 'in' && String(lastAny.id) !== String(SIDE.timeoutId)) {
     if (SIDE.sc && (!SIDE.running || SIDE.sc.huddle)) { sideTimeout(lastAny); return; }
   }
-  if (String(latest.id) !== String(SIDE.playId)) { if (!SIDE.running || ((SIDE.sc?.timeout || SIDE.sc?.halftime || SIDE.sc?.huddle) && !SIDE.sc?.clear)) { if (SIDE.sc?.tdAt == null || !SIDE.idle) sidePlay(latest); } }   // a play mid-animation finishes first
+  // A play mid-animation finishes up to its result; after that, a newer play cuts in rather than
+  // waiting for the walk-back, the huddle or a stretcher. A newer play in the feed means the real game
+  // has already moved on (after a real injury the next snap is minutes away, so that carry-off still
+  // plays out in full).
+  const pastResult = SIDE.running && SIDE.gatePlay == null && SIDE.resultAt != null && SIDE.t >= SIDE.resultAt + 1.2 && SIDE.sc?.tdAt == null;
+  if (String(latest.id) !== String(SIDE.playId)) { if (!SIDE.running || pastResult || ((SIDE.sc?.timeout || SIDE.sc?.halftime || SIDE.sc?.huddle) && !SIDE.sc?.clear)) { if (SIDE.sc?.tdAt == null || !SIDE.idle) sidePlay(latest); } }
   else if (!SIDE.running && !SIDE.idle && !SIDE.sc?.huddle) sideHuddle();
 }
 function sidePlay(p) {
@@ -2487,7 +2493,10 @@ function sideTimeout(tp) {
 function sideNext() {
   const list = raPlays();
   const i = list.findIndex((p) => String(p.id) === String(SIDE.playId));
-  if (i >= 0 && i < list.length - 1 && list.length - 1 - i <= 2) return list[i + 1];
+  // One play behind: play it. Further behind: go straight to the newest (2026-09-28, user: "I keep
+  // having to refresh to see latest play" — stepping through a backlog two plays at a time, each with
+  // its huddle, kept the view and the gated score 30–60 s behind the game).
+  if (i >= 0 && i === list.length - 2) return list[i + 1];
   return list[list.length - 1];
 }
 // After the try: the teams clear out and the cheerleaders dance until the kickoff.

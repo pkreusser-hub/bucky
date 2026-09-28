@@ -582,6 +582,39 @@ async function main() {
         for (let y = 0; y < spr.height; y++) for (let x = 0; x < spr.width; x++) if (px[(y * spr.width + x) * 4 + 3]) { top = Math.min(top, y); bot = Math.max(bot, y); l = Math.min(l, x); r = Math.max(r, x); }
         out.res = { RA_H, PX, PY, HK, inkH: bot - top + 1, inkW: r - l + 1, poses: Object.keys(RA_SKEL).length };
       });
+      // 2026-09-28, user: "the players have two colors on their helmet, make the helmet 1 solid
+      // color". In the head (the top 9 rows of ink) nothing may be the helmet's shadow or highlight
+      // tone or its stripe colour; the shell is all H. (The face, eye and mask are other colours.)
+      tryIt("helmet1", () => {
+        const sc = raBuild(np("40187294863"), ev, new Set());
+        out.helmet1 = ["o", "d"].map((side) => raPalette(sc, sc.actors.find((a) => a.side === side))).map((o) => {
+          const spr = raSprite("stand", o, false, 12), gg = spr.getContext("2d"), px = gg.getImageData(0, 0, spr.width, spr.height).data;
+          const hex = (i) => "#" + [px[i], px[i + 1], px[i + 2]].map((v) => v.toString(16).padStart(2, "0")).join("");
+          let top = 1e9; for (let y = 0; y < spr.height && top === 1e9; y++) for (let x = 0; x < spr.width; x++) if (px[(y * spr.width + x) * 4 + 3]) { top = y; break; }
+          const face = new Set([o.F, o.f, o.E, o.e, o.m].filter(Boolean).map((c) => c.toLowerCase()));
+          const off = new Set([o.h, o.l, o.w].filter(Boolean).map((c) => c.toLowerCase()).filter((c) => c !== o.H.toLowerCase() && !face.has(c)));
+          let shell = 0, other = 0;
+          for (let y = top; y < top + 9; y++) for (let x = 0; x < spr.width; x++) { const i = (y * spr.width + x) * 4; if (!px[i + 3]) continue; const c = hex(i); if (c === o.H.toLowerCase()) shell++; else if (off.has(c)) other++; }
+          return { H: o.H, shell, other };
+        });
+      });
+      // 2026-09-28, user: "I keep having to refresh to see latest play". The live 8-bit view worked
+      // through a backlog up to two plays at a time, each with its walk-back and huddle; now it plays
+      // the next one only when exactly one behind, and otherwise goes straight to the newest.
+      tryIt("catchUp", () => {
+        const keep = G;
+        try {
+          const comp = fixture.header.competitions[0];
+          const gev = normEvent({ ...fixture.header, date: comp.date, status: comp.status });
+          G = { ev: gev, sum: normSummary(fixture, gev) };
+          const list = raPlays(), n = list.length, keepId = SIDE.playId;
+          SIDE.playId = list[n - 2].id; const one = sideNext().id;
+          SIDE.playId = list[n - 3].id; const two = sideNext().id;
+          SIDE.playId = list[n - 6].id; const five = sideNext().id;
+          SIDE.playId = keepId;
+          out.catchUp = { n, oneBehind: one === list[n - 1].id, twoBehind: two === list[n - 1].id, fiveBehind: five === list[n - 1].id, twoGot: two, newest: list[n - 1].id };
+        } finally { G = keep; }
+      });
       tryIt("helmets", () => { out.helmets = { n: Object.keys(RA_HELMET).length, keys: Object.keys(RA_HELMET), bad: Object.entries(RA_HELMET).filter(([, v]) => !/^#[0-9a-f]{6}$/.test(v)).map(([k]) => k) }; });
       tryIt("post", () => { out.post = { RA_POST, RA_UPRIGHT, RA_BAR }; });
       return out;
@@ -652,6 +685,10 @@ async function main() {
     // 17 rows of ink plus outline (19); now he is at least 32 rows tall and 12 wide.
     chk(() => [ra.res.RA_H === 336 && ra.res.PX === 18 && ra.res.PY === 14 && ra.res.HK === 10 && ra.res.inkH >= 32 && ra.res.inkH <= 40 && ra.res.inkW >= 12 && ra.res.poses >= 20,
       `the stage is twice the old resolution and a standing player is drawn in ${ra.res.inkW}×${ra.res.inkH} px (${ra.res.poses} poses)`]);
+    chk(() => [ra.helmet1.length === 2 && ra.helmet1.every((h) => h.other === 0 && h.shell >= 20),
+      `helmets are one solid colour: no shadow, highlight or stripe pixels in the head, only the shell (${JSON.stringify(ra.helmet1)})`]);
+    chk(() => [ra.catchUp.oneBehind && ra.catchUp.twoBehind && ra.catchUp.fiveBehind,
+      `the live 8-bit view plays the next play when one behind and jumps to the newest when further behind (${JSON.stringify(ra.catchUp)})`]);
 
     /* ===================== console sanity ===================== */
     // 2026-09-28, user: "when a play includes 'push ob' or 'ob' that means the ball carrier finishes

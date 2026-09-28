@@ -1219,7 +1219,9 @@ function route() {
 const latestRealId = () => { const l = typeof raPlays === 'function' ? raPlays().filter((p) => !p.pat) : []; return l.length ? String(l[l.length - 1].id) : null; };
 function gateCheck() {
   if (!G) return;
-  const live = typeof sideLiveOn === 'function' && sideLiveOn();
+  // Hold the score for the 8-bit view only while someone can actually watch it: the field on screen
+  // and the page in front. Scrolled down to the plays, or in another app, the page just updates.
+  const live = typeof sideLiveOn === 'function' && sideLiveOn() && !document.hidden && tecmoOnScreen();
   const id = latestRealId();
   if (!live) { if (G.gate) gateOpen(); G.shownId = id; return; }
   if (G.shownId == null) { G.shownId = id; return; }                   // on arrival, show what's already happened
@@ -1227,7 +1229,15 @@ function gateCheck() {
     if (!G.gate) G.gate = { id, at: Date.now(), old: null, moment: null };
     else G.gate.id = id;
   }
-  if (G.gate && Date.now() - G.gate.at > 45000) gateOpen();             // never hold forever
+  // Never hold long: 15 s, down from 45 (2026-09-28, user: "I keep having to refresh to see latest
+  // play"). A score held behind a slow animation reads as a page that stopped updating.
+  if (G.gate && Date.now() - G.gate.at > 15000) gateOpen();
+}
+function tecmoOnScreen() {
+  const cv = typeof sideTarget === 'function' ? sideTarget().cv : null;
+  if (!cv) return false;
+  const r = cv.getBoundingClientRect();
+  return r.width > 0 && r.bottom > 0 && r.top < innerHeight;
 }
 function gateOpen() {
   const g = G?.gate;
@@ -2286,7 +2296,8 @@ document.addEventListener('visibilitychange', () => {
     G?.evPoller.stop();
     G?.sumPoller.stop();
   } else {
-    if (G) { G.evPoller.start(); G.sumPoller.start(); requestWake(); } else boardPoller.start();
+    // Back in front: show where the game is now rather than replaying what was missed.
+    if (G) { if (G.gate) gateOpen(); G.evPoller.start(); G.sumPoller.start(); requestWake(); } else boardPoller.start();
   }
 });
 document.addEventListener('keydown', (e) => {

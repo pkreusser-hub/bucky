@@ -325,3 +325,21 @@ encoded the generic rule the user asked to replace — plus 8 new checks: RA_KIT
 GB/ATL real-kit assertions, an unknown-team fallback, the DEN case, the white-vs-white clash),
 sunday-ff 53/53. Bite: restoring HEAD's sd-reenact.js against the new tests fails exactly those 8
 (all other 113 checks, including the untouched RA_HELMET-coverage check, still pass).
+
+## 2026-09-28 — live view keeps up; one-colour helmets
+
+Perry: "I keep having to refresh to see latest play". With the 8-bit field on, the page holds the
+score and last play until the animation reaches that play (the gate). Watching LAR @ DEN live on the
+site, a play already in the feed reached the last-play card ~30 s late. The hold only ever ended by
+its 45 s cap, partly because the test pane was hidden and a hidden page runs no animation frames.
+Changes: the gate caps at 15 s (was 45); it only engages while the 8-bit canvas is on screen and the
+page is in front (`tecmoOnScreen`, `document.hidden`); coming back to the page opens any held gate; the
+live view jumps to the newest play when more than one behind (`sideNext`, was up to two at a time); and
+once the current scene has shown its result, a newer play cuts in instead of waiting for the
+walk-back, huddle or a stretcher.
+
+Perry: "the players have two colors on their helmet, make the helmet 1 solid color". The shell is one
+flat `H`: no stripe, no shadow/highlight tones. Cache-bust ?v=20260928e.
+
+VERIFY: sunday 123/123 (2 new: head pixels are all shell, 0 of 50 other tones where HEAD had 30;
+sideNext jumps when 2 or 5 behind), sunday-ff 53/53. Bite: HEAD fails both.
