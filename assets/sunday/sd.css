@@ -423,7 +423,7 @@ svg { display: block; }
 /* The game view is the Scores page (2026-09-28): it stops at the GFFL bar (phone, fixed at the
    bottom) and starts under GFFL's 34px top strip (desktop), so the bar is always there. */
 .game-view { bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
-@media (min-width: 1024px) { .game-view { top: 34px; bottom: 0; } }
+@media (min-width: 1024px) { .game-view { bottom: 0; } }           /* top: under GFFL's header, below */
 /* The board is now only a loading screen, and the page for a week with no games. */
 body.game-open #board-view { visibility: hidden; }
 #ff-head, #status-line { display: none; }
@@ -805,6 +805,37 @@ body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
   .gnav a[aria-current="page"] { color: var(--ink); }
   .topbar { top: 34px; }
 }
+/* GFFL's header (2026-09-28, user: "should feel like any other GFFL tab"): league.html's desktop
+   masthead, measured off it: 46px including a 3px red top rule, 24px side padding, 700 20px / 1.2px
+   wordmark, the tagline centred in white 700 11px, the 30px crest pinned right. The gnav sticks
+   under it at 46px, as #bnav does there, and the game view starts under both (80px). The week
+   picker and Settings sit where GFFL shows "Week N · year", so Scores' own bar goes: the board's
+   top bar, and the game view's week row (its phone strip stays until the sidebar takes over). */
+.ghdr { display: none; }
+@media (min-width: 1024px) {
+  .ghdr {
+    position: sticky; top: 0; z-index: 31; display: flex; align-items: center; gap: 16px; box-sizing: border-box;
+    height: calc(46px + env(safe-area-inset-top, 0px)); padding: env(safe-area-inset-top, 0px) 24px 0;
+    background: var(--topbar-bg); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border-top: 3px solid var(--pylon);
+  }
+  .gh-word { font: 700 20px/1 var(--cond); letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; color: var(--ink); }
+  .gh-word span { color: var(--pylon-text); }
+  .gh-sub { flex: 1 1 auto; text-align: center; font: 700 11px var(--body); color: var(--ink); }
+  .gh-meta { display: flex; align-items: center; gap: 6px; }
+  .gh-week .icon-btn { width: 32px; height: 32px; }
+  .gh-week .week-label { min-height: 32px; font: 600 12px var(--cond); letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .gh-meta .gv-set { width: 32px; height: 32px; }
+  .gh-av { width: 32px; height: 32px; flex: none; display: flex; }
+  .gh-av[hidden] { display: none; }
+  .gh-crest { flex: none; display: block; height: 30px; width: auto; }
+  .gnav { top: calc(46px + env(safe-area-inset-top, 0px)); }
+  .topbar { display: none; }
+  .game-view { top: calc(80px + env(safe-area-inset-top, 0px)); }
+  .g-top { padding-top: 0; }
+  .g-top-row { display: none; }
+}
+@media (min-width: 1080px) { .g-top { display: none; } }
 .badge-dot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--pylon); box-shadow: 0 0 0 2px var(--bg); }
 #settings-btn { position: relative; }
 #settings-btn svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -943,6 +974,14 @@ body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
 .ra-banner.on { opacity: 1; transform: translate(-50%, 0) scale(1); }
 .ra-banner b { font: 400 14px/1.1 "Press Start 2P", monospace; text-transform: uppercase; }
 .ra-banner span { font: 400 8px/1.2 "Press Start 2P", monospace; text-transform: uppercase; }
+/* The halftime desk's chat bubble (2026-09-28): white card, hard black pixel border and shadow, the
+   speaker's name in their suit colour, a tail down to their head (--tx from the bubble's left). */
+.ht-bub { position: absolute; z-index: 2; display: flex; flex-direction: column; gap: 0.5em; padding: 0.8em 0.9em; background: #fbfbf4; color: #101010; box-shadow: 0 0 0 2px #101010, 4px 4px 0 2px rgba(0,0,0,0.4); font: 400 9px/1.55 "Press Start 2P", monospace; pointer-events: none; opacity: 0; transition: opacity 0.1s steps(2); overflow-wrap: anywhere; }
+.ht-bub.on { opacity: 1; }
+.ht-bub b { font-weight: 400; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.02em; }
+.ht-bub.dots span { letter-spacing: 0.3em; }
+.ht-bub::after { content: ""; position: absolute; top: 100%; left: calc(var(--tx, 50%) - 6px); border: 6px solid transparent; border-top: 8px solid #101010; }
+.ht-bub::before { content: ""; position: absolute; top: calc(100% - 2px); left: calc(var(--tx, 50%) - 4px); z-index: 1; border: 4px solid transparent; border-top: 6px solid #fbfbf4; }
 .ra-ctl { display: grid; grid-template-columns: 1fr 1.3fr 64px 1fr; gap: 8px; }
 .ra-b { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; border-radius: 12px; font: 700 13px/1 var(--cond); letter-spacing: 0.08em; text-transform: uppercase; background: var(--surface-2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-2); }
 .ra-b svg { width: 10px; height: 10px; fill: currentColor; }
@@ -977,6 +1016,7 @@ body { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
 .stadium.tecmo .field-3d, .stadium.rp8 .rp-start { display: none; }
 .big-tecmo { margin-top: 4px; }
 .bt-stage { aspect-ratio: 16 / 10; }
+.sl-stage.studio-tall { aspect-ratio: 4 / 3; }        /* the halftime desk on a narrow stage (sideRun) */
 .bt-tx { margin: 8px 4px 0; color: var(--stadium-ink-2); }
 .stadium.tecmo .fv-tog { margin-left: auto; }
 .stadium.tecmo:not(.rp8) .field-cap .ret + .fv-tog { margin-left: 8px; }

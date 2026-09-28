@@ -430,8 +430,13 @@ async function main() {
       const g = document.getElementById("gnav").getBoundingClientRect(), t = document.getElementById("topbar");
       return { gTop: Math.round(g.top), gH: Math.round(g.height), pos: getComputedStyle(document.getElementById("gnav")).position, topbarTop: getComputedStyle(t).top };
     });
-    ok(desk.pos === "sticky" && desk.gTop === 0 && desk.gH === 34 && desk.topbarTop === "34px",
-      `desktop: the bar is GFFL's 34px top strip and Sunday's top bar sticks under it (${JSON.stringify(desk)})`);
+    // RESTAGED 2026-09-28 (user: "Scores page should fit within the GFFL desktop site like the other
+    // GFFL pages, right now it has its own top bar and the GFFL header goes away"): the strip now sits
+    // under GFFL's own 46px header, as league.html's #bnav does, and Scores' own top bar is gone on
+    // desktop (the week picker and Settings live in that header; section "GFFL's header on desktop").
+    const deskT = await page.evaluate(() => ({ topbarShown: document.getElementById("topbar").offsetParent !== null, hdrH: Math.round(document.getElementById("ghdr")?.getBoundingClientRect().height ?? 0) }));
+    ok(desk.pos === "sticky" && desk.gTop === 46 && desk.gH === 34 && deskT.hdrH === 46 && !deskT.topbarShown,
+      `desktop: the bar is GFFL's 34px strip under GFFL's 46px header, and Scores' own top bar is gone (${JSON.stringify({ ...desk, ...deskT })})`);
     await page.setViewport({ width: 800, height: 600 });
 
     /* ===================== (g) the 8-bit re-enactment: staging, uniforms, resolution ===================== */
@@ -1518,7 +1523,190 @@ async function main() {
         const lr = link.getBoundingClientRect(), hit = document.elementFromPoint(lr.left + lr.width / 2, lr.top + lr.height / 2);
         return { barHit: nav.contains(hit), gvTop: Math.round(gv.getBoundingClientRect().top), side: document.querySelector(".gv-side")?.offsetParent !== null, strip: document.getElementById("g-strip").offsetParent !== null };
       });
-      ok(D.barHit && D.gvTop === 34 && D.side && !D.strip, `desktop: GFFL's 34px top strip stays above the detail (tappable: ${D.barHit}, detail starts at ${D.gvTop}px) and the games list is the sidebar, not the strip (${D.side}, ${D.strip})`);
+      // RESTAGED 2026-09-28: the detail now starts under GFFL's header AND its strip (46 + 34 = 80px),
+      // not the strip alone (34px); see "GFFL's header on desktop" below.
+      ok(D.barHit && D.gvTop === 80 && D.side && !D.strip, `desktop: GFFL's header and 34px strip stay above the detail (tappable: ${D.barHit}, detail starts at ${D.gvTop}px, under 46 + 34) and the games list is the sidebar, not the strip (${D.side}, ${D.strip})`);
+
+      /* ===================== (m) GFFL's header on desktop ===================== */
+      // 2026-09-28, user: "Scores page should fit within the GFFL desktop site like the other GFFL
+      // pages, right now it has its own top bar and the GFFL header goes away, should feel like any
+      // other GFFL tab". league.html's desktop masthead, measured off it: 46px with a 3px red top rule,
+      // THE GFFL, the tagline, the crest; the week picker and Settings sit where GFFL shows the week.
+      section("GFFL's header on desktop");
+      {
+        const shownQ = "(el) => !!el && el.offsetParent !== null";
+        const GH = await probe((shownSrc) => {
+          const shown = eval(shownSrc);
+          const h = document.getElementById("ghdr");
+          if (!h) return { err: "no #ghdr" };
+          const r = h.getBoundingClientRect(), cs = getComputedStyle(h);
+          return { top: Math.round(r.top), h: Math.round(r.height), rule: cs.borderTopWidth, ruleCol: cs.borderTopColor, word: h.querySelector(".gh-word")?.textContent.trim(), sub: h.querySelector(".gh-sub")?.textContent.trim(), crest: shown(h.querySelector(".gh-crest")),
+            week: document.getElementById("gh-week-label")?.textContent.trim(), gvWeek: document.getElementById("gv-week-label")?.textContent.trim(), weekShown: shown(document.getElementById("gh-week-label")), setShown: shown(document.getElementById("gh-settings")),
+            gTop: shown(document.getElementById("g-top")), topbar: shown(document.getElementById("topbar")), navTop: Math.round(document.getElementById("gnav").getBoundingClientRect().top) };
+        }, shownQ);
+        ok(!GH.err && GH.top === 0 && GH.h === 46 && GH.rule === "3px" && /213, 10, 10|179, 8, 8/.test(GH.ruleCol) && GH.word === "The GFFL" && /^G\.O\.A\.T\. Fantasy Football League$/.test(GH.sub || "") && GH.crest && GH.navTop === 46,
+          `desktop: GFFL's own header is on top, as on every GFFL tab (46px from 0 with a 3px red rule: ${GH.top}/${GH.h}/${GH.rule} ${GH.ruleCol}; "${GH.word}", "${GH.sub}", crest ${GH.crest}), its tab strip under it at ${GH.navTop}px`);
+        ok(GH.weekShown && /^Wk \d+/.test(GH.week || "") && GH.week === GH.gvWeek && GH.setShown && !GH.gTop && !GH.topbar,
+          `desktop: the week picker (${JSON.stringify(GH.week)}) and Settings sit in GFFL's header, and Scores' own top bar is gone (the detail's: ${GH.gTop}, the board's: ${GH.topbar})`);
+        await click("#gh-settings");
+        await wait(200);
+        const hs = await probe(() => { const sh = document.getElementById("week-sheet"); const open = !sh.hidden && /settings/i.test(sh.textContent); sh.querySelector("[data-close]")?.click(); return { open }; });
+        const w0 = await probe(() => JSON.stringify(S.week || S.cur));
+        await click("#gh-week-prev");
+        await wait(500);
+        const w1 = await probe(() => ({ wk: JSON.stringify(S.week || S.cur), lab: document.getElementById("gh-week-label")?.textContent.trim() }));
+        await click("#gh-week-next");
+        await wait(600);
+        ok(hs.open && w1.wk !== w0 && w1.lab !== GH.week, `…and they work: Settings opens its sheet (${hs.open}); ‹ steps back a week (${w0} → ${w1.wk}, label ${JSON.stringify(w1.lab)})`);
+        const av = await probe(() => {
+          FF.setTeams([{ teamId: 9, name: "Scruffy Looking Nerfherders", abbrev: "SLN" }, { teamId: 1, name: "Battle Kreussers", abbrev: "BK" }]);
+          FF.setMyTeam(9);
+          const a = document.getElementById("gh-av");
+          return { shown: !!a && a.offsetParent !== null, crest: a?.querySelector(".ff-crest")?.getAttribute("aria-label"), href: a?.getAttribute("href") };
+        });
+        ok(av.shown && av.crest === "Scruffy Looking Nerfherders" && av.href === "league.html#team", `desktop: your GFFL team's crest in the header, as GFFL wears it, linking to My Team (${JSON.stringify(av)})`);
+        await page.setViewport({ width: 390, height: 844 });
+        await wait(200);
+        const ph = await probe(() => ({ hdr: document.getElementById("ghdr")?.offsetParent !== null, row: document.querySelector(".g-top-row")?.offsetParent !== null, week: document.getElementById("gv-week-label")?.offsetParent !== null }));
+        ok(!ph.hdr && ph.row && ph.week, `phone: no desktop header; the detail keeps its own week row, over the GFFL bar at the bottom (${JSON.stringify(ph)})`);
+      }
+
+      /* ===================== (n) end zones: the home team's, at both ends ===================== */
+      // 2026-09-28, user: "do some research on endzone styles for each team, and the endzones should
+      // always reflect the home team, not be different on either side". ATL @ GB: Lambeau's end zones
+      // are dark green (#203731) with PACKERS at both ends in gold (#FFB612), edged white. Before, the
+      // left end zone was Atlanta's, in red, reading FALCONS.
+      section("End zones: the home team's, at both ends");
+      {
+        await probe(() => { location.hash = "#g401872948"; });
+        await wait(1200);
+        const tbl = await probe(() => {
+          const abbrs = [...new Set(S.events.flatMap((e) => [e.away.abbr, e.home.abbr]))];
+          const hex = (x) => /^#[0-9a-f]{6}$/i.test(x || "");
+          const bad = abbrs.filter((a) => { const z = typeof EZ !== "undefined" && EZ[a]; return !z || !hex(z.fill) || !hex(z.ink) || !(z.edge === null || hex(z.edge)) || z.words?.length !== 2 || !z.words.every((w) => /^[A-Z0-9 &]{2,12}$/.test(w)); });
+          return { n: abbrs.length, bad };
+        });
+        ok(tbl.n === 32 && tbl.bad && tbl.bad.length === 0, `every team in the fixture week (${tbl.n}) has its own end-zone paint: fill, lettering, outline and the words at each end (missing or malformed: ${JSON.stringify(tbl.bad || tbl.err)})`);
+        const sv = await probe(() => {
+          const svg = document.getElementById("field");
+          const rects = [...svg.querySelectorAll('rect[width="100"]')].filter((r) => r.getAttribute("height") === "533" && /^#/.test(r.getAttribute("fill") || ""));
+          const texts = [...svg.querySelectorAll("text")].filter((t) => /^[A-Z]{3,}$/.test(t.textContent.trim()));
+          return { home: G.ev.home.abbr, rects: rects.map((r) => [r.getAttribute("x"), r.getAttribute("fill").toUpperCase()]), texts: texts.map((t) => [t.textContent.trim(), (t.getAttribute("fill") || "").toUpperCase(), (t.getAttribute("stroke") || "").toUpperCase()]) };
+        });
+        ok(sv.home === "GB" && JSON.stringify(sv.rects) === JSON.stringify([["0", "#203731"], ["1100", "#203731"]]) && JSON.stringify(sv.texts) === JSON.stringify([["PACKERS", "#FFB612", "#FFFFFF"], ["PACKERS", "#FFB612", "#FFFFFF"]]),
+          `field view: both end zones are Lambeau's, dark green with PACKERS in gold edged white (${JSON.stringify(sv)})`);
+        const art = await probe(() => {
+          const px = (g, x, y) => { const d = g.getImageData(x, y, 1, 1).data; return "#" + [d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, "0")).join(""); };
+          const zoneInk = (g, H0, H1, col) => { const x0 = raSX(H1), x1 = raSX(H0); const d = g.getImageData(x0, RA_TOP, x1 - x0, 53 * 14).data; let n = 0; const [r, gg, b] = [1, 3, 5].map((i) => parseInt(col.slice(i, i + 2), 16)); for (let i = 0; i < d.length; i += 4) if (d[i] === r && d[i + 1] === gg && d[i + 2] === b) n++; return n; };
+          const one = (ev) => { const sc = raBuild(raPlays()[3], ev, raQBs()); const c = raFieldArt(sc); return c.getContext("2d"); };
+          const g = one(G.ev), y = RA_TOP + 3 * RA_K;                           // between the grain rows, off the lettering
+          const cin = structuredClone(G.ev); cin.home = { ...cin.home, abbr: "CIN", id: "cin-test", name: "Bengals" };
+          const gc = one(cin);
+          return { right: px(g, raSX(-2), y), left: px(g, raSX(102), y), goldR: zoneInk(g, -10, 0, "#ffb612"), goldL: zoneInk(g, 100, 110, "#ffb612"),
+            hatchR: zoneInk(gc, -10, 0, "#fb4f14"), hatchL: zoneInk(gc, 100, 110, "#fb4f14") };
+        });
+        ok(art.right === "#203731" && art.left === "#203731" && art.goldR > 200 && art.goldL > 200,
+          `8-bit field: both end zones dark green (${art.right}, ${art.left}) with gold lettering at each end (${art.goldR} and ${art.goldL} gold pixels)`);
+        ok(art.hatchR > 1000 && art.hatchL > 1000 && Math.abs(art.hatchR - art.hatchL) / art.hatchR < 0.25,
+          `8-bit field: a team that paints stripes gets them at both ends (Cincinnati's orange hatch: ${art.hatchR} and ${art.hatchL} pixels)`);
+      }
+
+      /* ===================== (o) halftime: the studio desk ===================== */
+      // 2026-09-28, user: "for half time, since nfl doesnt have marching bands, lets have the view change
+      // to 4 people around a desk like you would see on a pre-game or post game NFL broadcast, wearing
+      // suits (this is all still retro) and going back and forth with chat bubbles analyzing the half.
+      // have opus 5.5 write some dialogue for each of the 4 people so that the whole thing lasts around
+      // a minute, and if you revisit the page while its half time it just replays the same dialogue".
+      // ATL @ GB cut at the half (tools/fixtures/halftime/sum-401872948-half.json: the real summary's
+      // plays through Q2, 17-7), the scoreboard moved to STATUS_HALFTIME, and the halftime function's
+      // reply served from tools/fixtures/halftime/script-401872948.json.
+      section("Halftime: the studio desk");
+      {
+        const HFIX = path.join(__dirname, "fixtures", "halftime");
+        const halfSum = fs.readFileSync(path.join(HFIX, "sum-401872948-half.json"), "utf8");
+        const script = JSON.parse(fs.readFileSync(path.join(HFIX, "script-401872948.json"), "utf8"));
+        const sbH = structuredClone(sbFixture);
+        const evH = sbH.events.find((e) => e.id === "401872948"), cH = evH.competitions[0];
+        cH.status = { clock: 0, displayClock: "0:00", period: 2, type: { id: "23", name: "STATUS_HALFTIME", state: "in", completed: false, description: "Halftime", detail: "Halftime", shortDetail: "Halftime" } };
+        evH.status = cH.status;
+        for (const x of cH.competitors) x.score = x.homeAway === "away" ? "17" : "7";
+        const json = (body) => ({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body });
+        const asks = [];
+        let reply = () => JSON.stringify(script);
+        MOCK = (u) => /\/\.netlify\/functions\/halftime\?/.test(u) ? (asks.push(u), json(reply()))
+          : /site\.api\.espn\.com.*\/scoreboard\/401872948/.test(u) ? json(JSON.stringify(evH))
+          : /site\.api\.espn\.com.*\/summary\?event=401872948/.test(u) ? json(halfSum)
+          : /site\.api\.espn\.com.*\/scoreboard(\?|$)/.test(u) ? json(JSON.stringify(sbH)) : null;
+        await page.setViewport({ width: 390, height: 844 });
+        await page.evaluate(() => localStorage.setItem("sun.tecmoBig", "true"));
+        await page.goto(BASE + "/sunday.html#g401872948", { waitUntil: "domcontentloaded" });
+        let up = true;
+        try { await page.waitForFunction(() => G && G.sum && SIDE.sc && (SIDE.sc.halftime || SIDE.sc.studio) && document.getElementById("bt-cv")?.offsetParent, { timeout: 15000 }); } catch { up = false; }
+        await wait(800);
+        const s0 = await probe(() => ({ studio: !!SIDE.sc.studio, actors: SIDE.sc.actors.length, roles: [...new Set(SIDE.sc.actors.map((a) => a.role))], lines: SIDE.sc.tl?.lines.map((l) => [l.who, l.text]), first: SIDE.sc.tl?.lines[0]?.t0, last: SIDE.sc.tl?.lines.at(-1)?.t1, T: SIDE.sc.tl?.T }));
+        ok(up && s0.studio && s0.actors === 0, `at halftime the 8-bit view is the studio desk, not a marching band (studio ${s0.studio}; ${s0.actors} field actors ${JSON.stringify(s0.roles)})`);
+        ok(asks.length === 1 && /event=401872948$/.test(asks[0] || ""), `…it asks the halftime function for this game's script, once (${JSON.stringify(asks)})`);
+        ok(JSON.stringify(s0.lines) === JSON.stringify(script.lines.map((l) => [l.who, l.text])), `…and plays that script's lines, in order, each by its speaker (${(s0.lines || []).length} of ${script.lines.length})`);
+        // About a minute. By hand for 16 lines of 11 words: each line 1.1 + 0.26 × 11 = 3.96 s of reading;
+        // 16 × 3.96 + 16 × 0.3 s of gaps = 68.16 s natural, scaled by 60 / 68.16 = 0.8803 to 3.486 s a line,
+        // so the last line ends at 1.4 + 16 × 3.486 + 15 × 0.3 = 61.67 s; with the 0.3 s gap and the 6 s
+        // break the show loops at 67.97 s.
+        const syn = await probe(() => { const tl = htTimeline(Array.from({ length: 16 }, (_, i) => ({ who: i % 4, text: "one two three four five six seven eight nine ten eleven" }))); return { end: tl.lines.at(-1).t1, T: tl.T, first: tl.lines[0].t0 }; });
+        ok(Math.abs(syn.end - 61.67) < 0.05 && Math.abs(syn.T - 67.97) < 0.05 && syn.first === 1.4, `a script of the length Opus is asked for (16 lines, 176 words) runs about a minute: the last line ends at ${syn.end?.toFixed?.(2)} s (hand-computed 61.67), the show loops at ${syn.T?.toFixed?.(2)} s (67.97)`);
+        ok(s0.first === 1.4 && s0.last >= 45 && s0.last <= 75, `…and the fixture's longer script (254 words) is held to the 1.25× squeeze: it ends at ${s0.last?.toFixed?.(1)} s`);
+        const at = (t) => probe((t) => {
+          SIDE.t = SIDE.sc.t0 + t; SIDE.htKey = null; raStep(SIDE, 0);
+          const stage = document.querySelector("#big-tecmo .bt-stage"), b = stage.querySelector(".ht-bub");
+          if (!b) return { none: true };
+          const s = stage.getBoundingClientRect(), r = b.getBoundingClientRect();
+          return { on: b.classList.contains("on"), name: b.querySelector("b").textContent, text: b.querySelector("span").textContent, box: [r.left - s.left, r.top - s.top, r.right - s.left, r.bottom - s.top].map(Math.round), stW: Math.round(s.width), stH: Math.round(s.height),
+            tail: parseFloat(b.style.left) + parseFloat(b.style.getPropertyValue("--tx")), heads: SIDE.htHeads, font: parseFloat(getComputedStyle(b).fontSize), bug: SIDE.bugState?.clock };
+        }, t);
+        const b0 = await at(3);
+        const hx = b0.heads?.map((h) => Math.round(h.x));
+        ok(b0.on && b0.name === "Hal Brandt" && b0.text === script.lines[0].text, `the host opens: a chat bubble with his name and the first line (${JSON.stringify([b0.on, b0.name, b0.text])})`);
+        ok(b0.heads?.length === 4 && hx.every((x, i) => i === 0 || x > hx[i - 1]) && Math.abs(b0.tail - b0.heads[0].x) < 2 && b0.box[3] <= b0.heads[0].top && b0.box[0] >= 0 && b0.box[2] <= b0.stW && b0.font >= 8,
+          `…pinned over the host's head: four people left to right (${JSON.stringify(hx)}), the tail at ${Math.round(b0.tail)} over ${Math.round(b0.heads?.[0]?.x)}, the bubble ending at ${b0.box?.[3]} above the head at ${Math.round(b0.heads?.[0]?.top)}, inside the ${b0.stW}px stage, ${b0.font}px type`);
+        ok(b0.bug === "HALF", `…with the score bug still reading HALF under the desk (${b0.bug})`);
+        const mid5 = await probe(() => { const l = SIDE.sc.tl.lines[5]; return (l.t0 + l.t1) / 2; });
+        const b5 = await at(mid5);
+        ok(b5.on && b5.name === "Dot Keene" && b5.text === script.lines[5].text && Math.abs(b5.tail - b5.heads[3].x) < 2 && b5.box[2] <= b5.stW && b5.box[0] >= 0,
+          `the analysts take their turns: line 6 is Dot Keene's, over the fourth head and kept inside the stage (${JSON.stringify([b5.name, Math.round(b5.tail), Math.round(b5.heads?.[3]?.x), b5.box])})`);
+        const gap = await probe(() => { const l = SIDE.sc.tl.lines[5]; return l.t1 + 0.15; });
+        const bg = await at(gap);
+        const lp = await at(await probe(() => SIDE.sc.tl.T + 3));
+        ok(!bg.on && lp.on && lp.text === script.lines[0].text, `between lines the bubble clears (${bg.on}); after the break the show starts over from the host's opener (${JSON.stringify(lp.text)})`);
+        // Revisit: another game, then back while it is still halftime.
+        const other = sbFixture.events.find((e) => e.id !== "401872948").id;
+        await probe((o) => { location.hash = "#g" + o; }, other);
+        await wait(1500);
+        await probe(() => { location.hash = "#g401872948"; });
+        try { await page.waitForFunction(() => G?.id === "401872948" && SIDE.sc?.studio, { timeout: 8000 }); } catch {}
+        await wait(300);
+        const rv = await probe(() => ({ u: SIDE.t - SIDE.sc.t0, i: htAt(SIDE.sc, SIDE.t).i, lines: SIDE.sc.tl.lines.map((l) => l.text) }));
+        ok(rv.u < 3 && rv.i <= 0 && JSON.stringify(rv.lines) === JSON.stringify(script.lines.map((l) => l.text)) && asks.length === 1,
+          `a revisit during halftime replays the same dialogue from the top (${rv.u?.toFixed?.(1)} s in, line ${rv.i}; the same ${rv.lines?.length} lines; asked the function ${asks.length} time)`);
+        // Still being written: the host opens with the score, the analysts "think", then the script plays from its first line.
+        let n = 0;
+        reply = () => (++n === 1 ? JSON.stringify({ ok: false, pending: true }) : JSON.stringify(script));
+        await probe(() => { HT.clear(); sideHalftime(); });
+        await wait(300);
+        const pw = await probe(() => ({ waiting: SIDE.sc.waiting, lines: SIDE.sc.tl.lines.map((l) => [l.who, l.text]), dots: htAt(SIDE.sc, SIDE.sc.t0 + SIDE.sc.tl.lines[0].t1 + 1).line }));
+        ok(pw.waiting && pw.lines.length === 1 && pw.lines[0][0] === 0 && /Falcons 17, .*Packers 7/.test(pw.lines[0][1]) && pw.dots?.dots && pw.dots.who >= 1,
+          `while Opus is still writing, the host opens with the score and the analysts think (${JSON.stringify(pw)})`);
+        try { await page.waitForFunction(() => SIDE.sc && !SIDE.sc.waiting, { timeout: 9000 }); } catch {}
+        const pd = await probe(() => ({ waiting: SIDE.sc.waiting, n: SIDE.sc.tl.lines.length, first: SIDE.sc.tl.lines[0].text, u: SIDE.t - SIDE.sc.t0, t0: SIDE.sc.t0 }));
+        ok(!pd.waiting && pd.n === script.lines.length && pd.first === script.lines[0].text && pd.u < 2 && pd.t0 > 3 && n === 2,
+          `…and once it's written, the script starts from its first line (${JSON.stringify(pd)}, ${n} asks)`);
+        reply = () => JSON.stringify({ ok: false, reason: "failed" });
+        await probe(() => { HT.clear(); sideHalftime(); });
+        await wait(500);
+        const fl = await probe(() => SIDE.sc.tl.lines.map((l) => l.who));
+        ok(JSON.stringify(fl) === "[0,1,2,3,0]", `if no script can be written, a short stand-in keeps the desk talking: the host, each analyst, the host (${JSON.stringify(fl)})`);
+        const after = await probe(() => { sideRun(raBuild(raPlays()[3], G.ev, raQBs())); raStep(SIDE, 0.016); return { studio: !!SIDE.sc.studio, bub: !!document.querySelector("#big-tecmo .ht-bub.on") }; });
+        ok(!after.studio && !after.bub, `when play resumes, the desk and its bubble give way to the field (${JSON.stringify(after)})`);
+        await probe(() => localStorage.removeItem("sun.tecmoBig"));
+      }
       await page.setViewport({ width: 800, height: 600 });
       MOCK = null;
     }

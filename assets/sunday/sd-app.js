@@ -149,6 +149,56 @@ function vivid(h) {
   if (lum(c) > 0.85) c = mixHex(c, '#000000', 0.28);
   return c;
 }
+// Every team's own end zones, researched 2026-09-28 (user: "do some research on endzone styles for
+// each team, and the endzones should always reflect the home team, not be different on either
+// side"). Both end zones wear the HOME team's paint, as at a real stadium: [the one on the right of
+// the field views, the one on the left]; many teams put the nickname at one end and the city at the
+// other. Fill, pattern (a diagonal hatch stands in for Cincinnati's tiger stripes), lettering and
+// its outline, and whether the logo is painted beside the word. Sources and confidence per team:
+// docs/sunday.md (2026-09-28 entry). Solid on fill and words: BAL BUF CIN DEN GB LV MIN NE PHI PIT
+// SEA; the rest are broadcast recollection (MetLife and SoFi repaint per home team, so NYG/NYJ and
+// LAR/LAC each keep their own).
+const EZ = {
+  ARI: { fill: '#97233F', words: ['CARDINALS', 'ARIZONA'], ink: '#FFFFFF', edge: '#000000' },
+  ATL: { fill: '#000000', words: ['FALCONS', 'ATLANTA'], ink: '#FFFFFF', edge: '#A71930' },
+  BAL: { fill: '#000000', words: ['RAVENS', 'BALTIMORE'], ink: '#FFFFFF', edge: null },
+  BUF: { fill: '#00338D', words: ['BILLS', 'BUFFALO'], ink: '#FFFFFF', edge: '#C60C30' },
+  CAR: { fill: '#101820', words: ['PANTHERS', 'CAROLINA'], ink: '#0085CA', edge: '#BFC0BF' },
+  CHI: { fill: '#0B162A', words: ['BEARS', 'CHICAGO'], ink: '#C83803', edge: '#FFFFFF' },
+  CIN: { fill: '#000000', pattern: '#FB4F14', words: ['BENGALS', 'CINCINNATI'], ink: '#FB4F14', edge: '#FFFFFF' },
+  CLE: { fill: '#311D00', words: ['BROWNS', 'CLEVELAND'], ink: '#FF3C00', edge: '#FFFFFF' },
+  DAL: { fill: '#003594', words: ['COWBOYS', 'DALLAS'], ink: '#FFFFFF', edge: '#869397', logo: true },
+  DEN: { fill: '#002244', words: ['BRONCOS', 'BRONCOS'], ink: '#FB4F14', edge: '#FFFFFF', logo: true },
+  DET: { fill: '#0076B6', words: ['LIONS', 'DETROIT'], ink: '#FFFFFF', edge: '#B0B7BC' },
+  GB: { fill: '#203731', words: ['PACKERS', 'PACKERS'], ink: '#FFB612', edge: '#FFFFFF' },
+  HOU: { fill: '#03202F', words: ['TEXANS', 'HOUSTON'], ink: '#FFFFFF', edge: '#A71930' },
+  IND: { fill: '#002C5F', words: ['COLTS', 'INDIANAPOLIS'], ink: '#FFFFFF', edge: null, logo: true },
+  JAX: { fill: '#101820', words: ['JAGUARS', 'JACKSONVILLE'], ink: '#006778', edge: '#D7A22A' },
+  KC: { fill: '#E31837', words: ['CHIEFS', 'CHIEFS'], ink: '#FFFFFF', edge: '#FFB81C', logo: true },
+  LV: { fill: '#000000', words: ['RAIDERS', 'LAS VEGAS'], ink: '#A5ACAF', edge: '#FFFFFF', logo: true },
+  LAC: { fill: '#002A5E', words: ['CHARGERS', 'CHARGERS'], ink: '#0080C6', edge: '#FFC20E', logo: true },
+  LAR: { fill: '#003594', words: ['RAMS', 'RAMS'], ink: '#FFFFFF', edge: '#FFA300', logo: true },
+  MIA: { fill: '#008E97', words: ['DOLPHINS', 'MIAMI'], ink: '#FFFFFF', edge: '#FC4C02', logo: true },
+  MIN: { fill: '#4F2683', words: ['VIKINGS', 'VIKINGS'], ink: '#FFFFFF', edge: '#FFC62F' },
+  NE: { fill: '#002244', words: ['PATRIOTS', 'PATRIOTS'], ink: '#FFFFFF', edge: '#C60C30', logo: true },
+  NO: { fill: '#101820', words: ['SAINTS', 'NEW ORLEANS'], ink: '#D3BC8D', edge: '#FFFFFF', logo: true },
+  NYG: { fill: '#0B2265', words: ['GIANTS', 'NEW YORK'], ink: '#FFFFFF', edge: '#A71930', logo: true },
+  NYJ: { fill: '#125740', words: ['JETS', 'NEW YORK'], ink: '#FFFFFF', edge: '#000000', logo: true },
+  PHI: { fill: '#004C54', words: ['EAGLES', 'EAGLES'], ink: '#FFFFFF', edge: '#A5ACAF', logo: true },
+  PIT: { fill: '#101820', words: ['STEELERS', 'PITTSBURGH'], ink: '#FFB612', edge: '#FFFFFF' },
+  SF: { fill: '#AA0000', words: ['49ERS', '49ERS'], ink: '#FFFFFF', edge: '#B3995D', logo: true },
+  SEA: { fill: '#002244', words: ['SEAHAWKS', 'SEAHAWKS'], ink: '#FFFFFF', edge: '#69BE28', logo: true },
+  TB: { fill: '#D50A0A', words: ['BUCCANEERS', 'TAMPA BAY'], ink: '#FFFFFF', edge: '#34302B' },
+  TEN: { fill: '#4B92DB', words: ['TITANS', 'TENNESSEE'], ink: '#FFFFFF', edge: '#0C2340', logo: true },
+  WSH: { fill: '#5A1414', words: ['COMMANDERS', 'WASHINGTON'], ink: '#FFB612', edge: '#FFFFFF' },
+};
+// The home team's end-zone paint; a team not in the table gets its own colour and name, both ends.
+function ezStyle(home) {
+  const e = EZ[String(home?.abbr || '').toUpperCase()];
+  if (e) return e;
+  const fill = teamInk(home), word = String(home?.name || home?.abbr || '').toUpperCase();
+  return { fill, words: [word, word], ink: onColor(fill), edge: null };
+}
 // Two teams in similar colours (red vs red) get the away side's alternate.
 const chroma = (h) => { const c = rgb(h); return Math.max(...c) - Math.min(...c); };
 // A team's everyday colour. Only a neutral black/charcoal primary (Iowa's #231f20) gives way to
@@ -726,7 +776,7 @@ function renderWeekLabel() {
   const w = S.week || S.cur;
   const e = w && S.calendar.find((c) => c.st === w.st && c.wk === w.wk);
   const i = e ? S.calendar.indexOf(e) : -1;
-  for (const pre of ['', 'gv-']) {                          // the board's header and the game view's
+  for (const pre of ['', 'gv-', 'gh-']) {                    // the board's header, the game view's, GFFL's (desktop)
     const lab = $(`#${pre}week-label`);
     if (!lab) continue;
     lab.innerHTML = `${esc(e ? e.label.replace('Week ', 'Wk ') : 'Week')}${ICON.caret}`;
@@ -1513,20 +1563,23 @@ function drawFieldStatic() {
   const { away: A, home: H } = ev;
   const W = 1200, Ht = 533;
   let s = `<defs>
-    <pattern id="ezp" width="26" height="26" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="13" height="26" fill="rgba(255,255,255,0.07)"/></pattern>
+    <pattern id="ezp" width="26" height="26" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="9" height="26" fill="${ezStyle(H).pattern || 'transparent'}" fill-opacity="0.85"/></pattern>
     <linearGradient id="turfsheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.10"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.18"/></linearGradient>
     <radialGradient id="ballglow"><stop offset="0" stop-color="#fff" stop-opacity="0.9"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
   </defs>`;
   for (let i = 0; i < 20; i++) s += `<rect x="${100 + i * 50}" y="0" width="50" height="${Ht}" fill="${i % 2 ? '#2d8045' : '#28743e'}"/>`;
   const pc = pair(A, H);
-  const ez = (t, col, x, rot) => {
-    const name = (t.name || t.abbr).toUpperCase();
-    const label = name.length > 14 ? t.abbr : name;
+  // Both end zones in the home team's paint (2026-09-28: they used to be one team's each).
+  const Z = ezStyle(H);
+  const ez = (label, x, rot) => {
     const fs = Math.min(76, 470 / Math.max(3, label.length * 0.56));
-    return `<rect x="${x}" y="0" width="100" height="${Ht}" fill="${col}"/><rect x="${x}" y="0" width="100" height="${Ht}" fill="url(#ezp)"/>
-      <text transform="translate(${x + 50} ${Ht / 2}) rotate(${rot})" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="900" letter-spacing="4" fill="${onColor(col)}" fill-opacity="0.92">${esc(label)}</text>`;
+    const logo = Z.logo && label.length <= 9;
+    const half = label.length * fs * 0.33 + 44;                // half the word's run, plus a gap: the logos go either side
+    const lg = logo ? [-1, 1].map((d) => `<image href="${esc(logoURL(H, 120, false))}" x="${-30 + d * half}" y="-30" width="60" height="60" opacity="0.95"/>`).join('') : '';
+    return `<rect x="${x}" y="0" width="100" height="${Ht}" fill="${Z.fill}"/>${Z.pattern ? `<rect x="${x}" y="0" width="100" height="${Ht}" fill="url(#ezp)"/>` : ''}
+      <g transform="translate(${x + 50} ${Ht / 2}) rotate(${rot})">${lg}<text text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="900" letter-spacing="4" fill="${Z.ink}"${Z.edge ? ` stroke="${Z.edge}" stroke-width="${Math.max(2, fs / 14).toFixed(1)}" paint-order="stroke"` : ''}>${esc(label)}</text></g>`;
   };
-  s += ez(A, pc.aRaw, 0, -90) + ez(H, pc.hRaw, 1100, 90);
+  s += ez(Z.words[1], 0, -90) + ez(Z.words[0], 1100, 90);
   for (let y = 0; y <= 100; y += 5) {
     const x = 100 + y * 10;
     s += `<line x1="${x}" y1="0" x2="${x}" y2="${Ht}" stroke="#fff" stroke-opacity="${y % 10 ? 0.5 : 0.85}" stroke-width="${y === 0 || y === 100 ? 6 : 2.5}"/>`;
@@ -2349,8 +2402,9 @@ $('#week-prev').addEventListener('click', () => stepWeek(-1));
 // The game view's own week buttons and settings (the board's header is hidden under it).
 document.addEventListener('click', (e) => {
   const w = e.target.closest('[data-gvweek]');
-  if (w) { if (w.dataset.gvweek === 'pick') { openWeekSheet(); S.sheetReturn = w; S.sheetReturnSel = '#gv-week-label'; } else stepWeek(+w.dataset.gvweek); return; }
-  if (e.target.closest('#gv-settings') && typeof openSettings === 'function') { openSettings(); S.sheetReturn = $('#gv-settings'); S.sheetReturnSel = '#gv-settings'; }
+  if (w) { if (w.dataset.gvweek === 'pick') { openWeekSheet(); S.sheetReturn = w; S.sheetReturnSel = '#' + w.id; } else stepWeek(+w.dataset.gvweek); return; }
+  const set = e.target.closest('#gv-settings, #gh-settings');
+  if (set && typeof openSettings === 'function') { openSettings(); S.sheetReturn = set; S.sheetReturnSel = '#' + set.id; }
 });
 $('#week-next').addEventListener('click', () => stepWeek(1));
 $('#week-label').addEventListener('click', openWeekSheet);

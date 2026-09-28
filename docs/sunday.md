@@ -647,3 +647,82 @@ view, a strip tap swapping without history, the week picker and Settings in the 
 landing on a game, the desktop sidebar; RESTAGED the no-data #matchups check, with the reason at the
 check; the one failure is the webfont ink check that fails the same way on HEAD in this container),
 sunday-ff 53/53, pbpdetail 61/61. Bite: HEAD's sd-app.js and sd.css fail all 8.
+
+## 2026-09-28 — GFFL's header on desktop; home end zones; the halftime desk
+
+Perry: "Scores page should fit within the GFFL desktop site like the other GFFL pages, right now it
+has its own top bar and the GFFL header goes away, should feel like any other GFFL tab. Also, do
+some research on endzone styles for each team, and the endzones should always reflect the home team,
+not be different on either side. for half time, since nfl doesnt have marching bands, lets have the
+view change to 4 people around a desk … wearing suits (this is all still retro) and going back and
+forth with chat bubbles analyzing the half. have opus 5.5 write some dialogue for each of the 4
+people so that the whole thing lasts around a minute, and if you revisit the page while its half
+time it just replays the same dialogue".
+
+- **GFFL's header (desktop, ≥1024px).** `#ghdr` in sunday.html copies league.html's desktop
+  masthead, measured off it: 46px with a 3px red top rule, THE GFFL (links to the league), the
+  tagline centred, the crest at the right. The slot where GFFL shows "Week N · year" holds the week
+  picker (`#gh-week-*`, one more prefix in `renderWeekLabel`) and Settings (`#gh-settings`), plus your
+  GFFL team's crest (`#gh-av`, `ffHeaderAvatar`) linking to My Team. The tab strip sticks under it at
+  46px, as `#bnav` does there; the game view starts at 80px. Scores' own bars are gone on desktop:
+  the board's top bar, and the detail's week row (its phone strip of games stays until the 1080px
+  sidebar takes over). Phones are unchanged: GFFL's phone header would take 52px from the game.
+- **End zones: the home team's, both ends.** They used to be one team's each (away left, home right).
+  `EZ` in sd-app.js holds every team's own paint: fill, a diagonal hatch where a team paints stripes
+  (Cincinnati's tiger stripes), the words at each end (often the nickname at one, the city at the
+  other), the lettering colour and its outline, and whether the logo sits beside the word.
+  `ezStyle(home)` feeds both the field view's SVG and the 8-bit field (`raOutlined` draws the
+  lettering with a one-third-glyph-pixel outline, so the letters' counters stay open). Research by a
+  web-search pass, which mostly found text pointing at photo galleries it could not see:
+  - fill and words confirmed in text: BAL (black, RAVENS / BALTIMORE), BUF (the new Highmark
+    Stadium's blue; its opener used throwback red), CIN (BENGALS / CINCINNATI, stripes sewn in), DEN
+    (BRONCOS, orange letters edged white), GB (dark green; gold and white the only paint colours),
+    LV (black and silver), MIN (purple panels, VIKINGS), NE, PHI and SEA (from their Super Bowl end
+    zones), PIT (STEELERS at the south end, PITTSBURGH in gold at the north)
+  - everything else (lettering colours, outlines, word splits, ATL's black vs red, KC's regular-season
+    red, LAC's navy vs powder, TEN's and WSH's 2026 rebrands) is broadcast recollection, low
+    confidence. MetLife and SoFi repaint per home team, so NYG/NYJ and LAR/LAC each keep their own.
+    Special fields (throwback weeks, Arizona's Rivalries field) are not modelled.
+- **The halftime desk** replaces the home band (`raHalftime`, and the band's sprites and palette,
+  gone). The 8-bit view at halftime is a pixel studio: four analysts in suits waist-up behind a GFFL
+  desk, light columns in both teams' colours, a monitor with HALFTIME and the score, the score bug
+  (HALF) underneath. Speaking mouths move, the speaker lifts a hand now and then, the others look at
+  whoever is talking, everyone blinks. The line being said is an HTML chat bubble (Press Start 2P,
+  wraps; the speaker's name in their suit colour; a tail down to their head), pinned over the speaker
+  and kept inside the stage. On a narrow stage (a phone, the sidebar card) the desk takes a 4:3 frame
+  (`studio-tall`; the sidebar's fixed-height canvas grows by the same 1.2 so the score bug still fits),
+  as a 16:10 phone stage left a long line's bubble no room above the heads. The cast is fixed so the
+  show has regulars: Hal Brandt (host), Chuck Varney (ex-quarterback), Moose Tillman (ex-linebacker),
+  Dot Keene (numbers and fantasy).
+  - **Timing** (`htTimeline`): each line gets 1.1 s + 0.26 s a word, 0.3 s gaps, scaled so the show
+    runs a minute (within 0.8× to 1.25× of that pace), after a 1.4 s open; then a 6 s break and it
+    starts over.
+  - **The script** comes from `netlify/functions/halftime.mjs` (GET `?event=`). The first request at
+    halftime claims Firestore `sunday_halftime/<event>` with a create-only write (two phones opening
+    the game together start one job) and starts `halftime-background.mjs` (15-minute allowance: an
+    Opus call with thinking outruns a synchronous function here). The job builds the half's facts
+    from ESPN's summary on the server (`halftimeFacts`: score, first-half scoring plays, ESPN's
+    leaders and team stats, drive results, big plays, turnovers and sacks, nothing past Q2) and asks
+    `claude-opus-5-5` (medium effort, structured JSON output, `fallbacks: "default"`; asked again
+    without it on a 400) for 14 to 18 lines, 150 to 190 words, facts only. `cleanScript` keeps 8 to 24
+    lines with every speaker heard. Every later request returns the stored lines (CDN-cached for good),
+    so a revisit replays the same dialogue. A failed or stuck try (4 minutes) may be re-claimed, 3 tries
+    per game. Only a real ESPN event at halftime gets a script, so the public endpoint cannot run up
+    model calls. Env: ANTHROPIC_API_KEY, FIREBASE_SERVICE_ACCOUNT, BUCKY_NOTIFY_SECRET (all already set
+    for books.mjs and farmgpt.mjs).
+  - **The page** (`htLoad`) polls every 5 s while the script is written (about 3 minutes): the host
+    opens with the score and the analysts "think" ("…"), then the script starts from its first line.
+    If no script comes, a five-line stand-in keeps the desk talking. Every visit to the game at
+    halftime starts the show from the top (a freshly opened game view drops the old desk).
+  Cache-bust ?v=20260928o.
+
+VERIFY: sunday 239/240 (3 new sections, 23 new checks: "GFFL's header on desktop" 5, "End zones: the
+home team's, at both ends" 4, "Halftime: the studio desk" 14; RESTAGED the two desktop-geometry checks,
+the strip now under GFFL's 46px header and the detail at 80px, with the reason at each; the one
+failure is the webfont ink check that fails the same way on HEAD in this container), sunday-ff 53/53,
+pbpdetail 61/61, halftime 36/36 (new suite, fake ESPN / Google token / Firestore with real
+precondition refusals / Anthropic / background runner). Bite: HEAD's app files fail the 23 new and the
+2 restaged, every other check passing; a copy of halftime.mjs without the create-only claim fails the
+claim and race checks, one without the Q2 filter fails the facts check. No live Opus call was made from
+this container (no key here); the page's fixture script is hand-written in the model's output shape
+(tools/fixtures/halftime/script-401872948.json).
