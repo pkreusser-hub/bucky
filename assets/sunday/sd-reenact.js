@@ -1558,6 +1558,9 @@ function htTimeline(lines, target = HT_TARGET, minFor = null) {
     for (let i = 0; i < out.length; i++) {
       if (!out[i].replay || (i > 0 && out[i - 1].replay === out[i].replay)) continue;
       let j = i; while (j + 1 < out.length && out[j + 1].replay === out[i].replay) j++;
+      // No gaps inside a replay (2026-09-28, user: "during the replay it flickers black once or twice"):
+      // the 0.3 s between two of its lines had nothing to say, so the dark studio showed for a beat.
+      for (let k = i; k < j; k++) out[k].t1 = out[k + 1].t0;
       const need = minFor(out[i].replay), have = out[j].t1 - out[i].t0;
       if (need > have) { const x = need - have; out[j].t1 += x; for (let k = j + 1; k < out.length; k++) { out[k].t0 += x; out[k].t1 += x; } t += x; }
       i = j;
@@ -1848,8 +1851,9 @@ function raStudioDraw(g, W, st, dt = 0) {
     const R = st.htRep, r = clamp(now.u - tl[a].t0, 0, rp.T);
     R.cv = st.cv; R.t = Math.max(0, r - dt);
     raStep(R, dt);
+    const box = htInset(g, W, H, s, now.line.who, st.t);
     htBubble(st, { line: null }, [], s, W, H);
-    htCap(st, now);
+    htCap(st, now, box);
     htSoon(st);
     return;
   }
@@ -1875,20 +1879,43 @@ function raStudioDraw(g, W, st, dt = 0) {
   htBubble(st, now, heads, s, W, H);
   htSoon(st);
 }
-// Over a replay: a REPLAY tag and the analyst's words across the top of the field.
-function htCap(st, now) {
+// Over a replay (2026-09-28, user: "get rid of the red blinking replay word … Instead, lets have a view
+// of that analyst talking and a speech bubble at the top of the replay, that way it wont cover the
+// action but you still see who is talking"): the analyst waist up in a small framed inset in the top
+// left corner, talking, and their words in a speech bubble beside it along the top.
+const HT_INSET = { w: 44, h: 40 };
+function htInset(g, W, H, s, who, t) {
+  const L = HT_LOOK[who], pw = HT_INSET.w, ph = HT_INSET.h;
+  if (!htInset.cv) { htInset.cv = document.createElement('canvas'); htInset.cv.width = pw; htInset.cv.height = ph; }
+  const c = htInset.cv, x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  for (let y = 0; y < ph; y++) { x.fillStyle = mixHex('#0a1030', '#1e2d66', y / ph); x.fillRect(0, y, pw, 1); }
+  htPerson(x, pw / 2, ph + 2, L, t, who, true, 0);
+  const k = Math.max(1, Math.round((H * 0.26) / ph)), m = 4 * s, bw = pw * k, bh = ph * k;   // about a quarter of the stage's height
+  g.imageSmoothingEnabled = false;
+  g.fillStyle = '#101010'; g.fillRect(m - 2 * s, m - 2 * s, bw + 4 * s, bh + 4 * s);
+  g.fillStyle = '#fbfbf4'; g.fillRect(m - s, m - s, bw + 2 * s, bh + 2 * s);
+  g.drawImage(c, m, m, bw, bh);
+  return { x: m - 2 * s, y: m - 2 * s, w: bw + 4 * s, h: bh + 4 * s };
+}
+function htCap(st, now, box) {
   const stage = st.cv?.parentElement;
   if (!stage) return;
   let el = stage.querySelector('.ht-cap');
   if (!now?.line) { if (el && !el.hidden) el.hidden = true; st.htCapKey = null; return; }
-  if (!el) { el = document.createElement('div'); el.className = 'ht-cap'; el.innerHTML = '<i>Replay</i><b></b><span></span>'; stage.appendChild(el); }
+  if (!el) { el = document.createElement('div'); el.className = 'ht-cap'; el.innerHTML = '<b></b><span></span>'; stage.appendChild(el); }
   el.hidden = false;
+  if (box) {                                                        // beside the inset, its tail pointing at it
+    const fx = (st.cv.clientWidth || st.cv.width) / st.cv.width, fy = (st.cv.clientHeight || st.cv.height) / st.cv.height;
+    el.style.left = `${Math.round((box.x + box.w) * fx + 12)}px`; el.style.top = `${Math.round(box.y * fy)}px`;
+    el.style.setProperty('--ty', `${Math.round(Math.min(box.h * fy * 0.45, 26))}px`);
+  }
   const key = `${now.i}|${st.cv.clientWidth}`;
   if (st.htCapKey === key) return;
   st.htCapKey = key;
   const cast = st.sc.cast || HT_CAST;
   el.querySelector('b').textContent = cast[now.line.who] || '';
-  el.querySelector('b').style.color = HT_LOOK[now.line.who].ghost ? '#9fe0ff' : HT_LOOK[now.line.who].goat ? '#7cff6b' : '#ffd21f';
+  el.querySelector('b').style.color = mixHex(HT_LOOK[now.line.who].suit, '#000000', HT_LOOK[now.line.who].ghost ? 0.3 : 0.1);
   el.querySelector('span').textContent = now.line.text;
   el.style.fontSize = `${clamp(Math.round((st.cv.clientWidth || 300) / 60), 8, 12)}px`;
 }
@@ -3137,7 +3164,6 @@ function raStep(st, dt) {
   st.cam.x += (tx - st.cam.x) * k;
   st.cam.y += (ty - st.cam.y) * k;
   raDraw(cv.getContext('2d'), W, st);
-  if (sc.cutIn && st.t < sc.cutIn) { const g = cv.getContext('2d'); g.fillStyle = `rgba(0,0,0,${(1 - st.t / sc.cutIn).toFixed(3)})`; g.fillRect(0, 0, W, RA_H); }   // the cut to the snap
   for (const e of sc.events) {
     if (e.kind !== 'banner' || st.t < e.t || st.shown.has(e)) continue;
     st.shown.add(e);
@@ -3279,15 +3305,12 @@ function sidePlay(p) {
   clearTimeout(SIDE.idle); SIDE.idle = 0;
   SIDE.playId = p.id; SIDE.setKey = ''; SIDE.lastPlay = p;
   let sc = null;
-  // A live game cuts straight to the snap (2026-09-28, user: "is there anything we can do to decrease
-  // the time from when a play happens in real life to the time it is animated in GFFL?"): by the time
-  // ESPN has the play it is over, so the 4-6 s jog from the huddle into the formation only added
-  // delay. The play is built as a fresh one (snap at 1.1 s, the hash kept) behind a quick fade from
-  // black, the way TV cuts to the next snap, and its result shows about 3.4 s sooner. (A replay
-  // keeps the walk-up; there nothing is behind.)
-  const live = G.ev?.state === 'in';
-  const from = sideFrom(p);
-  try { sc = raBuild(p, G.ev, raQBs(), live && from.from ? { x0: from.x0 } : from); if (live && from.from) sc.cutIn = 0.3; } catch (err) { console.error(err); }
+  // Every play walks out of the huddle into its formation. (A live game cut straight to the snap for
+  // one night, 2026-09-28, to win back 3.4 s; then, user: "its looking like our changes to make the
+  // live 8 bit feed faster worked, now we have some room to back off a little since its like 10 seconds
+  // ahead of the tv broadcast. so lets see if we can allow them to leave the huddle each play". The
+  // 2 s polling stays.)
+  try { sc = raBuild(p, G.ev, raQBs(), sideFrom(p)); } catch (err) { console.error(err); }
   if (SIDE.gatePlay != null && typeof gameGateRelease === 'function') { gameGateRelease(SIDE.gatePlay); SIDE.gatePlay = null; }   // an earlier play never showed its result
   if (sc) {
     sc.gameId = G.id;

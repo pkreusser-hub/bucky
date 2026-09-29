@@ -166,7 +166,7 @@ const mod = await import(pathToFileURL(FN).href);
 bgHandler = (await import(pathToFileURL(BG).href)).default;
 const get = async (event) => { const r = await mod.default(new Request(`https://amenfarms.netlify.app/.netlify/functions/halftime?event=${event}`)); return { j: await r.json(), h: Object.fromEntries(r.headers) }; };
 const drain = async () => { while (bgJobs.length) await bgJobs.shift(); };
-const doc = (ev) => docs.get(`${DOC_BASE}/sunday_desk2/${ev}`);
+const doc = (ev) => docs.get(`${DOC_BASE}/sunday_desk3/${ev}`);
 const fsv = (ev, k) => { const f = doc(ev)?.fields?.[k]; return f ? f.stringValue ?? f.integerValue : undefined; };
 
 try {
@@ -213,7 +213,7 @@ try {
     ok(log.token === 1 && log.badJwt === 0, `the Firestore token comes from a correctly signed service-account JWT (${log.token} good, ${log.badJwt} bad)`);
     const first = await get("401872948");
     const claim = log.commits[0];
-    ok(first.j.pending && claim?.currentDocument?.exists === false && claim?.update?.name === `${DOC_BASE}/sunday_desk2/401872948` && fsv("401872948", "status") === "pending" && fsv("401872948", "tries") === "1",
+    ok(first.j.pending && claim?.currentDocument?.exists === false && claim?.update?.name === `${DOC_BASE}/sunday_desk3/401872948` && fsv("401872948", "status") === "pending" && fsv("401872948", "tries") === "1",
       `the first request at halftime claims the game's doc (create-only) and says pending (${JSON.stringify(first.j)}, ${JSON.stringify(claim?.currentDocument)})`);
     ok(log.bg.length === 1 && log.bg[0].secret === "fam-secret" && log.bg[0].event === "401872948" && log.model.length === 0,
       `…and starts the background job with the server's secret, writing nothing itself (${JSON.stringify(log.bg[0])})`);
@@ -294,7 +294,7 @@ try {
     const r = await mod.default(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime?event=401872949&demo=1"));
     const j = await r.json();
     const claim = log.commits.at(-1);
-    ok(j.pending && claim.update.name === `${DOC_BASE}/sunday_desk2/demo-401872949` && log.bg.at(-1).demo === true && !doc("401872949"),
+    ok(j.pending && claim.update.name === `${DOC_BASE}/sunday_desk3/demo-401872949` && log.bg.at(-1).demo === true && !doc("401872949"),
       `a final gets a demo script, stored apart from any real halftime one (${claim.update.name.split("/").pop()}, demo job ${log.bg.at(-1).demo})`);
     await drain();
     const m = log.model.at(-1), facts = JSON.parse(m.body.messages[0].content.slice(m.body.messages[0].content.indexOf("\n") + 1));
@@ -318,7 +318,7 @@ try {
     MODE = "post";
     const r = await mod.default(new Request("https://amenfarms.netlify.app/.netlify/functions/halftime?event=401872949&kind=post"));
     const j = await r.json(), claim = log.commits.at(-1);
-    ok(j.pending && claim.update.name === `${DOC_BASE}/sunday_desk2/post-401872949` && claim.currentDocument?.exists === false && log.bg.at(-1).kind === "post",
+    ok(j.pending && claim.update.name === `${DOC_BASE}/sunday_desk3/post-401872949` && claim.currentDocument?.exists === false && log.bg.at(-1).kind === "post",
       `a final's first request claims its own postgame doc and starts a postgame job (${claim.update.name.split("/").pop()}, kind ${log.bg.at(-1).kind})`);
     await drain();
     const m = log.model.at(-1), facts = JSON.parse(m.body.messages[0].content.slice(m.body.messages[0].content.indexOf("\n") + 1));
@@ -339,10 +339,24 @@ try {
     const half = sys.find((x) => /halftime desk/.test(x)), post = sys.find((x) => /postgame desk/.test(x));
     // RESTAGED 2026-09-28: the new cast ("replace Dot Keene with RoboGoat, and chuck varney with Force
     // Ghost John Madden"), the ghost kept kind, and the tape: two replays at halftime, three after.
-    const traits = [/Hal Brandt, the host: .*pun/, /Force Ghost John Madden: the late, great coach and broadcaster, back as a glowing blue Force ghost.*keep him kind/, /Moose Tillman, former linebacker: loud.*grown-man football.*RoboGoat/, /RoboGoat: the GFFL's robot goat.*beep or whirr.*zinger/, /never repeat the same catchphrase twice/, /Go to the tape .* "replay"/];
+    const traits = [/Hal Brandt, the host: .*pun/, /Force Ghost John Madden: the late, great coach and broadcaster, back as a glowing blue Force ghost.*keep him kind/, /Moose Tillman, former linebacker: loud.*grown-man football.*RoboGoat/, /RoboGoat: the GFFL's robot goat.*beep or whirr.*zinger/, /never the same one twice/, /Go to the tape .* "replay"/];   // (the rule's wording moved into the catchphrase pool, 2026-09-28)
     ok(!!half && !!post && traits.every((t) => t.test(half) && t.test(post)) && /Go to the tape twice/.test(half) && /Go to the tape three times/.test(post),
       "both shows give the four their own voices (the punning host, the ghost of John Madden, the loud linebacker, RoboGoat), and ask for the tape twice at halftime, three times after the game");
   }
+  section("Catchphrases: a bigger list, a different handful each game");
+  {
+    // 2026-09-28, user: "Lets give our analysts a larger database of catch phrases, its fun for them to
+    // use them every so often but if its the same one over and over it gets tiring".
+    ok(mod.PHRASES.length === 4 && mod.PHRASES.every((l) => l.length === 12 && new Set(l).size === 12), `each of the four has twelve catchphrases (${mod.PHRASES.map((l) => l.length)})`);
+    const a = mod.phrasePool("1-9-post"), a2 = mod.phrasePool("1-9-post"), b = mod.phrasePool("25-14-post"), c = mod.phrasePool("1-9-half");
+    ok(JSON.stringify(a) === JSON.stringify(a2) && a.every((p, i) => p.length === 4 && p.every((x) => mod.PHRASES[i].includes(x))), "a game's pool is four of each person's own, the same every time for that game (so a retry asks the same)");
+    ok(JSON.stringify(a) !== JSON.stringify(b) && JSON.stringify(a) !== JSON.stringify(c), "another game, or the same game's other show, gets a different pool");
+    const pm = log.model.find((x) => /postgame desk/.test(x.body.system)), f = JSON.parse(pm.body.messages[0].content.slice(pm.body.messages[0].content.indexOf("\n") + 1));
+    const want = mod.phrasePool(`${f.away.id}-${f.home.id}-post`);
+    ok(want.every((p, i) => pm.body.system.includes(`${["Hal Brandt", "Force Ghost John Madden", "Moose Tillman", "RoboGoat"][i]}: ${p.map((x) => JSON.stringify(x)).join(", ")}`)) && /one or two of their own.*never the same one twice.*most lines have none/.test(pm.body.system),
+      "the prompt offers that game's four each, to use once or twice at most, most lines without one");
+  }
+
   section("Replays: the plays the desk goes to the tape on");
   {
     const f = mod.halftimeFacts(JSON.parse(HALF));

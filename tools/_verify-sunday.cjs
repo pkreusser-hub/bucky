@@ -1701,12 +1701,29 @@ async function main() {
           SIDE.t = SIDE.sc.t0 + t; SIDE.htCapKey = null; raStep(SIDE, 0.016); raStep(SIDE, 0.016);
           const stage = document.querySelector("#big-tecmo .bt-stage"), cap = stage.querySelector(".ht-cap"), b = stage.querySelector(".ht-bub");
           const R = SIDE.htRep, s = stage.getBoundingClientRect(), r = cap?.getBoundingClientRect();
-          return { id: R && String(R.sc.play.id), T: R?.sc.T, field: !!R && !R.sc.studio, cap: !!cap && !cap.hidden && cap.offsetParent !== null, tag: cap?.querySelector("i")?.textContent, name: cap?.querySelector("b")?.textContent, text: cap?.querySelector("span")?.textContent,
-            inside: !!r && r.left >= s.left - 1 && r.right <= s.right + 1 && r.top >= s.top - 1, bub: !!b?.classList.contains("on") };
+          // The inset: its frame's black and white rings, top left, measured on the canvas in CSS pixels.
+          const cv = SIDE.cv, fx = cv.clientWidth / cv.width, px = (x, y) => [...cv.getContext("2d").getImageData(x, y, 1, 1).data].slice(0, 3).join(",");
+          const sPx = Math.max(1, Math.round(cv.height / 150));
+          return { id: R && String(R.sc.play.id), T: R?.sc.T, field: !!R && !R.sc.studio, cap: !!cap && !cap.hidden && cap.offsetParent !== null, tag: !!cap?.querySelector("i"), name: cap?.querySelector("b")?.textContent, text: cap?.querySelector("span")?.textContent,
+            inside: !!r && r.left >= s.left - 1 && r.right <= s.right + 1 && r.top >= s.top - 1, bub: !!b?.classList.contains("on"),
+            frame: [px(2 * sPx + 1, 2 * sPx + 1), px(3 * sPx + 1, 3 * sPx + 1)], capLeft: r && r.left - s.left, capTop: r && r.top - s.top, capBottom: r && r.bottom - s.top, stH: s.height,
+            insetRight: Math.round((2 * sPx + HT_INSET.w * Math.max(1, Math.round((cv.height * 0.26) / HT_INSET.h)) + 4 * sPx) * fx) };
         }, tape.mid);
-        ok(tape.replay === "401872948133" && tp.id === "401872948133" && tp.field && tp.cap && tp.tag === "Replay" && tp.name === "Force Ghost John Madden" && tp.text === script.lines[1].text && tp.inside && !tp.bub,
-          `going to the tape: the desk cuts to the 8-bit replay of the play named (${tp.id}, McKinney's pick), the commentary across the top under a REPLAY tag ("${tp.name}": ${JSON.stringify((tp.text || "").slice(0, 40))}…), no chat bubble`);
+        // RESTAGED 2026-09-28 (user: "get rid of the red blinking replay word that isnt needed. Instead,
+        // lets have a view of that analyst talking and a speech bubble at the top of the replay, that way
+        // it wont cover the action but you still see who is talking"): the caption under a REPLAY tag
+        // became the analyst's inset (top left) and a speech bubble beside it.
+        ok(tape.replay === "401872948133" && tp.id === "401872948133" && tp.field && tp.cap && !tp.tag && tp.name === "Force Ghost John Madden" && tp.text === script.lines[1].text && tp.inside && !tp.bub,
+          `going to the tape: the desk cuts to the 8-bit replay of the play named (${tp.id}, McKinney's pick), the speaker's words in a speech bubble ("${tp.name}": ${JSON.stringify((tp.text || "").slice(0, 40))}…), no REPLAY tag (${tp.tag}), no desk bubble`);
+        ok(tp.frame?.[0] === "16,16,16" && tp.frame?.[1] === "251,251,244" && tp.capLeft > tp.insetRight && tp.capTop <= 12 && tp.capBottom < tp.stH * 0.4,
+          `…the analyst talking in a framed inset in the top left corner (frame ${JSON.stringify(tp.frame)}), the bubble beside it (${Math.round(tp.capLeft)} px from the left, past the inset's ${tp.insetRight}) along the top, clear of the field below ${Math.round(tp.capBottom)} of ${Math.round(tp.stH)} px`);
         ok(tape.len >= Math.min(tp.T, 9) + 0.6 - 0.01, `…and the line is held long enough for the play to play out under it (${tape.len?.toFixed?.(1)} s for a ${tp.T?.toFixed?.(1)} s play)`);
+        // The flicker (2026-09-28, user: "during the replay it flickers black once or twice"): every frame
+        // of a replay shows the replay, with no beat of the dark studio between its lines. By hand, a
+        // replay of two 5-word lines: the first ends exactly where the second begins.
+        const two = await probe(() => { const tl = htTimeline([{ who: 0, text: "a b c d e", replay: "" }, { who: 1, text: "a b c d e", replay: "X" }, { who: 3, text: "a b c d e", replay: "X" }, { who: 2, text: "a b c d e", replay: "" }], 60, () => 0); return [tl.lines[1].t1, tl.lines[2].t0, tl.lines[2].t1, tl.lines[3].t0]; });
+        const frames = await probe(() => { const tl = SIDE.sc.tl.lines, l = tl[1]; let off = 0; for (let t = l.t0 + 0.02; t < l.t1 - 0.02; t += 0.05) { SIDE.t = SIDE.sc.t0 + t; raStep(SIDE, 0.016); if (!SIDE.htRep) off++; } return off; });
+        ok(Array.isArray(two) && Math.abs(two[0] - two[1]) < 1e-9 && two[3] - two[2] > 0.29 && frames === 0, `no black beat in a replay: its lines run end to end (${two?.[0]?.toFixed?.(2)} = ${two?.[1]?.toFixed?.(2)}; the 0.3 s gap only after it), and every frame of the fixture's replay shows the play (${frames} studio frames)`);
         const back = await probe((t) => { SIDE.t = SIDE.sc.t0 + t; raStep(SIDE, 0.016); const cap = document.querySelector("#big-tecmo .ht-cap"); return { rep: !!SIDE.htRep, cap: !!cap && !cap.hidden }; }, await probe(() => { const l = SIDE.sc.tl.lines[2]; return (l.t0 + l.t1) / 2; }));
         ok(!back.rep && !back.cap, `…then back to the desk for the next line (${JSON.stringify(back)})`);
         // The new faces (2026-09-28, user: "replace Dot Keene with RoboGoat, and chuck varney with Force
@@ -1839,7 +1856,7 @@ async function main() {
       // 2026-09-28, user: "is there anything we can do to decrease the time from when a play happens in
       // real life to the time it is animated in GFFL?" … "lets just try the 2 changes for tonight".
       // ATL @ GB moved to the 3rd quarter (the halftime cut of the summary, the scoreboard set live).
-      section("Live: polled every 2 s, plays cut to the snap");
+      section("Live: polled every 2 s; plays walk out of the huddle");
       {
         const HFIX = path.join(__dirname, "fixtures", "halftime");
         const halfSum = fs.readFileSync(path.join(HFIX, "sum-401872948-half.json"), "utf8");
@@ -1869,10 +1886,14 @@ async function main() {
           const px = (t) => { SIDE.t = t; raStep(SIDE, 0); const c = SIDE.cv, d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data; let v = 0; for (let i = 0; i < d.length; i += 64) v += d[i] + d[i + 1] + d[i + 2]; return Math.round(v / (d.length / 64) / 3); };
           return { tS: sc.tS, cutIn: sc.cutIn, fullTS: full.tS, set: still(sc), fullSet: still(full), rNow: sideResultAt(sc), rFull: sideResultAt(full), dark: px(0), lit: px(0.45), id: String(SIDE.playId), want: String(p.id) };
         });
-        ok(cut.id === cut.want && cut.tS === 1.1 && cut.cutIn === 0.3 && cut.set && cut.fullTS >= 4 && !cut.fullSet,
-          `a live play cuts straight to the snap: the players are already set (${cut.set}; with the walk-up they'd still be jogging: ${!cut.fullSet}), the snap at ${cut.tS} s instead of ${cut.fullTS} s`);
-        ok(cut.rFull - cut.rNow >= 2.9, `…so its result shows ${(cut.rFull - cut.rNow).toFixed(1)} s sooner (at ${cut.rNow?.toFixed?.(1)} s instead of ${cut.rFull?.toFixed?.(1)} s)`);
-        ok(cut.dark < 12 && cut.lit > 40, `…behind a quick fade from black, as TV cuts to the next snap (frame brightness ${cut.dark} at 0 s, ${cut.lit} at 0.45 s)`);
+        // RESTAGED 2026-09-28 (user: "its looking like our changes to make the live 8 bit feed faster
+        // worked, now we have some room to back off a little since its like 10 seconds ahead of the tv
+        // broadcast. so lets see if we can allow them to leave the huddle each play"): the one-night cut
+        // straight to the snap (players set, snap at 1.1 s, a fade from black) is gone. A live play walks
+        // out of the huddle again, exactly as a replay's does; the 2 s polling above stays.
+        ok(cut.id === cut.want && cut.tS === cut.fullTS && cut.tS >= 4 && !cut.set && cut.cutIn == null,
+          `a live play leaves the huddle and walks into its formation (players jogging at the start: ${!cut.set}), the snap at ${cut.tS} s, as a replay's (${cut.fullTS} s), no cut`);
+        ok(Math.abs(cut.rFull - cut.rNow) < 0.01 && cut.dark > 40, `…its result at the walk-up's time (${cut.rNow?.toFixed?.(1)} s), no fade from black (frame brightness ${cut.dark} at 0 s)`);
         await probe(() => localStorage.removeItem("sun.tecmoBig"));
       }
       await page.setViewport({ width: 800, height: 600 });

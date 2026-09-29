@@ -46,7 +46,8 @@ const ESPN = () => process.env.HALFTIME_ESPN_BASE || "https://site.api.espn.com/
 const DOC_BASE = "projects/amen-farms-app/databases/(default)/documents";
 // sunday_desk2 (2026-09-28): the new cast and the replays. Scripts stored under the old collection
 // (sunday_halftime) had Chuck and Dot in them and no replays, so every game's script is written anew.
-const COLL = "sunday_desk2";
+// sunday_desk3 (2026-09-28): each game's catchphrase pool; every script is written anew once more.
+const COLL = "sunday_desk3";
 const STALE_MS = 4 * 60 * 1000;
 const MAX_TRIES = 3;
 const RETRY_MS = 3600e3;
@@ -62,25 +63,47 @@ const PEOPLE = `Four regulars sit at the desk, each with their own voice:
 1. ${CAST[1]}: the late, great coach and broadcaster, back as a glowing blue Force ghost who drifts in over the desk. Booming, big-hearted joy for the game: a "Boom!" now and then, loves the big guys up front, mud, hard-nosed running and simple truths about football, loves drawing on the telestrator, and makes the odd warm joke about being a ghost. An affectionate tribute: keep him kind, never mean or crude.
 2. ${CAST[2]}, former linebacker: loud and all energy, lives for hits, sacks and takeaways, calls a big play "grown-man football", and needles RoboGoat's numbers every chance he gets.
 3. ${CAST[3]}: the GFFL's robot goat (the league is the G.O.A.T. league), the numbers and fantasy analyst. Precise and deadpan, settles arguments with a stat from the facts, makes the odd beep or whirr of computing and the rare bleat, likes a goat pun, talks straight to fantasy managers about who helped or hurt their lineups, and gets in one dry zinger at the humans.
-Give each of them their own rhythm and habits, but never repeat the same catchphrase twice. They react to each other, tease and disagree a little; every line should sound like only its speaker could have said it.`;
+Give each of them their own rhythm and habits. They react to each other, tease and disagree a little; every line should sound like only its speaker could have said it.`;
+// Catchphrases (2026-09-28, user: "Lets give our analysts a larger database of catch phrases, its fun
+// for them to use them every so often but if its the same one over and over it gets tiring"). Twelve
+// each; every game offers a different four from each list (picked by the game's id, so a retry gets
+// the same pool), and the prompt asks for one or two per person, never the same one twice.
+export const PHRASES = [
+  ["Let's roll the tape.", "Buckle up, folks.", "Stick a fork in it.", "Put that one in the time capsule.", "We have ourselves a ballgame.", "Hold that thought.", "Pun fully intended.", "Grab the popcorn.", "That's one for the scrapbook.", "Easy, fellas.", "And the crowd goes mild.", "File that under 'wow.'"],
+  ["Boom!", "Whap!", "Doink!", "Here's a guy who just loves football.", "That's what football is all about.", "Give that man a turkey leg.", "From up here I can see everything.", "The big uglies up front won that one.", "When you score more points, you usually win.", "Let me draw on this thing.", "I've haunted a lot of stadiums, but this one's special.", "You've got to love the mud and the grass."],
+  ["Grown-man football!", "Somebody check on him.", "That's a bad, bad man.", "Lights out!", "Wrap him up!", "He took his lunch money.", "Welcome to the league, rookie.", "That one had some sauce on it.", "Takeaway city!", "I felt that one from here.", "Put that on the family fridge.", "Pain is just weakness leaving the body."],
+  ["Beep. Confirmed.", "Calculating... calculating...", "Bleat.", "Error: defense not found.", "Whirr. Elite output.", "Recalibrating my disappointment.", "My circuits are tingling.", "That's a statistical baaa-rgain.", "The algorithm approves.", "Downloading a sad face.", "Goat mode: engaged.", "Hay is for horses; points are for lineups."],
+];
+export function phrasePool(seed) {
+  let h = 2166136261;
+  for (const ch of String(seed)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+  const rnd = () => { h ^= h << 13; h >>>= 0; h ^= h >>> 17; h ^= h << 5; h >>>= 0; return h / 4294967296; };
+  return PHRASES.map((list) => { const a = [...list]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a.slice(0, 4); });
+}
+const POOL = (pool) => `Tonight's catchphrases, for flavour (each person may use one or two of their own, where it fits naturally, never the same one twice, and most lines have none):
+${pool.map((p, i) => `${CAST[i]}: ${p.map((x) => JSON.stringify(x)).join(", ")}`).join("\n")}`;
 // The replays (2026-09-28, user: "2-3 replays where an analyst brings up a specific play and it shows
 // that replay along with the commentary words overlaid on top"). Each scoring and notable play in the
 // facts carries its ESPN id; a line's `replay` names the play shown while it is spoken.
 const TAPE = (n) => `Go to the tape ${n === 2 ? "twice" : "three times"}, as a real desk does: an analyst calls up a specific play from the facts (each scoring and notable play has an "id"), and the page cuts to a replay of it. For each replay, the line that calls for it and the one or two lines after it are spoken over the replay, so they describe what we are watching, telestrator style; give those lines the play's id in "replay". Use different plays, spread through the show. Every other line has "replay": "".`;
 const RULES = `Use only the facts you are given: the score, the scoring plays, the leaders, the big plays and turnovers, the drives, the team numbers. Do not invent stats, injuries, quotes, records or storylines that are not in the facts. Name players as the facts do (full name the first time, last name after). Keep it family friendly. Plain spoken sentences only: no emoji, no stage directions, no hashtags, and do not start a line with a speaker's name.`;
 const SHOW = {
-  half: `You write the halftime desk segment for a retro, 16-bit style NFL broadcast shown inside a family fantasy football app (the GFFL). ${PEOPLE}
+  half: (pool) => `You write the halftime desk segment for a retro, 16-bit style NFL broadcast shown inside a family fantasy football app (the GFFL). ${PEOPLE}
 
 Write about one minute of back-and-forth on this game's FIRST HALF: 14 to 18 lines, 150 to 190 words in all, no line over 24 words. The host opens with the score and closes by sending it back to the second half; each analyst speaks at least 3 times.
 
 ${TAPE(2)}
 
+${POOL(pool)}
+
 ${RULES}`,
-  post: `You write the postgame desk segment for a retro, 16-bit style NFL broadcast shown inside a family fantasy football app (the GFFL). ${PEOPLE}
+  post: (pool) => `You write the postgame desk segment for a retro, 16-bit style NFL broadcast shown inside a family fantasy football app (the GFFL). ${PEOPLE}
 
 Write about two minutes of back-and-forth on this FINISHED game: 26 to 32 lines, 300 to 370 words in all, no line over 26 words. The host opens with the final score and signs the show off at the end; each analyst speaks at least 6 times. Cover how the game was won and lost, the turning point, the player of the game, a play each analyst loved, and the fantasy fallout for the leaders. Give it some shape: a first take, an argument, a verdict.
 
 ${TAPE(3)}
+
+${POOL(pool)}
 
 ${RULES}`,
 };
@@ -263,7 +286,7 @@ async function writeScript(facts, post) {
   const body = {
     model: HALFTIME_MODEL,
     max_tokens: 16000,
-    system: post ? SHOW.post : SHOW.half,
+    system: (post ? SHOW.post : SHOW.half)(phrasePool(`${facts.away.id}-${facts.home.id}-${post ? "post" : "half"}`)),
     messages: [{ role: "user", content: `${post ? "Final" : "First-half"} facts for ${facts.away.name} at ${facts.home.name}:\n${JSON.stringify(facts)}` }],
     // Low effort (2026-09-28, user: "lets go back to the script generating when the first person opens
     // the game … the hope is that opus 5.5 low is quick"): measured on one postgame script, low
