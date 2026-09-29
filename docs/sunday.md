@@ -1040,3 +1040,29 @@ webfont ink check that fails the same way on HEAD in this container), sunday-ff 
 Bite: main's page files fail all 7, every pre-existing check still passing (the "new play animated" guard
 fails there only because main's two-act review of the arrival play is still running when the new play
 arrives).
+
+## 2026-09-28 — the defense doesn't huddle
+
+Perry: "Defenses dont really huddle like offenses, they get mostly into position and then as the offense
+comes out they line up, so the defense can kind of stand around in a basic defensive formation and then
+when the offense runs up the defense gets set, linemen go into stance". REVERSES the two-huddle picture
+(`raHuddleSpot` put the defense in a ring 7 yd past the ball, facing its middle, bouncing on its toes):
+
+- **`raHuddle`**: only the offense huddles. The defense jogs into a loose 4-3 shell at the next spot
+  (`RA_SHELL`: the line 2 yd off the ball, linebackers at 5-6, corners 11.5 wide, safeties 12 deep; each man
+  takes the nearest open spot for his position, `raShellSpots`), standing and facing the ball, no bounce.
+  `sc.hud` has only the offense's middle.
+- **The walk-up** out of a huddle scene: the defense holds its shell while the offense breaks, then
+  shuffles into its alignment late (it starts moving max(1.3 s, distance / 4.5 yd/s) before `tSet`), still
+  set 0.9 s before the snap with the line down in its stances, as before.
+
+Cache-bust ?v=20260928z.
+
+VERIFY: sunday 287/288. RESTAGED "in the huddles everyone faces its middle" to the offense only, with the
+reason at the check; new: the defense faces the ball in its shell; the shell is 11 men spread 1.5-13 yd off
+the ball, none within 2.5 yd of another, the 4 linemen 2 yd off, all standing; it holds while the offense
+breaks (0.17 yd moved against the offense's 2.6 in 1.4 s); all 11 still with the 4 linemen in stance 0.4 s
+before the snap. The one failure is the webfont ink check that fails the same way on HEAD. sunday-ff 53/53,
+pbpdetail 61/61. Bite: main's sd-reenact.js fails the facing, shell and hold checks (a ring 5.5-8.5 yd off,
+0.85 yd apart; the defense moving 2.6 yd in the first 1.4 s); the set-before-the-snap check passes on both,
+as it should.

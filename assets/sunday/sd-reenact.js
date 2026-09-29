@@ -1375,7 +1375,8 @@ function raBuild(p, ev, qbs, opts = {}) {
     if (prev.hud) {                                                    // still in the huddles for half a second
       const mv = ([x, z]) => { const H = prev.offHome ? z : 100 - z; return [x * flip, offHome ? H : 100 - H]; };
       const same = prev.offHome === offHome && prev.offT.id === offT.id;
-      sc.hud = same ? { o: mv(prev.hud.o), d: mv(prev.hud.d) } : { o: mv(prev.hud.d), d: mv(prev.hud.o) };
+      const hv = (k) => prev.hud[k] && mv(prev.hud[k]);
+      sc.hud = same ? { o: hv('o'), d: hv('d') } : { o: hv('d'), d: hv('o') };
       sc.hudUntil = 0.5;
     }
     for (const a of sc.actors) {
@@ -1384,7 +1385,10 @@ function raBuild(p, ev, qbs, opts = {}) {
       const src = pools.get(tm)?.shift();
       // No one to take the spot (after halftime, say): he runs on from his team's sideline.
       const [hx, hz] = src ? toHere(src) : [(tm === ev.home.id ? near : -near) * (RAX + 3), clamp(f[2] + R(-8, 8), 5, 95)];
-      a.k = [[0, hx, hz, 0], [0.5, hx, hz, 0], [tSet, f[1], f[2], 1], ...a.k.filter((k) => k[0] > tSet)];
+      // Out of its shell the defense waits as the offense comes out, then shuffles into its alignment,
+      // set by tSet (the line down in its stances for the last 0.9 s before the snap).
+      const go = a.side === 'd' && src && prev.huddle ? Math.max(0.5, tSet - Math.max(1.3, Math.hypot(f[1] - hx, f[2] - hz) / 4.5)) : 0.5;
+      a.k = [[0, hx, hz, 0], [go, hx, hz, 0], [tSet, f[1], f[2], 1], ...a.k.filter((k) => k[0] > tSet)];
     }
     // Cheerleaders from a timeout run back to the home sideline as the teams come out.
     for (const c of prev.actors.filter((a) => a.side === 'c')) {
@@ -1426,7 +1430,29 @@ function raHuddleSpot(side, i, x0, z0) {
   const ang = (i / 11) * Math.PI * 2 + (side === 'o' ? 0 : 0.3);
   return { x: raX(x0 + Math.cos(ang) * 2.1), z: (side === 'o' ? z0 - 7.5 : z0 + 7) + Math.sin(ang) * 1.5 };
 }
-// After a play: everyone runs from where the play ended into the huddles for the next snap.
+// The defense between plays (2026-09-28, user: "Defenses dont really huddle like offenses, they get
+// mostly into position and then as the offense comes out they line up, so the defense can kind of stand
+// around in a basic defensive formation and then when the offense runs up the defense gets set, linemen
+// go into stance"): a loose 4-3 shell at the next spot, standing. The line two yards off the ball, the
+// linebackers behind it, the corners wide, the safeties deep. Each man takes the nearest open spot for
+// his position (a lineman one of the line's), anyone else the nearest open spot at all.
+const RA_SHELL = [['DL', -4.2, 2.2], ['DL', -1.4, 2], ['DL', 1.4, 2], ['DL', 4.2, 2.2], ['LB', -4, 5.6], ['LB', 0, 5.2], ['LB', 4, 5.6],
+  ['DB', -11.5, 6.5], ['DB', 11.5, 6.5], ['DB', -6, 12], ['DB', 6, 12]];
+function raShellSpots(actors, x0, z0) {
+  const free = RA_SHELL.map(([role, dx, dz]) => ({ role, x: raX(x0 + dx), z: Math.min(z0 + dz, 109) }));
+  const out = new Map();
+  const take = (a, want) => {
+    const [ax, az] = a.at;
+    let best = null, bd = Infinity;
+    for (const sp of free) { if (want && sp.role !== want) continue; const d = Math.hypot(sp.x - ax, sp.z - az); if (d < bd) { bd = d; best = sp; } }
+    if (best) { free.splice(free.indexOf(best), 1); out.set(a, best); }
+  };
+  for (const role of ['DL', 'LB', 'DB']) for (const a of actors) if (a.role === role && !out.has(a)) take(a, role);
+  for (const a of actors) if (!out.has(a)) take(a, null);
+  return out;
+}
+// After a play: the offense runs from where the play ended into its huddle for the next snap, the
+// defense into its shell.
 function raHuddle(prev, ev, s) {
   const offHome = s.possession === ev.home.id;
   const Z = (H) => (offHome ? H : 100 - H);
@@ -1438,22 +1464,26 @@ function raHuddle(prev, ev, s) {
   const offT = offHome ? ev.home : ev.away, defT = offHome ? ev.away : ev.home;
   const sc = { actors: [], ball: [], events: [], z0, x0, offHome, ltg: s.distance && z0 + s.distance < 100 ? z0 + s.distance : null,
     col: { o: offHome ? pc.hRaw : pc.aRaw, d: offHome ? pc.aRaw : pc.hRaw }, offT, defT, tS: 0, huddle: true };
-  const idx = { o: 0, d: 0 };
-  let T = 1;
+  let o = 0, T = 1;
+  const men = [];
   for (const a of prev.actors) {
     if ((a.side !== 'o' && a.side !== 'd') || a.gone) continue;             // (a man carried off doesn't come back to the huddle)
     const team = a.side === 'o' ? prev.offT.id : prev.defT.id;
     const side = team === s.possession ? 'o' : 'd';
     const [px, pz] = raPos(a, prev.T);
     const H = prev.offHome ? pz : 100 - pz;
-    const x = px * flipX, z = Z(H);
-    const h = raHuddleSpot(side, idx[side]++, x0, z0);
+    men.push({ side, role: a.role, at: [px * flipX, Z(H)] });
+  }
+  const shell = raShellSpots(men.filter((m) => m.side === 'd'), x0, z0);
+  for (const m of men) {
+    const [x, z] = m.at;
+    const h = m.side === 'o' ? raHuddleSpot('o', o++, x0, z0) : shell.get(m) || { x, z };
     const t1 = 0.5 + Math.hypot(h.x - x, h.z - z) / 5.5;       // a jog, not a sprint
-    sc.actors.push({ side, role: a.role, k: [[0, x, z, 0], [0.5, x, z, 0], [t1, h.x, h.z, 2]] });
+    sc.actors.push({ side: m.side, role: m.role, k: [[0, x, z, 0], [0.5, x, z, 0], [t1, h.x, h.z, 2]] });
     T = Math.max(T, t1 + 0.3);
   }
   sc.ball.push({ t0: 0, t1: 1e9, from: [x0, z0 - 0.4, 0.15], to: [x0, z0 - 0.4, 0.15], apex: 0 });
-  sc.hud = { o: [raX(x0), z0 - 7.5], d: [raX(x0), z0 + 7] };        // each huddle's middle: they face it
+  sc.hud = { o: [raX(x0), z0 - 7.5] };                // the huddle's middle: they face it (the defense faces the ball)
   sc.arrived = T;
   sc.T = 1e6;                                     // they stay in the huddle, on their toes, until the snap
   return sc;
@@ -2726,7 +2756,7 @@ function raDraw(g, W, st) {
     const [px] = S(ox, oz);
     if (Math.abs(sx - px) > 0.25 * K) a.face = sx > px ? 'r' : 'l';
     const inHuddle = sc.hud?.[a.side] && (sc.huddle || t < (sc.hudUntil ?? 0));
-    if (!a.face || (t < sc.tS && speed < 0.5 && !sc.huddle && !inHuddle)) a.face = (a.side === 'o') === attackRight ? 'r' : 'l';
+    if (!a.face || (speed < 0.5 && ((t < sc.tS && !sc.huddle && !inHuddle) || (sc.huddle && a.side === 'd')))) a.face = (a.side === 'o') === attackRight ? 'r' : 'l';
     // In a huddle everyone faces its middle (2026-09-28, user: "all players should face into the
     // huddle, not out of it"); a man still jogging in faces where he's going.
     if (inHuddle && speed < 0.5) { const [hx] = S(...sc.hud[a.side]); if (Math.abs(hx - sx) > K) a.face = hx > sx ? 'r' : 'l'; }
@@ -2751,7 +2781,7 @@ function raDraw(g, W, st) {
         flip = Math.floor((t - a.danceAt) * 2) % 2 === 1;
         lift = ph % 4 === 1 ? 3 * K : 0;
       }
-      if (sc.huddle && t > sc.arrived && !down) lift = (Math.floor(t * 2.4 + a.phase * 3) % 2) * K;   // bouncing on their toes
+      if (sc.huddle && a.side === 'o' && t > sc.arrived && !down) lift = (Math.floor(t * 2.4 + a.phase * 3) % 2) * K;   // bouncing on their toes (the defense just stands)
       else if (!down && speed < 0.3 && (a.side === 'o' || a.side === 'd') && t > (sc.tEnd ?? sc.T) + 0.6 && !a.danceAt && !a.jumpAt) lift = Math.floor(t * 1.3 + a.phase * 5) % 3 === 0 ? K : 0;
       if (a.side === 'r') { pose = speed > 0.8 ? RA_RUN[Math.floor(t * (speed < 3.5 ? 5 : 9)) % 4] : 'stand'; lift = 0; }
       if (a.side === 'c') {

@@ -1020,11 +1020,16 @@ async function main() {
         G = { ev: A.ev };
         const prev = raBuild(A.np("40187294863"), A.ev, new Set());          // Robinson's 4-yd run, then ATL huddle at its 34
         const hs = raHuddle(prev, A.ev, { possession: A.ev.away.id, yardLine: 66, down: 2, distance: 6, downDistanceText: "2nd & 6" });
-        let n = 0, wrong = 0;
+        // RESTAGED 2026-09-28 (user: "Defenses dont really huddle like offenses, they get mostly into
+        // position and then as the offense comes out they line up"): only the offense huddles and faces
+        // its middle; the defense stands in its shell facing the ball (attackRight: the offense's way).
+        let n = 0, wrong = 0, nd = 0, wrongD = 0;
+        const attackRight = !hs.offHome;                                    // (as the renderer has it: home attacks left)
         frames(hs, hs.arrived + 0.4, hs.arrived + 0.55, (t, st) => {
           const cx = st.cam.x, cy = st.cam.y;
           const S = (x, z) => raSX(hs.offHome ? z : 100 - z) - cx;
           for (const a of hs.actors) {
+            if (a.side === "d") { nd++; if (a.drawn.flip !== attackRight) wrongD++; continue; }
             const [x, z] = pos(a, t), sx = S(x, z), hx = S(...hs.hud[a.side]);
             if (Math.abs(hx - sx) <= RA_K) continue;
             n++; if (a.drawn.flip !== (hx < sx)) wrong++;
@@ -1035,13 +1040,29 @@ async function main() {
         let n2 = 0, wrong2 = 0;
         frames(next, 0.3, 0.36, (t, st) => {
           for (const a of next.actors) {
-            if ((a.side !== "o" && a.side !== "d") || !next.hud) continue;
+            if (a.side !== "o" || !next.hud?.o) continue;
             const [x, z] = pos(a, t), sx = raSX(next.offHome ? z : 100 - z), hx = raSX(next.offHome ? next.hud[a.side][1] : 100 - next.hud[a.side][1]);
             if (Math.abs(hx - sx) <= RA_K) continue;
             n2++; if (a.drawn.flip !== (hx < sx)) wrong2++;
           }
         });
-        out.huddle = { n, wrong, n2, wrong2, hasHud: !!next.hud };
+        // The shell: the defense spread out in front of the ball, standing, not in a ring.
+        const D = hs.actors.filter((a) => a.side === "d"), at = D.map((a) => pos(a, hs.arrived + 0.5));
+        let minGap = Infinity;
+        for (let i = 0; i < at.length; i++) for (let j = i + 1; j < at.length; j++) minGap = Math.min(minGap, Math.hypot(at[i][0] - at[j][0], at[i][1] - at[j][1]));
+        const dz = at.map(([, z]) => +(z - hs.z0).toFixed(1));
+        const line = D.filter((a, i) => a.role === "DL" && dz[i] >= 1.5 && dz[i] <= 3).length;
+        const poses = [...new Set(D.map((a) => raPoseAt(hs, a, hs.arrived + 0.5)))];
+        // Out of it: the defense holds while the offense jogs out, then gets set, the line in its stances.
+        const mv = (a, t0, t1) => { const [x0, z0] = pos(a, t0), [x1, z1] = pos(a, t1); return Math.hypot(x1 - x0, z1 - z0); };
+        const nD = next.actors.filter((a) => a.side === "d"), nO = next.actors.filter((a) => a.side === "o");
+        const avg = (l, f) => l.reduce((q, a) => q + f(a), 0) / l.length;
+        const early = { d: +avg(nD, (a) => mv(a, 0, 1.4)).toFixed(2), o: +avg(nO, (a) => mv(a, 0, 1.4)).toFixed(2) };
+        const setAt = next.tS - 0.4;
+        const dl = nD.filter((a) => a.role === "DL"), dlStance = dl.filter((a) => raPoseAt(next, a, setAt) === "stance").length;
+        const stillAtSet = nD.filter((a) => mv(a, setAt - 0.1, setAt) < 0.05).length;
+        out.shell = { n: D.length, minGap: +minGap.toFixed(2), zMin: Math.min(...dz), zMax: Math.max(...dz), line, poses, early, dl: dl.length, dlStance, stillAtSet, nD: nD.length, tS: next.tS };
+        out.huddle = { n, wrong, nd, wrongD, n2, wrong2, hasHud: !!next.hud };
       });
       G = keep;
       return out;
@@ -1068,8 +1089,15 @@ async function main() {
     // bit as he takes it. 0.43 yd = hypot(0.35, 0.25) is the hands, not a miss.
     FX(() => [fx.fair.every((d) => Math.abs(d - Math.hypot(0.35, 0.25)) < 0.01), `a fair catch comes down on the returner, every time: in his hands, hypot(0.35, 0.25) = 0.43 yd off his feet (400, 1317, 1463, 3166: ${fx.fair.join(", ")} yd)`]);
     FX(() => [fx.qbFace.plays >= 10 && fx.qbFace.wrong === 0, `the QB faces the line of scrimmage through every pass play, drop-back included (${fx.qbFace.plays} plays, ${fx.qbFace.frames} frames, ${fx.qbFace.wrong} facing away${fx.qbFace.bad.length ? ": " + fx.qbFace.bad.join(", ") : ""})`]);
-    FX(() => [fx.huddle.n >= 18 && fx.huddle.wrong === 0, `in the huddles everyone faces its middle (${fx.huddle.n} players, ${fx.huddle.wrong} facing out)`]);
-    FX(() => [fx.huddle.hasHud && fx.huddle.n2 >= 15 && fx.huddle.wrong2 === 0, `…and still does as the next snap's scene starts, before they break (${fx.huddle.n2} players, ${fx.huddle.wrong2} facing out)`]);
+    FX(() => [fx.huddle.n >= 9 && fx.huddle.wrong === 0, `in the offense's huddle everyone faces its middle (${fx.huddle.n} players, ${fx.huddle.wrong} facing out)`]);
+    FX(() => [fx.huddle.nd >= 11 && fx.huddle.wrongD === 0, `…the defense, in its shell, faces the ball (${fx.huddle.nd} player-frames, ${fx.huddle.wrongD} facing away)`]);
+    FX(() => [fx.shell.n === 11 && fx.shell.minGap >= 2.5 && fx.shell.zMin >= 1.5 && fx.shell.zMax <= 13 && fx.shell.line >= 4 && fx.shell.poses.join() === "stand",
+      `between plays the defense stands in a loose shell, not a huddle: ${fx.shell.n} men 1.5 to 13 yd off the ball (${fx.shell.zMin} to ${fx.shell.zMax}), none closer than ${fx.shell.minGap} yd to another (a huddle's ring is about 1), ${fx.shell.line} linemen two yards off it, all ${fx.shell.poses}`]);
+    FX(() => [fx.shell.early.d < 0.6 && fx.shell.early.o > 3 * fx.shell.early.d + 1,
+      `…and holds there as the offense breaks its huddle: in the first 1.4 s the defense moves ${fx.shell.early.d} yd on average, the offense ${fx.shell.early.o}`]);
+    FX(() => [fx.shell.dl === 4 && fx.shell.dlStance === 4 && fx.shell.stillAtSet === fx.shell.nD,
+      `…then gets set before the snap: all ${fx.shell.nD} still, the ${fx.shell.dl} linemen down in their stances, 0.4 s before the snap at ${fx.shell.tS} s (${fx.shell.dlStance} in stance)`]);
+    FX(() => [fx.huddle.hasHud && fx.huddle.n2 >= 8 && fx.huddle.wrong2 === 0, `…and the offense still faces its middle as the next snap's scene starts, before they break (${fx.huddle.n2} players, ${fx.huddle.wrong2} facing out)`]);
 
     /* ===================== (i1b) the week-3 Sunday audit ===================== */
     // 2026-09-28, user: "pick a few games from yesterday and review each plays animation against the
