@@ -3313,7 +3313,7 @@ function sideUpdate() {
   if (SIDE.arrive) {
     SIDE.arrive = false;
     const sc = SIDE.sc, done = sc && (sc.huddle || sc.clear || sc.timeout || SIDE.t >= sc.T) && SIDE.gatePlay == null;
-    if (String(latest.id) !== String(SIDE.playId) || !done) { sideSettle(latest); return; }
+    if (String(latest.id) !== String(SIDE.playId) || !done) { const td = raArriveTD(latest); if (td) sidePlay(td); else sideSettle(latest); return; }
   }
   // The play on the stage came back from a review: the call was shown, now the ruling.
   if (String(latest.id) === String(SIDE.playId) && SIDE.reviewed !== String(latest.id) && raReview(latest) && SIDE.lastPlay && !raReview(SIDE.lastPlay) && !SIDE.rp) { sideReview(latest); return; }
@@ -3360,6 +3360,17 @@ function sideSettle(p) {
   SIDE.gatePlay = null; SIDE.pendingTx = null;
   sideText('tx', playHTML(p.text), true);
   if (typeof gameGateRelease === 'function') gameGateRelease(p.id);
+}
+// The one exception (2026-09-28, user: "Also we need an exception to the no replay rule, if the last
+// play was a touchdown it should shoe that"): arriving on a touchdown, or on the try just after one,
+// the touchdown plays (and its try after it, as sideNext has it). A touchdown the review took away is
+// not one (its final ruling isn't a scoring play).
+const raIsTD = (p) => !!p && !p.pat && !/-pat$/.test(String(p.id)) && !!p.scoring && /touchdown/i.test(`${p.typeText} ${p.text}`);
+function raArriveTD(latest) {
+  if (raIsTD(latest)) return latest;
+  const l = raPlays(), i = l.findIndex((p) => String(p.id) === String(latest.id));
+  const prev = i > 0 ? l[i - 1] : null;
+  return (latest.pat || RA_PAT_RE.test(`${latest.typeText} ${latest.text}`)) && raIsTD(prev) ? prev : null;
 }
 // The page back in front after a while away: pick up the game as it is (sd-app.js calls this).
 function sideArrive() { SIDE.arrive = true; }

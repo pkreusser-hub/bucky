@@ -1066,3 +1066,19 @@ before the snap. The one failure is the webfont ink check that fails the same wa
 pbpdetail 61/61. Bite: main's sd-reenact.js fails the facing, shell and hold checks (a ring 5.5-8.5 yd off,
 0.85 yd apart; the defense moving 2.6 yd in the first 1.4 s); the set-before-the-snap check passes on both,
 as it should.
+
+## 2026-09-29 — arriving on a touchdown, it plays
+
+Perry: "Also we need an exception to the no replay rule, if the last play was a touchdown it should shoe
+that". The one exception to the arrival rule above: when the newest play is a touchdown, or the try just
+after one (a real extra-point play or the `-pat` raPlays synthesises), `raArriveTD` hands back the
+touchdown and `sidePlay` animates it, the try following as `sideNext` has it; anything else is settled as
+before. A touchdown the review took away doesn't count (the final ruling isn't a scoring play). Applies to
+every arrival: a load, a game opened again, the page back in front, a replay left early. Cache-bust
+?v=20260929a.
+
+VERIFY: sunday 289/290 (2 new in "Arriving at a live game": a load on a touchdown plays it from the start
+with its "Touchdown" banner still to come; `raArriveTD` on the fixture's 401872963315 and its try gives
+the touchdown, on the reversed 4018729631003 and an ordinary play nothing; the one failure is the webfont
+ink check that fails the same way on HEAD), sunday-ff 53/53, pbpdetail 61/61. Bite: main's sd-reenact.js
+puts the touchdown straight at its end and fails both.
