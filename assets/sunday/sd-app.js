@@ -2434,7 +2434,7 @@ document.addEventListener('visibilitychange', () => {
     G?.sumPoller.stop();
   } else {
     // Back in front: show where the game is now rather than replaying what was missed.
-    if (G) { if (G.gate) gateOpen(); G.evPoller.start(); G.sumPoller.start(); requestWake(); } else boardPoller.start();
+    if (G) { if (G.gate) gateOpen(); if (typeof sideArrive === 'function') sideArrive(); G.evPoller.start(); G.sumPoller.start(); requestWake(); } else boardPoller.start();
   }
 });
 document.addEventListener('keydown', (e) => {
