@@ -2094,7 +2094,8 @@ function bigLabel(s, k, col, shadow) {
    - football proportions: a big helmet, shoulder pads wider than the chest, a narrow waist, thick
      thighs, the pants ending under the knee over the socks
    - the helmet is one solid shell colour (2026-09-28, user: "make the helmet 1 solid color") with the
-     face in its opening and the facemask's bars in front; officials get a cap, trainers bare heads
+     face in its opening under the brow's shadow and a white facemask's bars in front (a later pass the
+     same day); officials get a cap, trainers bare heads
    - two tones a colour, lit from above and in front, and a lighter third only on the jersey's
      shoulders; the far arm and leg sit in shadow
    - a near limb casts a one-pixel shadow onto whatever it crosses, in that thing's own shadow tone,
@@ -2104,7 +2105,7 @@ function bigLabel(s, k, col, shadow) {
    generated (raGait): eight frames a stride from one foot path per gait, the knees solved from it,
    the body bobbing twice a stride, the arms swinging against the legs.
    Codes: J j L jersey (base, shadow, light), P p Q pants, S s socks, F f E skin, H helmet, m face
-   mask, e eye, B b cleats, C c cap or hair, O outline. */
+   mask, k the brow's shadow, e eye, B b cleats, C c cap or hair, O outline. */
 // Every limb is [root, middle, end]: the root is placed by the rig (raRig), the middle joint only
 // says which way the limb bends, and the end (hand, ankle) is where it reaches.
 const RA_SKEL = {
@@ -2123,7 +2124,7 @@ const RA_SKEL = {
   hold2:  { h: [-0.6, 8.2], s: [2, 17.4], c: [3.6, 22.6], hr: 22, fa: [0, [5, 10.4], [6.4, 4.6]], ba: [0, [4, 10.2], [5.4, 4.9]], fl: [0, [3.6, 7.4], [3.4, 2]], bl: [0, [-1.8, 1.7], [-6.8, 1.5]], bf: [-1, 0.1] },
   kick0:  { h: [0, 13], s: [0.8, 23], c: [1.5, 28.4], fa: [0, [3.6, 18.2], [5.8, 18.8]], ba: [0, [-2.5, 18.6], [-4.8, 17.4]], fl: [0, [-2.4, 8.6], [-6, 9.6]], bl: [0, [0.4, 7.6], [0.2, 2.2]], ff: [-0.2, -1] },
   kick:   { h: [0, 13], s: [-1.3, 22.9], c: [-1, 28.3], fa: [0, [-2.8, 18.6], [-5.6, 18]], ba: [0, [2.8, 20], [5.4, 21.6]], fl: [0, [5.2, 15], [9.6, 17.6]], bl: [0, [-0.2, 7.6], [-0.6, 2.2]], ff: [0.7, 0.7] },
-  punt:   { h: [0, 13], s: [-1.7, 22.6], c: [-1.8, 28], fa: [0, [-0.8, 21.4], [4.6, 22.2]], ba: [0, [-3.6, 19.8], [-6.2, 19.4]], fl: [0, [4.6, 18.6], [8, 23.4]], bl: [0, [-0.4, 7.6], [-0.8, 2.2]], ff: [0.6, 0.8] },
+  punt:   { h: [0, 13], s: [-1.7, 22.6], c: [-1.8, 28], fa: [0, [-0.4, 20.2], [4.8, 20.4]], ba: [0, [-3.6, 19.8], [-6.2, 19.4]], fl: [0, [4.6, 18.6], [8, 23.4]], bl: [0, [-0.4, 7.6], [-0.8, 2.2]], ff: [0.6, 0.8] },
   // The pass: wound up with the ball by his ear and the front arm pointing, released high in front,
   // then the follow-through, the arm across the body and the back foot coming off the ground.
   throw1: { h: [-0.3, 12.8], s: [-0.9, 22.8], c: [0, 28.2], hr: -4, fa: [0, [3.4, 21], [6, 21.6]], ba: [0, [-5.6, 21.4], [-5.8, 27.4]], fl: [0, [3.4, 7.8], [4.6, 2.2]], bl: [0, [-2.8, 7.6], [-4.4, 2.2]] },
@@ -2139,17 +2140,18 @@ const RA_SKEL = {
   // Going down: the knees buckle and he pitches forward (fall1), then lands on his knees and hands
   // (fall2) before he is flat. A tackler dives in first, arms out.
   fall1:  { h: [0.4, 11.2], s: [4.4, 19.8], c: [6.6, 24.6], hr: 28, fa: [0, [7.4, 15.4], [9.6, 13.2]], ba: [0, [1.8, 21], [0.2, 23.4]], fl: [0, [3.4, 6.4], [1.6, 2]], bl: [0, [-2.6, 7.6], [-5, 4.2]], bf: [-0.5, -0.9] },
-  fall2:  { h: [-1.2, 6.8], s: [5.3, 9.4], c: [9.3, 10.9], tl: 8, nl: 4.6, hr: 62, fa: [0, [7.6, 5.2], [9.6, 1.6]], ba: [0, [6.8, 5.6], [8.8, 1.7]], fl: [0, [2.4, 2], [-2.6, 1.4]], bl: [0, [-4.2, 2.2], [-8.4, 1.6]], ff: [-1, 0.1], bf: [-1, 0.1], noNum: 1 },
+  fall2:  { h: [-1.2, 6.8], s: [5.3, 9.4], c: [9.3, 10.9], tl: 8, nl: 4.6, hr: 38, fa: [0, [7.6, 5.2], [9.6, 1.6]], ba: [0, [6.8, 5.6], [8.8, 1.7]], fl: [0, [2.4, 2], [-2.6, 1.4]], bl: [0, [-4.2, 2.2], [-8.4, 1.6]], ff: [-1, 0.1], bf: [-1, 0.1], noNum: 1 },
   dive:   { h: [-3.4, 8.2], s: [4.2, 11], c: [8.6, 12.8], tl: 8, nl: 4.6, hr: 58, fa: [0, [8.4, 10.6], [12.2, 11.2]], ba: [0, [7.6, 12.2], [11.4, 12.8]], fl: [0, [-7.4, 6.6], [-12, 6.2]], bl: [0, [-8, 9.4], [-12.4, 10.4]], ff: [-0.4, -1], bf: [-0.4, -1], noNum: 1 },
   // On one knee (taking a knee; getting up goes kneel, then rise).
   kneel:  { h: [-0.4, 8.4], s: [0.4, 18.4], c: [1.1, 23.8], fa: [0, [2.8, 12.6], [4, 9]], ba: [0, [-1.2, 12.6], [-1, 8.2]], fl: [0, [4.4, 8], [4.6, 2.2]], bl: [0, [-1.6, 2], [-6.2, 1.5]], bf: [-1, 0.1] },
   rise:   { h: [-0.6, 9.4], s: [2.7, 18.8], c: [4.5, 24], hr: 18, fa: [0, [4.6, 12.4], [4.8, 8.4]], ba: [0, [2, 12], [2.4, 8]], fl: [0, [4.1, 8], [4.3, 2.2]], bl: [0, [-2.2, 2.8], [-5.8, 1.6]], bf: [-1, 0.2] },
   // A squat before a jump and on landing.
   crouch: { h: [-0.6, 10], s: [1.6, 19.8], c: [2.6, 25.2], hr: 6, fa: [0, [2.6, 13.8], [1.8, 10.2]], ba: [0, [-1, 14.2], [-2.6, 11.4]], fl: [0, [3.4, 6.2], [1.4, 2.2]], bl: [0, [1.8, 6], [-0.8, 2.2]] },
-  cheer:  { h: [0, 13.1], s: [0.3, 23.1], c: [0.8, 28.5], hr: -6, fa: [0, [7.4, 24.4], [9.6, 30]], ba: [0, [-6.8, 24.8], [-8.4, 30.4]], fl: [0, [2.2, 7.6], [3, 2.2]], bl: [0, [-2.2, 7.6], [-3, 2.2]] },
+  // Celebrating: the near arm flexed out in front, clear of the facemask, the far one up behind the helmet.
+  cheer:  { h: [0, 13.1], s: [0.3, 23.1], c: [0.8, 28.5], hr: -6, fa: [0, [9, 22.6], [9.8, 27.8]], ba: [0, [-4.6, 26.8], [-5.6, 31.8]], fl: [0, [2.2, 7.6], [3, 2.2]], bl: [0, [-2.2, 7.6], [-3, 2.2]] },
   // Both arms straight up: the men holding a hoisted kicker.
-  signal: { h: [0, 13.1], s: [0.2, 23.1], c: [0.5, 28.5], fa: [0, [7.2, 26.6], [7.6, 32.6]], ba: [0, [-6.4, 26.6], [-6.6, 32.6]], fl: [0, [1.2, 7.6], [1.4, 2.2]], bl: [0, [-1.2, 7.6], [-1.6, 2.2]] },
-  dance:  { h: [0, 12.8], s: [0.3, 22.8], c: [0.9, 28.2], fa: [0, [7.2, 25.2], [8.2, 31]], ba: [0, [-3.6, 18.2], [-1.4, 14.4]], fl: [0, [3.2, 8], [3.6, 2.2]], bl: [0, [-3, 8], [-4, 2.2]] },
+  signal: { h: [0, 13.1], s: [0.2, 23.1], c: [0.5, 28.5], fa: [0, [3.8, 27.4], [4, 32.8]], ba: [0, [-4.4, 26.8], [-4.8, 32.4]], fl: [0, [1.2, 7.6], [1.4, 2.2]], bl: [0, [-1.2, 7.6], [-1.6, 2.2]] },
+  dance:  { h: [0, 12.8], s: [0.3, 22.8], c: [0.9, 28.2], fa: [0, [6.4, 19.4], [10.4, 20.8]], ba: [0, [-4.2, 26.2], [-4.8, 31]], fl: [0, [3.2, 8], [3.6, 2.2]], bl: [0, [-3, 8], [-4, 2.2]] },
   // Knees up, arms swinging: the two halves of a step dance.
   dance2: { h: [0, 13.4], s: [0.5, 23.4], c: [1.1, 28.8], fa: [0, [4.2, 19.2], [3.8, 16]], ba: [0, [-3.2, 18], [-2, 14.6]], fl: [0, [3.8, 12.2], [3.2, 7.4]], bl: [0, [-1, 7.8], [-1.4, 2.2]], ff: [0.4, -0.9] },
   dance3: { h: [0, 13.4], s: [0.5, 23.4], c: [1.1, 28.8], fa: [0, [3.8, 18], [1.6, 15]], ba: [0, [-1.4, 19.6], [1.2, 17.8]], fl: [0, [1, 7.8], [1.4, 2.2]], bl: [0, [2.4, 12.4], [2, 7.4]], bf: [0.4, -0.9] },
@@ -2332,12 +2334,17 @@ function raFig(pose, variant = 'p') {
     }, true);
     else paint((x, y) => {
       const [lx, ly] = loc(x, y);
-      // The facemask: a front bar and two bars back to the shell, over the face.
-      if (lx > 3.5 && lx < 6.3 && ly > -4.1 && ly < 0.5 && (lx > 5.2 || (ly > -1.9 && ly < -0.9) || ly < -3.2)) return 'm';
-      const nx = (lx + 0.3) / 5.1, ny = (ly - 0.25) / 4.75, d = Math.hypot(nx, ny);
-      if (d > 1) return d <= 1.2 ? 1 : 0;
-      // The face in the opening under the brow, in front of the jaw pad.
-      if (lx > 1.3 && ly < 0.3 && ly > -3.7) return lx > 2.1 && lx < 3.1 && ly > -0.8 && ly < 0.2 ? 'e' : ly < -2.3 ? 'f' : 'F';
+      // The facemask, white, one pixel thick with dark gaps between its bars: a front bar standing off
+      // the face, joined to the brow at the top, a short bar across at the nose and one under the chin.
+      // (Sized to the upright head's pixel rows, which fall on whole numbers here.)
+      if (lx > 5.1 && lx < 6.1 && ly > -4.5 && ly < 1.5) return 'm';
+      if (lx > 4.1 && lx < 6.1 && ((ly > 0.5 && ly < 1.5) || (ly > -2.5 && ly < -1.5))) return 'm';
+      if (lx > 2.1 && lx < 6.1 && ly > -4.5 && ly < -3.5) return 'm';
+      const nx = (lx + 0.5) / 5.2, ny = (ly - 0.35) / 4.8, d = Math.hypot(nx, ny);
+      if (d > 1) return d <= 1.18 ? 1 : 0;
+      // The opening: the brow's shadow across its top, the eye under it, the face (shaded toward the
+      // ear and at the chin), the jaw pad of the shell below.
+      if (lx > 0.9 && ly > -3.5 && ly < 0.5) return ly > -0.5 ? 'k' : lx > 2.1 && lx < 3.1 && ly > -1.5 ? 'e' : lx < 2.1 || ly < -2.5 ? 'f' : 'F';
       return 'H';
     }, true);
   }
@@ -2727,6 +2734,9 @@ function raKit(homeT, roadT) {
   const withExtras = (e, t, k) => ({ ...e, w: [t.alt, e.J, '#ffffff', '#111111'].find((c) => raContrast(c, e.H) >= 1.9) || '#ffffff', S: brand(t, k) });
   return { home: withExtras(home, homeT, KH), road: withExtras(road, roadT, KR) };
 }
+// Facemasks are white on every helmet (2026-09-29, user: "white face masks would help"): the one bright
+// line in front of the face, whatever the shell's colour.
+const RA_MASK = '#f4f4f2';
 const raShade = (c) => mixHex(c, '#0a0c18', lum(c) > 0.6 ? 0.26 : 0.42);
 const raLight = (c) => (lum(c) > 0.6 ? '#ffffff' : mixHex(c, '#ffffff', lum(c) < 0.03 ? 0.22 : 0.3));
 const RA_SKIN = ['#f1c27d', '#c68642', '#8d5524', '#e0ac69', '#6b4226'];
@@ -2770,7 +2780,7 @@ function raPalette(sc, a) {
     const { J, P, H, S } = kit;
     a.pal = {
       J, j: raShade(J), L: raLight(J), P, p: raShade(P), Q: raLight(P), H, h: raShade(H), l: raLight(H), w: kit.w,
-      m: raContrast('#9aa0a8', H) < 1.6 ? '#2b2f38' : '#9aa0a8', F, f: raShade(F), E: raLight(F), S, s: raShade(S),
+      m: RA_MASK, k: '#1b1512', F, f: raShade(F), E: raLight(F), S, s: raShade(S),
       B: '#17181d', b: '#44464e', e: '#141414', n: kit.n, O: '#0d0e13',
     };
     a.num = raNumber(a.role, `${t.id}:${a.role}:${idx}`);

@@ -908,6 +908,30 @@ async function main() {
         const widest = (lift, flat) => { const w = []; const stub = { fillRect: (x, y, ww) => w.push(ww), set fillStyle(v) {} }; raShadow(stub, 100, 100, lift, flat); return Math.max(...w); };
         out.shadow = { ground: widest(0, false), up: widest(40, false), lying: widest(0, true) };
       });
+      // ── The helmet (2026-09-29, user: "The helmet needs another pass its hard to tell what's going on,
+      // white face masks would help"). The masks' colour on every team's home and road kit; the cage on
+      // an upright helmet, read off the standing frame's grid; and the mask in every frame.
+      tryIt("helmet", () => {
+        const masks = Object.keys(RA_KITS).flatMap((A) => ["home", "road"].map((side) => {
+          const T = { id: "t" + A, abbr: A, color: "#444444", alt: "#999999" }, U = { id: "u", abbr: "ZZZ", color: "#777777", alt: "#bbbbbb" };
+          return raPalette({ offHome: side === "home", offT: T, defT: U, actors: [] }, { side: "o", role: "WR", idx: 3 }).m;
+        }));
+        const f = raFig("stand", "p"), at = (x, y) => f.g[y * f.W + x];
+        const cells = (test) => { const r = []; for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) if (test(at(x, y))) r.push([x, y]); return r; };
+        // (Face cells only between the top of the shell and the chin bar, so the arms' skin isn't counted.)
+        const m = cells((c) => c === "m"), top = Math.min(...cells((c) => c === "H").map(([, y]) => y)), chin = Math.max(...m.map(([, y]) => y));
+        const face = cells((c) => "Ffek".includes(c)).filter(([, y]) => y >= top && y <= chin), eye = cells((c) => c === "e")[0];
+        // The front bar: the column with the most mask cells, and its longest unbroken run.
+        const byCol = {}; for (const [x] of m) byCol[x] = (byCol[x] || 0) + 1;
+        const fx = +Object.keys(byCol).sort((p, q) => byCol[q] - byCol[p])[0];
+        let run = 0, best = 0; for (let y = 0; y < f.H; y++) { run = at(fx, y) === "m" ? run + 1 : 0; best = Math.max(best, run); }
+        // Bars: rows where the mask reaches back from the front bar toward the face.
+        const bars = [...new Set(m.map(([, y]) => y))].filter((y) => at(fx - 1, y) === "m").length;
+        const gap = eye ? [...Array(fx - eye[0] - 1)].map((_, i) => at(eye[0] + 1 + i, eye[1])).includes("O") : false;
+        let fewest = 99, fewestAt = "";
+        for (const k of Object.keys(RA_SKEL)) { const n = raFig(k, "p").g.filter((c) => c === "m").length; if (n < fewest) { fewest = n; fewestAt = k; } }
+        out.helmet = { n: masks.length, colours: [...new Set(masks)], darkest: +Math.min(...masks.map((c) => lum(c))).toFixed(3), front: best, inFront: face.every(([x]) => x < fx), gap, bars, browOverEye: eye ? at(eye[0], eye[1] - 1) : null, fewest, fewestAt };
+      });
       return out;
     }, sumFixture, det160);
     const pchk = (fn) => { let r; try { r = fn(); } catch (e) { r = [false, `${(/`([^`$]{0,70})/.exec(fn.toString()) || [])[1] || "check"}… (could not evaluate: ${e.message} ${JSON.stringify(pl).slice(0, 160)})`]; } ok(r[0], r[1]); };
@@ -953,6 +977,12 @@ async function main() {
       `every frame drawn over the game's 184 plays is a real frame, none falling back to standing (${pl.names.n} checked${pl.names.missing.length ? ", missing " + pl.names.missing.join(", ") : ""})`]);
     pchk(() => [pl.shadow.ground === 19 && pl.shadow.up < pl.shadow.ground && pl.shadow.lying > pl.shadow.ground,
       `each man's shadow is a small ellipse under his feet: ${pl.shadow.ground} px across on the ground, ${pl.shadow.up} px when he is 40 px up, ${pl.shadow.lying} px under a man lying down`]);
+    pchk(() => [pl.helmet.n === 64 && pl.helmet.darkest >= 0.85,
+      `white facemasks on every helmet: all 32 teams' home and road kits (${pl.helmet.colours.join(", ")}, relative luminance at least ${pl.helmet.darkest})`]);
+    pchk(() => [pl.helmet.front >= 5 && pl.helmet.inFront && pl.helmet.gap && pl.helmet.bars >= 2 && pl.helmet.browOverEye === "k",
+      `a cage you can read on an upright helmet: a front bar ${pl.helmet.front} px tall standing in front of the whole face, a dark gap between it and the eye (${pl.helmet.gap}), ${pl.helmet.bars} bars reaching back from it, the brow's shadow over the eye ("${pl.helmet.browOverEye}")`]);
+    pchk(() => [pl.helmet.fewest >= 5,
+      `the facemask shows in every one of the frames, arms up and lying down included (at least ${pl.helmet.fewest} mask pixels, ${pl.helmet.fewestAt})`]);
 
     /* ===================== console sanity ===================== */
     // 2026-09-28, user: "when a play includes 'push ob' or 'ob' that means the ball carrier finishes

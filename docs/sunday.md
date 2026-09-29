@@ -1164,3 +1164,35 @@ frame drawn across 184 plays a real one; the shadow 19 px, 11 up, 29 lying. The 
 webfont ink check that fails the same way on HEAD), sunday-ff 53/53, pbpdetail 61/61, halftime 65/65.
 Bite: HEAD's sd-reenact.js scores 291/311, failing exactly the 19 new checks (and the webfont check);
 every pre-existing check passes on both.
+
+## 2026-09-29 — the helmet: white facemasks, a face you can see
+
+Perry, on the redrawn players: "The helmet needs another pass its hard to tell what's going on, white
+face masks would help". The shell stayed a round block of one colour with a small patch of skin in
+front and a grey facemask (a dark one on gold and silver shells, where grey didn't show). On a gold,
+silver or white helmet the face and mask were lost.
+
+- **White facemasks on every helmet** (`RA_MASK`, all 32 teams, home and road). The shell is still
+  one solid colour (the 2026-09-28 rule).
+- **A cage, one pixel thick, sized to the upright head's pixel rows:** a front bar standing off the
+  face and joined to the brow, a short bar across at the nose, one under the chin, with dark gaps
+  between them and the face. The first try packed the bars so close they merged into a white block,
+  and its chin bar never landed on a pixel row.
+- **The opening:** the brow's shadow across the top (a new near-black `k`), then the eye, then the face,
+  shaded toward the ear and the chin. The dark brow line is what separates a light face from a gold or
+  white shell.
+- **Poses re-aimed so an arm doesn't cover the mask.** The celebration `cheer` is now a flex, with the
+  near arm out in front below the mask and the far arm up behind the helmet. The scorer's `dance`
+  points forward with the far arm raised. The kicker-hoisting `signal` raises the near arm over the
+  helmet's side. The punter's hand is lower. The falling head in `fall2` looks forward. Every frame
+  keeps at least 5 mask pixels; `signal` had kept 0 and `dance` 1.
+
+Cache-bust ?v=20260929d.
+
+VERIFY: sunday 313/314 (3 new checks in "8-bit players: pixel art and animation": white masks on all
+64 kits, relative luminance at least 0.90 where they were 0.03-0.35; the cage on the standing frame's
+grid, a 6-px front bar in front of every face cell, a dark gap at the eye's row, 3 bars, the brow's
+shadow over the eye; at least 5 mask pixels in all 82 frames. The one failure is the webfont ink check
+that fails the same way on HEAD. "Helmets are one solid colour" still passes: 58 shell pixels, 0
+others), sunday-ff 53/53, pbpdetail 61/61, halftime 65/65. Bite: the previous sd-reenact.js scores
+310/314, failing exactly the 3 new checks; every other check passes on both.
